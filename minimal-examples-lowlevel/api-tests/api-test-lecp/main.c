@@ -5181,6 +5181,98 @@ sc_many_keyed_arrays(uint8_t *buf, size_t len)
 	return lws_ptr_diff_size_t(p, buf);
 }
 
+/*
+ * The writer has to produce the same bytes whatever size of output buffer
+ * it is given, refilling it on LWS_LECPCTX_RET_AGAIN.  Each case is written
+ * once into a buffer big enough for all of it, then again through output
+ * windows of every size from 1 to LEC_WIN_MAX bytes, and each concatenation
+ * has to match the one-shot encoding.  The cases put heads of every width
+ * into the writer's scratch so that windows end inside each of them.
+ */
+
+#define LEC_WIN_MAX 80
+
+static const uint8_t lec_blob[] = {
+	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+	0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13,
+	0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+};
+
+static const char * const lec_chunk_names[] = {
+	"8-byte integer",
+	"tagged bstr, 2-byte heads",
+	"map of wide literal ints",
+	"long tstr literal and indefinite tstr",
+};
+
+static enum lws_lec_pctx_ret
+lec_chunk_emit(lws_lec_pctx_t *ctx, int which)
+{
+	switch (which) {
+	case 0:
+		return lws_lec_printf(ctx, "%lld", 0x123456789abcdef0ll);
+	case 1:
+		return lws_lec_printf(ctx, "1234(%.*b)", (int)sizeof(lec_blob),
+				      lec_blob);
+	case 2:
+		return lws_lec_printf(ctx, "{'ghi':[-129,1024,4294967296],"
+					   "'jkl':-70000,'mno':65536}");
+	case 3:
+		return lws_lec_printf(ctx, "['abcdefghijklmnopqrstuvwxyz',"
+					   "<t'hello'>]");
+	}
+
+	return LWS_LECPCTX_RET_FAIL;
+}
+
+static int
+lec_chunked(int which)
+{
+	uint8_t one[256], cat[256], win[LEC_WIN_MAX];
+	enum lws_lec_pctx_ret r;
+	lws_lec_pctx_t ctx;
+	size_t ol, cl, w;
+
+	lws_lec_init(&ctx, one, sizeof(one));
+	if (lec_chunk_emit(&ctx, which) != LWS_LECPCTX_RET_FINISHED)
+		return 1;
+	ol = ctx.used;
+
+	for (w = 1; w <= sizeof(win); w++) {
+		lws_lec_init(&ctx, win, w);
+		cl = 0;
+
+		do {
+			r = lec_chunk_emit(&ctx, which);
+			/*
+			 * a window that ended exactly on the end of the output
+			 * still gets AGAIN, then a FINISHED with nothing in it
+			 */
+			if (r == LWS_LECPCTX_RET_FAIL ||
+			    (r == LWS_LECPCTX_RET_AGAIN && !ctx.used) ||
+			    ctx.used > sizeof(cat) - cl) {
+				lwsl_err("%s: %s: window %u: fail at %u\n",
+					 __func__, lec_chunk_names[which],
+					 (unsigned int)w, (unsigned int)cl);
+				return 1;
+			}
+			memcpy(cat + cl, win, ctx.used);
+			cl += ctx.used;
+			lws_lec_setbuf(&ctx, win, w);
+		} while (r == LWS_LECPCTX_RET_AGAIN);
+
+		if (cl != ol || memcmp(cat, one, ol)) {
+			lwsl_err("%s: %s: window %u differs\n", __func__,
+				 lec_chunk_names[which], (unsigned int)w);
+			lwsl_hexdump_notice(one, ol);
+			lwsl_hexdump_notice(cat, cl);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	int n, m, e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE,
@@ -5188,7 +5280,8 @@ int main(int argc, const char **argv)
 				   /* structure check of the same vectors */
 				   (int)LWS_ARRAY_SIZE(cbor_tests) - 1 +
 				   (int)LWS_ARRAY_SIZE(sc_vecs) + 1 +
-					33 /* <-- how many write tests */;
+					33 /* <-- how many write tests */ +
+				   (int)LWS_ARRAY_SIZE(lec_chunk_names);
 	struct lecp_ctx ctx;
 	const char *p;
 	(void)switches;
@@ -5669,6 +5762,15 @@ int main(int argc, const char **argv)
 			lwsl_hexdump_notice(ctx.start, ctx.used);
 			e++;
 		} else
+			pass++;
+	}
+
+	for (m = 0; m < (int)LWS_ARRAY_SIZE(lec_chunk_names); m++) {
+		lwsl_user("%s: chunked write: %s\n", __func__,
+			  lec_chunk_names[m]);
+		if (lec_chunked(m))
+			e++;
+		else
 			pass++;
 	}
 

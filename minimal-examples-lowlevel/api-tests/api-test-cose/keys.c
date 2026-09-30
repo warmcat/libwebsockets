@@ -23,6 +23,57 @@ key_import_cb(struct lws_cose_key *s, void *user)
 	return 0;
 }
 
+/*
+ * Exporting a key through output buffers of every size from 1 to 80 bytes,
+ * refilling on LWS_LECPCTX_RET_AGAIN, has to give the same CBOR as exporting
+ * it in one go.  Small buffers end inside the item heads the writer keeps in
+ * its scratch, and inside the key_ops array export copies there itself.
+ */
+
+static int
+key_export_chunked(struct lws_cose_key *ck, int flags)
+{
+	uint8_t one[512], cat[512], win[80];
+	enum lws_lec_pctx_ret r;
+	lws_lec_pctx_t wc;
+	size_t ol, cl, w;
+
+	lws_lec_init(&wc, one, sizeof(one));
+	if (lws_cose_key_export(ck, &wc, flags) != LWS_LECPCTX_RET_FINISHED)
+		return 1;
+	ol = wc.used;
+
+	for (w = 1; w <= sizeof(win); w++) {
+		lws_lec_init(&wc, win, w);
+		cl = 0;
+
+		do {
+			r = lws_cose_key_export(ck, &wc, flags);
+			if (r == LWS_LECPCTX_RET_FAIL ||
+			    (r == LWS_LECPCTX_RET_AGAIN && !wc.used) ||
+			    wc.used > sizeof(cat) - cl) {
+				lwsl_err("%s: window %u: fail at %u\n",
+					 __func__, (unsigned int)w,
+					 (unsigned int)cl);
+				return 1;
+			}
+			memcpy(cat + cl, win, wc.used);
+			cl += wc.used;
+			lws_lec_setbuf(&wc, win, w);
+		} while (r == LWS_LECPCTX_RET_AGAIN);
+
+		if (cl != ol || memcmp(cat, one, ol)) {
+			lwsl_err("%s: window %u differs\n", __func__,
+				 (unsigned int)w);
+			lwsl_hexdump_notice(one, ol);
+			lwsl_hexdump_notice(cat, cl);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static const uint8_t
 	cose_key1[] = {
 			0xa6, 0x01, 0x02, 0x02, 0x62,
@@ -818,6 +869,14 @@ test_cose_keys(struct lws_context *context)
 		goto bail;
 	}
 
+	/* its text alg goes out as a tstr, check that in small buffers too */
+
+	if (key_export_chunked(ck, LWSJWKF_EXPORT_PRIVATE)) {
+		lwsl_err("%s: text-curve chunked export fail\n", __func__);
+		lws_cose_key_destroy(&ck);
+		goto bail;
+	}
+
 	lws_lec_init(&wc, buf, sizeof(buf));
 	n = (int)lws_cose_key_export(ck, &wc, LWSJWKF_EXPORT_PRIVATE);
 	lws_cose_key_destroy(&ck);
@@ -1124,6 +1183,22 @@ test_cose_keys(struct lws_context *context)
 	if (!ck) {
 		lwsl_err("%s: EC2 P-256 keygen fail\n", __func__);
 		return 1;
+	}
+
+	/*
+	 * A private export carries every kind of item: map head, kty, the
+	 * int curve, kid, the int alg, key_ops and 2-byte bstr heads for x, y
+	 * and d.  The alg is set by hand the way an application would.
+	 */
+
+	lwsl_user("%s: EC2 key export in small buffers\n", __func__);
+
+	ck->cose_alg = LWSCOSE_WKAECDSA_ALG_ES256;
+	if (key_export_chunked(ck, LWSJWKF_EXPORT_PRIVATE) ||
+	    key_export_chunked(ck, 0)) {
+		lwsl_err("%s: EC2 chunked export fail\n", __func__);
+		lws_cose_key_destroy(&ck);
+		goto bail;
 	}
 
 	lws_cose_key_destroy(&ck);

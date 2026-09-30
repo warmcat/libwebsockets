@@ -1635,6 +1635,17 @@ lws_lec_scratch(lws_lec_pctx_t *ctx)
 	ctx->buf += s;
 	ctx->scratch_len = (uint8_t)(ctx->scratch_len - (uint8_t)s);
 
+	/*
+	 * If the output buffer filled before the scratch emptied, the unsent
+	 * tail has to move to the front: the next call copies from
+	 * scratch[0], and callers append to scratch[scratch_len].  Without
+	 * this the next buffer got the first bytes of the item again, eg, a
+	 * bstr head 58 20 split across buffers came out as 58 58.
+	 */
+
+	if (ctx->scratch_len)
+		memmove(ctx->scratch, ctx->scratch + s, ctx->scratch_len);
+
 	return ctx->buf == ctx->end;
 }
 
