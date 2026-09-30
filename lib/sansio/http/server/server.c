@@ -462,7 +462,33 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	if (spin == 5)
 		lwsl_err("symlink loop %s \n", path);
+#endif
 
+	/*
+	 * Only serve what the mount, or the server's own table, has a mimetype
+	 * for.  A mount that wants to serve anything at all says so with a "*"
+	 * extra mimetype; nothing else falls through to being served as
+	 * application/octet-stream.  Decide it before the conditional GET
+	 * handling below, so a guessed ETag can't get a 304 for a file we would
+	 * refuse.
+	 */
+	mimetype = lws_get_mimetype(path, m);
+	if (!mimetype) {
+		lwsl_info("unknown mimetype for %s\n", path);
+#if !defined(_WIN32_WCE)
+		lws_vfs_file_close(&wsi->http.fop_fd);
+#endif
+		if (lws_return_http_status(wsi,
+				HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, NULL) ||
+		    lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+	}
+	if (!mimetype[0])
+		lwsl_debug("sending no mimetype for %s\n", path);
+
+#if !defined(_WIN32_WCE)
 	n = lws_snprintf(sym, sizeof(sym), "%08llX%08lX",
 		    (unsigned long long)lws_vfs_get_length(wsi->http.fop_fd),
 		    (unsigned long)lws_vfs_get_mod_time(wsi->http.fop_fd));
@@ -549,14 +575,6 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			(unsigned char *)sym, n, &p, end))
 		return -1;
 #endif
-
-	mimetype = lws_get_mimetype(path, m);
-	if (!mimetype) {
-		lwsl_info("unknown mimetype for %s, defaulting to application/octet-stream\n", path);
-		mimetype = "application/octet-stream";
-	}
-	if (!mimetype[0])
-		lwsl_debug("sending no mimetype for %s\n", path);
 
 	wsi->sending_chunked = 0;
 	wsi->interpreting = 0;

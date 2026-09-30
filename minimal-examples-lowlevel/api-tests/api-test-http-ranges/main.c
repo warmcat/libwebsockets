@@ -53,7 +53,7 @@ static const char * const file_name[F_COUNT] = {
 };
 static const size_t file_len[F_COUNT] = { SMALL_LEN, BIG_LEN, 0 };
 
-/* what the mount gives an unknown extension */
+/* what the mount declares the served files to be */
 static const char * const octet = "application/octet-stream";
 
 #define MAX_RANGES	64
@@ -1030,8 +1030,18 @@ static const struct lws_protocols protocols_cli[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+/*
+ * .bin is not in the server's own mimetype table, and a file mount won't
+ * serve anything it doesn't have a mimetype for, so the mount says what it is
+ */
+
+static const struct lws_protocol_vhost_options mime_bin = {
+	NULL, NULL, ".bin", "application/octet-stream"
+};
+
 static struct lws_http_mount mount = {
 	.mountpoint		= "/",
+	.extra_mimetypes	= &mime_bin,
 	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 1,
 };

@@ -61,6 +61,10 @@
  * because quic has not sent it, or had it acked, yet.  That gated a writer to
  * one write per round trip, and a lossy long-rtt path stalled it for good.
  *
+ * A file mount serves only what it has a mimetype for: a file with an
+ * extension neither the mount nor the server knows is refused with 415, over
+ * h1 and h2, rather than sent as application/octet-stream.
+ *
  * The test fails if any case does not complete as expected inside the
  * watchdog period.
  */
@@ -307,6 +311,22 @@ static const struct xcase cases[] = {
 	{ "h1 Upgrade: h2c, stream 1 served from a file mount",
 	  "GET", "/file/README.md", XR_NONE, 0, 0, 8192, 0, 0, 200, 0,
 	  XG_NONE, 0, 0, 0, 1 },
+#endif
+#if defined(LWS_WITH_FILE_OPS)
+	/*
+	 * The file mount only serves what it has a mimetype for: main.c is
+	 * there to be opened, but .c is in neither the mount's extra
+	 * mimetypes nor the server's table, so it must be refused with 415,
+	 * not sent as application/octet-stream.
+	 */
+	{ "h1 GET a file with no mimetype on the mount: 415",
+	  "GET", "/file/main.c", XR_NONE, 0, 0, 8192, 0, 0, 415, 0,
+	  XG_NONE, 0, 0, 0, 0 },
+#if defined(LWS_WITH_HTTP2)
+	{ "h2 GET a file with no mimetype on the mount: 415",
+	  "GET", "/file/main.c", XR_NONE, 0, 0, 8192, 1, 0, 415, 0,
+	  XG_NONE, 0, 0, 0, 0 },
+#endif
 #endif
 #if defined(LWS_WITH_HTTP_PROXY)
 	/*
@@ -1816,12 +1836,21 @@ static const struct lws_http_mount mount_gated = {
 #endif
 
 #if defined(LWS_WITH_FILE_OPS)
-/* /file serves this directory, for the h2c upgrade case */
+/*
+ * /file serves this directory, for the h2c upgrade case and to show a file
+ * with no mimetype is refused.  .md is not in the server's own table, the
+ * mount has to say what it is.
+ */
+
+static const struct lws_protocol_vhost_options mime_md = {
+	NULL, NULL, ".md", "text/markdown"
+};
 
 static const struct lws_http_mount mount_file = {
 	.mount_next		= MOUNT_LIST,
 	.mountpoint		= "/file",
 	.origin			= ".",
+	.extra_mimetypes	= &mime_md,
 	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 5,
 };
