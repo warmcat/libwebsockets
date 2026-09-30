@@ -14,6 +14,12 @@
  *  - "server": the client asks for a streamtype the policy describes as a
  *    server, bound to an existing vhost.  A proxy client can only drive
  *    client streams, so the proxy must refuse to create it.
+ *
+ *  - "sink-goes-first": the client's stream is fulfilled by a local sink
+ *    registered in this process.  The sink takes the client's payload and
+ *    then destroys itself, which takes the proxied source stream with it
+ *    while the client link is still up.  The proxy must tell the client its
+ *    stream is DESTROYING, and not touch the stream after that.
  */
 
 #include <libwebsockets.h>
@@ -40,22 +46,43 @@ static const char * const policy =
 				"\"server\":true,"
 				"\"endpoint\":\"!srvvh\","
 				"\"protocol\":\"raw\""
+			"}},"
+			/* fulfilled by the sink we register */
+			"{\"sink\":{"
+				"\"local_sink\":true,"
+				"\"protocol\":\"raw\""
 			"}}"
 		"]"
 	"}";
 
+/* what ends a leg, after the CREATE_RESULT */
+
+enum {
+	UNTIL_RESULT,		/* we close as soon as we have the result */
+	UNTIL_DESTROYING,	/* we close once the proxy says DESTROYING */
+};
+
 typedef struct leg {
 	const char		*name;
 	const char		*streamtype;
+	size_t			payload_len;	/* sent after a good result */
 	char			expect_create_ok;
+	char			until;
+	char			sink_destroys;	/* on rx */
 
 	/* results */
+	size_t			sink_rx;
 	char			got_result;
+	char			seen_destroying;
 	uint8_t			result;
 } leg_t;
 
 static leg_t legs[] = {
-	{ "server",	"srv",		0, 0, 0 },
+	{ .name = "server",		.streamtype = "srv",
+	  .until = UNTIL_RESULT },
+	{ .name = "sink-goes-first",	.streamtype = "sink",
+	  .expect_create_ok = 1, .payload_len = 100,
+	  .sink_destroys = 1, .until = UNTIL_DESTROYING },
 };
 
 /* the client connection's view of the proxy link */
@@ -64,6 +91,7 @@ struct pss {
 	uint8_t			rx[2048];	/* partial proxy frames */
 	size_t			rx_len;
 	char			sent_streamtype;
+	char			want_payload;
 };
 
 static struct lws_context *cx;
@@ -138,6 +166,18 @@ leg_done(void)
 			fail = 1;
 		}
 
+	if (l->sink_rx != (l->result ? 0 : l->payload_len)) {
+		lwsl_err("%s: leg %s: sink rx %u, expected %u\n", __func__,
+			 l->name, (unsigned int)l->sink_rx,
+			 (unsigned int)l->payload_len);
+		fail = 1;
+	}
+
+	if (l->until == UNTIL_DESTROYING && !l->seen_destroying) {
+		lwsl_err("%s: leg %s: no DESTROYING\n", __func__, l->name);
+		fail = 1;
+	}
+
 	if (fail) {
 		finish(1);
 		return;
@@ -159,9 +199,11 @@ leg_done(void)
  */
 
 static int
-proxy_frame(uint8_t type, const uint8_t *body, size_t len)
+proxy_frame(struct lws *wsi, struct pss *pss, uint8_t type,
+	    const uint8_t *body, size_t len)
 {
 	leg_t *l = &legs[cur_leg];
+	uint32_t state;
 
 	switch (type) {
 	case LWSSS_SER_RXPRE_CREATE_RESULT:
@@ -172,8 +214,34 @@ proxy_frame(uint8_t type, const uint8_t *body, size_t len)
 		lwsl_user("%s: leg %s: CREATE_RESULT %u\n", __func__,
 			  l->name, l->result);
 
-		/* we've seen what we wanted, close the link ourselves */
-		return 1;
+		if (l->until == UNTIL_RESULT || l->result)
+			/* we've seen what we wanted, close the link */
+			return 1;
+
+		if (l->payload_len) {
+			pss->want_payload = 1;
+			lws_callback_on_writable(wsi);
+		}
+		break;
+
+	case LWSSS_SER_RXPRE_CONNSTATE:
+		/* 1-byte state and 4-byte ordinal, or 4-byte state */
+		if (len == 5)
+			state = body[0];
+		else if (len == 8)
+			state = lws_ser_ru32be(body);
+		else
+			return 1;
+
+		lwsl_user("%s: leg %s: CONNSTATE %s\n", __func__, l->name,
+			  lws_ss_state_name((lws_ss_constate_t)state));
+
+		if (state == LWSSSCS_DESTROYING) {
+			l->seen_destroying = 1;
+			if (l->until == UNTIL_DESTROYING)
+				return 1;
+		}
+		break;
 
 	default:
 		break;
@@ -187,7 +255,7 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
 	struct pss *pss = (struct pss *)user;
-	uint8_t buf[LWS_PRE + 64], *p = buf + LWS_PRE;
+	uint8_t buf[LWS_PRE + 19 + 1380], *p = buf + LWS_PRE;
 	leg_t *l = &legs[cur_leg];
 	size_t n, fl;
 
@@ -204,6 +272,27 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
+		if (pss->want_payload) {
+			/*
+			 * TX_PAYLOAD: flags, 4-byte and 8-byte latency
+			 * information, and the payload
+			 */
+			pss->want_payload = 0;
+			n = l->payload_len;
+			if (n > sizeof(buf) - LWS_PRE - 19)
+				return -1;
+			p[0] = LWSSS_SER_TXPRE_TX_PAYLOAD;
+			lws_ser_wu16be(&p[1], (uint16_t)(16 + n));
+			lws_ser_wu32be(&p[3], LWSSS_FLAG_SOM | LWSSS_FLAG_EOM);
+			lws_ser_wu32be(&p[7], 0);
+			lws_ser_wu64be(&p[11], (uint64_t)lws_now_usecs());
+			memset(&p[19], 'x', n);
+			if (lws_write(wsi, p, 19 + n, LWS_WRITE_RAW) !=
+							(int)(19 + n))
+				return -1;
+			break;
+		}
+
 		if (pss->sent_streamtype)
 			break;
 
@@ -237,7 +326,7 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			fl = lws_ser_ru16be(&pss->rx[1]);
 			if (pss->rx_len < 3 + fl)
 				break;
-			if (proxy_frame(pss->rx[0], &pss->rx[3], fl))
+			if (proxy_frame(wsi, pss, pss->rx[0], &pss->rx[3], fl))
 				return -1;
 			pss->rx_len -= 3 + fl;
 			memmove(pss->rx, pss->rx + 3 + fl, pss->rx_len);
@@ -255,6 +344,60 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+/*
+ * The local sink, and the accepted sink stream it makes for each stream
+ * that binds to it
+ */
+
+typedef struct sink {
+	struct lws_ss_handle	*ss;
+	void			*opaque_data;
+} sink_t;
+
+static lws_ss_state_return_t
+sink_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+{
+	leg_t *l = &legs[cur_leg];
+
+	l->sink_rx += len;
+	lwsl_user("%s: leg %s: %u (total %u)\n", __func__, l->name,
+		  (unsigned int)len, (unsigned int)l->sink_rx);
+
+	if (l->sink_destroys)
+		/* the sink goes away before the proxied stream does */
+		return LWSSSSRET_DESTROY_ME;
+
+	return LWSSSSRET_OK;
+}
+
+static lws_ss_state_return_t
+sink_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
+	int *flags)
+{
+	sink_t *m = (sink_t *)userobj;
+	lws_ss_state_return_t r;
+
+	/*
+	 * The source asked to write, and a sink pulls what its source
+	 * has by asking to write itself.  We have nothing to send back.
+	 */
+
+	r = lws_ss_request_tx(m->ss);
+	if (r)
+		return r;
+
+	return LWSSSSRET_TX_DONT_SEND;
+}
+
+static lws_ss_state_return_t
+sink_state(void *userobj, void *sh, lws_ss_constate_t state,
+	   lws_ss_tx_ordinal_t ack)
+{
+	lwsl_user("%s: %s\n", __func__, lws_ss_state_name(state));
+
+	return LWSSSSRET_OK;
+}
+
 static const struct lws_protocols protocols_cli[] = {
 	{ "sspx-cli", callback_sspx_cli, sizeof(struct pss), 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
@@ -264,6 +407,7 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	lws_ss_info_t ssi;
 	uint8_t rnd[4];
 
 	lws_context_info_defaults(&info, policy);
@@ -312,6 +456,21 @@ main(int argc, const char **argv)
 		     rnd[0], rnd[1], rnd[2], rnd[3]);
 	/* a client's proxy address starts with + to mean a UDS */
 	lws_snprintf(proxy_ads, sizeof(proxy_ads), "+%s", proxy_bind);
+
+	memset(&ssi, 0, sizeof(ssi));
+	ssi.handle_offset		= offsetof(sink_t, ss);
+	ssi.opaque_user_data_offset	= offsetof(sink_t, opaque_data);
+	ssi.rx				= sink_rx;
+	ssi.tx				= sink_tx;
+	ssi.state			= sink_state;
+	ssi.user_alloc			= sizeof(sink_t);
+	ssi.streamtype			= "sink";
+	ssi.flags			= LWSSSINFLAGS_REGISTER_SINK;
+
+	if (lws_ss_create(cx, 0, &ssi, NULL, NULL, NULL, NULL)) {
+		lwsl_err("%s: failed to register sink\n", __func__);
+		goto bail;
+	}
 
 	if (lws_ss_proxy_create(cx, proxy_bind, 0)) {
 		lwsl_err("%s: failed to create ss proxy\n", __func__);

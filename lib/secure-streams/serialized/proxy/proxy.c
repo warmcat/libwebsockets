@@ -396,6 +396,17 @@ lws_sss_proxy_onward_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_DESTROYING:
 		if (!m->conn)
 			break;
+
+		/*
+		 * We are not always destroyed through &m->conn->ss, which
+		 * lws_ss_destroy() NULLs before it tells us: eg, if we are
+		 * bound to a local sink that is destroyed first, the sink
+		 * destroys us through its own pointer to us.  Either way the
+		 * conn must not keep pointing to us.
+		 */
+		if (m->conn->ss == m->ss)
+			m->conn->ss = NULL;
+
 		if (!m->conn->txp_path.priv_onw) {
 			/*
 			 * Our onward secure stream is closing and our client

@@ -2070,6 +2070,12 @@ lws_ss_sink_txreq_cb(lws_sorted_usec_list_t *sul)
 
 	assert(h->sink_local_bind);
 
+	if (!h->info.tx) {
+		/* eg, a sink that only receives */
+		lwsl_ss_info(h, "No TX cb");
+		return;
+	}
+
 	/* collect the source tx */
 	r = h->info.tx(ss_to_userobj(h), 0, buf + LWS_PRE, &size, &flags);
 	switch (r) {
