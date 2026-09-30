@@ -116,12 +116,13 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		}
 		/*
 		 * A role whose rx policy holds behind a partial send drops
-		 * POLLIN meanwhile (h2 server network wsi, raw); if that just
-		 * drained, let it read again (rx flow control, if the role has
-		 * any on, still keeps it off)
+		 * POLLIN meanwhile (h2 server network wsi, raw), through the
+		 * io_ops; if that just drained, let it read again the same way,
+		 * so whatever is behind the io_ops hears it too (rx flow
+		 * control, if the role has any on, still keeps it off)
 		 */
 		if (!lws_has_buffered_out(wsi) && !lws_is_flowcontrolled(wsi) &&
-		    lws_change_pollfd(wsi, 0, LWS_POLLIN))
+		    lws_io_want_read(wsi, 1))
 			goto bail_die;
 		/* leave POLLOUT active either way */
 		goto bail_ok;
