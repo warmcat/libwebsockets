@@ -8,7 +8,7 @@ The `lws-dht-dnssec-monitor` plugin automates the tracking, signing, and uploadi
 3. Compares the modification timestamps of unsigned zone files against their signed counterparts to detect upstream zone edits.
 4. Securely merges any active temporary ACME zones (via `dns-01`) into the main zone payload before authoritative signing.
 5. Automatically signs (or re-signs) the zone if the upstream `.zone` file is newer than the `.signed` file, or if the DHT-detected external addresses its `${EXTIP4}` / `${EXTIP6}` records resolve to have changed (see below).
-6. Automatically publishes the resulting JWS payloads directly into the libwebsockets DHT for propagation.
+6. Automatically publishes the resulting JWS payloads directly into the libwebsockets DHT for propagation: each one when it is (re)signed, and every one it finds at startup, since it can't know they were published before.  The DHT ignores a zone it already has, since it only takes a validly signed one with a later serial.
 
 This monitor is designed specifically to work in tandem with the [lws-acme-client](../acme-client/protocol_lws_acme_client.md) using the centralized multi-certificate management flow, allowing your LAN servers to handle thousands of domains securely.
 

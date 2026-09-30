@@ -581,14 +581,18 @@ parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		} lws_end_foreach_dll(d);
 
 		if (needs_pub) {
-			if (vhd->initial_parent_scan_done) {
-				lwsl_notice("%s: Parent detected new JWS for %s! Triggering DHT publication loop.\n", __func__, lde->name);
-				if (vhd->ops && vhd->ops->publish_jws) {
-					vhd->ops->publish_jws(vhd->vhost, jws_path);
-				}
-			} else {
-				lwsl_notice("%s: Initial startup scan observed existing JWS for %s, marking as already published.\n", __func__, lde->name);
-			}
+			/*
+			 * Including the JWS we find on the startup scan: we
+			 * can't know it was published before, eg, if we were
+			 * restarted before we got the chance, or could not see
+			 * it.  The DHT ignores a zone it already has, since it
+			 * only takes a validly signed one with a later serial
+			 */
+			lwsl_notice("%s: %s JWS for %s, publishing to the DHT\n",
+				    __func__, vhd->initial_parent_scan_done ?
+				    "New" : "Startup: existing", lde->name);
+			if (vhd->ops && vhd->ops->publish_jws)
+				vhd->ops->publish_jws(vhd->vhost, jws_path);
 
 			if (!ps) {
 				ps = calloc(1, sizeof(*ps));
