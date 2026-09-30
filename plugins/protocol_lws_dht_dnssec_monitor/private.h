@@ -160,6 +160,23 @@ struct vhd {
 	size_t			ctl_rx_len;
 	char			ctl_rx_discard;
 	char			ctl_rx_token_done; /* first line consumed */
+
+	/*
+	 * Proxy process: registry whois refresh, see monitor-whois.c
+	 */
+	lws_sorted_usec_list_t	sul_whois;
+	struct lws_async_ipc	*whois_ipc;
+	struct mon_whois_q	*whois_q;	/* query in flight, or NULL */
+	lws_dll2_owner_t	whois_tried;	/* struct mon_whois_tried */
+	char			whois_ipc_rx[256]; /* root's answer lines */
+	size_t			whois_ipc_rx_len;
+	unsigned int		whois_refusals;
+	/*
+	 * NULL / 0 to find each domain's registry from IANA, as normal: set
+	 * by api-test-dnssec-monitor-whois to its local fake registry
+	 */
+	const char		*whois_server;
+	uint16_t		whois_port;
 };
 
 struct monitor_req_args {
@@ -268,6 +285,13 @@ callback_monitor_ctl(struct lws *wsi, enum lws_callback_reasons reason,
 void
 handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 			     struct monitor_req_args *a);
+
+int
+monitor_whois_start(struct vhd *vhd);
+void
+monitor_whois_stop(struct vhd *vhd);
+void
+monitor_whois_timer_cb(lws_sorted_usec_list_t *sul);
 
 /* monitor-geo.c */
 

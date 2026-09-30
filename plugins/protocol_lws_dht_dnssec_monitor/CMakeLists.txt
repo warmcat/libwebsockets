@@ -6,6 +6,7 @@ require_lws_config(LWS_WITH_SYS_ASYNC_DNS_DNSSEC 1 requirements)
 require_lws_config(LWS_WITH_SPAWN 1 requirements)
 require_lws_config(LWS_WITH_DIR 1 requirements)
 require_lws_config(LWS_WITH_SYS_WHOIS 1 requirements)
+require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
 
 if (requirements)

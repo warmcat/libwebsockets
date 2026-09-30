@@ -31,6 +31,19 @@ checking the row's FQDN lies inside its domain and sending
 `LWSSMDCL_CERTS`.  The usual backoff after failed acquisitions still applies,
 and Let's Encrypt allows only 5 identical certificates per week.
 
+#### Registry WHOIS
+
+Each domain's header shows the registry's expiry date, the nameservers the
+registry delegates to, and whether the registry says the delegation is
+DNSSEC-signed, from `<base-dir>/domains/<domain>/whois.json`.  Whois servers
+are untrusted, so the lwsws process does the queries, not the root process:
+about 20s after startup, and then every 10 minutes, it looks for a domain whose
+`whois.json` is missing or more than a day old, and queries the registry
+(found through whois.iana.org), one domain at a time.  A domain is not queried
+again within an hour, whatever the result.  The results go to the root process
+over the UDS IPC as canonical JSON in an authenticated `update_whois` request,
+and the root process validates them again before writing `whois.json`.
+
 #### Server IP Inventory
 
 The Domains tab also carries a Server IP Inventory table below the domain list. It lists unique network interfaces rather than DNS names: a name binding both an A and an AAAA record is evidence that those two addresses live on the same interface of one server, so addresses are grouped into interfaces by the names that bind them together, and every name pointing at any of an interface's addresses is listed once as evidence on that row instead of once per name. Each name links into the zonefile editor for the zonefile(s) it was found in, and carries any LOC record written for it.
@@ -144,6 +157,7 @@ Based on the global `/etc/lwsws/policy` `dns_base_dir` usage (e.g. `/var/lib/lws
     ├── example.com.zone            <-- The raw unsigned DNS zone file
     ├── example.com.signed          <-- (Generated automatically)
     ├── example.com.zone.signed.extip <-- (Generated for zones using ${EXTIP4} / ${EXTIP6})
+    ├── whois.json                  <-- (Registry whois, refreshed daily)
     ├── example.com.jws             <-- (Generated automatically)
     ├── example.com.zsk.private.jwk <-- (Generated automatically if missing)
     └── example.com.ksk.private.jwk <-- (Generated automatically if missing)

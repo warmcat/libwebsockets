@@ -3627,6 +3627,10 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				generate_dist_pki(vhd);
 
 				lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
+
+				/* registry whois is fetched here, and stored by root */
+				if (monitor_whois_start(vhd))
+					lwsl_err("%s: unable to start whois refresh\n", __func__);
 			} else {
 				lwsl_err("%s: Cannot spawn argv[0] because it is NULL\n", __func__);
 			}
@@ -3647,6 +3651,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_explicit_bzero(vhd->auth_token, sizeof(vhd->auth_token));
 		lws_sul_cancel(&vhd->sul_timer);
 		lws_sul_cancel(&vhd->sul_fast_timer);
+		monitor_whois_stop(vhd);
 		inv_geo_destroy(vhd);
 #if defined(LWS_WITH_DIR)
 			if (vhd->dn) {
