@@ -209,6 +209,38 @@ static int huftable_decode(int pos, char c)
  */
 #define LWS_H2_FRAG_NO_ROOM 2
 
+/*
+ * The request pseudo-headers, which may appear once in a header block (RFC
+ * 9113 8.3)
+ */
+static int
+lws_hpack_tok_is_request_pseudo(int tok)
+{
+	return tok == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
+	       tok == WSI_TOKEN_HTTP_COLON_METHOD ||
+	       tok == WSI_TOKEN_HTTP_COLON_PATH ||
+	       tok == WSI_TOKEN_COLON_PROTOCOL ||
+	       tok == WSI_TOKEN_HTTP_COLON_SCHEME;
+}
+
+static int
+lws_hpack_pseudo_duplicated(struct lws *wsi, int tok)
+{
+	const char *hn = (const char *)lws_token_to_string(
+					(enum lws_token_indexes)tok);
+	char reason[48];
+
+	lws_snprintf(reason, sizeof(reason), "Duplicated pseudoheader %s",
+		     hn ? hn : "?");
+	lwsl_wsi_warn(wsi, "RX DUPLICATE pseudo-header '%s' -> GOAWAY",
+		      hn ? hn : "?");
+	if (lws_h2_goaway(lws_get_network_wsi(wsi), H2_ERR_PROTOCOL_ERROR,
+			  reason))
+		lwsl_info("%s: GOAWAY not queued\n", __func__);
+
+	return 1;
+}
+
 static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 {
 	struct allocated_headers *ah = wsi->stream.ah;
@@ -233,26 +265,14 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 		return LWS_H2_FRAG_NO_ROOM;
 	}
 
-	if ((hdr_token_idx == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
-	     hdr_token_idx == WSI_TOKEN_HTTP_COLON_METHOD ||
-	     hdr_token_idx == WSI_TOKEN_HTTP_COLON_PATH ||
-	     hdr_token_idx == WSI_TOKEN_COLON_PROTOCOL ||
-	     hdr_token_idx == WSI_TOKEN_HTTP_COLON_SCHEME) &&
-	     ah->frag_index[hdr_token_idx]) {
-		if (!(ah->frags[ah->frag_index[hdr_token_idx]].flags & 1)) {
-			const char *hn = (const char *)lws_token_to_string(
-					(enum lws_token_indexes)hdr_token_idx);
-			char reason[48];
-			lws_snprintf(reason, sizeof(reason),
-				     "Duplicated pseudoheader %s", hn ? hn : "?");
-			lwsl_wsi_warn(wsi, "%s: RX DUPLICATE pseudo-header "
-					"'%s' -> GOAWAY", __func__, hn ? hn : "?");
-			if (lws_h2_goaway(lws_get_network_wsi(wsi),
-					      H2_ERR_PROTOCOL_ERROR, reason))
-				lwsl_info("%s: GOAWAY not queued\n", __func__);
-			return 1;
-		}
-	}
+	/*
+	 * A request pseudo-header the ah already has is a duplicate, however
+	 * the first one came (it being added to the dynamic table as well
+	 * makes no difference)
+	 */
+	if (lws_hpack_tok_is_request_pseudo(hdr_token_idx) &&
+	    ah->frag_index[hdr_token_idx])
+		return lws_hpack_pseudo_duplicated(wsi, hdr_token_idx);
 
 	if (ah->nfrag == 0)
 		ah->nfrag = 1;
@@ -1916,6 +1936,19 @@ fin:
 				if (!lws_h2_hpack_sinking(wsi))
 					wsi->seen_nonpseudoheader = 1;
 			}
+
+			/*
+			 * lws_parse() chains a name it already has onto the
+			 * first instance's fragments, which is right for a
+			 * repeated regular header, but a repeated
+			 * pseudo-header is a malformed request (RFC 9113 8.3)
+			 */
+			if (!h2n->unknown_header &&
+			    !lws_h2_hpack_no_store(wsi) &&
+			    lws_hpack_tok_is_request_pseudo(ah->parser_state) &&
+			    ah->frag_index[ah->parser_state] != ah->nfrag)
+				return lws_hpack_pseudo_duplicated(wsi,
+							ah->parser_state);
 		}
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
@@ -2052,12 +2085,6 @@ add_it:
 				}
 				break;
 			}
-
-			/*
-			 * mark us as having been set at the time of dynamic
-			 * token insertion.
-			 */
-			ah->frags[ah->nfrag].flags |= 1;
 
 			if (h2n->path_raw_on) {
 				/*

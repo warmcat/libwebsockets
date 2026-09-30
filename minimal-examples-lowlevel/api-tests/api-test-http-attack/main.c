@@ -1680,6 +1680,38 @@ b_two_paths(struct txb *t)
 	return 1;
 }
 
+/* a pseudo-header may appear once, however it or its repeat is encoded */
+
+static uint32_t
+b_two_methods_literal(struct txb *t)
+{
+	uint8_t hb[512], *p = hp_request(hb, HP_METHOD_GET, "/alive");
+
+	p = hp_lit_name(p, ":method", "POST");
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 1;
+}
+
+static uint32_t
+b_two_authorities_indexed(struct txb *t)
+{
+	uint8_t hb[512], *p = hb;
+
+	*p++ = HP_METHOD_GET;
+	*p++ = HP_SCHEME_HTTP;
+	p = hp_lit_indexing(p, HP_IDX_AUTHORITY, "localhost", 9);
+	p = hp_lit(p, HP_IDX_AUTHORITY, "other", 5);
+	p = hp_lit(p, HP_IDX_PATH, "/alive", 6);
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 1;
+}
+
 static uint32_t
 b_pseudo_after_regular(struct txb *t)
 {
@@ -1770,6 +1802,10 @@ static const struct h2_attack h2_attacks[] = {
 	{ "CR LF in a field value", b_crlf_value, V_NO_2XX, 0, 0 },
 	{ "no :path", b_no_path, V_NO_2XX, 0, 0 },
 	{ "two :path", b_two_paths, V_NO_2XX, 0, 0 },
+	{ "a second :method with a literal name", b_two_methods_literal,
+	  V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
+	{ "a second :authority after an indexed one",
+	  b_two_authorities_indexed, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
 	{ "pseudo-header after a regular one", b_pseudo_after_regular,
 	  V_NO_2XX, 0, 0 },
 	{ "connection-specific field", b_connection_header, V_NO_2XX, 0, 0 },

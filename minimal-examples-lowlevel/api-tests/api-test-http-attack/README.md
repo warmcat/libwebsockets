@@ -80,6 +80,7 @@ h2, raw frames:
 |frame over SETTINGS_MAX_FRAME_SIZE|GOAWAY FRAME_SIZE_ERROR|
 |WINDOW_UPDATE past 2^31 - 1|GOAWAY FLOW_CONTROL_ERROR|
 |a `get ` field smuggling a path, an uppercase field name|GOAWAY PROTOCOL_ERROR|
+|a pseudo-header repeated with a literal name, or after one added to the dynamic table|GOAWAY PROTOCOL_ERROR|
 |CR LF in a value, no or two `:path`, pseudo-header after a regular one, `connection`, `transfer-encoding`, 1500 fields|nothing served|
 
 Where the client sends more than the server reads before it gives up on it,
