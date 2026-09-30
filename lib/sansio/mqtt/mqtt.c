@@ -1504,7 +1504,16 @@ cmd_completion:
 				w->user_space_externally_allocated =
 					wsi->user_space_externally_allocated;
 				if (lws_ensure_user_space(w))
-					goto bail1;
+					/*
+					 * As for the nwsi mqtt alloc above: w
+					 * is already our mux child holding the
+					 * mqtt struct (whose suls point at it)
+					 * and the user space we just gave it,
+					 * so it can only go by being closed as
+					 * our child, which our caller does when
+					 * we fail
+					 */
+					return -1;
 				w->a.opaque_user_data = wsi->a.opaque_user_data;
 				wsi->a.opaque_user_data = NULL;
 				w->stash = wsi->stash;
@@ -1531,20 +1540,6 @@ cmd_completion:
 				/* well, add the queued guys as children */
 				lws_wsi_mux_apply_queue(wsi);
 				break;
-
-bail1:
-				/* undo the insert */
-				lws_wsi_mux_sibling_disconnect(w);
-
-				if (w->user_space)
-					lws_free_set_NULL(w->user_space);
-				w->a.vhost->protocols[0].callback(w,
-							LWS_CALLBACK_WSI_DESTROY,
-							NULL, NULL, 0);
-				__lws_vhost_unbind_wsi(w); /* cx + vh lock */
-				lws_free(w);
-
-				return 0;
 
 			case LMQCP_PUBREC:
 				lwsl_err("%s: cmd_completion: PUBREC\n",
