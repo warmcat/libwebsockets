@@ -321,7 +321,7 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 				need = 4 + 16 + 2;
 				break;
 			case 3: /* domain name, length-prefixed */
-				need = 4 + 1 + buf[4] + 2;
+				need = 4 + 1 + (size_t)buf[4] + 2;
 				break;
 			default:
 				lwsl_wsi_err(wsi, "SOCKS bad ATYP %d", buf[3]);
