@@ -143,7 +143,14 @@ nsc_backing_close_unlock(lws_cache_nscookiejar_t *cache, int fd)
  * the path may also be big).
  *
  * If it's the start of a line (flags on the cb has LCN_SOL), then the buffer
- * contains up to the first 256 chars of the line, it's enough to match with.
+ * contains up to the first 255 chars of the line, it's enough to match with.
+ * Lines starting with '#' are comments and are skipped whatever their length.
+ * The callback never sees the '\n' itself.
+ *
+ * Only running out of file ends the walk: a long or empty line, or a buffer
+ * that happens to be full, must never look like the end of the file, since
+ * nsc_regen() replaces the jar with whatever the walk passed through.  A read
+ * error fails the walk.
  *
  * We cannot hold the file open inbetweentimes, since other processes may
  * regenerate it, so we need to bind to a new inode.  We open it with an
@@ -155,131 +162,83 @@ static int
 nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 		    nsc_cb_t cb, void *opaque)
 {
-#if defined(__COVERITY__)
-	return -1;
-#else
-	int m = 0, n = 0, e, r = LCN_SOL, ignore = 0, ret = 0;
-	char temp[256], eof = 0;
+	int r = LCN_SOL, e;
+	char temp[256], eof = 0, skip = 0;
+	size_t n = 0; /* bytes held in temp */
 
 	if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
-		return -1;
+		return NIR_FINISH_ERROR;
 
-	do { /* for as many buffers in the file */
-		ssize_t n1s; /* coverity taints if we use int cast here */
+	while (1) {
+		const char *eol;
+		size_t len;
 
-		lwsl_debug("%s: n %d, m %d\n", __func__, n, m);
+		if (!eof && n < sizeof(temp)) {
+			ssize_t n1s = read(fd, temp + n, sizeof(temp) - n);
 
-
-		if ((size_t)n >= sizeof(temp) - 1)
-			/* there's no space left in temp */
-			n1s = 0;
-		else
-			/*
-			 * Coverity says:  "The expression 256UL - (size_t)n is
-			 * deemed underflowed because at least one of its
-			 * arguments has underflowed." ... however we explicitly
-			 * check if n >= 256 a couple of lines above.
-			 * n cannot be negative either.
-			 *
-			 * Removing this function from Coverity
-			 */
-			n1s = read(fd, temp + n, sizeof(temp) - (size_t)n);
-
-		lwsl_debug("%s: n1 %d\n", __func__, (int)n1s);
-
-		if (n1s <= 0) {
-			eof = 1;
-			if (m == n)
-				continue;
-		} else {
-			/*
-			 * Help coverity see we cannot overflow n here
-			 */
-			if ((size_t)n > sizeof(temp) ||
-			    (size_t)n1s > sizeof(temp) ||
-			    (size_t)(n + n1s) > sizeof(temp)) {
-				ret = -1;
-				goto bail;
+			if (n1s < 0) {
+				if (errno == EINTR)
+					continue;
+				/* we can't tell what we are missing */
+				return NIR_FINISH_ERROR;
 			}
-
-			n = (int)(n + n1s);
-		}
-
-		while (m < n) {
-
-			m++; /* m can == n now then */
-
-			if (temp[m - 1] != '\n')
-				continue;
-
-			/* ie, we hit EOL */
-
-			if (temp[0] == '#')
-				/* lines starting with # are comments */
-				e = 0;
+			if (!n1s)
+				eof = 1;
 			else
-				e = cb(cache, opaque, r | LCN_EOL, temp,
-				       (size_t)m - 1);
+				n += (size_t)n1s;
+		}
+
+		if (!n) /* ie, eof with nothing left over */
+			return 0;
+
+		if (r & LCN_SOL)
+			skip = temp[0] == '#';
+
+		eol = (const char *)memchr(temp, '\n', n);
+		if (eol) {
+			/* deliver the rest of the line, and consume the '\n' */
+
+			len = lws_ptr_diff_size_t(eol, temp);
+			e = skip ? 0 : cb(cache, opaque, r | LCN_EOL, temp, len);
+
+			n -= len + 1;
+			memmove(temp, eol + 1, n);
 			r = LCN_SOL;
-			ignore = 0;
-			/*
-			 * Move back remainder and prefill the gap that opened
-			 * up: we want to pass enough in the start chunk so the
-			 * cb can classify it even if it can't get all the
-			 * value part in one go
-			 */
+			if (e)
+				return e;
 
-			/* coverity: we will blow up if m > n */
-			if (m > n) {
-				ret = -1;
-				goto bail;
-			}
-
-			memmove(temp, temp + m, (size_t)(n - m));
-			n -= m;
-			m = 0;
-
-			if (e) {
-				ret = e;
-				goto bail;
-			}
-
-			break;
+			continue;
 		}
 
-		if (m) {
-			/* we ran out of buffer */
-			if (ignore || (r == LCN_SOL && n && temp[0] == '#')) {
-				e = 0;
-				ignore = 1;
-			} else {
-				e = cb(cache, opaque,
-				       r | (n == m && eof ? LCN_EOL : 0),
-				       temp, (size_t)m);
+		if (!eof && n < sizeof(temp))
+			/* there's room for more of this line, read it */
+			continue;
 
-				m = 0;
-				n = 0;
-			}
+		if (eof) {
+			/* the last line has no '\n', deliver it all as the end */
 
-			if (e) {
-				/*
-				 * We have to call off the whole thing if any
-				 * step, eg, OOMs
-				 */
-				ret = e;
-				goto bail;
-			}
-			r = 0;
+			e = skip ? 0 : cb(cache, opaque, r | LCN_EOL, temp, n);
+			if (e)
+				return e;
+			n = 0;
+			r = LCN_SOL;
+
+			continue;
 		}
 
-	} while (!eof || n != m);
+		/*
+		 * The buffer is full of one line and there is more of it.  Pass
+		 * on all but the last byte, keeping it back so the chunk that
+		 * ends the line is never empty
+		 */
 
-	ret = 0;
-
-bail:
-
-	return ret;
-#endif
+		e = skip ? 0 : cb(cache, opaque, r, temp, n - 1);
+		temp[0] = temp[n - 1];
+		n = 1;
+		r = 0;
+		if (e)
+			return e;
+	}
 }
 
 /*

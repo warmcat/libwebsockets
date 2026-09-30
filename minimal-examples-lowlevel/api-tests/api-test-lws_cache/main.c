@@ -495,7 +495,7 @@ cdone:
  */
 
 static int
-nsc_pair_create(const char *filepath, struct lws_cache_ttl_lru **pnsc,
+nsc_pair_create(const char *filepath, int fresh, struct lws_cache_ttl_lru **pnsc,
 		struct lws_cache_ttl_lru **pl1)
 {
 	struct lws_cache_creation_info ci;
@@ -510,8 +510,9 @@ nsc_pair_create(const char *filepath, struct lws_cache_ttl_lru **pnsc,
 	if (!*pnsc)
 		return 1;
 
-	/* start from an empty jar, whatever an earlier run left */
-	lws_cache_expunge(*pnsc);
+	if (fresh)
+		/* start from an empty jar, whatever an earlier run left */
+		lws_cache_expunge(*pnsc);
 
 	ci.ops = &lws_cache_ops_heap;
 	ci.name = "L1";
@@ -555,7 +556,7 @@ test_nsc_lookup_get_destroy(void)
 	lwsl_user("%s\n", __func__);
 	tests++;
 
-	if (nsc_pair_create("./cookies-lgd.txt", &nsc, &l1))
+	if (nsc_pair_create("./cookies-lgd.txt", 1, &nsc, &l1))
 		goto cdone;
 
 	if (lws_cache_write_through(l1, tag_cookie1,
@@ -610,7 +611,7 @@ test_nsc_literal_keys(void)
 	lwsl_user("%s\n", __func__);
 	tests++;
 
-	if (nsc_pair_create("./cookies-lit.txt", &nsc, &l1))
+	if (nsc_pair_create("./cookies-lit.txt", 1, &nsc, &l1))
 		goto cdone;
 
 	if (lws_cache_write_through(l1, tag_cookie1,
@@ -663,6 +664,99 @@ cdone:
 
 	return ret;
 }
+
+/*
+ * A jar written by something else may have empty lines (curl leaves one after
+ * its header comments) and comment lines of any length.  Neither may end the
+ * walk of the file early: the jar is regenerated from what the walk sees, as
+ * it is when the cache is created, so anything after would be lost.  The
+ * last line also has no trailing '\n' here.
+ */
+
+static const char *jar_foreign_head =
+	"# Netscape HTTP Cookie File\n"
+	"# written by some other cookie consumer\n"
+	"\n";
+
+static const char *jar_foreign_cookies[] = {
+	"host.com\tFALSE\t/\tTRUE\t4000000000\tmycookie\tmycookievalue",
+	"host.com\tFALSE\t/\tTRUE\t4000000000\textra\tcookie3value",
+	NULL, /* a long comment line goes here */
+	"host.com\tFALSE\t/xxx\tTRUE\t4000000000\tmycookie\tmyxxxcookievalue",
+	"host.com\tFALSE\t/yyy\tTRUE\t4000000000\tnewcookie\tnewcookievalue",
+	"host.com\tFALSE\t/zzz\tTRUE\t4000000000\tfifth\tfifthcookievalue",
+};
+
+static const char *jar_foreign_tags[] = {
+	"host.com|/|mycookie",
+	"host.com|/|extra",
+	NULL,
+	"host.com|/xxx|mycookie",
+	"host.com|/yyy|newcookie",
+	"host.com|/zzz|fifth",
+};
+
+static int
+test_nsc_foreign_jar(void)
+{
+	struct lws_cache_ttl_lru *l1 = NULL, *nsc = NULL;
+	char jar[1024], *p = jar, *end = jar + sizeof(jar);
+	int ret = 1;
+	size_t n, size;
+	char *po;
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s",
+			  jar_foreign_head);
+	for (n = 0; n < LWS_ARRAY_SIZE(jar_foreign_cookies); n++) {
+		if (p != jar + strlen(jar_foreign_head))
+			*p++ = '\n';
+		if (jar_foreign_cookies[n]) {
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s",
+					  jar_foreign_cookies[n]);
+			continue;
+		}
+
+		/* a comment line longer than the jar's line buffer */
+		*p++ = '#';
+		memset(p, 'c', 300);
+		p += 300;
+	}
+
+	if (lws_plat_write_file("./cookies-foreign.txt", jar,
+				lws_ptr_diff_size_t(p, jar)))
+		goto cdone;
+
+	/* creating the jar level regenerates the file from the walk */
+
+	if (nsc_pair_create("./cookies-foreign.txt", 0, &nsc, &l1))
+		goto cdone;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(jar_foreign_tags); n++) {
+		if (!jar_foreign_tags[n])
+			continue;
+		if (lws_cache_item_get(nsc, jar_foreign_tags[n],
+				       (const void **)&po, &size) ||
+		    size != strlen(jar_foreign_cookies[n]) ||
+		    memcmp(po, jar_foreign_cookies[n], size)) {
+			lwsl_err("%s: lost %s\n", __func__,
+				 jar_foreign_tags[n]);
+			goto cdone;
+		}
+	}
+
+	ret = 0;
+
+cdone:
+	nsc_pair_destroy(&nsc, &l1);
+
+	if (ret)
+		lwsl_warn("%s: fail\n", __func__);
+
+	return ret;
+}
 #endif
 
 
@@ -693,6 +787,8 @@ int main(int argc, const char **argv)
 	if (test_nsc_lookup_get_destroy())
 		fail++;
 	if (test_nsc_literal_keys())
+		fail++;
+	if (test_nsc_foreign_jar())
 		fail++;
 #endif
 
