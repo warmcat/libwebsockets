@@ -68,6 +68,13 @@
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
  * what it sent before finishing is still read.
  *
+ * And a peer that resets the connection while rx it sent is parked and cannot
+ * be taken yet, reported the Linux way, POLLHUP and POLLERR on every poll
+ * until the close: an h1 request pipelined behind a file being served goes
+ * with the connection at once, and a ws message held by rx flow control
+ * gets the close timeout's grace, counted from the first time the reset is
+ * seen, not from the last.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -360,7 +367,10 @@ bail:
  * test heard them through the io_ops; read_resumed counts the times lws
  * asked to read again after it had stopped.  fin is the peer having finished
  * sending: past what it sent, reads find the end, and the poll reports it
- * the way OSX does, a bare POLLHUP, never together with POLLOUT.
+ * the way OSX does, a bare POLLHUP, never together with POLLOUT.  reset is
+ * the peer having reset the connection: past what it sent, reads and writes
+ * fail, and the poll reports it the way Linux does, POLLHUP and POLLERR on
+ * every poll, whatever was asked for, with POLLIN and POLLOUT if they were.
  */
 struct transport {
 	const uint8_t	*rx;
@@ -377,6 +387,7 @@ struct transport {
 	int		shutdown;
 	int		closed;
 	int		fin;
+	int		reset;
 };
 
 static struct transport *transports[24];
@@ -389,7 +400,8 @@ tp_read(struct lws *wsi, void *opaque, uint8_t *buf, size_t len)
 	size_t n = t->rx_len - t->rx_pos;
 
 	if (!n)
-		return t->fin ? 0 : LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+		return t->reset ? LWS_SSL_CAPABLE_ERROR :
+			t->fin ? 0 : LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	if (n > len)
 		n = len;
 	memcpy(buf, t->rx + t->rx_pos, n);
@@ -402,6 +414,9 @@ static int
 tp_write(struct lws *wsi, void *opaque, const uint8_t *buf, size_t len)
 {
 	struct transport *t = (struct transport *)opaque;
+
+	if (t->reset)
+		return LWS_SSL_CAPABLE_ERROR;
 
 	/* a transport that takes only some of it: lws keeps the rest */
 	if (t->tx_limit && len > t->tx_limit)
@@ -542,16 +557,18 @@ pump(struct lws_context *cx, struct transport *t)
 		size_t rpos = t->rx_pos, tlen = t->tx_len;
 		int held = !lws_service_adjust_timeout(cx, 1, 0);
 		int in = t->want_read &&
-			 (t->rx_pos < t->rx_len || held || t->fin),
-		    /* can take some, and never reported with a hangup */
-		    out = t->want_write && t->tx_budget && !t->fin;
+			 (t->rx_pos < t->rx_len || held || t->fin || t->reset),
+		    /* can take some, and never reported with a bare hangup */
+		    out = t->want_write &&
+			  ((t->tx_budget && !t->fin) || t->reset);
 
 		pfd.fd = t->fd;
 		pfd.events = (short)(LWS_POLLIN |
 				     (t->want_write ? LWS_POLLOUT : 0));
 		pfd.revents = (short)((in ? LWS_POLLIN : 0) |
 				      (out ? LWS_POLLOUT : 0) |
-				      (t->fin ? POLLHUP : 0));
+				      (t->fin ? POLLHUP : 0) |
+				      (t->reset ? POLLHUP | POLLERR : 0));
 		if (!pfd.revents)
 			return;
 		/*
@@ -797,6 +814,11 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 	case LWS_CALLBACK_RECEIVE:
 		tr_step("app_rx", in, len);
+		/* "Hold" stops its rx, and is not echoed: case 28 */
+		if (len == 4 && !memcmp(in, "Hold", 4)) {
+			lws_rx_flow_control(wsi, 0);
+			return 0;
+		}
 		/* it echoes whole messages */
 		if (!lws_is_first_fragment(wsi) || !lws_is_final_fragment(wsi))
 			return 0;
@@ -2122,6 +2144,128 @@ h2_fin_behind_partial_half(struct lws_context *cx, struct lws_vhost *vh)
 
 #if defined(LWS_WITH_FILE_OPS)
 /*
+ * 27: an h1 GET answered with a file, the transport taking only 4 bytes of
+ * it, and a byte pipelined behind the request, parked while the file is
+ * served.  Then the peer resets the connection.  The file can never go now,
+ * and the parked byte waits on it: the connection goes at once, rather than
+ * waiting on the next poll's report of the reset, and the next, and so on.
+ */
+static int
+h1_reset_behind_file_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req[] =
+		"GET /file HTTP/1.1\r\nHost: sansio-uri\r\n\r\nX";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	/* the app has the transport take 4 bytes of the file's answer */
+	early_tp = &tp;
+	feed(cx, &tp, req, sizeof(req) - 1);
+	early_tp = NULL;
+	if (tp.closed || !tp.want_write) {
+		lwsl_err("case 27: closed %d, nothing waiting to go\n",
+			 tp.closed);
+		return 1;
+	}
+
+	tp.reset = 1;
+	tick(cx);
+	pump(cx, &tp);
+	if (!tp.closed) {
+		lwsl_err("case 27: the reset connection lives on\n");
+		return 1;
+	}
+	lwsl_user("case 27: a reset behind a file being served ends the "
+		  "connection: PASS\n");
+
+	return 0;
+}
+#endif
+
+/*
+ * 28: a ws message the app holds with rx flow control, the one after it
+ * parked unread behind it.  Then the peer resets the connection.  What it
+ * sent before may still be wanted, if the app lets its rx go again soon,
+ * but the reset is reported on every poll until the connection is closed:
+ * the grace is counted from the first poll that saw it, and the connection
+ * goes when that is up however often the reset was seen meanwhile.
+ */
+static int
+ws_reset_behind_flowcontrol_half(struct lws_context *cx, int ms)
+{
+	static const char req_ws[] =
+		"GET /echo HTTP/1.1\r\nHost: sansio\r\nUpgrade: websocket\r\n"
+		"Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n"
+		"Sec-WebSocket-Protocol: echo\r\n"
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+	/* masked, zero key: TEXT "Hold", then TEXT "Hello" */
+	static const char frames[] = "\x81\x84\x00\x00\x00\x00Hold"
+				     "\x81\x85\x00\x00\x00\x00Hello";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2], s;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket(cx, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	if (feed(cx, &tp, req_ws, sizeof(req_ws) - 1) ||
+	    tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 101 ", 13)) {
+		lwsl_err("case 28: no upgrade\n");
+		return 1;
+	}
+	feed(cx, &tp, frames, sizeof(frames) - 1);
+	if (tp.want_read || tp.tx_len) {
+		lwsl_err("case 28: rx not held: read %d, tx %d\n",
+			 tp.want_read, (int)tp.tx_len);
+		return 1;
+	}
+
+	/* the reset is seen at ms, and every 900ms after it */
+	at(cx, ms);
+	tp.reset = 1;
+	for (s = 0; s <= 4; s++) {
+		at(cx, ms + (s * 900));
+		pump(cx, &tp);
+		if (tp.closed != (s * 900 >= 3000)) {
+			lwsl_err("case 28: closed %d at %dms\n", tp.closed,
+				 s * 900);
+			return 1;
+		}
+	}
+	lwsl_user("case 28: a reset behind rx flow control ends the "
+		  "connection when its grace is up: PASS\n");
+
+	return 0;
+}
+
+#if defined(LWS_WITH_FILE_OPS)
+/*
  * 24: an h2 POST the app answers with a file, where the peer gave the
  * stream a window of only 100 bytes and never opens it further, while it
  * sends the request's body and keeps the connection alive with PINGs.  The
@@ -3096,6 +3240,12 @@ main(int argc, const char **argv)
 		goto bail;
 #endif
 
+#if defined(LWS_WITH_FILE_OPS)
+	at(cx, 4160);
+	if (h1_reset_behind_file_half(cx, vh_uri))
+		goto bail;
+#endif
+
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
 	/* last, since they move the time on past the answers' timeouts */
 	at(cx, 4200);
@@ -3105,6 +3255,10 @@ main(int argc, const char **argv)
 	if (h2_slow_answer_half(cx, vh_h2, 40000))
 		goto bail;
 #endif
+
+	/* last, since it moves the time on past the close timeout */
+	if (ws_reset_behind_flowcontrol_half(cx, 100000))
+		goto bail;
 
 	result = 0;
 

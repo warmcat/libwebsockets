@@ -90,6 +90,9 @@ lws_io_tx_drained(struct lws *wsi);
 
 #endif
 int
+lws_wsi_state_parks_rx(struct lws *wsi);
+
+int
 lws_wsi_can_consume_parked_rx(struct lws *wsi);
 
 int

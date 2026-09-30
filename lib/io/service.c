@@ -304,17 +304,6 @@ bail_die:
  */
 
 /*
- * Can this wsi consume rx parked on its buflist if we service it now?
- *
- * While it is holding the next request off until a clean POLLOUT, has a
- * deferred http action, is serving a file (synchronously or on a worker), is
- * in the middle of a callback-driven transaction, is waiting for an async
- * tls accept, or is flushing before close, it stashes or ignores rx without
- * consuming it, so forcing a zero wait would only spin the event loop until
- * the state change at the end of that phase brings it back here.
- */
-
-/*
  * For a role's tx_drained, when its rx policy stopped its reading because a
  * partial send was pending (so nothing is generated behind it, and a
  * level-armed POLLIN does not spin): that has all gone, so it reads again.
@@ -330,12 +319,19 @@ lws_io_read_after_drain(struct lws *wsi)
 	return lws_io_want_read(wsi, 1);
 }
 
+/*
+ * Does this wsi's state park its rx until the phase in progress ends?
+ *
+ * While it is holding the next request off until a clean POLLOUT, has a
+ * deferred http action, is serving a file (synchronously or on a worker), is
+ * in the middle of a callback-driven transaction, is waiting for an async
+ * tls accept, or is flushing before close, it stashes or ignores rx without
+ * consuming it.  Each of those phases ends with our tx (the response, the
+ * handshake, the flush), not with anything the peer sends.
+ */
 int
-lws_wsi_can_consume_parked_rx(struct lws *wsi)
+lws_wsi_state_parks_rx(struct lws *wsi)
 {
-	if (lws_is_flowcontrolled(wsi))
-		return 0;
-
 	switch (lwsi_state(wsi)) {
 	case LRS_TXN_COMPLETED:
 	case LRS_TXN_COMPLETING:
@@ -345,10 +341,22 @@ lws_wsi_can_consume_parked_rx(struct lws *wsi)
 	case LRS_DOING_TRANSACTION:
 	case LRS_AWAITING_SSL_ACCEPT:
 	case LRS_FLUSHING_BEFORE_CLOSE:
-		return 0;
-	default:
 		return 1;
+	default:
+		return 0;
 	}
+}
+
+/*
+ * Can this wsi consume rx parked on its buflist if we service it now?  Not
+ * while rx flow control holds it, nor while its state parks it: forcing a
+ * zero wait then would only spin the event loop until the state change at
+ * the end of that phase brings it back here.
+ */
+int
+lws_wsi_can_consume_parked_rx(struct lws *wsi)
+{
+	return !lws_is_flowcontrolled(wsi) && !lws_wsi_state_parks_rx(wsi);
 }
 
 lws_usec_t
@@ -1436,7 +1444,10 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 							&wsi->buflist_out);
 				if (lws_io_read_after_drain(wsi))
 					goto close_and_handled_l;
-				lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 3);
+				if (wsi->pending_timeout !=
+						PENDING_TIMEOUT_CLOSE_ACK)
+					lws_set_timeout(wsi,
+						PENDING_TIMEOUT_CLOSE_ACK, 3);
 
 				goto handled;
 			}
@@ -1457,11 +1468,32 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			}
 
 			/*
-			 * ... in fact we have some unread rx buffered in the
-			 * input buflist.  Hold off the closing a bit...
+			 * ... in fact we have some unread rx parked.  If the
+			 * wsi's state parks it, it waits on a tx that can never
+			 * go now (the response, the handshake, the flush): the
+			 * wsi is done.
 			 */
 
-			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 3);
+			if (lws_wsi_state_parks_rx(wsi)) {
+				lwsl_wsi_debug(wsi, "dead, parked rx dropped");
+
+				goto close_and_handled_l;
+			}
+
+			/*
+			 * Otherwise only rx flow control or the role's policy
+			 * holds it, and what the peer sent before its hangup
+			 * may still be wanted (eg, the tail of a proxied
+			 * response).  Hold off the closing a bit for it...
+			 * but the hangup is level-triggered and reported on
+			 * every pass until the close: armed again each time,
+			 * the timeout would be put off forever while poll()
+			 * spins, so it is armed only the first time.
+			 */
+
+			if (wsi->pending_timeout != PENDING_TIMEOUT_CLOSE_ACK)
+				lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK,
+						3);
 		}
 	}
 
