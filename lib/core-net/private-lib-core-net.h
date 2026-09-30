@@ -549,6 +549,8 @@ struct lws_context_per_thread {
 	unsigned char now_external:1;
 	/**< the thread's time is the embedder's input (now_us, now_wall), set
 	 * with lws_service_set_now(), not the platform's clock */
+	unsigned char accept_pause_warned:1;
+	/**< we logged that a full fds table paused this pt's listeners */
 
 	lws_usec_t now_us;	/* now_external: the monotonic time, and */
 	time_t now_wall;	/* the wall time, the embedder last gave */

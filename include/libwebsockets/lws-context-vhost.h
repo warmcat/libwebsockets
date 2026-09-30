@@ -1635,6 +1635,24 @@ lws_context_user(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_vh_tag(struct lws_vhost *vh);
 
+/**
+ * lws_context_info_defaults() - zero and prepare a context creation info
+ *
+ * \param info: the creation info struct to initialize
+ * \param sspol: the Secure Streams JSON policy to use, or NULL
+ *
+ * Zeroes \p info and sets defaults suited to a small client: no listen port,
+ * LWS_SERVER_OPTION_EXPLICIT_VHOSTS, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
+ * the policy (when Secure Streams are built) and fd_limit_per_thread = 8.
+ *
+ * lws adds its own internal fds to fd_limit_per_thread, so the fds table is
+ * about a dozen entries, which also sizes the http header pool.  That is
+ * plenty for a client, but a server started from these defaults stops
+ * accepting on all of its listeners once the table is full, until something
+ * closes: a handful of idle connections is enough.  A server should set
+ * info->fd_limit_per_thread to the number of connections it means to serve,
+ * or to 0 to use the process fd limit, after calling this.
+ */
 LWS_VISIBLE LWS_EXTERN void
 _lws_context_info_defaults(struct lws_context_creation_info *info,
 			   const char *sspol);

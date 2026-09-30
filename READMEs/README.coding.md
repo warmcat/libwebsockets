@@ -914,6 +914,12 @@ each thread is limited to 1024 / n.
 You can set fd_limit_per_thread to a nonzero number to control this manually, eg
 the overall supported fd limit is less than the process allowance.
 
+When a service thread's fds table is full, lws stops accepting on every
+listener until a connection on that thread closes (logged once per thread at
+WARN).  `lws_context_info_defaults()` sets fd_limit_per_thread to 8, sized for a
+client; a server built on it should set fd_limit_per_thread to the number of
+connections it intends to serve, or back to 0 for the process limit.
+
 You can control the context basic data allocation for multithreading from Cmake
 using -DLWS_MAX_SMP=, if not given it's set to 1.  The serv_buf allocation
 for the threads (currently 4096) is made at runtime only for active threads.

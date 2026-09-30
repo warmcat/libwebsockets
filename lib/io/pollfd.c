@@ -228,13 +228,16 @@ bail:
 /*
  * Enable or disable listen sockets on this pt globally...
  * it's modulated according to the pt having space for a new accept.
+ *
+ * Returns how many listen sockets it acted on.
  */
-static void
+static int
 lws_accept_modulation(struct lws_context *context,
 		      struct lws_context_per_thread *pt, int allow)
 {
 	struct lws_vhost *vh = lws_vhost_first(context);
 	struct lws_pollargs pa1;
+	int n = 0;
 
 	while (vh) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -244,10 +247,13 @@ lws_accept_modulation(struct lws_context *context,
 
 			_lws_change_pollfd(wsi, allow ? 0 : LWS_POLLIN,
 						allow ? LWS_POLLIN : 0, &pa1);
+			n++;
 		} lws_end_foreach_dll(d);
 
 		vh = lws_vhost_next(vh);
 	}
+
+	return n;
 }
 #endif
 
@@ -343,8 +349,21 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 #endif
 #if defined(LWS_WITH_SERVER)
 	/* if no more room, defeat accepts on this service thread */
-	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1)
-		lws_accept_modulation(context, pt, 0);
+	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1 &&
+	    lws_accept_modulation(context, pt, 0) && !pt->accept_pause_warned) {
+		/*
+		 * Until a connection closes, nothing more is accepted on any
+		 * listener.  That is by design, but a budget this small is
+		 * usually an accident (eg, lws_context_info_defaults() sizes
+		 * it for a client) and it is otherwise silent: say so, once.
+		 */
+		pt->accept_pause_warned = 1;
+		lwsl_cx_warn(context, "tsi %d: fds table full (%u fds), "
+			     "listeners paused until a connection closes: "
+			     "raise info->fd_limit_per_thread (0 = process "
+			     "limit) if this server should take more",
+			     (int)pt->tid, (unsigned int)pt->fds_count);
+	}
 #endif
 
 #if defined(LWS_WITH_EXTERNAL_POLL)
