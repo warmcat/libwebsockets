@@ -44,6 +44,29 @@ extern const struct lws_role_ops role_ops_quic;
  */
 #define LWS_QUIC_CRYPTO_RX_MAX	262144
 
+/*
+ * Bounds on the out-of-order chunks held for reassembly (RFC 9000 21.7).
+ *
+ * A CRYPTO level only ever needs a flight's worth of packets held, so its
+ * count is small.  A stream may hold up to LWS_QUIC_RX_CHUNKS_MAX, but only
+ * LWS_QUIC_RX_CHUNKS_FREE of them for free: past that, each chunk must be
+ * paid for by LWS_QUIC_RX_CHUNK_FRAG_UNIT of the charge held, so a stream of
+ * packet-sized chunks is never limited by count, while one sliced into tiny
+ * disjoint pieces is.  Adjacent small chunks are merged up to
+ * LWS_QUIC_RX_CHUNK_MERGE, so tiny frames in sequence behind one gap cost one
+ * chunk, not one each.
+ */
+#if defined(LWS_WITH_FREERTOS)
+#define LWS_QUIC_RX_CHUNKS_MAX		16
+#define LWS_QUIC_RX_CRYPTO_CHUNKS_MAX	16
+#else
+#define LWS_QUIC_RX_CHUNKS_MAX		4096
+#define LWS_QUIC_RX_CRYPTO_CHUNKS_MAX	48
+#endif
+#define LWS_QUIC_RX_CHUNKS_FREE		32
+#define LWS_QUIC_RX_CHUNK_FRAG_UNIT	256
+#define LWS_QUIC_RX_CHUNK_MERGE		1024
+
 struct lws_quic_cid {
 	uint8_t		id[LWS_QUIC_MAX_CID_LEN];
 	uint8_t		len;
@@ -227,13 +250,33 @@ struct lws_quic_tx_frame {
 };
 
 struct lws_quic_rx_chunk {
-	lws_dll2_t		list;
-
 	uint64_t		offset;
 
 	size_t			len;
 	uint8_t			*data; /* allocated directly after the struct */
 };
+
+/*
+ * Out-of-order rx data held until the gap in front of it fills, for one
+ * stream or one CRYPTO level.  The chunks are disjoint and sorted by offset,
+ * indexed by a vector so that where a new chunk goes, and whether we hold its
+ * data already, is a binary search rather than a walk of everything held;
+ * v[head..count) are live, delivery pops from head.
+ *
+ * What a chunk costs is charged as its bytes plus LWS_QUIC_RX_CHUNK_OVERHEAD,
+ * so the budgets bound the memory really used however finely the peer slices
+ * the data.
+ */
+struct lws_quic_rx_held {
+	struct lws_quic_rx_chunk	**v;
+	size_t				charged;
+	uint32_t			head;
+	uint32_t			count;
+	uint32_t			alloc;
+};
+
+#define LWS_QUIC_RX_CHUNK_OVERHEAD (sizeof(struct lws_quic_rx_chunk) + \
+				    (2 * sizeof(void *)) + 16)
 
 /*
  * Represents a single QUIC stream (unidirectional or bidirectional).
@@ -244,8 +287,7 @@ struct lws_quic_stream {
 	uint64_t		stream_id;
 
 	uint64_t		rx_offset;
-	lws_dll2_owner_t	rx_chunks; /* struct lws_quic_rx_chunk */
-	size_t			rx_buffered; /* bytes held in rx_chunks */
+	struct lws_quic_rx_held	rx_held; /* out-of-order data */
 
 	uint64_t		tx_offset;
 	/* Frames wait in the nwsi's pending_tx list, not here.
@@ -379,15 +421,13 @@ struct lws_quic_netconn {
 
 	/* RX Crypto Reassembly Buffers (Streams are handled by child WSIs) */
 	uint64_t		rx_crypto_offset[LWS_QUIC_LEVEL_COUNT];
-	lws_dll2_owner_t	rx_crypto_chunks[LWS_QUIC_LEVEL_COUNT];
+	struct lws_quic_rx_held	rx_crypto_held[LWS_QUIC_LEVEL_COUNT];
 	/*
-	 * Bytes actually held in out-of-order reassembly chunks, per level for
-	 * CRYPTO and summed over all streams for STREAM data.  The flow control
-	 * window only bounds the highest offset the peer may send; without
-	 * charging the bytes we really buffer, overlapping chunks at distinct
+	 * What all the streams' out-of-order chunks are charged, summed.  The
+	 * flow control window only bounds the highest offset the peer may
+	 * send; without charging what we really buffer, chunks at distinct
 	 * offsets could pin memory far beyond the advertised window.
 	 */
-	size_t			rx_crypto_buffered[LWS_QUIC_LEVEL_COUNT];
 	size_t			rx_stream_buffered;
 
 	/* Probe Timeout timer for packet loss detection */
@@ -646,6 +686,8 @@ lws_quic_discard_keys(struct lws *nwsi, int level);
 void
 lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_stream *qs,
 		       uint64_t offset, uint8_t *buf, size_t len, int is_crypto, int level);
+void
+lws_quic_rx_held_destroy(struct lws_quic_rx_held *h);
 
 void
 lws_quic_stream_cleanup(struct lws *wsi);

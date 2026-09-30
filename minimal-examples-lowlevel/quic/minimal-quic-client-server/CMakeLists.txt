@@ -57,5 +57,25 @@ if (requirements)
 		set_tests_properties(${SAMP} PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 20)
+
+		#
+		# The same through the reordering relay, with small writes: the
+		# handshake's CRYPTO and many small STREAM frames each way reach
+		# the peer out of order and must be reassembled.  The relay
+		# needs a literal address.
+		#
+		lws_get_free_port(PORT_QCS_REORDER)
+		lws_get_free_port(PORT_QCS_RELAY)
+		if (LWS_IPV4)
+			set(QCS_RELAY_ADS 127.0.0.1)
+		else()
+			set(QCS_RELAY_ADS ::1)
+		endif()
+		add_test(NAME ${SAMP}-reorder COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_REORDER}
+				--relay ${PORT_QCS_RELAY} --write-size 100)
+		set_tests_properties(${SAMP}-reorder PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
 	endif()
 endif()

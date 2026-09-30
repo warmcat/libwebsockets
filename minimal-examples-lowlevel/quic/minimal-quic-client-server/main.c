@@ -9,6 +9,12 @@
  * This demonstrates the native libwebsockets QUIC transport implementation,
  * instantiating a server via lejp-conf, and optionally a client that links up
  * and passes bulk bidirectional data.
+ *
+ * With --relay <port>, the client reaches the server through a UDP relay in
+ * this process that sends each direction's datagrams on in batches, last
+ * first, so both ends see the handshake and the stream data out of order and
+ * have to reassemble it.  --write-size sets how much each lws_write() sends,
+ * so small values make many small STREAM frames.
  */
 
 #include <libwebsockets.h>
@@ -18,6 +24,7 @@
 static struct lws_context *context;
 static int result = 1; /* 1 means failed/timeout, 0 means success */
 static int server_only = 0;
+static size_t write_size = 1024;
 
 static const struct lws_http_mount mount_redir = {
 	.mountpoint = "/",
@@ -119,6 +126,138 @@ static const char * const test_key =
 
 #define TOTAL_DATA (128 * 1024)
 
+/*
+ * The reordering relay.  Datagrams from the server go to the client, all
+ * others go to the server, and the client is whoever sent us one last.  Each
+ * direction holds up to RELAY_BATCH, and sends them on last first when that
+ * many arrived or RELAY_HOLD_US after the first one, so a lone datagram, such
+ * as the client's first Initial, is only delayed.  A datagram arriving while
+ * its direction is full is dropped, which QUIC recovers from like any loss.
+ */
+
+#define RELAY_BATCH	4
+#define RELAY_HOLD_US	(2 * LWS_US_PER_MS)
+#define RELAY_DGRAM_MAX	2048
+
+struct relay_dgram {
+	size_t			len;
+	uint8_t			buf[RELAY_DGRAM_MAX];
+};
+
+struct relay_dir {
+	lws_sorted_usec_list_t	sul;
+	struct relay_dgram	q[RELAY_BATCH];
+	lws_sockaddr46		dest;
+	int			count;
+	char			due;
+};
+
+static struct {
+	struct lws		*wsi;
+	struct relay_dir	dir[2]; /* to the server, to the client */
+} relay;
+
+static void
+relay_due(struct relay_dir *d)
+{
+	d->due = 1;
+	if (relay.wsi)
+		lws_callback_on_writable(relay.wsi);
+}
+
+static void
+relay_hold_cb(lws_sorted_usec_list_t *sul)
+{
+	relay_due(lws_container_of(sul, struct relay_dir, sul));
+}
+
+static int
+callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
+	       void *user, void *in, size_t len)
+{
+	const struct lws_udp *udp;
+	struct relay_dir *d;
+	lws_sockfd_type fd;
+	int n, m;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		relay.wsi = wsi;
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		relay.wsi = NULL;
+		for (n = 0; n < 2; n++)
+			lws_sul_cancel(&relay.dir[n].sul);
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		udp = lws_get_udp(wsi);
+		if (!udp || len > RELAY_DGRAM_MAX)
+			break;
+
+		if (!lws_sa46_compare_ads(&udp->sa46, &relay.dir[0].dest) &&
+		    udp->sa46.sa4.sin_port == relay.dir[0].dest.sa4.sin_port)
+			d = &relay.dir[1];
+		else {
+			relay.dir[1].dest = udp->sa46;
+			d = &relay.dir[0];
+		}
+
+		if (d->count == RELAY_BATCH)
+			break; /* dropped */
+
+		d->q[d->count].len = len;
+		memcpy(d->q[d->count].buf, in, len);
+		if (++d->count == RELAY_BATCH) {
+			lws_sul_cancel(&d->sul);
+			relay_due(d);
+		} else if (d->count == 1)
+			lws_sul_schedule(lws_get_context(wsi), 0, &d->sul,
+					 relay_hold_cb, RELAY_HOLD_US);
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		fd = lws_get_socket_fd(wsi);
+		if (fd == LWS_SOCK_INVALID)
+			break;
+
+		for (n = 0; n < 2; n++) {
+			d = &relay.dir[n];
+			if (!d->due)
+				continue;
+
+			/* UDP send failures are losses QUIC recovers from */
+			for (m = d->count - 1; m >= 0; m--)
+				if (sendto(fd,
+#if defined(WIN32)
+					   (const char *)
+#endif
+					   d->q[m].buf,
+#if defined(WIN32)
+					   (int)
+#endif
+					   d->q[m].len, 0,
+					   sa46_sockaddr(&d->dest),
+					   sa46_socklen(&d->dest)) < 0)
+					lwsl_info("relay: sendto failed\n");
+			d->count = 0;
+			d->due = 0;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static struct lws_protocols relay_protocols[] = {
+	{ "quic-relay", callback_relay, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
 static size_t client_sent = 0;
 static size_t client_rx = 0;
 static uint32_t client_hash = 5381; /* djb2 init */
@@ -141,6 +280,37 @@ simple_hash(uint32_t hash, const uint8_t *data, size_t len)
 }
 
 
+
+/*
+ * Each byte sent is a function of its stream offset, so the receiver can tell
+ * the data came in the right order, with nothing lost or repeated
+ */
+static uint8_t
+pattern_byte(size_t ofs)
+{
+	return (uint8_t)(ofs + (ofs >> 8));
+}
+
+static void
+pattern_fill(size_t at, uint8_t *data, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		data[i] = pattern_byte(at + i);
+}
+
+static int
+pattern_ok(size_t at, const uint8_t *data, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		if (data[i] != pattern_byte(at + i))
+			return 0;
+
+	return 1;
+}
 
 static void
 teardown_cb(lws_sorted_usec_list_t *sul)
@@ -198,9 +368,9 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		size_t to_send = TOTAL_DATA - client_sent;
-		if (to_send > 1024)
-			to_send = 1024;
-		memset(&buf[LWS_PRE], (client_sent & 0xff), to_send);
+		if (to_send > write_size)
+			to_send = write_size;
+		pattern_fill(client_sent, &buf[LWS_PRE], to_send);
                 lwsl_wsi_info(wsi, "CLIENT WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
                 if (n > 0) {
@@ -225,9 +395,9 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (server_sent >= TOTAL_DATA)
                         break;
 		size_t to_send = TOTAL_DATA - server_sent;
-		if (to_send > 1024)
-			to_send = 1024;
-		memset(&buf[LWS_PRE], (server_sent & 0xff), to_send);
+		if (to_send > write_size)
+			to_send = write_size;
+		pattern_fill(server_sent, &buf[LWS_PRE], to_send);
                 lwsl_wsi_info(wsi, "SERVER WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
 		if (n > 0) {
@@ -244,6 +414,13 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		last_rx_us = lws_now_usecs();
 
+		if (!pattern_ok(client_rx, in, len)) {
+			lwsl_wsi_err(wsi, "Client rx data wrong near offset %lu",
+				     (unsigned long)client_rx);
+			result = 1;
+			lws_default_loop_exit(lws_get_context(wsi));
+			return -1;
+		}
 		client_rx += len;
 		client_hash = simple_hash(client_hash, in, len);
 		if (client_rx >= TOTAL_DATA && !client_done) {
@@ -258,6 +435,13 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		last_rx_us = lws_now_usecs();
 
+		if (!pattern_ok(server_rx, in, len)) {
+			lwsl_wsi_err(wsi, "Server rx data wrong near offset %lu",
+				     (unsigned long)server_rx);
+			result = 1;
+			lws_default_loop_exit(lws_get_context(wsi));
+			return -1;
+		}
 		server_rx += len;
 		server_hash = simple_hash(server_hash, in, len);
 		if (server_rx >= TOTAL_DATA && !server_done) {
@@ -291,6 +475,8 @@ enum {
 	LWS_SW_PORT,
 	LWS_SW_SERVER_ONLY,
 	LWS_SW_SERVER,
+	LWS_SW_RELAY,
+	LWS_SW_WRITE_SIZE,
 };
 
 static const struct lws_switches switches[] = {
@@ -299,6 +485,8 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_PORT]	= { "-p",	"Port to connect to / listen on (default 7681)" },
 	[LWS_SW_SERVER_ONLY] = { "-s",	"Server only mode (do not launch client, do not send data unprompted)" },
 	[LWS_SW_SERVER]	= { "--server",	"Server address to connect to (default 127.0.0.1)" },
+	[LWS_SW_RELAY]	= { "--relay",	"Connect via a relay on this port that reorders datagrams (needs a numeric --server)" },
+	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 };
 
 #if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
@@ -329,7 +517,7 @@ int main(int argc, const char **argv)
 	lws_usec_t start_us;
 	char url_buf[128];
 	const char *p, *prot, *address, *path;
-	int port = 7681;
+	int port = 7681, relay_port = 0;
 	int url_port = 0;
 
 	lws_context_info_defaults(&info, NULL);
@@ -361,6 +549,27 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "-s"))
 		server_only = 1;
+
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_WRITE_SIZE].sw);
+	if (p) {
+		int ws = atoi(p);
+
+		if (ws < 1 || ws > 1024) {
+			lwsl_err("--write-size must be 1 to 1024\n");
+			return 1;
+		}
+		write_size = (size_t)ws;
+	}
+
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_RELAY].sw);
+	if (p) {
+		relay_port = atoi(p);
+		if (relay_port < 1 || relay_port > 65535) {
+			lwsl_err("--relay port %d is outside valid 16-bit range\n",
+				 relay_port);
+			return 1;
+		}
+	}
 
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
@@ -427,13 +636,52 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	if (relay_port) {
+		struct lws_context_creation_info ri;
+		const char *ads = address ? address : "127.0.0.1";
+		struct lws_vhost *rvh;
+
+		if (p || server_only) {
+			lwsl_err("--relay needs the server and client in this process\n");
+			goto bail;
+		}
+
+		/* the relay sends to the server at the client's address */
+		memset(&relay, 0, sizeof(relay));
+		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
+			lwsl_err("--relay needs a numeric --server address\n");
+			goto bail;
+		}
+#if defined(LWS_WITH_IPV6)
+		if (relay.dir[0].dest.sa4.sin_family == AF_INET6)
+			relay.dir[0].dest.sa6.sin6_port = htons((uint16_t)port);
+		else
+#endif
+			relay.dir[0].dest.sa4.sin_port = htons((uint16_t)port);
+
+		memset(&ri, 0, sizeof(ri));
+		ri.port		= CONTEXT_PORT_NO_LISTEN_SERVER;
+		ri.vhost_name	= "quic-relay";
+		ri.protocols	= relay_protocols;
+		ri.options	= info.options;
+
+		rvh = lws_create_vhost(context, &ri);
+		if (!rvh || !lws_create_adopt_udp(rvh, ads, relay_port,
+						  LWS_CAUDP_BIND, "quic-relay",
+						  NULL, NULL, NULL, NULL,
+						  "quic_relay")) {
+			lwsl_err("Failed to create the relay\n");
+			goto bail;
+		}
+	}
+
 	if (!server_only) {
 		/*
 		 * Immediately launch the client.
 		 */
 		memset(&i, 0, sizeof(i));
 		i.context		= context;
-		i.port			= port;
+		i.port			= relay_port ? relay_port : port;
 		i.address		= address ? address : "127.0.0.1";
 		i.host			= address ? address : "localhost";
 		i.origin		= i.address;

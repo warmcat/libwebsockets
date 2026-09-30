@@ -809,12 +809,7 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 		lws_free(f);
 	} lws_end_foreach_dll_safe(d, d1);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->rx_crypto_chunks[level].head) {
-		struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
-		lws_dll2_remove(&c->list);
-		lws_free(c);
-	} lws_end_foreach_dll_safe(d, d1);
-	qn->rx_crypto_buffered[level] = 0;
+	lws_quic_rx_held_destroy(&qn->rx_crypto_held[level]);
 
 	/*
 	 * RFC 9002 A.11 (OnPacketNumberSpaceDiscarded): discarding a packet
@@ -4079,20 +4074,15 @@ lws_quic_stream_cleanup(struct lws *wsi)
 	if (!wsi->quic.qs)
 		return;
 
-	/* 1. Free RX chunks */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&wsi->quic.qs->rx_chunks)) {
-		struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
-		lws_dll2_remove(&c->list);
-		lws_free(c);
-	} lws_end_foreach_dll_safe(d, d1);
-	/* ... and stop charging them against the connection */
+	/* 1. Stop charging the held rx chunks against the connection... */
 	if (qn) {
-		if (qn->rx_stream_buffered >= wsi->quic.qs->rx_buffered)
-			qn->rx_stream_buffered -= wsi->quic.qs->rx_buffered;
+		if (qn->rx_stream_buffered >= wsi->quic.qs->rx_held.charged)
+			qn->rx_stream_buffered -= wsi->quic.qs->rx_held.charged;
 		else
 			qn->rx_stream_buffered = 0;
 	}
-	wsi->quic.qs->rx_buffered = 0;
+	/* ... and free them */
+	lws_quic_rx_held_destroy(&wsi->quic.qs->rx_held);
 
 	/*
 	 * Give the connection-level flow control window back whatever this
@@ -4429,11 +4419,7 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 		} lws_end_foreach_dll_safe(d, d1);
 
 		/* Free RX Crypto chunks */
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->rx_crypto_chunks[i].head) {
-			struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
-			lws_dll2_remove(&c->list);
-			lws_free(c);
-		} lws_end_foreach_dll_safe(d, d1);
+		lws_quic_rx_held_destroy(&qn->rx_crypto_held[i]);
 	}
 
 	if (qn->cc_state)

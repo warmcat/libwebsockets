@@ -1,0 +1,49 @@
+# lws minimal quic client server
+
+This example runs a QUIC server on a UDP listener and, unless told otherwise,
+a QUIC client in the same process that connects to it.  Both sides open a
+stream and send each other 128KB, and the test passes when each side has
+received all of it, in order.
+
+Each byte sent is a function of its stream offset, so the receiver checks the
+data arrived in order, with nothing lost or repeated, as well as that it all
+arrived.
+
+## build
+
+```
+ $ cmake . && make
+```
+
+## usage
+
+|Option|Meaning|
+|---|---|
+|-p <port>|Port the server listens on, and the client connects to (default 7681)|
+|--server <address>|Server address the client connects to (default 127.0.0.1)|
+|-s|Server only: no client, and the server does not send data unprompted|
+|-u <url>|Connect the client to the server at this url instead of running one here|
+|--relay <port>|The client connects through a relay on this port, see below|
+|--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
+
+```
+ $ ./lws-minimal-quic-client-server
+```
+
+## the reordering relay
+
+With `--relay <port>`, the client connects to a UDP relay in the same process
+instead of to the server.  The relay passes datagrams on in each direction,
+but holds up to four at a time and sends each batch on last first, so both
+sides receive the handshake's CRYPTO data and the stream data out of order,
+and have to hold what arrives early until the gap in front of it fills.  A
+datagram arriving while its direction's batch is full is dropped, which QUIC
+recovers from like any other loss.
+
+The relay needs the server address to be numeric, eg
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --write-size 100
+```
+
+Small `--write-size` values make each packet carry many small STREAM frames.
