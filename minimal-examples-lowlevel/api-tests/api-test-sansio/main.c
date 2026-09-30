@@ -64,6 +64,10 @@
  * And a CONNECT from a user agent the context turns away: it is refused as
  * any other request of its would be, not given to the fallback role first.
  *
+ * And a peer that finishes while the connection holds its reading behind a
+ * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
+ * what it sent before finishing is still read.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -354,7 +358,9 @@ bail:
  * the connection wrote.  fd is the connection's place in lws's poll set;
  * want_read and want_write are what lws asked of the transport, as the
  * test heard them through the io_ops; read_resumed counts the times lws
- * asked to read again after it had stopped.
+ * asked to read again after it had stopped.  fin is the peer having finished
+ * sending: past what it sent, reads find the end, and the poll reports it
+ * the way OSX does, a bare POLLHUP, never together with POLLOUT.
  */
 struct transport {
 	const uint8_t	*rx;
@@ -370,9 +376,10 @@ struct transport {
 	int		want_write;
 	int		shutdown;
 	int		closed;
+	int		fin;
 };
 
-static struct transport *transports[16];
+static struct transport *transports[24];
 static int ntransports;
 
 static int
@@ -382,7 +389,7 @@ tp_read(struct lws *wsi, void *opaque, uint8_t *buf, size_t len)
 	size_t n = t->rx_len - t->rx_pos;
 
 	if (!n)
-		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+		return t->fin ? 0 : LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	if (n > len)
 		n = len;
 	memcpy(buf, t->rx + t->rx_pos, n);
@@ -534,14 +541,17 @@ pump(struct lws_context *cx, struct transport *t)
 		struct lws_pollfd pfd;
 		size_t rpos = t->rx_pos, tlen = t->tx_len;
 		int held = !lws_service_adjust_timeout(cx, 1, 0);
-		int in = t->want_read && (t->rx_pos < t->rx_len || held),
-		    out = t->want_write && t->tx_budget; /* can take some */
+		int in = t->want_read &&
+			 (t->rx_pos < t->rx_len || held || t->fin),
+		    /* can take some, and never reported with a hangup */
+		    out = t->want_write && t->tx_budget && !t->fin;
 
 		pfd.fd = t->fd;
 		pfd.events = (short)(LWS_POLLIN |
 				     (t->want_write ? LWS_POLLOUT : 0));
 		pfd.revents = (short)((in ? LWS_POLLIN : 0) |
-				      (out ? LWS_POLLOUT : 0));
+				      (out ? LWS_POLLOUT : 0) |
+				      (t->fin ? POLLHUP : 0));
 		if (!pfd.revents)
 			return;
 		/*
@@ -2033,6 +2043,83 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 	return 0;
 }
 
+/*
+ * 26: the h2 POST of case 20 answered at once, the transport taking only 4
+ * bytes of the answer, so the connection holds its reading behind the rest.
+ * Then the peer sends its body and finishes, which OSX reports only as a
+ * bare POLLHUP in place of the POLLOUT asked for.  The answer can never go
+ * now, but what the peer sent before it finished is still read, before the
+ * connection ends.
+ */
+static int
+h2_fin_behind_partial_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1, END_STREAM: the 3 byte body */
+	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
+				   "abc";
+	static uint8_t blk[128], fr[256];
+	static struct transport tp;
+	struct lws *wsi;
+	uint8_t *p;
+	size_t n;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* POST /early, content-length 3, the body to follow */
+	p = blk;
+	*p++ = 0x83; /* :method POST */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/early", 6, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+	p = hp_str(p, "3", 1, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+
+	/* the app has the transport take 4 bytes of its answer */
+	early_tp = &tp;
+	feed(cx, &tp, fr, n);
+	early_tp = NULL;
+	if (!tp.want_write) {
+		lwsl_err("case 26: nothing of the answer waiting to go\n");
+		return 1;
+	}
+
+	/* the body, and the peer is done */
+	tp.fin = 1;
+	feed(cx, &tp, data, sizeof(data) - 1);
+	if (!tp.closed || tp.rx_pos != tp.rx_len) {
+		lwsl_err("case 26: closed %d, read %d / %d\n", tp.closed,
+			 (int)tp.rx_pos, (int)tp.rx_len);
+		return 1;
+	}
+	lwsl_user("case 26: what came before a bare POLLHUP is read before "
+		  "the connection ends: PASS\n");
+
+	return 0;
+}
+
 #if defined(LWS_WITH_FILE_OPS)
 /*
  * 24: an h2 POST the app answers with a file, where the peer gave the
@@ -3000,6 +3087,12 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	at(cx, 4100);
 	if (h1_connect_rejected_ua_half(cx, vh_uri))
+		goto bail;
+#endif
+
+#if defined(LWS_WITH_HTTP2)
+	at(cx, 4150);
+	if (h2_fin_behind_partial_half(cx, vh_h2))
 		goto bail;
 #endif
 

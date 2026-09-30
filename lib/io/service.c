@@ -1340,6 +1340,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		   int tsi)
 {
 	struct lws_context_per_thread *pt;
+	int bare_hangup;
 	struct lws *wsi;
 	char cow = 0;
 
@@ -1396,12 +1397,19 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	 * instead can send nothing more, and if that is not acted on here,
 	 * nothing else will act on it while poll() keeps reporting it.  A bare
 	 * POLLERR is not enough, a udp socket gets that for an icmp error.
+	 *
+	 * But on OSX that bare POLLHUP is also all a FIN gets: the peer may
+	 * only have finished sending, with what it sent before it (eg, why it
+	 * refused what we are sending) still unread, because reading was held
+	 * behind the partial.  That is read before the wsi goes, below.
 	 */
 
-	if ((pollfd->revents & LWS_POLLHUP) == LWS_POLLHUP ||
-	    ((pollfd->revents & LWS_POLL_HANGUP) &&
-	     (pollfd->events & LWS_POLLOUT) &&
-	     !(pollfd->revents & LWS_POLLOUT))) {
+	bare_hangup = (pollfd->revents & LWS_POLL_HANGUP) &&
+		      (pollfd->revents & LWS_POLLHUP) != LWS_POLLHUP &&
+		      (pollfd->events & LWS_POLLOUT) &&
+		      !(pollfd->revents & LWS_POLLOUT);
+
+	if ((pollfd->revents & LWS_POLLHUP) == LWS_POLLHUP || bare_hangup) {
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
 			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
@@ -1413,6 +1421,25 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		lwsi_set_skt_unusable(wsi, 1);
 
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN)) {
+
+			if (bare_hangup && wsi->buflist_out) {
+				/*
+				 * The partial send reading was held behind can
+				 * never go now: drop it, and read again (unless
+				 * the app holds rx off itself).  The next poll
+				 * reports what the peer sent, if anything, and
+				 * then its end, which the rx sees as the peer
+				 * closing, and closes on; if that does not come
+				 * soon, the timeout closes it anyway.
+				 */
+				lws_buflist_destroy_all_segments(
+							&wsi->buflist_out);
+				if (lws_io_read_after_drain(wsi))
+					goto close_and_handled_l;
+				lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 3);
+
+				goto handled;
+			}
 
 			/* ... there are no pending rx packets waiting... */
 
