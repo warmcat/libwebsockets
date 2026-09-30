@@ -371,8 +371,12 @@ lws_tls_session_name_from_wsi(struct lws *wsi, char *buf, size_t len);
  *
  * Creates a tag string representing a specific host, for use with serializing
  * sessions made with the host.
+ *
+ * Returns 0 if the tag fits in \p len, else nonzero, and then there is no
+ * tag: a truncated one would be shared by every host with the same prefix,
+ * so nothing may be cached or looked up with it.
  */
-void
+int
 lws_tls_session_tag_discrete(const char *vhname, const char *host,
 			     uint16_t port, char *buf, size_t len);
 

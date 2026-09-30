@@ -406,7 +406,9 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
 
 	memset(&d, 0, sizeof(d));
 	d.opaque = opq;
-	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+	if (lws_tls_session_tag_discrete(vh->name, host, port, d.tag,
+					 sizeof(d.tag)))
+		return 1; /* too long to be cached, or loaded */
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */
@@ -463,7 +465,9 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 
 	memset(&d, 0, sizeof(d));
 	d.opaque = opq;
-	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+	if (lws_tls_session_tag_discrete(vh->name, host, port, d.tag,
+					 sizeof(d.tag)))
+		return 1; /* too long to be cached, or loaded */
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */

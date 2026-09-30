@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-void
+int
 lws_tls_session_tag_discrete(const char *vhname, const char *host,
 			      uint16_t port, char *buf, size_t len)
 {
@@ -32,10 +32,27 @@ lws_tls_session_tag_discrete(const char *vhname, const char *host,
 	 * We have to include the vhost name in the session tag, since
 	 * different vhosts may make connections to the same endpoint using
 	 * different client certs.
+	 *
+	 * The tag has to be exact (C-654).  Truncated, it is the same for
+	 * every host that shares its first 80-odd characters, whatever the
+	 * port: a session one of them issued, eg, to a strict connection made
+	 * to an attacker's look-alike name, would be offered to, and resumed
+	 * with no certificate check by, a later strict connection to another
+	 * one through the same attacker.  So a host too long for the tag gets
+	 * no tag: its sessions are neither cached nor resumed.
 	 */
 
-	lws_snprintf(buf, len, "%s_%s_%u", vhname, host, (unsigned int)port);
+	if (lws_snprintf(buf, len, "%s_%s_%u", vhname, host,
+			 (unsigned int)port) >= (int)len) {
+		if (len)
+			*buf = '\0';
+
+		return 1;
+	}
+
 	lws_filename_purify_inplace(buf);
+
+	return 0;
 }
 
 int
@@ -67,8 +84,9 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 	if (!host)
 		return 1;
 
-	lws_tls_session_tag_discrete(wsi->a.vhost->name, host, wsi->c_port,
-				     buf, len);
+	if (lws_tls_session_tag_discrete(wsi->a.vhost->name, host, wsi->c_port,
+					 buf, len))
+		return 1;
 
 #if defined(LWS_WITH_CLIENT)
 	if (relaxed) {

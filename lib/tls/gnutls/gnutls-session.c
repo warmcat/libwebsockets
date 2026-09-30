@@ -399,7 +399,9 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
 	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
 		return 1;
 
-	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+	if (lws_tls_session_tag_discrete(vh->name, host, port, d.tag,
+					 sizeof(d.tag)))
+		return 1; /* too long to be cached, or loaded */
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */
@@ -442,7 +444,9 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 		return 1;
 
 	d.opaque = opq;
-	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+	if (lws_tls_session_tag_discrete(vh->name, host, port, d.tag,
+					 sizeof(d.tag)))
+		return 1; /* too long to be cached, or loaded */
 	lwsl_notice("%s: looking for tag %s\n", __func__, d.tag);
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
