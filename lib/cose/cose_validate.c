@@ -601,6 +601,54 @@ ph_index(struct lws_cose_validate_context *cps)
 	return 0;
 }
 
+/*
+ * A map key or value in a header bucket that is not an int.
+ *
+ * A key that is not an int is none of the labels we act on, and must not
+ * leave the previous int key's label to be applied to its own value.
+ *
+ * lws only implements int algs, but RFC9052 3.1: whatever the protected
+ * bucket names as the alg is the alg, the unprotected bucket must not get to
+ * substitute one of its own just because we cannot use the protected one.  So
+ * a protected alg of any other type still marks the alg as protected, as the
+ * reserved alg 0 that no key can be used with: that signer gets
+ * create_alg()'s -1001 no-alg result, the same as for a protected int alg
+ * lws does not implement.  One in the unprotected bucket is just ignored.
+ */
+
+static void
+bucket_item_not_int(struct lws_cose_validate_context *cps,
+		    struct lecp_ctx *ctx)
+{
+	lws_cose_validate_param_stack_t *sl = &cps->st[cps->sp];
+
+	switch (cps->tli) {
+	case ST_OUTER_PROTECTED:
+	case ST_INNER_PROTECTED:
+	case ST_OUTER_UNPROTECTED:
+	case ST_INNER_UNPROTECTED:
+		break;
+	default:
+		return;
+	}
+
+	if (lecp_parse_map_is_key(ctx)) {
+		cps->map_key = 0;
+		return;
+	}
+
+	if (cps->map_key != LWSCOSE_WKL_ALG)
+		return;
+
+	cps->map_key = 0;
+
+	if (cps->tli == ST_OUTER_PROTECTED || cps->tli == ST_INNER_PROTECTED) {
+		lwsl_info("%s: protected alg we can't use\n", __func__);
+		sl->alg = 0;
+		sl->alg_prot = 1;
+	}
+}
+
 static signed char
 cb_cose_sig(struct lecp_ctx *ctx, char reason)
 {
@@ -624,6 +672,8 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 		break;
 
 	case LECPCB_TAG_START:
+
+		bucket_item_not_int(cps, ctx);
 
 		lwsl_info("%s: tag sigtype %d\n", __func__, cps->info.sigtype);
 
@@ -678,7 +728,13 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 		cps->depth++;
 		break;
 
+	case LECPCB_OBJECT_START:
+		bucket_item_not_int(cps, ctx);
+		break;
+
 	case LECPCB_ARRAY_START:
+
+		bucket_item_not_int(cps, ctx);
 
 		if (cps->sub || cps->tli != ST_OUTER_PROTECTED ||
 		    ctx->pst[ctx->pst_sp].ppos != 2)
@@ -977,18 +1033,29 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				sl->alg_prot = (char)prot;
 				break;
 			}
+
+			/* the value of a label we don't act on */
+			cps->map_key = 0;
 			break;
 		}
 		break;
 
-	case LECPCB_VAL_STR_END:
-		switch (cps->tli) {
-		case ST_OUTER_UNPROTECTED:
-			break;
-		}
+	case LECPCB_VAL_TRUE:
+	case LECPCB_VAL_FALSE:
+	case LECPCB_VAL_NULL:
+	case LECPCB_VAL_UNDEFINED:
+	case LECPCB_VAL_RESERVED:
+	case LECPCB_VAL_FLOAT16:
+	case LECPCB_VAL_FLOAT32:
+	case LECPCB_VAL_FLOAT64:
+	case LECPCB_VAL_SIMPLE:
+	case LECPCB_VAL_STR_START:
+		bucket_item_not_int(cps, ctx);
 		break;
 
 	case LECPCB_VAL_BLOB_START:
+
+		bucket_item_not_int(cps, ctx);
 
 		if (cps->tli == ST_OUTER_SIGN1_SIGNATURE ||
 		    cps->tli == ST_INNER_SIGNATURE) {
