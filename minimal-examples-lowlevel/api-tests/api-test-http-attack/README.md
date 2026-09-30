@@ -53,6 +53,9 @@ h1, raw:
 |a request followed by junk|the request served, the junk not|
 |8 pipelined requests|all 9 served, in order|
 |two different Content-Length, Content-Length with chunked, chunk size overflow, two Host|nothing served|
+|a POST with a Content-Length or chunked body to a mount asked for without its `/`, an unknown `Upgrade:` with a body, then a request|the 301 or 403, then the request after the body|
+|a POST with no body length to a mount asked for without its `/`, then a request|the 301, and nothing after it (the body runs to the close)|
+|a websocket upgrade with a body|400|
 |NUL or a bare CR in a header value, 1000 headers|nothing served|
 |40 urlargs|served|
 |120 urlargs, more than the ah has header fragments for|414|

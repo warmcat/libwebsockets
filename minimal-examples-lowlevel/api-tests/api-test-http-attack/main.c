@@ -80,7 +80,10 @@ enum verdict {
 	V_ALIVE_OR_CALM,  /* h2: the request after the abuse is served, or the
 			   * connection ends with GOAWAY ENHANCE_YOUR_CALM */
 	V_PIPELINED,	  /* h1: .status responses, each 200 with expect */
-	V_FIRST_ONLY,	  /* h1: the first request is served, the rest not */
+	V_FIRST_ONLY,	  /* h1: the first request is served, the rest not
+			   * (answered .status if given, else 200) */
+	V_THEN_ECHO,	  /* h1: .status, then 200 with the echo of expect,
+			   * and nothing else */
 	V_DROPPED,	  /* h1: closed without a response, in time */
 };
 
@@ -401,6 +404,9 @@ struct h1_attack {
 #define ATK_GET_INDEX "GET /f/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"
 #define ATK_GET_ALIVE "GET /alive HTTP/1.0\r\n"
 #define ATK_POST_ALIVE "POST /alive HTTP/1.1\r\nHost: localhost\r\n"
+#define ATK_POST_F "POST /f HTTP/1.1\r\nHost: localhost\r\n"
+#define ATK_GET_NEXT "GET /alive HTTP/1.1\r\nHost: localhost\r\n" \
+		     "User-Agent: next\r\nConnection: close\r\n\r\n"
 
 static const struct h1_attack h1_attacks[] = {
 
@@ -443,6 +449,39 @@ static const struct h1_attack h1_attacks[] = {
 	ATK_H1_NO_2XX("two Host headers",
 		      "GET /alive HTTP/1.1\r\nHost: localhost\r\n"
 		      "Host: other\r\n\r\n"),
+
+	/*
+	 * Some requests are answered before they reach the user code: a
+	 * mount asked for without its trailing '/' is redirected, an
+	 * unknown upgrade is refused.  Their body is still theirs, and the
+	 * request after it on the connection is the next one served.  A
+	 * body with no length runs to the close, so nothing comes after it.
+	 */
+	{ "a POST with a body to a mount without its /",
+	  ATK_L(ATK_POST_F "Content-Length: 11\r\n\r\nhello world"
+		ATK_GET_NEXT), NULL, 0, ATK_NONE, 1, 0, V_THEN_ECHO,
+	  HTTP_STATUS_MOVED_PERMANENTLY, "/alive ua=next" },
+	{ "a POST with a chunked body to a mount without its /",
+	  ATK_L(ATK_POST_F "Transfer-Encoding: chunked\r\n\r\n"
+		"6\r\nhello \r\n5\r\nworld\r\n0\r\n\r\n" ATK_GET_NEXT),
+	  NULL, 0, ATK_NONE, 1, 0, V_THEN_ECHO,
+	  HTTP_STATUS_MOVED_PERMANENTLY, "/alive ua=next" },
+	{ "a POST with no body length to a mount without its /",
+	  ATK_L(ATK_POST_F "\r\nhello world" ATK_GET_NEXT), NULL, 0,
+	  ATK_NONE, 1, 0, V_FIRST_ONLY, HTTP_STATUS_MOVED_PERMANENTLY, NULL },
+	{ "an unknown upgrade with a body",
+	  ATK_L(ATK_POST_ALIVE "Connection: upgrade\r\nUpgrade: other\r\n"
+		"Content-Length: 11\r\n\r\nhello world" ATK_GET_NEXT), NULL,
+	  0, ATK_NONE, 1, 0, V_THEN_ECHO, HTTP_STATUS_FORBIDDEN,
+	  "/alive ua=next" },
+	/* what follows an upgrade's head is the new protocol, not a body */
+	{ "a websocket upgrade with a body",
+	  ATK_L("GET /alive HTTP/1.1\r\nHost: localhost\r\n"
+		"Connection: upgrade\r\nUpgrade: websocket\r\n"
+		"Sec-WebSocket-Version: 13\r\n"
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+		"Content-Length: 11\r\n\r\nhello world"), NULL, 0, ATK_NONE,
+	  1, 0, V_STATUS, HTTP_STATUS_BAD_REQUEST, NULL },
 
 	/* header names: a token, then the colon */
 
@@ -942,8 +981,9 @@ evaluate(void)
 		break;
 
 	case V_FIRST_ONLY:
-		if (!nr || r[0].status != 200 ||
-		    !find(r[0].body, r[0].body_len, tc.expect)) {
+		if (!nr || r[0].status != (tc.status ? tc.status : 200) ||
+		    (tc.expect && !find(r[0].body, r[0].body_len,
+					tc.expect))) {
 			case_done("first request not served");
 			return;
 		}
@@ -952,6 +992,20 @@ evaluate(void)
 				case_done("what followed it was served");
 				return;
 			}
+		break;
+
+	case V_THEN_ECHO:
+		if (nr != 2 || r[0].status != tc.status ||
+		    r[1].status != 200 ||
+		    !body_is_echo(r[1].body, r[1].body_len, tc.expect)) {
+			lws_snprintf(why, sizeof(why),
+				     "wanted %d then 200 '%s', got %d "
+				     "responses, %d then %d", tc.status,
+				     tc.expect, nr, status,
+				     nr > 1 ? r[1].status : 0);
+			case_done(why);
+			return;
+		}
 		break;
 
 	case V_DROPPED:

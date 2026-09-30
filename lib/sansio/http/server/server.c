@@ -1862,6 +1862,201 @@ lws_h1_request_framing(struct lws *wsi)
 	wsi->http.conn_type = conn_type;
 }
 
+/*
+ * How the request's body is framed: its Content-Length, or a chunked
+ * Transfer-Encoding, validated into rx_content_length, rx_content_remain,
+ * content_length_given and rx_chunked.  A request we might frame differently
+ * from its peer, or from something in front of us, is answered here, and the
+ * caller closes (nonzero return).
+ *
+ * The completion of the transaction relies on it: it is what says how much of
+ * what follows the head is this request's body, to be stepped over, and not
+ * the next request.  So it must be decided before anything can answer the
+ * request: for h1 that is as soon as the head is parsed, in
+ * lws_handshake_server(), since the mount's redirect and a refused upgrade are
+ * answered there.  h2 / h3 frame their bodies themselves, and decide it in
+ * lws_http_action().
+ */
+static int
+lws_http_request_body_framing(struct lws *wsi)
+{
+	uint64_t max_body = wsi->a.vhost->max_http_body_size ?
+			wsi->a.vhost->max_http_body_size : 100 * 1024 * 1024;
+	char content_length_str[32];
+
+	wsi->http.rx_content_length = 0;
+	wsi->http.content_length_explicitly_zero = 0;
+	/*
+	 * Per-transaction: a stale 1 from an earlier framed POST on
+	 * this keepalive connection must not let a later unframed
+	 * POST bypass the "no content length, close" resync rule in
+	 * lws_http_transaction_completed().
+	 */
+	wsi->http.content_length_given = 0;
+	/* no status line has been built for this transaction yet */
+	wsi->http.response_code = 0;
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+			||
+	    lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
+	    lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI)
+#endif
+	    ) {
+		wsi->http.rx_content_length = max_body;
+		if (!wsi->http.rx_content_remain)
+			wsi->http.rx_content_remain = max_body;
+	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+		lwsl_warn("%s: Both Content-Length and Transfer-Encoding present\n", __func__);
+		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
+		return 1;
+	}
+
+	/*
+	 * RFC 9112 3.2: more than one Host is a 400.  Vhost selection,
+	 * the proxy and cgi read the first fragment and the redirect
+	 * path the joined value, so two of them would let a request
+	 * be routed by one name and act under another.
+	 */
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST) &&
+	    wsi->stream.ah->frags[wsi->stream.ah->frag_index[
+				WSI_TOKEN_HOST]].nfrag) {
+		lwsl_wsi_notice(wsi, "more than one Host header");
+		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
+		return 1;
+	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT) &&
+	    !lws_http_expect_is_continue(wsi)) {
+		lwsl_wsi_notice(wsi, "unsupported Expect");
+		lws_return_http_status(wsi,
+			HTTP_STATUS_EXPECTATION_FAILED, NULL);
+		return 1;
+	}
+
+	wsi->http.rx_chunked = 0;
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+		/*
+		 * h2 and h3 refuse Transfer-Encoding at their framing
+		 * layer, so this is an h1 request.  The only coding we
+		 * decode is a lone "chunked": anything else, including
+		 * a list that ends in chunked, gets 501 (RFC 7230
+		 * 3.3.1), since a body we would frame differently from
+		 * the peer or an intermediary is not something to
+		 * guess at.
+		 */
+		if (!lws_http_te_is_chunked(wsi)) {
+			lwsl_wsi_notice(wsi, "unsupported Transfer-Encoding");
+			lws_return_http_status(wsi,
+				HTTP_STATUS_NOT_IMPLEMENTED, NULL);
+			return 1;
+		}
+
+		wsi->http.rx_chunked = 1;
+		wsi->http.chunk_parser = ELCP_HEX;
+		wsi->http.chunk_remaining = 0;
+		wsi->http.chunk_skip = 0;
+
+		/*
+		 * The body length is only known when the last-chunk
+		 * arrives: rx_content_remain counts the decoded payload
+		 * down from the body limit instead.  This applies to
+		 * any method: a GET with a chunked body still has a
+		 * body we must decode past to stay in sync with the
+		 * peer.
+		 */
+		wsi->http.rx_content_length = max_body;
+		wsi->http.rx_content_remain = max_body;
+	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		uint64_t cl_val = 0;
+
+		/*
+		 * More than one Content-Length is a framing
+		 * disagreement waiting to happen.  A second fragment
+		 * exists unless lws_hdr_copy_fragment() reports there
+		 * is none (-1)... -2 means there is one but it did not
+		 * fit in our buffer, which is just as unacceptable.
+		 */
+
+		if (lws_hdr_copy_fragment(wsi, content_length_str,
+					  sizeof(content_length_str) - 1,
+					  WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					  1) != -1) {
+			lwsl_warn("%s: multiple Content-Length headers\n",
+				  __func__);
+			lws_return_http_status(wsi,
+					HTTP_STATUS_BAD_REQUEST, NULL);
+			return 1;
+		}
+
+		/*
+		 * A Content-Length that is too long for us to even
+		 * copy must be rejected rather than ignored: ignoring
+		 * it leaves us framing the connection differently from
+		 * whatever intermediary did understand it.
+		 */
+
+		if (lws_hdr_copy(wsi, content_length_str,
+				 sizeof(content_length_str) - 1,
+				 WSI_TOKEN_HTTP_CONTENT_LENGTH) <= 0 ||
+		    lws_http_parse_content_length(content_length_str,
+						  &cl_val)) {
+			lwsl_warn("%s: invalid Content-Length: %s\n",
+				  __func__, content_length_str);
+			lws_return_http_status(wsi,
+					HTTP_STATUS_BAD_REQUEST, NULL);
+			return 1;
+		}
+
+		if (cl_val > max_body) {
+			lwsl_warn("%s: rejected Content-Length %llu > max %llu\n",
+				  __func__, (unsigned long long)cl_val,
+				  (unsigned long long)max_body);
+			lws_return_http_status(wsi,
+				HTTP_STATUS_REQ_ENTITY_TOO_LARGE, NULL);
+			return 1;
+		}
+
+		wsi->http.rx_content_remain = wsi->http.rx_content_length =
+				(lws_filepos_t)cl_val;
+		wsi->http.content_length_given = 1;
+		if (!wsi->http.rx_content_length) {
+			wsi->http.content_length_explicitly_zero = 1;
+			lwsl_debug("%s: explicit 0 content-length\n", __func__);
+		}
+	}
+#if defined(LWS_ROLE_H2)
+	else if (lwsi_role_h2(wsi) && wsi->mux_substream && wsi->h2.END_STREAM &&
+		 !wsi->buflist) {
+		/*
+		 * h2 with no Content-Length, but END_STREAM already arrived on
+		 * the HEADERS (and nothing is stashed on the buflist: since
+		 * C-378 END_STREAM is also latched by the DATA frame that ends
+		 * a body, and a body that arrived stashed with the HEADERS
+		 * must not be zeroed away here, lws_read_h1() completes it
+		 * from the buflist instead): the request body is empty and
+		 * complete.  Without
+		 * this, a body-bearing method (POST/PUT/PATCH) would be left
+		 * waiting on the 100MB default above for a body that will never
+		 * come, stalling the request until it times out.  Treat it as an
+		 * explicit zero-length body, exactly as an explicit
+		 * "Content-Length: 0" would (h3 does the equivalent in ops-h3.c).
+		 */
+		wsi->http.rx_content_remain = wsi->http.rx_content_length = 0;
+		wsi->http.content_length_given = 1;
+		wsi->http.content_length_explicitly_zero = 1;
+		lwsl_debug("%s: h2 END_STREAM, no content-length: empty body\n",
+			   __func__);
+	}
+#endif
+
+	return 0;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -1869,7 +2064,6 @@ lws_http_action(struct lws *wsi)
 	int uri_len = 0, meth, m, ha;
 	const struct lws_http_mount *hit = NULL;
 	struct lws_process_html_args args;
-	char content_length_str[32];
 	char *uri_ptr = NULL;
 #if defined(LWS_WITH_FILE_OPS)
 	char *s;
@@ -1988,181 +2182,12 @@ lws_http_action(struct lws *wsi)
 	if (lws_ensure_user_space(wsi))
 		goto bail_nuke_ah;
 
-	/* HTTP header had a content length? */
-
-	{
-		uint64_t max_body = wsi->a.vhost->max_http_body_size ? wsi->a.vhost->max_http_body_size : 100 * 1024 * 1024;
-
-		wsi->http.rx_content_length = 0;
-		wsi->http.content_length_explicitly_zero = 0;
-		/*
-		 * Per-transaction: a stale 1 from an earlier framed POST on
-		 * this keepalive connection must not let a later unframed
-		 * POST bypass the "no content length, close" resync rule in
-		 * lws_http_transaction_completed().
-		 */
-		wsi->http.content_length_given = 0;
-		/* no status line has been built for this transaction yet */
-		wsi->http.response_code = 0;
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-				||
-		    lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
-		    lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI)
-#endif
-		    ) {
-			wsi->http.rx_content_length = max_body;
-			if (!wsi->http.rx_content_remain)
-				wsi->http.rx_content_remain = max_body;
-		}
-
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
-			lwsl_warn("%s: Both Content-Length and Transfer-Encoding present\n", __func__);
-			lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
-			return 1;
-		}
-
-		/*
-		 * RFC 9112 3.2: more than one Host is a 400.  Vhost selection,
-		 * the proxy and cgi read the first fragment and the redirect
-		 * path the joined value, so two of them would let a request
-		 * be routed by one name and act under another.
-		 */
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST) &&
-		    wsi->stream.ah->frags[wsi->stream.ah->frag_index[
-					WSI_TOKEN_HOST]].nfrag) {
-			lwsl_wsi_notice(wsi, "more than one Host header");
-			lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
-			return 1;
-		}
-
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT) &&
-		    !lws_http_expect_is_continue(wsi)) {
-			lwsl_wsi_notice(wsi, "unsupported Expect");
-			lws_return_http_status(wsi,
-				HTTP_STATUS_EXPECTATION_FAILED, NULL);
-			return 1;
-		}
-
-		wsi->http.rx_chunked = 0;
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
-			/*
-			 * h2 and h3 refuse Transfer-Encoding at their framing
-			 * layer, so this is an h1 request.  The only coding we
-			 * decode is a lone "chunked": anything else, including
-			 * a list that ends in chunked, gets 501 (RFC 7230
-			 * 3.3.1), since a body we would frame differently from
-			 * the peer or an intermediary is not something to
-			 * guess at.
-			 */
-			if (!lws_http_te_is_chunked(wsi)) {
-				lwsl_wsi_notice(wsi, "unsupported Transfer-Encoding");
-				lws_return_http_status(wsi,
-					HTTP_STATUS_NOT_IMPLEMENTED, NULL);
-				return 1;
-			}
-
-			wsi->http.rx_chunked = 1;
-			wsi->http.chunk_parser = ELCP_HEX;
-			wsi->http.chunk_remaining = 0;
-			wsi->http.chunk_skip = 0;
-
-			/*
-			 * The body length is only known when the last-chunk
-			 * arrives: rx_content_remain counts the decoded payload
-			 * down from the body limit instead.  This applies to
-			 * any method: a GET with a chunked body still has a
-			 * body we must decode past to stay in sync with the
-			 * peer.
-			 */
-			wsi->http.rx_content_length = max_body;
-			wsi->http.rx_content_remain = max_body;
-		}
-
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-			uint64_t cl_val = 0;
-
-			/*
-			 * More than one Content-Length is a framing
-			 * disagreement waiting to happen.  A second fragment
-			 * exists unless lws_hdr_copy_fragment() reports there
-			 * is none (-1)... -2 means there is one but it did not
-			 * fit in our buffer, which is just as unacceptable.
-			 */
-
-			if (lws_hdr_copy_fragment(wsi, content_length_str,
-						  sizeof(content_length_str) - 1,
-						  WSI_TOKEN_HTTP_CONTENT_LENGTH,
-						  1) != -1) {
-				lwsl_warn("%s: multiple Content-Length headers\n",
-					  __func__);
-				lws_return_http_status(wsi,
-						HTTP_STATUS_BAD_REQUEST, NULL);
-				return 1;
-			}
-
-			/*
-			 * A Content-Length that is too long for us to even
-			 * copy must be rejected rather than ignored: ignoring
-			 * it leaves us framing the connection differently from
-			 * whatever intermediary did understand it.
-			 */
-
-			if (lws_hdr_copy(wsi, content_length_str,
-					 sizeof(content_length_str) - 1,
-					 WSI_TOKEN_HTTP_CONTENT_LENGTH) <= 0 ||
-			    lws_http_parse_content_length(content_length_str,
-							  &cl_val)) {
-				lwsl_warn("%s: invalid Content-Length: %s\n",
-					  __func__, content_length_str);
-				lws_return_http_status(wsi,
-						HTTP_STATUS_BAD_REQUEST, NULL);
-				return 1;
-			}
-
-			if (cl_val > max_body) {
-				lwsl_warn("%s: rejected Content-Length %llu > max %llu\n",
-					  __func__, (unsigned long long)cl_val,
-					  (unsigned long long)max_body);
-				lws_return_http_status(wsi,
-					HTTP_STATUS_REQ_ENTITY_TOO_LARGE, NULL);
-				return 1;
-			}
-
-			wsi->http.rx_content_remain = wsi->http.rx_content_length =
-					(lws_filepos_t)cl_val;
-			wsi->http.content_length_given = 1;
-			if (!wsi->http.rx_content_length) {
-				wsi->http.content_length_explicitly_zero = 1;
-				lwsl_debug("%s: explicit 0 content-length\n", __func__);
-			}
-		}
-#if defined(LWS_ROLE_H2)
-		else if (lwsi_role_h2(wsi) && wsi->mux_substream && wsi->h2.END_STREAM &&
-			 !wsi->buflist) {
-			/*
-			 * h2 with no Content-Length, but END_STREAM already arrived on
-			 * the HEADERS (and nothing is stashed on the buflist: since
-			 * C-378 END_STREAM is also latched by the DATA frame that ends
-			 * a body, and a body that arrived stashed with the HEADERS
-			 * must not be zeroed away here, lws_read_h1() completes it
-			 * from the buflist instead): the request body is empty and
-			 * complete.  Without
-			 * this, a body-bearing method (POST/PUT/PATCH) would be left
-			 * waiting on the 100MB default above for a body that will never
-			 * come, stalling the request until it times out.  Treat it as an
-			 * explicit zero-length body, exactly as an explicit
-			 * "Content-Length: 0" would (h3 does the equivalent in ops-h3.c).
-			 */
-			wsi->http.rx_content_remain = wsi->http.rx_content_length = 0;
-			wsi->http.content_length_given = 1;
-			wsi->http.content_length_explicitly_zero = 1;
-			lwsl_debug("%s: h2 END_STREAM, no content-length: empty body\n",
-				   __func__);
-		}
-#endif
-	}
+	/*
+	 * An h1 request's body framing was decided with its head, in
+	 * lws_handshake_server(), before anything could answer it
+	 */
+	if (wsi->mux_substream && lws_http_request_body_framing(wsi))
+		return 1;
 
 	if (wsi->mux_substream)
 		wsi->stream.request_version = HTTP_VERSION_2;
@@ -2990,6 +3015,17 @@ raw_transition:
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/*
+		 * Before anything answers the request, know how its body is
+		 * framed: some answers are given right here, the mount's
+		 * redirect and a refused upgrade, and completing any of them
+		 * has to step over exactly this request's body (or close,
+		 * where its end cannot be known) rather than parse it as the
+		 * next request
+		 */
+		if (lws_http_request_body_framing(wsi))
+			goto bail_nuke_ah;
+
+		/*
 		 * So he may have come to us requesting one or another kind
 		 * of upgrade from http... but we may want to redirect him at
 		 * http level.  In that case, we need to check the redirect
@@ -3049,6 +3085,20 @@ raw_transition:
 				 */
 				return 0;
 			} else {
+				/*
+				 * What follows the head of an upgrade is the
+				 * new protocol's.  A request with a body of its
+				 * own cannot be upgraded: its body would be
+				 * read as that protocol, where anything in
+				 * front of us saw it as this request's body
+				 */
+				if (wsi->http.rx_content_length) {
+					lwsl_info("upgrade with a body\n");
+					lws_return_http_status(wsi,
+						HTTP_STATUS_BAD_REQUEST, NULL);
+					goto bail_nuke_ah;
+				}
+
 				n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 						wsi, LWS_CALLBACK_HTTP_CONFIRM_UPGRADE,
 						wsi->user_space, (char *)up, 0);
