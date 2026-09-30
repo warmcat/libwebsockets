@@ -153,6 +153,20 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 	return s;
 }
 
+/*
+ * Only in these states is there a value being collected at s->out, with
+ * s->pos its length so far.  In US_NAME s->pos indexes s->name, and the
+ * multipart header states hold nothing at s->out: a flush from there would
+ * report bytes nobody wrote as a value.
+ */
+
+static int
+lws_urldecode_s_collecting(const struct lws_urldecode_stateful *s)
+{
+	return s->state == US_IDLE || s->state == US_PC1 ||
+	       s->state == US_PC2 || s->state == MT_LOOK_BOUND_IN;
+}
+
 static int
 lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 			int len)
@@ -161,7 +175,8 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 	char c;
 
 	while (len--) {
-		if (s->pos >= s->out_len - s->mp - 1) {
+		if (lws_urldecode_s_collecting(s) &&
+		    s->pos >= s->out_len - s->mp - 1) {
 			if (s->output(s->data, s->name, &s->out, s->pos,
 				      LWS_UFS_CONTENT))
 				return -1;
@@ -183,12 +198,19 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 				continue;
 			}
 			if (*in == '&') {
+				/*
+				 * A name with no '=' is the parameter with an
+				 * empty value.  s->pos is the name's length
+				 * here: nothing was written at s->out for it,
+				 * so what it reports is a zero-length value.
+				 * The next name follows directly.
+				 */
 				s->name[s->pos] = '\0';
-				if (s->output(s->data, s->name, &s->out,
-					      s->pos, LWS_UFS_FINAL_CONTENT))
+				if (s->pos && s->output(s->data, s->name,
+							&s->out, 0,
+							LWS_UFS_FINAL_CONTENT))
 					return -1;
 				s->pos = 0;
-				s->state = US_IDLE;
 				in++;
 				continue;
 			}
@@ -488,6 +510,13 @@ lws_urldecode_s_destroy(struct lws_spa *spa, struct lws_urldecode_stateful *s)
 {
 	int ret = 0;
 
+	if (s->state == US_NAME && s->pos) {
+		/* the body ended on a name with no '=': an empty value */
+		s->name[s->pos] = '\0';
+		s->pos = 0;
+		s->state = US_IDLE;
+	}
+
 	if (s->state != US_IDLE)
 		ret = -1;
 
@@ -557,8 +586,20 @@ lws_urldecode_spa_cb(struct lws_spa *spa, const char *name, char **buf, int len,
 		}
 		return 0;
 	}
+	/* a value with no name is not a parameter */
+	if (!name[0])
+		return 0;
+
 	n = lws_urldecode_spa_lookup(spa, name);
-	if (n == -1 || !len) /* unrecognized */
+	if (n == -1) /* unrecognized */
+		return 0;
+
+	/*
+	 * A parameter that ends with nothing collected is present with an
+	 * empty value: it gets "" if it has no value yet.  A zero-length
+	 * flush that does not end the value adds nothing.
+	 */
+	if (!len && (final != LWS_UFS_FINAL_CONTENT || spa->params[n]))
 		return 0;
 
 	if (!spa->i.ac) {
@@ -612,11 +653,17 @@ lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *i)
 	if (!spa->i.max_storage)
 		spa->i.max_storage = 512;
 
+	/*
+	 * Zeroed: a value is only ever published over bytes the parser wrote,
+	 * but if that ever slips, what shows is zeros, not old heap
+	 */
 	if (i->ac)
-		spa->storage = lwsac_use(i->ac, (unsigned int)spa->i.max_storage,
-					 i->ac_chunk_size);
+		spa->storage = lwsac_use_zero(i->ac,
+					      (unsigned int)spa->i.max_storage,
+					      i->ac_chunk_size);
 	else
-		spa->storage = lws_malloc((unsigned int)spa->i.max_storage, "spa");
+		spa->storage = lws_zalloc((unsigned int)spa->i.max_storage,
+					  "spa");
 
 	if (!spa->storage)
 		goto bail2;
