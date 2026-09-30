@@ -1634,6 +1634,7 @@ dloss_renew(dloss_t *ds, const void *data, size_t size)
 		if (!ds->u.u.dlo_png->png)
 			return 1;
 		ds->u.u.dlo_png->emitted = 0;
+		ds->u.u.dlo_png->failed = 0;
 		ds->u.u.dlo_png->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
 		lws_flow_feed(&ds->u.u.dlo_png->flow);
 		lws_display_dlo_png_metadata_scan(ds->u.u.dlo_png);

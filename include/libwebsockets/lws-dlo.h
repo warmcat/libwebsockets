@@ -327,6 +327,8 @@ typedef struct lws_dlo_png {
 	uint8_t				evicted; /* renew from the asset cache
 						  * before the next render */
 	uint8_t				yields; /* consecutive OOM yields */
+	uint8_t				failed; /* the decoder returned FATAL:
+						 * nothing more from it */
 } lws_dlo_png_t;
 
 typedef struct lws_dlo_jpeg {

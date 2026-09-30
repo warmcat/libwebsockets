@@ -124,6 +124,15 @@ struct lws_upng_t {
 
 	upng_outer_framing_t	of;
 
+	/*
+	 * Nonzero once any FATAL has been returned, and it is that FATAL:
+	 * every later call returns it again without touching anything.  The
+	 * framing and inflate states are not left anywhere a later call can
+	 * safely carry on from, eg, a bad signature byte leaves the magic
+	 * index past the one it failed at.
+	 */
+	lws_stateful_ret_t	failed;
+
 	uint8_t			no_more_input;
 	char			hold_at_metadata;
 };
@@ -235,18 +244,13 @@ unfilter_scanline(lws_upng_t *u)
 	return LWS_SRET_OK;
 }
 
-lws_stateful_ret_t
-lws_upng_emit_next_line(lws_upng_t *u, const uint8_t **ppix,
-		    const uint8_t **pos, size_t *size, char hold_at_metadata)
+static lws_stateful_ret_t
+upng_emit_line(lws_upng_t *u, const uint8_t **ppix, const uint8_t **pos,
+	       size_t *size, char hold_at_metadata)
 {
 	struct upng_unfline	*uf = &u->u;
 	unsigned long		obp;
 	lws_stateful_ret_t	ret = LWS_SRET_OK;
-
-	if (ppix)
-		*ppix = NULL;
-	if (!u || !ppix || !pos || !size)
-		return LWS_SRET_FATAL + 100;
 
 	u->hold_at_metadata = hold_at_metadata;
 
@@ -312,6 +316,30 @@ out:
 	uf->y++;
 
 	return ret;
+}
+
+lws_stateful_ret_t
+lws_upng_emit_next_line(lws_upng_t *u, const uint8_t **ppix,
+		    const uint8_t **pos, size_t *size, char hold_at_metadata)
+{
+	lws_stateful_ret_t r;
+
+	if (ppix)
+		*ppix = NULL;
+	if (!u || !ppix || !pos || !size)
+		return LWS_SRET_FATAL + 100;
+
+	if (u->failed)
+		return u->failed;
+
+	r = upng_emit_line(u, ppix, pos, size, hold_at_metadata);
+	if (r & LWS_SRET_FATAL) {
+		/* see ->failed: there is no coming back from it */
+		u->failed = r;
+		*ppix = NULL; /* eg, a line whose unfilter failed */
+	}
+
+	return r;
 }
 
 static lws_upng_format_t

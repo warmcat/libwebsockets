@@ -96,6 +96,10 @@ lws_upng_free(lws_upng_t **upng);
  * because it had produced a whole line of output pixels (which can be found
  * starting at *ppix), LWS_SRET_OK is it completed and a return with the LWS_SRET_FATAL bit set
  * if the decode failed.
+ *
+ * A failure is final: once a call has returned with LWS_SRET_FATAL set, every
+ * later call on the same decode object returns the same value without
+ * consuming any input.
  */
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_upng_emit_next_line(lws_upng_t *upng, const uint8_t **ppix,

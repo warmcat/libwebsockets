@@ -93,6 +93,15 @@ lws_display_render_png(struct lws_display_render_state *rs)
 	lws_dlo_png_t *dlo_png = lws_container_of(dlo, lws_dlo_png_t, dlo);
 	lws_stateful_ret_t r;
 
+	/*
+	 * A decoder that failed is never asked for anything again: there is
+	 * no row coming from it, and nothing it was in the middle of can be
+	 * resumed.  A renew gives the dlo a fresh decoder and clears this.
+	 */
+
+	if (dlo_png->failed)
+		return LWS_SRET_OK;
+
 	/* evicted since we last rendered: bring it back first */
 	if (dlo_png->evicted) {
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
@@ -226,6 +235,7 @@ lws_display_render_png_pinned(struct lws_display_render_state *rs)
 			 * whole render hostage
 			 */
 			dlo_png->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+			dlo_png->failed = 1;
 			lwsl_notice("%s: %s: decode failed\n", __func__,
 				    dlo_png->name);
 			return LWS_SRET_OK;

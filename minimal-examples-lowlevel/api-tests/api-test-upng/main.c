@@ -314,6 +314,56 @@ bail:
 	return ret;
 }
 
+/*
+ * A decoder that has failed stays failed: every later call gives the same
+ * FATAL and takes none of the input it is offered.  Something that is not a
+ * PNG at all fails on its first byte, and then even a real PNG offered to
+ * the same decoder, over and over, gets that same answer.
+ */
+
+static int
+selftest_sticky(void)
+{
+	static const uint8_t junk[] = "this is not a png";
+	lws_stateful_ret_t r, r1;
+	const uint8_t *p, *pix;
+	lws_upng_t *u;
+	size_t ps;
+	int e = 0, n;
+
+	u = lws_upng_new();
+	if (!u)
+		return 1;
+
+	p = junk;
+	ps = sizeof(junk);
+	r = lws_upng_emit_next_line(u, &pix, &p, &ps, 0);
+	if (!(r & LWS_SRET_FATAL)) {
+		lwsl_err("%s: junk accepted: 0x%x\n", __func__, (unsigned int)r);
+		e++;
+		goto bail;
+	}
+
+	for (n = 0; n < 12; n++) {
+		p = png_rgb8_deflate;
+		ps = sizeof(png_rgb8_deflate);
+		r1 = lws_upng_emit_next_line(u, &pix, &p, &ps, 0);
+		if (r1 != r || pix || p != png_rgb8_deflate ||
+		    ps != sizeof(png_rgb8_deflate)) {
+			lwsl_err("%s: after FATAL 0x%x: 0x%x, took %u\n",
+				 __func__, (unsigned int)r, (unsigned int)r1,
+				 (unsigned int)(sizeof(png_rgb8_deflate) - ps));
+			e++;
+			break;
+		}
+	}
+
+bail:
+	lws_upng_free(&u);
+
+	return e;
+}
+
 static int
 selftest(void)
 {
@@ -410,6 +460,11 @@ selftest(void)
 
 	lwsl_user("%s: %d / %d decodes correct\n", __func__, runs - fails,
 		  runs);
+
+	if (selftest_sticky()) {
+		lwsl_user("%s: FATAL is not sticky\n", __func__);
+		fails++;
+	}
 
 	return !!fails;
 }
