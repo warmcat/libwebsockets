@@ -33,6 +33,8 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 	lws_get_free_port(PORT_CPR)
 	lws_get_free_port(PORT_CPR2)
 	lws_get_free_port(PORT_CPR_PROXY)
+	lws_get_free_port(PORT_CPR_RAW)
+	lws_get_free_port(PORT_CPR_RAW_TLS)
 
 	add_test(NAME st_cprx_proxy COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
@@ -47,9 +49,18 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 			     ENVIRONMENT "SAI_LIST_PORT=${PORT_CPR_PROXY}")
 	set_tests_properties(ki_cprx_proxy PROPERTIES FIXTURES_CLEANUP cprx_proxy)
 
+	#
+	# The raw origin's tls uses api-test-ws-close's test certificate too
+	#
+	set(CPRX_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
+
 	add_test(NAME api-test-client-proxy-redirect
 		 COMMAND lws-api-test-client-proxy-redirect
 			 -p ${PORT_CPR} --port2 ${PORT_CPR2}
+			 --port-raw ${PORT_CPR_RAW}
+			 --port-raw-tls ${PORT_CPR_RAW_TLS}
+			 --cert ${CPRX_CERTS}/localhost-100y.cert
+			 --key ${CPRX_CERTS}/localhost-100y.key
 			 --proxy 127.0.0.1:${PORT_CPR_PROXY})
 	set_tests_properties(api-test-client-proxy-redirect
 			     PROPERTIES

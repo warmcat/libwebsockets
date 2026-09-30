@@ -38,6 +38,12 @@ rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
 	(void)from_transport;
 	*used = 0;
 
+#if defined(LWS_WITH_CLIENT)
+	/* the proxy's reply to our CONNECT: not CLI_RX, the tunnel rx's */
+	if (lwsi_in_tunnel_leg(wsi))
+		return lws_client_tunnel_rx(wsi, buf, len, used);
+#endif
+
 	if (!len)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
@@ -57,7 +63,10 @@ rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
 	return LWS_HPI_RET_HANDLED;
 }
 
-/* as raw-skt: hold behind a partial, not during the transport phases */
+/*
+ * As raw-skt: hold behind a partial, not during the transport phases, except
+ * a client's tunnel legs, read whole for the tunnel rx
+ */
 static int
 rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
 {
@@ -73,8 +82,20 @@ rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
 		return LWS_RXPOL_HOLD;
 	}
 
-	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
-	    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(wsi) && lwsi_transport(wsi) != LTS_NONE) {
+		if (!lwsi_in_tunnel_leg(wsi))
+			/* dns, connect, tls: IO's transport stage */
+			return LWS_RXPOL_ROLE;
+
+		*flags = 0;
+		*max = 0;
+
+		return LWS_RXPOL_PUMP;
+	}
+#endif
+
+	if (lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
 		return LWS_RXPOL_ROLE;
 
 	*flags = LWS_RXP_FORCE_READ;

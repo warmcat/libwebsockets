@@ -133,6 +133,10 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
 				(int)wsi->a.context->timeout_secs);
 
+		/* the reply is read from its start, by lws_client_tunnel_rx() */
+		wsi->proxy_reply_status_ok = 0;
+		wsi->proxy_reply_eoh = 0;
+
 		lws_wsi_event(wsi, LWS_WSIEV_PROXY_CONNECT_SENT);
 
 		return wsi;
@@ -220,3 +224,170 @@ failed:
 
 	return NULL;
 }
+
+#if defined(LWS_WITH_CLIENT)
+/*
+ * Whether bytes that come after the reply that brought a tunnel up can be the
+ * peer's.  Only a raw protocol over plaintext may have a peer that speaks
+ * first (an smtp or ssh banner, relayed by the proxy straight after its
+ * reply).  For the others our side speaks first, our ClientHello or our
+ * request: bytes ahead of it can only be the proxy's, and kept, they would be
+ * taken for the peer's, after a tls handshake that verified the real origin.
+ */
+static int
+lws_client_tunnel_peer_may_speak_first(struct lws *wsi)
+{
+#if defined(LWS_WITH_TLS)
+	if (wsi->use_ssl & LCCSCF_USE_SSL)
+		return 0;
+#endif
+
+	return wsi->role_ops == &role_ops_raw_skt || lwsi_role_raw_proxy(wsi);
+}
+
+#if defined(LWS_CLIENT_HTTP_PROXYING) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+/*
+ * The http proxy's reply to our CONNECT.  Its status line decides it, and
+ * comes whole in the first read (the proxy writes its reply at once, and a
+ * fragment shorter than the status line is not worth reassembling).  The
+ * headers after it mean nothing to us (RFC 9110 9.3.6: not even a
+ * Content-Length), but the tunnel only starts after the blank line that ends
+ * them, which may be in a later read: how much of the CRLFCRLF has been seen
+ * is kept in the wsi across reads.
+ *
+ * Returns -1 on failure with *pcce set, 0 when more of the reply is to come
+ * (all of the read was taken), 1 when the tunnel is up (*used is where the
+ * reply ended).
+ */
+static int
+lws_client_proxy_reply(struct lws *wsi, const uint8_t *buf, size_t len,
+		       const char **pcce, char *ebuf, size_t ebuf_len,
+		       size_t *used)
+{
+	static const char eoh[] = "\x0d\x0a\x0d\x0a";
+	unsigned int status = 0, m;
+	size_t n = 0;
+
+	if (!len) {
+		*pcce = "proxy conn dead";
+
+		return -1;
+	}
+
+	if (!wsi->proxy_reply_status_ok) {
+		/* "HTTP/1.x NNN" then SP (the reason) or the CRLF */
+		if (len < 13 || strncmp((const char *)buf, "HTTP/1.", 7) ||
+		    (buf[7] != '0' && buf[7] != '1') || buf[8] != ' ' ||
+		    (buf[12] != ' ' && buf[12] != '\x0d')) {
+			*pcce = "http_proxy fail";
+
+			return -1;
+		}
+
+		for (n = 9; n < 12; n++) {
+			if (buf[n] < '0' || buf[n] > '9') {
+				*pcce = "http_proxy fail";
+
+				return -1;
+			}
+			status = (status * 10) + (unsigned int)(buf[n] - '0');
+		}
+
+		if (status != 200) {
+			lws_snprintf(ebuf, ebuf_len, "http_proxy -> %u", status);
+			*pcce = ebuf;
+
+			return -1;
+		}
+
+		wsi->proxy_reply_status_ok = 1;
+	}
+
+	/* on to the blank line; the status line has no CR or LF before n */
+	m = wsi->proxy_reply_eoh;
+	while (n < len && m < 4) {
+		if (buf[n] == (uint8_t)eoh[m])
+			m++;
+		else
+			m = buf[n] == '\x0d';
+		n++;
+	}
+
+	*used = n;
+	if (m < 4) {
+		wsi->proxy_reply_eoh = m & 3;
+
+		return 0;
+	}
+
+	return 1;
+}
+#endif
+
+/*
+ * sansIO rx for a client's tunnel leg, for every client role: the proxy's
+ * reply to the http CONNECT we sent.  Nothing in it is for the role or the
+ * user: until the tunnel is up the bytes are the proxy's, and the connection
+ * does not exist for the user yet.  When it comes up, IO carries on as for a
+ * direct connection: tls first if that was asked for, else the transport is
+ * up and the role hears so with its client_transport_up op, or the user with
+ * the role's adoption callback (RAW_CONNECTED, say).  What followed the reply
+ * in the read is left in *used for the role's own rx, when it can be the
+ * peer's.
+ */
+lws_handling_result_t
+lws_client_tunnel_rx(struct lws *wsi, const uint8_t *buf, size_t len,
+		     size_t *used)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const char *cce = "tunnel leg in unexpected state";
+	int r = -1;
+#if defined(LWS_CLIENT_HTTP_PROXYING) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+	char ebuf[24];
+#endif
+
+	*used = 0;
+
+#if defined(LWS_CLIENT_HTTP_PROXYING) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+	if (lwsi_transport(wsi) == LTS_WAITING_PROXY_REPLY)
+		r = lws_client_proxy_reply(wsi, buf, len, &cce, ebuf,
+					   sizeof(ebuf), used);
+#endif
+
+	switch (r) {
+	case 0:
+		/* more of the reply is to come */
+		return LWS_HPI_RET_HANDLED;
+	case 1:
+		break;
+	default:
+		goto fail;
+	}
+
+	if (*used < len && !lws_client_tunnel_peer_may_speak_first(wsi)) {
+		lwsl_wsi_err(wsi, "%d bytes after the tunnel came up, with our "
+				  "side to speak next", (int)(len - *used));
+		cce = "tunnel trailing bytes";
+		goto fail;
+	}
+
+	/* the reply is ours, what follows it is not */
+	lws_servbuf_trim(pt, buf + *used);
+
+	lwsl_wsi_info(wsi, "tunnel up");
+
+	/* clear his proxy connection timeout */
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	return lws_client_transport_connected(wsi);
+
+fail:
+	lwsl_wsi_info(wsi, "tunnel leg failed: %s", cce);
+	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
+}
+#endif

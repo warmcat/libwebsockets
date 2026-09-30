@@ -88,6 +88,12 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 	(void)from_transport;
 	*used = 0;
 
+#if defined(LWS_WITH_CLIENT)
+	/* the proxy's reply to our CONNECT: not RAW_RX, the tunnel rx's */
+	if (lwsi_in_tunnel_leg(wsi))
+		return lws_client_tunnel_rx(wsi, buf, len, used);
+#endif
+
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi)) {
 		const char *cce = NULL;
@@ -148,7 +154,10 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
  * must be generated behind it), not during the transport phases, else
  * forced even with rx parked (a plain socket, nothing to block behind),
  * bounded by the protocol's rx_buffer_size.  Pre-established server
- * sockets are in their tls accept, the handler's.
+ * sockets are in their tls accept, the handler's.  A client's transport
+ * phases are IO's (dns, connect, tls), except its tunnel legs, whose bytes
+ * are the proxy's replies, read whole for the tunnel rx: nothing is RAW_RX
+ * before the transport is up and the user was told RAW_CONNECTED.
  */
 static int
 rops_rx_policy_raw_skt(struct lws *wsi, int *flags, size_t *max)
@@ -169,14 +178,21 @@ rops_rx_policy_raw_skt(struct lws *wsi, int *flags, size_t *max)
 	if (!lwsi_role_client(wsi) && lwsi_state(wsi) != LRS_ESTABLISHED)
 		return LWS_RXPOL_ROLE;
 #endif
-	switch (lwsi_state(wsi)) {
-	case LRS_SSL_ACK_PENDING:
-	case LRS_WAITING_CONNECT:
-	case LRS_WAITING_SSL:
-		return LWS_RXPOL_ROLE;
-	default:
-		break;
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(wsi) && lwsi_transport(wsi) != LTS_NONE) {
+		if (!lwsi_in_tunnel_leg(wsi)
+#if defined(LWS_WITH_SOCKS5)
+		    && !lwsi_in_socks5_leg(wsi)
+#endif
+		    )
+			return LWS_RXPOL_ROLE;
+
+		*flags = 0;
+		*max = 0;
+
+		return LWS_RXPOL_PUMP;
 	}
+#endif
 
 	*flags = LWS_RXP_FORCE_READ;
 	*max = wsi->a.protocol->rx_buffer_size;

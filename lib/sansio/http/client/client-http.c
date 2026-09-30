@@ -106,67 +106,19 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		 int from_transport, size_t *used)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-#if defined(LWS_CLIENT_HTTP_PROXYING) || defined(LWS_WITH_SOCKS5)
+#if defined(LWS_WITH_SOCKS5)
 	lws_handling_result_t hr;
 #endif
 	const char *cce;
 	int n, m;
-#if defined(LWS_CLIENT_HTTP_PROXYING)
-	char pbuf[24];
-#endif
 
 	(void)from_transport;
 	*used = 0;
 	(void)pt;
 
-#if defined(LWS_CLIENT_HTTP_PROXYING)
-	if (lwsi_state(wsi) == LRS_WAITING_PROXY_REPLY) {
-		/*
-		 * The http proxy's reply to our CONNECT.  Its status line
-		 * decides it; whatever the proxy sent with it is discarded,
-		 * as before (the peer speaks only after we do, in every
-		 * protocol this tunnel carries).
-		 */
-		if (!len) {
-			cce = "proxy conn dead";
-			goto fail;
-		}
-
-		if (len < 13 || strncmp((const char *)buf, "HTTP/1.", 7) ||
-		    (buf[7] != '0' && buf[7] != '1') || buf[8] != ' ') {
-			cce = "http_proxy fail";
-			goto fail;
-		}
-
-		memcpy(pbuf, &buf[9], 3);
-		pbuf[3] = '\0';
-		n = atoi(pbuf);
-		if (n != 200) {
-			lws_snprintf(pbuf, sizeof(pbuf), "http_proxy -> %u",
-				     (unsigned int)n);
-			cce = pbuf;
-			goto fail;
-		}
-
-		lwsl_wsi_info(wsi, "proxy connection established");
-
-		/* clear his proxy connection timeout */
-		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
-		/*
-		 * The tunnel is up: for the protocol this is the socket
-		 * connecting, and IO goes on from here as for a direct
-		 * connection (tls, then our handshake)
-		 */
-		hr = lws_client_transport_connected(wsi);
-		if (hr != LWS_HPI_RET_HANDLED)
-			return hr;
-
-		*used = len;
-
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
+	/* the proxy's reply to our CONNECT is the shared tunnel rx's */
+	if (lwsi_in_tunnel_leg(wsi))
+		return lws_client_tunnel_rx(wsi, buf, len, used);
 
 #if defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi)) {

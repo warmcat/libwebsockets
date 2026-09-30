@@ -37,6 +37,12 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 	(void)from_transport;
 	*used = 0;
 
+#if defined(LWS_WITH_CLIENT)
+	/* the proxy's reply to our CONNECT is the shared tunnel rx's */
+	if (lwsi_in_tunnel_leg(wsi))
+		return lws_client_tunnel_rx(wsi, buf, len, used);
+#endif
+
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi))
 		return lws_mqtt_client_socks_rx(wsi, buf, len, used);
@@ -91,6 +97,9 @@ rops_rx_policy_mqtt(struct lws *wsi, int *flags, size_t *max)
 	/* the broker's CONNACK, and everything after it, come through rx */
 	if (lwsi_state(wsi) == LRS_ESTABLISHED ||
 	    lwsi_state(wsi) == LRS_MQTTC_AWAIT_CONNACK
+#if defined(LWS_WITH_CLIENT)
+	    || lwsi_in_tunnel_leg(wsi)
+#endif
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
 	    || lwsi_in_socks5_leg(wsi)
 #endif
