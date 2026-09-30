@@ -978,6 +978,22 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 					continue;
 				}
 
+				/*
+				 * What we store was policed on the way in, but
+				 * the jar file may hold lines that weren't (an
+				 * older lws, another writer): the name and value
+				 * go into the request head verbatim, so they
+				 * must be what we would have stored
+				 */
+				if (!lws_cookie_name_ok(c.f[CE_NAME],
+							c.l[CE_NAME]) ||
+				    !lws_cookie_value_ok(c.f[CE_VALUE],
+							 c.l[CE_VALUE])) {
+					lwsl_notice("%s: skipping bad '%s'\n",
+						    __func__, cr.tag);
+					continue;
+				}
+
 				if (c.f[CE_HOSTONLY] && !hostdomain){
 					lwsl_cookie("%s: not sending this\n",
 							__func__);
