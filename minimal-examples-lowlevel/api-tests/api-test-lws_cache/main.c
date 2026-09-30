@@ -757,6 +757,64 @@ cdone:
 
 	return ret;
 }
+
+/*
+ * Cookie paths (and names, and domains) can be longer than 63 chars: such a
+ * cookie must be stored, found again by its key and removable
+ */
+
+static int
+test_nsc_long_fields(void)
+{
+	struct lws_cache_ttl_lru *l1 = NULL, *nsc = NULL;
+	char line[384], key[256], path[128];
+	int ret = 1;
+	size_t size;
+	char *po;
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	memset(path, 'p', 100);
+	path[0] = '/';
+	path[100] = '\0';
+
+	lws_snprintf(line, sizeof(line), "host.com\tFALSE\t%s\tTRUE\t"
+		     "4000000000\tlongpathcookie\tlongpathvalue", path);
+	lws_snprintf(key, sizeof(key), "host.com|%s|longpathcookie", path);
+
+	if (nsc_pair_create("./cookies-long.txt", 1, &nsc, &l1))
+		goto cdone;
+
+	if (lws_cache_write_through(l1, key, (const uint8_t *)line,
+				    strlen(line),
+				    lws_now_usecs() + LWS_US_PER_SEC * 10, NULL))
+		goto cdone;
+
+	if (lws_cache_item_get(nsc, key, (const void **)&po, &size) ||
+	    size != strlen(line) || memcmp(po, line, size)) {
+		lwsl_err("%s: long path cookie not in jar\n", __func__);
+		goto cdone;
+	}
+
+	if (lws_cache_item_remove(l1, key))
+		goto cdone;
+
+	if (!lws_cache_item_get(nsc, key, (const void **)&po, &size)) {
+		lwsl_err("%s: long path cookie not removed\n", __func__);
+		goto cdone;
+	}
+
+	ret = 0;
+
+cdone:
+	nsc_pair_destroy(&nsc, &l1);
+
+	if (ret)
+		lwsl_warn("%s: fail\n", __func__);
+
+	return ret;
+}
 #endif
 
 
@@ -789,6 +847,8 @@ int main(int argc, const char **argv)
 	if (test_nsc_literal_keys())
 		fail++;
 	if (test_nsc_foreign_jar())
+		fail++;
+	if (test_nsc_long_fields())
 		fail++;
 #endif
 

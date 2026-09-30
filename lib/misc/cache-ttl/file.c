@@ -73,6 +73,24 @@ typedef enum cbreason {
 typedef int (*nsc_cb_t)(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 			const char *buf, size_t size);
 
+/*
+ * The iterator's line buffer.  The chunk flagged LCN_SOL holds the whole line
+ * if it fits, else the first NSC_SOL_MAX bytes of it, so the columns making
+ * up the tag must fit in that for us to be able to index the line.
+ */
+#define NSC_LINE_BUF		256
+#define NSC_SOL_MAX		(NSC_LINE_BUF - 1)
+#define NSC_TAG_MAX		NSC_LINE_BUF
+
+/* 9999-12-31 23:59:59 UTC, the latest the cookie date parser produces */
+#define NSC_EXPIRY_MAX_SECS	253402300799ull
+
+enum {
+	NSC_LTT_OK,
+	NSC_LTT_MALFORMED,	/* not a jar line we understand */
+	NSC_LTT_TOO_LONG,	/* well-formed, but we cannot index it */
+};
+
 static void
 expiry_cb(lws_sorted_usec_list_t *sul);
 
@@ -163,7 +181,7 @@ nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 		    nsc_cb_t cb, void *opaque)
 {
 	int r = LCN_SOL, e;
-	char temp[256], eof = 0, skip = 0;
+	char temp[NSC_LINE_BUF], eof = 0, skip = 0;
 	size_t n = 0; /* bytes held in temp */
 
 	if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
@@ -350,31 +368,44 @@ lws_cache_nscookiejar_tag_match(struct lws_cache_ttl_lru *cache,
 }
 
 /*
- * Converts the start of a cookie file line into a tag
+ * Converts the start of a cookie file line into a tag, and optionally its
+ * expiry.  buf holds the start of the line, whole_line says if it is all of
+ * it, or if the line goes on after buf (and so the name column must end with
+ * its TAB inside buf, or we would index a truncated name).
+ *
+ * Columns are never truncated: a line whose tag would not fit in max_tag, or
+ * whose tag columns are not all in buf, is reported NSC_LTT_TOO_LONG.
  */
 
 static int
-nsc_line_to_tag(const char *buf, size_t size, char *tag, size_t max_tag,
-		lws_usec_t *pexpiry)
+nsc_line_to_tag(const char *buf, size_t size, int whole_line, char *tag,
+		size_t max_tag, lws_usec_t *pexpiry)
 {
-	int n, idx = 0, tl = 0;
+	size_t bn = 0, tl = 0, cs, cl, n;
 	lws_usec_t expiry = 0;
-	size_t bn = 0;
-	char col[64];
-	long long secs = 0;
+	uint64_t secs = 0;
+	int idx;
 
-	if (size < 3)
-		return 1;
+	for (idx = 0; idx < NSC_COL_COUNT; idx++) {
 
-	while (bn < size && idx <= NSC_COL_NAME) {
+		/* find the extent of this column */
 
-		n = 0;
-		while (bn < size && n < (int)sizeof(col) - 1 &&
-		       buf[bn] != '\t')
-			col[n++] = buf[bn++];
-		col[n] = '\0';
-		if (buf[bn] == '\t')
+		cs = bn;
+		while (bn < size && buf[bn] != '\t')
 			bn++;
+		cl = bn - cs;
+
+		if (bn == size && (idx != NSC_COL_NAME || !whole_line)) {
+			/*
+			 * We ran out of line (or of what we were given of it)
+			 * before the end of the columns we need
+			 */
+			if (whole_line)
+				return NSC_LTT_MALFORMED;
+
+			return NSC_LTT_TOO_LONG;
+		}
+		bn++; /* the TAB */
 
 		switch (idx) {
 		case NSC_COL_EXPIRY:
@@ -382,46 +413,53 @@ nsc_line_to_tag(const char *buf, size_t size, char *tag, size_t max_tag,
 			 * The on-disk expiry is wall-clock seconds since the
 			 * Unix epoch. A value of 0 is the "session cookie /
 			 * no expiry" sentinel and is passed through unchanged.
+			 * Parse it unsigned and clamp it, so the conversion
+			 * below cannot overflow.
 			 */
-			secs = atoll(col);
-			if (secs) {
-				lws_usec_t delta = (lws_usec_t)(secs - (long long)time(NULL)) * LWS_US_PER_SEC;
-				expiry = lws_now_usecs() + delta;
-			} else {
-				expiry = 0;
+			if (!cl)
+				return NSC_LTT_MALFORMED;
+			for (n = cs; n < cs + cl; n++) {
+				if (buf[n] < '0' || buf[n] > '9')
+					return NSC_LTT_MALFORMED;
+				if (secs <= NSC_EXPIRY_MAX_SECS)
+					secs = (secs * 10) +
+					       (uint64_t)(buf[n] - '0');
 			}
+			if (secs > NSC_EXPIRY_MAX_SECS)
+				secs = NSC_EXPIRY_MAX_SECS;
 			break;
 
 		case NSC_COL_HOST:
 		case NSC_COL_PATH:
 		case NSC_COL_NAME:
 
-			/*
-			 * As we match the pieces of the wildcard,
-			 * compose the matches into a specific tag
-			 */
+			/* compose the tag, "host|path|name" */
 
-			if (tl + n + 2 > (int)max_tag)
-				return 1;
+			if (tl + (tl ? 1u : 0u) + cl + 1u > max_tag)
+				return NSC_LTT_TOO_LONG;
 			if (tl)
 				tag[tl++] = LWSCTAG_SEP;
-			memcpy(tag + tl, col, (size_t)n);
-			tl += n;
+			memcpy(tag + tl, buf + cs, cl);
+			tl += cl;
 			tag[tl] = '\0';
 			break;
+
 		default:
 			break;
 		}
-
-		idx++;
 	}
+
+	if (secs)
+		expiry = lws_now_usecs() + ((lws_usec_t)secs -
+					    (lws_usec_t)time(NULL)) *
+					   LWS_US_PER_SEC;
 
 	if (pexpiry)
 		*pexpiry = expiry;
 
-	lwsl_info("%s: %.*s: tag '%s'\n", __func__, (int)size, buf, tag);
+	lwsl_cache("%s: tag '%s'\n", __func__, tag);
 
-	return 0;
+	return NSC_LTT_OK;
 }
 
 struct nsc_lookup_ctx {
@@ -437,8 +475,8 @@ nsc_lookup_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 	      const char *buf, size_t size)
 {
 	struct nsc_lookup_ctx *ctx = (struct nsc_lookup_ctx *)opaque;
+	char tag[NSC_TAG_MAX];
 	lws_usec_t expiry;
-	char tag[200];
 	int tl;
 
 	if (!(flags & LCN_SOL)) {
@@ -456,7 +494,8 @@ nsc_lookup_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 
 	ctx->match = NULL; /* new SOL means stop tracking payload len */
 
-	if (nsc_line_to_tag(buf, size, tag, sizeof(tag), &expiry))
+	if (nsc_line_to_tag(buf, size, !!(flags & LCN_EOL), tag, sizeof(tag),
+			    &expiry))
 		return NIR_CONTINUE;
 
 	if (lws_cache_nscookiejar_tag_match(&cache->cache,
@@ -550,16 +589,27 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 	      const char *buf, size_t size)
 {
 	struct nsc_regen_ctx *ctx = (struct nsc_regen_ctx *)opaque;
-	char tag[256];
+	char tag[NSC_TAG_MAX];
 	lws_usec_t expiry;
 
 	if (flags & LCN_SOL) {
 
 		ctx->drop = 0;
 
-		if (nsc_line_to_tag(buf, size, tag, sizeof(tag), &expiry))
+		switch (nsc_line_to_tag(buf, size, !!(flags & LCN_EOL), tag,
+					sizeof(tag), &expiry)) {
+		case NSC_LTT_OK:
+			break;
+		case NSC_LTT_TOO_LONG:
+			/*
+			 * Somebody else's line we cannot index: it is not ours
+			 * to delete, keep it as it is
+			 */
+			goto keep;
+		default:
 			/* filter it out if it is unparseable */
 			goto drop;
+		}
 
 		/* routinely track the earliest expiry */
 
@@ -580,6 +630,7 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 		}
 	}
 
+keep:
 	if (ctx->drop)
 		return 0;
 
@@ -752,13 +803,20 @@ lws_cache_nscookiejar_write(struct lws_cache_ttl_lru *_c,
 			    size_t size, lws_usec_t expiry, void **ppvoid)
 {
 	lws_cache_nscookiejar_t *cache = (lws_cache_nscookiejar_t *)_c;
-	char tag[128];
+	char tag[NSC_TAG_MAX];
 
 	lwsl_cache("%s: %s: len %d\n", __func__, _c->info.name, (int)size);
 
 	assert(source);
 
-	if (nsc_line_to_tag((const char *)source, size, tag, sizeof(tag), NULL))
+	/*
+	 * Parse it the way it will be seen when read back, so we only store
+	 * lines we will be able to find and remove again
+	 */
+
+	if (nsc_line_to_tag((const char *)source,
+			    size > NSC_SOL_MAX ? NSC_SOL_MAX : size,
+			    size <= NSC_SOL_MAX, tag, sizeof(tag), NULL))
 		return 1;
 
 	if (!nsc_line_acceptable((const char *)source, size, tag,
@@ -798,7 +856,7 @@ nsc_get_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 	   const char *buf, size_t size)
 {
 	struct nsc_get_ctx *ctx = (struct nsc_get_ctx *)opaque;
-	char tag[200];
+	char tag[NSC_TAG_MAX];
 	uint8_t *q;
 
 	if (ctx->buflist)
@@ -807,10 +865,10 @@ nsc_get_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 	if (!(flags & LCN_SOL))
 		return NIR_CONTINUE;
 
-	if (nsc_line_to_tag(buf, size, tag, sizeof(tag), &ctx->expiry)) {
-		lwsl_err("%s: can't get tag\n", __func__);
+	if (nsc_line_to_tag(buf, size, !!(flags & LCN_EOL), tag, sizeof(tag),
+			    &ctx->expiry))
+		/* not a line we can index, it can't be the one we want */
 		return NIR_CONTINUE;
-	}
 
 	lwsl_cache("%s: %s %s\n", __func__, ctx->specific_key, tag);
 
