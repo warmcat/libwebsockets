@@ -79,6 +79,9 @@ static const test_img_t test_imgs[] = {
 	TI(rgb_h1v1,		37, 21, 3),
 	TI(rgb_h2v1,		37, 21, 3),
 	TI(rgb_h2v2,		37, 21, 3),
+	TI(gray_dri,		29, 19, 1),
+	TI(rgb_h1v1_dri,	37, 21, 3),
+	TI(rgb_h2v2_dri,	45, 37, 3),
 };
 
 /*
@@ -307,6 +310,32 @@ bail:
 	return e;
 }
 
+/*
+ * Restart markers only change how the image is coded, not what it decodes
+ * to: an image with a restart interval must give exactly the pixels of the
+ * same image coded without one
+ */
+
+static int
+selftest_same(const test_img_t *a, const test_img_t *b)
+{
+	size_t sz = (size_t)a->w * a->h * a->comps;
+	uint8_t *pa = malloc(sz), *pb = malloc(sz);
+	int e = 1;
+
+	if (pa && pb && a->w == b->w && a->h == b->h && a->comps == b->comps &&
+	    !decode_split(a, 0, a->len, pa) && !decode_split(b, 0, b->len, pb))
+		e = !!memcmp(pa, pb, sz);
+
+	if (e)
+		lwsl_err("%s: %s and %s differ\n", __func__, a->name, b->name);
+
+	free(pa);
+	free(pb);
+
+	return e;
+}
+
 static int
 selftest(void)
 {
@@ -320,6 +349,10 @@ selftest(void)
 			  e1 ? "FAIL" : "PASS");
 		e += e1;
 	}
+
+	/* gray / gray_dri, rgb_h1v1 / rgb_h1v1_dri */
+	e += selftest_same(&test_imgs[0], &test_imgs[4]);
+	e += selftest_same(&test_imgs[1], &test_imgs[5]);
 
 	if (selftest_sticky()) {
 		lwsl_user("%s: FATAL is not sticky\n", __func__);

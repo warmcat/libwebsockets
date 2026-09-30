@@ -364,12 +364,30 @@ get_octet(lws_jpeg_t *j, uint8_t *c, uint8_t ffcheck)
 				j->seen_eoi = 1;
 				return LWS_SRET_OK;
 			}
-			lwsl_jpeg("%s: nonzero stuffed 0x%02X\n", __func__, c1);
 
 			/* we stashed c1, but it was a marker... put it and the 0xff back */
 			j->stash[0] = 0xff;
 			j->stash[1] = c1;
 			j->stashc = 2;
+
+			if (j->restart_interval &&
+			    c1 >= PJM_RST0 && c1 <= PJM_RST7) {
+				/*
+				 * The bit reader looks up to two octets
+				 * ahead, so it meets the RSTn at the end of a
+				 * restart interval while the last MCU of the
+				 * interval is still being decoded from the
+				 * bits it already has.  Pad with 1 bits, as
+				 * the encoder did, and leave the marker for
+				 * interval_restart() to find when the MCU
+				 * count says it is due
+				 */
+				*c = 0xff;
+
+				return LWS_SRET_OK;
+			}
+
+			lwsl_jpeg("%s: nonzero stuffed 0x%02X\n", __func__, c1);
 
 			return LWS_SRET_FATAL + 35;
 		}
@@ -2455,13 +2473,23 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 
 	if (!j->fs_mcu_phase) {
 		if (j->restart_interval) {
-			if (j->restarts_left == 0) {
-				lwsl_err("%s: process_restart\n", __func__);
+			/*
+			 * A restart is due before this MCU when the last
+			 * interval has used up its MCUs, or a restart was
+			 * already underway and had to wait for input: by its
+			 * phase 2 it has reset restarts_left, but it still has
+			 * to prime the bit reader again.
+			 *
+			 * Either way this MCU is the first of the new
+			 * interval and counts against it.
+			 */
+			if (!j->restarts_left || j->fs_ir_phase) {
 				r = interval_restart(j);
 				if (r)
 					return r;
-			} else
-				j->restarts_left--;
+			}
+
+			j->restarts_left--;
 		}
 		
 		j->fs_mcu_mb = 0;
