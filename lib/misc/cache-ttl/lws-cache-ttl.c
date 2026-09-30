@@ -137,8 +137,11 @@ lws_cache_unlock(struct lws_cache_ttl_lru *cache)
 		lwsl_cache("%s: %s schedule %llu\n", __func__,
 			   pend[m]->info.name, (unsigned long long)at[m]);
 
+		/* expiries are in the time of the sul's service thread */
+
 		lws_sul_schedule(pend[m]->info.cx, pend[m]->info.tsi,
-				 &pend[m]->sul, cb[m], at[m] - lws_now_usecs());
+				 &pend[m]->sul, cb[m], at[m] -
+				 lws_cx_now(pend[m]->info.cx, pend[m]->info.tsi));
 	}
 }
 

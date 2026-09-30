@@ -199,6 +199,12 @@ expiry_cb(lws_sorted_usec_list_t *sul)
 		lws_cache_heap_item_destroy(cache, item, 1);
 	}
 
+	/*
+	 * Always rearm for whatever is next, even if we destroyed nothing:
+	 * we may have run a little early
+	 */
+	update_sul(cache);
+
 	lws_cache_unlock(&cache->cache); /* --------------------- } cache */
 }
 
@@ -455,6 +461,16 @@ lws_cache_heap_get(struct lws_cache_ttl_lru *_c, const char *specific_key,
 
 	item = lws_cache_heap_specific(cache, specific_key);
 	if (!item)
+		return 1;
+
+	/*
+	 * An item past its expiry is not usable, even if the expiry sul has
+	 * not got to it yet.  We leave destroying it to the sul, since
+	 * destroying an item also destroys the cached lookup results naming it,
+	 * which the caller may be walking.
+	 */
+	if (item->expiry &&
+	    item->expiry <= lws_cx_now(_c->info.cx, _c->info.tsi))
 		return 1;
 
 	/* we are using it, move it to lru head */

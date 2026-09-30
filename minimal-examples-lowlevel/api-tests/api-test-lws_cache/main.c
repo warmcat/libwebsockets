@@ -170,6 +170,70 @@ cdone:
 	return ret;
 }
 
+/*
+ * With lws_service_set_now(), the service thread's time is what the embedder
+ * says, not the platform's clock, and item expiries are in that time.  Items
+ * must still expire on it.  This runs last, since once the time is external
+ * it stays external.
+ */
+
+static int
+test_l1_external_time(void)
+{
+	lws_usec_t t0 = lws_now_usecs() / 2; /* well behind the platform's */
+	struct lws_cache_creation_info ci;
+	struct lws_cache_ttl_lru *l1;
+	int ret = 1;
+	size_t size;
+	char *po;
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	memset(&ci, 0, sizeof(ci));
+	ci.cx = cx;
+	ci.ops = &lws_cache_ops_heap;
+	ci.name = "L1_ext";
+
+	l1 = lws_cache_create(&ci);
+	if (!l1)
+		goto cdone;
+
+	lws_service_set_now(cx, 0, t0, 0);
+
+	if (lws_cache_write_through(l1, "a", (const uint8_t *)"is_a", 5,
+				    t0 + LWS_US_PER_SEC, NULL) ||
+	    lws_cache_write_through(l1, "b", (const uint8_t *)"is_b", 5,
+				    t0 + 10 * LWS_US_PER_SEC, NULL))
+		goto cdone;
+
+	/* a little time passes, then enough for a, but not b, to expire */
+
+	lws_service_set_now(cx, 0, t0 + 10 * LWS_US_PER_MS, 0);
+	lws_service_set_now(cx, 0, t0 + 2 * LWS_US_PER_SEC, 0);
+
+	if (!lws_cache_item_get(l1, "a", (const void **)&po, &size)) {
+		lwsl_err("%s: a still exists after expiry\n", __func__);
+		goto cdone;
+	}
+
+	if (lws_cache_item_get(l1, "b", (const void **)&po, &size) ||
+	    size != 5 || strcmp(po, "is_b")) {
+		lwsl_err("%s: b is missing\n", __func__);
+		goto cdone;
+	}
+
+	ret = 0;
+
+cdone:
+	lws_cache_destroy(&l1);
+
+	if (ret)
+		lwsl_warn("%s: fail\n", __func__);
+
+	return ret;
+}
+
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR)
 
 static const char
@@ -851,6 +915,10 @@ int main(int argc, const char **argv)
 	if (test_nsc_long_fields())
 		fail++;
 #endif
+
+	/* last, since it leaves the service thread on external time */
+	if (test_l1_external_time())
+		fail++;
 
 	/*
 	 * Schedule an app-owned sul far enough in the future it can't fire,

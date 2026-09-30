@@ -377,9 +377,20 @@ lws_cache_nscookiejar_tag_match(struct lws_cache_ttl_lru *cache,
  * whose tag columns are not all in buf, is reported NSC_LTT_TOO_LONG.
  */
 
+/*
+ * Expiries are kept in the time of the service thread the cache sul runs on
+ * (lws_service_set_now() may make that differ from the platform clock)
+ */
+
+static lws_usec_t
+nsc_now(lws_cache_nscookiejar_t *cache)
+{
+	return lws_cx_now(cache->cache.info.cx, cache->cache.info.tsi);
+}
+
 static int
-nsc_line_to_tag(const char *buf, size_t size, int whole_line, char *tag,
-		size_t max_tag, lws_usec_t *pexpiry)
+nsc_line_to_tag(lws_cache_nscookiejar_t *cache, const char *buf, size_t size,
+		int whole_line, char *tag, size_t max_tag, lws_usec_t *pexpiry)
 {
 	size_t bn = 0, tl = 0, cs, cl, n;
 	lws_usec_t expiry = 0;
@@ -449,10 +460,10 @@ nsc_line_to_tag(const char *buf, size_t size, int whole_line, char *tag,
 		}
 	}
 
-	if (secs)
-		expiry = lws_now_usecs() + ((lws_usec_t)secs -
-					    (lws_usec_t)time(NULL)) *
-					   LWS_US_PER_SEC;
+	if (secs && pexpiry)
+		expiry = nsc_now(cache) + ((lws_usec_t)secs -
+					   (lws_usec_t)time(NULL)) *
+					  LWS_US_PER_SEC;
 
 	if (pexpiry)
 		*pexpiry = expiry;
@@ -494,8 +505,10 @@ nsc_lookup_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 
 	ctx->match = NULL; /* new SOL means stop tracking payload len */
 
-	if (nsc_line_to_tag(buf, size, !!(flags & LCN_EOL), tag, sizeof(tag),
-			    &expiry))
+	if (nsc_line_to_tag(cache, buf, size, !!(flags & LCN_EOL), tag,
+			    sizeof(tag), &expiry) ||
+	    (expiry && expiry <= nsc_now(cache)))
+		/* not indexable, or expired and not yet swept */
 		return NIR_CONTINUE;
 
 	if (lws_cache_nscookiejar_tag_match(&cache->cache,
@@ -596,8 +609,8 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 
 		ctx->drop = 0;
 
-		switch (nsc_line_to_tag(buf, size, !!(flags & LCN_EOL), tag,
-					sizeof(tag), &expiry)) {
+		switch (nsc_line_to_tag(cache, buf, size, !!(flags & LCN_EOL),
+					tag, sizeof(tag), &expiry)) {
 		case NSC_LTT_OK:
 			break;
 		case NSC_LTT_TOO_LONG:
@@ -611,13 +624,7 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 			goto drop;
 		}
 
-		/* routinely track the earliest expiry */
-
-		if (!cache->earliest_expiry ||
-		    (expiry && cache->earliest_expiry > expiry))
-			cache->earliest_expiry = expiry;
-
-		if (expiry && expiry < ctx->curr)
+		if (expiry && expiry <= ctx->curr)
 			/* routinely strip anything beyond its expiry */
 			goto drop;
 
@@ -628,6 +635,12 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 			lwsl_cache("%s: dropping %s\n", __func__, tag);
 			goto drop;
 		}
+
+		/* track the earliest expiry of what we keep */
+
+		if (expiry && (!cache->earliest_expiry ||
+			       cache->earliest_expiry > expiry))
+			cache->earliest_expiry = expiry;
 	}
 
 keep:
@@ -695,7 +708,7 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *specific_key_delete,
 	ctx.specific_key_delete = specific_key_delete;
 	ctx.add_data = pay;
 	ctx.add_size = pay_size;
-	ctx.curr = lws_now_usecs();
+	ctx.curr = nsc_now(cache);
 	ctx.drop = 0;
 
 	cache->earliest_expiry = 0;
@@ -815,7 +828,7 @@ lws_cache_nscookiejar_write(struct lws_cache_ttl_lru *_c,
 	 * lines we will be able to find and remove again
 	 */
 
-	if (nsc_line_to_tag((const char *)source,
+	if (nsc_line_to_tag(cache, (const char *)source,
 			    size > NSC_SOL_MAX ? NSC_SOL_MAX : size,
 			    size <= NSC_SOL_MAX, tag, sizeof(tag), NULL))
 		return 1;
@@ -866,9 +879,13 @@ nsc_get_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 	if (!(flags & LCN_SOL))
 		return NIR_CONTINUE;
 
-	if (nsc_line_to_tag(buf, size, !!(flags & LCN_EOL), tag, sizeof(tag),
-			    &ctx->expiry))
-		/* not a line we can index, it can't be the one we want */
+	if (nsc_line_to_tag(cache, buf, size, !!(flags & LCN_EOL), tag,
+			    sizeof(tag), &ctx->expiry) ||
+	    (ctx->expiry && ctx->expiry <= nsc_now(cache)))
+		/*
+		 * not a line we can index, so it can't be the one we want, or
+		 * it has expired and not been swept yet
+		 */
 		return NIR_CONTINUE;
 
 	lwsl_cache("%s: %s %s\n", __func__, ctx->specific_key, tag);

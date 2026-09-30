@@ -90,7 +90,9 @@ lws_cache_unlock(struct lws_cache_ttl_lru *cache);
  * \param source: optional payload for the cached item, NULL means caller will
  *		  write the payload
  * \param size: the size of the object to allocate
- * \param expiry: the usec time that the object will autodestroy
+ * \param expiry: the usec time that the object will autodestroy, in the time of
+ *		  the cache's service thread (info.tsi): that is lws_now_usecs()
+ *		  unless the app gives the time with lws_service_set_now()
  * \param ppay: NULL, or a pointer to a void * to be set to the L1 payload
  *
  * If an item with the key already exists, it is destroyed before allocating a
