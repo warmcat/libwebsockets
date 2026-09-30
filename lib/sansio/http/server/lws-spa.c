@@ -38,7 +38,8 @@ enum urldecode_stateful {
 	MT_TYPE,
 	MT_IGNORE1,
 	MT_IGNORE2,
-	MT_IGNORE3,
+	MT_BOUND_TAIL,
+	MT_BOUND_DASH,
 	MT_COMPLETED,
 };
 
@@ -165,6 +166,31 @@ lws_urldecode_s_collecting(const struct lws_urldecode_stateful *s)
 {
 	return s->state == US_IDLE || s->state == US_PC1 ||
 	       s->state == US_PC2 || s->state == MT_LOOK_BOUND_IN;
+}
+
+/*
+ * The close delimiter ends the form.  Where the request says how long its
+ * body is (Content-Length, chunked, or on h2 / h3 the stream's END_STREAM),
+ * only that says where the body ends: whatever follows the form is its
+ * epilogue, still delivered, and so stepped over, by the connection's own
+ * framing.  Ending the body here instead would leave the rest of the declared
+ * body to be read as the next request.
+ *
+ * An h1 body with no framing at all (lws_client_http_body_pending() sends
+ * one like that) has no end other than the close delimiter, so for that alone
+ * the form ending is the body ending.
+ */
+
+static void
+lws_urldecode_s_form_ended(struct lws_urldecode_stateful *s)
+{
+	struct lws *wsi = s->wsi;
+
+	s->state = MT_COMPLETED;
+
+	if (!wsi->mux_substream && !wsi->http.content_length_given &&
+	    !wsi->http.rx_chunked)
+		wsi->http.rx_content_remain = 0;
 }
 
 static int
@@ -318,7 +344,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 				s->mp++;
 				if (!s->mime_boundary[s->mp]) {
 					s->mp = 0;
-					s->state = MT_IGNORE1;
+					s->state = MT_BOUND_TAIL;
 
 					if (s->output(s->data, s->name,
 						      &s->out, s->pos,
@@ -476,8 +502,6 @@ done_l:
 		case MT_IGNORE1:
 			if (*in == '\x0d')
 				s->state = MT_IGNORE2;
-			if (*in == '-')
-				s->state = MT_IGNORE3;
 			in++;
 			break;
 
@@ -488,17 +512,33 @@ done_l:
 			in++;
 			break;
 
-		case MT_IGNORE3:
-			if (*in == '\x0d')
-				s->state = MT_IGNORE2;
-			if (*in == '-') {
-				s->state = MT_COMPLETED;
-				s->wsi->http.rx_content_remain = 0;
-			}
+		/*
+		 * Right after a boundary: "--" makes it the close delimiter,
+		 * else the rest of the line (transport padding) is ignored up
+		 * to its CRLF, and the next part's headers follow
+		 */
+
+		case MT_BOUND_TAIL:
+			if (*in == '-')
+				s->state = MT_BOUND_DASH;
+			else
+				s->state = *in == '\x0d' ? MT_IGNORE2 :
+							   MT_IGNORE1;
 			in++;
 			break;
-		case MT_COMPLETED:
+
+		case MT_BOUND_DASH:
+			if (*in == '-')
+				lws_urldecode_s_form_ended(s);
+			else
+				s->state = *in == '\x0d' ? MT_IGNORE2 :
+							   MT_IGNORE1;
+			in++;
 			break;
+
+		case MT_COMPLETED:
+			/* the epilogue, if any: ignored */
+			return 0;
 		}
 	}
 

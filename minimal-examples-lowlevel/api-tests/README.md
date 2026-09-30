@@ -21,7 +21,7 @@ api-test-sshd-userauth|sshd plugin USERAUTH pubkey/sig blob walks (F-056): malfo
 api-test-sspc-streamtype|serialized client streamtype length cap (F-057): over-long streamtypes refused at sspc create, boundary-length still accepted
 api-test-mqtt-unsub|mqtt subscribe/unsubscribe topic count cap (F-058): over-wide or zero topic lists loudly refused at the established-state tx paths, boundary-width unsubscribe still works end-to-end
 api-test-ss-mqtt|Secure Streams sharing an mqtt connection with an in-process broker: a stream that gives up (DESTROY_ME) from the QoS0 ack or the local SUBSCRIBED lws makes up is told once and destroyed once, nothing uses it afterwards
-api-test-lws_spa|POSTed urlencoded and multipart forms through `lws_spa`, with its own and with lwsac storage: a parameter with no value is present and empty
+api-test-lws_spa|POSTed urlencoded and multipart forms through `lws_spa`, with its own and with lwsac storage: a parameter with no value is present and empty; a multipart epilogue stays part of the request body
 api-test-http-attack|Hostile requests (what scripts/attack.sh did, h1 smuggling and slow headers, h2 framing / hpack / flood abuse, traversal out of a file mount) over h1, h2 and h3 are refused, and the server still serves after each
 api-test-mtls|A vhost requiring a valid client cert refuses no cert and a cert its CA did not sign, and serves one it did, over h1 and h2 over tls and h3 over quic on the same port
 api-test-tls-renew|A server vhost that starts without its cert (IGNORE_MISSING_CERT) gets its first tls ctx, and then a renewed one, from lws_tls_cert_updated(), each set up like a vhost's first ctx: h2 is still negotiated

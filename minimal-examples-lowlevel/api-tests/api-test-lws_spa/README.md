@@ -20,6 +20,10 @@ in two reads.
 |urlencoded `a=1&b=two&c=x%20y+z`|the decoded values|
 |urlencoded `a&b=1&c`|`a` and `c` present with empty values|
 |urlencoded `a=&b=1&c=`|the same|
+|multipart fields|the part contents|
+|multipart, a part header the spa does not know, with dashes in it|skipped, the form goes on|
+|multipart with an epilogue after the close delimiter, then a pipelined GET, the epilogue in the same read or held back, with a Content-Length or chunked|the form, then the GET answered as itself|
+|multipart with neither a Content-Length nor chunked|the close delimiter ends the body|
 
 The urlencoded cases run against both kinds of storage.
 

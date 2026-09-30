@@ -40,6 +40,13 @@
 #define URLENC	"application/x-www-form-urlencoded"
 #define MPART	"multipart/form-data; boundary=XyZ"
 
+/* how the case's request says how long its body is */
+enum {
+	FR_CL,		/* Content-Length */
+	FR_CHUNKED,	/* Transfer-Encoding: chunked, one chunk per write */
+	FR_NONE,	/* neither: the multipart close delimiter ends it */
+};
+
 struct spa_case {
 	const char	*name;
 	const char	*path;
@@ -48,30 +55,101 @@ struct spa_case {
 	const char	*held;		/* the rest of the body, sent later */
 	const char	*pipelined;	/* sent after the body, with held */
 	const char	*expect;	/* the answers' bodies, '|' between */
+	uint8_t		framing;
 };
+
+#define MP_TEXT_HELLO \
+	"--XyZ\r\n" \
+	"Content-Disposition: form-data; name=\"text\"\r\n" \
+	"\r\n" \
+	"hello\r\n" \
+	"--XyZ--\r\n"
+#define EPILOGUE	"This is the epilogue.\r\n"
+#define GET_FORM	"GET /form HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#define ANS_HELLO	"a=NULL b=NULL c=NULL text='hello'/5 up=0/0/0"
 
 static const struct spa_case cases[] = {
 
 	/* urlencoded, in both kinds of storage */
 
-	{ "urlencoded values", "/form", URLENC,
-	  "a=1&b=two&c=x%20y+z", NULL, NULL,
-	  "a='1'/1 b='two'/3 c='x y z'/5 text=NULL up=0/0/0" },
-	{ "urlencoded names without a value", "/form", URLENC,
-	  "a&b=1&c", NULL, NULL,
-	  "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
-	{ "urlencoded empty values", "/form", URLENC,
-	  "a=&b=1&c=", NULL, NULL,
-	  "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
-	{ "urlencoded values, lwsac", "/form-ac", URLENC,
-	  "a=1&b=two&c=x%20y+z", NULL, NULL,
-	  "a='1'/1 b='two'/3 c='x y z'/5 text=NULL up=0/0/0" },
-	{ "urlencoded names without a value, lwsac", "/form-ac", URLENC,
-	  "a&b=1&c", NULL, NULL,
-	  "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
-	{ "urlencoded empty values, lwsac", "/form-ac", URLENC,
-	  "a=&b=1&c=", NULL, NULL,
-	  "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
+	{ .name = "urlencoded values", .path = "/form", .ctype = URLENC,
+	  .body = "a=1&b=two&c=x%20y+z",
+	  .expect = "a='1'/1 b='two'/3 c='x y z'/5 text=NULL up=0/0/0" },
+	{ .name = "urlencoded names without a value", .path = "/form",
+	  .ctype = URLENC, .body = "a&b=1&c",
+	  .expect = "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
+	{ .name = "urlencoded empty values", .path = "/form", .ctype = URLENC,
+	  .body = "a=&b=1&c=",
+	  .expect = "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
+	{ .name = "urlencoded values, lwsac", .path = "/form-ac",
+	  .ctype = URLENC, .body = "a=1&b=two&c=x%20y+z",
+	  .expect = "a='1'/1 b='two'/3 c='x y z'/5 text=NULL up=0/0/0" },
+	{ .name = "urlencoded names without a value, lwsac",
+	  .path = "/form-ac", .ctype = URLENC, .body = "a&b=1&c",
+	  .expect = "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
+	{ .name = "urlencoded empty values, lwsac", .path = "/form-ac",
+	  .ctype = URLENC, .body = "a=&b=1&c=",
+	  .expect = "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
+
+	/* multipart */
+
+	{ .name = "multipart fields", .path = "/form", .ctype = MPART,
+	  .body = "--XyZ\r\n"
+		  "Content-Disposition: form-data; name=\"a\"\r\n"
+		  "\r\n"
+		  "one\r\n"
+		  "--XyZ\r\n"
+		  "Content-Disposition: form-data; name=\"text\"\r\n"
+		  "Content-Type: text/plain\r\n"
+		  "\r\n"
+		  "hello world\r\n"
+		  "--XyZ--\r\n",
+	  .expect = "a='one'/3 b=NULL c=NULL text='hello world'/11 up=0/0/0" },
+
+	/*
+	 * A part header the spa does not know, with dashes in it, is just
+	 * skipped: it does not end the form
+	 */
+	{ .name = "multipart part header with dashes", .path = "/form",
+	  .ctype = MPART,
+	  .body = "--XyZ\r\n"
+		  "Content-Disposition: form-data; name=\"a\"\r\n"
+		  "X-Part-Seq-No: 1\r\n"
+		  "\r\n"
+		  "one\r\n"
+		  "--XyZ\r\n"
+		  "Content-Disposition: form-data; name=\"b\"\r\n"
+		  "\r\n"
+		  "two\r\n"
+		  "--XyZ--\r\n",
+	  .expect = "a='one'/3 b='two'/3 c=NULL text=NULL up=0/0/0" },
+
+	/*
+	 * RFC 2046 lets a multipart body go on after its close delimiter
+	 * (the epilogue).  It is still part of the request body its framing
+	 * declares: the request pipelined after the body must be served as
+	 * itself, whether or not the epilogue came in the same read as the
+	 * close delimiter
+	 */
+	{ .name = "multipart epilogue, then a pipelined GET", .path = "/form",
+	  .ctype = MPART, .body = MP_TEXT_HELLO EPILOGUE,
+	  .pipelined = GET_FORM, .expect = ANS_HELLO "|get" },
+	{ .name = "multipart epilogue sent later, then a pipelined GET",
+	  .path = "/form", .ctype = MPART, .body = MP_TEXT_HELLO,
+	  .held = EPILOGUE, .pipelined = GET_FORM,
+	  .expect = ANS_HELLO "|get" },
+	{ .name = "chunked multipart epilogue sent later, then a pipelined "
+		  "GET", .path = "/form", .ctype = MPART,
+	  .body = MP_TEXT_HELLO, .held = EPILOGUE, .pipelined = GET_FORM,
+	  .expect = ANS_HELLO "|get", .framing = FR_CHUNKED },
+
+	/*
+	 * An h1 multipart body with neither a Content-Length nor chunked
+	 * (lws_client_http_body_pending() sends them like this): the close
+	 * delimiter is all that ends it
+	 */
+	{ .name = "unframed multipart", .path = "/form", .ctype = MPART,
+	  .body = MP_TEXT_HELLO, .expect = ANS_HELLO, .framing = FR_NONE },
 };
 
 static struct lws_context *context;
@@ -270,6 +348,7 @@ static struct conn {
 	size_t		tx_len;
 	size_t		tx2_len;
 	size_t		rx_len;
+	size_t		rx_used;	/* the responses taken so far */
 	int		nresp;
 	uint8_t		sent;
 	uint8_t		held_due;
@@ -329,7 +408,7 @@ static int
 rx_responses(void)
 {
 	const struct spa_case *c = &cases[case_idx];
-	size_t hl, cl, pos = 0, gl;
+	size_t hl, cl, gl;
 	int want = 1, status;
 	const char *q;
 
@@ -338,8 +417,8 @@ rx_responses(void)
 			want++;
 
 	while (cn.nresp < want) {
-		const char *h = cn.rx + pos, *hdr_end = NULL;
-		size_t avail = cn.rx_len - pos;
+		const char *h = cn.rx + cn.rx_used, *hdr_end = NULL;
+		size_t avail = cn.rx_len - cn.rx_used;
 
 		for (hl = 0; hl + 4 <= avail; hl++)
 			if (!memcmp(h + hl, "\r\n\r\n", 4)) {
@@ -376,7 +455,7 @@ rx_responses(void)
 			lws_snprintf(cn.got + gl, sizeof(cn.got) - gl, "%.*s",
 				     (int)cl, hdr_end + 4);
 
-		pos += hl + 4 + cl;
+		cn.rx_used += hl + 4 + cl;
 		cn.nresp++;
 	}
 
@@ -475,15 +554,37 @@ static int
 compose(const struct spa_case *c)
 {
 	size_t bl = strlen(c->body), hl = c->held ? strlen(c->held) : 0;
+	char framing[48];
 	int n;
+
+	switch (c->framing) {
+	case FR_CHUNKED:
+		lws_strncpy(framing, "Transfer-Encoding: chunked\r\n",
+			    sizeof(framing));
+		break;
+	case FR_NONE:
+		framing[0] = '\0';
+		break;
+	default:
+		lws_snprintf(framing, sizeof(framing),
+			     "Content-Length: %u\r\n", (unsigned int)(bl + hl));
+		break;
+	}
 
 	n = lws_snprintf(cn.tx + LWS_PRE, SPA_TX_MAX,
 			 "POST %s HTTP/1.1\r\n"
 			 "Host: localhost\r\n"
 			 "Content-Type: %s\r\n"
-			 "Content-Length: %u\r\n"
-			 "\r\n%s", c->path, c->ctype, (unsigned int)(bl + hl),
-			 c->body);
+			 "%s"
+			 "\r\n", c->path, c->ctype, framing);
+	if (c->framing == FR_CHUNKED)
+		n += lws_snprintf(cn.tx + LWS_PRE + n,
+				  (size_t)(SPA_TX_MAX - n), "%x\r\n%s\r\n%s",
+				  (unsigned int)bl, c->body,
+				  hl ? "" : "0\r\n\r\n");
+	else
+		n += lws_snprintf(cn.tx + LWS_PRE + n,
+				  (size_t)(SPA_TX_MAX - n), "%s", c->body);
 	if (n >= SPA_TX_MAX - 1)
 		return 1;
 	cn.tx_len = (size_t)n;
@@ -491,9 +592,16 @@ compose(const struct spa_case *c)
 	if (!c->held && !c->pipelined)
 		return 0;
 
-	n = lws_snprintf(cn.tx2 + LWS_PRE, SPA_TX_MAX, "%s%s",
-			 c->held ? c->held : "",
-			 c->pipelined ? c->pipelined : "");
+	n = 0;
+	if (c->held && c->framing == FR_CHUNKED)
+		n = lws_snprintf(cn.tx2 + LWS_PRE, SPA_TX_MAX,
+				 "%x\r\n%s\r\n0\r\n\r\n",
+				 (unsigned int)hl, c->held);
+	else if (c->held)
+		n = lws_snprintf(cn.tx2 + LWS_PRE, SPA_TX_MAX, "%s", c->held);
+	if (c->pipelined)
+		n += lws_snprintf(cn.tx2 + LWS_PRE + n,
+				  (size_t)(SPA_TX_MAX - n), "%s", c->pipelined);
 	if (n >= SPA_TX_MAX - 1)
 		return 1;
 	cn.tx2_len = (size_t)n;
