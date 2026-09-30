@@ -2988,7 +2988,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
 	unsigned char c, *oldin = in, *iend = in + (size_t)_inlen;
-	int n, m;
+	int n, m, offered;
 
 	if (!h2n)
 		goto fail;
@@ -3393,6 +3393,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 * ourselves: it must not close the stream
 				 */
 
+				offered = n;
 				n = lws_read_h1(h2n->swsi, in - 1, (unsigned int)n,
 						1);
 				/*
@@ -3466,6 +3467,33 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						__func__, n,
 						(unsigned int)h2n->count,
 						(unsigned int)h2n->length);
+
+				if (n < offered && h2n->swsi->h23_stream_carries_ws) {
+					/*
+					 * The ws parser stops short once it has
+					 * done its share of an rx extension drain
+					 * for this pass: the rest of this DATA,
+					 * from the first byte it did not take, is
+					 * still to be parsed, after the drain.
+					 * The stream has nothing that would bring
+					 * it back, so stop right here: what is
+					 * left of our read is parked on this
+					 * connection and parsed again from here
+					 * on its next pass, which also moves the
+					 * drain on.
+					 */
+					in += n - 1;
+					h2n->inside += (unsigned int)n;
+					h2n->count = h2n->count + (unsigned int)n - 1u;
+
+					h2n->swsi->txc.peer_tx_cr_est -= n;
+					wsi->txc.peer_tx_cr_est -= n;
+
+					*inused = (lws_filepos_t)
+						lws_ptr_diff_size_t(in, oldin);
+
+					return 2;
+				}
 
 				if (n) {
 					in += (unsigned int)n - 1;

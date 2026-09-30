@@ -29,12 +29,20 @@
  *    so the first message whose compressed output exceeded the pmd chunk
  *    buffer wedged the stream permanently.
  *
+ * Then the client sends the server pairs of messages back to back, each a
+ * 32KB letter cycle (a few dozen deflated bytes that inflate to 32 of the
+ * server's 1KB pmd chunks) followed by a short one, so the short message
+ * arrives in the same h2 DATA as the big one while its inflation is still
+ * draining.  The ws parser only drains a share of that per pass and stops
+ * short of the short message: the h2 stream parser must keep the bytes it
+ * did not take, not drop them.
+ *
  * The test fails if
  *  - the negotiated connection is not actually ws-over-h2,
  *  - the client's upgrade did not offer permessage-deflate (the test would
  *    be vacuous),
  *  - any server lws_write() accepts fewer bytes than requested,
- *  - the received pattern is corrupted, or
+ *  - the received pattern is corrupted, in either direction, or
  *  - the transfer doesn't complete in time (the drain wedge shows up here).
  */
 
@@ -138,9 +146,16 @@ static const char * const test_key =
 #define TEST_TOTAL	65536
 #define TEST_CHUNK	4096
 
+/* then client -> server: pairs of a big compressible and a short message */
+#define TAIL_BIG	32768
+#define TAIL_SMALL	16
+#define TAIL_PAIRS	4
+#define TAIL_TOTAL	(TAIL_PAIRS * (TAIL_BIG + TAIL_SMALL))
+
 static struct lws *client_wsi;
-static size_t srv_sent;
-static size_t cli_rx;
+static size_t srv_sent, srv_rx;
+static size_t cli_rx, cli_sent;
+static uint8_t tail_buf[LWS_PRE + TAIL_BIG];
 static int saw_pmd_offer;
 static int port_tcp = 7681;
 static lws_sorted_usec_list_t sul_timeout;
@@ -177,11 +192,19 @@ pattern_byte(size_t o)
 	return (uint8_t)(v ^ (v >> 11) ^ (v >> 22));
 }
 
+/* the tail is a letter cycle over its own offset, across message ends */
+static uint8_t
+tail_byte(size_t o)
+{
+	return (uint8_t)('a' + (o % 26));
+}
+
 static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
-	lwsl_err("--- timeout: rx %d / %d, sent %d ---\n",
-		 (int)cli_rx, TEST_TOTAL, (int)srv_sent);
+	lwsl_err("--- timeout: rx %d / %d, sent %d, tail rx %d / %d ---\n",
+		 (int)cli_rx, TEST_TOTAL, (int)srv_sent, (int)srv_rx,
+		 TAIL_TOTAL);
 	lws_default_loop_exit(context);
 }
 
@@ -250,6 +273,24 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 
+	case LWS_CALLBACK_RECEIVE:
+		for (size_t i = 0; i < len; i++)
+			if (((uint8_t *)in)[i] != tail_byte(srv_rx + i)) {
+				lwsl_err("--- tail corrupt at ofs %d ---\n",
+					 (int)(srv_rx + i));
+				lws_default_loop_exit(context);
+				return -1;
+			}
+		srv_rx += len;
+
+		if (srv_rx == TAIL_TOTAL) {
+			lwsl_user("--- both directions complete and intact. "
+				  "Test passed. ---\n");
+			result = 0;
+			lws_default_loop_exit(context);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -283,12 +324,36 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		cli_rx += len;
 
 		if (cli_rx == TEST_TOTAL) {
-			lwsl_user("--- transfer complete and intact. "
-				  "Test passed. ---\n");
-			result = 0;
-			lws_default_loop_exit(context);
-			return -1;
+			lwsl_user("--- transfer complete and intact, "
+				  "sending the tail ---\n");
+			lws_callback_on_writable(wsi);
 		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		/*
+		 * Only once all the server's messages came, and then each pair
+		 * goes out in one go, so the short message follows the big
+		 * one's few deflated bytes on the wire
+		 */
+		if (cli_rx != TEST_TOTAL)
+			break;
+		while (cli_sent < TAIL_TOTAL && !lws_send_pipe_choked(wsi)) {
+			size_t n = cli_sent % (TAIL_BIG + TAIL_SMALL) ?
+							TAIL_SMALL : TAIL_BIG;
+
+			for (size_t i = 0; i < n; i++)
+				tail_buf[LWS_PRE + i] = tail_byte(cli_sent + i);
+			if (lws_write(wsi, &tail_buf[LWS_PRE], n,
+				      LWS_WRITE_BINARY) < (int)n) {
+				lwsl_err("--- client short write ---\n");
+				lws_default_loop_exit(context);
+				return -1;
+			}
+			cli_sent += n;
+		}
+		if (cli_sent < TAIL_TOTAL)
+			lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
