@@ -25,6 +25,12 @@
 # IDLE_MIN_TARGET_SECS, taking turns in order across slices, so all of them
 # are covered over a few slices.  Any target names given still limit the choice.
 #
+# Under a sai task whose configuration names a pool (sai's READMEs/README-
+# pool.md), sai sets SAI_POOL_DIR to a dir the builder keeps synced with every
+# other builder fuzzing the repo, and the corpora go there instead of CORPUS.
+# The first time, whatever corpora CORPUS already had are copied in, so nothing
+# found before is lost.
+#
 # Finding artifacts (crash-*, leak-*, timeout-*, oom-*) are written into
 # <build>/fuzz/ along with each target's full output in log-<name>.txt; any
 # findings produced by this run are listed by absolute path at the end and
@@ -38,6 +44,20 @@ set -e
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BUILD="${BUILD:-$REPO/build-fuzz}"
 CORPUS="${CORPUS:-$BUILD/fuzz}"
+
+if [ -n "$SAI_POOL_DIR" ] && [ -d "$SAI_POOL_DIR" ]; then
+	if [ "$CORPUS" != "$SAI_POOL_DIR" ] && [ -d "$CORPUS" ] &&
+	   [ ! -e "$CORPUS/.sai-pool-copied" ]; then
+		for d in "$CORPUS"/corpus-*; do
+			if [ -d "$d" ]; then
+				mkdir -p "$SAI_POOL_DIR/${d##*/}"
+				cp -Rn "$d/." "$SAI_POOL_DIR/${d##*/}/"
+			fi
+		done
+		touch "$CORPUS/.sai-pool-copied"
+	fi
+	CORPUS="$SAI_POOL_DIR"
+fi
 SECS="${1:-60}"
 if [ "$#" -gt 0 ]; then
 	shift

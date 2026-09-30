@@ -80,6 +80,13 @@ after the build goes to as many targets as can each have at least two
 minutes, taking turns in order across slices so every target is covered.
 Whose turn it is is kept in `<corpus>/.idle-next`.
 
+The configuration also names a sai pool, `fuzz`, which sai keeps synced
+between all the builders running it (see sai's `READMEs/README-pool.md`).
+When sai provides it in `SAI_POOL_DIR`, `run.sh` keeps the corpora there
+instead of in `CORPUS`, so every builder fuzzes from, and adds to, the same
+corpora.  The first time, any corpora already in `CORPUS` are copied into
+the pool.
+
 ## Targets
 
 | target | parser under test | notes |

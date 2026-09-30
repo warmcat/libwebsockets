@@ -428,14 +428,18 @@
 		# It also has two idle tasks per platform, which carry on fuzzing
 		# the latest completed push in builders' idle time, when their
 		# conf allows it.  There run.sh takes its time from the slice
-		# length sai gives it in SAI_IDLE_SECS instead, and they share the
-		# $HOME corpora with the per-push job.
+		# length sai gives it in SAI_IDLE_SECS instead.
+		#
+		# All of them keep the corpora in the "fuzz" pool, which sai keeps
+		# synced between every builder doing it; run.sh uses the pool
+		# instead of CORPUS when sai gives it one.
 
 		"fuzz": {
 			"cmake":	"CORPUS=$HOME/lws-fuzz-corpus FUZZ_OPTS=-verbosity=0 FUZZ_CMAKE_OPTS=\"-DLWS_WITH_SSL=ON -DLWS_WITH_GNUTLS=ON -DLWS_WITH_GENCRYPTO=ON -DLWS_WITH_JOSE=ON -DLWS_WITH_COSE=ON -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=ON -DLWS_WITHOUT_EXTENSIONS=OFF -DLWS_WITH_ZLIB=ON\" ./fuzz/run.sh 60",
 			"platforms":	"none, fuzz-linux-debian13/x86_64-amd/gcc",
 			"artifacts":	"build-fuzz/fuzz/crash-*, build-fuzz/fuzz/leak-*, build-fuzz/fuzz/timeout-*, build-fuzz/fuzz/oom-*",
-			"idle":		2
+			"idle":		2,
+			"pool":		"fuzz"
 		}
 		#,
 		# awkward, we also want to test mbedtls, but coverity blocks on SSL build needing manual intervention
