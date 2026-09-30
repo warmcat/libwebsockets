@@ -1692,7 +1692,7 @@ lws_is_cgi(struct lws *wsi);
  *
  * Helper to scan a JIT Trust blob in memory for a trusted CA cert matching
  * a given SKID.  Returns 0 if found and *prpder and *prder_len are set, else
- * nonzero.
+ * nonzero and neither is written: check the return, not *prpder.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,

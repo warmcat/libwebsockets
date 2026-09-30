@@ -613,11 +613,13 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	/*
 	 * A CA cert DER is a few kB... anything wildly bigger than that is a
 	 * corrupt or hostile trust store rather than something we should
-	 * allocate for and hand to an ASN.1 parser
+	 * allocate for and hand to an ASN.1 parser.  And an empty one is no
+	 * CA at all: it must not name the vhost or the cache entry, nor reach
+	 * the backends as ca_mem, where no length means "load the defaults"
 	 */
 
-	if (der && der_len > LWS_JIT_TRUST_MAX_DER) {
-		lwsl_warn("%s: ignoring oversize CA DER %u\n", __func__,
+	if (der && (!der_len || der_len > LWS_JIT_TRUST_MAX_DER)) {
+		lwsl_warn("%s: ignoring CA DER of size %u\n", __func__,
 			  (unsigned int)der_len);
 		der = NULL;
 		der_len = 0;
@@ -940,17 +942,20 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 		if (*pskidlen >= skid_len &&
 		    !memcmp(skid, pskids, skid_len)) {
 			/*
-			 * We found a trusted CA cert of the right SKID
+			 * We found a trusted CA cert of the right SKID... but
+			 * the caller only hears about it if its DER is really
+			 * there: consumers take a set *prpder as "found"
 			 */
-		        *prpder = pder;
-		        siz = lws_ser_ru16be((uint8_t *)pderlen);
+			siz = lws_ser_ru16be((uint8_t *)pderlen);
 
-			if (siz >= blen - lws_ptr_diff_size_t(pder, blob))
+			if (!siz ||
+			    siz >= blen - lws_ptr_diff_size_t(pder, blob))
 				break;
 
+			*prpder = pder;
 			*prder_len = siz;
 
-		        return 0;
+			return 0;
 		}
 
 		pder += lws_ser_ru16be((uint8_t *)pderlen);

@@ -287,10 +287,13 @@ jit_trust_query(struct lws_context *cx, const uint8_t *skid,
 
 	st.queries++;
 
-	lws_tls_jit_trust_blob_queury_skid(blob, blob_len, skid, skid_len,
-					   &der, &der_len);
-	if (der)
+	if (!lws_tls_jit_trust_blob_queury_skid(blob, blob_len, skid, skid_len,
+						&der, &der_len))
 		st.found++;
+	else {
+		der = NULL;
+		der_len = 0;
+	}
 
 	lwsl_user("%s: query %d: %s\n", __func__, st.queries,
 		  der ? "trusted" : "not trusted");

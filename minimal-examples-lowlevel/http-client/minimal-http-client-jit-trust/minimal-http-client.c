@@ -416,18 +416,20 @@ jit_trust_query(struct lws_context *cx, const uint8_t *skid,
 	 * For this example, we look up SKIDs using a trust table that's
 	 * compiled in, synchronously.  Lws provides the necessary helper.
 	 *
-	 * DER will remain NULL if no match.
+	 * Only a return of 0 means it found a trusted CA and set der and
+	 * der_len, otherwise we tell the completion helper there is none.
 	 */
 
-	lws_tls_jit_trust_blob_queury_skid(jit_trust_blob,
-					   sizeof(jit_trust_blob), skid,
-					   skid_len, &der, &der_len);
-
-	if (der) {
+	if (!lws_tls_jit_trust_blob_queury_skid(jit_trust_blob,
+						sizeof(jit_trust_blob), skid,
+						skid_len, &der, &der_len)) {
 		lwsl_info("%s: found len %d\n", __func__, (int)der_len);
 		learned_trust = 1;
-	} else
+	} else {
 		lwsl_info("%s: not trusted\n", __func__);
+		der = NULL;
+		der_len = 0;
+	}
 
 	/* Once we have a result, pass it to the completion helper */
 
