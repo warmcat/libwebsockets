@@ -346,14 +346,14 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	const char *dl;
 	 /* 6 tabs + 20 for max time_t + 2 * TRUE/FALSE + null */
 	size_t size = 6 + 20 + 10 + 1, cnl;
-	time_t expires = 0;
+	time_t expires = 0, now_s;
 	lws_usec_t expiry_us = 0;
-	time_t now_s = lws_wsi_now_wall(wsi);
-
 	int ret = 0;
 
 	if (!wsi || !c)
 		return -1;
+
+	now_s = lws_wsi_now_wall(wsi);
 
 	l1 = wsi->a.context->l1;
 	if (!l1 || !wsi->a.context->nsc)
