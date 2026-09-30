@@ -487,6 +487,21 @@ lws_io_service_now(struct lws *wsi);
 int
 lws_io_flag_pending_rx(struct lws *wsi);
 
+/*
+ * A server's tls accept step is on an async worker: the SSL is the worker's
+ * until the service thread takes the result (lws_tls_server_accept_completed()
+ * from the event pipe, which then arms the poll set as the accept left it).
+ * Until then nothing on the service thread may read or write through it, or
+ * arm the socket for anything that would.
+ */
+#if defined(LWS_WITH_ASYNC_QUEUE) && defined(LWS_WITH_TLS) && \
+    defined(LWS_WITH_SERVER)
+#define lws_io_tls_on_worker(wsi) ((wsi)->async_worker_job && \
+		(wsi)->async_worker_job->type == LWS_AQ_SSL_ACCEPT)
+#else
+#define lws_io_tls_on_worker(wsi) (0)
+#endif
+
 /* the tls session */
 #if defined(LWS_WITH_TLS)
 void *

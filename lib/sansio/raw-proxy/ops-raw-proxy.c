@@ -65,7 +65,9 @@ rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
 
 /*
  * As raw-skt: hold behind a partial, not during the transport phases, except
- * a client's tunnel legs, read whole for the tunnel rx
+ * a client's tunnel legs, read whole for the tunnel rx.  A server's transport
+ * phases are its tls accept, IO's (and while it is on an async worker, the
+ * SSL is the worker's).
  */
 static int
 rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
@@ -82,21 +84,18 @@ rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
 		return LWS_RXPOL_HOLD;
 	}
 
+	if (lwsi_transport(wsi) != LTS_NONE) {
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_role_client(wsi) && lwsi_transport(wsi) != LTS_NONE) {
-		if (!lwsi_in_tunnel_leg(wsi))
-			/* dns, connect, tls: IO's transport stage */
-			return LWS_RXPOL_ROLE;
+		if (lwsi_role_client(wsi) && lwsi_in_tunnel_leg(wsi)) {
+			*flags = 0;
+			*max = 0;
 
-		*flags = 0;
-		*max = 0;
-
-		return LWS_RXPOL_PUMP;
-	}
+			return LWS_RXPOL_PUMP;
+		}
 #endif
-
-	if (lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
+		/* dns, connect, tls, the tls accept: IO's */
 		return LWS_RXPOL_ROLE;
+	}
 
 	*flags = LWS_RXP_FORCE_READ;
 	*max = 0;

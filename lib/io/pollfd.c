@@ -610,6 +610,15 @@ lws_io_want_write_pollfd(struct lws *wsi)
 static int
 lws_io_want_read_pollfd(struct lws *wsi, int on)
 {
+	/*
+	 * The accept on a worker had POLLIN taken off, and its completion
+	 * arms it again: rx enabled meanwhile (rx flow control from an
+	 * adoption callback, say) must not have the service thread read
+	 * through the SSL the worker is accepting on
+	 */
+	if (on && lws_io_tls_on_worker(wsi))
+		return 0;
+
 	return __lws_change_pollfd(wsi, on ? 0 : LWS_POLLIN, on ? LWS_POLLIN : 0);
 }
 

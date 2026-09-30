@@ -663,6 +663,17 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	*nothing = 0;
 	*consumed = 0;
 
+	if (lws_io_tls_on_worker(wsi)) {
+		/*
+		 * Whatever the role's policy said, the SSL is inside an
+		 * accept on a worker: a read here would run the tls library
+		 * on it from two threads at once
+		 */
+		*nothing = 1;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
 	if (((flags & LWS_RXP_NO_READ) ||
 	     (pollfd && !(pollfd->revents & pollfd->events & LWS_POLLIN))) &&
 	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
