@@ -1099,6 +1099,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	char *p = NULL, *q, *simp;
 	char new_path[300], redir_ads[256];
+	int bodyless;
 #if defined(LWS_ROLE_WT)
 	char wt_cce[40];
 #endif
@@ -1618,11 +1619,24 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 #endif
 
+	/*
+	 * RFC 9112 6.3: the response to a HEAD, and any 204 or 304, has no
+	 * body, whatever its Content-Length or Transfer-Encoding say: they
+	 * describe what the representation would have had.  Framed by them,
+	 * the response was taken to have a body, and the client waited for
+	 * bytes that never come
+	 */
+	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+	bodyless = lws_http_client_http_response(wsi) == 204 ||
+		   lws_http_client_http_response(wsi) == 304 ||
+		   (simp && !strcmp(simp, "HEAD"));
+
 	/* he may choose to send us stuff in chunked transfer-coding */
 	wsi->http.rx_chunked = 0;
 	wsi->http.chunk_remaining = 0; /* ie, next thing is chunk size */
 	wsi->http.chunk_skip = 0;
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+	if (!bodyless &&
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
 		/*
 		 * All of it, not just its first header: "chunked" followed by
 		 * a second Transfer-Encoding header is a list of codings, and
@@ -1639,7 +1653,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 
 	wsi->http.content_length_given = 0;
-	if (wsi->http.rx_chunked &&
+	if (bodyless) {
+		/* nothing to frame, and nothing that ends at the close */
+		wsi->http.rx_content_length = 0;
+		wsi->http.rx_content_remain = 0;
+	} else if (wsi->http.rx_chunked &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 		/*
 		 * RFC 9112 6.3: with both, Transfer-Encoding overrides
@@ -1742,9 +1760,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * content-length of zero?  If so, and it's not H2 which will
 		 * notice it via END_STREAM, this transaction is already
 		 * completed at the end of the header processing...
-		 * We also completed it if the request method is HEAD which as
-		 * no content leftover.
-		 * Or if the response status code is 204 : No Content
+		 * Likewise one that has no body at all: the answer to a HEAD,
+		 * a 204 or a 304.
 		 *
 		 * A chunked response's Content-Length was ignored above, and
 		 * rx_content_length zeroed with it: that is not a length of
@@ -1753,14 +1770,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * next queued request with the body still on it, to be read
 		 * as that request's response (C-701)
 		 */
-		simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 		if (!wsi->mux_substream &&
 		    !wsi->client_mux_substream &&
-			(204 == lws_http_client_http_response(wsi) ||
-			 (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-				((!wsi->http.rx_chunked &&
-				  !wsi->http.rx_content_length) ||
-				(simp && !strcmp(simp,"HEAD")))))) {
+		    (bodyless ||
+		     (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+		      !wsi->http.rx_chunked && !wsi->http.rx_content_length))) {
 			if (!lws_http_transaction_completed_client(wsi))
 				return LWS_HPI_RET_HANDLED;
 

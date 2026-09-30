@@ -83,7 +83,9 @@
  * of what it is not reading meanwhile, then it reads the answer.
  *
  * And a ws client told "100 Continue" ahead of its 101: it waits on for the
- * 101, and is established by it.
+ * 101, and is established by it.  And an h1 client given a response with no
+ * body (to a HEAD, or a 304) whose headers speak of one: it completes the
+ * transaction at the end of the headers.
  *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
@@ -3009,6 +3011,53 @@ client_refused_heads_half(struct lws_context *cx, struct lws_vhost *vh)
 }
 
 /*
+ * 32: h1 responses with no body, whatever their framing headers say (RFC
+ * 9112 6.3): the answer to a HEAD, with Transfer-Encoding: chunked or with a
+ * Content-Length, and a 304 with a Content-Length.  The client completes the
+ * transaction at the end of the headers, with nothing for the app.
+ */
+static int
+client_bodyless_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const struct {
+		const char	*name;
+		const char	*method;
+		const char	*resp;
+	} c[] = {
+		{ "h1-client-head-chunked", "HEAD", "HTTP/1.1 200 OK\r\n"
+			"Transfer-Encoding: chunked\r\n\r\n" },
+		{ "h1-client-head-cl", "HEAD", "HTTP/1.1 200 OK\r\n"
+			"Content-Length: 10\r\n\r\n" },
+		{ "h1-client-304-cl", "GET", "HTTP/1.1 304 Not Modified\r\n"
+			"Content-Length: 10\r\n\r\n" },
+	};
+	static struct transport tp;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(c); n++) {
+		tr_begin(c[n].name, "client", 0);
+		if (!client_connect(cx, vh, &tp, "/x", c[n].method, NULL)) {
+			lwsl_err("case 32: %s: connect failed\n", c[n].name);
+			return 1;
+		}
+		pump(cx, &tp);
+		feed(cx, &tp, c[n].resp, strlen(c[n].resp));
+		if (cli.error || !cli.completed || cli.rx_len) {
+			lwsl_err("case 32: %s: err %d comp %d rx %d\n",
+				 c[n].name, cli.error, cli.completed,
+				 (int)cli.rx_len);
+			return 1;
+		}
+		if (tr_end())
+			return 1;
+	}
+	lwsl_user("case 32: h1 client completes bodyless responses at their "
+		  "headers: PASS\n");
+
+	return 0;
+}
+
+/*
  * 19: as 18, the ws client: the server's ping, then its close, in one read,
  * get the masked pong and then the masked answer to the close
  */
@@ -3426,6 +3475,9 @@ main(int argc, const char **argv)
 		goto bail;
 	at(cx, 4180);
 	if (ws_client_interim_half(cx, vh))
+		goto bail;
+	at(cx, 4190);
+	if (client_bodyless_half(cx, vh))
 		goto bail;
 #endif
 
