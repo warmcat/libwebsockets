@@ -27,7 +27,8 @@
  * will not do, frames with RSV bits nothing negotiated gives a meaning,
  * with and without permessage-deflate, and one longer than lws takes; and
  * what the h1 server makes of a request line (dot segments, '+', token
- * limits).
+ * limits, no version, no request line at all, versions it does and does
+ * not speak).
  *
  * Then state that belongs to one transaction and not to the connection it
  * came on: serving the vhost's 404 document is one request's business, the
@@ -946,7 +947,10 @@ upgrade_refusals_half(struct lws_context *cx)
  * app answers with the path and args lws gave it.  The path's dot segments
  * go, even just before the args; '+' is a space in the args, but itself in
  * the path; and a request line or a header past its token limit fails the
- * request with 414 or 431, rather than being cut short and served.
+ * request with 414 or 431, rather than being cut short and served.  A
+ * request line without a version (HTTP/0.9), a head without a request line,
+ * or a version that is not "HTTP/" digit "." digit is refused with 400, and
+ * a major version other than 1 with 505; HTTP/1.2 is served as 1.1.
  */
 static int
 uri_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -973,6 +977,18 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 			"Host: sansio-uri\r\n"
 			"User-Agent: 12345678901234567\r\n\r\n", NULL,
 			"HTTP/1.1 431 " },
+		/* the request line is method, target and HTTP version */
+		{ "h1-reqline-http09", "GET /x\r\n", NULL, "HTTP/1.1 400 " },
+		{ "h1-reqline-no-method", "Host: sansio-uri\r\n\r\n", NULL,
+			"HTTP/1.1 400 " },
+		{ "h1-reqline-version-2", "GET /x HTTP/2.0\r\n"
+			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 505 " },
+		{ "h1-reqline-version-junk", "GET /x HTTP/1.x\r\n"
+			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 400 " },
+		{ "h1-reqline-version-long", "GET /x HTTP/1.10\r\n"
+			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 400 " },
+		{ "h1-reqline-version-1-2", "GET /x HTTP/1.2\r\n"
+			"Host: sansio-uri\r\n\r\n", "/x\n", NULL },
 	};
 	static struct transport tp;
 	const uint8_t *b;

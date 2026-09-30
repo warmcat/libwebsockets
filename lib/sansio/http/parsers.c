@@ -1294,6 +1294,26 @@ static const unsigned char methods[] = {
 };
 
 /*
+ * RFC 9112 2.3: HTTP-version = "HTTP" "/" DIGIT "." DIGIT, case-sensitive.
+ * Returns 0 for HTTP/1.x, which we speak (a minor version past 1 as 1.1,
+ * RFC 9110 2.5), HTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED for any other
+ * major version, and HTTP_STATUS_BAD_REQUEST for anything that is not a
+ * version at all.
+ */
+static unsigned int
+lws_h1_version_refusal(const char *v, size_t len)
+{
+	if (len != 8 || strncmp(v, "HTTP/", 5) || v[6] != '.' ||
+	    v[5] < '0' || v[5] > '9' || v[7] < '0' || v[7] > '9')
+		return HTTP_STATUS_BAD_REQUEST;
+
+	if (v[5] != '1')
+		return HTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED;
+
+	return 0;
+}
+
+/*
  * An h1 server is strict about the request head's line ends: CRLF only, a
  * bare CR or bare LF refuses the request.  RFC 9112 2.2 lets a recipient
  * take a bare LF as a line end, but whatever is in front of us may not, and
@@ -1396,9 +1416,9 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 {
 	struct allocated_headers *ah = wsi->stream.ah;
 	struct lws_context *context = wsi->a.context;
+	unsigned int n, m, refusal = HTTP_STATUS_BAD_REQUEST;
 	const unsigned char *start = buf;
 	int r, pos, total = *len;
-	unsigned int n, m;
 	unsigned char c;
 
 	assert(wsi->stream.ah);
@@ -1492,6 +1512,14 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 				/* it was not any of the methods */
 				goto check_eol;
 
+			/*
+			 * The request line ended in the request target, with
+			 * no version: an HTTP/0.9 request, which we do not
+			 * speak
+			 */
+			if (c == '\x0d' || c == '\x0a')
+				goto bad_request_line;
+
 			/* special URI processing... end at space */
 
 			if (c == ' ') {
@@ -1556,6 +1584,21 @@ check_eol:
 			    (c == '\x0d' || c == '\x0a')) {
 				if (ah->ues != URIES_IDLE)
 					goto forbid;
+
+				/*
+				 * The end of a server's request line: the whole
+				 * version is here to be checked, where once
+				 * only two of its characters ever were
+				 */
+				if (ah->parser_state == WSI_TOKEN_HTTP &&
+				    lwsi_role_server(wsi) &&
+				    !wsi->mux_substream) {
+					refusal = lws_h1_version_refusal(
+						&ah->data[ah->frags[ah->nfrag].offset],
+						ah->frags[ah->nfrag].len);
+					if (refusal)
+						goto bad_request_line;
+				}
 
 				if (c == '\x0a') {
 					if (lws_h1_srv_strict(wsi))
@@ -1940,6 +1983,19 @@ set_parsing_complete:
 	if (ah->ues != URIES_IDLE)
 		goto forbid;
 
+	/*
+	 * A server's h1 request head starts with its request line, and a
+	 * head without one (headers alone, or an empty line) is no request
+	 * we can act on
+	 */
+	if (lwsi_role_server(wsi) && !wsi->mux_substream) {
+		for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
+			if (ah->frag_index[methods[m]])
+				break;
+		if (m == LWS_ARRAY_SIZE(methods))
+			goto bad_request_line;
+	}
+
 	ah->parser_state = WSI_PARSING_COMPLETE;
 
 	return LPR_OK;
@@ -1954,6 +2010,27 @@ forbid:
 #endif
 
 	return LPR_REFUSED;
+
+bad_request_line:
+	/*
+	 * No request line, or one that is not method, target and an HTTP
+	 * version: 400, or 505 for a version that is not 1.x (RFC 9112 3,
+	 * RFC 9110 15.6.6)
+	 */
+	lwsl_parse_fail(wsi, "bad request line (state %d): %u",
+			ah->parser_state, refusal);
+#if defined(LWS_WITH_SERVER)
+	if (lwsi_role_server(wsi) && !wsi->mux_substream) {
+		lws_parse_fail_diag(wsi, start, lws_ptr_diff(buf, start), total);
+		/* there is no version of the request's to answer in */
+		wsi->stream.request_version = HTTP_VERSION_1_1;
+		lws_return_http_status(wsi, refusal, NULL);
+
+		return LPR_REFUSED;
+	}
+#endif
+
+	return LPR_FAIL;
 
 too_large:
 	/*
@@ -2005,9 +2082,10 @@ lws_h1_request_version(struct lws *wsi)
 {
 	char v[12];
 
+	/* HTTP/1.1, or a later HTTP/1.x we answer as 1.1 (RFC 9110 2.5) */
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP) > 7 &&
 	    lws_hdr_copy(wsi, v, sizeof(v) - 1, WSI_TOKEN_HTTP) > 0 &&
-	    v[5] == '1' && v[7] == '1')
+	    v[5] == '1' && v[7] >= '1' && v[7] <= '9')
 		return HTTP_VERSION_1_1;
 
 	return HTTP_VERSION_1_0;

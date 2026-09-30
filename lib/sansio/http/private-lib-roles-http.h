@@ -622,8 +622,8 @@ int
 lws_http_string_to_known_header(const char *s, size_t slen);
 
 /*
- * The version on an h1 request line: 1.0 unless it says 1.1 (single digit
- * versions only)
+ * The version on an h1 request line: 1.1 for HTTP/1.1 or any later HTTP/1.x,
+ * otherwise 1.0
  */
 enum http_version
 lws_h1_request_version(struct lws *wsi);
