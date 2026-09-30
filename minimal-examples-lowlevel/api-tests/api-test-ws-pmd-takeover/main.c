@@ -31,10 +31,17 @@
  * whole message, zlib refuses to sync flush again with nothing new, and the
  * sender must still produce a valid empty compressed message.
  *
+ * Then two more connections are refused by the client after the server
+ * accepted the extension, once from the app's extension defaults and once
+ * from its final look at the server's response: the extension the client
+ * already constructed must be destroyed with the failed connection (an ASan
+ * build reports the leak otherwise).
+ *
  * The test fails if
  *  - the offer does not reach the server as sent,
  *  - any message in either direction was not compressed (RSV1),
  *  - any echo differs from what was sent, or the connection fails, or
+ *  - a connection the client refuses does not fail, or
  *  - it doesn't all complete in time.
  */
 
@@ -54,6 +61,13 @@ static const char * const offers[] = {
 	"permessage-deflate; client_no_context_takeover",
 	("permessage-deflate; server_no_context_takeover; "
 		"client_no_context_takeover"),
+};
+
+/* after the offers, connections the client refuses once pmd is agreed */
+enum {
+	SC_REFUSE_DEFAULTS = LWS_ARRAY_SIZE(offers),
+	SC_REFUSE_FILTER,
+	SC_COUNT
 };
 
 static struct lws_context *context;
@@ -81,11 +95,18 @@ struct pss {
 	int		rsv;
 };
 
+/* the refusal scenarios use the plain offer */
+static size_t
+offer_idx(void)
+{
+	return scenario < LWS_ARRAY_SIZE(offers) ? scenario : 0;
+}
+
 static void
 fail(const char *why)
 {
-	lwsl_err("--- offer %d \"%s\": %s ---\n", (int)scenario,
-		 offers[scenario], why);
+	lwsl_err("--- scenario %d \"%s\": %s ---\n", (int)scenario,
+		 offers[offer_idx()], why);
 	lws_default_loop_exit(context);
 }
 
@@ -102,7 +123,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		/* it has to be negotiating what we think it is */
 		if (lws_hdr_copy(wsi, buf, sizeof(buf),
 				 WSI_TOKEN_EXTENSIONS) <= 0 ||
-		    strcmp(buf, offers[scenario])) {
+		    strcmp(buf, offers[offer_idx()])) {
 			fail("offer not seen by server");
 			return -1;
 		}
@@ -117,7 +138,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			fail("server rx overflow");
 			return -1;
 		}
-		memcpy(pss->buf + LWS_PRE + pss->len, in, len);
+		/* an empty message may come with no buffer at all */
+		if (len)
+			memcpy(pss->buf + LWS_PRE + pss->len, in, len);
 		pss->len += len;
 		/*
 		 * the rsv bits are the frame's we are in, and only the
@@ -160,7 +183,7 @@ next_connection(lws_sorted_usec_list_t *sul)
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
-	i.vhost			= vh_cli[scenario];
+	i.vhost			= vh_cli[offer_idx()];
 	i.address		= server_address;
 	i.port			= port;
 	i.path			= "/";
@@ -169,10 +192,23 @@ next_connection(lws_sorted_usec_list_t *sul)
 	i.protocol		= "pmdt";
 	i.local_protocol_name	= "pmdt";
 
-	lwsl_user("offer %d: \"%s\"\n", (int)scenario, offers[scenario]);
+	lwsl_user("scenario %d: \"%s\"%s\n", (int)scenario,
+		  offers[offer_idx()],
+		  scenario >= SC_REFUSE_DEFAULTS ? ", client refuses" : "");
 
 	if (!lws_client_connect_via_info(&i))
 		fail("client connect failed");
+}
+
+static void
+next_scenario(void)
+{
+	if (++scenario == SC_COUNT) {
+		lwsl_user("--- all scenarios passed ---\n");
+		result = 0;
+		lws_default_loop_exit(context);
+	} else
+		lws_sul_schedule(context, 0, &sul_next, next_connection, 1);
 }
 
 static int
@@ -182,7 +218,19 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	struct pcs *pcs = (struct pcs *)user;
 
 	switch (reason) {
+	case LWS_CALLBACK_WS_EXT_DEFAULTS:
+		/* nonzero refuses the connection, pmd already constructed */
+		return scenario == SC_REFUSE_DEFAULTS;
+
+	case LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH:
+		/* ...and here with pmd agreed and active */
+		return scenario == SC_REFUSE_FILTER;
+
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		if (scenario >= SC_REFUSE_DEFAULTS) {
+			fail("refused connection was established");
+			return -1;
+		}
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -214,7 +262,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			fail("client rx overflow");
 			return -1;
 		}
-		memcpy(pcs->rx + pcs->rx_len, in, len);
+		if (len)
+			memcpy(pcs->rx + pcs->rx_len, in, len);
 		pcs->rx_len += len;
 		pcs->rsv |= lws_get_reserved_bits(wsi);
 		if (!lws_is_final_fragment(wsi))
@@ -237,23 +286,24 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_user("offer %d: %d messages and an empty one each way "
 			  "intact\n", (int)scenario, MSG_COUNT);
-		if (++scenario == LWS_ARRAY_SIZE(offers)) {
-			lwsl_user("--- all offers passed ---\n");
-			result = 0;
-			lws_default_loop_exit(context);
-		} else
-			lws_sul_schedule(context, 0, &sul_next,
-					 next_connection, 1);
+		next_scenario();
 
 		return -1;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		fail(in ? (const char *)in : "connection error");
+		if (scenario < SC_REFUSE_DEFAULTS) {
+			fail(in ? (const char *)in : "connection error");
+			break;
+		}
+		lwsl_user("scenario %d: refused as expected: %s\n",
+			  (int)scenario, in ? (const char *)in : "");
+		next_scenario();
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		/* we close it ourselves once it's done; any other close fails */
-		if (!pcs || pcs->echoed != MSG_TOTAL)
+		if (scenario < SC_REFUSE_DEFAULTS &&
+		    (!pcs || pcs->echoed != MSG_TOTAL))
 			fail("connection closed early");
 		break;
 

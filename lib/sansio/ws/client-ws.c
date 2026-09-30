@@ -247,6 +247,7 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	const char *c, *a;
 	int more = 1;
 	char ignore;
+	void *eu;
 #endif
 
 	if (wsi->client_mux_substream) {
@@ -532,6 +533,12 @@ check_extensions:
 			}
 
 			/*
+			 * It is active from here: if the handshake fails from
+			 * now on, the close destroys it with any others
+			 */
+			eu = wsi->ws->act_ext_user[wsi->ws->count_act_ext++];
+
+			/*
 			 * allow the user code to override ext defaults if it
 			 * wants to
 			 */
@@ -545,10 +552,7 @@ check_extensions:
 			}
 
 			if (ext_name[0] &&
-			    lws_ext_parse_options(ext, wsi,
-					          wsi->ws->act_ext_user[
-						        wsi->ws->count_act_ext],
-					          opts, ext_name,
+			    lws_ext_parse_options(ext, wsi, eu, opts, ext_name,
 						  (int)strlen(ext_name))) {
 				lwsl_wsi_err(wsi, "unable to parse user defaults '%s'",
 					     ext_name);
@@ -559,26 +563,20 @@ check_extensions:
 			/*
 			 * give the extension the server options
 			 */
-			if (a && lws_ext_parse_options(ext, wsi,
-					wsi->ws->act_ext_user[
-					                wsi->ws->count_act_ext],
-					opts, a, lws_ptr_diff(c, a))) {
+			if (a && lws_ext_parse_options(ext, wsi, eu, opts, a,
+						       lws_ptr_diff(c, a))) {
 				lwsl_wsi_err(wsi, "unable to parse remote def '%s'", a);
 				*cce = "HS: EXT: failed parsing options";
 				goto bail2;
 			}
 
 			if (ext->callback(lws_get_context(wsi), ext, wsi,
-					LWS_EXT_CB_OPTION_CONFIRM,
-				      wsi->ws->act_ext_user[wsi->ws->count_act_ext],
-				      NULL, 0)) {
+					LWS_EXT_CB_OPTION_CONFIRM, eu, NULL, 0)) {
 				lwsl_wsi_err(wsi, "ext %s rejects server options %s",
 					     ext->name, a);
 				*cce = "HS: EXT: Rejects server options";
 				goto bail2;
 			}
-
-			wsi->ws->count_act_ext++;
 
 			ext++;
 		}

@@ -175,6 +175,17 @@ __lws_reset_wsi(struct lws *wsi)
 
 	__lws_wsi_remove_from_sul(wsi);
 
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+	/*
+	 * A ws handshake may have got as far as constructing extensions
+	 * before it failed, with the wsi still in its http role, which frees
+	 * wsi->ws below: only the ws role's close destroys them otherwise
+	 */
+	if (wsi->ws && !lwsi_role_ws(wsi) &&
+	    lws_ext_cb_active(wsi, LWS_EXT_CB_DESTROY, NULL, 0) < 0)
+		lwsl_wsi_warn(wsi, "extension destruction failed");
+#endif
+
 	/* a client wsi that bailed before its role was chosen has none */
 	if (wsi->role_ops && lws_rops_fidx(wsi->role_ops, LWS_ROPS_destroy_role))
 		lws_rops_func_fidx(wsi->role_ops,
