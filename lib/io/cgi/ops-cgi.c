@@ -186,8 +186,7 @@ rops_close_role_cgi(struct lws_context_per_thread *pt, struct lws *wsi)
 				LWS_RXFLOW_REASON_APPLIES_ENABLE |
 				LWS_RXFLOW_REASON_FLAG_PROCESS_NOW);
 
-	if (wsi->parent && wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)
-		lws_spawn_stdwsi_closed(wsi->parent->http.cgi->lsp, wsi);
+	/* the close's quiesce already told the spawn this pipe went */
 
 	return 0;
 }

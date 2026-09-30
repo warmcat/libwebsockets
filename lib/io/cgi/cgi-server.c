@@ -146,30 +146,43 @@ lws_cgi_reap_cb(void *opaque, const struct lws_spawn_resource_us *res, siginfo_t
 	struct lws *wsi = (struct lws *)opaque;
 	struct lws_cgi_args args;
 
+	/*
+	 * lws_spawn_reap() destroyed the lsp before calling us.  If the
+	 * transaction's close killed the cgi, lws_cgi_kill() told its user it
+	 * terminated already: it is only the pipes that went after that
+	 */
+	if (!wsi->http.cgi || wsi->http.cgi->being_closed)
+		return;
+
 	/* nothing in here is meaningful for TERMINATED, but do not leak stack */
 	memset(&args, 0, sizeof(args));
 
-	if (wsi->http.cgi &&
-	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+	if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_CGI_TERMINATED,
 					wsi->user_space, (void *)&args,
-					(unsigned int)wsi->http.cgi->pi))
-		lwsl_notice("\n");
+					(unsigned int)wsi->http.cgi->pi)) {
+		/* as lws_cgi_kill() does, the user wants the transaction gone */
+		lws_close_free_wsi(wsi, 0, "lws_cgi_reap_cb");
+
+		return;
+	}
 
 	/*
-	 * The cgi has come to an end, by itself or with a signal...
+	 * The cgi has come to an end, by itself or with a signal... the user
+	 * may have completed the transaction, and released the cgi, already
 	 */
 
-	if (wsi->http.cgi)
-		lwsl_wsi_info(wsi, "post_in_expected %d",
-			   (int)wsi->http.cgi->post_in_expected);
+	if (!wsi->http.cgi)
+		return;
+
+	lwsl_wsi_info(wsi, "post_in_expected %d",
+		      (int)wsi->http.cgi->post_in_expected);
 
 	/*
 	 * Grace period to handle the incoming stdout
 	 */
 
-	if (wsi->http.cgi)
-		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->http.cgi->sul_grace,
+	lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->http.cgi->sul_grace,
 			 lws_cgi_grace, 1 * LWS_US_PER_SEC);
 }
 
@@ -1413,15 +1426,19 @@ lws_cgi_release(struct lws *wsi)
 /*
  * One of a cgi's stdio pipes is closing: it is no longer the child's.  The
  * logical cgi stays, so it can be drained.
+ *
+ * lws_spawn_stdwsi_closed() finds which pipe it is by looking for it in the
+ * lsp, clears the slot itself and counts the pipe down, so that the spawn's
+ * own reap follows the last one: the slot must not be cleared here first, or
+ * the count never reaches 0 (the C-449 shape).
  */
 void
 lws_cgi_stdwsi_quiesce(struct lws *wsi)
 {
-	if (!lwsi_role_cgi(wsi) || !wsi->parent || !wsi->parent->http.cgi ||
-	    !wsi->parent->http.cgi->lsp)
+	if (!lwsi_role_cgi(wsi) || !wsi->parent || !wsi->parent->http.cgi)
 		return;
 
-	wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->io->lsp_channel] = NULL;
+	lws_spawn_stdwsi_closed(wsi->parent->http.cgi->lsp, wsi);
 }
 
 /*
