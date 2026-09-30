@@ -967,9 +967,18 @@ push_m:
 					break;
 				}
 
+				/*
+				 * A long-form fragment of an indefinite-length
+				 * string is not a string of its own: the START
+				 * went out for the whole string when it opened,
+				 * as the zero-length and short-form fragment
+				 * paths already know.  The parent's
+				 * intermediate flag is only set once a first
+				 * fragment has spilled, so testing that let a
+				 * long-form first fragment issue a second START
+				 */
 				st->collect_rem = ctx->item.u.u64;
-				if ((!ctx->sp || (ctx->sp &&
-				    !ctx->st[ctx->sp - 1].intermediate)) &&
+				if (!lwcp_is_indet_string(ctx) &&
 				    pst->cb(ctx, (char)((st->opcode ==
 						    LWS_CBOR_MAJTYP_TSTR) ?
 							LECPCB_VAL_STR_START :
