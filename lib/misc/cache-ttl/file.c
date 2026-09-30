@@ -241,7 +241,8 @@ nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 		size_t len;
 
 		if (!eof && n < sizeof(temp)) {
-			ssize_t n1s = read(fd, temp + n, sizeof(temp) - n);
+			ssize_t n1s = read(fd, temp + n,
+					  LWS_POSIX_LENGTH_CAST(sizeof(temp) - n));
 
 			if (n1s < 0) {
 				if (errno == EINTR)
@@ -721,7 +722,7 @@ limits:
 
 	cache->cache.current_footprint += (uint64_t)size;
 
-	if (write(ctx->fdt, buf, /*msvc*/(unsigned int)size) != (ssize_t)size)
+	if (write(ctx->fdt, buf, LWS_POSIX_LENGTH_CAST(size)) != (ssize_t)size)
 		return NIR_FINISH_ERROR;
 
 	if (flags & LCN_EOL)
@@ -779,7 +780,7 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *specific_key_delete,
 	/* if we are adding something, put it first */
 
 	if (pay &&
-	    write(ctx.fdt, pay, /*msvc*/(unsigned int)pay_size) !=
+	    write(ctx.fdt, pay, LWS_POSIX_LENGTH_CAST(pay_size)) !=
 						    (ssize_t)pay_size)
 		goto bail1;
 	if (pay && write(ctx.fdt, "\n", 1u) != (ssize_t)1)
