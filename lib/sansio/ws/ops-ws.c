@@ -1256,8 +1256,15 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 		/*
 		 * New rx would trample the buffer the tx drain still needs:
 		 * the drain goes on through the writeable (it must go through
-		 * the event loop to avoid blocking), which we insist on
+		 * the event loop to avoid blocking), which we insist on.
+		 * Nothing is read until the drain is done, which may be never
+		 * if the peer does not read: a level-armed POLLIN would spin
+		 * meanwhile, so drop it.  The writeable that ends the drain
+		 * gives it back.
 		 */
+		if (__lws_io_want_read(wsi, 0))
+			return LWS_RXPOL_CLOSE;
+
 		*flags = LWS_RXPOL_F_POLLOUT;
 		lws_callback_on_writable(wsi);
 
@@ -1430,6 +1437,13 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 	if (wsi->ws->tx_draining_ext) {
 		lwsl_ext("SERVICING TX EXT DRAINING\n");
 		if (lws_write(wsi, NULL, 0, LWS_WRITE_CONTINUATION) < 0)
+			return LWS_HP_RET_BAIL_DIE;
+		/*
+		 * That was the end of the drain: the rx policy stopped our
+		 * reading while it held for it, so read again (unless rx flow
+		 * control keeps it off)
+		 */
+		if (!wsi->ws->tx_draining_ext && lws_io_read_after_drain(wsi))
 			return LWS_HP_RET_BAIL_DIE;
 		/* leave POLLOUT active */
 		return LWS_HP_RET_BAIL_OK;

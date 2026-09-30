@@ -26,6 +26,12 @@
  * through, the ordinary case of an app refusing a message it has only seen
  * the start of.
  *
+ * A leg has the client stop reading (rx flow control) while the server
+ * fills the connection, then send the server more than it reads at once:
+ * the server sending a big message with pmd (it may not read until that
+ * has gone).  The server must wait quietly until the client reads again,
+ * then finish.
+ *
  * Every leg must finish its close promptly and without the service loop
  * spinning meanwhile: a close handshake that only ends at its timeout, or
  * a service loop that goes around without waiting, fails the leg.
@@ -45,21 +51,40 @@ struct leg {
 	uint8_t		default_reason;	/* close without lws_close_reason() */
 	uint8_t		pmd_mid_drain;	/* server closes on a compressed
 					 * message it is partway through */
+	uint8_t		stall;		/* enum stall: the client stops
+					 * reading while the server sends */
+};
+
+enum stall {
+	STALL_NONE,
+	STALL_TX_DRAIN,		/* server sends one big pmd message */
+	STALL_CLOSE_FLUSH,	/* server closes with its tx buffered */
+	STALL_CLOSE_FULL,	/* server closes on a full socket */
+};
+
+/* where a stall leg is in its timeline */
+enum {
+	STAGE_FILLING,		/* the server fills the connection */
+	STAGE_SETTLING,		/* the client has sent: let things settle */
+	STAGE_STALLED,		/* count the loop's trips */
+	STAGE_RESUMED		/* the client reads again */
 };
 
 static const struct leg legs[] = {
-	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0 },
-	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0 },
-	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0 },
-	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0 },
-	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0 },
-	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0 },
-	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0 },
-	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0 },
-	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0 },
-	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0 },
-	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0 },
-	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1 },
+	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0 },
+	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0 },
+	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0 },
+	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0, 0 },
+	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0, 0 },
+	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0 },
+	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0 },
+	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0 },
+	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0 },
+	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0 },
+	{ "h1, pmd, server sends to a client not reading", "cli-pmd", "http/1.1",
+							0, 1, 0, 0, STALL_TX_DRAIN },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
@@ -78,23 +103,49 @@ static const struct leg legs[] = {
 /* the compressible message the pmd leg's client sends */
 #define PMD_MSG_LEN	(16 * 1024)
 
+/*
+ * The stall legs.  The server fills the connection until its socket has
+ * taken nothing for STALL_QUIET_US (loopback can buffer several MB: the
+ * socket buffers grow while it fills); with pmd, one message bigger than
+ * that does it.  The client then sends more than the server reads at once.
+ * After STALL_SETTLE_US, we watch the STALL_WINDOW_US the server spends
+ * stalled: a readable socket it does not read makes the service loop spin,
+ * going around in every millisecond of it.  A quiet loop only wakes for
+ * timers (and may go around a few times in the millisecond before one is
+ * due), so it is allowed STALL_MAX_BUSY_MS milliseconds with any service
+ * loop turn in them.
+ */
+#define STALL_PMD_LEN		(8 * 1024 * 1024)
+#define STALL_FILL_MAX		(64 * 1024 * 1024)
+#define STALL_CLI_LEN		(64 * 1024)
+#define STALL_CHUNK		1024
+#define STALL_OVER_LEN		(256 * 1024)
+#define STALL_QUIET_US		(300 * LWS_US_PER_MS)
+#define STALL_POLL_US		(50 * LWS_US_PER_MS)
+#define STALL_SETTLE_US		(1 * LWS_US_PER_SEC)
+#define STALL_WINDOW_US		(500 * LWS_US_PER_MS)
+#define STALL_MAX_BUSY_MS	50
+
 static struct lws_context *context;
 static struct lws_vhost *vh_cli[5];
 static const char *vh_cli_names[5] = { "cli", "cli-hp", "cli-s5", "cli-s5a",
 				       "cli-pmd" };
-static lws_sorted_usec_list_t sul_next, sul_timeout;
+static lws_sorted_usec_list_t sul_next, sul_timeout, sul_stall;
+static struct lws *srv_wsi, *cli_wsi;
 static const char *server_ads = "127.0.0.1";
-static int port_tcp = 7681, cur = -1, result = 1, legs_run;
-static unsigned long turns, leg_turns;
-static lws_usec_t leg_start;
+static int port_tcp = 7681, cur = -1, result = 1, legs_run, failed;
+static unsigned long turns, leg_turns, stall_turns, stall_busy_ms;
+static lws_usec_t leg_start, last_fill, last_busy_ms;
 
 /* per-leg state */
 static int cli_closed, srv_closed, peer_close_seen, peer_close_ok, sent_close,
-	   sent_msg;
+	   sent_msg, cli_sent, stall_stage, srv_close_flushes;
+static size_t cli_rx, srv_filled;
 
 static void
 fail_leg(const char *why)
 {
+	failed = 1;
 	lwsl_err("--- leg %d (%s): %s ---\n", cur, legs[cur].name, why);
 	lws_default_loop_exit(context);
 }
@@ -119,19 +170,45 @@ leg_done_check(void)
 {
 	lws_usec_t us;
 
-	if (!cli_closed || !srv_closed)
+	if (failed || !cli_closed || !srv_closed)
 		return;
 
-	if (!peer_close_seen) {
-		fail_leg("peer never saw the close frame");
+	if (legs[cur].stall && stall_stage != STAGE_RESUMED) {
+		fail_leg("closed before the stall was over");
 		return;
 	}
-	if (!peer_close_ok) {
-		fail_leg("close code / reason did not survive");
+	if (legs[cur].stall == STALL_TX_DRAIN && cli_rx != STALL_PMD_LEN) {
+		lwsl_err("client received %lu of %lu\n", (unsigned long)cli_rx,
+			 (unsigned long)STALL_PMD_LEN);
+		fail_leg("the big message did not arrive whole");
 		return;
 	}
+	/*
+	 * A close that has to flush tx first drops the connection after the
+	 * flush, without a Close frame
+	 */
+	if (srv_close_flushes) {
+		if (peer_close_seen) {
+			fail_leg("close frame after a flush");
+			return;
+		}
+	} else {
+		if (!peer_close_seen) {
+			fail_leg("peer never saw the close frame");
+			return;
+		}
+		if (!peer_close_ok) {
+			fail_leg("close code / reason did not survive");
+			return;
+		}
+	}
+	/*
+	 * A stall leg's service turns after the stall are mostly its bulk
+	 * transfer: its spinning is judged while it is stalled
+	 */
 	us = lws_now_usecs() - leg_start;
-	if (us > LEG_MAX_US || turns - leg_turns > LEG_MAX_TURNS) {
+	if (us > LEG_MAX_US ||
+	    (!legs[cur].stall && turns - leg_turns > LEG_MAX_TURNS)) {
 		lwsl_err("%dms, %lu service turns\n", (int)(us / LWS_US_PER_MS),
 			 turns - leg_turns);
 		fail_leg(us > LEG_MAX_US ? "close took too long" :
@@ -187,6 +264,220 @@ check_peer_close(void *in, size_t len, int code, const char *reason)
 	peer_close_ok = 1;
 }
 
+/* compresses, but not to nothing */
+static uint8_t *
+compressible_alloc(size_t len)
+{
+	uint8_t *buf = malloc(LWS_PRE + len);
+	size_t n;
+
+	if (!buf)
+		return NULL;
+
+	for (n = 0; n < len; n++)
+		buf[LWS_PRE + n] = (uint8_t)('a' + ((n * 7) % 13) +
+					     ((n >> 9) & 7));
+
+	return buf;
+}
+
+static uint8_t *
+bulk_alloc(size_t len)
+{
+	uint8_t *buf = malloc(LWS_PRE + len);
+	uint32_t r = 0x12345678;
+	size_t n;
+
+	if (!buf)
+		return NULL;
+
+	/* does not compress: pmd sends it all */
+	for (n = 0; n < len; n++) {
+		r = r * 1103515245u + 12345u;
+		buf[LWS_PRE + n] = (uint8_t)(r >> 16);
+	}
+
+	return buf;
+}
+
+/*
+ * The stall legs' timeline, from the server's first write: wait for the
+ * connection to be full, have the client send while it is not reading, let
+ * the server settle, count the service loop's trips while it is stalled,
+ * then have the client read again
+ */
+static void
+stall_cb(lws_sorted_usec_list_t *sul)
+{
+	switch (stall_stage) {
+	case STAGE_FILLING:
+		if (legs[cur].stall != STALL_TX_DRAIN &&
+		    lws_now_usecs() - last_fill < STALL_QUIET_US) {
+			lws_sul_schedule(context, 0, &sul_stall, stall_cb,
+					 STALL_POLL_US);
+			return;
+		}
+		if (legs[cur].stall != STALL_TX_DRAIN)
+			lwsl_user("%s: server's socket full after %luKB\n",
+				  __func__, (unsigned long)(srv_filled / 1024));
+		stall_stage = STAGE_SETTLING;
+		lws_callback_on_writable(cli_wsi);
+		lws_sul_schedule(context, 0, &sul_stall, stall_cb,
+				 STALL_SETTLE_US);
+		break;
+
+	case STAGE_SETTLING:
+		if (srv_closed || cli_closed) {
+			fail_leg("connection ended while stalled");
+			return;
+		}
+		if (legs[cur].stall == STALL_TX_DRAIN) {
+			if (!lws_send_pipe_choked(srv_wsi)) {
+				fail_leg("the server's tx never stalled");
+				return;
+			}
+		} else
+			if (!sent_close) {
+				fail_leg("the server did not get the data");
+				return;
+			}
+		stall_stage = STAGE_STALLED;
+		stall_turns = turns;
+		stall_busy_ms = 0;
+		lws_sul_schedule(context, 0, &sul_stall, stall_cb,
+				 STALL_WINDOW_US);
+		break;
+
+	case STAGE_STALLED:
+		lwsl_user("%s: stalled %dms: %lu service turns, in %lums of it\n",
+			  __func__, (int)(STALL_WINDOW_US / LWS_US_PER_MS),
+			  turns - stall_turns, stall_busy_ms);
+		if (stall_busy_ms > STALL_MAX_BUSY_MS) {
+			fail_leg("service loop spun while stalled");
+			return;
+		}
+		if (srv_closed || cli_closed) {
+			fail_leg("connection ended while stalled");
+			return;
+		}
+		stall_stage = STAGE_RESUMED;
+		/* the leg's own clock starts again from here */
+		leg_start = lws_now_usecs();
+		leg_turns = turns;
+		lws_rx_flow_control(cli_wsi, 1);
+		break;
+	}
+}
+
+/* the stall leg's timeline starts from the server's first write */
+static void
+stall_start(struct lws *wsi)
+{
+	if (srv_wsi)
+		return;
+
+	srv_wsi = wsi;
+	lws_sul_schedule(context, 0, &sul_stall, stall_cb, 100 * LWS_US_PER_MS);
+}
+
+/*
+ * STALL_TX_DRAIN: the server's writeable sends one big message, which pmd
+ * compresses into frames as the socket takes them.  Nothing is read until
+ * it has all gone.
+ */
+static int
+srv_stall_send(struct lws *wsi)
+{
+	uint8_t *buf;
+	int n;
+
+	if (sent_msg)
+		return 0;
+	sent_msg = 1;
+	stall_start(wsi);
+
+	buf = bulk_alloc(STALL_PMD_LEN);
+	if (!buf)
+		return -1;
+	n = lws_write(wsi, buf + LWS_PRE, STALL_PMD_LEN, LWS_WRITE_BINARY);
+	free(buf);
+
+	return n < 0 ? -1 : 0;
+}
+
+/*
+ * The server's writeable while it fills the connection its client is not
+ * reading: only whole writes while the socket takes them, until it has
+ * taken nothing for a while
+ */
+static int
+srv_stall_fill(struct lws *wsi)
+{
+	uint8_t *buf;
+	int n = 0;
+
+	if (stall_stage != STAGE_FILLING)
+		return 0;
+
+	stall_start(wsi);
+
+	buf = bulk_alloc(STALL_CHUNK);
+	if (!buf)
+		return -1;
+	while (!lws_send_pipe_choked(wsi) && srv_filled < STALL_FILL_MAX) {
+		n = lws_write(wsi, buf + LWS_PRE, STALL_CHUNK, LWS_WRITE_BINARY);
+		if (n < 0)
+			break;
+		srv_filled += STALL_CHUNK;
+		last_fill = lws_now_usecs();
+	}
+	free(buf);
+	if (n < 0)
+		return -1;
+	if (srv_filled >= STALL_FILL_MAX) {
+		fail_leg("the server's socket never filled");
+		return -1;
+	}
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
+/*
+ * The client's data came while the server's socket is full: close on it,
+ * with more tx buffered first for STALL_CLOSE_FLUSH
+ */
+static int
+srv_stall_close(struct lws *wsi)
+{
+	uint8_t *buf;
+	int n;
+
+	if (legs[cur].stall == STALL_CLOSE_FLUSH) {
+		buf = bulk_alloc(STALL_OVER_LEN);
+		if (!buf)
+			return -1;
+		n = lws_write(wsi, buf + LWS_PRE, STALL_OVER_LEN,
+			      LWS_WRITE_BINARY);
+		free(buf);
+		if (n < 0)
+			return -1;
+	}
+
+	sent_close = 1;
+	srv_close_flushes = lws_partial_buffered(wsi);
+	lwsl_user("%s: server: closing, %s\n", __func__, srv_close_flushes ?
+		  "tx buffered" : "close frame waits for the socket");
+	if (legs[cur].stall == STALL_CLOSE_FULL && srv_close_flushes)
+		/* the socket took a partial: the close flushes instead */
+		lwsl_warn("%s: no full-socket close this time\n", __func__);
+	lws_close_reason(wsi, SRV_CODE, (unsigned char *)SRV_REASON,
+			 strlen(SRV_REASON));
+
+	return -1;
+}
+
 static int
 callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -201,6 +492,24 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
+		if (legs[cur].stall && !sent_close) {
+			if (legs[cur].stall != STALL_TX_DRAIN)
+				return srv_stall_close(wsi);
+
+			/* the client's data got in after the big message */
+			if (stall_stage != STAGE_RESUMED) {
+				fail_leg("server read while its tx was stalled");
+				return -1;
+			}
+			/* the close is timed from here, not the big message */
+			leg_start = lws_now_usecs();
+			leg_turns = turns;
+			sent_close = 1;
+			lws_close_reason(wsi, SRV_CODE,
+					 (unsigned char *)SRV_REASON,
+					 strlen(SRV_REASON));
+			return -1;
+		}
 		if (!legs[cur].pmd_mid_drain || sent_close)
 			break;
 		/*
@@ -220,6 +529,10 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return -1;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
+		if (legs[cur].stall == STALL_TX_DRAIN)
+			return srv_stall_send(wsi);
+		if (legs[cur].stall)
+			return srv_stall_fill(wsi);
 		if (!legs[cur].server_initiates || legs[cur].pmd_mid_drain ||
 		    sent_close)
 			break;
@@ -251,6 +564,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED:
 		lwsl_user("%s: server: closed\n", __func__);
 		srv_closed = 1;
+		srv_wsi = NULL;
 		leg_done_check();
 		break;
 
@@ -270,11 +584,38 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: client: established\n", __func__);
 		if (check_encap(wsi))
 			return -1;
+		if (legs[cur].stall) {
+			/* the server is to fill the connection meanwhile */
+			cli_wsi = wsi;
+			lws_rx_flow_control(wsi, 0);
+			break;
+		}
 		if (!legs[cur].server_initiates || legs[cur].pmd_mid_drain)
 			lws_callback_on_writable(wsi);
 		break;
 
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		cli_rx += len;
+		break;
+
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (legs[cur].stall) {
+			uint8_t *buf;
+			int n;
+
+			/* while not reading, more than the server takes at once */
+			if (cli_sent || stall_stage != STAGE_SETTLING)
+				break;
+			cli_sent = 1;
+			buf = bulk_alloc(STALL_CLI_LEN);
+			if (!buf)
+				return -1;
+			n = lws_write(wsi, buf + LWS_PRE, STALL_CLI_LEN,
+				      LWS_WRITE_BINARY);
+			free(buf);
+
+			return n < 0 ? -1 : 0;
+		}
 		if (legs[cur].pmd_mid_drain) {
 			uint8_t *buf;
 			int n;
@@ -283,13 +624,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			sent_msg = 1;
 
-			buf = malloc(LWS_PRE + PMD_MSG_LEN);
+			buf = compressible_alloc(PMD_MSG_LEN);
 			if (!buf)
 				return -1;
-			/* compresses, but not to nothing */
-			for (n = 0; n < PMD_MSG_LEN; n++)
-				buf[LWS_PRE + n] = (uint8_t)('a' + ((n * 7) % 13) +
-							     ((n >> 9) & 7));
 			n = lws_write(wsi, buf + LWS_PRE, PMD_MSG_LEN,
 				      LWS_WRITE_TEXT);
 			free(buf);
@@ -329,6 +666,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_user("%s: client: closed\n", __func__);
 		cli_closed = 1;
+		cli_wsi = NULL;
 		leg_done_check();
 		break;
 
@@ -339,14 +677,22 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * The stall legs use a protocol with a bigger rx buffer, since that also
+ * bounds how much lws gives the socket at a time (and pmd's frames)
+ */
+#define PROT_BULK_RX	16384
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	{ "wsclose", callback_srv, 0, 256, 0, NULL, 0 },
+	{ "wsclose-bulk", callback_srv, 0, PROT_BULK_RX, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "wsclose", callback_cli, 0, 256, 0, NULL, 0 },
+	{ "wsclose-bulk", callback_cli, 0, PROT_BULK_RX, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -357,6 +703,7 @@ static const struct lws_protocols protocols_cli[] = {
  */
 static const struct lws_protocols protocols_cli_pmd[] = {
 	{ "wsclose", callback_cli, 0, 4096, 0, NULL, 0 },
+	{ "wsclose-bulk", callback_cli, 0, PROT_BULK_RX, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -395,7 +742,10 @@ start_leg(lws_sorted_usec_list_t *sul)
 	lwsl_user("--- leg %d (%s): starting ---\n", cur, legs[cur].name);
 
 	cli_closed = srv_closed = peer_close_seen = peer_close_ok =
-						sent_close = sent_msg = 0;
+			sent_close = sent_msg = cli_sent = stall_stage =
+			srv_close_flushes = 0;
+	cli_rx = srv_filled = 0;
+	srv_wsi = cli_wsi = NULL;
 	leg_start = lws_now_usecs();
 	leg_turns = turns;
 
@@ -410,8 +760,8 @@ start_leg(lws_sorted_usec_list_t *sul)
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 			   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	i.alpn = legs[cur].alpn;
-	i.protocol = "wsclose";
-	i.local_protocol_name = "wsclose";
+	i.protocol = legs[cur].stall ? "wsclose-bulk" : "wsclose";
+	i.local_protocol_name = i.protocol;
 
 	if (!lws_client_connect_via_info(&i))
 		fail_leg("client connect failed");
@@ -572,11 +922,16 @@ int main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul_next, start_leg, 1);
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
-			 30 * LWS_US_PER_SEC);
+			 45 * LWS_US_PER_SEC);
 
 	while (n >= 0) {
 		n = lws_service(context, 0);
 		turns++;
+		if (stall_stage == STAGE_STALLED &&
+		    lws_now_usecs() / LWS_US_PER_MS != last_busy_ms) {
+			last_busy_ms = lws_now_usecs() / LWS_US_PER_MS;
+			stall_busy_ms++;
+		}
 	}
 
 bail:

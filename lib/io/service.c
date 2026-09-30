@@ -434,9 +434,25 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	 * something from network
 	 */
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
-	/* 1) if we know we are draining rx ext, do not wait in poll */
-	if (pt->ws.rx_draining_ext_list)
-		return 0;
+	/*
+	 * 1) if we know we are draining rx ext, do not wait in poll... for a
+	 *    wsi that will be serviced for it, ie, one still watched for rx
+	 *    (rops_service_flag_pending_ws() fakes its POLLIN).  One whose rx
+	 *    is held meanwhile (rx flow control, a tx extension drain) has
+	 *    dropped POLLIN and does not drain until that ends: not waiting
+	 *    for it would only spin.
+	 */
+	{
+		struct lws *w = pt->ws.rx_draining_ext_list;
+
+		while (w) {
+			if (w->io->position_in_fds_table != LWS_NO_FDS_POS &&
+			    (pt->fds[w->io->position_in_fds_table].events &
+								LWS_POLLIN))
+				return 0;
+			w = w->ws->rx_draining_ext_list;
+		}
+	}
 #endif
 
 #if defined(LWS_WITH_TLS)
