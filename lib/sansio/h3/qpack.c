@@ -968,16 +968,14 @@ lws_qpack_dynamic_insert(struct lws_qpack_context *ctx, int lws_hdr_idx, const c
 	}
 
 	if (entry_size > ctx->dyn_table.virtual_payload_max) {
+		/*
+		 * RFC 9204 3.2.2: an entry bigger than the capacity is an
+		 * encoder stream error.  Pretending it went in, with nothing
+		 * in the table and insert_count not moved on, leaves us
+		 * resolving the peer's later references to other entries
+		 */
 		lws_free(alloc);
-		while (ctx->dyn_table.used_entries) {
-			int old_idx = (ctx->dyn_table.pos - ctx->dyn_table.used_entries + ctx->dyn_table.num_entries) % ctx->dyn_table.num_entries;
-			dte = &ctx->dyn_table.entries[old_idx];
-			if (dte->value) lws_free(dte->value);
-			dte->value = NULL;
-			ctx->dyn_table.used_entries--;
-		}
-		ctx->dyn_table.virtual_payload_usage = 0;
-		return 0; 
+		return 1;
 	}
 	
 	if (ctx->dyn_table.used_entries == ctx->dyn_table.num_entries) {
@@ -1236,35 +1234,48 @@ do_emit_enc:
 				if ((state->opcode & 0xc0) == 0x80) {
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, (int)state->hdr_idx);
-					if (dte && dte->value) {
-						size_t name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
-						state->val_buf[state->val_pos] = '\0';
-						lws_qpack_dynamic_insert(ctx, dte->lws_hdr_idx, dte->value, name_len, state->val_buf, state->val_pos);
-					} else {
-						lwsl_err("Insert Name Ref (dyn) failed: int_val=%d dte=%p\n", (int)state->hdr_idx, (void*)dte);
+					size_t name_len;
+
+					/*
+					 * RFC 9204 4.3: a bad reference, or an
+					 * insert we cannot make, is an encoder
+					 * stream error.  Carrying on leaves our
+					 * table out of step with the peer's
+					 */
+					if (!dte || !dte->value) {
+						lwsl_info("Insert Name Ref (dyn) failed: int_val=%d\n", (int)state->hdr_idx);
+						return 1;
 					}
+					name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
+					state->val_buf[state->val_pos] = '\0';
+					if (lws_qpack_dynamic_insert(ctx, dte->lws_hdr_idx, dte->value, name_len, state->val_buf, state->val_pos))
+						return 1;
 				} else if ((state->opcode & 0xc0) == 0xc0) {
 					if (lws_qpack_get_static_token((int)state->hdr_idx, &tok, &name))
 						return 1;
 					state->val_buf[state->val_pos] = '\0';
-					lws_qpack_dynamic_insert(ctx, tok, name, name ? strlen(name) : 0, state->val_buf, state->val_pos);
+					if (lws_qpack_dynamic_insert(ctx, tok, name, name ? strlen(name) : 0, state->val_buf, state->val_pos))
+						return 1;
 				} else if ((state->opcode & 0xc0) == 0x40) {
 					state->name_buf[state->name_pos] = '\0';
 					state->val_buf[state->val_pos] = '\0';
-					lws_qpack_dynamic_insert(ctx, -1, state->name_buf, state->name_pos, state->val_buf, state->val_pos);
+					if (lws_qpack_dynamic_insert(ctx, -1, state->name_buf, state->name_pos, state->val_buf, state->val_pos))
+						return 1;
 				} else if ((state->opcode & 0xe0) == 0x20) {
 					if (lws_qpack_dynamic_size(ctx, (int)state->int_val))
 						return 1;
 				} else if ((state->opcode & 0xe0) == 0x00) {
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, (int)state->int_val);
-					if (dte && dte->value) {
-						size_t name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
-						const char *v = dte->value + name_len + 1;
-						lws_qpack_dynamic_insert(ctx, dte->lws_hdr_idx, dte->value, name_len, v, dte->value_len);
-					} else {
-						lwsl_err("Duplicate failed: int_val=%d dte=%p\n", (int)state->int_val, (void*)dte);
+					size_t name_len;
+
+					if (!dte || !dte->value) {
+						lwsl_info("Duplicate failed: int_val=%d\n", (int)state->int_val);
+						return 1;
 					}
+					name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
+					if (lws_qpack_dynamic_insert(ctx, dte->lws_hdr_idx, dte->value, name_len, dte->value + name_len + 1, dte->value_len))
+						return 1;
 				}
 				
 				state->state = LQP_DEC_INSTRUCTION;
