@@ -109,6 +109,7 @@ static struct {
 	int		open;
 	lws_usec_t	last_t;		/* the time and kind of the last step */
 	const char	*last_kind;
+	struct lws_context *cx;	/* whose random a seeded transcript reseeds */
 	int		random;	/* its bytes depend on lws' random */
 	int		steps;
 	int		fails;
@@ -151,10 +152,25 @@ oom:
 	tr.fails++;
 }
 
-/* a connection's transcript starts; side is "server" or "client" */
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+#define RANDOM_SEEDED 1 /* lws_fi_random_seed() exists */
+#else
+#define RANDOM_SEEDED 0
+#endif
+
+/*
+ * A connection's transcript starts; side is "server" or "client".  One whose
+ * bytes depend on lws' random starts the seeded stream afresh, so what it
+ * draws does not depend on what the cases before it drew, or on which of
+ * them this build has.
+ */
 static void
 tr_begin(const char *name, const char *side, int random)
 {
+#if RANDOM_SEEDED
+	if (random)
+		lws_fi_random_seed(tr.cx, SEED);
+#endif
 	tr.len = 0;
 	tr.name = name;
 	tr.random = random;
@@ -196,12 +212,6 @@ tr_step(const char *kind, const uint8_t *buf, size_t len)
 	tr.last_kind = kind;
 	tr.last_t = now_us;
 }
-
-#if defined(LWS_WITH_SYS_FAULT_INJECTION)
-#define RANDOM_SEEDED 1 /* lws_fi_random_seed() exists */
-#else
-#define RANDOM_SEEDED 0
-#endif
 
 /* how much at p to show: up to the end of its line, at most 100 */
 static int
@@ -2093,10 +2103,8 @@ main(int argc, const char **argv)
 	}
 	/* from here, the time is what we say */
 	lws_service_set_now(cx, 0, T0_US, T0_WALL);
-#if RANDOM_SEEDED
-	/* and lws' random is a seeded stream, so its bytes are the same */
-	lws_fi_random_seed(cx, SEED);
-#endif
+	/* and each seeded transcript reseeds lws' random, see tr_begin() */
+	tr.cx = cx;
 
 	info.vhost_name = "sansio";
 	vh = lws_create_vhost(cx, &info);

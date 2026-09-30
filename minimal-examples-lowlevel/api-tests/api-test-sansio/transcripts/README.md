@@ -58,7 +58,9 @@ A connection whose bytes depend on lws' random (a ws client's
 `Sec-WebSocket-Key` and its frame masks) has a nonzero `seed`, and the
 peer's side of it depends on those bytes too: the 101 response carries the
 accept value of the key the client chose.  Such a transcript reproduces only
-when the random is the seeded stream drawn in the same order, so:
+when the random is the seeded stream drawn in the same order.  The stream
+starts afresh from `seed` when the connection does, so what it draws does not
+depend on the connections before it, or on which of them a build has.  So:
 
  - `api-test-sansio` records and checks it only in a build with fault
    injection (`LWS_WITH_SYS_FAULT_INJECTION`), which can seed lws' random,
