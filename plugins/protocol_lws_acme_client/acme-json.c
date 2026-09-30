@@ -27,9 +27,10 @@
  */
 
 /*
- * Parsers for the JSON the ACME server answers with, and for the root
- * daemon's answer lines on the IPC stream.  They live apart from the rest of
- * the plugin so api-test-acme-json can run them on canned responses.
+ * Parsers for the JSON the ACME server answers with, for the root daemon's
+ * answer lines on the IPC stream, and the collector for the issued cert's
+ * PEM body.  They live apart from the rest of the plugin so
+ * api-test-acme-json can run them on canned responses.
  */
 
 #if !defined(LWS_PLUGIN_STATIC)
@@ -43,6 +44,7 @@
 #endif
 
 #include <string.h>
+#include <stdlib.h>
 
 #include "private-acme-client.h"
 
@@ -479,4 +481,65 @@ acme_ipc_classify(const char *line, size_t len, struct acme_ipc_reply *r)
 		}
 
 	/* eg, "cert_status" sent to every client: not ours */
+}
+
+/* the issued cert's PEM body */
+
+int
+acme_cert_rx_append(struct acme_cert_rx *crx, const void *in, size_t len)
+{
+	size_t need = crx->len + len + 1; /* + NUL */
+
+	if (need > ACME_CERT_CHAIN_MAX + 1)
+		return 1;
+
+	if (need > crx->alloc) {
+		size_t na = crx->alloc ? crx->alloc : 4096;
+		char *np;
+
+		while (na < need)
+			na *= 2;
+		if (na > ACME_CERT_CHAIN_MAX + 1)
+			na = ACME_CERT_CHAIN_MAX + 1;
+
+		np = realloc(crx->pem, na);
+		if (!np)
+			return 1;
+
+		crx->pem = np;
+		crx->alloc = na;
+	}
+
+	if (len)
+		memcpy(crx->pem + crx->len, in, len);
+	crx->len += len;
+	crx->pem[crx->len] = '\0';
+
+	return 0;
+}
+
+size_t
+acme_cert_leaf_len(const struct acme_cert_rx *crx)
+{
+	static const char end[] = "-----END CERTIFICATE-----";
+	const char *p;
+
+	if (!crx->pem)
+		return 0;
+
+	/* the body is NUL-terminated, so the needle can only match inside it */
+	p = strstr(crx->pem, end);
+	if (!p)
+		return 0;
+
+	return lws_ptr_diff_size_t(p, crx->pem) + sizeof(end) - 1;
+}
+
+void
+acme_cert_rx_free(struct acme_cert_rx *crx)
+{
+	free(crx->pem);
+	crx->pem = NULL;
+	crx->len = 0;
+	crx->alloc = 0;
 }

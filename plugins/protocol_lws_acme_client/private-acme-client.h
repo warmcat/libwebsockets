@@ -82,6 +82,24 @@ struct acme_ipc_rx {
 
 typedef int (*acme_ipc_line_cb_t)(void *opaque, const char *line, size_t len);
 
+/*
+ * The issued cert the CA answers the certificate url with is the leaf
+ * followed by the chain up to the root it wants presented, several KiB of
+ * PEM that arrives in as many http reads as it likes.  It is collected on the
+ * heap as it comes, since no fixed buffer in the connection is a sensible
+ * size for it (a 4KiB one silently truncated Let's Encrypt's chains), and it
+ * is bounded so a hostile CA cannot drive the allocation.  The bound also
+ * keeps the fullchain, after JSON escaping, inside one line of the root
+ * daemon's IPC (MONITOR_IPC_BUF_SIZE, 64KiB); no real chain comes near it.
+ */
+#define ACME_CERT_CHAIN_MAX (32 * 1024)
+
+struct acme_cert_rx {
+	char			*pem;	/* NUL-terminated after every append */
+	size_t			len;
+	size_t			alloc;
+};
+
 struct acme_connection {
 	char buf[4096];
 	char replay_nonce[64];
@@ -111,11 +129,12 @@ struct acme_connection {
 
 	char *alloc_privkey_pem;
 
+	struct acme_cert_rx crx;	/* the issued cert + chain, as PEM */
+
 	char *dest;
 	int pos;
 	int len;
 	int resp;
-	int cpos;
 
 	int real_vh_port;
 	int goes_around;
@@ -247,5 +266,23 @@ acme_ipc_rx(struct acme_ipc_rx *rx, const char *in, size_t len,
 
 void
 acme_ipc_classify(const char *line, size_t len, struct acme_ipc_reply *r);
+
+/*
+ * Append len bytes of the cert body as it arrives.  Returns 1 if the body
+ * would exceed ACME_CERT_CHAIN_MAX, or on OOM; what was collected before is
+ * kept intact either way.
+ */
+int
+acme_cert_rx_append(struct acme_cert_rx *crx, const void *in, size_t len);
+
+/*
+ * The length of the first PEM cert in the collected body, the leaf, including
+ * its END line; 0 if there is no complete cert in it.
+ */
+size_t
+acme_cert_leaf_len(const struct acme_cert_rx *crx);
+
+void
+acme_cert_rx_free(struct acme_cert_rx *crx);
 
 #endif

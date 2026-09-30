@@ -32,6 +32,16 @@
  *  - a validity answer gives its days, and a refused save that stores the
  *    cert is flagged
  *  - an overlong line is dropped without losing the line after it
+ *
+ * And the collector for the issued cert's PEM body, fed in one read and a
+ * byte at a time:
+ *
+ *  - a three-cert chain larger than 4KiB is kept whole... it was once
+ *    collected into a 4096-byte buffer, and Let's Encrypt's fullchain
+ *    silently lost its tail
+ *  - the leaf is the first cert in it, up to and including its END line
+ *  - a body with no complete cert has no leaf
+ *  - a body over ACME_CERT_CHAIN_MAX is refused, keeping what came before
  */
 
 #include <libwebsockets.h>
@@ -430,6 +440,123 @@ ajt_ipc(int bw)
 	return bad;
 }
 
+/*
+ * A PEM body in the shape the CA answers the certificate url with: the leaf
+ * and two chain certs, 64-char base64 lines, blank lines between them, well
+ * over 4KiB in total.  The base64 is not real, the collector does not decode
+ * it.
+ */
+static size_t
+ajt_pem_cert(char *p, size_t max, int seed, int lines)
+{
+	size_t n = 0;
+	int i, j;
+
+	n += (size_t)lws_snprintf(p + n, max - n, "-----BEGIN CERTIFICATE-----\n");
+	for (i = 0; i < lines; i++) {
+		for (j = 0; j < 64 && n < max - 1; j++)
+			p[n++] = (char)('A' + ((seed + i * 7 + j) % 26));
+		n += (size_t)lws_snprintf(p + n, max - n, "\n");
+	}
+	n += (size_t)lws_snprintf(p + n, max - n, "-----END CERTIFICATE-----\n");
+
+	return n;
+}
+
+static int
+ajt_cert(int bw)
+{
+	static char body[8192];
+	struct acme_cert_rx crx;
+	size_t len = 0, leaf, n;
+	int bad = 0;
+
+	len += ajt_pem_cert(body + len, sizeof(body) - len, 0, 28);
+	leaf = len - 1; /* the leaf ends with its END line, not the '\n' */
+	len += (size_t)lws_snprintf(body + len, sizeof(body) - len, "\n");
+	len += ajt_pem_cert(body + len, sizeof(body) - len, 3, 26);
+	len += (size_t)lws_snprintf(body + len, sizeof(body) - len, "\n");
+	len += ajt_pem_cert(body + len, sizeof(body) - len, 5, 30);
+
+	if (len <= 4096) {
+		lwsl_err("cert: body only %d\n", (int)len);
+		return 1;
+	}
+
+	memset(&crx, 0, sizeof(crx));
+
+	if (!bw) {
+		if (acme_cert_rx_append(&crx, body, len)) {
+			lwsl_err("cert: append refused\n");
+			return 1;
+		}
+	} else
+		for (n = 0; n < len; n++) {
+			if (acme_cert_rx_append(&crx, body + n, 1)) {
+				lwsl_err("cert: append refused at %d\n", (int)n);
+				acme_cert_rx_free(&crx);
+				return 1;
+			}
+			/* no complete cert yet */
+			if (n + 1 < leaf && acme_cert_leaf_len(&crx)) {
+				lwsl_err("cert: leaf found at %d\n", (int)n);
+				bad = 1;
+			}
+		}
+
+	if (crx.len != len || !crx.pem || memcmp(crx.pem, body, len) ||
+	    crx.pem[len]) {
+		lwsl_err("cert (%d): collected %d of %d\n", bw, (int)crx.len,
+			 (int)len);
+		bad = 1;
+	}
+
+	if (acme_cert_leaf_len(&crx) != leaf) {
+		lwsl_err("cert (%d): leaf %d, want %d\n", bw,
+			 (int)acme_cert_leaf_len(&crx), (int)leaf);
+		bad = 1;
+	}
+
+	/* fill it to the bound, then one byte more */
+	while (crx.len < ACME_CERT_CHAIN_MAX) {
+		n = ACME_CERT_CHAIN_MAX - crx.len;
+		if (n > len)
+			n = len;
+		if (acme_cert_rx_append(&crx, body, n)) {
+			lwsl_err("cert (%d): refused at %d\n", bw, (int)crx.len);
+			bad = 1;
+			break;
+		}
+	}
+
+	if (!acme_cert_rx_append(&crx, "x", 1) ||
+	    crx.len != ACME_CERT_CHAIN_MAX || crx.pem[crx.len]) {
+		lwsl_err("cert (%d): over the bound, len %d\n", bw,
+			 (int)crx.len);
+		bad = 1;
+	}
+
+	acme_cert_rx_free(&crx);
+	if (crx.pem || crx.len || crx.alloc) {
+		lwsl_err("cert (%d): not freed\n", bw);
+		bad = 1;
+	}
+
+	/* nothing collected, or no END line yet: no leaf */
+	if (acme_cert_leaf_len(&crx)) {
+		lwsl_err("cert (%d): leaf in nothing\n", bw);
+		bad = 1;
+	}
+	acme_cert_rx_append(&crx, body, leaf - 8);
+	if (acme_cert_leaf_len(&crx)) {
+		lwsl_err("cert (%d): leaf in a partial body\n", bw);
+		bad = 1;
+	}
+	acme_cert_rx_free(&crx);
+
+	return bad;
+}
+
 static void
 ajt_result(const char *name, int bad)
 {
@@ -459,6 +586,7 @@ main(int argc, const char **argv)
 		ajt_result("error", ajt_error(bw));
 		ajt_result("bad token", ajt_bad_token(bw));
 		ajt_result("ipc", ajt_ipc(bw));
+		ajt_result("cert", ajt_cert(bw));
 	}
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);

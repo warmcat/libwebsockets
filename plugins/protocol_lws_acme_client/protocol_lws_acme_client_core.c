@@ -611,6 +611,16 @@ acme_privkey_discard(struct acme_connection *ac)
 	ac->len_privkey_pem = 0;
 }
 
+/* the acquisition and everything it collected */
+
+static void
+acme_connection_free(struct acme_connection *ac)
+{
+	acme_privkey_discard(ac);
+	acme_cert_rx_free(&ac->crx);
+	free(ac);
+}
+
 static void
 lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 {
@@ -631,8 +641,7 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 
 		if (vhd->ac->vhost)
 			lws_vhost_destroy(vhd->ac->vhost);
-		acme_privkey_discard(vhd->ac);
-		free(vhd->ac);
+		acme_connection_free(vhd->ac);
 	}
 
 	/* acme_cb_dir's accumulator pointed into the ac we just freed */
@@ -1024,7 +1033,7 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 		return 0;
 
 bail:
-	free(vhd->ac);
+	acme_connection_free(vhd->ac);
 	vhd->ac = NULL;
 
 	return 1;
@@ -1541,6 +1550,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 	const char *content_type;
 	struct lws_jwe jwe;
 	struct lws *cwsi;
+	size_t leaf_len;
 	int n, m;
 
 	if (vhd)
@@ -1760,7 +1770,8 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		case ACME_STATE_DOWNLOAD_CERT:
-			ac->cpos = 0;
+			/* a retried download must not append to the last one */
+			acme_cert_rx_free(&ac->crx);
 			break;
 
 		default:
@@ -1963,23 +1974,14 @@ pkt_add_hdrs:
 
 		case ACME_STATE_DOWNLOAD_CERT:
 			/*
-			 * It should be the DER cert...
-			 * ACME 2.0 can send certs chain with 3 certs, store only first bytes
-			 *
-			 * Reserve the last byte for the NUL: what we collect here
-			 * is later scanned with strstr(), and a full 4096-byte
-			 * body with no terminator would run that scan on into the
-			 * rest of the struct (and could yield a cpos larger than
-			 * the buffer)
+			 * The PEM leaf followed by its chain, in as many reads
+			 * as the CA likes: collected whole, see acme_cert_rx
 			 */
-			if ((unsigned int)ac->cpos + len > sizeof(ac->buf) - 1)
-				len = sizeof(ac->buf) - 1 - (unsigned int)ac->cpos;
-
-			if (len) {
-				memcpy(&ac->buf[ac->cpos], in, len);
-				ac->cpos += (int)len;
+			if (acme_cert_rx_append(&ac->crx, in, len)) {
+				lwsl_vhost_err(vhd->vhost, "ACME cert body over %u",
+					       (unsigned int)ACME_CERT_CHAIN_MAX);
+				goto failed;
 			}
-			ac->buf[ac->cpos] = '\0';
 			break;
 		default:
 			break;
@@ -2321,12 +2323,17 @@ poll_again:
 			lws_acme_report_status(vhd->vhost, LWS_CUS_ISSUE, NULL);
 
 			/*
-			 * That means we have the issued cert in
-			 * ac->buf, length in ac->cpos; and the key in
-			 * ac->alloc_privkey_pem, length in
-			 * ac->len_privkey_pem.
-			 * ACME 2.0 can send certs chain with 3 certs, we need save only first
+			 * That means we have the issued cert and its chain
+			 * in ac->crx, and the key in ac->alloc_privkey_pem,
+			 * length in ac->len_privkey_pem.  The .crt gets the
+			 * leaf alone, the -fullchain.crt the whole body
 			 */
+			leaf_len = acme_cert_leaf_len(&ac->crx);
+			if (!leaf_len) {
+				lwsl_vhost_err(vhd->vhost, "Unable to find ACME cert!");
+				goto failed;
+			}
+
 			{
 				char cert_ts[256], key_ts[256], full_ts[256];
 				const char *cert_latest = vhd->active_cert->pvop[LWS_TLS_SET_CERT_PATH];
@@ -2337,22 +2344,6 @@ poll_again:
 				struct tm *tm;
 				int fd_cert = -1, fd_key = -1, fd_full = -1;
 				char *p;
-				int cpos_fullchain = ac->cpos;
-
-				/*
-				 * ac->buf was NUL-terminated as it was filled,
-				 * so the needle can only match wholly inside it
-				 * and the cpos derived from it stays in bounds
-				 */
-				const char *end_cert = strstr(ac->buf, "END CERTIFICATE-----");
-
-				if (end_cert) {
-					ac->cpos = (int)(lws_ptr_diff_size_t(end_cert, ac->buf) + sizeof("END CERTIFICATE-----") - 1);
-				} else {
-					ac->cpos = 0;
-					lwsl_vhost_err(vhd->vhost, "Unable to find ACME cert!");
-					goto failed;
-				}
 
 				time(&t);
 #if defined(WIN32) || defined(_WIN32)
@@ -2397,13 +2388,13 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", cert_ts);
 					const char *fn = strrchr(cert_ts, '/');
 					if (fn) fn++; else fn = cert_ts;
-					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
+					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->crx.pem, leaf_len);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create cert file %s", cert_ts);
 						goto failed;
 					}
 				} else {
-					n = lws_plat_write_cert(vhd->vhost, 0, fd_cert, ac->buf, (size_t)ac->cpos);
+					n = lws_plat_write_cert(vhd->vhost, 0, fd_cert, ac->crx.pem, leaf_len);
 					close(fd_cert);
 					if (n) {
 						lwsl_vhost_err(vhd->vhost, "unable to write ACME cert!");
@@ -2443,12 +2434,12 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", full_ts);
 					const char *fn = strrchr(full_ts, '/');
 					if (fn) fn++; else fn = full_ts;
-					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
+					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->crx.pem, ac->crx.len);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create fullchain file %s", full_ts);
 					}
 				} else {
-					n = lws_plat_write_cert(vhd->vhost, 0, fd_full, ac->buf, (size_t)cpos_fullchain);
+					n = lws_plat_write_cert(vhd->vhost, 0, fd_full, ac->crx.pem, ac->crx.len);
 					close(fd_full);
 					if (n) {
 						lwsl_vhost_err(vhd->vhost, "unable to write ACME fullchain cert!");
@@ -2466,7 +2457,7 @@ poll_again:
 					cert_ts,
 					key_ts);
 #else
-				n = lws_plat_write_cert(vhd->vhost, 0, 0, ac->buf, (size_t)ac->cpos);
+				n = lws_plat_write_cert(vhd->vhost, 0, 0, ac->crx.pem, leaf_len);
 				if (n) {
 					lwsl_vhost_err(vhd->vhost, "unable to write ACME cert!");
 					goto failed;
@@ -2486,7 +2477,7 @@ poll_again:
 			if (lws_tls_cert_updated(vhd->context,
 					vhd->active_cert->pvop[LWS_TLS_SET_CERT_PATH],
 					vhd->active_cert->pvop[LWS_TLS_SET_KEY_PATH],
-						ac->buf, (size_t)ac->cpos,
+						ac->crx.pem, leaf_len,
 						ac->alloc_privkey_pem,
 						ac->len_privkey_pem)) {
 				lwsl_vhost_warn(vhd->vhost, "problem setting certs");
