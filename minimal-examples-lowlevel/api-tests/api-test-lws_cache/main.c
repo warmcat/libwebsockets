@@ -884,6 +884,67 @@ cdone:
 }
 
 /*
+ * Lookup result sets are cached in L1 by their wildcard key.  Two lookups
+ * whose keys only differ after the first 125 chars are different lookups,
+ * and must not be answered with the same result set.
+ */
+
+static int
+test_nsc_long_lookup_keys(void)
+{
+	struct lws_cache_ttl_lru *l1 = NULL, *nsc = NULL;
+	char stem[160], line[320], key[256], wc[256];
+	lws_cache_results_t cr;
+	int ret = 1, n;
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	/* "/aaa...aaa", 131 chars */
+	memset(stem, 'a', 131);
+	stem[0] = '/';
+	stem[131] = '\0';
+
+	lws_snprintf(line, sizeof(line), "host.com\tFALSE\t%s/x\tTRUE\t"
+		     "4000000000\tlk\tvalue", stem);
+	lws_snprintf(key, sizeof(key), "host.com|%s/x|lk", stem);
+
+	if (nsc_pair_create("./cookies-lk.txt", 1, 0, &nsc, &l1) ||
+	    lws_cache_write_through(l1, key, (const uint8_t *)line,
+				    strlen(line),
+				    lws_now_usecs() + LWS_US_PER_SEC * 10, NULL))
+		goto cdone;
+
+	/* the cookie's own path finds it */
+
+	lws_snprintf(wc, sizeof(wc), "host.com|%s/x|*", stem);
+	if (lws_cache_lookup(l1, wc, (const void **)&cr.ptr, &cr.size) ||
+	    cr.size != 8 + strlen(key) + 1) {
+		lwsl_err("%s: lookup /x\n", __func__);
+		goto cdone;
+	}
+
+	/* a sibling path with the same first 125 chars does not */
+
+	lws_snprintf(wc, sizeof(wc), "host.com|%s/y|*", stem);
+	n = lws_cache_lookup(l1, wc, (const void **)&cr.ptr, &cr.size);
+	if (!n && cr.size) {
+		lwsl_err("%s: lookup /y got /x's results\n", __func__);
+		goto cdone;
+	}
+
+	ret = 0;
+
+cdone:
+	nsc_pair_destroy(&nsc, &l1);
+
+	if (ret)
+		lwsl_warn("%s: fail\n", __func__);
+
+	return ret;
+}
+
+/*
  * The jar is rewritten and scanned synchronously on the event loop, so it is
  * bounded: a host keeps at most 50 cookies and the jar at most its max_items
  * lines, the oldest going first.  And the event loop never waits for the jar
@@ -1037,6 +1098,8 @@ int main(int argc, const char **argv)
 	if (test_nsc_long_fields())
 		fail++;
 	if (test_nsc_limits())
+		fail++;
+	if (test_nsc_long_lookup_keys())
 		fail++;
 #endif
 

@@ -225,19 +225,16 @@ lws_cache_write_through(struct lws_cache_ttl_lru *cache,
 
 static int
 __lws_cache_lookup(struct lws_cache_ttl_lru *cache, const char *wildcard_key,
-		   const void **pdata, size_t *psize)
+		   const char *meta_key, const void **pdata, size_t *psize)
 {
 	struct lws_cache_ttl_lru *l1 = cache;
 	lws_dll2_owner_t results_owner;
 	lws_usec_t expiry = 0;
-	char meta_key[128];
 	uint8_t *p, *temp;
 	size_t sum = 0;
 	int n;
 
 	memset(&results_owner, 0, sizeof(results_owner));
-	meta_key[0] = META_ITEM_LEADING;
-	lws_strncpy(&meta_key[1], wildcard_key, sizeof(meta_key) - 2);
 
 	/*
 	 * If we have a cached result set in L1 already, return that
@@ -343,11 +340,28 @@ int
 lws_cache_lookup(struct lws_cache_ttl_lru *cache, const char *wildcard_key,
 		 const void **pdata, size_t *psize)
 {
+	size_t wkl = strlen(wildcard_key);
+	char *meta_key;
 	int n;
 
+	/*
+	 * The result set is cached in L1 under the whole wildcard key with
+	 * META_ITEM_LEADING in front: it must never be cut short, or two
+	 * different lookups would share one result set
+	 */
+
+	meta_key = lws_malloc(wkl + 2, __func__);
+	if (!meta_key)
+		return 1;
+
+	meta_key[0] = META_ITEM_LEADING;
+	memcpy(&meta_key[1], wildcard_key, wkl + 1);
+
 	lws_cache_lock(cache); /* ------------------------------ cache { */
-	n = __lws_cache_lookup(cache, wildcard_key, pdata, psize);
+	n = __lws_cache_lookup(cache, wildcard_key, meta_key, pdata, psize);
 	lws_cache_unlock(cache); /* ----------------------------- } cache */
+
+	lws_free(meta_key);
 
 	return n;
 }
