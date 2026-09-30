@@ -459,17 +459,38 @@ lws_cache_debug_dump(struct lws_cache_ttl_lru *cache)
 int
 lws_cache_results_walk(lws_cache_results_t *walk_ctx)
 {
+	size_t tl;
+
 	if (!walk_ctx->size)
 		return 1;
 
+	/*
+	 * Each result is two 32-bit lengths, the tag and its NUL.  A result
+	 * that does not fit in what is left ends the walk: we must not read,
+	 * or step the cursor, past the end of the result set.
+	 */
+
+	if (walk_ctx->size < 9)
+		goto truncated;
+
+	tl = lws_ser_ru32be(walk_ctx->ptr + 4);
+	if (tl > walk_ctx->size - 9 || walk_ctx->ptr[8 + tl])
+		goto truncated;
+
 	walk_ctx->payload_len = lws_ser_ru32be(walk_ctx->ptr);
-	walk_ctx->tag_len = lws_ser_ru32be(walk_ctx->ptr + 4);
+	walk_ctx->tag_len = tl;
 	walk_ctx->tag = walk_ctx->ptr + 8;
 
 	walk_ctx->ptr += walk_ctx->tag_len + 1 + 8;
 	walk_ctx->size -= walk_ctx->tag_len + 1 + 8;
 
 	return 0;
+
+truncated:
+	lwsl_err("%s: truncated result set\n", __func__);
+	walk_ctx->size = 0;
+
+	return 1;
 }
 
 struct lws_cache_ttl_lru *
