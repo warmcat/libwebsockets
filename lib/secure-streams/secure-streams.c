@@ -1929,6 +1929,34 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 
 	pt = &h->context->pt[h->tsi];
 
+#if defined(LWS_WITH_SERVER)
+	/*
+	 * If we are a server stream, the streams we accepted are listed on
+	 * us: they must stop pointing to us before we are freed, or each of
+	 * them writes into us when it closes.  They were accepted for us, so
+	 * their connections close too, and those take the accepted streams
+	 * with them when they go.
+	 */
+	do {
+		lws_ss_handle_t *hh = NULL;
+		struct lws_dll2 *d;
+
+		lws_pt_lock(pt, __func__);
+		d = lws_dll2_get_head(&h->src_list);
+		if (d) {
+			hh = lws_container_of(d, lws_ss_handle_t, cli_list);
+			lws_dll2_remove(d);
+		}
+		lws_pt_unlock(pt);
+
+		if (!hh)
+			break;
+
+		if (hh->wsi)
+			lws_set_timeout(hh->wsi, 1, LWS_TO_KILL_ASYNC);
+	} while (1);
+#endif
+
 	lws_pt_lock(pt, __func__);
 	*ppss = NULL;
 	lws_dll2_remove(&h->list);

@@ -32,6 +32,7 @@ must be closed cleanly, freed once, with no accepted stream left.
 |h1-refused|tls|a GET; the server refuses the connection's accepted stream|
 |h2-txn|tls|a complete h2 GET, the server answers: the h2 network connection has an accepted stream of its own besides the one for the request's stream|
 |h2-refused|tls|an h2 GET; the server accepts the connection's stream and refuses the request stream's|
+|server-gone|plaintext|connects, sends part of a request and stays; the user code destroys the server stream, which must take the connection and its accepted stream with it (once, the server is gone after)|
 
 ## Switches
 

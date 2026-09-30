@@ -34,6 +34,9 @@
  *                network connection has an accepted stream of its own
  *  - h2-refused: the user code accepts the h2 connection's stream but
  *                refuses the one for the request's h2 stream
+ *  - server-gone: a client of the plaintext server stays connected while
+ *                the user code destroys the server stream: the server's
+ *                connections and accepted streams must go with it
  */
 
 #include <libwebsockets.h>
@@ -76,6 +79,9 @@ typedef struct phase {
 	char			refuse;		/* refuse the nth accepted
 						 * stream of the cycle in
 						 * CREATING, 0 = none */
+	char			destroy_server;	/* the client stays, the
+						 * server stream is destroyed
+						 * under it, only once */
 
 	/* results */
 	int			cycles_ok;
@@ -88,22 +94,31 @@ enum {
 };
 
 static phase_t phases[] = {
-	{ "tcp",	NULL,	SRV_TLS,   NULL,	0,		0, 0, 0 },
-	{ "plain-txn",	NULL,	SRV_PLAIN, NULL,	0,		1, 0, 0 },
-	{ "plain-refused", NULL, SRV_PLAIN, NULL,	0,		1, 1, 0 },
-	{ "raw",	NULL,	SRV_RAW,   NULL,	0,		0, 0, 0 },
-	{ "raw-refused", NULL,	SRV_RAW,   NULL,	0,		0, 1, 0 },
+	{ "tcp",	NULL,	SRV_TLS,   NULL,	0,		0, 0, 0, 0 },
+	{ "plain-txn",	NULL,	SRV_PLAIN, NULL,	0,		1, 0, 0, 0 },
+	{ "plain-refused", NULL, SRV_PLAIN, NULL,	0,		1, 1, 0, 0 },
+	{ "raw",	NULL,	SRV_RAW,   NULL,	0,		0, 0, 0, 0 },
+	{ "raw-refused", NULL,	SRV_RAW,   NULL,	0,		0, 1, 0, 0 },
 	{ "h1-partial",	"http/1.1", SRV_TLS, h1_partial, sizeof(h1_partial) - 1,
-								0, 0, 0 },
-	{ "h1-txn",	"http/1.1", SRV_TLS, NULL,	0,		1, 0, 0 },
-	{ "h1-refused",	"http/1.1", SRV_TLS, NULL,	0,		1, 1, 0 },
+								0, 0, 0, 0 },
+	{ "h1-txn",	"http/1.1", SRV_TLS, NULL,	0,		1, 0, 0, 0 },
+	{ "h1-refused",	"http/1.1", SRV_TLS, NULL,	0,		1, 1, 0, 0 },
 	/*
 	 * once a client connection to the server negotiated h2, later ones
 	 * to the same place go h2, so the h2 phases come last
 	 */
-	{ "h2-txn",	"h2",	SRV_TLS,   NULL,	0,		1, 0, 0 },
-	{ "h2-refused",	"h2",	SRV_TLS,   NULL,	0,		1, 2, 0 },
+	{ "h2-txn",	"h2",	SRV_TLS,   NULL,	0,		1, 0, 0, 0 },
+	{ "h2-refused",	"h2",	SRV_TLS,   NULL,	0,		1, 2, 0, 0 },
+	/* this one takes the plaintext server away, so it goes last */
+	{ "server-gone", NULL,	SRV_PLAIN, h1_partial,	sizeof(h1_partial) - 1,
+								0, 0, 1, 0 },
 };
+
+static int
+phase_cycles(const phase_t *ph)
+{
+	return ph->destroy_server ? 1 : CYCLES;
+}
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
@@ -138,6 +153,7 @@ typedef struct srv {
 	void			*opaque_data;
 
 	char			sent;
+	char			is_template;
 } srv_t;
 
 /* one server template stream per streamtype in the policy */
@@ -157,17 +173,11 @@ static server_t servers[] = {
 static int
 is_template(srv_t *m)
 {
-	unsigned int n;
-
-	if (creating_templates)
-		return 1;
-
-	for (n = 0; n < LWS_ARRAY_SIZE(servers); n++)
-		if (servers[n].template &&
-		    m == lws_ss_to_user_object(servers[n].template))
-			return 1;
-
-	return 0;
+	/*
+	 * The accepted streams' user objects start zeroed, we mark the
+	 * templates' as soon as we have them
+	 */
+	return creating_templates || m->is_template;
 }
 
 static lws_ss_state_return_t
@@ -248,7 +258,7 @@ start_cycle(lws_sorted_usec_list_t *sul)
 	struct lws_client_connect_info i;
 	phase_t *ph;
 
-	if (cycle == CYCLES) {
+	if ((int)cycle == phase_cycles(&phases[cur_phase])) {
 		cycle = 0;
 		if (++cur_phase == LWS_ARRAY_SIZE(phases)) {
 			finish(0);
@@ -313,6 +323,17 @@ check_cycle(lws_sorted_usec_list_t *sul)
 	phase_t *ph = &phases[cur_phase];
 	int live = acc_created - acc_destroyed - acc_left;
 
+	if (ph->destroy_server && servers[(int)ph->server].template &&
+	    live == 1 && !client_done) {
+		/*
+		 * The client is connected and the server has its accepted
+		 * stream: take the server stream away under them
+		 */
+		lwsl_user("%s: destroying server stream %s\n", __func__,
+			  servers[(int)ph->server].streamtype);
+		lws_ss_destroy(&servers[(int)ph->server].template);
+	}
+
 	if (client_done && acc_created > acc_created_at_start && !live) {
 		if (ph->http && !ph->refuse && !client_rx_ok) {
 			lwsl_err("--- %s: no response ---\n", ph->name);
@@ -341,7 +362,7 @@ check_cycle(lws_sorted_usec_list_t *sul)
 
 		/* go on with the next phase, so we see how each one does */
 		acc_left += live;
-		cycle = CYCLES;
+		cycle = (unsigned int)phase_cycles(ph);
 		lws_sul_schedule(context, 0, &sul_next, start_cycle, 1);
 		return;
 	}
@@ -387,6 +408,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_write(wsi, buf + LWS_PRE, ph->send_len,
 			      LWS_WRITE_RAW) != (int)ph->send_len)
 			return -1;
+
+		if (ph->destroy_server)
+			return 0; /* stay until the server goes */
 
 		return -1; /* and hang up */
 
@@ -467,6 +491,8 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 			finish(1);
 			return -1;
 		}
+		((srv_t *)lws_ss_to_user_object(servers[n].template))->
+							is_template = 1;
 	}
 	creating_templates = 0;
 
@@ -560,8 +586,9 @@ main(int argc, const char **argv)
 
 	for (n = 0; n < LWS_ARRAY_SIZE(phases); n++) {
 		lwsl_user("%s: %d / %d cycles left no accepted stream\n",
-			  phases[n].name, phases[n].cycles_ok, CYCLES);
-		if (phases[n].cycles_ok != CYCLES)
+			  phases[n].name, phases[n].cycles_ok,
+			  phase_cycles(&phases[n]));
+		if (phases[n].cycles_ok != phase_cycles(&phases[n]))
 			result = 1;
 	}
 
