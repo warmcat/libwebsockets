@@ -1305,6 +1305,19 @@ const struct lws_plat_file_ops *
 lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 		    const char **vpath);
 
+#if defined(LWS_WITH_FILE_OPS) && (defined(WIN32) || defined(__APPLE__))
+/*
+ * The platform's filesystems find a file by more names than its own: case
+ * folds, and on windows trailing dots and spaces are dropped and 8.3 short
+ * names alias long ones.  So a path can only be compared with another after
+ * it is canonical: the file or directory's own name for every component,
+ * symlinks resolved.  0 and that in buf, or nonzero if it can't be had.
+ */
+#define LWS_PLAT_FS_FOLDS_NAMES
+int
+lws_plat_path_canonical(const char *path, char *buf, size_t len);
+#endif
+
 /* lws_plat_ */
 
 /* the platform's random source, behind lws_get_random() */

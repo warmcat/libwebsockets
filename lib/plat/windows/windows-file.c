@@ -70,6 +70,35 @@ lws_plat_path_ok(const char *filename)
 	return 1;
 }
 
+int
+lws_plat_path_canonical(const char *path, char *buf, size_t len)
+{
+	WCHAR w[MAX_PATH], fin[MAX_PATH + 8];
+	HANDLE h;
+	DWORD n;
+
+	if (MultiByteToWideChar(CP_UTF8, 0, path, -1, w,
+				(int)LWS_ARRAY_SIZE(w)) <= 0)
+		return 1;
+
+	/* no access to the contents, and backup semantics to open a dir */
+	h = CreateFileW(w, 0, FILE_SHARE_READ | FILE_SHARE_WRITE |
+			      FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	if (h == INVALID_HANDLE_VALUE)
+		return 1;
+
+	/* the name the filesystem opened: long names, as they are cased */
+	n = GetFinalPathNameByHandleW(h, fin, (DWORD)LWS_ARRAY_SIZE(fin),
+				      FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+	CloseHandle(h);
+	if (!n || n >= LWS_ARRAY_SIZE(fin))
+		return 1;
+
+	return WideCharToMultiByte(CP_UTF8, 0, fin, -1, buf, (int)len,
+				   NULL, NULL) <= 0;
+}
+
 lws_fop_fd_t
 _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 		    const struct lws_plat_file_ops *fops, const char *filename,

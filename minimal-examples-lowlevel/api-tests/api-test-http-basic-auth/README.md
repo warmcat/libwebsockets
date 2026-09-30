@@ -1,17 +1,28 @@
 # lws api test http basic auth
 
-A mount protected by a basic auth login file, over every http transport the
-build has: h1, h2 with prior knowledge, h2 over tls and h3.  lws is both
+A file mount protected by a basic auth login file, over every http transport
+the build has: h1, h2 with prior knowledge, h2 over tls and h3.  lws is both
 ends, in one process.
+
+`/` is a public file mount on `./docroot`, and `/private` a file mount on
+`./docroot/private`, inside it, behind the login file.
 
 |request|expected|
 |---|---|
-|no `Authorization:`|401, with a `WWW-Authenticate: Basic realm=...` challenge|
-|credentials the login file does not list|401, with the challenge|
-|credentials the login file lists|200, served by the mount's protocol|
+|`/private/index.html`, no `Authorization:`|401, with a `WWW-Authenticate: Basic realm=...` challenge|
+|`/private/index.html`, credentials the login file does not list|401, with the challenge|
+|`/private/index.html`, credentials the login file lists|200, the private file|
+|`/index.html`|200, the public file|
+|`/PRIVATE/index.html`, `/Private/index.html`, `/private./index.html`, `/private%20/index.html`, no credentials|anything but the private file|
 
-The login file is `./basic-auth.txt`, one `user:password` per line, so run it
-with the test directory as the cwd.
+The last row is for filesystems that find a file by more names than its own:
+case folds on windows and macOS, and windows drops the dots and spaces a name
+ends with.  Those URIs miss `/private` and go to `/`, where lws refuses to
+serve a file that is `/private`'s (403).  Elsewhere there is no such file
+(404).
+
+The login file is `./basic-auth.txt`, one `user:password` per line, and the
+files are in `./docroot`, so run it with the test directory as the cwd.
 
 ## running it
 

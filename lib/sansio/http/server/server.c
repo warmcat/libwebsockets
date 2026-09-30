@@ -310,6 +310,85 @@ lws_path_has_dotdot(const char *p)
 	return 0;
 }
 
+#if defined(WIN32)
+/*
+ * Win32 drops the dots and spaces a name ends with, so "admin." and "admin "
+ * open "admin".  No file's own name ends in one.
+ */
+static int
+lws_path_has_win32_alias(const char *p)
+{
+	for (; *p; p++)
+		if ((*p == '.' || *p == ' ') && (!p[1] || p[1] == '/'))
+			return 1;
+
+	return 0;
+}
+#endif
+
+#if defined(LWS_PLAT_FS_FOLDS_NAMES)
+/*
+ * Is the canonical path f inside the canonical directory d?  The filesystem
+ * folds case, so the comparison does as well.
+ */
+static int
+lws_path_is_under(const char *f, const char *d)
+{
+	size_t n = strlen(d);
+
+	while (n && (d[n - 1] == '/' || d[n - 1] == '\\'))
+		n--;
+
+	return !strncasecmp(f, d, n) && (f[n] == '/' || f[n] == '\\');
+}
+
+/*
+ * A mount is chosen by the bytes of the URI, but this filesystem also finds
+ * a file by other names (/ADMIN, and on windows /admin., /admin%20, ADMIN~1).
+ * So a URI that misses a mount by its spelling can still reach that mount's
+ * files through a mount whose origin holds its origin, without whatever
+ * protects it (basic auth, an interceptor).  A file is only served through
+ * the file mount whose origin holds it most closely.
+ *
+ * Nonzero if the file at path is another mount's, or that can't be told.
+ */
+static int
+lws_http_serve_is_foreign(struct lws *wsi, const struct lws_http_mount *m,
+			  const char *path)
+{
+	char f[1024], o[1024], d[1024];
+	const struct lws_http_mount *hm;
+	int others = 0;
+	size_t ol;
+
+	for (hm = wsi->a.vhost->http.mount_list; hm; hm = hm->mount_next)
+		if (hm != m && hm->origin_protocol == LWSMPRO_FILE &&
+		    hm->origin)
+			others = 1;
+	if (!others)
+		/* the only file mount has no other mount's files */
+		return 0;
+
+	if (lws_plat_path_canonical(path, f, sizeof(f)) ||
+	    lws_plat_path_canonical(m->origin, o, sizeof(o)))
+		return 1;
+	ol = strlen(o);
+
+	for (hm = wsi->a.vhost->http.mount_list; hm; hm = hm->mount_next) {
+		if (hm == m || hm->origin_protocol != LWSMPRO_FILE ||
+		    !hm->origin ||
+		    /* an origin that is not there holds no files */
+		    lws_plat_path_canonical(hm->origin, d, sizeof(d)))
+			continue;
+
+		if (strlen(d) > ol && lws_path_is_under(f, d))
+			return 1;
+	}
+
+	return 0;
+}
+#endif
+
 static int
 lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	       const struct lws_http_mount *m)
@@ -364,6 +443,13 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	 */
 	if (strchr(uri, '\\')) {
 		lwsl_wsi_notice(wsi, "refusing backslash in served path");
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+
+		return -1;
+	}
+
+	if (lws_path_has_win32_alias(uri)) {
+		lwsl_wsi_notice(wsi, "refusing a name ending in '.' or ' '");
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
 		return -1;
@@ -462,6 +548,20 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	if (spin == 5)
 		lwsl_err("symlink loop %s \n", path);
+
+#if defined(LWS_PLAT_FS_FOLDS_NAMES)
+	if (!(fflags & LWS_FOP_FLAG_VIRTUAL) &&
+	    fops == &wsi->a.context->fops_platform &&
+	    lws_http_serve_is_foreign(wsi, m, path)) {
+		lwsl_wsi_notice(wsi, "refusing another mount's file");
+		lws_vfs_file_close(&wsi->http.fop_fd);
+		if (lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL) ||
+		    lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+	}
+#endif
 #endif
 
 	/*

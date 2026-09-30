@@ -12,8 +12,15 @@
  * answered 401 with a WWW-Authenticate challenge, so a browser can ask
  * the user for them; one with credentials the file lists is served.
  *
- * lws is both ends here.  The login file is ./basic-auth.txt, so run it
- * with the test directory as the cwd.
+ * The protected mount, /private, serves ./docroot/private, inside the
+ * origin of the public mount at /.  Where the filesystem finds a file by
+ * other names than its own (case on windows and macOS, trailing dots and
+ * spaces on windows), /PRIVATE/... and /private./... miss /private and go
+ * to /, which must still not serve them without credentials.  Elsewhere
+ * there is no such file: either way, the private file is not served.
+ *
+ * lws is both ends here.  The login file is ./basic-auth.txt and the files
+ * are in ./docroot, so run it with the test directory as the cwd.
  */
 
 #include <libwebsockets.h>
@@ -37,12 +44,32 @@ enum creds {
 
 static const char * const creds_names[] = { "no", "wrong", "right" };
 
+enum expect {
+	EX_CHALLENGE,	/* 401 with a Basic challenge */
+	EX_PRIVATE,	/* 200, the private file */
+	EX_PUBLIC,	/* 200, the public file */
+	EX_NOT_PRIVATE,	/* anything but the private file */
+};
+
 struct xcase {
 	uint8_t		xport;
 	uint8_t		creds;
+	uint8_t		expect;
+	const char	*path;
 };
 
-#define XP_CASES(x) { x, CR_NONE }, { x, CR_WRONG }, { x, CR_RIGHT }
+#define PRIVATE_MARK	"lws-basic-auth-private"
+#define PUBLIC_MARK	"lws-basic-auth-public"
+
+#define XP_CASES(x) \
+	{ x, CR_NONE,  EX_CHALLENGE,   "/private/index.html" }, \
+	{ x, CR_WRONG, EX_CHALLENGE,   "/private/index.html" }, \
+	{ x, CR_RIGHT, EX_PRIVATE,     "/private/index.html" }, \
+	{ x, CR_NONE,  EX_PUBLIC,      "/index.html" }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/PRIVATE/index.html" }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/Private/index.html" }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private./index.html" }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private%20/index.html" }
 
 static const struct xcase cases[] = {
 	XP_CASES(XP_H1),
@@ -167,47 +194,30 @@ static const char * const test_key =
 "-----END PRIVATE KEY-----\n";
 #endif
 
-/* the server: 200 "ok" to anything the mount lets through */
+/*
+ * The server: a public file mount at /, and inside its origin the origin of
+ * a file mount at /private that is behind the login file.  A file neither
+ * has goes to the mount's protocol, the dummy callback, which answers 404.
+ */
 
-static int
-callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
-	     void *user, void *in, size_t len)
-{
-	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1];
-
-	switch (reason) {
-	case LWS_CALLBACK_HTTP:
-		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-				"text/plain", 2, &p, end) ||
-		    lws_finalize_write_http_header(wsi, start, &p, end))
-			return 1;
-		lws_callback_on_writable(wsi);
-		return 0;
-
-	case LWS_CALLBACK_HTTP_WRITEABLE:
-		memcpy(start, "ok", 2);
-		if (lws_write(wsi, start, 2, LWS_WRITE_HTTP_FINAL) != 2)
-			return 1;
-		if (lws_http_transaction_completed(wsi))
-			return -1;
-		return 0;
-
-	default:
-		break;
-	}
-
-	return lws_callback_http_dummy(wsi, reason, user, in, len);
-}
-
-/* everything on the server is behind the login file */
+static const struct lws_http_mount mount_private = {
+	.mountpoint		= "/private",
+	.origin			= "./docroot/private",
+	.def			= "index.html",
+	.protocol		= "http",
+	.origin_protocol	= LWSMPRO_FILE,
+	.mountpoint_len		= 8,
+	.basic_auth_login_file	= "./basic-auth.txt",
+};
 
 static const struct lws_http_mount mount = {
+	.mount_next		= &mount_private,
 	.mountpoint		= "/",
-	.origin			= "http",
-	.origin_protocol	= LWSMPRO_CALLBACK,
+	.origin			= "./docroot",
+	.def			= "index.html",
+	.protocol		= "http",
+	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 1,
-	.basic_auth_login_file	= "./basic-auth.txt",
 };
 
 static void
@@ -219,14 +229,16 @@ case_done(const char *why)
 	const struct xcase *c = &cases[cur];
 
 	if (why) {
-		lwsl_err("--- %s, %s credentials: FAIL: %s ---\n",
-			 xport_names[c->xport], creds_names[c->creds], why);
+		lwsl_err("--- %s, %s, %s credentials: FAIL: %s ---\n",
+			 xport_names[c->xport], c->path, creds_names[c->creds],
+			 why);
 		lws_default_loop_exit(context);
 		return;
 	}
 
-	lwsl_user("--- %s, %s credentials: %d: PASS ---\n",
-		  xport_names[c->xport], creds_names[c->creds], cli.status);
+	lwsl_user("--- %s, %s, %s credentials: %d: PASS ---\n",
+		  xport_names[c->xport], c->path, creds_names[c->creds],
+		  cli.status);
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
 }
 
@@ -234,22 +246,40 @@ static void
 case_evaluate(void)
 {
 	const struct xcase *c = &cases[cur];
+	int priv = !!strstr(cli.body, PRIVATE_MARK);
 
-	if (c->creds != CR_RIGHT) {
-		if (cli.status != HTTP_STATUS_UNAUTHORIZED)
+	switch (c->expect) {
+	case EX_CHALLENGE:
+		if (cli.status != HTTP_STATUS_UNAUTHORIZED || priv)
 			case_done("not answered 401");
 		else if (strncmp(cli.challenge, "Basic realm=", 12))
 			case_done("401 has no basic auth challenge");
 		else
 			case_done(NULL);
 		return;
-	}
 
-	if (cli.status != HTTP_STATUS_OK ||
-	    cli.body_len != 2 || memcmp(cli.body, "ok", 2))
-		case_done("not served");
-	else
-		case_done(NULL);
+	case EX_PRIVATE:
+		if (cli.status != HTTP_STATUS_OK || !priv)
+			case_done("not served");
+		else
+			case_done(NULL);
+		return;
+
+	case EX_PUBLIC:
+		if (cli.status != HTTP_STATUS_OK ||
+		    !strstr(cli.body, PUBLIC_MARK))
+			case_done("not served");
+		else
+			case_done(NULL);
+		return;
+
+	default:
+		if (cli.status == HTTP_STATUS_OK || priv)
+			case_done("served the private file without credentials");
+		else
+			case_done(NULL);
+		return;
+	}
 }
 
 static int
@@ -351,7 +381,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static const struct lws_protocols protocols_srv[] = {
-	{ "http", callback_srv, 0, 0, 0, NULL, 0 },
+	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -381,7 +411,7 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.address		= server_addr;
 	i.host			= server_addr;
 	i.origin		= server_addr;
-	i.path			= "/";
+	i.path			= c->path;
 	i.method		= "GET";
 	i.protocol		= "cli";
 	i.local_protocol_name	= "cli";
