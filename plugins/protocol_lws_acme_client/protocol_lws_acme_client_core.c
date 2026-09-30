@@ -333,6 +333,41 @@ static const struct lws_protocols chall_http01_protocols[] = {
 	{ NULL, NULL, 0, 0, 0, NULL, 0 }
 };
 
+/*
+ * The JWS alg to sign with, from the account key: RS256 for RSA, ES256 or
+ * ES384 for an EC key on the matching curve (RFC 8555 6.2 / RFC 7518 3.1).
+ * NULL if we have no alg the key can sign with.
+ */
+
+static int
+acme_crv_is(const lws_gc_elem_t *crv, const char *name)
+{
+	size_t n = strlen(name);
+
+	/* generated keys count the NUL in the element length, parsed ones don't */
+	return crv->buf && (crv->len == n || (crv->len == n + 1 && !crv->buf[n])) &&
+	       !memcmp(crv->buf, name, n);
+}
+
+static const char *
+acme_jws_alg(const struct lws_jwk *jwk)
+{
+	switch (jwk->kty) {
+	case LWS_GENCRYPTO_KTY_RSA:
+		return "RS256";
+	case LWS_GENCRYPTO_KTY_EC:
+		if (acme_crv_is(&jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV], "P-256"))
+			return "ES256";
+		if (acme_crv_is(&jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV], "P-384"))
+			return "ES384";
+		break;
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
 static int
 jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 		  const char *nonce, const char *url, const char *kid,
@@ -366,7 +401,9 @@ jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	if (!jwe->jose.alg || !jwe->jose.alg->alg)
 		goto bail;
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"alg\":\"%s\"", jwe->jwk.kty == LWS_GENCRYPTO_KTY_RSA ? "RS256" : "ES256");
+	/* the header names the alg we will actually sign with */
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"alg\":\"%s\"",
+			  jwe->jose.alg->alg);
 	if (kid)
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",\"kid\":\"%s\"", kid);
 	else {
@@ -677,8 +714,19 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 	int n;
 
 	if (!lws_jwk_load(&vhd->jwk, vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH],
-				NULL, NULL))
-		return 0;
+				NULL, NULL)) {
+		if (acme_jws_alg(&vhd->jwk))
+			return 0;
+
+		/* we make P-256 keys, but an older or imported one may differ */
+		lwsl_vhost_err(vhd->vhost, "acme: account key %s is not RSA, "
+			       "P-256 or P-384, unable to sign with it",
+			       vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
+		lws_jwk_destroy(&vhd->jwk);
+		vhd->last_acme_failure = lws_now_usecs();
+
+		return 1;
+	}
 
 	vhd->jwk.kty = LWS_GENCRYPTO_KTY_EC;
 
@@ -1550,14 +1598,23 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lws_strncpy(ac->active_url, ac->urls[JAD_NEW_ACCOUNT_URL], sizeof(ac->active_url));
 pkt_add_hdrs:
-			if (lws_gencrypto_jws_alg_to_definition(
-						jwe.jwk.kty == LWS_GENCRYPTO_KTY_RSA ? "RS256" : "ES256",
-						&jwe.jose.alg)) {
-				ac->len = 0;
-				lwsl_notice("%s: no RS256/ES256\n", __func__);
-				goto failed;
-			}
+			/*
+			 * The alg follows the account key, so the key must be
+			 * in the jwe before we choose it: lws_jwe_init() left
+			 * jwe.jwk zeroed
+			 */
 			jwe.jwk = vhd->jwk;
+			{
+				const char *alg = acme_jws_alg(&jwe.jwk);
+
+				if (!alg || lws_gencrypto_jws_alg_to_definition(
+							alg, &jwe.jose.alg)) {
+					ac->len = 0;
+					lwsl_vhost_warn(vhd->vhost, "acme: no JWS "
+							"alg for the account key");
+					goto failed;
+				}
+			}
 
 			ac->len = jws_create_packet(&jwe,
 					start, lws_ptr_diff_size_t(p, start),
