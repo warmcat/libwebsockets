@@ -1405,6 +1405,12 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	if (!h)
 		return 2;
 
+	/*
+	 * Everything that can fail from here, even before the rest of the
+	 * handle is filled in, is undone by lws_ss_destroy(), which needs these
+	 */
+	h->context = context;
+	h->tsi = (uint8_t)tsi;
 	h->lc.log_cx = context->log_cx;
 
 	n = LWSLCG_WSI_SS_CLIENT;
@@ -1499,8 +1505,6 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	h->info = *ssi;
 	h->policy = pol;
-	h->context = context;
-	h->tsi = (uint8_t)tsi;
 
 	if (h->info.flags & LWSSSINFLAGS_PROXIED) {
 		/*
@@ -1804,6 +1808,16 @@ fail_creation:
 		*ppss = NULL;
 
 #if defined(LWS_WITH_SERVER)
+	if ((ssi->flags & LWSSSINFLAGS_ACCEPTED_SINK) && h->sink_local_bind) {
+		/*
+		 * We are the accepted sink being created for a source that is
+		 * still inside its own lws_ss_create(), which fails and cleans
+		 * itself up when we do.  Our destroy must not reach it through
+		 * the bind, or it frees the source under that create.
+		 */
+		h->sink_local_bind->sink_local_bind = NULL;
+		h->sink_local_bind = NULL;
+	}
 	lws_dll2_remove(&h->sink_bind);
 #endif
 	lws_ss_destroy(&h);
@@ -2016,7 +2030,8 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		lws_ss_policy_unref_trust_store(h->context, h->policy);
 #else
 #if defined(LWS_WITH_SECURE_STREAMS_CPP)
-	if (!h->info.streamtype || !*(h->info.streamtype))
+	/* a create that failed early may not have got as far as a policy */
+	if (h->policy && (!h->info.streamtype || !*(h->info.streamtype)))
 		lws_ss_policy_unref_trust_store(h->context, h->policy);
 #endif
 #endif
