@@ -22,6 +22,8 @@
  *    sequencer and delivered verbatim to B's event callback
  *  - a CAP_REQ from A over the same transport is answered by B's CAP_RSP,
  *    sent back over the sequencer B made for A when A spoke first
+ *  - data A sends to a port nobody listens on is retransmitted until the
+ *    retry policy runs out, and then reported as LWS_DHT_EVENT_WRITE_FAILED
  *  - once B is a good node for A, A probes it for A's external address:
  *    the probe's nonce survives the round trip, and in a two-node network
  *    the one other node is the quorum, so A learns 127.0.0.1:port-a from B
@@ -29,8 +31,9 @@
  *    B is good for A: A answers it, but B's entry keeps B's endpoint, so the
  *    good node A hands out for that id is still B
  *
- * The three UDP ports are allocated uniquely at build time and passed in
- * on the command line, so parallel ctest instances do not collide.
+ * The UDP ports (three to listen on, one left unused) are allocated uniquely
+ * at build time and passed in on the command line, so parallel ctest
+ * instances do not collide.
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -50,7 +53,7 @@ static struct lws_vhost *vh_a, *vh_b, *vh_c;
 static struct lws_dht_ctx *dht_a, *dht_b, *dht_c;
 static lws_sorted_usec_list_t sul_poll, sul_deadline;
 
-static struct sockaddr_in sa_a, sa_b, sa_c;
+static struct sockaddr_in sa_a, sa_b, sa_c, sa_dead;
 
 static const char *data_msg = "PUT 0102030405 0 5 hello";
 static const char *cap_req = "CAP_REQ 0102030405 0 0 ";
@@ -71,6 +74,8 @@ struct seen {
 	unsigned char searched:1;
 	unsigned char data_sent:1;
 	unsigned char cap_ok:1;		/* A got B's CAP_RSP */
+	unsigned char dead_sent:1;	/* A sent data to the unused port */
+	unsigned char dead_failed:1;	/* ...and was told it failed */
 	unsigned char probed:1;		/* A asked B for its external address */
 	unsigned char extip_ok:1;	/* ...and learnt it */
 	unsigned char extip_bad:1;	/* ...or learnt something else */
@@ -103,6 +108,12 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 		break;
 	case LWS_DHT_EVENT_NOTIFY:
 		sv.notify_ok = 1;
+		break;
+	case LWS_DHT_EVENT_WRITE_FAILED:
+		if (from && fromlen >= sizeof(sa_dead) &&
+		    ((const struct sockaddr_in *)from)->sin_port ==
+							sa_dead.sin_port)
+			sv.dead_failed = 1;
 		break;
 	case LWS_DHT_EVENT_DATA:
 		/* A registered no verbs, so B's CAP_RSP comes to us whole */
@@ -320,6 +331,12 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	subscription_step();
 	same_id_step();
 
+	if (sv.data_ok && !sv.dead_sent) {
+		sv.dead_sent = 1;
+		lws_dht_send_data(dht_a, (struct sockaddr *)&sa_dead,
+				  data_msg, data_msg_len);
+	}
+
 	/*
 	 * A only probes nodes it holds as good, and B becomes good by
 	 * answering A's maintenance find_node
@@ -344,6 +361,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 */
 
 	if (sv.token_ok && sv.acked && !sv.dup_sub && sv.data_ok && sv.cap_ok &&
+	    sv.dead_failed &&
 	    sv.extip_ok && !sv.extip_bad &&
 	    sv.samid_ok && !sv.samid_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
@@ -375,7 +393,7 @@ int main(int argc, const char **argv)
 	};
 	uint8_t ida[20], idb[20];
 	const char *p;
-	int port_a = 0, port_b = 0, port_c = 0, n = 0;
+	int port_a = 0, port_b = 0, port_c = 0, port_dead = 0, n = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -386,12 +404,16 @@ int main(int argc, const char **argv)
 		port_b = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-c")))
 		port_c = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-dead")))
+		port_dead = atoi(p);
 
 	if (port_a < 1 || port_a > 65535 || port_b < 1 || port_b > 65535 ||
 	    port_c < 1 || port_c > 65535 ||
-	    port_a == port_b || port_a == port_c || port_b == port_c) {
+	    port_dead < 1 || port_dead > 65535 ||
+	    port_a == port_b || port_a == port_c || port_b == port_c ||
+	    port_dead == port_a || port_dead == port_b || port_dead == port_c) {
 		lwsl_err("usage: --port-a <udp port> --port-b <udp port> "
-			 "--port-c <udp port>\n");
+			 "--port-c <udp port> --port-dead <unused udp port>\n");
 		return 1;
 	}
 
@@ -407,6 +429,8 @@ int main(int argc, const char **argv)
 	sa_b.sin_port = htons((uint16_t)port_b);
 	sa_c = sa_a;
 	sa_c.sin_port = htons((uint16_t)port_c);
+	sa_dead = sa_a;
+	sa_dead.sin_port = htons((uint16_t)port_dead);
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
@@ -526,6 +550,10 @@ int main(int argc, const char **argv)
 			}
 			if (!sv.cap_ok) {
 				lwsl_err("B never answered A's CAP_REQ\n");
+				fails++;
+			}
+			if (!sv.dead_failed) {
+				lwsl_err("data to a dead port never failed\n");
 				fails++;
 			}
 			if (!sa.tx_find_node || !sb.rx_find_node) {

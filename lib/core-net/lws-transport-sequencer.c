@@ -101,7 +101,16 @@ sul_retry_cb(lws_sorted_usec_list_t *sul)
 
 	p_off = (uint64_t *)obj;
 
-	if (ts->retry_count >= ts->info.retry_policy->conceal_count) {
+	/*
+	 * ->retry_count is advanced by lws_retry_get_delay_ms() each time the
+	 * timer is armed, so here it is the number of timeouts so far: the
+	 * policy's conceal_count retransmits have gone out, and the last of
+	 * them has had its own timeout to be acked, once it is past that.
+	 * (It used to be advanced here as well, so only half the retransmits
+	 * went out and the timer stopped being armed before this was reached:
+	 * a dead peer never failed the session.)
+	 */
+	if (ts->retry_count > ts->info.retry_policy->conceal_count) {
 		lwsl_notice("%s: Retry limit reached (%d), failing session\n",
 			    __func__, ts->retry_count);
 		ts->completed = 1;
@@ -109,8 +118,6 @@ sul_retry_cb(lws_sorted_usec_list_t *sul)
 			ts->info.ops->on_state_change(ts, 1 /* FAILED */, 0);
 		return;
 	}
-
-	ts->retry_count++;
 
 	/*
 	 * A peer that has never acknowledged anything may be a forged source:
@@ -125,10 +132,14 @@ sul_retry_cb(lws_sorted_usec_list_t *sul)
 					len - sizeof(uint64_t));
 	}
 
-	/* Schedule next timeout */
-	lws_retry_sul_schedule(ts->info.cx, 0, &ts->sul_retry,
-				 ts->info.retry_policy, sul_retry_cb,
-				 &ts->retry_count);
+	/*
+	 * Schedule the next timeout, even after the last retransmit, so it
+	 * gets its chance to be acked before we give up
+	 */
+	lws_sul_schedule(ts->info.cx, 0, &ts->sul_retry, sul_retry_cb,
+			 (lws_usec_t)lws_retry_get_delay_ms(ts->info.cx,
+					ts->info.retry_policy, &ts->retry_count,
+					NULL) * LWS_US_PER_MS);
 }
 
 struct lws_transport_sequencer *
