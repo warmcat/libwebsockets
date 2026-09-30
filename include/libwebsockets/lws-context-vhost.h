@@ -1202,6 +1202,31 @@ struct lws_context_creation_info {
 	 * usual, in the vhost's info->pprotocols or info->protocols.  The
 	 * array and what it points to must outlive the context. */
 
+	const char *ss_proxy_perms;
+	/**< CONTEXT: for an SS proxy listening on a Unix Domain Socket
+	 * (lws_ss_proxy_create() with port 0), who may connect to it and use
+	 * it.
+	 *
+	 * NULL (the default): only the proxy's own user, a process whose
+	 * primary group is the proxy's group, or root.  The ids are .uid /
+	 * .gid (or .username / .groupname) if given, else the process's
+	 * effective ids.
+	 *
+	 * "user:group": only that user, a process whose primary group is that
+	 * group, or root.  A socket in the filesystem is also created owned
+	 * by user:group with mode 0660.
+	 *
+	 * "*": any local process.  Only use this if every process that can
+	 * reach the socket may use the proxy and its policy.
+	 *
+	 * A socket in the Linux abstract namespace, like the default
+	 * "@proxy.ss.lws", has no filesystem permissions, so the proxy checks
+	 * each client's credentials (SO_PEERCRED) against the above.  For a
+	 * socket in the filesystem, its permissions control access instead;
+	 * without "user:group" they are as for any lws Unix Domain Socket
+	 * vhost (see .unix_socket_perms).  A proxy listening on tcp has no
+	 * peer check, bind it to a loopback address. */
+
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */
 #endif

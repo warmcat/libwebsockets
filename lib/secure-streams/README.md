@@ -819,6 +819,17 @@ onward proxying).
 Each Secure Stream that is created then in turn creates a private Unix Domain
 Socket connection to the proxy for each stream.
 
+Anything that can use the proxy can make connections as described by the
+proxy's policy, so the proxy restricts who may connect to its Unix Domain
+Socket.  By default that is processes running as the proxy's own user, or with
+the proxy's group as their primary group, or as root; the context creation
+info member `.ss_proxy_perms` can name a different `"user:group"`, or be `"*"`
+to allow any local process.  For a socket in the Linux abstract namespace (the
+default, `@proxy.ss.lws`), which has no filesystem permissions, the proxy
+checks each client's credentials when it connects.  For a socket path in the
+filesystem, the socket file's owner and mode control it.  A proxy listening on
+tcp has no such check and should be bound to a loopback address.
+
 In this case the proxy uses secure-streams.c and policy.c as before to fulfil
 the inbound proxy streams, but uses secure-streams-serialize.c to serialize and
 deserialize the proxied SS API activity.  The proxy clients define

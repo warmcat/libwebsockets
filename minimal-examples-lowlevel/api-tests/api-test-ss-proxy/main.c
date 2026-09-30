@@ -20,13 +20,31 @@
  *    then destroys itself, which takes the proxied source stream with it
  *    while the client link is still up.  The proxy must tell the client its
  *    stream is DESTROYING, and not touch the stream after that.
+ *
+ * Those clients run as the same user as the proxy, which by default may use
+ * it.  With --refused, the proxy is told only uid / gid 65534 may use it, and
+ * the one leg, "refused", requires the proxy to drop the client without
+ * creating anything.  That needs the Linux abstract namespace socket, where
+ * the proxy checks client credentials itself, and a test not running as
+ * root or 65534: otherwise it's skipped.
  */
 
 #include <libwebsockets.h>
 #include <string.h>
-#if !defined(__linux__) && !defined(WIN32)
+#if !defined(WIN32)
 #include <unistd.h>
 #endif
+
+enum {
+	LWS_SW_REFUSED,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_REFUSED]	= { "--refused", "Run the leg where the proxy only "
+						 "allows another user" },
+	[LWS_SW_HELP]		= { "--help",	 "Show this help information" },
+};
 
 static const char * const policy =
 	"{"
@@ -69,6 +87,7 @@ typedef struct leg {
 	char			expect_create_ok;
 	char			until;
 	char			sink_destroys;	/* on rx */
+	char			expect_refused;	/* dropped before the result */
 
 	/* results */
 	size_t			sink_rx;
@@ -77,13 +96,19 @@ typedef struct leg {
 	uint8_t			result;
 } leg_t;
 
-static leg_t legs[] = {
+static leg_t legs_main[] = {
 	{ .name = "server",		.streamtype = "srv",
 	  .until = UNTIL_RESULT },
 	{ .name = "sink-goes-first",	.streamtype = "sink",
 	  .expect_create_ok = 1, .payload_len = 100,
 	  .sink_destroys = 1, .until = UNTIL_DESTROYING },
+}, legs_refused[] = {
+	{ .name = "refused",		.streamtype = "sink",
+	  .expect_refused = 1 },
 };
+
+static leg_t *legs = legs_main;
+static unsigned int count_legs = LWS_ARRAY_SIZE(legs_main);
 
 /* the client connection's view of the proxy link */
 
@@ -155,7 +180,13 @@ leg_done(void)
 	leg_t *l = &legs[cur_leg];
 	int fail = 0;
 
-	if (!l->got_result) {
+	if (l->expect_refused) {
+		if (l->got_result) {
+			lwsl_err("%s: leg %s: not refused\n", __func__,
+				 l->name);
+			fail = 1;
+		}
+	} else if (!l->got_result) {
 		lwsl_err("%s: leg %s: no CREATE_RESULT\n", __func__, l->name);
 		fail = 1;
 	} else
@@ -185,7 +216,7 @@ leg_done(void)
 
 	lwsl_user("%s: leg %s: OK\n", __func__, l->name);
 
-	if (++cur_leg == LWS_ARRAY_SIZE(legs)) {
+	if (++cur_leg == count_legs) {
 		finish(0);
 		return;
 	}
@@ -410,9 +441,32 @@ main(int argc, const char **argv)
 	lws_ss_info_t ssi;
 	uint8_t rnd[4];
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches,
+					LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	lws_context_info_defaults(&info, policy);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	lwsl_user("LWS API Test - SS proxy\n");
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_REFUSED].sw)) {
+#if defined(__linux__)
+		if (!geteuid() || !getegid() ||
+		    geteuid() == 65534 || getegid() == 65534) {
+			lwsl_user("Completed: skipped, we are root or 65534\n");
+			return 0;
+		}
+
+		legs			= legs_refused;
+		count_legs		= LWS_ARRAY_SIZE(legs_refused);
+		info.ss_proxy_perms	= "65534:65534";
+#else
+		lwsl_user("Completed: skipped, needs an abstract socket\n");
+		return 0;
+#endif
+	}
 
 	info.fd_limit_per_thread	= 0;
 	info.port			= CONTEXT_PORT_NO_LISTEN;

@@ -28,6 +28,7 @@ enum {
 	LWS_SW_C,
 	LWS_SW_I,
 	LWS_SW_P,
+	LWS_SW_PERMS,
 	LWS_SW_HELP,
 };
 
@@ -35,6 +36,9 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_C]	= { "-c",              "Policy filepath" },
 	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_PERMS]	= { "--perms",		"user:group, or * for anyone, that may "
+						"connect to the proxy UDS (default: "
+						"our own user and group)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -519,6 +523,10 @@ int main(int argc, const char **argv)
 	 * when -p given this can specify the network interface to bind to */
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 		ibind = p;
+
+	/* who may use the proxy over its UDS, see .ss_proxy_perms */
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PERMS].sw)))
+		info.ss_proxy_perms = p;
 
 	lwsl_user("LWS secure streams Proxy [-d<verb>]\n");
 

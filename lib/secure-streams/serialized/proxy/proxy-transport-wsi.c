@@ -31,6 +31,49 @@ struct raw_pss {
 	struct lws_sss_proxy_conn		*conn;
 };
 
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+
+/*
+ * A socket in the Linux abstract namespace has no filesystem permissions, so
+ * we check who each client is ourselves: the same users and groups that
+ * could open a 0660 socket file owned by uid:gid, ie, uid, gid, or root.
+ * Allocated as the proxy vhost's protocol private data only when the check
+ * is needed.
+ */
+
+struct ssproxy_vh {
+	uid_t					uid;
+	gid_t					gid;
+};
+
+static int
+lws_sss_proxy_peer_refused(struct lws *wsi)
+{
+	const struct ssproxy_vh *pv = (const struct ssproxy_vh *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+						 lws_get_protocol(wsi));
+	uid_t uid;
+	gid_t gid;
+
+	if (!pv)
+		return 0; /* no check needed for this socket */
+
+	if (lws_plat_unix_peer_ids(lws_get_socket_fd(wsi), &uid, &gid)) {
+		lwsl_wsi_err(wsi, "unable to get proxy client's ids");
+
+		return 1;
+	}
+
+	if (!uid || uid == pv->uid || gid == pv->gid)
+		return 0;
+
+	lwsl_wsi_warn(wsi, "refusing proxy client uid %u, gid %u",
+		      (unsigned int)uid, (unsigned int)gid);
+
+	return 1;
+}
+#endif
+
 static int
 lws_sss_proxy_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason,
 			       void *user, void *in, size_t len)
@@ -50,6 +93,11 @@ lws_sss_proxy_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason
 
 		if (!pss)
 			return -1;
+
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+		if (lws_sss_proxy_peer_refused(wsi))
+			return -1;
+#endif
 
 		if (lws_txp_inside_proxy.event_new_conn(
 				wsi->a.context,
@@ -224,6 +272,9 @@ lws_sss_proxy_wsi_init_proxy_server(struct lws_context *context,
 			      const char *bind, int port)
 {
 	struct lws_context_creation_info info;
+	struct lws_vhost *vh;
+	const char *perms = context->ss_proxy_perms;
+	char any_peer = perms && !strcmp(perms, "*");
 
 	memset(&info, 0, sizeof(info));
 
@@ -241,19 +292,56 @@ lws_sss_proxy_wsi_init_proxy_server(struct lws_context *context,
 		info.options |= LWS_SERVER_OPTION_UNIX_SOCK;
 	}
 	info.iface			= bind;
-#if defined(__linux__)
-	info.unix_socket_perms		= "root:root";
-#else
-#endif
+	/*
+	 * For a socket in the filesystem, the perms become its owner and
+	 * group, with mode 0660.  They're not used for an abstract one.
+	 */
+	if (perms && !any_peer)
+		info.unix_socket_perms	= perms;
 	info.listen_accept_role		= "raw-skt";
 	info.listen_accept_protocol	= "ssproxy-protocol";
 	info.protocols			= protocols;
 
-	if (!lws_create_vhost(context, &info)) {
+	vh = lws_create_vhost(context, &info);
+	if (!vh) {
 		lwsl_err("%s: Failed to create ss proxy vhost\n", __func__);
 
 		return 1;
 	}
+
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+	if (!port && bind[0] == '@' && !any_peer) {
+		struct ssproxy_vh *pv;
+
+		/*
+		 * Abstract socket: we must check who connects ourselves
+		 */
+
+		pv = (struct ssproxy_vh *)lws_protocol_vh_priv_zalloc(vh,
+					&protocols[0], sizeof(*pv));
+		if (!pv)
+			return 1;
+
+		if (perms) {
+			if (lws_plat_user_colon_group_to_ids(perms, &pv->uid,
+							     &pv->gid)) {
+				lwsl_err("%s: unknown ss proxy perms %s\n",
+					 __func__, perms);
+
+				return 1;
+			}
+		} else {
+			pv->uid = context->uid && context->uid != (uid_t)-1 ?
+						context->uid : geteuid();
+			pv->gid = context->gid && context->gid != (gid_t)-1 ?
+						context->gid : getegid();
+		}
+
+		lwsl_notice("%s: proxy clients limited to uid %u, gid %u, "
+			    "or root\n", __func__, (unsigned int)pv->uid,
+			    (unsigned int)pv->gid);
+	}
+#endif
 
 	return 0;
 }

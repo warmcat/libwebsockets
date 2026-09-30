@@ -509,6 +509,11 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 	if (af == AF_UNIX) {
 		uid_t uid = vhost->context->uid;
 		gid_t gid = vhost->context->gid;
+		/*
+		 * The context's ids of 0 mean they weren't given... but given
+		 * perms of "root:root" are 0 too, so track it separately
+		 */
+		char set_perms = uid && gid;
 
 		if (vhost->unix_socket_perms) {
 			if (lws_plat_user_colon_group_to_ids(
@@ -517,8 +522,9 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 						   vhost->unix_socket_perms);
 				return LWS_ITOSA_NOT_EXIST;
 			}
+			set_perms = 1;
 		}
-		if (iface && iface[0] != '@' && uid && gid) {
+		if (iface && iface[0] != '@' && set_perms) {
 			if (chown(iface, uid, gid)) {
 				lwsl_wsi_err(wsi, "failed to set %s perms %u:%u",
 						  iface, (unsigned int)uid,

@@ -20,6 +20,9 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 	add_test(NAME api-test-ss-proxy COMMAND lws-api-test-ss-proxy)
 	set_tests_properties(api-test-ss-proxy PROPERTIES TIMEOUT 30)
+	add_test(NAME api-test-ss-proxy-refused
+		 COMMAND lws-api-test-ss-proxy --refused)
+	set_tests_properties(api-test-ss-proxy-refused PROPERTIES TIMEOUT 30)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

@@ -186,6 +186,35 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 	return 0;
 }
 
+#if defined(LWS_WITH_UNIX_SOCK)
+int
+lws_plat_unix_peer_ids(lws_sockfd_type fd, uid_t *puid, gid_t *pgid)
+{
+#if defined(__linux__)
+	struct ucred cr;
+	socklen_t len = sizeof(cr);
+
+	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cr, &len) ||
+	    len != sizeof(cr))
+		return 1;
+
+	*puid = cr.uid;
+	*pgid = cr.gid;
+
+	return 0;
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+      defined(__OpenBSD__) || defined(__DragonFly__)
+	return !!getpeereid(fd, puid, pgid);
+#else
+	(void)fd;
+	(void)puid;
+	(void)pgid;
+
+	return 1;
+#endif
+}
+#endif
+
 int
 lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 {

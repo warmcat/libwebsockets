@@ -764,6 +764,7 @@ struct lws_context {
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	const char				*ss_proxy_bind;
 	const char				*ss_proxy_address;
+	const char				*ss_proxy_perms;
 
 	lws_txp_path_proxy_t			txp_ppath;
 	lws_txp_path_client_t			txp_cpath;
@@ -1327,6 +1328,14 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop);
 #if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
 int
 lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid);
+
+/*
+ * The uid and gid of the process at the other end of a connected Unix Domain
+ * Socket, as the kernel recorded them at connect time.  Returns 0 if it could
+ * find them, nonzero if not, including on platforms where it's not supported.
+ */
+int
+lws_plat_unix_peer_ids(lws_sockfd_type fd, uid_t *puid, gid_t *pgid);
 #endif
 
 int
