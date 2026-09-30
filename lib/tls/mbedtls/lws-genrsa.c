@@ -1054,12 +1054,25 @@ static int
 lws_genrsa_psa_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       size_t in_len, uint8_t *out)
 {
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
 	psa_algorithm_t alg = lws_genrsa_psa_crypt_alg(ctx);
-	size_t olen;
+	size_t olen, osize;
 
-	if (!alg || psa_asymmetric_encrypt(ctx->key_id_crypt, alg, in, in_len,
-					   NULL, 0, out, 4096, &olen) !=
+	/*
+	 * The api contract is only that "out" has room for a modulus-sized
+	 * result, so that is the size we must tell PSA... it may use (and with
+	 * MBEDTLS_PSA_COPY_CALLER_BUFFERS, copies back) all of what it is told,
+	 * even when the operation fails.
+	 */
+
+	if (!alg || psa_get_key_attributes(ctx->key_id_crypt, &attr) !=
 								PSA_SUCCESS)
+		return -1;
+	osize = PSA_BITS_TO_BYTES(psa_get_key_bits(&attr));
+	psa_reset_key_attributes(&attr);
+
+	if (psa_asymmetric_encrypt(ctx->key_id_crypt, alg, in, in_len,
+				   NULL, 0, out, osize, &olen) != PSA_SUCCESS)
 		return -1;
 
 	return (int)olen;
