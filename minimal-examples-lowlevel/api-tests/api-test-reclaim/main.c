@@ -11,6 +11,8 @@
  * allocator ask the least recently used unpinned occupants to evict, then
  * retries; pinned occupants are left alone; when nothing more can be
  * reclaimed the allocation fails cleanly and the registry keeps working.
+ * An append to an occupant's own buflist can evict that same occupant from
+ * inside the append's allocation, and must still land on the list.
  *
  * The allocations are made through lws_buflist, a public core api whose
  * segments come from the lws allocator and so count against the simulated
@@ -86,7 +88,7 @@ main(int argc, const char **argv)
 	struct lws_buflist *p1 = NULL, *p2 = NULL, *p3 = NULL, *p4 = NULL,
 			   *p5 = NULL;
 	size_t base;
-	int e = 0;
+	int e = 0, n;
 
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER, NULL);
 	lwsl_user("LWS API selftest: reclaimable heap occupants\n");
@@ -181,6 +183,30 @@ main(int argc, const char **argv)
 		lwsl_err("%s: 8: explicit reclaim %d\n", __func__, a.evictions);
 		e++;
 	}
+
+	/*
+	 * a is the only resident tenant, unpinned, and the heap has no room
+	 * for another block: appending one to a's own buflist evicts a from
+	 * inside the append's allocation, freeing the segment the new one
+	 * would have gone behind.  It must land on the emptied list, as its
+	 * first segment.
+	 */
+
+	if (tenant_load(&a)) {
+		lwsl_err("%s: 9: reload failed\n", __func__);
+		e++;
+	}
+	lws_heap_limit_set(lws_get_allocated_heap() + BLOCK / 2);
+	n = lws_buflist_append_segment(&a.block, payload, BLOCK);
+	lws_heap_limit_set(0);
+	if (n != 1 || a.evictions != 3 ||
+	    lws_buflist_total_len(&a.block) != BLOCK) {
+		lwsl_err("%s: 9: self-evicting append %d, a %d, len %u\n",
+			 __func__, n, a.evictions,
+			 (unsigned int)lws_buflist_total_len(&a.block));
+		e++;
+	}
+	block_free(&a.block);
 
 	block_free(&p1);
 	block_free(&p2);

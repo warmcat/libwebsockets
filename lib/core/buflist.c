@@ -30,54 +30,91 @@
 
 /* lws_buflist */
 
+/*
+ * Total what the list already holds, checking it is sane and that len more
+ * stays inside LWS_BUFLIST_OOM_LIMIT.  len is tested on its own too, so the
+ * sum cannot wrap: everything already listed passed the same limit.
+ */
+
+static int
+lws_buflist_check_room(struct lws_buflist *b, size_t len, size_t *tot,
+		       unsigned int *segs, const char *caller)
+{
+	int sanity = 8192;
+
+	*tot = len;
+	*segs = 0;
+
+	while (b) {
+		*tot += b->len;
+		(*segs)++;
+		if (!--sanity) {
+			lwsl_err("%s: buflist reached sanity limit\n", caller);
+			return -1;
+		}
+		if (b == b->next) {
+			lwsl_err("%s: corrupt list points to self\n", caller);
+			return -1;
+		}
+		b = b->next;
+	}
+
+	/*
+	 * The limit test must be outside the walk, or an append to an empty
+	 * buflist (where the walk body never runs) is not limited at all.
+	 */
+
+	if (len > LWS_BUFLIST_OOM_LIMIT || *tot > LWS_BUFLIST_OOM_LIMIT) {
+		lwsl_err("%s: %u + %u already in %u segs exceeds the %u limit\n",
+			 caller, (unsigned int)len,
+			 (unsigned int)(*tot - len), *segs,
+			 (unsigned int)LWS_BUFLIST_OOM_LIMIT);
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * The tail is only found once the new segment has been allocated:
+ * lws_malloc() may run reclaim evict() callbacks, and one that frees the
+ * segments of this very list would leave a &tail->next taken before the
+ * allocation pointing into freed memory.  Returns 1 if nbuf is the first
+ * segment on the list.
+ */
+
+static int
+lws_buflist_link_tail(struct lws_buflist **head, struct lws_buflist *nbuf)
+{
+	int first = !*head;
+
+	while (*head)
+		head = &((*head)->next);
+
+	*head = nbuf;
+
+	return first;
+}
+
 int
 lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 			   size_t len)
 {
 	struct lws_buflist *nbuf;
-	int first = !*head;
-	void *p = *head;
-	int sanity = 8192;
-	size_t tot = len;
-	unsigned int segs = 0;
+	unsigned int segs;
+	uint8_t *p;
+	size_t tot;
 
 	if (!buf)
 		return -1;
 
 	assert(len);
 
-	/* append at the tail */
-	while (*head) {
-		tot += (*head)->len;
-		segs++;
-		if (!--sanity) {
-			lwsl_err("%s: buflist reached sanity limit\n", __func__);
-			return -1;
-		}
-		if (*head == (*head)->next) {
-			lwsl_err("%s: corrupt list points to self\n", __func__);
-			return -1;
-		}
-		head = &((*head)->next);
-	}
-
-	/*
-	 * The limit test must be outside the walk, or an append to an empty
-	 * buflist (where the walk body never runs) is not limited at all.
-	 * It also keeps the allocation size below from being able to wrap.
-	 */
-
-	if (tot > LWS_BUFLIST_OOM_LIMIT) {
-		lwsl_err("%s: %u + %u already in %u segs exceeds the %u limit\n",
-			 __func__, (unsigned int)len,
-			 (unsigned int)(tot - len), segs,
-			 (unsigned int)LWS_BUFLIST_OOM_LIMIT);
+	if (lws_buflist_check_room(*head, len, &tot, &segs, __func__))
 		return -1;
-	}
 
-	(void)p;
-	lwsl_info("%s: len %u first %d %p\n", __func__, (unsigned int)len,
-					      first, p);
+	lwsl_info("%s: len %u, %u segs listed\n", __func__, (unsigned int)len,
+		  segs);
 
 	nbuf = (struct lws_buflist *)lws_malloc(sizeof(struct lws_buflist) +
 						len + LWS_PRE + 1, __func__);
@@ -103,49 +140,23 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	p = (uint8_t *)nbuf + sizeof(*nbuf) + LWS_PRE;
 	memcpy(p, buf, len);
 
-	*head = nbuf;
-
-	return first; /* returns 1 if first segment just created */
+	return lws_buflist_link_tail(head, nbuf);
 }
 
 int
 lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *buf, size_t len)
 {
 	struct lws_buflist *nbuf;
-	int first = !*head;
-	int sanity = 8192;
-	size_t tot = len;
-	unsigned int segs = 0;
+	unsigned int segs;
+	size_t tot;
 
 	if (!buf)
 		return -1;
 
 	assert(len);
 
-	/* append at the tail */
-	while (*head) {
-		tot += (*head)->len;
-		segs++;
-		if (!--sanity) {
-			lwsl_err("%s: buflist reached sanity limit\n", __func__);
-			return -1;
-		}
-		if (*head == (*head)->next) {
-			lwsl_err("%s: corrupt list points to self\n", __func__);
-			return -1;
-		}
-		head = &((*head)->next);
-	}
-
-	/* as above, the limit test has to be outside the walk */
-
-	if (tot > LWS_BUFLIST_OOM_LIMIT) {
-		lwsl_err("%s: %u + %u already in %u segs exceeds the %u limit\n",
-			 __func__, (unsigned int)len,
-			 (unsigned int)(tot - len), segs,
-			 (unsigned int)LWS_BUFLIST_OOM_LIMIT);
+	if (lws_buflist_check_room(*head, len, &tot, &segs, __func__))
 		return -1;
-	}
 
 	nbuf = (struct lws_buflist *)lws_malloc(sizeof(struct lws_buflist), __func__);
 	if (!nbuf) {
@@ -160,9 +171,7 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 	nbuf->next = NULL;
 	nbuf->heap_alloc = buf;
 
-	*head = nbuf;
-
-	return first; /* returns 1 if first segment just created */
+	return lws_buflist_link_tail(head, nbuf);
 }
 
 static int
@@ -416,7 +425,7 @@ lws_buflist2_append_segment(struct lws_buflist2_owner *owner, const uint8_t *buf
 			    size_t len)
 {
 	struct lws_buflist2 *nbuf;
-	int first = !lws_dll2_get_head(&owner->owner);
+	int first;
 	size_t limit = owner->limit ? owner->limit : LWS_BUFLIST_OOM_LIMIT;
 
 	if (!buf)
@@ -424,7 +433,8 @@ lws_buflist2_append_segment(struct lws_buflist2_owner *owner, const uint8_t *buf
 
 	assert(len);
 
-	if (owner->total_len + len > limit) {
+	/* the order of the tests keeps the sum from wrapping */
+	if (len > limit || owner->total_len > limit - len) {
 		lwsl_err("%s: buflist reached sanity limit bytes (len %zu, tot %zu, limit %zu)\n",
 			 __func__, len, owner->total_len, limit);
 		return -1;
@@ -445,6 +455,8 @@ lws_buflist2_append_segment(struct lws_buflist2_owner *owner, const uint8_t *buf
 	/* whoever consumes this might need LWS_PRE from the start... */
 	memcpy((uint8_t *)nbuf + sizeof(*nbuf) + LWS_PRE, buf, len);
 
+	/* only now: lws_malloc() may have run evict()s that emptied it */
+	first = !lws_dll2_get_head(&owner->owner);
 	lws_dll2_add_tail(&nbuf->list, &owner->owner);
 	owner->total_len += len;
 
@@ -455,7 +467,7 @@ int
 lws_buflist2_append_segment_take_ownership(struct lws_buflist2_owner *owner, uint8_t *buf, size_t len)
 {
 	struct lws_buflist2 *nbuf;
-	int first = !lws_dll2_get_head(&owner->owner);
+	int first;
 	size_t limit = owner->limit ? owner->limit : LWS_BUFLIST_OOM_LIMIT;
 
 	if (!buf)
@@ -463,7 +475,8 @@ lws_buflist2_append_segment_take_ownership(struct lws_buflist2_owner *owner, uin
 
 	assert(len);
 
-	if (owner->total_len + len > limit) {
+	/* the order of the tests keeps the sum from wrapping */
+	if (len > limit || owner->total_len > limit - len) {
 		lwsl_err("%s: buflist reached sanity limit bytes (len %zu, tot %zu, limit %zu)\n",
 			 __func__, len, owner->total_len, limit);
 		return -1;
@@ -480,6 +493,8 @@ lws_buflist2_append_segment_take_ownership(struct lws_buflist2_owner *owner, uin
 	nbuf->pos = 0;
 	nbuf->heap_alloc = buf;
 
+	/* only now: lws_malloc() may have run evict()s that emptied it */
+	first = !lws_dll2_get_head(&owner->owner);
 	lws_dll2_add_tail(&nbuf->list, &owner->owner);
 	owner->total_len += len;
 
