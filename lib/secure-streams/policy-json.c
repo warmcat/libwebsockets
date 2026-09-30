@@ -990,9 +990,36 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			return -1;
 		}
 
+		/*
+		 * A long value comes in more than one string chunk... collect
+		 * it, and only make the key's one metadata item once we have
+		 * all of it
+		 */
+		if (a->md_value_len + ctx->npos > sizeof(a->md_value)) {
+			lwsl_err("%s: metadata value too long\n", __func__);
+
+			return -1;
+		}
+		memcpy(a->md_value + a->md_value_len, ctx->buf, ctx->npos);
+		a->md_value_len += ctx->npos;
+		if (reason == LEJPCB_VAL_STR_CHUNK)
+			return 0;
+
+		/*
+		 * metadata_count is a uint8_t, and the handle's metadata array
+		 * is sized from it while the list walks see every item...
+		 * wrapping it would have them index off the end of the handle
+		 */
+		if (a->curr[LTY_POLICY].p->metadata_count == 255) {
+			lwsl_err("%s: too many metadata in streamtype %s\n",
+				 __func__, a->curr[LTY_POLICY].p->streamtype);
+
+			return -1;
+		}
+
 		pmd = a->curr[LTY_POLICY].p->metadata;
 		a->curr[LTY_POLICY].p->metadata = lwsac_use_zero(&a->ac,
-			sizeof(lws_ss_metadata_t) + ctx->npos +
+			sizeof(lws_ss_metadata_t) + a->md_value_len +
 			(unsigned int)(ctx->path_match_len - ctx->st[ctx->sp - 2].p + 1) + 2,
 			POL_AC_GRAIN);
 		if (!a->curr[LTY_POLICY].p->metadata)
@@ -1007,7 +1034,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 		q += ctx->path_match_len - ctx->st[ctx->sp - 2].p;
 		a->curr[LTY_POLICY].p->metadata->value__may_own_heap = q;
-		memcpy(q, ctx->buf, ctx->npos);
+		memcpy(q, a->md_value, a->md_value_len);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		/*
@@ -1016,13 +1043,16 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		 * no header string match else it's the well-known header index
 		 */
 		a->curr[LTY_POLICY].p->metadata->value_is_http_token = (uint8_t)
-			lws_http_string_to_known_header(ctx->buf, ctx->npos);
+			lws_http_string_to_known_header(a->md_value,
+							a->md_value_len);
 #endif
 
 		a->curr[LTY_POLICY].p->metadata->length = /* the index in handle->metadata */
 				a->curr[LTY_POLICY].p->metadata_count++;
 
-		a->curr[LTY_POLICY].p->metadata->value_length = ctx->npos;
+		a->curr[LTY_POLICY].p->metadata->value_length =
+						(uint8_t)a->md_value_len;
+		a->md_value_len = 0;
 		break;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)

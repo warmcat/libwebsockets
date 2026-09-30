@@ -16,7 +16,10 @@
  * what the abandon path walks.  After each one, the original streamtypes must
  * still be there and nothing from the rejected document may be.  The
  * original tls server streamtype must still come up with its cert and key
- * after all that, and a valid document must still parse.
+ * after all that.  A streamtype with more metadata than the policy can count,
+ * or a metadata value longer than the policy can hold, must be refused.  A
+ * valid document must still parse, and its metadata value that is longer
+ * than one lejp string chunk must still become one metadata item.
  *
  * Build with ASan to see the teardown is clean.
  */
@@ -74,12 +77,74 @@ static const char * const rejected[] = {
 static const char truncated[] =
 	"{\"certs\": [{\"t_a\": \"AAAA\"}, {\"t_b\": \"AAAA";
 
-static const char valid[] =
+/*
+ * A valid document, whose one metadata value is given at run time, so it can
+ * be longer than a lejp string chunk
+ */
+
+static const char valid_fmt[] =
 	"{\"retry\": [{\"t_retry\": {\"backoff\": [1000, 2000]}}],"
 	 "\"certs\": [{\"t_a\": \"AAAA\"}],"
 	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t_a\"]}],"
 	 "\"s\": [{\"t_cli\": {\"endpoint\": \"localhost\", \"port\": 1,"
-			"\"protocol\": \"h1\", \"retry\": \"t_retry\"}}]}";
+			"\"protocol\": \"h1\", \"retry\": \"t_retry\","
+			"\"metadata\": [{\"t_md\": \"%s\"}]}}]}";
+
+/*
+ * The policy metadata value length is a uint8_t, and a streamtype can have
+ * at most 255 metadata
+ */
+
+#define MAX_MD_VALUE		255
+#define MAX_MD			255
+
+static char doc[8192];
+
+/* a document whose streamtype has count metadata items */
+
+static const char *
+doc_md_count(int count)
+{
+	char *p = doc, *end = doc + sizeof(doc);
+	int n;
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+			  "{\"s\": [{\"t_cli\": {\"endpoint\": \"localhost\","
+			  "\"metadata\": [");
+	for (n = 0; n < count; n++)
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "%s{\"t_md%d\": \"\"}", n ? "," : "", n);
+	lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}}]}");
+
+	return doc;
+}
+
+static int
+is_valid_md_value(const void *v)
+{
+	const char *p = (const char *)v;
+	int n;
+
+	for (n = 0; n < MAX_MD_VALUE; n++)
+		if (p[n] != 'v')
+			return 0;
+
+	return !p[n];
+}
+
+/* the valid document, with a metadata value of len bytes */
+
+static const char *
+doc_valid(size_t len)
+{
+	char val[MAX_MD_VALUE + 2];
+
+	memset(val, 'v', len);
+	val[len] = '\0';
+	lws_snprintf(doc, sizeof(doc), valid_fmt, val);
+
+	return doc;
+}
 
 typedef struct myss {
 	struct lws_ss_handle		*ss;
@@ -245,9 +310,52 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
-	/* after all that, a valid document must still parse */
+	/*
+	 * One metadata more than the count can hold, and a metadata value one
+	 * byte longer than its length can hold, must be refused
+	 */
 
-	m = fetched(cx, valid);
+	m = fetched(cx, doc_md_count(MAX_MD + 1));
+	if (m == LEJP_CONTINUE || m >= 0) {
+		lwsl_err("metadata count: not rejected (%d)\n", m);
+		lws_ss_policy_parse_abandon(cx);
+		goto bail;
+	}
+	if (!original_in_force(cx, "metadata count"))
+		goto bail;
+
+	m = fetched(cx, doc_valid(MAX_MD_VALUE + 1));
+	if (m == LEJP_CONTINUE || m >= 0) {
+		lwsl_err("metadata value: not rejected (%d)\n", m);
+		lws_ss_policy_parse_abandon(cx);
+		goto bail;
+	}
+	if (!original_in_force(cx, "metadata value"))
+		goto bail;
+
+	/* ... but as many as the count can hold is fine */
+
+	m = fetched(cx, doc_md_count(MAX_MD));
+	if (m == LEJP_CONTINUE || m < 0) {
+		lwsl_err("metadata count: max not accepted (%d)\n", m);
+		lws_ss_policy_parse_abandon(cx);
+		goto bail;
+	}
+	pol = lws_ss_policy_get(cx);
+	n = pol ? pol->metadata_count : -1;
+	lws_ss_policy_parse_abandon(cx);
+	if (n != MAX_MD) {
+		lwsl_err("metadata count: %d, not %d\n", n, MAX_MD);
+		goto bail;
+	}
+
+	/*
+	 * After all that, a valid document must still parse.  Its metadata
+	 * value is longer than a lejp string chunk, so it arrives in pieces,
+	 * but it must still be one metadata item with the whole value
+	 */
+
+	m = fetched(cx, doc_valid(MAX_MD_VALUE));
 	if (m == LEJP_CONTINUE || m < 0) {
 		lwsl_err("valid: not accepted (%d)\n", m);
 		lws_ss_policy_parse_abandon(cx);
@@ -256,6 +364,14 @@ main(int argc, const char **argv)
 	pol = lws_ss_policy_get(cx);
 	if (!pol || strcmp(pol->streamtype, "t_cli")) {
 		lwsl_err("valid: parsed policy lacks its streamtype\n");
+		lws_ss_policy_parse_abandon(cx);
+		goto bail;
+	}
+	if (pol->metadata_count != 1 || !pol->metadata ||
+	    strcmp(pol->metadata->name, "t_md") ||
+	    pol->metadata->value_length != MAX_MD_VALUE ||
+	    !is_valid_md_value(pol->metadata->value__may_own_heap)) {
+		lwsl_err("valid: long metadata value is not one whole item\n");
 		lws_ss_policy_parse_abandon(cx);
 		goto bail;
 	}

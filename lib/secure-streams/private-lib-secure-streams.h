@@ -563,6 +563,14 @@ struct policy_cb_args {
 	 */
 	lws_ss_x509_t *prev_server_der_list;
 
+	/*
+	 * A metadata value longer than a lejp string chunk arrives in pieces;
+	 * collect it here so the key makes one metadata item.  The policy
+	 * metadata's value_length is a uint8_t, which is the limit.
+	 */
+	char md_value[255];
+	size_t md_value_len;
+
 	int count;
 	int pvosp;
 	char pending_respmap;

@@ -13,7 +13,8 @@ key come from the policy.
 |truncated|a document that stops partway through a cert, then abandoned twice, as a fetch that disconnects and is then destroyed does|the original policy is still in force|
 |overlay|the same rejected documents as `lws_ss_policy_overlay()` on the live policy|each is rejected and the live policy is still usable|
 |server|creating `polt_srv`, after all the rejected documents above, some of which kept server certs of their own before failing|it comes up with the original policy's cert and key|
-|valid|a valid document, then abandoned|it parses, and abandoning it puts the original policy back|
+|metadata|a streamtype with 256 metadata, and a metadata value of 256 bytes|both are rejected (a policy streamtype counts its metadata in a `uint8_t`, and the value length is a `uint8_t`), and one with 255 metadata is accepted with all 255|
+|valid|a valid document whose one metadata value is 255 bytes, longer than one lejp string chunk, then abandoned|it parses to one metadata item holding the whole value, and abandoning it puts the original policy back|
 
 Build lws with `-DLWS_WITH_ASAN=1` to see the teardown of the rejected
 documents is clean.
