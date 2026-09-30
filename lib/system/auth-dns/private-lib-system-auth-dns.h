@@ -30,7 +30,13 @@
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type);
 
-void
+uint16_t
+lws_auth_dns_type_from_str(const char *s);
+
+const char *
+lws_auth_dns_type_to_str(uint16_t type, char *buf, size_t len);
+
+int
 lws_auth_dns_inject_mock_keys(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z);
 
 void

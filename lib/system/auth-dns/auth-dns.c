@@ -287,26 +287,8 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 
 						if (type_idx < num_toks) {
 							// lwsl_notice("  Attempting type match at type_idx=%d: '%s'\n", type_idx, toks[type_idx]);
-							/* simplistic type assignment */
-							if (!strcasecmp(toks[type_idx], "A")) type = 1;
-							else if (!strcasecmp(toks[type_idx], "NS")) type = 2;
-							else if (!strcasecmp(toks[type_idx], "SOA")) type = 6;
-							else if (!strcasecmp(toks[type_idx], "CNAME")) type = 5;
-							else if (!strcasecmp(toks[type_idx], "MX")) type = 15;
-							else if (!strcasecmp(toks[type_idx], "TXT")) type = 16;
-							else if (!strcasecmp(toks[type_idx], "AAAA")) type = 28;
-							else if (!strcasecmp(toks[type_idx], "LOC")) type = 29;
-							else if (!strcasecmp(toks[type_idx], "RRSIG")) type = 46;
-							else if (!strcasecmp(toks[type_idx], "DNSKEY")) type = 48;
-							else if (!strcasecmp(toks[type_idx], "NSEC3")) type = 50;
-							else if (!strcasecmp(toks[type_idx], "NSEC3PARAM")) type = 51;
-							else if (!strcasecmp(toks[type_idx], "TLSA")) type = 52;
-							else if (!strcasecmp(toks[type_idx], "CAA")) type = 257;
-							else if (!strcasecmp(toks[type_idx], "HTTPS")) type = 65;
-							else if (!strncasecmp(toks[type_idx], "TYPE", 4) &&
-								 toks[type_idx][4] >= '0' && toks[type_idx][4] <= '9')
-								type = (uint16_t)atoi(toks[type_idx] + 4);
-							else type = 0; /* unknown */
+							/* 0 if it is not a type we can read */
+							type = lws_auth_dns_type_from_str(toks[type_idx]);
 							type_idx++;
 						}
 
@@ -538,7 +520,10 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 		goto bail_zone;
 	}
 
-	lws_auth_dns_inject_mock_keys(info, &zone);
+	if (lws_auth_dns_inject_mock_keys(info, &zone)) {
+		lwsl_err("%s: unable to build the NSEC3 chain\n", __func__);
+		goto bail_zone;
+	}
 	lws_auth_dns_sort_zone(info, &zone);
 	lws_auth_dns_sign_rrsets(info, &zone);
 
@@ -561,24 +546,8 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zone.rrset_list)) {
 		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
 
-		const char *ts = "UNKNOWN";
-		switch (rs->type) {
-			case 1: ts = "A"; break;
-			case 2: ts = "NS"; break;
-			case 5: ts = "CNAME"; break;
-			case 6: ts = "SOA"; break;
-			case 15: ts = "MX"; break;
-			case 16: ts = "TXT"; break;
-			case 28: ts = "AAAA"; break;
-			case 29: ts = "LOC"; break;
-			case 46: ts = "RRSIG"; break;
-			case 48: ts = "DNSKEY"; break;
-			case 50: ts = "NSEC3"; break;
-			case 51: ts = "NSEC3PARAM"; break;
-			case 52: ts = "TLSA"; break;
-			case 257: ts = "CAA"; break;
-			case 65: ts = "HTTPS"; break;
-		}
+		char tn[16];
+		const char *ts = lws_auth_dns_type_to_str(rs->type, tn, sizeof(tn));
 
 		lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
 			struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);

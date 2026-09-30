@@ -85,6 +85,97 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 	return 0;
 }
 
+/*
+ * The one table of RR type mnemonics the signer understands.  The zone
+ * parser, the signed zone writer, NSEC3 type bitmaps and RRSIG type covered
+ * all go through it, so they cannot disagree about a type: NSEC3 bitmaps
+ * built from a table that had fallen behind the parser used to deny LOC and
+ * every TYPEnnn RRset that the zone was actually serving.  Types not in the
+ * table are written and read in the RFC 3597 "TYPEnnn" form.
+ */
+
+static const struct {
+	const char	*name;
+	uint16_t	type;
+} auth_dns_types[] = {
+	{ "A",		1 },
+	{ "NS",		2 },
+	{ "CNAME",	5 },
+	{ "SOA",	6 },
+	{ "MX",		15 },
+	{ "TXT",	16 },
+	{ "AAAA",	28 },
+	{ "LOC",	29 },
+	{ "RRSIG",	46 },
+	{ "DNSKEY",	48 },
+	{ "NSEC3",	50 },
+	{ "NSEC3PARAM",	51 },
+	{ "TLSA",	52 },
+	{ "HTTPS",	65 },
+	{ "CAA",	257 },
+};
+
+/* a decimal RR type 1..65535 and nothing else, or 0 */
+
+static uint16_t
+auth_dns_type_decimal(const char *s)
+{
+	uint32_t t = 0;
+
+	if (!*s)
+		return 0;
+
+	while (*s >= '0' && *s <= '9' && t <= 0xffff)
+		t = (t * 10) + (uint32_t)(*s++ - '0');
+
+	if (*s || t > 0xffff)
+		return 0;
+
+	return (uint16_t)t;
+}
+
+uint16_t
+lws_auth_dns_type_from_str(const char *s)
+{
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(auth_dns_types); n++)
+		if (!strcasecmp(s, auth_dns_types[n].name))
+			return auth_dns_types[n].type;
+
+	if (!strncasecmp(s, "TYPE", 4))
+		return auth_dns_type_decimal(s + 4);
+
+	return 0;
+}
+
+const char *
+lws_auth_dns_type_to_str(uint16_t type, char *buf, size_t len)
+{
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(auth_dns_types); n++)
+		if (auth_dns_types[n].type == type)
+			return auth_dns_types[n].name;
+
+	lws_snprintf(buf, len, "TYPE%u", (unsigned int)type);
+
+	return buf;
+}
+
+/*
+ * A type inside RDATA (NSEC3 bitmap, RRSIG type covered) may also be plain
+ * decimal, which is how the signer has always written RRSIG type covered
+ */
+
+static uint16_t
+auth_dns_rdata_type(const char *s)
+{
+	uint16_t t = lws_auth_dns_type_from_str(s);
+
+	return t ? t : auth_dns_type_decimal(s);
+}
+
 static int
 lws_auth_dns_b32hex_decode(const char *in, uint8_t *out, size_t out_max)
 {
@@ -127,8 +218,11 @@ lws_auth_dns_b32hex_decode(const char *in, uint8_t *out, size_t out_max)
  * of text when $ORIGIN is long.
  */
 
+/* the most presentation tokens one RDATA is read as */
+#define AUTH_DNS_RDATA_MAX_TOKS 64
+
 struct auth_dns_rdata_scratch {
-	char		toks[64][1024];
+	char		toks[AUTH_DNS_RDATA_MAX_TOKS][1024];
 	char		accum[65536];	/* hex / base64 reassembly */
 	uint8_t		window_blocks[256][32]; /* NSEC3: 256 windows, 32B max */
 	uint8_t		window_max[256];
@@ -305,7 +399,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 
 		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER ||
 		    e == LWS_TOKZE_TOKEN_CHUNK || e == LWS_TOKZE_QUOTED_STRING_CHUNK) {
-			if (num_toks < 64) {
+			if (num_toks < AUTH_DNS_RDATA_MAX_TOKS) {
 				n = (int)ts.token_len;
 				if (n > (int)sizeof(toks[0]) - 1 - tok_ofs)
 					n = (int)sizeof(toks[0]) - 1 - tok_ofs;
@@ -317,7 +411,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			}
 
 			if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
-				if (num_toks < 64)
+				if (num_toks < AUTH_DNS_RDATA_MAX_TOKS)
 					num_toks++;
 				tok_ofs = 0;
 			}
@@ -510,30 +604,24 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		memset(sc->window_max, 0, sizeof(sc->window_max));
 
 		for (int i = tidx + 5; i < num_toks; i++) {
-			uint16_t ty = 0;
-			if (!strcmp(toks[i], "A")) ty = 1;
-			else if (!strcmp(toks[i], "NS")) ty = 2;
-			else if (!strcmp(toks[i], "CNAME")) ty = 5;
-			else if (!strcmp(toks[i], "SOA")) ty = 6;
-			else if (!strcmp(toks[i], "MX")) ty = 15;
-			else if (!strcmp(toks[i], "TXT")) ty = 16;
-			else if (!strcmp(toks[i], "AAAA")) ty = 28;
-			else if (!strcmp(toks[i], "RRSIG")) ty = 46;
-			else if (!strcmp(toks[i], "DNSKEY")) ty = 48;
-			else if (!strcmp(toks[i], "NSEC3")) ty = 50;
-			else if (!strcmp(toks[i], "NSEC3PARAM")) ty = 51;
-			else if (!strcmp(toks[i], "TLSA")) ty = 52;
-			else if (!strcmp(toks[i], "CAA")) ty = 257;
-			else if (!strcmp(toks[i], "HTTPS")) ty = 65;
-			else ty = (uint16_t)atoi(toks[i]);
+			uint16_t ty = auth_dns_rdata_type(toks[i]);
+			int win, byte_idx, bit_idx;
 
-			if (ty > 0) {
-				int win = ty / 256;
-				int byte_idx = (ty % 256) / 8;
-				int bit_idx = 7 - (ty % 8);
-				window_blocks[win][byte_idx] |= (uint8_t)(1u << bit_idx);
-				if (byte_idx >= window_max[win]) window_max[win] = (uint8_t)(byte_idx + 1);
+			/*
+			 * a type we cannot place would silently vanish from
+			 * the signed bitmap, ie, be denied: refuse the RR
+			 */
+			if (!ty) {
+				lwsl_err("%s: NSEC3 bitmap type '%s' unknown\n",
+					 __func__, toks[i]);
+				goto fail;
 			}
+
+			win = ty / 256;
+			byte_idx = (ty % 256) / 8;
+			bit_idx = 7 - (ty % 8);
+			window_blocks[win][byte_idx] |= (uint8_t)(1u << bit_idx);
+			if (byte_idx >= window_max[win]) window_max[win] = (uint8_t)(byte_idx + 1);
 		}
 
 		for (int win = 0; win < 256; win++) {
@@ -596,18 +684,10 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		wl += (size_t)b64_len;
 	} else if (type == 46 && num_toks >= 9) { // RRSIG
 		/* Type Covered */
-		uint16_t tc = 0;
-		if (!strcmp(toks[0], "A")) tc = 1;
-		else if (!strcmp(toks[0], "NS")) tc = 2;
-		else if (!strcmp(toks[0], "SOA")) tc = 6;
-		else if (!strcmp(toks[0], "MX")) tc = 15;
-		else if (!strcmp(toks[0], "TXT")) tc = 16;
-		else if (!strcmp(toks[0], "AAAA")) tc = 28;
-		else if (!strcmp(toks[0], "DNSKEY")) tc = 48;
-		else if (!strcmp(toks[0], "NSEC3")) tc = 50;
-		else if (!strcmp(toks[0], "NSEC3PARAM")) tc = 51;
-		else if (!strcmp(toks[0], "TLSA")) tc = 52;
-		else tc = (uint16_t)atoi(toks[0]);
+		uint16_t tc = auth_dns_rdata_type(toks[0]);
+
+		if (!tc)
+			goto fail;
 
 		/* type covered, alg, labels, orig ttl, exp, inc, keytag */
 		WCHK(2 + 1 + 1 + 4 + 4 + 4 + 2);
@@ -1335,33 +1415,49 @@ bail:
 	return ret;
 }
 
+/*
+ * An NSEC3's types follow its five other fields and are read back through
+ * lws_auth_dns_rdata_to_wire(), so this is the most one can carry
+ */
+#define NSEC3_MAX_TYPES (AUTH_DNS_RDATA_MAX_TOKS - 5)
+
 struct nsec3_node {
-	char *name;
-	uint8_t hash[20];
-	char b32[64];
-	char type_list[512];
+	char		*name;
+	uint8_t		hash[LWS_AUTH_DNS_NSEC3_HASH_LEN];
+	char		b32[64];
+	uint16_t	types[NSEC3_MAX_TYPES]; /* ascending, no duplicates */
+	int		num_types;
 };
 
 /*
- * The NSEC3 covered-type list is accumulated as a space-separated string of
- * mnemonics... a plain strstr() would consider "A" to be present already
- * because of the "A" inside "SOA" (likewise NS vs NSEC3, NSEC3 vs NSEC3PARAM),
- * and so drop the type from the signed bitmap, which is an authenticated
- * denial of existence for a type the zone actually serves.  Compare whole
- * space-delimited tokens.
+ * The covered types are kept as numbers and only named when the NSEC3 text
+ * is rendered, by the same table the bitmap is parsed back with, so every
+ * type the zone parser accepts ends up in the signed bitmap.  Anything left
+ * out would be an authenticated denial of a type the zone actually serves.
  */
 
 static int
-type_list_has(const char *list, const char *ts)
+nsec3_node_add_type(struct nsec3_node *n, uint16_t type)
 {
-	size_t l = strlen(ts);
-	const char *p = list;
+	int i = 0;
 
-	while ((p = strstr(p, ts))) {
-		if ((p == list || p[-1] == ' ') && (!p[l] || p[l] == ' '))
-			return 1;
-		p += l;
+	while (i < n->num_types && n->types[i] < type)
+		i++;
+
+	if (i < n->num_types && n->types[i] == type)
+		return 0;
+
+	if (n->num_types == NSEC3_MAX_TYPES) {
+		lwsl_err("%s: %s has more than %d types\n", __func__,
+			 n->name, NSEC3_MAX_TYPES);
+
+		return 1;
 	}
+
+	memmove(&n->types[i + 1], &n->types[i],
+		(size_t)(n->num_types - i) * sizeof(n->types[0]));
+	n->types[i] = type;
+	n->num_types++;
 
 	return 0;
 }
@@ -1374,63 +1470,61 @@ cmp_nsec3_node(const void *a, const void *b)
 	return strcmp(na->b32, nb->b32);
 }
 
+/*
+ * Add an rrset of \p type at \p name, holding one rr with rdata \p text, to
+ * the zone.  The zone owns whatever was added even if this then fails.
+ */
+
+static int
+nsec3_add_rr(struct auth_dns_zone *z, const char *name, uint16_t type,
+	     const char *text)
+{
+	struct auth_dns_rrset *rrset;
+	struct auth_dns_rr *rr;
+
+	rrset = lws_zalloc(sizeof(*rrset), "nsec3");
+	if (!rrset)
+		return 1;
+
+	rrset->type = type;
+	rrset->class_ = 1;
+	rrset->ttl = atoi(z->default_ttl) ? (uint32_t)atoi(z->default_ttl) : 3600;
+	lws_dll2_add_tail(&rrset->list, &z->rrset_list);
+
+	rrset->name = lws_strdup(name);
+	if (!rrset->name)
+		return 1;
+
+	rr = lws_zalloc(sizeof(*rr), "rr");
+	if (!rr)
+		return 1;
+	lws_dll2_add_tail(&rr->list, &rrset->rr_list);
+
+	rr->rdata = lws_strdup(text);
+	if (!rr->rdata)
+		return 1;
+	rr->rdata_len = strlen(rr->rdata);
+
+	return lws_auth_dns_rdata_to_wire(z, rr, type);
+}
+
+/*
+ * Build the NSEC3 chain and NSEC3PARAM.  Each owner name must be in the
+ * chain with all of its types, or the zone would carry a signed denial of
+ * something it serves, so any failure fails the whole thing.
+ */
+
 static int
 lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterations)
 {
-	struct nsec3_node *nodes[1024]; /* Rough upper bound for test */
-	int num_names = 0;
-
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
-		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-		int found = -1;
-		for (int i = 0; i < num_names; i++) {
-			if (!strcmp(nodes[i]->name, rs->name)) {
-				found = i;
-				break;
-			}
-		}
-		if (found < 0 && num_names < 1024) {
-			nodes[num_names] = lws_zalloc(sizeof(struct nsec3_node), "nsec3_node");
-			if (!nodes[num_names]) continue;
-			nodes[num_names]->name = lws_strdup(rs->name);
-			found = num_names++;
-		}
-
-		if (found >= 0) {
-			const char *ts = "UNKNOWN";
-			switch (rs->type) {
-				case 1: ts = "A"; break;
-				case 2: ts = "NS"; break;
-				case 5: ts = "CNAME"; break;
-				case 6: ts = "SOA"; break;
-				case 15: ts = "MX"; break;
-				case 16: ts = "TXT"; break;
-				case 28: ts = "AAAA"; break;
-				case 46: ts = "RRSIG"; break;
-				case 48: ts = "DNSKEY"; break;
-				case 50: ts = "NSEC3"; break;
-				case 51: ts = "NSEC3PARAM"; break;
-				case 52: ts = "TLSA"; break;
-				case 257: ts = "CAA"; break;
-				case 65: ts = "HTTPS"; break;
-			}
-			/* Append type if not already there */
-			if (!type_list_has(nodes[found]->type_list, ts)) {
-				size_t len = strlen(nodes[found]->type_list);
-				if (len < sizeof(nodes[found]->type_list) - 32) {
-					if (len > 0) { nodes[found]->type_list[len++] = ' '; nodes[found]->type_list[len] = '\0'; }
-					strcat(nodes[found]->type_list, ts);
-				}
-			}
-		}
-	} lws_end_foreach_dll(d);
-
-	/* parse salt */
-	uint8_t salt[256];
+	int max_names = (int)lws_dll2_count(&z->rrset_list), num_names = 0,
+	    ret = -1, i, n;
+	struct nsec3_node **nodes;
 	size_t salt_len = 0;
-	if (salt_hex && salt_hex[0] != '-') {
-		int n;
+	uint8_t salt[256];
+	char tb[1024];
 
+	if (salt_hex && salt_hex[0] != '-') {
 		/*
 		 * The salt is caller-supplied hex of any length; RFC 5155
 		 * limits it to 255 octets and salt[] is on the stack, so
@@ -1445,102 +1539,116 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 		salt_len = (size_t)n;
 	}
 
-	for (int i = 0; i < num_names; i++) {
+	/* there cannot be more owner names than rrsets */
+
+	nodes = lws_zalloc(sizeof(*nodes) * (size_t)(max_names + 1), "nsec3_nodes");
+	if (!nodes)
+		return -1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+		int found = -1;
+
+		for (i = 0; i < num_names; i++)
+			if (!strcmp(nodes[i]->name, rs->name)) {
+				found = i;
+				break;
+			}
+
+		if (found < 0) {
+			nodes[num_names] = lws_zalloc(sizeof(**nodes), "nsec3_node");
+			if (!nodes[num_names])
+				goto bail;
+			found = num_names++;
+			nodes[found]->name = lws_strdup(rs->name);
+			if (!nodes[found]->name)
+				goto bail;
+		}
+
+		/* type 0 is what the parser gives a type it cannot read */
+		if (rs->type && nsec3_node_add_type(nodes[found], rs->type))
+			goto bail;
+	} lws_end_foreach_dll(d);
+
+	for (i = 0; i < num_names; i++) {
 		uint8_t wire[256];
 		size_t wl = sizeof(wire);
-		if (name_to_wire(nodes[i]->name, z->origin, wire, &wl)) {
-			nodes[i]->b32[0] = '\0';
-			continue;
-		}
 
-		if (lws_auth_dns_nsec3_hash(wire, wl, salt, salt_len,
+		/*
+		 * Every owner gets RRSIGs, and the apex also gets the
+		 * NSEC3PARAM added below
+		 */
+		if (nsec3_node_add_type(nodes[i], 46) ||
+		    (!strcmp(nodes[i]->name, z->origin) &&
+		     nsec3_node_add_type(nodes[i], 51)))
+			goto bail;
+
+		if (name_to_wire(nodes[i]->name, z->origin, wire, &wl) ||
+		    lws_auth_dns_nsec3_hash(wire, wl, salt, salt_len,
 					    (unsigned int)iterations,
 					    nodes[i]->hash)) {
-			nodes[i]->b32[0] = '\0';
-			continue;
+			lwsl_err("%s: unable to hash %s\n", __func__,
+				 nodes[i]->name);
+			goto bail;
 		}
 
-		lws_auth_dns_b32hex_encode(nodes[i]->hash, 20, nodes[i]->b32);
-
-		/* Always add RRSIG to type list, as all records will be signed */
-		if (!type_list_has(nodes[i]->type_list, "RRSIG")) {
-			size_t len = strlen(nodes[i]->type_list);
-			if (len < sizeof(nodes[i]->type_list) - 32) {
-				if (len > 0) { nodes[i]->type_list[len++] = ' '; nodes[i]->type_list[len] = '\0'; }
-				strcat(nodes[i]->type_list, "RRSIG");
-			}
-		}
+		lws_auth_dns_b32hex_encode(nodes[i]->hash,
+					   sizeof(nodes[i]->hash), nodes[i]->b32);
 	}
 
 	/* Sort nodes by b32 hash */
 	qsort(nodes, (size_t)num_names, sizeof(void *), cmp_nsec3_node);
 
-	for (int i = 0; i < num_names; i++) {
-		if (!nodes[i]->b32[0]) continue;
-
-		int next_idx = (i + 1) % num_names;
-		while (!nodes[next_idx]->b32[0] && next_idx != i) {
-			next_idx = (next_idx + 1) % num_names;
-		}
-
+	for (i = 0; i < num_names; i++) {
+		struct nsec3_node *nx = nodes[(i + 1) % num_names];
 		char fqdn[256];
+		int t;
+
 		lws_snprintf(fqdn, sizeof(fqdn), "%s.%s", nodes[i]->b32, z->origin);
 
-		/* Create NSEC3 rrset manually since it needs to be hashed as owner name */
-		struct auth_dns_rrset *rrset = lws_zalloc(sizeof(*rrset), "nsec3");
-		if (rrset) {
-			rrset->name = lws_strdup(fqdn);
-			rrset->type = 50; /* NSEC3 */
-			rrset->class_ = 1;
-			rrset->ttl = atoi(z->default_ttl) ? (uint32_t)atoi(z->default_ttl) : 3600;
-			lws_dll2_add_tail(&rrset->list, &z->rrset_list);
+		/* Format: HashAlg Flags Iterations Salt NextB32 Type1 Type2 ... */
+		n = lws_snprintf(tb, sizeof(tb), "1 0 %d %s %s", iterations,
+				 salt_hex ? salt_hex : "-", nx->b32);
+		for (t = 0; t < nodes[i]->num_types; t++) {
+			char tn[16];
 
-			struct auth_dns_rr *rr = lws_zalloc(sizeof(*rr), "rr");
-			if (rr) {
-				char tb[1024];
-				/* Format: HashAlg Flags Iterations Salt NextB32 Type1 Type2 ... */
-				lws_snprintf(tb, sizeof(tb), "1 0 %d %s %s %s", iterations, salt_hex ? salt_hex : "-", nodes[next_idx]->b32, nodes[i]->type_list);
-				rr->rdata = lws_strdup(tb);
-				rr->rdata_len = strlen(rr->rdata);
-				lws_auth_dns_rdata_to_wire(z, rr, rrset->type);
-				lws_dll2_add_tail(&rr->list, &rrset->rr_list);
-			}
+			n += lws_snprintf(tb + n, sizeof(tb) - (size_t)n, " %s",
+					  lws_auth_dns_type_to_str(nodes[i]->types[t],
+							tn, sizeof(tn)));
+		}
+
+		if ((size_t)n >= sizeof(tb) - 1 ||
+		    nsec3_add_rr(z, fqdn, 50, tb)) {
+			lwsl_err("%s: unable to add NSEC3 for %s\n", __func__,
+				 nodes[i]->name);
+			goto bail;
 		}
 	}
 
+	/* Insert NSEC3PARAM at apex */
+	lws_snprintf(tb, sizeof(tb), "1 0 %d %s", iterations, salt_hex ? salt_hex : "-");
+	if (nsec3_add_rr(z, z->origin, 51, tb)) {
+		lwsl_err("%s: unable to add NSEC3PARAM\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
 	/*
 	 * the chain references earlier nodes while wrapping around the end,
 	 * so the nodes can only be freed once it is all built
 	 */
-	for (int i = 0; i < num_names; i++) {
+	for (i = 0; i < num_names; i++) {
 		lws_free(nodes[i]->name);
 		lws_free(nodes[i]);
 	}
+	lws_free(nodes);
 
-	/* Insert NSEC3PARAM at apex */
-	struct auth_dns_rrset *rrset = lws_zalloc(sizeof(*rrset), "nsec3");
-	if (rrset) {
-		rrset->name = lws_strdup(z->origin);
-		rrset->type = 51; /* NSEC3PARAM */
-		rrset->class_ = 1;
-		rrset->ttl = atoi(z->default_ttl) ? (uint32_t)atoi(z->default_ttl) : 3600;
-		lws_dll2_add_tail(&rrset->list, &z->rrset_list);
-
-		struct auth_dns_rr *rr = lws_zalloc(sizeof(*rr), "rr");
-		if (rr) {
-			char tb[256];
-			lws_snprintf(tb, sizeof(tb), "1 0 %d %s", iterations, salt_hex ? salt_hex : "-");
-			rr->rdata = lws_strdup(tb);
-			rr->rdata_len = strlen(rr->rdata);
-			lws_auth_dns_rdata_to_wire(z, rr, rrset->type);
-			lws_dll2_add_tail(&rr->list, &rrset->rr_list);
-		}
-	}
-
-	return 0;
+	return ret;
 }
 
-void
+int
 lws_auth_dns_inject_mock_keys(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 {
 	/* Inject keys into list before sort */
@@ -1548,7 +1656,7 @@ lws_auth_dns_inject_mock_keys(struct lws_auth_dns_sign_info *info, struct auth_d
 	lws_auth_dns_add_dnskey(z, info->ksk_jwk_filepath, 257);
 
 	/* Inject NSEC3 into list before sort */
-	lws_auth_dns_add_nsec3(z, "AABBCCDD", 10);
+	return lws_auth_dns_add_nsec3(z, "AABBCCDD", 10);
 }
 
 void
@@ -2124,7 +2232,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 
 					/* Locate original covered RRset matching this signature's target name and type_cov */
 					struct auth_dns_rrset *cov_rs = NULL;
-					int tc = atoi(type_cov_s);
+					int tc = auth_dns_rdata_type(type_cov_s);
 					lws_start_foreach_dll(struct lws_dll2 *, d3, lws_dll2_get_head(&zone.rrset_list)) {
 						struct auth_dns_rrset *tr = lws_container_of(d3, struct auth_dns_rrset, list);
 						if (tr->type == tc && !strcmp(tr->name, rs->name)) {

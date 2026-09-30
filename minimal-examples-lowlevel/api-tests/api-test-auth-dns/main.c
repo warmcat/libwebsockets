@@ -54,6 +54,7 @@ static const char *zone_body =
 	"@			IN	NS	ns1.example.com.\n"
 	"ns1			IN	A	127.0.0.1\n"
 	"ns1			IN	LOC	42 21 54 N 71 6 18 W -24m 30m 200m 15m\n"
+	"ns1			IN	TYPE44	\\# 22 0101 0123456789abcdef0123456789abcdef01234567\n"
 	"www			IN	A	127.0.0.2\n"
 	"x.deeper		IN	A	127.0.0.3\n"
 	"@			IN	TXT	\"v=spf1 -all\"\n";
@@ -468,6 +469,75 @@ t_nsec3_b32(const char *name, const uint8_t *salt, size_t salt_len,
 	return 0;
 }
 
+/* find the signed zone's NSEC3 parameters from its NSEC3PARAM */
+
+static int
+t_nsec3param(struct auth_dns_zone *z, uint8_t *salt, size_t salt_max,
+	     int *salt_len, int *it)
+{
+	*it = -1;
+	*salt_len = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		struct auth_dns_rr *rr = lws_container_of(
+				lws_dll2_get_head(&s->rr_list),
+				struct auth_dns_rr, list);
+		const char *f;
+		int k;
+
+		if (s->type != 51 || !rr->rdata)
+			continue;
+
+		/* "alg flags iterations salt": skip to the iterations field */
+		f = rr->rdata;
+		for (k = 0; k < 2 && f; k++)
+			if ((f = strchr(f, ' ')))
+				f++;
+		if (!f)
+			break;
+		*it = atoi(f);
+		if (!(f = strchr(f, ' ')))
+			break;
+		f++;
+		if (strcmp(f, "-"))
+			*salt_len = lws_hex_to_byte_array(f, salt, (int)salt_max);
+	} lws_end_foreach_dll(d);
+
+	return *it < 0 || *salt_len < 0;
+}
+
+/* the NSEC3 rrset named by the hash of \p owner, or NULL */
+
+static struct auth_dns_rrset *
+t_nsec3_of(struct auth_dns_zone *z, const char *owner, const uint8_t *salt,
+	   int salt_len, int it)
+{
+	char want[40];
+	size_t wl, k;
+
+	if (t_nsec3_b32(owner, salt, (size_t)salt_len, (unsigned int)it, want))
+		return NULL;
+	wl = strlen(want);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *n3 = lws_container_of(d,
+					struct auth_dns_rrset, list);
+
+		if (n3->type != 50 || strlen(n3->name) <= wl ||
+		    n3->name[wl] != '.')
+			continue;
+		for (k = 0; k < wl; k++)
+			if (tolower((unsigned char)n3->name[k]) != want[k])
+				break;
+		if (k == wl)
+			return n3;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 /*
  * NSEC3 owner names must be the RFC 5155 hash, or no resolver can match a
  * denial of existence to the query name: every negative answer from a
@@ -488,9 +558,9 @@ test_nsec3(void)
 		{ "w.example",	 "k8udemvp1j2f7eg6jebps17vp3n8i58h" },
 	};
 	uint8_t salt[255];
-	char b32[40], want[40];
+	char b32[40];
 	struct auth_dns_zone z;
-	int it = -1, salt_len = 0, owners = 0, r = 1;
+	int it, salt_len, owners = 0, r = 1;
 	size_t n;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(kat); n++)
@@ -506,34 +576,7 @@ test_nsec3(void)
 		return 1;
 	}
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
-		struct auth_dns_rrset *s = lws_container_of(d,
-						struct auth_dns_rrset, list);
-		struct auth_dns_rr *rr = lws_container_of(
-				lws_dll2_get_head(&s->rr_list),
-				struct auth_dns_rr, list);
-		const char *f;
-		int k;
-
-		if (s->type != 51 || !rr->rdata)
-			continue;
-
-		/* "alg flags iterations salt": skip to the iterations field */
-		f = rr->rdata;
-		for (k = 0; k < 2 && f; k++)
-			if ((f = strchr(f, ' ')))
-				f++;
-		if (!f)
-			break;
-		it = atoi(f);
-		if (!(f = strchr(f, ' ')))
-			break;
-		f++;
-		if (strcmp(f, "-"))
-			salt_len = lws_hex_to_byte_array(f, salt, sizeof(salt));
-	} lws_end_foreach_dll(d);
-
-	if (it < 0 || salt_len < 0) {
+	if (t_nsec3param(&z, salt, sizeof(salt), &salt_len, &it)) {
 		lwsl_err("%s: no usable NSEC3PARAM in signed zone\n", __func__);
 		goto bail;
 	}
@@ -543,34 +586,13 @@ test_nsec3(void)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
 		struct auth_dns_rrset *s = lws_container_of(d,
 						struct auth_dns_rrset, list);
-		int found = 0;
 
 		if (s->type == 50 || s->type == 46)
 			continue;
 
-		if (t_nsec3_b32(s->name, salt, (size_t)salt_len,
-				(unsigned int)it, want))
-			goto bail;
-
-		lws_start_foreach_dll(struct lws_dll2 *, d1, lws_dll2_get_head(&z.rrset_list)) {
-			struct auth_dns_rrset *n3 = lws_container_of(d1,
-						struct auth_dns_rrset, list);
-
-			size_t wl = strlen(want), k;
-
-			if (n3->type != 50 || strlen(n3->name) <= wl ||
-			    n3->name[wl] != '.')
-				continue;
-			for (k = 0; k < wl; k++)
-				if (tolower((unsigned char)n3->name[k]) != want[k])
-					break;
-			if (k == wl)
-				found = 1;
-		} lws_end_foreach_dll(d1);
-
-		if (!found) {
-			lwsl_err("%s: no NSEC3 %s for owner %s\n", __func__,
-				 want, s->name);
+		if (!t_nsec3_of(&z, s->name, salt, salt_len, it)) {
+			lwsl_err("%s: no NSEC3 for owner %s\n", __func__,
+				 s->name);
 			goto bail;
 		}
 		owners++;
@@ -578,6 +600,122 @@ test_nsec3(void)
 
 	lwsl_user("NSEC3 hashes (RFC 5155 examples, %d signed owners): ok\n",
 		  owners);
+	r = 0;
+
+bail:
+	lws_auth_dns_free_zone(&z);
+
+	return r;
+}
+
+/* is \p type set in the type bitmaps of NSEC3 wire rdata \p w? */
+
+static int
+t_nsec3_has_type(const uint8_t *w, size_t len, uint16_t type)
+{
+	size_t o = 5;
+
+	/* alg, flags, iterations, salt length + salt, hash length + hash */
+	if (len < o || (o += w[4]) >= len || (o += 1u + w[o]) > len)
+		return 0;
+
+	while (o + 2 <= len) {
+		uint8_t win = w[o], blen = w[o + 1];
+
+		if (o + 2 + blen > len)
+			return 0;
+		if (win == type >> 8)
+			return (type & 0xff) / 8 < blen &&
+			       (w[o + 2 + (type & 0xff) / 8] &
+					(0x80 >> (type & 7)));
+		o += 2u + blen;
+	}
+
+	return 0;
+}
+
+/*
+ * Each owner's NSEC3 must list every type the zone serves there, or it is a
+ * signed denial of records that exist.  ns1 has a LOC and a record given in
+ * RFC 3597 TYPEnnn form (SSHFP), besides its A; the apex carries the
+ * DNSKEYs and NSEC3PARAM the signer adds itself.  The TYPEnnn record must
+ * also come back from the signed zone as the same type and RDATA.
+ */
+
+static int
+test_nsec3_types(void)
+{
+	static const struct {
+		const char	*owner;
+		uint16_t	type;
+	} want[] = {
+		{ "ns1.example.com.",	1 },	/* A */
+		{ "ns1.example.com.",	29 },	/* LOC */
+		{ "ns1.example.com.",	44 },	/* SSHFP, as TYPE44 */
+		{ "ns1.example.com.",	46 },	/* RRSIG */
+		{ "example.com.",	6 },	/* SOA */
+		{ "example.com.",	48 },	/* DNSKEY */
+		{ "example.com.",	51 },	/* NSEC3PARAM */
+	};
+	struct auth_dns_rrset *n3;
+	struct auth_dns_rr *rr;
+	struct auth_dns_zone z;
+	int it, salt_len, r = 1, sshfp = 0;
+	uint8_t salt[255];
+	size_t n;
+
+	if (load_zone(&z, "./test-loc.zone.signed")) {
+		lwsl_err("%s: unable to reload signed zone\n", __func__);
+
+		return 1;
+	}
+
+	if (t_nsec3param(&z, salt, sizeof(salt), &salt_len, &it)) {
+		lwsl_err("%s: no usable NSEC3PARAM in signed zone\n", __func__);
+		goto bail;
+	}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(want); n++) {
+		n3 = t_nsec3_of(&z, want[n].owner, salt, salt_len, it);
+		if (!n3) {
+			lwsl_err("%s: no NSEC3 for %s\n", __func__,
+				 want[n].owner);
+			goto bail;
+		}
+		rr = lws_container_of(lws_dll2_get_head(&n3->rr_list),
+				      struct auth_dns_rr, list);
+		if (!rr->wire_rdata ||
+		    !t_nsec3_has_type(rr->wire_rdata, rr->wire_rdata_len,
+				      want[n].type)) {
+			lwsl_err("%s: NSEC3 for %s denies type %u (%s)\n",
+				 __func__, want[n].owner,
+				 (unsigned int)want[n].type,
+				 rr->rdata ? rr->rdata : "");
+			goto bail;
+		}
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		if (s->type != 44 || strcmp(s->name, "ns1.example.com."))
+			continue;
+
+		rr = lws_container_of(lws_dll2_get_head(&s->rr_list),
+				      struct auth_dns_rr, list);
+		if (rr->wire_rdata && rr->wire_rdata_len == 22 &&
+		    rr->wire_rdata[0] == 1 && rr->wire_rdata[1] == 1 &&
+		    rr->wire_rdata[2] == 0x01 && rr->wire_rdata[21] == 0x67)
+			sshfp = 1;
+	} lws_end_foreach_dll(d);
+
+	if (!sshfp) {
+		lwsl_err("%s: TYPE44 rrset not preserved\n", __func__);
+		goto bail;
+	}
+
+	lwsl_user("NSEC3 type bitmaps: ok\n");
 	r = 0;
 
 bail:
@@ -790,6 +928,9 @@ int main(int argc, const char **argv)
 		goto bail;
 
 	if (test_nsec3())
+		goto bail;
+
+	if (test_nsec3_types())
 		goto bail;
 
 	if (test_key_records())
