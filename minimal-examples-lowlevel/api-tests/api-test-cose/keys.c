@@ -1149,6 +1149,34 @@ test_cose_keys(struct lws_context *context)
 	}
 
 	/*
+	 * A single key map imported into a set has to meet the same unique
+	 * kid rule as the members of a set import: re-importing one of the
+	 * set's own keys, exported as a single key, must fail
+	 */
+
+	lwsl_user("%s: single key with a kid already in the set\n", __func__);
+
+	lws_dll2_owner_clear(&set);
+	if (!lws_cose_key_import(&set, NULL, NULL, cose_key_set1,
+				 sizeof(cose_key_set1)) ||
+	    !(ck = lws_cose_key_from_set(&set, (const uint8_t *)"11", 2))) {
+		lwsl_err("%s: key_set1 import fail\n", __func__);
+		lws_cose_key_set_destroy(&set);
+		goto bail;
+	}
+
+	lws_lec_init(&wc, buf, sizeof(buf));
+	if (lws_cose_key_export(ck, &wc, LWSJWKF_EXPORT_PRIVATE) !=
+						LWS_LECPCTX_RET_FINISHED ||
+	    lws_cose_key_import(&set, NULL, NULL, buf, wc.used) ||
+	    lws_dll2_count(&set) != 9) {
+		lwsl_err("%s: duplicate kid single key accepted\n", __func__);
+		lws_cose_key_set_destroy(&set);
+		goto bail;
+	}
+	lws_cose_key_set_destroy(&set);
+
+	/*
 	 * Degenerate and malformed inputs must be rejected with NULL rather
 	 * than dereferencing the never-created key or leaking the
 	 * partially-created one (F-034)

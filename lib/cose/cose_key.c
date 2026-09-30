@@ -51,6 +51,8 @@ struct lws_cose_key_parse_state {
 	int				meta_idx;
 	int				key_count;
 	unsigned short			possible;
+	unsigned char			blob_ok;
+	/**< VAL_BLOB_START accepted the blob in flight and its destination */
 };
 
 /*
@@ -874,6 +876,7 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 		 */
 
 		cps->pos = 0;
+		cps->blob_ok = 0;
 
 		/*
 		 * cose_state holds a COSE map *label*, so it has to be
@@ -883,8 +886,10 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 		 * bstr kty and not for the kid it was meant for)
 		 */
 
-		if (cps->cose_state == LWSCOSE_WKK_KID)
+		if (cps->cose_state == LWSCOSE_WKK_KID) {
+			cps->blob_ok = 1;
 			break;
+		}
 
 		if (cps->gencrypto_eidx >= 0) {
 			if (cps->ck->e[cps->gencrypto_eidx].buf) {
@@ -894,6 +899,7 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				/* key elements must only come at most once */
 				goto bail;
 			}
+			cps->blob_ok = 1;
 			break;
 		}
 		if (cps->meta_idx >= 0) {
@@ -915,6 +921,8 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 						__func__);
 				cps->meta_idx = -1;
 				cps->cose_state = 0;
+				/* accepted, to go nowhere */
+				cps->blob_ok = 1;
 				break;
 			}
 
@@ -929,6 +937,7 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				goto bail;
 			}
 
+			cps->blob_ok = 1;
 			break;
 		}
 
@@ -936,6 +945,18 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 
 	case LECPCB_VAL_BLOB_CHUNK:
 	case LECPCB_VAL_BLOB_END:
+		/*
+		 * Only install what VAL_BLOB_START checked: the refusals
+		 * above (bstr alg, bstr key_ops, an element set twice) are
+		 * only there, so a blob whose START we did not see, or whose
+		 * START we refused, must not reach the key here
+		 */
+		if (!cps->blob_ok) {
+			lwsl_warn("%s: blob without accepted start\n",
+				  __func__);
+			goto bail;
+		}
+
 		if (cps->pos + ctx->npos > sizeof(cps->buf)) {
 			lwsl_warn("%s: oversize blob\n", __func__);
 			goto bail;
@@ -946,22 +967,26 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 		if (reason == LECPCB_VAL_BLOB_CHUNK)
 			break;
 
+		cps->blob_ok = 0;
+
 		/* we have the key element data, let's make the ck element */
 		if (cps->gencrypto_eidx >= 0) {
 
 			if (cps->ck->e[cps->gencrypto_eidx].buf)
 				break;
 
-			lws_ck_set_el(&cps->ck->e[cps->gencrypto_eidx],
-					(char *)cps->buf, cps->pos);
+			if (lws_ck_set_el(&cps->ck->e[cps->gencrypto_eidx],
+					  (char *)cps->buf, cps->pos))
+				goto bail;
 			cps->gencrypto_eidx = -1;
 			break;
 		}
 
 
 		if (cps->meta_idx >= 0) {
-			lws_ck_set_el(&cps->ck->meta[cps->meta_idx],
-					(char *)cps->buf, cps->pos);
+			if (lws_ck_set_el(&cps->ck->meta[cps->meta_idx],
+					  (char *)cps->buf, cps->pos))
+				goto bail;
 			cps->meta_idx = -1;
 		}
 		cps->pos = 0;
@@ -1083,6 +1108,24 @@ lws_cose_key_set_memb_remove(struct lws_dll2 *d, void *user)
 	lws_cose_key_destroy(&ck);
 
 	return 0;
+}
+
+/*
+ * The per-member checks at LECPCB_ARRAY_ITEM_END, applied once more to
+ * everything the import made before it is handed over, so they do not rest
+ * only on lecp pairing each member's ITEM_START with an ITEM_END
+ */
+
+static int
+lws_cose_key_import_memb_check(struct lws_dll2 *d, void *user)
+{
+	struct lws_cose_key_parse_state *cps =
+			(struct lws_cose_key_parse_state *)user;
+	lws_cose_key_t *ck = lws_container_of(d, lws_cose_key_t, list);
+
+	return ck->gencrypto_kty == LWS_GENCRYPTO_KTY_UNKNOWN ||
+	       lws_cose_key_kid_in_set(cps->pkey_set, ck) ||
+	       lws_cose_key_kid_in_set(&cps->import_set, ck);
 }
 
 static int
@@ -1325,9 +1368,17 @@ lws_cose_key_import(lws_dll2_owner_t *pkey_set, lws_cose_key_import_callback cb,
 	 * it made, so keys the caller holds pointers to stay valid.
 	 */
 
-	if (cps.pkey_set)
+	if (cps.pkey_set) {
+		if (lws_dll2_foreach_safe(&cps.import_set, &cps,
+					  lws_cose_key_import_memb_check)) {
+			lwsl_notice("%s: key set member fails checks\n",
+				    __func__);
+			goto bail;
+		}
+
 		lws_dll2_foreach_safe(&cps.import_set, cps.pkey_set,
 				      lws_cose_key_set_memb_move);
+	}
 
 	return cps.ck;
 
