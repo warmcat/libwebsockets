@@ -27,6 +27,9 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-openssl.h"
 
+/* most ciphertext we hold in the read memory BIO waiting for SSL_read() */
+#define LWS_OPENSSL_GENDTLS_RX_LIMIT	(64 * 1024)
+
 static void
 ssl_info_cb(const SSL *ssl, int where, int ret)
 {
@@ -250,9 +253,29 @@ lws_gendtls_put_rx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len)
 {
 	SSL *ssl = (SSL *)ctx->ssl;
 	BIO *rbio = SSL_get_rbio(ssl);
+	size_t pending;
 
-	int n = BIO_write(rbio, in, (int)len);
-	if (n <= 0)
+	/*
+	 * Once the session is over, either because we read the peer's
+	 * close_notify or because it failed, SSL_read() returns at once
+	 * without looking at the rbio.  Anything written there now would stay
+	 * there for as long as the ctx lives, so refuse it.
+	 */
+	if (ctx->failed || (SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN))
+		return -1;
+
+	/*
+	 * lws_gendtls_get_rx() drains the rbio as it goes, so normally it
+	 * holds one datagram.  Bound it anyway, so however the caller drives
+	 * us, what the peer sends cannot pile up here: a datagram that does not
+	 * fit is dropped, as the network might have.
+	 */
+	pending = (size_t)BIO_ctrl_pending(rbio);
+	if (pending > LWS_OPENSSL_GENDTLS_RX_LIMIT ||
+	    len > LWS_OPENSSL_GENDTLS_RX_LIMIT - pending)
+		return -1;
+
+	if (BIO_write(rbio, in, (int)len) != (int)len)
 		return -1;
 
 	return 0;
@@ -271,7 +294,8 @@ lws_gendtls_put_rx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len)
  * abandoned handshake becomes visible to the caller as an error rather than
  * sitting there until the caller's own lifetime ends.
  *
- * Returns 0 to continue, or -1 if the handshake must be abandoned.
+ * Returns 0 to continue, or -1 if the handshake must be abandoned, or the
+ * session already ended (ctx->failed).
  */
 
 static int
@@ -323,6 +347,13 @@ lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 		lwsl_info("%s: SSL_read error %d (%s)\n", __func__, err,
 			  ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()),
 					   NULL));
+		/*
+		 * SSL_ERROR_ZERO_RETURN is the peer's close_notify, the rest
+		 * are fatal: either way the session is over, and stays over
+		 * for every later call in both directions.
+		 */
+		ctx->failed = 1;
+
 		return -1;
 	}
 

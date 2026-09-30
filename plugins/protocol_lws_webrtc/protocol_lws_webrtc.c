@@ -2195,17 +2195,16 @@ webrtc_dtls_flush_tx(struct pss_webrtc *pss)
 				       errno);
 	}
 
-	if (n < 0 && !lws_gendtls_handshake_done(&pss->dtls_ctx))
-		return -1;
-
-	return 0;
+	return n < 0 ? -1 : 0;
 }
 
 /*
  * Helper: drive the DTLS state machine, ie, consume anything it decrypted
  * (including the handshake flights) and send anything it wants to send.
  *
- * Returns 0, or -1 if the handshake must be abandoned.
+ * Returns 0, or -1 if the DTLS session is over: before the handshake
+ * completed that is a failed handshake, after it the peer's close_notify or
+ * a fatal error.  Either way the ctx must not be fed any more.
  */
 	static int
 webrtc_dtls_service(struct pss_webrtc *pss)
@@ -2219,10 +2218,32 @@ webrtc_dtls_service(struct pss_webrtc *pss)
 	while ((n = lws_gendtls_get_rx(&pss->dtls_ctx, rx, sizeof(rx))) > 0)
 		;
 
-	if (n < 0 && !lws_gendtls_handshake_done(&pss->dtls_ctx))
+	if (n < 0)
 		return -1;
 
 	return webrtc_dtls_flush_tx(pss);
+}
+
+/*
+ * Helper: drop the DTLS ctx and stop the session being reachable at its
+ * media address.  Nothing afterwards accepts DTLS or media for it until a
+ * fresh offer / answer starts a new handshake.
+ */
+	static void
+webrtc_dtls_end(struct pss_webrtc *pss)
+{
+	if (pss->handshake_started) {
+		lws_gendtls_destroy(&pss->dtls_ctx);
+		pss->handshake_started = 0;
+	}
+
+	if (pss->media) {
+		pss->media->handshake_done = 0;
+		pss->media->has_peer_sa46 = 0;
+	}
+
+	if (pss->wsi_ws)
+		lws_set_timer_usecs(pss->wsi_ws, LWS_SET_TIMER_USEC_CANCEL);
 }
 
 /*
@@ -2238,20 +2259,10 @@ webrtc_dtls_fail(struct pss_webrtc *pss, const char *reason)
 {
 	webrtc_pss_err(pss, "DTLS: %s, closing session\n", reason);
 
-	if (pss->handshake_started) {
-		lws_gendtls_destroy(&pss->dtls_ctx);
-		pss->handshake_started = 0;
-	}
+	webrtc_dtls_end(pss);
 
-	if (pss->media) {
-		pss->media->handshake_done = 0;
-		pss->media->has_peer_sa46 = 0;
-	}
-
-	if (pss->wsi_ws) {
-		lws_set_timer_usecs(pss->wsi_ws, LWS_SET_TIMER_USEC_CANCEL);
+	if (pss->wsi_ws)
 		lws_wsi_close(pss->wsi_ws, LWS_TO_KILL_ASYNC);
-	}
 }
 
 /* Helper: Handle STUN packets */
@@ -2420,9 +2431,28 @@ webrtc_handle_dtls(struct pss_webrtc *pss, uint8_t *in, size_t len)
 	if (lws_gendtls_put_rx(&pss->dtls_ctx, (uint8_t *)in, len) == 0) {
 		/* drive the state machine and flush whatever it produced */
 		if (webrtc_dtls_service(pss)) {
-			webrtc_dtls_fail(pss, "handshake failed");
+			if (!pss->media->handshake_done) {
+				webrtc_dtls_fail(pss, "handshake failed");
 
-			return -1;
+				return -1;
+			}
+
+			/*
+			 * An established session ended, normally by the
+			 * peer's close_notify.  Once that is read the DTLS
+			 * stack consumes nothing more, so keeping the ctx
+			 * would only accumulate whatever still arrives from
+			 * that address; the media is over, drop it.  The ws
+			 * session stays up, a fresh offer / answer on it
+			 * starts a new handshake.
+			 *
+			 * info, not notice: the peer decides when this happens.
+			 */
+			lwsl_info("%s: DTLS session ended by peer or failed\n",
+				  __func__);
+			webrtc_dtls_end(pss);
+
+			return 0;
 		}
 
 		if (!pss->media->handshake_done && lws_gendtls_handshake_done(&pss->dtls_ctx)) {
@@ -2535,7 +2565,13 @@ webrtc_handle_dtls(struct pss_webrtc *pss, uint8_t *in, size_t len)
 			}
 		}
 	} else {
-		lwsl_err("%s: lws_gendtls_put_rx failed\n", __func__);
+		/*
+		 * Dropped, as the network might have: the backend is full or
+		 * the session is over.  debug, not err: the peer chooses how
+		 * many of these there are.
+		 */
+		lwsl_debug("%s: lws_gendtls_put_rx dropped datagram\n",
+			   __func__);
 		pss->media->telemetry.dtls_errors++;
 	}
 

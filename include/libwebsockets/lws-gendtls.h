@@ -221,7 +221,10 @@ lws_gendtls_set_key_mem(struct lws_gendtls_ctx *ctx, const uint8_t *key, size_t 
  * \param in: pointer to encrypted data
  * \param len: length of encrypted data
  *
- * Returns 0 for OK or nonzero for error.
+ * Returns 0 if the datagram was taken, or nonzero if it was dropped, eg,
+ * because the session is already over, or because the backend is already
+ * holding as much unread ciphertext as it allows.  A dropped datagram is
+ * the same as one lost on the network.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_gendtls_put_rx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len);
@@ -233,6 +236,10 @@ lws_gendtls_put_rx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len);
  * \param max_len: maximum length of buffer
  *
  * Returns number of bytes read (>=0) or negative for error.
+ *
+ * A negative return after the handshake completed means the session has
+ * ended, because the peer sent close_notify or because of a fatal error; the
+ * caller should stop feeding it and lws_gendtls_destroy() the ctx.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len);
