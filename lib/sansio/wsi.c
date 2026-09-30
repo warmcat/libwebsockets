@@ -127,19 +127,6 @@ lws_wsi_set_transport_ev(struct lws *wsi, enum lws_transport_phase phase,
 }
 
 void
-lwsi_set_txn_completing(struct lws *wsi, int on)
-{
-	lws_wsi_state_t old = wsi->wsistate;
-
-	if (on)
-		wsi->wsistate |= LWSIFS_TXN_COMPLETING;
-	else
-		wsi->wsistate &= ~LWSIFS_TXN_COMPLETING;
-	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_completing", NULL);
-}
-
-void
 lwsi_set_skt_unusable(struct lws *wsi, int on)
 {
 	lws_wsi_state_t old = wsi->wsistate;

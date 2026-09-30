@@ -674,7 +674,8 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
 
 				struct lws *child = lws_quic_stream_find(nwsi, sid);
 				if (child && (lwsi_close(child) == LCS_FLUSHING_BEFORE_CLOSE ||
-					      lwsi_txn_completing(child))) {
+					      lwsi_state_live(child) ==
+							LRS_TXN_COMPLETING)) {
 					lws_callback_on_writable(child);
 				}
 			}

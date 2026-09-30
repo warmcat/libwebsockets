@@ -3153,7 +3153,15 @@ lws_http_transaction_completed(struct lws *wsi)
 		 */
 		lwsl_debug("%s: %s: deferring due to partial\n", __func__,
 				lws_wsi_tag(wsi));
-		lwsi_set_txn_completing(wsi, 1);
+		if (lws_wsi_event(wsi, LWS_WSIEV_TXN_COMPLETING)) {
+			/*
+			 * a state we did not expect to complete from: nothing
+			 * would ever pick the completion up again
+			 */
+			lwsl_wsi_err(wsi, "cannot defer completion");
+
+			return 1;
+		}
 		lws_callback_on_writable(wsi);
 
 		return 0;

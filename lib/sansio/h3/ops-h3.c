@@ -317,9 +317,8 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	}
 
 #if defined(LWS_WITH_SERVER)
-	if (lwsi_txn_completing(wsi)) {
+	if (lwsi_state_live(wsi) == LRS_TXN_COMPLETING) {
 		if (!lws_has_buffered_out(wsi)) {
-			lwsi_set_txn_completing(wsi, 0);
 			if (lws_http_transaction_completed(wsi)) {
 				lwsi_set_skt_unusable(wsi, 1);
 				return -1;

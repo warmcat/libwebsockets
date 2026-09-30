@@ -34,13 +34,12 @@ describes what they mean.
 
 ```
  31 30   24 23    20 19    16 15 14  12 11 10   9    8   7      0
- [u][role ][carrier][transp] [cs][close][-][c][nest][pocb][ state ]
+ [u][role ][carrier][transp] [cs][close][- - ][nest][pocb][ state ]
 ```
 
 |bits|holds|read with|set with|
 |---|---|---|---|
 |0-9|the live state: the transaction machine's `LRS_` value with its `LWSIFS_POCB` / `LWSIFS_NOT_EST` qualifiers|`lwsi_state_live()`|`lws_wsi_event()`|
-|10|`LWSIFS_TXN_COMPLETING`: the transaction was completed while a partial write was outstanding|`lwsi_txn_completing()`|`lwsi_set_txn_completing()`|
 |12-14|close machine, `enum lws_close_phase` `LCS_*`|`lwsi_close()`|`lws_wsi_event()`, a row to a close phase|
 |15|`LWSIFS_CLOSE_STARTED`: `__lws_close_free_wsi()` has been entered|||
 |16-19|transport machine, `enum lws_transport_phase` `LTS_*`|`lwsi_transport()`|`lws_wsi_event()`, a row to a transport phase|
@@ -56,11 +55,11 @@ what the old flat enum was approximating.  `lwsi_state_live()` reads the
 live bits underneath a close, so what the connection was doing when it
 started to close stays visible.
 
-Bits 10 and 30 are attributes of the live state rather than machines:
-they survive a live-state change, and `lws_role_transition()` carries them
+Bit 30 is an attribute of the live state rather than a machine: it
+survives a live-state change, and `lws_role_transition()` carries it
 across a role change, except that a restart to `LRS_UNCONNECTED` (redirect,
-auth retry, h3 to tcp fallback) drops them, since the new connection has its
-own socket and its own transaction.
+auth retry, h3 to tcp fallback) drops it, since the new connection has its
+own socket.
 
 ## Transport machine
 
@@ -137,18 +136,23 @@ HEADERS ---(request parsed)---> ESTABLISHED ---> DOING_TRANSACTION
   because the user finished before reading it.
 - `ISSUING_FILE` / `AWAITING_FILE_READ`: a file is being served, the latter
   while an async read is out on a worker.
+- `TXN_COMPLETING`: the user completed the transaction while its response
+  was still queued, by the transport or the compressor.  Nothing more is
+  read; when the queue has gone (the role's `tx_drained`), the completion
+  happens, to `TXN_COMPLETED`, or first `DISCARD_BODY` for a request body
+  still unread.
 - `TXN_COMPLETED`: `lws_http_transaction_completed()` ran; hold here until
   the connection is writable and buffered tx has drained, then back to
-  `HEADERS` for keep-alive or close.  The `+completing` attribute records a
-  completion that arrived while a partial write was still outstanding.
+  `HEADERS` for keep-alive or close.
 
 ### h2 and h3 server streams
 
 A stream is born `HEADERS`.  From there `DEFERRING_ACTION` (headers complete,
 the action is deferred to POLLOUT and any body is stashed) or straight to
 `DOING_TRANSACTION`; `DEFERRING_ACTION -> ESTABLISHED` when it runs.  The
-same `BODY`, `ISSUING_FILE` and `AWAITING_FILE_READ` phases apply.  A mux
-stream has no `TXN_COMPLETED`: completion closes the stream.  The h2 network
+same `BODY`, `ISSUING_FILE`, `AWAITING_FILE_READ` and `TXN_COMPLETING`
+phases apply.  A mux stream has no `TXN_COMPLETED`: completion closes the
+stream.  The h2 network
 connection itself sits in `ESTABLISHED` after settings, as does an h3
 server's own unidirectional control streams.
 
@@ -257,7 +261,7 @@ live state, or a live state with the carrier marked established.
 
 |option|effect|
 |---|---|
-|`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+completing`, `+unusable`, `+failed`, `+restarting`, `+told`.|
+|`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+unusable`, `+failed`, `+restarting`, `+told`.|
 |`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge must be one the event table produces, a phase or role change must carry an event's name (the engine made it from a row) or be a birth; `abort()` on one that is not, or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
 
 Both are off by default and change nothing about what any transition does.

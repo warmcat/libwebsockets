@@ -2834,7 +2834,8 @@ int
 lws_http_tx_drained(struct lws *wsi)
 {
 #if defined(LWS_WITH_SERVER)
-	if (!lwsi_txn_completing(wsi) || lws_has_buffered_out(wsi)
+	if (lwsi_state_live(wsi) != LRS_TXN_COMPLETING ||
+	    lws_has_buffered_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	    || wsi->http.comp_ctx.buflist_comp || wsi->http.comp_ctx.may_have_more
 #endif
@@ -2842,7 +2843,6 @@ lws_http_tx_drained(struct lws *wsi)
 		return 0;
 
 	lwsl_wsi_info(wsi, "output gone, doing deferred transaction completed");
-	lwsi_set_txn_completing(wsi, 0);
 
 	return lws_http_transaction_completed(wsi) ? -1 : 1;
 #else

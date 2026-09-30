@@ -96,19 +96,6 @@ enum lwsi_role {
 /* Before any protocol connection was established */
 #define LWSIFS_NOT_EST		(0x200)
 /*
- * Attribute of the live transaction state, not a state of its own: the user
- * completed the transaction while a partial of the response was still
- * queued, so the completion is deferred until the tx drains (bit 10, outside
- * LRS_MASK)
- */
-#define LWSIFS_TXN_COMPLETING	(0x400u)
-
-#define lwsi_txn_completing(wsi) (!!(wsi->wsistate & LWSIFS_TXN_COMPLETING))
-
-void
-lwsi_set_txn_completing(struct lws *wsi, int on);
-
-/*
  * Attribute of the close machine: the socket can no longer be used, so no
  * polite close handshake, no staged shutdown, no more writes; just tear it
  * down.  Set on write and read errors, on protocol errors that want an
@@ -123,7 +110,7 @@ void
 lwsi_set_skt_unusable(struct lws *wsi, int on);
 
 /* the attributes ride through role transitions, only their setters clear them */
-#define LWSIFS_ATTR_MASK	(LWSIFS_TXN_COMPLETING | LWSIFS_SKT_UNUSABLE)
+#define LWSIFS_ATTR_MASK	(LWSIFS_SKT_UNUSABLE)
 
 enum lwsi_state {
 
@@ -175,6 +162,13 @@ enum lwsi_state {
 	 * partial of the last response is still outstanding
 	 */
 	LRS_TXN_COMPLETED			= LWSIFS_POCB | 14,
+	/*
+	 * server: the user completed the transaction while its response was
+	 * still queued, by the transport or the compressor: the completion
+	 * happens when that has gone (the role's tx_drained); nothing more is
+	 * read meanwhile
+	 */
+	LRS_TXN_COMPLETING			= LWSIFS_POCB | 37,
 	/*
 	 * h2 / h3 server stream: request headers complete, the http action
 	 * is deferred to the POLLOUT handler, where we know for sure the
@@ -419,6 +413,7 @@ enum lws_wsi_event {
 	LWS_WSIEV_BODY_BEGIN,		/* body bytes will follow */
 	LWS_WSIEV_BODY_COMPLETE,	/* the body was all delivered */
 	LWS_WSIEV_BODY_DISCARD,		/* the user is done, drain what is left */
+	LWS_WSIEV_TXN_COMPLETING,	/* ... deferred behind queued output */
 	LWS_WSIEV_TXN_COMPLETED,	/* lws_http_transaction_completed() */
 	LWS_WSIEV_TXN_DRAINED,		/* ... and writable with tx drained */
 	LWS_WSIEV_FILE_BEGIN,		/* serving a file */

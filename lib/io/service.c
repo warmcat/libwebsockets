@@ -314,6 +314,7 @@ lws_wsi_can_consume_parked_rx(struct lws *wsi)
 
 	switch (lwsi_state(wsi)) {
 	case LRS_TXN_COMPLETED:
+	case LRS_TXN_COMPLETING:
 	case LRS_DEFERRING_ACTION:
 	case LRS_AWAITING_FILE_READ:
 	case LRS_ISSUING_FILE:

@@ -690,7 +690,7 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 			*flags |= LWS_RXPOL_F_POLLOUT;
 
 		if (lwsi_state(wsi) == LRS_TXN_COMPLETED ||
-		    lwsi_txn_completing(wsi) ||
+		    lwsi_state(wsi) == LRS_TXN_COMPLETING ||
 		    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
 			return LWS_RXPOL_ROLE;
 
