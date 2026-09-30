@@ -51,16 +51,70 @@ struct vhd_acme_dns {
 	char *base_dir;
 	char active_domain[256];
 	lws_sorted_usec_list_t sul_delay;
+	time_t saved;		/* when we handed over the challenge TXT */
+	lws_usec_t deadline;	/* for the zone with it to be signed */
 };
+
+/*
+ * The root process merges the challenge TXT into the domain's zone and signs
+ * it, and lwsws publishes the signed zone to the DHT as soon as it sees the
+ * new .jws.  Only once that has happened, and the DHT has had a little while
+ * to spread it to the authoritative servers, is it worth asking the ACME
+ * server to look for it.  Signing can be held up, eg, until the external
+ * addresses are known, so rather than hoping it happened, watch for it.
+ */
+
+/* how often to look for the zone with the challenge being signed */
+#define ACME_DNS_POLL_US	(1 * LWS_US_PER_SEC)
+/* how long signing it may take before we give up this attempt */
+#define ACME_DNS_SIGN_US	(180 * LWS_US_PER_SEC)
+/* how long after signing before we expect the DHT to be serving it */
+#define ACME_DNS_SPREAD_US	(20 * LWS_US_PER_SEC)
 
 static void
 sul_dns_ready_cb(lws_sorted_usec_list_t *sul)
 {
 	struct vhd_acme_dns *ad = lws_container_of(sul, struct vhd_acme_dns, sul_delay);
+
 	if (ad->core_ops && ad->core_ops->notify_challenge_ready && ad->core_vhd) {
-		lwsl_vhost_info(ad->vhost, "dns-01 5s propagation complete, notifying Let's Encrypt");
+		lwsl_vhost_notice(ad->vhost, "dns-01: challenge zone published, "
+				  "asking the ACME server to check it");
 		ad->core_ops->notify_challenge_ready(ad->core_vhd);
 	}
+}
+
+static void
+sul_dns_signed_cb(lws_sorted_usec_list_t *sul)
+{
+	struct vhd_acme_dns *ad = lws_container_of(sul, struct vhd_acme_dns, sul_delay);
+	char path[1024];
+	struct stat st;
+
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/%s.zone.signed.jws",
+		     ad->base_dir, ad->active_domain, ad->active_domain);
+
+	if (!stat(path, &st) && st.st_mtime >= ad->saved) {
+		lwsl_vhost_notice(ad->vhost, "dns-01: zone with the challenge "
+				  "signed, allowing %ds for the DHT",
+				  (int)(ACME_DNS_SPREAD_US / LWS_US_PER_SEC));
+		lws_sul_schedule(ad->context, 0, &ad->sul_delay,
+				 sul_dns_ready_cb, ACME_DNS_SPREAD_US);
+		return;
+	}
+
+	if (lws_now_usecs() < ad->deadline) {
+		lws_sul_schedule(ad->context, 0, &ad->sul_delay,
+				 sul_dns_signed_cb, ACME_DNS_POLL_US);
+		return;
+	}
+
+	lwsl_vhost_err(ad->vhost, "dns-01: %s was not signed with the "
+		       "challenge in %ds", ad->active_domain,
+		       (int)(ACME_DNS_SIGN_US / LWS_US_PER_SEC));
+
+	if (ad->core_ops && ad->core_ops->challenge_failed && ad->core_vhd)
+		ad->core_ops->challenge_failed(ad->core_vhd,
+				"zone with the dns-01 challenge was not signed");
 }
 
 static int
@@ -110,10 +164,17 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 		return 1;
 	}
 
-	lwsl_user("Created dns-01 local acme temp zone addon via IPC, waiting 20s for DHT propagation...\n");
+	/*
+	 * The root daemon's IPC handler has the zone signed again with the
+	 * TXT in, watch for that
+	 */
+	ad->saved = (time_t)lws_now_secs();
+	ad->deadline = lws_now_usecs() + ACME_DNS_SIGN_US;
 
-	/* No need to manually trigger resign here, the root daemon's IPC handler will do it! */
-	lws_sul_schedule(ad->context, 0, &ad->sul_delay, sul_dns_ready_cb, 20 * LWS_US_PER_SEC);
+	lwsl_vhost_notice(vh, "dns-01: challenge for %s handed over, waiting "
+			  "for the zone with it to be signed", domain);
+	lws_sul_schedule(ad->context, 0, &ad->sul_delay, sul_dns_signed_cb,
+			 ACME_DNS_POLL_US);
 
 	return 0;
 }
@@ -122,6 +183,9 @@ static void
 challenge_cleanup_dns(struct lws_vhost *vh, void *priv)
 {
 	struct vhd_acme_dns *ad = (struct vhd_acme_dns *)priv;
+
+	/* the attempt is over, whether or not we were still waiting */
+	lws_sul_cancel(&ad->sul_delay);
 
 	if (ad->base_dir && ad->active_domain[0]) {
 		if (ad->core_ops && ad->core_ops->acme_ipc_save_payload) {

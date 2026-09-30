@@ -2847,6 +2847,23 @@ lws_acme_core_notify_challenge_ready(struct per_vhost_data__lws_acme_client *vhd
 LWS_VISIBLE void
 lws_acme_core_destroy_vhost(struct per_vhost_data__lws_acme_client *vhd);
 
+/*
+ * The challenge plugin could not get its challenge in place, eg, the zone
+ * with the dns-01 TXT was never signed: the server was not told to validate
+ * it, so this attempt just ends, failed, without a failed validation
+ */
+
+static void
+lws_acme_core_challenge_failed(struct per_vhost_data__lws_acme_client *vhd,
+			       const char *reason)
+{
+	if (!vhd->ac)
+		return;
+
+	lwsl_vhost_warn(vhd->vhost, "acme: challenge failed: %s", reason);
+	acme_fail_acquisition(vhd, reason);
+}
+
 LWS_VISIBLE int
 lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 			 const struct lws_acme_cert_aging_args *caa);
@@ -2861,6 +2878,7 @@ static const struct lws_acme_core_ops acme_core_ops = {
 	.notify_challenge_ready = lws_acme_core_notify_challenge_ready,
 	.trigger_resign = lws_acme_core_trigger_resign,
 	.acme_ipc_save_payload = acme_ipc_save_payload,
+	.challenge_failed = lws_acme_core_challenge_failed,
 };
 
 LWS_VISIBLE const struct lws_protocols lws_acme_client_protocols[] = {

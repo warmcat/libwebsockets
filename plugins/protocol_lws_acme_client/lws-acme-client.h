@@ -95,6 +95,11 @@ struct lws_acme_core_ops {
 				 const char *req, const char *domain,
 				 const char *filename, const char *payload,
 				 size_t payload_len);
+
+	/* the challenge could not be set up: end the attempt as a failure */
+	void
+	(*challenge_failed)(struct per_vhost_data__lws_acme_client *vhd,
+			    const char *reason);
 };
 
 #endif

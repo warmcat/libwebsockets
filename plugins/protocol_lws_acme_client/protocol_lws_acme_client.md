@@ -110,6 +110,19 @@ evaluation or acquisition is already running).  The backoff after failed
 acquisitions still applies.  The `lws-dht-dnssec-monitor` UI sends this from
 the "Force reissue" button on each row of its TLS certificates table.
 
+## How a dns-01 challenge is put in place
+
+The DNS plugin hands the challenge TXT to the `lws-dht-dnssec-monitor` root
+process over IPC, which merges it into the domain's zone and signs it again;
+lwsws then publishes the new signed zone to the DHT, where the domain's
+authoritative servers pick it up.  The plugin watches for the zone's
+`.zone.signed.jws` being rewritten after it handed the TXT over, then allows
+20s for the DHT before asking the ACME server to validate.  If the zone is not
+signed within 3 minutes (eg, it uses `${EXTIP4}` / `${EXTIP6}` and the external
+addresses are not known yet), the attempt fails without the ACME server being
+asked, so it doesn't count as a failed validation, and the usual backoff
+applies.
+
 ## Example Certificate JSON Configurations (`$dns_base_dir/domains/<domain-name>/conf.d/*.json`)
 
 ### Example: DNS-01 Challenge
