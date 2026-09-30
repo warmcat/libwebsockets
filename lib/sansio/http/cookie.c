@@ -624,6 +624,18 @@ lws_cookie_parse_nsc(struct lws_cookie *c, const char *b, size_t l)
 		state++;
 	}
 
+	/*
+	 * A cookie with an empty value ("name=") is stored as a line that
+	 * ends with the TAB closing the name column: the value is empty, not
+	 * missing.  A line that ended inside the name column has no value.
+	 */
+	if (state == LWSC_NSC_VALUE && b[-1] == '\t') {
+		c->f[CE_VALUE] = b;
+		c->l[CE_VALUE] = 0;
+
+		return 0;
+	}
+
 	return -1;
 }
 
@@ -953,12 +965,17 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 				lwsl_cookie(" %s (%d)\n", (const char *)cr.tag,
 						(int)cr.payload_len);
 
+				/*
+				 * One result we can't use (eg, it expired
+				 * since the lookup) says nothing about the
+				 * others: skip it, not the rest of the set
+				 */
 				if (lws_cache_item_get(l1, (const char *)cr.tag,
 						   (const void **)&po, &size) ||
 					lws_cookie_parse_nsc(&c, po, size)) {
 					lwsl_err("%s: failed to get c '%s'\n",
 							__func__, cr.tag);
-					break;
+					continue;
 				}
 
 				if (c.f[CE_HOSTONLY] && !hostdomain){

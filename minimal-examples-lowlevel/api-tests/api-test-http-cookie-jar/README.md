@@ -19,6 +19,9 @@ It checks the RFC 6265 scoping the jar applies to what a server sets:
  - a cookie with no `Path=` gets the default-path of the request that set it,
    and a `Path=` scopes the cookie to that path and below
 
+and that a cookie set with an empty value (`name=`) is sent back as `name=`,
+without stopping the other cookies at its level from being sent.
+
 Needs `LWS_WITH_CACHE_NSCOOKIEJAR` (Linux), client and server support.
 
 |option|meaning|

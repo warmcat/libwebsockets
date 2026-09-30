@@ -20,6 +20,9 @@
  *  - a cookie with no Path= gets the default-path of the request that set it
  *    ("/" for "/set"), and a Path= scopes the cookie to that path and below
  *
+ * and that a cookie with an empty value ("name=") is sent back as it was
+ * set, without stopping the others at its level from being sent.
+ *
  * With --l1-max-items, the jar's heap L1 is limited to that many items, so
  * sending the cookies for a request keeps filling L1 from the jar file and
  * evicting, while the result set of the lookup is being walked.
@@ -44,6 +47,7 @@ static int port = 7700, cur = -1, done, fail;
  * a.example.com over plaintext.
  */
 static const char * const set_cookies[] = {
+	"empty=; Path=/",				/* empty value */
 	"host1=a; Path=/",				/* host-only */
 	"dom1=b; Domain=example.com; Path=/",		/* parent domain */
 	"dotdom=c; Domain=.example.com; Path=/",	/* leading dot */
@@ -63,7 +67,7 @@ static const struct step {
 } steps[] = {
 	{ "a.example.com",	"/set",		NULL },
 	{ "a.example.com",	"/get",
-		"host1=a dom1=b dotdom=c upper=d defpath=j" },
+		"empty= host1=a dom1=b dotdom=c upper=d defpath=j" },
 	/* the host-only cookies stay with a.example.com */
 	{ "b.example.com",	"/get",		"dom1=b dotdom=c upper=d" },
 	/* and so do the Domain= ones: example.com is not other.example */
@@ -72,7 +76,7 @@ static const struct step {
 	{ "example.com",	"/get",		"dom1=b dotdom=c upper=d" },
 	/* the Path=/deeper one joins in at and below /deeper */
 	{ "a.example.com",	"/deeper/get",
-		"host1=a dom1=b dotdom=c upper=d defpath=j deep=i" },
+		"empty= host1=a dom1=b dotdom=c upper=d defpath=j deep=i" },
 	{ "b.example.com",	"/deeper/get",
 		"dom1=b dotdom=c upper=d" },
 };
