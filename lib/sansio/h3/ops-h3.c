@@ -2690,7 +2690,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 				     &prot_basic_auth) &&
 		    lws_h3_wt_basic_auth(wsi, prot_basic_auth,
 					 LWSAUTHM_DEFAULT, &r))
-			return r;
+			return (int)r;
 #endif
 
 		if (lws_bind_protocol(wsi, prot, __func__))
