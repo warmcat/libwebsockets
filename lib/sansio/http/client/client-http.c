@@ -504,8 +504,9 @@ enum lws_check_basic_auth_results
 lws_http_digest_auth(struct lws* wsi)
 {
 	uint8_t nonce[256], response[LWS_GENHASH_LARGEST * 2 + 1], qop[32];
-	int seen = 0, n, pend = -1;
+	int seen = 0, have = 0, n, pend = -1;
 	char *tmp_digest = NULL;
+	size_t l = 0;
 	struct lws_tokenize ts;
 	char resp_username[32];
 	lws_tokenize_elem e;
@@ -561,7 +562,8 @@ lws_http_digest_auth(struct lws* wsi)
 			if (pend >= 0)
 				goto str_val;
 
-			if (!strncasecmp(ts.token, "Digest", ts.token_len)) {
+			if (ts.token_len == 6 &&
+			    !strncasecmp(ts.token, "Digest", 6)) {
 				seen |= 1 << 0;
 				break;
 			}
@@ -577,8 +579,10 @@ lws_http_digest_auth(struct lws* wsi)
 				/* no auth type token or disordered */
 				return LCBA_END_TRANSACTION;
 
+			/* the whole name, not just a prefix of one */
 			for (n = 0; n < (int)LWS_ARRAY_SIZE(digest_toks); n++)
-				if (!strncmp(ts.token, digest_toks[n], ts.token_len))
+				if (strlen(digest_toks[n]) == ts.token_len &&
+				    !strncmp(ts.token, digest_toks[n], ts.token_len))
 					break;
 
 			if (n == LWS_ARRAY_SIZE(digest_toks)) {
@@ -679,6 +683,8 @@ str_val:
 				}
 				break;
 			}
+			/* only now has the parameter got a value */
+			have |= 1 << pend;
 			pend = PEND_DELIM;
 			break;
 
@@ -707,9 +713,13 @@ str_val:
 
 	} while (e > 0);
 
-	/* we got all the parts we care about? Realm + Nonce... */
+	/*
+	 * we got all the parts we care about? Realm + Nonce... with their
+	 * values: "realm=" at the end, or before a ';', is only the name, and
+	 * the realm / nonce buffers were never written
+	 */
 
-	if ((seen & 0xc) != 0xc) {
+	if (!(seen & 1) || pend >= 0 || (have & 0xc) != 0xc) {
 		lwsl_wsi_err(wsi,
 				"%s: Not all digest auth tokens found! "
 				"m: 0x%x\nServer sent: %s",
@@ -734,8 +744,6 @@ str_val:
 		const char *a, *p;
 		struct lws *nwsi;
 		char cnonce[256];
-		size_t l;
-
 		l = sizeof(a1) + sizeof(a2) + sizeof(nonce) +
 			(sizeof(ncount) *2) + sizeof(response) +
 			sizeof(cnonce) + sizeof(qop) + strlen(uri) +
@@ -762,7 +770,6 @@ str_val:
 		lws_hex_from_byte_array(digest,
 					lws_genhash_size(hash_type),
 					a1, sizeof(a1));
-		lwsl_debug("A1: %s:%s:%s = %s\n", username, realm, password, a1);
 
 		/*
 		 * In case of Websocket upgrade, method is NULL
@@ -789,7 +796,8 @@ str_val:
 		lwsl_debug("A2: %s:%s = %s\n", wsi->stash->cis[CIS_METHOD],
 				uri, a2);
 
-		lws_hex_random(lws_get_context(wsi), cnonce, sizeof(cnonce));
+		if (lws_hex_random(lws_get_context(wsi), cnonce, sizeof(cnonce)))
+			goto bail;
 		lws_hex_from_byte_array((const uint8_t *)&ncount,
 					sizeof(ncount), nc, sizeof(nc));
 
@@ -799,8 +807,6 @@ str_val:
 		else
 			n = lws_snprintf(tmp_digest, l, "%s:%s:%s", a1,
 					nonce, a2);
-
-		lwsl_wsi_debug(wsi, "digest response: %s\n", tmp_digest);
 
 
 		if (lws_genhash_init(&hc, hash_type) ||
@@ -833,9 +839,13 @@ str_val:
 					 username, realm, nonce, uri,
 					 response, algo);
 		}
-		(void)n;
-
-		lwsl_hexdump(tmp_digest, l);
+		/*
+		 * The buffer outlives us as the header to send; nothing of
+		 * username:realm:password or HA1 from before may linger past
+		 * the header's NUL
+		 */
+		if (n >= 0 && (size_t)n + 1 < l)
+			lws_explicit_bzero(tmp_digest + n + 1, l - (size_t)n - 1);
 
 		if (lws_hdr_simple_create(wsi, WSI_TOKEN_HTTP_AUTHORIZATION,
 								tmp_digest)) {
@@ -881,6 +891,17 @@ str_val:
 			    keep_alive &&
 			    (!te401 || strncasecmp(te401, "chunked", 7)) &&
 			    cl401 && atoi(cl401) == 0) {
+				/*
+				 * Bounded as the reconnecting retry below is
+				 * by lws_client_reset(): a server answering
+				 * every attempt with another 401 must not
+				 * keep us going round forever
+				 */
+				if (wsi->redirects == 4) {
+					lwsl_wsi_err(wsi, "too many auth retries");
+					goto bail;
+				}
+				wsi->redirects++;
 				wsi->http.digest_auth_hdr = tmp_digest;
 				return LCBA_AUTH_RETRY_KEEPALIVE;
 			}
@@ -930,7 +951,10 @@ str_val:
 	return LCBA_CONTINUE;
 
 bail:
-	lws_free(tmp_digest);
+	if (tmp_digest) {
+		lws_explicit_bzero(tmp_digest, l);
+		lws_free(tmp_digest);
+	}
 
 	return LCBA_FAILED_AUTH;
 }
