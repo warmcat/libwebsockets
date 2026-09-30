@@ -299,6 +299,12 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 		return 1;
 	}
 
+	/* no fd has no place in the fd lookup table or the poll set */
+	if (!lws_socket_is_valid(wsi->io->desc.sockfd)) {
+		lwsl_wsi_err(wsi, "no socket to insert");
+		return 1;
+	}
+
 #if !defined(_WIN32)
 	if (!wsi->a.context->max_fds_unrelated_to_ulimit &&
 	    wsi->io->desc.sockfd - lws_plat_socket_offset() >= (int)context->max_fds) {

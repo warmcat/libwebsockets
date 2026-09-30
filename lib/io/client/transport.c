@@ -354,6 +354,18 @@ lws_client_connect_transport(struct lws *wsi)
 
 	lws_wsi_event(wsi, LWS_WSIEV_CONNECT_START);
 
+	/*
+	 * The fd the transport was given is the connection's only way to its
+	 * peer, and the connection's close took it.  So a transport-carried
+	 * connection cannot be restarted the way a dialed one can (a
+	 * redirect, a digest auth retry): it fails instead of going into the
+	 * poll set with no fd.
+	 */
+	if (!lws_socket_is_valid(wsi->io->desc.sockfd)) {
+		cce = "transport connection cannot restart";
+		goto failed;
+	}
+
 	if (wsi->a.context->event_loop_ops->sock_accept &&
 	    wsi->a.context->event_loop_ops->sock_accept(wsi)) {
 		cce = "transport sock accept";
