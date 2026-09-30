@@ -955,23 +955,40 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 	int n;
 
 	if (len > 0 && wsi->quic.qn) {
-		if (wsi->quic.qn->crypto_rx_buf_len[level] + len > 262144) {
+		struct lws_quic_netconn *qn = wsi->quic.qn;
+		size_t have = qn->crypto_rx_buf_len[level];
+
+		if (have + len > LWS_QUIC_CRYPTO_RX_MAX) {
 			lwsl_wsi_err(wsi, "QUIC: CRYPTO reassembly buffer size limit exceeded on level %d", level);
 			return -1;
 		}
-		if (wsi->quic.qn->crypto_rx_buf_len[level] > 0) {
-			uint8_t *new_buf = lws_realloc(wsi->quic.qn->crypto_rx_buf[level],
-						       wsi->quic.qn->crypto_rx_buf_len[level] + len,
-						       "crypto rx buf");
-			if (!new_buf) {
-				return -1;
+		if (have) {
+			/*
+			 * Append to the partial message we hold, growing the
+			 * buffer geometrically: a message drip-fed in tiny
+			 * frames then costs copying linear in its size, not
+			 * quadratic
+			 */
+			if (have + len > qn->crypto_rx_buf_alloc[level]) {
+				size_t na = qn->crypto_rx_buf_alloc[level] * 2;
+				uint8_t *nb;
+
+				if (na < have + len)
+					na = have + len;
+				if (na > LWS_QUIC_CRYPTO_RX_MAX)
+					na = LWS_QUIC_CRYPTO_RX_MAX;
+				nb = lws_realloc(qn->crypto_rx_buf[level], na,
+						 "crypto rx buf");
+				if (!nb)
+					return -1;
+				qn->crypto_rx_buf[level] = nb;
+				qn->crypto_rx_buf_alloc[level] = na;
 			}
-			memcpy(new_buf + wsi->quic.qn->crypto_rx_buf_len[level], buf, len);
-			wsi->quic.qn->crypto_rx_buf[level] = new_buf;
-			wsi->quic.qn->crypto_rx_buf_len[level] += len;
-			
-			buf = wsi->quic.qn->crypto_rx_buf[level];
-			len = wsi->quic.qn->crypto_rx_buf_len[level];
+			memcpy(qn->crypto_rx_buf[level] + have, buf, len);
+			qn->crypto_rx_buf_len[level] = have + len;
+
+			buf = qn->crypto_rx_buf[level];
+			len = qn->crypto_rx_buf_len[level];
 		}
 
 		size_t scan = 0;
@@ -989,6 +1006,14 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			}
 
 			uint32_t msg_len = ((uint32_t)buf[scan+1] << 16) | ((uint32_t)buf[scan+2] << 8) | buf[scan+3];
+			if (4 + (size_t)msg_len > LWS_QUIC_CRYPTO_RX_MAX) {
+				/* it could never all be held: fail it now */
+				lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: handshake message of %u too large",
+						(unsigned int)msg_len);
+				lws_quic_enter_closing_state(wsi,
+					LWS_QUIC_ERR_CRYPTO_BUFFER_EXCEEDED, 0, 0);
+				return -1;
+			}
 			if (scan + 4 + msg_len > len) {
 				break;
 			}
@@ -998,14 +1023,18 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 		}
 
 		if (complete_len == 0) {
-			if (wsi->quic.qn->crypto_rx_buf_len[level] == 0) {
-				uint8_t *new_buf = lws_malloc(len, "crypto rx buf");
+			if (!have) {
+				/* hold it until the rest of the message comes */
+				size_t na = len < 1024 ? 1024 : len;
+				uint8_t *new_buf = lws_malloc(na, "crypto rx buf");
+
 				if (!new_buf) {
 					return -1;
 				}
 				memcpy(new_buf, buf, len);
-				wsi->quic.qn->crypto_rx_buf[level] = new_buf;
-				wsi->quic.qn->crypto_rx_buf_len[level] = len;
+				qn->crypto_rx_buf[level] = new_buf;
+				qn->crypto_rx_buf_len[level] = len;
+				qn->crypto_rx_buf_alloc[level] = na;
 			}
 			return 0;
 		}
@@ -1021,23 +1050,28 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			goto error_handling;
 		}
 
+		qn = wsi->quic.qn;
 		size_t remainder = len - complete_len;
 		if (remainder > 0) {
-			if (wsi->quic.qn->crypto_rx_buf_len[level] == 0) {
+			if (!qn->crypto_rx_buf_len[level]) {
+				/* hold the start of the next message */
 				uint8_t *new_buf = lws_malloc(remainder, "crypto rx buf");
-				if (new_buf) {
-					memcpy(new_buf, buf + complete_len, remainder);
-					wsi->quic.qn->crypto_rx_buf[level] = new_buf;
-				}
+
+				if (!new_buf)
+					return -1;
+				memcpy(new_buf, buf + complete_len, remainder);
+				qn->crypto_rx_buf[level] = new_buf;
+				qn->crypto_rx_buf_alloc[level] = remainder;
 			} else {
-				memmove(wsi->quic.qn->crypto_rx_buf[level], buf + complete_len, remainder);
+				memmove(qn->crypto_rx_buf[level], buf + complete_len, remainder);
 			}
-			wsi->quic.qn->crypto_rx_buf_len[level] = remainder;
+			qn->crypto_rx_buf_len[level] = remainder;
 		} else {
-			if (wsi->quic.qn->crypto_rx_buf_len[level] > 0) {
-				lws_free(wsi->quic.qn->crypto_rx_buf[level]);
-				wsi->quic.qn->crypto_rx_buf[level] = NULL;
-				wsi->quic.qn->crypto_rx_buf_len[level] = 0;
+			if (qn->crypto_rx_buf_len[level] > 0) {
+				lws_free(qn->crypto_rx_buf[level]);
+				qn->crypto_rx_buf[level] = NULL;
+				qn->crypto_rx_buf_len[level] = 0;
+				qn->crypto_rx_buf_alloc[level] = 0;
 			}
 		}
 	} else {

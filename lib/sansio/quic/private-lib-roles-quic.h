@@ -506,6 +506,7 @@ struct lws_quic_netconn {
 		size_t                  crypto_rx_expected_msg_len[LWS_QUIC_LEVEL_COUNT];
 		uint8_t                 *crypto_rx_buf[LWS_QUIC_LEVEL_COUNT];
 		size_t                  crypto_rx_buf_len[LWS_QUIC_LEVEL_COUNT];
+		size_t                  crypto_rx_buf_alloc[LWS_QUIC_LEVEL_COUNT];
 	uint8_t                 highest_rx_level;
 	uint8_t			pto_count;
 
