@@ -11,6 +11,10 @@
  *    closest-nodes + token reply path a get_peers reply uses; A parses
  *    the cursor-built reply and the token surfaces as the
  *    LWS_DHT_EVENT_TOKEN callback
+ *  - A returns that token in a subscribe_confirm with a 16-byte tid, so B
+ *    registers A as a subscriber; B's notify reaches A, and A's ack (which
+ *    echoes the 16-byte tid) clears B's pending notification, so notifying
+ *    the same content again finds nothing to send
  *  - A's neighbourhood maintenance issues a find_node to its only node
  *    within a few seconds (tx_find_node on A, rx_find_node on B)
  *  - a reliable-transport data datagram from A is reassembled by B's
@@ -42,8 +46,15 @@ static struct sockaddr_in sa_a, sa_b;
 static const char *data_msg = "PUT 0102030405 0 5 hello";
 static size_t data_msg_len;
 
+static uint8_t token[40];
+static size_t token_len;
+
 struct seen {
 	unsigned char token_ok:1;	/* A got B's get_peers token */
+	unsigned char confirmed:1;	/* A sent B its subscribe_confirm */
+	unsigned char notified:1;	/* B sent A a notify */
+	unsigned char notify_ok:1;	/* A got B's notify */
+	unsigned char acked:1;		/* A's ack cleared B's pending notify */
 	unsigned char data_ok:1;	/* B got A's data payload verbatim */
 	unsigned char ping_sent:1;
 	unsigned char searched:1;
@@ -66,8 +77,14 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 	switch (event) {
 	case LWS_DHT_EVENT_TOKEN:
 		/* B's get_peers reply carries the anti-spoof token */
-		if (data_len == 8)
+		if (data_len == 8 && !sv.token_ok) {
+			memcpy(token, data, data_len);
+			token_len = data_len;
 			sv.token_ok = 1;
+		}
+		break;
+	case LWS_DHT_EVENT_NOTIFY:
+		sv.notify_ok = 1;
 		break;
 	default:
 		break;
@@ -101,6 +118,64 @@ stats_of(struct lws_vhost *vh, struct lws_dht_stats *s)
 	return lws_dht_get_stats(vh, s, NULL, NULL);
 }
 
+static lws_dht_hash_t *
+sub_hash(void)
+{
+	uint8_t idata[20];
+
+	memset(idata, 0x44, sizeof(idata));
+
+	return lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, idata);
+}
+
+/*
+ * Subscribe, notify, ack: A confirms the subscription with the token B
+ * gave it, B notifies A of new content, and A's ack must find the pending
+ * notification by its 16-byte tid so B commits the content as delivered.
+ */
+
+static void
+subscription_step(void)
+{
+	uint8_t tid[16], sha_old[32], sha_new[32];
+	lws_dht_hash_t *ih;
+	int n;
+
+	if (!sv.token_ok || sv.acked)
+		return;
+
+	ih = sub_hash();
+	if (!ih)
+		return;
+
+	memset(sha_old, 0, sizeof(sha_old));
+	memset(sha_new, 0x77, sizeof(sha_new));
+
+	if (!sv.confirmed) {
+		sv.confirmed = 1;
+		lws_get_random(cx, tid, sizeof(tid));
+		lws_dht_send_subscribe_confirm(dht_a, (struct sockaddr *)&sa_b,
+					       sizeof(sa_b), tid, sizeof(tid),
+					       ih, token, token_len, sha_old, 1);
+		goto bail;
+	}
+
+	/*
+	 * Until B has registered A this finds no subscriber; once it has, it
+	 * sends the notify.  After A's ack has been processed, B holds the
+	 * new content as A's current one and there is nothing left to send.
+	 */
+
+	n = lws_dht_notify_subscribers(dht_b, ih, sha_new, NULL, 0);
+	if (n > 0)
+		sv.notified = 1;
+	else if (!n && sv.notified && sv.notify_ok)
+		sv.acked = 1;
+
+bail:
+	lws_dht_hash_destroy(&ih);
+}
+
 static void
 poll_cb(lws_sorted_usec_list_t *sul)
 {
@@ -121,7 +196,6 @@ poll_cb(lws_sorted_usec_list_t *sul)
 
 	if (sa.rx_pong && !sv.searched) {
 		lws_dht_hash_t *ih;
-		uint8_t idata[20];
 
 		sv.searched = 1;
 
@@ -132,8 +206,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 		 * token surfaces as the LWS_DHT_EVENT_TOKEN callback.
 		 */
 
-		memset(idata, 0x44, sizeof(idata));
-		ih = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, idata);
+		ih = sub_hash();
 		if (!ih) {
 			lwsl_err("%s: hash create failed\n", __func__);
 			lws_default_loop_exit(cx);
@@ -149,13 +222,16 @@ poll_cb(lws_sorted_usec_list_t *sul)
 				  data_msg, data_msg_len);
 	}
 
+	subscription_step();
+
 	/*
 	 * Everything observable has been seen: B answered the ping, the
-	 * subscribe round trip produced a token, the data payload arrived
-	 * verbatim, and A's maintenance find_node probe reached B.
+	 * subscribe round trip produced a token, the notify was acked, the
+	 * data payload arrived verbatim, and A's maintenance find_node probe
+	 * reached B.
 	 */
 
-	if (sv.token_ok && sv.data_ok &&
+	if (sv.token_ok && sv.acked && sv.data_ok &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -287,6 +363,14 @@ int main(int argc, const char **argv)
 			}
 			if (!sv.token_ok) {
 				lwsl_err("A never received B's subscription token\n");
+				fails++;
+			}
+			if (!sv.notified || !sv.notify_ok) {
+				lwsl_err("B's notify never reached subscriber A\n");
+				fails++;
+			} else if (!sv.acked) {
+				lwsl_err("A's notify ack never cleared B's pending "
+					 "notification\n");
 				fails++;
 			}
 			if (sa.rx_drops || sb.rx_drops) {

@@ -258,8 +258,13 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		return -1;
 	}
 
+	/*
+	 * A tid may use the whole of mp->tid: the notify / ack exchange uses
+	 * 16-byte tids (a subscriber's random one), which must survive here
+	 * for the ack to find the pending notification it answers.
+	 */
 	p = dht_bencode_get_string(buf, end, "t", &l);
-	if (p && l > 0 && l < sizeof(mp->tid)) {
+	if (p && l > 0 && l <= sizeof(mp->tid)) {
 		memcpy(mp->tid, p, l);
 		mp->tid_len = l;
 	} else
@@ -1203,7 +1208,7 @@ skip_ip_tracking:
 			if (!found) {
 				/*
 				 * The dedup above keys on (source address, tid)
-				 * and the tid is up to 15 attacker-chosen bytes,
+				 * and the tid is up to 16 attacker-chosen bytes,
 				 * so one source can otherwise create unlimited
 				 * subscribers on a hash it keeps alive; the scan
 				 * itself then costs O(n) per packet.  Cap it.
