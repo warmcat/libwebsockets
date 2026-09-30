@@ -305,5 +305,15 @@ lws_cache_destroy(struct lws_cache_ttl_lru **_cache)
 
 	lws_sul_cancel(&cache->sul);
 
+	/*
+	 * Levels may be destroyed in either order: do not leave the other
+	 * level of the pair holding a pointer to this one
+	 */
+
+	if (cache->child && cache->child->info.parent == cache)
+		cache->child->info.parent = NULL;
+	if (cache->info.parent && cache->info.parent->child == cache)
+		cache->info.parent->child = NULL;
+
 	cache->info.ops->destroy(_cache);
 }

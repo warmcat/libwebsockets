@@ -2988,8 +2988,9 @@ next_l:
 #endif
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
-		lws_cache_destroy(&context->nsc);
+		/* the L1 level first, it refers to its nscookiejar parent */
 		lws_cache_destroy(&context->l1);
+		lws_cache_destroy(&context->nsc);
 #endif
 
 #if defined(LWS_WITH_CACHE_BLOB)

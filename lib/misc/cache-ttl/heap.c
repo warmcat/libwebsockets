@@ -536,25 +536,30 @@ lws_cache_heap_create(const struct lws_cache_creation_info *info)
 	return (struct lws_cache_ttl_lru *)cache;
 }
 
-static int
-destroy_dll(struct lws_dll2 *d, void *user)
+/*
+ * Everything goes, so there is no point checking which cached lookup results
+ * name each item: take the items off the head one at a time.
+ *
+ * This must not be a walk with a saved "next" cursor... destroying a normal
+ * item through lws_cache_heap_item_destroy() also destroys any meta result
+ * naming it, which may well be the saved next item, eg, after a lookup and
+ * then a get of its one result, items_lru is [item, meta].
+ */
+
+static void
+lws_cache_heap_drain(lws_cache_ttl_lru_t_heap_t *cache)
 {
-	lws_cache_ttl_lru_t *_c = (struct lws_cache_ttl_lru *)user;
-	lws_cache_ttl_lru_t_heap_t *cache = (lws_cache_ttl_lru_t_heap_t *)_c;
-	lws_cache_ttl_item_heap_t *item =
-		       lws_container_of(d, lws_cache_ttl_item_heap_t, list_lru);
+	lws_dll2_t *d;
 
-	lws_cache_heap_item_destroy(cache, item, 0);
-
-	return 0;
+	while ((d = lws_dll2_get_head(&cache->items_lru)))
+		_lws_cache_heap_item_destroy(cache, lws_container_of(d,
+					lws_cache_ttl_item_heap_t, list_lru));
 }
 
 static int
 lws_cache_heap_expunge(struct lws_cache_ttl_lru *_c)
 {
-	lws_cache_ttl_lru_t_heap_t *cache = (lws_cache_ttl_lru_t_heap_t *)_c;
-
-	lws_dll2_foreach_safe(&cache->items_lru, cache, destroy_dll);
+	lws_cache_heap_drain((lws_cache_ttl_lru_t_heap_t *)_c);
 
 	return 0;
 }
@@ -568,9 +573,10 @@ lws_cache_heap_destroy(struct lws_cache_ttl_lru **_cache)
 	if (!cache)
 		return;
 
-	lws_sul_cancel(&c->sul);
+	lws_cache_heap_drain(cache);
 
-	lws_dll2_foreach_safe(&cache->items_lru, cache, destroy_dll);
+	/* destroying items rearms the sul while any are left */
+	lws_sul_cancel(&c->sul);
 
 	lws_free_set_NULL(*_cache);
 }

@@ -480,8 +480,108 @@ test_nsc1(void)
 	ret = 0;
 
 cdone:
-	lws_cache_destroy(&nsc);
+	/* L1 first, it refers to its parent */
 	lws_cache_destroy(&l1);
+	lws_cache_destroy(&nsc);
+
+	if (ret)
+		lwsl_warn("%s: fail\n", __func__);
+
+	return ret;
+}
+
+/*
+ * Create an nscookiejar level on a fresh jar file, with a heap L1 on top
+ */
+
+static int
+nsc_pair_create(const char *filepath, struct lws_cache_ttl_lru **pnsc,
+		struct lws_cache_ttl_lru **pl1)
+{
+	struct lws_cache_creation_info ci;
+
+	memset(&ci, 0, sizeof(ci));
+	ci.cx = cx;
+	ci.ops = &lws_cache_ops_nscookiejar;
+	ci.name = "NSC";
+	ci.u.nscookiejar.filepath = filepath;
+
+	*pnsc = lws_cache_create(&ci);
+	if (!*pnsc)
+		return 1;
+
+	/* start from an empty jar, whatever an earlier run left */
+	lws_cache_expunge(*pnsc);
+
+	ci.ops = &lws_cache_ops_heap;
+	ci.name = "L1";
+	ci.parent = *pnsc;
+
+	*pl1 = lws_cache_create(&ci);
+	if (!*pl1) {
+		lws_cache_destroy(pnsc);
+		return 1;
+	}
+
+	return 0;
+}
+
+static void
+nsc_pair_destroy(struct lws_cache_ttl_lru **pnsc,
+		 struct lws_cache_ttl_lru **pl1)
+{
+	if (*pl1)
+		lws_cache_expunge(*pl1); /* also deletes the jar file */
+	lws_cache_destroy(pl1);
+	lws_cache_destroy(pnsc);
+}
+
+/*
+ * The usual cookie flow: a cookie is stored, then a later request looks up
+ * the cookies for its path and gets each result.  The get moves the cookie
+ * item in front of the cached lookup result that names it, and destroying
+ * the L1 cache must cope with that ordering.
+ */
+
+static int
+test_nsc_lookup_get_destroy(void)
+{
+	struct lws_cache_ttl_lru *l1 = NULL, *nsc = NULL;
+	lws_cache_results_t cr;
+	int ret = 1, found = 0;
+	size_t size;
+	char *po;
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	if (nsc_pair_create("./cookies-lgd.txt", &nsc, &l1))
+		goto cdone;
+
+	if (lws_cache_write_through(l1, tag_cookie1,
+				    (const uint8_t *)cookie1, strlen(cookie1),
+				    lws_now_usecs() + LWS_US_PER_SEC * 10, NULL))
+		goto cdone;
+
+	if (lws_cache_lookup(l1, "host.com|/|*", (const void **)&cr.ptr,
+			     &cr.size))
+		goto cdone;
+
+	while (!lws_cache_results_walk(&cr)) {
+		if (lws_cache_item_get(l1, (const char *)cr.tag,
+				       (const void **)&po, &size) ||
+		    size != strlen(cookie1) || memcmp(po, cookie1, size))
+			goto cdone;
+		found++;
+	}
+
+	if (found != 1)
+		goto cdone;
+
+	ret = 0;
+
+cdone:
+	nsc_pair_destroy(&nsc, &l1);
 
 	if (ret)
 		lwsl_warn("%s: fail\n", __func__);
@@ -515,6 +615,8 @@ int main(int argc, const char **argv)
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR)
 	if (test_nsc1())
 		fail++;
+	if (test_nsc_lookup_get_destroy())
+		fail++;
 #endif
 
 	/*
@@ -544,5 +646,5 @@ int main(int argc, const char **argv)
 	else
 		lwsl_err("Completed: FAIL %d / %d\n", fail, tests);
 
-	return 0;
+	return !tests || fail;
 }
