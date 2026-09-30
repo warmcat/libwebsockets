@@ -19,6 +19,9 @@
  *
  *  - nothing a request provided survives into the next request's view
  *
+ *  - a ws upgrade on the same connection after those transactions is
+ *    accepted, and the accepted stream hears LWSSSCS_SERVER_UPGRADE
+ *
  * The client is a raw socket in the same process, so we control exactly what
  * is sent on the connection.
  */
@@ -51,6 +54,7 @@ typedef struct txn {
 	const char		*method;
 	const char		*auth;
 	const char		*my_arg;
+	char			upgrade;	/* ws upgrade, not an http txn */
 
 	/* results */
 	char			checked;
@@ -66,14 +70,26 @@ static txn_t txns[] = {
 		"Host: localhost\r\n"
 		"Authorization: Bearer real\r\n"
 		"\r\n",
-		"/txn/one", "GET", "Bearer real", "hello", 0, 0
+		"/txn/one", "GET", "Bearer real", "hello", 0, 0, 0
 	}, {
 		/* nothing from the last request on this connection remains */
 		"plain",
 		"GET /txn/two HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"\r\n",
-		"/txn/two", "GET", NULL, NULL, 0, 0
+		"/txn/two", "GET", NULL, NULL, 0, 0, 0
+	}, {
+		/* a ws upgrade after completed transactions */
+		"upgrade",
+		"GET /ws HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Upgrade: websocket\r\n"
+		"Connection: Upgrade\r\n"
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+		"Sec-WebSocket-Version: 13\r\n"
+		"Sec-WebSocket-Protocol: txn-ws\r\n"
+		"\r\n",
+		NULL, NULL, NULL, NULL, 1, 0, 0
 	},
 };
 
@@ -158,10 +174,23 @@ srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	lwsl_ss_user(m->ss, "%s", lws_ss_state_name(state));
 
+	if (state == LWSSSCS_SERVER_UPGRADE) {
+		if (cur_txn >= LWS_ARRAY_SIZE(txns) || !t->upgrade ||
+		    t->checked) {
+			lwsl_err("%s: unexpected upgrade\n", __func__);
+			finish(1);
+
+			return LWSSSSRET_DISCONNECT_ME;
+		}
+		t->checked = 1;
+
+		return LWSSSSRET_OK;
+	}
+
 	if (state != LWSSSCS_SERVER_TXN)
 		return LWSSSSRET_OK;
 
-	if (cur_txn >= LWS_ARRAY_SIZE(txns) || t->checked) {
+	if (cur_txn >= LWS_ARRAY_SIZE(txns) || t->upgrade || t->checked) {
 		lwsl_err("%s: unexpected transaction\n", __func__);
 		finish(1);
 
@@ -257,12 +286,17 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		pss->rx_len += len;
 		pss->rx[pss->rx_len] = '\0';
 
-		/* the server's response body is "ok" */
+		/*
+		 * The server's http response body is "ok", the upgrade
+		 * response has no body
+		 */
 
-		if (!strstr(pss->rx, "\r\n\r\nok"))
+		if (!strstr(pss->rx, txns[cur_txn].upgrade ? "\r\n\r\n" :
+							     "\r\n\r\nok"))
 			break;
 
-		if (strncmp(pss->rx, "HTTP/1.1 200", 12)) {
+		if (strncmp(pss->rx, txns[cur_txn].upgrade ? "HTTP/1.1 101" :
+							     "HTTP/1.1 200", 12)) {
 			lwsl_err("%s: %s: unexpected response\n", __func__,
 				 txns[cur_txn].name);
 			finish(1);
@@ -400,6 +434,7 @@ main(int argc, const char **argv)
 			"\"metadata\":[{\"mime\":\"Content-Type:\","
 				"\"path\":\"\",\"method\":\"\",\"auth\":\"\","
 				"\"my_arg\":\"\"}],"
+			"\"ws_subprotocol\":\"txn-ws\","
 			"\"tls\":false}}]}", port);
 
 	nl.name				= "app";
