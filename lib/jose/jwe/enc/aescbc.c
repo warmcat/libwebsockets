@@ -229,13 +229,20 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 		return -1;
 	}
 
-	/* first half of digest is the auth tag */
+	/*
+	 * First half of digest is the auth tag.
+	 *
+	 * On a mismatch, digest holds the *valid* tag for the (possibly
+	 * attacker-edited) header, IV and ciphertext under the recipient's
+	 * key.  It must never be logged: anyone who can read the log could
+	 * then forge that message, and with it drive a padding oracle.
+	 */
 
-	if (lws_timingsafe_bcmp(digest, jwe->jws.map.buf[LJWE_ATAG], (unsigned int)hlen / 2)) {
-		lwsl_err("%s: auth failed: hmac tag (%d) != ATAG (%d)\n",
-			 __func__, hlen / 2, (int)jwe->jws.map.len[LJWE_ATAG]);
-		lwsl_hexdump_notice(jwe->jws.map.buf[LJWE_ATAG], (unsigned int)hlen / 2);
-		lwsl_hexdump_notice(digest, (unsigned int)hlen / 2);
+	n = lws_timingsafe_bcmp(digest, jwe->jws.map.buf[LJWE_ATAG],
+				(unsigned int)hlen / 2);
+	lws_explicit_bzero(digest, sizeof(digest));
+	if (n) {
+		lwsl_info("%s: auth failed\n", __func__);
 		return -1;
 	}
 

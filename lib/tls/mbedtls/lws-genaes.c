@@ -161,14 +161,19 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 			if (tlen != (size_t)ctx->taglen) {
 				lwsl_err("%s: tag len %d, expected %d\n",
 					 __func__, (int)tlen, ctx->taglen);
+				lws_explicit_bzero(tag, tlen);
 				n = -1;
 			} else
 			if (lws_timingsafe_bcmp(ctx->tag, tag, (unsigned int)ctx->taglen)) {
-				lwsl_err("%s: lws_genaes_crypt tag "
-					 "mismatch (bad first)\n",
-						__func__);
-				lwsl_hexdump_notice(tag, tlen);
-				lwsl_hexdump_notice(ctx->tag, (unsigned int)ctx->taglen);
+				/*
+				 * Never log "tag" here: it is the valid tag
+				 * for whatever AAD and ciphertext the peer
+				 * sent, under our key, ie, a forgery for
+				 * anyone who can read the log.  Don't hand
+				 * it back to the caller either.
+				 */
+				lwsl_info("%s: tag mismatch\n", __func__);
+				lws_explicit_bzero(tag, tlen);
 				n = -1;
 			}
 		}
