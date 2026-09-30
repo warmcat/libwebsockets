@@ -254,7 +254,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 				if (!lws_tls_peer_cert_info(wsi,
 						LWS_TLS_CERT_INFO_COMMON_NAME,
-						&ir, sizeof(ir)))
+						&ir, sizeof(ir.ns.name)))
 					lws_strncpy(cn, ir.ns.name, sizeof(cn));
 				else
 					lws_strncpy(cn, "unknown", sizeof(cn));
