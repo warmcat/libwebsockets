@@ -1,0 +1,11 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [360.0 x 42.0] rgba=FF0000FF
+  rect (0.0,0.0) [320.0 x 42.0] rgba=FF00FF00
+   rect (0.0,0.0) [240.0 x 42.0] rgba=FFFF0000
+    rect (0.0,0.0) [220.0 x 42.0] rgba=FF00FFFF
+     rect (22.0,0.0) [198.0 x 19.0] rgba=FFFFFF00
+      text (13.0,0.0) [11.0 x 19.0] rgba=FF000000 f=17/400 "m"
+     rect (0.0,19.0) [47.0 x 23.0] rgba=FFFF00FF
+      rect (22.0,0.0) [11.0 x 21.0] rgba=00000000
+       rect (2.0,0.0) [7.0 x 21.0] rgba=00000000
+        text (1.0,1.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "t"

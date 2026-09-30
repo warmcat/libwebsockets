@@ -795,6 +795,15 @@ static const lws_fx_t c_254= { 2,54000000 }, c_10 = { 10,0 }, c_0 = { 0, 0 },
 			     lws_fx_83 = { 83, 0 }, lws_fx_120 = { 120, 0 };
 
 /*
+ * A % is of the containing block's length, and when that is a calc() with %
+ * terms of its own, resolving it recurses to resolve the next block out, and
+ * so on: the document's nesting decides how deep.  Follow at most this many
+ * containing blocks at once; past that the length is unknown, taken as 0, as
+ * when no containing block sets it at all
+ */
+#define LHP_MAX_CB_RESOLVE_DEPTH 4
+
+/*
  * We need to go backward until we reach an absolute length for the reference
  * axis, then base off that and go forward applying relative operations (like %)
  * on it in order.
@@ -808,6 +817,12 @@ lws_css_compute_cascaded_length(lhp_ctx_t *ctx, int ref, lhp_pstack_t *ps,
 	const struct lcsp_atr *atrmap[20];
 	lws_fx_t t2;
 	int amp = 0;
+
+	if (ctx->cb_depth >= LHP_MAX_CB_RESOLVE_DEPTH)
+		/* the page's nesting: bound the recursion it can drive */
+		return 0;
+
+	ctx->cb_depth++;
 
 	do {
 		const struct lcsp_atr *a;
@@ -851,6 +866,8 @@ lws_css_compute_cascaded_length(lhp_ctx_t *ctx, int ref, lhp_pstack_t *ps,
 					lws_fx_mul(&t2, &atrmap[amp]->u.i, t1),
 									&c_100);
 	}
+
+	ctx->cb_depth--;
 
 	return 0;
 }
@@ -909,10 +926,23 @@ lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
  * turn, with the fallback after the comma if it is not defined.
  */
 
+/*
+ * The containing block length that the % terms are of, resolved on first use
+ * and then shared by every % term of the calc(), including those reached
+ * through var(): resolving it may evaluate the block's own calc(), so doing it
+ * per term would multiply by the term count at every containing block out
+ */
+
+struct lhp_calc_pct {
+	lws_fx_t		v;
+	char			resolved;
+};
+
 struct lhp_calc {
 	lhp_ctx_t		*ctx;
 	lhp_pstack_t		*ps;
 	const lws_fx_t		*base;
+	struct lhp_calc_pct	*pct;
 	const char		*p;
 	const char		*end;
 	int			ref;
@@ -1148,9 +1178,14 @@ lhp_calc_factor(struct lhp_calc *cs)
 			cs->unitless = 0;
 			if (cs->base)
 				b = *cs->base;
-			else if (cs->ref != LWS_LHPREF_NONE)
-				lws_css_compute_cascaded_length(cs->ctx,
-						cs->ref, cs->ps, &b);
+			else if (cs->ref != LWS_LHPREF_NONE) {
+				if (!cs->pct->resolved) {
+					lws_css_compute_cascaded_length(cs->ctx,
+						cs->ref, cs->ps, &cs->pct->v);
+					cs->pct->resolved = 1;
+				}
+				b = cs->pct->v;
+			}
 			lws_fx_mul(&v2, &atr.u.i, &b);
 			lws_fx_div(&v, &v2, &c_100);
 			goto done;
@@ -1247,12 +1282,16 @@ lws_fx_t
 lws_csp_calc(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base,
 	     int *unitless)
 {
+	struct lhp_calc_pct pct;
 	struct lhp_calc cs;
 	lws_fx_t v;
+
+	memset(&pct, 0, sizeof(pct));
 
 	cs.ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
 	cs.ps = ps;
 	cs.base = base;
+	cs.pct = &pct;
 	cs.ref = lhp_prop_axis(a);
 	cs.p = (const char *)&a[1];
 	cs.end = cs.p + a->value_len;

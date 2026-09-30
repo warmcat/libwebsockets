@@ -795,6 +795,9 @@ typedef struct lhp_ctx {
 	 */
 	lws_fx_t		fxs[8];
 	uint8_t			fxsi;
+	uint8_t			cb_depth; /* containing blocks being resolved
+					   * for a %, see
+					   * lws_css_compute_cascaded_length() */
 
 	lcsp_css_units_t	unit;
 	lcsp_stanza_t		*stz; /* current stanza getting properties */
