@@ -414,6 +414,33 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 			lws_dll2_remove(&wsi->same_vh_protocol);
 	}
 
+	/*
+	 * His protocol is normally an entry in the protocols array of the
+	 * vhost he is leaving, which is freed with that vhost, and nothing
+	 * makes the vhost he is leaving outlive him once he is not bound to
+	 * it.  A connection moved by a TLS SNI callback, or by the post-accept
+	 * SNI adaptation, is the listener's network connection, and nothing
+	 * later rebinds its protocol the way an h1 request's is when it is
+	 * served; so eg, an h2 connection moved onto another vhost called
+	 * its old vhost's protocol callback from freed memory when it closed
+	 * after the listening vhost had gone.
+	 *
+	 * If he is not bound to that protocol yet (no BIND_PROTOCOL whose
+	 * DROP_PROTOCOL must go to the same callback) and has nothing
+	 * allocated against it, take the new vhost's protocol of the same name
+	 * instead, which is exactly what he would have had had he arrived
+	 * there.
+	 */
+
+	if (wsi->a.vhost && wsi->a.protocol && wsi->a.protocol->name &&
+	    !wsi->protocol_bind_balance && !wsi->user_space) {
+		const struct lws_protocols *np =
+			lws_vhost_name_to_protocol(vh, wsi->a.protocol->name);
+
+		if (np)
+			wsi->a.protocol = np;
+	}
+
 	if (wsi->a.vhost)
 		__lws_vhost_unbind_wsi(wsi); /* req cx lock, takes vh lock */
 
