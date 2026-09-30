@@ -146,6 +146,54 @@ static const char * const qpack_canned[] = {
 	"", "*", "1", "", "", "deny", "sameorigin"
 };
 
+/*
+ * The field name of each row.  A dynamic entry inserted with a reference to
+ * a static row is named from here, and a row lws has no token for is
+ * reported by it, so such a field still arrives with its name.
+ */
+static const char * const qpack_static_name[99] = {
+	/* 0 */
+	":authority", ":path", "age", "content-disposition", "content-length",
+	"cookie", "date", "etag", "if-modified-since", "if-none-match",
+	/* 10 */
+	"last-modified", "link", "location", "referer", "set-cookie",
+	":method", ":method", ":method", ":method", ":method",
+	/* 20 */
+	":method", ":method", ":scheme", ":scheme", ":status", ":status",
+	":status", ":status", ":status", "accept",
+	/* 30 */
+	"accept", "accept-encoding", "accept-ranges",
+	"access-control-allow-headers", "access-control-allow-headers",
+	"access-control-allow-origin", "cache-control", "cache-control",
+	"cache-control", "cache-control",
+	/* 40 */
+	"cache-control", "cache-control", "content-encoding",
+	"content-encoding", "content-type", "content-type", "content-type",
+	"content-type", "content-type", "content-type",
+	/* 50 */
+	"content-type", "content-type", "content-type", "content-type",
+	"content-type", "range", "strict-transport-security",
+	"strict-transport-security", "strict-transport-security", "vary",
+	/* 60 */
+	"vary", "x-content-type-options", "x-xss-protection", ":status",
+	":status", ":status", ":status", ":status", ":status", ":status",
+	/* 70 */
+	":status", ":status", "accept-language",
+	"access-control-allow-credentials",
+	"access-control-allow-credentials", "access-control-allow-headers",
+	"access-control-allow-methods", "access-control-allow-methods",
+	"access-control-allow-methods", "access-control-expose-headers",
+	/* 80 */
+	"access-control-request-headers", "access-control-request-method",
+	"access-control-request-method", "alt-svc", "authorization",
+	"content-security-policy", "early-data", "expect-ct", "forwarded",
+	"if-range",
+	/* 90 */
+	"origin", "purpose", "server", "timing-allow-origin",
+	"upgrade-insecure-requests", "user-agent", "x-forwarded-for",
+	"x-frame-options", "x-frame-options"
+};
+
 LWS_VISIBLE int
 lws_qpack_find_static_index(int lws_hdr_idx, const char *value, int value_len)
 {
@@ -806,8 +854,15 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				}
 
 				if ((state->opcode & 0xc0) == 0xc0) {
-					if (lws_qpack_get_static_token((int)state->int_val, &idx, &val)) return 1;
+					/* the index as sent, not what an int makes of it */
+					if (state->int_val >= LWS_ARRAY_SIZE(qpack_static_name) ||
+					    lws_qpack_get_static_token((int)state->int_val, &idx, &val))
+						return 1;
 					val_len = strlen(val);
+					if (idx == LWS_QPACK_IGNORE_ENTRY) {
+						name = qpack_static_name[state->int_val];
+						name_len = strlen(name);
+					}
 				} else if ((state->opcode & 0xc0) == 0x80) {
 					int absolute_idx = (int)(state->base - (uint64_t)state->int_val - 1);
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
@@ -834,6 +889,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					}
 				} else if ((state->opcode & 0xf0) == 0x50 || (state->opcode & 0xf0) == 0x70) {
 					if (lws_qpack_get_static_token((int)state->hdr_idx, &idx, NULL)) return 1;
+					if (idx == LWS_QPACK_IGNORE_ENTRY) {
+						name = qpack_static_name[state->hdr_idx];
+						name_len = strlen(name);
+					}
 					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
 					val_len = state->val_pos;
@@ -1287,10 +1346,16 @@ do_emit_enc:
 					if (lws_qpack_dynamic_insert(ctx, dte->lws_hdr_idx, dte->value, name_len, state->val_buf, state->val_pos))
 						return 1;
 				} else if ((state->opcode & 0xc0) == 0xc0) {
-					if (lws_qpack_get_static_token((int)state->hdr_idx, &tok, &name))
+					/*
+					 * the entry takes the row's name, not its
+					 * value, and is sized by it (RFC 9204
+					 * 3.2.1), as the peer sizes it
+					 */
+					if (lws_qpack_get_static_token((int)state->hdr_idx, &tok, NULL))
 						return 1;
+					name = qpack_static_name[state->hdr_idx];
 					state->val_buf[state->val_pos] = '\0';
-					if (lws_qpack_dynamic_insert(ctx, tok, name, name ? strlen(name) : 0, state->val_buf, state->val_pos))
+					if (lws_qpack_dynamic_insert(ctx, tok, name, strlen(name), state->val_buf, state->val_pos))
 						return 1;
 				} else if ((state->opcode & 0xc0) == 0x40) {
 					state->name_buf[state->name_pos] = '\0';

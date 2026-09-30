@@ -568,6 +568,137 @@ static int test_qpack_browser_shape(void)
 	return b.fails;
 }
 
+/*
+ * 12. Encoder-stream inserts that name their entry by a static table row.
+ *
+ * "Insert With Name Reference" with T=1 names the new dynamic entry by a
+ * static row: the entry takes that row's NAME, is sized by it, and a field
+ * line referring to the entry must arrive with that name and lws' token for
+ * it.  A row lws has no token for arrives by its name, so it can still be
+ * kept as a custom header.
+ */
+
+struct static_ref_state {
+	int fails;
+	int n;
+};
+
+static int
+test_static_ref_cb(void *user, int name_idx, const char *name,
+		   size_t name_len, const char *value, size_t value_len)
+{
+	static const struct {
+		const char	*name;
+		int		idx;
+		const char	*value;
+	} x[] = {
+		{ "origin", WSI_TOKEN_ORIGIN, "https://warmcat.com" },
+		{ "x-content-type-options", LWS_QPACK_IGNORE_ENTRY, "nosniff" },
+		{ "origin", WSI_TOKEN_ORIGIN, "null" },
+		{ "x-content-type-options", LWS_QPACK_IGNORE_ENTRY, "nosniff" },
+	};
+	struct static_ref_state *st = (struct static_ref_state *)user;
+
+	if (st->n >= (int)LWS_ARRAY_SIZE(x)) {
+		lwsl_err("12: unexpected field %d\n", st->n);
+		st->fails++;
+		return 1;
+	}
+
+	if (!name || name_len != strlen(x[st->n].name) ||
+	    memcmp(name, x[st->n].name, name_len) ||
+	    name_idx != x[st->n].idx || !value ||
+	    value_len != strlen(x[st->n].value) ||
+	    memcmp(value, x[st->n].value, value_len)) {
+		lwsl_err("12: field %d: '%.*s' (%d) '%.*s', expected "
+			 "'%s' (%d) '%s'\n", st->n, (int)name_len,
+			 name ? name : "", name_idx, (int)value_len,
+			 value ? value : "", x[st->n].name, x[st->n].idx,
+			 x[st->n].value);
+		st->fails++;
+	}
+	st->n++;
+
+	return 0;
+}
+
+static int test_qpack_static_name_ref_insert(void)
+{
+	static struct lws_qpack_dynamic_table_entry entries[128];
+	/* Set Dynamic Table Capacity 4096 */
+	static const uint8_t setcap[] = { 0x3f, 0xe1, 0x1f };
+	/* Insert With Name Reference, static 90 (origin: "") */
+	static const uint8_t ins1[] = {
+		0xff, 90 - 63, 19,
+		'h','t','t','p','s',':','/','/','w','a','r','m','c','a','t',
+		'.','c','o','m'
+	};
+	/* Insert With Name Reference, static 61 (x-content-type-options) */
+	static const uint8_t ins2[] = {
+		0xc0 | 61, 7, 'n','o','s','n','i','f','f'
+	};
+	/*
+	 * Field block: Ric 2 (wire 3), base 2; indexed dynamic relative 1
+	 * (origin), indexed dynamic relative 0 (x-content-type-options), then
+	 * a literal naming dynamic relative 1 (origin) with value "null",
+	 * and last the static row 61 itself, indexed
+	 */
+	static const uint8_t block[] = {
+		0x03, 0x00, 0x81, 0x80, 0x41, 4, 'n','u','l','l', 0xc0 | 61
+	};
+	struct lws_qpack_stream_state enc_state, hdr_state;
+	struct lws_qpack_context qctx;
+	struct static_ref_state st;
+
+	lwsl_user("\n--- 12. QPACK insert naming a static row ---\n");
+
+	memset(&st, 0, sizeof(st));
+	memset(&qctx, 0, sizeof(qctx));
+	qctx.dyn_table.entries = entries;
+	qctx.dyn_table.num_entries = LWS_ARRAY_SIZE(entries);
+	qctx.dyn_table.virtual_payload_limit = 4096;
+
+	memset(&enc_state, 0, sizeof(enc_state));
+	enc_state.state = LQP_DEC_INSTRUCTION;
+
+	if (lws_qpack_decode_encoder_stream(&enc_state, &qctx, setcap,
+					    sizeof(setcap)) ||
+	    lws_qpack_decode_encoder_stream(&enc_state, &qctx, ins1,
+					    sizeof(ins1)) ||
+	    lws_qpack_decode_encoder_stream(&enc_state, &qctx, ins2,
+					    sizeof(ins2))) {
+		lwsl_err("12.1: encoder stream rejected\n");
+		st.fails++;
+	}
+
+	/* RFC 9204 3.2.1: name + value + 32, with the row's name */
+	if (qctx.dyn_table.used_entries != 2 ||
+	    qctx.dyn_table.virtual_payload_usage !=
+				(6 + 19 + 32) + (22 + 7 + 32)) {
+		lwsl_err("12.2: table holds %u entries, %u bytes\n",
+			 qctx.dyn_table.used_entries,
+			 (unsigned int)qctx.dyn_table.virtual_payload_usage);
+		st.fails++;
+	}
+
+	memset(&hdr_state, 0, sizeof(hdr_state));
+	if (lws_qpack_decode_header_block(&hdr_state, &qctx, block,
+					  sizeof(block), test_static_ref_cb,
+					  &st)) {
+		lwsl_err("12.3: field block rejected\n");
+		st.fails++;
+	}
+
+	if (st.n != 4) {
+		lwsl_err("12.4: %d fields decoded, expected 4\n", st.n);
+		st.fails++;
+	}
+
+	lws_qpack_destroy_dynamic_header(&qctx);
+
+	return st.fails;
+}
+
 struct test_qif_state {
 	int fails;
 	int expected_idx;
@@ -1149,6 +1280,7 @@ int main(int argc, const char **argv)
 	fails += test_qpack_varint_limits();
 	fails += test_qpack_shrink_ring_bounds();
 	fails += test_qpack_browser_shape();
+	fails += test_qpack_static_name_ref_insert();
 	fails += test_qpack_field_too_large();
 
 	if (fails) {

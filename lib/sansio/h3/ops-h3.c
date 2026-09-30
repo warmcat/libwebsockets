@@ -935,28 +935,39 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 				return -1;
 			}
 
-		/* It's an unknown header, or string-based. We need to match it. */
-		tok = lws_http_string_to_known_header(name, name_len);
 		/*
-		 * That lookup is a prefix match over the lextable strings,
-		 * which also hold the method + URI tokens ("get " etc).  A
-		 * literal QPACK name like "get" would map to WSI_TOKEN_GET_URI
-		 * and its value would be stored verbatim, bypassing the
-		 * :path decode and normalization.  Only accept an exact
-		 * field-name match: pseudo headers are stored as ":name",
-		 * regular headers as "name:".
+		 * A name qpack took from its static table, directly or as the
+		 * name of a dynamic entry inserted with a reference to it,
+		 * comes with that row's token.  Only a name the peer spelled
+		 * out, or one lws has no token for, needs matching.
 		 */
-		if (tok >= 0 && tok < WSI_TOKEN_COUNT) {
-			const char *ts = (const char *)lws_token_to_string(
+		if (name_idx < 0 || name_idx >= WSI_TOKEN_COUNT) {
+			tok = lws_http_string_to_known_header(name, name_len);
+			/*
+			 * That lookup is a prefix match over the lextable
+			 * strings, which also hold the method + URI tokens
+			 * ("get " etc).  A literal QPACK name like "get" would
+			 * map to WSI_TOKEN_GET_URI and its value would be
+			 * stored verbatim, bypassing the :path decode and
+			 * normalization.  Only accept an exact field-name
+			 * match: pseudo headers are stored as ":name", regular
+			 * headers as "name:".
+			 */
+			if (tok >= 0 && tok < WSI_TOKEN_COUNT) {
+				const char *ts = (const char *)
+					lws_token_to_string(
 						(enum lws_token_indexes)tok);
-			size_t tl = ts ? strlen(ts) : 0;
+				size_t tl = ts ? strlen(ts) : 0;
 
-			if (!ts || strncmp(ts, name, name_len) ||
-			    !(tl == name_len ||
-			      (tl == name_len + 1 && ts[name_len] == ':'))) {
-				lwsl_wsi_notice(wsi, "refusing field name %.*s",
-						(int)name_len, name);
-				return -1;
+				if (!ts || strncmp(ts, name, name_len) ||
+				    !(tl == name_len ||
+				      (tl == name_len + 1 &&
+				       ts[name_len] == ':'))) {
+					lwsl_wsi_notice(wsi, "refusing field "
+							"name %.*s",
+							(int)name_len, name);
+					return -1;
+				}
 			}
 		}
 		if (name_len > 0 && name[0] == ':')
