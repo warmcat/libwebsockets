@@ -3633,8 +3633,17 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 		 * method that the client said he will accept
 		 */
 
-		if (!wsi->interpreting && (
-		     !strncmp(content_type, "text/", 5) ||
+		/*
+		 * ... but not a 206: its Content-Range and multipart part
+		 * headers describe byte offsets in the file, and a coding
+		 * applied over them would have them describe the coded
+		 * bytes instead (RFC 9110 14.4)
+		 */
+		if (!wsi->interpreting &&
+#if defined(LWS_WITH_RANGES)
+		    !ranges &&
+#endif
+		    (!strncmp(content_type, "text/", 5) ||
 		     !strcmp(content_type, "application/javascript") ||
 		     !strcmp(content_type, "image/svg+xml")))
 			lws_http_compression_apply(wsi, NULL, &p, end, 0);
