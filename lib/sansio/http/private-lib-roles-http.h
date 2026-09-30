@@ -277,6 +277,23 @@ lws_pt_next_ah(struct allocated_headers *ah)
 	return d ? lws_container_of(d, struct allocated_headers, list) : NULL;
 }
 
+/*
+ * One byte of an h2 / h3 field name (RFC 9113 8.2.1, RFC 9114 4.2): no
+ * controls, SP, uppercase or non-ASCII, and a ':' only to lead a pseudo-header.
+ *
+ * Besides being malformed, a name with a space in it can be taken by the h1
+ * lextable lookup for a request-line method token, eg "get ", whose value
+ * would then be the request URI without any of the :path decoding.
+ */
+static LWS_INLINE int
+lws_http_field_name_char_valid(unsigned char c, int first)
+{
+	if (c <= 0x20 || c >= 0x7f || (c >= 'A' && c <= 'Z'))
+		return 0;
+
+	return c != ':' || first;
+}
+
 /* how many 1xx interim responses a client swallows before giving up */
 #define LWS_HTTP_INTERIM_RESPONSE_LIMIT 8
 

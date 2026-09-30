@@ -833,6 +833,17 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		return lws_h3_hdrs_oversize(wsi);
 
 	if (name) {
+		size_t k;
+
+		for (k = 0; k < name_len; k++)
+			if (!lws_http_field_name_char_valid(
+					(unsigned char)name[k], !k)) {
+				lwsl_wsi_notice(wsi, "invalid field name");
+				lws_quic_enter_closing_state(nwsi,
+						LWS_H3_MESSAGE_ERROR, 0, 1);
+				return -1;
+			}
+
 		/* It's an unknown header, or string-based. We need to match it. */
 		tok = lws_http_string_to_known_header(name, name_len);
 		/*

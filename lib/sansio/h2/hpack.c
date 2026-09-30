@@ -1635,12 +1635,11 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 					h2n->first_hdr_char = (char)c1;
 				}
 				lwsl_header("parser: %c\n", c1);
-				/* uppercase header names illegal */
-				if (c1 >= 'A' && c1 <= 'Z') {
+				if (!lws_http_field_name_char_valid(c1,
+						h2n->hpack_hdr_len == 1))
 					return lws_h2_goaway(nwsi,
-						H2_ERR_COMPRESSION_ERROR,
-						"Uppercase literal hpack hdr");
-				}
+						H2_ERR_PROTOCOL_ERROR,
+						"Invalid literal hpack hdr name");
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 				/*
 				 * Speculatively collect the name into the UHO
