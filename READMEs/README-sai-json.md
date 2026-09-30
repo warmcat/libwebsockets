@@ -108,3 +108,14 @@ Besides the configuration's normal task, each event then has that many idle
 tasks ("lanes") for it on each platform.  They do not count towards the
 event's result, and only run in time builders would otherwise spend idle,
 when the builder conf allows it.  See [README-idle.md](README-idle.md).
+
+#### pool
+
+A configuration can name a pool, a set of files shared by the repo's tasks
+that the builders keep synced through sai-server, eg, a fuzzing corpus:
+
+```
+		"pool":		"fuzz"
+```
+
+See [README-pool.md](README-pool.md).

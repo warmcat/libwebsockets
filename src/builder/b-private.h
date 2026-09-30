@@ -202,6 +202,7 @@ struct sai_builder {
 	lws_dll2_owner_t	lsp_owner; /* list of lws_spawn_piped */
 	lws_dll2_owner_t	jobdir_hold_owner; /* saib_jobdir_hold_t */
 	lws_dll2_owner_t	shell_owner; /* list of sai_shell */
+	lws_dll2_owner_t	pool_owner; /* saib_pool_t, see b-pool.c */
 
 	struct lws_ss_handle	*ss_stay;
 	struct lws_ss_handle	*ss_power_off;
@@ -344,7 +345,8 @@ struct ws_capture_chunk {
 
 
 extern struct sai_builder builder;
-extern const lws_ss_info_t ssi_sai_builder, ssi_sai_mirror, ssi_sai_artifact;
+extern const lws_ss_info_t ssi_sai_builder, ssi_sai_mirror, ssi_sai_artifact,
+			   ssi_sai_pool;
 extern const struct lws_protocols protocol_com_warmcat_sai;
 int
 saib_config_global(struct sai_builder *builder, const char *d);
@@ -465,6 +467,29 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 
 void
 saib_sul_task_cancel(struct lws_sorted_usec_list *sul);
+
+/* b-pool.c */
+
+int
+saib_pool_attach(struct sai_nspawn *ns);
+
+int
+saib_pool_defer_spawn(struct sai_nspawn *ns);
+
+int
+saib_pool_waiter_abort(struct sai_nspawn *ns);
+
+void
+saib_pool_detach(struct sai_nspawn *ns);
+
+void
+saib_pool_env(struct sai_nspawn *ns, char *buf, size_t len);
+
+int
+saib_pool_busy(void);
+
+void
+saib_pool_destroy_all(void);
 
 int
 saib_suspender_get_pipe(void);

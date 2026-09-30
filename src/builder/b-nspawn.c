@@ -612,7 +612,7 @@ static const char * const runscript_win_first =
 	"set SAI_LOGPROXY=%s\n"
 	"set SAI_LOGPROXY_TTY0=%s\n"
 	"set SAI_LOGPROXY_TTY1=%s\n"
-	"%s"
+	"%s%s"
 	"set HOME=%s\n"
 	"set CI=true\n"
 	"set BUILDKIT_PROGRESS=plain\n"
@@ -629,7 +629,7 @@ static const char * const runscript_win_next =
 	"set SAI_LOGPROXY=%s\n"
 	"set SAI_LOGPROXY_TTY0=%s\n"
 	"set SAI_LOGPROXY_TTY1=%s\n"
-	"%s"
+	"%s%s"
 	"set HOME=%s\n"
 	"set CI=true\n"
 	"set BUILDKIT_PROGRESS=plain\n"
@@ -658,7 +658,7 @@ static const char * const runscript_first =
 	"export SAI_LOGPROXY=%s\n"
 	"export SAI_LOGPROXY_TTY0=%s\n"
 	"export SAI_LOGPROXY_TTY1=%s\n"
-	"%s"
+	"%s%s"
 	"export CI=true\n"
 	"export BUILDKIT_PROGRESS=plain\n"
 	"set -e\n"
@@ -687,7 +687,7 @@ static const char * const runscript_next =
 	"export SAI_LOGPROXY=%s\n"
 	"export SAI_LOGPROXY_TTY0=%s\n"
 	"export SAI_LOGPROXY_TTY1=%s\n"
-	"%s"
+	"%s%s"
 	"export CI=true\n"
 	"export BUILDKIT_PROGRESS=plain\n"
 	"set -e\n"
@@ -715,7 +715,7 @@ static const char * const runscript_build =
 	"export SAI_LOGPROXY=%s\n"
 	"export SAI_LOGPROXY_TTY0=%s\n"
 	"export SAI_LOGPROXY_TTY1=%s\n"
-	"%s"
+	"%s%s"
 	"export CI=true\n"
 	"export BUILDKIT_PROGRESS=plain\n"
 	"set -e\n"
@@ -747,8 +747,8 @@ saib_spawn_script(struct sai_nspawn *ns)
 		NULL
 	};
 #endif
-	char one_step[4096], idle_env[64];
-	char st[2048];
+	char one_step[4096], idle_env[64], pool_env[1024];
+	char st[8192];
 	unsigned int timeout_secs;
 	int fd, n;
 #if defined(__linux__)
@@ -803,6 +803,9 @@ saib_spawn_script(struct sai_nspawn *ns)
 	 * whatever it does in the time.  We stop it anyway if it goes on much
 	 * longer than that.
 	 */
+	/* where the task's pool is, if it has one, see b-pool.c */
+	saib_pool_env(ns, pool_env, sizeof(pool_env));
+
 	idle_env[0] = '\0';
 	timeout_secs = builder.build_timeout_secs;
 	if (ns->task->idle) {
@@ -826,7 +829,7 @@ saib_spawn_script(struct sai_nspawn *ns)
 			 ns->task->parallel ? ns->task->parallel : 1,
 			 respath, ns->slp_control.sockpath,
 			 ns->slp[0].sockpath, ns->slp[1].sockpath, idle_env,
-			 builder.home,
+			 pool_env, builder.home,
                         ns->inp, ns->task->build_step > 1 ? "\\src" : "",
                         one_step);
 #else
@@ -850,7 +853,7 @@ saib_spawn_script(struct sai_nspawn *ns)
 			 ns->task->parallel ? ns->task->parallel : 1,
 			 respath, ns->slp_control.sockpath,
 			 ns->slp[0].sockpath, ns->slp[1].sockpath, idle_env,
-			 builder.home, one_step);
+			 pool_env, builder.home, one_step);
 #endif
 
 	/* but from the script's pov, it's chrooted at /home/sai */

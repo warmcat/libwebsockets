@@ -9,6 +9,7 @@ set(SRCS
 	b-nspawn.c
 	b-task.c
 	b-artifacts.c
+	b-pool.c
 	b-logproxy.c
 	b-refproxy.c
 	b-load.c
@@ -17,6 +18,7 @@ set(SRCS
 	b-deletion.c
 	b-power.c
 	../common/c-utils.c
+	../common/c-pool.c
 	../common/struct-metadata.c
 )
 

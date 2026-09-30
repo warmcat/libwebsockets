@@ -230,6 +230,7 @@ const lws_struct_map_t lsm_task[] = {
 	LSM_SIGNED	(sai_task_t, rebuildable,	"rebuildable"),
 	LSM_SIGNED	(sai_task_t, run,		"run"),
 	LSM_SIGNED	(sai_task_t, idle,		"idle"),
+	LSM_CARRAY	(sai_task_t, pool,		"pool"),
 };
 
 const lws_struct_map_t lsm_schema_json_map_task[] = {
@@ -640,4 +641,15 @@ const lws_struct_map_t lsm_pending_tasks[] = {
 const lws_struct_map_t lsm_schema_pending_tasks[] = {
 	LSM_SCHEMA(sai_platform_pending_tasks_t, NULL, lsm_pending_tasks,
 		   "com.warmcat.sai.power.pending_tasks"),
+};
+
+/* builder -> server, the first thing on a pool sync connection after auth */
+
+const lws_struct_map_t lsm_pool_hello[] = {
+	LSM_CARRAY	(sai_pool_hello_t, task_uuid,	"task_uuid"),
+	LSM_CARRAY	(sai_pool_hello_t, nonce,	"nonce"),
+};
+
+const lws_struct_map_t lsm_schema_pool_hello[] = {
+	LSM_SCHEMA	(sai_pool_hello_t, NULL, lsm_pool_hello, SAI_POOL_SCHEMA),
 };

@@ -93,6 +93,7 @@ static const char * const saifile_paths[] = {
 	"configurations.*.branches",
 	"configurations.*.task_log_limit",
 	"configurations.*.idle",
+	"configurations.*.pool",
 	"configurations.*",
 };
 
@@ -112,6 +113,7 @@ enum enum_saifile_paths {
 	LEJPNSAIF_CONFIGURATIONS_BRANCHES,
 	LEJPNSAIF_CONFIGURATIONS_TASK_LOG_LIMIT,
 	LEJPNSAIF_CONFIGURATIONS_IDLE,
+	LEJPNSAIF_CONFIGURATIONS_POOL,
 	LEJPNSAIF_CONFIGURATIONS_NAME,
 };
 
@@ -296,6 +298,7 @@ sai_saifile_lejp_cb(struct lejp_ctx *ctx, char reason)
 		sn->t.branches[0]		= '\0';
 		sn->explicit_platforms[0]	= '\0';
 		sn->idle_lanes			= 0;
+		sn->t.pool[0]			= '\0';
 		return 0;
 	}
 
@@ -775,6 +778,22 @@ insert_fail:
 			sn->idle_lanes = 0;
 		if (sn->idle_lanes > SAI_IDLE_LANES_MAX)
 			sn->idle_lanes = SAI_IDLE_LANES_MAX;
+		break;
+
+	case LEJPNSAIF_CONFIGURATIONS_POOL:
+		/*
+		 * The repo's named pool the configuration's tasks work with,
+		 * which builders keep synced with us while they run them.  It
+		 * becomes a path component on the builder and part of our db
+		 * filename, so it has to be a plain short name.
+		 */
+		lws_strncpy(sn->t.pool, ctx->buf, sizeof(sn->t.pool));
+		if (ctx->npos >= sizeof(sn->t.pool) ||
+		    !sai_pool_name_ok(sn->t.pool)) {
+			lwsl_notice("%s: rejecting pool name '%s'\n",
+				    __func__, sn->t.pool);
+			return -1;
+		}
 		break;
 
 	case LEJPNSAIF_PLAT_BUILD:

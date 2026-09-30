@@ -717,6 +717,8 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			else
 				lwsl_wsi_user(wsi, "#### sai-server: CLOSED builder conn (no close payload) ####");
 		}
+		sais_pool_session_destroy(pss);
+
 		/* remove pss from vhd->builders (active connection list) */
 		lws_dll2_remove(&pss->same);
 

@@ -174,6 +174,24 @@ static const char * const default_ss_policy =
 			"]"
 		"}},"
 		/*
+		 * Ephemeral connections to the same server syncing a pool,
+		 * see b-pool.c
+		 */
+		"{\"sai_pool\": {"
+			"\"endpoint\":"		"\"${url}\","
+			"\"port\":"		"443,"
+			"\"protocol\":"		"\"ws\","
+			"\"ws_subprotocol\":"	"\"com-warmcat-sai\","
+			"\"http_url\":"		"\"\"," /* filled in by url */
+			"\"tls\":"		"true,"
+			"\"opportunistic\":"	"true,"
+			"\"ws_binary\":"	"true,"
+			"\"retry\":"		"\"default\","
+			"\"metadata\": ["
+				"{\"url\": \"\"}"
+			"]"
+		"}},"
+		/*
 		 * Used to connect to sai-power to ask for power-off
 		 */
 		"{\"sai_power\": {"
@@ -1072,6 +1090,7 @@ saib_app_run(int argc, const char **argv)
 
 	} lws_end_foreach_dll_safe(mp, mp1);
 
+	saib_pool_destroy_all();
 	saib_config_destroy(&builder);
 
 	saib_power_shutdown();

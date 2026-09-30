@@ -292,6 +292,12 @@ typedef struct {
 	 * does not count towards its event's state.  See README-idle.md.
 	 */
 	int				idle;
+	/*
+	 * Optional name of the repo's shared pool the task works with, eg,
+	 * "fuzz" for fuzzing corpora.  The builder keeps it synced with the
+	 * server while the task runs.  See READMEs/README-pool.md.
+	 */
+	char				pool[33];
 } sai_task_t;
 
 struct saib_logproxy {
@@ -304,6 +310,8 @@ struct saib_resproxy {
 	char				sockpath[128];
 	struct sai_nspawn		*ns;
 };
+
+struct saib_pool;
 
 struct sai_nspawn {
 	char				inp[512];
@@ -337,6 +345,10 @@ struct sai_nspawn {
 
 	/* builder: sai_artifact_t of uploads still in flight for this ns */
 	lws_dll2_owner_t		artifact_owner;
+
+	/* builder: the task's pool, if any, and waiting for it to sync */
+	struct saib_pool		*pool;
+	lws_dll2_t			pool_wait_list;
 
 	sai_plat_t			*sp; /* the sai_plat */
 	struct sai_plat_server		*spm; /* the sai plat / server with the ss / wsi */
@@ -1052,7 +1064,7 @@ extern const lws_struct_map_t
 	lsm_schema_map_ta[1],
 	lsm_schema_map_plat_simple[1],
 	lsm_event[15],
-	lsm_task[33],
+	lsm_task[34],
 	lsm_log[8],
 	lsm_artifact[9],
 	lsm_plat_list[1],
@@ -1200,6 +1212,115 @@ sai_event_db_delete_database(const char *sqlite3_path_lhs, const char *event_uui
 
 int
 sai_sqlite3_statement(struct sqlite3 *pdb, const char *cmd, const char *desc);
+
+/*
+ * Pools: a repo's named sets of files that the builders running its tasks keep
+ * synced through sai-server, eg, fuzzing corpora.  See READMEs/README-pool.md.
+ *
+ * A builder opens a connection to sai-server's /builder endpoint for each
+ * sync, proves the link key as usual, then sends a JSON "hello" naming the
+ * task it syncs for, with the task's artifact upload nonce, which decides the
+ * repo and pool.  After that, both ways, it's a stream of binary records:
+ *
+ *   u8 type, u8 ns, u16 name length, u32 data length (big endian),
+ *   the name, then the data
+ *
+ * Names are "<sub>/<name>", eg, "corpus-h2/<sha1>", except as noted.
+ */
+
+#define SAI_POOL_SCHEMA		"com.warmcat.sai.pool"
+#define SAI_POOL_REC_HDR_LEN	8
+#define SAI_POOL_REC_NAME_MAX	128
+/* the most one corpus or known entry may be */
+#define SAI_POOL_ENTRY_MAX	(1024u * 1024u)
+/* the most one finding may be */
+#define SAI_POOL_FINDING_MAX	(8u * 1024u * 1024u)
+/*
+ * The most an OFFER (and so the WANT answering it) may list, the sender splits
+ * longer lists over several; and the most a REPLACE's list of names to keep,
+ * which can't be split, may be
+ */
+#define SAI_POOL_OFFER_MAX	(512u * 1024u)
+#define SAI_POOL_LIST_MAX	(8u * 1024u * 1024u)
+
+enum {
+	/*
+	 * Both ways, and the entries are content addressed: the name is the
+	 * lowercase hex sha1 of the content
+	 */
+	SAI_POOL_NS_CORPUS,
+	/* server -> builder only, content addressed, eg, known reproducers */
+	SAI_POOL_NS_KNOWN,
+	/* builder -> server only, any safe name, eg, fuzzer findings */
+	SAI_POOL_NS_FINDINGS,
+
+	SAI_POOL_NS_COUNT
+};
+
+enum {
+	/* builder -> server */
+
+	SAI_POOL_REC_PULL	= 1,	/* data: u64 BE cursor we have up to */
+	SAI_POOL_REC_OFFER,		/* data: '\n'-separated names we have */
+	SAI_POOL_REC_PUT,		/* name, data: the content */
+	SAI_POOL_REC_REPLACE,		/* name: sub only, data: u64 BE base
+					 * cursor then '\n'-separated names in
+					 * sub to keep, see README-pool.md */
+
+	/* server -> builder */
+
+	SAI_POOL_REC_ENTRY	= 0x81,	/* name, data: the content */
+	SAI_POOL_REC_DEAD,		/* name: the entry was removed */
+	SAI_POOL_REC_PULL_END,		/* data: u64 BE cursor now */
+	SAI_POOL_REC_WANT,		/* data: '\n'-separated offered names
+					 * the server doesn't have */
+	SAI_POOL_REC_ACK,		/* name: of the PUT, or sub of the
+					 * REPLACE, that was stored */
+};
+
+typedef struct sai_pool_hello {
+	char				task_uuid[65];
+	char				nonce[33];
+} sai_pool_hello_t;
+
+typedef struct sai_pool_rec_hdr {
+	uint32_t			len;
+	uint16_t			name_len;
+	uint8_t				type;
+	uint8_t				ns;
+} sai_pool_rec_hdr_t;
+
+extern const lws_struct_map_t lsm_pool_hello[2], lsm_schema_pool_hello[1];
+
+/* src/common/c-pool.c */
+
+int
+sai_pool_name_ok(const char *name);
+
+int
+sai_pool_sub_ok(const char *sub, size_t len);
+
+int
+sai_pool_entry_name_ok(int ns, const char *name, size_t len);
+
+int
+sai_pool_content_matches(const uint8_t *data, size_t len, const char *sha1hex);
+
+void
+sai_pool_rec_hdr_write(uint8_t *p, int type, int ns, size_t name_len,
+		       size_t len);
+
+void
+sai_pool_rec_hdr_read(const uint8_t *p, sai_pool_rec_hdr_t *h);
+
+size_t
+sai_pool_rec_max(int ns, int type);
+
+void
+sai_pool_u64_write(uint8_t *p, uint64_t v);
+
+uint64_t
+sai_pool_u64_read(const uint8_t *p);
 
 /*
  * c-conf.c: create the context and vhosts from an lwsws-style config dir.

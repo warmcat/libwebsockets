@@ -144,6 +144,9 @@ typedef struct sai_builder {
 
 struct vhd;
 
+/* a pool sync connection's state, see s-pool.c */
+typedef struct sais_pool_session sais_pool_session_t;
+
 struct pss {
 	struct vhd		*vhd;
 	struct lws		*wsi;
@@ -158,6 +161,8 @@ struct pss {
 
 	sqlite3			*pdb_artifact;
 	sqlite3_blob		*blob_artifact;
+
+	sais_pool_session_t	*pool; /* it's a pool sync connection */
 
 	lws_dll2_owner_t	platform_owner; /* sai_platform_t builder offers */
 	lws_dll2_owner_t	task_cancel_owner; /* sai_platform_t builder offers */
@@ -296,6 +301,10 @@ struct vhd {
 	lws_sorted_usec_list_t	sul_watcher; /* generic async service watcher sul */
  
 	lws_dll2_owner_t	watcher_services; /* sai_watcher_service_t from config */
+
+	/* pools, see s-pool.c */
+	lws_dll2_owner_t	pool_dbs; /* sais_pool_db_t, open pool dbs */
+	lws_dll2_owner_t	pool_conns; /* pss of pool sync connections */
 
 	/* idle tasks, see s-idle.c */
 	lws_dll2_owner_t	idle_budgets; /* sais_idle_budget_t */
@@ -473,6 +482,18 @@ sais_idle_declined(struct vhd *vhd, sai_plat_t *sp, const char *task_uuid);
 
 void
 sais_idle_builder_gone(struct vhd *vhd, sai_plat_t *sp);
+
+int
+sais_pool_hello(struct vhd *vhd, struct pss *pss, const sai_pool_hello_t *hello);
+
+int
+sais_pool_rx(struct vhd *vhd, struct pss *pss, const uint8_t *buf, size_t len);
+
+int
+sais_pool_tx(struct vhd *vhd, struct pss *pss);
+
+void
+sais_pool_session_destroy(struct pss *pss);
 
 sai_plat_t *
 sais_builder_from_uuid(struct vhd *vhd, const char *hostname);

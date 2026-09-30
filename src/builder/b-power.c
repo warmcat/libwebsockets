@@ -628,6 +628,12 @@ saib_reassess_idle_situation(void)
 		in_use = 1;
 	}
 
+	if (saib_pool_busy()) {
+		/* what the last tasks left in their pools isn't synced yet */
+		lwsl_notice("%s: pools still syncing\n", __func__);
+		in_use = 1;
+	}
+
 	saib_power_event(in_use ? SAIB_PWR_EV_BUSY : SAIB_PWR_EV_IDLE);
 
 	return 0;

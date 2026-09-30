@@ -12,12 +12,14 @@ set(SRCS
 	s-task.c
 	s-task-helpers.c
 	s-idle.c
+	s-pool.c
 	s-central.c
 	s-ws-web.c
 	s-webops.c
 	s-resource.c
 	s-watcher.c
 	../common/c-utils.c
+	../common/c-pool.c
 	../common/c-conf.c
 	../common/c-sqlite3.c
 	../common/struct-metadata.c

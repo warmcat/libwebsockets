@@ -458,6 +458,10 @@ saib_idletask_yield_all(void)
 
 			xns->idle_yield = 1;
 
+			if (saib_pool_waiter_abort(xns))
+				/* it hadn't started, waiting for its pool */
+				continue;
+
 			if (!xns->op || !xns->op->lsp)
 				/*
 				 * Nothing running to stop, eg, between
@@ -596,6 +600,9 @@ saib_task_destroy(struct sai_nspawn *ns)
 
 	lws_sul_cancel(&ns->sul_cleaner);
 	lws_sul_cancel(&ns->sul_task_cancel);
+
+	/* sync what the task left in its pool, if it has one */
+	saib_pool_detach(ns);
 
 	/*
 	 * Any artifact uploads still referencing us must go first... their
@@ -1131,6 +1138,10 @@ saib_sul_task_cancel(struct lws_sorted_usec_list *sul)
 	char s[64];
 	int n;
 
+	if (saib_pool_waiter_abort(ns))
+		/* it never started, it was waiting for its pool */
+		return;
+
 	if (!ns->op || !ns->op->lsp)
 		return;
 
@@ -1538,7 +1549,15 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 	ns->user_cancel		= 0;
 	ns->spins		= 0;
 
-	if (saib_spawn_script(ns)) {
+	if (saib_pool_attach(ns))
+		goto bail;
+
+	/*
+	 * If the task has a pool we haven't pulled lately, the step is spawned
+	 * once we did (or gave up), see b-pool.c
+	 */
+
+	if (!saib_pool_defer_spawn(ns) && saib_spawn_script(ns)) {
 		lwsl_err("%s: saib_spawn_script failed\n", __func__);
 		goto bail;
 	}

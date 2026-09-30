@@ -85,6 +85,8 @@ static const lws_struct_map_t lsm_schema_map_ba[] = {
 						"com.warmcat.sai.ptydata"),
 	LSM_SCHEMA	(sai_active_shells_t, NULL, lsm_schema_active_shells,
 						"com.warmcat.sai.active_shells"),
+	LSM_SCHEMA	(sai_pool_hello_t, NULL, lsm_pool_hello,
+						SAI_POOL_SCHEMA),
 };
 
 enum {
@@ -97,6 +99,7 @@ enum {
 	SAIM_WSSCH_BUILDER_METRIC,
 	SAIM_WSSCH_BUILDER_PTYDATA,
 	SAIM_WSSCH_BUILDER_ACTIVE_SHELLS,
+	SAIM_WSSCH_BUILDER_POOL_HELLO,
 };
 
 static void
@@ -865,6 +868,10 @@ sais_ws_json_rx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t b
 
 	sais_metrics_db_init(vhd);
 
+	if (pss->pool)
+		/* after its hello, a pool sync connection is binary records */
+		return sais_pool_rx(vhd, pss, buf, bl);
+
 	if (pss->bulk_binary_data) {
 		lwsl_info("%s: bulk %d\n", __func__, (int)bl);
 		m = (int)bl;
@@ -1257,6 +1264,21 @@ sais_ws_json_rx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t b
 
 			lwsac_free(&pss->a.ac);
 			break;
+
+		case SAIM_WSSCH_BUILDER_POOL_HELLO:
+			/*
+			 * This connection is for syncing a pool: from here on
+			 * it carries binary records, including any that came
+			 * after the hello in this buffer
+			 */
+			n = sais_pool_hello(vhd, pss,
+					    (sai_pool_hello_t *)pss->a.dest);
+			lwsac_free(&pss->a.ac);
+			if (n)
+				return -1;
+
+			return sais_pool_rx(vhd, pss, buf + bl - (unsigned int)m,
+					    (size_t)m);
 
 		case SAIM_WSSCH_BUILDER_ACTIVE_SHELLS:
 		{
@@ -1774,6 +1796,9 @@ sais_ws_json_tx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 	lws_struct_serialize_t *js;
 	sai_task_t *task;
 	size_t w;
+
+	if (pss->pool)
+		return sais_pool_tx(vhd, pss);
 
 	if (pss->viewer_state_owner.head) {
 		/*

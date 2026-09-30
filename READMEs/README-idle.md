@@ -102,10 +102,10 @@ task.  The whole step, including any build, has to fit in the slice, so a
 script that divides its time between several things should divide
 `SAI_IDLE_SECS` between them.
 
-Anything the task wants to keep between slices, like a fuzzing corpus, has to be
-kept somewhere under `$HOME` on the builder by the task itself for now; the job
-dir is reused by the lane's next slice on the same builder, but not preserved
-across builders.
+Anything the task wants to keep between slices, like a fuzzing corpus, should go
+in a pool (see [README-pool.md](README-pool.md)): the builder keeps it synced
+with every other builder working on the repo, even when it has to stop a slice
+to make way for real work.
 
 ## In the web UI
 
