@@ -136,17 +136,29 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	lws_memory_barrier();
 #endif
 
-#if !defined(__linux__) && !defined(WIN32)
-	/* OSX couldn't see close on stdin pipe side otherwise; WSAPOLL
-	 * blows up if we give it POLLHUP
-	 */
-	_or |= LWS_POLLHUP;
-#endif
 	lws_pt_lock(pt, __func__);
 	assert(wsi->io->position_in_fds_table < (int)pt->fds_count);
 	pfd = &pt->fds[wsi->io->position_in_fds_table];
 	pa->prev_events = pfd->events;
-	pa->events = pfd->events = (short)((pfd->events & ~_and) | _or);
+	pa->events = (short)((pfd->events & ~_and) | _or);
+#if !defined(__linux__) && !defined(WIN32)
+	/*
+	 * A BSD poll() only tells an fd that asks for nothing about its close
+	 * if it asks for POLLHUP (OSX couldn't otherwise see the close on the
+	 * stdin pipe side).  But it must not be asked for alongside POLLIN or
+	 * POLLOUT, which already see the close: on OSX it arms the read side
+	 * even while POLLIN is held off, and POLLHUP and POLLOUT are never
+	 * reported together, so once the peer sends its FIN a wsi waiting to
+	 * drain a partial send never hears POLLOUT again and poll() returns
+	 * a bare POLLHUP for it in a spin.  WSAPOLL blows up if we give it
+	 * POLLHUP at all.
+	 */
+	if (pa->events & (LWS_POLLIN | LWS_POLLOUT))
+		pa->events = (short)(pa->events & ~LWS_POLLHUP);
+	else
+		pa->events = (short)(pa->events | LWS_POLLHUP);
+#endif
+	pfd->events = (short)pa->events;
 	lws_pt_unlock(pt);
 
 	pa->fd = wsi->io->desc.sockfd;
