@@ -111,6 +111,23 @@ enum {
  */
 #define NSC_LOCK_STALE_SECS		30
 
+/*
+ * The jar path plus ".LCK" or ".tmp" has to fit in this.  create() refuses a
+ * jar path that does not, since a truncated sibling path could be the jar
+ * itself, or some other file, that we would then lock, rewrite or unlink.
+ */
+#define NSC_PATH_MAX			256
+
+static int
+nsc_sibling_path(lws_cache_nscookiejar_t *cache, char *buf, size_t len,
+		 const char *suffix)
+{
+	/* lws_snprintf() reports a truncated result as the whole size */
+	return lws_snprintf(buf, len, "%s%s",
+			    cache->cache.info.u.nscookiejar.filepath, suffix) >=
+								(int)len;
+}
+
 static void
 expiry_cb(lws_sorted_usec_list_t *sul);
 
@@ -145,13 +162,13 @@ nsc_lock(const char *lock)
 static int
 nsc_backing_open_lock(lws_cache_nscookiejar_t *cache, int mode, const char *par)
 {
-	char lock[128];
+	char lock[NSC_PATH_MAX];
 	int fd;
 
 	lwsl_debug("%s: %s\n", __func__, par);
 
-	lws_snprintf(lock, sizeof(lock), "%s.LCK",
-			cache->cache.info.u.nscookiejar.filepath);
+	if (nsc_sibling_path(cache, lock, sizeof(lock), ".LCK"))
+		return -1;
 
 	if (nsc_lock(lock)) {
 		lwsl_info("%s: %s: jar busy, errno %d\n", __func__, par, errno);
@@ -173,14 +190,14 @@ nsc_backing_open_lock(lws_cache_nscookiejar_t *cache, int mode, const char *par)
 static void
 nsc_backing_close_unlock(lws_cache_nscookiejar_t *cache, int fd)
 {
-	char lock[128];
+	char lock[NSC_PATH_MAX];
 
 	lwsl_debug("%s\n", __func__);
 
-	lws_snprintf(lock, sizeof(lock), "%s.LCK",
-			cache->cache.info.u.nscookiejar.filepath);
 	if (fd >= 0)
 		close(fd);
+	if (nsc_sibling_path(cache, lock, sizeof(lock), ".LCK"))
+		return; /* we can't have locked it either */
 	unlink(lock);
 }
 
@@ -724,7 +741,7 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *specific_key_delete,
 	  const void *pay, size_t pay_size)
 {
 	struct nsc_regen_ctx ctx;
-	char filepath[128];
+	char filepath[NSC_PATH_MAX];
 	int fd, ret = 1;
 
 	memset(&ctx, 0, sizeof(ctx));
@@ -734,14 +751,21 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *specific_key_delete,
 	if (fd < 0)
 		return 1;
 
-	lws_snprintf(filepath, sizeof(filepath), "%s.tmp",
-			cache->cache.info.u.nscookiejar.filepath);
+	if (nsc_sibling_path(cache, filepath, sizeof(filepath), ".tmp")) {
+		nsc_backing_close_unlock(cache, fd);
+		return 1;
+	}
 	unlink(filepath);
 
 	if (lws_fi(&cache->cache.info.cx->fic, "cache_regen_temp_open"))
 		goto bail;
 
-	ctx.fdt = open(filepath, LWS_O_CREAT | LWS_O_WRONLY, 0600);
+	/*
+	 * Exclusively: if something appeared at the tmp path since the unlink
+	 * (eg, planted by another user in a shared dir), we must not write the
+	 * jar through it
+	 */
+	ctx.fdt = open(filepath, LWS_O_CREAT | O_EXCL | LWS_O_WRONLY, 0600);
 	if (ctx.fdt < 0)
 		goto bail;
 
@@ -1074,6 +1098,13 @@ static struct lws_cache_ttl_lru *
 lws_cache_nscookiejar_create(const struct lws_cache_creation_info *info)
 {
 	lws_cache_nscookiejar_t *cache;
+
+	if (!info->u.nscookiejar.filepath ||
+	    strlen(info->u.nscookiejar.filepath) + 4 /* ".LCK" */ >=
+							NSC_PATH_MAX) {
+		lwsl_err("%s: jar path too long\n", __func__);
+		return NULL;
+	}
 
 	cache = lws_fi(&info->cx->fic, "cache_createfail") ? NULL :
 					lws_zalloc(sizeof(*cache), __func__);

@@ -884,6 +884,43 @@ cdone:
 }
 
 /*
+ * The jar's lock and temp files are its path plus a suffix: a jar path too
+ * long for those to be composed whole must be refused, rather than work on
+ * truncated paths that may name some other file
+ */
+
+static int
+test_nsc_path_too_long(void)
+{
+	struct lws_cache_creation_info ci;
+	struct lws_cache_ttl_lru *nsc;
+	char path[320];
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	memset(path, 'j', sizeof(path) - 1);
+	path[0] = '.';
+	path[1] = '/';
+	path[sizeof(path) - 1] = '\0';
+
+	memset(&ci, 0, sizeof(ci));
+	ci.cx = cx;
+	ci.ops = &lws_cache_ops_nscookiejar;
+	ci.name = "NSC";
+	ci.u.nscookiejar.filepath = path;
+
+	nsc = lws_cache_create(&ci);
+	if (nsc) {
+		lwsl_err("%s: accepted an overlong jar path\n", __func__);
+		lws_cache_destroy(&nsc);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
  * Lookup result sets are cached in L1 by their wildcard key.  Two lookups
  * whose keys only differ after the first 125 chars are different lookups,
  * and must not be answered with the same result set.
@@ -1100,6 +1137,8 @@ int main(int argc, const char **argv)
 	if (test_nsc_limits())
 		fail++;
 	if (test_nsc_long_lookup_keys())
+		fail++;
+	if (test_nsc_path_too_long())
 		fail++;
 #endif
 
