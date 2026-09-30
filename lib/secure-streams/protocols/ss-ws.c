@@ -311,5 +311,6 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 }
 
 const struct ss_pcols ss_pcol_ws = {
-	"ws",  "http/1.1",  &protocol_secstream_ws, secstream_connect_munge_ws, 0, 0
+	"ws",  "http/1.1",  &protocol_secstream_ws, secstream_connect_munge_ws, 0, 0,
+	NULL
 };

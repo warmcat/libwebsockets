@@ -25,6 +25,30 @@
 #include <private-lib-core.h>
 
 static void
+secstream_mqtt_shadow_free(lws_ss_handle_t *h)
+{
+	uint32_t i;
+
+	if (!h) /* the stream let go of this connection already */
+		return;
+
+	for (i = 0; i < h->u.mqtt.shadow_sub.num_topics; i++)
+		lws_free((void *)h->u.mqtt.shadow_sub.topic[i].name);
+
+	h->u.mqtt.shadow_sub.num_topics = 0;
+
+	if (h->u.mqtt.shadow_sub.topic) {
+		lws_free(h->u.mqtt.shadow_sub.topic);
+		h->u.mqtt.shadow_sub.topic = NULL;
+	}
+}
+
+/*
+ * What the stream allocated for its connection: freed when the connection
+ * fails or closes, or when the stream is destroyed while it is connected
+ */
+
+static void
 secstream_mqtt_cleanup(lws_ss_handle_t *h)
 {
 	uint32_t i;
@@ -45,6 +69,7 @@ secstream_mqtt_cleanup(lws_ss_handle_t *h)
 		h->u.mqtt.sub_info.topic = NULL;
 	}
 	lws_buflist_destroy_all_segments(&h->u.mqtt.buflist_unacked);
+	secstream_mqtt_shadow_free(h);
 }
 
 static int
@@ -400,18 +425,8 @@ secstream_mqtt_is_shadow_matched(struct lws *wsi, const char *topic)
 static void
 secstream_mqtt_shadow_cleanup(struct lws *wsi)
 {
-	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
-	uint32_t i = 0;
-
-	for (i = 0; i < h->u.mqtt.shadow_sub.num_topics; i++)
-		lws_free((void *)h->u.mqtt.shadow_sub.topic[i].name);
-
-	h->u.mqtt.shadow_sub.num_topics = 0;
-
-	if (h->u.mqtt.shadow_sub.topic) {
-		lws_free(h->u.mqtt.shadow_sub.topic);
-		h->u.mqtt.shadow_sub.topic = NULL;
-	}
+	secstream_mqtt_shadow_free(
+			(lws_ss_handle_t *)lws_get_opaque_user_data(wsi));
 }
 
 static lws_ss_state_return_t
@@ -1206,5 +1221,6 @@ const struct ss_pcols ss_pcol_mqtt = {
 	"x-amzn-mqtt-ca", //"mqtt/3.1.1",
 	&protocol_secstream_mqtt,
 	secstream_connect_munge_mqtt,
-	NULL, NULL
+	NULL, NULL,
+	secstream_mqtt_cleanup
 };

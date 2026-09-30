@@ -231,5 +231,6 @@ const struct ss_pcols ss_pcol_h3 = {
 	&protocol_secstream_h3,
 	secstream_connect_munge_h3,
 	secstream_tx_credit_add_h3,
-	secstream_tx_credit_est_h3
+	secstream_tx_credit_est_h3,
+	NULL
 };

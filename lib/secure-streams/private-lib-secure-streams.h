@@ -778,6 +778,8 @@ typedef int (* const secstream_protocol_add_txcr_t)(lws_ss_handle_t *h, int add)
 
 typedef int (* const secstream_protocol_get_txcr_t)(lws_ss_handle_t *h);
 
+typedef void (* const secstream_protocol_destroy_t)(lws_ss_handle_t *h);
+
 #if defined(LWS_WITH_SECURE_STREAMS)
 
 struct ss_pcols {
@@ -787,6 +789,8 @@ struct ss_pcols {
 	secstream_protocol_connect_munge_t		munge;
 	secstream_protocol_add_txcr_t			tx_cr_add;
 	secstream_protocol_get_txcr_t			tx_cr_est;
+	/* free what the protocol keeps on the handle, as it is destroyed */
+	secstream_protocol_destroy_t			destroy;
 };
 #endif
 

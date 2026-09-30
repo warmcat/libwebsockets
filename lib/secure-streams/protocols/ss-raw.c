@@ -220,5 +220,5 @@ const struct ss_pcols ss_pcol_raw = {
 	"",
 	&protocol_secstream_raw,
 	secstream_connect_munge_raw,
-	NULL, NULL
+	NULL, NULL, NULL
 };

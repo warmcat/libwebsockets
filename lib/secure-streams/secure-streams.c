@@ -2042,6 +2042,16 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_sul_cancel(&h->sul_timeout);
 
 	/*
+	 * What the protocol binding keeps on the handle for its connection:
+	 * the connection is gone, or no longer points to us, so its close
+	 * will not free it for us
+	 */
+
+	if (h->policy && ss_pcols[(int)h->policy->protocol] &&
+	    ss_pcols[(int)h->policy->protocol]->destroy)
+		ss_pcols[(int)h->policy->protocol]->destroy(h);
+
+	/*
 	 * for lss, DESTROYING deletes the C++ lss object, making the
 	 * self-defined h->policy radioactive
 	 */

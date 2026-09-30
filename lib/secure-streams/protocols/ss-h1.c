@@ -1613,5 +1613,5 @@ const struct ss_pcols ss_pcol_h1 = {
 	"http/1.1",
 	&protocol_secstream_h1,
 	secstream_connect_munge_h1,
-	NULL, NULL
+	NULL, NULL, NULL
 };
