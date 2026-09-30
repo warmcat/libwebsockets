@@ -318,33 +318,53 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			     unsigned char **p, unsigned char *end)
 {
 	const unsigned char *name;
+#if defined(LWS_ROLE_H3) || defined(LWS_WITH_HTTP2)
+	unsigned char *start = *p;
+#endif
 
 	/*
 	 * This has its own h2/h3 dispatch and never reaches by_name on those
-	 * roles, so it needs its own copy of the value fence
+	 * roles, so it needs its own copy of by_name's contract: a negative
+	 * length and control bytes in the value are refused, and a header
+	 * that does not fit leaves nothing of itself behind (C-699)
 	 */
-	if (lws_hdr_add_value_bad(value, length)) {
-		lwsl_info("%s: refusing header value with control bytes\n",
-			  __func__);
+	if (length < 0 || lws_hdr_add_value_bad(value, length)) {
+		lwsl_info("%s: refusing header with bad length or control "
+			  "bytes in value\n", __func__);
 
 		return 1;
 	}
 
 #ifdef LWS_ROLE_H3
-	if (wsi && lws_wsi_is_h3(wsi))
-		return lws_add_http3_header_by_token(wsi, token, value,
-						     length, p, end);
+	if (wsi && lws_wsi_is_h3(wsi)) {
+		if (lws_add_http3_header_by_token(wsi, token, value,
+						  length, p, end))
+			goto bail;
+
+		return 0;
+	}
 #endif
 #ifdef LWS_WITH_HTTP2
-	if (wsi && lws_wsi_is_h2(wsi))
-		return lws_add_http2_header_by_token(wsi, token, value,
-						     length, p, end);
+	if (wsi && lws_wsi_is_h2(wsi)) {
+		if (lws_add_http2_header_by_token(wsi, token, value,
+						  length, p, end))
+			goto bail;
+
+		return 0;
+	}
 #endif
 	name = lws_token_to_string(token);
 	if (!name)
 		return 1;
 
 	return lws_add_http_header_by_name(wsi, name, value, length, p, end);
+
+#if defined(LWS_ROLE_H3) || defined(LWS_WITH_HTTP2)
+bail:
+	*p = start;
+
+	return 1;
+#endif
 }
 
 int

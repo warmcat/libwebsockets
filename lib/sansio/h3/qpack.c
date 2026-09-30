@@ -243,8 +243,9 @@ lws_qpack_encode_string(unsigned char *buf, size_t buf_len, const char *str, siz
 	
 	if (buf_len - pos < len)
 		return -1;
-		
-	if (len)
+
+	/* a NULL str only reserves the space, the caller fills it later */
+	if (len && str)
 		memcpy(buf + pos, str, len);
 		
 	return (int)(pos + len);
@@ -383,7 +384,8 @@ lws_add_http3_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 
 	if (static_idx != -1) {
 		const char *static_val = NULL;
-		if (!lws_qpack_get_static_token(static_idx, NULL, &static_val) &&
+		if (value && /* NULL: reserving space for the value */
+		    !lws_qpack_get_static_token(static_idx, NULL, &static_val) &&
 		    static_val && length == (int)strlen(static_val) && !strncmp(static_val, (const char *)value, (size_t)length)) {
 			n = lws_qpack_encode_static(*p, lws_ptr_diff_size_t(end, *p), static_idx);
 		} else {
