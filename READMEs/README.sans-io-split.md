@@ -330,7 +330,23 @@ IO's service asks it, does the reading it was told to, then tells the
 role the pass's reading is done through `rx_done(wsi)`, where the role
 acts on what it now holds: an h1 client interprets the response headers
 it completed, or tells the app there is body to pull; a role that parked
-rx re-arms its reading once the parked bytes are gone.  The pass's
+rx re-arms its reading once the parked bytes are gone.
+
+A phase that waits on the role's own tx is the role's to stop reading in,
+and to start again: a ws CLOSE frame waiting to go, or the answer to the
+peer's, a close flushing what is buffered, a tx extension drain, an h1
+client's request or body still going out.  Reading meanwhile takes
+nothing (the policy holds), so a level-armed POLLIN with bytes waiting
+would spin until the tx goes, which may be never if the peer does not
+read: the policy drops the read interest itself (`__lws_io_want_read(wsi,
+0)`) as it holds, and the role's own event starts it again (its CLOSE
+sent, `tx_drained`, `lws_h1_client_request_sent()`), never IO's service,
+which does not know why it stopped.  A hold is answered for a pass, not a
+phase: whatever holds either progresses on its own each pass (the rx
+extension drain, budgeted per pass, is one) or has dropped the read
+interest for as long as its reason lasts (waiting for a header table
+does, `lws_header_table_attach()`), so a hold never leaves reading armed
+with nothing to take what it reports.  The pass's
 POLLOUT goes to IO's dispatcher, in the states that take a writeable or
 where the policy insisted, and is cleared otherwise; the dispatcher's own
 priorities (a partial send, a compression partial, a cgi step) come before
