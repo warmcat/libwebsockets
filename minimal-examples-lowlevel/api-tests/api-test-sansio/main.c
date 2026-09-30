@@ -56,7 +56,8 @@
  * next request.
  *
  * And ws over h2: the peer's close is answered, nothing it sends after it is
- * acted on, and the stream, which was processed, is not refused.
+ * acted on, and the stream, which was processed, is not refused; and when
+ * the stream has no window for the answer yet, it goes once it has.
  *
  * And a CONNECT from a user agent the context turns away: it is refused as
  * any other request of its would be, not given to the fallback role first.
@@ -1712,17 +1713,36 @@ h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
  * frame: the close is answered, with the peer's own status and END_STREAM,
  * and nothing after it is acted on, the PING getting no pong (RFC 6455
  * 5.5.2).  The stream was processed, so it is not reset as REFUSED_STREAM,
- * as a refused upgrade is: at most NO_ERROR, to stop the peer sending
+ * as a refused upgrade is: at most NO_ERROR, to stop the peer sending.
+ *
+ * With skint, the peer gives streams no window to start with, and ends its
+ * side of the stream with its CLOSE, so the answer waits for its
+ * WINDOW_UPDATE: nothing of it, and no reset, goes before, and then the
+ * same as without.
  */
 static int
-h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
+h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
+		      int skint)
 {
 	static const char preface[] =
 		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00",
+			  preface_skint[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		/* SETTINGS: INITIAL_WINDOW_SIZE 0 */
+		"\x00\x00\x06\x04\x00\x00\x00\x00\x00"
+		"\x00\x04\x00\x00\x00\x00"
 		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* WINDOW_UPDATE, sid 1: 100 */
+	static const char wu[] = "\x00\x00\x04\x08\x00\x00\x00\x00\x01"
+				 "\x00\x00\x00\x64";
 	/* DATA, sid 1: masked, zero key, CLOSE 1000 then PING "p" */
 	static const char data[] = "\x00\x00\x0f\x00\x00\x00\x00\x00\x01"
+				   "\x88\x82\x00\x00\x00\x00\x03\xe8"
+				   "\x89\x81\x00\x00\x00\x00p",
+	/* the same, with END_STREAM: the peer is done with the stream too */
+			  data_es[] = "\x00\x00\x0f\x00\x01\x00\x00\x00\x01"
 				   "\x88\x82\x00\x00\x00\x00\x03\xe8"
 				   "\x89\x81\x00\x00\x00\x00p";
 	static uint8_t blk[256], fr[300];
@@ -1745,9 +1765,13 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
 		return 1;
 	}
 	lws_set_transport(wsi, &tops, &tp);
-	tr_begin("h2-ws-peer-close", "server", 0);
+	tr_begin(skint ? "h2-ws-peer-close-skint" : "h2-ws-peer-close",
+		 "server", 0);
 
-	feed(cx, &tp, preface, sizeof(preface) - 1);
+	if (skint)
+		feed(cx, &tp, preface_skint, sizeof(preface_skint) - 1);
+	else
+		feed(cx, &tp, preface, sizeof(preface) - 1);
 
 	/* the extended CONNECT for a ws stream to echo */
 	p = blk;
@@ -1771,7 +1795,27 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
 	fr[4] = 0x04; /* END_HEADERS alone: the stream carries the ws */
 	feed(cx, &tp, fr, n);
 
-	feed(cx, &tp, data, sizeof(data) - 1);
+	if (skint)
+		feed(cx, &tp, data_es, sizeof(data_es) - 1);
+	else
+		feed(cx, &tp, data, sizeof(data) - 1);
+
+	if (skint) {
+		/* nothing on sid 1 can go yet, and it is not given up */
+		for (o = 0; o + 9 <= tp.tx_len; o += 9 + f) {
+			f = ((size_t)tp.tx[o] << 16) |
+			    ((size_t)tp.tx[o + 1] << 8) | tp.tx[o + 2];
+			if ((lws_ser_ru32be(&tp.tx[o + 5]) & 0x7fffffff) == 1 &&
+			    (!tp.tx[o + 3] || tp.tx[o + 3] == 3)) {
+				lwsl_err("case 22: skint: frame type %d on "
+					 "sid 1 before the window\n",
+					 tp.tx[o + 3]);
+				lwsl_hexdump_err(tp.tx, tp.tx_len);
+				return 1;
+			}
+		}
+		feed(cx, &tp, wu, sizeof(wu) - 1);
+	}
 
 	/* sid 1's DATA: the answer to the close, ending it, and no pong */
 	for (o = 0; o + 9 <= tp.tx_len; o += 9 + f) {
@@ -1794,13 +1838,13 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
 			pong = 1;
 	}
 	if (!closed || pong || rst) {
-		lwsl_err("case 22: close answered %d, pong %d, rst %d\n",
-			 closed, pong, rst);
+		lwsl_err("case 22: %sclose answered %d, pong %d, rst %d\n",
+			 skint ? "skint: " : "", closed, pong, rst);
 		lwsl_hexdump_err(tp.tx, tp.tx_len);
 		return 1;
 	}
-	lwsl_user("case 22: ws over h2 answers the close, then nothing: "
-		  "PASS\n");
+	lwsl_user("case 22: ws over h2 answers the close%s, then nothing: "
+		  "PASS\n", skint ? " once it has the window" : "");
 
 	return tr_end();
 }
@@ -2794,7 +2838,10 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 	at(cx, 4000);
-	if (h2_ws_peer_close_half(cx, vh_h2ws))
+	if (h2_ws_peer_close_half(cx, vh_h2ws, 0))
+		goto bail;
+	at(cx, 4050);
+	if (h2_ws_peer_close_half(cx, vh_h2ws, 1))
 		goto bail;
 #endif
 

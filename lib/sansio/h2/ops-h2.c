@@ -781,23 +781,27 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		 */
 		uint32_t err = H2_ERR_REFUSED_STREAM;
 		const char *why = "ws-over-h2 handshake refused";
+		/*
+		 * send_END_STREAM is set as the END_STREAM is written,
+		 * h2_state only catches up after the writeable callback
+		 * returns, which the close may not wait for.  But a frame
+		 * written without the stream window for it is parked on the
+		 * stream (lws_h2_frame_write()), and goes with it now: an
+		 * END_STREAM in that never reached the peer
+		 */
+		int ended = wsi->h2.send_END_STREAM && !wsi->buflist_out;
 
 		if (lwsi_role_ws(wsi)) {
 			err = H2_ERR_CANCEL;
 			why = "ws-over-h2 stream abandoned";
-			/*
-			 * send_END_STREAM is set as the END_STREAM goes out,
-			 * h2_state only catches up after the writeable
-			 * callback returns, which the close may not wait for
-			 */
-			if (wsi->h2.send_END_STREAM) {
+			if (ended) {
 				err = H2_ERR_NO_ERROR;
 				why = "ws-over-h2 closed";
 			}
 		}
 
 		if (wsi->h2.h2_state != LWS_H2_STATE_CLOSED &&
-		    !(wsi->h2.send_END_STREAM &&
+		    !(ended &&
 		      wsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE) &&
 		    lws_h2_rst_stream(wsi, err, why))
 			lwsl_wsi_info(wsi, "%s: couldn't queue RST_STREAM",
@@ -1807,6 +1811,19 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				return -1;
 
 			lwsl_debug("Ack'd peer's close packet\n");
+			if (w->buflist_out) {
+				/*
+				 * The stream's window did not have room for
+				 * it, so lws_h2_frame_write() parked it: the
+				 * stream closes once it has gone (priorities
+				 * 1 and 3 above), or when the flush times out
+				 */
+				lws_wsi_event(w, LWS_WSIEV_CLOSE_FLUSH);
+				lws_set_timeout(w,
+					PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE,
+					5);
+				continue;
+			}
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "returned close packet");
 			continue;
