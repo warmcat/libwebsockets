@@ -2325,6 +2325,8 @@ h2_fin_behind_partial_half(struct lws_context *cx, struct lws_vhost *vh)
 	return 0;
 }
 
+#endif /* LWS_WITH_HTTP2 */
+
 #if defined(LWS_WITH_FILE_OPS)
 /*
  * 27: an h1 GET answered with a file, the transport taking only 4 bytes of
@@ -2476,6 +2478,7 @@ ws_hangup_behind_flowcontrol_half(struct lws_context *cx, int ms)
 	return 0;
 }
 
+#if defined(LWS_WITH_HTTP2)
 #if defined(LWS_WITH_FILE_OPS)
 /*
  * 24: an h2 POST the app answers with a file, where the peer gave the
