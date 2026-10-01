@@ -71,7 +71,7 @@ static const char * const rejected[] = {
 
 	"{\"certs\": [{\"t_a\": \"AAAA\"}, {\"t_b\": \"AAAA\"}],"
 	 "\"s\": [{\"t_srv\": {\"server\": true, \"server_cert\": \"t_a\","
-				"\"server_key\": \"t_b\"}}],"
+	 "\"server_key\": \"t_b\"}}],"
 	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t_nope\"]}]}",
 
 	/* a trust store naming only the start of a cert name */
