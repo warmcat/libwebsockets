@@ -1190,6 +1190,10 @@ error_handling:
 
 		wsi->quic.qn->handshake_done = 1;
 
+		/* 0-RTT is over, any of it not sent yet goes in 1-RTT */
+		if (!wsi->quic.qn->is_server)
+			lws_quic_early_tx_to_app(wsi->quic.qn);
+
 		/*
 		 * Diagnostic boundary marker: on a client that attempted 0-RTT
 		 * this is the moment frames queued at LWS_QUIC_LEVEL_APP start

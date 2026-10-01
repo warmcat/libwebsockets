@@ -121,6 +121,41 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
 #endif
 }
 
+/*
+ * RFC 9000 17.2.3: a client stops sending 0-RTT once it has the 1-RTT keys.
+ * 0-RTT and 1-RTT share the application PN space, so a frame first sent in
+ * 0-RTT that has to go again after that, eg because the server refused 0-RTT
+ * and will never ack it, goes again in 1-RTT
+ */
+static int
+lws_quic_resend_level(const struct lws_quic_netconn *qn, int level)
+{
+	if (level == LWS_QUIC_LEVEL_EARLY && qn->handshake_done)
+		return LWS_QUIC_LEVEL_APP;
+
+	return level;
+}
+
+/*
+ * The client handshake completed: frames queued for 0-RTT and not sent yet go
+ * in 1-RTT instead.  Those already sent in 0-RTT stay in flight, acked in the
+ * shared application PN space if the server took them, or found lost there
+ * and resent in 1-RTT if it didn't
+ */
+void
+lws_quic_early_tx_to_app(struct lws_quic_netconn *qn)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   qn->pending_tx[LWS_QUIC_LEVEL_EARLY].head) {
+		struct lws_quic_tx_frame *f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+
+		lws_dll2_remove(&f->list);
+		lws_quic_dbg_1rtt_account(qn, f, "early-to-1rtt");
+		lws_dll2_add_tail(&f->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 void
 lws_quic_queue_path_challenge(struct lws *nwsi)
 {
@@ -489,17 +524,25 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 #endif
 		int sent_ping = 0;
 		size_t total_bytes_lost = 0;
-		/* Aggressively retransmit Initial/Handshake frames (RFC 9002 6.2.4) */
+		/*
+		 * Aggressively retransmit Initial/Handshake frames (RFC 9002
+		 * 6.2.4), and 0-RTT ones, which go in 1-RTT once the handshake
+		 * completed
+		 */
 		for (int i = 0; i < LWS_QUIC_LEVEL_APP; i++) {
 			if (qn->in_flight[i].count) {
+				int rl = lws_quic_resend_level(qn, i);
+
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 					lws_dll2_remove(d);
 					total_bytes_lost += f->wire_len;
 					f->wire_len = 0; /* CRITICAL: Reset wire_len */
-					lws_dll2_add_tail(&f->list, &qn->pending_tx[i]);
+					if (rl == LWS_QUIC_LEVEL_APP)
+						lws_quic_dbg_1rtt_account(qn, f, "pto-requeue-early");
+					lws_dll2_add_tail(&f->list, &qn->pending_tx[rl]);
 				} lws_end_foreach_dll_safe(d, d1);
-				lwsl_wsi_info(qn->nwsi, "QUIC PTO: Retransmitting Initial/Handshake for level %d", i);
+				lwsl_wsi_info(qn->nwsi, "QUIC PTO: Retransmitting level %d at level %d", i, rl);
 				sent_ping = 1;
 			}
 		}
@@ -3588,7 +3631,12 @@ lws_quic_pto_sweep(struct lws *wsi)
 				if (lws_quic_frame_not_retransmitted(f)) {
 					lws_free(f);
 				} else {
-					lws_dll2_add_head(&f->list, &qn->pending_tx[level]);
+					int rl = lws_quic_resend_level(qn, level);
+
+					if (rl != level)
+						lws_quic_dbg_1rtt_account(qn, f,
+							"sweep-requeue-early");
+					lws_dll2_add_head(&f->list, &qn->pending_tx[rl]);
 					f->wire_len = 0;
 				}
 			}

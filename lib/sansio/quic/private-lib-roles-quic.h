@@ -720,6 +720,9 @@ void
 lws_quic_discard_keys(struct lws *nwsi, int level);
 
 void
+lws_quic_early_tx_to_app(struct lws_quic_netconn *qn);
+
+void
 lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_stream *qs,
 		       uint64_t offset, uint8_t *buf, size_t len, int is_crypto, int level);
 void
