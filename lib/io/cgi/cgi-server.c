@@ -1402,10 +1402,17 @@ lws_cgi_stdin_body_end(struct lws *wsi)
 int
 lws_cgi_stderr_read(struct lws *stdwsi, char *buf, size_t len)
 {
+	int n;
+
 	if (!lws_socket_is_valid(stdwsi->io->desc.sockfd))
 		return -1;
 
-	return (int)read(stdwsi->io->desc.sockfd, buf, len);
+	n = (int)read(stdwsi->io->desc.sockfd, buf, LWS_POSIX_LENGTH_CAST(len));
+	if (!n)
+		/* the child let go of it, and all it wrote is read */
+		stdwsi->io->lsp_eof = 1;
+
+	return n;
 }
 
 /*

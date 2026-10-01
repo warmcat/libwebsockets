@@ -47,7 +47,8 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * which deals with both the remaining data and the EOF, and
 		 * brings about the close itself when it has finished.
 		 * stderr has no flow-controlled drain path, so it keeps the
-		 * old "nothing readable -> dead" handling.
+		 * old "nothing readable -> dead" handling, for a hangup
+		 * reported the Linux way.
 		 */
 		if (wsi->io->lsp_channel != LWS_STDOUT ||
 		    !(pollfd->revents & LWS_POLLHUP))
@@ -131,6 +132,18 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 					wsi->parent->user_space,
 					(void *)&args, 0))
 		return 1;
+
+	/*
+	 * OSX reports a pipe the child let go of as POLLIN | POLLHUP for as
+	 * long as it is polled, even with nothing left in it, never as the
+	 * bare POLLHUP Linux reports once it is empty: stderr would be read
+	 * for nothing on every pass, and the service loop spin, for as long
+	 * as the transaction lasts.  The read that found its end says so,
+	 * whichever way the hangup was reported, and it is closed on that.
+	 */
+
+	if (args.ch == LWS_STDERR && wsi->io->lsp_eof)
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	/*
 	 * Leaving the poll set moved another wsi's entry into our place in

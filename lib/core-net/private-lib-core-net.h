@@ -1109,6 +1109,8 @@ struct lws_io_adjunct {
 	uint8_t				lsp_channel; /* a spawn's stdin/out/err */
 #if defined(LWS_WITH_CGI)
 	char				hdr_state; /* cgi response headers */
+	uint8_t				lsp_eof; /* a read of the pipe found
+						  * its end */
 #endif
 #if LWS_MAX_SMP > 1
 	/* volatile to make sure code is aware other thread can change */
