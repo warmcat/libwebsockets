@@ -626,6 +626,9 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 void
 lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul);
 
+void
+lws_sspc_connect_attempt(lws_sspc_handle_t *h);
+
 const lws_ss_policy_t *
 lws_ss_policy_lookup(const struct lws_context *context, const char *streamtype);
 

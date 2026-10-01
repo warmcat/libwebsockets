@@ -254,6 +254,22 @@ lws_sspc_txp_connect_disposition(lws_sspc_handle_t *h, int disposition)
 	return LWSSSSRET_OK;
 }
 
+/*
+ * Try to connect to the proxy, or have the retry sul try again later.  The
+ * user code may give up on the link from inside here, see
+ * lws_sspc_txp_connect_disposition(): then destroy_pending is set and the
+ * retry sul is already scheduled to do the destroy.
+ */
+
+void
+lws_sspc_connect_attempt(lws_sspc_handle_t *h)
+{
+	if (h->txp_path.ops_onw->event_retry_connect(&h->txp_path, h) &&
+	    !h->destroy_pending)
+		lws_sul_schedule(h->context, 0, &h->sul_retry,
+				 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
+}
+
 void
 lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 {
@@ -266,11 +282,7 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	if (h->txp_path.ops_onw->event_retry_connect(&h->txp_path, h) &&
-	    !h->destroy_pending)
-		/* ... if it's pending, the destroy is scheduled already */
-		lws_sul_schedule(h->context, 0, &h->sul_retry,
-				 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
+	lws_sspc_connect_attempt(h);
 }
 
 /*

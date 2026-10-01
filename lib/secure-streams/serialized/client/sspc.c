@@ -394,7 +394,7 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	/* try the actual connect */
 
-	lws_sspc_sul_retry_cb(&h->sul_retry);
+	lws_sspc_connect_attempt(h);
 
 	if (h->destroy_pending) {
 		/*
