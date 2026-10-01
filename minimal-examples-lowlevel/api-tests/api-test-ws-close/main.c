@@ -328,10 +328,15 @@ bulk_alloc(size_t len)
 	if (!buf)
 		return NULL;
 
-	/* does not compress: pmd sends it all */
+	/*
+	 * does not compress: pmd sends it all.  xorshift: noise, but the same
+	 * noise each run
+	 */
 	for (n = 0; n < len; n++) {
-		r = r * 1103515245u + 12345u;
-		buf[LWS_PRE + n] = (uint8_t)(r >> 16);
+		r ^= r << 13;
+		r ^= r >> 17;
+		r ^= r << 5;
+		buf[LWS_PRE + n] = (uint8_t)r;
 	}
 
 	return buf;
