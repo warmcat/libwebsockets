@@ -683,17 +683,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 		goto early_bail;
 #endif
 
-	if (lpf) {
-		lpf+= 2;
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-		lpf++;
-#endif
-#if defined(LWS_WITH_SYS_NTPCLIENT)
-		lpf++;
-#endif
-#if defined(LWS_WITH_SYS_DHCP_CLIENT)
-		lpf++;
-#endif
+	/*
+	 * A nonzero fd_limit_per_thread is the whole per-thread fds table,
+	 * including what lws holds itself (LWS_FD_LIMIT_INTERNAL): below that
+	 * nothing could be connected, so it is the floor.
+	 */
+	if (lpf && lpf < LWS_FD_LIMIT_INTERNAL) {
+		lwsl_notice("%s: fd_limit_per_thread %u raised to %u\n",
+			    __func__, lpf, (unsigned int)LWS_FD_LIMIT_INTERNAL);
+		lpf = LWS_FD_LIMIT_INTERNAL;
 	}
 
 #if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_NO_LOGS)

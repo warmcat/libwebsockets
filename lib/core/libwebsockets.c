@@ -2141,7 +2141,8 @@ _lws_context_info_defaults(struct lws_context_creation_info *info,
 			  const char *sspol)
 {
 	memset(info, 0, sizeof *info);
-        info->fd_limit_per_thread = 1 + 6 + 1;
+	/* the small fd lookup scheme, sized for a client with a few connections */
+	info->fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 6;
 #if defined(LWS_WITH_NETWORK)
         info->port = CONTEXT_PORT_NO_LISTEN;
 #endif

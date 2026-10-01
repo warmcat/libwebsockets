@@ -369,7 +369,7 @@ dloss_css_connect_cb(lws_sorted_usec_list_t *sul)
 static unsigned int
 dlo_asset_inflight_max(struct lws_context *cx)
 {
-	int n = ((int)cx->fd_limit_per_thread - 4) / 2;
+	int n = ((int)cx->fd_limit_per_thread - LWS_FD_LIMIT_INTERNAL) / 2;
 
 	if (n < 1)
 		n = 1;

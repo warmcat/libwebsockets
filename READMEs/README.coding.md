@@ -912,13 +912,26 @@ between the service threads; if you process was allowed 1024 fds overall then
 each thread is limited to 1024 / n.
 
 You can set fd_limit_per_thread to a nonzero number to control this manually, eg
-the overall supported fd limit is less than the process allowance.
+the overall supported fd limit is less than the process allowance.  A nonzero
+value also switches the fd -> wsi lookup to a small table that is searched,
+instead of one indexed by fd and sized to the process limit; that saves memory
+for a client with a few connections, and a server wants the default.
 
-When a service thread's fds table is full, lws stops accepting on every
-listener until a connection on that thread closes (logged once per thread at
-WARN).  `lws_context_info_defaults()` sets fd_limit_per_thread to 8, sized for a
-client; a server built on it should set fd_limit_per_thread to the number of
-connections it intends to serve, or back to 0 for the process limit.
+The nonzero value is the whole per-thread table.  `LWS_FD_LIMIT_INTERNAL` is
+what lws holds itself in the build (event pipe, netlink, async DNS, ntp and
+dhcp sockets, and one slot kept free), and a smaller nonzero value is raised to
+it.  `LWS_FD_LIMIT_PER_THREAD_MIN` adds the overhead connections carry (h2 / h3
+network connection, redirects, listeners, closing connections), so set
+
+```
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + n;
+```
+
+for n connections open at once.  When a service thread's fds table is full, lws
+stops accepting on every listener until a connection on that thread closes
+(logged once per thread at WARN).  `lws_context_info_defaults()` sets
+`LWS_FD_LIMIT_PER_THREAD_MIN + 6`, sized for a client; a server built on it
+should set fd_limit_per_thread back to 0 for the process limit.
 
 You can control the context basic data allocation for multithreading from Cmake
 using -DLWS_MAX_SMP=, if not given it's set to 1.  The serv_buf allocation

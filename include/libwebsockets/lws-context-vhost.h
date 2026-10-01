@@ -366,6 +366,60 @@ typedef uint64_t (*lws_quic_tx_credit_cb_t)(struct lws *wsi, uint64_t current_wi
  * If LWS_SERVER_OPTION_EXPLICIT_VHOSTS is given, then no vhosts are created
  * at the same time as the context, they are expected to be created afterwards.
  */
+/*
+ * Per-service-thread fd budget, for info.fd_limit_per_thread
+ *
+ * A nonzero fd_limit_per_thread selects the small lookup scheme: the fds
+ * table and the fd -> wsi lookup are sized to it instead of to the process
+ * fd limit, and lookups walk the table.  The number has to cover more than
+ * the connections the application itself makes.
+ *
+ * LWS_FD_LIMIT_INTERNAL is what lws itself holds on a service thread in this
+ * build: the event pipe, the netlink socket, the async DNS resolver sockets,
+ * the ntp and dhcp client sockets, and the slot it keeps free so a full table
+ * is seen before an accept fails.  A nonzero fd_limit_per_thread below it is
+ * raised to it at context creation.
+ *
+ * LWS_FD_LIMIT_PER_THREAD_MIN adds the overhead connections carry beyond
+ * their own fd: the h2 or h3 network connection behind a client stream, the
+ * connection a redirect opens before the first is gone, a listening vhost's
+ * socket or two, and connections lingering in close.  Set
+ *
+ *   info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + n;
+ *
+ * where n is the number of connections you mean to have open at once, or
+ * leave it 0 to size everything to the process fd limit, which suits a
+ * server.
+ */
+#if defined(LWS_WITH_NETLINK)
+#define LWS_FD_LIMIT_INTERNAL_NETLINK	1
+#else
+#define LWS_FD_LIMIT_INTERNAL_NETLINK	0
+#endif
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+#define LWS_FD_LIMIT_INTERNAL_ADNS	2 /* a v4 and a v6 resolver */
+#else
+#define LWS_FD_LIMIT_INTERNAL_ADNS	0
+#endif
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+#define LWS_FD_LIMIT_INTERNAL_NTP	1
+#else
+#define LWS_FD_LIMIT_INTERNAL_NTP	0
+#endif
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+#define LWS_FD_LIMIT_INTERNAL_DHCP	1
+#else
+#define LWS_FD_LIMIT_INTERNAL_DHCP	0
+#endif
+
+#define LWS_FD_LIMIT_INTERNAL (1 /* event pipe */ + 1 /* kept free */ + \
+			       LWS_FD_LIMIT_INTERNAL_NETLINK + \
+			       LWS_FD_LIMIT_INTERNAL_ADNS + \
+			       LWS_FD_LIMIT_INTERNAL_NTP + \
+			       LWS_FD_LIMIT_INTERNAL_DHCP)
+
+#define LWS_FD_LIMIT_PER_THREAD_MIN (LWS_FD_LIMIT_INTERNAL + 8 /* overhead */)
+
 struct lws_context_creation_info {
 #if defined(LWS_WITH_NETWORK)
 	const char *iface;
@@ -796,9 +850,12 @@ struct lws_context_creation_info {
 	 * trade off speed against memory usage if you know the lws context
 	 * will only use a handful of fds.
 	 *
-	 * Bear in mind lws may use some fds internally, for example for the
-	 * cancel pipe, so you may need to allow for some extras for normal
-	 * operation.
+	 * The count is the whole table, including the fds lws holds itself
+	 * (LWS_FD_LIMIT_INTERNAL, the floor a nonzero value is raised to) and
+	 * the overhead connections carry: set it to
+	 * LWS_FD_LIMIT_PER_THREAD_MIN plus the connections you will have
+	 * open at once.  A full table stops every listener accepting until a
+	 * connection closes, logged once per thread at WARN.
 	 */
 	const char *vhost_name;
 	/**< VHOST: name of vhost, must match external DNS name used to
@@ -1657,15 +1714,16 @@ lws_vh_tag(struct lws_vhost *vh);
  *
  * Zeroes \p info and sets defaults suited to a small client: no listen port,
  * LWS_SERVER_OPTION_EXPLICIT_VHOSTS, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
- * the policy (when Secure Streams are built) and fd_limit_per_thread = 8.
+ * the policy (when Secure Streams are built) and the small fd lookup scheme
+ * with fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 6.
  *
- * lws adds its own internal fds to fd_limit_per_thread, so the fds table is
- * about a dozen entries, which also sizes the http header pool.  That is
- * plenty for a client, but a server started from these defaults stops
- * accepting on all of its listeners once the table is full, until something
- * closes: a handful of idle connections is enough.  A server should set
- * info->fd_limit_per_thread to the number of connections it means to serve,
- * or to 0 to use the process fd limit, after calling this.
+ * That fds table, which also sizes the http header pool, is plenty for a
+ * client with a few connections, but a server started from these defaults
+ * stops accepting on all of its listeners once the table is full, until
+ * something closes: a handful of idle connections is enough.  After calling
+ * this, set info->fd_limit_per_thread to LWS_FD_LIMIT_PER_THREAD_MIN plus
+ * the number of connections you mean to have open, or to 0 to size the
+ * tables to the process fd limit, which is what a server wants.
  */
 LWS_VISIBLE LWS_EXTERN void
 _lws_context_info_defaults(struct lws_context_creation_info *info,
