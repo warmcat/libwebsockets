@@ -27,6 +27,7 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 #include "private.h"
+#include <crypt_eal_rand.h>
 
 void
 lws_tls_err_describe_clear(void)
@@ -201,4 +202,22 @@ lws_openhitls_apply_tls_version_by_ssl_options(HITLS_Config *config, long set,
 	}
 
 	return 0;
+}
+
+/*
+ * The gen* apis, ACME and cert creation all draw from the one global openHiTLS
+ * DRBG.  Init tolerates a repeat from another callsite, so this is idempotent.
+ */
+
+int
+lws_hitls_init_rand(void)
+{
+	int32_t ret = CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
+
+	if (ret == CRYPT_SUCCESS || ret == CRYPT_EAL_ERR_DRBG_REPEAT_INIT)
+		return 0;
+
+	lwsl_err("%s: CRYPT_EAL_RandInit failed: 0x%x\n", __func__, ret);
+
+	return -1;
 }

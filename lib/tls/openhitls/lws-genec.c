@@ -30,9 +30,6 @@
 #include "bsl_sal.h"
 #include "crypt_eal_rand.h"
 
-/* Random number generator initialization state */
-static int rand_initialized = 0;
-
 static BSL_ASN1_TemplateItem lws_ecdsa_sig_templ_items[] = {
 	{ BSL_ASN1_TAG_CONSTRUCTED | BSL_ASN1_TAG_SEQUENCE, 0, 0 },
 	{ BSL_ASN1_TAG_INTEGER, 0, 1 },
@@ -116,28 +113,6 @@ lws_ecdsa_sig_der_to_jws(const uint8_t *der_sig, uint32_t der_len, int keybytes,
 	       asn_arr[1].buff, asn_arr[1].len);
 
 	return 0;
-}
-
-/* Initialize openHiTLS random number generator if not already done
- * This is exported for use by lws-genrsa.c as well */
-int lws_hitls_init_rand(void)
-{
-	if (rand_initialized)
-		return 0;
-
-	/*
-	 * Prefer openHiTLS CTR-DRBG path and tolerate repeat init from
-	 * other callsites.
-	 */
-	int32_t ret = CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL,
-					 NULL, 0);
-	if (ret == CRYPT_SUCCESS || ret == CRYPT_EAL_ERR_DRBG_REPEAT_INIT) {
-		rand_initialized = 1;
-		return 0;
-	}
-
-	lwsl_err("%s: CRYPT_EAL_RandInit failed: %d\n", __func__, ret);
-	return -1;
 }
 
 const struct lws_ec_curves lws_ec_curves[4] = {

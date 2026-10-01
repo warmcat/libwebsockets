@@ -93,6 +93,10 @@ lws_tls_openhitls_cert_info(HITLS_X509_Cert *x509,
 			    enum lws_tls_cert_info type,
 			    union lws_tls_cert_info_results *buf, size_t len);
 
+/* idempotent: the gen* apis and cert creation share the one DRBG */
+int
+lws_hitls_init_rand(void);
+
 #ifndef SSL_OP_NO_TLSv1_2
 #define SSL_OP_NO_TLSv1_2 0x08000000L
 #endif

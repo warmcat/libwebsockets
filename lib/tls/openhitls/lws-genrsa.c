@@ -26,8 +26,6 @@
  */
 #include "private-lib-core.h"
 #include "private.h"
-/* Random number generator initialization state (shared with EC) */
-extern int lws_hitls_init_rand(void);
 
 static int
 lws_genrsa_set_crypt_padding(struct lws_genrsa_ctx *ctx)

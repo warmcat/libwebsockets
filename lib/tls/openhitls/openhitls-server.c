@@ -807,20 +807,6 @@ struct lws_tls_ss_pieces {
 	CRYPT_EAL_PkeyCtx *pkey;
 };
 
-static int
-lws_openhitls_rand_init(void)
-{
-	int32_t ret;
-
-	ret = CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
-	if (ret == CRYPT_SUCCESS || ret == CRYPT_EAL_ERR_DRBG_REPEAT_INIT)
-		return 0;
-
-	lwsl_notice("%s: CRYPT_EAL_RandInit failed: 0x%x\n", __func__, ret);
-
-	return 1;
-}
-
 static CRYPT_EAL_PkeyCtx *
 lws_openhitls_rsa_new_key(void)
 {
@@ -829,7 +815,7 @@ lws_openhitls_rsa_new_key(void)
 	CRYPT_EAL_PkeyCtx *pkey;
 	int bits = lws_plat_recommended_rsa_bits();
 
-	if (lws_openhitls_rand_init())
+	if (lws_hitls_init_rand())
 		return NULL;
 
 	memset(&para, 0, sizeof(para));
