@@ -879,6 +879,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	int tok = name_idx;
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	int is_pseudo = 0;
+	size_t k;
 
 	/*
 	 * No real request or response has anywhere near this many fields,
@@ -923,22 +924,22 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	 * given, :path is checked again after its urldecode, and a field
 	 * that does not fit or comes after one that did not is still a
 	 * malformed message.
+	 *
+	 * The decoder only gives no value with LWS_QPACK_FIELD_TOO_LARGE,
+	 * dealt with above, and everything below uses it.
 	 */
-	if (value) {
-		size_t k;
+	if (!value)
+		return -1;
 
-		for (k = 0; k < value_len; k++)
-			if (value[k] == '\r' || value[k] == '\n' || !value[k]) {
-				lwsl_wsi_notice(wsi, "CR, LF or NUL in field value");
-				lws_quic_enter_closing_state(nwsi,
-						LWS_H3_MESSAGE_ERROR, 0, 1);
-				return -1;
-			}
-	}
+	for (k = 0; k < value_len; k++)
+		if (value[k] == '\r' || value[k] == '\n' || !value[k]) {
+			lwsl_wsi_notice(wsi, "CR, LF or NUL in field value");
+			lws_quic_enter_closing_state(nwsi,
+					LWS_H3_MESSAGE_ERROR, 0, 1);
+			return -1;
+		}
 
 	if (name) {
-		size_t k;
-
 		for (k = 0; k < name_len; k++)
 			if (!lws_http_field_name_char_valid(
 					(unsigned char)name[k], !k)) {
