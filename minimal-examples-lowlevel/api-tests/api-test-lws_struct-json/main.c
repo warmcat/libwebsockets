@@ -933,7 +933,7 @@ done:
 		lws_struct_json_serialize_destroy(&js);
 		if (n != LSJS_RESULT_FINISH)
 			goto bail;
-		if (strcmp("{\"schema\":\"com.warmcat.sai.taskinfo\",\"credentials\":[{\"ssid\":\"xxx\",\"passphrase\":\"yyy\",\"alg\":0}]}", (const char *)buf)) {
+		if (strcmp("{\"schema\":\"com.warmcat.sai.taskinfo\",\"credentials\":[{\"ssid\":\"xxx\",\"passphrase\":\"yyy\",\"alg\":0,\"bssid\":\"\"}]}", (const char *)buf)) {
 			puts((const char *)buf);
 			goto bail;
 		}
