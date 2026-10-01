@@ -36,6 +36,7 @@ struct lws_quic_cc_cubic {
 
 	/* CUBIC specifics */
 	lws_usec_t		epoch_start_time;
+	lws_usec_t		last_ack_time; /* for freezing t while app-limited */
 	size_t			w_max;
 	size_t			w_est;
 	int32_t			k;
@@ -144,6 +145,21 @@ cubic_on_ack(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt)
 	} else {
 		/* Congestion Avoidance: CUBIC */
 		lws_usec_t now = lws_wsi_now(nwsi);
+
+		/*
+		 * RFC 9438 5.8: the cubic function is of time since the epoch,
+		 * but time in which the sender did not use its window (app
+		 * limited, idle) must not count, or on resuming t is huge and
+		 * so is the target.  Before this ack the window was not full
+		 * if what was in flight, with this ack's bytes back in it, is
+		 * under cwnd: move the epoch along by the time that passed.
+		 */
+		if (st->epoch_start_time && st->last_ack_time &&
+		    st->bytes_in_flight + bytes_acked < st->cwnd &&
+		    now > st->last_ack_time)
+			st->epoch_start_time += now - st->last_ack_time;
+		st->last_ack_time = now;
+
 		if (st->epoch_start_time == 0) {
 			st->epoch_start_time = now;
 			if (st->w_max < st->cwnd) {
@@ -163,11 +179,26 @@ cubic_on_ack(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt)
 			}
 		}
 
-		int32_t t = (int32_t)((now - st->epoch_start_time) / 1000000); /* seconds */
-		int32_t diff = t - st->k;
-		int64_t diff3 = (int64_t)diff * diff * diff;
-		
-		uint64_t target_mss = (uint64_t)(((int64_t)4 * diff3) / 10 + (int64_t)(st->w_max / mtu));
+		lws_usec_t tus = now - st->epoch_start_time;
+		int32_t t, diff;
+		int64_t diff3;
+		uint64_t target_mss;
+
+		/*
+		 * Bound t so the cube cannot overflow int64 (and the target
+		 * is capped below anyway): (2^20)^3 = 2^60
+		 */
+		if (tus > (lws_usec_t)(1 << 20) * 1000000)
+			tus = (lws_usec_t)(1 << 20) * 1000000;
+		t = (int32_t)(tus / 1000000); /* seconds */
+		diff = t - st->k;
+		diff3 = (int64_t)diff * diff * diff;
+
+		target_mss = (uint64_t)(((int64_t)4 * diff3) / 10 + (int64_t)(st->w_max / mtu));
+
+		/* RFC 9438 4.2: the target is at most 1.5 cwnd per RTT */
+		if (target_mss > ((uint64_t)st->cwnd / mtu) * 3 / 2)
+			target_mss = ((uint64_t)st->cwnd / mtu) * 3 / 2;
 
 		/* TCP Friendliness (Reno approximation) */
 		/* W_est = W_max * beta + (3 * (1-beta) / (1+beta)) * (t / RTT) */
@@ -212,6 +243,7 @@ cubic_on_loss(struct lws *nwsi, size_t bytes_lost)
 
 	st->congestion_recovery_start_time = now;
 	st->epoch_start_time = 0;
+	st->last_ack_time = 0;
 
 	/* Fast Convergence */
 	if (st->cwnd < st->w_max) {
