@@ -2472,7 +2472,7 @@ rops_callback_on_writable_h3(struct lws *wsi)
 
 extern int rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add);
 
-#if defined(LWS_ROLE_WS) && defined(LWS_WITH_SERVER)
+#if (defined(LWS_ROLE_WS) || defined(LWS_ROLE_WT)) && defined(LWS_WITH_SERVER)
 #if defined(LWS_ROLE_WT)
 /*
  * A protocol takes WebTransport sessions only where the vhost says so, with a
@@ -2565,6 +2565,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 	if (!p)
 		return LWS_UPG_RET_CONTINUE;
 
+#if defined(LWS_ROLE_WS)
 	if (!strcmp(p, "websocket")) {
 		lwsl_info("Upgrade h3 to ws\n");
 		lws_mux_mark_immortal(wsi);
@@ -2578,8 +2579,11 @@ rops_check_upgrades_h3(struct lws *wsi)
 		lwsl_info("Upgraded h3 to ws OK\n");
 
 		return LWS_UPG_RET_DONE;
-	} else if (!strcmp(p, "webtransport")) {
+	}
+#endif
+
 #if defined(LWS_ROLE_WT)
+	if (!strcmp(p, "webtransport")) {
 		unsigned char response_buf[LWS_PRE + 4096], *rp = response_buf + LWS_PRE, *end = response_buf + sizeof(response_buf);
 		struct lws_vhost *vh = wsi->a.vhost;
 		const struct lws_http_mount *hit = NULL;
@@ -2774,10 +2778,8 @@ rops_check_upgrades_h3(struct lws *wsi)
 		lwsl_info("Upgraded h3 to wt OK\n");
 
 		return LWS_UPG_RET_DONE;
-#else
-		return LWS_UPG_RET_CONTINUE;
-#endif
 	}
+#endif
 
 	return LWS_UPG_RET_CONTINUE;
 }
@@ -2795,7 +2797,7 @@ static const lws_rops_t rops_table_h3[] = {
 	/*  7 */ { .write_role_protocol	  = rops_write_role_protocol_h3 },
 	/*  8 */ { .callback_on_writable  = rops_callback_on_writable_h3 },
 	/*  9 */ { .tx_credit		  = rops_tx_credit_quic },
-#if defined(LWS_ROLE_WS) && defined(LWS_WITH_SERVER)
+#if (defined(LWS_ROLE_WS) || defined(LWS_ROLE_WT)) && defined(LWS_WITH_SERVER)
 	/* 10 */ { .check_upgrades	  = rops_check_upgrades_h3 },
 #endif
 };
@@ -2806,7 +2808,7 @@ const struct lws_role_ops role_ops_h3 = {
 
 	/* rops_table */		rops_table_h3,
 	/* rops_idx */			{
-#if defined(LWS_ROLE_WS) && defined(LWS_WITH_SERVER)
+#if (defined(LWS_ROLE_WS) || defined(LWS_ROLE_WT)) && defined(LWS_WITH_SERVER)
 	  /* LWS_ROPS_check_upgrades */
 	  /* LWS_ROPS_pt_init_destroy */		0x0A, 0x00,
 #else

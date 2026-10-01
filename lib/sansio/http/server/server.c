@@ -2267,8 +2267,9 @@ lws_http_action(struct lws *wsi)
 	lwsl_debug("Method: '%s' (%d), request for '%s' (vhost '%s')\n", method_names[meth],
 		  meth, uri_ptr, wsi->a.vhost->name);
 
-#if defined(LWS_WITH_JOSE) && defined(LWS_ROLE_WS) && \
-    (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+#if defined(LWS_WITH_JOSE) && \
+    ((defined(LWS_ROLE_WS) && (defined(LWS_ROLE_H2) || \
+			       defined(LWS_ROLE_H3))) || defined(LWS_ROLE_WT))
 	/*
 	 * A ws upgrade carried as an h2 / h3 extended CONNECT (RFC 8441) is
 	 * taken by check_upgrades below, before the mount lookup and the
@@ -2294,7 +2295,10 @@ lws_http_action(struct lws *wsi)
 		    (cp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD)) &&
 		    !strcmp(cp, "CONNECT") &&
 		    (cp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL)) &&
-		    (!strcmp(cp, "websocket")
+		    (0
+#if defined(LWS_ROLE_WS)
+		     || !strcmp(cp, "websocket")
+#endif
 #if defined(LWS_ROLE_WT)
 		     || (lwsi_role_h3(wsi) && !strcmp(cp, "webtransport"))
 #endif
