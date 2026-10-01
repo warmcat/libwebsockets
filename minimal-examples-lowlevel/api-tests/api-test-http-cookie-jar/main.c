@@ -35,7 +35,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <signal.h>
-#include <unistd.h>
+#include <stdio.h>
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
@@ -396,7 +396,7 @@ main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: http cookie jar scoping\n");
 
 	/* start from an empty jar */
-	unlink(jar);
+	remove(jar);
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 	/* the server and client wsi, plus lws' own */
@@ -446,7 +446,7 @@ main(int argc, const char **argv)
 
 bail:
 	lws_context_destroy(context);
-	unlink(jar);
+	remove(jar);
 
 	lwsl_user("Completed: %s\n", fail ? "FAIL" : "PASS");
 
