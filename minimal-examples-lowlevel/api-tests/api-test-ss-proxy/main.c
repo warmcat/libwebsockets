@@ -402,8 +402,13 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (o > pss->rx_len)
 			return -1;
 		if (o) {
-			pss->rx_len -= o;
-			memmove(pss->rx, pss->rx + o, pss->rx_len);
+			n = pss->rx_len - o;
+
+			/* n is peer-derived too: bound what we move itself */
+			if (n > sizeof(pss->rx) - o)
+				return -1;
+			memmove(pss->rx, pss->rx + o, n);
+			pss->rx_len = n;
 		}
 		break;
 

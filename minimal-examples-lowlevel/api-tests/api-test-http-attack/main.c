@@ -1959,7 +1959,7 @@ h2_rx(struct lws *wsi, const uint8_t *in, size_t len)
 	static const uint8_t settings_ack[] = { 0, 0, 0, H2_SETTINGS,
 						H2F_ACK, 0, 0, 0, 0 };
 	uint8_t buf[LWS_PRE + sizeof(settings_ack)], *p, type, flags;
-	size_t o = 0, flen;
+	size_t o = 0, flen, rest;
 	int acks = 0;
 	uint32_t sid;
 
@@ -2030,8 +2030,12 @@ h2_rx(struct lws *wsi, const uint8_t *in, size_t len)
 	/* o is built from peer lengths, bound it before the memmove */
 	if (o > cn.fr_len)
 		return -1;
-	cn.fr_len -= o;
-	memmove(cn.fr, cn.fr + o, cn.fr_len);
+	rest = cn.fr_len - o;
+	/* rest is peer-derived too: bound what we move itself */
+	if (rest > ATK_H2_FRAME_MAX - o)
+		return -1;
+	memmove(cn.fr, cn.fr + o, rest);
+	cn.fr_len = rest;
 
 	if ((cn.ended && (!cn.first_sid || cn.first_ended)) ||
 	    cn.goaway >= 0) {

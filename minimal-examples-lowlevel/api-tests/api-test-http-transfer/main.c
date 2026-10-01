@@ -2241,8 +2241,16 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 		if (o > cn->raw_len)
 			return -1;
 		if (o) {
-			cn->raw_len -= o;
-			memmove(cn->raw_buf, cn->raw_buf + o, cn->raw_len);
+			size_t rest = cn->raw_len - o;
+
+			/*
+			 * rest is derived from o, so it is peer-derived too:
+			 * bound the length we move itself, by the buffer
+			 */
+			if (rest > RAW_BUF_MAX - o)
+				return -1;
+			memmove(cn->raw_buf, cn->raw_buf + o, rest);
+			cn->raw_len = rest;
 		}
 		break;
 
