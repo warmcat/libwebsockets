@@ -404,13 +404,24 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	if (lws_wsi_is_udp(wsi)) {
 		socklen_t slt = sizeof(wsi->io->udp->sa46);
 
-		n = (int)recvfrom(wsi->io->desc.sockfd, (char *)buf,
-				LWS_POSIX_LENGTH_CAST(len), 0,
-				sa46_sockaddr(&wsi->io->udp->sa46), &slt);
+		if (wsi->io->pending_sock_err) {
+			/* the icmp error the service loop took from the socket */
+			en = wsi->io->pending_sock_err;
+			wsi->io->pending_sock_err = 0;
+			n = -1;
+		} else {
+			n = (int)recvfrom(wsi->io->desc.sockfd, (char *)buf,
+					LWS_POSIX_LENGTH_CAST(len), 0,
+					sa46_sockaddr(&wsi->io->udp->sa46), &slt);
+			en = LWS_ERRNO;
+		}
 	} else
 #endif
+	{
 		n = (int)recv(wsi->io->desc.sockfd, (char *)buf,
 				LWS_POSIX_LENGTH_CAST(len), 0);
+		en = LWS_ERRNO;
+	}
 
 #if defined(LWS_WITH_LATENCY)
 	{
@@ -421,7 +432,6 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	}
 #endif
 
-	en = LWS_ERRNO;
 	if (n >= 0) {
 
 		if (!n && wsi->io->unix_skt)
@@ -496,7 +506,7 @@ lws_io_tx_choked_pollfd(struct lws *wsi)
 int
 lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	int n = 0;
+	int n = 0, en = 0;
 
 	if (wsi->io->transport)
 		return wsi->io->transport->write(wsi, wsi->io->transport_opaque,
@@ -515,6 +525,14 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 		if (lws_fi(&wsi->fic, "udp_tx_loss")) {
 			/* pretend it was sent */
 			n = (int)(ssize_t)len;
+			goto post_send;
+		}
+
+		if (wsi->io->pending_sock_err) {
+			/* the icmp error the service loop took from the socket */
+			en = wsi->io->pending_sock_err;
+			wsi->io->pending_sock_err = 0;
+			n = -1;
 			goto post_send;
 		}
 
@@ -558,16 +576,18 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	}
 #endif
 
+	en = LWS_ERRNO;
+
 #if defined(LWS_WITH_UDP)
 post_send:
 #endif
 	if (n >= 0)
 		return n;
 
-	if (LWS_ERRNO == LWS_EAGAIN ||
-	    LWS_ERRNO == LWS_EWOULDBLOCK ||
-	    LWS_ERRNO == LWS_EINTR) {
-		if (LWS_ERRNO == LWS_EWOULDBLOCK) {
+	if (en == LWS_EAGAIN ||
+	    en == LWS_EWOULDBLOCK ||
+	    en == LWS_EINTR) {
+		if (en == LWS_EWOULDBLOCK) {
 			lws_set_blocking_send(wsi);
 		}
 
@@ -575,7 +595,7 @@ post_send:
 	}
 
 	lwsl_wsi_debug(wsi, "ERROR writing len %d to skt fd %d err %d / errno %d",
-			    (int)(ssize_t)len, wsi->io->desc.sockfd, n, LWS_ERRNO);
+			    (int)(ssize_t)len, wsi->io->desc.sockfd, n, en);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

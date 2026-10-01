@@ -1044,6 +1044,12 @@ struct lws_io_adjunct {
 
 #if defined(LWS_WITH_UDP)
 	struct lws_udp			*udp; /* the datagram socket's peer state */
+	/*
+	 * The icmp error a bare POLLERR reported, taken from the socket by
+	 * the service loop so poll() stops reporting it, and failing the next
+	 * read or write as the syscall would have (service.c, output.c)
+	 */
+	int				pending_sock_err;
 #endif
 #if defined(LWS_WITH_TLS)
 	/* the tls session: the record layer, the handshake, the library's objects */

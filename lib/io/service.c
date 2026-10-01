@@ -838,6 +838,21 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	memset(&sa46, 0, sizeof(sa46));
 
+#if defined(LWS_WITH_UDP)
+	if (wsi->io->pending_sock_err) {
+		/*
+		 * The icmp error the service loop took from the socket
+		 * (_lws_service_fd_tsi()): the recv would have returned it
+		 */
+		lwsl_wsi_info(wsi, "dgram socket error %d",
+			      wsi->io->pending_sock_err);
+		wsi->io->pending_sock_err = 0;
+		*nothing = 1;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+#endif
+
 	if (wsi->io->transport && wsi->io->transport->recv_dgram)
 		n = wsi->io->transport->recv_dgram(wsi, wsi->io->transport_opaque,
 						  pt->serv_buf,
@@ -1528,6 +1543,37 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 						3);
 		}
 	}
+
+#if defined(LWS_WITH_UDP) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
+	/*
+	 * A connected datagram socket is told of an icmp error (port or host
+	 * unreachable) as a bare POLLERR, and it is level-triggered: the kernel
+	 * reports it on every poll() until something takes the error from the
+	 * socket, a read, a write or SO_ERROR.  It is not a hangup, so the
+	 * block above is not entered for it, and nothing below reads or writes
+	 * unless POLLIN or POLLOUT came with it, so left alone it is reported
+	 * again at once and the thread spins until the next send.
+	 *
+	 * Take it from the socket now, and keep it for the wsi's next read or
+	 * write, which fails with it exactly as the syscall would have, so the
+	 * async dns and quic error paths see what they always saw.  A wsi that
+	 * is reading hears it on this pass.
+	 */
+	if ((pollfd->revents & LWS_POLLHUP) &&
+	    !(pollfd->revents & LWS_POLL_HANGUP) &&
+	    lws_wsi_is_udp(wsi) && lwsi_transport(wsi) != LTS_WAITING_CONNECT) {
+		socklen_t sl = sizeof(int);
+		int e = 0;
+
+		if (!getsockopt(wsi->io->desc.sockfd, SOL_SOCKET, SO_ERROR,
+				(char *)&e, &sl) && e) {
+			lwsl_wsi_info(wsi, "datagram socket error %d", e);
+			wsi->io->pending_sock_err = e;
+			if (pollfd->events & LWS_POLLIN)
+				pollfd->revents |= LWS_POLLIN;
+		}
+	}
+#endif
 
 #ifdef _WIN32
 	if (pollfd->revents & LWS_POLLOUT)
