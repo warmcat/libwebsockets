@@ -118,10 +118,15 @@ static leg_t legs_main[] = {
 	{ .name = "sink-goes-first",	.streamtype = "sink",
 	  .expect_create_ok = 1, .payload_len = 100,
 	  .sink_destroys = 1, .until = UNTIL_DESTROYING },
-}, legs_refused[] = {
+};
+
+#if defined(__linux__)
+/* the peer credential check needs the abstract socket */
+static leg_t legs_refused[] = {
 	{ .name = "refused",		.streamtype = "sink",
 	  .expect_refused = 1 },
 };
+#endif
 
 static leg_t *legs = legs_main;
 static unsigned int count_legs = LWS_ARRAY_SIZE(legs_main);
