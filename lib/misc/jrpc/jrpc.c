@@ -176,6 +176,7 @@ req_cb(struct lejp_ctx *ctx, char reason)
 		 * and the id is known, so the method can complete and finalize
 		 * its response
 		 */
+		r->method_started = 1;
 		r->pmethod->cb(ctx, LEJPCB_USER_START);
 
 		return 0;
@@ -395,6 +396,15 @@ lws_jrpc_obj_destroy(lws_jrpc_obj_t **_r)
 
 	if (!r)
 		return;
+
+	/*
+	 * A handler that is still completing asynchronously holds a pointer
+	 * to us: tell it we are going, so it does not use it afterwards
+	 */
+	if (r->method_started && r->pmethod && r->pmethod->cb) {
+		r->method_started = 0;
+		r->pmethod->cb(&r->lejp_ctx, LEJPCB_USER_DESTROYING);
+	}
 
 	lws_dll2_remove(&r->list);
 

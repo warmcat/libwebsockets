@@ -113,6 +113,7 @@ enum lejp_callbacks {
 	LEJPCB_OBJECT_END	= 17,
 
 	LEJPCB_USER_START	= 32,
+	LEJPCB_USER_DESTROYING	= 33, /* the object the parse belongs to is going */
 };
 
 /**

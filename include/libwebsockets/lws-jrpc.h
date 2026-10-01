@@ -72,6 +72,14 @@ typedef enum {
 
 /*
  * method name to lejp parsing handler map
+ *
+ * The handler is a lejp callback over the request's params; it is given
+ * LEJPCB_USER_START once the whole request is parsed and the id known.  A
+ * handler that completes asynchronously, keeping a pointer to the request
+ * object, is given LEJPCB_USER_DESTROYING (with the same lejp ctx) when the
+ * object is destroyed under it, by lws_jrpc_obj_destroy() or the jrpc going
+ * away: it must drop its pointer then, nothing of the object survives the
+ * callback.
  */
 
 typedef struct lws_jrpc_method {

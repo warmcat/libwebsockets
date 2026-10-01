@@ -74,6 +74,7 @@ typedef struct lws_jrpc_obj {
 	uint8_t			count_batch_objects;
 
 	uint8_t			seen_id		:1;
+	uint8_t			method_started	:1; /* told USER_START */
 	uint8_t			inside_params	:1;
 	uint8_t			has_jrpc_member	:1;
 	uint8_t			response	:1;
