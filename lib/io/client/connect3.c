@@ -430,11 +430,41 @@ lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
 	(void)wsi;
 
 	if (n == LADNS_RET_FOUND && result && cx->h3_cap_cache) {
-		lws_h3_state_t state = LWS_H3_STATE_HTTPS_RECORD_EXISTS;
-		/* Cache the capability with a 1 hour TTL */
-		lws_cache_write_through(cx->h3_cap_cache, ads,
-					(const uint8_t *)&state, sizeof(state),
-					lws_now_usecs() + (3600ll * LWS_US_PER_SEC), NULL);
+		const void *item = NULL;
+		size_t item_len = 0;
+		int better = 0;
+
+		/*
+		 * The entry has to be the lws_h3_cap_info_t every reader and
+		 * every other writer uses (a bare state was never read), and
+		 * an HTTPS record only says h3 may be there: it must not
+		 * replace what a QUIC connection or an alt-svc already taught
+		 * us about this name
+		 */
+		lws_cache_lock(cx->h3_cap_cache);
+		if (!lws_cache_item_get(cx->h3_cap_cache, ads, &item,
+					&item_len) &&
+		    item_len == sizeof(lws_h3_cap_info_t)) {
+			const lws_h3_cap_info_t *cap =
+					(const lws_h3_cap_info_t *)item;
+
+			better = cap->state == LWS_H3_STATE_KNOWN_GOOD ||
+				 cap->state == LWS_H3_STATE_ALTSVC_EXISTS;
+		}
+		lws_cache_unlock(cx->h3_cap_cache);
+
+		if (!better) {
+			lws_h3_cap_info_t cap;
+
+			memset(&cap, 0, sizeof(cap));
+			cap.state = LWS_H3_STATE_HTTPS_RECORD_EXISTS;
+			/* Cache the capability with a 1 hour TTL */
+			lws_cache_write_through(cx->h3_cap_cache, ads,
+					(const uint8_t *)&cap, sizeof(cap),
+					lws_now_usecs() +
+						(3600ll * LWS_US_PER_SEC),
+					NULL);
+		}
 	}
 
 	if (result)
@@ -1465,8 +1495,17 @@ ads_known:
 
 			/* another service thread may drop the item after the get */
 			lws_cache_lock(wsi->a.context->h3_cap_cache);
-			if (!lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], &item, &item_len) &&
-			    item_len == sizeof(lws_h3_cap_info_t)) {
+			/*
+			 * The connection's own learning (quic, alt-svc, the
+			 * grace timer) is keyed on the Host; the HTTPS record
+			 * query, which has no connection, keyed on the address
+			 * it looked up.  Try both.
+			 */
+			if ((lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], &item, &item_len) ||
+			     item_len != sizeof(lws_h3_cap_info_t)) &&
+			    wsi->stash->cis[CIS_ADDRESS])
+				lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_ADDRESS], &item, &item_len);
+			if (item && item_len == sizeof(lws_h3_cap_info_t)) {
 				const lws_h3_cap_info_t *cap = (const lws_h3_cap_info_t *)item;
 				if (cap->state == LWS_H3_STATE_KNOWN_GOOD)
 					grace_us = cap->latency_us + LWS_QUIC_GRACE_MARGIN_US;
