@@ -82,6 +82,8 @@ struct lws_tls_conn {
 
 	int is_client;
 	char initialized;
+	/* br_ssl_engine_close() has queued our close_notify */
+	char close_notify_queued;
 
 	struct lws_x509_cert *peer_cert;
 	br_x509_class x509_vtable;

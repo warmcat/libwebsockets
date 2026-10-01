@@ -386,9 +386,51 @@ lws_tls_ctx * lws_tls_ctx_from_wsi(struct lws *wsi)
 	return conn->ctx;
 }
 
-enum lws_ssl_capable_status __lws_tls_shutdown(struct lws *wsi)
+/*
+ * Queue our close_notify, then flush the records the engine has for the peer,
+ * ending with it.  Nothing is read here: once it has gone the staged close
+ * shuts our write side and discards the peer's rx until his FIN.
+ */
+
+enum lws_ssl_capable_status
+__lws_tls_shutdown(struct lws *wsi)
 {
-	return LWS_SSL_CAPABLE_ERROR;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io->tls.ssl;
+	br_ssl_engine_context *eng;
+	unsigned char *buf;
+	unsigned int st;
+	size_t len;
+	int n;
+
+	if (!conn)
+		return LWS_SSL_CAPABLE_ERROR;
+
+	eng = &conn->u.engine;
+
+	if (!conn->close_notify_queued) {
+		conn->close_notify_queued = 1;
+		br_ssl_engine_close(eng);
+	}
+
+	while ((st = br_ssl_engine_current_state(eng)) & BR_SSL_SENDREC) {
+		buf = br_ssl_engine_sendrec_buf(eng, &len);
+		n = (int)send(wsi->io->desc.sockfd, (const char *)buf,
+			      LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
+		if (n > 0) {
+			br_ssl_engine_sendrec_ack(eng, (size_t)n);
+			continue;
+		}
+		if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
+			      LWS_ERRNO == LWS_EWOULDBLOCK))
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+
+	if (st == BR_SSL_CLOSED && br_ssl_engine_last_error(eng))
+		return LWS_SSL_CAPABLE_ERROR;
+
+	return LWS_SSL_CAPABLE_DONE;
 }
 
 static int
