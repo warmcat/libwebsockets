@@ -144,6 +144,10 @@ struct lws_x509_cert_gen_info {
  * Creates a certificate and private key in memory (DER format).
  * The caller is responsible for freeing *cert_buf and *key_buf using free().
  *
+ * The private key is SEC1 ("EC PRIVATE KEY") DER for EC, or PKCS#1
+ * ("RSA PRIVATE KEY") DER for RSA.  info->ca_key_pem may be any of those, or
+ * PKCS#8 ("PRIVATE KEY"), in PEM.
+ *
  * Returns 0 on success.
  */
 LWS_VISIBLE LWS_EXTERN int

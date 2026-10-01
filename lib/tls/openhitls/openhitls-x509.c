@@ -25,6 +25,10 @@
 #include "private-lib-core.h"
 #include <hitls_pki_utils.h>
 #include <crypt_eal_codecs.h>
+#include <crypt_eal_pkey.h>
+#include <crypt_eal_rand.h>
+#include <bsl_list.h>
+#include <bsl_obj.h>
 
 extern int32_t
 HITLS_X509_GetDistinguishNameStrFromList(BslList *list, BSL_Buffer *buff);
@@ -964,3 +968,370 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk, void *pem,
 	return result;
 }
 #endif
+
+/*
+ * Cert creation: the key is SEC1 (EC) or PKCS#1 (RSA) DER, as the other
+ * backends hand it back
+ */
+
+static CRYPT_EAL_PkeyCtx *
+lws_x509_openhitls_gen_key(const struct lws_x509_cert_gen_info *info)
+{
+	static const uint8_t e[] = { 1, 0, 1 };
+	CRYPT_EAL_PkeyCtx *pkey;
+	CRYPT_EAL_PkeyPara para;
+	CRYPT_PKEY_ParaId curve;
+
+	if (lws_hitls_init_rand())
+		return NULL;
+
+	if (info->curve_name) {
+		if (!strcmp(info->curve_name, "P-256"))
+			curve = CRYPT_ECC_NISTP256;
+		else if (!strcmp(info->curve_name, "P-384"))
+			curve = CRYPT_ECC_NISTP384;
+		else if (!strcmp(info->curve_name, "P-521"))
+			curve = CRYPT_ECC_NISTP521;
+		else {
+			lwsl_err("%s: unknown curve %s\n", __func__,
+				 info->curve_name);
+			return NULL;
+		}
+
+		pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_ECDSA);
+		if (!pkey)
+			return NULL;
+		if (CRYPT_EAL_PkeySetParaById(pkey, curve) != CRYPT_SUCCESS)
+			goto bail;
+	} else {
+		pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_RSA);
+		if (!pkey)
+			return NULL;
+
+		memset(&para, 0, sizeof(para));
+		para.id = CRYPT_PKEY_RSA;
+		para.para.rsaPara.e = (uint8_t *)(lws_intptr_t)e;
+		para.para.rsaPara.eLen = sizeof(e);
+		para.para.rsaPara.bits = (uint32_t)(info->key_bits ?
+						    info->key_bits : 2048);
+		if (CRYPT_EAL_PkeySetPara(pkey, &para) != CRYPT_SUCCESS)
+			goto bail;
+	}
+
+	if (CRYPT_EAL_PkeyGen(pkey) == CRYPT_SUCCESS)
+		return pkey;
+
+bail:
+	CRYPT_EAL_PkeyFreeCtx(pkey);
+
+	return NULL;
+}
+
+static int
+lws_x509_openhitls_set_time(HITLS_X509_Cert *cert, int cmd, int64_t t)
+{
+	BSL_TIME bt;
+
+	memset(&bt, 0, sizeof(bt));
+	if (BSL_SAL_UtcTimeToDateConvert(t, &bt) != BSL_SUCCESS)
+		return 1;
+
+	return HITLS_X509_CertCtrl(cert, cmd, &bt, sizeof(bt)) !=
+							HITLS_PKI_SUCCESS;
+}
+
+/* the SAN is a single DNS name or IP address literal */
+
+static int
+lws_x509_openhitls_set_san(HITLS_X509_Cert *cert, const char *san)
+{
+	HITLS_X509_ExtSan es = { false, NULL };
+	HITLS_X509_GeneralName *gn;
+	size_t len = strlen(san);
+	uint8_t ip[16];
+	int n, ret = 1;
+
+	/* 253 is the longest a DNS name can be */
+	if (!len || len > 253)
+		return 1;
+
+	es.names = BSL_LIST_New(sizeof(HITLS_X509_GeneralName *));
+	gn = BSL_SAL_Calloc(1, sizeof(*gn));
+	if (!es.names || !gn)
+		goto bail;
+
+#if defined(LWS_WITH_NETWORK)
+	n = lws_parse_numeric_address(san, ip, sizeof(ip));
+#else
+	n = -1;
+#endif
+	if (n == 4 || n == 16) {
+		gn->type = HITLS_X509_GN_IP;
+		gn->value.dataLen = (uint32_t)n;
+	} else {
+		gn->type = HITLS_X509_GN_DNS;
+		gn->value.dataLen = (uint32_t)len;
+	}
+	gn->value.data = BSL_SAL_Malloc(gn->value.dataLen);
+	if (!gn->value.data)
+		goto bail;
+	memcpy(gn->value.data, gn->type == HITLS_X509_GN_IP ? ip :
+			(const uint8_t *)san, gn->value.dataLen);
+
+	if (BSL_LIST_AddElement(es.names, gn, BSL_LIST_POS_END) != BSL_SUCCESS)
+		goto bail;
+	gn = NULL; /* the list owns it now */
+
+	if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_SET_SAN, &es,
+				sizeof(es)) == HITLS_PKI_SUCCESS)
+		ret = 0;
+
+bail:
+	if (gn)
+		HITLS_X509_FreeGeneralName(gn);
+	BSL_LIST_FREE(es.names, (BSL_LIST_PFUNC_FREE)HITLS_X509_FreeGeneralName);
+
+	return ret;
+}
+
+static int
+lws_x509_openhitls_set_eku(HITLS_X509_Cert *cert, int is_server)
+{
+	static const BslCid cids[] = { BSL_CID_KP_CLIENTAUTH,
+				       BSL_CID_KP_SERVERAUTH };
+	HITLS_X509_ExtExKeyUsage eku = { false, NULL };
+	BslOidString *oid;
+	BSL_Buffer *b;
+	int n, ret = 1;
+
+	eku.oidList = BSL_LIST_New(sizeof(BSL_Buffer));
+	if (!eku.oidList)
+		return 1;
+
+	/* a server cert is also usable as a client cert, as on openssl */
+	for (n = 0; n < (is_server ? 2 : 1); n++) {
+		oid = BSL_OBJ_GetOID(cids[n]);
+		if (!oid)
+			goto bail;
+		b = BSL_SAL_Malloc(sizeof(*b));
+		if (!b)
+			goto bail;
+		b->data = (uint8_t *)oid->octs; /* static, not owned */
+		b->dataLen = oid->octetLen;
+		if (BSL_LIST_AddElement(eku.oidList, b, BSL_LIST_POS_END) !=
+								BSL_SUCCESS) {
+			BSL_SAL_Free(b);
+			goto bail;
+		}
+	}
+
+	if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_SET_EXKUSAGE, &eku,
+				sizeof(eku)) == HITLS_PKI_SUCCESS)
+		ret = 0;
+
+bail:
+	/* frees just the BSL_Buffer wrappers */
+	BSL_LIST_FREE(eku.oidList, NULL);
+
+	return ret;
+}
+
+static int
+lws_x509_openhitls_pem_buf(const char *pem, BSL_Buffer *b)
+{
+	size_t len = strlen(pem);
+
+	/* PEM decode wants the NUL there but not counted */
+	if (!len || len > 0x7fffffff)
+		return 1;
+
+	b->data = (uint8_t *)(lws_intptr_t)pem;
+	b->dataLen = (uint32_t)len;
+
+	return 0;
+}
+
+static int
+lws_x509_openhitls_copy_out(BSL_Buffer *b, uint8_t **out, size_t *out_len)
+{
+	*out = malloc(b->dataLen);
+	if (!*out)
+		return 1;
+
+	memcpy(*out, b->data, b->dataLen);
+	*out_len = b->dataLen;
+
+	return 0;
+}
+
+int
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info)
+{
+	HITLS_X509_ExtBCons bcons = { true, false, -1 };
+	HITLS_X509_ExtKeyUsage ku = { true, 0 };
+	CRYPT_EAL_PkeyCtx *pkey = NULL, *issuer_key = NULL;
+	HITLS_X509_Cert *cert = NULL, *issuer = NULL;
+	BSL_Buffer der = { NULL, 0 }, key_der = { NULL, 0 }, pb;
+	BslList *subject = NULL, *issuer_dn;
+	int32_t version = HITLS_X509_VERSION_3;
+	uint8_t serial[8];
+	HITLS_X509_DN dn;
+	int64_t now;
+	int ret = 1;
+
+	(void)context;
+
+	if (!info || !info->san || !*info->san ||
+	    (info->ca_cert_pem && !info->ca_key_pem) ||
+	    (!info->ca_cert_pem && info->ca_key_pem))
+		return 1;
+
+	pkey = lws_x509_openhitls_gen_key(info);
+	if (!pkey) {
+		lwsl_err("%s: key generation failed\n", __func__);
+		return 1;
+	}
+
+	cert = HITLS_X509_CertNew();
+	subject = HITLS_X509_DnListNew();
+	if (!cert || !subject)
+		goto bail;
+
+	if (HITLS_X509_CertCtrl(cert, HITLS_X509_SET_VERSION, &version,
+				sizeof(version)) != HITLS_PKI_SUCCESS)
+		goto bail;
+
+	/* positive, and the top byte nonzero so it stays minimal DER */
+	if (CRYPT_EAL_Randbytes(serial, sizeof(serial)) !=
+								CRYPT_SUCCESS)
+		goto bail;
+	serial[0] = (uint8_t)((serial[0] & 0x7f) | 0x40);
+	if (HITLS_X509_CertCtrl(cert, HITLS_X509_SET_SERIALNUM, serial,
+				sizeof(serial)) != HITLS_PKI_SUCCESS)
+		goto bail;
+
+	/* valid from a day ago, so a peer's clock skew doesn't refuse it */
+	now = (int64_t)time(NULL);
+	if (lws_x509_openhitls_set_time(cert, HITLS_X509_SET_BEFORE_TIME,
+					now - 86400) ||
+	    lws_x509_openhitls_set_time(cert, HITLS_X509_SET_AFTER_TIME,
+				now + (int64_t)(info->validity_days ?
+					info->validity_days : 365) * 86400))
+		goto bail;
+
+	if (HITLS_X509_CertCtrl(cert, HITLS_X509_SET_PUBKEY, pkey, 0) !=
+							HITLS_PKI_SUCCESS)
+		goto bail;
+
+	dn.cid = BSL_CID_AT_COMMONNAME;
+	dn.data = (uint8_t *)(lws_intptr_t)info->san;
+	dn.dataLen = (uint32_t)strlen(info->san);
+	if (HITLS_X509_AddDnName(subject, &dn, 1) != HITLS_PKI_SUCCESS ||
+	    HITLS_X509_CertCtrl(cert, HITLS_X509_SET_SUBJECT_DN, subject,
+				sizeof(BslList)) != HITLS_PKI_SUCCESS)
+		goto bail;
+
+	issuer_dn = subject;
+	if (info->ca_cert_pem) {
+		if (lws_x509_openhitls_pem_buf(info->ca_cert_pem, &pb) ||
+		    HITLS_X509_CertParseBuff(BSL_FORMAT_PEM, &pb, &issuer) !=
+							HITLS_PKI_SUCCESS) {
+			lwsl_err("%s: unable to parse CA cert\n", __func__);
+			goto bail;
+		}
+		if (lws_x509_openhitls_pem_buf(info->ca_key_pem, &pb) ||
+		    CRYPT_EAL_DecodeBuffKey(BSL_FORMAT_PEM, CRYPT_ENCDEC_UNKNOW,
+					    &pb, NULL, 0, &issuer_key) !=
+								CRYPT_SUCCESS) {
+			lwsl_err("%s: unable to parse CA key\n", __func__);
+			goto bail;
+		}
+		/* a reference into the issuer cert, not ours to free */
+		if (HITLS_X509_CertCtrl(issuer, HITLS_X509_GET_SUBJECT_DN,
+					&issuer_dn, sizeof(BslList *)) !=
+							HITLS_PKI_SUCCESS)
+			goto bail;
+	}
+	if (HITLS_X509_CertCtrl(cert, HITLS_X509_SET_ISSUER_DN, issuer_dn,
+				sizeof(BslList)) != HITLS_PKI_SUCCESS)
+		goto bail;
+
+	bcons.isCa = !!info->is_ca;
+	if (info->is_ca)
+		ku.keyUsage = HITLS_X509_EXT_KU_KEY_CERT_SIGN |
+			      HITLS_X509_EXT_KU_CRL_SIGN;
+	else
+		ku.keyUsage = HITLS_X509_EXT_KU_DIGITAL_SIGN |
+			      HITLS_X509_EXT_KU_KEY_ENCIPHERMENT;
+	if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_SET_BCONS, &bcons,
+				sizeof(bcons)) != HITLS_PKI_SUCCESS ||
+	    HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_SET_KUSAGE, &ku,
+				sizeof(ku)) != HITLS_PKI_SUCCESS)
+		goto bail;
+
+	if (!info->is_ca && lws_x509_openhitls_set_eku(cert, info->is_server))
+		goto bail;
+
+	if (info->is_server && lws_x509_openhitls_set_san(cert, info->san)) {
+		lwsl_err("%s: unable to add SAN\n", __func__);
+		goto bail;
+	}
+
+	if (HITLS_X509_CertSign(CRYPT_MD_SHA256, issuer_key ? issuer_key : pkey,
+				NULL, cert) != HITLS_PKI_SUCCESS) {
+		lwsl_err("%s: signing failed\n", __func__);
+		goto bail;
+	}
+
+	if (HITLS_X509_CertGenBuff(BSL_FORMAT_ASN1, cert, &der) !=
+							HITLS_PKI_SUCCESS ||
+	    CRYPT_EAL_EncodeBuffKey(pkey, NULL, BSL_FORMAT_ASN1,
+				    info->curve_name ? CRYPT_PRIKEY_ECC :
+						       CRYPT_PRIKEY_RSA,
+				    &key_der) != CRYPT_SUCCESS)
+		goto bail;
+
+	if (lws_x509_openhitls_copy_out(&der, cert_buf, cert_len))
+		goto bail;
+	if (lws_x509_openhitls_copy_out(&key_der, key_buf, key_len)) {
+		free(*cert_buf);
+		*cert_buf = NULL;
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	if (key_der.data) {
+		lws_explicit_bzero(key_der.data, key_der.dataLen);
+		BSL_SAL_Free(key_der.data);
+	}
+	BSL_SAL_Free(der.data);
+	HITLS_X509_DnListFree(subject);
+	HITLS_X509_CertFree(issuer);
+	HITLS_X509_CertFree(cert);
+	CRYPT_EAL_PkeyFreeCtx(issuer_key);
+	CRYPT_EAL_PkeyFreeCtx(pkey);
+
+	return ret;
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	struct lws_x509_cert_gen_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.san = san ? san : "localhost";
+	info.key_bits = key_bits;
+	info.is_server = 1;
+
+	return lws_x509_create_cert(context, cert_buf, cert_len, key_buf,
+				    key_len, &info);
+}
