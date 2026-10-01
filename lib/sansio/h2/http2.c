@@ -2467,8 +2467,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * One still reading its body keeps it to the body
 			 * completion, which releases it.
 			 */
+#if defined(LWS_WITH_SERVER)
 			if (lwsi_role_server(h2n->swsi))
 				lws_http_ah_release_after_dispatch(h2n->swsi, 0);
+#endif
 
 			if (!h2n->swsi->h2.END_STREAM)
 				break;
