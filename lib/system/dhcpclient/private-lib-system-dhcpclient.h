@@ -105,6 +105,9 @@ typedef struct lws_dhcpc_req {
 void
 lws_dhcpc4_retry_conn(struct lws_sorted_usec_list *sul);
 
+void
+lws_dhcpc4_renew(struct lws_sorted_usec_list *sul);
+
 int
 lws_dhcpc4_parse(lws_dhcpc_req_t *r, void *in, size_t len);
 

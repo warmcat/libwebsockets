@@ -217,9 +217,28 @@ callback_dhcpc4(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&r->sul_write);
 		lws_sul_cancel(&r->sul_conn);
 
-		lwsl_notice("%s: DHCP configured %s\n", __func__,
-				(const char *)&r[1]);
+		lwsl_notice("%s: DHCP configured %s, lease %us\n", __func__,
+				(const char *)&r[1], r->is.nums[LWSDH_LEASE_SECS]);
 		r->state = LDHC_BOUND;
+
+		/*
+		 * The lease is for a time.  At T1 (the server's renewal time,
+		 * else half the lease) we go through the exchange again from
+		 * the start on a fresh broadcast socket, which keeps the
+		 * configuration we have in place until the server answers;
+		 * the server ordinarily offers the same address again
+		 */
+		{
+			uint32_t t1 = r->is.nums[LWSDH_RENEWAL_SECS];
+
+			if (!t1 || t1 >= r->is.nums[LWSDH_LEASE_SECS])
+				t1 = r->is.nums[LWSDH_LEASE_SECS] / 2;
+			if (t1 < 10)
+				t1 = 10;
+			lws_sul_schedule(r->context, 0, &r->sul_renew,
+					 lws_dhcpc4_renew, (lws_usec_t)t1 *
+							   LWS_US_PER_SEC);
+		}
 
 		lws_state_transition_steps(&wsi->a.context->mgr_system,
 					   LWS_SYSTATE_OPERATIONAL);
@@ -312,6 +331,25 @@ retry_conn:
 
 const struct lws_protocols lws_system_protocol_dhcpc4 =
 	{ "lws-dhcp4client", callback_dhcpc4, 0, 1500, 0, NULL, 0 };
+
+/*
+ * The renewal time of a bound lease came: start the exchange over, keeping
+ * the bound configuration until the server answers
+ */
+void
+lws_dhcpc4_renew(struct lws_sorted_usec_list *sul)
+{
+	lws_dhcpc_req_t *r = lws_container_of(sul, lws_dhcpc_req_t, sul_renew);
+
+	if (r->state != LDHC_BOUND || r->wsi_raw)
+		return;
+
+	lwsl_notice("%s: lease renewal time, renewing %s\n", __func__,
+		    (const char *)&r[1]);
+	r->state = LDHC_INIT;
+	r->retry_count_conn = 0;
+	lws_dhcpc4_retry_conn(&r->sul_conn);
+}
 
 void
 lws_dhcpc4_retry_conn(struct lws_sorted_usec_list *sul)
@@ -539,8 +577,20 @@ lws_dhcpc4_parse(lws_dhcpc_req_t *r, void *in, size_t len)
 			p += l;
 			continue;
 get_ipv4:
-			if (l >= 4)
-				r->is.nums[n] = ntohl(lws_ser_ru32be(p));
+			/*
+			 * The address-shaped numbers (mask, broadcast) are
+			 * kept as the wire bytes, which is what s_addr wants;
+			 * the time-shaped ones (lease, T1, T2) are seconds in
+			 * host order, since they are arithmetic for us
+			 */
+			if (l >= 4) {
+				if (n == LWSDH_LEASE_SECS ||
+				    n == LWSDH_RENEWAL_SECS ||
+				    n == LWSDH_REBINDING_SECS)
+					r->is.nums[n] = lws_ser_ru32be(p);
+				else
+					r->is.nums[n] = ntohl(lws_ser_ru32be(p));
+			}
 			p += l;
 			continue;
 broken:
@@ -596,10 +646,14 @@ broken:
 		}
 
 		if (r->state == LDHC_INIT) {
+			/*
+			 * An OFFER is not a lease: ask for it with a REQUEST
+			 * and only commit to the configuration on the ACK
+			 */
 			lwsl_info("%s: moving to REQ\n", __func__);
 			r->state = LDHC_REQUESTING;
 			lws_callback_on_writable(r->wsi_raw);
-			//break;
+			break;
 		}
 
 		return 0;
