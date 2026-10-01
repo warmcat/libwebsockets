@@ -435,7 +435,8 @@ lws_dir_notify_windows_thread(LPVOID lpParam)
 				    fni->Action == FILE_ACTION_ADDED ||
 				    fni->Action == FILE_ACTION_REMOVED ||
 				    fni->Action == FILE_ACTION_RENAMED_NEW_NAME) {
-					ev = lws_malloc(sizeof(*ev), "dir_event");
+					/* zeroed, so its list is detached */
+					ev = lws_zalloc(sizeof(*ev), "dir_event");
 					if (ev) {
 						int n = WideCharToMultiByte(CP_UTF8, 0, fni->FileName,
 							fni->FileNameLength / 2, ev->name, sizeof(ev->name) - 1, NULL, NULL);
