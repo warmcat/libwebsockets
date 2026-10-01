@@ -1115,14 +1115,18 @@ test_nsc_limits(void)
 
 	t = lws_now_usecs();
 	n = nsc_jar_write(l1, "host.com", "busy");
-	if (!n || lws_now_usecs() - t > LWS_US_PER_SEC) {
-		lwsl_err("%s: busy jar: %d, %dms\n", __func__, n,
-			 (int)((lws_now_usecs() - t) / LWS_US_PER_MS));
-		remove("./cookies-busy.txt.LCK");
+	t = lws_now_usecs() - t;
+
+	if (remove("./cookies-busy.txt.LCK")) {
+		lwsl_err("%s: unable to remove our lock file\n", __func__);
 		goto cdone;
 	}
 
-	remove("./cookies-busy.txt.LCK");
+	if (!n || t > LWS_US_PER_SEC) {
+		lwsl_err("%s: busy jar: %d, %dms\n", __func__, n,
+			 (int)(t / LWS_US_PER_MS));
+		goto cdone;
+	}
 
 	if (nsc_jar_write(l1, "host.com", "notbusy") ||
 	    !nsc_jar_has(nsc, "host.com", "notbusy"))
