@@ -872,10 +872,12 @@ lws_dht_create(const lws_dht_info_t *info)
 	ctx->hash_cb			= info->hash_cb;
 	ctx->capture_announce_cb	= info->capture_announce_cb;
 	/*
-	 * info->legacy is not applied: lwsws sets it by default for every
-	 * "dht" config block, so honouring it would switch those
-	 * deployments to the legacy 20-byte id wire encoding.
+	 * The legacy 20-byte id wire encoding is only for a DHT that asks
+	 * for it: lwsws's default for a "dht" block is off (lejp-conf.c),
+	 * so existing deployments keep the multihash encoding they have
+	 * always used
 	 */
+	ctx->legacy = info->legacy;
 	lws_dll2_owner_clear(&ctx->ts_owner);
 	lws_dll2_owner_clear(&ctx->verb_owner);
 

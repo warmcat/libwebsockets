@@ -9,6 +9,14 @@ The DHT functionality is physically split into client and backend blocks to allo
 *   `LWS_WITH_DHT`: Enables the DHT frontend and client API. This provides the core functionality to manage a DHT node ID (`dht-id.c`), serialize and parse base DHT protocol messages (`dht-bencode.c`), and manage networking and queries (`dht-tx.c`, `dht.c`).
 *   `LWS_WITH_DHT_BACKEND`: Enables the full DHT backend. This includes managing buckets, maintaining the complex routing table, coordinating decentralized searches, maintaining in-memory storage, and automatically responding to incoming RPCs like `ping`, `find_node`, `get_peers`, and `announce_peer`. This is automatically enabled by default when `LWS_WITH_DHT` is enabled, but can be forced off with `-DLWS_WITH_DHT_BACKEND=0`.
 
+## lwsws configuration
+
+A vhost's `"dht": [{...}]` block in lwsws JSON takes `"v"` (version string),
+`"name"`, `"port"` (default 7682), `"ipv6"`, `"hash"` (`sha1`, `sha256`,
+`sha512` or `blake3`) and `"legacy"`.  `"legacy"` selects the original fixed
+20-byte id wire encoding for peers that predate the multihash one; it is off
+by default and needs a sha1 hash.
+
 ## Configuration Options (`lws_dht_info_t`)
 
 To interact with the DHT, you must declare and configure an instance of `lws_dht_info` and pass it to `lws_dht_create()`, which allocates the active `lws_dht_ctx` tracking structural state.

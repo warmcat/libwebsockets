@@ -175,6 +175,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].dht[].port",
 	"vhosts[].dht[].ipv6",
 	"vhosts[].dht[].hash",
+	"vhosts[].dht[].legacy",
 	"vhosts[].dht[]",
 #endif
 	"vhosts[].quic-mtu",
@@ -275,6 +276,7 @@ enum lejp_vhost_paths {
 	LEJPVP_DHT_PORT,
 	LEJPVP_DHT_IPV6,
 	LEJPVP_DHT_HASH,
+	LEJPVP_DHT_LEGACY,
 	LEJPVP_DHT,
 #endif
 	LEJPVP_QUIC_MTU,
@@ -740,7 +742,6 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->dht_active = 1;
 		memset(&a->dht, 0, sizeof(a->dht));
 		a->dht.port = 7682;
-		a->dht.legacy = 1;
 	}
 #endif
 
@@ -903,6 +904,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		if (!d)
 			return lwsws_exhausted(ctx);
 
+		if (a->dht.legacy && a->dht.aux &&
+		    a->dht.aux != LWS_DHT_HASH_TYPE_SHA1) {
+			lwsl_warn("%s: dht legacy encoding needs a 20-byte "
+				  "(sha1) hash, ignoring legacy\n", __func__);
+			a->dht.legacy = 0;
+		}
 		d->info = a->dht;
 		d->next = NULL;
 
@@ -1014,19 +1021,23 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->dht.ipv6 = !!arg_to_bool(ctx->buf);
 		return 0;
 	case LEJPVP_DHT_HASH:
-		if (!strcmp(ctx->buf, "sha1")) {
+		if (!strcmp(ctx->buf, "sha1"))
 			a->dht.aux = LWS_DHT_HASH_TYPE_SHA1;
-			a->dht.legacy = 0;
-		} else if (!strcmp(ctx->buf, "sha256")) {
+		else if (!strcmp(ctx->buf, "sha256"))
 			a->dht.aux = LWS_DHT_HASH_TYPE_SHA256;
-			a->dht.legacy = 0;
-		} else if (!strcmp(ctx->buf, "sha512")) {
+		else if (!strcmp(ctx->buf, "sha512"))
 			a->dht.aux = LWS_DHT_HASH_TYPE_SHA512;
-			a->dht.legacy = 0;
-		} else if (!strcmp(ctx->buf, "blake3")) {
+		else if (!strcmp(ctx->buf, "blake3"))
 			a->dht.aux = LWS_DHT_HASH_TYPE_BLAKE3;
-			a->dht.legacy = 0;
-		}
+		return 0;
+	case LEJPVP_DHT_LEGACY:
+		/*
+		 * The original fixed 20-byte id wire encoding, for a DHT whose
+		 * peers predate the multihash one.  Off unless asked for: the
+		 * flag was never applied before, so every existing deployment
+		 * is on the multihash encoding.
+		 */
+		a->dht.legacy = !!arg_to_bool(ctx->buf);
 		return 0;
 #endif
 	case LEJPVP_NAME:
