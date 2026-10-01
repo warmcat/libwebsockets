@@ -1856,6 +1856,13 @@ static const char
 
 *ecdhes_t1_jose_hdr_esakw128_128 =
 	"{\"alg\":\"ECDH-ES+A128KW\",\"enc\":\"A128CBC-HS256\"}",
+/*
+ * The same with PartyUInfo / PartyVInfo, which go into the Concat KDF on
+ * both sides: a KDF that mishandles them makes a CEK that decrypts nothing
+ */
+*ecdhes_t1_jose_hdr_esakw128_128_apuv =
+	"{\"alg\":\"ECDH-ES+A128KW\",\"enc\":\"A128CBC-HS256\","
+	 "\"apu\":\"QWxpY2U\",\"apv\":\"Qm9i\"}",
 
 *ecdhes_t1_jose_hdr_esakw192_192 =
 	"{\"alg\":\"ECDH-ES+A192KW\",\"enc\":\"A192CBC-HS384\"}",
@@ -1895,8 +1902,13 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 				jose_hdr, strlen(jose_hdr), 0))
 		goto bail;
 
+	/*
+	 * The parse decodes b64 members (apu, apv) into the temp space it is
+	 * given: that has to be the free part of temp, not its start, where
+	 * the JOSE copy just made lives
+	 */
 	if (lws_jwe_parse_jose(&jwe.jose, jose_hdr, (int)strlen(jose_hdr),
-			       temp, &temp_len) < 0) {
+			       lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 
 		goto bail;
@@ -2783,6 +2795,9 @@ test_jwe(struct lws_context *context)
 			    ecdhes_t1_peer_p521_private_key) < 0;
 
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw128_128,
+			    ecdhes_t1_peer_p256_public_key,
+			    ecdhes_t1_peer_p256_private_key) < 0;
+	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw128_128_apuv,
 			    ecdhes_t1_peer_p256_public_key,
 			    ecdhes_t1_peer_p256_private_key) < 0;
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw192_192,

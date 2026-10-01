@@ -20,6 +20,14 @@ if (requirements)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 30)
 
+	# The same under a zone well away from UTC: the certificate times
+	# are UTC and must not pick up the process's local offset (C-407)
+	add_test(NAME api-test-x509-info-tz COMMAND lws-api-test-x509-info)
+	set_tests_properties(api-test-x509-info-tz PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			     ENVIRONMENT "TZ=Asia/Tokyo"
+			     TIMEOUT 30)
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)
