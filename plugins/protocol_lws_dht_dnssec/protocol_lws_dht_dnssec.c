@@ -4843,7 +4843,7 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 			return "";
 		}
 
-		char *pembuf = malloc((size_t)st.st_size);
+		char *pembuf = malloc((size_t)st.st_size + 1);
 		if (!pembuf || read(cfd, pembuf, (unsigned int)st.st_size) != st.st_size) {
 			lwsl_err("%s: Failed to read PEM file %s\n", __func__, cert_path);
 			if (pembuf) free(pembuf);
@@ -4852,8 +4852,10 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 			return "";
 		}
 		close(cfd);
+		/* mbedtls needs the PEM NUL-terminated, the NUL counted */
+		pembuf[st.st_size] = '\0';
 
-		if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size) < 0) {
+		if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size + 1) < 0) {
 			lwsl_err("%s: Failed parsing PEM data from %s\n", __func__, cert_path);
 			free(pembuf);
 			lws_x509_destroy(&cert);

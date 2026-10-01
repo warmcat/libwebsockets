@@ -1635,9 +1635,11 @@ get_dane_hash(const char *base_dir, const char *domain, const char *certs_dir, c
 	if (!lws_x509_create(&cert)) {
 		struct stat st;
 		if (!fstat(cfd, &st) && st.st_size > 0) {
-			char *pembuf = malloc((size_t)st.st_size);
+			char *pembuf = malloc((size_t)st.st_size + 1);
 			if (pembuf && read(cfd, pembuf, (unsigned int)st.st_size) == st.st_size) {
-				if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size) >= 0) {
+				/* mbedtls needs the PEM NUL-terminated, the NUL counted */
+				pembuf[st.st_size] = '\0';
+				if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size + 1) >= 0) {
 					union lws_tls_cert_info_results res1;
 					union lws_tls_cert_info_results *res;
 					res1.ns.len = 0;
