@@ -418,8 +418,9 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 }
 
 int
-lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
-			  lws_tls_sess_cb_t cb_save, void *opq)
+lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
+				uint16_t port, unsigned int flags,
+				lws_tls_sess_cb_t cb_save, void *opq)
 {
 	/* there seems no serialization / deserialization helper in mbedtls */
 	lwsl_warn("%s: only supported on openssl atm\n", __func__);
@@ -428,8 +429,9 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
 }
 
 int
-lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
-			  lws_tls_sess_cb_t cb_load, void *opq)
+lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
+				uint16_t port, unsigned int flags,
+				lws_tls_sess_cb_t cb_load, void *opq)
 {
 	/* there seems no serialization / deserialization helper in mbedtls */
 	lwsl_warn("%s: only supported on openssl atm\n", __func__);

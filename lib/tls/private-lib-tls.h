@@ -401,6 +401,27 @@ lws_tls_session_tag_discrete(const char *vhname, const char *host,
 			     uint16_t port, char *buf, size_t len);
 
 /**
+ * lws_tls_session_tag_dump() - the tag the session dump / load apis use
+ *
+ * \param vh: the vhost
+ * \param host: name of the host we are connecting to, like warmcat.com
+ * \param port: the port we connected to
+ * \param flags: LWS_TLS_SESSION_DUMP_F_ flags from the dump / load api
+ * \param buf: the destination buffer for the tag
+ * \param len: the max available size of the destination buffer
+ *
+ * The tag of a fully validated session over the transport \p flags selects,
+ * the same one lws_tls_session_tag_from_wsi() gives such a connection.
+ *
+ * Returns 0 if there is a tag, else nonzero: unknown flags, a transport this
+ * build has no role for, or a tag too long for \p len.
+ */
+int
+lws_tls_session_tag_dump(const struct lws_vhost *vh, const char *host,
+			 uint16_t port, unsigned int flags, char *buf,
+			 size_t len);
+
+/**
  * lws_tls_session_name_from_wsi() - form an lws session tag name from a client wsi
  *
  * \param wsi: the wsi whose vhost, host and port we should use for the tag

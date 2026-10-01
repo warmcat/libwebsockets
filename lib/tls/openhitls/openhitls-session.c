@@ -393,7 +393,8 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 }
 
 int
-lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
+lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
+				uint16_t port, unsigned int flags,
 				lws_tls_sess_cb_t cb_save, void *opq)
 {
 	struct lws_tls_session_dump d;
@@ -406,9 +407,9 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
 
 	memset(&d, 0, sizeof(d));
 	d.opaque = opq;
-	if (lws_tls_session_tag_discrete(vh->name, host, port, d.tag,
-					 sizeof(d.tag)))
-		return 1; /* too long to be cached, or loaded */
+	if (lws_tls_session_tag_dump(vh, host, port, flags, d.tag,
+				     sizeof(d.tag)))
+		return 1; /* there is no such tag */
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */
@@ -451,7 +452,8 @@ bail:
 }
 
 int
-lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
+lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
+				uint16_t port, unsigned int flags,
 				lws_tls_sess_cb_t cb_load, void *opq)
 {
 	struct lws_tls_session_dump d;
@@ -465,9 +467,9 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 
 	memset(&d, 0, sizeof(d));
 	d.opaque = opq;
-	if (lws_tls_session_tag_discrete(vh->name, host, port, d.tag,
-					 sizeof(d.tag)))
-		return 1; /* too long to be cached, or loaded */
+	if (lws_tls_session_tag_dump(vh, host, port, flags, d.tag,
+				     sizeof(d.tag)))
+		return 1; /* there is no such tag */
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */

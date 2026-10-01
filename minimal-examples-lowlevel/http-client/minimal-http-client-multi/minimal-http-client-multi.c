@@ -127,6 +127,13 @@ static struct lws_context *context;
 static char out_dir[256];
 static char save_ticket[256];
 static char load_ticket[256];
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
+/*
+ * quic sessions are cached apart from tls over tcp ones, a ticket saved after
+ * --h3 is the quic session, and only quic connections may resume it
+ */
+static unsigned int sess_dump_flags;
+#endif
 
 struct req {
 	char path[512];
@@ -858,6 +865,9 @@ int main(int argc, const char **argv)
 		 * judged by whether h3 worked at all).
 		 */
 		i.disable_h3_fallback = 1;
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
+		sess_dump_flags = LWS_TLS_SESSION_DUMP_F_QUIC;
+#endif
 	}
 
 	if (lws_cmdline_option(argc, argv, "--quicv2"))
@@ -983,8 +993,10 @@ int main(int argc, const char **argv)
 	 * Attempt to preload a session from external storage
 	 */
 	if (load_ticket[0]) {
-		if (lws_tls_session_dump_load(lws_get_vhost_by_name(context, "default"),
-					  i.host, (uint16_t)reqs[0].port, sess_load_cb, load_ticket))
+		if (lws_tls_session_dump_load_flags(
+				lws_get_vhost_by_name(context, "default"),
+				i.host, (uint16_t)reqs[0].port, sess_dump_flags,
+				sess_load_cb, load_ticket))
 			lwsl_warn("%s: session load failed\n", __func__);
 	}
 #endif
@@ -1018,9 +1030,10 @@ int main(int argc, const char **argv)
 	if (save_ticket[0]) {
 		struct lws_vhost *save_vh = lws_get_vhost_by_name(context, "default");
 		if (save_vh) {
-			if (lws_tls_session_dump_save(save_vh, i.host,
-						      (uint16_t)reqs[0].port,
-						      sess_save_cb, save_ticket))
+			if (lws_tls_session_dump_save_flags(save_vh, i.host,
+						(uint16_t)reqs[0].port,
+						sess_dump_flags, sess_save_cb,
+						save_ticket))
 				lwsl_warn("%s: deferred session save failed\n",
 					  __func__);
 			else

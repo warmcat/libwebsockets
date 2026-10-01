@@ -1288,6 +1288,22 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 {
 	return -1;
 }
+
+int
+lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
+				uint16_t port, unsigned int flags,
+				lws_tls_sess_cb_t cb_save, void *opq)
+{
+	return -1;
+}
+
+int
+lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
+				uint16_t port, unsigned int flags,
+				lws_tls_sess_cb_t cb_load, void *opq)
+{
+	return -1;
+}
 #endif
 
 

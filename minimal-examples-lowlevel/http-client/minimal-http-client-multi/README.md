@@ -28,3 +28,5 @@ Option|Meaning
 --post|POST to the server rather than GET (a multipart body of unknown length: over http/1.1 lws sends it chunked)
 -c<n>|Create n connections (n can be 1 .. 8)
 --path <path>|Force the URL path (should start with /)
+--save-ticket <path>|After the run, save the client's tls session for the first URL's host and port to the file.  With `--h3` it is the quic session, else the tls over tcp one
+--load-ticket <path>|Before connecting, load a tls session saved by `--save-ticket` into the client's session cache, so the first connection resumes it.  With `--h3` and `--0rtt`, the requests are sent as 0-RTT early data
