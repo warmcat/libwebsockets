@@ -25,6 +25,56 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-bearssl.h"
 
+/*
+ * BearSSL's prng generate() slot is void, so a failure of the platform
+ * entropy source cannot be reported to BearSSL... instead we latch it in our
+ * own ctx and every user of the prng in here checks it afterwards and fails
+ * the whole operation, so we can never emit key material, an OAEP seed or a
+ * PSS salt derived from a failed (ie, zeroed) read
+ */
+
+static void
+lws_br_prng_init(const br_prng_class **ctx, const void *params, const void *seed, size_t seed_len)
+{
+	/* lws entropy pool doesn't need init here */
+}
+
+static void
+lws_br_prng_generate(const br_prng_class **ctx, void *out, size_t len)
+{
+	struct lws_br_prng_ctx *lctx = (struct lws_br_prng_ctx *)ctx;
+
+	if (lws_get_random(lctx->context, out, len) != len) {
+		lwsl_err("%s: entropy source failed for %u bytes\n", __func__,
+			 (unsigned int)len);
+		lws_explicit_bzero(out, len);
+		lctx->failed = 1;
+	}
+}
+
+static void
+lws_br_prng_update(const br_prng_class **ctx, const void *seed, size_t seed_len)
+{
+	/* no-op */
+}
+
+static const br_prng_class lws_br_prng_vtable = {
+	sizeof(struct lws_br_prng_ctx),
+	lws_br_prng_init,
+	lws_br_prng_generate,
+	lws_br_prng_update
+};
+
+/* prepare a prng ctx for handing to BearSSL */
+
+void
+lws_br_prng_ctx_init(struct lws_br_prng_ctx *prng, struct lws_context *context)
+{
+	prng->vtable = &lws_br_prng_vtable;
+	prng->context = context;
+	prng->failed = 0;
+}
+
 
 int lws_x509_create(struct lws_x509_cert **x509) {
 	*x509 = lws_zalloc(sizeof(**x509), "x509_create");

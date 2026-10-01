@@ -121,4 +121,18 @@ int lws_tls_bearssl_vh_wants_client_certs(struct lws_vhost *vh);
 void lws_bearssl_engine_set_floor(br_ssl_engine_context *eng,
 				  long options_clear);
 
+/*
+ * lws entropy as a BearSSL prng; an entropy failure latches .failed, which
+ * every user must check after the BearSSL operation (see bearssl-x509.c)
+ */
+
+struct lws_br_prng_ctx {
+	const br_prng_class *vtable;
+	struct lws_context *context;
+	char failed;
+};
+
+void
+lws_br_prng_ctx_init(struct lws_br_prng_ctx *prng, struct lws_context *context);
+
 #endif
