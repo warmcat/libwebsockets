@@ -343,9 +343,45 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 	jwe->jws.map.buf[LJWE_JOSE] = temp;
 
 	m = n = lws_snprintf(temp, (size_t)*temp_len,
-			     "{\"alg\":\"%s\", \"enc\":\"%s\", \"epk\":",
+			     "{\"alg\":\"%s\", \"enc\":\"%s\", ",
 			     jwe->jose.alg->alg, jwe->jose.enc_alg->alg);
 	*temp_len -= n;
+
+	/*
+	 * The apu / apv the caller gave went into our Concat KDF: the
+	 * recipient's must too, so they have to be in the header we emit, or
+	 * it derives a different key and the unwrap fails
+	 */
+	for (n = LJJHI_APU; n <= LJJHI_APV; n++) {
+		int l;
+
+		if (!jwe->jose.e[n].buf)
+			continue;
+
+		l = lws_snprintf(temp + (ot - *temp_len), (size_t)*temp_len,
+				 "\"%s\":\"", n == LJJHI_APU ? "apu" : "apv");
+		*temp_len -= l;
+		m += l;
+		l = lws_b64_encode_string_url((const char *)jwe->jose.e[n].buf,
+					      (int)jwe->jose.e[n].len,
+					      temp + (ot - *temp_len),
+					      *temp_len);
+		if (l < 0) {
+			lwsl_err("%s: apu / apv does not fit\n", __func__);
+			goto bail;
+		}
+		*temp_len -= l;
+		m += l;
+		l = lws_snprintf(temp + (ot - *temp_len), (size_t)*temp_len,
+				 "\", ");
+		*temp_len -= l;
+		m += l;
+	}
+
+	n = lws_snprintf(temp + (ot - *temp_len), (size_t)*temp_len,
+			 "\"epk\":");
+	*temp_len -= n;
+	m += n;
 
 	n = lws_jwk_export(ephem, 0, temp + (ot - *temp_len), temp_len);
 	if (n < 0) {
