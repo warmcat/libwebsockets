@@ -18,7 +18,14 @@
  *  - the renewed cert still, after a rotation that could not load (the new
  *    key file is still empty), since a failed rotation leaves the vhost on
  *    what it had
+ *  - the first cert again, renewed on disk without telling lws: the new files
+ *    are written alongside and the live paths moved onto them, the way acme
+ *    and certbot renew, and the vhost must notice by itself
  *  - the first cert again, after a second rotation
+ *
+ * A fourth vhost, "graced", on a listener of its own, has its own live files
+ * and a grace period: a renewal on disk must be held back until it has
+ * passed, then served.
  *
  * A second vhost, "localhost", shares the listener with its own cert, which
  * is the first cert.  Renewing "srv" must not cost the listener its SNI: once
@@ -42,14 +49,31 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if !defined(WIN32)
+#include <unistd.h>
+#endif
 
 #define LIVE_CERT	"tls-cert-rotate-live.cert"
 #define LIVE_KEY	"tls-cert-rotate-live.key"
+#define GRACED_CERT	"tls-cert-rotate-graced.cert"
+#define GRACED_KEY	"tls-cert-rotate-graced.key"
+
+/*
+ * The graced vhost's grace period, and how long after its renewal we check it
+ * is still being held back: the watch looks a couple of seconds after the
+ * files change, so this is well after that and well before the grace ends
+ */
+#define GRACE_S		6
+#define HELD_BACK_S	3
+
+/* how long a step that waits for the vhost to notice a renewal may take */
+#define NOTICE_US	(20 * LWS_US_PER_SEC)
 
 enum rotation {
 	ROT_NONE,	/* connect to the vhost as it is */
 	ROT_OK,		/* renew the cert, then connect */
 	ROT_NO_KEY,	/* renewal half-written: the key file is still empty */
+	ROT_ON_DISK,	/* renew the files without telling lws, then connect */
 };
 
 struct step {
@@ -62,6 +86,9 @@ struct step {
 	char		check_name;	/* ...and must find is for sni */
 	char		drop_srv;	/* renew and destroy srv while answering */
 	char		h1_only;	/* offer h2 too, must still get http/1.1 */
+	char		graced;		/* renew the graced vhost's files */
+	char		wait_cn;	/* reconnect until shown expect_cn */
+	uint8_t		delay_s;	/* connect this long after renewing */
 };
 
 /* the third vhost's name, the address its client dials without SNI */
@@ -81,28 +108,46 @@ struct step {
 #endif
 
 static const struct step steps[] = {
-	{ "initial cert", "srv", NULL, NULL, ROT_NONE, "localhost", 0, 0, 0 },
-	{ "rotated", "srv", "wronghost.example.com.cert",
-	  "wronghost.example.com.key", ROT_OK, "wronghost.example.com", 0, 0, 0 },
-	{ "rotated, the other vhost by SNI", "localhost", NULL, NULL, ROT_NONE,
-	  "localhost", 1, 0, 0 },
-	{ "the other vhost by SNI keeps its own alpn", "localhost", NULL, NULL,
-	  ROT_NONE, "localhost", 1, 0, 1 },
-	{ "rotation without a key keeps the cert", "srv", "localhost-100y.cert",
-	  NULL, ROT_NO_KEY, "wronghost.example.com", 0, 0, 0 },
-	{ "rotated back", "srv", "localhost-100y.cert", "localhost-100y.key",
-	  ROT_OK, "localhost", 0, 0, 0 },
-	{ "rebound off srv, which goes while it holds srv's ctx", REBIND_HOST,
-	  "wronghost.example.com.cert", "wronghost.example.com.key", ROT_NONE,
-	  "localhost", 0, 1, 0 },
+	{ .name = "initial cert", .sni = "srv", .expect_cn = "localhost" },
+	{ .name = "rotated", .sni = "srv",
+	  .cert = "wronghost.example.com.cert",
+	  .key = "wronghost.example.com.key", .rot = ROT_OK,
+	  .expect_cn = "wronghost.example.com" },
+	{ .name = "rotated, the other vhost by SNI", .sni = "localhost",
+	  .expect_cn = "localhost", .check_name = 1 },
+	{ .name = "the other vhost by SNI keeps its own alpn",
+	  .sni = "localhost", .expect_cn = "localhost", .check_name = 1,
+	  .h1_only = 1 },
+	{ .name = "rotation without a key keeps the cert", .sni = "srv",
+	  .cert = "localhost-100y.cert", .rot = ROT_NO_KEY,
+	  .expect_cn = "wronghost.example.com" },
+	{ .name = "renewed on disk, lws not told", .sni = "srv",
+	  .cert = "localhost-100y.cert", .key = "localhost-100y.key",
+	  .rot = ROT_ON_DISK, .expect_cn = "localhost", .wait_cn = 1 },
+	{ .name = "rotated back", .sni = "srv", .cert = "localhost-100y.cert",
+	  .key = "localhost-100y.key", .rot = ROT_OK,
+	  .expect_cn = "localhost" },
+	{ .name = "renewed on disk, held back for the grace period",
+	  .sni = "graced", .cert = "wronghost.example.com.cert",
+	  .key = "wronghost.example.com.key", .rot = ROT_ON_DISK,
+	  .expect_cn = "localhost", .graced = 1, .delay_s = HELD_BACK_S },
+	{ .name = "renewed on disk, served after the grace period",
+	  .sni = "graced", .expect_cn = "wronghost.example.com", .graced = 1,
+	  .wait_cn = 1 },
+	{ .name = "rebound off srv, which goes while it holds srv's ctx",
+	  .sni = REBIND_HOST, .cert = "wronghost.example.com.cert",
+	  .key = "wronghost.example.com.key", .expect_cn = "localhost",
+	  .drop_srv = 1 },
 };
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli, *vh_srv;
-static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_drop;
+static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_drop, sul_connect;
+static lws_usec_t notice_deadline;
+static int renewals;
 static struct lws *wsi_held;	/* the server connection srv goes under */
 static char answer_pending;
-static int result = 1, cur = -1, port = 7681;
+static int result = 1, cur = -1, port = 7681, port_graced = 7682;
 static const char *server_addr = "127.0.0.1", *certs_dir = ".";
 
 /* what the client saw for the current step */
@@ -112,6 +157,7 @@ static struct {
 	int		done;
 	int		failed;
 	int		reported;	/* step_done() had its say */
+	int		retry;		/* not shown expect_cn yet, try again */
 } cli;
 
 static int
@@ -233,8 +279,40 @@ write_live(const char *live, const char *from)
 	return 0;
 }
 
+/*
+ * Renew a live file the way a renewal does it without telling lws: write the
+ * new file alongside, and move the live path onto it with a symlink, as acme
+ * and certbot do.  Where we can't make symlinks, rewrite it in place.
+ */
+
+static int
+renew_live(const char *live, const char *from)
+{
+#if defined(WIN32)
+	return write_live(live, from);
+#else
+	char ver[64], tmp[64];
+
+	lws_snprintf(ver, sizeof(ver), "%s.v%d", live, ++renewals);
+	lws_snprintf(tmp, sizeof(tmp), "%s.tmp", live);
+
+	if (write_live(ver, from))
+		return 1;
+
+	unlink(tmp);
+	if (symlink(ver, tmp) || rename(tmp, live)) {
+		lwsl_err("%s: can't move %s onto %s\n", __func__, live, ver);
+		return 1;
+	}
+
+	return 0;
+#endif
+}
+
 static void
 next_step(lws_sorted_usec_list_t *sul);
+static void
+step_connect(lws_sorted_usec_list_t *sul);
 
 static void
 step_done(const char *why)
@@ -305,8 +383,15 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			why = "h2 negotiated with a vhost that has only http/1.1";
 		else if (cli.status != HTTP_STATUS_OK)
 			why = "not served";
-		else if (strcmp(cli.cn, steps[cur].expect_cn))
+		else if (strcmp(cli.cn, steps[cur].expect_cn)) {
 			why = "served under the wrong cert";
+			if (steps[cur].wait_cn &&
+			    lws_now_usecs() < notice_deadline) {
+				/* not noticed yet, try again when closed */
+				cli.retry = 1;
+				why = NULL;
+			}
+		}
 
 		/*
 		 * The next step is started when this connection has closed:
@@ -335,6 +420,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			step_done("closed without completing");
 			break;
 		}
+		if (cli.retry) {
+			memset(&cli, 0, sizeof(cli));
+			lws_sul_schedule(context, 0, &sul_connect, step_connect,
+					 LWS_US_PER_SEC / 2);
+			break;
+		}
 		if (!cli.failed)
 			step_done(NULL);
 		break;
@@ -359,7 +450,6 @@ static const struct lws_protocols protocols_cli[] = {
 static void
 next_step(lws_sorted_usec_list_t *sul)
 {
-	struct lws_client_connect_info i;
 	const struct step *s;
 
 	if (++cur == (int)LWS_ARRAY_SIZE(steps)) {
@@ -382,7 +472,24 @@ next_step(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	if (s->rot != ROT_NONE) {
+	if (s->wait_cn) {
+#if defined(LWS_WITH_DIR)
+		notice_deadline = lws_now_usecs() + NOTICE_US;
+#else
+		/* without dir notify, a renewal is only seen hourly */
+		lwsl_user("--- %s: skipped here ---\n", s->name);
+		lws_sul_schedule(context, 0, &sul_next, next_step, 1);
+		return;
+#endif
+	}
+
+	if (s->rot == ROT_ON_DISK) {
+		if (renew_live(s->graced ? GRACED_CERT : LIVE_CERT, s->cert) ||
+		    renew_live(s->graced ? GRACED_KEY : LIVE_KEY, s->key)) {
+			step_done("unable to renew the files");
+			return;
+		}
+	} else if (s->rot != ROT_NONE) {
 		if (write_live(LIVE_CERT, s->cert) ||
 		    write_live(LIVE_KEY, s->rot == ROT_OK ? s->key : NULL)) {
 			step_done("unable to renew the files");
@@ -396,6 +503,18 @@ next_step(lws_sorted_usec_list_t *sul)
 		}
 	}
 
+	lws_sul_schedule(context, 0, &sul_connect, step_connect,
+			 1 + (lws_usec_t)s->delay_s * LWS_US_PER_SEC);
+}
+
+/* a new client connection for the current step */
+
+static void
+step_connect(lws_sorted_usec_list_t *sul)
+{
+	const struct step *s = &steps[cur];
+	struct lws_client_connect_info i;
+
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
 	i.vhost			= vh_cli;
@@ -403,7 +522,7 @@ next_step(lws_sorted_usec_list_t *sul)
 	i.address		= s->drop_srv ? REBIND_HOST : server_addr;
 	i.host			= s->sni;
 	i.origin		= s->sni;
-	i.port			= port;
+	i.port			= s->graced ? port_graced : port;
 	i.path			= "/";
 	i.method		= "GET";
 	i.protocol		= "cli";
@@ -446,6 +565,8 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-graced")))
+		port_graced = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
 	if ((p = lws_cmdline_option(argc, argv, "--certs")))
@@ -454,10 +575,21 @@ main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 	lwsl_user("LWS API selftest: tls server cert rotation\n");
 
-	/* the vhost starts out on the first cert */
+	/*
+	 * The vhosts start out on the first cert.  A previous run left the
+	 * live paths as symlinks onto its renewals: start from plain files.
+	 */
 
+#if !defined(WIN32)
+	unlink(LIVE_CERT);
+	unlink(LIVE_KEY);
+	unlink(GRACED_CERT);
+	unlink(GRACED_KEY);
+#endif
 	if (write_live(LIVE_CERT, "localhost-100y.cert") ||
-	    write_live(LIVE_KEY, "localhost-100y.key"))
+	    write_live(LIVE_KEY, "localhost-100y.key") ||
+	    write_live(GRACED_CERT, "localhost-100y.cert") ||
+	    write_live(GRACED_KEY, "localhost-100y.key"))
 		return 1;
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
@@ -499,6 +631,17 @@ main(int argc, const char **argv)
 	if (!lws_create_vhost(context, &info))
 		goto bail;
 
+	/* and one whose renewals on disk wait out a grace period */
+
+	info.port			= port_graced;
+	info.vhost_name			= "graced";
+	info.ssl_cert_filepath		= GRACED_CERT;
+	info.ssl_private_key_filepath	= GRACED_KEY;
+	info.tls_cert_grace_secs	= GRACE_S;
+	if (!lws_create_vhost(context, &info))
+		goto bail;
+	info.tls_cert_grace_secs	= 0;
+
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.vhost_name			= "cli";
 	info.protocols			= protocols_cli;
@@ -510,7 +653,7 @@ main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul_next, next_step, 1);
 	lws_sul_schedule(context, 0, &sul_watchdog, sul_watchdog_cb,
-			 30 * LWS_US_PER_SEC);
+			 90 * LWS_US_PER_SEC);
 
 	while (n >= 0)
 		n = lws_service(context, 0);
@@ -520,6 +663,7 @@ bail:
 		lwsl_err("--- setup failed ---\n");
 	lws_sul_cancel(&sul_watchdog);
 	lws_sul_cancel(&sul_drop);
+	lws_sul_cancel(&sul_connect);
 	lws_context_destroy(context);
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 

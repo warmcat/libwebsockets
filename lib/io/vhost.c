@@ -345,6 +345,9 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->tls.ssl_options_set = info->ssl_options_set;
 	vh->tls.ssl_options_clear = info->ssl_options_clear;
+#if defined(LWS_TLS_CERT_WATCH)
+	vh->tls.cert_grace_secs = info->tls_cert_grace_secs;
+#endif
 
 	/* carefully allocate and take a copy of cert + key paths if present */
 	n = 0;
@@ -1376,6 +1379,12 @@ lws_context_deprecate(struct lws_context *cx, lws_reload_func cb)
 
 		vh = lws_vhost_next(vh);
 	}
+
+	/*
+	 * Its vhosts serve no new connections, so have no use for renewed
+	 * certs, and the watch's fds would keep it from ever ending
+	 */
+	lws_tls_cert_watch_destroy(cx);
 
 	cx->deprecated = 1;
 	cx->deprecation_cb = cb;

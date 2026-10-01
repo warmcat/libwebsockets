@@ -348,7 +348,8 @@ if (LWS_WITH_SSL)
 		
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
-			tls/tls-server.c)
+			tls/tls-server.c
+			tls/tls-cert-watch.c)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-server.c)

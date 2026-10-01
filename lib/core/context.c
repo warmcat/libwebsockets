@@ -2623,6 +2623,9 @@ lws_context_destroy(struct lws_context *context)
 		 * We can't free things until after the event loop shuts down.
 		 */
 
+		/* its fds go with the vhosts, nothing must re-arm it */
+		lws_tls_cert_watch_destroy(context);
+
 		if (context->protocol_init_done)
 			vh = lws_vhost_first(context);
 

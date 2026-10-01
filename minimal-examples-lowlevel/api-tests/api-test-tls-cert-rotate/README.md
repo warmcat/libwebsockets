@@ -13,8 +13,21 @@ the step expects.
 |rotated, the other vhost by SNI|localhost|nothing, the client checks the cert is for the name|localhost|
 |the other vhost by SNI keeps its own alpn|localhost|the client offers h2 and http/1.1, `localhost` only has http/1.1: it must not get h2 from `srv`'s list|localhost|
 |rotation without a key keeps the cert|srv|new cert written, key file still empty, so the load fails|wronghost.example.com|
+|renewed on disk, lws not told|srv|first cert + key written alongside and the live paths moved onto them, `lws_tls_cert_updated()` not called: the client reconnects until the vhost has noticed|localhost|
 |rotated back|srv|first cert + key written again|localhost|
+|renewed on disk, held back for the grace period|graced|second cert + key renewed on disk, the client connects 3s later, inside the vhost's 6s grace|localhost|
+|renewed on disk, served after the grace period|graced|nothing, the client reconnects until the grace has passed and the vhost moved on|wronghost.example.com|
 |rebound off srv, which goes while it holds srv's ctx|127.0.0.1, no SNI|Host: moves it to the `127.0.0.1` vhost; while it waits for the answer, srv's cert is renewed and srv destroyed|localhost|
+
+The two "renewed on disk" kinds of step are renewals nobody tells lws about,
+the way an acme client in another process, the cert distribution client or
+certbot renew: a vhost whose cert and key are files watches them, and moves
+onto new ones by itself.  The live paths are moved onto the new files with a
+symlink, as those renewers do (on Windows the files are rewritten in place
+instead).  The `graced` vhost, on a listener of its own so its steps don't
+depend on SNI, has a 6s `tls_cert_grace_secs`: a renewal must not be served
+until that long after it was written, then it must be.  Without
+`LWS_WITH_DIR` a renewal is only seen hourly, so these steps are skipped.
 
 A failed rotation must leave the vhost on the tls ctx it had, and each
 rotation must give the vhost a ctx of its own for the new cert, so the old one
@@ -61,6 +74,7 @@ come from `--certs <dir>`.  Both certs are self-signed test certs.
 |Option|Meaning|
 |---|---|
 |-p <port>|tls server port (default 7681)|
+|--port-graced <port>|the graced vhost's tls server port (default 7682)|
 |--server <addr>|address the client connects to (default 127.0.0.1)|
 |--certs <dir>|where the test certs are (default .)|
 
@@ -71,9 +85,12 @@ come from `--certs <dir>`.  Both certs are self-signed test certs.
 [2026/09/30 18:00:00:0000] U: --- rotated: served under 'wronghost.example.com': PASS ---
 [2026/09/30 18:00:00:0000] U: --- rotated, the other vhost by SNI: served under 'localhost': PASS ---
 [2026/09/30 18:00:00:0000] U: --- rotation without a key keeps the cert: served under 'wronghost.example.com': PASS ---
-[2026/09/30 18:00:00:0000] U: --- rotated back: served under 'localhost': PASS ---
-[2026/09/30 18:00:00:0000] U: drop_srv_cb: srv renewed, destroying it
-[2026/09/30 18:00:00:0000] U: --- rebound off srv, which goes while it holds srv's ctx: served under 'localhost': PASS ---
-[2026/09/30 18:00:00:0000] U: --- all steps passed ---
-[2026/09/30 18:00:00:0000] U: Completed: PASS
+[2026/09/30 18:00:05:0000] U: --- renewed on disk, lws not told: served under 'localhost': PASS ---
+[2026/09/30 18:00:05:0000] U: --- rotated back: served under 'localhost': PASS ---
+[2026/09/30 18:00:08:0000] U: --- renewed on disk, held back for the grace period: served under 'localhost': PASS ---
+[2026/09/30 18:00:11:0000] U: --- renewed on disk, served after the grace period: served under 'wronghost.example.com': PASS ---
+[2026/09/30 18:00:11:0000] U: drop_srv_cb: srv renewed, destroying it
+[2026/09/30 18:00:11:0000] U: --- rebound off srv, which goes while it holds srv's ctx: served under 'localhost': PASS ---
+[2026/09/30 18:00:11:0000] U: --- all steps passed ---
+[2026/09/30 18:00:11:0000] U: Completed: PASS
 ```

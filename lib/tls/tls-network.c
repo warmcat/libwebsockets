@@ -253,43 +253,6 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 	union lws_tls_cert_info_results ir;
 	int n;
 
-	/* Check if the active cert context needs rotation under grace period policy */
-	if (v->tls.ssl_ctx && v->tls.cfg_alloc_cert_path && v->tls.cfg_key_path &&
-	    (strstr(v->tls.cfg_alloc_cert_path, "-latest.crt") ||
-	     strstr(v->tls.cfg_alloc_cert_path, "-latest-fullchain.crt"))) {
-		char resolved_cert[256];
-		char resolved_key[256];
-		time_t resolved_from = 0, resolved_to = 0;
-		union lws_tls_cert_info_results loaded_from, loaded_to;
-
-		/* Resolve what certificate path should be active right now */
-		if (lws_tls_resolve_grace_period_certs(v->context,
-						       v->tls.cfg_alloc_cert_path,
-						       v->tls.cfg_key_path,
-						       resolved_cert, sizeof(resolved_cert),
-						       resolved_key, sizeof(resolved_key)) == 0) {
-			/* Get validity of resolved cert file */
-			if (lws_tls_cert_get_x509_validity(v->context, resolved_cert,
-							   &resolved_from, &resolved_to) == 0) {
-				/* Get validity of currently loaded cert context */
-				if (lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_FROM,
-							    &loaded_from, 0) == 0 &&
-				    lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO,
-							    &loaded_to, 0) == 0) {
-					if (resolved_from != loaded_from.time ||
-					    resolved_to != loaded_to.time) {
-						lwsl_notice("%s: Active certificate for vhost %s is out of date. Rotating dynamically.\n",
-							    __func__, v->name);
-						lws_tls_cert_updated(v->context,
-								     v->tls.cfg_alloc_cert_path,
-								     v->tls.cfg_key_path,
-								     NULL, 0, NULL, 0);
-					}
-				}
-			}
-		}
-	}
-
 	if (v->tls.ssl_ctx && !v->tls.skipped_certs) {
 
 		if (now < 1542933698) /* Nov 23 2018 00:42 UTC */
@@ -377,6 +340,105 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 }
 
 /*
+ * Give the vhost a new tls ctx with the cert and key from its configured
+ * files (or the copies in memory, if it can no longer read them), set up like
+ * its first one.  On success the old ctx is retired, staying alive for the
+ * connections that handshaked under it until the last of them goes.  On
+ * failure the vhost keeps the ctx it had.
+ */
+
+int
+lws_tls_vhost_cert_reload(struct lws_vhost *v,
+			  const char *mem_cert, size_t len_mem_cert,
+			  const char *mem_privkey, size_t len_mem_privkey)
+{
+	lws_tls_ctx *old_ctx = v->tls.ssl_ctx;
+	struct lws_tls_ctx_ref *old_ref = v->tls.active_ctx_ref, *new_ref;
+#if defined(LWS_TLS_CERT_WATCH)
+	struct lws_tls_cert_file_id idc, idk;
+#endif
+	struct lws wsi;
+
+	/*
+	 * This is handed to lws_tls_server_certs_load() and from there to the
+	 * app's protocol[0] callback... every member other than the ones we
+	 * set below would otherwise be stack garbage for the callback to trip
+	 * over
+	 */
+
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.a.context = v->context;
+	wsi.a.vhost = v; /* not a real bound wsi */
+	wsi.io = v->context->fake_io;
+
+#if defined(LWS_TLS_CERT_WATCH)
+	/*
+	 * Before the load: if the files change while we load them, what we
+	 * record is older than what we loaded, and the watch loads again.
+	 * Taken after, it could be newer, and the change would be missed.
+	 */
+	lws_tls_cert_file_id_get(v->tls.cfg_alloc_cert_path, &idc);
+	lws_tls_cert_file_id_get(v->tls.cfg_key_path, &idk);
+#endif
+
+	if (lws_tls_vhost_backend_create_ctx(v)) {
+		lwsl_vhost_err(v, "Failed to recreate SSL_CTX");
+		return 1;
+	}
+
+	new_ref = lws_tls_ctx_ref_create(v, v->tls.ssl_ctx);
+	if (!new_ref) {
+		lws_tls_vhost_backend_free_ctx(v->tls.ssl_ctx);
+		v->tls.ssl_ctx = old_ctx;
+		return 1;
+	}
+
+	if (lws_tls_server_certs_load(v, &wsi, v->tls.cfg_alloc_cert_path,
+				      v->tls.cfg_key_path,
+				      mem_cert, len_mem_cert,
+				      mem_privkey, len_mem_privkey)) {
+		/* Failed to load new certs. Revert to old context */
+		lws_tls_ctx_ref_unref(new_ref);
+		v->tls.ssl_ctx = old_ctx;
+		lwsl_vhost_err(v, "Failed to load updated certs");
+		return 1;
+	}
+
+	/*
+	 * The new ctx needs what the first one got after its certs, or eg, on
+	 * openssl, the vhost would lose its client-cert policy and its alpn
+	 * with the renewal
+	 */
+	if (lws_tls_server_vhost_ctx_setup(v, &wsi)) {
+		lws_tls_ctx_ref_unref(new_ref);
+		v->tls.ssl_ctx = old_ctx;
+		lwsl_vhost_err(v, "Failed to set up updated ctx");
+		return 1;
+	}
+
+	/* Successfully loaded. Commit new ref and retire old ref */
+	v->tls.active_ctx_ref = new_ref;
+
+	if (old_ref) {
+		lws_dll2_add_tail(&old_ref->list, &v->tls.retired_ctx_list);
+		lws_tls_ctx_ref_unref(old_ref);
+	}
+
+#if defined(LWS_TLS_CERT_WATCH)
+	v->tls.watch_cert = idc;
+	v->tls.watch_key = idk;
+#endif
+
+	if (v->tls.skipped_certs)
+		lwsl_vhost_notice(v, "vhost %s: cert unset", v->name);
+	else
+		lwsl_vhost_notice(v, "vhost %s: cert %s loaded", v->name,
+				  v->tls.cfg_alloc_cert_path);
+
+	return 0;
+}
+
+/*
  * update the cert for every vhost using the given path
  */
 
@@ -386,73 +448,12 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 		     const char *mem_cert, size_t len_mem_cert,
 		     const char *mem_privkey, size_t len_mem_privkey)
 {
-	struct lws wsi;
-
-	/*
-	 * This is handed to lws_tls_server_certs_load() and from there to the
-	 * app's protocol[0] callback... every member other than the two we set
-	 * below would otherwise be stack garbage for the callback to trip over
-	 */
-
-	memset(&wsi, 0, sizeof(wsi));
-
-	wsi.a.context = context;
-	wsi.io = context->fake_io;
-
 	lws_start_foreach_vhost(v, context) {
-		wsi.a.vhost = v; /* not a real bound wsi */
 		if (v->tls.cfg_alloc_cert_path && v->tls.cfg_key_path &&
 		    !strcmp(v->tls.cfg_alloc_cert_path, certpath) &&
-		    !strcmp(v->tls.cfg_key_path, keypath)) {
-
-			lws_tls_ctx *old_ctx = v->tls.ssl_ctx;
-			struct lws_tls_ctx_ref *old_ref = v->tls.active_ctx_ref;
-
-			if (lws_tls_vhost_backend_create_ctx(v)) {
-				lwsl_vhost_err(v, "Failed to recreate SSL_CTX");
-				continue;
-			}
-
-			struct lws_tls_ctx_ref *new_ref = lws_tls_ctx_ref_create(v, v->tls.ssl_ctx);
-			if (!new_ref) {
-				lws_tls_vhost_backend_free_ctx(v->tls.ssl_ctx);
-				v->tls.ssl_ctx = old_ctx;
-				continue;
-			}
-
-			if (lws_tls_server_certs_load(v, &wsi, certpath, keypath,
-						  mem_cert, len_mem_cert,
-						  mem_privkey, len_mem_privkey)) {
-				/* Failed to load new certs. Revert to old context */
-				lws_tls_ctx_ref_unref(new_ref);
-				v->tls.ssl_ctx = old_ctx;
-				lwsl_vhost_err(v, "Failed to load updated certs");
-				continue;
-			}
-
-			/*
-			 * The new ctx needs what the first one got after its
-			 * certs, or eg, on openssl, the vhost would lose its
-			 * client-cert policy and its alpn with the renewal
-			 */
-			if (lws_tls_server_vhost_ctx_setup(v, &wsi)) {
-				lws_tls_ctx_ref_unref(new_ref);
-				v->tls.ssl_ctx = old_ctx;
-				lwsl_vhost_err(v, "Failed to set up updated ctx");
-				continue;
-			}
-
-			/* Successfully loaded. Commit new ref and retire old ref */
-			v->tls.active_ctx_ref = new_ref;
-
-			if (old_ref) {
-				lws_dll2_add_tail(&old_ref->list, &v->tls.retired_ctx_list);
-				lws_tls_ctx_ref_unref(old_ref);
-			}
-
-			if (v->tls.skipped_certs)
-				lwsl_vhost_notice(v, "vhost %s: cert unset", v->name);
-		}
+		    !strcmp(v->tls.cfg_key_path, keypath))
+			lws_tls_vhost_cert_reload(v, mem_cert, len_mem_cert,
+						  mem_privkey, len_mem_privkey);
 	} lws_end_foreach_vhost(v);
 
 	return 0;

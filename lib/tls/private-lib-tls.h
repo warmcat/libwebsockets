@@ -229,6 +229,17 @@ typedef X509 lws_tls_x509;
 #endif
 
 #if defined(LWS_WITH_NETWORK)
+
+/*
+ * A server vhost whose cert + key come from files notices them being renewed
+ * on disk (tls-cert-watch.c).  Platforms whose "files" are not a filesystem
+ * (eg, esp32 nvs) only get renewals told to lws_tls_cert_updated().
+ */
+#if defined(LWS_WITH_SERVER) && !defined(LWS_PLAT_FREERTOS) && \
+    !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL)
+#define LWS_TLS_CERT_WATCH 1
+#endif
+
 #include "private-network.h"
 
 /*
@@ -401,12 +412,6 @@ lws_tls_session_tag_discrete(const char *vhname, const char *host,
  */
 int
 lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len);
-
-int
-lws_tls_resolve_grace_period_certs(struct lws_context *context,
-				   const char *certpath, const char *keypath,
-				   char *resolved_cert, size_t resolved_cert_len,
-				   char *resolved_key, size_t resolved_key_len);
 
 int
 lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath,

@@ -62,6 +62,11 @@ struct lws_context_tls {
 	time_t last_cert_check_s;
 	struct lws_dll2_owner cc_owner;
 	int count_client_contexts;
+#if defined(LWS_TLS_CERT_WATCH)
+	/* see tls-cert-watch.c */
+	lws_sorted_usec_list_t sul_cert_watch;
+	struct lws_dll2_owner cert_watch_dirs;
+#endif
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	struct lws_tls_client_policy jit_client_policy;
 #endif
@@ -93,6 +98,22 @@ struct lws_tls_ctx_ref {
 	lws_tls_ctx *ctx;
 	int refcount;
 };
+
+#if defined(LWS_TLS_CERT_WATCH)
+/*
+ * Which file a path led to, and the version of it: a renewal that writes a
+ * new file and moves a symlink onto it changes the file, one that rewrites it
+ * in place changes its size or mtime.  stat() follows symlinks, so this is
+ * the file the tls library would read.
+ */
+struct lws_tls_cert_file_id {
+	uint64_t	dev;
+	uint64_t	ino;
+	int64_t		size;
+	int64_t		mtime;
+	uint8_t		valid;	/* stat() succeeded */
+};
+#endif
 
 /*
  * Length of the digest that stands in for "which CA store is this", see
@@ -170,6 +191,21 @@ struct lws_vhost_tls {
 #if defined(LWS_WITH_GNUTLS)
 	struct gnutls_anti_replay_st *anti_replay;
 	void *anti_replay_owner;
+#endif
+
+#if defined(LWS_TLS_CERT_WATCH)
+	/* the cert + key files the active ctx was loaded from */
+	struct lws_tls_cert_file_id watch_cert;
+	struct lws_tls_cert_file_id watch_key;
+	/* the last changed pair we noticed, and when we may retry it */
+	struct lws_tls_cert_file_id seen_cert;
+	struct lws_tls_cert_file_id seen_key;
+	time_t watch_retry_at;
+	uint32_t watch_backoff_s;
+	uint32_t cert_grace_secs;
+	unsigned int watched:1;
+	unsigned int watch_dirs_added:1;
+	unsigned int watch_unseen:1;
 #endif
 
 	unsigned int user_supplied_ssl_ctx:1;
@@ -308,9 +344,26 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
  lws_tls_server_vhost_ctx_setup(struct lws_vhost *vhost, struct lws *wsi);
  void
  lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost);
+ int
+ lws_tls_vhost_cert_reload(struct lws_vhost *v,
+			   const char *mem_cert, size_t len_mem_cert,
+			   const char *mem_privkey, size_t len_mem_privkey);
 #else
  #define lws_context_init_server_ssl(_a, _b) (0)
  #define lws_tls_acme_sni_cert_destroy(_a)
+#endif
+
+#if defined(LWS_TLS_CERT_WATCH)
+ int
+ lws_tls_cert_file_id_get(const char *path, struct lws_tls_cert_file_id *id);
+ void
+ lws_tls_cert_watch_vhost(struct lws_vhost *v,
+			  const struct lws_tls_cert_file_id *cert,
+			  const struct lws_tls_cert_file_id *key);
+ void
+ lws_tls_cert_watch_destroy(struct lws_context *cx);
+#else
+ #define lws_tls_cert_watch_destroy(_a)
 #endif
 
 void

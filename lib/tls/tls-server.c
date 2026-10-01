@@ -477,6 +477,14 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 		vhost->tls.allow_non_ssl_on_ssl_port = 1;
 
 	if (vhost->tls.use_ssl) {
+#if defined(LWS_TLS_CERT_WATCH)
+		struct lws_tls_cert_file_id idc, idk;
+
+		/* before the load, see lws_tls_vhost_cert_reload() */
+		lws_tls_cert_file_id_get(vhost->tls.cfg_alloc_cert_path, &idc);
+		lws_tls_cert_file_id_get(vhost->tls.cfg_key_path, &idk);
+#endif
+
 		if (lws_tls_server_vhost_backend_init(info, vhost, (struct lws *)plwsa))
 			return -1;
 
@@ -485,6 +493,18 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 
 		if (lws_tls_server_vhost_ctx_setup(vhost, (struct lws *)plwsa))
 			return -1;
+
+#if defined(LWS_TLS_CERT_WATCH)
+		/*
+		 * A vhost that came up without its cert files, because of
+		 * LWS_SERVER_OPTION_IGNORE_MISSING_CERT, is watched too: it
+		 * takes them when they appear
+		 */
+		if (vhost->tls.cfg_alloc_cert_path && vhost->tls.cfg_key_path)
+			lws_tls_cert_watch_vhost(vhost,
+					vhost->tls.ssl_ctx ? &idc : NULL,
+					vhost->tls.ssl_ctx ? &idk : NULL);
+#endif
 	}
 
 	/* check certs in a few seconds (after protocol init) and then once a day */

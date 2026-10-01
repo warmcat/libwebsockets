@@ -180,6 +180,7 @@ static const char * const paths_vhosts[] = {
 #endif
 	"vhosts[].quic-mtu",
 	"vhosts[].quic-preferred-addresses",
+	"vhosts[].host-ssl-cert-grace-secs",
 };
 
 enum lejp_vhost_paths {
@@ -281,6 +282,7 @@ enum lejp_vhost_paths {
 #endif
 	LEJPVP_QUIC_MTU,
 	LEJPVP_QUIC_PREFERRED_ADDRESSES,
+	LEJPVP_HOST_SSL_CERT_GRACE_SECS,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -1410,6 +1412,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		lwsl_notice("Parsed quic-preferred-addresses: %s\n", a->p);
 		break;
 #endif
+
+	case LEJPVP_HOST_SSL_CERT_GRACE_SECS:
+		n = atoi(ctx->buf);
+		a->info->tls_cert_grace_secs = n > 0 ? (uint32_t)n : 0;
+		return 0;
 
 	case LEJPVP_LISTEN_ACCEPT_ROLE:
 		a->info->listen_accept_role = a->p;

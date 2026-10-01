@@ -315,6 +315,10 @@ may have typed .../myapp, to get them to .../myapp/ where the app actually takes
 
  Each vhost may have its own certs, SNI is used during the initial connection negotiation to figure out which certs to use by the server name it's asking for from the request DNS name.
 
+ When the cert and key files are renewed on disk, eg, by moving a `-latest` symlink onto new files the way the acme plugin, the cert distribution client or certbot do, the vhost notices and moves onto them without a restart and without disturbing its connections.  Connections made before the renewal carry on with the old cert until they close.  The files must still be readable by lwsws after it has dropped its privileges, or the renewal can't be seen; a warning is logged once if they aren't.
+
+ - "`host-ssl-cert-grace-secs`": "900" holds a renewed cert back for that many seconds after it was issued or written, whichever is later, before the vhost serves it.  Use it when the cert is published in DNS for DANE, so the new TLSA record has replaced cached copies of the old one first.  Default 0, the renewed cert is served as soon as it is seen.
+
  - "`sni-fallback`": "1" makes this vhost the one that serves tls connections
 arriving on its listen port with an SNI name that matches no vhost there.  At
 most one vhost per port needs it; if none has it, such connections are refused

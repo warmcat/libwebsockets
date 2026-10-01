@@ -1201,6 +1201,7 @@ void lwsl_emit_stderr(int level, const char *line);
  #define lws_context_deinit_ssl_library(_a)
  #define lws_tls_check_all_cert_lifetimes(_a)
  #define lws_tls_acme_sni_cert_destroy(_a)
+ #define lws_tls_cert_watch_destroy(_a)
 #endif
 
 
