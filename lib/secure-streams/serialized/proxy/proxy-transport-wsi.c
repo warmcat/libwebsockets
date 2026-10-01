@@ -52,13 +52,14 @@ lws_sss_proxy_peer_refused(struct lws *wsi)
 	const struct ssproxy_vh *pv = (const struct ssproxy_vh *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
 	uid_t uid;
 	gid_t gid;
 
 	if (!pv)
 		return 0; /* no check needed for this socket */
 
-	if (lws_plat_unix_peer_ids(lws_get_socket_fd(wsi), &uid, &gid)) {
+	if (fd < 0 || lws_plat_unix_peer_ids(fd, &uid, &gid)) {
 		lwsl_wsi_err(wsi, "unable to get proxy client's ids");
 
 		return 1;
