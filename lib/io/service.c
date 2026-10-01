@@ -344,6 +344,21 @@ lws_wsi_state_parks_rx(struct lws *wsi)
 int
 lws_wsi_can_consume_parked_rx(struct lws *wsi)
 {
+#if defined(LWS_ROLE_H2)
+	/*
+	 * An h2 server stream's rx goes nowhere while its network connection
+	 * holds a partial send: the role's policy holds it until the partial
+	 * drains (rops_rx_policy_h2(), rops_tx_drained_h2()), so offering it
+	 * from here every pass meanwhile only has the loop spin
+	 */
+	if (wsi->mux_substream && lwsi_role_h2(wsi) && !lwsi_role_client(wsi)) {
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+
+		if (nwsi && nwsi != wsi && lws_has_buffered_out(nwsi))
+			return 0;
+	}
+#endif
+
 	return !lws_is_flowcontrolled(wsi) && !lws_wsi_state_parks_rx(wsi);
 }
 

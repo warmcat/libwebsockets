@@ -3230,13 +3230,35 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 * whose Content-Length was 0 (remain 0 <
 				 * payload), which used to be stashed and
 				 * delivered as body after the request had
-				 * already been completed as bodyless
+				 * already been completed as bodyless.
+				 *
+				 * While the stream is still deferring its
+				 * action, the body already taken is stashed on
+				 * its buflist and not yet counted against
+				 * rx_content_remain, so it is counted here:
+				 * otherwise two DATA frames each within the
+				 * content-length stash more than it, and the
+				 * excess outlives the dispatch that drains the
+				 * stash, left parked on the stream for the
+				 * service loop to offer it every pass
 				 */
+				{
+					lws_filepos_t rem =
+						h2n->swsi->http.rx_content_remain;
+
+					if (lwsi_state(h2n->swsi) ==
+							LRS_DEFERRING_ACTION) {
+						size_t st = lws_buflist_total_len(
+							&h2n->swsi->buflist);
+
+						rem = st >= rem ? 0 :
+						      rem - (lws_filepos_t)st;
+					}
+
 				if (lws_hdr_total_length(h2n->swsi,
 					     WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 				    h2n->swsi->http.content_length_given &&
-				    h2n->swsi->http.rx_content_remain +
-					h2n->inside < (lws_filepos_t)m && /* last */
+				    rem + h2n->inside < (lws_filepos_t)m && /* last */
 				    h2n->inside < h2n->length) {
 
 					lwsl_warn("%s: rx.cl: %lu, rx.content_remain: %lu, buf left: %lu, "
@@ -3252,6 +3274,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					    "More rx than content_length told"))
 						return 1;
 					break;
+				}
 				}
 
 				/*
