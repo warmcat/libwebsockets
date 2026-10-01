@@ -466,6 +466,18 @@ append_string:
 		return -1;
 	}
 
+	/*
+	 * A member given twice in one header: RFC 7515 4 leaves it undefined
+	 * and the second value appended to the first was a corrupt element,
+	 * so it is refused.  (Inside a recipients[] array each recipient has
+	 * its own encrypted_key, which this collects as before.)
+	 */
+	if (args->jose->edone[ctx->path_match - 1] && !args->recipients_array) {
+		lwsl_err("%s: duplicate JOSE member %s\n", __func__,
+			 jws_jose[ctx->path_match - 1]);
+		return -1;
+	}
+
 	if (!args->jose->e[ctx->path_match - 1].buf) {
 		args->jose->e[ctx->path_match - 1].buf = (uint8_t *)args->temp;
 		args->jose->e[ctx->path_match - 1].len = 0;
@@ -569,6 +581,16 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	args.in_jwk		= 0;
 	args.jwk_sp		= 0;
 	jose->recipients	= 0;
+
+	/*
+	 * The b64 members (apu, apv, iv, tag, x5t...) point into the temp of
+	 * the parse that decoded them.  A header parsed again into the same
+	 * jose, as lws_jwe_encrypt() does after a caller's own parse, must
+	 * start from nothing, or the second parse appends to the first's
+	 * elements and the KDF and the rendered header disagree
+	 */
+	memset(jose->e, 0, sizeof(jose->e));
+	memset(jose->edone, 0, sizeof(jose->edone));
 
 	lejp_construct(&jctx, lws_jws_jose_cb, &args, jws_jose,
 		       LWS_ARRAY_SIZE(jws_jose));
