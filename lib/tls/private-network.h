@@ -217,6 +217,8 @@ struct lws_lws_tls {
 	unsigned int		hs_ca_id_valid:1;
 	/* a writeable was asked for while the server tls accept had POLLOUT */
 	unsigned int		want_write_after_accept:1;
+	/* a staged close: our close_notify has gone, the write side is shut */
+	unsigned int		close_notify_sent:1;
 #if defined(LWS_WITH_GNUTLS) && defined(LWS_WITH_TLS_SESSIONS)
 	/* the client cache has had this connection's session (gnutls) */
 	unsigned int		sess_cached:1;

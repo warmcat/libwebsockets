@@ -381,6 +381,10 @@ void
 lws_io_unwatch(struct lws *wsi);
 int
 lws_io_shutdown_write(struct lws *wsi);
+#if defined(LWS_WITH_TLS)
+int
+lws_io_tls_shutdown_step(struct lws *wsi);
+#endif
 int
 lws_io_close_staged(struct lws *wsi);
 int

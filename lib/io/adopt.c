@@ -1476,6 +1476,34 @@ lws_io_socket_waiters_close(struct lws_vhost *vh, int tsi)
 #endif
 }
 
+#if defined(LWS_WITH_TLS)
+/*
+ * One step of a tls session's shutdown.  Once our close_notify has gone (the
+ * backend is done, or only waits for the peer's), the socket's write side is
+ * shut too, and the staged close only waits for the peer's FIN, reading and
+ * discarding what comes before it like a plaintext one: nothing is read
+ * through the session any more, so what it holds buffered is not offered
+ * again either.  Returns the backend's lws_ssl_capable_status.
+ */
+int
+lws_io_tls_shutdown_step(struct lws *wsi)
+{
+	int n = __lws_tls_shutdown(wsi);
+
+	if ((n == LWS_SSL_CAPABLE_DONE ||
+	     n == LWS_SSL_CAPABLE_MORE_SERVICE_READ) &&
+	    !wsi->io->tls.close_notify_sent) {
+		wsi->io->tls.close_notify_sent = 1;
+		lws_ssl_remove_wsi_from_buffered_list(wsi);
+		if (lws_socket_is_valid(wsi->io->desc.sockfd) &&
+		    shutdown(wsi->io->desc.sockfd, SHUT_WR))
+			lwsl_wsi_debug(wsi, "shutdown errno %d", LWS_ERRNO);
+	}
+
+	return n;
+}
+#endif
+
 /*
  * Stop sending on the transport, keeping it open for what the peer still
  * sends: a tls close_notify when there is a session, else the socket's
@@ -1491,7 +1519,7 @@ lws_io_shutdown_write(struct lws *wsi)
 #endif
 #if defined(LWS_WITH_TLS)
 	if (lws_is_ssl(wsi) && wsi->io->tls.ssl) {
-		__lws_tls_shutdown(wsi);
+		lws_io_tls_shutdown_step(wsi);
 
 		return 1;
 	}

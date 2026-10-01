@@ -32,7 +32,9 @@
  * that has gone), and the server closing on the first part of the client's
  * data with its tx still buffered, or with its socket full so its Close
  * frame has to wait (it reads nothing more either way).  The server must
- * wait quietly until the client reads again, then finish.
+ * wait quietly until the client reads again, then finish, and the client
+ * must get all the server wrote before closing, although the server closed
+ * with the client's data unread.
  *
  * Every leg must finish its close promptly and without the service loop
  * spinning meanwhile: a close handshake that only ends at its timeout, or
@@ -43,6 +45,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+
+#if !defined(WIN32)
+#include <sys/socket.h>
+#endif
 
 struct leg {
 	const char	*name;
@@ -131,6 +137,13 @@ static const struct leg legs[] = {
 #define STALL_SETTLE_US		(1 * LWS_US_PER_SEC)
 #define STALL_WINDOW_US		(500 * LWS_US_PER_MS)
 #define STALL_MAX_BUSY_MS	50
+/*
+ * The close legs' client takes no more than this at a time, so when the
+ * server closes, the tail of what it wrote is still waiting in its own socket
+ * for the client to read: a close that has the kernel abort the connection
+ * loses it.  Otherwise loopback can hand it all over first and hide that.
+ */
+#define STALL_CLI_RCVBUF	(64 * 1024)
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli[5];
@@ -188,6 +201,24 @@ leg_done_check(void)
 			 (unsigned long)STALL_PMD_LEN);
 		fail_leg("the big message did not arrive whole");
 		return;
+	}
+	/*
+	 * The server closed on the client's unread data: its close must still
+	 * deliver all it wrote before.  Closing the socket with that rx unread
+	 * has the kernel abort the connection, losing the tail (and on OSX,
+	 * leaving the client waiting for it).
+	 */
+	if (legs[cur].stall == STALL_CLOSE_FLUSH ||
+	    legs[cur].stall == STALL_CLOSE_FULL) {
+		size_t sent = srv_filled +
+			(legs[cur].stall == STALL_CLOSE_FLUSH ? STALL_OVER_LEN : 0);
+
+		if (cli_rx != sent) {
+			lwsl_err("client received %lu of %lu\n",
+				 (unsigned long)cli_rx, (unsigned long)sent);
+			fail_leg("the server's tx did not all arrive");
+			return;
+		}
 	}
 	/*
 	 * A close that has to flush tx first drops the connection after the
@@ -594,6 +625,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			/* the server is to fill the connection meanwhile */
 			cli_wsi = wsi;
 			lws_rx_flow_control(wsi, 0);
+#if !defined(WIN32)
+			if (legs[cur].stall != STALL_TX_DRAIN) {
+				int sfd = lws_get_socket_fd(wsi),
+				    rb = STALL_CLI_RCVBUF;
+
+				if (sfd >= 0 &&
+				    setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, &rb,
+					       sizeof(rb)))
+					lwsl_warn("%s: SO_RCVBUF failed\n",
+						  __func__);
+			}
+#endif
 			break;
 		}
 		if (!legs[cur].server_initiates || legs[cur].pmd_mid_drain)

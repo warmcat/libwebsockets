@@ -1596,16 +1596,18 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 #endif
 
 #if defined(LWS_WITH_TLS)
-	if (lwsi_close(wsi) == LCS_SHUTDOWN &&
-	    lws_is_ssl(wsi) && wsi->io->tls.ssl) {
+	/*
+	 * A tls server close staged in SHUTDOWN first sees our close_notify
+	 * away; then it is only waiting for his FIN, as a plaintext one is.
+	 */
+	if (lwsi_close(wsi) == LCS_SHUTDOWN && lws_is_ssl(wsi) &&
+	    wsi->io->tls.ssl && !wsi->io->tls.close_notify_sent) {
 
 #if defined(LWS_WITH_LATENCY)
 		lws_usec_t _tls_shut_start = lws_now_usecs();
 #endif
+		int m = lws_io_tls_shutdown_step(wsi);
 
-		switch (__lws_tls_shutdown(wsi)) {
-		case LWS_SSL_CAPABLE_DONE:
-		case LWS_SSL_CAPABLE_ERROR:
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() - _tls_shut_start) / 1000);
@@ -1613,33 +1615,30 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				lws_latency_note(pt, _tls_shut_start, 2000, "tls_shut:%dms", ms);
 		}
 #endif
+		if (m == LWS_SSL_CAPABLE_ERROR)
 			goto close_and_handled_l;
-
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-#if defined(LWS_WITH_LATENCY)
-		{
-			unsigned int ms = (unsigned int)((lws_now_usecs() - _tls_shut_start) / 1000);
-			if (ms > 2)
-				lws_latency_note(pt, _tls_shut_start, 2000, "tls_shut_more:%dms", ms);
-		}
-#endif
-			goto handled;
-		}
+		if (!wsi->io->tls.close_notify_sent)
+			goto handled; /* ours still has to go */
 	}
 #endif
 
 	/*
-	 * A plaintext server close staged in SHUTDOWN has sent its FIN and
-	 * only waits for his; nothing he sends now is for anyone (the
-	 * protocol has been dropped), so it is read and discarded rather
-	 * than parsed by the role, and his FIN or a socket error ends it.
+	 * A server close staged in SHUTDOWN has sent its FIN (after its tls
+	 * close_notify, if any) and only waits for his; nothing he sends now
+	 * is for anyone (the protocol has been dropped), so it is read and
+	 * discarded rather than parsed by the role or the tls session, and his
+	 * FIN or a socket error ends it.  Closing on unread rx instead would
+	 * have the kernel abort the connection, losing the tx we flushed
+	 * before staging the close, and on OSX leave the peer waiting for it.
 	 */
-	if (lwsi_close(wsi) == LCS_SHUTDOWN && !lws_is_ssl(wsi) &&
-	    (pollfd->revents & LWS_POLLIN)) {
+	if (lwsi_close(wsi) == LCS_SHUTDOWN &&
+	    (!lws_is_ssl(wsi)
+#if defined(LWS_WITH_TLS)
+	     || wsi->io->tls.close_notify_sent
+#endif
+	    ) && (pollfd->revents & LWS_POLLIN)) {
 		int m = lws_ssl_capable_read_no_ssl(wsi, pt->serv_buf,
 						    context->pt_serv_buf_size);
-
 		if (m > 0)
 			goto handled;
 		if (m != LWS_SSL_CAPABLE_MORE_SERVICE_READ &&
