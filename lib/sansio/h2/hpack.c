@@ -1192,9 +1192,6 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx)
 		lwsl_header("writing indexed hdr %d (tok %d '%s')\n", idx, tok,
 				lws_token_to_string((enum lws_token_indexes)tok));
 
-	if (tok == LWS_HPACK_IGNORE_ENTRY)
-		return 0;
-
 	if (lws_h2_hpack_no_store(wsi)) {
 		/*
 		 * We validated the index (which is all the connection-wide
