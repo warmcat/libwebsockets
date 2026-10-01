@@ -313,6 +313,11 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul);
 
 LWS_VISIBLE LWS_EXTERN lws_usec_t
 __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow);
+/*
+ * An event loop calls this holding the context lock and then the pt lock, in
+ * that order, so the callbacks it runs may close connections or destroy
+ * vhosts, which take the same locks in the same order.
+ */
 
 #if defined(STANDALONE)
 #undef lws_context

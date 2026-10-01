@@ -119,6 +119,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			if (timeout_us) {
 				lws_usec_t us;
 
+				lws_context_lock(pt->context, __func__); /* cx then pt */
 				lws_pt_lock(pt, __func__);
 				/* don't stay in poll wait longer than next hr timeout */
 				us = __lws_sul_service_ripe(pt->pt_sul_owner,
@@ -128,6 +129,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 					timeout_us = us;
 
 				lws_pt_unlock(pt);
+				lws_context_unlock(pt->context);
 			}
 
 		//	n = poll(pt->fds, pt->fds_count, timeout_ms);

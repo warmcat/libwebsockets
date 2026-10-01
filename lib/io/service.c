@@ -369,6 +369,7 @@ lws_service_set_now(struct lws_context *context, int tsi, lws_usec_t now_us,
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_usec_t us;
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 
 	if (pt->now_external && now_us < pt->now_us)
@@ -381,6 +382,7 @@ lws_service_set_now(struct lws_context *context, int tsi, lws_usec_t now_us,
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    now_us);
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 
 	return us;
 }
@@ -410,6 +412,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	if (pt->evlib_pt) {
 		lws_usec_t u;
 
+		lws_context_lock(pt->context, __func__); /* cx then pt */
 		lws_pt_lock(pt, __func__); /* -------------- pt { */
 
 		u = __lws_sul_service_ripe(pt->pt_sul_owner,
@@ -422,6 +425,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 			timeout_ms = (int)(u / 1000);
 
 		lws_pt_unlock(pt);
+		lws_context_unlock(pt->context);
 	}
 
 	/*

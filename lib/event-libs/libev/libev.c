@@ -37,6 +37,7 @@ lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
 	struct lws_context_per_thread *pt = ptpr->pt;
 	lws_usec_t us;
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
@@ -51,6 +52,7 @@ lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
 		ev_timer_start(ptpr->io_loop, &ptpr->hrtimer);
 	}
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 }
 
 static void
@@ -73,6 +75,7 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 
 	/* account for hrtimer */
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
@@ -83,6 +86,7 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 		ev_timer_start(ptpr->io_loop, &ptpr->hrtimer);
 	}
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 
 	/* there is nobody who needs service forcing, shut down idle */
 	if (!reschedule)

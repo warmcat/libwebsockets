@@ -170,6 +170,7 @@ lws_glib_hrtimer_cb(void *p)
 	unsigned int ms;
 	lws_usec_t us;
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 
 	lws_gs_destroy(pt_to_priv_glib(pt)->hrtimer);
@@ -185,6 +186,7 @@ lws_glib_hrtimer_cb(void *p)
 	}
 
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 
 	lws_glib_set_idle(pt);
 

@@ -36,6 +36,7 @@ lws_event_hrtimer_cb(evutil_socket_t fd, short event, void *p)
 	struct timeval tv;
 	lws_usec_t us;
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
@@ -50,6 +51,7 @@ lws_event_hrtimer_cb(evutil_socket_t fd, short event, void *p)
 		evtimer_add(ptpr->hrtimer, &tv);
 	}
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 }
 
 static void
@@ -85,6 +87,7 @@ lws_event_idle_timer_cb(evutil_socket_t fd, short event, void *p)
 
 	/* account for hrtimer */
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
@@ -94,6 +97,7 @@ lws_event_idle_timer_cb(evutil_socket_t fd, short event, void *p)
 		evtimer_add(ptpr->hrtimer, &tv);
 	}
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 
 	if (pt->destroy_self)
 		lws_context_destroy(pt->context);

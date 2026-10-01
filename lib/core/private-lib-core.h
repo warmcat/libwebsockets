@@ -1206,6 +1206,18 @@ void lwsl_emit_stderr(int level, const char *line);
 
 
 
+/*
+ * Lock order, when LWS_MAX_SMP > 1 makes these real: the context lock, then
+ * a pt lock, then a vhost lock.  A thread holding a pt lock never takes the
+ * context lock, and holds the locks of two pts only while it also holds the
+ * context lock, taking them in ascending order (vhost destroy does this).
+ * Every event loop services its pt's sul list under the context lock and
+ * then the pt lock, so a sul callback that closes a wsi or destroys a vhost
+ * (both context, then pt) is in order; a sul on another pt's list (eg, the
+ * vhost idle grace, kept on pt 0) is scheduled or cancelled under the
+ * context lock.  The mutexes are recursive, so taking one already held, in
+ * order, is fine (C-131).
+ */
 #if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 #define lws_context_lock(c, reason) lws_mutex_refcount_lock(&c->mr, reason)
 #define lws_context_unlock(c) lws_mutex_refcount_unlock(&c->mr)

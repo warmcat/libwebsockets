@@ -56,6 +56,7 @@ lws_uloop_hrtimer_cb(struct uloop_timeout *ti)
 	struct lws_context_per_thread *pt = upt->pt;
 	lws_usec_t us;
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
@@ -63,6 +64,7 @@ lws_uloop_hrtimer_cb(struct uloop_timeout *ti)
 		uloop_timeout_set(ti, lws_uloop_ms(us));
 
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 }
 
 static void
@@ -97,6 +99,7 @@ lws_uloop_idle_timer_cb(struct uloop_timeout *ti)
 
 	/* account for hrtimer */
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
@@ -106,6 +109,7 @@ lws_uloop_idle_timer_cb(struct uloop_timeout *ti)
 	}
 
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 
 	if (pt->destroy_self)
 		lws_context_destroy(pt->context);

@@ -127,6 +127,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		pt->service_tid_detected = 1;
 	}
 
+	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
 	/*
 	 * service ripe scheduled events, and limit wait to next expected one
@@ -142,6 +143,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 					context->us_wait_resolution : us;
 
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
