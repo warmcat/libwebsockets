@@ -1087,28 +1087,139 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 	lws_free_set_NULL(*x509);
 }
 
+/*
+ * Fill buf with len random bytes from the backend's RNG.  Before mbedtls 4,
+ * that is the context's ctr_drbg (or a private one when there is no context);
+ * on mbedtls 4 it is the PSA RNG, which has no per-caller state.
+ */
+#if defined(LWS_HAVE_MBEDTLS_V4)
+static int
+lws_x509_mbedtls_random(uint8_t *buf, size_t len)
+{
+	return psa_generate_random(buf, len) != PSA_SUCCESS;
+}
+#else
+static int
+lws_x509_mbedtls_random(mbedtls_ctr_drbg_context *pdrbg, uint8_t *buf,
+			size_t len)
+{
+	return !!mbedtls_ctr_drbg_random(pdrbg, buf, len);
+}
+#endif
+
+/*
+ * Generate the new cert's keypair into key.  On mbedtls 4 the legacy
+ * mbedtls_pk_setup() + mbedtls_rsa_gen_key() / mbedtls_ecp_gen_key() path is
+ * gone: PSA generates the key and the material is copied into the pk context,
+ * which then owns it independently of PSA like a parsed key would.
+ */
+static int
+lws_x509_mbedtls_gen_key(mbedtls_pk_context *key,
+#if !defined(LWS_HAVE_MBEDTLS_V4)
+			 mbedtls_ctr_drbg_context *pdrbg,
+#endif
+			 const struct lws_x509_cert_gen_info *info)
+{
+	unsigned int bits = (unsigned int)(info->key_bits ? info->key_bits : 2048);
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	mbedtls_svc_key_id_t key_id = MBEDTLS_SVC_KEY_ID_INIT;
+	psa_status_t st;
+	int n;
+
+	if (info->curve_name) {
+		if (!strcmp(info->curve_name, "P-521"))
+			bits = 521;
+		else if (!strcmp(info->curve_name, "P-384"))
+			bits = 384;
+		else if (!strcmp(info->curve_name, "P-256"))
+			bits = 256;
+		else {
+			lwsl_err("%s: unknown curve %s\n", __func__,
+				 info->curve_name);
+			return 1;
+		}
+
+		psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(
+						PSA_ECC_FAMILY_SECP_R1));
+		psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_ANY_HASH));
+	} else {
+		psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_KEY_PAIR);
+		psa_set_key_algorithm(&attr,
+				      PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_ANY_HASH));
+	}
+
+	psa_set_key_bits(&attr, bits);
+	/* EXPORT is what lets mbedtls_pk_copy_from_psa() take the material */
+	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH |
+				       PSA_KEY_USAGE_EXPORT);
+
+	st = psa_generate_key(&attr, &key_id);
+	if (st != PSA_SUCCESS) {
+		lwsl_err("%s: psa_generate_key failed %d\n", __func__, (int)st);
+		return 1;
+	}
+
+	n = mbedtls_pk_copy_from_psa(key_id, key);
+	psa_destroy_key(key_id);
+	if (n) {
+		lwsl_err("%s: pk_copy_from_psa failed -0x%x\n", __func__, -n);
+		return 1;
+	}
+
+	return 0;
+#else
+	if (info->curve_name) {
+		mbedtls_ecp_group_id grp_id = MBEDTLS_ECP_DP_NONE;
+
+		if (!strcmp(info->curve_name, "P-521"))
+			grp_id = MBEDTLS_ECP_DP_SECP521R1;
+		else if (!strcmp(info->curve_name, "P-384"))
+			grp_id = MBEDTLS_ECP_DP_SECP384R1;
+		else if (!strcmp(info->curve_name, "P-256"))
+			grp_id = MBEDTLS_ECP_DP_SECP256R1;
+
+		if (grp_id == MBEDTLS_ECP_DP_NONE) {
+			lwsl_err("%s: unknown curve %s\n", __func__,
+				 info->curve_name);
+			return 1;
+		}
+
+		if (mbedtls_pk_setup(key,
+				     mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY)))
+			return 1;
+
+		return !!mbedtls_ecp_gen_key(grp_id, mbedtls_pk_ec(*key),
+					     mbedtls_ctr_drbg_random, pdrbg);
+	}
+
+	if (mbedtls_pk_setup(key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)))
+		return 1;
+
+	return !!mbedtls_rsa_gen_key(mbedtls_pk_rsa(*key), mbedtls_ctr_drbg_random,
+				     pdrbg, bits, 65537);
+#endif
+}
+
 int
 lws_x509_create_cert(struct lws_context *context,
 		     uint8_t **cert_buf, size_t *cert_len,
 		     uint8_t **key_buf, size_t *key_len,
 		     const struct lws_x509_cert_gen_info *info)
 {
-	int ret = 1;
-#if defined(LWS_HAVE_MBEDTLS_V4)
-	lwsl_err("Self-signed cert generation not yet implemented for MbedTLS v4\n");
-	return ret;
-#else
 	mbedtls_x509write_cert crt;
 	mbedtls_pk_context key;
-	mbedtls_mpi serial;
+	mbedtls_x509_crt issuer_crt;
+	mbedtls_pk_context issuer_key;
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_entropy_context entropy;
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_ctr_drbg_context *pdrbg = &ctr_drbg;
-	mbedtls_x509_crt issuer_crt;
-	mbedtls_pk_context issuer_key;
+#endif
 	unsigned char buf[4096];
+	uint8_t serial_val[8];
 	char name[128];
-	int len, n;
+	int ret = 1, len, n;
 
 	/*
 	 * ret stays 1 on every path until the cert and key have both been
@@ -1121,10 +1232,17 @@ lws_x509_create_cert(struct lws_context *context,
 
 	mbedtls_x509write_crt_init(&crt);
 	mbedtls_pk_init(&key);
-	mbedtls_mpi_init(&serial);
 	mbedtls_x509_crt_init(&issuer_crt);
 	mbedtls_pk_init(&issuer_key);
 
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	/*
+	 * Context creation already did this, but there may be no context:
+	 * psa_crypto_init() is idempotent
+	 */
+	if (psa_crypto_init() != PSA_SUCCESS)
+		goto bail;
+#else
 	if (context) {
 		pdrbg = &context->mcdc;
 	} else {
@@ -1134,58 +1252,43 @@ lws_x509_create_cert(struct lws_context *context,
 					  (const unsigned char *)"lws_cert_gen", 12))
 			goto bail;
 	}
+#endif
 
-	if (info->curve_name) {
-		mbedtls_ecp_group_id grp_id = MBEDTLS_ECP_DP_NONE;
-		if (!strcmp(info->curve_name, "P-521")) grp_id = MBEDTLS_ECP_DP_SECP521R1;
-		else if (!strcmp(info->curve_name, "P-384")) grp_id = MBEDTLS_ECP_DP_SECP384R1;
-		else if (!strcmp(info->curve_name, "P-256")) grp_id = MBEDTLS_ECP_DP_SECP256R1;
-
-		if (grp_id == MBEDTLS_ECP_DP_NONE) {
-			lwsl_err("%s: unknown curve %s\n", __func__, info->curve_name);
-			goto bail;
-		}
-
-		if (mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY)))
-			goto bail;
-
-		if (mbedtls_ecp_gen_key(grp_id, mbedtls_pk_ec(key), mbedtls_ctr_drbg_random, pdrbg))
-			goto bail;
-	} else {
-		if (mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)))
-			goto bail;
-
-		if (mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
-					(unsigned int)(info->key_bits ? info->key_bits : 2048), 65537))
-			goto bail;
-	}
+	if (lws_x509_mbedtls_gen_key(&key,
+#if !defined(LWS_HAVE_MBEDTLS_V4)
+				     pdrbg,
+#endif
+				     info))
+		goto bail;
 
 	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
 	mbedtls_x509write_crt_set_subject_key(&crt, &key);
 
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-	{
-		uint8_t serial_val[8];
+	/* on failure serial_val[] would be uninitialised stack */
+	if (lws_x509_mbedtls_random(
+#if !defined(LWS_HAVE_MBEDTLS_V4)
+				    pdrbg,
+#endif
+				    serial_val, sizeof(serial_val)))
+		goto bail;
+	serial_val[0] &= 0x7f; /* Positive */
 
-		/* on failure serial_val[] would be uninitialised stack */
-		if (mbedtls_ctr_drbg_random(pdrbg, serial_val,
-					    sizeof(serial_val)))
-			goto bail;
-		serial_val[0] &= 0x7f; /* Positive */
-		if (mbedtls_x509write_crt_set_serial_raw(&crt, serial_val, sizeof(serial_val)))
-			goto bail;
-	}
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+	if (mbedtls_x509write_crt_set_serial_raw(&crt, serial_val,
+						 sizeof(serial_val)))
+		goto bail;
 #else
 	{
-		unsigned char rnd[8];
+		mbedtls_mpi serial;
 
-		/* on failure rnd[] would be uninitialised stack */
-		if (mbedtls_ctr_drbg_random(pdrbg, rnd, sizeof(rnd)))
+		mbedtls_mpi_init(&serial);
+		n = mbedtls_mpi_read_binary(&serial, serial_val,
+					    sizeof(serial_val));
+		if (!n)
+			n = mbedtls_x509write_crt_set_serial(&crt, &serial);
+		mbedtls_mpi_free(&serial);
+		if (n)
 			goto bail;
-		rnd[0] &= 0x7f; /* Positive */
-		if (mbedtls_mpi_read_binary(&serial, rnd, sizeof(rnd)))
-			goto bail;
-		mbedtls_x509write_crt_set_serial(&crt, &serial);
 	}
 #endif
 
@@ -1195,12 +1298,17 @@ lws_x509_create_cert(struct lws_context *context,
 
 	if (info->ca_cert_pem && info->ca_key_pem) {
 		char issuer_name[256];
-		if (mbedtls_x509_crt_parse(&issuer_crt, (const unsigned char *)info->ca_cert_pem, strlen(info->ca_cert_pem) + 1))
+
+		if (mbedtls_x509_crt_parse(&issuer_crt,
+					   (const unsigned char *)info->ca_cert_pem,
+					   strlen(info->ca_cert_pem) + 1))
 			goto bail;
 
-		n = mbedtls_pk_parse_key(&issuer_key, (const unsigned char *)info->ca_key_pem, strlen(info->ca_key_pem) + 1, NULL, 0
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-					, mbedtls_ctr_drbg_random, pdrbg
+		n = mbedtls_pk_parse_key(&issuer_key,
+					 (const unsigned char *)info->ca_key_pem,
+					 strlen(info->ca_key_pem) + 1, NULL, 0
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
+					 , mbedtls_ctr_drbg_random, pdrbg
 #endif
 		);
 		if (n)
@@ -1208,7 +1316,8 @@ lws_x509_create_cert(struct lws_context *context,
 
 		mbedtls_x509write_crt_set_issuer_key(&crt, &issuer_key);
 
-		if (mbedtls_x509_dn_gets(issuer_name, sizeof(issuer_name), &issuer_crt.MBEDTLS_PRIVATE_V30_ONLY(subject)) < 0)
+		if (mbedtls_x509_dn_gets(issuer_name, sizeof(issuer_name),
+				&issuer_crt.MBEDTLS_PRIVATE_V30_ONLY(subject)) < 0)
 			goto bail;
 		if (mbedtls_x509write_crt_set_issuer_name(&crt, issuer_name))
 			goto bail;
@@ -1270,7 +1379,11 @@ lws_x509_create_cert(struct lws_context *context,
 		goto bail;
 
 	/* Cert Output */
-	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), mbedtls_ctr_drbg_random, pdrbg);
+	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf)
+#if !defined(LWS_HAVE_MBEDTLS_V4)
+					, mbedtls_ctr_drbg_random, pdrbg
+#endif
+			);
 	if (len <= 0) {
 		lwsl_err("%s: crt_der failed %d\n", __func__, len);
 		goto bail;
@@ -1306,16 +1419,16 @@ bail:
 	lws_explicit_bzero(buf, sizeof(buf));
 	mbedtls_x509write_crt_free(&crt);
 	mbedtls_pk_free(&key);
-	mbedtls_mpi_free(&serial);
 	mbedtls_x509_crt_free(&issuer_crt);
 	mbedtls_pk_free(&issuer_key);
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	if (!context) {
 		mbedtls_ctr_drbg_free(&ctr_drbg);
 		mbedtls_entropy_free(&entropy);
 	}
+#endif
 
 	return ret;
-#endif
 }
 
 int
