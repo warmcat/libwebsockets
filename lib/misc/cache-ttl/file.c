@@ -141,14 +141,28 @@ static int
 nsc_lock(const char *lock)
 {
 	struct stat s;
-	int fd_lock;
+	int fd_lock, fd_old, stale;
 
 	fd_lock = open(lock, LWS_O_CREAT | O_EXCL, 0600);
-	if (fd_lock < 0 && errno == EEXIST && !stat(lock, &s) &&
-	    time(NULL) - s.st_mtime > NSC_LOCK_STALE_SECS) {
-		lwsl_notice("%s: removing stale %s\n", __func__, lock);
-		unlink(lock);
-		fd_lock = open(lock, LWS_O_CREAT | O_EXCL, 0600);
+	if (fd_lock < 0 && errno == EEXIST) {
+		/*
+		 * Judge the age of the lock file we have open, not of whatever
+		 * the path might name by the time we looked it up again.  It
+		 * is closed before the unlink, which windows refuses on a file
+		 * that is open.
+		 */
+		fd_old = open(lock, LWS_O_RDONLY);
+		if (fd_old < 0)
+			return 1;
+		stale = !fstat(fd_old, &s) &&
+			time(NULL) - s.st_mtime > NSC_LOCK_STALE_SECS;
+		close(fd_old);
+
+		if (stale) {
+			lwsl_notice("%s: removing stale %s\n", __func__, lock);
+			unlink(lock);
+			fd_lock = open(lock, LWS_O_CREAT | O_EXCL, 0600);
+		}
 	}
 
 	if (fd_lock < 0)
