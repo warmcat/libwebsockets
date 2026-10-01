@@ -820,7 +820,8 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			n = lws_hdr_copy(wsi, pss->body,
 					 (int)sizeof(pss->body) - 1,
 					 WSI_TOKEN_POST_URI);
-		if (n < 0)
+		/* we keep room for the '\n' and the args' NUL after it */
+		if (n < 0 || n > (int)sizeof(pss->body) - 2)
 			return 1;
 		pss->body[n++] = '\n';
 		pss->len = lws_hdr_copy(wsi, pss->body + n,
