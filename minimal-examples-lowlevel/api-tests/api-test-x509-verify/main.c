@@ -111,13 +111,18 @@ der_to_pem(const char *label, const uint8_t *der, size_t der_len)
 	char *b64, *pem;
 	int m;
 
+	/* our generated certs are far smaller, and it must fit an int */
+	if (der_len > 65536)
+		return NULL;
+
 	b64 = malloc(b64_size);
 	if (!b64)
 		return NULL;
 
 	m = lws_b64_encode_string((const char *)der, (int)der_len, b64,
 				  (int)b64_size);
-	if (m < 0) {
+	/* bound the encoded length by what we gave it room for */
+	if (m < 0 || (size_t)m >= b64_size) {
 		free(b64);
 		return NULL;
 	}
