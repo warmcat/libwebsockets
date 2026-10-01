@@ -1073,7 +1073,8 @@ lws_tls_cert_get_x509_remaining(struct lws_context *context, const char *filepat
 	if (lws_x509_create(&x))
 		goto bail;
 
-	if (lws_x509_parse_from_pem(x, p, (size_t)amount))
+	/* mbedtls needs the terminating NUL counted in the PEM's length */
+	if (lws_x509_parse_from_pem(x, p, (size_t)amount + 1))
 		goto bail_destroy;
 
 	if (!lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_FROM, &cri, 0) &&
@@ -1158,7 +1159,8 @@ lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath
 	if (lws_x509_create(&x))
 		goto bail;
 
-	if (lws_x509_parse_from_pem(x, p, (size_t)amount))
+	/* mbedtls needs the terminating NUL counted in the PEM's length */
+	if (lws_x509_parse_from_pem(x, p, (size_t)amount + 1))
 		goto bail_destroy;
 
 	if (!lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_FROM, &cri, 0) &&
