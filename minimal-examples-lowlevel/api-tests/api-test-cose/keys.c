@@ -62,9 +62,10 @@ key_export_chunked(struct lws_cose_key *ck, int flags)
 
 		do {
 			r = lws_cose_key_export(ck, &wc, flags);
+			/* it may never claim more than the window it was given */
 			if (r == LWS_LECPCTX_RET_FAIL ||
 			    (r == LWS_LECPCTX_RET_AGAIN && !wc.used) ||
-			    wc.used > sizeof(cat) - cl) {
+			    wc.used > w || wc.used > sizeof(cat) - cl) {
 				lwsl_err("%s: window %u: fail at %u\n",
 					 __func__, (unsigned int)w,
 					 (unsigned int)cl);
