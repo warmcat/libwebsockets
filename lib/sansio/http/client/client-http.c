@@ -1834,7 +1834,7 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 					"\xd\xa--%s--\xd\xa",
 					wsi->http.multipart_boundary);
 
-		return 0;
+		return *p == end;
 	}
 
 	if (wsi->client_subsequent_mime_part)

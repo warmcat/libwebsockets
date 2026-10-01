@@ -1316,12 +1316,15 @@ malformed_l:
 #if defined(LWS_WITH_SERVER)
 		    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not accepted */
 #endif
-		    !h->inside_msg && h->rideshare->u.http.multipart_name)
-			lws_client_http_multipart(wsi,
+		    !h->inside_msg && h->rideshare->u.http.multipart_name &&
+		    lws_client_http_multipart(wsi,
 				h->rideshare->u.http.multipart_name,
 				h->rideshare->u.http.multipart_filename,
 				h->rideshare->u.http.multipart_content_type,
-				(char **)&p, (char *)end);
+				(char **)&p, (char *)end)) {
+			lwsl_ss_err(h, "multipart preamble too big");
+			return -1;
+		}
 
 		buflen = lws_ptr_diff_size_t(end, p);
 		if (h->rideshare && h->rideshare->u.http.multipart_name) {
@@ -1368,10 +1371,12 @@ malformed_l:
 			if (!h->rideshare || !h->rideshare->rideshare_streamtype) {
 				lws_client_http_body_pending(wsi, 0);
 #if defined(LWS_WITH_SS_RIDESHARE)
+				/* there was room kept for it, see above */
 				if (h->rideshare &&
-				    h->rideshare->u.http.multipart_name)
-					lws_client_http_multipart(wsi, NULL, NULL, NULL,
-						(char **)&p, (char *)end);
+				    h->rideshare->u.http.multipart_name &&
+				    lws_client_http_multipart(wsi, NULL, NULL, NULL,
+						(char **)&p, (char *)end))
+					return -1;
 				conceal_eom = 0;
 #endif
 			} else {
