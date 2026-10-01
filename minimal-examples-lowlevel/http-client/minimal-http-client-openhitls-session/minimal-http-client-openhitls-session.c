@@ -351,7 +351,9 @@ int main(int argc, const char **argv)
 	nl.name				= "app";
 	nl.notify_cb			= app_system_state_nf;
 	info.register_notifier_list	= app_notifier_list;
-	info.fd_limit_per_thread	= 1 + 1 + 4;
+	if (!use_ws)
+		/* client only, the two connections come one after the other */
+		info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 1;
 
 	context = lws_create_context(&info);
 	if (!context) {

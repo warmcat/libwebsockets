@@ -242,7 +242,6 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS Secure Streams threads test client [-d<verb>]\n");
 
-	info.fd_limit_per_thread	= 1 + 6 + 1;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 #if !defined(LWS_SS_USE_SSPC)
 	info.pss_policies_json		= default_ss_policy;

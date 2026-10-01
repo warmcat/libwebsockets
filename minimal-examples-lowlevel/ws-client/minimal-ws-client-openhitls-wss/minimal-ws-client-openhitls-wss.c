@@ -298,7 +298,6 @@ int main(int argc, const char **argv)
 	info.options			= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.ssl_cert_filepath		= "libwebsockets-test-server.pem";
 	info.ssl_private_key_filepath	= "libwebsockets-test-server.key.pem";
-	info.fd_limit_per_thread	= 1 + 1 + 4;
 
 	nl.name				= "app";
 	nl.notify_cb			= app_system_state_nf;

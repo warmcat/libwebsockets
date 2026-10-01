@@ -206,7 +206,7 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-	info.fd_limit_per_thread	= 1 + 26 + 1;
+	info.fd_limit_per_thread	= 0; /* server: size to the process fd limit */
 	info.pprotocols			= ppcols;
 
 	/* integrate us with lws system state management when context created */

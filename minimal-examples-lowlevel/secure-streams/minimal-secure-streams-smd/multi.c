@@ -395,7 +395,6 @@ smd_ss_multi_test(int argc, const char **argv)
 			info.ss_proxy_address = p;
 	}
 
-	info.fd_limit_per_thread	= 1 + 6 + 1;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.protocols			= lws_sspc_protocols;
 	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
