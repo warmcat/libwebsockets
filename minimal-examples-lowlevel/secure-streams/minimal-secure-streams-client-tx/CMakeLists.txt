@@ -30,40 +30,53 @@ if (requirements)
 	endif()
 
 	#
-	# Local-server variant: runs a local lws-minimal-http-server-httpbin over
-	# TLS, and the proxy with a local policy, so it does not need any external
-	# network egress.
+	# Local-server variant: "spam" is a nailed-up ws stream, so this runs the
+	# lws test-server over TLS as a local ws peer (lws-mirror-protocol), and
+	# the proxy with a local policy, so it does not need any external network
+	# egress.  test-apps is added after the examples, so its target can't be
+	# looked for here: these are the options it builds test-server under.
 	#
 
-	if (NOT WIN32 AND LWS_WITH_SERVER)
+	set(TX_WS_SRV 0)
+	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_FILE_OPS AND
+	    NOT LWS_WITHOUT_TESTAPPS AND NOT LWS_WITHOUT_TEST_SERVER)
+		set(TX_WS_SRV 1)
+	endif()
 
-	lws_get_free_port(PORT_TX_HBIN_TLS)
+	if (TX_WS_SRV)
 
-		add_test(NAME st_tx_hbin
+		lws_get_free_port(PORT_TX_WS_SRV_TLS)
+
+		set(LOCAL_CERT_DIR ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls)
+
+		add_test(NAME st_tx_ws_srv
 			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-				tx_hbin $<TARGET_FILE:lws-minimal-http-server-httpbin>
-				-s -p ${PORT_TX_HBIN_TLS})
-		add_test(NAME ki_tx_hbin
+				tx_ws_srv $<TARGET_FILE:test-server>
+				-s -p ${PORT_TX_WS_SRV_TLS}
+				-C ${LOCAL_CERT_DIR}/localhost-100y.cert
+				-K ${LOCAL_CERT_DIR}/localhost-100y.key
+				-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server)
+		add_test(NAME ki_tx_ws_srv
 			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
-				tx_hbin $<TARGET_FILE_NAME:lws-minimal-http-server-httpbin>
-				-p ${PORT_TX_HBIN_TLS})
-		set_tests_properties(st_tx_hbin PROPERTIES
-				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
-				FIXTURES_SETUP tx_hbin
+				tx_ws_srv $<TARGET_FILE_NAME:test-server>
+				-p ${PORT_TX_WS_SRV_TLS})
+		set_tests_properties(st_tx_ws_srv PROPERTIES
+				WORKING_DIRECTORY .
+				FIXTURES_SETUP tx_ws_srv
 				TIMEOUT 800
-				ENVIRONMENT "SAI_LIST_PORT=${PORT_TX_HBIN_TLS}")
-		set_tests_properties(ki_tx_hbin PROPERTIES FIXTURES_CLEANUP tx_hbin)
+				ENVIRONMENT "SAI_LIST_PORT=${PORT_TX_WS_SRV_TLS}")
+		set_tests_properties(ki_tx_ws_srv PROPERTIES FIXTURES_CLEANUP tx_ws_srv)
 
 	endif()
 
 
 	#
 	# Local-proxy variant: the proxy uses the local policy and the local
-	# httpbin peer instead of fetching a policy from warmcat.com, so this
-	# needs no external network egress.  Deliberately outside the
+	# ws peer instead of fetching a policy from warmcat.com, so this needs no
+	# external network egress.
 	#
 
-	if (NOT WIN32 AND LWS_WITH_SERVER AND
+	if (TX_WS_SRV AND
 	    (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API))
 
 		if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
@@ -89,7 +102,7 @@ if (requirements)
 		set_tests_properties(st_tx_proxy_local PROPERTIES
 			WORKING_DIRECTORY .
 			FIXTURES_SETUP tx_proxy_local
-			FIXTURES_REQUIRED "tx_hbin"
+			FIXTURES_REQUIRED "tx_ws_srv"
 			TIMEOUT 800)
 
 		add_test(NAME ki_tx_proxy_local COMMAND
@@ -103,7 +116,7 @@ if (requirements)
 			 -i +${CTEST_LOCAL_SOCKET_PATH})
 		set_tests_properties(sspc-minimaltx-local PROPERTIES
 			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-client-tx
-			FIXTURES_REQUIRED "tx_proxy_local;tx_hbin"
+			FIXTURES_REQUIRED "tx_proxy_local;tx_ws_srv"
 			TIMEOUT 40)
 
 	endif()

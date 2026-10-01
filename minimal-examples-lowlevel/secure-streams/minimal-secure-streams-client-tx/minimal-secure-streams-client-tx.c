@@ -28,11 +28,11 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
-	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_A]	= { "-a",              "With -p, the proxy address to connect to" },
+	[LWS_SW_C]	= { "-c",              "Messages to send before exiting (default 100)" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
-	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_I]	= { "-i",              "Proxy UDS path, or with -p the interface to bind to" },
+	[LWS_SW_P]	= { "-p",              "Connect to the proxy on this tcp port" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 

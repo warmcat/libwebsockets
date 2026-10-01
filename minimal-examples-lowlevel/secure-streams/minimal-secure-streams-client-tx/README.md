@@ -1,7 +1,10 @@
 # lws minimal secure streams client tx
 
 The application connects to the secure stream proxy, and opens a streamtype
-"spam"... this is a websocket connection to libwebsockets.org.
+"spam"... in the proxy's default policy this is a nailed-up websocket
+connection to libwebsockets.org.  The ctest runs the proxy with
+`policy-local.json`, where "spam" goes to a local lws test-server's
+`lws-mirror-protocol` instead.
 
 It then issues 100 x ws messages at 20Hz and exits.
 
@@ -16,8 +19,10 @@ It then issues 100 x ws messages at 20Hz and exits.
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
--f| Force connecting to the wrong endpoint to check backoff retry flow
--p| Run as proxy server for clients to connect to over unix domain socket
+-c <count>|How many messages to send before exiting (default 100)
+-i <iface>|Proxy UDS path (`+` prefix for the abstract namespace), or with -p, the interface to bind to
+-p <port>|Connect to the proxy over tcp on this port instead of the default UDS
+-a <address>|With -p, the proxy address to connect to
 
 ```
 [2021/02/19 11:25:20:1396] U: LWS secure streams client TX [-d<verb>]

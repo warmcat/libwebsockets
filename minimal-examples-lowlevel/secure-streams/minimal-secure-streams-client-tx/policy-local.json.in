@@ -28,12 +28,13 @@
     {
       "spam": {
         "endpoint": "@LWS_CTEST_SERVER_RESOLVE@",
-        "port": @PORT_TX_HBIN_TLS@,
-        "protocol": "h1",
-        "http_method": "POST",
-        "http_url": "/httpbin/post",
+        "port": @PORT_TX_WS_SRV_TLS@,
+        "protocol": "ws",
+        "ws_subprotocol": "lws-mirror-protocol",
+        "http_url": "",
+        "nailed_up": true,
+        "ws_binary": true,
         "tls": true,
-        "opportunistic": true,
         "retry": "default",
         "tls_trust_store": "local_test"
       }
