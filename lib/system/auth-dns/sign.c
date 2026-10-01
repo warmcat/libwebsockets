@@ -1267,6 +1267,9 @@ lws_auth_dns_key_records(struct lws_jwk *jwk, const char *origin, int flags,
 
 	m = lws_snprintf(r->dnskey, sizeof(r->dnskey), "%d 3 %d ", flags,
 			 r->alg);
+	/* a truncated result is reported as the whole size */
+	if (m >= (int)sizeof(r->dnskey) - 1)
+		return 1;
 	if (lws_b64_encode_string((const char *)wire + 4, (int)wl - 4,
 				  r->dnskey + m, (int)(sizeof(r->dnskey) -
 							(size_t)m)) < 0)
