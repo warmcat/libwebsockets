@@ -187,6 +187,7 @@ typedef struct atss {
 	const lws_ss_info_t		*ssi;
 	size_t				send;
 	char				expect_nack;
+	char				unsized; /* no lws_ss_request_tx_len() */
 } atss_t;
 
 static const atss_t *next_test;
@@ -270,9 +271,16 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (r)
 			return r;
 		m->expect_nack = next_test->expect_nack;
-		if (next_test->send)
-			return lws_ss_request_tx_len(m->ss, (unsigned long)next_test->send);
-		break;
+		if (!next_test->send)
+			break;
+		if (next_test->unsized)
+			/*
+			 * The length isn't told up front: an h1 POST then
+			 * sends its body chunked, ended by the EOM
+			 */
+			return lws_ss_request_tx(m->ss);
+
+		return lws_ss_request_tx_len(m->ss, (unsigned long)next_test->send);
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		lwsl_notice("%s: Connection failed\n", __func__);
 		lws_default_loop_exit(context);
@@ -287,8 +295,16 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/*
 		 * To be satisfied, we want to see the ACK_REMOTE indicating
 		 * that the transaction went through; that we had the payload
-		 * EOM; and that we saw at least 100 + posted bytes response
+		 * EOM; that we saw at least 100 bytes of response; and that
+		 * the whole body we had to send went before the response
 		 */
+
+		if (m->sent != next_test->send) {
+			lwsl_warn("%s: ACK_REMOTE but sent %d of %d\n", __func__,
+				  (int)m->sent, (int)next_test->send);
+			lws_default_loop_exit(context);
+			return -1;
+		}
 
 		if (!m->seen_eom || m->payload < 100) {
 			lwsl_warn("%s: ACK_REMOTE but eom %d, payload %d (req >= %d)\n",
@@ -359,6 +375,7 @@ static const atss_t test_list[] = {
 		{ .ssi = &ssi_get },
 		{ .ssi = &ssi_get404, .expect_nack = 1 },
 		{ .ssi = &ssi_post, .send = 4096 },
+		{ .ssi = &ssi_post, .send = 4096, .unsized = 1 },
 		{ .ssi = NULL }
 };
 

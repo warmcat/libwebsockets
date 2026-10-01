@@ -299,7 +299,10 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 	}
 
 	/*
-	 * Content-length on POST / PUT / PATCH if we have the length information
+	 * POST / PUT / PATCH carry the body the stream's tx gives, up to its
+	 * EOM.  Content-length if we have the length information... otherwise
+	 * the h1 request composer sends the body chunked, since a request
+	 * with neither header has no body (RFC 9112 6.3)
 	 */
 
 	if (h->policy->u.http.method && (
@@ -307,18 +310,24 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 		 !strcmp(h->policy->u.http.method, "PATCH") ||
 		 !strcmp(h->policy->u.http.method, "PUT") ||
 #endif
-		(!strcmp(h->policy->u.http.method, "POST"))) &&
-	    wsi->http.writeable_len) {
-		if (!(h->policy->flags &
-			LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
-			int n = lws_snprintf((char *)buf, 20, "%u",
-				(unsigned int)wsi->http.writeable_len);
-			if (lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_CONTENT_LENGTH,
-					buf, n, pp, end))
-				return -1;
-		}
-		lws_client_http_body_pending(wsi, 1);
+		(!strcmp(h->policy->u.http.method, "POST")))) {
+		if (wsi->http.writeable_len) {
+			if (!(h->policy->flags &
+				LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
+				int n = lws_snprintf((char *)buf, 20, "%u",
+					(unsigned int)wsi->http.writeable_len);
+				if (lws_add_http_header_by_token(wsi,
+						WSI_TOKEN_HTTP_CONTENT_LENGTH,
+						buf, n, pp, end))
+					return -1;
+			}
+			lws_client_http_body_pending(wsi, 1);
+		} else if (h->info.tx
+#if defined(LWS_WITH_SERVER)
+			   && !(h->info.flags & LWSSSINFLAGS_ACCEPTED)
+#endif
+			  )
+			lws_client_http_body_pending(wsi, 1);
 	}
 
 	return 0;
