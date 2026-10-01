@@ -522,6 +522,15 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 			n = (int)sendto(wsi->io->desc.sockfd, (const char *)buf,
 				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->io->udp->sa46_pending),
 				   sa46_socklen(&wsi->io->udp->sa46_pending));
+		else if (wsi->io->udp->sa46.sa4.sin_family == AF_UNSPEC)
+			/*
+			 * No peer is recorded: a socket the application
+			 * connected itself before adopting it, which sends to
+			 * its connected peer with no destination given (an
+			 * AF_UNSPEC one is refused with EINVAL)
+			 */
+			n = (int)sendto(wsi->io->desc.sockfd, (const char *)buf,
+				   LWS_POSIX_LENGTH_CAST(len), 0, NULL, 0);
 		else
 			n = (int)sendto(wsi->io->desc.sockfd, (const char *)buf,
 				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->io->udp->sa46),
