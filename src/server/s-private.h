@@ -147,6 +147,17 @@ struct vhd;
 /* a pool sync connection's state, see s-pool.c */
 typedef struct sais_pool_session sais_pool_session_t;
 
+/* an open pool db, shared by everything using it, see s-pool.c */
+typedef struct sais_pool_db {
+	lws_dll2_t		list;		/* vhd->pool_dbs */
+	sqlite3			*pdb;
+	int			refcount;
+	unsigned int		live;		/* live entries */
+	char			key[128];	/* "<repo>/<pool>" */
+	char			repo[65];
+	char			pool[33];
+} sais_pool_db_t;
+
 struct pss {
 	struct vhd		*vhd;
 	struct lws		*wsi;
@@ -301,6 +312,13 @@ struct vhd {
 	lws_sorted_usec_list_t	sul_watcher; /* generic async service watcher sul */
  
 	lws_dll2_owner_t	watcher_services; /* sai_watcher_service_t from config */
+
+	/* findings, see s-findings.c */
+	const char		*findings_notify; /* mail new findings to */
+	const char		*findings_from;
+	const char		*findings_url; /* sai-web, for links in mail */
+	lws_usec_t		findings_last_retry;
+	char			findings_reset_done;
 
 	/* pools, see s-pool.c */
 	lws_dll2_owner_t	pool_dbs; /* sais_pool_db_t, open pool dbs */
@@ -494,6 +512,30 @@ sais_pool_tx(struct vhd *vhd, struct pss *pss);
 
 void
 sais_pool_session_destroy(struct pss *pss);
+
+void
+sais_findings_received(struct vhd *vhd, sais_pool_db_t *db, const char *sub,
+		       size_t sub_len, const char *name, size_t name_len,
+		       const uint8_t *data, size_t len, const char *hash,
+		       const char *platform);
+
+void
+sais_findings_set(struct vhd *vhd, const char *repo, const char *pool,
+		  const char *group, const char *op);
+
+void
+sais_findings_notify_retry(struct vhd *vhd);
+
+sais_pool_db_t *
+sais_pool_db_get(struct vhd *vhd, const char *repo, const char *pool);
+
+void
+sais_pool_db_put(sais_pool_db_t *db);
+
+int
+sais_pool_log_entry(sais_pool_db_t *db, int ns, const char *sub,
+		    size_t sub_len, const char *name, size_t name_len,
+		    const uint8_t *blob, size_t len);
 
 sai_plat_t *
 sais_builder_from_uuid(struct vhd *vhd, const char *hostname);

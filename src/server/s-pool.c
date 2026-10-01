@@ -44,14 +44,6 @@
 /* the most we send in one ws message */
 #define SAIS_POOL_TX_CHUNK		(64 * 1024)
 
-typedef struct sais_pool_db {
-	lws_dll2_t		list;		/* vhd->pool_dbs */
-	sqlite3			*pdb;
-	int			refcount;
-	unsigned int		live;		/* live entries */
-	char			key[128];	/* "<repo>/<pool>" */
-} sais_pool_db_t;
-
 struct sais_pool_session {
 	sais_pool_db_t		*db;
 
@@ -68,6 +60,10 @@ struct sais_pool_session {
 	char			pulling[2];
 
 	char			task_uuid[65];
+
+	/* about the task the builder syncs for, for findings */
+	char			hash[65];
+	char			platform[96];
 };
 
 static const char * const pool_schema[] = {
@@ -92,13 +88,34 @@ static const char * const pool_schema[] = {
 		"peer VARCHAR(48), "
 		"blob BLOB, "
 		"UNIQUE(sub, name));",
+	/* the bugs findings are grouped into, see s-findings.c */
+	"CREATE TABLE IF NOT EXISTS groups ("
+		"id VARCHAR(16) PRIMARY KEY, "
+		"sub VARCHAR(32) NOT NULL, "
+		"kind VARCHAR(96), "
+		"frames VARCHAR(512), "
+		"status INTEGER NOT NULL DEFAULT 0, "
+		"acked INTEGER NOT NULL DEFAULT 0, "
+		"regressed INTEGER NOT NULL DEFAULT 0, "
+		"notify INTEGER NOT NULL DEFAULT 0, "
+		"hits INTEGER NOT NULL DEFAULT 0, "
+		"first_seen INTEGER, "
+		"last_seen INTEGER, "
+		"first_hash VARCHAR(65), "
+		"last_hash VARCHAR(65), "
+		"last_ok_hash VARCHAR(65), "
+		"last_ok_time INTEGER, "
+		"platforms VARCHAR(512), "
+		"repro_name VARCHAR(64), "
+		"repro_sha1 VARCHAR(41), "
+		"repro_len INTEGER);",
 	"PRAGMA journal_mode=WAL;",
 };
 
-static sais_pool_db_t *
+sais_pool_db_t *
 sais_pool_db_get(struct vhd *vhd, const char *repo, const char *pool)
 {
-	char key[128], fn[256], saf[128], *p;
+	char key[128], fn[256];
 	sais_pool_db_t *db;
 	sqlite3_stmt *sm;
 	size_t n;
@@ -115,16 +132,7 @@ sais_pool_db_get(struct vhd *vhd, const char *repo, const char *pool)
 
 	} lws_end_foreach_dll(d);
 
-	/* the repo name was checked at hook intake, but it's going in a path */
-
-	lws_snprintf(saf, sizeof(saf), "%s-%s", repo, pool);
-	lws_filename_purify_inplace(saf);
-	p = saf;
-	while ((p = strchr(p, '/')))
-		*p++ = '_';
-
-	lws_snprintf(fn, sizeof(fn), "%s-pool-%s.sqlite3",
-		     vhd->sqlite3_path_lhs, saf);
+	sai_pool_db_path(fn, sizeof(fn), vhd->sqlite3_path_lhs, repo, pool);
 
 	db = malloc(sizeof(*db));
 	if (!db)
@@ -150,6 +158,23 @@ sais_pool_db_get(struct vhd *vhd, const char *repo, const char *pool)
 			return NULL;
 		}
 
+	/* which group each finding went to, added after the table was */
+	sqlite3_exec(db->pdb, "ALTER TABLE findings ADD COLUMN group_id "
+			      "VARCHAR(16);", NULL, NULL, NULL);
+
+	lws_strncpy(db->repo, repo, sizeof(db->repo));
+	lws_strncpy(db->pool, pool, sizeof(db->pool));
+
+	/* sai-web finds the pools to show findings from in here */
+
+	if (sqlite3_prepare_v2(vhd->server.pdb, "INSERT OR IGNORE INTO pools "
+			       "(repo, pool) VALUES (?, ?)", -1, &sm,
+			       NULL) == SQLITE_OK) {
+		sqlite3_bind_text(sm, 1, repo, -1, SQLITE_TRANSIENT);
+		sqlite3_bind_text(sm, 2, pool, -1, SQLITE_TRANSIENT);
+		sai_sqlite3_step_done(vhd->server.pdb, sm, "list pool");
+	}
+
 	if (sqlite3_prepare_v2(db->pdb, "SELECT count(*) FROM entries WHERE "
 			       "dead = 0", -1, &sm, NULL) == SQLITE_OK) {
 		if (sqlite3_step(sm) == SQLITE_ROW)
@@ -165,7 +190,7 @@ sais_pool_db_get(struct vhd *vhd, const char *repo, const char *pool)
 	return db;
 }
 
-static void
+void
 sais_pool_db_put(sais_pool_db_t *db)
 {
 	if (--db->refcount)
@@ -225,7 +250,7 @@ sais_pool_live(sais_pool_db_t *db, int ns, const char *sub, size_t sub_len,
  * dead entry.
  */
 
-static int
+int
 sais_pool_log_entry(sais_pool_db_t *db, int ns, const char *sub,
 		    size_t sub_len, const char *name, size_t name_len,
 		    const uint8_t *blob, size_t len)
@@ -342,7 +367,12 @@ sais_pool_put(struct pss *pss, int ns, const char *name, size_t name_len,
 	int r;
 
 	if (ns == SAI_POOL_NS_FINDINGS) {
-		if (sqlite3_prepare_v2(ps->db->pdb, "INSERT OR IGNORE INTO "
+		/*
+		 * The same name can come again, eg, a known reproducer that
+		 * still crashes on a later push: the latest copy is the one
+		 * we keep, and it counts again
+		 */
+		if (sqlite3_prepare_v2(ps->db->pdb, "INSERT OR REPLACE INTO "
 				"findings (sub, name, len, received, "
 				"task_uuid, peer, blob) VALUES (?,?,?,?,?,?,?)",
 				-1, &sm, NULL) != SQLITE_OK)
@@ -362,6 +392,10 @@ sais_pool_put(struct pss *pss, int ns, const char *name, size_t name_len,
 
 		lwsl_notice("%s: %s: finding %.*s from %s\n", __func__,
 			    ps->db->key, (int)name_len, name, pss->peer_ip);
+
+		sais_findings_received(pss->vhd, ps->db, name, sub_len,
+				       sl + 1, name_len - sub_len - 1, data,
+				       len, ps->hash, ps->platform);
 
 		goto ack;
 	}
@@ -749,7 +783,8 @@ sais_pool_tx(struct vhd *vhd, struct pss *pss)
 int
 sais_pool_hello(struct vhd *vhd, struct pss *pss, const sai_pool_hello_t *hello)
 {
-	char event_uuid[33], esc[96], filt[128], repo[65], pool[33];
+	char event_uuid[33], esc[96], filt[128], repo[65], pool[33], hash[65],
+	     platform[96];
 	struct lwsac *ac = NULL;
 	sais_pool_session_t *ps;
 	sqlite3 *pdb = NULL;
@@ -773,6 +808,7 @@ sais_pool_hello(struct vhd *vhd, struct pss *pss, const sai_pool_hello_t *hello)
 		goto bail;
 	e = lws_container_of(o.head, sai_event_t, list);
 	lws_strncpy(repo, e->repo_name, sizeof(repo));
+	lws_strncpy(hash, e->hash, sizeof(hash));
 
 	if (sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
 				     vhd->sqlite3_path_lhs, event_uuid, 0, &pdb))
@@ -799,6 +835,7 @@ sais_pool_hello(struct vhd *vhd, struct pss *pss, const sai_pool_hello_t *hello)
 		goto bail;
 	}
 	lws_strncpy(pool, t->pool, sizeof(pool));
+	lws_strncpy(platform, t->platform, sizeof(platform));
 	lwsac_free(&ac);
 
 	ps = malloc(sizeof(*ps));
@@ -816,6 +853,8 @@ sais_pool_hello(struct vhd *vhd, struct pss *pss, const sai_pool_hello_t *hello)
 		return -1;
 	}
 	lws_strncpy(ps->task_uuid, hello->task_uuid, sizeof(ps->task_uuid));
+	lws_strncpy(ps->hash, hash, sizeof(ps->hash));
+	lws_strncpy(ps->platform, platform, sizeof(ps->platform));
 
 	pss->pool = ps;
 

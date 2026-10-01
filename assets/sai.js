@@ -2998,6 +2998,300 @@ function refresh_state(t)
 
 
 /*
+ * Findings (admins only, see READMEs/README-findings.md)
+ *
+ * The fuzzing findings sai-server collected in the repos' pools, grouped into
+ * bugs.  They can be unfixed security bugs, so sai-web only answers admins,
+ * and nothing here is shown to anyone else.
+ */
+
+var sai_findings = null;	/* the last com.warmcat.sai.findings */
+var sai_findings_dialog = null;
+var sai_findings_timer = null;
+
+var SAI_FINDINGS_STATUS = [ "open", "fixed", "won't fix" ];
+
+function sai_findings_request()
+{
+	if (auth_state !== SaiAuthState.LOGGED_IN_GRANT_ADMIN)
+		return;
+	try {
+		sai.send(JSON.stringify({ schema: "com.warmcat.sai.findings" }));
+	} catch (e) {}
+}
+
+/* the admin state became known or changed */
+function sai_findings_auth_changed()
+{
+	var btn = document.getElementById("sai_findings_btn");
+	var admin = auth_state === SaiAuthState.LOGGED_IN_GRANT_ADMIN;
+
+	if (btn)
+		btn.classList.toggle("hidden", !admin);
+
+	if (!admin) {
+		sai_findings = null;
+		sai_findings_dialog_close();
+		if (sai_findings_timer) {
+			clearInterval(sai_findings_timer);
+			sai_findings_timer = null;
+		}
+		return;
+	}
+
+	sai_findings_request();
+	if (!sai_findings_timer)
+		sai_findings_timer = setInterval(sai_findings_request, 60000);
+}
+
+function sai_findings_unacked()
+{
+	var n = 0;
+
+	if (sai_findings && sai_findings.pools)
+		sai_findings.pools.forEach(function(p) {
+			p.groups.forEach(function(g) {
+				if (!g.acked)
+					n++;
+			});
+		});
+
+	return n;
+}
+
+function sai_findings_update_button()
+{
+	var btn = document.getElementById("sai_findings_btn");
+	var n = sai_findings_unacked();
+
+	if (!btn)
+		return;
+	btn.textContent = n ? "findings: " + n + " new" : "findings";
+	btn.classList.toggle("unacked", n > 0);
+}
+
+function sai_findings_dialog_close()
+{
+	if (!sai_findings_dialog)
+		return;
+
+	document.removeEventListener("keydown", sai_findings_dialog.onkey, true);
+	if (document.body.contains(sai_findings_dialog.overlay))
+		document.body.removeChild(sai_findings_dialog.overlay);
+	sai_findings_dialog = null;
+}
+
+function sai_findings_set(p, g, op)
+{
+	sai.send(JSON.stringify({
+		schema: "com.warmcat.sai.findingset",
+		repo: p.repo, pool: p.pool, group: g.id, op: op
+	}));
+	/* sai-server applies it, then we look again */
+	setTimeout(sai_findings_request, 500);
+}
+
+/* plain text, since it goes in textContent (agify() makes markup) */
+function sai_findings_age(t)
+{
+	var d = Math.round((new Date().getTime() / 1000)) - t;
+
+	if (!t)
+		return "";
+	if (d < 120)
+		return d + "s ago";
+	if (d < 7200)
+		return Math.round(d / 60) + "m ago";
+	if (d < 172800)
+		return Math.round(d / 3600) + "h ago";
+
+	return Math.round(d / 86400) + "d ago";
+}
+
+function sai_findings_group_row(p, g)
+{
+	var tr = sai_adhoc_el("tr", "findings-row" +
+			      (g.acked ? "" : " unacked") +
+			      (g.regressed ? " regressed" : "") +
+			      " status" + g.status);
+	var st = !g.acked ? (g.regressed ? "regressed" : "new") :
+			    SAI_FINDINGS_STATUS[g.status] || "?";
+	var td, b;
+
+	tr.appendChild(sai_adhoc_el("td", "findings-status", st));
+	tr.appendChild(sai_adhoc_el("td", "findings-id", g.id));
+	tr.appendChild(sai_adhoc_el("td", "", g.sub));
+	td = sai_adhoc_el("td", "findings-kind", g.kind);
+	td.title = g.frames;
+	tr.appendChild(td);
+	tr.appendChild(sai_adhoc_el("td", "findings-frames", g.frames));
+	tr.appendChild(sai_adhoc_el("td", "findings-num", String(g.hits)));
+	td = sai_adhoc_el("td", "findings-seen", sai_findings_age(g.last_seen));
+	td.title = "first " + g.first_hash.substring(0, 12) + " " +
+		   sai_findings_age(g.first_seen) + ", last " +
+		   g.last_hash.substring(0, 12) + "\non " + g.platforms;
+	tr.appendChild(td);
+	td = sai_adhoc_el("td", "findings-ok", g.last_ok_hash ?
+			  "ok at " + g.last_ok_hash.substring(0, 12) : "");
+	if (g.last_ok_hash)
+		td.title = "its reproducer didn't crash at " + g.last_ok_hash +
+			   ", " + sai_findings_age(g.last_ok_time);
+	tr.appendChild(td);
+
+	td = sai_adhoc_el("td", "findings-actions");
+	var add = function(label, fn) {
+		b = sai_adhoc_el("button", "sai-modal-button small", label);
+		b.type = "button";
+		b.addEventListener("click", fn);
+		td.appendChild(b);
+	};
+	add("details", function() {
+		sai.send(JSON.stringify({
+			schema: "com.warmcat.sai.findingget",
+			repo: p.repo, pool: p.pool, group: g.id, op: ""
+		}));
+	});
+	if (!g.acked)
+		add("ack", function() { sai_findings_set(p, g, "ack"); });
+	if (g.status !== 1)
+		add("fixed", function() { sai_findings_set(p, g, "fixed"); });
+	if (g.status !== 2)
+		add("won't fix", function() { sai_findings_set(p, g, "wontfix"); });
+	if (g.status !== 0)
+		add("reopen", function() { sai_findings_set(p, g, "reopen"); });
+	tr.appendChild(td);
+
+	return tr;
+}
+
+function sai_findings_render()
+{
+	var body, any = 0;
+
+	if (!sai_findings_dialog)
+		return;
+
+	body = sai_findings_dialog.body;
+	while (body.firstChild)
+		body.removeChild(body.firstChild);
+
+	if (sai_findings && sai_findings.pools)
+		sai_findings.pools.forEach(function(p) {
+			var tab, hr;
+
+			if (!p.groups.length)
+				return;
+			any = 1;
+
+			body.appendChild(sai_adhoc_el("div", "sai-modal-label",
+						      p.repo + " / pool " + p.pool));
+			tab = sai_adhoc_el("table", "findings-table");
+			hr = sai_adhoc_el("tr");
+			[ "", "group", "target", "kind", "where", "hits",
+			  "last seen", "replay", "" ].forEach(function(h) {
+				hr.appendChild(sai_adhoc_el("th", "", h));
+			});
+			tab.appendChild(hr);
+			p.groups.forEach(function(g) {
+				tab.appendChild(sai_findings_group_row(p, g));
+			});
+			body.appendChild(tab);
+		});
+
+	if (!any)
+		body.appendChild(sai_adhoc_el("div", "sai-modal-sub",
+					      "No findings"));
+}
+
+function sai_findings_dialog_open()
+{
+	sai_findings_dialog_close();
+
+	var overlay = sai_adhoc_el("div", "sai-modal-overlay");
+	var dlg = sai_adhoc_el("div", "sai-modal findings-modal");
+	var body = sai_adhoc_el("div", "findings-body");
+	var detail = sai_adhoc_el("div", "findings-detail hidden");
+
+	dlg.appendChild(sai_adhoc_el("div", "sai-modal-title", "Findings"));
+	dlg.appendChild(sai_adhoc_el("div", "sai-modal-sub",
+		"Fuzzing findings in the repos' pools, grouped into bugs.  " +
+		"These may be unfixed security bugs: admins only."));
+	dlg.appendChild(body);
+	dlg.appendChild(detail);
+
+	var btns = sai_adhoc_el("div", "sai-modal-buttons");
+	var close = sai_adhoc_el("button", "sai-modal-button", "Close");
+	close.type = "button";
+	close.addEventListener("click", sai_findings_dialog_close);
+	btns.appendChild(close);
+	dlg.appendChild(btns);
+
+	overlay.appendChild(dlg);
+	overlay.addEventListener("click", function(ev) {
+		if (ev.target === overlay)
+			sai_findings_dialog_close();
+	});
+
+	var onkey = function(ev) {
+		if (ev.key === "Escape") {
+			ev.preventDefault();
+			sai_findings_dialog_close();
+		}
+	};
+	document.addEventListener("keydown", onkey, true);
+
+	sai_findings_dialog = { overlay: overlay, onkey: onkey, body: body,
+				detail: detail };
+	document.body.appendChild(overlay);
+
+	sai_findings_render();
+	sai_findings_request();
+}
+
+/* com.warmcat.sai.finding: one group's report and reproducer */
+function sai_findings_show_detail(f)
+{
+	var d, pre, b;
+
+	if (!sai_findings_dialog)
+		return;
+
+	d = sai_findings_dialog.detail;
+	while (d.firstChild)
+		d.removeChild(d.firstChild);
+	d.classList.remove("hidden");
+
+	d.appendChild(sai_adhoc_el("div", "sai-modal-label",
+				   "Group " + f.group + ": " + f.name));
+
+	if (f.repro) {
+		b = sai_adhoc_el("button", "sai-modal-button small",
+				 "download reproducer");
+		b.type = "button";
+		b.addEventListener("click", function() {
+			var bin = atob(f.repro), u8 = new Uint8Array(bin.length);
+			var a = document.createElement("a"), i;
+
+			for (i = 0; i < bin.length; i++)
+				u8[i] = bin.charCodeAt(i);
+			a.href = URL.createObjectURL(new Blob([ u8 ],
+				{ type: "application/octet-stream" }));
+			a.download = f.name;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+		});
+		d.appendChild(b);
+	} else
+		d.appendChild(sai_adhoc_el("div", "sai-modal-sub",
+					   "The reproducer is too big to download here"));
+
+	pre = sai_adhoc_el("pre", "findings-report", f.report || "(no report)");
+	d.appendChild(pre);
+}
+
+/*
  * Ad-hoc build dialog
  *
  * Opened from the cloneinfo reply to the task context menu entry.  Lets the
@@ -4783,6 +5077,16 @@ function ws_open_sai()
 				location.reload();
 				break;
 
+			case "com.warmcat.sai.findings":
+				sai_findings = jso;
+				sai_findings_update_button();
+				sai_findings_render();
+				break;
+
+			case "com.warmcat.sai.finding":
+				sai_findings_show_detail(jso);
+				break;
+
 		case "com.warmcat.sai.auth_state":
 			console.log("Backend auth_state:", jso.auth_state);
 			if (jso.auth_state === 3) {
@@ -4798,6 +5102,7 @@ function ws_open_sai()
 				auth_state = SaiAuthState.NOT_LOGGED_IN;
 				auth_is_admin = 0;
 			}
+				sai_findings_auth_changed();
 				const statusContainer = document.getElementById('lws-login-status-container');
 				if (statusContainer) {
 					statusContainer.classList.remove('grant-admin', 'grant-user', 'grant-none');
@@ -5121,6 +5426,11 @@ function ws_open_sai()
 /* stuff that has to be delayed until all the page assets are loaded */
 
 window.addEventListener("load", function() {
+	var fbtn = document.getElementById("sai_findings_btn");
+
+	if (fbtn)
+		fbtn.addEventListener("click", sai_findings_dialog_open);
+
 
 	document.addEventListener('click', function(e) {
 		var hdr = e.target.closest('.log-segment-header');
@@ -5294,6 +5604,8 @@ window.addEventListener("load", function() {
 			} else {
 				auth_state = SaiAuthState.LOGGED_IN_NO_GRANT;
 			}
+
+			sai_findings_auth_changed();
 
 			const container = document.getElementById('lws-login-status-container');
 			if (container) {

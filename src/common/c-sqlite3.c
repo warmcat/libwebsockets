@@ -317,3 +317,23 @@ sai_sqlite3_statement(sqlite3 *pdb, const char *cmd, const char *desc)
 
 	return 0;
 }
+
+/*
+ * Step a prepared statement that returns no rows, eg, an INSERT or UPDATE
+ * with bound params, and finalize it.  Returns 0 if it completed.
+ */
+
+int
+sai_sqlite3_step_done(sqlite3 *pdb, sqlite3_stmt *sm, const char *desc)
+{
+	int n = sqlite3_step(sm);
+
+	sqlite3_finalize(sm);
+	if (n == SQLITE_DONE)
+		return 0;
+
+	lwsl_err("%s: %d: Unable to %s: %s\n", __func__, n, desc,
+		 sqlite3_errmsg(pdb));
+
+	return 1;
+}

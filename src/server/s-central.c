@@ -329,6 +329,9 @@ sais_central_cb(lws_sorted_usec_list_t *sul)
 	sais_prune_inflight_list(vhd);
 	sais_platforms_with_tasks_pending(vhd);
 
+	/* mail about findings that couldn't be mailed before */
+	sais_findings_notify_retry(vhd);
+
 	if (!vhd->sul_gc_events.list.owner)
 		lws_sul_schedule(context, 0, &vhd->sul_gc_events,
 				 sais_central_gc_deleted_events_cb, 10 * LWS_US_PER_MS);

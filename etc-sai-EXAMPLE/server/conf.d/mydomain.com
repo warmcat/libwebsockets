@@ -98,6 +98,17 @@
 			#
 			"sockpath":		"/var/run/sai-websrv",
 
+			# Optional: mail news about fuzzing findings in the
+			# repos' pools to this address (lws must have
+			# LWS_WITH_EMAIL; the relay is set by the vhost's
+			# "lws-smtp-client" options, default 127.0.0.1:25).  The
+			# mail only says what and where, the details are for
+			# admins in sai-web.  See READMEs/README-findings.md
+			#
+			# "findings-notify":	"admin@mydomain.com",
+			# "findings-from":	"sai@mydomain.com",
+			# "findings-url":	"https://mydomain.com/sai/",
+
 			# auth jwk path
 			# You can generate a suitable key like this
 			#

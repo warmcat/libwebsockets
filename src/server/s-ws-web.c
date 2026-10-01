@@ -124,6 +124,8 @@ static const lws_struct_map_t lsm_schema_json_map[] = {
 					      "com.warmcat.sai.ptydata"),
 	LSM_SCHEMA	(sai_browse_rx_taskclone_t, NULL, lsm_taskclone,
 					      "com.warmcat.sai.taskclone"),
+	LSM_SCHEMA	(sai_findingset_t, NULL, lsm_findingset,
+					      "com.warmcat.sai.findingset"),
 };
 
 enum {
@@ -147,6 +149,7 @@ enum {
 	SAIS_WS_WEBSRV_RX_CLOSESHELL,
 	SAIS_WS_WEBSRV_RX_PTYDATA,
 	SAIS_WS_WEBSRV_RX_TASKCLONE,
+	SAIS_WS_WEBSRV_RX_FINDINGSET,
 };
 
 /*
@@ -703,6 +706,16 @@ websrvss_ws_rx_msg(websrvss_srv_t *m, const uint8_t *buf, size_t len,
 
 		break;
 	}
+	case SAIS_WS_WEBSRV_RX_FINDINGSET:
+	{
+		sai_findingset_t *fs = (sai_findingset_t *)a.dest;
+
+		/* sai-web only forwards this from admins; checked in there */
+		sais_findings_set(m->vhd, fs->repo, fs->pool, fs->group,
+				  fs->op);
+		break;
+	}
+
 	case SAIS_WS_WEBSRV_RX_TASKCLONE:
 	{
 		sai_browse_rx_taskclone_t *tc =

@@ -145,6 +145,16 @@ static const lws_struct_map_t lsm_schema_json_map_bwsrx[] = {
 			/* shares struct */   "com.warmcat.sai.cloneinfo"),
 	LSM_SCHEMA	(sai_browse_rx_taskclone_t, NULL, lsm_taskclone,
 					      "com.warmcat.sai.taskclone"),
+	/*
+	 * Findings (admin only): the list and one finding's details are
+	 * answered locally, changes are forwarded to sai-server
+	 */
+	LSM_SCHEMA	(sai_findingset_t, NULL, lsm_findingset,
+			/* shares struct */   "com.warmcat.sai.findings"),
+	LSM_SCHEMA	(sai_findingset_t, NULL, lsm_findingset,
+			/* shares struct */   "com.warmcat.sai.findingget"),
+	LSM_SCHEMA	(sai_findingset_t, NULL, lsm_findingset,
+					      "com.warmcat.sai.findingset"),
 };
 
 enum {
@@ -171,6 +181,9 @@ enum {
 	SAIM_WS_BROWSER_RX_BRANCHLIST,
 	SAIM_WS_BROWSER_RX_CLONEINFO,
 	SAIM_WS_BROWSER_RX_TASKCLONE,
+	SAIM_WS_BROWSER_RX_FINDINGS,
+	SAIM_WS_BROWSER_RX_FINDINGGET,
+	SAIM_WS_BROWSER_RX_FINDINGSET,
 };
 
 /* nonzero if s is exactly len hex chars, as task / event uuids are */
@@ -923,7 +936,10 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 	    a.top_schema_index == SAIM_WS_BROWSER_RX_CLOSESHELL ||
 	    a.top_schema_index == SAIM_WS_BROWSER_RX_PTYDATA ||
 	    a.top_schema_index == SAIM_WS_BROWSER_RX_CLONEINFO ||
-	    a.top_schema_index == SAIM_WS_BROWSER_RX_TASKCLONE)) {
+	    a.top_schema_index == SAIM_WS_BROWSER_RX_TASKCLONE ||
+	    a.top_schema_index == SAIM_WS_BROWSER_RX_FINDINGS ||
+	    a.top_schema_index == SAIM_WS_BROWSER_RX_FINDINGGET ||
+	    a.top_schema_index == SAIM_WS_BROWSER_RX_FINDINGSET)) {
 		uint8_t unauth_buf[LWS_PRE + 128];
 		int n1 = lws_snprintf((char *)unauth_buf + LWS_PRE, sizeof(unauth_buf) - LWS_PRE,
 				     "{\"schema\":\"com.warmcat.sai.unauthorized\"}");
@@ -1246,6 +1262,30 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 		}
 		saiw_browser_send_cloneinfo(vhd, pss, ei->event_hash);
 		goto ok;
+
+	case SAIM_WS_BROWSER_RX_FINDINGS:
+		saiw_browser_send_findings(vhd, pss);
+		goto ok;
+
+	case SAIM_WS_BROWSER_RX_FINDINGGET:
+		saiw_browser_send_finding(vhd, pss,
+					  (sai_findingset_t *)a.dest);
+		goto ok;
+
+	case SAIM_WS_BROWSER_RX_FINDINGSET:
+	{
+		sai_findingset_t *fs = (sai_findingset_t *)a.dest;
+
+		/* sai-server checks these again */
+		if (!sai_pool_name_ok(fs->pool) || strlen(fs->group) != 16 ||
+		    !sai_is_git_hash(fs->group) ||
+		    sai_str_has_shell_metachars(fs->repo)) {
+			lwsl_notice("%s: dropping malformed findingset\n",
+				    __func__);
+			goto soft_error;
+		}
+		break; /* forward it to sai-server with the rest */
+	}
 
 	case SAIM_WS_BROWSER_RX_TASKCLONE:
 	{

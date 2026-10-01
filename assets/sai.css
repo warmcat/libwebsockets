@@ -2609,3 +2609,103 @@ tr.tt-row.selected td {
 .taskstate6 .tt-bar > span {
 	background: #ffffff;
 }
+
+/* findings, admins only */
+
+.findings-btn {
+	display: block;
+	margin: 4px 0 0 0;
+	font-size: 8pt;
+	padding: 2px 8px;
+	border: 1px solid #94a3b8;
+	border-radius: 3px;
+	background: #f1f5f9;
+	cursor: pointer;
+}
+
+.findings-btn.hidden {
+	display: none;
+}
+
+.findings-btn.unacked {
+	background: #df3030;
+	border-color: #b91c1c;
+	color: #ffffff;
+	font-weight: bold;
+}
+
+.sai-modal.findings-modal {
+	max-width: 1200px;
+}
+
+.findings-table {
+	border-collapse: collapse;
+	width: 100%;
+	font-size: 8pt;
+}
+
+.findings-table th {
+	text-align: left;
+	color: #64748b;
+	font-weight: normal;
+	border-bottom: 1px solid #cbd5e1;
+	padding: 2px 4px;
+}
+
+.findings-table td {
+	padding: 2px 4px;
+	border-bottom: 1px solid #f1f5f9;
+	vertical-align: top;
+}
+
+.findings-row.status1 td, .findings-row.status2 td {
+	color: #94a3b8;
+}
+
+.findings-row.unacked td.findings-status {
+	color: #ffffff;
+	background: #df3030;
+	font-weight: bold;
+}
+
+.findings-row.unacked.regressed td.findings-status {
+	background: #ff851b;
+}
+
+.findings-id, .findings-frames, .findings-ok {
+	font-family: monospace;
+}
+
+.findings-frames {
+	max-width: 360px;
+	overflow-wrap: anywhere;
+}
+
+.findings-num {
+	text-align: right;
+}
+
+.findings-actions {
+	white-space: nowrap;
+}
+
+.sai-modal-button.small {
+	font-size: 7.5pt;
+	padding: 1px 6px;
+	margin-right: 2px;
+}
+
+.findings-detail.hidden {
+	display: none;
+}
+
+.findings-report {
+	font-family: monospace;
+	font-size: 7.5pt;
+	max-height: 360px;
+	overflow: auto;
+	background: #f8fafc;
+	border: 1px solid #e2e8f0;
+	padding: 4px;
+	white-space: pre;
+}

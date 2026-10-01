@@ -653,3 +653,12 @@ const lws_struct_map_t lsm_pool_hello[] = {
 const lws_struct_map_t lsm_schema_pool_hello[] = {
 	LSM_SCHEMA	(sai_pool_hello_t, NULL, lsm_pool_hello, SAI_POOL_SCHEMA),
 };
+
+/* browser -> sai-web -> sai-server */
+
+const lws_struct_map_t lsm_findingset[] = {
+	LSM_CARRAY	(sai_findingset_t, repo,	"repo"),
+	LSM_CARRAY	(sai_findingset_t, pool,	"pool"),
+	LSM_CARRAY	(sai_findingset_t, group,	"group"),
+	LSM_CARRAY	(sai_findingset_t, op,		"op"),
+};

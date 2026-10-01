@@ -13,6 +13,7 @@ set(SRCS
 	s-task-helpers.c
 	s-idle.c
 	s-pool.c
+	s-findings.c
 	s-central.c
 	s-ws-web.c
 	s-webops.c

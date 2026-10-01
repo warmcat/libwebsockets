@@ -379,4 +379,11 @@ saiw_browser_broadcast_queue_power_history(struct vhd *vhd, struct pss *pss);
 
 extern const lws_struct_map_t lsm_schema_pcon_energy[];
 
+/* w-findings.c, for admins only */
 
+int
+saiw_browser_send_findings(struct vhd *vhd, struct pss *pss);
+
+int
+saiw_browser_send_finding(struct vhd *vhd, struct pss *pss,
+			  const sai_findingset_t *fs);

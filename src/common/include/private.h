@@ -1213,6 +1213,13 @@ sai_event_db_delete_database(const char *sqlite3_path_lhs, const char *event_uui
 int
 sai_sqlite3_statement(struct sqlite3 *pdb, const char *cmd, const char *desc);
 
+/* not everyone including us includes sqlite3.h */
+struct sqlite3_stmt;
+
+int
+sai_sqlite3_step_done(struct sqlite3 *pdb, struct sqlite3_stmt *sm,
+		      const char *desc);
+
 /*
  * Pools: a repo's named sets of files that the builders running its tasks keep
  * synced through sai-server, eg, fuzzing corpora.  See READMEs/README-pool.md.
@@ -1278,6 +1285,18 @@ enum {
 					 * REPLACE, that was stored */
 };
 
+/*
+ * Browser -> sai-web -> sai-server: an admin changes a findings group, see
+ * s-findings.c.  op is "ack", "fixed", "wontfix" or "reopen".
+ */
+typedef struct sai_findingset {
+	lws_dll2_t			list;
+	char				repo[65];
+	char				pool[33];
+	char				group[17];
+	char				op[16];
+} sai_findingset_t;
+
 typedef struct sai_pool_hello {
 	char				task_uuid[65];
 	char				nonce[33];
@@ -1290,7 +1309,8 @@ typedef struct sai_pool_rec_hdr {
 	uint8_t				ns;
 } sai_pool_rec_hdr_t;
 
-extern const lws_struct_map_t lsm_pool_hello[2], lsm_schema_pool_hello[1];
+extern const lws_struct_map_t lsm_pool_hello[2], lsm_schema_pool_hello[1],
+				lsm_findingset[4];
 
 /* src/common/c-pool.c */
 
@@ -1315,6 +1335,10 @@ sai_pool_rec_hdr_read(const uint8_t *p, sai_pool_rec_hdr_t *h);
 
 size_t
 sai_pool_rec_max(int ns, int type);
+
+void
+sai_pool_db_path(char *buf, size_t len, const char *lhs, const char *repo,
+		 const char *pool);
 
 void
 sai_pool_u64_write(uint8_t *p, uint64_t v);

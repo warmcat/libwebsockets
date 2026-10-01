@@ -9,7 +9,9 @@ set(SRCS
 	w-rss.c
 	w-ws-server.c
 	w-ws-browser.c
+	w-findings.c
 	../common/c-utils.c
+	../common/c-pool.c
 	../common/c-conf.c
 	../common/c-sqlite3.c
 	../common/struct-metadata.c

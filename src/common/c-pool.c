@@ -212,3 +212,23 @@ sai_pool_u64_read(const uint8_t *p)
 
 	return v;
 }
+
+/*
+ * Where sai-server keeps a repo's pool, which sai-web reads too.  The repo name
+ * was checked at hook intake, but it's going in a path.
+ */
+
+void
+sai_pool_db_path(char *buf, size_t len, const char *lhs, const char *repo,
+		 const char *pool)
+{
+	char saf[128], *p;
+
+	lws_snprintf(saf, sizeof(saf), "%s-%s", repo, pool);
+	lws_filename_purify_inplace(saf);
+	p = saf;
+	while ((p = strchr(p, '/')))
+		*p++ = '_';
+
+	lws_snprintf(buf, len, "%s-pool-%s.sqlite3", lhs, saf);
+}

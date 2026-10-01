@@ -246,6 +246,21 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 		}
 
+		/*
+		 * Optional: who to mail about new findings in pools, see
+		 * s-findings.c.  The relay is the vhost's "lws-smtp-client"
+		 * pvos.
+		 */
+		lws_pvo_get_str(in, "findings-notify", &vhd->findings_notify);
+		lws_pvo_get_str(in, "findings-from", &vhd->findings_from);
+		lws_pvo_get_str(in, "findings-url", &vhd->findings_url);
+#if !defined(LWS_WITH_EMAIL)
+		if (vhd->findings_notify)
+			lwsl_warn("%s: findings-notify is set, but lws was "
+				  "built without LWS_WITH_EMAIL, so no mail "
+				  "will be sent\n", __func__);
+#endif
+
 		{
 			const char *conf_dir = "/etc/sai/server";
 			if (lws_pvo_get_str(in, "config-dir", &conf_dir)) {
@@ -370,6 +385,19 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			" PRIMARY KEY (repo_name, ref));",
 			"create pushes table")) {
 			lwsl_err("%s: unable to create pushes table\n", __func__);
+			return -1;
+		}
+
+		/*
+		 * The repos' pools, see s-pool.c: sai-web looks here for the
+		 * pool dbs to show findings from
+		 */
+		if (sai_sqlite3_statement(vhd->server.pdb,
+			"CREATE TABLE IF NOT EXISTS pools ("
+			" repo varchar(64), pool varchar(32),"
+			" PRIMARY KEY (repo, pool));",
+			"create pools table")) {
+			lwsl_err("%s: unable to create pools table\n", __func__);
 			return -1;
 		}
 

@@ -63,8 +63,8 @@ and `.`, not starting with `.`, and the file can be up to 8MiB.  Write a
 finding under a name starting with `.` and rename it when it's complete, so it
 isn't sent half written.
 
-The server keeps findings in the pool's db; what happens to them after that is
-up to later work (see the idle fuzzing design).
+The server groups findings into bugs, and publishes each bug's reproducer in
+`SAI_POOL_KNOWN` for tasks to replay: see [README-findings.md](README-findings.md).
 
 ### Replacing a sub, eg, after minimizing a corpus
 
