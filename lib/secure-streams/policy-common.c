@@ -182,13 +182,29 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 
 	n = lws_http_string_to_known_header(name, strlen(name));
 	if (n != LWS_HTTP_NO_KNOWN_HEADER) {
+		const char *hp;
+
 		*len = (size_t)lws_hdr_total_length(h->wsi,
 						    (enum lws_token_indexes)n);
 		if (!*len)
 			goto bail;
-		*value = lws_hdr_simple_ptr(h->wsi, (enum lws_token_indexes)n);
-		if (!*value)
+		hp = lws_hdr_simple_ptr(h->wsi, (enum lws_token_indexes)n);
+		if (!hp)
 			goto bail;
+
+		/*
+		 * The header lives in the wsi's header table, which the
+		 * connection gives up once it has acted on the request: what
+		 * we hand user code must outlive that, so it is copied into
+		 * the handle's arena like a custom header is
+		 */
+		*value = lwsac_use(&h->imd_ac, *len + 1, *len + 1);
+		if (!*value) {
+			lwsl_err("%s ac OOM\n", __func__);
+			return 1;
+		}
+		memcpy((char *)*value, hp, *len);
+		((char *)*value)[*len] = '\0';
 
 		return 0;
 	}
