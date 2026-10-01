@@ -369,10 +369,15 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS API selftest: ws permessage-deflate context takeover\n");
 
-	/* noise: deflate can only shrink it by referring to an earlier copy */
+	/*
+	 * noise: deflate can only shrink it by referring to an earlier copy.
+	 * xorshift: the same noise each run
+	 */
 	for (n = 0; n < MSG_LEN; n++) {
-		r = r * 1103515245u + 12345u;
-		msg[n] = (uint8_t)(r >> 16);
+		r ^= r << 13;
+		r ^= r >> 17;
+		r ^= r << 5;
+		msg[n] = (uint8_t)r;
 	}
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
