@@ -74,6 +74,8 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS minimal ws proxy | visit http://localhost:7681\n");
 
 	lws_context_info_defaults(&info, NULL);
+	/* a server: size the fds tables to the process limit */
+	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		 LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;

@@ -166,6 +166,8 @@ int main(int argc, const char **argv)
 	}
 
 	lws_context_info_defaults(&info, NULL);
+	/* a server: size the fds tables to the process limit */
+	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = 7681;
 	info.mounts = &mount;

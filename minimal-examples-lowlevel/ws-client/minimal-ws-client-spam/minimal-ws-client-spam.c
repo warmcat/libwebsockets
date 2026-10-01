@@ -277,10 +277,10 @@ int main(int argc, const char **argv)
 	 * since we know this lws context is only ever going to be used with
 	 * one client wsis / fds / sockets at a time, let lws know it doesn't
 	 * have to use the default allocations for fd tables up to ulimit -n.
-	 * It will just allocate for 1 internal and n (+ 1 http2 nwsi) that we
-	 * will use.
+	 * It will just allocate for its own fds and overhead
+	 * (LWS_FD_LIMIT_PER_THREAD_MIN) plus the n connections we will use.
 	 */
-	info.fd_limit_per_thread = (unsigned int)(1 + concurrent + 1 + 10);
+	info.fd_limit_per_thread = (unsigned int)(LWS_FD_LIMIT_PER_THREAD_MIN + concurrent);
 
 	context = lws_create_context(&info);
 	if (!context) {

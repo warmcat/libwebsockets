@@ -425,7 +425,7 @@ int main(int argc, const char **argv)
 
 	/* these options are mutually exclusive if given */
 
-	info.fd_limit_per_thread = 1 + 6 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 6;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 
 	/*

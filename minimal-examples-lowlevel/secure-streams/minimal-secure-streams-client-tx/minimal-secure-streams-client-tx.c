@@ -182,7 +182,7 @@ int main(int argc, const char **argv)
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-	info.fd_limit_per_thread = 1 + 6 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 6;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = lws_sspc_protocols;
 	{

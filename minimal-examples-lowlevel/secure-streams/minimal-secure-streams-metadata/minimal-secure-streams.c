@@ -328,7 +328,7 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_FORCE_NO_INTERNET].sw))
 		force_cpd_fail_no_internet = 1;
 
-	info.fd_limit_per_thread = 1 + 6 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 6;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 
 #if defined(LWS_SS_USE_SSPC)

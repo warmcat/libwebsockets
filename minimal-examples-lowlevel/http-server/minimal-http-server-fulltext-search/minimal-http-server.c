@@ -94,6 +94,8 @@ int main(int argc, const char **argv)
 		  "visit http://localhost:7681\n");
 
 	lws_context_info_defaults(&info, NULL);
+	/* a server: size the fds tables to the process limit */
+	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = 7681;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw))) {

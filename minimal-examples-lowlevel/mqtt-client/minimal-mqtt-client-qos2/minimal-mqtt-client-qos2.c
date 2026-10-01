@@ -390,7 +390,7 @@ int main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 	info.register_notifier_list = na;
-	info.fd_limit_per_thread = 1 + 1 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 1;
 	info.retry_and_idle_policy = &retry;
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)

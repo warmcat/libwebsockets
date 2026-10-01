@@ -246,7 +246,7 @@ int main(int argc, const char **argv)
 	 * Leave headroom for platform-dependent internal fds, eg, one adns
 	 * udp wsi per configured nameserver, that are not budgeted for us
 	 */
-	info.fd_limit_per_thread = 1 + 1 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 1;
 
 	context = lws_create_context(&info);
 	if (!context) {

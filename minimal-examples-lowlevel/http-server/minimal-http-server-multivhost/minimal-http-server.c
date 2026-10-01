@@ -86,6 +86,8 @@ int main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 	lws_context_info_defaults(&info, NULL);
+	/* a server: size the fds tables to the process limit */
+	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;

@@ -471,7 +471,7 @@ int main(int argc, const char **argv)
 	info.register_notifier_list = na;
 	info.connect_timeout_secs = 30;
 	info.system_ops = &system_ops;
-	info.fd_limit_per_thread = 1 + 6 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 6;
 	info.max_http_header_data = 8192;
 
 	context = lws_create_context(&info);

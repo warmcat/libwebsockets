@@ -561,6 +561,8 @@ run_phase(struct phase *p, int idx)
 	}
 
 	lws_context_info_defaults(&info, NULL);
+	/* a server: size the fds tables to the process limit */
+	info.fd_limit_per_thread = 0;
 	info.port = ports[idx & 1];
 	info.options = LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
 	info.listen_accept_role = "raw-skt";

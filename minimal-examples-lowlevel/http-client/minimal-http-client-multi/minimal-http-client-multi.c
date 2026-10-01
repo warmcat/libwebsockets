@@ -692,10 +692,11 @@ int main(int argc, const char **argv)
 	 * since we know this lws context is only ever going to be used with
 	 * COUNT client wsis / fds / sockets at a time, let lws know it doesn't
 	 * have to use the default allocations for fd tables up to ulimit -n.
-	 * It will just allocate for 1 internal and COUNT + 1 (allowing for h2
-	 * network wsi) that we will use.
+	 * It will just allocate for its own fds and overhead
+	 * (LWS_FD_LIMIT_PER_THREAD_MIN) plus the COUNT connections and
+	 * their h2 network connections that we will use.
 	 */
-	info.fd_limit_per_thread = 1 + COUNT + 8 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + COUNT + 8;
 	info.register_notifier_list = na;
 	info.pcontext = &context;
 

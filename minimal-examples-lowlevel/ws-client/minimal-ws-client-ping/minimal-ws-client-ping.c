@@ -165,7 +165,7 @@ int main(int argc, const char **argv)
 			port = __pt;
 		}
 
-	info.fd_limit_per_thread = 1 + 1 + 1 + 10;
+	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 1;
 
 	context = lws_create_context(&info);
 	if (!context) {
