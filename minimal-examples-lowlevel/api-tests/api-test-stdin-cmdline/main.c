@@ -23,6 +23,7 @@
 
 #include <libwebsockets.h>
 
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,8 +54,12 @@ stdin_from(const char *content)
 	char path[] = "lws-api-test-stdin-XXXXXX";
 	size_t len = strlen(content);
 	int fd, ret = 1;
+	mode_t um;
 
+	/* nobody else gets to open it in the moment before the unlink */
+	um = umask(0077);
 	fd = mkstemp(path);
+	umask(um);
 	if (fd < 0) {
 		lwsl_err("%s: unable to create temp file\n", __func__);
 		return 1;
