@@ -19,15 +19,20 @@
  *    with LWS_TLS_SESSION_DUMP_F_QUIC, and nothing is found without the flag
  *
  *  - cli2 has the saved session loaded with LWS_TLS_SESSION_DUMP_F_QUIC: its
- *    h3 connection resumes it, and the server receives the request as 0-RTT
+ *    h3 connection resumes it, and a server that takes 0-RTT receives the
+ *    request as 0-RTT
  *
  *  - cli3 has the same session loaded without the flag, as a tls over tcp
  *    session: its h3 connection must not resume it, nor send 0-RTT
  *
- * A gnutls older than 3.8.4 cannot take 0-RTT on a quic server, so lws offers
- * none there.  A gnutls client still sends 0-RTT under any resumed ticket,
- * whatever the ticket said: the server refuses it, and cli2's request must
- * then arrive in 1-RTT.
+ * Only a gnutls quic server takes 0-RTT, and not before gnutls 3.8.4.  The
+ * openssl-family ones (BoringSSL, AWS-LC, quictls, wolfSSL) never do, since
+ * lws has no replay protection for early data there.  Where the server takes
+ * none, its tickets carry no early_data: the client may still send 0-RTT
+ * under the resumed session (a gnutls client does, whatever the ticket said),
+ * the server refuses it, and cli2's request must then arrive in 1-RTT.
+ *
+ * cli2 and cli3 need the session cli1 saved: if cli1 fails, they are skipped.
  */
 
 #include <libwebsockets.h>
@@ -40,10 +45,10 @@
 #define TEST_HOST	"short.example"
 
 /* is the server able to take 0-RTT, see LWS_SERVER_OPTION_ALLOW_EARLY_DATA */
-#if defined(LWS_WITH_GNUTLS) && GNUTLS_VERSION_NUMBER < 0x030804
-#define SRV_0RTT	0
-#else
+#if defined(LWS_WITH_GNUTLS) && GNUTLS_VERSION_NUMBER >= 0x030804
 #define SRV_0RTT	1
+#else
+#define SRV_0RTT	0
 #endif
 
 enum {
@@ -77,8 +82,8 @@ static struct lws_context *context;
 static struct lws_vhost *vh_cli[CLI_COUNT];
 static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_save;
 static const char *server_addr = "localhost", *certs = ".";
-static int port = 7681, cur = -1, failures, result = 1;
-static char case_over, completed, early_cb, srv_early;
+static int port = 7681, cur = -1, failures, skipped, result = 1;
+static char case_over, completed, early_cb, srv_early, session_loaded;
 static unsigned int status;
 
 /* the session saved from cli1, as an app would keep it on disk */
@@ -211,6 +216,7 @@ save_poll_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
+	session_loaded = 1;
 	case_finish(NULL);
 }
 
@@ -324,8 +330,13 @@ next_case(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	if (failures) {
-		/* the later cases need the session cli1 saved */
+	if (!session_loaded && cur > CLI1) {
+		/* the later cases need the session cli1 saved and loaded */
+		for (; cur < (int)LWS_ARRAY_SIZE(cases); cur++) {
+			lwsl_err("case %d (%s): SKIPPED: no session from cli1\n",
+				 cur, cases[cur].name);
+			skipped++;
+		}
 		lws_default_loop_exit(context);
 		return;
 	}
@@ -477,9 +488,9 @@ bail:
 	lws_sul_cancel(&sul_save);
 	lws_context_destroy(context);
 
-	lwsl_user("Completed: %s (%d of %d cases failed)\n",
+	lwsl_user("Completed: %s (%d of %d cases failed, %d skipped)\n",
 		  result ? "FAIL" : "PASS", failures,
-		  (int)LWS_ARRAY_SIZE(cases));
+		  (int)LWS_ARRAY_SIZE(cases), skipped);
 
 	return result;
 }
