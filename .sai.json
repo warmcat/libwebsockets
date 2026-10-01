@@ -169,7 +169,7 @@
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"bearssl": {
-			"cmake":	"-DLWS_WITH_BEARSSL=1 -DLWS_BEARSSL_INCLUDE_DIRS=/opt/BearSSL/inc -DLWS_BEARSSL_LIBRARIES=/opt/BearSSL/build/libbearssl.so",
+			"cmake":	"-DLWS_WITH_BEARSSL=1 -DLWS_BEARSSL_INCLUDE_DIRS=/opt/BearSSL/inc -DLWS_BEARSSL_LIBRARIES=/opt/BearSSL/build/libbearssl.so -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-awslc": {
