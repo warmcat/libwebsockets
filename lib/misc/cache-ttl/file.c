@@ -915,7 +915,15 @@ lws_cache_nscookiejar_write(struct lws_cache_ttl_lru *_c,
 
 	lwsl_cache("%s: %s: len %d\n", __func__, _c->info.name, (int)size);
 
-	assert(source);
+	/*
+	 * Unlike an L1 cache, the jar cannot hand out a buffer to be filled
+	 * in later, the line must be complete now
+	 */
+
+	if (!source) {
+		lwsl_info("%s: jar needs the payload up front\n", __func__);
+		return 1;
+	}
 
 	if (size > (_c->info.max_payload ? _c->info.max_payload :
 					   NSC_DEFAULT_MAX_PAYLOAD)) {
