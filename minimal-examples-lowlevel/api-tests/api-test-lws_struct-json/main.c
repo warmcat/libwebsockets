@@ -662,7 +662,7 @@ typedef struct xlws_wifi_creds {
 	char 		ssid[33];
 	char		passphrase[64];
 	int		alg;
-	char		bssid[6];
+	char		bssid[18]; /* "xx:xx:xx:xx:xx:xx" */
 } xlws_wifi_creds_t;
 
 typedef struct xlws_netdevs {
@@ -673,7 +673,7 @@ static const lws_struct_map_t lsm_wifi_creds[] = {
 	LSM_CARRAY	(xlws_wifi_creds_t, ssid,		"ssid"),
 	LSM_CARRAY	(xlws_wifi_creds_t, passphrase,		"passphrase"),
 	LSM_UNSIGNED	(xlws_wifi_creds_t, alg,			"alg"),
-	LSM_STRING_PTR	(xlws_wifi_creds_t, bssid,		"bssid"),
+	LSM_CARRAY	(xlws_wifi_creds_t, bssid,		"bssid"),
 };
 
 static const lws_struct_map_t lsm_netdev_credentials[] = {

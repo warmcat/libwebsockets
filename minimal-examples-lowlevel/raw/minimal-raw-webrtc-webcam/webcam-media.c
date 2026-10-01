@@ -89,6 +89,15 @@ media_process_video_frame(struct per_vhost_data *vhd, int index, size_t len)
 		return -1;
 
 	if (vhd->pixelformat == V4L2_PIX_FMT_MJPEG) {
+		/*
+		 * The JPEG decoder is for one image: each MJPEG frame gets a
+		 * fresh one (the last is freed with the session)
+		 */
+		if (vhd->jpeg_dec)
+			lws_jpeg_free((lws_jpeg_t **)&vhd->jpeg_dec);
+		vhd->jpeg_dec = lws_jpeg_new();
+		if (!vhd->jpeg_dec)
+			return -1;
 		if (lws_transcode_mjpeg_to_yuv420p(vhd->jpeg_dec, start, len, vhd->yuv_frame, vhd->width, vhd->height) < 0)
 			return -1;
 	} else if (vhd->pixelformat == V4L2_PIX_FMT_YUYV) {

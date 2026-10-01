@@ -204,6 +204,15 @@ strip_done:
 
 	/* Otherwise transcode */
 	if (pss->pixelformat == V4L2_PIX_FMT_MJPEG) {
+		/*
+		 * The JPEG decoder is for one image: each MJPEG frame gets a
+		 * fresh one (the last is freed with the session)
+		 */
+		if (pss->jpeg_dec)
+			lws_jpeg_free((lws_jpeg_t **)&pss->jpeg_dec);
+		pss->jpeg_dec = lws_jpeg_new();
+		if (!pss->jpeg_dec)
+			return -1;
 		if (lws_transcode_mjpeg_to_yuv420p(pss->jpeg_dec, start, len, pss->yuv_frame, pss->width, pss->height) < 0)
 			return -1;
 	} else if (pss->pixelformat == V4L2_PIX_FMT_YUYV || len == pss->width * pss->height * 2) {
