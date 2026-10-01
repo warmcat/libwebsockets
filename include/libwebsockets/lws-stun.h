@@ -48,10 +48,16 @@ lws_stun_req_pack(struct lws *wsi, enum lws_stun_req_type type,
 /*
  * Validates incoming STUN packet against password (HMAC) and generates reply.
  * Returns length of reply in 'out', or 0 if validation fails or nothing to send.
+ *
+ * \p local_ufrag: NULL, or our ICE ufrag: a request whose USERNAME does not
+ * name it first (RFC 8445 7.2.2, "ours:theirs") is refused, so a session
+ * found by its source address still has to present our credential, not just
+ * a valid MESSAGE-INTEGRITY over a username of its own choosing.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 			    uint8_t *out, size_t out_len,
-			    const char *password, const struct sockaddr_in *peer_sin);
+			    const char *password, const char *local_ufrag,
+			    const struct sockaddr_in *peer_sin);
 
 #endif

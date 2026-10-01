@@ -67,12 +67,17 @@ lws_txp_destroy(struct lws_txp **ptxp);
  * lws_txp_append() - Queue a packet to be sent by the pacer
  *
  * \param txp:	The pacer struct
- * \param buf:	The packet heap allocation (Must be from lws_malloc)
+ * \param buf:	The packet heap allocation, from lws's allocator (see below)
  * \param len:	The exact size of the payload inside `buf`
  *
  * Transfers ownership of `buf` to the pacer. If the pacer drops the packet
  * (e.g. because max_buflist_bytes is reached), it will immediately `lws_free()` it.
  * Otherwise, it will free it after your `tx_cb` fires.
+ *
+ * Because it is released with lws_free(), `buf` must come from lws's own
+ * allocator, which is not plain malloc() under LWS_WITH_ALLOC_METADATA_LWS or
+ * lws_set_allocator(): outside the library, where lws_malloc() is not
+ * available, allocate it with the exported `lws_realloc(NULL, len, "name")`.
  *
  * Return 0 if successfully accepted, or < 0 if dropped.
  */

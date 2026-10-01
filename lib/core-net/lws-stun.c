@@ -27,7 +27,8 @@
 int
 lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 			    uint8_t *out, size_t out_len,
-			    const char *password, const struct sockaddr_in *peer_sin)
+			    const char *password, const char *local_ufrag,
+			    const struct sockaddr_in *peer_sin)
 {
 	uint32_t magic = LWS_STUN_MAGIC_COOKIE;
 	uint16_t type, attr_type, attr_len;
@@ -35,7 +36,9 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 	uint8_t mi[20], *mi_ptr = NULL;
 	uint32_t fp;
 	struct lws_genhmac_ctx hmac_ctx;
-	size_t i, msg_end, mi_offset = 0;
+	size_t i, msg_end, mi_offset = 0, lu_len = local_ufrag ?
+						strlen(local_ufrag) : 0;
+	int username_ok = !local_ufrag;
 
 	/*
 	 * 1. Validate incoming STUN Request
@@ -73,6 +76,21 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 			break;
 		}
 
+		if (attr_type == LWS_STUN_ATTR_USERNAME && local_ufrag) {
+			/*
+			 * "ours:theirs"... the part before the colon must be
+			 * our ufrag exactly, and we only take the first
+			 * USERNAME, so a second one cannot be the one checked
+			 */
+			if (!username_ok && attr_len > lu_len &&
+			    in[i + 4 + lu_len] == ':' &&
+			    !memcmp(&in[i + 4], local_ufrag, lu_len))
+				username_ok = 1;
+			else if (!username_ok) {
+				lwsl_notice("STUN USERNAME is not for us\n");
+				return 0;
+			}
+		}
 		if (attr_type == 0x0008) { /* MESSAGE-INTEGRITY */
 			if (attr_len < 20)
 				return 0;
@@ -106,6 +124,10 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 
 		if (!mi_ptr) {
 			lwsl_notice("STUN Request with no MESSAGE-INTEGRITY\n");
+			return 0;
+		}
+		if (!username_ok) {
+			lwsl_notice("STUN Request with no USERNAME for us\n");
 			return 0;
 		}
 
