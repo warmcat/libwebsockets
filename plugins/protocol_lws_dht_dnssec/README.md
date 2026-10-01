@@ -47,6 +47,7 @@ The plugin operates under the standard `lws` plugin model using per-vhost option
 | `cli_receiver`   | Boolean flag (`1` or `0`) intended for the `minimal-raw-dht-zone-client` CLI application to tell the plugin context it is acting as an active receiver.  | `0`                     |
 | `dht-iface` | The network interface the DHT node should bind to. | `NULL` |
 | `dht-port` | The port the DHT node should bind to. | `NULL` |
+| `dht-allow-private` | `"1"` admits peers on private, loopback or link-local addresses (a LAN deployment, or local testing); by default only public addresses are kept. | `"0"` |
 | `dht-fallback-nodes` | Comma-separated list of fallback bootstrapping nodes (e.g. `1.2.3.4:443,5.6.7.8:443`). | `NULL` |
 | `dht-jwk` | Path to the JSON Web Key (JWK) used specifically for DHT participation authentication. | `NULL` |
 | `dht-storage-path` | Path indicating where DHT data objects should be persisted locally. | `NULL` |

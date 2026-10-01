@@ -33,6 +33,7 @@ You can deploy the plugin using the `lwsws` JSON configuration format within a v
 |-----------|-----------|-------------|
 | `dht-storage-path` | **Required** | The filesystem directory path where the DHT node will persist received objects and state |
 | `dht-port` | Yes | The UDP port the DHT node will listen on (default: `49100`) |
+| `dht-allow-private` | No | `"1"` admits peers on private, loopback or link-local addresses (a LAN deployment, or local testing); by default only public addresses are kept |
 | `dht-iface` | Yes | The specific network interface to bind the DHT socket (default: binds to all available) |
 | `dht-fallback-nodes` | Yes | The filesystem path to the fallback nodes list text file (default: `${LWS_INSTALL_DATADIR}/libwebsockets/libwebsockets-dht-nodes.txt`) |
 | `target-ip` | Yes | Defines an initial anchor/bootstrap peer IP address |

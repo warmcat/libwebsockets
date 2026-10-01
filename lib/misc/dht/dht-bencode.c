@@ -836,7 +836,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 
 	ctx->now = (time_t)lws_now_secs();
 
-	if (is_martian(from))
+	if (is_martian(ctx, from))
 		return 0;
 
 	if (node_blacklisted(ctx, from, fromlen)) {
@@ -1041,6 +1041,8 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 				if (!(ctx->external_ads_set & flag)) {
 					lwsl_notice("%s: reached consensus on external address (%s), %d agreeing nodes, quorum %d\n", __func__, ss.ss_family == AF_INET ? "IPv4" : "IPv6", ctx->reported_ads[found].count, quorum);
 					ctx->external_ads_set |= flag;
+					lws_dht_bep42_own_id(ctx,
+						(const struct sockaddr *)&ss);
 				} else {
 					/*
 					 * A quorum of probed hosts agree on a

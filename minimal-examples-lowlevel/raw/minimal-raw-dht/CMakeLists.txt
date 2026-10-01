@@ -73,7 +73,7 @@ if (requirements)
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			raw_dht_srv
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-d 1039 -s dht-store-srv -p ${PORT_DHT_SRV} --stats-port ${PORT_DHT_HTTP})
+			-d 1039 -s dht-store-srv -p ${PORT_DHT_SRV} --stats-port ${PORT_DHT_HTTP} --allow-private)
 		set_tests_properties(st_raw_dht_srv PROPERTIES
 			WORKING_DIRECTORY .
 			FIXTURES_SETUP raw_dht_srv
@@ -93,7 +93,7 @@ if (requirements)
 
 		add_test(NAME raw_dht_cli COMMAND
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-s dht-store-cli -p ${PORT_DHT_CLI} --stats-port ${PORT_DHT_CLI_HTTP} --put test-data.txt --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
+			-s dht-store-cli -p ${PORT_DHT_CLI} --stats-port ${PORT_DHT_CLI_HTTP} --put test-data.txt --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com --allow-private)
 
 		set_tests_properties(raw_dht_cli PROPERTIES
 			FIXTURES_REQUIRED "raw_dht_srv"
@@ -103,7 +103,7 @@ if (requirements)
 
 		add_test(NAME raw_dht_bulk COMMAND
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-s dht-store-bulk -p ${PORT_DHT_BULK} --stats-port ${PORT_DHT_BULK_HTTP} --bulk --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
+			-s dht-store-bulk -p ${PORT_DHT_BULK} --stats-port ${PORT_DHT_BULK_HTTP} --bulk --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com --allow-private)
 
 		set_tests_properties(raw_dht_bulk PROPERTIES
 			FIXTURES_REQUIRED "raw_dht_srv"
@@ -114,14 +114,14 @@ if (requirements)
 		# 1. Generate Manifest (Sender)
 		add_test(NAME raw_dht_gen_manifest COMMAND
 			${CMAKE_COMMAND}
-			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-upl;-p;${PORT_DHT_GEN};--stats-port;${PORT_DHT_GEN_HTTP};--bulk;--gen-manifest;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
+			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-upl;-p;${PORT_DHT_GEN};--stats-port;${PORT_DHT_GEN_HTTP};--bulk;--gen-manifest;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com;--allow-private"
 			"-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/manifest.txt"
 			-P "${CMAKE_SOURCE_DIR}/scripts/ctest-redirect.cmake")
 
 		# 2. Consume Manifest (Receiver)
 		add_test(NAME raw_dht_manifest COMMAND
 			${CMAKE_COMMAND}
-			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-man;-p;${PORT_DHT_MAN};--stats-port;${PORT_DHT_MAN_HTTP};--receiver;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
+			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-man;-p;${PORT_DHT_MAN};--stats-port;${PORT_DHT_MAN_HTTP};--receiver;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com;--allow-private"
 			"-DINPUT=${CMAKE_CURRENT_BINARY_DIR}/manifest.txt"
 			-P "${CMAKE_SOURCE_DIR}/scripts/ctest-redirect.cmake")
 

@@ -105,6 +105,7 @@ struct vhd_dht_store {
 
 	const char			*storage_path;
 	const char			*dht_iface;
+	uint8_t			allow_private; /* peers on private / loopback ads */
 	int				dht_port;
 	const char			*target_ip;
 	int				target_port;
@@ -1104,6 +1105,9 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		if (lws_pvo_get_str(in, "dht-storage-path", &vhd->storage_path))
 			lwsl_info("no pvo for dht-storage-path\n");
 		if ((pvo = lws_pvo_search(in, "dht-port"))) vhd->dht_port = atoi(pvo->value);
+		if ((pvo = lws_pvo_search(in, "dht-allow-private")) &&
+		    pvo->value && pvo->value[0] == '1')
+			vhd->allow_private = 1;
 		if (lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface))
 			lwsl_info("no pvo for dht-iface\n");
 		if (lws_pvo_get_str(in, "target-ip", &vhd->target_ip))
@@ -1160,6 +1164,7 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		vdi.cb = cb_dht;
 		vdi.closure = vhd;
 		vdi.iface = vhd->dht_iface;
+		vdi.allow_private_ads = vhd->allow_private;
 
 		vhd->dht = lws_dht_create(&vdi);
 		if (!vhd->dht) {

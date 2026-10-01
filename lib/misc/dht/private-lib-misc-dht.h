@@ -161,8 +161,12 @@ struct node {
 	time_t                  reply_time;          /* time of last correct reply received */
 	time_t                  pinged_time;         /* time of last request */
 	int                     pinged;              /* how many requests we sent since last reply */
+	uint8_t                 bep42_ok;            /* id conforms to BEP42 for its address (or private) */
 	lws_dll2_t              list;                /* bucket ->nodes membership */
 };
+
+/* how many routing table entries one address (IPv4, or IPv6 /64) may hold in a bucket */
+#define LWS_DHT_MAX_SAME_ADS_PER_BUCKET	2
 
 struct bucket {
 	int                     af;
@@ -339,6 +343,8 @@ struct lws_dht_ctx {
 
 	uint8_t			have_v:1;
 	uint8_t			legacy:1;
+	uint8_t			allow_private_ads:1;
+	uint8_t			id_random:1; /* myid was not given: BEP42 may replace it */
 
 	const char		*fallback_nodes_path;
 	const char		*iface;
@@ -521,7 +527,9 @@ int send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 void lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len, const struct sockaddr *from);
 void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, const struct sockaddr *fromaddr, unsigned short prt);
 #endif
-int is_martian(const struct sockaddr *sa);
+int is_martian(const struct lws_dht_ctx *ctx, const struct sockaddr *sa);
+int lws_dht_ads_is_private(const struct sockaddr *sa);
+void lws_dht_bep42_own_id(struct lws_dht_ctx *ctx, const struct sockaddr *sa);
 int dht_source_key(const struct sockaddr *sa, uint8_t key[16]);
 int lws_dht_peer_known(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
 int lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);

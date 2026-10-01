@@ -33,6 +33,7 @@ struct vhd_dht_store {
 	int dht_port;
 
 	uint8_t echo:1;
+	uint8_t			allow_private:1; /* peers on private / loopback ads */
 };
 
 static void
@@ -125,6 +126,10 @@ callback_lws_dht_store(struct lws *wsi, enum lws_callback_reasons reason,
 		    pvo_val && pvo_val[0] == '1')
 			vhd->echo = 1;
 
+		if (!lws_pvo_get_str(in, "dht-allow-private", &pvo_val) &&
+		    pvo_val && pvo_val[0] == '1')
+			vhd->allow_private = 1;
+
 		lwsl_user("%s: init: path '%s', port %d\n", __func__,
 				vhd->storage_path, vhd->dht_port);
 
@@ -135,6 +140,7 @@ callback_lws_dht_store(struct lws *wsi, enum lws_callback_reasons reason,
 		i.closure = vhd;
 		i.port = vhd->dht_port;
 		i.iface = vhd->dht_iface;
+		i.allow_private_ads = vhd->allow_private;
 		/* i.ipv6 = 1; */ /* Enable IPv6 if needed/supported by env */
 
 		vhd->dht = lws_dht_create(&i);

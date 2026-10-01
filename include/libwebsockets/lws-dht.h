@@ -369,6 +369,10 @@ struct lws_dht_consensus_info {
  * \param port: UDP port to listen on
  * \param ipv6: enable IPv6
  * \param legacy: if set, on wire: no multihash, 20-byte assumed
+ * \param allow_private_ads: if set, peers at private, loopback or link-local
+ *	addresses are admitted to the routing table and exempt from the BEP42
+ *	id check (for a LAN deployment, or tests on loopback); by default such
+ *	peers are refused, as any node on the public internet should
  * \param aux: 0 (sha1), or MULTIHASH_TYPE_...
  * \param iface: interface to bind to
  * \param blacklist_cb: (optional) user blacklist cb
@@ -385,6 +389,7 @@ typedef struct lws_dht_info {
 	int				port;
 	uint8_t				ipv6:1;
 	uint8_t				legacy:1;
+	uint8_t				allow_private_ads:1;
 	uint8_t				aux;
 	const char			*iface;
 	const char			*fallback_nodes_path;
@@ -561,6 +566,40 @@ lws_dht_get_nodes(struct lws_dht_ctx *ctx, struct sockaddr_in *sin, int *num,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
+
+/**
+ * lws_dht_bep42_id() - make a node id bound to an address (BEP42)
+ *
+ * \param cx: the lws context (its randomness is used)
+ * \param sa: the node's public address (AF_INET or AF_INET6)
+ * \param rand: the random byte that ends the id (BEP42's "r")
+ * \param type: LWS_DHT_HASH_TYPE_... of the id to make
+ * \param len: the id length in bytes for that type (20 for sha1)
+ *
+ * BEP42 ties a node id to the node's IP: the first 21 bits are the CRC32C of
+ * the masked address with three bits of \p rand folded in, the last byte is
+ * \p rand, the rest is random.  A peer can then check the id it is told
+ * against the address it hears it from, which is what stops one host
+ * choosing ids to fill a bucket.  lws applies the rule to the first three
+ * and last byte of an id of any length.
+ *
+ * \return a new id to free with lws_dht_hash_destroy(), or NULL
+ */
+LWS_VISIBLE LWS_EXTERN lws_dht_hash_t *
+lws_dht_bep42_id(struct lws_context *cx, const struct sockaddr *sa,
+		 uint8_t rand, int type, int len);
+
+/**
+ * lws_dht_bep42_check() - does a node id conform to BEP42 for its address
+ *
+ * \param id: the node id the peer claims
+ * \param sa: the address the claim came from
+ *
+ * \return 1 if the id's first 21 bits are the BEP42 derivation for \p sa and
+ *	   the id's last byte, 0 if not (or the family is unknown)
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_bep42_check(const lws_dht_hash_t *id, const struct sockaddr *sa);
 
 /**
  * lws_dht_get_fallback_node() - Retrieves a default DHT node from the system installation
