@@ -684,16 +684,29 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
         if ((wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA) &&
 	    !lws_check_opt(wsi->a.vhost->options,
 			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
-                flags |= GNUTLS_ENABLE_EARLY_DATA;
 #if defined(LWS_ROLE_QUIC)
 		if (wsi->role_ops == &role_ops_quic) {
+			/*
+			 * QUIC has no EndOfEarlyData, so gnutls must be told
+			 * not to wait for it.  Before 3.8.4, a server that
+			 * accepted early data under GNUTLS_NO_END_OF_EARLY_DATA
+			 * then freed an uninitialized stack buffer in
+			 * _gnutls13_recv_end_of_early_data() (gnutls f979aa3d):
+			 * there we take no 0-RTT.  Our tickets then carry no
+			 * early_data, and any 0-RTT a client sends anyway is
+			 * refused, its request coming again in 1-RTT
+			 */
+#if GNUTLS_VERSION_NUMBER >= 0x030804
+			flags |= GNUTLS_ENABLE_EARLY_DATA |
+				 GNUTLS_NO_END_OF_EARLY_DATA;
 			max_early = LWS_GNUTLS_MAX_EARLY_DATA_QUIC;
-#if GNUTLS_VERSION_NUMBER >= 0x030702
-			flags |= GNUTLS_NO_END_OF_EARLY_DATA;
 #endif
-		}
+		} else
 #endif
-		lwsl_notice("gnutls_init: enabling server 0-RTT/early data\n");
+			flags |= GNUTLS_ENABLE_EARLY_DATA;
+
+		if (flags & GNUTLS_ENABLE_EARLY_DATA)
+			lwsl_notice("gnutls_init: enabling server 0-RTT/early data\n");
         }
 #endif
 	if (gnutls_init(&session, flags) < 0)

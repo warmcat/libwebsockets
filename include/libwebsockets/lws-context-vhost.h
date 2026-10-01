@@ -286,7 +286,9 @@
         /**< (CTX) Set by core built-in options to force ALPN to H3 */
 
 #define LWS_SERVER_OPTION_ALLOW_EARLY_DATA                      (1ll << 47)
-        /**< (VH) Accept 0-RTT early data for QUIC/TLS 1.3 connections */
+        /**< (VH) Accept 0-RTT early data for QUIC/TLS 1.3 connections.
+	 * A gnutls build older than 3.8.4 accepts none over QUIC: those
+	 * gnutls crash a server that takes it */
 
 #define LWS_SERVER_OPTION_CPD_BYPASS                            (1ll << 48)
         /**< (CTX) Bypass Captive Portal Detection and immediately assume internet is OK */
