@@ -1483,14 +1483,566 @@ int lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type, union l
 	return lws_x509_info(conn->peer_cert, type, buf, len);
 }
 
+/*
+ * Cert creation
+ *
+ * BearSSL has no certificate writer, so the DER is assembled here.  The key is
+ * handed back as SEC1 (EC) or PKCS#1 (RSA) DER, the same as the other
+ * backends, and a CA key may be any PEM that br_skey_decoder understands.
+ */
+
+/*
+ * A bounded DER writer: a constructed element is opened at the current end,
+ * its content appended, and closing it slides the content up to fit the
+ * header in.  Any overflow latches .oom and the whole cert is abandoned.
+ */
+
+struct lws_br_der {
+	uint8_t		*buf;
+	size_t		len;
+	size_t		max;
+	char		oom;
+};
+
+static void
+lws_br_der_raw(struct lws_br_der *d, const void *p, size_t n)
+{
+	if (!n) /* eg, NULL content, which memcpy() mustn't see */
+		return;
+
+	if (d->oom || n > d->max - d->len) {
+		d->oom = 1;
+		return;
+	}
+
+	memcpy(d->buf + d->len, p, n);
+	d->len += n;
+}
+
+static size_t
+lws_br_der_open(struct lws_br_der *d)
+{
+	return d->len;
+}
+
+static void
+lws_br_der_close(struct lws_br_der *d, uint8_t tag, size_t start)
+{
+	size_t cl, hl = 2, n;
+
+	if (d->oom)
+		return;
+
+	cl = d->len - start;
+	if (cl >= 0x80)
+		for (n = cl; n; n >>= 8)
+			hl++;
+
+	if (hl > d->max - d->len) {
+		d->oom = 1;
+		return;
+	}
+
+	memmove(d->buf + start + hl, d->buf + start, cl);
+	d->buf[start] = tag;
+	if (cl < 0x80)
+		d->buf[start + 1] = (uint8_t)cl;
+	else {
+		d->buf[start + 1] = (uint8_t)(0x80 | (hl - 2));
+		for (n = 0; n < hl - 2; n++)
+			d->buf[start + hl - 1 - n] = (uint8_t)(cl >> (8 * n));
+	}
+	d->len += hl;
+}
+
+static void
+lws_br_der_tlv(struct lws_br_der *d, uint8_t tag, const void *p, size_t n)
+{
+	size_t s = lws_br_der_open(d);
+
+	lws_br_der_raw(d, p, n);
+	lws_br_der_close(d, tag, s);
+}
+
+/* a big-endian unsigned magnitude as a minimal, positive DER INTEGER */
+
+static void
+lws_br_der_uint(struct lws_br_der *d, const uint8_t *p, size_t n)
+{
+	size_t s = lws_br_der_open(d);
+
+	while (n > 1 && !*p) {
+		p++;
+		n--;
+	}
+	if (!n || *p & 0x80)
+		lws_br_der_raw(d, "", 1);
+	lws_br_der_raw(d, p, n);
+	lws_br_der_close(d, 0x02, s);
+}
+
+/* Name: CN=san as a UTF8String */
+
+static void
+lws_br_der_name_cn(struct lws_br_der *d, const char *san)
+{
+	size_t s = lws_br_der_open(d), s1, s2;
+
+	s1 = lws_br_der_open(d);
+	s2 = lws_br_der_open(d);
+	lws_br_der_tlv(d, 0x06, "\x55\x04\x03", 3);
+	lws_br_der_tlv(d, 0x0c, san, strlen(san));
+	lws_br_der_close(d, 0x30, s2);
+	lws_br_der_close(d, 0x31, s1);
+	lws_br_der_close(d, 0x30, s);
+}
+
+/* UTCTime through 2049, GeneralizedTime after, as RFC 5280 says */
+
+static int
+lws_br_der_time(struct lws_br_der *d, time_t t)
+{
+	struct tm *tm;
+	char s[16];
+	int n;
+#if defined(LWS_HAVE_GMTIME_R)
+	struct tm tm_s;
+
+	tm = gmtime_r(&t, &tm_s);
+#else
+	tm = gmtime(&t);
+#endif
+	if (!tm || tm->tm_year + 1900 < 1950 || tm->tm_year + 1900 > 9999)
+		return 1;
+
+	if (tm->tm_year + 1900 < 2050)
+		n = lws_snprintf(s, sizeof(s), "%02d%02d%02d%02d%02d%02dZ",
+				 tm->tm_year % 100, tm->tm_mon + 1,
+				 tm->tm_mday, tm->tm_hour, tm->tm_min,
+				 tm->tm_sec);
+	else
+		n = lws_snprintf(s, sizeof(s), "%04d%02d%02d%02d%02d%02dZ",
+				 tm->tm_year + 1900, tm->tm_mon + 1,
+				 tm->tm_mday, tm->tm_hour, tm->tm_min,
+				 tm->tm_sec);
+
+	lws_br_der_tlv(d, tm->tm_year + 1900 < 2050 ? 0x17 : 0x18, s,
+		       (size_t)n);
+
+	return 0;
+}
+
+static void
+lws_br_der_sigalg(struct lws_br_der *d, int key_type)
+{
+	size_t s = lws_br_der_open(d);
+
+	if (key_type == BR_KEYTYPE_EC)
+		/* ecdsa-with-SHA256, no parameters */
+		lws_br_der_tlv(d, 0x06, "\x2a\x86\x48\xce\x3d\x04\x03\x02", 8);
+	else {
+		/* sha256WithRSAEncryption, NULL parameters */
+		lws_br_der_tlv(d, 0x06, "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x0b", 9);
+		lws_br_der_tlv(d, 0x05, NULL, 0);
+	}
+	lws_br_der_close(d, 0x30, s);
+}
+
+/* starts an extension, the caller writes the value and calls _ext_end() */
+
+static size_t
+lws_br_der_ext_start(struct lws_br_der *d, const char *oid, int critical,
+		     size_t *ostr)
+{
+	size_t s = lws_br_der_open(d);
+
+	lws_br_der_tlv(d, 0x06, oid, 3); /* all id-ce-* here, 2.5.29.x */
+	if (critical)
+		lws_br_der_tlv(d, 0x01, "\xff", 1);
+	*ostr = lws_br_der_open(d);
+
+	return s;
+}
+
+static void
+lws_br_der_ext_end(struct lws_br_der *d, size_t s, size_t ostr)
+{
+	lws_br_der_close(d, 0x04, ostr);
+	lws_br_der_close(d, 0x30, s);
+}
+
+/* find the raw subject Name TLV in a cert's DER, for an issuer name */
+
+static int
+lws_br_x509_subject(const uint8_t *der, size_t der_len, const uint8_t **name,
+		    size_t *name_len)
+{
+	const uint8_t *p = der, *end = der + der_len, *start;
+	size_t l;
+	int tag, n;
+
+	/* Certificate, then tbsCertificate */
+	if (lws_asn1_get_tlv(&p, end, &tag, &l) || tag != 0x30 ||
+	    lws_asn1_get_tlv(&p, end, &tag, &l) || tag != 0x30)
+		return 1;
+	end = p + l;
+
+	/* optional [0] version */
+	if (p < end && *p == 0xa0) {
+		if (lws_asn1_get_tlv(&p, end, &tag, &l))
+			return 1;
+		p += l;
+	}
+
+	/* serialNumber, signature, issuer, validity */
+	for (n = 0; n < 4; n++) {
+		if (lws_asn1_get_tlv(&p, end, &tag, &l))
+			return 1;
+		p += l;
+	}
+
+	start = p;
+	if (lws_asn1_get_tlv(&p, end, &tag, &l) || tag != 0x30)
+		return 1;
+
+	*name = start;
+	*name_len = lws_ptr_diff_size_t(p + l, start);
+
+	return 0;
+}
+
+static const struct {
+	const char	*name;
+	const char	*oid;
+	uint8_t		oid_len;
+	int		curve;
+} lws_br_cert_curves[] = {
+	{ "P-256", "\x2a\x86\x48\xce\x3d\x03\x01\x07", 8, BR_EC_secp256r1 },
+	{ "P-384", "\x2b\x81\x04\x00\x22", 5, BR_EC_secp384r1 },
+	{ "P-521", "\x2b\x81\x04\x00\x23", 5, BR_EC_secp521r1 },
+};
+
+/* everything that holds key material, so it can be wiped in one go */
+
+struct lws_br_cert_keys {
+	br_ec_private_key	ec_sk;
+	br_ec_public_key	ec_pk;
+	br_rsa_private_key	rsa_sk;
+	br_rsa_public_key	rsa_pk;
+	uint8_t			ec_skbuf[BR_EC_KBUF_PRIV_MAX_SIZE];
+	uint8_t			ec_pkbuf[BR_EC_KBUF_PUB_MAX_SIZE];
+	uint8_t			rsa_skbuf[BR_RSA_KBUF_PRIV_SIZE(4096)];
+	uint8_t			rsa_pkbuf[BR_RSA_KBUF_PUB_SIZE(4096)];
+	uint8_t			rsa_d[512];
+	size_t			rsa_dlen;
+	br_skey_decoder_context	ca;
+};
+
 int
 lws_x509_create_cert(struct lws_context *context,
 		     uint8_t **cert_buf, size_t *cert_len,
 		     uint8_t **key_buf, size_t *key_len,
 		     const struct lws_x509_cert_gen_info *info)
 {
-	lwsl_err("%s: not supported on bearssl\n", __func__);
-	return 1;
+	const br_rsa_private_key *sign_rsa = NULL;
+	const br_ec_private_key *sign_ec = NULL;
+	const br_ec_impl *ec = br_ec_get_default();
+	const uint8_t *issuer = NULL;
+	struct lws_br_cert_keys *k;
+	struct lws_br_prng_ctx prng;
+	struct lws_x509_cert *ca = NULL;
+	struct lws_br_der d;
+	size_t s, s1, s2, ostr, issuer_len = 0, n;
+	uint8_t serial[8], hash[32], sig[512], *ca_der = NULL, ip[16];
+	int curve = -1, sign_type, ipl = -1, ret = 1, bits;
+	lws_filepos_t ca_der_len = 0;
+	br_sha256_context sha;
+	time_t now;
+
+	/* the entropy for the key and serial comes from the context */
+	if (!context || !info || !info->san || !*info->san ||
+	    strlen(info->san) > 253 || /* the longest a DNS name can be */
+	    (!info->ca_cert_pem != !info->ca_key_pem) ||
+	    info->validity_days < 0 || info->validity_days > 100 * 366)
+		return 1;
+
+	bits = info->key_bits ? info->key_bits : 2048;
+	if (info->curve_name) {
+		for (n = 0; n < LWS_ARRAY_SIZE(lws_br_cert_curves); n++)
+			if (!strcmp(info->curve_name, lws_br_cert_curves[n].name))
+				curve = (int)n;
+		if (curve < 0) {
+			lwsl_err("%s: unknown curve %s\n", __func__,
+				 info->curve_name);
+			return 1;
+		}
+	} else if (bits < 1024 || bits > 4096) {
+		lwsl_err("%s: RSA %d bits unsupported\n", __func__, bits);
+		return 1;
+	}
+
+	memset(&d, 0, sizeof(d));
+	k = lws_zalloc(sizeof(*k), __func__);
+	d.max = 4096; /* far larger than an RSA-4096 cert */
+	d.buf = lws_malloc(d.max, __func__);
+	if (!k || !d.buf)
+		goto bail;
+
+	/* Our key */
+
+	lws_br_prng_ctx_init(&prng, context);
+	if (curve >= 0) {
+		if (!br_ec_keygen(&prng.vtable, ec, &k->ec_sk, k->ec_skbuf,
+				  lws_br_cert_curves[curve].curve) ||
+		    prng.failed ||
+		    !br_ec_compute_pub(ec, &k->ec_pk, k->ec_pkbuf, &k->ec_sk))
+			goto bail_keygen;
+		sign_ec = &k->ec_sk;
+		sign_type = BR_KEYTYPE_EC;
+	} else {
+		if (!br_rsa_keygen_get_default()(&prng.vtable, &k->rsa_sk,
+					k->rsa_skbuf, &k->rsa_pk, k->rsa_pkbuf,
+					(unsigned int)bits, 65537) ||
+		    prng.failed)
+			goto bail_keygen;
+		k->rsa_dlen = br_rsa_compute_privexp_get_default()(k->rsa_d,
+							&k->rsa_sk, 65537);
+		if (!k->rsa_dlen)
+			goto bail_keygen;
+		sign_rsa = &k->rsa_sk;
+		sign_type = BR_KEYTYPE_RSA;
+	}
+
+	/* The CA's subject and key, if it's not self-signed */
+
+	if (info->ca_cert_pem) {
+		if (lws_x509_create(&ca) ||
+		    lws_x509_parse_from_pem(ca, info->ca_cert_pem,
+					    strlen(info->ca_cert_pem) + 1) ||
+		    lws_br_x509_subject(ca->der, ca->der_len, &issuer,
+					&issuer_len)) {
+			lwsl_err("%s: unable to parse CA cert\n", __func__);
+			goto bail;
+		}
+
+		if (lws_tls_alloc_pem_to_der_file(context, NULL,
+					info->ca_key_pem,
+					(lws_filepos_t)strlen(info->ca_key_pem) + 1,
+					&ca_der, &ca_der_len))
+			goto bail_ca_key;
+		br_skey_decoder_init(&k->ca);
+		br_skey_decoder_push(&k->ca, ca_der, (size_t)ca_der_len);
+		if (br_skey_decoder_last_error(&k->ca))
+			goto bail_ca_key;
+
+		sign_type = br_skey_decoder_key_type(&k->ca);
+		sign_rsa = br_skey_decoder_get_rsa(&k->ca);
+		sign_ec = br_skey_decoder_get_ec(&k->ca);
+		if (!sign_rsa && !sign_ec)
+			goto bail_ca_key;
+	}
+
+	if (lws_get_random(context, serial, sizeof(serial)) != sizeof(serial))
+		goto bail;
+	/* positive, and the top byte nonzero so it stays minimal DER */
+	serial[0] = (uint8_t)((serial[0] & 0x7f) | 0x40);
+
+	/* tbsCertificate */
+
+	s = lws_br_der_open(&d);
+
+	s1 = lws_br_der_open(&d);
+	lws_br_der_tlv(&d, 0x02, "\x02", 1); /* v3 */
+	lws_br_der_close(&d, 0xa0, s1);
+
+	lws_br_der_uint(&d, serial, sizeof(serial));
+	lws_br_der_sigalg(&d, sign_type);
+
+	if (issuer)
+		lws_br_der_raw(&d, issuer, issuer_len);
+	else
+		lws_br_der_name_cn(&d, info->san);
+
+	/* valid from a day ago, so a peer's clock skew doesn't refuse it */
+	now = time(NULL);
+	s1 = lws_br_der_open(&d);
+	if (lws_br_der_time(&d, now - 86400) ||
+	    lws_br_der_time(&d, now + (time_t)(info->validity_days ?
+				info->validity_days : 365) * 86400))
+		goto bail;
+	lws_br_der_close(&d, 0x30, s1);
+
+	lws_br_der_name_cn(&d, info->san);
+
+	/* subjectPublicKeyInfo */
+
+	s1 = lws_br_der_open(&d);
+	s2 = lws_br_der_open(&d);
+	if (curve >= 0) {
+		lws_br_der_tlv(&d, 0x06, "\x2a\x86\x48\xce\x3d\x02\x01", 7);
+		lws_br_der_tlv(&d, 0x06, lws_br_cert_curves[curve].oid,
+			       lws_br_cert_curves[curve].oid_len);
+		lws_br_der_close(&d, 0x30, s2);
+		s2 = lws_br_der_open(&d);
+		lws_br_der_raw(&d, "", 1); /* no unused bits */
+		lws_br_der_raw(&d, k->ec_pk.q, k->ec_pk.qlen);
+		lws_br_der_close(&d, 0x03, s2);
+	} else {
+		lws_br_der_tlv(&d, 0x06, "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01",
+			       9);
+		lws_br_der_tlv(&d, 0x05, NULL, 0);
+		lws_br_der_close(&d, 0x30, s2);
+		s2 = lws_br_der_open(&d);
+		lws_br_der_raw(&d, "", 1); /* no unused bits */
+		n = lws_br_der_open(&d);
+		lws_br_der_uint(&d, k->rsa_pk.n, k->rsa_pk.nlen);
+		lws_br_der_uint(&d, k->rsa_pk.e, k->rsa_pk.elen);
+		lws_br_der_close(&d, 0x30, n);
+		lws_br_der_close(&d, 0x03, s2);
+	}
+	lws_br_der_close(&d, 0x30, s1);
+
+	/* extensions */
+
+	s1 = lws_br_der_open(&d);
+	s2 = lws_br_der_open(&d);
+
+	n = lws_br_der_ext_start(&d, "\x55\x1d\x13", 1, &ostr);
+	if (info->is_ca)
+		lws_br_der_tlv(&d, 0x30, "\x01\x01\xff", 3); /* cA TRUE */
+	else
+		lws_br_der_tlv(&d, 0x30, NULL, 0); /* cA FALSE is the default */
+	lws_br_der_ext_end(&d, n, ostr);
+
+	n = lws_br_der_ext_start(&d, "\x55\x1d\x0f", 1, &ostr);
+	if (info->is_ca) /* keyCertSign, cRLSign */
+		lws_br_der_tlv(&d, 0x03, "\x01\x06", 2);
+	else /* digitalSignature, keyEncipherment */
+		lws_br_der_tlv(&d, 0x03, "\x05\xa0", 2);
+	lws_br_der_ext_end(&d, n, ostr);
+
+	if (!info->is_ca) {
+		size_t e;
+
+		n = lws_br_der_ext_start(&d, "\x55\x1d\x25", 0, &ostr);
+		e = lws_br_der_open(&d);
+		/* a server cert is also usable as a client cert, as on openssl */
+		if (info->is_server)
+			lws_br_der_tlv(&d, 0x06, "\x2b\x06\x01\x05\x05\x07\x03\x01",
+				       8);
+		lws_br_der_tlv(&d, 0x06, "\x2b\x06\x01\x05\x05\x07\x03\x02", 8);
+		lws_br_der_close(&d, 0x30, e);
+		lws_br_der_ext_end(&d, n, ostr);
+	}
+
+	if (info->is_server) {
+		size_t e;
+
+		n = lws_br_der_ext_start(&d, "\x55\x1d\x11", 0, &ostr);
+		e = lws_br_der_open(&d);
+#if defined(LWS_WITH_NETWORK)
+		ipl = lws_parse_numeric_address(info->san, ip, sizeof(ip));
+#endif
+		if (ipl == 4 || ipl == 16) /* [7] iPAddress */
+			lws_br_der_tlv(&d, 0x87, ip, (size_t)ipl);
+		else /* [2] dNSName */
+			lws_br_der_tlv(&d, 0x82, info->san, strlen(info->san));
+		lws_br_der_close(&d, 0x30, e);
+		lws_br_der_ext_end(&d, n, ostr);
+	}
+
+	lws_br_der_close(&d, 0x30, s2);
+	lws_br_der_close(&d, 0xa3, s1);
+
+	lws_br_der_close(&d, 0x30, s); /* end of tbsCertificate */
+	if (d.oom)
+		goto bail_oom;
+
+	/* sign the tbsCertificate */
+
+	br_sha256_init(&sha);
+	br_sha256_update(&sha, d.buf + s, d.len - s);
+	br_sha256_out(&sha, hash);
+
+	if (sign_type == BR_KEYTYPE_EC) {
+		n = br_ecdsa_sign_asn1_get_default()(ec, &br_sha256_vtable,
+						     hash, sign_ec, sig);
+		if (!n)
+			goto bail_sign;
+	} else {
+		n = (sign_rsa->n_bitlen + 7) / 8;
+		if (n > sizeof(sig) ||
+		    !br_rsa_pkcs1_sign_get_default()(BR_HASH_OID_SHA256, hash,
+						     sizeof(hash), sign_rsa,
+						     sig))
+			goto bail_sign;
+	}
+
+	lws_br_der_sigalg(&d, sign_type);
+	s1 = lws_br_der_open(&d);
+	lws_br_der_raw(&d, "", 1); /* no unused bits */
+	lws_br_der_raw(&d, sig, n);
+	lws_br_der_close(&d, 0x03, s1);
+	lws_br_der_close(&d, 0x30, s); /* the whole Certificate */
+	if (d.oom)
+		goto bail_oom;
+
+	/* hand back the cert and our private key, for free() */
+
+	if (curve >= 0)
+		n = br_encode_ec_raw_der(NULL, &k->ec_sk, &k->ec_pk);
+	else
+		n = br_encode_rsa_raw_der(NULL, &k->rsa_sk, &k->rsa_pk,
+					  k->rsa_d, k->rsa_dlen);
+	if (!n)
+		goto bail;
+
+	*key_buf = malloc(n);
+	*cert_buf = malloc(d.len);
+	if (!*key_buf || !*cert_buf) {
+		free(*key_buf);
+		free(*cert_buf);
+		*key_buf = *cert_buf = NULL;
+		goto bail;
+	}
+
+	if (curve >= 0)
+		*key_len = br_encode_ec_raw_der(*key_buf, &k->ec_sk, &k->ec_pk);
+	else
+		*key_len = br_encode_rsa_raw_der(*key_buf, &k->rsa_sk,
+						 &k->rsa_pk, k->rsa_d,
+						 k->rsa_dlen);
+	memcpy(*cert_buf, d.buf, d.len);
+	*cert_len = d.len;
+
+	ret = 0;
+	goto bail;
+
+bail_keygen:
+	lwsl_err("%s: key generation failed\n", __func__);
+	goto bail;
+bail_ca_key:
+	lwsl_err("%s: unable to parse CA key\n", __func__);
+	goto bail;
+bail_oom:
+	lwsl_err("%s: cert too large\n", __func__);
+	goto bail;
+bail_sign:
+	lwsl_err("%s: signing failed\n", __func__);
+
+bail:
+	lws_x509_destroy(&ca);
+	if (ca_der) {
+		lws_explicit_bzero(ca_der, (size_t)ca_der_len);
+		lws_free(ca_der);
+	}
+	if (k) {
+		lws_explicit_bzero(k, sizeof(*k));
+		lws_free(k);
+	}
+	lws_free(d.buf);
+
+	return ret;
 }
 
 int
@@ -1499,8 +2051,15 @@ lws_x509_create_self_signed(struct lws_context *context,
 			    uint8_t **key_buf, size_t *key_len,
 			    const char *san, int key_bits)
 {
-	lwsl_err("%s: not supported on bearssl\n", __func__);
-	return 1;
+	struct lws_x509_cert_gen_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.san = san ? san : "localhost";
+	info.key_bits = key_bits;
+	info.is_server = 1;
+
+	return lws_x509_create_cert(context, cert_buf, cert_len, key_buf,
+				    key_len, &info);
 }
 
 int lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, const char *common_name) {
