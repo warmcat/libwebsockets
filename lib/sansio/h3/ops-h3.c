@@ -444,7 +444,8 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			if (lws_http_transaction_completed(wsi))
 				return -1;
 		}
-		if (!n) {
+		/* a read gone to a worker asks for us when it is back */
+		if (!n && lwsi_state(wsi) == LRS_ISSUING_FILE) {
 			lws_callback_on_writable(wsi);
 			wsi->mux.requested_POLLOUT = 1;
 		}

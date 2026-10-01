@@ -1163,7 +1163,8 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		return 2;
 
 	if (lwsi_state(wsi) == LRS_TXN_COMPLETING ||
-	    lwsi_state(wsi) == LRS_ISSUING_FILE) {
+	    lwsi_state(wsi) == LRS_ISSUING_FILE ||
+	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
 		size_t sl;
 
 		/*
@@ -1704,6 +1705,15 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 #if defined(LWS_WITH_FILE_OPS)
 
+		if (lwsi_state(w) == LRS_AWAITING_FILE_READ)
+			/*
+			 * A worker has the file's next read: when it is back
+			 * the stream is put in ISSUING_FILE and asked to
+			 * write, as on h1 and h3.  Nothing of this pass is the
+			 * stream's, and it is never the app's
+			 */
+			continue;
+
 		if (lwsi_state(w) == LRS_ISSUING_FILE) {
 
 			if (lws_wsi_txc_check_skint(&w->txc,
@@ -1734,7 +1744,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			if (n > 0)
 				if (lws_http_transaction_completed(w))
 					return -1;
-			if (!n) {
+			/* a read gone to a worker asks for us when it is back */
+			if (!n && lwsi_state(w) == LRS_ISSUING_FILE) {
 				lws_callback_on_writable(w);
 				(w)->mux.requested_POLLOUT = 1;
 			}
