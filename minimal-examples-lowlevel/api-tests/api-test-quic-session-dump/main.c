@@ -23,6 +23,11 @@
  *
  *  - cli3 has the same session loaded without the flag, as a tls over tcp
  *    session: its h3 connection must not resume it, nor send 0-RTT
+ *
+ * A gnutls older than 3.8.4 cannot take 0-RTT on a quic server, so lws offers
+ * none there.  A gnutls client still sends 0-RTT under any resumed ticket,
+ * whatever the ticket said: the server refuses it, and cli2's request must
+ * then arrive in 1-RTT.
  */
 
 #include <libwebsockets.h>
@@ -34,6 +39,19 @@
 #define CASE_TIMEOUT_S	20
 #define TEST_HOST	"short.example"
 
+/* is the server able to take 0-RTT, see LWS_SERVER_OPTION_ALLOW_EARLY_DATA */
+#if defined(LWS_WITH_GNUTLS) && GNUTLS_VERSION_NUMBER < 0x030804
+#define SRV_0RTT	0
+#else
+#define SRV_0RTT	1
+#endif
+
+enum {
+	OFFER_NO,
+	OFFER_YES,
+	OFFER_EITHER,
+};
+
 enum {
 	CLI1,
 	CLI2,
@@ -44,11 +62,15 @@ enum {
 
 static const struct {
 	const char	*name;
-	char		early;	/* must the request go out, and in, as 0-RTT */
+	char		offer;	/* must the client send 0-RTT, OFFER_ */
+	char		early;	/* must the server take the request as 0-RTT */
 } cases[] = {
-	[CLI1] = { "cli1: first connection, session saved",		0 },
-	[CLI2] = { "cli2: quic session loaded, resumed with 0-RTT",	1 },
-	[CLI3] = { "cli3: loaded as a tcp session, not used by quic",	0 },
+	[CLI1] = { "cli1: first connection, session saved",
+		   OFFER_NO, 0 },
+	[CLI2] = { "cli2: quic session loaded, 0-RTT if the server takes it",
+		   SRV_0RTT ? OFFER_YES : OFFER_EITHER, SRV_0RTT },
+	[CLI3] = { "cli3: loaded as a tcp session, not used by quic",
+		   OFFER_NO, 0 },
 };
 
 static struct lws_context *context;
@@ -111,7 +133,8 @@ case_finish(const char *why)
 	if (!why && !completed)
 		why = "the request did not complete";
 
-	if (!why && early_cb != cases[cur].early)
+	if (!why && cases[cur].offer != OFFER_EITHER &&
+	    early_cb != cases[cur].offer)
 		why = early_cb ? "the client offered 0-RTT" :
 				 "the client did not offer 0-RTT";
 
