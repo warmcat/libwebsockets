@@ -188,12 +188,16 @@ static const struct spa_case cases[] = {
 	  .expect = ANS_HELLO "|get", .framing = FR_CHUNKED },
 
 	/*
-	 * An h1 multipart body with neither a Content-Length nor chunked
-	 * (lws_client_http_body_pending() sends them like this): the close
-	 * delimiter is all that ends it
+	 * An h1 multipart body with neither a Content-Length nor chunked:
+	 * RFC 9112 6.3 has such a request carry no body, and the server takes
+	 * it at its word.  The form is empty, and the multipart bytes after
+	 * the head are the next request, which they are not: refused, and the
+	 * connection closed.  (An lws client sends such a body chunked.)
 	 */
 	{ .name = "unframed multipart", .path = "/form", .ctype = MPART,
-	  .body = MP_TEXT_HELLO, .expect = ANS_HELLO, .framing = FR_NONE },
+	  .body = MP_TEXT_HELLO,
+	  .expect = "a=NULL b=NULL c=NULL text=NULL up=0/0/0|status 400",
+	  .framing = FR_NONE },
 };
 
 static struct lws_context *context;

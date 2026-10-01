@@ -461,7 +461,9 @@ static const struct h1_attack h1_attacks[] = {
 	 * mount asked for without its trailing '/' is redirected, an
 	 * unknown upgrade is refused.  Their body is still theirs, and the
 	 * request after it on the connection is the next one served.  A
-	 * body with no length runs to the close, so nothing comes after it.
+	 * POST with neither Content-Length nor Transfer-Encoding has no body
+	 * (RFC 9112 6.3): what follows its head is the next request, and
+	 * here that is "hello world" run into a request line, refused.
 	 */
 	{ "a POST with a body to a mount without its /",
 	  ATK_L(ATK_POST_F "Content-Length: 11\r\n\r\nhello world"
@@ -472,7 +474,7 @@ static const struct h1_attack h1_attacks[] = {
 		"6\r\nhello \r\n5\r\nworld\r\n0\r\n\r\n" ATK_GET_NEXT),
 	  NULL, 0, ATK_NONE, 1, 0, V_THEN_ECHO,
 	  HTTP_STATUS_MOVED_PERMANENTLY, "/alive ua=next" },
-	{ "a POST with no body length to a mount without its /",
+	{ "a POST with no body length to a mount without its /, junk after it",
 	  ATK_L(ATK_POST_F "\r\nhello world" ATK_GET_NEXT), NULL, 0,
 	  ATK_NONE, 1, 0, V_FIRST_ONLY, HTTP_STATUS_MOVED_PERMANENTLY, NULL },
 	{ "an unknown upgrade with a body",

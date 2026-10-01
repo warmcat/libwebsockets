@@ -67,6 +67,10 @@
  * And a CONNECT from a user agent the context turns away: it is refused as
  * any other request of its would be, not given to the fallback role first.
  *
+ * And an h1 POST with neither Content-Length nor Transfer-Encoding: it has
+ * no body (RFC 9112 6.3), and the request pipelined behind its head is the
+ * next one served, not read as its body until the close.
+ *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
  * what it sent before finishing is still read.
@@ -771,6 +775,10 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 		n = lws_hdr_copy(wsi, pss->body, (int)sizeof(pss->body) - 1,
 				 WSI_TOKEN_GET_URI);
+		if (!n)
+			n = lws_hdr_copy(wsi, pss->body,
+					 (int)sizeof(pss->body) - 1,
+					 WSI_TOKEN_POST_URI);
 		if (n < 0)
 			return 1;
 		pss->body[n++] = '\n';
@@ -1557,6 +1565,31 @@ h1_steps(struct lws_context *cx, struct lws_vhost *vh, const char *name,
 	}
 
 	return tr_end();
+}
+
+/*
+ * 34: an h1 POST with neither Content-Length nor Transfer-Encoding, and a
+ * GET pipelined behind its head in the same read.  The POST has no body
+ * (RFC 9112 6.3): it is answered, and the GET is the next request, served
+ * after it on the kept-alive connection, rather than taken as the POST's
+ * body and read until the close.
+ */
+static int
+h1_post_no_length_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const struct h1_step st[] = {
+		{ "POST /x?a=1 HTTP/1.1\r\nHost: sansio-uri\r\n\r\n"
+		  "GET /y?b=2 HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", "/y\nb=2", 0 },
+	};
+
+	if (h1_steps(cx, vh, "h1-post-no-length", "case 34", st,
+		     LWS_ARRAY_SIZE(st)))
+		return 1;
+	lwsl_user("case 34: an h1 POST with no length has no body, and the "
+		  "request behind it is served: PASS\n");
+
+	return 0;
 }
 
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
@@ -3675,6 +3708,11 @@ main(int argc, const char **argv)
 	if (h2_answer_in_body_half(cx, vh_h2, 150000))
 		goto bail;
 #endif
+
+	/* after those, at its own time, so that its transcript is the same */
+	at(cx, 200000);
+	if (h1_post_no_length_half(cx, vh_uri))
+		goto bail;
 
 	result = 0;
 

@@ -186,13 +186,7 @@ lws_urldecode_s_collecting(const struct lws_urldecode_stateful *s)
 static void
 lws_urldecode_s_form_ended(struct lws_urldecode_stateful *s)
 {
-	struct lws *wsi = s->wsi;
-
 	s->state = MT_COMPLETED;
-
-	if (!wsi->mux_substream && !wsi->http.content_length_given &&
-	    !wsi->http.rx_chunked)
-		wsi->http.rx_content_remain = 0;
 }
 
 static int

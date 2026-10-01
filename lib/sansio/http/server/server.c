@@ -1588,17 +1588,18 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	 *    the body chunk-encoded as it goes and ended by a last-chunk at
 	 *    the body completion
 	 *
-	 *  - an h1 POST / PUT / PATCH with neither header has a zero-length
-	 *    body (RFC 9112 6.3): forward it as that, and what follows on the
-	 *    connection is not this request's body
+	 *  - an h1 POST / PUT / PATCH with neither header has no body (RFC
+	 *    9112 6.3), and was framed as a Content-Length of zero when its
+	 *    head was parsed (lws_http_request_body_framing()), so it is a
+	 *    validated Content-Length here
 	 *
 	 *  - an h3 stream with no content-length ends its body with the FIN,
 	 *    which gives us no body completion, so we could never end the
 	 *    onward body: refuse it rather than hang both legs
 	 *
 	 * A POST / PUT / PATCH going onward with an empty body says so with a
-	 * Content-Length of zero: an h1 backend that, like lws, reads such a
-	 * body to the close would otherwise wait for one for ever.
+	 * Content-Length of zero: an h1 backend that takes an unframed one as
+	 * having a body would otherwise wait for it for ever.
 	 */
 
 	wsi->http.proxy_body_chunked = 0;
@@ -1610,11 +1611,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		if (wsi->http.rx_chunked ||
 		    (lwsi_role_h2(wsi) && wsi->mux_substream))
 			wsi->http.proxy_body_chunked = 1;
-		else if (!wsi->mux_substream) {
-			wsi->http.rx_content_length = 0;
-			wsi->http.rx_content_remain = 0;
-			wsi->http.content_length_given = 1;
-		} else {
+		else {
 			lwsl_wsi_notice(wsi, "proxy: request body has no length");
 			lws_free(rpath);
 			lws_return_http_status(wsi, HTTP_STATUS_LENGTH_REQUIRED,
@@ -2008,22 +2005,26 @@ lws_http_request_body_framing(struct lws *wsi)
 
 	wsi->http.rx_content_length = 0;
 	wsi->http.content_length_explicitly_zero = 0;
-	/*
-	 * Per-transaction: a stale 1 from an earlier framed POST on
-	 * this keepalive connection must not let a later unframed
-	 * POST bypass the "no content length, close" resync rule in
-	 * lws_http_transaction_completed().
-	 */
+	/* per-transaction: the last request's framing says nothing of this one's */
 	wsi->http.content_length_given = 0;
 	/* no status line has been built for this transaction yet */
 	wsi->http.response_code = 0;
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)
+	/*
+	 * An h2 / h3 stream's body ends with the stream: a body-bearing method
+	 * with no Content-Length is read until then, bounded by the body
+	 * limit.  An h1 request has no such end, and one with neither
+	 * Content-Length nor Transfer-Encoding has no body at all, whatever
+	 * its method (RFC 9112 6.3): that is decided below, once both headers
+	 * have been looked at.
+	 */
+	if (wsi->mux_substream &&
+	    (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 			||
-	    lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
-	    lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI)
+	     lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
+	     lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI)
 #endif
-	    ) {
+	    )) {
 		wsi->http.rx_content_length = max_body;
 		if (!wsi->http.rx_content_remain)
 			wsi->http.rx_content_remain = max_body;
@@ -2175,6 +2176,20 @@ lws_http_request_body_framing(struct lws *wsi)
 			   __func__);
 	}
 #endif
+	else if (!wsi->mux_substream && !wsi->http.rx_chunked) {
+		/*
+		 * An h1 request with neither Content-Length nor
+		 * Transfer-Encoding has no body, whatever its method (RFC
+		 * 9112 6.3): what follows its head on the connection is the
+		 * next request.  A POST is told so as one saying
+		 * "Content-Length: 0" is, an empty HTTP_BODY and then its
+		 * HTTP_BODY_COMPLETION, so an app that takes a form from
+		 * those sees the same either way.
+		 */
+		wsi->http.rx_content_remain = wsi->http.rx_content_length = 0;
+		wsi->http.content_length_given = 1;
+		wsi->http.content_length_explicitly_zero = 1;
+	}
 
 	return 0;
 }
@@ -2442,10 +2457,10 @@ lws_http_action(struct lws *wsi)
 		} else if (wsi->http.rx_content_length >
 						hit->max_http_body_size) {
 			/*
-			 * A body with no length up front (chunked, or a POST
-			 * with neither header): the mount's limit is its
-			 * countdown.  A request with no body has none to
-			 * limit, and must not be given one to wait for.
+			 * A body with no length up front (chunked, or an h2 /
+			 * h3 stream's, ended by the stream): the mount's limit
+			 * is its countdown.  A request with no body has none
+			 * to limit, and must not be given one to wait for.
 			 */
 			wsi->http.rx_content_length = hit->max_http_body_size;
 			wsi->http.rx_content_remain = hit->max_http_body_size;
@@ -3486,10 +3501,11 @@ lws_http_transaction_completed(struct lws *wsi)
 	 */
 	if (wsi->http.rx_content_length && wsi->http.rx_content_remain) {
 		/*
-		 * If we don't know where the body ends, we cannot discard the
-		 * remainder to resync for pipelining: drop the connection.  A
-		 * chunked body carries its own end marker, so it is discarded
-		 * up to its last-chunk exactly like a Content-Length body.
+		 * If we don't know where the body ends (an h2 / h3 stream's,
+		 * whose end has not come), we cannot discard the remainder to
+		 * resync for pipelining: drop the connection.  A chunked body
+		 * carries its own end marker, so it is discarded up to its
+		 * last-chunk exactly like a Content-Length body.
 		 */
 		if (!wsi->http.content_length_given && !wsi->http.rx_chunked) {
 			lwsl_notice("%s: %s: unread body but no content length, closing\n",
