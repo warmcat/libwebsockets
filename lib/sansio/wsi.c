@@ -1965,6 +1965,16 @@ idle:
 	return 1; /* new transaction */
 
 bail:
+	/*
+	 * wnew goes back where it was, at the head of the queue: the leader
+	 * could not hand its connection on, so it is closed by the caller, and
+	 * its close takes the queued transactions with it, each told its
+	 * connection failed.  Off the queue and on no list, wnew would have
+	 * waited forever
+	 */
+	lws_dll2_add_head(&wnew->dll2_cli_txn_queue,
+			  &wsi->dll2_cli_txn_queue_owner);
+
 	/* we must not return holding the vhost lock */
 	if (take_vh_lock)
 		lws_vhost_unlock(wsi->a.vhost);

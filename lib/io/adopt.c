@@ -1552,8 +1552,12 @@ assert(lws_socket_is_valid(wnew->io->desc.sockfd));
 
 /* disconnect the fd from association with old wsi */
 
-if (__remove_wsi_socket_from_fds(wsi))
+if (__remove_wsi_socket_from_fds(wsi)) {
+	/* the fd stays the old wsi's, which closes with it: not wnew's too */
+	wnew->io->desc.sockfd = LWS_SOCK_INVALID;
+
 	return -1; /* we must not return holding the vh lock */
+}
 
 sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 sanity_assert_no_sockfd_traces(wsi->a.context, wsi->io->desc.sockfd);

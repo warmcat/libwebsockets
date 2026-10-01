@@ -410,6 +410,17 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	n = _lws_generic_transaction_completed_active_conn(&wsi, 1);
 	lws_pt_unlock(pt);
 
+	if (n < 0) {
+		/*
+		 * We could not hand our connection to the queued transaction:
+		 * the queue is intact and closes with us, each told its
+		 * connection failed.  We have no socket to set up again on.
+		 */
+		lwsl_wsi_info(wsi, "pipeline hand-off failed, closing");
+
+		return -1;
+	}
+
 	if (wsi->stream.ah) {
 		if (wsi->client_mux_substream)
 			/*

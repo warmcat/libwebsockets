@@ -834,16 +834,26 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * mux leader
 			 */
 			if (lwsi_state(w) == LRS_IDLING && lwsi_role_h1(w)) {
-				_lws_generic_transaction_completed_active_conn(&w, 0);
-
-				/*
-				 * An idle h1 leader with us as its only queued
-				 * transaction hands us its connection right away
-				 * and dies: we are off the queue holding a live
-				 * socket, ready to send our request
-				 */
-				if (lws_dll2_is_detached(&wsi->dll2_cli_txn_queue))
-					lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
+				if (_lws_generic_transaction_completed_active_conn(&w, 0) < 0)
+					/*
+					 * The idle leader could not hand us its
+					 * connection: we are back on its queue,
+					 * and it closes, taking us with it,
+					 * told our connection failed
+					 */
+					lws_set_timeout(w, 1, LWS_TO_KILL_ASYNC);
+				else
+					/*
+					 * An idle h1 leader with us as its only
+					 * queued transaction hands us its
+					 * connection right away and dies: we
+					 * are off the queue holding a live
+					 * socket, ready to send our request
+					 */
+					if (lws_dll2_is_detached(
+						&wsi->dll2_cli_txn_queue))
+						lws_wsi_event(wsi,
+							LWS_WSIEV_TRANSPORT_UP);
 			}
 
 			/*
