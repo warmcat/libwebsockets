@@ -88,7 +88,11 @@ lws_tls_session_tag_suffix(char *buf, size_t len, int quic,
 	if (!sl)
 		return 0;
 
-	if (n + sl + 1 > len) {
+	/*
+	 * lws_snprintf() reports a truncated result as the whole size... the
+	 * suffixes fit sfx, but then sl + 1 would read past it
+	 */
+	if (sl >= sizeof(sfx) || n + sl + 1 > len) {
 		*buf = '\0';
 
 		return 1;
