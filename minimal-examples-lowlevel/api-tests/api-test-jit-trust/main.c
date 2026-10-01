@@ -86,6 +86,7 @@ enum {
 enum {
 	ON_JITT,	/* completes on the JIT Trust vhost */
 	ON_DEFAULT,	/* completes on the client's own vhost */
+	ON_OTHER,	/* completed on some unexpected vhost */
 };
 
 static const struct step {
@@ -490,7 +491,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		st.status = (int)lws_http_client_http_response(wsi);
 		vhn = lws_get_vhost_name(lws_get_vhost(wsi));
 		st.on = vhn && !strcmp(vhn, jitt_vh_name) ? ON_JITT :
-			(vhn && !strcmp(vhn, "default") ? ON_DEFAULT : -1);
+			(vhn && !strcmp(vhn, "default") ? ON_DEFAULT : ON_OTHER);
 		lwsl_user("%s: attempt %d: http %d on vhost %s\n", __func__,
 			  st.attempts, st.status, vhn ? vhn : "?");
 		break;
