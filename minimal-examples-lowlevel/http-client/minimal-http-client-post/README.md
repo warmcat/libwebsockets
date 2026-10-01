@@ -10,6 +10,14 @@ short file.
 The result of the POST form processing is captured
 and displayed in a hexdump.
 
+The example does not know the body's length when it
+sends the headers, so it adds no Content-Length and
+lws sends the body chunked over http/1.1 (over h2 the
+stream frames it).  An application that knows the
+length adds its own Content-Length header in
+LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER and the
+body is sent as it is.
+
 This is programmatically POSTing to the same
 form you can access at
 

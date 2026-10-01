@@ -421,6 +421,16 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
  * next part of the http body payload, calling lws_callback_on_writable(wsi);
  * if there is more to come, or lws_client_http_body_pending(wsi, 0); to
  * let lws know the last part is sent and the connection can move on.
+ *
+ * The body must be framed for the server to know where it ends.  If you
+ * know its length, add a Content-Length header in the
+ * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER callback and lws sends what
+ * you write as it is.  If you add neither that nor a Transfer-Encoding, lws
+ * adds "Transfer-Encoding: chunked" to the head (with a NOTICE saying so)
+ * and frames each lws_write() as one chunk, the one written with
+ * LWS_WRITE_HTTP_FINAL followed by the last-chunk; a write of length zero
+ * that is not final sends nothing.  Over h2 the stream frames the body and
+ * neither header is needed.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);

@@ -25,6 +25,6 @@ Option|Meaning
 --uv|Use libuv event loop if lws built for it
 --event|Use libevent event loop if lws built for it
 --ev|Use libev event loop if lws built for it
---post|POST to the server rather than GET
+--post|POST to the server rather than GET (a multipart body of unknown length: over http/1.1 lws sends it chunked)
 -c<n>|Create n connections (n can be 1 .. 8)
 --path <path>|Force the URL path (should start with /)

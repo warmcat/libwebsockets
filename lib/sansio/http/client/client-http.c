@@ -2115,6 +2115,39 @@ lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
 }
 
 
+/*
+ * Does the request head composed so far, from head to end, frame a body:
+ * does it have a Content-Length or a Transfer-Encoding?  The app writes
+ * these as header lines (lws_add_http_header_by_token(), or by hand), in
+ * whatever case, so each line's start is compared case-insensitively.
+ */
+static int
+lws_h1_client_head_frames_body(const char *head, const char *end)
+{
+	static const char * const names[] = { "content-length:",
+					      "transfer-encoding:" };
+	const char *p = head;
+
+	while (p < end) {
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(names); n++) {
+			size_t l = strlen(names[n]);
+
+			if ((size_t)(end - p) > l &&
+			    !strncasecmp(p, names[n], l))
+				return 1;
+		}
+		/* to the start of the next line */
+		while (p < end && *p != '\n')
+			p++;
+		if (p < end)
+			p++;
+	}
+
+	return 0;
+}
+
 char *
 lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 {
@@ -2294,6 +2327,27 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "Content-Type: application/x-www-form-urlencoded\x0d\x0a");
 		p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p), "Content-Length: %lu\x0d\x0a", wsi->http.writeable_len);
 		lws_client_http_body_pending(wsi, 1);
+	}
+
+	/*
+	 * A body is to follow the head (lws_client_http_body_pending()), and
+	 * the head says nothing of how it is framed: neither a Content-Length
+	 * nor a Transfer-Encoding came from the app.  No server can know
+	 * where such a body ends: RFC 9112 6.3 has a request with neither
+	 * header carry no body at all, and what follows its head taken as
+	 * the next request.  So it goes chunked: lws_write() frames each
+	 * piece as a chunk, and the final piece is followed by the
+	 * last-chunk (rops_write_role_protocol_h1()).  An app that knows its
+	 * body's length adds the Content-Length itself and is left alone.
+	 */
+	wsi->http.client_body_chunked = 0;
+	if (wsi->client_http_body_pending &&
+	    !lws_h1_client_head_frames_body(pkt, p) && p < end) {
+		lwsl_wsi_notice(wsi, "body with no Content-Length: sending it "
+				     "chunked");
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Transfer-Encoding: chunked\x0d\x0a");
+		wsi->http.client_body_chunked = 1;
 	}
 
 	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p), "\x0d\x0a");

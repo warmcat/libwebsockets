@@ -488,6 +488,11 @@ struct _lws_http_mode_related {
 	 * POST), which are otherwise indistinguishable: the method URI header
 	 * still holds the original, protected URI.  Cleared on transaction
 	 * rearm. */
+	unsigned int client_body_chunked:1;
+	/**< client: the request body goes chunked, each lws_write() a chunk and
+	 * the final one followed by the last-chunk, because the app framed it
+	 * with neither a Content-Length nor a Transfer-Encoding
+	 * (lws_generate_client_handshake()).  Decided per request. */
 	unsigned int sent_response_headers:1;
 	/**< set once we have written response headers on this transaction, so
 	 * we can distinguish "stream closed during request" from "stream closed

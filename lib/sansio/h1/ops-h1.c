@@ -1166,6 +1166,56 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 	}
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * A client body the head framed as chunked
+	 * (lws_generate_client_handshake(): the app gave it no
+	 * Content-Length): each piece goes as a chunk, its size line in the
+	 * LWS_PRE in front of it, and after it its CRLF and, for the final
+	 * piece, the last-chunk, pushed behind it in order (a partial of the
+	 * first keeps the second queued after it).  An empty piece that is
+	 * not final is nothing on the wire: a chunk of size zero would be
+	 * the last-chunk.
+	 */
+	if (wsi->http.client_body_chunked && lwsi_role_client(wsi) &&
+	    (((*wp) & 0x1f) == LWS_WRITE_HTTP ||
+	     ((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL)) {
+		char trl[LWS_HTTP_CHUNK_TRL_MAX_SIZE];
+		size_t tl = 0;
+
+		if (len > 0xffffff) {
+			/* the size line has six hex digits */
+			lwsl_wsi_err(wsi, "chunk too large: %lu",
+					  (unsigned long)len);
+
+			return -1;
+		}
+
+		if (len) {
+			char hdr[LWS_HTTP_CHUNK_HDR_MAX_SIZE + 1];
+			int hl = lws_snprintf(hdr, sizeof(hdr), "%X\x0d\x0a",
+					      (unsigned int)len);
+
+			buf -= hl;
+			len += (size_t)hl;
+			memcpy(buf, hdr, (size_t)hl);
+			trl[tl++] = '\x0d';
+			trl[tl++] = '\x0a';
+		}
+		if (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL) {
+			memcpy(trl + tl, "0\x0d\x0a\x0d\x0a", 5);
+			tl += 5;
+		}
+
+		if (len && lws_io_tx_push(wsi, (unsigned char *)buf, len) < 0)
+			return -1;
+		if (tl && lws_io_tx_push(wsi, (unsigned char *)trl, tl) < 0)
+			return -1;
+
+		return (int)olen;
+	}
+#endif
+
 	n = lws_io_tx_push(wsi, (unsigned char *)buf, len);
 	if (n < 0)
 		return n;

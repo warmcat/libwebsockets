@@ -94,7 +94,9 @@ enum {
 	LWSSSPOLF_AUTH_BEARER					= (1 << 6),
 	/**< for http, use lws_system auth token 0 in authentication: bearer */
 	LWSSSPOLF_HTTP_NO_CONTENT_LENGTH			= (1 << 7),
-	/**< don't add any content length even if we have it */
+	/**< don't add any content length even if we have it: over h1 the
+	 * body then goes with "Transfer-Encoding: chunked" instead, since a
+	 * request body with neither header has no end the server can know */
 	LWSSSPOLF_QUIRK_NGHTTP2_END_STREAM			= (1 << 8),
 	/**< set the client flag LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM */
 	LWSSSPOLF_H2_QUIRK_OVERFLOWS_TXCR			= (1 << 9),
