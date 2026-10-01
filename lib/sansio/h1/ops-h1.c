@@ -491,6 +491,18 @@ postbody_completion:
 
 				if (wsi->mux_substream)
 					lws_wsi_event(wsi, LWS_WSIEV_BODY_COMPLETE);
+
+#if defined(LWS_WITH_SERVER)
+				/*
+				 * The body is complete and its completion
+				 * delivered: that is the last point user code
+				 * may read the request headers, so a mux
+				 * stream lets them go now (h2 and h3 stream
+				 * bodies both arrive here)
+				 */
+				if (lwsi_role_server(wsi))
+					lws_http_ah_release_after_dispatch(wsi, 1);
+#endif
 			}
 
 			break;

@@ -231,18 +231,33 @@ enum lws_callback_reasons {
 	 * with the http connection, since the rest of the
 	 * activity will come by websockets from the script
 	 * that was delivered by http, so you will want to
-	 * return 1; to close and free up the connection. */
+	 * return 1; to close and free up the connection.
+	 *
+	 * The request headers are only guaranteed up to here, as a ws
+	 * connection's are up to LWS_CALLBACK_ESTABLISHED.  For a request
+	 * with a body they stay through LWS_CALLBACK_HTTP_BODY to
+	 * LWS_CALLBACK_HTTP_BODY_COMPLETION.  After that lws may give the
+	 * header allocation back to its pool (an h2 or h3 stream does, so a
+	 * transfer that runs for minutes does not pin one), and
+	 * lws_hdr_copy(), lws_get_urlarg_by_name_safe(),
+	 * lws_http_cookie_get() and friends answer "not present" from later
+	 * callbacks such as LWS_CALLBACK_HTTP_WRITEABLE.  Copy what you need
+	 * into your pss inside the window.  That includes `in` itself: it
+	 * points into the request headers, so copy it rather than storing
+	 * the pointer. */
 
 	LWS_CALLBACK_HTTP_BODY					= 13,
 	/**< the next len bytes data from the http
 	 * request body HTTP connection is now available in in.  A request
 	 * body sent with Transfer-Encoding: chunked is decoded by lws, so
-	 * in only ever holds body payload, never the chunk framing. */
+	 * in only ever holds body payload, never the chunk framing.  The
+	 * request headers are still available here. */
 
 	LWS_CALLBACK_HTTP_BODY_COMPLETION			= 14,
 	/**< the expected amount of http request body has been delivered:
 	 * the Content-Length was reached, or the last-chunk of a chunked
-	 * body arrived */
+	 * body arrived.  This is the last callback at which the request
+	 * headers are guaranteed to be available (see LWS_CALLBACK_HTTP). */
 
 	LWS_CALLBACK_HTTP_FILE_COMPLETION			= 15,
 	/**< a file requested to be sent down http link has completed. */

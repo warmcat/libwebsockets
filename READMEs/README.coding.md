@@ -434,12 +434,31 @@ HTTP Header information is managed by a pool of "ah" structs.  These are a
 limited resource so there is pressure to free the headers and return the ah to
 the pool for reuse.
 
-For that reason header information on HTTP connections that get upgraded to
-websockets is lost after the ESTABLISHED callback.  Anything important that
-isn't processed by user code before then should be copied out for later.
+For that reason the request headers are only guaranteed while the request is
+being dispatched to user code, and may be released as soon as that is done:
 
-For HTTP connections that don't upgrade, header info remains available the
-whole time.
+|request|the headers are available up to and including|
+|---|---|
+|GET / HEAD, and anything else with no request body|`LWS_CALLBACK_HTTP`|
+|POST / PUT / PATCH, or any request with a body|`LWS_CALLBACK_HTTP_BODY_COMPLETION` (`LWS_CALLBACK_HTTP` and `LWS_CALLBACK_HTTP_BODY` are also inside the window)|
+|ws upgrade|`LWS_CALLBACK_ESTABLISHED` (`LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION` is the callback guaranteed to see them on every path, eg, a proxied ws parent)|
+|WebTransport upgrade over h3|`LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED`|
+
+An h2 or h3 stream gives its header allocation back at that point, so one
+stream out of many on a connection, or a download or upload that runs for
+minutes, does not pin an ah for its whole life.  An h1 connection currently
+keeps it until the transaction completes, because a pipelined request arriving
+behind the response needs a table; do not rely on that, the window above is the
+contract for every role.  Mounts that have their own lifetime, ie, cgi and the
+reverse proxy, release the headers even earlier, at spawn / proxy start.
+
+Anything important must be copied into your `pss` inside the window.  The
+accessors (`lws_hdr_copy()`, `lws_hdr_total_length()`,
+`lws_get_urlarg_by_name_safe()`, `lws_http_cookie_get()`, ...) do not fail
+loudly afterwards, they answer "not present", so a late read is a silently
+wrong answer rather than an error.  The same goes for the `in` pointer at
+`LWS_CALLBACK_HTTP`: it points into the headers, so copy it rather than storing
+the pointer.
 
 @section http2compat Code Requirements for HTTP/2 compatibility
 

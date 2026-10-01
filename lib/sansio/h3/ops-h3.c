@@ -594,11 +594,11 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		 * on h3 a POST handler saw no Cookie at all: the body arrived
 		 * intact (it is not in the ah) while the headers had gone,
 		 * which is what made a cookie-authenticated POST fail on h3
-		 * alone.  h1 and h2 both keep the ah for the whole transaction
-		 * (the equivalent h2 detach is commented out in http2.c).
+		 * alone.  The shared helper holds on until the body completion
+		 * for those, so h2 and h3 streams end the request headers at
+		 * the same point (C-021).
 		 */
-		if (lwsi_state(wsi) != LRS_BODY)
-			lws_header_table_detach(wsi, 0);
+		lws_http_ah_release_after_dispatch(wsi, 0);
 
 		/*
 		 * lws_http_action sets LRS_DOING_TRANSACTION on the wsi BEFORE

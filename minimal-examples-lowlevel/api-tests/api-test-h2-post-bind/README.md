@@ -28,3 +28,11 @@ Option|Meaning
 -p <port>|Port for the h1 server vhost (default 7681)
 --h2-port <port>|Port for the h2 prior-knowledge server vhost (default 7682)
 --server <addr>|Server address to connect to (default 127.0.0.1)
+
+## Request-header window
+
+The server answers from `LWS_CALLBACK_HTTP_WRITEABLE`, and each leg also
+checks when the request headers are readable: at `LWS_CALLBACK_HTTP` and at
+`LWS_CALLBACK_HTTP_BODY_COMPLETION` they must be, and an h2 stream must have
+given its header table back by the time the writeable callback runs, which is
+what stops one connection's streams holding the whole pool.

@@ -1546,7 +1546,20 @@ lws_create_context(const struct lws_context_creation_info *info)
 			context->max_http_header_pool =
 					(unsigned short)info->max_http_header_pool2;
 		else
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+			/*
+			 * A mux connection has many streams, each needing a
+			 * header table while its request is received and
+			 * dispatched (it is released after that), so allow
+			 * for more than one per fd.  The pool only caps how
+			 * many may exist at once; tables are made on demand.
+			 */
+			context->max_http_header_pool = (unsigned short)
+				(context->max_fds >= 16384 ? 65535 :
+						     context->max_fds * 4);
+#else
 			context->max_http_header_pool = context->max_fds;
+#endif
 #endif
 
 	if (info->fd_limit_per_thread)

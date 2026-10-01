@@ -398,6 +398,18 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	ah->wsi = NULL; /* no owner */
 	wsi->stream.ah = NULL;
 
+	/*
+	 * PENDING_TIMEOUT_HOLDING_AH exists only to bound how long this wsi
+	 * may sit on an ah; the attach and the reset arm it.  We just gave the
+	 * ah back, so leaving it armed would later close the connection for a
+	 * reason that stopped applying.
+	 */
+	if (wsi->pending_timeout == PENDING_TIMEOUT_HOLDING_AH) {
+		/* by hand: __lws_set_timeout() has no "no timeout" form */
+		lws_dll2_remove(&wsi->sul_timeout.list);
+		wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	}
+
 	pwsi = &pt->http.ah_wait_list;
 
 	/* oh there is nobody on the waiting list... leave the ah unattached */

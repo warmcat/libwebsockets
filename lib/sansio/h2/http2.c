@@ -2447,8 +2447,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			if (lwsi_role_server(h2n->swsi) &&
 			    lwsi_state(h2n->swsi) != LRS_DEFERRING_ACTION &&
-			    lws_hdr_total_length(h2n->swsi,
-						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+			    /* not the ah: it may be released by now */
+			    h2n->swsi->http.content_length_given &&
 			    h2n->swsi->h2.END_STREAM &&
 			    h2n->swsi->http.rx_content_length &&
 			    h2n->swsi->http.rx_content_remain) {
@@ -2458,6 +2458,17 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					return 1;
 				break;
 			}
+
+			/*
+			 * The trailers were decoded into a table attached for
+			 * them; a dispatched server stream has no further use
+			 * for it (nothing delivers trailers to user code), so
+			 * it goes back now rather than at the stream's close.
+			 * One still reading its body keeps it to the body
+			 * completion, which releases it.
+			 */
+			if (lwsi_role_server(h2n->swsi))
+				lws_http_ah_release_after_dispatch(h2n->swsi, 0);
 
 			if (!h2n->swsi->h2.END_STREAM)
 				break;
@@ -2765,8 +2776,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if (lwsi_role_server(h2n->swsi) &&
 		    lwsi_state(h2n->swsi) != LRS_DEFERRING_ACTION &&
-		    lws_hdr_total_length(h2n->swsi,
-					 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+		    /* not the ah: it may be released by now */
+		    h2n->swsi->http.content_length_given &&
 		    h2n->swsi->h2.END_STREAM &&
 		    h2n->swsi->http.rx_content_length &&
 		    h2n->swsi->http.rx_content_remain) {

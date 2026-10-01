@@ -31,6 +31,11 @@
  *
  * against one and the same per-session pointer, with a marker set at the bind
  * still intact when LWS_CALLBACK_HTTP ran.
+ *
+ * The response is written from LWS_CALLBACK_HTTP_WRITEABLE, and each leg also
+ * checks the request-header window: the headers are readable at
+ * LWS_CALLBACK_HTTP and at the body completion, and an h2 stream has given its
+ * header table back by the time the writeable callback runs (C-021).
  */
 
 #include <libwebsockets.h>
@@ -50,10 +55,12 @@ struct pss_srv {
 /* what the server protocol saw for the leg in flight */
 
 struct seen {
-	int		bind, http, drop, body, body_compl;
+	int		bind, http, drop, body, body_compl, writeable;
 	void		*bind_user, *http_user, *drop_user;
 	int		magic_ok;	/* the bind's marker intact at HTTP */
 	size_t		body_bytes;
+	/* were the request headers readable at each point (Host: seen) */
+	int		hdrs_at_http, hdrs_at_body_compl, hdrs_at_writeable;
 };
 
 static struct lws_context *context;
@@ -131,6 +138,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		seen.http++;
 		seen.http_user = user;
 		seen.magic_ok = pss->magic == PSS_MAGIC;
+		seen.hdrs_at_http = lws_hdr_total_length(wsi, WSI_TOKEN_HOST) > 0;
 
 		lwsl_user("%s: server: HTTP %s\n", __func__,
 			  in ? (const char *)in : "");
@@ -139,7 +147,13 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			/* the body decides the response, wait for it */
 			return 0;
 
-		return respond(wsi);
+		/*
+		 * Answer from the writeable callback, as an app with work to
+		 * do would: that is after the dispatch, outside the window in
+		 * which the request headers are guaranteed
+		 */
+		lws_callback_on_writable(wsi);
+		return 0;
 
 	case LWS_CALLBACK_HTTP_BODY:
 		seen.body++;
@@ -148,6 +162,15 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		seen.body_compl++;
+		seen.hdrs_at_body_compl =
+				lws_hdr_total_length(wsi, WSI_TOKEN_HOST) > 0;
+		lws_callback_on_writable(wsi);
+		return 0;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		seen.writeable++;
+		seen.hdrs_at_writeable =
+				lws_hdr_total_length(wsi, WSI_TOKEN_HOST) > 0;
 		return respond(wsi);
 
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
@@ -304,6 +327,30 @@ leg_evaluate(void)
 			 "intact at LWS_CALLBACK_HTTP\n", __func__, l->name);
 		ok = 0;
 	}
+	/*
+	 * The request headers must be there while the request is dispatched
+	 * (LWS_CALLBACK_HTTP, and the body completion for a POST), and a mux
+	 * stream must have given its table back by the time the response is
+	 * written from the writeable callback: that is what frees the pool for
+	 * the other streams.  (An h1 connection keeps its table to the end of
+	 * the transaction, which the contract allows but does not promise.)
+	 */
+	if (seen.http && !seen.hdrs_at_http) {
+		lwsl_err("%s: %s: request headers not readable at "
+			 "LWS_CALLBACK_HTTP\n", __func__, l->name);
+		ok = 0;
+	}
+	if (seen.body_compl && !seen.hdrs_at_body_compl) {
+		lwsl_err("%s: %s: request headers not readable at body "
+			 "completion\n", __func__, l->name);
+		ok = 0;
+	}
+	if (l->h2 && seen.writeable && seen.hdrs_at_writeable) {
+		lwsl_err("%s: %s: mux stream still holds its request headers "
+			 "at HTTP_WRITEABLE\n", __func__, l->name);
+		ok = 0;
+	}
+
 	if (!strcmp(l->method, "POST")) {
 		if (seen.body_bytes != BODY_LEN || !seen.body_compl) {
 			lwsl_err("%s: %s: server decoded %u body bytes in %d "
