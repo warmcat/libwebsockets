@@ -270,6 +270,24 @@ case_check(void)
 		case_end(NULL);
 }
 
+/* keep what fits of what the client received, NUL-terminated */
+
+static void
+rx_append(const void *in, size_t len)
+{
+	size_t room;
+
+	if (rx_len >= sizeof(rx) - 1)
+		return;
+
+	room = sizeof(rx) - 1 - rx_len;
+	if (len > room)
+		len = room;
+	memcpy(rx + rx_len, in, len);
+	rx_len += len;
+	rx[rx_len] = '\0';
+}
+
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -293,10 +311,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		if (len > sizeof(rx) - 1 - rx_len)
-			len = sizeof(rx) - 1 - rx_len;
-		memcpy(rx + rx_len, in, len);
-		rx_len += len;
+		rx_append(in, len);
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -363,12 +378,7 @@ callback_cli_raw(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		/* fallthru */
 	case LWS_CALLBACK_RAW_PROXY_CLI_RX:
-		n = len;
-		if (n > sizeof(rx) - 1 - rx_len)
-			n = sizeof(rx) - 1 - rx_len;
-		memcpy(rx + rx_len, in, n);
-		rx_len += n;
-		rx[rx_len] = '\0';
+		rx_append(in, len);
 
 		/* all of it the origin's, never the proxy's reply */
 		if (strncmp(rx, RAW_BANNER RAW_PONG, rx_len)) {
