@@ -1640,14 +1640,553 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 }
 #endif
 
+/*
+ * Cert creation
+ *
+ * Keys are made ephemeral in the CNG software KSP and handed back as SEC1
+ * (EC) or PKCS#1 (RSA) DER, the same as the other backends.  A CA key may come
+ * as SEC1, PKCS#1 or PKCS#8 PEM.
+ */
+
+static const struct lws_schannel_curve {
+	const char	*name;
+	LPCWSTR		alg;
+	LPCSTR		oid;
+	ULONG		magic;
+	DWORD		cb;
+} lws_schannel_curves[] = {
+	{ "P-256", NCRYPT_ECDSA_P256_ALGORITHM, szOID_ECC_CURVE_P256,
+	  BCRYPT_ECDSA_PRIVATE_P256_MAGIC, 32 },
+	{ "P-384", NCRYPT_ECDSA_P384_ALGORITHM, szOID_ECC_CURVE_P384,
+	  BCRYPT_ECDSA_PRIVATE_P384_MAGIC, 48 },
+	{ "P-521", NCRYPT_ECDSA_P521_ALGORITHM, szOID_ECC_CURVE_P521,
+	  BCRYPT_ECDSA_PRIVATE_P521_MAGIC, 66 },
+};
+
+static const struct lws_schannel_curve *
+lws_schannel_curve_by_name(const char *name)
+{
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(lws_schannel_curves); n++)
+		if (!strcmp(lws_schannel_curves[n].name, name))
+			return &lws_schannel_curves[n];
+
+	return NULL;
+}
+
+static const struct lws_schannel_curve *
+lws_schannel_curve_by_oid(const char *oid)
+{
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(lws_schannel_curves); n++)
+		if (!strcmp(lws_schannel_curves[n].oid, oid))
+			return &lws_schannel_curves[n];
+
+	return NULL;
+}
+
+static NCRYPT_KEY_HANDLE
+lws_schannel_gen_key(NCRYPT_PROV_HANDLE hProv,
+		     const struct lws_schannel_curve *curve, int key_bits)
+{
+	DWORD pol = NCRYPT_ALLOW_EXPORT_FLAG | NCRYPT_ALLOW_PLAINTEXT_EXPORT_FLAG,
+	      bits = (DWORD)(key_bits ? key_bits : 2048);
+	NCRYPT_KEY_HANDLE hKey = 0;
+
+	/* no name: an ephemeral key, nothing is left in the key store */
+	if (NCryptCreatePersistedKey(hProv, &hKey, curve ? curve->alg :
+				     NCRYPT_RSA_ALGORITHM, NULL, 0, 0) !=
+							ERROR_SUCCESS)
+		return 0;
+
+	/* we hand the private key back, so it must be exportable */
+	if (NCryptSetProperty(hKey, NCRYPT_EXPORT_POLICY_PROPERTY, (PBYTE)&pol,
+			      sizeof(pol), 0) != ERROR_SUCCESS ||
+	    (!curve && NCryptSetProperty(hKey, NCRYPT_LENGTH_PROPERTY,
+					 (PBYTE)&bits, sizeof(bits), 0) !=
+							ERROR_SUCCESS) ||
+	    NCryptFinalizeKey(hKey, 0) != ERROR_SUCCESS) {
+		NCryptFreeObject(hKey);
+		return 0;
+	}
+
+	return hKey;
+}
+
+/* SEC1 ECPrivateKey DER -> BCRYPT_ECCPRIVATE_BLOB -> CNG key */
+
+static NCRYPT_KEY_HANDLE
+lws_schannel_import_sec1(NCRYPT_PROV_HANDLE hProv, const BYTE *der, DWORD len)
+{
+	const struct lws_schannel_curve *curve;
+	CRYPT_ECC_PRIVATE_KEY_INFO *eki = NULL;
+	BCRYPT_ECCKEY_BLOB *b = NULL;
+	NCRYPT_KEY_HANDLE hKey = 0;
+	DWORD cb = 0, blen = 0;
+	BYTE *p;
+
+	if (!CryptDecodeObjectEx(X509_ASN_ENCODING, X509_ECC_PRIVATE_KEY, der,
+				 len, CRYPT_DECODE_ALLOC_FLAG, NULL, &eki, &cb))
+		return 0;
+
+	/*
+	 * Standalone SEC1 has to name its curve, and CNG wants the public
+	 * point too, which SEC1 makes optional
+	 */
+
+	if (!eki->szCurveOid ||
+	    !(curve = lws_schannel_curve_by_oid(eki->szCurveOid)) ||
+	    eki->PrivateKey.cbData > curve->cb ||
+	    eki->PublicKey.cbData != 1 + 2 * curve->cb ||
+	    eki->PublicKey.pbData[0] != 4) {
+		lwsl_err("%s: unsupported EC key\n", __func__);
+		goto bail;
+	}
+
+	blen = (DWORD)sizeof(*b) + 3 * curve->cb;
+	b = lws_zalloc(blen, __func__);
+	if (!b)
+		goto bail;
+
+	b->dwMagic = curve->magic;
+	b->cbKey = curve->cb;
+	p = (BYTE *)(b + 1);
+	memcpy(p, eki->PublicKey.pbData + 1, 2 * curve->cb); /* X, Y */
+	/* d left-padded to the coordinate size */
+	memcpy(p + 3 * curve->cb - eki->PrivateKey.cbData,
+	       eki->PrivateKey.pbData, eki->PrivateKey.cbData);
+
+	if (NCryptImportKey(hProv, 0, BCRYPT_ECCPRIVATE_BLOB, NULL, &hKey,
+			    (PBYTE)b, blen, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
+		hKey = 0;
+
+bail:
+	if (b) {
+		lws_explicit_bzero(b, blen);
+		lws_free(b);
+	}
+	if (eki) {
+		lws_explicit_bzero(eki->PrivateKey.pbData,
+				   eki->PrivateKey.cbData);
+		LocalFree(eki);
+	}
+
+	return hKey;
+}
+
+/* PKCS#1 RSAPrivateKey DER -> CAPI private key blob -> CNG key */
+
+static NCRYPT_KEY_HANDLE
+lws_schannel_import_pkcs1(NCRYPT_PROV_HANDLE hProv, const BYTE *der, DWORD len)
+{
+	NCRYPT_KEY_HANDLE hKey = 0;
+	BYTE *blob = NULL;
+	DWORD cb = 0;
+
+	if (!CryptDecodeObjectEx(X509_ASN_ENCODING, PKCS_RSA_PRIVATE_KEY, der,
+				 len, CRYPT_DECODE_ALLOC_FLAG, NULL, &blob, &cb))
+		return 0;
+
+	if (NCryptImportKey(hProv, 0, LEGACY_RSAPRIVATE_BLOB, NULL, &hKey,
+			    blob, cb, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
+		hKey = 0;
+
+	lws_explicit_bzero(blob, cb);
+	LocalFree(blob);
+
+	return hKey;
+}
+
+static NCRYPT_KEY_HANDLE
+lws_schannel_import_key_pem(NCRYPT_PROV_HANDLE hProv, const char *pem)
+{
+	NCRYPT_KEY_HANDLE hKey = 0;
+	CRYPT_PRIVATE_KEY_INFO *pki;
+	DWORD len = 0, cb;
+	size_t plen = strlen(pem);
+	BYTE *der;
+
+	if (!plen || plen > 65536 ||
+	    !CryptStringToBinaryA(pem, (DWORD)plen, CRYPT_STRING_BASE64HEADER,
+				  NULL, &len, NULL, NULL))
+		return 0;
+
+	der = lws_malloc(len, __func__);
+	if (!der)
+		return 0;
+
+	if (!CryptStringToBinaryA(pem, (DWORD)plen, CRYPT_STRING_BASE64HEADER,
+				  der, &len, NULL, NULL))
+		goto bail;
+
+	/* the three layouts are distinct, only the right decoder accepts it */
+
+	if (CryptDecodeObjectEx(X509_ASN_ENCODING, PKCS_PRIVATE_KEY_INFO, der,
+				len, CRYPT_DECODE_ALLOC_FLAG, NULL, &pki, &cb)) {
+		lws_explicit_bzero(pki, cb);
+		LocalFree(pki);
+		if (NCryptImportKey(hProv, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB,
+				    NULL, &hKey, der, len, NCRYPT_SILENT_FLAG) !=
+								ERROR_SUCCESS)
+			hKey = 0;
+	} else {
+		hKey = lws_schannel_import_sec1(hProv, der, len);
+		if (!hKey)
+			hKey = lws_schannel_import_pkcs1(hProv, der, len);
+	}
+
+bail:
+	lws_explicit_bzero(der, len);
+	lws_free(der);
+
+	return hKey;
+}
+
+static int
+lws_schannel_export_key_der(NCRYPT_KEY_HANDLE hKey,
+			    const struct lws_schannel_curve *curve,
+			    uint8_t **out, size_t *out_len)
+{
+	CRYPT_ECC_PRIVATE_KEY_INFO eki;
+	BYTE *blob = NULL, *pub = NULL;
+	DWORD blen = 0, len = 0;
+	BCRYPT_ECCKEY_BLOB *b;
+	const void *what;
+	LPCSTR type;
+	int ret = 1;
+
+	if (NCryptExportKey(hKey, 0, curve ? BCRYPT_ECCPRIVATE_BLOB :
+						LEGACY_RSAPRIVATE_BLOB,
+			    NULL, NULL, 0, &blen, NCRYPT_SILENT_FLAG) !=
+								ERROR_SUCCESS)
+		return 1;
+
+	blob = lws_malloc(blen, __func__);
+	if (!blob)
+		return 1;
+
+	if (NCryptExportKey(hKey, 0, curve ? BCRYPT_ECCPRIVATE_BLOB :
+						LEGACY_RSAPRIVATE_BLOB,
+			    NULL, blob, blen, &blen, NCRYPT_SILENT_FLAG) !=
+								ERROR_SUCCESS)
+		goto bail;
+
+	if (curve) {
+		/* the blob is the header, then X, Y and d */
+		b = (BCRYPT_ECCKEY_BLOB *)blob;
+		if (blen < sizeof(*b) || b->cbKey != curve->cb ||
+		    blen < sizeof(*b) + 3 * curve->cb)
+			goto bail;
+
+		pub = lws_malloc(1 + 2 * curve->cb, __func__);
+		if (!pub)
+			goto bail;
+		pub[0] = 4; /* uncompressed point */
+		memcpy(pub + 1, b + 1, 2 * curve->cb);
+
+		memset(&eki, 0, sizeof(eki));
+		eki.dwVersion = CRYPT_ECC_PRIVATE_KEY_INFO_v1;
+		eki.PrivateKey.cbData = curve->cb;
+		eki.PrivateKey.pbData = (BYTE *)(b + 1) + 2 * curve->cb;
+		eki.szCurveOid = (LPSTR)curve->oid;
+		eki.PublicKey.cbData = 1 + 2 * curve->cb;
+		eki.PublicKey.pbData = pub;
+
+		type = X509_ECC_PRIVATE_KEY;
+		what = &eki;
+	} else {
+		type = PKCS_RSA_PRIVATE_KEY;
+		what = blob;
+	}
+
+	if (!CryptEncodeObjectEx(X509_ASN_ENCODING, type, what, 0, NULL, NULL,
+				 &len))
+		goto bail;
+
+	/* the caller frees it with free(), as on the other backends */
+	*out = malloc(len);
+	if (!*out)
+		goto bail;
+
+	if (!CryptEncodeObjectEx(X509_ASN_ENCODING, type, what, 0, NULL, *out,
+				 &len)) {
+		free(*out);
+		*out = NULL;
+		goto bail;
+	}
+
+	*out_len = len;
+	ret = 0;
+
+bail:
+	lws_free(pub);
+	lws_explicit_bzero(blob, blen);
+	lws_free(blob);
+
+	return ret;
+}
+
+static int
+lws_schannel_add_ext(CERT_EXTENSION *ext, LPCSTR oid, BOOL critical,
+		     LPCSTR type, const void *what)
+{
+	ext->pszObjId = (LPSTR)oid;
+	ext->fCritical = critical;
+
+	return !CryptEncodeObjectEx(X509_ASN_ENCODING, type, what,
+				    CRYPT_ENCODE_ALLOC_FLAG, NULL,
+				    &ext->Value.pbData, &ext->Value.cbData);
+}
+
 int
 lws_x509_create_cert(struct lws_context *context,
 		     uint8_t **cert_buf, size_t *cert_len,
 		     uint8_t **key_buf, size_t *key_len,
 		     const struct lws_x509_cert_gen_info *info)
 {
-	lwsl_err("%s: not supported on schannel\n", __func__);
-	return 1;
+	LPSTR eku_oids[] = { szOID_PKIX_KP_SERVER_AUTH,
+			     szOID_PKIX_KP_CLIENT_AUTH };
+	NCRYPT_KEY_HANDLE hKey = 0, hCaKey = 0, hSign;
+	const struct lws_schannel_curve *curve = NULL;
+	CERT_BASIC_CONSTRAINTS2_INFO bc;
+	struct lws_x509_cert *ca = NULL;
+	CERT_PUBLIC_KEY_INFO *spki = NULL;
+	CRYPT_ALGORITHM_IDENTIFIER sig;
+	NCRYPT_PROV_HANDLE hProv = 0;
+	CERT_EXTENSION ext[4];
+	CERT_ALT_NAME_ENTRY ane;
+	CERT_ALT_NAME_INFO ani;
+	CERT_ENHKEY_USAGE eku;
+	CERT_NAME_BLOB subject = { 0, NULL };
+	CERT_NAME_INFO ni;
+	CERT_RDN_ATTR attr;
+	CRYPT_BIT_BLOB ku;
+	WCHAR wsan[256], grp[32];
+	DWORD cb = 0, n, ne = 0;
+	ULARGE_INTEGER t;
+	BYTE kub, serial[8];
+	CERT_INFO ci;
+	CERT_RDN rdn;
+	uint8_t ip[16];
+	int ipl = -1, ret = 1;
+	size_t sl;
+
+	(void)context;
+
+	memset(ext, 0, sizeof(ext));
+
+	if (!info || !info->san ||
+	    (!info->ca_cert_pem != !info->ca_key_pem) ||
+	    info->validity_days < 0 ||
+	    info->validity_days > 100 * 366) /* keeps FILETIME math sane */
+		return 1;
+
+	/* 253 is the longest a DNS name can be */
+	sl = strlen(info->san);
+	if (!sl || sl > 253 ||
+	    !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, info->san, -1,
+				 wsan, (int)LWS_ARRAY_SIZE(wsan)))
+		return 1;
+
+	if (info->curve_name) {
+		curve = lws_schannel_curve_by_name(info->curve_name);
+		if (!curve) {
+			lwsl_err("%s: unknown curve %s\n", __func__,
+				 info->curve_name);
+			return 1;
+		}
+	}
+
+	if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) !=
+							ERROR_SUCCESS)
+		return 1;
+
+	hKey = lws_schannel_gen_key(hProv, curve, info->key_bits);
+	if (!hKey) {
+		lwsl_err("%s: key generation failed\n", __func__);
+		goto bail;
+	}
+	hSign = hKey;
+
+	if (info->ca_cert_pem) {
+		if (lws_x509_create(&ca) ||
+		    lws_x509_parse_from_pem(ca, info->ca_cert_pem,
+					    strlen(info->ca_cert_pem) + 1)) {
+			lwsl_err("%s: unable to parse CA cert\n", __func__);
+			goto bail;
+		}
+		hCaKey = lws_schannel_import_key_pem(hProv, info->ca_key_pem);
+		if (!hCaKey) {
+			lwsl_err("%s: unable to import CA key\n", __func__);
+			goto bail;
+		}
+		hSign = hCaKey;
+	}
+
+	/* the signature algorithm follows the signing key, not ours */
+	if (NCryptGetProperty(hSign, NCRYPT_ALGORITHM_GROUP_PROPERTY,
+			      (PBYTE)grp, (DWORD)(sizeof(grp) - sizeof(WCHAR)),
+			      &cb, 0) != ERROR_SUCCESS)
+		goto bail;
+	grp[cb / sizeof(WCHAR)] = L'\0';
+	memset(&sig, 0, sizeof(sig));
+	if (!wcscmp(grp, NCRYPT_RSA_ALGORITHM_GROUP))
+		sig.pszObjId = szOID_RSA_SHA256RSA;
+	else if (!wcscmp(grp, NCRYPT_ECDSA_ALGORITHM_GROUP) ||
+		 /* a PKCS#8 EC key may import as ECDH, it still signs */
+		 !wcscmp(grp, NCRYPT_ECDH_ALGORITHM_GROUP))
+		sig.pszObjId = szOID_ECDSA_SHA256;
+	else
+		goto bail;
+
+	cb = 0;
+	if (!CryptExportPublicKeyInfo(hKey, 0, X509_ASN_ENCODING, NULL, &cb))
+		goto bail;
+	spki = lws_malloc(cb, __func__);
+	if (!spki ||
+	    !CryptExportPublicKeyInfo(hKey, 0, X509_ASN_ENCODING, spki, &cb))
+		goto bail;
+
+	/* CN=san, as a UTF8String */
+	attr.pszObjId = szOID_COMMON_NAME;
+	attr.dwValueType = CERT_RDN_UTF8_STRING;
+	attr.Value.cbData = 0; /* NUL-terminated wide string */
+	attr.Value.pbData = (BYTE *)wsan;
+	rdn.cRDNAttr = 1;
+	rdn.rgRDNAttr = &attr;
+	ni.cRDN = 1;
+	ni.rgRDN = &rdn;
+	if (!CryptEncodeObjectEx(X509_ASN_ENCODING, X509_UNICODE_NAME, &ni,
+				 CRYPT_ENCODE_ALLOC_FLAG, NULL, &subject.pbData,
+				 &subject.cbData))
+		goto bail;
+
+	/* Extensions */
+
+	memset(&bc, 0, sizeof(bc));
+	bc.fCA = !!info->is_ca;
+	if (lws_schannel_add_ext(&ext[ne++], szOID_BASIC_CONSTRAINTS2, TRUE,
+				 X509_BASIC_CONSTRAINTS2, &bc))
+		goto bail;
+
+	kub = info->is_ca ? CERT_KEY_CERT_SIGN_KEY_USAGE |
+			    CERT_CRL_SIGN_KEY_USAGE :
+			    CERT_DIGITAL_SIGNATURE_KEY_USAGE |
+			    CERT_KEY_ENCIPHERMENT_KEY_USAGE;
+	ku.cbData = 1;
+	ku.pbData = &kub;
+	ku.cUnusedBits = 0;
+	if (lws_schannel_add_ext(&ext[ne++], szOID_KEY_USAGE, TRUE,
+				 X509_KEY_USAGE, &ku))
+		goto bail;
+
+	if (!info->is_ca) {
+		/* a server cert is also usable as a client cert, as on openssl */
+		eku.cUsageIdentifier = info->is_server ? 2 : 1;
+		eku.rgpszUsageIdentifier = info->is_server ? eku_oids :
+							     eku_oids + 1;
+		if (lws_schannel_add_ext(&ext[ne++], szOID_ENHANCED_KEY_USAGE,
+					 FALSE, X509_ENHANCED_KEY_USAGE, &eku))
+			goto bail;
+	}
+
+	if (info->is_server) {
+		memset(&ane, 0, sizeof(ane));
+#if defined(LWS_WITH_NETWORK)
+		ipl = lws_parse_numeric_address(info->san, ip, sizeof(ip));
+#endif
+		if (ipl == 4 || ipl == 16) {
+			ane.dwAltNameChoice = CERT_ALT_NAME_IP_ADDRESS;
+			ane.IPAddress.cbData = (DWORD)ipl;
+			ane.IPAddress.pbData = ip;
+		} else {
+			ane.dwAltNameChoice = CERT_ALT_NAME_DNS_NAME;
+			ane.pwszDNSName = wsan;
+		}
+		ani.cAltEntry = 1;
+		ani.rgAltEntry = &ane;
+		if (lws_schannel_add_ext(&ext[ne++], szOID_SUBJECT_ALT_NAME2,
+					 FALSE, X509_ALTERNATE_NAME, &ani)) {
+			lwsl_err("%s: unable to add SAN\n", __func__);
+			goto bail;
+		}
+	}
+
+	memset(&ci, 0, sizeof(ci));
+	ci.dwVersion = CERT_V3;
+
+	/*
+	 * CERT_INFO serials are little-endian: keep the last, most significant,
+	 * byte positive and nonzero so it stays minimal DER
+	 */
+	if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, serial, sizeof(serial),
+					    BCRYPT_USE_SYSTEM_PREFERRED_RNG)))
+		goto bail;
+	serial[sizeof(serial) - 1] = (BYTE)((serial[sizeof(serial) - 1] &
+					     0x7f) | 0x40);
+	ci.SerialNumber.cbData = sizeof(serial);
+	ci.SerialNumber.pbData = serial;
+
+	ci.SignatureAlgorithm = sig;
+	ci.Subject = subject;
+	ci.Issuer = ca ? ca->cert->pCertInfo->Subject : subject;
+	ci.SubjectPublicKeyInfo = *spki;
+
+	/* valid from a day ago, so a peer's clock skew doesn't refuse it */
+	GetSystemTimeAsFileTime(&ci.NotBefore);
+	t.LowPart = ci.NotBefore.dwLowDateTime;
+	t.HighPart = ci.NotBefore.dwHighDateTime;
+	t.QuadPart -= 864000000000ull; /* one day in 100ns units */
+	ci.NotBefore.dwLowDateTime = t.LowPart;
+	ci.NotBefore.dwHighDateTime = t.HighPart;
+	t.QuadPart += 864000000000ull * (ULONGLONG)(1 +
+			(info->validity_days ? info->validity_days : 365));
+	ci.NotAfter.dwLowDateTime = t.LowPart;
+	ci.NotAfter.dwHighDateTime = t.HighPart;
+
+	ci.cExtension = ne;
+	ci.rgExtension = ext;
+
+	cb = 0;
+	if (!CryptSignAndEncodeCertificate(hSign, 0, X509_ASN_ENCODING,
+					   X509_CERT_TO_BE_SIGNED, &ci, &sig,
+					   NULL, NULL, &cb))
+		goto bail;
+	*cert_buf = malloc(cb);
+	if (!*cert_buf)
+		goto bail;
+	if (!CryptSignAndEncodeCertificate(hSign, 0, X509_ASN_ENCODING,
+					   X509_CERT_TO_BE_SIGNED, &ci, &sig,
+					   NULL, *cert_buf, &cb) ||
+	    lws_schannel_export_key_der(hKey, curve, key_buf, key_len)) {
+		lwsl_err("%s: signing or key export failed 0x%x\n", __func__,
+			 (unsigned int)GetLastError());
+		free(*cert_buf);
+		*cert_buf = NULL;
+		goto bail;
+	}
+	*cert_len = cb;
+
+	ret = 0;
+
+bail:
+	for (n = 0; n < LWS_ARRAY_SIZE(ext); n++)
+		if (ext[n].Value.pbData)
+			LocalFree(ext[n].Value.pbData);
+	if (subject.pbData)
+		LocalFree(subject.pbData);
+	lws_free(spki);
+	lws_x509_destroy(&ca);
+	if (hCaKey)
+		NCryptFreeObject(hCaKey);
+	if (hKey)
+		NCryptFreeObject(hKey);
+	if (hProv)
+		NCryptFreeObject(hProv);
+
+	return ret;
 }
 
 int
@@ -1656,6 +2195,13 @@ lws_x509_create_self_signed(struct lws_context *context,
 			    uint8_t **key_buf, size_t *key_len,
 			    const char *san, int key_bits)
 {
-	lwsl_err("%s: not supported on schannel\n", __func__);
-	return 1;
+	struct lws_x509_cert_gen_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.san = san ? san : "localhost";
+	info.key_bits = key_bits;
+	info.is_server = 1;
+
+	return lws_x509_create_cert(context, cert_buf, cert_len, key_buf,
+				    key_len, &info);
 }
