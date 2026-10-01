@@ -19,7 +19,9 @@
  * after all that.  A streamtype with more metadata than the policy can count,
  * or a metadata value longer than the policy can hold, must be refused.  A
  * valid document must still parse, and its metadata value that is longer
- * than one lejp string chunk must still become one metadata item.  A parse
+ * than one lejp string chunk must still become one metadata item.  An
+ * overlay may only override streamtypes that exist, and a completed one
+ * leaves no parse behind.  A parse
  * still pending when the context is destroyed must be cleaned up by it.
  *
  * Build with ASan to see the teardown is clean.
@@ -82,6 +84,25 @@ static const char * const rejected[] = {
 	"{\"certs\": [{\"t_abc\": \"AAAA\"}],"
 	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"\"]}]}",
 };
+
+/*
+ * Overlays that define something of their own instead of overriding an
+ * existing streamtype: a new streamtype, a cert, a trust store, a backoff
+ * scheme, an auth
+ */
+
+static const char * const overlay_rejected[] = {
+	"{\"s\": [{\"t_new\": {\"endpoint\": \"localhost\"}}]}",
+	"{\"certs\": [{\"t_a\": \"AAAA\"}]}",
+	"{\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t_a\"]}]}",
+	"{\"retry\": [{\"t_retry\": {\"backoff\": [1000]}}]}",
+	"{\"auth\": [{\"name\": \"t_auth\", \"type\": \"sigv4\"}]}",
+};
+
+/* an overlay that overrides a streamtype the policy already has */
+
+static const char overlay_ok[] =
+	"{\"s\": [{\"polt_cli\": {\"endpoint\": \"overlay.invalid\"}}]}";
 
 /* a document that ends partway through a cert, the connection dropped */
 
@@ -306,6 +327,40 @@ main(int argc, const char **argv)
 			goto bail;
 		}
 		if (!original_in_force(cx, "overlay"))
+			goto bail;
+	}
+
+	/*
+	 * Overlays may only override streamtypes the policy already has: one
+	 * defining a streamtype, cert, trust store, backoff scheme or auth of
+	 * its own is rejected, and the live policy is still usable
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(overlay_rejected); n++) {
+		m = lws_ss_policy_overlay(cx, overlay_rejected[n]);
+		if (m == LEJP_CONTINUE || m >= 0) {
+			lwsl_err("overlay_rejected %d: not rejected (%d)\n",
+				 n, m);
+			lws_ss_policy_parse_abandon(cx);
+			goto bail;
+		}
+		if (!original_in_force(cx, "overlay_rejected"))
+			goto bail;
+	}
+
+	/*
+	 * A valid override completes, and a second one after it does too: a
+	 * completed overlay leaves no parse behind to block the next (or to
+	 * leak, under ASan)
+	 */
+
+	for (n = 0; n < 2; n++) {
+		m = lws_ss_policy_overlay(cx, overlay_ok);
+		if (m == LEJP_CONTINUE || m < 0) {
+			lwsl_err("overlay_ok %d: failed (%d)\n", n, m);
+			goto bail;
+		}
+		if (!original_in_force(cx, "overlay_ok"))
 			goto bail;
 	}
 

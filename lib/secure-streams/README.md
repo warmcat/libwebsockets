@@ -771,7 +771,12 @@ An example overlay fragment looks like this
 ie the overlay fragment completely follows the structure of the main policy,
 just misses out anything it doesn't override.
 
-Currently ONLY streamtypes may be overridden.
+Currently ONLY streamtypes may be overridden.  An overlay that defines
+anything of its own, a new streamtype, a cert, a trust store, an auth, a
+backoff scheme or metrics, is rejected at that point and the overlay fails;
+overrides earlier in the same fragment have already been applied to the live
+streamtypes, since they are written in place.  A completed overlay leaves no
+parse behind, so another may follow it.
 
 You can see an example of this in use in `minimal-secure-streams` example
 where `--force-portal` and `--force-no-internet` options cause the captive

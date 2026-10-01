@@ -303,6 +303,19 @@ static int
 lws_ss_policy_alloc_helper(struct policy_cb_args *a, int type)
 {
 	/*
+	 * An overlay may only override streamtypes that already exist (see
+	 * README.md): it parses into the live policy's lwsac, and nothing
+	 * links an object it defines into the live policy or owns its heap
+	 * DER once the parse is finished
+	 */
+	if (a->overlay) {
+		lwsl_err("%s: an overlay may only override existing streamtypes\n",
+			 __func__);
+
+		return 1;
+	}
+
+	/*
 	 * We do the pointers always as .b union member, all of the
 	 * participating structs begin with .next and .name the same
 	 */
@@ -485,6 +498,13 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 				p2 = p2->next;
 			}
+		}
+
+		/* an overlay may only override: see lws_ss_policy_alloc_helper() */
+		if (a->overlay && !p2) {
+			lwsl_err("%s: an overlay may only override existing "
+				 "streamtypes\n", __func__);
+			goto oom;
 		}
 
 		/*
@@ -1310,6 +1330,18 @@ lws_ss_policy_parse_begin(struct lws_context *context, int overlay)
 	struct policy_cb_args *args;
 	char *p;
 
+	/*
+	 * One parse at a time: a second begun here would orphan the first's
+	 * parser and whatever it had built, and a policy fetch is parsed
+	 * across many calls
+	 */
+	if (context->pol_args) {
+		lwsl_err("%s: a policy parse is already in progress\n",
+			 __func__);
+
+		return 1;
+	}
+
 	args = lws_zalloc(sizeof(struct policy_cb_args), __func__);
 	if (!args) {
 		lwsl_err("%s: OOM\n", __func__);
@@ -1472,6 +1504,23 @@ bail:
 }
 #endif
 
+/*
+ * A completed overlay has nothing to install: it wrote into the live policy's
+ * objects and lwsac and was refused anything of its own.  Only the parser is
+ * left to drop, so the next parse can begin.  (A completed new policy keeps
+ * its args until lws_ss_policy_set() installs it, which drops them.)
+ */
+
+static void
+lws_ss_policy_overlay_done(struct lws_context *context)
+{
+	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
+
+	lejp_destruct(&args->jctx);
+	lws_free_set_NULL(args->p);
+	lws_free_set_NULL(context->pol_args);
+}
+
 int
 lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 {
@@ -1491,18 +1540,33 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	 * server choose an arbitrary local path for us to open and parse.
 	 */
 	if (!args->untrusted && args->jctx.line < 2 && buf[0] != '{' &&
-	    !args->parse_data)
-		return lws_ss_policy_parse_file(context, (const char *)buf);
+	    !args->parse_data) {
+		m = lws_ss_policy_parse_file(context, (const char *)buf);
+		if (m) /* a failed parse has abandoned itself */
+			return m;
+
+		goto completed;
+	}
 #endif
 
 	args->parse_data = 1;
 	m = lejp_parse(&args->jctx, buf, (int)len);
-	if (m == LEJP_CONTINUE || m >= 0)
+	if (m == LEJP_CONTINUE)
 		return m;
+	if (m < 0) {
+		lwsl_err("%s: parse failed line %u: %d: %s\n", __func__,
+			 (unsigned int)args->jctx.line, m,
+			 lejp_error_to_string(m));
+		lws_ss_policy_parse_abandon(context);
 
-	lwsl_err("%s: parse failed line %u: %d: %s\n", __func__,
-		 (unsigned int)args->jctx.line, m, lejp_error_to_string(m));
-	lws_ss_policy_parse_abandon(context);
+		return m;
+	}
+
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+completed:
+#endif
+	if (args->overlay)
+		lws_ss_policy_overlay_done(context);
 
 	return m;
 }
@@ -1519,7 +1583,9 @@ lws_ss_policy_parse_untrusted(struct lws_context *context)
 int
 lws_ss_policy_overlay(struct lws_context *context, const char *overlay)
 {
-	lws_ss_policy_parse_begin(context, 1);
+	if (lws_ss_policy_parse_begin(context, 1))
+		return -1;
+
 	return lws_ss_policy_parse(context, (const uint8_t *)overlay,
 				   strlen(overlay));
 }
