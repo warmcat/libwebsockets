@@ -43,6 +43,7 @@ request with `503` and its admin WebSocket upgrade is refused.
 | `email-from` | Optional: The sender email address for outgoing SMTP verification emails. Defaults to `noreply@warmcat.com`. | `noreply@example.com` |
 | `email-subject` | Optional: The subject line for the verification email. Defaults to `Complete your registration`. | `Please confirm your ExampleApp account` |
 | `email-body` | Optional: The template string for the email body. It must include exactly one `%s` token which will be dynamically replaced by the confirmation URL. | `Click here:\n\n%s` |
+| `trusted-proxies` | Optional: comma-separated addresses of reverse proxies whose `X-Forwarded-For` is believed.  When the socket peer is one of them, the strikes, bans and audit rows are keyed on the last address in `X-Forwarded-For` (the one that proxy appended), which must be numeric; from any other peer the header is ignored.  Empty by default: the socket peer is the client. | `127.0.0.1,::1` |
 | `ui-title` | Optional: Overrides the default string array "Authentication Server" natively displayed on front-end portals. | `Internal SSO Portal` |
 | `ui-subtitle` | Optional: Overrides the default "Give your credentials to continue" messaging. | `Strictly authorized personnel only` |
 | `ui-new-network` | Optional: Overrides the "New to the network?" prompt for registration links. | `Access Required?` |
@@ -221,10 +222,12 @@ the `devices` table on every use: `DELETE FROM devices WHERE device_id = ...`
 revokes one device without touching the user's other sessions.  There is no
 admin UI for that yet — do it with `sqlite3` on `db_path`.
 
-### Rate limiting is keyed on the transport peer address
+### Rate limiting is keyed on the client address
 
-Strikes, bans and the `auth_log` rows all use the *socket* peer.  Behind a
-reverse proxy that is the proxy, not the user, which means:
+Strikes, bans and the `auth_log` rows use the socket peer, unless the peer is
+one of the `trusted-proxies`, in which case they use the client address that
+proxy appended to `X-Forwarded-For`.  Behind a reverse proxy you must list it
+there, or the proxy is the client as far as the limiter is concerned:
 
 - a proxy on the same host presents a local address, and local addresses are
   deliberately never struck (they are our own in-process API clients), so the
@@ -232,9 +235,17 @@ reverse proxy that is the proxy, not the user, which means:
 - a proxy on another host means one abusive client's fifth failure bans the
   proxy address, ie every user, for 24 hours.
 
-**Terminate TLS and serve this vhost directly**, or restrict it at the network
-layer.  Consuming a forwarded client address safely needs a trusted-proxy
-configuration this plugin does not have yet.
+Only the last `X-Forwarded-For` entry is used, since the trusted proxy wrote
+it; earlier entries came from the client or hops you do not trust.  A proxy
+that is not listed gets no say, so a forged header from an ordinary client
+changes nothing.
+
+Failures are also counted per account: after eight wrong passwords for one
+account (one forgiven every 120 s, like the address strikes) its logins are
+refused with `503` until they decay, whatever addresses they come from.  That
+is a nuisance an attacker can inflict on a known account name; it is the
+price of a password-guessing campaign spread over many addresses no longer
+getting a free run.
 
 ### Password policy
 
@@ -243,20 +254,21 @@ floor, not a policy — put a real one in front of it if you need one.
 
 ### Known gaps
 
-- `/api/logout` still accepts a `GET`, which mutates server-side session state
-  with no CSRF token, so a third-party page can force a logout by navigating
-  the victim at it (the session cookies are `SameSite=Lax`, which a top-level
-  navigation carries; a subresource `GET` does not).  The effect is a nuisance
-  denial of service against one user, not privilege escalation.  The `GET`
-  form is kept because `lws-login` links a top-level navigation at it to log
-  the user out of the app and the auth server together.  The session teardown
-  the UI itself uses is now `POST /api/logout` with the `auth_csrf`
-  double-submit (`assets/auth.js`), and the CSRF-free `GET
-  /api/status?destroy=` it used to call has been removed.
-- `/api/register` answers `409` distinguishably for an already-registered
-  address and for one with a verification pending, which enumerates accounts.
-  Collapsing them to a single always-`200` "if the address is free you will
-  receive a verification email" answer is the real fix and changes the
-  registration UX.
+- `/logout` still accepts a `GET`, kept because `lws-login` links a top-level
+  navigation at it to log the user out of the app and the auth server
+  together.  A cross-site navigation or embedding of it is refused with `403`
+  on the browser's `Sec-Fetch-Site` (same-site, same-origin and typed-in
+  navigations go through), so a third-party page can no longer force a
+  logout from any browser that sends the header (all current ones); a browser
+  too old to send it is taken at its word.  The session teardown the UI
+  itself uses is `POST /api/logout` with the `auth_csrf` double-submit
+  (`assets/auth.js`).
+- `/api/register` answers `200` "if the address is free, a verification email
+  has been sent" whether the address is free, registered or pending, so it no
+  longer enumerates accounts; a registered or pending address still costs a
+  strike.
 - The 100000-round PBKDF2 runs inline on the event loop thread.  The limiter is
-  now applied before it, but it still belongs on the threadpool.
+  applied before it, per address and per account, but it still belongs on the
+  threadpool, with the login response completed from the worker.
+- The admin WebSocket accepts `{"op":"device_revoke","uid":N,"client_id":"<device_id>"}`
+  to revoke one device token; the admin page does not offer it yet.

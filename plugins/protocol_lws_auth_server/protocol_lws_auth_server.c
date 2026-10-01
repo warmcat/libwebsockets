@@ -192,7 +192,10 @@ struct per_vhost_data__auth_server {
 	char				email_body[1024];
 	struct lws_smtpc		*smtp;
 	lws_dll2_owner_t		ip_strikes;
+	lws_dll2_owner_t		user_strikes; /* per account, keyed on name */
 	lws_dll2_owner_t		ip_bans;
+	/* comma-separated addresses whose X-Forwarded-For we believe */
+	char				trusted_proxies[256];
 	char				jwks_json[8192];
 	char				ui_title[256];
 	char				ui_subtitle[256];
@@ -431,14 +434,21 @@ pbkdf2_sha512(const char *password, const char *salt, int iterations, uint8_t *o
 
 	/* U_1 */
 	if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA512, (const uint8_t *)password, strlen(password))) return -1;
-	if (lws_genhmac_update(&ctx, salt_block, salt_len + 4)) return -1;
+	if (lws_genhmac_update(&ctx, salt_block, salt_len + 4)) {
+		/* a failed update leaves the backend context to free */
+		lws_genhmac_destroy(&ctx, NULL);
+		return -1;
+	}
 	if (lws_genhmac_destroy(&ctx, u)) return -1;
-	
+
 	memcpy(out_hash, u, 64);
 
 	for (i = 1; i < iterations; i++) {
 		if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA512, (const uint8_t *)password, strlen(password))) return -1;
-		if (lws_genhmac_update(&ctx, u, 64)) return -1;
+		if (lws_genhmac_update(&ctx, u, 64)) {
+			lws_genhmac_destroy(&ctx, NULL);
+			return -1;
+		}
 		if (lws_genhmac_destroy(&ctx, u)) return -1;
 		for (j = 0; j < 64; j++)
 			out_hash[j] ^= u[j];
@@ -788,6 +798,62 @@ auth_peer_is_own(const char *peer)
 }
 
 /*
+ * The address the strikes, bans and audit rows are keyed on: the socket peer,
+ * unless that peer is one of the operator's trusted reverse proxies, in which
+ * case it is the client the proxy says it is forwarding for, the last address
+ * in X-Forwarded-For (the one the trusted proxy itself appended; anything
+ * before it was supplied by the client or an untrusted hop).  A proxy not in
+ * the list is treated as the client it is, so a forged header from an
+ * ordinary peer changes nothing.
+ */
+static void
+auth_client_address(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+		    char *buf, size_t len)
+{
+	char xff[512], *last;
+	struct lws_tokenize ts;
+	lws_sockaddr46 sa46;
+	int trusted = 0, n;
+
+	lws_get_peer_simple(wsi, buf, len);
+
+	if (!vhd || !vhd->trusted_proxies[0])
+		return;
+
+	lws_tokenize_init(&ts, vhd->trusted_proxies, LWS_TOKENIZE_F_NO_INTEGERS |
+			  LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_MINUS_NONTERM |
+			  LWS_TOKENIZE_F_COLON_NONTERM);
+	ts.len = strlen(vhd->trusted_proxies);
+	do {
+		ts.e = (int8_t)lws_tokenize(&ts);
+		if (ts.e == LWS_TOKZE_TOKEN && ts.token_len == strlen(buf) &&
+		    !strncmp(ts.token, buf, ts.token_len))
+			trusted = 1;
+	} while (ts.e > 0 && !trusted);
+
+	if (!trusted)
+		return;
+
+	n = lws_hdr_copy(wsi, xff, sizeof(xff), WSI_TOKEN_X_FORWARDED_FOR);
+	if (n <= 0)
+		return;
+
+	last = strrchr(xff, ',');
+	last = last ? last + 1 : xff;
+	while (*last == ' ' || *last == '\t')
+		last++;
+	n = (int)strlen(last);
+	while (n && (last[n - 1] == ' ' || last[n - 1] == '\t'))
+		last[--n] = '\0';
+
+	/* only a numeric address: never a name, never anything else */
+	if (!n || lws_sa46_parse_numeric_address(last, &sa46))
+		return;
+
+	lws_strncpy(buf, last, len);
+}
+
+/*
  * Age one strike record.
  *
  * Forgive one strike per 120s elapsed rather than resetting the whole record
@@ -850,6 +916,97 @@ auth_peer_strikes(struct per_vhost_data__auth_server *vhd, const char *ip)
 
 /* the ip_bans list is walked for every inbound request: keep it bounded */
 #define AUTH_SERVER_MAX_BANS 512
+
+/*
+ * Failures are also counted per account, keyed on the lowercased name, with
+ * the same leaky bucket as the address strikes: a guessing campaign spread
+ * over many addresses then still runs into a wall at the account.  No ban
+ * list here, the count itself is the brake (auth_account_strikes() is read
+ * before the KDF), so the worst a known name buys an attacker is keeping
+ * that account's logins refused while it keeps trying.
+ */
+static void
+auth_account_key(const char *user, char *key, size_t len)
+{
+	size_t n = 0;
+
+	while (user[n] && n < len - 1) {
+		key[n] = (char)((user[n] >= 'A' && user[n] <= 'Z') ?
+					user[n] + ('a' - 'A') : user[n]);
+		n++;
+	}
+	key[n] = '\0';
+}
+
+static int
+auth_account_strikes(struct per_vhost_data__auth_server *vhd, const char *user)
+{
+	char key[64];
+
+	auth_account_key(user, key, sizeof(key));
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->user_strikes)) {
+		auth_server_strike_t *s = lws_container_of(d,
+					auth_server_strike_t, list);
+
+		if (!strcmp(s->ip, key)) {
+			auth_strike_decay(s, (uint64_t)time(NULL));
+
+			return s->strikes;
+		}
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
+static void
+auth_account_record_strike(struct per_vhost_data__auth_server *vhd,
+			   const char *user)
+{
+	auth_server_strike_t *strike = NULL;
+	uint64_t now = (uint64_t)time(NULL);
+	char key[64];
+
+	auth_account_key(user, key, sizeof(key));
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->user_strikes)) {
+		auth_server_strike_t *s = lws_container_of(d,
+					auth_server_strike_t, list);
+
+		if (!strcmp(s->ip, key)) {
+			strike = s;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!strike) {
+		if (lws_dll2_count(&vhd->user_strikes) >= 128) {
+			/* LRU eviction */
+			auth_server_strike_t *s = lws_container_of(
+				lws_dll2_get_head(&vhd->user_strikes),
+				auth_server_strike_t, list);
+
+			lws_dll2_remove(&s->list);
+			free(s);
+		}
+		strike = malloc(sizeof(*strike));
+		if (!strike)
+			return;
+		memset(strike, 0, sizeof(*strike));
+		lws_strncpy(strike->ip, key, sizeof(strike->ip));
+	} else {
+		auth_strike_decay(strike, now);
+		lws_dll2_remove(&strike->list);
+	}
+
+	lws_dll2_add_tail(&strike->list, &vhd->user_strikes); /* LRU tail */
+	strike->last_strike = now;
+	strike->strikes++;
+
+	lwsl_notice("%s: account strike %d\n", __func__, strike->strikes);
+}
 
 static void
 auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
@@ -1460,7 +1617,7 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 				csrf_ck[0] ? "present" : "MISSING",
 				csrf_form ? (int)strlen(csrf_form) : 0,
 				(int)strlen(csrf_ck));
-		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		auth_client_address(wsi, vhd, peer, sizeof(peer));
 		auth_record_strike(vhd, peer);
 		return -1;
 	}
@@ -1795,7 +1952,7 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 	char jwt[1024];
 	size_t jwt_len = sizeof(jwt);
 	char peer[64];
-	lws_get_peer_simple(wsi, peer, sizeof(peer));
+	auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
@@ -1980,7 +2137,7 @@ lws_auth_api_device_token(struct lws *wsi, struct per_vhost_data__auth_server *v
 		char jwt[1024];
 		size_t jwt_len = sizeof(jwt);
 		char peer[64];
-		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 		if (!lws_auth_generate_device_token(vhd, username, uid, device_code, peer, jwt, &jwt_len)) {
 			pss->http_response_code = HTTP_STATUS_OK;
@@ -2170,7 +2327,7 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 	}
 
 	email = lws_spa_get_string(pss->spa, EP_EMAIL);
-	lws_get_peer_simple(wsi, peer, sizeof(peer));
+	auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (!email || !email[0]) {
 		auth_record_strike(vhd, peer);
@@ -2285,7 +2442,7 @@ lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server 
 
 	token = lws_spa_get_string(pss->spa, EP_RESET_TOKEN);
 	new_password = lws_spa_get_string(pss->spa, EP_NEW_PASS);
-	lws_get_peer_simple(wsi, peer, sizeof(peer));
+	auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (!token || !token[0] || !new_password || strlen(new_password) < 8) {
 		auth_record_strike(vhd, peer);
@@ -2446,7 +2603,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
         char totp_secret[64] = {0};
         uint32_t uid = 0;
 
-        lws_get_peer_simple(wsi, peer, sizeof(peer));
+        auth_client_address(wsi, vhd, peer, sizeof(peer));
 
         if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1,
 				   &stmt_chk, NULL) == SQLITE_OK) {
@@ -2498,10 +2655,25 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		goto send;
 	}
 
+	/*
+	 * The same brake per account: eight wrong passwords for one name,
+	 * from however many addresses, and its logins wait for the strikes
+	 * to decay (one per 120 s) before the KDF is spent on them again
+	 */
+	if (auth_account_strikes(vhd, user) >= 8) {
+		lwsl_wsi_notice(wsi, "%s: account rate limited before KDF",
+				__func__);
+		auth_record_strike(vhd, peer);
+		pss->http_response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Too many attempts, try again shortly\"}");
+		goto send;
+	}
+
 	if (lws_auth_check_credentials(vhd, user, pass, &uid)) {
 		lwsl_err("%s: Validation failed for user '%s'\n", __func__, user);
 		lwsl_info("login bad credentials\n");
 		auth_record_strike(vhd, peer);
+		auth_account_record_strike(vhd, user);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Validation failed\"}");
 		goto send;
@@ -2956,7 +3128,7 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	size_t jwt_len = sizeof(jwt);
 	char peer[64];
-	lws_get_peer_simple(wsi, peer, sizeof(peer));
+	auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
 		/*
@@ -3095,7 +3267,7 @@ lws_auth_api_verify(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	if (auth_registration_lookup(vhd, hbuf, &r)) {
 		char peer[64];
 
-		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		auth_client_address(wsi, vhd, peer, sizeof(peer));
 		auth_record_strike(vhd, peer);
 
 		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
@@ -3127,7 +3299,7 @@ lws_auth_api_verify(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 		lwsl_notice("verify: registration already "
 			    "consumed or user exists\n");
-		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		auth_client_address(wsi, vhd, peer, sizeof(peer));
 		auth_record_strike(vhd, peer);
 		lws_return_http_status(wsi,
 			HTTP_STATUS_BAD_REQUEST,
@@ -3266,7 +3438,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
             sqlite3_finalize(stmt_chk);
         }
 
-        lws_get_peer_simple(wsi, peer, sizeof(peer));
+        auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (users_empty) {
 		/* Allow initial TOFU admin bootstrap globally across interfaces without IP restriction */
@@ -3344,11 +3516,18 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		sqlite3_finalize(stmt_chk);
 	}
 
+	/*
+	 * A registered address, and one with a verification pending, get the
+	 * same answer as a free one: an address-specific refusal told anyone
+	 * which addresses have accounts here.  The attempt still costs a
+	 * strike, so the probing rate is bounded like a wrong password's.
+	 */
 	if (exists) {
-		lwsl_info("reg denied: email already fully registered\n");
+		lwsl_info("reg: email already fully registered, answering as "
+			  "if sent\n");
 		auth_record_strike(vhd, peer);
-		pss->http_response_code = 409;
-		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Email already registered\"}");
+		pss->http_response_code = HTTP_STATUS_OK;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"If the address is free, a verification email has been sent\"}");
 		goto send;
 	}
 
@@ -3359,10 +3538,11 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	if (exists) {
-		lwsl_info("reg denied: pending verification already circulating\n");
+		lwsl_info("reg: pending verification already circulating, "
+			  "answering as if sent\n");
 		auth_record_strike(vhd, peer);
-		pss->http_response_code = 409;
-		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Verification pending. Check your email or wait for it to naturally expire.\"}");
+		pss->http_response_code = HTTP_STATUS_OK;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"If the address is free, a verification email has been sent\"}");
 		goto send;
 	}
 
@@ -3463,6 +3643,15 @@ auth_server_vhd_release(struct per_vhost_data__auth_server *vhd)
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&vhd->ip_strikes)) {
+		auth_server_strike_t *s = lws_container_of(d,
+						auth_server_strike_t, list);
+
+		lws_dll2_remove(&s->list);
+		free(s);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->user_strikes)) {
 		auth_server_strike_t *s = lws_container_of(d,
 						auth_server_strike_t, list);
 
@@ -3580,6 +3769,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			(const struct lws_protocol_vhost_options *)in, "cookie-name");
 		if (pvo)
 			lws_strncpy(vhd->cookie_name, pvo->value, sizeof(vhd->cookie_name));
+
+		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "trusted-proxies");
+		if (pvo && pvo->value)
+			lws_strncpy(vhd->trusted_proxies, pvo->value, sizeof(vhd->trusted_proxies));
 
 		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "ui-title");
 		if (pvo) lws_strncpy(vhd->ui_title, pvo->value, sizeof(vhd->ui_title));
@@ -3833,7 +4026,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		{
 			char peer[64];
-			lws_get_peer_simple(wsi, peer, sizeof(peer));
+			auth_client_address(wsi, vhd, peer, sizeof(peer));
 			uint64_t now = (uint64_t)time(NULL);
 
 			/* Rapid ban-check */
@@ -4097,6 +4290,42 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lwsl_notice("%s: Extracted redirect_uri: %s\n", __func__, redirect_uri);
 
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+			/*
+			 * This GET changes state (it is kept for the top-level
+			 * navigation lws-login links to), so it must not be
+			 * reachable by a third-party page navigating or
+			 * embedding the victim at it.  The browser says where
+			 * the navigation came from: a same-site or same-origin
+			 * one, or the user typing it (none), is the real
+			 * thing; cross-site is refused, with nothing torn
+			 * down.  A browser too old to send Sec-Fetch-Site is
+			 * taken at its word, as before.
+			 */
+			{
+				char sfs[24];
+
+				if (lws_hdr_custom_copy(wsi, sfs, sizeof(sfs),
+							"sec-fetch-site:", 15) > 0 &&
+				    !strcmp(sfs, "cross-site")) {
+					char html[LWS_PRE + 256];
+					int html_len;
+
+					lwsl_wsi_notice(wsi, "logout: cross-site navigation refused");
+					html_len = lws_snprintf(html + LWS_PRE, sizeof(html) - LWS_PRE,
+						"<html><body>Use the logout control on the site itself.</body></html>");
+					if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len + LWS_PRE) < 0)
+						return -1;
+					if (lws_add_http_common_headers(wsi, HTTP_STATUS_FORBIDDEN, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end) ||
+					    lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
+						return 1;
+					lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+					lws_callback_on_writable(wsi);
+					return 0;
+				}
+			}
+#endif
+
 			{
 				int seen = 0, deleted =
 					auth_server_destroy_refresh_sessions(wsi,
@@ -4171,7 +4400,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pss) {
 				char peer[64] = {0};
 				int strikes = 0;
-				lws_get_peer_simple(wsi, peer, sizeof(peer));
+				auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
 					auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
@@ -4493,7 +4722,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (auth_registration_lookup(vhd, hbuf, &r)) {
 				char peer[64];
 
-				lws_get_peer_simple(wsi, peer, sizeof(peer));
+				auth_client_address(wsi, vhd, peer, sizeof(peer));
 				auth_record_strike(vhd, peer);
 
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
@@ -4842,16 +5071,22 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
                 if (bytes <= 0)
                         break;
 
+		/*
+		 * lws_write() either takes the whole buffer (buffering any
+		 * part the socket would not, itself) or fails: a short count
+		 * is not a partial send to resume.  Resuming it by consuming
+		 * only the written part would have left the segment's LWS_PRE
+		 * padding consumed and the next write skipping LWS_PRE bytes
+		 * of payload instead.
+		 */
                 int m = lws_write(wsi, p + LWS_PRE, (unsigned int)(bytes - LWS_PRE), LWS_WRITE_HTTP_FINAL);
-                if (m < 0)
+                if (m != (int)(bytes - LWS_PRE)) {
+			lwsl_wsi_err(wsi, "write %d of %d", m,
+				     (int)(bytes - LWS_PRE));
                         return -1;
+		}
 
-                size_t consume = (size_t)m;
-                if ((size_t)m == bytes - LWS_PRE) {
-                        consume = bytes;
-                }
-
-                lws_buflist_use_segment(&pss->tx_buflist, consume);
+                lws_buflist_use_segment(&pss->tx_buflist, bytes);
 
                 if (lws_buflist_next_segment_len(&pss->tx_buflist, &p)) {
                         lws_callback_on_writable(wsi);
@@ -5064,7 +5299,24 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
-		if (!strcmp(op, "delete") && req_uid > 0) {
+		if (!strcmp(op, "device_revoke") && req_uid > 0 && client_id[0]) {
+			/*
+			 * Revoke one device token without touching the
+			 * account's other sessions: the token's "did" names
+			 * the devices row, which auth_session_jwt() checks on
+			 * every use.  The device id travels in "client_id".
+			 */
+			sqlite3_stmt *s;
+
+			if (sqlite3_prepare_v2(vhd->db, "DELETE FROM devices WHERE device_id=? AND uid=?", -1, &s, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(s, 1, client_id, -1, SQLITE_TRANSIENT);
+				sqlite3_bind_int(s, 2, req_uid);
+				if (sqlite3_step(s) == SQLITE_DONE)
+					lwsl_wsi_notice(wsi, "admin: device %s of uid %d revoked (%d row)",
+							client_id, req_uid, sqlite3_changes(vhd->db));
+				sqlite3_finalize(s);
+			}
+		} else if (!strcmp(op, "delete") && req_uid > 0) {
 			int has_star = 0;
 			sqlite3_stmt *s;
 			if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM grants g JOIN services svc ON g.service_id = svc.service_id WHERE g.uid=? AND svc.name='*'", -1, &s, NULL) == SQLITE_OK) {
