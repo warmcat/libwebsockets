@@ -176,6 +176,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].dht[].ipv6",
 	"vhosts[].dht[].hash",
 	"vhosts[].dht[].legacy",
+	"vhosts[].dht[].allow-private",
 	"vhosts[].dht[]",
 #endif
 	"vhosts[].quic-mtu",
@@ -278,6 +279,7 @@ enum lejp_vhost_paths {
 	LEJPVP_DHT_IPV6,
 	LEJPVP_DHT_HASH,
 	LEJPVP_DHT_LEGACY,
+	LEJPVP_DHT_ALLOW_PRIVATE,
 	LEJPVP_DHT,
 #endif
 	LEJPVP_QUIC_MTU,
@@ -1040,6 +1042,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		 * is on the multihash encoding.
 		 */
 		a->dht.legacy = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_DHT_ALLOW_PRIVATE:
+		/* peers on private / loopback addresses, eg, a LAN deployment */
+		a->dht.allow_private_ads = !!arg_to_bool(ctx->buf);
 		return 0;
 #endif
 	case LEJPVP_NAME:

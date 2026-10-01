@@ -456,6 +456,7 @@ int main(int argc, const char **argv)
 	memset(idb, 0x22, sizeof(idb));
 
 	memset(&di, 0, sizeof(di));
+	di.allow_private_ads = 1; /* the nodes are all on loopback */
 	di.vhost	= vh_a;
 	di.cb		= cb_a;
 	di.name		= "krpc-a";

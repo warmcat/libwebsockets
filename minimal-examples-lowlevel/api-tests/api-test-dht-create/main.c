@@ -151,6 +151,63 @@ int main(int argc, const char **argv)
 	while (tracked_count)
 		free(tracked[--tracked_count]);
 
+	/*
+	 * BEP42 id derivation and check, against the test vectors in the BEP
+	 * (first three bytes, with the low three bits of the third random, and
+	 * the last byte r)
+	 */
+	{
+		static const struct {
+			const char	*ip;
+			uint8_t		r;
+			uint8_t		pre[3];
+		} v[] = {
+			{ "124.31.75.21",	1,	{ 0x5f, 0xbf, 0xb8 } },
+			{ "21.75.31.124",	86,	{ 0x5a, 0x3c, 0xe8 } },
+			{ "65.23.51.170",	22,	{ 0xa5, 0xd4, 0x30 } },
+			{ "84.124.73.14",	65,	{ 0x1b, 0x03, 0x20 } },
+			{ "43.213.53.83",	90,	{ 0xe5, 0x6f, 0x68 } },
+		};
+		lws_sockaddr46 sin, other;
+		lws_dht_hash_t *h;
+		size_t n;
+
+		memset(&other, 0, sizeof(other));
+		lws_sa46_parse_numeric_address("8.8.8.8", &other);
+
+		for (n = 0; n < LWS_ARRAY_SIZE(v); n++) {
+			memset(&sin, 0, sizeof(sin));
+			if (lws_sa46_parse_numeric_address(v[n].ip, &sin)) {
+				lwsl_err("bep42: cannot parse %s\n", v[n].ip);
+				fails++;
+				continue;
+			}
+			h = lws_dht_bep42_id(context, (struct sockaddr *)&sin, v[n].r,
+					     LWS_DHT_HASH_TYPE_SHA1, 20);
+			if (!h) {
+				lwsl_err("bep42: no id for %s\n", v[n].ip);
+				fails++;
+				continue;
+			}
+			if (h->id[0] != v[n].pre[0] || h->id[1] != v[n].pre[1] ||
+			    (h->id[2] & 0xf8) != v[n].pre[2] || h->id[19] != v[n].r) {
+				lwsl_err("bep42: %s r %u: %02x%02x%02x..%02x\n",
+					 v[n].ip, v[n].r, h->id[0], h->id[1],
+					 h->id[2], h->id[19]);
+				fails++;
+			}
+			if (!lws_dht_bep42_check(h, (struct sockaddr *)&sin)) {
+				lwsl_err("bep42: own derivation fails check\n");
+				fails++;
+			}
+			if (lws_dht_bep42_check(h, (struct sockaddr *)&other)) {
+				lwsl_err("bep42: id passes for another address\n");
+				fails++;
+			}
+			lws_dht_hash_destroy(&h);
+		}
+	}
+
 	lws_context_destroy(context);
 
 	if (fails)

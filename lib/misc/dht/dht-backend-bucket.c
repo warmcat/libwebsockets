@@ -376,6 +376,46 @@ node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
  * We just learnt about a node, not necessarily a new one.  Confirm is 1 if
  * the node sent a message, 2 if it sent us a reply.
  */
+/* the same host, whatever the port: IPv4 address, or IPv6 /64 */
+static int
+dht_sa_same_host(const struct sockaddr *a, const struct sockaddr *b)
+{
+	if (a->sa_family != b->sa_family)
+		return 0;
+
+	if (a->sa_family == AF_INET)
+		return !memcmp(&((const struct sockaddr_in *)a)->sin_addr,
+			       &((const struct sockaddr_in *)b)->sin_addr, 4);
+
+	if (a->sa_family == AF_INET6)
+		return !memcmp(&((const struct sockaddr_in6 *)a)->sin6_addr,
+			       &((const struct sockaddr_in6 *)b)->sin6_addr, 8);
+
+	return 0;
+}
+
+/* a bucket entry is given to a newcomer, in place */
+static struct node *
+node_take_over(struct lws_dht_ctx *ctx, struct node *n,
+	       const lws_dht_hash_t *id, const struct sockaddr *sa,
+	       size_t salen, int confirm, uint8_t bep42_ok)
+{
+	lws_dht_hash_destroy(&n->id);
+	n->id = lws_dht_hash_dup(id);
+	if (!n->id)
+		/* the entry stays, idless, until the bucket is cleaned */
+		return NULL;
+	memcpy((struct sockaddr *)&n->ss, sa, salen);
+	n->sslen = salen;
+	n->bep42_ok = bep42_ok;
+	n->time = confirm ? ctx->now : 0;
+	n->reply_time = confirm >= 2 ? ctx->now : 0;
+	n->pinged_time = 0;
+	n->pinged = 0;
+
+	return n;
+}
+
 struct node *
 maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		const struct sockaddr *sa, size_t salen,
@@ -385,6 +425,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	struct bucket *nb;
 	struct node *n;
 	int mybucket, split;
+	uint8_t bep42_ok;
 
 	lwsl_dht_info("%s: id %02x, confirm %d\n", __func__, id->id[0], confirm);
 
@@ -399,7 +440,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		return NULL;
 	}
 
-	if (is_martian(sa) || node_blacklisted(ctx, sa, salen)) {
+	if (is_martian(ctx, sa) || node_blacklisted(ctx, sa, salen)) {
 		char buf[64] = "unknown";
 		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa, buf, sizeof(buf));
 		lwsl_dht_warn("%s: martian or blacklisted: %s\n", __func__, buf);
@@ -433,6 +474,34 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 
 	/* New node. */
 
+	/*
+	 * BEP42: an id is bound to its public address.  One that is not
+	 * (made up, as a host filling a bucket with ids of its choosing
+	 * does) is still admitted while there is room, since a node may not
+	 * know its external address yet, but a conforming one takes its
+	 * place when the bucket is full, and no address gets more than a
+	 * couple of entries in a bucket however many ids it presents.
+	 * Private addresses are exempt from the check, as BEP42 says.
+	 */
+	bep42_ok = lws_dht_ads_is_private(sa) || lws_dht_bep42_check(id, sa);
+
+	if (!lws_dht_ads_is_private(sa)) {
+		int same = 0;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d4,
+				      lws_dll2_get_head(&b->nodes)) {
+			n = lws_container_of(d4, struct node, list);
+			if (dht_sa_same_host((const struct sockaddr *)&n->ss, sa))
+				same++;
+		} lws_end_foreach_dll(d4);
+
+		if (same >= LWS_DHT_MAX_SAME_ADS_PER_BUCKET) {
+			lwsl_dht_info("%s: address already has %d entries in bucket\n",
+				      __func__, same);
+			return NULL;
+		}
+	}
+
 	if (confirm == 2)
 		b->time = ctx->now;
 
@@ -447,23 +516,28 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&b->nodes)) {
 		n = lws_container_of(d2, struct node, list);
 
-		if (node_known_bad(ctx, n)) {
-			lws_dht_hash_destroy(&n->id);
-			n->id = lws_dht_hash_dup(id);
-			if (!n->id) {
-				// Should we remove node from bucket? For now keep but it's broken
-				return NULL;
-			}
-			memcpy((struct sockaddr*)&n->ss, sa, salen);
-			n->time = confirm ? ctx->now : 0;
-			n->reply_time = confirm >= 2 ? ctx->now : 0;
-			n->pinged_time = 0;
-			n->pinged = 0;
-			return n;
-		}
+		if (node_known_bad(ctx, n))
+			return node_take_over(ctx, n, id, sa, salen, confirm,
+					      bep42_ok);
 	} lws_end_foreach_dll(d2);
 
 	if (lws_dll2_count(&b->nodes) >= 8) {
+		/*
+		 * Bucket full: a conforming newcomer displaces an entry whose
+		 * id is not bound to its address, before we start pinging
+		 */
+		if (bep42_ok)
+			lws_start_foreach_dll(struct lws_dll2 *, d5,
+					      lws_dll2_get_head(&b->nodes)) {
+				n = lws_container_of(d5, struct node, list);
+				if (!n->bep42_ok) {
+					lwsl_dht_info("%s: BEP42 node displaces an unbound one\n",
+						      __func__);
+					return node_take_over(ctx, n, id, sa,
+							      salen, confirm, 1);
+				}
+			} lws_end_foreach_dll(d5);
+
 		/* Bucket full.  Ping a dubious node */
 		int dubious = 0;
 
@@ -543,6 +617,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 
 	memcpy(&n->ss, sa, (size_t)salen);
 
+	n->bep42_ok		= bep42_ok;
 	n->sslen		= salen;
 	n->time			= confirm ? ctx->now : 0;
 	n->reply_time		= confirm >= 2 ? ctx->now : 0;

@@ -13,9 +13,24 @@ The DHT functionality is physically split into client and backend blocks to allo
 
 A vhost's `"dht": [{...}]` block in lwsws JSON takes `"v"` (version string),
 `"name"`, `"port"` (default 7682), `"ipv6"`, `"hash"` (`sha1`, `sha256`,
-`sha512` or `blake3`) and `"legacy"`.  `"legacy"` selects the original fixed
-20-byte id wire encoding for peers that predate the multihash one; it is off
-by default and needs a sha1 hash.
+`sha512` or `blake3`), `"legacy"` and `"allow-private"`.  `"legacy"` selects
+the original fixed 20-byte id wire encoding for peers that predate the
+multihash one; it is off by default and needs a sha1 hash.  `"allow-private"`
+admits peers at private, loopback or link-local addresses, for a LAN
+deployment; by default only public addresses are kept, as BEP42 expects.
+
+## Node ids and BEP42
+
+A node that is not given an id starts with a random one and, once a quorum of
+peers has told it its external address, replaces it with one bound to that
+address as BEP42 describes (the first 21 bits derive from the masked IP and a
+random byte that ends the id).  Peers' ids are checked the same way when they
+enter the routing table: an id that is not bound to its address is still kept
+while a bucket has room, since a node may not know its address yet, but a
+bound one displaces it when the bucket is full, and no address may hold more
+than two entries in a bucket however many ids it presents.
+`lws_dht_bep42_id()` and `lws_dht_bep42_check()` are available to applications
+that supply their own ids.
 
 ## Configuration Options (`lws_dht_info_t`)
 

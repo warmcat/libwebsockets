@@ -31,6 +31,126 @@ static const uint8_t v4prefix[16] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 0
 };
 
+/*
+ * BEP42 (DHT security extension): the first 21 bits of a node id are the
+ * CRC32C of the node's masked public IP with three bits of a random byte r
+ * folded in, and the last byte of the id is r.
+ */
+
+static uint32_t
+dht_crc32c(const uint8_t *p, size_t len)
+{
+	uint32_t crc = 0xffffffffu;
+	int n;
+
+	while (len--) {
+		crc ^= *p++;
+		for (n = 0; n < 8; n++)
+			crc = (crc >> 1) ^ (0x82f63b78u & (0u - (crc & 1u)));
+	}
+
+	return ~crc;
+}
+
+/* the BEP42 21-bit prefix for sa and r, into pre[0..2] (pre[2] bits 7..3) */
+static int
+dht_bep42_prefix(const struct sockaddr *sa, uint8_t r, uint8_t *pre)
+{
+	static const uint8_t m4[4] = { 0x03, 0x0f, 0x3f, 0xff },
+			     m6[8] = { 0x01, 0x03, 0x07, 0x0f,
+				       0x1f, 0x3f, 0x7f, 0xff };
+	uint8_t ip[8];
+	uint32_t crc;
+	size_t n, len;
+
+	switch (sa->sa_family) {
+	case AF_INET:
+		memcpy(ip, &((const struct sockaddr_in *)sa)->sin_addr, 4);
+		for (n = 0; n < 4; n++)
+			ip[n] &= m4[n];
+		len = 4;
+		break;
+	case AF_INET6:
+		memcpy(ip, &((const struct sockaddr_in6 *)sa)->sin6_addr, 8);
+		for (n = 0; n < 8; n++)
+			ip[n] &= m6[n];
+		len = 8;
+		break;
+	default:
+		return 1;
+	}
+
+	ip[0] |= (uint8_t)((r & 7) << 5);
+	crc = dht_crc32c(ip, len);
+	pre[0] = (uint8_t)(crc >> 24);
+	pre[1] = (uint8_t)(crc >> 16);
+	pre[2] = (uint8_t)((crc >> 8) & 0xf8);
+
+	return 0;
+}
+
+lws_dht_hash_t *
+lws_dht_bep42_id(struct lws_context *cx, const struct sockaddr *sa,
+		 uint8_t rand, int type, int len)
+{
+	uint8_t id[64], pre[3];
+	lws_dht_hash_t *h;
+
+	if (len < 4 || len > (int)sizeof(id) || dht_bep42_prefix(sa, rand, pre))
+		return NULL;
+
+	lws_get_random(cx, id, (size_t)len);
+	id[0] = pre[0];
+	id[1] = pre[1];
+	id[2] = (uint8_t)(pre[2] | (id[2] & 7));
+	id[len - 1] = rand;
+
+	h = lws_dht_hash_create(type, len, id);
+	lws_explicit_bzero(id, sizeof(id));
+
+	return h;
+}
+
+int
+lws_dht_bep42_check(const lws_dht_hash_t *id, const struct sockaddr *sa)
+{
+	uint8_t pre[3];
+
+	if (!id || id->len < 4 || dht_bep42_prefix(sa, id->id[id->len - 1], pre))
+		return 0;
+
+	return id->id[0] == pre[0] && id->id[1] == pre[1] &&
+	       (id->id[2] & 0xf8) == pre[2];
+}
+
+/*
+ * Our external address has just been agreed by a quorum of peers: an id we
+ * made up at random is replaced by one bound to that address, so peers that
+ * check BEP42 keep us.  An id the application gave us is its own business.
+ * The routing table stays as it is; it is valid for any id, and peers learn
+ * the new one from our next message to them.
+ */
+void
+lws_dht_bep42_own_id(struct lws_dht_ctx *ctx, const struct sockaddr *sa)
+{
+	lws_dht_hash_t *h;
+	uint8_t r;
+
+	if (!ctx->id_random || !ctx->myid || lws_dht_bep42_check(ctx->myid, sa))
+		return;
+
+	lws_get_random(ctx->vhost->context, &r, 1);
+	h = lws_dht_bep42_id(ctx->vhost->context, sa, r, ctx->myid->type,
+			     ctx->myid->len);
+	if (!h)
+		return;
+
+	lwsl_notice("%s: own id now bound to external address (BEP42)\n",
+		    __func__);
+	lws_dht_hash_destroy(&ctx->myid);
+	ctx->myid = h;
+}
+
 void
 lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash,
 			 const struct sockaddr *fromaddr, unsigned short prt)
@@ -39,9 +159,45 @@ lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash,
 		ctx->capture_announce_cb(ctx, hash, fromaddr, prt);
 }
 
+/*
+ * An address that is not on the public internet: loopback, RFC 1918 and
+ * RFC 6598 private ranges, link-local and IPv6 ULA.  Such a peer is refused
+ * unless the dht was created with allow_private_ads, and is exempt from the
+ * BEP42 id check (BEP42 only binds public addresses).
+ */
 int
-is_martian(const struct sockaddr *sa)
+lws_dht_ads_is_private(const struct sockaddr *sa)
 {
+	switch (sa->sa_family) {
+	case AF_INET: {
+		const uint8_t *a = (const uint8_t *)
+				&((const struct sockaddr_in *)sa)->sin_addr;
+
+		return a[0] == 127 || a[0] == 10 ||
+		       (a[0] == 172 && (a[1] & 0xf0) == 16) ||
+		       (a[0] == 192 && a[1] == 168) ||
+		       (a[0] == 169 && a[1] == 254) ||
+		       (a[0] == 100 && (a[1] & 0xc0) == 64);
+	}
+	case AF_INET6: {
+		const uint8_t *a = (const uint8_t *)
+				&((const struct sockaddr_in6 *)sa)->sin6_addr;
+
+		return (a[0] & 0xfe) == 0xfc ||
+		       (a[0] == 0xfe && (a[1] & 0xc0) == 0x80) ||
+		       (!memcmp(a, zeroes, 15) && a[15] == 1);
+	}
+	default:
+		return 0;
+	}
+}
+
+int
+is_martian(const struct lws_dht_ctx *ctx, const struct sockaddr *sa)
+{
+	if (lws_dht_ads_is_private(sa) && !ctx->allow_private_ads)
+		return 1;
+
 	switch(sa->sa_family) {
 		case AF_INET: {
 			struct sockaddr_in *sin = (struct sockaddr_in*)sa;
@@ -49,7 +205,6 @@ is_martian(const struct sockaddr *sa)
 
 			return sin->sin_port == 0 ||
 				(address[0] == 0) ||
-				/* (address[0] == 127) || local loopback is okay for testing */
 				((address[0] & 0xE0) == 0xE0);
 			}
 		case AF_INET6: {
@@ -381,8 +536,10 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 
 			if (!strcmp(vl->v.name, msg.verb)) {
 				struct lws_dht_verb_dispatch_args args;
-				struct lws_a a;
+				struct lws_context *cx = dts->ctx->vhost->context;
 				int n;
+				lws_fakewsi_def_plwsa(&cx->pt[dts->ctx->wsi_v4 ?
+						dts->ctx->wsi_v4->tsi : 0]);
 
 				if (!strcmp(msg.verb, "PUT"))
 					dts->ctx->stats_current.rx_put++;
@@ -394,17 +551,23 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 				args.from = (const struct sockaddr *)&dts->sa;
 				args.fromlen = dts->salen;
 
-				/* prepare a temporary minimal wsi to associate the callback with this vhost and protocol */
-				memset(&a, 0, sizeof(a));
-				a.context = dts->ctx->vhost->context;
-				a.vhost = dts->ctx->vhost;
-				a.protocol = vl->v.protocol;
+				/*
+				 * There is no connection for this callback: it
+				 * gets the pt's fake wsi, prepared for this
+				 * vhost and protocol, which is a whole struct
+				 * lws (except on freertos), so a handler that
+				 * looks past the lws_a part is not reading off
+				 * the end of a stack object
+				 */
+				lws_fakewsi_prep_plwsa_ctx(cx);
+				plwsa->vhost = dts->ctx->vhost;
+				plwsa->protocol = vl->v.protocol;
 
 				args.out_precedence = LWS_DHT_VERB_RESULT_PROCEED;
 
 				// lwsl_notice("DISPATCHING %s to protocol %s\n", msg.verb, vl->v.protocol->name);
 
-				n = vl->v.protocol->callback((struct lws *)&a, LWS_CALLBACK_DHT_VERB_DISPATCH,
+				n = vl->v.protocol->callback((struct lws *)plwsa, LWS_CALLBACK_DHT_VERB_DISPATCH,
 							lws_protocol_vh_priv_get(dts->ctx->vhost, vl->v.protocol),
 							&args, 0);
 
@@ -878,6 +1041,7 @@ lws_dht_create(const lws_dht_info_t *info)
 	 * always used
 	 */
 	ctx->legacy = info->legacy;
+	ctx->allow_private_ads = info->allow_private_ads;
 	lws_dll2_owner_clear(&ctx->ts_owner);
 	lws_dll2_owner_clear(&ctx->verb_owner);
 
@@ -887,6 +1051,8 @@ lws_dht_create(const lws_dht_info_t *info)
 		uint8_t temp_id[20];
 		lws_get_random(ctx->vhost->context, temp_id, 20);
 		ctx->myid = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, temp_id);
+		/* replaced by a BEP42 id once our external address is known */
+		ctx->id_random = 1;
 	}
 
 	if (!ctx->myid) {

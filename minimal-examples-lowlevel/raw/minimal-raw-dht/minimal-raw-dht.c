@@ -27,6 +27,7 @@ enum {
 	LWS_SW_TARGET_IP,
 	LWS_SW_TARGET_PORT,
 	LWS_SW_TEST_HANDSHAKE,
+	LWS_SW_ALLOW_PRIVATE,
 	LWS_SW_P,
 	LWS_SW_S,
 	LWS_SW_STATS_PORT,
@@ -46,6 +47,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_TARGET_IP]	= { "--target-ip",     "Bootstrapping UDP network node target IP" },
 	[LWS_SW_TARGET_PORT]	= { "--target-port",   "Bootstrapping UDP network node target port" },
 	[LWS_SW_TEST_HANDSHAKE]	= { "--test-handshake", "Enable --test-handshake feature" },
+	[LWS_SW_ALLOW_PRIVATE]	= { "--allow-private", "Admit DHT peers on private / loopback addresses (LAN or local testing)" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
 	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
 	[LWS_SW_STATS_PORT] = { "--stats-port", "Port for HTTP stats vhost (default: dht-port + 100)" },
@@ -201,9 +203,15 @@ struct lws_protocol_vhost_options pvos[] = {
 	},
 	{
 		.options	= NULL,
-		.next		= NULL,
+		.next		= &pvos[19],
 		.name		= "domain",
 		.value		= ""
+	},
+	{
+		.options	= NULL,
+		.next		= NULL,
+		.name		= "dht-allow-private",
+		.value		= "0"
 	},
 };
 
@@ -387,6 +395,9 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_TEST_HANDSHAKE].sw))
 		pvos[16].value = "1";
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_ALLOW_PRIVATE].sw))
+		pvos[19].value = "1";
 
 
 #if defined(LWS_WITH_PLUGINS)
