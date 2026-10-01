@@ -418,8 +418,10 @@
 		# libFuzzer + ASan campaign over the untrusted-input parsers in
 		# ./fuzz, 60s per target (~15 min + build).  Corpora persist in
 		# $HOME across jobs so coverage keeps advancing; run.sh exits
-		# nonzero and lists the absolute paths of any findings, which
-		# are also offered as artifacts.  Needs clang + libclang-rt-*-dev
+		# nonzero and lists the names of any findings.  Findings are
+		# not artifacts: they can be unfixed security bugs, so under
+		# sai they go to sai-server through the pool, which only shows
+		# them to admins.  Needs clang + libclang-rt-*-dev
 		# on the builder, plus gnutls + zlib dev packages: run.sh would
 		# normally autodetect those via pkg-config and silently drop the
 		# qpack / jose / cose / ws-pmd targets if it can't see them, so
@@ -437,7 +439,6 @@
 		"fuzz": {
 			"cmake":	"CORPUS=$HOME/lws-fuzz-corpus FUZZ_OPTS=-verbosity=0 FUZZ_CMAKE_OPTS=\"-DLWS_WITH_SSL=ON -DLWS_WITH_GNUTLS=ON -DLWS_WITH_GENCRYPTO=ON -DLWS_WITH_JOSE=ON -DLWS_WITH_COSE=ON -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=ON -DLWS_WITHOUT_EXTENSIONS=OFF -DLWS_WITH_ZLIB=ON\" ./fuzz/run.sh 60",
 			"platforms":	"none, fuzz-linux-debian13/x86_64-amd/gcc",
-			"artifacts":	"build-fuzz/fuzz/crash-*, build-fuzz/fuzz/leak-*, build-fuzz/fuzz/timeout-*, build-fuzz/fuzz/oom-*",
 			"idle":		2,
 			"pool":		"fuzz"
 		}

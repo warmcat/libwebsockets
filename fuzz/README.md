@@ -87,6 +87,17 @@ instead of in `CORPUS`, so every builder fuzzes from, and adds to, the same
 corpora.  The first time, any corpora already in `CORPUS` are copied into
 the pool.
 
+In a CI run under sai (not an idle task), `run.sh` first replays each target's
+known bug reproducers from `SAI_POOL_KNOWN`, which sai-server keeps for every
+bug found so far, and fails if any still crash.  So once something is found,
+CI on that branch keeps failing until it's fixed.  What it finds, and the known
+bugs that still crash, go to sai-server through `SAI_POOL_FINDINGS`, which
+groups them into bugs and shows them to sai admins (see sai's
+`READMEs/README-findings.md`).  Under sai, the sanitizer reports are not put in
+the task log, which is public, since they may be unfixed security bugs; the log
+just says what was found.  An idle task reports what it finds the same way, but
+doesn't fail.
+
 ## Targets
 
 | target | parser under test | notes |

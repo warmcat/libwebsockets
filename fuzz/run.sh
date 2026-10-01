@@ -31,6 +31,16 @@
 # The first time, whatever corpora CORPUS already had are copied in, so nothing
 # found before is lost.
 #
+# With the pool, sai also gives us SAI_POOL_KNOWN, the reproducers of the bugs
+# found so far (sai's READMEs/README-findings.md), and SAI_POOL_FINDINGS, where
+# what we find goes to be sent to sai-server, which groups them into bugs.  A
+# CI run (not an idle task) replays the known reproducers of each target before
+# fuzzing it, and fails if any still crash, so a known bug keeps CI failing
+# until it's fixed.  The sanitizer reports go only to sai-server, which only
+# shows them to admins: they can be unfixed security bugs, and CI logs are
+# public.  An idle task's findings are reported that way, but don't make it
+# fail.
+#
 # Finding artifacts (crash-*, leak-*, timeout-*, oom-*) are written into
 # <build>/fuzz/ along with each target's full output in log-<name>.txt; any
 # findings produced by this run are listed by absolute path at the end and
@@ -178,6 +188,43 @@ touch "$STAMP"
 
 rc=0
 
+# send a finding to sai-server through the pool: $1 target, $2 the input,
+# $3 the name to give it, $4 the report.  Each is written under a hidden name
+# first, so the builder never sends one half written.
+sai_finding() {
+	d="$SAI_POOL_FINDINGS/$1"
+	mkdir -p "$d"
+	tail -c 1048576 "$4" > "$d/.$3.log" && mv "$d/.$3.log" "$d/$3.log"
+	cp "$2" "$d/.$3" && mv "$d/.$3" "$d/$3"
+}
+
+# replay the known reproducers of target $1, failing for any that still
+# crash, and telling sai-server about those that don't any more
+replay_known() {
+	kdir="$SAI_POOL_KNOWN/$1"
+	[ -d "$kdir" ] || return 0
+
+	for f in "$kdir"/*; do
+		h=${f##*/}
+		case "$h" in
+			*[!0-9a-f]*|'') continue ;;
+		esac
+		[ ${#h} -eq 40 ] || continue
+
+		rlog="$BUILD/fuzz/replay-$1-$h.txt"
+		if "$BUILD/bin/fuzz-$1" -timeout=60 "$f" > "$rlog" 2>&1; then
+			mkdir -p "$SAI_POOL_FINDINGS/$1"
+			: > "$SAI_POOL_FINDINGS/$1/.ok-$h" &&
+				mv "$SAI_POOL_FINDINGS/$1/.ok-$h" \
+				   "$SAI_POOL_FINDINGS/$1/ok-$h"
+		else
+			echo "fuzz-$1: known bug $h still crashes (report sent to sai)"
+			sai_finding "$1" "$f" "replay-$h" "$rlog"
+			rc=1
+		fi
+	done
+}
+
 # first corpus dir receives new discoveries, the second is read-only seeds
 run_target() {
 	"$BUILD/bin/fuzz-$1" "$CORPUS/corpus-$1" "$REPO/fuzz/fuzz-$1/seeds" \
@@ -201,6 +248,14 @@ for t in $TARGETS; do
 	mkdir -p "$CORPUS/corpus-$t"
 	log="$BUILD/fuzz/log-$t.txt"
 
+	if [ -n "$SAI_POOL_KNOWN" ] && [ -n "$SAI_POOL_FINDINGS" ] &&
+	   [ -z "$IDLE_SECS" ]; then
+		replay_known "$t"
+	fi
+
+	TSTAMP="$BUILD/fuzz/.target-stamp"
+	touch "$TSTAMP"
+
 	if [ -t 1 ]; then
 		# interactive: live output, plus a copy next to the artifacts
 		{ run_target "$t"; echo $? > "$log.rc"; } 2>&1 | tee "$log"
@@ -212,7 +267,25 @@ for t in $TARGETS; do
 		# store per-read chunks (sai) count every one against a spew
 		# limit; gather the target's output and emit it in one go
 		run_target "$t" > "$log" 2>&1 || rc=1
-		cat "$log"
+
+		if [ -n "$SAI_POOL_FINDINGS" ]; then
+			# the reports go to sai-server; the public log just
+			# gets how it went
+			grep -aE '^(#[0-9]+[[:space:]]+(INITED|DONE)|Done [0-9]+ runs|stat::)' \
+				"$log" || true
+		else
+			cat "$log"
+		fi
+	fi
+
+	if [ -n "$SAI_POOL_FINDINGS" ]; then
+		for f in $(find "$BUILD/fuzz" -maxdepth 1 -type f \
+				-newer "$TSTAMP" \( -name 'crash-*' \
+				-o -name 'leak-*' -o -name 'timeout-*' \
+				-o -name 'oom-*' -o -name 'slow-unit-*' \)); do
+			echo "fuzz-$t: finding ${f##*/} (report sent to sai)"
+			sai_finding "$t" "$f" "${f##*/}" "$log"
+		done
 	fi
 done
 
@@ -230,6 +303,11 @@ if [ -n "$FOUND" ]; then
 	rc=1
 else
 	echo "=== no findings ==="
+fi
+
+if [ -n "$IDLE_SECS" ] && [ -n "$SAI_POOL_FINDINGS" ]; then
+	# an idle task has reported what it found, it carries on next slice
+	rc=0
 fi
 
 exit $rc
