@@ -198,6 +198,12 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen);
  *				   :   input data
  * len				   : first call: add data length, subsequently
  *				   :   input / output length
+ * out				   : first call: NULL, subsequently output data
+ *
+ * The first GCM call is always the additional data pass, even if there is
+ * no additional data (pass in NULL and len 0 then): the payload only goes
+ * in from the second call on.  Pass out as NULL on the first call, some
+ * backends use that to tell the AAD pass apart from a payload one.
  *
  * The length of the optional arg is always 16 if used, regardless of the mode.
  *

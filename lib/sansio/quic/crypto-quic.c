@@ -1428,7 +1428,16 @@ lws_quic_create_retry_token(struct lws *wsi,
 
         memcpy(out_token, nonce, 12);
         size_t iv_len = 12;
-        if (lws_genaes_crypt(&aead, pt, pt_len, out_token + 12, nonce, out_token + 12 + pt_len, &iv_len, 16)) {
+
+        /*
+         * The first GCM lws_genaes_crypt() is always the additional data
+         * pass, whatever "out" is: the mbedtls and schannel backends do not
+         * look at "out" to tell AAD from payload the way openssl does.  So
+         * the token's (empty) AAD gets its own pass, and the payload only
+         * goes in on the second call, where every backend encrypts it.
+         */
+        if (lws_genaes_crypt(&aead, NULL, 0, NULL, nonce, out_token + 12 + pt_len, &iv_len, 16) ||
+            lws_genaes_crypt(&aead, pt, pt_len, out_token + 12, nonce, out_token + 12 + pt_len, &iv_len, 16)) {
                 lws_genaes_destroy(&aead, NULL, 0);
                 return -1;
         }
@@ -1465,7 +1474,9 @@ lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t toke
 
         size_t iv_len = 12;
         memcpy(tag, token + 12 + ct_len, 16);
-        if (lws_genaes_crypt(&aead, token + 12, ct_len, pt, (uint8_t *)token, tag, &iv_len, 16)) {
+        /* empty AAD pass first, as in lws_quic_create_retry_token() */
+        if (lws_genaes_crypt(&aead, NULL, 0, NULL, (uint8_t *)token, tag, &iv_len, 16) ||
+            lws_genaes_crypt(&aead, token + 12, ct_len, pt, (uint8_t *)token, tag, &iv_len, 16)) {
                 lws_genaes_destroy(&aead, NULL, 0);
                 return -1;
         }
