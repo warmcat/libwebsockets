@@ -53,7 +53,7 @@ lws_h3_dbg_value_len(int tok, const char *value, size_t value_len)
 }
 #endif
 
-#if (_LWS_ENABLED_LOGS & (LLL_INFO | LLL_NOTICE))
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 /*
  * F-016: urlargs are a common place for apps to put session or authorization
  * tokens.  When a log line wants to show the request path, show it truncated
