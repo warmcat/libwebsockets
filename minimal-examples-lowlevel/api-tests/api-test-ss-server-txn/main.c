@@ -20,7 +20,8 @@
  *  - nothing a request provided survives into the next request's view
  *
  *  - a ws upgrade on the same connection after those transactions is
- *    accepted, and the accepted stream hears LWSSSCS_SERVER_UPGRADE
+ *    accepted, and the accepted stream hears LWSSSCS_SERVER_UPGRADE (only
+ *    where lws has the ws role)
  *
  * The client is a raw socket in the same process, so we control exactly what
  * is sent on the connection.
@@ -78,7 +79,9 @@ static txn_t txns[] = {
 		"Host: localhost\r\n"
 		"\r\n",
 		"/txn/two", "GET", NULL, NULL, 0, 0, 0
-	}, {
+	},
+#if defined(LWS_ROLE_WS)
+	{
 		/* a ws upgrade after completed transactions */
 		"upgrade",
 		"GET /ws HTTP/1.1\r\n"
@@ -91,6 +94,7 @@ static txn_t txns[] = {
 		"\r\n",
 		NULL, NULL, NULL, NULL, 1, 0, 0
 	},
+#endif
 };
 
 static struct lws_context *context;
