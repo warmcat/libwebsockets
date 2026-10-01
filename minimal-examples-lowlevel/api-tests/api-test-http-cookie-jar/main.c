@@ -105,6 +105,9 @@ callback_jar_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		/* the body is the Cookie: header the request came with */
 		m = (size_t)lws_snprintf(pss->body, sizeof(pss->body),
 					 "cookies:");
+		/* a truncated result is reported as the whole size */
+		if (m >= sizeof(pss->body) - 1)
+			return 1;
 		n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
 		if (n > 0 && lws_hdr_copy(wsi, pss->body + m,
 					  (int)(sizeof(pss->body) - m),
