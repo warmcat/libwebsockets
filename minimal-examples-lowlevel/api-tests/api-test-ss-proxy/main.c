@@ -317,7 +317,7 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	struct pss *pss = (struct pss *)user;
 	uint8_t buf[LWS_PRE + 19 + 1380], *p = buf + LWS_PRE;
 	leg_t *l = &legs[cur_leg];
-	size_t n, fl;
+	size_t n, fl, o;
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -381,18 +381,29 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		memcpy(pss->rx + pss->rx_len, in, len);
 		pss->rx_len += len;
 
-		/* issue each complete frame we have */
+		/*
+		 * issue each complete frame we have: o is how far into rx
+		 * whole frames were consumed, rx_len stays what we buffered
+		 */
 
-		while (pss->rx_len >= 3) {
-			fl = lws_ser_ru16be(&pss->rx[1]);
-			if (pss->rx_len < 3 + fl)
+		o = 0;
+		while (pss->rx_len - o >= 3) {
+			fl = lws_ser_ru16be(&pss->rx[o + 1]);
+			if (pss->rx_len - o < 3 + fl)
 				break;
-			if (proxy_frame(wsi, pss, pss->rx[0], &pss->rx[3], fl)) {
+			if (proxy_frame(wsi, pss, pss->rx[o], &pss->rx[o + 3],
+					fl)) {
 				we_closed = 1;
 				return -1;
 			}
-			pss->rx_len -= 3 + fl;
-			memmove(pss->rx, pss->rx + 3 + fl, pss->rx_len);
+			o += 3 + fl;
+		}
+		/* o is built from peer lengths, bound it before the memmove */
+		if (o > pss->rx_len)
+			return -1;
+		if (o) {
+			pss->rx_len -= o;
+			memmove(pss->rx, pss->rx + o, pss->rx_len);
 		}
 		break;
 
