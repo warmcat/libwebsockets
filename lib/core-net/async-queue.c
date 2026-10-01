@@ -141,4 +141,34 @@ lws_async_queue_submit(struct lws_context *cx, struct lws_async_job *job)
 
 	return 0;
 }
+
+int
+lws_service_work_outstanding(struct lws_context *cx)
+{
+	int n;
+
+	/*
+	 * Queued, being worked on (a worker not idle has a job, or is about
+	 * to exit without one), or done and waiting for the service thread
+	 */
+	pthread_mutex_lock(&cx->async_worker_mutex);
+	n = (int)lws_dll2_count(&cx->async_worker_waiting) +
+	    (int)cx->async_worker_threads_active -
+	    (int)cx->async_worker_threads_idle +
+	    (int)lws_dll2_count(&cx->async_worker_finished);
+	pthread_mutex_unlock(&cx->async_worker_mutex);
+
+	return n;
+}
+
+#else
+
+int
+lws_service_work_outstanding(struct lws_context *cx)
+{
+	(void)cx;
+
+	return 0;
+}
+
 #endif

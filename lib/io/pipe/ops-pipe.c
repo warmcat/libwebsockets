@@ -315,6 +315,22 @@ lws_cancel_service(struct lws_context *context)
 	}
 }
 
+lws_sockfd_type
+lws_service_wake_fd(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt;
+
+	if (tsi < 0 || tsi >= context->count_threads)
+		return LWS_SOCK_INVALID;
+
+	pt = &context->pt[tsi];
+	if (!pt->pipe_wsi)
+		return LWS_SOCK_INVALID;
+
+	/* a pipe the platform made outside the poll set has no fd here */
+	return pt->pipe_wsi->io->desc.sockfd;
+}
+
 int
 __lws_create_event_pipes(struct lws_context *context)
 {

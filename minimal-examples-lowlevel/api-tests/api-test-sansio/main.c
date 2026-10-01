@@ -11,9 +11,11 @@
  * (lws_set_transport() for a server connection, the transport of
  * lws_client_connect_info for a client one).  The socketpair end each is
  * adopted on is only its place in the poll set; no byte ever goes through
- * it, and the test never calls poll() or lws_service(): it is the event
+ * it, and the test never polls it or calls lws_service(): it is the event
  * loop, and it hears what lws wants of the transport the way an embedder
- * of the sansIO half does, through the io_ops seam.
+ * of the sansIO half does, through the io_ops seam.  The one fd it does
+ * poll is lws' wake fd, for a file read lws handed to a worker thread
+ * (LWS_WITH_ASYNC_QUEUE), as any embedder's loop must.
  *
  * Server half: we feed the bytes a client would send and check the bytes
  * the server answers with: an h1 GET answered by the http callback, then a
@@ -113,6 +115,7 @@
 
 #include <libwebsockets.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -563,9 +566,43 @@ tp_register(struct transport *t, int fd)
  * lws may have parked bytes it read but has not acted on yet (the body
  * that came with a response's headers): a real loop gives those a pass
  * without the socket saying anything, and so do we, while it says it holds
- * some.  There is no poll(): the test says what happened, until nothing
- * more can.
+ * some.  There is no poll() of the transport: the test says what happened,
+ * until nothing more can... except that a connection waiting on a worker
+ * has nothing to say until the worker's result is back, so then we wait
+ * for lws' wake, have lws pick the result up, and go on.
  */
+static int
+await_workers(struct lws_context *cx)
+{
+	struct lws_pollfd pfd;
+	int budget = 100; /* 50ms each: 5s */
+
+	if (!lws_service_work_outstanding(cx))
+		return 0;
+
+	pfd.fd = lws_service_wake_fd(cx, 0);
+	if (pfd.fd == LWS_SOCK_INVALID) {
+		lwsl_err("%s: work outstanding and no wake fd\n", __func__);
+		return 0;
+	}
+
+	while (budget--) {
+		pfd.events = LWS_POLLIN;
+		pfd.revents = 0;
+		if (poll(&pfd, 1, 50) > 0 && (pfd.revents & LWS_POLLIN)) {
+			lws_service_fd(cx, &pfd);
+			return 1;
+		}
+		if (!lws_service_work_outstanding(cx))
+			/* what was out went without needing the wake */
+			return 0;
+	}
+
+	lwsl_err("%s: a worker did not come back\n", __func__);
+
+	return 0;
+}
+
 static void
 pump(struct lws_context *cx, struct transport *t)
 {
@@ -590,8 +627,11 @@ pump(struct lws_context *cx, struct transport *t)
 				      (out ? LWS_POLLOUT : 0) |
 				      (t->fin ? POLLHUP : 0) |
 				      (t->reset ? POLLHUP | POLLERR : 0));
-		if (!pfd.revents)
+		if (!pfd.revents) {
+			if (await_workers(cx))
+				continue;
 			return;
+		}
 		/*
 		 * Offered, lws asks again if it still wants it... but a pass
 		 * that also reads leaves POLLOUT for the next one (IO's
@@ -616,7 +656,8 @@ pump(struct lws_context *cx, struct transport *t)
 		 */
 		if (t->rx_pos == rpos && t->tx_len == tlen && !t->want_write &&
 		    t->want_read == reading &&
-		    held == !lws_service_adjust_timeout(cx, 1, 0))
+		    held == !lws_service_adjust_timeout(cx, 1, 0) &&
+		    !await_workers(cx))
 			return;
 	}
 }

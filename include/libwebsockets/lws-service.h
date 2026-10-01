@@ -106,6 +106,45 @@ LWS_VISIBLE LWS_EXTERN void
 lws_cancel_service(struct lws_context *context);
 
 /**
+ * lws_service_wake_fd() - the fd that wakes a service thread
+ * \param context:	Websocket context
+ * \param tsi:		thread service index
+ *
+ * lws_cancel_service() and lws_cancel_service_pt() wake a service thread by
+ * making this fd readable.  They are how another thread hands work to the
+ * service thread: an async worker's finished file read, a message for smd,
+ * and the app's own wakes all arrive this way.  lws' own event loops watch
+ * it; an embedder running its own loop around lws_service_fd() must poll it
+ * for POLLIN as well, and pass it to lws_service_fd_tsi() when it is
+ * readable, or that work is never picked up.  It is not announced by
+ * LWS_CALLBACK_ADD_POLL_FD, since it belongs to no vhost.
+ *
+ * Returns LWS_SOCK_INVALID when the thread has no such fd, because the
+ * platform or event library wakes it some other way.
+ */
+LWS_VISIBLE LWS_EXTERN lws_sockfd_type
+lws_service_wake_fd(struct lws_context *context, int tsi);
+
+/**
+ * lws_service_work_outstanding() - work out on other threads, not back yet
+ * \param context:	Websocket context
+ *
+ * Returns how many jobs lws has handed to its async worker threads
+ * (LWS_WITH_ASYNC_QUEUE: the file server's reads, tls accepts) whose result
+ * a service thread has not picked up yet: queued, being worked on, or done
+ * with the service thread's wake fd (lws_service_wake_fd()) signalled.
+ * Always 0 in a build without the queue.
+ *
+ * A connection waiting on one has nothing to say at its transport until it
+ * is back.  An embedder that steps lws deterministically, rather than
+ * waiting in poll(), can use it to know there is still something to wait
+ * for on the wake fd.  It is a snapshot: a job may be handed out or come
+ * back as soon as it returns.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_service_work_outstanding(struct lws_context *context);
+
+/**
  * lws_service_fd() - Service polled socket with something waiting
  * \param context:	Websocket context
  * \param pollfd:	The pollfd entry describing the socket fd and which events

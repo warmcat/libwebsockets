@@ -392,6 +392,20 @@ asked, so lws' own loops are unchanged.  A port has `now` as an argument of
 its entry points instead: what C keeps on the service thread between calls
 is what the port is handed with each one.
 
+Work lws hands to its worker threads (`LWS_WITH_ASYNC_QUEUE`: the file
+server's reads, tls accepts) comes back by waking the service thread, as
+`lws_cancel_service()` does: the fd `lws_service_wake_fd(cx, tsi)` becomes
+readable, and the result is picked up when that fd is passed to
+`lws_service_fd_tsi()`.  An embedder that is the event loop must poll that fd
+along with its transports, or a connection waiting on a worker never hears
+its result; the fd belongs to no vhost, so `LWS_CALLBACK_ADD_POLL_FD` never
+announces it.  A harness that steps lws rather than waiting in `poll()` asks
+`lws_service_work_outstanding(cx)` whether anything is still out, and when it
+is, waits on the wake fd before deciding nothing more will happen
+(api-test-sansio does).  Where the result arrives relative to what the
+harness feeds is the worker's timing, so a transcript is recorded from a build
+without the queue.
+
 With the seeded random source of fault injection (`lws_fi_random_seed()`,
 "The contract"), a run of the harness is a function of what it feeds and
 when; the tls library's own random and clock, inside its handshakes, are
