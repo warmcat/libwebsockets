@@ -577,6 +577,7 @@ struct txb {
 	uint8_t		*buf;
 	size_t		len;
 	size_t		max;
+	int		oom;	/* something wasn't added, don't send it */
 };
 
 typedef uint32_t (*h2_build_t)(struct txb *t);
@@ -1256,7 +1257,7 @@ tx_room(struct txb *t, size_t len)
 	uint8_t *nb;
 	size_t m;
 
-	if (t->len + len <= t->max)
+	if (t->buf && t->len + len <= t->max)
 		return 0;
 
 	m = (t->max ? t->max * 2 : 4096) + len;
@@ -1272,8 +1273,12 @@ tx_room(struct txb *t, size_t len)
 static void
 tx_add(struct txb *t, const void *p, size_t len)
 {
-	if (!len || tx_room(t, len))
+	if (!len)
 		return;
+	if (tx_room(t, len)) {
+		t->oom = 1;
+		return;
+	}
 	memcpy(t->buf + t->len, p, len);
 	t->len += len;
 }
@@ -2022,6 +2027,9 @@ h2_rx(struct lws *wsi, const uint8_t *in, size_t len)
 		o += 9 + flen;
 	}
 
+	/* o is built from peer lengths, bound it before the memmove */
+	if (o > cn.fr_len)
+		return -1;
 	cn.fr_len -= o;
 	memmove(cn.fr, cn.fr + o, cn.fr_len);
 
@@ -2213,7 +2221,7 @@ static const struct lws_protocols protocols_cli[] = {
 static int
 h1_compose(const struct h1_attack *a, const char *path)
 {
-	struct txb t = { NULL, 0, 0 };
+	struct txb t = { NULL, 0, 0, 0 };
 	uint32_t seed = 0x2545f491, n;
 	size_t fl;
 	uint8_t c;
@@ -2249,13 +2257,13 @@ out:
 	cn.tx = t.buf;
 	cn.tx_len = t.len;
 
-	return !t.buf;
+	return !t.buf || t.oom;
 }
 
 static int
 h2_compose(const struct h2_attack *a, const char *path)
 {
-	struct txb t = { NULL, 0, 0 };
+	struct txb t = { NULL, 0, 0, 0 };
 
 	if (path) {
 		/*
@@ -2276,7 +2284,7 @@ h2_compose(const struct h2_attack *a, const char *path)
 	cn.tx_len = t.len;
 	cn.fr = malloc(ATK_H2_FRAME_MAX);
 
-	return !t.buf || !cn.fr;
+	return !t.buf || t.oom || !cn.fr;
 }
 
 static void
