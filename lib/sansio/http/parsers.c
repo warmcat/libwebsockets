@@ -597,25 +597,37 @@ lws_hdr_extant(struct lws *wsi, enum lws_token_indexes h)
 
 int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
+	struct allocated_headers *ah = wsi->stream.ah;
+	size_t len = 0;
 	int n;
-	int len = 0;
 
-	if (!wsi->stream.ah)
+	if (!ah)
 		return 0;
 
-	n = wsi->stream.ah->frag_index[h];
+	n = ah->frag_index[h];
 	if (!n)
 		return 0;
 	do {
-		len += wsi->stream.ah->frags[n].len;
-		n = lws_ah_frag_next(wsi->stream.ah, n);
+		/*
+		 * Each fragment is stored in ah->data with a terminator after
+		 * it, so the fragments and the separators we add between them
+		 * can't total more than ah->data holds.  A chain that claims
+		 * more is corrupt, and is not a header we can report.
+		 */
+		if (ah->frags[n].len > ah->data_length - len)
+			return 0;
+		len += ah->frags[n].len;
+		n = lws_ah_frag_next(ah, n);
 
-		if (n)
+		if (n) {
+			if (len >= ah->data_length)
+				return 0;
 			len++;
+		}
 
 	} while (n);
 
-	return len;
+	return (int)len;
 }
 
 int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
