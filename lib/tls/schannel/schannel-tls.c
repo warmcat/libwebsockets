@@ -405,26 +405,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
         vhost->tls.ssl_ctx = NULL;
     }
     if (vhost->tls.ssl_client_ctx) {
-        if (vhost->tls.ssl_client_ctx->initialized)
-            FreeCredentialsHandle(&vhost->tls.ssl_client_ctx->cred);
-        /* Client context might not have key_prov set if we passed NULL, but if it does (future use), use CryptReleaseContext if it was CAPI?
-           Wait, lws_tls_client_create_vhost_context passes NULL for phProv currently.
-           But if it passed a pointer, it would get an HCRYPTPROV.
-           Let's assume CAPI.
-        */
-        if (vhost->tls.ssl_client_ctx->key_type == 0) {
-             if (vhost->tls.ssl_client_ctx->u.key_prov)
-                 CryptReleaseContext(vhost->tls.ssl_client_ctx->u.key_prov, 0);
-        } else {
-             if (vhost->tls.ssl_client_ctx->u.key_cng)
-                 NCryptFreeObject(vhost->tls.ssl_client_ctx->u.key_cng);
-        }
-
-        lws_tls_schannel_ca_destroy(vhost->tls.ssl_client_ctx);
-
-        if (vhost->tls.ssl_client_ctx->store)
-            CertCloseStore(vhost->tls.ssl_client_ctx->store, 0);
-        lws_free(vhost->tls.ssl_client_ctx);
+        lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_client_ctx);
         vhost->tls.ssl_client_ctx = NULL;
     }
 }
@@ -484,6 +465,15 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
     vh->tls.ssl_client_ctx = lws_zalloc(sizeof(*vh->tls.ssl_client_ctx), "schannel_client_ctx");
     if (!vh->tls.ssl_client_ctx) return 1;
 
+    /*
+     * An RSA client cert's key can only be imported into a named machine
+     * keyset, the same as a server cert's; without a name of its own the
+     * key never loaded and the vhost quietly connected with no client cert
+     */
+    lws_snprintf(vh->tls.ssl_client_ctx->key_container_name,
+                 sizeof(vh->tls.ssl_client_ctx->key_container_name),
+                 "lws_vhcli_%p_%lu", vh, (unsigned long)lws_now_usecs());
+
     schannel_cred.dwVersion = SCH_CREDENTIALS_VERSION;
 #ifndef SCH_USE_STRONG_CRYPTO
 #define SCH_USE_STRONG_CRYPTO 0x00400000
@@ -542,10 +532,13 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
                                             &vh->tls.ssl_client_ctx->store,
                                             (void **)&vh->tls.ssl_client_ctx->u.key_prov,
                                             &vh->tls.ssl_client_ctx->key_type,
-                                            NULL) == 0) {
-            schannel_cred.cCreds = 1;
-            schannel_cred.paCred = &pCertCtx;
+                                            vh->tls.ssl_client_ctx->key_container_name)) {
+            lwsl_err("%s: vh %s: unable to load client cert\n", __func__,
+                     vh->name);
+            goto bail;
         }
+        schannel_cred.cCreds = 1;
+        schannel_cred.paCred = &pCertCtx;
     }
 
     status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
@@ -567,31 +560,22 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
                                           &vh->tls.ssl_client_ctx->cred, &tsExpiry);
     }
 
-    if (status == SEC_E_NO_CREDENTIALS && schannel_cred.cCreds > 0) {
-        lwsl_warn("%s: client cert rejected by SChannel, retrying without\n", __func__);
-        schannel_cred.cCreds = 0;
-        schannel_cred.paCred = NULL;
-        schannel_cred.dwFlags &= ~SCH_CRED_NO_DEFAULT_CREDS;
-        status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
-                                          &schannel_cred, NULL, NULL,
-                                          &vh->tls.ssl_client_ctx->cred, &tsExpiry);
-        if (status == SEC_E_UNKNOWN_CREDENTIALS || status == SEC_E_INVALID_PARAMETER) {
-            SCHANNEL_CRED old_cred = { 0 };
-            old_cred.dwVersion = SCHANNEL_CRED_VERSION;
-            old_cred.dwFlags = schannel_cred.dwFlags;
-            status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
-                                              &old_cred, NULL, NULL,
-                                              &vh->tls.ssl_client_ctx->cred, &tsExpiry);
-        }
-    }
-
     if (pCertCtx) {
         CertFreeCertificateContext(pCertCtx);
         pCertCtx = NULL;
     }
 
+    /*
+     * A client cert SChannel will not take (SEC_E_NO_CREDENTIALS) fails the
+     * vhost: going on without it would leave him connecting as nobody, or
+     * as whatever default cert SChannel picks for him
+     */
+
     if (status != SEC_E_OK) {
-        lwsl_err("%s: AcquireCredentialsHandle failed 0x%x\n", __func__, (int)status);
+        lwsl_err("%s: vh %s: AcquireCredentialsHandle%s failed 0x%x\n",
+                 __func__, vh->name,
+                 schannel_cred.cCreds ? " (with client cert)" : "",
+                 (int)status);
         goto bail;
     }
 
@@ -602,10 +586,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 bail:
     if (pCertCtx)
         CertFreeCertificateContext(pCertCtx);
-    lws_tls_schannel_ca_destroy(vh->tls.ssl_client_ctx);
-    if (vh->tls.ssl_client_ctx->store)
-        CertCloseStore(vh->tls.ssl_client_ctx->store, 0);
-    lws_free(vh->tls.ssl_client_ctx);
+    lws_tls_vhost_backend_free_ctx(vh->tls.ssl_client_ctx);
     vh->tls.ssl_client_ctx = NULL;
 
     return 1;
