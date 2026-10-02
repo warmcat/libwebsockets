@@ -630,18 +630,16 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			/* the server is to fill the connection meanwhile */
 			cli_wsi = wsi;
 			lws_rx_flow_control(wsi, 0);
-#if !defined(WIN32)
 			if (legs[cur].stall != STALL_TX_DRAIN) {
-				int sfd = lws_get_socket_fd(wsi),
-				    rb = STALL_CLI_RCVBUF;
+				lws_sockfd_type sfd = lws_get_socket_fd(wsi);
+				int rb = STALL_CLI_RCVBUF;
 
-				if (sfd >= 0 &&
-				    setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, &rb,
-					       sizeof(rb)))
+				if (sfd != LWS_SOCK_INVALID &&
+				    setsockopt(sfd, SOL_SOCKET, SO_RCVBUF,
+					       (const char *)&rb, sizeof(rb)))
 					lwsl_warn("%s: SO_RCVBUF failed\n",
 						  __func__);
 			}
-#endif
 			break;
 		}
 		if (!legs[cur].server_initiates || legs[cur].pmd_mid_drain)
