@@ -158,6 +158,7 @@ struct lws_tls_schannel_conn {
 	 */
 	int f_sni_done;
 	int f_post_hs; /* feeding a TLS 1.3 post-handshake message to SSPI */
+	int f_close_notify; /* our close_notify is queued (or cannot be made) */
 
 	/*
 	 * The peer cert as it was when the handshake completed, so that a

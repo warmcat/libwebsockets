@@ -875,17 +875,47 @@ lws_tls_schannel_peer_der(struct lws_tls_schannel_conn *conn, uint8_t **der,
 }
 
 /*
- * Queue a token SSPI wants sent behind any ciphertext still waiting to go
- * out, and send as much of the lot as the socket will take now.  Whatever is
- * left goes ahead of the next write, the same as buffered app ciphertext.
+ * Send as much of the ciphertext waiting in tx_buf as the socket takes now.
+ * Returns 0 when it has all gone, 1 when some is left for POLLOUT, or -1 if
+ * the socket failed.
  */
 
 static int
-lws_tls_schannel_tx_queue(struct lws *wsi, struct lws_tls_schannel_conn *conn,
-			  const void *tok, size_t len)
+lws_tls_schannel_tx_flush(struct lws *wsi, struct lws_tls_schannel_conn *conn)
+{
+	ssize_t n;
+
+	if (!conn->tx_buf)
+		return 0;
+
+	n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos,
+		 (int)(conn->tx_len - conn->tx_pos), 0);
+	if (n < 0) {
+		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK)
+			return -1;
+		n = 0;
+	}
+
+	conn->tx_pos += (size_t)n;
+	if (conn->tx_pos < conn->tx_len)
+		return 1;
+
+	lws_free_set_NULL(conn->tx_buf);
+	conn->tx_len = 0;
+	conn->tx_pos = 0;
+
+	return 0;
+}
+
+/*
+ * Put a token SSPI made behind any ciphertext still waiting to go out
+ */
+
+static int
+lws_tls_schannel_tx_append(struct lws_tls_schannel_conn *conn, const void *tok,
+			   size_t len)
 {
 	uint8_t *p;
-	ssize_t n;
 
 	if (conn->tx_buf && conn->tx_pos) {
 		memmove(conn->tx_buf, conn->tx_buf + conn->tx_pos,
@@ -902,26 +932,60 @@ lws_tls_schannel_tx_queue(struct lws *wsi, struct lws_tls_schannel_conn *conn,
 	conn->tx_buf = p;
 	conn->tx_len += len;
 
-	n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos,
-		 (int)(conn->tx_len - conn->tx_pos), 0);
-	if (n < 0) {
-		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK)
-			return -1;
-		n = 0;
-	}
+	return 0;
+}
 
-	conn->tx_pos += (size_t)n;
-	if (conn->tx_pos == conn->tx_len) {
-		lws_free_set_NULL(conn->tx_buf);
-		conn->tx_len = 0;
-		conn->tx_pos = 0;
+/*
+ * Queue a token SSPI wants sent behind any ciphertext still waiting to go
+ * out, and send as much of the lot as the socket will take now.  Whatever is
+ * left goes ahead of the next write, the same as buffered app ciphertext.
+ */
 
-		return 0;
-	}
+static int
+lws_tls_schannel_tx_queue(struct lws *wsi, struct lws_tls_schannel_conn *conn,
+			  const void *tok, size_t len)
+{
+	int n;
 
-	lws_callback_on_writable(wsi);
+	if (lws_tls_schannel_tx_append(conn, tok, len))
+		return -1;
+
+	n = lws_tls_schannel_tx_flush(wsi, conn);
+	if (n < 0)
+		return -1;
+	if (n)
+		lws_callback_on_writable(wsi);
 
 	return 0;
+}
+
+/*
+ * The credentials and request flags an SSPI step on an established session
+ * takes, which depend on which end of the connection we are
+ */
+
+static struct lws_tls_schannel_ctx *
+lws_tls_schannel_step_args(struct lws *wsi, struct lws_tls_schannel_conn *conn,
+			   ULONG *req_attrs)
+{
+	if (lwsi_role_client(wsi)) {
+		*req_attrs = ISC_REQ_SEQUENCE_DETECT | ISC_REQ_REPLAY_DETECT |
+			     ISC_REQ_CONFIDENTIALITY | ISC_REQ_STREAM |
+			     ISC_REQ_ALLOCATE_MEMORY |
+			     ISC_REQ_MANUAL_CRED_VALIDATION |
+			     ISC_REQ_USE_SUPPLIED_CREDS;
+
+		return wsi->a.vhost->tls.ssl_client_ctx;
+	}
+
+	*req_attrs = ASC_REQ_SEQUENCE_DETECT | ASC_REQ_REPLAY_DETECT |
+		     ASC_REQ_CONFIDENTIALITY | ASC_REQ_STREAM |
+		     ASC_REQ_ALLOCATE_MEMORY;
+	if (conn->f_want_client_cert)
+		*req_attrs |= ASC_REQ_MUTUAL_AUTH;
+
+	return wsi->io->tls.ctx_ref ? wsi->io->tls.ctx_ref->ctx :
+				      wsi->a.vhost->tls.ssl_ctx;
 }
 
 /*
@@ -990,23 +1054,7 @@ lws_tls_schannel_post_hs_step(struct lws *wsi)
 	uint8_t *der;
 	ssize_t n;
 
-	if (client) {
-		ctx = wsi->a.vhost->tls.ssl_client_ctx;
-		req_attrs = ISC_REQ_SEQUENCE_DETECT | ISC_REQ_REPLAY_DETECT |
-			    ISC_REQ_CONFIDENTIALITY | ISC_REQ_STREAM |
-			    ISC_REQ_ALLOCATE_MEMORY |
-			    ISC_REQ_MANUAL_CRED_VALIDATION |
-			    ISC_REQ_USE_SUPPLIED_CREDS;
-	} else {
-		ctx = wsi->io->tls.ctx_ref ? wsi->io->tls.ctx_ref->ctx :
-					 wsi->a.vhost->tls.ssl_ctx;
-		req_attrs = ASC_REQ_SEQUENCE_DETECT | ASC_REQ_REPLAY_DETECT |
-			    ASC_REQ_CONFIDENTIALITY | ASC_REQ_STREAM |
-			    ASC_REQ_ALLOCATE_MEMORY;
-		if (conn->f_want_client_cert)
-			req_attrs |= ASC_REQ_MUTUAL_AUTH;
-	}
-
+	ctx = lws_tls_schannel_step_args(wsi, conn, &req_attrs);
 	if (!ctx)
 		return -1;
 
@@ -1414,21 +1462,11 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
 
 	/* Flush existing ciphertext */
-	if (conn->tx_buf) {
-		n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
-		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
-				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
-			return LWS_SSL_CAPABLE_ERROR;
-		}
-		conn->tx_pos += n;
-		if (conn->tx_pos < conn->tx_len)
-			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
-
-		lws_free_set_NULL(conn->tx_buf);
-		conn->tx_len = 0;
-		conn->tx_pos = 0;
-	}
+	n = lws_tls_schannel_tx_flush(wsi, conn);
+	if (n < 0)
+		return LWS_SSL_CAPABLE_ERROR;
+	if (n)
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	/*
 	 * If the last record could not be sent in full, we told the caller
@@ -1641,10 +1679,110 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	return LWS_SSL_CAPABLE_DONE;
 }
 
+/*
+ * Have SSPI make our close_notify alert and queue it behind any ciphertext
+ * still waiting to go out.  Returns 0 if it was queued, -1 if SSPI would not
+ * make one.
+ */
+
+static int
+lws_tls_schannel_close_notify(struct lws *wsi,
+			      struct lws_tls_schannel_conn *conn)
+{
+	struct lws_tls_schannel_ctx *ctx;
+	DWORD type = SCHANNEL_SHUTDOWN;
+	SecBufferDesc desc;
+	SECURITY_STATUS st;
+	ULONG req_attrs, ret_attrs;
+	SecBuffer sb;
+	int n;
+
+	ctx = lws_tls_schannel_step_args(wsi, conn, &req_attrs);
+	if (!ctx)
+		return -1;
+
+	sb.BufferType = SECBUFFER_TOKEN;
+	sb.pvBuffer = &type;
+	sb.cbBuffer = sizeof(type);
+	desc.cBuffers = 1;
+	desc.pBuffers = &sb;
+	desc.ulVersion = SECBUFFER_VERSION;
+
+	st = ApplyControlToken(&conn->ctxt, &desc);
+	if (st != SEC_E_OK) {
+		lwsl_wsi_info(wsi, "ApplyControlToken 0x%x", (int)st);
+
+		return -1;
+	}
+
+	/* the next step on the context makes the alert */
+
+	sb.BufferType = SECBUFFER_TOKEN;
+	sb.pvBuffer = NULL;
+	sb.cbBuffer = 0;
+
+	if (lwsi_role_client(wsi))
+		st = InitializeSecurityContextA(&ctx->cred, &conn->ctxt,
+				conn->hostname, req_attrs, 0, 0, NULL, 0, NULL,
+				&desc, &ret_attrs, NULL);
+	else
+		st = AcceptSecurityContext(&ctx->cred, &conn->ctxt, NULL,
+				req_attrs, 0, NULL, &desc, &ret_attrs, NULL);
+
+	if ((st != SEC_E_OK && st != SEC_I_CONTEXT_EXPIRED) ||
+	    !sb.pvBuffer || !sb.cbBuffer) {
+		lwsl_wsi_info(wsi, "no close_notify from SSPI: 0x%x", (int)st);
+		if (sb.pvBuffer)
+			FreeContextBuffer(sb.pvBuffer);
+
+		return -1;
+	}
+
+	n = lws_tls_schannel_tx_append(conn, sb.pvBuffer, sb.cbBuffer);
+	FreeContextBuffer(sb.pvBuffer);
+
+	return n;
+}
+
+/*
+ * Send our close_notify, after whatever ciphertext is still waiting to go.
+ * The session stays until lws_ssl_close() at the release: the staged close
+ * shuts our write side once this is DONE and discards the peer's rx until
+ * his FIN without reading through it, and nothing may fall back to treating
+ * the socket as plaintext meanwhile.
+ *
+ * A session SSPI cannot make an alert for (the handshake is not done, or it
+ * is partway through a post-handshake message) is still DONE: the FIN after
+ * it ends the stream, and failing here would close at once over unread rx.
+ */
+
 	enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi)
 {
-	lws_ssl_close(wsi);
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
+	int n;
+
+	if (!conn)
+		return LWS_SSL_CAPABLE_DONE;
+
+	if (!conn->f_close_notify) {
+		conn->f_close_notify = 1;
+		if (conn->f_handshake_finished && !conn->f_post_hs)
+			lws_tls_schannel_close_notify(wsi, conn);
+	}
+
+	n = lws_tls_schannel_tx_flush(wsi, conn);
+	if (n < 0)
+		return LWS_SSL_CAPABLE_ERROR;
+	if (n) {
+		__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+	}
+
+	/* nothing more goes out: a POLLOUT left armed would only spin */
+	__lws_change_pollfd(wsi, LWS_POLLOUT, 0);
+
 	return LWS_SSL_CAPABLE_DONE;
 }
 
