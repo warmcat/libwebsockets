@@ -344,9 +344,10 @@ bulk_alloc(size_t len)
 	 * noise each run
 	 */
 	for (n = 0; n < len; n++) {
-		r ^= r << 13;
+		/* mask off what each shift would discard, so none is lost */
+		r ^= (r & 0x0007ffffu) << 13;
 		r ^= r >> 17;
-		r ^= r << 5;
+		r ^= (r & 0x07ffffffu) << 5;
 		buf[LWS_PRE + n] = (uint8_t)r;
 	}
 
