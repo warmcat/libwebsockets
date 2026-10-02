@@ -1756,6 +1756,22 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 #if defined(LWS_WITH_CLIENT)
 					int m = 0;
 					if (wsi->client_mux_substream) {
+						/*
+						 * The transaction completes at the
+						 * stream FIN, as h2's does at
+						 * END_STREAM, never here: the
+						 * content-length only bounds the
+						 * DATA, beyond it is malformed
+						 * (RFC 9114 4.1.2)
+						 */
+						if (wsi->http.content_length_given) {
+							if (chunk > wsi->http.rx_content_remain) {
+								lwsl_wsi_info(wsi, "DATA beyond content-length");
+								return 1;
+							}
+							wsi->http.rx_content_remain -= chunk;
+						}
+
 						if (!wsi->a.protocol) {
 							lwsl_wsi_err(wsi, "doesn't have protocol");
 						} else {
@@ -1769,14 +1785,6 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						if (m) {
 							lwsl_wsi_info(wsi, "RECEIVE_CLIENT_HTTP closed it");
 							return 1;
-						}
-						if (wsi->http.rx_content_length > 0)
-							wsi->http.rx_content_remain -= chunk;
-
-						if (wsi->http.content_length_given && !wsi->http.rx_content_remain) {
-							lwsl_wsi_info(wsi, "H3 client transaction completed via content-length");
-							if (lws_http_transaction_completed_client(wsi))
-								return 1;
 						}
 					}
 #endif
