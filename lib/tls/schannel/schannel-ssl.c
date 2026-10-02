@@ -197,8 +197,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 	if (conn->tx_buf && conn->tx_pos < conn->tx_len) {
 		n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
+				lws_set_blocking_send(wsi);
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+			}
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 		conn->tx_pos += n;
@@ -370,8 +372,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
                if (conn->tx_buf) {
                        n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
                        if (n < 0) {
-                               if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+                               if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
+                                       lws_set_blocking_send(wsi);
                                        return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+                               }
                        } else {
                                conn->tx_pos += n;
                                if (conn->tx_pos == conn->tx_len) {
@@ -573,8 +577,10 @@ lws_tls_server_accept(struct lws *wsi)
 	if (conn->tx_buf && conn->tx_pos < conn->tx_len) {
 		n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
+				lws_set_blocking_send(wsi);
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+			}
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 		conn->tx_pos += n;
@@ -743,8 +749,10 @@ lws_tls_server_accept(struct lws *wsi)
 
 			n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
 			if (n < 0) {
-				if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+				if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
+					lws_set_blocking_send(wsi);
 					return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+				}
 			} else {
 				conn->tx_pos += n;
 				if (conn->tx_pos == conn->tx_len) {
@@ -907,6 +915,12 @@ lws_tls_schannel_tx_flush(struct lws *wsi, struct lws_tls_schannel_conn *conn)
 	if (n < 0) {
 		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK)
 			return -1;
+		/*
+		 * Windows reports POLLOUT for us on every turn until it is
+		 * told the socket would block, so a flush waiting on POLLOUT
+		 * would otherwise spin the event loop
+		 */
+		lws_set_blocking_send(wsi);
 		n = 0;
 	}
 
@@ -1573,6 +1587,7 @@ fresh:
 
 			return LWS_SSL_CAPABLE_ERROR;
 		}
+		lws_set_blocking_send(wsi);
 		n = 0;
 	}
 
