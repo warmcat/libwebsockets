@@ -45,21 +45,17 @@
  */
 
 /*
- * Find the SNI hostname in a TLS ClientHello.
+ * Find the SNI hostname in a TLS ClientHello handshake message, starting at
+ * its msg_type byte.  QUIC carries the ClientHello like this, with no record
+ * layer around it, in its CRYPTO frames (RFC 9001 4).
  *
  * Everything in \p buf is attacker-chosen: it is literally the first bytes he
  * sent us.  So every length is checked against the bytes actually remaining
  * before it is used, no extension ordering is assumed, and the name is only
  * accepted if it is something we are willing to hand to a string API.
  *
- * We only look inside the first TLS record.  A ClientHello fragmented across
- * several records is legal but is not something any TLS client does, and
- * reassembling it would mean de-framing the handshake stream ahead of the TLS
- * library; such a peer is simply treated as having sent no SNI, ie, he is
- * served by the vhost that accepted him.
- *
- * \p buf: the bytes the peer sent, from the start of the connection
- * \p len: how many of them we have
+ * \p buf: the handshake stream he sent, from its start
+ * \p len: how many bytes of it we have
  * \p name: where to write the NUL-terminated hostname
  * \p name_len: sizeof(*name)
  *
@@ -69,8 +65,8 @@
  */
 
 int
-lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
-			 size_t name_len)
+lws_tls_client_hello_msg_sni(const uint8_t *buf, size_t len, char *name,
+			     size_t name_len)
 {
 	size_t pos, end, lim, n, u;
 
@@ -79,42 +75,19 @@ lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
 
 	*name = '\0';
 
-	/* TLS plaintext record header: type(1) legacy_version(2) length(2) */
-
-	if (len < 5)
-		return LWS_TLS_CH_SNI_MORE;
-
-	if (buf[0] != 0x16 /* handshake */ || buf[1] != 0x03)
-		/*
-		 * Not a TLS 1.x handshake record (an SSLv2-style hello comes
-		 * here too, and carries no SNI by construction).  Nothing for
-		 * us to say about it: let the TLS backend deal with it.
-		 */
-		return LWS_TLS_CH_SNI_NONE;
-
-	end = 5 + (((size_t)buf[3] << 8) | buf[4]);
-
-	if (end <= 5 || end > 5 + 16384)
-		/* a record length TLS does not allow */
-		return LWS_TLS_CH_SNI_NONE;
-
-	if (len < end)
-		return LWS_TLS_CH_SNI_MORE;
-
 	/* handshake message header: msg_type(1) length(3) */
 
-	pos = 5;
+	if (len < 4)
+		return LWS_TLS_CH_SNI_MORE;
 
-	if (end - pos < 4 || buf[pos] != 1 /* client_hello */)
+	if (buf[0] != 1 /* client_hello */)
 		return LWS_TLS_CH_SNI_NONE;
 
-	n = ((size_t)buf[pos + 1] << 16) | ((size_t)buf[pos + 2] << 8) |
-	     (size_t)buf[pos + 3];
-	pos += 4;
+	n = ((size_t)buf[1] << 16) | ((size_t)buf[2] << 8) | (size_t)buf[3];
+	pos = 4;
 
-	if (n > end - pos)
-		/* the ClientHello continues in a later record, see above */
-		return LWS_TLS_CH_SNI_NONE;
+	if (n > len - pos)
+		return LWS_TLS_CH_SNI_MORE;
 
 	end = pos + n;
 
@@ -238,6 +211,66 @@ lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
 	}
 
 	return LWS_TLS_CH_SNI_NONE;
+}
+
+/*
+ * Find the SNI hostname in a TLS ClientHello as tcp carries it, ie, inside
+ * TLS plaintext records.
+ *
+ * We only look inside the first TLS record.  A ClientHello fragmented across
+ * several records is legal but is not something any TLS client does, and
+ * reassembling it would mean de-framing the handshake stream ahead of the TLS
+ * library; such a peer is simply treated as having sent no SNI, ie, he is
+ * served by the vhost that accepted him.
+ *
+ * \p buf: the bytes the peer sent, from the start of the connection
+ * \p len: how many of them we have
+ * \p name: where to write the NUL-terminated hostname
+ * \p name_len: sizeof(*name)
+ *
+ * Returns as lws_tls_client_hello_msg_sni() does.
+ */
+
+int
+lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
+			 size_t name_len)
+{
+	size_t end;
+	int n;
+
+	if (!name || name_len < 2)
+		return LWS_TLS_CH_SNI_NONE;
+
+	*name = '\0';
+
+	/* TLS plaintext record header: type(1) legacy_version(2) length(2) */
+
+	if (len < 5)
+		return LWS_TLS_CH_SNI_MORE;
+
+	if (buf[0] != 0x16 /* handshake */ || buf[1] != 0x03)
+		/*
+		 * Not a TLS 1.x handshake record (an SSLv2-style hello comes
+		 * here too, and carries no SNI by construction).  Nothing for
+		 * us to say about it: let the TLS backend deal with it.
+		 */
+		return LWS_TLS_CH_SNI_NONE;
+
+	end = 5 + (((size_t)buf[3] << 8) | buf[4]);
+
+	if (end <= 5 || end > 5 + 16384)
+		/* a record length TLS does not allow */
+		return LWS_TLS_CH_SNI_NONE;
+
+	if (len < end)
+		return LWS_TLS_CH_SNI_MORE;
+
+	n = lws_tls_client_hello_msg_sni(buf + 5, end - 5, name, name_len);
+	if (n == LWS_TLS_CH_SNI_MORE)
+		/* the ClientHello continues in a later record, see above */
+		return LWS_TLS_CH_SNI_NONE;
+
+	return n;
 }
 
 /*

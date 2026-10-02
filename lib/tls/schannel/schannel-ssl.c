@@ -414,13 +414,48 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 #if defined(LWS_WITH_SERVER)
 
+int
+lws_tls_schannel_want_client_cert(struct lws_vhost *vh)
+{
+	return lws_check_opt(vh->options,
+			     LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) ||
+	       lws_check_opt(vh->options,
+		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE);
+}
+
 /*
- * The largest ClientHello we will buffer looking for the SNI name: a TLS
- * plaintext record cannot carry more than 16384 bytes of payload, so a
- * ClientHello that has not appeared by then is not going to
+ * Bind a server connection to the vhost the SNI name he sent selects, before
+ * Schannel has seen his ClientHello, for tcp and quic alike.
+ *
+ * Returns 0 if the handshake may go ahead on wsi's (possibly just changed)
+ * vhost, or 1 if the name selects nothing and he must be refused.
  */
 
-#define LWS_SCH_CLIENT_HELLO_MAX (5 + 16384)
+int
+lws_tls_schannel_sni_bind(struct lws *wsi, const char *name)
+{
+	struct lws_vhost *vh = wsi->a.vhost;
+	struct lws_tls_ctx_ref *ref;
+
+	if (lws_tls_server_sni_select(wsi, name))
+		return 1;
+
+	if (wsi->a.vhost == vh)
+		return 0;
+
+	/*
+	 * We moved him to another vhost: the lifetime reference the accept
+	 * took has to follow, since the credential handle the handshake runs
+	 * with comes from it
+	 */
+
+	ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	if (wsi->io->tls.ctx_ref)
+		lws_tls_ctx_ref_unref(wsi->io->tls.ctx_ref);
+	wsi->io->tls.ctx_ref = ref;
+
+	return 0;
+}
 
 /*
  * Server-side SNI.
@@ -441,8 +476,6 @@ static int
 lws_tls_schannel_server_sni(struct lws *wsi)
 {
 	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
-	struct lws_vhost *vh = wsi->a.vhost;
-	struct lws_tls_ctx_ref *ref;
 	char name[256];
 	uint8_t ver[2];
 	ssize_t s;
@@ -494,24 +527,8 @@ lws_tls_schannel_server_sni(struct lws *wsi)
 		/* he named nothing: he is served by the vhost that accepted him */
 		return 0;
 
-	if (n == LWS_TLS_CH_SNI_FOUND && !lws_tls_server_sni_select(wsi, name)) {
-
-		if (wsi->a.vhost == vh)
-			return 0;
-
-		/*
-		 * We moved him to another vhost: the lifetime reference the
-		 * accept took has to follow, since the credential handle the
-		 * handshake runs with comes from it
-		 */
-
-		ref = lws_tls_ctx_ref_get(wsi->a.vhost);
-		if (wsi->io->tls.ctx_ref)
-			lws_tls_ctx_ref_unref(wsi->io->tls.ctx_ref);
-		wsi->io->tls.ctx_ref = ref;
-
+	if (n == LWS_TLS_CH_SNI_FOUND && !lws_tls_schannel_sni_bind(wsi, name))
 		return 0;
-	}
 
 	/*
 	 * Either he named something served by no vhost on this listener, or
@@ -621,10 +638,7 @@ lws_tls_server_accept(struct lws *wsi)
 	 * CertificateRequest and there is simply nothing to check afterwards
 	 */
 
-	if (lws_check_opt(wsi->a.vhost->options,
-			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) ||
-	    lws_check_opt(wsi->a.vhost->options,
-		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE)) {
+	if (lws_tls_schannel_want_client_cert(wsi->a.vhost)) {
 		req_attrs |= ASC_REQ_MUTUAL_AUTH;
 		conn->f_want_client_cert = 1;
 	}
@@ -2092,20 +2106,15 @@ lws_tls_schannel_server_client_cert(struct lws *wsi)
 /*
  * A server handshake completed: does the client cert it presented satisfy
  * the vhost's policy?  quic's handshake completion
- * (lws_tls_quic_server_confirm_peer()) asks, the tcp accept judges it with
+ * (lws_tls_quic_server_confirm_peer()) asks, on the vhost he is bound to
+ * after the policy is applied; the tcp accept, and the quic handshake step
+ * before the policy reads the result, judge it with
  * lws_tls_schannel_server_client_cert() directly.  0 if he may go on.
- *
- * quic's server handshake does not ask for a client cert (no
- * ASC_REQ_MUTUAL_AUTH), so on a vhost that requires one there is none, and
- * he is refused: fail-closed rather than served unauthenticated.
  */
 int
 lws_tls_server_client_cert_check(struct lws *wsi)
 {
-	if (!lws_check_opt(wsi->a.vhost->options,
-			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) &&
-	    !lws_check_opt(wsi->a.vhost->options,
-		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE))
+	if (!lws_tls_schannel_want_client_cert(wsi->a.vhost))
 		return 0;
 
 	return lws_tls_schannel_server_client_cert(wsi);

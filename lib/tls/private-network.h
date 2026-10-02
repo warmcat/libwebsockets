@@ -444,6 +444,10 @@ int
 lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
 			 size_t name_len);
 
+int
+lws_tls_client_hello_msg_sni(const uint8_t *buf, size_t len, char *name,
+			     size_t name_len);
+
 void
 lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc);
 

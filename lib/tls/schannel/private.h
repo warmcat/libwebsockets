@@ -217,6 +217,29 @@ int
 lws_tls_schannel_server_client_cert(struct lws *wsi);
 
 /*
+ * Server side: does vh's policy want a client certificate asked for
+ * (ASC_REQ_MUTUAL_AUTH)?  Without asking, Schannel sends no
+ * CertificateRequest and there is nothing to check afterwards.
+ */
+int
+lws_tls_schannel_want_client_cert(struct lws_vhost *vh);
+
+/*
+ * Server side: bind wsi to the vhost the SNI name he sent selects, before
+ * Schannel sees his ClientHello.  Returns 0 if the handshake may go ahead on
+ * wsi's (possibly changed) vhost, 1 if he must be refused.
+ */
+int
+lws_tls_schannel_sni_bind(struct lws *wsi, const char *name);
+
+/*
+ * The largest ClientHello we will buffer looking for the SNI name: a TLS
+ * plaintext record cannot carry more than 16384 bytes of payload, so a
+ * ClientHello that has not appeared by then is not going to
+ */
+#define LWS_SCH_CLIENT_HELLO_MAX (5 + 16384)
+
+/*
  * Build the SEC_APPLICATION_PROTOCOLS buffer Schannel takes from a
  * comma-separated alpn list, leaving out the tcp-only alpns if quic.
  * Returns the length used in buf, or 0 if there is nothing to offer.

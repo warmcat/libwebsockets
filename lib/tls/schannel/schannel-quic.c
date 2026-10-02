@@ -264,6 +264,42 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		conn->rx_len += in_len;
 	}
 
+#if defined(LWS_WITH_SERVER)
+	/*
+	 * The ClientHello is in rx_buf but Schannel has not seen it yet: this
+	 * is the only moment at which the name he asked for can still decide
+	 * which vhost's credential, client-cert policy and ALPN list the
+	 * handshake runs with, the same as the tcp accept does.  quic carries
+	 * it as a bare handshake message, with no record layer.
+	 */
+
+	if (conn->rx_len > 0 && !lwsi_role_client(wsi) && !conn->f_sni_done) {
+		char name[256];
+		int n = lws_tls_client_hello_msg_sni(conn->rx_buf, conn->rx_len,
+						     name, sizeof(name));
+
+		if (n == LWS_TLS_CH_SNI_MORE &&
+		    conn->rx_len < LWS_SCH_CLIENT_HELLO_MAX) {
+			/* the rest of his ClientHello is still to come */
+			if (out_len)
+				*out_len = 0;
+
+			return 1;
+		}
+
+		conn->f_sni_done = 1;
+
+		if (n == LWS_TLS_CH_SNI_BAD ||
+		    (n == LWS_TLS_CH_SNI_FOUND &&
+		     lws_tls_schannel_sni_bind(wsi, name))) {
+			lwsl_wsi_notice(wsi, "refusing quic handshake: "
+					     "unusable or unknown SNI name");
+
+			return -1;
+		}
+	}
+#endif
+
        if (conn->rx_len > 0 && !lwsi_role_client(wsi)) {
                schannel_extract_client_hello_tp(wsi, conn->rx_buf, conn->rx_len);
        }
@@ -458,11 +494,34 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	} else {
 		struct lws_tls_schannel_ctx *ctx = wsi->io->tls.ctx_ref ?
 			(struct lws_tls_schannel_ctx *)wsi->io->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
+		/*
+		 * The ASC_REQ_ flags are not the ISC_REQ_ ones: the same names
+		 * have different values (ISC_REQ_STREAM is
+		 * ASC_REQ_EXTENDED_ERROR).  And without ASC_REQ_MUTUAL_AUTH
+		 * Schannel sends no CertificateRequest, so an mTLS vhost would
+		 * get no client cert to check.
+		 */
+		ULONG asc_flags = ASC_REQ_SEQUENCE_DETECT |
+				  ASC_REQ_CONFIDENTIALITY |
+				  ASC_REQ_EXTENDED_ERROR | ASC_REQ_STREAM;
+
+		if (!ctx) {
+			lwsl_wsi_err(wsi, "no tls ctx on vhost %s",
+				     wsi->a.vhost->name);
+
+			return -1;
+		}
+
+		if (lws_tls_schannel_want_client_cert(wsi->a.vhost)) {
+			asc_flags |= ASC_REQ_MUTUAL_AUTH;
+			conn->f_want_client_cert = 1;
+		}
+
 		status = AcceptSecurityContext(
 			&ctx->cred,
 			conn->f_context_init ? &conn->ctxt : NULL,
 			(num_in_bufs > 0) ? &in_desc : NULL,
-			req_flags,
+			asc_flags,
 			SECURITY_NATIVE_DREP,
 			&conn->ctxt,
 			&out_desc,
@@ -689,6 +748,17 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 					return -1;
 				}
 			}
+#if defined(LWS_WITH_SERVER)
+			/*
+			 * The client cert is judged here, as the tcp accept
+			 * judges it, so that the vhost policy quic applies
+			 * next (lws_tls_quic_server_confirm_peer()) has a
+			 * verified result to read rather than none
+			 */
+			else if (conn->f_want_client_cert &&
+				 lws_tls_schannel_server_client_cert(wsi))
+				return -1;
+#endif
 #if defined(SECPKG_ATTR_APPLICATION_PROTOCOL) || defined(SECPKG_ATTR_APP_DATA)
                        SecPkgContext_ApplicationProtocol alpn_result;
                        if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_APPLICATION_PROTOCOL, &alpn_result) == SEC_E_OK) {
