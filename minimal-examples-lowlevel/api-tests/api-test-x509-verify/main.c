@@ -100,12 +100,13 @@ run_test_case(const struct test_case *tc, const char *cert_dir)
 static char *
 der_to_pem(const char *label, const uint8_t *der, size_t der_len)
 {
-	size_t b64_size = ((der_len + 2) / 3) * 4 + 2, pem_size, n, o;
+	size_t b64_size = ((der_len + 2) / 3) * 4 + 2, pem_size, n, o,
+	       label_len = strlen(label);
 	char *b64, *pem;
 	int m;
 
 	/* our generated certs are far smaller, and it must fit an int */
-	if (der_len > 65536)
+	if (der_len > 65536 || label_len > 64)
 		return NULL;
 
 	b64 = malloc(b64_size);
@@ -121,7 +122,7 @@ der_to_pem(const char *label, const uint8_t *der, size_t der_len)
 	}
 
 	/* 64 chars per line, plus the header and footer lines */
-	pem_size = (size_t)m + ((size_t)m / 64) + 2 + (2 * strlen(label)) + 64;
+	pem_size = (size_t)m + ((size_t)m / 64) + 2 + (2 * label_len) + 64;
 	pem = malloc(pem_size);
 	if (!pem) {
 		free(b64);
