@@ -1503,9 +1503,11 @@ ads_known:
 			 */
 			if ((lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], &item, &item_len) ||
 			     item_len != sizeof(lws_h3_cap_info_t)) &&
-			    wsi->stash->cis[CIS_ADDRESS])
-				lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_ADDRESS], &item, &item_len);
-			if (item && item_len == sizeof(lws_h3_cap_info_t)) {
+			    (!wsi->stash->cis[CIS_ADDRESS] ||
+			     lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_ADDRESS], &item, &item_len) ||
+			     item_len != sizeof(lws_h3_cap_info_t)))
+				item = NULL; /* neither key has a usable entry */
+			if (item) {
 				const lws_h3_cap_info_t *cap = (const lws_h3_cap_info_t *)item;
 				if (cap->state == LWS_H3_STATE_KNOWN_GOOD)
 					grace_us = cap->latency_us + LWS_QUIC_GRACE_MARGIN_US;
