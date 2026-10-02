@@ -48,6 +48,7 @@
 
 #if !defined(WIN32)
 #include <sys/socket.h>
+#include <sys/resource.h>
 #endif
 
 struct leg {
@@ -74,7 +75,7 @@ enum stall {
 enum {
 	STAGE_FILLING,		/* the server fills the connection */
 	STAGE_SETTLING,		/* the client has sent: let things settle */
-	STAGE_STALLED,		/* count the loop's trips */
+	STAGE_STALLED,		/* measure the cpu it uses */
 	STAGE_RESUMED		/* the client reads again */
 };
 
@@ -122,16 +123,18 @@ static const struct leg legs[] = {
  * that does it.  The client then sends more than the server reads at once.
  * After STALL_SETTLE_US, we watch the STALL_WINDOW_US the server spends
  * stalled: a readable socket it does not read makes the service loop spin,
- * going around in every millisecond of it.  A quiet loop only wakes for
- * timers (and may go around a few times in the millisecond before one is
- * due), so it is allowed STALL_MAX_BUSY_MS milliseconds with any service
- * loop turn in them.
+ * burning cpu the whole time.  A quiet loop only wakes for timers, so it is
+ * allowed STALL_MAX_CPU_US of the process's cpu time in the window.
  *
  * The pmd message drains inside lws, so we never see the socket take each
- * part of it: there, the connection counts as full once the loop has had no
- * more than STALL_POLL_BUSY_MS busy milliseconds in each STALL_POLL_US for
+ * part of it: there, the connection counts as full once the process has used
+ * no more than STALL_POLL_CPU_US of cpu in each STALL_POLL_US for
  * STALL_QUIET_US.  On a slow cpu, compressing and encrypting what the socket
  * takes can last well past any fixed settling time.
+ *
+ * Both judge cpu time, not wall time: under a parallel ctest the process
+ * waits for a cpu, and one service turn doing real work can then span many
+ * wall-clock milliseconds, or a spinning loop only get some of them.
  */
 #define STALL_PMD_LEN		(8 * 1024 * 1024)
 #define STALL_FILL_MAX		(64 * 1024 * 1024)
@@ -142,8 +145,8 @@ static const struct leg legs[] = {
 #define STALL_POLL_US		(50 * LWS_US_PER_MS)
 #define STALL_SETTLE_US		(1 * LWS_US_PER_SEC)
 #define STALL_WINDOW_US		(500 * LWS_US_PER_MS)
-#define STALL_MAX_BUSY_MS	50
-#define STALL_POLL_BUSY_MS	5
+#define STALL_MAX_CPU_US	(50 * LWS_US_PER_MS)
+#define STALL_POLL_CPU_US	(5 * LWS_US_PER_MS)
 #define STALL_DRAIN_MAX_US	(10 * LWS_US_PER_SEC)
 /*
  * The close legs' client takes no more than this at a time, so when the
@@ -161,8 +164,8 @@ static lws_sorted_usec_list_t sul_next, sul_timeout, sul_stall;
 static struct lws *srv_wsi, *cli_wsi;
 static const char *server_ads = "127.0.0.1";
 static int port_tcp = 7681, cur = -1, result = 1, legs_run, failed;
-static unsigned long turns, leg_turns, stall_turns, busy_ms;
-static lws_usec_t leg_start, stall_started, last_fill, last_busy_ms;
+static unsigned long turns, leg_turns, stall_turns;
+static lws_usec_t leg_start, stall_started, last_fill, stall_cpu;
 
 /* per-leg state */
 static int cli_closed, srv_closed, peer_close_seen, peer_close_ok, sent_close,
@@ -350,10 +353,38 @@ bulk_alloc(size_t len)
 	return buf;
 }
 
+/* the cpu time this process has used, user and system */
+static lws_usec_t
+cpu_usecs(void)
+{
+#if defined(WIN32)
+	FILETIME ct, et, kt, ut;
+	ULARGE_INTEGER k, u;
+
+	if (!GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
+		return 0;
+	k.LowPart = kt.dwLowDateTime;
+	k.HighPart = kt.dwHighDateTime;
+	u.LowPart = ut.dwLowDateTime;
+	u.HighPart = ut.dwHighDateTime;
+
+	/* 100ns units */
+	return (lws_usec_t)((k.QuadPart + u.QuadPart) / 10);
+#else
+	struct rusage ru;
+
+	if (getrusage(RUSAGE_SELF, &ru))
+		return 0;
+
+	return ((lws_usec_t)ru.ru_utime.tv_sec + ru.ru_stime.tv_sec) *
+			LWS_US_PER_SEC + ru.ru_utime.tv_usec + ru.ru_stime.tv_usec;
+#endif
+}
+
 /*
  * The stall legs' timeline, from the server's first write: wait for the
  * connection to be full, have the client send while it is not reading, let
- * the server settle, count the service loop's trips while it is stalled,
+ * the server settle, measure the cpu it uses while it is stalled,
  * then have the client read again
  */
 static void
@@ -362,9 +393,11 @@ stall_cb(lws_sorted_usec_list_t *sul)
 	switch (stall_stage) {
 	case STAGE_FILLING:
 		if (legs[cur].stall == STALL_TX_DRAIN) {
-			if (busy_ms > STALL_POLL_BUSY_MS)
+			lws_usec_t c = cpu_usecs();
+
+			if (c - stall_cpu > STALL_POLL_CPU_US)
 				last_fill = lws_now_usecs();
-			busy_ms = 0;
+			stall_cpu = c;
 			if (lws_now_usecs() - stall_started > STALL_DRAIN_MAX_US) {
 				fail_leg("the server's tx drain never went quiet");
 				return;
@@ -405,16 +438,18 @@ stall_cb(lws_sorted_usec_list_t *sul)
 			}
 		stall_stage = STAGE_STALLED;
 		stall_turns = turns;
-		busy_ms = 0;
+		stall_cpu = cpu_usecs();
 		lws_sul_schedule(context, 0, &sul_stall, stall_cb,
 				 STALL_WINDOW_US);
 		break;
 
-	case STAGE_STALLED:
-		lwsl_user("%s: stalled %dms: %lu service turns, in %lums of it\n",
+	case STAGE_STALLED: {
+		lws_usec_t c = cpu_usecs() - stall_cpu;
+
+		lwsl_user("%s: stalled %dms: %lu service turns, %dms cpu\n",
 			  __func__, (int)(STALL_WINDOW_US / LWS_US_PER_MS),
-			  turns - stall_turns, busy_ms);
-		if (busy_ms > STALL_MAX_BUSY_MS) {
+			  turns - stall_turns, (int)(c / LWS_US_PER_MS));
+		if (c > STALL_MAX_CPU_US) {
 			fail_leg("service loop spun while stalled");
 			return;
 		}
@@ -429,6 +464,7 @@ stall_cb(lws_sorted_usec_list_t *sul)
 		lws_rx_flow_control(cli_wsi, 1);
 		break;
 	}
+	}
 }
 
 /* the stall leg's timeline starts from the server's first write */
@@ -440,7 +476,7 @@ stall_start(struct lws *wsi)
 
 	srv_wsi = wsi;
 	stall_started = last_fill = lws_now_usecs();
-	busy_ms = 0;
+	stall_cpu = cpu_usecs();
 	lws_sul_schedule(context, 0, &sul_stall, stall_cb, 100 * LWS_US_PER_MS);
 }
 
@@ -1006,12 +1042,6 @@ int main(int argc, const char **argv)
 	while (n >= 0) {
 		n = lws_service(context, 0);
 		turns++;
-		if ((stall_stage == STAGE_FILLING ||
-		     stall_stage == STAGE_STALLED) &&
-		    lws_now_usecs() / LWS_US_PER_MS != last_busy_ms) {
-			last_busy_ms = lws_now_usecs() / LWS_US_PER_MS;
-			busy_ms++;
-		}
 	}
 
 bail:
