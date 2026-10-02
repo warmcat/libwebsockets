@@ -1030,23 +1030,37 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	 * This handles both RSA and EC keys, and importantly, handles "minimal" RSA keys
 	 * (missing CRT params) that the legacy CAPI path fails on.
 	 */
+	/*
+	 * Tell an EC key from the DER itself: the PEM label is gone by now,
+	 * and the bytes we were handed in memory need not be NUL-terminated,
+	 * so they cannot be searched as a string.  This used to strstr() the
+	 * memory key (reading past its end) or, for a key file, its *path*.
+	 */
 	is_ec = 0;
-	if ((char *)strstr(private_key ? private_key : (mem_privkey ? mem_privkey : ""), "EC PRIVATE KEY")) {
-		is_ec = 1;
-	} else {
-		/* Check DER for OID 1.2.840.10045.2.1 (ecPublicKey) */
-		/* Sequence { Version, AlgorithmIdentifier { OID ... } ... } */
+	{
 		kp = key_der;
 		kend = key_der + key_der_len;
 		if (kp < kend && *kp == 0x30) {
 			kp++;
 			if (lws_asn1_read_length(&kp, kend, &seq_len) == 0) {
-				/* Check for version 0 */
 				if (kp < kend && *kp == 0x02) {
 					kp++;
 					if (lws_asn1_read_length(&kp, kend, &ver_len) == 0) {
+						/*
+						 * SEC1 (RFC 5915): version 1
+						 * then the key as an OCTET
+						 * STRING
+						 */
+						if (ver_len == 1 && kp + 1 < kend &&
+						    kp[0] == 1 && kp[1] == 0x04)
+							is_ec = 1;
 						kp += ver_len;
-						/* Next is AlgorithmIdentifier Sequence */
+						/*
+						 * PKCS#8: version 0 then the
+						 * AlgorithmIdentifier, whose
+						 * OID is 1.2.840.10045.2.1
+						 * (ecPublicKey) for EC
+						 */
 						if (kp < kend && *kp == 0x30) {
 							kp++;
 							if (lws_asn1_read_length(&kp, kend, &alg_len) == 0) {
