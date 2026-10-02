@@ -191,9 +191,16 @@ int
 lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		union lws_tls_cert_info_results *buf, size_t len)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
+	struct lws_tls_schannel_conn *conn;
 	PCCERT_CONTEXT pCert = NULL;
 	int ret = 0;
+
+	/*
+	 * the tls session lives on the network wsi: an h2 / mux stream asking
+	 * about its peer has none of its own
+	 */
+	wsi = lws_get_network_wsi(wsi);
+	conn = wsi->io->tls.ssl;
 
 	if (!conn)
 		return -1;
