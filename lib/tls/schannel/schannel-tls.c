@@ -290,6 +290,20 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     if (!vhost->tls.ssl_ctx)
         return 1;
 
+    /*
+     * The same choice the other backends make: when the cert and key files
+     * are not there (or not readable by us any more), use the copies in
+     * memory if we were given them, eg, by lws_tls_cert_updated(), where
+     * the paths may only be what selects the vhost
+     */
+
+    if (mem_cert && mem_privkey &&
+        lws_tls_generic_cert_checks(vhost, cert, private_key) !=
+                                                        LWS_TLS_EXTANT_YES) {
+        cert = NULL;
+        private_key = NULL;
+    }
+
     if (lws_tls_schannel_cert_info_load(vhost->context, cert, private_key,
                                         mem_cert, len_mem_cert,
                                         mem_privkey, mem_privkey_len, &pCertCtx,
