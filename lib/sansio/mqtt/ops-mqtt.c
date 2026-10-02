@@ -240,7 +240,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 		if (wsi->mqtt->send_pubrec) {
 			lwsl_notice("%s: issuing PUBREC for pkt id: %d\n",
 				    __func__, wsi->mqtt->peer_ack_pkt_id);
-			buf[LWS_PRE] = LMQCP_PUBREC << 4 | 0x2;
+			buf[LWS_PRE] = LMQCP_PUBREC << 4;
 			/* Packet ID */
 			lws_ser_wu16be(&buf[LWS_PRE + 2],
 				       wsi->mqtt->peer_ack_pkt_id);
@@ -255,7 +255,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 		} else {
 			lwsl_notice("%s: issuing PUBCOMP for pkt id: %d\n",
 				    __func__, wsi->mqtt->pubcomp_pkt_id);
-			buf[LWS_PRE] = LMQCP_PUBCOMP << 4 | 0x2;
+			buf[LWS_PRE] = LMQCP_PUBCOMP << 4;
 			lws_ser_wu16be(&buf[LWS_PRE + 2],
 				       wsi->mqtt->pubcomp_pkt_id);
 			wsi->mqtt->send_pubcomp = 0;
