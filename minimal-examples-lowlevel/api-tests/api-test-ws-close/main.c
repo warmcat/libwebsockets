@@ -126,6 +126,12 @@ static const struct leg legs[] = {
  * timers (and may go around a few times in the millisecond before one is
  * due), so it is allowed STALL_MAX_BUSY_MS milliseconds with any service
  * loop turn in them.
+ *
+ * The pmd message drains inside lws, so we never see the socket take each
+ * part of it: there, the connection counts as full once the loop has had no
+ * more than STALL_POLL_BUSY_MS busy milliseconds in each STALL_POLL_US for
+ * STALL_QUIET_US.  On a slow cpu, compressing and encrypting what the socket
+ * takes can last well past any fixed settling time.
  */
 #define STALL_PMD_LEN		(8 * 1024 * 1024)
 #define STALL_FILL_MAX		(64 * 1024 * 1024)
@@ -137,6 +143,8 @@ static const struct leg legs[] = {
 #define STALL_SETTLE_US		(1 * LWS_US_PER_SEC)
 #define STALL_WINDOW_US		(500 * LWS_US_PER_MS)
 #define STALL_MAX_BUSY_MS	50
+#define STALL_POLL_BUSY_MS	5
+#define STALL_DRAIN_MAX_US	(10 * LWS_US_PER_SEC)
 /*
  * The close legs' client takes no more than this at a time, so when the
  * server closes, the tail of what it wrote is still waiting in its own socket
@@ -153,8 +161,8 @@ static lws_sorted_usec_list_t sul_next, sul_timeout, sul_stall;
 static struct lws *srv_wsi, *cli_wsi;
 static const char *server_ads = "127.0.0.1";
 static int port_tcp = 7681, cur = -1, result = 1, legs_run, failed;
-static unsigned long turns, leg_turns, stall_turns, stall_busy_ms;
-static lws_usec_t leg_start, last_fill, last_busy_ms;
+static unsigned long turns, leg_turns, stall_turns, busy_ms;
+static lws_usec_t leg_start, stall_started, last_fill, last_busy_ms;
 
 /* per-leg state */
 static int cli_closed, srv_closed, peer_close_seen, peer_close_ok, sent_close,
@@ -165,7 +173,7 @@ static void
 fail_leg(const char *why)
 {
 	failed = 1;
-	lwsl_err("--- leg %d (%s): %s ---\n", cur, legs[cur].name, why);
+	lwsl_err("--- leg %d (%s): FAIL: %s ---\n", cur, legs[cur].name, why);
 	lws_default_loop_exit(context);
 }
 
@@ -353,13 +361,25 @@ stall_cb(lws_sorted_usec_list_t *sul)
 {
 	switch (stall_stage) {
 	case STAGE_FILLING:
-		if (legs[cur].stall != STALL_TX_DRAIN &&
-		    lws_now_usecs() - last_fill < STALL_QUIET_US) {
+		if (legs[cur].stall == STALL_TX_DRAIN) {
+			if (busy_ms > STALL_POLL_BUSY_MS)
+				last_fill = lws_now_usecs();
+			busy_ms = 0;
+			if (lws_now_usecs() - stall_started > STALL_DRAIN_MAX_US) {
+				fail_leg("the server's tx drain never went quiet");
+				return;
+			}
+		}
+		if (lws_now_usecs() - last_fill < STALL_QUIET_US) {
 			lws_sul_schedule(context, 0, &sul_stall, stall_cb,
 					 STALL_POLL_US);
 			return;
 		}
-		if (legs[cur].stall != STALL_TX_DRAIN)
+		if (legs[cur].stall == STALL_TX_DRAIN)
+			lwsl_user("%s: server's tx drain quiet after %dms\n",
+				  __func__, (int)((lws_now_usecs() -
+					  stall_started) / LWS_US_PER_MS));
+		else
 			lwsl_user("%s: server's socket full after %luKB\n",
 				  __func__, (unsigned long)(srv_filled / 1024));
 		stall_stage = STAGE_SETTLING;
@@ -385,7 +405,7 @@ stall_cb(lws_sorted_usec_list_t *sul)
 			}
 		stall_stage = STAGE_STALLED;
 		stall_turns = turns;
-		stall_busy_ms = 0;
+		busy_ms = 0;
 		lws_sul_schedule(context, 0, &sul_stall, stall_cb,
 				 STALL_WINDOW_US);
 		break;
@@ -393,8 +413,8 @@ stall_cb(lws_sorted_usec_list_t *sul)
 	case STAGE_STALLED:
 		lwsl_user("%s: stalled %dms: %lu service turns, in %lums of it\n",
 			  __func__, (int)(STALL_WINDOW_US / LWS_US_PER_MS),
-			  turns - stall_turns, stall_busy_ms);
-		if (stall_busy_ms > STALL_MAX_BUSY_MS) {
+			  turns - stall_turns, busy_ms);
+		if (busy_ms > STALL_MAX_BUSY_MS) {
 			fail_leg("service loop spun while stalled");
 			return;
 		}
@@ -419,6 +439,8 @@ stall_start(struct lws *wsi)
 		return;
 
 	srv_wsi = wsi;
+	stall_started = last_fill = lws_now_usecs();
+	busy_ms = 0;
 	lws_sul_schedule(context, 0, &sul_stall, stall_cb, 100 * LWS_US_PER_MS);
 }
 
@@ -822,7 +844,12 @@ start_leg(lws_sorted_usec_list_t *sul)
 static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
-	lwsl_err("--- timed out in leg %d ---\n", cur);
+	if (cur >= 0 && cur < (int)LWS_ARRAY_SIZE(legs)) {
+		fail_leg("timed out");
+		return;
+	}
+
+	lwsl_err("--- FAIL: timed out ---\n");
 	lws_default_loop_exit(context);
 }
 
@@ -979,10 +1006,11 @@ int main(int argc, const char **argv)
 	while (n >= 0) {
 		n = lws_service(context, 0);
 		turns++;
-		if (stall_stage == STAGE_STALLED &&
+		if ((stall_stage == STAGE_FILLING ||
+		     stall_stage == STAGE_STALLED) &&
 		    lws_now_usecs() / LWS_US_PER_MS != last_busy_ms) {
 			last_busy_ms = lws_now_usecs() / LWS_US_PER_MS;
-			stall_busy_ms++;
+			busy_ms++;
 		}
 	}
 
