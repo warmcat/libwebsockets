@@ -591,7 +591,7 @@ static const struct lws_protocols protocols[] = {
  * its own, so the test has to see every status and header itself.
  */
 static int
-req_full(int which_jar, int port, const char *path, const char *body)
+req_full(int which_jar, int port, const char *path, const char *req_body)
 {
 	struct lws_client_connect_info i;
 	char hostport[128];
@@ -613,8 +613,8 @@ req_full(int which_jar, int port, const char *path, const char *body)
 	lws_strncpy(hostport_cur, hostport, sizeof(hostport_cur));
 
 	cur.jar		= which_jar;
-	cur.body	= body;
-	cur.body_len	= body ? strlen(body) : 0;
+	cur.body	= req_body;
+	cur.body_len	= req_body ? strlen(req_body) : 0;
 
 	i.context		= context;
 	i.port			= port;
@@ -622,7 +622,7 @@ req_full(int which_jar, int port, const char *path, const char *body)
 	i.path			= path;
 	i.host			= hostport;
 	i.origin		= hostport;
-	i.method		= body ? "POST" : "GET";
+	i.method		= req_body ? "POST" : "GET";
 	i.protocol		= protocols[0].name;
 	i.alpn			= alpn;
 	/*
@@ -636,8 +636,10 @@ req_full(int which_jar, int port, const char *path, const char *body)
 				  LCCSCF_ALLOW_INSECURE |
 				  LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 
+	/* nothing of the last response may stand in for this one's */
 	status = 0;
 	interrupted = 0;
+	loc[0] = set_cookie[0] = body[0] = '\0';
 	body_len = 0;
 
 	if (!lws_client_connect_via_info(&i))
