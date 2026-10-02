@@ -374,9 +374,10 @@ main(int argc, const char **argv)
 	 * xorshift: the same noise each run
 	 */
 	for (n = 0; n < MSG_LEN; n++) {
-		r ^= r << 13;
+		/* mask off what each shift would discard, so none is lost */
+		r ^= (r & 0x0007ffffu) << 13;
 		r ^= r >> 17;
-		r ^= r << 5;
+		r ^= (r & 0x07ffffffu) << 5;
 		msg[n] = (uint8_t)r;
 	}
 
