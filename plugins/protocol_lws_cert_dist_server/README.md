@@ -29,7 +29,14 @@ mTLS says only that *some* certificate the vhost's CA chain accepts was presente
 
 as a regular file.  If it is not there the request is refused and the stub connection is dropped: the check fails closed.  Provisioning a distribution client therefore means placing its issued certificate at that path as well as issuing it.
 
-If authorized, it reads the newest (by name) `.crt` in `<pki-root>/domains/<domain>/certs/production/crt/` and `.key` in `.../key/`, encodes them in a JSON payload, and sends them to the client.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.
+If authorized, it sends the client the cert chain and key the acme client keeps current for the domain, which it renews by moving a symlink onto each new file:
+
+```
+<pki-root>/domains/<domain>/certs/production/crt/<domain>-latest-fullchain.crt
+<pki-root>/domains/<domain>/certs/production/key/<domain>-latest.key
+```
+
+If the domain has no cert of its own, its wildcard cert is used, which the acme client files under the name `_.<domain>`.  The dirs also hold the timestamped files the links point to, leaf-only certs and the outgoing pair linked as `-previous`; none of those is ever sent.  The pair is only sent if the key belongs to the cert (with `LWS_WITH_JOSE`), since for a moment during a renewal the links can point to the new key and the old cert; the change that completes the renewal sends it then.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.
 
 ### Renewals
 

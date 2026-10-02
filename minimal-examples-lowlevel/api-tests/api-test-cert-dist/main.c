@@ -88,36 +88,36 @@ static const struct lws_switches switches[] = {
 
 #define PHASE_TIMEOUT_SECS	20
 
-/* what the server is distributing for example.com, before and after */
+/*
+ * What the server distributes for example.com, before and after a renewal:
+ * real cert + key pairs, since the server only sends a key that belongs to
+ * its cert.  They are just certs we have to hand, read from --certs.
+ */
 
-static const char * const fake_crt[] = {
-	"-----BEGIN CERTIFICATE-----\n"
-	"ZmFrZSBjZXJ0aWZpY2F0ZSBmb3IgZXhhbXBsZS5jb20sIHZlcnNpb24gMQ==\n"
-	"-----END CERTIFICATE-----\n",
-	"-----BEGIN CERTIFICATE-----\n"
-	"ZmFrZSBjZXJ0aWZpY2F0ZSBmb3IgZXhhbXBsZS5jb20sIHZlcnNpb24gMg==\n"
-	"-----END CERTIFICATE-----\n",
+static const char * const ver_cert_file[] = {
+	"localhost-100y.cert", "node2.crt"
+};
+static const char * const ver_key_file[] = {
+	"localhost-100y.key", "node2.key"
+};
+/* the timestamps the acme client names each renewal's files with */
+static const char * const ver_stem[] = {
+	"20260101-000000", "20260601-000000"
 };
 
-static const char * const fake_key[] = {
-	"-----BEGIN PRIVATE KEY-----\n"
-	"ZmFrZSBwcml2YXRlIGtleSBmb3IgZXhhbXBsZS5jb20sIHZlcnNpb24gMQ==\n"
-	"-----END PRIVATE KEY-----\n",
-	"-----BEGIN PRIVATE KEY-----\n"
-	"ZmFrZSBwcml2YXRlIGtleSBmb3IgZXhhbXBsZS5jb20sIHZlcnNpb24gMg==\n"
-	"-----END PRIVATE KEY-----\n",
-};
+#define PEM_MAX 8192
 
-/* the server picks the newest by name */
-static const char * const fake_stem[] = {
-	"2026-01-01", "2026-06-01"
-};
+static char ver_cert[2][PEM_MAX], ver_key[2][PEM_MAX];
+static const char *certs = ".";
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_check;
 static char work[64];
 static int phase, tests, fail, done;
-static lws_usec_t phase_deadline;
+static lws_usec_t phase_deadline, hold_until;
+
+/* how long a half-done renewal is watched for being (wrongly) sent */
+#define HOLD_US		(2 * LWS_US_PER_SEC)
 
 static void
 expect(const char *what, int ok)
@@ -153,7 +153,7 @@ static int
 file_is(const char *path, const char *content)
 {
 	size_t len = strlen(content);
-	char buf[256];
+	char buf[PEM_MAX];
 	ssize_t n;
 	int fd;
 
@@ -197,33 +197,80 @@ mkdirs(const char * const *dirs)
 }
 
 /*
- * Put version v of example.com's cert and key where the server looks for
- * them.  Each is written under a name the server ignores and renamed into
- * place, so it never sees one half-written; the key goes first, so a cert is
- * never offered without its key.
+ * Renew example.com's cert to version v, the way the acme client does with
+ * the dnssec monitor storing it: a timestamped leaf cert, key and fullchain
+ * are written, and the -latest links moved onto each in turn, the outgoing
+ * ones kept as -previous.  So the dirs hold several certs and keys besides
+ * the ones the server must send, and for a moment the links point to the new
+ * key and the old fullchain, which the server must not offer.
+ *
+ * Files [from, to) of the renewal are stored, so a test can stop it halfway.
  */
+#define PUB_KEY_DONE	2	/* leaf and key stored, the fullchain not yet */
+#define PUB_ALL		3
+
 static int
-publish(int v)
+publish(int v, size_t from, size_t to)
 {
-	static const char * const sub[] = { "key", "crt" };
-	char tmp[256], path[256];
-	int n;
+	static const struct {
+		const char *sub, *suffix;
+		char key;
+	} f[] = {	/* in the order the monitor stores them */
+		{ "crt", ".crt", 0 },
+		{ "key", ".key", 1 },
+		{ "crt", "-fullchain.crt", 0 },
+	};
+	char dir[192], target[96], path[256], link[256];
+	size_t n;
 
-	for (n = 0; n < 2; n++) {
-		lws_snprintf(tmp, sizeof(tmp), "%s/pki/domains/example.com/"
-			     "certs/production/%s/.incoming", work, sub[n]);
-		lws_snprintf(path, sizeof(path), "%s/pki/domains/example.com/"
-			     "certs/production/%s/%s.%s", work, sub[n],
-			     fake_stem[v], sub[n]);
+	for (n = from; n < to && n < LWS_ARRAY_SIZE(f); n++) {
+		lws_snprintf(dir, sizeof(dir), "%s/pki/domains/example.com/"
+			     "certs/production/%s", work, f[n].sub);
+		lws_snprintf(target, sizeof(target), "example.com-%s%s",
+			     ver_stem[v], f[n].suffix);
+		lws_snprintf(path, sizeof(path), "%s/%s", dir, target);
+		lws_snprintf(link, sizeof(link), "%s/example.com-latest%s",
+			     dir, f[n].suffix);
 
-		if (write_file(tmp, n ? fake_crt[v] : fake_key[v]) ||
-		    rename(tmp, path)) {
-			lwsl_err("%s: unable to publish %s\n", __func__, path);
+		if (write_file(path, f[n].key ? ver_key[v] : ver_cert[v])) {
+			lwsl_err("%s: unable to write %s\n", __func__, path);
 			return 1;
 		}
+		lws_dir_symlink_rotate(link, target, "-latest", "-previous");
 	}
 
 	return 0;
+}
+
+/* read the pairs we distribute from the --certs dir */
+static int
+load_versions(void)
+{
+	char path[256];
+	int v, n;
+
+	for (v = 0; v < 2; v++) {
+		lws_snprintf(path, sizeof(path), "%s/%s", certs,
+			     ver_cert_file[v]);
+		n = lws_plat_read_file(path, ver_cert[v], PEM_MAX - 1);
+		if (n <= 0 || n >= PEM_MAX - 1)
+			goto bail;
+		ver_cert[v][n] = '\0';
+
+		lws_snprintf(path, sizeof(path), "%s/%s", certs,
+			     ver_key_file[v]);
+		n = lws_plat_read_file(path, ver_key[v], PEM_MAX - 1);
+		if (n <= 0 || n >= PEM_MAX - 1)
+			goto bail;
+		ver_key[v][n] = '\0';
+	}
+
+	return 0;
+
+bail:
+	lwsl_err("%s: can't read %s\n", __func__, path);
+
+	return 1;
 }
 
 /* 1 if node1 has version v of the cert and key installed */
@@ -235,7 +282,7 @@ node1_has(int v)
 	lws_snprintf(fc, sizeof(fc), "%s/install/node1/fullchain.pem", work);
 	lws_snprintf(pk, sizeof(pk), "%s/install/node1/privkey.pem", work);
 
-	return file_is(fc, fake_crt[v]) && file_is(pk, fake_key[v]);
+	return file_is(fc, ver_cert[v]) && file_is(pk, ver_key[v]);
 }
 
 /*
@@ -292,18 +339,54 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 		expect("node1 got the cert and key over mTLS", 1);
 		check_install_layout();
 
-		/* the server's copy is renewed on disk */
-		if (publish(1)) {
+		/*
+		 * The server's copy is renewed on disk, stopping where the
+		 * links point to the new key and the old fullchain.  Without
+		 * JOSE the server can't tell the pair doesn't match, so we
+		 * don't ask it to.
+		 */
+#if defined(LWS_WITH_JOSE)
+		if (publish(1, 0, PUB_KEY_DONE)) {
+#else
+		if (publish(1, 0, PUB_ALL)) {
+#endif
 			expect("publish the renewed cert", 0);
 			done = 1;
 			lws_cancel_service(context);
 			return;
 		}
+		hold_until = lws_now_usecs() + HOLD_US;
 		phase++;
 		arm_phase_deadline();
 		break;
 
 	case 1:
+#if defined(LWS_WITH_JOSE)
+		/* node1 must keep the pair it has, not get a mismatched one */
+		if (!node1_has(0)) {
+			expect("half-done renewal not sent", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		if (lws_now_usecs() < hold_until)
+			break;
+
+		expect("half-done renewal not sent", 1);
+
+		/* the renewal completes */
+		if (publish(1, PUB_KEY_DONE, PUB_ALL)) {
+			expect("complete the renewal", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+#endif
+		phase++;
+		arm_phase_deadline();
+		break;
+
+	case 2:
 		/* the renewal is pushed on the link that is already up */
 		if (!node1_has(1))
 			break;
@@ -338,18 +421,18 @@ sigint_handler(int sig)
  * in <work>/conf.d/cert-dist
  */
 static int
-write_config(const char *certs, const char *server, int port)
+write_config(const char *certs_dir, const char *server, int port)
 {
 	char ew[sizeof(work) * 6], ec[256 * 6], url[128], path[256];
 	char *conf;
 	size_t len = 8192;
 	int r;
 
-	if (strlen(certs) >= 256)
+	if (strlen(certs_dir) >= 256)
 		return 1;
 
 	lws_json_purify(ew, work, (int)sizeof(ew), NULL);
-	lws_json_purify(ec, certs, (int)sizeof(ec), NULL);
+	lws_json_purify(ec, certs_dir, (int)sizeof(ec), NULL);
 
 	/* an IPv6 literal needs brackets in the URL */
 	lws_snprintf(url, sizeof(url), strchr(server, ':') ?
@@ -444,7 +527,7 @@ write_pki(void)
 	if (write_file(path, "provisioned\n"))
 		return 1;
 
-	return publish(0);
+	return publish(0, 0, PUB_ALL);
 }
 
 /*
@@ -478,7 +561,7 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	const char *p, *certs = ".", *server = "localhost";
+	const char *p, *server = "localhost";
 	static char arena[16384];
 	char *cs = arena, path[256];
 	int n = 0, port = 7681, len = (int)sizeof(arena), have_work = 0;
@@ -520,7 +603,8 @@ main(int argc, const char **argv)
 	}
 	have_work = 1;
 
-	if (write_pki() || write_config(certs, server, port)) {
+	if (load_versions() || write_pki() ||
+	    write_config(certs, server, port)) {
 		lwsl_err("unable to create the fixture\n");
 		goto bail;
 	}
@@ -557,7 +641,7 @@ main(int argc, const char **argv)
 	while (n >= 0 && !done)
 		n = lws_service(context, 0);
 
-	expect("every phase ran", done && phase == 2);
+	expect("every phase ran", done && phase == 3);
 
 	/*
 	 * The refused links had as long as the whole run to get something

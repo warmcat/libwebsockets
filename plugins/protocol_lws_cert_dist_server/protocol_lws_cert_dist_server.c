@@ -3,7 +3,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <dirent.h>
 #include <errno.h>
 
 struct vhd_cert_dist_server {
@@ -155,54 +154,156 @@ cert_dist_valid_hash(const char *s, size_t len)
 
 /* --- STUB SERVER IMPLEMENTATION --- */
 
+/* a cert chain or key bigger than this is not one we issued */
+#define CDS_PEM_MAX (64 * 1024)
+
 static char *
-read_newest_file_in_dir(const char *dirpath, const char *suffix)
+read_pem_file(const char *path)
 {
-	DIR                     *dir;
-	struct dirent           *de;
-	char                    best_name[256];
-	char                    path[512];
-	struct stat             st;
-	int                     fd;
-	char                    *buf = NULL;
+	struct stat st;
+	char *buf = NULL;
+	int fd;
 
-	best_name[0] = '\0';
-
-	dir = opendir(dirpath);
-	if (!dir)
-		return NULL;
-
-	while ((de = readdir(dir))) {
-		size_t l = strlen(de->d_name);
-		size_t sl = strlen(suffix);
-		if (l > sl && !strcmp(de->d_name + l - sl, suffix)) {
-			if (!best_name[0] || strcmp(de->d_name, best_name) > 0)
-				lws_strncpy(best_name, de->d_name, sizeof(best_name));
-		}
-	}
-	closedir(dir);
-
-	if (!best_name[0])
-		return NULL;
-
-	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, best_name);
 	fd = open(path, O_RDONLY);
-	if (fd >= 0) {
-		if (fstat(fd, &st) == 0) {
-			buf = malloc((size_t)st.st_size + 1);
-			if (buf) {
-				if (read(fd, buf, (size_t)st.st_size) == (ssize_t)st.st_size)
-					buf[st.st_size] = '\0';
-				else {
-					free(buf);
-					buf = NULL;
-				}
+	if (fd < 0)
+		return NULL;
+
+	if (!fstat(fd, &st) && S_ISREG(st.st_mode) && st.st_size > 0 &&
+	    st.st_size <= CDS_PEM_MAX) {
+		buf = malloc((size_t)st.st_size + 1);
+		if (buf) {
+			if (read(fd, buf, (size_t)st.st_size) == (ssize_t)st.st_size)
+				buf[st.st_size] = '\0';
+			else {
+				free(buf);
+				buf = NULL;
 			}
 		}
-		close(fd);
 	}
+	close(fd);
 
 	return buf;
+}
+
+#if defined(LWS_WITH_JOSE)
+/*
+ * 0 if key is the private key of the first cert in the chain.  The acme
+ * client renews by moving the cert and key symlinks one after the other, so
+ * for a moment the pair can be the new key with the old cert: a client given
+ * that could not use it.
+ */
+
+static int
+cds_pair_matches(struct lws_context *cx, const char *chain, const char *key)
+{
+	struct lws_x509_cert *x = NULL;
+	size_t kl = strlen(key) + 1;
+	struct lws_jwk jwk;
+	char *k;
+	int ret = 1;
+
+	memset(&jwk, 0, sizeof(jwk));
+
+	/* the key copy is zeroed by lws_x509_jwk_privkey_pem() */
+	k = malloc(kl);
+	if (!k)
+		return 1;
+	memcpy(k, key, kl);
+
+	if (lws_x509_create(&x))
+		goto bail;
+
+	if (!lws_x509_parse_from_pem(x, chain, strlen(chain) + 1) &&
+	    !lws_x509_public_to_jwk(&jwk, x, "P-256,P-384,P-521", 2048) &&
+	    !lws_x509_jwk_privkey_pem(cx, &jwk, k, kl, NULL))
+		ret = 0;
+
+	lws_jwk_destroy(&jwk);
+	lws_x509_destroy(&x);
+
+bail:
+	lws_explicit_bzero(k, kl);
+	free(k);
+
+	return ret;
+}
+#endif
+
+/*
+ * The cert we distribute for <domain> is the one the acme client keeps
+ * current for it, by moving a symlink onto each renewal:
+ *
+ *   <pki_root>/domains/<domain>/certs/production/crt/<name>-latest-fullchain.crt
+ *   <pki_root>/domains/<domain>/certs/production/key/<name>-latest.key
+ *
+ * The dirs also hold the timestamped files those point to, the leaf-only
+ * certs, and the outgoing pair linked as -previous, so nothing else there can
+ * be picked by its name.  <name> is the domain itself, or failing that its
+ * wildcard, which the acme client files as "_.<domain>".
+ *
+ * On success *cert and *key are allocated and must be freed.
+ */
+
+static int
+cds_read_domain_cert(struct lws_context *cx, const char *pki_root,
+		     const char *domain, char **cert, char **key)
+{
+	static const char * const fmt[] = { "%s", "_.%s" };
+	char name[160], path[512];
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(fmt); n++) {
+		lws_snprintf(name, sizeof(name), fmt[n], domain);
+
+		lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/"
+			     "production/crt/%s-latest-fullchain.crt",
+			     pki_root, domain, name);
+		*cert = read_pem_file(path);
+		if (*cert)
+			break;
+	}
+
+	if (!*cert)
+		return 1;
+
+	/*
+	 * A cert we found but can't offer yet stops us there: falling back
+	 * to the wildcard would hand the client a different cert meanwhile
+	 */
+
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/production/key/"
+		     "%s-latest.key", pki_root, domain, name);
+	*key = read_pem_file(path);
+	if (!*key) {
+		/* never offer a cert without its key */
+		lwsl_notice("%s: %s has a cert but no key yet\n", __func__,
+			    name);
+		goto bail;
+	}
+
+#if defined(LWS_WITH_JOSE)
+	if (cds_pair_matches(cx, *cert, *key)) {
+		/* the next change will settle it */
+		lwsl_notice("%s: %s cert and key don't match (yet)\n",
+			    __func__, name);
+		lws_explicit_bzero(*key, strlen(*key));
+		free(*key);
+		*key = NULL;
+		goto bail;
+	}
+#else
+	(void)cx;
+#endif
+
+	lwsl_notice("%s: %s: distributing %s\n", __func__, domain, name);
+
+	return 0;
+
+bail:
+	free(*cert);
+	*cert = NULL;
+
+	return 1;
 }
 
 static const char * const stub_req_paths[] = {
@@ -390,18 +491,21 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 		}
 
 		{
-			char cert_path[512], key_path[512];
 			char *cert_buf = NULL, *key_buf = NULL;
 
-			lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/production/crt",
-				     vhd->pki_root, pss->args.domain);
-			lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/certs/production/key",
-				     vhd->pki_root, pss->args.domain);
+			if (cds_read_domain_cert(lws_get_context(wsi),
+						 vhd->pki_root, pss->args.domain,
+						 &cert_buf, &key_buf)) {
+				lwsl_notice("%s: no cert and key for %s yet\n",
+					    __func__, pss->args.domain);
+				return -1;
+			}
 
-			lwsl_notice("%s: Looking for newest cert in %s\n", __func__, cert_path);
-			cert_buf = read_newest_file_in_dir(cert_path, ".crt");
-
-			if (cert_buf && pss->args.hash[0]) {
+			/*
+			 * The client hashes the fullchain.pem it installed
+			 * from us, so it is the same chain we hash here
+			 */
+			if (pss->args.hash[0]) {
 				unsigned char digest[20];
 				char current_hash[41];
 				lws_SHA1((unsigned char *)cert_buf, strlen(cert_buf), digest);
@@ -409,7 +513,8 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 				if (strlen(current_hash) == strlen(pss->args.hash) && !lws_timingsafe_bcmp(current_hash, pss->args.hash, (uint32_t)strlen(current_hash))) {
 					lwsl_notice("%s: Hash matches %s, returning unchanged\n", __func__, pss->args.hash);
 					free(cert_buf);
-					cert_buf = NULL;
+					lws_explicit_bzero(key_buf, strlen(key_buf));
+					free(key_buf);
 
 					pss->response = malloc(LWS_PRE + 256);
 					if (!pss->response)
@@ -425,62 +530,53 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 					 * never hears back
 					 */
 					lws_callback_on_writable(wsi);
+					break;
 				}
 			}
 
-			if (cert_buf) {
-				lwsl_notice("%s: Looking for newest key in %s\n", __func__, key_path);
-				key_buf = read_newest_file_in_dir(key_path, ".key");
+			{
+				size_t jlen = (strlen(cert_buf) * 2) + (strlen(key_buf) * 2) + 512;
+				char *p, *end, *src;
 
-				if (key_buf) {
-					lwsl_notice("%s: Found both cert and key for %s, preparing response\n", __func__, pss->args.domain);
-					size_t jlen = (strlen(cert_buf) * 2) + (strlen(key_buf) * 2) + 512;
-					pss->response = malloc(LWS_PRE + jlen);
-					if (!pss->response) {
-						free(key_buf);
-						free(cert_buf);
-
-						return -1;
-					}
-					{
-						char *p = pss->response + LWS_PRE, *end = pss->response + LWS_PRE + jlen;
-						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"subdomain\":\"%s\",\"fullchain\":\"", pss->args.subdomain);
-						char *src = cert_buf;
-						while (*src && p < end - 4) {
-							if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
-							else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
-							else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
-							else *p++ = *src;
-							src++;
-						}
-						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\",\"privkey\":\"");
-						src = key_buf;
-						while (*src && p < end - 4) {
-							if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
-							else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
-							else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
-							else *p++ = *src;
-							src++;
-						}
-						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
-						pss->response_len = (int)(p - (pss->response + LWS_PRE));
-						pss->response_pos = 0;
-						lwsl_notice("%s: Stub JSON response built (%d bytes), requesting write\n", __func__, pss->response_len);
-						lws_callback_on_writable(wsi);
-					}
-					free(key_buf);
-				} else {
-					lwsl_notice("%s: Key not found yet for %s\n", __func__, pss->args.domain);
-					free(cert_buf);
-					return -1;
-				}
-				free(cert_buf);
-			} else {
+				pss->response = malloc(LWS_PRE + jlen);
 				if (!pss->response) {
-					lwsl_notice("%s: Cert not found yet for %s\n", __func__, pss->args.domain);
+					lws_explicit_bzero(key_buf, strlen(key_buf));
+					free(key_buf);
+					free(cert_buf);
+
 					return -1;
 				}
+
+				p = pss->response + LWS_PRE;
+				end = pss->response + LWS_PRE + jlen;
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"subdomain\":\"%s\",\"fullchain\":\"", pss->args.subdomain);
+				src = cert_buf;
+				while (*src && p < end - 4) {
+					if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
+					else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
+					else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
+					else *p++ = *src;
+					src++;
+				}
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\",\"privkey\":\"");
+				src = key_buf;
+				while (*src && p < end - 4) {
+					if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
+					else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
+					else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
+					else *p++ = *src;
+					src++;
+				}
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
+				pss->response_len = (int)(p - (pss->response + LWS_PRE));
+				pss->response_pos = 0;
+				lwsl_notice("%s: Stub JSON response built (%d bytes), requesting write\n", __func__, pss->response_len);
+				lws_callback_on_writable(wsi);
 			}
+
+			lws_explicit_bzero(key_buf, strlen(key_buf));
+			free(key_buf);
+			free(cert_buf);
 		}
 		break;
 
