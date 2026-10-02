@@ -1159,7 +1159,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 						goto send_protocol_error_and_close;
 					}
 
-					rx = lws_malloc(sizeof(*rx), "qos2 rx");
+					rx = lws_zalloc(sizeof(*rx), "qos2 rx");
 					if (rx) {
 						const char *cid = wsi->mqtt->client.id ? (const char *)wsi->mqtt->client.id->buf : "unknown";
 						rx->packet_id = par->cpkt_id;
@@ -3067,7 +3067,7 @@ lws_mqtt_client_qos2_rx_add(struct lws *wsi, uint16_t pkt_id)
 		return 1;
 	}
 
-	rx = lws_malloc(sizeof(*rx), "qos2 rx");
+	rx = lws_zalloc(sizeof(*rx), "qos2 rx");
 	if (!rx)
 		return 1;
 
