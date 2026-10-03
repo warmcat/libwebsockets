@@ -220,6 +220,26 @@ cubic_on_ack(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt)
 	}
 }
 
+/*
+ * Frames taken out of in_flight without being acked or declared lost (a PTO
+ * requeue, a purged stream) leave bytes_in_flight here, or every PTO would
+ * permanently shrink the usable window; cwnd and ssthresh are untouched
+ * (RFC 9002 6.2.4)
+ */
+static void
+cubic_on_discard(struct lws *nwsi, size_t bytes_discarded)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_quic_cc_cubic *st = (struct lws_quic_cc_cubic *)qn->cc_state;
+
+	if (!st) return;
+
+	if (st->bytes_in_flight >= bytes_discarded)
+		st->bytes_in_flight -= bytes_discarded;
+	else
+		st->bytes_in_flight = 0;
+}
+
 static void
 cubic_on_loss(struct lws *nwsi, size_t bytes_lost)
 {
@@ -356,6 +376,7 @@ const struct lws_cc_ops lws_cc_ops_cubic = {
 	.on_sent		= cubic_on_sent,
 	.on_ack			= cubic_on_ack,
 	.on_loss		= cubic_on_loss,
+	.on_discard		= cubic_on_discard,
 	.on_persistent_congestion = cubic_on_persistent_congestion,
 	.can_send		= cubic_can_send,
 	.get_pacing_delay	= cubic_get_pacing_delay,

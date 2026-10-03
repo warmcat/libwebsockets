@@ -529,6 +529,7 @@ enum {
 	LWS_SW_RELAY,
 	LWS_SW_STRAY,
 	LWS_SW_WRITE_SIZE,
+	LWS_SW_CUBIC,
 };
 
 static const struct lws_switches switches[] = {
@@ -540,6 +541,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_RELAY]	= { "--relay",	"Connect via a relay on this port that reorders datagrams (needs a numeric --server)" },
 	[LWS_SW_STRAY] = { "--stray",	"The relay also sends the client stray packets of another connection (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
+	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
 };
 
 #if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
@@ -650,6 +652,9 @@ int main(int argc, const char **argv)
                                                  LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
                                                  LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
                                                  0;
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_CUBIC].sw))
+		/* both the server and the client in this context use it */
+		info.quic_cc_ops		= &lws_cc_ops_cubic;
 
 	context = lws_create_context(&info);
 	if (!context) {

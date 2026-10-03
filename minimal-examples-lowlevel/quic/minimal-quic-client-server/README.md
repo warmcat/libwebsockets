@@ -26,6 +26,7 @@ arrived.
 |--relay <port>|The client connects through a relay on this port, see below|
 |--stray|With `--relay`, the relay also sends the client stray packets of another connection, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
+|--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
 
 ```
  $ ./lws-minimal-quic-client-server
@@ -62,6 +63,17 @@ authenticates), and the transfer must complete.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --stray
+```
+
+## congestion controller
+
+lws uses NewReno (`lws_cc_ops_newreno`) unless `lws_context_creation_info`
+`.quic_cc_ops` names another controller.  With `--cubic` both the server and
+the client in this process use `lws_cc_ops_cubic` instead, so the transfer, and
+through the relay the loss recovery, exercise that controller's accounting:
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --write-size 100 --cubic
 ```
 
 ## Retry

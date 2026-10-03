@@ -170,6 +170,29 @@ lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi);
 LWS_VISIBLE LWS_EXTERN int
 lws_quic_initiate_key_update(struct lws *wsi);
 
+/**
+ * struct lws_cc_ops - a QUIC congestion controller
+ *
+ * Set in lws_context_creation_info.quic_cc_ops to select one of the
+ * controllers below or supply your own.  Every op may be NULL and is then
+ * skipped, but the byte accounting ops come as a set: whatever on_sent adds
+ * to the controller's idea of bytes in flight is only ever taken back by
+ * on_ack, on_loss and on_discard.  A controller that counts in-flight bytes
+ * must implement all four, or each PTO requeue leaves its bytes counted for
+ * the life of the connection and the window closes.
+ *
+ * \param init: (re)start the controller's state for the connection, also on
+ *	path migration
+ * \param on_sent: bytes of an ack-eliciting packet went on the wire
+ * \param on_ack: bytes acknowledged, with an RTT sample for the largest
+ * \param on_loss: bytes declared lost by loss detection, react on cwnd
+ * \param on_discard: bytes taken out of flight without ack or loss: a PTO
+ *	requeue (RFC 9002 6.2.4, cwnd must not react) or a purged stream.  Only
+ *	the in-flight count is corrected.
+ * \param on_persistent_congestion: collapse cwnd to the minimum
+ * \param can_send: may bytes more go out now
+ * \param get_pacing_delay: usecs to wait before bytes_to_send may go out
+ */
 struct lws_cc_ops {
 	void (*init)(struct lws *nwsi);
 	void (*on_sent)(struct lws *nwsi, size_t bytes);

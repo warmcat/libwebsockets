@@ -79,6 +79,21 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# The same with the CUBIC congestion controller on both sides,
+		# otherwise never selected: the controller's in-flight accounting
+		# over the relay's reordering and drops
+		#
+		lws_get_free_port(PORT_QCS_CUBIC)
+		lws_get_free_port(PORT_QCS_CUBIC_RELAY)
+		add_test(NAME ${SAMP}-cubic COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_CUBIC}
+				--relay ${PORT_QCS_CUBIC_RELAY} --write-size 100
+				--cubic)
+		set_tests_properties(${SAMP}-cubic PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# Through the relay with stray long header packets of another
 		# connection sent to the client during and after the handshake:
 		# the client must drop them without them changing its
