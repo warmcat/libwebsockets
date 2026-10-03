@@ -1866,7 +1866,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len &&
 		    !fsync(fd) && !rename(t_path, d_path)) {
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+			int link_err = 0;
 
 			if ((char *)strstr(a->subdomain, ".crt") || (char *)strstr(a->subdomain, ".key")) {
 				char link_path[1024];
@@ -1893,10 +1893,27 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 					 * -previous, which ${DANE1/...}
 					 * publishes the TLSA for
 					 */
-					lws_dir_symlink_rotate(link_path, a->subdomain,
-							       "-latest", "-previous");
+					if (lws_dir_symlink_rotate(link_path,
+							a->subdomain, "-latest",
+							"-previous")) {
+						link_err = errno;
+						lwsl_err("%s: unable to link %s -> %s: %s\n",
+							 __func__, link_path,
+							 a->subdomain,
+							 strerror(link_err));
+					}
 				}
 			}
+
+			/*
+			 * The file is saved either way, but if -latest still
+			 * points at the old one, nothing will use it: the
+			 * requester needs to know
+			 */
+			if (link_err)
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Saved, but -latest link failed, errno %d\"}\n", a->req, link_err);
+			else
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 		} else {
 			unlink(t_path);
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);

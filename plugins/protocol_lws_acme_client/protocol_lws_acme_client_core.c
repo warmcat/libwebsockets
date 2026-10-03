@@ -39,6 +39,7 @@
 #include "../../lib/tls/private-lib-tls.h"
 
 #include <string.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <ctype.h>
 
@@ -84,12 +85,15 @@ acme_link_rotate(const char *latest, const char *written)
 						     written;
 
 #if defined(LWS_WITH_DIR)
-	lws_dir_symlink_rotate(latest, target, "-latest", "-previous");
+	if (lws_dir_symlink_rotate(latest, target, "-latest", "-previous"))
+		lwsl_err("%s: unable to link %s -> %s: %s\n", __func__, latest,
+			 target, strerror(errno));
 #else
 	unlink(latest);
 #if !defined(WIN32)
 	if (symlink(target, latest))
-		lwsl_err("%s: unable to link %s\n", __func__, latest);
+		lwsl_err("%s: unable to link %s -> %s: %s\n", __func__, latest,
+			 target, strerror(errno));
 #endif
 #endif
 }
