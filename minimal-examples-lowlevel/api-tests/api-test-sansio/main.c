@@ -57,6 +57,11 @@
  * closed by the response's watchdog too, though the body went on arriving
  * after the answer started, and completed.
  *
+ * And an h1 POST answered with a file the app abandons, by completing the
+ * transaction from its timer, while a read of the file is out on a worker:
+ * the body is discarded as it comes, and the connection goes on to the next
+ * request.
+ *
  * And a request the mount redirects before any app sees it, likewise only
  * partly written: the transaction completes when it has gone, answered in
  * the request's own version, and the kept-alive connection goes on to the
@@ -412,7 +417,7 @@ struct transport {
 	int		reset;
 };
 
-static struct transport *transports[24];
+static struct transport *transports[32];
 static int ntransports;
 
 static int
@@ -571,13 +576,20 @@ tp_register(struct transport *t, int fd)
  * has nothing to say until the worker's result is back, so then we wait
  * for lws' wake, have lws pick the result up, and go on.
  */
+/*
+ * A case that wants a worker's result left out, for something to happen
+ * meanwhile, holds them: the worker still does the work, but its result is
+ * not picked up until the hold is let go
+ */
+static int workers_held;
+
 static int
 await_workers(struct lws_context *cx)
 {
 	struct lws_pollfd pfd;
 	int budget = 100; /* 50ms each: 5s */
 
-	if (!lws_service_work_outstanding(cx))
+	if (workers_held || !lws_service_work_outstanding(cx))
 		return 0;
 
 	pfd.fd = lws_service_wake_fd(cx, 0);
@@ -738,6 +750,7 @@ struct pss_uri {
 	int		completed;
 	int		slow;	/* /slow: pieces still to write */
 	int		in_body; /* /in-body: 1 body awaited, 2 answer started */
+	int		abandon; /* /abandon: the timer completes the file */
 };
 
 /* /slow's answer: SLOW_PIECES of 100 bytes, one every SLOW_GAP_US */
@@ -750,6 +763,8 @@ static int uri_late_writeable, uri_closed;
 static struct transport *early_tp;
 /* what /file answers with, relative to where ctest runs us */
 #define EARLY_FILE "transcripts/README.md"
+/* when /abandon's app gives up on the file it is serving */
+#define ABANDON_US	(5 * LWS_US_PER_MS)
 
 static int
 callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
@@ -795,6 +810,20 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			if (n < 0 ||
 			    (n > 0 && lws_http_transaction_completed(wsi)))
 				return -1;
+			return 0;
+		}
+		if (in && !strcmp((const char *)in, "/abandon")) {
+			/*
+			 * a file is the answer, before any body, but the app
+			 * gives up on it shortly, see LWS_CALLBACK_TIMER
+			 */
+			n = lws_serve_http_file(wsi, EARLY_FILE, "text/plain",
+						NULL, 0);
+			if (n)
+				/* we want it still being served for the timer */
+				return -1;
+			pss->abandon = 1;
+			lws_set_timer_usecs(wsi, ABANDON_US);
 			return 0;
 		}
 #endif
@@ -844,6 +873,18 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_TIMER:
+		if (pss->abandon) {
+			/*
+			 * /abandon: the app completes the transaction from
+			 * under the file it is serving, the request's body
+			 * still to come
+			 */
+			pss->abandon = 0;
+			pss->completed = 1;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
 		/* /slow has its next piece */
 		lws_callback_on_writable(wsi);
 		return 0;
@@ -2790,6 +2831,82 @@ h2_answer_in_body_half(struct lws_context *cx, struct lws_vhost *vh,
 #endif
 #endif
 
+/*
+ * 35: the app answering an h1 POST with a file, the body still to come,
+ * abandons the file from its timer by completing the transaction, while a
+ * read of the file is out on a worker.  The completion reaps the read, and
+ * the body, unread, is discarded: the connection is not left waiting on a
+ * read that is gone.  The answer is short of the length its headers gave,
+ * which is the app's doing, but the connection goes on: the body is
+ * discarded as it comes, and the request after it is served.  The worker's
+ * timing is not part of a transcript, so this case has none.
+ */
+#if defined(LWS_WITH_FILE_OPS) && defined(LWS_WITH_ASYNC_QUEUE)
+static int
+h1_file_abandoned_half(struct lws_context *cx, struct lws_vhost *vh,
+		       int start_ms)
+{
+	static const char req[] =
+		"POST /abandon HTTP/1.1\r\nHost: sansio-uri\r\n"
+		"Content-Length: 6\r\n\r\n";
+	static const char rest[] =
+		"abcdef"
+		"GET /next?c=3 HTTP/1.1\r\nHost: sansio-uri\r\n\r\n";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	/* the file's headers go, and its first read is handed to a worker */
+	workers_held = 1;
+	feed(cx, &tp, req, sizeof(req) - 1);
+	if (!find_bytes(tp.tx, tp.tx_len, "HTTP/1.1 200 ") ||
+	    !lws_service_work_outstanding(cx)) {
+		lwsl_err("case 35: no file answer with a read out\n");
+		workers_held = 0;
+		return 1;
+	}
+
+	/* the app's timer: it completes the transaction from under the read */
+	at(cx, start_ms + 10);
+	workers_held = 0;
+	if (tp.closed || lws_service_work_outstanding(cx)) {
+		lwsl_err("case 35: closed %d, the read still out %d\n",
+			 tp.closed, lws_service_work_outstanding(cx));
+		return 1;
+	}
+
+	/* the body, discarded, then the next request, answered */
+	if (feed(cx, &tp, rest, sizeof(rest) - 1) ||
+	    !find_bytes(tp.tx, tp.tx_len, "/next\nc=3") || tp.closed ||
+	    uri_late_writeable) {
+		lwsl_err("case 35: rest not taken, or next request not "
+			 "served: closed %d, late wr %d\n", tp.closed,
+			 uri_late_writeable);
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 35: a file abandoned with a read out discards the "
+		  "body and goes on: PASS\n");
+
+	return 0;
+}
+#endif
+
 static int timer_fired;
 
 static void
@@ -3764,6 +3881,12 @@ main(int argc, const char **argv)
 	at(cx, 200000);
 	if (h1_post_no_length_half(cx, vh_uri))
 		goto bail;
+
+#if defined(LWS_WITH_FILE_OPS) && defined(LWS_WITH_ASYNC_QUEUE)
+	at(cx, 210000);
+	if (h1_file_abandoned_half(cx, vh_uri, 210000))
+		goto bail;
+#endif
 
 	result = 0;
 

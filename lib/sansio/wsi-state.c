@@ -406,6 +406,10 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h3", "S", LRS_BODY,			LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
 	{ "h2", "S", LRS_ISSUING_FILE,		LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
 	{ "h3", "S", LRS_ISSUING_FILE,		LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
+	/* ...or abandoned with a read of the file out on a worker, reaped by the completion */
+	{ "h1", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
+	{ "h2", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
+	{ "h3", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
 
 	/* the h1 transaction ends and the connection is reused */
 	/*
