@@ -395,7 +395,7 @@ acme_ipc_rx(struct acme_ipc_rx *rx, const char *in, size_t len,
 
 		n = rx->len;
 		rx->len = 0;
-		if (!n || n == sizeof(rx->buf))
+		if (!n || n >= sizeof(rx->buf))
 			continue;
 
 		rx->buf[n] = '\0';

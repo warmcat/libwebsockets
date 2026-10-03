@@ -245,12 +245,12 @@ static int
 cds_read_domain_cert(struct lws_context *cx, const char *pki_root,
 		     const char *domain, char **cert, char **key)
 {
-	static const char * const fmt[] = { "%s", "_.%s" };
+	static const char * const pfx[] = { "", "_." };
 	char name[160], path[512];
 	size_t n;
 
-	for (n = 0; n < LWS_ARRAY_SIZE(fmt); n++) {
-		lws_snprintf(name, sizeof(name), fmt[n], domain);
+	for (n = 0; n < LWS_ARRAY_SIZE(pfx); n++) {
+		lws_snprintf(name, sizeof(name), "%s%s", pfx[n], domain);
 
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/"
 			     "production/crt/%s-latest-fullchain.crt",

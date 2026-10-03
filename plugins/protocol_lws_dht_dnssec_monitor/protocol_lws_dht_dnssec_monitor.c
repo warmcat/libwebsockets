@@ -493,21 +493,6 @@ scan_dir_cb_expiry(const char *dirpath, void *user, struct lws_dir_entry *lde)
  * which it gave us in --uds-perms.  The private keys inside stay 0600.
  */
 
-static int
-monitor_mkdir_domain(struct vhd *vhd, const char *path)
-{
-	if (mkdir(path, 0750) < 0)
-		/* an existing one keeps whatever the admin gave it */
-		return errno != EEXIST;
-
-	if (vhd->proxy_gid != (gid_t)-1 &&
-	    chown(path, (uid_t)-1, vhd->proxy_gid))
-		lwsl_warn("%s: unable to give %s to gid %u: %d\n", __func__,
-			  path, (unsigned int)vhd->proxy_gid, errno);
-
-	return 0;
-}
-
 static void
 monitor_share_fd(struct vhd *vhd, int fd)
 {
@@ -515,6 +500,33 @@ monitor_share_fd(struct vhd *vhd, int fd)
 	    fchown(fd, (uid_t)-1, vhd->proxy_gid))
 		lwsl_warn("%s: fchown to gid %u failed: %d\n", __func__,
 			  (unsigned int)vhd->proxy_gid, errno);
+}
+
+static int
+monitor_mkdir_domain(struct vhd *vhd, const char *path)
+{
+	int fd;
+
+	if (mkdir(path, 0750) < 0)
+		/* an existing one keeps whatever the admin gave it */
+		return errno != EEXIST;
+
+	if (vhd->proxy_gid == (gid_t)-1)
+		return 0;
+
+	/*
+	 * Whatever we give the group to must be the directory we just made,
+	 * not something swapped in at that path since
+	 */
+	fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0) {
+		lwsl_warn("%s: unable to open %s: %d\n", __func__, path, errno);
+		return 0;
+	}
+	monitor_share_fd(vhd, fd);
+	close(fd);
+
+	return 0;
 }
 
 /*
