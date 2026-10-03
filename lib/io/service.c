@@ -312,6 +312,10 @@ bail_die:
  * its answer to the peer's) still to send, it stashes or ignores rx without
  * consuming it.  Each of those phases ends with our tx (the response, the
  * handshake, the flush, the CLOSE), not with anything the peer sends.
+ *
+ * A server close staged in SHUTDOWN has sent its FIN and waits only for the
+ * peer's: its protocol is gone, so nothing parked on it can ever be consumed
+ * either (the staging drops it, see __lws_close_free_wsi()).
  */
 int
 lws_wsi_state_parks_rx(struct lws *wsi)
@@ -329,6 +333,7 @@ lws_wsi_state_parks_rx(struct lws *wsi)
 	case LRS_FLUSHING_BEFORE_CLOSE:
 	case LRS_WAITING_TO_SEND_CLOSE:
 	case LRS_RETURNED_CLOSE:
+	case LRS_SHUTDOWN:
 		return 1;
 	default:
 		return 0;

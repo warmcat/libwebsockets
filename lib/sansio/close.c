@@ -813,6 +813,17 @@ just_kill_connection:
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					  (int)context->timeout_secs);
 
+			/*
+			 * Only the peer's FIN is awaited now, and the protocol
+			 * is gone: rx parked on the wsi (eg, an h1 request
+			 * pipelined behind the one just answered) is for
+			 * nobody.  Left listed, the loop would offer it every
+			 * turn without waiting in poll, until the flush
+			 * timeout.
+			 */
+			lws_buflist_destroy_all_segments(&wsi->buflist);
+			lws_dll2_remove(&wsi->dll_buflist);
+
 			return LWS_HPI_RET_CLOSING;
 		}
 #endif

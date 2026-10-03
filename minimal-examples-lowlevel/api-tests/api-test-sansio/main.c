@@ -98,6 +98,12 @@
  * POLLHUP, the way BSD and OSX report it: it ends at once, or when the grace
  * is up if it still holds rx.
  *
+ * And an h1 server answering a request on a connection the peer asked to
+ * close, with a request pipelined behind it parked while the answer went:
+ * its close is staged, waiting for the peer's FIN, and the loop waits with
+ * it rather than offering the parked request every turn to a connection
+ * whose protocol is gone.
+ *
  * And an h1 client whose server answers while its request body is still
  * going: it reads nothing until the body has gone, and does not ask to hear
  * of what it is not reading meanwhile, then it reads the answer.
@@ -2482,6 +2488,85 @@ h1_reset_behind_file_half(struct lws_context *cx, struct lws_vhost *vh)
 
 	return 0;
 }
+
+/*
+ * 40: an h1 GET answered with a file on a connection the peer asked to
+ * close, a byte pipelined behind the request and parked while the file is
+ * served; the transport takes 4 bytes of the answer, then the rest.  The
+ * transaction completing closes the connection: the close is staged, our
+ * FIN sent, waiting for the peer's.  The protocol is gone, so the parked
+ * byte is for nobody: the loop must wait for the peer's FIN, not go round
+ * offering the parked byte to a connection that cannot take it (the
+ * staged close's whole timeout_secs at 100% cpu).  Then the peer's FIN
+ * ends it.
+ */
+static int
+h1_shutdown_behind_parked_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req[] =
+		"GET /file HTTP/1.1\r\nHost: sansio-uri\r\n"
+		"Connection: close\r\n\r\nX";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	/* the transport takes 4 bytes of the file's answer for now */
+	early_tp = &tp;
+	feed(cx, &tp, req, sizeof(req) - 1);
+	early_tp = NULL;
+	if (tp.closed || tp.shutdown || !tp.want_write) {
+		lwsl_err("case 40: closed %d, shutdown %d, nothing waiting "
+			 "to go\n", tp.closed, tp.shutdown);
+		return 1;
+	}
+
+	/* ...then the rest: the answer completes and the close is staged */
+	tp.tx_budget = -1;
+	tick(cx);
+	pump(cx, &tp);
+	if (tp.closed || !tp.shutdown || !tp.want_read ||
+	    !find_bytes(tp.tx, tp.tx_len, "\r\n\r\n")) {
+		lwsl_err("case 40: closed %d, shutdown %d, reading %d, "
+			 "tx %d\n", tp.closed, tp.shutdown, tp.want_read,
+			 (int)tp.tx_len);
+		return 1;
+	}
+
+	/*
+	 * Only the peer's FIN is awaited now: a loop that would not wait in
+	 * poll is spinning on the parked byte
+	 */
+	if (!lws_service_adjust_timeout(cx, 1000, 0)) {
+		lwsl_err("case 40: the loop would not wait for the FIN\n");
+		return 1;
+	}
+
+	tp.fin = 1;
+	tick(cx);
+	pump(cx, &tp);
+	if (!tp.closed) {
+		lwsl_err("case 40: the peer's FIN did not end it\n");
+		return 1;
+	}
+	lwsl_user("case 40: a close staged behind a parked request waits for "
+		  "the FIN: PASS\n");
+
+	return 0;
+}
 #endif
 
 /*
@@ -4119,6 +4204,9 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_FILE_OPS)
 	at(cx, 4160);
 	if (h1_reset_behind_file_half(cx, vh_uri))
+		goto bail;
+	at(cx, 4165);
+	if (h1_shutdown_behind_parked_half(cx, vh_uri))
 		goto bail;
 #endif
 
