@@ -374,6 +374,16 @@ __lws_free_wsi(struct lws *wsi)
 	 */
 	lws_fi_destroy(&wsi->fic);
 
+#if defined(LWS_WITH_SYS_METRICS)
+	/*
+	 * The connection caliper was reported, and its tags released, as the
+	 * close began.  Anything the close itself then did to the wsi may
+	 * have tagged it again, eg, a cgi killed by the close completes its
+	 * transaction and tags the status: those go with the wsi.
+	 */
+	lws_metrics_tags_destroy(&wsi->cal_conn.mtags_owner);
+#endif
+
 	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	lws_free(wsi);
 }
