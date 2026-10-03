@@ -388,6 +388,39 @@ cds_stub_req_release(struct pss_stub_server *pss)
 	lws_explicit_bzero(&pss->args, sizeof(pss->args));
 }
 
+/*
+ * Answer a request with nothing: the same reply as for an unchanged cert,
+ * which the client already treats as nothing to install.
+ *
+ * A refusal has to be an answer rather than a dropped connection.  When the
+ * connection goes, the parent retires the request it had in flight and
+ * reconnects with backoff, and every request queued behind it waits for
+ * that; so refusing by disconnecting let any peer that is authenticated but
+ * not provisioned stall the distribution to everyone else, for as long as it
+ * cared to keep asking.  Disconnecting is kept for a request that cannot be
+ * from our parent at all, ie, a bad secret or unvalidated names.
+ */
+static int
+cds_stub_reply_nothing(struct pss_stub_server *pss)
+{
+	pss->response = malloc(LWS_PRE + 256);
+	if (!pss->response)
+		return -1;
+
+	pss->response_len = lws_snprintf(pss->response + LWS_PRE, 256,
+			"{\"subdomain\":\"%s\",\"fullchain\":\"\",\"privkey\":\"\"}",
+			pss->args.subdomain);
+	pss->response_pos = 0;
+
+	/*
+	 * We are inside the writeable that generated it: ask for another one
+	 * to actually send it, or the requester never hears back
+	 */
+	lws_callback_on_writable(pss->args.wsi);
+
+	return 0;
+}
+
 static int
 callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason,
 			       void *user, void *in, size_t len)
@@ -483,7 +516,7 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 					 "(no %s)\n", __func__,
 					 pss->args.subdomain,
 					 pss->args.domain, auth_path);
-				return -1;
+				return cds_stub_reply_nothing(pss);
 			}
 		}
 
@@ -495,7 +528,7 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 						 &cert_buf, &key_buf)) {
 				lwsl_notice("%s: no cert and key for %s yet\n",
 					    __func__, pss->args.domain);
-				return -1;
+				return cds_stub_reply_nothing(pss);
 			}
 
 			/*
@@ -513,21 +546,7 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 					lws_explicit_bzero(key_buf, strlen(key_buf));
 					free(key_buf);
 
-					pss->response = malloc(LWS_PRE + 256);
-					if (!pss->response)
-						return -1;
-
-					pss->response_len = lws_snprintf(pss->response + LWS_PRE, 256,
-						"{\"subdomain\":\"%s\",\"fullchain\":\"\",\"privkey\":\"\"}", pss->args.subdomain);
-					pss->response_pos = 0;
-					/*
-					 * We are inside the writeable that
-					 * generated it: ask for another one to
-					 * actually send it, or the requester
-					 * never hears back
-					 */
-					lws_callback_on_writable(wsi);
-					break;
+					return cds_stub_reply_nothing(pss);
 				}
 			}
 

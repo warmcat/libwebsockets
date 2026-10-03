@@ -27,7 +27,9 @@ mTLS says only that *some* certificate the vhost's CA chain accepts was presente
 <pki-root>/domains/<domain>/dist-client/distribution-client-<subdomain>.crt
 ```
 
-as a regular file.  If it is not there the request is refused and the stub connection is dropped: the check fails closed.  Provisioning a distribution client therefore means placing its issued certificate at that path as well as issuing it.
+as a regular file.  If it is not there the request is refused: the check fails closed.  Provisioning a distribution client therefore means placing its issued certificate at that path as well as issuing it.
+
+A refusal, like a domain whose cert or key is not there yet, is answered with an empty pair (the same reply as an unchanged cert, which the client installs nothing for) and the stub connection stays up.  The parent sends its requests to the stub one after another on that connection and reconnects with backoff if it drops, so a refusal that dropped it would stall every request queued behind, and an authenticated but unprovisioned peer could keep that up indefinitely.  Only a request that cannot have come from the parent, with a bad secret or names that would not have passed its validation, drops the connection.
 
 If authorized, it sends the client the cert chain and key the acme client keeps current for the domain, which it renews by moving a symlink onto each new file:
 
