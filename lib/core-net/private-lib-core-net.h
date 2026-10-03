@@ -1611,7 +1611,8 @@ lws_wsi_client_nwsi_migrated(struct lws *wsi);
 struct lws *
 lws_wsi_socket_owner(struct lws *wsi);
 
-#if defined(LWS_WITH_CLIENT)
+#if defined(LWS_WITH_CLIENT) && \
+    (defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC))
 void
 lws_wsi_mux_client_idle_check(struct lws *nwsi);
 

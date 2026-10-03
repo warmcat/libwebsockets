@@ -96,12 +96,15 @@ __lws_reset_wsi(struct lws *wsi)
 		 * transaction queue leader is closing.
 		 */
 		if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 			struct lws *leader = lws_container_of(
 				lws_dll2_owner(&wsi->dll2_cli_txn_queue),
 				struct lws, dll2_cli_txn_queue_owner);
+#endif
 
 			lws_dll2_remove(&wsi->dll2_cli_txn_queue);
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 			/*
 			 * We left a mux connection's queue without ever being
 			 * a stream on it (our deadline passed, or the app
@@ -111,6 +114,7 @@ __lws_reset_wsi(struct lws *wsi)
 			 * It returns at once if it is the one closing us.
 			 */
 			lws_wsi_mux_client_idle_check(leader);
+#endif
 		}
 	}
 #endif

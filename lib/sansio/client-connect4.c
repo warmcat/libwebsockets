@@ -187,6 +187,7 @@ send_hs:
 		 */
 		lws_callback_on_writable(wsi_piggyback);
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 		/*
 		 * Queued on an established mux connection because the peer's
 		 * stream limit refused the direct join: if it has no stream
@@ -197,6 +198,7 @@ send_hs:
 		if (lws_wsi_is_mux_nwsi(wsi_piggyback) &&
 		    lws_wsi_client_nwsi_migrated(wsi_piggyback))
 			lws_wsi_mux_queue_deadline(wsi_piggyback);
+#endif
 
 		lwsl_wsi_info(wsi, "waiting to send hdrs (par state 0x%x)",
 			      lwsi_state(wsi_piggyback));
