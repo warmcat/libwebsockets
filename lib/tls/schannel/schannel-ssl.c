@@ -402,12 +402,15 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
-	int
+int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	struct lws_tls_schannel_conn *conn;
+
 	conn = lws_zalloc(sizeof(*conn), "schannel_conn_srv");
-	if (!conn) return 1;
+	if (!conn)
+		return 1;
+
 	wsi->io->tls.ssl = conn;
 
 	wsi->io->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);

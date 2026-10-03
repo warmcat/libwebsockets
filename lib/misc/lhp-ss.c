@@ -69,9 +69,11 @@ htmlss_done(lws_sorted_usec_list_t *sul)
 }
 
 static void
-lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
+lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul);
+
+static void
+htmlss_parse(htmlss_t *m)
 {
-	htmlss_t *m = lws_container_of(sul, htmlss_t, sul);
 	lws_stateful_ret_t r;
 	size_t zero = 0;
 
@@ -220,12 +222,16 @@ cache_done:
 	lws_sul_schedule(m->cx, 0, &m->rs->sul, m->lhp.ssevcb, 2);
 }
 
+static void
+lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
+{
+	htmlss_parse(lws_container_of(sul, htmlss_t, sul));
+}
+
 void
 lws_lhp_ss_html_parse_from_lhp(lhp_ctx_t *lhp)
 {
-	htmlss_t *m = lws_container_of(lhp, htmlss_t, lhp);
-
-	lws_lhp_ss_html_parse(&m->sul);
+	htmlss_parse(lws_container_of(lhp, htmlss_t, lhp));
 }
 
 /* secure streams payload interface */

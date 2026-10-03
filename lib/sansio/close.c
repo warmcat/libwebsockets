@@ -1050,7 +1050,7 @@ async_close:
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 #if defined(LWS_WITH_SERVER)
-	if (hh && hh_accepted)
+	if (hh && hh_accepted) {
 		/*
 		 * Whatever state it reached, the accepted stream goes with its
 		 * connection.  The role's close handling can't be relied on to
@@ -1061,7 +1061,9 @@ async_close:
 		 * if it did get CONNECTED.
 		 */
 		lws_ss_destroy(&hh);
-	else
+
+		return hr;
+	}
 #endif
 	if (hh && hh->ss_dangling_connected &&
 	    lws_ss_event_helper(hh, LWSSSCS_DISCONNECTED) == LWSSSSRET_DESTROY_ME)

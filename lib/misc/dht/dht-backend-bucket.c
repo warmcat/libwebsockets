@@ -388,8 +388,9 @@ dht_sa_same_host(const struct sockaddr *a, const struct sockaddr *b)
 			       &((const struct sockaddr_in *)b)->sin_addr, 4);
 
 	if (a->sa_family == AF_INET6)
-		return !memcmp(&((const struct sockaddr_in6 *)a)->sin6_addr,
-			       &((const struct sockaddr_in6 *)b)->sin6_addr, 8);
+		return !memcmp(((const struct sockaddr_in6 *)a)->sin6_addr.s6_addr,
+			       ((const struct sockaddr_in6 *)b)->sin6_addr.s6_addr,
+			       8);
 
 	return 0;
 }

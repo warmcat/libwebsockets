@@ -636,6 +636,7 @@ spew_ring_pop(lws_log_spew_ring_t *r, char *line, size_t max, int *level)
 	uint8_t hdr[SPEW_HDR];
 	size_t len;
 
+	*level = 0;
 	if (!r->lines)
 		return 0;
 

@@ -703,6 +703,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 void
 lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost)
 {
+	/* lws_tls_acme_sni_cert_create() never makes one to destroy */
 }
 #endif
 
