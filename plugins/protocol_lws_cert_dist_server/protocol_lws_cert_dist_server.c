@@ -15,14 +15,11 @@ struct vhd_cert_dist_server {
 	struct lws_dll2_owner               watches; /* struct cds_watch */
 #endif
 
-	struct lws_dll2                     list_vhd;
 	char                                vh_name[128];
 
 	char                                secret[129];
 	struct lws_stub_manager             *stub_mgr;
 };
-
-static struct lws_dll2_owner active_server_vhds;
 
 /*
  * Stub child only: what the plugin init (cert_dist_server_init()) was handed
@@ -845,21 +842,16 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		char stub_name[256];
 		lws_snprintf(stub_name, sizeof(stub_name), "certdistsrv-%s", vh_name);
 
-		struct vhd_cert_dist_server *old_vhd = NULL;
-		lws_start_foreach_dll(struct lws_dll2 *, d, active_server_vhds.head) {
-			struct vhd_cert_dist_server *v = lws_container_of(d, struct vhd_cert_dist_server, list_vhd);
-			if (!strcmp(v->vh_name, vh_name)) {
-				old_vhd = v;
-				break;
-			}
-		} lws_end_foreach_dll(d);
-
-		if (old_vhd) {
-			/* Hot-reload: Take over the stub manager from the old vhost */
-			lwsl_vhost_notice(lws_get_vhost(wsi), "%s: Hot-reloading cert-dist-server, taking over stub manager\n", __func__);
-			vhd->stub_mgr = old_vhd->stub_mgr;
-			old_vhd->stub_mgr = NULL;
-		} else {
+		/*
+		 * Each vhd spawns and owns its own stub.  A same-named vhost
+		 * created while an earlier one is still winding down must not
+		 * take over the old one's manager: the stub's stdio wsi are
+		 * bound to the old vhost, so its dieback is already killing
+		 * that child, and the library destroys the manager with the
+		 * vhost it was spawned on.  The old vhd's stub goes with its
+		 * vhost at PROTOCOL_DESTROY.
+		 */
+		{
 			struct lws_stub_config sc;
 			memset(&sc, 0, sizeof(sc));
 			sc.cx = vhd->cx;
@@ -883,8 +875,6 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 		}
 
-		lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
-
 #if defined(LWS_WITH_DIR)
 		{
 			/*
@@ -903,7 +893,6 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
-			lws_dll2_remove(&vhd->list_vhd);
 #if defined(LWS_WITH_DIR)
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					lws_dll2_get_head(&vhd->watches)) {

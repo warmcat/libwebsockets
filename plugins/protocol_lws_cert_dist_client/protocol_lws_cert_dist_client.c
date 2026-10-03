@@ -9,10 +9,7 @@
 #define O_NOFOLLOW 0
 #endif
 
-static struct lws_dll2_owner active_client_vhds;
-
 struct vhd_cert_dist_client {
-	struct lws_dll2                 list_vhd;
 	char                            vh_name[128];
 	struct lws_context              *cx;
 	struct lws_vhost                *vh;
@@ -1284,21 +1281,16 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_vhost_notice(lws_get_vhost(wsi), "%s: Protocol init. euid=%d\n", __func__, (int)getuid());
 
-		struct vhd_cert_dist_client *old_vhd = NULL;
-		lws_start_foreach_dll(struct lws_dll2 *, d, active_client_vhds.head) {
-			struct vhd_cert_dist_client *v = lws_container_of(d, struct vhd_cert_dist_client, list_vhd);
-			if (!strcmp(v->vh_name, vh_name)) {
-				old_vhd = v;
-				break;
-			}
-		} lws_end_foreach_dll(d);
-
-		if (old_vhd) {
-			/* Hot-reload: Take over the stub manager from the old vhost */
-			lwsl_vhost_notice(lws_get_vhost(wsi), "%s: Hot-reloading cert-dist-client, taking over stub manager\n", __func__);
-			vhd->stub_mgr = old_vhd->stub_mgr;
-			old_vhd->stub_mgr = NULL;
-		} else if (certs_pvo) {
+		/*
+		 * Each vhd spawns and owns its own stub.  A same-named vhost
+		 * created while an earlier one is still winding down must not
+		 * take over the old one's manager: the stub's stdio wsi are
+		 * bound to the old vhost, so its dieback is already killing
+		 * that child, and the library destroys the manager with the
+		 * vhost it was spawned on.  The old vhd's stub goes with its
+		 * vhost at PROTOCOL_DESTROY.
+		 */
+		if (certs_pvo) {
 			/* Unlink any stale UDS socket BEFORE spawning the stub */
 			unlink(uds_path);
 
@@ -1334,8 +1326,6 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!vhd->stub_mgr)
 				return -1;
 		}
-
-		lws_dll2_add_tail(&vhd->list_vhd, &active_client_vhds);
 
 		/* Start connections for each cert */
 		while (certs_pvo) {
@@ -1476,8 +1466,6 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
-
-		lws_dll2_remove(&vhd->list_vhd);
 
 		/*
 		 * Drop any hash request still pointing at a conn before the
