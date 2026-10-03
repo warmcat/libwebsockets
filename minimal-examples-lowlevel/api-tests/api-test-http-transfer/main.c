@@ -56,6 +56,11 @@
  * that did not ask to pipeline still says "connection: close", and a
  * multipart POST sent again after a 307 starts again at its first boundary.
  *
+ * A client connection kept warm is joined by the next request to the same
+ * place, unless its own request said "connection: close": a pipelining
+ * request made as that one completes, before the client has heard the
+ * server close it, must open its own connection.
+ *
  * A redirect may not take the client into the unix socket namespace: only
  * the app can name a unix socket ("+path") to connect to.  The server
  * redirects to its own unix socket vhost, which would answer the request;
@@ -163,7 +168,11 @@ struct xcase {
 	int		reuse;		/* 1: the second request goes 150ms after
 					 * the first completed, on the kept-warm
 					 * connection; 2: it goes 1500ms later,
-					 * after the connection idled out (1s) */
+					 * after the connection idled out (1s);
+					 * 3: the first does not pipeline, and
+					 * the second goes from the first's
+					 * completion, and must not ride the
+					 * connection the first said to close */
 	int		raw;		/* 1: a raw client does an Upgrade: h2c
 					 * and reads stream 1's response as h2
 					 * frames; 2: a raw client sends two h1
@@ -364,6 +373,17 @@ static const struct xcase cases[] = {
 	 */
 	{ "h1 GET, then a second GET after the kept-warm connection expired",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 1, 200, 0, XG_NONE, 0, 0, 2, 0, 0 },
+	/*
+	 * A first request that did not ask to pipeline says "connection:
+	 * close", and the server closes its connection after answering it.
+	 * A second request that may pipeline, to the same place, made as the
+	 * first completes (before the client can have heard the close), must
+	 * open its own connection: queued on the first's, it is sent on a
+	 * connection already closing, and never answered.
+	 */
+	{ "h1 GET saying connection: close, then a pipelining GET made as it "
+	  "completes",
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 1, 200, 0, XG_NONE, 0, 0, 3, 0, 0 },
 #if defined(LWS_WITH_HTTP2)
 	{ "h2 GET, then a second GET joining the kept-warm connection",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 1, 200, 0, XG_NONE, 0, 0, 1, 0, 0 },
@@ -1573,7 +1593,12 @@ case_evaluate(void)
 		goto next;
 	}
 
-	if (c->reuse) {
+	/*
+	 * Not reuse 3: its second request may ride a connection kept warm
+	 * from the previous case, if not the first's, so what it needs is to
+	 * have been answered (the pipelined request count below)
+	 */
+	if (c->reuse && c->reuse != 3) {
 		/*
 		 * The second request rides the kept-warm connection when it
 		 * comes within the keep-warm time, and opens a fresh one when
@@ -1599,9 +1624,10 @@ case_evaluate(void)
 			case_finish(0, "pipelined request count");
 			goto next;
 		}
-		/* not for the keep-warm expiry cases: their two requests
-		 * are expected to use two connections when run alone */
-		if (c->reuse != 2 && srv.conns > 1) {
+		/* not for the keep-warm expiry cases, nor the one whose first
+		 * request says connection: close: their two requests are
+		 * expected to use two connections when run alone */
+		if (c->reuse < 2 && srv.conns > 1) {
 			lwsl_err("pipelined requests used %d connections\n",
 				 srv.conns);
 			case_finish(0, "pipelined requests did not share a connection");
@@ -1863,7 +1889,16 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			 * a reuse case's second request goes now the first is
 			 * done, after the connection has had time to idle
 			 */
-			if (cases[cur].reuse && cn == conns[0] && !conns[1]) {
+			if (cases[cur].reuse == 3 && cn == conns[0] &&
+			    !conns[1]) {
+				/*
+				 * now, before the first's connection can have
+				 * heard the server close it
+				 */
+				srv.conns_first = srv.conns;
+				reuse_start(NULL);
+			} else if (cases[cur].reuse && cn == conns[0] &&
+				   !conns[1]) {
 				srv.conns_first = srv.conns;
 				lws_sul_schedule(context, 0, &sul_reuse,
 						 reuse_start,
@@ -2016,7 +2051,8 @@ conn_start(const struct xcase *c)
 		i.method = "RAW";
 		i.local_protocol_name = "http-xfer-raw-h1";
 	}
-	if (c->pipeline)
+	/* reuse 3: the first request does not ask to pipeline */
+	if (c->pipeline && (c->reuse != 3 || conns[0]))
 		i.ssl_connection |= LCCSCF_PIPELINE;
 	if (c->req == XR_MULTIPART)
 		i.ssl_connection |= LCCSCF_HTTP_MULTIPART_MIME;

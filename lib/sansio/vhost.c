@@ -694,6 +694,19 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 				goto solo;
 			}
 
+			/*
+			 * ...or its own request said "connection: close" (it
+			 * did not ask to pipeline): the server closes it after
+			 * that transaction.  Queued on it, we would be sent on
+			 * a connection already closing, before its kept-warm
+			 * wait has heard the close.  Another to the same place
+			 * may still do.
+			 */
+			if (lwsi_role_h1(w) && !w->client_pipeline) {
+				lwsl_wsi_info(w, "said connection: close");
+				continue;
+			}
+
 #if defined(LWS_WITH_HTTP2)
 			/*
 			 * h2: if in usable state already: just use it without
