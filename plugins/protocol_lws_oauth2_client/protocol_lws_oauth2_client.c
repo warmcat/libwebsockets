@@ -1301,7 +1301,17 @@ rand_fail:
 			i.pwsi			= &ps->wsi_client;
 			i.userdata		= ps;
 
+			/*
+			 * The connect stashes the strings it needs from puri
+			 * during the call, so puri is done with as soon as it
+			 * returns, on either outcome.  The failure branch used
+			 * to return before the one destroy after it and leaked
+			 * the parsed URL per synchronous connect failure (fd
+			 * exhaustion, no client TLS context), which is exactly
+			 * when the vhost is already under pressure (C-791).
+			 */
 			if (!lws_client_connect_via_info(&i)) {
+				lws_parse_uri_destroy(&puri);
 				/*
 				 * The async /api/token client connection could
 				 * not even be created: no client wsi exists, so no
