@@ -46,6 +46,11 @@ to `node1.example.com`.
  - when the renewal completes, the new `-latest` pair (not the `-previous`
    one, nor a leaf-only cert) is pushed down the link that is already up and
    `node1` installs it
+ - a further "renewal" whose fullchain is not plain PEM (it carries a double
+   quote, which would end the string it travels in inside the request to the
+   client's privileged stub, followed by a second `"subdomain"` naming a
+   sibling install dir) is refused: `node1` keeps the pair it has and nothing
+   appears under the other name
  - `node2`, trusted for mTLS but not provisioned, gets nothing
  - `node3`, presenting a cert `ca.crt` did not sign, fails the handshake and
    gets nothing

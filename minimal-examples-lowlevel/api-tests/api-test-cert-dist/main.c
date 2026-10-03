@@ -92,22 +92,40 @@ static const struct lws_switches switches[] = {
  * What the server distributes for example.com, before and after a renewal:
  * real cert + key pairs, since the server only sends a key that belongs to
  * its cert.  They are just certs we have to hand, read from --certs.
+ *
+ * The third "renewal" is the second pair with a line that is not PEM on the
+ * end of its fullchain (see ver_junk below): the server's copy of a cert is
+ * no more trustworthy than the server, and the client must not install it.
  */
 
-static const char * const ver_cert_file[] = {
-	"localhost-100y.cert", "node2.crt"
+#define VERSIONS 3
+
+static const char * const ver_cert_file[VERSIONS] = {
+	"localhost-100y.cert", "node2.crt", "node1.crt"
 };
-static const char * const ver_key_file[] = {
-	"localhost-100y.key", "node2.key"
+static const char * const ver_key_file[VERSIONS] = {
+	"localhost-100y.key", "node2.key", "node1.key"
 };
 /* the timestamps the acme client names each renewal's files with */
-static const char * const ver_stem[] = {
-	"20260101-000000", "20260601-000000"
+static const char * const ver_stem[VERSIONS] = {
+	"20260101-000000", "20260601-000000", "20261101-000000"
 };
+
+/*
+ * A PEM body never contains a double quote.  One that does would, if the
+ * client passed it on as it stands, end the string it is carried in inside
+ * the request to the client's privileged stub, and what follows would be
+ * taken as further members of that request: here, a second "subdomain"
+ * naming a sibling of the cert's own install dir.  The client has to refuse
+ * the body, and whatever happens nothing may appear under that name.
+ */
+#define VER_JUNK_NAME "victim"
+static const char * const ver_junk =
+		"\",\"subdomain\":\"" VER_JUNK_NAME "\",\"x\":\"\n";
 
 #define PEM_MAX 8192
 
-static char ver_cert[2][PEM_MAX], ver_key[2][PEM_MAX];
+static char ver_cert[VERSIONS][PEM_MAX], ver_key[VERSIONS][PEM_MAX];
 static const char *certs = ".";
 
 static struct lws_context *context;
@@ -253,13 +271,21 @@ load_versions(void)
 	char path[256];
 	int v, n;
 
-	for (v = 0; v < 2; v++) {
+	for (v = 0; v < VERSIONS; v++) {
 		lws_snprintf(path, sizeof(path), "%s/%s", certs,
 			     ver_cert_file[v]);
 		n = lws_plat_read_file(path, ver_cert[v], PEM_MAX - 1);
 		if (n <= 0 || n >= PEM_MAX - 1)
 			goto bail;
 		ver_cert[v][n] = '\0';
+
+		if (v == VERSIONS - 1) {
+			/* the last version's fullchain is not plain PEM */
+			if ((size_t)n + strlen(ver_junk) >= PEM_MAX)
+				goto bail;
+			lws_strncpy(ver_cert[v] + n, ver_junk,
+				    PEM_MAX - (size_t)n);
+		}
 
 		lws_snprintf(path, sizeof(path), "%s/%s", certs,
 			     ver_key_file[v]);
@@ -334,6 +360,8 @@ arm_phase_deadline(void)
 static void
 sul_check_cb(lws_sorted_usec_list_t *sul)
 {
+	char path[256];
+
 	switch (phase) {
 	case 0:
 		/* the initial distribution of version 0 */
@@ -396,6 +424,41 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 			break;
 
 		expect("node1 got the renewed cert and key", 1);
+
+		/*
+		 * The server's copy is "renewed" again, to a fullchain that
+		 * is not plain PEM, and pushed down the link the same way
+		 */
+		if (publish(2, 0, PUB_ALL)) {
+			expect("publish the junk renewal", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		hold_until = lws_now_usecs() + HOLD_US;
+		phase++;
+		arm_phase_deadline();
+		break;
+
+	case 3:
+		/*
+		 * node1 must keep the pair it has, and nothing may turn up
+		 * under the name the junk carries
+		 */
+		lws_snprintf(path, sizeof(path), "%s/install/%s", work,
+			     VER_JUNK_NAME);
+		if (exists(path) || !node1_has(1)) {
+			expect("junk renewal refused, nothing installed under "
+			       "its name", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		if (lws_now_usecs() < hold_until)
+			break;
+
+		expect("junk renewal refused, nothing installed under its name",
+		       1);
 		phase++;
 		done = 1;
 		lws_cancel_service(context);
@@ -403,8 +466,14 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	if (lws_now_usecs() > phase_deadline) {
-		expect(phase ? "node1 got the renewed cert and key" :
-			       "node1 got the cert and key over mTLS", 0);
+		static const char * const waited_for[] = {
+			"node1 got the cert and key over mTLS",
+			"half-done renewal not sent",
+			"node1 got the renewed cert and key",
+			"junk renewal refused, nothing installed under its name",
+		};
+
+		expect(waited_for[phase], 0);
 		done = 1;
 		lws_cancel_service(context);
 		return;
@@ -645,7 +714,7 @@ main(int argc, const char **argv)
 	while (n >= 0 && !done)
 		n = lws_service(context, 0);
 
-	expect("every phase ran", done && phase == 3);
+	expect("every phase ran", done && phase == 4);
 
 	/*
 	 * The refused links had as long as the whole run to get something

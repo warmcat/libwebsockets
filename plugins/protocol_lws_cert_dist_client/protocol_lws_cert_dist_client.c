@@ -107,6 +107,31 @@ cdc_payload_cb(struct lejp_ctx *ctx, char reason)
 /* the name a cert is installed under, ie, the certs[] PVO name */
 #define CERT_DIST_NAME_LEN	64
 
+/*
+ * A PEM body is armor lines and base64, so printable ASCII and line ends.
+ * In particular it never holds a double quote or a backslash, the two bytes
+ * that could change the meaning of the JSON we carry it to our privileged
+ * stub in.  The server's copy of a cert is no more trustworthy than the
+ * server: anything else in a body is not something we are going to install.
+ */
+
+static int
+cert_dist_pem_plausible(const char *s, size_t len)
+{
+	while (len--) {
+		unsigned char c = (unsigned char)*s++;
+
+		if (c == '"' || c == '\\')
+			return 0;
+		if (c < 0x20 && c != '\n' && c != '\r' && c != '\t')
+			return 0;
+		if (c > 0x7e)
+			return 0;
+	}
+
+	return 1;
+}
+
 struct pss_cert_dist_client {
 	lws_sorted_usec_list_t          sul;
 	struct lws                      *wsi;
@@ -468,6 +493,25 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 			/* We successfully checked, keep connection open */
                         break;
 		}
+		if (!cert_dist_pem_plausible(pss->cert, (size_t)pss->cert_len) ||
+		    !cert_dist_pem_plausible(pss->key, (size_t)pss->key_len)) {
+			/*
+			 * Not PEM: not something we hand to our stub, and
+			 * like the oversize case, not a server we go on
+			 * listening to
+			 */
+			lwsl_err("%s: server sent a cert or key that is not "
+				 "PEM, dropping\n", __func__);
+			free(pss->cert);
+			pss->cert = NULL;
+			pss->cert_len = 0;
+			lws_explicit_bzero(pss->key, (size_t)pss->key_len);
+			free(pss->key);
+			pss->key = NULL;
+			pss->key_len = 0;
+
+			return 1;
+		}
 		lwsl_info("%s: New certificate received, scheduling update\n", __func__);
 		lws_callback_on_writable(pss->wsi);
 		break;
@@ -509,12 +553,32 @@ struct stub_req_args {
 	int                         response_len;
 	int                         response_pos;
 	struct lws                  *wsi;
+	uint8_t                     seen; /* bit per stub_req_paths member */
 };
 
 static signed char
 stub_req_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct stub_req_args *a = (struct stub_req_args *)ctx->user;
+
+	/*
+	 * Each member we act on may appear once in a request.  A repeat
+	 * would otherwise quietly replace, or extend, what the first one
+	 * set, so anything that managed to end a string early in the parent
+	 * could choose where we write as root.  Refuse the whole request.
+	 */
+	if (ctx->path_match &&
+	    (reason == LEJPCB_VAL_STR_START || reason == LEJPCB_VAL_TRUE)) {
+		uint8_t bit = (uint8_t)(1 << (ctx->path_match - 1));
+
+		if (a->seen & bit) {
+			lwsl_err("%s: repeated '%s' in request\n", __func__,
+				 stub_req_paths[ctx->path_match - 1]);
+
+			return 1;
+		}
+		a->seen = (uint8_t)(a->seen | bit);
+	}
 
 	/* "get_hash":true is a JSON bool, not a string */
 	if (reason == LEJPCB_VAL_TRUE && ctx->path_match - 1 == STUB_GET_HASH)
@@ -780,6 +844,7 @@ cdc_stub_req_release(struct stub_req_args *a)
 	a->pk_len	= 0;
 	a->response	= NULL;
 	a->get_hash	= 0;
+	a->seen		= 0;
 	a->subdomain[0]	= '\0';
 }
 
@@ -989,12 +1054,18 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				sec = lws_stub_get_secret(vhd->stub_mgr);
 
 				/*
-				 * Escaping expands by at most 2x, and both
-				 * PEMs are capped at CERT_DIST_MAX_PEM, so
-				 * this cannot overflow size_t
+				 * The bodies passed cert_dist_pem_plausible()
+				 * when they arrived, so only their line ends
+				 * need escaping; but they are the server's
+				 * bytes going into JSON that selects what our
+				 * root stub writes, so they go through the
+				 * library escaper regardless, into a buffer
+				 * sized by what it will emit.  Both are capped
+				 * at CERT_DIST_MAX_PEM, so this cannot
+				 * overflow.
 				 */
-				est_len = ((size_t)pss->cert_len * 2) +
-					  ((size_t)pss->key_len * 2) +
+				est_len = (size_t)lws_json_purify_len(pss->cert) +
+					  (size_t)lws_json_purify_len(pss->key) +
 					  strlen(conn->name) +
 					  (sec ? strlen(sec) : 0) + 128;
 				pss->uds_tx = malloc(est_len + LWS_PRE);
@@ -1007,33 +1078,18 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					sec ? sec : "", conn->name);
 
 				char *p = pss->uds_tx + LWS_PRE + pss->uds_tx_len;
-				char *src = pss->cert;
-				while (*src) {
-					if (*src == '\n') {
-						*p++ = '\\';
-						*p++ = 'n';
-					} else
-						if (*src != '\r')
-							*p++ = *src;
-					src++;
-				}
 
-				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
+				lws_json_purify(p, pss->cert,
+						(int)(est_len - (size_t)pss->uds_tx_len),
+						NULL);
+				pss->uds_tx_len += (int)strlen(p);
 				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, est_len - (size_t)pss->uds_tx_len, "\",\"privkey\":\"");
 
 				p = pss->uds_tx + LWS_PRE + pss->uds_tx_len;
-				src = pss->key;
-				while (*src) {
-					if (*src == '\n') {
-						*p++ = '\\';
-						*p++ = 'n';
-					} else
-						if (*src != '\r')
-							*p++ = *src;
-					src++;
-				}
-
-				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
+				lws_json_purify(p, pss->key,
+						(int)(est_len - (size_t)pss->uds_tx_len),
+						NULL);
+				pss->uds_tx_len += (int)strlen(p);
 				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, est_len - (size_t)pss->uds_tx_len, "\"}\n");
 
 				lwsl_notice("%s: JSON payload built, pushing to UDS stub for %s\n", __func__, conn->name);

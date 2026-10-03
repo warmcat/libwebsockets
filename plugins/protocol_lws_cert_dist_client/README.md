@@ -32,7 +32,7 @@ Each `certs` entry is installed under `<base-dir>/<name>/`, where `name` is the 
 
 Entry names must be plain names (`[A-Za-z0-9._-]`, no leading `.` or `-`, no `..`); an entry with an unusable name is skipped at init.  The stub enforces the same rule again before it touches the filesystem, refuses to write into a `<base-dir>/<name>` directory it does not own or that is group- or world-writable, and creates the timestamped cert and key files with `O_EXCL | O_NOFOLLOW` before swapping the `fullchain.pem` / `privkey.pem` symlinks over them atomically.
 
-A `fullchain` or `privkey` larger than 256KB is refused and the connection to the distribution server is dropped.
+A `fullchain` or `privkey` larger than 256KB, or containing anything a PEM never does (a double quote, a backslash, a control character other than a line end, or a byte outside ASCII), is refused and the connection to the distribution server is dropped.  The bodies are JSON-escaped on their way to the stub regardless, and the stub refuses a request in which any member appears twice, so a body cannot smuggle in a second `subdomain` and have itself installed under a different name.
 
 ### Example `lwsws` Configuration
 
