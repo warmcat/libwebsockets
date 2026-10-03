@@ -236,7 +236,11 @@ publish(int v, size_t from, size_t to)
 			lwsl_err("%s: unable to write %s\n", __func__, path);
 			return 1;
 		}
-		lws_dir_symlink_rotate(link, target, "-latest", "-previous");
+		if (lws_dir_symlink_rotate(link, target, "-latest",
+					   "-previous")) {
+			lwsl_err("%s: unable to link %s\n", __func__, link);
+			return 1;
+		}
 	}
 
 	return 0;
