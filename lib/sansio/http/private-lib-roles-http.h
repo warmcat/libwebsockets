@@ -493,6 +493,13 @@ struct _lws_http_mode_related {
 	 * the final one followed by the last-chunk, because the app framed it
 	 * with neither a Content-Length nor a Transfer-Encoding
 	 * (lws_generate_client_handshake()).  Decided per request. */
+	unsigned int tx_head_ended:1;
+	unsigned int tx_head_crlf:2;
+	/**< h1 server: the answer's head has been written out to its blank
+	 * line, and how much of the "\r\n\r\n" ending it the bytes written
+	 * so far end with, across writes, so what is written after it can be
+	 * counted against its Content-Length whatever kind of write carried
+	 * it.  Per transaction. */
 	unsigned int sent_response_headers:1;
 	/**< set once we have written response headers on this transaction, so
 	 * we can distinguish "stream closed during request" from "stream closed

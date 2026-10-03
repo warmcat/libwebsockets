@@ -60,8 +60,11 @@
  *
  * And an h1 POST answered with a file the app abandons, by completing the
  * transaction from its timer, while a read of the file is out on a worker:
- * the body is discarded as it comes, and the connection goes on to the next
- * request.  And one answered and completed before its body, which then comes
+ * the answer is short of its Content-Length, and the connection is closed,
+ * as it is for an answer the app completes short of it itself, though not
+ * for a HEAD.  On an h2 stream the same abandoned file leaves the connection
+ * alone: its body is discarded, and the stream ends.  And an h1 POST
+ * answered and completed before its body, which then comes
  * slowly: the body being discarded has its own timeout, renewed as it comes,
  * not the watchdog of the answer that has already gone.
  *
@@ -830,6 +833,23 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 		}
 #endif
+		if (in && !strcmp((const char *)in, "/short")) {
+			/* says 10 bytes, sends 3 (none to a HEAD), completes */
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain", 10, &p, end) ||
+			    lws_finalize_write_http_header(wsi, buf + LWS_PRE,
+							   &p, end))
+				return 1;
+			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI)) {
+				p = buf + LWS_PRE;
+				memcpy(p, "abc", 3);
+				if (lws_write(wsi, p, 3, LWS_WRITE_HTTP_FINAL) != 3)
+					return 1;
+			}
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
 		if (in && !strcmp((const char *)in, "/in-body")) {
 			/* answered from the body's first piece, see below */
 			pss->in_body = 1;
@@ -1603,7 +1623,6 @@ ws_server_peer_close_half(struct lws_context *cx)
 	return 0;
 }
 
-#if defined(LWS_WITH_FILE_OPS) || defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 /*
  * An h1 server connection as a series of requests, each answered with the
  * status (the first 13 bytes of the response) and, if has is set, carrying
@@ -1684,6 +1703,31 @@ h1_post_no_length_half(struct lws_context *cx, struct lws_vhost *vh)
 	return 0;
 }
 
+/*
+ * 39: an answer whose head gives a Content-Length of 10, completed by the
+ * app after only 3 bytes of it: kept alive, the peer would read the next
+ * answer as the rest of this one, so the connection is closed.  The same
+ * answer to a HEAD is whole without its body, and the connection goes on.
+ */
+static int
+h1_short_answer_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const struct h1_step st[] = {
+		{ "HEAD /short HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", "content-length: 10\x0d\x0a", 0 },
+		{ "GET /short HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", "\x0d\x0a\x0d\x0a" "abc", 1 },
+	};
+
+	if (h1_steps(cx, vh, "h1-short-answer", "case 39", st,
+		     LWS_ARRAY_SIZE(st)))
+		return 1;
+	lwsl_user("case 39: an h1 answer completed short of its "
+		  "Content-Length ends the connection: PASS\n");
+
+	return 0;
+}
+
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 /*
  * 23: a CONNECT from a user agent the context rejects is refused with the
@@ -1707,7 +1751,6 @@ h1_connect_rejected_ua_half(struct lws_context *cx, struct lws_vhost *vh)
 
 	return 0;
 }
-#endif
 #endif
 
 #if defined(LWS_WITH_FILE_OPS)
@@ -2837,12 +2880,15 @@ h2_answer_in_body_half(struct lws_context *cx, struct lws_vhost *vh,
 /*
  * 35: the app answering an h1 POST with a file, the body still to come,
  * abandons the file from its timer by completing the transaction, while a
- * read of the file is out on a worker.  The completion reaps the read, and
- * the body, unread, is discarded: the connection is not left waiting on a
- * read that is gone.  The answer is short of the length its headers gave,
- * which is the app's doing, but the connection goes on: the body is
- * discarded as it comes, and the request after it is served.  The worker's
- * timing is not part of a transcript, so this case has none.
+ * read of the file is out on a worker.  The completion reaps the read, but
+ * the answer is short of the Content-Length its head gave: kept alive, the
+ * peer would read whatever came next as the rest of it, so the connection
+ * is closed.  The worker's timing is not part of a transcript, so this case
+ * has none.
+ *
+ * 38: the same on an h2 stream, where the stream's end ends the answer,
+ * whatever it was: the connection lives on, the body arriving is
+ * discarded, and the stream ends.
  */
 #if defined(LWS_WITH_FILE_OPS) && defined(LWS_WITH_ASYNC_QUEUE)
 static int
@@ -2852,9 +2898,6 @@ h1_file_abandoned_half(struct lws_context *cx, struct lws_vhost *vh,
 	static const char req[] =
 		"POST /abandon HTTP/1.1\r\nHost: sansio-uri\r\n"
 		"Content-Length: 6\r\n\r\n";
-	static const char rest[] =
-		"abcdef"
-		"GET /next?c=3 HTTP/1.1\r\nHost: sansio-uri\r\n\r\n";
 	static struct transport tp;
 	struct lws *wsi;
 	int sv[2];
@@ -2887,27 +2930,107 @@ h1_file_abandoned_half(struct lws_context *cx, struct lws_vhost *vh,
 	/* the app's timer: it completes the transaction from under the read */
 	at(cx, start_ms + 10);
 	workers_held = 0;
-	if (tp.closed || lws_service_work_outstanding(cx)) {
-		lwsl_err("case 35: closed %d, the read still out %d\n",
-			 tp.closed, lws_service_work_outstanding(cx));
+	if (!(tp.closed || tp.shutdown) || lws_service_work_outstanding(cx) ||
+	    uri_late_writeable) {
+		lwsl_err("case 35: ended %d, the read still out %d, late wr %d\n",
+			 tp.closed || tp.shutdown,
+			 lws_service_work_outstanding(cx), uri_late_writeable);
+		return 1;
+	}
+	lwsl_user("case 35: an h1 file abandoned with a read out ends the "
+		  "connection: PASS\n");
+
+	return 0;
+}
+
+#if defined(LWS_WITH_HTTP2)
+static int
+h2_file_abandoned_half(struct lws_context *cx, struct lws_vhost *vh,
+		       int start_ms)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1, END_STREAM: the 3 byte body */
+	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
+				   "abc";
+	static const char ping[] = "\x00\x00\x08\x06\x00\x00\x00\x00\x00"
+				   "12345678";
+	static uint8_t blk[128], fr[256];
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+	uint8_t *p;
+	size_t n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* POST /abandon, content-length 3, the body to follow */
+	p = blk;
+	*p++ = 0x83; /* :method POST */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/abandon", 8, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+	p = hp_str(p, "3", 1, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+
+	/* the file's HEADERS go, and its first read is handed to a worker */
+	workers_held = 1;
+	feed(cx, &tp, fr, n);
+	if (!lws_service_work_outstanding(cx)) {
+		lwsl_err("case 38: no read out\n");
+		workers_held = 0;
 		return 1;
 	}
 
-	/* the body, discarded, then the next request, answered */
-	if (feed(cx, &tp, rest, sizeof(rest) - 1) ||
-	    !find_bytes(tp.tx, tp.tx_len, "/next\nc=3") || tp.closed ||
-	    uri_late_writeable) {
-		lwsl_err("case 35: rest not taken, or next request not "
-			 "served: closed %d, late wr %d\n", tp.closed,
+	/* the app's timer: it completes the transaction from under the read */
+	at(cx, start_ms + 10);
+	workers_held = 0;
+	if (tp.closed || tp.shutdown || lws_service_work_outstanding(cx)) {
+		lwsl_err("case 38: ended %d, the read still out %d\n",
+			 tp.closed || tp.shutdown,
+			 lws_service_work_outstanding(cx));
+		return 1;
+	}
+
+	/* the body, discarded; then the connection still answers a PING */
+	feed(cx, &tp, data, sizeof(data) - 1);
+	feed(cx, &tp, ping, sizeof(ping) - 1);
+	if (tp.closed || tp.shutdown || uri_closed != 1 ||
+	    uri_late_writeable || tp.tx_len < 17 || tp.tx[3] != 6 ||
+	    !(tp.tx[4] & 1)) {
+		lwsl_err("case 38: ended %d, stream closed %d, late wr %d\n",
+			 tp.closed || tp.shutdown, uri_closed,
 			 uri_late_writeable);
 		lwsl_hexdump_err(tp.tx, tp.tx_len);
 		return 1;
 	}
-	lwsl_user("case 35: a file abandoned with a read out discards the "
-		  "body and goes on: PASS\n");
+	lwsl_user("case 38: an h2 file abandoned with a read out ends its "
+		  "stream, the body discarded: PASS\n");
 
 	return 0;
 }
+#endif
 #endif
 
 /*
@@ -4028,11 +4151,19 @@ main(int argc, const char **argv)
 	at(cx, 200000);
 	if (h1_post_no_length_half(cx, vh_uri))
 		goto bail;
+	at(cx, 205000);
+	if (h1_short_answer_half(cx, vh_uri))
+		goto bail;
 
 #if defined(LWS_WITH_FILE_OPS) && defined(LWS_WITH_ASYNC_QUEUE)
 	at(cx, 210000);
 	if (h1_file_abandoned_half(cx, vh_uri, 210000))
 		goto bail;
+#if defined(LWS_WITH_HTTP2)
+	at(cx, 220000);
+	if (h2_file_abandoned_half(cx, vh_h2, 220000))
+		goto bail;
+#endif
 #endif
 
 	/* this moves the time on past the response watchdog */

@@ -140,9 +140,11 @@ HEADERS ---(request parsed)---> ESTABLISHED ---> DOING_TRANSACTION <------+
   goes on to `DOING_TRANSACTION`, whatever answers it.
 - `ISSUING_FILE` / `AWAITING_FILE_READ`: a file is being served, the latter
   while an async read is out on a worker.  The user may complete the
-  transaction from either: the completion reaps a read still out, and goes
-  on as from anywhere else, to `TXN_COMPLETING`, `DISCARD_BODY` or
-  `TXN_COMPLETED`.
+  transaction from either: the completion reaps a read still out.  The
+  answer is then short of its framing, and an h1 connection is closed
+  (as for any answer completed short of the `Content-Length` lws added);
+  an h2 or h3 stream goes on as from anywhere else, to `TXN_COMPLETING` or
+  `DISCARD_BODY`.
 - `TXN_COMPLETING`: the user completed the transaction while its response
   was still queued, by the transport or the compressor.  Nothing more is
   read; when the queue has gone (the role's `tx_drained`), the completion

@@ -3545,6 +3545,38 @@ lws_http_response_progress(struct lws *wsi)
 		lws_http_response_watchdog(wsi);
 }
 
+/*
+ * Whether an h1 answer is being completed short of what its head said it
+ * would be.  An h1 response has no end of its own: what the peer reads after
+ * it is the next response, framed by where this one's Content-Length says it
+ * ends.  Kept alive, a short one has the peer read the next answer as the
+ * rest of it.  lws knows two ways an answer is short: a file still being
+ * served (its sender closes it before its completion callback), or fewer
+ * bytes written than the Content-Length lws added (HEAD, 1xx, 204 and 304
+ * answers have one but no body).  An h2 or h3 stream ends with the stream,
+ * whatever the answer was, and is not asked.
+ */
+static int
+lws_h1_answer_short(struct lws *wsi)
+{
+	unsigned int code = wsi->http.response_code;
+
+	if (wsi->mux_substream || lwsi_role_client(wsi))
+		return 0;
+
+#if defined(LWS_WITH_FILE_OPS)
+	if (wsi->http.fop_fd)
+		return 1;
+#endif
+
+	if (!wsi->http.tx_content_length || !wsi->http.tx_content_remain ||
+	    wsi->http.method_head)
+		return 0;
+
+	return !(code < 200 || code == HTTP_STATUS_NO_CONTENT ||
+		 code == HTTP_STATUS_NOT_MODIFIED);
+}
+
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
@@ -3563,6 +3595,13 @@ lws_http_transaction_completed(struct lws *wsi)
 	    wsi->async_worker_job->type == LWS_AQ_FILE_READ)
 		lws_async_worker_wait_and_reap(wsi);
 #endif
+
+	if (lws_h1_answer_short(wsi)) {
+		lwsl_wsi_notice(wsi, "answer completed short of its framing, "
+				     "closing");
+
+		return 1;
+	}
 
 	/* rx parked behind a file transfer may be read again now */
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_ENABLE |
@@ -3716,6 +3755,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	lws_wsi_event(wsi, LWS_WSIEV_TXN_COMPLETED);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
+	wsi->http.tx_head_ended = 0;
+	wsi->http.tx_head_crlf = 0;
 	wsi->sending_chunked = 0;
 	/* an SSE stream the app ended: the next request needs a table */
 	wsi->http_carries_sse = 0;
@@ -3982,10 +4023,10 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 		_lws_return_http_status(wsi,
 				HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE, NULL,
 				WSI_TOKEN_HTTP_CONTENT_RANGE, cache_control);
+		/* the file is no part of the answer: closed first */
+		lws_vfs_file_close(&wsi->http.fop_fd);
 		if (lws_http_transaction_completed(wsi))
 			goto bail; /* <0 means just hang up */
-
-		lws_vfs_file_close(&wsi->http.fop_fd);
 
 		return 0; /* == 0 means we did the transaction complete */
 	}

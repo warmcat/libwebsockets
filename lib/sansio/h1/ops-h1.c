@@ -1095,6 +1095,38 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 	return LWS_HP_RET_USER_SERVICE;
 }
 
+/*
+ * A server's answer is counted against the Content-Length lws added to its
+ * head, so the completion can tell an answer abandoned short of it.  What is
+ * counted is what follows the head's blank line, however it was written: an
+ * h1 head and its body may go in one write, of either kind
+ * (lws_return_http_status() does).  It is counted as the app gives it to us,
+ * before any compression, as the app's Content-Length is.  More than the
+ * Content-Length is the app's overrun: the count stops at zero.
+ */
+static void
+lws_h1_count_answer(struct lws *wsi, const unsigned char *buf, size_t len)
+{
+	static const char blank_line[] = "\r\n\r\n";
+
+	while (len && !wsi->http.tx_head_ended) {
+		/* tx_head_crlf: how much of blank_line the head ends with */
+		if (*buf == blank_line[wsi->http.tx_head_crlf]) {
+			if (wsi->http.tx_head_crlf == 3)
+				wsi->http.tx_head_ended = 1;
+			else
+				wsi->http.tx_head_crlf++;
+		} else
+			wsi->http.tx_head_crlf = *buf == '\r';
+		buf++;
+		len--;
+	}
+
+	if (wsi->http.tx_head_ended)
+		wsi->http.tx_content_remain -= len < wsi->http.tx_content_remain ?
+				(lws_filepos_t)len : wsi->http.tx_content_remain;
+}
+
 static int
 rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
@@ -1112,6 +1144,9 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 	unsigned char mtubuf[1500 + LWS_PRE + LWS_HTTP_CHUNK_HDR_MAX_SIZE +
 			     LWS_HTTP_CHUNK_TRL_MAX_SIZE];
 #endif
+
+	if (!lwsi_role_client(wsi) && wsi->http.tx_content_length)
+		lws_h1_count_answer(wsi, buf, len);
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	if (wsi->http.lcs && (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
