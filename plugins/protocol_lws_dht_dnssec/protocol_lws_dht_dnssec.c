@@ -1126,9 +1126,25 @@ ds_test_done:
 	free(temp);
 	free(jws_buf);
 
+	/*
+	 * A failed signature does not strike frag->from_sa.  That is the
+	 * source address of the datagram that opened the reassembly (or
+	 * answered our GET), copied straight off the wire: nothing on the
+	 * PUT or RSP path has shown that the host at that address sent, or
+	 * can even receive, anything.  The sequencer's "proven" bit is no
+	 * help either, since a sequencer for an address already in our
+	 * routing table is born proven, and those are exactly the peers a
+	 * forged source would name.  Five strikes blacklist the address in
+	 * the DHT core for an hour, so striking here let anyone off-path
+	 * evict any honest peer, or the bootstrap seed, with five spoofed
+	 * datagrams naming a real DNSSEC zone (the same consequence C-156
+	 * closed on the NOTIFY path, where the NOTC cookie round trip
+	 * supplies the proof there is none of here).  The NOTIFY fetch path
+	 * likewise skips the strike when the fetched zone fails validation
+	 * and strikes only for a timeout from a cookie-verified notifier.
+	 */
 	if (!valid) {
 		lwsl_notice("%s: Cryptographic verification of JWS failed for domain %s\n", __func__, frag->domain);
-		add_peer_strike(frag->vhd, (const lws_sockaddr46 *)&frag->from_sa);
 		goto drop;
 	}
 
@@ -1233,8 +1249,14 @@ ds_test_done:
 
 		if (da.is_outdated) {
 			if (da.is_outdated == 1) {
-				lwsl_notice("%s: Dropping imported zone %s (serial %llu is a malicious replay!)\n", __func__, frag->domain, (unsigned long long)serial);
-				add_peer_strike(frag->vhd, (const lws_sockaddr46 *)&frag->from_sa);
+				/*
+				 * A validly signed but older serial is not struck
+				 * either: the source is as unproven as above, and
+				 * a genuine old copy of the zone is public, so
+				 * replaying one under a forged source would cost
+				 * nothing
+				 */
+				lwsl_notice("%s: Dropping imported zone %s (serial %llu is a replay)\n", __func__, frag->domain, (unsigned long long)serial);
 			} else {
 				lwsl_notice("%s: Dropping identically cached zone %s (serial %llu is already active!)\n", __func__, frag->domain, (unsigned long long)serial);
 			}
