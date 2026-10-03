@@ -241,7 +241,7 @@ fx_rx(struct fx_pss *p, const uint8_t *in, size_t len)
 
 	while (p->rxlen >= 9) {
 		size_t fl = ((size_t)p->rx[0] << 16) |
-			    ((size_t)p->rx[1] << 8) | p->rx[2];
+			    ((size_t)p->rx[1] << 8) | p->rx[2], o, rest;
 
 		if (fl > sizeof(p->rx) - 9) {
 			lwsl_err("%s: fixture: frame too big\n", __func__);
@@ -254,8 +254,16 @@ fx_rx(struct fx_pss *p, const uint8_t *in, size_t len)
 			 lws_ser_ru32be(&p->rx[5]) & 0x7fffffff,
 			 p->rx + 9, fl);
 
-		p->rxlen -= 9 + fl;
-		memmove(p->rx, p->rx + 9 + fl, p->rxlen);
+		/* what follows the frame, bounded itself before it's moved */
+		o = 9 + fl;
+		rest = p->rxlen - o;
+		if (rest > sizeof(p->rx) - o) {
+			lwsl_err("%s: fixture: rx accounting\n", __func__);
+			return -1;
+		}
+		if (rest)
+			memmove(p->rx, p->rx + o, rest);
+		p->rxlen = rest;
 	}
 
 	return 0;
