@@ -110,6 +110,18 @@
  * the session cookies must keep its complete HttpOnly / SameSite / Secure
  * tail, never a silently truncated remainder.
  *
+ * plus the C-774 unauth-protocols fence, ws upgrades against a mount the
+ * app vhost gates through lws-login (interceptor_path), with no cookie:
+ *
+ *  - the bypass must judge the subprotocol the upgrade will BIND, which is
+ *    the first offered name the vhost has a protocol for, in the client's
+ *    order (RFC 6455 4.2.2), not merely find an exempt name somewhere in the
+ *    offer.  "<privileged>, <exempt>" used to pass the bouncer on the
+ *    strength of its second name and then bind the privileged first one
+ *    with no JWT at all; it must be refused, while "<exempt>" alone and
+ *    "<exempt>, <privileged>" still reach the waiting room, and an offer
+ *    led by a name the vhost does not know binds the next one it does.
+ *
  * The app vhost runs the real lws-login plugin (builtin plugins build) with
  * lws_login_client enabled on the same vhost as the side channel requires,
  * against an in-process mock auth server.  Ports come from the CI port
@@ -155,7 +167,17 @@ struct scenario {
 	int		poke;		/* 1 = while the mock holds the exchange
 					 * open, send the parked browser leg
 					 * an unsolicited WRITEABLE */
+	const char	*ws_offer;	/* non-NULL = a ws upgrade offering this
+					 * Sec-WebSocket-Protocol list instead
+					 * of an http request */
+	const char	*ws_bind;	/* ws_offer: the server protocol that
+					 * must end up bound, NULL = the upgrade
+					 * must be refused and nothing bound */
 };
+
+/* the two ws protocols on the gated mount: only the second is exempt */
+#define BFF_WS_PRIV	"lws-api-test-lws-login-bff-priv"
+#define BFF_WS_WAITING	"lws-api-test-lws-login-bff-waiting"
 
 /* minted in main() once the context and allocated ports exist */
 static char	minted_jwt[LWS_SSO_MAX_COOKIE];
@@ -175,10 +197,10 @@ static const struct scenario scenarios[] = {
 	{ "paired-jar", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
-	  "POST", 0, 0, 0, 0 },
+	  "POST", 0, 0, 0, 0, NULL, NULL },
 	{ "self-heal", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef", 200u, 1, 1, 0,
-	  "POST", 0, 0, 0, 0 },
+	  "POST", 0, 0, 0, 0, NULL, NULL },
 	/* a WRITEABLE the parked browser leg gets while the exchange is
 	 * still in flight (over h3 the quic stream gets one) must not be
 	 * taken as the exchange's end: that killed every silent renewal
@@ -187,47 +209,73 @@ static const struct scenario scenarios[] = {
 	{ "writeable-in-flight", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
-	  "POST", 0, 0, 0, 1 },
+	  "POST", 0, 0, 0, 1, NULL, NULL },
 	{ "anonymous", "/.lws-login-refresh", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
-	  "POST", 0, 0, 0, 0 },
+	  "POST", 0, 0, 0, 0, NULL, NULL },
 
 	/* F-027: an auth_session cookie holding a compact JWT whose JOSE
 	 * header has no "alg" member must be cleanly rejected by the
 	 * per-request session gate, not kill the server process */
 	{ "alg-less-session-jwt", "/", NULL, NULL, NULL,
 	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0,
-	  "GET", 0, 0, 0, 0 },
+	  "GET", 0, 0, 0, 0, NULL, NULL },
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
 	 * exercise the origin/referer gate and nothing else */
 	{ "sso-nohdrs", "/.lws-login-sso", sso_body, NULL, NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0, 0, 0 },
+	  403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL },
 	{ "sso-origin-null", "/.lws-login-sso", sso_body, "null", NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0, 0, 0 },
+	  403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL },
 	{ "sso-origin-good", "/.lws-login-sso", sso_body, o_origin_good, NULL,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0, NULL, NULL },
 	{ "sso-origin-evil", "/.lws-login-sso", sso_body, o_origin_evil, NULL,
-	  NULL, 403u, 0, 0, -1, "POST", 0, 0, 0, 0 },
+	  NULL, 403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL },
 	{ "sso-referer-good", "/.lws-login-sso", sso_body, NULL, o_referer_good,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0, NULL, NULL },
 
 	/* F-021: the widget JS served to (admin) pages must HTML-escape every
 	 * dynamic string at its innerHTML render boundary */
 	{ "widget-js-fence", "/lws-login.js", NULL, NULL, NULL, NULL, 200u, 0, 0,
-	  0, "GET", 1, 0, 0, 0 },
+	  0, "GET", 1, 0, 0, 0, NULL, NULL },
 
 	/* the widget CSS served to pages must assert a complete, self-contained
 	 * colour scheme (see the css fence in step_advance) */
 	{ "widget-css-fence", "/lws-login.css", NULL, NULL, NULL, NULL, 200u, 0,
-	  0, 0, "GET", 0, 1, 0, 0 },
+	  0, 0, "GET", 0, 1, 0, 0, NULL, NULL },
 
 	/* refusal must be immediate and legible: no exchange started against
 	 * the empty host the relative URL parses to (second app vhost) */
 	{ "relative-authapi", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 401u, 0, 0, 0,
-	  "POST", 0, 0, 1, 0 },
+	  "POST", 0, 0, 1, 0, NULL, NULL },
+
+	/* C-774: cookieless ws upgrades against the gated mount, where the
+	 * vhost's unauth-protocols names only the waiting-room protocol.
+	 * The server binds the first offered name it has a protocol for, so
+	 * that is the name the bypass has to be judged on */
+
+	/* the bouncer itself: a privileged offer alone is refused */
+	{ "ws-priv-only", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
+	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, NULL },
+	/* the bypass: the exempt offer alone reaches the waiting room */
+	{ "ws-waiting-only", "/gated", NULL, NULL, NULL, NULL, 101u, 0, 0, 0,
+	  NULL, 0, 0, 0, 0, BFF_WS_WAITING, BFF_WS_WAITING },
+	/* exempt name first: it is what gets bound, so it is let through */
+	{ "ws-waiting-then-priv", "/gated", NULL, NULL, NULL, NULL, 101u, 0, 0,
+	  0, NULL, 0, 0, 0, 0, BFF_WS_WAITING ", " BFF_WS_PRIV, BFF_WS_WAITING },
+	/* the finding: privileged name first rides along with the exempt one;
+	 * the bind would be the privileged protocol, so it must be refused */
+	{ "ws-priv-then-waiting", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0,
+	  0, NULL, 0, 0, 0, 0, BFF_WS_PRIV ", " BFF_WS_WAITING, NULL },
+	/* a name the vhost does not know is skipped by the selection, so the
+	 * judgement falls on the next one, exactly as the bind does */
+	{ "ws-unknown-then-waiting", "/gated", NULL, NULL, NULL, NULL, 101u, 0,
+	  0, 0, NULL, 0, 0, 0, 0, "nonesuch, " BFF_WS_WAITING, BFF_WS_WAITING },
+	{ "ws-unknown-then-priv", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0,
+	  0, NULL, 0, 0, 0, 0, "nonesuch, " BFF_WS_PRIV ", " BFF_WS_WAITING,
+	  NULL },
 };
 
 #define N_SCENARIOS  (int)LWS_ARRAY_SIZE(scenarios)
@@ -270,6 +318,14 @@ static int	tests, fail;
 static volatile sig_atomic_t sequence_done;
 static struct lws	*current_wsi;
 static int	result = 1;		/* 0 = PASS (api-test idiom) */
+
+/*
+ * C-774 ws scenarios: what the client saw, and which protocol the server
+ * actually bound (recorded by the gated protocols' own ESTABLISHED), since
+ * that, not the client's view, is the security property under test.
+ */
+static int	got_ws_established, got_ws_refused;
+static char	g_ws_bound[64];
 
 /* ------------------------------------------------------- mock auth server */
 
@@ -465,7 +521,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		unsigned char **p = (unsigned char **)in;
 		unsigned char *end = (*p) + len;
 
-		if (scenarios[step].body) {
+		if (scenarios[step].ws_offer) {
+			/* a ws upgrade carries no body-shape headers */
+		} else if (scenarios[step].body) {
 			/*
 			 * The auth server's auto-submitting SSO form: a real
 			 * urlencoded body carrying the token, sized honestly.
@@ -557,6 +615,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			    (int)lws_http_client_http_response(wsi));
 
 	got_status = lws_http_client_http_response(wsi);
+	if (scenarios[step].ws_offer) {
+		/* a ws upgrade: 101 means the handshake goes on to
+		 * CLIENT_ESTABLISHED, any other status is the refusal */
+		if (got_status == 101)
+			break;
+		got_ws_refused = 1;
+	}
 	got_sc[0] = '\0';
 	if (lws_hdr_copy(wsi, got_sc, sizeof(got_sc),
 			 WSI_TOKEN_HTTP_SET_COOKIE) < 0)
@@ -616,7 +681,35 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		step_advance();
 		break;
 
+	/* C-774 ws scenarios: the upgrade was accepted... */
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		lwsl_notice("%s: scenario '%s': ws established\n", __func__,
+			    scenarios[step].name);
+		got_ws_established = 1;
+		if (!step_done)
+			step_done = 1;
+		step_advance();
+
+		return -1; /* the handshake was all we came for */
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		if (!step_done)
+			step_done = 1;
+		step_advance();
+		break;
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (scenarios[step].ws_offer) {
+			/* ... or refused: a legitimate outcome, judged against
+			 * ws_bind in step_advance */
+			lwsl_notice("%s: scenario '%s': ws refused: %s\n",
+				    __func__, scenarios[step].name,
+				    in ? (const char *)in : "(null)");
+			got_ws_refused = 1;
+			step_done = 1;
+			step_advance();
+			break;
+		}
 		lwsl_err("%s: scenario '%s' connect error: %s\n", __func__,
 			 scenarios[step].name,
 			 in ? (const char *)in : "(null)");
@@ -631,6 +724,25 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * The two ws protocols living on the app vhost behind the gated mount: a
+ * stand-in for a privileged application protocol, and the exempt waiting
+ * room.  Neither does any auth of its own, exactly the deployment the
+ * bouncer's contract is for; they only record which one the server bound.
+ */
+static int
+callback_gated_ws(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	if (reason == LWS_CALLBACK_ESTABLISHED) {
+		lws_strncpy(g_ws_bound, lws_get_protocol(wsi)->name,
+			    sizeof(g_ws_bound));
+		lwsl_notice("%s: server bound '%s'\n", __func__, g_ws_bound);
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 /* ------------------------------------------------------------- protocols */
 
 static const struct lws_protocols
@@ -638,12 +750,14 @@ static const struct lws_protocols
 	prot_auth = { "lws-api-test-lws-login-bff-authmock", callback_authmock,
 		      sizeof(struct pss_auth), 0, 0, NULL, 0 },
 	prot_cli = { "lws-api-test-lws-login-bff-cli", callback_cli,
-		     0, 0, 0, NULL, 0 };
+		     0, 0, 0, NULL, 0 },
+	prot_priv = { BFF_WS_PRIV, callback_gated_ws, 0, 0, 0, NULL, 0 },
+	prot_waiting = { BFF_WS_WAITING, callback_gated_ws, 0, 0, 0, NULL, 0 };
 
 static const struct lws_protocols
 	*pprotocols_auth[] = { &defprot, &prot_auth, NULL },
 	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL },
-	*pprotocols_app[]  = { &defprot, NULL };
+	*pprotocols_app[]  = { &defprot, &prot_priv, &prot_waiting, NULL };
 
 static const struct lws_http_mount
 	mount_auth = {
@@ -653,11 +767,23 @@ static const struct lws_http_mount
 		.mountpoint_len		= 1,
 	},
 	/*
+	 * A mount on the app vhost that lws-login gates (its interceptor_path
+	 * is the lws-login mount below): the C-774 ws upgrades target it
+	 */
+	mount_gated = {
+		.mountpoint		= "/gated",
+		.protocol		= "defprot",
+		.origin_protocol	= LWSMPRO_CALLBACK,
+		.mountpoint_len		= 6,
+		.interceptor_path	= "/",
+	},
+	/*
 	 * Route http on the app vhost to the real lws-login plugin protocol
 	 * (present in the vhost protocol table because the build has builtin
 	 * plugins)
 	 */
 	mount_app = {
+		.mount_next		= &mount_gated,
 		.mountpoint		= "/",
 		.protocol		= "lws-login",
 		.origin_protocol	= LWSMPRO_CALLBACK,
@@ -680,6 +806,8 @@ static struct lws_protocol_vhost_options
 	 * this plugin can emit) are the ones under test
 	 */
 	pvo_cdom	= { NULL, NULL, "cookie-domain", "127.0.0.1" },
+	/* C-774: only the waiting room is exempt from the JWT on upgrades */
+	pvo_uap		= { NULL, NULL, "unauth-protocols", BFF_WS_WAITING },
 	pvo_asu		= { NULL, NULL, "auth-server-url", NULL },
 	pvo_jwk	= {
 		NULL, NULL, "jwt-jwk", jwk_json
@@ -822,6 +950,9 @@ start_step(lws_sorted_usec_list_t *sul)
 	mock_hits = 0;
 	mock_got_refresh = 0;
 	mock_pair_ok = 0;
+	got_ws_established = 0;
+	got_ws_refused = 0;
+	g_ws_bound[0] = '\0';
 
 	/* Host: header must name the app vhost this scenario targets */
 	lws_snprintf(host_hdr, sizeof(host_hdr), "127.0.0.1:%d",
@@ -844,6 +975,12 @@ start_step(lws_sorted_usec_list_t *sul)
 	/* we assert the response ourselves rather than following it */
 	i.ssl_connection	= LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 	i.protocol		= "defprot";
+	if (scenarios[step].ws_offer) {
+		/* a ws upgrade: the offer list goes out verbatim as
+		 * Sec-WebSocket-Protocol */
+		i.method	= NULL;
+		i.protocol	= scenarios[step].ws_offer;
+	}
 	i.local_protocol_name	= "lws-api-test-lws-login-bff-cli";
 	i.pwsi			= &current_wsi;
 
@@ -892,6 +1029,32 @@ step_advance(void)
 		sequence_done = 1;
 		lws_cancel_service(context);
 		return;
+	}
+
+	if (scenarios[step].ws_offer) {
+		const char *want = scenarios[step].ws_bind;
+
+		/*
+		 * C-774: what matters is what the SERVER bound.  An upgrade
+		 * that must be refused must leave nothing bound at all, and
+		 * one that is let through must have bound the exempt
+		 * protocol, never the privileged one.
+		 */
+		if (want ? (!got_ws_established || strcmp(g_ws_bound, want))
+			 : (!got_ws_refused || g_ws_bound[0])) {
+			fail++;
+			lwsl_err("%s: FAIL scenario '%s': offer '%s' "
+				 "established=%d refused=%d bound '%s', "
+				 "expected %s\n", __func__,
+				 scenarios[step].name,
+				 scenarios[step].ws_offer, got_ws_established,
+				 got_ws_refused, g_ws_bound,
+				 want ? want : "refusal");
+			result = 1;
+			sequence_done = 1;
+			lws_cancel_service(context);
+			return;
+		}
 	}
 
 	if (scenarios[step].expect_pair &&
@@ -1125,7 +1288,8 @@ int main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS API selftest: lws-login BFF refresh / csrf self-heal"
-		  " + SSO origin gate + widget JS/CSS fence\n");
+		  " + SSO origin gate + widget JS/CSS fence"
+		  " + unauth-protocols bind fence\n");
 
 	{
 		static char auth_url[128];
@@ -1136,10 +1300,12 @@ int main(int argc, const char **argv)
 	}
 
 	/* options chain for lws-login:
-	 * jwk -> auth-server-url -> cookie-domain -> db-path */
+	 * jwk -> auth-server-url -> cookie-domain -> db-path ->
+	 * unauth-protocols */
 	pvo_jwk.next	= &pvo_asu;
 	pvo_asu.next	= &pvo_cdom;
 	pvo_cdom.next	= &pvo_dbpath;
+	pvo_dbpath.next	= &pvo_uap;
 	pvo_login.options = &pvo_jwk;
 
 	/* protocol-enabling chain: lws-login (with options) then the

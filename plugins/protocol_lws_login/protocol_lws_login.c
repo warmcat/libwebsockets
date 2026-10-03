@@ -1083,6 +1083,66 @@ lws_login_name_in_list(const char *list, const char *offers)
 }
 
 /*
+ * Is the subprotocol this ws upgrade is going to BIND one of the configured
+ * unauth-protocols?
+ *
+ * The client's Sec-WebSocket-Protocol is an ordered list of offers, but only
+ * one of them gets bound: the ws role takes the first offered name the vhost
+ * has a protocol for, in the client's order (RFC 6455 4.2.2), and never looks
+ * at the rest.  So "does any offered name appear in the list" is the wrong
+ * question: an offer of "<privileged>, lws-oauth-preauth" passed the bouncer
+ * on the strength of its second name and then bound the privileged first one,
+ * with no JWT at all.  Mirror the ws role's selection (same tokenizer flags,
+ * same name length, same vhost protocol table) and judge the name it will
+ * pick, so the exemption is about what the peer will actually get.
+ *
+ * On a proxied mount the origin server does the picking against a protocol
+ * table we cannot see, so there every offered name must be exempt: then
+ * whatever the origin binds is covered.  A malformed or over-long list is
+ * refused by the ws role anyway, so it is not exempt either.
+ */
+static int
+lws_login_unauth_upgrade(struct lws *wsi, const char *list, const char *offers,
+			 int proxied)
+{
+	struct lws_vhost *vh = lws_get_vhost(wsi);
+	lws_tokenize_t ts;
+	char name[64];
+	int e, any = 0;
+
+	lws_tokenize_init(&ts, offers, LWS_LOGIN_PROT_TOKZ_FLAGS);
+
+	do {
+		e = lws_tokenize(&ts);
+		if (e < 0)
+			return 0;
+		if (e != LWS_TOKZE_TOKEN)
+			continue;
+
+		if (lws_tokenize_cstr(&ts, name, sizeof(name)))
+			return 0;
+
+		if (proxied) {
+			if (!lws_login_name_in_list(list, name))
+				return 0;
+			any = 1;
+			continue;
+		}
+
+		if (!lws_vhost_name_to_protocol(vh, name))
+			/* the ws role skips names it has no protocol for */
+			continue;
+
+		/* this is the one the ws role will bind */
+		return lws_login_name_in_list(list, name);
+	} while (e > 0);
+
+	/* local: nothing offered that the vhost serves, the ws role will refuse
+	 * it; proxied: every offer was exempt (and there was at least one) */
+	return any;
+}
+
+/*
  * Copy this request's URI (path only, args are sealed off at the '?') into
  * uri[], scanning the method tokens the same way the core's
  * lws_http_get_uri_and_method() does, so PUT / PATCH / DELETE / OPTIONS /
@@ -2100,7 +2160,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		/* see the LWS_CALLBACK_USER + 1 note on this size */
 		char uri[LWS_LOGIN_MAX_URI];
 		const char *service_name;
-		const struct lws_http_mount *mount;
+		const struct lws_http_mount *mount = NULL;
 
 		/*
 		 * The peer's own copies of the headers we stamp onward go
@@ -2133,24 +2193,6 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd) {
 			lwsl_err("%s: DENYING (vhd is NULL !!! protocol init failed or unconfigured)\n", __func__);
 			return 1;
-		}
-
-		/*
-		 * A ws upgrade for an unauth-protocols subprotocol is let
-		 * through whatever we find below, exempt from the whitelist as
-		 * it always was.  But it is not waved past the JWT evaluation
-		 * any more: the peer may well be a logged-in admin joining the
-		 * waiting room, and the backend deserves the same stamped
-		 * x-lws-login-* state it gets on any other request, ANON when
-		 * there is no live session, rather than nothing at all.
-		 */
-		if (vhd->unauth_protocols) {
-			char ws_prot[256];
-			if (lws_hdr_copy(wsi, ws_prot, sizeof(ws_prot), WSI_TOKEN_PROTOCOL) > 0 &&
-			    lws_login_name_in_list(vhd->unauth_protocols, ws_prot)) {
-				lwsl_notice("%s: unauth protocol '%s': JWT not required\n", __func__, ws_prot);
-				unauth_proto = 1;
-			}
 		}
 
 		service_name = vhd->service_name;
@@ -2192,6 +2234,37 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				}
 #endif
+			}
+		}
+
+		/*
+		 * A ws upgrade that is going to bind an unauth-protocols
+		 * subprotocol is let through whatever we find below, exempt
+		 * from the whitelist as it always was.  But it is not waved
+		 * past the JWT evaluation: the peer may well be a logged-in
+		 * admin joining the waiting room, and the backend deserves the
+		 * same stamped x-lws-login-* state it gets on any other
+		 * request, ANON when there is no live session, rather than
+		 * nothing at all.
+		 *
+		 * The exemption is judged on the subprotocol the upgrade will
+		 * bind, not on the offer list as a whole (see
+		 * lws_login_unauth_upgrade): this needs the mount, since on
+		 * a proxied one the origin does the binding.
+		 */
+		if (vhd->unauth_protocols) {
+			char ws_prot[256];
+			int proxied = mount &&
+				(mount->origin_protocol == LWSMPRO_HTTP ||
+				 mount->origin_protocol == LWSMPRO_HTTPS);
+
+			if (lws_hdr_copy(wsi, ws_prot, sizeof(ws_prot),
+					 WSI_TOKEN_PROTOCOL) > 0 &&
+			    lws_login_unauth_upgrade(wsi, vhd->unauth_protocols,
+						     ws_prot, proxied)) {
+				lwsl_notice("%s: unauth protocol '%s': JWT not required\n",
+					    __func__, ws_prot);
+				unauth_proto = 1;
 			}
 		}
 
