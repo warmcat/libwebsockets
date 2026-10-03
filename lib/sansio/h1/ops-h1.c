@@ -878,8 +878,18 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 		 * idle timeout that reaps those: we are asked this on every
 		 * service, not only for rx, so every h1 SSE stream was closed
 		 * timeout_secs_ah_idle after it was first writeable.
+		 *
+		 * Nor does a transaction being answered need one: nothing is
+		 * parsed in DOING_TRANSACTION, what the peer sends is parked
+		 * for after it (the rx op), and the table that needs is
+		 * attached once the connection is back in HEADERS, as for any
+		 * pipelined request.  A cgi gave its table back at spawn so
+		 * the child does not pin one of a small pool; attaching one
+		 * here gave it straight back for the child's life, and armed
+		 * the ah hold timeout over the cgi's own.
 		 */
-		if (!wsi->stream.ah && !wsi->http_carries_sse) {
+		if (!wsi->stream.ah && !wsi->http_carries_sse &&
+		    lwsi_state(wsi) != LRS_DOING_TRANSACTION) {
 			lws_ah_attach_result_t ar =
 					lws_header_table_attach(wsi, 0);
 
