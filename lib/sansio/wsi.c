@@ -2286,6 +2286,25 @@ void lws_wsi_mux_sibling_disconnect(struct lws *wsi) {
 }
 
 #if defined(LWS_WITH_CLIENT)
+/* does the client mux connection have a request stream open on it? */
+static int
+lws_wsi_mux_has_request_stream(struct lws *nwsi)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+#if defined(LWS_ROLE_QUIC)
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+
+		/* h3's control and qpack streams live as long as the connection */
+		if (w->quic.qs && w->quic.qs->is_unidirectional)
+			continue;
+#endif
+		return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 /*
  * A child of a client mux connection closed.  If that was its last request
  * stream and nothing is queued on it, the connection has nothing to do: keep
@@ -2301,26 +2320,48 @@ lws_wsi_mux_client_idle_check(struct lws *nwsi)
 	    lwsi_state(nwsi) != LRS_ESTABLISHED ||
 	    lwsi_close_started(nwsi) || lwsi_skt_unusable(nwsi) ||
 	    nwsi->a.context->being_destroyed ||
-	    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner))
+	    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner) ||
+	    lws_wsi_mux_has_request_stream(nwsi))
 		return;
-
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
-#if defined(LWS_ROLE_QUIC)
-		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
-
-		/* h3's control and qpack streams live as long as the connection */
-		if (w->quic.qs && w->quic.qs->is_unidirectional)
-			continue;
-#endif
-		return; /* a request stream is still open */
-	} lws_end_foreach_dll(d);
 
 	lwsl_wsi_info(nwsi, "last stream closed, keeping warm %ds",
 		      (int)nwsi->keep_warm_secs);
 	lws_wsi_event(nwsi, LWS_WSIEV_LAST_STREAM_CLOSED);
 	lws_set_timeout(nwsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE,
 			(int)nwsi->keep_warm_secs);
+}
+
+/*
+ * Transactions queued on a client mux connection have no deadline of their
+ * own while a request stream is open on it: that stream's close is what
+ * admits the next, and the app can see the connection progressing through
+ * it.  With no request stream open, only the peer raising its stream limit
+ * (SETTINGS_MAX_CONCURRENT_STREAMS, h3's MAX_STREAMS) can ever admit the
+ * head of the queue.  RFC 9113 allows a limit of 0 "for short durations";
+ * a peer that keeps it there, and keeps the connection alive with PINGs,
+ * would otherwise park the queue for ever, with nothing told to the app.
+ * So while nothing is open the queued transactions carry the connect
+ * deadline, armed once (a peer resending the same limit must not refresh
+ * it), and if nothing admits them in time they fail to the app as any
+ * connect would.  A stream being admitted takes the deadline off those
+ * left behind, and sets its own.
+ */
+void
+lws_wsi_mux_queue_deadline(struct lws *nwsi)
+{
+	int open = lws_wsi_mux_has_request_stream(nwsi);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&nwsi->dll2_cli_txn_queue_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 dll2_cli_txn_queue);
+
+		if (open)
+			lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
+		else if (lws_dll2_is_detached(&w->sul_timeout.list))
+			lws_set_timeout(w, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+					(int)nwsi->a.context->timeout_secs);
+	} lws_end_foreach_dll(d);
 }
 #endif
 
@@ -2524,8 +2565,8 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 			/*
 			 * The peer's concurrent stream limit applies: the
-			 * rest stay queued until another stream closes and
-			 * we are called again
+			 * rest stay queued until another stream closes, or
+			 * the peer raises the limit, and we are called again
 			 */
 			if (lws_wsi_mux_child_count(wsi) + 1 >
 			    wsi->h2.h2n->peer_set.s[H2SET_MAX_CONCURRENT_STREAMS])
@@ -2567,6 +2608,11 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 #endif
 	}
 	lws_end_foreach_dll_safe(d, d1);
+
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+	/* what is still queued waits with, or without, a deadline */
+	lws_wsi_mux_queue_deadline(wsi);
+#endif
 
 #if defined(LWS_ROLE_MQTT)
 bail:

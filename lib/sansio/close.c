@@ -95,7 +95,23 @@ __lws_reset_wsi(struct lws *wsi)
 		 * However this is normal if we are being closed because the
 		 * transaction queue leader is closing.
 		 */
-		lws_dll2_remove(&wsi->dll2_cli_txn_queue);
+		if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
+			struct lws *leader = lws_container_of(
+				lws_dll2_owner(&wsi->dll2_cli_txn_queue),
+				struct lws, dll2_cli_txn_queue_owner);
+
+			lws_dll2_remove(&wsi->dll2_cli_txn_queue);
+
+			/*
+			 * We left a mux connection's queue without ever being
+			 * a stream on it (our deadline passed, or the app
+			 * gave up on us).  If that leaves it with no stream
+			 * and nothing queued, it goes to its keep-warm idle:
+			 * nothing else would notice it has nothing to do.
+			 * It returns at once if it is the one closing us.
+			 */
+			lws_wsi_mux_client_idle_check(leader);
+		}
 	}
 #endif
 

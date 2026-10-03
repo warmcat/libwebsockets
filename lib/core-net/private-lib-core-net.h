@@ -1614,6 +1614,14 @@ lws_wsi_socket_owner(struct lws *wsi);
 #if defined(LWS_WITH_CLIENT)
 void
 lws_wsi_mux_client_idle_check(struct lws *nwsi);
+
+/*
+ * Give the transactions queued on a client mux connection a deadline while
+ * it has no request stream open that could admit them, and take it off them
+ * while it has
+ */
+void
+lws_wsi_mux_queue_deadline(struct lws *nwsi);
 #endif
 
 

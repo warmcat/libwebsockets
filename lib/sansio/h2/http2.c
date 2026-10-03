@@ -2241,7 +2241,18 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			/* also attach any queued guys */
 
 			lws_wsi_mux_apply_queue(wsi);
-		}
+		} else
+			if (lwsi_role_client(wsi) &&
+			    !(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK) &&
+			    !lws_dll2_is_empty(&wsi->dll2_cli_txn_queue_owner))
+				/*
+				 * A later SETTINGS may have raised the peer's
+				 * MAX_CONCURRENT_STREAMS: transactions queued
+				 * behind the old limit may go now.  Only a
+				 * stream closing re-applied the queue before,
+				 * and with none open to close that never came
+				 */
+				lws_wsi_mux_apply_queue(wsi);
 #endif
 		break;
 

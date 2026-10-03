@@ -137,6 +137,15 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 	if (lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY)
 		lws_inform_client_conn_fail(wsi,
 			(void *)"Timed out waiting server reply", 30);
+	/*
+	 * A transaction still queued on another connection never got a stream
+	 * of its own to send on: it failed to connect, not to transact, so
+	 * the app hears CLIENT_CONNECTION_ERROR rather than a CLOSED for a
+	 * connection it was never told it had
+	 */
+	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue))
+		lws_inform_client_conn_fail(wsi,
+			(void *)"Timed out queued for a stream", 29);
 #endif
 
 	lws_context_lock(cx, __func__);
