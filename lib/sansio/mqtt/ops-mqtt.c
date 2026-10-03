@@ -209,6 +209,19 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 	}
 #endif
 #if defined(LWS_WITH_CLIENT)
+	/*
+	 * A stream closing freed one of the connection's slots: a stream
+	 * queued on the connection waiting for one takes it now, here in the
+	 * event loop rather than inside the sibling's close, since its
+	 * ESTABLISHED is user code.  At CONNACK the queue was applied the
+	 * same way, from the connection's own rx.
+	 */
+	if (lwsi_role_client(wsi) && !wsi->mux.parent_wsi &&
+	    lwsi_state(wsi) == LRS_ESTABLISHED &&
+	    !lws_dll2_is_empty(&wsi->dll2_cli_txn_queue_owner) &&
+	    lws_wsi_mux_child_count(wsi) < LWS_MQTT_MAX_CHILDREN)
+		lws_wsi_mux_apply_queue(wsi);
+
 	if (wsi->mqtt && wsi->mqtt->send_pingreq && !wsi->mqtt->inside_payload) {
 		uint8_t buf[LWS_PRE + 2];
 
@@ -566,12 +579,32 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 #endif
 			wsi->mux_substream) &&
 	     wsi->mux.parent_wsi) {
+		struct lws *nwsi = wsi->mux.parent_wsi;
+
 		/*
 		 * While we can still find the connection, give back its hold
 		 * on the topics we subscribed to
 		 */
 		lws_mqtt_client_release_subs(wsi);
 		lws_wsi_mux_sibling_disconnect(wsi);
+
+#if defined(LWS_WITH_CLIENT)
+		/*
+		 * A stream slot on the connection (LWS_MQTT_MAX_CHILDREN of
+		 * them) is free: a stream queued on it waiting for one can
+		 * go.  Adopting it is the connection's POLLOUT's job, not
+		 * ours: its ESTABLISHED is user code, and we are inside a
+		 * sibling's close.  Not if the connection itself is what is
+		 * closing, this being one of its children going with it
+		 */
+		if (lwsi_role_client(nwsi) && !lwsi_close_started(nwsi) &&
+		    !lwsi_skt_unusable(nwsi) &&
+		    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner) &&
+		    !nwsi->a.context->being_destroyed)
+			lws_callback_on_writable(nwsi);
+#else
+		(void)nwsi;
+#endif
 	}
 
 	return 0;

@@ -2538,13 +2538,27 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 dll2_cli_txn_queue);
 
+			/*
+			 * Our own limit on a connection's streams applies: the
+			 * rest stay queued until a stream closes and we are
+			 * called again (rops_handle_POLLOUT_mqtt())
+			 */
+			if (lws_wsi_mux_child_count(wsi) + 1 >
+			    LWS_MQTT_MAX_CHILDREN)
+				break;
+
 			lwsl_wsi_info(w, "cli pipeq to be mqtt");
 
 			/* remove ourselves from client queue */
 			lws_dll2_remove(&w->dll2_cli_txn_queue);
 
 			/* attach ourselves as an mqtt stream */
-			lws_wsi_mqtt_adopt(wsi, w);
+			if (!lws_wsi_mqtt_adopt(wsi, w)) {
+				/* nothing was done to it: it waits on */
+				lws_dll2_add_head(&w->dll2_cli_txn_queue,
+						  &wsi->dll2_cli_txn_queue_owner);
+				break;
+			}
 		}
 
 		goto bail;
@@ -2579,8 +2593,17 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 			lws_set_timeout(w, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 					(int)wsi->a.context->timeout_secs);
 
-			/* attach ourselves as an h2 stream */
-			lws_wsi_h2_adopt(wsi, w);
+			/*
+			 * attach ourselves as an h2 stream.  The adopt can
+			 * only fail for want of memory now (the limit was
+			 * checked above): w is off the queue and no stream,
+			 * so nothing would ever come back for it.  Fail it to
+			 * the app, from the event loop: its CONNECTION_ERROR
+			 * is user code that may close others on this list
+			 */
+			if (!lws_wsi_h2_adopt(wsi, w))
+				lws_set_timeout(w, PENDING_TIMEOUT_KILLED_BY_PARENT,
+						LWS_TO_KILL_ASYNC);
 		}
 #endif
 
@@ -2602,8 +2625,10 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 			lws_set_timeout(w, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 					(int)wsi->a.context->timeout_secs);
 
-			/* attach ourselves as an h3 stream */
-			lws_wsi_h3_adopt(wsi, w);
+			/* attach ourselves as an h3 stream (as for h2 above) */
+			if (!lws_wsi_h3_adopt(wsi, w))
+				lws_set_timeout(w, PENDING_TIMEOUT_KILLED_BY_PARENT,
+						LWS_TO_KILL_ASYNC);
 		}
 #endif
 	}
