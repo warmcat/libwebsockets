@@ -3678,9 +3678,13 @@ lws_http_transaction_completed(struct lws *wsi)
 			return -1;
 		/*
 		 * let's defer transaction completed processing until we
-		 * discarded the remaining body
+		 * discarded the remaining body... which has to be read: the
+		 * h1 rx policy stopped reading while the answer drained
 		 */
 		lws_wsi_event(wsi, LWS_WSIEV_BODY_DISCARD);
+
+		if (lws_io_read_after_drain(wsi))
+			return 1;
 
 		return 0;
 	}

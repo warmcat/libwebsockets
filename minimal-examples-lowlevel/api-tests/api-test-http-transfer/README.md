@@ -14,7 +14,10 @@ loop busy, before it is served (direct and through the http proxy mount), and
 the same with two GETs to a callback mount that names its protocol as its
 origin, where the second must then be dispatched as itself, once, and to a
 mount with a body limit, where the first, which has no body, must not take the
-second as one; and the
+second as one; a GET whose one-shot answer is larger than the socket buffers,
+from a raw client that does not read it for a while, with its next GET sent in
+its own write meanwhile, where the server must not spin on its readable socket
+while the answer waits to drain, and must answer the GET once it has; and the
 refusals (an unsupported
 Transfer-Encoding gets 501, Transfer-Encoding with Content-Length gets 400, a
 chunked body over the mount limit drops the connection, a Content-Length over it

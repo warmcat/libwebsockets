@@ -641,6 +641,24 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 	}
 
 	/*
+	 * A close flushing its buffered tx takes nothing more: what the peer
+	 * sends is read and dropped, so the socket is not left readable with
+	 * nothing taking it (reported every poll until the flush ends), and
+	 * the kernel's rx is kept drained for the staged shutdown after the
+	 * flush, as that reads and discards too.  What was parked is for
+	 * nobody either, the close destroys it: offered first by the pump,
+	 * it has to go, or the socket behind it is never read.  Nor does any
+	 * of it renew the flush's timeout below: that is how long the peer
+	 * has to take our tx, not something its own sending may extend.
+	 */
+	if (lwsi_flushing_to_close(wsi)) {
+		lwsl_wsi_info(wsi, "dropping rx while flushing to close");
+		*used = len;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	/*
 	 * Only rx from the transport is peer activity worth extending the
 	 * timeout for: a replay of what was parked is not.
 	 *
@@ -667,23 +685,15 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 				(int)lws_wsi_keepalive_timeout_eff(wsi) :
 				(int)wsi->a.context->timeout_secs);
 
-	/* just ignore incoming if waiting for close */
-	if (lwsi_flushing_to_close(wsi)) {
-		lwsl_notice("%s: just ignoring\n", __func__);
-		/* what the transport brought is dropped, what was parked stays */
-		*used = from_transport ? len : 0;
-
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
+	if (lwsi_state(wsi) == LRS_ISSUING_FILE ||
+	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
 		/*
-		 * While a file is being served, rx is not consumed: it is
-		 * parked and the socket behind it is not read, so a peer
-		 * that sent bytes after its request and stopped reading had
-		 * POLLIN firing every loop turn with nothing ever consumed:
-		 * take POLLIN off until the transaction completes and the
-		 * parked rx can be dealt with.
+		 * While a file is being served (or its next read is out on a
+		 * worker), rx is not consumed: it is parked and the socket
+		 * behind it is not read, so a peer that sent bytes after its
+		 * request and stopped reading had POLLIN firing every loop
+		 * turn with nothing ever consumed: take POLLIN off until the
+		 * transaction completes and the parked rx can be dealt with.
 		 */
 		if (!from_transport)
 			lws_rx_flow_control(wsi,
@@ -805,14 +815,43 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 		if (lwsi_transport(wsi) != LTS_SSL_ACK_PENDING)
 			*flags |= LWS_RXPOL_F_POLLOUT;
 
-		if (lwsi_state(wsi) == LRS_TXN_COMPLETED ||
-		    lwsi_state(wsi) == LRS_TXN_COMPLETING ||
-		    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
+		if (lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
 			return LWS_RXPOL_ROLE;
 
-		/* the states we read in */
+		/*
+		 * A close draining its buffered tx reads, to drop what comes
+		 * (the rx op): a readable socket nobody reads is reported
+		 * every poll until the flush ends or times out
+		 */
+		if (lwsi_flushing_to_close(wsi))
+			return LWS_RXPOL_PUMP;
+
+		if (lwsi_state(wsi) == LRS_TXN_COMPLETED ||
+		    lwsi_state(wsi) == LRS_TXN_COMPLETING) {
+			/*
+			 * Nothing is read while the answer's tail drains, nor
+			 * until the connection is writable again after it; a
+			 * peer that sends meanwhile (its next request, early,
+			 * while not taking our answer) must not leave POLLIN
+			 * armed, level-triggered with nothing taking what it
+			 * reports: a spin for as long as it does not read.
+			 * Reading resumes where these states end, at
+			 * TXN_DRAINED (the next request's HEADERS) and at
+			 * BODY_DISCARD (the unread body).
+			 */
+			if (lws_io_want_read(wsi, 0))
+				return LWS_RXPOL_CLOSE;
+
+			return LWS_RXPOL_ROLE;
+		}
+
+		/*
+		 * the states we read in: the file ones read to park (the rx
+		 * op), and take POLLIN off when the peer goes on sending
+		 */
 		if (lwsi_state(wsi) != LRS_ESTABLISHED &&
 		    lwsi_state(wsi) != LRS_ISSUING_FILE &&
+		    lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
 		    lwsi_state(wsi) != LRS_HEADERS &&
 		    lwsi_state(wsi) != LRS_DOING_TRANSACTION && /* at least, SSE */
 		    lwsi_state(wsi) != LRS_DISCARD_BODY &&
@@ -1087,6 +1126,10 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 
 		/* idle until the next request's headers arrive */
 		lws_wsi_event(wsi, LWS_WSIEV_TXN_DRAINED);
+
+		/* ... which are read again, the rx policy stopped that */
+		if (lws_io_read_after_drain(wsi))
+			return LWS_HP_RET_BAIL_DIE;
 
 		return LWS_HP_RET_DROP_POLLOUT;
 	}

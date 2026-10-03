@@ -25,6 +25,12 @@
  *    its origin, where the second must be dispatched as itself, once, and
  *    to a mount with a body limit, where the first, bodyless, must not
  *    take the second as its body
+ *  - a GET whose one-shot answer is larger than the socket buffers, from a
+ *    raw client that does not read it for a while, so the server completes
+ *    the transaction with most of the answer still queued: the client's
+ *    next GET, sent in its own write meanwhile, must not have the server
+ *    spin on its readable socket while the answer waits to drain, and must
+ *    be answered once it has
  *  - refusals: an unsupported Transfer-Encoding (501), Transfer-Encoding
  *    together with Content-Length (400), a chunked body over the mount's
  *    body limit (connection dropped), a Content-Length over it (413)
@@ -181,7 +187,11 @@ struct xcase {
 					 * sends a POST with its Content-Length
 					 * body and a GET in one write, and
 					 * reads the two responses; 4: the
-					 * same with two GETs */
+					 * same with two GETs; 5: a raw client
+					 * GETs a one-shot answer larger than
+					 * the socket buffers, sends another
+					 * GET in its own write while not
+					 * reading it, and reads both later */
 	int		conn_close;	/* every request the server sees must
 					 * say "connection: close" */
 };
@@ -246,6 +256,19 @@ static const struct xcase cases[] = {
 	  "time later, and a GET pipelined in the same write",
 	  "GET", "/small/echo-cl-later", XR_NONE, 0, 0, 8192, 0, 0, 200, 0,
 	  XG_NONE, 0, 0, 0, 4, 0 },
+	/*
+	 * A one-shot answer larger than the socket buffers, to a raw client
+	 * that does not read it for a while: the server completes the
+	 * transaction with most of the answer still queued (TXN_COMPLETING).
+	 * The client sends its next GET meanwhile, in its own write, so the
+	 * server's socket is readable with nothing reading it until the
+	 * answer has drained: that wait must be spent in poll(), not spinning
+	 * on the readable socket, and the GET must be answered after
+	 */
+	{ "h1 GET a one-shot answer larger than the socket buffers, a GET sent "
+	  "while it waits unread to drain",
+	  "GET", "/big-oneshot", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE,
+	  0, 0, 0, 5, 0 },
 	/*
 	 * A chunked response that also carries a Content-Length is framed by
 	 * its chunks: the client must read the body to its last-chunk, not
@@ -646,6 +669,15 @@ struct conn {
 						 * first boundary */
 	size_t			raw_len;
 	int			h2c_phase;	/* 0: awaiting 101, 1: frames */
+	int			raw_phase;	/* raw 5: timer steps taken */
+	size_t			r5_remain;	/* raw 5: body bytes still to come */
+	uint32_t		r5_sum;		/* ... and the sum of it so far */
+	size_t			r5_lens[2];	/* raw 5: the answers' body lengths */
+	uint32_t		r5_sums[2];	/* ... and sums, as they came */
+	int			r5_done;	/* raw 5: whole answers so far */
+	unsigned int		turns_start;	/* raw 5: loop turns while the
+						 * first answer waited unread... */
+	unsigned int		turns_waited;	/* ... until we read it */
 	int			status;
 	int			completed;
 	int			closed;
@@ -669,6 +701,9 @@ enum resp_mode {
  */
 #define ONESHOT_MAX (1024 * 1024)
 #define ONESHOT_SNDBUF 16384
+
+/* what a GET of /big-oneshot is answered with: this much of the pattern */
+#define BIG_ONESHOT 600000
 
 struct pss_srv {
 	enum resp_mode		mode;
@@ -1198,6 +1233,12 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->mode = RM_NOLEN;
 		if (path && strstr(path, "echo-oneshot"))
 			pss->mode = RM_ONESHOT;
+		if (path && strstr(path, "big-oneshot")) {
+			/* a GET answered as if it had sent this much body */
+			pss->mode = RM_ONESHOT;
+			pss->rx_len = BIG_ONESHOT;
+			pss->rx_sum = sum_pat(BIG_ONESHOT);
+		}
 
 		lwsl_user("%s: server: HTTP %s\n", __func__, path ? path : "");
 
@@ -1534,6 +1575,13 @@ case_evaluate(void)
 
 	if (c->raw >= 3) {
 		int bc = c->raw == 3; /* only the POST has a body */
+		/*
+		 * The one-shot answer's wait is the client's to count, the
+		 * server answered at once; a "later" answer's is the server's
+		 */
+		const char *first = c->raw == 5 ? "oneshot" : "later";
+		unsigned int waited = c->raw == 5 ? conns[0]->turns_waited :
+						    srv.turns_waited;
 
 		if (srv.http_cbs != 2 || srv.body_completions != bc) {
 			lwsl_err("server saw %d requests, %d body completions, "
@@ -1543,8 +1591,8 @@ case_evaluate(void)
 			goto next;
 		}
 		/* the first, then the one pipelined behind it */
-		if (!strstr(srv.paths[0], "later") ||
-		    strstr(srv.paths[1], "later")) {
+		if (!strstr(srv.paths[0], first) ||
+		    strstr(srv.paths[1], first)) {
 			lwsl_err("server was dispatched '%s', then '%s'\n",
 				 srv.paths[0], srv.paths[1]);
 			case_finish(0, "the pipelined request was not the "
@@ -1552,8 +1600,8 @@ case_evaluate(void)
 			goto next;
 		}
 		lwsl_user("%u event loop turns while the answer was awaited\n",
-			  srv.turns_waited);
-		if (srv.turns_waited > RAW3_MAX_TURNS) {
+			  waited);
+		if (waited > RAW3_MAX_TURNS) {
 			case_finish(0, "the event loop spun while the "
 				       "pipelined request waited");
 			goto next;
@@ -2354,6 +2402,46 @@ raw_hdr_is(const uint8_t *p, const uint8_t *end, const char *name)
 }
 
 /*
+ * The head of a 200 response with a Content-Length under max at the start
+ * of p: its length (the blank line included) with the Content-Length in cl,
+ * 0 if it is not all there yet, -1 if it is not that
+ */
+static int
+raw_head(const uint8_t *p, const uint8_t *end, long *cl, long max)
+{
+	const uint8_t *h, *e;
+
+	*cl = -1;
+
+	/* the end of this response's headers */
+	for (e = p; e + 4 <= end; e++)
+		if (!memcmp(e, "\r\n\r\n", 4))
+			break;
+	if (e + 4 > end)
+		return 0;
+
+	if (end - p < 12 || memcmp(p, "HTTP/1.1 200", 12))
+		return -1;
+
+	/* its Content-Length, at the start of one of its lines */
+	for (h = p; h < e; h++)
+		if (h[0] == '\n' &&
+		    raw_hdr_is(h + 1, e, "content-length:")) {
+			h += 1 + strlen("content-length:");
+			while (h < e && *h == ' ')
+				h++;
+			*cl = 0;
+			while (h < e && *h >= '0' && *h <= '9' && *cl < max)
+				*cl = (*cl * 10) + (*h++ - '0');
+			break;
+		}
+	if (*cl < 0 || *cl >= max)
+		return -1;
+
+	return lws_ptr_diff(e + 4, p);
+}
+
+/*
  * How many whole Content-Length responses are at the start of b, 0 .. 2,
  * their bodies' starts in body[]; -1 if a response is not one we can frame
  */
@@ -2361,45 +2449,25 @@ static int
 raw3_responses(const uint8_t *b, size_t len, const uint8_t *body[2],
 	       size_t blen[2])
 {
-	const uint8_t *p = b, *end = b + len, *h, *e;
+	const uint8_t *p = b, *end = b + len;
 	int count = 0;
 
 	while (count < 2) {
-		long cl = -1;
+		long cl;
+		int n = raw_head(p, end, &cl, RAW_BUF_MAX);
 
-		/* the end of this response's headers */
-		for (e = p; e + 4 <= end; e++)
-			if (!memcmp(e, "\r\n\r\n", 4))
-				break;
-		if (e + 4 > end)
+		if (n < 0)
+			return -1;
+		if (!n)
 			break;
 
-		if (end - p < 12 || memcmp(p, "HTTP/1.1 200", 12))
-			return -1;
-
-		/* its Content-Length, at the start of one of its lines */
-		for (h = p; h < e; h++)
-			if (h[0] == '\n' &&
-			    raw_hdr_is(h + 1, e, "content-length:")) {
-				h += 1 + strlen("content-length:");
-				while (h < e && *h == ' ')
-					h++;
-				cl = 0;
-				while (h < e && *h >= '0' && *h <= '9' &&
-				       cl < RAW_BUF_MAX)
-					cl = (cl * 10) + (*h++ - '0');
-				break;
-			}
-		if (cl < 0 || cl >= RAW_BUF_MAX)
-			return -1;
-
-		e += 4;
-		if ((size_t)(end - e) < (size_t)cl)
+		p += n;
+		if ((size_t)(end - p) < (size_t)cl)
 			break;
 
-		body[count] = e;
+		body[count] = p;
 		blen[count++] = (size_t)cl;
-		p = e + cl;
+		p += cl;
 	}
 
 	return count;
@@ -2423,6 +2491,80 @@ raw3_summary_ok(const uint8_t *body, size_t blen, size_t want)
 	       sum_add(0, body + n, want) == sum_pat(want);
 }
 
+/*
+ * The whole body of the server's answer to a GET it took as want pattern
+ * bytes: the summary line, then the pattern.  Its length, and in sum the
+ * running sum of all of it, as raw5_rx() accumulates one
+ */
+static size_t
+raw5_body(size_t want, uint32_t *sum)
+{
+	char line[40];
+	size_t n, i;
+
+	n = (size_t)lws_snprintf(line, sizeof(line), "len=%u sum=%08x\n",
+				 (unsigned int)want,
+				 (unsigned int)sum_pat(want));
+	*sum = sum_add(0, (const uint8_t *)line, n);
+	for (i = 0; i < want; i++) {
+		uint8_t b = pat(i);
+
+		*sum = sum_add(*sum, &b, 1);
+	}
+
+	return n + want;
+}
+
+/*
+ * The one-shot case's rx, a byte at a time as the two answers stream in:
+ * each answer's head is collected until its blank line, and its
+ * Content-Length body summed as it passes rather than kept.  Returns 1 once
+ * both are whole, 0 for more, -1 if what came is not two 200s
+ */
+static int
+raw5_rx(struct conn *cn, const uint8_t *p, size_t len)
+{
+	while (len--) {
+		uint8_t b = *p++;
+
+		if (cn->r5_remain) {
+			cn->r5_sum = sum_add(cn->r5_sum, &b, 1);
+			if (--cn->r5_remain)
+				continue;
+		} else {
+			long cl;
+			int n;
+
+			/* a head byte */
+			if (cn->raw_len == RAW_BUF_MAX)
+				return -1;
+			cn->raw_buf[cn->raw_len++] = b;
+			if (cn->raw_len < 4 ||
+			    memcmp(cn->raw_buf + cn->raw_len - 4, "\r\n\r\n", 4))
+				continue;
+
+			n = raw_head(cn->raw_buf, cn->raw_buf + cn->raw_len,
+				     &cl, ONESHOT_MAX);
+			if (n <= 0)
+				return -1;
+			cn->raw_len = 0;
+			cn->r5_sum = 0;
+			cn->r5_lens[cn->r5_done] = (size_t)cl;
+			cn->r5_remain = (size_t)cl;
+			if (cl)
+				continue;
+		}
+
+		/* an answer's body is all here */
+		cn->r5_sums[cn->r5_done++] = cn->r5_sum;
+		if (cn->r5_done == 2)
+			/* and nothing may follow the second */
+			return len ? -1 : 1;
+	}
+
+	return 0;
+}
+
 static int
 callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 		void *user, void *in, size_t len)
@@ -2432,6 +2574,7 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 	const uint8_t *body[2];
 	char path2[48], *q;
 	size_t o, blen[2];
+	uint32_t sum;
 	int n;
 
 	if (!cn)
@@ -2469,7 +2612,18 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 					  (size_t)(256 - n), "\r\n");
 			for (o = 0; o < cn->c->body_len; o++)
 				buf[LWS_PRE + (size_t)n++] = pat(o);
-			n += lws_snprintf((char *)buf + LWS_PRE + n,
+
+			if (cn->c->raw == 5) {
+				/*
+				 * Only the first request for now, and we do
+				 * not read its answer until our timer says:
+				 * the second goes while the answer waits
+				 */
+				if (lws_rx_flow_control(wsi, 0))
+					return -1;
+				lws_set_timer_usecs(wsi, 100 * LWS_US_PER_MS);
+			} else
+				n += lws_snprintf((char *)buf + LWS_PRE + n,
 					  sizeof(buf) - LWS_PRE - (size_t)n,
 					  "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
 					  path2, server_addr);
@@ -2484,12 +2638,79 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		break;
 
+	case LWS_CALLBACK_TIMER:
+		if (cn->c->raw != 5)
+			break;
+		switch (cn->raw_phase++) {
+		case 0:
+			/*
+			 * The first answer has been sent as far as the socket
+			 * buffers allow and waits to drain: our next request
+			 * goes now, and we count the loop's turns until we
+			 * read, which a server spinning on its readable socket
+			 * would run up by the tens of thousands
+			 */
+			n = lws_snprintf((char *)buf + LWS_PRE, 256,
+					 "GET /echo-cl HTTP/1.1\r\nHost: %s\r\n\r\n",
+					 server_addr);
+			if (lws_write(wsi, buf + LWS_PRE, (size_t)n,
+				      LWS_WRITE_RAW) != n)
+				return -1;
+			cn->turns_start = turns;
+			lws_set_timer_usecs(wsi, RAW3_LATER_MS * LWS_US_PER_MS);
+			break;
+		case 1:
+			cn->turns_waited = turns - cn->turns_start;
+			lwsl_user("%s: raw h1 client: %u turns while the answer "
+				  "waited unread\n", __func__, cn->turns_waited);
+			/* now read both answers */
+			if (lws_rx_flow_control(wsi, 1))
+				return -1;
+			break;
+		default:
+			break;
+		}
+		break;
+
 	case LWS_CALLBACK_RAW_RX:
 		if (!cn->raw_buf) {
 			cn->raw_buf = malloc(RAW_BUF_MAX);
 			if (!cn->raw_buf)
 				return -1;
 		}
+
+		if (cn->c->raw == 5) {
+			n = raw5_rx(cn, (const uint8_t *)in, len);
+			if (n < 0) {
+				lwsl_err("%s: raw h1 client: unexpected answer "
+					 "(%d whole)\n", __func__, cn->r5_done);
+				return -1;
+			}
+			if (!n)
+				break;
+
+			/* the big answer, then the one to the GET behind it */
+			if (cn->r5_lens[0] != raw5_body(BIG_ONESHOT, &sum) ||
+			    cn->r5_sums[0] != sum ||
+			    cn->r5_lens[1] != raw5_body(0, &sum) ||
+			    cn->r5_sums[1] != sum) {
+				lwsl_err("%s: raw h1 client: answers %u/%08x, "
+					 "%u/%08x\n", __func__,
+					 (unsigned int)cn->r5_lens[0],
+					 cn->r5_sums[0],
+					 (unsigned int)cn->r5_lens[1],
+					 cn->r5_sums[1]);
+				return -1;
+			}
+
+			cn->status = 200;
+			cn->completed = 1;
+			if (cn->case_idx == cur)
+				case_check();
+
+			return -1; /* done: close */
+		}
+
 		if (cn->raw_len + len > RAW_BUF_MAX)
 			return -1;
 		memcpy(cn->raw_buf + cn->raw_len, in, len);
@@ -2552,7 +2773,8 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		lwsl_user("%s: raw h1 client: closed after %d responses ended\n",
-			  __func__, (int)cn->rx_len);
+			  __func__, cn->c->raw == 5 ? cn->r5_done :
+						     (int)cn->rx_len);
 		cn->closed = 1;
 		if (cn->case_idx == cur)
 			case_check();
