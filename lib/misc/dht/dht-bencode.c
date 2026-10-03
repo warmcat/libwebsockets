@@ -241,6 +241,47 @@ dht_bencode_get_int(const uint8_t *dict, const uint8_t *end, const char *key)
 	return dht_strtoull((const char *)p + 1, vlen - 1, &q);
 }
 
+/*
+ * The "e" member of a BEP 5 error reply: a list of the numeric code and the
+ * message string, "li203e24:find_node with no targete".  find_key() has
+ * already checked the list is structurally complete inside the datagram, so
+ * vend[-1] is its closing 'e' and both elements lie before it.  The message
+ * is left pointing into the datagram.
+ */
+static int
+parse_error(const uint8_t *buf, const uint8_t *end, struct lws_dht_mparams *mp)
+{
+	const uint8_t *p, *vend;
+	unsigned long long n;
+	size_t vlen;
+	char *q;
+
+	p = dht_bencode_find_key(buf, end, "e", &vlen);
+	if (!p || vlen < 2 || *p != 'l' || p[1] != 'i')
+		return -1;
+	vend = p + vlen;
+	p += 2;
+
+	/* BEP 5 codes are three digits; refuse anything not shaped like one */
+	n = dht_strtoull((const char *)p, lws_ptr_diff_size_t(vend, p), &q);
+	if (!q || q == (char *)p || *q != 'e' || n > 999)
+		return -1;
+	mp->error_code = (int)n;
+	p = (const uint8_t *)q + 1;
+
+	n = dht_strtoull((const char *)p, lws_ptr_diff_size_t(vend, p), &q);
+	if (!q || *q != ':')
+		return -1;
+	p = (const uint8_t *)q + 1;
+	if (p >= vend || n > lws_ptr_diff_size_t(vend - 1, p))
+		return -1;
+
+	mp->error_msg = p;
+	mp->error_msg_len = (size_t)n;
+
+	return 0;
+}
+
 static int
 parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 {
@@ -316,6 +357,14 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		break;
 
 	case 'e':
+		/*
+		 * A peer refusing a query of ours.  It carries no sender id
+		 * and no a / r dict, so none of the member handling below
+		 * applies to it.
+		 */
+		if (parse_error(buf, end, mp))
+			return -1;
+
 		return DHT_ERROR;
 	default:
 		return -1;
@@ -824,6 +873,36 @@ lws_dht_reply_announce(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 }
 #endif
 
+/*
+ * A peer answered something we sent it with a BEP 5 error ("y":"e").  It
+ * names no sender id, so there is nothing to confirm the source against, and
+ * it changes nothing in our tables: it is reported to the application with
+ * the address it came from, which is as unauthenticated as any datagram's.
+ */
+static void
+lws_dht_rx_error(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
+		 const struct sockaddr *from, size_t fromlen)
+{
+	struct lws_dht_error_info ei;
+
+	lwsl_dht_rx("%s: error reply %d '%.*s' (tid len %d)\n", __func__,
+		    mp->error_code, (int)mp->error_msg_len,
+		    (const char *)mp->error_msg, (int)mp->tid_len);
+
+	if (!ctx->cb)
+		return;
+
+	memset(&ei, 0, sizeof(ei));
+	ei.tid		= mp->tid;
+	ei.tid_len	= mp->tid_len;
+	ei.message	= (const char *)mp->error_msg;
+	ei.message_len	= mp->error_msg_len;
+	ei.code		= mp->error_code;
+
+	ctx->cb(ctx->closure, LWS_DHT_EVENT_ERROR, NULL, &ei, sizeof(ei),
+		from, fromlen);
+}
+
 int
 lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			const struct sockaddr *from, size_t fromlen)
@@ -845,7 +924,11 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	}
 
 	message = parse_message(buf, buflen, &mp);
-	if (message < 0 || message == DHT_ERROR || lws_dht_hash_is_zero(mp.id)) {
+	if (message == DHT_ERROR) {
+		lws_dht_rx_error(ctx, &mp, from, fromlen);
+		goto done;
+	}
+	if (message < 0 || lws_dht_hash_is_zero(mp.id)) {
 		ctx->stats_current.rx_drops++;
 		lwsl_dht_rx_warn("%s: Unparseable message. msg=%d id_ptr=%p\n", __func__, message, mp.id);
 		goto done;

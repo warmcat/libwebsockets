@@ -30,8 +30,13 @@
  *  - a third context C that uses B's node id pings A from its own port once
  *    B is good for A: A answers it, but B's entry keeps B's endpoint, so the
  *    good node A hands out for that id is still B
+ *  - a plain UDP socket R asks B a find_node with no target; B refuses it
+ *    with a BEP 5 error reply, which must be exactly the bencode
+ *    d1:eli203e<len>:<message>e1:t<tid>1:y1:ee.  R then relays B's refusal
+ *    verbatim to A, as a peer refusing A would, and A's parser reports it as
+ *    LWS_DHT_EVENT_ERROR with the code, message and tid, not as a drop
  *
- * The UDP ports (three to listen on, one left unused) are allocated uniquely
+ * The UDP ports (four to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
  * instances do not collide.
  *
@@ -62,6 +67,18 @@ static size_t data_msg_len;
 static uint8_t token[40];
 static size_t token_len;
 
+/*
+ * R's raw KRPC: the query it asks B, the message B refuses it with, and the
+ * one datagram R has waiting to go out and where to
+ */
+static const char raw_query_head[] = "d1:ad2:id20:";
+static const char raw_query_tail[] = "e1:q9:find_node1:t2:aa1:y1:qe";
+static const char err_msg[] = "find_node with no target";
+static struct lws *wsi_raw;
+static uint8_t raw_tx[128];
+static size_t raw_tx_len;
+static struct sockaddr_in raw_tx_to;
+
 struct seen {
 	unsigned char token_ok:1;	/* A got B's get_peers token */
 	unsigned char confirmed:1;	/* A sent B its subscribe_confirm */
@@ -82,6 +99,12 @@ struct seen {
 	unsigned char samid_sent:1;	/* C pinged A using B's id */
 	unsigned char samid_ok:1;	/* ...and A still has B at B */
 	unsigned char samid_bad:1;	/* ...or A moved B's entry */
+	unsigned char raw_up:1;		/* R's socket is bound */
+	unsigned char err_asked:1;	/* R asked B a find_node with no target */
+	unsigned char err_wire_ok:1;	/* B's refusal is well-formed bencode */
+	unsigned char err_wire_bad:1;	/* ...or it is not */
+	unsigned char err_decoded_ok:1;	/* A decoded the relayed refusal */
+	unsigned char err_decoded_bad:1;/* ...or decoded something else */
 };
 
 static struct seen sv;
@@ -142,9 +165,142 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 		}
 		break;
 	}
+	case LWS_DHT_EVENT_ERROR: {
+		const struct lws_dht_error_info *ei =
+				(const struct lws_dht_error_info *)data;
+
+		/* B's refusal, relayed by R: code, message and tid intact */
+		if (data_len == sizeof(*ei) && ei->code == 203 &&
+		    ei->message_len == strlen(err_msg) &&
+		    !memcmp(ei->message, err_msg, ei->message_len) &&
+		    ei->tid_len == 2 && !memcmp(ei->tid, "aa", 2))
+			sv.err_decoded_ok = 1;
+		else {
+			lwsl_err("%s: unexpected error reply report\n",
+				 __func__);
+			sv.err_decoded_bad = 1;
+		}
+		break;
+	}
 	default:
 		break;
 	}
+}
+
+/*
+ * R: a plain UDP socket speaking KRPC by hand, the peer the DHT contexts
+ * cannot be made to be.  It sends whatever was queued in raw_tx when the
+ * event loop lets it, and inspects what B answers.
+ */
+
+static void
+raw_queue(const void *buf, size_t len, const struct sockaddr_in *to)
+{
+	if (len > sizeof(raw_tx)) {
+		lwsl_err("%s: %u bytes too long to queue\n", __func__,
+			 (unsigned int)len);
+		return;
+	}
+
+	memcpy(raw_tx, buf, len);
+	raw_tx_len = len;
+	raw_tx_to = *to;
+	lws_callback_on_writable(wsi_raw);
+}
+
+static int
+cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+       void *in, size_t len)
+{
+	const struct lws_udp *udp;
+	lws_sockfd_type fd;
+	char exp[96];
+	ssize_t n;
+
+	(void)user;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		sv.raw_up = 1;
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		udp = lws_get_udp(wsi);
+		if (!udp || udp->sa46.sa4.sin_family != AF_INET ||
+		    udp->sa46.sa4.sin_port != sa_b.sin_port)
+			break;
+
+		/*
+		 * B's refusal of our target-less find_node: BEP 5 wants the
+		 * "e" member to be a list of the code and the message, and the
+		 * tid we chose echoed back.  B has no "v" to add.
+		 */
+		n = lws_snprintf(exp, sizeof(exp),
+				 "d1:eli203e%u:%se1:t2:aa1:y1:ee",
+				 (unsigned int)strlen(err_msg), err_msg);
+		if (len == (size_t)n && !memcmp(in, exp, len))
+			sv.err_wire_ok = 1;
+		else {
+			lwsl_err("%s: B's error reply is not the expected "
+				 "bencode\n", __func__);
+			lwsl_hexdump_err(in, len);
+			sv.err_wire_bad = 1;
+		}
+
+		/* relay it to A as it stands, as a peer refusing A would */
+		raw_queue(in, len, &sa_a);
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		if (!raw_tx_len)
+			break;
+
+		fd = lws_get_socket_fd(wsi);
+		n = sendto(fd,
+#if defined(WIN32)
+			   (const char *)
+#endif
+			   raw_tx,
+#if defined(WIN32)
+			   (int)
+#endif
+			   raw_tx_len, 0, (const struct sockaddr *)&raw_tx_to,
+			   sizeof(raw_tx_to));
+		if (n != (ssize_t)raw_tx_len)
+			lwsl_err("%s: sendto returned %d\n", __func__, (int)n);
+		raw_tx_len = 0;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * Once B is known to be answering, R asks it a find_node that has no target;
+ * B must refuse that with a 203 rather than walk its table against nothing.
+ */
+
+static void
+error_reply_step(const struct lws_dht_stats *sb)
+{
+	uint8_t q[sizeof(raw_query_head) - 1 + 20 + sizeof(raw_query_tail) - 1];
+	uint8_t *p = q;
+
+	if (!sv.raw_up || !sb->rx_ping || sv.err_asked)
+		return;
+
+	sv.err_asked = 1;
+
+	memcpy(p, raw_query_head, sizeof(raw_query_head) - 1);
+	p += sizeof(raw_query_head) - 1;
+	memset(p, 0x33, 20); /* R's node id */
+	p += 20;
+	memcpy(p, raw_query_tail, sizeof(raw_query_tail) - 1);
+
+	raw_queue(q, sizeof(q), &sa_b);
 }
 
 static void
@@ -330,6 +486,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 
 	subscription_step();
 	same_id_step();
+	error_reply_step(&sb);
 
 	if (sv.data_ok && !sv.dead_sent) {
 		sv.dead_sent = 1;
@@ -356,14 +513,17 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * Everything observable has been seen: B answered the ping, the
 	 * subscribe round trip produced a token, the notify was acked, the
 	 * data payload arrived verbatim, A's maintenance find_node probe
-	 * reached B, B told A its external address, and C's use of B's id
-	 * did not move B's entry in A's table.
+	 * reached B, B told A its external address, C's use of B's id did
+	 * not move B's entry in A's table, and B's refusal of R's broken
+	 * find_node was well-formed on the wire and understood by A.
 	 */
 
 	if (sv.token_ok && sv.acked && !sv.dup_sub && sv.data_ok && sv.cap_ok &&
 	    sv.dead_failed &&
 	    sv.extip_ok && !sv.extip_bad &&
 	    sv.samid_ok && !sv.samid_bad &&
+	    sv.err_wire_ok && !sv.err_wire_bad &&
+	    sv.err_decoded_ok && !sv.err_decoded_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -389,11 +549,13 @@ int main(int argc, const char **argv)
 	lws_dht_info_t di;
 	static const struct lws_protocols protocols[] = {
 		{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+		{ "krpc-raw", cb_raw, 0, 0, 0, NULL, 0 },
 		LWS_PROTOCOL_LIST_TERM
 	};
 	uint8_t ida[20], idb[20];
 	const char *p;
-	int port_a = 0, port_b = 0, port_c = 0, port_dead = 0, n = 0;
+	int port_a = 0, port_b = 0, port_c = 0, port_r = 0, port_dead = 0,
+	    n = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -404,16 +566,21 @@ int main(int argc, const char **argv)
 		port_b = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-c")))
 		port_c = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-r")))
+		port_r = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-dead")))
 		port_dead = atoi(p);
 
 	if (port_a < 1 || port_a > 65535 || port_b < 1 || port_b > 65535 ||
-	    port_c < 1 || port_c > 65535 ||
+	    port_c < 1 || port_c > 65535 || port_r < 1 || port_r > 65535 ||
 	    port_dead < 1 || port_dead > 65535 ||
 	    port_a == port_b || port_a == port_c || port_b == port_c ||
-	    port_dead == port_a || port_dead == port_b || port_dead == port_c) {
+	    port_r == port_a || port_r == port_b || port_r == port_c ||
+	    port_dead == port_a || port_dead == port_b || port_dead == port_c ||
+	    port_dead == port_r) {
 		lwsl_err("usage: --port-a <udp port> --port-b <udp port> "
-			 "--port-c <udp port> --port-dead <unused udp port>\n");
+			 "--port-c <udp port> --port-r <udp port> "
+			 "--port-dead <unused udp port>\n");
 		return 1;
 	}
 
@@ -500,6 +667,16 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
+	/* R: the hand-driven KRPC peer */
+
+	wsi_raw = lws_create_adopt_udp(vh_c, "127.0.0.1", port_r,
+				       LWS_CAUDP_BIND, protocols[1].name, NULL,
+				       NULL, NULL, NULL, "krpc-r");
+	if (!wsi_raw) {
+		lwsl_err("raw udp socket creation failed\n");
+		goto bail;
+	}
+
 	lws_sul_schedule(cx, 0, &sul_deadline, deadline_cb, DEADLINE_US);
 	poll_cb(&sul_poll);
 
@@ -569,6 +746,16 @@ int main(int argc, const char **argv)
 			if (!sv.samid_ok || sv.samid_bad) {
 				lwsl_err("C's use of B's id moved or hid B's "
 					 "entry in A\n");
+				fails++;
+			}
+			if (!sv.err_wire_ok || sv.err_wire_bad) {
+				lwsl_err("B's error reply was not well-formed "
+					 "bencode\n");
+				fails++;
+			}
+			if (!sv.err_decoded_ok || sv.err_decoded_bad) {
+				lwsl_err("A did not decode the relayed error "
+					 "reply\n");
 				fails++;
 			}
 		}

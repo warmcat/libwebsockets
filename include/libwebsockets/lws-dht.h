@@ -346,6 +346,9 @@ typedef enum {
 	LWS_DHT_EVENT_TOKEN,		/**< Security token received from a peer,
 					  * in reply to our subscribe or get_peers
 					  * request to it */
+	LWS_DHT_EVENT_ERROR,		/**< A peer answered a query of ours with
+					  * a BEP 5 error reply; `data` is a
+					  * struct lws_dht_error_info */
 } lws_dht_event_t;
 
 /**
@@ -356,6 +359,23 @@ struct lws_dht_consensus_info {
 	size_t sslen;
 	int num_peers;
 	struct sockaddr_storage peer_ss[8];
+};
+
+/**
+ * struct lws_dht_error_info - Passed as `data` for LWS_DHT_EVENT_ERROR
+ *
+ * A peer's "y":"e" reply to something we sent it: the BEP 5 code (eg, 203,
+ * protocol error) and the peer's description of what it refused.  The tid
+ * and message point into the datagram being processed, are not
+ * NUL-terminated, and are only valid during the callback.  The sender is the
+ * callback's `from`, which is as unauthenticated as any datagram source.
+ */
+struct lws_dht_error_info {
+	const uint8_t	*tid;		/**< tid of the query being refused */
+	size_t		tid_len;
+	const char	*message;	/**< the peer's description */
+	size_t		message_len;
+	int		code;		/**< BEP 5 error code */
 };
 
 /**

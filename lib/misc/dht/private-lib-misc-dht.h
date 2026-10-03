@@ -423,6 +423,11 @@ struct lws_dht_mparams {
 
 	lws_transport_sequencer_sack_block_t sack[4];
 	uint8_t			num_sack;
+
+	/* DHT_ERROR only: the "e" list, message pointing into the datagram */
+	const uint8_t		*error_msg;
+	size_t			error_msg_len;
+	int			error_code;
 };
 
 int lws_dht_hash_validate(int type, int len);

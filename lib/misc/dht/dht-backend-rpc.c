@@ -447,14 +447,22 @@ send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
 	size_t msg_len = strlen(message);
 
-	/* leave rough room for the fixed parts around the message */
-	if (t.size - t.len <= 20u)
+	/*
+	 * Everything but the message is bounded: "d1:el" 5, the code as
+	 * "i<n>e" at most 12, the message's length prefix at most 4, "e1:t"
+	 * 4, the tid as "<n>:<tid>" at most 19, the optional "v" 9 and
+	 * "1:y1:ee" 7; cut the message to leave room for all of that.
+	 */
+	if (t.size - t.len <= 64u)
 		return -1;
-	msg_len = MIN(msg_len, t.size - t.len - 20u);
+	msg_len = MIN(msg_len, t.size - t.len - 64u);
 
-	if (dht_tx_lit(&t, "d1:eli") ||
+	/*
+	 * BEP 5: "e" is a list of the numeric code then the message string,
+	 * d1:eli203e24:find_node with no targete1:t2:aa1:y1:ee
+	 */
+	if (dht_tx_lit(&t, "d1:el") ||
 	    dht_tx_int(&t, (uint64_t)(unsigned int)code) ||
-	    dht_tx_lit(&t, "e") ||
 	    dht_tx_str(&t, message, msg_len) ||
 	    dht_tx_lit(&t, "e1:t") ||
 	    dht_tx_str(&t, tid, tid_len) ||
