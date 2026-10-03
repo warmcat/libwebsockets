@@ -198,6 +198,21 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	const struct lws_protocol_vhost_options *mp_cgienv = cgiinfo->mp_cgienv;
 
 	/*
+	 * A wsi carries one cgi at a time: its struct lws_cgi is on the pt
+	 * list with its wsi pointer, and only the one at wsi->http.cgi is
+	 * unlinked by the transaction's completion or the close.  Spawning
+	 * over a live one would orphan it there, to be dereferenced after the
+	 * wsi has gone.  The mount path parks the connection's rx for the
+	 * transaction so a second request cannot reach here meanwhile; refuse
+	 * any other caller the same way rather than let it.
+	 */
+	if (cgiinfo->wsi->http.cgi) {
+		lwsl_wsi_err(cgiinfo->wsi, "cgi already running on wsi");
+
+		return -1;
+	}
+
+	/*
 	 * give the cgi stream wsi a cgi struct
 	 */
 

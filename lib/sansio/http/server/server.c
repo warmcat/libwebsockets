@@ -2707,6 +2707,17 @@ lws_http_action(struct lws *wsi)
 		cgiinfo.chroot_path = hit->cgi_chroot_path;
 		cgiinfo.wd = hit->cgi_wd;
 
+		/*
+		 * The cgi's answer is this transaction, as the proxy's and a
+		 * callback's are: on h1, a request pipelined behind it waits
+		 * parked for it to complete.  Left in ESTABLISHED, the
+		 * connection went on reading and parsing while the child ran,
+		 * and a second request reached lws_cgi_via_info() with the
+		 * first cgi still live, orphaning its struct on the pt list
+		 * with its wsi pointer to be dereferenced after the close.
+		 */
+		lws_wsi_event(wsi, LWS_WSIEV_ACTION_BEGIN);
+
 		n = (unsigned int)lws_io_cgi_start(&cgiinfo);
 		if (n) {
 			/*

@@ -75,6 +75,15 @@ if (requirements)
 					     TIMEOUT 60)
 		endif()
 
+		lws_get_free_port(PORT_HTTP_CGI_PIPELINED)
+
+		add_test(NAME api-test-http-cgi-pipelined
+			 COMMAND lws-api-test-http-cgi-stdin --pipelined
+				 -p ${PORT_HTTP_CGI_PIPELINED})
+		set_tests_properties(api-test-http-cgi-pipelined PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 60)
+
 		lws_get_free_port(PORT_HTTP_CGI_QUERY)
 
 		add_test(NAME api-test-http-cgi-query

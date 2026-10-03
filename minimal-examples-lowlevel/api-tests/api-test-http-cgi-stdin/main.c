@@ -54,6 +54,16 @@
  * be one that still took the connection but had no room for all the pipes,
  * and it must answer 500, with nothing left behind by the failed spawn.
  *
+ * With --pipelined, a raw client sends two bodyless GETs for the script in
+ * one write.  The first's cgi has the connection to itself until its answer
+ * is complete, with the second request parked behind it: no second cgi may
+ * be spawned on the connection while the first is still running.  That used
+ * to happen as soon as the second request was parsed, over the first, which
+ * was left orphaned on the thread's cgi list pointing at a connection that
+ * then closed.  The first answer must arrive whole; the second is answered
+ * in its turn if the connection is kept alive (today an h1 connection is
+ * closed after a cgi answer, and the parked request goes with it).
+ *
  * With JOSE in the build, the CGI mount is also gated by a tiny mount
  * interceptor that lets every request through but stamps an onward header
  * on it, the way lws-login stamps its login state; the client sends its
@@ -67,6 +77,8 @@
  *    what is expected),
  *  - the response status is not the one expected,
  *  - the CGI does not report receiving every byte of the POST body,
+ *  - (--pipelined) the first answer does not arrive whole, or a cgi is
+ *    spawned on the connection while its earlier one is still running,
  *  - (JOSE) the CGI did not see the interceptor's stamped header value,
  *  - no completion is seen inside the watchdog period,
  *  - the service loop went around more than MAX_PASSES times, ie, it spun.
@@ -113,6 +125,9 @@ enum expect {
 	EXPECT_NO_ANSWER,	/* the connection goes, with no response */
 	EXPECT_BIG_BODY,	/* 200 and all of the script's /big answer */
 	EXPECT_QUERY,		/* 200 and the QUERY_STRING the script saw */
+	EXPECT_PIPELINED,	/* a raw client's two GETs in one write: the
+				 * first answered 200 whole before any cgi
+				 * runs for the second */
 };
 
 struct tcase {
@@ -134,6 +149,7 @@ static const struct tcase cases[] = {
 	{ "fd-budget", "GET", "/", BODY_NONE, EXPECT_FD_BUDGET, 0, 0 },
 	{ "no-headers", "GET", "/nohdr", BODY_NONE, EXPECT_NO_ANSWER, 0, 0 },
 	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY, 0, 0 },
+	{ "pipelined", "GET", "/", BODY_NONE, EXPECT_PIPELINED, 0, 0 },
 #if defined(LWS_ROLE_H2)
 	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
 	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 1, 0 },
@@ -147,6 +163,11 @@ struct run {
 	char		rx[128];
 	size_t		rx_len;
 	size_t		rx_total;
+	uint8_t		raw[1024];	/* --pipelined: the raw client's rx */
+	size_t		raw_len;
+	int		responses;	/* ... and the whole answers in it */
+	int		cgi_overlap;	/* cgis spawned on a connection whose
+					 * earlier cgi was still running */
 	lws_usec_t	us_start;
 	lws_usec_t	us_end;
 	struct lws	*cli;
@@ -197,6 +218,11 @@ static const struct lws_http_mount mount = {
 
 struct pss {
 	int chunks_done;
+};
+
+/* server side, per connection */
+struct pss_srv {
+	int cgi_live;		/* cgis spawned and not yet terminated */
 };
 
 static void
@@ -447,6 +473,184 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * --pipelined: how many whole answers start the raw client's rx, 0 .. 2,
+ * each a 200 with a Content-Length whose body is the script's for a GET;
+ * -1 if what is there is not that
+ */
+
+static int
+raw_hdr_is(const uint8_t *p, const uint8_t *end, const char *name)
+{
+	size_t n = strlen(name), i;
+
+	if ((size_t)(end - p) < n)
+		return 0;
+
+	for (i = 0; i < n; i++) {
+		uint8_t c = p[i];
+
+		if (c >= 'A' && c <= 'Z')
+			c = (uint8_t)(c + ('a' - 'A'));
+		if (c != (uint8_t)name[i])
+			return 0;
+	}
+
+	return 1;
+}
+
+static int
+raw_responses(void)
+{
+	const uint8_t *p = run.raw, *end = run.raw + run.raw_len, *h, *e;
+	int count = 0;
+
+	while (count < 2) {
+		long cl = -1;
+
+		/* the end of this answer's headers */
+		for (e = p; e + 4 <= end; e++)
+			if (!memcmp(e, "\r\n\r\n", 4))
+				break;
+		if (e + 4 > end)
+			break;
+
+		if (end - p < 12 || memcmp(p, "HTTP/1.1 200", 12))
+			return -1;
+
+		/* its Content-Length, at the start of one of its lines */
+		for (h = p; h < e; h++)
+			if (h[0] == '\n' &&
+			    raw_hdr_is(h + 1, e, "content-length:")) {
+				h += 1 + strlen("content-length:");
+				while (h < e && *h == ' ')
+					h++;
+				cl = 0;
+				while (h < e && *h >= '0' && *h <= '9' &&
+				       cl < (long)sizeof(run.raw))
+					cl = (cl * 10) + (*h++ - '0');
+				break;
+			}
+		if (cl < 8 || cl >= (long)sizeof(run.raw))
+			return -1;
+
+		e += 4;
+		if ((size_t)(end - e) < (size_t)cl)
+			break;
+
+		/* the script's answer to a GET starts with its stdin count */
+		if (memcmp(e, "bytes=0\n", 8))
+			return -1;
+
+		count++;
+		p = e + cl;
+	}
+
+	return count;
+}
+
+static int
+callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
+	     void *user, void *in, size_t len)
+{
+	char buf[LWS_PRE + 256];
+	int n;
+
+	switch (reason) {
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_user("%s: raw client: connection error: %s\n", __func__,
+			  in ? (const char *)in : "(null)");
+		run_done();
+		break;
+
+	case LWS_CALLBACK_RAW_CONNECTED:
+		/* two bodyless GETs for the script, in one write */
+		n = lws_snprintf(buf + LWS_PRE, sizeof(buf) - LWS_PRE,
+				 "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n"
+				 "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
+				 tc->path, server, tc->path, server);
+		if (lws_write(wsi, (uint8_t *)buf + LWS_PRE, (size_t)n,
+			      LWS_WRITE_RAW) != n)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		if (run.raw_len + len > sizeof(run.raw)) {
+			lwsl_err("%s: raw client: too much rx\n", __func__);
+			return -1;
+		}
+		memcpy(run.raw + run.raw_len, in, len);
+		run.raw_len += len;
+
+		n = raw_responses();
+		if (n < 0) {
+			lwsl_err("%s: raw client: unexpected answer\n",
+				 __func__);
+			lwsl_hexdump_err(run.raw, run.raw_len);
+			return -1;
+		}
+		run.responses = n;
+		if (!n)
+			break;
+
+		/* the first answer is whole: the server may close after it */
+		run.status = 200;
+		run.completed = 1;
+		if (n < 2)
+			break;
+
+		run_done();
+
+		return -1; /* done: close */
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		lwsl_user("%s: raw client: closed after %d answers\n",
+			  __func__, run.responses);
+		run_done();
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * The cgi mount's protocol: lws_callback_http_dummy() does the work, we only
+ * watch the cgis come and go on each connection, since a cgi spawned while
+ * the connection's earlier one still runs is what --pipelined must not see
+ */
+static int
+callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
+	     void *user, void *in, size_t len)
+{
+	struct pss_srv *pss = (struct pss_srv *)user;
+
+	switch (reason) {
+	case LWS_CALLBACK_CGI_PROCESS_ATTACH:
+		if (pss) {
+			if (pss->cgi_live) {
+				lwsl_wsi_err(wsi, "cgi spawned over a live one");
+				run.cgi_overlap++;
+			}
+			pss->cgi_live++;
+		}
+		break;
+
+	case LWS_CALLBACK_CGI_TERMINATED:
+		if (pss && pss->cgi_live)
+			pss->cgi_live--;
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 #if defined(LWS_WITH_JOSE)
 /*
  * The interceptor on the CGI mount: passes everything, stamping the
@@ -468,7 +672,7 @@ callback_stamp(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 
 static const struct lws_protocols protocols_srv[] = {
-	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "http", callback_srv, sizeof(struct pss_srv), 0, 0, NULL, 0 },
 #if defined(LWS_WITH_JOSE)
 	{ "stamp", callback_stamp, 0, 0, 0, NULL, 0 },
 #endif
@@ -477,6 +681,7 @@ static const struct lws_protocols protocols_srv[] = {
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "http", callback_cli, sizeof(struct pss), 0, 0, NULL, 0 },
+	{ "raw", callback_raw, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -555,6 +760,11 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 	i.origin = server;
 	i.method = tc->method;
 	i.protocol = protocols_cli[0].name;
+	if (tc->expect == EXPECT_PIPELINED) {
+		/* a raw client that pipelines its two requests itself */
+		i.method = "RAW";
+		i.local_protocol_name = protocols_cli[1].name;
+	}
 #if defined(LWS_ROLE_H2)
 	if (tc->h2)
 		i.ssl_connection |= LCCSCF_H2_PRIOR_KNOWLEDGE;
@@ -637,6 +847,7 @@ int main(int argc, const char **argv)
 	case EXPECT_BODY_COUNT:
 	case EXPECT_BIG_BODY:
 	case EXPECT_QUERY:
+	case EXPECT_PIPELINED:
 		if (run_one(&info, info.fd_limit_per_thread) || !run.completed)
 			goto done;
 
@@ -658,6 +869,15 @@ int main(int argc, const char **argv)
 					 (unsigned int)BIG_BODY);
 				goto done;
 			}
+			break;
+		case EXPECT_PIPELINED:
+			if (run.cgi_overlap) {
+				lwsl_err("--- %d cgi spawned over a running "
+					 "one ---\n", run.cgi_overlap);
+				goto done;
+			}
+			lwsl_user("--- %d whole answers, no cgi overlap ---\n",
+				  run.responses);
 			break;
 		default:
 			if (!strstr(run.rx, QUERY_SEEN)) {
