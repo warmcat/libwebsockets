@@ -72,6 +72,33 @@ broadcast_to_listeners(struct vhd_oauth_preauth *vhd, const char *json)
 	} lws_end_foreach_dll(d);
 }
 
+/*
+ * Copy the string value of the top-level JSON member \p name out of the
+ * len-bounded message at \p in, JSON-purified so it can be interpolated into
+ * the JSON we broadcast.  Returns 1 if the member was present, else 0 with
+ * \p out untouched.  Values longer than the raw bound are truncated, not
+ * refused: they are display strings, and the purify step cannot cut inside
+ * an escape.
+ */
+static int
+preauth_json_str(const char *in, size_t len, const char *name, char *out,
+		 size_t out_len)
+{
+	char raw[128];
+	const char *p;
+	size_t al = 0;
+	int used = 0;
+
+	p = lws_json_simple_find(in, len, name, &al);
+	if (!p || !al)
+		return 0;
+
+	lws_strnncpy(raw, p, al, sizeof(raw));
+	lws_json_purify(out, raw, (int)out_len, &used);
+
+	return 1;
+}
+
 static int
 callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 			   void *user, void *in, size_t len)
@@ -193,95 +220,86 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-	{
-		const char *cp = (const char *)in;
+		/*
+		 * Both roles speak short, single-frame JSON objects: a device
+		 * announces {"name", "serial", "user_code"}, a listener sends
+		 * {"cmd": "identify", "serial"}.  The ws role NUL-terminates
+		 * only a non-empty slice, and with permessage-deflate a
+		 * zero-length FIN arrives with in == NULL, so nothing here may
+		 * look past len: fields are found with the length-bounded
+		 * lws_json_simple_find() and never with strstr().  A message
+		 * that does not fit one slice (rx_buffer_size) is not one of
+		 * ours; the peer is dropped rather than parsed piecemeal.
+		 */
+		if (!in || !len)
+			break;
+
+		if (!lws_is_first_fragment(wsi) || !lws_is_final_fragment(wsi)) {
+			lwsl_wsi_info(wsi, "fragmented message refused");
+			return -1;
+		}
+
 		if (pss->is_listener) {
-			/* Listeners can send {"cmd": "identify", "serial": "..."} */
-			if ((char *)strstr(cp, "\"identify\"")) {
-				const char *s = strstr(cp, "\"serial\":");
-				if (s) {
-					char target_serial[64];
-					s += 9;
-					while (*s == ' ' || *s == '"') s++;
-					int n = 0;
-					while (*s && *s != '"' && n < (int)sizeof(target_serial) - 1)
-						target_serial[n++] = *s++;
-					target_serial[n] = '\0';
+			char target_serial[64];
 
-					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->devices)) {
-						struct pss_oauth_preauth *dpss = lws_container_of(d, struct pss_oauth_preauth, list);
-						if (!strcmp(dpss->serial, target_serial)) {
-							send_json(dpss, "{\"cmd\":\"identify\"}");
-							break;
-						}
-					} lws_end_foreach_dll(d);
+			if (lws_json_simple_strcmp((const char *)in, len,
+						   "\"cmd\":", "identify") ||
+			    !preauth_json_str((const char *)in, len, "\"serial\":",
+					      target_serial,
+					      sizeof(target_serial)))
+				break;
+
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&vhd->devices)) {
+				struct pss_oauth_preauth *dpss =
+					lws_container_of(d,
+						struct pss_oauth_preauth, list);
+
+				if (!strcmp(dpss->serial, target_serial)) {
+					send_json(dpss, "{\"cmd\":\"identify\"}");
+					break;
 				}
-			}
-		} else {
-			/* Devices send {"name": "...", "serial": "...", "user_code": "..."} */
-			if ((char *)strstr(cp, "\"serial\":")) {
-				const char *n = strstr(cp, "\"name\":");
-				const char *s = strstr(cp, "\"serial\":");
-				const char *u = strstr(cp, "\"user_code\":");
+			} lws_end_foreach_dll(d);
+			break;
+		}
 
-				char raw_name[128] = {0};
-				char raw_serial[128] = {0};
-				char raw_code[32] = {0};
+		/* a device's announcement is recognised by its serial */
+		if (!preauth_json_str((const char *)in, len, "\"serial\":",
+				      pss->serial, sizeof(pss->serial)))
+			break;
 
-				if (n) {
-					n += 7;
-					while (*n == ' ' || *n == '"') n++;
-					int i = 0;
-					while (*n && *n != '"' && i < (int)sizeof(raw_name) - 1)
-						raw_name[i++] = *n++;
-					raw_name[i] = '\0';
-				}
-				if (s) {
-					s += 9;
-					while (*s == ' ' || *s == '"') s++;
-					int i = 0;
-					while (*s && *s != '"' && i < (int)sizeof(raw_serial) - 1)
-						raw_serial[i++] = *s++;
-					raw_serial[i] = '\0';
-				}
-				if (u) {
-					u += 12;
-					while (*u == ' ' || *u == '"') u++;
-					int i = 0;
-					while (*u && *u != '"' && i < (int)sizeof(raw_code) - 1)
-						raw_code[i++] = *u++;
-					raw_code[i] = '\0';
-				}
+		preauth_json_str((const char *)in, len, "\"name\":", pss->name,
+				 sizeof(pss->name));
+		preauth_json_str((const char *)in, len, "\"user_code\":",
+				 pss->user_code, sizeof(pss->user_code));
 
-				int used = 0;
-				if (raw_name[0]) lws_json_purify(pss->name, raw_name, sizeof(pss->name), &used);
-				used = 0;
-				if (raw_serial[0]) lws_json_purify(pss->serial, raw_serial, sizeof(pss->serial), &used);
-				used = 0;
-				if (raw_code[0]) lws_json_purify(pss->user_code, raw_code, sizeof(pss->user_code), &used);
+		{
+			char ip[46], temp_name[256];
 
-				char ip[46];
-				ip[0] = '\0';
-				lws_get_peer_simple(wsi, ip, sizeof(ip));
+			ip[0] = '\0';
+			lws_get_peer_simple(wsi, ip, sizeof(ip));
 
-				char temp_name[256];
-				if (pss->name[0]) {
-					lws_snprintf(temp_name, sizeof(temp_name), "%s (%s)", pss->name, ip);
-				} else {
-					lws_snprintf(temp_name, sizeof(temp_name), "Unknown (%s)", ip);
-				}
-				lws_strncpy(pss->name, temp_name, sizeof(pss->name));
+			if (pss->name[0])
+				lws_snprintf(temp_name, sizeof(temp_name),
+					     "%s (%s)", pss->name, ip);
+			else
+				lws_snprintf(temp_name, sizeof(temp_name),
+					     "Unknown (%s)", ip);
+			lws_strncpy(pss->name, temp_name, sizeof(pss->name));
+		}
 
-				if (pss->serial[0]) {
-					char buf[512];
-					lws_snprintf(buf, sizeof(buf), "{\"event\":\"device_joined\",\"name\":\"%s\",\"serial\":\"%s\",\"user_code\":\"%s\",\"expires\":%llu}",
-						pss->name, pss->serial, pss->user_code, (unsigned long long)pss->expires);
-					broadcast_to_listeners(vhd, buf);
-				}
-			}
+		if (pss->serial[0]) {
+			char buf[512];
+
+			lws_snprintf(buf, sizeof(buf),
+				     "{\"event\":\"device_joined\",\"name\":\"%s\","
+				     "\"serial\":\"%s\",\"user_code\":\"%s\","
+				     "\"expires\":%llu}",
+				     pss->name, pss->serial, pss->user_code,
+				     (unsigned long long)pss->expires);
+			broadcast_to_listeners(vhd, buf);
 		}
 		break;
-	}
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (pss->tx_pending) {
