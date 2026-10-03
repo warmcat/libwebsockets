@@ -41,12 +41,19 @@ browser that started the login**:
    its `state`; a second callback with the same `state` is answered `400`
    ("Invalid or expired state").
 
- - `/oauth/login` also sets a short-lived `auth_oauth_state` cookie
-   (host-only, `HttpOnly`, `SameSite=Lax`, `Secure`, `Max-Age=300`) carrying a
-   random nonce, and `/oauth/callback` requires the browser to present it.
-   This is the RFC 6749 s10.12 binding of the state to the user agent: without
-   it, a callback URL captured from an attacker's own authorize round trip can
-   be handed to a victim, silently signing the victim in as the attacker.
+ - `/oauth/login` also sets a short-lived `__Host-auth_oauth_state` cookie
+   (host-only, `Path=/`, `HttpOnly`, `SameSite=Lax`, `Secure`, `Max-Age=300`)
+   carrying a random nonce, and `/oauth/callback` requires the browser to
+   present it.  This is the RFC 6749 s10.12 binding of the state to the user
+   agent: without it, a callback URL captured from an attacker's own authorize
+   round trip can be handed to a victim, silently signing the victim in as the
+   attacker.  The `__Host-` prefix is what makes the binding hold against a
+   sibling host: a browser only stores a `__Host-` cookie that is `Secure`,
+   has no `Domain` and has `Path=/`, and only from the host it is for, so a
+   page on another host under the same registrable domain cannot plant one
+   (a plain host-only cookie offered no such protection: a `Domain=`-scoped
+   copy of the same name set by a sibling is presented to this host too).
+   Only the first occurrence of the cookie is consulted.
 
 Because the binding cookie has a fixed name, only one login handshake per
 browser is in flight at a time: starting a second `/oauth/login` in another tab

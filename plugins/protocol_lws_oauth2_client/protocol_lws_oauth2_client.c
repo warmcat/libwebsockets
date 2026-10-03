@@ -67,8 +67,20 @@
  * callback URL captured from the attacker's own authorize round trip can be
  * fed to a victim's browser, silently signing the victim in as the attacker
  * (login CSRF / session fixation).
+ *
+ * The __Host- prefix (RFC 6265bis s4.1.3.2) is what makes "host-only" a
+ * guarantee rather than a habit: a browser accepts a __Host- cookie only
+ * when it is Secure, has no Domain attribute and has Path=/, which is
+ * exactly how lws_http_cookie_compose() mints it, and it refuses to store
+ * one set by any other host, however scoped.  Minting without Domain= did
+ * nothing against a sibling host setting "auth_oauth_state=<nonce>;
+ * Domain=example.com", which the browser presented here alongside (or
+ * instead of) ours and which re-enabled the login CSRF for an attacker with
+ * a foothold on any host under the registrable domain (C-789).  With the
+ * prefix there is at most one such cookie, so only the first occurrence is
+ * read; nothing else is accepted.
  */
-#define OAUTH2_STATE_COOKIE "auth_oauth_state"
+#define OAUTH2_STATE_COOKIE "__Host-auth_oauth_state"
 
 /* nonce is 16 random bytes as hex + NUL */
 #define OAUTH2_STATE_NONCE_LEN 33
@@ -1106,33 +1118,26 @@ rand_fail:
 			 * a victim (a plain top-level GET, which SameSite=Lax
 			 * permits) and the victim is silently signed in as the
 			 * attacker.  Require the browser to present the nonce
-			 * we planted at /oauth/login.  Walk the same-named
-			 * cookies rather than trusting the first: a browser can
-			 * legitimately present a host-only and a Domain-scoped
-			 * cookie of the same name.
+			 * we planted at /oauth/login.  The cookie is __Host-
+			 * prefixed, so a browser holds at most one of that
+			 * name for this host and nothing another host set:
+			 * only the first occurrence is consulted (walking
+			 * further same-named cookies is what let a planted
+			 * Domain-scoped copy satisfy the check, C-789).
 			 */
 			{
 				char nonce_in[OAUTH2_STATE_NONCE_LEN];
-				size_t nl;
-				int n, ok = 0;
+				size_t nl = sizeof(nonce_in);
+				int ok = 0;
 
-				for (n = 0; !ok && n < 4; n++) {
-					int r;
-
-					nl = sizeof(nonce_in);
-					r = lws_http_cookie_get_nth(wsi,
-							OAUTH2_STATE_COOKIE, n,
-							nonce_in, &nl);
-					if (r == 1) /* no n-th one: done */
-						break;
-					if (r) /* eg oversized: try the next */
-						continue;
-					if (nl == strlen(ps->state_nonce) &&
-					    !lws_timingsafe_bcmp(nonce_in,
-							ps->state_nonce,
-							(uint32_t)nl))
-						ok = 1;
-				}
+				if (!lws_http_cookie_get_nth(wsi,
+							     OAUTH2_STATE_COOKIE,
+							     0, nonce_in, &nl) &&
+				    nl == strlen(ps->state_nonce) &&
+				    !lws_timingsafe_bcmp(nonce_in,
+							 ps->state_nonce,
+							 (uint32_t)nl))
+					ok = 1;
 
 				if (!ok) {
 					lwsl_wsi_notice(wsi, "/oauth/callback: "

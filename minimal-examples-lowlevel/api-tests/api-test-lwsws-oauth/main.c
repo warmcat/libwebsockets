@@ -25,7 +25,7 @@
  *          lws-login must bounce to the local BFF, and the BFF must answer with
  *          a PKCE redirect to the auth server carrying client_id, redirect_uri,
  *          state, code_challenge + S256 and service_name, plus the
- *          auth_oauth_state binding cookie that RFC 6749 s10.12 wants.
+ *          __Host-auth_oauth_state binding cookie that RFC 6749 s10.12 wants.
  *
  *  adminws: the auth server's admin console ws, opened by the seeded '*'
  *          holder logged in on the auth server itself.  It must refuse an
@@ -1213,8 +1213,8 @@ scenario_bounce(void)
 	 * h3 while the body of the same response arrived intact.
 	 */
 
-	if (!has_cookie("auth_oauth_state"))
-		return fail("bounce", "/oauth/login set no auth_oauth_state "
+	if (!has_cookie("__Host-auth_oauth_state"))
+		return fail("bounce", "/oauth/login set no __Host-auth_oauth_state "
 				      "binding cookie (Set-Cookie seen: '%s')",
 				      set_cookie);
 
@@ -1255,8 +1255,8 @@ scenario_login(void)
 		return fail("login", "the authorize redirect is missing a PKCE "
 				     "parameter: '%s'", authorize);
 
-	if (!jar_value(JAR_APP, "auth_oauth_state"))
-		return fail("login", "no auth_oauth_state binding cookie in "
+	if (!jar_value(JAR_APP, "__Host-auth_oauth_state"))
+		return fail("login", "no __Host-auth_oauth_state binding cookie in "
 				     "the app jar after /oauth/login");
 
 	/*
