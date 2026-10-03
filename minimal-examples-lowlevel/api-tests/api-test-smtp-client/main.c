@@ -631,6 +631,101 @@ test_checks(void)
  * part two: lws_smtpc end to end, against a fake relay
  */
 
+#if defined(LWS_WITH_TLS)
+
+/* the fake relay's self-signed certificate, for localhost, as its own CA */
+
+static const char * const test_cert =
+"-----BEGIN CERTIFICATE-----\n"
+"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\n"
+"e2Hl/7M0c/lbZ4FvXgARlex2rkgS0Ka06HE=\n"
+"-----END CERTIFICATE-----\n";
+
+static const char * const test_key =
+"-----BEGIN PRIVATE KEY-----\n"
+"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\n"
+"fBrpEY1IATtPq1taBZZogRqI3rOkkPk=\n"
+"-----END PRIVATE KEY-----\n";
+#endif
+
 enum {
 	MTA_PLAIN,		/* greets; STARTTLS if srv.offer_starttls */
 	MTA_TLS,		/* implicit tls, greets */
@@ -963,6 +1058,8 @@ struct smtpt_case {
 	int		(*start)(void);
 	int		expect;		/* outcomes to wait for */
 	int		(*check)(void);	/* 0 for pass */
+	const struct lws_protocol_vhost_options *pvo;
+			/* the case has a vhost of its own, with these */
 };
 
 static void next_case(lws_sorted_usec_list_t *sul);
@@ -1004,10 +1101,18 @@ done_cb(void *opaque, const lws_smtp_email_t *email,
 {
 	struct outcome *o;
 
-	(void)opaque;
-
 	lwsl_user("%s: mail %d to %s: outcome %d, %d %s\n", __func__, got.n,
 		  email->to, (int)res->outcome, res->code, res->text);
+
+	/*
+	 * A case's own vhost is destroyed after the case, and the mails its
+	 * client still had are abandoned then, outside their case
+	 */
+	if ((int)(intptr_t)opaque != cur) {
+		lwsl_user("%s: late outcome from case %d\n", __func__,
+			  (int)(intptr_t)opaque);
+		return;
+	}
 
 	if (got.n == (int)LWS_ARRAY_SIZE(got.o))
 		return;
@@ -1050,10 +1155,18 @@ make_smtpc(struct lws_vhost *vh, int port, lws_smtpc_tls_t tls, int tries,
 	return !smtpc;
 }
 
+/* the outcome of a mail says which case queued it */
+
+static int
+queue_on(struct lws_smtpc *c, const lws_smtp_email_t *m)
+{
+	return lws_smtpc_queue(c, m, done_cb, (void *)(intptr_t)cur);
+}
+
 static int
 queue(const lws_smtp_email_t *m)
 {
-	return lws_smtpc_queue(smtpc, m, done_cb, NULL);
+	return queue_on(smtpc, m);
 }
 
 static int
@@ -1380,7 +1493,7 @@ start_own(void)
 	if (lws_smtpc_vhost(vh_case) != own)
 		return 1;
 
-	return lws_smtpc_queue(own, &m1, done_cb, NULL);
+	return queue_on(own, &m1);
 }
 
 static int
@@ -1388,6 +1501,93 @@ check_own(void)
 {
 	return expect_outcome(0, LWS_SMTPC_DELIVERED, 250) || srv.nmsg != 1;
 }
+
+#if defined(LWS_WITH_TLS)
+
+/*
+ * 13 - 15: the vhost's own client with tls: the relay's certificate is for
+ * "localhost", and the relay is reached as "127.0.0.1"
+ */
+
+static struct lws_protocol_vhost_options pvo_tls_port = {
+	NULL, NULL, "smtp-port", ""
+}, pvo_tls_tls = {
+	&pvo_tls_port, NULL, "smtp-tls", "implicit"
+}, pvo_tls_host = {
+	&pvo_tls_tls, NULL, "smtp-host", "127.0.0.1"
+},
+
+/* 13: nothing said about the name: it is checked against smtp-host */
+pvo_smtpc_tls = {
+	NULL, &pvo_tls_host, LWS_SMTPC_PROTOCOL_NAME, ""
+},
+
+/* 14: smtp-tls-host names what the certificate is for */
+pvo_tls_name = {
+	&pvo_tls_host, NULL, "smtp-tls-host", "localhost"
+}, pvo_smtpc_tls_named = {
+	NULL, &pvo_tls_name, LWS_SMTPC_PROTOCOL_NAME, ""
+},
+
+/* 15: the name check is explicitly skipped */
+pvo_tls_skip = {
+	&pvo_tls_host, NULL, "smtp-tls-skip-hostname-check", "1"
+}, pvo_smtpc_tls_skip = {
+	NULL, &pvo_tls_skip, LWS_SMTPC_PROTOCOL_NAME, ""
+};
+static char port_tls_str[8];
+
+static int
+start_own_tls(void)
+{
+	struct lws_smtpc *own = lws_smtpc_vhost(vh_case);
+
+	return !own || queue_on(own, &m1);
+}
+
+static void
+step_own_tls_unnamed(lws_sorted_usec_list_t *sul)
+{
+	/*
+	 * The default backoff has tried again by now: the relay was reached
+	 * each time, but no mail went, since its certificate is not for the
+	 * address we reached it by
+	 */
+	if (got.n || srv.nmsg || srv.connections < 2) {
+		lwsl_err("%s: %d outcomes, %d messages, %d connections\n",
+			 __func__, got.n, srv.nmsg, srv.connections);
+		case_finish(0, "mail went without the name checked");
+
+		return;
+	}
+
+	case_finish(1, NULL);
+}
+
+static int
+start_own_tls_unnamed(void)
+{
+	lws_sul_schedule(context, 0, &sul_step, step_own_tls_unnamed,
+			 1500 * LWS_US_PER_MS);
+
+	return start_own_tls();
+}
+
+static int
+check_own_tls_unnamed(void)
+{
+	/* any outcome at all is a mail that went, or was given up early */
+	return 1;
+}
+
+static int
+check_own_tls(void)
+{
+	return expect_outcome(0, LWS_SMTPC_DELIVERED, 250) || srv.nmsg != 1 ||
+	       srv.msg[0].kind != MTA_TLS;
+}
+
+#endif
 
 /* 13: the vhost goes from under a client with mails queued */
 
@@ -1433,36 +1633,45 @@ check_vhost_gone(void)
 
 static const struct smtpt_case cases[] = {
 	{ "plaintext, three mails on one connection",
-		start_plain, 3, check_plain },
+		start_plain, 3, check_plain, NULL },
 	{ "a refused mail, then one delivered",
-		start_refused, 2, check_refused },
+		start_refused, 2, check_refused, NULL },
 	{ "deferred once, delivered next time",
-		start_greylist, 1, check_greylist },
+		start_greylist, 1, check_greylist, NULL },
 	{ "deferred every time, given up",
-		start_always451, 1, check_always451 },
+		start_always451, 1, check_always451, NULL },
 	{ "silent relay, reply timeout",
-		start_silent, 1, check_silent },
+		start_silent, 1, check_silent, NULL },
 	{ "destroyed with mails queued",
-		start_abandon, 2, check_abandon },
+		start_abandon, 2, check_abandon, NULL },
 	{ "destroyed from a mail's callback",
-		start_destroy_in_cb, 2, check_destroy_in_cb },
+		start_destroy_in_cb, 2, check_destroy_in_cb, NULL },
 	{ "queue refusals",
-		start_refuse_queue, 1, check_refuse_queue },
+		start_refuse_queue, 1, check_refuse_queue, NULL },
 #if defined(LWS_WITH_TLS)
 	{ "implicit tls",
-		start_implicit, 1, check_implicit },
+		start_implicit, 1, check_implicit, NULL },
 	{ "STARTTLS, then the session over tls",
-		start_starttls, 2, check_starttls },
+		start_starttls, 2, check_starttls, NULL },
 	{ "STARTTLS required but not offered",
-		start_starttls_missing, 1, check_starttls_missing },
+		start_starttls_missing, 1, check_starttls_missing, NULL },
 #else
 	{ "tls refused without tls in the build",
-		start_no_tls, 0, check_no_tls },
+		start_no_tls, 0, check_no_tls, NULL },
 #endif
 	{ "the vhost's own client from pvos",
-		start_own, 1, check_own },
+		start_own, 1, check_own, &pvo_smtpc },
+#if defined(LWS_WITH_TLS)
+	{ "own client, tls: certificate checked against smtp-host",
+		start_own_tls_unnamed, 0, check_own_tls_unnamed,
+		&pvo_smtpc_tls },
+	{ "own client, tls: certificate checked against smtp-tls-host",
+		start_own_tls, 1, check_own_tls, &pvo_smtpc_tls_named },
+	{ "own client, tls: name check skipped by pvo",
+		start_own_tls, 1, check_own_tls, &pvo_smtpc_tls_skip },
+#endif
 	{ "vhost destroyed under a client",
-		start_vhost_gone, 2, check_vhost_gone },
+		start_vhost_gone, 2, check_vhost_gone, NULL },
 };
 
 static const struct smtpt_case *
@@ -1482,7 +1691,7 @@ next_case(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context_creation_info info;
 
-	if (cur >= 0 && cases[cur].start == start_own && vh_case) {
+	if (cur >= 0 && cases[cur].pvo && vh_case) {
 		lws_vhost_destroy(vh_case);
 		vh_case = NULL;
 	}
@@ -1503,12 +1712,19 @@ next_case(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("--- case %d: %s ---\n", cur, cases[cur].name);
 
-	if (cases[cur].start == start_own) {
+	if (cases[cur].pvo) {
+		/* the case's own vhost, trusting the fake relay's cert */
 		memset(&info, 0, sizeof(info));
 		info.port = CONTEXT_PORT_NO_LISTEN;
 		info.vhost_name = "own";
 		info.protocols = protocols;
-		info.pvo = &pvo_smtpc;
+		info.pvo = cases[cur].pvo;
+		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#if defined(LWS_WITH_TLS)
+		info.client_ssl_ca_mem = test_cert;
+		info.client_ssl_ca_mem_len = (unsigned int)strlen(test_cert);
+		info.alpn = "smtp";
+#endif
 		vh_case = lws_create_vhost(context, &info);
 		if (!vh_case) {
 			case_finish(0, "no vhost");
@@ -1528,100 +1744,6 @@ sigint_handler(int sig)
 {
 	lws_default_loop_exit(context);
 }
-
-#if defined(LWS_WITH_TLS)
-/* the fake relay's self-signed certificate, for localhost, as its own CA */
-
-static const char * const test_cert =
-"-----BEGIN CERTIFICATE-----\n"
-"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\n"
-"e2Hl/7M0c/lbZ4FvXgARlex2rkgS0Ka06HE=\n"
-"-----END CERTIFICATE-----\n";
-
-static const char * const test_key =
-"-----BEGIN PRIVATE KEY-----\n"
-"MIIJQwIBADANBgkqhkiG9w0BAQEFAASCCS0wggkpAgEAAoICAQCjYtuWaICCY0tJ\n"
-"PubxpIgIL+WWmz/fmK8IQr11Wtee6/IUyUlo5I602mq1qcLhT/kmpoR8Di3DAmHK\n"
-"nSWdPWtn1BtXLErLlUiHgZDrZWInmEBjKM1DZf+CvNGZ+EzPgBv5nTekLWcfI5ZZ\n"
-"toGuIP1Dl/IkNDw8zFz4cpiMe/BFGemyxdHhLrKHSm8Eo+nT734tItnHKT/m6DSU\n"
-"0xlZ13d6ehLRm7/+Nx47M3XMTRH5qKP/7TTE2s0U6+M0tsGI2zpRi+m6jzhNyMBT\n"
-"J1u58qAe3ZW5/+YAiuZYAB6n5bhUp4oFuB5wYbcBywVR8ujInpF8buWQUjy5N8pS\n"
-"Np7szdYsnLJpvAd0sibrNPjC0FQCNrpNjgJmIK3+mKk4kXX7ZTwefoAzTK4l2pHN\n"
-"uC53QVc/EF++GBLAxmvCDq9ZpMIYi7OmzkkAKKC9Ue6Ef217LFQCFIBKIzv9cgi9\n"
-"fwPMLhrKleoVRNsecBsCP569WgJXhUnwf2lon4fEZr3+vRuc9shfqnV0nPN1IMSn\n"
-"zXCast7I2fiuRXdIz96KjlGQpP4XfNVA+RGL7aMnWOFIaVrKWLzAtgzoGMTvP/Au\n"
-"ehKXncBJhYtW0ltTioVx+5yTYSAZWl+IssmXjefxJqYi2/7QWmv1QC9psNcjTMaB\n"
-"QLN03T1Qelbs7Y27sxdEnNUth4kI+wIDAQABAoICAFWe8MQZb37k2gdAV3Y6aq8f\n"
-"qokKQqbCNLd3giGFwYkezHXoJfg6Di7oZxNcKyw35LFEghkgtQqErQqo35VPIoH+\n"
-"vXUpWOjnCmM4muFA9/cX6mYMc8TmJsg0ewLdBCOZVw+wPABlaqz+0UOiSMMftpk9\n"
-"fz9JwGd8ERyBsT+tk3Qi6D0vPZVsC1KqxxL/cwIFd3Hf2ZBtJXe0KBn1pktWht5A\n"
-"Kqx9mld2Ovl7NjgiC1Fx9r+fZw/iOabFFwQA4dr+R8mEMK/7bd4VXfQ1o/QGGbMT\n"
-"G+ulFrsiDyP+rBIAaGC0i7gDjLAIBQeDhP409ZhswIEc/GBtODU372a2CQK/u4Q/\n"
-"HBQvuBtKFNkGUooLgCCbFxzgNUGc83GB/6IwbEM7R5uXqsFiE71LpmroDyjKTlQ8\n"
-"YZkpIcLNVLw0usoGYHFm2rvCyEVlfsE3Ub8cFyTFk50SeOcF2QL2xzKmmbZEpXgl\n"
-"xBHR0hjgon0IKJDGfor4bHO7Nt+1Ece8u2oTEKvpz5aIn44OeC5mApRGy83/0bvs\n"
-"esnWjDE/bGpoT8qFuy+0urDEPNId44XcJm1IRIlG56ErxC3l0s11wrIpTmXXckqw\n"
-"zFR9s2z7f0zjeyxqZg4NTPI7wkM3M8BXlvp2GTBIeoxrWB4V3YArwu8QF80QBgVz\n"
-"mgHl24nTg00UH1OjZsABAoIBAQDOxftSDbSqGytcWqPYP3SZHAWDA0O4ACEM+eCw\n"
-"au9ASutl0IDlNDMJ8nC2ph25BMe5hHDWp2cGQJog7pZ/3qQogQho2gUniKDifN77\n"
-"40QdykllTzTVROqmP8+efreIvqlzHmuqaGfGs5oTkZaWj5su+B+bT+9rIwZcwfs5\n"
-"YRINhQRx17qa++xh5mfE25c+M9fiIBTiNSo4lTxWMBShnK8xrGaMEmN7W0qTMbFH\n"
-"PgQz5FcxRjCCqwHilwNBeLDTp/ZECEB7y34khVh531mBE2mNzSVIQcGZP1I/DvXj\n"
-"W7UUNdgFwii/GW+6M0uUDy23UVQpbFzcV8o1C2nZc4Fb4zwBAoIBAQDKSJkFwwuR\n"
-"naVJS6WxOKjX8MCu9/cKPnwBv2mmI2jgGxHTw5sr3ahmF5eTb8Zo19BowytN+tr6\n"
-"2ZFoIBA9Ubc9esEAU8l3fggdfM82cuR9sGcfQVoCh8tMg6BP8IBLOmbSUhN3PG2m\n"
-"39I802u0fFNVQCJKhx1m1MFFLOu7lVcDS9JN+oYVPb6MDfBLm5jOiPuYkFZ4gH79\n"
-"J7gXI0/YKhaJ7yXthYVkdrSF6Eooer4RZgma62Dd1VNzSq3JBo6rYjF7Lvd+RwDC\n"
-"R1thHrmf/IXplxpNVkoMVxtzbrrbgnC25QmvRYc0rlS/kvM4yQhMH3eA7IycDZMp\n"
-"Y+0xm7I7jTT7AoIBAGKzKIMDXdCxBWKhNYJ8z7hiItNl1IZZMW2TPUiY0rl6yaCh\n"
-"BVXjM9W0r07QPnHZsUiByqb743adkbTUjmxdJzjaVtxN7ZXwZvOVrY7I7fPWYnCE\n"
-"fXCr4+IVpZI/ZHZWpGX6CGSgT6EOjCZ5IUufIvEpqVSmtF8MqfXO9o9uIYLokrWQ\n"
-"x1dBl5UnuTLDqw8bChq7O5y6yfuWaOWvL7nxI8NvSsfj4y635gIa/0dFeBYZEfHI\n"
-"UlGdNVomwXwYEzgE/c19ruIowX7HU/NgxMWTMZhpazlxgesXybel+YNcfDQ4e3RM\n"
-"OMz3ZFiaMaJsGGNf4++d9TmMgk4Ns6oDs6Tb9AECggEBAJYzd+SOYo26iBu3nw3L\n"
-"65uEeh6xou8pXH0Tu4gQrPQTRZZ/nT3iNgOwqu1gRuxcq7TOjt41UdqIKO8vN7/A\n"
-"aJavCpaKoIMowy/aGCbvAvjNPpU3unU8jdl/t08EXs79S5IKPcgAx87sTTi7KDN5\n"
-"SYt4tr2uPEe53NTXuSatilG5QCyExIELOuzWAMKzg7CAiIlNS9foWeLyVkBgCQ6S\n"
-"me/L8ta+mUDy37K6vC34jh9vK9yrwF6X44ItRoOJafCaVfGI+175q/eWcqTX4q+I\n"
-"G4tKls4sL4mgOJLq+ra50aYMxbcuommctPMXU6CrrYyQpPTHMNVDQy2ttFdsq9iK\n"
-"TncCggEBAMmt/8yvPflS+xv3kg/ZBvR9JB1In2n3rUCYYD47ReKFqJ03Vmq5C9nY\n"
-"56s9w7OUO8perBXlJYmKZQhO4293lvxZD2Iq4NcZbVSCMoHAUzhzY3brdgtSIxa2\n"
-"gGveGAezZ38qKIU26dkz7deECY4vrsRkwhpTW0LGVCpjcQoaKvymAoCmAs8V2oMr\n"
-"Ziw1YQ9uOUoWwOqm1wZqmVcOXvPIS2gWAs3fQlWjH9hkcQTMsUaXQDOD0aqkSY3E\n"
-"NqOvbCV1/oUpRi3076khCoAXI1bKSn/AvR3KDP14B5toHI/F5OTSEiGhhHesgRrs\n"
-"fBrpEY1IATtPq1taBZZogRqI3rOkkPk=\n"
-"-----END PRIVATE KEY-----\n";
-#endif
 
 int
 main(int argc, const char **argv)
@@ -1667,6 +1789,10 @@ main(int argc, const char **argv)
 
 	lws_snprintf(port_plain_str, sizeof(port_plain_str), "%d", port_plain);
 	pvo_port.value = port_plain_str;
+#if defined(LWS_WITH_TLS)
+	lws_snprintf(port_tls_str, sizeof(port_tls_str), "%d", port_tls);
+	pvo_tls_port.value = port_tls_str;
+#endif
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

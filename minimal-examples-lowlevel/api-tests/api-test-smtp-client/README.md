@@ -26,12 +26,15 @@ same process:
 |9|STARTTLS, then the session over tls|
 |10|STARTTLS required, and not offered|
 |11|the vhost's own client, configured by pvos|
-|12|the vhost destroyed under a client with mails queued|
+|12|the own client with tls and no `smtp-tls-host`: the certificate is checked against `smtp-host`, so none for the address gets no mail|
+|13|the own client with tls and `smtp-tls-host` naming the certificate|
+|14|the own client with tls and `smtp-tls-skip-hostname-check`|
+|15|the vhost destroyed under a client with mails queued|
 
 For STARTTLS the fake relay, once it has said 220, relays the connection's
 bytes to a tls listener of its own, so the client's tls upgrade happens on a
 real connection.  Without tls in the build, cases 8 to 10 are replaced by one
-that checks a tls client is refused.
+that checks a tls client is refused, and 12 to 14 are left out.
 
 ## ctest
 
@@ -57,6 +60,6 @@ ctest runs it with four free ports picked for the fake relay.
  $ ./bin/lws-api-test-smtp-client
 [2026/09/30 10:19:57:6621] U: sansIO session: 0 failures
 ...
-[2026/09/30 10:20:00:1563] U: --- case 12: vhost destroyed under a client: PASS ---
+[2026/09/30 10:20:00:1563] U: --- case 15: vhost destroyed under a client: PASS ---
 [2026/09/30 10:20:00:2157] U: Completed: PASS (0 failures)
 ```

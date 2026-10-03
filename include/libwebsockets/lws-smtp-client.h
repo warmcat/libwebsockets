@@ -172,9 +172,12 @@ lws_smtpc_destroy(struct lws_smtpc **psmtpc);
  *  - "smtp-host": the relay to connect to, default "127.0.0.1"
  *  - "smtp-port": its port, default 25
  *  - "smtp-tls": "none" (the default), "implicit" or "starttls"
- *  - "smtp-tls-host": the name to check the relay's certificate against;
- *    if it is not given, the certificate is checked against the vhost's
- *    trusted CAs but not for its name
+ *  - "smtp-tls-host": the name to check the relay's certificate against,
+ *    default the "smtp-host" (a name, or an address literal the certificate
+ *    carries as an IP SAN)
+ *  - "smtp-tls-skip-hostname-check": "1" to check the certificate only
+ *    against the vhost's trusted CAs and not for its name, for a relay
+ *    reached by an address its certificate does not carry
  *  - "smtp-helo": our name for EHLO, default "localhost"
  *
  * It lives as long as the vhost.

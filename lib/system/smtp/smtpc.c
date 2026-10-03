@@ -685,11 +685,19 @@ lws_smtpc_vhost(struct lws_vhost *vh)
 		}
 	}
 
+	/*
+	 * Without smtp-tls-host, lws_smtpc_create() checks the relay's
+	 * certificate against smtp-host itself, a name or an address literal.
+	 * Only a relay reached by an address its certificate does not carry
+	 * needs the name check skipped, and that is said explicitly.
+	 */
+
 	if ((o = lws_pvo_search(pvo, "smtp-tls-host")) && o->value &&
 	    o->value[0])
 		info.host = o->value;
-	else
-		/* the relay's cert must still be one the vhost trusts */
+
+	if ((o = lws_pvo_search(pvo, "smtp-tls-skip-hostname-check")) &&
+	    o->value && atoi(o->value))
 		info.tls_flags = LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 
 	if ((o = lws_pvo_search(pvo, "smtp-helo")) && o->value && o->value[0])
@@ -701,8 +709,13 @@ lws_smtpc_vhost(struct lws_vhost *vh)
 
 	vh->smtpc->own = 1;
 
-	lwsl_vhost_notice(vh, "smtp relay %s:%u, tls %d", vh->smtpc->i.address,
-			  (unsigned int)vh->smtpc->i.port, (int)vh->smtpc->i.tls);
+	lwsl_vhost_notice(vh, "smtp relay %s:%u, tls %d, cert name %s",
+			  vh->smtpc->i.address,
+			  (unsigned int)vh->smtpc->i.port, (int)vh->smtpc->i.tls,
+			  vh->smtpc->i.tls == LWS_SMTPC_TLS_NONE ? "n/a" :
+			  (vh->smtpc->i.tls_flags &
+			   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK) ? "unchecked" :
+							  vh->smtpc->i.host);
 
 	return vh->smtpc;
 }

@@ -107,6 +107,8 @@ The bootstrap registration uses the same code path as ordinary registration: the
 
 Mail goes out through the vhost's own lws SMTP client (`lws_smtpc_vhost()`, see `READMEs/README.smtp-client.md`), which the `lws-smtp-client` PVOs configure; with none it uses a plaintext relay on `127.0.0.1:25`.  How each mail went, including any the relay refused, is logged by it.
 
+The verification and recovery links this mail carries are bearer secrets for the account, so a remote relay should be reached with `"smtp-tls": "implicit"` or `"starttls"`, when its certificate is checked against `smtp-host` (or `smtp-tls-host`, if the certificate is for a different name than the relay is reached by).  `"smtp-tls-skip-hostname-check": "1"` turns the name check off and is only for a relay on a path nothing else can get onto.
+
 ### The TOFU "God" Grant
 The very first user promoted into an empty `users` table (i.e. the one whose verification link is consumed first) is automatically provisioned with a literal `*` wildcard grant. This specialized grant establishes total, unrestricted administrative rights (or "god mode") across all applications verifying against this system.
 

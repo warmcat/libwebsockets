@@ -85,15 +85,26 @@ built.  In lwsws JSON:
 |`smtp-host`|the relay to connect to|`127.0.0.1`|
 |`smtp-port`|its port|25|
 |`smtp-tls`|`none`, `implicit` (tls from the start) or `starttls`|`none`|
-|`smtp-tls-host`|the name the relay's certificate is checked against|none: see below|
+|`smtp-tls-host`|the name the relay's certificate is checked against|`smtp-host`|
+|`smtp-tls-skip-hostname-check`|`1` to not check the certificate's name at all|`0`|
 |`smtp-helo`|our name for EHLO|`localhost`|
 
 With tls, the relay's certificate must be one the vhost's client tls
-context trusts.  If `smtp-tls-host` is not given, its name is not checked,
-since a local relay is usually reached by address.
+context trusts, and must be for the relay: the name it is checked against is
+`smtp-tls-host` if given, else `smtp-host` itself, which may be an address
+literal if the certificate carries it as an IP SAN.  A relay reached by an
+address its certificate does not carry, typically a local one, needs either
+`smtp-tls-host` naming what the certificate is for, or
+`smtp-tls-skip-hostname-check`, which leaves the certificate checked against
+the trusted CAs but not for its name: any certificate they issued is then
+accepted, so it is only for a relay on a path nothing else can get onto.
 
 These were the options of the smtp client plugin this replaces, which the
-vhost's own client now reads; a config that used the plugin works unchanged.
+vhost's own client now reads; a config that used the plugin works unchanged,
+except that the plugin and the first library version skipped the name check
+whenever `smtp-tls-host` was not given.  A config with `smtp-tls` on and no
+`smtp-tls-host` now has the certificate checked against `smtp-host`, and
+needs `smtp-tls-skip-hostname-check` to get the old behaviour.
 
 ## How mail is delivered
 
