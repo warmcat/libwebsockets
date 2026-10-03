@@ -757,6 +757,7 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	uint8_t buf[LWS_PRE + 512], *p = buf + LWS_PRE, *end = buf + sizeof(buf);
 	struct pss_uri *pss = (struct pss_uri *)user;
+	size_t o;
 	int n;
 
 	switch (reason) {
@@ -820,16 +821,21 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			n = lws_hdr_copy(wsi, pss->body,
 					 (int)sizeof(pss->body) - 1,
 					 WSI_TOKEN_POST_URI);
-		/* we keep room for the '\n' and the args' NUL after it */
-		if (n < 0 || n > (int)sizeof(pss->body) - 2)
+		if (n < 0)
 			return 1;
-		pss->body[n++] = '\n';
-		pss->len = lws_hdr_copy(wsi, pss->body + n,
-					(int)sizeof(pss->body) - n,
-					WSI_TOKEN_HTTP_URI_ARGS);
-		if (pss->len < 0)
+		/*
+		 * The copy is NUL-terminated, so measure what's in the buffer
+		 * rather than trusting the returned length as an index.  We
+		 * keep room for the '\n' and the args' NUL after it.
+		 */
+		o = strlen(pss->body);
+		if (o > sizeof(pss->body) - 2)
 			return 1;
-		pss->len += n;
+		pss->body[o++] = '\n';
+		if (lws_hdr_copy(wsi, pss->body + o, (int)(sizeof(pss->body) - o),
+				 WSI_TOKEN_HTTP_URI_ARGS) < 0)
+			return 1;
+		pss->len = (int)strlen(pss->body);
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/plain",
 						(lws_filepos_t)pss->len, &p, end) ||
 		    lws_finalize_write_http_header(wsi, buf + LWS_PRE, &p, end))
