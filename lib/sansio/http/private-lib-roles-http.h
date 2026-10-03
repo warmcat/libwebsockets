@@ -713,7 +713,7 @@ lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
  * not how long it may take: lws_http_response_progress(), from the same write
  * paths, renews it whenever more of the response is sent.
  *
- * The h2/h3 write paths that call these are shared between client and server
+ * The role write paths that call these are shared between client and server
  * builds, so when LWS_WITH_SERVER is off they collapse to no-op stubs -- the
  * watchdog they arm lives in lib/sansio/http/server/server.c which is
  * server-only.

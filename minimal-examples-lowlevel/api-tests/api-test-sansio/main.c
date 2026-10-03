@@ -55,12 +55,15 @@
  * before the watchdog expires, all goes.  And an answer the app starts
  * from the body's first piece, then cannot finish for want of window, is
  * closed by the response's watchdog too, though the body went on arriving
- * after the answer started, and completed.
+ * after the answer started, and completed; on an h1 connection as on an h2
+ * stream.
  *
  * And an h1 POST answered with a file the app abandons, by completing the
  * transaction from its timer, while a read of the file is out on a worker:
  * the body is discarded as it comes, and the connection goes on to the next
- * request.
+ * request.  And one answered and completed before its body, which then comes
+ * slowly: the body being discarded has its own timeout, renewed as it comes,
+ * not the watchdog of the answer that has already gone.
  *
  * And a request the mount redirects before any app sees it, likewise only
  * partly written: the transaction completes when it has gone, answered in
@@ -2907,6 +2910,150 @@ h1_file_abandoned_half(struct lws_context *cx, struct lws_vhost *vh,
 }
 #endif
 
+/*
+ * 37: an h1 POST the app answers whole and completes before any of its body
+ * has come, the body then coming a byte every 10s, slower than the response
+ * watchdog would allow an answer to stall for, but each byte inside the
+ * body's own timeout.  The answer has all gone: what bounds the connection
+ * while the body is discarded is the body's timeout, renewed by each byte,
+ * and once it is all here the request after it is served.  It moves the
+ * time on, so it goes late, and it has no transcript.
+ */
+static int
+h1_discard_slow_body_half(struct lws_context *cx, struct lws_vhost *vh,
+			  int start_ms)
+{
+	static const char req[] =
+		"POST /early HTTP/1.1\r\nHost: sansio-uri\r\n"
+		"Content-Length: 5\r\n\r\n";
+	static const char body[] = "abcd", last[] =
+		"e"
+		"GET /after?d=4 HTTP/1.1\r\nHost: sansio-uri\r\n\r\n";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2], s;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	/* answered whole and completed, with the body still to come */
+	feed(cx, &tp, req, sizeof(req) - 1);
+	if (!find_bytes(tp.tx, tp.tx_len, "ok\n")) {
+		lwsl_err("case 37: no answer\n");
+		return 1;
+	}
+
+	/* the body, a byte every 10s */
+	for (s = 10; s <= 40; s += 10) {
+		at(cx, start_ms + s * 1000);
+		if (feed(cx, &tp, &body[s / 10 - 1], 1) || tp.closed) {
+			lwsl_err("case 37: closed %d at %ds\n", tp.closed, s);
+			return 1;
+		}
+	}
+
+	/* its last byte, then the next request, answered */
+	at(cx, start_ms + 50000);
+	if (feed(cx, &tp, last, sizeof(last) - 1) ||
+	    !find_bytes(tp.tx, tp.tx_len, "/after\nd=4") || tp.closed ||
+	    uri_late_writeable) {
+		lwsl_err("case 37: rest not taken, or next request not "
+			 "served: closed %d, late wr %d\n", tp.closed,
+			 uri_late_writeable);
+		return 1;
+	}
+	lwsl_user("case 37: a body discarded after its answer went has its "
+		  "own timeout: PASS\n");
+
+	return 0;
+}
+
+/*
+ * 36: case 33 on an h1 connection.  The app starts its answer from the first
+ * piece of the POST's body, the rest of the body completes, and the answer
+ * goes on from the writeable, until the transport stops taking it.  The
+ * body's own timeout, renewed by each piece and cleared once it is all here,
+ * must not take the response's watchdog with it: the answer, stalled, is
+ * closed by the watchdog.  It moves the time on past it, so it goes late, and
+ * it has no transcript.
+ */
+static int
+h1_answer_in_body_half(struct lws_context *cx, struct lws_vhost *vh,
+		       int start_ms)
+{
+	static const char req[] =
+		"POST /in-body HTTP/1.1\r\nHost: sansio-uri\r\n"
+		"Content-Length: 6\r\n\r\nabc";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2], s;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	/* the head and the body's first piece: the answer's headers go */
+	feed(cx, &tp, req, sizeof(req) - 1);
+	if (!find_bytes(tp.tx, tp.tx_len, "HTTP/1.1 200 ")) {
+		lwsl_err("case 36: the answer did not start with the body\n");
+		return 1;
+	}
+
+	/*
+	 * the rest of the body: it completes, and the answer goes on, the
+	 * transport taking 150 bytes of it, then no more
+	 */
+	tp.tx_budget = 150;
+	feed(cx, &tp, "def", 3);
+	if (tp.tx_len != 150 || tp.closed || tp.shutdown) {
+		lwsl_err("case 36: %d of the answer went, closed %d\n",
+			 (int)tp.tx_len, tp.closed);
+		return 1;
+	}
+
+	for (s = 4; s <= 36; s += 4) {
+		at(cx, start_ms + s * 1000);
+		/* the watchdog is 30s from the last piece that went */
+		if (s <= 28 && (uri_closed || tp.closed)) {
+			lwsl_err("case 36: closed at %ds\n", s);
+			return 1;
+		}
+	}
+
+	if (uri_closed != 1 || !tp.closed || uri_late_writeable) {
+		lwsl_err("case 36: closed %d / %d, late wr %d\n",
+			 uri_closed, tp.closed, uri_late_writeable);
+		return 1;
+	}
+	lwsl_user("case 36: an h1 answer started during the body, then "
+		  "stalled, is closed by the response's watchdog: PASS\n");
+
+	return 0;
+}
+
 static int timer_fired;
 
 static void
@@ -3887,6 +4034,14 @@ main(int argc, const char **argv)
 	if (h1_file_abandoned_half(cx, vh_uri, 210000))
 		goto bail;
 #endif
+
+	/* this moves the time on past the response watchdog */
+	at(cx, 250000);
+	if (h1_answer_in_body_half(cx, vh_uri, 250000))
+		goto bail;
+	at(cx, 300000);
+	if (h1_discard_slow_body_half(cx, vh_uri, 300000))
+		goto bail;
 
 	result = 0;
 

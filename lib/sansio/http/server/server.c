@@ -3523,9 +3523,10 @@ lws_http_response_started(struct lws *wsi)
 	 * Immortal streams (SSE, long-poll) opt out of idle timeouts via
 	 * lws_http_mark_sse() / lws_mux_mark_immortal(); they intentionally
 	 * stay open after the response headers and must not be armed with a
-	 * response-completion watchdog.
+	 * response-completion watchdog.  An h1 connection is no mux stream:
+	 * only its SSE mark says so there.
 	 */
-	if (wsi->mux_stream_immortal)
+	if (wsi->mux_stream_immortal || wsi->http_carries_sse)
 		return;
 
 	lws_http_response_watchdog(wsi);

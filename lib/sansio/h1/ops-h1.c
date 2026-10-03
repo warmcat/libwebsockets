@@ -76,13 +76,16 @@ lws_h1_answer_going(struct lws *wsi)
  * never takes waiting for ever.  The same once the app has started its
  * answer during the body (its response headers went out, arming the
  * watchdog) while still taking the body: the rest of its answer is under the
- * watchdog, and the body must not take that away from it either.
+ * watchdog, and the body must not take that away from it either.  But a body
+ * being discarded after the transaction completed has nothing ahead of it:
+ * the answer has all gone, and the body has its own timeout again.
  */
 static void
 lws_h1_body_timeout(struct lws *wsi, int arm)
 {
-	if (lws_h1_answer_going(wsi) ||
-	    (!lwsi_role_client(wsi) && wsi->http.sent_response_headers))
+	if (lwsi_state(wsi) != LRS_DISCARD_BODY &&
+	    (lws_h1_answer_going(wsi) ||
+	     (!lwsi_role_client(wsi) && wsi->http.sent_response_headers)))
 		return;
 
 	if (arm)
@@ -629,11 +632,16 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 	 * bytes in keeps the connection and its ah (one of a small pool) for
 	 * as long as it likes: "slowloris".  Whatever timeout stands for the
 	 * head, it is a deadline, not a timeout to slide.
+	 *
+	 * Nor is the response's watchdog: it bounds how long our answer may
+	 * go without sending anything, and only more of the answer going
+	 * renews it.  The peer sending is no sign that the answer moves.
 	 */
 	if (from_transport && wsi->pending_timeout &&
 	    lwsi_state(wsi) != LRS_HEADERS &&
 	    wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH &&
-	    wsi->pending_timeout != PENDING_TIMEOUT_HOLDING_AH)
+	    wsi->pending_timeout != PENDING_TIMEOUT_HOLDING_AH &&
+	    wsi->pending_timeout != PENDING_TIMEOUT_HTTP_RESPONSE)
 		lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
 				wsi->pending_timeout ==
 					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
@@ -1231,6 +1239,19 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 	n = lws_io_tx_push(wsi, (unsigned char *)buf, len);
 	if (n < 0)
 		return n;
+
+	/*
+	 * A server's response headers going arm the response's watchdog, and
+	 * each later piece of it renews it, as h2 and h3 do from their own
+	 * write paths: an answer started during the request body keeps a
+	 * timeout after the body completes and clears the body's own
+	 */
+	if (!lwsi_role_client(wsi)) {
+		if (((*wp) & 0x1f) == LWS_WRITE_HTTP_HEADERS)
+			lws_http_response_started(wsi);
+		else
+			lws_http_response_progress(wsi);
+	}
 
 	/* hide there may have been compression */
 
