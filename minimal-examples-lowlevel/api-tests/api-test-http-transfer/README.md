@@ -12,7 +12,9 @@ write, answered some time after its body completed, where the body must complete
 exactly once and the GET wait parked for the answer, without keeping the event
 loop busy, before it is served (direct and through the http proxy mount), and
 the same with two GETs to a callback mount that names its protocol as its
-origin, where the second must then be dispatched as itself, once, and to a
+origin, where the second must then be dispatched as itself, once (also with the
+second GET sent in its own write while the first is awaited, which must wait
+parked the same way), and to a
 mount with a body limit, where the first, which has no body, must not take the
 second as one; a GET whose one-shot answer is larger than the socket buffers,
 from a raw client that does not read it for a while, with its next GET sent in

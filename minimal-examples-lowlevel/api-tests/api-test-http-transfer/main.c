@@ -24,7 +24,9 @@
  *    and two GETs the same way to a callback mount naming its protocol as
  *    its origin, where the second must be dispatched as itself, once, and
  *    to a mount with a body limit, where the first, bodyless, must not
- *    take the second as its body
+ *    take the second as its body; and the two GETs to the callback mount
+ *    with the second sent in its own write while the first is awaited,
+ *    which must equally wait parked and then be served
  *  - a GET whose one-shot answer is larger than the socket buffers, from a
  *    raw client that does not read it for a while, so the server completes
  *    the transaction with most of the answer still queued: the client's
@@ -191,7 +193,10 @@ struct xcase {
 					 * GETs a one-shot answer larger than
 					 * the socket buffers, sends another
 					 * GET in its own write while not
-					 * reading it, and reads both later */
+					 * reading it, and reads both later;
+					 * 6: as 4, but the second GET goes
+					 * in its own write 100ms after the
+					 * first, while it is awaited */
 	int		conn_close;	/* every request the server sees must
 					 * say "connection: close" */
 };
@@ -247,6 +252,16 @@ static const struct xcase cases[] = {
 	  "write, to a callback mount",
 	  "GET", "/cb/echo-cl-later", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE,
 	  0, 0, 0, 4, 0 },
+	/*
+	 * The same, but the second GET arrives in its own tcp segment while
+	 * the first is awaited: it must wait parked for the answer just as
+	 * one that came in the first's segment does, and then be served,
+	 * rather than be taken for an unhandled state and close the connection
+	 */
+	{ "h1 GET answered some time later and a GET sent in its own write "
+	  "while it waits, to a callback mount",
+	  "GET", "/cb/echo-cl-later", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE,
+	  0, 0, 0, 6, 0 },
 	/*
 	 * The same to /small, whose mount has a body limit: a GET with no
 	 * body still has none, not one of the limit's size, which would take
@@ -2622,7 +2637,10 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 				if (lws_rx_flow_control(wsi, 0))
 					return -1;
 				lws_set_timer_usecs(wsi, 100 * LWS_US_PER_MS);
-			} else
+			} else if (cn->c->raw == 6)
+				/* the second goes in its own write, later */
+				lws_set_timer_usecs(wsi, 100 * LWS_US_PER_MS);
+			else
 				n += lws_snprintf((char *)buf + LWS_PRE + n,
 					  sizeof(buf) - LWS_PRE - (size_t)n,
 					  "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
@@ -2639,6 +2657,20 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_TIMER:
+		if (cn->c->raw == 6) {
+			/* the GET behind the first request, in its own segment */
+			lws_strncpy(path2, cn->c->path, sizeof(path2));
+			q = strstr(path2, "-later");
+			if (q)
+				*q = '\0';
+			n = lws_snprintf((char *)buf + LWS_PRE, 256,
+					 "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
+					 path2, server_addr);
+			if (lws_write(wsi, buf + LWS_PRE, (size_t)n,
+				      LWS_WRITE_RAW) != n)
+				return -1;
+			break;
+		}
 		if (cn->c->raw != 5)
 			break;
 		switch (cn->raw_phase++) {

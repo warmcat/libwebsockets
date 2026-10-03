@@ -686,7 +686,8 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 				(int)wsi->a.context->timeout_secs);
 
 	if (lwsi_state(wsi) == LRS_ISSUING_FILE ||
-	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
+	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ ||
+	    (lwsi_state(wsi) == LRS_DOING_TRANSACTION && lwsi_role_h1(wsi))) {
 		/*
 		 * While a file is being served (or its next read is out on a
 		 * worker), rx is not consumed: it is parked and the socket
@@ -694,6 +695,16 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 		 * request and stopped reading had POLLIN firing every loop
 		 * turn with nothing ever consumed: take POLLIN off until the
 		 * transaction completes and the parked rx can be dealt with.
+		 *
+		 * The same while an h1 transaction is being answered by
+		 * something other than a file (a cgi, the proxy, an app from
+		 * its writeable or a timer): what the peer sends after its
+		 * request is the next pipelined one, for after this
+		 * transaction completes.  Arriving in the request's own
+		 * segment it is parked by the parse (lws_read_h1()); arriving
+		 * in a segment of its own it is parked here the same way,
+		 * where it used to be handed to lws_read_h1() as an unhandled
+		 * state, and the connection closed with the request lost.
 		 */
 		if (!from_transport)
 			lws_rx_flow_control(wsi,
