@@ -2075,6 +2075,19 @@ tp_ok:
 			/* Short header: Bits 0x18 MUST be zero */
 			if (p[0] & 0x18) {
 				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in short header");
+				/*
+				 * The packet authenticated under the provisional
+				 * next-phase keys, but we are refusing it, so
+				 * they are neither committed below nor released
+				 * by the decrypt-failure path above: a backend
+				 * that keeps a per-key AEAD handle (gnutls)
+				 * allocated it into the stack copy during the
+				 * decrypt, and it would leak with this stack frame
+				 */
+				if (is_key_update) {
+					lws_quic_keys_release_aead_rx(&scratch_keys);
+					lws_quic_keys_release_aead_tx(&scratch_keys);
+				}
 				if (nwsi && nwsi != wsi) {
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
