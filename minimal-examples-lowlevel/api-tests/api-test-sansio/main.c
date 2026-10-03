@@ -1320,7 +1320,8 @@ server_half(struct lws_context *cx)
  * 9: a ws upgrade lws will not do is answered with why, before the
  * connection is shut down: a version other than 13, the only one there is,
  * gets 426 saying 13 (RFC 6455 4.2.2); no version, a Connection header
- * without the upgrade token, or only subprotocols lws does not have, 400
+ * without the upgrade token, only subprotocols lws does not have, or a
+ * method other than GET (RFC 6455 4.1), 400
  */
 static int
 upgrade_refusals_half(struct lws_context *cx)
@@ -1346,6 +1347,13 @@ upgrade_refusals_half(struct lws_context *cx)
 		  "HTTP/1.1 400 ", NULL },
 		{ "ws-server-no-subprotocol",
 		  UPG_REQ("Upgrade", "Sec-WebSocket-Version: 13\r\n", "chat"),
+		  "HTTP/1.1 400 ", NULL },
+		{ "ws-server-not-get",
+		  "POST /echo HTTP/1.1\r\nHost: sansio\r\n"
+		  "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+		  "Sec-WebSocket-Version: 13\r\n"
+		  "Sec-WebSocket-Protocol: echo\r\n"
+		  "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
 		  "HTTP/1.1 400 ", NULL },
 	};
 #undef UPG_REQ

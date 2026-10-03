@@ -526,6 +526,14 @@ lws_process_ws_upgrade(struct lws *wsi)
 	 */
 
 	if (!wsi->mux_substream) {
+		char *uri;
+		int ul;
+
+		/* an h1 upgrade is a GET (RFC 6455 4.1) */
+		if (lws_http_get_uri_and_method(wsi, &uri, &ul) != LWSHUMETH_GET)
+			return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+						 "method not GET");
+
 		lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 					    LWS_TOKENIZE_F_DOT_NONTERM |
 					    LWS_TOKENIZE_F_RFC7230_DELIMS |
