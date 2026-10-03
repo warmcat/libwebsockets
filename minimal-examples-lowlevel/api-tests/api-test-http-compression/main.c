@@ -304,6 +304,7 @@ conn_finish(struct conn *cn, const struct xcase *c, int completed)
 	int ok = 1;
 
 	if (cn->completed)
+		/* finished already: a kept-warm connection closing late */
 		return;
 	cn->completed = 1;
 
@@ -437,13 +438,19 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
-static struct conn conn;
+/*
+ * Each case's own: a connection of an earlier case may still be heard from
+ * after its case finished (closed by the server while kept warm), and must
+ * not be taken for the current case's
+ */
+static struct conn conns[LWS_ARRAY_SIZE(cases)];
 
 static void
 next_case(lws_sorted_usec_list_t *sul)
 {
 	struct lws_client_connect_info i;
 	const struct xcase *c;
+	struct conn *cn;
 	char path[96];
 
 	cur++;
@@ -456,8 +463,8 @@ next_case(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("--- case %d: %s ---\n", cur, c->name);
 
-	memset(&conn, 0, sizeof(conn));
-	if (conn_decoder_init(&conn, c)) {
+	cn = &conns[cur];
+	if (conn_decoder_init(cn, c)) {
 		lwsl_err("%s: decoder init failed\n", __func__);
 		failures++;
 		lws_sul_schedule(context, 0, &sul_next, next_case,
@@ -479,12 +486,12 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.path = path;
 	i.method = "GET";
 	i.protocol = "http-comp";
-	i.opaque_user_data = &conn;
+	i.opaque_user_data = cn;
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: connect failed\n", __func__);
-		conn_decoder_destroy(&conn, c);
-		conn.completed = 1;
+		conn_decoder_destroy(cn, c);
+		cn->completed = 1;
 		failures++;
 		lws_sul_schedule(context, 0, &sul_next, next_case,
 				 LWS_US_PER_MS);

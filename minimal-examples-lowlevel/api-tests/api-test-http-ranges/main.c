@@ -333,7 +333,12 @@ struct conn {
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
-static struct conn conn;
+/*
+ * Each case's own: a connection of an earlier case may still be heard from
+ * after its case finished (closed by the server while kept warm), and must
+ * not be taken for the current case's
+ */
+static struct conn conns[LWS_ARRAY_SIZE(cases)];
 static char tmpdir[256], path[384], etag[64], gen_range[1024];
 static char last_boundary[80];
 static const char *tmpbase = ".";
@@ -979,6 +984,7 @@ conn_finish(struct conn *cn, const struct xcase *c, int completed)
 	int ok;
 
 	if (cn->completed)
+		/* finished already: a kept-warm connection closing late */
 		return;
 	cn->completed = 1;
 
@@ -1171,9 +1177,6 @@ next_case(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("--- case %d: %s ---\n", cur, c->name);
 
-	free(conn.body);
-	memset(&conn, 0, sizeof(conn));
-
 	lws_snprintf(upath, sizeof(upath), "/%s", file_name[c->file]);
 
 	memset(&i, 0, sizeof(i));
@@ -1190,11 +1193,11 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.path = upath;
 	i.method = "GET";
 	i.protocol = "http-ranges";
-	i.opaque_user_data = &conn;
+	i.opaque_user_data = &conns[cur];
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: connect failed\n", __func__);
-		conn.completed = 1;
+		conns[cur].completed = 1;
 		failures++;
 		lws_sul_schedule(context, 0, &sul_next, next_case,
 				 LWS_US_PER_MS);
@@ -1249,7 +1252,7 @@ main(int argc, const char **argv)
 	int logs = LLL_USER | LLL_ERR | LLL_WARN;
 	struct lws_vhost *vh;
 	const char *p;
-	int result = 1;
+	int result = 1, n;
 
 	signal(SIGINT, sigint_handler);
 
@@ -1346,7 +1349,8 @@ bail:
 	lws_sul_cancel(&sul_watchdog);
 	lws_sul_cancel(&sul_next);
 	lws_context_destroy(context);
-	free(conn.body);
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(conns); n++)
+		free(conns[n].body);
 bail_files:
 	cleanup_files();
 
