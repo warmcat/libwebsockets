@@ -369,9 +369,12 @@ static int
 lws_dir_symlink_replace(const char *path, const char *target)
 {
 	char tmp[512];
+	int e;
 
-	if (strlen(path) + 5 > sizeof(tmp))
+	if (strlen(path) + 5 > sizeof(tmp)) {
+		errno = ENAMETOOLONG;
 		return -1;
+	}
 
 	lws_snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 
@@ -380,7 +383,9 @@ lws_dir_symlink_replace(const char *path, const char *target)
 		return -1;
 
 	if (rename(tmp, path)) {
+		e = errno; /* the rename's reason, not the cleanup's */
 		unlink(tmp);
+		errno = e;
 		return -1;
 	}
 
@@ -397,13 +402,16 @@ lws_dir_symlink_rotate(const char *cur, const char *target,
 	char prev[512], old[512];
 	const char *p, *q;
 	ssize_t n;
+	int e;
 
 	/* the tag names the link, so it's the last one in the path */
 	p = NULL;
 	for (q = strstr(cur, cur_tag); q && ct; q = strstr(q + 1, cur_tag))
 		p = q;
-	if (!p)
+	if (!p) {
+		errno = EINVAL;
 		return -1;
+	}
 
 	/*
 	 * We only learn what's outgoing here, nothing is decided on it that
@@ -418,24 +426,30 @@ lws_dir_symlink_rotate(const char *cur, const char *target,
 			return 0; /* already current, nothing is outgoing */
 
 		if (lws_ptr_diff_size_t(p, cur) + pt + strlen(p + ct) >=
-								sizeof(prev))
+								sizeof(prev)) {
+			errno = ENAMETOOLONG;
 			return -1;
+		}
 
 		lws_snprintf(prev, sizeof(prev), "%.*s%s%s",
 			     (int)lws_ptr_diff_size_t(p, cur), cur, prev_tag,
 			     p + ct);
 
 		if (lws_dir_symlink_replace(prev, old))
-			lwsl_warn("%s: unable to link %s\n", __func__, prev);
+			lwsl_warn("%s: unable to link %s: errno %d\n", __func__,
+				  prev, errno);
 	}
 
 	if (lws_dir_symlink_replace(cur, target)) {
-		lwsl_err("%s: unable to link %s\n", __func__, cur);
+		e = errno; /* logging may disturb it */
+		lwsl_err("%s: unable to link %s: errno %d\n", __func__, cur, e);
+		errno = e;
 		return -1;
 	}
 
 	return 0;
 #else
+	errno = ENOSYS;
 	return -1;
 #endif
 }

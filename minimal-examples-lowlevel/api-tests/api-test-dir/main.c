@@ -10,6 +10,7 @@
 #include <libwebsockets.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #if defined(WIN32)
 #include <direct.h>
@@ -115,10 +116,22 @@ test_symlink_rotate(void)
 	}
 
 	/* a path without the tag is refused, and nothing is created */
+	errno = 0;
 	if (!lws_dir_symlink_rotate("./test-rot/untagged.crt", "x",
-				    "-latest", "-previous") ||
+				    "-latest", "-previous") || errno != EINVAL ||
 	    !link_is("./test-rot/untagged.crt", NULL)) {
-		lwsl_err("%s: untagged path not refused\n", __func__);
+		lwsl_err("%s: untagged path not refused with EINVAL\n",
+			 __func__);
+		goto bail;
+	}
+
+	/* a failed link reports the filesystem's reason */
+	errno = 0;
+	if (!lws_dir_symlink_rotate("./test-rot/missing/example.com-latest.crt",
+				    "x", "-latest", "-previous") ||
+	    errno != ENOENT) {
+		lwsl_err("%s: link in a missing dir not refused with ENOENT\n",
+			 __func__);
 		goto bail;
 	}
 

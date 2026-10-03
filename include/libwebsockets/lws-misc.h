@@ -1571,8 +1571,11 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
  * over it, so something opening \p cur during the rotation sees either the
  * old or the new target, never a missing file.
  *
- * Returns 0 if \p cur now points at \p target.  Platforms without symlinks
- * (Windows) return -1 without touching anything.
+ * Returns 0 if \p cur now points at \p target.  Otherwise returns -1 with
+ * errno saying why: EINVAL if \p cur doesn't contain \p cur_tag,
+ * ENAMETOOLONG if a link path won't fit, or the errno of the symlink() or
+ * rename() that failed.  Platforms without symlinks (Windows) return -1 with
+ * ENOSYS, without touching anything.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir_symlink_rotate(const char *cur, const char *target,
