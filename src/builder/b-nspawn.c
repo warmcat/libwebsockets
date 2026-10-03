@@ -641,11 +641,7 @@ static const char * const runscript_win_next =
 
 static const char * const runscript_first =
 	"#!/usr/bin/env bash\n" /* use -x to see what it does for these */
-#if defined(__APPLE__)
-	"export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin\n"
-#else
-	"export PATH=/usr/local/bin:$PATH\n"
-#endif
+	/* PATH comes from saib_env_build(), with any conf "env" applied */
 	"export HOME=%s\n"
 	"export SAI_OVN=%s\n"
 	"export SAI_VN=%s\n"
@@ -670,11 +666,7 @@ static const char * const runscript_first =
 
 static const char * const runscript_next =
 	"#!/usr/bin/env bash\n" /* use -x to see what it does for these */
-#if defined(__APPLE__)
-	"export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin\n"
-#else
-	"export PATH=/usr/local/bin:$PATH\n"
-#endif
+	/* PATH comes from saib_env_build(), with any conf "env" applied */
 	"export HOME=%s\n"
 	"export SAI_OVN=%s\n"
 	"export SAI_VN=%s\n"
@@ -698,11 +690,7 @@ static const char * const runscript_next =
 
 static const char * const runscript_build =
 	"#!/usr/bin/env bash\n" /* use -x to see what it does for these */
-#if defined(__APPLE__)
-	"export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin\n"
-#else
-	"export PATH=/usr/local/bin:$PATH\n"
-#endif
+	/* PATH comes from saib_env_build(), with any conf "env" applied */
 	"export HOME=%s\n"
 	"export SAI_OVN=%s\n"
 	"export SAI_VN=%s\n"
@@ -731,6 +719,7 @@ saib_spawn_script(struct sai_nspawn *ns)
 {
 	struct lws_spawn_piped_info info;
 	struct saib_opaque_spawn *op;
+	struct lwsac *ac_env = NULL;
 #if !defined(WIN32)
 	const char *script_template;
 #endif
@@ -739,14 +728,6 @@ saib_spawn_script(struct sai_nspawn *ns)
 		"/bin/ps",
 		NULL
 	};
-#if !defined(WIN32)
-	const char *env[] = {
-		"PATH=/usr/local/bin:/usr/bin:/bin",
-		"LANG=en_US.UTF-8",
-		"TERM=xterm-256color",
-		NULL
-	};
-#endif
 	char one_step[4096], idle_env[64], pool_env[1024];
 	char st[8192];
 	unsigned int timeout_secs;
@@ -878,18 +859,6 @@ saib_spawn_script(struct sai_nspawn *ns)
 
 	memset(&info, 0, sizeof(info));
 	info.vh			= builder.vhost;
-#if !defined(WIN32)
-	info.env_array		= (const char **)env;
-#else
-	/*
-	 * Since lws C-328 (f92e831dd) the Windows spawn honours env_array as
-	 * the child's entire environment, as execve does; before it was
-	 * ignored and the child inherited ours.  The sanitizing set above is
-	 * a unix PATH with no SystemRoot or Visual Studio variables, so a
-	 * child given it cannot even find nmake or cl.  Inherit instead.
-	 */
-	info.env_array		= NULL;
-#endif
 	info.exec_array		= cmd;
 	info.protocol_name	= "sai-stdxxx";
 	info.max_log_lines	= 10000;
@@ -908,9 +877,19 @@ saib_spawn_script(struct sai_nspawn *ns)
 	info.p_cgroup_ret	= &in_cgroup;
 #endif
 
-	op			= malloc(sizeof(*op));
-	if (!op)
+	/* the base set plus the platform's conf "env", see b-env.c */
+	info.env_array		= saib_env_build(ns->sp, &ac_env);
+	if (!info.env_array) {
+		saib_task_logf(ns->spm, ns, NULL,
+			       "Unable to prepare the step environment: OOM");
 		return 1;
+	}
+
+	op			= malloc(sizeof(*op));
+	if (!op) {
+		lwsac_free(&ac_env);
+		return 1;
+	}
 	memset(op, 0, sizeof(*op));
 
 	op->ns			= ns;
@@ -929,6 +908,7 @@ saib_spawn_script(struct sai_nspawn *ns)
 
 	lwsl_user("%s: calling lws_spawn_piped for task uuid %s\n", __func__, ns->task->uuid);
 	lws_spawn_piped(&info);
+	lwsac_free(&ac_env); /* the child has its copy by now */
 	if (!op->lsp) {
 		saib_task_logf(ns->spm, ns, NULL,
 			       "Unable to spawn the step process (errno %d (%s)): "
@@ -1070,16 +1050,25 @@ int
 saib_shell_spawn(struct sai_plat_server *spm, const char *task_uuid)
 {
 	struct lws_spawn_piped_info info;
+	const sai_plat_t *tsp = NULL;
+	struct lwsac *ac_env = NULL;
 	struct sai_shell *sh;
 	const char *cmd[] = { "/bin/bash", "-i", NULL };
-#if !defined(WIN32)
-	const char *env[] = {
-		"PATH=/usr/local/bin:/usr/bin:/bin",
-		"LANG=en_US.UTF-8",
-		"TERM=xterm-256color",
-		NULL
-	};
-#endif
+
+	/* the shell sees the same env as the task's platform gives its steps */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, builder.sai_plat_owner.head) {
+		const sai_plat_t *sp = lws_container_of(d, sai_plat_t,
+							sai_plat_list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, d1, sp->nspawn_owner.head) {
+			const struct sai_nspawn *ns = lws_container_of(d1,
+						struct sai_nspawn, list);
+
+			if (ns->task && !strcmp(ns->task->uuid, task_uuid))
+				tsp = sp;
+		} lws_end_foreach_dll(d1);
+	} lws_end_foreach_dll(d);
 
 	sh = malloc(sizeof(*sh));
 	if (!sh)
@@ -1091,18 +1080,6 @@ saib_shell_spawn(struct sai_plat_server *spm, const char *task_uuid)
 
 	memset(&info, 0, sizeof(info));
 	info.vh			= builder.vhost;
-#if !defined(WIN32)
-	info.env_array		= (const char **)env;
-#else
-	/*
-	 * Since lws C-328 (f92e831dd) the Windows spawn honours env_array as
-	 * the child's entire environment, as execve does; before it was
-	 * ignored and the child inherited ours.  The sanitizing set above is
-	 * a unix PATH with no SystemRoot or Visual Studio variables, so a
-	 * child given it cannot even find nmake or cl.  Inherit instead.
-	 */
-	info.env_array		= NULL;
-#endif
 	info.exec_array		= cmd;
 	info.protocol_name	= "sai-saishell";
 	info.max_log_lines	= 10000;
@@ -1113,10 +1090,16 @@ saib_shell_spawn(struct sai_plat_server *spm, const char *task_uuid)
 	info.opaque		= sh;
 	info.owner		= &builder.lsp_owner;
 	info.plsp		= &sh->lsp;
+	info.env_array		= saib_env_build(tsp, &ac_env);
+	if (!info.env_array) {
+		free(sh);
+		return 1;
+	}
 
 	lws_dll2_add_tail(&sh->list, &builder.shell_owner);
 
 	lws_spawn_piped(&info);
+	lwsac_free(&ac_env);
 	if (!sh->lsp) {
 		lwsl_err("%s: Failed to spawn shell for %s\n", __func__, task_uuid);
 		lws_dll2_remove(&sh->list);

@@ -37,7 +37,11 @@
 		{
 			"name":		"freertos-linkit/arm32-m4-mt7697-usi/gcc",
 			"instances":	1,
+
+			# optional: set up the environment the platform's builds
+			# see, see READMEs/README-builder-env.md
 			"env":	[
+				"PATH=/opt/linkit/bin:$PATH",
 				{ "SAI_CROSS_BASE": "/opt/linkit" }
 			],
 			"servers": [ "wss://libwebsockets.org:4444/sai/builder" ]

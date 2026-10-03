@@ -10,6 +10,7 @@ set(SRCS
 	b-task.c
 	b-artifacts.c
 	b-pool.c
+	b-env.c
 	b-logproxy.c
 	b-refproxy.c
 	b-load.c

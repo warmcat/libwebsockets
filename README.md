@@ -257,6 +257,13 @@ See [READMEs/README-sai-push.md](READMEs/README-sai-push.md) for how it
 decides what to push, setting it up, and all of its conf options with an
 example.
 
+## The environment builds run in
+
+Builds don't see the builder's own environment, but a small base set, which
+each platform in the builder conf can add to with an `env` array, eg to put a
+toolchain on the `PATH`.  See
+[READMEs/README-builder-env.md](READMEs/README-builder-env.md).
+
 ## Build flow and support for embedded
 
 ![build flow](READMEs/sai-build-test-flow.png)

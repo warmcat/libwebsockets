@@ -114,7 +114,7 @@ saib_conf_cb(struct lejp_ctx *ctx, char reason)
 	struct jpargs *a = (struct jpargs *)ctx->user;
 	sai_plat_server_ref_t *mref;
 	struct lws_ss_handle *h;
-	const char **pp;
+	const char **pp, *eq;
 	char temp[65];
 	int n;
 
@@ -201,9 +201,21 @@ saib_conf_cb(struct lejp_ctx *ctx, char reason)
 	switch (ctx->path_match - 1) {
 
 	case LEJPM_PLATFORMS_ENV:
-		lwsl_notice("env %s %s\n", ctx->path, ctx->buf);
-		return 0;
-		// break;
+		/* "NAME=value", or just "NAME" to pass on the builder's own */
+		eq = strchr(ctx->su.fp, '=');
+
+		return saib_env_add(a->sai_plat, &a->builder->conf_head,
+				    ctx->su.fp,
+				    eq ? lws_ptr_diff_size_t(eq, ctx->su.fp) :
+					 strlen(ctx->su.fp),
+				    eq ? eq + 1 : NULL) ? -1 : 0;
+
+	case LEJPM_PLATFORMS_ENV_ITEM:
+		/* { "NAME": "value" }, the wildcard is the NAME part */
+		return saib_env_add(a->sai_plat, &a->builder->conf_head,
+				    ctx->path + ctx->wild[0],
+				    strlen(ctx->path + ctx->wild[0]),
+				    ctx->su.fp) ? -1 : 0;
 
 	case LEJPM_PLATFORMS_NAME:
 		n = lws_snprintf(temp, sizeof(temp), "%s.%.*s",

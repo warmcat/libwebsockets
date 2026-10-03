@@ -69,6 +69,17 @@ extern char suspender_exists;
 struct lws_spawn_piped;
 struct lws_stub_manager;
 
+/*
+ * One "env" item from a platform in the builder conf, in the conf lwsac and
+ * listed on the sai_plat .env_head, in conf order
+ */
+
+typedef struct saib_env {
+	lws_dll2_t		list;
+	const char		*name;
+	const char		*value; /* NULL = the builder's own value */
+} saib_env_t;
+
 struct saib_opaque_spawn {
 	struct sai_nspawn	*ns;
 	struct lws_spawn_piped	*lsp;
@@ -487,6 +498,13 @@ saib_pool_env(struct sai_nspawn *ns, char *buf, size_t len);
 
 int
 saib_pool_busy(void);
+
+int
+saib_env_add(sai_plat_t *sp, struct lwsac **ac, const char *name,
+	     size_t nlen, const char *value);
+
+const char **
+saib_env_build(const sai_plat_t *sp, struct lwsac **ac);
 
 void
 saib_pool_destroy_all(void);
