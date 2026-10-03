@@ -52,9 +52,27 @@ struct per_vhost_data {
 	lws_dll2_owner_t sessions;
 };
 
+/*
+ * Largest token-endpoint reply we accept: the device_auth reply is ~250
+ * bytes, the device_token reply is the JWT (bounded by access_token above)
+ * plus its framing.
+ */
+#define AUTH_DEVICE_BODY_MAX 1536
+
 struct client_action {
 	struct auth_device_session *session;
 	int phase;
+	/*
+	 * The http legs' reply bodies arrive in as many
+	 * RECEIVE_CLIENT_HTTP_READ slices as the transport cares to deliver
+	 * (one per h2 DATA frame, for instance).  They are accumulated here
+	 * and parsed once, at COMPLETED_CLIENT_HTTP: parsing each slice as
+	 * if it were the whole reply opened one waiting-room connection and
+	 * one display_code() per slice, and missed a field split across two.
+	 */
+	size_t body_len;
+	char truncated;
+	char body[AUTH_DEVICE_BODY_MAX];
 };
 
 /*
@@ -142,6 +160,7 @@ connect_to(struct lws_context *ctx, struct lws_vhost *vhost, const char *url_str
 		lws_parse_uri_destroy(&puri);
 		return NULL;
 	}
+	memset(action, 0, sizeof(*action));
 	action->session = session;
 	action->phase = phase;
 
@@ -183,6 +202,154 @@ connect_to(struct lws_context *ctx, struct lws_vhost *vhost, const char *url_str
 	return wsi;
 }
 
+/*
+ * Phase 1: the complete /api/device_auth reply.  Only a reply that carries a
+ * device_code starts anything: the waiting-room ws, the user_code display and
+ * the token poll.  A refusal (no device_code) leaves the session idle rather
+ * than polling with an empty code and showing an empty user_code.
+ */
+static void
+device_auth_reply(struct lws *wsi, struct per_vhost_data *vhd,
+		  struct auth_device_session *session,
+		  struct client_action *action)
+{
+	struct lws_context *cx = lws_get_context(wsi);
+	const char *p;
+	size_t al = 0;
+
+	lwsl_debug("%s: %.*s\n", __func__, (int)action->body_len, action->body);
+
+	p = lws_json_simple_find(action->body, action->body_len,
+				 "\"device_code\":", &al);
+	if (!p || !al) {
+		lwsl_err("%s: no device_code in reply\n", __func__);
+		return;
+	}
+	lws_strnncpy(session->device_code, p, al, sizeof(session->device_code));
+
+	session->user_code[0] = '\0';
+	p = lws_json_simple_find(action->body, action->body_len,
+				 "\"user_code\":", &al);
+	if (p)
+		lws_strnncpy(session->user_code, p, al,
+			     sizeof(session->user_code));
+
+	/*
+	 * RFC 8628 s3.2: the server states how often we may poll and how
+	 * long the device code is good for.  Clamp the interval so a bogus
+	 * value cannot park the pairing for ever (or spin on the server).
+	 */
+	session->interval_secs = (unsigned int)json_uint(action->body,
+					action->body_len, "\"interval\":",
+					AUTH_DEVICE_DEFAULT_INTERVAL_SECS);
+	if (!session->interval_secs)
+		session->interval_secs = AUTH_DEVICE_DEFAULT_INTERVAL_SECS;
+	if (session->interval_secs > AUTH_DEVICE_MAX_INTERVAL_SECS)
+		session->interval_secs = AUTH_DEVICE_MAX_INTERVAL_SECS;
+
+	session->deadline = lws_now_secs() +
+			json_uint(action->body, action->body_len,
+				  "\"expires_in\":",
+				  AUTH_DEVICE_DEFAULT_EXPIRES_SECS);
+
+	if (vhd && vhd->app_ops && vhd->app_ops->display_code)
+		vhd->app_ops->display_code(vhd->vh, session->logical_name,
+					   session->user_code);
+
+	lws_sul_schedule(cx, 0, &session->sul_poll, poll_cb,
+			 (lws_usec_t)session->interval_secs * LWS_US_PER_SEC);
+
+	/* a session is in one waiting room at a time */
+	if (session->wsi_preauth)
+		lws_set_timeout(session->wsi_preauth, 1, LWS_TO_KILL_ASYNC);
+
+	session->wsi_preauth = connect_to(cx, lws_get_vhost(wsi),
+					  session->auth_server_url, "/", NULL,
+					  "lws-oauth-preauth", 3, session);
+	if (!session->wsi_preauth)
+		lwsl_err("%s: failed to connect to waiting room\n", __func__);
+}
+
+/*
+ * Phase 2: the complete /api/device_token reply to one poll
+ */
+static void
+device_token_reply(struct per_vhost_data *vhd,
+		   struct auth_device_session *session,
+		   struct client_action *action)
+{
+	const char *p;
+	size_t al = 0;
+
+	lwsl_debug("%s: %.*s\n", __func__, (int)action->body_len, action->body);
+
+	p = lws_json_simple_find(action->body, action->body_len,
+				 "\"access_token\":", &al);
+	if (p) {
+		char filename[128], safe[64], *slash_p = safe;
+		int fd;
+
+		lws_strnncpy(session->access_token, p, al,
+			     sizeof(session->access_token));
+		lwsl_notice("Successfully paired and retrieved access token for %s!\n",
+			    session->logical_name);
+
+		lws_strncpy(safe, session->logical_name, sizeof(safe));
+		lws_filename_purify_inplace(safe);
+		while ((slash_p = strchr(slash_p, '/')))
+			*slash_p++ = '_';
+		lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s",
+			     safe);
+		fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+		if (fd >= 0) {
+			if (write(fd, session->access_token,
+				  strlen(session->access_token)) < 0)
+				lwsl_err("%s: failed to write token\n", __func__);
+			close(fd);
+		}
+
+		if (session->wsi_preauth) {
+			lws_set_timeout(session->wsi_preauth, 1,
+					LWS_TO_KILL_ASYNC);
+			session->wsi_preauth = NULL;
+		}
+
+		if (vhd && vhd->app_ops && vhd->app_ops->auth_success)
+			vhd->app_ops->auth_success(vhd->vh, session->logical_name,
+						   session->access_token);
+
+		return;
+	}
+
+	p = lws_json_simple_find(action->body, action->body_len, "\"error\":",
+				 &al);
+	if (p && json_val_is(p, al, "slow_down")) {
+		/*
+		 * RFC 8628 s3.5: slow_down means keep polling but add 5s to
+		 * the interval.  Treating it as fatal (which the catch-all
+		 * else did) threw away a pairing the server was still
+		 * willing to complete.
+		 */
+		if (session->interval_secs + 5 <= AUTH_DEVICE_MAX_INTERVAL_SECS)
+			session->interval_secs += 5;
+		lwsl_notice("%s: slow_down, polling every %us\n", __func__,
+			    session->interval_secs);
+
+		return;
+	}
+
+	if (p && !json_val_is(p, al, "authorization_pending")) {
+		lwsl_notice("%s: Authorization failed or expired, stopping polling\n",
+			    __func__);
+		lws_sul_cancel(&session->sul_poll);
+		if (session->wsi_preauth) {
+			lws_set_timeout(session->wsi_preauth, 1,
+					LWS_TO_KILL_ASYNC);
+			session->wsi_preauth = NULL;
+		}
+	}
+}
+
 static int
 callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len)
 {
@@ -196,7 +363,6 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 	 * buffer scribbles below it -- into other stack locals here.
 	 */
 	char payload[LWS_PRE + 256];
-	const char *p;
 	size_t al = 0;
 	int plen;
 
@@ -222,12 +388,26 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_info("Auth client connection error: %s\n", in ? (char *)in : "(null)");
+		/*
+		 * lws makes this mutually exclusive with CLIENT_CLOSED, so a
+		 * waiting-room upgrade that fails before ESTABLISHED (the auth
+		 * vhost has no lws-oauth-preauth, a non-101, a TLS failure)
+		 * ends here and never reaches the CLOSED handler below.  The
+		 * session's pointer to this wsi has to go now, or the next
+		 * pairing event does lws_set_timeout() on freed memory.  The
+		 * token poll continues: the admin can still approve the
+		 * user_code at /device without the waiting room.
+		 */
+		if (action && action->phase == 3 && session &&
+		    session->wsi_preauth == wsi)
+			session->wsi_preauth = NULL;
 		client_action_free(wsi, action);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		if (action) {
-			if (action->phase == 3 && session) {
+			if (action->phase == 3 && session &&
+			    session->wsi_preauth == wsi) {
 				session->wsi_preauth = NULL;
 				if (!session->access_token[0]) {
 					lwsl_notice("%s: preauth timeout or rejected, stopping polling\n", __func__);
@@ -385,111 +565,26 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 		return 0;
 	}
 
-	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
-		if (!action || !session) break;
-		switch (action->phase) {
-		case 1: {
-			lwsl_notice("%s: Phase 1 HTTP Read: %.*s\n", __func__, (int)len, (const char *)in);
-			if ((p = lws_json_simple_find((const char *)in, len, "\"device_code\":", &al)))
-				lws_strnncpy(session->device_code, p, al, sizeof(session->device_code));
-			if ((p = lws_json_simple_find((const char *)in, len, "\"user_code\":", &al)))
-				lws_strnncpy(session->user_code, p, al, sizeof(session->user_code));
-
-			/*
-			 * RFC 8628 s3.2: the server states how often we may
-			 * poll and how long the device code is good for.
-			 * Clamp the interval so a bogus value cannot park the
-			 * pairing for ever (or spin on the server).
-			 */
-			session->interval_secs = (unsigned int)json_uint(
-					(const char *)in, len, "\"interval\":",
-					AUTH_DEVICE_DEFAULT_INTERVAL_SECS);
-			if (!session->interval_secs)
-				session->interval_secs =
-					AUTH_DEVICE_DEFAULT_INTERVAL_SECS;
-			if (session->interval_secs > AUTH_DEVICE_MAX_INTERVAL_SECS)
-				session->interval_secs =
-					AUTH_DEVICE_MAX_INTERVAL_SECS;
-
-			session->deadline = lws_now_secs() +
-					json_uint((const char *)in, len,
-						  "\"expires_in\":",
-						  AUTH_DEVICE_DEFAULT_EXPIRES_SECS);
-
-			if (vhd && vhd->app_ops && vhd->app_ops->display_code)
-				vhd->app_ops->display_code(vhd->vh, session->logical_name, session->user_code);
-
-			lws_sul_schedule(lws_get_context(wsi), 0,
-					 &session->sul_poll, poll_cb,
-					 (lws_usec_t)session->interval_secs *
-							 LWS_US_PER_SEC);
-
-			session->wsi_preauth = connect_to(lws_get_context(wsi), lws_get_vhost(wsi), session->auth_server_url, "/", NULL, "lws-oauth-preauth", 3, session);
-			if (!session->wsi_preauth)
-				lwsl_err("Failed to connect to waiting room\n");
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (!action || !session)
 			break;
-		}
-		case 2: {
-			lwsl_notice("%s: Phase 2 HTTP Read: %.*s\n", __func__, (int)len, (const char *)in);
-			p = lws_json_simple_find((const char *)in, len, "\"access_token\":", &al);
-			if (p) {
-				lws_strnncpy(session->access_token, p, al, sizeof(session->access_token));
-				lwsl_notice("Successfully paired and retrieved access token for %s!\n", session->logical_name);
-
-				char filename[128], safe[64];
-				lws_strncpy(safe, session->logical_name, sizeof(safe));
-				lws_filename_purify_inplace(safe);
-				char *slash_p = safe;
-				while ((slash_p = strchr(slash_p, '/')))
-					*slash_p++ = '_';
-				lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s", safe);
-				int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-				if (fd >= 0) {
-					if (write(fd, session->access_token, strlen(session->access_token)) < 0)
-						lwsl_err("%s: failed to write token\n", __func__);
-					close(fd);
-				}
-
-				if (session->wsi_preauth) {
-					lws_set_timeout(session->wsi_preauth, 1, LWS_TO_KILL_ASYNC);
-					session->wsi_preauth = NULL;
-				}
-
-				if (vhd && vhd->app_ops && vhd->app_ops->auth_success)
-					vhd->app_ops->auth_success(vhd->vh, session->logical_name, session->access_token);
-			} else {
-				p = lws_json_simple_find((const char *)in, len, "\"error\":", &al);
-				if (p && json_val_is(p, al, "slow_down")) {
-					/*
-					 * RFC 8628 s3.5: slow_down means keep
-					 * polling but add 5s to the interval.
-					 * Treating it as fatal (which the
-					 * catch-all else did) threw away a
-					 * pairing the server was still willing
-					 * to complete.
-					 */
-					if (session->interval_secs + 5 <=
-						  AUTH_DEVICE_MAX_INTERVAL_SECS)
-						session->interval_secs += 5;
-					lwsl_notice("%s: slow_down, polling every %us\n",
-						    __func__, session->interval_secs);
-				} else if (p && !json_val_is(p, al,
-						"authorization_pending")) {
-					lwsl_notice("%s: Authorization failed or expired, stopping polling\n", __func__);
-					lws_sul_cancel(&session->sul_poll);
-					if (session->wsi_preauth) {
-						lws_set_timeout(session->wsi_preauth, 1, LWS_TO_KILL_ASYNC);
-						session->wsi_preauth = NULL;
-					}
-				}
-			}
-			break;
-		}
-		default:
+		if (action->phase != 1 && action->phase != 2)
 			goto dummy;
+		if (action->truncated)
+			break;
+
+		if (len >= sizeof(action->body) - action->body_len) {
+			lwsl_err("%s: phase %d reply exceeds %u bytes\n",
+				 __func__, action->phase,
+				 (unsigned int)(sizeof(action->body) - 1));
+			action->truncated = 1;
+			return -1;
 		}
+
+		memcpy(action->body + action->body_len, in, len);
+		action->body_len += len;
+		action->body[action->body_len] = '\0';
 		break;
-	}
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED: {
 		if (action && action->phase == 3) {
@@ -565,6 +660,18 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_notice("%s: HTTP client transaction completed\n", __func__);
+		if (!action || !session || action->truncated)
+			break;
+		switch (action->phase) {
+		case 1:
+			device_auth_reply(wsi, vhd, session, action);
+			break;
+		case 2:
+			device_token_reply(vhd, session, action);
+			break;
+		default:
+			break;
+		}
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
