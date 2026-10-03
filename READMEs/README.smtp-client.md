@@ -53,7 +53,7 @@ the callback is called exactly once later, with one of
 |---|---|
 |`LWS_SMTPC_DELIVERED`|the relay accepted the mail|
 |`LWS_SMTPC_REFUSED`|the relay refused it with a 5xx|
-|`LWS_SMTPC_GAVE_UP`|it was tried `max_tries` times without being done with|
+|`LWS_SMTPC_GAVE_UP`|it was tried `max_tries` times without being done with, or the relay was unusable for the whole of the retry policy|
 |`LWS_SMTPC_ABANDONED`|the client, or its vhost, was destroyed before it was done with|
 
 `res->code` and `res->text` are the relay's last reply about that mail
@@ -129,6 +129,12 @@ needs `smtp-tls-skip-hostname-check` to get the old behaviour.
    that is down, or keeps failing sessions, is not hammered.
 
  - Failing to connect at all is not a try: the mails wait for the relay.
+   The default policy waits for ever; a client made with
+   `lws_smtpc_create()` and a retry policy with a finite `conceal_count`
+   gives up every mail queued (`LWS_SMTPC_GAVE_UP`, code 0, "relay
+   unavailable" if no relay ever had it) once the relay could not be used
+   for that many connections in a row, and the next mail queued starts a
+   fresh backoff.
 
  - With STARTTLS, a relay that does not offer it, or refuses it, gets no mail
    at all, and anything it sends between agreeing to STARTTLS and the tls

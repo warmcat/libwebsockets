@@ -50,7 +50,8 @@
  *  - connections are made with backoff, so a relay that is down, or that
  *    keeps failing sessions, is not hammered.  Failing to connect at all
  *    does not count as a try: mails wait, up to max_queue of them, until the
- *    relay is back
+ *    relay is back, or until a retry policy with a finite conceal_count is
+ *    exhausted, when they are given up
  *
  * All of this is on the lws service thread: call the apis from there.
  */
@@ -74,7 +75,9 @@ typedef enum lws_smtpc_outcome {
 	LWS_SMTPC_REFUSED,
 	/**< the relay refused it with a 5xx */
 	LWS_SMTPC_GAVE_UP,
-	/**< it was tried max_tries times without being done with */
+	/**< it was tried max_tries times without being done with, or the
+	 * relay could not be used for as many connections in a row as the
+	 * retry policy conceals */
 	LWS_SMTPC_ABANDONED,
 	/**< the lws_smtpc was destroyed, or its vhost was, before it was
 	 * done with */
@@ -122,7 +125,10 @@ typedef struct lws_smtpc_info {
 	/**< our name for EHLO, NULL for "localhost" */
 	const lws_retry_bo_t	*retry;
 	/**< backoff between connections to the relay, NULL for 100ms, 1s, 5s,
-	 * 15s then 30s, with 20% jitter.  It must outlive the lws_smtpc */
+	 * 15s then 30s, with 20% jitter, concealing always.  A finite
+	 * conceal_count gives up the mails queued once the relay could not be
+	 * used that many connections in a row; the next mail queued starts a
+	 * fresh backoff.  It must outlive the lws_smtpc */
 	uint16_t		max_queue;
 	/**< the most mails queued at once, 0 for 128 */
 	uint16_t		reply_timeout_secs;

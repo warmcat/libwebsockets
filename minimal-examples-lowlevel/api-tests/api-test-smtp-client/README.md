@@ -30,6 +30,7 @@ same process:
 |13|the own client with tls and `smtp-tls-host` naming the certificate|
 |14|the own client with tls and `smtp-tls-skip-hostname-check`|
 |15|the vhost destroyed under a client with mails queued|
+|16|a relay refusing every session and a retry policy with a finite `conceal_count`: the mails queued are given up, and one queued after that goes|
 
 For STARTTLS the fake relay, once it has said 220, relays the connection's
 bytes to a tls listener of its own, so the client's tls upgrade happens on a

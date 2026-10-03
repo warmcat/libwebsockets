@@ -87,6 +87,8 @@ struct lws_smtpc {
 
 static void
 smtpc_connect_sul_cb(lws_sorted_usec_list_t *sul);
+static void
+smtpc_free(struct lws_smtpc *s);
 
 /* tell the user how his mail went, and forget it */
 
@@ -156,6 +158,47 @@ smtpc_live(struct lws_smtpc *s)
 }
 
 /*
+ * The relay could not be used for as many connections in a row as the retry
+ * policy conceals: as for a Secure Stream at LWSSSCS_ALL_RETRIES_FAILED, the
+ * failure stops being hidden from the user.  The mails waiting are given up,
+ * and the next one queued starts a fresh backoff.
+ */
+
+static void
+smtpc_all_retries_failed(struct lws_smtpc *s)
+{
+	size_t n = lws_dll2_count(&s->queue);
+
+	lwsl_vhost_warn(s->vh, "relay %s:%u unavailable: %u mails given up",
+			s->i.address, (unsigned int)s->i.port, (unsigned int)n);
+
+	/* a mail queued from one of the callbacks starts over */
+	s->retry_count = 0;
+
+	/*
+	 * The callbacks may queue more mail, which goes on the tail and is
+	 * not given up with these, and may destroy the client, or its vhost:
+	 * then it goes once we are out of here
+	 */
+
+	s->busy++;
+	while (n-- && lws_dll2_get_head(&s->queue)) {
+		struct lws_smtpc_mail *m = lws_container_of(
+			lws_dll2_get_head(&s->queue), struct lws_smtpc_mail,
+			list);
+
+		if (!m->tries)
+			/* no relay ever heard of it */
+			smtpc_mail_note(m, 0, "relay unavailable");
+		smtpc_mail_done(s, m, LWS_SMTPC_GAVE_UP);
+	}
+	s->busy--;
+
+	if (!s->busy && s->destroy_pending)
+		smtpc_free(s);
+}
+
+/*
  * Every end of a connection comes through here, as does every connect that
  * failed at once, so a relay that is down or that fails every session cannot
  * be reconnected to in a tight loop
@@ -175,8 +218,10 @@ smtpc_retry_later(struct lws_smtpc *s)
 		return;
 	}
 
-	lws_retry_sul_schedule(s->cx, 0, &s->sul, s->i.retry,
-			       smtpc_connect_sul_cb, &s->retry_count);
+	if (lws_retry_sul_schedule(s->cx, 0, &s->sul, s->i.retry,
+				   smtpc_connect_sul_cb, &s->retry_count))
+		/* nothing was scheduled: the policy is exhausted */
+		smtpc_all_retries_failed(s);
 }
 
 /* a new mail: connect now, unless there is a connection, or a backoff */
@@ -808,7 +853,12 @@ lws_smtpc_destroy_all_on_vhost(struct lws_vhost *vh)
 		struct lws_smtpc *s = lws_container_of(d, struct lws_smtpc,
 						       vh_list);
 
-		if (s->own) {
+		/*
+		 * The vhost's own client goes with it... but if we are here
+		 * from inside one of its mail callbacks, with no connection
+		 * holding the vhost up, it goes once that has returned
+		 */
+		if (s->own && !s->busy) {
 			smtpc_free(s);
 			continue;
 		}
@@ -825,6 +875,8 @@ lws_smtpc_destroy_all_on_vhost(struct lws_vhost *vh)
 		s->busy++;
 		smtpc_abandon_all(s);
 		s->busy--;
+		if (s->own)
+			s->destroy_pending = 1;
 		if (!s->busy && s->destroy_pending)
 			smtpc_free(s);
 	} lws_end_foreach_dll_safe(d, d1);

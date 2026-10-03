@@ -751,6 +751,7 @@ static struct {
 					 * STARTTLS */
 	int		greylist_left;
 	int		offer_starttls;
+	int		greet421;	/* greet with 421 and close */
 } srv;
 
 struct pss_mta {
@@ -942,8 +943,15 @@ callback_mta(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_RAW_ADOPT:
 		pss->kind = *(int *)lws_vhost_user(lws_get_vhost(wsi));
 		srv.connections++;
-		if (pss->kind == MTA_PLAIN || pss->kind == MTA_TLS)
-			mta_say(wsi, pss, "220 fake.example ESMTP\r\n");
+		if (pss->kind != MTA_PLAIN && pss->kind != MTA_TLS)
+			break;
+		if (srv.greet421) {
+			/* the relay is up but not taking sessions */
+			mta_say(wsi, pss, "421 fake.example not now\r\n");
+			pss->quit = 1;
+			break;
+		}
+		mta_say(wsi, pss, "220 fake.example ESMTP\r\n");
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
@@ -1046,7 +1054,16 @@ static const lws_retry_bo_t fast_retry = {
 	.retry_ms_table		= fast_backoff_ms,
 	.retry_ms_table_count	= LWS_ARRAY_SIZE(fast_backoff_ms),
 	.conceal_count		= LWS_RETRY_CONCEAL_ALWAYS,
+},
+
+/* a policy that gives up after one retry */
+
+exhaust_retry = {
+	.retry_ms_table		= fast_backoff_ms,
+	.retry_ms_table_count	= LWS_ARRAY_SIZE(fast_backoff_ms),
+	.conceal_count		= 1,
 };
+static const lws_retry_bo_t *case_retry = &fast_retry;
 
 static struct lws_smtpc *smtpc;
 static struct lws_vhost *vh_case;
@@ -1063,6 +1080,8 @@ struct smtpt_case {
 };
 
 static void next_case(lws_sorted_usec_list_t *sul);
+static int start_exhausted(void);
+static int queue(const lws_smtp_email_t *m);
 
 static const struct smtpt_case *cases_cur(void);
 
@@ -1129,6 +1148,16 @@ done_cb(void *opaque, const lws_smtp_email_t *email,
 		lws_smtpc_destroy(&smtpc);
 	}
 
+	if (cases_cur()->start == start_exhausted && got.n == 2) {
+		/*
+		 * The relay is back: a mail queued from here, after the
+		 * policy was exhausted, must start a fresh backoff and go
+		 */
+		srv.greet421 = 0;
+		if (queue(&m3))
+			case_finish(0, "queue refused after exhaustion");
+	}
+
 	case_evaluate();
 }
 
@@ -1145,7 +1174,7 @@ make_smtpc(struct lws_vhost *vh, int port, lws_smtpc_tls_t tls, int tries,
 	info.port		= (uint16_t)port;
 	info.tls		= tls;
 	info.helo		= "client.example";
-	info.retry		= &fast_retry;
+	info.retry		= case_retry;
 	info.max_tries		= (uint8_t)tries;
 	info.reply_timeout_secs	= (uint16_t)timeout;
 	info.max_queue		= (uint16_t)max_queue;
@@ -1631,6 +1660,34 @@ check_vhost_gone(void)
 	       expect_outcome(1, LWS_SMTPC_ABANDONED, 0);
 }
 
+/*
+ * 16: a relay that refuses every session, with a retry policy that gives up:
+ * the mails queued are given up, and the next one queued starts over
+ */
+
+static int
+start_exhausted(void)
+{
+	srv.greet421 = 1;
+	case_retry = &exhaust_retry;
+
+	return make_smtpc(vh_cli, port_plain, LWS_SMTPC_TLS_NONE, 0, 0, 0) ||
+	       queue(&m1) || queue(&m2);
+}
+
+static int
+check_exhausted(void)
+{
+	/* each refused session was a try at the head mail, which keeps the
+	 * relay's last word about it; the one behind it was never offered */
+	return expect_outcome(0, LWS_SMTPC_GAVE_UP, 421) ||
+	       strcmp(got.o[0].text, "fake.example not now") ||
+	       expect_outcome(1, LWS_SMTPC_GAVE_UP, 0) ||
+	       strcmp(got.o[1].text, "relay unavailable") ||
+	       expect_outcome(2, LWS_SMTPC_DELIVERED, 250) ||
+	       srv.connections != 3 || srv.nmsg != 1;
+}
+
 static const struct smtpt_case cases[] = {
 	{ "plaintext, three mails on one connection",
 		start_plain, 3, check_plain, NULL },
@@ -1672,6 +1729,8 @@ static const struct smtpt_case cases[] = {
 #endif
 	{ "vhost destroyed under a client",
 		start_vhost_gone, 2, check_vhost_gone, NULL },
+	{ "retry policy exhausted: given up, then starts over",
+		start_exhausted, 3, check_exhausted, NULL },
 };
 
 static const struct smtpt_case *
@@ -1709,6 +1768,7 @@ next_case(lws_sorted_usec_list_t *sul)
 	memset(&got, 0, sizeof(got));
 	case_done = 0;
 	destroy_in_cb = 0;
+	case_retry = &fast_retry;
 
 	lwsl_user("--- case %d: %s ---\n", cur, cases[cur].name);
 
