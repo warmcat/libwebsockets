@@ -60,6 +60,8 @@ struct vhd_dht_dnssec {
 	uint64_t			last_bulk_sent;
 	struct lws_dll2_owner		fragments;
 	char				current_fragment_hash[LWS_GENHASH_LARGEST * 2 + 1];
+	/* the node current_fragment_hash is being PUT to, for ACK / ERR binding */
+	lws_sockaddr46			upload_sa;
 	char				policy_resolved_ip[128];
 
 	uint32_t			manifest_fragments_requested;
@@ -2455,17 +2457,46 @@ verb_cap_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_ar
 }
 
 static int
-verb_err_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const struct lws_dht_msg *msg,
-		       const struct sockaddr *from, size_t fromlen)
+verb_err_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *args)
 {
+	const struct lws_dht_msg *msg = args->msg;
+
+	/*
+	 * An ERR is as unauthenticated as an ACK and does more damage: it
+	 * ends the publish in progress, and the job was already taken off
+	 * the upload queue, so a spoofed "ERR <hash> 0 0" at the right
+	 * moment drops that publication of the zone with nothing to retry
+	 * it.  Bind it to the transfer the way verb_ack_handler() does: we
+	 * must have a PUT chunk in flight, it must name the object we are
+	 * uploading, the chunk we are waiting on, and come from the node we
+	 * sent that chunk to.  An ERR about some other object may belong to
+	 * the object-store plugin's own PUT task, so pass those on.
+	 */
+	if (!vhd->cli_put_file || !vhd->put_started ||
+	    !vhd->current_fragment_hash[0] ||
+	    strcmp(msg->hash, vhd->current_fragment_hash)) {
+		args->out_precedence = LWS_DHT_VERB_RESULT_PASS;
+		return 0;
+	}
+
+	if (msg->offset != vhd->bulk_sent ||
+	    lws_sa46_compare_ads(&vhd->upload_sa,
+				 (const lws_sockaddr46 *)args->from)) {
+		lwsl_notice("%s: ignoring ERR for %s offset %llu, "
+			    "waiting on offset %llu from the upload target\n",
+			    __func__, msg->hash,
+			    (unsigned long long)msg->offset,
+			    (unsigned long long)vhd->bulk_sent);
+		return 0;
+	}
+
 	lwsl_err("%s: ERR for %s offset %llu (backend upload validation failed!)\n", __func__, msg->hash, msg->offset);
 	if (vhd->cb_completion)
 		vhd->cb_completion(vhd->cb_closure, 1);
 
-	if (vhd->put_started) {
-		vhd->put_started = 0;
-		start_next_dht_upload(vhd);
-	}
+	vhd->put_started = 0;
+	start_next_dht_upload(vhd);
+
 	return -1;
 }
 
@@ -3368,6 +3399,9 @@ static void start_next_dht_upload(struct vhd_dht_dnssec *vhd)
 
 	vhd->bulk_sent = 0;
 	vhd->put_started = 0;
+	/* no chunk of this upload is in flight yet, so no ACK or ERR is ours */
+	vhd->current_fragment_hash[0] = '\0';
+	memset(&vhd->upload_sa, 0, sizeof(vhd->upload_sa));
 
 	lws_dll2_remove(&job->list);
 	free(job);
@@ -3485,10 +3519,12 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 
 	lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hash_hex, sizeof(hash_hex));
 
-	/* remember which object we are uploading, so verb_ack_handler() can
-	 * refuse ACKs that are not about it */
+	/* remember which object we are uploading, and to whom, so
+	 * verb_ack_handler() and verb_err_handler() can refuse ACKs and ERRs
+	 * that are not about it */
 	lws_strncpy(vhd->current_fragment_hash, hash_hex,
 		    sizeof(vhd->current_fragment_hash));
+	vhd->upload_sa = sa46;
 
 	hlen = lws_dht_msg_gen((char *)header, sizeof(header), "PUT",
 			hash_hex, vhd->bulk_sent, (unsigned long long)st.st_size);
@@ -3798,7 +3834,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		if (!strcmp(args->msg->verb, "NONC_REQ")) return verb_nonce_req_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
 		if (!strcmp(args->msg->verb, "NONC_RSP")) return verb_nonce_rsp_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
 		if (!strcmp(args->msg->verb, "SIGN_REQ")) return verb_sign_req_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
-		if (!strcmp(args->msg->verb, "ERR")) return verb_err_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "ERR")) return verb_err_handler(vhd, args);
 		if (!strcmp(args->msg->verb, "NOTIFY")) return verb_notify_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
 		if (!strcmp(args->msg->verb, "NOTC")) return verb_notc_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
 
