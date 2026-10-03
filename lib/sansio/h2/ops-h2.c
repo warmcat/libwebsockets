@@ -122,8 +122,16 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	/* bytes from the peer are activity worth extending the timeout for */
-	if (from_transport && wsi->pending_timeout)
+	/*
+	 * Bytes from the peer are activity worth extending the timeout for...
+	 * except the keep-warm idle of a client connection with no stream:
+	 * that measures how long nothing of ours used it, and the peer's own
+	 * PINGs are no use of it (lws_h2_parse_frame_header() skips it for
+	 * the same reason).  Otherwise a peer PINGing inside keep_warm_secs
+	 * would hold the idle connection open for as long as it liked.
+	 */
+	if (from_transport && wsi->pending_timeout &&
+	    wsi->pending_timeout != PENDING_TIMEOUT_CLIENT_CONN_IDLE)
 		lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
 				wsi->pending_timeout ==
 					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
