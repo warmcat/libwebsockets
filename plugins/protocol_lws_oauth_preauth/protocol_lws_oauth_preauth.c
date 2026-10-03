@@ -33,6 +33,7 @@ struct vhd_oauth_preauth {
 	const char *cookie_name;
 	struct lws_jwk jwk;
 	unsigned int max_devices;
+	unsigned int max_devices_per_peer;
 };
 
 struct pss_oauth_preauth {
@@ -41,6 +42,7 @@ struct pss_oauth_preauth {
 	struct lws *wsi;
 
 	int is_listener;
+	lws_sockaddr46 peer;
 	char serial[64];
 	char name[64];
 	char user_code[16];
@@ -70,6 +72,80 @@ broadcast_to_listeners(struct vhd_oauth_preauth *vhd, const char *json)
 		struct pss_oauth_preauth *pss = lws_container_of(d, struct pss_oauth_preauth, list);
 		send_json(pss, json);
 	} lws_end_foreach_dll(d);
+}
+
+/*
+ * Take a device out of the waiting room to make room for a newcomer: off the
+ * list at once so the caps are exact, and closed asynchronously.  Its CLOSED
+ * finds the list node already detached (a no-op remove) and still broadcasts
+ * device_left if it had announced a serial.
+ */
+static void
+preauth_evict(struct pss_oauth_preauth *dpss, const char *why)
+{
+	lwsl_wsi_notice(dpss->wsi, "evicting device '%s': %s", dpss->serial, why);
+	lws_dll2_remove(&dpss->list);
+	lws_set_timeout(dpss->wsi, PENDING_TIMEOUT_KILLED_BY_PARENT,
+			LWS_TO_KILL_ASYNC);
+}
+
+/*
+ * Make room in the waiting room for a device connecting from \p peer.
+ *
+ * max-devices bounds what unauthenticated devices can hold open, but refusing
+ * the newcomer once full let 32 idle sockets lock every real device out of
+ * pairing for the whole 5-minute slot lifetime (C-788).  Instead a slot is
+ * freed: when the peer is at its own cap, its oldest device goes (silent
+ * ones -- never announced a serial -- first), so one address only ever
+ * displaces itself; when the room is full, the oldest silent device of
+ * anyone's goes.  A device that announced a serial is what the admin is
+ * looking at, so when every device has, the newcomer is refused as before.
+ *
+ * The list is in arrival order, so the first match is the oldest.  Returns
+ * 0 if the newcomer may be added, nonzero to refuse it.
+ */
+static int
+preauth_make_room(struct vhd_oauth_preauth *vhd, const lws_sockaddr46 *peer)
+{
+	struct pss_oauth_preauth *silent = NULL, *peer_silent = NULL,
+				 *peer_oldest = NULL;
+	unsigned int from_peer = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->devices)) {
+		struct pss_oauth_preauth *dpss = lws_container_of(d,
+					struct pss_oauth_preauth, list);
+		int same = !lws_sa46_compare_ads(&dpss->peer, peer);
+
+		if (!dpss->serial[0]) {
+			if (!silent)
+				silent = dpss;
+			if (same && !peer_silent)
+				peer_silent = dpss;
+		}
+		if (same) {
+			from_peer++;
+			if (!peer_oldest)
+				peer_oldest = dpss;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (vhd->max_devices_per_peer && from_peer >= vhd->max_devices_per_peer) {
+		preauth_evict(peer_silent ? peer_silent : peer_oldest,
+			      "peer at its device cap");
+
+		return 0;
+	}
+
+	if (!vhd->max_devices || lws_dll2_count(&vhd->devices) < vhd->max_devices)
+		return 0;
+
+	if (!silent)
+		return 1;
+
+	preauth_evict(silent, "waiting room full");
+
+	return 0;
 }
 
 /*
@@ -121,6 +197,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->cookie_name = "auth_session";
 		vhd->max_devices = 32;
+		vhd->max_devices_per_peer = 8;
 
 		{
 			const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
@@ -129,6 +206,8 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 					vhd->cookie_name = pvo->value;
 				if (!strcmp(pvo->name, "max-devices"))
 					vhd->max_devices = (unsigned int)atoi(pvo->value);
+				if (!strcmp(pvo->name, "max-devices-per-peer"))
+					vhd->max_devices_per_peer = (unsigned int)atoi(pvo->value);
 				if (!strcmp(pvo->name, "jwt-jwk")) {
 					if (pvo->value[0] == '{' || lws_jwk_load(&vhd->jwk, pvo->value, NULL, NULL)) {
 						if (lws_jwk_import(&vhd->jwk, NULL, NULL, pvo->value, strlen(pvo->value))) {
@@ -194,7 +273,11 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			} lws_end_foreach_dll(d);
 		} else {
-			if (lws_dll2_count(&vhd->devices) >= vhd->max_devices) {
+			memset(&pss->peer, 0, sizeof(pss->peer));
+			if (lws_sa46_parse_numeric_address(peerip, &pss->peer))
+				memset(&pss->peer, 0, sizeof(pss->peer));
+
+			if (preauth_make_room(vhd, &pss->peer)) {
 				lwsl_wsi_warn(wsi, "rejecting device: too many pending devices (%u)", lws_dll2_count(
 					&vhd->devices));
 				return -1;

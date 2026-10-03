@@ -82,6 +82,14 @@
  */
 #define OAUTH2_DEFAULT_MAX_PENDING_AUTHS 512
 
+/*
+ * Default cap on pending states from one peer address.  When a peer is at
+ * its cap, its own oldest unclaimed entry makes way for the new one, so an
+ * address flooding /oauth/login ages out only its own logins and never
+ * anyone else's.  Overridable with the max-pending-auths-per-peer pvo.
+ */
+#define OAUTH2_DEFAULT_MAX_PENDING_AUTHS_PER_PEER 32
+
 struct vhd_oauth2_client {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -99,6 +107,7 @@ struct vhd_oauth2_client {
 	char cookie_domain[128];
 	unsigned long cookie_max_age_secs;	/* fallback Max-Age when no expires_in is available */
 	unsigned int max_pending_auths;		/* cap on pending_auth_list */
+	unsigned int max_pending_auths_per_peer; /* ... from one address */
 
 	lws_dll2_owner_t pending_auth_list;
 };
@@ -126,6 +135,9 @@ struct pending_auth_state {
 	 * and a double free).
 	 */
 	uint8_t claimed;
+
+	/* the socket peer that asked for the login, for the per-peer cap */
+	lws_sockaddr46 peer;
 
 	struct lejp_ctx jctx;
 	const char *fatal_error;
@@ -425,6 +437,79 @@ sul_pending_auth_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
+ * Make room in the pending list for a new /oauth/login from \p peer.
+ *
+ * The caps bound the memory a stream of unauthenticated /oauth/login can
+ * hold, but refusing the newcomer once full turned them into a lockout: ~2
+ * unclaimed logins a second kept the list full for the whole 5-minute entry
+ * lifetime and every real login on the vhost got the 503 (C-788).  A real
+ * login only needs its entry to live for the authorize round trip, so the
+ * oldest entry no /oauth/callback has yet claimed makes way instead: first
+ * the peer's own oldest when the peer is at its cap (a flooding address ages
+ * out only its own logins), then the oldest of anyone's when the vhost is
+ * at its cap.  Entries mid-exchange (claimed) are never touched; only when
+ * every entry is one of those is there nothing to evict, and the caller
+ * refuses.
+ *
+ * The list is in creation order, so the first unclaimed entry seen is the
+ * oldest.  An unclaimed entry has no wsi on either leg, so releasing it
+ * frees it at once.
+ *
+ * Returns 0 if the newcomer may be added, nonzero to refuse it.
+ */
+static int
+pending_auth_make_room(struct vhd_oauth2_client *vhd,
+		       const lws_sockaddr46 *peer)
+{
+	struct pending_auth_state *oldest = NULL, *oldest_peer = NULL;
+	unsigned int from_peer = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pending_auth_list)) {
+		struct pending_auth_state *ps = lws_container_of(d,
+					struct pending_auth_state, list);
+
+		if (!ps->claimed) {
+			if (!oldest)
+				oldest = ps;
+			if (!lws_sa46_compare_ads(&ps->peer, peer)) {
+				from_peer++;
+				if (!oldest_peer)
+					oldest_peer = ps;
+			}
+		}
+	} lws_end_foreach_dll(d);
+
+	if (vhd->max_pending_auths_per_peer &&
+	    from_peer >= vhd->max_pending_auths_per_peer) {
+		lwsl_vhost_notice(vhd->vhost, "/oauth/login: peer at %u pending "
+				  "auths, evicting its oldest", from_peer);
+		pending_auth_release(oldest_peer);
+
+		return 0;
+	}
+
+	if (!vhd->max_pending_auths ||
+	    lws_dll2_count(&vhd->pending_auth_list) < vhd->max_pending_auths)
+		return 0;
+
+	if (!oldest) {
+		lwsl_vhost_warn(vhd->vhost, "/oauth/login: %u pending auths, "
+				"all mid-exchange, refusing",
+				lws_dll2_count(&vhd->pending_auth_list));
+
+		return 1;
+	}
+
+	lwsl_vhost_notice(vhd->vhost, "/oauth/login: %u pending auths, "
+			  "evicting the oldest unclaimed",
+			  lws_dll2_count(&vhd->pending_auth_list));
+	pending_auth_release(oldest);
+
+	return 0;
+}
+
+/*
  * Decide the cookie Max-Age to write.  Prefer the lifetime the auth server
  * actually returned for this token; fall back to the operator-configured
  * default; final fallback is the historical 1h so we never silently write a
@@ -465,6 +550,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->cookie_name = "auth_session";
 		vhd->max_pending_auths = OAUTH2_DEFAULT_MAX_PENDING_AUTHS;
+		vhd->max_pending_auths_per_peer =
+				OAUTH2_DEFAULT_MAX_PENDING_AUTHS_PER_PEER;
 
 		{
 			const struct lws_protocol_vhost_options *pvo =
@@ -488,6 +575,11 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!strcmp(pvo->name, "max-pending-auths") &&
 				    pvo->value && pvo->value[0])
 					vhd->max_pending_auths =
+						(unsigned int)atoi(pvo->value);
+				if (!strcmp(pvo->name,
+					    "max-pending-auths-per-peer") &&
+				    pvo->value && pvo->value[0])
+					vhd->max_pending_auths_per_peer =
 						(unsigned int)atoi(pvo->value);
 				pvo = pvo->next;
 			}
@@ -561,6 +653,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!strcmp(uri, "/oauth/login")) {
 			struct pending_auth_state *ps;
+			lws_sockaddr46 peer;
+			char peerip[64];
 			uint8_t rand_bytes[32];
 			uint8_t hash[32];
 			char code_challenge[64];
@@ -590,18 +684,19 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			/*
 			 * /oauth/login is unauthenticated and each pending entry
 			 * is ~8KB held for OAUTH2_PENDING_AUTH_SECS.  Cap how
-			 * many can be live at once per vhost so a peer cannot
-			 * drive the whole process into OOM just by asking to log
-			 * in; the sibling preauth plugin caps its waiting room
-			 * the same way.  Refuse before allocating anything.
+			 * many can be live at once, per vhost and per peer
+			 * address, so a peer cannot drive the whole process
+			 * into OOM just by asking to log in; the sibling preauth
+			 * plugin caps its waiting room the same way.  Make room
+			 * before allocating anything.
 			 */
-			if (vhd->max_pending_auths &&
-			    lws_dll2_count(&vhd->pending_auth_list) >=
-						vhd->max_pending_auths) {
-				lwsl_wsi_warn(wsi, "/oauth/login: %u pending "
-					      "auths already, refusing",
-					      lws_dll2_count(
-						  &vhd->pending_auth_list));
+			memset(&peer, 0, sizeof(peer));
+			peerip[0] = '\0';
+			lws_get_peer_simple(wsi, peerip, sizeof(peerip));
+			if (lws_sa46_parse_numeric_address(peerip, &peer))
+				memset(&peer, 0, sizeof(peer));
+
+			if (pending_auth_make_room(vhd, &peer)) {
 				lws_return_http_status(wsi,
 					HTTP_STATUS_SERVICE_UNAVAILABLE,
 					"Too many pending logins");
@@ -613,6 +708,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				return 1;
 			memset(ps, 0, sizeof(*ps));
 			ps->vhd = vhd;
+			ps->peer = peer;
 
 			/*
 			 * The login widget navigates here with the user's

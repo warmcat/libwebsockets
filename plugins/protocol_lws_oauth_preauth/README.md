@@ -15,7 +15,8 @@ This plugin provides a WebSocket-based waiting room for devices that have not ye
 |---|---|---|
 | `cookie-name` | The name of the HTTP cookie that carries the JWT for admin validation. | `auth_session` |
 | `jwt-jwk` | The JSON Web Key (JWK) string used to verify the JWT signature. Can be the literal JSON or a path to a file depending on LWS configuration. | N/A |
-| `max-devices` | Maximum number of unauthenticated devices allowed to be pending simultaneously to protect against resource exhaustion or DDoS attacks. | `32` |
+| `max-devices` | Maximum number of unauthenticated devices pending simultaneously, bounding what they can hold open. When the room is full, a new device displaces the oldest device that has never announced a `serial`; if every device has, the newcomer is refused. `0` disables the cap. | `32` |
+| `max-devices-per-peer` | Maximum pending devices from one peer address. A peer at its cap displaces its own oldest device (a silent one first), so one address can only ever evict itself, never another peer's devices. `0` disables the cap. Raise it where many devices pair at once from behind one NAT. | `8` |
 
 ## Operation
 
