@@ -442,6 +442,12 @@ Note: on redhat type distros like Fedora / Rocky, use `-gnobody`
  - /home/sai/
   - git-mirror/
    - `remote git url`_`project name` -- individual git mirrors
+   - `mirror`.lck (`.lock` on Windows) -- held by the one task updating the
+     mirror; a lock left by a killed task is broken (Windows: after an hour)
+   - `mirror`.gate -- briefly held while taking or breaking the lock
+   - `mirror`.new, `mirror`.old -- if a fetch fails and the mirror itself is
+     found damaged, it is rebuilt in .new and swapped in; .old is kept for an
+     hour for tasks still checking out from it
   - jobs/
    - `server hostname`-`platform name`-`instance index`/
     - `project_name`/  - checkouts and builds occur in here
