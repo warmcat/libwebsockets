@@ -82,6 +82,7 @@ START=$(date +%s)
 IDLE_SECS="${SAI_IDLE_SECS:-}"
 case "$IDLE_SECS" in
 	''|*[!0-9]*) IDLE_SECS="" ;;
+	*) ;;
 esac
 # least time a target gets in an idle slice, since each run begins by
 # replaying the target's whole corpus
@@ -166,6 +167,7 @@ if [ -n "$IDLE_SECS" ]; then
 		read -r next < "$CORPUS/.idle-next" || next=0
 		case "$next" in
 			''|*[!0-9]*) next=0 ;;
+			*) ;;
 		esac
 	fi
 	next=$(( next % n ))
@@ -208,6 +210,7 @@ replay_known() {
 		h=${f##*/}
 		case "$h" in
 			*[!0-9a-f]*|'') continue ;;
+			*) ;;
 		esac
 		[ ${#h} -eq 40 ] || continue
 

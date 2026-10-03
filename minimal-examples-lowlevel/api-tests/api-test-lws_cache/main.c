@@ -794,6 +794,9 @@ test_nsc_foreign_jar(void)
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s",
 			  jar_foreign_head);
 	for (n = 0; n < LWS_ARRAY_SIZE(jar_foreign_cookies); n++) {
+		/* room for the separator and the long comment line */
+		if (lws_ptr_diff_size_t(end, p) < 2 + 300)
+			goto cdone;
 		if (p != jar + strlen(jar_foreign_head))
 			*p++ = '\n';
 		if (jar_foreign_cookies[n]) {

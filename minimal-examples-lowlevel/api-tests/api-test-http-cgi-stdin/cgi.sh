@@ -30,6 +30,9 @@ big)
 	printf '\r\n'
 	dd if=/dev/zero bs=1024 count=32 2>/dev/null | tr '\000' x
 	exit 0 ;;
+*)
+	# everything else is answered below
+	;;
 esac
 
 # A request without a body has nothing on stdin to count.

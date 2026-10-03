@@ -1257,8 +1257,11 @@ tx_room(struct txb *t, size_t len)
 	uint8_t *nb;
 	size_t m;
 
-	if (t->buf && t->len + len <= t->max)
+	if (t->buf && t->len <= t->max && len <= t->max - t->len)
 		return 0;
+
+	if (len > SIZE_MAX / 4 || t->max > SIZE_MAX / 4)
+		return 1;
 
 	m = (t->max ? t->max * 2 : 4096) + len;
 	nb = realloc(t->buf, m);

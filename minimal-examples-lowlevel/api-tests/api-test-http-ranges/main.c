@@ -480,7 +480,8 @@ generate_zip(void)
 		lwsl_err("%s: cannot create %s\n", __func__, path);
 		goto bail;
 	}
-	if (fwrite(z, 1, len, f) != len)
+	if (fwrite(z, 1, lws_ptr_diff_size_t(p, z), f) !=
+					lws_ptr_diff_size_t(p, z))
 		lwsl_err("%s: write failed\n", __func__);
 	else
 		ret = 0;

@@ -43,12 +43,12 @@ static const char *mwt_jwk =
 	"{\"kty\":\"oct\",\"k\":\"5ieyQLLZ7VbF4YoWYNxxQJ-XrUnSI3CMKPylG_tWZfzLsQ9n"
 	"Fqlc7zew5WB66xS6AfCoPbWV5741OCFhIW7xKQ\"}";
 
-static const char *mwt_answer =
-	"Domain name: %s\r\n"
-	"Registration date: 30.09.2026 14:04:37\r\n"
-	"Expiration date: 30.09.2029 14:04:37\r\n"
-	"DNS: ns1.example.com - \r\n"
-	"DNSSEC signed: yes\r\n";
+#define MWT_ANSWER \
+	"Domain name: %s\r\n" \
+	"Registration date: 30.09.2026 14:04:37\r\n" \
+	"Expiration date: 30.09.2029 14:04:37\r\n" \
+	"DNS: ns1.example.com - \r\n" \
+	"DNSSEC signed: yes\r\n"
 
 static const char *mwt_expect =
 	"{\"creation_date\":1790777077,\"expiry_date\":1885471477,"
@@ -109,7 +109,7 @@ callback_fake_registry(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			r->answer_len = (size_t)lws_snprintf(r->answer,
-					sizeof(r->answer), mwt_answer, r->query);
+					sizeof(r->answer), MWT_ANSWER, r->query);
 			lws_callback_on_writable(wsi);
 		}
 		break;

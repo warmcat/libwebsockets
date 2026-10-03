@@ -192,6 +192,9 @@ static const char *record_dir, *check_dir;
 
 /* append to the transcript, growing it as needed */
 static void
+tr_append(const char *fmt, ...) LWS_FORMAT(1);
+
+static void
 tr_append(const char *fmt, ...)
 {
 	va_list ap;
@@ -335,7 +338,7 @@ tr_end(void)
 		     record_dir ? record_dir : check_dir, tr.name);
 
 	if (record_dir) {
-		fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+		fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
 		if (fd < 0 || write(fd, tr.js, tr.len) != (ssize_t)tr.len) {
 			lwsl_err("%s: unable to write\n", path);
 			if (fd >= 0)

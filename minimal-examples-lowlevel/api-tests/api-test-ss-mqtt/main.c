@@ -341,6 +341,13 @@ static slot_t slots[3];
 static int leg = -1;
 static unsigned int subscribes_at_second;
 
+static const char *
+leg_name(void)
+{
+	return leg >= 0 && leg < (int)LWS_ARRAY_SIZE(leg_names) ?
+						leg_names[leg] : "?";
+}
+
 static void
 leg_sul_cb(lws_sorted_usec_list_t *sul);
 static void
@@ -358,7 +365,7 @@ static void
 leg_fail(const char *why)
 {
 	lwsl_err("%s: leg %s: %s\n", __func__,
-		 leg >= 0 && leg < LEG_COUNT ? leg_names[leg] : "?", why);
+		 leg_name(), why);
 	finish(1);
 }
 
@@ -649,7 +656,7 @@ leg_sul_cb(lws_sorted_usec_list_t *sul)
 			leg_fail("unexpected result");
 			return;
 		}
-		lwsl_user("leg %s: OK\n", leg_names[leg]);
+		lwsl_user("leg %s: OK\n", leg_name());
 
 		/* whatever streams the leg left are finished with */
 		for (n = 0; n < LWS_ARRAY_SIZE(slots); n++)
@@ -662,7 +669,7 @@ leg_sul_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	lwsl_user("--- leg %s ---\n", leg_names[leg]);
+	lwsl_user("--- leg %s ---\n", leg_name());
 	memset(slots, 0, sizeof(slots));
 
 	switch (leg) {

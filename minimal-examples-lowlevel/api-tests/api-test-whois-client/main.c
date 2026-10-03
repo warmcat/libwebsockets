@@ -361,7 +361,7 @@ wct_check(const struct lws_whois_results *res)
 {
 	const struct wct_case *c = &cases[case_idx];
 	char json[LWS_WHOIS_CANON_MAX + 1], again[LWS_WHOIS_CANON_MAX + 1];
-	int bad = 0, problems, n;
+	int bad = 0, problems = 0, n;
 
 	if (c->fails) {
 		if (!res)

@@ -2455,6 +2455,8 @@ setup_wt_pvos(const struct lws_protocols *pcols)
 
 	while (pcols[count].name)
 		count++;
+	if (!count)
+		return NULL;
 
 	wt_pvos = calloc((size_t)count, sizeof(*wt_pvos));
 	if (!wt_pvos)
@@ -2557,7 +2559,7 @@ int main(int argc, const char **argv)
 		info.ssl_private_key_filepath = key_path;
 		info.pvo = setup_wt_pvos(info.protocols);
 		if (!info.pvo) {
-			lwsl_err("OOM allocating pvos\n");
+			lwsl_err("unable to set up webtransport pvos\n");
 			return 1;
 		}
 		parse_server_requests();

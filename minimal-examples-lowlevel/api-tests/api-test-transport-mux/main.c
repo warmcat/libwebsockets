@@ -83,6 +83,7 @@ cb_ch_closes(lws_transport_mux_ch_t *tmc)
 static void
 cb_txp_req_write(lws_transport_mux_t *tm)
 {
+	/* the test only feeds the parser, nothing is ever written */
 }
 
 static int
@@ -108,6 +109,7 @@ static const lws_txp_mux_parse_cbs_t cbs = {
 static void
 onw_req_write(lws_transport_priv_t priv)
 {
+	/* as above, the write requests are taken but never acted on */
 }
 
 static const lws_transport_client_ops_t onw_ops = {
