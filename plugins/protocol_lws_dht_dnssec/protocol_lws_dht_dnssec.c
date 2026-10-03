@@ -3256,8 +3256,17 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 			return 0;
 		}
 
-		uint8_t bin_hash[32];
-		if (lws_hex_to_byte_array(msg->hash, bin_hash, sizeof(bin_hash)) < 0) return 0;
+		/*
+		 * The id is exactly 32 bytes: the parser only forces the hash
+		 * token to be 2..127 hex digits, and lws_hex_to_byte_array()
+		 * reports how many bytes it decoded rather than failing a short
+		 * one, so a shorter hash would leave the tail of bin_hash unset
+		 * and a longer one is not a SHA256 id at all
+		 */
+		uint8_t bin_hash[32] = { 0 };
+		if (lws_hex_to_byte_array(msg->hash, bin_hash, sizeof(bin_hash)) !=
+							(int)sizeof(bin_hash))
+			return 0;
 
 		lws_dht_hash_t *idhash = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, bin_hash);
 		if (idhash) {
