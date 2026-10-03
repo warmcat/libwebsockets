@@ -256,6 +256,11 @@ cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		fd = lws_get_socket_fd(wsi);
+		if (fd == LWS_SOCK_INVALID) {
+			lwsl_err("%s: no socket to send on\n", __func__);
+			raw_tx_len = 0;
+			break;
+		}
 		n = sendto(fd,
 #if defined(WIN32)
 			   (const char *)
