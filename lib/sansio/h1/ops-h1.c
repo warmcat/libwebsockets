@@ -49,14 +49,21 @@
 
 /*
  * The request has its answer, and the answer is going: a file being served
- * (its reads maybe on a worker), or an answer queued behind a transaction
- * already completed.  An h1 connection's rx policy holds rx meanwhile, but
- * an h2 or h3 stream's DATA is fed to us as it comes: it is the request's
- * body, nothing to anyone now, and is discarded as it arrives.
+ * (its reads maybe on a worker), an answer queued behind a transaction
+ * already completed, or on a stream, a refusal whose status page went with
+ * its body still to go (lws_return_http_status() on h2 / h3).  An h1
+ * connection's rx policy holds rx meanwhile, but an h2 or h3 stream's DATA
+ * is fed to us as it comes: it is the request's body, nothing to anyone now,
+ * and is discarded as it arrives.
  */
 static int
 lws_h1_answer_going(struct lws *wsi)
 {
+#if defined(LWS_WITH_HTTP2)
+	if (wsi->mux_substream && wsi->h2.pending_status_code)
+		return 1;
+#endif
+
 	switch (lwsi_state(wsi)) {
 	case LRS_TXN_COMPLETING:
 	case LRS_ISSUING_FILE:
@@ -117,6 +124,18 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 		if (!wsi->mux_substream)
 			return 0;
 		goto http_postbody;
+
+	case LRS_DOING_TRANSACTION:
+		/*
+		 * A stream whose action refused the request has its refusal
+		 * still going, and the request's body may still come
+		 */
+		if (wsi->mux_substream && lws_h1_answer_going(wsi))
+			goto http_postbody;
+
+		lwsl_err("%s: Unhandled state %d\n", __func__,
+			 lwsi_state(wsi));
+		goto bail;
 
 	case LRS_ESTABLISHED:
 

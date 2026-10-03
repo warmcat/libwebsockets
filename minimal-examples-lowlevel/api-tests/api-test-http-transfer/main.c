@@ -568,10 +568,11 @@ static const struct xcase cases[] = {
 	/*
 	 * An h3 body with no content-length is ended by the FIN alone, which
 	 * the proxy could not end the onward body at: the request is refused
-	 * (the stream is reset) and nothing of it reaches the server behind
+	 * with 411, the whole of it, though the body goes on arriving after
+	 * the refusal's head went, and nothing of it reaches the server behind
 	 */
 	{ "h3 POST no Content-Length via the http proxy mount is refused",
-	  "POST", "/echo-cl", XR_BODY_NOHDR, 2000, 0, 8192, 2, 0, -1, 0, XG_NONE, 0, 1, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 2000, 0, 8192, 2, 0, 411, 0, XG_NONE, 0, 1, 0, 0, 0 },
 #endif
 #endif
 #if defined(LWS_WITH_HTTP2)
