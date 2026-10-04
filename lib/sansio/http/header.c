@@ -1470,11 +1470,10 @@ lws_client_stash_to_headers(struct lws *wsi)
 			return -1;
 		}
 
-#if defined(LWS_WITH_SOCKS5)
-	/* the socks leg reconnects from it; nothing else needs it now */
-	if (!wsi->a.vhost->socks_proxy_port)
-		lws_free_set_NULL(wsi->stash);
-#endif
+	/*
+	 * The stash stays, as in every build: a digest auth retry, a redirect
+	 * or a socks leg's reconnect still read the request from it
+	 */
 
 	return 0;
 }
