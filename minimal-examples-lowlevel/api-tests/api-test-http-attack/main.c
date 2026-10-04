@@ -63,6 +63,25 @@
 #define ATK_CASE_TIMEOUT_S	(ATK_TIMEOUT_SECS + 10)
 /* a case taking longer than this says so in the log, pass or fail */
 #define ATK_SLOW_CASE_MS	2000
+/*
+ * server: the ah's header data, set explicitly because the cases about
+ * filling it depend on it
+ */
+#define ATK_AH_DATA		4096
+/*
+ * The longest User-Agent the ah has room for after "GET /alive HTTP/1.1"
+ * and "Connection: close": the request line keeps the target and the
+ * version, and each value is kept, all with their NUL.  The CRLF ending the
+ * head is then kept as the start of a name lws may not know, with the record
+ * a custom header has in front of its name.
+ */
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+#define ATK_AH_NAME_REC		8
+#else
+#define ATK_AH_NAME_REC		0
+#endif
+#define ATK_UA_FITS	(ATK_AH_DATA - (6 + 1) - (8 + 1) - (5 + 1) - 1 - \
+			 ATK_AH_NAME_REC - 2)
 
 enum xport {
 	XP_H1,
@@ -527,6 +546,10 @@ static const struct h1_attack h1_attacks[] = {
 	 */
 
 	ATK_H1_NO_2XX("bare LF line ends", "GET /alive HTTP/1.0\n\n"),
+	/* a LF in a method is no line end, but no method either */
+	{ "LF as the request's second byte",
+	  ATK_L("G\nET /alive HTTP/1.1\r\n\r\n"), NULL, 0, ATK_NONE, 1, 0,
+	  V_STATUS, HTTP_STATUS_BAD_REQUEST, NULL },
 	ATK_H1_NO_2XX("bare LF ending a header",
 		      ATK_GET_ALIVE "User-Agent: a\nContent-Length: 5\r\n\r\n"),
 	ATK_H1_NO_2XX("bare LF ending an unknown header",
@@ -547,6 +570,14 @@ static const struct h1_attack h1_attacks[] = {
 
 	{ "1000 headers", ATK_L(ATK_GET_ALIVE), "Accept: x\r\n", 1000,
 	  ATK_L("\r\n"), 1, 0, V_NO_2XX, 0, NULL },
+	/* the ah holds as much as it is set to, and no more */
+	{ "a request filling the ah", ATK_L("GET /alive HTTP/1.1\r\n"
+	  "Connection: close\r\nUser-Agent: "), "a", ATK_UA_FITS,
+	  ATK_L("\r\n\r\n"), 1, 0, V_STATUS, 200, "echo:/alive" },
+	{ "a request one byte too big for the ah", ATK_L("GET /alive "
+	  "HTTP/1.1\r\nConnection: close\r\nUser-Agent: "), "a",
+	  ATK_UA_FITS + 1, ATK_L("\r\n\r\n"), 1, 0, V_STATUS,
+	  HTTP_STATUS_REQ_HEADER_FIELDS_TOO_LARGE, NULL },
 	/*
 	 * Each urlarg takes one of the ah's header fragments.  A long query
 	 * string that fits them is served; one with more args than the ah
@@ -2662,6 +2693,7 @@ main(int argc, const char **argv)
 #endif
 
 	info.timeout_secs = ATK_TIMEOUT_SECS;
+	info.max_http_header_data = ATK_AH_DATA;
 
 	context = lws_create_context(&info);
 	if (!context) {

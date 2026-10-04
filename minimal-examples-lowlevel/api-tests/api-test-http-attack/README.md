@@ -62,9 +62,11 @@ h1, raw:
 |a POST with no body length to a mount asked for without its `/`, then a request|the 301, and nothing after it (the body runs to the close)|
 |a websocket upgrade with a body|400|
 |NUL or a bare CR in a header value, 1000 headers|nothing served|
+|a request exactly filling the ah's `max_http_header_data`, and one a byte bigger|served, and 431|
 |40 urlargs|served|
 |120 urlargs, more than the ah has header fragments for|414|
 |a bare LF ending the request line, a header, or a chunked body's trailer|nothing served|
+|a LF as the request's second byte (`G\nET`)|400|
 |headers never finished, or trickled in a byte at a time|dropped within the header timeout|
 
 h2, raw frames:

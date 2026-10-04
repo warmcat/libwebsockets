@@ -1775,7 +1775,12 @@ swallow:
 				    (unsigned long)lwsi_role(wsi),
 				    ah->lextable_pos);
 
-			if (!ah->unk_pos && c == '\x0a') {
+			/*
+			 * Before a name's first byte, lextable_pos is 0: every
+			 * byte of a name takes it on, or to -1.  unk_pos can't
+			 * say it, a server's request line is kept from offset 0
+			 */
+			if (!ah->lextable_pos && c == '\x0a') {
 				if (lws_h1_srv_strict(wsi))
 					goto bare_lf;
 				/* broken peer */
@@ -1814,7 +1819,7 @@ swallow:
 			 * a known header, we'll snip this.
 			 */
 
-			if (!wsi->mux_substream && !ah->unk_pos) {
+			if (!wsi->mux_substream && !ah->lextable_pos) {
 				ah->unk_pos = ah->pos;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
