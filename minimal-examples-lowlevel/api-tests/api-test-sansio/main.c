@@ -84,7 +84,9 @@
  *
  * And an h1 POST with neither Content-Length nor Transfer-Encoding: it has
  * no body (RFC 9112 6.3), and the request pipelined behind its head is the
- * next one served, not read as its body until the close.
+ * next one served, not read as its body until the close.  And one saying
+ * "Content-Length: 0" that the app answered and completed from its headers:
+ * the empty body's completion is not given to the app after that.
  *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
@@ -1193,6 +1195,9 @@ static const struct lws_protocols protocols_uri[] = {
  * lws_return_http_status() decides how to say so: a redirect to the vhost's
  * 404 document, or, for the 404 document itself, the status page
  */
+/* a request body's completion told an app that had already completed it */
+static int late_body_completion;
+
 static int
 callback_404(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
@@ -1203,6 +1208,11 @@ callback_404(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		    lws_http_transaction_completed(wsi))
 			return -1;
 		return 0;
+
+	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		/* every request was answered and completed already: case 41 */
+		late_body_completion++;
+		break;
 
 	default:
 		break;
@@ -1803,6 +1813,70 @@ h1_404_half(struct lws_context *cx, struct lws_vhost *vh)
 	lwsl_user("case 16: the 404 redirect is per transaction: PASS\n");
 
 	return 0;
+}
+
+/*
+ * 41: an h1 POST saying "Content-Length: 0", answered and completed by the
+ * app when its headers come, from LWS_CALLBACK_HTTP, as callback_404 (and
+ * lws_callback_http_dummy()) does, while the transport takes only a few
+ * bytes, so the answer is still queued.  The transaction is over: the empty
+ * body's HTTP_BODY_COMPLETION, which an app answers from, must not reach
+ * the app, as a body's that came after the answer does not.  There is one
+ * answer, and the kept-alive connection then takes the next request.
+ */
+static int
+h1_post_zero_answered_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req[] =
+		"POST /cb/y HTTP/1.1\r\nHost: sansio-404\r\n"
+		"Content-Length: 0\r\n\r\n",
+			  req2[] =
+		"GET /cb/y HTTP/1.1\r\nHost: sansio-404\r\n\r\n";
+	static struct transport tp;
+	const uint8_t *b;
+	struct lws *wsi;
+	int sv[2], n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h1-post-zero-answered", "server", 0);
+
+	/* the answer is still going when the request's turn is over */
+	tp.tx_limit = 4;
+	feed(cx, &tp, req, sizeof(req) - 1);
+	for (n = 0, b = tp.tx; (b = find_bytes(b, (size_t)(tp.tx + tp.tx_len - b),
+					    "HTTP/1.1 ")); b++)
+		n++;
+	if (n != 1 || tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 302 ", 13) ||
+	    late_body_completion || tp.shutdown || tp.closed) {
+		lwsl_err("case 41: %d answers, %d late body completions\n", n,
+			 late_body_completion);
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	feed(cx, &tp, req2, sizeof(req2) - 1);
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 302 ", 13) ||
+	    tp.shutdown || tp.closed) {
+		lwsl_err("case 41: next request not served\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 41: an h1 POST with an empty body answered from its "
+		  "headers has one answer: PASS\n");
+
+	return tr_end();
 }
 
 /*
@@ -4328,6 +4402,12 @@ main(int argc, const char **argv)
 	at(cx, 300000);
 	if (h1_discard_slow_body_half(cx, vh_uri, 300000))
 		goto bail;
+
+#if defined(LWS_WITH_FILE_OPS)
+	at(cx, 350000);
+	if (h1_post_zero_answered_half(cx, vh_404))
+		goto bail;
+#endif
 
 	result = 0;
 
