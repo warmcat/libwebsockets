@@ -547,7 +547,8 @@ done_list:
 					socket(a->af, SOCK_STREAM, 0);
 
 		if (sockfd == LWS_SOCK_INVALID) {
-			lwsl_err("ERROR opening socket\n");
+			lwsl_err("%s: ERROR opening socket: af %d, errno %d\n",
+				 __func__, (int)a->af, LWS_ERRNO);
 			return 1;
 		}
 
