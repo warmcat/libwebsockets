@@ -1027,11 +1027,37 @@ lws_h2_await_body_timeout(struct lws *wsi)
  *  -1: fatal, close the connection
  */
 
+/*
+ * The stream's request was answered before its body was all given to the
+ * app: the body is nothing to anyone.  What is stashed of it goes now, and
+ * what is still to come is discarded as it arrives (lws_read_h1()), so it is
+ * counted from here.
+ */
+
+static void
+lws_h2_stashed_body_nobodys(struct lws *wsi)
+{
+	size_t sl;
+
+	wsi->http.rx_content_remain = wsi->http.content_length_given ?
+			wsi->http.rx_content_length :
+			(wsi->a.vhost->max_http_body_size ?
+				wsi->a.vhost->max_http_body_size :
+				100 * 1024 * 1024);
+	while ((sl = lws_buflist_next_segment_len(&wsi->buflist, NULL))) {
+		lws_buflist_use_segment(&wsi->buflist, sl);
+		wsi->http.rx_content_remain =
+			wsi->http.rx_content_remain > sl ?
+				wsi->http.rx_content_remain - sl : 0;
+	}
+	lws_dll2_remove(&wsi->dll_buflist);
+}
+
 static int
 lws_h2_bind_for_post_before_action(struct lws *wsi)
 {
 	const struct lws_http_mount *hit;
-	int uri_len = 0, methidx;
+	int uri_len = 0, methidx, n;
 	char *uri_ptr = NULL;
 	uint8_t *buffered;
 	const char *p;
@@ -1190,29 +1216,13 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	if (lwsi_state(wsi) == LRS_TXN_COMPLETING ||
 	    lwsi_state(wsi) == LRS_ISSUING_FILE ||
 	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
-		size_t sl;
-
 		/*
 		 * The dispatch answered the request: it completed it with its
 		 * answer still queued, and the stream ends once that has gone
 		 * (the walk of the children sees to it), or it is serving a
-		 * file as the answer.  Either way the body is nothing to
-		 * anyone: what is stashed of it goes now, and what is still to
-		 * come is discarded as it arrives (lws_read_h1()), so it is
-		 * counted from here
+		 * file as the answer
 		 */
-		wsi->http.rx_content_remain = wsi->http.content_length_given ?
-				wsi->http.rx_content_length :
-				(wsi->a.vhost->max_http_body_size ?
-					wsi->a.vhost->max_http_body_size :
-					100 * 1024 * 1024);
-		while ((sl = lws_buflist_next_segment_len(&wsi->buflist, NULL))) {
-			lws_buflist_use_segment(&wsi->buflist, sl);
-			wsi->http.rx_content_remain =
-				wsi->http.rx_content_remain > sl ?
-					wsi->http.rx_content_remain - sl : 0;
-		}
-		lws_dll2_remove(&wsi->dll_buflist);
+		lws_h2_stashed_body_nobodys(wsi);
 
 		return 1;
 	}
@@ -1263,6 +1273,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 					      LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					      wsi->user_space, NULL, 0))
 			return 2;
+		lws_http_mux_body_completed(wsi);
 
 		/* the last point the request headers may be read */
 		lws_http_ah_release_after_dispatch(wsi, 1);
@@ -1296,15 +1307,14 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 			return -1;
 		}
 
-		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
-				wsi->user_space, buffered, blen))
-			return 2;
-		lws_buflist_use_segment(&wsi->buflist, blen);
-
-		wsi->http.rx_content_length -= blen;
 		/*
-		 * Keep rx_content_remain in step with the body we just
-		 * delivered from the deferred buflist.  The inline DATA path in
+		 * Account for the piece before the app hears of it, as the
+		 * inline DATA path in lws_read_h1() does: an app completing
+		 * the transaction from this HTTP_BODY must find no body owed
+		 * if this was the last of it, not discard it.
+		 *
+		 * Keep rx_content_remain in step with the body we deliver
+		 * from the deferred buflist.  The inline DATA path in
 		 * lws_read_h1() and the HTTP_BODY_COMPLETION decision both track
 		 * rx_content_remain (initialized to the full content-length);
 		 * if we only decrement rx_content_length here, a body that is
@@ -1313,10 +1323,35 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		 * at the stashed byte count, so completion never fires and the
 		 * request times out.
 		 */
+		wsi->http.rx_content_length -= blen;
 		if (wsi->http.rx_content_remain >= blen)
 			wsi->http.rx_content_remain -= blen;
 		else
 			wsi->http.rx_content_remain = 0;
+
+		n = wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
+					      wsi->user_space, buffered, blen);
+		lws_buflist_use_segment(&wsi->buflist, blen);
+		if (n)
+			return 2;
+
+		switch (lwsi_state(wsi)) {
+		case LRS_BODY:
+			break;
+		case LRS_DISCARD_BODY:
+			/* the app completed from a piece before the last */
+			goto discard_and_close;
+		default:
+			/*
+			 * The app answered from the body and completed the
+			 * transaction, its answer still queued, or started
+			 * serving a file: the rest of the body, and its
+			 * completion, are nobody's
+			 */
+			lws_h2_stashed_body_nobodys(wsi);
+
+			return 1;
+		}
 	}
 
 	if (!wsi->buflist)
@@ -1368,6 +1403,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
 				      wsi->user_space, NULL, 0))
 		return 2;
+	lws_http_mux_body_completed(wsi);
 
 	/* the last point the request headers may be read */
 	lws_http_ah_release_after_dispatch(wsi, 1);

@@ -2220,6 +2220,17 @@ lws_http_request_body_framing(struct lws *wsi)
  */
 
 void
+lws_http_mux_body_completed(struct lws *wsi)
+{
+	/*
+	 * Not if the callback completed the transaction, or closed: the body
+	 * is nothing to that stream any more
+	 */
+	if (lwsi_state(wsi) == LRS_BODY || lwsi_state(wsi) == LRS_ISSUING_FILE)
+		lws_wsi_event(wsi, LWS_WSIEV_BODY_COMPLETE);
+}
+
+void
 lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done)
 {
 	if (!wsi->stream.ah || !wsi->mux_substream)

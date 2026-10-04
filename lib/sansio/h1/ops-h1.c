@@ -511,10 +511,10 @@ postbody_completion:
 					goto bail;
 				}
 
-				if (wsi->mux_substream)
-					lws_wsi_event(wsi, LWS_WSIEV_BODY_COMPLETE);
-
 #if defined(LWS_WITH_SERVER)
+				if (wsi->mux_substream)
+					lws_http_mux_body_completed(wsi);
+
 				/*
 				 * The body is complete and its completion
 				 * delivered: that is the last point user code

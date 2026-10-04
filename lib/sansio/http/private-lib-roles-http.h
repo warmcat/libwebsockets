@@ -596,6 +596,15 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
  */
 void
 lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done);
+
+/*
+ * A mux stream's request body completion was delivered: its body phase is
+ * over.  Wherever the completion was delivered from (the DATA as it came, or
+ * the body stashed before the dispatch), the stream says so after the
+ * callback, which may have moved it on already, eg, to a file it serves.
+ */
+void
+lws_http_mux_body_completed(struct lws *wsi);
 #endif
 
 #if defined(LWS_ROLE_H1)
