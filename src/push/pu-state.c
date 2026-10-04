@@ -170,8 +170,9 @@ saip_state_save(void)
 	struct lwsac *ac = NULL;
 	saip_state_entry_t *e;
 	uint8_t buf[1024];
+	lws_struct_json_serialize_result_t r;
 	saip_state_t st;
-	int fd, r, bad = 0;
+	int fd, bad = 0;
 	size_t w;
 
 	memset(&st, 0, sizeof(st));

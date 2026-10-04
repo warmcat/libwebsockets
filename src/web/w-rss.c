@@ -540,9 +540,9 @@ static int
 saiw_feed_render_json(struct pss *pss, sai_feed_t *f)
 {
 	lws_struct_serialize_t *js;
+	lws_struct_json_serialize_result_t r;
 	uint8_t buf[4096];
 	size_t w;
-	int r;
 
 	js = lws_struct_json_serialize_create(lsm_schema_json_map_feed,
 			LWS_ARRAY_SIZE(lsm_schema_json_map_feed), 0, f);
