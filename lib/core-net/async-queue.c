@@ -110,10 +110,17 @@ lws_async_worker_worker(void *d)
  * Hand a job to the async worker threads, starting one if none is idle and
  * the limit allows.  Returns 1 when the queue is saturated: the caller does
  * the work inline instead, as a build without the queue does.
+ *
+ * The context fault "async_queue_full" makes every submission find it
+ * saturated, so the callers' inline fallbacks can be tested without racing
+ * a burst of work against the workers.
  */
 int
 lws_async_queue_submit(struct lws_context *cx, struct lws_async_job *job)
 {
+	if (lws_fi(&cx->fic, "async_queue_full"))
+		return 1;
+
 	pthread_mutex_lock(&cx->async_worker_mutex);
 	if (lws_dll2_count(&cx->async_worker_waiting) >=
 	    (uint32_t)(cx->count_async_threads * 10)) {

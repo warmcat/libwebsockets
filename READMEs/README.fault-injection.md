@@ -298,6 +298,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |context||`ctx_createfail_ss_pol3`|Fail context creation due to ss policy set failed (if policy enabled)|
 |context||`cache_createfail`|Fail `lws_cache` creation due to OOM|
 |context||`cache_lookup_oom`|Fail `lws_cache` lookup due to OOM|
+|context||`async_queue_full`|The async worker queue seems saturated, so tls accepts and file reads are done inline on the service thread (LWS_WITH_ASYNC_QUEUE)|
 |vhost|`vh`|`vh_create_oom`|Fail vh creation on vh object alloc OOM|
 |vhost|`vh`|`vh_create_oom`|Fail vh creation on vh object alloc OOM|
 |vhost|`vh`|`vh_create_pcols_oom`|Fail vh creation at protocols alloc OOM|

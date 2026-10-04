@@ -1045,6 +1045,12 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		    context->count_async_threads) {
 			struct lws_async_job *job;
 
+			/*
+			 * The SSL is the worker's from when the job is queued:
+			 * the service thread must take no event on the fd until
+			 * the step comes back on the event pipe, which arms the
+			 * poll set again as the accept left it
+			 */
 			if (lws_change_pollfd(wsi, LWS_POLLIN | LWS_POLLOUT, 0)) {
 				lwsl_err("%s: lws_change_pollfd failed\n", __func__);
 				goto fail;
@@ -1058,46 +1064,31 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			wsi->async_worker_job = job;
 			job->type = LWS_AQ_SSL_ACCEPT;
 
-			//lwsl_notice("%s: %s: QUEUING LWS_AQ_SSL_ACCEPT\n", __func__, lws_wsi_tag(wsi));
-
-			pthread_mutex_lock(&context->async_worker_mutex);
-			if (lws_dll2_count(&context->async_worker_waiting) >=
-			    (uint32_t)(context->count_async_threads * 10)) {
-				/*
-				 * The workers are saturated.  That is backpressure,
-				 * not a failed handshake: do this accept on the
-				 * event loop, as a build without the async queue
-				 * always does, rather than drop the connection.
-				 * The synchronous path re-arms its own poll wants.
-				 */
-				pthread_mutex_unlock(&context->async_worker_mutex);
-				lws_free(job);
-				wsi->async_worker_job = NULL;
-				lwsl_wsi_info(wsi, "async accept queue full, accepting inline");
-			} else {
-				lws_dll2_add_tail(&job->list, &context->async_worker_waiting);
-
-				if (context->async_worker_threads_idle == 0 &&
-				    context->async_worker_threads_active <
-						    context->count_async_threads) {
-					pthread_t pt_th;
-					context->async_worker_threads_active++;
-					if (pthread_create(&pt_th, NULL,
-							   lws_async_worker_worker,
-							   context) == 0)
-						pthread_detach(pt_th);
-					else
-						context->async_worker_threads_active--;
-				}
-
-				/* wake up any idle worker threads */
-				pthread_cond_signal(&context->async_worker_cond);
-
-				pthread_mutex_unlock(&context->async_worker_mutex);
-
+			if (!lws_async_queue_submit(context, job)) {
 				lws_wsi_event(wsi, LWS_WSIEV_TLS_ACCEPT_QUEUED);
 				return 0;
 			}
+
+			/*
+			 * The workers are saturated.  That is backpressure, not
+			 * a failed handshake: do this accept step on the event
+			 * loop, as a build without the async queue always does,
+			 * rather than drop the connection.
+			 *
+			 * But the POLLIN taken off for the worker must go back
+			 * first, as the event pipe's completion of a worker
+			 * step does: the inline accept only arms the poll set
+			 * when it wants more service, so a step that completes
+			 * the handshake left the connection reading nothing,
+			 * and the request the peer sent behind its Finished
+			 * waited unread for the connection's timeout.
+			 */
+			lws_free(job);
+			wsi->async_worker_job = NULL;
+			lwsl_wsi_info(wsi, "async accept queue full, accepting inline");
+
+			if (lws_io_want_read(wsi, 1))
+				goto fail;
 		}
 #endif
 
