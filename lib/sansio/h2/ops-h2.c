@@ -1431,6 +1431,15 @@ discard_and_close:
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_dll2_remove(&wsi->dll_buflist);
 
+	/*
+	 * A status page answered the request, lws_return_http_status(): its
+	 * HEADERS went, but its body goes on the stream's next writeable,
+	 * which then ends it.  Until then the stream stays, the rest of the
+	 * request body discarded as it comes
+	 */
+	if (wsi->h2.pending_status_code)
+		return 1;
+
 	return 2;
 }
 #endif
