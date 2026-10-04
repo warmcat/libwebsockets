@@ -113,6 +113,7 @@ lws_tls_client_host_is_literal(const char *host)
 int
 lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 {
+	union lws_tls_cert_info_results ir;
 	int n;
 
 	n = lws_tls_client_connect(wsi, errbuf, len);
@@ -122,7 +123,18 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 	case LWS_SSL_CAPABLE_ERROR:
 		lws_tls_restrict_return_handshake(wsi);
 
-		if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
+		/*
+		 * Why did the handshake fail?  If the peer's certificate came,
+		 * the backend may have refused it inside the handshake, and the
+		 * check of it says why, more precisely than the handshake's
+		 * own error.  If none came, the handshake failed before there
+		 * was anything to check (eg, the connection failed under it),
+		 * and the check could only say it could not verify a
+		 * certificate, hiding the backend's real reason in errbuf.
+		 */
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO,
+					    &ir, 0) &&
+		    lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 			lws_tls_jit_trust_peer_rejected(wsi);
 #endif
@@ -130,7 +142,6 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 			return -1;
 		}
 
-		// lws_snprintf(errbuf, len, "client connect failed");
 		return -1;
 	case LWS_SSL_CAPABLE_DONE:
 		break; /* connected */
