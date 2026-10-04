@@ -91,16 +91,22 @@ static const char * const well_known[] = {
 int
 sai_get_head_status(struct vhd *vhd, const char *projname)
 {
+	char esc[96], filt[192];
 	struct lwsac *ac = NULL;
 	lws_dll2_owner_t o;
 	sai_event_t *e;
 	int state;
 
 	/*
-	 * Ad-hoc events are scratch builds seeded by an admin; they don't
-	 * say anything about the state of the branch, so skip them
+	 * The newest event of the named project decides it.  Ad-hoc events
+	 * are scratch builds seeded by an admin; they don't say anything
+	 * about the state of the branch, so skip them, and deleted ones.
 	 */
-	if (lws_struct_sq3_deserialize(vhd->pdb, " and ifnull(adhoc,0)=0",
+	lws_sql_purify(esc, projname, sizeof(esc));
+	lws_snprintf(filt, sizeof(filt), " and repo_name='%s' and state != %d"
+		     " and ifnull(adhoc,0)=0", esc, SAIES_DELETED);
+
+	if (lws_struct_sq3_deserialize(vhd->pdb, filt,
 				       "created ", lsm_schema_sq3_map_event,
 				       &o, &ac, 0, -1))
 		return -1;
