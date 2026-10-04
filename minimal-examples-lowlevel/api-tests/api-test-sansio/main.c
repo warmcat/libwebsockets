@@ -75,7 +75,9 @@
  *
  * And ws over h2: the peer's close is answered, nothing it sends after it is
  * acted on, and the stream, which was processed, is not refused; and when
- * the stream has no window for the answer yet, it goes once it has.
+ * the stream has no window for the answer yet, it goes once it has.  And
+ * when the peer's close crosses one the app started that could not go yet,
+ * only the answer to the peer's goes.
  *
  * And a CONNECT from a user agent the context turns away: it is refused as
  * any other request of its would be, not given to the fallback role first.
@@ -1022,6 +1024,12 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (len == 4 && !memcmp(in, "Hold", 4)) {
 			lws_rx_flow_control(wsi, 0);
 			return 0;
+		}
+		/* "Close" has it start the close itself, going away: case 22 */
+		if (len == 5 && !memcmp(in, "Close", 5)) {
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_GOINGAWAY,
+					 (unsigned char *)"bye", 3);
+			return -1;
 		}
 		/* it echoes whole messages */
 		if (!lws_is_first_fragment(wsi) || !lws_is_final_fragment(wsi))
@@ -2094,14 +2102,27 @@ h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
  * 5.5.2).  The stream was processed, so it is not reset as REFUSED_STREAM,
  * as a refused upgrade is: at most NO_ERROR, to stop the peer sending.
  *
- * With skint, the peer gives streams no window to start with, and ends its
- * side of the stream with its CLOSE, so the answer waits for its
+ * With H2WS_SKINT, the peer gives streams no window to start with, and ends
+ * its side of the stream with its CLOSE, so the answer waits for its
  * WINDOW_UPDATE: nothing of it, and no reset, goes before, and then the
  * same as without.
+ *
+ * With H2WS_CROSSED, the peer first sends the text "Close", which has the
+ * app start the close itself (1001 "bye"), while the connection's transport
+ * takes nothing: that close is still waiting to go when the peer's own CLOSE
+ * arrives on the connection, which goes on reading for its streams.  The
+ * closes have crossed: ours is dropped, and once the transport takes bytes
+ * again only the answer to the peer's goes, with its own 1000.
  */
+enum {
+	H2WS_PLAIN,
+	H2WS_SKINT,
+	H2WS_CROSSED,
+};
+
 static int
 h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
-		      int skint)
+		      int mode)
 {
 	static const char preface[] =
 		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
@@ -2123,10 +2144,21 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
 	/* the same, with END_STREAM: the peer is done with the stream too */
 			  data_es[] = "\x00\x00\x0f\x00\x01\x00\x00\x00\x01"
 				   "\x88\x82\x00\x00\x00\x00\x03\xe8"
-				   "\x89\x81\x00\x00\x00\x00p";
+				   "\x89\x81\x00\x00\x00\x00p",
+	/* DATA, sid 1: masked, zero key, TEXT "Close" */
+			  data_text[] = "\x00\x00\x0b\x00\x00\x00\x00\x00\x01"
+				   "\x81\x85\x00\x00\x00\x00" "Close",
+	/* DATA, sid 1, END_STREAM: masked, zero key, CLOSE 1000 */
+			  data_close_es[] = "\x00\x00\x08\x00\x01\x00\x00\x00\x01"
+				   "\x88\x82\x00\x00\x00\x00\x03\xe8";
+	static const char * const names[] = {
+		"h2-ws-peer-close", "h2-ws-peer-close-skint",
+		"h2-ws-close-crossed"
+	};
 	static uint8_t blk[256], fr[300];
 	static struct transport tp;
-	int sv[2], closed = 0, pong = 0, rst = 0;
+	int sv[2], closed = 0, pong = 0, rst = 0, ours = 0,
+	    skint = mode == H2WS_SKINT;
 	struct lws *wsi;
 	uint8_t *p;
 	size_t n, o, f;
@@ -2144,8 +2176,7 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
 		return 1;
 	}
 	lws_set_transport(wsi, &tops, &tp);
-	tr_begin(skint ? "h2-ws-peer-close-skint" : "h2-ws-peer-close",
-		 "server", 0);
+	tr_begin(names[mode], "server", 0);
 
 	if (skint)
 		feed(cx, &tp, preface_skint, sizeof(preface_skint) - 1);
@@ -2174,10 +2205,28 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
 	fr[4] = 0x04; /* END_HEADERS alone: the stream carries the ws */
 	feed(cx, &tp, fr, n);
 
-	if (skint)
-		feed(cx, &tp, data_es, sizeof(data_es) - 1);
-	else
+	switch (mode) {
+	case H2WS_PLAIN:
 		feed(cx, &tp, data, sizeof(data) - 1);
+		break;
+	case H2WS_SKINT:
+		feed(cx, &tp, data_es, sizeof(data_es) - 1);
+		break;
+	default:
+		/* the app starts its close, then the peer's crosses it */
+		tp.tx_budget = 0;
+		feed(cx, &tp, data_text, sizeof(data_text) - 1);
+		feed(cx, &tp, data_close_es, sizeof(data_close_es) - 1);
+		if (tp.rx_pos != tp.rx_len || tp.tx_len) {
+			lwsl_err("case 22: %s: peer close not read\n",
+				 names[mode]);
+			return 1;
+		}
+		tp.tx_budget = -1;
+		tick(cx);
+		pump(cx, &tp);
+		break;
+	}
 
 	if (skint) {
 		/* nothing on sid 1 can go yet, and it is not given up */
@@ -2186,9 +2235,9 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
 			    ((size_t)tp.tx[o + 1] << 8) | tp.tx[o + 2];
 			if ((lws_ser_ru32be(&tp.tx[o + 5]) & 0x7fffffff) == 1 &&
 			    (!tp.tx[o + 3] || tp.tx[o + 3] == 3)) {
-				lwsl_err("case 22: skint: frame type %d on "
+				lwsl_err("case 22: %s: frame type %d on "
 					 "sid 1 before the window\n",
-					 tp.tx[o + 3]);
+					 names[mode], tp.tx[o + 3]);
 				lwsl_hexdump_err(tp.tx, tp.tx_len);
 				return 1;
 			}
@@ -2213,17 +2262,21 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
 		if (f >= 4 && !memcmp(&tp.tx[o + 9], "\x88\x02\x03\xe8", 4) &&
 		    (tp.tx[o + 4] & 1))
 			closed = 1;
+		/* our own close, which the peer's crossed */
+		if (f >= 4 && !memcmp(&tp.tx[o + 9], "\x88\x05\x03\xe9", 4))
+			ours = 1;
 		if (f && tp.tx[o + 9] == 0x8a)
 			pong = 1;
 	}
-	if (!closed || pong || rst) {
-		lwsl_err("case 22: %sclose answered %d, pong %d, rst %d\n",
-			 skint ? "skint: " : "", closed, pong, rst);
+	if (!closed || pong || rst || ours) {
+		lwsl_err("case 22: %s: close answered %d, pong %d, rst %d, "
+			 "ours %d\n", names[mode], closed, pong, rst, ours);
 		lwsl_hexdump_err(tp.tx, tp.tx_len);
 		return 1;
 	}
 	lwsl_user("case 22: ws over h2 answers the close%s, then nothing: "
-		  "PASS\n", skint ? " once it has the window" : "");
+		  "PASS\n", mode == H2WS_CROSSED ? ", crossing its own, once it "
+		  "can send" : (skint ? " once it has the window" : ""));
 
 	return tr_end();
 }
@@ -4185,10 +4238,13 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 	at(cx, 4000);
-	if (h2_ws_peer_close_half(cx, vh_h2ws, 0))
+	if (h2_ws_peer_close_half(cx, vh_h2ws, H2WS_PLAIN))
 		goto bail;
 	at(cx, 4050);
-	if (h2_ws_peer_close_half(cx, vh_h2ws, 1))
+	if (h2_ws_peer_close_half(cx, vh_h2ws, H2WS_SKINT))
+		goto bail;
+	at(cx, 4060);
+	if (h2_ws_peer_close_half(cx, vh_h2ws, H2WS_CROSSED))
 		goto bail;
 #endif
 

@@ -600,7 +600,12 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	R("ws", "*", LRS_ESTABLISHED,		LWS_WSIEV_WS_CLOSE_INITIATED, NULL, NULL, XC(LCS_WAITING_TO_SEND_CLOSE)),
 	R("ws", "*", LRS_WAITING_TO_SEND_CLOSE,	LWS_WSIEV_WS_CLOSE_SENT, NULL, NULL, XC(LCS_AWAITING_CLOSE_ACK)),
 	R("ws", "*", LRS_ESTABLISHED,		LWS_WSIEV_WS_PEER_CLOSE, NULL, NULL, XC(LCS_RETURNED_CLOSE)),
-	/* his CLOSE beat the one we were about to send: answer his and drop ours */
+	/*
+	 * his CLOSE beat the one we were about to send: answer his and drop
+	 * ours.  Only ws over a mux stream gets here: its network connection
+	 * goes on reading for its other streams, where a ws connection of its
+	 * own reads nothing more until its close has gone
+	 */
 	R("ws", "*", LRS_WAITING_TO_SEND_CLOSE,	LWS_WSIEV_WS_PEER_CLOSE, NULL, NULL, XC(LCS_RETURNED_CLOSE)),
 	/*
 	 * the close is entered: a flush the live connection had begun is now
