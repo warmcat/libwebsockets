@@ -33,7 +33,6 @@
 
 #if defined(LWS_WITH_CLIENT)
 
-#if defined(LWS_WITH_TLS)
 static int
 lws_client_is_quic(struct lws *wsi)
 {
@@ -45,7 +44,6 @@ lws_client_is_quic(struct lws *wsi)
 	return 0;
 #endif
 }
-#endif
 
 /*
  * The client wsi's connection could not go on, and was closed: 1 when the
@@ -431,8 +429,17 @@ lws_client_transport_stage(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * for the primary or for a racer on the same wsi (the racer's
 		 * fd is what poll reported), so a live racer can still win
 		 * rather than the whole wsi being killed here.
+		 *
+		 * A quic wsi is back here once its happy eyeballs tcp racer
+		 * starts, but its udp socket was connected already and is
+		 * not asking for writeable: the server's first datagram is
+		 * its readable.  Unread, it is reported again at once and
+		 * the loop spins until a quic timer asks for writeable.
 		 */
-		if ((pollfd->revents & (LWS_POLLOUT | LWS_POLLHUP)) &&
+		if ((pollfd->revents & (LWS_POLLOUT | LWS_POLLHUP) ||
+		     (lws_client_is_quic(wsi) &&
+		      pollfd->fd == wsi->io->desc.sockfd &&
+		      (pollfd->revents & LWS_POLLIN))) &&
 		    !lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
 			return 1;
 
