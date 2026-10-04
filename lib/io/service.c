@@ -1228,12 +1228,16 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/*
 	 * The pass's POLLOUT: served here through the dispatcher in the
-	 * states that take a writeable callback, or where the role insisted;
-	 * otherwise nothing wants it and it is cleared, since the poll is
-	 * level-triggered and the role asks again when it does
+	 * states that take a writeable callback, or where the role insisted,
+	 * or whatever the state, with bytes held from a partial write, which
+	 * nothing else will send (eg, an h2c 101 that went only partly,
+	 * before the connection has a state that writes); otherwise nothing
+	 * wants it and it is cleared, since the poll is level-triggered and
+	 * the role asks again when it does
 	 */
 	if (out && (lwsi_state_can_handle_POLLOUT(wsi) ||
-		    (flags & LWS_RXPOL_F_POLLOUT))) {
+		    (flags & LWS_RXPOL_F_POLLOUT) ||
+		    lws_has_buflist_out(wsi))) {
 		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
 
 		if (hr < 0)
