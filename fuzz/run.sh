@@ -259,7 +259,10 @@ for t in $TARGETS; do
 	TSTAMP="$BUILD/fuzz/.target-stamp"
 	touch "$TSTAMP"
 
-	if [ -t 1 ]; then
+	# sai runs build steps in a pty, so under sai with findings going to
+	# sai-server, a tty doesn't mean someone is watching: the output is
+	# the public task log, and must not get the sanitizer reports
+	if [ -t 1 ] && [ -z "$SAI_POOL_FINDINGS" ]; then
 		# interactive: live output, plus a copy next to the artifacts
 		{ run_target "$t"; echo $? > "$log.rc"; } 2>&1 | tee "$log"
 		[ "$(cat "$log.rc")" = 0 ] || rc=1
