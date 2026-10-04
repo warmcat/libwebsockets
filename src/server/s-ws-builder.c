@@ -643,6 +643,51 @@ sai_sql3_get_uint64_cb(void *user, int cols, char **values, char **name)
 }
 
 /*
+ * Builders say which step (1-based) an ACCEPTED or DESTROYED is about.  It's
+ * only news if it's about the step the task is at: for ACCEPTED, the one after
+ * the last one accepted; for DESTROYED, the last one accepted... and either way
+ * only while the task's latest run is still going.
+ *
+ * Anything else is about a step the task has moved past, eg, a second offer of
+ * a step that completed in the meantime.  Acting on it overruns or rewinds
+ * build_step, and can fail a task that already succeeded.  Builders that don't
+ * say (step 0) are believed, as before.
+ *
+ * *build_step is set to the task's build_step, or -1 if we couldn't read it.
+ */
+
+static int
+sais_rej_is_stale(sqlite3 *pdb, const sai_rejection_t *rej, int *build_step)
+{
+	sqlite3_stmt *sm;
+	int state = -1;
+
+	*build_step = -1;
+
+	if (sqlite3_prepare_v2(pdb, "select build_step,state from tasks where "
+				    "uuid=? order by run desc limit 1",
+			       -1, &sm, NULL) != SQLITE_OK)
+		return 0;
+
+	sqlite3_bind_text(sm, 1, rej->task_uuid, -1, SQLITE_TRANSIENT);
+	if (sqlite3_step(sm) == SQLITE_ROW) {
+		*build_step	= sqlite3_column_int(sm, 0);
+		state		= sqlite3_column_int(sm, 1);
+	}
+	sqlite3_finalize(sm);
+
+	if (!rej->step || *build_step < 0)
+		return 0;
+
+	if (state == SAIES_SUCCESS || state == SAIES_FAIL ||
+	    state == SAIES_CANCELLED || state == SAIES_DELETED)
+		return 1;
+
+	return (int)rej->step != *build_step +
+				(rej->reason == SAI_TASK_REASON_ACCEPTED);
+}
+
+/*
  * "reject" packet from the builder is actually a disposition about the
  * offered task, it can also indicate ACCEPTED.
  */
@@ -652,7 +697,7 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 		 sai_plat_t *sp, sai_rejection_t *rej)
 {
 	char event_uuid[33], do_remove_uuid = 0, q[384], esc_uuid[129];
-	int n, build_step = -1;
+	int n, build_step = -1, stale = 0;
 	sqlite3 *pdb = NULL;
 	sai_uuid_list_t *ul;
 
@@ -670,14 +715,25 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 			break;
 		}
 
-		lws_sql_purify(esc_uuid, rej->task_uuid, sizeof(esc_uuid));
-		lws_snprintf(q, sizeof(q),
-			     "select build_step from tasks where uuid='%s' order by run desc limit 1",
-			     esc_uuid);
+		if (sais_rej_is_stale(pdb, rej, &build_step)) {
+			/*
+			 * Leave build_step, the state and the inflight entry
+			 * alone, they belong to the step the task is really
+			 * at.  Whatever this step does, we'll ignore when it
+			 * ends.
+			 */
+			lwsl_warn("%s: %s: stale accept of step %u, at %d\n",
+				  __func__, rej->task_uuid, rej->step,
+				  build_step);
+			sais_task_logf(vhd, rej->task_uuid,
+				       "builder %s started step %u, which the "
+				       "task is no longer at; ignoring that run",
+				       sp->name, rej->step);
+			sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+			break;
+		}
 
-		if (sqlite3_exec(pdb, q, sql3_get_integer_cb, &build_step,
-				 NULL) != SQLITE_OK)
-			build_step = -1;
+		lws_sql_purify(esc_uuid, rej->task_uuid, sizeof(esc_uuid));
 
 		/*
 		 * Bump the build step on the accepted task
@@ -746,6 +802,36 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 	case SAI_TASK_REASON_DESTROYED:
 		lwsl_notice("%s: SAI_TASK_REASON_DESTROYED: Clear busy: %s\n",
 				__func__, rej->task_uuid);
+
+		sai_task_uuid_to_event_uuid(event_uuid, rej->task_uuid);
+		if (!sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
+				      vhd->sqlite3_path_lhs, event_uuid, 0, &pdb)) {
+			stale = sais_rej_is_stale(pdb, rej, &build_step);
+			sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+		}
+
+		if (stale) {
+			/*
+			 * It's about a step the task isn't at.  Either we
+			 * already ignored it starting, or we rewound the task
+			 * under it (pause, rebuild last step) and stopped it.
+			 *
+			 * The task state is not this step's to change, and
+			 * an inflight entry still waiting for an accept is
+			 * the offer of the step the task is really at.  One
+			 * whose step had started is this one, though, and
+			 * it's over.
+			 */
+			lwsl_warn("%s: %s: stale end of step %u, at %d\n",
+				  __func__, rej->task_uuid, rej->step,
+				  build_step);
+			if (sais_is_task_inflight(vhd, NULL, rej->task_uuid,
+						  &ul) && ul->started)
+				sais_inflight_entry_destroy(ul);
+			sais_plat_busy(sp, 0);
+			break;
+		}
+
 		do_remove_uuid = 1;
 
 		if (rej->ecode & SAISPRF_YIELDED) {
@@ -826,7 +912,7 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 		// sais_task_clear_build_and_logs(vhd, rej->task_uuid, 1);
 	}
 
-	if (rej->reason == SAI_TASK_REASON_DESTROYED)
+	if (rej->reason == SAI_TASK_REASON_DESTROYED && !stale)
 		/* uuid will not be found listed as inflight for this */
 		sais_create_and_offer_task_step(vhd, rej->task_uuid);
 

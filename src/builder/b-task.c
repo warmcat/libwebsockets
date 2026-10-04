@@ -809,7 +809,7 @@ saib_set_ns_state(struct sai_nspawn *ns, int state)
 
 int
 saib_queue_task_status_update(sai_plat_t *sp, struct sai_plat_server *spm,
-			      const char *rej_task_uuid, unsigned int ecode,
+			      const sai_task_t *task, unsigned int ecode,
 			      unsigned int reason)
 {
 	struct sai_rejection rej;
@@ -826,14 +826,17 @@ saib_queue_task_status_update(sai_plat_t *sp, struct sai_plat_server *spm,
 	 * Queue a builder task status update
 	 */
 
-	if (rej_task_uuid)
-		lws_strncpy(rej.task_uuid, rej_task_uuid,
-				sizeof(rej.task_uuid));
+	lws_strncpy(rej.task_uuid, task->uuid, sizeof(rej.task_uuid));
 
 	lws_snprintf(rej.host_platform, sizeof(rej.host_platform), "%s", sp->name);
 
 	rej.ecode		= ecode;
 	rej.reason		= (uint8_t)reason;
+	/*
+	 * Say which step we mean, so the server can tell a report about the
+	 * step the task is at from one about a step it has moved past
+	 */
+	rej.step		= (unsigned int)task->build_step + 1;
 
 	if (saib_srv_queue_json_fragments_helper(spm->ss, lsm_schema_json_task_rej,
 				LWS_ARRAY_SIZE(lsm_schema_json_task_rej), &rej)) {
@@ -963,7 +966,7 @@ saib_task_destroy(struct sai_nspawn *ns)
 			/* real work idles us only after the settle time */
 			builder.last_real_us = lws_now_usecs();
 
-		saib_queue_task_status_update(ns->sp, ns->spm, ns->task->uuid,
+		saib_queue_task_status_update(ns->sp, ns->spm, ns->task,
 					      ecode, SAI_TASK_REASON_DESTROYED);
 
 		/*
@@ -1494,6 +1497,27 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 	sp->deserialization_ac = a->ac;
 
 	/*
+	 * A task has build_step_count steps, numbered from 0.  Anything past
+	 * that is not a step at all, and by the time we hear of it we've
+	 * already deleted the job dir after the real last step.
+	 */
+
+	if (task->build_step_count &&
+	    task->build_step >= task->build_step_count) {
+		lwsl_warn("%s: server offered step %d of %d-step task %s, "
+			  "refusing\n", __func__, task->build_step + 1,
+			  task->build_step_count, task->uuid);
+		if (saib_queue_task_status_update(sp, spm, task, 0,
+						  SAI_TASK_REASON_DUPE)) {
+			lwsl_notice("TRAP: saib_queue_task_status_update failed (DUPE)\n");
+			return -1;
+		}
+		saib_reassess_idle_situation();
+
+		return 0;
+	}
+
+	/*
 	 * Are we willing to take this task step on?
 	 *
 	 * We may connect to multiple servers and it's asynchronous
@@ -1510,7 +1534,7 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 		if (xns->task && !strcmp(xns->task->uuid, task->uuid)) {
 			lwsl_warn("%s: server offered task that's already running. State %d, artifacts %d, op %p\n",
 				__func__, xns->state, xns->count_artifacts, xns->op);
-			if (saib_queue_task_status_update(sp, spm, task->uuid, 0,
+			if (saib_queue_task_status_update(sp, spm, task, 0,
 						      SAI_TASK_REASON_DUPE)) {
 				lwsl_notice("TRAP: saib_queue_task_status_update failed (DUPE)\n");
 				return -1;
@@ -1543,7 +1567,7 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 			goto idle_decline;
 
 		lwsl_warn("%s: builder rejects offered task\n", __func__);
-		if (saib_queue_task_status_update(sp, spm, task->uuid, 0,
+		if (saib_queue_task_status_update(sp, spm, task, 0,
 						  SAI_TASK_REASON_BUSY)) {
 			lwsl_notice("TRAP: saib_queue_task_status_update failed (BUSY)\n");
 			return -1;
@@ -1847,7 +1871,7 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 	builder.ram_reserved_kib	+= ns->res_ram_kib;
 	builder.disk_reserved_kib	+= ns->res_disk_kib;
 
-	if (saib_queue_task_status_update(sp, spm, task->uuid, 0, SAI_TASK_REASON_ACCEPTED))
+	if (saib_queue_task_status_update(sp, spm, task, 0, SAI_TASK_REASON_ACCEPTED))
 		goto bail;
 
 #if defined(__APPLE__)
@@ -1861,7 +1885,7 @@ idle_decline:
 	 * Unlike BUSY, this doesn't tell the server we can't take real tasks
 	 */
 	lwsl_notice("%s: declining idle task %s\n", __func__, task->uuid);
-	if (saib_queue_task_status_update(sp, spm, task->uuid, 0,
+	if (saib_queue_task_status_update(sp, spm, task, 0,
 					  SAI_TASK_REASON_IDLE_DECLINED))
 		return -1;
 	saib_reassess_idle_situation();

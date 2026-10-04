@@ -248,6 +248,7 @@ const lws_struct_map_t lsm_task_rej[] = {
 	LSM_CARRAY	(sai_rejection_t, host_platform, "host_platform"),
 	LSM_CARRAY	(sai_rejection_t, task_uuid,	 "task_uuid"),
 	LSM_JO_UNSIGNED (sai_rejection_t, ecode,	 "ecode"),
+	LSM_JO_UNSIGNED (sai_rejection_t, step,	 "step"),
 	LSM_JO_UNSIGNED (sai_rejection_t, reason,	 "reason"),
 };
 

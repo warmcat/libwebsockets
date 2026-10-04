@@ -425,6 +425,7 @@ typedef struct sai_rejection {
 	unsigned int			avail_mem_kib;
 	unsigned int			avail_sto_kib;
 	unsigned int			ecode;
+	unsigned int			step; /* 1-based; 0 = not given */
 	unsigned char			reason;
 } sai_rejection_t;
 
@@ -1069,7 +1070,7 @@ extern const lws_struct_map_t
 	lsm_artifact[9],
 	lsm_plat_list[1],
 	lsm_schema_map_plat[1],
-	lsm_task_rej[4],
+	lsm_task_rej[5],
 	lsm_task_cancel[3],
 	lsm_schema_json_map_can[1],
 	lsm_schema_json_map_task[1],

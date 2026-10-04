@@ -885,7 +885,16 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 				    __func__, task_uuid);
 			return 1;
 		}
+		/*
+		 * We're about to offer its next step, and from here until the
+		 * builder accepts it the prune is allowed to decide the offer
+		 * got lost.  The entry was listed when step 1 was offered, so
+		 * unless the clock restarts now, any task more than 30s old
+		 * loses its entry the moment the prune runs in this gap, and
+		 * the next scan for pending work offers the same step again.
+		 */
 		ul->started = 0;
+		ul->us_time_listed = lws_now_usecs();
 	}
 
 	event_uuid[0] = '\0';
@@ -898,11 +907,11 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 	// lwsl_notice("%s: task_uuid %s, pdb %p\n", __func__, task_uuid, pdb);
 
 	lws_sql_purify(esc_uuid, task_uuid, sizeof(esc_uuid));
-	lws_snprintf(update, sizeof(update), " and state != 4 and uuid='%s'", esc_uuid);
+	lws_snprintf(update, sizeof(update), " and uuid='%s'", esc_uuid);
 	n = lws_struct_sq3_deserialize(pdb, update, "run desc",
 				       lsm_schema_sq3_map_task, &o, &ac, 0, 1);
 	if (n < 0 || !o.head) {
-		lwsl_warn("%s: bailing as nothing with state != 4\n", __func__);
+		lwsl_warn("%s: bailing as no task %s\n", __func__, task_uuid);
 		sai_event_db_close(&vhd->sqlite3_cache, &pdb);
 		lwsac_free(&ac);
 		return -1;
@@ -910,7 +919,8 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 
 	task_template = lws_container_of(o.head, sai_task_t, list);
 
-	if (task_template->state == SAIES_YIELDED) {
+	switch (task_template->state) {
+	case SAIES_YIELDED:
 		/*
 		 * The builder stopped this idle task's slice, it has no
 		 * more steps to offer until s-idle.c starts a new slice
@@ -918,6 +928,26 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 		sai_event_db_close(&vhd->sqlite3_cache, &pdb);
 		lwsac_free(&ac);
 		return 0;
+
+	case SAIES_SUCCESS:
+	case SAIES_FAIL:
+	case SAIES_CANCELLED:
+	case SAIES_DELETED:
+	case SAIES_PAUSED:
+		/*
+		 * Its latest run isn't going anywhere, whatever build_step
+		 * says.  Nothing is in flight for it any more, either.
+		 */
+		lwsl_notice("%s: not offering %s in state %d\n", __func__,
+			    task_uuid, task_template->state);
+		if (inflight)
+			sais_inflight_entry_destroy(ul);
+		sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+		lwsac_free(&ac);
+		return 1;
+
+	default:
+		break;
 	}
 
 	/*
@@ -1037,7 +1067,12 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 			n++;
 		}
 
-		if (!p) { /* no more steps */
+		/*
+		 * A build ending in '\n' leaves us at an empty string after
+		 * its last line rather than NULL; that isn't a step, and
+		 * sais_task_build_step_count() doesn't count it as one either
+		 */
+		if (!p || !*p) { /* no more steps */
 			sai_uuid_list_t *u;
 
 			lwsl_err("%s: +++ determined no more steps after "
