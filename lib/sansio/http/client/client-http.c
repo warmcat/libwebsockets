@@ -1204,6 +1204,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 			lwsl_wsi_info(wsi, "digest auth: reusing TCP/TLS connection\n");
 
+			/*
+			 * The 401 was a transaction's answer: it is over, and
+			 * the retry's head binds the caliper afresh
+			 */
+			lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
+
 			_lws_header_table_reset(wsi->stream.ah);
 
 			if (wsi->stash)
