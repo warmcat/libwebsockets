@@ -546,6 +546,14 @@ static const struct h1_attack h1_attacks[] = {
 	ATK_H1_NO_2XX("header line starting with a bare CR",
 		      ATK_GET_ALIVE "\rX-A: b\r\nUser-Agent: c\r\n\r\n"),
 
+	/* the OWS around a header's value is not part of it */
+
+	ATK_H1_ECHO("OWS before a header's value", ATK_GET_ALIVE
+		    "User-Agent: \t a\r\n\r\n", "/alive ua=a"),
+	ATK_H1_ECHO("OWS before a repeated header's value", ATK_GET_ALIVE
+		    "User-Agent: a\r\nUser-Agent: \t b\r\n\r\n",
+		    "/alive ua=a, b"),
+
 	/*
 	 * line ends: CRLF only.  Something in front of us may not take a
 	 * bare LF as a line end, and see the header after it as more of

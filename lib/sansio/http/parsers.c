@@ -1666,17 +1666,35 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			}
 
 			/* collect into malloc'd buffers */
-			/* optional initial space swallow */
-			if (!ah->frags[ah->frag_index[ah->parser_state]].len &&
-			    c == ' ')
-				break;
 
 			for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
 				if (ah->parser_state == methods[m])
 					break;
-			if (m == LWS_ARRAY_SIZE(methods))
-				/* it was not any of the methods */
+			if (m == LWS_ARRAY_SIZE(methods)) {
+				/*
+				 * It was not any of the methods, but a header's
+				 * value.  The OWS in front of it is not part
+				 * of it (RFC 9110 5.5): swallowed while the
+				 * fragment has nothing of the value's own, a
+				 * repeated header's only the SP that joins it
+				 * to the one before.  The first line's
+				 * version is no header, a HT is no SP there.
+				 */
+				if ((c == ' ' || (c == '\t' &&
+				     ah->parser_state != WSI_TOKEN_HTTP &&
+				     ah->parser_state != WSI_TOKEN_HTTP1_0)) &&
+				    ah->frags[ah->nfrag].len ==
+				    (ah->frag_index[ah->parser_state] !=
+							ah->nfrag))
+					break;
+
 				goto check_eol;
+			}
+
+			/* extra SP between the method and the target */
+			if (!ah->frags[ah->frag_index[ah->parser_state]].len &&
+			    c == ' ')
+				break;
 
 			/*
 			 * The request line ended in the request target, with
