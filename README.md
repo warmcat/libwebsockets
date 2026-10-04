@@ -182,6 +182,49 @@ local user on the host can connect to the link.  Existing deployments keep
 working unchanged, but should add the pvo to both confs and restart both
 daemons (sai-server first, sai-web reconnects by itself).
 
+## Showing only some projects on a sai-web vhost ("projects")
+
+By default a sai-web vhost shows every project sai-server has built.  The
+optional `projects` pvo in the vhost's `com-warmcat-sai` section limits it to
+the listed projects (repo names), as a comma-separated list:
+
+```
+			"projects":		"libwebsockets, sai",
+```
+
+Whitespace around the names is ignored; names can use `A-Z a-z 0-9 _ - .`.
+On that vhost, everything behaves as if the other projects don't
+exist: the event list, project and branch lists, live updates, task logs and
+artifacts, the builders' lists of what they are building, the rss feeds,
+`/status` badges and findings.  Admin actions on tasks and events of other
+projects are dropped.  The builders themselves are shared, so they and their
+load are shown as usual.  A `projects` pvo that can't be parsed, or that lists
+nothing, stops the protocol coming up on that vhost rather than showing it
+everything.
+
+To offer different canned views of the one sai-server, give sai-web two (or
+more) otherwise identical vhosts, each with its own `name`, its own unix socket
+`interface` path and its own `projects`, eg, `/var/run/sai` showing everything
+and `/var/run/sai-lws` showing only libwebsockets.  Then point each front-end
+proxy's `/sai` mount at the socket for the view it should show.  The web UI
+expects to be at `/sai`, so the views go on different front-end vhosts
+(hostnames) rather than on different paths of one, eg, on one front-end vhost
+
+```
+  { "mountpoint": "/sai",
+    "origin": "http://+/var/run/sai:/sai", ... }
+```
+
+and on another
+
+```
+  { "mountpoint": "/sai",
+    "origin": "http://+/var/run/sai-lws:/sai", ... }
+```
+
+Each sai-web vhost makes its own control link to sai-server, so they need the
+same `database` and `sockpath`.
+
 ## RSS feed of build events
 
 sai-web serves a public RSS 2.0 feed of the latest 10 events at

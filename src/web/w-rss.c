@@ -249,27 +249,30 @@ static int
 saiw_feed_query(struct vhd *vhd, struct pss *pss, sai_feed_t *f,
 		struct lwsac **ac)
 {
-	/*
-	 * The project and branch come from the request url, so they must be
-	 * bound rather than go via lws_struct_sq3_deserialize(), whose filter
-	 * text is spliced into the sql verbatim.
-	 */
-	static const char * const q =
-		"SELECT uuid, repo_name, ref, hash, created, state, "
-			"ifnull(adhoc,0), repo_fetchurl, weburl FROM events "
-		"WHERE state != ?3 AND "
-		      "(?1 IS NULL OR repo_name = ?1) AND "
-		      "(?2 IS NULL OR ref = ?2 OR ref = 'refs/heads/' || ?2) AND "
-		      "(?5 IS NULL OR repo_fetchurl = ?5) "
-		"ORDER BY created DESC LIMIT ?4";
 	struct lws_genhash_ctx hc;
-	uint8_t digest[32];
 	sqlite3_stmt *sm = NULL;
+	uint8_t digest[32];
 	sai_feed_item_t *it;
 	const char *ref;
 	int rc, ret = 1;
+	char q[512];
 
 	memset(f, 0, sizeof(*f));
+
+	/*
+	 * The project and branch come from the request url, so they must be
+	 * bound rather than go via lws_struct_sq3_deserialize(), whose filter
+	 * text is spliced into the sql verbatim.  Only the fixed fragment
+	 * limiting it to the projects this vhost shows is spliced in.
+	 */
+	lws_snprintf(q, sizeof(q),
+		"SELECT uuid, repo_name, ref, hash, created, state, "
+			"ifnull(adhoc,0), repo_fetchurl, weburl FROM events "
+		"WHERE state != ?3%s AND "
+		      "(?1 IS NULL OR repo_name = ?1) AND "
+		      "(?2 IS NULL OR ref = ?2 OR ref = 'refs/heads/' || ?2) AND "
+		      "(?5 IS NULL OR repo_fetchurl = ?5) "
+		"ORDER BY created DESC LIMIT ?4", saiw_visible_sql(vhd));
 
 	if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_SHA256))
 		return 1;

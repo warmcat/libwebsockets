@@ -37,6 +37,32 @@ static lws_struct_map_t lsm_websrv_evinfo[] = {
 };
 
 /*
+ * sai-server's periodic list of the tasks that are building, and how
+ * recently each one produced logs.  We only need to decode it to remove the
+ * tasks a vhost doesn't show, see saiw_reissue_activity()
+ */
+
+typedef struct saiw_activity {
+	lws_dll2_t		list;
+	char			uuid[65];
+	int			cat;
+} saiw_activity_t;
+
+typedef struct saiw_activities {
+	lws_dll2_owner_t	activity;
+} saiw_activities_t;
+
+static const lws_struct_map_t lsm_websrv_activity[] = {
+	LSM_CARRAY	(saiw_activity_t, uuid,			"uuid"),
+	LSM_SIGNED	(saiw_activity_t, cat,			"cat"),
+};
+
+static const lws_struct_map_t lsm_websrv_activities[] = {
+	LSM_LIST	(saiw_activities_t, activity, saiw_activity_t, list,
+			 NULL, lsm_websrv_activity,		"activity"),
+};
+
+/*
  * (Structs and maps removed - now in common/include/private.h and common/struct-metadata.c)
  */
 
@@ -52,7 +78,7 @@ const lws_struct_map_t lsm_schema_json_map[] = {
 			/* shares struct */   "sai-tasklogs"),
 	LSM_SCHEMA	(sai_load_report_t, NULL, lsm_load_report_members,
 			 "com.warmcat.sai.loadreport"),
-	LSM_SCHEMA	(sai_browse_rx_evinfo_t, NULL, lsm_websrv_evinfo,
+	LSM_SCHEMA	(saiw_activities_t, NULL, lsm_websrv_activities,
 			 "com.warmcat.sai.taskactivity"),
 	LSM_SCHEMA	(sai_build_metric_t, NULL, lsm_build_metric,
 			 "com.warmcat.sai.build-metric"),
@@ -146,6 +172,98 @@ saiw_pty_accum(saiw_websrv_t *m, const uint8_t *frag, size_t len)
 	return 0;
 }
 
+/*
+ * A vhost that only shows some projects can't pass on messages that mention
+ * tasks in the others as they came.  Instead it serializes the decoded
+ * object, with those tasks removed, from the same schema and queues it to its
+ * browsers (only ones showing builders, if builder_info).
+ */
+
+static void
+saiw_reissue_to_browsers(struct vhd *vhd, int schema_idx, void *obj,
+			 int builder_info)
+{
+	uint8_t buf[LWS_PRE + 2048], *start = buf + LWS_PRE;
+	lws_struct_serialize_t *js;
+	int r, fi = 1;
+	size_t w;
+
+	js = lws_struct_json_serialize_create(&lsm_schema_json_map[schema_idx],
+					      1, 0, obj);
+	if (!js)
+		return;
+
+	do {
+		r = (int)lws_struct_json_serialize(js, start,
+						   sizeof(buf) - LWS_PRE, &w);
+		if (r == LSJS_RESULT_ERROR) {
+			lwsl_err("%s: unable to serialize schema %d\n",
+				 __func__, schema_idx);
+			break;
+		}
+
+		lws_start_foreach_dll(struct lws_dll2 *, p, vhd->browsers.head) {
+			struct pss *pss = lws_container_of(p, struct pss, same);
+
+			if (!builder_info ||
+			    (!pss->is_gitohashi && pss->wants_builder_info))
+				saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss,
+					start, w, lws_write_ws_flags(
+						LWS_WRITE_TEXT, fi,
+						r == LSJS_RESULT_FINISH));
+		} lws_end_foreach_dll(p);
+
+		fi = 0;
+	} while (r == LSJS_RESULT_CONTINUE);
+
+	lws_struct_json_serialize_destroy(&js);
+}
+
+static void
+saiw_reissue_activity(struct vhd *vhd, saiw_activities_t *acts)
+{
+	char last[33] = "";
+	int last_vis = 0;
+
+	/* the list comes grouped by event, so check each event once */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+				   acts->activity.head) {
+		saiw_activity_t *act = lws_container_of(p, saiw_activity_t,
+							list);
+
+		if (strncmp(act->uuid, last, 32)) {
+			last_vis = saiw_event_visible(vhd, act->uuid);
+			lws_strnncpy(last, act->uuid, 32, sizeof(last));
+		}
+
+		if (!last_vis)
+			lws_dll2_remove(&act->list);
+	} lws_end_foreach_dll_safe(p, p1);
+
+	saiw_reissue_to_browsers(vhd, SAIS_WS_WEBSRV_RX_TASKACTIVITY, acts, 0);
+}
+
+static void
+saiw_reissue_loadreport(struct vhd *vhd, sai_load_report_t *lr)
+{
+	/*
+	 * The builders and their load are shared by every project, only the
+	 * tasks they're building belong to one
+	 */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+				   lr->active_tasks.head) {
+		sai_active_task_info_t *ati = lws_container_of(p,
+					sai_active_task_info_t, list);
+
+		if (!saiw_project_visible(vhd, ati->repo_name))
+			lws_dll2_remove(&ati->list);
+	} lws_end_foreach_dll_safe(p, p1);
+
+	saiw_reissue_to_browsers(vhd, SAIS_WS_WEBSRV_RX_LOADREPORT, lr, 1);
+}
+
 static int
 saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
@@ -192,7 +310,13 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			switch (m->a.top_schema_index) {
 			case SAIS_WS_WEBSRV_RX_TASKACTIVITY:
 			{
-				uint8_t *tmp = malloc(LWS_PRE + rem);
+				uint8_t *tmp;
+
+				if (saiw_restricted(vhd))
+					/* reissued filtered when complete */
+					break;
+
+				tmp = malloc(LWS_PRE + rem);
 				if (tmp) {
 					memcpy(tmp + LWS_PRE, p, rem);
 					saiw_ws_broadcast_browsers_REQUIRES_LWS_PRE(vhd, tmp + LWS_PRE, rem,
@@ -213,7 +337,13 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 				break;
 			case SAIS_WS_WEBSRV_RX_LOADREPORT:
 			{
-				uint8_t *tmp = malloc(LWS_PRE + rem);
+				uint8_t *tmp;
+
+				if (saiw_restricted(vhd))
+					/* reissued filtered when complete */
+					break;
+
+				tmp = malloc(LWS_PRE + rem);
 				if (tmp) {
 					memcpy(tmp + LWS_PRE, p, rem);
 					lws_start_foreach_dll(struct lws_dll2 *, pt, vhd->browsers.head) {
@@ -239,10 +369,26 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		sai_browse_rx_evinfo_t *ei;
 
+		/*
+		 * This vhost's browsers hear nothing about events in projects
+		 * it doesn't show
+		 */
+		if ((m->a.top_schema_index == SAIS_WS_WEBSRV_RX_TASKCHANGE ||
+		     m->a.top_schema_index == SAIS_WS_WEBSRV_RX_EVENTCHANGE) &&
+		    m->a.dest && !saiw_event_visible(vhd,
+				((sai_browse_rx_evinfo_t *)m->a.dest)->event_hash))
+			goto cleanup_parse_allocs;
+
 		switch (m->a.top_schema_index) {
+		case SAIS_WS_WEBSRV_RX_TASKACTIVITY:
+			if (saiw_restricted(vhd)) {
+				if (m->a.dest)
+					saiw_reissue_activity(vhd, m->a.dest);
+				break;
+			}
+			/* fallthru */
 		case SAIS_WS_WEBSRV_RX_TASKCHANGE:
 		case SAIS_WS_WEBSRV_RX_EVENTCHANGE:
-		case SAIS_WS_WEBSRV_RX_TASKACTIVITY:
 		{
 			uint8_t *tmp = malloc(LWS_PRE + consumed);
 			if (tmp) {
@@ -293,7 +439,15 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		}
 		case SAIS_WS_WEBSRV_RX_LOADREPORT:
 		{
-			uint8_t *tmp = malloc(LWS_PRE + consumed);
+			uint8_t *tmp;
+
+			if (saiw_restricted(vhd)) {
+				if (m->a.dest)
+					saiw_reissue_loadreport(vhd, m->a.dest);
+				break;
+			}
+
+			tmp = malloc(LWS_PRE + consumed);
 			if (tmp) {
 				memcpy(tmp + LWS_PRE, p, consumed);
 				lws_start_foreach_dll(struct lws_dll2 *, pt, vhd->browsers.head) {

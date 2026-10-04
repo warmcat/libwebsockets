@@ -90,6 +90,12 @@ saiw_get_blob(struct vhd *vhd, const char *url, sqlite3 **pdb,
 		return -1;
 	}
 
+	if (!saiw_event_visible(vhd, task_uuid)) {
+		lwsl_info("%s: task's project not shown on this vhost\n",
+			  __func__);
+		return -1;
+	}
+
 	sai_task_uuid_to_event_uuid(event_uuid, task_uuid);
 
 	/* open the event-specific database object */

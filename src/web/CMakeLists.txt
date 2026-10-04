@@ -10,6 +10,7 @@ set(SRCS
 	w-ws-server.c
 	w-ws-browser.c
 	w-findings.c
+	w-visible.c
 	../common/c-utils.c
 	../common/c-pool.c
 	../common/c-conf.c

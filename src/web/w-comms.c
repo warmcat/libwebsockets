@@ -97,6 +97,10 @@ sai_get_head_status(struct vhd *vhd, const char *projname)
 	sai_event_t *e;
 	int state;
 
+	if (!saiw_project_visible(vhd, projname))
+		/* as if we never heard of it */
+		return -1;
+
 	/*
 	 * The newest event of the named project decides it.  Ad-hoc events
 	 * are scratch builds seeded by an admin; they don't say anything
@@ -378,6 +382,16 @@ w_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		sai_sqlite3_statement(vhd->pdb,
 			"CREATE TABLE IF NOT EXISTS saiweb_state (key TEXT PRIMARY KEY, val INTEGER);",
 			"create saiweb_state");
+
+		/*
+		 * Which projects this vhost shows, if it doesn't show them
+		 * all.  Failing here leaves the vhost without a vhd, which
+		 * serves nothing, rather than serving every project.
+		 */
+		if (saiw_visible_init(vhd, in)) {
+			lws_struct_sq3_close(&vhd->pdb);
+			return -1;
+		}
 			
 		{
 			sqlite3_stmt *stmt;
@@ -422,6 +436,7 @@ w_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			goto passthru;
 		saiw_event_db_close_all_now(vhd);
 		lws_struct_sq3_close(&vhd->pdb);
+		saiw_visible_destroy(vhd);
 		goto passthru;
 
 	/*

@@ -112,7 +112,8 @@ saiw_browser_send_findings(struct vhd *vhd, struct pss *pss)
 		int first = 1;
 		sqlite3 *pdb;
 
-		if (!repo || !pool || saiw_findings_open(vhd, repo, pool, &pdb))
+		if (!repo || !pool || !saiw_project_visible(vhd, repo) ||
+		    saiw_findings_open(vhd, repo, pool, &pdb))
 			continue;
 
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),

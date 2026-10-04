@@ -77,6 +77,22 @@
 			#
 			"sockpath":		"/var/run/sai-websrv",
 
+			# Optional: the projects (repo names) this vhost shows,
+			# as a comma-separated list.  Browsers, rss feeds,
+			# status badges and artifact links on this vhost then
+			# behave as if no other project exists.  Without it,
+			# the vhost shows every project.
+			#
+			# To offer different canned views of the one sai-server,
+			# copy this whole vhost with its own "name", a different
+			# unix socket "interface" path and different "projects",
+			# keeping "database" and "sockpath" the same.  Then
+			# point each front-end vhost's /sai proxy mount at the
+			# socket for the view it should show (the UI expects to
+			# be at /sai, so views go on different hostnames).
+			#
+			#"projects":		"libwebsockets, sai",
+
 			# sai-web does NO auth of its own: no JWK, no JWT
 			# validation, no grant logic.  It learns the login
 			# state from the x-lws-login-* headers the lws-login

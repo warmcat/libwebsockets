@@ -533,9 +533,13 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 		goto bail;
 	}
 
-	/* open the event-specific database object */
+	/*
+	 * Open the event-specific database object... a task in a project this
+	 * vhost doesn't show is treated the same as one whose event is gone
+	 */
 
-	if (sai_event_db_ensure_open(pss->vhd->context, &pss->vhd->sqlite3_cache,
+	if (!saiw_event_visible(pss->vhd, event_uuid) ||
+	    sai_event_db_ensure_open(pss->vhd->context, &pss->vhd->sqlite3_cache,
 			      pss->vhd->sqlite3_path_lhs, event_uuid, 0, &pdb)) {
 		uint8_t buf[LWS_PRE + 128];
 		int n1 = lws_snprintf((char *)buf + LWS_PRE, sizeof(buf) - LWS_PRE,
@@ -877,6 +881,51 @@ saiw_event_state_change(struct vhd *vhd, const char *event_uuid)
 }
 
 /*
+ * Nonzero if the browser message, which has decoded into dest, is about
+ * something in a project this vhost shows, or about nothing project-specific
+ * at all (eg, builders).  Taskinfo and eventinfo don't need checking here,
+ * the replies to them are already limited to the visible projects.
+ */
+
+static int
+saiw_rx_visible(struct vhd *vhd, int schema_idx, void *dest)
+{
+	switch (schema_idx) {
+	case SAIM_WS_BROWSER_RX_TASKRESET:
+	case SAIM_WS_BROWSER_RX_TASKREMOVEALLTRIES:
+	case SAIM_WS_BROWSER_RX_TASKREBUILDLASTSTEP:
+	case SAIM_WS_BROWSER_RX_EVENTRESET:
+	case SAIM_WS_BROWSER_RX_EVENTDELETE:
+	case SAIM_WS_BROWSER_RX_CLONEINFO:
+		return saiw_event_visible(vhd,
+				((sai_browse_rx_evinfo_t *)dest)->event_hash);
+	case SAIM_WS_BROWSER_RX_TASKCANCEL:
+		return saiw_event_visible(vhd, ((sai_cancel_t *)dest)->task_uuid);
+	case SAIM_WS_BROWSER_RX_PLATRESET:
+		return saiw_event_visible(vhd,
+				((sai_browse_rx_platreset_t *)dest)->event_uuid);
+	case SAIM_WS_BROWSER_RX_OPENSHELL:
+		return saiw_event_visible(vhd,
+				((sai_openshell_t *)dest)->task_uuid);
+	case SAIM_WS_BROWSER_RX_CLOSESHELL:
+		return saiw_event_visible(vhd,
+				((sai_closeshell_t *)dest)->task_uuid);
+	case SAIM_WS_BROWSER_RX_PTYDATA:
+		return saiw_event_visible(vhd,
+				((sai_ptydata_t *)dest)->task_uuid);
+	case SAIM_WS_BROWSER_RX_TASKCLONE:
+		return saiw_event_visible(vhd,
+				((sai_browse_rx_taskclone_t *)dest)->seed_uuid);
+	case SAIM_WS_BROWSER_RX_FINDINGGET:
+	case SAIM_WS_BROWSER_RX_FINDINGSET:
+		return saiw_project_visible(vhd,
+				((sai_findingset_t *)dest)->repo);
+	}
+
+	return 1;
+}
+
+/*
  * sai-web has sent us a request for either overview, or data on a specific
  * task
  */
@@ -946,6 +995,16 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 		saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, unauth_buf + LWS_PRE, (size_t)n1, LWS_WRITE_TEXT);
 		lwsl_notice("%s: Unauthorized attempt to execute administrative action (schema %d, auth_state %d)\n", __func__, a.top_schema_index, (int)pss->auth_state);
 		goto soft_error;
+	}
+
+	/*
+	 * Nobody, admin or not, can act on projects this vhost doesn't show:
+	 * for it, they don't exist.  Drop it, the UI never sends these.
+	 */
+	if (!saiw_rx_visible(vhd, a.top_schema_index, a.dest)) {
+		lwsl_notice("%s: dropping schema %d for a project not shown "
+			    "on this vhost\n", __func__, a.top_schema_index);
+		goto ok;
 	}
 
 	switch (a.top_schema_index) {
@@ -1049,16 +1108,18 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 		sqlite3_stmt *stmt = NULL;
 		uint8_t buf[LWS_PRE + 4096], *start = buf + LWS_PRE,
 			*p = start, *end = buf + sizeof(buf);
-		char esc[96];
+		char esc[96], q[256];
 		/* first_elem = first array entry (omit leading comma);
 		 * sent_any   = have we already tx'd a ws fragment of this msg */
 		int first_elem = 1, sent_any = 0, rc;
 
-		if (sqlite3_prepare_v2(vhd->pdb,
+		lws_snprintf(q, sizeof(q),
 				"SELECT repo_name, MAX(created) AS mc FROM events "
-				"WHERE state != ? GROUP BY repo_name "
-				"ORDER BY mc DESC",
-				-1, &stmt, NULL) != SQLITE_OK) {
+				"WHERE state != ?%s GROUP BY repo_name "
+				"ORDER BY mc DESC", saiw_visible_sql(vhd));
+
+		if (sqlite3_prepare_v2(vhd->pdb, q, -1, &stmt, NULL) !=
+								SQLITE_OK) {
 			lwsl_notice("%s: projlist prepare failed\n", __func__);
 			goto soft_error;
 		}
@@ -1127,7 +1188,7 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 		sqlite3_stmt *stmt = NULL;
 		uint8_t buf[LWS_PRE + 4096], *start = buf + LWS_PRE,
 			*p = start, *end = buf + sizeof(buf);
-		char esc[96], pesc[96];
+		char esc[96], pesc[96], q[512];
 		int first_elem = 1, sent_any = 0, rc;
 
 		lws_dll2_owner_clear(&owner);
@@ -1139,16 +1200,23 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 		 */
 		lws_sql_purify(pesc, bl->project, sizeof(pesc) - 1);
 
-		if (sqlite3_prepare_v2(vhd->pdb,
+		/*
+		 * A project this vhost doesn't show has no branches; the
+		 * subquery only looks at the project the outer one found.
+		 */
+		lws_snprintf(q, sizeof(q),
 				"SELECT ref, "
 				"(SELECT e2.state FROM events e2 "
 				" WHERE e2.ref = events.ref "
 				" AND e2.repo_name = ? AND e2.state != ? "
 				" ORDER BY e2.created DESC LIMIT 1) AS ls "
 				"FROM events "
-				"WHERE state != ? AND repo_name = ? "
+				"WHERE state != ? AND repo_name = ?%s "
 				"GROUP BY ref ORDER BY MAX(created) DESC",
-				-1, &stmt, NULL) != SQLITE_OK) {
+				saiw_visible_sql(vhd));
+
+		if (sqlite3_prepare_v2(vhd->pdb, q, -1, &stmt, NULL) !=
+								SQLITE_OK) {
 			lwsl_notice("%s: branchlist prepare failed\n",
 					__func__);
 			goto soft_error;
@@ -1795,7 +1863,7 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 {
 	char buf[4096 + LWS_PRE], *start = buf + LWS_PRE, *p = start,
 	     *end = buf + sizeof(buf);
-	char esc[256], filt[256], subsequent;
+	char esc[256], filt[448], subsequent;
 	struct lwsac *task_ac = NULL, *ac = NULL;
 	lws_dll2_owner_t task_owner, owner;
 	unsigned int task_index = 0;
@@ -1840,7 +1908,7 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 		}
 		if (ev_created > 0) {
 			unsigned int events_newer = 0;
-			lws_snprintf(q, sizeof(q), "SELECT COUNT(*) FROM events WHERE state != %d AND created > %llu", SAIES_DELETED, (unsigned long long)ev_created);
+			lws_snprintf(q, sizeof(q), "SELECT COUNT(*) FROM events WHERE state != %d AND created > %llu%s", SAIES_DELETED, (unsigned long long)ev_created, saiw_visible_sql(vhd));
 			if (sqlite3_prepare_v2(vhd->pdb, q, -1, &stmt, NULL) == SQLITE_OK) {
 				if (sqlite3_step(stmt) == SQLITE_ROW) {
 					events_newer = (unsigned int)sqlite3_column_int(stmt, 0);
@@ -1852,6 +1920,12 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 		pss->resolved_task_offset = 1;
 	}
 
+	/*
+	 * The vhost may only show some projects: that clause goes right after
+	 * the first one, so if anything is going to be truncated off the end
+	 * of filt, it isn't that.
+	 */
+
 	if (pss->specific_project[0]) {
 		/*
 		 * gitohashi /git/<project> URL-locked mode: lock to that one
@@ -1859,8 +1933,8 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 		 */
 		lws_sql_purify(esc, pss->specific_project, sizeof(esc) - 1);
 		lws_snprintf(filt, sizeof(filt),
-			 " and state != %d and repo_name='%s'",
-			 SAIES_DELETED, esc);
+			 " and state != %d%s and repo_name='%s'",
+			 SAIES_DELETED, saiw_visible_sql(vhd), esc);
 		n = -1;
 	} else {
 		size_t fl;
@@ -1870,8 +1944,8 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 		 * " and ..." clauses here; the COUNT query below skips the
 		 * leading " and " with filt + 5 and uses the rest verbatim.
 		 */
-		lws_snprintf(filt, sizeof(filt), " and state != %d",
-			 SAIES_DELETED);
+		lws_snprintf(filt, sizeof(filt), " and state != %d%s",
+			 SAIES_DELETED, saiw_visible_sql(vhd));
 
 		/*
 		 * A specific event selection (com.warmcat.sai.eventinfo from
@@ -1915,7 +1989,7 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 
 	unsigned int total_events = 0;
 	{
-		char q[256];
+		char q[64 + sizeof(filt)];
 		sqlite3_stmt *stmt;
 		lws_snprintf(q, sizeof(q), "SELECT COUNT(*) FROM events WHERE %s", filt + 5);
 		if (sqlite3_prepare_v2(vhd->pdb, q, -1, &stmt, NULL) == SQLITE_OK) {

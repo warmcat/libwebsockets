@@ -244,7 +244,17 @@ struct vhd {
 	lws_dll2_owner_t		sqlite3_cache; /* sais_sqlite_cache_t */
 	lws_dll2_owner_t		rss_waiters; /* pss held on long poll */
 	lws_dll2_owner_t		tasklog_cache;
+
+	/*
+	 * The projects this vhost shows, from the "projects" pvo; if empty,
+	 * it shows all of them.  See w-visible.c
+	 */
+	lws_dll2_owner_t		visible_projects;
+	struct lwsac			*ac_visible;
 };
+
+/* nonzero if a "projects" pvo limits the projects this vhost shows */
+#define saiw_restricted(_vhd) (!!(_vhd)->visible_projects.count)
 
 typedef struct saiw_websrv {
 	struct lws_ss_handle	*ss;
@@ -378,6 +388,28 @@ int
 saiw_browser_broadcast_queue_power_history(struct vhd *vhd, struct pss *pss);
 
 extern const lws_struct_map_t lsm_schema_pcon_energy[];
+
+/* w-visible.c */
+
+int
+saiw_visible_init(struct vhd *vhd, void *pvo);
+
+void
+saiw_visible_destroy(struct vhd *vhd);
+
+int
+saiw_project_visible(struct vhd *vhd, const char *project);
+
+/* uuid may be an event's, or one of its tasks' */
+int
+saiw_event_visible(struct vhd *vhd, const char *uuid);
+
+/*
+ * " and ..." restricting a query on vhd->pdb's events table to the visible
+ * projects, or "" if they all are
+ */
+const char *
+saiw_visible_sql(struct vhd *vhd);
 
 /* w-findings.c, for admins only */
 
