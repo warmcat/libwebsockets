@@ -103,7 +103,7 @@
  * not come; and an h2 discard completing behind another stream's queued
  * answer waits for it.  And a CONNECT goes to the vhost's raw fallback.  And
  * h1 and ws clients with credentials answer a digest challenge on the same
- * connection.
+ * connection (with a tls library, whose genhash the digest needs).
  *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
@@ -4711,12 +4711,14 @@ ws_client_up(struct lws_context *cx, struct lws_vhost *vh,
 	return ws_client_up_pre(cx, vh, tp, "", resp_hdrs, quiet);
 }
 
-#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
 /*
  * 49: an h1 client with credentials, and a ws client with them, whose
  * server answers "401 Unauthorized" with a digest challenge (RFC 7616),
  * keeping the connection and with no body: each asks again on the same
  * connection, with its digest response, and takes the answer to that.
+ * The client's digest hashes come from the tls library's genhash, so
+ * there is no digest auth without one.
  */
 static int
 client_digest_retry_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -4813,6 +4815,8 @@ client_digest_retry_half(struct lws_context *cx, struct lws_vhost *vh)
 
 fail:
 	cli_auth_user = cli_auth_pass = NULL;
+	lwsl_user("case 49: h1 and ws clients retry a digest challenge on the "
+		  "connection: FAIL\n");
 
 	return 1;
 }
@@ -5676,7 +5680,8 @@ main(int argc, const char **argv)
 	if (h1_connect_raw_half(cx, vh_raw))
 		goto bail;
 
-#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_HTTP_DIGEST_AUTH)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_HTTP_DIGEST_AUTH) && \
+    defined(LWS_WITH_TLS)
 	at(cx, 356000);
 	if (client_digest_retry_half(cx, vh))
 		goto bail;
