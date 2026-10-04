@@ -564,20 +564,19 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		wsi->io->tls.ssl = NULL;
 
-		if (strcmp(wsi->role_ops->name, "raw-skt") != 0 &&
+#if defined(LWS_ROLE_QUIC)
+		/*
+		 * quic drives its own tls handshake inside its packets: its
+		 * session is made now, and the handshake starts with the
+		 * connection.  A raw client's tls, raw-skt's or raw-proxy's,
+		 * starts on its socket once that has connected, from the
+		 * transport stage: a session made here would have no socket
+		 */
+		if (!strcmp(wsi->role_ops->name, "quic") &&
 		    (wsi->use_ssl & LCCSCF_USE_SSL)) {
 			const char *cce = NULL;
-			int do_c1 = 1;
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-			do_c1 = 0;
-#endif
-#if defined(LWS_ROLE_QUIC)
-			if (!strcmp(wsi->role_ops->name, "quic"))
-				do_c1 = 0;
-#endif
-
-			switch (lws_client_create_tls(wsi, &cce, do_c1)) {
+			switch (lws_client_create_tls(wsi, &cce, 0)) {
 			case 1:
 				return wsi;
 			case 0:
@@ -586,6 +585,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 				goto bail3;
 			}
 		}
+#endif
 #endif
 
 
@@ -610,7 +610,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	return wsi;
 
-#if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS) && defined(LWS_ROLE_QUIC)
 bail3:
 	lwsl_wsi_err(wsi, "tls start fail");
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "tls start fail");
