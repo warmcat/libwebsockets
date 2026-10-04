@@ -95,7 +95,15 @@
  * gone, from the body's first piece, or with a file from its completion: the
  * answer goes whole and the body is discarded, and a stream whose answer
  * has gone while the peer still sends is reset without error.  And an h1
- * request upgraded to h2c is answered on stream 1, but not one with a body.
+ * request upgraded to h2c is answered on stream 1, but not one with a body;
+ * stream 1 refused by its mount while the 101 has gone only partly still
+ * gets the rest of the 101 out.  And an h2 file answer the app gives up on
+ * while it is served, stalled on its window, behind queued output, or with
+ * a read out on a worker, resets its stream, the peer told the answer will
+ * not come; and an h2 discard completing behind another stream's queued
+ * answer waits for it.  And a CONNECT goes to the vhost's raw fallback.  And
+ * h1 and ws clients with credentials answer a digest challenge on the same
+ * connection.
  *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
@@ -445,7 +453,7 @@ struct transport {
 	int		reset;
 };
 
-static struct transport *transports[32];
+static struct transport *transports[64];
 static int ntransports;
 
 static int
@@ -774,6 +782,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 /* a request body's completion told an app that had already completed it */
 static int late_body_completion;
+/*
+ * the uri vhost's app completed the transaction from the body: kept outside
+ * the pss, which the completion's rebind of the protocol renews
+ */
+static int uri_completed_from_body;
+/* transactions of the 404 vhost that were done with */
+static int closed_404;
 
 struct pss_uri {
 	char		body[256];
@@ -811,6 +826,7 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+		uri_completed_from_body = 0;
 		if (in && !strcmp((const char *)in, "/early")) {
 			/*
 			 * Answered, whole, before any body, and completed
@@ -857,6 +873,8 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * a file is the answer, before any body, but the app
 			 * gives up on it shortly, see LWS_CALLBACK_TIMER
 			 */
+			if (early_tp)
+				early_tp->tx_budget = 4;
 			n = lws_serve_http_file(wsi, EARLY_FILE, "text/plain",
 						NULL, 0);
 			if (n)
@@ -998,6 +1016,7 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				return 1;
 			pss->body_done = 0;
 			pss->completed = 1;
+			uri_completed_from_body = 1;
 			if (lws_http_transaction_completed(wsi))
 				return -1;
 			return 0;
@@ -1020,6 +1039,11 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		if (uri_completed_from_body) {
+			/* not ours to hear, the transaction is over: case 42 */
+			late_body_completion++;
+			return 0;
+		}
 #if defined(LWS_WITH_FILE_OPS)
 		if (pss->file_at == 2) {
 			/* /file-at-end: the file goes once the body is all here */
@@ -1305,6 +1329,11 @@ callback_404(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		late_body_completion++;
 		break;
 
+	case LWS_CALLBACK_CLOSED_HTTP:
+		/* a transaction of this vhost's, done with: case 47 */
+		closed_404++;
+		break;
+
 	default:
 		break;
 	}
@@ -1314,6 +1343,44 @@ callback_404(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 static const struct lws_protocols protocols_404[] = {
 	{ "http", callback_404, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+/*
+ * A vhost's raw fallback, which a CONNECT goes to (case 48): it answers
+ * the CONNECT as a tunnel would, then echoes what comes through it
+ */
+static int
+callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	static const char est[] = "HTTP/1.1 200 Connection established\r\n\r\n";
+	uint8_t buf[LWS_PRE + 128];
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_RX:
+		tr_step("app_rx", in, len);
+		/* the first rx is the CONNECT's head itself */
+		if (len >= 8 && !memcmp(in, "CONNECT ", 8)) {
+			in = (void *)est;
+			len = sizeof(est) - 1;
+		}
+		if (len > sizeof(buf) - LWS_PRE)
+			return -1;
+		memcpy(buf + LWS_PRE, in, len);
+		if (lws_write(wsi, buf + LWS_PRE, len, LWS_WRITE_RAW) != (int)len)
+			return -1;
+		return 0;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static const struct lws_protocols protocols_raw[] = {
+	{ "http", callback_uri, sizeof(struct pss_uri), 0, 0, NULL, 0 },
+	{ "raw-echo", callback_raw_echo, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -1342,6 +1409,18 @@ static const struct lws_http_mount mount_404_files = {
 	.protocol		= "http",
 	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 1,
+};
+
+/*
+ * the transcripts, whose README the mount has no mimetype for (.md): asked
+ * for, it is refused 415, case 47
+ */
+static const struct lws_http_mount mount_404_t = {
+	.mount_next		= &mount_404_files,
+	.mountpoint		= "/t",
+	.origin			= "transcripts",
+	.origin_protocol	= LWSMPRO_FILE,
+	.mountpoint_len		= 2,
 };
 #endif
 
@@ -3577,6 +3656,498 @@ h2_file_abandoned_half(struct lws_context *cx, struct lws_vhost *vh,
 #endif
 #endif
 
+#if defined(LWS_WITH_FILE_OPS) && defined(LWS_WITH_HTTP2)
+/*
+ * 45: an h2 POST /abandon, whose file answer the app gives up on from its
+ * timer, 5ms in, the body still to come.  Without a read out on a worker
+ * (that is case 38), the file is being served:
+ *
+ *  - H2AB_STALL: the peer gave streams a window of 100, so the file has
+ *    stopped for want of window when the app gives up.  Nothing is queued,
+ *    so the body is discarded as it comes and the stream ends; the answer
+ *    is short of its length, so the stream is reset, telling the peer so
+ *
+ *  - H2AB_QUEUED: the transport took only 4 bytes, so the file's HEADERS
+ *    are still queued when the app gives up: the completion waits for them
+ *    to go, then the stream ends as above
+ *
+ *  - H2AB_WORKER (LWS_WITH_ASYNC_QUEUE): the file's first read is out on a
+ *    worker, held there, when a PING comes and its ACK goes only partly,
+ *    so the connection has output queued when the app gives up: the
+ *    completion waits for that, the read is reaped, and the stream ends
+ *
+ * Either way the connection goes on, answering a PING.
+ */
+enum {
+	H2AB_STALL,
+	H2AB_QUEUED,
+	H2AB_WORKER,
+};
+
+static int
+h2_file_abandoned_serving_half(struct lws_context *cx, struct lws_vhost *vh,
+			       int start_ms, int mode)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00",
+			  preface_window[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		/* SETTINGS: INITIAL_WINDOW_SIZE 100 */
+		"\x00\x00\x06\x04\x00\x00\x00\x00\x00"
+		"\x00\x04\x00\x00\x00\x64"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1, END_STREAM: the 3 byte body */
+	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
+				   "abc";
+	static const char ping[] = "\x00\x00\x08\x06\x00\x00\x00\x00\x00"
+				   "12345678";
+	static uint8_t blk[128], fr[256], out[32768];
+	static struct transport tp;
+	int sv[2], m, rst = -1, ended = 0, pong = 0;
+	size_t n, o, outl = 0;
+	struct lws *wsi;
+	uint8_t *p;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	if (mode == H2AB_STALL)
+		feed(cx, &tp, preface_window, sizeof(preface_window) - 1);
+	else
+		feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* POST /abandon, content-length 3, the body to follow */
+	p = blk;
+	*p++ = 0x83; /* :method POST */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/abandon", 8, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+	p = hp_str(p, "3", 1, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+
+	/* the transport takes only 4 bytes of the file's answer */
+	if (mode == H2AB_QUEUED)
+		early_tp = &tp;
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	if (mode == H2AB_WORKER)
+		workers_held = 1;
+#endif
+	feed(cx, &tp, fr, n);
+	early_tp = NULL;
+	/* from here, what goes is frames whole, as far as they went */
+	memcpy(out, tp.tx, tp.tx_len);
+	outl = tp.tx_len;
+
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	if (mode == H2AB_WORKER) {
+		if (!lws_service_work_outstanding(cx)) {
+			lwsl_err("case 45: no read out\n");
+			workers_held = 0;
+			return 1;
+		}
+		/* a PING, whose ACK the transport takes only 4 bytes of */
+		tp.tx_budget = 4;
+		feed(cx, &tp, ping, sizeof(ping) - 1);
+		memcpy(out + outl, tp.tx, tp.tx_len);
+		outl += tp.tx_len;
+	}
+#endif
+
+	/* the app's timer: it completes the transaction from under the file */
+	at(cx, start_ms + 10);
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	workers_held = 0;
+#endif
+	if (tp.closed || tp.shutdown) {
+		lwsl_err("case 45: %d: connection ended\n", mode);
+		return 1;
+	}
+
+	/* whatever was held back goes now */
+	tp.tx_budget = -1;
+	tp.tx_len = 0;
+	for (m = 0; m < 16; m++) {
+		tick(cx);
+		pump(cx, &tp);
+		if (!tp.tx_len)
+			break;
+		if (outl + tp.tx_len > sizeof(out))
+			return 1;
+		memcpy(out + outl, tp.tx, tp.tx_len);
+		outl += tp.tx_len;
+		tp.tx_len = 0;
+	}
+
+	/* the body, discarded; then the connection still answers a PING */
+	feed(cx, &tp, data, sizeof(data) - 1);
+	if (outl + tp.tx_len > sizeof(out))
+		return 1;
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+	feed(cx, &tp, ping, sizeof(ping) - 1);
+	if (outl + tp.tx_len > sizeof(out))
+		return 1;
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+
+	for (o = 0; o + 9 <= outl; o += 9 + n) {
+		n = ((size_t)out[o] << 16) | ((size_t)out[o + 1] << 8) |
+		    out[o + 2];
+		if (o + 9 + n > outl)
+			break;
+		if (out[o + 3] == 6 && (out[o + 4] & 1))
+			pong = 1;
+		if ((lws_ser_ru32be(&out[o + 5]) & 0x7fffffff) != 1)
+			continue;
+		if (out[o + 3] == 3 && n == 4)
+			rst = (int)lws_ser_ru32be(&out[o + 9]);
+		if (!out[o + 3] && (out[o + 4] & 1))
+			ended = 1;
+	}
+	if (tp.closed || tp.shutdown || uri_closed != 1 ||
+	    uri_late_writeable || !pong || ended || rst <= 0) {
+		lwsl_err("case 45: %d: ended %d, stream closed %d, late wr %d, "
+			 "pong %d, END_STREAM %d, rst %d\n", mode,
+			 tp.closed || tp.shutdown, uri_closed,
+			 uri_late_writeable, pong, ended, rst);
+		lwsl_hexdump_err(out, outl);
+		return 1;
+	}
+	lwsl_user("case 45: %d: an h2 file abandoned while it is served resets "
+		  "its stream, the body discarded: PASS\n", mode);
+
+	return 0;
+}
+#endif
+
+#if defined(LWS_WITH_HTTP2)
+/*
+ * 46: two h2 POSTs, the body of one read while another's answer is queued.
+ * Stream 1 is answered and completed at once, with only 4 bytes of the
+ * answer taken; once the rest has gone, its body is still to come, so it is
+ * being discarded.  Stream 3 is then dispatched and awaits its body.  Both
+ * bodies come in one read, stream 3's first: it is answered and completed
+ * from its HTTP_BODY, the transport taking 4 bytes of that, then stream 1's
+ * discard is complete, while the connection has stream 3's answer queued:
+ * its completion waits for that to go, then both streams end, and the
+ * connection goes on.
+ */
+static int
+h2_discard_behind_queued_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, END_STREAM, sid 3 then sid 1: the 3 byte bodies */
+	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x03"
+				   "abc"
+				   "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
+				   "abc";
+	static const char ping[] = "\x00\x00\x08\x06\x00\x00\x00\x00\x00"
+				   "12345678";
+	static uint8_t blk[128], fr[256], out[32768];
+	static struct transport tp;
+	int sv[2], m, rst = 0, ended1 = 0, ended3 = 0, pong = 0;
+	size_t n, o, outl = 0;
+	struct lws *wsi;
+	unsigned int sid;
+	uint8_t *p;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+	late_body_completion = 0;
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	for (sid = 1; sid <= 3; sid += 2) {
+		const char *path = sid == 1 ? "/early" : "/body-done";
+
+		p = blk;
+		*p++ = 0x83; /* :method POST */
+		*p++ = 0x86; /* :scheme http */
+		p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+		p = hp_str(p, path, strlen(path), 0);
+		p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+		p = hp_str(p, "sansio-h2", 9, 0);
+		p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+		p = hp_str(p, "3", 1, 0);
+		n = h2_headers(fr, sid, blk, p);
+		fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+
+		/* stream 1: the app has the transport take 4 bytes */
+		if (sid == 1)
+			early_tp = &tp;
+		feed(cx, &tp, fr, n);
+		early_tp = NULL;
+		memcpy(out + outl, tp.tx, tp.tx_len);
+		outl += tp.tx_len;
+
+		/* the rest of what is queued goes */
+		tp.tx_budget = -1;
+		for (m = 0; m < 16; m++) {
+			tp.tx_len = 0;
+			tick(cx);
+			pump(cx, &tp);
+			if (!tp.tx_len)
+				break;
+			if (outl + tp.tx_len > sizeof(out))
+				return 1;
+			memcpy(out + outl, tp.tx, tp.tx_len);
+			outl += tp.tx_len;
+		}
+	}
+
+	/* both bodies in one read, stream 3's answer taken 4 bytes of */
+	tp.tx_budget = 4;
+	feed(cx, &tp, data, sizeof(data) - 1);
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+	if (tp.closed || tp.shutdown || tp.rx_pos != tp.rx_len) {
+		lwsl_err("case 46: bodies not taken\n");
+		return 1;
+	}
+
+	tp.tx_budget = -1;
+	for (m = 0; m < 16; m++) {
+		tp.tx_len = 0;
+		tick(cx);
+		pump(cx, &tp);
+		if (!tp.tx_len)
+			break;
+		if (outl + tp.tx_len > sizeof(out))
+			return 1;
+		memcpy(out + outl, tp.tx, tp.tx_len);
+		outl += tp.tx_len;
+	}
+	feed(cx, &tp, ping, sizeof(ping) - 1);
+	if (outl + tp.tx_len > sizeof(out))
+		return 1;
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+
+	for (o = 0; o + 9 <= outl; o += 9 + n) {
+		n = ((size_t)out[o] << 16) | ((size_t)out[o + 1] << 8) |
+		    out[o + 2];
+		if (o + 9 + n > outl)
+			break;
+		sid = lws_ser_ru32be(&out[o + 5]) & 0x7fffffff;
+		if (out[o + 3] == 6 && (out[o + 4] & 1))
+			pong = 1;
+		if (out[o + 3] == 3 && n == 4 && lws_ser_ru32be(&out[o + 9]))
+			rst = (int)lws_ser_ru32be(&out[o + 9]);
+		if (!out[o + 3] && (out[o + 4] & 1)) {
+			if (sid == 1)
+				ended1 = 1;
+			if (sid == 3)
+				ended3 = 1;
+		}
+	}
+	if (tp.closed || tp.shutdown || uri_closed != 2 || uri_late_writeable ||
+	    late_body_completion || !pong || rst || !ended1 || !ended3) {
+		lwsl_err("case 46: ended %d, streams closed %d, late wr %d, late "
+			 "body completion %d, pong %d, rst %d, ended %d %d\n",
+			 tp.closed || tp.shutdown, uri_closed,
+			 uri_late_writeable, late_body_completion, pong, rst,
+			 ended1, ended3);
+		lwsl_hexdump_err(out, outl);
+		return 1;
+	}
+	lwsl_user("case 46: an h2 discarded body completing behind another "
+		  "stream's queued answer: PASS\n");
+
+	return 0;
+}
+#endif
+
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
+/*
+ * 47: an h1 request upgraded to h2c, for a file of a file mount that has no
+ * mimetype for it, while the transport has taken only 10 bytes of the 101.
+ * The rest of the 101 goes, though the connection has no state that writes
+ * yet; stream 1 is refused 415 by the mount itself, before any app sees it,
+ * and is done with then, not left open until the connection closes; and
+ * the connection goes on.  What the transport takes and when is not part
+ * of a transcript, so this case has none.
+ */
+static int
+h2c_redirect_queued_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req[] =
+		"GET /t/README.md HTTP/1.1\r\nHost: sansio-404\r\n"
+		"Connection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\n"
+		"HTTP2-Settings: AAMAAABk\r\n\r\n",
+			  preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00",
+			  ping[] = "\x00\x00\x08\x06\x00\x00\x00\x00\x00"
+				   "12345678";
+	static uint8_t out[16384];
+	static struct transport tp;
+	int sv[2], m, ended = 0, pong = 0, rst = 0;
+	const uint8_t *b;
+	size_t n, o, outl = 0;
+	struct lws *wsi;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	closed_404 = 0;
+
+	tp.tx_budget = 10;
+	feed(cx, &tp, req, sizeof(req) - 1);
+	memcpy(out, tp.tx, tp.tx_len);
+	outl = tp.tx_len;
+
+	tp.tx_budget = -1;
+	for (m = 0; m < 16; m++) {
+		tp.tx_len = 0;
+		tick(cx);
+		pump(cx, &tp);
+		if (!tp.tx_len)
+			break;
+		if (outl + tp.tx_len > sizeof(out))
+			return 1;
+		memcpy(out + outl, tp.tx, tp.tx_len);
+		outl += tp.tx_len;
+	}
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+	feed(cx, &tp, ping, sizeof(ping) - 1);
+	if (outl + tp.tx_len > sizeof(out))
+		return 1;
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+
+	b = find_bytes(out, outl, "\r\n\r\n");
+	if (outl < 13 || memcmp(out, "HTTP/1.1 101 ", 13) || !b) {
+		lwsl_err("case 47: no 101\n");
+		lwsl_hexdump_err(out, outl);
+		return 1;
+	}
+	for (o = (size_t)(b + 4 - out); o + 9 <= outl; o += 9 + n) {
+		n = ((size_t)out[o] << 16) | ((size_t)out[o + 1] << 8) |
+		    out[o + 2];
+		if (o + 9 + n > outl)
+			break;
+		if (out[o + 3] == 6 && (out[o + 4] & 1))
+			pong = 1;
+		if ((lws_ser_ru32be(&out[o + 5]) & 0x7fffffff) != 1)
+			continue;
+		if (out[o + 3] == 3 && n == 4 && lws_ser_ru32be(&out[o + 9]))
+			rst = (int)lws_ser_ru32be(&out[o + 9]);
+		if ((out[o + 3] == 0 || out[o + 3] == 1) && (out[o + 4] & 1))
+			ended = 1;
+	}
+	if (tp.closed || tp.shutdown || !ended || rst || !pong ||
+	    closed_404 != 1) {
+		lwsl_err("case 47: ended %d, stream ended %d, rst %d, pong %d, "
+			 "stream closed %d\n", tp.closed || tp.shutdown, ended,
+			 rst, pong, closed_404);
+		lwsl_hexdump_err(out, outl);
+		return 1;
+	}
+	lwsl_user("case 47: an h2c stream 1 refused with the 101 queued "
+		  "completes once it has gone: PASS\n");
+
+	return 0;
+}
+#endif
+
+/*
+ * 48: a CONNECT on a vhost whose fallback is a raw protocol, raw-echo: the
+ * connection becomes raw, the protocol having the CONNECT's head as its
+ * first rx, which it answers as a tunnel, and then what comes through it,
+ * which it echoes.  (A CONNECT from a user agent the context turns away is
+ * refused first, case 23.)
+ */
+static int
+h1_connect_raw_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req[] =
+		"CONNECT sansio-raw:443 HTTP/1.1\r\n"
+		"Host: sansio-raw\r\n\r\n",
+			  tun[] = "hello";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h1-connect-raw", "server", 0);
+
+	feed(cx, &tp, req, sizeof(req) - 1);
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 200 ", 13) ||
+	    tp.closed || tp.shutdown) {
+		lwsl_err("case 48: CONNECT not taken raw\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	feed(cx, &tp, tun, sizeof(tun) - 1);
+	if (tp.tx_len != sizeof(tun) - 1 || memcmp(tp.tx, tun, tp.tx_len) ||
+	    tp.closed || tp.shutdown) {
+		lwsl_err("case 48: tunnel not raw\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 48: a CONNECT goes to the vhost's raw fallback: PASS\n");
+
+	return tr_end();
+}
+
 /*
  * 42: an h1 POST the app answers whole, and completes, from the body's one
  * HTTP_BODY, as it has the last of it.  The transaction is over: the body's
@@ -4033,6 +4604,9 @@ bail:
 
 #if defined(LWS_WITH_CLIENT)
 
+/* the credentials the next client connection has, if any: case 49 */
+static const char *cli_auth_user, *cli_auth_pass;
+
 static struct lws *
 client_connect(struct lws_context *cx, struct lws_vhost *vh,
 	       struct transport *tp, const char *path, const char *method,
@@ -4064,6 +4638,8 @@ client_connect(struct lws_context *cx, struct lws_vhost *vh,
 	ci.transport		= &tops;
 	ci.transport_opaque	= tp;
 	ci.transport_fd		= sv[0];
+	ci.auth_username	= cli_auth_user;
+	ci.auth_password	= cli_auth_pass;
 
 	tick(cx);
 
@@ -4134,6 +4710,113 @@ ws_client_up(struct lws_context *cx, struct lws_vhost *vh,
 {
 	return ws_client_up_pre(cx, vh, tp, "", resp_hdrs, quiet);
 }
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+/*
+ * 49: an h1 client with credentials, and a ws client with them, whose
+ * server answers "401 Unauthorized" with a digest challenge (RFC 7616),
+ * keeping the connection and with no body: each asks again on the same
+ * connection, with its digest response, and takes the answer to that.
+ */
+static int
+client_digest_retry_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char r401[] =
+		"HTTP/1.1 401 Unauthorized\r\n"
+		"WWW-Authenticate: Digest realm=\"sansio\", "
+		"nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\", qop=\"auth\", "
+		"opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"\r\n"
+		"Content-Length: 0\r\n\r\n",
+			  r200[] = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+			  resp_ws[] =
+		"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+		"Connection: Upgrade\r\nSec-WebSocket-Protocol: echo\r\n"
+		"Sec-WebSocket-Accept: ";
+	char key[24 + 36 + 1], accept[32], resp[256];
+	static struct transport tp;
+	const uint8_t *k;
+	uint8_t sha[20];
+	int n;
+
+	cli_auth_user = "user";
+	cli_auth_pass = "pass";
+
+	/* the h1 client */
+	tr_begin("h1-client-digest-retry", "client", 1);
+	if (!client_connect(cx, vh, &tp, "/x", "GET", NULL)) {
+		lwsl_err("case 49: connect failed\n");
+		goto fail;
+	}
+	pump(cx, &tp);
+	if (tp.tx_len < 15 || memcmp(tp.tx, "GET /x HTTP/1.1", 15)) {
+		lwsl_err("case 49: no request\n");
+		goto fail;
+	}
+	feed(cx, &tp, r401, sizeof(r401) - 1);
+	if (tp.closed || tp.tx_len < 15 || memcmp(tp.tx, "GET /x HTTP/1.1", 15) ||
+	    !find_bytes(tp.tx, tp.tx_len, "\r\nAuthorization: Digest ") ||
+	    !find_bytes(tp.tx, tp.tx_len, "username=\"user\"")) {
+		lwsl_err("case 49: no retry with the digest response\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		goto fail;
+	}
+	feed(cx, &tp, r200, sizeof(r200) - 1);
+	if (cli.error || !cli.completed || cli.rx_len != 2 ||
+	    memcmp(cli.rx, "ok", 2)) {
+		lwsl_err("case 49: err %d comp %d rx %d\n", cli.error,
+			 cli.completed, (int)cli.rx_len);
+		goto fail;
+	}
+	if (tr_end())
+		goto fail;
+
+	/* the ws client */
+	tr_begin("ws-client-digest-retry", "client", 1);
+	if (!client_connect(cx, vh, &tp, "/echo", NULL, "echo")) {
+		lwsl_err("case 49: ws connect failed\n");
+		goto fail;
+	}
+	cli.quiet = 1;
+	pump(cx, &tp);
+	if (tp.tx_len < 20 || memcmp(tp.tx, "GET /echo HTTP/1.1\r\n", 20)) {
+		lwsl_err("case 49: no ws request\n");
+		goto fail;
+	}
+	feed(cx, &tp, r401, sizeof(r401) - 1);
+	k = find_bytes(tp.tx, tp.tx_len, "\r\nSec-WebSocket-Key: ");
+	if (tp.closed || tp.tx_len < 20 ||
+	    memcmp(tp.tx, "GET /echo HTTP/1.1\r\n", 20) ||
+	    !find_bytes(tp.tx, tp.tx_len, "\r\nAuthorization: Digest ") ||
+	    !k || k + 21 + 24 + 2 > tp.tx + tp.tx_len) {
+		lwsl_err("case 49: no ws retry with the digest response\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		goto fail;
+	}
+	memcpy(key, k + 21, 24);
+	memcpy(key + 24, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", 37);
+	lws_SHA1((const uint8_t *)key, 24 + 36, sha);
+	lws_b64_encode_string((const char *)sha, 20, accept, sizeof(accept));
+	n = lws_snprintf(resp, sizeof(resp), "%s%s\r\n\r\n", resp_ws, accept);
+	feed(cx, &tp, resp, (size_t)n);
+	if (cli.error || !cli.established) {
+		lwsl_err("case 49: ws not established\n");
+		goto fail;
+	}
+	if (tr_end())
+		goto fail;
+
+	cli_auth_user = cli_auth_pass = NULL;
+	lwsl_user("case 49: h1 and ws clients retry a digest challenge on the "
+		  "connection: PASS\n");
+
+	return 0;
+
+fail:
+	cli_auth_user = cli_auth_pass = NULL;
+
+	return 1;
+}
+#endif
 
 /*
  * 31: a ws client the server tells "100 Continue" ahead of its 101.  An
@@ -4644,7 +5327,7 @@ main(int argc, const char **argv)
 {
 	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, result = 1;
 	struct lws_context_creation_info info;
-	struct lws_vhost *vh, *vh_uri;
+	struct lws_vhost *vh, *vh_uri, *vh_raw;
 #if defined(LWS_WITH_FILE_OPS)
 	struct lws_vhost *vh_404;
 #endif
@@ -4806,7 +5489,7 @@ main(int argc, const char **argv)
 	info.vhost_name = "sansio-404";
 	info.protocols = protocols_404;
 	info.extensions = NULL;
-	info.mounts = &mount_404_files;
+	info.mounts = &mount_404_t;
 	info.error_document_404 = "/404.html";
 	vh_404 = lws_create_vhost(cx, &info);
 	info.mounts = NULL;
@@ -4933,6 +5616,25 @@ main(int argc, const char **argv)
 #endif
 #endif
 
+#if defined(LWS_WITH_HTTP2)
+	at(cx, 229000);
+	if (h2_discard_behind_queued_half(cx, vh_h2))
+		goto bail;
+#endif
+#if defined(LWS_WITH_FILE_OPS) && defined(LWS_WITH_HTTP2)
+	at(cx, 230000);
+	if (h2_file_abandoned_serving_half(cx, vh_h2, 230000, H2AB_STALL))
+		goto bail;
+	at(cx, 231000);
+	if (h2_file_abandoned_serving_half(cx, vh_h2, 231000, H2AB_QUEUED))
+		goto bail;
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	at(cx, 232000);
+	if (h2_file_abandoned_serving_half(cx, vh_h2, 232000, H2AB_WORKER))
+		goto bail;
+#endif
+#endif
+
 	/* this moves the time on past the response watchdog */
 	at(cx, 250000);
 	if (h1_answer_in_body_half(cx, vh_uri, 250000))
@@ -4945,6 +5647,11 @@ main(int argc, const char **argv)
 	at(cx, 350000);
 	if (h1_post_zero_answered_half(cx, vh_404))
 		goto bail;
+#if defined(LWS_WITH_HTTP2)
+	at(cx, 354000);
+	if (h2c_redirect_queued_half(cx, vh_404))
+		goto bail;
+#endif
 #endif
 	at(cx, 351000);
 	if (h1_body_done_half(cx, vh_uri))
@@ -4952,6 +5659,28 @@ main(int argc, const char **argv)
 	at(cx, 352000);
 	if (h1_completions_half(cx, vh_uri))
 		goto bail;
+
+	/* a vhost whose fallback is a raw protocol */
+	info.vhost_name = "sansio-raw";
+	info.protocols = protocols_raw;
+	info.listen_accept_role = "raw-skt";
+	info.listen_accept_protocol = "raw-echo";
+	vh_raw = lws_create_vhost(cx, &info);
+	info.listen_accept_role = NULL;
+	info.listen_accept_protocol = NULL;
+	if (!vh_raw) {
+		lwsl_err("raw vhost failed\n");
+		goto bail;
+	}
+	at(cx, 355000);
+	if (h1_connect_raw_half(cx, vh_raw))
+		goto bail;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_HTTP_DIGEST_AUTH)
+	at(cx, 356000);
+	if (client_digest_retry_half(cx, vh))
+		goto bail;
+#endif
 #if defined(LWS_WITH_HTTP2)
 	at(cx, 353000);
 	if (h2c_upgrade_half(cx, vh_uri))
