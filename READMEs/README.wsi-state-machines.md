@@ -287,7 +287,7 @@ live state, or a live state with the carrier marked established.
 
 |option|effect|
 |---|---|
-|`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+unusable`, `+failed`, `+restarting`, `+closing`, `+told`.|
+|`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+unusable`, `+failed`, `+restarting`, `+closing`, `+told`.  Also append, the first time the process fires each row of the event table, `LRSROW 366 h1 S ESTABLISHED REQ_HDRS_COMPLETE`: the row's source line in `wsi-state.c`, then its own role, side, from state (`ANY` for any) and event.  A row counts when it is matched, including one whose edge changes nothing the `LRS` lines show, eg, a state to itself|
 |`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge must be one the event table produces, a phase or role change must carry an event's name (the engine made it from a row) or be a birth; `abort()` on one that is not, or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
 
 Both are off by default and change nothing about what any transition does.
@@ -302,6 +302,28 @@ transition function itself; its rows were derived from the observed edge
 set over the ctest suite and the fuzz seed corpus plus the statically
 present edges nothing reaches.  A new edge is either an omission in the
 table or a bug at the site.
+
+### Row coverage
+
+Which rows of the event table the tests fire, from the same trace:
+
+```
+rm -f /tmp/t ; LWS_STATE_TRACE_FILE=/tmp/t ctest -j4
+scripts/state-row-coverage.sh /tmp/t
+```
+
+The script lists each row no `LRSROW` line names, as
+`wsi-state.c:<line>: role side from event`, then per row role how many
+rows fired out of how many there are.  It takes several trace files, so
+the runs of differently configured builds add up.  The rows are known by
+their line numbers, so the trace must come from a build of the same
+`wsi-state.c` the script reads (`$LWS_WSI_STATE_C`, by default the one in
+its own tree).  A row only some build options can reach needs a build with
+them: the default build has no `LWS_WITH_ASYNC_QUEUE`, `LWS_WITH_SOCKS5`,
+`LWS_ROLE_MQTT`, `LWS_WITH_HTTP_PROXY`, `LWS_ROLE_RAW_PROXY` or
+`LWS_WITH_SYS_FAULT_INJECTION` (the seeded ws client transcripts of
+`api-test-sansio`).  A row no build fires is either dead, or its comment
+says which configuration reaches it.
 
 ## Events
 
