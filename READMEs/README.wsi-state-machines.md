@@ -322,8 +322,59 @@ its own tree).  A row only some build options can reach needs a build with
 them: the default build has no `LWS_WITH_ASYNC_QUEUE`, `LWS_WITH_SOCKS5`,
 `LWS_ROLE_MQTT`, `LWS_WITH_HTTP_PROXY`, `LWS_ROLE_RAW_PROXY` or
 `LWS_WITH_SYS_FAULT_INJECTION` (the seeded ws client transcripts of
-`api-test-sansio`).  A row no build fires is either dead, or its comment
-says which configuration reaches it.
+`api-test-sansio`), and the tls accept on a worker needs
+`LWS_WITH_ASYNC_QUEUE` with `LWS_MAX_SMP` above 1.  A row no build fires
+is either dead, or its comment says which configuration reaches it.
+
+### Rows no test fires
+
+Over the default build, one adding those options, and
+one with `LWS_WITH_ASYNC_QUEUE` and `LWS_MAX_SMP=2`, these rows are never
+fired, by role, side, from state and event:
+
+Reachable, wanting a test with real sockets (tls, quic, or a peer lws
+cannot fake on the sansio transport):
+
+|row|what reaches it|
+|---|---|
+|`mqtt C WAITING_SSL TRANSPORT_UP`, `mqtt C WAITING_SOCKS_CONNECT_REPLY TRANSPORT_UP`, `mqtt C WAITING_PROXY_REPLY TRANSPORT_UP`|an mqtt client over tls, through a socks5 proxy, or through an http CONNECT proxy|
+|`raw-proxy C WAITING_CONNECT TRANSPORT_UP`, `raw-proxy C WAITING_SSL TRANSPORT_UP`|`protocol_lws_raw_proxy`'s onward connection (`LWS_ROLE_RAW_PROXY`; no ctest runs it), over tls only from an app's own raw-proxy client|
+|`quic C WAITING_CONNECT TRANSPORT_UP`|the quic handshake finishing while the tcp fallback racer's connect is still pending|
+|`quic C H2_WAITING_TO_SEND_HEADERS REQ_ISSUE`, `* * H1C_ISSUE_HANDSHAKE2 MUX_STREAM_ADOPTED` (to h3)|a second h3 client queued on a quic leader still in its handshake|
+|`quic * UNCONNECTED STREAM_OPENED`|the peer opening another stream on a quic connection whose alpn is not h3|
+|`raw-skt C ESTABLISHED TLS_START`|the smtp client's STARTTLS (`LWS_WITH_EMAIL`, api-test-smtp-client)|
+|`* S SSL_ACK_PENDING RAW_UPGRADED`|plain text on a tls listener with `LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT` and the fallback to the listen accept config|
+|`h3 S ISSUING_FILE BODY_COMPLETE`, `h3 S BODY TXN_COMPLETING`, `h3 S ISSUING_FILE TXN_COMPLETING`, `h3 S TXN_COMPLETING BODY_DISCARD`, `h3 S AWAITING_FILE_READ TXN_COMPLETING`|the h3 mirrors of the h2 cases `api-test-sansio` has, which have no sansio h3 to run on|
+|`h3 S ESTABLISHED BODY_DISCARD`, `h3 S DOING_TRANSACTION BODY_DISCARD`, `h3 S BODY BODY_DISCARD`, `h3 S ISSUING_FILE BODY_DISCARD`, `h3 S AWAITING_FILE_READ BODY_DISCARD`|as the h2 ones, but an h3 stream counts its unacknowledged frames as queued, so only when what it wrote was already acknowledged|
+|`h3 S DISCARD_BODY TXN_COMPLETING`|as above, and then a write after the completion|
+|`h3 * ESTABLISHED BODY_BEGIN`|an h3 POST through a proxy mount whose peer sends more than its Content-Length|
+|`h3 S ESTABLISHED WS_UPGRADED`|ws over h3 (RFC 9220); lws' own h3 client has no row to take the answer|
+
+Reachable on the sansio transport, no test yet:
+
+|row|what reaches it|
+|---|---|
+|`h1 C ESTABLISHED REQ_ISSUE`, `h1 C WAITING_SERVER_REPLY REQ_ISSUE`|a digest auth retry on the kept-alive connection, by an http and a ws client|
+|`* C ISSUE_HTTP_BODY RESP_HDRS`|an h2 client stream answered while still sending its body (an h1 client reads nothing until its body has gone)|
+|`h2 S HEADERS ACTION_BEGIN`|an h2c upgrade request that reaches a callback|
+|`h2 S ISSUING_FILE TXN_COMPLETING`, `h2 S ISSUING_FILE BODY_DISCARD`, `h2 S AWAITING_FILE_READ TXN_COMPLETING`|an app abandoning its file answer with the connection's output queued, or with the file stalled on its window|
+|`h2 S DISCARD_BODY TXN_COMPLETING`|the last of a discarded body read alongside another stream's partial write|
+|`* S HEADERS RAW_UPGRADED`|a CONNECT, or what is not http, to a vhost falling back to a raw protocol|
+|`h2 S HEADERS BODY_DISCARD`, `h2 S HEADERS TXN_COMPLETING`|an h2c upgrade request claiming a body it cannot send, completed before the action|
+
+Only by an app misusing the api:
+
+|row|what reaches it|
+|---|---|
+|`h1 S ESTABLISHED REQ_HDRS_COMPLETE`, `* S ESTABLISHED RAW_UPGRADED`|the next request after a file completion the app did not complete|
+|`h1 S DISCARD_BODY TXN_COMPLETING`, `h1 S TXN_COMPLETED TXN_COMPLETING`|writing after completing|
+|`h1 S TXN_COMPLETING TXN_COMPLETING`, `h2 S TXN_COMPLETING TXN_COMPLETING`, `h1 S TXN_COMPLETED TXN_COMPLETED`|completing twice|
+|`* C IDLING TXN_COMPLETED`|reading on past the end of an unframed response body|
+|`h1 S H1_UPGRADE FILE_BEGIN`|serving a file from `LWS_CALLBACK_HTTP_CONFIRM_UPGRADE`|
+
+Defensive: `* C UNCONNECTED ALPN_DONE` and `* C WAITING_CONNECT ALPN_DONE`,
+for the children the h3 alpn walk looks for, which no path is known to
+leave in those states.
 
 ## Events
 
