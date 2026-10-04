@@ -839,6 +839,23 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 				      "answered before the request ended"))
 			lwsl_wsi_info(wsi, "%s: couldn't queue RST_STREAM",
 				      __func__);
+	} else if (wsi->mux_substream && lwsi_role_server(wsi) &&
+		   !wsi->h2.send_END_STREAM &&
+		   wsi->h2.h2_state != LWS_H2_STATE_CLOSED &&
+		   wsi->h2.h2_state != LWS_H2_STATE_IDLE &&
+		   wsi->mux.parent_wsi &&
+		   !lwsi_close_started(wsi->mux.parent_wsi)) {
+		/*
+		 * The stream is going away before its answer ended, eg, the
+		 * app gave up on a file it was serving: nothing would ever
+		 * tell the peer the rest is not coming, it would wait on the
+		 * stream for ever.  Not when the connection itself is closing,
+		 * which says it for every stream.
+		 */
+		if (lws_h2_rst_stream(wsi, H2_ERR_CANCEL,
+				      "answer abandoned"))
+			lwsl_wsi_info(wsi, "%s: couldn't queue RST_STREAM",
+				      __func__);
 	}
 
 	lwsl_info(" %s, his parent %s: siblings:\n", lws_wsi_tag(wsi), lws_wsi_tag(wsi->mux.parent_wsi));
