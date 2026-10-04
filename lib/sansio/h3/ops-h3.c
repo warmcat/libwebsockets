@@ -334,7 +334,12 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	}
 
 #if defined(LWS_WITH_SERVER)
-	if (lwsi_state_live(wsi) == LRS_TXN_COMPLETING) {
+	/*
+	 * Not once the stream is closing: a completion it was waiting for is
+	 * over with it, and only the close's flush is left (below)
+	 */
+	if (lwsi_state_live(wsi) == LRS_TXN_COMPLETING &&
+	    !lwsi_flushing_to_close(wsi)) {
 		if (!lws_has_buffered_out(wsi)) {
 			if (lws_http_transaction_completed(wsi)) {
 				lwsi_set_skt_unusable(wsi, 1);

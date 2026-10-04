@@ -3625,6 +3625,14 @@ lws_http_transaction_completed(struct lws *wsi)
 {
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
 
+	/*
+	 * A connection already closing has no transaction left to complete,
+	 * eg, an h3 stream whose file answer has gone, flushing to close,
+	 * when the app's own timer completes it as well
+	 */
+	if (lwsi_close_started(wsi))
+		return 0;
+
 #if defined(LWS_WITH_ASYNC_QUEUE) && defined(LWS_WITH_FILE_OPS)
 	/*
 	 * A file the app abandoned while a read of it was out on a worker
