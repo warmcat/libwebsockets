@@ -440,7 +440,14 @@ enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {
 	if (wsi->io->tls.ssl) {
-		__lws_tls_shutdown(wsi);
+		/*
+		 * Not when the connection is going on in the clear (the
+		 * plaintext fallback cleared use_ssl first): an alert written
+		 * now would be the first thing the plaintext peer reads, as
+		 * the other backends know
+		 */
+		if (wsi->use_ssl)
+			__lws_tls_shutdown(wsi);
 		gnutls_deinit((gnutls_session_t)wsi->io->tls.ssl);
 		wsi->io->tls.ssl = NULL;
 	}
