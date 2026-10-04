@@ -464,7 +464,10 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd && vhd->vhost == sais_link_vhost)
+		/* we may have failed init before allocating it */
+		if (!vhd)
+			goto passthru;
+		if (vhd->vhost == sais_link_vhost)
 			sais_link_vhost = NULL;
 		sais_server_destroy(vhd, &vhd->server);
 		sais_idle_destroy(vhd);
