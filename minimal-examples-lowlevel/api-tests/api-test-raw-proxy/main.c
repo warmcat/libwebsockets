@@ -21,7 +21,13 @@
  *    falls back to its listen accept role and protocol: the connection
  *    leaves tls behind for raw, and the origin's protocol echoes it
  *
- * Each leg is done when its echo has come back.
+ *  - a raw client asking for tls of the plain origin, which echoes its
+ *    ClientHello back: the handshake fails before any certificate came, and
+ *    the connection error says why the handshake failed, not that a
+ *    certificate could not be verified
+ *
+ * Each leg is done when its echo has come back, the last when its
+ * connection error has.
  */
 
 #include <libwebsockets.h>
@@ -44,9 +50,13 @@ static const char * const leg_names[] = {
 	"raw client through the raw proxy",
 	"an app's raw-proxy client over tls",
 	"plain text to a tls listener falling back to raw",
+	"tls to a plain listener",
 };
 
-static const char * const leg_msg[] = { "hello", "tls-hello", "plain-hello" };
+#define LEG_TLS_TO_PLAIN 3
+
+static const char * const leg_msg[] = { "hello", "tls-hello", "plain-hello",
+					"" };
 
 /*
  * The origin: echoes what it is sent
@@ -127,7 +137,15 @@ next_leg(lws_sorted_usec_list_t *sul)
 	i.host			= "127.0.0.1";
 	i.origin		= "127.0.0.1";
 	i.path			= "/";
-	if (leg != 1) {
+	if (leg == LEG_TLS_TO_PLAIN) {
+		/* a raw client asking for tls of the plain origin */
+		i.port			= port_origin;
+		i.protocol		= "raw-cli";
+		i.local_protocol_name	= "raw-cli";
+		i.ssl_connection	= LCCSCF_USE_SSL |
+					  LCCSCF_ALLOW_SELFSIGNED |
+					  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	} else if (leg != 1) {
 		/* a raw client, through the proxy, or plain to tls */
 		i.port			= leg ? port_fallback : port_proxy;
 		i.protocol		= "raw-cli";
@@ -197,6 +215,22 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (leg == LEG_TLS_TO_PLAIN) {
+			/* the handshake's reason, not a certificate's */
+			lwsl_user("%s: leg %d: connection error: %s\n",
+				  __func__, leg, in ? (const char *)in : "(null)");
+			if (!in || !*(const char *)in ||
+			    strstr((const char *)in, "verif") ||
+			    strstr((const char *)in, "certificate")) {
+				lwsl_err("%s: leg %d: not the handshake's "
+					 "reason\n", __func__, leg);
+				fails++;
+				finish();
+				break;
+			}
+			lws_sul_schedule(cx, 0, &sul_next, next_leg, 1);
+			break;
+		}
 		lwsl_err("%s: leg %d: connection error: %s\n", __func__, leg,
 			 in ? (const char *)in : "(null)");
 		fails++;
