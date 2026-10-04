@@ -1795,7 +1795,41 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					{
 						/* Server-side receive */
 						int n;
-						
+
+						/*
+						 * The request's Content-Length
+						 * bounds its DATA: beyond it the
+						 * message is malformed (RFC 9114
+						 * 4.1.2), and must not be taken
+						 * as more body, or a second one.
+						 * What is stashed ahead of the
+						 * action counts against it too
+						 */
+						if (lwsi_role_http(wsi) &&
+						    wsi->http.content_length_given) {
+							lws_filepos_t rem =
+								wsi->http.rx_content_remain;
+
+							if (lwsi_state(wsi) ==
+								LRS_DEFERRING_ACTION) {
+								size_t st = lws_buflist_total_len(
+									&wsi->buflist);
+
+								rem = st >= rem ? 0 :
+								      rem - (lws_filepos_t)st;
+							}
+							if ((lws_filepos_t)chunk > rem) {
+								struct lws *nwsi =
+									lws_get_quic_network_wsi(wsi);
+
+								lwsl_wsi_notice(wsi, "DATA beyond "
+										"content-length");
+								lws_quic_enter_closing_state(nwsi,
+									LWS_H3_MESSAGE_ERROR, 0, 1);
+								return 1;
+							}
+						}
+
 						if (lwsi_state(wsi) == LRS_DEFERRING_ACTION) {
 							n = lws_buflist_append_segment(&wsi->buflist, buf, chunk);
 							if (n < 0)
