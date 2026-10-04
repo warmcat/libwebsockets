@@ -438,6 +438,14 @@ static const struct xcase cases[] = {
 	 * not count.  Connections are counted as the quic listener creates
 	 * their connection wsi, quic has no accept to count.
 	 */
+	/*
+	 * Both asked for at once, pipelining, with no h3 connection yet
+	 * (the first h3 case): the second queues on the first
+	 * while its quic handshake is still going, and is let onto it once
+	 * that has chosen h3
+	 */
+	{ "h3 GET, two requests pipelined from the start",
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 1, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h3 GET, no body",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 0, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h3 POST Content-Length 5KB, CL response",
@@ -476,11 +484,57 @@ static const struct xcase cases[] = {
 	{ "h2 GET /nope: 404 status page in two frames",
 	  "GET", "/nope", XR_NONE, 0, 0, 8192, 1, 0, 404, 0,
 	  XG_NONE, 0, 0, 0, 0, 0 },
+	/*
+	 * The 404 is the whole answer before the body has gone: the client
+	 * takes it while still sending, and the server's reset, NO_ERROR,
+	 * stopping the rest of the body, is no failure
+	 */
+	{ "h2 POST 300KB to /nope: answered 404 while the body still goes",
+	  "POST", "/nope", XR_CL, 300000, 0, 8192, 1, 0, 404, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+	/*
+	 * Answered, and completed, from the body's first piece; a file
+	 * answering the body's completion; and a file answer the app gives up
+	 * on while it is still going, whose stream is reset, so it never
+	 * completes
+	 */
+	{ "h2 POST 300KB to /body-done: answered 202 from the first piece",
+	  "POST", "/body-done", XR_CL, 300000, 0, 8192, 1, 0, 202, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+#if defined(LWS_WITH_FILE_OPS)
+	{ "h2 POST 300KB to /file-at-end: a file answers the completion",
+	  "POST", "/file-at-end", XR_CL, 300000, 0, 8192, 1, 0, 200, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h2 GET /abandon: the app gives up on its file answer",
+	  "GET", "/abandon", XR_NONE, 0, 0, 8192, 1, 0, 0, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+#endif
 #endif
 #if defined(LWS_ROLE_H3)
 	{ "h3 GET /nope: 404 status page in two frames",
 	  "GET", "/nope", XR_NONE, 0, 0, 8192, 2, 0, 404, 0,
 	  XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST 300KB to /nope: answered 404 while the body still goes",
+	  "POST", "/nope", XR_CL, 300000, 0, 8192, 2, 0, 404, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+	/*
+	 * Answered whole and completed at once: the answer is acknowledged
+	 * while the body is still coming, which is then discarded
+	 */
+	{ "h3 POST 300KB to /early: answered and completed at once",
+	  "POST", "/early", XR_CL, 300000, 0, 8192, 2, 0, 202, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST 300KB to /body-done: answered 202 from the first piece",
+	  "POST", "/body-done", XR_CL, 300000, 0, 8192, 2, 0, 202, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+#if defined(LWS_WITH_FILE_OPS)
+	{ "h3 POST 300KB to /file-at-end: a file answers the completion",
+	  "POST", "/file-at-end", XR_CL, 300000, 0, 8192, 2, 0, 200, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 GET /abandon: the app gives up on its file answer",
+	  "GET", "/abandon", XR_NONE, 0, 0, 8192, 2, 0, 0, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+#endif
 #endif
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
 	/*
@@ -729,6 +783,12 @@ enum resp_mode {
 /* what a GET of /big-oneshot is answered with: this much of the pattern */
 #define BIG_ONESHOT 600000
 
+/*
+ * the file /file-at-end and /abandon answer with: this test's source, which
+ * is big enough to be still going when /abandon's app gives up on it
+ */
+#define XFER_FILE "main.c"
+
 struct pss_srv {
 	enum resp_mode		mode;
 	size_t			rx_len;
@@ -742,6 +802,12 @@ struct pss_srv {
 	int			redir307;	/* 307 once the body is read */
 	int			later;		/* answer RAW3_LATER_MS after
 						 * the request, or its body */
+	int			body_done;	/* /body-done: 202 from the
+						 * body's first piece */
+	int			file_at_end;	/* /file-at-end: a file once
+						 * the body is all here */
+	int			abandon;	/* /abandon: the file answer
+						 * given up on from a timer */
 };
 
 /* server-side view of the current case */
@@ -1290,6 +1356,44 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		pss->later = path && !!strstr(path, "later");
+		pss->body_done = path && !!strstr(path, "body-done");
+		pss->file_at_end = path && !!strstr(path, "file-at-end");
+
+		if (path && strstr(path, "early")) {
+			/*
+			 * /early: answered whole, 202 with a short body, and
+			 * completed at once, whatever body is still to come
+			 */
+			if (lws_add_http_common_headers(wsi, 202, "text/plain",
+							3, &hp, hend) ||
+			    lws_finalize_write_http_header(wsi,
+							   &hbuf[LWS_PRE],
+							   &hp, hend))
+				return -1;
+			hp = &hbuf[LWS_PRE];
+			memcpy(hp, "ok\n", 3);
+			if (lws_write(wsi, hp, 3, LWS_WRITE_HTTP_FINAL) != 3 ||
+			    lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
+
+#if defined(LWS_WITH_FILE_OPS)
+		if (path && strstr(path, "abandon")) {
+			/*
+			 * a file is the answer, but the app gives up on it
+			 * shortly, while it is still going: see the timer
+			 */
+			n = lws_serve_http_file(wsi, XFER_FILE, "text/plain",
+						NULL, 0);
+			if (n)
+				return -1;
+			pss->abandon = 1;
+			/* the next turn: loopback takes the whole file soon */
+			lws_set_timer_usecs(wsi, 1);
+			return 0;
+		}
+#endif
 
 		if (lws_http_get_uri_and_method(wsi, &uri, &n) == LWSHUMETH_POST) {
 			/* the body decides the response, wait for it */
@@ -1308,12 +1412,35 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->rx_sum = sum_add(pss->rx_sum, (const uint8_t *)in, len);
 		pss->rx_len += len;
 		srv.body_len += (long)len;
+		if (pss->body_done && !pss->responding) {
+			/*
+			 * /body-done: answered, and completed, from the body's
+			 * first piece, the rest of which is still to come
+			 */
+			pss->responding = 1;
+			if (lws_return_http_status(wsi, 202,
+						   NULL) ||
+			    lws_http_transaction_completed(wsi))
+				return -1;
+		}
 		return 0;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		srv.body_completions++;
 		lwsl_user("%s: server: body complete, %u bytes\n", __func__,
 			  (unsigned int)pss->rx_len);
+#if defined(LWS_WITH_FILE_OPS)
+		if (pss->file_at_end && !pss->responding) {
+			/* /file-at-end: a file answers once the body is here */
+			pss->responding = 1;
+			n = lws_serve_http_file(wsi, XFER_FILE, "text/plain",
+						NULL, 0);
+			if (n < 0 ||
+			    (n > 0 && lws_http_transaction_completed(wsi)))
+				return -1;
+			return 0;
+		}
+#endif
 		if (pss->responding)
 			/*
 			 * A GET with a body: we already answered from
@@ -1336,6 +1463,15 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return srv_start_response(wsi, pss);
 
 	case LWS_CALLBACK_TIMER:
+		if (pss->abandon) {
+			/* /abandon: the app gives up on its file answer */
+			pss->abandon = 0;
+			lwsl_user("%s: server: abandoning the file\n",
+				  __func__);
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
 		srv.turns_waited = turns - srv.turns_wait_start;
 		return srv_start_response(wsi, pss);
 
@@ -1497,6 +1633,15 @@ case_evaluate(void)
 
 		if (c->expect_status != 200)
 			continue;
+
+		if (strstr(c->path, "file-at-end")) {
+			/* the answer is a file, nothing to sum */
+			if (!cn->rx_len) {
+				case_finish(0, "no file");
+				goto next;
+			}
+			continue;
+		}
 
 		if (c->raw == 1) {
 			/* the file came as h2 DATA on stream 1, nothing to sum */
