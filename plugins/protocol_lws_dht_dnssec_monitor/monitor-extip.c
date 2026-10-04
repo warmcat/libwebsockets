@@ -35,6 +35,11 @@
  * signed zone that uses the macros it records which addresses it was
  * signed with, so a change of address (or of suffix), including across
  * restarts, re-signs exactly the zones it affects.
+ *
+ * The signed zone is authoritative, so only a different address replaces
+ * the one it was signed with.  A family the proxy stops reporting (the
+ * detector lost sight of it) keeps its last address, and so does one not
+ * reported yet after a restart: the zone's record supplies it.
  */
 
 #if !defined(LWS_PLUGIN_STATIC)
@@ -171,21 +176,89 @@ monitor_extip_zone_uses(const char *zone_path)
 	return uses;
 }
 
-void
-monitor_extip_for_zone(struct vhd *vhd, int uses, char *ip4, size_t ip4_len,
-		       char *ip6, size_t ip6_len)
+/*
+ * The address a zone's record says it was last signed with for one family,
+ * if it is still a literal of that family.  The record is ours, but it sits
+ * in a directory the proxy can read, so it is still only taken as an address
+ */
+
+static void
+monitor_extip_recorded(const char *state, const char *key, int af,
+		       char *out, size_t outlen)
 {
-	char suffix[64];
+	const char *p = strstr(state, key), *e;
+	unsigned char ad[16];
+	char v[64];
+	size_t l;
+
+	out[0] = '\0';
+
+	/* only at the start of a line */
+	if (!p || (p != state && p[-1] != '\n'))
+		return;
+
+	p += strlen(key);
+	e = strchr(p, '\n');
+	l = e ? lws_ptr_diff_size_t(e, p) : strlen(p);
+	if (!l || l >= sizeof(v))
+		return;
+
+	memcpy(v, p, l);
+	v[l] = '\0';
+
+	if (inet_pton(af, v, ad) == 1)
+		inet_ntop(af, ad, out, (socklen_t)outlen);
+}
+
+void
+monitor_extip_for_zone(struct vhd *vhd, int uses, const char *state_path,
+		       char *ip4, size_t ip4_len, char *ip6, size_t ip6_len)
+{
+	char suffix[64], state[160], rec[64];
+	const char *src6 = vhd->extip6;
+	ssize_t n = 0;
+	int fd;
 
 	ip4[0] = '\0';
 	ip6[0] = '\0';
+	state[0] = '\0';
 
-	if (uses & MON_EXTIP_USES_4)
-		lws_strncpy(ip4, vhd->extip4, ip4_len);
+	/*
+	 * A family we have no live address for keeps the one the zone was
+	 * last signed with: not hearing about it is not news that it changed
+	 */
+	if (state_path &&
+	    (((uses & MON_EXTIP_USES_4) && !vhd->extip4[0]) ||
+	     ((uses & MON_EXTIP_USES_6) && !vhd->extip6[0]))) {
+		fd = open(state_path, O_RDONLY);
+		if (fd >= 0) {
+			n = read(fd, state, sizeof(state) - 1);
+			close(fd);
+		}
+		state[n > 0 ? n : 0] = '\0';
+	}
 
-	if ((uses & MON_EXTIP_USES_6) && vhd->extip6[0]) {
+	if (uses & MON_EXTIP_USES_4) {
+		if (vhd->extip4[0])
+			lws_strncpy(ip4, vhd->extip4, ip4_len);
+		else
+			monitor_extip_recorded(state, "EXTIP4=", AF_INET,
+					       ip4, ip4_len);
+	}
+
+	if (!(uses & MON_EXTIP_USES_6))
+		return;
+
+	if (!src6[0]) {
+		monitor_extip_recorded(state, "EXTIP6=", AF_INET6,
+				       rec, sizeof(rec));
+		src6 = rec;
+	}
+
+	if (src6[0]) {
+		/* a recorded address takes a changed suffix too */
 		monitor_extip_suffix(vhd, suffix, sizeof(suffix));
-		monitor_extip_apply_suffix(ip6, ip6_len, vhd->extip6, suffix);
+		monitor_extip_apply_suffix(ip6, ip6_len, src6, suffix);
 	}
 }
 
@@ -294,6 +367,23 @@ monitor_extip_ctl_line(struct vhd *vhd, const char *line, size_t len)
 	if (m < 0) {
 		lwsl_err("%s: rejecting malformed ext-ips line\n", __func__);
 		return 1;
+	}
+
+	/*
+	 * A family missing from the line only means the reporter lost
+	 * sight of it, not that our address changed.  We sign what we
+	 * publish as authoritative, so only a different address of that
+	 * family replaces the one we have
+	 */
+	if (!ep.ip4[0] && vhd->extip4[0]) {
+		lwsl_notice("%s: v4 no longer reported, keeping '%s'\n",
+			    __func__, vhd->extip4);
+		lws_strncpy(ep.ip4, vhd->extip4, sizeof(ep.ip4));
+	}
+	if (!ep.ip6[0] && vhd->extip6[0]) {
+		lwsl_notice("%s: v6 no longer reported, keeping '%s'\n",
+			    __func__, vhd->extip6);
+		lws_strncpy(ep.ip6, vhd->extip6, sizeof(ep.ip6));
 	}
 
 	if (!strcmp(ep.ip4, vhd->extip4) && !strcmp(ep.ip6, vhd->extip6))

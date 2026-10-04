@@ -249,7 +249,8 @@ monitor_auth_key_set(struct vhd *vhd, const uint8_t *key);
 
 /*
  * How long after the first external address is known a zone still waits
- * for the other family before signing it without
+ * for the other family, if it was never signed with one, before signing it
+ * without
  */
 #define MON_EXTIP_SETTLE_US	(60 * LWS_US_PER_SEC)
 
@@ -263,10 +264,13 @@ monitor_extip_apply_suffix(char *out, size_t outlen, const char *ip6,
 /* MON_EXTIP_USES_* bits of the macros the zonefile uses, or -1 */
 int
 monitor_extip_zone_uses(const char *zone_path);
-/* the macro values for a zone using \p uses, empty where unused / unknown */
+/*
+ * the macro values for a zone using \p uses: the live address, else the one
+ * \p state_path (if not NULL) says it was last signed with, else empty
+ */
 void
-monitor_extip_for_zone(struct vhd *vhd, int uses, char *ip4, size_t ip4_len,
-		       char *ip6, size_t ip6_len);
+monitor_extip_for_zone(struct vhd *vhd, int uses, const char *state_path,
+		       char *ip4, size_t ip4_len, char *ip6, size_t ip6_len);
 int
 monitor_extip_signed_matches(const char *state_path, const char *ip4,
 			     const char *ip6);

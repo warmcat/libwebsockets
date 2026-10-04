@@ -17,8 +17,13 @@
  *  - the IPv6 suffix replaces the low 16 bits of the detected address,
  *    and a malformed suffix leaves the address alone
  *  - zonefiles are classified by the ${EXTIP4} / ${EXTIP6} macros they use
+ *  - a family the proxy stops reporting keeps its last address: only a
+ *    different address replaces it
  *  - the per-zone record of the addresses a zone was signed with matches
  *    only the same values, so an address or suffix change re-signs it
+ *  - a family with no live address is signed with the address in the
+ *    zone's record, with the current suffix, and a record value that is not
+ *    an address of its family is not used
  */
 
 #include <libwebsockets.h>
@@ -234,13 +239,31 @@ int main(void)
 	t_ctl(&vhd, "{\"ext-ips\": [\"203.0.113.7\", \"2001:db8:ffff::1\"]}\n");
 	fails += t_expect(vhd.extip_gen == gen, "unchanged addresses no new gen");
 
-	/* non-address strings and a second address per family are ignored */
+	/*
+	 * non-address strings and a second address per family are ignored,
+	 * and v6 going unreported keeps the v6 address we had
+	 */
 	t_ctl(&vhd, "{\"ext-ips\": [\"x\\\"y\", \"198.51.100.2\", "
 		    "\"198.51.100.3\"]}\n");
 	fails += t_expect(vhd.extip_gen == gen + 1 &&
 			  !strcmp(vhd.extip4, "198.51.100.2") &&
-			  !vhd.extip6[0],
-			  "only the first literal per family, v6 now absent");
+			  !strcmp(vhd.extip6, "2001:db8:ffff::1"),
+			  "only the first literal per family, v6 kept");
+
+	/* nothing at all reported is no change either */
+	gen = vhd.extip_gen;
+	t_ctl(&vhd, "{\"ext-ips\": []}\n");
+	fails += t_expect(vhd.extip_gen == gen &&
+			  !strcmp(vhd.extip4, "198.51.100.2") &&
+			  !strcmp(vhd.extip6, "2001:db8:ffff::1"),
+			  "empty report keeps both");
+
+	/* v4 unreported but v6 changed: only v6 moves */
+	t_ctl(&vhd, "{\"ext-ips\": [\"2001:db8:eeee::1\"]}\n");
+	fails += t_expect(vhd.extip_gen == gen + 1 &&
+			  !strcmp(vhd.extip4, "198.51.100.2") &&
+			  !strcmp(vhd.extip6, "2001:db8:eeee::1"),
+			  "v6 change with v4 unreported keeps v4");
 
 	gen = vhd.extip_gen;
 	t_ctl(&vhd, "{\"ext-ips\": [\"192.0.2.99\"\n");
@@ -282,7 +305,7 @@ int main(void)
 
 	/* values handed to the signer, with and without a stored suffix */
 
-	monitor_extip_for_zone(&vhd, MON_EXTIP_USES_4 | MON_EXTIP_USES_6,
+	monitor_extip_for_zone(&vhd, MON_EXTIP_USES_4 | MON_EXTIP_USES_6, NULL,
 			       ip4, sizeof(ip4), ip6, sizeof(ip6));
 	fails += t_expect(!strcmp(ip4, "203.0.113.7") &&
 			  !strcmp(ip6, "2001:db8:ffff::1"),
@@ -290,7 +313,7 @@ int main(void)
 
 	fails += t_expect(!t_write_file("./extip-corpus/domains/ipv6_suffix.txt",
 					"a1\n"), "write suffix");
-	monitor_extip_for_zone(&vhd, MON_EXTIP_USES_6, ip4, sizeof(ip4),
+	monitor_extip_for_zone(&vhd, MON_EXTIP_USES_6, NULL, ip4, sizeof(ip4),
 			       ip6, sizeof(ip6));
 	fails += t_expect(!ip4[0] && !strcmp(ip6, "2001:db8:ffff::a1"),
 			  "suffix applied, unused family empty");
@@ -321,6 +344,71 @@ int main(void)
 				"./extip-corpus/both.zone.signed.extip",
 				"203.0.113.7", ""),
 			  "lost v6 does not match");
+
+	/*
+	 * a family with no live address is signed with the recorded one, eg,
+	 * after a restart before the detector has found it again
+	 */
+
+	{
+		struct vhd v2;
+		const char *sp = "./extip-corpus/both.zone.signed.extip";
+
+		memset(&v2, 0, sizeof(v2));
+		v2.base_dir = vhd.base_dir;
+
+		monitor_extip_for_zone(&v2, MON_EXTIP_USES_4 |
+				       MON_EXTIP_USES_6, sp, ip4, sizeof(ip4),
+				       ip6, sizeof(ip6));
+		fails += t_expect(!strcmp(ip4, "203.0.113.7") &&
+				  !strcmp(ip6, "2001:db8:ffff::a1"),
+				  "no live addresses: the recorded ones");
+
+		monitor_extip_for_zone(&v2, MON_EXTIP_USES_4 |
+				       MON_EXTIP_USES_6, NULL, ip4, sizeof(ip4),
+				       ip6, sizeof(ip6));
+		fails += t_expect(!ip4[0] && !ip6[0],
+				  "no live addresses and no record: empty");
+
+		/* a live address of either family beats the record */
+		lws_strncpy(v2.extip6, "2001:db8:dddd::1", sizeof(v2.extip6));
+		monitor_extip_for_zone(&v2, MON_EXTIP_USES_4 |
+				       MON_EXTIP_USES_6, sp, ip4, sizeof(ip4),
+				       ip6, sizeof(ip6));
+		fails += t_expect(!strcmp(ip4, "203.0.113.7") &&
+				  !strcmp(ip6, "2001:db8:dddd::a1"),
+				  "live v6 with recorded v4");
+		v2.extip6[0] = '\0';
+
+		/* the recorded v6 takes a changed suffix */
+		fails += t_expect(!t_write_file(
+				"./extip-corpus/domains/ipv6_suffix.txt",
+				"b2\n"), "write new suffix");
+		monitor_extip_for_zone(&v2, MON_EXTIP_USES_6, sp, ip4,
+				       sizeof(ip4), ip6, sizeof(ip6));
+		fails += t_expect(!ip4[0] && !strcmp(ip6, "2001:db8:ffff::b2"),
+				  "recorded v6 with the new suffix");
+
+		/* a record value that is not an address of its family */
+		fails += t_expect(!t_write_file(sp,
+				"EXTIP4=2001:db8::5\nEXTIP6=bogus\n"),
+				"write bad record");
+		monitor_extip_for_zone(&v2, MON_EXTIP_USES_4 |
+				       MON_EXTIP_USES_6, sp, ip4, sizeof(ip4),
+				       ip6, sizeof(ip6));
+		fails += t_expect(!ip4[0] && !ip6[0],
+				  "bad record values not used");
+
+		/* a zone signed without v4 has nothing recorded for it */
+		fails += t_expect(!monitor_extip_record(sp, "",
+					"2001:db8:ffff::b2"),
+				  "record without v4");
+		monitor_extip_for_zone(&v2, MON_EXTIP_USES_4 |
+				       MON_EXTIP_USES_6, sp, ip4, sizeof(ip4),
+				       ip6, sizeof(ip6));
+		fails += t_expect(!ip4[0] && !strcmp(ip6, "2001:db8:ffff::b2"),
+				  "empty recorded v4 stays empty");
+	}
 
 	lws_jwk_destroy(&vhd.auth_jwk);
 

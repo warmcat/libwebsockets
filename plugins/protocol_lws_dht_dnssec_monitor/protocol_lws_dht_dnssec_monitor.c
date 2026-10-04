@@ -334,7 +334,8 @@ scan_dir_cb_fast(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			    vhd->extip_gen != vhd->extip_gen_scanned) {
 				dyn = monitor_extip_zone_uses(input_path);
 				if (dyn > 0) {
-					monitor_extip_for_zone(vhd, dyn, ip4, sizeof(ip4),
+					monitor_extip_for_zone(vhd, dyn, state_path,
+							       ip4, sizeof(ip4),
 							       ip6, sizeof(ip6));
 					if (!monitor_extip_signed_matches(state_path, ip4, ip6)) {
 						lwsl_user("dnssec-monitor: %s was signed with other external addresses, triggering resign\n",
@@ -348,25 +349,36 @@ scan_dir_cb_fast(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		}
 
 		if (needs_resign) {
+			int missing;
+
 			if (dyn < 0)
 				dyn = monitor_extip_zone_uses(input_path);
 			if (dyn < 0)
 				dyn = 0;
 
 			/*
-			 * Signing now would drop every ${EXTIP4} / ${EXTIP6}
-			 * record from the published zone: wait for the proxy
+			 * A family with no live address takes the one the
+			 * zone was last signed with, so only a zone never
+			 * signed with it can be missing one here
+			 */
+			monitor_extip_for_zone(vhd, dyn, state_path, ip4,
+					       sizeof(ip4), ip6, sizeof(ip6));
+			missing = ((dyn & MON_EXTIP_USES_4) && !ip4[0]) ||
+				  ((dyn & MON_EXTIP_USES_6) && !ip6[0]);
+
+			/*
+			 * Signing now would drop those ${EXTIP4} / ${EXTIP6}
+			 * records from the published zone: wait for the proxy
 			 * to forward the DHT's findings.  A family the DHT
 			 * never finds is left out as documented, but only
 			 * after the other one has had time to settle, so a
-			 * restart does not briefly publish without it.
+			 * first signing does not briefly publish without it.
 			 */
-			if (dyn && !vhd->extip4[0] && !vhd->extip6[0]) {
+			if (missing && !vhd->extip4[0] && !vhd->extip6[0]) {
 				lwsl_notice("%s: deferring %s until the external addresses are known\n",
 					    __func__, pc.common_name);
 				needs_resign = 0;
-			} else if ((((dyn & MON_EXTIP_USES_4) && !vhd->extip4[0]) ||
-				    ((dyn & MON_EXTIP_USES_6) && !vhd->extip6[0])) &&
+			} else if (missing &&
 				   lws_now_usecs() - vhd->extip_since < MON_EXTIP_SETTLE_US) {
 				lwsl_notice("%s: deferring %s while the external addresses settle\n",
 					    __func__, pc.common_name);
@@ -378,8 +390,6 @@ scan_dir_cb_fast(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		if (needs_resign) {
 			char wd[512];
 			lws_snprintf(wd, sizeof(wd), "%s/domains/%s", vhd->base_dir, pc.common_name);
-
-			monitor_extip_for_zone(vhd, dyn, ip4, sizeof(ip4), ip6, sizeof(ip6));
 
 			lwsl_user("%s: Signing zone for %s (EXTIP4 '%s', EXTIP6 '%s')\n", __func__,
 				  pc.common_name, ip4, ip6);
