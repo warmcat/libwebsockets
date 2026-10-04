@@ -785,7 +785,8 @@ enum resp_mode {
 
 /*
  * the file /file-at-end and /abandon answer with: this test's source, which
- * is big enough to be still going when /abandon's app gives up on it
+ * is big enough not to be gone with the headers when /abandon's app gives up
+ * on it
  */
 #define XFER_FILE "main.c"
 
@@ -806,8 +807,6 @@ struct pss_srv {
 						 * body's first piece */
 	int			file_at_end;	/* /file-at-end: a file once
 						 * the body is all here */
-	int			abandon;	/* /abandon: the file answer
-						 * given up on from a timer */
 };
 
 /* server-side view of the current case */
@@ -1381,16 +1380,20 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_FILE_OPS)
 		if (path && strstr(path, "abandon")) {
 			/*
-			 * a file is the answer, but the app gives up on it
-			 * shortly, while it is still going: see the timer
+			 * a file is the answer, but the app gives up on it as
+			 * soon as it has begun, with its headers out and none
+			 * of its body.  Not from a timer: loopback takes the
+			 * whole file within one tick of a coarse clock, such
+			 * as Windows' 15.6ms one, before any timer can fire
 			 */
 			n = lws_serve_http_file(wsi, XFER_FILE, "text/plain",
 						NULL, 0);
 			if (n)
 				return -1;
-			pss->abandon = 1;
-			/* the next turn: loopback takes the whole file soon */
-			lws_set_timer_usecs(wsi, 1);
+			lwsl_user("%s: server: abandoning the file\n",
+				  __func__);
+			if (lws_http_transaction_completed(wsi))
+				return -1;
 			return 0;
 		}
 #endif
@@ -1463,15 +1466,6 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return srv_start_response(wsi, pss);
 
 	case LWS_CALLBACK_TIMER:
-		if (pss->abandon) {
-			/* /abandon: the app gives up on its file answer */
-			pss->abandon = 0;
-			lwsl_user("%s: server: abandoning the file\n",
-				  __func__);
-			if (lws_http_transaction_completed(wsi))
-				return -1;
-			return 0;
-		}
 		srv.turns_waited = turns - srv.turns_wait_start;
 		return srv_start_response(wsi, pss);
 
