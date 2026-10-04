@@ -41,7 +41,8 @@
  *    refused instead of continued, an unknown expectation (417)
  *
  * Request bodies on h2 (cleartext, prior knowledge): Content-Length, no
- * Content-Length (END_STREAM delimited), and no body at all.
+ * Content-Length (END_STREAM delimited), and no body at all.  On h3, one
+ * whose DATA goes beyond its Content-Length is refused as malformed.
  *
  * Response bodies (server -> client): Content-Length; hand-framed chunked
  * with extensions and trailers, also with a Content-Length it overrides;
@@ -453,6 +454,14 @@ static const struct xcase cases[] = {
 	 */
 	{ "h3 POST with Transfer-Encoding is refused as malformed",
 	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 2, 0, -1, 0, XG_NONE, 0, 0, 0, 0, 0 },
+	/*
+	 * RFC 9114 4.1.2: a request whose DATA goes beyond its Content-Length
+	 * is malformed.  The 6 bytes go in one DATA frame, saying 3: the
+	 * server must refuse it, not answer the first 3 as the body and take
+	 * what follows as more body, or as another
+	 */
+	{ "h3 POST with more DATA than its Content-Length is refused",
+	  "POST", "/echo-cl", XR_CL, 6, 3, 8192, 2, 0, -1, -1, XG_NONE, 0, 0, 0, 0, 0 },
 #endif
 	/*
 	 * The server answers /nope with lws_return_http_status(404, text):

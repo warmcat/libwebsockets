@@ -94,7 +94,8 @@
  * stream, answered as a POST or a GET, with the answer still queued or
  * gone, from the body's first piece, or with a file from its completion: the
  * answer goes whole and the body is discarded, and a stream whose answer
- * has gone while the peer still sends is reset without error.
+ * has gone while the peer still sends is reset without error.  And an h1
+ * request upgraded to h2c is answered on stream 1, but not one with a body.
  *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
@@ -932,6 +933,23 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 1;
 		lws_callback_on_writable(wsi);
 		return 0;
+
+#if defined(LWS_WITH_FILE_OPS)
+	case LWS_CALLBACK_HTTP_CONFIRM_UPGRADE:
+		/*
+		 * /file-upgrade: the upgrade is refused with a file.  There is
+		 * no pss yet, before the request is the app's
+		 */
+		if (lws_hdr_copy(wsi, (char *)buf, (int)sizeof(buf),
+				 WSI_TOKEN_GET_URI) > 0 &&
+		    !strcmp((const char *)buf, "/file-upgrade")) {
+			if (lws_serve_http_file(wsi, EARLY_FILE, "text/plain",
+						NULL, 0) < 0)
+				return -1;
+			return 1;
+		}
+		return 0;
+#endif
 
 	case LWS_CALLBACK_TIMER:
 		if (pss->abandon) {
@@ -2150,6 +2168,132 @@ h2_headers(uint8_t *out, uint32_t sid, const uint8_t *b, const uint8_t *e)
 }
 
 /*
+ * 44: an h1 request asking to upgrade to h2c (RFC 7540 3.2), on a vhost that
+ * does not take h2 by prior knowledge.  A GET is answered 101, the server's
+ * preface follows, and once the peer's preface has come, the GET is answered
+ * on stream 1, through the app, as any request is.  A POST asking for the
+ * same with a body of its own is refused 400: what follows its head would be
+ * read as h2, where anything in front of us took it as the POST's body.
+ */
+static int
+h2c_upgrade_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	/* HTTP2-Settings: MAX_CONCURRENT_STREAMS 100, base64url */
+	static const char req[] =
+		"GET /x HTTP/1.1\r\nHost: sansio-uri\r\n"
+		"Connection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\n"
+		"HTTP2-Settings: AAMAAABk\r\n\r\n",
+			  req_body[] =
+		"POST /x HTTP/1.1\r\nHost: sansio-uri\r\n"
+		"Connection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\n"
+		"HTTP2-Settings: AAMAAABk\r\nContent-Length: 3\r\n\r\nabc",
+			  preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	static struct transport tp;
+	int sv[2], ended = 0, hdrs = 0, m;
+	const uint8_t *b, *first;
+	struct lws *wsi;
+	size_t o, n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h2c-upgrade", "server", 0);
+
+	feed(cx, &tp, req, sizeof(req) - 1);
+	b = find_bytes(tp.tx, tp.tx_len, "\r\n\r\n");
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 101 ", 13) ||
+	    !find_bytes(tp.tx, tp.tx_len, "\r\nUpgrade: h2c\r\n") || !b) {
+		lwsl_err("case 44: no 101\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	/*
+	 * Anything after the 101 is h2, the server's SETTINGS first, whether
+	 * it goes with the 101 or once the peer's preface has come
+	 */
+	o = (size_t)(b + 4 - tp.tx);
+	first = o < tp.tx_len ? &tp.tx[o] : NULL;
+	if (first && (tp.tx_len - o < 9 || first[3] != 4)) {
+		lwsl_err("case 44: h2 after the 101 is not SETTINGS\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	/* the peer's preface: then sid 1 is answered */
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+	if (!first && (tp.tx_len < 9 || tp.tx[3] != 4)) {
+		lwsl_err("case 44: no server preface first\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	for (m = 0; m < 4 && !ended; m++) {
+		for (o = 0; o + 9 <= tp.tx_len; o += 9 + n) {
+			n = ((size_t)tp.tx[o] << 16) |
+			    ((size_t)tp.tx[o + 1] << 8) | tp.tx[o + 2];
+			if ((lws_ser_ru32be(&tp.tx[o + 5]) & 0x7fffffff) != 1)
+				continue;
+			if (tp.tx[o + 3] == 1)
+				hdrs = 1;
+			if (!tp.tx[o + 3] && (tp.tx[o + 4] & 1) &&
+			    find_bytes(&tp.tx[o + 9], n, "/x\n"))
+				ended = 1;
+		}
+		if (!ended) {
+			tp.tx_len = 0;
+			tick(cx);
+			pump(cx, &tp);
+		}
+	}
+	if (!hdrs || !ended || tp.closed || tp.shutdown) {
+		lwsl_err("case 44: sid 1 not answered: hdrs %d ended %d\n",
+			 hdrs, ended);
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	if (tr_end())
+		return 1;
+
+	/* a POST with a body is not upgraded */
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h2c-upgrade-with-body", "server", 0);
+	feed(cx, &tp, req_body, sizeof(req_body) - 1);
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 400 ", 13)) {
+		lwsl_err("case 44: upgrade with a body not refused\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 44: h2c upgrade answered on stream 1, refused with a "
+		  "body: PASS\n");
+
+	return tr_end();
+}
+
+/*
  * 15: an h2 request whose header block does not fit the ah is answered 431
  * "Oversized headers", and the connection goes on.  The rest of the block
  * is still decoded, which keeps the connection's hpack state in step: a
@@ -2469,12 +2613,18 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
  *    the first piece of the body, the rest of which follows in a second DATA
  *    frame; with H2EA_BODY_BUDGET, the transport takes only 4 bytes of the
  *    answer then
+ *
+ *  - H2EA_ONE_READ: the whole body comes in the read with the request, so
+ *    it is stashed before the dispatch and given to the app from there: the
+ *    app's answer goes the same, and an app that completed from the body is
+ *    not given the body's completion after that
  */
 #define H2EA_FULL		(1 << 0)
 #define H2EA_GET		(1 << 1)
 #define H2EA_DRAIN_FIRST	(1 << 2)
 #define H2EA_SPLIT		(1 << 3)
 #define H2EA_BODY_BUDGET	(1 << 4)
+#define H2EA_ONE_READ		(1 << 5)
 
 static int
 h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
@@ -2539,10 +2689,16 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 	p = hp_str(p, "3", 1, 0);
 	n = h2_headers(fr, 1, blk, p);
 	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+	if (flags & H2EA_ONE_READ) {
+		/* ...in the same read */
+		memcpy(fr + n, data, sizeof(data) - 1);
+		n += sizeof(data) - 1;
+	}
 
 	/* the app has the transport take 4 bytes of its response */
 	if (!(flags & H2EA_FULL))
 		early_tp = &tp;
+	late_body_completion = 0;
 	feed(cx, &tp, fr, n);
 	early_tp = NULL;
 	/* what went, from here, is frames whole as far as they went */
@@ -2570,7 +2726,11 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 	if (flags & H2EA_BODY_BUDGET)
 		tp.tx_budget = 4;
 
-	if (flags & H2EA_SPLIT) {
+	if (flags & H2EA_ONE_READ) {
+		tp.tx_len = 0;
+		tick(cx);
+		pump(cx, &tp);
+	} else if (flags & H2EA_SPLIT) {
 		feed(cx, &tp, data1, sizeof(data1) - 1);
 		if (outl + tp.tx_len > sizeof(out)) {
 			lwsl_err("case 20: %s: too much output\n", path);
@@ -2629,12 +2789,14 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 		}
 	}
 	if (rst || !ended || uri_closed != 1 || uri_late_writeable ||
-	    tp.closed || tp.shutdown ||
+	    late_body_completion || tp.closed || tp.shutdown ||
 	    body != want) {
 		lwsl_err("case 20: %s 0x%x: rst %d, ended %d, closed %d, "
-			 "late wr %d, body %d / %d, rx %d / %d, want read %d\n",
+			 "late wr %d, late body completion %d, body %d / %d, "
+			 "rx %d / %d, want read %d\n",
 			 path, flags, rst, ended, uri_closed,
-			 uri_late_writeable, (int)body, (int)want,
+			 uri_late_writeable, late_body_completion, (int)body,
+			 (int)want,
 			 (int)tp.rx_pos, (int)tp.rx_len, tp.want_read);
 		lwsl_hexdump_err(out, outl);
 		return 1;
@@ -3501,6 +3663,12 @@ h1_body_done_half(struct lws_context *cx, struct lws_vhost *vh)
  *
  *  - a POST the app answers with a file once it has the body's first piece
  *
+ *  - a ws upgrade the app refuses with a file, from
+ *    LWS_CALLBACK_HTTP_CONFIRM_UPGRADE: the file all goes, and its own
+ *    completion completes the transaction, rather than the refusal
+ *    completing it with the file still to go, which, an answer short of
+ *    its Content-Length, closed the connection
+ *
  * The file answers' bytes are not the test's, so those have no transcripts.
  */
 static int
@@ -3522,6 +3690,14 @@ h1_completions_half(struct lws_context *cx, struct lws_vhost *vh)
 	}, file_head[] = {
 		{ "HEAD /file HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
 		  "HTTP/1.1 200 ", NULL, 0, 16 },
+		{ "GET /y HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", "/y\n", 0, 0 },
+	}, file_upgrade[] = {
+		{ "GET /file-upgrade HTTP/1.1\r\nHost: sansio-uri\r\n"
+		  "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+		  "Sec-WebSocket-Version: 13\r\n"
+		  "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+		  "HTTP/1.1 200 ", NULL, 0, 0 },
 		{ "GET /y HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
 		  "HTTP/1.1 200 ", "/y\n", 0, 0 },
 	}, file_in_body[] = {
@@ -3594,7 +3770,9 @@ h1_completions_half(struct lws_context *cx, struct lws_vhost *vh)
 	    h1_steps(cx, vh, NULL, "case 43 file head", file_head,
 		     LWS_ARRAY_SIZE(file_head)) ||
 	    h1_steps(cx, vh, NULL, "case 43 file in body", file_in_body,
-		     LWS_ARRAY_SIZE(file_in_body)))
+		     LWS_ARRAY_SIZE(file_in_body)) ||
+	    h1_steps(cx, vh, NULL, "case 43 file upgrade", file_upgrade,
+		     LWS_ARRAY_SIZE(file_upgrade)))
 		return 1;
 #endif
 	lwsl_user("case 43: h1 transactions completed ahead of their body, or "
@@ -4585,11 +4763,15 @@ main(int argc, const char **argv)
 	    h2_early_answer_half(cx, vh_h2, "/body-done",
 				 H2EA_FULL | H2EA_SPLIT) ||
 	    h2_early_answer_half(cx, vh_h2, "/body-done",
-				 H2EA_FULL | H2EA_SPLIT | H2EA_BODY_BUDGET))
+				 H2EA_FULL | H2EA_SPLIT | H2EA_BODY_BUDGET) ||
+	    h2_early_answer_half(cx, vh_h2, "/body-done",
+				 H2EA_FULL | H2EA_ONE_READ))
 		goto bail;
 #if defined(LWS_WITH_FILE_OPS)
 	if (h2_early_answer_half(cx, vh_h2, "/file", 0) ||
-	    h2_early_answer_half(cx, vh_h2, "/file-at-end", H2EA_FULL))
+	    h2_early_answer_half(cx, vh_h2, "/file-at-end", H2EA_FULL) ||
+	    h2_early_answer_half(cx, vh_h2, "/file-at-end",
+				 H2EA_FULL | H2EA_ONE_READ))
 		goto bail;
 #endif
 #endif
@@ -4770,6 +4952,11 @@ main(int argc, const char **argv)
 	at(cx, 352000);
 	if (h1_completions_half(cx, vh_uri))
 		goto bail;
+#if defined(LWS_WITH_HTTP2)
+	at(cx, 353000);
+	if (h2c_upgrade_half(cx, vh_uri))
+		goto bail;
+#endif
 
 	result = 0;
 

@@ -6,10 +6,11 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * Exercises the clean ws close handshake in both directions, over h1 and
- * over ws-over-h2 (RFC 8441), with a ws server vhost and a ws client in one
- * process, and checks that the close status code and reason reach the peer
- * intact and that both sides see their close callbacks.
+ * Exercises the clean ws close handshake in both directions, over h1, over
+ * ws-over-h2 (RFC 8441) and, with h3 built, over ws-over-h3 (RFC 9220), with
+ * a ws server vhost and a ws client in one process, and checks that the
+ * close status code and reason reach the peer intact and that both sides
+ * see their close callbacks.
  *
  * With --proxy host:port, --socks host:port and --socks-auth host:port it
  * additionally runs h1 legs through an http CONNECT proxy, a SOCKS5 proxy
@@ -88,6 +89,11 @@ static const struct leg legs[] = {
 	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0 },
 	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0 },
 	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0 },
+#if defined(LWS_ROLE_H3)
+	/* ws over h3, RFC 9220: extended CONNECT on an h3 stream */
+	{ "h3, client-initiated",		"cli",	   "h3",       1, 0, 0, 0, 0 },
+	{ "h3, server-initiated",		"cli",	   "h3",       1, 1, 0, 0, 0 },
+#endif
 	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0 },
 	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0 },
 	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0 },
@@ -278,8 +284,8 @@ check_encap(struct lws *wsi)
 	int encap = lws_get_network_wsi(wsi) != wsi;
 
 	if (encap != legs[cur].h2) {
-		fail_leg(encap ? "unexpectedly ws-over-h2" :
-				 "not ws-over-h2");
+		fail_leg(encap ? "unexpectedly ws over a mux stream" :
+				 "not ws over a mux stream");
 		return 1;
 	}
 
@@ -941,10 +947,17 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	/* ws server vhost, offering h2 and h1 */
+	/*
+	 * ws server vhost, offering h2 and h1, and h3, for which the vhost
+	 * brings up its own quic listener on the same port
+	 */
 	info.port = port_tcp;
 	info.vhost_name = "srv";
+#if defined(LWS_ROLE_H3)
+	info.alpn = "h2,http/1.1,h3";
+#else
 	info.alpn = "h2,http/1.1";
+#endif
 	info.protocols = protocols_srv;
 	info.ssl_cert_filepath = "localhost-100y.cert";
 	info.ssl_private_key_filepath = "localhost-100y.key";
