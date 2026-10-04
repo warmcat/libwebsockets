@@ -417,6 +417,9 @@ w_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		/* we may have failed init, and lws freed the vhd */
+		if (!vhd)
+			goto passthru;
 		saiw_event_db_close_all_now(vhd);
 		lws_struct_sq3_close(&vhd->pdb);
 		goto passthru;
