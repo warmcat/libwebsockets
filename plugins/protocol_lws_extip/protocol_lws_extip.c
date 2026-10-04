@@ -67,6 +67,7 @@ struct vhd_extip {
 		int				has_cookie;
 		lws_usec_t			last_rx;
 		lws_usec_t			last_tx;
+		lws_sockaddr46			reported; /* last told */
 		int				offline;
 	} ip[2]; /* 0: IPv4, 1: IPv6 */
 };
@@ -159,6 +160,21 @@ extip_dns_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, in
 	lws_async_dns_freeaddrinfo(&result);
 
 	return NULL;
+}
+
+static void
+extip_report_ip(struct vhd_extip *vhd, int i, const lws_sockaddr46 *sa46)
+{
+	/* what we asked over the IPv4 socket can only be an IPv4 address */
+	if (sa46->sa4.sin_family != (i ? AF_INET6 : AF_INET)) {
+		lwsl_warn("%s: IPv%c server reported another family\n",
+			  __func__, i ? '6' : '4');
+		return;
+	}
+
+	vhd->ip[i].reported = *sa46;
+	lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, sa46,
+			 !i ? AF_INET : AF_INET6, 1, NULL, 0);
 }
 
 static void
@@ -442,7 +458,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 					lwsl_warn("%s: unparseable address "
 						  "'%s'\n", __func__, ip_str);
 				else
-					lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
+					extip_report_ip(vhd, is_v6, &sa46);
 			}
 
 			lws_sul_schedule(vhd->context, 0, &vhd->sul, extip_client_sul_cb, 1);
@@ -452,6 +468,18 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 		if (len == (1 + LENGTH_EXTIP_COOKIE) && buf[0] == 'O' &&
 		    vhd->ip[is_v6].has_cookie) {
 			vhd->ip[is_v6].last_rx		= lws_now_usecs();
+			/*
+			 * The server confirmed our cookie, so the address it
+			 * is bound to is ours again: we told everyone it was
+			 * gone, so tell them it is back
+			 */
+			if (vhd->ip[is_v6].offline &&
+			    vhd->ip[is_v6].reported.sa4.sin_family) {
+				lwsl_notice("extip client: IPv%c back online\n",
+					    is_v6 ? '6' : '4');
+				extip_report_ip(vhd, is_v6,
+						&vhd->ip[is_v6].reported);
+			}
 			vhd->ip[is_v6].offline		= 0;
 			break;
 		}
@@ -483,7 +511,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 			vhd->ip[is_v6].last_rx		= lws_now_usecs();
 			vhd->ip[is_v6].offline		= 0;
 
-			lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
+			extip_report_ip(vhd, is_v6, &sa46);
 
 			lws_sul_schedule(vhd->context, 0, &vhd->sul, extip_client_sul_cb, 1);
 		}
