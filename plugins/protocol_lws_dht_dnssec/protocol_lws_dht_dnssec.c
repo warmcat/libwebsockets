@@ -42,7 +42,29 @@ struct dht_upload_job {
 	lws_dll2_t list;
 	char *jws_filepath;
 	char *domain;
+	lws_usec_t due;		/* not before this, after a failure */
+	unsigned int fails;	/* consecutive failed attempts */
 };
+
+/*
+ * How long we wait for an answer to a CAP_REQ or PUT chunk before resending
+ * it (3 times), and for the last chunk, which the peer only acknowledges
+ * after validating the whole zone over DNS.  A failed publication is tried
+ * again after the retry time, doubling up to the max.  Tests that build
+ * the plugin in may define shorter ones.
+ */
+#if !defined(DHT_UPLOAD_TIMEOUT_US)
+#define DHT_UPLOAD_TIMEOUT_US		(3 * LWS_US_PER_SEC)
+#endif
+#if !defined(DHT_UPLOAD_VALIDATE_TIMEOUT_US)
+#define DHT_UPLOAD_VALIDATE_TIMEOUT_US	(45 * LWS_US_PER_SEC)
+#endif
+#if !defined(DHT_UPLOAD_RETRY_US)
+#define DHT_UPLOAD_RETRY_US		(30 * LWS_US_PER_SEC)
+#endif
+#if !defined(DHT_UPLOAD_RETRY_MAX_US)
+#define DHT_UPLOAD_RETRY_MAX_US		(10 * 60 * LWS_US_PER_SEC)
+#endif
 
 struct vhd_dht_dnssec {
 	struct lws_context		*context;
@@ -54,6 +76,16 @@ struct vhd_dht_dnssec {
 	lws_sorted_usec_list_t		sul_timeout;
 	lws_sorted_usec_list_t		sul_dump;
 	int				put_retries;
+	/*
+	 * The upload has its own timers and retry count: GETs run alongside
+	 * it and reschedule or cancel sul_timeout / sul_bulk as they go
+	 */
+	lws_sorted_usec_list_t		sul_upload;	/* reply timeout */
+	lws_sorted_usec_list_t		sul_upload_tx;	/* next send */
+	lws_sorted_usec_list_t		sul_upload_retry; /* queue backoff */
+	int				upload_retries;
+	/* the queued publication in progress, it owns cli_put_file */
+	struct dht_upload_job		*upload_job;
 	lws_xos_t			xos;
 	uint64_t			bulk_sent;
 	uint64_t			bulk_total;
@@ -619,6 +651,9 @@ dht_dnssec_sul_timeout_cb(struct lws_sorted_usec_list *sul);
 
 static void
 start_next_dht_upload(struct vhd_dht_dnssec *vhd);
+
+static void
+dht_dnssec_upload_finish(struct vhd_dht_dnssec *vhd, int failed);
 
 static int
 dht_dnssec_jwk_load_or_gen(struct vhd_dht_dnssec *vhd)
@@ -2211,20 +2246,16 @@ verb_ack_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		return 0;
 	}
 
-	lws_sul_cancel(&vhd->sul_timeout);
-	vhd->put_retries = 0;
+	lws_sul_cancel(&vhd->sul_upload);
+	vhd->upload_retries = 0;
 
 	if (vhd->cli_put_file) {
 		vhd->bulk_sent += msg->len;
 		if (vhd->bulk_sent >= vhd->bulk_total) {
 			lwsl_user("PUT complete\n");
-			if (vhd->cb_completion)
-				vhd->cb_completion(vhd->cb_closure, 0);
-			vhd->put_started = 0;
-			start_next_dht_upload(vhd);
-		} else {
-			dht_dnssec_sul_put_cb(&vhd->sul_bulk);
-		}
+			dht_dnssec_upload_finish(vhd, 0);
+		} else
+			dht_dnssec_sul_put_cb(&vhd->sul_upload_tx);
 	} else if (vhd->cli_bulk || vhd->gen_manifest) {
 		lwsl_user("BULK mock PUT complete\n");
 		if (vhd->gen_manifest) {
@@ -2423,9 +2454,15 @@ verb_cap_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_ar
 		return 0;
 	}
 
+	/*
+	 * Once we are sending the PUT, a CAP_RSP is a late answer to a
+	 * retried CAP_REQ, or one we never asked for: it decides nothing
+	 */
+	if (vhd->put_started)
+		return 0;
+
 	if (!msg->payload) {
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 1);
+		dht_dnssec_upload_finish(vhd, 1);
 		return 0;
 	}
 
@@ -2434,23 +2471,20 @@ verb_cap_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_ar
 
 	lwsl_user("%s: Peer capability payload: %s\n", __func__, pbuf);
 
-	lws_sul_cancel(&vhd->sul_timeout);
-	vhd->put_retries = 0;
+	lws_sul_cancel(&vhd->sul_upload);
+	vhd->upload_retries = 0;
 
 	if ((char *)strstr(pbuf, "\"lws-dht-dnssec\"")) {
 		lwsl_user("%s: Peer supports lws-dht-dnssec via CAP_RSP! Proceeding with PUT.\n", __func__);
-		if (!vhd->put_started) {
-			vhd->put_started = 1;
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_put_cb, 10 * LWS_US_PER_MS);
-		}
+		vhd->put_started = 1;
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_upload_tx,
+				 dht_dnssec_sul_put_cb, 10 * LWS_US_PER_MS);
 	} else if ((char *)strstr(pbuf, "\"lws-dht-store\"")) {
 		lwsl_err("%s: Peer only supports basic raw store, missing lws-dht-dnssec capability. Aborting.\n", __func__);
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 1);
+		dht_dnssec_upload_finish(vhd, 1);
 	} else {
 		lwsl_err("%s: Peer capability CAP_RSP missing required protocol! Aborting.\n", __func__);
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 1);
+		dht_dnssec_upload_finish(vhd, 1);
 	}
 
 	return 0;
@@ -2491,11 +2525,7 @@ verb_err_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 	}
 
 	lwsl_err("%s: ERR for %s offset %llu (backend upload validation failed!)\n", __func__, msg->hash, msg->offset);
-	if (vhd->cb_completion)
-		vhd->cb_completion(vhd->cb_closure, 1);
-
-	vhd->put_started = 0;
-	start_next_dht_upload(vhd);
+	dht_dnssec_upload_finish(vhd, 1);
 
 	return -1;
 }
@@ -3299,11 +3329,8 @@ dht_dnssec_sul_timeout_cb(struct lws_sorted_usec_list *sul)
 
 	if (vhd->put_retries >= 3) {
 		lwsl_err("%s: UDP timeout threshold reached. Aborting.\n", __func__);
-		if (vhd->cb_completion)
+		if (vhd->cb_completion && !vhd->cli_put_file)
 			vhd->cb_completion(vhd->cb_closure, 1);
-
-		vhd->put_started = 0;
-		start_next_dht_upload(vhd);
 		return;
 	}
 
@@ -3339,17 +3366,39 @@ dht_dnssec_sul_timeout_cb(struct lws_sorted_usec_list *sul)
 			/* First chunk timeout */
 			dht_dnssec_sul_get_cb(&vhd->sul_bulk);
 		}
-	} else if (vhd->put_started) {
-		dht_dnssec_sul_put_cb(&vhd->sul_bulk);
-	} else {
-		dht_dnssec_sul_cap_cb(&vhd->sul_bulk);
 	}
+}
+
+/* no answer to our CAP_REQ or PUT chunk: resend it, or give up on it */
+
+static void
+dht_dnssec_sul_upload_timeout_cb(struct lws_sorted_usec_list *sul)
+{
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul,
+					struct vhd_dht_dnssec, sul_upload);
+
+	if (vhd->upload_retries >= 3) {
+		lwsl_err("%s: no answer from %s:%d for %s, giving up\n",
+			 __func__, vhd->target_ip, vhd->target_port,
+			 vhd->cli_put_file);
+		dht_dnssec_upload_finish(vhd, 1);
+		return;
+	}
+
+	vhd->upload_retries++;
+	lwsl_user("%s: UDP timeout, initiating retry %d/3\n", __func__,
+		  vhd->upload_retries);
+
+	if (vhd->put_started)
+		dht_dnssec_sul_put_cb(&vhd->sul_upload_tx);
+	else
+		dht_dnssec_sul_cap_cb(&vhd->sul_upload_tx);
 }
 
 static void
 dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 {
-	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_upload_tx);
 	lws_sockaddr46 sa46;
 	char buf[256], my_id_hex[41];
 
@@ -3364,8 +3413,7 @@ dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 			freeaddrinfo(result);
 		} else {
 			lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
-			if (vhd->cb_completion)
-				vhd->cb_completion(vhd->cb_closure, 1);
+			dht_dnssec_upload_finish(vhd, 1);
 			return;
 		}
 	}
@@ -3379,60 +3427,153 @@ dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 	lws_dht_msg_gen(buf, sizeof(buf), "CAP_REQ", my_id_hex, 0, 0);
 	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 
-	/* Schedule UDP timeout for 3 seconds */
-	lws_sul_schedule(vhd->context, 0, &vhd->sul_timeout, dht_dnssec_sul_timeout_cb, 3 * LWS_US_PER_SEC);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_upload,
+			 dht_dnssec_sul_upload_timeout_cb, DHT_UPLOAD_TIMEOUT_US);
 }
 
-static void start_next_dht_upload(struct vhd_dht_dnssec *vhd)
+static void
+dht_dnssec_upload_job_free(struct dht_upload_job *job)
 {
-	if(lws_dll2_is_empty(&vhd->upload_queue)) {
-		if (vhd->cli_put_file) {
-			free((void *)vhd->cli_put_file);
-			vhd->cli_put_file = NULL;
+	free(job->jws_filepath);
+	free(job->domain);
+	free(job);
+}
+
+static void
+dht_dnssec_sul_upload_retry_cb(struct lws_sorted_usec_list *sul)
+{
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul,
+				struct vhd_dht_dnssec, sul_upload_retry);
+
+	if (!vhd->upload_job && !vhd->cli_put_file)
+		start_next_dht_upload(vhd);
+}
+
+/*
+ * Start the first queued publication that is not backing off from a
+ * failure, or if they all are, come back when the first one is due
+ */
+
+static void
+start_next_dht_upload(struct vhd_dht_dnssec *vhd)
+{
+	struct dht_upload_job *job = NULL;
+	lws_usec_t now = lws_now_usecs(), next = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->upload_queue)) {
+		struct dht_upload_job *j = lws_container_of(d,
+					struct dht_upload_job, list);
+
+		if (j->due <= now) {
+			job = j;
+			break;
 		}
-		if (vhd->cli_domain) {
-			free((void *)vhd->cli_domain);
-			vhd->cli_domain = NULL;
-		}
+		if (!next || j->due < next)
+			next = j->due;
+	} lws_end_foreach_dll(d);
+
+	if (!job) {
+		if (next)
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_upload_retry,
+					 dht_dnssec_sul_upload_retry_cb,
+					 next - now);
 		return;
 	}
 
-	struct dht_upload_job *job = lws_container_of(lws_dll2_get_head(
-		&vhd->upload_queue), struct dht_upload_job, list);
-
-	if (vhd->cli_put_file) free((void *)vhd->cli_put_file);
-	vhd->cli_put_file = job->jws_filepath;
-
-	if (vhd->cli_domain) free((void *)vhd->cli_domain);
-	vhd->cli_domain = job->domain;
+	lws_dll2_remove(&job->list);
+	vhd->upload_job		= job;
+	vhd->cli_put_file	= job->jws_filepath;
+	vhd->cli_domain		= job->domain;
 
 	vhd->bulk_sent = 0;
 	vhd->put_started = 0;
+	vhd->upload_retries = 0;
 	/* no chunk of this upload is in flight yet, so no ACK or ERR is ours */
 	vhd->current_fragment_hash[0] = '\0';
 	memset(&vhd->upload_sa, 0, sizeof(vhd->upload_sa));
-
-	lws_dll2_remove(&job->list);
-	free(job);
 
 	lwsl_notice("Starting internal DHT upload sequence for %s\n", vhd->cli_put_file);
 
 	if (!vhd->target_ip || !vhd->target_ip[0]) {
 		lwsl_err("Cannot begin upload for %s: no DHT policy seeds were found!\n", vhd->cli_put_file);
-		vhd->cli_put_file = NULL;
-		vhd->cli_domain = NULL;
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 1);
+		dht_dnssec_upload_finish(vhd, 1);
 		return;
 	}
 
-	dht_dnssec_sul_cap_cb(&vhd->sul_bulk);
+	dht_dnssec_sul_cap_cb(&vhd->sul_upload_tx);
+}
+
+/*
+ * Every end of an upload comes here, so the next one always starts.  A
+ * queued publication that failed goes back on the queue to be tried again
+ * later, unless the same file is already queued again: the monitor only
+ * queues a zone when it changes, so nothing else would ever publish it.
+ * A --put-file upload is the whole job of the process, so it just reports.
+ */
+
+static void
+dht_dnssec_upload_finish(struct vhd_dht_dnssec *vhd, int failed)
+{
+	struct dht_upload_job *job = vhd->upload_job;
+	lws_usec_t delay;
+	unsigned int n;
+
+	lws_sul_cancel(&vhd->sul_upload);
+	lws_sul_cancel(&vhd->sul_upload_tx);
+	vhd->put_started = 0;
+	vhd->upload_retries = 0;
+	vhd->current_fragment_hash[0] = '\0';
+	memset(&vhd->upload_sa, 0, sizeof(vhd->upload_sa));
+
+	if (!job) {
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, failed);
+		return;
+	}
+
+	vhd->upload_job		= NULL;
+	vhd->cli_put_file	= NULL;
+	vhd->cli_domain		= NULL;
+
+	if (!failed) {
+		dht_dnssec_upload_job_free(job);
+		goto next;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->upload_queue)) {
+		struct dht_upload_job *j = lws_container_of(d,
+					struct dht_upload_job, list);
+
+		if (!strcmp(j->jws_filepath, job->jws_filepath)) {
+			dht_dnssec_upload_job_free(job);
+			goto next;
+		}
+	} lws_end_foreach_dll(d);
+
+	delay = DHT_UPLOAD_RETRY_US;
+	for (n = 0; n < job->fails && delay < DHT_UPLOAD_RETRY_MAX_US; n++)
+		delay *= 2;
+	if (delay > DHT_UPLOAD_RETRY_MAX_US)
+		delay = DHT_UPLOAD_RETRY_MAX_US;
+
+	job->fails++;
+	job->due = lws_now_usecs() + delay;
+	lws_dll2_add_tail(&job->list, &vhd->upload_queue);
+
+	lwsl_warn("%s: publishing %s failed (%u in a row), retrying in %ds\n",
+		  __func__, job->jws_filepath, job->fails,
+		  (int)(delay / LWS_US_PER_SEC));
+
+next:
+	start_next_dht_upload(vhd);
 }
 
 static void
 dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 {
-	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_upload_tx);
 	char hash_hex[LWS_GENHASH_LARGEST * 2 + 1], header[256], packet[1500];
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx ctx;
@@ -3452,8 +3593,7 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 			freeaddrinfo(result);
 		} else {
 			lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
-			if (vhd->cb_completion)
-				vhd->cb_completion(vhd->cb_closure, 1);
+			dht_dnssec_upload_finish(vhd, 1);
 			return;
 		}
 	}
@@ -3464,30 +3604,33 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 	fd = open(vhd->cli_put_file, O_RDONLY);
 	if (fd < 0) {
 		lwsl_err("Cannot open %s\n", vhd->cli_put_file);
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 1);
+		dht_dnssec_upload_finish(vhd, 1);
 		return;
 	}
 	if (fstat(fd, &st) < 0) {
 		lwsl_err("Cannot stat %s\n", vhd->cli_put_file);
 		close(fd);
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 1);
+		dht_dnssec_upload_finish(vhd, 1);
 		return;
 	}
 
 	vhd->bulk_total = (unsigned long long)st.st_size;
 	if (lseek(fd, (off_t)vhd->bulk_sent, SEEK_SET) < 0) {
 		close(fd);
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 1);
+		dht_dnssec_upload_finish(vhd, 1);
 		return;
 	}
 
 	n = (int)read(fd, buf + 256, 1024);
 	close(fd);
 
-	if (n <= 0) return;
+	if (n <= 0) {
+		lwsl_err("%s: %s: nothing to send at %llu of %llu\n", __func__,
+			 vhd->cli_put_file, (unsigned long long)vhd->bulk_sent,
+			 (unsigned long long)vhd->bulk_total);
+		dht_dnssec_upload_finish(vhd, 1);
+		return;
+	}
 
 	/*
 	 * The domain-derived key is only meaningful to the peer's dnssec PUT
@@ -3500,6 +3643,13 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 	 * at the peer's content check.
 	 */
 	if (!vhd->bulk_sent && buf[256] != 'e' && buf[256] != '{') {
+		if (vhd->upload_job) {
+			/* only JWS are queued: it is being rewritten */
+			lwsl_warn("%s: %s is not a JWS\n", __func__,
+				  vhd->cli_put_file);
+			dht_dnssec_upload_finish(vhd, 1);
+			return;
+		}
 		lwsl_notice("%s: %s is not a JWS zonefile, leaving it to the "
 			    "object store PUT\n", __func__, vhd->cli_put_file);
 		vhd->put_started = 1;
@@ -3511,8 +3661,7 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 
 		if (!vhd->cli_domain) {
 			lwsl_err("No domain specified for zone file upload (use --domain)\n");
-			if (vhd->cb_completion)
-				vhd->cb_completion(vhd->cb_closure, 1);
+			dht_dnssec_upload_finish(vhd, 1);
 			return;
 		}
 
@@ -3522,6 +3671,7 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 		    lws_genhash_update(&ctx, domain_str, strlen(domain_str)) ||
 		    lws_genhash_destroy(&ctx, hash)) {
 			lwsl_err("Hash calculation failed\n");
+			dht_dnssec_upload_finish(vhd, 1);
 			return;
 		}
 	}
@@ -3542,12 +3692,11 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 
 	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, packet, (size_t)(hlen + n));
 
-	int timeout_secs = 3;
-	if (vhd->bulk_sent + (uint64_t)n >= vhd->bulk_total)
-		timeout_secs = 45; /* Allow ample time for server to perform external DNSSEC validation over the network (DS + DNSKEY async lookups) */
-
-	/* Schedule UDP timeout */
-	lws_sul_schedule(vhd->context, 0, &vhd->sul_timeout, dht_dnssec_sul_timeout_cb, timeout_secs * LWS_US_PER_SEC);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_upload,
+			 dht_dnssec_sul_upload_timeout_cb,
+			 vhd->bulk_sent + (uint64_t)n >= vhd->bulk_total ?
+				DHT_UPLOAD_VALIDATE_TIMEOUT_US :
+				DHT_UPLOAD_TIMEOUT_US);
 }
 
 static void
@@ -4079,7 +4228,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		} else if (vhd->cli_put_file) {
 			lwsl_notice("%s: Taking PUT branch\n", __func__);
 			lwsl_user("%s: Starting PUT task\n", __func__);
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_cap_cb, 10 * LWS_US_PER_MS);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_upload_tx, dht_dnssec_sul_cap_cb, 10 * LWS_US_PER_MS);
 		} else if (vhd->cli_bulk || vhd->gen_manifest) {
 			lwsl_notice("%s: Taking BULK branch\n", __func__);
 			lwsl_user("%s: Starting BULK task\n", __func__);
@@ -4109,6 +4258,9 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_speed);
 		lws_sul_cancel(&vhd->sul_bulk);
 		lws_sul_cancel(&vhd->sul_timeout);
+		lws_sul_cancel(&vhd->sul_upload);
+		lws_sul_cancel(&vhd->sul_upload_tx);
+		lws_sul_cancel(&vhd->sul_upload_retry);
 		lws_sul_cancel(&vhd->sul_dump);
 		lws_sul_cancel(&vhd->sul_notify_rotate);
 		/* a bootstrap seed resolution in flight would call back into freed vhd */
@@ -4162,12 +4314,16 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			struct dht_upload_job *job =
 				lws_container_of(d, struct dht_upload_job, list);
 			lws_dll2_remove(d);
-			if (job->jws_filepath)
-				free(job->jws_filepath);
-			if (job->domain)
-				free(job->domain);
-			free(job);
+			dht_dnssec_upload_job_free(job);
 		} lws_end_foreach_dll_safe(d, d1);
+
+		if (vhd->upload_job) {
+			/* it owns what these point to */
+			vhd->cli_put_file = NULL;
+			vhd->cli_domain = NULL;
+			dht_dnssec_upload_job_free(vhd->upload_job);
+			vhd->upload_job = NULL;
+		}
 
 		lws_jwk_destroy(&vhd->jwk);
 		if (vhd->myid)
@@ -5263,18 +5419,46 @@ do_publish_jws(struct lws_vhost *vhost, const char *jws_filepath)
 	if (!p) p = (char *)strstr(domain, ".jws");
 	if (p) *p = '\0';
 
-	struct dht_upload_job *job = malloc(sizeof(*job));
-	memset(job, 0, sizeof(*job));
-	job->jws_filepath = strdup(jws_filepath);
-	job->domain = strdup(domain);
+	/*
+	 * Already queued, perhaps backing off from a failure: the file has
+	 * changed since, so publish it as soon as its turn comes
+	 */
+	struct dht_upload_job *job = NULL;
 
-	lws_dll2_add_tail(&job->list, &vhd->upload_queue);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->upload_queue)) {
+		struct dht_upload_job *j = lws_container_of(d,
+					struct dht_upload_job, list);
 
-	lwsl_notice("%s: Queued publication %s natively into DHT loopback pipeline\n", __func__, jws_filepath);
+		if (!strcmp(j->jws_filepath, jws_filepath)) {
+			job = j;
+			break;
+		}
+	} lws_end_foreach_dll(d);
 
-	if (!vhd->put_started && !vhd->cli_put_file) {
-		start_next_dht_upload(vhd);
+	if (job) {
+		job->due = 0;
+		job->fails = 0;
+		lwsl_notice("%s: %s already queued\n", __func__, jws_filepath);
+	} else {
+		job = calloc(1, sizeof(*job));
+		if (!job)
+			return 1;
+		job->jws_filepath = strdup(jws_filepath);
+		job->domain = strdup(domain);
+		if (!job->jws_filepath || !job->domain) {
+			dht_dnssec_upload_job_free(job);
+			return 1;
+		}
+
+		lws_dll2_add_tail(&job->list, &vhd->upload_queue);
+
+		lwsl_notice("%s: Queued publication %s natively into DHT loopback pipeline\n", __func__, jws_filepath);
 	}
+
+	if (!vhd->upload_job && !vhd->cli_put_file)
+		start_next_dht_upload(vhd);
+
 	return 0;
 }
 
