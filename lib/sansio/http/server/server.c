@@ -2826,7 +2826,17 @@ deal_body:
 		 * HTTP_BODY_COMPLETION is responsible for sending the result
 		 * status code and result body if any, and to do the transaction
 		 * complete processing.
+		 *
+		 * But not if the app already answered the request and
+		 * completed the transaction from LWS_CALLBACK_HTTP, its answer
+		 * maybe still queued: as for a body that comes after that,
+		 * the empty one is nobody's, and an app answering from the
+		 * completion would answer twice.
 		 */
+		if (lwsi_state(wsi) == LRS_TXN_COMPLETING ||
+		    lwsi_state(wsi) == LRS_TXN_COMPLETED)
+			goto no_more_body;
+
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 					    wsi->user_space, NULL, 0))
 			return 1;
