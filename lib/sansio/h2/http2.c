@@ -1485,11 +1485,15 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	else {
 		/* if it's data, either way no swsi means CLOSED state */
 		if (h2n->type == LWS_H2_FRAME_TYPE_DATA) {
-			if (h2n->sid <= h2n->highest_sid_opened &&
-			    lwsi_role_client(wsi)) {
+			if (h2n->sid <= h2n->highest_sid_opened) {
 				/*
 				 * The stream went away, but the peer had DATA
-				 * for it already queued or in flight.  The
+				 * for it already queued or in flight: as a
+				 * client, the rest of a response we stopped
+				 * reading; as a server, the rest of a request
+				 * body we answered before it finished, whose
+				 * stream we reset (RFC 9113 5.1: frames on a
+				 * stream after we reset it are ignored).  The
 				 * frame content is consumed and ignored, but
 				 * it still consumed connection-level flow
 				 * control window: unless the credit is given
@@ -1520,10 +1524,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 						__func__, (int)h2n->length, (int)h2n->sid, (int)h2n->highest_sid_opened);
 
 				/* idle (never opened): see below */
-				if (lws_h2_goaway(wsi,
-					h2n->sid > h2n->highest_sid_opened ?
-						H2_ERR_PROTOCOL_ERROR :
-						H2_ERR_STREAM_CLOSED,
+				if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 					"Data for nonexistent sid"))
 					return 1;
 				return 0;

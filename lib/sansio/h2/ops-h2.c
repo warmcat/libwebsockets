@@ -818,11 +818,28 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		    lws_h2_rst_stream(wsi, err, why))
 			lwsl_wsi_info(wsi, "%s: couldn't queue RST_STREAM",
 				      __func__);
+	} else if (wsi->mux_substream && lwsi_role_server(wsi) &&
+		   wsi->h2.send_END_STREAM && !wsi->buflist_out &&
+		   !wsi->h2.END_STREAM &&
+		   wsi->h2.h2_state != LWS_H2_STATE_CLOSED &&
+		   !lws_check_opt(wsi->a.vhost->options,
+				  LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
+		/*
+		 * The whole answer went before the peer finished its request,
+		 * eg, a POST answered and completed from LWS_CALLBACK_HTTP:
+		 * the stream is done with, so tell the peer to stop sending
+		 * its body, without error (RFC 9113 8.1).  What it had in
+		 * flight meanwhile is ignored (lws_h2_parse_frame_header()).
+		 * Whether the peer ended its side is h2.END_STREAM, which
+		 * h2_state may not have caught up with yet (a stream answered
+		 * from the completion of the body that ended it); a long poll
+		 * vhost does not latch it, and its streams end as they did.
+		 */
+		if (lws_h2_rst_stream(wsi, H2_ERR_NO_ERROR,
+				      "answered before the request ended"))
+			lwsl_wsi_info(wsi, "%s: couldn't queue RST_STREAM",
+				      __func__);
 	}
-/*	else
-		if (wsi->mux_substream)
-			lws_h2_rst_stream(wsi, H2_ERR_STREAM_CLOSED, "swsi got closed");
-*/
 
 	lwsl_info(" %s, his parent %s: siblings:\n", lws_wsi_tag(wsi), lws_wsi_tag(wsi->mux.parent_wsi));
 	lws_wsi_mux_dump_children(wsi);
