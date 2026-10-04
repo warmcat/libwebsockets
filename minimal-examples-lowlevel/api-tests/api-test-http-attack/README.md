@@ -55,6 +55,7 @@ h1, raw:
 |an unknown header named as the start of a known one (`Accept-Lang:`)|served, and the header after it still seen|
 |an h2 pseudo-header (`:method: POST`), a header name starting with `:`|nothing served|
 |a header named as lws' urlargs slot (`Uri-Args:`) or starting as a method (`Put-Id:`)|served, as an unknown header, with no urlargs and the header after it still seen|
+|a header line starting with a bare CR (`\rX-A: b`)|nothing served|
 |a request followed by junk|the request served, the junk not|
 |8 pipelined requests|all 9 served, in order|
 |two different Content-Length, Content-Length with chunked, chunk size overflow, two Host|nothing served|

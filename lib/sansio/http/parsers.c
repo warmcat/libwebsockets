@@ -1404,6 +1404,44 @@ lws_h1_srv_bad_name_char(struct lws *wsi, unsigned char c)
 }
 
 /*
+ * Where a server's header name stops matching any token lws knows, only the
+ * byte it stopped at gets lws_h1_srv_bad_name_char(): the ones before it
+ * matched a prefix of a token.  Not every token is a field name, so that
+ * prefix may hold what no name can: the CR of "\r\n", which then started the
+ * line, is a bare CR that something in front of us may take as the line end
+ * (see lws_h1_srv_strict()).
+ *
+ * Nonzero if the name kept so far, before its last byte, is not a token.
+ */
+
+static int
+lws_h1_srv_name_prefix_bad(struct lws *wsi)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+	unsigned int o = ah->unk_pos;
+	unsigned char c;
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	o += UHO_NAME;
+#endif
+
+	for (; o + 1 < ah->pos; o++) {
+		c = (unsigned char)ah->data[o];
+		if (c == '\r') {
+			lwsl_parse_fail(wsi, "bare CR in request head");
+			return 1;
+		}
+		if (!lws_http_field_name_char_valid(c, 0)) {
+			lwsl_parse_fail(wsi, "invalid byte 0x%02X in header "
+					     "name", c);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/*
  * An h1 server's request head that has not had its request line yet
  */
 
@@ -1953,6 +1991,8 @@ nope:
 					 * or the ':' of a name that is the
 					 * start of one we know, "accept-lang:"
 					 */
+					if (lws_h1_srv_name_prefix_bad(wsi))
+						return LPR_FAIL;
 					if (lws_h1_srv_bad_name_char(wsi, c))
 						goto bad_name;
 					if (c == ':')

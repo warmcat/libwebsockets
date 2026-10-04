@@ -538,6 +538,13 @@ static const struct h1_attack h1_attacks[] = {
 	ATK_H1_ECHO("header named as the start of a method",
 		    ATK_GET_ALIVE "Put-Id: 1\r\nUser-Agent: b\r\n\r\n",
 		    "/alive ua=b"),
+	/*
+	 * A name that stops matching a token lws knows was matched to there
+	 * as a prefix of it, but not every token is a name: here the CR of
+	 * the head's closing CRLF
+	 */
+	ATK_H1_NO_2XX("header line starting with a bare CR",
+		      ATK_GET_ALIVE "\rX-A: b\r\nUser-Agent: c\r\n\r\n"),
 
 	/*
 	 * line ends: CRLF only.  Something in front of us may not take a
