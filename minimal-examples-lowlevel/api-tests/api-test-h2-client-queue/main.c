@@ -254,15 +254,21 @@ fx_rx(struct fx_pss *p, const uint8_t *in, size_t len)
 			 lws_ser_ru32be(&p->rx[5]) & 0x7fffffff,
 			 p->rx + 9, fl);
 
-		/* what follows the frame, bounded itself before it's moved */
+		/*
+		 * what follows the frame, bounded itself before it's moved,
+		 * from where it starts inside the buffer: a frame filling the
+		 * buffer leaves o one past its end, with nothing to move
+		 */
 		o = 9 + fl;
 		rest = p->rxlen - o;
-		if (rest > sizeof(p->rx) - o) {
-			lwsl_err("%s: fixture: rx accounting\n", __func__);
-			return -1;
-		}
-		if (rest)
+		if (rest) {
+			if (o >= sizeof(p->rx) || rest > sizeof(p->rx) - o) {
+				lwsl_err("%s: fixture: rx accounting\n",
+					 __func__);
+				return -1;
+			}
 			memmove(p->rx, p->rx + o, rest);
+		}
 		p->rxlen = rest;
 	}
 
