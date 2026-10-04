@@ -113,6 +113,112 @@ lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len)
 	return 0;
 }
 
+/*
+ * A ws stream carried on a mux connection (RFC 8441 over h2, RFC 9220 over
+ * h3) has its turn to write in the connection's walk of its streams.  What
+ * the ws role itself owes the peer goes before the app hears it may write:
+ * the close we started, a validity ping, a pong owed for a ping that came
+ * before any close of the peer's, then our answer to the peer's close, after
+ * which the stream is done with (its end of stream goes with the answer).
+ *
+ * Returns 0 if nothing was owed, so the app gets the writeable; 1 if the
+ * stream's turn is over, w maybe closed; -1 if the connection must close.
+ */
+int
+lws_ws_mux_child_pollout(struct lws *w)
+{
+	int n;
+
+	/* Notify peer that we decided to close */
+
+	if (lwsi_close(w) == LCS_WAITING_TO_SEND_CLOSE) {
+		lwsl_debug("sending close packet\n");
+		n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+			      w->ws->close_in_ping_buffer_len,
+			      LWS_WRITE_CLOSE);
+		if (n >= 0) {
+			/* we initiated it: wait for his ack */
+			lws_wsi_event(w, LWS_WSIEV_WS_CLOSE_SENT);
+			lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK, 5);
+			lwsl_debug("sent close frame, awaiting ack\n");
+		}
+
+		return 1;
+	}
+
+	if (w->ws->send_check_ping) {
+		lwsl_info("%s: issuing ping on wsi %s: %s %s mux: %d\n",
+			  __func__, lws_wsi_tag(w), w->role_ops->name,
+			  w->a.protocol->name, w->mux_substream);
+
+		w->ws->send_check_ping = 0;
+		n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+			      8, LWS_WRITE_PING);
+		if (n < 0)
+			return -1;
+
+		lws_callback_on_writable(w);
+		w->mux.requested_POLLOUT = 1;
+
+		return 1;
+	}
+
+	/*
+	 * A pong owed for a ping that came before any close of the
+	 * peer's goes first, then our answer to that close, as on h1
+	 */
+	if (w->ws->pong_pending_flag) {
+		w->ws->pong_pending_flag = 0;
+		if (!lwsi_close_started(w) ||
+		    lwsi_close(w) == LCS_RETURNED_CLOSE) {
+			n = lws_write(w, &w->ws->pong_payload_buf[LWS_PRE],
+				      w->ws->pong_payload_len,
+				      LWS_WRITE_PONG);
+			if (n < 0)
+				return -1;
+		}
+
+		lws_callback_on_writable(w);
+		w->mux.requested_POLLOUT = 1;
+
+		/* otherwise for PING, leave POLLOUT active both ways */
+		return 1;
+	}
+
+	if (lwsi_close(w) == LCS_RETURNED_CLOSE) {
+		/*
+		 * our answer to his CLOSE, his own payload, which
+		 * lws_ws_answer_peer_close() kept where our own close
+		 * would be: after it, we are done
+		 */
+		n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+			      w->ws->close_in_ping_buffer_len,
+			      LWS_WRITE_CLOSE | LWS_WRITE_H2_STREAM_END);
+		if (n < 0)
+			return -1;
+
+		lwsl_debug("Ack'd peer's close packet\n");
+		if (w->buflist_out) {
+			/*
+			 * The stream's window did not have room for it, so the
+			 * mux role parked it: the stream closes once it has
+			 * gone, or when the flush times out
+			 */
+			lws_wsi_event(w, LWS_WSIEV_CLOSE_FLUSH);
+			lws_set_timeout(w,
+				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
+
+			return 1;
+		}
+		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+				   "returned close packet");
+
+		return 1;
+	}
+
+	return 0;
+}
+
 int
 lws_ws_rsv_valid(struct lws *wsi)
 {
@@ -2044,10 +2150,22 @@ do_more_inside_frame:
 		}
 #endif
 
-		n = lws_rops_func_fidx(encap->role_ops,
-				   LWS_ROPS_write_role_protocol).
+		{
+			const struct lws_role_ops *wr = encap->role_ops;
+
+#if defined(LWS_ROLE_H3)
+			/*
+			 * Over h3 (RFC 9220) the ws frames go in the stream's
+			 * h3 DATA frames, which the h3 role makes, not raw on
+			 * the connection's quic stream
+			 */
+			if (wr == &role_ops_quic || wr == &role_ops_h3)
+				wr = &role_ops_h3;
+#endif
+			n = lws_rops_func_fidx(wr, LWS_ROPS_write_role_protocol).
 					write_role_protocol(wsi, buf - pre,
 							    len + (unsigned int)pre, wp);
+		}
 		if (n < 0)
 			return n;
 

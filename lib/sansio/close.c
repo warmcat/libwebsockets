@@ -686,12 +686,19 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lwsl_wsi_info(wsi, " end LRS_FLUSHING_BEFORE_CLOSE");
 		goto just_kill_connection;
 	default:
-		if (lws_has_buffered_out(wsi)
+		if ((lws_has_buffered_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 				|| wsi->http.comp_ctx.buflist_comp ||
 		    wsi->http.comp_ctx.may_have_more
 #endif
-		) {
+		    ) &&
+		    /*
+		     * A ws stream whose frames have all been sent, over h3
+		     * only not acknowledged yet, has nothing to flush ahead of
+		     * its Close: that goes after them on the stream, and the
+		     * close is the polite one
+		     */
+		    !(lwsi_role_ws(wsi) && !lws_has_unsent_buffered_out(wsi))) {
 			lwsl_wsi_info(wsi, "LRS_FLUSHING_BEFORE_CLOSE");
 			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
 			__lws_set_timeout(wsi,

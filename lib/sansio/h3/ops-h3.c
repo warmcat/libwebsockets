@@ -197,8 +197,10 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 
 #if defined(LWS_ROLE_WS)
 	if (wsi->do_ws) {
-		const char *prot = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
-		
+		/* the subprotocols we ask for, not our origin */
+		const char *prot = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+
 		if (lws_add_http3_header_by_token(wsi, WSI_TOKEN_VERSION,
 					(unsigned char *)"13", 2, &p, end))
 			return -1;
@@ -245,7 +247,13 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 		return -1;
 	m = LWS_WRITE_HTTP_HEADERS;
 #if defined(LWS_WITH_CLIENT)
-	if (!(wsi->client_http_body_pending || lws_has_buffered_out(wsi)))
+	/*
+	 * The request ends with its headers unless a body follows, or the
+	 * stream is to carry ws (RFC 9220): then it stays open for the ws
+	 * connection's frames
+	 */
+	if (!(wsi->client_http_body_pending || lws_has_buffered_out(wsi) ||
+	      wsi->h23_stream_carries_ws))
 		m |= LWS_WRITE_H2_STREAM_END;
 #endif
 
@@ -462,6 +470,16 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			/* Wait for peer SETTINGS frame */
 			return 0;
 		}
+
+		/*
+		 * Whether the peer takes ws over h3 is in its SETTINGS (RFC
+		 * 9220 3): as for WebTransport below, wait for the whole frame,
+		 * even if its control stream has not opened yet, rather than
+		 * take a SETTINGS not yet seen as a refusal
+		 */
+		if (wsi->do_ws && nwsi && nwsi->h3.h3n &&
+		    !nwsi->h3.h3n->peer_settings_done)
+			return 0;
 
 		if (wsi->do_ws && nwsi && nwsi->h3.h3n && !nwsi->h3.h3n->peer_supports_ws) {
 			if (wsi->cli_hostname_copy && wsi->a.context->alpn_cache && wsi->c_port) {
@@ -716,6 +734,17 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		 * POLLOUT; that is the normal way here.
 		 */
 		if (lwsi_role_server(wsi))
+			return 0;
+		break;
+#endif
+#if defined(LWS_WITH_CLIENT)
+	case LRS_WAITING_SERVER_REPLY:
+		/*
+		 * A client stream whose request went without ending the
+		 * stream, a ws ask (RFC 9220) waiting for its answer: there is
+		 * nothing it can write until that has come
+		 */
+		if (lwsi_role_client(wsi))
 			return 0;
 		break;
 #endif
@@ -1752,6 +1781,19 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						return 1;
 					}
 				} else if (wsi->h3.rx_frame_type == 0x00) { /* DATA */
+#if defined(LWS_ROLE_WS)
+					/*
+					 * ws over h3 (RFC 9220): the DATA is
+					 * the ws connection's frames, either
+					 * role, open or closing
+					 */
+					if (lwsi_role_ws(wsi)) {
+						if (lws_read_h1(wsi, (unsigned char *)buf,
+								chunk, 1) < 0)
+							return 1;
+					} else
+#endif
+					{
 					/* Deliver data to application */
 #if defined(LWS_WITH_CLIENT)
 					int m = 0;
@@ -1890,6 +1932,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						}
 					}
 #endif
+					}
 				}
 			} else if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
 				/* Parse SETTINGS frame */
@@ -2362,6 +2405,9 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 	int base = (*wp & 0x1f);
 	int is_http = base == LWS_WRITE_HTTP || base == LWS_WRITE_HTTP_FINAL;
 	int is_headers = base == LWS_WRITE_HTTP_HEADERS;
+	/* ws over h3 (RFC 9220): the ws frames are the stream's DATA */
+	int is_ws = wsi->h23_stream_carries_ws && lwsi_role_ws(wsi) &&
+		    !is_headers;
 	size_t olen = len;
 	int n;
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -2437,7 +2483,7 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 		 * ended the stream) for the harmless FIN-only write it is.
 		 */
 		is_http = 0;
-	} else if (is_http) {
+	} else if (is_http || is_ws) {
 		/* It's HTTP payload, we need to frame it in an H3 DATA frame (type 0x00) */
 		/* We assume the caller reserved LWS_PRE bytes before buf. */
 		uint8_t len_buf[8];
@@ -2471,7 +2517,7 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 		}
 		if (nwsi && role && lws_rops_fidx(role, LWS_ROPS_write_role_protocol)) {
 			n = lws_rops_func_fidx(role, LWS_ROPS_write_role_protocol).
-					write_role_protocol(wsi, (is_http || is_headers) ? pre : buf, len, wp);
+					write_role_protocol(wsi, (is_http || is_ws || is_headers) ? pre : buf, len, wp);
 			if (n <= 0)
 				return n;
 

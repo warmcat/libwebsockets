@@ -3991,6 +3991,26 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 
 			w->mux.requested_POLLOUT = 0;
 
+#if defined(LWS_ROLE_WS)
+			/*
+			 * ws over h3 (RFC 9220): what the ws role owes the peer
+			 * itself, its close, its answer to the peer's, a ping
+			 * or pong, goes before the app hears it may write
+			 */
+			if (lwsi_role_ws(w)) {
+				int r = lws_ws_mux_child_pollout(w);
+
+				if (r < 0) {
+					if (!lws_dll2_is_detached(&w->mux.sibling_list))
+						lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+								   "quic child write close");
+					continue;
+				}
+				if (r)
+					continue;
+			}
+#endif
+
 			if (lws_rops_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT)) {
 				if (lws_rops_func_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT).
 								perform_user_POLLOUT(w) == -1) {
@@ -4272,6 +4292,23 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 	if ((i->method && !strcmp(i->method, "QUIC")) ||
 	    (i->alpn && !strcmp(i->alpn, "h3"))) {
 		struct lws_quic_cid dcid;
+
+#if defined(LWS_ROLE_WS)
+		/*
+		 * No method is a ws ask, as for h1: over h3 the stream asks
+		 * with an extended CONNECT (RFC 9220), and once answered is
+		 * the ws connection.  Not a WebTransport ask, which names the
+		 * "webtransport" protocol and has no method either
+		 */
+		if (!i->method &&
+		    !(i->protocol && !strcmp(i->protocol, "webtransport")) &&
+		    !(i->local_protocol_name &&
+		      !strcmp(i->local_protocol_name, "webtransport"))) {
+			if (lws_create_client_ws_object(i, wsi))
+				return 1;
+			wsi->do_ws = 1;
+		}
+#endif
 
 		/* Allocate QUIC netconn for client! */
                 if (!wsi->quic.qn) {

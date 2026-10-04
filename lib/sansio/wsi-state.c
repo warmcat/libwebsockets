@@ -523,6 +523,7 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	R("h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_WS_UPGRADED, "ws", "Se", LRS_ESTABLISHED), /* RFC 9220 */
 	R("h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WS_UPGRADED, "ws", NULL, LRS_ESTABLISHED),
 	R("h2", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WS_UPGRADED, "ws", "Ce", LRS_ESTABLISHED),
+	R("h3", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WS_UPGRADED, "ws", "Ce", LRS_ESTABLISHED), /* RFC 9220 */
 
 	/* the client's response headers; webtransport; raw */
 	R("*", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_RESP_HDRS, NULL, NULL, LRS_ESTABLISHED),

@@ -316,6 +316,9 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	}
 
 	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+	/* a mux client stream may carry its request in the stash instead */
+	if (!pc && wsi->stash && wsi->stash->cis[CIS_PROTOCOL])
+		pc = wsi->stash->cis[CIS_PROTOCOL];
 #if defined(_DEBUG)
 	if (!pc)
 		lwsl_wsi_parser(wsi, "lws_client_int_s_hs: no protocol list");

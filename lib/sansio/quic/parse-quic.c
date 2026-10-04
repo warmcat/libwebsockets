@@ -480,6 +480,23 @@ lws_quic_rx_deliver_protocol(struct lws *nwsi, struct lws *wsi_child,
 
 #if defined(LWS_ROLE_H3)
 /*
+ * Is the stream's data h3 frames?  An h3 stream's is, and so is a ws stream
+ * upgraded from one (RFC 9220), whose DATA frames carry the ws connection
+ */
+static int
+lws_quic_stream_is_h3(const struct lws *wsi_child)
+{
+	if (wsi_child->role_ops == &role_ops_h3)
+		return 1;
+
+#if defined(LWS_ROLE_WS)
+	return lwsi_role_ws(wsi_child) && wsi_child->h23_stream_carries_ws;
+#else
+	return 0;
+#endif
+}
+
+/*
  * Deliver in-order stream data to h3.  Nonzero from lws_h3_rx_stream_data()
  * means either the h3 layer closed the stream (or whole connection) itself,
  * or the http-level callback refused the data and wants the stream closed,
@@ -607,7 +624,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 
 #if defined(LWS_ROLE_H3)
 			lwsl_wsi_info(wsi_child, "QUIC RX: rx_reassemble for stream ID, role_ops=%p, role_ops_h3=%p, len=%d", wsi_child ? wsi_child->role_ops : NULL, &role_ops_h3, (int)len);
-			if (wsi_child && wsi_child->role_ops == &role_ops_h3) {
+			if (wsi_child && lws_quic_stream_is_h3(wsi_child)) {
 				lwsl_wsi_info(wsi_child, "QUIC RX: Delivering %d bytes to H3!", (int)len);
 				if (lws_quic_rx_deliver_h3(nwsi, wsi_child, qs,
 							   buf, len))
@@ -697,7 +714,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 				}
 			} else if (wsi_child) {
 #if defined(LWS_ROLE_H3)
-				if (wsi_child->role_ops == &role_ops_h3) {
+				if (lws_quic_stream_is_h3(wsi_child)) {
 					lwsl_wsi_info(wsi_child, "QUIC RX: Delivering chunk %d bytes to H3!", (int)c->len);
 					if (lws_quic_rx_deliver_h3(nwsi, wsi_child, qs,
 								   c->data, c->len))

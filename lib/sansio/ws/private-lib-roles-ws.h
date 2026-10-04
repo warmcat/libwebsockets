@@ -223,6 +223,9 @@ int
 lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len);
 
 int
+lws_ws_mux_child_pollout(struct lws *w);
+
+int
 handshake_0405(struct lws_context *context, struct lws *wsi);
 int
 lws_process_ws_upgrade(struct lws *wsi);
