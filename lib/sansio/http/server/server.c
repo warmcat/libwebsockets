@@ -3409,9 +3409,20 @@ raw_transition:
 				if (n < 0)
 					goto bail_nuke_ah;
 
-				/* callback returned headers already, do t_c? */
+				/*
+				 * The callback answered the request itself, and
+				 * the upgrade is not done.  An answer it has
+				 * sent is complete; a file it is serving is
+				 * completed by the file's own completion, once
+				 * it has all gone, as when it is the answer to
+				 * the request in LWS_CALLBACK_HTTP
+				 */
 
 				if (n > 0) {
+				    if (lwsi_state(wsi) == LRS_ISSUING_FILE ||
+					lwsi_state(wsi) == LRS_AWAITING_FILE_READ)
+					return 0;
+
 				    if (lws_http_transaction_completed(wsi))
 					goto bail_nuke_ah;
 

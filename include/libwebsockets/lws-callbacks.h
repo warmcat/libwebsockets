@@ -363,7 +363,10 @@ enum lws_callback_reasons {
 	 * and response code yourself.
 	 *
 	 * There is no need for you to call transaction_completed() as the
-	 * caller will take care of it when it sees you returned >0.
+	 * caller will take care of it when it sees you returned >0.  That
+	 * includes answering with a file, by lws_serve_http_file(): the
+	 * transaction is completed once the file has all gone, as for a file
+	 * served from LWS_CALLBACK_HTTP.
 	 */
 
 	/* ---------------------------------------------------------------------
