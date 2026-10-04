@@ -222,8 +222,10 @@ lws_ws_peer_close_answerable(struct lws *wsi);
 int
 lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len);
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_QUIC)
 int
 lws_ws_mux_child_pollout(struct lws *w);
+#endif
 
 int
 handshake_0405(struct lws_context *context, struct lws *wsi);

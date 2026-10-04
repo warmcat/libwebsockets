@@ -113,6 +113,7 @@ lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len)
 	return 0;
 }
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_QUIC)
 /*
  * A ws stream carried on a mux connection (RFC 8441 over h2, RFC 9220 over
  * h3) has its turn to write in the connection's walk of its streams.  What
@@ -218,6 +219,7 @@ lws_ws_mux_child_pollout(struct lws *w)
 
 	return 0;
 }
+#endif
 
 int
 lws_ws_rsv_valid(struct lws *wsi)
