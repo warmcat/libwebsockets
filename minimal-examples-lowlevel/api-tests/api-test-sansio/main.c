@@ -86,7 +86,15 @@
  * no body (RFC 9112 6.3), and the request pipelined behind its head is the
  * next one served, not read as its body until the close.  And one saying
  * "Content-Length: 0" that the app answered and completed from its headers:
- * the empty body's completion is not given to the app after that.
+ * the empty body's completion is not given to the app after that; nor a
+ * body's, after the app answered and completed from its last piece.  And
+ * the other ways an h1 transaction completes ahead of its body or of its
+ * answer: answered from the writeable before the body comes, answered with
+ * a file, from the request, from the body, or to a HEAD; and on an h2
+ * stream, answered as a POST or a GET, with the answer still queued or
+ * gone, from the body's first piece, or with a file from its completion: the
+ * answer goes whole and the body is discarded, and a stream whose answer
+ * has gone while the peer still sends is reset without error.
  *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
@@ -763,6 +771,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
  * request line, the path, a newline, then the args
  */
 
+/* a request body's completion told an app that had already completed it */
+static int late_body_completion;
+
 struct pss_uri {
 	char		body[256];
 	int		len;
@@ -770,6 +781,9 @@ struct pss_uri {
 	int		slow;	/* /slow: pieces still to write */
 	int		in_body; /* /in-body: 1 body awaited, 2 answer started */
 	int		abandon; /* /abandon: the timer completes the file */
+	int		body_done; /* /body-done: answered from the body */
+	int		file_at; /* the file is the answer: 1 from the body,
+				  * 2 from its completion */
 };
 
 /* /slow's answer: SLOW_PIECES of 100 bytes, one every SLOW_GAP_US */
@@ -831,6 +845,12 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				return -1;
 			return 0;
 		}
+		if (in && (!strcmp((const char *)in, "/file-in-body") ||
+			   !strcmp((const char *)in, "/file-at-end"))) {
+			/* a file is the answer, once the body is under way */
+			pss->file_at = ((const char *)in)[6] == 'i' ? 1 : 2;
+			return 0;
+		}
 		if (in && !strcmp((const char *)in, "/abandon")) {
 			/*
 			 * a file is the answer, before any body, but the app
@@ -861,6 +881,11 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 			if (lws_http_transaction_completed(wsi))
 				return -1;
+			return 0;
+		}
+		if (in && !strcmp((const char *)in, "/body-done")) {
+			/* answered and completed from the body, see below */
+			pss->body_done = 1;
 			return 0;
 		}
 		if (in && !strcmp((const char *)in, "/in-body")) {
@@ -926,6 +951,39 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_BODY:
+#if defined(LWS_WITH_FILE_OPS)
+		if (pss->file_at == 1) {
+			/* /file-in-body: the file goes from the body's first piece */
+			pss->file_at = 0;
+			pss->completed = 1;
+			n = lws_serve_http_file(wsi, EARLY_FILE, "text/plain",
+						NULL, 0);
+			if (n < 0 ||
+			    (n > 0 && lws_http_transaction_completed(wsi)))
+				return -1;
+			return 0;
+		}
+#endif
+		if (pss->body_done) {
+			/*
+			 * /body-done: the body comes in one piece, and the
+			 * app answers whole and completes as it has it
+			 */
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain", 3, &p, end) ||
+			    lws_finalize_write_http_header(wsi, buf + LWS_PRE,
+							   &p, end))
+				return 1;
+			p = buf + LWS_PRE;
+			memcpy(p, "ok\n", 3);
+			if (lws_write(wsi, p, 3, LWS_WRITE_HTTP_FINAL) != 3)
+				return 1;
+			pss->body_done = 0;
+			pss->completed = 1;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
 		if (pss->in_body == 1) {
 			/*
 			 * /in-body: the answer starts now, while the rest of
@@ -944,6 +1002,24 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+#if defined(LWS_WITH_FILE_OPS)
+		if (pss->file_at == 2) {
+			/* /file-at-end: the file goes once the body is all here */
+			pss->file_at = 0;
+			pss->completed = 1;
+			n = lws_serve_http_file(wsi, EARLY_FILE, "text/plain",
+						NULL, 0);
+			if (n < 0 ||
+			    (n > 0 && lws_http_transaction_completed(wsi)))
+				return -1;
+			return 0;
+		}
+#endif
+		if (pss->completed) {
+			/* not ours to hear, the transaction is over: case 42 */
+			late_body_completion++;
+			return 0;
+		}
 		/*
 		 * The answer is under way, from LWS_CALLBACK_HTTP or from the
 		 * body's first piece: the body's end changes nothing, the
@@ -1195,9 +1271,6 @@ static const struct lws_protocols protocols_uri[] = {
  * lws_return_http_status() decides how to say so: a redirect to the vhost's
  * 404 document, or, for the 404 document itself, the status page
  */
-/* a request body's completion told an app that had already completed it */
-static int late_body_completion;
-
 static int
 callback_404(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
@@ -1661,14 +1734,18 @@ ws_server_peer_close_half(struct lws_context *cx)
 /*
  * An h1 server connection as a series of requests, each answered with the
  * status (the first 13 bytes of the response) and, if has is set, carrying
- * those bytes too.  Unless the step says the connection ends, it must still
- * be open for the next request.
+ * those bytes too; a step with no status is answered with nothing.  Unless
+ * the step says the connection ends, it must still be open for the next
+ * request.  With tx_limit, the transport takes at most that many bytes a
+ * write while the step's answer goes.  With no name, the connection has no
+ * transcript (eg, its answer is a file whose bytes are not the test's).
  */
 struct h1_step {
 	const char	*req;
 	const char	*status;
 	const char	*has;
 	int		ends;
+	size_t		tx_limit;
 };
 
 static int
@@ -1693,16 +1770,21 @@ h1_steps(struct lws_context *cx, struct lws_vhost *vh, const char *name,
 		return 1;
 	}
 	lws_set_transport(wsi, &tops, &tp);
-	tr_begin(name, "server", 0);
+	if (name)
+		tr_begin(name, "server", 0);
 
 	for (n = 0; n < count; n++) {
+		tp.tx_limit = st[n].tx_limit;
 		feed(cx, &tp, st[n].req, strlen(st[n].req));
-		if (tp.tx_len < 13 || memcmp(tp.tx, st[n].status, 13) ||
+		if ((st[n].status && (tp.tx_len < 13 ||
+				      memcmp(tp.tx, st[n].status, 13))) ||
+		    (!st[n].status && tp.tx_len) ||
 		    (st[n].has && !find_bytes(tp.tx, tp.tx_len, st[n].has)) ||
 		    (!st[n].ends && (tp.shutdown || tp.closed)) ||
 		    (st[n].ends && !tp.shutdown && !tp.closed)) {
 			lwsl_err("%s: %s: request %d: wanted '%.13s'%s%s\n",
-				 label, name, (int)n, st[n].status,
+				 label, name ? name : "-", (int)n,
+				 st[n].status ? st[n].status : "nothing",
 				 st[n].ends ? ", then the end" : "",
 				 (tp.shutdown || tp.closed) ? ", ended" : "");
 			lwsl_hexdump_err(tp.tx, tp.tx_len);
@@ -1710,7 +1792,7 @@ h1_steps(struct lws_context *cx, struct lws_vhost *vh, const char *name,
 		}
 	}
 
-	return tr_end();
+	return name ? tr_end() : 0;
 }
 
 /*
@@ -1726,7 +1808,7 @@ h1_post_no_length_half(struct lws_context *cx, struct lws_vhost *vh)
 	static const struct h1_step st[] = {
 		{ "POST /x?a=1 HTTP/1.1\r\nHost: sansio-uri\r\n\r\n"
 		  "GET /y?b=2 HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
-		  "HTTP/1.1 200 ", "/y\nb=2", 0 },
+		  "HTTP/1.1 200 ", "/y\nb=2", 0, 0 },
 	};
 
 	if (h1_steps(cx, vh, "h1-post-no-length", "case 34", st,
@@ -1749,9 +1831,9 @@ h1_short_answer_half(struct lws_context *cx, struct lws_vhost *vh)
 {
 	static const struct h1_step st[] = {
 		{ "HEAD /short HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
-		  "HTTP/1.1 200 ", "content-length: 10\x0d\x0a", 0 },
+		  "HTTP/1.1 200 ", "content-length: 10\x0d\x0a", 0, 0 },
 		{ "GET /short HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
-		  "HTTP/1.1 200 ", "\x0d\x0a\x0d\x0a" "abc", 1 },
+		  "HTTP/1.1 200 ", "\x0d\x0a\x0d\x0a" "abc", 1, 0 },
 	};
 
 	if (h1_steps(cx, vh, "h1-short-answer", "case 39", st,
@@ -1775,7 +1857,7 @@ h1_connect_rejected_ua_half(struct lws_context *cx, struct lws_vhost *vh)
 	static const struct h1_step st[] = {
 		{ "CONNECT example.com:443 HTTP/1.1\r\n"
 		  "Host: example.com:443\r\nUser-Agent: badbot/1\r\n\r\n",
-		  "HTTP/1.1 403 ", NULL, 1 },
+		  "HTTP/1.1 403 ", NULL, 1, 0 },
 	};
 
 	if (h1_steps(cx, vh, "h1-connect-rejected-ua", "case 23", st,
@@ -1800,11 +1882,11 @@ h1_404_half(struct lws_context *cx, struct lws_vhost *vh)
 {
 	static const struct h1_step st[] = {
 		{ "GET /x HTTP/1.1\r\nHost: sansio-404\r\n\r\n",
-		  "HTTP/1.1 302 ", "/404.html\r\n", 0 },
+		  "HTTP/1.1 302 ", "/404.html\r\n", 0, 0 },
 		{ "GET /404.html HTTP/1.1\r\nHost: sansio-404\r\n\r\n",
-		  "HTTP/1.1 404 ", NULL, 0 },
+		  "HTTP/1.1 404 ", NULL, 0, 0 },
 		{ "GET /cb/y HTTP/1.1\r\nHost: sansio-404\r\n\r\n",
-		  "HTTP/1.1 302 ", "/404.html\r\n", 0 },
+		  "HTTP/1.1 302 ", "/404.html\r\n", 0, 0 },
 	};
 
 	if (h1_steps(cx, vh, "h1-404-keepalive", "case 16", st,
@@ -2359,17 +2441,44 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh,
  * 20: an h2 POST the app answers and completes as soon as it arrives, while
  * the transport is taking only a few bytes: the completion waits for the
  * queued response.  The request's body arriving meanwhile is discarded, not
- * a reason to reset the stream, and once the transport has taken the rest
- * the stream completes and ends, without the app being given a writeable
- * for a transaction it had completed.  What the transport takes and when
+ * a reason to reset the stream with an error, and once the transport has
+ * taken the rest the stream completes and ends, without the app being given
+ * a writeable for a transaction it had completed.  A stream whose answer has
+ * all gone while the peer is still sending its body is reset without error,
+ * telling it to stop (RFC 9113 8.1), and what it had in flight meanwhile is
+ * ignored: it is not taken for DATA on a stream that never existed, which
+ * would end the whole connection.  What the transport takes and when
  * is not part of a transcript, so this case has none.
  *
  * The same when the app answers the POST by serving a file: the body that
  * arrives while the file is going is discarded, and the file all goes.
+ *
+ * And the same, the answer going whole and the body discarded, by the ways
+ * an app can complete before the body has all come (flags):
+ *
+ *  - H2EA_FULL: the transport takes all of the answer at once, so the
+ *    completion has nothing to wait for and discards the body there and then
+ *
+ *  - H2EA_GET: the request is a GET carrying a body, which the app is given
+ *    after the action began, rather than a POST, given before
+ *
+ *  - H2EA_DRAIN_FIRST: the queued answer all goes before the body arrives,
+ *    so the deferred completion still has the body to discard
+ *
+ *  - H2EA_SPLIT / H2EA_BODY_BUDGET: /body-done, answered and completed from
+ *    the first piece of the body, the rest of which follows in a second DATA
+ *    frame; with H2EA_BODY_BUDGET, the transport takes only 4 bytes of the
+ *    answer then
  */
+#define H2EA_FULL		(1 << 0)
+#define H2EA_GET		(1 << 1)
+#define H2EA_DRAIN_FIRST	(1 << 2)
+#define H2EA_SPLIT		(1 << 3)
+#define H2EA_BODY_BUDGET	(1 << 4)
+
 static int
 h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
-		     const char *path)
+		     const char *path, int flags)
 {
 	static const char preface[] =
 		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
@@ -2377,7 +2486,12 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
 	/* DATA, sid 1, END_STREAM: the 3 byte body */
 	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
-				   "abc";
+				   "abc",
+	/* the same in two DATA frames, END_STREAM on the second */
+			  data1[] = "\x00\x00\x02\x00\x00\x00\x00\x00\x01"
+				   "ab",
+			  data2[] = "\x00\x00\x01\x00\x01\x00\x00\x00\x01"
+				   "c";
 	static uint8_t blk[128], fr[256], out[32768];
 	static struct transport tp;
 	int sv[2], ended = 0, rst = 0, m;
@@ -2400,7 +2514,7 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 	lws_set_transport(wsi, &tops, &tp);
 	uri_late_writeable = uri_closed = 0;
 
-	if (!strcmp(path, "/file")) {
+	if (!strncmp(path, "/file", 5)) {
 		/* the answer is all of the file */
 		m = open(EARLY_FILE, O_RDONLY);
 		if (m < 0) {
@@ -2413,9 +2527,9 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 
 	feed(cx, &tp, preface, sizeof(preface) - 1);
 
-	/* POST to path, content-length 3, the body to follow */
+	/* POST (or GET) to path, content-length 3, the body to follow */
 	p = blk;
-	*p++ = 0x83; /* :method POST */
+	*p++ = (flags & H2EA_GET) ? 0x82 : 0x83; /* :method GET / POST */
 	*p++ = 0x86; /* :scheme http */
 	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
 	p = hp_str(p, path, strlen(path), 0);
@@ -2427,17 +2541,56 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
 
 	/* the app has the transport take 4 bytes of its response */
-	early_tp = &tp;
+	if (!(flags & H2EA_FULL))
+		early_tp = &tp;
 	feed(cx, &tp, fr, n);
 	early_tp = NULL;
 	/* what went, from here, is frames whole as far as they went */
 	outl = tp.tx_len;
 	memcpy(out, tp.tx, outl);
-	feed(cx, &tp, data, sizeof(data) - 1);
+
+	if (flags & H2EA_DRAIN_FIRST) {
+		/* the queued answer all goes before the body comes */
+		tp.tx_budget = -1;
+		for (m = 0; m < 16; m++) {
+			tp.tx_len = 0;
+			tick(cx);
+			pump(cx, &tp);
+			if (!tp.tx_len)
+				break;
+			if (outl + tp.tx_len > sizeof(out)) {
+				lwsl_err("case 20: %s: too much output\n", path);
+				return 1;
+			}
+			memcpy(out + outl, tp.tx, tp.tx_len);
+			outl += tp.tx_len;
+		}
+	}
+
+	if (flags & H2EA_BODY_BUDGET)
+		tp.tx_budget = 4;
+
+	if (flags & H2EA_SPLIT) {
+		feed(cx, &tp, data1, sizeof(data1) - 1);
+		if (outl + tp.tx_len > sizeof(out)) {
+			lwsl_err("case 20: %s: too much output\n", path);
+			return 1;
+		}
+		memcpy(out + outl, tp.tx, tp.tx_len);
+		outl += tp.tx_len;
+		feed(cx, &tp, data2, sizeof(data2) - 1);
+	} else
+		feed(cx, &tp, data, sizeof(data) - 1);
 	if (tp.closed || tp.shutdown) {
 		lwsl_err("case 20: %s: connection ended\n", path);
 		return 1;
 	}
+	if (outl + tp.tx_len > sizeof(out)) {
+		lwsl_err("case 20: %s: too much output\n", path);
+		return 1;
+	}
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
 
 	/* the transport takes everything again, until nothing more goes */
 	tp.tx_budget = -1;
@@ -2461,8 +2614,14 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 		    out[o + 2];
 		if ((lws_ser_ru32be(&out[o + 5]) & 0x7fffffff) != 1)
 			continue;
-		if (out[o + 3] == 3)
-			rst = 1;
+		/*
+		 * a reset is only for an error: one without, telling the
+		 * peer to stop sending the body of a request already
+		 * answered, is fine (RFC 9113 8.1)
+		 */
+		if (out[o + 3] == 3 && n == 4 && o + 13 <= outl &&
+		    lws_ser_ru32be(&out[o + 9]))
+			rst = (int)lws_ser_ru32be(&out[o + 9]);
 		if (!out[o + 3]) {
 			body += n;
 			if (out[o + 4] & 1)
@@ -2472,16 +2631,16 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
 	if (rst || !ended || uri_closed != 1 || uri_late_writeable ||
 	    tp.closed || tp.shutdown ||
 	    body != want) {
-		lwsl_err("case 20: %s: rst %d, ended %d, closed %d, late wr %d, "
-			 "body %d / %d, rx %d / %d, want read %d\n", path, rst,
-			 ended, uri_closed, uri_late_writeable, (int)body,
-			 (int)want,
+		lwsl_err("case 20: %s 0x%x: rst %d, ended %d, closed %d, "
+			 "late wr %d, body %d / %d, rx %d / %d, want read %d\n",
+			 path, flags, rst, ended, uri_closed,
+			 uri_late_writeable, (int)body, (int)want,
 			 (int)tp.rx_pos, (int)tp.rx_len, tp.want_read);
 		lwsl_hexdump_err(out, outl);
 		return 1;
 	}
-	lwsl_user("case 20: %s: h2 answer goes whole, the body meanwhile "
-		  "discarded: PASS\n", path);
+	lwsl_user("case 20: %s 0x%x: h2 answer goes whole, the body meanwhile "
+		  "discarded: PASS\n", path, flags);
 
 	return 0;
 }
@@ -3255,6 +3414,194 @@ h2_file_abandoned_half(struct lws_context *cx, struct lws_vhost *vh,
 }
 #endif
 #endif
+
+/*
+ * 42: an h1 POST the app answers whole, and completes, from the body's one
+ * HTTP_BODY, as it has the last of it.  The transaction is over: the body's
+ * HTTP_BODY_COMPLETION, which an app answers from, must not reach the app
+ * after that.  There is one answer, and the kept-alive connection takes the
+ * next request.
+ */
+static int
+h1_body_done_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req[] =
+		"POST /body-done HTTP/1.1\r\nHost: sansio-uri\r\n"
+		"Content-Length: 5\r\n\r\n",
+			  body[] = "abcde",
+			  req2[] = "GET /x HTTP/1.1\r\nHost: sansio-uri\r\n\r\n";
+	static struct transport tp;
+	const uint8_t *b;
+	struct lws *wsi;
+	int sv[2], n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h1-body-done", "server", 0);
+
+	late_body_completion = 0;
+	feed(cx, &tp, req, sizeof(req) - 1);
+	if (tp.tx_len) {
+		lwsl_err("case 42: answered before the body\n");
+		return 1;
+	}
+	feed(cx, &tp, body, sizeof(body) - 1);
+	for (n = 0, b = tp.tx; (b = find_bytes(b, (size_t)(tp.tx + tp.tx_len - b),
+					    "HTTP/1.1 ")); b++)
+		n++;
+	if (n != 1 || tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 200 ", 13) ||
+	    late_body_completion || tp.shutdown || tp.closed) {
+		lwsl_err("case 42: %d answers, %d late body completions\n", n,
+			 late_body_completion);
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	feed(cx, &tp, req2, sizeof(req2) - 1);
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 200 ", 13) ||
+	    !find_bytes(tp.tx, tp.tx_len, "/x\n") || tp.shutdown || tp.closed) {
+		lwsl_err("case 42: next request not served\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 42: an h1 POST answered from its body has one answer: "
+		  "PASS\n");
+
+	return tr_end();
+}
+
+/*
+ * 43: the ways an h1 transaction completes before its body has been taken,
+ * or with its answer still queued, the transport taking only a few bytes a
+ * write, each on a kept-alive connection that then serves the next request:
+ *
+ *  - a POST whose answer the app writes from the writeable, which comes
+ *    while the body is still awaited, and then completes, while the
+ *    transport takes only the start of it: the completion waits for the
+ *    answer to go, the body arriving meanwhile waits parked, and once the
+ *    answer has gone, is discarded (h1-answer-before-body)
+ *
+ *  - a POST the app answers with a file, the body arriving with the
+ *    request: the body waits parked while the file goes, and once the
+ *    file's completion has completed the transaction, is discarded
+ *
+ *  - a HEAD the app answers with a file: there is nothing to send but the
+ *    headers, still queued when the transaction completes
+ *
+ *  - a POST the app answers with a file once it has the body's first piece
+ *
+ * The file answers' bytes are not the test's, so those have no transcripts.
+ */
+static int
+h1_completions_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char post[] = "POST /x HTTP/1.1\r\nHost: sansio-uri\r\n"
+				   "Content-Length: 5\r\n\r\n",
+			  body[] = "abcde",
+			  get[] = "GET /y HTTP/1.1\r\nHost: sansio-uri\r\n\r\n";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+#if defined(LWS_WITH_FILE_OPS)
+	static const struct h1_step file_post[] = {
+		{ "POST /file HTTP/1.1\r\nHost: sansio-uri\r\n"
+		  "Content-Length: 3\r\n\r\nabc", "HTTP/1.1 200 ", NULL, 0, 0 },
+		{ "GET /y HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", "/y\n", 0, 0 },
+	}, file_head[] = {
+		{ "HEAD /file HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", NULL, 0, 16 },
+		{ "GET /y HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", "/y\n", 0, 0 },
+	}, file_in_body[] = {
+		{ "POST /file-in-body HTTP/1.1\r\nHost: sansio-uri\r\n"
+		  "Content-Length: 3\r\n\r\n", NULL, NULL, 0, 0 },
+		{ "abc", "HTTP/1.1 200 ", NULL, 0, 0 },
+		{ "GET /y HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
+		  "HTTP/1.1 200 ", "/y\n", 0, 0 },
+	};
+#endif
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h1-answer-before-body", "server", 0);
+
+	/*
+	 * the transport takes the answer's headers, which go from
+	 * LWS_CALLBACK_HTTP, and the first byte of its 3 byte body, "/x\n",
+	 * which goes from the writeable, then nothing
+	 */
+	tp.tx_budget = 65;
+	feed(cx, &tp, post, sizeof(post) - 1);
+	if (tp.tx_len != 65 || memcmp(tp.tx, "HTTP/1.1 200 ", 13) ||
+	    tp.tx[64] != '/') {
+		lwsl_err("case 43: answer not started\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	/* the body comes while the completion waits on the answer */
+	feed(cx, &tp, body, sizeof(body) - 1);
+	if (tp.tx_len || tp.closed || tp.shutdown) {
+		lwsl_err("case 43: wrote with no room, or ended\n");
+		return 1;
+	}
+	/* the rest of the answer goes, then the body is discarded */
+	tp.tx_budget = -1;
+	tp.tx_len = 0;
+	tick(cx);
+	pump(cx, &tp);
+	if (tp.tx_len != 2 || memcmp(tp.tx, "x\n", 2) || tp.closed ||
+	    tp.shutdown || tp.rx_pos != tp.rx_len) {
+		lwsl_err("case 43: rest of the answer: rx %d / %d\n",
+			 (int)tp.rx_pos, (int)tp.rx_len);
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	feed(cx, &tp, get, sizeof(get) - 1);
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 200 ", 13) ||
+	    !find_bytes(tp.tx, tp.tx_len, "/y\n") || tp.closed || tp.shutdown) {
+		lwsl_err("case 43: next request not served\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	if (tr_end())
+		return 1;
+#if defined(LWS_WITH_FILE_OPS)
+	if (h1_steps(cx, vh, NULL, "case 43 file post", file_post,
+		     LWS_ARRAY_SIZE(file_post)) ||
+	    h1_steps(cx, vh, NULL, "case 43 file head", file_head,
+		     LWS_ARRAY_SIZE(file_head)) ||
+	    h1_steps(cx, vh, NULL, "case 43 file in body", file_in_body,
+		     LWS_ARRAY_SIZE(file_in_body)))
+		return 1;
+#endif
+	lwsl_user("case 43: h1 transactions completed ahead of their body, or "
+		  "of their answer: PASS\n");
+
+	return 0;
+}
 
 /*
  * 37: an h1 POST the app answers whole and completes before any of its body
@@ -4230,10 +4577,19 @@ main(int argc, const char **argv)
 	at(cx, 3500);
 	if (h2_oversized_half(cx, vh_h2))
 		goto bail;
-	if (h2_early_answer_half(cx, vh_h2, "/early"))
+	if (h2_early_answer_half(cx, vh_h2, "/early", 0) ||
+	    h2_early_answer_half(cx, vh_h2, "/early", H2EA_FULL) ||
+	    h2_early_answer_half(cx, vh_h2, "/early", H2EA_GET) ||
+	    h2_early_answer_half(cx, vh_h2, "/early", H2EA_GET | H2EA_FULL) ||
+	    h2_early_answer_half(cx, vh_h2, "/early", H2EA_DRAIN_FIRST) ||
+	    h2_early_answer_half(cx, vh_h2, "/body-done",
+				 H2EA_FULL | H2EA_SPLIT) ||
+	    h2_early_answer_half(cx, vh_h2, "/body-done",
+				 H2EA_FULL | H2EA_SPLIT | H2EA_BODY_BUDGET))
 		goto bail;
 #if defined(LWS_WITH_FILE_OPS)
-	if (h2_early_answer_half(cx, vh_h2, "/file"))
+	if (h2_early_answer_half(cx, vh_h2, "/file", 0) ||
+	    h2_early_answer_half(cx, vh_h2, "/file-at-end", H2EA_FULL))
 		goto bail;
 #endif
 #endif
@@ -4408,6 +4764,12 @@ main(int argc, const char **argv)
 	if (h1_post_zero_answered_half(cx, vh_404))
 		goto bail;
 #endif
+	at(cx, 351000);
+	if (h1_body_done_half(cx, vh_uri))
+		goto bail;
+	at(cx, 352000);
+	if (h1_completions_half(cx, vh_uri))
+		goto bail;
 
 	result = 0;
 
