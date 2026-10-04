@@ -48,9 +48,10 @@
  */
 
 /*
- * The request has its answer, and the answer is going: a file being served
- * (its reads maybe on a worker), an answer queued behind a transaction
- * already completed, or on a stream, a refusal whose status page went with
+ * The request has its answer, and the answer is going or gone: a file being
+ * served (its reads maybe on a worker), an answer queued behind a transaction
+ * already completed, a transaction the app completed from its body's last
+ * piece, or on a stream, a refusal whose status page went with
  * its body still to go (lws_return_http_status() on h2 / h3).  An h1
  * connection's rx policy holds rx meanwhile, but an h2 or h3 stream's DATA
  * is fed to us as it comes: it is the request's body, nothing to anyone now,
@@ -66,6 +67,7 @@ lws_h1_answer_going(struct lws *wsi)
 
 	switch (lwsi_state(wsi)) {
 	case LRS_TXN_COMPLETING:
+	case LRS_TXN_COMPLETED: /* answered and completed from the body */
 	case LRS_ISSUING_FILE:
 	case LRS_AWAITING_FILE_READ:
 		return 1;
