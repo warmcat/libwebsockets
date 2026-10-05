@@ -320,6 +320,18 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 char *cname);
 
 int
+lws_adns_iterate_type(uint16_t qtype, int follow, const uint8_t *pkt, int len,
+		      const char *expname, lws_async_dns_find_t cb,
+		      void *opaque, char *cname);
+
+/* async-dns-direct.c */
+int
+lws_adns_direct_callback(struct lws *wsi, enum lws_callback_reasons reason,
+			 void *in, size_t len);
+void
+lws_adns_direct_deinit(lws_async_dns_t *dns);
+
+int
 lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target);
 
 #if defined(LWS_WITH_SYS_SMD)

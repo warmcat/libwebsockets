@@ -208,6 +208,9 @@ lws_adns_name_cmp(const char *a, const char *b)
  * CNAME whose resolution we have to ask for separately, the target is copied
  * there and we return 2.
  *
+ * Records of the type that was asked for are passed to \p cb whatever the
+ * type, as well as the address, CNAME and DNSSEC-related ones we use.
+ *
  * Return -1: unexpectedly failed
  *         0: found
  *         1: didn't find anything matching
@@ -219,9 +222,30 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque,
 		 char *cname)
 {
+	int follow = 1;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	follow = !lws_adns_q_validates(q);
+#endif
+
+	return lws_adns_iterate_type(q->qtype, follow, pkt, len, expname, cb,
+				     opaque, cname);
+}
+
+/*
+ * The same, for a response to a question for \p qtype that is not one of our
+ * queries: \p follow says whether a CNAME of the name is followed inside the
+ * packet
+ */
+
+int
+lws_adns_iterate_type(uint16_t qtype, int follow, const uint8_t *pkt, int len,
+		      const char *expname, lws_async_dns_find_t cb,
+		      void *opaque, char *cname)
+{
 	uint16_t rrtype, rrpaylen, expqtype, expqtype2;
 	const uint8_t *e = pkt + len, *p, *pay;
-	int n = 0, m, stp = 0, ansc, found = 0, follow = 1, cname_seen = 0;
+	int n = 0, m, stp = 0, ansc, found = 0, cname_seen = 0;
 	char rrname[DNS_MAX + 10];
 	struct label_stack stack[8];
 	char *sp, inq;
@@ -229,10 +253,6 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 
 	if (len < DHO_SIZEOF || len > LWS_ADNS_MAX_PAYLOAD)
 		return -1;
-
-#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-	follow = !lws_adns_q_validates(q);
-#endif
 
 	/*
 	 * stack[0].name holds the name we are looking for and is never used as
@@ -243,7 +263,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 
 	lws_strncpy(stack[0].name, expname, sizeof(stack[0].name));
 
-	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA) {
+	if (qtype == LWS_ADNS_RECORD_A || qtype == LWS_ADNS_RECORD_AAAA) {
 		/*
 		 * An address lookup is issued as two queries, one for A and one
 		 * for AAAA, whose tids differ only in b0; b0 of the response tid
@@ -256,7 +276,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		expqtype = LWS_ADNS_RECORD_A;
 		expqtype2 = LWS_ADNS_RECORD_AAAA;
 	} else
-		expqtype = expqtype2 = q->qtype;
+		expqtype = expqtype2 = qtype;
 
 	do {
 		int restart = 0;
@@ -530,7 +550,13 @@ do_cb:
 			break;
 
 		default:
-			lwsl_notice("lws_adns_iterate: IGNORING UNKNOWN RR %d\n", rrtype);
+			if (rrtype == expqtype) {
+				/* what we asked for, eg, TXT */
+				cb(rrname, opaque, ttl, rrtype, rrpaylen, p);
+				found++;
+				break;
+			}
+			lwsl_info("%s: skipping RR type %d\n", __func__, rrtype);
 			break;
 		}
 
@@ -572,8 +598,7 @@ skip:
 	 */
 
 	lwsl_info("%s: '%s' -> CNAME '%s' resolution not provided\n",
-			__func__, ((const char *)&q[1]) + DNS_MAX,
-			stack[stp].name);
+			__func__, expname, stack[stp].name);
 
 	lws_strncpy(cname, stack[stp].name, DNS_MAX);
 

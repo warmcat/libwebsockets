@@ -540,6 +540,10 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 	}
 
+	/* a direct query's own socket: its opaque is not a dsrv or a q */
+	if (lws_adns_direct_callback(wsi, reason, in, len))
+		return 0;
+
 	if (!wsi->io->udp) {
 		lws_adns_q_t *q = (lws_adns_q_t *)wsi->a.opaque_user_data;
 
@@ -1606,6 +1610,7 @@ ns_clean(struct lws_dll2 *d, void *user)
 void
 lws_async_dns_deinit(lws_async_dns_t *dns)
 {
+	lws_adns_direct_deinit(dns);
 	lws_dll2_foreach_safe(&dns->waiting, NULL, clean);
 	lws_dll2_foreach_safe(&dns->nameservers, NULL, ns_clean);
 	lws_dll2_foreach_safe(&dns->cached, NULL, cache_clean);
