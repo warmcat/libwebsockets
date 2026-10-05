@@ -96,67 +96,74 @@ expires.
    or log in once as that user with the same name as the `remote` url:
    `sudo -u sai-push ssh git@libwebsockets.org`.
 
-5) For a github mirror, the best fit is a deploy key: an ssh key that
-   github accepts for just the one repository it's added to, with write
-   access if you allow it.  It doesn't expire, so a headless daemon can't
-   quietly lose access to the mirror a month later, and it's revoked from
-   the repository's settings if the host is ever compromised.  It works the
-   same way as the gitolite key, as an ssh mirror url, with no token file.
+5) For a github mirror, use a deploy key: an ssh key github accepts for just
+   the one repository it's added to.  It doesn't expire, and it's revoked
+   from the repository's settings if the host is ever compromised.
 
-    - Make a key just for this, as the sai-push user, separate from the
-      gitolite one so either can be revoked alone (github also refuses a
-      key that's already in use anywhere else on github):
+   github refuses a key that's already in use anywhere else on github, so
+   **each mirrored repo needs its own key**.  But every mirror url is on
+   the same host, `github.com`, so ssh can't choose the key by host name.
+   Instead, give each repo its own made-up host name, an alias, in the ssh
+   config, and use that alias in the repo's mirror url.  ssh matches the
+   `Host` block by the name in the url, then connects to the real
+   `HostName`.
 
-      ```
-      # sudo -u sai-push ssh-keygen -t ed25519 -N "" -C "sai-push github libwebsockets" -f /home/sai-push/.ssh/github_libwebsockets
-      ```
+   For each repo, eg, `libwebsockets`:
 
-    - In the github web UI, as an admin of the repository: the repository's
-      **Settings** tab, then **Deploy keys** in the sidebar (eg,
-      `https://github.com/warmcat/libwebsockets/settings/keys`), then **Add
-      deploy key**.  Give it a title, eg, `sai-push on libwebsockets.org`,
-      paste in the contents of the **public** key,
-      `/home/sai-push/.ssh/github_libwebsockets.pub`, tick **Allow write
-      access**, and **Add key**.
+    a) Make its key, as the sai-push user:
 
-    - Tell ssh to use that key for github, in `/home/sai-push/.ssh/config`
-      (owned by sai-push, mode 0600):
+       ```
+       # sudo -u sai-push ssh-keygen -t ed25519 -N "" -C "sai-push github libwebsockets" -f /home/sai-push/.ssh/github_libwebsockets
+       ```
 
-      ```
-      Host github.com
-      	IdentityFile ~/.ssh/github_libwebsockets
-      	IdentitiesOnly yes
-      ```
+    b) Add it on github, as an admin of the repository: **Settings**, then
+       **Deploy keys** (eg,
+       `https://github.com/warmcat/libwebsockets/settings/keys`), then **Add
+       deploy key**.  Give it a title, eg, `sai-push on libwebsockets.org`,
+       paste in the **public** key,
+       `/home/sai-push/.ssh/github_libwebsockets.pub`, tick **Allow write
+       access**, and **Add key**.
 
-    - Put github's host key in sai-push's `known_hosts`: check the
-      fingerprint ssh shows against the ones github publishes at
-      https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
-      before accepting it, with
+    c) Add an alias for it to `/home/sai-push/.ssh/config` (owned by
+       sai-push, mode 0600):
 
-      ```
-      # sudo -u sai-push ssh -T git@github.com
-      ```
+       ```
+       Host github-libwebsockets
+       	HostName github.com
+       	HostKeyAlias github.com
+       	IdentityFile ~/.ssh/github_libwebsockets
+       	IdentitiesOnly yes
+       ```
 
-      It should answer `Hi warmcat/libwebsockets! You've successfully
-      authenticated, but GitHub does not provide shell access.`: the
-      repository name there confirms it's the deploy key being used.
+        - `HostKeyAlias github.com`: every alias checks github's host key
+          under the one `github.com` entry in `known_hosts`
+        - `IdentitiesOnly yes`: offer only this key, else github may accept
+          another repo's deploy key first and say `Repository not found`
 
-    - The mirror in the conf is then just `{ "url":
-      "ssh://git@github.com/warmcat/" }`.
+       Don't add a plain `Host github.com` block with a key in it: it would
+       quietly apply to every github url that isn't an alias.
 
-   A deploy key covers only its one repository.  To mirror another repo,
-   make it its own key and its own watch, and give it a host alias in the
-   ssh config, keeping github's host key entry by using `HostKeyAlias`:
+    d) Check it, as the sai-push user.  The first time, ssh shows github's
+       host key fingerprint: check it against
+       https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+       before accepting it.  Because of `HostKeyAlias`, that's only needed
+       once, for the first alias.
 
-   ```
-   Host github-otherproject
-   	HostName github.com
-   	HostKeyAlias github.com
-   	IdentityFile ~/.ssh/github_otherproject
-   	IdentitiesOnly yes
-   ```
+       ```
+       # sudo -u sai-push ssh -T git@github-libwebsockets
+       ```
 
-   with that watch's mirror url `ssh://git@github-otherproject/warmcat/`.
+       It should answer `Hi warmcat/libwebsockets! You've successfully
+       authenticated, but GitHub does not provide shell access.`: the
+       repository named there confirms it's the right deploy key.
+
+    e) Use the alias as the host in that repo's watch's mirror url:
+       `{ "url": "ssh://git@github-libwebsockets/warmcat/" }`.
+
+   Each watch covers one repo, so each watch's mirror names its own alias,
+   eg, the watch for `otherproject` mirrors to
+   `ssh://git@github-otherproject/warmcat/`, after doing a) to e) again with
+   `otherproject` in place of `libwebsockets`.
 
    If the target branch is protected on github by a branch protection rule
    or a ruleset, the deploy key must be allowed to push to it, and to force
@@ -237,8 +244,8 @@ mirrors, or "no mirrors".
 		],
 
 		"mirrors": [
-			# a github deploy key for the repo, see setup step 5
-			{ "url": "ssh://git@github.com/warmcat/" }
+			# github, via this repo's deploy key alias, see setup step 5
+			{ "url": "ssh://git@github-libwebsockets/warmcat/" }
 		]
 	}]
 }
@@ -246,7 +253,8 @@ mirrors, or "no mirrors".
 
 With this, when an event for libwebsockets succeeds on `main-dev`, its commit
 is force-pushed to `main` on `ssh://git@libwebsockets.org/libwebsockets` and
-then on `ssh://git@github.com/warmcat/libwebsockets`; when one succeeds on
+then on github's `warmcat/libwebsockets`, using the deploy key for the
+`github-libwebsockets` alias; when one succeeds on
 `v5.0-stable-dev`, its commit is pushed to `v5.0-stable` on both, but only
 if that's a fast-forward.
 
@@ -285,7 +293,7 @@ Each watch covers one repository.
 
 |member|required|meaning|
 |---|---|---|
-|`url`|yes|a url prefix, the event's project name is appended to it, eg, `ssh://git@github.com/warmcat/` for `ssh://git@github.com/warmcat/libwebsockets`.  For github, ssh with a deploy key is recommended, see setup step 5; ssh uses the `user`'s ssh config and keys.  It must not contain credentials: sai-push refuses to start if an https url has any|
+|`url`|yes|a url prefix, the event's project name is appended to it, eg, `ssh://git@github-libwebsockets/warmcat/` for `ssh://git@github-libwebsockets/warmcat/libwebsockets`.  For github, ssh with a per-repo deploy key and host alias is recommended, see setup step 5; ssh uses the `user`'s ssh config and keys.  It must not contain credentials: sai-push refuses to start if an https url has any|
 |`token-file`|no|absolute path (`~` is not expanded) of a file holding a token git gives as the password when the (https) mirror asks, eg, a github fine-grained personal access token.  Whitespace around the token in the file is ignored.  Keep it with the `user`'s other credentials, eg, `/home/sai-push/.github-token`, owned by `user` and mode 0600.  It must be readable by `user`, and must not be readable by everyone: sai-push refuses to start otherwise.  git gets it by running sai-push itself as its `GIT_ASKPASS`, so the token is never in a url, an argv or the logs, and git's own credential helpers are not used for that mirror|
 
 ## State
@@ -325,7 +333,8 @@ things it logs
 |`git: Host key verification failed.`|the `user`'s `known_hosts` has no entry for the exact host name (and port) in the `remote` url.  See step 4 above|
 |`git: Permission denied (publickey)` or gitolite refusing access|the `user`'s ssh key isn't allowed write access to the repo on the git server|
 |`git: ERROR: The key you are authenticating with has been marked as read only.`|the github deploy key was added without **Allow write access**: delete it and add it again with that ticked|
-|`git: ERROR: Repository not found.` from github over ssh|ssh offered a key github doesn't have as a deploy key for that repo, eg, the gitolite key: check the `IdentityFile` / `IdentitiesOnly` lines in the `user`'s ssh config, and that `sudo -u sai-push ssh -T git@github.com` greets the right repo|
+|`git: ERROR: Repository not found.` from github over ssh|ssh offered a key github doesn't have as a deploy key for that repo, eg, the gitolite key: check the mirror url's host is that repo's alias, that the alias has the right `IdentityFile` and `IdentitiesOnly yes`, and that `sudo -u sai-push ssh -T git@<alias>` greets the right repo|
+|`git: ssh: Could not resolve hostname github-...`|the alias in the mirror url has no matching `Host` block in the `user`'s ssh config, or it's misspelled, see setup step 5|
 |a github push is refused by a protected branch rule|allow the deploy key (or the token's account) to push, and force push for a forced rule, or add it as a bypass actor, see setup step 5|
 |a github https mirror push fails with an authentication error|the token is wrong or expired, or lacks "Contents: Read and write" on that repo|
 |`! [rejected] ... (non-fast-forward)`|the rule doesn't allow a force push, and the target branch has moved on in a way the commit doesn't extend.  Retried every 10 minutes while it's the newest success|

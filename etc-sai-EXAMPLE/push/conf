@@ -39,7 +39,9 @@
 		# appended to "url" the same way.
 		#
 		# For github, use ssh with a deploy key for the repo, which
-		# doesn't expire, see READMEs/README-sai-push.md setup step 5.
+		# doesn't expire.  github needs a different key per repo, so
+		# the host is a per-repo alias from sai-push's ~/.ssh/config,
+		# see READMEs/README-sai-push.md setup step 5.
 		#
 		# An https mirror can instead name a "token-file" holding a
 		# token with write access to just the mirror repos, eg,
@@ -49,7 +51,7 @@
 		# expanded).  But tokens expire, and the pushes then fail
 		# until it's replaced.  Never put credentials in the url.
 		"mirrors": [
-			{ "url": "ssh://git@github.com/warmcat/" }
+			{ "url": "ssh://git@github-libwebsockets/warmcat/" }
 		],
 
 		# The first rule matching a branch that has an event succeed
