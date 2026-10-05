@@ -473,7 +473,8 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 			"junk renewal refused, nothing installed under its name",
 		};
 
-		expect(waited_for[phase], 0);
+		expect(phase >= 0 && phase < (int)LWS_ARRAY_SIZE(waited_for) ?
+					waited_for[phase] : "phase in range", 0);
 		done = 1;
 		lws_cancel_service(context);
 		return;

@@ -673,9 +673,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			got_body_trunc = 1;
 		return 0; /* don't passthru */
 
-	/* the step's body is fully drained either way */
+	/* the step's body is fully drained either way, or its ws closed */
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLIENT_CLOSED:
 		if (!step_done)
 			step_done = 1;
 		step_advance();
@@ -691,12 +692,6 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		step_advance();
 
 		return -1; /* the handshake was all we came for */
-
-	case LWS_CALLBACK_CLIENT_CLOSED:
-		if (!step_done)
-			step_done = 1;
-		step_advance();
-		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		if (scenarios[step].ws_offer) {

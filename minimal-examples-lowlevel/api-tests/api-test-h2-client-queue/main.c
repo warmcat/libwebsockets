@@ -115,12 +115,16 @@ static void
 fx_tx_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 	    const void *pl, size_t len)
 {
-	uint8_t *h = p->tx + LWS_PRE + p->txlen;
+	size_t room = sizeof(p->tx) - LWS_PRE;
+	uint8_t *h;
 
-	if (p->txlen + 9 + len > sizeof(p->tx) - LWS_PRE) {
+	if (p->txlen > room || len > room - p->txlen ||
+	    9 > room - p->txlen - len) {
 		lwsl_err("%s: fixture tx overflow\n", __func__);
 		return;
 	}
+
+	h = p->tx + LWS_PRE + p->txlen;
 
 	h[0] = (uint8_t)(len >> 16);
 	h[1] = (uint8_t)(len >> 8);
