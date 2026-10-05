@@ -11,10 +11,12 @@ It works by intercepting DHT `PUT` requests, requiring client-side JSON Web Sign
 - Re-uses LWS JSON Object Signing and Encryption (`lws-jose`) routines and asynchronous DNS resolution natively.
 
 ## Active Change Notifications
-The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` DHT verbs to monitor downloaded zone files for changes:
-- When a zone is successfully downloaded and validated, the plugin automatically issues a `SUBSCRIBE` request to the original DHT node.
-- The subscription is finalized with a cryptographically secure `SUBSCRIBE_CONFIRM` challenge containing a local ID and the current payload's SHA256 hash.
-- If the authoritative DNS node updates the zone file, it will broadcast a `NOTIFY` to all active long-poll subscribers. The plugin will instantly acknowledge the notification (via `lws_dht_send_ack`) and re-fetch the updated zone asynchronously.
+The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` DHT verbs to monitor the zone files it serves for changes:
+- Whenever a fetch of a zone it serves completes, whether the zone was new or one it already had, the plugin issues a `SUBSCRIBE` to the DHT node that answered it, which holds the zone.
+- That node answers with a token, which the plugin returns in a `SUBSCRIBE_CONFIRM` for that zone's hash.  A token for any other hash is not confirmed.
+- The holder forgets a subscriber after an hour, so subscriptions are renewed every 20 minutes.
+- When the holder accepts a new version of the zone, it sends a `NOTIFY` carrying the new serial and the domain to its subscribers, retrying until they acknowledge it.  The plugin acknowledges it and fetches the zone.
+- A zone is fetched for `NOTIFY`s at most once a minute, except that a newer serial from the holder it subscribed with (or from a `NOTIFY` sender that passed the cookie exchange) is fetched at once, at most every 5 seconds.  A `NOTIFY` inside that minute is not dropped: one fetch when the minute ends covers it.
 
 ## Zonefile Security Validation
 To prevent abuse from malicious peers or compromised routing, the plugin enforces strict boundaries on incoming zonefiles before they are committed to the local cache:

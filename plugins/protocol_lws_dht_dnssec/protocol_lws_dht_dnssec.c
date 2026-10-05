@@ -83,6 +83,7 @@ struct vhd_dht_dnssec {
 	lws_sorted_usec_list_t		sul_upload;	/* reply timeout */
 	lws_sorted_usec_list_t		sul_upload_tx;	/* next send */
 	lws_sorted_usec_list_t		sul_upload_retry; /* queue backoff */
+	lws_sorted_usec_list_t		sul_resubscribe;
 	int				upload_retries;
 	/* the queued publication in progress, it owns cli_put_file */
 	struct dht_upload_job		*upload_job;
@@ -168,6 +169,12 @@ static struct vhd_dht_dnssec *global_dnssec_vhd = NULL;
 
 struct lws_dht_dnssec_subscribed_domain {
 	lws_dll2_t list;
+	struct vhd_dht_dnssec *vhd;
+	/* a NOTIFY that came while rate-limited is fetched when it ends */
+	lws_sorted_usec_list_t sul_refetch;
+	/* the node we last fetched it from and subscribed with, and when */
+	lws_sockaddr46 holder;
+	time_t subscribed;
 	char domain[256];
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	uint8_t needs_initial_fetch;
@@ -472,6 +479,162 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain, const lws_s
 
 static int
 do_subscribe_zone(struct lws_vhost *vhost, const char *domain);
+
+/*
+ * A node serving a zone subscribes to it with the node it fetched it from,
+ * so it is told as soon as that node has a new version, rather than when
+ * its own copy expires.  The holder forgets a subscriber after an hour, so
+ * we renew well inside that, a few at a time since the DHT only keeps a
+ * few subscribes awaiting their reply; and we subscribe again whenever a
+ * fetch completes, since the zone may have come from another node.
+ */
+#if !defined(DHT_DNSSEC_RESUBSCRIBE_SECS)
+#define DHT_DNSSEC_RESUBSCRIBE_SECS	(20 * 60)
+#endif
+#define DHT_DNSSEC_RESUBSCRIBE_TICK_US	(10 * LWS_US_PER_SEC)
+#define DHT_DNSSEC_RESUBSCRIBE_BATCH	4
+/* a domain is fetched at most this often for NOTIFYs... */
+#define DHT_DNSSEC_NOTIFY_FETCH_SECS	60
+/* ...unless its holder announces a newer serial, but not more than this */
+#define DHT_DNSSEC_NOTIFY_FETCH_MIN_SECS 5
+
+static struct lws_dht_dnssec_subscribed_domain *
+dht_dnssec_find_sub(struct vhd_dht_dnssec *vhd, const uint8_t *hash,
+		    size_t len)
+{
+	if (len != (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH))
+		return NULL;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->subscribed_domains)) {
+		struct lws_dht_dnssec_subscribed_domain *sub =
+			lws_container_of(d,
+				struct lws_dht_dnssec_subscribed_domain, list);
+
+		if (!memcmp(sub->hash, hash, len))
+			return sub;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+static void
+dht_dnssec_sub_subscribe(struct vhd_dht_dnssec *vhd,
+			 struct lws_dht_dnssec_subscribed_domain *sub,
+			 const struct sockaddr *sa, size_t salen)
+{
+	uint8_t hbuf[sizeof(lws_dht_hash_t) + LWS_GENHASH_LARGEST];
+	lws_dht_hash_t *h = (lws_dht_hash_t *)hbuf;
+
+	if (!vhd->dht || salen > sizeof(sub->holder) ||
+	    (sa->sa_family != AF_INET && sa->sa_family != AF_INET6))
+		return;
+
+	h->type = LWS_DHT_STORE_HASH_TYPE;
+	h->len = (uint8_t)lws_genhash_size(LWS_DHT_STORE_GENHASH);
+	memcpy(h->id, sub->hash, h->len);
+
+	memset(&sub->holder, 0, sizeof(sub->holder));
+	memcpy(&sub->holder, sa, salen);
+	sub->subscribed = time(NULL);
+
+	lwsl_notice("%s: subscribing to %s\n", __func__, sub->domain);
+	lws_dht_send_subscribe(vhd->dht, sa, salen, h, 0, 0);
+}
+
+static int
+dht_dnssec_from_holder(const struct lws_dht_dnssec_subscribed_domain *sub,
+		       const struct sockaddr *from)
+{
+	uint16_t pf, ph;
+
+	if (!sub->holder.sa4.sin_family ||
+	    from->sa_family != sub->holder.sa4.sin_family ||
+	    lws_sa46_compare_ads(&sub->holder, (const lws_sockaddr46 *)from))
+		return 0;
+
+	pf = from->sa_family == AF_INET ?
+		((const struct sockaddr_in *)from)->sin_port :
+		((const struct sockaddr_in6 *)from)->sin6_port;
+	ph = sub->holder.sa4.sin_family == AF_INET ? sub->holder.sa4.sin_port :
+						     sub->holder.sa6.sin6_port;
+
+	return pf == ph;
+}
+
+static void
+dht_dnssec_sul_resubscribe_cb(lws_sorted_usec_list_t *sul)
+{
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul,
+				struct vhd_dht_dnssec, sul_resubscribe);
+	time_t now = time(NULL);
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->subscribed_domains)) {
+		struct lws_dht_dnssec_subscribed_domain *sub =
+			lws_container_of(d,
+				struct lws_dht_dnssec_subscribed_domain, list);
+
+		if (n == DHT_DNSSEC_RESUBSCRIBE_BATCH)
+			break;
+		if (sub->holder.sa4.sin_family &&
+		    now - sub->subscribed >= DHT_DNSSEC_RESUBSCRIBE_SECS) {
+			dht_dnssec_sub_subscribe(vhd, sub,
+					sa46_sockaddr(&sub->holder),
+					sa46_socklen(&sub->holder));
+			n++;
+		}
+	} lws_end_foreach_dll(d);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_resubscribe,
+			 dht_dnssec_sul_resubscribe_cb,
+			 DHT_DNSSEC_RESUBSCRIBE_TICK_US);
+}
+
+/*
+ * A fetch of ours completed, with a zone we did not have or one we did:
+ * either way the node that served it holds it, so subscribe with it
+ */
+
+static void
+dht_dnssec_frag_subscribe(struct vhd_dht_dnssec *vhd, const char *safe_hash,
+			  const struct sockaddr_storage *from, size_t fromlen)
+{
+	struct lws_dht_dnssec_subscribed_domain *sub;
+	uint8_t raw[LWS_GENHASH_LARGEST];
+	int n;
+
+	n = lws_hex_to_byte_array(safe_hash, raw, sizeof(raw));
+	if (n <= 0)
+		return;
+
+	sub = dht_dnssec_find_sub(vhd, raw, (size_t)n);
+	if (sub)
+		dht_dnssec_sub_subscribe(vhd, sub,
+					 (const struct sockaddr *)from, fromlen);
+}
+
+static void
+dht_dnssec_sul_sub_refetch_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(sul,
+			struct lws_dht_dnssec_subscribed_domain, sul_refetch);
+	struct vhd_dht_dnssec *vhd = sub->vhd;
+	struct lws_dht_dnssec_fetch_zone_args args;
+
+	lwsl_notice("%s: fetching %s, notified while rate-limited\n",
+		    __func__, sub->domain);
+
+	sub->last_notify_fetch = time(NULL);
+
+	memset(&args, 0, sizeof(args));
+	args.vhost = vhd->vhost;
+	args.domain = sub->domain;
+	args.force_network = 1;
+
+	do_fetch_zone(vhd->context, &args);
+}
 
 static void
 dht_dnssec_broadcast_notify(struct vhd_dht_dnssec *vhd, const char *domain, uint64_t soa_serial)
@@ -1296,6 +1459,14 @@ ds_test_done:
 				lwsl_notice("%s: Dropping imported zone %s (serial %llu is a replay)\n", __func__, frag->domain, (unsigned long long)serial);
 			} else {
 				lwsl_notice("%s: Dropping identically cached zone %s (serial %llu is already active!)\n", __func__, frag->domain, (unsigned long long)serial);
+				/*
+				 * Nothing new, but a fetch of ours that the
+				 * node answered with the zone: it holds it
+				 */
+				if (dht_dnssec_find_fetch_req(vhd, frag->safe_hash))
+					dht_dnssec_frag_subscribe(vhd,
+						frag->safe_hash, &frag->from_sa,
+						frag->from_salen);
 			}
 			goto drop;
 		}
@@ -1321,31 +1492,35 @@ ds_test_done:
 			frag->fd = -1;
 		}
 
-		/* Also, as a client, we should now send a native DHT SUBSCRIBE to the target node
-		   so we get notified if this zonefile ever changes! */
-		if (frag->dht_ctx) {
-			uint8_t raw_hash[32];
-			/* returns the count of bytes decoded, or -1; 0 never means OK */
-			if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
-						  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
-				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
-				if (id) {
-					lwsl_user("%s: Sending native DHT SUBSCRIBE to establish long-poll\n", __func__);
-					lws_dht_send_subscribe(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, frag->from_salen, id, 0, 0);
-					lws_dht_hash_destroy(&id);
-				}
-			}
-		}
+		/* a zone we fetched: hear of its next version from its holder */
+		if (dht_dnssec_find_fetch_req(vhd, frag->safe_hash))
+			dht_dnssec_frag_subscribe(vhd, frag->safe_hash,
+						  &frag->from_sa,
+						  frag->from_salen);
 
-		/* Notify anyone tracking this hash BEFORE we rename the tmp payload, just in case */
+		/*
+		 * Notify anyone subscribed to this hash BEFORE we rename the
+		 * tmp payload, with the new serial and the domain, as our
+		 * broadcast NOTIFY does, so they can tell it is news
+		 */
 		{
-			uint8_t raw_hash[32];
+			uint8_t raw_hash[32], pl[8 + 256];
+			size_t dl = strlen(frag->domain) + 1;
+			int k;
+
+			if (dl > sizeof(pl) - 8)
+				dl = 0;
+			for (k = 0; k < 8; k++)
+				pl[k] = (uint8_t)(serial >> (56 - (8 * k)));
+			if (dl)
+				memcpy(pl + 8, frag->domain, dl);
+
 			/* returns the count of bytes decoded, or -1; 0 never means OK */
 			if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
 						  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
 				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
 				if (id) {
-					lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash, NULL, 0);
+					lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash, pl, 8 + dl);
 					lws_dht_hash_destroy(&id);
 				}
 			}
@@ -2948,6 +3123,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 					struct lws_dht_dnssec_subscribed_domain *nsub = malloc(sizeof(*nsub));
 					if (nsub) {
 						memset(nsub, 0, sizeof(*nsub));
+						nsub->vhd = vhd;
 						lws_strncpy(nsub->domain, target_domain, sizeof(nsub->domain));
 						memcpy(nsub->hash, info_hash->id, info_hash->len);
 						nsub->needs_initial_fetch = 0;
@@ -3007,22 +3183,42 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 
 			if (found_sub) {
 				time_t now = time(NULL);
-				if (now - found_sub->last_notify_fetch < 60) {
+				if (now - found_sub->last_notify_fetch <
+						DHT_DNSSEC_NOTIFY_FETCH_SECS) {
 					/*
-					 * a newer serial may jump the 60s limit, but
-					 * only from a cookie-verified notifier (a forged
-					 * one would cost us a fetch fan-out per
-					 * datagram) and not more than every 5s
+					 * a newer serial may jump the limit, but
+					 * only from a cookie-verified notifier or
+					 * the node we subscribed with (a forged one
+					 * would cost us a fetch per datagram), and
+					 * not more often than the minimum
 					 */
-					if (vhd->notify_verified &&
+					if ((vhd->notify_verified ||
+					     dht_dnssec_from_holder(found_sub, from)) &&
 					    newer_soa && newer_soa > found_sub->last_notify_soa &&
-					    now - found_sub->last_notify_fetch >= 5) {
+					    now - found_sub->last_notify_fetch >=
+						DHT_DNSSEC_NOTIFY_FETCH_MIN_SECS) {
 						lwsl_notice("%s: Bypassing NOTIFY rate limit for %s due to progressively newer SOA %llu!\n", __func__, target_domain, (unsigned long long)newer_soa);
 					} else {
-						lwsl_notice("%s: Rate-limiting NOTIFY fetch for %s\n", __func__, target_domain);
+						/*
+						 * Not dropped: the zone may have
+						 * changed and nothing else would
+						 * fetch it until it expires.  One
+						 * fetch when the limit ends covers
+						 * any number of these.
+						 */
+						if (lws_dll2_is_detached(&found_sub->sul_refetch.list))
+							lws_sul_schedule(vhd->context, 0,
+								&found_sub->sul_refetch,
+								dht_dnssec_sul_sub_refetch_cb,
+								(lws_usec_t)(found_sub->last_notify_fetch +
+								DHT_DNSSEC_NOTIFY_FETCH_SECS - now) *
+								LWS_US_PER_SEC);
+						lwsl_notice("%s: Deferring NOTIFY fetch for %s until the rate limit ends\n", __func__, target_domain);
 						break;
 					}
 				}
+				/* this fetch covers any we deferred */
+				lws_sul_cancel(&found_sub->sul_refetch);
 				found_sub->last_notify_fetch = now;
 				if (newer_soa) found_sub->last_notify_soa = newer_soa;
 			} else if (found_owner) {
@@ -3136,45 +3332,72 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 	}
 	case LWS_DHT_EVENT_TOKEN: {
 		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
-		struct dht_fragment *frag;
-		uint8_t tid[16];
-		char computed_hash_hex[LWS_GENHASH_LARGEST * 2 + 1];
-		const char *get_hash = vhd->cli_get_hash;
-		struct lws_genhash_ctx pctx;
-		uint8_t hash[LWS_GENHASH_LARGEST];
+		struct lws_dht_dnssec_subscribed_domain *sub;
+		uint8_t tid[16], current_payload_hash[32];
+		const char *what = NULL;
 
-		lwsl_user("%s: Received SUBSCRIBE token, generating SUBSCRIBE_CONFIRM!\n", __func__);
+		/*
+		 * The token answers a subscribe or get_peers of ours, and
+		 * comes with the hash it was for: confirm it only for a zone
+		 * we subscribe to, or the one our command-line GET is after
+		 */
+		if (!vhd->dht || !info_hash || !data || !data_len)
+			break;
+
+		memset(current_payload_hash, 0, sizeof(current_payload_hash));
+
+		sub = dht_dnssec_find_sub(vhd, info_hash->id, info_hash->len);
+		if (sub)
+			what = sub->domain;
+		else if (vhd->cli_get_hash || vhd->cli_get_domain) {
+			char hex[LWS_GENHASH_LARGEST * 2 + 1];
+			char cli_hex[LWS_GENHASH_LARGEST * 2 + 1];
+			const char *get_hash = vhd->cli_get_hash;
+			struct dht_fragment *frag;
+
+			if (!get_hash) {
+				char domain_str[256];
+				struct lws_genhash_ctx pctx;
+				uint8_t hash[LWS_GENHASH_LARGEST];
+
+				lws_snprintf(domain_str, sizeof(domain_str),
+					     "lws-dnssec-dht-%s",
+					     vhd->cli_get_domain);
+				if (lws_genhash_init(&pctx, LWS_DHT_STORE_GENHASH) ||
+				    lws_genhash_update(&pctx, domain_str,
+						       strlen(domain_str)) ||
+				    lws_genhash_destroy(&pctx, hash))
+					break;
+				lws_hex_from_byte_array(hash,
+					(size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH),
+					cli_hex, sizeof(cli_hex));
+				get_hash = cli_hex;
+			}
+
+			lws_hex_from_byte_array(info_hash->id, info_hash->len,
+						hex, sizeof(hex));
+			if (!strcmp(hex, get_hash)) {
+				what = get_hash;
+				frag = dht_dnssec_find_fragment(vhd, get_hash);
+				if (frag)
+					memcpy(current_payload_hash,
+					       frag->payload_hash,
+					       sizeof(current_payload_hash));
+			}
+		}
+
+		if (!what) {
+			lwsl_info("%s: token for a hash we don't subscribe to\n",
+				  __func__);
+			break;
+		}
 
 		lws_get_random(vhd->context, tid, sizeof(tid));
-
-		if (!get_hash && vhd->cli_get_domain) {
-			char domain_str[256];
-			lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_get_domain);
-			if (!lws_genhash_init(&pctx, LWS_DHT_STORE_GENHASH) &&
-			    !lws_genhash_update(&pctx, domain_str, strlen(domain_str)) &&
-			    !lws_genhash_destroy(&pctx, hash)) {
-				lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), computed_hash_hex, sizeof(computed_hash_hex));
-				get_hash = computed_hash_hex;
-			}
-		}
-
-		if (get_hash && vhd->dht) {
-			uint8_t hbuf[sizeof(lws_dht_hash_t) + LWS_GENHASH_LARGEST];
-			lws_dht_hash_t *hash_obj = (lws_dht_hash_t *)hbuf;
-			hash_obj->type = LWS_DHT_STORE_HASH_TYPE;
-			hash_obj->len = (uint8_t)lws_genhash_size(LWS_DHT_STORE_GENHASH);
-			/* returns the count of bytes decoded, or -1 */
-			if (lws_hex_to_byte_array(get_hash, hash_obj->id,
-						  hash_obj->len) == (int)hash_obj->len) {
-				frag = dht_dnssec_find_fragment(vhd, get_hash);
-				uint8_t current_payload_hash[32] = {0};
-				if (frag) {
-					memcpy(current_payload_hash, frag->payload_hash, sizeof(current_payload_hash));
-				}
-				lws_dht_send_subscribe_confirm(vhd->dht, from, fromlen, tid, sizeof(tid), hash_obj, (uint8_t *)data, data_len, current_payload_hash, 1);
-				lwsl_user("Sent SUBSCRIBE_CONFIRM to the target DHT node.\n");
-			}
-		}
+		lws_dht_send_subscribe_confirm(vhd->dht, from, fromlen, tid,
+					       sizeof(tid), info_hash,
+					       (uint8_t *)data, data_len,
+					       current_payload_hash, 1);
+		lwsl_user("%s: Sent SUBSCRIBE_CONFIRM for %s\n", __func__, what);
 		break;
 	}
 	case LWS_DHT_EVENT_EXTERNAL_ADDR:
@@ -4197,6 +4420,10 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_resubscribe,
+				 dht_dnssec_sul_resubscribe_cb,
+				 DHT_DNSSEC_RESUBSCRIBE_TICK_US);
+
 		/* Register our "verbs" */
 		lws_dht_register_verbs(vhd->dht, store_verbs, LWS_ARRAY_SIZE(store_verbs), protocol);
 
@@ -4260,6 +4487,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_upload);
 		lws_sul_cancel(&vhd->sul_upload_tx);
 		lws_sul_cancel(&vhd->sul_upload_retry);
+		lws_sul_cancel(&vhd->sul_resubscribe);
 		lws_sul_cancel(&vhd->sul_dump);
 		lws_sul_cancel(&vhd->sul_notify_rotate);
 		/* a bootstrap seed resolution in flight would call back into freed vhd */
@@ -4304,6 +4532,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 					   lws_dll2_get_head(&vhd->subscribed_domains)) {
 			struct lws_dht_dnssec_subscribed_domain *sub =
 				lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
+			lws_sul_cancel(&sub->sul_refetch);
 			lws_dll2_remove(d);
 			free(sub);
 		} lws_end_foreach_dll_safe(d, d1);
@@ -5968,6 +6197,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 		struct lws_dht_dnssec_subscribed_domain *nsub = malloc(sizeof(*nsub));
 		if (nsub) {
 			memset(nsub, 0, sizeof(*nsub));
+			nsub->vhd = vhd;
 			lws_strncpy(nsub->domain, clean_domain, sizeof(nsub->domain));
 			memcpy(nsub->hash, hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH));
 
