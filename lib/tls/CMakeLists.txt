@@ -581,7 +581,15 @@ if (NOT VARIA)
 	set(VARIA "")
 endif()
 
-if (NOT LWS_WITH_SCHANNEL AND NOT LWS_WITH_OPENHITLS)
+#
+# These probe the OpenSSL api by linking against whatever the toolchain finds,
+# so only an OpenSSL-family backend may run them.  Under another backend an
+# unrelated OpenSSL on the link path (eg, vcpkg's MSBuild integration links
+# every installed library into the probe) would answer them, and the build
+# would then compile OpenSSL-only code against the wrong library.
+#
+if (LWS_WITH_SSL AND NOT LWS_WITH_SCHANNEL AND NOT LWS_WITH_OPENHITLS AND
+    NOT LWS_WITH_MBEDTLS AND NOT LWS_WITH_GNUTLS AND NOT LWS_WITH_BEARSSL)
 
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_set_info_callback LWS_HAVE_SSL_SET_INFO_CALLBACK PARENT_SCOPE)

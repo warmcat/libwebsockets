@@ -293,14 +293,6 @@ lws_ssl_close(struct lws *wsi)
 	if (!wsi->io->tls.ssl)
 		return 0; /* not handled */
 
-#if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
-	/* kill ssl callbacks, becausse we will remove the fd from the
-	 * table linking it to the wsi
-	 */
-	if (wsi->a.vhost->tls.ssl_info_event_mask)
-		SSL_set_info_callback(wsi->io->tls.ssl, NULL);
-#endif
-
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 	lws_sul_cancel(&wsi->io->tls.sul_cb_synth);
 	/*
