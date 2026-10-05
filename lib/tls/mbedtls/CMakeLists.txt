@@ -117,6 +117,19 @@
 		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${MBEDTLS_INCLUDE_DIRS})
 	endif()
 
+	if (DEFINED MBEDTLS_LIBRARIES AND WIN32)
+		#
+		# A static mbedtls found by path doesn't bring its system library
+		# deps with it the way its cmake package would: its entropy
+		# source is BCryptGenRandom() and x509 uses inet_pton().  They go
+		# on MBEDTLS_LIBRARIES, so the feature probes that link against
+		# it see them too; otherwise every probe fails to link and lws
+		# builds without ALPN, SNI and the rest
+		#
+		list(APPEND MBEDTLS_LIBRARIES ws2_32 bcrypt)
+		set(MBEDTLS_LIBRARIES ${MBEDTLS_LIBRARIES} PARENT_SCOPE)
+	endif()
+
 	if (DEFINED MBEDTLS_LIBRARIES)
 		list(APPEND LIB_LIST ${MBEDTLS_LIBRARIES})
 	endif()
