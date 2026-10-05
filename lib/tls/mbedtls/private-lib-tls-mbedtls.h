@@ -31,10 +31,26 @@
 #include <mbedtls/net_sockets.h>
 #include <errno.h>
 
-/* the f_rng / p_rng pair the mbedtls 3.x apis take */
+/*
+ * The f_rng / p_rng pair the mbedtls 3.x apis take (mbedtls 4 apis take
+ * none, so neither is used there).  See LWS_MBEDTLS_PSA_RNG in
+ * private-lib-tls.h for when the RNG is PSA's.
+ *
+ * Every p_rng comes from one of two places:
+ *
+ *  - the context's RNG: lws_mbedtls_cx_p_rng(cx).  That's the one place that
+ *    knows the context only has a DRBG (cx->mcdc) without
+ *    LWS_MBEDTLS_PSA_RNG, so nothing else names cx->mcdc for an RNG
+ *
+ *  - a DRBG of the caller's own, eg, gendtls' ctx->ctr_drbg, which exists in
+ *    every build that uses it but is only seeded without
+ *    LWS_MBEDTLS_PSA_RNG: LWS_MBEDTLS_P_RNG(&own_drbg).  The argument is
+ *    still evaluated (and so type checked) in PSA RNG builds, and then not
+ *    used
+ */
 #if defined(LWS_MBEDTLS_PSA_RNG)
 #define LWS_MBEDTLS_F_RNG		mbedtls_psa_get_random
-#define LWS_MBEDTLS_P_RNG(_drbg)	MBEDTLS_PSA_RANDOM_STATE
+#define LWS_MBEDTLS_P_RNG(_drbg)	((void)(_drbg), MBEDTLS_PSA_RANDOM_STATE)
 #else
 #define LWS_MBEDTLS_F_RNG		mbedtls_ctr_drbg_random
 #define LWS_MBEDTLS_P_RNG(_drbg)	(_drbg)
@@ -117,6 +133,15 @@ typedef struct lws_mbedtls_x509_authority
 }
 lws_mbedtls_x509_authority;
 
+
+#if !defined(LWS_HAVE_MBEDTLS_V4)
+/*
+ * p_rng for the context's RNG, to go with LWS_MBEDTLS_F_RNG.  Without
+ * LWS_MBEDTLS_PSA_RNG it's the context's DRBG, so cx must not be NULL
+ */
+void *
+lws_mbedtls_cx_p_rng(struct lws_context *cx);
+#endif
 
 mbedtls_md_type_t
 lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type);

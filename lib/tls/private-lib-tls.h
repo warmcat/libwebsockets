@@ -133,6 +133,30 @@
 
 #endif /* !LWS_WITH_SCHANNEL */
 
+#if defined(LWS_WITH_MBEDTLS)
+/*
+ * Where mbedtls randomness comes from.  mbedtls 3.x may be built without its
+ * entropy and CTR-DRBG modules when a PSA driver supplies the randomness
+ * (MBEDTLS_PSA_CRYPTO_EXTERNAL_RNG); then, as always on mbedtls 4, the RNG is
+ * PSA's and there is no DRBG of ours: struct lws_context has no mec / mcdc,
+ * and nothing seeds or frees them.  Private, so apps don't see a macro that
+ * depends on how the mbedtls they happen to compile against was configured.
+ *
+ * LWS_MBEDTLS_F_RNG / LWS_MBEDTLS_P_RNG() in private-lib-tls-mbedtls.h give
+ * the f_rng / p_rng pair for the mbedtls 3.x apis that take one.
+ */
+#if defined(LWS_HAVE_MBEDTLS_V4) || \
+    !defined(MBEDTLS_ENTROPY_C) || !defined(MBEDTLS_CTR_DRBG_C)
+#define LWS_MBEDTLS_PSA_RNG
+#if !defined(LWS_HAVE_MBEDTLS_V4)
+#if !defined(MBEDTLS_PSA_CRYPTO_C) && !defined(MBEDTLS_PSA_CRYPTO_CLIENT)
+#error "mbedtls has no entropy / CTR-DRBG module and no PSA crypto to take the RNG from"
+#endif
+#include <mbedtls/psa_util.h>
+#endif
+#endif
+#endif /* LWS_WITH_MBEDTLS */
+
 /*
  * The public info .ssl_options_set / .ssl_options_clear (and the _client_
  * variants) are documented as carrying OpenSSL SSL_OP_ bit values, whatever

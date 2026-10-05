@@ -51,6 +51,21 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 	/* mbedtls needs no global library teardown */
 }
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
+void *
+lws_mbedtls_cx_p_rng(struct lws_context *cx)
+{
+#if defined(LWS_MBEDTLS_PSA_RNG)
+	/* there is no DRBG of ours, the context's RNG is PSA's */
+	(void)cx;
+
+	return MBEDTLS_PSA_RANDOM_STATE;
+#else
+	return &cx->mcdc;
+#endif
+}
+#endif
+
 /*
  * mbedtls only considers a memory buffer to be PEM if it is NUL-terminated
  * and the length passed in includes that NUL; otherwise it goes straight to

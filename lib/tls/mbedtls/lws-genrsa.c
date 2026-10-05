@@ -528,7 +528,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	case LGRSAM_PKCS1_1_5:
 		n = mbedtls_rsa_rsassa_pkcs1_v15_sign(ctx->ctx,
 						      LWS_MBEDTLS_F_RNG,
-						      LWS_MBEDTLS_P_RNG(&ctx->context->mcdc),
+						      lws_mbedtls_cx_p_rng(ctx->context),
 #if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 						      MBEDTLS_RSA_PRIVATE,
 #endif
@@ -548,7 +548,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		mbedtls_rsa_set_padding(ctx->ctx, MBEDTLS_RSA_PKCS_V21, h);
 		n = mbedtls_rsa_rsassa_pss_sign(ctx->ctx,
 						LWS_MBEDTLS_F_RNG,
-						LWS_MBEDTLS_P_RNG(&ctx->context->mcdc),
+						lws_mbedtls_cx_p_rng(ctx->context),
 						MBEDTLS_RSA_PRIVATE,
 						(mbedtls_md_type_t)h,
 						(unsigned int)lws_genhash_size(hash_type),
@@ -560,7 +560,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 		n = mbedtls_rsa_rsassa_pss_sign_ext(ctx->ctx,
 						LWS_MBEDTLS_F_RNG,
-						LWS_MBEDTLS_P_RNG(&ctx->context->mcdc),
+						lws_mbedtls_cx_p_rng(ctx->context),
 						(mbedtls_md_type_t)h,
 						(unsigned int)lws_genhash_size(hash_type),
 						in,

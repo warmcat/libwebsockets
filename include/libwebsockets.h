@@ -448,22 +448,6 @@ typedef void X509_VERIFY_PARAM;
 #endif
 #include <mbedtls/version.h>
 
-/*
- * mbedtls 3.x may be built without its entropy and CTR-DRBG modules when a
- * PSA driver supplies the randomness (MBEDTLS_PSA_CRYPTO_EXTERNAL_RNG).  The
- * RNG then comes from PSA, as it always does on mbedtls 4.
- */
-#if defined(LWS_HAVE_MBEDTLS_V4) || \
-    !defined(MBEDTLS_ENTROPY_C) || !defined(MBEDTLS_CTR_DRBG_C)
-#define LWS_MBEDTLS_PSA_RNG
-#if !defined(LWS_HAVE_MBEDTLS_V4)
-#if !defined(MBEDTLS_PSA_CRYPTO_C) && !defined(MBEDTLS_PSA_CRYPTO_CLIENT)
-#error "mbedtls has no entropy / CTR-DRBG module and no PSA crypto to take the RNG from"
-#endif
-#include <mbedtls/psa_util.h>
-#endif
-#endif
-
 #if !defined(MBEDTLS_PRIVATE)
 #define MBEDTLS_PRIVATE(_q) _q
 #endif

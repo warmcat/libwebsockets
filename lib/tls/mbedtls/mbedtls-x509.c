@@ -973,7 +973,7 @@ bail:
 		n = (int)strlen(passphrase);
 	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (unsigned int)n
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
-					, LWS_MBEDTLS_F_RNG, LWS_MBEDTLS_P_RNG(&cx->mcdc)
+					, LWS_MBEDTLS_F_RNG, lws_mbedtls_cx_p_rng(cx)
 #endif
 			);
 	if (n) {
@@ -1235,7 +1235,8 @@ lws_x509_create_cert(struct lws_context *context,
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_ctr_drbg_context *pdrbg = &ctr_drbg;
 #elif !defined(LWS_HAVE_MBEDTLS_V4)
-	mbedtls_ctr_drbg_context *pdrbg = NULL; /* unused, the RNG is PSA's */
+	/* only ever passed to LWS_MBEDTLS_P_RNG(), which doesn't use it here */
+	mbedtls_ctr_drbg_context *pdrbg = NULL;
 #endif
 	unsigned char buf[4096];
 	uint8_t serial_val[8];
@@ -1265,7 +1266,7 @@ lws_x509_create_cert(struct lws_context *context,
 		goto bail;
 #else
 	if (context) {
-		pdrbg = &context->mcdc;
+		pdrbg = lws_mbedtls_cx_p_rng(context);
 	} else {
 		mbedtls_ctr_drbg_init(&ctr_drbg);
 		mbedtls_entropy_init(&entropy);
