@@ -771,7 +771,7 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	 * when it uses the token.
 	 */
 #if defined(LWS_WITH_DHT_BACKEND)
-	if (sr && sr->id && sr->id->len <= LWS_GENHASH_LARGEST) {
+	if (sr && sr->id->len <= LWS_GENHASH_LARGEST) {
 		ih->type = sr->id->type;
 		ih->len	 = sr->id->len;
 		memcpy(ih->id, sr->id->id, ih->len);
