@@ -1567,6 +1567,20 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 			goto idle_decline;
 
 		lwsl_warn("%s: builder rejects offered task\n", __func__);
+
+		if (task->build_step > 0) {
+			char vn[16];
+
+			/*
+			 * It's a later step of a task we started, the server
+			 * keeps it for us and will offer it again.  Its job
+			 * dir isn't abandoned however long we keep saying not
+			 * yet, so don't let its hold lapse meanwhile.
+			 */
+			saib_task_jobdir_vn(vn, sizeof(vn), task->uuid);
+			saib_jobdir_hold(vn);
+		}
+
 		if (saib_queue_task_status_update(sp, spm, task, 0,
 						  SAI_TASK_REASON_BUSY)) {
 			lwsl_notice("TRAP: saib_queue_task_status_update failed (BUSY)\n");

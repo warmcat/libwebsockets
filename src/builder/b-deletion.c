@@ -584,6 +584,28 @@ saib_jobdir_is_held(const char *vn)
 	return 1;
 }
 
+/*
+ * How many job dirs are held for tasks we are still building... expired holds
+ * are dropped on the way
+ */
+
+unsigned int
+saib_jobdir_holds_live(void)
+{
+	unsigned int n = 0;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+				   builder.jobdir_hold_owner.head) {
+		saib_jobdir_hold_t *h = lws_container_of(p, saib_jobdir_hold_t, list);
+
+		if (saib_jobdir_is_held(h->vn))
+			n++;
+
+	} lws_end_foreach_dll_safe(p, p1);
+
+	return n;
+}
+
 void
 saib_jobdir_holds_destroy(void)
 {

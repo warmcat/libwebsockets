@@ -591,6 +591,7 @@ saib_power_shutdown(void)
 int
 saib_reassess_idle_situation(void)
 {
+	unsigned int held;
 	char in_use = 0;
 
 	if (builder.stay) {
@@ -621,6 +622,18 @@ saib_reassess_idle_situation(void)
 			in_use = 1;
 		} lws_end_foreach_dll(d);
 	} lws_end_foreach_dll(mp);
+
+	held = saib_jobdir_holds_live();
+	if (held) {
+		/*
+		 * Tasks we started are between steps.  Going down would lose
+		 * their job dirs (a sai-virt VM's disk goes with it) and the
+		 * next step would come to a builder with no src/ tree.
+		 */
+		lwsl_notice("%s: %u job dirs held for started tasks\n",
+			    __func__, held);
+		in_use = 1;
+	}
 
 	if (builder.shell_owner.head) {
 		lwsl_notice("%s: builder has %d active shell sessions\n",

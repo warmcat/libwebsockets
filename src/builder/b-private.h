@@ -549,6 +549,8 @@ int
 saib_jobdir_is_held(const char *vn);
 void
 saib_jobdir_holds_destroy(void);
+unsigned int
+saib_jobdir_holds_live(void);
 
 /*
  * The job dir name for a task: the first 4 and last 4 chars of its uuid.  Both
