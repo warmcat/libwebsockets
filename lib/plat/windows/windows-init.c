@@ -130,6 +130,7 @@ lws_plat_init(struct lws_context *context,
 	{
 		int n;
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 		/* initialize platform random through mbedtls */
 		mbedtls_entropy_init(&context->mec);
 		mbedtls_ctr_drbg_init(&context->mcdc);
@@ -139,16 +140,12 @@ lws_plat_init(struct lws_context *context,
 		if (n)
 			lwsl_err("%s: mbedtls_ctr_drbg_seed() returned 0x%x\n",
 				 __func__, n);
-#if 0
-		else {
-			uint8_t rtest[16];
-			lwsl_notice("%s: started drbg\n", __func__);
-			if (mbedtls_ctr_drbg_random(&context->mcdc, rtest,
-							sizeof(rtest)))
-				lwsl_err("%s: get random failed\n", __func__);
-			else
-				lwsl_hexdump_notice(rtest, sizeof(rtest));
-		}
+#else
+		/* mbedtls 4 has no DRBG of ours to seed: the RNG is PSA's */
+		n = psa_crypto_init();
+		if (n != 0)
+			lwsl_err("%s: psa_crypto_init() returned 0x%x\n",
+				 __func__, n);
 #endif
 	}
 #endif
@@ -216,6 +213,11 @@ lws_plat_context_late_destroy(struct lws_context *context)
 		if (context->fd_hashtable[n].wsi)
 			lws_free(context->fd_hashtable[n].wsi);
 	}
+
+#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
+	mbedtls_entropy_free(&context->mec);
+	mbedtls_ctr_drbg_free(&context->mcdc);
+#endif
 
 	WSACleanup();
 }
