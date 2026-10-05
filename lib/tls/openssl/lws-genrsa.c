@@ -265,10 +265,13 @@ bail:
 			ctx->bn[n] = NULL;
 		}
 
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	/* only the pre-OpenSSL 3 path makes one */
 	if (ctx->rsa) {
 		RSA_free(ctx->rsa);
 		ctx->rsa = NULL;
 	}
+#endif
 
 	return 1;
 }
