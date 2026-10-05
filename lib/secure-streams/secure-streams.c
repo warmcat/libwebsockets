@@ -837,7 +837,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	union lws_ss_contemp ct;
 	lws_parse_uri_t *puri = NULL;
 	lws_ss_state_return_t r;
-	int port, tls, subst;
+	int port, tls, subst, n;
 	char *path, ep[LHP_URL_LEN];
 	lws_strexp_t exp;
 	char inside_connect_prev;
@@ -903,10 +903,15 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, ep, sizeof(ep));
 
-	if (lws_strexp_expand(&exp, h->policy->endpoint,
+	n = lws_strexp_expand(&exp, h->policy->endpoint,
 			      strlen(h->policy->endpoint),
-			      &used_in, &used_out) != LSTRX_DONE) {
-		lwsl_err("%s: address strexp failed\n", __func__);
+			      &used_in, &used_out);
+	if (n != LSTRX_DONE) {
+		if (n == LSTRX_FILLED_OUT)
+			lwsl_ss_err(h, "endpoint does not fit in %d",
+				    (int)sizeof(ep));
+		else
+			lwsl_err("%s: address strexp failed\n", __func__);
 
 		return LWSSSSRET_TX_DONT_SEND;
 	}

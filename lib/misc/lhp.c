@@ -5082,16 +5082,25 @@ elem_start:
 				 * something with a background image */
 
 				if (lws_http_rel_to_url(url, sizeof(url),
-							ctx->base_url, pname))
+							ctx->base_url, pname)) {
+					lwsl_warn("%s: asset url too long: %s\n",
+						  __func__, pname);
 					goto issue_elem_start;
+				}
 
-				/* decode percent-encoding in the URL */
+				/*
+				 * decode percent-encoding in the URL, in place:
+				 * it only ever shrinks.  A malformed escape
+				 * leaves no usable url, so no asset for it
+				 */
 				{
-					char temp[LHP_URL_LEN];
 					const char *q;
 
-					lws_strncpy(temp, url, sizeof(temp));
-					lws_urldecode(url, temp, sizeof(url) - 1);
+					if (lws_urldecode(url, url, sizeof(url))) {
+						lwsl_warn("%s: bad escape in asset url\n",
+							  __func__);
+						goto issue_elem_start;
+					}
 
 					/*
 					 * ... which the page may have used to

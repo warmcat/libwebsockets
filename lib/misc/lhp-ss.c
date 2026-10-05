@@ -384,6 +384,15 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	rs->cx = cx;
 	htmlss_t *m;
 
+	/*
+	 * The url is the doc cache key and the fetch endpoint: a truncated
+	 * one would fetch, and cache, the wrong thing
+	 */
+	if (strlen(url) >= LHP_URL_LEN) {
+		lwsl_warn("%s: url too long: %.64s...\n", __func__, url);
+		return 1;
+	}
+
 	/* fetch via SS */
 #if defined(LWS_PLAT_BAREMETAL) || defined(LWS_PLAT_FREERTOS)
 	w = 4096;

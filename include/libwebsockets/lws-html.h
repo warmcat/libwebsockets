@@ -35,6 +35,14 @@
 #define LHP_STRING_CHUNK		2048
 #endif
 /*
+ * Longest absolute url (including the NUL) for a document or an asset it
+ * refers to.  Real pages use urls well over 256 chars, and file:// urls carry
+ * the whole local path.  A url that does not fit is refused, with a warning.
+ */
+#if !defined(LHP_URL_LEN)
+#define LHP_URL_LEN			512
+#endif
+/*
  * How many of an element's closed earlier siblings are remembered (their
  * attributes) so that the ~ and + selector combinators and :first-child can
  * be evaluated.  Costs the attribute storage of that many elements per open
@@ -893,7 +901,7 @@ typedef struct lhp_ctx {
 	 * streams for stylesheets that are not the awaited one cannot
 	 * complete it early
 	 */
-	char			await_css_url[240]; /* LHP_URL_LEN */
+	char			await_css_url[LHP_URL_LEN];
 
 	uint8_t			in_body:1;
 	uint8_t			finish_css:1;
