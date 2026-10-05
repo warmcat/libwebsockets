@@ -27,6 +27,30 @@
 #endif
 #include "private-lib-core.h"
 
+/*
+ * A client wsi racing connects is entered in the table once for each of its
+ * live racer sockets as well as for its primary one (connect3.c swaps the
+ * racer fd into desc while it inserts it), so a racer fd belongs to it too.
+ * Otherwise when a racer is the last fds entry moved into a freed slot, its
+ * owner isn't found and its position_in_fds_table goes stale.
+ */
+static int
+wsi_owns_fd(const struct lws *wsi, lws_sockfd_type fd)
+{
+	if (wsi->io->desc.sockfd == fd)
+		return 1;
+
+#if defined(LWS_WITH_CLIENT)
+	if (wsi->io->parallel_conns)
+		for (int n = 0; n < wsi->io->parallel_count; n++)
+			if (wsi->io->parallel_conns[n].is_valid &&
+			    wsi->io->parallel_conns[n].desc.sockfd == fd)
+				return 1;
+#endif
+
+	return 0;
+}
+
 struct lws *
 wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 {
@@ -34,7 +58,7 @@ wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 	int n = 0;
 
 	for (n = 0; n < context->fd_hashtable[h].length; n++)
-		if (context->fd_hashtable[h].wsi[n]->io->desc.sockfd == fd)
+		if (wsi_owns_fd(context->fd_hashtable[h].wsi[n], fd))
 			return context->fd_hashtable[h].wsi[n];
 
 	return NULL;
@@ -68,7 +92,7 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 	int n = 0;
 
 	for (n = 0; n < context->fd_hashtable[h].length; n++)
-		if (context->fd_hashtable[h].wsi[n]->io->desc.sockfd == fd) {
+		if (wsi_owns_fd(context->fd_hashtable[h].wsi[n], fd)) {
 			/*
 			 * Compaction must stop at the last live element...
 			 * going to length would read wsi[length], one past it
