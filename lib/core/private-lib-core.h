@@ -790,7 +790,7 @@ struct lws_context {
 	const char *username, *groupname;
 #endif
 
-#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
+#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_MBEDTLS_PSA_RNG)
 	mbedtls_entropy_context mec;
 	mbedtls_ctr_drbg_context mcdc;
 #endif

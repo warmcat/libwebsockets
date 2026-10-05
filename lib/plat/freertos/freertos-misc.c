@@ -67,7 +67,7 @@ lws_plat_get_random(struct lws_context *context, void *buf, size_t len)
 	return pb - (uint8_t *)buf;
 #else
 #if defined(LWS_WITH_MBEDTLS)
-#if !defined(LWS_HAVE_MBEDTLS_V4)
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 	int n;
 
 	n = mbedtls_ctr_drbg_random(&context->mcdc, buf, len);
