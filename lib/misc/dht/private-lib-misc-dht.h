@@ -493,6 +493,19 @@ dht_sa_same_peer(const struct sockaddr *a, const struct sockaddr *b)
 
 	return x->sa4.sin_port == y->sa4.sin_port;
 }
+
+/* the port of a v4 or v6 socket address, in network order */
+
+static LWS_INLINE uint16_t
+dht_sa_port(const struct sockaddr *a)
+{
+#if defined(LWS_WITH_IPV6)
+	if (a->sa_family == AF_INET6)
+		return ((const struct sockaddr_in6 *)a)->sin6_port;
+#endif
+
+	return ((const struct sockaddr_in *)a)->sin_port;
+}
 /*
  * Bencode emission cursor.  All TX builders compose into a fixed buffer
  * through these bounds-checked appends; a failed append refuses the whole

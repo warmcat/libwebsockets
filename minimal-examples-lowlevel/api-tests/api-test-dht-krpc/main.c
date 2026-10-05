@@ -31,7 +31,8 @@
  *    the one other node is the quorum, so A learns 127.0.0.1:port-a from B
  *  - a third context C that uses B's node id pings A from its own port once
  *    B is good for A: A answers it, but B's entry keeps B's endpoint, so the
- *    good node A hands out for that id is still B
+ *    good node A hands out for that id is still B, and A warns that the id
+ *    is claimed from two places
  *  - a plain UDP socket R asks B a find_node with no target; B refuses it
  *    with a BEP 5 error reply, which must be exactly the bencode
  *    d1:eli203e<len>:<message>e1:t<tid>1:y1:ee.  R then relays B's refusal
@@ -112,6 +113,18 @@ struct seen {
 };
 
 static struct seen sv;
+static int samid_warned;
+
+/* A's warning that B's id was claimed from C's endpoint too */
+
+static void
+emit_cb(int level, const char *line)
+{
+	if ((level & LLL_WARN) && strstr(line, "claimed from"))
+		samid_warned = 1;
+
+	lwsl_emit_stderr(level, line);
+}
 static int retcode = 1;
 
 static lws_dht_hash_t *
@@ -395,13 +408,20 @@ same_id_step(void)
 		return;
 
 	lws_dht_get_nodes(dht_a, sin, &num, sin6, &num6);
-	if (num == 1 && sin[0].sin_port == sa_b.sin_port)
-		sv.samid_ok = 1;
-	else {
+	if (num != 1 || sin[0].sin_port != sa_b.sin_port) {
 		lwsl_err("%s: A's node for B's id moved (%d good)\n",
 			 __func__, num);
 		sv.samid_bad = 1;
+		return;
 	}
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+	if (!samid_warned) {
+		lwsl_err("%s: A didn't warn of B's id from C\n", __func__);
+		sv.samid_bad = 1;
+		return;
+	}
+#endif
+	sv.samid_ok = 1;
 }
 
 static lws_dht_hash_t *
@@ -599,6 +619,8 @@ int main(int argc, const char **argv)
 	    n = 0;
 
 	lws_context_info_defaults(&info, NULL);
+	/* the builtin options keep the emit function we set here */
+	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, emit_cb);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	if ((p = lws_cmdline_option(argc, argv, "--port-a")))

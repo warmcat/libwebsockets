@@ -345,8 +345,29 @@ node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
 	if (!node_known_bad(ctx, n)) {
 		if (confirm &&
 		    n->pinged_time < ctx->now - LWS_DHT_PING_TIMEOUT_SECS) {
-			lwsl_dht_info("%s: id claimed from a new endpoint, "
-				      "checking the old one\n", __func__);
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+			/*
+			 * Two live endpoints for one id: two nodes sharing an
+			 * id, eg, one's key copied to another host, which
+			 * keeps the second out of every peer's table, or a
+			 * forged claim.  Said at most once a ping timeout per
+			 * node, with the check we make.
+			 */
+			char nads[64], oads[64], hid[16];
+
+			lws_sa46_write_numeric_address((lws_sockaddr46 *)sa,
+						       nads, sizeof(nads));
+			lws_sa46_write_numeric_address(
+				(lws_sockaddr46 *)&n->ss, oads, sizeof(oads));
+			lws_hex_from_byte_array(n->id->id, n->id->len < 6 ?
+						n->id->len : 6, hid, sizeof(hid));
+			lwsl_warn("%s: node id %s.. claimed from %s:%u while "
+				  "we hold it at %s:%u: two nodes sharing an "
+				  "id (a copied key?), or a forged claim\n",
+				  __func__, hid, nads, ntohs(dht_sa_port(sa)),
+				  oads, ntohs(dht_sa_port(
+					(const struct sockaddr *)&n->ss)));
+#endif
 			send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen,
 				  tid, sizeof(tid));
 			mark_as_pinged(ctx, n, b);
