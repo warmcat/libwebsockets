@@ -507,6 +507,12 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	if (h < 0)
 		return -1;
 
+#if defined(LWS_MBEDTLS_PSA_RNG)
+	/* the signing RNG is PSA's: idempotent, and there may be no context */
+	if (psa_crypto_init() != PSA_SUCCESS)
+		return -1;
+#endif
+
 #if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
 #endif
@@ -521,8 +527,8 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
 		n = mbedtls_rsa_rsassa_pkcs1_v15_sign(ctx->ctx,
-						      mbedtls_ctr_drbg_random,
-						      &ctx->context->mcdc,
+						      LWS_MBEDTLS_F_RNG,
+						      LWS_MBEDTLS_P_RNG(&ctx->context->mcdc),
 #if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 						      MBEDTLS_RSA_PRIVATE,
 #endif
@@ -541,8 +547,8 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 #if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 		mbedtls_rsa_set_padding(ctx->ctx, MBEDTLS_RSA_PKCS_V21, h);
 		n = mbedtls_rsa_rsassa_pss_sign(ctx->ctx,
-						mbedtls_ctr_drbg_random,
-						&ctx->context->mcdc,
+						LWS_MBEDTLS_F_RNG,
+						LWS_MBEDTLS_P_RNG(&ctx->context->mcdc),
 						MBEDTLS_RSA_PRIVATE,
 						(mbedtls_md_type_t)h,
 						(unsigned int)lws_genhash_size(hash_type),
@@ -553,8 +559,8 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			return -1;
 
 		n = mbedtls_rsa_rsassa_pss_sign_ext(ctx->ctx,
-						mbedtls_ctr_drbg_random,
-						&ctx->context->mcdc,
+						LWS_MBEDTLS_F_RNG,
+						LWS_MBEDTLS_P_RNG(&ctx->context->mcdc),
 						(mbedtls_md_type_t)h,
 						(unsigned int)lws_genhash_size(hash_type),
 						in,

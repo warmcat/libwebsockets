@@ -140,7 +140,7 @@ lws_plat_init(struct lws_context *context,
 	{
 		int n;
 
-#if !defined(LWS_HAVE_MBEDTLS_V4)
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 		/* initialize platform random through mbedtls */
 		mbedtls_entropy_init(&context->mec);
 		mbedtls_ctr_drbg_init(&context->mcdc);
@@ -276,7 +276,7 @@ lws_plat_context_late_destroy(struct lws_context *context)
 	if (context->fd_random != LWS_INVALID_FILE)
 		close(context->fd_random);
 
-#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
+#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_MBEDTLS_PSA_RNG)
 	mbedtls_entropy_free(&context->mec);
 	mbedtls_ctr_drbg_free(&context->mcdc);
 #endif

@@ -31,6 +31,15 @@
 #include <mbedtls/net_sockets.h>
 #include <errno.h>
 
+/* the f_rng / p_rng pair the mbedtls 3.x apis take */
+#if defined(LWS_MBEDTLS_PSA_RNG)
+#define LWS_MBEDTLS_F_RNG		mbedtls_psa_get_random
+#define LWS_MBEDTLS_P_RNG(_drbg)	MBEDTLS_PSA_RANDOM_STATE
+#else
+#define LWS_MBEDTLS_F_RNG		mbedtls_ctr_drbg_random
+#define LWS_MBEDTLS_P_RNG(_drbg)	(_drbg)
+#endif
+
 struct lws_x509_cert {
 	mbedtls_x509_crt cert; /* has a .next for linked-list / chain */
 };

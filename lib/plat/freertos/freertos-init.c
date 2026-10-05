@@ -33,7 +33,7 @@ lws_plat_context_early_init(void)
 void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
-#if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
+#if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS) && !defined(LWS_MBEDTLS_PSA_RNG)
 	mbedtls_ctr_drbg_free(&context->mcdc);
 	mbedtls_entropy_free(&context->mec);
 #endif
@@ -86,7 +86,7 @@ lws_plat_init(struct lws_context *context,
 #if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS)
 	int n;
 
-#if !defined(LWS_HAVE_MBEDTLS_V4)
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 	/* initialize platform random through mbedtls */
 	mbedtls_entropy_init(&context->mec);
 	mbedtls_ctr_drbg_init(&context->mcdc);

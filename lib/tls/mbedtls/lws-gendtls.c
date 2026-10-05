@@ -140,17 +140,26 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	mbedtls_ssl_init(&ctx->ssl);
 	mbedtls_ssl_config_init(&ctx->conf);
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 	mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
 	mbedtls_entropy_init(&ctx->entropy);
+#endif
 	mbedtls_x509_crt_init(&ctx->cacert);
 	mbedtls_pk_init(&ctx->pkey);
 	mbedtls_ssl_cookie_init(&ctx->cookie_ctx);
 
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 	if (mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func,
 				  &ctx->entropy, (const unsigned char *)"lws_gendtls", 11) != 0) {
 		lwsl_err("mbedtls_ctr_drbg_seed failed\n");
 		goto bail;
 	}
+#else
+	if (psa_crypto_init() != PSA_SUCCESS) {
+		lwsl_err("psa_crypto_init failed\n");
+		goto bail;
+	}
+#endif
 
 	if ((ret = mbedtls_ssl_config_defaults(&ctx->conf,
 					(mode == LWS_GENDTLS_MODE_SERVER) ?
@@ -173,8 +182,8 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	if (mode == LWS_GENDTLS_MODE_SERVER) {
 		if ((ret = mbedtls_ssl_cookie_setup(&ctx->cookie_ctx,
-						    mbedtls_ctr_drbg_random,
-						    &ctx->ctr_drbg)) != 0) {
+						    LWS_MBEDTLS_F_RNG,
+						    LWS_MBEDTLS_P_RNG(&ctx->ctr_drbg))) != 0) {
 			lwsl_err("mbedtls_ssl_cookie_setup failed: -0x%x\n", -ret);
 			goto bail;
 		}
@@ -195,7 +204,8 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 	 */
 	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
 
-	mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+	mbedtls_ssl_conf_rng(&ctx->conf, LWS_MBEDTLS_F_RNG,
+			     LWS_MBEDTLS_P_RNG(&ctx->ctr_drbg));
 
 	if ((ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf)) != 0) {
 		lwsl_err("mbedtls_ssl_setup failed: -0x%x\n", -ret);
@@ -264,8 +274,10 @@ lws_gendtls_destroy(struct lws_gendtls_ctx *ctx)
 {
 	mbedtls_ssl_free(&ctx->ssl);
 	mbedtls_ssl_config_free(&ctx->conf);
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 	mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
 	mbedtls_entropy_free(&ctx->entropy);
+#endif
 	mbedtls_x509_crt_free(&ctx->cacert);
 	mbedtls_pk_free(&ctx->pkey);
 	mbedtls_ssl_cookie_free(&ctx->cookie_ctx);
@@ -295,7 +307,7 @@ lws_gendtls_set_key_mem(struct lws_gendtls_ctx *ctx, const uint8_t *key, size_t 
 	if ((ret = mbedtls_pk_parse_key(&ctx->pkey, (const unsigned char *)key, len,
 				 NULL, 0
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-				 , mbedtls_ctr_drbg_random, &ctx->ctr_drbg
+				 , LWS_MBEDTLS_F_RNG, LWS_MBEDTLS_P_RNG(&ctx->ctr_drbg)
 #endif
 	)) != 0) {
 		printf("mbedtls_pk_parse_key failed: -0x%x\n", -ret);

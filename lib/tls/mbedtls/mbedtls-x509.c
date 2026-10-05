@@ -948,6 +948,12 @@ bail:
 	mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	int n, ret = -1, count = 0;
 
+#if defined(LWS_MBEDTLS_PSA_RNG)
+	/* the key parse RNG is PSA's: idempotent, and there may be no context */
+	if (psa_crypto_init() != PSA_SUCCESS)
+		return -1;
+#endif
+
 	mbedtls_pk_init(&pk);
 
 	n = 0;
@@ -955,7 +961,7 @@ bail:
 		n = (int)strlen(passphrase);
 	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (unsigned int)n
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
-					, mbedtls_ctr_drbg_random, &cx->mcdc
+					, LWS_MBEDTLS_F_RNG, LWS_MBEDTLS_P_RNG(&cx->mcdc)
 #endif
 			);
 	if (n) {
@@ -1103,7 +1109,7 @@ static int
 lws_x509_mbedtls_random(mbedtls_ctr_drbg_context *pdrbg, uint8_t *buf,
 			size_t len)
 {
-	return !!mbedtls_ctr_drbg_random(pdrbg, buf, len);
+	return !!LWS_MBEDTLS_F_RNG(LWS_MBEDTLS_P_RNG(pdrbg), buf, len);
 }
 #endif
 
@@ -1190,14 +1196,15 @@ lws_x509_mbedtls_gen_key(mbedtls_pk_context *key,
 			return 1;
 
 		return !!mbedtls_ecp_gen_key(grp_id, mbedtls_pk_ec(*key),
-					     mbedtls_ctr_drbg_random, pdrbg);
+					     LWS_MBEDTLS_F_RNG,
+					     LWS_MBEDTLS_P_RNG(pdrbg));
 	}
 
 	if (mbedtls_pk_setup(key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)))
 		return 1;
 
-	return !!mbedtls_rsa_gen_key(mbedtls_pk_rsa(*key), mbedtls_ctr_drbg_random,
-				     pdrbg, bits, 65537);
+	return !!mbedtls_rsa_gen_key(mbedtls_pk_rsa(*key), LWS_MBEDTLS_F_RNG,
+				     LWS_MBEDTLS_P_RNG(pdrbg), bits, 65537);
 #endif
 }
 
@@ -1211,10 +1218,12 @@ lws_x509_create_cert(struct lws_context *context,
 	mbedtls_pk_context key;
 	mbedtls_x509_crt issuer_crt;
 	mbedtls_pk_context issuer_key;
-#if !defined(LWS_HAVE_MBEDTLS_V4)
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 	mbedtls_entropy_context entropy;
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_ctr_drbg_context *pdrbg = &ctr_drbg;
+#elif !defined(LWS_HAVE_MBEDTLS_V4)
+	mbedtls_ctr_drbg_context *pdrbg = NULL; /* unused, the RNG is PSA's */
 #endif
 	unsigned char buf[4096];
 	uint8_t serial_val[8];
@@ -1235,7 +1244,7 @@ lws_x509_create_cert(struct lws_context *context,
 	mbedtls_x509_crt_init(&issuer_crt);
 	mbedtls_pk_init(&issuer_key);
 
-#if defined(LWS_HAVE_MBEDTLS_V4)
+#if defined(LWS_MBEDTLS_PSA_RNG)
 	/*
 	 * Context creation already did this, but there may be no context:
 	 * psa_crypto_init() is idempotent
@@ -1308,7 +1317,7 @@ lws_x509_create_cert(struct lws_context *context,
 					 (const unsigned char *)info->ca_key_pem,
 					 strlen(info->ca_key_pem) + 1, NULL, 0
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
-					 , mbedtls_ctr_drbg_random, pdrbg
+					 , LWS_MBEDTLS_F_RNG, LWS_MBEDTLS_P_RNG(pdrbg)
 #endif
 		);
 		if (n)
@@ -1381,7 +1390,7 @@ lws_x509_create_cert(struct lws_context *context,
 	/* Cert Output */
 	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf)
 #if !defined(LWS_HAVE_MBEDTLS_V4)
-					, mbedtls_ctr_drbg_random, pdrbg
+					, LWS_MBEDTLS_F_RNG, LWS_MBEDTLS_P_RNG(pdrbg)
 #endif
 			);
 	if (len <= 0) {
@@ -1421,7 +1430,7 @@ bail:
 	mbedtls_pk_free(&key);
 	mbedtls_x509_crt_free(&issuer_crt);
 	mbedtls_pk_free(&issuer_key);
-#if !defined(LWS_HAVE_MBEDTLS_V4)
+#if !defined(LWS_MBEDTLS_PSA_RNG)
 	if (!context) {
 		mbedtls_ctr_drbg_free(&ctr_drbg);
 		mbedtls_entropy_free(&entropy);
