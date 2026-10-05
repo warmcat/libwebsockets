@@ -52,21 +52,15 @@
 #endif
 
 /*
- * Cache object names are the caller's hash in hex... size this to hold a
- * SHA-512 hex name (128 chars) plus the NUL.  Names that don't fit are skipped
- * rather than silently truncated, since a truncated name would either fail to
- * unlink (leaving the trim unable to bring the cache back under its limit, and
- * so rescanning flat-out forever) or unlink some other file.
+ * LWS_DISKCACHE_NAME_MAX: names that don't fit are skipped rather than silently
+ * truncated, since a truncated name would either fail to unlink (leaving the
+ * trim unable to bring the cache back under its limit, and so rescanning
+ * flat-out forever) or unlink some other file.
+ *
+ * LWS_DISKCACHE_DIR_MAX: create() and prepare() refuse a base that does not
+ * fit, so the paths composed from it later cannot be truncated, which would
+ * open, create or unlink some other file, or walk some other dir.
  */
-#define LWS_DISKCACHE_NAME_MAX 129
-
-/*
- * The cache dir base with a subdir after it, "<base>/x/y", has to fit in
- * this: create() and prepare() refuse a base that does not, so the paths
- * composed from it later cannot be truncated, which would open, create or
- * unlink some other file, or walk some other dir.
- */
-#define LWS_DISKCACHE_DIR_MAX 256
 
 struct file_entry {
 	lws_dll2_t	sorted;		/* on lds->batch_sorted, newest first */
@@ -191,7 +185,7 @@ lws_diskcache_prepare(const char *cache_base_dir, int mode, uid_t uid)
 int
 lws_diskcache_finalize_name(char *cache)
 {
-	char ren[LWS_DISKCACHE_DIR_MAX + LWS_DISKCACHE_NAME_MAX + 32], *p;
+	char ren[LWS_DISKCACHE_PATH_MAX], *p;
 
 	if (strlen(cache) >= sizeof(ren))
 		return 1;

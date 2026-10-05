@@ -60,6 +60,25 @@
 
 struct lws_diskcache_scan;
 
+/*
+ * Cache object names are the caller's hash in hex: up to a SHA-512 hex name
+ * (128 chars) plus the NUL.
+ */
+#define LWS_DISKCACHE_NAME_MAX		129
+/*
+ * The cache dir base with a subdir after it, "<base>/x/y", has to fit in this:
+ * lws_diskcache_create() and lws_diskcache_prepare() refuse a base that does
+ * not.
+ */
+#define LWS_DISKCACHE_DIR_MAX		256
+/*
+ * The longest object path lws_diskcache_query() composes, including the temp
+ * name suffix used while the object is being created.  A cache path buffer of
+ * this size works with any base that lws_diskcache_create() accepted.
+ */
+#define LWS_DISKCACHE_PATH_MAX		(LWS_DISKCACHE_DIR_MAX + \
+					 LWS_DISKCACHE_NAME_MAX + 32)
+
 /**
  * lws_diskcache_create() - creates an opaque struct representing the disk cache
  *
@@ -115,7 +134,8 @@ lws_diskcache_prepare(const char *cache_base_dir, int mode, uid_t uid);
  * \param hash_hex: hex string representation of the cache object hash
  * \param _fd: pointer to the fd to be set
  * \param cache: destination string to take the cache filepath
- * \param cache_len: length of the buffer at `cache`
+ * \param cache_len: length of the buffer at `cache`, LWS_DISKCACHE_PATH_MAX
+ *		      fits any path for a base lws_diskcache_create() accepted
  * \param extant_cache_len: pointer to a size_t to take any extant cached file size
  *
  * This function is called when you want to find if the hashed name already
@@ -143,7 +163,7 @@ lws_diskcache_query(struct lws_diskcache_scan *lds, int is_bot,
 		    size_t *extant_cache_len);
 
 /**
- * lws_diskcache_query() - ensures the cache dir structure exists on disk
+ * lws_diskcache_finalize_name() - gives a created cache object its final name
  *
  * \param cache: The cache file temp name returned with LWS_DISKCACHE_QUERY_CREATING
  *

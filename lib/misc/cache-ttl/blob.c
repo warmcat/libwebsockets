@@ -152,7 +152,7 @@ blob_read(int fd, void *buf, size_t len)
 static int
 blob_prepare_dirs(const char *base)
 {
-	char dir[256];
+	char dir[LWS_DISKCACHE_DIR_MAX];
 	int n, m;
 
 	/* "<base>/x/y" must fit, or we would make some other dirs */
@@ -286,7 +286,7 @@ lws_cache_blob_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 		     void **ppay)
 {
 	lws_cache_blob_t *bc = (lws_cache_blob_t *)_c;
-	char path[256], hex[41];
+	char path[LWS_DISKCACHE_PATH_MAX], hex[41];
 	size_t extant;
 	uint8_t hdr[BLOB_HDR_LEN];
 	int fd, tries = 0;
@@ -363,7 +363,7 @@ lws_cache_blob_get(struct lws_cache_ttl_lru *_c, const char *specific_key,
 	lws_cache_blob_t *bc = (lws_cache_blob_t *)_c;
 	struct lws_cache_ttl_lru *l1 = _c;
 	uint8_t hdr[BLOB_HDR_LEN], *pay;
-	char path[256], hex[41];
+	char path[LWS_DISKCACHE_PATH_MAX], hex[41];
 	size_t extant, ulen;
 	lws_usec_t expiry;
 	int fd;
@@ -450,7 +450,7 @@ static int
 lws_cache_blob_invalidate(struct lws_cache_ttl_lru *_c, const char *wc_key)
 {
 	lws_cache_blob_t *bc = (lws_cache_blob_t *)_c;
-	char path[256], hex[41];
+	char path[LWS_DISKCACHE_PATH_MAX], hex[41];
 	struct stat s;
 	int fd;
 
