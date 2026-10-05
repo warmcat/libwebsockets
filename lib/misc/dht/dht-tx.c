@@ -422,12 +422,14 @@ fail:
 
 static void
 lws_dht_sb_pending_add(struct lws_dht_ctx *ctx, unsigned short seq,
-		       const struct sockaddr *sa, size_t salen)
+		       const struct sockaddr *sa, size_t salen,
+		       const lws_dht_hash_t *infohash)
 {
 	time_t now = (time_t)lws_now_secs();
 	int n, slot = 0;
 
-	if (salen > sizeof(ctx->sb_pending[0].ss))
+	if (salen > sizeof(ctx->sb_pending[0].ss) ||
+	    infohash->len > sizeof(ctx->sb_pending[0].ih))
 		return;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->sb_pending); n++) {
@@ -445,6 +447,9 @@ lws_dht_sb_pending_add(struct lws_dht_ctx *ctx, unsigned short seq,
 	ctx->sb_pending[slot].sslen	= salen;
 	ctx->sb_pending[slot].sent	= now;
 	ctx->sb_pending[slot].seq	= seq;
+	ctx->sb_pending[slot].ih_type	= infohash->type;
+	ctx->sb_pending[slot].ih_len	= infohash->len;
+	memcpy(ctx->sb_pending[slot].ih, infohash->id, infohash->len);
 }
 
 /* args: id, info_hash[, want] */
@@ -480,7 +485,7 @@ lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_
 
 	n = dht_send(ctx, buf, t.len, sa, salen);
 	if (n >= 0)
-		lws_dht_sb_pending_add(ctx, seq, sa, salen);
+		lws_dht_sb_pending_add(ctx, seq, sa, salen, infohash);
 
 	return n;
 

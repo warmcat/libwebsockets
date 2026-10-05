@@ -547,12 +547,13 @@ lws_dht_reply_pong(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 /*
  * Is this "sb" reply the answer to a subscribe we sent, from the node we
- * sent it to?  Each pending subscribe is answered once.
+ * sent it to?  Each pending subscribe is answered once.  If so, \p ih is
+ * set to the hash that subscribe was for.
  */
 
 static int
 lws_dht_sb_pending_take(struct lws_dht_ctx *ctx, unsigned short seq,
-			const struct sockaddr *from)
+			const struct sockaddr *from, lws_dht_hash_t *ih)
 {
 	int n;
 
@@ -564,6 +565,9 @@ lws_dht_sb_pending_take(struct lws_dht_ctx *ctx, unsigned short seq,
 		    dht_sa_same_peer((const struct sockaddr *)
 				     &ctx->sb_pending[n].ss, from)) {
 			ctx->sb_pending[n].sslen = 0;
+			ih->type = ctx->sb_pending[n].ih_type;
+			ih->len	 = ctx->sb_pending[n].ih_len;
+			memcpy(ih->id, ctx->sb_pending[n].ih, ih->len);
 
 			return 1;
 		}
@@ -575,12 +579,17 @@ static void
 lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		    const struct sockaddr *from, size_t fromlen)
 {
+	/* the hash the request this answers was about */
+	uint8_t ihbuf[sizeof(lws_dht_hash_t) + LWS_GENHASH_LARGEST];
+	lws_dht_hash_t *ih = (lws_dht_hash_t *)ihbuf;
 	int gp = 0, bound = 0;
 #if defined(LWS_WITH_DHT_BACKEND)
 	struct search *sr = NULL;
 #endif
 	unsigned short ttid;
 	size_t offset;
+
+	ih->len = 0;
 
 	if (tid_match(mp->tid, "sb", &ttid)) {
 		/*
@@ -589,7 +598,7 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		 * sender: only a reply to a subscribe of ours, from where we
 		 * sent it, may surface one
 		 */
-		bound = lws_dht_sb_pending_take(ctx, ttid, from);
+		bound = lws_dht_sb_pending_take(ctx, ttid, from, ih);
 		if (!bound)
 			lwsl_dht_rx_warn("%s: subscribe reply with no subscribe "
 					 "outstanding\n", __func__);
@@ -757,10 +766,19 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 	/*
 	 * Only a token in reply to a request of ours to this node is news
-	 * for the app, the same as the values below
+	 * for the app, the same as the values below.  It is reported with
+	 * the hash that request was for, which is what the app must name
+	 * when it uses the token.
 	 */
-	if (bound && mp->token_len > 0 && ctx->cb)
-		(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_TOKEN, mp->id, mp->token,
+#if defined(LWS_WITH_DHT_BACKEND)
+	if (sr && sr->id && sr->id->len <= LWS_GENHASH_LARGEST) {
+		ih->type = sr->id->type;
+		ih->len	 = sr->id->len;
+		memcpy(ih->id, sr->id->id, ih->len);
+	}
+#endif
+	if (bound && ih->len && mp->token_len > 0 && ctx->cb)
+		(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_TOKEN, ih, mp->token,
 			   mp->token_len, from, fromlen);
 
 	if (mp->values_len > 0 || mp->values6_len > 0) {

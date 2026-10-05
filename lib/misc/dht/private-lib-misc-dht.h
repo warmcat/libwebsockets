@@ -303,6 +303,10 @@ struct lws_dht_ctx {
 		size_t			sslen;	/* 0 = free */
 		time_t			sent;
 		unsigned short		seq;
+		/* the hash subscribed to, reported with the token */
+		uint8_t			ih_type;
+		uint8_t			ih_len;
+		uint8_t			ih[LWS_GENHASH_LARGEST];
 	} sb_pending[LWS_DHT_MAX_PENDING_SUBSCRIBES];
 
 #if defined(LWS_WITH_DHT_BACKEND)

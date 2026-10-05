@@ -10,7 +10,7 @@
  *  - a subscribe request from A is answered by B through the same
  *    closest-nodes + token reply path a get_peers reply uses; A parses
  *    the cursor-built reply and the token surfaces as the
- *    LWS_DHT_EVENT_TOKEN callback
+ *    LWS_DHT_EVENT_TOKEN callback, naming the hash A subscribed to
  *  - A returns that token in a subscribe_confirm with a 16-byte tid, so B
  *    registers A as a subscriber; B's notify reaches A, and A's ack (which
  *    echoes the 16-byte tid) clears B's pending notification, so notifying
@@ -81,6 +81,7 @@ static struct sockaddr_in raw_tx_to;
 
 struct seen {
 	unsigned char token_ok:1;	/* A got B's get_peers token */
+	unsigned char token_ih_bad:1;	/* ... for some other hash */
 	unsigned char confirmed:1;	/* A sent B its subscribe_confirm */
 	unsigned char notified:1;	/* B sent A a notify */
 	unsigned char notify_ok:1;	/* A got B's notify */
@@ -110,20 +111,35 @@ struct seen {
 static struct seen sv;
 static int retcode = 1;
 
+static lws_dht_hash_t *
+sub_hash(void);
+
 static void
 cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
      size_t fromlen)
 {
+	lws_dht_hash_t *ih;
+
 	(void)closure;
-	(void)info_hash;
 	(void)from;
 	(void)fromlen;
 
 	switch (event) {
 	case LWS_DHT_EVENT_TOKEN:
-		/* B's get_peers reply carries the anti-spoof token */
+		/*
+		 * B's subscribe reply carries the anti-spoof token, reported
+		 * with the hash we subscribed to: that is what we must
+		 * confirm with it
+		 */
 		if (data_len == 8 && !sv.token_ok) {
+			ih = sub_hash();
+			if (!ih || !info_hash || info_hash->len != ih->len ||
+			    info_hash->type != ih->type ||
+			    memcmp(info_hash->id, ih->id, ih->len))
+				sv.token_ih_bad = 1;
+			if (ih)
+				lws_dht_hash_destroy(&ih);
 			memcpy(token, data, data_len);
 			token_len = data_len;
 			sv.token_ok = 1;
@@ -523,7 +539,8 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * find_node was well-formed on the wire and understood by A.
 	 */
 
-	if (sv.token_ok && sv.acked && !sv.dup_sub && sv.data_ok && sv.cap_ok &&
+	if (sv.token_ok && !sv.token_ih_bad && sv.acked && !sv.dup_sub &&
+	    sv.data_ok && sv.cap_ok &&
 	    sv.dead_failed &&
 	    sv.extip_ok && !sv.extip_bad &&
 	    sv.samid_ok && !sv.samid_bad &&
@@ -706,6 +723,11 @@ int main(int argc, const char **argv)
 			}
 			if (!sv.token_ok) {
 				lwsl_err("A never received B's subscription token\n");
+				fails++;
+			}
+			if (sv.token_ih_bad) {
+				lwsl_err("A's subscription token was not reported "
+					 "with the hash it subscribed to\n");
 				fails++;
 			}
 			if (sv.dup_sub) {
