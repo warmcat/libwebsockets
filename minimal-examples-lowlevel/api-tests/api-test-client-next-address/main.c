@@ -137,6 +137,10 @@ callback_fake_ns(struct lws *wsi, enum lws_callback_reasons reason,
 	queries++;
 
 	fd = lws_get_socket_fd(wsi);
+	if (fd == LWS_SOCK_INVALID) {
+		lwsl_err("%s: no socket to answer on\n", __func__);
+		return 0;
+	}
 	n = sendto(fd,
 #if defined(WIN32)
 		   (const char *)
