@@ -742,6 +742,27 @@ bail:
 #endif
 }
 
+#if defined(LWS_HAVE_MBEDTLS_V4)
+/*
+ * Compare two big-endian unsigned integers of possibly different lengths,
+ * ignoring leading zeros, as mbedtls_mpi_cmp_mpi() does on mbedtls 3
+ */
+static int
+lws_mbedtls_uint_cmp(const uint8_t *a, size_t al, const uint8_t *b, size_t bl)
+{
+	while (al && !*a) {
+		a++;
+		al--;
+	}
+	while (bl && !*b) {
+		b++;
+		bl--;
+	}
+
+	return al != bl || (al && memcmp(a, b, al));
+}
+#endif
+
 int
 lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			 void *pem, size_t len, const char *passphrase)
@@ -770,9 +791,9 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	mbedtls_pk_get_psa_attributes(&pk, PSA_KEY_USAGE_SIGN_HASH, &attr);
 	psa_key_type_t type = psa_get_key_type(&attr);
 
-	unsigned char *p = der + sizeof(der) - der_len;
+	unsigned char *p = der + sizeof(der) - der_len, *d;
 	const unsigned char *end = der + sizeof(der);
-	size_t asn1_len;
+	size_t asn1_len, dlen;
 
 	if (PSA_KEY_TYPE_IS_RSA(type)) {
 		if (jwk->kty != LWS_GENCRYPTO_KTY_RSA) {
@@ -866,65 +887,6 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			goto bail;
 		}
 
-		/*
-		 * Without this, any other key on the same curve is accepted,
-		 * since every P-256 x is 32 bytes... confirm the public point
-		 * belongs to this private key, the way the RSA arm above
-		 * confirms N and E
-		 */
-
-		{
-			unsigned char pub[256], *pp = pub + sizeof(pub);
-			mbedtls_mpi tmpX, tmpY, qX, qY;
-			int pl, match = 0;
-			size_t coord_len;
-
-			pl = mbedtls_pk_write_pubkey(&pp, pub, &pk);
-			if (pl < 3 || !(pl & 1) || pp[0] != 0x04) {
-				lwsl_err("%s: no usable EC pubkey point\n",
-					 __func__);
-				goto bail;
-			}
-
-			coord_len = ((size_t)pl - 1) / 2;
-
-			if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
-			    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf) {
-				lwsl_err("%s: jwk has no EC pubkey\n", __func__);
-				goto bail;
-			}
-
-			mbedtls_mpi_init(&tmpX);
-			mbedtls_mpi_init(&tmpY);
-			mbedtls_mpi_init(&qX);
-			mbedtls_mpi_init(&qY);
-
-			mbedtls_mpi_read_binary(&tmpX,
-				jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
-				jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-			mbedtls_mpi_read_binary(&tmpY,
-				jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
-				jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-			mbedtls_mpi_read_binary(&qX, pp + 1, coord_len);
-			mbedtls_mpi_read_binary(&qY, pp + 1 + coord_len,
-					        coord_len);
-
-			if (mbedtls_mpi_cmp_mpi(&tmpX, &qX) ||
-			    mbedtls_mpi_cmp_mpi(&tmpY, &qY))
-				lwsl_err("%s: EC privkey doesn't match jwk "
-					 "pubkey\n", __func__);
-			else
-				match = 1;
-
-			mbedtls_mpi_free(&tmpX);
-			mbedtls_mpi_free(&tmpY);
-			mbedtls_mpi_free(&qX);
-			mbedtls_mpi_free(&qY);
-
-			if (!match)
-				goto bail;
-		}
-
 		/* ECPrivateKey ::= SEQUENCE */
 		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) goto bail;
 		/* version Version */
@@ -932,12 +894,54 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		p += asn1_len;
 		/* privateKey OCTET STRING */
 		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_OCTET_STRING)) goto bail;
-		
-		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc(asn1_len, "jwk_D");
-		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf) goto bail;
-		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (uint32_t)asn1_len;
-		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf, p, asn1_len);
+		d = p;
+		dlen = asn1_len;
 		p += asn1_len;
+
+		/*
+		 * Without this, any other key on the same curve is accepted,
+		 * since every P-256 x is 32 bytes... confirm the public point
+		 * belongs to this private key, the way the RSA arm above
+		 * confirms N and E.  The point is the ECPrivateKey's optional
+		 * publicKey [1], after the optional parameters [0]
+		 */
+
+		if (!mbedtls_asn1_get_tag(&p, end, &asn1_len,
+					  MBEDTLS_ASN1_CONTEXT_SPECIFIC |
+					  MBEDTLS_ASN1_CONSTRUCTED | 0))
+			p += asn1_len;
+
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len,
+					 MBEDTLS_ASN1_CONTEXT_SPECIFIC |
+					 MBEDTLS_ASN1_CONSTRUCTED | 1) ||
+		    mbedtls_asn1_get_bitstring_null(&p, end, &asn1_len) ||
+		    asn1_len < 3 || !(asn1_len & 1) || p[0] != 0x04) {
+			lwsl_err("%s: no usable EC pubkey point\n", __func__);
+			goto bail;
+		}
+
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
+		    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf) {
+			lwsl_err("%s: jwk has no EC pubkey\n", __func__);
+			goto bail;
+		}
+
+		if (lws_mbedtls_uint_cmp(p + 1, (asn1_len - 1) / 2,
+				jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
+				jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len) ||
+		    lws_mbedtls_uint_cmp(p + 1 + (asn1_len - 1) / 2,
+				(asn1_len - 1) / 2,
+				jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
+				jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len)) {
+			lwsl_err("%s: EC privkey doesn't match jwk pubkey\n",
+				 __func__);
+			goto bail;
+		}
+
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc(dlen, "jwk_D");
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (uint32_t)dlen;
+		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf, d, dlen);
 
 	} else {
 		lwsl_err("%s: key type %d not supported\n", __func__, (int)type);
