@@ -285,4 +285,66 @@ acme_cert_leaf_len(const struct acme_cert_rx *crx);
 void
 acme_cert_rx_free(struct acme_cert_rx *crx);
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_AUTHORITATIVE_DNS)
+
+/*
+ * dns-01: waiting for the authoritative servers to serve the challenge, see
+ * acme-dns-wait.c
+ */
+
+#define ACME_DNS_MAX_NS			8
+#define ACME_DNS_WAIT_MAX_SERVERS	(ACME_DNS_MAX_NS * 4)
+
+/* a name server of the zone, with any addresses the zone gives it */
+struct acme_dns_ns {
+	char			host[256];
+	lws_sockaddr46		glue[4];
+	int			glue_count;
+};
+
+/* one address of a name server */
+struct acme_dns_server {
+	char			ns[256];
+	lws_sockaddr46		sa46;
+};
+
+/*
+ * The apex NS records of the zone text, into at most max entries of ns, with
+ * any A / AAAA the zone has for them.  Returns how many, or -1 if the zone
+ * doesn't parse.
+ */
+int
+acme_dns_zone_ns(const char *zone, size_t len, const char *domain,
+		 struct acme_dns_ns *ns, int max);
+
+/* is value one of the strings in this TXT RDATA? */
+int
+acme_dns_txt_has(const uint8_t *rdata, size_t len, const char *value);
+
+/*
+ * ok is 1 if every name server serves the TXT, else 0 with why naming the
+ * ones that didn't.  The wait is freed after this returns, so the handle
+ * must be forgotten here.
+ */
+typedef void (*acme_dns_wait_cb_t)(void *opaque, int ok, const char *why);
+
+struct acme_dns_wait;
+
+/*
+ * Ask every server directly, every interval, for TXT qname until each name
+ * server serves value, or timeout passes, then call back.  NULL if it could
+ * not start, when cb is not called.
+ */
+struct acme_dns_wait *
+acme_dns_wait_start(struct lws_context *cx, const char *qname,
+		    const char *value, const struct acme_dns_server *servers,
+		    int count, lws_usec_t timeout, lws_usec_t interval,
+		    acme_dns_wait_cb_t cb, void *opaque);
+
+/* stop waiting without calling back */
+void
+acme_dns_wait_destroy(struct acme_dns_wait **pw);
+
+#endif
+
 #endif

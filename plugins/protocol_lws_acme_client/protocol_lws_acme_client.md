@@ -116,12 +116,23 @@ The DNS plugin hands the challenge TXT to the `lws-dht-dnssec-monitor` root
 process over IPC, which merges it into the domain's zone and signs it again;
 lwsws then publishes the new signed zone to the DHT, where the domain's
 authoritative servers pick it up.  The plugin watches for the zone's
-`.zone.signed.jws` being rewritten after it handed the TXT over, then allows
-20s for the DHT before asking the ACME server to validate.  If the zone is not
-signed within 3 minutes (eg, it uses `${EXTIP4}` / `${EXTIP6}` and the external
-addresses are not known yet), the attempt fails without the ACME server being
-asked, so it doesn't count as a failed validation, and the usual backoff
-applies.
+`.zone.signed.jws` being rewritten after it handed the TXT over.  If the zone
+is not signed within 3 minutes (eg, it uses `${EXTIP4}` / `${EXTIP6}` and the
+external addresses are not known yet), the attempt fails without the ACME
+server being asked, so it doesn't count as a failed validation, and the usual
+backoff applies.
+
+Once it is signed, the plugin asks the zone's name servers (its apex `NS`
+records, at the addresses the zone gives them or that they resolve to)
+directly, every 2s, for `_acme-challenge.<domain>` TXT, and only asks the ACME
+server to validate when every one of them serves the challenge: a resolver
+asking too soon could cache that there is no such record.  A name server
+counts when one of its addresses answers with the challenge and none answers
+without it; an address that doesn't answer at all, eg, over IPv6 from a host
+with no IPv6 route, is ignored.  If they don't all serve it within 3 minutes,
+the attempt fails the same way, and the log names the ones that didn't.  If
+the zone has no usable `NS` records, or none of them can be looked up, the
+plugin falls back to allowing 20s after signing.
 
 ## Example Certificate JSON Configurations (`$dns_base_dir/domains/<domain-name>/conf.d/*.json`)
 

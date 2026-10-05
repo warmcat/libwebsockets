@@ -12,7 +12,7 @@ if (requirements)
 	require_lws_config(LWS_ROLE_WS 1 req_dns)
 	if (req_dns)
 		create_plugin(protocol_lws_acme_client_dns ""
-				  "protocol_lws_acme_client_dns.c" "" "")
+				  "protocol_lws_acme_client_dns.c;acme-dns-wait.c" "" "")
 		if (NOT LWS_WITH_PLUGINS_BUILTIN)
 			target_compile_definitions(protocol_lws_acme_client_dns PRIVATE LWS_BUILDING_SHARED)
 		endif()
