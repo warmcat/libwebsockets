@@ -22,6 +22,7 @@
  *    defers it to a fetch when the limit ends
  *  - a newer serial from S once the minimum interval has passed is fetched
  *    at once, which also covers the deferred one
+ *  - P's routing table, with S in it, can be logged as a broadcast does
  */
 
 #include <libwebsockets.h>
@@ -177,6 +178,10 @@ subt_step_cb(lws_sorted_usec_list_t *sul)
 			subt_expect(lws_dll2_is_detached(&sub->sul_refetch.list),
 				    "a newer serial from the holder is fetched "
 				    "at once, covering the deferred one");
+			/* what a broadcast logs about the nodes it tells */
+			subt_expect(lws_dht_foreach_node(vhd->dht, AF_INET,
+					dht_dnssec_log_node_cb, NULL) >= 1,
+				    "P's routing table is logged");
 			goto done;
 		}
 		if (now - t_step > 3 * LWS_US_PER_SEC) {

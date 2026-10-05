@@ -636,6 +636,40 @@ dht_dnssec_sul_sub_refetch_cb(lws_sorted_usec_list_t *sul)
 	do_fetch_zone(vhd->context, &args);
 }
 
+/*
+ * Only the nodes the DHT holds as good are told of a new zone: say what it
+ * holds about each node, so a missing one can be seen and explained
+ */
+
+static int
+dht_dnssec_log_node_cb(void *user, const lws_dht_node_info_t *ni)
+{
+	char ads[64], id[16], heard[24], replied[24];
+	uint16_t port = ni->sa->sa_family == AF_INET ?
+			((const struct sockaddr_in *)ni->sa)->sin_port :
+			((const struct sockaddr_in6 *)ni->sa)->sin6_port;
+
+	lws_sa46_write_numeric_address((lws_sockaddr46 *)ni->sa, ads,
+				       sizeof(ads));
+	lws_hex_from_byte_array(ni->id->id, ni->id->len < 6 ? ni->id->len : 6,
+				id, sizeof(id));
+	if (ni->heard < 0)
+		lws_strncpy(heard, "never", sizeof(heard));
+	else
+		lws_snprintf(heard, sizeof(heard), "%lds ago", ni->heard);
+	if (ni->replied < 0)
+		lws_strncpy(replied, "never", sizeof(replied));
+	else
+		lws_snprintf(replied, sizeof(replied), "%lds ago", ni->replied);
+
+	lwsl_notice("%s:   %s:%u id %s.. %s, heard %s, replied %s, "
+		    "%d unanswered, bep42 %s\n", __func__, ads, ntohs(port),
+		    id, ni->good ? "good" : "NOT good", heard, replied,
+		    ni->pinged, ni->bep42_ok ? "ok" : "no");
+
+	return 0;
+}
+
 static void
 dht_dnssec_broadcast_notify(struct vhd_dht_dnssec *vhd, const char *domain, uint64_t soa_serial)
 {
@@ -650,6 +684,12 @@ dht_dnssec_broadcast_notify(struct vhd_dht_dnssec *vhd, const char *domain, uint
 
 	lwsl_user("%s: Broadcasting SOA %llu for %s to %d IPv4 and %d IPv6 peers\n",
 		  __func__, (unsigned long long)soa_serial, domain, num_v4, num_v6);
+
+	lwsl_notice("%s: routing table (only good nodes are told):\n", __func__);
+	lws_dht_foreach_node(vhd->dht, AF_INET, dht_dnssec_log_node_cb, NULL);
+#if defined(LWS_WITH_IPV6)
+	lws_dht_foreach_node(vhd->dht, AF_INET6, dht_dnssec_log_node_cb, NULL);
+#endif
 
 	for (i = 0; i < num_v4; i++) {
 		lws_sockaddr46 sa;
