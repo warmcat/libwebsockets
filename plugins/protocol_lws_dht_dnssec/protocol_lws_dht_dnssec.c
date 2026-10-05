@@ -3374,6 +3374,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
 		struct lws_dht_dnssec_subscribed_domain *sub;
 		uint8_t tid[16], current_payload_hash[32];
+		/* what may point into cli_hex, so it lives as long as what */
+		char cli_hex[LWS_GENHASH_LARGEST * 2 + 1];
 		const char *what = NULL;
 
 		/*
@@ -3391,7 +3393,6 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			what = sub->domain;
 		else if (vhd->cli_get_hash || vhd->cli_get_domain) {
 			char hex[LWS_GENHASH_LARGEST * 2 + 1];
-			char cli_hex[LWS_GENHASH_LARGEST * 2 + 1];
 			const char *get_hash = vhd->cli_get_hash;
 			struct dht_fragment *frag;
 
