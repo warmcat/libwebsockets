@@ -23,14 +23,18 @@ complete with a 200 and the whole body within 20s.
 In builds without the async queue, or with `LWS_MAX_SMP` 1, every accept is
 inline anyway, and the test checks that all connections are served.
 
-The server uses `api-test-ws-close`'s `localhost-100y` test certificate, and
-the clients accept it as self-signed.
+The server uses this dir's `localhost-100y` test certificate, and the clients
+accept it as self-signed.  Its key is RSA-2048 on purpose: the burst's accepts
+arrive together, so one service pass signs a handshake for each of them before
+any client hears back, and with an RSA-4096 key that took longer than the 15s
+tls timeout on slow boards, for example riscv with mbedtls 2.x, or mbedtls 4,
+whose RSA private operation is several times slower than 3.x's.
 
 ## Running it
 
 ```
-$ lws-api-test-tls-accept-async -p 7681 --certs ../api-test-ws-close
-$ lws-api-test-tls-accept-async -p 7681 --certs ../api-test-ws-close --fault-injection async_queue_full
+$ lws-api-test-tls-accept-async -p 7681
+$ lws-api-test-tls-accept-async -p 7681 --fault-injection async_queue_full
 ```
 
 |Option|Meaning|

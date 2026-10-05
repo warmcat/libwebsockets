@@ -27,8 +27,10 @@ require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	# the server uses api-test-ws-close's test certificate
-	set(TAAQ_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
+	# the server's own RSA-2048 test certificate: every accept of the
+	# burst signs with it in one service pass, so RSA-4096 there blocks
+	# slow boards (riscv, mbedtls 4's constant-time RSA) past timeout_secs
+	set(TAAQ_CERTS ${CMAKE_CURRENT_SOURCE_DIR})
 
 	lws_get_free_port(PORT_TLS_ACCEPT_ASYNC)
 
