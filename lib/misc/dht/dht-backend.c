@@ -63,6 +63,41 @@ lws_dht_nodes(struct lws_dht_ctx *ctx, int af, int *good_return, int *dubious_re
 	return good + dubious;
 }
 
+int
+lws_dht_foreach_node(struct lws_dht_ctx *ctx, int af, lws_dht_node_cb_t cb,
+		     void *user)
+{
+	lws_dll2_owner_t *bo = af == AF_INET ? &ctx->buckets : &ctx->buckets6;
+	lws_dht_node_info_t ni;
+	int count = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, db, lws_dll2_get_head(bo)) {
+		struct bucket *b = lws_container_of(db, struct bucket, list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&b->nodes)) {
+			struct node *n = lws_container_of(d, struct node, list);
+
+			memset(&ni, 0, sizeof(ni));
+			ni.id		= n->id;
+			ni.sa		= (const struct sockaddr *)&n->ss;
+			ni.salen	= n->sslen;
+			ni.heard	= n->time ? (long)(ctx->now - n->time) : -1;
+			ni.replied	= n->reply_time ?
+					  (long)(ctx->now - n->reply_time) : -1;
+			ni.pinged	= n->pinged;
+			ni.good		= !!node_good(ctx, n);
+			ni.bep42_ok	= !!n->bep42_ok;
+
+			count++;
+			if (cb(user, &ni))
+				return count;
+		} lws_end_foreach_dll(d);
+	} lws_end_foreach_dll(db);
+
+	return count;
+}
+
 static int
 check_pending_notifications(struct lws_dht_ctx *ctx)
 {

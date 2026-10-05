@@ -556,6 +556,52 @@ lws_dht_nodes(struct lws_dht_ctx *ctx, int af, int *good_return, int *dubious_re
 	      int *cached_return, int *incoming_return);
 
 /**
+ * struct lws_dht_node_info - one routing table entry, for lws_dht_foreach_node()
+ *
+ * \param id: the node id it uses
+ * \param sa: the endpoint we know it at
+ * \param salen: length of \p sa
+ * \param heard: seconds since anything came from it, or -1 if nothing has
+ * \param replied: seconds since it last answered something we sent it, or -1
+ *		  if it never has
+ * \param pinged: how many requests we have sent it since it last answered
+ * \param good: whether it counts as good, eg, for lws_dht_get_nodes()
+ * \param bep42_ok: whether its id is bound to its address as BEP42 says (or
+ *		   its address is private)
+ *
+ * Everything pointed to is only valid during the callback.
+ */
+typedef struct lws_dht_node_info {
+	const lws_dht_hash_t		*id;
+	const struct sockaddr		*sa;
+	size_t				salen;
+	long				heard;
+	long				replied;
+	int				pinged;
+	uint8_t				good:1;
+	uint8_t				bep42_ok:1;
+} lws_dht_node_info_t;
+
+typedef int (*lws_dht_node_cb_t)(void *user, const lws_dht_node_info_t *ni);
+
+/**
+ * lws_dht_foreach_node() - visit each node in a routing table
+ *
+ * \param ctx: DHT context
+ * \param af: which table, AF_INET or AF_INET6
+ * \param cb: called with each node, return nonzero to stop
+ * \param user: passed to \p cb
+ *
+ * Lets the application see, eg, why a node it expects to be good is not.
+ * The table must not be changed from \p cb.
+ *
+ * \return how many nodes \p cb was called with.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_foreach_node(struct lws_dht_ctx *ctx, int af, lws_dht_node_cb_t cb,
+		     void *user);
+
+/**
  * lws_dht_dump_tables() - Log the state of DHT routing tables
  *
  * \param ctx: DHT context

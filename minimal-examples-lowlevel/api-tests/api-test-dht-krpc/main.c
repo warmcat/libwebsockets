@@ -16,6 +16,8 @@
  *    echoes the 16-byte tid) clears B's pending notification, so notifying
  *    the same content again finds nothing to send.  A confirms twice, with
  *    different tids: that renews its one subscription, so B notifies once
+ *  - lws_dht_foreach_node() shows B in A's table as good, at B's port,
+ *    having answered A
  *  - A's neighbourhood maintenance issues a find_node to its only node
  *    within a few seconds (tx_find_node on A, rx_find_node on B)
  *  - a reliable-transport data datagram from A is reassembled by B's
@@ -82,6 +84,7 @@ static struct sockaddr_in raw_tx_to;
 struct seen {
 	unsigned char token_ok:1;	/* A got B's get_peers token */
 	unsigned char token_ih_bad:1;	/* ... for some other hash */
+	unsigned char table_ok:1;	/* foreach shows B good in A's table */
 	unsigned char confirmed:1;	/* A sent B its subscribe_confirm */
 	unsigned char notified:1;	/* B sent A a notify */
 	unsigned char notify_ok:1;	/* A got B's notify */
@@ -113,6 +116,19 @@ static int retcode = 1;
 
 static lws_dht_hash_t *
 sub_hash(void);
+
+static int
+table_b_cb(void *user, const lws_dht_node_info_t *ni)
+{
+	const struct sockaddr_in *sin = (const struct sockaddr_in *)ni->sa;
+
+	if (ni->sa->sa_family == AF_INET && sin->sin_port == sa_b.sin_port &&
+	    ni->good && ni->replied >= 0 && ni->heard >= 0 &&
+	    ni->id->len == 20 && ni->id->id[0] == 0x22)
+		*(int *)user = 1;
+
+	return 0;
+}
 
 static void
 cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
@@ -521,10 +537,12 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 */
 
 	if (!sv.probed) {
-		int good = 0;
+		int good = 0, seen = 0;
 
 		lws_dht_nodes(dht_a, AF_INET, &good, NULL, NULL, NULL);
 		if (good) {
+			lws_dht_foreach_node(dht_a, AF_INET, table_b_cb, &seen);
+			sv.table_ok = !!seen;
 			sv.probed = 1;
 			lws_dht_test_external_ips(dht_a);
 		}
@@ -539,7 +557,8 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * find_node was well-formed on the wire and understood by A.
 	 */
 
-	if (sv.token_ok && !sv.token_ih_bad && sv.acked && !sv.dup_sub &&
+	if (sv.token_ok && !sv.token_ih_bad && sv.table_ok && sv.acked &&
+	    !sv.dup_sub &&
 	    sv.data_ok && sv.cap_ok &&
 	    sv.dead_failed &&
 	    sv.extip_ok && !sv.extip_bad &&
@@ -723,6 +742,11 @@ int main(int argc, const char **argv)
 			}
 			if (!sv.token_ok) {
 				lwsl_err("A never received B's subscription token\n");
+				fails++;
+			}
+			if (!sv.table_ok) {
+				lwsl_err("A's table didn't show B as a good "
+					 "node that answered it\n");
 				fails++;
 			}
 			if (sv.token_ih_bad) {
