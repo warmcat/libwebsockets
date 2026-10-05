@@ -118,8 +118,7 @@ fx_tx_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 	size_t room = sizeof(p->tx) - LWS_PRE;
 	uint8_t *h;
 
-	if (p->txlen > room || len > room - p->txlen ||
-	    9 > room - p->txlen - len) {
+	if (len > room - 9 || p->txlen > room - 9 - len) {
 		lwsl_err("%s: fixture tx overflow\n", __func__);
 		return;
 	}
