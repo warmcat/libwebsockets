@@ -870,20 +870,17 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			goto resume;
 		}
 
-		if (!wsi->io->do_bind && !wsi->io->pf_packet) {
-#if !defined(__APPLE__)
-			if (connect(sock.sockfd, sa46_sockaddr(&s->dest),
-				    sa46_socklen(&s->dest)) == -1 &&
-			    errno != EADDRNOTAVAIL /* openbsd */ ) {
-				lwsl_err("%s: conn fd %d fam %d %s:%u failed "
-					 "errno %d\n", __func__, sock.sockfd,
-					 s->dest.sa4.sin_family,
-					 ads ? ads : "null", wsi->c_port,
-					 LWS_ERRNO);
-				compatible_close(sock.sockfd);
-				goto resume;
-			}
-#endif
+		if (!wsi->io->do_bind && !wsi->io->pf_packet &&
+		    connect(sock.sockfd, sa46_sockaddr(&s->dest),
+			    sa46_socklen(&s->dest)) == -1 &&
+		    errno != EADDRNOTAVAIL /* openbsd */ ) {
+			lwsl_err("%s: conn fd %d fam %d %s:%u failed "
+				 "errno %d\n", __func__, sock.sockfd,
+				 s->dest.sa4.sin_family,
+				 ads ? ads : "null", wsi->c_port,
+				 LWS_ERRNO);
+			compatible_close(sock.sockfd);
+			goto resume;
 		}
 
 		if (wsi->io->udp)
@@ -1059,33 +1056,31 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 	if (!wsi->io->do_bind && !wsi->io->pf_packet) {
 		/*
-		 * The connect() is compiled out on Apple since dacae3a95
-		 * (2020, "osx: do not connect udp"): unlike linux or windows,
-		 * OSX blanket-rejects the subsequent sendto() with EISCONN,
-		 * so every UDP tx on a connected socket failed there.
+		 * Connected on every platform, so the kernel filters what
+		 * reaches us to datagrams from the peer, and an ICMP refusal
+		 * from it comes back as a socket error: BSD stacks deliver
+		 * those only to a connected UDP socket.
 		 *
-		 * Since 6059d830f2, lws_ssl_capable_write_no_ssl() retries a
-		 * sendto() that came back EISCONN with a NULL destination, so
-		 * the original reason may well have gone away... but it is
-		 * left as it was until Sai shows otherwise, since we do not
-		 * have to rely on the kernel-level filter this provides:
-		 * callback_async_dns() checks the source of every answer
-		 * itself, on every platform, and restores the chosen server
-		 * to wsi->io->udp->sa46 before doing it, since recvfrom() left
+		 * dacae3a95 (2020) compiled this out on Apple, since OSX
+		 * rejects a sendto() naming a destination on a connected
+		 * socket with EISCONN; lws_ssl_capable_write_no_ssl() retries
+		 * that with a NULL destination since 6059d830f2.  Without the
+		 * connect(), a lws_async_dns_query_direct() to a port nothing
+		 * listens on timed out on Apple instead of failing at once.
+		 *
+		 * callback_async_dns() still checks the source of every
+		 * answer itself, and restores the chosen server to
+		 * wsi->io->udp->sa46 before doing it, since recvfrom() left
 		 * the datagram's source (which is also the send target)
 		 * there.  See the "resolver source-check legs" in
-		 * ./minimal-examples-lowlevel/api-tests/api-test-async-dns,
-		 * which prove that check and the plain resolver round trip
-		 * against a fake nameserver on loopback, connect()ed or not.
+		 * ./minimal-examples-lowlevel/api-tests/api-test-async-dns.
 		 */
-#if !defined(__APPLE__)
 		if (connect(sock.sockfd, sa46_sockaddr(&dest),
 			    sa46_socklen(&dest)) == -1 &&
 		    errno != EADDRNOTAVAIL) {
 			lwsl_err("%s: conn failed\n", __func__);
 			goto resume;
 		}
-#endif
 	}
 
 	if (wsi->io->udp)

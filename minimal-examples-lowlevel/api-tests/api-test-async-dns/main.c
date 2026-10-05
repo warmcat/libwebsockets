@@ -555,19 +555,19 @@ bail:
  * Resolver source-check legs (C-433).
  *
  * An answer only means anything if it came from the nameserver we asked.
- * On most platforms the resolver's UDP socket is connect()ed to the chosen
- * nameserver and the kernel enforces that for us, but that connect() is
- * compiled out on Apple (see lib/core-net/adopt.c), so the resolver does the
- * check itself in callback_async_dns() on every platform.  recvfrom() also
- * leaves the datagram's source in wsi->udp->sa46, which is the send target
- * too, so the chosen server has to be put back there before the check.
+ * The resolver's UDP socket is connect()ed to the chosen nameserver, so the
+ * kernel enforces that for us, but the resolver doesn't rely on it: it does
+ * the check itself in callback_async_dns() as well, which also covers a stack
+ * that doesn't filter connected UDP sockets (see lib/io/adopt.c).
+ * recvfrom() also leaves the datagram's source in wsi->udp->sa46, which is
+ * the send target too, so the chosen server has to be put back there before
+ * the check.
  *
  * Both legs stand a fake nameserver up on a loopback UDP socket of our own
  * and point a private context's resolver at it:
  *
  *  - the plain leg has that fake nameserver answer the query itself, and the
- *    query must complete with the address it gave.  That is what proves the
- *    resolver works whether or not its socket got connect()ed.
+ *    query must complete with the address it gave.
  *
  *  - the foreign leg has a second local socket, bound to a different port,
  *    answer first with a different address and the right tid.  That answer
