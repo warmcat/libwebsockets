@@ -787,8 +787,31 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 		lwsl_notice("%s: SAI_TASK_REASON_BUSY: Set busy: %s\n",
 				__func__, rej->task_uuid);
 		do_remove_uuid = 1;
-		sais_bind_task_to_builder(vhd, NULL, NULL, rej->task_uuid);
-		sais_set_task_state(vhd, rej->task_uuid, SAIES_WAITING, 0, 0);
+
+		sai_task_uuid_to_event_uuid(event_uuid, rej->task_uuid);
+		if (!sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
+				      vhd->sqlite3_path_lhs, event_uuid, 0, &pdb)) {
+			sais_rej_is_stale(pdb, rej, &build_step);
+			sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+		}
+
+		if (build_step > 0) {
+			/*
+			 * It refused a later step of a task it already
+			 * started.  The earlier steps' work is in its job
+			 * dir, so the task can only go on there: leave it
+			 * bound, waiting for its next step.  Making it WAITING
+			 * for anyone let another builder of the platform run
+			 * the next step in a job dir with no src/ tree.
+			 */
+			sais_set_task_state(vhd, rej->task_uuid,
+					    SAIES_STEP_SUCCESS, 0, 0);
+		} else {
+			sais_bind_task_to_builder(vhd, NULL, NULL,
+						  rej->task_uuid);
+			sais_set_task_state(vhd, rej->task_uuid,
+					    SAIES_WAITING, 0, 0);
+		}
 		sais_plat_busy(sp, 1);
 		break;
 

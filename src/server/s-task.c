@@ -484,10 +484,12 @@ bail:
 /*
  * Find a task that still needs doing for platform, on any event.
  *
- * Each repo with something startable for the platform puts forward its newest
- * event that has some, and the repos take turns: the one the platform was
- * least recently given a task from goes first.  So a big push on one repo
- * doesn't hold up a push on another until every one of its tasks is done.
+ * A task the builder already started and that is waiting for its next step
+ * comes first.  Otherwise, each repo with something startable for the
+ * platform puts forward its newest event that has some, and the repos take
+ * turns: the one the platform was least recently given a task from goes
+ * first.  So a big push on one repo doesn't hold up a push on another until
+ * every one of its tasks is done.
  */
 static const sai_task_t *
 sais_task_pending(struct vhd *vhd, struct pss *pss, sai_plat_t *cb,
@@ -495,7 +497,7 @@ sais_task_pending(struct vhd *vhd, struct pss *pss, sai_plat_t *cb,
 {
 	const sai_event_t *cand[SAIS_PENDING_EVENTS];
 	lws_usec_t cand_served[SAIS_PENDING_EVENTS];
-	char esc_plat[96], esc_bname[128], pf[256], query[384];
+	char esc_plat[96], esc_bname[128], pf[512], query[384];
 	struct lwsac *ac = NULL;
 	unsigned int pending_count;
 	int n, m, i, cands = 0;
@@ -538,18 +540,61 @@ sais_task_pending(struct vhd *vhd, struct pss *pss, sai_plat_t *cb,
 
 	lws_start_foreach_dll(struct lws_dll2 *, p, o.head) {
 		sai_event_t *e = lws_container_of(p, sai_event_t, list);
+		lws_dll2_owner_t owner;
 		sqlite3 *pdb = NULL;
-
-		for (i = 0; i < cands; i++)
-			if (!strcmp(cand[i]->repo_name, e->repo_name))
-				break;
-		if (i != cands)
-			/* this repo already has a newer candidate */
-			continue;
 
 		if (sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
 				      vhd->sqlite3_path_lhs, e->uuid, 0, &pdb))
 			continue;
+
+		/*
+		 * A task this builder already started, waiting for its next
+		 * step, comes before anything new whatever repo it is from.
+		 * Its earlier steps' work is sitting in our job dir, which is
+		 * only safe from being reclaimed for a while, and starting new
+		 * tasks instead just eats more of the disk it is waiting for.
+		 */
+
+		lws_snprintf(pf, sizeof(pf),
+			     " and state=%d and idle=0 and platform='%s' and "
+			     "builder_name='%s' and run = (select max(run) "
+			     "from tasks t2 where tasks.uuid = t2.uuid)",
+			     SAIES_STEP_SUCCESS, esc_plat, esc_bname);
+
+		lwsac_free(&pss->ac_alloc_task);
+		lws_dll2_owner_clear(&owner);
+		n = lws_struct_sq3_deserialize(pdb, pf, "uid asc ",
+					       lsm_schema_sq3_map_task,
+					       &owner, &pss->ac_alloc_task, 0, 1);
+		if (n >= 0 && owner.count) {
+			sai_task_t *t = lws_container_of(owner.head,
+							 sai_task_t, list);
+
+			if (sais_check_and_fix_stale_task(pdb, t)) {
+				sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+				goto bail;
+			}
+
+			lwsl_info("%s: plat %s: continuing %s\n", __func__,
+				  platform, t->uuid);
+
+			memcpy(&pss->alloc_task, t, sizeof(pss->alloc_task));
+			lws_strncpy(pss->alloc_repo, e->repo_name,
+				    sizeof(pss->alloc_repo));
+			sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+			lwsac_free(&ac);
+
+			return &pss->alloc_task;
+		}
+
+		for (i = 0; i < cands; i++)
+			if (!strcmp(cand[i]->repo_name, e->repo_name))
+				break;
+		if (i != cands) {
+			/* this repo already has a newer candidate */
+			sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+			continue;
+		}
 
 		/*
 		 * Find out how many tasks in startable state for this platform,
