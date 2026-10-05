@@ -1223,6 +1223,10 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	X509_gmtime_adj(X509_get_notBefore(vhost->tls.ss->x509), 0);
 	X509_gmtime_adj(X509_get_notAfter(vhost->tls.ss->x509), 3600);
 
+#if defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
+	if (lws_tls_openssl_rsa_new_key(&vhost->tls.ss->pkey, 4096))
+		goto bail0;
+#else
 	vhost->tls.ss->pkey = EVP_PKEY_new();
 	if (!vhost->tls.ss->pkey)
 		goto bail0;
@@ -1232,6 +1236,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 	if (!EVP_PKEY_assign_RSA(vhost->tls.ss->pkey, vhost->tls.ss->rsa))
 		goto bail2;
+#endif
 
 	/*
 	 * From here the EVP_PKEY owns the RSA key, so any failure must unwind
@@ -1322,8 +1327,10 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 	return 0;
 
+#if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
 bail2:
 	RSA_free(vhost->tls.ss->rsa);
+#endif
 bail1:
 	EVP_PKEY_free(vhost->tls.ss->pkey);
 bail0:
@@ -1584,8 +1591,11 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 	pkey = EVP_PKEY_new();
 	if (!pkey)
 		goto bail0;
-	if (!EVP_PKEY_assign_EC_KEY(pkey, eckey))
-		goto bail1;
+	if (!EVP_PKEY_assign_EC_KEY(pkey, eckey)) {
+		/* the pkey didn't take ownership of the eckey */
+		EVP_PKEY_free(pkey);
+		goto bail0;
+	}
 #endif
 
 	req = X509_REQ_new();
@@ -1720,12 +1730,11 @@ bail2:
 bail1:
 	EVP_PKEY_free(pkey);
 	return ret;
-bail0:
 #if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
-	if (eckey)
-		EC_KEY_free(eckey);
-#endif
+bail0:
+	EC_KEY_free(eckey);
 	return -1;
+#endif
 #endif
 }
 #endif
