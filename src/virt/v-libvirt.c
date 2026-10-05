@@ -14,10 +14,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <libvirt/libvirt.h>
+#include <libvirt/virterror.h>
 
 #include "v-private.h"
 
-virConnectPtr conn;
+static virConnectPtr conn;
 
 static char *
 replace_string(const char *orig, const char *rep, const char *with)
@@ -72,15 +73,132 @@ strip_xml_tags(char *xml, const char *start_tag, const char *end_tag)
 	}
 }
 
+/*
+ * libvirtd / virtqemud can restart, or our connection can otherwise go stale,
+ * under us.  A dead connection stays dead, so check it and reopen on demand
+ * before every operation.
+ */
+
+static virConnectPtr
+saiv_libvirt_conn(void)
+{
+	if (conn) {
+		if (virConnectIsAlive(conn) == 1)
+			return conn;
+
+		lwsl_warn("%s: libvirt connection is dead, reopening\n",
+			  __func__);
+		virConnectClose(conn);
+		conn = NULL;
+	}
+
+	conn = virConnectOpen("qemu:///system");
+	if (!conn)
+		lwsl_err("%s: Failed to open connection to qemu:///system\n",
+			 __func__);
+
+	return conn;
+}
+
+/*
+ * After a failed lookup / action, distinguish "the domain doesn't exist" from
+ * "we couldn't find out" (eg, connection trouble)
+ */
+
+static int
+saiv_libvirt_no_domain(void)
+{
+	virErrorPtr e = virGetLastError();
+
+	return e && e->code == VIR_ERR_NO_DOMAIN;
+}
+
+static void
+saiv_libvirt_delete_overlay(virConnectPtr c, const char *vm_name)
+{
+	virStoragePoolPtr pool;
+	virStorageVolPtr vol;
+	char vol_name[128];
+
+	pool = virStoragePoolLookupByName(c, "sai_shm");
+	if (!pool)
+		return;
+
+	lws_snprintf(vol_name, sizeof(vol_name), "%s.qcow2", vm_name);
+	vol = virStorageVolLookupByName(pool, vol_name);
+	if (vol) {
+		if (virStorageVolDelete(vol, 0) < 0)
+			lwsl_err("%s: failed to delete overlay %s\n",
+				 __func__, vol_name);
+		virStorageVolFree(vol);
+	}
+	virStoragePoolFree(pool);
+}
+
+/*
+ * Is this a domain name we would generate, ie, "sai-vm-<plat name>-<n>"?
+ */
+
+static int
+saiv_libvirt_name_is_ours(struct sai_virt *virt, const char *name)
+{
+	char pfx[96];
+	size_t n;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, virt->plat_owner.head) {
+		saiv_plat_t *vp = lws_container_of(d, saiv_plat_t, list);
+		const char *q;
+
+		n = (size_t)lws_snprintf(pfx, sizeof(pfx), "sai-vm-%s-",
+					 vp->name);
+		if (strncmp(name, pfx, n) || !name[n])
+			continue;
+
+		for (q = name + n; *q >= '0' && *q <= '9'; q++)
+			;
+		if (!*q)
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 static int
 ops_libvirt_init(struct sai_virt *virt)
 {
-	conn = virConnectOpen("qemu:///system");
-	if (!conn) {
-		lwsl_err("Failed to open connection to qemu:///system\n");
+	virDomainPtr *doms = NULL;
+	virConnectPtr c;
+	int n, i;
+
+	c = saiv_libvirt_conn();
+	if (!c)
 		return 1;
+
+	/*
+	 * VMs left running by a previous sai-virt instance are unknown to us:
+	 * their /stay and /auto-power-off would be ignored, so they would run
+	 * forever, and their names would clash with what we spawn.
+	 */
+
+	n = virConnectListAllDomains(c, &doms,
+				     VIR_CONNECT_LIST_DOMAINS_TRANSIENT);
+	for (i = 0; i < n; i++) {
+		const char *name = virDomainGetName(doms[i]);
+
+		if (name && saiv_libvirt_name_is_ours(virt, name)) {
+			lwsl_warn("%s: destroying orphaned VM %s\n",
+				  __func__, name);
+			if (virDomainDestroy(doms[i]) < 0)
+				lwsl_err("%s: failed to destroy %s\n",
+					 __func__, name);
+			saiv_libvirt_delete_overlay(c, name);
+		}
+		virDomainFree(doms[i]);
 	}
+	free(doms);
+
 	lwsl_notice("%s: libvirt ops initialized\n", __func__);
+
 	return 0;
 }
 
@@ -90,6 +208,7 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 	virDomainPtr dom;
 	virStoragePoolPtr pool;
 	virStorageVolPtr vol;
+	virConnectPtr c;
 	char *xml, *xml2, *xml3;
 	char vol_xml[1024];
 	char overlay_path[256];
@@ -102,13 +221,33 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 	lwsl_notice("%s: Spawning ephemeral VM %s for platform: %s (base %s)\n", 
 			__func__, vm->name, vm->plat->name, vm->plat->base_image);
 
-	if (!conn)
+	c = saiv_libvirt_conn();
+	if (!c)
 		return 1;
 
+	/*
+	 * We pick a name nothing of ours is using... if the hypervisor still
+	 * has a domain by that name, it's a leftover nobody will ever clean
+	 * up, and it would make the create fail
+	 */
+	dom = virDomainLookupByName(c, vm->name);
+	if (dom) {
+		lwsl_warn("%s: stale domain %s exists, destroying it\n",
+			  __func__, vm->name);
+		if (virDomainDestroy(dom) < 0 && !saiv_libvirt_no_domain() &&
+		    virDomainIsActive(dom) != 0) {
+			lwsl_err("%s: unable to destroy stale domain %s\n",
+				 __func__, vm->name);
+			virDomainFree(dom);
+			return 1;
+		}
+		virDomainFree(dom);
+	}
+
 	/* 1. Ensure the /dev/shm storage pool exists */
-	pool = virStoragePoolLookupByName(conn, "sai_shm");
+	pool = virStoragePoolLookupByName(c, "sai_shm");
 	if (!pool) {
-		pool = virStoragePoolCreateXML(conn, shm_pool_xml, 0);
+		pool = virStoragePoolCreateXML(c, shm_pool_xml, 0);
 		if (!pool) {
 			lwsl_err("Failed to create transient shm storage pool\n");
 			return 1;
@@ -166,10 +305,10 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 	lws_snprintf(overlay_path, sizeof(overlay_path), "/dev/shm/%s.qcow2", vm->name);
 
 	/* 3. Get base domain XML and manipulate it */
-	dom = virDomainLookupByName(conn, vm->plat->name);
+	dom = virDomainLookupByName(c, vm->plat->name);
 	if (!dom) {
 		lwsl_err("Failed to find base domain %s\n", vm->plat->name);
-		return 1;
+		goto bail;
 	}
 
 	xml = virDomainGetXMLDesc(dom, 0);
@@ -177,7 +316,7 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 
 	if (!xml) {
 		lwsl_err("Failed to get XML for base domain\n");
-		return 1;
+		goto bail;
 	}
 
 	/* Replace <name>base</name> with <name>vm->name</name> */
@@ -194,7 +333,7 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 
 	if (!xml3) {
 		lwsl_err("Failed to manipulate XML\n");
-		return 1;
+		goto bail;
 	}
 
 	/* Inject qemu namespace into <domain> */
@@ -236,7 +375,7 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 
 	if (!xml5) {
 		lwsl_err("Failed to manipulate XML\n");
-		return 1;
+		goto bail;
 	}
 
 	/* Remove UUID so libvirt generates a new one, avoiding conflicts with the base VM */
@@ -245,55 +384,111 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 	strip_xml_tags(xml5, "<mac address=", "/>");
 
 	/* 4. Boot the transient domain */
-	dom = virDomainCreateXML(conn, xml5, 0);
+	dom = virDomainCreateXML(c, xml5, 0);
 	free(xml5);
 
 	if (!dom) {
 		lwsl_err("Failed to create transient domain %s\n", vm->name);
-		return 1;
+		goto bail;
 	}
 
 	virDomainFree(dom);
 	lwsl_notice("Successfully spawned ephemeral VM %s\n", vm->name);
 
 	return 0;
+
+bail:
+	saiv_libvirt_delete_overlay(c, vm->name);
+
+	return 1;
 }
+
+/*
+ * Returns 0 only if the domain is confirmed gone (and its overlay deleted).
+ * Otherwise the caller must keep the VM's name reserved and retry later.
+ */
 
 static int
 ops_libvirt_destroy(struct sai_virt *virt, struct saiv_vm *vm)
 {
 	virDomainPtr dom;
-	virStoragePoolPtr pool;
-	virStorageVolPtr vol;
-	char vol_name[128];
+	virConnectPtr c;
 
 	lwsl_notice("%s: Destroying ephemeral VM: %s\n", __func__, vm->name);
 
-	if (!conn)
+	c = saiv_libvirt_conn();
+	if (!c)
 		return 1;
 
-	dom = virDomainLookupByName(conn, vm->name);
+	dom = virDomainLookupByName(c, vm->name);
 	if (dom) {
-		virDomainDestroy(dom);
+		if (virDomainDestroy(dom) < 0 && !saiv_libvirt_no_domain() &&
+		    virDomainIsActive(dom) != 0) {
+			lwsl_err("%s: failed to destroy %s\n", __func__,
+				 vm->name);
+			virDomainFree(dom);
+			return 1;
+		}
 		virDomainFree(dom);
 	} else {
-		lwsl_warn("Domain %s not found during destroy\n", vm->name);
+		if (!saiv_libvirt_no_domain()) {
+			lwsl_err("%s: unable to look up %s\n", __func__,
+				 vm->name);
+			return 1;
+		}
+		lwsl_notice("%s: domain %s already gone\n", __func__,
+			    vm->name);
 	}
 
-	pool = virStoragePoolLookupByName(conn, "sai_shm");
-	if (pool) {
-		lws_snprintf(vol_name, sizeof(vol_name), "%s.qcow2", vm->name);
-		vol = virStorageVolLookupByName(pool, vol_name);
-		if (vol) {
-			virStorageVolDelete(vol, 0);
-			virStorageVolFree(vol);
-		} else {
-			lwsl_warn("Volume %s not found in pool sai_shm\n", vol_name);
-		}
-		virStoragePoolFree(pool);
-	}
+	saiv_libvirt_delete_overlay(c, vm->name);
 
 	return 0;
+}
+
+static int
+ops_libvirt_alive(struct sai_virt *virt, struct saiv_vm *vm)
+{
+	int state, reason, r = 1;
+	virDomainPtr dom;
+	virConnectPtr c;
+
+	c = saiv_libvirt_conn();
+	if (!c)
+		return -1;
+
+	dom = virDomainLookupByName(c, vm->name);
+	if (!dom)
+		return saiv_libvirt_no_domain() ? 0 : -1;
+
+	if (virDomainGetState(dom, &state, &reason, 0) < 0) {
+		r = saiv_libvirt_no_domain() ? 0 : -1;
+		goto out;
+	}
+
+	switch (state) {
+	case VIR_DOMAIN_SHUTOFF:
+	case VIR_DOMAIN_CRASHED:
+		r = 0;
+		break;
+	case VIR_DOMAIN_PAUSED:
+		/* it won't progress again, it's no use to anybody */
+		if (reason == VIR_DOMAIN_PAUSED_IOERROR) {
+			lwsl_err("%s: %s paused on I/O error (is the overlay "
+				 "storage in /dev/shm full?)\n", __func__,
+				 vm->name);
+			r = 0;
+		}
+		if (reason == VIR_DOMAIN_PAUSED_CRASHED) {
+			lwsl_err("%s: %s guest crashed\n", __func__, vm->name);
+			r = 0;
+		}
+		break;
+	}
+
+out:
+	virDomainFree(dom);
+
+	return r;
 }
 
 const sai_virt_ops_t ops_libvirt = {
@@ -301,4 +496,5 @@ const sai_virt_ops_t ops_libvirt = {
 	.init = ops_libvirt_init,
 	.spawn = ops_libvirt_spawn,
 	.destroy = ops_libvirt_destroy,
+	.alive = ops_libvirt_alive,
 };

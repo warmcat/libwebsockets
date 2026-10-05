@@ -24,7 +24,18 @@ typedef struct sai_virt_ops {
 	int (*init)(struct sai_virt *virt);
 	int (*spawn)(struct sai_virt *virt, struct saiv_vm *vm);
 	int (*destroy)(struct sai_virt *virt, struct saiv_vm *vm);
+	/* 1 = running, 0 = gone / can't make progress, -1 = can't tell */
+	int (*alive)(struct sai_virt *virt, struct saiv_vm *vm);
 } sai_virt_ops_t;
+
+/* a VM that never contacts us at all is given up on after this */
+#define SAIV_VM_FIRST_CONTACT_US	(5 * 60 * LWS_US_PER_SEC)
+/* builders poll /stay every 20s, tolerate a few late polls under load */
+#define SAIV_VM_STAY_TIMEOUT_US		(90 * LWS_US_PER_SEC)
+/* how often we check our VMs still exist, and retry failed spawns */
+#define SAIV_WATCH_INTERVAL_US		(15 * LWS_US_PER_SEC)
+/* retry interval for a VM the hypervisor didn't confirm destroyed */
+#define SAIV_DESTROY_RETRY_US		(10 * LWS_US_PER_SEC)
 
 typedef struct saiv_plat {
 	lws_dll2_t		list;
@@ -57,6 +68,8 @@ struct sai_virt {
 	struct lws_vhost	*vhost;
 
 	const sai_virt_ops_t	*ops;
+
+	lws_sorted_usec_list_t	sul_watch;
 
 	int			running_vms;
 	int			max_vms;
@@ -101,6 +114,9 @@ saiv_vm_timeout_cb(lws_sorted_usec_list_t *sul);
 
 void
 saiv_vm_destroy_cb(lws_sorted_usec_list_t *sul);
+
+void
+saiv_watch_cb(lws_sorted_usec_list_t *sul);
 
 void
 saiv_try_spawn(void);

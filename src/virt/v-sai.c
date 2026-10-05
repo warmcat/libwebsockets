@@ -95,9 +95,6 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	virt.ops = &ops_libvirt;
-	virt.ops->init(&virt);
-
 	virt.vhost = lws_create_vhost(virt.context, &info);
 	if (!virt.vhost) {
 		lwsl_err("lws init failed\n");
@@ -107,11 +104,24 @@ int main(int argc, const char **argv)
 	/* Parse platforms from /etc/sai/virt/conf.d */
 	saiv_config(&virt, "/etc/sai/virt/conf.d");
 
+	/*
+	 * After the platforms are known, so it can recognize VMs left over
+	 * from a previous run.  If the hypervisor isn't reachable now, the
+	 * ops reconnect on demand later.
+	 */
+	virt.ops = &ops_libvirt;
+	virt.ops->init(&virt);
+
 	/* Parse global configuration from /etc/sai/virt/conf */
 	saiv_config_global(&virt, "/etc/sai/virt/conf");
 
+	lws_sul_schedule(virt.context, 0, &virt.sul_watch, saiv_watch_cb,
+			 SAIV_WATCH_INTERVAL_US);
+
 	while (!lws_service(virt.context, 0) && !interrupted)
 		;
+
+	lws_sul_cancel(&virt.sul_watch);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, virt.sai_server_owner.head) {
 		saiv_server_t *s = lws_container_of(d, saiv_server_t, list);
@@ -130,6 +140,7 @@ int main(int argc, const char **argv)
 				virt.ops->destroy(&virt, vm);
 			lws_dll2_remove(v);
 			lws_sul_cancel(&vm->sul_timeout);
+			lws_sul_cancel(&vm->sul_destroy);
 			free(vm);
 		} lws_end_foreach_dll_safe(v, v1);
 

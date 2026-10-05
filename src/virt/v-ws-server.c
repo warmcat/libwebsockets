@@ -30,22 +30,39 @@ saiv_server_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len
 	return r;
 }
 
+/*
+ * Tear down a VM and forget it.  If the hypervisor didn't confirm it's gone,
+ * keep the record, so its name stays reserved and it still counts against
+ * max_vms, and try again shortly.  Callers should saiv_try_spawn() after.
+ */
+
+static void
+saiv_vm_reap(saiv_vm_t *vm, const char *why)
+{
+	lwsl_notice("%s: %s: %s\n", __func__, vm->name, why);
+
+	if (virt.ops && virt.ops->destroy(&virt, vm)) {
+		lwsl_err("%s: %s not confirmed destroyed, retrying in %ds\n",
+			 __func__, vm->name,
+			 (int)(SAIV_DESTROY_RETRY_US / LWS_US_PER_SEC));
+		lws_sul_schedule(virt.context, 0, &vm->sul_destroy,
+				 saiv_vm_destroy_cb, SAIV_DESTROY_RETRY_US);
+		return;
+	}
+
+	lws_sul_cancel(&vm->sul_timeout);
+	lws_sul_cancel(&vm->sul_destroy);
+	lws_dll2_remove(&vm->list);
+	virt.running_vms--;
+	free(vm);
+}
+
 void
 saiv_vm_destroy_cb(lws_sorted_usec_list_t *sul)
 {
 	saiv_vm_t *vm = lws_container_of(sul, saiv_vm_t, sul_destroy);
 
-	lwsl_notice("%s: delayed destruction of %s executing\n", __func__, vm->name);
-
-	if (virt.ops)
-		virt.ops->destroy(&virt, vm);
-
-	virt.running_vms--;
-
-	lws_dll2_remove(&vm->list);
-	lws_sul_cancel(&vm->sul_timeout);
-	free(vm);
-
+	saiv_vm_reap(vm, "delayed destruction executing");
 	saiv_try_spawn();
 }
 
@@ -56,15 +73,39 @@ saiv_vm_timeout_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_err("%s: VM %s timed out, purging\n", __func__, vm->name);
 
-	if (virt.ops)
-		virt.ops->destroy(&virt, vm);
+	saiv_vm_reap(vm, "timed out");
+	saiv_try_spawn();
+}
 
-	virt.running_vms--;
+/*
+ * Periodically check the VMs we think we have still exist and can make
+ * progress, so we notice ones that died or got stuck without telling us.
+ *
+ * sai-server only sends us pending tasks when they change, so this is also
+ * what retries spawning after a failure.
+ */
 
-	lws_dll2_remove(&vm->list);
-	free(vm);
+void
+saiv_watch_cb(lws_sorted_usec_list_t *sul)
+{
+	if (virt.ops && virt.ops->alive) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, virt.plat_owner.head) {
+			saiv_plat_t *vp = lws_container_of(d, saiv_plat_t, list);
+
+			lws_start_foreach_dll_safe(struct lws_dll2 *, v, v1,
+						   vp->vm_owner.head) {
+				saiv_vm_t *vm = lws_container_of(v, saiv_vm_t, list);
+
+				if (!virt.ops->alive(&virt, vm))
+					saiv_vm_reap(vm, "domain is gone or stuck");
+			} lws_end_foreach_dll_safe(v, v1);
+		} lws_end_foreach_dll(d);
+	}
 
 	saiv_try_spawn();
+
+	lws_sul_schedule(virt.context, 0, &virt.sul_watch, saiv_watch_cb,
+			 SAIV_WATCH_INTERVAL_US);
 }
 
 void
@@ -171,6 +212,7 @@ saiv_try_spawn(void)
 				virt.running_vms++;
 				winner->wait_magnification = 0;
 				if (virt.ops->spawn(&virt, vm)) {
+					/* saiv_watch_cb() will try again */
 					lwsl_err("%s: Failed to spawn VM %s\n", __func__, vm->name);
 					lws_dll2_remove(&vm->list);
 					free(vm);
@@ -180,8 +222,10 @@ saiv_try_spawn(void)
 
 				/* Clean up if it never connects and terminates itself */
 				lws_sul_schedule(virt.context, 0, &vm->sul_timeout,
-						 saiv_vm_timeout_cb, 5 * 60 * LWS_US_PER_SEC); /* 5 min */
-			}
+						 saiv_vm_timeout_cb,
+						 SAIV_VM_FIRST_CONTACT_US);
+			} else
+				break; /* OOM: don't spin */
 		} else {
 			break;
 		}
