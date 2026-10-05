@@ -1106,6 +1106,9 @@ lws_css_get_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop);
  *   ../b.html            -> https://x.com/b.html
  *   /c.html              -> https://x.com/c.html
  *   https://y.com/a.html -> https://y.com/a.html
+ *
+ * Returns 0 if dest holds the url, or nonzero if it could not be made or
+ * would not fit in len (dest is then not a usable url).
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel);

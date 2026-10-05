@@ -949,16 +949,23 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 
 	// lwsl_err("%s: base %s, rel %s\n", __func__, base, rel);
 
-	if (rel[0] == '/' && rel[1] == '/') {
-		lws_snprintf(dest, len, "https:%s", rel);
+	/*
+	 * Every way out reports a result that does not fit in len as a
+	 * failure: a truncated url names some other resource
+	 */
 
-		return 0;
-	}
+	if (len < 3)
+		return 1;
+
+	if (rel[0] == '/' && rel[1] == '/')
+		return lws_snprintf(dest, len, "https:%s", rel) >= (int)len;
 
 	if (!strncmp(rel, "https://", 8) ||
 	    !strncmp(rel, "http://", 7) ||
 	    !strncmp(rel, "file://", 7)) {
 		/* rel is already a full url, just copy it */
+		if (strlen(rel) >= len)
+			return 1;
 		lws_strncpy(dest, rel, len);
 		return 0;
 	}
@@ -974,8 +981,9 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 		}
 		if (*rel == '/')
 			rel++;
-		lws_snprintf(dest, len, "%.*s/%s", (int)n, base, rel);
-		return 0;
+
+		return lws_snprintf(dest, len, "%.*s/%s", (int)n, base, rel) >=
+								(int)len;
 	}
 
 	/* we're going to be using the first part of base at least */
@@ -1031,9 +1039,15 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 			dest[n++] = '/';
 	}
 
-	/* append rel */
+	/*
+	 * append rel... dest ends with a '/' here, so an absolute path's own
+	 * leading '/' is already there
+	 */
 
-	if (len - n < strlen(rel) + 2)
+	if (rel[0] == '/')
+		rel++;
+
+	if (strlen(rel) >= len - n)
 		return 1;
 
 	lws_strncpy(dest + n, rel, len - n);

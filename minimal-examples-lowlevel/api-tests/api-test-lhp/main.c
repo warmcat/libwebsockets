@@ -295,6 +295,71 @@ test_cb(lhp_ctx_t *ctx, char reason)
 	return 0;
 }
 
+/*
+ * lws_http_rel_to_url(): every branch, and every branch refusing a result
+ * that does not fit (a truncated url would name some other resource)
+ */
+
+static const struct {
+	const char	*base, *rel, *expect;	/* expect NULL: must fail */
+	size_t		len;
+} rel_tests[] = {
+	{ "https://x.com/y/z.html", "a.html", "https://x.com/y/a.html", 64 },
+	{ "https://x.com/y/z.html", "/c.html", "https://x.com/c.html", 64 },
+	{ "https://x.com/y/z.html", "https://y.com/a.html",
+					"https://y.com/a.html", 64 },
+	{ "https://x.com/y/z.html", "//y.com/a.html",
+					"https://y.com/a.html", 64 },
+	{ "file:///d/e/f.html", "g.css", "file:///d/e/g.css", 64 },
+	{ "file:///d/e/f.html", "/g.css", "file:///d/e/g.css", 64 },
+
+	/* exactly fits, including the NUL */
+	{ "https://x.com/y/z.html", "a.html", "https://x.com/y/a.html", 23 },
+	{ "https://x.com/y/z.html", "/c.html", "https://x.com/c.html", 21 },
+	{ "https://x.com/y/z.html", "//y.com/a.html",
+					"https://y.com/a.html", 21 },
+	{ "file:///d/e/f.html", "g.css", "file:///d/e/g.css", 18 },
+	{ "https://x.com/y/z.html", "https://y.com/a.html",
+					"https://y.com/a.html", 21 },
+
+	/* one short */
+	{ "https://x.com/y/z.html", "a.html", NULL, 22 },
+	{ "https://x.com/y/z.html", "/c.html", NULL, 20 },
+	{ "https://x.com/y/z.html", "https://y.com/a.html", NULL, 20 },
+	{ "https://x.com/y/z.html", "//y.com/a.html", NULL, 20 },
+	{ "file:///d/e/f.html", "g.css", NULL, 17 },
+	{ "x", "a.html", NULL, 2 },
+};
+
+static int
+test_rel_to_url(void)
+{
+	char dest[64];
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(rel_tests); n++) {
+		int r = lws_http_rel_to_url(dest, rel_tests[n].len,
+					    rel_tests[n].base, rel_tests[n].rel);
+
+		if (!rel_tests[n].expect) {
+			if (!r)
+				goto fail;
+			continue;
+		}
+		if (r || strcmp(dest, rel_tests[n].expect))
+			goto fail;
+		continue;
+fail:
+		lwsl_err("%s: case %d: %s + %s (len %d): r %d, %s\n", __func__,
+			 (int)n, rel_tests[n].base, rel_tests[n].rel,
+			 (int)rel_tests[n].len, r, r ? "-" : dest);
+
+		return 1;
+	}
+
+	return 0;
+}
+
 static const lws_surface_info_t ic = {
 	.wh_px = { { 600,0 },       { 448,0 } },
 	.wh_mm = { { 114,5000000 }, {  82,5000000 } },
@@ -355,6 +420,9 @@ main(int argc, const char **argv)
 	}
 
 	if (e)
+		goto bail;
+
+	if (test_rel_to_url())
 		goto bail;
 
 	if (content_len != strlen(entity_expect) ||
