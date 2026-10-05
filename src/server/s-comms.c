@@ -471,6 +471,7 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			sais_link_vhost = NULL;
 		sais_server_destroy(vhd, &vhd->server);
 		sais_idle_destroy(vhd);
+		sais_repo_turns_destroy(vhd);
 		goto passthru;
 
 	/*

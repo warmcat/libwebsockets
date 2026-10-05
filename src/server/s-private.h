@@ -208,6 +208,7 @@ struct pss {
 
 	sai_task_t		alloc_task;
 	struct lwsac		*ac_alloc_task;
+	char			alloc_repo[65]; /* repo_name of alloc_task */
 
 	char			peer_ip[48];
 	char			last_power_report[8192];
@@ -276,6 +277,17 @@ typedef struct sais_idle_host {
 	int		free_lanes;	/* lanes not running a slice */
 } sais_idle_host_t;
 
+/*
+ * When a builder platform was last given a task from a repo, so the repos with
+ * tasks pending for the platform can take turns, see s-task.c
+ */
+typedef struct sais_repo_turn {
+	lws_dll2_t	list;		/* vhd->repo_turns */
+	lws_usec_t	last_served;
+	char		platform[96];
+	char		repo_name[65];
+} sais_repo_turn_t;
+
 typedef struct sai_shell_session {
 	lws_dll2_t	list;
 	char		task_uuid[65];
@@ -297,6 +309,7 @@ struct vhd {
 	struct lws_dll2_owner	pending_plats;
 	lws_dll2_owner_t	powering_up_list; /* sai_powering_up_plat_t */
 	lws_dll2_owner_t	shell_sessions; /* sai_shell_session_t */
+	lws_dll2_owner_t	repo_turns; /* sais_repo_turn_t */
 
 	struct lwsac		*ac_plats;
 
@@ -434,6 +447,9 @@ sais_task_cancel(struct vhd *vhd, const char *task_uuid, int erase, int killed);
 int
 sais_allocate_task(struct vhd *vhd, struct pss *pss, sai_plat_t *cb,
 		   const char *cns_name);
+
+void
+sais_repo_turns_destroy(struct vhd *vhd);
 
 int
 sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid);
