@@ -623,6 +623,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 
 		psa_ecc_family_t family = PSA_KEY_TYPE_ECC_GET_FAMILY(type);
 		size_t bits = psa_get_key_bits(&attr);
+		const struct lws_ec_curves *curve;
 		const char *crv = NULL;
 
 		if (family == PSA_ECC_FAMILY_SECP_R1) {
@@ -631,15 +632,22 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 			else if (bits == 521) crv = "P-521";
 		}
 		
-		if (!crv) {
+		if (!crv || !(curve = lws_genec_curve(lws_ec_curves, crv))) {
 			lwsl_err("Unsupported curve family=%d bits=%u\n", (int)family, (unsigned)bits);
 			goto bail;
 		}
 
-		jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = lws_malloc(strlen(crv) + 1, "jwk_crv");
-		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) goto bail;
-		jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(crv);
-		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, crv, strlen(crv) + 1);
+		/* the caller's curve allow-list applies, as on mbedtls 3 */
+
+		if (!curves) {
+			lwsl_err("%s: ec curves not allowed\n", __func__);
+			goto bail;
+		}
+
+		if (lws_genec_confirm_curve_allowed_by_tls_id(curves,
+					curve->tls_lib_nid, jwk))
+			/* already logged; sets the jwk crv if allowed */
+			goto bail;
 	} else {
 		lwsl_err("%s: key type %d not supported\n", __func__, (int)type);
 		return -1;
