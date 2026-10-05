@@ -113,6 +113,15 @@
 			]
 		},
 
+		"w11/x86_64-amd/msvc-mbedtls": {
+			"default": false,
+			"build": [
+		"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0 -DCMAKE_PREFIX_PATH=\"C:\\mbedtls\" ${cmake}",
+		"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config DEBUG --parallel %SAI_PARALLEL%",
+		"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
+			]
+		},
+
 		"freertos-espidf/xl6-esp32/gcc": {
                         "default": false,
                         "build": [
@@ -414,6 +423,12 @@
 			"cmake":    "cd /opt/quic-interop-runner ; source venv/bin/activate ; rm -rf logs_* ; cd /opt/quic-interop-runner/lws ; if [ \"`docker ps -q`\" ] ; then docker kill $(docker ps -q) ; fi ;  docker system prune -f && docker build -f Dockerfile -t lws-quic-interop --no-cache $HOME/jobs/$SAI_VN/src && cd .. && python3 run.py -c lws -s lws --delete-successful-logs ; python3 run.py -p webtransport -c lws -s lws --delete-successful-logs -t handshake,transfer-unidirectional-receive,transfer-unidirectional-send,transfer-bidirectional-receive,transfer-bidirectional-send,transfer-datagram-receive,transfer-datagram-send",
 			"platforms":	"none, linux-debian13/x86_64-amd/gcc"
 		},
+
+		"mbedtls4-windows": {
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"none, w11/x86_64-amd/msvc-mbedtls"
+		},
+
 
 		# libFuzzer + ASan campaign over the untrusted-input parsers in
 		# ./fuzz, 60s per target (~15 min + build).  Corpora persist in
