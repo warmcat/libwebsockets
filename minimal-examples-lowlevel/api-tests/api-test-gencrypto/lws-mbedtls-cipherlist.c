@@ -20,6 +20,11 @@
  * a TLS1.3 name could mean: there the TLS1.3 list is ignored and TLS1.3 names
  * in the other lists are skipped, as OpenSSL does when it has no
  * SSL_CTX_set_ciphersuites(), so a list is only as good as its TLS1.2 part.
+ *
+ * mbedtls 4 also removed the TLS1.2 plain RSA and DHE-RSA key exchanges (3.x
+ * may be configured without them): there a name for one of those suites is
+ * a suite this mbedtls cannot provide, which must fail the vhost like any
+ * other, and the lwsws default list leaves DHE-RSA out.
  */
 
 #include <libwebsockets.h>
@@ -36,6 +41,22 @@
 #define HAS13 0
 #endif
 
+#if defined(MBEDTLS_KEY_EXCHANGE_RSA_ENABLED)
+#define HAS_RSA_KX 1
+#else
+#define HAS_RSA_KX 0
+#endif
+
+/* CS_DHE_RSA is as lib/io/lejp-conf.c has it for the lwsws default list */
+
+#if defined(MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)
+#define HAS_DHE_RSA 1
+#define CS_DHE_RSA "DHE-RSA-AES256-GCM-SHA384:"
+#else
+#define HAS_DHE_RSA 0
+#define CS_DHE_RSA ""
+#endif
+
 static const struct {
 	const char	*l12;	/* client_ssl_cipher_list */
 	const char	*l13;	/* client_tls_1_3_plus_cipher_list */
@@ -47,7 +68,8 @@ static const struct {
 
 	{ "ECDHE-ECDSA-AES128-GCM-SHA256",		NULL, NULL, 1 },
 	{ "ECDHE-RSA-AES256-SHA384",			NULL, NULL, 1 },
-	{ "AES128-GCM-SHA256",				NULL, NULL, 1 },
+	{ "AES128-GCM-SHA256",				NULL, NULL, HAS_RSA_KX },
+	{ "DHE-RSA-AES256-GCM-SHA384",			NULL, NULL, HAS_DHE_RSA },
 	{ "ECDHE-RSA-CHACHA20-POLY1305",		NULL, NULL, 1 },
 	{ "ECDHE-ECDSA-AES128-CCM8",			NULL, NULL, 1 },
 
@@ -79,7 +101,7 @@ static const struct {
 
 	{ "ECDHE-ECDSA-AES256-GCM-SHA384:"
 	  "ECDHE-RSA-AES256-GCM-SHA384:"
-	  "DHE-RSA-AES256-GCM-SHA384:"
+	  CS_DHE_RSA
 	  "ECDHE-RSA-AES256-SHA384:"
 	  "HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4:!SHA1",
 							NULL, NULL, 1 },

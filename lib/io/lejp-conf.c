@@ -626,6 +626,20 @@ dostring:
 	return 0;
 }
 
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_GNUTLS)
+/*
+ * The default cipher lists below name each suite they allow, and the mbedtls
+ * backend refuses a list naming a suite it cannot provide.  mbedtls 4 removed
+ * the TLS1.2 DHE-RSA key exchange (3.x can be configured without it), so
+ * there the default must not name it, or no vhost on the defaults comes up.
+ */
+#if defined(LWS_WITH_MBEDTLS) && !defined(MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)
+#define LWS_CONF_CS_DHE_RSA ""
+#else
+#define LWS_CONF_CS_DHE_RSA "DHE-RSA-AES256-GCM-SHA384:"
+#endif
+#endif
+
 static signed char
 lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -702,7 +716,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #else
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			"ECDHE-RSA-AES256-GCM-SHA384:"
-			"DHE-RSA-AES256-GCM-SHA384:"
+			LWS_CONF_CS_DHE_RSA
 			"ECDHE-RSA-AES256-SHA384:"
 			"HIGH:!aNULL:!eNULL:!EXPORT:"
 			"!DES:!MD5:!PSK:!RC4:!HMAC_SHA1:"
@@ -721,7 +735,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #else
 		a->info->ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 				       "ECDHE-RSA-AES256-GCM-SHA384:"
-				       "DHE-RSA-AES256-GCM-SHA384:"
+				       LWS_CONF_CS_DHE_RSA
 				       "ECDHE-RSA-AES256-SHA384:"
 				       "HIGH:!aNULL:!eNULL:!EXPORT:"
 				       "!DES:!MD5:!PSK:!RC4:!HMAC_SHA1:"
