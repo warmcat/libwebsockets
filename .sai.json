@@ -169,6 +169,11 @@
                         "cpack":        "esp-heltec-wb32",
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },
+		"esp32-heltec-threadpool": {
+                        "cmake":        "-DLWS_WITH_JPEG=0 -DLWS_WITH_UPNG=0 -DLWS_WITH_DLO=0 -DLWS_WITH_LHP=0 -DLWS_WITH_GZINFLATE=0 -DLWS_WITH_STUB=0 -DLWS_WITH_THREADPOOL=1 ",
+                        "cpack":        "esp-heltec-wb32",
+                        "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
+                },
 		"mbedtls4": {
 			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DCMAKE_PREFIX_PATH=/opt/mbedtls -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
