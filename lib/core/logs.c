@@ -523,7 +523,9 @@ static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 #define LWS_LOG_SPEW_TAIL_LINES		10
 #endif
 #if !defined(LWS_LOG_SPEW_RING_SIZE)
-#if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
+/* a threaded build's lines are 1024 long, too big for the small ring */
+#if (defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)) && \
+    !defined(LWS_LOG_THREADED)
 #define LWS_LOG_SPEW_RING_SIZE		1024
 #else
 #define LWS_LOG_SPEW_RING_SIZE		2048
