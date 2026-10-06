@@ -29,13 +29,6 @@
 #include <sys/types.h>
 #endif
 
-#if defined(LWS_WITH_MBEDTLS)
-#include "mbedtls/sha1.h"
-#include "mbedtls/sha256.h"
-#include "mbedtls/sha512.h"
-#include "mbedtls/rsa.h"
-#endif
-
 #include "lws-plugin-ssh.h"
 
 #define LWS_SIZE_EC25519	32
