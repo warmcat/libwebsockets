@@ -526,6 +526,125 @@ bail:
 	return 1;
 }
 
+/*
+ * ECDSA must round-trip for each JWS curve / hash pairing (RFC7518 3.4): a
+ * signature made with the private key verifies with a ctx holding only the
+ * public part, and is refused for a different hash or a truncated signature.
+ *
+ * The mbedtls 4 / PSA backend once named PSA_ALG_ANY_HASH as the operation
+ * algorithm, which PSA only accepts in a key policy, so every sign and verify
+ * failed; checking only that sign "did not fail" elsewhere could not see it.
+ * Its P-521 keygen also asked PSA for 528 bits and exported the public key
+ * into a buffer too small for it, which only a P-521 case shows.
+ */
+static int
+test_genec5(struct lws_context *context)
+{
+	static const struct {
+		const char			*crv;
+		enum lws_genhash_types		hash_type;
+		int				keybits;
+	} cases[] = {
+		{ "P-256", LWS_GENHASH_TYPE_SHA256, 256 },
+		{ "P-384", LWS_GENHASH_TYPE_SHA384, 384 },
+		{ "P-521", LWS_GENHASH_TYPE_SHA512, 521 },
+	};
+	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	struct lws_genec_ctx signer, verifier;
+	uint8_t hash[64], sig[132];
+	size_t c, hlen, slen;
+	int n;
+
+	for (c = 0; c < LWS_ARRAY_SIZE(cases); c++) {
+		memset(el, 0, sizeof(el));
+		memset(&signer, 0, sizeof(signer));
+		memset(&verifier, 0, sizeof(verifier));
+
+		hlen = lws_genhash_size(cases[c].hash_type);
+		slen = (size_t)lws_gencrypto_bits_to_bytes(cases[c].keybits) * 2;
+
+		for (n = 0; n < (int)hlen; n++)
+			hash[n] = (uint8_t)(n * 3 + (int)c);
+
+		if (lws_genecdsa_create(&signer, context, NULL) ||
+		    lws_genecdsa_new_keypair(&signer, cases[c].crv, el)) {
+			lwsl_err("%s: %s: keygen failed\n", __func__,
+				 cases[c].crv);
+			goto bail;
+		}
+
+		/* sign returns the sig length, or zero, depending on backend */
+
+		if (lws_genecdsa_hash_sign_jws(&signer, hash,
+					       cases[c].hash_type,
+					       cases[c].keybits,
+					       sig, slen) < 0) {
+			lwsl_err("%s: %s: sign failed\n", __func__,
+				 cases[c].crv);
+			goto bail;
+		}
+
+		memset(pub, 0, sizeof(pub));
+		pub[LWS_GENCRYPTO_EC_KEYEL_CRV] = el[LWS_GENCRYPTO_EC_KEYEL_CRV];
+		pub[LWS_GENCRYPTO_EC_KEYEL_X]   = el[LWS_GENCRYPTO_EC_KEYEL_X];
+		pub[LWS_GENCRYPTO_EC_KEYEL_Y]   = el[LWS_GENCRYPTO_EC_KEYEL_Y];
+
+		if (lws_genecdsa_create(&verifier, context, NULL) ||
+		    lws_genecdsa_set_key(&verifier, pub)) {
+			lwsl_err("%s: %s: public key import failed\n", __func__,
+				 cases[c].crv);
+			goto bail;
+		}
+
+		if (lws_genecdsa_hash_sig_verify_jws(&verifier, hash,
+						     cases[c].hash_type,
+						     cases[c].keybits,
+						     sig, slen)) {
+			lwsl_err("%s: %s: good sig did not verify\n", __func__,
+				 cases[c].crv);
+			goto bail;
+		}
+
+		/* a different hash must not verify against it */
+
+		hash[0] ^= 1;
+		if (!lws_genecdsa_hash_sig_verify_jws(&verifier, hash,
+						      cases[c].hash_type,
+						      cases[c].keybits,
+						      sig, slen)) {
+			lwsl_err("%s: %s: sig verified for another hash\n",
+				 __func__, cases[c].crv);
+			goto bail;
+		}
+		hash[0] ^= 1;
+
+		/* nor may a truncated signature */
+
+		if (!lws_genecdsa_hash_sig_verify_jws(&verifier, hash,
+						      cases[c].hash_type,
+						      cases[c].keybits,
+						      sig, slen - 1)) {
+			lwsl_err("%s: %s: truncated sig verified\n", __func__,
+				 cases[c].crv);
+			goto bail;
+		}
+
+		lws_genec_destroy(&verifier);
+		lws_genec_destroy(&signer);
+		lws_genec_destroy_elements(el);
+	}
+
+	return 0;
+
+bail:
+	lws_genec_destroy(&verifier);
+	lws_genec_destroy(&signer);
+	lws_genec_destroy_elements(el);
+
+	return 1;
+}
+
 int
 test_genec(struct lws_context *context)
 {
@@ -539,6 +658,9 @@ test_genec(struct lws_context *context)
 		goto bail;
 
 	if (test_genec4(context))
+		goto bail;
+
+	if (test_genec5(context))
 		goto bail;
 
 	/* end */

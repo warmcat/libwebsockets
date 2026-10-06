@@ -779,9 +779,12 @@ lws_genec_new_keypair_v4(struct lws_genec_ctx *ctx, const char *curve_name,
 	const struct lws_ec_curves *curve;
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
 	psa_status_t status;
-	uint8_t d_buf[130], pub_buf[130];
+	/* sized for P-521, the largest curve lws_genec_to_psa_curve() maps */
+	uint8_t d_buf[PSA_KEY_EXPORT_ECC_KEY_PAIR_MAX_SIZE(521)],
+		pub_buf[PSA_KEY_EXPORT_ECC_PUBLIC_KEY_MAX_SIZE(521)];
 	size_t d_len, pub_len;
 	psa_ecc_family_t family;
+	size_t bits;
 
 	curve = lws_genec_curve(ctx->curve_table, curve_name);
 	if (!curve) {
@@ -789,19 +792,16 @@ lws_genec_new_keypair_v4(struct lws_genec_ctx *ctx, const char *curve_name,
 		return -1;
 	}
 
-	switch (curve->tls_lib_nid) {
-	case MBEDTLS_ECP_DP_SECP256R1:
-	case MBEDTLS_ECP_DP_SECP384R1:
-	case MBEDTLS_ECP_DP_SECP521R1:
-		family = PSA_ECC_FAMILY_SECP_R1;
-		break;
-	default:
+	/* PSA wants the curve size, 521 for P-521, not key_bytes * 8 */
+
+	family = lws_genec_to_psa_curve(curve->tls_lib_nid, &bits);
+	if (!family) {
 		lwsl_err("%s: unsupported curve\n", __func__);
 		return -1;
 	}
 
 	psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(family));
-	psa_set_key_bits(&attr, curve->key_bytes * 8);
+	psa_set_key_bits(&attr, bits);
 	psa_set_key_usage_flags(&attr, usage | PSA_KEY_USAGE_EXPORT);
 	psa_set_key_algorithm(&attr, alg);
 
@@ -853,10 +853,12 @@ lws_genec_new_keypair_v4(struct lws_genec_ctx *ctx, const char *curve_name,
 	if (!el[LWS_GENCRYPTO_EC_KEYEL_D].buf) goto bail;
 	el[LWS_GENCRYPTO_EC_KEYEL_D].len = (uint32_t)d_len;
 	memcpy(el[LWS_GENCRYPTO_EC_KEYEL_D].buf, d_buf, d_len);
+	lws_explicit_bzero(d_buf, sizeof(d_buf)); /* private key material */
 
 	return 0;
 
 bail:
+	lws_explicit_bzero(d_buf, sizeof(d_buf));
 	for (int n = 0; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++) {
 		if (el[n].buf) {
 			lws_free(el[n].buf);
@@ -885,20 +887,51 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	return lws_genec_new_keypair_v4(ctx, curve_name, el, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH, PSA_ALG_ECDSA(PSA_ALG_ANY_HASH));
 }
 
+/*
+ * The key policy allows ECDSA with any hash, PSA requires each operation to
+ * name the actual hash: PSA_ALG_ANY_HASH there is refused with
+ * PSA_ERROR_INVALID_ARGUMENT.  PSA's ECDSA signature is already the JWS
+ * R || S form, each keybytes long (RFC7518 3.4).
+ */
+
+static psa_algorithm_t
+lws_genecdsa_psa_alg(enum lws_genhash_types hash_type)
+{
+	psa_algorithm_t h = lws_genhash_to_psa_alg(hash_type);
+
+	return h ? PSA_ALG_ECDSA(h) : 0;
+}
+
 int
 lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 			   enum lws_genhash_types hash_type, int keybits,
 			   uint8_t *sig, size_t sig_len)
 {
+	int keybytes = lws_gencrypto_bits_to_bytes(keybits);
+	psa_algorithm_t alg = lws_genecdsa_psa_alg(hash_type);
+	psa_status_t status;
 	size_t olen;
-	psa_algorithm_t alg;
-	
-	if (ctx->genec_alg != LEGENEC_ECDSA)
+
+	if (ctx->genec_alg != LEGENEC_ECDSA || !alg)
 		return -1;
 
-	alg = PSA_ALG_ECDSA(PSA_ALG_ANY_HASH); /* Or specific based on hash_type */
-	if (psa_sign_hash(ctx->key_id, alg, in, lws_genhash_size(hash_type), sig, sig_len, &olen) != PSA_SUCCESS)
+	if (keybytes <= 0 || sig_len < (size_t)keybytes * 2)
+		return -1;
+
+	status = psa_sign_hash(ctx->key_id, alg, in, lws_genhash_size(hash_type),
+			       sig, (size_t)keybytes * 2, &olen);
+	if (status != PSA_SUCCESS) {
+		lwsl_err("%s: psa_sign_hash failed: %d\n", __func__,
+			 (int)status);
+
 		return -3;
+	}
+
+	/* keybits named a different curve than the key's */
+
+	if (olen != (size_t)keybytes * 2)
+		return -3;
+
 	return 0;
 }
 
@@ -907,14 +940,25 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 				 enum lws_genhash_types hash_type, int keybits,
 				 const uint8_t *sig, size_t sig_len)
 {
-	psa_algorithm_t alg;
+	int keybytes = lws_gencrypto_bits_to_bytes(keybits);
+	psa_algorithm_t alg = lws_genecdsa_psa_alg(hash_type);
+	psa_status_t status;
 
-	if (ctx->genec_alg != LEGENEC_ECDSA)
+	if (ctx->genec_alg != LEGENEC_ECDSA || !alg)
 		return -1;
 
-	alg = PSA_ALG_ECDSA(PSA_ALG_ANY_HASH);
-	if (psa_verify_hash(ctx->key_id, alg, in, lws_genhash_size(hash_type), sig, sig_len) != PSA_SUCCESS)
+	if (keybytes <= 0 || sig_len != (size_t)keybytes * 2)
+		return -1;
+
+	status = psa_verify_hash(ctx->key_id, alg, in,
+				 lws_genhash_size(hash_type), sig, sig_len);
+	if (status != PSA_SUCCESS) {
+		lwsl_err("%s: psa_verify_hash failed: %d\n", __func__,
+			 (int)status);
+
 		return -3;
+	}
+
 	return 0;
 }
 
