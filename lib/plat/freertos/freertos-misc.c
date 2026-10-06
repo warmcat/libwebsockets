@@ -24,6 +24,12 @@
 
 #include "private-lib-core.h"
 
+/* the sockets use it too, so it can't live in the LWS_WITH_FILE_OPS file */
+int lws_plat_apply_FD_CLOEXEC(int n)
+{
+	return 0;
+}
+
 /*
  * Normally you don't want this, use lws_sul instead inside the event loop.
  * But sometimes for drivers it makes sense, so there's an internal-only

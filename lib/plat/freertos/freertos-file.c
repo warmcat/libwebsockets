@@ -24,11 +24,6 @@
 
 #include "private-lib-core.h"
 
-int lws_plat_apply_FD_CLOEXEC(int n)
-{
-	return 0;
-}
-
 
 lws_fop_fd_t IRAM_ATTR
 _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
