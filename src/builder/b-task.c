@@ -1442,7 +1442,7 @@ int
 saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 			      const uint8_t *in, size_t len, int flags)
 {
-	char *p, mb[96], pur[128], ordinal_acc[SAI_BUILDER_INSTANCE_LIMIT],
+	char *p, mb[256], pur[128], ordinal_acc[SAI_BUILDER_INSTANCE_LIMIT],
 		script_path[512];
 	sai_plat_t *sp = NULL;
 	struct sai_nspawn *ns;
