@@ -783,15 +783,18 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 
 	saiw_browser_broadcast_queue_builders(pss->vhd, pss);
 
-	if (owner.head) {
-		sai_artifact_t *aft = (sai_artifact_t *)owner.head;
+	/*
+	 * Each of the task's artifacts goes to this browser alone: the
+	 * artifact's down nonce in it is the key to downloading it
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, owner.head) {
+		sai_artifact_t *aft = lws_container_of(d, sai_artifact_t, list);
 
 		p = start;
 		fi = 1;
 
 		lwsl_info("%s: WSS_SEND_ARTIFACT_INFO: consuming artifact\n", __func__);
-
-		lws_dll2_remove(&aft->list);
 
 		/* we don't want to disclose this to browsers */
 		aft->artifact_up_nonce[0] = '\0';
@@ -812,10 +815,11 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 				goto bail;
 			}
 			p += w;
-			if (lws_ptr_diff_size_t(end, p) < 512) {
-				saiw_ws_broadcast_browsers_REQUIRES_LWS_PRE(pss->vhd, start,
-									    lws_ptr_diff_size_t(p, start),
-									    lws_write_ws_flags(LWS_WRITE_TEXT, fi, 0));
+			if (n == LSJS_RESULT_CONTINUE &&
+			    lws_ptr_diff_size_t(end, p) < 512) {
+				saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+								       lws_ptr_diff_size_t(p, start),
+								       lws_write_ws_flags(LWS_WRITE_TEXT, fi, 0));
 				p = start;
 				fi = 0;
 			}
@@ -823,7 +827,11 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 		} while (n == LSJS_RESULT_CONTINUE);
 
 		lws_struct_json_serialize_destroy(&js);
-	}
+
+		saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+						       lws_ptr_diff_size_t(p, start),
+						       lws_write_ws_flags(LWS_WRITE_TEXT, fi, 1));
+	} lws_end_foreach_dll(d);
 
 	lwsac_free(&query_ac);
 	lwsac_free(&runs_ac);
