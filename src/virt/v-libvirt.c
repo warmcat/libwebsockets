@@ -136,6 +136,28 @@ saiv_libvirt_delete_overlay(virConnectPtr c, const char *vm_name)
 }
 
 /*
+ * Show what disk images a domain's XML refers to, for whoever has to fix a
+ * base_image that matches none of them
+ */
+
+static void
+saiv_libvirt_log_disk_sources(const char *xml)
+{
+	const char *p = xml, *e;
+
+	while ((p = strstr(p, "<source file='"))) {
+		p += 14;
+		e = strchr(p, '\'');
+		if (!e)
+			break;
+
+		lwsl_err("%s:   basis domain has: %.*s\n", __func__,
+			 (int)(e - p), p);
+		p = e;
+	}
+}
+
+/*
  * Is this a domain name we would generate, ie, "sai-vm-<plat name>-<n>"?
  */
 
@@ -311,6 +333,17 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 		goto bail;
 	}
 
+	/*
+	 * Its disk is the backing file of every VM we spawn from it: if
+	 * something is writing it, the overlays on it get corrupted
+	 */
+	if (virDomainIsActive(dom) == 1) {
+		lwsl_err("%s: basis domain %s is running, refusing to spawn "
+			 "VMs backed by its disk\n", __func__, vm->plat->name);
+		virDomainFree(dom);
+		goto bail;
+	}
+
 	xml = virDomainGetXMLDesc(dom, 0);
 	virDomainFree(dom);
 
@@ -333,6 +366,20 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 
 	if (!xml3) {
 		lwsl_err("Failed to manipulate XML\n");
+		goto bail;
+	}
+
+	/*
+	 * If base_image in our conf doesn't match the basis domain's disk
+	 * exactly, nothing was replaced, and the VM would boot writing the
+	 * basis image itself, as would every other one we spawn
+	 */
+	if (!strstr(xml3, new_source_tag)) {
+		lwsl_err("%s: base_image %s is not a disk of basis domain %s, "
+			 "refusing to spawn\n", __func__, vm->plat->base_image,
+			 vm->plat->name);
+		saiv_libvirt_log_disk_sources(xml3);
+		free(xml3);
 		goto bail;
 	}
 

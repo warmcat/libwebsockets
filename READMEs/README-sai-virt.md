@@ -249,7 +249,7 @@ Booting the basis VM gave it a machine-id.  Empty it as the last thing before sh
 sudo truncate -s 0 /etc/machine-id && sudo poweroff
 ```
 
-The basis VM must stay defined, and shut off.  Its disk is the read-only backing file of every running VM spawned from it; **booting the basis VM while any of those exist corrupts them**.  To maintain the basis image, stop `sai-virt` first (it destroys its VMs as it exits), then boot the basis VM, make your changes, shut it down and start `sai-virt` again.
+The basis VM must stay defined, and shut off.  Its disk is the read-only backing file of every running VM spawned from it; **booting the basis VM while any of those exist corrupts them**.  `sai-virt` won't spawn new VMs while the basis VM is running, but it can't protect ones that are already running.  To maintain the basis image, stop `sai-virt` first (it destroys its VMs as it exits), then boot the basis VM, make your changes, shut it down and start `sai-virt` again.
 
 Then add the platform's file in `/etc/sai/virt/conf.d/` and restart `sai-virt`.  To debug a spawned VM, it's on the same network and has your key, so you can find it with `sudo virsh list` and `sudo virsh domifaddr sai-vm-...` and ssh in, or use its console.
 
@@ -266,7 +266,7 @@ So the basis VM's builder conf should **not** carry `power_controller`, `power-o
 When `sai-virt` decides to spawn a VM for a platform:
 
 1. It creates a qcow2 overlay, `/dev/shm/sai-vm-<name>-<n>.qcow2`, of `overlay_size`, with `base_image` as its read-only backing file, in a libvirt storage pool `sai_shm` it creates on `/dev/shm`.
-2. It takes the basis domain's XML and changes the name to `sai-vm-<name>-<n>` and the disk source from `base_image` to the overlay.  The disk source is replaced by matching `file='<base_image>'` literally, so `base_image` in the conf must be the same path the basis domain uses, or the spawned VM would boot writing to the basis image itself.
+2. It takes the basis domain's XML and changes the name to `sai-vm-<name>-<n>` and the disk source from `base_image` to the overlay.  The disk source is replaced by matching `file='<base_image>'` literally, so `base_image` in the conf must be the same path the basis domain uses.  If it isn't, eg because of a typo, `sai-virt` refuses to spawn the VM, which would otherwise boot writing to the basis image itself, and logs the disk paths the basis domain does have.  It also refuses while the basis domain is running.
 3. It removes the UUID and NIC MAC addresses so libvirt generates new ones, and adds the VM's name as the SMBIOS serial (`sai_builder_id:<vm>`) and the QEMU fw_cfg entry `opt/sai_builder_id`, for the builder inside to use as its identity.
 4. It boots the result as a transient domain.
 
