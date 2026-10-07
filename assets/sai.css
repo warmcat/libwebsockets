@@ -451,6 +451,47 @@ div.taskstate.idle-lane.taskstate9 {
 	}
 }
 
+/*
+ * A lane with runs that failed or ran past their slice: it isn't faded back,
+ * and is ringed so admins see it needs looking at.  So are those runs in its
+ * runs popup.
+ */
+div.taskstate.idle-lane.lane-trouble, tr.tt-row.idle-lane.lane-trouble {
+	opacity: 1;
+}
+
+div.taskstate.idle-lane.lane-trouble, div.taskstate.run-decal.run-trouble {
+	box-shadow: 0 0 0 2px #f59e0b;
+}
+
+/* after an idle task group's lanes: its trouble, and its pool's new findings */
+span.lane-note {
+	display: inline-block;
+	margin-left: 6px;
+	vertical-align: middle;
+	font-size: 8pt;
+	white-space: nowrap;
+}
+
+a.lane-trouble, span.tt-trouble {
+	color: #b45309;
+	font-weight: bold;
+}
+
+a.lane-findings {
+	margin-left: 6px;
+	padding: 0 4px;
+	border-radius: 3px;
+	background: #df3030;
+	color: #ffffff;
+	font-weight: bold;
+	text-decoration: none;
+}
+
+a.lane-findings.hidden {
+	display: none;
+}
+
 div.stats_hidden {
 	display: none;
 }

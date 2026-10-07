@@ -107,10 +107,32 @@ in a pool (see [README-pool.md](README-pool.md)): the builder keeps it synced
 with every other builder working on the repo, even when it has to stop a slice
 to make way for real work.
 
+## Slices that went wrong
+
+A slice that fails, eg, its build broke, doesn't stop the lane: it rests and
+runs again like after any other slice.  A slice that the builder had to stop
+because it ran past the end of its slice isn't a failure either, but it means
+the task isn't fitting its work into `SAI_IDLE_SECS`.  sai-server marks those
+runs as having overrun.
+
+A lane only keeps its last few runs, with their logs, since it runs
+indefinitely.  But runs that failed or overran are kept for the lane's last 48
+runs, so what went wrong overnight can still be seen in the morning.
+
 ## In the web UI
 
-An event's idle tasks are shown after its real tasks, in their own group per
+Idle tasks, and everything about them, like their logs and artifacts, are only
+shown to admins: they aren't part of the event's result, and what they find
+may be unfixed security bugs.
+
+An event's idle tasks are shown before its real tasks, in their own group per
 configuration named "idle: <configuration>".  While a slice is running, the
 lane is shown at full strength and gently "breathing"; the rest of the time,
 including when a slice yields to real work, it fades back.  Idle tasks aren't
 included in the event's task counts or progress bar.
+
+A lane with runs that failed or overran isn't faded back, and is ringed in
+amber, as are those runs in its runs popup.  After the group's lanes, it says
+how many runs failed and overran, linking to the latest of them.  If the
+group's pool has findings no admin has acknowledged yet, there's also a link
+to them (see [README-findings.md](README-findings.md)).

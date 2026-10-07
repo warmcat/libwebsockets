@@ -2004,19 +2004,141 @@ function sai_tt_mark_header(tab)
 
 /*
  * Idle tasks ("lanes") only run in time builders would otherwise spend idle,
- * and aren't part of their event's result.  They're shown after the real
- * tasks, in their own group per task name.
+ * and aren't part of their event's result.  Only admins are sent them at all.
+ * They're shown before the real tasks, in their own group per task name, so
+ * anything that went wrong with them is seen.
  */
 function sai_task_group_name(t)
 {
 	return (t.idle ? "idle: " : "") + t.taskname;
 }
 
-/* the event's tasks, real ones first, then the idle ones */
-function sai_tasks_real_then_idle(tasks)
+/* the event's tasks, the idle ones first, then the real ones */
+function sai_tasks_idle_then_real(tasks)
 {
-	return tasks.filter(function(t) { return !t.idle; }).concat(
-	       tasks.filter(function(t) { return !!t.idle; }));
+	return tasks.filter(function(t) { return !!t.idle; }).concat(
+	       tasks.filter(function(t) { return !t.idle; }));
+}
+
+/*
+ * A run of a lane that an admin should look at: it failed, or the builder had
+ * to stop it because it ran past the end of its slice.  sai-server keeps these
+ * runs for longer than the lane's others.
+ */
+function sai_run_trouble(rt)
+{
+	return !!rt.idle && (rt.state === 4 || !!rt.overran);
+}
+
+/* per lane uuid with any, how many runs failed and overran, and the latest */
+function sai_lanes_trouble(tasks)
+{
+	var tr = {};
+
+	tasks.forEach(function(rt) {
+		if (!sai_run_trouble(rt))
+			return;
+
+		var x = tr[rt.uuid];
+
+		if (!x)
+			x = tr[rt.uuid] = { failed: 0, overran: 0, last: null };
+		if (rt.state === 4)
+			x.failed++;
+		else
+			x.overran++;
+		if (!x.last || (rt.run || 0) > (x.last.run || 0))
+			x.last = rt;
+	});
+
+	return tr;
+}
+
+/* how many of the findings in a repo's pool no admin has acknowledged yet */
+function sai_pool_findings_unacked(repo, pool)
+{
+	var n = 0;
+
+	if (sai_findings && sai_findings.pools)
+		sai_findings.pools.forEach(function(p) {
+			if (p.repo === repo && p.pool === pool)
+				p.groups.forEach(function(g) {
+					if (!g.acked)
+						n++;
+				});
+		});
+
+	return n;
+}
+
+/* the link to the findings dialog of a lane group with new findings */
+function sai_lane_findings_set(a)
+{
+	var n = sai_pool_findings_unacked(a.dataset.repo, a.dataset.pool);
+
+	a.textContent = n + " new finding" + (n === 1 ? "" : "s");
+	a.classList.toggle("hidden", !n);
+}
+
+/* the findings changed, update the links to them in what we're showing */
+function sai_lane_findings_refresh()
+{
+	document.querySelectorAll("a.lane-findings").forEach(
+						sai_lane_findings_set);
+}
+
+/*
+ * What admins need to know about a group of lanes, to go after the group's
+ * lanes: how many of the runs we have of them failed or overran, linking to
+ * the latest of those, and how many new findings their pool has
+ */
+function sai_lane_note_html(tasks, group, trouble, repo, base)
+{
+	var failed = 0, overran = 0, last = null, pool = "", s = "", a;
+
+	tasks.forEach(function(t) {
+		if (!t.idle || sai_task_group_name(t) !== group)
+			return;
+		if (t.pool)
+			pool = t.pool;
+
+		var x = trouble[t.uuid];
+
+		if (!x || x.last.run !== t.run)
+			return;
+		/* count each lane once, from its entry for its latest problem */
+		failed += x.failed;
+		overran += x.overran;
+		if (!last || x.last.started > last.started)
+			last = x.last;
+	});
+
+	if (last) {
+		var what = [];
+
+		if (failed)
+			what.push(failed + " failed");
+		if (overran)
+			what.push(overran + " overran");
+		s += "<a class=\"lane-trouble\" href=\"" + base + "?task=" +
+		     san(last.uuid) + "&run=" + san(last.run || 0) +
+		     "\" title=\"runs of these idle tasks that failed or ran " +
+		     "past their slice; this goes to the latest\">&#x26a0; " +
+		     what.join(", ") + "</a>";
+	}
+
+	if (pool) {
+		a = document.createElement("a");
+		a.dataset.repo = repo;
+		a.dataset.pool = pool;
+		sai_lane_findings_set(a);
+		s += "<a href=\"#\" class=\"lane-findings" +
+		     (a.classList.contains("hidden") ? " hidden" : "") +
+		     "\" data-repo=\"" + san(repo) + "\" data-pool=\"" +
+		     san(pool) + "\">" + san(a.textContent) + "</a>";
+	}
+
+	return s ? "<span class=\"lane-note\">" + s + "</span>" : "";
 }
 
 /* the latest run of each task uuid, keyed by uuid */
@@ -2149,10 +2271,11 @@ function sai_tt_row_set_keys(tr, t)
 		tr.dataset[n] = k[n];
 }
 
-function sai_tt_row_html(t, e, now_ut)
+function sai_tt_row_html(t, e, now_ut, trouble)
 {
 	var s = "<tr id=\"tt_" + san(t.uuid) + "\" class=\"tt-row taskstate" + t.state +
 		(t.idle ? " idle-lane" : "") +
+		(trouble[t.uuid] ? " lane-trouble" : "") +
 		(t.uuid === selected_task_uuid ? " selected" : "") + "\"" +
 		" data-task-uuid=\"" + san(t.uuid) + "\"" +
 		" data-event-uuid=\"" + san(e.uuid) + "\"" +
@@ -2164,7 +2287,10 @@ function sai_tt_row_html(t, e, now_ut)
 		s += " data-" + n + "=\"" + san(k[n]) + "\"";
 	s += ">";
 
-	s += "<td class=\"tt-name\">" + san(sai_task_group_name(t)) + "</td>";
+	s += "<td class=\"tt-name\">" + san(sai_task_group_name(t)) +
+	     (trouble[t.uuid] ? " <span class=\"tt-trouble\" title=\"" +
+	      "some runs failed or ran past their slice\">&#x26a0;</span>" : "") +
+	     "</td>";
 	s += "<td class=\"tt-plat\">" + sai_plat_icon(t.platform, 0) + " " +
 	     san(t.platform) + "</td>";
 	s += "<td class=\"tt-started\">" +
@@ -2195,9 +2321,9 @@ function sai_tt_render(o, now_ut)
 	});
 	s += "</tr></thead><tbody>";
 
-	var latest = sai_tt_latest_runs(o.t);
+	var latest = sai_tt_latest_runs(o.t), trouble = sai_lanes_trouble(o.t);
 	for (var u in latest)
-		s += sai_tt_row_html(latest[u], o.e, now_ut);
+		s += sai_tt_row_html(latest[u], o.e, now_ut, trouble);
 
 	s += "</tbody></table>";
 
@@ -2238,7 +2364,8 @@ function sai_tt_cmp_vals(a, b)
 }
 
 /*
- * Reorder the rows of a task table in place: failed first, then the user's
+ * Reorder the rows of a task table in place: idle tasks first (only admins
+ * have them, and need to see them), then failed, then the user's
  * primary key and direction (rows lacking a value for it go last either
  * way), then task name and platform to keep the order stable.
  *
@@ -2259,6 +2386,7 @@ function sai_tt_resort(tab)
 	var items = cur.map(function(tr) {
 		return {
 			tr:	tr,
+			idle:	tr.classList.contains("idle-lane") ? 0 : 1,
 			failed:	tr.dataset.state === "4" ? 0 : 1,
 			key:	sai_tt_row_key(tr, so.key, now_ut),
 			name:	tr.dataset.name,
@@ -2267,6 +2395,8 @@ function sai_tt_resort(tab)
 	});
 
 	items.sort(function(a, b) {
+		if (a.idle !== b.idle)
+			return a.idle - b.idle;
 		if (a.failed !== b.failed)
 			return a.failed - b.failed;
 
@@ -2476,7 +2606,8 @@ function sai_tasks_pane_signature(o)
 
 			parts.push(t.uuid, t.run, t.state, t.started, t.duration,
 				   t.build_step, t.build_step_count, t.total_steps,
-				   t.rebuildable, t.platform, t.taskname);
+				   t.rebuildable, t.platform, t.taskname,
+				   t.overran ? 1 : 0);
 		}
 
 	return parts.join("\x01");
@@ -2576,7 +2707,8 @@ function render_selected_event_tasks(o) {
 
 		var ctn = "";
 		var s1 = "";
-		var ordered = sai_tasks_real_then_idle(o.t);
+		var ordered = sai_tasks_idle_then_real(o.t);
+		var trouble = sai_lanes_trouble(o.t), note = "";
 		for (var q = 0; q < ordered.length; q++) {
 			var t = ordered[q];
 
@@ -2587,15 +2719,18 @@ function render_selected_event_tasks(o) {
 				if (ctn !== "") {
 					s += "<div class=\"ib\"><table class=\"nomar\">" +
 					     "<tr><td class=\"tn\">" + hsanitize(ctn) +
-					     "</td><td class=\"keepline\">" + s1 +
+					     "</td><td class=\"keepline\">" + s1 + note +
 					     "</td></tr></table></div>";
 					s1 = "";
 				}
 				ctn = sai_task_group_name(t);
+				note = t.idle ? sai_lane_note_html(o.t, ctn, trouble,
+						e.repo_name, "index.html") : "";
 			}
 
 			s1 += "<div id=\"taskstate_" + t.uuid + "\" class=\"taskstate taskstate" + t.state +
 				(t.idle ? " idle-lane" : "") +
+				(trouble[t.uuid] ? " lane-trouble" : "") +
 				(run_list[t.uuid].length > 1 ? " has_runs" : "") +
 				"\" data-task-uuid=\"" + san(t.uuid) +
 				"\" data-event-uuid=\"" + san(e.uuid) + "\" data-platform=\"" + san(t.platform) +
@@ -2607,7 +2742,7 @@ function render_selected_event_tasks(o) {
 				for (var w = 0; w < run_list[t.uuid].length; w++) {
 					var rt = run_list[t.uuid][w];
 					var rr = typeof rt.run !== 'undefined' ? rt.run : 0;
-					var decal = "<div class=\"taskstate taskstate" + rt.state + " run-decal\"><a href=\"index.html?task=" + t.uuid + "&run=" + rr + "\">" + sai_plat_icon(rt.platform, 0) + "</a></div>";
+					var decal = "<div class=\"taskstate taskstate" + rt.state + " run-decal" + (sai_run_trouble(rt) ? " run-trouble" : "") + "\"><a href=\"index.html?task=" + t.uuid + "&run=" + rr + "\">" + sai_plat_icon(rt.platform, 0) + "</a></div>";
 					var timeStr = rt.started ? agify(now_ut, rt.started) + " ago" : "pending";
 					s1 += "<tr><td>" + decal + "</td><td class=\"runs-time-cell\"><span class=\"ti5\">" + timeStr + "</span></td></tr>";
 				}
@@ -2619,7 +2754,7 @@ function render_selected_event_tasks(o) {
 		if (ctn !== "") {
 			s += "<div class=\"ib\"><table class=\"nomar\">" +
 				"<tr><td class=\"tn\">" + hsanitize(ctn) +
-				"<td class=\"keepline\">" + s1 +
+				"<td class=\"keepline\">" + s1 + note +
 				"</td></tr></table></div>";
 		}
 
@@ -2841,7 +2976,8 @@ function sai_event_render(o, now_ut, reset_all_icon)
 			run_list[uid].sort(function(a, b) { var ar = typeof a.run !== 'undefined' ? a.run : 0; var br = typeof b.run !== 'undefined' ? b.run : 0; return ar - br; });
 		}
 
-		var ordered = sai_tasks_real_then_idle(o.t);
+		var ordered = sai_tasks_idle_then_real(o.t);
+		var trouble = sai_lanes_trouble(o.t), note = "";
 		for (q = 0; q < ordered.length; q++) {
 			var t = ordered[q];
 
@@ -2852,15 +2988,18 @@ function sai_event_render(o, now_ut, reset_all_icon)
 				if (ctn !== "") {
 					s += "<div class=\"ib\"><table class=\"nomar\">" +
 					     "<tr><td class=\"tn\">" + hsanitize(ctn) +
-					     "</td><td class=\"keepline\">" + s1 +
+					     "</td><td class=\"keepline\">" + s1 + note +
 					     "</td></tr></table></div>";
 					s1 = "";
 				}
 				ctn = sai_task_group_name(t);
+				note = t.idle ? sai_lane_note_html(o.t, ctn, trouble,
+						e.repo_name, "/sai/index.html") : "";
 			}
 
 			s1 += "<div id=\"taskstate_" + t.uuid + "\" class=\"taskstate taskstate" + t.state +
 				(t.idle ? " idle-lane" : "") +
+				(trouble[t.uuid] ? " lane-trouble" : "") +
 				(run_list[t.uuid].length > 1 ? " has_runs" : "") +
 				"\" data-event-uuid=\"" + san(e.uuid) + "\" data-platform=\"" + san(t.platform) +
 				"\" data-rebuildable=\"" + t.rebuildable + "\">";
@@ -2871,7 +3010,7 @@ function sai_event_render(o, now_ut, reset_all_icon)
 				for (var w = 0; w < run_list[t.uuid].length; w++) {
 					var rt = run_list[t.uuid][w];
 					var rr = typeof rt.run !== 'undefined' ? rt.run : 0;
-					var decal = "<div class=\"taskstate taskstate" + rt.state + " run-decal\"><a href=\"/sai/index.html?task=" + t.uuid + "&run=" + rr + "\">" + sai_plat_icon(rt.platform, 0) + "</a></div>";
+					var decal = "<div class=\"taskstate taskstate" + rt.state + " run-decal" + (sai_run_trouble(rt) ? " run-trouble" : "") + "\"><a href=\"/sai/index.html?task=" + t.uuid + "&run=" + rr + "\">" + sai_plat_icon(rt.platform, 0) + "</a></div>";
 					var timeStr = rt.started ? agify(now_ut, rt.started) + " ago" : "pending";
 					s1 += "<tr><td>" + decal + "</td><td class=\"runs-time-cell\"><span class=\"ti5\">" + timeStr + "</span></td></tr>";
 				}
@@ -2883,7 +3022,7 @@ function sai_event_render(o, now_ut, reset_all_icon)
 		if (ctn !== "") {
 			s += "<div class=\"ib\"><table class=\"nomar\">" +
 				"<tr><td class=\"tn\">" + hsanitize(ctn) +
-				"<td class=\"keepline\">" + s1 +
+				"<td class=\"keepline\">" + s1 + note +
 				"</td></tr></table></div>";
 		}
 
@@ -5081,6 +5220,7 @@ function ws_open_sai()
 				sai_findings = jso;
 				sai_findings_update_button();
 				sai_findings_render();
+				sai_lane_findings_refresh();
 				break;
 
 			case "com.warmcat.sai.finding":
@@ -5454,6 +5594,12 @@ window.addEventListener("load", function() {
 			if (window.change_page) {
 				window.change_page(parseInt(pbtn.getAttribute('data-offset')));
 			}
+		}
+		/* an idle task group's new findings: show them */
+		if (e.target.closest('a.lane-findings')) {
+			e.preventDefault();
+			sai_findings_dialog_open();
+			return;
 		}
 
 		var a = e.target.closest('a');
