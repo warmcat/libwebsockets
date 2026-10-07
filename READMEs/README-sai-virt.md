@@ -67,7 +67,7 @@ The name `sai-virt` reports to `sai-server` as its power controller is the host'
 
 ### Platforms: `/etc/sai/virt/conf.d/*`
 
-Each file in `/etc/sai/virt/conf.d/` describes one platform `sai-virt` can spawn VMs for, eg `/etc/sai/virt/conf.d/rocky10`:
+Each file in `/etc/sai/virt/conf.d/` describes one platform `sai-virt` can spawn VMs for, from one basis VM (setting one up is described in section 3).  `sai-virt` only spawns VMs for the platforms it has a file for here, and only reads them when it starts, so restart it after adding or changing one.  Eg `/etc/sai/virt/conf.d/rocky10`:
 
 ```json
 {
@@ -92,6 +92,12 @@ Distros publish "cloud" qcow2 images (eg Rocky / Alma / Fedora "GenericCloud", D
 Everything is done by the guest itself, so it works the same whether the image is for the virt host's CPU architecture or another one (eg an aarch64 image on an x86_64 host).  (Editing the image offline with `virt-customize` can't run commands like `useradd` in an image for a different architecture.)
 
 The examples use Rocky 10 on a Rocky / Fedora virt host; adjust names and paths for other distros.
+
+The steps are:
+
+1. On the host: get the image and grow it (3.1), write the first-boot user-data (3.2) and define the basis VM (3.3).
+2. Inside the basis VM: check it, and install and configure `sai-builder` (3.4), then shut it down (3.5).
+3. On the host: add a conf.d file telling `sai-virt` about the basis VM, and restart `sai-virt` (3.6).  Until you do, `sai-virt` doesn't know the basis VM exists, and won't spawn anything for its platform.
 
 ### 3.1 Get the image and give it room
 
@@ -219,11 +225,13 @@ The builder conf, `/etc/sai/builder/conf`, points the builder at `sai-virt` on t
 * **host**: Only a placeholder.  Every VM spawned from the image has the same conf, so at startup the builder asks `sai-virt` for `/whoami` at its `sai-power` url, and uses the name `sai-virt` knows that VM by, `sai-vm-<name>-<n>`.
 * **sai-power**: `sai-virt`'s `bind` address and `port` from its conf.
 * **link-key**: Since the image now contains the fleet secret, don't share the image, and keep the conf root-only (`sudo chmod 600 /etc/sai/builder/conf`).
-* Don't add `power_controller`, `power-on` or `power-off` settings, see 3.6.
+* Don't add `power_controller`, `power-on` or `power-off` settings, see 3.7.
 
 Install `/etc/systemd/system/sai-builder.service` like this.  `-O` makes it build one task and then have the VM destroyed (`-E` instead keeps it for further tasks from the same event).
 
 Started with `-O` or `-E`, the builder does nothing until `sai-virt` has told it which VM it is: it doesn't connect to `sai-server` or take any task.  When you boot the basis VM yourself to maintain it, `sai-virt` doesn't know it, so its builder just keeps asking, with a warning in its log every minute or so, instead of building real tasks into the basis image.  `sudo systemctl stop sai-builder` quiets it.
+
+So if `sai-server` shows the basis VM's builder connecting while you prepare it, the builder isn't running with `-O` / `-E`, or is too old to ask `/whoami`.  Fix that before going on: otherwise every VM spawned from it calls itself by the conf's `host`, `sai-virt` doesn't recognize any of them, and destroys each one after 5 minutes.
 
 ```ini
 [Unit]
@@ -245,7 +253,7 @@ sudo systemctl enable sai-builder
 
 ### 3.5 Shut it down, and leave it down
 
-Booting the basis VM gave it a machine-id.  Empty it as the last thing before shutting down, so each spawned VM generates its own at boot.  Otherwise every clone has the same one, and things derived from it, like the DHCP client id `systemd-networkd` sends, collide, so concurrent clones fight over one IP address.  Do this again whenever you shut the basis VM down after maintenance.
+Booting the basis VM gave it a machine-id.  Empty it as the last thing before shutting down, inside the basis VM, so each spawned VM generates its own at boot.  Otherwise every clone has the same one, and things derived from it, like the DHCP client id `systemd-networkd` sends, collide, so concurrent clones fight over one IP address.  Do this again whenever you shut the basis VM down after maintenance.
 
 ```bash
 sudo truncate -s 0 /etc/machine-id && sudo poweroff
@@ -253,9 +261,51 @@ sudo truncate -s 0 /etc/machine-id && sudo poweroff
 
 The basis VM must stay defined, and shut off.  Its disk is the read-only backing file of every running VM spawned from it; **booting the basis VM while any of those exist corrupts them**.  `sai-virt` won't spawn new VMs while the basis VM is running, but it can't protect ones that are already running.  To maintain the basis image, stop `sai-virt` first (it destroys its VMs as it exits), then boot the basis VM, make your changes, shut it down and start `sai-virt` again.
 
-Then add the platform's file in `/etc/sai/virt/conf.d/` and restart `sai-virt`.  To debug a spawned VM, it's on the same network and has your key, so you can find it with `sudo virsh list` and `sudo virsh domifaddr sai-vm-...` and ssh in, or use its console.
+### 3.6 Tell sai-virt about the basis VM
 
-### 3.6 Power settings in the basis VM's sai-builder conf
+`sai-virt` only spawns VMs for platforms it has a file for in `/etc/sai/virt/conf.d/` (see section 2), and only reads those files when it starts.  Setting up the basis VM doesn't tell it anything.
+
+On the host, get the basis VM's libvirt name, and the exact path of its disk:
+
+```bash
+sudo virsh list --all
+sudo virsh dumpxml linux-rocky10-x86_64 | grep "source file"
+```
+
+Still on the host, create a file for it in `/etc/sai/virt/conf.d/`, eg `/etc/sai/virt/conf.d/rocky10`:
+
+```json
+{
+        "name":         "linux-rocky10-x86_64",
+        "platform":     "linux-rocky-10/x86_64-amd/gcc",
+        "base_image":   "/var/lib/libvirt/images/rocky10-sai.qcow2",
+        "overlay_size": "40G"
+}
+```
+
+* **name**: the basis VM's name, exactly as `virsh list` shows it.
+* **platform**: exactly the platform `name` in the basis VM's builder conf.
+* **base_image**: exactly the path from `source file='...'`.  If it differs at all, `sai-virt` refuses to spawn, and logs the paths the basis VM does have.
+* **overlay_size**: at least the virtual size of the basis image (what you resized it to in 3.1).
+
+Then on the host, restart `sai-virt` and check it took the file:
+
+```bash
+sudo systemctl restart sai-virt
+journalctl -u sai-virt | grep -i platform
+```
+
+You want `Added platform linux-rocky10-x86_64 (base /var/lib/libvirt/images/rocky10-sai.qcow2)`; `Platform definition missing name or base_image` means the file wasn't understood.
+
+To check it all works, have a task for that platform pending (eg, reset one for rebuild), with no other builder for that platform connected to `sai-server` to take it first, and on the host watch:
+
+```bash
+journalctl -u sai-virt -f
+```
+
+You should see `Wheel picked platform ...`, `Spawning ephemeral VM sai-vm-...`, then `whoami from ...: sai-vm-...` once the builder inside has started.  To debug a spawned VM, it's on the same network and has your key, so you can find it with `sudo virsh list` and `sudo virsh domifaddr sai-vm-...` and ssh in, or use its console.
+
+### 3.7 Power settings in the basis VM's sai-builder conf
 
 `sai-virt` owns the lifetime of the VMs it spawns, and the power of the host they run on.  When the builder in a spawned VM is idle, it asks `sai-virt`, at its `sai-power` url, for `/auto-power-off/<vm>`, and `sai-virt` destroys the VM.
 
