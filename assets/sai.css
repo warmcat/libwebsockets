@@ -2006,7 +2006,7 @@ div.ibuil.vm-builder {
 
 .sidebar-pane {
 	flex: 0 0 auto;
-	height: 150px;
+	height: 182px;
 	box-sizing: border-box;
 	border-bottom: 1px solid rgba(0, 0, 0, 0.15);
 	background: #f8f9fa;
@@ -2036,7 +2036,7 @@ div.ibuil.vm-builder {
 /* col 1: logo + login.  Top-aligned with scroll fallback so the logo can
  * never be clipped by the pane's overflow:hidden. */
 .sidebar-pane .sb-col-logo {
-	flex: 0 0 180px;
+	flex: 0 0 240px;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
