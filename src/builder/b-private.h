@@ -105,6 +105,11 @@ struct saib_opaque_spawn {
 #define SAI_CLEANUP_JOBS_INTERVAL_US		(60ULL * 60ULL * LWS_US_PER_SEC)
 #define SAI_CLEANUP_JOB_DIR_MIN_AGE_SECS	(24ull * 3600u)
 /*
+ * Job dirs are moved aside to a name starting with this before the deletion
+ * stub is asked to remove them, see saib_deletion_request()
+ */
+#define SAIB_JOBDIR_DELETING_PREFIX		".sai-deleting."
+/*
  * The disk-pressure path may delete job dirs of any age, so it needs its own
  * floor: a dir this young is either in use or between the steps of a task we
  * are still building, and deleting it breaks that build.

@@ -25,6 +25,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
+#include <stdio.h>
 #include <signal.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -632,12 +633,19 @@ struct cleanup_ctx {
 	int inactive_count;
 	/* may we believe wall-clock-derived file ages on this pass? */
 	char ages_trustworthy;
+	/* ask again about dirs moved aside for deletion still lying around */
+	char reap_aside;
 };
 
 struct active_job_uuid {
 	lws_dll2_t list;
 	char uuid[65];
 };
+
+#if defined(LWS_WITH_STUB)
+static int
+saib_deletion_request_name(const char *name);
+#endif
 
 static int
 compare_age(const void *a, const void *b)
@@ -660,8 +668,22 @@ scan_jobs_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	struct stat sb, sb2;
 	uint64_t age;
 
-	if (lde->name[0] == '.')
+	if (lde->name[0] == '.') {
+#if defined(LWS_WITH_STUB)
+		/*
+		 * A job dir we moved aside to delete and is still here: the
+		 * stub went away before it got to it, or we did
+		 */
+		if (ctx->reap_aside && builder.mgr_deletion &&
+		    !strncmp(lde->name, SAIB_JOBDIR_DELETING_PREFIX,
+			     strlen(SAIB_JOBDIR_DELETING_PREFIX))) {
+			lwsl_notice("%s: %s left over, deleting it\n",
+				    __func__, lde->name);
+			saib_deletion_request_name(lde->name);
+		}
+#endif
 		return 0;
+	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, p, ctx->active_owner.head) {
 		struct active_job_uuid *aj = lws_container_of(p, struct active_job_uuid, list);
@@ -877,6 +899,11 @@ sul_cleanup_jobs_cb(lws_sorted_usec_list_t *sul)
 
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.ages_trustworthy = (char)saib_clock_ages_trustworthy();
+	/*
+	 * We run when the stub (re)connects as well as periodically, so this
+	 * is the time to finish deletions it may have lost
+	 */
+	ctx.reap_aside = 1;
 
 	/*
 	 * We must not delete any active job directories, find out the uuids
@@ -1020,14 +1047,13 @@ sai_deletion_connected_cb(struct lws_stub_manager *mgr)
 }
 
 /*
- * Queue a fire-and-forget deletion of job dir \p job (a name under
- * <home>/jobs/) with the deletion stub.  Every request embeds the stub's
- * 128-char secret: the stub refuses any delete that did not prove it, which
- * is what distinguishes us from anything else that managed to connect to
- * the owner-only UDS.
+ * Queue a fire-and-forget deletion of \p name (a dir under <home>/jobs/) with
+ * the deletion stub.  Every request embeds the stub's 128-char secret: the
+ * stub refuses any delete that did not prove it, which is what distinguishes
+ * us from anything else that managed to connect to the owner-only UDS.
  */
-int
-saib_deletion_request(const char *job)
+static int
+saib_deletion_request_name(const char *name)
 {
 	const char *secret;
 	char json[384];
@@ -1040,10 +1066,46 @@ saib_deletion_request(const char *job)
 		return -1;
 
 	lws_snprintf(json, sizeof(json),
-		     "{\"secret\":\"%s\",\"delete\":\"%s\"}", secret, job);
+		     "{\"secret\":\"%s\",\"delete\":\"%s\"}", secret, name);
 
 	return lws_stub_request(builder.mgr_deletion, json, NULL, 0,
 				NULL, NULL, NULL);
+}
+
+/*
+ * Delete job dir \p job (a name under <home>/jobs/).
+ *
+ * The stub gets to it some time after we ask, and finds it by name.  But the
+ * name is only the task uuid's, so the next run of the same task (the next
+ * slice of an idle lane, or a rebuild) uses it again, and may well already
+ * have started in it by then: the deletion then removes what that run just put
+ * there, eg, its git_helper.sh.  So move the dir aside under a name nothing
+ * else uses before asking, which frees the job dir name at once.
+ */
+int
+saib_deletion_request(const char *job)
+{
+	char from[PATH_MAX], to[PATH_MAX], aside[96];
+
+	if (!builder.mgr_deletion)
+		return -1;
+
+	lws_snprintf(aside, sizeof(aside), SAIB_JOBDIR_DELETING_PREFIX "%s.%llx",
+		     job, (unsigned long long)lws_now_usecs());
+	lws_snprintf(from, sizeof(from), "%s/jobs/%s", builder.home, job);
+	lws_snprintf(to, sizeof(to), "%s/jobs/%s", builder.home, aside);
+
+	if (!rename(from, to))
+		return saib_deletion_request_name(aside);
+
+	if (errno == ENOENT)
+		/* there's nothing to delete */
+		return 0;
+
+	lwsl_warn("%s: unable to move %s aside (errno %d), deleting it in "
+		  "place\n", __func__, from, errno);
+
+	return saib_deletion_request_name(job);
 }
 
 static int
