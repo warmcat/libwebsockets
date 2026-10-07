@@ -78,7 +78,13 @@ sai tells an idle task how long its slice is in `SAI_IDLE_SECS`, and then
 `run.sh` goes by that instead of the seconds argument: whatever time is left
 after the build goes to as many targets as can each have at least two
 minutes, taking turns in order across slices so every target is covered.
-Whose turn it is is kept in `<corpus>/.idle-next`.
+Whose turn it is is kept in `<corpus>/.idle-next`.  Each target's share is
+worked out from the clock just before it starts, and it's interrupted if it
+runs past it (eg, while it's still replaying a large corpus), so a slow target
+only shortens the ones after it, and the slice isn't overrun.  Targets that
+don't fit any more go first next slice.  The log says how long the build and
+each target took, and how much of the slice was used.  An idle task also lets
+an input run for at most a minute before libFuzzer calls it a hang.
 
 The configuration also names a sai pool, `fuzz`, which sai keeps synced
 between all the builders running it (see sai's `READMEs/README-pool.md`).

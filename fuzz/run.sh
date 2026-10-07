@@ -24,6 +24,11 @@
 # time left after the build goes to as many targets as can each have at least
 # IDLE_MIN_TARGET_SECS, taking turns in order across slices, so all of them
 # are covered over a few slices.  Any target names given still limit the choice.
+# Each target's share is worked out from the clock just before it starts, so
+# one that ran long only takes time from the targets after it, and each one is
+# stopped if it runs past its share (eg, if replaying its corpus took longer
+# than that), so the slice is never overrun.  Targets that don't fit any more
+# go first next slice.  The log says how long the build and each target took.
 #
 # Under a sai task whose configuration names a pool (sai's READMEs/README-
 # pool.md), sai sets SAI_POOL_DIR to a dir the builder keeps synced with every
@@ -87,10 +92,13 @@ esac
 # least time a target gets in an idle slice, since each run begins by
 # replaying the target's whole corpus
 IDLE_MIN_TARGET_SECS=120
-# time an idle slice keeps back for the fuzzer runs starting and stopping,
-# and reporting at the end
+# time an idle slice keeps back for reporting at the end
 IDLE_MARGIN_SECS=30
-IDLE_PER_TARGET_OVERHEAD_SECS=5
+# time each target's share keeps back for the fuzzer starting and stopping
+IDLE_PER_TARGET_OVERHEAD_SECS=10
+# how long one input may run before libFuzzer calls it a hang (a timeout-*
+# finding); its default of 20 minutes would just use up the slice
+IDLE_UNIT_TIMEOUT_SECS=60
 
 if [ -z "$CC" ]; then
 	for c in clang clang-19 clang-18 clang-17; do
@@ -132,8 +140,14 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 	$FUZZ_CMAKE_OPTS
 
 cmake --build "$BUILD" --parallel
+BUILT=$(date +%s)
 
 mkdir -p "$BUILD/fuzz" "$CORPUS"
+
+# under an idle task, how to stop a target that runs past its share: an
+# interrupt, which libFuzzer catches and exits with its final stats
+CAP=""
+UNIT_TIMEOUT=""
 
 if [ -n "$IDLE_SECS" ]; then
 	# only the targets that got built can take a turn
@@ -150,16 +164,23 @@ if [ -n "$IDLE_SECS" ]; then
 		exit 1
 	fi
 
-	left=$(( IDLE_SECS - ($(date +%s) - START) - IDLE_MARGIN_SECS ))
+	# when the last target must have finished by
+	DEADLINE=$(( START + IDLE_SECS - IDLE_MARGIN_SECS ))
+	UNIT_TIMEOUT="-timeout=$IDLE_UNIT_TIMEOUT_SECS"
+
+	left=$(( DEADLINE - $(date +%s) ))
 	count=$(( left / (IDLE_MIN_TARGET_SECS + IDLE_PER_TARGET_OVERHEAD_SECS) ))
 	if [ "$count" -gt "$n" ]; then
 		count=$n
 	fi
 	if [ "$count" -lt 1 ]; then
-		echo "idle slice of ${IDLE_SECS}s has no time left after the build"
+		echo "idle slice of ${IDLE_SECS}s has no time left after the" \
+		     "$(( BUILT - START ))s build"
 		exit 0
 	fi
 	SECS=$(( left / count - IDLE_PER_TARGET_OVERHEAD_SECS ))
+	# how many of the chosen targets haven't had their turn yet
+	togo=$count
 
 	# whose turn it is, kept with the corpora so it lasts between slices
 	next=0
@@ -171,7 +192,6 @@ if [ -n "$IDLE_SECS" ]; then
 		esac
 	fi
 	next=$(( next % n ))
-	echo $(( (next + count) % n )) > "$CORPUS/.idle-next"
 
 	TARGETS=""
 	i=0
@@ -181,7 +201,8 @@ if [ -n "$IDLE_SECS" ]; then
 		i=$(( i + 1 ))
 	done
 
-	echo "idle slice of ${IDLE_SECS}s: ${SECS}s each for$TARGETS"
+	echo "idle slice of ${IDLE_SECS}s: build took $(( BUILT - START ))s," \
+	     "about ${SECS}s each for$TARGETS"
 fi
 
 # so we can tell this run's findings apart from any earlier ones in $BUILD
@@ -230,11 +251,35 @@ replay_known() {
 
 # first corpus dir receives new discoveries, the second is read-only seeds
 run_target() {
-	"$BUILD/bin/fuzz-$1" "$CORPUS/corpus-$1" "$REPO/fuzz/fuzz-$1/seeds" \
+	$CAP "$BUILD/bin/fuzz-$1" "$CORPUS/corpus-$1" "$REPO/fuzz/fuzz-$1/seeds" \
 		-max_total_time="$SECS" \
 		-print_final_stats=1 \
 		-artifact_prefix="$BUILD/fuzz/" \
+		$UNIT_TIMEOUT \
 		$FUZZ_OPTS
+}
+
+# how target $1 went, from its exit code $2: being stopped at the end of its
+# share isn't a failure, the corpus it built up so far is kept
+target_done() {
+	took=$(( $(date +%s) - TSTART ))
+	case "$2" in
+	0)
+		;;
+	124|137)
+		if [ -n "$CAP" ]; then
+			echo "fuzz-$1: stopped, it ran past its share of the slice"
+		else
+			rc=1
+		fi
+		;;
+	*)
+		rc=1
+		;;
+	esac
+	if [ -n "$IDLE_SECS" ]; then
+		echo "fuzz-$1: took ${took}s"
+	fi
 }
 
 for t in $TARGETS; do
@@ -244,6 +289,29 @@ for t in $TARGETS; do
 	if [ ! -x "$bin" ]; then
 		echo "fuzz-$t: not built (cmake option off?), skipping" >&2
 		continue
+	fi
+
+	if [ -n "$IDLE_SECS" ]; then
+		# share out what's really left between the targets still to
+		# go, as many as can each have the least time for a target
+		left=$(( DEADLINE - $(date +%s) ))
+		fit=$(( left / (IDLE_MIN_TARGET_SECS + \
+				IDLE_PER_TARGET_OVERHEAD_SECS) ))
+		if [ "$fit" -lt "$togo" ]; then
+			togo=$fit
+		fi
+		if [ "$togo" -lt 1 ]; then
+			echo
+			echo "idle slice has ${left}s left, too little for" \
+			     "fuzz-$t, it goes first next slice"
+			break
+		fi
+		SECS=$(( left / togo - IDLE_PER_TARGET_OVERHEAD_SECS ))
+		togo=$(( togo - 1 ))
+		if command -v timeout >/dev/null 2>&1; then
+			CAP="timeout -s INT -k 15 $(( SECS + \
+					IDLE_PER_TARGET_OVERHEAD_SECS ))"
+		fi
 	fi
 
 	echo
@@ -258,21 +326,24 @@ for t in $TARGETS; do
 
 	TSTAMP="$BUILD/fuzz/.target-stamp"
 	touch "$TSTAMP"
+	TSTART=$(date +%s)
 
 	# sai runs build steps in a pty, so under sai with findings going to
 	# sai-server, a tty doesn't mean someone is watching: the output is
 	# the public task log, and must not get the sanitizer reports
 	if [ -t 1 ] && [ -z "$SAI_POOL_FINDINGS" ]; then
 		# interactive: live output, plus a copy next to the artifacts
-		{ run_target "$t"; echo $? > "$log.rc"; } 2>&1 | tee "$log"
-		[ "$(cat "$log.rc")" = 0 ] || rc=1
+		{ st=0; run_target "$t" || st=$?; echo $st > "$log.rc"; } 2>&1 |
+			tee "$log"
+		target_done "$t" "$(cat "$log.rc")"
 		rm -f "$log.rc"
 	else
 		# not a terminal (CI log capture): libFuzzer emits each status
 		# line as a dozen tiny unbuffered write()s, and collectors that
 		# store per-read chunks (sai) count every one against a spew
 		# limit; gather the target's output and emit it in one go
-		run_target "$t" > "$log" 2>&1 || rc=1
+		st=0
+		run_target "$t" > "$log" 2>&1 || st=$?
 
 		if [ -n "$SAI_POOL_FINDINGS" ]; then
 			# the reports go to sai-server; the public log just
@@ -282,6 +353,7 @@ for t in $TARGETS; do
 		else
 			cat "$log"
 		fi
+		target_done "$t" "$st"
 	fi
 
 	if [ -n "$SAI_POOL_FINDINGS" ]; then
@@ -292,6 +364,12 @@ for t in $TARGETS; do
 			echo "fuzz-$t: finding ${f##*/} (report sent to sai)"
 			sai_finding "$t" "$f" "${f##*/}" "$log"
 		done
+	fi
+
+	if [ -n "$IDLE_SECS" ]; then
+		# it had its turn, the next one goes first next slice
+		next=$(( (next + 1) % n ))
+		echo "$next" > "$CORPUS/.idle-next"
 	fi
 done
 
@@ -309,6 +387,10 @@ if [ -n "$FOUND" ]; then
 	rc=1
 else
 	echo "=== no findings ==="
+fi
+
+if [ -n "$IDLE_SECS" ]; then
+	echo "idle slice: used $(( $(date +%s) - START ))s of ${IDLE_SECS}s"
 fi
 
 if [ -n "$IDLE_SECS" ] && [ -n "$SAI_POOL_FINDINGS" ]; then
