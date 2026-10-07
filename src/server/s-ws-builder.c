@@ -902,6 +902,8 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 			n = SAIES_YIELDED;
 			lwsl_notice("%s: |||| SAIES_YIELDED: %s\n",
 					__func__, rej->task_uuid);
+			if (rej->ecode & SAISPRF_OVERRAN)
+				sais_idle_slice_overran(vhd, rej->task_uuid);
 		} else
 		if (rej->ecode & SAISPRF_EXIT) {
 			if ((rej->ecode & 0xff) == 0) {

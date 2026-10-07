@@ -112,6 +112,8 @@ enum {
 	SAISPRF_SIGNALLED		= 0x4000,
 	/* with SAISPRF_TERMINATED: the builder stopped an idle task's slice */
 	SAISPRF_YIELDED			= 0x10000,
+	/* with SAISPRF_YIELDED: ... because it ran past the end of the slice */
+	SAISPRF_OVERRAN			= 0x20000,
 };
 
 typedef enum {
@@ -298,6 +300,12 @@ typedef struct {
 	 * server while the task runs.  See READMEs/README-pool.md.
 	 */
 	char				pool[33];
+	/*
+	 * Nonzero for an idle task's run that the builder had to stop
+	 * because it ran past the end of its slice, so admins can see the
+	 * lane needs looking at.  Like a failed run, it's kept for longer.
+	 */
+	int				overran;
 } sai_task_t;
 
 struct saib_logproxy {
@@ -391,6 +399,7 @@ struct sai_nspawn {
 
 	uint8_t				retcode_set:1;
 	uint8_t				idle_yield:1; /* we stopped this idle slice */
+	uint8_t				idle_overran:1; /* ...it ran past its end */
 	uint8_t				state_changed:1;
 	uint8_t				user_cancel:1;
 	uint8_t				user_killed:1;
@@ -1071,7 +1080,7 @@ extern const lws_struct_map_t
 	lsm_schema_map_ta[1],
 	lsm_schema_map_plat_simple[1],
 	lsm_event[15],
-	lsm_task[34],
+	lsm_task[35],
 	lsm_log[9],
 	lsm_artifact[9],
 	lsm_plat_list[1],

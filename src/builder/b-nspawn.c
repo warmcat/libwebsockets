@@ -399,6 +399,7 @@ sai_lsp_reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 			       "Idle task step ran past its %us slice, stopping it",
 			       ns->sp->idle_slice_secs);
 		ns->idle_yield = 1;
+		ns->idle_overran = 1;
 		exit_code = -1;
 		ns->retcode = SAISPRF_TERMINATED;
 		ns->retcode_set = 1;

@@ -515,6 +515,9 @@ void
 sais_idle_slice_ended(struct vhd *vhd, sqlite3 *pdb, const char *task_uuid);
 
 void
+sais_idle_slice_overran(struct vhd *vhd, const char *task_uuid);
+
+void
 sais_idle_declined(struct vhd *vhd, sai_plat_t *sp, const char *task_uuid);
 
 void

@@ -960,7 +960,8 @@ saib_task_destroy(struct sai_nspawn *ns)
 			 * We stopped this idle slice, it's not a failure
 			 * whatever the process had to say about it
 			 */
-			ecode = SAISPRF_TERMINATED | SAISPRF_YIELDED;
+			ecode = SAISPRF_TERMINATED | SAISPRF_YIELDED |
+				(ns->idle_overran ? SAISPRF_OVERRAN : 0);
 
 		if (!ns->task->idle)
 			/* real work idles us only after the settle time */

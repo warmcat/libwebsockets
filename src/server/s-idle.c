@@ -56,6 +56,11 @@
 /* how many of a lane's most recent slices keep their task row and logs */
 #define SAIS_IDLE_RUNS_KEPT		4
 /*
+ * ... but slices that failed or overran are kept for this many, so admins can
+ * still see what went wrong after a night of slices
+ */
+#define SAIS_IDLE_PROBLEM_RUNS_KEPT	48
+/*
  * The least an active period is charged as, so a lane that fails at once
  * every time (eg, it doesn't build on that platform) rests like one that ran
  * a while instead of being restarted over and over
@@ -396,18 +401,18 @@ sais_idle_add_pending_plats(struct vhd *vhd)
  * Arm the next slice of an idle task whose last one is over: a new run, bound
  * to the builder platform that's going to do it.  The oldest runs beyond the
  * last few are pruned, with their logs and artifacts, since a lane runs
- * indefinitely.
+ * indefinitely.  Runs that failed or overran are kept for longer.
  */
 
 static int
 sais_idle_new_run(struct vhd *vhd, sqlite3 *pdb, const char *task_uuid,
 		  const sai_plat_t *sp)
 {
+	char esc[96], q[512], sel[320];
 	struct lwsac *ac = NULL;
-	char esc[96], q[256];
 	lws_dll2_owner_t o;
 	sai_task_t *t;
-	int n;
+	int n, t_run;
 
 	/* logs we're holding for the last run must go there, not the new one */
 	sais_logcache_flush(vhd);
@@ -426,6 +431,7 @@ sais_idle_new_run(struct vhd *vhd, sqlite3 *pdb, const char *task_uuid,
 
 	t->run++;
 	t->state		= SAIES_WAITING;
+	t->overran		= 0;
 	t->started		= 0;
 	t->duration		= 0;
 	t->build_step		= 0;
@@ -442,22 +448,63 @@ sais_idle_new_run(struct vhd *vhd, sqlite3 *pdb, const char *task_uuid,
 		return 1;
 	}
 
-	n = t->run - SAIS_IDLE_RUNS_KEPT;
+	t_run = t->run;
+	n = t_run - SAIS_IDLE_RUNS_KEPT;
 	lwsac_free(&ac);
 
 	if (n >= 0) {
+		/*
+		 * The runs to remove: the older ones, except the ones that
+		 * failed or overran, unless they're very old.  The task rows
+		 * say which they are, so they go last.
+		 */
+		lws_snprintf(sel, sizeof(sel), "run <= %d and (run <= %d or "
+			     "run not in (select run from tasks where "
+			     "uuid='%s' and (state=%d or overran=1)))", n,
+			     t_run - SAIS_IDLE_PROBLEM_RUNS_KEPT, esc,
+			     SAIES_FAIL);
+
 		lws_snprintf(q, sizeof(q), "delete from logs where "
-			     "task_uuid='%s' and run <= %d", esc, n);
+			     "task_uuid='%s' and %s", esc, sel);
 		sqlite3_exec(pdb, q, NULL, NULL, NULL);
 		lws_snprintf(q, sizeof(q), "delete from artifacts where "
-			     "task_uuid='%s' and run <= %d", esc, n);
+			     "task_uuid='%s' and %s", esc, sel);
 		sqlite3_exec(pdb, q, NULL, NULL, NULL);
 		lws_snprintf(q, sizeof(q), "delete from tasks where "
-			     "uuid='%s' and run <= %d", esc, n);
+			     "uuid='%s' and %s", esc, sel);
 		sqlite3_exec(pdb, q, NULL, NULL, NULL);
 	}
 
 	return 0;
+}
+
+/*
+ * The builder had to stop an idle task's slice because it ran past its end.
+ * It's not a failure, but it's not right either: mark the run, so admins can
+ * see the lane needs looking at.
+ */
+
+void
+sais_idle_slice_overran(struct vhd *vhd, const char *task_uuid)
+{
+	char event_uuid[33], esc[96], q[256];
+	sqlite3 *pdb = NULL;
+
+	sai_task_uuid_to_event_uuid(event_uuid, task_uuid);
+	if (sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
+				     vhd->sqlite3_path_lhs, event_uuid, 0,
+				     &pdb))
+		return;
+
+	lws_sql_purify(esc, task_uuid, sizeof(esc));
+	lws_snprintf(q, sizeof(q), "update tasks set overran=1 where "
+		     "uuid='%s' and idle=1 and run=(select max(run) from "
+		     "tasks where uuid='%s')", esc, esc);
+	if (sqlite3_exec(pdb, q, NULL, NULL, NULL) != SQLITE_OK)
+		lwsl_err("%s: unable to mark %s overran\n", __func__,
+			 task_uuid);
+
+	sai_event_db_close(&vhd->sqlite3_cache, &pdb);
 }
 
 /*
