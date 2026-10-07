@@ -32,7 +32,8 @@
 #define DHT_UPLOAD_TIMEOUT_US		(50 * LWS_US_PER_MS)
 #define DHT_UPLOAD_VALIDATE_TIMEOUT_US	(50 * LWS_US_PER_MS)
 #define DHT_UPLOAD_RETRY_US		(200 * LWS_US_PER_MS)
-#define DHT_UPLOAD_RETRY_MAX_US		(400 * LWS_US_PER_MS)
+/* not a doubling of the base, so the backoff's clamp to it is exercised */
+#define DHT_UPLOAD_RETRY_MAX_US		(300 * LWS_US_PER_MS)
 
 #define LWS_PLUGIN_STATIC
 #include "../../../plugins/protocol_lws_dht_dnssec/protocol_lws_dht_dnssec.c"
