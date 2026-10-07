@@ -89,15 +89,19 @@ struct vhd_acme_dns {
 #define ACME_DNS_SERVE_POLL_US	(2 * LWS_US_PER_SEC)
 
 static void
-sul_dns_ready_cb(lws_sorted_usec_list_t *sul)
+acme_dns_ready(struct vhd_acme_dns *ad)
 {
-	struct vhd_acme_dns *ad = lws_container_of(sul, struct vhd_acme_dns, sul_delay);
-
 	if (ad->core_ops && ad->core_ops->notify_challenge_ready && ad->core_vhd) {
 		lwsl_vhost_notice(ad->vhost, "dns-01: challenge zone published, "
 				  "asking the ACME server to check it");
 		ad->core_ops->notify_challenge_ready(ad->core_vhd);
 	}
+}
+
+static void
+sul_dns_ready_cb(lws_sorted_usec_list_t *sul)
+{
+	acme_dns_ready(lws_container_of(sul, struct vhd_acme_dns, sul_delay));
 }
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_AUTHORITATIVE_DNS)
@@ -112,7 +116,7 @@ acme_dns_served_cb(void *opaque, int ok, const char *why)
 	if (ok) {
 		lwsl_vhost_notice(ad->vhost, "dns-01: every name server of %s "
 				  "serves the challenge", ad->active_domain);
-		sul_dns_ready_cb(&ad->sul_delay);
+		acme_dns_ready(ad);
 		return;
 	}
 
