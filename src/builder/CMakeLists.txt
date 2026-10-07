@@ -18,6 +18,7 @@ set(SRCS
 	b-suspender.c
 	b-deletion.c
 	b-power.c
+	b-whoami.c
 	../common/c-utils.c
 	../common/c-pool.c
 	../common/struct-metadata.c
@@ -47,11 +48,6 @@ add_dependencies(${SUB} sai_git_hash)
                link_directories("/usr/local/lib")
 	endif()
 
-	if (SAI_BUILDER)
-		if (APPLE)
-		    target_link_libraries(sai-builder "-framework IOKit" "-framework CoreFoundation")
-		endif() 
-       endif()
 
 	#configure_file("${PROJECT_SOURCE_DIR}/cmake/sai_config_private.h.in"
 	#	       "${PROJECT_BINARY_DIR}/sai_config_private.h")

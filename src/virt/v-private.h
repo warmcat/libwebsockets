@@ -26,6 +26,9 @@ typedef struct sai_virt_ops {
 	int (*destroy)(struct sai_virt *virt, struct saiv_vm *vm);
 	/* 1 = running, 0 = gone / can't make progress, -1 = can't tell */
 	int (*alive)(struct sai_virt *virt, struct saiv_vm *vm);
+	/* 1 = the VM has address ip, 0 = it doesn't, -1 = can't tell */
+	int (*has_addr)(struct sai_virt *virt, struct saiv_vm *vm,
+			const char *ip);
 } sai_virt_ops_t;
 
 /* a VM that never contacts us at all is given up on after this */
@@ -54,6 +57,8 @@ typedef struct saiv_vm {
 	saiv_plat_t		*plat;
 	char			name[64];
 	int			vm_index;
+	/* address we last saw its builder use, "" until it asks /whoami */
+	char			ip[48];
 	lws_sorted_usec_list_t	sul_timeout;
 	lws_sorted_usec_list_t	sul_destroy;
 } saiv_vm_t;

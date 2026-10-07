@@ -146,15 +146,6 @@ CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint
 	main(void) {\n#if defined(LWS_HAVE_LIBCAP)\n return
 		0;\n#else\n fail;\n#endif\n return 0;\n}\n" HAS_LIBCAP)
 
-if (APPLE)
-       set(CMAKE_REQUIRED_LIBRARIES "-framework IOKit")
-	check_symbol_exists(kIOMainPortDefault "mach/mach.h;IOKit/IOKitLib.h" HAVE_KIOMAINPORTDEFAULT)
-       set(CMAKE_REQUIRED_LIBRARIES "")
-	if (HAVE_KIOMAINPORTDEFAULT)
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DHAVE_KIOMAINPORTDEFAULT")
-	endif()
-endif()
-
 #set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -v")
 set (CMAKE_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES};${LIBWEBSOCKETS_INCLUDE_DIRS}")
 

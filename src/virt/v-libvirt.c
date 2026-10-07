@@ -383,56 +383,19 @@ ops_libvirt_spawn(struct sai_virt *virt, struct saiv_vm *vm)
 		goto bail;
 	}
 
-	/* Inject qemu namespace into <domain> */
-	char *xml4 = replace_string(xml3, "<domain type=", "<domain xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0' type=");
-	if (!xml4)
-		xml4 = strdup(xml3);
-	free(xml3);
-
-	/* Inject smbios mode='sysinfo' into <os> if missing */
-	char *xml4a = xml4;
-	if (!strstr(xml4, "<smbios mode='sysinfo'/>")) {
-		xml4a = replace_string(xml4, "</os>", "    <smbios mode='sysinfo'/>\n  </os>");
-		if (xml4a)
-			free(xml4);
-		else
-			xml4a = xml4;
-	}
-
-	/* Inject SMBIOS serial number and fw_cfg for builder identity */
-	char fw_cfg_tag[512];
-	lws_snprintf(fw_cfg_tag, sizeof(fw_cfg_tag), 
-		"  <sysinfo type='smbios'>\n"
-		"    <system>\n"
-		"      <entry name='serial'>sai_builder_id:%s</entry>\n"
-		"    </system>\n"
-		"  </sysinfo>\n"
-		"  <qemu:commandline>\n"
-		"    <qemu:arg value='-fw_cfg'/>\n"
-		"    <qemu:arg value='name=opt/sai_builder_id,string=%s'/>\n"
-		"  </qemu:commandline>\n"
-		"</domain>", vm->name, vm->name);
-
-	char *xml5 = replace_string(xml4a, "</domain>", fw_cfg_tag);
-	if (xml5) {
-		free(xml4a);
-	} else {
-		xml5 = xml4a;
-	}
-
-	if (!xml5) {
-		lwsl_err("Failed to manipulate XML\n");
-		goto bail;
-	}
-
 	/* Remove UUID so libvirt generates a new one, avoiding conflicts with the base VM */
-	strip_xml_tags(xml5, "<uuid>", "</uuid>");
-	/* Remove MAC addresses so libvirt generates new ones, avoiding network conflicts */
-	strip_xml_tags(xml5, "<mac address=", "/>");
+	strip_xml_tags(xml3, "<uuid>", "</uuid>");
+	/*
+	 * Remove MAC addresses so libvirt generates new ones, avoiding network
+	 * conflicts.  The builder inside finds out which VM it is by asking
+	 * us, and we recognize it by the address that gets it, see
+	 * ops_libvirt_has_addr()
+	 */
+	strip_xml_tags(xml3, "<mac address=", "/>");
 
 	/* 4. Boot the transient domain */
-	dom = virDomainCreateXML(c, xml5, 0);
-	free(xml5);
+	dom = virDomainCreateXML(c, xml3, 0);
+	free(xml3);
 
 	if (!dom) {
 		lwsl_err("Failed to create transient domain %s\n", vm->name);
@@ -538,10 +501,59 @@ out:
 	return r;
 }
 
+/*
+ * Does this VM have the address ip?  We ask what libvirt's DHCP server leased
+ * it, and failing that, what the host's ARP table has for its NICs' MACs,
+ * which also covers networks libvirt doesn't run DHCP on.  The VM has just
+ * talked to us from that address, so the ARP entry will be there.
+ */
+
+static int
+ops_libvirt_has_addr(struct sai_virt *virt, struct saiv_vm *vm, const char *ip)
+{
+	static const unsigned int srcs[] = {
+		VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE,
+		VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP,
+	};
+	virDomainInterfacePtr *ifs;
+	int s, n, i, found = 0;
+	virDomainPtr dom;
+	virConnectPtr c;
+	unsigned int j;
+
+	c = saiv_libvirt_conn();
+	if (!c)
+		return -1;
+
+	dom = virDomainLookupByName(c, vm->name);
+	if (!dom)
+		return saiv_libvirt_no_domain() ? 0 : -1;
+
+	for (s = 0; s < (int)LWS_ARRAY_SIZE(srcs) && !found; s++) {
+		ifs = NULL;
+		n = virDomainInterfaceAddresses(dom, &ifs, srcs[s], 0);
+
+		for (i = 0; i < n; i++) {
+			for (j = 0; j < ifs[i]->naddrs; j++)
+				if (ifs[i]->addrs[j].addr &&
+				    !strcmp(ifs[i]->addrs[j].addr, ip))
+					found = 1;
+
+			virDomainInterfaceFree(ifs[i]);
+		}
+		free(ifs);
+	}
+
+	virDomainFree(dom);
+
+	return found;
+}
+
 const sai_virt_ops_t ops_libvirt = {
 	.name = "libvirt",
 	.init = ops_libvirt_init,
 	.spawn = ops_libvirt_spawn,
 	.destroy = ops_libvirt_destroy,
 	.alive = ops_libvirt_alive,
+	.has_addr = ops_libvirt_has_addr,
 };

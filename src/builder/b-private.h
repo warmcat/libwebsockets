@@ -589,6 +589,9 @@ saib_power_event(enum saib_power_event ev);
 void
 saib_power_shutdown(void);
 
+int
+saib_whoami_pending(void);
+
 extern int interrupted;
 
 int

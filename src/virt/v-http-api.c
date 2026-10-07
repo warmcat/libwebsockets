@@ -56,29 +56,133 @@ saiv_http_reply_text(struct lws *wsi, const char *text)
 	return -1; /* hang up */
 }
 
+/*
+ * Which of our VMs did this request come from?  We remember the address each
+ * VM's builder last used, and only ask the hypervisor when a peer doesn't
+ * match any of them, ie, normally only on its /whoami.
+ */
+
+static saiv_vm_t *
+saiv_vm_from_peer(struct lws *wsi, char *peer, size_t len)
+{
+	const char *ip;
+
+	ip = lws_get_peer_simple(wsi, peer, len);
+	if (!ip) {
+		lws_strncpy(peer, "?", len);
+		return NULL;
+	}
+
+	/* an IPv4 peer on an IPv6 listen socket */
+	if (!strncmp(ip, "::ffff:", 7))
+		memmove(peer, ip + 7, strlen(ip + 7) + 1);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, virt.plat_owner.head) {
+		saiv_plat_t *vp = lws_container_of(d, saiv_plat_t, list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, v, vp->vm_owner.head) {
+			saiv_vm_t *vm = lws_container_of(v, saiv_vm_t, list);
+
+			if (!strcmp(vm->ip, peer))
+				return vm;
+		} lws_end_foreach_dll(v);
+	} lws_end_foreach_dll(d);
+
+	if (!virt.ops || !virt.ops->has_addr)
+		return NULL;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, virt.plat_owner.head) {
+		saiv_plat_t *vp = lws_container_of(d, saiv_plat_t, list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, v, vp->vm_owner.head) {
+			saiv_vm_t *vm = lws_container_of(v, saiv_vm_t, list);
+
+			if (virt.ops->has_addr(&virt, vm, peer) == 1) {
+				lws_strncpy(vm->ip, peer, sizeof(vm->ip));
+				return vm;
+			}
+		} lws_end_foreach_dll(v);
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * The VM a /stay or /auto-power-off names, but only if the request came from
+ * that VM: nothing else gets to keep one of our VMs alive or destroy it
+ */
+
+static saiv_vm_t *
+saiv_vm_named_by_peer(struct lws *wsi, const char *name, const char *what)
+{
+	saiv_vm_t *vm = saiv_find_vm(name), *from;
+	char peer[64];
+
+	if (!vm) {
+		lwsl_warn("%s: %s for unknown VM %s\n", __func__, what, name);
+		return NULL;
+	}
+
+	from = saiv_vm_from_peer(wsi, peer, sizeof(peer));
+	if (from != vm) {
+		lwsl_warn("%s: ignoring %s for %s from %s, which is %s\n",
+			  __func__, what, name, peer,
+			  from ? from->name : "not one of our VMs");
+		return NULL;
+	}
+
+	return vm;
+}
+
 int
 callback_virt_http(struct lws *wsi, enum lws_callback_reasons reason,
 		   void *user, void *in, size_t len)
 {
+	char vm_id[64], reply[96], peer[64];
+	saiv_vm_t *vm;
 	const char *path;
-	char vm_id[64];
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 		path = (const char *)in;
-		if (len > 16 && !strncmp(path, "/auto-power-off/", 16)) {
-			saiv_vm_t *found_vm;
 
+		if (!strcmp(path, "/whoami")) {
+			/*
+			 * A builder in one of our VMs is a clone of the basis
+			 * image, it only learns which VM it is from us
+			 */
+			vm = saiv_vm_from_peer(wsi, peer, sizeof(peer));
+			if (!vm) {
+				lwsl_warn("%s: whoami from %s, which is not one "
+					  "of our VMs\n", __func__, peer);
+				return saiv_http_reply_text(wsi,
+						"NAK: not one of our VMs");
+			}
+
+			lwsl_notice("%s: whoami from %s: %s\n", __func__, peer,
+				    vm->name);
+
+			/* it's alive and talking to us */
+			lws_sul_schedule(virt.context, 0, &vm->sul_timeout,
+					 saiv_vm_timeout_cb,
+					 SAIV_VM_STAY_TIMEOUT_US);
+
+			lws_snprintf(reply, sizeof(reply), "ACK: %s", vm->name);
+
+			return saiv_http_reply_text(wsi, reply);
+		}
+
+		if (len > 16 && !strncmp(path, "/auto-power-off/", 16)) {
 			lws_strncpy(vm_id, path + 16, sizeof(vm_id));
 			lwsl_notice("%s: Received auto-power-off for %s\n", __func__, vm_id);
 
-			found_vm = saiv_find_vm(vm_id);
-			if (!found_vm)
+			vm = saiv_vm_named_by_peer(wsi, vm_id, "auto-power-off");
+			if (!vm)
 				/* builder must not wait for a power-off that won't come */
-				return saiv_http_reply_text(wsi, "NAK: unknown VM");
+				return saiv_http_reply_text(wsi, "NAK: not your VM");
 
 			/* Delay destruction by 2s so sai-builder can cleanly flush its TCP FIN to sai-server */
-			lws_sul_schedule(virt.context, 0, &found_vm->sul_destroy,
+			lws_sul_schedule(virt.context, 0, &vm->sul_destroy,
 					 saiv_vm_destroy_cb, 2 * LWS_US_PER_SEC);
 
 			/* sai-builder only proceeds on an "ACK:" reply, like sai-power's */
@@ -86,19 +190,14 @@ callback_virt_http(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (len > 6 && !strncmp(path, "/stay/", 6)) {
-			saiv_vm_t *found_vm;
-
 			lws_strncpy(vm_id, path + 6, sizeof(vm_id));
 			lwsl_info("%s: stay request for %s\n", __func__, vm_id);
 
-			found_vm = saiv_find_vm(vm_id);
-			if (found_vm)
+			vm = saiv_vm_named_by_peer(wsi, vm_id, "stay");
+			if (vm)
 				/* Extend the safety timeout since the VM is alive and communicating */
-				lws_sul_schedule(virt.context, 0, &found_vm->sul_timeout,
+				lws_sul_schedule(virt.context, 0, &vm->sul_timeout,
 						 saiv_vm_timeout_cb, SAIV_VM_STAY_TIMEOUT_US);
-			else
-				lwsl_warn("%s: stay request from unknown VM %s\n",
-					  __func__, vm_id);
 
 			/* We never return stay = true for ephemeral VMs */
 			return saiv_http_reply_text(wsi, "0");

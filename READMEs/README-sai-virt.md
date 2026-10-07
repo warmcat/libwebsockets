@@ -216,24 +216,20 @@ The builder conf, `/etc/sai/builder/conf`, points the builder at `sai-virt` on t
 }
 ```
 
-* **host**: Each spawned VM replaces this with its own name, `sai-vm-<name>-<n>`, which `sai-virt` passes in through QEMU's fw_cfg, so this is only a placeholder.
+* **host**: Only a placeholder.  Every VM spawned from the image has the same conf, so at startup the builder asks `sai-virt` for `/whoami` at its `sai-power` url, and uses the name `sai-virt` knows that VM by, `sai-vm-<name>-<n>`.
+* **sai-power**: `sai-virt`'s `bind` address and `port` from its conf.
 * **link-key**: Since the image now contains the fleet secret, don't share the image, and keep the conf root-only (`sudo chmod 600 /etc/sai/builder/conf`).
 * Don't add `power_controller`, `power-on` or `power-off` settings, see 3.6.
 
-Linux reads its identity from `/sys/firmware/qemu_fw_cfg`; make sure the driver for it is always loaded:
+Install `/etc/systemd/system/sai-builder.service` like this.  `-O` makes it build one task and then have the VM destroyed (`-E` instead keeps it for further tasks from the same event).
 
-```bash
-echo qemu_fw_cfg | sudo tee /etc/modules-load.d/qemu_fw_cfg.conf
-```
-
-Install `/etc/systemd/system/sai-builder.service` like this.  `-O` makes it build one task and then have the VM destroyed (`-E` instead keeps it for further tasks from the same event).  The `ConditionPathExists` means the builder only starts in VMs `sai-virt` spawned, not when you boot the basis VM yourself to maintain it, when it would otherwise take real tasks and build them into the basis image.
+Started with `-O` or `-E`, the builder does nothing until `sai-virt` has told it which VM it is: it doesn't connect to `sai-server` or take any task.  When you boot the basis VM yourself to maintain it, `sai-virt` doesn't know it, so its builder just keeps asking, with a warning in its log every minute or so, instead of building real tasks into the basis image.  `sudo systemctl stop sai-builder` quiets it.
 
 ```ini
 [Unit]
 Description=Sai Builder
 After=network-online.target
 Wants=network-online.target
-ConditionPathExists=/sys/firmware/qemu_fw_cfg/by_name/opt/sai_builder_id/raw
 
 [Service]
 ExecStart=/usr/local/bin/sai-builder -O
@@ -273,8 +269,10 @@ When `sai-virt` decides to spawn a VM for a platform:
 
 1. It creates a qcow2 overlay, `/dev/shm/sai-vm-<name>-<n>.qcow2`, of `overlay_size`, with `base_image` as its read-only backing file, in a libvirt storage pool `sai_shm` it creates on `/dev/shm`.
 2. It takes the basis domain's XML and changes the name to `sai-vm-<name>-<n>` and the disk source from `base_image` to the overlay.  The disk source is replaced by matching `file='<base_image>'` literally, so `base_image` in the conf must be the same path the basis domain uses.  If it isn't, eg because of a typo, `sai-virt` refuses to spawn the VM, which would otherwise boot writing to the basis image itself, and logs the disk paths the basis domain does have.  It also refuses while the basis domain is running.
-3. It removes the UUID and NIC MAC addresses so libvirt generates new ones, and adds the VM's name as the SMBIOS serial (`sai_builder_id:<vm>`) and the QEMU fw_cfg entry `opt/sai_builder_id`, for the builder inside to use as its identity.
+3. It removes the UUID and NIC MAC addresses so libvirt generates new ones.
 4. It boots the result as a transient domain.
+
+When the builder inside asks for `/whoami`, `sai-virt` finds which of its VMs the request came from by asking libvirt which one has that address, from its DHCP leases, or else the host's ARP table, and replies with that VM's name.  It also only acts on a `/stay` or `/auto-power-off` that comes from the VM it names.  Nothing in this depends on the guest's architecture, firmware or OS.
 
 The VM is destroyed, and its overlay deleted, when its builder asks for `/auto-power-off`, if it never contacts `sai-virt` within 5 minutes of starting, or if its builder stops polling `/stay` for 90s.  `sai-virt` also destroys any `sai-vm-*` domains left over from a previous run when it starts.
 
