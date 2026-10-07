@@ -630,6 +630,22 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 	 * when we go out of scope...
 	 */
 
+	/*
+	 * As in the overview, the browser mustn't get the task's nonces: the
+	 * up nonce is the key builders use to upload artifacts and sync pools
+	 * for the task, and the down nonce is the key to download its
+	 * artifacts, which browsers only get in the artifact links
+	 */
+
+	one_task->art_up_nonce[0] = '\0';
+	one_task->art_down_nonce[0] = '\0';
+	lws_start_foreach_dll(struct lws_dll2 *, d, task_reply.runs.head) {
+		sai_task_t *rt = lws_container_of(d, sai_task_t, list);
+
+		rt->art_up_nonce[0] = '\0';
+		rt->art_down_nonce[0] = '\0';
+	} lws_end_foreach_dll(d);
+
 	task_reply.event		= one_event;
 	task_reply.task			= one_task;
 	one_task->rebuildable		= (one_task->state == SAIES_FAIL ||
