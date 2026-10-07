@@ -26,9 +26,12 @@ sdevent, glib and uloop, as well as custom event libs.
 **V5.0 now available... please upgrade to this or preferably v5.0-stable or main, as there are many
 security fixes only available on v5.0-stable and main; pre-5.0 releases are effectively deprecated.**
 
-There's a continuous incremental security audit in place finding and fixing new problems all the
+ - There's a continuous incremental security audit in place finding and fixing new problems all the
 time at the moment, it's not a sign the code is weak: it's a sign I am using frontier models to
 make it extremely strong.
+
+ - Code is pushed to main-dev now, Sai runs on it, if it passes, it is auto-promoted to main.
+Therefore from now on main only contains sai-tested pushes.
 
 ** NEW features available on v5.0 **
 
