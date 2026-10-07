@@ -189,10 +189,11 @@ write_zone(void)
 {
 	int fd;
 
-	if ((mkdir(ZDIR, 0755) && errno != EEXIST) || chmod(ZDIR, 0755))
+	/* auth_dns refuses zones others can write: keep them owner-only */
+	if ((mkdir(ZDIR, 0700) && errno != EEXIST) || chmod(ZDIR, 0700))
 		return 1;
 
-	fd = open(ZDIR "/" ZFILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	fd = open(ZDIR "/" ZFILE, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (fd < 0)
 		return 1;
 	if (write(fd, zone, sizeof(zone) - 1) != (ssize_t)(sizeof(zone) - 1)) {
@@ -201,7 +202,7 @@ write_zone(void)
 	}
 	close(fd);
 
-	return chmod(ZDIR "/" ZFILE, 0644);
+	return chmod(ZDIR "/" ZFILE, 0600);
 }
 
 static int

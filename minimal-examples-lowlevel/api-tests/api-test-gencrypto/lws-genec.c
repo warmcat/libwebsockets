@@ -563,6 +563,11 @@ test_genec5(struct lws_context *context)
 
 		hlen = lws_genhash_size(cases[c].hash_type);
 		slen = (size_t)lws_gencrypto_bits_to_bytes(cases[c].keybits) * 2;
+		if (!hlen || hlen > sizeof(hash) || slen > sizeof(sig)) {
+			lwsl_err("%s: %s: hash or sig too big\n", __func__,
+				 cases[c].crv);
+			goto bail;
+		}
 
 		for (n = 0; n < (int)hlen; n++)
 			hash[n] = (uint8_t)(n * 3 + (int)c);
