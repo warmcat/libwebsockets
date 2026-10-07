@@ -72,6 +72,14 @@ To make virtual machines available to `sai-virt`:
 2. **Platform Mapping**: The VM's name or metadata in libvirt must associate it with the corresponding platform defined in `/etc/sai/virt/conf`. 
 3. **Pristine State**: When `sai-virt` receives a command to spin up a builder for a platform, it looks for the defined template (e.g. `template-linux-fedora-x86_64`), clones/instantiates it, and boots it.
 
+### Power settings in the template's sai-builder conf
+
+`sai-virt` owns the lifetime of the VMs it spawns, and the power of the host they run on.  In the template, `sai-builder` should run with `-O` (one task per VM) or `-E` (one event per VM), and its `sai-power` url should point at `sai-virt`'s http listener: when the builder is idle, it asks there for `/auto-power-off/<host>` and `sai-virt` destroys the VM.
+
+The template's builder conf should **not** carry `power_controller`, `power-on` or `power-off` settings, such as `"power-off": { "type": "suspend" }` or the virt host's MAC for WOL.  Those would only be copies of the virt host's details repeated in every template.  A builder started with `-O` or `-E` ignores them (and warns that it is doing so): it never suspends, and it doesn't register with `sai-power`.  If you boot a template by hand to maintain it, without `-O` / `-E`, its builder acts on whatever is in its conf, so remove those settings from the image.
+
+Whether the virt host itself may sleep is not something `sai` decides; disable suspend on the host OS, eg, `systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target`, or GNOME's login screen may suspend it while it's idle at the console.
+
 ---
 
 ## 4. Multi-Use Read-Only OS & Dynamic Overlays

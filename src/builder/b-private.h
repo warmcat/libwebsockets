@@ -87,6 +87,13 @@ struct saib_opaque_spawn {
 	lws_usec_t		start_time;
 };
 
+/*
+ * We run in a VM sai-virt spawned (-O or -E): sai-virt owns the VM's
+ * lifetime and the power of the host it runs on, not us
+ */
+#define saib_is_ephemeral()	(builder.one_shot_active || \
+				 builder.event_affinity_active)
+
 #define SAI_LOAD_REPORT_US			(1 * LWS_US_PER_SEC)
 #define SAI_IDLE_GRACE_US			(builder.one_shot_active ? (10 * LWS_US_PER_SEC) : \
 						 builder.event_affinity_active ? (15 * LWS_US_PER_SEC) : \

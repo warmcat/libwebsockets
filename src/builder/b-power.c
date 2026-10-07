@@ -207,7 +207,7 @@ sul_power_cb(lws_sorted_usec_list_t *sul);
 
 enum {
 	SAIB_PWR_CAN_SUSPEND	= (1 << 0), /* suspender helper, suspend type */
-	SAIB_PWR_CAN_OFF	= (1 << 1), /* sai-power + suspender to halt */
+	SAIB_PWR_CAN_OFF	= (1 << 1), /* sai-power (or sai-virt) to halt */
 	SAIB_PWR_CAN_EXIT	= (1 << 2), /* one-shot: just exit the process */
 };
 
@@ -226,6 +226,20 @@ saib_power_capable(void)
 
 	if (builder.one_shot_active)
 		caps |= SAIB_PWR_CAN_EXIT;
+
+	if (saib_is_ephemeral()) {
+		/*
+		 * The only thing an idle sai-virt VM may do is ask sai-virt,
+		 * at our sai-power url, to destroy it: that needs no
+		 * suspender.  Suspending would only leave a dead VM holding
+		 * a slot on the virt host, so power-off.type from the image's
+		 * conf doesn't apply to us.
+		 */
+		if (builder.url_sai_power)
+			caps |= SAIB_PWR_CAN_OFF;
+
+		return caps;
+	}
 
 	if (!suspender_exists)
 		return caps;
@@ -392,7 +406,7 @@ saib_power_start_action(void)
 
 	/*
 	 * Ask sai-power to cut our power after its holdoff; if it agrees we
-	 * shut down cleanly in the meantime.  One-shot VMs go the same way,
+	 * shut down cleanly in the meantime.  sai-virt VMs go the same way,
 	 * the virt host terminates them.
 	 */
 
@@ -524,7 +538,7 @@ saib_power_event(enum saib_power_event ev)
 		case SAIB_PWR_EV_POWER_ACK:
 			lwsl_notice("%s: sai-power scheduled our power-off: "
 				    "shutting down\n", __func__);
-			if (!suspender_exists && builder.one_shot_active) {
+			if (saib_is_ephemeral()) {
 				/* the virt host will terminate us */
 				saib_power_set_state(SAIB_PWR_OFF_WAIT,
 						     SAI_POWER_OFF_DEADLINE_US);
@@ -823,6 +837,19 @@ saib_power_init(void)
 
 	lwsl_notice("====== ENTERED SAIB_POWER_INIT ======\n");
 
+	if (saib_is_ephemeral() &&
+	    (builder.power_off_type || builder.power_on_type ||
+	     builder.power_on_mac || builder.power_on_url ||
+	     builder.power_off_url))
+		/*
+		 * These describe the machine we run on, and for a VM that's
+		 * sai-virt's business: they'd only be copies of the virt
+		 * host's details baked into every basis image
+		 */
+		lwsl_warn("%s: sai-virt VM: ignoring power-on / power-off "
+			  "settings in conf, sai-virt manages our power\n",
+			  __func__);
+
 	if (!builder.url_sai_power) {
 		lwsl_notice("%s: no url_sai_power: sai-power integration disabled\n",
 			    __func__);
@@ -846,7 +873,7 @@ saib_power_init(void)
 
 	lwsl_notice("%s: *** creating sai-power client ss...\n", __func__);
 
-	if (!builder.one_shot_active) {
+	if (!saib_is_ephemeral()) {
 		if (lws_ss_create(builder.context, 0, &ssi_saib_power_client_t,
 				  NULL, &ss_power_client, NULL, NULL)) {
 			lwsl_err("%s: *** failed to create sai-power client ss\n", __func__);
