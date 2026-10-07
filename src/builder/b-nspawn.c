@@ -81,6 +81,17 @@ saib_log_chunk(struct sai_plat_server *spm, struct sai_nspawn *ns,
 		 task_uuid, (unsigned long long)us,
 		 channel, (int)len);
 
+	if (ns && ns->task)
+		/*
+		 * Successive runs of a task (idle lane slices, rebuilds) share
+		 * its uuid, and the server may already have started the next
+		 * run while we're still telling it how this one ended
+		 */
+		n += lws_snprintf(lj + LWS_PRE + n,
+				  sizeof(lj) - LWS_PRE - (unsigned int)n,
+				  "\"run\":%d,\"run_given\":1,",
+				  ns->task->run);
+
 	if (ns && ns->retcode_set) {
 		n += lws_snprintf(lj + LWS_PRE + n,
 				  sizeof(lj) - LWS_PRE - (unsigned int)n,

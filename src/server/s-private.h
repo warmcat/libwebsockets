@@ -383,6 +383,9 @@ sai_sql3_get_uint64_cb(void *user, int cols, char **values, char **name);
 int
 sais_task_logf(struct vhd *vhd, const char *task_uuid, const char *fmt, ...)
 	LWS_FORMAT(3);
+/* write out the logs being held, eg, before creating a new run of a task */
+void
+sais_logcache_flush(struct vhd *vhd);
 
 int
 sais_validate_id(const char *id, int reqlen);

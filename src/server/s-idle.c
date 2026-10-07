@@ -409,6 +409,9 @@ sais_idle_new_run(struct vhd *vhd, sqlite3 *pdb, const char *task_uuid,
 	sai_task_t *t;
 	int n;
 
+	/* logs we're holding for the last run must go there, not the new one */
+	sais_logcache_flush(vhd);
+
 	lws_sql_purify(esc, task_uuid, sizeof(esc));
 	lws_snprintf(q, sizeof(q), " and uuid='%s'", esc);
 

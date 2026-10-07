@@ -134,14 +134,31 @@ sais_dump_logs_to_db(lws_sorted_usec_list_t *sul)
 			 * more efficient
 			 */
 
-			int run = 0;
-			char q[128];
-			
-			lws_snprintf(q, sizeof(q), "select max(run) from tasks where uuid='%s'", lcpt->uuid);
-			sqlite3_exec(pdb, q, sql3_get_integer_cb, &run, NULL);
+			char q[192], esc[132];
+			int run = -1;
+
+			/*
+			 * Logs that don't say which run they are for go with
+			 * the task's latest run.  sais_logcache_flush() makes
+			 * sure that's still the run that was latest when they
+			 * arrived.
+			 */
 
 			lws_start_foreach_dll(struct lws_dll2 *, pq, lcpt->cache.head) {
 				sai_log_t *hl = lws_container_of(pq, sai_log_t, list);
+
+				if (hl->run_given)
+					continue;
+
+				if (run < 0) {
+					run = 0;
+					lws_sql_purify(esc, lcpt->uuid, sizeof(esc));
+					lws_snprintf(q, sizeof(q), "select max(run) "
+						     "from tasks where uuid='%s'", esc);
+					sqlite3_exec(pdb, q, sql3_get_integer_cb,
+						     &run, NULL);
+				}
+
 				hl->run = run;
 			} lws_end_foreach_dll(pq);
 
@@ -201,6 +218,26 @@ sais_dump_logs_to_db(lws_sorted_usec_list_t *sul)
 
 	} lws_end_foreach_dll_safe(p, p1);
 
+}
+
+/*
+ * Write out the logs we're holding now, instead of when the timer says.
+ *
+ * This must be done before a new run of a task is created: until then, the
+ * logs we hold that don't say which run they're for belong to the run that's
+ * about to stop being the latest.  Otherwise the end of a run's log, eg, an
+ * idle slice's last output and our "task succeeded" for it, ends up at the
+ * start of the next run's.
+ */
+
+void
+sais_logcache_flush(struct vhd *vhd)
+{
+	if (!vhd->tasklog_cache.count)
+		return;
+
+	lws_sul_cancel(&vhd->sul_logcache);
+	sais_dump_logs_to_db(&vhd->sul_logcache);
 }
 
 /*

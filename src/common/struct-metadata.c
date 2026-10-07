@@ -345,6 +345,7 @@ const lws_struct_map_t lsm_log[] = {
 	LSM_CARRAY	(sai_log_t, task_uuid,		"task_uuid"),
 	LSM_STRING_PTR	(sai_log_t, log,		"log"),
 	LSM_SIGNED	(sai_log_t, run,		"run"),
+	LSM_JO_UNSIGNED	(sai_log_t, run_given,		"run_given"),
 };
 
 const lws_struct_map_t lsm_schema_json_map_log[] = {

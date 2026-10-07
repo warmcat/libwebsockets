@@ -575,6 +575,12 @@ typedef struct {
 	unsigned int			avail_mem_kib;
 	unsigned int			avail_sto_kib;
 	int				run;
+	/*
+	 * Nonzero if the builder said which run the log is for.  Logs from
+	 * builders that don't say, and the server's own, are for the task's
+	 * latest run at the time they arrive.
+	 */
+	unsigned int			run_given;
 } sai_log_t;
 
 typedef struct {
@@ -1066,7 +1072,7 @@ extern const lws_struct_map_t
 	lsm_schema_map_plat_simple[1],
 	lsm_event[15],
 	lsm_task[34],
-	lsm_log[8],
+	lsm_log[9],
 	lsm_artifact[9],
 	lsm_plat_list[1],
 	lsm_schema_map_plat[1],

@@ -653,6 +653,13 @@ sais_task_clear_build_and_logs(struct vhd *vhd, const char *task_uuid, int from_
 	if (!task_uuid[0])
 		return SAI_DB_RESULT_OK;
 
+	if (!from_rejection)
+		/*
+		 * logs we're holding for the last run must go there, not the
+		 * new one
+		 */
+		sais_logcache_flush(vhd);
+
 	sai_task_uuid_to_event_uuid(event_uuid, task_uuid);
 
 	if (sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
