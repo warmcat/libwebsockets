@@ -1,6 +1,8 @@
 [Unit]
 Description=Sai Virtualization Daemon
-After=network-online.target ntp.service
+# ordering only: sai-virt copes with libvirt or its network coming later
+After=network-online.target libvirtd.service virtqemud.service virtnetworkd.service
+Wants=network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/sai-virt

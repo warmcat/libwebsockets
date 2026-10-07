@@ -74,9 +74,9 @@ struct sai_virt {
 	int			running_vms;
 	int			max_vms;
 
-	const char		*bind;		/* listen socket binding */
+	const char		*bind;		/* iface or address builders reach us on */
 	const char		*perms;		/* user:group */
-	const char		*port;		/* port we listen on */
+	int			port;		/* port builders reach us on */
 
 	/* fleet secret shared with sai-server ("link-key" in conf) */
 	const char		*link_key;
@@ -108,6 +108,7 @@ extern const struct lws_protocols virt_protocols[];
 
 int saiv_config(struct sai_virt *virt, const char *d);
 int saiv_config_global(struct sai_virt *virt, const char *filepath);
+void saiv_servers_start(struct sai_virt *virt);
 
 void
 saiv_vm_timeout_cb(lws_sorted_usec_list_t *sul);

@@ -72,6 +72,7 @@ int main(int argc, const char **argv)
 		lws_strncpy(virt.hostname, "unknown", sizeof(virt.hostname));
 
 	virt.max_vms = 4;
+	virt.port = 8000;
 
 	const struct lws_protocols *pprotocols[] = {
 		&virt_protocols[0],
@@ -79,7 +80,6 @@ int main(int argc, const char **argv)
 	};
 
 	memset(&info, 0, sizeof info);
-	info.port = 8000;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		       LWS_SERVER_OPTION_VALIDATE_UTF8 |
 		       LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
@@ -91,12 +91,6 @@ int main(int argc, const char **argv)
 
 	virt.context = lws_create_context(&info);
 	if (!virt.context) {
-		lwsl_err("lws init failed\n");
-		return 1;
-	}
-
-	virt.vhost = lws_create_vhost(virt.context, &info);
-	if (!virt.vhost) {
 		lwsl_err("lws init failed\n");
 		return 1;
 	}
@@ -114,6 +108,30 @@ int main(int argc, const char **argv)
 
 	/* Parse global configuration from /etc/sai/virt/conf */
 	saiv_config_global(&virt, "/etc/sai/virt/conf");
+
+	/*
+	 * The listener the builders in our VMs talk to.  Nothing on it is
+	 * authenticated, so it should only be reachable from the VMs'
+	 * network.  If the bind interface doesn't exist yet, eg, libvirt
+	 * hasn't started its network, lws keeps trying to listen on it.
+	 */
+	info.port = virt.port;
+	info.iface = virt.bind;
+	if (virt.bind)
+		lwsl_notice("%s: listening for builders on %s port %d\n",
+			    __func__, virt.bind, virt.port);
+	else
+		lwsl_warn("%s: no \"bind\" in conf: listening for builders on "
+			  "port %d of every interface, firewall it to the VM "
+			  "network\n", __func__, virt.port);
+
+	virt.vhost = lws_create_vhost(virt.context, &info);
+	if (!virt.vhost) {
+		lwsl_err("lws init failed\n");
+		return 1;
+	}
+
+	saiv_servers_start(&virt);
 
 	lws_sul_schedule(virt.context, 0, &virt.sul_watch, saiv_watch_cb,
 			 SAIV_WATCH_INTERVAL_US);

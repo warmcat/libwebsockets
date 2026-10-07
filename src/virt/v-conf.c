@@ -132,12 +132,16 @@ static const char * const paths_global[] = {
 	"link-key",
 	"servers[].url",
 	"max_vms",
+	"bind",
+	"port",
 };
 
 enum {
 	VJG_LINK_KEY,
 	VJG_SERVER_URL,
 	VJG_MAX_VMS,
+	VJG_BIND,
+	VJG_PORT,
 };
 
 static signed char
@@ -145,7 +149,8 @@ saiv_conf_global_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct sai_virt *v = (struct sai_virt *)ctx->user;
 
-	if (reason == LEJPCB_VAL_STR_END) {
+	/* numbers may be given as JSON numbers or strings */
+	if (reason == LEJPCB_VAL_STR_END || reason == LEJPCB_VAL_NUM_INT) {
 		switch (ctx->path_match - 1) {
 		case VJG_LINK_KEY:
 			v->link_key = strdup(ctx->buf);
@@ -153,19 +158,16 @@ saiv_conf_global_cb(struct lejp_ctx *ctx, char reason)
 
 		case VJG_SERVER_URL:
 		{
+			/* the streams are created by saiv_servers_start() */
 			saiv_server_t *srv = malloc(sizeof(*srv));
 			if (srv) {
 				memset(srv, 0, sizeof(*srv));
 				srv->url = strdup(ctx->buf);
-				if (lws_ss_create(v->context, 0, &ssi_saiv_server_link_t,
-						  srv, &srv->ss, NULL, NULL)) {
-					lwsl_err("%s: failed to create ss\n", __func__);
-					free((void *)srv->url);
+				if (srv->url)
+					lws_dll2_add_tail(&srv->list,
+							  &v->sai_server_owner);
+				else
 					free(srv);
-				} else {
-					lws_dll2_add_tail(&srv->list, &v->sai_server_owner);
-					lwsl_notice("Added server %s\n", srv->url);
-				}
 			}
 			break;
 		}
@@ -173,9 +175,41 @@ saiv_conf_global_cb(struct lejp_ctx *ctx, char reason)
 			v->max_vms = atoi(ctx->buf);
 			lwsl_notice("Set max_vms to %d\n", v->max_vms);
 			break;
+
+		case VJG_BIND:
+			v->bind = strdup(ctx->buf);
+			break;
+
+		case VJG_PORT:
+			v->port = atoi(ctx->buf);
+			break;
 		}
 	}
 	return 0;
+}
+
+/*
+ * Connect to the servers from the global conf, once our listener for the
+ * builders exists
+ */
+
+void
+saiv_servers_start(struct sai_virt *virt)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   virt->sai_server_owner.head) {
+		saiv_server_t *srv = lws_container_of(d, saiv_server_t, list);
+
+		if (lws_ss_create(virt->context, 0, &ssi_saiv_server_link_t,
+				  srv, &srv->ss, NULL, NULL)) {
+			lwsl_err("%s: failed to create ss for %s\n", __func__,
+				 srv->url);
+			lws_dll2_remove(&srv->list);
+			free((void *)srv->url);
+			free(srv);
+		} else
+			lwsl_notice("Added server %s\n", srv->url);
+	} lws_end_foreach_dll_safe(d, d1);
 }
 
 int

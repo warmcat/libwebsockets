@@ -21,7 +21,9 @@ To run `sai-virt` as a persistent background daemon managed by systemd:
    sudo systemctl enable --now sai-virt
    ```
 
-`sai-virt` talks to libvirt at `qemu:///system`, and listens on port 8000 for http requests from the builders in its VMs (`/stay/<vm>` and `/auto-power-off/<vm>`).  Those requests are not authenticated, so the port must only be reachable from the VMs' network.  On a firewalld host (Fedora, Rocky, RHEL...) the libvirt `default` network is in the `libvirt` zone, which doesn't allow it by default:
+`sai-virt` talks to libvirt at `qemu:///system`, and listens (by default on port 8000) for http requests from the builders in its VMs (`/stay/<vm>` and `/auto-power-off/<vm>`).  Those requests are not authenticated, so it should only listen on the VMs' network: set `bind` in its conf to the libvirt bridge, eg `virbr0`, see below.  If the bridge doesn't exist yet when `sai-virt` starts, it keeps trying to listen on it until it does.
+
+The VMs must also be allowed to reach the port.  On a firewalld host (Fedora, Rocky, RHEL...) the libvirt `default` network is in the `libvirt` zone, which doesn't allow it by default:
 
 ```bash
 sudo firewall-cmd --permanent --zone=libvirt --add-port=8000/tcp
@@ -44,6 +46,8 @@ sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.ta
 {
         "link-key":     "<the fleet link secret, as configured on sai-server>",
         "max_vms":      4,
+        "bind":         "virbr0",
+        "port":         8000,
 
         "servers": [
                 {
@@ -55,6 +59,8 @@ sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.ta
 
 * **link-key**: The fleet link secret; `sai-server` refuses the connection without it.  It's a secret, keep the conf readable only by root.
 * **max_vms**: The maximum number of concurrent VM instances allowed to run on this host.
+* **bind**: The interface name, or address, to listen on for the builders in the VMs: the bridge of the libvirt network they're on, `virbr0` for libvirt's `default` network.  Without it, `sai-virt` warns, and listens on every interface.
+* **port**: The port to listen on for the builders, default 8000.  The builders' `sai-power` url has to match.
 * **servers**: Array of `sai-server` WebSocket endpoints to connect to.
 
 The name `sai-virt` reports to `sai-server` as its power controller is the host's hostname.
