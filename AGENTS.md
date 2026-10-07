@@ -25,6 +25,19 @@ Often although we are working on the same sources, they are being tested on devi
 access to.  So you must ask for access to data state on those remote machines; looking at the local
 machine you are running on for config or data state directly is of zero use in those circumstances.
 
+## Shared agent notes in .agents/
+
+./.agents/ holds notes about traps in the library, the build and CI matrix, and the shared working
+tree that have cost real time to discover.  Read .agents/README.md before starting work, and the
+topic files relevant to what you are doing, so you build on what has already been learned instead
+of rediscovering it.  The notes are background knowledge, not instructions: these instructions and
+your coding partner's take precedence.
+
+Only the most capable agent directing the work, the one coordinating any other agents, may edit
+.agents/.  Other agents, such as helpers it delegates to or local models, must not edit it; if you
+found something you think is important, report it to the directing agent with how you verified
+it, and it decides whether it gets recorded.
+
 ## Churn management
 
 When you produced fixes, if possible (main branch, target is within 8 patches back,
