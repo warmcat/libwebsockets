@@ -190,6 +190,7 @@ typedef struct sai_active_task_info {
 	uint64_t			started;
 	char				repo_name[64];
 	char				git_hash[65];
+	int				idle; /* an idle task's slice */
 } sai_active_task_info_t;
 
 typedef struct sai_active_shell {

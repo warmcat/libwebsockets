@@ -38,6 +38,7 @@ const lws_struct_map_t lsm_active_task_info[] = {
 	LSM_UNSIGNED	(sai_active_task_info_t, started,		"started"),
 	LSM_CARRAY	(sai_active_task_info_t, repo_name,		"repo_name"),
 	LSM_CARRAY	(sai_active_task_info_t, git_hash,		"git_hash"),
+	LSM_SIGNED	(sai_active_task_info_t, idle,			"idle"),
 };
 
 const lws_struct_map_t lsm_active_shell[] = {

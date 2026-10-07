@@ -577,6 +577,17 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 	pt = lws_container_of(o.head, sai_task_t, list);
 	one_task = pt;
 
+	if (one_task->idle &&
+	    pss->auth_state != SAI_AUTH_STATE_LOGGED_IN_GRANT_ADMIN) {
+		/*
+		 * Idle tasks, their runs, logs and artifacts are only for
+		 * admins; to anyone else, it's not there
+		 */
+		lwsl_info("%s: %s is idle, not for this browser\n", __func__,
+			  task_uuid);
+		goto bail;
+	}
+
 	/* let the pss take over the task info ac and schedule sending */
 
 	lws_dll2_remove((struct lws_dll2 *)&one_task->list);
@@ -2096,6 +2107,10 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 						   lsm_schema_sq3_map_watcher, &e->watcher_owner, &ac_watchers, 0, 0) < 0)
 				lwsl_err("%s: watchers deserialize failed\n", __func__);
 
+		if (pss->auth_state != SAI_AUTH_STATE_LOGGED_IN_GRANT_ADMIN)
+			/* only admins hear about idle tasks at all */
+			e->idle = 0;
+
 		js = lws_struct_json_serialize_create(
 			lsm_schema_json_map_event,
 			LWS_ARRAY_SIZE(lsm_schema_json_map_event), 0, e);
@@ -2231,7 +2246,16 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 		} else {
 			task_ac = NULL;
 			lws_dll2_owner_clear(&task_owner);
-			if (lws_struct_sq3_deserialize(pdb, NULL, "taskname, platform",
+			/*
+			 * Idle tasks and everything about them are only for
+			 * admins: they're not part of the event's result, and
+			 * what they're hunting for may be security bugs
+			 */
+			if (lws_struct_sq3_deserialize(pdb,
+					pss->auth_state ==
+						SAI_AUTH_STATE_LOGGED_IN_GRANT_ADMIN ?
+						NULL : " and idle=0",
+					"taskname, platform",
 					lsm_schema_sq3_map_task, &task_owner,
 					&task_ac, 0, 999)) {
 				lwsl_err("%s: OVERVIEW 1 failed\n", __func__);

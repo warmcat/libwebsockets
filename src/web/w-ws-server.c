@@ -176,12 +176,19 @@ saiw_pty_accum(saiw_websrv_t *m, const uint8_t *frag, size_t len)
  * A vhost that only shows some projects can't pass on messages that mention
  * tasks in the others as they came.  Instead it serializes the decoded
  * object, with those tasks removed, from the same schema and queues it to its
- * browsers (only ones showing builders, if builder_info).
+ * browsers (only ones showing builders, if builder_info), or only to the ones
+ * that are, or aren't, admins.
  */
+
+enum {
+	SAIW_REISSUE_ALL,
+	SAIW_REISSUE_ADMINS,
+	SAIW_REISSUE_NOT_ADMINS,
+};
 
 static void
 saiw_reissue_to_browsers(struct vhd *vhd, int schema_idx, void *obj,
-			 int builder_info)
+			 int builder_info, int audience)
 {
 	uint8_t buf[LWS_PRE + 2048], *start = buf + LWS_PRE;
 	lws_struct_serialize_t *js;
@@ -205,8 +212,13 @@ saiw_reissue_to_browsers(struct vhd *vhd, int schema_idx, void *obj,
 		lws_start_foreach_dll(struct lws_dll2 *, p, vhd->browsers.head) {
 			struct pss *pss = lws_container_of(p, struct pss, same);
 
-			if (!builder_info ||
-			    (!pss->is_gitohashi && pss->wants_builder_info))
+			int admin = pss->auth_state ==
+					SAI_AUTH_STATE_LOGGED_IN_GRANT_ADMIN;
+
+			if ((audience == SAIW_REISSUE_ALL ||
+			     (audience == SAIW_REISSUE_ADMINS) == admin) &&
+			    (!builder_info ||
+			     (!pss->is_gitohashi && pss->wants_builder_info)))
 				saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss,
 					start, w, lws_write_ws_flags(
 						LWS_WRITE_TEXT, fi,
@@ -241,8 +253,14 @@ saiw_reissue_activity(struct vhd *vhd, saiw_activities_t *acts)
 			lws_dll2_remove(&act->list);
 	} lws_end_foreach_dll_safe(p, p1);
 
-	saiw_reissue_to_browsers(vhd, SAIS_WS_WEBSRV_RX_TASKACTIVITY, acts, 0);
+	saiw_reissue_to_browsers(vhd, SAIS_WS_WEBSRV_RX_TASKACTIVITY, acts, 0,
+				 SAIW_REISSUE_ALL);
 }
+
+/*
+ * Builder load reports are always reissued from the decoded object, since
+ * the tasks in them may need removing before browsers see them
+ */
 
 static void
 saiw_reissue_loadreport(struct vhd *vhd, sai_load_report_t *lr)
@@ -261,7 +279,22 @@ saiw_reissue_loadreport(struct vhd *vhd, sai_load_report_t *lr)
 			lws_dll2_remove(&ati->list);
 	} lws_end_foreach_dll_safe(p, p1);
 
-	saiw_reissue_to_browsers(vhd, SAIS_WS_WEBSRV_RX_LOADREPORT, lr, 1);
+	saiw_reissue_to_browsers(vhd, SAIS_WS_WEBSRV_RX_LOADREPORT, lr, 1,
+				 SAIW_REISSUE_ADMINS);
+
+	/* only admins hear about idle tasks */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+				   lr->active_tasks.head) {
+		sai_active_task_info_t *ati = lws_container_of(p,
+					sai_active_task_info_t, list);
+
+		if (ati->idle)
+			lws_dll2_remove(&ati->list);
+	} lws_end_foreach_dll_safe(p, p1);
+
+	saiw_reissue_to_browsers(vhd, SAIS_WS_WEBSRV_RX_LOADREPORT, lr, 1,
+				 SAIW_REISSUE_NOT_ADMINS);
 }
 
 static int
@@ -336,26 +369,8 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 				saiw_pty_accum(m, p, rem);
 				break;
 			case SAIS_WS_WEBSRV_RX_LOADREPORT:
-			{
-				uint8_t *tmp;
-
-				if (saiw_restricted(vhd))
-					/* reissued filtered when complete */
-					break;
-
-				tmp = malloc(LWS_PRE + rem);
-				if (tmp) {
-					memcpy(tmp + LWS_PRE, p, rem);
-					lws_start_foreach_dll(struct lws_dll2 *, pt, vhd->browsers.head) {
-						struct pss *pss = lws_container_of(pt, struct pss, same);
-						if (!pss->is_gitohashi && pss->wants_builder_info)
-							saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, tmp + LWS_PRE, rem,
-								lws_write_ws_flags(LWS_WRITE_TEXT, is_start, 0));
-					} lws_end_foreach_dll(pt);
-					free(tmp);
-				}
+				/* reissued filtered when complete */
 				break;
-			}
 			default:
 				// lwsl_err("%s: SWALLOWING %.*s\n", __func__, (int)len, buf);
 				break;
@@ -438,28 +453,9 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			break;
 		}
 		case SAIS_WS_WEBSRV_RX_LOADREPORT:
-		{
-			uint8_t *tmp;
-
-			if (saiw_restricted(vhd)) {
-				if (m->a.dest)
-					saiw_reissue_loadreport(vhd, m->a.dest);
-				break;
-			}
-
-			tmp = malloc(LWS_PRE + consumed);
-			if (tmp) {
-				memcpy(tmp + LWS_PRE, p, consumed);
-				lws_start_foreach_dll(struct lws_dll2 *, pt, vhd->browsers.head) {
-					struct pss *pss = lws_container_of(pt, struct pss, same);
-					if (!pss->is_gitohashi && pss->wants_builder_info)
-						saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, tmp + LWS_PRE, consumed,
-							lws_write_ws_flags(LWS_WRITE_TEXT, is_start, 1));
-				} lws_end_foreach_dll(pt);
-				free(tmp);
-			}
+			if (m->a.dest)
+				saiw_reissue_loadreport(vhd, m->a.dest);
 			break;
-		}
 		}
 
 		/*

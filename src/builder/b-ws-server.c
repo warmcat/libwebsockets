@@ -672,6 +672,7 @@ saib_sul_load_report_cb(struct lws_sorted_usec_list *sul)
 						ati->est_peak_mem_kib	= ns->task->est_peak_mem_kib;
 						ati->est_disk_kib	= ns->task->est_disk_kib;
 						ati->started		= ns->task->started;
+						ati->idle		= ns->task->idle;
 						if (ns->task->repo_name)
 							lws_strncpy(ati->repo_name, ns->task->repo_name, sizeof(ati->repo_name));
 						if (ns->task->git_hash)
