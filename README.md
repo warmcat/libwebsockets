@@ -307,6 +307,12 @@ each platform in the builder conf can add to with an `env` array, eg to put a
 toolchain on the `PATH`.  See
 [READMEs/README-builder-env.md](READMEs/README-builder-env.md).
 
+## Builders for Rust projects
+
+Setting up a builder from scratch for Rust projects such as npro, with
+rustup and rustc 1.85 or later installed for the `sai` user, is described in
+[READMEs/README-builder-rust.md](READMEs/README-builder-rust.md).
+
 ## Build flow and support for embedded
 
 ![build flow](READMEs/sai-build-test-flow.png)
