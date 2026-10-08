@@ -40,6 +40,7 @@
 #define SAIB_WHOAMI_RETRY_MAX_US	(60 * LWS_US_PER_SEC)
 
 LWS_SS_USER_TYPEDEF
+	char			url[256]; /* ss metadata points here, not copied */
 	char			reply[96];
 	size_t			len;
 	char			replied;
@@ -225,7 +226,7 @@ sul_whoami_cb(lws_sorted_usec_list_t *sul)
 int
 saib_whoami_pending(void)
 {
-	char url[256];
+	saib_whoami_t *g;
 
 	if (!saib_is_ephemeral() || whoami_done)
 		return 0;
@@ -252,11 +253,13 @@ saib_whoami_pending(void)
 		return 1;
 	}
 
-	lws_snprintf(url, sizeof(url), "%s/whoami", builder.url_sai_power);
-	if (lws_ss_set_metadata(ss_whoami, "url", url, strlen(url)))
+	g = (saib_whoami_t *)lws_ss_to_user_object(ss_whoami);
+	lws_snprintf(g->url, sizeof(g->url), "%s/whoami", builder.url_sai_power);
+	if (lws_ss_set_metadata(ss_whoami, "url", g->url, strlen(g->url)))
 		lwsl_err("%s: unable to set url\n", __func__);
 
-	lwsl_notice("%s: asking sai-virt which VM we are: %s\n", __func__, url);
+	lwsl_notice("%s: asking sai-virt which VM we are: %s\n", __func__,
+		    g->url);
 
 	lws_sul_schedule(builder.context, 0, &sul_whoami, sul_whoami_cb, 1);
 
