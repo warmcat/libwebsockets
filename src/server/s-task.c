@@ -132,7 +132,7 @@ sais_add_to_inflight_list_if_absent(struct vhd *vhd, sai_plat_t *sp,
 
 	lws_dll2_add_tail(&uuid_list->list, &sp->inflight_owner);
 
-	lwsl_notice("%s: ### created uuid_list entry for %s\n", __func__, uuid_list->uuid);
+	lwsl_info("%s: created uuid_list entry for %s\n", __func__, uuid_list->uuid);
 	assert(sais_is_task_inflight(vhd, NULL, uuid, NULL));
 	return 0;
 }
@@ -140,7 +140,7 @@ sais_add_to_inflight_list_if_absent(struct vhd *vhd, sai_plat_t *sp,
 void
 sais_inflight_entry_destroy(sai_uuid_list_t *ul)
 {
-	lwsl_notice("%s: ### REMOVING uuid_list entry for %s\n", __func__, ul->uuid);
+	lwsl_info("%s: removing uuid_list entry for %s\n", __func__, ul->uuid);
 
 	lws_dll2_remove(&ul->list);
 	free(ul);
@@ -1272,9 +1272,9 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 		if (!p || !*p) { /* no more steps */
 			sai_uuid_list_t *u;
 
-			lwsl_err("%s: +++ determined no more steps after "
-				 "build_step %d for task %s, setting SAIES_SUCCESS\n",
-					__func__, build_step, temp_task->uuid);
+			lwsl_info("%s: no more steps after "
+				  "build_step %d for task %s, setting SAIES_SUCCESS\n",
+				  __func__, build_step, temp_task->uuid);
 			sais_task_logf(vhd, temp_task->uuid,
 				       "all %d steps completed, task succeeded",
 				       build_step);

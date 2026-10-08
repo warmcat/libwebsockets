@@ -513,8 +513,8 @@ sais_power_tx(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t bl)
 	 */
 
 	if (strncmp(pss->last_power_report, (const char *)start, lws_ptr_diff_size_t(p, start) + 1)) {
-		lwsl_notice("%s: pending plats changed: '%s' -> '%.*s'\n", __func__,
-			    pss->last_power_report, (int)lws_ptr_diff_size_t(p, start), start);
+		lwsl_info("%s: pending plats changed: '%s' -> '%.*s'\n", __func__,
+			  pss->last_power_report, (int)lws_ptr_diff_size_t(p, start), start);
 
 		memcpy(pss->last_power_report, start, lws_ptr_diff_size_t(p, start) + 1);
                 diff = 1;

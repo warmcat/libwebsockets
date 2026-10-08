@@ -95,6 +95,7 @@ void
 sais_idle_plat_update(struct vhd *vhd, const sai_plat_t *build)
 {
 	sais_idle_budget_t *b = sais_idle_budget_find(vhd, build->name);
+	unsigned int share, instances;
 
 	if (!b) {
 		if (!build->idle_share)
@@ -110,8 +111,16 @@ sais_idle_plat_update(struct vhd *vhd, const sai_plat_t *build)
 		lws_dll2_add_tail(&b->list, &vhd->idle_budgets);
 	}
 
-	b->share	= build->idle_share > 100 ? 100 : build->idle_share;
-	b->instances	= build->idle_instances ? build->idle_instances : 1;
+	share		= build->idle_share > 100 ? 100 : build->idle_share;
+	instances	= build->idle_instances ? build->idle_instances : 1;
+
+	/* builders resend their platforms often, only mention changes */
+	if (b->share == share && b->instances == instances &&
+	    b->slice_secs == build->idle_slice_secs)
+		return;
+
+	b->share	= share;
+	b->instances	= instances;
 	b->slice_secs	= build->idle_slice_secs;
 
 	lwsl_notice("%s: %s: idle share %u%%, %u instances, slice %us\n",

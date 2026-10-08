@@ -740,7 +740,7 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 
 	switch (rej->reason) {
 	case SAI_TASK_REASON_ACCEPTED:
-		lwsl_notice("%s: SAI_TASK_REASON_ACCEPTED: %s\n",
+		lwsl_info("%s: SAI_TASK_REASON_ACCEPTED: %s\n",
 			    __func__, rej->task_uuid);
 
 		/* start build duration only from first step accepted */
@@ -784,7 +784,8 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 		if (sai_sqlite3_statement(pdb, q, "update build_step accepted"))
 			lwsl_err("%s: failed to update build_step\n", __func__);
 
-		lwsl_notice("%s: &&&&&&&& build_step set to %d\n", __func__, build_step);
+		lwsl_info("%s: %s: build_step set to %d\n", __func__,
+			  rej->task_uuid, build_step);
 
 		if (build_step == 1) {
 			pss->first_log_timestamp = (uint64_t)lws_now_secs();
@@ -792,14 +793,12 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 			     "update tasks set started=%llu where uuid='%s' and run=(select max(run) from tasks where uuid='%s')",
 			     (unsigned long long)pss->first_log_timestamp, esc_uuid, esc_uuid);
 
-			lwsl_warn("%s: &&&&&&&&&&&&&&&&&&&&&&&&&& setting task %s started to %llu\n",
+			lwsl_info("%s: setting task %s started to %llu\n",
 				  __func__, esc_uuid, (unsigned long long)pss->first_log_timestamp);
 
 			if (sai_sqlite3_statement(pdb, q, "update started"))
 				lwsl_notice("%s: unable to set started\n", __func__);
 		}
-
-		lwsl_notice("%s: exiting, setting build_step %d\n", __func__, build_step);
 
 		sai_event_db_close(&vhd->sqlite3_cache, &pdb);
 
@@ -860,7 +859,7 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 		break;
 
 	case SAI_TASK_REASON_DESTROYED:
-		lwsl_notice("%s: SAI_TASK_REASON_DESTROYED: Clear busy: %s\n",
+		lwsl_info("%s: SAI_TASK_REASON_DESTROYED: Clear busy: %s\n",
 				__func__, rej->task_uuid);
 
 		sai_task_uuid_to_event_uuid(event_uuid, rej->task_uuid);
@@ -908,7 +907,7 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 		if (rej->ecode & SAISPRF_EXIT) {
 			if ((rej->ecode & 0xff) == 0) {
 				n = SAIES_STEP_SUCCESS;
-				lwsl_notice("%s: |||| SAIES_STEP_SUCCESS: %s\n",
+				lwsl_info("%s: SAIES_STEP_SUCCESS: %s\n",
 						__func__, rej->task_uuid);
 			} else {
 				n = SAIES_FAIL;
@@ -1402,10 +1401,10 @@ sais_ws_json_rx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t b
 				break;
 			}
 
-			lwsl_notice("%s: builder %s reports task status update, "
-				    "reason: %d, %s, slots %d, mem %d, sto %d\n",
-				    __func__, sp->name, rej->reason, rej->task_uuid,
-				    sp->avail_slots, sp->avail_mem_kib, sp->avail_sto_kib);
+			lwsl_info("%s: builder %s reports task status update, "
+				  "reason: %d, %s, slots %d, mem %d, sto %d\n",
+				  __func__, sp->name, rej->reason, rej->task_uuid,
+				  sp->avail_slots, sp->avail_mem_kib, sp->avail_sto_kib);
 
 			if (sais_process_rej(vhd, pss, sp, rej))
 				goto bail;
@@ -1841,10 +1840,17 @@ sais_ws_json_rx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t b
 			switch (lws_struct_json_serialize(js, xbuf + LWS_PRE,
 							  sizeof(xbuf) - LWS_PRE, &used)) {
 			case LSJS_RESULT_CONTINUE:
-				assert(0); /* !!! we don't expect to generate anything that won't fit in one fragment */
+				/* we don't expect it not to fit in one fragment */
+				lwsl_err("%s: metric for %s too large: %.*s\n",
+					 __func__, metric->task_uuid, (int)used,
+					 (const char *)xbuf + LWS_PRE);
+				assert(0);
 				break;
 			case LSJS_RESULT_ERROR:
-				assert(0); /* !!! we don't expect to not to be able to represent the metrics */
+				/* we don't expect not to be able to represent it */
+				lwsl_err("%s: unable to serialize metric for %s\n",
+					 __func__, metric->task_uuid);
+				assert(0);
 				break;
 			case LSJS_RESULT_FINISH:
 				memset(&info, 0, sizeof(info));
@@ -1856,8 +1862,6 @@ sais_ws_json_rx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t b
 
 				lws_dll2_owner_clear(&o);
 				lws_dll2_add_head(&metric->list, &o);
-
-				sai_dump_stderr(xbuf + LWS_PRE, used);
 
 				if (sais_websrv_broadcast_REQUIRES_LWS_PRE(vhd->h_ss_websrv, &info) < 0)
 					lwsl_warn("%s: unable to broadcast to web\n", __func__);

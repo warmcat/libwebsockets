@@ -64,8 +64,8 @@ sais_central_clean_abandoned(struct vhd *vhd)
 	} lws_end_foreach_dll_safe(p, p1);
 
 	if (vhd->sqlite3_cache.count)
-		lwsl_notice("%s: db pool items: in-use: %d, total: %d\n",
-			    __func__, nzr, vhd->sqlite3_cache.count);
+		lwsl_info("%s: db pool items: in-use: %d, total: %d\n",
+			  __func__, nzr, vhd->sqlite3_cache.count);
 
 	/*
 	 * Collect the most recent <=10 events that still feel they're

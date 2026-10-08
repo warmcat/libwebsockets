@@ -167,7 +167,7 @@ sais_taskchange(struct lws_ss_handle *hsrv, const char *task_uuid, int state)
 	lws_wsmsg_info_t info;
 	int n;
 
-	lwsl_ss_notice(hsrv, "%%%%%%%% sai-taskchange %s -> %d", task_uuid, state);
+	lwsl_ss_info(hsrv, "sai-taskchange %s -> %d", task_uuid, state);
 
 	n = lws_snprintf(start, sizeof(tc) - LWS_PRE,
 			 "{\"schema\":\"sai-taskchange\", "

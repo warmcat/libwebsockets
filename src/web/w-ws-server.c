@@ -471,7 +471,7 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		case SAIS_WS_WEBSRV_RX_TASKCHANGE:
 			ei = (sai_browse_rx_evinfo_t *)m->a.dest;
-			lwsl_notice("%s: TASKCHANGE %s\n", __func__, ei->event_hash);
+			lwsl_info("%s: TASKCHANGE %s\n", __func__, ei->event_hash);
 			saiw_browsers_task_state_change(vhd, ei->event_hash);
 			break;
 

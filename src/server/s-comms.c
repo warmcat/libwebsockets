@@ -744,10 +744,16 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		{
 			const unsigned char *cp = lws_get_close_payload(wsi);
 			int clen = lws_get_close_length(wsi);
-			if (clen)
-				lwsl_wsi_user(wsi, "#### sai-server: CLOSED builder conn (reason: %.*s) ####", clen, cp);
+
+			/*
+			 * The payload starts with the 16-bit close code, any
+			 * reason text follows it
+			 */
+			if (clen > 2)
+				lwsl_wsi_info(wsi, "CLOSED builder conn (reason: %.*s)",
+					      clen - 2, cp + 2);
 			else
-				lwsl_wsi_user(wsi, "#### sai-server: CLOSED builder conn (no close payload) ####");
+				lwsl_wsi_info(wsi, "CLOSED builder conn");
 		}
 		sais_pool_session_destroy(pss);
 
