@@ -1613,11 +1613,16 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd >= 0) {
 		if (write(fd, zbuf, zlen) == (ssize_t)zlen) {
-			char signed_path[1024];
-			lws_snprintf(signed_path, sizeof(signed_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
-			lwsl_user("%s: Unlinking signed zone %s to trigger immediate resign\n", __func__, signed_path);
+			/*
+			 * Not unlinked: the signing bumps the serial on from
+			 * the signed zone's, since the editor may have sent
+			 * the serial it loaded, which signings since have
+			 * passed
+			 */
+			lwsl_user("%s: zone of %s saved, resigning\n", __func__,
+				  a->domain);
 			fsync(fd);
-			unlink(signed_path);
+			monitor_zone_needs_resign(vhd, a->domain);
 
 			/* Immediately trigger the fast timer to sign, and the parent timer to publish */
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_fast_timer, dnssec_monitor_fast_timer_cb, 1);
@@ -2382,9 +2387,7 @@ handle_req_regen_keys(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 		else { kargs.type = "EC"; kargs.curve = "P-256"; kargs.bits = 256; }
 
 		if (!vhd->ops->keygen(vhd->context, &kargs)) {
-			char signed_path[1024];
-			lws_snprintf(signed_path, sizeof(signed_path), "%s/%s.zone.signed", wd, a->domain);
-			unlink(signed_path);
+			monitor_zone_needs_resign(vhd, a->domain);
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Key generation failed\"}\n", a->req);

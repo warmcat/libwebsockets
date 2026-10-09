@@ -5113,131 +5113,224 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 	return 0;
 }
 
-int lws_dht_dnssec_bump_zone_serial(struct lws_context *context, const char *filepath) {
-	int fd = open(filepath, O_RDWR);
-	if (fd < 0) return -1;
+/* the whole of a regular file, NUL-terminated, or NULL */
 
+static char *
+dht_dnssec_read_text(const char *filepath, size_t *len)
+{
 	struct stat st;
-	if (fstat(fd, &st) < 0) { close(fd); return -1; }
+	char *buf;
+	int fd;
 
-	char *buf = malloc((size_t)st.st_size + 1);
-	if (!buf) { close(fd); return -1; }
+	fd = open(filepath, O_RDONLY);
+	if (fd < 0)
+		return NULL;
 
-	if (read(fd, buf, (size_t)st.st_size) != st.st_size) {
-		free(buf); close(fd); return -1;
+	if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+	    st.st_size > 16 * 1024 * 1024) {
+		close(fd);
+		return NULL;
 	}
-	buf[st.st_size] = '\0';
 
-	char *p = buf;
-	char *serial_start = NULL;
-	char *serial_end = NULL;
+	buf = malloc((size_t)st.st_size + 1);
+	if (buf && read(fd, buf, (size_t)st.st_size) != (ssize_t)st.st_size) {
+		free(buf);
+		buf = NULL;
+	}
+	close(fd);
+
+	if (!buf)
+		return NULL;
+
+	buf[st.st_size] = '\0';
+	*len = (size_t)st.st_size;
+
+	return buf;
+}
+
+/*
+ * Find the serial of the SOA record in zone text, either a zone file or a
+ * signed zone as lws_auth_dns_sign_zone() writes it.  An RRSIG's rdata
+ * starts with the type it covers, so "RRSIG SOA" is not the SOA record.
+ */
+
+static int
+dht_dnssec_find_soa_serial(char *buf, char **start, char **end,
+			   uint32_t *serial)
+{
+	char *p = buf, *prev = NULL, *tok;
+	size_t prev_len = 0;
+	unsigned long long v;
 
 	while (*p) {
-		while (*p && isspace(*p)) p++;
-		if (!*p) break;
+		while (*p && isspace((unsigned char)*p))
+			p++;
+		if (!*p)
+			break;
 		if (*p == ';') {
-			while (*p && *p != '\n') p++;
+			while (*p && *p != '\n')
+				p++;
 			continue;
 		}
 
-		char *start = p;
-		while (*p && !isspace(*p) && *p != ';') p++;
+		tok = p;
+		while (*p && !isspace((unsigned char)*p) && *p != ';')
+			p++;
 
-		if (p - start == 3 && !strncmp(start, "SOA", 3)) {
-			while (*p && isspace(*p)) p++;
-			while (*p && !isspace(*p) && *p != ';') p++; /* MNAME */
-			while (*p && isspace(*p)) p++;
-			while (*p && !isspace(*p) && *p != ';') p++; /* RNAME */
-			while (*p && isspace(*p)) p++;
+		if (p - tok != 3 || strncasecmp(tok, "SOA", 3) ||
+		    (prev && prev_len == 5 && !strncasecmp(prev, "RRSIG", 5))) {
+			prev = tok;
+			prev_len = (size_t)(p - tok);
+			continue;
+		}
 
-			if (*p == '(') {
+		/* skip MNAME and RNAME, and a '(' opening the rdata */
+		while (*p && isspace((unsigned char)*p))
+			p++;
+		while (*p && !isspace((unsigned char)*p) && *p != ';')
+			p++;
+		while (*p && isspace((unsigned char)*p))
+			p++;
+		while (*p && !isspace((unsigned char)*p) && *p != ';')
+			p++;
+		while (*p && isspace((unsigned char)*p))
+			p++;
+		if (*p == '(') {
+			p++;
+			while (*p && isspace((unsigned char)*p))
 				p++;
-				while (*p && isspace(*p)) p++;
-			}
-			if (*p == ';') {
-				while (*p && *p != '\n') p++;
-				while (*p && isspace(*p)) p++;
-			}
-
-			if (isdigit(*p)) {
-				serial_start = p++;
-				while (*p && isdigit(*p)) p++;
-				serial_end = p;
-				break;
-			}
 		}
+		while (*p == ';') {
+			while (*p && *p != '\n')
+				p++;
+			while (*p && isspace((unsigned char)*p))
+				p++;
+		}
+
+		if (!isdigit((unsigned char)*p))
+			return 1;
+
+		*start = p;
+		v = 0;
+		while (isdigit((unsigned char)*p)) {
+			v = (v * 10) + (unsigned long long)(*p - '0');
+			if (v > 0xffffffffull)
+				return 1;
+			p++;
+		}
+		*end = p;
+		*serial = (uint32_t)v;
+
+		return 0;
 	}
 
-	if (!serial_start) {
+	return 1;
+}
+
+/* RFC1982 serial number arithmetic: is a later than b? */
+
+static int
+dht_dnssec_serial_gt(uint32_t a, uint32_t b)
+{
+	return a != b && (int32_t)(a - b) > 0;
+}
+
+/*
+ * Before each signing, give the zone file a serial later than the one it
+ * was last signed with, in the form YYYYMMDDnn while the count allows.
+ *
+ * Holders of the zone only take a later serial than the one they have, and
+ * drop anything else without telling us.  So the serial in the file is not
+ * enough: a file written back with an older one, eg, saved by an editor
+ * that loaded it before signings bumped it, would be signed again and
+ * again with serials the DHT already has, and none of it would be served.
+ * We continue from the last signed zone, <zone>.signed, if that is later.
+ */
+
+int lws_dht_dnssec_bump_zone_serial(struct lws_context *context, const char *filepath)
+{
+	char signed_path[300], new_serial[16], *buf, *sbuf, *start, *end,
+	     *ss, *se, *out;
+	uint32_t serial, last, next, today = 0;
+	size_t len, slen, nl, ol, olen;
+	struct tm tmp, *tm;
+	time_t t;
+	int fd;
+
+	buf = dht_dnssec_read_text(filepath, &len);
+	if (!buf)
+		return -1;
+
+	if (dht_dnssec_find_soa_serial(buf, &start, &end, &serial)) {
 		lwsl_err("SOA serial not found in %s\n", filepath);
-		free(buf); close(fd); return -1;
+		free(buf);
+		return -1;
 	}
 
-	size_t serial_len = (size_t)(serial_end - serial_start);
-	char old_serial[32];
-	if (serial_len >= sizeof(old_serial)) serial_len = sizeof(old_serial) - 1;
-	memcpy(old_serial, serial_start, serial_len);
-	old_serial[serial_len] = '\0';
+	next = serial + 1;
 
-	time_t t = time(NULL);
+	lws_snprintf(signed_path, sizeof(signed_path), "%s.signed", filepath);
+	sbuf = dht_dnssec_read_text(signed_path, &slen);
+	if (sbuf) {
+		if (!dht_dnssec_find_soa_serial(sbuf, &ss, &se, &last) &&
+		    !dht_dnssec_serial_gt(serial, last)) {
+			if (last != serial)
+				lwsl_warn("%s: serial %u is behind %u, the last "
+					  "signed, continuing from that\n",
+					  filepath, serial, last);
+			next = last + 1;
+		}
+		free(sbuf);
+	}
+
+	t = time(NULL);
 #if defined(WIN32) || defined(_WIN32)
-	struct tm tmp;
-	struct tm *tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
+	tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
 #else
-	struct tm tmp;
-	struct tm *tm = gmtime_r(&t, &tmp);
+	tm = gmtime_r(&t, &tmp);
 #endif
-	char new_date[16];
 	if (tm)
-		lws_snprintf(new_date, sizeof(new_date), "%04d%02d%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
-	else
-		new_date[0] = '\0';
+		today = (uint32_t)(tm->tm_year + 1900) * 1000000u +
+			(uint32_t)(tm->tm_mon + 1) * 10000u +
+			(uint32_t)tm->tm_mday * 100u + 1u;
 
-	char new_serial[32];
-	if (strncmp(old_serial, new_date, 8) == 0 && serial_len >= 10) {
-		long long old_idx = atoll(old_serial + 8);
-		lws_snprintf(new_serial, sizeof(new_serial), "%s%02lld", new_date, old_idx + 1);
-	} else {
-		lws_snprintf(new_serial, sizeof(new_serial), "%s01", new_date);
+	if (today && dht_dnssec_serial_gt(today, next))
+		next = today;
+
+	nl = (size_t)lws_snprintf(new_serial, sizeof(new_serial), "%u", next);
+	ol = (size_t)(end - start);
+	olen = len - ol + nl;
+
+	out = malloc(olen);
+	if (!out) {
+		free(buf);
+		return -1;
 	}
+	memcpy(out, buf, (size_t)(start - buf));
+	memcpy(out + (start - buf), new_serial, nl);
+	memcpy(out + (start - buf) + nl, end, len - (size_t)(end - buf));
 
-	if (strlen(new_serial) == serial_len) {
-		memcpy(serial_start, new_serial, serial_len);
-		if (lseek(fd, 0, SEEK_SET) < 0) {
-			lwsl_err("lseek failed to reset file pointer\n");
-			free(buf); close(fd); return -1;
-		}
-		if (write(fd, buf, (size_t)st.st_size) != st.st_size) {
-			lwsl_err("Failed to write updated SOA\n");
-			free(buf); close(fd); return -1;
-		}
-	} else {
-		size_t new_size = (size_t)st.st_size - serial_len + strlen(new_serial);
-		char *new_buf = malloc(new_size + 1);
-		if (!new_buf) { free(buf); close(fd); return -1; }
-
-		size_t prefix_len = (size_t)(serial_start - buf);
-		memcpy(new_buf, buf, prefix_len);
-		memcpy(new_buf + prefix_len, new_serial, strlen(new_serial));
-		memcpy(new_buf + prefix_len + strlen(new_serial), serial_end, (size_t)st.st_size - prefix_len - serial_len);
-
-		if (lseek(fd, 0, SEEK_SET) < 0) {
-			lwsl_err("lseek failed to reset file pointer\n");
-			free(new_buf); free(buf); close(fd); return -1;
-		}
-		if (ftruncate(fd, (off_t)new_size) < 0) {
-			lwsl_err("ftruncate failed\n");
-		}
-		if (write(fd, new_buf, new_size) != (ssize_t)new_size) {
-			lwsl_err("Failed to write updated SOA\n");
-			free(new_buf); free(buf); close(fd); return -1;
-		}
-		free(new_buf);
+	/*
+	 * In place, so the file keeps its owner and mode: whoever edits the
+	 * zone must still be able to
+	 */
+	fd = open(filepath, O_WRONLY);
+	if (fd < 0 || write(fd, out, olen) != (ssize_t)olen ||
+	    ftruncate(fd, (off_t)olen)) {
+		lwsl_err("Failed to write updated SOA to %s\n", filepath);
+		if (fd >= 0)
+			close(fd);
+		free(out);
+		free(buf);
+		return -1;
 	}
-
-	lwsl_notice("Bumped SOA serial from %s to %s in %s\n", old_serial, new_serial, filepath);
-	free(buf);
 	close(fd);
+
+	lwsl_notice("Bumped SOA serial from %u to %s in %s\n", serial,
+		    new_serial, filepath);
+	free(out);
+	free(buf);
+
 	return 0;
 }
 
