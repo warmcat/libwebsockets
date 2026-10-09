@@ -17,6 +17,8 @@
  *    value is ready at once, one serving another value never is and the
  *    wait fails naming it, and one with a silent address and a serving one
  *    is ready, since an address that doesn't answer says nothing
+ *  - a name server that refuses, as it doesn't serve the zone, is named as
+ *    not authoritative when the wait fails
  */
 
 #include <libwebsockets.h>
@@ -121,16 +123,23 @@ unit_checks(void)
 
 struct wcase {
 	const char	*what;
+	const char	*qname;
 	const char	*value;
+	const char	*why;		/* what a failure must say */
 	int		silent;		/* also give it a silent address */
 	int		ok;
 	int		done;
 };
 
 static struct wcase cases[] = {
-	{ "serving name server is ready", VALUE, 0, 1, 0 },
-	{ "silent address doesn't stop it", VALUE, 1, 1, 0 },
-	{ "name server without it times out", "not-the-value", 0, 0, 0 },
+	{ "serving name server is ready", "_acme-challenge." ORIGIN, VALUE,
+	  NULL, 0, 1, 0 },
+	{ "silent address doesn't stop it", "_acme-challenge." ORIGIN, VALUE,
+	  NULL, 1, 1, 0 },
+	{ "name server without it times out", "_acme-challenge." ORIGIN,
+	  "not-the-value", "ns1." ORIGIN " didn't", 0, 0, 0 },
+	{ "name server not serving the zone", "_acme-challenge.other.example",
+	  VALUE, "ns1." ORIGIN " (not authoritative for the zone)", 0, 0, 0 },
 };
 
 static void
@@ -139,8 +148,7 @@ wait_cb(void *opaque, int ok, const char *why)
 	struct wcase *c = (struct wcase *)opaque;
 
 	c->done = 1;
-	expect(ok == c->ok && (ok || (why && strstr(why, "ns1." ORIGIN))),
-	       c->what);
+	expect(ok == c->ok && (ok || (why && strstr(why, c->why))), c->what);
 	if (why)
 		lwsl_user("%s:   (%s)\n", __func__, why);
 
@@ -161,7 +169,7 @@ start_cb(lws_sorted_usec_list_t *sul)
 		lws_strncpy(s[1].ns, "ns1." ORIGIN, sizeof(s[1].ns));
 		s[1].sa46 = sa_srv;
 
-		if (!acme_dns_wait_start(context, "_acme-challenge." ORIGIN,
+		if (!acme_dns_wait_start(context, cases[n].qname,
 					 cases[n].value, s,
 					 cases[n].silent ? 2 : 1,
 					 4 * LWS_US_PER_SEC,

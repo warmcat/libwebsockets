@@ -31,6 +31,11 @@
  * A name server counts as serving it when one of its addresses answers
  * with the TXT, and none of its addresses answers without it.  An address
  * that doesn't answer at all, eg, one we have no route to, says nothing.
+ *
+ * Nor does one that answers that it isn't authoritative for the zone, by
+ * refusing or without the AA bit.  But that usually means the zone's apex
+ * NS records don't match its delegation, which is where the ACME server
+ * will look, so it is logged and named if the wait fails.
  */
 
 #if !defined(LWS_PLUGIN_STATIC)
@@ -215,6 +220,7 @@ enum {
 	AW_UNKNOWN,	/* it hasn't answered yet */
 	AW_HAS,		/* answered with the TXT */
 	AW_LACKS,	/* answered authoritatively without it */
+	AW_NOT_AUTH,	/* answered that it doesn't serve the zone */
 };
 
 struct acme_dns_wait;
@@ -250,7 +256,7 @@ acme_dns_wait_ready(struct acme_dns_wait *w, char *lag, size_t lag_len)
 	*lag = '\0';
 
 	for (n = 0; n < w->count; n++) {
-		int has = 0, lacks = 0, seen = 0;
+		int has = 0, lacks = 0, not_auth = 0, seen = 0;
 
 		/* only the first entry of each name server sums it up */
 		for (m = 0; m < n; m++)
@@ -264,14 +270,18 @@ acme_dns_wait_ready(struct acme_dns_wait *w, char *lag, size_t lag_len)
 				continue;
 			has |= w->srv[m].state == AW_HAS;
 			lacks |= w->srv[m].state == AW_LACKS;
+			not_auth |= w->srv[m].state == AW_NOT_AUTH;
 		}
 
 		if (has && !lacks)
 			continue;
 
 		ready = 0;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(e, p), "%s%s",
-				  p == lag ? "" : ", ", w->srv[n].s.ns);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(e, p), "%s%s%s",
+				  p == lag ? "" : ", ", w->srv[n].s.ns,
+				  !has && !lacks && not_auth ?
+					" (not authoritative for the zone)" :
+					"");
 	}
 
 	return ready;
@@ -319,6 +329,19 @@ acme_dns_wait_answer(void *opaque, const lws_adns_direct_result_t *r)
 			if (acme_dns_txt_has(r->rrs[n].rdata, r->rrs[n].len,
 					     w->value))
 				s->state = AW_HAS;
+	} else if (s->state == AW_UNKNOWN &&
+		   (r->ret == LADNS_RET_FOUND || r->ret == LADNS_RET_NXDOMAIN ||
+		    (r->ret == LADNS_RET_FAILED &&
+		     (r->rcode == 5 /* REFUSED */ ||
+		      r->rcode == 9 /* NOTAUTH */)))) {
+		char ads[48];
+
+		s->state = AW_NOT_AUTH;
+		lws_sa46_write_numeric_address(&s->s.sa46, ads, sizeof(ads));
+		lwsl_cx_warn(w->cx, "dns-01: %s (%s) isn't authoritative for "
+			     "%s (rcode %d): do the zone's NS records match "
+			     "its delegation?", s->s.ns, ads, w->qname,
+			     r->rcode);
 	}
 
 	if (acme_dns_wait_ready(w, lag, sizeof(lag)))
