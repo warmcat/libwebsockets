@@ -15,6 +15,8 @@
  *  - a name that exists without the asked type is found, with no records
  *  - a name that doesn't exist is NXDOMAIN
  *  - an A record comes back as its four address bytes
+ *  - a zone the server doesn't serve is REFUSED, a reply that is only the
+ *    question
  *  - a server that never answers times out
  *  - a port with nothing on it fails at once, as the ICMP refusal arrives
  *  - a cancelled query never calls back
@@ -55,24 +57,27 @@ struct dq {
 	int			count;
 	const char		*rdata;	/* NULL: don't check */
 	size_t			rdata_len;
+	uint8_t			rcode;
 	int			done;
 };
 
 static struct dq qs[] = {
 	{ "TXT that exists", "_acme-challenge." ORIGIN, LWS_ADNS_RECORD_TXT,
-	  0, LADNS_RET_FOUND, 1, "\x0chello-direct", 13, 0 },
+	  0, LADNS_RET_FOUND, 1, "\x0chello-direct", 13, 0, 0 },
 	{ "two TXT", "two." ORIGIN, LWS_ADNS_RECORD_TXT,
-	  0, LADNS_RET_FOUND, 2, NULL, 0, 0 },
+	  0, LADNS_RET_FOUND, 2, NULL, 0, 0, 0 },
 	{ "no TXT at that name", "www." ORIGIN, LWS_ADNS_RECORD_TXT,
-	  0, LADNS_RET_FOUND, 0, NULL, 0, 0 },
+	  0, LADNS_RET_FOUND, 0, NULL, 0, 0, 0 },
 	{ "no such name", "nope." ORIGIN, LWS_ADNS_RECORD_TXT,
-	  0, LADNS_RET_NXDOMAIN, 0, NULL, 0, 0 },
+	  0, LADNS_RET_NXDOMAIN, 0, NULL, 0, 3, 0 },
 	{ "A record", "www." ORIGIN, LWS_ADNS_RECORD_A,
-	  0, LADNS_RET_FOUND, 1, "\x7f\x00\x00\x4d", 4, 0 },
+	  0, LADNS_RET_FOUND, 1, "\x7f\x00\x00\x4d", 4, 0, 0 },
+	{ "zone not served", "_acme-challenge.other.example",
+	  LWS_ADNS_RECORD_TXT, 0, LADNS_RET_FAILED, 0, NULL, 0, 5, 0 },
 	{ "nobody answers", "_acme-challenge." ORIGIN, LWS_ADNS_RECORD_TXT,
-	  1, LADNS_RET_TIMEDOUT, 0, NULL, 0, 0 },
+	  1, LADNS_RET_TIMEDOUT, 0, NULL, 0, 0, 0 },
 	{ "port refused", "_acme-challenge." ORIGIN, LWS_ADNS_RECORD_TXT,
-	  2, LADNS_RET_FAILED, 0, NULL, 0, 0 },
+	  2, LADNS_RET_FAILED, 0, NULL, 0, 0, 0 },
 };
 
 static void
@@ -95,6 +100,8 @@ direct_cb(void *opaque, const lws_adns_direct_result_t *r)
 		ok = 0;
 	if (ok && r->ret != LADNS_RET_TIMEDOUT && r->ret != LADNS_RET_FAILED &&
 	    !r->authoritative)
+		ok = 0;
+	if (ok && r->rcode != q->rcode)
 		ok = 0;
 	if (ok && q->rdata && (r->rrs[0].type != (uint16_t)q->qtype ||
 			       r->rrs[0].len != q->rdata_len ||

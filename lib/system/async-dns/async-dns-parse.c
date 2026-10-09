@@ -292,7 +292,7 @@ lws_adns_iterate_type(uint16_t qtype, int follow, const uint8_t *pkt, int len,
 	 */
 
 
-	while (p + 14 < e && (inq || ansc)) {
+	while (p < e && (inq || ansc)) {
 
 		if (!inq)
 			ansc--;
@@ -326,7 +326,13 @@ lws_adns_iterate_type(uint16_t qtype, int follow, const uint8_t *pkt, int len,
 
 		p += n;
 
-		if (p + (inq ? 5 : 14) > e)
+		/*
+		 * The question ends with its type and class, an RR with its
+		 * type, class, ttl and RDATA length: a reply that is only the
+		 * question, eg, REFUSED, ends exactly at the end of the first
+		 */
+
+		if (p + (inq ? 4 : 10) > e)
 			return -1;
 
 		/*
@@ -572,6 +578,10 @@ skip:
 
 		break;
 	} while (1);
+
+	if (inq)
+		/* it ended before the question we have to see echoed */
+		return -1;
 
 	if (found)
 		return 0; /* resolved from inside this response */
