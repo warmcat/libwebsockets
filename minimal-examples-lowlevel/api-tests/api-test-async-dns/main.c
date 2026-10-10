@@ -18,6 +18,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/resource.h>
 /*
  * We test the platform DNS server watcher end to end by pointing the whole
  * discovery machinery at a scratch resolv.conf we control, and checking the
@@ -962,6 +963,294 @@ bail:
 		lwsl_user("Resolver source-check leg (%s): PASS\n",
 				foreign ? "foreign answer" : "plain");
 }
+
+/*
+ * Send-failure leg
+ *
+ * A send that fails on the resolver's UDP socket leaves it unusable: eg, the
+ * socket took the icmp error for an earlier datagram the nameserver refused.
+ * If a query sent on it earlier in the same pass had asked for a writeable
+ * to send its AAAA half, the socket also kept POLLOUT armed, and the
+ * level-triggered poll reported it on every pass from then on, since nothing
+ * dropped POLLOUT on a socket that can no longer write.  The resolver also
+ * kept the dead socket, so its later queries could not be sent at all.
+ *
+ * Two queries go out together to a loopback port nothing is listening on.
+ * On Linux the first send's icmp port unreachable is back before the second
+ * send, which fails with it.  The failed query must fail promptly, then our
+ * fake nameserver comes up on that port, and the other query must be
+ * answered through the resolver's new socket.  Elsewhere the second send
+ * may not fail, and both queries are answered once the nameserver is up.
+ * Either way, the leg must not burn the cpu.  That is measured as cpu time
+ * rather than by counting service passes: the poll loop also returns many
+ * times, polling with no wait, through the last fraction of a millisecond
+ * before each timer is due.
+ */
+
+#define SF_TICK_US		(20 * LWS_US_PER_MS)
+#define SF_UP_US		(200 * LWS_US_PER_MS) /* if no send failed */
+#define SF_PROMPT_US		(100 * LWS_US_PER_MS)
+#define SF_DEADLINE_US		(5 * LWS_US_PER_SEC)
+#define SF_MAX_CPU_US		(100 * LWS_US_PER_MS) /* a spin uses ~all */
+
+static const char * const sf_names[] = { "sf1.invalid", "sf2.invalid" };
+static const uint8_t sf_ads[] = { 127, 0, 0, 9 };
+
+static struct sc_query sf_q;
+static struct lws_context *sf_cx;
+static lws_sorted_usec_list_t sul_sf, sul_sf_deadline;
+static lws_usec_t sf_issued;
+static uint16_t sf_port;
+static int sf_fd = -1, sf_fail, sf_failed, sf_resolved, sf_completed;
+
+static void
+sf_finish(int failed)
+{
+	sf_fail += failed;
+	lws_sul_cancel(&sul_sf);
+	lws_sul_cancel(&sul_sf_deadline);
+	lws_default_loop_exit(sf_cx);
+}
+
+/* the fake nameserver comes up on the port the queries were refused at */
+
+static void
+sf_nameserver_up(void)
+{
+	struct sockaddr_in sin;
+
+	if (sf_fd >= 0)
+		return;
+
+	sf_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (sf_fd < 0)
+		goto bail;
+
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family		= AF_INET;
+	sin.sin_addr.s_addr	= htonl(INADDR_LOOPBACK);
+	sin.sin_port		= htons(sf_port);
+
+	if (!bind(sf_fd, (struct sockaddr *)&sin, sizeof(sin)) &&
+	    fcntl(sf_fd, F_SETFL, O_NONBLOCK) >= 0)
+		return;
+
+	close(sf_fd);
+	sf_fd = -1;
+
+bail:
+	lwsl_err("%s: can't bring the nameserver up on %u\n", __func__,
+		 sf_port);
+	sf_finish(1);
+}
+
+static struct lws *
+sf_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
+      void *opaque)
+{
+	lws_usec_t took = lws_now_usecs() - sf_issued;
+	const struct addrinfo *ac = a;
+
+	(void)wsi_unused;
+	(void)n;
+	(void)opaque;
+
+	sf_completed++;
+
+	if (!a) {
+		lwsl_user("%s: %s failed after %dms\n", __func__, ads,
+			  (int)(took / LWS_US_PER_MS));
+		sf_failed++;
+		if (took > SF_PROMPT_US) {
+			lwsl_err("%s: %s was slow to fail\n", __func__, ads);
+			sf_fail++;
+		}
+
+		/* its send failed: what is left can be answered now */
+		sf_nameserver_up();
+	} else {
+		while (ac) {
+			if (ac->ai_family == AF_INET &&
+			    !memcmp(&((struct sockaddr_in *)ac->ai_addr)->sin_addr,
+				    sf_ads, sizeof(sf_ads)))
+				sf_resolved++;
+			ac = ac->ai_next;
+		}
+		lws_async_dns_freeaddrinfo(&a);
+	}
+
+	if (sf_completed == (int)LWS_ARRAY_SIZE(sf_names))
+		sf_finish(0);
+
+	return NULL;
+}
+
+/* the fake nameserver answers each datagram that arrives */
+
+static void
+sul_sf_cb(lws_sorted_usec_list_t *s)
+{
+	(void)s;
+
+	if (lws_now_usecs() - sf_issued >= SF_UP_US)
+		sf_nameserver_up();
+
+	while (sf_fd >= 0) {
+		ssize_t r;
+
+		sf_q.peer_len = sizeof(sf_q.peer);
+		r = recvfrom(sf_fd, (char *)sf_q.pkt, sizeof(sf_q.pkt), 0,
+			     (struct sockaddr *)&sf_q.peer, &sf_q.peer_len);
+		if (r < 12)
+			break;
+
+		sf_q.len = (size_t)r;
+		sc_answer(&sf_q, sf_fd, sf_ads);
+	}
+
+	lws_sul_schedule(sf_cx, 0, &sul_sf, sul_sf_cb, SF_TICK_US);
+}
+
+static void
+sul_sf_deadline_cb(lws_sorted_usec_list_t *s)
+{
+	(void)s;
+
+	lwsl_err("%s: timed out, %d of %d queries completed\n", __func__,
+		 sf_completed, (int)LWS_ARRAY_SIZE(sf_names));
+	sf_finish(1);
+}
+
+static lws_usec_t
+sf_cpu_us(void)
+{
+	struct rusage ru;
+
+	if (getrusage(RUSAGE_SELF, &ru))
+		return 0;
+
+	return ((lws_usec_t)ru.ru_utime.tv_sec + ru.ru_stime.tv_sec) *
+						LWS_US_PER_SEC +
+	       ru.ru_utime.tv_usec + ru.ru_stime.tv_usec;
+}
+
+static void
+sf_run(void)
+{
+	static const char *sf_servers[] = { "127.0.0.1", NULL };
+	struct lws_context_creation_info ci;
+	char saved[16], portstr[16];
+	lws_usec_t cpu = 0;
+	int had_saved;
+	const char *env;
+	size_t n;
+
+	lwsl_user("*** resolver send-failure leg\n");
+
+	sf_fail = sf_failed = sf_resolved = sf_completed = 0;
+
+	/* a loopback port that refuses, until the nameserver comes up on it */
+
+	sf_fd = sc_socket(&sf_port);
+	if (sf_fd < 0) {
+		lwsl_err("%s: can't make the loopback socket\n", __func__);
+		sf_fail++;
+		return;
+	}
+	close(sf_fd);
+	sf_fd = -1;
+
+	env = getenv("LWS_ASYNCDNS_PORT");
+	had_saved = !!env;
+	if (env)
+		lws_strncpy(saved, env, sizeof(saved));
+	lws_snprintf(portstr, sizeof(portstr), "%u", sf_port);
+	setenv("LWS_ASYNCDNS_PORT", portstr, 1);
+
+	lws_context_info_defaults(&ci, NULL);
+	ci.port			= CONTEXT_PORT_NO_LISTEN;
+	ci.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	ci.async_dns_servers	= sf_servers;
+
+	sf_cx = lws_create_context(&ci);
+	if (!sf_cx) {
+		lwsl_err("%s: context create failed\n", __func__);
+		sf_fail++;
+		goto restore;
+	}
+
+	/* only the pinned nameserver, ie, only our own fake one */
+
+	{
+		lws_sockaddr46 sa46;
+		int index = 0;
+
+		while (!lws_plat_asyncdns_get_server(sf_cx, index++, &sa46))
+			lws_async_dns_server_remove(sf_cx, &sa46);
+	}
+
+	/* both queries are sent on the same writeable */
+
+	sf_issued = lws_now_usecs();
+	for (n = 0; n < LWS_ARRAY_SIZE(sf_names); n++)
+		if (lws_async_dns_query(sf_cx, 0, sf_names[n],
+				(adns_query_type_t)(LWS_ADNS_RECORD_A |
+						LWS_ADNS_NOCACHE |
+						LWS_ADNS_IGNORE_HOSTS_FILE |
+						LWS_ADNS_INDICATE_LACKS_DNSSEC),
+				sf_cb, NULL, NULL, NULL) !=
+						LADNS_RET_CONTINUING) {
+			lwsl_err("%s: %s did not start\n", __func__,
+				 sf_names[n]);
+			sf_fail++;
+			goto destroy;
+		}
+
+	lws_sul_schedule(sf_cx, 0, &sul_sf, sul_sf_cb, SF_TICK_US);
+	lws_sul_schedule(sf_cx, 0, &sul_sf_deadline, sul_sf_deadline_cb,
+			 SF_DEADLINE_US);
+
+	cpu = sf_cpu_us();
+	while (lws_service(sf_cx, 0) >= 0)
+		;
+	cpu = sf_cpu_us() - cpu;
+
+	if (cpu > SF_MAX_CPU_US) {
+		lwsl_err("%s: used %dms of cpu, spinning\n", __func__,
+			 (int)(cpu / LWS_US_PER_MS));
+		sf_fail++;
+	}
+
+destroy:
+	lws_sul_cancel(&sul_sf);
+	lws_sul_cancel(&sul_sf_deadline);
+	lws_context_destroy(sf_cx);
+	sf_cx = NULL;
+
+restore:
+	if (had_saved)
+		setenv("LWS_ASYNCDNS_PORT", saved, 1);
+	else
+		unsetenv("LWS_ASYNCDNS_PORT");
+
+	if (sf_fd >= 0)
+		close(sf_fd);
+	sf_fd = -1;
+
+	if (sf_fail)
+		return;
+
+	if (sf_failed + sf_resolved != (int)LWS_ARRAY_SIZE(sf_names) ||
+	    !sf_resolved) {
+		lwsl_err("%s: %d failed and %d resolved\n", __func__,
+			 sf_failed, sf_resolved);
+		sf_fail++;
+		return;
+	}
+
+	lwsl_user("Resolver send-failure leg: PASS (%d send failed, %dms cpu)\n",
+		  sf_failed, (int)(cpu / LWS_US_PER_MS));
+}
 #endif
 
 #if !defined(WIN32)
@@ -1546,6 +1835,13 @@ main(int argc, const char **argv)
 		sc_run(1);
 
 		/*
+		 * A failed send on the resolver's socket drops it for a new
+		 * one, instead of leaving it to spin the loop
+		 */
+
+		sf_run();
+
+		/*
 		 * Client connects with one family disabled (what -4 / -6
 		 * produce) must only ask the resolver for the other family
 		 */
@@ -1749,8 +2045,10 @@ evloop:
 		  watch_fail ? "FAIL" : "PASS", watch_msgs);
 	lwsl_user("Resolver source-check legs: %s\n", sc_fail ? "FAIL" : "PASS");
 	lwsl_user("Forced-family: %s\n", ff_fail ? "FAIL" : "PASS");
+	lwsl_user("Resolver send-failure leg: %s\n", sf_fail ? "FAIL" : "PASS");
 
-	return !(ok == _exp && !fail && !watch_fail && !sc_fail && !ff_fail);
+	return !(ok == _exp && !fail && !watch_fail && !sc_fail && !ff_fail &&
+		 !sf_fail);
 #else
 
 	return !(ok == _exp && !fail && !watch_fail);

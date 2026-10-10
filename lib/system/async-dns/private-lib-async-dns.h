@@ -275,6 +275,9 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q);
 int
 lws_async_dns_create_tcp_wsi(lws_adns_q_t *q);
 
+int
+lws_async_dns_create_server_wsi(struct lws_context *context);
+
 
 
 /* require: context lock on this set */

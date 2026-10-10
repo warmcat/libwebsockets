@@ -248,6 +248,10 @@ lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 	lwsl_wsi_info(q->dsrv ? q->dsrv->wsi : NULL, "in");
 	lws_adns_dump(q->dns);
 
+	if (q->dsrv && !q->dsrv->wsi)
+		/* a failed send dropped its socket: it gets a new one */
+		lws_async_dns_create_server_wsi(q->context);
+
 	if (q->dsrv && q->dsrv->wsi) {
 		q->is_retry = 1;
 		lws_callback_on_writable(q->dsrv->wsi);
@@ -470,6 +474,9 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 				if (s->wsi == wsi)
 					m = m2;
+				else if (m2 != (s->wsi->io->udp ? n : n + 2))
+					/* its socket is unusable now, see below */
+					lws_async_dns_drop_server(s);
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 	} else {
@@ -483,6 +490,16 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	if (m != (wsi->io->udp ? n : n + 2)) {
 		lwsl_wsi_notice(wsi, "dns write failed %d %d errno %d",
 			    m, n, errno);
+		/*
+		 * The failed send left the server's socket unusable
+		 * (lws_io_tx_push()), eg, it took the icmp error for a datagram
+		 * sent while the nameserver was not listening.  Nothing else
+		 * closes it, and later queries would wait on it for a
+		 * writeable that never comes: drop the server, so the next
+		 * query makes it a new socket, as after a timeout
+		 */
+		if (q->dsrv && q->dsrv->wsi == wsi)
+			lws_async_dns_drop_server(q->dsrv);
 		goto qfail;
 	}
 
@@ -694,8 +711,18 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 			    !q->is_synthetic && q->dsrv == dsrv &&
 			    (!q->asked || q->responded != q->asked) && !q->is_tcp) {
 				lws_async_dns_writeable(wsi, q);
+				if (dsrv->wsi != wsi)
+					/* a failed send dropped the server */
+					break;
 			}
 		} lws_end_foreach_dll_safe(d, d1);
+
+		if (dsrv->wsi != wsi) {
+			/* the queries still to send go on a new socket */
+			lws_async_dns_create_server_wsi(lws_get_context(wsi));
+			if (dsrv->wsi)
+				lws_callback_on_writable(dsrv->wsi);
+		}
 		break;
 
 	default:

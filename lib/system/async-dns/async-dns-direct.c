@@ -229,9 +229,16 @@ lws_adns_direct_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		wsi->io->udp->sa46 = ad->server;
 		if (lws_write(wsi, ad->pkt + LWS_PRE, ad->pkt_len, 0) !=
-							(int)ad->pkt_len)
-			lwsl_cx_info(ad->cx, "%s: send failed, retrying",
-				     __func__);
+							(int)ad->pkt_len) {
+			/*
+			 * The failed send left the socket unusable (eg, it
+			 * took the icmp error for an earlier try the server
+			 * refused): nothing more can go out on it to retry
+			 */
+			lwsl_cx_info(ad->cx, "%s: send about %s failed",
+				     __func__, ad->name);
+			direct_complete(ad, LADNS_RET_FAILED, 0, 0);
+		}
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
