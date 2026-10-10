@@ -68,8 +68,18 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	lws_handling_result_t hr;
 	int n;
 
-	if (lwsi_skt_unusable(wsi))
+	if (lwsi_skt_unusable(wsi)) {
+		/*
+		 * Nothing will be written on it any more, and the poll is
+		 * level-triggered: POLLOUT left armed is reported on every
+		 * pass, a busy spin until the wsi is closed, or for good if
+		 * whoever found the socket unusable never closes it
+		 */
+		if (pollfd && lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+			return 1;
+
 		return 0;
+	}
 
 #if defined(LWS_WITH_CLIENT)
 	/* Intercept POLLOUT for parallel sockets if we are racing H3 */
