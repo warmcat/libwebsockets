@@ -23,6 +23,11 @@ these, plus reading, over brute-force looping.
  - **Close-path data loss**: clamp the receiver's `SO_RCVBUF` (or small
    `tcp_rmem` / `tcp_wmem` in a namespace) to make Linux behave like
    macOS, then check the receiver got every byte.
+ - **A real send error on demand**: send twice in one pass on a
+   `connect()`ed UDP socket to a loopback port nothing listens on.  On
+   Linux the first datagram's icmp port unreachable is back before the
+   second `sendto()`, which fails with `ECONNREFUSED`; no fault injection
+   needed.  Bind the port again afterwards to let the peer "come back".
  - Bisecting by throughput / long RTT works well in a detached
    `git worktree` outside the shared tree.  Cross good / bad server and
    client builds to find which side regressed.
@@ -34,6 +39,18 @@ forces rare paths, eg `--fault-injection "wsi/quic_tx_drop(30%)"` for
 grace expiries, PTOs and lost frames.  Watch a suspected spin by sampling
 the process's utime (`/proc/PID/stat` field 14) at intervals, and get
 its stack with `gdb -batch -p PID`.
+
+Fault injection state is per object: each wsi inheriting a pattern gets
+its own counter, so a pattern cannot fail "only the first socket" when
+the code under test replaces the socket.
+
+To spot a spin from inside a test, measure cpu time (`getrusage()`), not
+`lws_service()` returns: the poll loop rounds the wait down to whole
+milliseconds and returns many times polling with timeout 0 through the
+last fraction of a millisecond before each timer is due.  With an event
+library, `gdb -batch -p PID -ex 'break lws_handle_POLLOUT_event'
+-ex continue -ex bt -ex 'p/x wsi->wsistate' -ex 'p *wsi->a.protocol'`
+names the wsi a spinning `epoll_pwait()` is reporting.
 
 ## Forcing synchronous completion
 

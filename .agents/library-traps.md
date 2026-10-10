@@ -97,6 +97,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    requested by any child during a pass latches
    `io.leave_pollout_active`, overriding a DROP; a child that re-arms while
    it cannot progress spins the loop on the always-writable UDP socket.
+ - A failed `lws_write()` marks the socket unusable and leaves closing it
+   to the caller, and `lws_callback_on_writable()` refuses an unusable
+   wsi.  A protocol that keeps such a wsi (a long-lived UDP socket, say)
+   waits forever for writeables it will never get.
 
 ## TLS
 
