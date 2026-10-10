@@ -1269,11 +1269,13 @@ restore:
  * what proves the suppression legs are really testing suppression rather
  * than the resolver just not asking for the other family.
  *
- * Only meaningful when both families are in the build.
+ * Only meaningful when both families are in the build.  The -4 / -6 parse
+ * check below is not, so it counts its failure here too.
  */
-#if defined(LWS_WITH_IPV4) && defined(LWS_WITH_IPV6)
 
 static int ff_fail;
+
+#if defined(LWS_WITH_IPV4) && defined(LWS_WITH_IPV6)
 
 #define FF_TICK_US		(50 * LWS_US_PER_MS)
 #define FF_QUIET_TICKS		3	/* no new query = lws asked all it will */
