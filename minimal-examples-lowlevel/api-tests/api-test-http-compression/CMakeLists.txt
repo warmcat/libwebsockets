@@ -15,6 +15,8 @@ require_lws_config(LWS_WITH_NETWORK 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 require_lws_config(LWS_WITH_HTTP_STREAM_COMPRESSION 1 requirements)
+# lws_genhash, for the digest, comes from the tls library
+require_lws_config(LWS_WITH_TLS 1 requirements)
 require_lws_config(LWS_WITH_GENCRYPTO 1 requirements)
 
 if (requirements AND NOT WIN32)
