@@ -322,6 +322,15 @@
 	 * disabled family are filtered out and no listeners are created for
 	 * it */
 
+#define LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION		 (1ll << 55)
+	/**< (VH) This vhost never compresses its http responses on the fly
+	 * (LWS_WITH_HTTP_STREAM_COMPRESSION), whatever the client's
+	 * Accept-Encoding, eg, where responses mix secrets with what the
+	 * client controls and compression would leak them (BREACH).  Its
+	 * responses do not depend on Accept-Encoding then, so they carry no
+	 * "vary: accept-encoding" for it either.  Files served already
+	 * gzipped from a zip are not affected */
+
         /****** add new things just above ---^ ******/
 
 

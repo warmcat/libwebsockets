@@ -712,6 +712,11 @@ lws_hdr_token_is_credential(enum lws_token_indexes tok);
 int
 lws_hdr_add_value_bad(const unsigned char *value, int length);
 
+/* adds "vary: accept-encoding", for a response whose coding was negotiated */
+int
+lws_http_add_vary_accept_encoding(struct lws *wsi, unsigned char **p,
+				  unsigned char *end);
+
 int
 lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
 

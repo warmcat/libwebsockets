@@ -79,6 +79,13 @@ extern struct lws_compression_support lcs_brotli;
 int
 lws_http_compression_validate(struct lws *wsi);
 
+/*
+ * nonzero for a mimetype lws offers a content coding for when serving it on
+ * this wsi's vhost
+ */
+int
+lws_http_compression_candidate(struct lws *wsi, const char *content_type);
+
 int
 lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 			       size_t len, enum lws_write_protocol *wp,

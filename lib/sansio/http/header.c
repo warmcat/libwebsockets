@@ -389,6 +389,21 @@ lws_add_http_header_content_length(struct lws *wsi,
 	return 0;
 }
 
+/*
+ * The content coding of the response was, or could have been, chosen from the
+ * request's Accept-Encoding.  Saying so keeps shared caches from giving one
+ * client a coding that was chosen for another (RFC 9110 12.5.5)
+ */
+
+int
+lws_http_add_vary_accept_encoding(struct lws *wsi, unsigned char **p,
+				  unsigned char *end)
+{
+	return lws_add_http_header_by_name(wsi, (const unsigned char *)"vary:",
+				(const unsigned char *)"accept-encoding", 15,
+				p, end);
+}
+
 #if defined(LWS_WITH_SERVER)
 
 int
@@ -410,10 +425,7 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		return 1;
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	if (!wsi->http.lcs && content_type &&
-	    (!strncmp(content_type, "text/", 5) ||
-	     !strcmp(content_type, "application/javascript") ||
-	     !strcmp(content_type, "image/svg+xml")))
+	if (!wsi->http.lcs && lws_http_compression_candidate(wsi, content_type))
 		lws_http_compression_apply(wsi, NULL, p, end, 0);
 #endif
 

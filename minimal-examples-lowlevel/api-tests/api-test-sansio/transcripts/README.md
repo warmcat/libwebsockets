@@ -77,7 +77,9 @@ covered: no transcript here is under tls yet.
 ## The connections and their applications
 
 A replay needs the same application on lws' side.  In each connection it
-does only this:
+does only this.  None of the server vhosts offers a content coding
+(`LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION`), so a build with http stream
+compression writes the same bytes as one without: no `vary: accept-encoding`.
 
 |case|side|the application|
 |---|---|---|

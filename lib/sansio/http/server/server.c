@@ -389,6 +389,27 @@ lws_http_serve_is_foreign(struct lws *wsi, const struct lws_http_mount *m,
 }
 #endif
 
+/*
+ * The mount's interpret entry whose file suffix the path has, if any: that
+ * protocol makes the response from the file instead of it being sent as it is
+ */
+
+static const struct lws_protocol_vhost_options *
+lws_http_serve_interpreter(const char *path,
+			   const struct lws_protocol_vhost_options *pvo)
+{
+	size_t n = strlen(path);
+
+	while (pvo) {
+		if (n > strlen(pvo->name) &&
+		    !strcmp(&path[n - strlen(pvo->name)], pvo->name))
+			return pvo;
+		pvo = pvo->next;
+	}
+
+	return NULL;
+}
+
 static int
 lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	       const struct lws_http_mount *m)
@@ -627,6 +648,21 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 					(unsigned char *)sym, n, &p, end))
 				return -1;
 
+			/*
+			 * A 304 carries the Vary the 200 would have had
+			 * (RFC 9110 15.4.5): the coding of the file is chosen
+			 * from Accept-Encoding when it is served gzipped, or
+			 * when it is a type we would compress ourselves
+			 */
+			if (((wsi->http.fop_fd->flags &
+					LWS_FOP_FLAG_COMPR_IS_GZIP)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+			     || (!lws_http_serve_interpreter(path, pvo) &&
+				 lws_http_compression_candidate(wsi, mimetype))
+#endif
+			    ) && lws_http_add_vary_accept_encoding(wsi, &p, end))
+				return -1;
+
 			/* but we still need to send cache control... */
 
 			if (m->cache_max_age && m->cache_reusable) {
@@ -683,47 +719,42 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	 * check if this is in the list of file suffixes to be interpreted by
 	 * a protocol
 	 */
-	while (pvo) {
-		n = (int)strlen(path);
-		if (n > (int)strlen(pvo->name) &&
-		    !strcmp(&path[(unsigned int)n - strlen(pvo->name)], pvo->name)) {
-			wsi->interpreting = 1;
-			/*
-			 * On h1 the interpreter's output goes chunked, since
-			 * its length isn't known until it is made.  An empty
-			 * file is never given to the interpreter: it goes as
-			 * the empty body it is, with a Content-Length of 0,
-			 * since nothing would send a chunked one's last-chunk
-			 */
-			if (!wsi->mux_substream &&
-			    lws_vfs_get_length(wsi->http.fop_fd))
-				wsi->sending_chunked = 1;
+	pvo = lws_http_serve_interpreter(path, pvo);
+	if (pvo) {
+		wsi->interpreting = 1;
+		/*
+		 * On h1 the interpreter's output goes chunked, since
+		 * its length isn't known until it is made.  An empty
+		 * file is never given to the interpreter: it goes as
+		 * the empty body it is, with a Content-Length of 0,
+		 * since nothing would send a chunked one's last-chunk
+		 */
+		if (!wsi->mux_substream &&
+		    lws_vfs_get_length(wsi->http.fop_fd))
+			wsi->sending_chunked = 1;
 
-			/*
-			 * What goes out is the interpreter's output, not the
-			 * file: byte ranges of the file mean nothing in it,
-			 * and the range framing doesn't survive the transform
-			 */
-			wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+		/*
+		 * What goes out is the interpreter's output, not the
+		 * file: byte ranges of the file mean nothing in it,
+		 * and the range framing doesn't survive the transform
+		 */
+		wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
 
-			wsi->protocol_interpret_idx = (char)(
-				lws_vhost_name_to_protocol(wsi->a.vhost,
-							   pvo->value) -
-				&lws_get_vhost(wsi)->protocols[0]);
+		wsi->protocol_interpret_idx = (char)(
+			lws_vhost_name_to_protocol(wsi->a.vhost,
+						   pvo->value) -
+			&lws_get_vhost(wsi)->protocols[0]);
 
-			lwsl_debug("want %s interpreted by %s (pcol is %s)\n", path,
-				    wsi->a.vhost->protocols[
-				             (int)wsi->protocol_interpret_idx].name,
-				             wsi->a.protocol->name);
-			if (lws_bind_protocol(wsi, &wsi->a.vhost->protocols[
-			          (int)wsi->protocol_interpret_idx], __func__))
-				return -1;
+		lwsl_debug("want %s interpreted by %s (pcol is %s)\n", path,
+			    wsi->a.vhost->protocols[
+			             (int)wsi->protocol_interpret_idx].name,
+			             wsi->a.protocol->name);
+		if (lws_bind_protocol(wsi, &wsi->a.vhost->protocols[
+		          (int)wsi->protocol_interpret_idx], __func__))
+			return -1;
 
-			if (lws_ensure_user_space(wsi))
-				return -1;
-			break;
-		}
-		pvo = pvo->next;
+		if (lws_ensure_user_space(wsi))
+			return -1;
 	}
 
 	if (wsi->sending_chunked) {
@@ -4112,7 +4143,8 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
 		if (lws_add_http_header_by_token(wsi,
 			WSI_TOKEN_HTTP_CONTENT_ENCODING,
-			(unsigned char *)"gzip", 4, &p, end))
+			(unsigned char *)"gzip", 4, &p, end) ||
+		    lws_http_add_vary_accept_encoding(wsi, &p, end))
 			goto bail;
 		lwsl_info("file is being provided in gzip\n");
 	}
@@ -4134,9 +4166,7 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 #if defined(LWS_WITH_RANGES)
 		    !ranges &&
 #endif
-		    (!strncmp(content_type, "text/", 5) ||
-		     !strcmp(content_type, "application/javascript") ||
-		     !strcmp(content_type, "image/svg+xml")))
+		    lws_http_compression_candidate(wsi, content_type))
 			lws_http_compression_apply(wsi, NULL, &p, end, 0);
 	}
 #endif

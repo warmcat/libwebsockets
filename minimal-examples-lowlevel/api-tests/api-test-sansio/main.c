@@ -5364,7 +5364,12 @@ main(int argc, const char **argv)
 	memset(&info, 0, sizeof(info));
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
-	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	/*
+	 * The vhosts offer no content codings, so a build with stream
+	 * compression answers the same bytes as one without
+	 */
+	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+		       LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION;
 
 	if (refused_tables(&info))
 		return 1;

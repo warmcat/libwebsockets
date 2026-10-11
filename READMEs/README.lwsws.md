@@ -328,6 +328,14 @@ are happy for an unknown name to meet, typically the "main" vhost on the port.
 Connections that send no SNI at all never come here, they stay on the vhost that
 accepted them.
 
+ - "`no-http-stream-compression`": "1" stops the vhost compressing its http
+responses on the fly, whatever the client's `Accept-Encoding` says.  Use it
+where a response mixes secrets with content the client influences, since the
+compressed length can leak the secret (BREACH).  Without it, in a build with
+`LWS_WITH_HTTP_STREAM_COMPRESSION`, text-ish responses are compressed when the
+client accepts it, and say `vary: accept-encoding` so caches keep the codings
+apart.
+
  - `keeplive-timeout` (in secs) defaults to 60 for lwsws, it may be set as a vhost option
 
  - `interface` lets you specify which network interface to listen on, if not given listens on all.  If the network interface is not usable (eg, ethernet cable out) it will be logged at startup with such vhost not listening, and lws will poll for it and bind a listen socket to the interface if and when it becomes available.

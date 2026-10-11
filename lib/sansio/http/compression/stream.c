@@ -135,6 +135,22 @@ lws_http_compression_validate(struct lws *wsi)
 	return 0;
 }
 
+static int
+lws_http_compression_vh_disabled(struct lws *wsi)
+{
+	return wsi->a.vhost && lws_check_opt(wsi->a.vhost->options,
+				LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION);
+}
+
+int
+lws_http_compression_candidate(struct lws *wsi, const char *content_type)
+{
+	return !lws_http_compression_vh_disabled(wsi) && content_type &&
+	       (!strncmp(content_type, "text/", 5) ||
+		!strcmp(content_type, "application/javascript") ||
+		!strcmp(content_type, "image/svg+xml"));
+}
+
 int
 lws_http_compression_apply(struct lws *wsi, const char *name,
 			   unsigned char **p, unsigned char *end, char decomp)
@@ -143,6 +159,18 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 
 	if (wsi->http.lcs)
 		lws_http_compression_destroy(wsi);
+
+	/* the vhost offers no content codings: the response doesn't vary */
+	if (!decomp && lws_http_compression_vh_disabled(wsi))
+		return 1;
+
+	/*
+	 * Whether the server compresses, and with what, follows from the
+	 * client's Accept-Encoding: the response varies on it even when the
+	 * answer is identity
+	 */
+	if (!decomp && lws_http_add_vary_accept_encoding(wsi, p, end))
+		return -1;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(lcs_available); n++) {
 		/* if name is non-NULL, choose only that compression method */

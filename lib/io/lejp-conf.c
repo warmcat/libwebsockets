@@ -158,6 +158,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].client-ecdh-curve",
 	"vhosts[].strict-host-check",
 	"vhosts[].sni-fallback",
+	"vhosts[].no-http-stream-compression",
 
 	"vhosts[].listen-accept-role",
 	"vhosts[].listen-accept-protocol",
@@ -261,6 +262,7 @@ enum lejp_vhost_paths {
 	LEJPVP_CLIENT_ECDH_CURVE,
 	LEJPVP_FLAG_STRICT_HOST_CHECK,
 	LEJPVP_FLAG_SNI_FALLBACK,
+	LEJPVP_FLAG_NO_HTTP_STREAM_COMPRESSION,
 
 	LEJPVP_LISTEN_ACCEPT_ROLE,
 	LEJPVP_LISTEN_ACCEPT_PROTOCOL,
@@ -1398,6 +1400,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_FLAG_SNI_FALLBACK:
 		set_reset_flag(&a->info->options, ctx->buf,
 			LWS_SERVER_OPTION_SNI_FALLBACK);
+		return 0;
+
+	case LEJPVP_FLAG_NO_HTTP_STREAM_COMPRESSION:
+		set_reset_flag(&a->info->options, ctx->buf,
+			LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION);
 		return 0;
 
 	case LEJPVP_ERROR_DOCUMENT_404:

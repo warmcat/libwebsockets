@@ -1174,6 +1174,12 @@ lws_h2_client_stream_long_poll_rxonly(struct lws *wsi);
  * formats are tried, and for non-decompression (server) mode the first that's
  * found on the client's accept-encoding header is chosen.
  *
+ * In server mode it also adds "vary: accept-encoding" to the headers, whether
+ * or not a compression is applied, since which representation is sent
+ * depends on that request header.  Returns -1 if a header did not fit.  On a
+ * vhost with LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION, it's a NOP in
+ * server mode.
+ *
  * NOTE: the compression transform, same as h2 support, relies on the user
  * code using LWS_WRITE_HTTP and then LWS_WRITE_HTTP_FINAL on the last part
  * written.  The internal lws fileserving code already does this.

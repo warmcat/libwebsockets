@@ -14,6 +14,18 @@
  * corrupted, truncated or mis-framed compressed transfer shows up as a
  * digest mismatch, not a silent success.
  *
+ * Each response's framing and caching headers are checked too:
+ *
+ *  - a response whose coding was chosen from accept-encoding, the identity
+ *    ones included, says "vary: accept-encoding", so a shared cache keeps
+ *    the codings apart, and so does a 304 revalidating it (RFC 9110 15.4.5)
+ *  - one whose coding was not chosen from it does not: a mimetype lws does
+ *    not compress (the same file as .bin), a 206 (never coded), or a vhost
+ *    with LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION
+ *  - a coded body has no content-length, since it is coded on the fly: on
+ *    h1 it goes chunked, on h2 it ends with the stream.  An identity one
+ *    has its content-length and no transfer-encoding, and h2 never has one
+ *
  * The file is text/plain because lws only compresses text-ish mimetypes,
  * and its content is a pseudo-random hex stream interleaved with repeated
  * words, so the compressors have real work to do without collapsing it.
@@ -36,32 +48,77 @@ enum dec {
 	DEC_BR,
 };
 
+/* the length of the range the range cases ask for, from the start */
+#define RANGE_LEN 100
+
+enum vh {
+	VH_DEFAULT,
+	VH_NO_COMPRESSION,	/* LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION */
+};
+
 struct xcase {
 	const char	*name;
 	const char	*accept;	/* accept-encoding to send, or NULL */
 	const char	*expect_ce;	/* content-encoding expected, or NULL */
 	enum dec	dec;
 	int		h2;
+	enum vh		vh;
+	int		bin;		/* the .bin name, not compressible */
+	int		revalidate;	/* if-none-match the last etag, want 304 */
+	int		range;		/* ask for the first RANGE_LEN, want 206 */
+	int		vary;		/* expect vary: accept-encoding */
 };
 
 static const struct xcase cases[] = {
-	{ "h1 no accept-encoding",	NULL,	   NULL,      DEC_IDENTITY, 0 },
-	{ "h1 accept gzip (not offered)", "gzip",  NULL,      DEC_IDENTITY, 0 },
-	{ "h1 accept deflate",		"deflate", "deflate", DEC_DEFLATE,  0 },
+	{ .name = "h1 no accept-encoding", .vary = 1 },
+	{ .name = "h1 accept gzip (not offered)", .accept = "gzip", .vary = 1 },
+	{ .name = "h1 accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .vary = 1 },
 	/* q=0 is "not this one", and a coding is matched whole */
-	{ "h1 accept deflate;q=0",	"deflate;q=0", NULL,  DEC_IDENTITY, 0 },
-	{ "h1 accept xdeflate",		"xdeflate", NULL,     DEC_IDENTITY, 0 },
-	{ "h1 accept gzip, deflate;q=0.5", "gzip, deflate;q=0.5", "deflate",
-							      DEC_DEFLATE,  0 },
+	{ .name = "h1 accept deflate;q=0", .accept = "deflate;q=0", .vary = 1 },
+	{ .name = "h1 accept xdeflate", .accept = "xdeflate", .vary = 1 },
+	{ .name = "h1 accept gzip, deflate;q=0.5",
+	  .accept = "gzip, deflate;q=0.5", .expect_ce = "deflate",
+	  .dec = DEC_DEFLATE, .vary = 1 },
 #if defined(LWS_WITH_HTTP_BROTLI)
-	{ "h1 accept br",		"br",	   "br",      DEC_BR,	    0 },
+	{ .name = "h1 accept br", .accept = "br", .expect_ce = "br",
+	  .dec = DEC_BR, .vary = 1 },
+#endif
+	{ .name = "h1 revalidate, accept deflate", .accept = "deflate",
+	  .revalidate = 1, .vary = 1 },
+	{ .name = "h1 not compressible, accept deflate", .accept = "deflate",
+	  .bin = 1 },
+	{ .name = "h1 not compressible, revalidate", .accept = "deflate",
+	  .bin = 1, .revalidate = 1 },
+	{ .name = "h1 vhost without compression, accept deflate",
+	  .accept = "deflate", .vh = VH_NO_COMPRESSION },
+	{ .name = "h1 vhost without compression, revalidate",
+	  .accept = "deflate", .vh = VH_NO_COMPRESSION, .revalidate = 1 },
+#if defined(LWS_WITH_RANGES)
+	{ .name = "h1 range, accept deflate", .accept = "deflate", .range = 1 },
 #endif
 #if defined(LWS_WITH_HTTP2)
-	{ "h2 no accept-encoding",	NULL,	   NULL,      DEC_IDENTITY, 1 },
-	{ "h2 accept gzip (not offered)", "gzip",  NULL,      DEC_IDENTITY, 1 },
-	{ "h2 accept deflate",		"deflate", "deflate", DEC_DEFLATE,  1 },
+	{ .name = "h2 no accept-encoding", .h2 = 1, .vary = 1 },
+	{ .name = "h2 accept gzip (not offered)", .accept = "gzip", .h2 = 1,
+	  .vary = 1 },
+	{ .name = "h2 accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .h2 = 1, .vary = 1 },
 #if defined(LWS_WITH_HTTP_BROTLI)
-	{ "h2 accept br",		"br",	   "br",      DEC_BR,	    1 },
+	{ .name = "h2 accept br", .accept = "br", .expect_ce = "br",
+	  .dec = DEC_BR, .h2 = 1, .vary = 1 },
+#endif
+	{ .name = "h2 revalidate, accept deflate", .accept = "deflate",
+	  .h2 = 1, .revalidate = 1, .vary = 1 },
+	{ .name = "h2 not compressible, accept deflate", .accept = "deflate",
+	  .h2 = 1, .bin = 1 },
+	{ .name = "h2 vhost without compression, accept deflate",
+	  .accept = "deflate", .h2 = 1, .vh = VH_NO_COMPRESSION },
+	{ .name = "h2 vhost without compression, revalidate",
+	  .accept = "deflate", .h2 = 1, .vh = VH_NO_COMPRESSION,
+	  .revalidate = 1 },
+#if defined(LWS_WITH_RANGES)
+	{ .name = "h2 range, accept deflate", .accept = "deflate", .h2 = 1,
+	  .range = 1 },
 #endif
 #endif
 };
@@ -75,6 +132,10 @@ struct conn {
 	size_t			rx_raw, rx_dec;
 	int			status;
 	char			ce[32];
+	char			vary[64];
+	char			te[32];
+	char			cl[24];
+	uint8_t			head[RANGE_LEN]; /* the first decoded bytes */
 	char			ce_present;
 	char			stream_ended;
 	char			completed;
@@ -84,11 +145,14 @@ struct conn {
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
-static int cur = -1, failures, port_h1 = 7681, port_h2 = 7682, interrupted;
+static int cur = -1, failures, interrupted;
+/* the listen ports, by vhost and then h1 / h2 */
+static int ports[2][2] = { { 7681, 7682 }, { 7683, 7684 } };
 static size_t file_size = 3 * 1024 * 1024;
-static char tmpdir[256], file_path[384], file_name[80];
+static char tmpdir[256], file_path[384], bin_path[384], file_name[80],
+	    etag[64];
 static const char *tmpbase = ".";
-static uint8_t file_sha[32];
+static uint8_t file_sha[32], file_head[RANGE_LEN];
 static const char *server_addr = "127.0.0.1";
 
 static void
@@ -143,6 +207,10 @@ generate_file(void)
 		l = (size_t)n;
 		if (l > file_size - done)
 			l = file_size - done;
+		if (done < sizeof(file_head))
+			memcpy(file_head + done, line,
+			       l < sizeof(file_head) - done ? l :
+					sizeof(file_head) - done);
 		if (fwrite(line, 1, l, f) != l ||
 		    lws_genhash_update(&hc, line, l)) {
 			lwsl_err("%s: write failed\n", __func__);
@@ -167,6 +235,15 @@ generate_file(void)
 	}
 	lws_strncpy(file_path, line, sizeof(file_path));
 
+	/* the same file under a name whose mimetype lws does not compress */
+	lws_snprintf(bin_path, sizeof(bin_path), "%s/%.64s.bin", tmpdir,
+		     file_name);
+	if (link(file_path, bin_path)) {
+		lwsl_err("%s: link failed\n", __func__);
+		bin_path[0] = '\0';
+		return 1;
+	}
+
 	lwsl_user("%s: %s, %u bytes\n", __func__, file_path,
 		  (unsigned int)file_size);
 
@@ -176,6 +253,8 @@ generate_file(void)
 static void
 cleanup_file(void)
 {
+	if (bin_path[0])
+		unlink(bin_path);
 	if (file_path[0])
 		unlink(file_path);
 	if (tmpdir[0])
@@ -231,6 +310,10 @@ conn_rx(struct conn *cn, const struct xcase *c, const uint8_t *in, size_t len)
 
 	switch (c->dec) {
 	case DEC_IDENTITY:
+		if (cn->rx_dec < sizeof(cn->head))
+			memcpy(cn->head + cn->rx_dec, in,
+			       len < sizeof(cn->head) - cn->rx_dec ? len :
+					sizeof(cn->head) - cn->rx_dec);
 		cn->rx_dec += len;
 		return lws_genhash_update(&cn->hash, in, len);
 
@@ -300,8 +383,19 @@ conn_rx(struct conn *cn, const struct xcase *c, const uint8_t *in, size_t len)
 static void
 conn_finish(struct conn *cn, const struct xcase *c, int completed)
 {
+	int ok = 1, status = HTTP_STATUS_OK;
+	size_t expect_len = file_size;
+	char expect_cl[24];
 	uint8_t sha[32];
-	int ok = 1;
+
+	if (c->revalidate) {
+		status = HTTP_STATUS_NOT_MODIFIED;
+		expect_len = 0;
+	}
+	if (c->range) {
+		status = HTTP_STATUS_PARTIAL_CONTENT;
+		expect_len = RANGE_LEN;
+	}
 
 	if (cn->completed)
 		/* finished already: a kept-warm connection closing late */
@@ -312,20 +406,38 @@ conn_finish(struct conn *cn, const struct xcase *c, int completed)
 		lwsl_err("%s: connection closed before completion\n", __func__);
 		ok = 0;
 	}
-	if (cn->status != HTTP_STATUS_OK) {
-		lwsl_err("%s: status %d\n", __func__, cn->status);
+	if (cn->status != status) {
+		lwsl_err("%s: status %d, expected %d\n", __func__, cn->status,
+			 status);
 		ok = 0;
 	}
-	if (c->expect_ce) {
-		if (!cn->ce_present || strcmp(cn->ce, c->expect_ce)) {
-			lwsl_err("%s: expected content-encoding %s, got '%s'\n",
-				 __func__, c->expect_ce,
-				 cn->ce_present ? cn->ce : "(none)");
-			ok = 0;
-		}
-	} else if (cn->ce_present) {
-		lwsl_err("%s: unexpected content-encoding '%s'\n", __func__,
-			 cn->ce);
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || \
+    defined(LWS_HTTP_HEADERS_ALL)
+	if (strcmp(cn->vary, c->vary ? "accept-encoding" : "")) {
+		lwsl_err("%s: expected vary '%s', got '%s'\n", __func__,
+			 c->vary ? "accept-encoding" : "", cn->vary);
+		ok = 0;
+	}
+#endif
+	/* a coded body goes chunked on h1; nothing else has a coding */
+	if (strcmp(cn->te, !c->h2 && c->expect_ce ? "chunked" : "")) {
+		lwsl_err("%s: unexpected transfer-encoding '%s'\n", __func__,
+			 cn->te);
+		ok = 0;
+	}
+	/*
+	 * An identity body says how long it is, a coded one can't know.  h2
+	 * ends a body with its stream, and lws' file serving leaves the
+	 * content-length out there: one it does send must be right
+	 */
+	if (status == HTTP_STATUS_NOT_MODIFIED || c->expect_ce)
+		expect_cl[0] = '\0';
+	else
+		lws_snprintf(expect_cl, sizeof(expect_cl), "%u",
+			     (unsigned int)expect_len);
+	if (strcmp(cn->cl, expect_cl) && (!c->h2 || cn->cl[0])) {
+		lwsl_err("%s: expected content-length '%s', got '%s'\n",
+			 __func__, expect_cl, cn->cl);
 		ok = 0;
 	}
 	if (c->dec != DEC_IDENTITY && !cn->stream_ended) {
@@ -333,14 +445,16 @@ conn_finish(struct conn *cn, const struct xcase *c, int completed)
 			 __func__);
 		ok = 0;
 	}
-	if (cn->rx_dec != file_size) {
+	if (cn->rx_dec != expect_len) {
 		lwsl_err("%s: decoded %u bytes, expected %u\n", __func__,
-			 (unsigned int)cn->rx_dec, (unsigned int)file_size);
+			 (unsigned int)cn->rx_dec, (unsigned int)expect_len);
 		ok = 0;
 	}
+	/* the whole file is checked by its digest, a range by its bytes */
 	if (lws_genhash_destroy(&cn->hash, sha) ||
-	    memcmp(sha, file_sha, sizeof(sha))) {
-		lwsl_err("%s: sha256 mismatch\n", __func__);
+	    (status == HTTP_STATUS_OK && memcmp(sha, file_sha, sizeof(sha))) ||
+	    (c->range && memcmp(cn->head, file_head, RANGE_LEN))) {
+		lwsl_err("%s: content mismatch\n", __func__);
 		ok = 0;
 	}
 	/* the digest ctx is gone now, only the decoders remain */
@@ -384,6 +498,16 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				(unsigned char *)c->accept,
 				(int)strlen(c->accept), p, end))
 			return -1;
+		if (c && c->revalidate &&
+		    lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_IF_NONE_MATCH,
+				(unsigned char *)etag, (int)strlen(etag),
+				p, end))
+			return -1;
+		if (c && c->range &&
+		    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_RANGE,
+				(unsigned char *)"bytes=0-99", 10, p, end))
+			return -1;
 		break;
 	}
 
@@ -403,8 +527,28 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (lws_hdr_copy(wsi, cn->ce, sizeof(cn->ce),
 				 WSI_TOKEN_HTTP_CONTENT_ENCODING) > 0)
 			cn->ce_present = 1;
-		lwsl_user("%s: status %d, content-encoding '%s'\n", __func__,
-			  cn->status, cn->ce_present ? cn->ce : "(none)");
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || \
+    defined(LWS_HTTP_HEADERS_ALL)
+		if (lws_hdr_copy(wsi, cn->vary, sizeof(cn->vary),
+				 WSI_TOKEN_HTTP_VARY) < 0)
+			cn->vary[0] = '\0';
+#endif
+		if (lws_hdr_copy(wsi, cn->te, sizeof(cn->te),
+				 WSI_TOKEN_HTTP_TRANSFER_ENCODING) < 0)
+			cn->te[0] = '\0';
+		if (lws_hdr_copy(wsi, cn->cl, sizeof(cn->cl),
+				 WSI_TOKEN_HTTP_CONTENT_LENGTH) < 0)
+			cn->cl[0] = '\0';
+		/* the ETag is the same whatever the coding, for revalidation */
+		if (!c->revalidate && !c->range &&
+		    lws_hdr_copy(wsi, etag, sizeof(etag),
+				 WSI_TOKEN_HTTP_ETAG) < 0)
+			etag[0] = '\0';
+		lwsl_user("%s: status %d, content-encoding '%s', vary '%s', "
+			  "transfer-encoding '%s', content-length '%s'\n",
+			  __func__, cn->status,
+			  cn->ce_present ? cn->ce : "(none)", cn->vary, cn->te,
+			  cn->cl);
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
@@ -463,6 +607,14 @@ next_case(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("--- case %d: %s ---\n", cur, c->name);
 
+	if (c->range && file_size < RANGE_LEN) {
+		lwsl_user("%s: skipped, the file is shorter than the range\n",
+			  __func__);
+		lws_sul_schedule(context, 0, &sul_next, next_case,
+				 LWS_US_PER_MS);
+		return;
+	}
+
 	cn = &conns[cur];
 	if (conn_decoder_init(cn, c)) {
 		lwsl_err("%s: decoder init failed\n", __func__);
@@ -473,6 +625,9 @@ next_case(lws_sorted_usec_list_t *sul)
 	}
 
 	lws_snprintf(path, sizeof(path), "/%s", file_name);
+	if (c->bin)
+		/* the same file, as .bin */
+		memcpy(path + strlen(path) - 4, ".bin", 4);
 
 	memset(&i, 0, sizeof(i));
 	i.context = context;
@@ -480,7 +635,7 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.address = server_addr;
 	i.host = server_addr;
 	i.origin = server_addr;
-	i.port = c->h2 ? port_h2 : port_h1;
+	i.port = ports[c->vh][!!c->h2];
 	if (c->h2)
 		i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE;
 	i.path = path;
@@ -523,10 +678,21 @@ static const struct lws_protocols protocols_cli[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+/* .bin is served, but as a mimetype lws does not compress */
+static const struct lws_protocol_vhost_options mimetype_bin = {
+	NULL, NULL, ".bin", "application/octet-stream"
+};
+
 static struct lws_http_mount mount = {
 	.mountpoint		= "/",
 	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 1,
+	.extra_mimetypes	= &mimetype_bin,
+};
+
+/* the server vhosts, by enum vh and then h1 / h2 */
+static const char * const vh_names[2][2] = {
+	{ "srv-h1", "srv-h2" }, { "srv-nc-h1", "srv-nc-h2" }
 };
 
 int
@@ -534,9 +700,8 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	struct lws_vhost *vh;
 	const char *p;
-	int result = 1;
+	int result = 1, n;
 
 	signal(SIGINT, sigint_handler);
 
@@ -545,9 +710,13 @@ main(int argc, const char **argv)
 	lws_set_log_level(logs, NULL);
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
-		port_h1 = atoi(p);
+		ports[VH_DEFAULT][0] = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--h2-port")))
-		port_h2 = atoi(p);
+		ports[VH_DEFAULT][1] = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--nc-port")))
+		ports[VH_NO_COMPRESSION][0] = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--nc-h2-port")))
+		ports[VH_NO_COMPRESSION][1] = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--size")))
 		file_size = (size_t)atol(p);
 	if ((p = lws_cmdline_option(argc, argv, "--tmpdir")))
@@ -572,27 +741,35 @@ main(int argc, const char **argv)
 		goto bail_file;
 	}
 
-	info.port = port_h1;
-	info.vhost_name = "srv-h1";
 	info.protocols = protocols_srv;
 	info.mounts = &mount;
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create h1 server vhost\n");
-		goto bail;
-	}
+	for (n = 0; n < 2; n++) {
+		uint64_t opts = info.options;
+		int h;
 
-#if defined(LWS_WITH_HTTP2)
-	info.port = port_h2;
-	info.vhost_name = "srv-h2";
-	info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create h2 server vhost\n");
-		goto bail;
-	}
-	info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+		if (n == VH_NO_COMPRESSION)
+			info.options |=
+				LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION;
+
+		for (h = 0; h < 2; h++) {
+#if !defined(LWS_WITH_HTTP2)
+			if (h)
+				break;
+#else
+			if (h)
+				info.options |=
+					LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 #endif
+			info.port = ports[n][h];
+			info.vhost_name = vh_names[n][h];
+			if (!lws_create_vhost(context, &info)) {
+				lwsl_err("Failed to create vhost %s\n",
+					 info.vhost_name);
+				goto bail;
+			}
+		}
+		info.options = opts;
+	}
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.vhost_name = "cli";
