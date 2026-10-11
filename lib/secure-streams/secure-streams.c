@@ -1233,6 +1233,19 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 			return h->pending_ret;
 		}
 
+		if (h->wsi) {
+			/*
+			 * The user code connected again from a state callback
+			 * we issued for our failed attempt, eg, from
+			 * ALL_RETRIES_FAILED... that connection is in flight
+			 * now, don't report UNREACHABLE and start a retry
+			 * over it, or a second one joins it on this handle
+			 */
+			if (puri)
+				lws_parse_uri_destroy(&puri);
+			return LWSSSSRET_OK;
+		}
+
 fail_out:
 		if (h->prev_ss_state != LWSSSCS_UNREACHABLE &&
 		    h->prev_ss_state != LWSSSCS_ALL_RETRIES_FAILED) {

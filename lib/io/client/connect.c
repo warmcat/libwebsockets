@@ -63,11 +63,25 @@ lws_client_transport_fd_drop(const struct lws_client_connect_info *i)
 		compatible_close(i->transport_fd);
 }
 
+/*
+ * The connection we are making failed and is gone, the caller's wsi storage
+ * must not keep pointing at it.  But the callbacks we made during the attempt,
+ * eg, CLIENT_CONNECTION_ERROR, may already have started another connection and
+ * stored that in the same place... it's not ours to scrub then.
+ */
+static void
+lws_client_pwsi_clear(const struct lws_client_connect_info *i,
+		      struct lws *pwsi_entry, struct lws *wsi)
+{
+	if (i->pwsi && (*i->pwsi == pwsi_entry || *i->pwsi == wsi))
+		*i->pwsi = NULL;
+}
+
 struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
 	const char *local = i->protocol;
-	struct lws *wsi;
+	struct lws *wsi, *wsi_started, *pwsi_entry = i->pwsi ? *i->pwsi : NULL;
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
 	char buf_localport[8];
@@ -591,14 +605,15 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		/* fallthru */
 
+		wsi_started = wsi;
 		wsi = lws_client_transport_start(wsi);
-		if (!wsi && i->pwsi)
+		if (!wsi)
 			/*
 			 * It was closed and freed: the caller's copy we set
 			 * above must not outlive it, as on every other NULL
 			 * return
 			 */
-			*i->pwsi = NULL;
+			lws_client_pwsi_clear(i, pwsi_entry, wsi_started);
 	}
 
 	if (wsi)
@@ -614,9 +629,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 bail3:
 	lwsl_wsi_err(wsi, "tls start fail");
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "tls start fail");
-
-	if (i->pwsi)
-		*i->pwsi = NULL;
+	lws_client_pwsi_clear(i, pwsi_entry, wsi);
 
 	return NULL;
 #endif
@@ -685,9 +698,8 @@ bail:
 	lws_context_unlock(i->context);
 
 bail2:
-
-	if (i->pwsi)
-		*i->pwsi = NULL;
+	/* only the pointer value is compared, the wsi may be freed */
+	lws_client_pwsi_clear(i, pwsi_entry, wsi);
 
 	return NULL;
 }
