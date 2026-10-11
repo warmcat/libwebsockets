@@ -402,6 +402,12 @@ if (LWS_WITHOUT_SERVER)
 set(LWS_WITH_LWSWS OFF)
 endif()
 
+# the access log is of server transactions, lwsws may have asked for it above
+if (LWS_WITH_ACCESS_LOG AND LWS_WITHOUT_SERVER)
+	message("LWS_WITH_ACCESS_LOG needs a server, disabling it")
+	set(LWS_WITH_ACCESS_LOG 0)
+endif()
+
 if (LWS_WITH_LEJP_CONF)
 	set(LWS_WITH_DIR 1)
 endif()
