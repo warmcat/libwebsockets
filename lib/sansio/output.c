@@ -54,6 +54,17 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		m = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
 				write_role_protocol(wsi, buf, len, &wp);
 
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * A client's request body is timed per piece, not as a whole: an
+	 * upload that is still moving must not be cut off by the timeout
+	 * armed when its headers went, however long it takes in all
+	 */
+	if (m > 0 && wsi->pending_timeout == PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
+				(int)wsi->a.context->timeout_secs);
+#endif
+
 #if defined(LWS_WITH_SYS_METRICS)
 	if (wsi->a.vhost)
 		lws_metric_event(wsi->a.vhost->mt_traffic_tx, (char)
