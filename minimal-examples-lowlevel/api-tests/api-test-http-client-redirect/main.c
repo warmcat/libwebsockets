@@ -44,6 +44,7 @@
  */
 
 #include <libwebsockets.h>
+#include <ctype.h>
 #include <string.h>
 #include <signal.h>
 
@@ -240,6 +241,21 @@ hcr_head_end(const char *in, size_t len)
 	return -1;
 }
 
+/*
+ * Header names are case-insensitive.  strncasecmp() is not portable (windows
+ * has _strnicmp()), and name is lower-case ascii, so compare by hand
+ */
+
+static int
+hcr_name_is(const char *h, const char *name, size_t nl)
+{
+	while (nl--)
+		if (tolower((int)(unsigned char)*h++) != *name++)
+			return 0;
+
+	return 1;
+}
+
 /* the value of header "name:" in the head [h, end), copied to dst */
 
 static int
@@ -254,7 +270,7 @@ hcr_header(const char *h, const char *end, const char *name, char *dst,
 		while (e < end && *e != '\r')
 			e++;
 
-		if ((size_t)(e - h) > nl && !strncasecmp(h, name, nl)) {
+		if ((size_t)(e - h) > nl && hcr_name_is(h, name, nl)) {
 			h += nl;
 			while (h < e && *h == ' ')
 				h++;
