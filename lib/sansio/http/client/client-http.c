@@ -83,6 +83,33 @@ lws_client_retarget_allowed(struct lws *wsi, const char *address)
 	return cur_uds && !strcmp(cur, address);
 }
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+/*
+ * RFC 9112 9.6: a response whose Connection header has the "close" option
+ * is the last on its connection
+ */
+static int
+lws_client_response_says_close(struct lws *wsi)
+{
+	const char *conn = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
+	struct lws_tokenize ts;
+
+	if (!conn)
+		return 0;
+
+	lws_tokenize_init(&ts, conn, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				     LWS_TOKENIZE_F_MINUS_NONTERM);
+	do {
+		ts.e = (int8_t)lws_tokenize(&ts);
+		if (ts.e == LWS_TOKZE_TOKEN && ts.token_len == 5 &&
+		    !strncasecmp(ts.token, "close", 5))
+			return 1;
+	} while (ts.e > 0);
+
+	return 0;
+}
+#endif
+
 /*
  * Returns 0 for wsi survived OK, or LWS_HPI_RET_WSI_ALREADY_DIED
  * meaning the wsi was destroyed by us before return.
@@ -876,8 +903,8 @@ str_val:
 		 * Fall back to the close/reconnect path if any doubt exists.
 		 */
 		{
-			const char *conn = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
-			int keep_alive = 1, empty_body;
+			int keep_alive = !lws_client_response_says_close(wsi),
+			    empty_body;
 			uint64_t cl401;
 			char cl[32];
 
@@ -893,20 +920,6 @@ str_val:
 					WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0 &&
 				!lws_http_parse_content_length(cl, &cl401) &&
 				!cl401;
-
-			if (conn) {
-				struct lws_tokenize ts;
-				lws_tokenize_init(&ts, conn, LWS_TOKENIZE_F_COMMA_SEP_LIST | LWS_TOKENIZE_F_MINUS_NONTERM);
-				do {
-					ts.e = (int8_t)lws_tokenize(&ts);
-					if (ts.e == LWS_TOKZE_TOKEN &&
-					    ts.token_len == 5 &&
-					    !strncasecmp(ts.token, "close", 5)) {
-						keep_alive = 0;
-						break;
-					}
-				} while (ts.e > 0);
-			}
 
 			/*
 			 * Only an h1 connection carries the retry itself: an
@@ -1143,6 +1156,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			lwsl_info("no URI\n");
 			goto bail3_l;
 		}
+		/*
+		 * RFC 9112 9.6: the server will close after this response, so
+		 * nothing queued on the connection can follow it there, and
+		 * nothing new may join it
+		 */
+		if (lws_client_response_says_close(wsi))
+			wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
 #if defined(LWS_ROLE_H2)
 	} else {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_STATUS);
