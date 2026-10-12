@@ -20,6 +20,9 @@ that decide what it sends where afterwards.
    the next request rides the same connection.
  - A request body is timed per piece: an upload that keeps moving completes,
    however much longer than the context's timeout (2s here) it takes.
+ - A digest auth challenge that closes its connection is answered on a new
+   one, to the same authority, so the request's `Host:` is kept (when lws has
+   digest auth and a tls library, whose hashes it uses).
 
 The server is a raw socket in the same process speaking http by hand, so it
 can send exactly these redirects, and see exactly the request line, `Host:`

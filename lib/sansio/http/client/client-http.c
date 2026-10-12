@@ -1071,7 +1071,7 @@ str_val:
 		char nc[sizeof(int) * 2 + 1];
 		struct lws_genhash_ctx hc;
 		int ncount = 1, ssl;
-		const char *a, *p;
+		const char *a, *p, *h;
 		struct lws *nwsi;
 		char cnonce[256];
 		l = sizeof(a1) + sizeof(a2) + sizeof(nonce) +
@@ -1188,6 +1188,8 @@ str_val:
 
 		a = wsi->stash->cis[CIS_ADDRESS];
 		p = &wsi->stash->cis[CIS_PATH][1];
+		/* the retry is to the same authority: the user's Host: stays */
+		h = wsi->stash->cis[CIS_HOST] ? wsi->stash->cis[CIS_HOST] : a;
 
 		wsi->client_pipeline = 0;
 
@@ -1248,7 +1250,7 @@ str_val:
 		 */
 		wsi->keepalive_rejected = 1;
 
-		if (!lws_client_reset(&wsi, ssl, a, wsi->c_port, p, a, NULL,
+		if (!lws_client_reset(&wsi, ssl, a, wsi->c_port, p, h, NULL,
 				      1)) {
 			lwsl_wsi_err(wsi, "Failed to reset WSI for Digest auth");
 

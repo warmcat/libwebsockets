@@ -31,6 +31,9 @@
  *  - a request body is timed per piece: an upload that keeps moving
  *    completes, however much longer than the context's timeout it takes
  *
+ *  - a digest auth challenge that closes its connection is answered on a
+ *    new one, to the same authority, so the request's Host: is kept
+ *
  * The server is a raw socket in the same process speaking http by hand, so
  * it can send exactly the redirects above, and see exactly the request line,
  * Host: and body the client sent, and on which of the case's connections.
@@ -60,6 +63,7 @@ enum {
 	HCK_REDIR,	/* one request, maybe redirected */
 	HCK_TWO,	/* a second request, pipelining, once the first is done */
 	HCK_SLOW,	/* a POST whose body goes in slow pieces */
+	HCK_DIGEST,	/* a GET with credentials, challenged for them */
 };
 
 static const struct hcr_case {
@@ -166,6 +170,15 @@ static const struct hcr_case {
 	{ "an upload longer than the timeout completes while it moves",
 	  "cli", "POST", "/slow", NULL,
 	  "POST /slow host=localhost len=1000 conn=1", NULL, 1, HCK_SLOW },
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
+	/* digest auth, whose hashes come from the tls library */
+
+	{ "a digest retry on a new connection keeps the Host:",
+	  "cli", "GET", "/auth", NULL,
+	  "GET /auth host=" HCR_VHOST " len=0 conn=2 auth=digest", NULL, 2,
+	  HCK_DIGEST },
+#endif
 };
 
 /* what the server answers "?redir=<name>" with */
@@ -262,7 +275,7 @@ static void
 hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 {
 	const char *sp1, *sp2, *end = head + hlen, *r;
-	char method[16], target[256], host[64], loc[128];
+	char method[16], target[256], host[64], loc[128], auth[16];
 	size_t n;
 	char *o = pss->out, *oe = pss->out + sizeof(pss->out);
 
@@ -280,9 +293,14 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 		     sizeof(target));
 	if (hcr_header(head, end, "host:", host, sizeof(host)))
 		host[0] = '\0';
+	if (hcr_header(head, end, "authorization:", auth, sizeof(auth)))
+		auth[0] = '\0';
 
-	lws_snprintf(seen, sizeof(seen), "%s %s host=%s len=%u conn=%d",
-		     method, target, host, (unsigned int)body, pss->conn);
+	n = (size_t)lws_snprintf(seen, sizeof(seen),
+				 "%s %s host=%s len=%u conn=%d", method, target,
+				 host, (unsigned int)body, pss->conn);
+	if (!strncmp(auth, "Digest ", 7))
+		lws_snprintf(seen + n, sizeof(seen) - n, " auth=digest");
 	nseen++;
 	lwsl_user("%s: server saw: %s\n", __func__, seen);
 
@@ -303,7 +321,18 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 					  "Location: %s\r\n", redirs[n].loc2);
 		o += lws_snprintf(o, lws_ptr_diff_size_t(oe, o),
 				  "Content-Length: 0\r\n\r\n");
-	} else
+	} else if (!strcmp(target, "/auth") && !auth[0])
+		/*
+		 * Closing after the challenge, the retry can't go on this
+		 * connection: the client must make another
+		 */
+		o += lws_snprintf(o, lws_ptr_diff_size_t(oe, o),
+			"HTTP/1.1 401 Unauthorized\r\n"
+			"WWW-Authenticate: Digest realm=\"hcr\", "
+			"nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\", "
+			"qop=\"auth\"\r\n"
+			"Content-Length: 0\r\nConnection: close\r\n\r\n");
+	else
 		/*
 		 * Saying "Connection: close", the connection is still left
 		 * open, so only the client's honouring it keeps another
@@ -440,7 +469,8 @@ client_connect(const char *target)
 	 * relative reference must keep.  A request that pipelines must name
 	 * the address it dials, to be one others can join.
 	 */
-	i.host		= c->kind == HCK_REDIR ? HCR_VHOST : i.address;
+	i.host		= c->kind == HCK_REDIR || c->kind == HCK_DIGEST ?
+						HCR_VHOST : i.address;
 	i.origin	= i.host;
 	i.port		= port;
 	i.path		= target;
@@ -450,6 +480,10 @@ client_connect(const char *target)
 	i.opaque_user_data = (void *)(intptr_t)(cur + 1);
 	if (c->kind == HCK_TWO)
 		i.ssl_connection = LCCSCF_PIPELINE;
+	if (c->kind == HCK_DIGEST) {
+		i.auth_username	= "user";
+		i.auth_password	= "pass";
+	}
 
 	if (!i.vhost || !lws_client_connect_via_info(&i))
 		case_end("connect failed");
