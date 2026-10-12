@@ -221,7 +221,8 @@ lws_client_transport_failed(struct lws *wsi)
 			lws_addrinfo_clean(wsi);
 			if (lws_client_reset(&wsi,
 					!!(wsi->use_ssl & LCCSCF_USE_SSL),
-					ads_fallback, wsi->c_port, path, host, 1)) {
+					ads_fallback, wsi->c_port, path, host,
+					NULL, 1)) {
 				return 1;
 			}
 		}
@@ -281,7 +282,7 @@ lws_client_transport_failed(struct lws *wsi)
 
 		if (lws_client_reset(&wsi,
 				!!(wsi->use_ssl & LCCSCF_USE_SSL),
-				ads, wsi->c_port, path, host, 1)) {
+				ads, wsi->c_port, path, host, NULL, 1)) {
 			/* Successfully scheduled fallback */
 			return 1;
 		}

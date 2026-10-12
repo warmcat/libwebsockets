@@ -85,6 +85,301 @@ lws_client_retarget_allowed(struct lws *wsi, const char *address)
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 /*
+ * RFC 3986 2: what a URI reference may be made of.  Anything else in a
+ * Location (a space, a control, a quote, a non-ascii byte, a '%' that does
+ * not start an escape) means it is not a URI, and we would only be guessing
+ * at what the server meant by it.
+ */
+static int
+lws_uri_ref_valid(const char *p)
+{
+	for (; *p; p++) {
+		unsigned char c = (unsigned char)*p;
+
+		if (c == '%') {
+			if (!isxdigit((int)(unsigned char)p[1]) ||
+			    !isxdigit((int)(unsigned char)p[2]))
+				return 0;
+			p += 2;
+			continue;
+		}
+
+		/* not isalnum() alone: a locale may say yes to non-ascii */
+		if (c >= 0x80 || (!isalnum((int)c) &&
+				  !strchr("-._~:/?#[]@!$&'()*+,;=", (int)c)))
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * RFC 3986 5.2.4: path [p, end), which starts with '/', goes to o without its
+ * "." and ".." segments.  o may be p: the output never overtakes the input.
+ */
+static char *
+lws_uri_remove_dot_segments(char *o, const char *p, const char *end)
+{
+	char *start = o;
+
+	while (p < end) {
+		const char *s = p + 1, *e = s;
+		size_t l;
+
+		while (e < end && *e != '/')
+			e++;
+		l = lws_ptr_diff_size_t(e, s);
+
+		if (l == 1 && s[0] == '.') {
+			if (e == end)
+				*o++ = '/';
+		} else if (l == 2 && s[0] == '.' && s[1] == '.') {
+			/* back to the '/' that began the last segment out */
+			while (o > start && *--o != '/')
+				;
+			if (e == end)
+				*o++ = '/';
+		} else {
+			*o++ = '/';
+			memmove(o, s, l);
+			o += l;
+		}
+		p = e;
+	}
+
+	if (o == start)
+		*o++ = '/';
+	*o = '\0';
+
+	return o;
+}
+
+/*
+ * Where a redirect's Location takes the request it answers, resolved against
+ * that request as RFC 3986 5.2 says.  A reference with a scheme, or starting
+ * "//", names a new authority.  Otherwise it keeps ours, the Host: header
+ * included, and its path is taken as it is if absolute, or merged with ours
+ * if relative ("foo" from "/a/b" is "/a/foo"); an empty one keeps our path
+ * and changes the query.  Dot segments are removed, and any fragment is
+ * dropped, since neither belongs in a request target.
+ *
+ * Stricter than a browser: a Location that is not a valid URI reference, has
+ * a scheme other than http(s) or ws(s), carries userinfo, or names a port
+ * outside 1 - 65535 is refused, rather than guessed at.
+ *
+ * Returns the result in one allocation, freed with lws_free(), or NULL if the
+ * Location is refused or on OOM.
+ */
+lws_client_redir_t *
+lws_client_redirect_resolve(struct lws *wsi, const char *loc)
+{
+	const char *cur_ads, *cur_host, *base, *be, *e, *rp, *pe, *q,
+		   *hs = NULL, *he = NULL, *auth_end;
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	lws_client_redir_t *r;
+	int ssl, port, n, v6 = 0;
+	size_t len;
+	char *o;
+
+	cur_ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					    _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	cur_host = lws_wsi_client_stash_item(wsi, CIS_HOST,
+					     _WSI_TOKEN_CLIENT_HOST);
+	base = lws_wsi_client_stash_item(wsi, CIS_PATH, _WSI_TOKEN_CLIENT_URI);
+
+	if (!cur_ads || !loc[0] || !lws_uri_ref_valid(loc))
+		return NULL;
+	if (!cur_host)
+		cur_host = cur_ads;
+	if (!base || base[0] != '/')
+		base = "/";
+	be = strchr(base, '?');
+	if (!be)
+		be = base + strlen(base);
+
+#if defined(LWS_WITH_TLS)
+	ssl = !!(nwsi->use_ssl & LCCSCF_USE_SSL);
+#else
+	ssl = 0;
+#endif
+	port = nwsi->c_port;
+
+	/* the fragment is the client's alone */
+	e = strchr(loc, '#');
+	if (!e)
+		e = loc + strlen(loc);
+
+	/* a scheme is ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":" */
+
+	rp = loc;
+	if (isalpha((int)(unsigned char)*loc)) {
+		q = loc + 1;
+		while (q < e && (isalnum((int)(unsigned char)*q) ||
+				 *q == '+' || *q == '-' || *q == '.'))
+			q++;
+
+		if (q < e && *q == ':') {
+			n = lws_ptr_diff(q, loc);
+
+			if ((n == 4 && !strncasecmp(loc, "http", 4)) ||
+			    (n == 2 && !strncasecmp(loc, "ws", 2)))
+				ssl = 0;
+			else if ((n == 5 && !strncasecmp(loc, "https", 5)) ||
+				 (n == 3 && !strncasecmp(loc, "wss", 3)))
+				ssl = 1;
+			else
+				return NULL;
+
+			rp = q + 1;
+			/* and these schemes always have an authority */
+			if (rp[0] != '/' || rp[1] != '/')
+				return NULL;
+		}
+	}
+
+	if (rp[0] == '/' && rp[1] == '/') {
+		/* a new authority: host and port, never userinfo */
+		hs = rp + 2;
+		auth_end = hs;
+		while (auth_end < e && *auth_end != '/' && *auth_end != '?')
+			auth_end++;
+		if (memchr(hs, '@', lws_ptr_diff_size_t(auth_end, hs)))
+			return NULL;
+
+		if (*hs == '[') {
+			/* an IPv6 literal, connected to without its brackets */
+			hs++;
+			for (he = hs; he < auth_end && *he != ']'; he++)
+				if (!isxdigit((int)(unsigned char)*he) &&
+				    *he != ':' && *he != '.')
+					return NULL;
+			if (he == auth_end)
+				return NULL;
+			q = he + 1;
+			v6 = 1;
+		} else {
+			for (he = hs; he < auth_end && *he != ':'; he++)
+				if (*he == '[' || *he == ']')
+					return NULL;
+			q = he;
+		}
+		if (he == hs)
+			return NULL;
+
+		port = ssl ? 443 : 80;
+		if (q < auth_end) {
+			if (*q++ != ':')
+				return NULL;
+			/* an empty port is the scheme's default */
+			if (q < auth_end) {
+				if (auth_end - q > 5)
+					return NULL;
+				n = 0;
+				while (q < auth_end) {
+					if (!isdigit((int)(unsigned char)*q))
+						return NULL;
+					n = (n * 10) + (*q++ - '0');
+				}
+				if (n < 1 || n > 65535)
+					return NULL;
+				port = n;
+			}
+		}
+		rp = auth_end;
+	}
+
+	pe = rp;
+	while (pe < e && *pe != '?')
+		pe++;
+
+	/*
+	 * Each of the three strings is shorter than these sources together: a
+	 * merged path is at most our path and the reference's, and a Host:
+	 * made from the authority adds at most "[]:65535"
+	 */
+	len = strlen(cur_ads) + strlen(cur_host) + strlen(base) +
+	      lws_ptr_diff_size_t(e, loc) + 16;
+	r = lws_malloc(sizeof(*r) + (3 * len), __func__);
+	if (!r)
+		return NULL;
+
+	o = (char *)&r[1];
+	r->ssl = (char)ssl;
+	r->port = port;
+
+	r->address = o;
+	if (hs) {
+		memcpy(o, hs, lws_ptr_diff_size_t(he, hs));
+		o += lws_ptr_diff_size_t(he, hs);
+		*o++ = '\0';
+
+		r->host = o;
+		o += lws_snprintf(o, len, "%s%.*s%s", v6 ? "[" : "",
+				  lws_ptr_diff(he, hs), hs, v6 ? "]" : "");
+		if (port != (ssl ? 443 : 80))
+			o += lws_snprintf(o, len, ":%d", port);
+		o++;
+	} else {
+		o += lws_snprintf(o, len, "%s", cur_ads) + 1;
+		r->host = o;
+		o += lws_snprintf(o, len, "%s", cur_host) + 1;
+	}
+
+	r->path = o;
+	if (rp == pe) {
+		/* no path: an authority's root, or our own path */
+		if (hs) {
+			*o++ = '/';
+			*o = '\0';
+		} else {
+			memcpy(o, base, lws_ptr_diff_size_t(be, base));
+			o += lws_ptr_diff_size_t(be, base);
+			*o = '\0';
+			/* no query either: we keep ours */
+			if (pe == e) {
+				lws_strncpy(o, be, len);
+				o += strlen(o);
+			}
+		}
+	} else if (*rp == '/')
+		o = lws_uri_remove_dot_segments(o, rp, pe);
+	else {
+		/* merged: our path up to its last '/', then the reference's */
+		q = be;
+		while (q > base && q[-1] != '/')
+			q--;
+		memcpy(o, base, lws_ptr_diff_size_t(q, base));
+		memcpy(o + (q - base), rp, lws_ptr_diff_size_t(pe, rp));
+		o = lws_uri_remove_dot_segments(o, o, o + (q - base) +
+							(pe - rp));
+	}
+
+	/* the reference's query, if it has one, is taken as it is */
+	memcpy(o, pe, lws_ptr_diff_size_t(e, pe));
+	o[e - pe] = '\0';
+
+	return r;
+}
+
+/*
+ * RFC 9110 15.4: the method a redirect is followed with, or NULL if the
+ * request's own is kept.  A 303 is followed with a GET, unless it was a HEAD;
+ * a 301 or 302 turns only a POST into a GET, as every browser does; 307 and
+ * 308 keep the method, and so the body.
+ */
+static const char *
+lws_client_redirect_method(int status, const char *meth)
+{
+	if (status == 303 && strcmp(meth, "HEAD"))
+		return "GET";
+
+	if ((status == 301 || status == 302) && !strcmp(meth, "POST"))
+		return "GET";
+
+	return NULL;
+}
+
+/*
  * RFC 9112 9.6: a response whose Connection header has the "close" option
  * is the last on its connection
  */
@@ -953,7 +1248,8 @@ str_val:
 		 */
 		wsi->keepalive_rejected = 1;
 
-		if (!lws_client_reset(&wsi, ssl, a, wsi->c_port, p, a, 1)) {
+		if (!lws_client_reset(&wsi, ssl, a, wsi->c_port, p, a, NULL,
+				      1)) {
 			lwsl_wsi_err(wsi, "Failed to reset WSI for Digest auth");
 
 			goto bail;
@@ -1041,18 +1337,16 @@ lws_handling_result_t
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
 	lws_handling_result_t hr;
-	int n, port = 0, ssl = 0;
+	int n;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
-	const char *prot, *ads = NULL, *path, *cce = NULL;
+	const char *meth, *cce = NULL;
 	struct allocated_headers *ah, *ah1;
-	struct lws *nwsi = lws_get_network_wsi(wsi);
-	char *p = NULL, *q, *simp;
-	char new_path[300], redir_ads[256];
+	char *p = NULL, *simp, c1;
 	int bodyless;
 #if defined(LWS_ROLE_WT)
 	char wt_cce[40];
 #endif
-	lws_parse_uri_t *puri = NULL;
+	lws_client_redir_t *redir = NULL;
 
 	// lws_free_set_NULL(wsi->stash);
 
@@ -1311,6 +1605,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3_l;
 		}
 
+		/* RFC 9110 10.2.2: with two, we can't know which was meant */
+		if (lws_hdr_copy_fragment(wsi, &c1, 1,
+					  WSI_TOKEN_HTTP_LOCATION, 1) != -1) {
+			cce = "HS: Redirect with more than one Location";
+			goto bail3_l;
+		}
+
 #if defined(LWS_WITH_CONMON)
 		if (wsi->conmon.pcol == LWSCONMON_PCOL_NONE) {
 			wsi->conmon.pcol = LWSCONMON_PCOL_HTTP;
@@ -1341,156 +1642,32 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3_l;
 		}
 
-		/*
-		 * A relative reference is to the address we are connected to.
-		 * An h3 stream (and any connection that kept its stash) has
-		 * that in the stash rather than in its ah, so look in both
-		 */
-
-		/* Relative reference absolute path */
-		if (p[0] == '/' || !(char *)strchr(p, ':')) {
-#if defined(LWS_WITH_TLS)
-			ssl = nwsi->use_ssl & LCCSCF_USE_SSL;
-#endif
-			/* a copy: a stash it lives in is remade below */
-			ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
-						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
-			if (ads) {
-				lws_strncpy(redir_ads, ads, sizeof(redir_ads));
-				ads = redir_ads;
-			}
-			port = nwsi->c_port;
-			path = p;
-			/* lws_client_reset expects leading / omitted */
-			if (*path == '/')
-				path++;
+		redir = lws_client_redirect_resolve(wsi, p);
+		if (!redir) {
+			cce = "HS: Redirect Location refused";
+			goto bail3_l;
 		}
-		/* Absolute (Full) URI */
-		else if ((char *)strchr(p, ':')) {
-			puri = lws_parse_uri_create(p);
-			if (!puri) {
-				cce = "HS: URI did not parse";
-				goto bail3_l;
-			}
-			prot = puri->scheme;
-			ads = puri->host;
-			port = puri->port;
-			path = puri->path;
-
-			if (!strcmp(prot, "wss") || !strcmp(prot, "https"))
-				ssl = LCCSCF_USE_SSL;
-		}
-		/* Relative reference relative path */
-		else {
-			/* This doesn't try to calculate an absolute path,
-			 * that will be left to the server */
-#if defined(LWS_WITH_TLS)
-			ssl = nwsi->use_ssl & LCCSCF_USE_SSL;
-#endif
-			/* a copy: a stash it lives in is remade below */
-			ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
-						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
-			if (ads) {
-				lws_strncpy(redir_ads, ads, sizeof(redir_ads));
-				ads = redir_ads;
-			}
-			port = wsi->c_port;
-			/* +1 as lws_client_reset expects leading / omitted */
-			path = new_path + 1;
-			if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI))
-				lws_strncpy(new_path, lws_hdr_simple_ptr(wsi,
-				   _WSI_TOKEN_CLIENT_URI), sizeof(new_path));
-			else {
-				new_path[0] = '/';
-				new_path[1] = '\0';
-			}
-			q = (char *)strrchr(new_path, '/');
-			if (q)
-				lws_strncpy(q + 1, p, sizeof(new_path) -
-							(unsigned int)(q - new_path) - 1);
-			else
-				path = p;
-		}
-
-		/*
-		 * Some redirect codes imply we have to change the method
-		 * used for the subsequent transaction.
-		 *
-		 * ugh... https://peterdaugaardrasmussen.com/2020/05/09/how-to-redirect-http-put-or-post-requests/
-		 * says only 307 or 308 mean keep POST or other method
-		 */
-
-		if (n != 307 && n != 308) {
-			char *mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
-			int ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_METHOD);
-			uint16_t pl = (uint16_t)strlen(path);
-
-			if (ml >= 3 && mp) {
-				lwsl_info("%s: 303 switching to GET\n", __func__);
-				memcpy(mp, "GET", 4);
-				wsi->redirected_to_get = 1;
-				wsi->stream.ah->frags[wsi->stream.ah->frag_index[
-					_WSI_TOKEN_CLIENT_METHOD]].len = 3;
-			}
-        		if (wsi->stash)
-                		wsi->stash->cis[CIS_METHOD] = "GET";
-
-			mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
-			ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI);
-			(void)mp;
-			(void)ml;
-
-			if (wsi->stream.ah->pos + pl + 1 >= wsi->stream.ah->data_length) {
-				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);
-				goto bail3_l;
-			}
-			memcpy(wsi->stream.ah->data + wsi->stream.ah->pos + 1, path, pl + 1u);
-			wsi->stream.ah->data[wsi->stream.ah->pos] = '/';
-			wsi->stream.ah->frags[wsi->stream.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].offset = wsi->stream.ah->pos;
-			wsi->stream.ah->frags[wsi->stream.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = (uint16_t)(pl + 1u);
-
-			if (wsi->stash) {
-				struct client_info_stash *ostash = wsi->stash;
-				const char *cisin[CIS_COUNT];
-				int m;
-
-				wsi->stash = NULL;
-				for (m = 0; m < CIS_COUNT; m++)
-					cisin[m] = ostash->cis[m];
-				cisin[CIS_PATH] = wsi->stream.ah->data + wsi->stream.ah->pos;
-
-				if (lws_client_stash_create(wsi, cisin)) {
-					lwsl_err("%s: failed to realloc stash for redirect\n", __func__);
-					lws_free(ostash);
-					cce = "HS: stash realloc failed";
-					goto bail3_l;
-				}
-				lws_free(ostash);
-			}
-
-			wsi->stream.ah->pos += pl + 1u;
-		}
-
 
 #if defined(LWS_WITH_TLS)
-		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !ssl &&
+		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !redir->ssl &&
 		     !(wsi->flags & LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS)) {
 			cce = "HS: Redirect attempted SSL downgrade";
 			goto bail3_l;
 		}
 #endif
 
-		if (!ads) /* make coverity happy */ {
-			cce = "no ads";
-			goto bail3_l;
-		}
-
-		if (!lws_client_retarget_allowed(wsi, ads)) {
+		if (!lws_client_retarget_allowed(wsi, redir->address)) {
 			cce = "HS: Redirect to or from a unix socket refused";
 			goto bail3_l;
 		}
 
-		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads, 1)) {
+		meth = lws_wsi_client_stash_item(wsi, CIS_METHOD,
+						 _WSI_TOKEN_CLIENT_METHOD);
+
+		if (!lws_client_reset(&wsi, redir->ssl, redir->address,
+				      redir->port, redir->path, redir->host,
+				      lws_client_redirect_method(n,
+						meth ? meth : "GET"), 1)) {
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
 			goto bail3_l;
@@ -1507,8 +1684,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* restarts the wsi, or fails and frees it: no write after */
 		hr = _lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
 
-		if (puri)
-			lws_parse_uri_destroy(&puri);
+		lws_free(redir);
 
 		return hr;
 	}
@@ -1799,8 +1975,7 @@ bail2:
 	hr = _lws_close_free_wsi(wsi, (enum lws_close_status)close_reason,
 				 "c hs interp");
 
-	if (puri)
-		lws_parse_uri_destroy(&puri);
+	lws_free(redir);
 
 	return hr;
 }
@@ -2596,10 +2771,13 @@ static uint8_t hnames2[] = {
  * port:	port to connect to
  * path:	uri path to connect to on the new server
  * host:	host header to send to the new server
+ * method:	method to use instead of the request's (a redirect that says
+ *		to follow it with a GET), or NULL to keep the request's
  */
 struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
-		const char *path, const char *host, char weak)
+		const char *path, const char *host, const char *method,
+		char weak)
 {
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws;
@@ -2608,7 +2786,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	unsigned int keepalive_rejected;
 	struct lws *wsi;
 	size_t o;
-	int n, r;
+	int n;
 
 	if (!pwsi)
 		return NULL;
@@ -2663,7 +2841,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 	}
 
-	r = wsi->stream.ah ? (int)wsi->stream.ah->http_response : 0;
+	/* a stream whose response ah never held its request has the stash */
+	if (!cisin[CIS_METHOD] && wsi->stash)
+		cisin[CIS_METHOD] = wsi->stash->cis[CIS_METHOD];
+	if (method)
+		cisin[CIS_METHOD] = method;
 
 #if defined(LWS_WITH_TLS)
 	cisin[CIS_ALPN]		= wsi->alpn;
@@ -2689,7 +2871,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 
 	lwsl_notice("%s: REDIRECT %d: %s %s:%d, path='%s', ssl = %d, alpn='%s'\n",
-		    __func__, r,
+		    __func__, wsi->stream.ah ?
+					(int)wsi->stream.ah->http_response : 0,
 		    cisin[CIS_METHOD] ? cisin[CIS_METHOD] : "(null)", address,
 		    port, path, ssl, cisin[CIS_ALPN]);
 
@@ -2742,14 +2925,12 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 			       !keepalive_rejected;
 
 	/*
-	 * We could be a redirect before, or after the POST was done.
-	 * Http's hack around this is 307 / 308 keep the method, ie,
-	 * it's pre and they have to repeat the body.  Other 3xx
-	 * turn it into a GET.
+	 * A redirect that changed the method to GET also drops the body: the
+	 * app learns not to send it again from lws_http_is_redirected_to_get().
+	 * One that kept the method (any 307 / 308, a 301 / 302 to a PUT) has
+	 * the app send the body again.
 	 */
-
-	if ((r / 100) == 3 && r != 307 && r != 308)
-		wsi->redirected_to_get = 1;
+	wsi->redirected_to_get = method && !strcmp(method, "GET");
 
 	/*
 	 * Will complete at close flow: the close sees the restarting phase and

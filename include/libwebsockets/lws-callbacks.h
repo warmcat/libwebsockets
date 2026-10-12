@@ -421,7 +421,12 @@ enum lws_callback_reasons {
 	 */
 
 	LWS_CALLBACK_CLIENT_HTTP_REDIRECT			= 104,
-	/**< we're handling a 3xx redirect... return nonzero to hang up */
+	/**< we're handling a 3xx redirect... return nonzero to hang up.
+	 * in is the Location, as the server sent it.  If we go on, lws resolves
+	 * it against the request as RFC 3986 5.2 says (so "//host/path" names
+	 * another authority, and a relative path is merged with ours), and
+	 * refuses one that is not a valid http(s) URI reference, has userinfo
+	 * or a port outside 1 - 65535, or comes with a second Location */
 
 	LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL			= 85,
 	LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL			= 76,

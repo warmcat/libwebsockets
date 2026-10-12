@@ -1987,7 +1987,20 @@ __lws_ss_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 
 LWS_VISIBLE struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_reset(struct lws **wsi, int ssl, const char *address, int port,
-		 const char *path, const char *host, char weak);
+		 const char *path, const char *host, const char *method,
+		 char weak);
+
+/* where a redirect's Location takes a client request */
+typedef struct lws_client_redir {
+	const char	*address;	/* to connect to */
+	const char	*host;		/* for the Host: header */
+	const char	*path;		/* starts with '/', with any query */
+	int		port;
+	char		ssl;
+} lws_client_redir_t;
+
+lws_client_redir_t * LWS_WARN_UNUSED_RESULT
+lws_client_redirect_resolve(struct lws *wsi, const char *loc);
 
 
 char * LWS_WARN_UNUSED_RESULT

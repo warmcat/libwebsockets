@@ -1198,7 +1198,10 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
  * \param wsi: the wsi to check
  *
  * Check if the wsi is currently in GET mode, after, eg, doing a POST and
- * receiving a 303.
+ * receiving a 303.  As RFC 9110 15.4 says, a 303 turns any method but HEAD
+ * into a GET, a 301 or 302 turns only a POST into a GET, and 307 / 308 keep
+ * the method.  When this returns true, the request must not send its body
+ * again; when a redirect kept the method, it must send all of it again.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_is_redirected_to_get(struct lws *wsi);

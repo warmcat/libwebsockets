@@ -188,7 +188,7 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 
 		if (!ads || !host || !path ||
 		    !lws_client_reset(&wsi, !!(wsi->flags & LCCSCF_USE_SSL),
-				      ads, wsi->c_port, path, host, 1))
+				      ads, wsi->c_port, path, host, NULL, 1))
 			/*
 			 * No stash to restart from, or the reset failed:
 			 * the close below just fails the connection

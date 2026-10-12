@@ -505,8 +505,8 @@ static int
 ss_h1_redirect_leaks_identity(lws_ss_handle_t *h, struct lws *wsi,
 			      const char *loc)
 {
+	lws_client_redir_t *r;
 	const char *cur;
-	lws_parse_uri_t *puri;
 	int m, bad = 0;
 
 	if (!loc)
@@ -522,27 +522,27 @@ ss_h1_redirect_leaks_identity(lws_ss_handle_t *h, struct lws *wsi,
 	    !(h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES))
 		return 0;
 
-	/* relative references stay on the authority we're already talking to */
-
-	if (loc[0] == '/' || !strchr(loc, ':'))
-		return 0;
-
-	puri = lws_parse_uri_create(loc);
-	if (!puri)
+	/*
+	 * Where the client would really go: a relative reference stays on the
+	 * authority we are talking to, but one starting "//" names another
+	 */
+	r = lws_client_redirect_resolve(wsi, loc);
+	if (!r)
 		return 1;
 
-	cur = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	cur = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
-	if (!cur || strcasecmp(puri->host, cur) || puri->port != wsi->c_port)
+	if (!cur || strcasecmp(r->address, cur) ||
+	    r->port != lws_get_network_wsi(wsi)->c_port)
 		bad = 1;
 
 #if defined(LWS_WITH_TLS)
-	if (!bad && (wsi->use_ssl & LCCSCF_USE_SSL) &&
-	    strcmp(puri->scheme, "https") && strcmp(puri->scheme, "wss"))
+	if (!bad && (wsi->use_ssl & LCCSCF_USE_SSL) && !r->ssl)
 		bad = 1; /* tls downgrade */
 #endif
 
-	lws_parse_uri_destroy(&puri);
+	lws_free(r);
 
 	if (bad)
 		lwsl_ss_warn(h, "refusing redirect to different authority");
