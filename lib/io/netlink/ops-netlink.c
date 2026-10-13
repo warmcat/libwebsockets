@@ -54,7 +54,8 @@
 /*
  * The kernel ends the dump with NLMSG_DONE, at which point the table is
  * complete.  If that never comes, eg, the dump request was refused, stop
- * waiting for it after this long anyway.
+ * waiting for it after this long anyway, unless some of it is still waiting
+ * to be read.
  */
 #define LWS_NL_COLDPLUG_FALLBACK_US	(2 * LWS_US_PER_SEC)
 
@@ -136,6 +137,32 @@ lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context *ctx = lws_container_of(sul, struct lws_context,
 						   sul_nl_coldplug);
+	struct lws_pollfd pfd;
+
+	/*
+	 * The fallback was armed at init, but if creating the context took
+	 * longer than it (eg, a slow or loaded host), it expires before the
+	 * event loop has read any of the dump.  If the dump is still waiting
+	 * to be read, it is not overdue, the loop just didn't get to it yet...
+	 * judging by an incomplete table culls connections to destinations
+	 * whose routes are still to be read, so give it another period.
+	 */
+
+	if (ctx->netlink) {
+		pfd.fd		= ctx->netlink->io->desc.sockfd;
+		pfd.events	= LWS_POLLIN;
+		pfd.revents	= 0;
+
+		if (lws_poll_listen_fd(&pfd) > 0 &&
+		    (pfd.revents & LWS_POLLIN)) {
+			lwsl_cx_info(ctx, "route dump still unread, waiting");
+			lws_sul_schedule(ctx, 0, &ctx->sul_nl_coldplug,
+					 lws_netlink_coldplug_done_cb,
+					 LWS_NL_COLDPLUG_FALLBACK_US);
+			return;
+		}
+	}
+
 	ctx->nl_initial_done = 1;
 #if defined(LWS_WITH_SYS_STATE)
 	/* if nothing is there to intercept anything, go all the way */
