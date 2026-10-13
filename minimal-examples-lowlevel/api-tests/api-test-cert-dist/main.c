@@ -25,7 +25,8 @@
  *
  *  - node1: trusted, and provisioned on the server to receive example.com.
  *    It must get the cert and key installed, and then get the update when
- *    the server's copy changes on disk;
+ *    the server's copy changes on disk.  An update it fails to install must
+ *    be fetched again;
  *
  *  - node2: trusted by the mTLS CA, but not provisioned.  The server must
  *    not hand it anything;
@@ -87,28 +88,39 @@ static const struct lws_switches switches[] = {
 };
 
 #define PHASE_TIMEOUT_SECS	20
+/*
+ * The client holds back refetching a cert it failed to install for 10s, with
+ * 20% jitter, before it reconnects
+ */
+#define RETRY_TIMEOUT_SECS	35
 
 /*
  * What the server distributes for example.com, before and after a renewal:
  * real cert + key pairs, since the server only sends a key that belongs to
  * its cert.  They are just certs we have to hand, read from --certs.
  *
- * The third "renewal" is the second pair with a line that is not PEM on the
+ * The third is the first pair again, sent while node1's install dir is not
+ * one the client's stub will write a key into: the install fails, and the
+ * client must retry it once the dir is fixed.
+ *
+ * The fourth "renewal" is the third pair with a line that is not PEM on the
  * end of its fullchain (see ver_junk below): the server's copy of a cert is
  * no more trustworthy than the server, and the client must not install it.
  */
 
-#define VERSIONS 3
+#define VERSIONS	4
+#define VER_JUNK	3
 
 static const char * const ver_cert_file[VERSIONS] = {
-	"localhost-100y.cert", "node2.crt", "node1.crt"
+	"localhost-100y.cert", "node2.crt", "localhost-100y.cert", "node1.crt"
 };
 static const char * const ver_key_file[VERSIONS] = {
-	"localhost-100y.key", "node2.key", "node1.key"
+	"localhost-100y.key", "node2.key", "localhost-100y.key", "node1.key"
 };
 /* the timestamps the acme client names each renewal's files with */
 static const char * const ver_stem[VERSIONS] = {
-	"20260101-000000", "20260601-000000", "20261101-000000"
+	"20260101-000000", "20260601-000000", "20261101-000000",
+	"20270101-000000"
 };
 
 /*
@@ -279,7 +291,7 @@ load_versions(void)
 			goto bail;
 		ver_cert[v][n] = '\0';
 
-		if (v == VERSIONS - 1) {
+		if (v == VER_JUNK) {
 			/* the last version's fullchain is not plain PEM */
 			if ((size_t)n + strlen(ver_junk) >= PEM_MAX)
 				goto bail;
@@ -351,10 +363,26 @@ check_install_layout(void)
 }
 
 static void
+arm_deadline(int secs)
+{
+	phase_deadline = lws_now_usecs() + (lws_usec_t)secs * LWS_US_PER_SEC;
+}
+
+static void
 arm_phase_deadline(void)
 {
-	phase_deadline = lws_now_usecs() +
-			 (lws_usec_t)PHASE_TIMEOUT_SECS * LWS_US_PER_SEC;
+	arm_deadline(PHASE_TIMEOUT_SECS);
+}
+
+/* node1's install dir, made writable by others or private again */
+static int
+node1_dir_mode(mode_t mode)
+{
+	char path[256];
+
+	lws_snprintf(path, sizeof(path), "%s/install/node1", work);
+
+	return chmod(path, mode);
 }
 
 static void
@@ -426,11 +454,12 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 		expect("node1 got the renewed cert and key", 1);
 
 		/*
-		 * The server's copy is "renewed" again, to a fullchain that
-		 * is not plain PEM, and pushed down the link the same way
+		 * The next renewal arrives while node1's install dir is
+		 * writable by its group, so the stub refuses to write a key
+		 * into it
 		 */
-		if (publish(2, 0, PUB_ALL)) {
-			expect("publish the junk renewal", 0);
+		if (node1_dir_mode(0770) || publish(2, 0, PUB_ALL)) {
+			expect("publish a renewal node1 can't install", 0);
 			done = 1;
 			lws_cancel_service(context);
 			return;
@@ -441,13 +470,61 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 		break;
 
 	case 3:
+		/* the install fails: node1 keeps the pair it has */
+		if (!node1_has(1)) {
+			expect("renewal not installed in an unsafe dir", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		if (lws_now_usecs() < hold_until)
+			break;
+
+		expect("renewal not installed in an unsafe dir", 1);
+
+		/*
+		 * The dir is put right.  Nothing changes on the server now,
+		 * so only the client retrying can get the renewal installed
+		 */
+		if (node1_dir_mode(0700)) {
+			expect("make node1's install dir private again", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		phase++;
+		arm_deadline(RETRY_TIMEOUT_SECS);
+		break;
+
+	case 4:
+		if (!node1_has(2))
+			break;
+
+		expect("failed install retried and completed", 1);
+
+		/*
+		 * The server's copy is "renewed" again, to a fullchain that
+		 * is not plain PEM, and pushed down the link the same way
+		 */
+		if (publish(VER_JUNK, 0, PUB_ALL)) {
+			expect("publish the junk renewal", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		hold_until = lws_now_usecs() + HOLD_US;
+		phase++;
+		arm_phase_deadline();
+		break;
+
+	case 5:
 		/*
 		 * node1 must keep the pair it has, and nothing may turn up
 		 * under the name the junk carries
 		 */
 		lws_snprintf(path, sizeof(path), "%s/install/%s", work,
 			     VER_JUNK_NAME);
-		if (exists(path) || !node1_has(1)) {
+		if (exists(path) || !node1_has(2)) {
 			expect("junk renewal refused, nothing installed under "
 			       "its name", 0);
 			done = 1;
@@ -470,6 +547,8 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 			"node1 got the cert and key over mTLS",
 			"half-done renewal not sent",
 			"node1 got the renewed cert and key",
+			"renewal not installed in an unsafe dir",
+			"failed install retried and completed",
 			"junk renewal refused, nothing installed under its name",
 		};
 
@@ -715,7 +794,7 @@ main(int argc, const char **argv)
 	while (n >= 0 && !done)
 		n = lws_service(context, 0);
 
-	expect("every phase ran", done && phase == 4);
+	expect("every phase ran", done && phase == 6);
 
 	/*
 	 * The refused links had as long as the whole run to get something

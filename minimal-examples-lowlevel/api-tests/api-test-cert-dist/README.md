@@ -28,7 +28,9 @@ privileges.
 |`node2.crt` / `.key`|Client cert for CN `node2.example.com`, signed by `ca.crt`|
 
 The cert and key distributed for `example.com` are just pairs the test has to
-hand: `localhost-100y`, then `node2` for the renewal.  They have to be real
+hand: `localhost-100y`, then `node2` for the renewal, `localhost-100y`
+again for the renewal whose install fails at first, and `node1` with junk
+appended for the last one.  They have to be real
 pairs, since the server only sends a key that belongs to its cert.  The test
 stores them the way the acme client does with the dnssec monitor: timestamped
 leaf cert, key and fullchain files in `certs/production/crt` and `key`, with
@@ -46,6 +48,11 @@ to `node1.example.com`.
  - when the renewal completes, the new `-latest` pair (not the `-previous`
    one, nor a leaf-only cert) is pushed down the link that is already up and
    `node1` installs it
+ - a renewal pushed while `node1`'s install dir is writable by its group is
+   not installed, since the client's stub won't write a key into a dir others
+   can plant files in, and `node1` keeps the pair it has.  Once the dir is
+   private again, the client's retry, made about 10s later, installs it
+   without anything changing on the server
  - a further "renewal" whose fullchain is not plain PEM (it carries a double
    quote, which would end the string it travels in inside the request to the
    client's privileged stub, followed by a second `"subdomain"` naming a

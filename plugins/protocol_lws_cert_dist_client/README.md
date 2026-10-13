@@ -26,6 +26,14 @@ When enabled with certs configured, the plugin spawns a privileged stub process 
 
 The link to the server stays up, and the server pushes renewed certs down it as they appear; each one is installed as it arrives.
 
+When the link drops, it is reconnected with a short backoff (up to 5s).  On each connect the client first sends the SHA-1 of the `fullchain.pem` it has installed, and the server sends its current cert only if that differs, so a client that was offline during a renewal catches up as soon as it is back.
+
+### When an install fails
+
+The stub answers every install with its outcome.  If it could not install a cert (for example, the install dir is not a private one it owns, or a write failed), or the server sent something that cannot be installed, the client logs why at `err` level, says it is still serving the previous cert, and drops the link.  The reconnect sends the hash of the cert still installed, so the server sends the new one again.
+
+Whatever failed may well fail again, so these refetches back off further each time: about 10s, 30s, 1m, 5m, 15m, then hourly, with 20% jitter.  The delay is logged at `notice`.  A successful install resets it.
+
 ### What is installed where
 
 Each `certs` entry is installed under `<base-dir>/<name>/`, where `name` is the entry's own key in the config (`example-com` and `test-org` below), *not* a name chosen by the distribution server.  The server's `subdomain` in the reply is only logged if it disagrees; a compromised distribution server can therefore replace the cert and key of the domain a given link was established for, and of no other.
