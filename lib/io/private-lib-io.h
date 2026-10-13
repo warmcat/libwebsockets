@@ -253,6 +253,9 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 int
 _lws_route_table_usable(struct lws_context *cx);
 
+int
+_lws_route_table_known_empty(struct lws_context *cx);
+
 const char *
 lws_errno_describe(int en, char *result, size_t len);
 
