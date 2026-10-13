@@ -245,7 +245,7 @@ lws_route_gw_usable(const lws_sockaddr46 *dest, const lws_sockaddr46 *gw)
  *
  * Netlink delivers the existing routes asynchronously after the context is
  * created, over as many reads as it takes, eg, the ipv4 routes before the
- * ipv6 ones.  Until the coldplug timer has seen them stop coming, the table
+ * ipv6 ones.  Until the kernel has said the dump of them is done, the table
  * can hold some of them and not others, and judging by it would discard
  * destinations that are perfectly reachable.
  */

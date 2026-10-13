@@ -45,6 +45,20 @@
 #define lwsl_cx_netlink_debug	lwsl_cx_debug
 
 /*
+ * The netlink sequence number of our dump request for the existing routes at
+ * init, the kernel's replies to it carry it back.  Route change notifications
+ * we didn't ask for come with 0.
+ */
+#define LWS_NL_COLDPLUG_SEQ	1
+
+/*
+ * The kernel ends the dump with NLMSG_DONE, at which point the table is
+ * complete.  If that never comes, eg, the dump request was refused, stop
+ * waiting for it after this long anyway.
+ */
+#define LWS_NL_COLDPLUG_FALLBACK_US	(2 * LWS_US_PER_SEC)
+
+/*
  * NLMSG_OK() / NLMSG_NEXT() with the missing guard: NLMSG_NEXT() advances by
  * the *aligned* nlmsg_len, which can be up to 3 bytes more than the nlmsg_len
  * NLMSG_OK() bounds-checked.  With an unsigned residual (and NLMSG_OK()'s
@@ -423,6 +437,32 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			lws_pt_unlock(pt);
 			continue;
 
+		case NLMSG_DONE:
+		case NLMSG_ERROR:
+			/*
+			 * The end of the existing routes we asked for at init,
+			 * or the kernel declining to give them: either way the
+			 * table is as complete as it is going to get, so we
+			 * can start judging connections by it.
+			 *
+			 * The dump can arrive over many reads, with event loop
+			 * activity between them, so a quiet spell is no sign
+			 * of its end... judging by a part-delivered table culls
+			 * connections to destinations whose routes are yet to
+			 * come, eg, ::1 when only the ipv4 routes are in.
+			 */
+			if (h->nlmsg_seq == LWS_NL_COLDPLUG_SEQ &&
+			    !cx->nl_initial_done && pt == &cx->pt[0]) {
+				lwsl_cx_netlink(cx, "coldplug dump ended (%s)",
+						h->nlmsg_type == NLMSG_DONE ?
+							"done" : "error");
+				lws_context_lock(cx, __func__);
+				lws_sul_schedule(cx, 0, &cx->sul_nl_coldplug,
+						 lws_netlink_coldplug_done_cb, 1);
+				lws_context_unlock(cx);
+			}
+			continue;
+
 		default:
 			lwsl_cx_netlink(cx, "*** Unknown RTM_%d",
 					h->nlmsg_type);
@@ -682,20 +722,6 @@ inform_l:
 	}
 #endif
 
-	if (!cx->nl_initial_done &&
-	    pt == &cx->pt[0] &&
-	    lws_dll2_count(&cx->routing_table)) {
-		/*
-		 * While netlink info still coming, keep moving the timer for
-		 * calling it "done" to +100ms until after it stops coming
-		 */
-		lws_context_lock(cx, __func__);
-		lws_sul_schedule(cx, 0, &cx->sul_nl_coldplug,
-				 lws_netlink_coldplug_done_cb,
-				 100 * LWS_US_PER_MS);
-		lws_context_unlock(cx);
-	}
-
 	return LWS_HPI_RET_HANDLED;
 }
 
@@ -798,7 +824,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	req.hdr.nlmsg_len	= NLMSG_LENGTH(sizeof(req.gen));
 	req.hdr.nlmsg_type	= RTM_GETROUTE;
 	req.hdr.nlmsg_flags	= NLM_F_REQUEST | NLM_F_DUMP;
-	req.hdr.nlmsg_seq	= 1;
+	req.hdr.nlmsg_seq	= LWS_NL_COLDPLUG_SEQ;
 	req.hdr.nlmsg_pid	= (uint32_t)getpid();
 	req.gen.rtm_family	= AF_PACKET;
 	req.gen.rtm_table	= RT_TABLE_DEFAULT;
@@ -818,12 +844,19 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 
 	/*
 	 * Responses are going to come asynchronously, let's block moving
-	 * off state IFACE_COLDPLUG until we have had them.  This is important
-	 * since if we don't hold there, when we do get the responses we may
-	 * cull any ongoing connections as unroutable otherwise
+	 * off state IFACE_COLDPLUG until we have had them all, ie, the dump's
+	 * NLMSG_DONE.  This is important since if we don't hold there, when we
+	 * do get the responses we may cull any ongoing connections as
+	 * unroutable otherwise.  If the end of the dump never comes, don't
+	 * hold there forever.
 	 */
 
 	lwsl_cx_debug(context, "starting netlink coldplug wait");
+	lws_context_lock(context, __func__);
+	lws_sul_schedule(context, 0, &context->sul_nl_coldplug,
+			 lws_netlink_coldplug_done_cb,
+			 LWS_NL_COLDPLUG_FALLBACK_US);
+	lws_context_unlock(context);
 
 	return 0;
 

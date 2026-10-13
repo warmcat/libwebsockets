@@ -158,10 +158,10 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 #if defined(LWS_WITH_ROUTING)
 	/*
 	 * If we're going to use netlink routing data for DNS, we have to
-	 * wait to collect it asynchronously from the platform first.  Netlink
-	 * role init starts a ctx sul for 350ms (reset to 100ms each time some
-	 * new netlink data comes) that sets nl_initial_done and tries to move
-	 * us to OPERATIONAL
+	 * wait to collect it asynchronously from the platform first.  The
+	 * end of netlink's dump of the existing routes sets nl_initial_done
+	 * and tries to move us to OPERATIONAL (netlink role init also starts
+	 * a ctx sul to do it anyway, if the end of the dump never comes)
 	 */
 
 	if (target == LWS_SYSTATE_IFACE_COLDPLUG &&
