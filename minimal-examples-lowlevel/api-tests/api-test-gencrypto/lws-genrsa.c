@@ -931,6 +931,13 @@ test_genrsa_encrypt_size(struct lws_context *context)
 
 	n = lws_genrsa_public_encrypt(&pub_ctx, (const uint8_t *)plain,
 				      sizeof(plain) - 1, cipher);
+	if (n == -2) {
+		/* eg, a system crypto policy disallowing PKCS#1 v1.5 encrypt */
+		lwsl_notice("%s: backend can't PKCS#1 v1.5 encrypt here, "
+			    "skipping\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n != (int)sizeof(genrsa_pss_n)) {
 		lwsl_err("%s: ciphertext %d, not the modulus size %d\n",
 			 __func__, n, (int)sizeof(genrsa_pss_n));

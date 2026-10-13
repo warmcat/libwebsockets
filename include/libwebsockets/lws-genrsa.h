@@ -176,7 +176,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
  * The encrypted output is always the size of the key's modulus, eg, 256 bytes
  * for a 2048-bit key, and \p out must have room for that much.
  *
- * Returns <0 for error, or length of encrypted data.
+ * Returns <0 for error, or length of encrypted data.  -2 means the backend
+ * can't do it at all, eg, GnuTLS on a host whose system crypto policy
+ * disallows PKCS#1 v1.5 encryption (as RHEL-family distros' DEFAULT does).
  *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
