@@ -948,7 +948,15 @@ just_kill_connection:
 		ccb = 0;
 
 #if defined(LWS_WITH_CLIENT)
-	if (!ccb && !est_at_entry && lwsi_role_client(wsi))
+	/*
+	 * An h2 client network wsi is established at the transport, but until
+	 * the server's SETTINGS migrates the user's ask on to sid 1 it is still
+	 * the user's wsi, never told it was established, and there is no child
+	 * stream to tell him anything about the close
+	 */
+	if (!ccb && lwsi_role_client(wsi) &&
+	    (!est_at_entry || (lws_wsi_is_mux_nwsi(wsi) &&
+			       !lws_wsi_client_nwsi_migrated(wsi))))
 		/* it declines to say anything on a restart */
 		lws_inform_client_conn_fail(wsi, "Closed before conn", 18);
 #endif
