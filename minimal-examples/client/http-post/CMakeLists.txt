@@ -81,18 +81,6 @@ if (requirements)
 		if (LWS_IPV4)
 
 			#
-			# When running in CI, wait for a lease on the resources
-			# before starting this test, so the server does not get
-			# thousands of simultaneous tls connection attempts
-			#
-			# sai-resource holds the lease on the resources until
-			# the time given in seconds or the sai-resource instance
-			# exits, whichever happens first
-			#
-			# If running under Sai, creates a lock test called "res_sspcmin"
-			#
-
-			#
 			# simple test not via proxy
 			#
 

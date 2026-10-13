@@ -49,8 +49,6 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	find_program(VALGRIND "valgrind")
-	
-	sai_resource(warmcat_conns 1 40 http_client_warmcat)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

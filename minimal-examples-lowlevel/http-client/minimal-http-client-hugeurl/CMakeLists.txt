@@ -36,12 +36,6 @@ if (requirements)
 		set_tests_properties(ki_hc_huge_srv PROPERTIES
 							 FIXTURES_CLEANUP hc_huge_srv)
 
-		#
-		# creates a fixture res_hchugeurlw to get a lease on the
-		# server resources
-		#
-		sai_resource(warmcat_conns 1 40 hchugeurlw)
-	
 		add_test(NAME http-client-hugeurl-warmcat COMMAND lws-minimal-http-client-hugeurl -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_HUGE_SRV})
 		add_test(NAME http-client-hugeurl-warmcat-h1 COMMAND lws-minimal-http-client-hugeurl -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_HUGE_SRV} --h1)
 		set_tests_properties(http-client-hugeurl-warmcat
@@ -50,12 +44,6 @@ if (requirements)
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-hugeurl
 				     FIXTURES_REQUIRED "hc_huge_srv"
 				     TIMEOUT 60)
-		if (DEFINED ENV{SAI_OVN})
-			set_tests_properties(http-client-hugeurl-warmcat
-					     http-client-hugeurl-warmcat-h1
-					     PROPERTIES
-						FIXTURES_REQUIRED "res_hchugeurlw;hc_huge_srv")	
-		endif()
 
 	endif()
 

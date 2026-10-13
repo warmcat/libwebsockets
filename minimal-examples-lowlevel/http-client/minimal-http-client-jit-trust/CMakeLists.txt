@@ -40,8 +40,6 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	find_program(VALGRIND "valgrind")
-	
-	sai_resource(warmcat_conns 1 40 http_client_warmcat)
 
 	lws_get_free_port(PORT_HC_JIT_SRV)
 
