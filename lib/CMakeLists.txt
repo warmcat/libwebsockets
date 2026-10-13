@@ -410,6 +410,15 @@ endif()
 
 
 # Setup the linking for all libs.
+#
+# The "at end" pieces go at the end of the lib list.  Some are already on it,
+# from the top level appending them, or from being on both so feature checks
+# could link against them, eg, gnutls: take those out first so each appears
+# just once, at the end (Apple ld warns about duplicates)
+#
+if (LIB_LIST_AT_END)
+	list(REMOVE_ITEM LIB_LIST ${LIB_LIST_AT_END})
+endif()
 list(APPEND LIB_LIST ${LIB_LIST_AT_END})
 if (LWS_DEP_LIB_PATHS)
 	foreach(libpath ${LWS_DEP_LIB_PATHS})
