@@ -59,10 +59,15 @@ if (LOCALIZE)
 	# local path that does not exist, and repoint the html at the copies,
 	# so css-driven image fetches are the same every run.
 	#
+	# The copies belong to this test's output, not to the page: several
+	# tests can lay out the same page at once (eg, with and without an ad
+	# filter), and a copy shared between them can be read by one while the
+	# other is rewriting it.
+	#
 
 	file(GLOB CSSFILES "${HD}/assets/*.css")
 	if (CSSFILES)
-		file(MAKE_DIRECTORY "${OD}/${HN}-assets")
+		file(MAKE_DIRECTORY "${OUT}-assets")
 		foreach(CS ${CSSFILES})
 			file(READ ${CS} css)
 			foreach(RV ${REVIVED})
@@ -73,9 +78,9 @@ if (LOCALIZE)
 			endforeach()
 			string(REGEX REPLACE "url\\(([\"']?)(https?:)?//" "url(\\1missing/" css "${css}")
 			get_filename_component(CN ${CS} NAME)
-			file(WRITE "${OD}/${HN}-assets/${CN}" "${css}")
+			file(WRITE "${OUT}-assets/${CN}" "${css}")
 		endforeach()
-		string(REPLACE "file://${HD}/assets/" "file://${OD}/${HN}-assets/" html "${html}")
+		string(REPLACE "file://${HD}/assets/" "file://${OUT}-assets/" html "${html}")
 	endif()
 
 	file(WRITE ${OUT}-${HN} "${html}")
