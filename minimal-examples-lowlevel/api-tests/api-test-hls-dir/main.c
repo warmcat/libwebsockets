@@ -804,7 +804,7 @@ remove_fixture_dir(void)
 	char path[512];
 	int i;
 
-	(void)snprintf(path, sizeof(path), "%s/x'\\\"><&.mp4", fixture_dir);
+	(void)snprintf(path, sizeof(path), "%s/x'\"><&.mp4", fixture_dir);
 	unlink(path);
 	(void)snprintf(path, sizeof(path),
 		       "%s/<svg onload=alert(1)>.mp4", fixture_dir);

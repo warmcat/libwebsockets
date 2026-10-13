@@ -399,31 +399,41 @@ out:
 	return ret;
 }
 
+/* empty one directory of plain files, then remove it */
+static void
+remove_dir_files(const char *dir)
+{
+	struct dirent *de;
+	char ent[600];
+	DIR *d;
+
+	d = opendir(dir);
+	if (d) {
+		while ((de = readdir(d))) {
+			if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+				continue;
+			lws_snprintf(ent, sizeof(ent), "%s/%s", dir, de->d_name);
+			unlink(ent);
+		}
+		closedir(d);
+	}
+	rmdir(dir);
+}
+
 static void
 remove_fixture_dir(void)
 {
 	char path[512];
-	DIR *d;
-	struct dirent *de;
 
 	lws_snprintf(path, sizeof(path), "%s/" FIXTURE_NAME, fixture_dir);
 	unlink(path);
 
 	/* the shadow, if the test got far enough to make one */
 	lws_snprintf(path, sizeof(path), "%s/.atrans", fixture_dir);
-	d = opendir(path);
-	if (d) {
-		char ent[600];
-
-		while ((de = readdir(d))) {
-			if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
-				continue;
-			lws_snprintf(ent, sizeof(ent), "%s/%s", path, de->d_name);
-			unlink(ent);
-		}
-		closedir(d);
-		rmdir(path);
-	}
+	remove_dir_files(path);
+	/* the keyframe index the plugin persisted next to the media */
+	lws_snprintf(path, sizeof(path), "%s/.index", fixture_dir);
+	remove_dir_files(path);
 
 	rmdir(fixture_dir);
 }
