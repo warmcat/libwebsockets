@@ -66,7 +66,7 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 	}
 
 	if (q->firstcache) {
-		q->firstcache->refcount--;
+		lws_adns_cache_unref(q->firstcache);
 		q->firstcache = NULL;
 	}
 
@@ -1520,10 +1520,40 @@ cache_clean(struct lws_dll2 *d, void *user)
 	return 0;
 }
 
+/*
+ * Drop one hold on the cache entry.  If its TTL already ran out while it
+ * was held, the last hold going is what frees it.
+ */
+
+void
+lws_adns_cache_unref(lws_adns_cache_t *c)
+{
+	assert(c->refcount > 0);
+	if (c->refcount)
+		c->refcount--;
+
+	if (!c->refcount && c->expired)
+		lws_adns_cache_destroy(c);
+}
+
 void
 sul_cb_expire(struct lws_sorted_usec_list *sul)
 {
 	lws_adns_cache_t *c = lws_container_of(sul, lws_adns_cache_t, sul);
+
+	if (c->refcount) {
+		/*
+		 * Somebody still holds it: its query may be waiting for the
+		 * second half of an A / AAAA pair to chain on, or a requester
+		 * not returned the results yet, eg, when the TTL was 0.  Take
+		 * it out of the cache so nobody new finds it, and leave the
+		 * free to the last holder.
+		 */
+		lws_dll2_remove(&c->list);
+		c->expired = 1;
+
+		return;
+	}
 
 	lws_adns_cache_destroy(c);
 }
@@ -1576,10 +1606,8 @@ lws_async_dns_freeaddrinfo(const struct addrinfo **pai)
 				c->results->ai_canonname : "none",
 						(int)c->refcount);
 
-	assert(c->refcount > 0);
-	if (c->refcount)
-		c->refcount--;
 	*pai = NULL;
+	lws_adns_cache_unref(c);
 }
 
 void

@@ -577,6 +577,14 @@ bail:
  *    which is what proves wsi->udp->sa46 was put back to the chosen server
  *    instead of being left pointing at the foreign source.
  *
+ * A third leg uses the same fake nameserver to check the cache entry's
+ * lifetime: the A half of the pair is answered with a TTL of 0, and the AAAA
+ * half only a few ticks later.  The entry made from the A answer expires in
+ * between, while the query that owns it is still waiting to chain the AAAA
+ * answer on to it, so the entry must outlive its TTL until the query is done
+ * with it.  It used to be freed at the expiry and then written to by the AAAA
+ * answer, seen as a use-after-free under ASAN.
+ *
  * This is a unit test of our own filtering against sockets we own on
  * loopback; nothing leaves the machine.
  */
@@ -586,6 +594,7 @@ bail:
 #define SC_QUIET_TICKS		2	/* no new query = lws asked all it will */
 #define SC_FOREIGN_TICKS	10	/* > the 300ms first async-dns retry */
 #define SC_DEADLINE_TICKS	120	/* ~6s */
+#define SC_TTL0_TICKS		4	/* < the 300ms first async-dns retry */
 #define SC_MAX_QUERIES		8
 
 /* the fake nameserver's answer, and the one the foreign socket tries */
@@ -605,7 +614,13 @@ static struct sc_query sc_q[SC_MAX_QUERIES];
 static struct lws_context *sc_cx;
 static lws_sorted_usec_list_t sul_sc;
 static int sc_fd = -1, sc_foreign_fd = -1;
-static int sc_fail, sc_foreign_mode, sc_done;
+enum {
+	SC_MODE_PLAIN,
+	SC_MODE_FOREIGN,
+	SC_MODE_TTL0,
+};
+
+static int sc_fail, sc_mode, sc_done;
 static int sc_qs, sc_ticks, sc_quiet, sc_phase, sc_phase_ticks;
 static int sc_resolved, sc_bad_ads, sc_redirected;
 
@@ -660,24 +675,36 @@ sc_qtype_ofs(const uint8_t *pkt, size_t len)
 	return o + 1;
 }
 
+/* the QTYPE a captured query asks for, or 0 if it's not a whole question */
+
+static uint16_t
+sc_qtype(const struct sc_query *q)
+{
+	size_t qo = sc_qtype_ofs(q->pkt, q->len);
+
+	if (!qo)
+		return 0;
+
+	return (uint16_t)((q->pkt[qo] << 8) | q->pkt[qo + 1]);
+}
+
 /*
- * Answer one captured query from the given socket: A gets the given address,
- * anything else (ie, the AAAA half of the A/AAAA pair lws asks) gets an empty
- * NOERROR answer, which is enough for the query to be considered answered for
- * that family.
+ * Answer one captured query from the given socket: A gets the given address
+ * with the given TTL, anything else (ie, the AAAA half of the A/AAAA pair lws
+ * asks) gets an empty NOERROR answer, which is enough for the query to be
+ * considered answered for that family.
  */
 
 static void
-sc_answer(struct sc_query *q, int fd, const uint8_t *ads)
+sc_answer(struct sc_query *q, int fd, const uint8_t *ads, uint8_t ttl)
 {
 	uint8_t resp[sizeof(q->pkt) + 16];
 	size_t qo = sc_qtype_ofs(q->pkt, q->len), o;
-	uint16_t qtype;
+	uint16_t qtype = sc_qtype(q);
 
 	if (!qo)
 		return;
 
-	qtype = (uint16_t)((q->pkt[qo] << 8) | q->pkt[qo + 1]);
 	o = qo + 4; /* the question section ends after QTYPE + QCLASS */
 
 	memcpy(resp, q->pkt, o);
@@ -696,7 +723,7 @@ sc_answer(struct sc_query *q, int fd, const uint8_t *ads)
 		resp[o++] = (uint8_t)LWS_ADNS_RECORD_A;
 		resp[o++] = 0; resp[o++] = 1;	/* CLASS IN */
 		resp[o++] = 0; resp[o++] = 0;
-		resp[o++] = 0; resp[o++] = 60;	/* TTL 60s */
+		resp[o++] = 0; resp[o++] = ttl;	/* TTL, seconds */
 		resp[o++] = 0; resp[o++] = 4;	/* RDLENGTH */
 		memcpy(&resp[o], ads, 4);
 		o += 4;
@@ -707,14 +734,18 @@ sc_answer(struct sc_query *q, int fd, const uint8_t *ads)
 		lwsl_err("%s: sendto failed, errno %d\n", __func__, errno);
 }
 
+/* answer what's not been answered, only queries for qtype if it's nonzero */
+
 static void
-sc_answer_all(int fd, const uint8_t *ads, int mark)
+sc_answer_all(int fd, const uint8_t *ads, uint16_t qtype, uint8_t ttl,
+	      int mark)
 {
 	int n;
 
 	for (n = 0; n < sc_qs; n++)
-		if (!sc_q[n].answered) {
-			sc_answer(&sc_q[n], fd, ads);
+		if (!sc_q[n].answered &&
+		    (!qtype || sc_qtype(&sc_q[n]) == qtype)) {
+			sc_answer(&sc_q[n], fd, ads, ttl);
 			if (mark)
 				sc_q[n].answered = 1;
 		}
@@ -803,14 +834,23 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 		if (!sc_qs || ++sc_quiet < SC_QUIET_TICKS)
 			break;
 
-		if (!sc_foreign_mode) {
+		if (sc_mode == SC_MODE_TTL0) {
+			lwsl_user("%s: answering A with TTL 0, AAAA later\n",
+					__func__);
+			sc_answer_all(sc_fd, sc_ads_good, LWS_ADNS_RECORD_A,
+				      0, 1);
+			sc_phase = 3;
+			break;
+		}
+
+		if (sc_mode != SC_MODE_FOREIGN) {
 			sc_phase = 2;
 			break;
 		}
 
 		lwsl_user("%s: answering from the wrong source port\n",
 				__func__);
-		sc_answer_all(sc_foreign_fd, sc_ads_foreign, 0);
+		sc_answer_all(sc_foreign_fd, sc_ads_foreign, 0, 60, 0);
 		sc_phase = 1;
 		break;
 
@@ -829,11 +869,16 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 		break;
 
 	case 2: /* the nameserver we actually asked answers */
-		sc_answer_all(sc_fd, sc_ads_good, 1);
+		sc_answer_all(sc_fd, sc_ads_good, 0, 60, 1);
 		if (sc_resolved) {
 			sc_done = 1;
 			lws_default_loop_exit(sc_cx);
 		}
+		break;
+
+	case 3: /* the A answer's entry expires while the AAAA is held back */
+		if (++sc_phase_ticks >= SC_TTL0_TICKS)
+			sc_phase = 2;
 		break;
 	}
 
@@ -849,8 +894,12 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 		lws_sul_schedule(sc_cx, 0, &sul_sc, sul_sc_cb, SC_TICK_US);
 }
 
+static const char * const sc_mode_names[] = {
+	"plain", "foreign answer", "ttl 0 expiry"
+};
+
 static void
-sc_run(int foreign)
+sc_run(int mode)
 {
 	static const char *sc_servers[] = { "127.0.0.1", NULL };
 	struct lws_context_creation_info ci;
@@ -862,10 +911,9 @@ sc_run(int foreign)
 	memset(sc_q, 0, sizeof(sc_q));
 	sc_qs = sc_ticks = sc_quiet = sc_phase = sc_phase_ticks = 0;
 	sc_resolved = sc_bad_ads = sc_redirected = sc_done = 0;
-	sc_foreign_mode = foreign;
+	sc_mode = mode;
 
-	lwsl_user("*** resolver source-check leg (%s)\n",
-			foreign ? "foreign answer" : "plain");
+	lwsl_user("*** resolver source-check leg (%s)\n", sc_mode_names[mode]);
 
 	sc_fd = sc_socket(&port);
 	sc_foreign_fd = sc_socket(&foreign_port);
@@ -961,7 +1009,7 @@ bail:
 
 	if (!sc_fail)
 		lwsl_user("Resolver source-check leg (%s): PASS\n",
-				foreign ? "foreign answer" : "plain");
+				sc_mode_names[mode]);
 }
 
 /*
@@ -1105,7 +1153,7 @@ sul_sf_cb(lws_sorted_usec_list_t *s)
 			break;
 
 		sf_q.len = (size_t)r;
-		sc_answer(&sf_q, sf_fd, sf_ads);
+		sc_answer(&sf_q, sf_fd, sf_ads, 60);
 	}
 
 	lws_sul_schedule(sf_cx, 0, &sul_sf, sul_sf_cb, SF_TICK_US);
@@ -1833,8 +1881,15 @@ main(int argc, const char **argv)
 		 * Own context, own fake nameserver on loopback.
 		 */
 
-		sc_run(0);
-		sc_run(1);
+		sc_run(SC_MODE_PLAIN);
+		sc_run(SC_MODE_FOREIGN);
+
+		/*
+		 * A cache entry whose TTL runs out while its query still
+		 * holds it lives until the query is done with it
+		 */
+
+		sc_run(SC_MODE_TTL0);
 
 		/*
 		 * A failed send on the resolver's socket drops it for a new

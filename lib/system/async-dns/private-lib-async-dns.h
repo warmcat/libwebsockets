@@ -118,6 +118,11 @@ typedef struct lws_adns_cache {
 	uint8_t			flags;	/* b0 = has ipv4, b1 = has ipv6 */
 	uint8_t			incomplete;
 	uint8_t			nxdomain; /* authoritative: name does not exist */
+	/*
+	 * Our TTL ran out while somebody still held us: we are no longer
+	 * listed in the cache, the last lws_adns_cache_unref() frees us
+	 */
+	uint8_t			expired;
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	/*
 	 * The query that made us validated its results.  A later query that
@@ -249,6 +254,9 @@ sul_cb_expire(struct lws_sorted_usec_list *sul);
 
 void
 lws_adns_cache_destroy(lws_adns_cache_t *c);
+
+void
+lws_adns_cache_unref(lws_adns_cache_t *c);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 void
