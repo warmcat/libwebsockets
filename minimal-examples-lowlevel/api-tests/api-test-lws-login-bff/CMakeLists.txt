@@ -20,12 +20,24 @@ require_lws_config(LWS_WITH_PLUGINS_BUILTIN 1 requirements)
 # protocol_lws_login only builds when sqlite3 is available
 require_lws_config(LWS_WITH_STRUCT_SQLITE3 1 requirements)
 
+#
+# The stale-token scenarios seed the plugin's db with users, grants and devices
+# rows, so the test needs sqlite3 itself rather than only the library's use of it
+#
+find_path(LOGINBFF_SQLITE3_INCLUDE_DIRS NAMES sqlite3.h)
+find_library(LOGINBFF_SQLITE3_LIBRARIES NAMES sqlite3)
+if (NOT LOGINBFF_SQLITE3_INCLUDE_DIRS OR NOT LOGINBFF_SQLITE3_LIBRARIES)
+	set(requirements 0)
+endif()
+
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+	target_include_directories(${SAMP} PRIVATE ${LOGINBFF_SQLITE3_INCLUDE_DIRS})
+	target_link_libraries(${SAMP} ${LOGINBFF_SQLITE3_LIBRARIES})
 
 	# app + second app (relative auth-api-url) + mock auth vhosts listen on
-	# adjacent ports; the plugin's optional sqlite grants db stays inside the
-	# build dir
+	# adjacent ports; the sqlite db the test seeds for the plugin stays inside
+	# the build dir
 	lws_get_free_ports(PORT_LOGINBFF 3)
 
 	add_test(NAME api-test-lws-login-bff

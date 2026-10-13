@@ -54,7 +54,6 @@ struct vhd_login {
 
 	char                    db_path[256];
 	sqlite3                 *db;
-	char                    auth_domain[128];
 	char                    cookie_domain[128];
 	uint64_t                jwt_validity_secs;
 	uint64_t                csrf_max_age_secs;	/* auth_csrf cookie lifetime
@@ -1510,6 +1509,25 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+/*
+ * Replace jwk with just its public half, by exporting the public part and
+ * importing that back.  Returns 0 if OK.
+ */
+static int
+lws_login_jwk_drop_private(struct lws_jwk *jwk)
+{
+	char pub[2048];
+	int len = (int)sizeof(pub), n;
+
+	n = lws_jwk_export(jwk, LWSJWKF_EXPORT_NOCRLF, pub, &len);
+	lws_jwk_destroy(jwk);
+	if (n < 0)
+		return 1;
+
+	return lws_jwk_import(jwk, NULL, NULL, pub, (size_t)n) ||
+	       jwk->private_key;
+}
+
 static int
 lws_login_jwt_auth_cb(struct lws_jwt_auth *ja, int state, void *user)
 {
@@ -1543,6 +1561,103 @@ lws_login_jwt_expired(struct lws *wsi, struct lws_jwt_auth **pja)
 
 	lwsl_wsi_info(wsi, "%s: JWT expired (exp %llu, now %llu)", __func__,
 		      (unsigned long long)exp, (unsigned long long)now);
+	lws_jwt_auth_destroy(pja);
+
+	return 1;
+}
+
+/*
+ * A token can be authentic and unexpired and still not describe the session
+ * the way the auth server's records now do: a password reset bumps the user's
+ * session_epoch to revoke every live session, deleting a devices row revokes
+ * that device's token, deleting the user revokes everything, and an admin
+ * changing someone's grants leaves their token carrying the old ones.
+ *
+ * We never repair such a token ourselves.  Re-signing it here once minted the
+ * current epoch into a token that had failed the epoch check, so a session
+ * revoked by a password reset was handed a fresh one whenever its grants had
+ * changed too; it also dropped "did", taking a device token out of reach of
+ * device revocation.  The caller treats a stale token as no session at all,
+ * and renewal goes through the auth server, which decides from its own
+ * records whether the long-term session behind the browser is still good.
+ *
+ * Without a database, or one lacking the auth server's tables (db-path
+ * defaults to a path that is simply created empty on a host with no auth
+ * server), only the signature and exp vouch for the token, as before.
+ *
+ * Returns 1 (and destroys *pja, NULLing it) when the token is stale.
+ */
+static int
+lws_login_jwt_stale(struct lws *wsi, struct vhd_login *vhd,
+		    struct lws_jwt_auth **pja)
+{
+	const char *did, *why = NULL;
+	int count_db = 0, n;
+	sqlite3_stmt *stmt;
+	uint32_t uid;
+
+	if (!pja || !*pja)
+		return 1;
+
+	if (!vhd->db ||
+	    sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users "
+			       "WHERE uid = ?", -1, &stmt, NULL) != SQLITE_OK)
+		return 0;
+
+	uid = lws_jwt_auth_get_uid(*pja);
+	sqlite3_bind_int64(stmt, 1, (sqlite3_int64)uid);
+	n = sqlite3_step(stmt);
+	if (n != SQLITE_ROW)
+		why = "user is gone";
+	else if ((uint32_t)sqlite3_column_int64(stmt, 0) !=
+					lws_jwt_auth_get_sec(*pja))
+		why = "session epoch revoked";
+	sqlite3_finalize(stmt);
+	if (why)
+		goto stale;
+
+	did = lws_jwt_auth_get_did(*pja);
+	if (did && did[0]) {
+		why = "device revoked";
+		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM devices WHERE "
+				       "device_id = ? AND uid = ?", -1, &stmt,
+				       NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt, 1, did, -1, SQLITE_TRANSIENT);
+			sqlite3_bind_int64(stmt, 2, (sqlite3_int64)uid);
+			if (sqlite3_step(stmt) == SQLITE_ROW)
+				why = NULL;
+			sqlite3_finalize(stmt);
+		}
+		if (why)
+			goto stale;
+	}
+
+	/* the token must carry exactly the grants the records hold now */
+	why = "grants changed";
+	if (sqlite3_prepare_v2(vhd->db, "SELECT s.name, g.grant_level FROM "
+			       "grants g JOIN services s ON g.service_id = "
+			       "s.service_id WHERE g.uid = ?", -1, &stmt,
+			       NULL) != SQLITE_OK)
+		goto stale;
+
+	sqlite3_bind_int64(stmt, 1, (sqlite3_int64)uid);
+	while ((n = sqlite3_step(stmt)) == SQLITE_ROW) {
+		const char *svc = (const char *)sqlite3_column_text(stmt, 0);
+
+		if (!svc || lws_jwt_auth_query_grant(*pja, svc) !=
+					sqlite3_column_int(stmt, 1))
+			break;
+		count_db++;
+	}
+	sqlite3_finalize(stmt);
+
+	if (n == SQLITE_DONE &&
+	    count_db == (int)lws_jwt_auth_count_grants(*pja))
+		return 0;
+
+stale:
+	lwsl_wsi_notice(wsi, "uid %u: %s, token no longer good",
+			(unsigned int)uid, why);
 	lws_jwt_auth_destroy(pja);
 
 	return 1;
@@ -1934,7 +2049,6 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->cookie_name = "auth_session";
 		vhd->service_name = "default-service";
 		vhd->min_grant_level = 1;
-		lws_strncpy(vhd->auth_domain, "auth.warmcat.com", sizeof(vhd->auth_domain));
 		lws_strncpy(vhd->db_path, "/var/db/lws-auth.sqlite3", sizeof(vhd->db_path));
 		vhd->jwt_validity_secs = 86400;
 		vhd->csrf_max_age_secs = 30 * 24 * 3600; /* 30d: csrf must outlive JWT */
@@ -2020,12 +2134,27 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
+		/*
+		 * We only ever verify tokens, never sign them, so a private
+		 * part in the key we were given is only a liability: whoever
+		 * can read it can mint any session for every vhost the auth
+		 * server serves.  Keep just the public half.
+		 */
+		if (vhd->jwk.private_key) {
+			lwsl_vhost_warn(vhd->vhost, "jwt-jwk carries the auth "
+					"server's private key, discarding it: "
+					"configure only the public key");
+			if (lws_login_jwk_drop_private(&vhd->jwk)) {
+				lwsl_err("%s: unable to reduce jwt-jwk to its "
+					 "public key\n", __func__);
+				return -1;
+			}
+		}
+
 		vhd->cookie_domain[0] = '\0';
 		if (!lws_pvo_get_str(in, "cookie-domain", &cp))
 			lws_strncpy(vhd->cookie_domain, cp, sizeof(vhd->cookie_domain));
 
-		if (!lws_pvo_get_str(in, "auth-domain", &cp))
-			lws_strncpy(vhd->auth_domain, cp, sizeof(vhd->auth_domain));
 
 		if (!lws_pvo_get_str(in, "jwt-validity-secs", &cp))
 			vhd->jwt_validity_secs = (uint64_t)atoll(cp);
@@ -2126,28 +2255,13 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			service_name = "";
 
 		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
-		if (ja && lws_login_jwt_expired(wsi, &ja))
-			return 1; /* the session has run out: unauthenticated */
+		if (ja && (lws_login_jwt_expired(wsi, &ja) ||
+			   lws_login_jwt_stale(wsi, vhd, &ja)))
+			return 1; /* not a live session: unauthenticated */
 		if (ja) {
-			int epoch_ok = 1;
-			if (vhd->db) {
-				uint32_t uid = lws_jwt_auth_get_uid(ja);
-				if (uid) {
-					sqlite3_stmt *stmt;
-					if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
-						sqlite3_bind_int(stmt, 1, (int)uid);
-						if (sqlite3_step(stmt) == SQLITE_ROW) {
-							uint32_t db_epoch = (uint32_t)sqlite3_column_int(stmt, 0);
-							if (db_epoch != lws_jwt_auth_get_sec(ja))
-								epoch_ok = 0;
-						}
-						sqlite3_finalize(stmt);
-					}
-				}
-			}
 			level = lws_jwt_auth_query_grant(ja, service_name);
 			lws_jwt_auth_destroy(&ja);
-			if (epoch_ok && level >= vhd->min_grant_level)
+			if (level >= vhd->min_grant_level)
 				return 0; /* Authentic and authorized */
 		}
 		return 1; /* Unauthenticated */
@@ -2296,77 +2410,23 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		 * as the LWS_CALLBACK_HTTP path does */
 		if (ja)
 			lws_login_jwt_expired(wsi, &ja);
+		if (ja && lws_login_jwt_stale(wsi, vhd, &ja)) {
+			/*
+			 * A stale token goes on to our LWS_CALLBACK_HTTP even
+			 * on an unauth-allow mount, which renews it through
+			 * the auth server: letting it through as ANON would
+			 * show a logged-in user the mount logged out until
+			 * the token expired.  An unauth-protocols upgrade
+			 * cannot follow a redirect, it joins as ANON.
+			 */
+			if (unauth_proto)
+				goto anon;
+			return 1; /* Request to intercept */
+		}
 		if (ja) {
-			const char *did = lws_jwt_auth_get_did(ja);
-			if (did && vhd->db) {
-				sqlite3_stmt *stmt;
-				int found_device = 0;
-				if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM devices WHERE device_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
-					sqlite3_bind_text(stmt, 1, did, -1, SQLITE_STATIC);
-					if (sqlite3_step(stmt) == SQLITE_ROW)
-						found_device = 1;
-					sqlite3_finalize(stmt);
-				}
-				if (!found_device) {
-					lwsl_notice("%s: Device %s rejected (not found in DB %s), rejecting JWT\n", __func__, did, vhd->db_path);
-					lws_jwt_auth_destroy(&ja);
-					if (unauth_proto)
-						goto anon;
-					return 1; /* Request to intercept */
-				}
-			}
-
 			lwsl_info("%s: Valid cookie found! User authenticated.\n", __func__);
 			level = lws_jwt_auth_query_grant(ja, service_name);
 			if (level >= vhd->min_grant_level) {
-				if (vhd->db) {
-					uint32_t uid = lws_jwt_auth_get_uid(ja);
-					if (uid) {
-						sqlite3_stmt *stmt;
-						int mismatch = 0;
-						int count_db = 0;
-
-						if (sqlite3_prepare_v2(vhd->db, "SELECT s.name, g.grant_level FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
-							sqlite3_bind_int(stmt, 1, (int)uid);
-							while (sqlite3_step(stmt) == SQLITE_ROW) {
-								const char *svc_name = (const char *)sqlite3_column_text(stmt, 0);
-								int gl = sqlite3_column_int(stmt, 1);
-								if (!svc_name) continue;
-
-								count_db++;
-								int old_gl = lws_jwt_auth_query_grant(ja, svc_name);
-								if (old_gl != gl)
-									mismatch = 1;
-							}
-							sqlite3_finalize(stmt);
-						}
-
-						if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
-							sqlite3_bind_int(stmt, 1, (int)uid);
-							if (sqlite3_step(stmt) == SQLITE_ROW) {
-								uint32_t db_epoch = (uint32_t)sqlite3_column_int(stmt, 0);
-								if (db_epoch != lws_jwt_auth_get_sec(ja)) {
-									lwsl_info("%s: session epoch mismatch! DB=%u JWT=%u\n", __func__, db_epoch, lws_jwt_auth_get_sec(ja));
-									mismatch = 1;
-								}
-							}
-							sqlite3_finalize(stmt);
-						}
-
-						if (count_db != (int)lws_jwt_auth_count_grants(ja))
-							mismatch = 1;
-
-						if (mismatch) {
-							lws_jwt_auth_destroy(&ja);
-							lwsl_info("%s: Need dynamic JWT rewrite\n", __func__);
-							if (unauth_proto)
-								goto anon;
-							return 1; /* Request to intercept */
-					}
-				}
-			}
-
-			{
 				/* capture login state before destroying ja, and
 				 * stamp it for the proxy to forward to backend.
 				 * The single lws_login_state encodes the role
@@ -2391,13 +2451,12 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_jwt_auth_destroy(&ja);
 
 				lws_login_inject_state(wsi, sub, level, state);
+				lwsl_info("%s: ALLOWING (User has required grant)\n", __func__);
+				return 0; /* Let traffic through to the real mount */
 			}
-			lwsl_info("%s: ALLOWING (User has required grant)\n", __func__);
-			return 0; /* Let traffic through to the real mount */
+			lwsl_info("%s: JWT valid but lacks required %s grant (has %d), INTERCEPTING\n", __func__, service_name, level);
+			lws_jwt_auth_destroy(&ja);
 		}
-		lwsl_info("%s: JWT valid but lacks required %s grant (has %d), INTERCEPTING\n", __func__, service_name, level);
-		lws_jwt_auth_destroy(&ja);
-	}
 
 	lwsl_info("%s: INTERCEPTING (NO VALID COOKIE FOUND)\n", __func__);
 
@@ -2420,7 +2479,7 @@ anon:
 		int whitelist_failed = 0;
 		const char *service_name;
 		const char *pmo_val;
-		int n;
+		int n, stale = 0;
 
 		if (!vhd)
 			return 1;
@@ -2520,137 +2579,16 @@ anon:
 		if (pss->ja)
 			lws_login_jwt_expired(wsi, &pss->ja);
 
+		/*
+		 * A stale token is never re-signed here (see
+		 * lws_login_jwt_stale()): it is treated as no session, and the
+		 * cold-load renewal below asks the auth server for a fresh one
+		 */
+		if (pss->ja && lws_login_jwt_stale(wsi, vhd, &pss->ja))
+			stale = 1;
+
 		if (!pss->ja && lws_login_ends_with(path, "/.lws-login-status"))
 			lws_login_diag_jar(wsi, vhd);
-
-		if (pss->ja) {
-			int level = lws_jwt_auth_query_grant(pss->ja, service_name);
-			if (level >= vhd->min_grant_level) {
-				if (vhd->db && !pss->silent_update_jwt) {
-					uint32_t uid = lws_jwt_auth_get_uid(pss->ja);
-					if (uid) {
-						char current_grants[512];
-						char svc_esc[256];
-						char *g_p = current_grants;
-						char *g_end = current_grants + sizeof(current_grants);
-						sqlite3_stmt *stmt;
-						int first = 1;
-						int mismatch = 0;
-						int count_db = 0;
-
-						g_p += lws_snprintf(g_p, lws_ptr_diff_size_t(g_end, g_p), "\"grants\":{");
-
-						if (sqlite3_prepare_v2(vhd->db, "SELECT s.name, g.grant_level FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
-							sqlite3_bind_int(stmt, 1, (int)uid);
-							while (sqlite3_step(stmt) == SQLITE_ROW) {
-								const char *svc_name = (const char *)sqlite3_column_text(stmt, 0);
-								int gl = sqlite3_column_int(stmt, 1);
-								if (!svc_name) continue;
-
-								count_db++;
-								int old_gl = lws_jwt_auth_query_grant(pss->ja, svc_name);
-								if (old_gl != gl)
-									mismatch = 1;
-
-								if (!first)
-									g_p += lws_snprintf(g_p, lws_ptr_diff_size_t(g_end, g_p), ",");
-								first = 0;
-								/*
-								 * The service name is db content: a '"'
-								 * in it would inject extra members (eg
-								 * "*":9) into a payload WE then sign.
-								 */
-								lws_json_purify(svc_esc, svc_name, (int)sizeof(svc_esc), NULL);
-								g_p += lws_snprintf(g_p, lws_ptr_diff_size_t(g_end, g_p), "\"%s\":%d", svc_esc, gl);
-							}
-							sqlite3_finalize(stmt);
-						}
-						g_p += lws_snprintf(g_p, lws_ptr_diff_size_t(g_end, g_p), "}");
-
-						if (count_db != (int)lws_jwt_auth_count_grants(pss->ja))
-							mismatch = 1;
-
-						if (mismatch) {
-							char temp[1024];
-							char out[2048];
-							size_t out_len = sizeof(out);
-							uint64_t now = (uint64_t)time(NULL);
-							uint64_t exp = now + vhd->jwt_validity_secs;
-							const char *sub = lws_jwt_auth_get_sub(pss->ja);
-							/* sub is JWT content: escape it, or it can
-							 * append its own claims to a payload we
-							 * are about to SIGN (6x for \u00XX of
-							 * ja's sub[128]) */
-							char sub_esc[6 * 128];
-							uint32_t session_epoch = 0;
-							sqlite3_stmt *stmt2;
-
-							lws_json_purify(sub_esc, sub ? sub : "Unknown",
-									(int)sizeof(sub_esc), NULL);
-
-							/*
-							 * The rewritten JWT must carry the
-							 * CURRENT session_epoch from the db:
-							 * the interceptor gates every later
-							 * request on sec matching the db, so a
-							 * sec-less rewrite (as this used to
-							 * mint) could never satisfy the gate
-							 * again -> redirect loop.
-							 */
-							if (sqlite3_prepare_v2(vhd->db,
-									"SELECT session_epoch FROM users WHERE uid = ?",
-									-1, &stmt2, NULL) == SQLITE_OK) {
-								sqlite3_bind_int(stmt2, 1, (int)uid);
-								if (sqlite3_step(stmt2) == SQLITE_ROW)
-									session_epoch = (uint32_t)sqlite3_column_int(stmt2, 0);
-								sqlite3_finalize(stmt2);
-							}
-
-							if (!lws_jwt_sign_compact(vhd->context, &vhd->jwk, "ES256",
-													  out, &out_len, temp, sizeof(temp),
-													  "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,"
-													  "\"sec\":%u,"
-													  "\"iat\":%llu,\"exp\":%llu,%s}",
-													  vhd->auth_domain, sub_esc, uid,
-													  session_epoch,
-													  (unsigned long long)now, (unsigned long long)exp,
-													  current_grants)) {
-								pss->silent_update_jwt = strdup(out);
-							}
-						}
-					}
-				}
-			}
-
-			if (pss->silent_update_jwt) {
-				/*
-				 * Re-mint the cookie and bounce him back to
-				 * the SAME url.  It must come from whichever
-				 * method token this request actually used: the
-				 * interceptor gates every method, so taking
-				 * only WSI_TOKEN_GET_URI left an intercepted
-				 * POST / PUT / PATCH self-redirecting to an
-				 * empty Location.
-				 */
-				if (lws_login_request_uri(wsi, path,
-							 sizeof(path)))
-					lwsl_debug("%s: URI copy failed\n",
-						   __func__);
-
-				if (!lws_login_serve_self_redirect_with_cookie(
-						wsi, pss, vhd, pss->silent_update_jwt,
-						path, (unsigned char *)buf,
-						(unsigned char **)&p,
-						(unsigned char *)end, NULL,
-						NULL, NULL)) {
-					free(pss->silent_update_jwt);
-					pss->silent_update_jwt = NULL;
-					return lws_http_transaction_completed(wsi);
-				}
-				/* header build failed */
-				return 1;
-			}
-		}
 
 		/*
 		 * From here on, path is the url this request asked for, for
@@ -2970,8 +2908,12 @@ anon:
 		 * them on an auth-server "you lack the grant" page they cannot
 		 * escape.  (CONFIRM_REQ_OK already let them through; this keeps
 		 * the HTTP path consistent with that decision.)
+		 *
+		 * A stale token is the exception: the interceptor sent it here
+		 * to be renewed through the auth server below, and if that
+		 * cannot happen the user is sent to log in again.
 		 */
-		if (unauth_allow) {
+		if (unauth_allow && !stale) {
 			lwsl_info("%s: ALLOWING unauth-allow fall-through\n",
 				  __func__);
 			return 0;

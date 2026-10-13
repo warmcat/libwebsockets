@@ -122,6 +122,30 @@
  *    "<exempt>, <privileged>" still reach the waiting room, and an offer
  *    led by a name the vhost does not know binds the next one it does.
  *
+ * plus stale-token scenarios: the test seeds the plugin's db-path with the
+ * auth server's users / services / grants / devices tables, and presents
+ * genuinely-signed, unexpired session JWTs that the records no longer back.
+ * lws-login must never repair one by signing a token itself: it once re-minted
+ * a token whose grants had changed with the CURRENT session_epoch, so a
+ * session revoked by a password reset was handed a fresh one whenever its
+ * grants had changed too.
+ *
+ *  - "stale-revoked-regranted": old epoch AND changed grants, no refresh
+ *    cookie -> 303 to the auth form with no auth_session planted (pre-fix:
+ *    302 planting a locally minted, live token);
+ *
+ *  - "stale-grants-renewed": current epoch, changed grants, a paired refresh
+ *    jar -> renewal through the mock auth server's /api/sso_exchange, 302
+ *    planting the token the auth server minted, not one of our own;
+ *
+ *  - "stale-device", "stale-user-gone": a device token whose devices row is
+ *    gone, and a token for a uid with no users row -> 303, nothing planted;
+ *
+ *  - "ws-live-session" (positive control): a token the records do back opens
+ *    the privileged ws protocol on the gated mount;
+ *
+ *  - "ws-stale-session": the revoked token is refused the same upgrade.
+ *
  * The app vhost runs the real lws-login plugin (builtin plugins build) with
  * lws_login_client enabled on the same vhost as the side channel requires,
  * against an in-process mock auth server.  Ports come from the CI port
@@ -135,6 +159,9 @@
 #include <unistd.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <time.h>
+
+#include <sqlite3.h>
 
 /* -------------------------------------------------------------- scenarios */
 
@@ -148,9 +175,10 @@ struct scenario {
 	unsigned	expect_status;
 	int		expect_pair;	/* mock must see a matching csrf pair */
 	int		expect_rotate;	/* response must rotate the auth cookies */
-	int		expect_sso;	/* /.lws-login-sso outcome: 1 = must plant
-					 * the submitted token as auth_session,
-					 * -1 = must plant nothing, 0 = n/a */
+	int		expect_sso;	/* 1 = must plant the submitted SSO
+					 * token as auth_session, -1 = must
+					 * plant no auth_session at all,
+					 * 0 = n/a */
 	const char	*method;	/* "POST" (as before) or "GET" */
 	int		expect_js;	/* 1 = response body is lws-login.js and
 					 * must carry the F-021 render-boundary
@@ -183,6 +211,16 @@ struct scenario {
 static char	minted_jwt[LWS_SSO_MAX_COOKIE];
 static char	sso_body[LWS_SSO_MAX_COOKIE * 3 + 64];
 static char	o_origin_good[64], o_origin_evil[64], o_referer_good[64];
+
+/*
+ * Cookie headers carrying session JWTs minted in main() against the records
+ * seed_db() writes: uid 1 is at session_epoch 5 holding default-service:1,
+ * and owns device "dev-ok"
+ */
+#define BFF_REFRESH_JAR	"auth_refresh_session=0123456789abcdef0123456789abcdef; " \
+			"auth_csrf=fedcba9876543210fedcba9876543210"
+static char	ck_live[1024], ck_revoked[1024], ck_regranted[1024],
+		ck_dev_gone[1024], ck_user_gone[1024];
 
 /*
  * Throwaway P-256 keypair: parsed by the plugin at init to validate tokens,
@@ -219,6 +257,22 @@ static const struct scenario scenarios[] = {
 	{ "alg-less-session-jwt", "/", NULL, NULL, NULL,
 	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0,
 	  "GET", 0, 0, 0, 0, NULL, NULL },
+
+	/* stale tokens: authentic and unexpired, but the records no longer
+	 * back them.  None may be repaired by a token we sign ourselves */
+	{ "stale-revoked-regranted", "/gated", NULL, NULL, NULL, ck_revoked,
+	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	{ "stale-grants-renewed", "/gated", NULL, NULL, NULL, ck_regranted,
+	  302u, 1, 1, 0, "GET", 0, 0, 0, 0, NULL, NULL },
+	{ "stale-device", "/gated", NULL, NULL, NULL, ck_dev_gone,
+	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	{ "stale-user-gone", "/gated", NULL, NULL, NULL, ck_user_gone,
+	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	/* positive control: a token the records back opens the mount */
+	{ "ws-live-session", "/gated", NULL, NULL, NULL, ck_live, 101u, 0, 0, 0,
+	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, BFF_WS_PRIV },
+	{ "ws-stale-session", "/gated", NULL, NULL, NULL, ck_revoked, 401u, 0, 0,
+	  0, NULL, 0, 0, 0, 0, BFF_WS_PRIV, NULL },
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
@@ -1249,6 +1303,84 @@ sigint_handler(int sig)
 	lws_default_loop_exit(context);
 }
 
+/*
+ * The rows lws-login reads from the auth server's db, in the auth server's
+ * schema (reduced to the columns that matter here)
+ */
+static int
+seed_db(const char *path)
+{
+	static const char sql[] =
+		"DROP TABLE IF EXISTS users;"
+		"DROP TABLE IF EXISTS services;"
+		"DROP TABLE IF EXISTS grants;"
+		"DROP TABLE IF EXISTS devices;"
+		"CREATE TABLE users (uid INTEGER PRIMARY KEY, username VARCHAR, "
+			"session_epoch INTEGER DEFAULT 0);"
+		"CREATE TABLE services (service_id INTEGER PRIMARY KEY, "
+			"name VARCHAR UNIQUE);"
+		"CREATE TABLE grants (grant_id INTEGER PRIMARY KEY, uid INTEGER, "
+			"service_id INTEGER, grant_level INTEGER, "
+			"UNIQUE(uid, service_id));"
+		"CREATE TABLE devices (device_id VARCHAR PRIMARY KEY, "
+			"uid INTEGER, name VARCHAR, created INTEGER);"
+		"INSERT INTO users VALUES (1, 'alice', 5);"
+		"INSERT INTO services VALUES (1, 'default-service');"
+		"INSERT INTO grants VALUES (1, 1, 1, 1);"
+		"INSERT INTO devices VALUES ('dev-ok', 1, 'camera', 0);";
+	char *err = NULL;
+	sqlite3 *db;
+	int n;
+
+	if (sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE |
+			    SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
+		lwsl_err("%s: unable to open %s\n", __func__, path);
+		sqlite3_close(db);
+		return 1;
+	}
+
+	n = sqlite3_exec(db, sql, NULL, NULL, &err);
+	if (n != SQLITE_OK) {
+		lwsl_err("%s: seeding %s failed: %s\n", __func__, path,
+			 err ? err : "unknown");
+		sqlite3_free(err);
+	}
+	sqlite3_close(db);
+
+	return n != SQLITE_OK;
+}
+
+/*
+ * A Cookie: header carrying a genuinely-signed, unexpired session JWT in the
+ * shape the auth server mints, optionally followed by more of the jar
+ */
+static int
+mint_session_cookie(struct lws_jwk *jwk, char *ck, size_t ck_len,
+		    unsigned int uid, unsigned int sec, const char *grants,
+		    const char *did, const char *jar)
+{
+	unsigned long long now = (unsigned long long)time(NULL);
+	char tok[1024], temp[2048];
+	size_t tok_len = sizeof(tok);
+
+	if (lws_jwt_sign_compact(context, jwk, "ES256", tok, &tok_len, temp,
+				 sizeof(temp),
+				 "{\"iss\":\"apitest\",\"sub\":\"alice\","
+				 "\"uid\":%u,\"sec\":%u,%s%s%s\"iat\":%llu,"
+				 "\"exp\":%llu,\"grants\":{%s}}",
+				 uid, sec, did ? "\"did\":\"" : "",
+				 did ? did : "", did ? "\"," : "", now,
+				 now + 3600, grants)) {
+		lwsl_err("%s: session token mint failed\n", __func__);
+		return 1;
+	}
+
+	lws_snprintf(ck, ck_len, "auth_session=%s%s%s", tok, jar ? "; " : "",
+		     jar ? jar : "");
+
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -1316,6 +1448,10 @@ int main(int argc, const char **argv)
 	pvo_cdom2.next	= &pvo_dbpath2;
 	pvo_login2.options = &pvo_jwk2;
 	pvo_login2.next	= &pvo_lc2;
+
+	/* the plugin opens the db when the app vhost is created */
+	if (seed_db(pvo_dbpath.value))
+		return 1;
 
 	/* --------------------------------------------------- context/vhosts */
 
@@ -1387,6 +1523,31 @@ int main(int argc, const char **argv)
 			}
 			padlen += (4060 - out_len) * 3 / 4;
 		}
+
+		/*
+		 * Session tokens against the seeded records: one they back,
+		 * and one stale each way the records can stop backing one
+		 */
+		if (mint_session_cookie(&jwk, ck_live, sizeof(ck_live), 1, 5,
+					"\"default-service\":1", NULL, NULL) ||
+		    /* revoked by an epoch bump, and its grants differ too */
+		    mint_session_cookie(&jwk, ck_revoked, sizeof(ck_revoked),
+					1, 4, "\"default-service\":2", NULL,
+					NULL) ||
+		    mint_session_cookie(&jwk, ck_regranted,
+					sizeof(ck_regranted), 1, 5,
+					"\"default-service\":2", NULL,
+					BFF_REFRESH_JAR) ||
+		    mint_session_cookie(&jwk, ck_dev_gone, sizeof(ck_dev_gone),
+					1, 5, "\"default-service\":1",
+					"dev-gone", NULL) ||
+		    mint_session_cookie(&jwk, ck_user_gone,
+					sizeof(ck_user_gone), 9, 0,
+					"\"default-service\":1", NULL, NULL)) {
+			lws_jwk_destroy(&jwk);
+			goto bail;
+		}
+
 		lws_jwk_destroy(&jwk);
 
 		lws_snprintf(MOCK_TOKEN_JSON, sizeof(MOCK_TOKEN_JSON),

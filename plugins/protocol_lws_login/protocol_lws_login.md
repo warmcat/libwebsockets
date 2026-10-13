@@ -19,9 +19,9 @@ exactly as an unauthenticated `GET` of the same url is: it bounces with a
 `303 See Other` to the auth server's login form, carrying the same
 `redirect_uri` back to the url that was asked for, so the user lands back there
 after logging in.  An authenticated request of any method passes straight
-through to the mount.  A request whose JWT is authentic but whose grants have
-gone stale is answered with a re-minted cookie and a self-redirect to the same
-url, again for whichever method it used.
+through to the mount.  A request whose JWT is authentic but stale (see
+[Stale tokens](#stale-tokens)) is renewed through the auth server and answered
+with a self-redirect to the same url, again for whichever method it used.
 
 A blocked request whose body was still arriving has that body discarded before
 the connection is reused (h1) or its stream reset (h2 / h3), so nothing desyncs.
@@ -43,14 +43,13 @@ This plugin handles several PVO options to control the redirection routing and t
 |---|---|
 | `auth-server-url` | **Required.** The base URI of the central auth server portal to redirect unauthenticated users to (e.g. `https://auth.warmcat.com/login`). May deliberately be a *local* BFF entry instead, such as the oauth2-client plugin's `/oauth/login`, so the Login button goes through the PKCE delegate flow on this vhost rather than the auth server's own form -- in that case you must also set `auth-api-url`. |
 | `auth-api-url` | The absolute base URL of the auth server's own API surface, used for the silent-renewal side channel (`/api/sso_exchange`), logout (`/api/logout`), the SSO origin check, and the widget's auth-server links (refgirl image, Admin Console). Defaults to `auth-server-url`, which is correct when the login entry lives on the auth server itself. **Required to be set explicitly** when `auth-server-url` is a relative/local BFF URL like `/oauth/login`: a relative URL can never reach the auth server's APIs, and without this PVO every renewal is refused up front with `auth-api-url ... is not an absolute http(s) URL` and the BFF answers `401` -- no exchange is attempted, nothing appears in the auth server's logs. |
-| `jwt-jwk` | **Required.** Either a JSON Web Key string or the path to a file containing a JSON Web Key, used to establish signing criteria for verifying the token signature. Must match the public key the central server uses to sign tokens. |
+| `jwt-jwk` | **Required.** Either a JSON Web Key string or the path to a file containing a JSON Web Key, used to verify the token signature. Must be the public key matching the private key the central server signs tokens with. `lws-login` never signs tokens: if the key given carries a private part, it logs a warning and discards it at startup. |
 | `cookie-name` | Custom name emitted for tracking the browser cookie containing the session token. Defaults to `"auth_session"`. Limited to 1..63 characters: the protocol refuses to initialize with a longer name, since the composed `Set-Cookie` buffers are sized for that cap (a cookie that could not be composed whole would otherwise have to be silently truncated or fail the response). |
 | `service-name` | The explicitly required grant category strictly checked against the JWT privileges array. Defaults to `"default-service"`. *Note: Any authenticated user holding a wildcard (`*`) assignment in their JWT grants array will automatically bypass this constraint, acting as an administrator for any requested service.* **This option responds to BOTH a PVO definition (applying globally to the vhost) and can be dynamically overridden by a Per-Mount Option (PMO) definition of the same name.** |
 | `min-grant-level` | The strict integer threshold allowing passage for the given service name within the token. Defaults to `1`. |
 | `cookie-domain` | The optional specific domain name the auth cookie should be scoped to stringently (e.g. `warmcat.com`). If unspecified, defaults to omitting the domain from the cookie. |
-| `auth-domain` | The issuer domain namespace string injected as `iss` when generating tokens. Defaults to `auth.warmcat.com`. |
 | `jwt-validity-secs` | Integer representing the time-to-live for a dynamically migrated cookie. Defaults to `86400` (24 hours). |
-| `db-path` | Absolute filepath to the shared sqlite3 permissions database (used to instantly verify and rewrite valid cookies suffering from revoked grants). Defaults to `/var/db/lws-auth.sqlite3`. |
+| `db-path` | Absolute filepath to the auth server's sqlite3 database, read to find tokens that are stale (see [Stale tokens](#stale-tokens)). Defaults to `/var/db/lws-auth.sqlite3`. If it lacks the auth server's tables, tokens are checked only by signature and expiry. |
 | `whitelist` | Optional array of CIDR netblock strings (e.g. `10.0.0.0/8`, `192.168.1.0/24`). If any are provided, the connecting peer must match at least one explicitly or they will uniformly receive a `403 Forbidden` bypass, regardless of login state. |
 | `unauth-allow` | If set to `1`, unauthenticated connections are **not** actively bounced via a 302 redirect. Traffic is instead permitted through to the underlying application mount unhindered. This enables scenarios where an underlying mount might conditionally render public views while relying securely on `/.lws-login-status` responses to dictate authenticated view logic without hard-failing unauthenticated guests. |
 | `unauth-protocols` | Optional comma-separated list of `Sec-WebSocket-Protocol` names (e.g., `lws-oauth-preauth`) that are permitted to bypass the JWT requirement during the upgrade phase. This allows unauthenticated headless devices to negotiate specific protocols to complete RFC 8628 Device Flow pairing. The exemption is decided on the subprotocol the upgrade will **bind**, not on the offer list as a whole: lws binds the first name the client offered that the vhost has a protocol for, in the client's order (RFC 6455 4.2.2), and it is that name which must be a **whole-token** member of this list. So a configured `lws-oauth-preauth` does not wave through `auth` or `preauth`, and it does not wave through an offer of `some-app-protocol, lws-oauth-preauth` either, since that upgrade would bind `some-app-protocol`; `lws-oauth-preauth, some-app-protocol` is admitted and binds the waiting room. On a mount proxied to an origin server the origin does the binding, so there *every* name the client offered must be in the list. |
@@ -59,11 +58,20 @@ This plugin handles several PVO options to control the redirection routing and t
 **Where does the JWK come from?**
 The central `auth-server` plugin automatically generates an Elliptic Curve (EC P-256) keypair upon its first startup and saves it to its configured `jwk_path` (e.g., `/var/db/lws-auth.jwk`). To configure the `jwt-jwk` PVO for this bouncer mount, you simply take the contents of that generated file.
 
-Because the JWT validator only strictly requires the public key components to verify the signature, you can either:
-1. Provide the exact literal JSON string from the Auth Server's generated JWK file.
-2. Read the literal string dynamically into the PVO when configuring your mount from your application.
+`lws-login` only verifies tokens, so give it just the public key: the auth server's file with the private component `d` removed, or the key it publishes at `/.well-known/jwks.json`.  Holding the private key would let anyone who can read this vhost's configuration mint sessions for every service the auth server signs for, so if you do pass the full keypair, `lws-login` warns and discards the private part.
 
-*(Note: While passing the full keypair including the private key into the bouncer works, it is best practice to strip the private component `d` from the JSON if the bouncer is operating on an entirely different physical server).*
+## Stale tokens
+
+A token can verify and be unexpired, yet no longer describe the session the way the auth server's records do.  On every request, `lws-login` compares the token with the database at `db-path`, and treats it as stale when:
+
+ - the user's `session_epoch` differs from the token's `sec`: a password reset bumps it to revoke every live session;
+ - the user no longer exists;
+ - the token names a device (`did`) whose row is gone, or belongs to another user;
+ - the token's grants differ from the user's grants now, in any service.
+
+A stale token counts as no session, but the interceptor sends the request to `lws-login` even on an `unauth-allow` mount, rather than letting it through as anonymous.  There, if the browser holds an `auth_refresh_session` cookie, the cold-load renewal asks the auth server's `/api/sso_exchange` for a fresh token, which the auth server mints from its own records only if the long-term session is still good.  Otherwise, or if the auth server refuses, the user is sent to log in again.  An `unauth-protocols` upgrade cannot follow a redirect, so with a stale token it joins as anonymous.
+
+`lws-login` never repairs a stale token by signing a new one itself.  It used to, and that minted the current `session_epoch` into a token which had just failed the epoch check, so a session revoked by a password reset was renewed whenever its grants had also changed.
 
 ## Headless Device Authorization (RFC 8628)
 
