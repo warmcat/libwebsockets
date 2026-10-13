@@ -1312,6 +1312,7 @@ struct lws {
 	unsigned int			cache_secs;
 
 
+	unsigned int			close_decided:1; /* LWS_TO_KILL_ASYNC set */
 	unsigned int			mux_substream:1;
 	unsigned int			mux_stream_immortal:1;
 	unsigned int			h23_stream_carries_ws:1; /* immortal set as well */

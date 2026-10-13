@@ -404,7 +404,8 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	 * ah back, so leaving it armed would later close the connection for a
 	 * reason that stopped applying.
 	 */
-	if (wsi->pending_timeout == PENDING_TIMEOUT_HOLDING_AH) {
+	if (wsi->pending_timeout == PENDING_TIMEOUT_HOLDING_AH &&
+	    !wsi->close_decided) {
 		/* by hand: __lws_set_timeout() has no "no timeout" form */
 		lws_dll2_remove(&wsi->sul_timeout.list);
 		wsi->pending_timeout = NO_PENDING_TIMEOUT;
