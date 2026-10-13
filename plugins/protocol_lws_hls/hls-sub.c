@@ -1024,6 +1024,20 @@ sub_cache_free(struct hls_sub_cache *c)
 	free(c);
 }
 
+void
+lws_hls_sub_cache_destroy(struct per_vhost_data__lws_hls *vhd)
+{
+	while (lws_dll2_get_head(&vhd->sub_cache)) {
+		struct hls_sub_cache *c = lws_container_of(
+				lws_dll2_get_head(&vhd->sub_cache),
+				struct hls_sub_cache, list);
+
+		lws_dll2_remove(&c->list);
+		sub_cache_free(c);
+	}
+	vhd->sub_cache_count = 0;
+}
+
 /*
  * Worker, sub_lock held: remember a rendered segment body so the event
  * loop can serve it without a worker round trip.  c must be the cache

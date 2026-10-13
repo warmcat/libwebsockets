@@ -807,20 +807,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* free subtitle cue cache */
 		pthread_mutex_lock(&vhd->sub_lock);
-		while (lws_dll2_get_head(&vhd->sub_cache)) {
-			struct hls_sub_cache *sc = lws_container_of(
-					lws_dll2_get_head(&vhd->sub_cache),
-					struct hls_sub_cache, list);
-			int j;
-
-			lws_dll2_remove(&sc->list);
-			if (sc->cues) {
-				for (j = 0; j < sc->n_cues; j++)
-					free(sc->cues[j].text);
-				free(sc->cues);
-			}
-			free(sc);
-		}
+		lws_hls_sub_cache_destroy(vhd);
 		pthread_mutex_unlock(&vhd->sub_lock);
 		pthread_mutex_destroy(&vhd->sub_lock);
 

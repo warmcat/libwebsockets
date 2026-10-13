@@ -1004,6 +1004,10 @@ lws_hls_sub_segment_cached(struct per_vhost_data__lws_hls *vhd,
 			   const char *filename, const char *trackid,
 			   int seg_idx, size_t *len);
 
+/* vhost teardown: free the subtitle cache, sub_lock held */
+void
+lws_hls_sub_cache_destroy(struct per_vhost_data__lws_hls *vhd);
+
 /* Discover every usable subtitle track for a media file: embedded text
  * streams first (ordered by stream index), then sibling .srt/.vtt sidecars
  * (sorted alphabetically). Returns a malloc'd array and count in *out_count;
