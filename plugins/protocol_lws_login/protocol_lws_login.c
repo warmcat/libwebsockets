@@ -1302,8 +1302,8 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 			  void *user, void *in, size_t len)
 {
 	struct pending_login_refresh *ps = (struct pending_login_refresh *)lws_wsi_user(wsi);
-	struct lws_login_feed *f = wsi ? (struct lws_login_feed *)
-					lws_get_opaque_user_data(wsi) : NULL;
+	struct lws_login_feed *f = (struct lws_login_feed *)
+					lws_get_opaque_user_data(wsi);
 
 	/* only the auth feed's link has opaque user data */
 	if (f && f->magic == LWS_LOGIN_FEED_MAGIC)
