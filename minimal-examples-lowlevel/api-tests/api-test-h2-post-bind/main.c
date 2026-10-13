@@ -36,6 +36,10 @@
  * checks the request-header window: the headers are readable at
  * LWS_CALLBACK_HTTP and at the body completion, and an h2 stream has given its
  * header table back by the time the writeable callback runs (C-021).
+ *
+ * A WRITEABLE can arrive without being asked for (eg, an h2 WINDOW_UPDATE
+ * wakes every stream on the connection), so the server only answers once it
+ * has decided to: for a POST that is not before the body has completed.
  */
 
 #include <libwebsockets.h>
@@ -50,6 +54,7 @@
 
 struct pss_srv {
 	uint32_t	magic;
+	char		respond;	/* we asked for WRITEABLE to answer */
 };
 
 /* what the server protocol saw for the leg in flight */
@@ -152,6 +157,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		 * do would: that is after the dispatch, outside the window in
 		 * which the request headers are guaranteed
 		 */
+		pss->respond = 1;
 		lws_callback_on_writable(wsi);
 		return 0;
 
@@ -164,10 +170,15 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		seen.body_compl++;
 		seen.hdrs_at_body_compl =
 				lws_hdr_total_length(wsi, WSI_TOKEN_HOST) > 0;
+		pss->respond = 1;
 		lws_callback_on_writable(wsi);
 		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!pss->respond)
+			/* not one we asked for: nothing to answer yet */
+			return 0;
+		pss->respond = 0;
 		seen.writeable++;
 		seen.hdrs_at_writeable =
 				lws_hdr_total_length(wsi, WSI_TOKEN_HOST) > 0;

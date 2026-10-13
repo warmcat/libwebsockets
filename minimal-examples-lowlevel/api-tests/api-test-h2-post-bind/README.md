@@ -36,3 +36,7 @@ checks when the request headers are readable: at `LWS_CALLBACK_HTTP` and at
 `LWS_CALLBACK_HTTP_BODY_COMPLETION` they must be, and an h2 stream must have
 given its header table back by the time the writeable callback runs, which is
 what stops one connection's streams holding the whole pool.
+
+A `LWS_CALLBACK_HTTP_WRITEABLE` can arrive without being asked for, eg an h2
+WINDOW_UPDATE wakes every stream on the connection, so the server only answers
+from one it requested: for a POST, that is after the body has completed.
