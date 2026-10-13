@@ -126,6 +126,10 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "QNX")
 	list(APPEND LIB_LIST_AT_END socket)
 endif()
 
+# dlopen() and friends, for plugins and dynamically-loaded TLS / event libs.
+# This is the one place it goes on the link: CMake knows where it's needed
+# (eg, "dl" on Linux) and where it's part of libc (eg, "" on macOS, whose
+# linker warns about a library given more than once)
 list(APPEND LIB_LIST_AT_END ${CMAKE_DL_LIBS})
 
 #
