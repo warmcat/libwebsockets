@@ -1114,6 +1114,7 @@ done:
 			goto bail;
 		}
 
+		lwsac_free(&a.ac);
 	}
 
 	{
