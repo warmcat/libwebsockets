@@ -1258,6 +1258,14 @@ if (MSVC)
 	else()
 		add_compile_options(/experimental:preprocessor /wd5105)
 	endif()
+	# Prebuilt third-party static libs, eg, mbedtls, often name .pdb files
+	# for their debug info that weren't installed with them.  The linker
+	# then warns LNK4099 for every object it takes from them and links it
+	# without debug info, which is all it can do: the warning says nothing
+	# about lws, and comes from every link
+	foreach (lt EXE SHARED MODULE)
+		set(CMAKE_${lt}_LINKER_FLAGS "${CMAKE_${lt}_LINKER_FLAGS} /ignore:4099")
+	endforeach()
 	if (LWS_MSVC_STATIC_RUNTIME AND NOT LWS_WITH_STATIC)
 		message(FATAL_ERROR "Incompatible options: when LWS_MSVC_STATIC_RUNTIME=ON, must also set LWS_WITH_STATIC=ON")
 	endif()
