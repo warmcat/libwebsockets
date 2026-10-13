@@ -1269,6 +1269,38 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		ret = 0;
 		break;
 
+	case LWS_TLS_CERT_INFO_DER_RAW:
+		/* the peer's cert as it sent it, already DER */
+		buf->ns.len = (int)cert_list[0].size;
+		if (len < cert_list[0].size)
+			goto bail;
+		memcpy(buf->ns.name, cert_list[0].data, cert_list[0].size);
+		ret = 0;
+		break;
+
+	case LWS_TLS_CERT_INFO_DER_SPKI:
+	{
+		gnutls_pubkey_t pubkey;
+		gnutls_datum_t der;
+
+		if (gnutls_pubkey_init(&pubkey) < 0)
+			goto bail;
+		if (gnutls_pubkey_import_x509(pubkey, crt, 0) < 0 ||
+		    gnutls_pubkey_export2(pubkey, GNUTLS_X509_FMT_DER, &der) < 0) {
+			gnutls_pubkey_deinit(pubkey);
+			goto bail;
+		}
+		gnutls_pubkey_deinit(pubkey);
+
+		buf->ns.len = (int)der.size;
+		if (len >= der.size) {
+			memcpy(buf->ns.name, der.data, der.size);
+			ret = 0;
+		}
+		gnutls_free(der.data);
+		break;
+	}
+
 	default:
 		break;
 	}
