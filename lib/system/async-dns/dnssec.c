@@ -895,7 +895,7 @@ static const struct {
 	/* Key tag 20326 (KSK-2017) */
 	{ 20326, 8, 2, "e06d44b80b8f1d39a95c0b0d7c65d08458e880409bbc683457104237c7f8ec8d" },
 	/* Key tag 38696 (KSK-2024) */
-	{ 38696, 8, 2, "683d2d0acb8c9b712a1948b27f741219298d0a450d612c483af444a4c0fb2afe" }
+	{ 38696, 8, 2, "683d2d0acb8c9b712a1948b27f741219298d0a450d612c483af444a4c0fb2b16" }
 };
 
 /* the trust anchors as a DS RRset, as if they were the root's DS */
