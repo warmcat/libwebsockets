@@ -39,6 +39,7 @@
  * lws-adopt.h today; it moves when the type does
  */
 #include <libwebsockets/lws-network-helper.h>
+#include <libwebsockets/lws-proxy-v2.h>
 #endif
 
 #include <libwebsockets/lws-ota.h>

@@ -33,6 +33,7 @@ list(APPEND SOURCES
 	core-net/address.c
 	core-net/sorted-usec-list.c
 	core-net/wsi-timeout.c
+	core-net/proxy-v2.c
 )
 
 if (LWS_WITH_LATENCY)
