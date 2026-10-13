@@ -163,6 +163,10 @@ struct relay_dir {
 	lws_sockaddr46		dest;
 	int			count;
 	char			due;
+
+	/* what became of the datagrams, for the report if it stalls */
+	unsigned int		sent;
+	unsigned int		dropped;
 };
 
 static struct {
@@ -262,8 +266,10 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 			d = &relay.dir[0];
 		}
 
-		if (d->count == RELAY_BATCH)
-			break; /* dropped */
+		if (d->count == RELAY_BATCH) {
+			d->dropped++;
+			break;
+		}
 
 		d->q[d->count].len = len;
 		memcpy(d->q[d->count].buf, in, len);
@@ -292,6 +298,7 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 			for (m = d->count - 1; m >= 0; m--)
 				relay_send(fd, d->q[m].buf, d->q[m].len,
 					   &d->dest);
+			d->sent += (unsigned int)d->count;
 			d->count = 0;
 			d->due = 0;
 		}
@@ -361,6 +368,28 @@ pattern_ok(size_t at, const uint8_t *data, size_t len)
 			return 0;
 
 	return 1;
+}
+
+/* where each side and the relay had got to, when the transfer stalls */
+
+static void
+report_progress(void)
+{
+	int n;
+
+	lwsl_err("client: sent %lu, rx %lu; server: sent %lu, rx %lu\n",
+		 (unsigned long)client_sent, (unsigned long)client_rx,
+		 (unsigned long)server_sent, (unsigned long)server_rx);
+
+	if (!relay.wsi)
+		return;
+
+	for (n = 0; n < 2; n++)
+		lwsl_err("relay to the %s: sent %u, dropped %u, "
+			 "%d held%s\n", n ? "client" : "server",
+			 relay.dir[n].sent, relay.dir[n].dropped,
+			 relay.dir[n].count,
+			 relay.dir[n].due ? ", due" : "");
 }
 
 static void
@@ -775,11 +804,13 @@ int main(int argc, const char **argv)
 		if (!server_only) {
 			if (lws_now_usecs() - start_us > 60000000) {
 				lwsl_err("Timeout waiting for QUIC transfer (60s absolute)\n");
+				report_progress();
 				result = 1;
 				break;
 			}
 			if (lws_now_usecs() - last_rx_us > 15000000) {
 				lwsl_err("Timeout waiting for QUIC transfer (15s idle RX)\n");
+				report_progress();
 				result = 1;
 				break;
 			}
