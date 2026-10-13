@@ -229,8 +229,10 @@ be32(uint32_t i, uint32_t *p32)
  * Key derivation is performed using the Concat KDF, as defined in
  * Section 5.8.1 of [NIST.800-56A], where the Digest Method is SHA-256.
  *
- * out must be prepared to take at least 32 bytes or the encrypted key size,
- * whichever is larger.
+ * The output is produced in whole SHA-256 blocks, so out must be prepared to
+ * take the key size rounded up to a multiple of 32 bytes (64 bytes for the
+ * 48-byte A192CBC-HS384 key).  Any size of shared secret can produce any size
+ * of key.
  */
 
 int

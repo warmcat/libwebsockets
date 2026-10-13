@@ -276,13 +276,6 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 		goto bail;
 	}
 
-	/* in P-521 case, we get a 66-byte shared secret for a 64-byte key */
-	if (ss_len < enc_hlen) {
-		lwsl_err("%s: concat KDF bad derived key len %d\n", __func__,
-			 ss_len);
-		goto bail;
-	}
-
 	/*
 	 * For "ECDH-ES", that was it, and we use what we just wrapped in
 	 * wrapped as the CEK without publishing it.
@@ -557,14 +550,11 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 		goto bail;
 	}
 
-	if (ss_len < enc_hlen) {
-		lwsl_err("%s: ss_len %d ekbytes %d\n", __func__, ss_len, enc_hlen);
-		goto bail;
-	}
-
 	/*
 	 * Derive the CEK from the shared secret... amount of bytes written to
-	 * cek[] matches bitcount in jwe->jose.enc_alg->keybits_fixed
+	 * cek[] matches bitcount in jwe->jose.enc_alg->keybits_fixed.  The
+	 * Concat KDF produces any length from any size of shared secret, eg,
+	 * a 64-byte A256CBC-HS512 CEK from a P-256 secret of 32 bytes
 	 */
 
 	if (lws_jwa_concat_kdf(jwe,

@@ -2807,6 +2807,25 @@ test_jwe(struct lws_context *context)
 			    ecdhes_t1_peer_p521_public_key,
 			    ecdhes_t1_peer_p521_private_key) < 0;
 
+	/*
+	 * The curve doesn't limit the "enc": the Concat KDF makes a key of any
+	 * size from any size of shared secret, eg, the 64-byte A256CBC-HS512
+	 * CEK from a 32-byte P-256 secret.  These were once refused.
+	 */
+
+	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_es_192,
+			    ecdhes_t1_peer_p256_public_key,
+			    ecdhes_t1_peer_p256_private_key) < 0;
+	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_es_256,
+			    ecdhes_t1_peer_p256_public_key,
+			    ecdhes_t1_peer_p256_private_key) < 0;
+	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_es_256,
+			    ecdhes_t1_peer_p384_public_key,
+			    ecdhes_t1_peer_p384_private_key) < 0;
+	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw256_256,
+			    ecdhes_t1_peer_p256_public_key,
+			    ecdhes_t1_peer_p256_private_key) < 0;
+
 	/* F-029: oversized attacker EKEY must be rejected on decrypt */
 
 	n |= test_ecdhes_ekey_oversize(context) < 0;
