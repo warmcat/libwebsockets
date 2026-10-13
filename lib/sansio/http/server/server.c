@@ -3117,6 +3117,14 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 	if ((wsi->a.protocol->callback)(wsi, (enum lws_callback_reasons)n, wsi->user_space, NULL, 0))
 		return 1;
 
+	/*
+	 * The tls fallback only peeked at what came, it has nothing to give
+	 * here: the bytes arrive by the normal read.  Don't send the protocol
+	 * an RX with nothing in it.
+	 */
+	if (!obuf || !olen)
+		return 0;
+
 	n = LWS_CALLBACK_RAW_RX;
 	if (wsi->role_ops->rx_cb[lwsi_role_server(wsi)])
 		n = wsi->role_ops->rx_cb[lwsi_role_server(wsi)];
