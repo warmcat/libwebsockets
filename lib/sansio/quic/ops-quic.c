@@ -860,6 +860,7 @@ void
 lws_quic_discard_keys(struct lws *nwsi, int level)
 {
 	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	size_t bytes_discarded = 0;
 	int discarded = 0;
 
 	if (!qn) return;
@@ -878,9 +879,21 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[level].head) {
 		struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+		bytes_discarded += f->wire_len;
 		lws_dll2_remove(&f->list);
 		lws_free(f);
 	} lws_end_foreach_dll_safe(d, d1);
+
+	/*
+	 * RFC 9002 A.11: the space's packets still in flight are no longer
+	 * in flight for congestion control either.  They are neither acked
+	 * nor lost, so cwnd stays as it is.  Left counted, they are a
+	 * permanent debt against the window: once loss shrinks cwnd near
+	 * its minimum, nothing in flight is left to arm the PTO, and what
+	 * the window has no room for is never sent.
+	 */
+	if (bytes_discarded && qn->cc_ops && qn->cc_ops->on_discard)
+		qn->cc_ops->on_discard(nwsi, bytes_discarded);
 
 	lws_quic_rx_held_destroy(&qn->rx_crypto_held[level]);
 
