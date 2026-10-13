@@ -45,6 +45,11 @@ test there.
 ## Commits
 
  - One commit per fix or finding, so the public history has boundaries.
+ - Before `git commit --amend`, check HEAD is still the hash your own
+   last commit printed.  Someone else may have committed on top since,
+   and the amend then folds your change into their commit and replaces
+   its message.  If that happens, `git reset --soft <their hash>` puts
+   their commit back exactly (same hash) with only your change staged.
  - Check where a commit has been pushed before amending into it.  The
    maintainer pushes to `main-dev`; Sai CI promotes it to `main` when it
    passes.  So "not on origin/main" does not mean unpublished: check
