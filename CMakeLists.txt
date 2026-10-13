@@ -1229,6 +1229,27 @@ if (LWS_WITH_ASAN)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${ASAN_FLAGS}")
 endif()
 
+#
+# Apple's ld (Xcode 15 and later) warns when a library is on the link line
+# more than once.  lws's targets pass their dependencies on to what links
+# them, and apps also add LIBWEBSOCKETS_DEP_LIBS, which can repeat some of
+# them: harmless, each is used once, but a warning nobody should act on.
+# Older ld doesn't know the switch, so only use it if the linker takes it.
+#
+if (APPLE AND NOT CMAKE_VERSION VERSION_LESS 3.14)
+	set(_lws_req_lo ${CMAKE_REQUIRED_LINK_OPTIONS})
+	set(CMAKE_REQUIRED_LINK_OPTIONS "-Wl,-no_warn_duplicate_libraries")
+	CHECK_C_SOURCE_COMPILES("int main(void) { return 0; }"
+				LWS_LD_NO_WARN_DUPLICATE_LIBRARIES)
+	set(CMAKE_REQUIRED_LINK_OPTIONS ${_lws_req_lo})
+	if (LWS_LD_NO_WARN_DUPLICATE_LIBRARIES)
+		foreach(_lws_lf EXE SHARED MODULE)
+			set(CMAKE_${_lws_lf}_LINKER_FLAGS
+			    "${CMAKE_${_lws_lf}_LINKER_FLAGS} -Wl,-no_warn_duplicate_libraries")
+		endforeach()
+	endif()
+endif()
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
 		list(APPEND LIB_LIST_AT_END -lsocket)
 		if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX))
