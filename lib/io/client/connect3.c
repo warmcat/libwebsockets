@@ -1489,6 +1489,7 @@ ads_known:
 	} else if (!is_parallel && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
 		/* QUIC connect immediately succeeds. Schedule grace and happy eyeballs. */
 		uint32_t grace_us = LWS_QUIC_GRACE_DEFAULT_US;
+		int tcp_fallback;
 		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
 			const void *item = NULL;
 			size_t item_len = 0;
@@ -1544,11 +1545,16 @@ ads_known:
 		 * on TCP, which only h3 has.  Any other protocol over QUIC,
 		 * eg, a raw QUIC protocol or hq-interop, has no TCP form to
 		 * fall back to: abandoning a slow handshake to TCP only
-		 * kills a connection that would have completed.
+		 * kills a connection that would have completed.  (Without
+		 * tls, there is no QUIC, so no h3 either.)
 		 */
-		if (wsi->io->disable_h3_fallback || !strstr(wsi->alpn, "h3")) {
-			lwsl_wsi_info(wsi, "QUIC socket created, no TCP fallback "
-					   "(alpn %s)", wsi->alpn);
+		tcp_fallback = 0;
+#if defined(LWS_WITH_TLS)
+		tcp_fallback = !wsi->io->disable_h3_fallback &&
+			       !!strstr(wsi->alpn, "h3");
+#endif
+		if (!tcp_fallback) {
+			lwsl_wsi_info(wsi, "QUIC socket created, no TCP fallback");
 		} else {
 			lwsl_wsi_info(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->io->sul_h3_grace,
