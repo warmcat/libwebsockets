@@ -256,9 +256,35 @@ pp2_tlv(uint8_t *buf, size_t len, size_t *pos, uint8_t type, const char *s)
 	return 0;
 }
 
+/*
+ * The IPv4 address and port of sa if it's an IPv4 one: AF_INET, or an
+ * IPv4-mapped AF_INET6, as an IPv4 client on a dual-stack listener appears,
+ * and as every IPv4 address does in an IPv6-only build.  Else NULL.
+ */
+
+static const uint8_t *
+pp2_v4(const lws_sockaddr46 *sa, const uint8_t **port)
+{
+	if (sa->sa4.sin_family == AF_INET) {
+		*port = (const uint8_t *)&sa->sa4.sin_port;
+
+		return (const uint8_t *)&sa->sa4.sin_addr;
+	}
+#if defined(LWS_WITH_IPV6)
+	if (lws_sa46_is_ipv4_mapped(sa)) {
+		*port = (const uint8_t *)&sa->sa6.sin6_port;
+
+		return &sa->sa6.sin6_addr.s6_addr[12];
+	}
+#endif
+
+	return NULL;
+}
+
 int
 lws_proxy_v2_render(const lws_proxy_v2_t *pv, uint8_t *buf, size_t len)
 {
+	const uint8_t *s4 = NULL, *d4 = NULL, *sp = NULL, *dp = NULL;
 	size_t pos = 16;
 
 	if (len < 16)
@@ -274,15 +300,19 @@ lws_proxy_v2_render(const lws_proxy_v2_t *pv, uint8_t *buf, size_t len)
 
 		buf[12] = PP2_VERSION | PP2_CMD_PROXY;
 
-		if (pv->src.sa4.sin_family == AF_INET &&
-		    pv->dst.sa4.sin_family == AF_INET) {
+		s4 = pp2_v4(&pv->src, &sp);
+		if (s4)
+			d4 = pp2_v4(&pv->dst, &dp);
+
+		if (d4) {
+			/* an IPv4 client goes as one, mapped or not */
 			if (len - pos < 12)
 				return -1;
 			buf[13] = PP2_AF_INET | proto;
-			memcpy(buf + pos, &pv->src.sa4.sin_addr, 4);
-			memcpy(buf + pos + 4, &pv->dst.sa4.sin_addr, 4);
-			memcpy(buf + pos + 8, &pv->src.sa4.sin_port, 2);
-			memcpy(buf + pos + 10, &pv->dst.sa4.sin_port, 2);
+			memcpy(buf + pos, s4, 4);
+			memcpy(buf + pos + 4, d4, 4);
+			memcpy(buf + pos + 8, sp, 2);
+			memcpy(buf + pos + 10, dp, 2);
 			pos += 12;
 		}
 #if defined(LWS_WITH_IPV6)

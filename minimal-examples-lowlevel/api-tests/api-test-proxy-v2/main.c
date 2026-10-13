@@ -130,6 +130,20 @@ main(int argc, const char **argv)
 	expect("TCP4 renders as the spec lays it out",
 	       n == (int)sizeof(v4_hdr) && !memcmp(b, v4_hdr, sizeof(v4_hdr)));
 
+#if defined(LWS_WITH_IPV6)
+	/*
+	 * An IPv4 client on a dual-stack listener, or any IPv4 address in an
+	 * IPv6-only build, is IPv4-mapped: it is still an IPv4 client
+	 */
+
+	memset(&pv, 0, sizeof(pv));
+	set_addr(&pv.src, "::ffff:192.0.2.1", 56324);
+	set_addr(&pv.dst, "::ffff:198.51.100.2", 443);
+	n = lws_proxy_v2_render(&pv, b, sizeof(b));
+	expect("IPv4-mapped renders as TCP4",
+	       n == (int)sizeof(v4_hdr) && !memcmp(b, v4_hdr, sizeof(v4_hdr)));
+#endif
+
 	/* and parses back */
 
 	expect("TCP4 header length known from its first 16 bytes",

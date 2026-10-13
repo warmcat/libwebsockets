@@ -94,8 +94,9 @@ lws_proxy_v2_parse(const uint8_t *buf, size_t len, lws_proxy_v2_t *pv);
  * lws_proxy_v2_render() - render a PROXY v2 header
  *
  * \param pv: what the header should say.  src and dst must be of the same
- *	      family, unless local is set.  Empty authority or alpn are left
- *	      out.
+ *	      family, unless local is set; IPv4-mapped IPv6 addresses count as
+ *	      IPv4, so a pair of them, or one with an AF_INET address, is
+ *	      rendered as TCP4 / UDP4.  Empty authority or alpn are left out.
  * \param buf: where to render it
  * \param len: the space at \p buf
  *
