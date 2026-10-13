@@ -19,8 +19,9 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	# the front, the backend, and the ClientHello capture listener
-	lws_get_free_ports(PORT_TLSPT 3)
+	# the front, the backend, the ClientHello capture listener, and the udp
+	# "NAT" the h3 migration step goes through
+	lws_get_free_ports(PORT_TLSPT 4)
 
 	add_test(NAME api-test-tls-passthrough
 		 COMMAND lws-api-test-tls-passthrough -p ${PORT_TLSPT}

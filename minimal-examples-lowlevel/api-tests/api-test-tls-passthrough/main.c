@@ -42,6 +42,21 @@
  *
  *  - a forged PROXY v2 header sent to the front ahead of the ClientHello is
  *    not passed through at all: the backend never even sees a connection.
+ *
+ * and where the build has h3, the same over QUIC, where the front relays the
+ * datagrams of a passed through name to the backend's QUIC, each after a
+ * PROXY v2 header, and the backend's back the same way:
+ *
+ *  - an h3 client naming front.test is served by the front;
+ *
+ *  - an h3 client naming pass.test is served by the backend, which sees the
+ *    real client;
+ *
+ *  - an h3 client reaching the front through a little udp "NAT" in the test,
+ *    which partway through a slow response moves its side to a new port, as
+ *    a NAT rebinding does: the front must follow the flow by its connection
+ *    ID, the backend's QUIC validate the new path, and the rest of the
+ *    response reach the client through the new port.
  */
 
 #include <libwebsockets.h>
@@ -56,6 +71,9 @@ enum {
 	ST_TRUSTED_NO_HEADER,
 	ST_UNTRUSTED_FORGED,
 	ST_FRONT_FORGED,
+	ST_H3_TERMINATED,
+	ST_H3_PASSTHROUGH,
+	ST_H3_MIGRATE,
 	ST_DONE
 };
 
@@ -68,12 +86,21 @@ static const char * const step_names[] = {
 	"a trusted peer without a PROXY v2 header is dropped",
 	"a forged PROXY v2 header from an untrusted peer is not believed",
 	"a forged PROXY v2 header sent to the front is not passed through",
+	"an h3 client naming front.test is served by the front",
+	"an h3 client naming pass.test is served by the backend, which sees "
+		"the real client",
+	"an h3 flow through a NAT that rebinds midway is followed to the end",
 };
+
+/* the slow response, in two halves either side of the NAT rebinding */
+#define SLOW_1	"first half|"
+#define SLOW_2	"second half"
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_step, sul_send;
-static int port_front, port_back, port_capture, step, tests, fail, done;
+static int port_front, port_back, port_capture, port_nat, step, tests, fail,
+	   done;
 static int backend_accepts, accepts_at_step;
 static const char *certs = ".";
 
@@ -101,40 +128,126 @@ expect(const char *what, int ok)
 
 /* ------------------------------------------------------------- servers */
 
+/*
+ * Both servers answer with who they are and who they believe the client is.
+ * The headers go now, the body from WRITEABLE: on h2 and h3 they are
+ * different frames.  The backend may instead give a slow answer in two
+ * halves, for the h3 migration step.
+ */
+struct pss_srv {
+	lws_sorted_usec_list_t	sul;
+	struct lws		*wsi;
+	char			resp[LWS_PRE + 128];
+	size_t			resp_len;
+	int			slow;	/* 1: first half to go, 2: second */
+	int			due;	/* the second half's time has come */
+};
+
 static int
-answer(struct lws *wsi, const char *who)
+answer(struct lws *wsi, struct pss_srv *pss, const char *who)
 {
 	uint8_t buf[LWS_PRE + 512], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
-	char peer[64], b[128];
-	int n;
+	char peer[64];
 
 	lws_get_peer_simple(wsi, peer, sizeof(peer));
-	n = lws_snprintf(b, sizeof(b), "%s %s", who, peer);
+	pss->wsi = wsi;
+	pss->resp_len = (size_t)lws_snprintf(&pss->resp[LWS_PRE],
+				sizeof(pss->resp) - LWS_PRE, "%s %s", who, peer);
 
 	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/plain",
-					(lws_filepos_t)n, &p, end) ||
-	    lws_finalize_http_header(wsi, &p, end))
-		return 1;
-	memcpy(p, b, (size_t)n);
-	p += n;
-	if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+					(lws_filepos_t)pss->resp_len, &p, end) ||
+	    lws_finalize_write_http_header(wsi, start, &p, end))
+		return -1;
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
+static int
+answer_writeable(struct lws *wsi, struct pss_srv *pss)
+{
+	if (!pss->resp_len)
+		return 0;
+
+	if (lws_write(wsi, (uint8_t *)&pss->resp[LWS_PRE], pss->resp_len,
 		      LWS_WRITE_HTTP_FINAL) < 0)
-		return 1;
+		return -1;
+	pss->resp_len = 0;
 
 	return lws_http_transaction_completed(wsi) ? -1 : 0;
+}
+
+static void
+slow_next_cb(lws_sorted_usec_list_t *sul)
+{
+	struct pss_srv *pss = lws_container_of(sul, struct pss_srv, sul);
+
+	pss->due = 1;
+	lws_callback_on_writable(pss->wsi);
 }
 
 static int
 callback_backend(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
 {
+	struct pss_srv *pss = (struct pss_srv *)user;
+	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - 1];
+
 	switch (reason) {
 	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
 		backend_accepts++;
 		break;
 	case LWS_CALLBACK_HTTP:
-		return answer(wsi, "backend");
+		if (!in || !strstr((const char *)in, "slow"))
+			return answer(wsi, pss, "backend");
+
+		/* the first half now, the second a while later */
+		pss->wsi = wsi;
+		pss->slow = 1;
+		pss->due = 0;
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+				"text/plain", (lws_filepos_t)
+				(strlen(SLOW_1) + strlen(SLOW_2)), &p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+		lws_callback_on_writable(wsi);
+		return 0;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!pss || !pss->wsi)
+			break;
+		if (!pss->slow)
+			return answer_writeable(wsi, pss);
+		if (pss->slow == 1) {
+			memcpy(start, SLOW_1, strlen(SLOW_1));
+			if (lws_write(wsi, start, strlen(SLOW_1),
+				      LWS_WRITE_HTTP) < 0)
+				return -1;
+			pss->slow = 2;
+			lws_sul_schedule(lws_get_context(wsi), 0, &pss->sul,
+					 slow_next_cb, 1500 * LWS_US_PER_MS);
+			break;
+		}
+		/* h3 asks for WRITEABLE for its own reasons as well */
+		if (pss->slow == 2 && pss->due) {
+			memcpy(start, SLOW_2, strlen(SLOW_2));
+			if (lws_write(wsi, start, strlen(SLOW_2),
+				      LWS_WRITE_HTTP_FINAL) < 0)
+				return -1;
+			pss->slow = 0;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+		}
+		break;
+
+	case LWS_CALLBACK_CLOSED_HTTP:
+		if (pss)
+			lws_sul_cancel(&pss->sul);
+		break;
+
 	default:
 		break;
 	}
@@ -142,12 +255,65 @@ callback_backend(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * The "NAT": the client sends to nat_in, which passes it on to the front from
+ * nat_out[nat_cur], and what the front sends back there goes back to the
+ * client.  Moving nat_cur is a NAT rebinding, as the front sees it.
+ */
+static struct lws *nat_in, *nat_out[2];
+static lws_sockaddr46 nat_client;
+static int nat_cur, nat_rx_after_rebind;
+
+static void
+nat_sendto(struct lws *wsi, const void *buf, size_t len, lws_sockaddr46 *to)
+{
+	if (wsi && to->sa4.sin_family)
+		(void)sendto(lws_get_socket_fd(wsi), (const char *)buf,
+			     LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(to),
+			     sa46_socklen(to));
+}
+
+static int
+callback_nat(struct lws *wsi, enum lws_callback_reasons reason,
+	     void *user, void *in, size_t len)
+{
+	lws_sockaddr46 front;
+
+	if (reason != LWS_CALLBACK_RAW_RX || !lws_get_udp(wsi))
+		return 0;
+
+	if (wsi == nat_in) {
+		nat_client = lws_get_udp(wsi)->sa46;
+		memset(&front, 0, sizeof(front));
+		if (lws_sa46_parse_numeric_address("127.0.0.1", &front))
+			return 0;
+		sa46_sockport(&front, htons((uint16_t)port_front));
+		nat_sendto(nat_out[nat_cur], in, len, &front);
+		return 0;
+	}
+
+	/* a rebinding NAT has forgotten the old mapping */
+	if (wsi != nat_out[nat_cur])
+		return 0;
+	if (nat_cur == 1)
+		nat_rx_after_rebind++;
+	nat_sendto(nat_in, in, len, &nat_client);
+
+	(void)user;
+
+	return 0;
+}
+
 static int
 callback_front(struct lws *wsi, enum lws_callback_reasons reason,
 	       void *user, void *in, size_t len)
 {
+	struct pss_srv *pss = (struct pss_srv *)user;
+
 	if (reason == LWS_CALLBACK_HTTP)
-		return answer(wsi, "front");
+		return answer(wsi, pss, "front");
+	if (reason == LWS_CALLBACK_HTTP_WRITEABLE && pss)
+		return answer_writeable(wsi, pss);
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
@@ -217,6 +383,11 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (step == ST_H3_MIGRATE && !nat_cur) {
+			/* the first half is here: the NAT rebinds */
+			lwsl_user("  NAT rebinding to a new port\n");
+			nat_cur = 1;
+		}
 		if (body_len + len < sizeof(body)) {
 			memcpy(body + body_len, in, len);
 			body_len += len;
@@ -293,7 +464,8 @@ send_piece(lws_sorted_usec_list_t *sul)
 }
 
 static int
-https_get(const char *address, int port, const char *host)
+https_get(const char *address, int port, const char *host, const char *path,
+	  const char *alpn)
 {
 	struct lws_client_connect_info i;
 
@@ -304,9 +476,9 @@ https_get(const char *address, int port, const char *host)
 	i.port			= port;
 	i.host			= host;
 	i.origin		= host;
-	i.path			= "/";
+	i.path			= path;
 	i.method		= "GET";
-	i.alpn			= "http/1.1";
+	i.alpn			= alpn;
 	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
 				  LCCSCF_ALLOW_INSECURE;
@@ -380,18 +552,18 @@ step_start(void)
 
 	switch (step) {
 	case ST_TERMINATED:
-		if (https_get("127.0.0.1", port_front, "front.test"))
+		if (https_get("127.0.0.1", port_front, "front.test", "/", "http/1.1"))
 			goto fail;
 		break;
 
 	case ST_PASSTHROUGH:
-		if (https_get(loopback6(), port_front, "pass.test"))
+		if (https_get(loopback6(), port_front, "pass.test", "/", "http/1.1"))
 			goto fail;
 		break;
 
 	case ST_CAPTURE:
 		/* it fails, the capture listener hangs up once it has it */
-		if (https_get("127.0.0.1", port_capture, "pass.test"))
+		if (https_get("127.0.0.1", port_capture, "pass.test", "/", "http/1.1"))
 			goto fail;
 		break;
 
@@ -434,6 +606,21 @@ step_start(void)
 		if (raw_send(step == ST_FRONT_FORGED ? "127.0.0.1" : loopback6(),
 			     step == ST_FRONT_FORGED ? port_front : port_back,
 			     tx_len))
+			goto fail;
+		break;
+
+	case ST_H3_TERMINATED:
+		if (https_get("127.0.0.1", port_front, "front.test", "/", "h3"))
+			goto fail;
+		break;
+
+	case ST_H3_PASSTHROUGH:
+		if (https_get(loopback6(), port_front, "pass.test", "/", "h3"))
+			goto fail;
+		break;
+
+	case ST_H3_MIGRATE:
+		if (https_get("127.0.0.1", port_nat, "pass.test", "/slow", "h3"))
 			goto fail;
 		break;
 	}
@@ -483,6 +670,19 @@ step_next(void)
 	case ST_FRONT_FORGED:
 		ok = !got_server_hello && backend_accepts == accepts_at_step;
 		break;
+	case ST_H3_TERMINATED:
+		ok = !strncmp(body, "front ", 6);
+		break;
+	case ST_H3_PASSTHROUGH:
+		lwsl_user("  over h3, the backend said '%s'\n", body);
+		ok = !strncmp(body, "backend ", 8) &&
+		     !strcmp(body + 8, loopback6());
+		break;
+	case ST_H3_MIGRATE:
+		lwsl_user("  through the NAT: '%s', %d datagrams to the new "
+			  "port\n", body, nat_rx_after_rebind);
+		ok = !strcmp(body, SLOW_1 SLOW_2) && nat_rx_after_rebind;
+		break;
 	}
 
 	expect(step_names[step], ok);
@@ -497,6 +697,15 @@ step_next(void)
 		/* nowhere to connect from that the backend does not trust */
 		step++;
 #endif
+#if !defined(LWS_WITH_HTTP3)
+	if (step == ST_H3_TERMINATED) {
+		/* no QUIC in this build */
+		done = 1;
+		step = ST_DONE;
+		lws_cancel_service(context);
+		return;
+	}
+#endif
 
 	step_start();
 }
@@ -509,8 +718,11 @@ sigint_handler(int sig)
 }
 
 static const struct lws_protocols
-	pcol_backend = { "backend", callback_backend, 0, 0, 0, NULL, 0 },
-	pcol_front = { "front", callback_front, 0, 0, 0, NULL, 0 },
+	pcol_backend = { "backend", callback_backend,
+			 sizeof(struct pss_srv), 0, 0, NULL, 0 },
+	pcol_nat = { "nat", callback_nat, 0, 0, 0, NULL, 0 },
+	pcol_front = { "front", callback_front, sizeof(struct pss_srv), 0, 0,
+		       NULL, 0 },
 	pcol_capture = { "capture", callback_capture, 0, 0, 0, NULL, 0 },
 	pcol_cli = { "cli", callback_cli, 0, 0, 0, NULL, 0 };
 
@@ -518,7 +730,7 @@ static const struct lws_protocols
 	*pp_backend[] = { &pcol_backend, NULL },
 	*pp_front[] = { &pcol_front, NULL },
 	*pp_capture[] = { &pcol_capture, NULL },
-	*pp_cli[] = { &pcol_cli, NULL };
+	*pp_cli[] = { &pcol_cli, &pcol_nat, NULL };
 
 static const struct lws_http_mount
 	mount_backend = {
@@ -563,6 +775,7 @@ main(int argc, const char **argv)
 		port_front = atoi(p);
 	port_back = port_front + 1;
 	port_capture = port_front + 2;
+	port_nat = port_front + 3;
 	if ((p = lws_cmdline_option(argc, argv, "--certs")))
 		certs = p;
 
@@ -634,6 +847,21 @@ main(int argc, const char **argv)
 	vh_cli = lws_create_vhost(context, &info);
 	if (!vh_cli)
 		goto bail;
+
+#if defined(LWS_WITH_HTTP3)
+	/* the NAT's two sides, the client's at a known port */
+	nat_in = lws_create_adopt_udp(vh_cli, "127.0.0.1", port_nat,
+				      LWS_CAUDP_BIND, "nat", NULL, NULL, NULL,
+				      NULL, NULL);
+	nat_out[0] = lws_create_adopt_udp(vh_cli, "127.0.0.1", 0,
+					  LWS_CAUDP_BIND, "nat", NULL, NULL,
+					  NULL, NULL, NULL);
+	nat_out[1] = lws_create_adopt_udp(vh_cli, "127.0.0.1", 0,
+					  LWS_CAUDP_BIND, "nat", NULL, NULL,
+					  NULL, NULL, NULL);
+	if (!nat_in || !nat_out[0] || !nat_out[1])
+		goto bail;
+#endif
 
 	lws_sul_schedule(context, 0, &sul_deadline, deadline_cb,
 			 60 * LWS_US_PER_SEC);

@@ -431,6 +431,9 @@ lws_create_vhost(struct lws_context *context,
 #endif
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
 				   1 +
+#if defined(LWS_ROLE_QUIC)
+				   1 +
+#endif
 #endif
 				   (unsigned int)context->plugin_protocol_count +
 				   (unsigned int)fx + 1), "vh plugin table");
@@ -510,6 +513,12 @@ lws_create_vhost(struct lws_context *context,
 	memcpy(&lwsp[m], &lws_passthrough_protocol, sizeof(*lwsp));
 	m++;
 	vh->count_protocols++;
+#if defined(LWS_ROLE_QUIC)
+	/* and its socket to the server for relayed quic */
+	memcpy(&lwsp[m], &lws_quic_passthrough_protocol, sizeof(*lwsp));
+	m++;
+	vh->count_protocols++;
+#endif
 #endif
 
 

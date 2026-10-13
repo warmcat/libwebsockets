@@ -677,6 +677,24 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 size_t
 lws_quic_parse_varint(const uint8_t *buf, size_t len, uint64_t *val);
 
+int
+lws_quic_long_hdr_cids(const uint8_t *p, size_t len, struct lws_quic_cid *dcid,
+		       struct lws_quic_cid *scid);
+struct lws *
+lws_quic_find_child_by_dcid(struct lws *listener,
+			    const struct lws_quic_cid *dcid);
+
+/* a CRYPTO frame from lws_quic_initial_crypto_peek() */
+typedef void (*lws_quic_crypto_peek_cb_t)(void *user, uint64_t offset,
+					  const uint8_t *buf, size_t len);
+
+int
+lws_quic_initial_crypto_peek(const uint8_t *dgram, size_t len,
+			     lws_quic_crypto_peek_cb_t cb, void *user);
+int
+lws_quic_dgram_cids(const uint8_t *dgram, size_t len, struct lws_quic_cid *dcid,
+		    struct lws_quic_cid *scid, int *initial);
+
 size_t
 lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len, size_t dcid_len);
 

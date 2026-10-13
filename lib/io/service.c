@@ -957,6 +957,25 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 
 	sb = lws_servbuf_claim(pt, pt->serv_buf, (size_t)n, "rx dgram pump");
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+	if (wsi->io->listener && wsi->role_ops == &role_ops_quic) {
+		uint8_t *b = pt->serv_buf;
+		size_t l = (size_t)n;
+
+		/*
+		 * A trusted relay's PROXY v2 header comes off first, then a
+		 * datagram for a passed through vhost goes on to its server
+		 * (lib/io/passthrough.c)
+		 */
+		if (lws_relayed_dgram_rx(wsi, &b, &l, &sa46) ||
+		    lws_quic_passthrough_rx(wsi, b, l, &sa46, ecn)) {
+			lws_servbuf_release(pt, sb);
+			return LWS_HPI_RET_HANDLED;
+		}
+		hr = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_dgram).
+				rx_dgram(wsi, b, l, &sa46, ecn);
+	} else
+#endif
 	hr = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_dgram).
 			rx_dgram(wsi, pt->serv_buf, (size_t)n, &sa46, ecn);
 	lws_servbuf_release(pt, sb);

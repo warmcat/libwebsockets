@@ -174,6 +174,23 @@ lws_passthrough_vhost_init(struct lws_vhost *vh,
 		vh->passthrough_port = (uint16_t)port;
 		vh->passthrough_proxy_v2 = !!info->tls_passthrough_proxy_v2;
 
+#if defined(LWS_ROLE_QUIC)
+		/*
+		 * Its quic is relayed too if we can say who the client is,
+		 * to a server given numerically: there is no time to resolve
+		 * a name while a client's Initials wait
+		 */
+		if (vh->passthrough_proxy_v2 &&
+		    !lws_sa46_parse_numeric_address(host,
+						    &vh->passthrough_sa46)) {
+			sa46_sockport(&vh->passthrough_sa46,
+				      htons((uint16_t)port));
+			vh->context->count_quic_passthrough++;
+		} else
+			memset(&vh->passthrough_sa46, 0,
+			       sizeof(vh->passthrough_sa46));
+#endif
+
 		lwsl_vhost_notice(vh, "tls for %s passed through to %s:%d%s",
 				  vh->name, host, port,
 				  vh->passthrough_proxy_v2 ?
@@ -189,9 +206,22 @@ bad_target:
 	return 1;
 }
 
+#if defined(LWS_ROLE_QUIC)
+static void
+lws_qpt_vhost_gone(struct lws_vhost *vh);
+#endif
+
 void
 lws_passthrough_vhost_destroy(struct lws_vhost *vh)
 {
+#if defined(LWS_ROLE_QUIC)
+	if (vh->passthrough_sa46.sa4.sin_family) {
+		vh->context->count_quic_passthrough--;
+		memset(&vh->passthrough_sa46, 0, sizeof(vh->passthrough_sa46));
+	}
+	lws_qpt_vhost_gone(vh);
+#endif
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&vh->proxy_v2_trusted)) {
 		lws_dll2_remove(d);
@@ -716,3 +746,967 @@ bail:
 
 	return 1;
 }
+
+#if defined(LWS_ROLE_QUIC)
+/* ------------------------------------------------------------ quic relay */
+
+/*
+ * QUIC passthrough
+ * --------------------------------------------------------------------------
+ *
+ * A passed through vhost's QUIC goes the same way as its tcp, when its
+ * .tls_passthrough is a numeric address and .tls_passthrough_proxy_v2 is set.
+ *
+ * On the front, a datagram arriving on a quic listener is looked at before the
+ * quic role sees it:
+ *
+ *  - one whose DCID belongs to a relayed flow goes to the server, and if it
+ *    came from a new address, the flow follows the client there;
+ *
+ *  - an Initial for a DCID we don't know is decrypted with the keys anyone
+ *    can derive from its DCID (RFC 9001 5.2), and the SNI read from its
+ *    ClientHello, holding the datagrams until the ClientHello is whole.  If
+ *    it names a passed through vhost, a flow is made and they all go to the
+ *    server; otherwise they go to the quic role as if just received.
+ *
+ * Every datagram to the server is sent from our udp socket for the vhost,
+ * after a PROXY v2 header naming the client, and every datagram from the
+ * server must start with one naming the client it is for.  So the server's
+ * quic sees each client's real address, and runs its own path validation when
+ * a client moves: we only send where it says.  The server's connection IDs
+ * are learned from the long headers it sends, since a client goes on to use
+ * them; a server that issues more with NEW_CONNECTION_ID, which lws does
+ * not, would need them encoded so we could route them.
+ *
+ * On a server, a datagram from an address in .proxy_v2_trusted must start
+ * with exactly one PROXY v2 header, or it is dropped; it is taken off, the
+ * client it names is the datagram's peer as far as quic knows, and the relay
+ * is remembered, so what quic sends that client goes back through it, with a
+ * header naming the client.  Nobody else's datagrams are looked at for one.
+ */
+
+#define LWS_QPT_FLOW_IDLE_US		(60 * LWS_US_PER_SEC)
+#define LWS_QPT_RELAYED_IDLE_US		(120 * LWS_US_PER_SEC)
+#define LWS_QPT_PENDING_US		(500 * LWS_US_PER_MS)
+#define LWS_QPT_SWEEP_US		(10 * LWS_US_PER_SEC)
+#define LWS_QPT_PENDING_DGRAMS		8
+#define LWS_QPT_MAX_FLOWS		4096
+#define LWS_QPT_MAX_RELAYED		4096
+#define LWS_QPT_MAX_PENDING		64
+#define LWS_QPT_MAX_CIDS		4
+#define LWS_QPT_MAX_DGRAM		4096
+
+/*
+ * An address as a map key, with nothing undefined in it.  A relayed client is
+ * also keyed by the port of the listener it came in on: a process can be a
+ * front as well as a server behind one, and the front's own clients must not
+ * be taken for the server's.
+ */
+typedef struct lws_qpt_addr_key {
+	uint8_t			addr[16];	/* v4 as v4-mapped v6 */
+	uint16_t		port;
+	uint16_t		lport;		/* our listener's, or 0 */
+} lws_qpt_addr_key_t;
+
+/* front: one connection we relay to a server */
+typedef struct lws_qpt_flow {
+	lws_dll2_t		list;		/* cx->pt_qflow_owner */
+	struct lws_vhost	*vh;		/* the passed through vhost */
+	int			listen_port;	/* where the client reaches us */
+	lws_sockaddr46		client;		/* where it is now */
+	lws_sockaddr46		prev_client;	/* where it was before */
+	lws_usec_t		last;
+	struct lws_quic_cid	cid[LWS_QPT_MAX_CIDS];
+	int			count_cids;
+} lws_qpt_flow_t;
+
+/* front: a datagram held while the ClientHello is still coming */
+typedef struct lws_qpt_dgram {
+	lws_dll2_t		list;
+	lws_sockaddr46		peer;
+	size_t			len;
+	uint8_t			ecn;
+	/* the datagram follows */
+} lws_qpt_dgram_t;
+
+/* front: an Initial whose ClientHello we have not seen all of yet */
+typedef struct lws_qpt_pending {
+	lws_dll2_t		list;		/* cx->pt_qpending_owner */
+	lws_sorted_usec_list_t	sul;
+	struct lws_context	*cx;
+	int			listen_port;
+	struct lws_quic_cid	dcid;
+	lws_dll2_owner_t	held;		/* lws_qpt_dgram_t */
+	uint8_t			crypto[LWS_TLS_CH_MAX];
+	uint8_t			have[LWS_TLS_CH_MAX / 8];
+} lws_qpt_pending_t;
+
+/* server: a client a trusted relay forwards */
+typedef struct lws_qpt_relayed {
+	lws_dll2_t		list;		/* cx->pt_relayed_owner */
+	lws_qpt_addr_key_t	key;
+	lws_sockaddr46		relay;		/* the relay's socket */
+	lws_sockaddr46		front;		/* what the client sent to */
+	lws_usec_t		last;
+} lws_qpt_relayed_t;
+
+static void
+lws_qpt_key(const lws_sockaddr46 *sa, lws_qpt_addr_key_t *k)
+{
+	memset(k, 0, sizeof(*k));
+#if defined(LWS_WITH_IPV6)
+	if (sa->sa4.sin_family == AF_INET6) {
+		memcpy(k->addr, &sa->sa6.sin6_addr, 16);
+		k->port = sa->sa6.sin6_port;
+		return;
+	}
+#endif
+	k->addr[10] = k->addr[11] = 0xff;
+	memcpy(&k->addr[12], &sa->sa4.sin_addr, 4);
+	k->port = sa->sa4.sin_port;
+}
+
+static int
+lws_qpt_same_addr(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
+{
+	lws_qpt_addr_key_t ka, kb;
+
+	lws_qpt_key(a, &ka);
+	lws_qpt_key(b, &kb);
+
+	return !memcmp(&ka, &kb, sizeof(ka));
+}
+
+static int
+lws_qpt_maps(struct lws_context *cx)
+{
+	lws_map_info_t mi;
+
+	memset(&mi, 0, sizeof(mi));
+	mi.modulo = 64;
+
+	if (!cx->pt_qflows)
+		cx->pt_qflows = lws_map_create(&mi);
+	if (!cx->pt_qpending)
+		cx->pt_qpending = lws_map_create(&mi);
+	if (!cx->pt_relayed)
+		cx->pt_relayed = lws_map_create(&mi);
+
+	return !cx->pt_qflows || !cx->pt_qpending || !cx->pt_relayed;
+}
+
+static void *
+lws_qpt_lookup(struct lws_map *map, const void *key, size_t kl)
+{
+	struct lws_map_item *it;
+
+	if (!map)
+		return NULL;
+
+	it = lws_map_item_lookup(map, (const lws_map_key_t)key, kl);
+
+	return it ? *(void **)lws_map_item_value(it) : NULL;
+}
+
+static void
+lws_qpt_unmap(struct lws_map *map, const void *key, size_t kl)
+{
+	struct lws_map_item *it;
+
+	if (map && (it = lws_map_item_lookup(map, (const lws_map_key_t)key, kl)))
+		lws_map_item_destroy(it);
+}
+
+/* one of the quic listeners on port, to send a client a datagram from */
+static struct lws *
+lws_qpt_listener(struct lws_context *cx, int port)
+{
+	struct lws_vhost *v;
+
+	for (v = lws_vhost_first(cx); v; v = lws_vhost_next(v)) {
+		if (v->being_destroyed || v->listen_port != port)
+			continue;
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&v->listen_wsi)) {
+			struct lws *lw = lws_container_of(d, struct lws,
+							  listen_list);
+
+			if (lw->role_ops == &role_ops_quic && lw->io->udp &&
+			    lws_socket_is_valid(lw->io->desc.sockfd))
+				return lw;
+		} lws_end_foreach_dll(d);
+	}
+
+	return NULL;
+}
+
+static void
+lws_qpt_flow_destroy(struct lws_context *cx, lws_qpt_flow_t *f)
+{
+	int n;
+
+	for (n = 0; n < f->count_cids; n++)
+		lws_qpt_unmap(cx->pt_qflows, &f->cid[n], sizeof(f->cid[n]));
+	lws_dll2_remove(&f->list);
+	lws_free(f);
+}
+
+static int
+lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
+		     const struct lws_quic_cid *cid)
+{
+	struct lws_quic_cid k;
+	int n;
+
+	memset(&k, 0, sizeof(k));
+	k.len = cid->len;
+	memcpy(k.id, cid->id, cid->len);
+
+	for (n = 0; n < f->count_cids; n++)
+		if (!memcmp(&f->cid[n], &k, sizeof(k)))
+			return 0;
+
+	if (f->count_cids == LWS_QPT_MAX_CIDS ||
+	    lws_qpt_lookup(cx->pt_qflows, &k, sizeof(k)))
+		/* full, or somebody else's */
+		return 1;
+
+	if (!lws_map_item_create(cx->pt_qflows, (const lws_map_key_t)&k,
+				 sizeof(k), (const lws_map_value_t)&f,
+				 sizeof(f)))
+		return 1;
+
+	f->cid[f->count_cids++] = k;
+
+	return 0;
+}
+
+static void
+lws_qpt_pending_destroy(lws_qpt_pending_t *pd)
+{
+	lws_sul_cancel(&pd->sul);
+	lws_qpt_unmap(pd->cx->pt_qpending, &pd->dcid, sizeof(pd->dcid));
+	lws_dll2_remove(&pd->list);
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&pd->held)) {
+		lws_dll2_remove(d);
+		lws_free(lws_container_of(d, lws_qpt_dgram_t, list));
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_free(pd);
+}
+
+static void
+lws_qpt_relayed_destroy(struct lws_context *cx, lws_qpt_relayed_t *r)
+{
+	lws_qpt_unmap(cx->pt_relayed, &r->key, sizeof(r->key));
+	lws_dll2_remove(&r->list);
+	lws_free(r);
+}
+
+static void
+lws_qpt_sweep_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context *cx = lws_container_of(sul, struct lws_context,
+						  sul_pt_sweep);
+	lws_usec_t now = lws_now_usecs();
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_qflow_owner)) {
+		lws_qpt_flow_t *f = lws_container_of(d, lws_qpt_flow_t, list);
+
+		if (now - f->last > LWS_QPT_FLOW_IDLE_US)
+			lws_qpt_flow_destroy(cx, f);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_relayed_owner)) {
+		lws_qpt_relayed_t *r = lws_container_of(d, lws_qpt_relayed_t,
+							list);
+
+		if (now - r->last > LWS_QPT_RELAYED_IDLE_US)
+			lws_qpt_relayed_destroy(cx, r);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	if (lws_dll2_count(&cx->pt_qflow_owner) ||
+	    lws_dll2_count(&cx->pt_relayed_owner))
+		lws_sul_schedule(cx, 0, &cx->sul_pt_sweep, lws_qpt_sweep_cb,
+				 LWS_QPT_SWEEP_US);
+}
+
+static void
+lws_qpt_sweep_arm(struct lws_context *cx)
+{
+	if (!lws_dll2_is_detached(&cx->sul_pt_sweep.list))
+		return;
+
+	lws_sul_schedule(cx, 0, &cx->sul_pt_sweep, lws_qpt_sweep_cb,
+			 LWS_QPT_SWEEP_US);
+}
+
+void
+lws_quic_passthrough_context_destroy(struct lws_context *cx)
+{
+	lws_sul_cancel(&cx->sul_pt_sweep);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_qpending_owner)) {
+		lws_qpt_pending_destroy(lws_container_of(d, lws_qpt_pending_t,
+							 list));
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_qflow_owner)) {
+		lws_qpt_flow_destroy(cx, lws_container_of(d, lws_qpt_flow_t,
+							  list));
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_relayed_owner)) {
+		lws_qpt_relayed_destroy(cx, lws_container_of(d,
+						lws_qpt_relayed_t, list));
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_map_destroy(&cx->pt_qflows);
+	lws_map_destroy(&cx->pt_qpending);
+	lws_map_destroy(&cx->pt_relayed);
+}
+
+/* a vhost is going: nothing may still lead to it */
+static void
+lws_qpt_vhost_gone(struct lws_vhost *vh)
+{
+	struct lws_context *cx = vh->context;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_qflow_owner)) {
+		lws_qpt_flow_t *f = lws_container_of(d, lws_qpt_flow_t, list);
+
+		if (f->vh == vh)
+			lws_qpt_flow_destroy(cx, f);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/* ---- front */
+
+/*
+ * Our udp socket to the server of passed through vh, made when it is first
+ * needed
+ */
+static struct lws *
+lws_qpt_server_wsi(struct lws_vhost *vh)
+{
+	if (vh->passthrough_qwsi)
+		return vh->passthrough_qwsi;
+
+	/*
+	 * In the server's own family: our udp sockets are v6-only, so a v6
+	 * one can't reach a v4 server even as a v4-mapped address
+	 */
+	vh->passthrough_qwsi = lws_create_adopt_udp(vh,
+#if defined(LWS_WITH_IPV6)
+				vh->passthrough_sa46.sa4.sin_family ==
+						AF_INET6 ? "::" :
+#endif
+				"0.0.0.0", 0, LWS_CAUDP_BIND,
+				lws_quic_passthrough_protocol.name, NULL, NULL,
+				vh, NULL, NULL);
+
+	return vh->passthrough_qwsi;
+}
+
+/* a client's datagram, after a PROXY v2 header naming it, to the server */
+static void
+lws_qpt_to_server(lws_qpt_flow_t *f, const uint8_t *buf, size_t len,
+		  const lws_sockaddr46 *client)
+{
+	uint8_t b[LWS_PROXY_V2_MAX + LWS_QPT_MAX_DGRAM];
+	struct lws *sw = lws_qpt_server_wsi(f->vh), *lw;
+	lws_sockaddr46 dest = f->vh->passthrough_sa46;
+	lws_proxy_v2_t pv;
+	int n;
+
+	if (!sw || !lws_socket_is_valid(sw->io->desc.sockfd) ||
+	    len > LWS_QPT_MAX_DGRAM)
+		return;
+
+	memset(&pv, 0, sizeof(pv));
+	pv.dgram = 1;
+	pv.src = *client;
+	lw = lws_qpt_listener(f->vh->context, f->listen_port);
+	if (lw)
+		pv.dst = lw->io->udp->sa46;
+#if defined(LWS_WITH_IPV6)
+	/* the header wants both in one family */
+	if (pv.src.sa4.sin_family != pv.dst.sa4.sin_family) {
+		if (pv.src.sa4.sin_family == AF_INET6) {
+			memset(&pv.dst, 0, sizeof(pv.dst));
+			pv.dst.sa6.sin6_family = AF_INET6;
+		} else {
+			memset(&pv.dst, 0, sizeof(pv.dst));
+			pv.dst.sa4.sin_family = AF_INET;
+		}
+	}
+#endif
+	if (!pv.dst.sa4.sin_family)
+		pv.dst.sa4.sin_family = pv.src.sa4.sin_family;
+
+	n = lws_proxy_v2_render(&pv, b, sizeof(b));
+	if (n < 0)
+		return;
+	memcpy(b + n, buf, len);
+
+	lws_io_send_dgram(sw, b, (size_t)n + len, &dest);
+}
+
+/* the CRYPTO frames of an Initial, into the pending ClientHello */
+static void
+lws_qpt_crypto_cb(void *user, uint64_t offset, const uint8_t *buf, size_t len)
+{
+	lws_qpt_pending_t *pd = (lws_qpt_pending_t *)user;
+	size_t n;
+
+	if (offset >= sizeof(pd->crypto))
+		return;
+	if (len > sizeof(pd->crypto) - offset)
+		len = sizeof(pd->crypto) - (size_t)offset;
+
+	memcpy(pd->crypto + offset, buf, len);
+	for (n = (size_t)offset; n < (size_t)offset + len; n++)
+		pd->have[n >> 3] = (uint8_t)(pd->have[n >> 3] | (1 << (n & 7)));
+}
+
+static size_t
+lws_qpt_contiguous(const lws_qpt_pending_t *pd)
+{
+	size_t n = 0;
+
+	while (n < sizeof(pd->crypto) && (pd->have[n >> 3] & (1 << (n & 7))))
+		n++;
+
+	return n;
+}
+
+static int
+lws_qpt_hold(lws_qpt_pending_t *pd, const uint8_t *buf, size_t len,
+	     const lws_sockaddr46 *peer, uint8_t ecn)
+{
+	lws_qpt_dgram_t *dg;
+
+	if (lws_dll2_count(&pd->held) >= LWS_QPT_PENDING_DGRAMS ||
+	    len > LWS_QPT_MAX_DGRAM)
+		return 1;
+
+	dg = lws_malloc(sizeof(*dg) + len, __func__);
+	if (!dg)
+		return 1;
+
+	memset(dg, 0, sizeof(*dg));
+	dg->peer = *peer;
+	dg->len = len;
+	dg->ecn = ecn;
+	memcpy(&dg[1], buf, len);
+	lws_dll2_add_tail(&dg->list, &pd->held);
+
+	return 0;
+}
+
+/* the held datagrams go to the quic role after all, as if just received */
+static void
+lws_qpt_release_local(lws_qpt_pending_t *pd)
+{
+	struct lws *lw = lws_qpt_listener(pd->cx, pd->listen_port);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&pd->held)) {
+		lws_qpt_dgram_t *dg = lws_container_of(d, lws_qpt_dgram_t,
+						       list);
+
+		lws_dll2_remove(d);
+		if (lw)
+			lws_rops_func_fidx(lw->role_ops, LWS_ROPS_rx_dgram).
+				rx_dgram(lw, (uint8_t *)&dg[1], dg->len,
+					 &dg->peer, dg->ecn);
+		lws_free(dg);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+static void
+lws_qpt_pending_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_qpt_pending_t *pd = lws_container_of(sul, lws_qpt_pending_t, sul);
+
+	/* the rest of it never came: the quic role can make what it can of it */
+	lws_qpt_release_local(pd);
+	lws_qpt_pending_destroy(pd);
+}
+
+/* a passed through vhost on port that quic may be relayed for, by name */
+static struct lws_vhost *
+lws_qpt_vhost(struct lws_context *cx, int port, const char *name)
+{
+	struct lws_vhost *vh = lws_select_vhost_by_name(cx, port, name);
+
+	if (!vh || !vh->passthrough_host || !vh->passthrough_proxy_v2 ||
+	    !vh->passthrough_sa46.sa4.sin_family)
+		return NULL;
+
+	return vh;
+}
+
+static int
+lws_qpt_port_has_passthrough(struct lws_context *cx, int port)
+{
+	struct lws_vhost *v;
+
+	for (v = lws_vhost_first(cx); v; v = lws_vhost_next(v))
+		if (!v->being_destroyed && v->listen_port == port &&
+		    v->passthrough_sa46.sa4.sin_family &&
+		    v->passthrough_proxy_v2)
+			return 1;
+
+	return 0;
+}
+
+/*
+ * Decide what the pending Initial is, now that more of its ClientHello may be
+ * here.  Returns 1 if the datagram that brought it was taken, 0 if it goes on
+ * to the quic role.
+ */
+static int
+lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
+	       const uint8_t *buf, size_t len, const lws_sockaddr46 *peer,
+	       uint8_t ecn)
+{
+	struct lws_context *cx = listener->a.context;
+	struct lws_vhost *vh = NULL;
+	lws_qpt_flow_t *f;
+	char name[256];
+	int n;
+
+	n = lws_tls_client_hello_msg_sni(pd->crypto, lws_qpt_contiguous(pd),
+					 name, sizeof(name));
+	if (n == LWS_TLS_CH_SNI_MORE) {
+		if (!lws_qpt_hold(pd, buf, len, peer, ecn)) {
+			if (lws_dll2_is_detached(&pd->sul.list))
+				lws_sul_schedule(cx, listener->tsi, &pd->sul,
+						 lws_qpt_pending_timeout_cb,
+						 LWS_QPT_PENDING_US);
+			return 1;
+		}
+		/* more of it than we will hold */
+		n = LWS_TLS_CH_SNI_NONE;
+	}
+
+	if (n == LWS_TLS_CH_SNI_FOUND)
+		vh = lws_qpt_vhost(cx, listener->a.vhost->listen_port, name);
+
+	if (!vh ||
+	    lws_dll2_count(&cx->pt_qflow_owner) >= LWS_QPT_MAX_FLOWS) {
+		/* not ours: the quic role gets them all, this one last */
+		lws_qpt_release_local(pd);
+		lws_qpt_pending_destroy(pd);
+
+		return 0;
+	}
+
+	f = lws_zalloc(sizeof(*f), __func__);
+	if (!f)
+		goto local;
+	f->vh = vh;
+	f->listen_port = listener->a.vhost->listen_port;
+	f->client = *peer;
+	f->last = lws_now_usecs();
+	lws_dll2_add_tail(&f->list, &cx->pt_qflow_owner);
+	if (lws_qpt_flow_add_cid(cx, f, &pd->dcid)) {
+		lws_qpt_flow_destroy(cx, f);
+		goto local;
+	}
+	lws_qpt_sweep_arm(cx);
+
+	{
+		char pa[64];
+
+		lws_sa46_write_numeric_address(&f->client, pa, sizeof(pa));
+		lwsl_vhost_notice(vh, "quic from %s for %s passed through to "
+				  "%s:%u", pa, name, vh->passthrough_host,
+				  vh->passthrough_port);
+	}
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&pd->held)) {
+		lws_qpt_dgram_t *dg = lws_container_of(d, lws_qpt_dgram_t,
+						       list);
+
+		lws_qpt_to_server(f, (const uint8_t *)&dg[1], dg->len,
+				  &dg->peer);
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_qpt_to_server(f, buf, len, peer);
+	lws_qpt_pending_destroy(pd);
+
+	return 1;
+
+local:
+	lws_qpt_release_local(pd);
+	lws_qpt_pending_destroy(pd);
+
+	return 0;
+}
+
+int
+lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
+			const lws_sockaddr46 *peer, uint8_t ecn)
+{
+	struct lws_context *cx = listener->a.context;
+	struct lws_quic_cid dcid, scid, k;
+	lws_qpt_pending_t *pd;
+	lws_qpt_flow_t *f;
+	int initial;
+
+	if (!cx->count_quic_passthrough || !listener->a.vhost ||
+	    lws_quic_dgram_cids(buf, len, &dcid, &scid, &initial))
+		return 0;
+
+	memset(&k, 0, sizeof(k));
+	k.len = dcid.len;
+	memcpy(k.id, dcid.id, dcid.len);
+
+	/*
+	 * Only on the port the flow came in on: a process can be a server
+	 * behind a relay as well as a front, and the server's listener must
+	 * not take its own relayed datagrams for a flow to relay
+	 */
+	f = (lws_qpt_flow_t *)lws_qpt_lookup(cx->pt_qflows, &k, sizeof(k));
+	if (f && f->listen_port != listener->a.vhost->listen_port)
+		return 0;
+	if (f) {
+		if (!lws_qpt_same_addr(&f->client, peer)) {
+			char pa[64];
+
+			/*
+			 * The client moved, or claims to: the server's quic
+			 * sees the new address in the header and validates
+			 * the path itself before it trusts it
+			 */
+			f->prev_client = f->client;
+			f->client = *peer;
+			lws_sa46_write_numeric_address(&f->client, pa,
+						       sizeof(pa));
+			lwsl_vhost_info(f->vh, "quic flow seen from %s", pa);
+		}
+		f->last = lws_now_usecs();
+		lws_qpt_to_server(f, buf, len, peer);
+
+		return 1;
+	}
+
+	pd = (lws_qpt_pending_t *)lws_qpt_lookup(cx->pt_qpending, &k,
+						 sizeof(k));
+	if (pd && pd->listen_port != listener->a.vhost->listen_port)
+		return 0;
+	if (!pd) {
+		/*
+		 * Not for a connection the quic role already has: eg, the
+		 * client's later Initials carry the CID its server chose,
+		 * whose keys can't be derived from it
+		 */
+		if (!initial || lws_quic_find_child_by_dcid(listener, &dcid) ||
+		    !lws_qpt_port_has_passthrough(cx,
+					listener->a.vhost->listen_port) ||
+		    lws_dll2_count(&cx->pt_qpending_owner) >=
+							LWS_QPT_MAX_PENDING ||
+		    lws_qpt_maps(cx))
+			return 0;
+
+		pd = lws_zalloc(sizeof(*pd), __func__);
+		if (!pd)
+			return 0;
+		pd->cx = cx;
+		pd->listen_port = listener->a.vhost->listen_port;
+		pd->dcid = k;
+		if (!lws_map_item_create(cx->pt_qpending,
+					 (const lws_map_key_t)&k, sizeof(k),
+					 (const lws_map_value_t)&pd,
+					 sizeof(pd))) {
+			lws_free(pd);
+			return 0;
+		}
+		lws_dll2_add_tail(&pd->list, &cx->pt_qpending_owner);
+	}
+
+	if (initial &&
+	    lws_quic_initial_crypto_peek(buf, len, lws_qpt_crypto_cb, pd) &&
+	    !lws_dll2_count(&pd->held)) {
+		/* nothing we can read: it is the quic role's to judge */
+		lws_qpt_pending_destroy(pd);
+
+		return 0;
+	}
+
+	return lws_qpt_decide(listener, pd, buf, len, peer, ecn);
+}
+
+/*
+ * A datagram from the server, on our socket for its vhost: it must start with
+ * a PROXY v2 header naming the client it is for
+ */
+static void
+lws_qpt_from_server(struct lws *wsi, const uint8_t *buf, size_t len)
+{
+	struct lws_vhost *vh = wsi->a.vhost;
+	struct lws_context *cx = vh->context;
+	const lws_sockaddr46 *to = NULL;
+	struct lws_quic_cid dcid, scid;
+	lws_qpt_flow_t *f = NULL;
+	lws_proxy_v2_t pv;
+	struct lws *lw;
+	int hl, initial;
+
+	if (!lws_get_udp(wsi) ||
+	    !lws_qpt_same_addr(&lws_get_udp(wsi)->sa46, &vh->passthrough_sa46))
+		/* only the server we relay to speaks for its clients */
+		return;
+
+	hl = lws_proxy_v2_header_len(buf, len);
+	if (hl <= 0 || (size_t)hl >= len ||
+	    lws_proxy_v2_parse(buf, (size_t)hl, &pv) || pv.local ||
+	    !pv.dgram)
+		return;
+	buf += hl;
+	len -= (size_t)hl;
+
+	/*
+	 * Only to an address one of our flows to this server has seen its
+	 * client at: where it is now, or where it was before it moved, since
+	 * the server keeps answering there until it has validated the new
+	 * path, and a move we were shown may not even be real
+	 */
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->pt_qflow_owner)) {
+		lws_qpt_flow_t *ff = lws_container_of(d, lws_qpt_flow_t, list);
+
+		if (ff->vh == vh) {
+			if (lws_qpt_same_addr(&ff->client, &pv.dst)) {
+				f = ff;
+				to = &ff->client;
+				break;
+			}
+			if (ff->prev_client.sa4.sin_family &&
+			    lws_qpt_same_addr(&ff->prev_client, &pv.dst)) {
+				f = ff;
+				to = &ff->prev_client;
+				break;
+			}
+		}
+	} lws_end_foreach_dll(d);
+	if (!f)
+		return;
+
+	/* the server's connection IDs, which the client goes on to use */
+	if (!lws_quic_dgram_cids(buf, len, &dcid, &scid, &initial) &&
+	    scid.len)
+		lws_qpt_flow_add_cid(cx, f, &scid);
+
+	/* to that address as we know it */
+	lw = lws_qpt_listener(cx, f->listen_port);
+	if (lw)
+		lws_io_send_dgram(lw, buf, len, to);
+}
+
+static int
+lws_quic_passthrough_callback(struct lws *wsi, enum lws_callback_reasons reason,
+			      void *user, void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_RAW_RX:
+		lws_qpt_from_server(wsi, (const uint8_t *)in, len);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		if (wsi->a.vhost && wsi->a.vhost->passthrough_qwsi == wsi)
+			wsi->a.vhost->passthrough_qwsi = NULL;
+		break;
+
+	default:
+		break;
+	}
+
+	(void)user;
+
+	return 0;
+}
+
+const struct lws_protocols lws_quic_passthrough_protocol = {
+	.name		= "lws-quic-passthrough",
+	.callback	= lws_quic_passthrough_callback,
+};
+
+/* ---- server */
+
+/* does a vhost on listener's listener trust peer to send PROXY v2? */
+static int
+lws_qpt_trusted(struct lws *listener, const lws_sockaddr46 *peer)
+{
+	struct lws_vhost *lv = listener->a.vhost, *v;
+
+	for (v = lws_vhost_first(listener->a.context); v; v = lws_vhost_next(v)) {
+		if (v->being_destroyed ||
+		    (v != lv && !lws_vhost_compare_listen(v, lv)))
+			continue;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&v->proxy_v2_trusted)) {
+			lws_proxy_v2_trust_t *t = lws_container_of(d,
+						lws_proxy_v2_trust_t, list);
+
+			if (!lws_sa46_on_net(peer, &t->sa46, t->net_len))
+				return 1;
+		} lws_end_foreach_dll(d);
+	}
+
+	return 0;
+}
+
+int
+lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
+		     lws_sockaddr46 *peer)
+{
+	struct lws_context *cx = listener->a.context;
+	lws_qpt_relayed_t *r;
+	lws_qpt_addr_key_t k;
+	lws_proxy_v2_t pv;
+	int hl;
+
+	if (!listener->a.vhost || !lws_qpt_trusted(listener, peer))
+		return 0;
+
+	hl = lws_proxy_v2_header_len(*buf, *len);
+	if (hl <= 0 || (size_t)hl >= *len ||
+	    lws_proxy_v2_parse(*buf, (size_t)hl, &pv) || pv.local ||
+	    !pv.dgram) {
+		lwsl_wsi_info(listener, "datagram from a trusted relay "
+			      "without a valid PROXY v2 header dropped");
+		return 1;
+	}
+
+#if defined(LWS_WITH_IPV6)
+	/* in the listener's family, as the socket reports its peers */
+	if (listener->io->udp &&
+	    listener->io->udp->sa46.sa4.sin_family == AF_INET6 &&
+	    pv.src.sa4.sin_family == AF_INET) {
+		uint8_t a4[4];
+		uint16_t port = ntohs(pv.src.sa4.sin_port);
+
+		memcpy(a4, &pv.src.sa4.sin_addr, 4);
+		memset(&pv.src, 0, sizeof(pv.src));
+		lws_sa46_4to6(&pv.src, a4, port);
+	}
+#endif
+
+	if (lws_qpt_maps(cx))
+		return 1;
+
+	lws_qpt_key(&pv.src, &k);
+	k.lport = (uint16_t)listener->a.vhost->listen_port;
+	r = (lws_qpt_relayed_t *)lws_qpt_lookup(cx->pt_relayed, &k, sizeof(k));
+	if (!r) {
+		if (lws_dll2_count(&cx->pt_relayed_owner) >=
+							LWS_QPT_MAX_RELAYED)
+			lws_qpt_relayed_destroy(cx, lws_container_of(
+				lws_dll2_get_head(&cx->pt_relayed_owner),
+				lws_qpt_relayed_t, list));
+
+		r = lws_zalloc(sizeof(*r), __func__);
+		if (!r)
+			return 1;
+		r->key = k;
+		if (!lws_map_item_create(cx->pt_relayed,
+					 (const lws_map_key_t)&k, sizeof(k),
+					 (const lws_map_value_t)&r,
+					 sizeof(r))) {
+			lws_free(r);
+			return 1;
+		}
+	} else
+		lws_dll2_remove(&r->list);
+
+	/* most recently used last, so the head is what goes first */
+	lws_dll2_add_tail(&r->list, &cx->pt_relayed_owner);
+	r->relay = *peer;
+	r->front = pv.dst;
+	r->last = lws_now_usecs();
+	lws_qpt_sweep_arm(cx);
+
+	*peer = pv.src;
+	*buf += hl;
+	*len -= (size_t)hl;
+
+	return 0;
+}
+
+int
+lws_relayed_dgram_tx(struct lws *nwsi, lws_sockfd_type fd, const uint8_t *buf,
+		     size_t len, const lws_sockaddr46 *dest, int *sent)
+{
+	uint8_t b[LWS_PROXY_V2_MAX + LWS_QPT_MAX_DGRAM];
+	struct lws_context *cx = nwsi->a.context;
+	lws_qpt_relayed_t *r;
+	lws_qpt_addr_key_t k;
+	lws_proxy_v2_t pv;
+	int n;
+
+	if (!cx->pt_relayed || !lws_dll2_count(&cx->pt_relayed_owner))
+		return 0;
+
+	if (!nwsi->a.vhost)
+		return 0;
+	lws_qpt_key(dest, &k);
+	k.lport = (uint16_t)nwsi->a.vhost->listen_port;
+	r = (lws_qpt_relayed_t *)lws_qpt_lookup(cx->pt_relayed, &k, sizeof(k));
+	if (!r)
+		return 0;
+
+	*sent = LWS_SSL_CAPABLE_ERROR;
+	if (len > LWS_QPT_MAX_DGRAM)
+		return 1;
+
+	memset(&pv, 0, sizeof(pv));
+	pv.dgram = 1;
+	pv.dst = *dest;
+	if (r->front.sa4.sin_family == dest->sa4.sin_family)
+		pv.src = r->front;
+	else
+		pv.src.sa4.sin_family = dest->sa4.sin_family;
+
+	n = lws_proxy_v2_render(&pv, b, sizeof(b));
+	if (n < 0)
+		return 1;
+	memcpy(b + n, buf, len);
+
+	/*
+	 * Back through the relay, on a listener of the relay's family, which
+	 * need not be the client's that the caller chose the socket by
+	 */
+	if (nwsi->a.vhost) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&nwsi->a.vhost->listen_wsi)) {
+			struct lws *lw = lws_container_of(d, struct lws,
+							  listen_list);
+
+			if (lw->io->udp && lw->io->udp->sa46.sa4.sin_family ==
+						r->relay.sa4.sin_family &&
+			    lws_socket_is_valid(lw->io->desc.sockfd)) {
+				fd = lw->io->desc.sockfd;
+				break;
+			}
+		} lws_end_foreach_dll(d);
+	}
+
+	n = (int)sendto(fd, (const char *)b, LWS_POSIX_LENGTH_CAST((size_t)n + len),
+			0, sa46_sockaddr(&r->relay), sa46_socklen(&r->relay));
+	if (n >= 0)
+		*sent = (int)len;
+	else if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK ||
+		 LWS_ERRNO == LWS_EINTR)
+		*sent = LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+
+	return 1;
+}
+#endif

@@ -865,6 +865,10 @@ struct lws_vhost {
 	uint16_t		passthrough_port;
 	uint8_t			passthrough_proxy_v2;
 	lws_dll2_owner_t	proxy_v2_trusted; /* lws_proxy_v2_trust_t */
+#if defined(LWS_ROLE_QUIC)
+	lws_sockaddr46		passthrough_sa46; /* numeric, for quic */
+	struct lws		*passthrough_qwsi; /* our udp socket to it */
+#endif
 #endif
 
 #if defined(LWS_WITH_DHT)
@@ -1828,6 +1832,21 @@ int
 lws_pre_accept_service(struct lws *wsi);
 void
 lws_pre_accept_destroy(struct lws *wsi);
+#if defined(LWS_ROLE_QUIC)
+extern const struct lws_protocols lws_quic_passthrough_protocol;
+
+int
+lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
+			const lws_sockaddr46 *peer, uint8_t ecn);
+int
+lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
+		     lws_sockaddr46 *peer);
+int
+lws_relayed_dgram_tx(struct lws *nwsi, lws_sockfd_type fd, const uint8_t *buf,
+		     size_t len, const lws_sockaddr46 *dest, int *sent);
+void
+lws_quic_passthrough_context_destroy(struct lws_context *cx);
+#endif
 #endif
 
 

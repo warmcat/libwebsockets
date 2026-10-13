@@ -1564,3 +1564,164 @@ lws_quic_create_retry_tag(const uint8_t *client_dcid, size_t dcid_len,
 
         return 0;
 }
+
+/*
+ * A client's Initial, looked at without any connection, eg, to read the SNI
+ * name of its ClientHello before deciding where the connection should go.
+ * Initial packets are protected with keys anyone can derive from their DCID
+ * (RFC 9001 5.2), so this needs nothing but the datagram.
+ *
+ * Only the first packet in the datagram is looked at, and only a QUIC v1
+ * client Initial.  cb is called with each CRYPTO frame's offset and bytes, in
+ * the order the frames come in the packet; the walk stops at the first frame
+ * that is not PADDING, PING or CRYPTO, since a client's first Initials carry
+ * nothing else.
+ *
+ * Returns 0 if the packet authenticated, else -1.
+ */
+int
+lws_quic_initial_crypto_peek(const uint8_t *dgram, size_t len,
+			     lws_quic_crypto_peek_cb_t cb, void *user)
+{
+	uint8_t initial_secret[32], client_secret[32], *pkt = NULL;
+	size_t pos, pn_offset, packet_len, c;
+	struct lws_quic_cid dcid;
+	struct lws_quic_keys k;
+	uint64_t v, plen, pn = 0;
+	int ret = -1, pn_len, n, u;
+
+	memset(&k, 0, sizeof(k));
+
+	/* a long header Initial, v1 */
+	if (len < 7 || (dgram[0] & 0xf0) != 0xc0 ||
+	    (((uint32_t)dgram[1] << 24) | ((uint32_t)dgram[2] << 16) |
+	     ((uint32_t)dgram[3] << 8) | dgram[4]) != LWS_QUIC_VERSION_1)
+		return -1;
+
+	pos = 5;
+	dcid.len = dgram[pos++];
+	if (dcid.len > LWS_QUIC_MAX_CID_LEN || len - pos < (size_t)dcid.len + 1)
+		return -1;
+	memcpy(dcid.id, dgram + pos, dcid.len);
+	pos += dcid.len;
+	if (dgram[pos] > LWS_QUIC_MAX_CID_LEN ||
+	    len - pos < (size_t)dgram[pos] + 1)
+		return -1;
+	pos += 1 + (size_t)dgram[pos];			/* SCID */
+
+	c = lws_quic_parse_varint(dgram + pos, len - pos, &v);	/* token */
+	if (!c || v > len - pos - c)
+		return -1;
+	pos += c + (size_t)v;
+
+	c = lws_quic_parse_varint(dgram + pos, len - pos, &plen); /* Length */
+	if (!c || plen > len - pos - c)
+		return -1;
+	pn_offset = pos + c;
+	packet_len = pn_offset + (size_t)plen;
+
+	pkt = lws_malloc(packet_len, __func__);
+	if (!pkt)
+		return -1;
+	memcpy(pkt, dgram, packet_len);
+
+	if (lws_genhkdf_extract(LWS_GENHMAC_TYPE_SHA256, quic_v1_initial_salt,
+				sizeof(quic_v1_initial_salt), dcid.id, dcid.len,
+				initial_secret) ||
+	    lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, initial_secret,
+				     sizeof(initial_secret), "client in", NULL,
+				     0, client_secret, sizeof(client_secret)) ||
+	    lws_quic_derive_key_iv_hp(client_secret, 32, 0, k.iv_rx,
+				      sizeof(k.iv_rx), &k.el_aead_rx,
+				      k.key_aead_rx, &k.el_hp_rx, k.key_hp_rx))
+		goto bail;
+	k.valid = 1;
+
+	pn_len = lws_quic_unmask_header(&k, pkt, packet_len, pn_offset);
+	if (pn_len < 1)
+		goto bail;
+	for (u = 0; u < pn_len; u++)
+		pn = (pn << 8) | pkt[pn_offset + (size_t)u];
+
+	/* a client's first Initials have small packet numbers, as sent */
+	n = lws_quic_decrypt_payload(&k, pkt, packet_len, pn_offset,
+				     (uint8_t)pn_len, pn);
+	if (n < 0)
+		goto bail;
+
+	pos = pn_offset + (size_t)pn_len;
+	packet_len = pos + (size_t)n;
+	while (pos < packet_len) {
+		uint64_t off, flen;
+
+		switch (pkt[pos]) {
+		case LWS_QUIC_FT_PADDING:
+		case LWS_QUIC_FT_PING:
+			pos++;
+			continue;
+		case LWS_QUIC_FT_CRYPTO:
+			pos++;
+			c = lws_quic_parse_varint(pkt + pos, packet_len - pos,
+						  &off);
+			if (!c)
+				goto done;
+			pos += c;
+			c = lws_quic_parse_varint(pkt + pos, packet_len - pos,
+						  &flen);
+			if (!c || flen > packet_len - pos - c)
+				goto done;
+			pos += c;
+			cb(user, off, pkt + pos, (size_t)flen);
+			pos += (size_t)flen;
+			continue;
+		default:
+			goto done;
+		}
+	}
+
+done:
+	ret = 0;
+
+bail:
+	lws_quic_keys_release_aead_rx(&k);
+	lws_explicit_bzero(&k, sizeof(k));
+	lws_explicit_bzero(initial_secret, sizeof(initial_secret));
+	lws_explicit_bzero(client_secret, sizeof(client_secret));
+	if (pkt) {
+		lws_explicit_bzero(pkt, packet_len);
+		lws_free(pkt);
+	}
+
+	return ret;
+}
+
+/*
+ * Where the first packet of a datagram says it is going: its DCID, and for a
+ * long header its SCID and whether it is an Initial.  A short header carries
+ * no DCID length, so it is taken to be the 8 bytes lws uses.  Returns 0, or
+ * -1 if the header does not fit.
+ */
+int
+lws_quic_dgram_cids(const uint8_t *dgram, size_t len, struct lws_quic_cid *dcid,
+		    struct lws_quic_cid *scid, int *initial)
+{
+	memset(scid, 0, sizeof(*scid));
+	*initial = 0;
+
+	if (len < 1 + 8)
+		return -1;
+
+	if (!(dgram[0] & 0x80)) {
+		dcid->len = 8;
+		memcpy(dcid->id, dgram + 1, 8);
+
+		return 0;
+	}
+
+	if (lws_quic_long_hdr_cids(dgram, len, dcid, scid))
+		return -1;
+
+	*initial = (dgram[0] & 0x30) == 0;
+
+	return 0;
+}

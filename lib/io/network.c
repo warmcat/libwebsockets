@@ -884,6 +884,13 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 	}
 #endif
 
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+	/* a client a trusted relay forwards is answered through the relay */
+	if (dest && !lwsi_role_client(nwsi) &&
+	    lws_relayed_dgram_tx(nwsi, fd, buf, len, dest, &n))
+		return n;
+#endif
+
 #if defined(WIN32) || defined(_WIN32)
 	if (dest)
 		n = sendto(fd, (const char *)buf, (int)len, 0,

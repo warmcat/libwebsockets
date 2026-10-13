@@ -949,6 +949,22 @@ struct lws_context {
 
 	lws_quic_tx_credit_cb_t quic_tx_credit_cb;
 	const struct lws_cc_ops *quic_cc_ops;
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+	/*
+	 * quic passthrough (lib/io/passthrough.c): on a front, the flows it
+	 * relays to a server and the Initials it is still reading the SNI of,
+	 * by DCID; on a server, the clients a trusted relay forwards, by
+	 * address
+	 */
+	struct lws_map			*pt_qflows;
+	struct lws_map			*pt_qpending;
+	struct lws_map			*pt_relayed;
+	lws_dll2_owner_t		pt_qflow_owner;
+	lws_dll2_owner_t		pt_qpending_owner;
+	lws_dll2_owner_t		pt_relayed_owner;
+	lws_sorted_usec_list_t		sul_pt_sweep;
+	int				count_quic_passthrough;
+#endif
 	uint32_t quic_initial_cwnd;
 	uint32_t quic_0rtt_max_size;
 

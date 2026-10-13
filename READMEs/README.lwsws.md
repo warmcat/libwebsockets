@@ -712,8 +712,29 @@ haproxy defined it, naming the real client and the SNI name it asked for.
 The server must expect it: an lws server is told to with
 `"proxy-v2-trusted"`, below.
 
-QUIC (h3) is not passed through yet, so turn h3 off on the server behind a
-passthrough, or browsers will try QUIC to the front and not reach it.
+### QUIC (h3)
+
+When the passthrough target is a numeric address and
+`"tls-passthrough-proxy-v2"` is on, the vhost's QUIC is passed through too, to
+the same address and port over udp.  The front reads the SNI name from the
+client's first Initial packets, which anyone can decrypt (RFC 9001 5.2),
+without terminating anything; a connection for any other name goes on to the
+front's own QUIC as before.  Each datagram is relayed with a PROXY v2 header
+naming the client, and the server's datagrams back must carry one naming the
+client they are for, so the server's QUIC sees each client's real address.
+When a client moves, eg, a NAT rebinding gives it a new port, the front
+follows its flow by connection ID, and the server validates the new path
+itself; the front sends a client only to an address the server names that
+the flow has seen it at.
+
+The server behind it must list the front in `"proxy-v2-trusted"`, which
+applies to its udp listener as much as its tcp one.  A target given as a name
+is passed through for tcp only.  The headers add up to 52 bytes to each
+datagram between the front and the server, so that path wants an MTU a little
+above the clients'.  The front routes the server's packets by the connection
+IDs it sees in their long headers, which is all an lws server uses; a server
+that hands out more with NEW_CONNECTION_ID frames, which are encrypted, can't
+have a client that moves onto one of those followed.
 
 ## Accepting PROXY v2 headers
 

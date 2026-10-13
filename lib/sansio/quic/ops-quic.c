@@ -390,7 +390,7 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
  * allocated for the connection, the original client DCID (it may not have
  * switched yet), or the preferred_address CID we advertised (RFC 9000 9.6).
  */
-static struct lws *
+struct lws *
 lws_quic_find_child_by_dcid(struct lws *listener,
 			    const struct lws_quic_cid *dcid)
 {
@@ -1101,7 +1101,7 @@ lws_quic_replies_destroy(struct lws *lwsi)
  * The DCID and SCID of the long header packet at p (RFC 9000 17.2), or -1 if
  * the header does not fit in len or a CID is longer than QUIC allows
  */
-static int
+int
 lws_quic_long_hdr_cids(const uint8_t *p, size_t len, struct lws_quic_cid *dcid,
 		       struct lws_quic_cid *scid)
 {

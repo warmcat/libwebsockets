@@ -3070,6 +3070,9 @@ next_l:
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lws_async_dns_deinit(&context->async_dns);
 #endif
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+		lws_quic_passthrough_context_destroy(context);
+#endif
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		lws_dhcpc_remove(context, NULL);
 #endif
