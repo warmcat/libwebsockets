@@ -183,6 +183,9 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].quic-mtu",
 	"vhosts[].quic-preferred-addresses",
 	"vhosts[].host-ssl-cert-grace-secs",
+	"vhosts[].tls-passthrough",
+	"vhosts[].tls-passthrough-proxy-v2",
+	"vhosts[].proxy-v2-trusted",
 };
 
 enum lejp_vhost_paths {
@@ -287,6 +290,9 @@ enum lejp_vhost_paths {
 	LEJPVP_QUIC_MTU,
 	LEJPVP_QUIC_PREFERRED_ADDRESSES,
 	LEJPVP_HOST_SSL_CERT_GRACE_SECS,
+	LEJPVP_TLS_PASSTHROUGH,
+	LEJPVP_TLS_PASSTHROUGH_PROXY_V2,
+	LEJPVP_PROXY_V2_TRUSTED,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -1447,6 +1453,16 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 	case LEJPVP_LISTEN_ACCEPT_ROLE:
 		a->info->listen_accept_role = a->p;
+		break;
+
+	case LEJPVP_TLS_PASSTHROUGH:
+		a->info->tls_passthrough = a->p;
+		break;
+	case LEJPVP_TLS_PASSTHROUGH_PROXY_V2:
+		a->info->tls_passthrough_proxy_v2 = !!atoi(ctx->buf);
+		return 0;
+	case LEJPVP_PROXY_V2_TRUSTED:
+		a->info->proxy_v2_trusted = a->p;
 		break;
 	case LEJPVP_LISTEN_ACCEPT_PROTOCOL:
 		a->info->listen_accept_protocol = a->p;

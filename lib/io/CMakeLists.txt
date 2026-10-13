@@ -61,6 +61,12 @@ if (LWS_WITH_ROUTING)
 	)
 endif()
 
+if (LWS_WITH_TLS_PASSTHROUGH)
+	list(APPEND SOURCES
+		io/passthrough.c
+	)
+endif()
+
 if (LWS_WITH_CLIENT)
 	list(APPEND SOURCES
 		io/client/connect.c

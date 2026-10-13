@@ -55,7 +55,7 @@ static const char * const intermediates[] = { "private", "public" };
  * the same answer for a TLS SNI name as it is for a Host: header.
  */
 
-static struct lws_vhost *
+struct lws_vhost *
 lws_select_vhost_by_name(struct lws_context *context, int port,
 			 const char *servername)
 {

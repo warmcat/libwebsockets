@@ -860,6 +860,13 @@ struct lws_vhost {
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
 
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	char			*passthrough_host; /* where its tls goes, or NULL */
+	uint16_t		passthrough_port;
+	uint8_t			passthrough_proxy_v2;
+	lws_dll2_owner_t	proxy_v2_trusted; /* lws_proxy_v2_trust_t */
+#endif
+
 #if defined(LWS_WITH_DHT)
 	lws_dll2_owner_t	dht_owner;
 #endif
@@ -1037,6 +1044,22 @@ struct lws_io_adjunct {
 	/* the connection's addresses, family and route */
 	lws_sockaddr46			sa46_local;
 	lws_sockaddr46			sa46_peer;
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	/*
+	 * A server connection's first bytes, looked at before its tls or role
+	 * sees them (lib/io/passthrough.c): a PROXY v2 header from a trusted
+	 * proxy, then the ClientHello's SNI to see if it is passed through
+	 */
+	lws_sorted_usec_list_t		sul_pre_accept;
+	lws_sockaddr46			sa46_proxied; /* the client a trusted
+						       * proxy named */
+	uint8_t				*pa_peek;
+	unsigned int			pre_accept:1;
+	unsigned int			pa_tls:1;	/* tls accept after */
+	unsigned int			pa_proxy_v2:1;	/* header expected */
+	unsigned int			pa_sni:1;	/* passthrough possible */
+	unsigned int			proxied:1;	/* sa46_proxied is set */
+#endif
 #if defined(LWS_WITH_ROUTING)
 	lws_route_uidx_t		peer_route_uidx;
 #endif
@@ -1790,6 +1813,23 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 int
 lws_http_to_fallback(struct lws *wsi, unsigned char *buf, size_t len);
 
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+/* lib/io/passthrough.c: see the comment at its top */
+extern const struct lws_protocols lws_passthrough_protocol;
+
+int
+lws_passthrough_vhost_init(struct lws_vhost *vh,
+			   const struct lws_context_creation_info *info);
+void
+lws_passthrough_vhost_destroy(struct lws_vhost *vh);
+int
+lws_pre_accept_wanted(struct lws *wsi, int tls);
+int
+lws_pre_accept_service(struct lws *wsi);
+void
+lws_pre_accept_destroy(struct lws *wsi);
+#endif
+
 
 int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
@@ -1868,6 +1908,9 @@ lws_ensure_user_space(struct lws *wsi);
 #if defined(LWS_WITH_SERVER)
 struct lws_vhost *
  lws_select_vhost(struct lws_context *context, int port, const char *servername);
+struct lws_vhost *
+ lws_select_vhost_by_name(struct lws_context *context, int port,
+			  const char *servername);
 int LWS_WARN_UNUSED_RESULT
  lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len);
 void

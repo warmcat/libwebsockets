@@ -1322,6 +1322,35 @@ struct lws_context_creation_info {
 	 * have replaced cached copies of the old one.  Renewals told to
 	 * lws_tls_cert_updated() are applied at once. */
 
+	const char			*tls_passthrough;
+	/**< VHOST: NULL, or "host:port" ("[v6addr]:port" for an IPv6
+	 * literal) of a server this vhost's TLS connections are passed to as
+	 * they are, without being decrypted, so the server terminates the TLS
+	 * itself.  The vhost is chosen as usual by the SNI name in the
+	 * ClientHello, from the vhost names on the listener, and needs no
+	 * certificate, mounts or protocols of its own.  The connection's first
+	 * bytes are only looked at, not consumed, so a connection that is not
+	 * for such a vhost goes on to the listener's own TLS as if nothing
+	 * had happened.  Needs LWS_WITH_TLS_PASSTHROUGH. */
+
+	uint8_t				tls_passthrough_proxy_v2;
+	/**< VHOST: with .tls_passthrough, nonzero to tell the server who the
+	 * client is in a PROXY v2 header (see lws-proxy-v2.h) before its
+	 * bytes, along with the SNI name it asked for.  The server must then
+	 * expect one from us, eg, with .proxy_v2_trusted. */
+
+	const char			*proxy_v2_trusted;
+	/**< VHOST: NULL, or a comma-separated list of numeric addresses or
+	 * CIDR netblocks of proxies, eg, a tls passthrough, that send a PROXY
+	 * v2 header ahead of the connections they forward to this vhost's
+	 * listener.  A connection from one of them must start with exactly
+	 * one valid header, or it is dropped, and the client it names is then
+	 * the connection's peer address as lws reports it, eg, from
+	 * lws_get_peer_simple().  A connection from anywhere else is never
+	 * looked at for one, so nobody else can claim to be somebody they are
+	 * not.  The list applies to every vhost sharing the listener.  Needs
+	 * LWS_WITH_TLS_PASSTHROUGH. */
+
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */
 #endif

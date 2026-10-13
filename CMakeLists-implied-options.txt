@@ -115,6 +115,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_THREADPOOL 1)			# pthreads
 	set(LWS_UNIX_SOCK 1)				# selfcontained
 	set(LWS_WITH_HTTP_PROXY 1)			# selfcontained
+	set(LWS_WITH_TLS_PASSTHROUGH 1)			# selfcontained
 	set(LWS_WITH_DISKCACHE 1)			# selfcontained
 	set(LWS_WITH_LWSAC 1)				# selfcontained
 	set(LWS_WITH_LEJP_CONF 1)			# selfcontained
@@ -238,6 +239,7 @@ if (NOT LWS_WITH_NETWORK)
 	set(LWS_WITH_SOCKS5 0)
 	set(LWS_UNIX_SOCK 0)
 	set(LWS_WITH_HTTP_PROXY 0)
+	set(LWS_WITH_TLS_PASSTHROUGH 0)
 	set(LWS_WITH_PLUGINS 0)
 	set(LWS_WITH_LWSWS 0)
 	set(LWS_WITH_CGI 0)
@@ -447,6 +449,12 @@ endif()
 if (LWS_WITH_HTTP_PROXY AND (LWS_WITHOUT_CLIENT OR LWS_WITHOUT_SERVER))
 	message("You have to enable both client and server for http proxy")
 	set(LWS_WITH_HTTP_PROXY 0)
+endif()
+
+if (LWS_WITH_TLS_PASSTHROUGH AND (LWS_WITHOUT_CLIENT OR LWS_WITHOUT_SERVER OR
+				  NOT LWS_WITH_SSL OR NOT LWS_ROLE_RAW))
+	message("LWS_WITH_TLS_PASSTHROUGH needs client, server, tls and the raw role")
+	set(LWS_WITH_TLS_PASSTHROUGH 0)
 endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS OR LWS_WITH_ZIP_FOPS)

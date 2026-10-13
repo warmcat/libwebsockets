@@ -535,6 +535,8 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	R("*", "S", LRS_HEADERS,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED),
 	/* the non-tls fallback on a tls listener, from the first byte peek in the accept */
 	R("*", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED),
+	/* a tls passthrough, from the look at the ClientHello before the accept */
+	R("*", "S", LRS_SSL_INIT,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED),
 	/* a later request on a kept-alive connection, and a listener already in the raw role */
 	R("*", "S", LRS_ESTABLISHED,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED),
 	/* ---- transport machine ---- */

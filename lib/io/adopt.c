@@ -297,6 +297,27 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	new_wsi->io->undergoing_init_from_other_pt = 1;
 #endif
 
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	/*
+	 * A server connection whose first bytes have to be looked at before
+	 * its tls or its role sees them (lib/io/passthrough.c) only goes in
+	 * the fd table, reading, for now: its tls accept, if any, waits until
+	 * lws_pre_accept_service() is done with it
+	 */
+	if ((type & LWS_ADOPT_SOCKET) && !(type & LWS_ADOPT_FLAG_UDP) &&
+	    lwsi_role_server(new_wsi) &&
+	    lws_pre_accept_wanted(new_wsi, !!(type & LWS_ADOPT_ALLOW_SSL))) {
+		lws_pt_lock(pt, __func__);
+		if (__insert_wsi_socket_into_fds(new_wsi->a.context, new_wsi)) {
+			lws_pt_unlock(pt);
+			lwsl_wsi_err(new_wsi, "fail inserting socket");
+			goto fail;
+		}
+		lws_pt_unlock(pt);
+		lws_set_timeout(new_wsi, PENDING_TIMEOUT_SSL_ACCEPT,
+				(int)new_wsi->a.context->timeout_secs);
+	} else
+#endif
 	if (!(type & LWS_ADOPT_ALLOW_SSL)) {
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(new_wsi->a.context, new_wsi)) {

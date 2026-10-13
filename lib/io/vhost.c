@@ -349,6 +349,17 @@ lws_create_vhost(struct lws_context *context,
 	vh->tls.cert_grace_secs = info->tls_cert_grace_secs;
 #endif
 
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	if (lws_passthrough_vhost_init(vh, info))
+		goto bail;
+#else
+	if (info->tls_passthrough || info->proxy_v2_trusted) {
+		lwsl_vhost_err(vh, "tls passthrough and PROXY v2 need "
+			       "LWS_WITH_TLS_PASSTHROUGH");
+		goto bail;
+	}
+#endif
+
 	/* carefully allocate and take a copy of cert + key paths if present */
 	n = 0;
 	if (info->ssl_cert_filepath)
@@ -416,6 +427,9 @@ lws_create_vhost(struct lws_context *context,
 				   1 +
 #endif
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+				   1 +
+#endif
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
 				   1 +
 #endif
 				   (unsigned int)context->plugin_protocol_count +
@@ -487,6 +501,13 @@ lws_create_vhost(struct lws_context *context,
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	memcpy(&lwsp[m], &lws_sspc_protocols[0], sizeof(*lwsp));
+	m++;
+	vh->count_protocols++;
+#endif
+
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	/* the two legs of a connection a vhost passes through */
+	memcpy(&lwsp[m], &lws_passthrough_protocol, sizeof(*lwsp));
 	m++;
 	vh->count_protocols++;
 #endif
@@ -762,6 +783,9 @@ bail:
 	lws_metric_destroy(&vh->mt_traffic_tx, 0);
 #endif
 #if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	lws_passthrough_vhost_destroy(vh);
+#endif
 	lws_free_set_NULL(vh->tls.cfg_alloc_cert_path);
 	lws_free_set_NULL(vh->tls.cfg_ssl_cipher_list);
 	lws_free_set_NULL(vh->tls.cfg_tls1_3_plus_cipher_list);
@@ -1222,6 +1246,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 #if defined (LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	lws_passthrough_vhost_destroy(vh);
+#endif
 	lws_free_set_NULL(vh->tls.cfg_alloc_cert_path);
 	lws_free_set_NULL(vh->tls.cfg_ssl_cipher_list);
 	lws_free_set_NULL(vh->tls.cfg_tls1_3_plus_cipher_list);

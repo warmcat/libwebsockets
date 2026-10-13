@@ -935,8 +935,13 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		 */
 		lws_wsi_event(wsi, LWS_WSIEV_TLS_ACCEPT_PENDING);
 
+		/*
+		 * One held for a look at his first bytes first is in the fds
+		 * already (lib/io/passthrough.c)
+		 */
 		lws_pt_lock(pt, __func__);
-		if (__insert_wsi_socket_into_fds(context, wsi)) {
+		if (wsi->io->position_in_fds_table == LWS_NO_FDS_POS &&
+		    __insert_wsi_socket_into_fds(context, wsi)) {
 			lwsl_err("%s: failed to insert into fds\n", __func__);
 			/* we must not leave the pt locked on the error path */
 			lws_pt_unlock(pt);

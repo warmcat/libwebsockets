@@ -681,6 +681,59 @@ protocol "myprotocol".
 	"allow-http-on-https":		"1",
 ```
 
+## Passing a vhost's tls through to another server
+
+A vhost can have its tls connections passed, still encrypted, to another
+server that terminates the tls itself, eg, a service on another host that
+keeps its own private key.  It is chosen by the SNI name in the ClientHello,
+like any vhost on a shared listener, and needs no certificate, mounts or
+protocols of its own.  This needs lws built with `LWS_WITH_TLS_PASSTHROUGH`.
+
+```
+	{
+		"name":				"auth.example.com",
+		"port":				"443",
+		"tls-passthrough":		"192.168.1.20:443",
+		"tls-passthrough-proxy-v2":	"1"
+	}
+```
+
+The connection's first bytes are only looked at, never consumed, so a
+connection naming any other vhost goes on to the listener's own tls exactly
+as before.  The ClientHello may arrive in several tcp segments, or be split
+across several tls records; up to 32KB of it is gathered to find the name.
+Make the vhosts that terminate tls on the port before any passed through one,
+so the listener is theirs; on a listener with only passed through vhosts,
+anything not for one of them is dropped.
+
+The server only sees the connection come from us, so with
+`"tls-passthrough-proxy-v2": "1"` we send it a PROXY v2 header first, as
+haproxy defined it, naming the real client and the SNI name it asked for.
+The server must expect it: an lws server is told to with
+`"proxy-v2-trusted"`, below.
+
+QUIC (h3) is not passed through yet, so turn h3 off on the server behind a
+passthrough, or browsers will try QUIC to the front and not reach it.
+
+## Accepting PROXY v2 headers
+
+A vhost that is reached through a proxy that doesn't terminate the
+connection, eg, the passthrough above or haproxy, can be told which proxies
+send a PROXY v2 header ahead of what they forward:
+
+```
+	"proxy-v2-trusted":	"192.168.1.1, 2001:db8::/64"
+```
+
+It is a comma-separated list of numeric addresses or CIDR netblocks.  A
+connection from one of them must start with exactly one valid PROXY v2
+header, or it is dropped; the header is taken off the connection, and the
+client it names is the peer address lws reports from then on, eg, to a
+plugin keying rate limits on it.  A connection from anywhere else is never
+looked at for one, so nobody else can claim to be somebody they are not, and
+a header after the first, wherever it came from, is just the client's data.
+The list applies to every vhost on the same listener.
+
 ## Lwsws Plugins
 
 Protcols and extensions may also be provided from "plugins", these are

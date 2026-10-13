@@ -701,6 +701,9 @@ lws_io_quiesce_pollfd(struct lws *wsi)
 {
 	lws_io_abort_connect(wsi);
 	lws_io_socket_wait_cancel(wsi);
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	lws_pre_accept_destroy(wsi);
+#endif
 
 	/* the service thread's event pipe leaves the loop now */
 	if (wsi->a.context->pt[(int)wsi->tsi].pipe_wsi == wsi)

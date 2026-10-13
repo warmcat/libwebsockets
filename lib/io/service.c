@@ -1717,6 +1717,16 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		goto handled;
 	}
 
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	/* so is the look at a server connection's first bytes before it */
+	if (wsi->io->pre_accept) {
+		if (lws_pre_accept_service(wsi))
+			goto close_and_handled_l;
+
+		goto handled;
+	}
+#endif
+
 	/* a server's tls accept in progress is IO's alone */
 	if (!lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_SSL_ACK_PENDING) {
 		if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID,

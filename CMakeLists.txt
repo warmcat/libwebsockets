@@ -180,6 +180,7 @@ option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket if OS supports
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions (implies LWS_WITH_PLUGINS_API)" OFF)
 option(LWS_WITH_PLUGINS_BUILTIN "Build the plugin protocols directly into lws library" OFF)
 option(LWS_WITH_HTTP_PROXY "Support for active HTTP proxying" OFF)
+option(LWS_WITH_TLS_PASSTHROUGH "Pass a vhost's TLS connections, chosen by their SNI, to another server undecrypted, and accept PROXY v2 headers from trusted proxies" OFF)
 option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" OFF)
 option(LWS_WITH_SOCKS5 "Allow use of SOCKS5 proxy on client connections" OFF)
 option(LWS_WITH_PEER_LIMITS "Track peers and restrict resources a single peer can allocate" OFF)
