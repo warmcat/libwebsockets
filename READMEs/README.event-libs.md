@@ -39,8 +39,9 @@ dependencies for the packageset without forcing everything to bring everything i
 
 Separately, lws itself has some optional dependencies on libuv, if you build lwsws
 or on Windows you want plugins at all.  CMake will detect these situations and
-select to link the lws library itself to libuv if so as well, independent of whatever
-is happening with the event lib support.
+select to link the lws library itself to libuv if so as well.  In that case the
+libuv event lib support is built into the lws library too, and used from there:
+there's no separate `libwebsockets-evlib_uv.so` plugin.
 
 ## evlib plugin install
 

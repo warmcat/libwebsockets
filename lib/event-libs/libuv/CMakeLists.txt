@@ -55,7 +55,11 @@ CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
     CHECK_INCLUDE_FILE(uv/version.h LWS_HAVE_NEW_UV_VERSION_H)
   endif()
   
-  if (LWS_WITH_EVLIB_PLUGINS AND LWS_WITH_LIBUV)
+  #
+  # When libuv is built into the lib, the context uses the evlib from there,
+  # so there's no plugin to build
+  #
+  if (LWS_WITH_EVLIB_PLUGINS AND LWS_WITH_LIBUV AND NOT LWS_WITH_LIBUV_INTERNAL)
 
 	create_evlib_plugin(evlib_uv
 			    libuv.c

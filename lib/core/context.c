@@ -822,6 +822,22 @@ lws_create_context(const struct lws_context_creation_info *info)
 		if (!lws_check_opt(ev_options, map[n].flag))
 			continue;
 
+#if defined(LWS_WITH_LIBUV_INTERNAL)
+		if (!n) {
+			/*
+			 * libuv is built into the lib (eg, for lwsws), so its
+			 * evlib is already here: loading the plugin too would
+			 * put a second copy of the same code and globals in
+			 * the process, beside the one the lib's uv apis use
+			 */
+			extern const lws_plugin_evlib_t evlib_uv;
+
+			plev = &evlib_uv;
+			fatal_exit_defer = !!info->foreign_loops;
+			break;
+		}
+#endif
+
 		if (!lws_plugins_init(&evlib_plugin_list,
 				     dp, "lws_evlib_plugin",
 				     map[n].name, NULL, NULL))
