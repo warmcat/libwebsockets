@@ -122,9 +122,12 @@
  *    "<exempt>, <privileged>" still reach the waiting room, and an offer
  *    led by a name the vhost does not know binds the next one it does.
  *
- * plus stale-token scenarios: the test seeds the plugin's db-path with the
- * auth server's users / services / grants / devices tables, and presents
- * genuinely-signed, unexpired session JWTs that the records no longer back.
+ * plus stale-token scenarios: the mock auth server also serves the
+ * lws-auth-feed ws protocol, and tells lws-login its records (users, grants,
+ * devices) in a snapshot, against which the test presents genuinely-signed,
+ * unexpired session JWTs that the records no longer back.  The sequence only
+ * starts once lws-login has subscribed with the right feed secret and been
+ * sent the snapshot.
  * lws-login must never repair one by signing a token itself: it once re-minted
  * a token whose grants had changed with the CURRENT session_epoch, so a
  * session revoked by a password reset was handed a fresh one whenever its
@@ -149,7 +152,7 @@
  * The app vhost runs the real lws-login plugin (builtin plugins build) with
  * lws_login_client enabled on the same vhost as the side channel requires,
  * against an in-process mock auth server.  Ports come from the CI port
- * allocator; the plugin's sqlite db-path points into the build dir.
+ * allocator.
  */
 
 #include <libwebsockets.h>
@@ -160,8 +163,6 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <time.h>
-
-#include <sqlite3.h>
 
 /* -------------------------------------------------------------- scenarios */
 
@@ -214,8 +215,8 @@ static char	o_origin_good[64], o_origin_evil[64], o_referer_good[64];
 
 /*
  * Cookie headers carrying session JWTs minted in main() against the records
- * seed_db() writes: uid 1 is at session_epoch 5 holding default-service:1,
- * and owns device "dev-ok"
+ * the mock's feed snapshot holds: uid 1 is at session_epoch 5 holding
+ * default-service:1, and owns device "dev-ok"
  */
 #define BFF_REFRESH_JAR	"auth_refresh_session=0123456789abcdef0123456789abcdef; " \
 			"auth_csrf=fedcba9876543210fedcba9876543210"
@@ -550,6 +551,74 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/* ------------------------------------------------------ mock auth feed */
+
+#define BFF_FEED_SECRET "apitest-bff-feed-secret-0123456789abcdef"
+
+/*
+ * What the mock auth server's records are, as its lws-auth-feed tells
+ * lws-login: uid 1 at session_epoch 5, holding default-service:1 and owning
+ * device "dev-ok"
+ */
+static const char feed_snapshot[] =
+	"{\"schema\":\"lws-auth-feed-1\","
+	"\"users\":[{\"uid\":1,\"sec\":5}],"
+	"\"grants\":[{\"svc\":\"default-service\",\"uid\":1,"
+		"\"level\":1}],"
+	"\"devices\":[{\"did\":\"dev-ok\",\"uid\":1}],"
+	"\"ruris\":[]}";
+
+static lws_sorted_usec_list_t sul_next;
+static int feed_sent;
+
+static void
+start_step(lws_sorted_usec_list_t *sul);
+
+static int
+callback_feedmock(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	uint8_t buf[LWS_PRE + sizeof(feed_snapshot)];
+	char auth[128];
+
+	switch (reason) {
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+		/* only a subscriber with the feed secret */
+		if (lws_hdr_copy(wsi, auth, sizeof(auth),
+				 WSI_TOKEN_HTTP_AUTHORIZATION) <= 0 ||
+		    strcmp(auth, "Bearer " BFF_FEED_SECRET)) {
+			lwsl_err("%s: feed subscriber without the secret\n",
+				 __func__);
+			return 1;
+		}
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED:
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		if (feed_sent)
+			break;
+		memcpy(buf + LWS_PRE, feed_snapshot, sizeof(feed_snapshot) - 1);
+		if (lws_write(wsi, buf + LWS_PRE, sizeof(feed_snapshot) - 1,
+			      LWS_WRITE_TEXT) < (int)sizeof(feed_snapshot) - 1)
+			return -1;
+		feed_sent = 1;
+		lwsl_user("  mock auth feed snapshot sent\n");
+
+		/* give lws-login a moment to take it in, then start */
+		lws_sul_schedule(lws_get_context(wsi), 0, &sul_next,
+				 start_step, 200 * LWS_US_PER_MS);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------- client */
 
 static void
@@ -798,13 +867,14 @@ static const struct lws_protocols
 	defprot = { "defprot", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	prot_auth = { "lws-api-test-lws-login-bff-authmock", callback_authmock,
 		      sizeof(struct pss_auth), 0, 0, NULL, 0 },
+	prot_feed = { "lws-auth-feed", callback_feedmock, 0, 0, 0, NULL, 0 },
 	prot_cli = { "lws-api-test-lws-login-bff-cli", callback_cli,
 		     0, 0, 0, NULL, 0 },
 	prot_priv = { BFF_WS_PRIV, callback_gated_ws, 0, 0, 0, NULL, 0 },
 	prot_waiting = { BFF_WS_WAITING, callback_gated_ws, 0, 0, 0, NULL, 0 };
 
 static const struct lws_protocols
-	*pprotocols_auth[] = { &defprot, &prot_auth, NULL },
+	*pprotocols_auth[] = { &defprot, &prot_auth, &prot_feed, NULL },
 	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL },
 	*pprotocols_app[]  = { &defprot, &prot_priv, &prot_waiting, NULL };
 
@@ -848,7 +918,8 @@ static const struct lws_http_mount
  * known.
  */
 static struct lws_protocol_vhost_options
-	pvo_dbpath	= { NULL, NULL, "db-path", NULL },
+	/* lws-login subscribes to the mock's auth feed with this */
+	pvo_feed	= { NULL, NULL, "auth-feed-secret", BFF_FEED_SECRET },
 	/*
 	 * cookie-domain set so the Domain= variants of the rotated
 	 * auth_session / auth_csrf cookies (the longest csrf cookie string
@@ -872,7 +943,6 @@ static struct lws_protocol_vhost_options
  * refused rather than kicked against the empty host it parses to.
  */
 static struct lws_protocol_vhost_options
-	pvo_dbpath2	= { NULL, NULL, "db-path", NULL },
 	pvo_cdom2	= { NULL, NULL, "cookie-domain", "127.0.0.1" },
 	pvo_asu2	= { NULL, NULL, "auth-server-url", "/oauth/login" },
 	pvo_jwk2	= { NULL, NULL, "jwt-jwk", jwk_json },
@@ -881,15 +951,18 @@ static struct lws_protocol_vhost_options
 
 /* -------------------------------------------------------------- driver */
 
-static lws_sorted_usec_list_t sul_next;
 static lws_sorted_usec_list_t sul_timeout;
 
 static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	(void)sul;
-	lwsl_err("%s: scenario '%s' timed out\n", __func__,
-		 scenarios[step].name);
+	if (!feed_sent)
+		lwsl_err("%s: lws-login never took the mock auth feed\n",
+			 __func__);
+	else
+		lwsl_err("%s: scenario '%s' timed out\n", __func__,
+			 scenarios[step].name);
 	step_done = -1;
 	step_advance();
 }
@@ -1304,53 +1377,6 @@ sigint_handler(int sig)
 }
 
 /*
- * The rows lws-login reads from the auth server's db, in the auth server's
- * schema (reduced to the columns that matter here)
- */
-static int
-seed_db(const char *path)
-{
-	static const char sql[] =
-		"DROP TABLE IF EXISTS users;"
-		"DROP TABLE IF EXISTS services;"
-		"DROP TABLE IF EXISTS grants;"
-		"DROP TABLE IF EXISTS devices;"
-		"CREATE TABLE users (uid INTEGER PRIMARY KEY, username VARCHAR, "
-			"session_epoch INTEGER DEFAULT 0);"
-		"CREATE TABLE services (service_id INTEGER PRIMARY KEY, "
-			"name VARCHAR UNIQUE);"
-		"CREATE TABLE grants (grant_id INTEGER PRIMARY KEY, uid INTEGER, "
-			"service_id INTEGER, grant_level INTEGER, "
-			"UNIQUE(uid, service_id));"
-		"CREATE TABLE devices (device_id VARCHAR PRIMARY KEY, "
-			"uid INTEGER, name VARCHAR, created INTEGER);"
-		"INSERT INTO users VALUES (1, 'alice', 5);"
-		"INSERT INTO services VALUES (1, 'default-service');"
-		"INSERT INTO grants VALUES (1, 1, 1, 1);"
-		"INSERT INTO devices VALUES ('dev-ok', 1, 'camera', 0);";
-	char *err = NULL;
-	sqlite3 *db;
-	int n;
-
-	if (sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE |
-			    SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
-		lwsl_err("%s: unable to open %s\n", __func__, path);
-		sqlite3_close(db);
-		return 1;
-	}
-
-	n = sqlite3_exec(db, sql, NULL, NULL, &err);
-	if (n != SQLITE_OK) {
-		lwsl_err("%s: seeding %s failed: %s\n", __func__, path,
-			 err ? err : "unknown");
-		sqlite3_free(err);
-	}
-	sqlite3_close(db);
-
-	return n != SQLITE_OK;
-}
-
-/*
  * A Cookie: header carrying a genuinely-signed, unexpired session JWT in the
  * shape the auth server mints, optionally followed by more of the jar
  */
@@ -1408,10 +1434,6 @@ int main(int argc, const char **argv)
 	g_port_auth = g_port_app + 1;
 	g_port_app2 = g_port_app + 2;
 
-	pvo_dbpath.value = lws_cmdline_option(argc, argv, "--db-path");
-	if (!pvo_dbpath.value)
-		pvo_dbpath.value = "lws-api-test-lws-login-bff.sqlite3";
-
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS API selftest: lws-login BFF refresh / csrf self-heal"
@@ -1427,12 +1449,12 @@ int main(int argc, const char **argv)
 	}
 
 	/* options chain for lws-login:
-	 * jwk -> auth-server-url -> cookie-domain -> db-path ->
+	 * jwk -> auth-server-url -> cookie-domain -> auth-feed-secret ->
 	 * unauth-protocols */
 	pvo_jwk.next	= &pvo_asu;
 	pvo_asu.next	= &pvo_cdom;
-	pvo_cdom.next	= &pvo_dbpath;
-	pvo_dbpath.next	= &pvo_uap;
+	pvo_cdom.next	= &pvo_feed;
+	pvo_feed.next	= &pvo_uap;
 	pvo_login.options = &pvo_jwk;
 
 	/* protocol-enabling chain: lws-login (with options) then the
@@ -1441,17 +1463,12 @@ int main(int argc, const char **argv)
 
 	/* second app vhost's chain: same shape but the relative BFF-delegate
 	 * auth-server-url and no auth-api-url, exactly the misconfiguration
-	 * the relative-authapi scenario fences (db-path shared with app) */
-	pvo_dbpath2.value = pvo_dbpath.value;
+	 * the relative-authapi scenario fences.  It has no auth feed either:
+	 * it could not reach one */
 	pvo_jwk2.next	= &pvo_asu2;
 	pvo_asu2.next	= &pvo_cdom2;
-	pvo_cdom2.next	= &pvo_dbpath2;
 	pvo_login2.options = &pvo_jwk2;
 	pvo_login2.next	= &pvo_lc2;
-
-	/* the plugin opens the db when the app vhost is created */
-	if (seed_db(pvo_dbpath.value))
-		return 1;
 
 	/* --------------------------------------------------- context/vhosts */
 
@@ -1614,9 +1631,14 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	/* kick off the scenario sequence */
+	/*
+	 * The scenario sequence starts once the mock auth feed has sent
+	 * lws-login its snapshot; the deadline makes a feed that never
+	 * connects a failure
+	 */
 	step = 0;
-	lws_sul_schedule(context, 0, &sul_next, start_step, 1);
+	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
+			 10 * LWS_US_PER_SEC);
 
 	while (n >= 0 && !sequence_done)
 		n = lws_service(context, 0);

@@ -3,6 +3,7 @@ set(requirements 1)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 require_lws_config(LWS_WITH_JOSE 1 requirements)
 require_lws_config(LWS_WITH_STRUCT_SQLITE3 1 requirements)
+require_lws_config(LWS_WITH_STRUCT_JSON 1 requirements)
 require_lws_config(LWS_WITH_AUTH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_EMAIL 1 requirements)
 

@@ -53,7 +53,13 @@
                 "jwt_alg":                      "ES256",
                 "jwt-validity-secs":            "@OAUTH_JWT_VALIDITY@",
                 "refresh-validity-secs":        "2592000",
-                "registration_ui":              "1"
+                "registration_ui":              "1",
+                # what the app vhost's lws-login subscribes to the auth
+                # feed with
+                "feed-secret":                  "@OAUTH_FEED_SECRET@"
+        },
+        "lws-auth-feed": {
+                "status":                       "ok"
         }
        }],
 
@@ -102,9 +108,9 @@
                 "jwt-jwk":              "@OAUTH_JWK_PATH@",
                 "cookie-name":          "auth_session",
                 "@OAUTH_COOKIE_DOMAIN_KEY@": "@OAUTH_COOKIE_DOMAIN@",
-                # the deployment leaves this at its default, where the auth
-                # server's db happens to be; here it has to be said explicitly
-                "db-path":              "@OAUTH_AUTH_DB@",
+                # revocations and grant changes come from the auth server's
+                # feed, not its db
+                "auth-feed-secret":     "@OAUTH_FEED_SECRET@",
                 "unauth-allow":         "1"
         },
         "lws-oauth2-client": {

@@ -25,6 +25,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "../lws-auth-feed.h"
+
 /* auth_peer_is_own(): close() for the UDP source-address probe */
 #if !defined(WIN32)
 #include <unistd.h>
@@ -203,6 +205,13 @@ struct per_vhost_data__auth_server {
 	char				ui_css[256];
 	unsigned long long		refresh_token_validity_secs;
 	unsigned int			auth_log_limit;
+
+	/* lws-auth-feed, enabled by the feed-secret pvo */
+	char				feed_secret[LWS_AUTH_FEED_SECRET_MAX + 1];
+	struct auth_feed_snap		*feed_snap;
+	lws_sorted_usec_list_t		sul_feed;
+	int				feed_changes;
+	int				feed_data_version;
 };
 
 typedef struct auth_server_strike {
@@ -3633,8 +3642,17 @@ send:
  */
 
 static void
+auth_feed_snap_unref(struct auth_feed_snap **ps);
+static void
+auth_feed_check(lws_sorted_usec_list_t *sul);
+
+static void
 auth_server_vhd_release(struct per_vhost_data__auth_server *vhd)
 {
+	lws_sul_cancel(&vhd->sul_feed);
+	auth_feed_snap_unref(&vhd->feed_snap);
+	lws_explicit_bzero(vhd->feed_secret, sizeof(vhd->feed_secret));
+
 	if (vhd->db) {
 		sqlite3_close(vhd->db);
 		vhd->db = NULL;
@@ -3773,6 +3791,18 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "trusted-proxies");
 		if (pvo && pvo->value)
 			lws_strncpy(vhd->trusted_proxies, pvo->value, sizeof(vhd->trusted_proxies));
+
+		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "feed-secret");
+		if (pvo && pvo->value &&
+		    lws_auth_feed_secret_load(pvo->value, vhd->feed_secret,
+					      sizeof(vhd->feed_secret))) {
+			lwsl_vhost_err(vhd->vhost, "feed-secret must be %d to "
+				       "%d printable characters, or a file "
+				       "holding them: the auth feed is "
+				       "disabled", LWS_AUTH_FEED_SECRET_MIN,
+				       LWS_AUTH_FEED_SECRET_MAX);
+			vhd->feed_secret[0] = '\0';
+		}
 
 		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "ui-title");
 		if (pvo) lws_strncpy(vhd->ui_title, pvo->value, sizeof(vhd->ui_title));
@@ -3995,6 +4025,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd->smtp)
 			lwsl_vhost_err(vhd->vhost, "no smtp client: no mail "
 				       "can be sent");
+
+		/* the first snapshot is ready before anyone can subscribe */
+		if (vhd->feed_secret[0])
+			auth_feed_check(&vhd->sul_feed);
 
 		break;
 
@@ -5479,6 +5513,381 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
         return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/* ------------------------------------------------------------ lws-auth-feed */
+
+/*
+ * The lws-auth-feed ws protocol tells each subscribing lws-login what it needs
+ * to know about our records (see ../lws-auth-feed.h), so lws-login never opens
+ * our database or holds our private key, and can live on another host.
+ *
+ * A snapshot is one JSON object, built from the database and sent whole as
+ * one ws message, once when a subscriber connects and again whenever the
+ * records it is built from change.  Every subscriber sends the same snapshot,
+ * so it is built once and shared, refcounted, by the connections still
+ * sending it.
+ */
+
+typedef struct auth_feed_snap {
+	uint64_t		gen;
+	size_t			len;
+	int			refcount;
+	/* the JSON follows */
+} auth_feed_snap_t;
+
+#define auth_feed_snap_json(_s) ((const char *)&(_s)[1])
+
+/* how often we look for changes to the records */
+#define AUTH_FEED_CHECK_US	(1 * LWS_US_PER_SEC)
+/* the most of a snapshot we put in one ws fragment */
+#define AUTH_FEED_FRAG		4096
+
+struct pss_auth_feed {
+	auth_feed_snap_t	*snap;		/* the one we are sending */
+	size_t			pos;		/* how much of it is sent */
+	uint64_t		sent_gen;	/* last one sent whole */
+	char			subscribed;
+};
+
+static void
+auth_feed_snap_unref(auth_feed_snap_t **ps)
+{
+	if (*ps && !--(*ps)->refcount)
+		free(*ps);
+	*ps = NULL;
+}
+
+static const char *
+auth_feed_strdup(struct lwsac **ac, const unsigned char *s)
+{
+	size_t n = strlen((const char *)(s ? s : (const unsigned char *)""));
+	char *p = lwsac_use(ac, n + 1, 4096);
+
+	if (p)
+		memcpy(p, s ? (const char *)s : "", n + 1);
+
+	return p;
+}
+
+/*
+ * Read what lws-login needs out of the database, and render it as a new
+ * snapshot (with a refcount of one, held by the caller).  NULL on failure.
+ */
+static auth_feed_snap_t *
+auth_feed_build(struct per_vhost_data__auth_server *vhd)
+{
+	char pub[LWS_SSO_MAX_COOKIE];
+	lws_struct_serialize_t *js;
+	lws_struct_json_serialize_result_t r;
+	auth_feed_snap_t *s = NULL, *s1;
+	size_t cap = 8192, w;
+	struct lwsac *ac = NULL;
+	lws_auth_feed_t feed;
+	sqlite3_stmt *stmt;
+	int plen = sizeof(pub);
+
+	memset(&feed, 0, sizeof(feed));
+
+	/* a symmetric key has no public half to give away */
+	if (vhd->jwk.kty != LWS_GENCRYPTO_KTY_OCT &&
+	    lws_jwk_export(&vhd->jwk, LWSJWKF_EXPORT_NOCRLF, pub, &plen) > 0)
+		feed.jwk = pub;
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT uid, session_epoch FROM users",
+			       -1, &stmt, NULL) != SQLITE_OK)
+		goto bail;
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+		lws_auth_feed_user_t *u = lwsac_use_zero(&ac, sizeof(*u), 4096);
+
+		if (!u) {
+			sqlite3_finalize(stmt);
+			goto bail;
+		}
+		u->uid = (uint64_t)sqlite3_column_int64(stmt, 0);
+		u->sec = (uint64_t)(uint32_t)sqlite3_column_int64(stmt, 1);
+		lws_dll2_add_tail(&u->list, &feed.users);
+	}
+	sqlite3_finalize(stmt);
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT g.uid, s.name, g.grant_level "
+			       "FROM grants g JOIN services s ON g.service_id "
+			       "= s.service_id", -1, &stmt, NULL) != SQLITE_OK)
+		goto bail;
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+		lws_auth_feed_grant_t *g = lwsac_use_zero(&ac, sizeof(*g), 4096);
+
+		if (!g || !(g->svc = auth_feed_strdup(&ac,
+					sqlite3_column_text(stmt, 1)))) {
+			sqlite3_finalize(stmt);
+			goto bail;
+		}
+		g->uid = (uint64_t)sqlite3_column_int64(stmt, 0);
+		g->level = sqlite3_column_int64(stmt, 2);
+		lws_dll2_add_tail(&g->list, &feed.grants);
+	}
+	sqlite3_finalize(stmt);
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT device_id, uid FROM devices",
+			       -1, &stmt, NULL) != SQLITE_OK)
+		goto bail;
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+		lws_auth_feed_device_t *d = lwsac_use_zero(&ac, sizeof(*d),
+							   4096);
+
+		if (!d || !(d->did = auth_feed_strdup(&ac,
+					sqlite3_column_text(stmt, 0)))) {
+			sqlite3_finalize(stmt);
+			goto bail;
+		}
+		d->uid = (uint64_t)sqlite3_column_int64(stmt, 1);
+		lws_dll2_add_tail(&d->list, &feed.devices);
+	}
+	sqlite3_finalize(stmt);
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT redirect_uris FROM "
+			       "oauth_clients", -1, &stmt, NULL) != SQLITE_OK)
+		goto bail;
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+		lws_auth_feed_ruris_t *ru = lwsac_use_zero(&ac, sizeof(*ru),
+							   4096);
+
+		if (!ru || !(ru->uris = auth_feed_strdup(&ac,
+					sqlite3_column_text(stmt, 0)))) {
+			sqlite3_finalize(stmt);
+			goto bail;
+		}
+		lws_dll2_add_tail(&ru->list, &feed.ruris);
+	}
+	sqlite3_finalize(stmt);
+
+	js = lws_struct_json_serialize_create(lsm_auth_feed_schema,
+				LWS_ARRAY_SIZE(lsm_auth_feed_schema), 0, &feed);
+	if (!js)
+		goto bail;
+
+	s = malloc(sizeof(*s) + cap);
+	if (!s)
+		goto bail_js;
+	s->len = 0;
+
+	do {
+		if (cap - s->len < 1024) {
+			cap *= 2;
+			s1 = realloc(s, sizeof(*s) + cap);
+			if (!s1)
+				goto bail_js;
+			s = s1;
+		}
+		r = lws_struct_json_serialize(js, (uint8_t *)&s[1] + s->len,
+					      cap - s->len, &w);
+		s->len += w;
+	} while (r == LSJS_RESULT_CONTINUE);
+
+	lws_struct_json_serialize_destroy(&js);
+	lwsac_free(&ac);
+
+	if (r != LSJS_RESULT_FINISH) {
+		free(s);
+		return NULL;
+	}
+
+	s->refcount = 1;
+
+	return s;
+
+bail_js:
+	lws_struct_json_serialize_destroy(&js);
+	free(s);
+bail:
+	lwsac_free(&ac);
+	lwsl_vhost_err(vhd->vhost, "unable to build the auth feed snapshot");
+
+	return NULL;
+}
+
+/*
+ * Every second, if anything in the database changed, build a snapshot and if
+ * it differs from the one we have, give it to every subscriber.
+ *
+ * sqlite3_total_changes() counts our own writes, and PRAGMA data_version
+ * changes when another connection writes the database, eg an admin with the
+ * sqlite3 shell.  Most of our writes (logins, the audit log) change nothing
+ * that is in the snapshot, which is why it is compared before it is sent.
+ */
+static void
+auth_feed_check(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__auth_server *vhd = lws_container_of(sul,
+			struct per_vhost_data__auth_server, sul_feed);
+	int changes = sqlite3_total_changes(vhd->db), dv = -1;
+	auth_feed_snap_t *s;
+	sqlite3_stmt *stmt;
+
+	if (sqlite3_prepare_v2(vhd->db, "PRAGMA data_version", -1, &stmt,
+			       NULL) == SQLITE_OK) {
+		if (sqlite3_step(stmt) == SQLITE_ROW)
+			dv = sqlite3_column_int(stmt, 0);
+		sqlite3_finalize(stmt);
+	}
+
+	if (vhd->feed_snap && changes == vhd->feed_changes &&
+	    dv == vhd->feed_data_version)
+		goto again;
+
+	s = auth_feed_build(vhd);
+	if (!s)
+		goto again; /* try again next time, and keep the old one */
+
+	vhd->feed_changes = changes;
+	vhd->feed_data_version = dv;
+
+	if (vhd->feed_snap && vhd->feed_snap->len == s->len &&
+	    !memcmp(&vhd->feed_snap[1], &s[1], s->len)) {
+		/* nothing a subscriber cares about changed */
+		free(s);
+		goto again;
+	}
+
+	s->gen = vhd->feed_snap ? vhd->feed_snap->gen + 1 : 1;
+	auth_feed_snap_unref(&vhd->feed_snap);
+	vhd->feed_snap = s;
+
+	lwsl_vhost_info(vhd->vhost, "auth feed snapshot %llu, %llu bytes",
+			(unsigned long long)s->gen, (unsigned long long)s->len);
+
+	lws_callback_on_writable_all_protocol_vhost(vhd->vhost,
+			lws_vhost_name_to_protocol(vhd->vhost,
+						   LWS_AUTH_FEED_PROTOCOL));
+
+again:
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_feed, auth_feed_check,
+			 AUTH_FEED_CHECK_US);
+}
+
+static struct per_vhost_data__auth_server *
+auth_feed_vhd(struct lws *wsi)
+{
+	struct lws_vhost *vh = lws_get_vhost(wsi);
+
+	return (struct per_vhost_data__auth_server *)lws_protocol_vh_priv_get(
+			vh, lws_vhost_name_to_protocol(vh, "lws-auth-server"));
+}
+
+/*
+ * The subscriber must present the feed secret as a bearer token.  It is the
+ * only thing standing between anybody who can reach us and the list of our
+ * users and their grants.
+ */
+static int
+auth_feed_authorized(struct lws *wsi, struct per_vhost_data__auth_server *vhd)
+{
+	char hdr[16 + LWS_AUTH_FEED_SECRET_MAX + 1];
+	size_t sl = strlen(vhd->feed_secret);
+	int n;
+
+	n = lws_hdr_copy(wsi, hdr, sizeof(hdr), WSI_TOKEN_HTTP_AUTHORIZATION);
+	if (n <= 7 || strncmp(hdr, "Bearer ", 7) || (size_t)n - 7 != sl ||
+	    lws_timingsafe_bcmp(hdr + 7, vhd->feed_secret, (uint32_t)sl)) {
+		lws_explicit_bzero(hdr, sizeof(hdr));
+		return 0;
+	}
+
+	lws_explicit_bzero(hdr, sizeof(hdr));
+
+	return 1;
+}
+
+static int
+callback_auth_feed(struct lws *wsi, enum lws_callback_reasons reason,
+		   void *user, void *in, size_t len)
+{
+	struct pss_auth_feed *pss = (struct pss_auth_feed *)user;
+	struct per_vhost_data__auth_server *vhd;
+	uint8_t buf[LWS_PRE + AUTH_FEED_FRAG];
+	size_t chunk;
+	int first, last;
+
+	switch (reason) {
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+		vhd = auth_feed_vhd(wsi);
+		if (!vhd || !vhd->feed_secret[0]) {
+			lwsl_wsi_notice(wsi, "auth feed is not enabled here");
+			return 1;
+		}
+		if (!auth_feed_authorized(wsi, vhd)) {
+			char peer[64];
+
+			auth_client_address(wsi, vhd, peer, sizeof(peer));
+			lwsl_wsi_warn(wsi, "auth feed subscription from %s "
+				      "without the feed secret refused", peer);
+			return 1;
+		}
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED:
+		vhd = auth_feed_vhd(wsi);
+		if (!vhd)
+			return -1;
+		pss->subscribed = 1;
+		lwsl_wsi_notice(wsi, "auth feed subscriber connected");
+		if (vhd->feed_snap)
+			lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+		/* subscribers have nothing to say */
+		return -1;
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		vhd = auth_feed_vhd(wsi);
+		if (!vhd || !pss->subscribed)
+			return -1;
+
+		if (!pss->snap) {
+			/* anything newer than we last sent? */
+			if (!vhd->feed_snap ||
+			    vhd->feed_snap->gen == pss->sent_gen)
+				break;
+			pss->snap = vhd->feed_snap;
+			pss->snap->refcount++;
+			pss->pos = 0;
+		}
+
+		chunk = pss->snap->len - pss->pos;
+		if (chunk > AUTH_FEED_FRAG)
+			chunk = AUTH_FEED_FRAG;
+		first = !pss->pos;
+		last = pss->pos + chunk == pss->snap->len;
+
+		memcpy(buf + LWS_PRE, auth_feed_snap_json(pss->snap) + pss->pos,
+		       chunk);
+		if (lws_write(wsi, buf + LWS_PRE, chunk,
+			      (enum lws_write_protocol)lws_write_ws_flags(
+					LWS_WRITE_TEXT, first, last)) <
+							(int)chunk)
+			return -1;
+
+		pss->pos += chunk;
+		if (last) {
+			pss->sent_gen = pss->snap->gen;
+			auth_feed_snap_unref(&pss->snap);
+		}
+
+		/* more of this one, or a newer one meanwhile */
+		if (!last || vhd->feed_snap->gen != pss->sent_gen)
+			lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		auth_feed_snap_unref(&pss->snap);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 #define LWS_PLUGIN_PROTOCOL_AUTH_SERVER \
 	{ \
 		"lws-auth-server", \
@@ -5490,7 +5899,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if !defined (LWS_PLUGIN_STATIC)
 static const struct lws_protocols protocols[] = {
-	LWS_PLUGIN_PROTOCOL_AUTH_SERVER
+	LWS_PLUGIN_PROTOCOL_AUTH_SERVER,
+	{
+		.name			= LWS_AUTH_FEED_PROTOCOL,
+		.callback		= callback_auth_feed,
+		.per_session_data_size	= sizeof(struct pss_auth_feed),
+		.rx_buffer_size		= 256,
+	},
 };
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_auth_server = {

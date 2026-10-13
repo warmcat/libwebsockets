@@ -95,6 +95,8 @@ if (requirements)
 
 		set(OAUTH_AUTH_DB	${OAUTH_DIR}/apitest-oauth-auth.sqlite3)
 		set(OAUTH_JWK_PATH	${OAUTH_DIR}/apitest-oauth.jwk)
+		# lws-login's subscription to the auth server's feed
+		set(OAUTH_FEED_SECRET	apitest-oauth-feed-secret-0123456789abcdef)
 		# a key path whose directory does not exist, so the key the
 		# plugin generates cannot be saved and its init fails
 		set(OAUTH_JWK_PATH_BAD	${OAUTH_DIR}/no-such-dir/apitest-oauth.jwk)

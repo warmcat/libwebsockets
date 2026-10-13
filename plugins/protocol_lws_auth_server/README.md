@@ -44,6 +44,7 @@ request with `503` and its admin WebSocket upgrade is refused.
 | `email-subject` | Optional: The subject line for the verification email. Defaults to `Complete your registration`. | `Please confirm your ExampleApp account` |
 | `email-body` | Optional: The template string for the email body. It must include exactly one `%s` token which will be dynamically replaced by the confirmation URL. | `Click here:\n\n%s` |
 | `trusted-proxies` | Optional: comma-separated addresses of reverse proxies whose `X-Forwarded-For` is believed.  When the socket peer is one of them, the strikes, bans and audit rows are keyed on the last address in `X-Forwarded-For` (the one that proxy appended), which must be numeric; from any other peer the header is ignored.  Empty by default: the socket peer is the client. | `127.0.0.1,::1` |
+| `feed-secret` | Optional: enables the auth feed (see [The auth feed](#the-auth-feed)), and is the secret its subscribers must present: 32 to 128 printable characters, or, if it starts with `/`, the path of a file holding them.  Without it, the feed refuses every subscriber. | `/etc/lwsws/auth-feed.secret` |
 | `ui-title` | Optional: Overrides the default string array "Authentication Server" natively displayed on front-end portals. | `Internal SSO Portal` |
 | `ui-subtitle` | Optional: Overrides the default "Give your credentials to continue" messaging. | `Strictly authorized personnel only` |
 | `ui-new-network` | Optional: Overrides the "New to the network?" prompt for registration links. | `Access Required?` |
@@ -90,12 +91,28 @@ This example mounts the front-end UI at `/` (the assets dir with `index.html` as
         "registration_ui": "1",
         "email-from": "admin@auth.warmcat.com",
         "email-subject": "Welcome! Please verify",
-        "email-body": "Hello,\n\nPlease verify your account by clicking the following link:\n\n%s\n\nThanks!"
+        "email-body": "Hello,\n\nPlease verify your account by clicking the following link:\n\n%s\n\nThanks!",
+        "feed-secret": "/etc/lwsws/auth-feed.secret"
+      },
+      "lws-auth-feed": {
+        "status": "ok"
       }
     }]
   }]
 }
 ```
+
+## The auth feed
+
+`lws-login`, the bouncer guarding the other vhosts, needs to know when a token that verifies no longer stands: the account's session epoch moved, a device was revoked, the grants changed.  Rather than reading this plugin's database, which ties it to this host, it subscribes to the `lws-auth-feed` ws protocol this plugin also provides (see `../protocol_lws_login/protocol_lws_login.md`).
+
+Enable it by listing `lws-auth-feed` in the vhost's `ws-protocols` beside `lws-auth-server`, and giving `lws-auth-server` a `feed-secret`.  A subscriber connects with the `lws-auth-feed` subprotocol and `Authorization: Bearer <feed-secret>`; anything else is refused, and logged with its address.
+
+Each subscriber is sent a snapshot, one JSON message, when it connects, and again whenever it would change.  It holds every account's uid and session epoch, every grant, every device token not revoked, every oauth client's `redirect_uris`, and the public half of the signing key (a symmetric key has none, and is left out).  The schema is in `plugins/lws-auth-feed.h`, shared with `lws-login`.
+
+Once a second, the plugin looks at whether the database changed, by its own writes or by another connection's (`PRAGMA data_version`), eg an admin with the `sqlite3` shell.  If it did, it builds a snapshot and sends it only if it differs from the last one, so the many writes that don't touch it, like logins and the audit log, send nothing.  So a revocation reaches every `lws-login` within about a second.
+
+The snapshot carries every account's uid and grants, so keep `feed-secret` as secret as the database: anyone with it can read them.  It carries no password hashes, TOTP secrets, emails or session ids.
 
 ## Initial Admin Configuration
 
@@ -223,6 +240,9 @@ Device-flow tokens are long-lived (ten years) but are now also checked against
 the `devices` table on every use: `DELETE FROM devices WHERE device_id = ...`
 revokes one device without touching the user's other sessions.  There is no
 admin UI for that yet — do it with `sqlite3` on `db_path`.
+
+Either reaches the `lws-login` bouncers on other vhosts through the auth feed
+within about a second.
 
 ### Rate limiting is keyed on the client address
 

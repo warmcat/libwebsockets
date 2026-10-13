@@ -43,26 +43,44 @@ This plugin handles several PVO options to control the redirection routing and t
 |---|---|
 | `auth-server-url` | **Required.** The base URI of the central auth server portal to redirect unauthenticated users to (e.g. `https://auth.warmcat.com/login`). May deliberately be a *local* BFF entry instead, such as the oauth2-client plugin's `/oauth/login`, so the Login button goes through the PKCE delegate flow on this vhost rather than the auth server's own form -- in that case you must also set `auth-api-url`. |
 | `auth-api-url` | The absolute base URL of the auth server's own API surface, used for the silent-renewal side channel (`/api/sso_exchange`), logout (`/api/logout`), the SSO origin check, and the widget's auth-server links (refgirl image, Admin Console). Defaults to `auth-server-url`, which is correct when the login entry lives on the auth server itself. **Required to be set explicitly** when `auth-server-url` is a relative/local BFF URL like `/oauth/login`: a relative URL can never reach the auth server's APIs, and without this PVO every renewal is refused up front with `auth-api-url ... is not an absolute http(s) URL` and the BFF answers `401` -- no exchange is attempted, nothing appears in the auth server's logs. |
-| `jwt-jwk` | **Required.** Either a JSON Web Key string or the path to a file containing a JSON Web Key, used to verify the token signature. Must be the public key matching the private key the central server signs tokens with. `lws-login` never signs tokens: if the key given carries a private part, it logs a warning and discards it at startup. |
+| `jwt-jwk` | Either a JSON Web Key string or the path to a file containing a JSON Web Key, used to verify the token signature: the public key matching the private key the auth server signs tokens with.  Optional when `auth-feed-secret` is set, since the auth feed carries the key; given anyway, it pins the key, and the feed can't change it.  `lws-login` never signs tokens: if the key given carries a private part, it logs a warning and discards it at startup. |
+| `auth-feed-secret` | The secret this `lws-login` subscribes to the auth server's feed with (see [The auth feed](#the-auth-feed)), the same as the auth server's `feed-secret`: 32 to 128 printable characters, or, if it starts with `/`, the path of a file holding them.  Without it, nothing tells `lws-login` about revocations or grant changes, and sessions are only checked for signature and expiry. |
+| `auth-feed-fail-closed` | Default `0`.  If `1`, while there is no snapshot from the auth feed to judge tokens by, because none has arrived yet or the link has been down for longer than `auth-feed-grace-secs`, every session is refused.  If `0`, the last snapshot keeps being used however old it is, and before the first one tokens are only checked for signature and expiry. |
+| `auth-feed-grace-secs` | Default `300`.  With `auth-feed-fail-closed`, how long the auth feed's link may be down before its last snapshot stops counting. |
 | `cookie-name` | Custom name emitted for tracking the browser cookie containing the session token. Defaults to `"auth_session"`. Limited to 1..63 characters: the protocol refuses to initialize with a longer name, since the composed `Set-Cookie` buffers are sized for that cap (a cookie that could not be composed whole would otherwise have to be silently truncated or fail the response). |
 | `service-name` | The explicitly required grant category strictly checked against the JWT privileges array. Defaults to `"default-service"`. *Note: Any authenticated user holding a wildcard (`*`) assignment in their JWT grants array will automatically bypass this constraint, acting as an administrator for any requested service.* **This option responds to BOTH a PVO definition (applying globally to the vhost) and can be dynamically overridden by a Per-Mount Option (PMO) definition of the same name.** |
 | `min-grant-level` | The strict integer threshold allowing passage for the given service name within the token. Defaults to `1`. |
 | `cookie-domain` | The optional specific domain name the auth cookie should be scoped to stringently (e.g. `warmcat.com`). If unspecified, defaults to omitting the domain from the cookie. |
 | `jwt-validity-secs` | Integer representing the time-to-live for a dynamically migrated cookie. Defaults to `86400` (24 hours). |
-| `db-path` | Absolute filepath to the auth server's sqlite3 database, read to find tokens that are stale (see [Stale tokens](#stale-tokens)). Defaults to `/var/db/lws-auth.sqlite3`. If it lacks the auth server's tables, tokens are checked only by signature and expiry. |
 | `whitelist` | Optional array of CIDR netblock strings (e.g. `10.0.0.0/8`, `192.168.1.0/24`). If any are provided, the connecting peer must match at least one explicitly or they will uniformly receive a `403 Forbidden` bypass, regardless of login state. |
 | `unauth-allow` | If set to `1`, unauthenticated connections are **not** actively bounced via a 302 redirect. Traffic is instead permitted through to the underlying application mount unhindered. This enables scenarios where an underlying mount might conditionally render public views while relying securely on `/.lws-login-status` responses to dictate authenticated view logic without hard-failing unauthenticated guests. |
 | `unauth-protocols` | Optional comma-separated list of `Sec-WebSocket-Protocol` names (e.g., `lws-oauth-preauth`) that are permitted to bypass the JWT requirement during the upgrade phase. This allows unauthenticated headless devices to negotiate specific protocols to complete RFC 8628 Device Flow pairing. The exemption is decided on the subprotocol the upgrade will **bind**, not on the offer list as a whole: lws binds the first name the client offered that the vhost has a protocol for, in the client's order (RFC 6455 4.2.2), and it is that name which must be a **whole-token** member of this list. So a configured `lws-oauth-preauth` does not wave through `auth` or `preauth`, and it does not wave through an offer of `some-app-protocol, lws-oauth-preauth` either, since that upgrade would bind `some-app-protocol`; `lws-oauth-preauth, some-app-protocol` is admitted and binds the waiting room. On a mount proxied to an origin server the origin does the binding, so there *every* name the client offered must be in the list. |
 | `trust-forwarded-proto` | Defaults to `1`. Whether an `X-Forwarded-Proto: https` request header from a TLS-terminating reverse proxy in front of us may set the scheme of the `redirect_uri` we hand to the auth server (and of the cold-load self-redirect). It can only ever *upgrade* to `https`: a real TLS link is always reported as `https` whatever the header says, so a client cannot downgrade its own login round trip to cleartext. Set to `0` on a vhost that browsers reach directly, so the client-settable header is ignored entirely. |
 
 **Where does the JWK come from?**
-The central `auth-server` plugin automatically generates an Elliptic Curve (EC P-256) keypair upon its first startup and saves it to its configured `jwk_path` (e.g., `/var/db/lws-auth.jwk`). To configure the `jwt-jwk` PVO for this bouncer mount, you simply take the contents of that generated file.
+The central `auth-server` plugin automatically generates an Elliptic Curve (EC P-256) keypair upon its first startup and saves it to its configured `jwk_path` (e.g., `/var/db/lws-auth.jwk`).  With `auth-feed-secret` set, `lws-login` is told its public half by the auth feed, and needs no `jwt-jwk`; until the first snapshot arrives, no token verifies.
 
-`lws-login` only verifies tokens, so give it just the public key: the auth server's file with the private component `d` removed, or the key it publishes at `/.well-known/jwks.json`.  Holding the private key would let anyone who can read this vhost's configuration mint sessions for every service the auth server signs for, so if you do pass the full keypair, `lws-login` warns and discards the private part.
+To pin the key instead, give `jwt-jwk` just the public key: the auth server's `<jwk_path>.pub`, or the key in the set it publishes at `/.well-known/jwks.json`.  `lws-login` only verifies tokens, and holding the private key would let anyone who can read this vhost's configuration mint sessions for every service the auth server signs for, so if you do pass the full keypair, `lws-login` warns and discards the private part.  A symmetric (`HS*`) key has no public half, so the feed can't carry it, and it must be given as `jwt-jwk`.
+
+## The auth feed
+
+`lws-login` judges every request synchronously, so it can't ask the auth server about each token.  Instead it subscribes to the auth server's `lws-auth-feed` ws protocol, at the root of `auth-api-url` (which defaults to `auth-server-url`), presenting `auth-feed-secret` as a bearer token.  The auth server sends a snapshot of what `lws-login` needs from its records, as one JSON message:
+
+ - each account's uid and session epoch;
+ - each grant, as uid, service name and level;
+ - each device token not revoked, as device id and uid;
+ - each oauth client's `redirect_uris`;
+ - the public key tokens are signed with.
+
+It sends one when `lws-login` subscribes, and another within a second of anything in it changing, whether by its own API or by somebody editing its database.  `lws-login` keeps the newest one, with sorted indexes, and judges tokens by it (see [Stale tokens](#stale-tokens)).  So `lws-login` never opens the auth server's database or holds its private key, and can run on a different host from it.
+
+The link carries no browser traffic, so it is pinged to notice when it dies, and is reconnected with backoff up to 30s.  While it is down, the last snapshot is used, since it still knows every revocation up to then; `auth-feed-fail-closed` decides what happens when there is none, or it has gone stale.
+
+A snapshot holds every account's uid and grants, which is why the subscription needs the secret.  A snapshot larger than 16MB is refused.  The schema is in `plugins/lws-auth-feed.h`, shared by both plugins.
 
 ## Stale tokens
 
-A token can verify and be unexpired, yet no longer describe the session the way the auth server's records do.  On every request, `lws-login` compares the token with the database at `db-path`, and treats it as stale when:
+A token can verify and be unexpired, yet no longer describe the session the way the auth server's records do.  On every request, `lws-login` compares the token with the auth feed's latest snapshot, and treats it as stale when:
 
  - the user's `session_epoch` differs from the token's `sec`: a password reset bumps it to revoke every live session;
  - the user no longer exists;
@@ -151,7 +169,7 @@ You can enable this bouncing natively via a standard JSON layout without compili
       "lws-login": {
         "status": "ok",
         "auth-server-url": "https://auth.warmcat.com/login",
-        "jwt-jwk": "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"...\",\"y\":\"...\"}",
+        "auth-feed-secret": "/etc/lwsws/auth-feed.secret",
         "cookie-name": "auth_session",
         "min-grant-level": "2",
         "unauth-allow": "0"
