@@ -1539,8 +1539,16 @@ ads_known:
 		 */
 		if (grace_us < LWS_QUIC_GRACE_DEFAULT_US)
 			grace_us = LWS_QUIC_GRACE_DEFAULT_US;
-		if (wsi->io->disable_h3_fallback) {
-			lwsl_wsi_info(wsi, "QUIC socket created, H3 fallback disabled");
+		/*
+		 * The fallback is to the same requests over h2 or http/1.1
+		 * on TCP, which only h3 has.  Any other protocol over QUIC,
+		 * eg, a raw QUIC protocol or hq-interop, has no TCP form to
+		 * fall back to: abandoning a slow handshake to TCP only
+		 * kills a connection that would have completed.
+		 */
+		if (wsi->io->disable_h3_fallback || !strstr(wsi->alpn, "h3")) {
+			lwsl_wsi_info(wsi, "QUIC socket created, no TCP fallback "
+					   "(alpn %s)", wsi->alpn);
 		} else {
 			lwsl_wsi_info(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->io->sul_h3_grace,
