@@ -22,7 +22,9 @@
  * combined audio+video fMP4 path is left untouched; this file only adds:
  *
  *   - track discovery (embedded text streams + sibling .srt/.vtt sidecars)
- *   - cue decoding/parsing into a shared cue list (cached per file+track)
+ *   - cue decoding: an embedded track per segment, from just that part of
+ *     the media; a sidecar parsed whole once (cached per file+track)
+ *   - a cache of rendered segments the event loop serves repeats from
  *   - a master-playlist dispatcher at /stream/<file>
  *   - a subtitle media playlist at /subsm/<file>/<trackid>
  *   - a WebVTT segment at /subseg/<file>/<trackid>/<idx>
@@ -637,28 +639,123 @@ push_cue(struct hls_webvtt_cue **pcues, int *pn, int *pcap,
 	return 0;
 }
 
-/* Decode an embedded text subtitle stream into cues (seconds from start).
- * This walks the whole file, so worker thread only. */
+/*
+ * Decode one packet of an embedded text subtitle stream into cues (seconds
+ * from the start of the media).  Returns -1 on allocation failure.
+ */
 static int
-load_embedded_cues(const char *media_dir, const char *filename, int stream_index,
-		   struct hls_webvtt_cue **out_cues, int *out_n,
-		   volatile int *cancel)
+sub_pkt_cues(AVStream *st, AVCodecContext *dec, AVPacket *pkt,
+	     struct hls_webvtt_cue **cues, int *n, int *cap)
 {
+	AVSubtitle sub;
+	unsigned int r;
+	int got = 0, ret = 0;
+
+	memset(&sub, 0, sizeof(sub));
+	if (avcodec_decode_subtitle2(dec, &sub, &got, pkt) < 0 || !got) {
+		avsubtitle_free(&sub);
+		return 0;
+	}
+
+	if (sub.num_rects > 0) {
+		/* Subtitle PTS lives on the PACKET (sub.pts is usually
+		 * AV_NOPTS_VALUE for text formats like mov_text/ass),
+		 * expressed in the stream's time_base. Duration comes
+		 * from pkt->duration (text formats) or, when the
+		 * container sets it, sub.end_display_time (ms). */
+		double tb = av_q2d(st->time_base);
+		double start_s = (pkt->pts != AV_NOPTS_VALUE)
+			? (double)pkt->pts * tb
+			: 0.0;
+		start_s += (double)sub.start_display_time / 1000.0;
+		double dur_s = (pkt->duration > 0)
+			? (double)pkt->duration * tb
+			: 2.0;
+		if (sub.end_display_time > 0)
+			dur_s = (double)sub.end_display_time / 1000.0;
+		double end_s = start_s + dur_s;
+
+		for (r = 0; r < sub.num_rects; r++) {
+			AVSubtitleRect *rect = sub.rects[r];
+			char *text = NULL;
+
+			if (rect->type == SUBTITLE_TEXT && rect->text)
+				text = strdup(rect->text);
+			else if (rect->type == SUBTITLE_ASS && rect->ass)
+				text = ass_to_text(rect->ass);
+			if (text && push_cue(cues, n, cap, start_s, end_s,
+					     text) < 0) {
+				ret = -1;
+				break;
+			}
+		}
+	}
+
+	avsubtitle_free(&sub);
+
+	return ret;
+}
+
+/*
+ * How far past the end of the window the file's own clock must go before
+ * we stop reading, so a cue starting just before the window end, but stored
+ * behind some video, is not missed
+ */
+#define HLS_SUB_WINDOW_SLACK_S	2.0
+/* the window is two segments: a bound that does not trust the timestamps */
+#define HLS_SUB_WINDOW_MAX_PKTS	50000
+
+/*
+ * Decode the cues of an embedded text subtitle stream that start in
+ * [t_lo, t1) seconds: the subtitle segment ending at t1, and the segment
+ * before it, seg_lo, which starts at t_lo, so a cue that started there and
+ * is still showing is found too.
+ *
+ * Only that part of the file is read, the way a media segment is cut: seek
+ * to seg_lo through the keyframe index, and read until the file's own clock
+ * is past the window.  Decoding the whole file for the cues took minutes on
+ * a large one, longer than the client waited, and the work was dropped with
+ * the request, so the next request started it again and it never finished.
+ */
+static int
+load_embedded_window_cues(struct per_vhost_data__lws_hls *vhd,
+			  const char *media_dir, const char *filename,
+			  int stream_index, int seg_lo, double t_lo, double t1,
+			  struct hls_webvtt_cue **out_cues, int *out_n,
+			  volatile int *cancel)
+{
+	struct hls_segment_info info;
 	AVFormatContext *ic = NULL;
 	AVCodecContext *dec = NULL;
 	const AVCodec *codec = NULL;
 	struct hls_webvtt_cue *cues = NULL;
-	int n = 0, cap = 0, ret = -1;
+	int n = 0, cap = 0, ret = -1, video_idx = -1, pkts = 0;
 	char path[512];
 	AVPacket *pkt = NULL;
+	unsigned int ui;
 
 	snprintf(path, sizeof(path), "%s/%s", media_dir, filename);
 	if (avformat_open_input(&ic, path, NULL, NULL) < 0)
 		return -1;
 	if (avformat_find_stream_info(ic, NULL) < 0)
 		goto out;
-	if ((unsigned int)stream_index >= ic->nb_streams)
+	if (stream_index < 0 || (unsigned int)stream_index >= ic->nb_streams)
 		goto out;
+
+	for (ui = 0; ui < ic->nb_streams; ui++)
+		if (ic->streams[ui]->codecpar->codec_type ==
+						AVMEDIA_TYPE_VIDEO) {
+			video_idx = (int)ui;
+			break;
+		}
+	if (video_idx < 0)
+		/* the subtitle timeline is the video's */
+		goto out;
+
+	/* the video drives the seek, the subtitle stream is what we want */
+	for (ui = 0; ui < ic->nb_streams; ui++)
+		if ((int)ui != video_idx && (int)ui != stream_index)
+			ic->streams[ui]->discard = AVDISCARD_ALL;
 
 	codec = avcodec_find_decoder(
 			ic->streams[stream_index]->codecpar->codec_id);
@@ -673,67 +770,57 @@ load_embedded_cues(const char *media_dir, const char *filename, int stream_index
 	if (avcodec_open2(dec, codec, NULL) < 0)
 		goto out;
 
+	/* seek the way lws_hls_build_segment() does for seg_lo */
+	memset(&info, 0, sizeof(info));
+	info.end_pts = AV_NOPTS_VALUE;
+	if (!lws_hls_get_segment_info(vhd, filename, ic, video_idx, seg_lo,
+				      &info, NULL, cancel))
+		avformat_seek_file(ic, video_idx, info.start_pts - 500,
+				   info.start_pts, info.seek_pts,
+				   info.seek_any ? AVSEEK_FLAG_ANY :
+						   AVSEEK_FLAG_FRAME);
+	else {
+		int64_t ts = (int64_t)(t_lo * (double)AV_TIME_BASE);
+
+		if (HLS_CANCELLED(cancel))
+			goto out;
+		/* no per-segment boundaries: seek by time, as it does */
+		avformat_seek_file(ic, -1, INT64_MIN, ts, ts,
+				   info.seek_any ? AVSEEK_FLAG_ANY : 0);
+	}
+
 	pkt = av_packet_alloc();
 	if (!pkt)
 		goto out;
 
 	while (av_read_frame(ic, pkt) >= 0) {
-		AVSubtitle sub;
-		int got = 0;
+		AVStream *st = ic->streams[pkt->stream_index];
+		int64_t ts = pkt->dts != AV_NOPTS_VALUE ? pkt->dts : pkt->pts;
 
 		if (HLS_CANCELLED(cancel)) {
 			av_packet_unref(pkt);
 			goto out;
 		}
-
-		if (pkt->stream_index != stream_index) {
+		if (++pkts > HLS_SUB_WINDOW_MAX_PKTS) {
+			lwsl_warn("HLS-SUB: %s: %d pkts without passing %.2fs, "
+				  "stopping\n", filename, pkts, t1);
 			av_packet_unref(pkt);
-			continue;
+			break;
 		}
 
-		memset(&sub, 0, sizeof(sub));
-		if (avcodec_decode_subtitle2(dec, &sub, &got, pkt) < 0 || !got) {
-			avsubtitle_free(&sub);
+		if (ts != AV_NOPTS_VALUE && (double)ts * av_q2d(st->time_base) >
+						t1 + HLS_SUB_WINDOW_SLACK_S) {
+			/* past the window */
 			av_packet_unref(pkt);
-			continue;
+			break;
 		}
 
-		if (sub.num_rects > 0) {
-			/* Subtitle PTS lives on the PACKET (sub.pts is usually
-			 * AV_NOPTS_VALUE for text formats like mov_text/ass),
-			 * expressed in the stream's time_base. Duration comes
-			 * from pkt->duration (text formats) or, when the
-			 * container sets it, sub.end_display_time (ms). */
-			AVStream *st = ic->streams[stream_index];
-			double tb = av_q2d(st->time_base);
-			double start_s = (pkt->pts != AV_NOPTS_VALUE)
-				? (double)pkt->pts * tb
-				: 0.0;
-			start_s += (double)sub.start_display_time / 1000.0;
-			double dur_s = (pkt->duration > 0)
-				? (double)pkt->duration * tb
-				: 2.0;
-			if (sub.end_display_time > 0)
-				dur_s = (double)sub.end_display_time / 1000.0;
-			double end_s = start_s + dur_s;
-			unsigned r;
-
-			for (r = 0; r < sub.num_rects; r++) {
-				AVSubtitleRect *rect = sub.rects[r];
-				char *text = NULL;
-				if (rect->type == SUBTITLE_TEXT && rect->text)
-					text = strdup(rect->text);
-				else if (rect->type == SUBTITLE_ASS && rect->ass)
-					text = ass_to_text(rect->ass);
-				if (text) {
-					if (push_cue(&cues, &n, &cap,
-						     start_s, end_s, text) < 0)
-						text = NULL;
-				}
-			}
+		if (pkt->stream_index == stream_index &&
+		    sub_pkt_cues(ic->streams[stream_index], dec, pkt, &cues,
+				 &n, &cap)) {
+			av_packet_unref(pkt);
+			goto out;
 		}
-
-		avsubtitle_free(&sub);
 		av_packet_unref(pkt);
 	}
 
@@ -997,17 +1084,6 @@ sc_err:
 
 #define HLS_SUB_CACHE_CAP 8
 
-static int
-load_track_cues(struct hls_sub_track *tk, const char *media_dir,
-		const char *filename, struct hls_webvtt_cue **out, int *out_n,
-		volatile int *cancel)
-{
-	if (tk->kind == HLS_SUB_EMBEDDED)
-		return load_embedded_cues(media_dir, filename, tk->stream_index,
-					  out, out_n, cancel);
-	return load_sidecar_cues(media_dir, tk->path, tk->is_vtt, out, out_n);
-}
-
 /* free one cue cache entry: the decoded cues and the rendered segments */
 static void
 sub_cache_free(struct hls_sub_cache *c)
@@ -1141,12 +1217,13 @@ lws_hls_sub_segment_cached(struct per_vhost_data__lws_hls *vhd,
 	return body;
 }
 
-/* Returns a borrowed pointer to the cached cue list for (filename, trackid),
- * decoding on first access. Caller must hold vhd->sub_lock. */
+/*
+ * Caller holds vhd->sub_lock: the cache entry for (filename, trackid), made
+ * empty if there is none yet, as the most recently used.  NULL on OOM.
+ */
 static struct hls_sub_cache *
-cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
-	  const char *trackid, struct hls_sub_track *tk, const char *media_dir,
-	  volatile int *cancel)
+cache_entry(struct per_vhost_data__lws_hls *vhd, const char *filename,
+	    const char *trackid)
 {
 	struct hls_sub_cache *c;
 	char key[sizeof(c->key)];
@@ -1166,25 +1243,11 @@ cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		}
 	} lws_end_foreach_dll(d);
 
-	/* miss: decode + insert at head, evicting oldest if over cap */
+	/* miss: insert at head, evicting the oldest if over the cap */
 	c = calloc(1, sizeof(*c));
 	if (!c)
 		return NULL;
 	lws_strncpy(c->key, key, sizeof(c->key));
-	if (load_track_cues(tk, media_dir, filename, &c->cues, &c->n_cues,
-			    cancel) < 0) {
-		lwsl_notice("HLS-SUB: %s: track %s -> cue decode FAILED\n",
-			    filename, trackid);
-		free(c);
-		return NULL;
-	}
-	{
-		double first = (c->n_cues > 0) ? c->cues[0].start : 0.0;
-		double last = (c->n_cues > 0) ? c->cues[c->n_cues - 1].end : 0.0;
-		lwsl_notice("HLS-SUB: %s: decoded track %s -> %d cue(s) "
-			    "spanning %.2fs..%.2fs\n", filename, trackid,
-			    c->n_cues, first, last);
-	}
 	lws_dll2_add_head(&c->list, &vhd->sub_cache);
 	vhd->sub_cache_count++;
 
@@ -1199,6 +1262,52 @@ cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		sub_cache_free(t);
 		vhd->sub_cache_count--;
 	}
+
+	return c;
+}
+
+/*
+ * Caller holds vhd->sub_lock: the cache entry for a sidecar track, with the
+ * cues of the whole sidecar file, which are parsed once and kept.  The lock
+ * is dropped while the file is read and parsed, since the event loop takes
+ * it to serve rendered segments.  NULL if the sidecar can't be had.
+ */
+static struct hls_sub_cache *
+cache_sidecar(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
+	      const char *filename, const char *trackid,
+	      const struct hls_sub_track *tk)
+{
+	struct hls_webvtt_cue *cues = NULL;
+	struct hls_sub_cache *c;
+	int n = 0;
+
+	c = cache_entry(vhd, filename, trackid);
+	if (!c || c->cues_loaded)
+		return c;
+
+	pthread_mutex_unlock(&vhd->sub_lock);
+	if (load_sidecar_cues(media_dir, tk->path, tk->is_vtt, &cues, &n) < 0) {
+		lwsl_notice("HLS-SUB: %s: track %s -> cue parse FAILED\n",
+			    filename, trackid);
+		pthread_mutex_lock(&vhd->sub_lock);
+		return NULL;
+	}
+	pthread_mutex_lock(&vhd->sub_lock);
+
+	/* the entry may have been evicted meanwhile */
+	c = cache_entry(vhd, filename, trackid);
+	if (!c || c->cues_loaded) {
+		free_cues(cues, n);
+		return c;
+	}
+
+	c->cues = cues;
+	c->n_cues = n;
+	c->cues_loaded = 1;
+
+	lwsl_notice("HLS-SUB: %s: parsed track %s -> %d cue(s) spanning "
+		    "%.2fs..%.2fs\n", filename, trackid, n,
+		    n ? cues[0].start : 0.0, n ? cues[n - 1].end : 0.0);
 
 	return c;
 }
@@ -1561,24 +1670,109 @@ fmt_vtt_ts(char *buf, size_t bufsz, double t)
 	lws_snprintf(buf, bufsz, "%02u:%02u:%02u.%03u", hh, mm, ss_whole, ms);
 }
 
+/* a rendered segment body, growing */
+struct sub_out {
+	char *p;
+	size_t len;
+	size_t cap;
+};
+
+static int
+sub_out_append(struct sub_out *o, const char *s)
+{
+	size_t l = strlen(s);
+
+	if (o->len + l + 1 > o->cap) {
+		size_t nc = o->cap * 2 + l + 1;
+		char *np = realloc(o->p, nc);
+
+		if (!np)
+			return -1;
+		o->p = np;
+		o->cap = nc;
+	}
+	memcpy(o->p + o->len, s, l);
+	o->len += l;
+	o->p[o->len] = '\0';
+
+	return 0;
+}
+
+/*
+ * Render the cues that overlap the segment [t0, t1) as a WebVTT segment,
+ * rebased to segment-relative timestamps and clamped to the window.
+ * Returns -1 on OOM.
+ */
+static int
+render_sub_segment(struct sub_out *o, const struct hls_webvtt_cue *cues,
+		   int n, double t0, double t1, int *emitted)
+{
+	char mapline[96], ts0[16], ts1[16], header[64];
+	int64_t mpegts;
+	int i;
+
+	*emitted = 0;
+
+	if (sub_out_append(o, "WEBVTT\n"))
+		return -1;
+
+	/* X-TIMESTAMP-MAP: ties the segment-local WebVTT clock (LOCAL, which
+	 * our cues use, rebased to start at 0.000 for each segment) to the
+	 * absolute timeline via an MPEGTS (90kHz) anchor at the segment's
+	 * start. RFC 8216 §4.3.4.3 requires this; without it hls.js can't map
+	 * segment-relative cue times onto the playback timeline and they all
+	 * collapse onto the start of the asset. LOCAL:00:00:00.000 maps to
+	 * MPEGTS:<segment_start * 90000>, so a cue at local T lands at
+	 * absolute (segment_start + T). MPEGTS wraps at 2^33; mask it. */
+	mpegts = (int64_t)(t0 * 90000.0) & INT64_C(0x1ffffffff);
+	snprintf(mapline, sizeof(mapline),
+		 "X-TIMESTAMP-MAP=MPEGTS:%lld,LOCAL:00:00:00.000\n\n",
+		 (long long)mpegts);
+	if (sub_out_append(o, mapline))
+		return -1;
+
+	for (i = 0; i < n; i++) {
+		const struct hls_webvtt_cue *c = &cues[i];
+		double cs, ce;
+
+		if (c->end <= t0 || c->start >= t1)
+			continue; /* no overlap */
+
+		cs = c->start - t0;
+		if (cs < 0.0)
+			cs = 0.0;
+		ce = c->end - t0;
+		if (ce > (t1 - t0))
+			ce = t1 - t0;
+		if (ce <= cs)
+			continue;
+
+		fmt_vtt_ts(ts0, sizeof(ts0), cs);
+		fmt_vtt_ts(ts1, sizeof(ts1), ce);
+		snprintf(header, sizeof(header), "%s --> %s\n", ts0, ts1);
+		if (sub_out_append(o, header) ||
+		    sub_out_append(o, c->text ? c->text : "") ||
+		    sub_out_append(o, "\n\n"))
+			return -1;
+		(*emitted)++;
+	}
+
+	return 0;
+}
+
 void
 lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 			  const char *media_dir, const char *filename,
 			  const char *trackid, int seg_idx, volatile int *cancel,
 			  struct hls_result *r)
 {
+	struct sub_out out = { NULL, 0, 0 };
+	struct hls_sub_cache *cache = NULL;
+	struct hls_webvtt_cue *wcues = NULL;
+	double t0 = 0.0, t1 = 0.0, t_lo;
 	struct hls_sub_track *tracks;
-	int ntracks, ti;
+	int ntracks, ti, i, wn = 0, total, emitted, rr;
 	struct seg_timeline tl;
-	struct hls_sub_cache *cache;
-	struct lws_buf_s {
-		char *p;
-		size_t len;
-		size_t cap;
-	} out = { NULL, 0, 0 };
-	double t0 = 0.0, t1 = 0.0;
-	int i;
-	char ts0[16], ts1[16];
 
 	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 
@@ -1609,112 +1803,71 @@ lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 		else
 			t1 = t0 + tl.durations[i];
 	}
+	/* ... and t_lo, the start of the one before, for cues still showing */
+	t_lo = seg_idx ? t0 - tl.durations[seg_idx - 1] : t0;
 	timeline_free(&tl);
 
-	/* fetch / decode cues under the cache lock */
-	pthread_mutex_lock(&vhd->sub_lock);
-	cache = cache_get(vhd, filename, trackid, &tracks[ti], media_dir,
-			  cancel);
-	if (!cache) {
-		pthread_mutex_unlock(&vhd->sub_lock);
-		lws_hls_free_tracks(tracks, ntracks);
-		r->status = HTTP_STATUS_NOT_FOUND;
-		return;
+	if (tracks[ti].kind == HLS_SUB_EMBEDDED) {
+		/*
+		 * Decoded from just this part of the file, outside sub_lock:
+		 * the event loop takes it to serve rendered segments
+		 */
+		if (load_embedded_window_cues(vhd, media_dir, filename,
+					      tracks[ti].stream_index,
+					      seg_idx ? seg_idx - 1 : 0, t_lo,
+					      t1, &wcues, &wn, cancel) < 0) {
+			if (!HLS_CANCELLED(cancel))
+				lwsl_notice("HLS-SUB: %s: track %s seg %d -> "
+					    "cue decode FAILED\n", filename,
+					    trackid, seg_idx);
+			r->status = HTTP_STATUS_NOT_FOUND;
+			goto bail;
+		}
+		rr = render_sub_segment(&out, wcues, wn, t0, t1, &emitted);
+		total = wn;
+		free_cues(wcues, wn);
+		if (rr)
+			goto bail;
+
+		pthread_mutex_lock(&vhd->sub_lock);
+		/* only to keep the rendered body */
+		cache = cache_entry(vhd, filename, trackid);
+	} else {
+		pthread_mutex_lock(&vhd->sub_lock);
+		cache = cache_sidecar(vhd, media_dir, filename, trackid,
+				      &tracks[ti]);
+		if (!cache) {
+			pthread_mutex_unlock(&vhd->sub_lock);
+			r->status = HTTP_STATUS_NOT_FOUND;
+			goto bail;
+		}
+		rr = render_sub_segment(&out, cache->cues, cache->n_cues, t0,
+					t1, &emitted);
+		total = cache->n_cues;
+		if (rr) {
+			pthread_mutex_unlock(&vhd->sub_lock);
+			goto bail;
+		}
 	}
 
-	/* Render cues that overlap [t0, t1), rebased to segment-relative
-	 * timestamps and clamped to the window. */
-	out.cap = 256;
-	out.p = malloc(out.cap);
-	if (!out.p) {
-		pthread_mutex_unlock(&vhd->sub_lock);
-		lws_hls_free_tracks(tracks, ntracks);
-		return;
-	}
-#define APPEND(s) do { \
-	size_t _l = strlen(s); \
-	if (out.len + _l + 1 > out.cap) { \
-		size_t _nc = out.cap * 2 + _l; \
-		char *_np = realloc(out.p, _nc); \
-		if (!_np) goto seg_done_locked; \
-		out.p = _np; out.cap = _nc; \
-	} \
-	memcpy(out.p + out.len, s, _l); out.len += _l; out.p[out.len] = '\0'; \
-} while (0)
-	APPEND("WEBVTT\n");
+	/* sub_lock held */
 
-	/* X-TIMESTAMP-MAP: ties the segment-local WebVTT clock (LOCAL, which
-	 * our cues use, rebased to start at 0.000 for each segment) to the
-	 * absolute timeline via an MPEGTS (90kHz) anchor at the segment's
-	 * start. RFC 8216 §4.3.4.3 requires this; without it hls.js can't map
-	 * segment-relative cue times onto the playback timeline and they all
-	 * collapse onto the start of the asset. LOCAL:00:00:00.000 maps to
-	 * MPEGTS:<segment_start * 90000>, so a cue at local T lands at
-	 * absolute (segment_start + T). MPEGTS wraps at 2^33; mask it. */
-	{
-		char mapline[96];
-		int64_t mpegts = (int64_t)(t0 * 90000.0) & INT64_C(0x1ffffffff);
-		snprintf(mapline, sizeof(mapline),
-			 "X-TIMESTAMP-MAP=MPEGTS:%lld,LOCAL:00:00:00.000\n\n",
-			 (long long)mpegts);
-		APPEND(mapline);
-	}
-
-	{
-		int emitted = 0;
-		for (i = 0; i < cache->n_cues; i++) {
-			struct hls_webvtt_cue *c = &cache->cues[i];
-			double cs, ce;
-			char header[64];
-
-			if (c->end <= t0 || c->start >= t1)
-				continue; /* no overlap */
-
-		cs = c->start - t0;
-		if (cs < 0.0)
-			cs = 0.0;
-		ce = c->end - t0;
-		if (ce > (t1 - t0))
-			ce = t1 - t0;
-		if (ce <= cs)
-			continue;
-
-		fmt_vtt_ts(ts0, sizeof(ts0), cs);
-		fmt_vtt_ts(ts1, sizeof(ts1), ce);
-		snprintf(header, sizeof(header), "%s --> %s\n", ts0, ts1);
-		APPEND(header);
-		APPEND(c->text ? c->text : "");
-		APPEND("\n\n");
-		emitted++;
-	}
-
-		lwsl_notice("HLS-SUB: %s: sub seg track=%s idx=%d window=[%.2f,%.2f)s "
-			    "total_cues=%d emitted=%d body_len=%zu\n",
-			    filename, trackid, seg_idx, t0, t1,
-			    cache->n_cues, emitted, out.len);
-	}
+	lwsl_notice("HLS-SUB: %s: sub seg track=%s idx=%d window=[%.2f,%.2f)s "
+		    "cues=%d emitted=%d body_len=%zu\n", filename, trackid,
+		    seg_idx, t0, t1, total, emitted, out.len);
 
 	/* set_body copies; the cache keeps our copy for repeats */
 	set_body(r, "text/vtt; charset=\"utf-8\"", (uint8_t *)out.p, out.len);
 
 	/*
 	 * Remember it so repeats (seeks, other viewers) skip the worker
-	 * entirely; when the cache takes it, seg_done must not free it too
+	 * entirely; when the cache takes it, we must not free it too
 	 */
-	if (sub_cache_store_seg(cache, seg_idx, out.p, out.len))
+	if (cache && sub_cache_store_seg(cache, seg_idx, out.p, out.len))
 		out.p = NULL;
 	pthread_mutex_unlock(&vhd->sub_lock);
 
-	goto seg_done;
-
-seg_done_locked:
-	/* APPEND() bails out here with sub_lock still held; the mutex is a
-	 * plain one, so orphaning it wedges every later /subseg/ request and
-	 * PROTOCOL_DESTROY for good */
-	pthread_mutex_unlock(&vhd->sub_lock);
-
-seg_done:
+bail:
 	free(out.p);
 	lws_hls_free_tracks(tracks, ntracks);
-#undef APPEND
 }

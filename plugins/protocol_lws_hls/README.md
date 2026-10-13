@@ -181,6 +181,26 @@ worker's queue and are answered from the cache.  A build that fails, or
 finds nothing worth caching, is remembered for ten minutes so tasks for that
 file are not parked behind it again but built inline as before.
 
+## Subtitles
+
+Text subtitle tracks, embedded in the media (SubRip, ASS / SSA, mov_text,
+WebVTT, MicroDVD, JACOsub) or in `.srt` / `.vtt` files next to it, are offered
+as WebVTT renditions in the master playlist, on the same segment timeline as
+the video.  Bitmap subtitles (PGS, VobSub, DVB) are not offered.
+
+A segment of an embedded track is decoded from just that part of the media,
+read the way a media segment is cut, through the keyframe index, and
+starting at the segment before it, so a cue that started there and is still
+showing is in the segment too.  Cues that started more than one segment
+earlier are not.  Decoding the whole file for the cues instead takes minutes
+on a large film, and nothing could make use of what it had decoded if the
+player gave up waiting.  A sidecar file is small, and is parsed once and
+kept.
+
+Each segment is rendered once and kept (up to `HLS_SUBSEG_CACHE_MAX` per
+track, for the eight most recently used tracks), and the event loop answers
+repeats of it directly, without a turn on the worker.
+
 ## Keyframe index
 
 Segment boundaries come from the video track's keyframe index: the container's
