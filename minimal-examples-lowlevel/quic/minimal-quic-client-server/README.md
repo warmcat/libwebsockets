@@ -25,6 +25,7 @@ arrived.
 |-u <url>|Connect the client to the server at this url instead of running one here|
 |--relay <port>|The client connects through a relay on this port, see below|
 |--stray|With `--relay`, the relay also sends the client stray packets of another connection, see below|
+|--outage <ms>|With `--relay`, after the client's first Initial the relay loses all but the client's Initial packets for this long, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
 
@@ -63,6 +64,20 @@ authenticates), and the transfer must complete.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --stray
+```
+
+With `--outage <ms>` as well, once the relay has passed on the client's first
+Initial, for that long it loses everything the client sends except its Initial
+packets, as a run of corrupted packets would: packets after the Initial ones
+in a datagram are blanked to padding, and a datagram with no Initial packet
+at the front is dropped.  The server hears the client acknowledge its
+Initial, so it has a round trip time measurement, but never gets the client's
+Finished.  It must keep probing and keep the half-open connection within its
+handshake deadline, so that the handshake completes and the transfer goes
+ahead once the client's retransmissions get through again.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --outage 2000
 ```
 
 ## congestion controller

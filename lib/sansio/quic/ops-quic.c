@@ -502,16 +502,17 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 	if (qn && qn->nwsi) {
 		qn->pto_count++;
 		/*
-		 * Pre-handshake_done on the client, leave the death of a silent
-		 * peer to the wsi connect timeout so the capped probe spacing in
-		 * lws_quic_pto_delay_us() can keep probing for the whole
-		 * connect window (otherwise the counter would kill it at
-		 * ~4x base x 8 first).  Server-side, keep the reap: it is the
-		 * only bound on half-open connections from clients that vanish
-		 * mid-handshake, and the capped spacing only makes it fire
-		 * sooner.
+		 * Pre-handshake_done, leave the death of a silent peer to the
+		 * handshake's own deadline, the wsi connect timeout on a client
+		 * and PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND on a server, so
+		 * the capped probe spacing in lws_quic_pto_delay_us() can keep
+		 * probing for the whole of it.  Otherwise the counter kills it
+		 * at ~4x base x 8 first: on a short path, a server waiting for
+		 * the client's Finished gave up after a couple of seconds of
+		 * corrupted packets, while the client, its handshake done,
+		 * carried on sending to a connection that no longer existed.
 		 */
-		if (qn->pto_count >= 8 && (qn->is_server || qn->handshake_done)) {
+		if (qn->pto_count >= 8 && qn->handshake_done) {
 			lwsl_wsi_notice(qn->nwsi, "QUIC connection dead: max PTO count (%d) reached\n", qn->pto_count);
 			lws_close_free_wsi(qn->nwsi, LWS_CLOSE_STATUS_NOSTATUS, "quic pto timeout");
 			return;

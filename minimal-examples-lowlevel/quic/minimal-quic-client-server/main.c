@@ -16,7 +16,11 @@
  * have to reassemble it.  --write-size sets how much each lws_write() sends,
  * so small values make many small STREAM frames.  With --stray as well,
  * the relay also sends the client, now and then, a datagram that belongs to
- * some other QUIC connection, which the client must ignore.
+ * some other QUIC connection, which the client must ignore.  With --outage
+ * <ms>, once the client's first Initial has gone through, the relay loses
+ * everything the client sends for that long except its Initial packets, so
+ * the server's handshake has to survive a spell of never getting the
+ * client's Finished.
  */
 
 #include <libwebsockets.h>
@@ -152,6 +156,90 @@ static const char * const test_key =
  */
 #define RELAY_STRAY_EVERY	8
 
+/*
+ * With --outage <ms>, once the relay has passed on the client's first
+ * datagram, its first Initial, it loses everything from the client for that
+ * long except its Initial packets, as a run of corrupted packets would: a
+ * datagram's packets after its Initial ones are blanked to padding, and one
+ * with no Initial packet at the front is dropped.  The server hears the
+ * client acknowledge its Initial, so it has an RTT sample, but never gets the
+ * client's Finished, which is in a Handshake packet.  It must keep probing
+ * and keep the half-open connection while it waits within its handshake
+ * deadline, so the handshake completes when the client's retransmissions get
+ * through again.
+ */
+
+#define QUIC_V2		0x6b3343cfu
+
+/* a QUIC varint (RFC 9000 16), 0 if it fits in len */
+static int
+relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
+{
+	size_t n, m;
+
+	if (!len)
+		return 1;
+	n = (size_t)1 << (p[0] >> 6);
+	if (n > len)
+		return 1;
+
+	*v = p[0] & 0x3f;
+	for (m = 1; m < n; m++)
+		*v = (*v << 8) | p[m];
+	*used = n;
+
+	return 0;
+}
+
+/*
+ * Keep the Initial packets at the front of the datagram and blank the rest
+ * to padding, keeping its size, since a server only takes an Initial from a
+ * datagram of at least 1200 bytes.  Returns 0 if there is nothing to keep.
+ */
+static int
+relay_keep_initials(uint8_t *b, size_t len)
+{
+	size_t o = 0, q, u;
+	uint64_t v;
+
+	while (len - o >= 7) {
+		const uint8_t *p = b + o;
+		size_t r = len - o;
+		uint32_t ver;
+
+		if (!(p[0] & 0x80))
+			break; /* a short header, or the padding */
+
+		ver = ((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) |
+		      ((uint32_t)p[3] << 8) | p[4];
+		/* the Initial's type bits are 0 in v1 and 1 in v2 */
+		if (((p[0] >> 4) & 3) != (ver == QUIC_V2 ? 1 : 0))
+			break;
+
+		q = 5;				/* DCID, then SCID */
+		if (q + 1u + p[q] >= r)
+			break;
+		q += 1u + p[q];
+		if (q + 1u + p[q] >= r)
+			break;
+		q += 1u + p[q];
+		/* the token, then the rest of the packet */
+		if (relay_varint(p + q, r - q, &u, &v) || v > r - q - u)
+			break;
+		q += u + (size_t)v;
+		if (relay_varint(p + q, r - q, &u, &v) || v > r - q - u)
+			break;
+		o += q + u + (size_t)v;
+	}
+
+	if (!o)
+		return 0;
+
+	memset(b + o, 0, len - o);
+
+	return 1;
+}
+
 struct relay_dgram {
 	size_t			len;
 	uint8_t			buf[RELAY_DGRAM_MAX];
@@ -172,6 +260,8 @@ struct relay_dir {
 static struct {
 	struct lws		*wsi;
 	struct relay_dir	dir[2]; /* to the server, to the client */
+	lws_usec_t		outage_us;
+	lws_usec_t		outage_start;
 	unsigned int		batches_to_client;
 	unsigned int		strays;
 	char			stray;
@@ -273,6 +363,18 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		d->q[d->count].len = len;
 		memcpy(d->q[d->count].buf, in, len);
+
+		if (d == &relay.dir[0] && relay.outage_us && d->sent) {
+			/* the outage starts after the first Initial */
+			if (!relay.outage_start)
+				relay.outage_start = lws_now_usecs();
+			if (lws_now_usecs() - relay.outage_start <
+							relay.outage_us &&
+			    !relay_keep_initials(d->q[d->count].buf, len)) {
+				d->dropped++;
+				break;
+			}
+		}
 		if (++d->count == RELAY_BATCH) {
 			lws_sul_cancel(&d->sul);
 			relay_due(d);
@@ -557,6 +659,7 @@ enum {
 	LWS_SW_SERVER,
 	LWS_SW_RELAY,
 	LWS_SW_STRAY,
+	LWS_SW_OUTAGE,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_CUBIC,
 };
@@ -569,6 +672,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_SERVER]	= { "--server",	"Server address to connect to (default 127.0.0.1)" },
 	[LWS_SW_RELAY]	= { "--relay",	"Connect via a relay on this port that reorders datagrams (needs a numeric --server)" },
 	[LWS_SW_STRAY] = { "--stray",	"The relay also sends the client stray packets of another connection (needs --relay)" },
+	[LWS_SW_OUTAGE] = { "--outage",	"After the client's first Initial, the relay loses all but its Initial packets for this many ms (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
 };
@@ -601,7 +705,7 @@ int main(int argc, const char **argv)
 	lws_usec_t start_us;
 	char url_buf[128];
 	const char *p, *prot, *address, *path;
-	int port = 7681, relay_port = 0;
+	int port = 7681, relay_port = 0, outage_ms = 0;
 	int url_port = 0;
 
 	lws_context_info_defaults(&info, NULL);
@@ -659,6 +763,21 @@ int main(int argc, const char **argv)
 	    !relay_port) {
 		lwsl_err("--stray needs --relay\n");
 		return 1;
+	}
+
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_OUTAGE].sw);
+	if (p) {
+		int ms = atoi(p);
+
+		if (!relay_port) {
+			lwsl_err("--outage needs --relay\n");
+			return 1;
+		}
+		if (ms < 1 || ms > 60000) {
+			lwsl_err("--outage must be 1 to 60000ms\n");
+			return 1;
+		}
+		outage_ms = ms;
 	}
 
 	p = lws_cmdline_option(argc, argv, "-u");
@@ -743,6 +862,7 @@ int main(int argc, const char **argv)
 		memset(&relay, 0, sizeof(relay));
 		relay.stray = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_STRAY].sw);
+		relay.outage_us = (lws_usec_t)outage_ms * LWS_US_PER_MS;
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

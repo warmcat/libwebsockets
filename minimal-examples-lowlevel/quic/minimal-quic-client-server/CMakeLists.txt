@@ -109,6 +109,23 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay losing all but the client's Initial packets
+		# for 2s after its first Initial: the server, with an RTT sample
+		# but left waiting for the client's Finished, must keep the
+		# half-open connection within its handshake deadline, so the
+		# handshake completes when the client's retransmissions get
+		# through again
+		#
+		lws_get_free_port(PORT_QCS_OUTAGE)
+		lws_get_free_port(PORT_QCS_OUTAGE_RELAY)
+		add_test(NAME ${SAMP}-outage COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_OUTAGE}
+				--relay ${PORT_QCS_OUTAGE_RELAY} --outage 2000)
+		set_tests_properties(${SAMP}-outage PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport
