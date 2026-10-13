@@ -714,6 +714,18 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	/* we're only judging if any (200, or 500 etc) http txn completed */
 	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 
+#if defined(LWS_WITH_HTTP_PROXY)
+	/*
+	 * A proxy's onward leg ends its parent's transaction with this
+	 * completion, once.  The close hooks only report a completion for a
+	 * leg that never got one, eg, a response ended by the hangup: if they
+	 * reported it again when this connection goes, it could land after
+	 * the parent took up its next pipelined request, and end that one
+	 * before its response was relayed
+	 */
+	wsi->http.proxy_clientside = 0;
+#endif
+
 	if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
 					wsi->user_space, NULL, 0)) {

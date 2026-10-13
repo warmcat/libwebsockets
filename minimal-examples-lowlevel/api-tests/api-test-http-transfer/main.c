@@ -131,6 +131,14 @@
 #define RAW3_LATER_MS	500
 #define RAW3_MAX_TURNS	10000
 
+/*
+ * A "linger" request's connection is held this long after its answer before
+ * the server ends the transaction (closing it, for a proxy's onward leg),
+ * and one that is not also "later" is answered after twice this: so it is
+ * still awaited when an earlier lingering connection goes
+ */
+#define RAW3_LINGER_MS	100
+
 /* how the client frames the request body */
 
 enum xf_req {
@@ -634,6 +642,17 @@ static const struct xcase cases[] = {
 	  "via the http proxy mount, answered some time after the body",
 	  "POST", "/echo-cl-later", XR_CL, 100, 0, 8192, 0, 0, 200, 100, XG_NONE,
 	  0, 1, 0, 3, 0 },
+	/*
+	 * The same, but the server holds the POST's onward connection open a
+	 * while after answering, so it closes after the parent took up the
+	 * GET, while the GET's answer is still awaited.  The POST's onward
+	 * leg reported its completion already: its close must not end the
+	 * GET's transaction on the parent as well
+	 */
+	{ "h1 POST and a pipelined GET via the http proxy mount, the POST's "
+	  "onward connection closing while the GET is relayed",
+	  "POST", "/echo-cl-linger-later", XR_CL, 100, 0, 8192, 0, 0, 200, 100,
+	  XG_NONE, 0, 1, 0, 3, 0 },
 #if defined(LWS_ROLE_H3)
 	/*
 	 * The same proxy mount on a tls vhost whose alpn offers h3, as lwsws
@@ -803,6 +822,10 @@ struct pss_srv {
 	int			redir307;	/* 307 once the body is read */
 	int			later;		/* answer RAW3_LATER_MS after
 						 * the request, or its body */
+	int			linger;		/* end the transaction
+						 * RAW3_LINGER_MS after the
+						 * answer */
+	int			lingering;	/* ... and that is underway */
 	int			body_done;	/* /body-done: 202 from the
 						 * body's first piece */
 	int			file_at_end;	/* /file-at-end: a file once
@@ -1207,6 +1230,14 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 
 	pss->responding = 0;
 
+	if (pss->linger) {
+		/* the answer is all sent: hold on to the connection a while */
+		pss->lingering = 1;
+		lws_set_timer_usecs(wsi, RAW3_LINGER_MS * LWS_US_PER_MS);
+
+		return 0;
+	}
+
 	if (lws_http_transaction_completed(wsi))
 		return -1;
 
@@ -1216,10 +1247,12 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 /* the way an app waiting on something else answers: some time later */
 
 static int
-srv_answer_later(struct lws *wsi)
+srv_answer_later(struct lws *wsi, struct pss_srv *pss)
 {
 	srv.turns_wait_start = turns;
-	lws_set_timer_usecs(wsi, RAW3_LATER_MS * LWS_US_PER_MS);
+	lws_set_timer_usecs(wsi, (pss->later ? RAW3_LATER_MS :
+					       2 * RAW3_LINGER_MS) *
+				 LWS_US_PER_MS);
 
 	return 0;
 }
@@ -1355,6 +1388,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		pss->later = path && !!strstr(path, "later");
+		pss->linger = path && !!strstr(path, "linger");
 		pss->body_done = path && !!strstr(path, "body-done");
 		pss->file_at_end = path && !!strstr(path, "file-at-end");
 
@@ -1404,8 +1438,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
-		if (pss->later)
-			return srv_answer_later(wsi);
+		if (pss->later || pss->linger)
+			return srv_answer_later(wsi, pss);
 
 		/* answer now, whether or not a body is on its way */
 		return srv_start_response(wsi, pss);
@@ -1460,12 +1494,20 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			return 0;
 		}
-		if (pss->later)
-			return srv_answer_later(wsi);
+		if (pss->later || pss->linger)
+			return srv_answer_later(wsi, pss);
 
 		return srv_start_response(wsi, pss);
 
 	case LWS_CALLBACK_TIMER:
+		if (pss->lingering) {
+			/* the linger is over: now the transaction ends */
+			pss->lingering = 0;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+
+			return 0;
+		}
 		srv.turns_waited = turns - srv.turns_wait_start;
 		return srv_start_response(wsi, pss);
 

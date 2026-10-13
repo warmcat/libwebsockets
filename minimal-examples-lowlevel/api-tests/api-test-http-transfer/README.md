@@ -10,7 +10,9 @@ and trailer fields; chunked on a GET followed by a pipelined request on the same
 connection; a Content-Length POST with a GET pipelined behind it in the same
 write, answered some time after its body completed, where the body must complete
 exactly once and the GET wait parked for the answer, without keeping the event
-loop busy, before it is served (direct and through the http proxy mount), and
+loop busy, before it is served (direct and through the http proxy mount, also
+with the POST's onward connection closing only once the GET is being relayed,
+which must not end the GET's transaction as well), and
 the same with two GETs to a callback mount that names its protocol as its
 origin, where the second must then be dispatched as itself, once (also with the
 second GET sent in its own write while the first is awaited, which must wait
