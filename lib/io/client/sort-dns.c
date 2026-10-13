@@ -601,6 +601,12 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 {
 #if defined(LWS_WITH_ROUTING)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	/*
+	 * Without a complete routing table, eg, while netlink is still
+	 * delivering it, we can't filter or sort by it: keep every result,
+	 * in the resolver's order
+	 */
+	int use_rt = _lws_route_table_usable(wsi->a.context);
 #endif
 	const struct addrinfo *ai = result;
 
@@ -686,7 +692,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * we don't have a way to use it if we listed it
 		 */
 
-		if (lws_dll2_count(&pt->context->routing_table) && !wsi->io->do_bind) {
+		if (use_rt && !wsi->io->do_bind) {
 
 			estr = _lws_route_est_outgoing(pt, &ds->dest);
 			if (!estr) {
@@ -720,6 +726,9 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * ipv6 source address to route it, because of ipv6-only
 		 * egress, then promote it to ipv6 and sort it
 		 */
+
+		if (!use_rt)
+			goto just_add;
 
 #if !defined(LWS_WITH_IPV4)
 		if (lws_sa46_is_ipv4_mapped(&ds->dest))
@@ -784,7 +793,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 
 		/* bestsrc is the best source route, or NULL if none */
 
-		if (!bestsrc && lws_dll2_count(&pt->context->routing_table)) {
+		if (!bestsrc) {
 			/* drop it, no usable source route */
 			lws_free(ds);
 			goto next;

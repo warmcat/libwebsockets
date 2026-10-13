@@ -15,7 +15,9 @@
  * ::1, and a client connects to the same name at each server's port.
  *
  * Which of the two addresses a client tries first is decided by the address
- * sort, ie, by the host's routes, so it differs between hosts.  But both
+ * sort, ie, by the host's routes, so it differs between hosts (and while the
+ * routing table is still arriving from netlink, it is the resolver's order
+ * instead, the clients here start that early).  But both
  * clients get both addresses in the same order, so whichever it is, one of
  * them starts on the address its server isn't listening on, is refused, and
  * must connect on the next one.  Both clients must end up connected, each on

@@ -239,6 +239,26 @@ lws_route_gw_usable(const lws_sockaddr46 *dest, const lws_sockaddr46 *gw)
 	return 0;
 }
 
+/*
+ * Can the routing table be taken as the whole story, so that a destination
+ * with no route in it really has no way out?
+ *
+ * Netlink delivers the existing routes asynchronously after the context is
+ * created, over as many reads as it takes, eg, the ipv4 routes before the
+ * ipv6 ones.  Until the coldplug timer has seen them stop coming, the table
+ * can hold some of them and not others, and judging by it would discard
+ * destinations that are perfectly reachable.
+ */
+
+int
+_lws_route_table_usable(struct lws_context *cx)
+{
+	if (cx->netlink && !cx->nl_initial_done)
+		return 0;
+
+	return !!lws_dll2_count(&cx->routing_table);
+}
+
 lws_route_t *
 _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 		        const lws_sockaddr46 *dest)

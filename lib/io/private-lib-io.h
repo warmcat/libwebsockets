@@ -250,6 +250,9 @@ lws_route_t *
 _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 		        const lws_sockaddr46 *dest);
 
+int
+_lws_route_table_usable(struct lws_context *cx);
+
 const char *
 lws_errno_describe(int en, char *result, size_t len);
 
