@@ -151,6 +151,15 @@ struct pending_auth_state {
 	/* the socket peer that asked for the login, for the per-peer cap */
 	lws_sockaddr46 peer;
 
+	/*
+	 * The address of the browser presenting the code, told to the auth
+	 * server as X-Forwarded-For on /api/token: otherwise what it keys its
+	 * strikes and bans on is our address, and once we are on another host
+	 * from it, a run of bad codes bans us, and so everybody's logins.  It
+	 * believes the header only from the addresses in its trusted-proxies.
+	 */
+	char client_ip[64];
+
 	struct lejp_ctx jctx;
 	const char *fatal_error;
 
@@ -1201,6 +1210,8 @@ rand_fail:
 
 			lws_strncpy(ps->code, code_in, sizeof(ps->code));
 			ps->wsi_server = wsi;
+			lws_get_peer_simple(wsi, ps->client_ip,
+					    sizeof(ps->client_ip));
 
 			// Suspend the server WSI and kick off the token fetch
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
@@ -1628,6 +1639,12 @@ rand_fail:
 		lws_snprintf(cl, sizeof(cl), "%d", ps->payload_len);
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 				(unsigned char *)cl, (int)strlen(cl), p, end))
+			return 1;
+
+		if (ps->client_ip[0] &&
+		    lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
+				(unsigned char *)ps->client_ip,
+				(int)strlen(ps->client_ip), p, end))
 			return 1;
 
 		/*

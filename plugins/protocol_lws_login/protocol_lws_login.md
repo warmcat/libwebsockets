@@ -78,6 +78,10 @@ The link carries no browser traffic, so it is pinged to notice when it dies, and
 
 A snapshot holds every account's uid and grants, which is why the subscription needs the secret.  A snapshot larger than 16MB is refused.  The schema is in `plugins/lws-auth-feed.h`, shared by both plugins.
 
+### On a different host from the auth server
+
+The renewal side channel's `/api/sso_exchange` requests then come from this host, and the auth server keys its strikes and bans on the client address, so a run of bad renewals would ban this host, and with it everybody's renewals.  Each request therefore tells the auth server the browser's address in `X-Forwarded-For`.  The auth server believes that only from the addresses in its `trusted-proxies` PVO, so list this host's address there.  (On the same host, the auth server never strikes its own addresses, so nothing is needed.)
+
 ## Stale tokens
 
 A token can verify and be unexpired, yet no longer describe the session the way the auth server's records do.  On every request, `lws-login` compares the token with the auth feed's latest snapshot, and treats it as stale when:

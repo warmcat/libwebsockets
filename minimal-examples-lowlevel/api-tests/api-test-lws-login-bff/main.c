@@ -24,6 +24,10 @@
  *
  * Scenarios:
  *
+ * Every exchange must tell the auth server the browser's address in
+ * X-Forwarded-For, or once lws-login is on another host from it, a run of bad
+ * renewals gets lws-login's own address banned, and so everybody's renewals.
+ *
  *  - "paired-jar": both cookies present -> renewal runs, 200 + rotated
  *    auth_session / auth_csrf cookies;  the mock answers with the real
  *    minted multi-KB JWT, and the rotation fence asserts the planted
@@ -367,7 +371,7 @@ static size_t	got_body_len;
 static int	got_body_trunc;
 
 /* Captured by the mock auth server from the side-channel exchange. */
-static int	mock_hits, mock_got_refresh, mock_pair_ok;
+static int	mock_hits, mock_got_refresh, mock_pair_ok, mock_xff_ok;
 
 static int	tests, fail;
 static volatile sig_atomic_t sequence_done;
@@ -486,11 +490,20 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 		char csrf_ck[64] = {0};
 		size_t csrf_ck_len = sizeof(csrf_ck);
-		char refresh[128] = {0};
+		char refresh[128] = {0}, xff[64];
 		size_t refresh_len = sizeof(refresh);
 		int got_cookie_csrf;
 
 		mock_hits++;
+
+		/*
+		 * The side channel tells the auth server the browser's
+		 * address, so its strikes don't land on lws-login's host: here
+		 * the test client, connecting from 127.0.0.1
+		 */
+		mock_xff_ok = lws_hdr_copy(wsi, xff, sizeof(xff),
+					   WSI_TOKEN_X_FORWARDED_FOR) > 0 &&
+			      !strcmp(xff, "127.0.0.1");
 		mock_got_refresh =
 			lws_http_cookie_get(wsi, "auth_refresh_session",
 					    refresh, &refresh_len) == 0 &&
@@ -1072,6 +1085,7 @@ start_step(lws_sorted_usec_list_t *sul)
 	mock_hits = 0;
 	mock_got_refresh = 0;
 	mock_pair_ok = 0;
+	mock_xff_ok = 0;
 	got_ws_established = 0;
 	got_ws_refused = 0;
 	g_ws_bound[0] = '\0';
@@ -1180,12 +1194,13 @@ step_advance(void)
 	}
 
 	if (scenarios[step].expect_pair &&
-	    (!mock_hits || !mock_got_refresh || !mock_pair_ok)) {
+	    (!mock_hits || !mock_got_refresh || !mock_pair_ok ||
+	     !mock_xff_ok)) {
 		fail++;
 		lwsl_err("%s: FAIL scenario '%s': exchange not "
-			 "validated (hits=%d refresh=%d pair=%d)\n",
+			 "validated (hits=%d refresh=%d pair=%d xff=%d)\n",
 			 __func__, scenarios[step].name, mock_hits,
-			 mock_got_refresh, mock_pair_ok);
+			 mock_got_refresh, mock_pair_ok, mock_xff_ok);
 		result = 1;
 		sequence_done = 1;
 		lws_cancel_service(context);

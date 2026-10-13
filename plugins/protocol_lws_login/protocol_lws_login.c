@@ -164,6 +164,15 @@ struct pending_login_refresh {
 	char                    cookie_hdr[LWS_SSO_MAX_COOKIE];
 
 	/*
+	 * The browser's address, told to the auth server as X-Forwarded-For:
+	 * otherwise what it keys its strikes and bans on is our address, and
+	 * once we are on another host from it, a run of bad renewals bans us,
+	 * and so everybody's renewals.  It believes the header only from the
+	 * addresses in its trusted-proxies.
+	 */
+	char                    client_ip[64];
+
+	/*
 	 * POST body for the renewal exchange.  The body proper starts
 	 * LWS_PRE bytes into payload[]: lws_write() composes the h2/h3 DATA
 	 * frame header into the bytes immediately BEFORE the pointer it is
@@ -743,6 +752,7 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	 */
 
 	lws_login_orig_host(wsi, ps->orig_host, sizeof(ps->orig_host));
+	lws_get_peer_simple(wsi, ps->client_ip, sizeof(ps->client_ip));
 	lws_strncpy(ps->orig_scheme, lws_login_scheme(wsi, vhd),
 		    sizeof(ps->orig_scheme));
 
@@ -1322,6 +1332,12 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
 						 (unsigned char *)ps->cookie_hdr,
 						 (int)strlen(ps->cookie_hdr), p, end))
+			return -1;
+
+		if (ps->client_ip[0] &&
+		    lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
+						 (unsigned char *)ps->client_ip,
+						 (int)strlen(ps->client_ip), p, end))
 			return -1;
 
 		/*

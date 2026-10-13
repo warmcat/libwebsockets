@@ -76,6 +76,10 @@ widget JS) and on a cold page load (server-side, before any redirect to the
 login form), so a valid session stays alive transparently and only a genuinely
 expired long-term login ever reaches the auth form.
 
+## On a different host from the auth server
+
+The code exchange's `/api/token` request then comes from this host, and the auth server keys its strikes and bans on the client address, so a run of bad codes would ban this host, and with it everybody's logins.  The request therefore tells the auth server the address of the browser presenting the code in `X-Forwarded-For`.  The auth server believes that only from the addresses in its `trusted-proxies` PVO, so list this host's address there.
+
 ## How to use alongside `lws-login`
 
 If you are using `lws-login` as a JWT bouncer to protect an application endpoint, simply point its `auth-server-url` PVO to the `/oauth/login` route of this plugin!
