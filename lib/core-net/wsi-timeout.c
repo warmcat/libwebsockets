@@ -75,6 +75,24 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
+	/*
+	 * keepalive_timeout is how long a server waits on an idle client.  A
+	 * network connection whose client is waiting on a stream we have not
+	 * finished answering, eg, a reverse proxy's slow onward server, or a
+	 * plugin building the response on a thread, is not idle: the peer has
+	 * no reason to send anything meanwhile.  Closing it would fail every
+	 * stream on it.  The busy stream's own timeout bounds the wait; look
+	 * again after another keepalive period.
+	 */
+	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE &&
+	    !wsi->mux_substream && lws_wsi_mux_has_busy_child(wsi)) {
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+				lws_wsi_keepalive_timeout_eff(wsi));
+		return;
+	}
+#endif
+
 	/* no need to log normal idle keepalive timeout */
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
 	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE)

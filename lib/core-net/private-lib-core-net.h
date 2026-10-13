@@ -906,6 +906,8 @@ lws_stub_destroy_all_on_vhost(struct lws_vhost *vh);
 void
 lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, uint64_t sid);
 int
+lws_wsi_mux_has_busy_child(struct lws *parent_wsi);
+int
 lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi);
 struct lws *
 lws_wsi_mux_move_child_to_tail(struct lws *parent_wsi);

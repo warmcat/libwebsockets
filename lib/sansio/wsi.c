@@ -2227,6 +2227,22 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 	lws_dll2_add_head(&wsi->mux.sibling_list, &parent_wsi->mux.child_list_owner);
 }
 
+/*
+ * A stream is busy while it has a timeout of its own running: something is
+ * in progress on it, eg, a response is being prepared, and that timeout
+ * bounds how long it can stay busy.
+ */
+int lws_wsi_mux_has_busy_child(struct lws *parent_wsi) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&parent_wsi->mux.child_list_owner)) {
+		struct lws *wsi = lws_container_of(d, struct lws, mux.sibling_list);
+		if (!lws_dll2_is_detached(&wsi->sul_timeout.list))
+			return 1;
+	}
+	lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 struct lws *lws_wsi_mux_from_id(struct lws *parent_wsi, unsigned int sid) {
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&parent_wsi->mux.child_list_owner)) {
 		struct lws *wsi = lws_container_of(d, struct lws, mux.sibling_list);
