@@ -339,7 +339,7 @@ lws_system_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	/*
 	 * Captive portal detect showing internet workable triggers NTP Client
 	 */
-	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "cps") &&
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "cpd") &&
 	    !lws_json_simple_strcmp(buf, len, "\"result\":", "OK") &&
 	    lws_now_secs() < 1594017754) /* 06:42 Mon Jul 6 2020 UTC */
 		lws_ntpc_trigger(cx);
