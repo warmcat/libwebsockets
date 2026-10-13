@@ -433,6 +433,13 @@ lws_tls_server_abort_connection(struct lws *wsi);
  * the top of lib/tls/tls-server.c.
  */
 
+/*
+ * The most of a ClientHello, with its record headers, we will gather from
+ * several records to find the name in.  Real ones are a few KB, even with
+ * post-quantum key shares; one bigger than this is treated as naming nothing.
+ */
+#define LWS_TLS_CH_MAX	(32 * 1024)
+
 enum {
 	LWS_TLS_CH_SNI_BAD	= -1, /* a server_name we will not act on */
 	LWS_TLS_CH_SNI_MORE	=  0, /* not enough of the ClientHello yet */
@@ -447,6 +454,9 @@ lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
 int
 lws_tls_client_hello_msg_sni(const uint8_t *buf, size_t len, char *name,
 			     size_t name_len);
+
+size_t
+lws_tls_client_hello_want(const uint8_t *buf, size_t len);
 
 void
 lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc);

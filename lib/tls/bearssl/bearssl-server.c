@@ -133,14 +133,16 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
  * suite profile, the client-cert policy, the ALPN list and the session cache
  * are all the selected vhost's from the start.
  *
- * The ClientHello's first record is read, not peeked (C-653): bytes left in
- * the socket keep a level-triggered POLLIN firing, so waiting for the rest of
- * a partial one would spin the service thread until the accept timeout.  They
+ * The ClientHello's records are read, not peeked (C-653): bytes left in the
+ * socket keep a level-triggered POLLIN firing, so waiting for the rest of a
+ * partial one would spin the service thread until the accept timeout.  They
  * are kept in the connection's record output buffer, which nothing owns until
  * the engine is initialized and is big enough for the largest record, and
  * given to the engine as soon as it is (lws_bearssl_server_feed_hello()).
- * Only the first record is taken: the name has to be in it, and the engine
- * cannot write its reply into that buffer before it has had all of it.
+ * A ClientHello split across several records is read for as many of them as
+ * fit in that buffer, and treated as naming nothing beyond that.  The engine
+ * only writes its reply into the buffer once it has had the whole
+ * ClientHello, by when everything is fed from it.
  *
  * Returns 0 if the handshake may proceed on wsi's (possibly just changed)
  * vhost, 1 if we need more bytes from him first, or -1 if he has been refused
@@ -166,19 +168,16 @@ lws_bearssl_server_sni(struct lws *wsi)
 			break;
 
 		/*
-		 * Read no further than the end of the header, or of the
-		 * record the header announces (the parser only asks for more
-		 * of a record whose length TLS allows)
+		 * Read no further than the end of the next record header, or
+		 * of the record a header announces, so nothing after the
+		 * ClientHello's own records comes off the socket
 		 */
 
-		want = 5;
-		if (conn->hello_len >= 5)
-			want += ((size_t)hello[3] << 8) | hello[4];
-		if (want > sizeof(conn->iobuf_out)) {
+		want = lws_tls_client_hello_want(hello, conn->hello_len);
+		if (!want || want > sizeof(conn->iobuf_out)) {
 			/*
-			 * Can't happen, BearSSL's output record buffer is big
-			 * enough for any record... but if it were not, there
-			 * would be no name we could find
+			 * Not records, or a ClientHello in more of them than
+			 * we can hold: there is no name we can find
 			 */
 			n = LWS_TLS_CH_SNI_NONE;
 			break;

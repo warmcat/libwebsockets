@@ -214,14 +214,48 @@ lws_tls_client_hello_msg_sni(const uint8_t *buf, size_t len, char *name,
 }
 
 /*
+ * How far into the bytes a peer sent from the start of the connection the
+ * TLS records we can see go: the end of the first record not all here yet,
+ * or of the header of the next one.  A caller reading the ClientHello in
+ * reads up to this, so it never takes more than the ClientHello's own
+ * records off the socket.
+ *
+ * Returns 0 if what is there is not TLS handshake records.
+ */
+
+size_t
+lws_tls_client_hello_want(const uint8_t *buf, size_t len)
+{
+	size_t pos = 0, rl;
+
+	while (len - pos >= 5) {
+		if (buf[pos] != 0x16 /* handshake */ || buf[pos + 1] != 0x03)
+			return pos ? pos : 0;
+
+		rl = ((size_t)buf[pos + 3] << 8) | buf[pos + 4];
+		if (!rl || rl > 16384 || pos + 5 + rl > LWS_TLS_CH_MAX)
+			return 0;
+
+		if (len - pos - 5 < rl)
+			return pos + 5 + rl;
+
+		pos += 5 + rl;
+	}
+
+	return pos + 5;
+}
+
+/*
  * Find the SNI hostname in a TLS ClientHello as tcp carries it, ie, inside
  * TLS plaintext records.
  *
- * We only look inside the first TLS record.  A ClientHello fragmented across
- * several records is legal but is not something any TLS client does, and
- * reassembling it would mean de-framing the handshake stream ahead of the TLS
- * library; such a peer is simply treated as having sent no SNI, ie, he is
- * served by the vhost that accepted him.
+ * The ClientHello is a handshake message, and TLS lets a handshake message
+ * be split across as many consecutive handshake records as the sender likes
+ * (RFC 8446 5.1).  Clients rarely do it, but some do, eg, with a small
+ * maximum fragment length, so the records are de-framed back into the
+ * handshake stream until it holds the whole message, up to LWS_TLS_CH_MAX.
+ * Records can also arrive split across tcp segments, so until the message is
+ * whole the answer is _MORE.
  *
  * \p buf: the bytes the peer sent, from the start of the connection
  * \p len: how many of them we have
@@ -235,7 +269,8 @@ int
 lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
 			 size_t name_len)
 {
-	size_t end;
+	size_t pos = 0, hs_len = 0, need = 0, rl;
+	uint8_t *hs;
 	int n;
 
 	if (!name || name_len < 2)
@@ -256,19 +291,75 @@ lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
 		 */
 		return LWS_TLS_CH_SNI_NONE;
 
-	end = 5 + (((size_t)buf[3] << 8) | buf[4]);
-
-	if (end <= 5 || end > 5 + 16384)
+	rl = ((size_t)buf[3] << 8) | buf[4];
+	if (!rl || rl > 16384)
 		/* a record length TLS does not allow */
 		return LWS_TLS_CH_SNI_NONE;
 
-	if (len < end)
+	if (len < 5 + rl)
 		return LWS_TLS_CH_SNI_MORE;
 
-	n = lws_tls_client_hello_msg_sni(buf + 5, end - 5, name, name_len);
-	if (n == LWS_TLS_CH_SNI_MORE)
-		/* the ClientHello continues in a later record, see above */
+	/* usually the whole ClientHello is in the first record */
+
+	n = lws_tls_client_hello_msg_sni(buf + 5, rl, name, name_len);
+	if (n != LWS_TLS_CH_SNI_MORE)
+		return n;
+
+	/*
+	 * It continues in later records: gather their payloads, which can
+	 * only be fewer bytes than the records themselves
+	 */
+
+	hs = lws_malloc(len, __func__);
+	if (!hs)
 		return LWS_TLS_CH_SNI_NONE;
+
+	while (len - pos >= 5) {
+		if (buf[pos] != 0x16 || buf[pos + 1] != 0x03) {
+			/* something else came before the ClientHello ended */
+			n = LWS_TLS_CH_SNI_NONE;
+			goto out;
+		}
+
+		rl = ((size_t)buf[pos + 3] << 8) | buf[pos + 4];
+		if (!rl || rl > 16384) {
+			n = LWS_TLS_CH_SNI_NONE;
+			goto out;
+		}
+		if (len - pos - 5 < rl)
+			break; /* the rest of this record is still coming */
+
+		memcpy(hs + hs_len, buf + pos + 5, rl);
+		hs_len += rl;
+		pos += 5 + rl;
+
+		if (!need && hs_len >= 4) {
+			need = 4 + (((size_t)hs[1] << 16) |
+				    ((size_t)hs[2] << 8) | (size_t)hs[3]);
+			if (need > LWS_TLS_CH_MAX) {
+				/* more than we will buffer to find out */
+				n = LWS_TLS_CH_SNI_NONE;
+				goto out;
+			}
+		}
+
+		if (need && hs_len >= need)
+			break;
+	}
+
+	if (!need || hs_len < need) {
+		n = pos >= LWS_TLS_CH_MAX ? LWS_TLS_CH_SNI_NONE :
+					    LWS_TLS_CH_SNI_MORE;
+		goto out;
+	}
+
+	n = lws_tls_client_hello_msg_sni(hs, hs_len, name, name_len);
+	if (n == LWS_TLS_CH_SNI_MORE)
+		/* it said how long it was, and it is all here */
+		n = LWS_TLS_CH_SNI_NONE;
+
+out:
+	lws_free(hs);
 
 	return n;
 }

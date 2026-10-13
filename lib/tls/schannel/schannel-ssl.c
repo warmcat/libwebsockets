@@ -493,7 +493,8 @@ lws_tls_schannel_server_sni(struct lws *wsi)
 
 	while (n == LWS_TLS_CH_SNI_MORE) {
 
-		if (conn->rx_len >= LWS_SCH_CLIENT_HELLO_MAX) {
+		/* it may span several records, see lws_tls_client_hello_sni() */
+		if (conn->rx_len >= LWS_TLS_CH_MAX) {
 			/* he is not sending a ClientHello we can make sense of */
 			n = LWS_TLS_CH_SNI_NONE;
 			break;
