@@ -29,7 +29,7 @@ static const struct lws_switches switches[] = {
 #include <fcntl.h>
 
 #define MAX_SIZE (4 * 1024 * 1024)
-char temp[MAX_SIZE], compact[MAX_SIZE];
+static char temp[MAX_SIZE], compact[MAX_SIZE];
 
 int main(int argc, const char **argv)
 {
