@@ -95,7 +95,12 @@ struct pss_cert_dist_server {
 	int                                 uds_rx_len;
 	int                                 uds_rx_pos;
 	char                                hash[65];
+
+	char                                *peer; /* client cert DER, hex */
 };
+
+/* a client cert bigger than this is not one we issued */
+#define CDS_DER_MAX 4096
 
 /*
  * The client cert CN ends up as a path component under the pki root, and
@@ -227,30 +232,38 @@ bail:
 #endif
 
 /*
- * The cert we distribute for <domain> is the one the acme client keeps
- * current for it, by moving a symlink onto each renewal:
+ * The cert we distribute to the client for <subdomain> is the one the acme
+ * client keeps current for that name, by moving a symlink onto each renewal:
  *
  *   <pki_root>/domains/<domain>/certs/production/crt/<name>-latest-fullchain.crt
  *   <pki_root>/domains/<domain>/certs/production/key/<name>-latest.key
  *
  * The dirs also hold the timestamped files those point to, the leaf-only
  * certs, and the outgoing pair linked as -previous, so nothing else there can
- * be picked by its name.  <name> is the domain itself, or failing that its
- * wildcard, which the acme client files as "_.<domain>".
+ * be picked by its name.  <name> is <subdomain> itself, or failing that the
+ * domain's wildcard, which the acme client files as "_.<domain>" and which
+ * covers <subdomain>, since that is exactly one label under <domain>.
+ *
+ * Never any other name in the domain: the client for auth.example.com must
+ * not be handed example.com's key, or www.example.com's.  (A client whose
+ * name is the domain itself gets the domain's cert.)
  *
  * On success *cert and *key are allocated and must be freed.
  */
 
 static int
 cds_read_domain_cert(struct lws_context *cx, const char *pki_root,
-		     const char *domain, char **cert, char **key)
+		     const char *domain, const char *subdomain, char **cert,
+		     char **key)
 {
-	static const char * const pfx[] = { "", "_." };
 	char name[160], path[512];
 	size_t n;
 
-	for (n = 0; n < LWS_ARRAY_SIZE(pfx); n++) {
-		lws_snprintf(name, sizeof(name), "%s%s", pfx[n], domain);
+	for (n = 0; n < 2; n++) {
+		if (!n)
+			lws_strncpy(name, subdomain, sizeof(name));
+		else
+			lws_snprintf(name, sizeof(name), "_.%s", domain);
 
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/"
 			     "production/crt/%s-latest-fullchain.crt",
@@ -292,7 +305,7 @@ cds_read_domain_cert(struct lws_context *cx, const char *pki_root,
 	(void)cx;
 #endif
 
-	lwsl_notice("%s: %s: distributing %s\n", __func__, domain, name);
+	lwsl_notice("%s: %s: distributing %s\n", __func__, subdomain, name);
 
 	return 0;
 
@@ -303,11 +316,51 @@ bail:
 	return 1;
 }
 
+/*
+ * The DER of the cert in a PEM file, in hex, into hex (at least
+ * 2 * CDS_DER_MAX + 1 bytes).  Returns 0 if OK.
+ */
+
+static int
+cds_pem_file_der_hex(const char *path, char *hex, size_t hex_len)
+{
+	uint8_t big[sizeof(union lws_tls_cert_info_results) + CDS_DER_MAX];
+	union lws_tls_cert_info_results *ir =
+				(union lws_tls_cert_info_results *)big;
+	struct lws_x509_cert *x = NULL;
+	char *pem = read_pem_file(path);
+	int ret = 1;
+
+	if (!pem)
+		return 1;
+
+	if (lws_x509_create(&x))
+		goto bail;
+
+	if (!lws_x509_parse_from_pem(x, pem, strlen(pem) + 1) &&
+	    !lws_x509_info(x, LWS_TLS_CERT_INFO_DER_RAW, ir,
+			   sizeof(big) - sizeof(*ir) + sizeof(ir->ns.name)) &&
+	    ir->ns.len > 0 && ir->ns.len <= CDS_DER_MAX &&
+	    hex_len > (size_t)ir->ns.len * 2) {
+		lws_hex_from_byte_array((const uint8_t *)ir->ns.name,
+					(size_t)ir->ns.len, hex, hex_len);
+		ret = 0;
+	}
+
+	lws_x509_destroy(&x);
+
+bail:
+	free(pem);
+
+	return ret;
+}
+
 static const char * const stub_req_paths[] = {
 	"secret",
 	"subdomain",
 	"domain",
-	"hash"
+	"hash",
+	"peer",
 };
 
 enum stub_req_paths_enum {
@@ -315,6 +368,7 @@ enum stub_req_paths_enum {
 	STUB_SUBDOMAIN,
 	STUB_DOMAIN,
 	STUB_HASH,
+	STUB_PEER,
 };
 
 struct stub_req_args {
@@ -325,12 +379,71 @@ struct stub_req_args {
 	char                                subdomain[128];
 	char                                domain[128];
 	char                                hash[65];
+	/* the DER of the client cert presented, in hex */
+	char                                peer[(2 * CDS_DER_MAX) + 1];
+	size_t                              peer_len;
+	char                                peer_overflow;
 };
+
+/*
+ * 0 if this server was provisioned to distribute to the client for
+ * a->subdomain, and the client cert it presented is the very one we issued
+ * it, ie, <pki_root>/domains/<domain>/dist-client/
+ * distribution-client-<subdomain>.crt.  Comparing the whole cert, rather
+ * than only checking the file exists, means a cert the CA signed for the same
+ * name earlier, or for another purpose, does not get a key; nor does one
+ * whose provisioning was reset, since that issues a new cert.
+ */
+
+static int
+cds_peer_is_provisioned(struct lws_context *cx,
+			struct vhd_cert_dist_server *vhd,
+			struct stub_req_args *a)
+{
+	char auth_path[512], issued[(2 * CDS_DER_MAX) + 1];
+	size_t n;
+
+	(void)cx;
+
+	lws_snprintf(auth_path, sizeof(auth_path), "%s/domains/%s/dist-client/"
+		     "distribution-client-%s.crt", vhd->pki_root, a->domain,
+		     a->subdomain);
+
+	if (cds_pem_file_der_hex(auth_path, issued, sizeof(issued))) {
+		lwsl_err("%s: '%s' not authorized for '%s' (no usable %s)\n",
+			 __func__, a->subdomain, a->domain, auth_path);
+		return 1;
+	}
+
+	n = strlen(issued);
+	if (a->peer_overflow || a->peer_len != n ||
+	    lws_timingsafe_bcmp(issued, a->peer, (uint32_t)n)) {
+		lwsl_err("%s: the client cert '%s' presented is not the one "
+			 "issued to it (%s)\n", __func__, a->subdomain,
+			 auth_path);
+		return 1;
+	}
+
+	return 0;
+}
 
 static signed char
 stub_req_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct stub_req_args *a = (struct stub_req_args *)ctx->user;
+
+	/* the client cert is bigger than one string chunk */
+	if ((reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) &&
+	    ctx->path_match - 1 == STUB_PEER) {
+		if (a->peer_len + ctx->npos >= sizeof(a->peer)) {
+			a->peer_overflow = 1;
+			return 0;
+		}
+		memcpy(a->peer + a->peer_len, ctx->buf, ctx->npos);
+		a->peer_len += ctx->npos;
+		a->peer[a->peer_len] = '\0';
+		return 0;
+	}
 
 	if (reason == LEJPCB_VAL_STR_END) {
 		switch (ctx->path_match - 1) {
@@ -496,38 +609,26 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 		/*
 		 * Authorisation: the peer authenticated with a cert its CN
 		 * says is for <subdomain>, but that alone must not be enough
-		 * to hand out <domain>'s private key.  We require that this
-		 * server was explicitly provisioned to distribute <domain> to
-		 * <subdomain>, by the presence of the distribution client
-		 * cert we issued for it.  Fail closed.
+		 * to hand out a private key.  We require that this server
+		 * was explicitly provisioned to distribute to <subdomain>, by
+		 * the distribution client cert we issued for it being in
+		 * place, and that the cert presented is that very one, not
+		 * merely another the CA signed for the same name.  Fail
+		 * closed.
 		 */
-		{
-			char auth_path[512];
-			struct stat sta;
-
-			lws_snprintf(auth_path, sizeof(auth_path),
-				     "%s/domains/%s/dist-client/"
-				     "distribution-client-%s.crt",
-				     vhd->pki_root, pss->args.domain,
-				     pss->args.subdomain);
-
-			if (stat(auth_path, &sta) || !S_ISREG(sta.st_mode)) {
-				lwsl_err("%s: '%s' not authorized for '%s' "
-					 "(no %s)\n", __func__,
-					 pss->args.subdomain,
-					 pss->args.domain, auth_path);
-				return cds_stub_reply_nothing(pss);
-			}
-		}
+		if (cds_peer_is_provisioned(lws_get_context(wsi), vhd,
+					    &pss->args))
+			return cds_stub_reply_nothing(pss);
 
 		{
 			char *cert_buf = NULL, *key_buf = NULL;
 
 			if (cds_read_domain_cert(lws_get_context(wsi),
 						 vhd->pki_root, pss->args.domain,
+						 pss->args.subdomain,
 						 &cert_buf, &key_buf)) {
 				lwsl_notice("%s: no cert and key for %s yet\n",
-					    __func__, pss->args.domain);
+					    __func__, pss->args.subdomain);
 				return cds_stub_reply_nothing(pss);
 			}
 
@@ -799,6 +900,37 @@ cds_watch_domain(const char *dirpath, void *user, struct lws_dir_entry *lde)
 }
 #endif
 
+/*
+ * The DER of the client cert the peer presented, in hex, for our stub to
+ * compare with the one we issued it
+ */
+
+static int
+cds_peer_der_hex(struct lws *wsi, struct pss_cert_dist_server *pss)
+{
+	uint8_t big[sizeof(union lws_tls_cert_info_results) + CDS_DER_MAX];
+	union lws_tls_cert_info_results *ir =
+				(union lws_tls_cert_info_results *)big;
+	size_t hl;
+
+	if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_DER_RAW, ir,
+				   sizeof(big) - sizeof(*ir) +
+				   sizeof(ir->ns.name)) ||
+	    ir->ns.len <= 0 || ir->ns.len > CDS_DER_MAX)
+		return 1;
+
+	hl = ((size_t)ir->ns.len * 2) + 1;
+	free(pss->peer);
+	pss->peer = malloc(hl);
+	if (!pss->peer)
+		return 1;
+
+	lws_hex_from_byte_array((const uint8_t *)ir->ns.name,
+				(size_t)ir->ns.len, pss->peer, hl);
+
+	return 0;
+}
+
 static int
 callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			 void *user, void *in, size_t len)
@@ -960,6 +1092,18 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(pss->subdomain, ir->ns.name, sizeof(pss->subdomain));
 		pss->wsi = wsi;
 
+		/*
+		 * Our stub checks the whole cert presented is the one we
+		 * issued this client, so it needs to see it
+		 */
+		if (cds_peer_der_hex(wsi, pss)) {
+			lwsl_wsi_warn(wsi, "%s: unable to read the client "
+					   "cert\n", __func__);
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION,
+					 (unsigned char *)"Bad client cert", 15);
+			return -1;
+		}
+
 		{
 			int dots = 0;
 			char *q;
@@ -1014,6 +1158,10 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
+		if (pss) {
+			free(pss->peer);
+			pss->peer = NULL;
+		}
 		if (vhd && pss && pss->established) {
 			lws_dll2_remove(&pss->list);
 			if (pss->uds_tx) free(pss->uds_tx);
@@ -1074,29 +1222,33 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			const char *sec = lws_stub_get_secret(vhd->stub_mgr);
-			char tx[512];
+			size_t txl = 512 + strlen(pss->peer);
+			char *tx = malloc(txl);
+
+			if (!tx)
+				return -1;
 
 			/*
 			 * subdomain and domain came from the client cert CN
-			 * and passed cert_dist_valid_name(), and hash passed
-			 * cert_dist_valid_hash(), so none of them can contain
-			 * anything needing JSON escaping here
+			 * and passed cert_dist_valid_name(), hash passed
+			 * cert_dist_valid_hash(), and peer is our own hex, so
+			 * none of them can contain anything needing JSON
+			 * escaping here
 			 */
-			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->domain);
-			if (pss->hash[0]) {
-				lws_snprintf(tx, sizeof(tx),
-					"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"domain\":\"%s\",\"hash\":\"%s\"}",
-					sec ? sec : "", pss->subdomain, pss->domain, pss->hash);
-			} else {
-				lws_snprintf(tx, sizeof(tx),
-					"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"domain\":\"%s\"}",
-					sec ? sec : "", pss->subdomain, pss->domain);
-			}
+			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->subdomain);
+			lws_snprintf(tx, txl,
+				"{\"secret\":\"%s\",\"subdomain\":\"%s\","
+				"\"domain\":\"%s\",\"peer\":\"%s\"%s%s%s}",
+				sec ? sec : "", pss->subdomain, pss->domain,
+				pss->peer, pss->hash[0] ? ",\"hash\":\"" : "",
+				pss->hash, pss->hash[0] ? "\"" : "");
 
 			pss->stub_req = lws_stub_request_h(vhd->stub_mgr, tx,
 							   NULL, 0, NULL,
 							   cert_dist_server_raw_cb,
 							   pss);
+			lws_explicit_bzero(tx, txl);
+			free(tx);
 			if (!pss->stub_req) {
 				lwsl_err("%s: lws_stub_request failed\n", __func__);
 				pss->needs_cert_update = 1;

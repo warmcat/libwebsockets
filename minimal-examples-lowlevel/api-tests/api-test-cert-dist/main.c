@@ -23,10 +23,13 @@
  *
  * The client has three certs[] entries, and so three mTLS links:
  *
- *  - node1: trusted, and provisioned on the server to receive example.com.
- *    It must get the cert and key installed, and then get the update when
- *    the server's copy changes on disk.  An update it fails to install must
- *    be fetched again;
+ *  - node1: trusted, and provisioned on the server, which holds the client
+ *    cert it issued node1.  It must get the cert and key for its own name,
+ *    node1.example.com, installed, never the example.com ones beside them,
+ *    and then get the update when the server's copy changes on disk.  An
+ *    update it fails to install must be fetched again, and while the client
+ *    cert the server holds for it is not the one it presents, it must get
+ *    nothing;
  *
  *  - node2: trusted by the mTLS CA, but not provisioned.  The server must
  *    not hand it anything;
@@ -103,25 +106,44 @@ static const struct lws_switches switches[] = {
  * one the client's stub will write a key into: the install fails, and the
  * client must retry it once the dir is fixed.
  *
- * The fourth "renewal" is the third pair with a line that is not PEM on the
+ * The fourth is the second pair again, renewed while the server's record of
+ * the client cert it issued node1 is a different cert: node1 must get nothing.
+ *
+ * The fifth "renewal" is the third pair with a line that is not PEM on the
  * end of its fullchain (see ver_junk below): the server's copy of a cert is
  * no more trustworthy than the server, and the client must not install it.
  */
 
-#define VERSIONS	4
-#define VER_JUNK	3
+#define VERSIONS	5
+#define VER_UNAUTH	3
+#define VER_JUNK	4
 
 static const char * const ver_cert_file[VERSIONS] = {
-	"localhost-100y.cert", "node2.crt", "localhost-100y.cert", "node1.crt"
+	"localhost-100y.cert", "node2.crt", "localhost-100y.cert", "node2.crt",
+	"node1.crt"
 };
 static const char * const ver_key_file[VERSIONS] = {
-	"localhost-100y.key", "node2.key", "localhost-100y.key", "node1.key"
+	"localhost-100y.key", "node2.key", "localhost-100y.key", "node2.key",
+	"node1.key"
 };
 /* the timestamps the acme client names each renewal's files with */
 static const char * const ver_stem[VERSIONS] = {
 	"20260101-000000", "20260601-000000", "20261101-000000",
-	"20270101-000000"
+	"20270101-000000", "20270601-000000"
 };
+
+/*
+ * node1's client cert is for node1.example.com, so that is the name of the
+ * cert it must be given.  The domain's own cert sits beside it, a different
+ * pair, which node1 must never be given.
+ */
+#define NODE1_NAME	"node1.example.com"
+#define APEX_NAME	"example.com"
+#define APEX_VER	1
+
+/* where the server keeps the client cert it issued node1 */
+#define NODE1_ISSUED	"pki/domains/example.com/dist-client/" \
+			"distribution-client-node1.example.com.crt"
 
 /*
  * A PEM body never contains a double quote.  One that does would, if the
@@ -227,12 +249,13 @@ mkdirs(const char * const *dirs)
 }
 
 /*
- * Renew example.com's cert to version v, the way the acme client does with
- * the dnssec monitor storing it: a timestamped leaf cert, key and fullchain
- * are written, and the -latest links moved onto each in turn, the outgoing
- * ones kept as -previous.  So the dirs hold several certs and keys besides
- * the ones the server must send, and for a moment the links point to the new
- * key and the old fullchain, which the server must not offer.
+ * Renew the cert for name in example.com to version v, the way the acme
+ * client does with the dnssec monitor storing it: a timestamped leaf cert,
+ * key and fullchain are written, and the -latest links moved onto each in
+ * turn, the outgoing ones kept as -previous.  So the dirs hold several certs
+ * and keys besides the ones the server must send, and for a moment the links
+ * point to the new key and the old fullchain, which the server must not
+ * offer.
  *
  * Files [from, to) of the renewal are stored, so a test can stop it halfway.
  */
@@ -240,7 +263,7 @@ mkdirs(const char * const *dirs)
 #define PUB_ALL		3
 
 static int
-publish(int v, size_t from, size_t to)
+publish_as(const char *name, int v, size_t from, size_t to)
 {
 	static const struct {
 		const char *sub, *suffix;
@@ -256,11 +279,11 @@ publish(int v, size_t from, size_t to)
 	for (n = from; n < to && n < LWS_ARRAY_SIZE(f); n++) {
 		lws_snprintf(dir, sizeof(dir), "%s/pki/domains/example.com/"
 			     "certs/production/%s", work, f[n].sub);
-		lws_snprintf(target, sizeof(target), "example.com-%s%s",
+		lws_snprintf(target, sizeof(target), "%s-%s%s", name,
 			     ver_stem[v], f[n].suffix);
 		lws_snprintf(path, sizeof(path), "%s/%s", dir, target);
-		lws_snprintf(link, sizeof(link), "%s/example.com-latest%s",
-			     dir, f[n].suffix);
+		lws_snprintf(link, sizeof(link), "%s/%s-latest%s", dir, name,
+			     f[n].suffix);
 
 		if (write_file(path, f[n].key ? ver_key[v] : ver_cert[v])) {
 			lwsl_err("%s: unable to write %s\n", __func__, path);
@@ -274,6 +297,34 @@ publish(int v, size_t from, size_t to)
 	}
 
 	return 0;
+}
+
+/* renew node1's own cert */
+static int
+publish(int v, size_t from, size_t to)
+{
+	return publish_as(NODE1_NAME, v, from, to);
+}
+
+/*
+ * Set the server's record of the client cert it issued node1 to the cert in
+ * file, in the --certs dir
+ */
+static int
+set_node1_issued(const char *file)
+{
+	char path[256], pem[PEM_MAX];
+	int n;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", certs, file);
+	n = lws_plat_read_file(path, pem, sizeof(pem) - 1);
+	if (n <= 0 || n >= (int)sizeof(pem) - 1)
+		return 1;
+	pem[n] = '\0';
+
+	lws_snprintf(path, sizeof(path), "%s/" NODE1_ISSUED, work);
+
+	return write_file(path, pem);
 }
 
 /* read the pairs we distribute from the --certs dir */
@@ -503,11 +554,16 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 		expect("failed install retried and completed", 1);
 
 		/*
-		 * The server's copy is "renewed" again, to a fullchain that
-		 * is not plain PEM, and pushed down the link the same way
+		 * The server's record of the client cert it issued node1
+		 * becomes another cert, as if node1's provisioning had been
+		 * reset and reissued.  The cert node1 presents is still signed
+		 * by the CA and still names node1.example.com, but it is not
+		 * the one issued, so a renewal must not reach it
 		 */
-		if (publish(VER_JUNK, 0, PUB_ALL)) {
-			expect("publish the junk renewal", 0);
+		if (set_node1_issued("node2.crt") ||
+		    publish(VER_UNAUTH, 0, PUB_ALL)) {
+			expect("publish a renewal for a node1 no longer issued "
+			       "that cert", 0);
 			done = 1;
 			lws_cancel_service(context);
 			return;
@@ -518,13 +574,45 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 		break;
 
 	case 5:
+		if (!node1_has(2)) {
+			expect("client cert that is not the one issued gets "
+			       "nothing", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		if (lws_now_usecs() < hold_until)
+			break;
+
+		expect("client cert that is not the one issued gets nothing",
+		       1);
+
 		/*
-		 * node1 must keep the pair it has, and nothing may turn up
-		 * under the name the junk carries
+		 * node1 is provisioned again, and the server's copy is
+		 * "renewed" again, to a fullchain that is not plain PEM, and
+		 * pushed down the link the same way
+		 */
+		if (set_node1_issued("node1.crt") ||
+		    publish(VER_JUNK, 0, PUB_ALL)) {
+			expect("publish the junk renewal", 0);
+			done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+		hold_until = lws_now_usecs() + HOLD_US;
+		phase++;
+		arm_phase_deadline();
+		break;
+
+	case 6:
+		/*
+		 * node1 must keep a pair it was given, and nothing may turn
+		 * up under the name the junk carries.  Being provisioned
+		 * again, it may first get the renewal it was refused.
 		 */
 		lws_snprintf(path, sizeof(path), "%s/install/%s", work,
 			     VER_JUNK_NAME);
-		if (exists(path) || !node1_has(2)) {
+		if (exists(path) || !(node1_has(2) || node1_has(VER_UNAUTH))) {
 			expect("junk renewal refused, nothing installed under "
 			       "its name", 0);
 			done = 1;
@@ -549,6 +637,7 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 			"node1 got the renewed cert and key",
 			"renewal not installed in an unsafe dir",
 			"failed install retried and completed",
+			"client cert that is not the one issued gets nothing",
 			"junk renewal refused, nothing installed under its name",
 		};
 
@@ -652,8 +741,8 @@ write_config(const char *certs_dir, const char *server, int port)
 }
 
 /*
- * The server side PKI: example.com's cert and key, and the provisioning of
- * node1.example.com (only) to receive them
+ * The server side PKI: certs and keys for example.com and node1.example.com,
+ * and the provisioning of node1.example.com (only) to receive its own
  */
 static int
 write_pki(void)
@@ -668,19 +757,18 @@ write_pki(void)
 		"pki/domains/example.com/certs/production/key",
 		NULL
 	};
-	char path[256];
 
 	if (mkdirs(dirs))
 		return 1;
 
-	/* only its existence is looked at */
-	lws_snprintf(path, sizeof(path), "%s/pki/domains/example.com/"
-		     "dist-client/distribution-client-node1.example.com.crt",
-		     work);
-	if (write_file(path, "provisioned\n"))
-		return 1;
-
-	return publish(0, 0, PUB_ALL);
+	/*
+	 * Provision node1, by the server holding the very client cert it
+	 * issued node1, and give the domain a cert of its own besides
+	 * node1's
+	 */
+	return set_node1_issued("node1.crt") ||
+	       publish_as(APEX_NAME, APEX_VER, 0, PUB_ALL) ||
+	       publish(0, 0, PUB_ALL);
 }
 
 /*
@@ -794,7 +882,7 @@ main(int argc, const char **argv)
 	while (n >= 0 && !done)
 		n = lws_service(context, 0);
 
-	expect("every phase ran", done && phase == 6);
+	expect("every phase ran", done && phase == 7);
 
 	/*
 	 * The refused links had as long as the whole run to get something

@@ -21,24 +21,24 @@ When a client connects, the plugin extracts the Common Name (CN) from the client
 
 ### Authorisation
 
-mTLS says only that *some* certificate the vhost's CA chain accepts was presented; on its own that must not be enough to hand out a domain's private key.  So the privileged stub additionally requires that this server was explicitly provisioned to distribute `<domain>` to `<subdomain>`, by the presence of
+mTLS says only that *some* certificate the vhost's CA chain accepts was presented; on its own that must not be enough to hand out a private key.  So the privileged stub additionally requires that this server was explicitly provisioned to distribute to `<subdomain>`, by holding the client certificate it issued for it at
 
 ```
 <pki-root>/domains/<domain>/dist-client/distribution-client-<subdomain>.crt
 ```
 
-as a regular file.  If it is not there the request is refused: the check fails closed.  Provisioning a distribution client therefore means placing its issued certificate at that path as well as issuing it.
+and that the client certificate presented is that very certificate: the whole DER is compared, not only the name.  So a certificate the CA signed for the same name at another time, eg before the client's provisioning was reset and reissued, gets nothing.  If the file is missing, unreadable or holds another certificate, the request is refused: the check fails closed.  Provisioning a distribution client therefore means placing its issued certificate at that path as well as issuing it, which the dnssec monitor does.
 
 A refusal, like a domain whose cert or key is not there yet, is answered with an empty pair (the same reply as an unchanged cert, which the client installs nothing for) and the stub connection stays up.  The parent sends its requests to the stub one after another on that connection and reconnects with backoff if it drops, so a refusal that dropped it would stall every request queued behind, and an authenticated but unprovisioned peer could keep that up indefinitely.  Only a request that cannot have come from the parent, with a bad secret or names that would not have passed its validation, drops the connection.
 
-If authorized, it sends the client the cert chain and key the acme client keeps current for the domain, which it renews by moving a symlink onto each new file:
+If authorized, it sends the client the cert chain and key the acme client keeps current for the client's own name, `<subdomain>`, which it renews by moving a symlink onto each new file:
 
 ```
-<pki-root>/domains/<domain>/certs/production/crt/<domain>-latest-fullchain.crt
-<pki-root>/domains/<domain>/certs/production/key/<domain>-latest.key
+<pki-root>/domains/<domain>/certs/production/crt/<subdomain>-latest-fullchain.crt
+<pki-root>/domains/<domain>/certs/production/key/<subdomain>-latest.key
 ```
 
-If the domain has no cert of its own, its wildcard cert is used, which the acme client files under the name `_.<domain>`.  The dirs also hold the timestamped files the links point to, leaf-only certs and the outgoing pair linked as `-previous`; none of those is ever sent.  The pair is only sent if the key belongs to the cert (with `LWS_WITH_JOSE`), since for a moment during a renewal the links can point to the new key and the old cert; the change that completes the renewal sends it then.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.
+If there is no cert for that name, the domain's wildcard cert is used, which the acme client files under the name `_.<domain>` and which covers `<subdomain>`, one label under `<domain>`.  No other cert in the domain is ever sent to it: the client for `auth.example.com` is not given the key for `example.com` or `www.example.com`.  A client whose name is the domain itself gets the domain's cert.  The dirs also hold the timestamped files the links point to, leaf-only certs and the outgoing pair linked as `-previous`; none of those is ever sent.  The pair is only sent if the key belongs to the cert (with `LWS_WITH_JOSE`), since for a moment during a renewal the links can point to the new key and the old cert; the change that completes the renewal sends it then.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.
 
 ### Renewals
 
