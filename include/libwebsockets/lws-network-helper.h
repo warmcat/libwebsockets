@@ -51,11 +51,10 @@ typedef struct lws_dns_score {
 typedef struct lws_route {
 	lws_dll2_t		list;
 
-	lws_sockaddr46		src;
+	lws_sockaddr46		src; /* lws_dns_sort_t: the source route's src */
 	lws_sockaddr46		dest;
 	lws_sockaddr46		gateway;
 
-	struct lws_route	*source; /* when used as lws_dns_sort_t */
 	lws_dns_score_t		score; /* when used as lws_dns_sort_t */
 
 	int			if_idx;
@@ -71,6 +70,7 @@ typedef struct lws_route {
 	uint8_t			af; /* if source_ads */
 
 	uint8_t			source_ads:1;
+	uint8_t			has_source:1; /* lws_dns_sort_t: src is set */
 } lws_route_t;
 
 /*
