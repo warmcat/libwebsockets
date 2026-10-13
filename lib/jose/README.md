@@ -54,9 +54,14 @@ looks like this
 
 |JWE alg|JWA|lws|
 |---|---|---|
-|RSA1_5|Recommended-|yes|
-|RSA-OAEP|Recommended+|no|
-|ECDH-ES|Recommended+|no|
+|RSA1_5|Recommended-|no (removed, see below)|
+|RSA-OAEP|Recommended+|yes (not on GnuTLS)|
+|ECDH-ES|Recommended+|yes (with AES-CBC-HMAC "enc" only)|
+
+lws deliberately does not support `RSA1_5` (RSAES-PKCS1-v1_5) key management:
+its padding is open to Bleichenbacher-style padding oracle attacks (RFC 8725
+section 3.2), and JWEs using it are rejected rather than decrypted.  Use
+`RSA-OAEP` instead.
 
 |JWS alg|JWA|lws|
 |---|---|---|

@@ -41,19 +41,35 @@ and for AES ("octet") symmetric keys
 
 JWEs produced with openssl and mbedtls backends are completely interchangeable.
 
+## Supported algorithms
+
+Key management ("alg", the first part of `-e`)|Content encryption ("enc", the second part of `-e`)
+---|---
+`RSA-OAEP`, `RSA-OAEP-256`|`A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`, `A128GCM`, `A192GCM`, `A256GCM`
+`A128KW`, `A192KW`, `A256KW`|`A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`
+`ECDH-ES`, `ECDH-ES+A128KW`, `ECDH-ES+A192KW`, `ECDH-ES+A256KW`|`A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`
+
+`RSA1_5` (RSAES-PKCS1-v1_5) is deliberately not supported, for encryption or
+decryption: its padding is open to Bleichenbacher-style padding oracle attacks
+(see RFC 8725 section 3.2), so lws rejects JWEs using it.  Use `RSA-OAEP`
+instead.
+
+The GnuTLS backend has no RSA-OAEP support yet, so with GnuTLS use the AES
+key wrap or ECDH-ES algorithms.
+
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
--e "<cek cipher alg> <payload enc alg>"|Encrypt (default is decrypt), eg, -e "RSA1_5 A128CBC-HS256".  For decrypt, the cipher information comes from the input JWE.
+-e "<cek cipher alg> <payload enc alg>"|Encrypt (default is decrypt), eg, -e "RSA-OAEP A128CBC-HS256".  For decrypt, the cipher information comes from the input JWE.
 -k <jwk file>|JWK file to encrypt or decrypt with
 -c|Format the JWE as a linebroken C string
 -f|Output flattened representation (instead of compact by default)
 
 ```
- $ echo -n "plaintext0123456" | ./lws-crypto-jwe -k key-rsa-4096.private -e "RSA1_5 A128CBC-HS256"
-[2018/12/19 16:20:25:6519] USER: LWS JWE example tool
-[2018/12/19 16:20:25:6749] NOTICE: Creating Vhost 'default' (serving disabled), 1 protocols, IPv6 off
-eyJhbGciOiJSU0ExXzUiLCAiZW5jIjoiQTEyOENCQy1IUzI1NiJ9.ivFr7qzx-pQ4V_edbjpdvR9OwWL9KmojPE2rXQM52oLtW0BtnxZu2_ezqhsAelyIcaworgfobs3u4bslXHMFbeJJjPb5xD0fBDe64OYXZH1NpUGTMJh9Ka4CrJ2B3xhxe7EByGAuGqmluqE0Yezj7rhSw7vlr5JAwuOJ8FaGa8aZ8ldki5G5h_S2Furlbjdcw3Rrxk7mCoMHcLoqzfZtggMPwGAMFogCqcwUo7oSLbBeGaa6hpMbfSysugseWdr8TzObQKPM52k6iVAlGwRaOg_qdLMgZiYRhHA6nFKTQd7XBbNY6qAS8sPuj7Zz344tF3RSfJ0zX_telG71sOtVv5fMpeDU-eCdpOWlCBfu6J6FQfAFu6SJryM4ajGOif09CwFI5qUQ33SOfQfS_M3nqSyd6Vu5M4lsDrb5wK7_XX5gqUwvI9wicf_8WWR-CQomRF-JvEASnA2SIf8QqYfa8R2rP9q6Md4vwO4EZrtxIsMDPsH-4ZEFu7vDjyy09QfIWWsnEb8-UgpVXensgt2m_2bZ76r1VB8-0nZLMwMyEhaH2wra9vX2FWao5UkmNJ7ht300f4_V6QzMFoePpwCvsufWBW6jcQLB-frCWe6uitWaZHEB4LxmNPKzQSz4QwwTKhpF1jNn8Xh1-w1m-2h0gj-oe-S8QBwPveqhPI1p2fI.snuhUTXHNu5mJ6dEPQqg6g.yl36qC4o0GE4nrquQ2YyCg.Vf0MoT7_kUrZdCNWXhq1DQ
+ $ echo -n "plaintext0123456" | ./lws-crypto-jwe -k key-rsa-4096.private -e "RSA-OAEP A128CBC-HS256"
+[2026/10/13 07:47:09:6152] U: LWS JWE example tool
+...
+eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkExMjhDQkMtSFMyNTYifQ.kbogOhYbiZSqnP2dTy7FHvPJjXXd2sMqgQoTI-DtQ35_SyQN_xeQ5UfZKUTi3yBot1CL0R7QjOqm0FQMNctZQ3fTwHY3BGRoBOLhDHOUh89C-Qvq41_qfnwm213o9nZDxoKmZZVKkzyPMrU01465iLoD1C6ioBrGE9wraAm3SorcQzSxItkUKc72CYVBvG0QvDZCqEHW5necnhZ9tun7zEV9qJVGcJRXsw98ePj0gcVLhOMFSxGjy5h_wgmUgnJgkSFvPmKtre-50NLpeJ3GirBiEm3-HwwunH3Xtz__H8BqupEQ5u8O7HB5INnBhBa_DrL6GaETKrzK5KqBt1AL_ixjqX0vhdXP4pVzqq72f7CvHxCUjjU_YIiigxxUoydfdQWyKSTRpvwaeOyhRvVQLQVhCvlbjbHwFVYWLuAJm-2LHriee07FjPKx6i8kki9Im_mVomds4cAPzCSCCqNk4yXoEAWSO7AuKD_aj7c6WBB_onMxBkWIlbmT6JfF4HwgSGKNsJX1JbQD25O88_BmUrySzsPvjTLBkvr9fZaIdz-cbCtncUBas_BMm_XQnQtvgflZCmODHs8La6TYyYI1P5OvQJWhOz4rKYv6C5kTDKyCykP23ypI1fSy1L5h2DI4KqgVSEehyowem37tVlYFaSG7C6a-dEkuchk-6opDr0Y.zk69KHfR4HzUPCOF5U-BsA.DEpiyYyrUtMkiSgYCE4dRF9WOkgGGFgD09tI-C9SXaQ.bXmfsx53igPgtvW4eUe9lA
 ```
 
 Notice the logging is on stderr, and the output alone on stdout.
@@ -63,7 +79,7 @@ action, eg
 
 ```
  $ echo -n "plaintext0123456" | \
-   ./lws-crypto-jwe -k key-rsa-4096.pub -e "RSA1_5 A128CBC-HS256" | \
+   ./lws-crypto-jwe -k key-rsa-4096.pub -e "RSA-OAEP A128CBC-HS256" | \
    ./lws-crypto-jwe -k key-rsa-4096.private
 ```
 

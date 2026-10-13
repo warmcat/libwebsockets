@@ -21,7 +21,7 @@ enum {
 static const struct lws_switches switches[] = {
 	[LWS_SW_C]	= { "-c",              "Output in C array format" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_E]	= { "-e",              "Encrypt using <alg> <enc> format (e.g. 'RSA1_5 A128CBC-HS256')" },
+	[LWS_SW_E]	= { "-e",              "Encrypt using <alg> <enc> format (e.g. 'RSA-OAEP A128CBC-HS256')" },
 	[LWS_SW_F]	= { "-f",              "Output in flattened representation" },
 	[LWS_SW_K]	= { "-k",              "Path to the JWK key file" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
@@ -142,7 +142,7 @@ int main(int argc, const char **argv)
 		if (!sp) {
 			lwsl_err("format: -e \"<cek cipher alg> "
 				 "<payload enc alg>\", eg, "
-				 "-e \"RSA1_5 A128CBC-HS256\"\n");
+				 "-e \"RSA-OAEP A128CBC-HS256\"\n");
 
 			return 1;
 		}

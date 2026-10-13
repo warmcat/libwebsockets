@@ -261,13 +261,10 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jws_alg_map[] = {
 static const struct lws_jose_jwe_alg lws_gencrypto_jwe_alg_map[] = {
 
 	/*
-	 * This section defines the specifics of encrypting a JWE CEK with
-	 * RSAES-PKCS1-v1_5 [RFC3447].  The "alg" (algorithm) Header Parameter
-	 * value "RSA1_5" is used for this algorithm.
-	 *
-	 * A key of size 2048 bits or larger MUST be used with this algorithm.
+	 * RSAES-PKCS1-v1_5 ("RSA1_5") is deliberately absent: its padding is
+	 * open to Bleichenbacher-style padding oracles (RFC 8725 3.2), so
+	 * leaving it out of this map makes JWEs using it fail to parse.
 	 */
-
 
 	{	/* recommended+: RSAES OAEP using default parameters */
 		LWS_GENHASH_TYPE_SHA1,
