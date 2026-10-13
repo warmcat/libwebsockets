@@ -336,7 +336,9 @@ compressed length can leak the secret (BREACH).  Without it, in a build with
 client accepts it, and say `vary: accept-encoding` so caches keep the codings
 apart.
 
- - `keeplive-timeout` (in secs) defaults to 60 for lwsws, it may be set as a vhost option
+ - `keepalive_timeout` (in secs, default 5) is how long the vhost waits on a
+   client connection with nothing outstanding on it before closing it.  A
+   mount can override it for requests to that mount with `keepalive-timeout`.
 
  - `interface` lets you specify which network interface to listen on, if not given listens on all.  If the network interface is not usable (eg, ethernet cable out) it will be logged at startup with such vhost not listening, and lws will poll for it and bind a listen socket to the interface if and when it becomes available.
 
