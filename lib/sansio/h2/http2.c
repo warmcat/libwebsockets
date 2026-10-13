@@ -1386,6 +1386,37 @@ static int
 lws_h2_parse_end_of_frame(struct lws *wsi);
 
 /*
+ * Frames arriving on the network connection let it live a bit longer while
+ * streams are active on it... unless it is a client connection being kept
+ * warm with no streams, whose keep-warm timeout a PING or WINDOW_UPDATE must
+ * not displace.
+ *
+ * A client waits for the server with the context's timeout_secs, the same as
+ * it does for anything else from the server.  The vhost keepalive_timeout is
+ * how long a server waits on an idle client: applied to a client it kills a
+ * response body after a short gap in its arrival, which on a lossy link with
+ * TCP retransmit backoff happens all the time.
+ *
+ * A short (5s) keepalive timeout on a server affects the reverse proxy if the
+ * onward box takes a long time to respond, eg to a POST.  The mount can
+ * override the keepalive timeout, eg, to give the right behaviour depending
+ * on reverse proxy for a particular server.
+ */
+static void
+lws_h2_nwsi_rx_renew_timeout(struct lws *wsi)
+{
+	if (wsi->immortal_substream_count || lwsi_state(wsi) == LRS_IDLING)
+		return;
+
+	if (lwsi_role_client(wsi))
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				(int)wsi->a.context->timeout_secs);
+	else
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+				lws_wsi_keepalive_timeout_eff(wsi));
+}
+
+/*
  * The frame header part has just completely arrived.
  * Perform actions for header completion.
  */
@@ -1413,30 +1444,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		return 0;
 	}
 
-	/*
-	 * let the network wsi live a bit longer if subs are active... unless
-	 * it is a client connection being kept warm with no streams, whose
-	 * keep-warm timeout a PING or WINDOW_UPDATE must not displace
-	 */
+	lws_h2_nwsi_rx_renew_timeout(wsi);
 
-	if (!wsi->immortal_substream_count && lwsi_state(wsi) != LRS_IDLING) {
-		int ds = lws_wsi_keepalive_timeout_eff(wsi);
-
-		/*
-		 * A short (5s) timeout here affects the reverse proxy if
-		 * the onward box takes a long time to respond, eg to a POST.
-		 * The mount can override the keepalive timeout, eg, to give
-		 * the right behaviour depending on reverse proxy for a particular
-		 * server.
-		 */
-		if (lwsi_role_client(wsi))
-			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-					(int)wsi->a.context->timeout_secs);
-		else {
-			
-			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
-		}
-	}
 	if (h2n->sid)
 		h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);
 
@@ -3206,15 +3215,10 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 			//		  __func__, h2n->flags);
 
 				/*
-				 * let the network wsi live a bit longer if
-				 * subs are active... our frame may take a long
-				 * time to chew through
+				 * our frame may take a long time to chew
+				 * through
 				 */
-				if (!wsi->immortal_substream_count &&
-				    lwsi_state(wsi) != LRS_IDLING)
-					lws_set_timeout(wsi,
-						PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-						lws_wsi_keepalive_timeout_eff(wsi));
+				lws_h2_nwsi_rx_renew_timeout(wsi);
 
 				if (!h2n->swsi || lwsi_skt_unusable(h2n->swsi))
 					break;
