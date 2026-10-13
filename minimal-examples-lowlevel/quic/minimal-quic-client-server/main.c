@@ -20,7 +20,9 @@
  * <ms>, once the client's first Initial has gone through, the relay loses
  * everything the client sends for that long except its Initial packets, so
  * the server's handshake has to survive a spell of never getting the
- * client's Finished.
+ * client's Finished.  With --early-1rtt, the relay sends the client's first
+ * 1-RTT packet to the server ahead of its Finished, and the server must hold
+ * it until its handshake completes rather than lose it.
  */
 
 #include <libwebsockets.h>
@@ -171,6 +173,20 @@ static const char * const test_key =
 
 #define QUIC_V2		0x6b3343cfu
 
+/*
+ * With --early-1rtt, the relay passes datagrams on as they come, except that
+ * after the client's first Initial, it holds the datagrams the client sends
+ * Handshake packets in, with its Finished, until the client's first 1-RTT
+ * datagram has gone on ahead of them.  So the server
+ * gets that 1-RTT packet, which has the start of the client's stream data,
+ * before its handshake has completed.  Then for RELAY_EARLY_WINDOW_US the
+ * relay loses the client's other 1-RTT datagrams, so nothing the client sends
+ * again can stand in for that one: by the end of it, the server must have the
+ * start of the stream, which it can only have from the packet that came
+ * early, held until its handshake completed and then processed.
+ */
+#define RELAY_EARLY_WINDOW_US	(1 * LWS_US_PER_SEC)
+
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
 relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
@@ -262,6 +278,14 @@ static struct {
 	struct relay_dir	dir[2]; /* to the server, to the client */
 	lws_usec_t		outage_us;
 	lws_usec_t		outage_start;
+
+	/* --early-1rtt */
+	lws_sorted_usec_list_t	sul_early;
+	struct relay_dgram	early_q[RELAY_BATCH];
+	lws_usec_t		early_start;
+	int			early_count;
+	char			early_1rtt;
+	char			early_swapped;
 	unsigned int		batches_to_client;
 	unsigned int		strays;
 	char			stray;
@@ -310,6 +334,72 @@ relay_send_stray(struct lws *wsi, lws_sockfd_type fd,
 }
 
 static void
+early_1rtt_check_cb(lws_sorted_usec_list_t *sul);
+
+/* --early-1rtt: what the relay does with each datagram, see above */
+
+static void
+relay_early_1rtt(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
+		 size_t len)
+{
+	lws_sockaddr46 *dest = &relay.dir[0].dest;
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
+	int m;
+
+	if (fd == LWS_SOCK_INVALID)
+		return;
+
+	if (d == &relay.dir[1] || !d->sent || relay.early_swapped) {
+		if (d == &relay.dir[0] && relay.early_swapped &&
+		    !(in[0] & 0x80) &&
+		    lws_now_usecs() - relay.early_start < RELAY_EARLY_WINDOW_US) {
+			/* the client's other 1-RTT datagrams, for a while */
+			d->dropped++;
+			return;
+		}
+		/* the server's, the client's first Initial, or after */
+		relay_send(fd, in, len, &d->dest);
+		d->sent++;
+		return;
+	}
+
+	if (in[0] & 0x80) {
+		uint32_t ver = ((uint32_t)in[1] << 24) | ((uint32_t)in[2] << 16) |
+			       ((uint32_t)in[3] << 8) | in[4];
+
+		/*
+		 * Its Initials go on, or the server would be held to its
+		 * anti-amplification limit by too little from the client
+		 */
+		if (len < 5 || ((in[0] >> 4) & 3) != (ver == QUIC_V2 ? 3 : 2)) {
+			relay_send(fd, in, len, dest);
+			d->sent++;
+			return;
+		}
+
+		/* its Handshake packets wait */
+		if (relay.early_count == RELAY_BATCH) {
+			d->dropped++;
+			return;
+		}
+		relay.early_q[relay.early_count].len = len;
+		memcpy(relay.early_q[relay.early_count++].buf, in, len);
+		return;
+	}
+
+	/* its first 1-RTT datagram goes on ahead of them */
+	relay_send(fd, in, len, dest);
+	for (m = 0; m < relay.early_count; m++)
+		relay_send(fd, relay.early_q[m].buf, relay.early_q[m].len,
+			   dest);
+	d->sent += 1u + (unsigned int)relay.early_count;
+	relay.early_swapped = 1;
+	relay.early_start = lws_now_usecs();
+	lws_sul_schedule(lws_get_context(wsi), 0, &relay.sul_early,
+			 early_1rtt_check_cb, RELAY_EARLY_WINDOW_US);
+}
+
+static void
 relay_due(struct relay_dir *d)
 {
 	d->due = 1;
@@ -341,6 +431,7 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 		relay.wsi = NULL;
 		for (n = 0; n < 2; n++)
 			lws_sul_cancel(&relay.dir[n].sul);
+		lws_sul_cancel(&relay.sul_early);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
@@ -354,6 +445,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 		else {
 			relay.dir[1].dest = udp->sa46;
 			d = &relay.dir[0];
+		}
+
+		if (relay.early_1rtt) {
+			relay_early_1rtt(wsi, d, in, len);
+			break;
 		}
 
 		if (d->count == RELAY_BATCH) {
@@ -429,6 +525,24 @@ static uint32_t server_hash = 5381; /* djb2 init */
 static int server_done = 0;
 
 static lws_usec_t last_rx_us;
+static char early_1rtt_failed;
+
+/* --early-1rtt: the relay's window is over, see RELAY_EARLY_WINDOW_US */
+
+static void
+early_1rtt_check_cb(lws_sorted_usec_list_t *sul)
+{
+	if (server_rx) {
+		lwsl_user("early 1-RTT: the server had %lu bytes from the "
+			  "packet that came before its handshake completed\n",
+			  (unsigned long)server_rx);
+		return;
+	}
+
+	lwsl_err("early 1-RTT: the server lost the packet that came before "
+		 "its handshake completed\n");
+	early_1rtt_failed = 1;
+}
 
 static uint32_t
 simple_hash(uint32_t hash, const uint8_t *data, size_t len)
@@ -507,7 +621,7 @@ check_test_completion(struct lws *wsi)
 {
 	if (client_done && server_done) {
 		lwsl_notice("Test completed successfully! Both sides received full data. Waiting 1.5s for ACKs...\n");
-		result = 0;
+		result = early_1rtt_failed;
 		if (!server_only)
 			lws_sul_schedule(lws_get_context(wsi), 0, &sul_teardown, teardown_cb, 1500 * 1000);
 	}
@@ -660,6 +774,7 @@ enum {
 	LWS_SW_RELAY,
 	LWS_SW_STRAY,
 	LWS_SW_OUTAGE,
+	LWS_SW_EARLY_1RTT,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_CUBIC,
 };
@@ -673,6 +788,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_RELAY]	= { "--relay",	"Connect via a relay on this port that reorders datagrams (needs a numeric --server)" },
 	[LWS_SW_STRAY] = { "--stray",	"The relay also sends the client stray packets of another connection (needs --relay)" },
 	[LWS_SW_OUTAGE] = { "--outage",	"After the client's first Initial, the relay loses all but its Initial packets for this many ms (needs --relay)" },
+	[LWS_SW_EARLY_1RTT] = { "--early-1rtt", "The relay sends the client's first 1-RTT packet ahead of its Finished (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
 };
@@ -780,6 +896,12 @@ int main(int argc, const char **argv)
 		outage_ms = ms;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw) &&
+	    (!relay_port || outage_ms)) {
+		lwsl_err("--early-1rtt needs --relay, and not --outage\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -863,6 +985,8 @@ int main(int argc, const char **argv)
 		relay.stray = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_STRAY].sw);
 		relay.outage_us = (lws_usec_t)outage_ms * LWS_US_PER_MS;
+		relay.early_1rtt = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_EARLY_1RTT].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

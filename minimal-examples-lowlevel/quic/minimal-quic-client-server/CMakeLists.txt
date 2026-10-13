@@ -126,6 +126,21 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay sending the client's first 1-RTT packet to
+		# the server ahead of its Finished, and then losing its other
+		# 1-RTT packets for 1s: the server must hold the early one until
+		# its handshake completes and then process it, not lose it
+		#
+		lws_get_free_port(PORT_QCS_EARLY)
+		lws_get_free_port(PORT_QCS_EARLY_RELAY)
+		add_test(NAME ${SAMP}-early-1rtt COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_EARLY}
+				--relay ${PORT_QCS_EARLY_RELAY} --early-1rtt)
+		set_tests_properties(${SAMP}-early-1rtt PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport

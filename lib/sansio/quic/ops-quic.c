@@ -1178,6 +1178,36 @@ lws_quic_client_long_hdr_foreign(struct lws *nwsi,
  * packet's DCID finds the connection it belongs to.
  */
 static lws_handling_result_t
+lws_quic_rx_early_pkts(struct lws *wsi, struct lws_quic_netconn *qn);
+
+/*
+ * Keep a copy of a 1-RTT packet that reached a server before its handshake
+ * completed, see struct lws_quic_early_pkt.  Returns 0 if it was kept.
+ */
+static int
+lws_quic_hold_early_pkt(struct lws_quic_netconn *qn, const uint8_t *pkt,
+			size_t len, const lws_sockaddr46 *peer, uint8_t ecn)
+{
+	struct lws_quic_early_pkt *ep;
+
+	if (lws_dll2_count(&qn->early_pkts) >= LWS_QUIC_EARLY_PKTS_MAX)
+		return 1;
+
+	ep = lws_malloc(sizeof(*ep) + len, __func__);
+	if (!ep)
+		return 1;
+
+	memset(&ep->list, 0, sizeof(ep->list));
+	ep->peer	= *peer;
+	ep->len		= len;
+	ep->ecn		= ecn;
+	memcpy(&ep[1], pkt, len);
+	lws_dll2_add_tail(&ep->list, &qn->early_pkts);
+
+	return 0;
+}
+
+static lws_handling_result_t
 rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		   const lws_sockaddr46 *peer, uint8_t ecn)
 {
@@ -1918,8 +1948,12 @@ tp_ok:
 		 * would be served to a peer that may yet be refused... and
 		 * the handshake keys, which the client's Finished still
 		 * needs, are discarded below on the first 1-RTT packet.  So
-		 * drop it undecrypted: it is not acknowledged, and the
-		 * client's loss recovery sends its frames again.
+		 * don't decrypt it yet.  It can simply have overtaken the
+		 * client's Finished on the way, so hold a few still
+		 * protected until the handshake completes, and process them
+		 * then (lws_quic_rx_early_pkts()).  Any more are dropped
+		 * unacknowledged, and the client's loss recovery sends their
+		 * frames again.
 		 *
 		 * 0-RTT is served before the handshake completes by design,
 		 * with nothing yet known about this client: a vhost that
@@ -1931,9 +1965,17 @@ tp_ok:
 		     (level == LWS_QUIC_LEVEL_EARLY && nwsi->a.vhost &&
 		      lws_check_opt(nwsi->a.vhost->options,
 			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)))) {
-			lwsl_wsi_info(wsi, "QUIC RX: level %d before the handshake "
-					   "completed, dropping %zu bytes",
-					   level, packet_size);
+			if (level == LWS_QUIC_LEVEL_APP &&
+			    !lws_quic_hold_early_pkt(nwsi->quic.qn, p,
+						     packet_size, peer, ecn))
+				lwsl_wsi_info(wsi, "QUIC RX: 1-RTT before the "
+						   "handshake completed, holding "
+						   "%zu bytes", packet_size);
+			else
+				lwsl_wsi_info(wsi, "QUIC RX: level %d before "
+						   "the handshake completed, "
+						   "dropping %zu bytes",
+						   level, packet_size);
 			p += packet_size;
 			n -= (int)packet_size;
 			continue;
@@ -2656,7 +2698,52 @@ next_packet:
 		p += packet_size;
 	}
 
+	/*
+	 * If this completed a server's handshake, the 1-RTT packets that got
+	 * here before it can be processed now
+	 */
+	if (nwsi && nwsi != wsi && nwsi->quic.qn &&
+	    nwsi->quic.qn->handshake_done &&
+	    lws_dll2_count(&nwsi->quic.qn->early_pkts))
+		return lws_quic_rx_early_pkts(wsi, nwsi->quic.qn);
+
 	return LWS_HPI_RET_HANDLED;
+}
+
+/*
+ * The server's 1-RTT packets that came before its handshake completed, once it
+ * has: each is processed as if it had just arrived alone in a datagram from
+ * where it came.  They are taken off the connection first, since processing
+ * one may close it.
+ */
+static lws_handling_result_t
+lws_quic_rx_early_pkts(struct lws *wsi, struct lws_quic_netconn *qn)
+{
+	lws_handling_result_t r = LWS_HPI_RET_HANDLED;
+	lws_dll2_owner_t owner;
+	struct lws_dll2 *d;
+
+	memset(&owner, 0, sizeof(owner));
+	while ((d = lws_dll2_get_head(&qn->early_pkts))) {
+		lws_dll2_remove(d);
+		lws_dll2_add_tail(d, &owner);
+	}
+
+	while ((d = lws_dll2_get_head(&owner))) {
+		struct lws_quic_early_pkt *ep = lws_container_of(d,
+					struct lws_quic_early_pkt, list);
+
+		lws_dll2_remove(d);
+		if (r == LWS_HPI_RET_HANDLED) {
+			lwsl_wsi_info(wsi, "QUIC RX: processing held 1-RTT "
+					   "packet, %zu bytes", ep->len);
+			r = rops_rx_dgram_quic(wsi, (uint8_t *)&ep[1], ep->len,
+					       &ep->peer, ep->ecn);
+		}
+		lws_free(ep);
+	}
+
+	return r;
 }
 
 /* a quic socket is read one datagram at a time, to rx_dgram */
@@ -4870,6 +4957,12 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 		/* Free RX Crypto chunks */
 		lws_quic_rx_held_destroy(&qn->rx_crypto_held[i]);
 	}
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&qn->early_pkts)) {
+		lws_dll2_remove(d);
+		lws_free(lws_container_of(d, struct lws_quic_early_pkt, list));
+	} lws_end_foreach_dll_safe(d, d1);
 
 	if (qn->cc_state)
 		lws_free_set_NULL(qn->cc_state);

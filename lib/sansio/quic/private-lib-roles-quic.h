@@ -360,6 +360,24 @@ struct lws_quic_reply {
 
 #define LWS_QUIC_MAX_QUEUED_REPLIES 16
 
+/*
+ * A 1-RTT packet that reached a server before its handshake completed, kept
+ * still protected until it does (RFC 9001 5.7 allows a server to hold them,
+ * RFC 9001 4.1.4 to buffer what arrives early).  The datagram's peer and ECN
+ * go with it, for when it is processed.  A connection holds at most
+ * LWS_QUIC_EARLY_PKTS_MAX; any more are dropped as before, for the client's
+ * loss recovery to send again.
+ */
+struct lws_quic_early_pkt {
+	lws_dll2_t		list;
+	lws_sockaddr46		peer;
+	size_t			len;
+	uint8_t			ecn;
+	/* the packet follows */
+};
+
+#define LWS_QUIC_EARLY_PKTS_MAX 4
+
 struct lws_quic_netconn {
 	struct lws		*nwsi; /* the parent UDP network wsi */
 	/*
@@ -453,6 +471,9 @@ struct lws_quic_netconn {
 	 */
 	uint32_t		consec_decrypt_fail[LWS_QUIC_LEVEL_COUNT];
 	uint32_t		kp_probe_fail;
+
+	/* a server's 1-RTT packets that came before its handshake completed */
+	lws_dll2_owner_t	early_pkts;
 
 	/* RX Crypto Reassembly Buffers (Streams are handled by child WSIs) */
 	uint64_t		rx_crypto_offset[LWS_QUIC_LEVEL_COUNT];

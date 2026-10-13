@@ -26,6 +26,7 @@ arrived.
 |--relay <port>|The client connects through a relay on this port, see below|
 |--stray|With `--relay`, the relay also sends the client stray packets of another connection, see below|
 |--outage <ms>|With `--relay`, after the client's first Initial the relay loses all but the client's Initial packets for this long, see below|
+|--early-1rtt|With `--relay`, the relay sends the client's first 1-RTT packet ahead of its Finished, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
 
@@ -78,6 +79,21 @@ ahead once the client's retransmissions get through again.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --outage 2000
+```
+
+With `--early-1rtt` instead, the relay passes datagrams on as they come,
+except that after the client's first Initial it holds the client's Handshake
+packets, with its Finished in them, until the client's first 1-RTT datagram,
+with the start of its stream data, has gone on ahead of them.  So the server
+gets that 1-RTT packet before its handshake has completed, as it can when the
+network reorders them.  It must not process it then (RFC 9001 5.7), but it can
+hold it until its handshake completes.  For a second after, the relay loses the
+client's other 1-RTT datagrams, so nothing the client sends again can stand in
+for the early one: by the end of that second, the server must have the start
+of the stream.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --early-1rtt
 ```
 
 ## congestion controller
