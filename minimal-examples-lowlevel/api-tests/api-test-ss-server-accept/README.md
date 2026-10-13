@@ -22,7 +22,7 @@ must be closed cleanly, freed once, with no accepted stream left.
 
 |phase|server|client|
 |---|---|---|
-|tcp|tls|connects and closes, without starting tls|
+|tcp|tls|connects and closes, without starting tls.  If the hangup is already queued when the server accepts, its first tls read fails the adoption before it makes an accepted stream, so there may be none: that is no leak|
 |plain-txn|plaintext|a complete http/1.1 GET, the server answers|
 |plain-refused|plaintext|a GET; the server refuses the connection's accepted stream|
 |raw|raw|connects and closes|

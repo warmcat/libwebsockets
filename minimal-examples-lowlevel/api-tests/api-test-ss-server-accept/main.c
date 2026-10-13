@@ -20,7 +20,10 @@
  * same process runs each phase a few times, and after each run all the
  * accepted streams must be gone again.
  *
- *  - tcp:        connect to the tls server and close, without starting tls
+ *  - tcp:        connect to the tls server and close, without starting tls.
+ *                If the hangup is already there when the server accepts,
+ *                its first tls read fails the adoption, before it makes an
+ *                accepted stream: then there is none, which is no leak
  *  - plain-txn:  a complete http/1.1 transaction with the plaintext server
  *  - plain-refused: the user code refuses the plaintext server's accepted
  *                stream in LWSSSCS_CREATING, the connection is closed
@@ -82,6 +85,9 @@ typedef struct phase {
 	char			destroy_server;	/* the client stays, the
 						 * server stream is destroyed
 						 * under it, only once */
+	char			maybe_none;	/* the server may drop the
+						 * connection before it makes
+						 * an accepted stream */
 
 	/* results */
 	int			cycles_ok;
@@ -94,24 +100,24 @@ enum {
 };
 
 static phase_t phases[] = {
-	{ "tcp",	NULL,	SRV_TLS,   NULL,	0,		0, 0, 0, 0 },
-	{ "plain-txn",	NULL,	SRV_PLAIN, NULL,	0,		1, 0, 0, 0 },
-	{ "plain-refused", NULL, SRV_PLAIN, NULL,	0,		1, 1, 0, 0 },
-	{ "raw",	NULL,	SRV_RAW,   NULL,	0,		0, 0, 0, 0 },
-	{ "raw-refused", NULL,	SRV_RAW,   NULL,	0,		0, 1, 0, 0 },
+	{ "tcp",	NULL,	SRV_TLS,   NULL,	0,		0, 0, 0, 1, 0 },
+	{ "plain-txn",	NULL,	SRV_PLAIN, NULL,	0,		1, 0, 0, 0, 0 },
+	{ "plain-refused", NULL, SRV_PLAIN, NULL,	0,		1, 1, 0, 0, 0 },
+	{ "raw",	NULL,	SRV_RAW,   NULL,	0,		0, 0, 0, 0, 0 },
+	{ "raw-refused", NULL,	SRV_RAW,   NULL,	0,		0, 1, 0, 0, 0 },
 	{ "h1-partial",	"http/1.1", SRV_TLS, h1_partial, sizeof(h1_partial) - 1,
-								0, 0, 0, 0 },
-	{ "h1-txn",	"http/1.1", SRV_TLS, NULL,	0,		1, 0, 0, 0 },
-	{ "h1-refused",	"http/1.1", SRV_TLS, NULL,	0,		1, 1, 0, 0 },
+								0, 0, 0, 0, 0 },
+	{ "h1-txn",	"http/1.1", SRV_TLS, NULL,	0,		1, 0, 0, 0, 0 },
+	{ "h1-refused",	"http/1.1", SRV_TLS, NULL,	0,		1, 1, 0, 0, 0 },
 	/*
 	 * once a client connection to the server negotiated h2, later ones
 	 * to the same place go h2, so the h2 phases come last
 	 */
-	{ "h2-txn",	"h2",	SRV_TLS,   NULL,	0,		1, 0, 0, 0 },
-	{ "h2-refused",	"h2",	SRV_TLS,   NULL,	0,		1, 2, 0, 0 },
+	{ "h2-txn",	"h2",	SRV_TLS,   NULL,	0,		1, 0, 0, 0, 0 },
+	{ "h2-refused",	"h2",	SRV_TLS,   NULL,	0,		1, 2, 0, 0, 0 },
 	/* this one takes the plaintext server away, so it goes last */
 	{ "server-gone", NULL,	SRV_PLAIN, h1_partial,	sizeof(h1_partial) - 1,
-								0, 0, 1, 0 },
+								0, 0, 1, 0, 0 },
 };
 
 static int
@@ -133,7 +139,7 @@ static char creating_templates;
  * cycle started, and how many earlier failed cycles left behind
  */
 static int acc_created, acc_destroyed, acc_created_at_start, acc_left;
-static lws_usec_t cycle_deadline;
+static lws_usec_t cycle_deadline, none_since;
 static char client_done, client_rx_ok;
 
 static void
@@ -271,6 +277,7 @@ start_cycle(lws_sorted_usec_list_t *sul)
 		lwsl_user("--- phase %s ---\n", ph->name);
 
 	acc_created_at_start = acc_created;
+	none_since = 0;
 	client_done = 0;
 	client_rx_ok = 0;
 	cycle_deadline = lws_now_usecs() + (5 * LWS_US_PER_SEC);
@@ -332,6 +339,23 @@ check_cycle(lws_sorted_usec_list_t *sul)
 		lwsl_user("%s: destroying server stream %s\n", __func__,
 			  servers[(int)ph->server].streamtype);
 		lws_ss_destroy(&servers[(int)ph->server].template);
+	}
+
+	if (client_done && !live && acc_created == acc_created_at_start &&
+	    ph->maybe_none) {
+		/*
+		 * Nothing made yet: the server may still be about to take
+		 * the connection, or it dropped it before making a stream.
+		 * Once nothing has come for a while, it was the latter
+		 */
+		if (!none_since)
+			none_since = lws_now_usecs();
+		else if (lws_now_usecs() - none_since > 500 * LWS_US_PER_MS) {
+			ph->cycles_ok++;
+			cycle++;
+			lws_sul_schedule(context, 0, &sul_next, start_cycle, 1);
+			return;
+		}
 	}
 
 	if (client_done && acc_created > acc_created_at_start && !live) {
