@@ -74,10 +74,6 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_timeout);
 	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
-	char close_decided = (char)wsi->close_decided;
-
-	/* the close is happening now, its own timeouts can be set again */
-	wsi->close_decided = 0;
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 	/*
@@ -89,7 +85,7 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 	 * stream on it.  The busy stream's own timeout bounds the wait; look
 	 * again after another keepalive period.
 	 */
-	if (!close_decided &&
+	if (!wsi->close_decided &&
 	    wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE &&
 	    !wsi->mux_substream && lws_wsi_mux_has_busy_child(wsi)) {
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
@@ -97,6 +93,9 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 #endif
+
+	/* the close is happening now, its own timeouts can be set again */
+	wsi->close_decided = 0;
 
 	/* no need to log normal idle keepalive timeout */
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
