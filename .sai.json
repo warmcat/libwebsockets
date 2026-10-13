@@ -126,7 +126,7 @@
                         "default": false,
                         "build": [
 				"rm -rf ebuild ; mkdir ebuild; cd ebuild;cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; rm -f libwebsockets ; ln -sf ../.. libwebsockets",
-				"cd ebuild/${cpack} ; . /opt/esp/esp-idf/export.sh ; rm -rf build ; idf.py set-target esp32 && cp partitions.csv sdkconfig.h build && cp -rp sdkconfig.old sdkconfig && cp sdkconfig build && idf.py ${cmake} build size size-components size-files",
+				"cd ebuild/${cpack} ; . /opt/esp/esp-idf/export.sh ; rm -rf build ; idf.py set-target esp32 && cp partitions.csv sdkconfig.h build && cp -rp sdkconfig.old sdkconfig && cp sdkconfig build && idf.py -DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0 ${cmake} build size size-components size-files",
 				". /opt/esp/esp-idf/export.sh && pwd && cd ebuild/${cpack}/build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
 			]
 		},
