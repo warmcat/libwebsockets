@@ -692,7 +692,16 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (src.sa4.sin_port != dsrv->sa46.sa4.sin_port ||
 		    lws_sa46_compare_ads(&src, &dsrv->sa46)) {
-			lwsl_wsi_notice(wsi, "dns answer from unexpected source");
+			char a1[48], a2[48];
+
+			lws_sa46_write_numeric_address(&src, a1, sizeof(a1));
+			lws_sa46_write_numeric_address(&dsrv->sa46, a2,
+						       sizeof(a2));
+			lwsl_wsi_notice(wsi, "dns answer from unexpected source "
+					"%s port %u (AF %d), we asked %s port %u",
+					a1, ntohs(src.sa4.sin_port),
+					(int)src.sa4.sin_family, a2,
+					ntohs(dsrv->sa46.sa4.sin_port));
 			break;
 		}
 

@@ -437,17 +437,21 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 int
 lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 {
-#if defined(LWS_WITH_IPV4)
 	uint8_t norm1[16], norm2[16];
-#endif
 	const uint8_t *p1, *p2;
 
-#if defined(LWS_WITH_IPV4)
+	/*
+	 * AF_INET is compared as its v4-mapped form whether or not this build
+	 * has IPv4: an IPv6-only build can still be handed one by the
+	 * platform, eg, macOS reports the source of a datagram from a v4 peer
+	 * on an AF_INET6 socket that way.  Refusing it made every DNS answer
+	 * from an IPv4 nameserver look as if it came from somewhere else.
+	 */
+
 	if (sa46a->sa4.sin_family == AF_INET) {
 		p1 = norm1;
 		lws_4to6(norm1, (const uint8_t *)&sa46a->sa4.sin_addr);
 	} else
-#endif
 #if defined(LWS_WITH_IPV6)
 	if (sa46a->sa4.sin_family == AF_INET6) {
 		p1 = (const uint8_t *)&sa46a->sa6.sin6_addr;
@@ -455,12 +459,10 @@ lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 #endif
 		return 1;
 
-#if defined(LWS_WITH_IPV4)
 	if (sa46b->sa4.sin_family == AF_INET) {
 		p2 = norm2;
 		lws_4to6(norm2, (const uint8_t *)&sa46b->sa4.sin_addr);
 	} else
-#endif
 #if defined(LWS_WITH_IPV6)
 	if (sa46b->sa4.sin_family == AF_INET6) {
 		p2 = (const uint8_t *)&sa46b->sa6.sin6_addr;

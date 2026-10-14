@@ -166,6 +166,25 @@ int main(void)
 			lwsl_err("v4 and v4-mapped compare unequal\n");
 			e++;
 		}
+
+		/*
+		 * ... in every build, IPv6-only ones too: the platform can
+		 * still hand those an AF_INET sockaddr, eg, macOS gives the
+		 * source of a datagram from a v4 peer on an AF_INET6 socket
+		 * like that.  When an IPv6-only build couldn't compare it,
+		 * every answer from an IPv4 nameserver was taken as coming
+		 * from somewhere else, and nothing resolved.
+		 */
+		memset(&sa46, 0, sizeof(sa46));
+		sa46.sa4.sin_family = AF_INET;
+		sa46.sa4.sin_addr.s_addr = htonl(0xc0a80101); /* 192.168.1.1 */
+		if (lws_sa46_parse_numeric_address("::ffff:192.168.1.1", &d6) ||
+		    lws_sa46_compare_ads(&sa46, &d6) ||
+		    lws_sa46_compare_ads(&d6, &sa46)) {
+			lwsl_err("platform AF_INET and v4-mapped compare "
+				 "unequal\n");
+			e++;
+		}
 	}
 #endif
 
