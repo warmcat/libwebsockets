@@ -27,6 +27,7 @@ arrived.
 |--stray|With `--relay`, the relay also sends the client stray packets of another connection, see below|
 |--outage <ms>|With `--relay`, after the client's first Initial the relay loses all but the client's Initial packets for this long, see below|
 |--early-1rtt|With `--relay`, the relay sends the client's first 1-RTT packet ahead of its Finished, see below|
+|--forwarder|With `--relay`, the relay also sends the server copies of the client's small packets from an address that never answers, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
 
@@ -94,6 +95,22 @@ of the stream.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --early-1rtt
+```
+
+With `--forwarder` instead, the relay also has a second socket, and sends the
+server a copy of each of the client's small 1-RTT datagrams, eg, its ACKs, from
+there, ahead of the original, as an off-path attacker who can see the client's
+packets might.  The copy is new and authentic to the server, so it looks like
+the client moved (RFC 9000 9.3), and the server probes the new address with a
+PATH_CHALLENGE that is never answered.  The server must stay on the path it
+validated, so the transfer completes, and once probing the forwarder's address
+failed, not keep probing it for every packet that comes from it.  With a small
+`--write-size`, the client sends plenty of small packets; the test fails if the
+server sent the forwarder more than its one probe would, about 14 datagrams
+here, where probing again for every copy sends around 80.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --forwarder --write-size 64
 ```
 
 ## congestion controller

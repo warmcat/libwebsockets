@@ -141,6 +141,22 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay also sending the server copies of the
+		# client's small packets, ahead of the originals, from an
+		# address that never answers: the server must stay on its
+		# validated path, and not keep probing the other address
+		#
+		lws_get_free_port(PORT_QCS_FWD)
+		lws_get_free_port(PORT_QCS_FWD_RELAY)
+		add_test(NAME ${SAMP}-forwarder COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_FWD}
+				--relay ${PORT_QCS_FWD_RELAY} --forwarder
+				--write-size 64)
+		set_tests_properties(${SAMP}-forwarder PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport

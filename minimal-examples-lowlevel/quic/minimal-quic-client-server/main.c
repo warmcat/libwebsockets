@@ -22,7 +22,10 @@
  * the server's handshake has to survive a spell of never getting the
  * client's Finished.  With --early-1rtt, the relay sends the client's first
  * 1-RTT packet to the server ahead of its Finished, and the server must hold
- * it until its handshake completes rather than lose it.
+ * it until its handshake completes rather than lose it.  With --forwarder,
+ * copies of the client's small packets also reach the server first from
+ * another address that never answers, and the server must not keep probing
+ * that address.
  */
 
 #include <libwebsockets.h>
@@ -187,6 +190,33 @@ static const char * const test_key =
  */
 #define RELAY_EARLY_WINDOW_US	(1 * LWS_US_PER_SEC)
 
+/*
+ * With --forwarder, the relay also has a second socket, the forwarder, and
+ * sends the server a copy of each of the client's 1-RTT datagrams up to
+ * RELAY_FWD_SMALL bytes, eg, its ACKs, from there, ahead of the original: as
+ * an off-path attacker who sees the client's packets, or a broken middlebox,
+ * might.  The copy is new and authentic to the server, so it looks like the
+ * client moved there (RFC 9000 9.3), and the server probes the forwarder's
+ * address with a PATH_CHALLENGE, which the forwarder never answers; the
+ * original arriving after it is a duplicate.
+ *
+ * The server must stay on the validated path, so the transfer completes, and
+ * once probing the forwarder failed, not probe it again for a while however
+ * many more packets come from it.  Small packets earn little anti-
+ * amplification allowance, so without that the server starts a probe, runs
+ * out of allowance and abandons it, on nearly every copy.
+ *
+ * Use it with a small --write-size, eg, 64, so the client sends plenty of
+ * small packets.  The one probe sends its PATH_CHALLENGE again each time it's
+ * lost, until its allowance runs out, about 14 datagrams; a server probing
+ * again for every copy sends around 80 in the time.  The test fails if the
+ * server sent the forwarder more than RELAY_FWD_SENT_MAX datagrams, or if
+ * fewer than RELAY_FWD_COPIES_MIN copies were made, so it didn't test much.
+ */
+#define RELAY_FWD_SMALL		100
+#define RELAY_FWD_SENT_MAX	30
+#define RELAY_FWD_COPIES_MIN	50
+
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
 relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
@@ -289,6 +319,12 @@ static struct {
 	unsigned int		batches_to_client;
 	unsigned int		strays;
 	char			stray;
+
+	/* --forwarder */
+	struct lws		*fwd_wsi;
+	unsigned int		fwd_copies;	/* we sent the server */
+	unsigned int		fwd_rx;		/* the server sent us */
+	char			forwarder;
 } relay;
 
 static void
@@ -452,6 +488,17 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
+		if (d == &relay.dir[0] && relay.fwd_wsi &&
+		    !(((const uint8_t *)in)[0] & 0x80) &&
+		    len <= RELAY_FWD_SMALL) {
+			/* the copy goes now, ahead of the original */
+			fd = lws_get_socket_fd(relay.fwd_wsi);
+			if (fd != LWS_SOCK_INVALID) {
+				relay_send(fd, in, len, &d->dest);
+				relay.fwd_copies++;
+			}
+		}
+
 		if (d->count == RELAY_BATCH) {
 			d->dropped++;
 			break;
@@ -509,8 +556,32 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+/* --forwarder: whatever the server sends the forwarder goes no further */
+
+static int
+callback_relay_fwd(struct lws *wsi, enum lws_callback_reasons reason,
+		   void *user, void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		relay.fwd_wsi = wsi;
+		break;
+	case LWS_CALLBACK_RAW_CLOSE:
+		relay.fwd_wsi = NULL;
+		break;
+	case LWS_CALLBACK_RAW_RX:
+		relay.fwd_rx++;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static struct lws_protocols relay_protocols[] = {
 	{ "quic-relay", callback_relay, 0, 0, 0, NULL, 0 },
+	{ "quic-relay-fwd", callback_relay_fwd, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -608,9 +679,35 @@ report_progress(void)
 			 relay.dir[n].due ? ", due" : "");
 }
 
+/* --forwarder: how did the server treat the address that never answers? */
+
+static int
+forwarder_failed(void)
+{
+	if (!relay.forwarder)
+		return 0;
+
+	lwsl_user("forwarder: sent the server %u copies, it sent us %u "
+		  "datagrams\n", relay.fwd_copies, relay.fwd_rx);
+
+	if (relay.fwd_copies < RELAY_FWD_COPIES_MIN) {
+		lwsl_err("forwarder: too few copies to test anything\n");
+		return 1;
+	}
+	if (relay.fwd_rx > RELAY_FWD_SENT_MAX) {
+		lwsl_err("forwarder: the server kept probing an address that "
+			 "never answers\n");
+		return 1;
+	}
+
+	return 0;
+}
+
 static void
 teardown_cb(lws_sorted_usec_list_t *sul)
 {
+	if (!result)
+		result = forwarder_failed();
 	lws_default_loop_exit(context);
 }
 
@@ -775,6 +872,7 @@ enum {
 	LWS_SW_STRAY,
 	LWS_SW_OUTAGE,
 	LWS_SW_EARLY_1RTT,
+	LWS_SW_FORWARDER,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_CUBIC,
 };
@@ -789,6 +887,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_STRAY] = { "--stray",	"The relay also sends the client stray packets of another connection (needs --relay)" },
 	[LWS_SW_OUTAGE] = { "--outage",	"After the client's first Initial, the relay loses all but its Initial packets for this many ms (needs --relay)" },
 	[LWS_SW_EARLY_1RTT] = { "--early-1rtt", "The relay sends the client's first 1-RTT packet ahead of its Finished (needs --relay)" },
+	[LWS_SW_FORWARDER] = { "--forwarder", "The relay also sends the server copies of the client's small packets from an address that never answers (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
 };
@@ -902,6 +1001,14 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_FORWARDER].sw) &&
+	    (!relay_port || outage_ms ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw))) {
+		lwsl_err("--forwarder needs --relay, and not --outage or "
+			 "--early-1rtt\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -987,6 +1094,8 @@ int main(int argc, const char **argv)
 		relay.outage_us = (lws_usec_t)outage_ms * LWS_US_PER_MS;
 		relay.early_1rtt = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_EARLY_1RTT].sw);
+		relay.forwarder = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_FORWARDER].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;
@@ -1010,6 +1119,15 @@ int main(int argc, const char **argv)
 						  NULL, NULL, NULL, NULL,
 						  "quic_relay")) {
 			lwsl_err("Failed to create the relay\n");
+			goto bail;
+		}
+
+		/* the forwarder's socket, on any free port */
+		if (relay.forwarder &&
+		    !lws_create_adopt_udp(rvh, ads, 0, LWS_CAUDP_BIND,
+					  "quic-relay-fwd", NULL, NULL, NULL,
+					  NULL, "quic_fwd")) {
+			lwsl_err("Failed to create the forwarder\n");
 			goto bail;
 		}
 	}

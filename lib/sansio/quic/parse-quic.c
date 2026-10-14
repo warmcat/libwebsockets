@@ -1453,6 +1453,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 							lws_sul_cancel(&nwsi->quic.qn->path_probe_sul);
 							nwsi->quic.qn->probe_bytes_received = 0;
 							nwsi->quic.qn->probe_bytes_sent = 0;
+							nwsi->quic.qn->probe_fails = 0;
 						}
 						nwsi->quic.qn->probing_sa46_valid = 0;
 						nwsi->quic.qn->prefaddr_active = 0;

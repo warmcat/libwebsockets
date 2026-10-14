@@ -575,6 +575,15 @@ struct lws_quic_netconn {
 	uint64_t		probe_bytes_received;
 	uint64_t		probe_bytes_sent;
 	lws_sorted_usec_list_t	path_probe_sul;
+	/*
+	 * An address whose probes keep failing, eg, one an off-path attacker
+	 * forwards copies of the peer's packets from, or a middlebox's, would
+	 * otherwise have each packet from it start another probe: after a
+	 * failure we don't probe it again until probe_holdoff_until, a wait
+	 * that doubles with each failure in a row, probe_fails
+	 */
+	lws_usec_t		probe_holdoff_until;
+	uint8_t			probe_fails;
 
 	/*
 	 * Client preferred_address active migration (RFC 9000 Section 9.5/9.6).
@@ -749,7 +758,7 @@ lws_quic_sa46_same_path(const lws_sockaddr46 *a, const lws_sockaddr46 *b);
  * committed path.  Safe to call when no probe is active.
  */
 void
-lws_quic_path_probe_abandon(struct lws *nwsi);
+lws_quic_path_probe_abandon(struct lws *nwsi, const char *failed);
 
 void
 lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked);
@@ -790,6 +799,9 @@ int
 lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t len);
 
 #define LWS_QUIC_DEFAULT_PTO_US 500000 /* 500ms baseline PTO for early dev */
+/* the wait before probing an address again doubles from this to 64x it */
+#define LWS_QUIC_PROBE_HOLDOFF_US	LWS_US_PER_SEC
+#define LWS_QUIC_PROBE_HOLDOFF_MAX_SHIFT 6
 
 struct _lws_quic_related {
         struct lws_quic_netconn *qn; /* malloc'd for root net conn */

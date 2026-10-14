@@ -225,15 +225,44 @@ lws_quic_datagram_max(const struct lws_quic_netconn *qn)
 	return room > over ? room - over : 0;
 }
 
+/*
+ * Stop probing the address in probing_sa46.  failed says why the probe failed,
+ * or is NULL when it's only superseded by a probe of another address
+ */
 void
-lws_quic_path_probe_abandon(struct lws *nwsi)
+lws_quic_path_probe_abandon(struct lws *nwsi, const char *failed)
 {
 	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
 
 	if (!qn || !qn->is_server || !qn->probing_sa46_valid)
 		return;
 
-	lwsl_wsi_notice(nwsi, "QUIC: path probe abandoned, staying on validated path");
+	if (failed) {
+		unsigned int shift = qn->probe_fails;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+		char ads[64];
+
+		lws_sa46_write_numeric_address(&qn->probing_sa46, ads,
+					       sizeof(ads));
+#endif
+
+		if (shift > LWS_QUIC_PROBE_HOLDOFF_MAX_SHIFT)
+			shift = LWS_QUIC_PROBE_HOLDOFF_MAX_SHIFT;
+		if (qn->probe_fails < 255)
+			qn->probe_fails++;
+		qn->probe_holdoff_until = lws_wsi_now(nwsi) +
+				((lws_usec_t)LWS_QUIC_PROBE_HOLDOFF_US << shift);
+
+		lwsl_wsi_notice(nwsi, "QUIC: probe of peer's new address %s "
+				"failed, %s (%u in a row, sent %llu, rx %llu): "
+				"staying on validated path, not probing it "
+				"again for %llus", ads, failed, qn->probe_fails,
+				(unsigned long long)qn->probe_bytes_sent,
+				(unsigned long long)qn->probe_bytes_received,
+				(unsigned long long)(LWS_QUIC_PROBE_HOLDOFF_US
+						<< shift) / LWS_US_PER_SEC);
+	} else
+		lwsl_wsi_info(nwsi, "QUIC: path probe superseded");
 
 	lws_sul_cancel(&qn->path_probe_sul);
 	qn->probing_sa46_valid = 0;
@@ -272,8 +301,8 @@ lws_quic_path_probe_sul_cb(lws_sorted_usec_list_t *sul)
 	if (!qn->nwsi)
 		return;
 
-	lwsl_wsi_notice(qn->nwsi, "QUIC: path validation timed out (RFC 9000 8.2.4)");
-	lws_quic_path_probe_abandon(qn->nwsi);
+	lws_quic_path_probe_abandon(qn->nwsi, "no PATH_RESPONSE in time "
+					   "(RFC 9000 8.2.4)");
 }
 
 /*
@@ -2339,9 +2368,31 @@ tp_ok:
 #endif
 #endif
 
-				if (nwsi->quic.qn->is_server) {
+				if (nwsi->quic.qn->is_server &&
+				    nwsi->quic.qn->probe_fails &&
+				    lws_quic_sa46_same_path(&migration_sa46,
+						&nwsi->quic.qn->probing_sa46) &&
+				    lws_wsi_now(nwsi) <
+					nwsi->quic.qn->probe_holdoff_until) {
+					/*
+					 * Probing this address failed lately,
+					 * don't try again yet; what it sends
+					 * still earns its allowance for when we
+					 * do
+					 */
+					nwsi->quic.qn->probe_bytes_received +=
+							(uint64_t)orig_n;
+				} else if (nwsi->quic.qn->is_server) {
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-					lwsl_notice("QUIC Server: Connection Migration initiated! Peer address changed from %s:%u to %s:%u (pending validation)\n",
+					/* trying an address again is not news */
+					if (nwsi->quic.qn->probe_fails &&
+					    lws_quic_sa46_same_path(&migration_sa46,
+						    &nwsi->quic.qn->probing_sa46))
+						lwsl_info("QUIC Server: probing peer address %s:%u again\n",
+							  buf_new,
+							  (unsigned int)ntohs(port_new));
+					else
+						lwsl_notice("QUIC Server: Connection Migration initiated! Peer address changed from %s:%u to %s:%u (pending validation)\n",
 						    buf_old, (unsigned int)ntohs(port_old),
 						    buf_new, (unsigned int)ntohs(port_new));
 #endif
@@ -2363,7 +2414,7 @@ tp_ok:
 					 * (8.2.4).  A probe to a different address that
 					 * is still outstanding is superseded.
 					 */
-					lws_quic_path_probe_abandon(nwsi);
+					lws_quic_path_probe_abandon(nwsi, NULL);
 					nwsi->quic.qn->rx_has_non_probing = 0;
 					if (lws_quic_sa46_same_path(&migration_sa46,
 						    &nwsi->quic.qn->probing_sa46))
@@ -2373,6 +2424,8 @@ tp_ok:
 						nwsi->quic.qn->probing_sa46 = migration_sa46;
 						nwsi->quic.qn->probe_bytes_received = (uint64_t)orig_n;
 						nwsi->quic.qn->probe_bytes_sent = 0;
+						/* a new address has failed nothing yet */
+						nwsi->quic.qn->probe_fails = 0;
 					}
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
@@ -3147,12 +3200,9 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 
 					if (qn->probe_bytes_sent + probe_min >
 								allowance) {
-						lwsl_wsi_notice(wsi, "QUIC TX: probe path "
-							"anti-amplification limit reached "
-							"(sent %llu, rx %llu)",
-							(unsigned long long)qn->probe_bytes_sent,
-							(unsigned long long)qn->probe_bytes_received);
-						lws_quic_path_probe_abandon(wsi);
+						lws_quic_path_probe_abandon(wsi,
+							"anti-amplification "
+							"limit reached");
 					} else {
 						probe_budget = allowance - qn->probe_bytes_sent;
 						to_probe_path = 1;
