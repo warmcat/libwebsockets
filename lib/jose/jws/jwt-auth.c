@@ -240,14 +240,22 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+/*
+ * Any token the SSO pipeline carries, up to LWS_SSO_MAX_COOKIE, must verify
+ * here: with 2KB buffers, a bigger one that was planted as the session cookie
+ * never got through the gate.  On the heap, since lws_jwt_auth_create()
+ * already has a cookie's worth on the stack when it calls us.
+ */
+#define LWS_JWT_AUTH_BUF	LWS_SSO_MAX_COOKIE
+
 int
 lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reason)
 {
-	char temp[2048], out[2048];
-	size_t out_len = sizeof(out);
-	struct lejp_ctx ctx;
+	size_t out_len = LWS_JWT_AUTH_BUF;
 	struct jwt_auth_parse_ctx pctx;
-	int m;
+	struct lejp_ctx ctx;
+	char *temp, *out;
+	int m, r;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ja->grants)) {
 		struct lws_jwt_auth_grant *g = lws_container_of(d, struct lws_jwt_auth_grant, list);
@@ -255,8 +263,20 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 		lws_free(g);
 	} lws_end_foreach_dll_safe(d, d1);
 
-	if (lws_jwt_signed_validate(ja->cx, ja->jwk, "ES256,ES384,ES512,RS256,RS384,RS512,HS256",
-				    jwt, strlen(jwt), temp, sizeof(temp), out, &out_len)) {
+	temp = lws_malloc(LWS_JWT_AUTH_BUF * 2, __func__);
+	if (!temp) {
+		if (reason)
+			*reason = "OOM";
+		return -1;
+	}
+	out = temp + LWS_JWT_AUTH_BUF;
+
+	r = lws_jwt_signed_validate(ja->cx, ja->jwk,
+				    "ES256,ES384,ES512,RS256,RS384,RS512,HS256",
+				    jwt, strlen(jwt), temp, LWS_JWT_AUTH_BUF,
+				    out, &out_len);
+	if (r) {
+		lws_free(temp);
 		lwsl_err("%s: Verification failed\n", __func__);
 		if (reason)
 			*reason = "JWT signature verification failed";
@@ -282,6 +302,7 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	lejp_construct(&ctx, jwt_auth_lejp_cb, &pctx, auth_paths, LWS_ARRAY_SIZE(auth_paths));
 	m = (int)(lejp_parse(&ctx, (uint8_t *)out, (int)out_len));
 	lejp_destruct(&ctx);
+	lws_free(temp);
 
 	if (m < 0) {
 		lwsl_err("%s: JSON decode failed\n", __func__);
