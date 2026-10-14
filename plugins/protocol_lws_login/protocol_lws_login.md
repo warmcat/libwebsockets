@@ -139,6 +139,7 @@ header the client sent twice needs the call repeated until the header is gone.
 | `x-lws-login-grant-level` | integer | Raw grant level the bouncer used to decide the role for this mount (e.g. `2`). Finer detail than the state. |
 | `x-lws-login-sub` | string | Verified subject identity (empty when anonymous). |
 | `x-lws-login-admin` | `0` or `1` | Back-compat: `1` exactly when `state == LWS_LOGIN_STATE_GLOBAL_ADMIN`. |
+| `x-lws-login-service` | string | The service the state and grant level are about: the `service-name` of the mount the request came in on.  A backend can check it's the grant it expects, so a mistaken or missing mount in front of it fails closed rather than letting in users of another service. |
 
 The `lws_login_state` values are ordered by privilege:
 

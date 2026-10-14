@@ -153,6 +153,16 @@
  *
  *  - "ws-stale-session": the revoked token is refused the same upgrade.
  *
+ * plus the headers lws-login stamps for what it lets through:
+ *
+ *  - "stamps-live": a live token reaching an in-process http app behind the
+ *    gated mount, while the client sends its own x-lws-login-service.  The
+ *    app must read the stamps lws-login made, a user (state 2) of the
+ *    service the mount is for, "default-service", and the client's copy of
+ *    the header must be gone from the request.  The service is what lets an
+ *    app check the state is about the grant it guards, so a wrong mount in
+ *    front of it fails closed.
+ *
  * The app vhost runs the real lws-login plugin (builtin plugins build) with
  * lws_login_client enabled on the same vhost as the side channel requires,
  * against an in-process mock auth server.  Ports come from the CI port
@@ -211,6 +221,15 @@ struct scenario {
 /* the two ws protocols on the gated mount: only the second is exempt */
 #define BFF_WS_PRIV	"lws-api-test-lws-login-bff-priv"
 #define BFF_WS_WAITING	"lws-api-test-lws-login-bff-waiting"
+
+/*
+ * An http app behind another gated mount, telling what lws-login stamped on
+ * the request.  The client sends its own x-lws-login-service, which must not
+ * be what the app sees.
+ */
+#define BFF_STAMPS_PROT	"lws-api-test-lws-login-bff-stamps"
+#define BFF_STAMPS_PATH	"/stamps"
+#define BFF_STAMPS_SPOOF "spoofed-service"
 
 /* minted in main() once the context and allocated ports exist */
 static char	minted_jwt[LWS_SSO_MAX_COOKIE];
@@ -278,6 +297,10 @@ static const struct scenario scenarios[] = {
 	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, BFF_WS_PRIV },
 	{ "ws-stale-session", "/gated", NULL, NULL, NULL, ck_revoked, 401u, 0, 0,
 	  0, NULL, 0, 0, 0, 0, BFF_WS_PRIV, NULL },
+
+	/* what lws-login stamps for an app it lets a live token through to */
+	{ "stamps-live", BFF_STAMPS_PATH, NULL, NULL, NULL, ck_live, 200u, 0, 0,
+	  0, "GET", 0, 0, 0, 0, NULL, NULL },
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
@@ -724,6 +747,14 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				(const unsigned char *)scenarios[step].cookie,
 				(int)strlen(scenarios[step].cookie), p, end))
 			return -1;
+
+		/* a client claiming to have been judged for another service */
+		if (!strcmp(scenarios[step].path, BFF_STAMPS_PATH) &&
+		    lws_add_http_header_by_name(wsi,
+				(const unsigned char *)LWS_LOGIN_HDR_SERVICE ":",
+				(const unsigned char *)BFF_STAMPS_SPOOF,
+				(int)strlen(BFF_STAMPS_SPOOF), p, end))
+			return -1;
 		break;
 	}
 
@@ -772,11 +803,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		got_sc_nfrags++;
 	}
 
-		if (scenarios[step].expect_js || scenarios[step].expect_css) {
+		if (scenarios[step].expect_js || scenarios[step].expect_css ||
+		    !strcmp(scenarios[step].path, BFF_STAMPS_PATH)) {
 			/*
-			 * The body (the served lws-login.js / lws-login.css)
-			 * is what the fence scenarios assert on: keep the
-			 * connection and drain it via RECEIVE_CLIENT_HTTP(_READ).
+			 * The body (the served lws-login.js / lws-login.css,
+			 * or what the stamps app saw) is what these scenarios
+			 * assert on: keep the connection and drain it via
+			 * RECEIVE_CLIENT_HTTP(_READ).
 			 */
 			got_body_len = 0;
 			got_body_trunc = 0;
@@ -874,6 +907,73 @@ callback_gated_ws(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * The http app behind the gated stamps mount: it does no auth of its own and
+ * answers with what lws-login stamped on the request, and with any
+ * x-lws-login-service still among the request's own headers, which there
+ * must not be.
+ */
+
+struct pss_stamps {
+	char		body[512];
+	size_t		len;
+};
+
+static int
+callback_stamps(struct lws *wsi, enum lws_callback_reasons reason,
+		void *user, void *in, size_t len)
+{
+	struct pss_stamps *ps = (struct pss_stamps *)user;
+	uint8_t buf[LWS_PRE + 512], *start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - 1];
+	char state[8], sub[128], service[64], ah[64];
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+		if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_STATE, state,
+					       sizeof(state)) < 0)
+			lws_strncpy(state, "-", sizeof(state));
+		if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_SUB, sub,
+					       sizeof(sub)) < 0)
+			lws_strncpy(sub, "-", sizeof(sub));
+		if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_SERVICE,
+					       service, sizeof(service)) < 0)
+			lws_strncpy(service, "-", sizeof(service));
+		if (lws_hdr_custom_copy(wsi, ah, sizeof(ah),
+					LWS_LOGIN_HDR_SERVICE ":",
+					(int)strlen(LWS_LOGIN_HDR_SERVICE ":")) < 0)
+			lws_strncpy(ah, "-", sizeof(ah));
+
+		ps->len = (size_t)lws_snprintf(ps->body, sizeof(ps->body),
+				"state=%s;sub=%s;service=%s;request-copy=%s;",
+				state, sub, service, ah);
+
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain", ps->len, &p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+
+		lws_callback_on_writable(wsi);
+		return 0;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!ps || !ps->len)
+			break;
+		memcpy(start, ps->body, ps->len);
+		if (lws_write(wsi, start, ps->len, LWS_WRITE_HTTP_FINAL) !=
+							(int)ps->len)
+			return 1;
+		ps->len = 0;
+
+		return lws_http_transaction_completed(wsi) ? -1 : 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 /* ------------------------------------------------------------- protocols */
 
 static const struct lws_protocols
@@ -884,12 +984,15 @@ static const struct lws_protocols
 	prot_cli = { "lws-api-test-lws-login-bff-cli", callback_cli,
 		     0, 0, 0, NULL, 0 },
 	prot_priv = { BFF_WS_PRIV, callback_gated_ws, 0, 0, 0, NULL, 0 },
-	prot_waiting = { BFF_WS_WAITING, callback_gated_ws, 0, 0, 0, NULL, 0 };
+	prot_waiting = { BFF_WS_WAITING, callback_gated_ws, 0, 0, 0, NULL, 0 },
+	prot_stamps = { BFF_STAMPS_PROT, callback_stamps,
+			sizeof(struct pss_stamps), 0, 0, NULL, 0 };
 
 static const struct lws_protocols
 	*pprotocols_auth[] = { &defprot, &prot_auth, &prot_feed, NULL },
 	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL },
-	*pprotocols_app[]  = { &defprot, &prot_priv, &prot_waiting, NULL };
+	*pprotocols_app[]  = { &defprot, &prot_priv, &prot_waiting,
+			       &prot_stamps, NULL };
 
 static const struct lws_http_mount
 	mount_auth = {
@@ -899,10 +1002,21 @@ static const struct lws_http_mount
 		.mountpoint_len		= 1,
 	},
 	/*
+	 * Another gated mount, served in-process by the stamps app
+	 */
+	mount_stamps = {
+		.mountpoint		= BFF_STAMPS_PATH,
+		.protocol		= BFF_STAMPS_PROT,
+		.origin_protocol	= LWSMPRO_CALLBACK,
+		.mountpoint_len		= sizeof(BFF_STAMPS_PATH) - 1,
+		.interceptor_path	= "/",
+	},
+	/*
 	 * A mount on the app vhost that lws-login gates (its interceptor_path
 	 * is the lws-login mount below): the C-774 ws upgrades target it
 	 */
 	mount_gated = {
+		.mount_next		= &mount_stamps,
 		.mountpoint		= "/gated",
 		.protocol		= "defprot",
 		.origin_protocol	= LWSMPRO_CALLBACK,
@@ -1357,6 +1471,27 @@ step_advance(void)
 		}
 
 		if (bad) {
+			fail++;
+			result = 1;
+			sequence_done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+	}
+
+	if (!strcmp(scenarios[step].path, BFF_STAMPS_PATH)) {
+		/*
+		 * a user (2) of the mount's service, as stamped, and the
+		 * client's own copy of the service header gone
+		 */
+		got_body[got_body_len] = '\0';
+		if (got_body_trunc ||
+		    !strstr(got_body, "state=2;") ||
+		    !strstr(got_body, ";service=default-service;") ||
+		    !strstr(got_body, ";request-copy=-;") ||
+		    strstr(got_body, BFF_STAMPS_SPOOF)) {
+			lwsl_err("%s: FAIL scenario '%s': the app saw '%s'\n",
+				 __func__, scenarios[step].name, got_body);
 			fail++;
 			result = 1;
 			sequence_done = 1;

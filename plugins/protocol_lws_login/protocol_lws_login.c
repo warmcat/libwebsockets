@@ -2444,6 +2444,7 @@ lws_login_snip_headers(struct lws *wsi)
 	lws_http_zap_header(wsi, LWS_LOGIN_HDR_ADMIN);
 	lws_http_zap_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL);
 	lws_http_zap_header(wsi, LWS_LOGIN_HDR_SUB);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_SERVICE);
 }
 
 /*
@@ -2456,6 +2457,7 @@ lws_login_snip_headers(struct lws *wsi)
  *   x-lws-login-admin:        1 iff state == GLOBAL_ADMIN (back-compat)
  *   x-lws-login-grant-level:  raw integer grant level used for this mount
  *   x-lws-login-sub:          subject identity ("" if anonymous)
+ *   x-lws-login-service:      the service the state and level are about
  *
  * x-lws-login-admin is derived from |state| so it stays consistent with
  * x-lws-login-state by construction; a backend that wants "admin of my own
@@ -2476,7 +2478,7 @@ lws_login_snip_headers(struct lws *wsi)
  */
 static void
 lws_login_inject_state(struct lws *wsi, const char *sub, int level,
-		       enum lws_login_state state)
+		       enum lws_login_state state, const char *service)
 {
 	char buf[32];
 
@@ -2491,6 +2493,14 @@ lws_login_inject_state(struct lws *wsi, const char *sub, int level,
 	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL, buf);
 
 	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_SUB, sub ? sub : "");
+
+	/*
+	 * Which grant the state is about: without it, a backend can't tell a
+	 * user of the service it guards from a user of another that the mount
+	 * in front of it was mistakenly configured with
+	 */
+	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_SERVICE,
+				   service ? service : "");
 }
 
 static int
@@ -2966,7 +2976,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lws_jwt_auth_destroy(&ja);
 
-				lws_login_inject_state(wsi, sub, level, state);
+				lws_login_inject_state(wsi, sub, level, state,
+						       service_name);
 				lwsl_info("%s: ALLOWING (User has required grant)\n", __func__);
 				return 0; /* Let traffic through to the real mount */
 			}
@@ -2981,7 +2992,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 anon:
 	/* anonymous: explicit ANON state for the backend */
-	lws_login_inject_state(wsi, NULL, -1, LWS_LOGIN_STATE_ANON);
+	lws_login_inject_state(wsi, NULL, -1, LWS_LOGIN_STATE_ANON,
+			       service_name);
 	lwsl_info("%s: ALLOWING UNAUTH (%s)\n", __func__,
 		  unauth_proto ? "unauth-protocols" : "unauth-allow");
 

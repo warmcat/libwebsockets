@@ -740,6 +740,12 @@ lws_http_get_onward_header(struct lws *wsi, const char *name, char *buf,
  * LWS_LOGIN_HDR_ADMIN is kept for back-compat and is exactly equivalent to
  * `state == LWS_LOGIN_STATE_GLOBAL_ADMIN`.
  *
+ * The state, and the grant level, are about one service: the one the mount
+ * the request arrived on names in its "service-name".  \ref
+ * LWS_LOGIN_HDR_SERVICE says which, so a backend serving more than one mount,
+ * or wanting to be sure the mount it is behind is the one it expects, can
+ * check the state is about the grant it cares about.
+ *
  * Crucially, \ref LWS_LOGIN_STATE_APP_ADMIN (admin of THIS app only) and \ref
  * LWS_LOGIN_STATE_GLOBAL_ADMIN (the TOFU "*" / "god" account, admin of the
  * whole system) are distinct: a backend must not treat an app admin as a
@@ -756,6 +762,7 @@ lws_http_get_onward_header(struct lws *wsi, const char *name, char *buf,
 #define LWS_LOGIN_HDR_ADMIN        "x-lws-login-admin"
 #define LWS_LOGIN_HDR_GRANT_LEVEL  "x-lws-login-grant-level"
 #define LWS_LOGIN_HDR_SUB          "x-lws-login-sub"
+#define LWS_LOGIN_HDR_SERVICE      "x-lws-login-service"
 
 /**
  * enum lws_login_state - summary role of the identity reaching a backend
