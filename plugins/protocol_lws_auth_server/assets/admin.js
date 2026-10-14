@@ -25,7 +25,12 @@ function connect() {
     };
     ws.onmessage = (msg) => {
         const data = JSON.parse(msg.data);
-        if (data.op === 'list_reply') renderTable(data.users);
+        if (data.op === 'list_reply') {
+            renderTable(data.users);
+            /* an edit the server refused: the table shows it unchanged */
+            if (data.error)
+                alert(data.error);
+        }
         else if (data.op === 'clients_list_reply') renderClientsTable(data.clients);
     };
     ws.onclose = (ev) => {

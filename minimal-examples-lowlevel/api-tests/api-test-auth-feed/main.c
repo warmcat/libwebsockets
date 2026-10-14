@@ -30,6 +30,16 @@
  *
  *  - bumping the user's session epoch, as a password reset does, reaches the
  *    subscriber, and then lws-login refuses the same token.
+ *
+ * Then, as an admin in the console's ws, it edits the user's grants:
+ *
+ *  - " default-service : 1 ,  other-svc:2 " grants exactly default-service
+ *    at 1 and other-svc at 2: whitespace around the parts is not part of
+ *    the names.  It used to be, granting a service " other-svc" nothing
+ *    asks for, so the account was listed with the grant and refused it;
+ *
+ *  - an edit that doesn't parse, here a name with a space in it, is refused
+ *    as a whole, said so in the reply, and the grants are left as they were.
  */
 
 #include <libwebsockets.h>
@@ -59,6 +69,8 @@ enum {
 	PH_QUIET,		/* an unrelated write sends nothing */
 	PH_REVOKE_FEED,		/* an epoch bump reaches the subscriber */
 	PH_REVOKE_LOGIN,	/* ... and lws-login refuses the token */
+	PH_ADMIN_EDIT,		/* an admin's edit, whitespace and all */
+	PH_ADMIN_REFUSED,	/* ... and one that doesn't parse */
 	PH_DONE
 };
 
@@ -71,6 +83,8 @@ static const char * const phase_names[] = {
 	"a write changing nothing in the snapshot sends nothing",
 	"session epoch bump reaches the subscriber",
 	"lws-login refuses the revoked token",
+	"admin edit ignores whitespace around grant names",
+	"admin edit that doesn't parse is refused, grants unchanged",
 };
 
 /* what each client connection of ours is for */
@@ -79,6 +93,7 @@ enum role {
 	ROLE_FEED_NO_SECRET,
 	ROLE_FEED_BAD_SECRET,
 	ROLE_GATED,		/* a ws upgrade at lws-login's gated mount */
+	ROLE_ADMIN,		/* the admin console's ws, as an admin */
 };
 
 static struct lws_context *context;
@@ -87,6 +102,8 @@ static lws_sorted_usec_list_t sul_check;
 static int port_auth, port_app, phase, tests, fail, done;
 static lws_usec_t phase_deadline, quiet_until;
 static char work[64], db_path[128], jwk_path[128], cookie[2048];
+/* the auth server's own origin, which lws-login is pointed at too */
+static char auth_url[64];
 
 /* what our feed subscriber has seen */
 static int snapshots, seen_uid1_sec = -1, seen_uid1_grant = -1;
@@ -94,7 +111,13 @@ static char *feed_rx;
 static size_t feed_rx_len;
 
 /* how the latest connection for a role went: 1 up, -1 refused, 0 pending */
-static int outcome[ROLE_GATED + 1];
+static int outcome[ROLE_ADMIN + 1];
+
+/* the admin console ws: what to send it, and what it answered */
+static struct lws *wsi_admin;
+static const char *admin_tx;
+static char admin_cookie[2048];
+static int admin_replies, admin_error;
 static int snapshots_at_quiet;
 
 static void
@@ -131,12 +154,49 @@ db_exec(const char *sql)
 	return n != SQLITE_OK;
 }
 
+/* the first column of the first row of a query, or -1 */
+static int
+db_int(const char *sql)
+{
+	sqlite3_stmt *st;
+	sqlite3 *db;
+	int r = -1;
+
+	if (sqlite3_open_v2(db_path, &db, SQLITE_OPEN_READONLY, NULL) !=
+								SQLITE_OK) {
+		sqlite3_close(db);
+		return -1;
+	}
+	if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
+		if (sqlite3_step(st) == SQLITE_ROW)
+			r = sqlite3_column_int(st, 0);
+		sqlite3_finalize(st);
+	}
+	sqlite3_close(db);
+
+	return r;
+}
+
+/* uid 1's grant of a service, by its exact name, or -1 */
+static int
+db_grant(const char *svc)
+{
+	char q[256];
+
+	lws_snprintf(q, sizeof(q), "SELECT g.grant_level FROM grants g JOIN "
+		     "services s ON g.service_id = s.service_id WHERE "
+		     "g.uid = 1 AND s.name = '%s'", svc);
+
+	return db_int(q);
+}
+
 /*
- * A session token for uid 1 the way the auth server mints them, signed with
- * the key it generated at jwk_path
+ * A session token the way the auth server mints them, signed with the key
+ * it generated at jwk_path
  */
 static int
-mint_cookie(void)
+mint_token(char *ck, size_t ck_len, unsigned int uid, unsigned int sec,
+	   const char *grants)
 {
 	unsigned long long now = (unsigned long long)time(NULL);
 	char tok[1024], temp[2048];
@@ -153,16 +213,24 @@ mint_cookie(void)
 	r = lws_jwt_sign_compact(context, &jwk, "ES256", tok, &tok_len, temp,
 				 sizeof(temp),
 				 "{\"iss\":\"apitest\",\"sub\":\"alice\","
-				 "\"uid\":1,\"sec\":5,\"iat\":%llu,"
-				 "\"exp\":%llu,\"grants\":"
-				 "{\"default-service\":1}}", now, now + 3600);
+				 "\"uid\":%u,\"sec\":%u,\"iat\":%llu,"
+				 "\"exp\":%llu,\"grants\":{%s}}", uid, sec,
+				 now, now + 3600, grants);
 	lws_jwk_destroy(&jwk);
 	if (r)
 		return 1;
 
-	lws_snprintf(cookie, sizeof(cookie), "auth_session=%s", tok);
+	lws_snprintf(ck, ck_len, "auth_session=%s", tok);
 
 	return 0;
+}
+
+/* uid 1's, which the seeded records back */
+static int
+mint_cookie(void)
+{
+	return mint_token(cookie, sizeof(cookie), 1, 5,
+			  "\"default-service\":1");
 }
 
 /* a whole snapshot arrived on our subscription: what does it say? */
@@ -242,6 +310,11 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				(unsigned char *)cookie, (int)strlen(cookie),
 				p, end))
 			return -1;
+		if (role == ROLE_ADMIN &&
+		    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+				(unsigned char *)admin_cookie,
+				(int)strlen(admin_cookie), p, end))
+			return -1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -251,9 +324,31 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		 * would be reported as a connection error, so let it come
 		 * up and close it from outside the callback
 		 */
+		if (role == ROLE_ADMIN) {
+			wsi_admin = wsi;
+			break;
+		}
 		if (role != ROLE_FEED)
 			lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK,
 					LWS_TO_KILL_ASYNC);
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (role == ROLE_ADMIN && admin_tx) {
+			uint8_t b[LWS_PRE + 256];
+			size_t l = strlen(admin_tx);
+
+			memcpy(b + LWS_PRE, admin_tx, l);
+			admin_tx = NULL;
+			if (lws_write(wsi, b + LWS_PRE, l, LWS_WRITE_TEXT) <
+								(int)l)
+				return -1;
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		if (role == ROLE_ADMIN)
+			wsi_admin = NULL;
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -263,6 +358,22 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
+		if (role == ROLE_ADMIN) {
+			/*
+			 * Every op is answered with the user list, carrying
+			 * "error" if the op was refused: only the start of it
+			 * matters, it's ahead of the list
+			 */
+			if (lws_is_first_fragment(wsi)) {
+				size_t al;
+
+				admin_error = !!lws_json_simple_find(
+						(const char *)in, len,
+						"\"error\":", &al);
+				admin_replies++;
+			}
+			break;
+		}
 		if (role != ROLE_FEED)
 			break;
 		if (lws_is_first_fragment(wsi))
@@ -310,6 +421,10 @@ connect_role(enum role role)
 		i.port		= port_app;
 		i.path		= "/gated";
 		i.protocol	= PRIV_PROTOCOL;
+	} else if (role == ROLE_ADMIN) {
+		i.port		= port_auth;
+		i.path		= "/";
+		i.protocol	= "lws-auth-server";
 	} else {
 		i.port		= port_auth;
 		i.path		= "/";
@@ -317,6 +432,7 @@ connect_role(enum role role)
 	}
 
 	lws_snprintf(host, sizeof(host), "127.0.0.1:%d", i.port);
+	/* the client adds the scheme: the console's ws takes only its own */
 	i.host = i.origin = host;
 
 	if (!lws_client_connect_via_info(&i))
@@ -447,6 +563,54 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 		}
 		expect(phase_names[phase], 1);
 		next_phase();
+
+		/* an admin, and a session for them */
+		if (db_exec("INSERT INTO users (uid, username, session_epoch) "
+			    "VALUES (9, 'admin', 1);"
+			    "INSERT OR IGNORE INTO services (name) VALUES ('*');"
+			    "INSERT INTO grants (uid, service_id, grant_level) "
+			    "VALUES (9, (SELECT service_id FROM services WHERE "
+			    "name = '*'), 1);") ||
+		    mint_token(admin_cookie, sizeof(admin_cookie), 9, 1,
+			       "\"*\":1")) {
+			expect("seed an admin", 0);
+			finish();
+			return;
+		}
+		admin_tx = "{\"op\":\"edit\",\"uid\":1,\"grants\":"
+			   "\" default-service : 1 ,  other-svc:2 \"}";
+		connect_role(ROLE_ADMIN);
+		break;
+
+	case PH_ADMIN_EDIT:
+		if (outcome[ROLE_ADMIN] < 0) {
+			expect("admin console ws", 0);
+			finish();
+			return;
+		}
+		if (wsi_admin && admin_tx)
+			lws_callback_on_writable(wsi_admin);
+		if (admin_replies < 1)
+			break;
+		expect(phase_names[phase], !admin_error &&
+			db_grant("default-service") == 1 &&
+			db_grant("other-svc") == 2 &&
+			db_int("SELECT count(*) FROM grants WHERE uid = 1") == 2);
+		next_phase();
+		admin_tx = "{\"op\":\"edit\",\"uid\":1,\"grants\":"
+			   "\"default-service:1, bad name:1\"}";
+		break;
+
+	case PH_ADMIN_REFUSED:
+		if (wsi_admin && admin_tx)
+			lws_callback_on_writable(wsi_admin);
+		if (admin_replies < 2)
+			break;
+		expect(phase_names[phase], admin_error &&
+			db_grant("default-service") == 1 &&
+			db_grant("other-svc") == 2 &&
+			db_int("SELECT count(*) FROM grants WHERE uid = 1") == 2);
+		next_phase();
 		finish();
 		return;
 	}
@@ -495,7 +659,6 @@ static struct lws_protocol_vhost_options
 	pvo_as		= { &pvo_feed, &pvo_fs, "lws-auth-server", "" };
 
 /* lws-login, with no jwt-jwk: the key comes from the feed */
-static char auth_url[64];
 static struct lws_protocol_vhost_options
 	pvo_lfs		= { NULL, NULL, "auth-feed-secret", FEED_SECRET },
 	pvo_asu		= { &pvo_lfs, NULL, "auth-server-url", auth_url },

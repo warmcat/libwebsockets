@@ -1453,6 +1453,116 @@ auth_redirect_uri_unsafe(const char *uri)
 }
 
 /*
+ * An admin's edit of an account's grants, "service:level, service:level",
+ * with ',' or ';' between them and whitespace allowed anywhere around the
+ * parts.  It used to be split by hand, keeping whatever surrounded the
+ * service name as part of it: "a:1, warmcat-deaddrop:2" granted a service
+ * called " warmcat-deaddrop", which nothing asks for, so the account was
+ * listed as holding the grant and refused it everywhere.
+ *
+ * A service name is what lws-login and the apps ask for: 1 - 63 of
+ * [A-Za-z0-9._-], or "*".  The level is a decimal 0 - 9999; 0 means no
+ * grant, and the entry is dropped.  Anything else refuses the whole edit,
+ * so a typo can't apply half of it.
+ *
+ * Returns the number of grants in g[], or -1 if it doesn't parse.
+ */
+
+#define AUTH_EDIT_MAX_GRANTS 32
+
+typedef struct auth_grant_edit {
+	char			name[64];
+	int			level;
+} auth_grant_edit_t;
+
+static int
+auth_service_name_ok(const char *n, size_t len)
+{
+	size_t i;
+
+	if (len == 1 && n[0] == '*')
+		return 1;
+
+	if (!len || len > 63)
+		return 0;
+
+	for (i = 0; i < len; i++)
+		if (!((n[i] >= 'a' && n[i] <= 'z') ||
+		      (n[i] >= 'A' && n[i] <= 'Z') ||
+		      (n[i] >= '0' && n[i] <= '9') ||
+		      n[i] == '.' || n[i] == '_' || n[i] == '-'))
+			return 0;
+
+	return 1;
+}
+
+static int
+auth_parse_grants_edit(const char *in, auth_grant_edit_t *g, int max)
+{
+	enum { WANT_NAME, WANT_LEVEL, WANT_SEP } st = WANT_NAME;
+	lws_tokenize_t ts;
+	int n = 0, lvl;
+	size_t i;
+
+	lws_tokenize_init(&ts, in, LWS_TOKENIZE_F_AGG_COLON |
+				   LWS_TOKENIZE_F_MINUS_NONTERM |
+				   LWS_TOKENIZE_F_DOT_NONTERM |
+				   LWS_TOKENIZE_F_ASTERISK_NONTERM |
+				   LWS_TOKENIZE_F_NO_FLOATS |
+				   LWS_TOKENIZE_F_NO_INTEGERS);
+	ts.len = strlen(in);
+
+	do {
+		ts.e = (int8_t)lws_tokenize(&ts);
+
+		switch (ts.e) {
+		case LWS_TOKZE_TOKEN_NAME_COLON:
+			if (st != WANT_NAME || n == max ||
+			    !auth_service_name_ok(ts.token, ts.token_len))
+				return -1;
+			lws_strnncpy(g[n].name, ts.token, ts.token_len,
+				     sizeof(g[n].name));
+			st = WANT_LEVEL;
+			break;
+
+		case LWS_TOKZE_TOKEN:
+			if (st != WANT_LEVEL || !ts.token_len ||
+			    ts.token_len > 4)
+				return -1;
+			lvl = 0;
+			for (i = 0; i < ts.token_len; i++) {
+				if (ts.token[i] < '0' || ts.token[i] > '9')
+					return -1;
+				lvl = (lvl * 10) + (ts.token[i] - '0');
+			}
+			g[n].level = lvl;
+			if (lvl)
+				n++;
+			st = WANT_SEP;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			if (st != WANT_SEP ||
+			    (ts.token[0] != ',' && ts.token[0] != ';'))
+				return -1;
+			st = WANT_NAME;
+			break;
+
+		case LWS_TOKZE_ENDED:
+			/* nothing, or ends after a level, or a trailing sep */
+			if (st == WANT_LEVEL)
+				return -1;
+			break;
+
+		default:
+			return -1;
+		}
+	} while (ts.e > 0);
+
+	return n;
+}
+
+/*
  * Is redirect_uri under one of the comma-separated registered uris?  The
  * scheme and authority compare case-insensitively, the path exactly, and
  * the registered part must end at a path, query or fragment boundary of
@@ -5216,8 +5326,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE:
 	{
+		auth_grant_edit_t edit_g[AUTH_EDIT_MAX_GRANTS];
+		const char *edit_err = NULL;
 		char op[32] = {0};
-		int req_uid = -1;
+		int req_uid = -1, edit_n = 0;
 		char new_grants[2048] = {0};
 
 		char *gp;
@@ -5368,6 +5480,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_exec(vhd->db, "COMMIT;", NULL, NULL, NULL);
 				auth_admin_ws_recheck_all(vhd);
 			}
+		} else if (!strcmp(op, "edit") && req_uid > 0 &&
+			   (edit_n = auth_parse_grants_edit(new_grants, edit_g,
+						AUTH_EDIT_MAX_GRANTS)) < 0) {
+			lwsl_wsi_warn(wsi, "uid %d: grants edit refused, it "
+				      "doesn't parse", req_uid);
+			edit_err = "Grants not changed: give service:level, "
+				   "separated by , or ;";
 		} else if (!strcmp(op, "edit") && req_uid > 0) {
 			sqlite3_exec(vhd->db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
 			char eq[256];
@@ -5386,44 +5505,22 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				     "WHERE uid=%d", req_uid);
 			sqlite3_exec(vhd->db, eq, NULL, NULL, NULL);
 
-			char *p2 = new_grants;
-			while (*p2) {
-				char *comma = (char *)strchr(p2, ',');
-				char *semi = (char *)strchr(p2, ';');
-				char *delim = NULL;
+			for (int gi = 0; gi < edit_n; gi++) {
+				const char *sn = edit_g[gi].name;
+				sqlite3_stmt *s2;
 
-				if (comma && semi)
-					delim = (comma < semi) ? comma : semi;
-				else if (comma)
-					delim = comma;
-				else
-					delim = semi;
-
-				if (delim) *delim = '\0';
-				char *colon = (char *)strchr(p2, ':');
-				if (colon) {
-					*colon = '\0';
-					const char *sn = p2;
-					int lvl = atoi(colon + 1);
-
-					if (sn[0] && lvl > 0) {
-						sqlite3_stmt *s2;
-						if (sqlite3_prepare_v2(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES (?)", -1, &s2, NULL) == SQLITE_OK) {
-							sqlite3_bind_text(s2, 1, sn, -1, SQLITE_TRANSIENT);
-							sqlite3_step(s2);
-							sqlite3_finalize(s2);
-						}
-						if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES (?, (SELECT service_id FROM services WHERE name=?), ?)", -1, &s2, NULL) == SQLITE_OK) {
-							sqlite3_bind_int(s2, 1, req_uid);
-							sqlite3_bind_text(s2, 2, sn, -1, SQLITE_TRANSIENT);
-							sqlite3_bind_int(s2, 3, lvl);
-							sqlite3_step(s2);
-							sqlite3_finalize(s2);
-						}
-					}
+				if (sqlite3_prepare_v2(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES (?)", -1, &s2, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(s2, 1, sn, -1, SQLITE_TRANSIENT);
+					sqlite3_step(s2);
+					sqlite3_finalize(s2);
 				}
-				if (!delim) break;
-				p2 = delim + 1;
+				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES (?, (SELECT service_id FROM services WHERE name=?), ?)", -1, &s2, NULL) == SQLITE_OK) {
+					sqlite3_bind_int(s2, 1, req_uid);
+					sqlite3_bind_text(s2, 2, sn, -1, SQLITE_TRANSIENT);
+					sqlite3_bind_int(s2, 3, edit_g[gi].level);
+					sqlite3_step(s2);
+					sqlite3_finalize(s2);
+				}
 			}
 			sqlite3_exec(vhd->db, "COMMIT;", NULL, NULL, NULL);
 			auth_admin_ws_recheck_all(vhd);
@@ -5436,7 +5533,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			sqlite3_stmt *stmt;
 			int first = 1;
 
-			o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "{\"op\":\"list_reply\",\"users\":[");
+			/* edit_err is one of our own constant strings */
+			o += lws_snprintf(o, lws_ptr_diff_size_t(end, o),
+					  "{\"op\":\"list_reply\",%s%s%s"
+					  "\"users\":[", edit_err ? "\"error\":\"" : "",
+					  edit_err ? edit_err : "",
+					  edit_err ? "\"," : "");
 
 			if (sqlite3_prepare_v2(vhd->db, "SELECT uid, username FROM users", -1, &stmt, NULL) == SQLITE_OK) {
 				while (sqlite3_step(stmt) == SQLITE_ROW) {
