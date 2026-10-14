@@ -327,8 +327,10 @@
 		"ipv6-off":	{
 			"cmake":	"-DLWS_IPV6=OFF"
 		},
+		# authoritative DNS brings in api-test-async-dns and adns-direct,
+		# which resolve through an IPv4 nameserver: mapped in this build
 		"ipv4-off":	{
-			"cmake":	"-DLWS_IPV4=OFF"
+			"cmake":	"-DLWS_IPV4=OFF -DLWS_WITH_AUTHORITATIVE_DNS=1"
 		},
 		"nonetlink":	{
 			"cmake":	"-DLWS_WITH_NETLINK=0"
