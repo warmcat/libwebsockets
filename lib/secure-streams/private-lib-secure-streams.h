@@ -671,6 +671,9 @@ _lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override);
 lws_ss_state_return_t
 lws_ss_backoff(lws_ss_handle_t *h);
 
+void
+lws_ss_network_improved(struct lws_context *cx);
+
 int
 _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws *wsi,
 			 lws_ss_handle_t **ph);

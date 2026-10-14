@@ -2590,6 +2590,45 @@ lws_ss_validity_confirmed(struct lws_ss_handle *h)
 }
 
 
+/*
+ * The network got better, eg, a route appeared: a stream sitting out its
+ * backoff after failing to connect, likely because it had no way out then,
+ * tries again now rather than when its backoff runs out, which may be many
+ * seconds after it could have connected.  Its backoff starts again from the
+ * beginning, since what it was backing off from has changed.
+ */
+
+void
+lws_ss_network_improved(struct lws_context *cx)
+{
+	int n;
+
+	for (n = 0; n < cx->count_threads; n++) {
+		struct lws_context_per_thread *pt = &cx->pt[n];
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&pt->ss_owner)) {
+			struct lws_ss_handle *h = lws_container_of(d,
+						struct lws_ss_handle, list);
+
+			if (h->seqstate == SSSEQ_RECONNECT_WAIT &&
+			    !h->destroy_pending) {
+				/*
+				 * Rare, and it says when the network really
+				 * came, which a failing connection can't
+				 */
+				lwsl_notice("%s: %s: network improved, "
+					    "retrying now\n", __func__,
+					    lws_ss_tag(h));
+				h->retry = 0;
+				lws_sul_cancel(&h->sul);
+				lws_ss_set_timeout_us(h, 1);
+			}
+
+		} lws_end_foreach_dll_safe(d, d1);
+	}
+}
+
 #if defined(_DEBUG)
 void
 lws_ss_assert_extant(struct lws_context *cx, int tsi, struct lws_ss_handle *h)

@@ -312,6 +312,16 @@ lws_system_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	if (_class != LWSSMDCL_NETWORK)
 		return 0;
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+	/*
+	 * A route appearing, or an address being acquired, may be what
+	 * streams waiting to retry a failed connection were missing
+	 */
+	if (!lws_json_simple_strcmp(buf, len, "\"rt\":", "add") ||
+	    !lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq"))
+		lws_ss_network_improved(cx);
+#endif
+
 	/* something external requested CPD check */
 
 	if (!lws_json_simple_strcmp(buf, len, "\"trigger\":", "cpdcheck"))
