@@ -239,6 +239,15 @@ struct pending_login_refresh {
 	 */
 	char                    orig_host[128];
 	char                    orig_scheme[8];
+	/*
+	 * COLDLOAD: the token the request carried, if one verified at all,
+	 * live or not, and the service the mount is for.  The renewed token
+	 * is judged with them the way the request will be once we send the
+	 * browser back with it: if it wouldn't get through either, sending it
+	 * back only renews again, round and round until the browser gives up.
+	 */
+	struct lws_jwt_auth     *ja_probe;
+	char                    service_name[128];
 	int                     mode; /* LWS_LOGIN_REFRESH_* */
 };
 
@@ -504,9 +513,27 @@ pending_login_release(struct pending_login_refresh *ps)
 		ps->wsi_client = NULL;
 	}
 
+	lws_jwt_auth_destroy(&ps->ja_probe);
 	lws_sul_cancel(&ps->sul);
 	lws_dll2_remove(&ps->list);
 	free(ps);
+}
+
+/* the renewal a browser request is parked on, if any */
+
+static struct pending_login_refresh *
+lws_login_pending_find(struct vhd_login *vhd, struct lws *wsi)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pending_refresh_list)) {
+		struct pending_login_refresh *ps = lws_container_of(d,
+					struct pending_login_refresh, list);
+
+		if (ps->wsi_server == wsi)
+			return ps;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
 }
 
 static void
@@ -2132,6 +2159,48 @@ stale:
 }
 
 /*
+ * Would the token a cold-load renewal brought get the request through, once
+ * we send the browser back with it?  Judged the way the gate will judge it:
+ * authentic, live, not stale, and holding the mount's grant.  Without a
+ * probe, ie, the request had no token that verified, there's nothing to
+ * judge it with, and it's taken as it is: if it's no good, the request it
+ * comes back with has one that verifies, and is judged then.
+ *
+ * Returns 1 if it would.
+ */
+static int
+lws_login_renewed_ok(struct lws *wsi, struct vhd_login *vhd,
+		     struct pending_login_refresh *ps)
+{
+	const char *why = NULL;
+	int level;
+
+	if (!ps->ja_probe)
+		return 1;
+
+	if (lws_jwt_auth_update(ps->ja_probe, ps->token, &why)) {
+		lwsl_wsi_notice(wsi, "renewed token unusable: %s",
+				why ? why : "?");
+		return 0;
+	}
+
+	if (lws_login_jwt_expired(wsi, &ps->ja_probe) ||
+	    lws_login_jwt_stale(wsi, vhd, &ps->ja_probe))
+		return 0;
+
+	level = lws_jwt_auth_query_grant(ps->ja_probe, ps->service_name);
+	if (level < vhd->min_grant_level) {
+		lwsl_wsi_notice(wsi, "uid %u: renewed token still lacks the "
+				"%s grant (has %d)",
+				(unsigned int)lws_jwt_auth_get_uid(ps->ja_probe),
+				ps->service_name, level);
+		return 0;
+	}
+
+	return 1;
+}
+
+/*
  * Sanity fence for an SSO "target" before it is used as a Location:.
  *
  * The two ways the same-host test below can be walked past:
@@ -3462,14 +3531,14 @@ anon:
 		 * fall through to the 303 below, landing the user on the form to
 		 * actually log in again.  Cookieless requests skip the hop entirely.
 		 *
-		 * Only when there's no live, current token, though.  One that is,
-		 * but lacks the grant, the auth server would only mint again
-		 * without the grant, since it holds what its records do: we 302ed
-		 * back here with it, renewed again, and so on until the browser
-		 * gave up on the redirects.  The auth server tells them they lack
-		 * the grant instead.
+		 * A live token that lacks the grant is renewed too: the grant may
+		 * have been given since it was minted.  But the renewed token only
+		 * comes back to the page if it would get through: otherwise the
+		 * auth server only minted it again without the grant, and sending
+		 * it back renewed again, round and round until the browser gave up
+		 * on the redirects.  See lws_login_renewed_ok().
 		 */
-			if (!pss->ja) {
+			{
 				int ck_len2 = lws_hdr_total_length(wsi,
 							WSI_TOKEN_HTTP_COOKIE);
 				if (ck_len2 > 0) {
@@ -3531,8 +3600,24 @@ anon:
 							else
 								kicked = 0;
 							free(cookie2);
-							if (kicked)
+							if (kicked) {
+								struct pending_login_refresh *ps =
+									lws_login_pending_find(vhd, wsi);
+
+								if (ps) {
+									/* what the gate saw, see ja_probe */
+									ps->ja_probe = pss->ja ? pss->ja :
+										lws_jwt_auth_create(wsi,
+											&vhd->jwk,
+											vhd->cookie_name,
+											NULL, NULL, NULL);
+									pss->ja = NULL;
+									lws_strncpy(ps->service_name,
+										    service_name,
+										    sizeof(ps->service_name));
+								}
 								return 0; /* suspend */
+							}
 						}
 					}
 				}
@@ -3790,17 +3875,8 @@ anon:
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 	{
 		unsigned char ubuf[LWS_LOGIN_HTTP_BUFL], *up = ubuf + LWS_PRE, *uend = ubuf + sizeof(ubuf) - 1;
-		struct pending_login_refresh *ps = NULL;
-
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					   lws_dll2_get_head(&vhd->pending_refresh_list)) {
-			struct pending_login_refresh *s = lws_container_of(d, struct pending_login_refresh, list);
-
-			if (s->wsi_server == wsi) {
-				ps = s;
-				break;
-			}
-		} lws_end_foreach_dll_safe(d, d1);
+		struct pending_login_refresh *ps =
+					lws_login_pending_find(vhd, wsi);
 
 		if (ps) {
 			/*
@@ -3829,7 +3905,8 @@ anon:
 				 * 303 to the auth server login form we pre-built,
 				 * landing the user where they can actually log in.
 				 */
-				if (ps->token[0]) {
+				if (ps->token[0] &&
+				    lws_login_renewed_ok(wsi, vhd, ps)) {
 					/*
 					 * Rotate auth_csrf alongside the re-minted
 					 * JWT, same rationale as the BFF path: the
@@ -3879,7 +3956,13 @@ anon:
 					char html[1024];
 					int html_len;
 
-					if (ps->resp_status)
+					if (ps->token[0])
+						lwsl_wsi_notice(wsi, "cold-load "
+							"renewal wouldn't get "
+							"through %s, bouncing to "
+							"auth form",
+							ps->orig_path);
+					else if (ps->resp_status)
 						lwsl_wsi_notice(wsi, "cold-load "
 							"renewal denied: auth server "
 							"answered HTTP %u '%s', "

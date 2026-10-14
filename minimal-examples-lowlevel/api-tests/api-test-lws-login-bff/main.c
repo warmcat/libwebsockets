@@ -149,10 +149,12 @@
  *    gone, and a token for a uid with no users row -> 303, nothing planted;
  *
  *  - "live-lacks-grant": a token the records do back, with a paired refresh
- *    jar, but without the gated mount's grant -> 303 to the auth server with
- *    no exchange.  Renewing can't add a grant the records don't hold: it
- *    used to renew, 302 back to the page with the new token, still without
- *    the grant, and renew again, until the browser gave up on the redirects;
+ *    jar, but without the gated mount's grant.  It's renewed, since the
+ *    grant may have been given since, but the auth server mints it again
+ *    without the grant, as its records say: that must end in 303 to the auth
+ *    server, nothing planted.  It used to 302 back to the page with the
+ *    renewed token, which renewed again, until the browser gave up on the
+ *    redirects;
  *
  *  - "ws-live-session" (positive control): a token the records do back opens
  *    the privileged ws protocol on the gated mount;
@@ -265,8 +267,13 @@ static char	o_origin_good[64], o_origin_evil[64], o_referer_good[64];
  */
 #define BFF_REFRESH_JAR	"auth_refresh_session=0123456789abcdef0123456789abcdef; " \
 			"auth_csrf=fedcba9876543210fedcba9876543210"
+/* uid 2's long-term session: the mock auth server renews it as uid 2 */
+#define BFF_REFRESH_U2	"2222222222222222222222222222222a"
+#define BFF_REFRESH_JAR_U2 "auth_refresh_session=" BFF_REFRESH_U2 "; " \
+			"auth_csrf=fedcba9876543210fedcba9876543210"
 static char	ck_live[1024], ck_revoked[1024], ck_regranted[1024],
-		ck_dev_gone[1024], ck_user_gone[1024], ck_nogrant[1024];
+		ck_dev_gone[1024], ck_user_gone[1024], ck_nogrant[1024],
+		ck_u2_renewed[1024];
 
 /*
  * Throwaway P-256 keypair: parsed by the plugin at init to validate tokens,
@@ -316,7 +323,7 @@ static const struct scenario scenarios[] = {
 	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
 	/* live and current, but not for this mount: renewing can't help */
 	{ "live-lacks-grant", "/gated", NULL, NULL, NULL, ck_nogrant,
-	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	  303u, 1, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
 	/* positive control: a token the records back opens the mount */
 	{ "ws-live-session", "/gated", NULL, NULL, NULL, ck_live, 101u, 0, 0, 0,
 	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, BFF_WS_PRIV },
@@ -456,6 +463,9 @@ struct pss_auth {
  * auth_session cookie assertions below catch any such truncation.
  */
 static char MOCK_TOKEN_JSON[LWS_SSO_MAX_COOKIE];
+/* ... and what it mints renewing uid 2's session: still without the grant */
+static char MOCK_TOKEN_JSON_U2[1024];
+static int mock_u2;
 
 /*
  * The response is written from its own sul callback a few ms after the POST
@@ -471,7 +481,8 @@ sul_respond_cb(lws_sorted_usec_list_t *sul)
 	uint8_t buf[LWS_PRE + sizeof(MOCK_TOKEN_JSON) + 64],
 		*start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
-	size_t blen = strlen(MOCK_TOKEN_JSON);
+	const char *tj = mock_u2 ? MOCK_TOKEN_JSON_U2 : MOCK_TOKEN_JSON;
+	size_t blen = strlen(tj);
 
 	if (!wsi)
 		return;
@@ -482,7 +493,7 @@ sul_respond_cb(lws_sorted_usec_list_t *sul)
 	    lws_finalize_http_header(wsi, &p, end))
 		return;
 
-	memcpy(p, MOCK_TOKEN_JSON, blen);
+	memcpy(p, tj, blen);
 	p += blen;
 
 	if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
@@ -561,6 +572,8 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_http_cookie_get(wsi, "auth_refresh_session",
 					    refresh, &refresh_len) == 0 &&
 			refresh[0];
+		/* the session's user is who the renewed token is for */
+		mock_u2 = mock_got_refresh && !strcmp(refresh, BFF_REFRESH_U2);
 		got_cookie_csrf =
 			lws_http_cookie_get(wsi, "auth_csrf",
 					    csrf_ck, &csrf_ck_len) == 0 &&
@@ -1816,7 +1829,7 @@ int main(int argc, const char **argv)
 		static char pad[LWS_SSO_MAX_COOKIE];
 		/* must hold the b64 jose + payload + sig segments at once */
 		char temp[LWS_SSO_MAX_COOKIE * 2];
-		size_t padlen = 2900;
+		size_t padlen = 2780;
 		int tries = 0;
 
 		memset(&jwk, 0, sizeof(jwk));
@@ -1835,7 +1848,12 @@ int main(int argc, const char **argv)
 						 minted_jwt, &out_len, temp,
 						 sizeof(temp),
 						 "{\"iss\":\"apitest\",\"sub\":"
-						 "\"sso\",\"pad\":\"%.*s\"}",
+						 "\"sso\",\"uid\":1,\"sec\":5,"
+						 "\"iat\":%llu,\"exp\":%llu,"
+						 "\"grants\":{\"default-service\":1},"
+						 "\"pad\":\"%.*s\"}",
+						 (unsigned long long)time(NULL),
+						 (unsigned long long)time(NULL) + 3600,
 						 (int)padlen, pad)) {
 				lws_jwk_destroy(&jwk);
 				lwsl_err("%s: SSO token mint failed\n",
@@ -1883,7 +1901,11 @@ int main(int argc, const char **argv)
 		    /* backed by the records, but not for the gated mount */
 		    mint_session_cookie(&jwk, ck_nogrant, sizeof(ck_nogrant),
 					2, 5, "\"other-service\":1", NULL,
-					BFF_REFRESH_JAR)) {
+					BFF_REFRESH_JAR_U2) ||
+		    /* what renewing it gets: the same, uid 2's records */
+		    mint_session_cookie(&jwk, ck_u2_renewed,
+					sizeof(ck_u2_renewed), 2, 5,
+					"\"other-service\":1", NULL, NULL)) {
 			lws_jwk_destroy(&jwk);
 			goto bail;
 		}
@@ -1892,6 +1914,9 @@ int main(int argc, const char **argv)
 
 		lws_snprintf(MOCK_TOKEN_JSON, sizeof(MOCK_TOKEN_JSON),
 			     "{\"token\":\"%s\"}", minted_jwt);
+		lws_snprintf(MOCK_TOKEN_JSON_U2, sizeof(MOCK_TOKEN_JSON_U2),
+			     "{\"token\":\"%s\"}",
+			     ck_u2_renewed + sizeof("auth_session=") - 1);
 
 		lws_snprintf(sso_body, sizeof(sso_body), "token=%s&target=/",
 			     minted_jwt);
