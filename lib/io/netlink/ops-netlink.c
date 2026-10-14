@@ -170,6 +170,88 @@ lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 #endif
 }
 
+struct nl_req_s {
+	struct nlmsghdr hdr;
+	struct rtmsg gen;
+};
+
+/*
+ * Ask the kernel for all the routes it has.  The answer comes over many
+ * reads, ending with NLMSG_DONE, see the POLLIN handler.  Asking needs no
+ * privileges.
+ */
+
+static int
+lws_netlink_request_dump(struct lws_context *cx, struct lws *wsi)
+{
+	struct sockaddr_nl sanl;
+	struct nl_req_s req;
+	struct msghdr msg;
+	struct iovec iov;
+
+	memset(&sanl, 0, sizeof(sanl));
+	memset(&msg, 0, sizeof(msg));
+	memset(&req, 0, sizeof(req));
+
+	sanl.nl_family		= AF_NETLINK;
+
+	req.hdr.nlmsg_len	= NLMSG_LENGTH(sizeof(req.gen));
+	req.hdr.nlmsg_type	= RTM_GETROUTE;
+	req.hdr.nlmsg_flags	= NLM_F_REQUEST | NLM_F_DUMP;
+	req.hdr.nlmsg_seq	= LWS_NL_COLDPLUG_SEQ;
+	req.hdr.nlmsg_pid	= (uint32_t)getpid();
+	req.gen.rtm_family	= AF_PACKET;
+	req.gen.rtm_table	= RT_TABLE_DEFAULT;
+
+	iov.iov_base		= &req;
+	iov.iov_len		= req.hdr.nlmsg_len;
+	msg.msg_iov		= &iov;
+	msg.msg_iovlen		= 1;
+	msg.msg_name		= &sanl;
+	msg.msg_namelen		= sizeof(sanl);
+
+	/*
+	 * Until it's all here, the table isn't used to judge anything.  If
+	 * the end of the dump never comes, eg, the request couldn't be sent,
+	 * don't wait for it forever.
+	 */
+	cx->nl_initial_done = 0;
+	lws_context_lock(cx, __func__);
+	lws_sul_schedule(cx, 0, &cx->sul_nl_coldplug,
+			 lws_netlink_coldplug_done_cb,
+			 LWS_NL_COLDPLUG_FALLBACK_US);
+	lws_context_unlock(cx);
+
+	if (sendmsg(wsi->io->desc.sockfd, (struct msghdr *)&msg, 0) < 0) {
+		lwsl_cx_notice(cx, "rt dump req failed, errno %d", LWS_ERRNO);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * The kernel dropped route messages on the way to us (ENOBUFS), eg, a burst
+ * from many interfaces coming up at once overflowed our socket.  The table
+ * we have has missed some changes and can't be trusted, so forget it and get
+ * the whole thing again, like at init.  Until it is all here again, the table
+ * isn't used to judge whether a connection still has a route.
+ */
+
+static void
+lws_netlink_resync(struct lws_context *cx, struct lws_context_per_thread *pt,
+		   struct lws *wsi)
+{
+	lwsl_cx_warn(cx, "route messages were lost, getting all the routes "
+			 "again");
+
+	lws_pt_lock(pt, __func__);
+	_lws_route_table_empty(pt);
+	lws_pt_unlock(pt);
+
+	lws_netlink_request_dump(cx, wsi);
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
@@ -207,8 +289,20 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	msg.msg_iovlen		= 1;
 
 	nr = recvmsg(wsi->io->desc.sockfd, &msg, 0);
-	if (nr < 0) {
-		lwsl_cx_notice(cx, "recvmsg failed");
+	if (nr < 0 || lws_fi(&cx->fic, "netlink_lost")) {
+		/* the fault: what we read is lost, as if it had overflowed */
+		int e = nr < 0 ? LWS_ERRNO : ENOBUFS;
+
+		if (e == LWS_EAGAIN || e == LWS_EINTR)
+			return LWS_HPI_RET_HANDLED;
+
+		if (e == ENOBUFS) {
+			lws_netlink_resync(cx, pt, wsi);
+			return LWS_HPI_RET_HANDLED;
+		}
+
+		lwsl_cx_notice(cx, "recvmsg failed, errno %d", e);
+
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
@@ -752,22 +846,14 @@ inform_l:
 	return LWS_HPI_RET_HANDLED;
 }
 
-struct nl_req_s {
-	struct nlmsghdr hdr;
-	struct rtmsg gen;
-};
-
 int
 rops_pt_init_destroy_netlink(struct lws_context *context,
 			     const struct lws_context_creation_info *info,
 			     struct lws_context_per_thread *pt, int destroy)
 {
 	struct sockaddr_nl sanl;
-	struct nl_req_s req;
-	struct msghdr msg;
-	struct iovec iov;
 	struct lws *wsi;
-	int n, ret = 1;
+	int ret = 1, rcvbuf = 1024 * 1024;
 
 	if (destroy) {
 
@@ -808,6 +894,17 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 
 	lws_plat_set_nonblocking(wsi->io->desc.sockfd);
 
+	/*
+	 * Many interfaces coming up at once, eg, a host starting a batch of
+	 * VMs, can send more route messages than the default buffer holds,
+	 * and the kernel drops the rest.  We get them all again when that
+	 * happens, but ask for room to make it rarer.  The kernel caps it at
+	 * its rmem_max, which is fine.
+	 */
+	if (setsockopt(wsi->io->desc.sockfd, SOL_SOCKET, SO_RCVBUF,
+		       &rcvbuf, sizeof(rcvbuf)))
+		lwsl_cx_info(context, "unable to set netlink rcvbuf");
+
 	__lws_lc_tag(context, &context->lcg[LWSLCG_VHOST], &wsi->lc,
 			"netlink");
 
@@ -837,53 +934,15 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 */
 	/*
 	 * Since we're starting the PT, ask to be sent all the existing routes.
-	 *
-	 * This requires CAP_ADMIN, or root... we do this early before dropping
-	 * privs
-	 */
-
-	memset(&sanl, 0, sizeof(sanl));
-	memset(&msg, 0, sizeof(msg));
-	memset(&req, 0, sizeof(req));
-
-	sanl.nl_family		= AF_NETLINK;
-
-	req.hdr.nlmsg_len	= NLMSG_LENGTH(sizeof(req.gen));
-	req.hdr.nlmsg_type	= RTM_GETROUTE;
-	req.hdr.nlmsg_flags	= NLM_F_REQUEST | NLM_F_DUMP;
-	req.hdr.nlmsg_seq	= LWS_NL_COLDPLUG_SEQ;
-	req.hdr.nlmsg_pid	= (uint32_t)getpid();
-	req.gen.rtm_family	= AF_PACKET;
-	req.gen.rtm_table	= RT_TABLE_DEFAULT;
-
-	iov.iov_base		= &req;
-	iov.iov_len		= req.hdr.nlmsg_len;
-	msg.msg_iov		= &iov;
-	msg.msg_iovlen		= 1;
-	msg.msg_name		= &sanl;
-	msg.msg_namelen		= sizeof(sanl);
-
-	n = (int)sendmsg(wsi->io->desc.sockfd, (struct msghdr *)&msg, 0);
-	if (n < 0) {
-		lwsl_cx_notice(context, "rt dump req failed... permissions? errno %d",
-				LWS_ERRNO);
-	}
-
-	/*
 	 * Responses are going to come asynchronously, let's block moving
 	 * off state IFACE_COLDPLUG until we have had them all, ie, the dump's
 	 * NLMSG_DONE.  This is important since if we don't hold there, when we
 	 * do get the responses we may cull any ongoing connections as
-	 * unroutable otherwise.  If the end of the dump never comes, don't
-	 * hold there forever.
+	 * unroutable otherwise.
 	 */
 
 	lwsl_cx_debug(context, "starting netlink coldplug wait");
-	lws_context_lock(context, __func__);
-	lws_sul_schedule(context, 0, &context->sul_nl_coldplug,
-			 lws_netlink_coldplug_done_cb,
-			 LWS_NL_COLDPLUG_FALLBACK_US);
-	lws_context_unlock(context);
+	lws_netlink_request_dump(context, wsi);
 
 	return 0;
 
