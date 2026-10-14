@@ -181,13 +181,70 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 			   const lws_struct_map_t *schema, lws_dll2_owner_t *o,
 			   struct lwsac **ac, int start, int _limit)
 {
-	int limit = _limit < 0 ? -_limit : _limit;
-	char s[768], results[512], where[512];
+	int limit = _limit < 0 ? -_limit : _limit, subsequent = 0;
+	char *s, *p, *end;
 	lws_struct_args_t a;
-	int n, m;
+	size_t n, len;
+
+	lws_dll2_owner_clear(o);
 
 	if (!order)
 		order = "_lws_idx";
+
+	/*
+	 * The statement is as long as the schema's column list and the
+	 * caller's filter make it, eg, a filter matching a long builder name,
+	 * so size it from its parts rather than limit it to a fixed buffer.
+	 * The constant parts and the two ints fit in the 128 bytes headroom.
+	 */
+
+	len = strlen(schema->colname) + strlen(order) + 128;
+	if (filter)
+		len += strlen(filter);
+	for (n = 0; n < schema->child_map_size; n++)
+		len += strlen(schema->child_map[n].colname) + 2;
+
+	s = malloc(len);
+	if (!s)
+		return -1;
+
+	p = s;
+	end = s + len;
+
+	/*
+	 * Explicitly list the columns instead of use *, so we can skip blobs
+	 */
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "select ");
+	for (n = 0; n < schema->child_map_size; n++)
+		if (!schema->child_map[n].json_only) {
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  "%s%s", subsequent ? ", " : "",
+					  schema->child_map[n].colname);
+			subsequent = 1;
+		}
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), " from %s",
+			  schema->colname);
+	if (filter)
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  " WHERE 1=1 %s", filter);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+			  " order by %s %slimit %d OFFSET %d;", order,
+			  _limit < 0 ? "desc " : "", limit, start);
+
+	/*
+	 * It was sized to fit, but a statement truncated at a clause boundary
+	 * is still valid SQL with the row restriction quietly removed, so
+	 * never run one we could not write in full.
+	 */
+
+	if (p >= end - 1) {
+		lwsl_err("%s: statement too long\n", __func__);
+		free(s);
+
+		return -1;
+	}
 
 	memset(&a, 0, sizeof(a));
 	a.ac = *ac;
@@ -197,63 +254,14 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 	a.dest_len = schema->aux; /* size of toplevel object to allocate */
 	a.toplevel_dll2_ofs = schema->ofs;
 
-	lws_dll2_owner_clear(o);
-	results[0] = '\0';
-
-	/*
-	 * Explicitly list the columns instead of use *, so we can skip blobs
-	 */
-
-	m = 0;
-	for (n = 0; n < (int)schema->child_map_size; n++)
-		if (!schema->child_map[n].json_only) {
-			/*
-			 * The headroom test has to be against the write offset
-			 * m, not the map index n: lws_snprintf() saturates m at
-			 * sizeof(results) - 1 when it truncates, and n stayed
-			 * small, so these three stores went past results[].
-			 */
-			if (sizeof(results) - (unsigned int)m > 3 && m) {
-				results[m++] = ',';
-				results[m++] = ' ';
-				results[m] = '\0';
-			}
-			m += lws_snprintf(&results[m], sizeof(results) - (unsigned int)m - 1,
-					  "%s", schema->child_map[n].colname);
-			}
-
-	where[0] = '\0';
-	if (filter &&
-	    lws_snprintf(where, sizeof(where), " WHERE 1=1 %s", filter) ==
-							(int)sizeof(where)) {
-		lwsl_err("%s: filter too long\n", __func__);
-
-		return -1;
-	}
-
-	/*
-	 * results[] + where[] can exceed s[]; lws_snprintf() truncates
-	 * silently, and a statement truncated at a clause boundary is still
-	 * valid SQL with the row restriction quietly removed.  Never run a
-	 * statement we could not write in full.
-	 */
-
-	if (lws_snprintf(s, sizeof(s) - 1, "select %s "
-		     "from %s %s order by %s %slimit %d OFFSET %d;", results,
-		     schema->colname, where, order,
-		     _limit < 0 ? "desc " : "", limit, start) ==
-						(int)sizeof(s) - 1) {
-		lwsl_err("%s: statement too long\n", __func__);
-
-		return -1;
-	}
-
 	if (sqlite3_exec(pdb, s, lws_struct_sq3_deser_cb, &a, NULL) != SQLITE_OK) {
 		lwsl_err("%s: %s: fail %s\n", __func__, sqlite3_errmsg(pdb), s);
+		free(s);
 		lwsac_free(&a.ac);
 		return -1;
 	}
 
+	free(s);
 	*ac = a.ac;
 
 	return 0;

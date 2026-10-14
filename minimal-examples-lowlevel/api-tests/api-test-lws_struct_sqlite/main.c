@@ -82,7 +82,7 @@ static const char *test_string =
 
 int main(int argc, const char **argv)
 {
-	int e = 0;
+	int e = 0, n;
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	struct lwsac *ac = NULL;
@@ -194,6 +194,40 @@ int main(int argc, const char **argv)
 
 		e++;
 		goto done;
+	}
+
+	/*
+	 * 2. A filter can be long, eg, when it matches long names, and the
+	 * statement grows to fit it, rather than being refused, or truncated
+	 * and losing the restriction.  Test it both selects the row it
+	 * matches, and not one it doesn't.
+	 */
+
+	for (n = 0; n < 2; n++) {
+		char pad[1024], filter[1200];
+
+		memset(pad, 'x', sizeof(pad) - 1);
+		pad[sizeof(pad) - 1] = '\0';
+		lws_snprintf(filter, sizeof(filter),
+			     " and str1='%s' and str2 != '%s'",
+			     n ? "nomatch" : "hello", pad);
+
+		lwsac_free(&ac);
+		if (lws_struct_sq3_deserialize(db, filter, NULL,
+					       lsm_schema_apitest, &resown,
+					       &ac, 0, 1)) {
+			lwsl_err("%s: long filter deserialize failed\n",
+				 __func__);
+			e++;
+			goto done;
+		}
+
+		if (resown.count != (n ? 0u : 1u)) {
+			lwsl_err("%s: long filter %d: %d results\n", __func__,
+				 n, resown.count);
+			e++;
+			goto done;
+		}
 	}
 
 done:

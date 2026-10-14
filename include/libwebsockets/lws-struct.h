@@ -549,9 +549,8 @@ lws_struct_sq3_upsert(sqlite3 *pdb, const char *table,
  * be program-constructed constants; passing anything derived from network,
  * file or user input is SQL injection.  Restrict a query by user-supplied
  * data by preparing the statement yourself with sqlite3_prepare_v2() and
- * sqlite3_bind_*() instead.  Over-long filter / order strings are rejected
- * rather than truncated, since a statement truncated at a clause boundary is
- * still valid SQL with the row restriction silently removed.
+ * sqlite3_bind_*() instead.  The statement is allocated to fit the schema's
+ * columns, \p filter and \p order, so their length is not limited.
  */
 
 LWS_VISIBLE LWS_EXTERN int
