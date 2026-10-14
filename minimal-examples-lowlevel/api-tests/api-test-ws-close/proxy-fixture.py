@@ -19,7 +19,7 @@
 # fail, since ctest only shows a fixture's own output when the fixture fails.
 # The timestamps are in the lws log format, so the two can be read together.
 
-import socket, sys, threading, select, time, os
+import socket, sys, threading, select, time, os, traceback
 
 log_lock = threading.Lock()
 log_file = None
@@ -102,18 +102,46 @@ def socks5_greeting(c, require_auth):
     if require_auth:
         socks5_userpass(c)
 
+# localhost is always loopback (RFC 6761 6.3), as lws treats it too: the
+# system resolver isn't asked, since where /etc/hosts doesn't list it, it
+# goes to dns, which may take longer than the tests wait, or never answer
+LOOPBACK = [(socket.AF_INET6, "::1"), (socket.AF_INET, "127.0.0.1")]
+
+def resolve(cid, host, port):
+    if host.lower() == "localhost" or host.lower().endswith(".localhost"):
+        return [(af, socket.SOCK_STREAM, 0, "", (a, port))
+                for af, a in LOOPBACK if af != socket.AF_INET6 or
+                socket.has_ipv6]
+    tr = time.monotonic()
+    try:
+        ai = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as e:
+        log("c%d: resolving %s failed after %dms: %s" %
+            (cid, host, ms_since(tr), e))
+        raise
+    log("c%d: resolving %s took %dms" % (cid, host, ms_since(tr)))
+    return ai
+
 def upstream(cid, host, port, t0):
     log("c%d: connecting on to %s:%d" % (cid, host, port))
     tu = time.monotonic()
-    try:
-        up = socket.create_connection((host, port), timeout=10)
-    except OSError as e:
-        log("c%d: onward connect to %s:%d failed after %dms: %s" %
-            (cid, host, port, ms_since(tu), e))
-        raise
-    log("c%d: onward connect to %s:%d (%s) took %dms" %
-        (cid, host, port, up.getpeername()[0], ms_since(tu)))
-    return up
+    err = OSError("no addresses for %s" % host)
+    for af, st, proto, _, sa in resolve(cid, host, port):
+        up = socket.socket(af, st, proto)
+        up.settimeout(10)
+        try:
+            up.connect(sa)
+        except OSError as e:
+            up.close()
+            err = e
+            continue
+        up.settimeout(None)
+        log("c%d: onward connect to %s:%d (%s) took %dms" %
+            (cid, host, port, sa[0], ms_since(tu)))
+        return up
+    log("c%d: onward connect to %s:%d failed after %dms: %s" %
+        (cid, host, port, ms_since(tu), err))
+    raise err
 
 def socks5(cid, c, require_auth, t0):
     socks5_greeting(c, require_auth)
@@ -171,8 +199,14 @@ def serve(cid, c, require_auth, t0):
         c.settimeout(None)
         log("c%d: tunnel up, %dms after accept" % (cid, ms_since(t0)))
         relay(cid, c, up, t0)
-    except OSError as e:
-        log("c%d: failed after %dms: %s" % (cid, ms_since(t0), e))
+    except Exception as e:
+        # anything else would end the thread with its traceback only in our
+        # stderr, which the tests don't show, and the connection just hangs
+        if isinstance(e, OSError):
+            log("c%d: failed after %dms: %s" % (cid, ms_since(t0), e))
+        else:
+            log("c%d: failed after %dms: %s" % (cid, ms_since(t0),
+                traceback.format_exc().rstrip().replace("\n", " | ")))
         c.close()
         if up:
             up.close()
