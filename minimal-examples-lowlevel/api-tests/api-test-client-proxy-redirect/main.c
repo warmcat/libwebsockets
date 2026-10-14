@@ -37,6 +37,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
+#include <fcntl.h>
 #include <signal.h>
 #if !defined(WIN32)
 #include <unistd.h>

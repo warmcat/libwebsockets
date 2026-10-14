@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <fcntl.h>
 #include <signal.h>
 #if !defined(WIN32)
 #include <unistd.h>
