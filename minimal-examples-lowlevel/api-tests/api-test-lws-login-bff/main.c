@@ -163,6 +163,10 @@
  *    app check the state is about the grant it guards, so a wrong mount in
  *    front of it fails closed.
  *
+ *  - "stamps-proxied": the same, but the gated mount reverse-proxies to a
+ *    backend on another vhost, which says what it received: each stamp
+ *    exactly once, with the stamped values, and no client copy.
+ *
  * The app vhost runs the real lws-login plugin (builtin plugins build) with
  * lws_login_client enabled on the same vhost as the side channel requires,
  * against an in-process mock auth server.  Ports come from the CI port
@@ -230,6 +234,18 @@ struct scenario {
 #define BFF_STAMPS_PROT	"lws-api-test-lws-login-bff-stamps"
 #define BFF_STAMPS_PATH	"/stamps"
 #define BFF_STAMPS_SPOOF "spoofed-service"
+/* ... and a gated mount reverse-proxied to a backend that reports the same */
+#define BFF_ECHO_PROT	"lws-api-test-lws-login-bff-echo"
+#define BFF_PROXIED_PATH "/proxied"
+/* what's asked for: a mount's own path without the / is redirected */
+#define BFF_PROXIED_REQ	BFF_PROXIED_PATH "/"
+
+static int
+bff_stamps_path(const char *path)
+{
+	return !strcmp(path, BFF_STAMPS_PATH) ||
+	       !strcmp(path, BFF_PROXIED_REQ);
+}
 
 /* minted in main() once the context and allocated ports exist */
 static char	minted_jwt[LWS_SSO_MAX_COOKIE];
@@ -301,6 +317,11 @@ static const struct scenario scenarios[] = {
 	/* what lws-login stamps for an app it lets a live token through to */
 	{ "stamps-live", BFF_STAMPS_PATH, NULL, NULL, NULL, ck_live, 200u, 0, 0,
 	  0, "GET", 0, 0, 0, 0, NULL, NULL },
+#if defined(LWS_WITH_HTTP_PROXY)
+	/* ... and what reaches a backend it's reverse-proxied to */
+	{ "stamps-proxied", BFF_PROXIED_REQ, NULL, NULL, NULL, ck_live, 200u, 0,
+	  0, 0, "GET", 0, 0, 0, 0, NULL, NULL },
+#endif
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
@@ -366,7 +387,7 @@ static const struct scenario scenarios[] = {
 
 static struct lws_context *context;
 
-static int	g_port_app, g_port_auth, g_port_app2;
+static int	g_port_app, g_port_auth, g_port_app2, g_port_echo;
 static struct lws_vhost *g_vh_cli, *g_vh_app;
 
 static int	step;
@@ -749,7 +770,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 
 		/* a client claiming to have been judged for another service */
-		if (!strcmp(scenarios[step].path, BFF_STAMPS_PATH) &&
+		if (bff_stamps_path(scenarios[step].path) &&
 		    lws_add_http_header_by_name(wsi,
 				(const unsigned char *)LWS_LOGIN_HDR_SERVICE ":",
 				(const unsigned char *)BFF_STAMPS_SPOOF,
@@ -804,7 +825,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 		if (scenarios[step].expect_js || scenarios[step].expect_css ||
-		    !strcmp(scenarios[step].path, BFF_STAMPS_PATH)) {
+		    bff_stamps_path(scenarios[step].path)) {
 			/*
 			 * The body (the served lws-login.js / lws-login.css,
 			 * or what the stamps app saw) is what these scenarios
@@ -974,6 +995,86 @@ callback_stamps(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+#if defined(LWS_WITH_HTTP_PROXY)
+/*
+ * The backend the proxied mount forwards to: it can only see request headers,
+ * like any remote app behind lws-login, and reports each stamp with how many
+ * copies of it arrived
+ */
+
+struct echo_count {
+	const char	*name;
+	int		count;
+};
+
+static void
+echo_count_cb(const char *name, int nlen, void *opaque)
+{
+	struct echo_count *c = (struct echo_count *)opaque;
+
+	if ((size_t)nlen == strlen(c->name) &&
+	    !strncasecmp(name, c->name, (size_t)nlen))
+		c->count++;
+}
+
+static int
+callback_echo(struct lws *wsi, enum lws_callback_reasons reason,
+	      void *user, void *in, size_t len)
+{
+	static const char * const names[] = {
+		LWS_LOGIN_HDR_STATE ":", LWS_LOGIN_HDR_SUB ":",
+		LWS_LOGIN_HDR_SERVICE ":"
+	};
+	static const char * const keys[] = { "state", "sub", "service" };
+	struct pss_stamps *ps = (struct pss_stamps *)user;
+	uint8_t buf[LWS_PRE + 512], *start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - 1];
+	struct echo_count c;
+	char v[128];
+	size_t n;
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+		ps->len = 0;
+		for (n = 0; n < LWS_ARRAY_SIZE(names); n++) {
+			c.name = names[n];
+			c.count = 0;
+			lws_hdr_custom_name_foreach(wsi, echo_count_cb, &c);
+			if (lws_hdr_custom_copy(wsi, v, sizeof(v), names[n],
+						(int)strlen(names[n])) < 0)
+				lws_strncpy(v, "-", sizeof(v));
+			ps->len += (size_t)lws_snprintf(ps->body + ps->len,
+					sizeof(ps->body) - ps->len,
+					"%s=%s#%d;", keys[n], v, c.count);
+		}
+
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain", ps->len, &p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+
+		lws_callback_on_writable(wsi);
+		return 0;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!ps || !ps->len)
+			break;
+		memcpy(start, ps->body, ps->len);
+		if (lws_write(wsi, start, ps->len, LWS_WRITE_HTTP_FINAL) !=
+							(int)ps->len)
+			return 1;
+		ps->len = 0;
+
+		return lws_http_transaction_completed(wsi) ? -1 : 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+#endif
+
 /* ------------------------------------------------------------- protocols */
 
 static const struct lws_protocols
@@ -987,12 +1088,43 @@ static const struct lws_protocols
 	prot_waiting = { BFF_WS_WAITING, callback_gated_ws, 0, 0, 0, NULL, 0 },
 	prot_stamps = { BFF_STAMPS_PROT, callback_stamps,
 			sizeof(struct pss_stamps), 0, 0, NULL, 0 };
+#if defined(LWS_WITH_HTTP_PROXY)
+static const struct lws_protocols
+	prot_echo = { BFF_ECHO_PROT, callback_echo,
+		      sizeof(struct pss_stamps), 0, 0, NULL, 0 };
+static const struct lws_protocols
+	*pprotocols_echo[] = { &defprot, &prot_echo, NULL };
+#endif
 
 static const struct lws_protocols
 	*pprotocols_auth[] = { &defprot, &prot_auth, &prot_feed, NULL },
 	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL },
 	*pprotocols_app[]  = { &defprot, &prot_priv, &prot_waiting,
 			       &prot_stamps, NULL };
+
+#if defined(LWS_WITH_HTTP_PROXY)
+/* the echo backend's port is only known in main() */
+static char		proxied_origin[64];
+
+static struct lws_http_mount
+	mount_echo = {
+		.mountpoint		= "/",
+		.protocol		= BFF_ECHO_PROT,
+		.origin_protocol	= LWSMPRO_CALLBACK,
+		.mountpoint_len		= 1,
+	},
+	/*
+	 * A gated mount reverse-proxied to the echo backend, as sai-web is
+	 * behind the front end's lws-login
+	 */
+	mount_proxied = {
+		.mountpoint		= BFF_PROXIED_PATH,
+		.origin			= proxied_origin,
+		.origin_protocol	= LWSMPRO_HTTP,
+		.mountpoint_len		= sizeof(BFF_PROXIED_PATH) - 1,
+		.interceptor_path	= "/",
+	};
+#endif
 
 static const struct lws_http_mount
 	mount_auth = {
@@ -1005,6 +1137,9 @@ static const struct lws_http_mount
 	 * Another gated mount, served in-process by the stamps app
 	 */
 	mount_stamps = {
+#if defined(LWS_WITH_HTTP_PROXY)
+		.mount_next		= &mount_proxied,
+#endif
 		.mountpoint		= BFF_STAMPS_PATH,
 		.protocol		= BFF_STAMPS_PROT,
 		.origin_protocol	= LWSMPRO_CALLBACK,
@@ -1479,6 +1614,28 @@ step_advance(void)
 		}
 	}
 
+	if (!strcmp(scenarios[step].path, BFF_PROXIED_REQ)) {
+		/*
+		 * each stamp exactly once at the backend, with the values
+		 * lws-login stamped, and the client's copy of the service
+		 * header gone
+		 */
+		got_body[got_body_len] = '\0';
+		if (got_body_trunc ||
+		    !strstr(got_body, "state=2#1;") ||
+		    !strstr(got_body, "service=default-service#1;") ||
+		    strstr(got_body, "sub=-") ||
+		    strstr(got_body, BFF_STAMPS_SPOOF)) {
+			lwsl_err("%s: FAIL scenario '%s': the backend saw '%s'\n",
+				 __func__, scenarios[step].name, got_body);
+			fail++;
+			result = 1;
+			sequence_done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+	}
+
 	if (!strcmp(scenarios[step].path, BFF_STAMPS_PATH)) {
 		/*
 		 * a user (2) of the mount's service, as stamped, and the
@@ -1583,6 +1740,7 @@ int main(int argc, const char **argv)
 		g_port_app = atoi(p);
 	g_port_auth = g_port_app + 1;
 	g_port_app2 = g_port_app + 2;
+	g_port_echo = g_port_app + 3;
 
 	signal(SIGINT, sigint_handler);
 
@@ -1767,6 +1925,22 @@ int main(int argc, const char **argv)
 		lwsl_err("Failed to create second app vhost\n");
 		goto bail;
 	}
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	/* the backend the app vhost's /proxied mount forwards to */
+	lws_snprintf(proxied_origin, sizeof(proxied_origin), "127.0.0.1:%d/",
+		     g_port_echo);
+	info.port		= g_port_echo;
+	info.vhost_name		= "echo";
+	info.pprotocols		= pprotocols_echo;
+	info.mounts		= &mount_echo;
+	info.pvo		= NULL;
+
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create echo backend vhost\n");
+		goto bail;
+	}
+#endif
 
 	/* client vhost: no listener */
 	info.port		= CONTEXT_PORT_NO_LISTEN;

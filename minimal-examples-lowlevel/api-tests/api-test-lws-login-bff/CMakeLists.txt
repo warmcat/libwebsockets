@@ -23,9 +23,9 @@ require_lws_config(LWS_WITH_STRUCT_JSON 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	# app + second app (relative auth-api-url) + mock auth vhosts listen on
-	# adjacent ports
-	lws_get_free_ports(PORT_LOGINBFF 3)
+	# app + second app (relative auth-api-url) + mock auth + proxied echo
+	# backend vhosts listen on adjacent ports
+	lws_get_free_ports(PORT_LOGINBFF 4)
 
 	add_test(NAME api-test-lws-login-bff
 		 COMMAND lws-api-test-lws-login-bff -p ${PORT_LOGINBFF})

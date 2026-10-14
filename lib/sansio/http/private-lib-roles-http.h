@@ -479,6 +479,10 @@ struct _lws_http_mode_related {
 	unsigned int did_stream_close:1;
 	unsigned int multipart:1;
 	unsigned int cgi_transaction_complete:1;
+	unsigned int interceptors_evaluated:1;
+	/**< lws_http_evaluate_interceptors() has run for this transaction, and
+	 * interceptor_hit / interceptor_result hold what it decided.  Cleared
+	 * on transaction rearm. */
 	unsigned int interceptor_diverted:1;
 	/**< set by lws_http_evaluate_interceptors() for the duration of this
 	 * transaction when a mount interceptor took the request away from the
@@ -509,6 +513,14 @@ struct _lws_http_mode_related {
 
 	char *digest_auth_hdr;
 	char *extra_onward_headers;
+
+	/*
+	 * What lws_http_evaluate_interceptors() decided for this transaction:
+	 * the mount it was asked about, and where the request goes, that mount
+	 * or an interceptor's.  Valid while interceptors_evaluated.
+	 */
+	const struct lws_http_mount *interceptor_hit;
+	const struct lws_http_mount *interceptor_result;
 };
 
 

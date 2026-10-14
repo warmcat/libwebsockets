@@ -1893,6 +1893,13 @@ bail_nuke_ah:
  *  - NULL if the chain cannot be evaluated (a configured interceptor
  *    protocol does not exist).  This fails CLOSED: the caller must refuse
  *    the request rather than serve the mount
+ *
+ * The chain is asked once per transaction.  An h1 request is evaluated early,
+ * in case it's an upgrade the interceptor refuses, and again when it's acted
+ * on.  Asking the interceptors twice had each of them do whatever it does for
+ * a request twice: lws-login stamped its x-lws-login-* headers twice, and a
+ * backend rightly refuses duplicates as a possible spoof.  Later calls for the
+ * same mount get the first answer.
  */
 
 const struct lws_http_mount *
@@ -1901,6 +1908,18 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
 {
 #if defined(LWS_WITH_JOSE)
 	const struct lws_http_mount *curr = hit;
+
+	if (wsi->http.interceptors_evaluated &&
+	    wsi->http.interceptor_hit == hit) {
+		const struct lws_http_mount *r = wsi->http.interceptor_result;
+
+		if (r != hit) {
+			*uri_ptr = (char *)r->mountpoint;
+			*uri_len = (int)r->mountpoint_len;
+		}
+
+		return r;
+	}
 
 	while (curr && curr->interceptor_path) {
 		const struct lws_http_mount *m_interceptor = lws_find_mount(wsi,
@@ -1919,6 +1938,9 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
 				*uri_ptr = (char *)m_interceptor->mountpoint; /* forced internal redirect */
 				*uri_len = (int)m_interceptor->mountpoint_len;
 				wsi->http.interceptor_diverted = 1;
+				wsi->http.interceptors_evaluated = 1;
+				wsi->http.interceptor_hit = hit;
+				wsi->http.interceptor_result = m_interceptor;
 				return m_interceptor;
 			}
 		} else {
@@ -1928,6 +1950,10 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
 		}
 		curr = m_interceptor;
 	}
+
+	wsi->http.interceptors_evaluated = 1;
+	wsi->http.interceptor_hit = hit;
+	wsi->http.interceptor_result = hit;
 #endif
 
 	return hit;
@@ -3378,6 +3404,15 @@ raw_transition:
 			int uri_len = 0, ha, n;
 			char *uri_ptr = NULL;
 
+			/*
+			 * A new request: whatever the interceptors decided
+			 * for an earlier one on this connection is nothing
+			 * to do with it, however that one ended
+			 */
+			wsi->http.interceptors_evaluated = 0;
+			wsi->http.interceptor_hit = NULL;
+			wsi->http.interceptor_result = NULL;
+
 			n = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 			if (n >= 0) {
 				hit = lws_find_mount(wsi, uri_ptr, uri_len);
@@ -3778,6 +3813,9 @@ lws_http_transaction_completed(struct lws *wsi)
 	 */
 	wsi->http.sent_response_headers = 0;
 	wsi->http.interceptor_diverted = 0;
+	wsi->http.interceptors_evaluated = 0;
+	wsi->http.interceptor_hit = NULL;
+	wsi->http.interceptor_result = NULL;
 
 #if defined(LWS_WITH_SYS_METRICS)
 	{
