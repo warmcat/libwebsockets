@@ -203,22 +203,31 @@ static const char * const test_key =
  * address with a PATH_CHALLENGE, which the forwarder never answers; the
  * original arriving after it is a duplicate.
  *
- * The server must stay on the validated path, so the transfer completes, and
- * once probing the forwarder failed, not probe it again for a while however
- * many more packets come from it.  Small packets earn little anti-
- * amplification allowance, so without that the server starts a probe, runs
- * out of allowance and abandons it, on nearly every copy.
+ * The server must stay on the validated path, so the transfer completes.  A
+ * probe sends its PATH_CHALLENGE again no more than once a PTO, at least
+ * 500ms, and gives up after 3 PTOs (RFC 9000 8.2.1, 8.2.4), however fast the
+ * client's packets come; once it failed, the server doesn't probe the
+ * forwarder again for 1s, doubling each time it fails again, however many
+ * more packets come from it.
  *
  * Use it with a small --write-size, eg, 64, so the client sends plenty of
- * small packets.  The one probe sends its PATH_CHALLENGE again each time it's
- * lost, until its allowance runs out, about 14 datagrams; a server probing
- * again for every copy sends around 80 in the time.  The test fails if the
- * server sent the forwarder more than RELAY_FWD_SENT_MAX datagrams, or if
- * fewer than RELAY_FWD_COPIES_MIN copies were made, so it didn't test much.
+ * small packets, and spread them with --spread, eg, 12000, so the copies keep
+ * coming for long enough to see the server probe, fail and wait several
+ * times.  Over the time the server sent the forwarder anything, it may have
+ * started a probe each time the last one, of at least 1.5s, and the wait
+ * after it were over, and each probe sends at most 3 datagrams: the test
+ * fails if it sent more than that allows, plus one probe for slack.  A server
+ * that resends the challenge each time it's lost, which is as fast as the
+ * client's packets are acked, sends dozens more; one that probes again at
+ * once after failing sends about twice as many over the span.  It also fails
+ * if fewer than RELAY_FWD_COPIES_MIN copies were made, so it didn't test
+ * much.
  */
 #define RELAY_FWD_SMALL		100
-#define RELAY_FWD_SENT_MAX	30
 #define RELAY_FWD_COPIES_MIN	50
+#define RELAY_FWD_PROBE_US	(1500 * LWS_US_PER_MS)
+#define RELAY_FWD_WAIT_US	LWS_US_PER_SEC
+#define RELAY_FWD_PROBE_DGRAMS	3
 
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
@@ -327,6 +336,8 @@ static struct {
 	struct lws		*fwd_wsi;
 	unsigned int		fwd_copies;	/* we sent the server */
 	unsigned int		fwd_rx;		/* the server sent us */
+	lws_usec_t		fwd_rx_first;
+	lws_usec_t		fwd_rx_last;
 	char			forwarder;
 } relay;
 
@@ -574,6 +585,9 @@ callback_relay_fwd(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	case LWS_CALLBACK_RAW_RX:
 		relay.fwd_rx++;
+		if (!relay.fwd_rx_first)
+			relay.fwd_rx_first = lws_now_usecs();
+		relay.fwd_rx_last = lws_now_usecs();
 		break;
 	default:
 		break;
@@ -707,17 +721,29 @@ report_progress(void)
 static int
 forwarder_failed(void)
 {
+	lws_usec_t span = relay.fwd_rx_last - relay.fwd_rx_first, t = 0,
+		   wait = RELAY_FWD_WAIT_US;
+	unsigned int probes = 1;
+
 	if (!relay.forwarder)
 		return 0;
 
-	lwsl_user("forwarder: sent the server %u copies, it sent us %u "
-		  "datagrams\n", relay.fwd_copies, relay.fwd_rx);
+	/* the most probes it could start in the span, backing off */
+	while (relay.fwd_rx && (t += RELAY_FWD_PROBE_US + wait) <= span) {
+		probes++;
+		wait *= 2;
+	}
+
+	lwsl_user("forwarder: sent the server %u copies, over %lldms it "
+		  "sent us %u datagrams, up to %u allowed\n", relay.fwd_copies,
+		  (long long)(span / LWS_US_PER_MS), relay.fwd_rx,
+		  (probes + 1) * RELAY_FWD_PROBE_DGRAMS);
 
 	if (relay.fwd_copies < RELAY_FWD_COPIES_MIN) {
 		lwsl_err("forwarder: too few copies to test anything\n");
 		return 1;
 	}
-	if (relay.fwd_rx > RELAY_FWD_SENT_MAX) {
+	if (relay.fwd_rx > (probes + 1) * RELAY_FWD_PROBE_DGRAMS) {
 		lwsl_err("forwarder: the server kept probing an address that "
 			 "never answers\n");
 		return 1;

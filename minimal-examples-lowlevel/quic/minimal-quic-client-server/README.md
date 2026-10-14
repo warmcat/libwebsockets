@@ -116,14 +116,22 @@ there, ahead of the original, as an off-path attacker who can see the client's
 packets might.  The copy is new and authentic to the server, so it looks like
 the client moved (RFC 9000 9.3), and the server probes the new address with a
 PATH_CHALLENGE that is never answered.  The server must stay on the path it
-validated, so the transfer completes, and once probing the forwarder's address
-failed, not keep probing it for every packet that comes from it.  With a small
-`--write-size`, the client sends plenty of small packets; the test fails if the
-server sent the forwarder more than its one probe would, about 14 datagrams
-here, where probing again for every copy sends around 80.
+validated, so the transfer completes.  A probe sends its PATH_CHALLENGE again
+no more than once a PTO, and gives up after three (RFC 9000 8.2.1, 8.2.4),
+however fast the client's packets come; once it failed, the server must not
+probe the forwarder's address again for 1s, doubling each time it fails again.
+
+With a small `--write-size`, the client sends plenty of small packets, and
+with `--spread` they keep coming for long enough to see the server probe, fail
+and wait several times.  Over the time the server sent the forwarder anything,
+the test allows it 3 datagrams for each probe it could have started backing
+off like that, and one more probe.  A server that sends the challenge again
+each time it's lost, ie, as fast as the client's packets are acked, sends
+dozens more; one that probes again at once after failing sends about twice as
+many.
 
 ```
- $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --forwarder --write-size 64
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --forwarder --write-size 64 --spread 12000
 ```
 
 ## congestion controller

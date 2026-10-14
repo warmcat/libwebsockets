@@ -568,13 +568,16 @@ struct lws_quic_netconn {
 	 * Server-side peer migration (RFC 9000 9.3): while probing_sa46 is
 	 * unvalidated we keep sending on the committed path (path_sa46) and
 	 * only PATH_CHALLENGE / PATH_RESPONSE go to the new address, limited
-	 * to 3x the bytes we received from it (9.3.1 / 8.1).  The probe is
-	 * abandoned when path_probe_sul fires without a matching
-	 * PATH_RESPONSE from that address (8.2.4).
+	 * to 3x the bytes we received from it (9.3.1 / 8.1).  path_probe_sul
+	 * sends the PATH_CHALLENGE again each PTO (8.2.1), and abandons the
+	 * probe if no matching PATH_RESPONSE came from that address by
+	 * probe_deadline (8.2.4).
 	 */
 	uint64_t		probe_bytes_received;
 	uint64_t		probe_bytes_sent;
 	lws_sorted_usec_list_t	path_probe_sul;
+	lws_usec_t		probe_deadline;
+	lws_usec_t		probe_pto;
 	/*
 	 * An address whose probes keep failing, eg, one an off-path attacker
 	 * forwards copies of the peer's packets from, or a middlebox's, would

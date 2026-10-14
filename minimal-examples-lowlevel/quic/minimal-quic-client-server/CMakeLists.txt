@@ -158,14 +158,17 @@ if (requirements)
 		# Through the relay also sending the server copies of the
 		# client's small packets, ahead of the originals, from an
 		# address that never answers: the server must stay on its
-		# validated path, and not keep probing the other address
+		# validated path, probe the other address no faster than RFC
+		# 9000 allows, and back off probing it after failing.  The
+		# client's writes are spread over 12s, so the copies go on for
+		# long enough to see the server fail and wait several times.
 		#
 		lws_get_free_port(PORT_QCS_FWD)
 		lws_get_free_port(PORT_QCS_FWD_RELAY)
 		add_test(NAME ${SAMP}-forwarder COMMAND ${SAMP}
 				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_FWD}
 				--relay ${PORT_QCS_FWD_RELAY} --forwarder
-				--write-size 64)
+				--write-size 64 --spread 12000)
 		set_tests_properties(${SAMP}-forwarder PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)

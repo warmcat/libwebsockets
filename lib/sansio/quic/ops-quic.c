@@ -207,6 +207,23 @@ lws_quic_frame_not_retransmitted(const struct lws_quic_tx_frame *f)
 }
 
 /*
+ * A server's PATH_CHALLENGE to a peer address it is probing, ie, not the
+ * connection's path.  Losing it says nothing about the connection's path, so
+ * it doesn't count as congestion there, nor towards PMTUD's black hole, and
+ * it isn't sent again by loss recovery: that would send it again each time
+ * a few packets on the connection's path are acked after it, ie, as fast as
+ * the connection goes.  The probe sends it again once a PTO instead (RFC 9000
+ * 8.2.1), see lws_quic_path_probe_sul_cb().
+ */
+static int
+lws_quic_frame_probes_another_path(const struct lws_quic_netconn *qn,
+				   const struct lws_quic_tx_frame *f)
+{
+	return f->type == LWS_QUIC_FT_PATH_CHALLENGE && f->has_dest &&
+	       !lws_quic_sa46_same_path(&f->dest_sa46, &qn->path_sa46);
+}
+
+/*
  * The most DATAGRAM payload one packet can carry on the connection's path as
  * it is now: a short header packet with nothing else in it, fitted the way
  * lws_quic_packet_tx() fits frames
@@ -292,17 +309,77 @@ lws_quic_path_probe_abandon(struct lws *nwsi, const char *failed)
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
+/*
+ * Queue the server's PATH_CHALLENGE, with the data in path_challenge, to the
+ * address it is probing, unless one is already waiting to go.  It goes at the
+ * head of the queue, so the tx path gives it a packet of its own, sized to
+ * the address' anti-amplification allowance.
+ */
+static int
+lws_quic_path_probe_queue_challenge(struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_quic_tx_frame *f;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      qn->pending_tx[LWS_QUIC_LEVEL_APP].head) {
+		f = lws_container_of(d, struct lws_quic_tx_frame, list);
+		if (f->type == LWS_QUIC_FT_PATH_CHALLENGE)
+			return 0;
+	} lws_end_foreach_dll(d);
+
+	f = lws_zalloc(sizeof(*f) + sizeof(qn->path_challenge),
+		       "quic path_chall");
+	if (!f)
+		return 1;
+
+	f->type		= LWS_QUIC_FT_PATH_CHALLENGE;
+	f->len		= sizeof(qn->path_challenge);
+	f->data		= (uint8_t *)&f[1];
+	memcpy(f->data, qn->path_challenge, sizeof(qn->path_challenge));
+	f->dest_sa46	= qn->probing_sa46;
+	f->has_dest	= 1;
+
+	qn->path_challenge_pending = 1;
+	lws_dll2_add_head(&f->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+	lws_callback_on_writable(nwsi);
+
+	return 0;
+}
+
+/*
+ * Each PTO while the server's probe of a peer address is unanswered: send the
+ * PATH_CHALLENGE again, in case it was lost, until the probe's deadline, when
+ * it is abandoned (RFC 9000 8.2.1, 8.2.4).  It's the same challenge each
+ * time, so a PATH_RESPONSE to any of them validates the address.
+ */
 static void
 lws_quic_path_probe_sul_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_quic_netconn *qn = lws_container_of(sul,
 					struct lws_quic_netconn, path_probe_sul);
+	lws_usec_t now, next;
 
-	if (!qn->nwsi)
+	if (!qn->nwsi || !qn->probing_sa46_valid)
 		return;
 
-	lws_quic_path_probe_abandon(qn->nwsi, "no PATH_RESPONSE in time "
-					   "(RFC 9000 8.2.4)");
+	now = lws_wsi_now(qn->nwsi);
+	if (now >= qn->probe_deadline) {
+		lws_quic_path_probe_abandon(qn->nwsi, "no PATH_RESPONSE in "
+						      "time (RFC 9000 8.2.4)");
+		return;
+	}
+
+	if (lws_quic_path_probe_queue_challenge(qn->nwsi)) {
+		lws_quic_path_probe_abandon(qn->nwsi, "OOM");
+		return;
+	}
+
+	next = qn->probe_deadline - now;
+	if (next > qn->probe_pto)
+		next = qn->probe_pto;
+	lws_sul_schedule(qn->nwsi->a.context, qn->nwsi->tsi,
+			 &qn->path_probe_sul, lws_quic_path_probe_sul_cb, next);
 }
 
 /*
@@ -650,7 +727,7 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
         struct lws_quic_netconn *qn = nwsi->quic.qn;
         if (!qn) return;
 
-        size_t total_bytes_lost = 0;
+        size_t total_bytes_lost = 0, bytes_off_path = 0;
         lws_usec_t now = lws_wsi_now(nwsi);
         lws_usec_t loss_time = qn->smoothed_rtt ? (qn->smoothed_rtt * 9 / 8) : 50000;
         lws_usec_t oldest_lost = 0, newest_lost = 0;
@@ -665,7 +742,15 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 
 			if (f->sent_in_pn <= largest_acked &&
 				(f->sent_in_pn + 3 <= largest_acked || (f->sent_in_pn < largest_acked && now > f->sent_time_us + loss_time))) {
-				
+
+				if (lws_quic_frame_probes_another_path(qn, f)) {
+					/* the probe sends it again */
+					bytes_off_path += f->wire_len;
+					lws_dll2_remove(&f->list);
+					lws_free(f);
+					continue;
+				}
+
 				/* Mark as lost */
 				total_bytes_lost += f->wire_len;
 				lwsl_wsi_info(nwsi, "QUIC LOSS: Packet %llu lost, frame %d", (unsigned long long)f->sent_in_pn, f->type);
@@ -714,6 +799,10 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
                         }
                 }
         }
+
+        /* not congestion on our path, but no longer in flight either */
+        if (bytes_off_path && qn->cc_ops && qn->cc_ops->on_discard)
+                qn->cc_ops->on_discard(nwsi, bytes_off_path);
 
         if (total_bytes_lost)
                 lws_callback_on_writable(nwsi);
@@ -2430,40 +2519,34 @@ tp_ok:
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
 					{
-						struct lws_quic_tx_frame *f_pc =
-							lws_zalloc(sizeof(*f_pc) + 8,
-								   "quic path_chall");
+						struct lws_quic_netconn *qn =
+							nwsi->quic.qn;
 						lws_usec_t pto;
 
-						if (f_pc) {
-							f_pc->type = LWS_QUIC_FT_PATH_CHALLENGE;
-							f_pc->len = 8;
-							f_pc->data = (uint8_t *)&f_pc[1];
-							if (lws_get_random(wsi->a.context,
-									   f_pc->data, 8) != 8) {
-								lws_free(f_pc);
-								return LWS_HPI_RET_HANDLED;
-							}
-							memcpy(nwsi->quic.qn->path_challenge,
-							       f_pc->data, 8);
-							nwsi->quic.qn->path_challenge_pending = 1;
-							f_pc->dest_sa46 = migration_sa46;
-							f_pc->has_dest = 1;
-							lws_dll2_add_head(&f_pc->list,
-								&nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+						if (lws_get_random(wsi->a.context,
+							qn->path_challenge,
+							sizeof(qn->path_challenge)) !=
+						      sizeof(qn->path_challenge) ||
+						    lws_quic_path_probe_queue_challenge(nwsi)) {
+							qn->probing_sa46_valid = 0;
+							return LWS_HPI_RET_HANDLED;
 						}
 
 						/*
 						 * RFC 9000 8.2.4: give up after three
 						 * times the larger of the current PTO
-						 * and the initial PTO
+						 * and the initial PTO, sending the
+						 * challenge again each PTO until then
 						 */
-						pto = lws_quic_pto_base_us(nwsi->quic.qn);
+						pto = lws_quic_pto_base_us(qn);
 						if (pto < LWS_QUIC_DEFAULT_PTO_US)
 							pto = LWS_QUIC_DEFAULT_PTO_US;
+						qn->probe_pto = pto;
+						qn->probe_deadline = lws_wsi_now(nwsi) +
+								     3 * pto;
 						lws_sul_schedule(nwsi->a.context, nwsi->tsi,
-							&nwsi->quic.qn->path_probe_sul,
-							lws_quic_path_probe_sul_cb, 3 * pto);
+							&qn->path_probe_sul,
+							lws_quic_path_probe_sul_cb, pto);
 					}
 
 				} else {
@@ -3769,6 +3852,14 @@ lws_quic_pto_sweep(struct lws *wsi)
 			/* Allow a 5ms epsilon for timer jitter */
 			if (now + 5000 >= f->sent_time_us + sweep_pto_delay) {
 				// lwsl_notice("PTO Sweep: Packet %llu (type 0x%02x) lost! Retransmitting!\n", (unsigned long long)f->sent_in_pn, f->type);
+
+				if (lws_quic_frame_probes_another_path(qn, f)) {
+					/* the probe sends it again */
+					total_bytes_lost += f->wire_len;
+					lws_dll2_remove(&f->list);
+					lws_free(f);
+					continue;
+				}
 
 				/* PMTUD Black Hole Detection */
 				if (f->sent_in_pn != last_lost_pn) {
@@ -5517,7 +5608,6 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	 */
 	if (wsi->pending_timeout == PENDING_TIMEOUT_UDP_IDLE)
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
 
 	if (listener) {
 		nwsi->mux_substream = 1;
