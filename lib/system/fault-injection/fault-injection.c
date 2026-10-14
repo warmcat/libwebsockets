@@ -44,6 +44,7 @@ int
 lws_fi(const lws_fi_ctx_t *fic, const char *name)
 {
 	lws_fi_priv_t *pv;
+	uint64_t n64;
 	int n;
 
 	pv = lws_fi_lookup(fic, name);
@@ -56,10 +57,15 @@ lws_fi(const lws_fi_ctx_t *fic, const char *name)
 		goto inject;
 
 	case LWSFI_DETERMINISTIC:
-		pv->fi.times++;
-		if (pv->fi.times >= pv->fi.pre)
-			if (pv->fi.times < pv->fi.pre + pv->fi.count)
-				goto inject;
+		/*
+		 * .pre calls go by without the fault, then the next .count
+		 * have it.  Counting the calls from 0, that's calls .pre to
+		 * .pre + .count - 1.  Counting them from 1, as this used to,
+		 * shifted it a call early, so .pre 0 never injected at all.
+		 */
+		n64 = pv->fi.times++;
+		if (n64 >= pv->fi.pre && n64 < pv->fi.pre + pv->fi.count)
+			goto inject;
 		return 0;
 
 	case LWSFI_PROBABILISTIC:
