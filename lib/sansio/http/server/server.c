@@ -1208,9 +1208,9 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 
 #endif
 
-#if defined(LWS_WITH_HTTP_PROXY)
 /*
- * Percent-encode one decoded uri component for the onward request line.
+ * Percent-encode one decoded uri component, eg, for an onward request line,
+ * or a redirect.
  *
  * The request URI we hold is the DECODED one: the parser turned every %XX
  * (and '+') into the byte it stood for as it went into the ah.  Spliced
@@ -1228,7 +1228,7 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
  */
 
 static int
-lws_proxy_pct_encode(char *dst, size_t dlen, const char *src, size_t slen,
+lws_http_pct_encode(char *dst, size_t dlen, const char *src, size_t slen,
 		     const char *keep)
 {
 	static const char hex[] = "0123456789ABCDEF";
@@ -1262,6 +1262,85 @@ lws_proxy_pct_encode(char *dst, size_t dlen, const char *src, size_t slen,
 #define LWS_PROXY_KEEP_PATH	"/:@!$'()*,="
 /* a query name or value on its own: no '=' or '&' either */
 #define LWS_PROXY_KEEP_QUERY	"/:@!$'()*,"
+
+/*
+ * The request's query, put back together for repeating it to somebody else,
+ * eg, the backend a proxy forwards to, or a redirect's Location.  The parser
+ * split it at every '&' / ';' and decoded each piece; this joins them again
+ * one "name=value" at a time, with the name and value encoded separately, so
+ * a decoded '=' or '&' inside either cannot change the split the next one
+ * sees.
+ *
+ * Returns the length written to dst, 0 if there's no query, or -1 if it
+ * doesn't fit or is malformed.  dst is NUL terminated, without the '?'.
+ */
+
+static int
+lws_http_requery(struct lws *wsi, char *dst, size_t dlen)
+{
+	int na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS),
+	    frag = 0, fl, el;
+	char *p = dst, *end = dst + dlen, *frg, *eq;
+	size_t nl;
+
+	if (!dlen)
+		return -1;
+	*dst = '\0';
+	if (na <= 0)
+		return 0;
+
+	frg = lws_malloc((size_t)na + 1, __func__);
+	if (!frg)
+		return -1;
+
+	while ((fl = lws_hdr_copy_fragment(wsi, frg, na + 1,
+					   WSI_TOKEN_HTTP_URI_ARGS,
+					   frag)) >= 0) {
+		eq = strchr(frg, '=');
+		nl = eq ? (size_t)(eq - frg) : (size_t)fl;
+
+		if (frag++) {
+			if (p + 1 >= end)
+				goto bail;
+			*p++ = '&';
+		}
+
+		el = lws_http_pct_encode(p, (size_t)(end - p), frg, nl,
+					 LWS_PROXY_KEEP_QUERY);
+		if (el < 0)
+			goto bail;
+		p += el;
+
+		if (!eq)
+			continue;
+
+		if (p + 1 >= end)
+			goto bail;
+		*p++ = '=';
+
+		el = lws_http_pct_encode(p, (size_t)(end - p), eq + 1,
+					 (size_t)fl - nl - 1,
+					 LWS_PROXY_KEEP_QUERY);
+		if (el < 0)
+			goto bail;
+		p += el;
+	}
+
+	if (fl == -2) /* a fragment did not fit */
+		goto bail;
+
+	lws_free(frg);
+	*p = '\0';
+
+	return (int)(p - dst);
+
+bail:
+	lws_free(frg);
+
+	return -1;
+}
+
+#if defined(LWS_WITH_HTTP_PROXY)
 
 /*
  * Set up an onward http proxy connection according to the mount this
@@ -1424,13 +1503,13 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 
 	/*
 	 * Only the part of the path that came from the request is re-encoded
-	 * (see lws_proxy_pct_encode()); the origin's own path prefix is the
+	 * (see lws_http_pct_encode()); the origin's own path prefix is the
 	 * operator's literal config and goes on as written.  The encoding
 	 * keeps '/' and '.', so cleaning the composed url afterwards works
 	 * the same as it did on the decoded one.
 	 */
 
-	if (lws_proxy_pct_encode(enc, max_http_header_data,
+	if (lws_http_pct_encode(enc, max_http_header_data,
 				 uri_ptr + hit->mountpoint_len,
 				 strlen(uri_ptr + hit->mountpoint_len),
 				 LWS_PROXY_KEEP_PATH) < 0) {
@@ -1457,7 +1536,6 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 	if (na) {
 		char *p, *end = &rpath[max_http_header_data - 1];
-		int frag = 0, fl, el;
 
 		if (!n) /* don't start with the ?... use the first / if so */
 			n++;
@@ -1469,51 +1547,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 
 		*p++ = '?';
 
-		/*
-		 * The parser split the query at every '&' / ';' and decoded
-		 * each piece; put it back together one "name=value" at a time,
-		 * name and value encoded separately so a decoded '=' or '&'
-		 * inside either cannot change the split the backend sees
-		 */
-
-		while ((fl = lws_hdr_copy_fragment(wsi, enc,
-						   (int)max_http_header_data,
-						   WSI_TOKEN_HTTP_URI_ARGS,
-						   frag)) >= 0) {
-			char *eq = strchr(enc, '=');
-			size_t nl = eq ? (size_t)(eq - enc) : (size_t)fl;
-
-			if (frag++) {
-				if (p + 1 >= end)
-					goto bail_query_len;
-				*p++ = '&';
-			}
-
-			el = lws_proxy_pct_encode(p, (size_t)(end - p), enc,
-						  nl, LWS_PROXY_KEEP_QUERY);
-			if (el < 0)
-				goto bail_query_len;
-			p += el;
-
-			if (!eq)
-				continue;
-
-			if (p + 1 >= end)
-				goto bail_query_len;
-			*p++ = '=';
-
-			el = lws_proxy_pct_encode(p, (size_t)(end - p), eq + 1,
-						  (size_t)fl - nl - 1,
-						  LWS_PROXY_KEEP_QUERY);
-			if (el < 0)
-				goto bail_query_len;
-			p += el;
-		}
-
-		if (fl == -2) /* a fragment did not fit the scratch */
+		if (lws_http_requery(wsi, p, (size_t)(end - p)) < 0)
 			goto bail_query_len;
-
-		*p = '\0';
 	}
 
 	lws_free_set_NULL(enc);
@@ -1852,6 +1887,37 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		lws_clean_url((char *)end);
 		n = (int)strlen((char *)end);
+
+		/*
+		 * The request's query goes with it, where what follows the
+		 * mountpoint does: to the same mount with its '/', or a
+		 * redirect mount's origin that's given the rest of the path.
+		 * It goes in after the url is cleaned, which is only for the
+		 * path.  There are 512 bytes for all of it at end; if the
+		 * query doesn't fit, say so rather than send it on without
+		 */
+		if ((!(hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+		       hit->origin_protocol == LWSMPRO_REDIR_HTTPS) ||
+		     hit->append_path) &&
+		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS) > 0) {
+			int q = -1;
+
+			if (n + 2 < 511) {
+				((char *)end)[n] = '?';
+				q = lws_http_requery(wsi, (char *)end + n + 1,
+						     (size_t)(511 - n - 1));
+			}
+			if (q < 0) {
+				if (lws_return_http_status(wsi,
+						HTTP_STATUS_REQ_URI_TOO_LONG,
+						NULL))
+					goto bail_nuke_ah;
+
+				return lws_http_transaction_completed(wsi);
+			}
+			n += 1 + q;
+		}
+
 		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
 				      end, n, &p, end);
 		if ((int)n < 0)

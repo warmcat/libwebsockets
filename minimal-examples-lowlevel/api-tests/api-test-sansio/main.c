@@ -2059,6 +2059,50 @@ h1_post_zero_answered_half(struct lws_context *cx, struct lws_vhost *vh)
 }
 
 /*
+ * 50: the mount's own redirect, for a directory asked for without its
+ * trailing '/', keeps the request's query, encoded as it was: it used to be
+ * dropped, so eg "/d?limit=3" became "/d/".  An encoded '&' inside a value
+ * must stay encoded, or it would split the value in two.
+ */
+static int
+h1_redirect_keeps_query_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req_d[] =
+		"GET /d?limit=3&b=x%26y HTTP/1.1\r\nHost: sansio-404\r\n\r\n";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	feed(cx, &tp, req_d, sizeof(req_d) - 1);
+	pump(cx, &tp);
+
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 301 ", 13) ||
+	    !find_bytes(tp.tx, tp.tx_len,
+			"http://sansio-404/d/?limit=3&b=x%26y\r\n")) {
+		lwsl_err("case 50: redirect lost or changed the query\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 50: a mount redirect keeps the query: PASS\n");
+
+	return 0;
+}
+
+/*
  * 21: the mount's own redirect, for a directory asked for without its
  * trailing '/', while the transport takes only a few bytes: the transaction
  * completes once the redirect has all gone, and the kept-alive connection
@@ -5511,6 +5555,8 @@ main(int argc, const char **argv)
 	if (h1_404_half(cx, vh_404))
 		goto bail;
 	if (h1_redirect_queued_half(cx, vh_404))
+		goto bail;
+	if (h1_redirect_keeps_query_half(cx, vh_404))
 		goto bail;
 #endif
 
