@@ -69,7 +69,12 @@ lws_asyncdns_parse_resolv_conf(struct lws_context *context, int index,
 		goto bail;
 
 	r[n] = '\0';
+	/*
+	 * An IPv6 nameserver, eg "::1", is one token only if ':' doesn't
+	 * end one: without that, every IPv6 nameserver line was dropped
+	 */
 	lws_tokenize_init(&ts, r, LWS_TOKENIZE_F_DOT_NONTERM |
+					  LWS_TOKENIZE_F_COLON_NONTERM |
 					  LWS_TOKENIZE_F_NO_FLOATS |
 					  LWS_TOKENIZE_F_NO_INTEGERS |
 					  LWS_TOKENIZE_F_MINUS_NONTERM |

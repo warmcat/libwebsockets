@@ -295,8 +295,10 @@ smd_dns_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
  *
  * 1) wait for the gratuitous initial publication of the server set from the
  *    scratch resolv.conf (one nameserver),
- * 2) append a second nameserver to the scratch file,
- * 3) wait for a new publication that contains it.
+ * 2) append a second nameserver to the scratch file, and an IPv6 one,
+ * 3) wait for a new publication that contains it, and in builds with IPv6,
+ *    the IPv6 one: a ':' used to end the token, so IPv6 nameservers were
+ *    dropped, and an IPv6-only build pointed only at "::1" had none at all.
  *
  * When the leg is done (or has failed), the real async dns subtests start.
  */
@@ -322,7 +324,8 @@ sul_watch_leg_cb(lws_sorted_usec_list_t *s)
 				lwsl_err("%s: can't append to " RESOLV_TEST_CONF "\n", __func__);
 				goto fail;
 			}
-			if (write(fd, "nameserver 127.0.0.2\n", 21) < 0) {
+			if (write(fd, "nameserver 127.0.0.2\n"
+				      "nameserver 2001:db8::53\n", 45) < 0) {
 				close(fd);
 				goto fail;
 			}
@@ -332,7 +335,11 @@ sul_watch_leg_cb(lws_sorted_usec_list_t *s)
 		break;
 
 	case 1: /* waiting for the change to be detected and published */
-		if (strstr(watch_last_payload, "127.0.0.2"))
+		if (strstr(watch_last_payload, "127.0.0.2")
+#if defined(LWS_WITH_IPV6)
+		    && strstr(watch_last_payload, "2001:db8::53")
+#endif
+		)
 			goto pass;
 		break;
 	}
