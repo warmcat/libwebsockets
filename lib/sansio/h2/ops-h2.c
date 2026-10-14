@@ -493,16 +493,33 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	 * repeated body-less FINAL (eg, the proxy's stream close after the
 	 * content-length already ended the stream) is pointless but
 	 * harmless, drop it quietly.
+	 *
+	 * If the stream has ended both ways, it's gone: nothing will ever be
+	 * sent or received on it again.  Binning the write would leave the
+	 * user writing into it for as long as the connection lasts, eg, a ws
+	 * stream fed from a timer, where the ws role reports the write as
+	 * sent.  Fail it, so the user closes the stream like any other dead
+	 * connection.
 	 */
 
 	if (wsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL ||
 	    wsi->h2.h2_state == LWS_H2_STATE_CLOSED) {
-		if (len)
-			lwsl_wsi_notice(wsi, "binning %d byte write after "
-					     "END_STREAM (h2 state %d)",
-					     (int)len, (int)wsi->h2.h2_state);
+		if (!len)
+			return 0;
 
-		return 0;
+		if (!wsi->h2.told_write_after_end) {
+			wsi->h2.told_write_after_end = 1;
+			lwsl_wsi_notice(wsi, "%s %d byte write after END_STREAM"
+					" (h2 %s, protocol %s)",
+					wsi->h2.h2_state == LWS_H2_STATE_CLOSED ?
+						"failing" : "binning", (int)len,
+					wsi->h2.h2_state == LWS_H2_STATE_CLOSED ?
+						"closed" : "half-closed local",
+					wsi->a.protocol ? wsi->a.protocol->name :
+							  "none");
+		}
+
+		return wsi->h2.h2_state == LWS_H2_STATE_CLOSED ? -1 : 0;
 	}
 
 	/* compression transform... */
@@ -1924,8 +1941,19 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 pollout handle");
 		} else {
-			if (w->h2.send_END_STREAM)
-				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
+			/*
+			 * Our END_STREAM has gone: if the peer had ended his
+			 * side already, the stream is now closed both ways,
+			 * RFC 9113 5.1.  Once it's closed, it stays closed.
+			 */
+			if (w->h2.send_END_STREAM) {
+				if (w->h2.h2_state == LWS_H2_STATE_OPEN)
+					lws_h2_state(w,
+					      LWS_H2_STATE_HALF_CLOSED_LOCAL);
+				else if (w->h2.h2_state ==
+					 LWS_H2_STATE_HALF_CLOSED_REMOTE)
+					lws_h2_state(w, LWS_H2_STATE_CLOSED);
+			}
 
 #if defined(LWS_WITH_CLIENT)
 			/*

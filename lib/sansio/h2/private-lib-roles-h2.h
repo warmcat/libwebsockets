@@ -374,6 +374,8 @@ struct _lws_h2_related {
 	 * the request is answered with 431 instead of being acted on
 	 */
 	uint8_t			hdrs_oversized:1;
+	/* we said a write came after the stream ended, don't repeat it */
+	uint8_t			told_write_after_end:1;
 	/*
 	 * Transmit-side duplicate-pseudoheader detection.  Reset to 0 at the
 	 * start of each HEADERS block build; each pseudo-header add sets its
