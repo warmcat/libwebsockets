@@ -34,7 +34,8 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 		mqttx_proxy ${PYTHON3_FOR_FIXTURE}
 		${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close/proxy-fixture.py
-		--port ${PORT_MQTT_XPORT_PROXY})
+		--port ${PORT_MQTT_XPORT_PROXY}
+		--log ${CMAKE_CURRENT_BINARY_DIR}/mqttx-proxy.log)
 	add_test(NAME ki_mqttx_proxy COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 		mqttx_proxy ${PYTHON3_FOR_FIXTURE})
@@ -51,7 +52,8 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 			 --cert ${MQTTX_CERTS}/localhost-100y.cert
 			 --key ${MQTTX_CERTS}/localhost-100y.key
 			 --proxy 127.0.0.1:${PORT_MQTT_XPORT_PROXY}
-			 --socks 127.0.0.1:${PORT_MQTT_XPORT_PROXY})
+			 --socks 127.0.0.1:${PORT_MQTT_XPORT_PROXY}
+			 --proxy-log ${CMAKE_CURRENT_BINARY_DIR}/mqttx-proxy.log)
 	set_tests_properties(api-test-mqtt-transport
 			     PROPERTIES
 			     WORKING_DIRECTORY .

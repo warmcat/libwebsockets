@@ -50,7 +50,8 @@ if (requirements)
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			wsclose_proxy ${PYTHON3_FOR_FIXTURE}
 			${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close/proxy-fixture.py
-			--port ${PORT_WS_CLOSE_PROXY} --auth-port ${PORT_WS_CLOSE_PROXY_AUTH})
+			--port ${PORT_WS_CLOSE_PROXY} --auth-port ${PORT_WS_CLOSE_PROXY_AUTH}
+			--log ${CMAKE_CURRENT_BINARY_DIR}/wsclose-proxy.log)
 		add_test(NAME ki_wsclose_proxy COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 			wsclose_proxy ${PYTHON3_FOR_FIXTURE})
@@ -63,7 +64,8 @@ if (requirements)
 			 --server 127.0.0.1 -p ${PORT_WS_CLOSE_PX}
 			 --proxy 127.0.0.1:${PORT_WS_CLOSE_PROXY}
 			 --socks 127.0.0.1:${PORT_WS_CLOSE_PROXY}
-			 --socks-auth 127.0.0.1:${PORT_WS_CLOSE_PROXY_AUTH})
+			 --socks-auth 127.0.0.1:${PORT_WS_CLOSE_PROXY_AUTH}
+			 --proxy-log ${CMAKE_CURRENT_BINARY_DIR}/wsclose-proxy.log)
 		set_tests_properties(api-test-ws-close-proxied
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close

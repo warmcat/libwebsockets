@@ -40,7 +40,8 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 		cprx_proxy ${PYTHON3_FOR_FIXTURE}
 		${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close/proxy-fixture.py
-		--port ${PORT_CPR_PROXY})
+		--port ${PORT_CPR_PROXY}
+		--log ${CMAKE_CURRENT_BINARY_DIR}/cprx-proxy.log)
 	add_test(NAME ki_cprx_proxy COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 		cprx_proxy ${PYTHON3_FOR_FIXTURE})
@@ -61,7 +62,8 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 			 --port-raw-tls ${PORT_CPR_RAW_TLS}
 			 --cert ${CPRX_CERTS}/localhost-100y.cert
 			 --key ${CPRX_CERTS}/localhost-100y.key
-			 --proxy 127.0.0.1:${PORT_CPR_PROXY})
+			 --proxy 127.0.0.1:${PORT_CPR_PROXY}
+			 --proxy-log ${CMAKE_CURRENT_BINARY_DIR}/cprx-proxy.log)
 	set_tests_properties(api-test-client-proxy-redirect
 			     PROPERTIES
 			     WORKING_DIRECTORY .

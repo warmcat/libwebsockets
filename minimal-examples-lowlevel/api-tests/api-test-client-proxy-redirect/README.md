@@ -29,10 +29,10 @@ http CONNECT and a SOCKS5 proxy on one port, with the raw origin's tls using
 `../api-test-ws-close/localhost-100y.cert` and `.key`.
 
 ```
-$ python3 ../api-test-ws-close/proxy-fixture.py --port 7692 &
+$ python3 ../api-test-ws-close/proxy-fixture.py --port 7692 --log /tmp/proxy.log &
 $ ./lws-api-test-client-proxy-redirect -p 7690 --port2 7691 --proxy 127.0.0.1:7692 \
 	--cert ../api-test-ws-close/localhost-100y.cert \
-	--key ../api-test-ws-close/localhost-100y.key
+	--key ../api-test-ws-close/localhost-100y.key --proxy-log /tmp/proxy.log
 ```
 
 Option|Meaning
@@ -45,3 +45,4 @@ Option|Meaning
 --cert <path>|The raw origin's tls certificate (default `localhost-100y.cert`)
 --key <path>|The raw origin's tls key (default `localhost-100y.key`)
 --proxy <host:port>|The http CONNECT / SOCKS5 proxy (required)
+--proxy-log <path>|The proxy's log (`proxy-fixture.py --log`), shown if the test fails

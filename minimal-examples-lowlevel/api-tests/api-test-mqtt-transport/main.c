@@ -25,6 +25,44 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if !defined(WIN32)
+#include <unistd.h>
+#endif
+
+static const char *proxy_log;
+
+/*
+ * ctest only shows a fixture's output when the fixture itself fails, not when
+ * a test using it does.  So when we fail, we show what proxy-fixture.py saw,
+ * from the log it was told to keep with --log: whether our connections reached
+ * it, what they asked for, and how far each got.  It goes straight to stderr,
+ * already timestamped like our logs, so log spew handling can't thin it out.
+ */
+static void
+show_proxy_log(void)
+{
+#if !defined(WIN32)
+	char buf[4096];
+	ssize_t n;
+	int fd;
+
+	if (!proxy_log)
+		return;
+
+	fd = lws_open(proxy_log, LWS_O_RDONLY);
+	if (fd < 0) {
+		lwsl_err("%s: can't open proxy log %s\n", __func__, proxy_log);
+		return;
+	}
+
+	lwsl_user("--- what the proxy saw (%s) ---\n", proxy_log);
+	while ((n = read(fd, buf, sizeof(buf))) > 0)
+		if (write(2, buf, (size_t)n) != n)
+			break;
+	close(fd);
+	lwsl_user("--- end of the proxy's log ---\n");
+#endif
+}
 
 #define WATCHDOG_S		20
 
@@ -328,6 +366,7 @@ int main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	proxy_log = lws_cmdline_option(argc, argv, "--proxy-log");
 	/* the defaults budget fds for a lone client; we have both ends */
 	info.fd_limit_per_thread = 0;
 
@@ -424,6 +463,7 @@ bail:
 	lws_context_destroy(cx);
 
 	if (fails || !done) {
+		show_proxy_log();
 		lwsl_user("Completed: failed\n");
 
 		return 1;

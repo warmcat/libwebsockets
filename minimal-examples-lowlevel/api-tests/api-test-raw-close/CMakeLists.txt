@@ -35,7 +35,8 @@ if (requirements)
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			rawclose_proxy ${PYTHON3_FOR_FIXTURE}
 			${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close/proxy-fixture.py
-			--port ${PORT_RAW_CLOSE_SOCKS})
+			--port ${PORT_RAW_CLOSE_SOCKS}
+			--log ${CMAKE_CURRENT_BINARY_DIR}/rawclose-proxy.log)
 		add_test(NAME ki_rawclose_proxy COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 			rawclose_proxy ${PYTHON3_FOR_FIXTURE})
@@ -45,7 +46,8 @@ if (requirements)
 		set_tests_properties(ki_rawclose_proxy PROPERTIES FIXTURES_CLEANUP rawclose_proxy)
 
 		add_test(NAME api-test-raw-close-socks COMMAND lws-api-test-raw-close
-			 -p ${PORT_RAW_CLOSE_S} --socks 127.0.0.1:${PORT_RAW_CLOSE_SOCKS})
+			 -p ${PORT_RAW_CLOSE_S} --socks 127.0.0.1:${PORT_RAW_CLOSE_SOCKS}
+			 --proxy-log ${CMAKE_CURRENT_BINARY_DIR}/rawclose-proxy.log)
 		set_tests_properties(api-test-raw-close-socks PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 				     FIXTURES_REQUIRED "rawclose_proxy"
