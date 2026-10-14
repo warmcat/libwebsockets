@@ -148,6 +148,12 @@
  *  - "stale-device", "stale-user-gone": a device token whose devices row is
  *    gone, and a token for a uid with no users row -> 303, nothing planted;
  *
+ *  - "live-lacks-grant": a token the records do back, with a paired refresh
+ *    jar, but without the gated mount's grant -> 303 to the auth server with
+ *    no exchange.  Renewing can't add a grant the records don't hold: it
+ *    used to renew, 302 back to the page with the new token, still without
+ *    the grant, and renew again, until the browser gave up on the redirects;
+ *
  *  - "ws-live-session" (positive control): a token the records do back opens
  *    the privileged ws protocol on the gated mount;
  *
@@ -260,7 +266,7 @@ static char	o_origin_good[64], o_origin_evil[64], o_referer_good[64];
 #define BFF_REFRESH_JAR	"auth_refresh_session=0123456789abcdef0123456789abcdef; " \
 			"auth_csrf=fedcba9876543210fedcba9876543210"
 static char	ck_live[1024], ck_revoked[1024], ck_regranted[1024],
-		ck_dev_gone[1024], ck_user_gone[1024];
+		ck_dev_gone[1024], ck_user_gone[1024], ck_nogrant[1024];
 
 /*
  * Throwaway P-256 keypair: parsed by the plugin at init to validate tokens,
@@ -307,6 +313,9 @@ static const struct scenario scenarios[] = {
 	{ "stale-device", "/gated", NULL, NULL, NULL, ck_dev_gone,
 	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
 	{ "stale-user-gone", "/gated", NULL, NULL, NULL, ck_user_gone,
+	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	/* live and current, but not for this mount: renewing can't help */
+	{ "live-lacks-grant", "/gated", NULL, NULL, NULL, ck_nogrant,
 	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
 	/* positive control: a token the records back opens the mount */
 	{ "ws-live-session", "/gated", NULL, NULL, NULL, ck_live, 101u, 0, 0, 0,
@@ -615,12 +624,14 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 /*
  * What the mock auth server's records are, as its lws-auth-feed tells
  * lws-login: uid 1 at session_epoch 5, holding default-service:1 and owning
- * device "dev-ok"
+ * device "dev-ok", and uid 2 at session_epoch 5, holding only
+ * other-service:1
  */
 static const char feed_snapshot[] =
 	"{\"schema\":\"lws-auth-feed-1\","
-	"\"users\":[{\"uid\":1,\"sec\":5}],"
+	"\"users\":[{\"uid\":1,\"sec\":5},{\"uid\":2,\"sec\":5}],"
 	"\"grants\":[{\"svc\":\"default-service\",\"uid\":1,"
+		"\"level\":1},{\"svc\":\"other-service\",\"uid\":2,"
 		"\"level\":1}],"
 	"\"devices\":[{\"did\":\"dev-ok\",\"uid\":1}],"
 	"\"ruris\":[]}";
@@ -1868,7 +1879,11 @@ int main(int argc, const char **argv)
 					"dev-gone", NULL) ||
 		    mint_session_cookie(&jwk, ck_user_gone,
 					sizeof(ck_user_gone), 9, 0,
-					"\"default-service\":1", NULL, NULL)) {
+					"\"default-service\":1", NULL, NULL) ||
+		    /* backed by the records, but not for the gated mount */
+		    mint_session_cookie(&jwk, ck_nogrant, sizeof(ck_nogrant),
+					2, 5, "\"other-service\":1", NULL,
+					BFF_REFRESH_JAR)) {
 			lws_jwk_destroy(&jwk);
 			goto bail;
 		}

@@ -3461,8 +3461,15 @@ anon:
 		 * Only on a hard failure (long-term session genuinely gone) do we
 		 * fall through to the 303 below, landing the user on the form to
 		 * actually log in again.  Cookieless requests skip the hop entirely.
+		 *
+		 * Only when there's no live, current token, though.  One that is,
+		 * but lacks the grant, the auth server would only mint again
+		 * without the grant, since it holds what its records do: we 302ed
+		 * back here with it, renewed again, and so on until the browser
+		 * gave up on the redirects.  The auth server tells them they lack
+		 * the grant instead.
 		 */
-			{
+			if (!pss->ja) {
 				int ck_len2 = lws_hdr_total_length(wsi,
 							WSI_TOKEN_HTTP_COOKIE);
 				if (ck_len2 > 0) {
