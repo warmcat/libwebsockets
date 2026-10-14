@@ -45,13 +45,6 @@
 #define lwsl_cx_netlink_debug	lwsl_cx_debug
 
 /*
- * The netlink sequence number of our dump request for the existing routes at
- * init, the kernel's replies to it carry it back.  Route change notifications
- * we didn't ask for come with 0.
- */
-#define LWS_NL_COLDPLUG_SEQ	1
-
-/*
  * The kernel ends the dump with NLMSG_DONE, at which point the table is
  * complete.  If that never comes, eg, the dump request was refused, stop
  * waiting for it after this long anyway, unless some of it is still waiting
@@ -133,6 +126,9 @@ lws_netlink_prefix_len(int af, unsigned int len)
 }
 
 static void
+lws_netlink_dump_again(struct lws_context *cx);
+
+static void
 lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context *ctx = lws_container_of(sul, struct lws_context,
@@ -159,6 +155,16 @@ lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 			lws_sul_schedule(ctx, 0, &ctx->sul_nl_coldplug,
 					 lws_netlink_coldplug_done_cb,
 					 LWS_NL_COLDPLUG_FALLBACK_US);
+			return;
+		}
+
+		if (ctx->nl_dump_again) {
+			/*
+			 * We were waiting for the end of a dump that was
+			 * still running, to ask for all the routes again, but
+			 * it never came, eg, it was in what was lost
+			 */
+			lws_netlink_dump_again(ctx);
 			return;
 		}
 	}
@@ -198,7 +204,15 @@ lws_netlink_request_dump(struct lws_context *cx, struct lws *wsi)
 	req.hdr.nlmsg_len	= NLMSG_LENGTH(sizeof(req.gen));
 	req.hdr.nlmsg_type	= RTM_GETROUTE;
 	req.hdr.nlmsg_flags	= NLM_F_REQUEST | NLM_F_DUMP;
-	req.hdr.nlmsg_seq	= LWS_NL_COLDPLUG_SEQ;
+	/*
+	 * Each request has its own sequence number, which the kernel's replies
+	 * to it carry back, so we can tell the end of this dump from the end
+	 * of one still running from before.  Route change notifications we
+	 * didn't ask for come with 0.
+	 */
+	if (!++cx->nl_dump_seq)
+		cx->nl_dump_seq = 1;
+	req.hdr.nlmsg_seq	= cx->nl_dump_seq;
 	req.hdr.nlmsg_pid	= (uint32_t)getpid();
 	req.gen.rtm_family	= AF_PACKET;
 	req.gen.rtm_table	= RT_TABLE_DEFAULT;
@@ -231,25 +245,43 @@ lws_netlink_request_dump(struct lws_context *cx, struct lws *wsi)
 }
 
 /*
- * The kernel dropped route messages on the way to us (ENOBUFS), eg, a burst
- * from many interfaces coming up at once overflowed our socket.  The table
- * we have has missed some changes and can't be trusted, so forget it and get
- * the whole thing again, like at init.  Until it is all here again, the table
- * isn't used to judge whether a connection still has a route.
+ * Forget the routes we have and ask for all of them again, like at init.
+ * Until they are all here again, the table isn't used to judge whether a
+ * connection still has a route.
  */
 
 static void
-lws_netlink_resync(struct lws_context *cx, struct lws_context_per_thread *pt,
-		   struct lws *wsi)
+lws_netlink_dump_again(struct lws_context *cx)
 {
-	lwsl_cx_warn(cx, "route messages were lost, getting all the routes "
-			 "again");
+	struct lws_context_per_thread *pt = &cx->pt[(int)cx->netlink->tsi];
+
+	cx->nl_dump_again = 0;
 
 	lws_pt_lock(pt, __func__);
 	_lws_route_table_empty(pt);
 	lws_pt_unlock(pt);
 
-	lws_netlink_request_dump(cx, wsi);
+	lws_netlink_request_dump(cx, cx->netlink);
+}
+
+/*
+ * The kernel dropped route messages on the way to us (ENOBUFS), eg, a burst
+ * from many interfaces coming up at once overflowed our socket.  The table
+ * we have has missed some changes and can't be trusted, so get the whole
+ * thing again.
+ *
+ * If what was lost was part of a dump that is still running, the kernel
+ * refuses to start another until it ends (EBUSY), and we ask again then, see
+ * NLMSG_ERROR in the POLLIN handler.
+ */
+
+static void
+lws_netlink_resync(struct lws_context *cx)
+{
+	lwsl_cx_warn(cx, "route messages were lost, getting all the routes "
+			 "again");
+
+	lws_netlink_dump_again(cx);
 }
 
 static lws_handling_result_t
@@ -297,7 +329,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 
 		if (e == ENOBUFS) {
-			lws_netlink_resync(cx, pt, wsi);
+			lws_netlink_resync(cx);
 			return LWS_HPI_RET_HANDLED;
 		}
 
@@ -560,11 +592,36 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		case NLMSG_DONE:
 		case NLMSG_ERROR:
+			if (!h->nlmsg_seq || pt != &cx->pt[0])
+				continue;
+
+			if (h->nlmsg_type == NLMSG_ERROR &&
+			    h->nlmsg_seq == cx->nl_dump_seq &&
+			    h->nlmsg_len >= NLMSG_LENGTH(sizeof(struct nlmsgerr)) &&
+			    ((struct nlmsgerr *)NLMSG_DATA(h))->error == -EBUSY) {
+				/*
+				 * We lost part of a dump that is still
+				 * running, and the kernel does one at a time:
+				 * ask again when that one ends
+				 */
+				lwsl_cx_netlink(cx, "route dump still running, "
+						    "asking again when it ends");
+				cx->nl_dump_again = 1;
+				continue;
+			}
+
+			if (h->nlmsg_seq != cx->nl_dump_seq) {
+				/* the end of a dump from before */
+				if (cx->nl_dump_again)
+					lws_netlink_dump_again(cx);
+				continue;
+			}
+
 			/*
-			 * The end of the existing routes we asked for at init,
-			 * or the kernel declining to give them: either way the
-			 * table is as complete as it is going to get, so we
-			 * can start judging connections by it.
+			 * The end of the existing routes we asked for, or the
+			 * kernel declining to give them: either way the table
+			 * is as complete as it is going to get, so we can
+			 * start judging connections by it.
 			 *
 			 * The dump can arrive over many reads, with event loop
 			 * activity between them, so a quiet spell is no sign
@@ -572,8 +629,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			 * connections to destinations whose routes are yet to
 			 * come, eg, ::1 when only the ipv4 routes are in.
 			 */
-			if (h->nlmsg_seq == LWS_NL_COLDPLUG_SEQ &&
-			    !cx->nl_initial_done && pt == &cx->pt[0]) {
+			if (!cx->nl_initial_done) {
 				lwsl_cx_netlink(cx, "coldplug dump ended (%s)",
 						h->nlmsg_type == NLMSG_DONE ?
 							"done" : "error");

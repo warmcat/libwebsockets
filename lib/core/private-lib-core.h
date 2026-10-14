@@ -550,6 +550,8 @@ struct lws_context {
 	/* process can only have one netlink socket, have to do it in ctx */
 	lws_dll2_owner_t			routing_table;
 	struct lws				*netlink;
+	/* the sequence number of our latest request for all the routes */
+	uint32_t				nl_dump_seq;
 #endif
 
 #if defined(LWS_PLAT_FREERTOS)
@@ -925,6 +927,8 @@ struct lws_context {
 	unsigned int policy_updated:1;
 #if defined(LWS_WITH_ROUTING)
 	unsigned int nl_initial_done:1;
+	/* a route dump was still running, ask again when it ends */
+	unsigned int nl_dump_again:1;
 #endif
 	/* some interface has acquired an IP, via SMD "ipacq" */
 	unsigned int ipacq_seen:1;
