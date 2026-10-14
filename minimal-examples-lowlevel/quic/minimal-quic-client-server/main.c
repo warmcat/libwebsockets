@@ -25,7 +25,8 @@
  * it until its handshake completes rather than lose it.  With --forwarder,
  * copies of the client's small packets also reach the server first from
  * another address that never answers, and the server must not keep probing
- * that address.
+ * that address.  --spread <ms> has the client spread its writes over that
+ * long, rather than send as fast as it can.
  */
 
 #include <libwebsockets.h>
@@ -36,6 +37,8 @@ static struct lws_context *context;
 static int result = 1; /* 1 means failed/timeout, 0 means success */
 static int server_only = 0;
 static size_t write_size = 1024;
+/* --spread: the client spreads its writes over this long, from established */
+static lws_usec_t spread_us, spread_start;
 
 static const struct lws_http_mount mount_redir = {
 	.mountpoint = "/",
@@ -598,6 +601,26 @@ static int server_done = 0;
 static lws_usec_t last_rx_us;
 static char early_1rtt_failed;
 
+/*
+ * With --spread, the client spreads its writes over spread_us: if its next one
+ * isn't due yet, it's told when it is
+ */
+
+static int
+client_write_not_due(struct lws *wsi)
+{
+	lws_usec_t due = spread_start + (lws_usec_t)
+			 ((uint64_t)spread_us * client_sent / TOTAL_DATA),
+		   now = lws_now_usecs();
+
+	if (due <= now)
+		return 0;
+
+	lws_set_timer_usecs(wsi, due - now);
+
+	return 1;
+}
+
 /* --early-1rtt: the relay's window is over, see RELAY_EARLY_WINDOW_US */
 
 static void
@@ -749,7 +772,13 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		lwsl_wsi_notice(wsi, "Client successfully established QUIC connection!");
+		spread_start = lws_now_usecs();
 		/* Trigger a write to send bulk data */
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_TIMER:
+		/* --spread: the client's next write is due */
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -757,7 +786,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		uint8_t buf[LWS_PRE + 1024];
 
-		if (client_sent >= TOTAL_DATA)
+		if (client_sent >= TOTAL_DATA || client_write_not_due(wsi))
 			break;
 
 		size_t to_send = TOTAL_DATA - client_sent;
@@ -874,6 +903,7 @@ enum {
 	LWS_SW_EARLY_1RTT,
 	LWS_SW_FORWARDER,
 	LWS_SW_WRITE_SIZE,
+	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
 };
 
@@ -889,6 +919,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_EARLY_1RTT] = { "--early-1rtt", "The relay sends the client's first 1-RTT packet ahead of its Finished (needs --relay)" },
 	[LWS_SW_FORWARDER] = { "--forwarder", "The relay also sends the server copies of the client's small packets from an address that never answers (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
+	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
 };
 
@@ -962,6 +993,18 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 		write_size = (size_t)ws;
+	}
+
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_SPREAD].sw);
+	if (p) {
+		int ms = atoi(p);
+
+		/* the transfer has to be done inside the 60s the test allows */
+		if (ms < 0 || ms > 30000) {
+			lwsl_err("--spread must be 0 to 30000\n");
+			return 1;
+		}
+		spread_us = (lws_usec_t)ms * LWS_US_PER_MS;
 	}
 
 	p = lws_cmdline_option(argc, argv, switches[LWS_SW_RELAY].sw);

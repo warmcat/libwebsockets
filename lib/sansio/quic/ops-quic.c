@@ -5507,6 +5507,17 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
         if (nwsi->quic.qn->next_stream_id_bidi_local == 0)
                 nwsi->quic.qn->next_stream_id_bidi_local = 4;
         lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
+	/*
+	 * A server reaps the connection when it's idle from when its handshake
+	 * completed, which was while this wsi was the connection.  It's only
+	 * stream 0 now, and the connection, which has it as a stream, isn't
+	 * idle: otherwise stream 0 is closed when that runs out, however much
+	 * is still coming on it, since what refreshes it only looks at the
+	 * connection's network wsi.
+	 */
+	if (wsi->pending_timeout == PENDING_TIMEOUT_UDP_IDLE)
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
 
 	if (listener) {
 		nwsi->mux_substream = 1;

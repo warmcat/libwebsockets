@@ -29,10 +29,23 @@ arrived.
 |--early-1rtt|With `--relay`, the relay sends the client's first 1-RTT packet ahead of its Finished, see below|
 |--forwarder|With `--relay`, the relay also sends the server copies of the client's small packets from an address that never answers, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
+|--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
 
 ```
  $ ./lws-minimal-quic-client-server
+```
+
+## spreading the client's writes
+
+With `--spread <ms>`, the client doesn't write as fast as it can, but spreads
+its 128KB evenly over that long, so the connection and its stream carry data
+for that long.  The server reaps a connection that is idle, by default 5s after
+its handshake if it has no streams, and must not take one whose stream is still
+busy for idle.
+
+```
+ $ ./lws-minimal-quic-client-server --spread 8000
 ```
 
 ## the reordering relay
