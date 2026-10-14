@@ -342,6 +342,19 @@ lws_async_dns_query_direct(struct lws_context *cx,
 	ad->cb		= cb;
 	ad->opaque	= opaque;
 	ad->server	= *server;
+#if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_IPV4)
+	/*
+	 * An IPv6-only build only has AF_INET6 sockets: an IPv4 server can
+	 * only be asked as its v4-mapped address
+	 */
+	if (server->sa4.sin_family == AF_INET) {
+		/* sin_addr would otherwise be left in sin6_flowinfo */
+		memset(&ad->server, 0, sizeof(ad->server));
+		lws_sa46_4to6(&ad->server,
+			      (const uint8_t *)&server->sa4.sin_addr,
+			      ntohs(server->sa4.sin_port));
+	}
+#endif
 	ad->qtype	= (uint16_t)qtype;
 	if (!direct_port(&ad->server))
 		sa46_sockport(&ad->server, htons(53));
