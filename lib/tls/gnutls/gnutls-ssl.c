@@ -31,6 +31,37 @@ gnutls_quic_bio_free(struct lws *wsi);
 #endif
 
 #if defined(LWS_WITH_TCP_TLS)
+/*
+ * Say why a record send or receive failed for good: the socket under the tls
+ * failing leaves its errno, since the session uses gnutls' own socket
+ * transport
+ */
+static void
+lws_gnutls_close_cause(struct lws *wsi, int n, int tx)
+{
+	int en = LWS_ERRNO;
+
+	switch (n) {
+	case GNUTLS_E_PREMATURE_TERMINATION:
+		lws_wsi_close_cause_set(wsi, "peer closed without tls "
+					"close_notify", 0);
+		break;
+	case GNUTLS_E_PULL_ERROR:
+	case GNUTLS_E_PUSH_ERROR:
+		if (tx)
+			lws_wsi_close_cause_set(wsi, en ? "tx failed, errno" :
+							  "tx failed", en);
+		else
+			lws_wsi_close_cause_set(wsi, en ? "rx failed, errno" :
+							  "rx failed", en);
+		break;
+	default:
+		lws_wsi_close_cause_set(wsi, tx ? "tls tx error, gnutls" :
+						  "tls rx error, gnutls", n);
+		break;
+	}
+}
+
 int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
@@ -78,6 +109,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 
 	if (!n) {
 		__lws_ssl_remove_wsi_from_buffered_list(wsi);
+		lws_wsi_close_cause_set(wsi, "peer closed tls", 0);
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
@@ -106,11 +138,13 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		 * (C-406) lands on this backend: drop the connection.
 		 */
 		lwsl_wsi_notice(wsi, "peer asked to renegotiate, refusing");
+		lws_wsi_close_cause_set(wsi, "peer asked to renegotiate", 0);
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
 	lwsl_info("gnutls_record_recv error %d\n", n);
+	lws_gnutls_close_cause(wsi, n, 0);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -133,6 +167,8 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	}
+
+	lws_gnutls_close_cause(wsi, n, 1);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

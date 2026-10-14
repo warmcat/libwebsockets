@@ -142,10 +142,16 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 	// lwsl_wsi_info(wsi, "ssl_capable_write (%d) says %d", n, m);
 
 	switch ((int)m) {
-	case LWS_SSL_CAPABLE_ERROR:
+	case LWS_SSL_CAPABLE_ERROR: {
+		int en = LWS_ERRNO;
+
+		/* the transport may have said more precisely already */
+		lws_wsi_close_cause_set(wsi, en ? "tx failed, errno" :
+						  "tx failed", en);
 		/* we're going to close, let close know sends aren't possible */
 		lwsi_set_skt_unusable(wsi, 1);
 		return -1;
+	}
 	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 		/*
@@ -475,6 +481,11 @@ do_err:
 #endif
 
 	lwsl_wsi_info(wsi, "error on reading from skt : %d, errno %d", n, en);
+	if (!n)
+		lws_wsi_close_cause_set(wsi, "peer closed", 0);
+	else
+		lws_wsi_close_cause_set(wsi, en ? "rx failed, errno" :
+						   "rx failed", en);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -596,6 +607,7 @@ post_send:
 
 	lwsl_wsi_debug(wsi, "ERROR writing len %d to skt fd %d err %d / errno %d",
 			    (int)(ssize_t)len, wsi->io->desc.sockfd, n, en);
+	lws_wsi_close_cause_set(wsi, en ? "tx failed, errno" : "tx failed", en);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

@@ -313,14 +313,22 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
                                                  METRES_NOGO, 0);
 #endif
                         __lws_ssl_remove_wsi_from_buffered_list(wsi);
+			lws_wsi_close_cause_set(wsi, "peer closed tls", 0);
 
                         return LWS_SSL_CAPABLE_ERROR;
                 }
 
-		if (m == SSL_ERROR_SSL)
+		if (m == SSL_ERROR_SSL) {
 		    lws_tls_err_describe_clear();
+		    lws_wsi_close_cause_set(wsi, "tls rx error", 0);
+		}
 
 		/* hm not retryable.. could be 0 size pkt or error  */
+
+		if (m == SSL_ERROR_SYSCALL && !LWS_ERRNO)
+			/* the socket just ended under the tls */
+			lws_wsi_close_cause_set(wsi, "peer closed without "
+						"tls close_notify", 0);
 
 		if (m == SSL_ERROR_SSL || m == SSL_ERROR_SYSCALL ||
         LWS_ERRNO == LWS_ENOTCONN) {

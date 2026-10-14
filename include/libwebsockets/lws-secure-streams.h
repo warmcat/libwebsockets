@@ -638,6 +638,26 @@ LWS_VISIBLE LWS_EXTERN int
 lws_ss_add_peer_tx_credit(struct lws_ss_handle *h, int32_t add);
 
 /**
+ * lws_ss_close_cause() - say why the stream's last connection ended
+ *
+ * \param h: secure streams handle
+ * \param buf: where to render the cause
+ * \param len: size of buf
+ *
+ * In the LWSSSCS_DISCONNECTED state callback, and until the stream connects
+ * again, renders why its connection ended, as lws_wsi_close_cause() describes,
+ * eg, "peer closed", "rx failed, errno 104" or "no reply to validity ping".
+ *
+ * Only a stream with its own connection knows this: via a proxy, the
+ * connection is the proxy's.
+ *
+ * Returns the length of what was rendered, 0 with buf set to "" when there
+ * is nothing to say.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_close_cause(struct lws_ss_handle *h, char *buf, size_t len);
+
+/**
  * lws_ss_get_est_peer_tx_credit() - get our current estimate of peer's tx credit
  *
  * \param h: secure streams handle

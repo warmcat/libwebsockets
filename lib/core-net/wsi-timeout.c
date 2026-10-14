@@ -172,6 +172,8 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 
 	lws_context_lock(cx, __func__);
 	lws_pt_lock(pt, __func__);
+	lws_wsi_close_cause_set(wsi, "timed out, pending timeout",
+				(int)wsi->pending_timeout);
 	__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
 	lws_pt_unlock(pt);
 	lws_context_unlock(cx);

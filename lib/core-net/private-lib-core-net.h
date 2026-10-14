@@ -1285,6 +1285,11 @@ struct lws {
 	 * since the size may have come from LWS_CALLBACK_GET_PSS_SIZE and not
 	 * from protocol->per_session_data_size */
 	void				*opaque_parent_data;
+	/*
+	 * The first thing known to have ended the connection, a static
+	 * string, with close_cause_arg: see lws_wsi_close_cause()
+	 */
+	const char			*close_cause;
 
 	struct lws_buflist		*buflist; /* input-side buflist */
 	struct lws_buflist		*buflist_out; /* output-side buflist */
@@ -1310,6 +1315,7 @@ struct lws {
 	int				flags;
 #endif
 	unsigned int			cache_secs;
+	int				close_cause_arg; /* errno, timeout... */
 
 
 	unsigned int			close_decided:1; /* LWS_TO_KILL_ASYNC set */
@@ -1551,6 +1557,10 @@ lws_handling_result_t
 _lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
 lws_handling_result_t
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
+void
+lws_wsi_close_cause_set(struct lws *wsi, const char *cause, int arg);
+int
+lws_close_cause_render(char *buf, size_t len, const char *cause, int arg);
 
 void
 __lws_free_wsi(struct lws *wsi);

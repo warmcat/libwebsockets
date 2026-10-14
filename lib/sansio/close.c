@@ -493,6 +493,47 @@ lws_async_worker_wait_and_reap(struct lws *wsi)
 /* requires cx and pt lock */
 
 /*
+ * Note why the connection is ending, if nothing has yet: the first cause is
+ * the one that matters, what follows from it, eg, the close it leads to, is
+ * not news.  cause must be a static string.
+ */
+void
+lws_wsi_close_cause_set(struct lws *wsi, const char *cause, int arg)
+{
+	if (wsi->close_cause || !cause)
+		return;
+
+	wsi->close_cause = cause;
+	wsi->close_cause_arg = arg;
+}
+
+int
+lws_close_cause_render(char *buf, size_t len, const char *cause, int arg)
+{
+	if (!len)
+		return 0;
+
+	buf[0] = '\0';
+	if (!cause)
+		return 0;
+
+	if (arg)
+		return lws_snprintf(buf, len, "%s %d", cause, arg);
+
+	return lws_snprintf(buf, len, "%s", cause);
+}
+
+int
+lws_wsi_close_cause(struct lws *wsi, char *buf, size_t len)
+{
+	if (!wsi)
+		return lws_close_cause_render(buf, len, NULL, 0);
+
+	return lws_close_cause_render(buf, len, wsi->close_cause,
+				      wsi->close_cause_arg);
+}
+
+/*
  * Returns LWS_HPI_RET_WSI_ALREADY_DIED when the wsi was freed, or
  * LWS_HPI_RET_CLOSING when it lives on in its close: flushing, a polite ws
  * close, a staged shutdown, an event library finishing it later, a restart,
@@ -536,6 +577,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		 */
 		return LWS_HPI_RET_CLOSING;
 
+	/* nothing lower down saw why: it's whatever decided to close it */
+	lws_wsi_close_cause_set(wsi, caller, 0);
+
 	lws_access_log(wsi);
 
 	if (!lws_dll2_is_detached(&wsi->dll_buflist))
@@ -576,6 +620,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 					struct lws, sibling_list);
 		/* stop it doing shutdown processing */
 		lwsi_set_skt_unusable(wsi2, 1);
+		/* his stream ends for the reason its connection did */
+		lws_wsi_close_cause_set(wsi2, wsi->close_cause,
+					wsi->close_cause_arg);
 		__lws_close_free_wsi(wsi2, reason, "general child recurse");
 		if (lws_dll2_get_head(&wsi->child_list_owner) == &wsi2->sibling_list) {
 			/*
@@ -1189,6 +1236,9 @@ _lws_close_free_wsi_final(struct lws *wsi)
 		if (wsi->a.protocol)
 			lws_bind_protocol(wsi, wsi->a.protocol, "client_reset");
 		wsi->pending_timeout = NO_PENDING_TIMEOUT;
+		/* the new connection hasn't ended for any reason yet */
+		wsi->close_cause = NULL;
+		wsi->close_cause_arg = 0;
 
 #if defined(LWS_WITH_TLS)
 		/* guarded like the CIS_ADDRESS use further down */

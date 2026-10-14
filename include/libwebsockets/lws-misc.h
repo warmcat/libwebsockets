@@ -1278,6 +1278,36 @@ LWS_VISIBLE LWS_EXTERN unsigned char *
 lws_get_close_payload(struct lws *wsi);
 
 /**
+ * lws_wsi_close_cause() - say why a connection is closing
+ *
+ * \param wsi: the connection, or a stream on one
+ * \param buf: where to render the cause
+ * \param len: size of buf
+ *
+ * When a connection goes down, the reason is usually only seen deep inside
+ * lws: the peer closed or reset it, a read or a write on it failed, one of
+ * its timeouts, or its validity check, expired.  lws keeps the first such
+ * cause it sees on the wsi, so code dealing with the close, eg, in
+ * LWS_CALLBACK_CLOSED, LWS_CALLBACK_CLIENT_CONNECTION_ERROR or
+ * LWS_CALLBACK_WSI_DESTROY, can say why it happened.
+ *
+ * Renders, eg, "peer closed", "peer hung up", "rx failed, errno 104",
+ * "tx failed, errno 32", "peer closed without tls close_notify",
+ * "timed out, pending timeout 3", "no reply to validity ping", "peer sent ws
+ * close, status 1001", or "closing with ws status 1002", when lws, or the
+ * protocol with lws_close_reason(), closed it giving a ws status.  A stream
+ * takes its connection's cause when the connection closes under it.  When
+ * none of those caused it, it's the internal name of what closed it, eg,
+ * "close_and_handled" when the protocol callback asked for the close, which
+ * the code that asked will know more about.
+ *
+ * Returns the length of what was rendered, 0 with buf set to "" when the
+ * wsi has not started closing.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_wsi_close_cause(struct lws *wsi, char *buf, size_t len);
+
+/**
  * lws_get_network_wsi() - Returns wsi that has the tcp connection for this wsi
  *
  * \param wsi: wsi you have

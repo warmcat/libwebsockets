@@ -93,6 +93,12 @@ typedef struct lws_ss_handle {
 	const lws_ss_policy_t	*policy;  /**< system policy for stream */
 
 	struct lws		*wsi;	  /**< the stream wsi if any */
+	/*
+	 * Why the last connection ended, kept from its wsi when it went: see
+	 * lws_ss_close_cause()
+	 */
+	const char		*close_cause;
+	int			close_cause_arg;
 
 	struct lws_sss_proxy_conn *conn_if_sspc_onw;
 

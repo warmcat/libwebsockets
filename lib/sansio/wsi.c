@@ -2283,6 +2283,9 @@ void lws_wsi_mux_close_children(struct lws *wsi, int reason) {
 
 		lwsl_wsi_info(w, "   closing child");
 		lwsi_set_skt_unusable(w, 1);
+		/* his stream ends for the reason its connection did */
+		lws_wsi_close_cause_set(w, wsi->close_cause,
+					wsi->close_cause_arg);
 		__lws_close_free_wsi(w, (enum lws_close_status)reason,
 				"mux child recurse");
 	}
@@ -2721,6 +2724,7 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 
 		lws_context_lock(cx, __func__);
 		lws_pt_lock(pt, __func__);
+		lws_wsi_close_cause_set(wsi, "no reply to validity ping", 0);
 		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				     "validity timeout");
 		lws_pt_unlock(pt);

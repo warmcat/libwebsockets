@@ -446,10 +446,17 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 	if (lws_ss_check_next_state_ss(h, &h->prev_ss_state, cs))
 		return LWSSSSRET_DESTROY_ME;
 
-	if (cs == LWSSSCS_CONNECTED)
+	if (cs == LWSSSCS_CONNECTED) {
 		h->ss_dangling_connected = 1;
+		h->close_cause = NULL;
+		h->close_cause_arg = 0;
+	}
 	if (cs == LWSSSCS_DISCONNECTED) {
 		h->ss_dangling_connected = 0;
+
+		/* the wsi goes now, keep why it ended for the state cb */
+		h->close_cause = h->wsi ? h->wsi->close_cause : NULL;
+		h->close_cause_arg = h->wsi ? h->wsi->close_cause_arg : 0;
 
 		h->subseq = 0;
 		h->txn_ok = 0;
@@ -2465,6 +2472,13 @@ lws_ss_http_rx_content_length(struct lws_ss_handle *h, uint64_t *len)
 	(void)len;
 	return 1;
 #endif
+}
+
+int
+lws_ss_close_cause(struct lws_ss_handle *h, char *buf, size_t len)
+{
+	return lws_close_cause_render(buf, len, h->close_cause,
+				      h->close_cause_arg);
 }
 
 int

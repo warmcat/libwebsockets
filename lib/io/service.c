@@ -564,6 +564,13 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	ebuf->token = ep;
 	ebuf->len = n = lws_ssl_capable_read(wsi, ep, (size_t)e);
+	if (n == LWS_SSL_CAPABLE_ERROR) {
+		int en = LWS_ERRNO;
+
+		/* the transport may have said more precisely already */
+		lws_wsi_close_cause_set(wsi, en ? "rx failed, errno" :
+						  "rx failed", en);
+	}
 
 	lwsl_wsi_debug(wsi, "%s: ssl_capable_read %d", hint, ebuf->len);
 
@@ -717,6 +724,8 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 		}
 #endif
+		lws_wsi_close_cause_set(wsi, "peer closed", 0);
+
 		return rx_pump_peer_closed(wsi, nothing);
 
 	case LWS_SSL_CAPABLE_ERROR:
@@ -730,8 +739,11 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * forever.  A read that yields nothing on a hung-up socket
 		 * is the peer closed, however it was spelled.
 		 */
-		if (pollfd && (pollfd->revents & LWS_POLLHUP))
+		if (pollfd && (pollfd->revents & LWS_POLLHUP)) {
+			lws_wsi_close_cause_set(wsi, "peer hung up", 0);
+
 			return rx_pump_peer_closed(wsi, nothing);
+		}
 
 		if (ebuf.len == LWS_SSL_CAPABLE_ERROR) {
 			/*

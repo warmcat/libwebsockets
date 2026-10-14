@@ -709,6 +709,15 @@ spill:
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 
+			/* he started the close: that's why it's ending */
+			if (wsi->ws->rx_ubuf_head >= 2)
+				lws_wsi_close_cause_set(wsi,
+					"peer sent ws close, status",
+					(pp[0] << 8) | pp[1]);
+			else
+				lws_wsi_close_cause_set(wsi,
+					"peer sent ws close", 0);
+
 			lwsl_wsi_parser(wsi, "client sees server close len = %d",
 						 (int)wsi->ws->rx_ubuf_head);
 			if (wsi->ws->rx_ubuf_head >= 2) {
