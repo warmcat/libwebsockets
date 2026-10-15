@@ -164,12 +164,15 @@ telling anyone, as a path whose MTU fell to 1280 would.  Loss recovery alone
 never gets through: what was lost goes again in packets just as big.
 
 So each side watches for packets bigger than 1232 being lost (RFC 8899 4.3):
-once three were lost with none of them getting through since, it sends a
-probe of 1232 bytes.  If that gets through, while the big ones don't, the
-path's MTU fell, and the side goes back to 1280, searching again 10 minutes
-later.  If the probe is lost too, everything is being lost, which says
-nothing about the MTU.  The transfer must complete, and each side must have
-sent big packets into the black hole, or nothing was tested.
+once three were lost with none sent after them getting through, it goes back
+to 1280 at once, and sends a probe of 1232 bytes to confirm small packets
+still get through.  It can't wait for that before going back: the other side
+acks the probe in what it sends next, which is big, and lost too.  Once the
+probe gets through, the side searches again from 1280, and settles there when
+its probes of 1380 are lost; it tries 1380 again 10 minutes later.  If a big
+packet sent before going back is acked after all, it was ordinary loss, and
+the side goes back to the size it had.  The transfer must complete, and each
+side must have sent big packets into the black hole, or nothing was tested.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --blackhole

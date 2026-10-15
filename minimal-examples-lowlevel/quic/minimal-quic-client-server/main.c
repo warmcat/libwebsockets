@@ -260,9 +260,10 @@ static const char * const test_key =
  * which the base IP MTU, 1280, carries.  Then it loses every datagram bigger
  * than that in that direction, as a path whose MTU fell to the base would,
  * without telling anyone.  Each side must see the big packets it sends are
- * lost, while a probe of the base size still gets through, and go back to
- * the base (RFC 8899 4.3), so the transfer completes.  The test fails if a
- * direction never had the black hole, since then nothing was tested.
+ * lost, and go back to the base (RFC 8899 4.3), confirming with a probe of
+ * the base size that small packets still get through, so the transfer
+ * completes.  The test fails if a direction never had the black hole, since
+ * then nothing was tested.
  */
 #define RELAY_BH_AFTER		10
 #define RELAY_BH_BASE		(1280 - RELAY_PMTU_OVERHEAD)

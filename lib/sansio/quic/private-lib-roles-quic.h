@@ -246,7 +246,9 @@ enum lws_quic_frame_type {
  * carry, probes LWS_QUIC_PMTU_FIRST_PROBE, then up in steps to the ceiling, an
  * Ethernet MTU, or less if the peer's max_udp_payload_size is smaller.  A size
  * that lost LWS_QUIC_PMTUD_MAX_PROBES probes is too big, and the search
- * settles on the size it has.
+ * settles on the size it has, and tries the size it settled under again after
+ * LWS_QUIC_PMTUD_RAISE_US (RFC 8899 5.1.1 PMTU_RAISE_TIMER), since the path
+ * may carry it by then.
  */
 #define LWS_QUIC_PMTU_BASE		1280u
 #define LWS_QUIC_PMTU_FIRST_PROBE	1380u
@@ -257,12 +259,19 @@ enum lws_quic_frame_type {
 
 /*
  * Black hole detection (RFC 8899 4.3): once LWS_QUIC_PMTUD_BH_LOSSES packets
- * bigger than the base were lost and none got through since, a probe of the
- * base size checks whether small packets still get through.  If it does,
- * while the big ones were lost, the path's MTU fell: the connection goes back
- * to the base, and searches again after LWS_QUIC_PMTUD_RAISE_US (RFC 8899
- * 5.1.1 PMTU_RAISE_TIMER).  If it doesn't, everything is being lost, and
- * that's loss recovery's business, not PMTUD's.
+ * bigger than the base were lost with no bigger packet sent after them getting
+ * through, the path's MTU may have fallen.  The connection goes back to the
+ * base at once, as RFC 8899 5.2 says, and a probe of the base size confirms
+ * small packets still get through.  It can't wait for that before going back:
+ * the peer's ack of the probe may only come in its own big packets, and if the
+ * black hole is in both directions, neither side's would ever arrive.
+ *
+ * If a big packet sent before going back is acked after all, it was loss,
+ * not a black hole, and the connection goes back to the size it had.
+ * Otherwise, once the base probe gets through, the search starts again from
+ * the base (RFC 8899 5.2, BASE to SEARCHING), and settles on the size the path
+ * carries now.  If the base probe is lost too, everything is being lost, eg,
+ * the path is down for a while: it is probed again until one gets through.
  */
 #define LWS_QUIC_PMTUD_BH_LOSSES	3u
 #define LWS_QUIC_PMTUD_RAISE_US		(600 * LWS_US_PER_SEC)
@@ -590,9 +599,22 @@ struct lws_quic_netconn {
 	lws_usec_t		pmtud_raise_at;
 	/* the peer's max_udp_payload_size transport parameter, 0 if none */
 	uint32_t		peer_max_udp_payload;
+	/*
+	 * 1 + the PN of the newest packet bigger than the base that was acked,
+	 * or 0 if none was: a big packet lost before that one says nothing
+	 * about the path's MTU
+	 */
+	uint64_t		pmtud_big_acked_pn1;
+	/*
+	 * While a black hole is suspected, not confirmed yet, the mtu and
+	 * pmtud_state from before it, to go back to if it was a false alarm;
+	 * pmtud_bh_from_mtu is 0 otherwise
+	 */
+	uint32_t		pmtud_bh_from_mtu;
 	/* packets bigger than the base lost since one of them got through */
 	uint16_t		consecutive_mtu_losses;
 	uint8_t			pmtud_state; /* 0=BASE, 1=SEARCHING, 2=SEARCH_COMPLETE */
+	uint8_t			pmtud_bh_from_state;
 	/* probes of probed_mtu lost so far */
 	uint8_t			pmtud_probe_fails;
 	/* a probe's PING is in pending_tx, not sent yet */
