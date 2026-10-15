@@ -1453,6 +1453,7 @@ struct lws_spawn_piped {
 	pid_t				child_pid;
 
 	siginfo_t			si;
+	lws_sorted_usec_list_t		sul_mem; /* samples tree memory */
 #endif
 	int				reap_retry_budget;
 
@@ -1469,6 +1470,18 @@ struct lws_spawn_piped {
 	uint8_t				destroying:1;
 };
 
+#if !defined(WIN32)
+/* how often the memory of a spawn's process tree is added up while it runs */
+#define LWS_SPAWN_TREE_SAMPLE_US	(200 * LWS_US_PER_MS)
+
+int
+lws_spawn_tree_rss(struct lws_spawn_piped *lsp, uint64_t *rss);
+int
+lws_spawn_cgroup_cpu(struct lws_spawn_piped *lsp, uint64_t *us_user,
+		     uint64_t *us_sys);
+void
+lws_spawn_tree_sample_cb(lws_sorted_usec_list_t *sul);
+#endif
 
 #endif
 

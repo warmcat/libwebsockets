@@ -1858,7 +1858,22 @@ typedef struct _lws_siginfo_t siginfo_t;
  * lws_spawn_resource_us_t - resource usage results from spawned process
  *
  * All time values are in uS.
- * All size values are in bytes.
+ * All size values are in bytes, on every platform.
+ *
+ * They're for the spawned process and everything it started, eg, the
+ * compilers under a build tool, not just the process itself.
+ *
+ * The cpu times are exact: what the kernel accounted to the process and the
+ * children it waited for, to its cgroup on Linux when it was given one, or to
+ * its job on Windows.
+ *
+ * peak_mem_rss is the most the tree had resident at once.  On Windows that's
+ * the job's peak committed memory.  Elsewhere, while the process runs, lws
+ * adds up the resident memory of it and its descendants (or of its cgroup's
+ * members on Linux) every 200ms, if lws_spawn_piped_info
+ * .res was given, and keeps the peak.  It errs high, since memory shared
+ * between processes is counted in each, and is never less than the peak of
+ * the biggest single process.
  */
 typedef struct lws_spawn_resource_us {
 	uint64_t			us_cpu_user;  /**< user space cpu time */
@@ -1889,7 +1904,9 @@ typedef void (*lsp_cb_t)(void *opaque, const lws_spawn_resource_us_t *res,
  * \p tsi: tsi to bind stdwsi to... from opt_parent if given
  * \p cgroup_name_suffix: for Linux, encapsulate spawn into this new cgroup
  * \p p_cgroup_ret: NULL, or pointer to int to show if cgroups applied OK (0 = OK)
- * \p pres: NULL, or pointer to a lws_spawn_resource_us_t to take the results
+ * \p res: NULL, or pointer to a lws_spawn_resource_us_t to take the results,
+ *	which also has lws keep track of the memory of the whole process tree
+ *	while it runs, see lws_spawn_resource_us_t
  */
 struct lws_spawn_piped_info {
 	struct lws_dll2_owner		*owner;

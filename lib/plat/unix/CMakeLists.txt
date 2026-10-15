@@ -99,6 +99,7 @@ endif()
 
 if (LWS_WITH_SPAWN)
 	list(APPEND SOURCES plat/unix/unix-spawn.c)
+	list(APPEND SOURCES plat/unix/unix-spawn-tree.c)
 endif()
 
 if (HAIKU)

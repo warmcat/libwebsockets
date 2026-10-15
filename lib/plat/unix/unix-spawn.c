@@ -184,6 +184,7 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 
 	lws_sul_cancel(&lsp->sul);
 	lws_sul_cancel(&lsp->sul_reap);
+	lws_sul_cancel(&lsp->sul_mem);
 
 	for (n = 0; n < 3; n++) {
 #if 0
@@ -284,7 +285,12 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 			return 0;
 		}
 
+		/* there's no more tree to measure */
+		lws_sul_cancel(&lsp->sul_mem);
+
 		if (n > 0) {
+			uint64_t maxrss = (uint64_t)ru.ru_maxrss;
+
 			lws_spawn_note_reaped(lsp, &status);
 
 			lsp->res.us_cpu_user = ((uint64_t)ru.ru_utime.tv_sec *
@@ -293,8 +299,19 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 			lsp->res.us_cpu_sys = ((uint64_t)ru.ru_stime.tv_sec *
 					LWS_US_PER_SEC) +
 					(uint64_t)ru.ru_stime.tv_usec;
-			/* ru_maxrss is in KB */
-			lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
+
+			/*
+			 * ru_maxrss is the peak of the biggest single process
+			 * that was waited for.  It's in bytes on Apple and in
+			 * KiB everywhere else.  What we sampled of the whole
+			 * tree while it ran can only be more, but may have
+			 * missed a short peak.
+			 */
+#if !defined(__APPLE__)
+			maxrss *= 1024;
+#endif
+			if (maxrss > lsp->res.peak_mem_rss)
+				lsp->res.peak_mem_rss = maxrss;
 		} else {
 			/*
 			 * ECHILD: he is not our child any more, ie, somebody
@@ -331,6 +348,18 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 #if defined(__linux__)
 	if (lsp->cgroup_path[0]) {
+		uint64_t cu, cs;
+
+		/*
+		 * The cgroup's cpu time is everything that ran in it, also
+		 * whatever the child left running that nobody waited for
+		 */
+		if (!lws_spawn_cgroup_cpu(lsp, &cu, &cs) &&
+		    cu + cs > lsp->res.us_cpu_user + lsp->res.us_cpu_sys) {
+			lsp->res.us_cpu_user = cu;
+			lsp->res.us_cpu_sys = cs;
+		}
+
 		/*
 		 * The child has been reaped, we can remove the cgroup dir.
 		 * This will only work if the cgroup is empty, which it should
@@ -355,6 +384,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	lsp->child_pid		= -1;
 	si			= lsp->si;
 	res			= lsp->res;
+	if (lsp->info.res)
+		*lsp->info.res	= res;
 	n			= lsp->we_killed_him_timeout |
 					(lsp->we_killed_him_spew << 1);
 
@@ -862,6 +893,16 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		lwsl_info("%s: lsp %p spawned PID %d\n", __func__, lsp,
 			  lsp->child_pid);
+
+		/*
+		 * If he wants to know what it used, keep track of the memory
+		 * of its whole process tree while it runs.  The first look is
+		 * soon, so even a short-lived child is seen at least once.
+		 */
+		if (i->res)
+			lws_sul_schedule(context, i->tsi, &lsp->sul_mem,
+					 lws_spawn_tree_sample_cb,
+					 LWS_SPAWN_TREE_SAMPLE_US / 4);
 
 		if (i->timeout_us)
 			lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,

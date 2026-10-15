@@ -220,6 +220,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	struct _lws_siginfo_t lsi;
 	ULARGE_INTEGER uli;
 	FILETIME ftk, ftu;
+	int got_cpu = 0;
 	DWORD ex;
 
 	if (!lsp->child_pid)
@@ -272,43 +273,56 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	 * Collect the final information and then reap the dead process
 	 */
 
-	if (GetProcessTimes(lsp->child_pid, &lsp->ft_create, &lsp->ft_exit,
-			    &ftk, &ftu)) {
+	/*
+	 * The job holds the child and everything it started, eg, the compilers
+	 * under a build tool, so its accounting is the cpu time of the whole
+	 * tree.  The child's own times leave all of those out.
+	 */
+
+	if (lsp->hJob) {
+		JOBOBJECT_BASIC_ACCOUNTING_INFORMATION jbai;
+
+		if (QueryInformationJobObject(lsp->hJob,
+					      JobObjectBasicAccountingInformation,
+					      &jbai, sizeof(jbai), NULL)) {
+			/* both in 100ns units */
+			lsp->res.us_cpu_user = (uint64_t)jbai.TotalUserTime.QuadPart / 10;
+			lsp->res.us_cpu_sys = (uint64_t)jbai.TotalKernelTime.QuadPart / 10;
+			got_cpu = 1;
+		}
+	}
+
+	if (!got_cpu && GetProcessTimes(lsp->child_pid, &lsp->ft_create,
+					&lsp->ft_exit, &ftk, &ftu)) {
 		uli.LowPart = ftu.dwLowDateTime;
 		uli.HighPart = ftu.dwHighDateTime;
 		lsp->res.us_cpu_user = uli.QuadPart / 10;
-		if (lsp->info.res)
-			lsp->info.res->us_cpu_user = lsp->res.us_cpu_user;
 
 		uli.LowPart = ftk.dwLowDateTime;
 		uli.HighPart = ftk.dwHighDateTime;
 		lsp->res.us_cpu_sys = uli.QuadPart / 10;
-		if (lsp->info.res)
-			lsp->info.res->us_cpu_sys = lsp->res.us_cpu_sys;
 	}
+
+	/*
+	 * Likewise the job's peak is of the memory committed by the whole
+	 * tree at once, not of its biggest process
+	 */
 
 	if (lsp->hJob) {
 		JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli;
-		if (QueryInformationJobObject(lsp->hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli), NULL)) {
+		if (QueryInformationJobObject(lsp->hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli), NULL))
 			lsp->res.peak_mem_rss = (uint64_t)jeli.PeakJobMemoryUsed;
-			if (lsp->info.res)
-				lsp->info.res->peak_mem_rss = lsp->res.peak_mem_rss;
-		}
-	} else if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc))) {
+	} else if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc)))
 		lsp->res.peak_mem_rss = pmc.PeakWorkingSetSize;
-		if (lsp->info.res)
-			lsp->info.res->peak_mem_rss = lsp->res.peak_mem_rss;
-	}
 
 	lsi.retcode = 0x10000 | (int)ex;
 	lwsl_notice("%s: process exit 0x%x\n", __func__, lsi.retcode);
 	CloseHandle(lsp->child_pid);
 	lsp->child_pid = NULL;
 
+	res = lsp->res;
 	if (lsp->info.res)
-		res = *lsp->info.res;
-	else
-		res = lsp->res;
+		*lsp->info.res = res;
 
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
 
