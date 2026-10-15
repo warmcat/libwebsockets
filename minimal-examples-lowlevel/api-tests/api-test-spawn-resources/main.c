@@ -50,6 +50,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+#include <limits.h>
 
 #if defined(WIN32)
 #include <process.h>
@@ -87,7 +88,15 @@ static struct lws_context *context;
 static struct lws_vhost *vhost;
 static struct lws_spawn_piped *lsp;
 static lws_spawn_resource_us_t res;
-static char argv0[1024];
+/*
+ * What realpath() / _fullpath() write into is the platform's longest path:
+ * a fortified glibc aborts a realpath() into anything smaller
+ */
+#if defined(WIN32)
+static char argv0[MAX_PATH];
+#else
+static char argv0[PATH_MAX];
+#endif
 static lws_sorted_usec_list_t sul_heartbeat;
 static lws_usec_t leg_start;
 static test_leg_t leg;
