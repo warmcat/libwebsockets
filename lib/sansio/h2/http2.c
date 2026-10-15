@@ -2948,6 +2948,16 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				return 1;
 			break;
 		}
+		/*
+		 * The peer only gives credit back for DATA it has consumed, so
+		 * what we sent reached it: the connection is valid, as a PING's
+		 * ack would say.  That ack can't say it in time while we keep
+		 * the peer busy: our PING waits behind the DATA already queued
+		 * for it, which over a slow link can take longer to drain than
+		 * the gap between the validity ping and the hangup.
+		 */
+		lws_validity_confirmed(wsi);
+
 		n = eff_wsi->txc.tx_cr;
 		eff_wsi->txc.tx_cr += (int32_t)h2n->hpack_e_dep;
 

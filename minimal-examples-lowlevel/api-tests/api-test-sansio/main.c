@@ -105,6 +105,10 @@
  * h1 and ws clients with credentials answer a digest challenge on the same
  * connection (with a tls library, whose genhash the digest needs).
  *
+ * And an h2 connection whose peer keeps taking what it is sent, but whose
+ * answer to the validity PING is held up behind it: its WINDOW_UPDATEs keep
+ * the connection valid.
+ *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
  * what it sent before finishing is still read.
@@ -2288,6 +2292,112 @@ h2_headers(uint8_t *out, uint32_t sid, const uint8_t *b, const uint8_t *e)
 	memcpy(p, b, (size_t)(e - b));
 
 	return (size_t)(p - out) + (size_t)(e - b);
+}
+
+/*
+ * 51: an h2 connection on a vhost that pings after 10s of nothing confirming
+ * the connection is valid, and hangs up 10s later.  Its PING goes at 10s,
+ * but no answer comes in time, the way it doesn't when the PING waits behind
+ * a lot of DATA going to a peer on a slow link.  The peer meanwhile sends a
+ * WINDOW_UPDATE, giving back credit for DATA it took: that says the
+ * connection works as well as an answer to the PING would, and the
+ * connection is still there after the 20s.  Then nothing more comes from the
+ * peer at all: the next PING goes, and the connection is hung up when its
+ * answer doesn't come.  It moves the time on, so it goes last, and it has no
+ * transcript.
+ */
+#define VALID_PING_S	10
+#define VALID_HUP_S	20
+
+/* whether what lws wrote holds a PING of its own, not an answer to one */
+static int
+h2_tx_has_ping(const struct transport *tp)
+{
+	size_t o, f;
+
+	for (o = 0; o + 9 <= tp->tx_len; o += 9 + f) {
+		f = ((size_t)tp->tx[o] << 16) | ((size_t)tp->tx[o + 1] << 8) |
+		    tp->tx[o + 2];
+		if (tp->tx[o + 3] == 6 && !(tp->tx[o + 4] & 1))
+			return 1;
+	}
+
+	return 0;
+}
+
+static int
+h2_validity_busy_half(struct lws_context *cx, struct lws_vhost *vh,
+		      int start_ms)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* WINDOW_UPDATE, the connection's: 1000 more */
+	static const char wu[] = "\x00\x00\x04\x08\x00\x00\x00\x00\x00"
+				 "\x00\x00\x03\xe8";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* the validity PING goes, and its answer doesn't come */
+	at(cx, start_ms + VALID_PING_S * 1000 + 500);
+	feed(cx, &tp, NULL, 0);
+	if (!h2_tx_has_ping(&tp)) {
+		lwsl_err("case 51: no validity PING\n");
+		return 1;
+	}
+
+	/* the peer gives back credit for DATA it took */
+	at(cx, start_ms + 15000);
+	feed(cx, &tp, wu, sizeof(wu) - 1);
+
+	/* past when the PING's answer was due: still there */
+	at(cx, start_ms + VALID_HUP_S * 1000 + 1000);
+	feed(cx, &tp, NULL, 0);
+	if (tp.closed || tp.shutdown) {
+		lwsl_err("case 51: hung up on a peer taking what it was "
+			 "sent\n");
+		return 1;
+	}
+
+	/* the next PING goes a ping's time after the WINDOW_UPDATE */
+	at(cx, start_ms + 15000 + VALID_PING_S * 1000 + 500);
+	feed(cx, &tp, NULL, 0);
+	if (!h2_tx_has_ping(&tp)) {
+		lwsl_err("case 51: no validity PING after the WINDOW_UPDATE\n");
+		return 1;
+	}
+
+	/* and with nothing from the peer, it is hung up */
+	at(cx, start_ms + 15000 + VALID_HUP_S * 1000 + 1000);
+	feed(cx, &tp, NULL, 0);
+	if (!tp.closed && !tp.shutdown) {
+		lwsl_err("case 51: not hung up on a silent peer\n");
+		return 1;
+	}
+
+	lwsl_user("case 51: an h2 peer taking what it is sent stays valid "
+		  "while the PING's answer is late, a silent one is hung up: "
+		  "PASS\n");
+
+	return 0;
 }
 
 /*
@@ -5380,7 +5490,11 @@ main(int argc, const char **argv)
 	struct lws_vhost *vh_404;
 #endif
 #if defined(LWS_WITH_HTTP2)
-	struct lws_vhost *vh_h2, *vh_h2ws;
+	static const lws_retry_bo_t validity_policy = {
+		.secs_since_valid_ping		= VALID_PING_S,
+		.secs_since_valid_hangup	= VALID_HUP_S,
+	};
+	struct lws_vhost *vh_h2, *vh_h2ws, *vh_h2v;
 #endif
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_vhost *vh_pmd;
@@ -5740,6 +5854,28 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_HTTP2)
 	at(cx, 353000);
 	if (h2c_upgrade_half(cx, vh_uri))
+		goto bail;
+
+	/*
+	 * an h2 vhost checking its connections are valid, which only that
+	 * can end: its keepalive is longer than the case
+	 */
+	info.vhost_name = "sansio-h2v";
+	info.protocols = protocols_uri;
+	info.extensions = NULL;
+	info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+	info.retry_and_idle_policy = &validity_policy;
+	info.keepalive_timeout = 3 * VALID_HUP_S;
+	vh_h2v = lws_create_vhost(cx, &info);
+	info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+	info.retry_and_idle_policy = NULL;
+	info.keepalive_timeout = 0;
+	if (!vh_h2v) {
+		lwsl_err("h2 validity vhost failed\n");
+		goto bail;
+	}
+	at(cx, 400000);
+	if (h2_validity_busy_half(cx, vh_h2v, 400000))
 		goto bail;
 #endif
 
