@@ -627,6 +627,20 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 #define lws_read_h1(_a, _b, _c, _d) (0)
 #endif
 
+#if defined(LWS_ROLE_H1) && (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+/*
+ * A mux stream's request body with no content-length is ended by the peer
+ * ending its half of the stream: END_STREAM on h2, the FIN on h3.  Nonzero
+ * once that has come after all the body, and none of the body is still
+ * parked on the stream's own buflist, where it was stashed while the action
+ * was deferred: then lws_read_h1() with no bytes completes it.
+ */
+int
+lws_http_mux_body_ended_by_peer(struct lws *wsi);
+#else
+#define lws_http_mux_body_ended_by_peer(_a) (0)
+#endif
+
 /*
  * Result from lws_header_table_attach()
  *

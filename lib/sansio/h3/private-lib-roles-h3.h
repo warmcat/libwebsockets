@@ -61,6 +61,14 @@
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len);
 
+/*
+ * The peer's FIN has been delivered on a server request stream, after all of
+ * the stream's bytes went through lws_h3_rx_stream_data(): a request body
+ * with no content-length ends there.  Nonzero means the stream must close.
+ */
+int
+lws_h3_rx_fin_server(struct lws *wsi);
+
 extern const struct lws_role_ops role_ops_h3;
 #define lwsi_role_h3(wsi) (wsi->role_ops == &role_ops_h3)
 

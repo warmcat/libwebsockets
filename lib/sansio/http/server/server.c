@@ -3074,6 +3074,18 @@ deal_body:
 			break;
 	}
 
+	/*
+	 * The peer may have ended the stream while we deferred, after a body
+	 * with no content-length, or with no body at all: once all that was
+	 * stashed is taken, that's the end of it too.  Nothing else will say
+	 * so, the stream's end has been and gone.
+	 */
+	if ((lwsi_state(wsi) == LRS_BODY ||
+	     lwsi_state(wsi) == LRS_DISCARD_BODY) &&
+	    lws_http_mux_body_ended_by_peer(wsi) &&
+	    lws_read_h1(wsi, NULL, 0, 0) < 0)
+		return -1;
+
 	return 0;
 
 no_more_body:

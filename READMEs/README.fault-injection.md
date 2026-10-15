@@ -314,6 +314,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`sendfail`|Attempts to send data on the wsi socket fail|
 |cli wsi|`wsi`|`connfail`|Attempts to connect on the wsi socket fail|
 |cli wsi|`wsi`|`createfail`|Creating the client wsi itself fails|
+|cli wsi|`wsi`|`h3_body_with_headers`|An h3 client request with a body makes its first body write right after the HEADERS, so the server sees the request, its body and maybe the FIN all at once (LWS_ROLE_H3)|
 |udp wsi|`wsi`|`udp_rx_loss`|Drop UDP RX that was actually received, useful with probabalistic mode|
 |udp wsi|`wsi`|`udp_tx_loss`|Drop UDP TX so that it's not actually sent, useful with probabalistic mode|
 |srv ss|`ss`|`ss_srv_vh_fail`|Secure Streams Server vhost creation forced to fail|

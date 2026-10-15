@@ -104,6 +104,29 @@ lws_h1_body_timeout(struct lws *wsi, int arm)
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 }
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+int
+lws_http_mux_body_ended_by_peer(struct lws *wsi)
+{
+	if (!wsi->mux_substream || wsi->http.content_length_given ||
+	    wsi->h23_stream_carries_ws ||
+	    /* still some to take from where it was stashed */
+	    lws_buflist_next_segment_len(&wsi->buflist, NULL))
+		return 0;
+
+#if defined(LWS_ROLE_H2)
+	if (lwsi_role_h2(wsi))
+		return wsi->h2.END_STREAM;
+#endif
+#if defined(LWS_ROLE_H3)
+	if (lwsi_role_h3(wsi))
+		return wsi->quic.qs && wsi->quic.qs->fin_delivered;
+#endif
+
+	return 0;
+}
+#endif
+
 int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 	    int caller_closes)
@@ -246,17 +269,19 @@ http_postbody:
 		if (wsi->http.content_length_given && !wsi->http.rx_content_remain)
 			goto postbody_completion;
 
-#if defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 		/*
-		 * An h2 body with no content-length is ended by the peer's
-		 * END_STREAM.  On the frame with the body's last byte, that's
-		 * seen as that byte is taken, below.  But the peer may end the
-		 * stream with a DATA frame of its own after the body, with
-		 * nothing in it, eg, git streaming a request body: the DATA
-		 * path tells us with no bytes at all, and it's what ends it.
+		 * A mux stream's body with no content-length is ended by the
+		 * peer ending the stream.  On h2, on the frame with the body's
+		 * last byte, that's seen as that byte is taken, below.  But
+		 * the peer may end the stream with a DATA frame of its own
+		 * after the body, with nothing in it, eg, git streaming a
+		 * request body.  And on h3 the FIN is only known to have
+		 * followed the body once all the stream's bytes before it
+		 * went through the h3 framing.  Either way the role tells us
+		 * with no bytes at all, and it's what ends it.
 		 */
-		if (!len && lwsi_role_h2(wsi) && wsi->mux_substream &&
-		    !wsi->http.content_length_given && wsi->h2.END_STREAM)
+		if (!len && lws_http_mux_body_ended_by_peer(wsi))
 			goto postbody_completion;
 #endif
 

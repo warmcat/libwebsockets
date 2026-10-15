@@ -554,6 +554,16 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT_BODY);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 					(int)wsi->a.context->timeout_secs);
+			if (lws_fi(&wsi->fic, "h3_body_with_headers"))
+				/*
+				 * The body's first write goes now, after the
+				 * HEADERS on the stream, as many clients send
+				 * a small body: the server sees the request,
+				 * its body and maybe the FIN all at once,
+				 * while it has yet to act on the request
+				 */
+				return rops_perform_user_POLLOUT_h3(wsi);
+
 			lws_callback_on_writable(wsi);
 			return 0;
 		}
@@ -1473,6 +1483,27 @@ lws_h3_wt_stream_bind(struct lws *wsi, struct lws *nwsi, const uint8_t *buf,
 		return 1;
 
 	return 0;
+}
+#endif
+
+#if defined(LWS_WITH_SERVER)
+int
+lws_h3_rx_fin_server(struct lws *wsi)
+{
+	/*
+	 * A body still to be stashed and drained is ended by
+	 * lws_http_action() once the drain is done, and a stream that's not
+	 * taking a body, eg, a GET, has nothing to end
+	 */
+	if (!lwsi_role_server(wsi) ||
+	    (lwsi_state(wsi) != LRS_BODY &&
+	     lwsi_state(wsi) != LRS_DISCARD_BODY) ||
+	    !lws_http_mux_body_ended_by_peer(wsi))
+		return 0;
+
+	lwsl_wsi_info(wsi, "FIN ends the request body");
+
+	return lws_read_h1(wsi, NULL, 0, 1) < 0;
 }
 #endif
 

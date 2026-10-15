@@ -497,23 +497,17 @@ lws_quic_stream_is_h3(const struct lws *wsi_child)
 }
 
 /*
- * Deliver in-order stream data to h3.  Nonzero from lws_h3_rx_stream_data()
- * means either the h3 layer closed the stream (or whole connection) itself,
- * or the http-level callback refused the data and wants the stream closed,
- * the same as the raw-protocol case above: it must be honoured via
+ * h3 returned nonzero for what we handed it on a stream.  That means either
+ * the h3 layer closed the stream (or whole connection) itself, or the
+ * http-level callback refused the data and wants the stream closed, the same
+ * as the raw-protocol case above: it must be honoured via
  * close_after_rx, not just dropped, or an SS returning DISCONNECT_ME from
  * its rx on an h3 stream never sees DISCONNECTED.
  */
 static int
-lws_quic_rx_deliver_h3(struct lws *nwsi, struct lws *wsi_child,
-		       struct lws_quic_stream *qs, const uint8_t *buf,
-		       size_t len)
+lws_quic_rx_h3_wants_close(struct lws *nwsi, struct lws *wsi_child,
+			   struct lws_quic_stream *qs, uint64_t sid)
 {
-	uint64_t sid = qs ? qs->stream_id : 0;
-
-	if (!lws_h3_rx_stream_data(wsi_child, buf, len))
-		return 0;
-
 	if (!qs || lws_quic_stream_find(nwsi, sid) != wsi_child)
 		/* already gone */
 		return 1;
@@ -532,6 +526,40 @@ lws_quic_rx_deliver_h3(struct lws *nwsi, struct lws *wsi_child,
 
 	return 1;
 }
+
+/*
+ * Deliver in-order stream data to h3
+ */
+static int
+lws_quic_rx_deliver_h3(struct lws *nwsi, struct lws *wsi_child,
+		       struct lws_quic_stream *qs, const uint8_t *buf,
+		       size_t len)
+{
+	uint64_t sid = qs ? qs->stream_id : 0;
+
+	if (!lws_h3_rx_stream_data(wsi_child, buf, len))
+		return 0;
+
+	return lws_quic_rx_h3_wants_close(nwsi, wsi_child, qs, sid);
+}
+
+#if defined(LWS_WITH_SERVER)
+/*
+ * The peer's FIN came after all it sent on a server request stream, and that
+ * has all been through h3 now: it may be what ends the request body
+ */
+static int
+lws_quic_rx_fin_h3_server(struct lws *nwsi, struct lws *wsi_child,
+			  struct lws_quic_stream *qs)
+{
+	uint64_t sid = qs->stream_id;
+
+	if (!lws_h3_rx_fin_server(wsi_child))
+		return 0;
+
+	return lws_quic_rx_h3_wants_close(nwsi, wsi_child, qs, sid);
+}
+#endif
 #endif
 
 /*
@@ -657,6 +685,11 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 #if defined(LWS_WITH_CLIENT)
 							wsi_child->client_mux_substream = 0;
 #endif
+#if defined(LWS_WITH_SERVER)
+							if (lws_quic_rx_fin_h3_server(nwsi,
+									wsi_child, qs))
+								wsi_child = NULL;
+#endif
                                                 }
                                         } else {
                                                 if (wsi_child->h3.type_set && (wsi_child->h3.stream_type == 0x00 || wsi_child->h3.stream_type == 0x02 || wsi_child->h3.stream_type == 0x03)) {
@@ -746,6 +779,11 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 							} else {
 #if defined(LWS_WITH_CLIENT)
 								wsi_child->client_mux_substream = 0;
+#endif
+#if defined(LWS_WITH_SERVER)
+								if (lws_quic_rx_fin_h3_server(nwsi,
+										wsi_child, qs))
+									wsi_child = NULL;
 #endif
 							}
 						}

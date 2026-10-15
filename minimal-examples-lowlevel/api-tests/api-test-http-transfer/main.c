@@ -40,9 +40,12 @@
  *    sends the interim 100, the client swallows it), an over-limit body
  *    refused instead of continued, an unknown expectation (417)
  *
- * Request bodies on h2 (cleartext, prior knowledge): Content-Length, no
- * Content-Length (END_STREAM delimited), and no body at all.  On h3, one
- * whose DATA goes beyond its Content-Length is refused as malformed.
+ * Request bodies on h2 (cleartext, prior knowledge) and h3: Content-Length,
+ * no Content-Length (delimited by the END_STREAM / FIN with the last of the
+ * body, or by an empty one after it), and no body at all.  On h3, one whose
+ * DATA goes beyond its Content-Length is refused as malformed, and with fault
+ * injection, one sent along with the request, which the server stashes until
+ * it acts on it, must still be ended by the FIN that came with it.
  *
  * Response bodies (server -> client): Content-Length; hand-framed chunked
  * with extensions and trailers, also with a Content-Length it overrides;
@@ -146,6 +149,12 @@ enum xf_req {
 	XR_NOLEN,	/* POST with neither Content-Length nor Transfer-Encoding */
 	XR_CL,		/* Content-Length */
 	XR_BODY_NOHDR,	/* body but no framing header (h2: END_STREAM delimits) */
+	XR_BODY_NOHDR_END, /* the same, but the stream is ended by a write of
+			    * its own after the body, with nothing in it */
+	XR_BODY_NOHDR_EARLY, /* body but no framing header, its first write
+			      * going right after the request headers, so
+			      * the server has it before acting on the
+			      * request (h3, needs fault injection) */
 	XR_CHUNKED,	/* Transfer-Encoding: chunked */
 	XR_CHUNKED_EXT,	/* chunked with chunk extensions and trailer fields */
 	XR_TE_BAD,	/* Transfer-Encoding: gzip, no body */
@@ -458,6 +467,26 @@ static const struct xcase cases[] = {
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 0, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h3 POST Content-Length 5KB, CL response",
 	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 2, 0, 200, 5000, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST no Content-Length 20KB (FIN delimited)",
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 2, 0, 200, 20000, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST no Content-Length 20KB, ended by an empty FIN",
+	  "POST", "/echo-cl", XR_BODY_NOHDR_END, 20000, 0, 4096, 2, 0, 200, 20000, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST no Content-Length 100 bytes, FIN with the request",
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 100, 0, 4096, 2, 0, 200, 100, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST no Content-Length 100 bytes, then an empty FIN",
+	  "POST", "/echo-cl", XR_BODY_NOHDR_END, 100, 0, 4096, 2, 0, 200, 100, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST with neither header: zero-length body",
+	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 2, 0, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * The body and the FIN reach the server with the request, while it
+	 * has yet to act on it: it is stashed, and taken after the action
+	 */
+	{ "h3 POST no Content-Length 100 bytes, all sent with the request",
+	  "POST", "/echo-cl", XR_BODY_NOHDR_EARLY, 100, 0, 4096, 2, 0, 200, 100, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h3 POST no Content-Length 3KB, all sent with the request",
+	  "POST", "/echo-cl", XR_BODY_NOHDR_EARLY, 3000, 0, 1000, 2, 0, 200, 3000, XG_NONE, 0, 0, 0, 0, 0 },
+#endif
 	{ "h3 GET, then a second GET joining the kept-warm connection",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 1, 200, 0, XG_NONE, 0, 0, 1, 0, 0 },
 	{ "h3 GET, then a second GET after the kept-warm connection expired",
@@ -700,6 +729,8 @@ static const struct xcase cases[] = {
 	  "POST", "/echo-cl", XR_CL, 50000, 0, 8192, 1, 0, 200, 50000, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h2 POST no Content-Length 20KB (END_STREAM delimited)",
 	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h2 POST no Content-Length 20KB, ended by an empty END_STREAM DATA",
+	  "POST", "/echo-cl", XR_BODY_NOHDR_END, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h2 POST Content-Length 20KB, no-length response (END_STREAM)",
 	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h2 GET, no body",
@@ -754,6 +785,8 @@ struct conn {
 	uint8_t			*framed;	/* framed request body */
 	size_t			framed_len;
 	size_t			sent;
+	int			ended;		/* XR_BODY_NOHDR_END: the empty
+						 * final write went */
 	size_t			rx_len;		/* response payload bytes */
 	uint32_t		rx_sum;
 	char			line[64];	/* response summary line */
@@ -2000,6 +2033,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		end = (*pp) + len;
 		/* a request reissued after a redirect sends its body again */
 		cn->sent = 0;
+		cn->ended = 0;
 
 		switch (c->req) {
 		case XR_CL:
@@ -2079,8 +2113,19 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			break;
 		}
-		if (!cn->framed || cn->sent >= cn->framed_len)
+		if (!cn->framed)
 			break;
+		if (cn->sent >= cn->framed_len) {
+			if (c->req != XR_BODY_NOHDR_END || cn->ended)
+				break;
+			/* the body all went: end the stream with nothing */
+			cn->ended = 1;
+			lws_client_http_body_pending(wsi, 0);
+			if (lws_write(wsi, &sbuf[LWS_PRE], 0,
+				      LWS_WRITE_HTTP_FINAL) < 0)
+				return -1;
+			break;
+		}
 
 		o = cn->framed_len - cn->sent;
 		if (o > c->write_sz)
@@ -2090,7 +2135,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		memcpy(&sbuf[LWS_PRE], cn->framed + cn->sent, o);
 
 		n = LWS_WRITE_HTTP;
-		if (cn->sent + o == cn->framed_len) {
+		if (cn->sent + o == cn->framed_len &&
+		    c->req != XR_BODY_NOHDR_END) {
 			lws_client_http_body_pending(wsi, 0);
 			n = LWS_WRITE_HTTP_FINAL;
 		}
@@ -2233,6 +2279,8 @@ conn_start(const struct xcase *c)
 	switch (c->req) {
 	case XR_CL:
 	case XR_BODY_NOHDR:
+	case XR_BODY_NOHDR_END:
+	case XR_BODY_NOHDR_EARLY:
 		if (c->body_len) {
 			size_t n;
 
@@ -2315,8 +2363,24 @@ conn_start(const struct xcase *c)
 		i.ssl_connection |= LCCSCF_H2_PRIOR_KNOWLEDGE;
 #endif
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	if (c->req == XR_BODY_NOHDR_EARLY) {
+		lws_fi_t fi;
+
+		memset(&fi, 0, sizeof(fi));
+		fi.name = "h3_body_with_headers";
+		fi.type = LWSFI_ALWAYS;
+		if (lws_fi_add(&i.fic, &fi))
+			goto bail;
+	}
+#endif
+
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: connect failed\n", __func__);
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/* the client wsi takes the faults, unless there was none */
+		lws_fi_destroy(&i.fic);
+#endif
 		goto bail;
 	}
 
