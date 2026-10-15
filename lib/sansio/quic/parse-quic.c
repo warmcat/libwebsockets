@@ -1486,9 +1486,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						nwsi->quic.qn->smoothed_rtt = 0;
 						nwsi->quic.qn->rttvar = 0;
 						nwsi->quic.qn->latest_rtt = 0;
-						nwsi->quic.qn->current_mtu = 1280;
-						nwsi->quic.qn->probed_mtu = 1380;
-						nwsi->quic.qn->pmtud_state = 1;
+						lws_quic_pmtud_reset(nwsi->quic.qn);
 					}
 				} else {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Spurious or mismatched PATH_RESPONSE, ignoring");
@@ -1505,6 +1503,13 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				return -1;
 			} else {
 				lws_quic_discard_keys(nwsi, LWS_QUIC_LEVEL_HANDSHAKE);
+
+				if (nwsi->quic.qn &&
+				    !nwsi->quic.qn->handshake_confirmed) {
+					nwsi->quic.qn->handshake_confirmed = 1;
+					/* see what the path takes, beyond 1200 */
+					lws_quic_pmtud_kick(nwsi->quic.qn);
+				}
 
 				/*
 				 * Now that the server confirmed handshake completion,
@@ -2037,6 +2042,9 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 					lwsl_wsi_err(wsi, "QUIC TP error: max_udp_payload_size %llu < 1200", (unsigned long long)val);
 					return -1;
 				}
+				/* it bounds the PMTUD search's ceiling */
+				qn->peer_max_udp_payload = val > 65527 ? 65527 :
+							   (uint32_t)val;
 			} else return -1;
 			break;
 		case 0x04: /* initial_max_data */

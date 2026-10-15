@@ -28,6 +28,7 @@ arrived.
 |--outage <ms>|With `--relay`, after the client's first Initial the relay loses all but the client's Initial packets for this long, see below|
 |--early-1rtt|With `--relay`, the relay sends the client's first 1-RTT packet ahead of its Finished, see below|
 |--forwarder|With `--relay`, the relay also sends the server copies of the client's small packets from an address that never answers, see below|
+|--pmtu <bytes>|With `--relay`, the relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
@@ -132,6 +133,26 @@ many.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --forwarder --write-size 64 --spread 12000
+```
+
+With `--pmtu <bytes>` instead, the relay passes datagrams on as they come, but
+loses any bigger than that, as a path with a smaller MTU would.  Once its
+handshake completed, each side looks for the biggest datagrams the path
+carries (DPLPMTUD, RFC 9000 14.3): lws sends probes, each a PING padded out
+to the size it probes, in packets of their own, so the search goes on whether
+the side has anything else to send or not, and the peer acks every probe.  It
+probes an IP MTU of 1380, then up in steps of 100 to 1500, or less if the
+peer's `max_udp_payload_size` is smaller, as datagrams 48 bytes smaller, for
+the IPv6 and UDP headers.  A probe that is lost is sent again, but after it
+lost three probes of a size, it settles on the size it has.  Lost probes are
+not sent again by loss recovery, nor count as congestion (RFC 9000 14.4).
+
+By the end of the transfer, the biggest datagram each side sent must be the
+biggest of those sizes the path carries, and it must not have lost more than
+three datagrams that were too big for it.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400
 ```
 
 ## congestion controller

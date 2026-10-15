@@ -1221,6 +1221,10 @@ error_handling:
 
 			/* replaces the handshake deadline with idle reaping */
 			lws_quic_server_idle_check(wsi->quic.qn->nwsi);
+
+			wsi->quic.qn->handshake_confirmed = 1;
+			/* see what the path takes, beyond 1200-byte datagrams */
+			lws_quic_pmtud_kick(wsi->quic.qn);
 		}
 
 		lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);

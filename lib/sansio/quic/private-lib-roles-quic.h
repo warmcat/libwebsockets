@@ -240,6 +240,22 @@ enum lws_quic_frame_type {
 #define LWS_QUIC_PATH_CHALLENGE_LEN	8u
 
 /*
+ * DPLPMTUD (RFC 9000 14.3, RFC 8899).  The mtus are IP MTUs: a datagram on a
+ * path whose mtu is m carries at most m - LWS_QUIC_PMTU_OVERHEAD, room for the
+ * IPv6 and UDP headers.  The search starts from the base every path must
+ * carry, probes LWS_QUIC_PMTU_FIRST_PROBE, then up in steps to the ceiling, an
+ * Ethernet MTU, or less if the peer's max_udp_payload_size is smaller.  A size
+ * that lost LWS_QUIC_PMTUD_MAX_PROBES probes is too big, and the search
+ * settles on the size it has.
+ */
+#define LWS_QUIC_PMTU_BASE		1280u
+#define LWS_QUIC_PMTU_FIRST_PROBE	1380u
+#define LWS_QUIC_PMTU_STEP		100u
+#define LWS_QUIC_PMTU_CEILING		1500u
+#define LWS_QUIC_PMTU_OVERHEAD		48u
+#define LWS_QUIC_PMTUD_MAX_PROBES	3u
+
+/*
  * A logical frame queued for transmission or in-flight waiting for ACK.
  */
 struct lws_quic_tx_frame {
@@ -266,6 +282,8 @@ struct lws_quic_tx_frame {
 	uint16_t		packet_size;
 	lws_sockaddr46		dest_sa46;
 	uint8_t			has_dest;
+	/* a PING that is a PMTUD probe, see lws_quic_pmtud_kick() */
+	uint8_t			pmtud_probe;
 };
 
 struct lws_quic_rx_chunk {
@@ -546,15 +564,20 @@ struct lws_quic_netconn {
 	uint32_t		current_mtu;
 	uint32_t		probed_mtu;
 	/*
-	 * PN of the packet currently in flight as a PMTUD probe.  PN 0 is a
-	 * perfectly valid probe PN (it's the usual case, since the first
-	 * app-data packet of a connection doubles as the probe), so "no probe
-	 * in flight" needs its own out-of-band sentinel rather than 0.
+	 * PN of the packet currently in flight as a PMTUD probe.  Any PN,
+	 * including 0, can be a probe's, so "no probe in flight" needs its own
+	 * out-of-band sentinel rather than 0.
 	 */
 #define LWS_QUIC_PMTUD_PROBE_NONE	((uint64_t)~0ull)
 	uint64_t		pmtud_probe_pn;
+	/* the peer's max_udp_payload_size transport parameter, 0 if none */
+	uint32_t		peer_max_udp_payload;
 	uint16_t		consecutive_mtu_losses;
 	uint8_t			pmtud_state; /* 0=BASE, 1=SEARCHING, 2=SEARCH_COMPLETE */
+	/* probes of probed_mtu lost so far */
+	uint8_t			pmtud_probe_fails;
+	/* a probe's PING is in pending_tx, not sent yet */
+	uint8_t			pmtud_probe_queued:1;
 
 	/* Path Validation (RFC 9000 Section 8.2) */
 	uint8_t			path_challenge[8];
@@ -615,6 +638,11 @@ struct lws_quic_netconn {
 
 	uint8_t			is_server:1;
 	uint8_t			handshake_done:1;
+	/*
+	 * RFC 9001 4.1.2: a server's handshake is confirmed when it completes,
+	 * a client's when it gets HANDSHAKE_DONE
+	 */
+	uint8_t			handshake_confirmed:1;
 	uint8_t			tp_parsed:1;
 	uint8_t			alpn_migrated:1;
 	uint8_t			pto_probe_needed:2;
@@ -765,6 +793,12 @@ lws_quic_path_probe_abandon(struct lws *nwsi, const char *failed);
 
 void
 lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked);
+
+void
+lws_quic_pmtud_reset(struct lws_quic_netconn *qn);
+
+void
+lws_quic_pmtud_kick(struct lws_quic_netconn *qn);
 
 
 void

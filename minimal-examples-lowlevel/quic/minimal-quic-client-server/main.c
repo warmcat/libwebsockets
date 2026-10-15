@@ -25,8 +25,11 @@
  * it until its handshake completes rather than lose it.  With --forwarder,
  * copies of the client's small packets also reach the server first from
  * another address that never answers, and the server must not keep probing
- * that address.  --spread <ms> has the client spread its writes over that
- * long, rather than send as fast as it can.
+ * that address.  With --pmtu <bytes>, the relay loses datagrams bigger than
+ * that, as a path with a smaller MTU would, and each side must find the
+ * biggest size the path carries, and stop probing past it.  --spread <ms> has
+ * the client spread its writes over that long, rather than send as fast as it
+ * can.
  */
 
 #include <libwebsockets.h>
@@ -230,6 +233,24 @@ static const char * const test_key =
 #define RELAY_FWD_WAIT_US	LWS_US_PER_SEC
 #define RELAY_FWD_PROBE_DGRAMS	3
 
+/*
+ * With --pmtu <bytes>, the relay passes datagrams on as they come, but loses
+ * any bigger than that, as a path whose MTU is that much more than the IP and
+ * UDP headers would.  Each side probes for bigger sizes once its handshake
+ * completed (RFC 9000 14.3), in probes of their own, so whatever else it has
+ * to send: lws probes an IP MTU of RELAY_PMTU_FIRST, then up in
+ * RELAY_PMTU_STEP to RELAY_PMTU_CEILING, as datagrams RELAY_PMTU_OVERHEAD
+ * smaller, and gives up on a size after losing RELAY_PMTU_MAX_PROBES probes
+ * of it.  By the end of the transfer, the biggest datagram each side sent
+ * must be the biggest of those sizes that the path carries, and it must not
+ * have lost more probes than that.
+ */
+#define RELAY_PMTU_FIRST	1380
+#define RELAY_PMTU_STEP		100
+#define RELAY_PMTU_CEILING	1500
+#define RELAY_PMTU_OVERHEAD	48
+#define RELAY_PMTU_MAX_PROBES	3
+
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
 relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
@@ -331,6 +352,8 @@ struct relay_dir {
 	/* what became of the datagrams, for the report if it stalls */
 	unsigned int		sent;
 	unsigned int		dropped;
+
+	size_t			largest;	/* --pmtu: passed on */
 };
 
 static struct {
@@ -357,6 +380,8 @@ static struct {
 	lws_usec_t		fwd_rx_first;
 	lws_usec_t		fwd_rx_last;
 	char			forwarder;
+
+	size_t			pmtu;		/* --pmtu */
 } relay;
 
 static void
@@ -467,6 +492,27 @@ relay_early_1rtt(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
 			 early_1rtt_check_cb, RELAY_EARLY_WINDOW_US);
 }
 
+/* --pmtu: datagrams go on as they come, unless they're too big */
+
+static void
+relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
+{
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
+
+	if (fd == LWS_SOCK_INVALID)
+		return;
+
+	if (len > relay.pmtu) {
+		d->dropped++;
+		return;
+	}
+
+	if (len > d->largest)
+		d->largest = len;
+	relay_send(fd, in, len, &d->dest);
+	d->sent++;
+}
+
 static void
 relay_due(struct relay_dir *d)
 {
@@ -517,6 +563,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (relay.early_1rtt) {
 			relay_early_1rtt(wsi, d, in, len);
+			break;
+		}
+
+		if (relay.pmtu) {
+			relay_pmtu(wsi, d, in, len);
 			break;
 		}
 
@@ -770,11 +821,57 @@ forwarder_failed(void)
 	return 0;
 }
 
+/* --pmtu: did each side find the size the path carries, and stop there? */
+
+static int
+pmtu_failed(void)
+{
+	size_t want = 0;
+	int mtu, n, e = 0;
+
+	if (!relay.pmtu)
+		return 0;
+
+	/* the biggest datagram the search can find on this path */
+	for (mtu = RELAY_PMTU_FIRST; ; mtu += RELAY_PMTU_STEP) {
+		if (mtu > RELAY_PMTU_CEILING)
+			mtu = RELAY_PMTU_CEILING;
+		if ((size_t)(mtu - RELAY_PMTU_OVERHEAD) > relay.pmtu)
+			break;
+		want = (size_t)(mtu - RELAY_PMTU_OVERHEAD);
+		if (mtu == RELAY_PMTU_CEILING)
+			break;
+	}
+
+	for (n = 0; n < 2; n++) {
+		const struct relay_dir *d = &relay.dir[n];
+		const char *who = n ? "server" : "client";
+
+		lwsl_user("pmtu: the %s's biggest datagram was %lu (want %lu), "
+			  "it lost %u bigger than %lu\n", who,
+			  (unsigned long)d->largest, (unsigned long)want,
+			  d->dropped, (unsigned long)relay.pmtu);
+
+		if (d->largest != want) {
+			lwsl_err("pmtu: the %s didn't find the size the path "
+				 "carries\n", who);
+			e = 1;
+		}
+		if (d->dropped > RELAY_PMTU_MAX_PROBES) {
+			lwsl_err("pmtu: the %s kept sending datagrams too big "
+				 "for the path\n", who);
+			e = 1;
+		}
+	}
+
+	return e;
+}
+
 static void
 teardown_cb(lws_sorted_usec_list_t *sul)
 {
 	if (!result)
-		result = forwarder_failed();
+		result = forwarder_failed() || pmtu_failed();
 	lws_default_loop_exit(context);
 }
 
@@ -946,6 +1043,7 @@ enum {
 	LWS_SW_OUTAGE,
 	LWS_SW_EARLY_1RTT,
 	LWS_SW_FORWARDER,
+	LWS_SW_PMTU,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
@@ -962,6 +1060,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_OUTAGE] = { "--outage",	"After the client's first Initial, the relay loses all but its Initial packets for this many ms (needs --relay)" },
 	[LWS_SW_EARLY_1RTT] = { "--early-1rtt", "The relay sends the client's first 1-RTT packet ahead of its Finished (needs --relay)" },
 	[LWS_SW_FORWARDER] = { "--forwarder", "The relay also sends the server copies of the client's small packets from an address that never answers (needs --relay)" },
+	[LWS_SW_PMTU]	= { "--pmtu",	"The relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
@@ -995,7 +1094,7 @@ int main(int argc, const char **argv)
 	lws_usec_t start_us;
 	char url_buf[128];
 	const char *p, *prot, *address, *path;
-	int port = 7681, relay_port = 0, outage_ms = 0;
+	int port = 7681, relay_port = 0, outage_ms = 0, pmtu = 0;
 	int url_port = 0;
 
 	lws_context_info_defaults(&info, NULL);
@@ -1096,6 +1195,25 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_PMTU].sw);
+	if (p) {
+		pmtu = atoi(p);
+
+		if (!relay_port || outage_ms ||
+		    lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
+		    lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw) ||
+		    lws_cmdline_option(argc, argv, switches[LWS_SW_FORWARDER].sw)) {
+			lwsl_err("--pmtu needs --relay, and not --stray, "
+				 "--outage, --early-1rtt or --forwarder\n");
+			return 1;
+		}
+		/* RFC 9000 14: every path carries 1200-byte datagrams */
+		if (pmtu < 1200 || pmtu > RELAY_DGRAM_MAX) {
+			lwsl_err("--pmtu must be 1200 to %d\n", RELAY_DGRAM_MAX);
+			return 1;
+		}
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -1183,6 +1301,7 @@ int main(int argc, const char **argv)
 					switches[LWS_SW_EARLY_1RTT].sw);
 		relay.forwarder = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_FORWARDER].sw);
+		relay.pmtu = (size_t)pmtu;
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

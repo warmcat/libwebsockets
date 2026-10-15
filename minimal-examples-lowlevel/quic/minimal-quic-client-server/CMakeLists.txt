@@ -174,6 +174,32 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay passing datagrams on as they come, as a path
+		# with an MTU of 1500: each side must probe its way up to the
+		# biggest datagrams lws sends, in probes of their own, and lose
+		# none.  Then losing those bigger than 1400: each side must
+		# settle on the biggest size that fits, after losing no more
+		# than three probes of the next one up.
+		#
+		lws_get_free_port(PORT_QCS_PMTU)
+		lws_get_free_port(PORT_QCS_PMTU_RELAY)
+		add_test(NAME ${SAMP}-pmtu COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_PMTU}
+				--relay ${PORT_QCS_PMTU_RELAY} --pmtu 1500)
+		set_tests_properties(${SAMP}-pmtu PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		lws_get_free_port(PORT_QCS_PMTU_SMALL)
+		lws_get_free_port(PORT_QCS_PMTU_SMALL_RELAY)
+		add_test(NAME ${SAMP}-pmtu-small COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_PMTU_SMALL}
+				--relay ${PORT_QCS_PMTU_SMALL_RELAY} --pmtu 1400)
+		set_tests_properties(${SAMP}-pmtu-small PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport
