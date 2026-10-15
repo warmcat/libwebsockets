@@ -31,6 +31,9 @@
  * and with --h2-post-stream as an h2 POST with no Content-Length, ended by
  * the stream: whatever the method or http version, the script must get the
  * whole body, see its end, and be told its Content-Length if it had one.
+ * --h2-post-stream-end is the same, but the stream is ended by a DATA frame
+ * of its own, with no body in it, after the last of the body, the way git
+ * ends a request body it streams: that frame is all that ends the body.
  *
  * With --no-headers, the script exits without writing anything: the
  * transaction must fail once the script is gone, not after the cgi timeout,
@@ -121,6 +124,7 @@ enum body_type {
 	BODY_CONTENT_LENGTH,
 	BODY_CHUNKED,
 	BODY_STREAM,		/* h2: no length, the stream ends it */
+	BODY_STREAM_END,	/* ... with an empty DATA after the body */
 };
 
 enum expect {
@@ -158,6 +162,8 @@ static const struct tcase cases[] = {
 	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
 	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 1, 0 },
 	{ "h2-post-stream", "POST", "/", BODY_STREAM, EXPECT_BODY_COUNT, 1, 0 },
+	{ "h2-post-stream-end", "POST", "/", BODY_STREAM_END, EXPECT_BODY_COUNT,
+	  1, 0 },
 #endif
 };
 
@@ -383,6 +389,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			break;
 		case BODY_STREAM:
+		case BODY_STREAM_END:
 			/* nothing: the END_STREAM on the last DATA ends it */
 			break;
 		}
@@ -393,8 +400,22 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		if (tc->body == BODY_NONE || pss->chunks_done >= CHUNKS)
+		if (tc->body == BODY_NONE || pss->chunks_done > CHUNKS ||
+		    (pss->chunks_done == CHUNKS && tc->body != BODY_STREAM_END))
 			return 0;
+
+		if (pss->chunks_done == CHUNKS) {
+			/*
+			 * The body has all gone: end the stream with a DATA
+			 * frame of its own, with nothing in it
+			 */
+			lws_client_http_body_pending(wsi, 0);
+			if (lws_write(wsi, &body[LWS_PRE], 0, LWS_WRITE_HTTP_FINAL))
+				return -1;
+			pss->chunks_done++;
+
+			return 0;
+		}
 
 		/*
 		 * Send the body one serv_buf-sized chunk per trip around
@@ -402,7 +423,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		 * its read buffer exactly
 		 */
 		n = LWS_WRITE_HTTP;
-		if (pss->chunks_done == CHUNKS - 1) {
+		if (pss->chunks_done == CHUNKS - 1 &&
+		    tc->body != BODY_STREAM_END) {
 			/* this is the last piece */
 			lws_client_http_body_pending(wsi, 0);
 			n = LWS_WRITE_HTTP_FINAL;

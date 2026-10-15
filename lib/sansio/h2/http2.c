@@ -2797,8 +2797,31 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 * and padding, arrives here with nothing latched yet.
 		 */
 
-		if (h2n->flags & LWS_H2_FLAG_END_STREAM)
+		if ((h2n->flags & LWS_H2_FLAG_END_STREAM) &&
+		    !h2n->swsi->h2.END_STREAM) {
 			lws_h2_peer_ended_stream(h2n->swsi);
+
+			/*
+			 * Nothing in the frame was body, so nothing took the
+			 * END_STREAM as the end of a body with no
+			 * content-length: that is still to be done.  The
+			 * stream's body before it all went in the frames
+			 * before, which we parsed in order.
+			 */
+			if (h2n->swsi->h2.END_STREAM &&
+			    lwsi_role_server(h2n->swsi) &&
+			    !h2n->swsi->h23_stream_carries_ws &&
+			    !h2n->swsi->http.content_length_given &&
+			    (lwsi_state(h2n->swsi) == LRS_BODY ||
+			     lwsi_state(h2n->swsi) == LRS_DISCARD_BODY) &&
+			    lws_read_h1(h2n->swsi, NULL, 0, 1) < 0) {
+				if (lws_h2_rst_stream(h2n->swsi,
+						      H2_ERR_INTERNAL_ERROR,
+						      "body completion failed"))
+					return 1;
+				break;
+			}
+		}
 
 		/*
 		 * He ended his side of the stream owing us body he promised in

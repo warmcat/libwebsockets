@@ -122,6 +122,18 @@ if (requirements)
 			set_tests_properties(api-test-http-cgi-h2-post-stream PROPERTIES
 					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 					     TIMEOUT 60)
+
+			# the same, ended by an empty DATA after the body
+			lws_get_free_port(PORT_HTTP_CGI_H2_POST_STREAM_END)
+
+			add_test(NAME api-test-http-cgi-h2-post-stream-end
+				 COMMAND lws-api-test-http-cgi-stdin
+					 --h2-post-stream-end
+					 -p ${PORT_HTTP_CGI_H2_POST_STREAM_END})
+			set_tests_properties(api-test-http-cgi-h2-post-stream-end
+					     PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
 		endif()
 
 		lws_get_free_port(PORT_HTTP_CGI_FD_BUDGET)

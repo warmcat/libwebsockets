@@ -246,7 +246,21 @@ http_postbody:
 		if (wsi->http.content_length_given && !wsi->http.rx_content_remain)
 			goto postbody_completion;
 
-		while (len && (!wsi->http.content_length_given || wsi->http.rx_content_remain)) {
+#if defined(LWS_ROLE_H2)
+		/*
+		 * An h2 body with no content-length is ended by the peer's
+		 * END_STREAM.  On the frame with the body's last byte, that's
+		 * seen as that byte is taken, below.  But the peer may end the
+		 * stream with a DATA frame of its own after the body, with
+		 * nothing in it, eg, git streaming a request body: the DATA
+		 * path tells us with no bytes at all, and it's what ends it.
+		 */
+		if (!len && lwsi_role_h2(wsi) && wsi->mux_substream &&
+		    !wsi->http.content_length_given && wsi->h2.END_STREAM)
+			goto postbody_completion;
+#endif
+
+		while (len &&(!wsi->http.content_length_given || wsi->http.rx_content_remain)) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)
