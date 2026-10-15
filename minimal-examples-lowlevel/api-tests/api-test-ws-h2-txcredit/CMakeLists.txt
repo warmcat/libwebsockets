@@ -26,9 +26,13 @@ if (requirements)
 	endif()
 
 	lws_get_free_port(PORT_WS_H2_TXCR)
+	lws_get_free_port(PORT_WS_H2_TXCR_BURST)
 
 	add_test(NAME api-test-ws-h2-txcredit COMMAND lws-api-test-ws-h2-txcredit --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_WS_H2_TXCR})
+	# each grant as 64 calls: 128 WINDOW_UPDATEs that must be merged
+	add_test(NAME api-test-ws-h2-txcredit-burst COMMAND lws-api-test-ws-h2-txcredit --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_WS_H2_TXCR_BURST} --burst 64)
 	set_tests_properties(api-test-ws-h2-txcredit
+			     api-test-ws-h2-txcredit-burst
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-h2-txcredit
 			     TIMEOUT 60)

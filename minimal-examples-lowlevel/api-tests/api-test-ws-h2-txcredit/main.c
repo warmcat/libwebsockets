@@ -18,6 +18,13 @@
  * the peer's window, which is a connection-fatal FLOW_CONTROL_ERROR with
  * strict peers like nghttp2 / browsers.
  *
+ * With --burst <n>, each 1KB grant is made as n separate lws_wsi_tx_credit()
+ * calls in one go, before the connection can write any of them.  Each one is
+ * a WINDOW_UPDATE for the stream and one for the connection, and while they
+ * wait they must be merged with the ones for the same stream already waiting:
+ * otherwise they overflow what the connection lets wait to be sent, and lws
+ * drops its own connection.
+ *
  * The test fails if
  *  - the negotiated connection is not actually ws-over-h2,
  *  - the client ever received more payload than it granted credit for
@@ -135,6 +142,7 @@ static size_t srv_sent;
 static size_t cli_rx;
 static size_t cli_granted;
 static int port_tcp = 7681;
+static int burst = 1;
 static lws_sorted_usec_list_t sul_grant, sul_timeout;
 
 static void
@@ -161,10 +169,16 @@ sul_grant_cb(lws_sorted_usec_list_t *sul)
 		return;
 
 	if (cli_granted < TEST_TOTAL + (2 * TEST_CHUNK)) {
+		int n;
+
+		/* the same credit, in burst pieces */
+
 		cli_granted += GRANT_QUANTUM;
-		if (lws_wsi_tx_credit(client_wsi, LWSTXCR_PEER_TO_US,
-				      GRANT_QUANTUM) < 0)
-			lwsl_warn("%s: tx_credit update failed\n", __func__);
+		for (n = 0; n < burst; n++)
+			if (lws_wsi_tx_credit(client_wsi, LWSTXCR_PEER_TO_US,
+					      GRANT_QUANTUM / burst) < 0)
+				lwsl_warn("%s: tx_credit update failed\n",
+					  __func__);
 	}
 
 	lws_sul_schedule(context, 0, &sul_grant, sul_grant_cb, GRANT_US);
@@ -337,6 +351,17 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port_tcp = atoi(p);
+
+	/* it has to divide GRANT_QUANTUM, or what's granted isn't counted */
+
+	if ((p = lws_cmdline_option(argc, argv, "--burst"))) {
+		burst = atoi(p);
+		if (burst < 1 || burst > GRANT_QUANTUM ||
+		    GRANT_QUANTUM % burst) {
+			lwsl_err("--burst must divide %d\n", GRANT_QUANTUM);
+			return 1;
+		}
+	}
 
 	signal(SIGINT, sigint_handler);
 

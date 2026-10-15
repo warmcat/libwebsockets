@@ -237,6 +237,52 @@ lws_h2_peer_ended_stream(struct lws *swsi)
 }
 
 /*
+ * Queue a WINDOW_UPDATE giving the peer \p credit more on stream \p sid, or
+ * the connection if sid is 0.
+ *
+ * They're additive, so if one for the same sid is still waiting to go out, the
+ * credit is added to that instead.  Each grant otherwise takes its own pending
+ * send, and a peer that grants in small steps faster than the connection gets
+ * writeable, eg, a stream doing its own rx flow control, or every DATA frame
+ * giving connection credit back, fills the pending sends and has us drop our
+ * own connection.
+ */
+
+static int
+lws_h2_pps_window_update(struct lws *wsi, unsigned int sid, unsigned int credit)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	struct lws_h2_protocol_send *pps;
+
+	if (nwsi && nwsi->h2.h2n)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&nwsi->h2.h2n->pps_owner)) {
+			pps = lws_container_of(d, struct lws_h2_protocol_send,
+					       list);
+
+			/* a window can't be more than 2^31 - 1 (RFC9113 6.9.1) */
+
+			if (pps->type == LWS_H2_PPS_UPDATE_WINDOW &&
+			    pps->u.update_window.sid == sid &&
+			    credit <= 0x7fffffffu - pps->u.update_window.credit) {
+				pps->u.update_window.credit += credit;
+				return 0;
+			}
+		} lws_end_foreach_dll(d);
+
+	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+	if (!pps)
+		return 1;
+
+	pps->u.update_window.sid = sid;
+	pps->u.update_window.credit = credit;
+
+	lws_pps_schedule(wsi, pps);
+
+	return 0;
+}
+
+/*
  * Give the peer back connection-level (sid 0) flow control credit only:
  * for DATA on streams that are already gone, a stream-level update would
  * itself be a protocol error, but the frame still consumed connection
@@ -247,31 +293,19 @@ lws_h2_peer_ended_stream(struct lws *swsi)
 static int
 lws_h2_update_conn_txcredit(struct lws *nwsi, int bump)
 {
-	struct lws_h2_protocol_send *pps;
-
 	if (!bump)
 		return 0;
 
-	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-	if (!pps)
-		return 1;
-
-	pps->u.update_window.sid = 0;
-	pps->u.update_window.credit = (unsigned int)bump;
 	nwsi->txc.peer_tx_cr_est += bump;
-
 	lws_wsi_txc_describe(&nwsi->txc, __func__, nwsi->mux.my_sid);
 
-	lws_pps_schedule(nwsi, pps);
-
-	return 0;
+	return lws_h2_pps_window_update(nwsi, 0, (unsigned int)bump);
 }
 
 int
 lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	struct lws_h2_protocol_send *pps;
 
 	assert(wsi);
 
@@ -284,31 +318,13 @@ lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump)
 	lwsl_info("%s: sid %d: bump %d -> %d\n", __func__, sid, bump,
 			(int)wsi->txc.peer_tx_cr_est + bump);
 
-	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-	if (!pps)
-		return 1;
-
-	pps->u.update_window.sid = (unsigned int)sid;
-	pps->u.update_window.credit = (unsigned int)bump;
 	wsi->txc.peer_tx_cr_est += bump;
-
 	lws_wsi_txc_describe(&wsi->txc, __func__, wsi->mux.my_sid);
 
-	lws_pps_schedule(wsi, pps);
-
-	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-	if (!pps)
+	if (lws_h2_pps_window_update(wsi, sid, (unsigned int)bump))
 		return 1;
 
-	pps->u.update_window.sid = 0;
-	pps->u.update_window.credit = (unsigned int)bump;
-	nwsi->txc.peer_tx_cr_est += bump;
-
-	lws_wsi_txc_describe(&nwsi->txc, __func__, nwsi->mux.my_sid);
-
-	lws_pps_schedule(nwsi, pps);
-
-	return 0;
+	return lws_h2_update_conn_txcredit(nwsi, bump);
 }
 
 int
@@ -3584,7 +3600,7 @@ do_windows:
 					 * stream credit to run down until the
 					 * user code deals with it
 					 */
-					lws_h2_update_peer_txcredit(wsi, (unsigned int)0, n);
+					lws_h2_update_conn_txcredit(wsi, n);
 					h2n->swsi->txc.manual = 1;
 				}
 #endif
