@@ -1457,6 +1457,15 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			if (vport > 0) {
 				struct lws *wsi_v4 = NULL, *wsi_v6 = NULL;
 
+				/*
+				 * In an IPv6-only build, "0.0.0.0" can only become
+				 * a v4-mapped bind on an AF_INET6 socket, and the
+				 * "::" listener below is dual-stack there anyway, so
+				 * it already hears v4 peers.  Binding both doesn't
+				 * work everywhere: BSDs and macOS refuse the second
+				 * with EADDRINUSE, leaving nothing listening on v6.
+				 */
+#if defined(LWS_WITH_IPV4)
 				wsi_v4 = lws_create_adopt_udp(vhd->vhost, "0.0.0.0", vport, LWS_CAUDP_BIND,
 							  vhd->protocol->name, NULL, NULL, NULL,
 							  NULL, "auth-dns-v4");
@@ -1467,6 +1476,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					lwsl_vhost_notice(vhd->vhost, "%s: bound to ipv4 udp port %d",
 							  __func__, vport);
 				}
+#endif
 
 #if defined(LWS_WITH_IPV6)
 				wsi_v6 = lws_create_adopt_udp(vhd->vhost, "::", vport, LWS_CAUDP_BIND,
