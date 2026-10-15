@@ -178,6 +178,7 @@ static const char * const test_key =
  */
 
 #define QUIC_V2		0x6b3343cfu
+#define RELAY_CID_MAX	20	/* RFC 9000 17.2: a v1 CID is up to 20 bytes */
 
 /*
  * With --early-1rtt, the relay passes datagrams on as they come, except that
@@ -257,10 +258,10 @@ relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
 static int
 relay_keep_initials(uint8_t *b, size_t len)
 {
-	size_t o = 0, q, u;
+	size_t o = 0, q, n, u;
 	uint64_t v;
 
-	while (len - o >= 7) {
+	while (o < len && len - o >= 7) {
 		const uint8_t *p = b + o;
 		size_t r = len - o;
 		uint32_t ver;
@@ -274,23 +275,40 @@ relay_keep_initials(uint8_t *b, size_t len)
 		if (((p[0] >> 4) & 3) != (ver == QUIC_V2 ? 1 : 0))
 			break;
 
-		q = 5;				/* DCID, then SCID */
-		if (q + 1u + p[q] >= r)
+		/*
+		 * The DCID, then the SCID.  Each length is checked before it
+		 * moves q, so q always indexes inside the packet.
+		 */
+		q = 5;
+		if (p[q] > RELAY_CID_MAX)
 			break;
-		q += 1u + p[q];
-		if (q + 1u + p[q] >= r)
+		n = q + 1u + p[q];
+		if (n >= r)
 			break;
-		q += 1u + p[q];
+		q = n;
+		if (p[q] > RELAY_CID_MAX)
+			break;
+		n = q + 1u + p[q];
+		if (n >= r)
+			break;
+		q = n;
+
 		/* the token, then the rest of the packet */
 		if (relay_varint(p + q, r - q, &u, &v) || v > r - q - u)
 			break;
-		q += u + (size_t)v;
+		n = q + u + (size_t)v;
+		if (n >= r)
+			break;
+		q = n;
 		if (relay_varint(p + q, r - q, &u, &v) || v > r - q - u)
 			break;
-		o += q + u + (size_t)v;
+		n = q + u + (size_t)v;
+		if (n > r)
+			break;
+		o += n;
 	}
 
-	if (!o)
+	if (!o || o > len)
 		return 0;
 
 	memset(b + o, 0, len - o);
