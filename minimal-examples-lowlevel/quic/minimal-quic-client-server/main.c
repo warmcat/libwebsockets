@@ -27,7 +27,10 @@
  * another address that never answers, and the server must not keep probing
  * that address.  With --pmtu <bytes>, the relay loses datagrams bigger than
  * that, as a path with a smaller MTU would, and each side must find the
- * biggest size the path carries, and stop probing past it.  With --blackhole,
+ * biggest size the path carries, and stop probing past it; with --delay-spike
+ * too, the path's delay spikes as each side starts probing, so the acks of its
+ * first probes come after it gave them up for lost, and it must still find
+ * that size.  With --blackhole,
  * the path's MTU falls to the base once each side is sending bigger packets,
  * and each must find that out and go back to the base, or its transfer stalls.
  * --spread <ms> has
@@ -255,6 +258,17 @@ static const char * const test_key =
 #define RELAY_PMTU_MAX_PROBES	3
 
 /*
+ * With --delay-spike as well, once a direction passes a datagram bigger than
+ * RELAY_BH_BASE, its first probe, the relay holds everything coming in that
+ * direction for RELAY_SPIKE_US, then sends it all on in order, as a path whose
+ * delay spiked would.  By then the sender gave its probes up for lost, and
+ * settled on the base, but their acks say the path carries their size, and
+ * each side must search on from there.
+ */
+#define RELAY_SPIKE_US		(500 * LWS_US_PER_MS)
+#define RELAY_SPIKE_LIMIT	(1024 * 1024)
+
+/*
  * With --blackhole, the relay passes datagrams on as they come, until it has
  * passed RELAY_BH_AFTER datagrams bigger than RELAY_BH_BASE in a direction,
  * which the base IP MTU, 1280, carries.  Then it loses every datagram bigger
@@ -372,6 +386,14 @@ struct relay_dir {
 
 	size_t			largest;	/* --pmtu: passed on */
 	unsigned int		big;		/* --blackhole: passed on */
+
+	/* --delay-spike: held back, then sent on in order */
+	lws_sorted_usec_list_t	sul_spike;
+	struct lws_buflist2_owner spike;
+	unsigned int		spike_held;
+	char			spike_on;
+	char			spike_due;
+	char			spike_done;
 };
 
 static struct {
@@ -400,6 +422,7 @@ static struct {
 	char			forwarder;
 
 	size_t			pmtu;		/* --pmtu */
+	char			delay_spike;
 	char			blackhole;
 } relay;
 
@@ -511,7 +534,28 @@ relay_early_1rtt(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
 			 early_1rtt_check_cb, RELAY_EARLY_WINDOW_US);
 }
 
-/* --pmtu: datagrams go on as they come, unless they're too big */
+static void
+relay_due(struct relay_dir *d)
+{
+	d->due = 1;
+	if (relay.wsi)
+		lws_callback_on_writable(relay.wsi);
+}
+
+static void
+relay_spike_cb(lws_sorted_usec_list_t *sul)
+{
+	struct relay_dir *d = lws_container_of(sul, struct relay_dir, sul_spike);
+
+	d->spike_due = 1;
+	if (relay.wsi)
+		lws_callback_on_writable(relay.wsi);
+}
+
+/*
+ * --pmtu: datagrams go on as they come, unless they're too big.  With
+ * --delay-spike, from the first big one, they are held back for a while.
+ */
 
 static void
 relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
@@ -523,6 +567,23 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 
 	if (len > relay.pmtu) {
 		d->dropped++;
+		return;
+	}
+
+	if (relay.delay_spike && !d->spike_on && !d->spike_done &&
+	    len > RELAY_BH_BASE) {
+		d->spike_on = 1;
+		d->spike.limit = RELAY_SPIKE_LIMIT;
+		lws_sul_schedule(lws_get_context(wsi), 0, &d->sul_spike,
+				 relay_spike_cb, RELAY_SPIKE_US);
+	}
+
+	if (d->spike_on) {
+		/* past the limit, it's lost, which QUIC recovers from */
+		if (lws_buflist2_append_segment(&d->spike, in, len) < 0)
+			d->dropped++;
+		else
+			d->spike_held++;
 		return;
 	}
 
@@ -556,14 +617,6 @@ relay_blackhole(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
 }
 
 static void
-relay_due(struct relay_dir *d)
-{
-	d->due = 1;
-	if (relay.wsi)
-		lws_callback_on_writable(relay.wsi);
-}
-
-static void
 relay_hold_cb(lws_sorted_usec_list_t *sul)
 {
 	relay_due(lws_container_of(sul, struct relay_dir, sul));
@@ -585,8 +638,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		relay.wsi = NULL;
-		for (n = 0; n < 2; n++)
+		for (n = 0; n < 2; n++) {
 			lws_sul_cancel(&relay.dir[n].sul);
+			lws_sul_cancel(&relay.dir[n].sul_spike);
+			lws_buflist2_destroy_all_segments(&relay.dir[n].spike);
+		}
 		lws_sul_cancel(&relay.sul_early);
 		break;
 
@@ -663,6 +719,24 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		for (n = 0; n < 2; n++) {
 			d = &relay.dir[n];
+
+			if (d->spike_due) {
+				uint8_t *b;
+				size_t l;
+
+				while ((l = lws_buflist2_next_segment_len(
+							&d->spike, &b)) > 0) {
+					relay_send(fd, b, l, &d->dest);
+					if (l > d->largest)
+						d->largest = l;
+					d->sent++;
+					lws_buflist2_use_segment(&d->spike, l);
+				}
+				d->spike_on = 0;
+				d->spike_due = 0;
+				d->spike_done = 1;
+			}
+
 			if (!d->due)
 				continue;
 
@@ -909,6 +983,17 @@ pmtu_failed(void)
 				 "for the path\n", who);
 			e = 1;
 		}
+
+		if (!relay.delay_spike)
+			continue;
+
+		lwsl_user("pmtu: the delay spike held %u of the %s's "
+			  "datagrams\n", d->spike_held, who);
+		if (!d->spike_done) {
+			lwsl_err("pmtu: the %s never had the delay spike, "
+				 "nothing was tested\n", who);
+			e = 1;
+		}
 	}
 
 	return e;
@@ -1120,6 +1205,7 @@ enum {
 	LWS_SW_EARLY_1RTT,
 	LWS_SW_FORWARDER,
 	LWS_SW_PMTU,
+	LWS_SW_DELAY_SPIKE,
 	LWS_SW_BLACKHOLE,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
@@ -1138,6 +1224,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_EARLY_1RTT] = { "--early-1rtt", "The relay sends the client's first 1-RTT packet ahead of its Finished (needs --relay)" },
 	[LWS_SW_FORWARDER] = { "--forwarder", "The relay also sends the server copies of the client's small packets from an address that never answers (needs --relay)" },
 	[LWS_SW_PMTU]	= { "--pmtu",	"The relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send (needs --relay)" },
+	[LWS_SW_DELAY_SPIKE] = { "--delay-spike", "When each side starts probing, the relay holds what it sends for 500ms, so its first probes are acked after they were given up for lost, and both sides must still find the biggest size (needs --pmtu)" },
 	[LWS_SW_BLACKHOLE] = { "--blackhole", "Once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, and both sides must go back to 1280 (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
@@ -1292,6 +1379,12 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_DELAY_SPIKE].sw) &&
+	    !pmtu) {
+		lwsl_err("--delay-spike needs --pmtu\n");
+		return 1;
+	}
+
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw) &&
 	    (!relay_port || outage_ms || pmtu ||
 	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
@@ -1390,6 +1483,8 @@ int main(int argc, const char **argv)
 		relay.forwarder = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_FORWARDER].sw);
 		relay.pmtu = (size_t)pmtu;
+		relay.delay_spike = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_DELAY_SPIKE].sw);
 		relay.blackhole = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_BLACKHOLE].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {

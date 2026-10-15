@@ -200,6 +200,22 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# As a path with an MTU of 1500 again, but its delay spikes as
+		# each side starts probing, so the acks of its first probes come
+		# after it gave them up for lost: they must still count, and
+		# each side must still probe its way up to the biggest datagrams
+		#
+		lws_get_free_port(PORT_QCS_PMTU_SPIKE)
+		lws_get_free_port(PORT_QCS_PMTU_SPIKE_RELAY)
+		add_test(NAME ${SAMP}-pmtu-spike COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_PMTU_SPIKE}
+				--relay ${PORT_QCS_PMTU_SPIKE_RELAY} --pmtu 1500
+				--delay-spike)
+		set_tests_properties(${SAMP}-pmtu-spike PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# Through the relay losing, in each direction, every datagram
 		# bigger than an IP MTU of 1280 carries, once it has passed ten
 		# of them: each side must find the black hole and go back to

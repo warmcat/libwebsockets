@@ -249,6 +249,7 @@ lws_quic_pmtud_reset(struct lws_quic_netconn *qn)
 	qn->probed_mtu			= LWS_QUIC_PMTU_FIRST_PROBE;
 	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_bh_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_late_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_probe_fails		= 0;
 	qn->consecutive_mtu_losses	= 0;
 	qn->pmtud_big_acked_pn1		= 0;
@@ -324,6 +325,41 @@ lws_quic_pmtud_kick(struct lws_quic_netconn *qn)
 }
 
 /*
+ * A search probe of mtu was acked: the path carries it, so the search goes on
+ * from there, unless it has reached the ceiling.  If the search had settled
+ * below mtu, because the probe's ack was late, it searches on.
+ */
+static void
+lws_quic_pmtud_carries(struct lws_quic_netconn *qn, uint32_t mtu)
+{
+	uint32_t ceiling = lws_quic_pmtud_ceiling(qn);
+
+	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->consecutive_mtu_losses	= 0;
+
+	if (mtu <= qn->current_mtu || !qn->pmtud_state)
+		return;
+
+	lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: mtu %u -> %u", qn->current_mtu,
+		      mtu);
+	qn->current_mtu		= mtu;
+	qn->pmtud_probe_fails	= 0;
+	qn->pmtud_raise_at	= 0;
+
+	if (mtu >= ceiling) {
+		qn->pmtud_state = 2; /* SEARCH_COMPLETE */
+		return;
+	}
+
+	qn->pmtud_state = 1; /* SEARCHING */
+	if (qn->probed_mtu <= mtu) {
+		qn->probed_mtu = mtu + LWS_QUIC_PMTU_STEP;
+		if (qn->probed_mtu > ceiling)
+			qn->probed_mtu = ceiling;
+	}
+}
+
+/*
  * A packet that wasn't a probe was lost.  If it was bigger than the base, and
  * enough of those were lost with no bigger packet sent after them getting
  * through, the path's MTU may have fallen: go back to the base now, and check
@@ -361,6 +397,7 @@ lws_quic_pmtud_lost_packet(struct lws_quic_netconn *qn,
 	qn->pmtud_state		= 0; /* BASE */
 	/* a search probe on its way says nothing now, whatever happens to it */
 	qn->pmtud_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_late_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_raise_at	= lws_wsi_now(qn->nwsi) + LWS_QUIC_PMTUD_RAISE_US;
 
 	if (qn->pmtud_bh_probe_queued ||
@@ -451,7 +488,10 @@ lws_quic_pmtud_probe_lost(struct lws_quic_netconn *qn,
 	if (f->sent_in_pn != qn->pmtud_probe_pn)
 		return 1; /* one from before the search was reset */
 
-	qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+	/* its ack may yet come, if it was only late, see lws_quic_handle_ack */
+	qn->pmtud_late_probe_pn		= f->sent_in_pn;
+	qn->pmtud_late_probe_mtu	= qn->probed_mtu;
+	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	if (++qn->pmtud_probe_fails >= LWS_QUIC_PMTUD_MAX_PROBES) {
 		lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: %u lost probes of %u, "
 			      "settling on %u", qn->pmtud_probe_fails,
@@ -1079,26 +1119,28 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
 
 	/*
 	 * PMTUD: our probe, in the application PN space, was acknowledged, so
-	 * the path carries its size: probe the next one up, if any
+	 * the path carries its size: probe the next one up, if any.  So it does
+	 * if the ack came after we gave the probe up for lost.
 	 */
 	if (level == LWS_QUIC_LEVEL_APP &&
 	    qn->pmtud_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
 	    qn->pmtud_probe_pn >= pn_lo && qn->pmtud_probe_pn <= pn_hi) {
-		uint32_t ceiling = lws_quic_pmtud_ceiling(qn);
+		lwsl_wsi_info(nwsi, "QUIC PMTUD: probe %llu of %u acked",
+			      (unsigned long long)qn->pmtud_probe_pn,
+			      qn->probed_mtu);
+		lws_quic_pmtud_carries(qn, qn->probed_mtu);
+	}
 
-		lwsl_wsi_info(nwsi, "QUIC PMTUD: Probe %llu ACKed! MTU upgraded from %d to %d",
-			(unsigned long long)qn->pmtud_probe_pn, (int)qn->current_mtu, (int)qn->probed_mtu);
-		qn->current_mtu = qn->probed_mtu;
-		qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
-		qn->pmtud_probe_fails = 0;
-		qn->consecutive_mtu_losses = 0;
-		if (qn->current_mtu >= ceiling)
-			qn->pmtud_state = 2; /* SEARCH_COMPLETE */
-		else {
-			qn->probed_mtu += LWS_QUIC_PMTU_STEP;
-			if (qn->probed_mtu > ceiling)
-				qn->probed_mtu = ceiling;
-		}
+	if (level == LWS_QUIC_LEVEL_APP &&
+	    qn->pmtud_late_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
+	    qn->pmtud_late_probe_pn >= pn_lo &&
+	    qn->pmtud_late_probe_pn <= pn_hi) {
+		lwsl_wsi_info(nwsi, "QUIC PMTUD: probe %llu of %u acked after "
+			      "it was given up for lost",
+			      (unsigned long long)qn->pmtud_late_probe_pn,
+			      qn->pmtud_late_probe_mtu);
+		qn->pmtud_late_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+		lws_quic_pmtud_carries(qn, qn->pmtud_late_probe_mtu);
 	}
 
 	/* the next probe, or the first since the search was reset */

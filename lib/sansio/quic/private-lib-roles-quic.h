@@ -595,6 +595,12 @@ struct lws_quic_netconn {
 	uint64_t		pmtud_probe_pn;
 	/* PN of the base size probe in flight checking for a black hole */
 	uint64_t		pmtud_bh_probe_pn;
+	/*
+	 * PN and size of the last search probe given up for lost: if its ack
+	 * comes after all, it was only late, and the path carries its size
+	 */
+	uint64_t		pmtud_late_probe_pn;
+	uint32_t		pmtud_late_probe_mtu;
 	/* after a black hole, when the search starts again */
 	lws_usec_t		pmtud_raise_at;
 	/* the peer's max_udp_payload_size transport parameter, 0 if none */

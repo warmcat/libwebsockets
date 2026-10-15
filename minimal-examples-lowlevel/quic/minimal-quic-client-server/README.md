@@ -29,6 +29,7 @@ arrived.
 |--early-1rtt|With `--relay`, the relay sends the client's first 1-RTT packet ahead of its Finished, see below|
 |--forwarder|With `--relay`, the relay also sends the server copies of the client's small packets from an address that never answers, see below|
 |--pmtu <bytes>|With `--relay`, the relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send, see below|
+|--delay-spike|With `--pmtu`, when each side starts probing, the relay holds what it sends for 500ms, see below|
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
@@ -145,8 +146,9 @@ the side has anything else to send or not, and the peer acks every probe.  It
 probes an IP MTU of 1380, then up in steps of 100 to 1500, or less if the
 peer's `max_udp_payload_size` is smaller, as datagrams 48 bytes smaller, for
 the IPv6 and UDP headers.  A probe that is lost is sent again, but after it
-lost three probes of a size, it settles on the size it has.  Lost probes are
-not sent again by loss recovery, nor count as congestion (RFC 9000 14.4).
+lost three probes of a size, it settles on the size it has, and tries that
+size again 10 minutes later.  Lost probes are not sent again by loss
+recovery, nor count as congestion (RFC 9000 14.4).
 
 By the end of the transfer, the biggest datagram each side sent must be the
 biggest of those sizes the path carries, and it must not have lost more than
@@ -154,6 +156,17 @@ three datagrams that were too big for it.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400
+```
+
+With `--delay-spike` as well, the path's delay spikes just as each side
+starts probing: from the first probe, the relay holds everything that side
+sends for 500ms, then sends it all on in order.  By then the side gave its
+probes up for lost, and may have settled on 1280, but when their acks come
+after all, the path carries their size, and it must search on from there.
+The same checks as `--pmtu` apply.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1500 --delay-spike
 ```
 
 With `--blackhole` instead, the path's MTU falls under the connection.  The
