@@ -200,6 +200,21 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay losing, in each direction, every datagram
+		# bigger than an IP MTU of 1280 carries, once it has passed ten
+		# of them: each side must find the black hole and go back to
+		# 1280, or the transfer stalls
+		#
+		lws_get_free_port(PORT_QCS_BH)
+		lws_get_free_port(PORT_QCS_BH_RELAY)
+		add_test(NAME ${SAMP}-blackhole COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_BH}
+				--relay ${PORT_QCS_BH_RELAY} --blackhole)
+		set_tests_properties(${SAMP}-blackhole PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport

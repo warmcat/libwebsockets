@@ -29,6 +29,7 @@ arrived.
 |--early-1rtt|With `--relay`, the relay sends the client's first 1-RTT packet ahead of its Finished, see below|
 |--forwarder|With `--relay`, the relay also sends the server copies of the client's small packets from an address that never answers, see below|
 |--pmtu <bytes>|With `--relay`, the relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send, see below|
+|--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
@@ -153,6 +154,25 @@ three datagrams that were too big for it.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400
+```
+
+With `--blackhole` instead, the path's MTU falls under the connection.  The
+relay passes datagrams on as they come, until it has passed ten in a
+direction that are bigger than an IP MTU of 1280 carries, 1232 bytes; from
+then on it loses every datagram bigger than that in that direction, without
+telling anyone, as a path whose MTU fell to 1280 would.  Loss recovery alone
+never gets through: what was lost goes again in packets just as big.
+
+So each side watches for packets bigger than 1232 being lost (RFC 8899 4.3):
+once three were lost with none of them getting through since, it sends a
+probe of 1232 bytes.  If that gets through, while the big ones don't, the
+path's MTU fell, and the side goes back to 1280, searching again 10 minutes
+later.  If the probe is lost too, everything is being lost, which says
+nothing about the MTU.  The transfer must complete, and each side must have
+sent big packets into the black hole, or nothing was tested.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --blackhole
 ```
 
 ## congestion controller

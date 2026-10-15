@@ -256,6 +256,18 @@ enum lws_quic_frame_type {
 #define LWS_QUIC_PMTUD_MAX_PROBES	3u
 
 /*
+ * Black hole detection (RFC 8899 4.3): once LWS_QUIC_PMTUD_BH_LOSSES packets
+ * bigger than the base were lost and none got through since, a probe of the
+ * base size checks whether small packets still get through.  If it does,
+ * while the big ones were lost, the path's MTU fell: the connection goes back
+ * to the base, and searches again after LWS_QUIC_PMTUD_RAISE_US (RFC 8899
+ * 5.1.1 PMTU_RAISE_TIMER).  If it doesn't, everything is being lost, and
+ * that's loss recovery's business, not PMTUD's.
+ */
+#define LWS_QUIC_PMTUD_BH_LOSSES	3u
+#define LWS_QUIC_PMTUD_RAISE_US		(600 * LWS_US_PER_SEC)
+
+/*
  * A logical frame queued for transmission or in-flight waiting for ACK.
  */
 struct lws_quic_tx_frame {
@@ -283,6 +295,8 @@ struct lws_quic_tx_frame {
 	lws_sockaddr46		dest_sa46;
 	uint8_t			has_dest;
 	/* a PING that is a PMTUD probe, see lws_quic_pmtud_kick() */
+#define LWS_QUIC_PMTUD_PROBE_SEARCH	1 /* of probed_mtu */
+#define LWS_QUIC_PMTUD_PROBE_BASE	2 /* of the base, black hole check */
 	uint8_t			pmtud_probe;
 };
 
@@ -570,14 +584,20 @@ struct lws_quic_netconn {
 	 */
 #define LWS_QUIC_PMTUD_PROBE_NONE	((uint64_t)~0ull)
 	uint64_t		pmtud_probe_pn;
+	/* PN of the base size probe in flight checking for a black hole */
+	uint64_t		pmtud_bh_probe_pn;
+	/* after a black hole, when the search starts again */
+	lws_usec_t		pmtud_raise_at;
 	/* the peer's max_udp_payload_size transport parameter, 0 if none */
 	uint32_t		peer_max_udp_payload;
+	/* packets bigger than the base lost since one of them got through */
 	uint16_t		consecutive_mtu_losses;
 	uint8_t			pmtud_state; /* 0=BASE, 1=SEARCHING, 2=SEARCH_COMPLETE */
 	/* probes of probed_mtu lost so far */
 	uint8_t			pmtud_probe_fails;
 	/* a probe's PING is in pending_tx, not sent yet */
 	uint8_t			pmtud_probe_queued:1;
+	uint8_t			pmtud_bh_probe_queued:1;
 
 	/* Path Validation (RFC 9000 Section 8.2) */
 	uint8_t			path_challenge[8];

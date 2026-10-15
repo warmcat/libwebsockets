@@ -27,7 +27,10 @@
  * another address that never answers, and the server must not keep probing
  * that address.  With --pmtu <bytes>, the relay loses datagrams bigger than
  * that, as a path with a smaller MTU would, and each side must find the
- * biggest size the path carries, and stop probing past it.  --spread <ms> has
+ * biggest size the path carries, and stop probing past it.  With --blackhole,
+ * the path's MTU falls to the base once each side is sending bigger packets,
+ * and each must find that out and go back to the base, or its transfer stalls.
+ * --spread <ms> has
  * the client spread its writes over that long, rather than send as fast as it
  * can.
  */
@@ -251,6 +254,19 @@ static const char * const test_key =
 #define RELAY_PMTU_OVERHEAD	48
 #define RELAY_PMTU_MAX_PROBES	3
 
+/*
+ * With --blackhole, the relay passes datagrams on as they come, until it has
+ * passed RELAY_BH_AFTER datagrams bigger than RELAY_BH_BASE in a direction,
+ * which the base IP MTU, 1280, carries.  Then it loses every datagram bigger
+ * than that in that direction, as a path whose MTU fell to the base would,
+ * without telling anyone.  Each side must see the big packets it sends are
+ * lost, while a probe of the base size still gets through, and go back to
+ * the base (RFC 8899 4.3), so the transfer completes.  The test fails if a
+ * direction never had the black hole, since then nothing was tested.
+ */
+#define RELAY_BH_AFTER		10
+#define RELAY_BH_BASE		(1280 - RELAY_PMTU_OVERHEAD)
+
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
 relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
@@ -354,6 +370,7 @@ struct relay_dir {
 	unsigned int		dropped;
 
 	size_t			largest;	/* --pmtu: passed on */
+	unsigned int		big;		/* --blackhole: passed on */
 };
 
 static struct {
@@ -382,6 +399,7 @@ static struct {
 	char			forwarder;
 
 	size_t			pmtu;		/* --pmtu */
+	char			blackhole;
 } relay;
 
 static void
@@ -513,6 +531,29 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 	d->sent++;
 }
 
+/* --blackhole: big datagrams go on, until they don't */
+
+static void
+relay_blackhole(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
+		size_t len)
+{
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
+
+	if (fd == LWS_SOCK_INVALID)
+		return;
+
+	if (len > RELAY_BH_BASE) {
+		if (d->big >= RELAY_BH_AFTER) {
+			d->dropped++;
+			return;
+		}
+		d->big++;
+	}
+
+	relay_send(fd, in, len, &d->dest);
+	d->sent++;
+}
+
 static void
 relay_due(struct relay_dir *d)
 {
@@ -568,6 +609,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (relay.pmtu) {
 			relay_pmtu(wsi, d, in, len);
+			break;
+		}
+
+		if (relay.blackhole) {
+			relay_blackhole(wsi, d, in, len);
 			break;
 		}
 
@@ -867,11 +913,40 @@ pmtu_failed(void)
 	return e;
 }
 
+/* --blackhole: did both sides send big packets into it? */
+
+static int
+blackhole_failed(void)
+{
+	int n, e = 0;
+
+	if (!relay.blackhole)
+		return 0;
+
+	for (n = 0; n < 2; n++) {
+		const struct relay_dir *d = &relay.dir[n];
+		const char *who = n ? "server" : "client";
+
+		lwsl_user("blackhole: the %s sent %u datagrams bigger than %d "
+			  "before the black hole, and %u into it\n", who,
+			  d->big, RELAY_BH_BASE, d->dropped);
+
+		if (d->big < RELAY_BH_AFTER || !d->dropped) {
+			lwsl_err("blackhole: the %s never had the black hole, "
+				 "nothing was tested\n", who);
+			e = 1;
+		}
+	}
+
+	return e;
+}
+
 static void
 teardown_cb(lws_sorted_usec_list_t *sul)
 {
 	if (!result)
-		result = forwarder_failed() || pmtu_failed();
+		result = forwarder_failed() || pmtu_failed() ||
+			 blackhole_failed();
 	lws_default_loop_exit(context);
 }
 
@@ -1044,6 +1119,7 @@ enum {
 	LWS_SW_EARLY_1RTT,
 	LWS_SW_FORWARDER,
 	LWS_SW_PMTU,
+	LWS_SW_BLACKHOLE,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
@@ -1061,6 +1137,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_EARLY_1RTT] = { "--early-1rtt", "The relay sends the client's first 1-RTT packet ahead of its Finished (needs --relay)" },
 	[LWS_SW_FORWARDER] = { "--forwarder", "The relay also sends the server copies of the client's small packets from an address that never answers (needs --relay)" },
 	[LWS_SW_PMTU]	= { "--pmtu",	"The relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send (needs --relay)" },
+	[LWS_SW_BLACKHOLE] = { "--blackhole", "Once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, and both sides must go back to 1280 (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
@@ -1214,6 +1291,16 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw) &&
+	    (!relay_port || outage_ms || pmtu ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_FORWARDER].sw))) {
+		lwsl_err("--blackhole needs --relay, and not --stray, --outage, "
+			 "--early-1rtt, --forwarder or --pmtu\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -1302,6 +1389,8 @@ int main(int argc, const char **argv)
 		relay.forwarder = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_FORWARDER].sw);
 		relay.pmtu = (size_t)pmtu;
+		relay.blackhole = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_BLACKHOLE].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;
