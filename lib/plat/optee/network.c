@@ -252,6 +252,16 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 }
 
 int
+lws_plat_set_socket_dontfrag(lws_sockfd_type fd, int af)
+{
+	/* nothing to ask for it with */
+	(void)fd;
+	(void)af;
+
+	return 0;
+}
+
+int
 lws_plat_set_socket_options_ip(int fd, uint8_t pri, unsigned int lws_flags)
 {
 	return 0;

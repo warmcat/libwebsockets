@@ -808,6 +808,14 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			goto resume;
 		}
 
+#if defined(LWS_ROLE_QUIC)
+		/* QUIC finds the path MTU itself */
+		if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") &&
+		    lws_plat_set_socket_dontfrag(sock.sockfd,
+						 s->dest.sa4.sin_family))
+			lwsl_wsi_info(wsi, "unable to set Don't Fragment");
+#endif
+
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		/*
 		 * For IPv6 UDP sockets we own the IPV6_V6ONLY state rather
@@ -1029,6 +1037,13 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		sock.sockfd = LWS_SOCK_INVALID;
 		goto resume;
 	}
+
+#if defined(LWS_ROLE_QUIC)
+	/* QUIC finds the path MTU itself */
+	if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") &&
+	    lws_plat_set_socket_dontfrag(sock.sockfd, dest.sa4.sin_family))
+		lwsl_wsi_info(wsi, "unable to set Don't Fragment");
+#endif
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		if (dest.sa4.sin_family == AF_INET6) {

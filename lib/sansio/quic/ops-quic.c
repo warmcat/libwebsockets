@@ -4048,6 +4048,29 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 			/* the caller keeps POLLOUT: the transport wakes us */
 			return 1;
 		} else {
+			struct lws_dll2 *d = qn->in_flight[tp->level].tail;
+
+			/*
+			 * A PMTUD probe can be too big for our own interface,
+			 * eg, a tunnel's, which with Don't Fragment the OS
+			 * refuses to send: it's lost, now
+			 */
+			if (d) {
+				struct lws_quic_tx_frame *f = lws_container_of(d,
+						struct lws_quic_tx_frame, list);
+
+				if (f->sent_in_pn == tp->pn && f->pmtud_probe) {
+					lwsl_wsi_info(wsi, "QUIC TX: PMTUD probe "
+						      "of %u not sent",
+						      (unsigned int)tp->len);
+					lws_quic_pmtud_probe_lost(qn, f);
+					lws_dll2_remove(d);
+					lws_free(f);
+
+					return -1;
+				}
+			}
+
 			lwsl_wsi_err(wsi, "QUIC TX: write failed");
 			return -1;
 		}

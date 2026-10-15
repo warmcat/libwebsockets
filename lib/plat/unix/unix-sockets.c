@@ -206,6 +206,54 @@ static const char *ip_opt_names[] = {
 #endif
 
 int
+lws_plat_set_socket_dontfrag(lws_sockfd_type fd, int af)
+{
+	int ret = 0, v;
+
+	(void)v;
+
+#if defined(LWS_WITH_IPV6)
+	if (af == AF_INET6) {
+#if defined(IPV6_MTU_DISCOVER) && defined(IPV6_PMTUDISC_PROBE)
+		v = IPV6_PMTUDISC_PROBE;
+		ret = setsockopt(fd, IPPROTO_IPV6, IPV6_MTU_DISCOVER,
+				 (const void *)&v, sizeof(v));
+#elif defined(IPV6_DONTFRAG)
+		v = 1;
+		ret = setsockopt(fd, IPPROTO_IPV6, IPV6_DONTFRAG,
+				 (const void *)&v, sizeof(v));
+#endif
+		/*
+		 * A dual stack socket's IPv4 datagrams too, where the platform
+		 * applies the IPv4 option to them; where it doesn't, there's
+		 * nothing more we can do
+		 */
+#if defined(IP_MTU_DISCOVER) && defined(IP_PMTUDISC_PROBE)
+		v = IP_PMTUDISC_PROBE;
+		(void)setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER,
+				 (const void *)&v, sizeof(v));
+#endif
+
+		return ret;
+	}
+#endif
+
+	(void)af;
+
+#if defined(IP_MTU_DISCOVER) && defined(IP_PMTUDISC_PROBE)
+	v = IP_PMTUDISC_PROBE;
+	ret = setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER,
+			 (const void *)&v, sizeof(v));
+#elif defined(IP_DONTFRAG)
+	v = 1;
+	ret = setsockopt(fd, IPPROTO_IP, IP_DONTFRAG,
+			 (const void *)&v, sizeof(v));
+#endif
+
+	return ret;
+}
+
+int
 lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 {
 	int optval = (int)pri, ret = 0;

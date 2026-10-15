@@ -1066,6 +1066,15 @@ ads_known:
 						   wsi->io->c_pri, wsi->flags))
 			lwsl_wsi_warn(wsi, "unable to set ip options");
 
+#if defined(LWS_ROLE_QUIC)
+		/* QUIC finds the path MTU itself */
+		if (want_udp && wsi->role_ops &&
+		    !strcmp(wsi->role_ops->name, "quic") &&
+		    lws_plat_set_socket_dontfrag(new_fd,
+					wsi->io->sa46_peer.sa4.sin_family))
+			lwsl_wsi_info(wsi, "unable to set Don't Fragment");
+#endif
+
 #if !defined(WIN32) && !defined(_WIN32)
                 if (want_udp && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
                         int opt = 1;

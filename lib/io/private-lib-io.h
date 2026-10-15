@@ -110,6 +110,17 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 int
 lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags);
 
+/*
+ * Datagrams sent on fd go with Don't Fragment, so one too big for the path is
+ * lost, not fragmented, and the sender can find the path MTU itself, eg,
+ * QUIC's DPLPMTUD (RFC 9000 14).  Where the platform can, the kernel's own
+ * idea of the path MTU, from ICMP messages anyone can forge, isn't applied to
+ * them either (RFC 9000 14.2.1).  af is the socket's address family.  Returns
+ * 0 if done, or there's no way to do it on this platform.
+ */
+int
+lws_plat_set_socket_dontfrag(lws_sockfd_type fd, int af);
+
 int
 lws_plat_check_connection_error(struct lws *wsi);
 

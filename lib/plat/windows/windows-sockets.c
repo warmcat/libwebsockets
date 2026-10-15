@@ -122,6 +122,40 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 }
 
 int
+lws_plat_set_socket_dontfrag(lws_sockfd_type fd, int af)
+{
+	DWORD v = 1;
+	int ret = 0;
+
+	(void)v;
+
+#if defined(LWS_WITH_IPV6)
+	if (af == AF_INET6) {
+#if defined(IPV6_DONTFRAG)
+		ret = setsockopt(fd, IPPROTO_IPV6, IPV6_DONTFRAG,
+				 (const char *)&v, sizeof(v));
+#endif
+		/* a dual stack socket's IPv4 datagrams too, where it can */
+#if defined(IP_DONTFRAGMENT)
+		(void)setsockopt(fd, IPPROTO_IP, IP_DONTFRAGMENT,
+				 (const char *)&v, sizeof(v));
+#endif
+
+		return ret;
+	}
+#endif
+
+	(void)af;
+
+#if defined(IP_DONTFRAGMENT)
+	ret = setsockopt(fd, IPPROTO_IP, IP_DONTFRAGMENT,
+			 (const char *)&v, sizeof(v));
+#endif
+
+	return ret;
+}
+
+int
 lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 {	
 	int optval = 1, ret = 0;

@@ -143,6 +143,16 @@ static const char *ip_opt_names[] = {
 #endif
 
 int
+lws_plat_set_socket_dontfrag(lws_sockfd_type fd, int af)
+{
+	/* lwIP has no way to ask for it */
+	(void)fd;
+	(void)af;
+
+	return 0;
+}
+
+int
 lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 {
 	int optval = (int)pri, ret = 0, n;

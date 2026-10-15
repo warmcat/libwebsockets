@@ -910,6 +910,26 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 	/* latch it before the logging can clobber it */
 	e = LWS_ERRNO;
 
+	/*
+	 * Too big to send at all, eg, a path MTU probe bigger than our own
+	 * interface's MTU, on a socket with Don't Fragment.  It's not a fault,
+	 * and it never goes, so the sender hears it failed.
+	 */
+	if (
+#if defined(WIN32)
+	    e == WSAEMSGSIZE
+#elif defined(EMSGSIZE)
+	    e == EMSGSIZE
+#else
+	    0
+#endif
+	    ) {
+		lwsl_wsi_info(wsi, "dgram of %u bytes too big to send",
+			      (unsigned int)len);
+
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 	{
 		char da[80] = "connected", ba[80] = "-";
