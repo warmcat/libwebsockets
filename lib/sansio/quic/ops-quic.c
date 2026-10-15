@@ -4161,7 +4161,12 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 			/*
 			 * A PMTUD probe can be too big for our own interface,
 			 * eg, a tunnel's, which with Don't Fragment the OS
-			 * refuses to send: it's lost, now
+			 * refuses to send: it's lost, now.  Only the probe is:
+			 * an ACK that went with it is still owed, and what is
+			 * waiting behind it must still go, so ask to write
+			 * again, as a sent packet would.  Nothing else may come
+			 * along to wake us, eg, a close frame waiting behind
+			 * the probe would only go at the close timeout.
 			 */
 			if (d) {
 				struct lws_quic_tx_frame *f = lws_container_of(d,
@@ -4174,6 +4179,9 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 					lws_quic_pmtud_probe_lost(qn, f);
 					lws_dll2_remove(d);
 					lws_free(f);
+
+					qn->needs_ack[LWS_QUIC_LEVEL_APP] = 1;
+					lws_callback_on_writable(wsi);
 
 					return -1;
 				}
