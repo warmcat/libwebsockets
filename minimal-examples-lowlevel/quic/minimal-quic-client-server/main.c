@@ -1262,6 +1262,12 @@ int main(int argc, const char **argv)
 	int port = 7681, relay_port = 0, outage_ms = 0, pmtu = 0;
 	int url_port = 0;
 
+	/* ahead of the builtin options, which have a --help of their own */
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	lws_context_info_defaults(&info, NULL);
 	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -1272,11 +1278,6 @@ int main(int argc, const char **argv)
        //      return 0;
        // }
 #endif
-
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
-		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
-		return 0;
-	}
 
 	p = lws_cmdline_option(argc, argv, "-p");
 	if (p)
