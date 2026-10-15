@@ -418,6 +418,7 @@ struct lws_buflist2 {
 	size_t len;
 	size_t pos;
 	void *heap_alloc;
+	unsigned char awaiting_eom;	/* lws_wsmsg: message continues */
 };
 
 int
@@ -447,10 +448,8 @@ lws_buflist2_append_segment(struct lws_buflist2_owner *owner, const uint8_t *buf
 		return -1;
 	}
 
-	lws_dll2_clear(&nbuf->list);
+	memset(nbuf, 0, sizeof(*nbuf));
 	nbuf->len = len;
-	nbuf->pos = 0;
-	nbuf->heap_alloc = NULL;
 
 	/* whoever consumes this might need LWS_PRE from the start... */
 	memcpy((uint8_t *)nbuf + sizeof(*nbuf) + LWS_PRE, buf, len);
@@ -488,9 +487,8 @@ lws_buflist2_append_segment_take_ownership(struct lws_buflist2_owner *owner, uin
 		return -1;
 	}
 
-	lws_dll2_clear(&nbuf->list);
+	memset(nbuf, 0, sizeof(*nbuf));
 	nbuf->len = len;
-	nbuf->pos = 0;
 	nbuf->heap_alloc = buf;
 
 	/* only now: lws_malloc() may have run evict()s that emptied it */
@@ -639,61 +637,61 @@ lws_buflist2_get_frag_start_or_NULL(struct lws_buflist2_owner *owner)
 }
 
 
+/*
+ * lws_wsmsg
+ *
+ * The lists are buflist2s, so finding a tail and the length held is O(1): a
+ * busy upstream with thousands of messages queued costs nothing more per
+ * append than an empty one.
+ */
+
+static struct lws_buflist2 *
+lws_wsmsg_tail(struct lws_buflist2_owner *o)
+{
+	struct lws_dll2 *d = lws_dll2_get_tail(&o->owner);
+
+	return d ? lws_container_of(d, struct lws_buflist2, list) : NULL;
+}
+
 static void
 lws_wsmsg_transfer(lws_wsmsg_info_t *info)
 {
-	struct lws_buflist *bl = info->private_heads[info->private_source_idx],
-			   *ubl = *info->head_upstream;
+	struct lws_buflist2_owner *priv =
+				&info->private_owners[info->private_source_idx];
+	struct lws_buflist2 *t = lws_wsmsg_tail(priv), *ut;
 
 	/*
-	 * If we arrived at a complete message, and the upstream is
-	 * not blocked awaiting EOM, transfer the segments to the
-	 * upstream, emptying the private buflist
+	 * If we arrived at a complete message, and the upstream is not blocked
+	 * awaiting EOM, move the message's segments on to the end of the
+	 * upstream, emptying the private list
 	 */
 
-	if (!bl)
+	if (!t || t->awaiting_eom)
 		return;
 
-	while (bl && bl->next)
-		bl = bl->next;
-
-	if (bl->awaiting_eom)
+	ut = lws_wsmsg_tail(info->upstream);
+	if (ut && ut->awaiting_eom)
 		return;
 
-	if (!*info->head_upstream) {
-		/*
-		 * If the upstream is empty, create it by pointing
-		 * it to the whole private chain, taking ownership
-		 */
+	while (!lws_dll2_is_empty(&priv->owner)) {
+		struct lws_buflist2 *b = lws_container_of(
+				lws_dll2_get_head(&priv->owner),
+				struct lws_buflist2, list);
 
-		*info->head_upstream = info->private_heads[info->private_source_idx];
-		info->private_heads[info->private_source_idx] = NULL;
-
-		return;
+		/* the bytes were already allowed for, in the private list */
+		lws_dll2_remove(&b->list);
+		priv->total_len -= b->len;
+		lws_dll2_add_tail(&b->list, &info->upstream->owner);
+		info->upstream->total_len += b->len;
 	}
-
-
-	/* find the end of the existing upstream */
-
-	while (ubl && ubl->next)
-		ubl = ubl->next;
-
-	if (ubl->awaiting_eom)
-		return;
-
-	/*
-	 * Add the private buflist on to the end of
-	 * the upstream buflist, taking ownership
-	 */
-
-	ubl->next					= info->private_heads[info->private_source_idx];
-	info->private_heads[info->private_source_idx]	= NULL; /* now it transferred upstream, private owns nothing */
 }
 
 int
 lws_wsmsg_append(lws_wsmsg_info_t *info)
 {
-	struct lws_buflist *bl;
+	struct lws_buflist2_owner *priv =
+				&info->private_owners[info->private_source_idx];
+	struct lws_buflist2 *t;
 
 	/*
 	 * if there's nothing already stored, the new message is complete,
@@ -701,39 +699,31 @@ lws_wsmsg_append(lws_wsmsg_info_t *info)
 	 * then just apply the message directly to the upstream.
 	 */
 
-	if (!info->private_heads[info->private_source_idx] &&
-	    (info->ss_flags == (LWSSS_FLAG_SOM | LWSSS_FLAG_EOM)) &&
-	    (!(*info->head_upstream) || !(*info->head_upstream)->awaiting_eom)) {
+	t = lws_wsmsg_tail(info->upstream);
+	if (lws_dll2_is_empty(&priv->owner) &&
+	    info->ss_flags == (LWSSS_FLAG_SOM | LWSSS_FLAG_EOM) &&
+	    (!t || !t->awaiting_eom)) {
 
-		if (lws_buflist_append_segment(info->head_upstream, info->buf, info->len) < 0)
+		if (lws_buflist2_append_segment(info->upstream, info->buf,
+						info->len) < 0)
 			return -1;
 
-		/*
-		 * Let's tag the tail buflist we just added,
-		 * with extra information useful for debugging
-		 */
-
-		bl = *info->head_upstream;
+		t = lws_wsmsg_tail(info->upstream);
 	} else {
 		/*
 		 * Otherwise, apply the message to the private buflist first
 		 */
 
-		if (lws_buflist_append_segment(&info->private_heads[info->private_source_idx],
-					       info->buf, info->len) < 0)
+		if (lws_buflist2_append_segment(priv, info->buf, info->len) < 0)
 			return -1;
 
-		bl = info->private_heads[info->private_source_idx];
+		t = lws_wsmsg_tail(priv);
 	}
 
-	while (bl && bl->next)
-		bl = bl->next;
-
-	if (!bl)
+	if (!t)
 		return 0;
 
-	bl->awaiting_eom	= !(info->ss_flags & LWSSS_FLAG_EOM);
-	bl->src_channel		= (unsigned char)info->private_source_idx;
+	t->awaiting_eom = !(info->ss_flags & LWSSS_FLAG_EOM);
 
 	lws_wsmsg_transfer(info);
 
@@ -741,11 +731,12 @@ lws_wsmsg_append(lws_wsmsg_info_t *info)
 }
 
 void
-lws_wsmsg_destroy(struct lws_buflist *private_heads[], size_t count_private_heads)
+lws_wsmsg_destroy(struct lws_buflist2_owner *private_owners,
+		  size_t count_private_owners)
 {
 	size_t m = 0;
 
-	while (m < count_private_heads)
-		lws_buflist_destroy_all_segments(&private_heads[m++]);
+	while (m < count_private_owners)
+		lws_buflist2_destroy_all_segments(&private_owners[m++]);
 }
 

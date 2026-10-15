@@ -453,14 +453,14 @@ struct lws_wsmsg_info;
 typedef void (*lws_wsmsg_transfer_cb)(struct lws_wsmsg_info *info);
 
 typedef struct lws_wsmsg_info {
-	struct lws_buflist	**head_upstream;	/* the upstream buflist */
-       	struct lws_buflist	**private_heads;	/* the private reassembly heads */
-	int			private_source_idx;	/* which index to use in private_heads */
+	struct lws_buflist2_owner *upstream;		/* the upstream buflist */
+	struct lws_buflist2_owner *private_owners;	/* array of private reassembly buflists */
+	int			private_source_idx;	/* which index to use in private_owners */
 	lws_wsmsg_transfer_cb	optional_cb;		/* optional transfer callback */
 	void			*opaque;		/* optional opaque pointer */
-       	const uint8_t		*buf;			/* array to add */
-       	size_t			len;			/* length of bytes in array */
-       	unsigned int		ss_flags;		/* SS flags for SOM / EOM */
+	const uint8_t		*buf;			/* array to add */
+	size_t			len;			/* length of bytes in array */
+	unsigned int		ss_flags;		/* SS flags for SOM / EOM */
 } lws_wsmsg_info_t;
 
 /**
@@ -492,6 +492,12 @@ typedef struct lws_wsmsg_info {
  *
  * The info->opaque pointer is not used by lws, it's there to facilitate passing
  * related user parameters in the callback case.
+ *
+ * The buflists are lws_buflist2s, so the upstream's length is available in O(1)
+ * from lws_buflist2_total_len(), and appending costs the same however much is
+ * already queued on it.  The upstream's own limit, if set, bounds what may be
+ * appended to it directly; a reassembled message is moved on to it whole, its
+ * bytes having been bounded by the private buflist's limit as they arrived.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_wsmsg_append(lws_wsmsg_info_t *info);
@@ -499,11 +505,12 @@ lws_wsmsg_append(lws_wsmsg_info_t *info);
 /*
  * lws_wsmsg_destroy() - free all allocations in private buflists
  *
- * \param private_heads: the private buflists
- * \param count_private_heads: the number of private buflists
+ * \param private_owners: the array of private buflists
+ * \param count_private_owners: the number of private buflists
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_wsmsg_destroy(struct lws_buflist *private_heads[], size_t count_private_heads);
+lws_wsmsg_destroy(struct lws_buflist2_owner *private_owners,
+		  size_t count_private_owners);
 
 
 

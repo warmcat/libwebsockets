@@ -5,6 +5,7 @@ These are buildable test apps that run in CI to confirm correct api operation.
 api-test-lwsac|LWS Allocated Chunks api
 api-test-lws_struct-json|Selftests for lws_struct JSON serialization and deserialization
 api-test-lws_tokenize|Generic secure string tokenizer api
+api-test-wsmsg|`lws_wsmsg_append()` queues whole messages on an upstream buflist2, holding a fragmented one on its source's private buflist2 until its EOM, while other sources' messages carry on past it; the upstream limit holds, 20000 queued segments come out intact, and `lws_wsmsg_destroy()` frees what's held
 api-test-stdin-cmdline|stdin folded into the commandline by `lws_system_adopt_stdin(cx, LWS_SAS_FLAG__APPEND_COMMANDLINE)`: a last token with no trailing newline resolves as a complete string, as a --switch=value, a bare --switch, a spaced value or a non-switch arg
 api-test-region|Scratch buffer region ownership tracking: claims, overlaps, trims, hand-overs and stale handles
 api-test-sansio-link|The sansIO half linked alone, with every unresolved symbol an error (`-DLWS_WITH_SANSIO_LINK_TEST=1`), loads and runs
