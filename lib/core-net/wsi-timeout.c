@@ -97,6 +97,19 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 	/* the close is happening now, its own timeouts can be set again */
 	wsi->close_decided = 0;
 
+#if defined(LWS_ROLE_QUIC)
+	/*
+	 * A stream that timed out sending its close, or waiting for the peer's
+	 * answer to it, or a connection timing out with streams like that:
+	 * say what they were stuck on
+	 */
+	if ((wsi->quic.qs &&
+	     (wsi->pending_timeout == PENDING_TIMEOUT_CLOSE_SEND ||
+	      wsi->pending_timeout == PENDING_TIMEOUT_CLOSE_ACK)) ||
+	    wsi->quic.qn)
+		lws_quic_dump_stalled(wsi);
+#endif
+
 	/* no need to log normal idle keepalive timeout */
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
 	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE)

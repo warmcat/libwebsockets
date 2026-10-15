@@ -1401,6 +1401,145 @@ lws_get_quic_network_wsi(struct lws *wsi)
 	return NULL;
 }
 
+/*
+ * A stream timed out sending its ws close, or waiting for the peer's answer to
+ * it, or its connection timed out with streams like that, or with frames of
+ * theirs still waiting or in flight: say what the stream and its connection
+ * were doing, at notice, ie, which of the things that give a stream its turn
+ * to write, or get what it wrote to the peer, didn't happen.  Logging before
+ * such a stall can change its timing enough to hide it, so this is only
+ * printed once it happened.
+ */
+static int
+lws_quic_dump_frames(struct lws *wsi, const char *what, lws_dll2_owner_t *o,
+		     uint64_t sid, lws_usec_t now, int print)
+{
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(o)) {
+		struct lws_quic_tx_frame *f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+
+		if ((f->type & 0xf8) != LWS_QUIC_FT_STREAM ||
+		    f->stream_id != sid)
+			continue;
+		if (print && n < 4)
+			lwsl_wsi_notice(wsi, "  %s: off %llu len %u fin %d, "
+					"pn %llu, sent %lldms ago", what,
+					(unsigned long long)f->offset,
+					(unsigned int)f->len, f->type & 1,
+					(unsigned long long)f->sent_in_pn,
+					f->sent_time_us ? (long long)
+					((now - f->sent_time_us) /
+						LWS_US_PER_MS) : -1ll);
+		n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
+/* does stream w still wait on its peer for anything, see above */
+static int
+lws_quic_stream_outstanding(struct lws_quic_netconn *qn, struct lws *w,
+			    lws_usec_t now)
+{
+	uint64_t sid = w->quic.qs->stream_id;
+
+	return lwsi_close(w) == LCS_WAITING_TO_SEND_CLOSE ||
+	       lwsi_close(w) == LCS_AWAITING_CLOSE_ACK ||
+	       lws_quic_dump_frames(w, NULL, &qn->pending_tx[LWS_QUIC_LEVEL_APP],
+				    sid, now, 0) ||
+	       lws_quic_dump_frames(w, NULL, &qn->in_flight[LWS_QUIC_LEVEL_APP],
+				    sid, now, 0);
+}
+
+static void
+lws_quic_dump_stream(struct lws_quic_netconn *qn, struct lws *w,
+		     lws_usec_t now)
+{
+	struct lws_quic_stream *qs = w->quic.qs;
+
+	lwsl_wsi_notice(w, "  stream %llu: tx_offset %llu, tx credit %d, fin "
+			"sent %d, close phase %d, wants write %d",
+			(unsigned long long)qs->stream_id,
+			(unsigned long long)qs->tx_offset, (int)w->txc.tx_cr,
+			qs->sent_fin, (int)lwsi_close(w),
+			w->mux.requested_POLLOUT);
+	lws_quic_dump_frames(w, "waiting", &qn->pending_tx[LWS_QUIC_LEVEL_APP],
+			     qs->stream_id, now, 1);
+	lws_quic_dump_frames(w, "in flight", &qn->in_flight[LWS_QUIC_LEVEL_APP],
+			     qs->stream_id, now, 1);
+}
+
+void
+lws_quic_dump_stalled(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_quic_netconn *qn;
+	lws_usec_t now;
+	int l, any = 0;
+
+	if (!nwsi || !nwsi->quic.qn)
+		return;
+
+	qn = nwsi->quic.qn;
+	now = lws_wsi_now(nwsi);
+
+	if (wsi->quic.qs)
+		any = 1;
+	else
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
+
+			if (w->quic.qs && lws_quic_stream_outstanding(qn, w, now))
+				any = 1;
+		} lws_end_foreach_dll(d);
+
+	if (!any)
+		return;
+
+	lwsl_wsi_notice(wsi, "QUIC: timed out (%d) with a stream stuck",
+			wsi->pending_timeout);
+	lwsl_wsi_notice(nwsi, "  conn: handshake done %d, closing %d, tx "
+			"credit %d, pto_count %u, pto armed %d, wants write %d "
+			"(its listener %d), last pass held %d full %d failed %d, "
+			"mtu %u, pmtud state %u, probe queued %d/%d",
+			qn->handshake_done, qn->is_closing, (int)nwsi->txc.tx_cr,
+			qn->pto_count, !lws_dll2_is_detached(&qn->pto_sul.list),
+			nwsi->mux.requested_POLLOUT, nwsi->mux.parent_wsi ?
+				nwsi->mux.parent_wsi->mux.requested_POLLOUT : -1,
+			qn->tx_held, qn->tx_full, qn->tx_failed,
+			qn->current_mtu, qn->pmtud_state,
+			qn->pmtud_probe_queued, qn->pmtud_bh_probe_queued);
+	for (l = 0; l < LWS_QUIC_LEVEL_COUNT; l++)
+		if (qn->pending_tx[l].count || qn->in_flight[l].count ||
+		    qn->needs_ack[l])
+			lwsl_wsi_notice(nwsi, "  level %d: %u waiting, %u in "
+					"flight, ack owed %d", l,
+					(unsigned int)qn->pending_tx[l].count,
+					(unsigned int)qn->in_flight[l].count,
+					qn->needs_ack[l]);
+	if (qn->cc_ops && qn->cc_ops->can_send)
+		lwsl_wsi_notice(nwsi, "  cc can send a packet: %d",
+				qn->cc_ops->can_send(nwsi, qn->current_mtu));
+
+	if (wsi->quic.qs) {
+		lws_quic_dump_stream(qn, wsi, now);
+		return;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+
+		if (w->quic.qs && lws_quic_stream_outstanding(qn, w, now))
+			lws_quic_dump_stream(qn, w, now);
+	} lws_end_foreach_dll(d);
+}
+
 #if defined(LWS_WITH_SERVER)
 /*
  * A listener answering without a connection (version negotiation, retry)

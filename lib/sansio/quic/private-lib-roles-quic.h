@@ -871,6 +871,9 @@ struct lws *
 lws_get_quic_network_wsi(struct lws *wsi);
 
 void
+lws_quic_dump_stalled(struct lws *wsi);
+
+void
 lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_type, int is_app_error);
 
 void
