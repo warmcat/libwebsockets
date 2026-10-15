@@ -121,6 +121,12 @@ endif()
 	#
 	# Tests against local server peer
 	#
+	# Each of these opens several TLS connections at once, and they all
+	# share one single-threaded server.  Run together on a slow builder,
+	# eg, BearSSL or mbedtls on an A72, that's ~100 handshakes queued on
+	# it, and they time out waiting for it: so they take turns with the
+	# server, with RESOURCE_LOCK, while ctest gets on with other tests.
+	#
 
 	add_test(NAME http-client-multi COMMAND lws-minimal-http-client-multi
 			-l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d 1151)
@@ -167,6 +173,7 @@ endif()
 		set_tests_properties(http-client-multi-pipe-over-max-streams-conn-lost
 				     PROPERTIES
 				     FIXTURES_REQUIRED "hcm_srv"
+				     RESOURCE_LOCK "hcm_srv"
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
 				     WILL_FAIL TRUE
 				     TIMEOUT 50)
@@ -189,6 +196,7 @@ endif()
 			     http-client-multi-stag-h1-pipe
 			     PROPERTIES
 			     FIXTURES_REQUIRED "hcm_srv"
+			     RESOURCE_LOCK "hcm_srv"
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
 			     TIMEOUT 50)
 
@@ -224,6 +232,7 @@ endif()
 			     http-client-multi-post-stag-h1-pipe
 			     PROPERTIES
 			     	FIXTURES_REQUIRED "hcmp_srv"
+			     	RESOURCE_LOCK "hcmp_srv"
 			     	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
 			     	TIMEOUT 30)
 
