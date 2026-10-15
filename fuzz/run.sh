@@ -11,6 +11,8 @@
 #   CORPUS=~/fuzz-corpus fuzz/run.sh # keep corpora outside the build dir
 #
 # Requires clang with libFuzzer (Debian-ish: clang + libclang-rt-*-dev).
+# It builds with as many compiles at once as there are cpus, or under sai,
+# SAI_PARALLEL of them.
 # Additional cmake options can be injected via FUZZ_CMAKE_OPTS, and extra
 # libFuzzer flags via FUZZ_OPTS (eg, FUZZ_OPTS=-verbosity=0 for CI logs).
 #
@@ -139,7 +141,12 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 	-DLWS_WITH_SYS_ASYNC_DNS=ON \
 	$FUZZ_CMAKE_OPTS
 
-cmake --build "$BUILD" --parallel
+# A bare --parallel is make -j with no limit: every compile at once, which
+# with a few fuzz tasks on one builder means hundreds of clangs and the
+# builder running out of memory.  Under sai, take the share of the builder
+# it gives each task; by hand, the cpus.
+JOBS=${SAI_PARALLEL:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+cmake --build "$BUILD" --parallel "$JOBS"
 BUILT=$(date +%s)
 
 mkdir -p "$BUILD/fuzz" "$CORPUS"
