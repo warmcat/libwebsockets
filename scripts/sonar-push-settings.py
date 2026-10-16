@@ -16,6 +16,9 @@ import sys, os, json, requests
 
 HOST = "https://sonarcloud.io"
 PROJECT = "warmcat_libwebsockets"
+# (connect, read) seconds: a route that silently drops packets, eg a broken
+# IPv6 path, otherwise leaves the connect waiting forever
+TIMEOUT = (15, 60)
 
 def parse(path):
     props = {}
@@ -54,10 +57,12 @@ def main():
 
     auth = (token, "")
     r = requests.post(HOST + "/api/settings/set", auth=auth,
+                      timeout=TIMEOUT,
                       data={"component": PROJECT, "key": "sonar.exclusions",
                             "values": excl})
     print("sonar.exclusions:", r.status_code, r.text[:200])
     r2 = requests.post(HOST + "/api/settings/set", auth=auth,
+                       timeout=TIMEOUT,
                        data={"component": PROJECT,
                              "key": "sonar.issue.ignore.multicriteria",
                              "fieldValues": [json.dumps(c) for c in crit]})
