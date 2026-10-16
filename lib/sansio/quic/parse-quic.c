@@ -859,6 +859,99 @@ lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
 	return NULL;
 }
 
+/*
+ * The ranges only split where there is a stream index below the highest one
+ * opened that hasn't been, and the stream limit leaves at most its window of
+ * those, so a peer can't make this big.  The cap is a backstop.
+ */
+#define LWS_QUIC_IDTR_MAX_RANGES 4096
+
+/* the first range starting above idx, or count if none does */
+
+static uint32_t
+lws_quic_idtr_after(const struct lws_quic_idtr *t, uint64_t idx)
+{
+	uint32_t lo = 0, hi = t->count;
+
+	while (lo < hi) {
+		uint32_t m = lo + ((hi - lo) / 2);
+
+		if (t->r[m].lo > idx)
+			hi = m;
+		else
+			lo = m + 1;
+	}
+
+	return lo;
+}
+
+int
+lws_quic_idtr_is_opened(const struct lws_quic_idtr *t, uint64_t idx)
+{
+	uint32_t n = lws_quic_idtr_after(t, idx);
+
+	return n && idx < t->r[n - 1].hi;
+}
+
+/* 0, or -1 if it couldn't be recorded */
+
+int
+lws_quic_idtr_open(struct lws_quic_idtr *t, uint64_t idx)
+{
+	uint32_t n = lws_quic_idtr_after(t, idx);
+	int join_prev = n && t->r[n - 1].hi == idx,
+	    join_next = n < t->count && t->r[n].lo == idx + 1;
+
+	if (n && idx < t->r[n - 1].hi)
+		return 0; /* already */
+
+	if (join_prev && join_next) {
+		/* idx was the gap between them: they become one */
+		t->r[n - 1].hi = t->r[n].hi;
+		memmove(&t->r[n], &t->r[n + 1],
+			(t->count - n - 1) * sizeof(t->r[0]));
+		t->count--;
+		return 0;
+	}
+	if (join_prev) {
+		t->r[n - 1].hi = idx + 1;
+		return 0;
+	}
+	if (join_next) {
+		t->r[n].lo = idx;
+		return 0;
+	}
+
+	if (t->count == t->alloc) {
+		uint32_t na = t->alloc ? t->alloc * 2 : 8;
+		void *nr;
+
+		if (t->alloc >= LWS_QUIC_IDTR_MAX_RANGES)
+			return -1;
+		if (na > LWS_QUIC_IDTR_MAX_RANGES)
+			na = LWS_QUIC_IDTR_MAX_RANGES;
+		nr = lws_realloc(t->r, na * sizeof(t->r[0]), "quic idtr");
+		if (!nr)
+			return -1;
+		t->r = nr;
+		t->alloc = na;
+	}
+
+	memmove(&t->r[n + 1], &t->r[n], (t->count - n) * sizeof(t->r[0]));
+	t->r[n].lo = idx;
+	t->r[n].hi = idx + 1;
+	t->count++;
+
+	return 0;
+}
+
+void
+lws_quic_idtr_destroy(struct lws_quic_idtr *t)
+{
+	lws_free_set_NULL(t->r);
+	t->count = 0;
+	t->alloc = 0;
+}
 
 /*
  * Parses QUIC frames from a decrypted payload and routes them.
@@ -1194,6 +1287,19 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed RESET_STREAM! stream_id %llu, err %llu, final_size %llu",
 				(unsigned long long)stream_id, (unsigned long long)app_err_code, (unsigned long long)final_size);
 			
+			/*
+			 * A peer's stream reset before any of it reached us is
+			 * as finished as one we closed: what it sent before
+			 * the reset may still arrive, and must not open it
+			 */
+			if (is_peer_initiated && !wsi_child &&
+			    lws_quic_idtr_open(&qn->peer_opened[
+					is_unidirectional ? 1 : 0], stream_id >> 2)) {
+				lws_quic_enter_closing_state(nwsi,
+					LWS_QUIC_ERR_INTERNAL_ERROR, type, 0);
+				return -1;
+			}
+
 			if (wsi_child && wsi_child->quic.qs) {
 				if (wsi_child->quic.qs->fin_received && wsi_child->quic.qs->rx_final_size != final_size) {
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FINAL_SIZE_ERROR, type, 0);
@@ -1704,12 +1810,51 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					}
 				}
 
+				/*
+				 * A stream of the peer's we have, however it
+				 * came to be (the connection's first one is
+				 * made with it), is opened now
+				 */
+				if (wsi_child && is_peer_initiated &&
+				    lws_quic_idtr_open(&qn->peer_opened[
+						is_unidirectional ? 1 : 0],
+						stream_id >> 2)) {
+					lws_quic_enter_closing_state(nwsi,
+						LWS_QUIC_ERR_INTERNAL_ERROR, type, 0);
+					return -1;
+				}
+
 				if (!wsi_child) {
+					struct lws_quic_idtr *t = &qn->peer_opened[
+							is_unidirectional ? 1 : 0];
+
 					/* Enforce MAX_STREAMS limit before creating a new stream */
 					uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
 					if ((stream_id >> 2) >= limit) {
 						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
+						return -1;
+					}
+
+					/*
+					 * One of the peer's we opened, and have
+					 * closed since: this is late, eg, a
+					 * retransmission of what we already
+					 * had.  A new stream for it would act
+					 * on its request again.
+					 */
+					if (lws_quic_idtr_is_opened(t, stream_id >> 2)) {
+						lwsl_wsi_info(nwsi, "QUIC RX: STREAM for "
+							      "closed stream %llu",
+							      (unsigned long long)stream_id);
+						pos += len;
+						ack_eliciting = 1;
+						continue;
+					}
+
+					if (lws_quic_idtr_open(t, stream_id >> 2)) {
+						lws_quic_enter_closing_state(nwsi,
+							LWS_QUIC_ERR_INTERNAL_ERROR, type, 0);
 						return -1;
 					}
 

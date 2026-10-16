@@ -5167,6 +5167,20 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		f->offset = wsi->quic.qs->tx_offset;
 		wsi->quic.qs->tx_offset += len;
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		if (!f->offset && !wsi->quic.qs->fi_replay &&
+		    lws_fi(&wsi->fic, "quic_stream_replay")) {
+			struct lws_quic_tx_frame *r = lws_malloc(sizeof(*f) + len,
+							 "quic fi replay");
+
+			if (r) {
+				memcpy(r, f, sizeof(*f) + len);
+				r->data = (uint8_t *)&r[1];
+				wsi->quic.qs->fi_replay = r;
+			}
+		}
+#endif
+
 		/* Deduct credit here so current_max calculations work correctly */
 		wsi->txc.tx_cr -= (int)len;
 		if (nwsi) {
@@ -5402,6 +5416,27 @@ rops_callback_on_writable_quic(struct lws *wsi)
 
 	return 0; /* not handled, let core enable socket POLLOUT */
 }
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+/* long after a loopback peer acked our end of the stream and freed it */
+#define LWS_QUIC_FI_REPLAY_DELAY_MS 100
+
+static void
+lws_quic_fi_replay_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_quic_netconn *qn = lws_container_of(sul,
+				struct lws_quic_netconn, fi_replay_sul);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&qn->fi_replays)) {
+		lws_dll2_remove(d);
+		lws_dll2_add_tail(d, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lwsl_wsi_notice(qn->nwsi, "quic_stream_replay: sending again");
+	lws_callback_on_writable(qn->nwsi);
+}
+#endif
 
 void
 lws_quic_stream_cleanup(struct lws *wsi)
@@ -5673,6 +5708,25 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		}
 	}
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * quic_stream_replay: our first STREAM frame goes again once the peer
+	 * has had time to finish with the stream too
+	 */
+	if (wsi->quic.qs->fi_replay) {
+		if (qn && nwsi) {
+			lws_dll2_add_tail(&wsi->quic.qs->fi_replay->list,
+					  &qn->fi_replays);
+			lws_sul_schedule(nwsi->a.context, 0, &qn->fi_replay_sul,
+					 lws_quic_fi_replay_cb,
+					 LWS_QUIC_FI_REPLAY_DELAY_MS *
+							LWS_US_PER_MS);
+		} else
+			lws_free(wsi->quic.qs->fi_replay);
+		wsi->quic.qs->fi_replay = NULL;
+	}
+#endif
+
 	lws_free_set_NULL(wsi->quic.qs);
 }
 
@@ -5783,6 +5837,18 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 	if (qn->cc_state)
 		lws_free_set_NULL(qn->cc_state);
 
+	lws_quic_idtr_destroy(&qn->peer_opened[0]);
+	lws_quic_idtr_destroy(&qn->peer_opened[1]);
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_sul_cancel(&qn->fi_replay_sul);
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&qn->fi_replays)) {
+		lws_dll2_remove(d);
+		lws_free(lws_container_of(d, struct lws_quic_tx_frame, list));
+	} lws_end_foreach_dll_safe(d, d1);
+#endif
+
 	for (i = 0; i < 4; i++)
 		if (qn->crypto_rx_buf[i]) {
 			lws_free(qn->crypto_rx_buf[i]);
@@ -5825,6 +5891,9 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 		lws_sul_cancel(&qn->pto_sul);
 		lws_sul_cancel(&qn->pacer_sul);
 		lws_sul_cancel(&qn->ack_delay_sul);
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		lws_sul_cancel(&qn->fi_replay_sul);
+#endif
 
 #if defined(LWS_ROLE_H3)
 		if (wsi->h3.h3n) {

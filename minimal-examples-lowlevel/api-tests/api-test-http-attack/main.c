@@ -44,6 +44,11 @@
 #define ATK_DOCROOT_MARK	"lws-attack-docroot-index"
 #define ATK_SECRET_MARK	"lws-attack-secret"
 
+/* the path the server counts requests for, see h3_attacks[] */
+#define ATK_REPLAYED_PATH	"/replayed"
+/* how long a replay gets to arrive before its probe */
+#define ATK_REPLAY_SETTLE_MS	500
+
 /* what we keep of the server's reply */
 #define ATK_RX_MAX		(64 * 1024)
 #define ATK_H2_FRAME_MAX	(32 * 1024)	/* h2 frame reassembly */
@@ -664,6 +669,12 @@ struct h3_attack {
 	 */
 	unsigned int	static_fields;
 	uint8_t		v;
+	/*
+	 * the client's quic_stream_replay fault: the request's first STREAM
+	 * frame comes again once its stream closed, as a retransmission
+	 * whose ack was lost does.  The server must act on it only once.
+	 */
+	uint8_t		replay;
 };
 
 /* a field sent as a raw literal, name and value exactly these bytes */
@@ -672,18 +683,22 @@ struct h3_attack {
 static const struct h3_attack h3_attacks[] = {
 	/* a field named "get " once smuggled an unnormalized request path */
 	{ "\"get \" field smuggling a path", "/alive", "get ",
-	  "/f/../secret.txt", 0, 0, 0, V_REFUSED },
+	  "/f/../secret.txt", 0, 0, 0, V_REFUSED, 0 },
 	/* a name lws doesn't know, not the token where it keeps urlargs */
 	{ "\"uri-args\" field adding urlargs", "/alive",
-	  H3_LIT("uri-args", "evil=1"), 0, V_ECHO },
+	  H3_LIT("uri-args", "evil=1"), 0, V_ECHO, 0 },
 	{ "CR LF in a field value", "/alive",
-	  H3_LIT("user-agent", "a\r\nb"), 0, V_REFUSED },
+	  H3_LIT("user-agent", "a\r\nb"), 0, V_REFUSED, 0 },
 	{ "NUL in a raw literal value", "/alive",
-	  H3_LIT("user-agent", "a\0b"), 0, V_REFUSED },
+	  H3_LIT("user-agent", "a\0b"), 0, V_REFUSED, 0 },
 	{ "NUL in a raw literal name", "/alive",
-	  H3_LIT("user-agent\0x", "a"), 0, V_REFUSED },
+	  H3_LIT("user-agent\0x", "a"), 0, V_REFUSED, 0 },
 	/* far more fields than any request has, for almost no bytes */
-	{ "1100 field lines", "/alive", NULL, NULL, 0, 0, 1100, V_REFUSED },
+	{ "1100 field lines", "/alive", NULL, NULL, 0, 0, 1100, V_REFUSED, 0 },
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	{ "request stream arriving again after it closed", ATK_REPLAYED_PATH,
+	  NULL, NULL, 0, 0, 0, V_ECHO, 1 },
+#endif
 };
 
 static struct lws_context *context;
@@ -730,8 +745,16 @@ static struct {
 	uint8_t		lossy;
 
 	uint8_t		probe_next;	/* after an attack, a plain request */
+	/*
+	 * the attack was a replay: by the time its probe is answered, the
+	 * server must have acted on ATK_REPLAYED_PATH exactly once
+	 */
+	uint8_t		check_replayed;
 } tc = { XP_H1, PH_PATHS, -1, 0, "", NULL, NULL, NULL, NULL, 0, 0, NULL, 0,
-	 0 };
+	 0, 0 };
+
+/* requests the server acted on for ATK_REPLAYED_PATH */
+static int srv_replayed;
 
 /* the client's view of the case */
 
@@ -831,13 +854,16 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	struct pss *pss = (struct pss *)user;
 	uint8_t buf[LWS_PRE + sizeof(pss->body)];
 	char *uri;
-	int ulen;
+	int ulen, n;
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 		/* a request with a body is answered once all of it is in */
-		if (lws_http_get_uri_and_method(wsi, &uri, &ulen) ==
-							LWSHUMETH_POST)
+		n = lws_http_get_uri_and_method(wsi, &uri, &ulen);
+		if (n >= 0 && ulen == (int)strlen(ATK_REPLAYED_PATH) &&
+		    !memcmp(uri, ATK_REPLAYED_PATH, (size_t)ulen))
+			srv_replayed++;
+		if (n == LWSHUMETH_POST)
 			return 0;
 
 		return echo_respond(wsi, pss);
@@ -985,6 +1011,14 @@ evaluate(void)
 				     tc.expect, status,
 				     (int)(bl > 100 ? 100 : bl),
 				     b ? (const char *)b : "");
+			case_done(why);
+			return;
+		}
+		/* the probe after a replay: the replay came before it */
+		if (tc.check_replayed && !tc.h3a && srv_replayed != 1) {
+			lws_snprintf(why, sizeof(why), "the server acted on "
+				     "the replayed request %d times",
+				     srv_replayed);
 			case_done(why);
 			return;
 		}
@@ -1162,7 +1196,13 @@ case_done(const char *why)
 	/* however an attack went, the server must still serve after it */
 	tc.probe_next = tc.h1a || tc.h2a || tc.h3a;
 
-	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
+	/*
+	 * A replay goes again only some time after its stream closed, see
+	 * LWS_QUIC_FI_REPLAY_DELAY_MS: let it arrive before the probe
+	 */
+	lws_sul_schedule(context, 0, &sul_next, next_case,
+			 tc.h3a && tc.h3a->replay ?
+				ATK_REPLAY_SETTLE_MS * LWS_US_PER_MS : 1);
 }
 
 static int
@@ -2510,6 +2550,8 @@ case_pick(void)
 			tc.v = tc.h3a->v;
 			tc.status = tc.v == V_ECHO ? 200 : 0;
 			tc.expect = tc.v == V_ECHO ? tc.h3a->path : NULL;
+			tc.check_replayed = tc.h3a->replay;
+			srv_replayed = 0;
 			lws_strncpy(tc.name, tc.h3a->name, sizeof(tc.name));
 			if (only && !strstr(tc.name, only))
 				continue;
@@ -2593,6 +2635,17 @@ next_case(lws_sorted_usec_list_t *sul)
 		i.local_protocol_name = "h3";
 		i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		if (tc.h3a && tc.h3a->replay) {
+			lws_fi_t fi;
+
+			memset(&fi, 0, sizeof(fi));
+			fi.name = "quic_stream_replay";
+			fi.type = LWSFI_ALWAYS;
+			if (lws_fi_add(&i.fic, &fi))
+				goto oom;
+		}
+#endif
 		break;
 	}
 
@@ -2600,6 +2653,10 @@ next_case(lws_sorted_usec_list_t *sul)
 			 ATK_CASE_TIMEOUT_S * LWS_US_PER_SEC);
 
 	if (!lws_client_connect_via_info(&i)) {
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/* the client wsi takes the faults, unless there was none */
+		lws_fi_destroy(&i.fic);
+#endif
 		cn.done = 1;
 		case_done("connect failed");
 	}

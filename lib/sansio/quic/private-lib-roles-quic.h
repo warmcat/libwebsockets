@@ -350,6 +350,25 @@ struct lws_quic_rx_held {
  * Represents a single QUIC stream (unidirectional or bidirectional).
  * Maps 1:1 with a child WSI.
  */
+/*
+ * The peer's stream ids of one type we have opened a stream for, as sorted,
+ * disjoint ranges of stream index (stream id >> 2), [lo, hi).  Opening a
+ * stream id implicitly opens all the lower ones of its type (RFC 9000 2.1),
+ * whose first frames may still be on their way, so a stream id with no
+ * stream below the highest one seen is not necessarily one we closed: this
+ * is what says.
+ */
+struct lws_quic_idtr_range {
+	uint64_t		lo;
+	uint64_t		hi;
+};
+
+struct lws_quic_idtr {
+	struct lws_quic_idtr_range	*r;
+	uint32_t			count;
+	uint32_t			alloc;
+};
+
 struct lws_quic_stream {
 	struct lws		*wsi; /* The child WSI representing this stream */
 	uint64_t		stream_id;
@@ -383,6 +402,15 @@ struct lws_quic_stream {
 					    * it without waiting for our own
 					    * in-flight frames to be acked */
 	uint8_t			sent_fin:1;
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * quic_stream_replay: our first STREAM frame, sent once more a little
+	 * after the stream closes, as a retransmission whose ack was lost,
+	 * arriving after the peer finished with the stream, would be
+	 */
+	struct lws_quic_tx_frame *fi_replay;
+#endif
 };
 
 
@@ -486,8 +514,8 @@ struct lws_quic_netconn {
 
 	uint64_t		next_stream_id_bidi_local;
 	uint64_t		next_stream_id_unidi_local;
-	uint64_t		next_stream_id_bidi_remote;
-	uint64_t		next_stream_id_unidi_remote;
+	/* the peer's streams we opened, [0] bidi, [1] unidi */
+	struct lws_quic_idtr	peer_opened[2];
 
 	/* Frames waiting to be bundled into outgoing packets */
 	lws_dll2_owner_t	pending_tx[LWS_QUIC_LEVEL_COUNT];
@@ -689,6 +717,12 @@ struct lws_quic_netconn {
 	uint8_t			prefaddr_pending:1;	/* deferred until handshake done */
 	lws_sorted_usec_list_t	prefaddr_sul;
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/* quic_stream_replay frames of closed streams, waiting to go again */
+	lws_dll2_owner_t	fi_replays;
+	lws_sorted_usec_list_t	fi_replay_sul;
+#endif
+
 	/* ECN (Explicit Congestion Notification) */
 	uint64_t		ecn_rx_ect0;
 	uint64_t		ecn_rx_ect1;
@@ -877,6 +911,15 @@ lws_quic_stream_cleanup(struct lws *wsi);
 
 struct lws *
 lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id);
+
+int
+lws_quic_idtr_is_opened(const struct lws_quic_idtr *t, uint64_t idx);
+
+int
+lws_quic_idtr_open(struct lws_quic_idtr *t, uint64_t idx);
+
+void
+lws_quic_idtr_destroy(struct lws_quic_idtr *t);
 
 struct lws *
 lws_get_quic_network_wsi(struct lws *wsi);
