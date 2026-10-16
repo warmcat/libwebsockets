@@ -93,6 +93,25 @@ if (LWS_FOR_GITOHASHI)
 	set(LWS_WITH_HL_LANG_DIFF 1)
 endif()
 
+#
+# Everything sai-server, sai-web, sai-builder, sai-virt, sai-power and the
+# other sai daemons need from lws, see sai's README.md
+#
+if (LWS_FOR_SAI)
+	set(LWS_UNIX_SOCK 1)		# sai-server <-> sai-web, sai-jig
+	set(LWS_WITH_SECURE_STREAMS 1)	# links to sai-server
+	set(LWS_WITH_STRUCT_JSON 1)	# everything sai says on the wire
+	set(LWS_WITH_STRUCT_SQLITE3 1)	# sai-server, sai-web, sai-power dbs
+	set(LWS_WITH_GENCRYPTO 1)	# sai-server, sai-web
+	set(LWS_WITH_JOSE 1)		# sai-server, sai-web
+	set(LWS_WITH_SPAWN 1)		# builds, power and push scripts
+	set(LWS_WITH_STUB 1)		# sai-builder's deletion stub
+	set(LWS_WITH_WOL 1)		# sai-power
+	set(LWS_WITH_EMAIL 1)		# sai-server's mail notifications
+	set(LWS_WITH_SYS_INFO 1)	# the system each daemon's logs came from
+	set(LWS_WITH_SYS_NTPCLIENT 1)	# sai-builder waits for the right time
+endif()
+
 if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_HTTP2 1)				# selfcontained
 	set(LWS_WITH_LWSWS 1)				# libuv

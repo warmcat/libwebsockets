@@ -146,6 +146,7 @@ endif()
 #
 option(LWS_WITH_DISTRO_RECOMMENDED "Enable features recommended for distro packaging" OFF)
 option(LWS_FOR_GITOHASHI "Enable features recommended for use with gitohashi" OFF)
+option(LWS_FOR_SAI "Enable the features sai needs, for its server, web, builder, virt and other daemons" OFF)
 
 #
 # Compiler features
