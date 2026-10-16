@@ -32,6 +32,9 @@
  * close as a ws connection, with a Close frame.  Over h3 the response's
  * HEADERS are still with quic then, ahead of where the Close goes.
  *
+ * Legs over h1 and h3 have the server drop the connection with no close
+ * handshake at all: the client must still hear of it promptly.
+ *
  * Three legs have the client stop reading (rx flow control) while the
  * server fills the connection, then send the server more than it reads at
  * once: the server sending a big message with pmd (it may not read until
@@ -109,6 +112,8 @@ struct leg {
 					 * reading while the server sends */
 	uint8_t		refuse;		/* the server refuses the connection
 					 * in its ESTABLISHED callback */
+	uint8_t		drop;		/* the server drops the connection
+					 * without a close handshake */
 };
 
 enum stall {
@@ -127,32 +132,34 @@ enum {
 };
 
 static const struct leg legs[] = {
-	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0, 0 },
-	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0 },
-	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0, 0 },
-	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0, 0, 0 },
-	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0, 0, 0 },
-	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0, 0 },
-	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0, 0 },
-	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0, 0 },
+	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0, 0 },
+	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0, 0, 0 },
+	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0, 0, 0, 0 },
+	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0, 0, 0, 0 },
+	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0, 0, 0 },
+	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0, 0, 0 },
+	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0, 0, 0 },
 #if defined(LWS_ROLE_H3)
 	/* ws over h3, RFC 9220: extended CONNECT on an h3 stream */
-	{ "h3, client-initiated",		"cli",	   "h3",       1, 0, 0, 0, 0, 0 },
-	{ "h3, server-initiated",		"cli",	   "h3",       1, 1, 0, 0, 0, 0 },
-	{ "h3, server refuses at established",	"cli",	   "h3",       1, 1, 1, 0, 0, 1 },
+	{ "h3, client-initiated",		"cli",	   "h3",       1, 0, 0, 0, 0, 0, 0 },
+	{ "h3, server-initiated",		"cli",	   "h3",       1, 1, 0, 0, 0, 0, 0 },
+	{ "h3, server refuses at established",	"cli",	   "h3",       1, 1, 1, 0, 0, 1, 0 },
+	{ "h3, server drops the connection",	"cli",	   "h3",       1, 1, 0, 0, 0, 0, 1 },
 #endif
-	{ "h1, server refuses at established",	"cli",	   "http/1.1", 0, 1, 1, 0, 0, 1 },
-	{ "h2, server refuses at established",	"cli",	   "h2",       1, 1, 1, 0, 0, 1 },
-	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0, 0 },
-	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0, 0 },
-	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0, 0 },
-	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0, 0 },
+	{ "h1, server refuses at established",	"cli",	   "http/1.1", 0, 1, 1, 0, 0, 1, 0 },
+	{ "h2, server refuses at established",	"cli",	   "h2",       1, 1, 1, 0, 0, 1, 0 },
+	{ "h1, server drops the connection",	"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0, 1 },
+	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0, 0, 0 },
 	{ "h1, pmd, server sends to a client not reading", "cli-pmd", "http/1.1",
-							0, 1, 0, 0, STALL_TX_DRAIN, 0 },
+							0, 1, 0, 0, STALL_TX_DRAIN, 0, 0 },
 	{ "h1, server closes with tx buffered, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH, 0 },
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH, 0, 0 },
 	{ "h1, server closes on a full socket, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL, 0 },
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL, 0, 0 },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
@@ -288,9 +295,9 @@ leg_done_check(void)
 	}
 	/*
 	 * A close that has to flush tx first drops the connection after the
-	 * flush, without a Close frame
+	 * flush, without a Close frame, as does dropping it
 	 */
-	if (srv_close_flushes) {
+	if (srv_close_flushes || legs[cur].drop) {
 		if (peer_close_seen) {
 			fail_leg("close frame after a flush");
 			return;
@@ -699,6 +706,13 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		    sent_close)
 			break;
 		sent_close = 1;
+		if (legs[cur].drop) {
+			/* no close handshake: the peer must still hear of it */
+			lwsl_user("%s: server: dropping\n", __func__);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK,
+					LWS_TO_KILL_ASYNC);
+			break;
+		}
 		lwsl_user("%s: server: initiating close\n", __func__);
 		/*
 		 * with no prepared reason, lws must still send a Close frame

@@ -2258,6 +2258,18 @@ send_raw:
 static int
 rops_close_kill_connection_ws(struct lws *wsi, enum lws_close_status reason)
 {
+#if defined(LWS_ROLE_H3)
+	/*
+	 * ws over h3 (RFC 9220): the h3 role ends the stream, a RESET_STREAM
+	 * if our side never sent its FIN, a STOP_SENDING if the peer's never
+	 * came, and frees the stream's quic state
+	 */
+	if (wsi->mux_substream && wsi->h23_stream_carries_ws && wsi->quic.qs)
+		return lws_rops_func_fidx(&role_ops_h3,
+				   LWS_ROPS_close_kill_connection).
+				close_kill_connection(wsi, reason);
+#endif
+
 	/* deal with ws encapsulation in h2 */
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->mux_substream && wsi->h23_stream_carries_ws)
