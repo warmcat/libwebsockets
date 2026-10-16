@@ -616,24 +616,18 @@ skip:
 }
 
 /*
- * Reset q to be a query for the CNAME target \p target, and restart the
- * request action with a new tid.  Answers still to come for the old name
- * don't match the new tid, and are dropped.
+ * Ask again, about a different name: the CNAME target we were pointed at, or
+ * the next candidate in the search list.  The caller writes the new name
+ * into the working copy; this gives the query a new tid and forgets
+ * everything about the old name, so answers still to come for it don't match
+ * the tid and are dropped, and asks for the write.
  *
  * Returns 0 if the query was restarted, or nonzero if it must be failed.
  */
 
 int
-lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target)
+lws_adns_q_restart(lws_adns_q_t *q)
 {
-	int n = 0;
-
-	if (++q->recursion >= DNS_RECURSION_LIMIT) {
-		lwsl_err("%s: recursion overflow\n", __func__);
-
-		return -1;
-	}
-
 	if (lws_async_dns_get_new_tid(q->context, q))
 		return -1;
 
@@ -644,6 +638,7 @@ lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target)
 #endif
 	q->sent[0] = 0;
 	q->is_synthetic = 0;
+	q->issue_time = lws_now_usecs();
 
 	if (q->firstcache)
 		lws_adns_cache_destroy(q->firstcache);
@@ -665,38 +660,58 @@ lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target)
 	q->dnssec_chk_cname = 0;
 #endif
 
-	/*
-	 * Overwrite the query name with the CNAME... the region behind q is
-	 * DNS_MAX for the working copy and DNS_MAX for the pristine copy of
-	 * the original name at +DNS_MAX (which is what the cache entry is
-	 * created against, so it must not be walked into either).
-	 *
-	 * The CNAME target was already length-checked when it was decoded,
-	 * this is just belt-and-braces on the actual destination.
-	 */
-
-	{
-		char *cp = (char *)&q[1], *cpe = cp + DNS_MAX - 1;
-
-		while (target[n] && cp < cpe)
-			*cp++ = (char)tolower((uint8_t)target[n++]);
-
-		if (target[n]) {
-			lwsl_notice("%s: CNAME target too long\n", __func__);
-
-			return -1;
-		}
-
-		/* trim the following . if any */
-		if (n && cp[-1] == '.')
-			cp--;
-		*cp = '\0';
-	}
-
 	if (q->dsrv && q->dsrv->wsi)
 		lws_callback_on_writable(q->dsrv->wsi);
 
 	return 0;
+}
+
+/*
+ * The name we asked about is a CNAME for target: restart the query about
+ * the target.  The region behind q is DNS_MAX for the working copy of the
+ * name and DNS_MAX for the pristine copy of the original name at +DNS_MAX,
+ * which is what the cache entry is created against, so it must not be
+ * walked into.
+ *
+ * The CNAME target was already length-checked when it was decoded, this is
+ * just belt-and-braces on the actual destination.
+ *
+ * Returns 0 if the query was restarted, or nonzero if it must be failed.
+ */
+
+int
+lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target)
+{
+	char *cp = (char *)&q[1], *cpe = cp + DNS_MAX - 1;
+	int n = 0;
+
+	if (++q->recursion >= DNS_RECURSION_LIMIT) {
+		lwsl_err("%s: recursion overflow\n", __func__);
+
+		return -1;
+	}
+
+	while (target[n] && cp < cpe)
+		*cp++ = (char)tolower((uint8_t)target[n++]);
+
+	if (target[n]) {
+		lwsl_notice("%s: CNAME target too long\n", __func__);
+
+		return -1;
+	}
+
+	/* trim the following . if any */
+	if (n && cp[-1] == '.')
+		cp--;
+	*cp = '\0';
+
+	/*
+	 * A CNAME target is a name in its own right, the search list has
+	 * nothing more to add to it
+	 */
+	q->search_steps = 0;
+
+	return lws_adns_q_restart(q);
 }
 
 /*
@@ -1021,12 +1036,30 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 * the requester gets LADNS_RET_FAILED and applies its retry budget.
 	 */
 
+	/*
+	 * A name that doesn't exist under one search domain may under the
+	 * next, or as given: NXDOMAIN moves the query on to the next
+	 * candidate, and so does SERVFAIL, as libc does, since a resolver
+	 * may refuse to look up a name it can't route rather than deny it.
+	 * The last candidate's answer is the one that stands.
+	 */
+
 	switch (lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0f) {
 	case 0: /* NOERROR */
 		break;
 	case 3: /* NXDOMAIN */
+		n = lws_adns_q_search_next(q);
+		if (!n)
+			return; /* asking under the next search domain */
+		if (n < 0)
+			goto fail_out;
 		nxdomain = 1;
 		break;
+	case 2: /* SERVFAIL */
+		n = lws_adns_q_search_next(q);
+		if (!n)
+			return;
+		/* fallthru */
 	default:
 		lwsl_info("%s: %s: rcode %d, failing query\n", __func__,
 			    ((const char *)&q[1]) + DNS_MAX,

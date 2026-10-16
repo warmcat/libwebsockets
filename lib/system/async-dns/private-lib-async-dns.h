@@ -228,6 +228,16 @@ typedef struct lws_adns_q {
 
 	lws_usec_t		issue_time;
 	uint8_t			broadsiding;
+	/*
+	 * Where we are in the search list: the candidate names are the name
+	 * under each search domain and the name as given, in the order
+	 * lws_adns_q_search_start() decides, and search_step is the one the
+	 * working copy of the name currently holds.  search_steps is 0 when
+	 * the search list doesn't apply, or is used up
+	 */
+	uint8_t			search_step;
+	uint8_t			search_steps;
+	uint8_t			search_bare_first:1;
 
 	/* name overallocated here */
 } lws_adns_q_t;
@@ -343,7 +353,13 @@ void
 lws_adns_direct_deinit(lws_async_dns_t *dns);
 
 int
+lws_adns_q_restart(lws_adns_q_t *q);
+int
 lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target);
+void
+lws_adns_q_search_start(lws_adns_q_t *q);
+int
+lws_adns_q_search_next(lws_adns_q_t *q);
 
 #if defined(LWS_WITH_SYS_SMD)
 /*

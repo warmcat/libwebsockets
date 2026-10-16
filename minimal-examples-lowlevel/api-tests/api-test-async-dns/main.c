@@ -1020,6 +1020,319 @@ bail:
 }
 
 /*
+ * Search list legs
+ *
+ * resolv.conf's "search" line gives the domains a name with fewer than ndots
+ * dots is tried under, and ndots decides whether that is before or after the
+ * name as given.  The fake nameserver from the source-check legs captures
+ * what the resolver asks about, so each leg checks the sequence of names
+ * asked about, and what the requester is told in the end:
+ *
+ *  - a single-label name is asked about under the search domain first, and
+ *    the answer for that is what the requester gets, as the name it asked
+ *    for
+ *
+ *  - a name with as many dots as ndots is asked about as given first, and
+ *    then under the search domain; NXDOMAIN for both is NXDOMAIN
+ *
+ *  - a name ending in a dot is absolute: only asked about as given
+ *
+ * The scratch resolv.conf the main context's discovery is pointed at holds
+ * the search list for the legs' private contexts; it is emptied again after.
+ */
+
+#define SRCH_TICK_US		(50 * LWS_US_PER_MS)
+#define SRCH_DEADLINE_TICKS	120	/* ~6s */
+#define SRCH_MAX_NAMES		4
+
+struct srch_leg {
+	const char	*name;		/* what we ask lws for */
+	const char	*asked[3];	/* what lws must ask about, in order */
+	const char	*answer;	/* the one answered with an address */
+	int		expect;		/* what the requester must be told */
+};
+
+static const struct srch_leg srch_legs[] = {
+	{ "srchtest", { "srchtest.lan", NULL, NULL }, "srchtest.lan",
+	  LADNS_RET_FOUND },
+	{ "nx.srchtest", { "nx.srchtest", "nx.srchtest.lan", NULL }, NULL,
+	  LADNS_RET_NXDOMAIN },
+	{ "srchtest.", { "srchtest", NULL, NULL }, NULL, LADNS_RET_NXDOMAIN },
+};
+
+static const struct srch_leg *srch_leg;
+static int srch_fail, srch_completed, srch_ret, srch_names, srch_bad_ads,
+	   srch_bad_name;
+static char srch_seen[SRCH_MAX_NAMES][64];
+
+/* the dotted QNAME of a captured query, or NULL if it's not a whole one */
+
+static const char *
+sc_qname(const struct sc_query *q, char *buf, size_t len)
+{
+	size_t o = 12, used = 0;
+
+	if (!sc_qtype_ofs(q->pkt, q->len))
+		return NULL;
+
+	while (q->pkt[o]) {
+		size_t l = q->pkt[o++];
+
+		if (used + l + 2 > len)
+			return NULL;
+		if (used)
+			buf[used++] = '.';
+		memcpy(buf + used, &q->pkt[o], l);
+		used += l;
+		o += l;
+	}
+	buf[used] = '\0';
+
+	return buf;
+}
+
+/* answer a captured query with an empty NXDOMAIN */
+
+static void
+sc_answer_nxdomain(struct sc_query *q, int fd)
+{
+	uint8_t resp[sizeof(q->pkt)];
+	size_t qo = sc_qtype_ofs(q->pkt, q->len), o;
+
+	if (!qo)
+		return;
+
+	o = qo + 4;
+	memcpy(resp, q->pkt, o);
+
+	resp[2] = 0x81;			/* QR + RD */
+	resp[3] = 0x83;			/* RA, rcode NXDOMAIN */
+	resp[6] = 0; resp[7] = 0;	/* ANCOUNT */
+	resp[8] = 0; resp[9] = 0;	/* NSCOUNT */
+	resp[10] = 0; resp[11] = 0;	/* ARCOUNT */
+
+	if (sendto(fd, (const char *)resp, o, 0, (struct sockaddr *)&q->peer,
+		   q->peer_len) < 0)
+		lwsl_err("%s: sendto failed, errno %d\n", __func__, errno);
+}
+
+static struct lws *
+srch_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a,
+	int n, void *opaque)
+{
+	const struct addrinfo *ac = a;
+
+	(void)wsi_unused;
+	(void)opaque;
+
+	srch_ret = n;
+	srch_completed = 1;
+
+	/* the requester is told about the name it asked for */
+	if (!ads || strcmp(ads, srch_leg->name))
+		srch_bad_name = 1;
+
+	if (n == LADNS_RET_FOUND) {
+		srch_bad_ads = 1;
+		while (ac) {
+			if (ac->ai_family == AF_INET &&
+			    !memcmp(&((struct sockaddr_in *)ac->ai_addr)->sin_addr,
+				    sc_ads_good, sizeof(sc_ads_good)))
+				srch_bad_ads = 0;
+			ac = ac->ai_next;
+		}
+	}
+
+	if (a)
+		lws_async_dns_freeaddrinfo(&a);
+
+	return NULL;
+}
+
+static void
+sul_srch_cb(lws_sorted_usec_list_t *s)
+{
+	int n;
+
+	(void)s;
+
+	sc_harvest();
+
+	/* answer whatever came, as the leg says, noting each new name */
+
+	for (n = 0; n < sc_qs; n++) {
+		char qn[64];
+
+		if (sc_q[n].answered || !sc_qname(&sc_q[n], qn, sizeof(qn)))
+			continue;
+
+		if (!srch_names || strcmp(srch_seen[srch_names - 1], qn)) {
+			if (srch_names < SRCH_MAX_NAMES)
+				lws_strncpy(srch_seen[srch_names], qn,
+					    sizeof(srch_seen[0]));
+			srch_names++;
+		}
+
+		if (srch_leg->answer && !strcmp(qn, srch_leg->answer))
+			sc_answer(&sc_q[n], sc_fd, sc_ads_good, 60);
+		else
+			sc_answer_nxdomain(&sc_q[n], sc_fd);
+		sc_q[n].answered = 1;
+	}
+
+	/* once told, nothing more may be asked: wait a little to be sure */
+	if (srch_completed && ++sc_quiet >= SC_QUIET_TICKS) {
+		sc_done = 1;
+		lws_default_loop_exit(sc_cx);
+	}
+
+	if (++sc_ticks >= SRCH_DEADLINE_TICKS) {
+		lwsl_err("%s: timed out (%d queries seen)\n", __func__, sc_qs);
+		srch_fail++;
+		sc_done = 1;
+		lws_default_loop_exit(sc_cx);
+	}
+
+	if (!sc_done)
+		lws_sul_schedule(sc_cx, 0, &sul_sc, sul_srch_cb, SRCH_TICK_US);
+}
+
+static void
+srch_run(const struct srch_leg *leg)
+{
+	static const char *srch_servers[] = { "127.0.0.1", NULL };
+	struct lws_context_creation_info ci;
+	char saved[16], portstr[16];
+	uint16_t port = 0;
+	const char *env;
+	int had_saved, n, fd;
+
+	memset(sc_q, 0, sizeof(sc_q));
+	memset(srch_seen, 0, sizeof(srch_seen));
+	sc_qs = sc_ticks = sc_quiet = sc_done = 0;
+	srch_completed = srch_names = srch_bad_ads = srch_bad_name = 0;
+	srch_ret = LADNS_RET_CONTINUING;
+	srch_leg = leg;
+
+	lwsl_user("*** search list leg (%s)\n", leg->name);
+
+	fd = open(RESOLV_TEST_CONF, O_WRONLY | O_TRUNC, 0600);
+	if (fd < 0 || write(fd, "search lan\noptions ndots:1\n", 27) < 0) {
+		lwsl_err("%s: can't write " RESOLV_TEST_CONF "\n", __func__);
+		if (fd >= 0)
+			close(fd);
+		srch_fail++;
+		return;
+	}
+	close(fd);
+
+	sc_fd = sc_socket(&port);
+	if (sc_fd < 0) {
+		lwsl_err("%s: can't make the loopback socket\n", __func__);
+		srch_fail++;
+		goto bail;
+	}
+
+	env = getenv("LWS_ASYNCDNS_PORT");
+	had_saved = !!env;
+	if (env)
+		lws_strncpy(saved, env, sizeof(saved));
+	lws_snprintf(portstr, sizeof(portstr), "%u", port);
+	setenv("LWS_ASYNCDNS_PORT", portstr, 1);
+
+	lws_context_info_defaults(&ci, NULL);
+	ci.port			= CONTEXT_PORT_NO_LISTEN;
+	ci.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	ci.async_dns_servers	= srch_servers;
+
+	sc_cx = lws_create_context(&ci);
+	if (!sc_cx) {
+		lwsl_err("%s: context create failed\n", __func__);
+		srch_fail++;
+		goto restore;
+	}
+
+	if (lws_async_dns_query(sc_cx, 0, leg->name,
+				(adns_query_type_t)(LWS_ADNS_RECORD_A |
+						LWS_ADNS_NOCACHE |
+						LWS_ADNS_IGNORE_HOSTS_FILE |
+						LWS_ADNS_INDICATE_LACKS_DNSSEC),
+				srch_cb, NULL, NULL, NULL) !=
+						LADNS_RET_CONTINUING) {
+		lwsl_err("%s: query did not start\n", __func__);
+		srch_fail++;
+		goto destroy;
+	}
+
+	lws_sul_schedule(sc_cx, 0, &sul_sc, sul_srch_cb, SRCH_TICK_US);
+
+	while (lws_service(sc_cx, 0) >= 0)
+		;
+
+destroy:
+	lws_sul_cancel(&sul_sc);
+	lws_context_destroy(sc_cx);
+	sc_cx = NULL;
+
+restore:
+	if (had_saved)
+		setenv("LWS_ASYNCDNS_PORT", saved, 1);
+	else
+		unsetenv("LWS_ASYNCDNS_PORT");
+
+bail:
+	if (sc_fd >= 0)
+		close(sc_fd);
+	sc_fd = -1;
+
+	fd = open(RESOLV_TEST_CONF, O_WRONLY | O_TRUNC, 0600);
+	if (fd >= 0)
+		close(fd);
+
+	if (!srch_completed) {
+		lwsl_err("%s: query never completed\n", __func__);
+		srch_fail++;
+		return;
+	}
+
+	if (srch_ret != leg->expect) {
+		lwsl_err("%s: requester told %d, expected %d\n", __func__,
+			 srch_ret, leg->expect);
+		srch_fail++;
+	}
+
+	if (srch_bad_name) {
+		lwsl_err("%s: requester told about the wrong name\n",
+			 __func__);
+		srch_fail++;
+	}
+
+	if (srch_bad_ads) {
+		lwsl_err("%s: completed without the nameserver's address\n",
+			 __func__);
+		srch_fail++;
+	}
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(leg->asked); n++) {
+		const char *seen = n < srch_names && n < SRCH_MAX_NAMES ?
+							srch_seen[n] : NULL;
+
+		if ((!leg->asked[n] && !seen) ||
+		    (leg->asked[n] && seen && !strcmp(leg->asked[n], seen)))
+			continue;
+
+		lwsl_err("%s: asked about '%s' at step %d, expected '%s'\n",
+			 __func__, seen ? seen : "(nothing)", n,
+			 leg->asked[n] ? leg->asked[n] : "(nothing)");
+		srch_fail++;
+		break;
+	}
+
+	if (!srch_fail)
+		lwsl_user("Search list leg (%s): PASS\n", leg->name);
+}
+
+/*
  * Send-failure leg
  *
  * A send that fails on the resolver's UDP socket leaves it unusable: eg, the
@@ -1906,6 +2219,18 @@ main(int argc, const char **argv)
 		sf_run();
 
 		/*
+		 * A name with fewer dots than ndots is tried under the
+		 * resolv.conf search list, in libc's order
+		 */
+
+		{
+			int m;
+
+			for (m = 0; m < (int)LWS_ARRAY_SIZE(srch_legs); m++)
+				srch_run(&srch_legs[m]);
+		}
+
+		/*
 		 * Client connects with one family disabled (what -4 / -6
 		 * produce) must only ask the resolver for the other family
 		 */
@@ -2110,9 +2435,10 @@ evloop:
 	lwsl_user("Resolver source-check legs: %s\n", sc_fail ? "FAIL" : "PASS");
 	lwsl_user("Forced-family: %s\n", ff_fail ? "FAIL" : "PASS");
 	lwsl_user("Resolver send-failure leg: %s\n", sf_fail ? "FAIL" : "PASS");
+	lwsl_user("Search list legs: %s\n", srch_fail ? "FAIL" : "PASS");
 
 	return !(ok == _exp && !fail && !watch_fail && !sc_fail && !ff_fail &&
-		 !sf_fail);
+		 !sf_fail && !srch_fail);
 #else
 
 	return !(ok == _exp && !fail && !watch_fail);

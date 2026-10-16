@@ -353,6 +353,16 @@ typedef struct lws_async_dns {
 	uint8_t			in_parse; /* inside lws_adns_parse_udp() */
 
 	/*
+	 * The platform resolver's search list, the domains a name with fewer
+	 * than ndots dots is tried under, as NUL-terminated domains one after
+	 * another; reloaded with the nameservers
+	 */
+#define LWS_ADNS_SEARCH_BUF	256
+	char			search[LWS_ADNS_SEARCH_BUF];
+	uint8_t			search_count;
+	uint8_t			ndots;
+
+	/*
 	 * Platform DNS server change detection + publication on SMD.
 	 *
 	 * The watcher side (in async-dns.c) acquires the platform's current

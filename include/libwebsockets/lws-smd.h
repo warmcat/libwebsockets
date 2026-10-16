@@ -62,10 +62,11 @@ enum {
 	 * The set of DNS servers available from the platform changed.  Emitted
 	 * by the async dns platform watcher at context creation and whenever
 	 * the effective server list changes afterwards... payload is JSON like
-	 * {"ns":["192.168.1.1","1.1.1.1"]}.  The message is a trigger for lws
-	 * itself to requery the platform for the authoritative list, and an
-	 * event for user observers (it is also rebroadcast to client processes
-	 * by the secure streams proxy)
+	 * {"ns":["192.168.1.1","1.1.1.1"],"search":["lan"],"ndots":1}, the
+	 * search list being the platform resolver's.  The message is a
+	 * trigger for lws itself to requery the platform for the authoritative
+	 * list, and an event for user observers (it is also rebroadcast to
+	 * client processes by the secure streams proxy)
 	 */
 	LWSSMDCL_CERTS						= (1 << 5),
 	/**<

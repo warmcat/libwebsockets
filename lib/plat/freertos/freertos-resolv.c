@@ -80,6 +80,21 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 #endif
 }
 
+/* the lwip and FreeRTOS+TCP stacks have no resolver search list */
+
+int
+lws_plat_asyncdns_get_search(struct lws_context *context, char *buf,
+			     size_t len, int *ndots)
+{
+	(void)context;
+
+	*ndots = 1;
+	if (len)
+		buf[0] = '\0';
+
+	return 0;
+}
+
 #endif
 
 int

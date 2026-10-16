@@ -72,6 +72,58 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 	return ret;
 }
 
+/*
+ * Windows' resolver tries an unqualified name under the primary DNS suffix,
+ * which is the domain GetNetworkParams() reports
+ */
+
+int
+lws_plat_asyncdns_get_search(struct lws_context *context, char *buf,
+			     size_t len, int *ndots)
+{
+	unsigned long ul;
+	FIXED_INFO *fi;
+	int n = 0, count = 0;
+	size_t dl;
+	DWORD dw;
+
+	(void)context;
+
+	*ndots = 1;
+	if (len)
+		buf[0] = '\0';
+
+	ul = sizeof(*fi);
+
+	do {
+		fi = (FIXED_INFO *)lws_malloc(ul, __func__);
+		if (!fi)
+			return -1;
+
+		dw = GetNetworkParams(fi, &ul);
+		if (dw == NO_ERROR)
+			break;
+		lws_free(fi);
+		if (dw != ERROR_BUFFER_OVERFLOW || n++)
+			return -1;
+
+	} while (1);
+
+	dl = strlen(fi->DomainName);
+	while (dl && fi->DomainName[dl - 1] == '.')
+		dl--;
+
+	if (dl && dl + 1 <= len) {
+		memcpy(buf, fi->DomainName, dl);
+		buf[dl] = '\0';
+		count = 1;
+	}
+
+	lws_free(fi);
+
+	return count;
+}
+
 
 int
 lws_plat_ntpclient_config(struct lws_context *context)

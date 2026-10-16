@@ -114,7 +114,15 @@ lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
 			else
 				type_match = !qt || q->qtype == qt;
 
-			if (type_match && !strcasecmp(name, (const char *)&q[1]))
+			/*
+			 * The working copy of the name at +0 is whatever we
+			 * are asking the nameserver about just now, which may
+			 * be a CNAME target or a search list candidate: the
+			 * pristine copy at +DNS_MAX is the name the requester
+			 * asked for, and what the result is cached against
+			 */
+			if (type_match &&
+			    !strcasecmp(name, (const char *)&q[1] + DNS_MAX))
 				return q;
 		}
 
@@ -142,6 +150,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 	int rc;
 	lws_async_dns_retcode_t ret = LADNS_RET_FOUND;
 	struct lws_dll2 *d;
+	const char *name;
 
 	/*
 	 * The requester callbacks are user code (they run the connect flow,
@@ -196,6 +205,15 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 
 	q->completing = 1;
 
+	/*
+	 * The requesters are told about the name they asked for, the pristine
+	 * copy at +DNS_MAX: the working copy at +0 is the last name we asked
+	 * the nameserver about, which may be a CNAME target or a search list
+	 * candidate, and the cache entry and its ai_canonname are made
+	 * against the pristine one too
+	 */
+	name = (const char *)&q[1] + DNS_MAX;
+
 	while ((d = lws_dll2_get_head(&q->wsi_adns))) {
 		struct lws *w = lws_container_of(d, struct lws_io_adjunct, adns)->wsi;
 
@@ -208,7 +226,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			c->refcount++;
 		}
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
-		if (w->io->adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
+		if (w->io->adns_cb(w, name, c ? c->results : NULL,
 			       rc, q->opaque) == NULL) {
 			lwsl_info("%s: failed\n", __func__);
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
@@ -228,8 +246,8 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 		if (c && c->results)
 			c->refcount++;
 
-		if (q->standalone_cb(NULL, (const char *)&q[1],
-				 c ? c->results : NULL, rc, q->opaque) == NULL)
+		if (q->standalone_cb(NULL, name, c ? c->results : NULL, rc,
+				     q->opaque) == NULL)
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
 	}
 
@@ -941,7 +959,17 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
 	lws_async_dns_server_t *dsrv;
 	lws_sockaddr46 sa46t;
-	int n = 0, any_pinned = 0;
+	int n = 0, any_pinned = 0, ndots = 1;
+
+	/*
+	 * The search list goes with the platform's resolver configuration
+	 * even when the nameservers themselves are pinned by user code
+	 */
+	n = lws_plat_asyncdns_get_search(context, dns->search,
+					 sizeof(dns->search), &ndots);
+	dns->search_count = n > 0 ? (uint8_t)n : 0;
+	dns->ndots = (uint8_t)ndots;
+	n = 0;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 				   lws_dll2_get_head(&dns->nameservers)) {
@@ -1058,7 +1086,8 @@ lws_async_dns_server_reload(struct lws_context *context)
  *
  * Either way it comes to the same place: flatten the platform list into a
  * deterministic string and, if it differs from the last one we published,
- * send it out on SMD class LWSSMDCL_DNS as JSON like {"ns":["1.1.1.1"]}.
+ * send it out on SMD class LWSSMDCL_DNS as JSON like
+ * {"ns":["1.1.1.1"],"search":["lan"],"ndots":1}.
  *
  * The SMD message is a trigger for lws_adns_smd_cb() to requery the
  * platform for the authoritative list and apply it, and an event for user
@@ -1092,41 +1121,69 @@ lws_adns_watch_interval(void)
 
 /*
  * Pull the platform's current effective server list into buf as a
- * deterministic quoted, comma-separated string like
+ * deterministic JSON object body like
  *
- *   "192.168.1.1","1.1.1.1"
+ *   "ns":["192.168.1.1","1.1.1.1"],"search":["lan"],"ndots":1
  *
- * truncated at entry boundaries if the whole list can't fit.
+ * with each list truncated at entry boundaries if the whole can't fit.  The
+ * search list is in it so a change to that alone is seen as well.
  */
+
+static size_t
+lws_adns_watch_append(char *buf, size_t len, size_t used, const char *s,
+		      size_t sl, int first)
+{
+	if (used + sl + 4 > len) /* quotes, comma, NUL */
+		return used;
+
+	if (!first)
+		buf[used++] = ',';
+	buf[used++] = '"';
+	memcpy(buf + used, s, sl);
+	used += sl;
+	buf[used++] = '"';
+	buf[used] = '\0';
+
+	return used;
+}
 
 static void
 lws_adns_watch_acquire(struct lws_context *cx, char *buf, size_t len)
 {
+	char search[LWS_ADNS_SEARCH_BUF], *sd = search;
 	lws_sockaddr46 sa46;
 	size_t used = 0;
-	int idx = 0;
+	int idx = 0, n, ndots = 1;
 
-	buf[0] = '\0';
+	if (len < 44) {
+		buf[0] = '\0';
+		return;
+	}
 
-	while (lws_plat_asyncdns_get_server(cx, idx++, &sa46) == 0) {
+	/* the SMD message wraps it in braces, and vsnprintf() wants a NUL */
+	len -= 4;
+
+	used = (size_t)lws_snprintf(buf, len, "\"ns\":[");
+
+	while (lws_plat_asyncdns_get_server(cx, idx, &sa46) == 0) {
 		char ads[48];
-		size_t al, need;
 
 		lws_sa46_write_numeric_address(&sa46, ads, sizeof(ads));
-		al = strlen(ads);
-		need = al + 4; /* quotes, comma, NUL */
-
-		if (used + need > len)
-			break;
-
-		if (used)
-			buf[used++] = ',';
-		buf[used++] = '"';
-		memcpy(buf + used, ads, al);
-		used += al;
-		buf[used++] = '"';
-		buf[used] = '\0';
+		used = lws_adns_watch_append(buf, len - 24, used, ads,
+					     strlen(ads), !idx);
+		idx++;
 	}
+
+	used += (size_t)lws_snprintf(buf + used, len - used, "],\"search\":[");
+
+	n = lws_plat_asyncdns_get_search(cx, search, sizeof(search), &ndots);
+	for (idx = 0; idx < n; idx++) {
+		used = lws_adns_watch_append(buf, len - 12, used, sd,
+					     strlen(sd), !idx);
+		sd += strlen(sd) + 1;
+	}
+
+	lws_snprintf(buf + used, len - used, "],\"ndots\":%d", ndots);
 }
 
 void
@@ -1153,10 +1210,9 @@ lws_adns_watch_trigger(struct lws_context *cx)
 		return;
 	}
 
-	if (!lws_smd_msg_printf(cx, LWSSMDCL_DNS, "{\"ns\":[%s]}", buf)) {
+	if (!lws_smd_msg_printf(cx, LWSSMDCL_DNS, "{%s}", buf)) {
 		lws_strncpy(dns->watch_last, buf, sizeof(dns->watch_last));
-		lwsl_cx_notice(cx, "platform DNS servers now: {\"ns\":[%s]}",
-				buf);
+		lwsl_cx_notice(cx, "platform DNS servers now: {%s}", buf);
 	} else
 		lwsl_cx_notice(cx, "unable to publish DNS server list");
 
@@ -1937,6 +1993,123 @@ struct temp_q {
 	char name[48];
 };
 
+/*
+ * The search list
+ *
+ * A name with fewer dots than the resolver's ndots is asked about under each
+ * search domain in turn and then as given; one with at least ndots dots is
+ * asked about as given and then under each search domain.  That is the order
+ * libc tries them in, so a name resolves to the same thing through us as it
+ * does through getaddrinfo().  A name ending in a dot is absolute and is only
+ * asked about as given, as is any name when there is no search list.
+ *
+ * The candidates are made from the pristine copy of the name at +DNS_MAX
+ * behind q, into the working copy at +0 that the question is composed from.
+ * The result is cached against the pristine name, so the next lookup of it
+ * is answered from the cache without searching again.
+ */
+
+/*
+ * Write the candidate for step into the working copy of the name, or return
+ * nonzero if it doesn't fit, so it's skipped
+ */
+
+static int
+lws_adns_q_search_name(lws_adns_q_t *q, int step)
+{
+	const char *orig = (const char *)&q[1] + DNS_MAX, *sd = q->dns->search;
+	int bare = q->search_bare_first ? 0 : (int)q->dns->search_count, n;
+	char *w = (char *)&q[1];
+	size_t ol = strlen(orig), sl;
+
+	if (step == bare) {
+		memcpy(w, orig, ol + 1);
+
+		return 0;
+	}
+
+	n = q->search_bare_first ? step - 1 : step;
+	while (n--)
+		sd += strlen(sd) + 1;
+
+	sl = strlen(sd);
+	if (ol + 1 + sl >= DNS_MAX)
+		return 1;
+
+	memcpy(w, orig, ol);
+	w[ol] = '.';
+	memcpy(w + ol + 1, sd, sl + 1);
+
+	return 0;
+}
+
+void
+lws_adns_q_search_start(lws_adns_q_t *q)
+{
+	const char *orig = (const char *)&q[1] + DNS_MAX;
+	size_t ol = strlen(orig), n;
+	int dots = 0;
+
+	q->search_steps = 0;
+	q->search_step = 0;
+
+	if (!q->dns->search_count || !ol || orig[ol - 1] == '.')
+		return;
+
+	for (n = 0; n < ol; n++)
+		dots += orig[n] == '.';
+
+	q->search_bare_first = dots >= q->dns->ndots;
+	q->search_steps = (uint8_t)(q->dns->search_count + 1);
+
+	/* the first candidate that fits */
+	while (q->search_step < q->search_steps &&
+	       lws_adns_q_search_name(q, q->search_step))
+		q->search_step++;
+
+	if (q->search_step >= q->search_steps) {
+		/* none did, ask as given */
+		q->search_steps = 0;
+		memcpy((char *)&q[1], orig, ol + 1);
+
+		return;
+	}
+
+	lwsl_cx_info(q->context, "%s: searching, asking about %s", orig,
+		     (const char *)&q[1]);
+}
+
+/*
+ * The candidate we asked about doesn't exist: ask about the next one.
+ * Returns 0 if the query was restarted for it, 1 if there are no more and
+ * the answer we have is the one that stands, or -1 if the query can't be
+ * restarted and must be failed.
+ */
+
+int
+lws_adns_q_search_next(lws_adns_q_t *q)
+{
+	if (!q->search_steps)
+		return 1;
+
+	do {
+		q->search_step++;
+		if (q->search_step >= q->search_steps) {
+			q->search_steps = 0;
+
+			return 1;
+		}
+	} while (lws_adns_q_search_name(q, q->search_step));
+
+	if (lws_adns_q_restart(q))
+		return -1;
+
+	lwsl_cx_info(q->context, "%s: searching, now asking about %s",
+		     (const char *)&q[1] + DNS_MAX, (const char *)&q[1]);
+
+	return 0;
+}
+
 lws_async_dns_retcode_t
 lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		    adns_query_type_t qtype, lws_async_dns_cb_t cb,
@@ -2384,6 +2557,9 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 	*p = '\0';
 	p[DNS_MAX] = '\0';
+
+	/* ... which may make the working copy the first search candidate */
+	lws_adns_q_search_start(q);
 
 	lws_callback_on_writable(dsrv->wsi);
 

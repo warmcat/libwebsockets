@@ -48,3 +48,19 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 	return 0;
 }
 
+/* android has no system property for a resolver search list */
+
+int
+lws_plat_asyncdns_get_search(struct lws_context *context, char *buf,
+			     size_t len, int *ndots)
+{
+	(void)context;
+	(void)len;
+
+	*ndots = 1;
+	if (len)
+		buf[0] = '\0';
+
+	return 0;
+}
+

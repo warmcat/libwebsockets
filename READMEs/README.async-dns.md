@@ -58,6 +58,30 @@ to deduct from the reference count.  Cached items with a nonzero
 reference count can't be destroyed from the cache, so it's safe to keep
 a pointer to the results and iterate through them.
 
+## Search list
+
+A name with fewer dots than the resolver's `ndots` (1 unless the platform says
+otherwise) is tried under each domain of the platform resolver's search list
+in turn, and then as given; a name with at least `ndots` dots is tried as
+given first, and then under each search domain.  That is the order libc uses,
+so a name resolves to the same thing through lws as it does through
+`getaddrinfo()`.  A name ending in a dot is absolute and is only tried as
+given.
+
+NXDOMAIN for one candidate moves the query on to the next, and so does
+SERVFAIL, as a resolver may refuse a name it can't route rather than deny it;
+the last candidate's answer is what the requester gets.  The result is cached
+against the name as asked for, so the next lookup of it doesn't search again,
+and the requester's callback is told the name it asked for.
+
+On unix, the list is the `search` line of `/etc/resolv.conf`, or the `domain`
+line if there is no `search` (the last of either wins), up to six domains, and
+`ndots` is from `options ndots:N`.  The `LOCALDOMAIN` env var replaces the
+file's list, as it does for libc.  On windows it's the primary DNS suffix from
+`GetNetworkParams()`.  Android and freertos have no search list.  Like the
+nameservers, the list is reloaded when the platform's configuration changes,
+see below; it's exposed by `lws_plat_asyncdns_get_search()`.
+
 ## Dealing with IPv4 and IPv6
 
 DNS is a very old standard that has some quirks... one of them is that
@@ -183,7 +207,7 @@ Since lws async DNS natively talks to the DNS servers over UDP, it doesn't autom
 To handle this gracefully, there are these mechanisms:
 
 1. **Reactive Failover**: The adaptive server selection tracks response latencies using `lws_adapt`. If all active DNS servers consecutively fail to respond or experience severe timeouts (e.g., >10s tracking averages), the lws async DNS system will infer the network configuration has changed and will automatically flush its active nameserver list.  It then re-queries the system (e.g., via `GetNetworkParams` on Windows or `__system_property_get` on Android) to learn the new servers. This occurs automatically.
-2. **Platform DNS server watching**: every platform exposes its current effective DNS server list through the platform primitive (`/etc/resolv.conf` on linux, system properties on android, the SystemConfiguration dynamic store on macOS, `GetNetworkParams` on windows).  Lws watches for changes in that list: natively pushed from the macOS dynamic store on a dispatch queue (this also sees per-service and split-DNS resolver sets that `/etc/resolv.conf` does not mirror), and by a lightweight poll (~3s, overridable with the `LWS_ASYNCDNS_WATCH_MS` env var for testing) everywhere else.  When the effective list changes, lws publishes it on SMD class `LWSSMDCL_DNS` as JSON like `{"ns":["192.168.1.1","1.1.1.1"]}`, at context creation and on every subsequent change; that event both drives an internal requery-and-reload of the resolver's server list (the message is a trigger, the platform is re-queried for the authoritative list) and is available to user SMD observers, including in other processes via the secure streams proxy.  Enabling `LWS_WITH_SYS_ASYNC_DNS` selects `LWS_WITH_SYS_SMD` accordingly.
+2. **Platform DNS server watching**: every platform exposes its current effective DNS server list through the platform primitive (`/etc/resolv.conf` on linux, system properties on android, the SystemConfiguration dynamic store on macOS, `GetNetworkParams` on windows).  Lws watches for changes in that list: natively pushed from the macOS dynamic store on a dispatch queue (this also sees per-service and split-DNS resolver sets that `/etc/resolv.conf` does not mirror), and by a lightweight poll (~3s, overridable with the `LWS_ASYNCDNS_WATCH_MS` env var for testing) everywhere else.  When the effective list, or the search list, changes, lws publishes them on SMD class `LWSSMDCL_DNS` as JSON like `{"ns":["192.168.1.1","1.1.1.1"],"search":["lan"],"ndots":1}`, at context creation and on every subsequent change; that event both drives an internal requery-and-reload of the resolver's server list (the message is a trigger, the platform is re-queried for the authoritative list) and is available to user SMD observers, including in other processes via the secure streams proxy.  Enabling `LWS_WITH_SYS_ASYNC_DNS` selects `LWS_WITH_SYS_SMD` accordingly.
 3. **Boot synchronization**: with `LWS_WITH_SYS_STATE`, system state transitions hold at `LWS_SYSTATE_DNS` until the resolver has acquired at least one usable DNS server from the platform, or user code pinned one (via `info.async_dns_servers` or `lws_async_dns_server_add()`).  This synchronizes user code that waits for `LWS_SYSTATE_OPERATIONAL` against being able to actually perform DNS lookups.
 4. **Explicit API**: Applications can explicitly tell lws to drop its currently tracked DNS servers and refresh its understanding of the network environment by calling the public API:
 

@@ -79,6 +79,12 @@ typedef enum {
 
 struct addrinfo;
 
+/*
+ * The completion callback: ads is the name the lookup was asked for, whatever
+ * CNAME or search list domain it was resolved through; result is the addrinfo
+ * chain to release with lws_async_dns_freeaddrinfo(), or NULL; n is the
+ * lws_async_dns_retcode_t, or'd with LWS_ADNS_DNSSEC_VALID if validated
+ */
 typedef struct lws * (*lws_async_dns_cb_t)(struct lws *wsi, const char *ads,
 		const struct addrinfo *result, int n, void *opaque);
 
@@ -321,6 +327,25 @@ lws_adns_parse_udp(struct lws_async_dns *dns, const uint8_t *pkt, size_t len,
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_asyncdns_get_server(struct lws_context *context, int n,
 			     lws_sockaddr46 *sa46);
+
+/**
+ * lws_plat_asyncdns_get_search() - Get the system DNS search list
+ *
+ * \param context: the lws_context
+ * \param buf: where to write the search domains
+ * \param len: size of buf
+ * \param ndots: receives the resolver's ndots setting, 1 if it has none
+ *
+ * This platform-specific primitive retrieves the system resolver's search
+ * list: the domains a name with fewer than ndots dots is tried under before
+ * it is tried as given, eg, from "search" and "options ndots:" in
+ * /etc/resolv.conf on unix.  The domains are written NUL-terminated one after
+ * another into \p buf, and the count is returned, or 0 if there is no search
+ * list.  It returns < 0 if the system's configuration can't be read.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_plat_asyncdns_get_search(struct lws_context *context, char *buf,
+			     size_t len, int *ndots);
 
 /**
  * lws_async_dns_server_reload() - reload the OS assigned DNS servers
