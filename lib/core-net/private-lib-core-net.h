@@ -2352,10 +2352,6 @@ lws_wsi_keepalive_timeout_eff(struct lws *wsi);
 #endif
 
 
-void
-lws_ntpc_trigger(struct lws_context *ctx);
-
-
 #define lws_netdevs_from_ndi(ni) \
 		lws_dll2_owner_container(&(ni)->list, lws_netdevs_t, owner)
 

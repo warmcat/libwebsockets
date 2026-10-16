@@ -35,6 +35,16 @@ lws_system_get_ops(struct lws_context *context)
 	return context->system_ops;
 }
 
+#if !defined(LWS_WITH_SYS_NTPCLIENT)
+int
+lws_ntpc_trigger(struct lws_context *context)
+{
+	(void)context;
+
+	return 1; /* there's no ntp client to ask */
+}
+#endif
+
 
 void
 lws_system_blob_direct_set(lws_system_blob_t *b, const uint8_t *ptr, size_t len)

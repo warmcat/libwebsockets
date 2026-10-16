@@ -463,6 +463,26 @@ LWS_EXTERN LWS_VISIBLE int
 lws_dhcpc_status(struct lws_context *context, lws_sockaddr46 *sa46);
 
 /**
+ * lws_ntpc_trigger() - ask the ntp client for the time again, now
+ *
+ * \param context: the lws_context
+ *
+ * lws asks ntp by itself only while the system clock is plainly unset.  On a
+ * platform whose own time daemon sets the clock, a clock that merely looks
+ * plausible may still be wrong, eg, a VM that booted an hour out and has not
+ * been stepped yet.  An app that wants to know can ask for the time again with
+ * this, and is told it through its lws_system_ops_t .set_clock(), whose
+ * implementation decides what to do about it, eg, hold the system state below
+ * LWS_SYSTATE_TIME_VALID until the system clock agrees.
+ *
+ * The query is retried until it is answered.  Returns 0 if it was started, or
+ * nonzero if the context has no ntp client (it is built with
+ * LWS_WITH_SYS_NTPCLIENT and runs on the system vhost).
+ */
+LWS_EXTERN LWS_VISIBLE int
+lws_ntpc_trigger(struct lws_context *context);
+
+/**
  * lws_system_cpd_start() - helper to initiate captive portal detection
  *
  * \param context: the lws_context
