@@ -5843,7 +5843,8 @@ auth_feed_check(lws_sorted_usec_list_t *sul)
 	vhd->feed_data_version = dv;
 
 	if (vhd->feed_snap && vhd->feed_snap->len == s->len &&
-	    !memcmp(&vhd->feed_snap[1], &s[1], s->len)) {
+	    !memcmp(auth_feed_snap_json(vhd->feed_snap),
+		    auth_feed_snap_json(s), s->len)) {
 		/* nothing a subscriber cares about changed */
 		free(s);
 		goto again;
