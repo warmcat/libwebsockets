@@ -29,6 +29,15 @@
  *  - leg 1: a later SETTINGS raises the limit to 1.  The queued request must
  *    then be sent, and is answered 200.
  *
+ *  - leg 2: the fixture's preface SETTINGS has a limit of 1, and in the same
+ *    write it starts a "response" HEADERS on sid 1, without END_HEADERS,
+ *    before the client could send the request it migrated on to sid 1 on
+ *    seeing that SETTINGS.  The client must refuse it at once with GOAWAY
+ *    PROTOCOL_ERROR, and never send the request: the stream's ah still
+ *    holds the request's headers, and decoding the peer's block into it
+ *    used to leave their fragments describing the peer's bytes, or unwritten
+ *    ah storage, which the request was then composed from.
+ *
  * A leg that does not reach its expected end inside LEG_WATCHDOG_S fails.
  */
 
@@ -53,18 +62,22 @@
 #define H2F_END_STREAM		1
 #define H2F_END_HEADERS		4
 #define H2SET_MAX_CONCURRENT	3
+#define H2_ERR_PROTOCOL_ERROR	1
 #define H2_ERR_REFUSED_STREAM	7
 #define H2_PREFACE_LEN		24
 
 struct leg {
 	const char	*name;
 	uint8_t		raise;		/* SETTINGS raises the limit later */
+	uint8_t		premature;	/* HEADERS on sid 1 before it went */
 };
 
 static const struct leg legs[] = {
 	{ "the peer's stream limit stays 0: the queued request fails in time "
-	  "and the connection idles out", 0 },
-	{ "the peer raises its stream limit: the queued request goes", 1 },
+	  "and the connection idles out", 0, 0 },
+	{ "the peer raises its stream limit: the queued request goes", 1, 0 },
+	{ "the peer starts a response on sid 1 before its request went: "
+	  "refused before any request is sent", 0, 1 },
 };
 
 /* one fixture connection */
@@ -95,6 +108,8 @@ static struct {
 	int		refused;	/* streams RST_STREAMed */
 	int		answered;	/* streams answered 200 */
 	int		goaway;		/* GOAWAYs from the client */
+	int		headers;	/* HEADERS from the client */
+	uint32_t	goaway_err;	/* the last GOAWAY's error code */
 } srv;
 
 static struct req reqs[MAX_REQ];
@@ -190,6 +205,7 @@ fx_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 		break;
 
 	case H2_HEADERS:
+		srv.headers++;
 		if (p->raised) {
 			lwsl_user("%s: fixture: answering sid %u 200\n",
 				  __func__, (unsigned int)sid);
@@ -212,6 +228,8 @@ fx_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 
 	case H2_GOAWAY:
 		srv.goaway++;
+		if (len >= 8)
+			srv.goaway_err = lws_ser_ru32be(&pl[4]);
 		break;
 
 	default:
@@ -290,8 +308,24 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lwsl_user("%s: fixture: connection %d adopted\n", __func__,
 			  srv.accepted);
 		p->wsi = wsi;
-		/* the server preface: our SETTINGS, with a stream limit of 0 */
-		fx_tx_settings_max_streams(p, 0);
+		if (legs[cur].premature) {
+			/*
+			 * hpack: a literal field line with incremental
+			 * indexing of :path (static index 4) announcing a
+			 * 1-byte value that never comes, in a block that
+			 * never ends, right behind the SETTINGS that has
+			 * the client migrate its request on to sid 1.
+			 * Decoded into sid 1's ah, it started a fragment
+			 * over the request's last one, at unwritten ah
+			 * storage with no NUL.
+			 */
+			static const uint8_t hb[] = { 0x44, 0x01 };
+
+			fx_tx_settings_max_streams(p, 1);
+			fx_tx_frame(p, H2_HEADERS, 0, 1, hb, sizeof(hb));
+		} else
+			/* the server preface: SETTINGS, a stream limit of 0 */
+			fx_tx_settings_max_streams(p, 0);
 		lws_sul_schedule(context, 0, &p->sul_ping, fx_ping_cb,
 				 PING_INTERVAL_MS * LWS_US_PER_MS);
 		break;
@@ -349,7 +383,29 @@ leg_evaluate(void)
 	if (!reqs[0].error && !reqs[0].closed && !reqs[0].completed)
 		return;
 
-	if (l->raise) {
+	if (l->premature) {
+		if (!reqs[1].error && !reqs[1].closed && !reqs[1].completed)
+			return;
+		/* the GOAWAY is only all in once the connection has gone */
+		if (srv.closed < srv.accepted)
+			return;
+		if (reqs[0].completed || reqs[1].completed) {
+			lwsl_err("%s: a request completed on a connection "
+				 "that should be refused\n", __func__);
+			fail = 1;
+		}
+		if (srv.headers) {
+			lwsl_err("%s: client sent %d HEADERS after the "
+				 "premature response\n", __func__, srv.headers);
+			fail = 1;
+		}
+		if (!srv.goaway || srv.goaway_err != H2_ERR_PROTOCOL_ERROR) {
+			lwsl_err("%s: no GOAWAY PROTOCOL_ERROR (%d, err %u)\n",
+				 __func__, srv.goaway,
+				 (unsigned int)srv.goaway_err);
+			fail = 1;
+		}
+	} else if (l->raise) {
 		if (!reqs[1].completed && !reqs[1].error)
 			return;
 		if (!reqs[1].completed || reqs[1].status != 200) {
@@ -382,7 +438,7 @@ leg_evaluate(void)
 	if (!fail && srv.closed < srv.accepted)
 		return;
 
-	if (!srv.refused) {
+	if (!l->premature && !srv.refused) {
 		lwsl_err("%s: fixture refused no stream\n", __func__);
 		fail = 1;
 	}
@@ -403,10 +459,11 @@ leg_watchdog(lws_sorted_usec_list_t *sul)
 {
 	lwsl_err("%s: leg %d did not finish: req0 err %d closed %d compl %d, "
 		 "req1 err %d closed %d compl %d, fixture %d/%d conns, %d "
-		 "refused, %d answered\n", __func__, cur, reqs[0].error,
-		 reqs[0].closed, reqs[0].completed, reqs[1].error,
-		 reqs[1].closed, reqs[1].completed, srv.closed, srv.accepted,
-		 srv.refused, srv.answered);
+		 "refused, %d answered, %d HEADERS, %d GOAWAY\n", __func__,
+		 cur, reqs[0].error, reqs[0].closed, reqs[0].completed,
+		 reqs[1].error, reqs[1].closed, reqs[1].completed, srv.closed,
+		 srv.accepted, srv.refused, srv.answered, srv.headers,
+		 srv.goaway);
 	failures++;
 	leg_done = 1;
 	lws_sul_schedule(context, 0, &sul_next, next_leg, 0);

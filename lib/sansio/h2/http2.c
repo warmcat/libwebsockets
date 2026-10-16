@@ -1879,6 +1879,27 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 					break;
 				}
+
+				/*
+				 * A response on a stream we have not sent a
+				 * request on yet (the peer's HEADERS on our
+				 * idle sid, RFC 9113 5.1) must be refused here,
+				 * before any of its payload reaches hpack.  The
+				 * stream's ah still holds the pending request's
+				 * headers, which the block would decode over,
+				 * leaving their fragment metadata describing
+				 * the peer's bytes, or none, when the request
+				 * is composed from it later.
+				 */
+				if (h2n->swsi->client_mux_substream &&
+				    lwsi_state(h2n->swsi) ==
+					    LRS_H2_WAITING_TO_SEND_HEADERS) {
+					if (lws_h2_goaway(wsi,
+						  H2_ERR_PROTOCOL_ERROR,
+						  "HEADERS on unsent stream"))
+						return 1;
+					break;
+				}
 			}
 			goto update_end_headers;
 		}
@@ -2546,19 +2567,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 		/*
-		 * A response on a stream we have not sent a request on yet
-		 * (the peer's HEADERS on our idle sid, RFC 9113 5.1) passed
-		 * both trailers gates and reached the response handling from
-		 * H2_WAITING_TO_SEND_HEADERS, which has no row
+		 * A HEADERS on a stream still waiting to send its request was
+		 * refused at its frame header, before its block could decode
+		 * over the request's headers in the ah
 		 */
-		if (h2n->swsi->client_mux_substream &&
-		    lwsi_state(h2n->swsi) == LRS_H2_WAITING_TO_SEND_HEADERS) {
-			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "HEADERS on unsent stream"))
-				return 1;
-			break;
-		}
-
 		if (h2n->swsi->client_mux_substream &&
 		    lws_client_interpret_server_handshake(h2n->swsi) !=
 							LWS_HPI_RET_HANDLED) {
