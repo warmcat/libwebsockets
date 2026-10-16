@@ -33,6 +33,26 @@ What the web UI shows, events, tasks, their logs and problems, is public.
 `https://libwebsockets.org/sai/rss.json?project=libwebsockets&branch=main-dev`
 lists the latest events as JSON.
 
+Start looking into a red or flaky event from its problems: sai reads every
+try's log for compiler, linker and cmake diagnostics and failed tests,
+including tests that failed and passed when ctest ran them again, and groups
+them across the event's builds.  The web UI shows them in the problems pane;
+sai's `scripts/sai-problems.py` gets the same from the command line, with no
+account (see sai's `READMEs/README-problems.md`):
+
+```
+$ sai-problems.py libwebsockets.org problems latest:libwebsockets:main-dev
+$ sai-problems.py libwebsockets.org excerpts <event uuid> 1,2,3
+$ sai-problems.py libwebsockets.org log <task uuid> > task.log
+```
+
+`problems` gives each group's builds, failure rate and history in earlier
+events, and for each occurrence its `uid`, task uuid, try and log line.  An
+excerpt is only the start of the stanza (24 lines or 2KiB), so a fixture's
+log is usually cut off: get the whole task log for the rest, and to see
+what else was running at the time.  Several flakes in one task that failed
+together, at the same moment, are usually one cause.
+
 The fleet logs are what the Sai daemons themselves logged on every host
 (sai-server, sai-builder, sai-virt, sai-power), tagged with the build they
 were about.  They show what happened around a build that its task log
@@ -119,6 +139,15 @@ where its lines landed.
    Linux: "af 30" in a log is a mac.
  - Darwin kqueue fds refuse O_NONBLOCK; adopting them needs
    `LWS_ADOPT_FLAG_NO_NONBLOCK`.
+ - **The first dlopen() of a newly built dylib can take seconds.**  On the
+   Sai M1, each protocol plugin took 1 - 6s to load the first time while the
+   process used almost no CPU, and well under 1ms once another process had
+   loaded it.  Every context on a plugins build loads every plugin on
+   `LD_LIBRARY_PATH`, so fixture servers started together by `ctest -j8`
+   ran past `ctest-background.sh`'s wait for their port ("Timed out waiting
+   for port", the fixture's log ending in `lws_plugins_init` "trying ...").
+   `api-test-plugins` registers a ctest pre-test that loads them all once
+   before any test starts (`LWS_CTEST_PRE_TEST` in the top `CMakeLists.txt`).
  - Linux loopback buffering hides bugs where a close with unread rx loses
    tx (the kernel aborts the connection and drops unsent data).  macOS
    shows them.  Clamp the receiver's `SO_RCVBUF` in tests to see them on
