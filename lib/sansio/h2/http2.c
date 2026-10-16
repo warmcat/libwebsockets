@@ -1440,6 +1440,26 @@ lws_h2_nwsi_rx_renew_timeout(struct lws *wsi)
 				lws_wsi_keepalive_timeout_eff(wsi));
 }
 
+int
+lws_h2_sid_recently_closed(struct lws_h2_netconn *h2n, uint32_t sid)
+{
+	int n;
+
+	for (n = 0; n < LWS_H2_RECENT_CLOSED; n++)
+		if (sid && h2n->recent_closed_sid[n] == sid)
+			return 1;
+
+	return 0;
+}
+
+void
+lws_h2_sid_closed(struct lws_h2_netconn *h2n, uint32_t sid)
+{
+	h2n->recent_closed_sid[h2n->recent_closed_next] = sid;
+	h2n->recent_closed_next = (uint8_t)((h2n->recent_closed_next + 1) %
+					    LWS_H2_RECENT_CLOSED);
+}
+
 /*
  * The frame header part has just completely arrived.
  * Perform actions for header completion.
@@ -1920,6 +1940,28 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			goto update_end_headers;
 		}
 #endif
+
+		/*
+		 * A stream of the peer's we finished with, its trailers
+		 * already on their way when we did.  That's not a new stream
+		 * on a lower id than one already opened, a connection error
+		 * (RFC 9113 5.1.1), and its block still has to be decoded:
+		 * the hpack dynamic table is shared by the whole connection.
+		 * Into the sink then, the way a client does for a stream it
+		 * closed.
+		 */
+		if (!h2n->swsi && lws_h2_sid_recently_closed(h2n, h2n->sid)) {
+			lwsl_info("%s: HEADERS for closed sid %u, sinking\n",
+				  __func__, (unsigned int)h2n->sid);
+			if (lws_h2_hpack_sink_start(wsi))
+				return 1;
+
+			h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
+			h2n->cont_exp_sid = h2n->sid;
+			h2n->cont_exp_headers = 1;
+
+			break;
+		}
 
 		if (!h2n->swsi) {
 			/* no more children allowed by parent */

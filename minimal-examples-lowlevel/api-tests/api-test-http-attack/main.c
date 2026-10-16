@@ -49,6 +49,12 @@
 /* the path the server answers with a request pseudo-header, see h3_attacks[] */
 #define ATK_RESP_METHOD_PATH	"/respond-method"
 
+/*
+ * h2: how long after the server ended the case's first stream the rest of
+ * what was held back goes, for the server to have finished with the stream
+ */
+#define ATK_H2_HOLD_MS		100
+
 /* how long a replay gets to arrive before its probe */
 #define ATK_REPLAY_SETTLE_MS	500
 
@@ -785,7 +791,10 @@ static struct {
 	uint8_t		*tx;
 	size_t		tx_len;
 	size_t		tx_pos;
-	size_t		trickle_from;	/* tx_len is held back to here */
+	size_t		trickle_from;	/* tx_len is held back to here: h1
+					 * trickles it, h2 lets it all go
+					 * once the first stream ended */
+	uint8_t		hold_released;	/* h2: ...which is on its way */
 
 	uint8_t		rx[ATK_RX_MAX];	/* h1: raw; h2 / h3: body bytes */
 	size_t		rx_len;
@@ -1199,9 +1208,10 @@ evaluate(void)
 	/*
 	 * An h2 path case asks for the path twice, the second time by the
 	 * index of the first's :path in the server's dynamic table: whatever
-	 * the verdict, the two must have been answered alike
+	 * the verdict, the two must have been answered alike.  (An attack
+	 * case's first stream is only what it holds the rest back for.)
 	 */
-	if (tc.xport == XP_H2 && cn.first_sid && cn.goaway < 0 &&
+	if (tc.xport == XP_H2 && !tc.h2a && cn.first_sid && cn.goaway < 0 &&
 	    (cn.first_status != status || cn.first_rx_len != bl ||
 	     (bl && memcmp(cn.first_rx, b, bl)))) {
 		lws_snprintf(why, sizeof(why),
@@ -1307,6 +1317,16 @@ tx_more(struct lws *wsi)
 		lws_callback_on_writable(wsi);
 
 	return 0;
+}
+
+static void
+h2_hold_release_cb(lws_sorted_usec_list_t *sul)
+{
+	if (cn.done || !trickle_wsi)
+		return;
+
+	cn.trickle_from = 0;
+	lws_callback_on_writable(trickle_wsi);
 }
 
 static void
@@ -1872,6 +1892,33 @@ b_pseudo_name_runs_on(struct txb *t)
 	return 1;
 }
 
+/*
+ * A POST the server answers without waiting for its body, whose trailers
+ * only come once the server has finished with the stream, as they may when
+ * they were already on their way: then a request on another stream.  The
+ * late HEADERS are for a stream the peer did open, not a new one, so they
+ * are decoded, to keep hpack in step, and dropped: the connection goes on.
+ */
+
+static uint32_t
+b_trailers_after_close(struct txb *t)
+{
+	uint8_t hb[512], *p = hp_request(hb, HP_METHOD_POST, "/f/index.html");
+
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+	cn.first_sid = 1;
+	cn.trickle_from = t->len;
+
+	p = hp_lit_name(hb, "x-trailer", "1");
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+	h2_get(t, 3, "/alive");
+
+	return 3;
+}
+
 static uint32_t
 b_uppercase_name(struct txb *t)
 {
@@ -2125,6 +2172,8 @@ static const struct h2_attack h2_attacks[] = {
 	{ "1500 fields", b_many_fields, V_NO_2XX, 0, 0 },
 	{ "trailers referring to an entry lws could not keep",
 	  b_trailers_lost_entry, V_ECHO, 200, 0 },
+	{ "trailers arriving after the server finished their stream",
+	  b_trailers_after_close, V_ECHO, 200, 0 },
 };
 
 /*
@@ -2275,6 +2324,9 @@ callback_raw_h2(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CONNECTED:
 		if (!is_current(wsi))
 			return -1;
+		/* a case holding back the rest until its first stream ended */
+		if (cn.trickle_from)
+			trickle_wsi = wsi;
 		return tx_more(wsi);
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
@@ -2285,7 +2337,15 @@ callback_raw_h2(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX:
 		if (!is_current(wsi))
 			break;
-		return h2_rx(wsi, (const uint8_t *)in, len);
+		if (h2_rx(wsi, (const uint8_t *)in, len))
+			return -1;
+		if (cn.trickle_from && cn.first_ended && !cn.hold_released) {
+			cn.hold_released = 1;
+			lws_sul_schedule(context, 0, &sul_trickle,
+					 h2_hold_release_cb,
+					 ATK_H2_HOLD_MS * LWS_US_PER_MS);
+		}
+		return 0;
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (is_current(wsi))

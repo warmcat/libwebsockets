@@ -922,6 +922,13 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	 */
 	if (wsi->mux.parent_wsi) {
 
+		struct lws_h2_netconn *h2n = wsi->mux.parent_wsi->h2.h2n;
+
+		/* a stream the peer opened on us: its late HEADERS are dropped */
+		if (h2n && lwsi_role_server(wsi->mux.parent_wsi) &&
+		    (wsi->mux.my_sid & 1))
+			lws_h2_sid_closed(h2n, (uint32_t)wsi->mux.my_sid);
+
 		if (wsi->mux.parent_wsi->h2.h2n &&
 		    wsi->mux.parent_wsi->h2.h2n->swsi == wsi) {
 			struct lws *nwsi = wsi->mux.parent_wsi;
