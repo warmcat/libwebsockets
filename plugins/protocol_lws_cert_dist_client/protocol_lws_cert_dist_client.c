@@ -16,7 +16,6 @@ struct vhd_cert_dist_client {
 	const struct lws_protocols      *protocol;
 	char                            base_dir[256];
 	char                            secret[129];
-	char                            reload_cmd[256];
 	struct lws_stub_manager         *stub_mgr;
 	struct lws_dll2_owner           clients;
 	const char                      *server_url;
@@ -24,25 +23,23 @@ struct vhd_cert_dist_client {
 
 /*
  * Stub child only: what the plugin init (cert_dist_client_init()) was handed
- * by the parent on stdin, the secret, base_dir and reload_cmd.  Requests
+ * by the parent on stdin, the secret and base_dir.  Requests
  * arrive on the UDS listener vhost, where no vhost instantiates us, so they
  * find their config through this.
  */
 static struct vhd_cert_dist_client *cdc_stub;
 
 /*
- * The parent hands its stub {"base_dir":"...","reload_cmd":"..."} as the stub
- * extra payload.  Room for both fields JSON-escaped at the worst case of 6
- * chars per input char, and the rest of the object; it stays below PIPE_BUF,
- * so the parent's write of it is atomic
+ * The parent hands its stub {"base_dir":"..."} as the stub extra payload.
+ * Room for it JSON-escaped at the worst case of 6 chars per input char, and
+ * the rest of the object; it stays below PIPE_BUF, so the parent's write of
+ * it is atomic
  */
 #define CDC_PAYLOAD_MAX \
-	((sizeof(((struct vhd_cert_dist_client *)0)->base_dir) + \
-	  sizeof(((struct vhd_cert_dist_client *)0)->reload_cmd)) * 6 + 64)
+	(sizeof(((struct vhd_cert_dist_client *)0)->base_dir) * 6 + 64)
 
 static const char * const cdc_payload_paths[] = {
 	"base_dir",
-	"reload_cmd",
 };
 
 struct cdc_payload_parse {
@@ -60,16 +57,8 @@ cdc_payload_cb(struct lejp_ctx *ctx, char reason)
 	if (!ctx->path_match)
 		return 0;
 
-	switch (ctx->path_match - 1) {
-	case 0:
-		dest = pp->v->base_dir;
-		cap = sizeof(pp->v->base_dir);
-		break;
-	default:
-		dest = pp->v->reload_cmd;
-		cap = sizeof(pp->v->reload_cmd);
-		break;
-	}
+	dest = pp->v->base_dir;
+	cap = sizeof(pp->v->base_dir);
 
 	switch (reason) {
 	case LEJPCB_VAL_STR_START:
@@ -148,9 +137,20 @@ struct pss_cert_dist_client {
 	int                             uds_tx_pos;
 	lws_stub_req_h                  stub_req;
 
+	/*
+	 * The pair our install request is installing: once the stub says it
+	 * is in place, the vhosts serving it are handed these copies, since
+	 * they can't read what the stub wrote
+	 */
+	char                            *inst_cert;
+	char                            *inst_key;
+	int                             inst_cert_len;
+	int                             inst_key_len;
+
 	/* the root stub's answer to our install request */
 	char                            install_why[64];
 	uint8_t                         install_ok;
+	uint8_t                         install_unchanged;
 };
 
 struct dist_client_conn {
@@ -210,8 +210,8 @@ cert_dist_valid_name(const char *s, size_t max)
 }
 
 /*
- * Create or open a file we are about to write a cert or a key into, as root,
- * in a directory an unprivileged local user may be able to create entries in
+ * Create or open a file we are about to write a cert or a key into, as the
+ * stub (root, or its "stub-user"), in a directory an unprivileged local user may be able to create entries in
  * if it pre-existed.  It must not already exist and must not be a symlink.
  */
 
@@ -319,7 +319,49 @@ connect_client(lws_sorted_usec_list_t *sul)
 	}
 }
 
-static const char * const install_paths[] = { "installed", "why" };
+static const char * const install_paths[] = { "installed", "why",
+					      "unchanged" };
+
+/* we are done with the pair an install request was for */
+
+static void
+cdc_inst_free(struct pss_cert_dist_client *pss)
+{
+	free(pss->inst_cert);
+	pss->inst_cert = NULL;
+	pss->inst_cert_len = 0;
+	if (pss->inst_key) {
+		lws_explicit_bzero(pss->inst_key, (size_t)pss->inst_key_len);
+		free(pss->inst_key);
+	}
+	pss->inst_key = NULL;
+	pss->inst_key_len = 0;
+}
+
+/*
+ * The stub put a new pair in place under <base_dir>/<name>/, as files we
+ * can't read.  Hand the vhosts serving them our copies, so they move onto
+ * them, after their grace period if they have one.
+ */
+
+static void
+cdc_inst_hand_over(struct pss_cert_dist_client *pss,
+		   struct dist_client_conn *conn)
+{
+	char crt[384], key[384];
+
+	if (!conn->vhd || !pss->inst_cert || !pss->inst_key)
+		return;
+
+	lws_snprintf(crt, sizeof(crt), "%s/%s/fullchain.pem",
+		     conn->vhd->base_dir, conn->name);
+	lws_snprintf(key, sizeof(key), "%s/%s/privkey.pem",
+		     conn->vhd->base_dir, conn->name);
+
+	lws_tls_cert_updated(conn->vhd->cx, crt, key,
+			     pss->inst_cert, (size_t)pss->inst_cert_len,
+			     pss->inst_key, (size_t)pss->inst_key_len);
+}
 
 /*
  * The cert we were sent could not be installed, so we are still serving the
@@ -351,6 +393,8 @@ install_rx_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPCB_VAL_TRUE:
 		if (ctx->path_match == 1) /* "installed" */
 			pss->install_ok = 1;
+		if (ctx->path_match == 3) /* "unchanged" */
+			pss->install_unchanged = 1;
 		break;
 
 	case LEJPCB_VAL_STR_END:
@@ -378,8 +422,17 @@ install_rx_cb(struct lejp_ctx *ctx, char reason)
 			lwsl_wsi_notice(pss->wsi, "cert for '%s' installed",
 					conn->name);
 			conn->install_retry_count = 0;
+			/*
+			 * An unchanged pair was handed over when it was
+			 * installed, or loaded from the files at startup
+			 */
+			if (!pss->install_unchanged)
+				cdc_inst_hand_over(pss, conn);
+			cdc_inst_free(pss);
 			break;
 		}
+
+		cdc_inst_free(pss);
 
 		/* the stub answers every install it acts on */
 		cdc_install_failed(pss, conn, pss->install_why[0] ?
@@ -665,7 +718,8 @@ struct stub_req_args {
 };
 
 /*
- * Install the cert and key in a request into <base_dir>/<name>/, as root.
+ * Install the cert and key in a request into <base_dir>/<name>/, as the
+ * stub's user.
  *
  * Returns 0 if they were installed, 1 if the same cert was already installed,
  * or -1 if nothing could be installed, with *why set to the reason, which
@@ -715,7 +769,7 @@ cdc_install(struct stub_req_args *a, const char **why)
 	}
 
 	/*
-	 * We are root and about to write a private key in there: if the
+	 * We are privileged and about to write a private key in there: if the
 	 * directory already existed, it must be a real directory that we own
 	 * and that nobody else can write to, or a local user could have
 	 * planted symlinks in it.
@@ -729,8 +783,11 @@ cdc_install(struct stub_req_args *a, const char **why)
 	if (dfd < 0 || fstat(dfd, &sd) || !S_ISDIR(sd.st_mode) ||
 	    sd.st_uid != geteuid() ||
 	    (sd.st_mode & (S_IWGRP | S_IWOTH))) {
-		lwsl_err("%s: '%s' is not a private directory we own\n",
-			 __func__, path);
+		/* eg, still root's from before the stub had a stub-user */
+		lwsl_err("%s: '%s' is not a private directory we own: it must "
+			 "be a directory owned by uid %u, and not writable by "
+			 "its group or others\n", __func__, path,
+			 (unsigned int)geteuid());
 		if (dfd >= 0)
 			close(dfd);
 		*why = "the cert directory is not a private directory we own";
@@ -821,8 +878,8 @@ cdc_install(struct stub_req_args *a, const char **why)
 		return -1;
 	}
 
-	lwsl_notice("%s: Files updated for %s, active vhosts will rotate "
-		    "dynamically via proxy\n", __func__, a->subdomain);
+	/* the parent hands its vhosts copies once we say this went well */
+	lwsl_notice("%s: Files updated for %s\n", __func__, a->subdomain);
 	close(dfd);
 
 	return 0;
@@ -846,7 +903,8 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 	 * Each member we act on may appear once in a request.  A repeat
 	 * would otherwise quietly replace, or extend, what the first one
 	 * set, so anything that managed to end a string early in the parent
-	 * could choose where we write as root.  Refuse the whole request.
+	 * could choose where we write, with our privileges.  Refuse the whole
+	 * request.
 	 */
 	if (ctx->path_match &&
 	    (reason == LEJPCB_VAL_STR_START || reason == LEJPCB_VAL_TRUE)) {
@@ -1316,7 +1374,9 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					pss->stub_req = 0; /* see install_rx_cb */
 					lws_stub_request_cancel(vhd->stub_mgr, h);
 				}
+				cdc_inst_free(pss);
 				pss->install_ok = 0;
+				pss->install_unchanged = 0;
 				pss->install_why[0] = '\0';
 				pss->stub_req = lws_stub_request_h(vhd->stub_mgr,
 						pss->uds_tx + LWS_PRE,
@@ -1331,19 +1391,31 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				/*
 				 * The stub request took its own copy.  Clear
-				 * ours, it holds the private key, and so we
-				 * don't save it twice
+				 * ours, it holds the private key
 				 */
 				lws_explicit_bzero(pss->uds_tx + LWS_PRE,
 						   (size_t)pss->uds_tx_len);
 				free(pss->uds_tx);
 				pss->uds_tx = NULL;
 
-				free(pss->cert);
+				/*
+				 * The pair is kept for the vhosts until the
+				 * stub has answered, and moved out of the way
+				 * so it isn't saved twice
+				 */
+				if (pss->stub_req) {
+					pss->inst_cert = pss->cert;
+					pss->inst_cert_len = pss->cert_len;
+					pss->inst_key = pss->key;
+					pss->inst_key_len = pss->key_len;
+				} else {
+					free(pss->cert);
+					lws_explicit_bzero(pss->key,
+							   (size_t)pss->key_len);
+					free(pss->key);
+				}
 				pss->cert = NULL;
 				pss->cert_len = 0;
-				lws_explicit_bzero(pss->key, (size_t)pss->key_len);
-				free(pss->key);
 				pss->key = NULL;
 				pss->key_len = 0;
 			}
@@ -1416,7 +1488,12 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pss) {
 				if (pss->wsi == wsi) {
 					if (pss->cert) { free(pss->cert); pss->cert = NULL; }
-					if (pss->key) { free(pss->key); pss->key = NULL; }
+					if (pss->key) {
+						lws_explicit_bzero(pss->key,
+							(size_t)pss->key_len);
+						free(pss->key);
+						pss->key = NULL;
+					}
 					if (pss->uds_tx) { free(pss->uds_tx); pss->uds_tx = NULL; }
 					lejp_destruct(&pss->jctx);
 
@@ -1434,6 +1511,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 						lws_stub_request_cancel(
 							vhd->stub_mgr, h);
 					}
+					cdc_inst_free(pss);
 
 					pss->wsi = NULL;
 				}
@@ -1456,7 +1534,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				return 0;
 
 			const char *vh_name = lws_get_vhost_name(lws_get_vhost(wsi));
-			const char *stub_dir = "/var/run";
+			const char *stub_dir = "/var/run", *stub_user = NULL;
 
 			vhd = lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
 			if (vhd)
@@ -1499,10 +1577,10 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					certs_pvo = pvo->options;
 				if (!strcmp(pvo->name, "ca-filepath"))
 					ca_filepath = pvo->value;
-				if (!strcmp(pvo->name, "reload-cmd"))
-					lws_strncpy(vhd->reload_cmd, pvo->value, sizeof(vhd->reload_cmd));
 				if (!strcmp(pvo->name, "stub-dir"))
 					stub_dir = pvo->value;
+				if (!strcmp(pvo->name, "stub-user"))
+					stub_user = pvo->value;
 				pvo = pvo->next;
 			}
 
@@ -1541,25 +1619,30 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.uds_path = uds_path;
 			sc.protocols = stub_protocols;
 			sc.parent_protocol_name = "lws-cert-dist-client";
+			/*
+			 * All the stub does is write the certs and keys it is
+			 * given into base-dir: it has no need to stay root
+			 */
+			sc.run_as = stub_user;
+			if (!stub_user && !getuid())
+				lwsl_vhost_notice(vhd->vh, "%s: the stub stays "
+					"root: give it a \"stub-user\" that "
+					"owns %s\n", __func__, vhd->base_dir);
 
 			/*
 			 * The stub child process starts with a clean context
 			 * and can't see our PVOs: pass it what it needs to
-			 * build file paths (base_dir) plus the reload command
-			 * via the stub extra payload
+			 * build file paths (base_dir) via the stub extra
+			 * payload
 			 */
 			char rc[CDC_PAYLOAD_MAX],
-			     ebd[sizeof(vhd->base_dir) * 6],
-			     erc[sizeof(vhd->reload_cmd) * 6];
+			     ebd[sizeof(vhd->base_dir) * 6];
 
 			lws_json_purify(ebd, vhd->base_dir, (int)sizeof(ebd),
 					NULL);
-			lws_json_purify(erc, vhd->reload_cmd, (int)sizeof(erc),
-					NULL);
 			sc.extra_payload = rc;
 			sc.extra_payload_len = (size_t)lws_snprintf(rc, sizeof(rc),
-				     "{\"base_dir\":\"%s\",\"reload_cmd\":\"%s\"}",
-				     ebd, erc) + 1;
+				     "{\"base_dir\":\"%s\"}", ebd) + 1;
 
 			vhd->stub_mgr = lws_stub_spawn(&sc);
 			if (!vhd->stub_mgr)
@@ -1775,8 +1858,8 @@ static const struct lws_protocols protocols[] = {
 
 /*
  * Once per context, however many vhosts instantiate us.  Only our own stub
- * child has anything to do here: read the secret and the base_dir and
- * reload_cmd the parent hands it on stdin, and listen on the UDS the parent
+ * child has anything to do here: read the secret and the base_dir the parent
+ * hands it on stdin, and listen on the UDS the parent
  * will connect to.
  */
 static int
@@ -1821,7 +1904,7 @@ cert_dist_client_init(struct lws_context *cx)
 				 sizeof(payload) - 1))
 		goto bail;
 
-	/* the parent packs {"base_dir":...,"reload_cmd":...} as the payload */
+	/* the parent packs {"base_dir":...} as the payload */
 	if (!payload[0])
 		return 0; /* nothing from the parent, keep the defaults */
 

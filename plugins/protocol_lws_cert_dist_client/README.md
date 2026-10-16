@@ -6,7 +6,8 @@ This is the client-side protocol plugin for the certificate distribution system.
 
 - Securely fetches and updates TLS certificates from the distribution server.
 - Establishes discrete mTLS WebSocket links for each configured client certificate; the certificate itself identifies the domain it is managing.
-- Spawns a privileged stub process (`--lws-stub=distribution-client`) when running as root to manage local file system writes and UDS communication.
+- Spawns a privileged stub process (`--lws-stub=certdistcli-<vhost>`) when running as root, to write the certs and keys.  Given a `stub-user`, the stub runs as that user, not root.
+- Hands the vhosts serving an installed pair copies of it, since they can't read what the stub wrote.
 - Implements a UDS (Unix Domain Socket) IPC mechanism (`lws-cert-dist-stub`) for secure communication between the unprivileged process and the privileged stub.
 - Atomic symlink updates when new certificates are received.
 
@@ -18,7 +19,8 @@ This is the client-side protocol plugin for the certificate distribution system.
 | `server-url` | The WebSocket URL of the central distribution server. | `wss://distribution-server.local` |
 | `ca-filepath` | Optional. Path to the CA certificate used to verify the distribution server's certificate. Needed if the server uses a self-signed or private CA. | N/A |
 | `certs` | A list of mTLS client certificates and keys to connect to the server. The client establishes a connection for each entry. The server deduces the domain being managed from the certificate presented. | N/A |
-| `stub-dir` | The directory the privileged stub's UDS socket is created in.  It must be one only the stub's user can create entries in. | `/var/run` |
+| `stub-dir` | The directory the privileged stub's UDS socket is created in.  It must be one only root can create entries in. | `/var/run` |
+| `stub-user` | `user` or `user:group`, by name or number, that the stub runs as once it is listening, instead of root.  It should be a user of its own, that lwsws's unprivileged user isn't and whose group it isn't in, eg, `lwsws-priv`: it owns `base-dir` and the keys in it.  Without a group, the user's own. | the stub stays root |
 
 ## Usage
 
@@ -27,6 +29,57 @@ When enabled with certs configured, the plugin spawns a privileged stub process 
 The link to the server stays up, and the server pushes renewed certs down it as they appear; each one is installed as it arrives.
 
 When the link drops, it is reconnected with a short backoff (up to 5s).  On each connect the client first sends the SHA-1 of the `fullchain.pem` it has installed, and the server sends its current cert only if that differs, so a client that was offline during a renewal catches up as soon as it is back.
+
+### How the vhosts get the new cert
+
+The stub writes the cert and key where lwsws's unprivileged process can't
+read them.  So once the stub says a new pair is installed, the client hands
+the vhosts that serve it copies of the pair from memory, with
+`lws_tls_cert_updated()`: a vhost whose `host-ssl-cert` and `host-ssl-key` are
+exactly `<base-dir>/<name>/fullchain.pem` and `<base-dir>/<name>/privkey.pem`.
+It loads the new pair at once, and serves it then, or after its
+`host-ssl-cert-grace-secs` if it has one.  At startup, before it drops its
+privileges, lwsws loads the vhost's cert from the files as usual.
+
+### Who the stub runs as
+
+The stub is spawned as root, so it can make its socket where lwsws's
+unprivileged process can connect to it, and then becomes its `stub-user`
+before it serves anything.  All it does is write the certs and keys it is
+sent into `base-dir`, so it needs no more than to own that.  A user of its own
+keeps the keys out of reach of a compromised lwsws process.  If it can't
+become the user, eg, the user doesn't exist, the stub fails and nothing is
+installed.
+
+Without a `stub-user` the stub stays root, as it always did, and says so in a
+notice at startup.
+
+#### Moving an existing install off root
+
+The stub only writes into directories its own user owns and that nobody else
+can write to, and `base-dir` must be one it can create those in.  Before a
+`stub-user` is given, all of that belongs to root, so it has to be handed over
+once, with lwsws stopped.  With `base-dir` `/var/lwsws-pki` and the stub user
+`lwsws-priv`:
+
+```
+# systemctl stop lwsws
+# useradd --system --no-create-home --shell /usr/sbin/nologin lwsws-priv
+# chown -R lwsws-priv:lwsws-priv /var/lwsws-pki
+# chmod 0700 /var/lwsws-pki /var/lwsws-pki/*/
+```
+
+Then add `"stub-user": "lwsws-priv"` to the plugin's pvos and start lwsws
+again.  If the mTLS client certs and keys the `certs` entries name are kept
+in `base-dir`, they go to `lwsws-priv` too, which is fine: lwsws loads them
+when it starts, while it is still root.
+
+Nothing else changes: the files are named and laid out as before, the vhosts
+load them at startup while lwsws is still root, and the stub logs
+`running as 'lwsws-priv'` when it starts.  If a directory was missed, the
+install is refused with `'<dir>' is not a private directory we own: it must be
+a directory owned by uid <n>...`, the cert stays what it was, and the client
+retries with backoff.
 
 ### When an install fails
 

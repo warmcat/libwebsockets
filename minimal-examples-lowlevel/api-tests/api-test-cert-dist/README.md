@@ -12,6 +12,9 @@ writes into a private work dir under `/tmp` along with the server's PKI tree:
    cert signed by `ca.crt`
  - vhost `cdc` runs `lws-cert-dist-client`, with three `certs` entries and so
    three mTLS links to `cds`
+ - vhost `node1-svc` is a tls server vhost whose cert and key are `node1`'s
+   installed `fullchain.pem` and `privkey.pem`.  It doesn't listen, and comes
+   up without them (`ignore-missing-cert`), since nothing is installed yet
 
 Both plugins spawn their privileged stubs, which are the test executable run
 again with `--lws-stub=`.  Their sockets go in the work dir, via the plugins'
@@ -66,6 +69,14 @@ issued it, `node1.crt`, as
    client's privileged stub, followed by a second `"subdomain"` naming a
    sibling install dir) is refused: `node1` keeps the pair it has and nothing
    appears under the other name
+ - each time `node1` installs a new pair, the client hands `node1-svc` copies
+   of it, and the vhost serves its cert.  The stub writes the files where the
+   vhost may not be able to read them, eg, after lwsws dropped its
+   privileges, so the copies are how the vhost gets the pair.  The test can
+   read the files itself, so to tell the two apart, `node1`'s install dir is
+   moved aside as soon as the new pair appears in it, and only put back once
+   `node1-svc` serves the new cert: the vhost would only look at its files
+   about 2s after they changed, and find them gone
  - `node2`, trusted for mTLS but not provisioned, gets nothing
  - `node3`, presenting a cert `ca.crt` did not sign, fails the handshake and
    gets nothing

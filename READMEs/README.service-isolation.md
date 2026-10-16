@@ -43,6 +43,7 @@ On the service box:
 	"base-dir":	"/etc/lwsws-pki",
 	"server-url":	"wss://<front-lan>:<dist port>",
 	"ca-filepath":	"/etc/lwsws-pki/distribution-ca.crt",
+	"stub-user":	"lwsws-priv",
 	"certs": { "auth": {
 		"cert":	"/etc/lwsws-pki/mtls/distribution-client-auth.example.com.crt",
 		"key":	"/etc/lwsws-pki/mtls/distribution-client-auth.example.com.key"
@@ -51,10 +52,13 @@ On the service box:
 ```
 
 **Check:** it logs `cert for 'auth' installed`, and
-`/etc/lwsws-pki/auth/fullchain.pem` and `privkey.pem` appear.  `base-dir` must
-be root-owned and 0700, or the root stub refuses to write a key there, and
-logs why.  A failed install is logged with its reason and retried with
-backoff; a client that was offline catches up when it reconnects.
+`/etc/lwsws-pki/auth/fullchain.pem` and `privkey.pem` appear.  Give the
+client's stub a user of its own with `"stub-user"`, eg, `lwsws-priv`, so it
+doesn't stay root: `base-dir` must be owned by that user (root, without one)
+and 0700, or the stub refuses to write a key there, and logs why.  See the
+plugin's README for moving an existing install off root.  A failed install
+is logged with its reason and retried with backoff; a client that was offline
+catches up when it reconnects.
 
 ## 2. The service vhost on the service box
 

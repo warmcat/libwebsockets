@@ -37,9 +37,20 @@
  *  - node3: presents the localhost-100y cert, which ca.crt did not sign.  The
  *    TLS handshake must fail, so it gets nothing either.
  *
+ * A tls server vhost, node1-svc, serves node1's installed fullchain.pem and
+ * privkey.pem.  The stub writes those as files the vhost may not be able to
+ * read, eg, after lwsws dropped its privileges, so once a pair is installed
+ * the client must hand the vhost copies of it.  Here we can read them
+ * ourselves, so to see that only the copies are used, the install dir is
+ * moved out of the way as soon as a new pair turns up in it, until the vhost
+ * serves the new cert: the vhost watching its files would only look a couple
+ * of seconds later, and find them gone.
+ *
  * Both plugins spawn privilege-separated stub children, which are this same
  * executable re-run with --lws-stub=; main() then does nothing but host the
- * plugins for them.  Their sockets go in a private dir of ours, given to the
+ * plugins for them.  The client's stub is told to run as its "stub-user",
+ * which here is us: we are not root, so it can only be who we are already,
+ * but it is passed down and checked as it would be.  Their sockets go in a private dir of ours, given to the
  * plugins with their "stub-dir" pvo, rather than the default /var/run.
  */
 
@@ -51,6 +62,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pwd.h>
 
 /* the plugins are composed into us, see compose-cert-dist-*.c */
 extern const lws_plugin_protocol_t * const composed_cds, * const composed_cdc;
@@ -162,10 +174,16 @@ static const char * const ver_junk =
 static char ver_cert[VERSIONS][PEM_MAX], ver_key[VERSIONS][PEM_MAX];
 static const char *certs = ".";
 
+/* the CN of each version's cert, what node1-svc must serve */
+static const char * const ver_cn[VERSIONS] = {
+	"localhost", "node2.example.com", "localhost", "node2.example.com",
+	"node1.example.com"
+};
+
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_check;
 static char work[64];
-static int phase, tests, fail, done;
+static int phase, tests, fail, done, hidden;
 static lws_usec_t phase_deadline, hold_until;
 
 /* how long a half-done renewal is watched for being (wrongly) sent */
@@ -378,6 +396,56 @@ node1_has(int v)
 	return file_is(fc, ver_cert[v]) && file_is(pk, ver_key[v]);
 }
 
+/* 1 if node1-svc serves the cert of version v */
+static int
+svc_serves(int v)
+{
+	struct lws_vhost *vh = lws_get_vhost_by_name(context, "node1-svc");
+	union lws_tls_cert_info_results ir;
+
+	return vh && !lws_tls_vhost_cert_info(vh, LWS_TLS_CERT_INFO_COMMON_NAME,
+					      &ir, sizeof(ir.ns.name)) &&
+	       !strcmp(ir.ns.name, ver_cn[v]);
+}
+
+/* move node1's install dir out of the way, or back */
+static int
+node1_dir_hide(int hide)
+{
+	char dir[256], away[256];
+
+	lws_snprintf(dir, sizeof(dir), "%s/install/node1", work);
+	lws_snprintf(away, sizeof(away), "%s/install/node1-away", work);
+
+	if (hide ? rename(dir, away) : rename(away, dir))
+		return 1;
+	hidden = hide;
+
+	return 0;
+}
+
+/*
+ * 1 once node1 has version v installed, and node1-svc serves it.  As soon as
+ * the files are there, they are moved out of the way until the vhost serves
+ * the new cert, so it can only have had it from the copies the client hands
+ * it.  -1 if the dir can't be moved.
+ */
+static int
+node1_installed_and_served(int v)
+{
+	if (!hidden) {
+		if (!node1_has(v))
+			return 0;
+		if (node1_dir_hide(1))
+			return -1;
+	}
+
+	if (!svc_serves(v))
+		return 0;
+
+	return node1_dir_hide(0) ? -1 : 1;
+}
+
 /*
  * How the stub installs: fullchain.pem and privkey.pem are symlinks to
  * timestamped siblings, and nobody but us can read the key
@@ -444,10 +512,11 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 	switch (phase) {
 	case 0:
 		/* the initial distribution of version 0 */
-		if (!node1_has(0))
+		if (node1_installed_and_served(0) <= 0)
 			break;
 
 		expect("node1 got the cert and key over mTLS", 1);
+		expect("the vhost serving it was handed the pair", 1);
 		check_install_layout();
 
 		/*
@@ -499,10 +568,11 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 
 	case 2:
 		/* the renewal is pushed on the link that is already up */
-		if (!node1_has(1))
+		if (node1_installed_and_served(1) <= 0)
 			break;
 
 		expect("node1 got the renewed cert and key", 1);
+		expect("the vhost serving it was handed the renewal", 1);
 
 		/*
 		 * The next renewal arrives while node1's install dir is
@@ -548,10 +618,11 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 		break;
 
 	case 4:
-		if (!node1_has(2))
+		if (node1_installed_and_served(2) <= 0)
 			break;
 
 		expect("failed install retried and completed", 1);
+		expect("the vhost serving it was handed the retried pair", 1);
 
 		/*
 		 * The server's record of the client cert it issued node1
@@ -632,11 +703,14 @@ sul_check_cb(lws_sorted_usec_list_t *sul)
 
 	if (lws_now_usecs() > phase_deadline) {
 		static const char * const waited_for[] = {
-			"node1 got the cert and key over mTLS",
+			"node1 got the cert and key over mTLS, and the vhost "
+				"serving it was handed the pair",
 			"half-done renewal not sent",
-			"node1 got the renewed cert and key",
+			"node1 got the renewed cert and key, and the vhost "
+				"serving it was handed it",
 			"renewal not installed in an unsafe dir",
-			"failed install retried and completed",
+			"failed install retried and completed, and the vhost "
+				"serving it was handed it",
 			"client cert that is not the one issued gets nothing",
 			"junk renewal refused, nothing installed under its name",
 		};
@@ -666,11 +740,12 @@ static int
 write_config(const char *certs_dir, const char *server, int port)
 {
 	char ew[sizeof(work) * 6], ec[256 * 6], url[128], path[256];
+	struct passwd *pw = getpwuid(getuid());
 	char *conf;
 	size_t len = 8192;
 	int r;
 
-	if (strlen(certs_dir) >= 256)
+	if (strlen(certs_dir) >= 256 || !pw)
 		return 1;
 
 	lws_json_purify(ew, work, (int)sizeof(ew), NULL);
@@ -711,6 +786,7 @@ write_config(const char *certs_dir, const char *server, int port)
 		"      \"status\": \"ok\",\n"
 		"      \"base-dir\": \"%s/install\",\n"
 		"      \"stub-dir\": \"%s/run\",\n"
+		"      \"stub-user\": \"%s\",\n"
 		"      \"server-url\": \"%s\",\n"
 		"      \"ca-filepath\": \"%s/localhost-100y.cert\",\n"
 		"      \"certs\": {\n"
@@ -729,9 +805,15 @@ write_config(const char *certs_dir, const char *server, int port)
 		"      }\n"
 		"    }\n"
 		"  }]\n"
+		"}, {\n"
+		"  \"name\": \"node1-svc\",\n"
+		"  \"port\": \"-2\",\n"
+		"  \"host-ssl-cert\": \"%s/install/node1/fullchain.pem\",\n"
+		"  \"host-ssl-key\": \"%s/install/node1/privkey.pem\",\n"
+		"  \"ignore-missing-cert\": \"1\"\n"
 		"}]}\n",
-		port, ec, ec, ec, ew, ew, ew, ew, url, ec, ec, ec, ec, ec,
-		ec, ec);
+		port, ec, ec, ec, ew, ew, ew, ew, pw->pw_name, url, ec, ec, ec,
+		ec, ec, ec, ec, ew, ew);
 
 	lws_snprintf(path, sizeof(path), "%s/conf.d/cert-dist", work);
 	r = write_file(path, conf);
