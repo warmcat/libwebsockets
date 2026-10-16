@@ -33,7 +33,9 @@
  * HEADERS are still with quic then, ahead of where the Close goes.
  *
  * Legs over h1 and h3 have the server drop the connection with no close
- * handshake at all: the client must still hear of it promptly.
+ * handshake at all: the client must still hear of it promptly.  Over h3 the
+ * drop can overtake the upgrade's response still queued in quic, then the
+ * client hears of it as a connection error.
  *
  * Three legs have the client stop reading (rx flow control) while the
  * server fills the connection, then send the server more than it reads at
@@ -844,6 +846,20 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (legs[cur].drop) {
+			/*
+			 * Over h3, the drop may overtake the upgrade's
+			 * response still queued in quic: the stream is reset
+			 * before the client saw it, and it hears of the drop
+			 * as a failed connection
+			 */
+			lwsl_user("%s: client: dropped before established: "
+				  "%s\n", __func__, in ? (char *)in : "(null)");
+			cli_closed = 1;
+			cli_wsi = NULL;
+			leg_done_check();
+			break;
+		}
 		lwsl_err("--- client connection error: %s ---\n",
 			 in ? (char *)in : "(null)");
 		fail_leg("connection error");

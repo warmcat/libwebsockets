@@ -841,10 +841,16 @@ just_kill_connection:
 #if defined(LWS_ROLE_WS)
 		/*
 		 * If our goal is a ws upgrade, effectively we did not reach
-		 * ESTABLISHED if we did not get the upgrade server reply
+		 * ESTABLISHED if we did not get the upgrade server reply.  Over
+		 * h2 or h3 the stream only takes the ws role once the reply
+		 * came, so its goal is known from do_ws
 		 */
 		(lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY &&
-		 wsi->role_ops == &role_ops_ws) ||
+		 (wsi->role_ops == &role_ops_ws
+#if defined(LWS_WITH_CLIENT)
+		  || (lwsi_role_client(wsi) && wsi->do_ws)
+#endif
+		 )) ||
 #endif
 	     lwsi_transport(wsi) == LTS_WAITING_DNS ||
 	     lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
