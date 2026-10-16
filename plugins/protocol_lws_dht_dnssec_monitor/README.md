@@ -28,7 +28,7 @@ certificate's toplevel domain is set.  The ACME client runs in the lwsws
 process rather than the root process, so the proxy answers this request itself,
 checking the row's FQDN lies inside its domain and sending
 `{"acme":"force-reissue","domain":"...","common-name":"..."}` on SMD class
-`LWSSMDCL_CERTS`.  The usual backoff after failed acquisitions still applies,
+`LWSSMDCL_CERTS`.  The certificate's backoff after failed acquisitions still applies,
 and Let's Encrypt allows only 5 identical certificates per week.
 
 #### Registrar DS record

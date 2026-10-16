@@ -62,6 +62,11 @@ struct lws_acme_cert_config {
 	/* reissue on the next evaluation however much validity is left: set
 	 * by an LWSSMDCL_CERTS force-reissue, cleared as acquisition starts */
 	char force_reissue;
+
+	/* this cert's own backoff after failed acquisitions, so one that keeps
+	 * failing can't hold back renewing the others: see acme-renew.c */
+	lws_usec_t retry_not_before;
+	int fail_count;
 };
 
 struct lws_acme_challenge_ops {

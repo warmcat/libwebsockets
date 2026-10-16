@@ -69,6 +69,8 @@ acme_state_name(lws_acme_state s)
 static void
 acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd);
 static void
+lws_acme_timer_cb(lws_sorted_usec_list_t *sul);
+static void
 acme_ipc_arm(struct per_vhost_data__lws_acme_client *vhd);
 
 /*
@@ -663,37 +665,25 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 	 */
 
 	vhd->ac = NULL;
-	vhd->last_acme_failure = 0;
 #if defined(LWS_WITH_ESP32)
 	lws_esp32.acme = 0; /* enable scanning */
 #endif
 }
 
-/* seconds to wait after the n'th consecutive failed acquisition:
- * 1h, 2h, 4h, 8h, 16h, capped at 24h... still comfortably inside the
- * renewal margin of a 6-day cert renewed at 25% life */
-static lws_usec_t
-acme_backoff_us(int fails)
-{
-	lws_usec_t u = 3600ll * LWS_USEC_PER_SEC << (fails > 5 ? 5 : fails);
-
-	return u > 24 * 3600ll * LWS_USEC_PER_SEC ?
-			24 * 3600ll * LWS_USEC_PER_SEC : u;
-}
+/*
+ * The acquisition is over, one way or the other: look at the certs again
+ * soon, rather than at the next hourly evaluation, since the one that ended
+ * stopped the last evaluation before it reached the certs after it
+ */
 
 static void
-acme_note_failure(struct per_vhost_data__lws_acme_client *vhd)
+acme_evaluate_again(struct per_vhost_data__lws_acme_client *vhd)
 {
-	vhd->acme_fail_count++;
-	vhd->acme_retry_not_before = lws_now_usecs() +
-				     acme_backoff_us(vhd->acme_fail_count);
-	lwsl_vhost_warn(vhd->vhost, "acme: failed acquisition #%d, next "
-			"attempt in %llds", vhd->acme_fail_count,
-			(long long)(acme_backoff_us(vhd->acme_fail_count) /
-				    LWS_USEC_PER_SEC));
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_aging, lws_acme_timer_cb,
+			 5 * LWS_US_PER_SEC);
 }
 
-/* end the acquisition in progress as a failure, and back off */
+/* end the acquisition in progress as a failure, and back off that cert */
 
 static void
 acme_fail_acquisition(struct per_vhost_data__lws_acme_client *vhd,
@@ -704,8 +694,21 @@ acme_fail_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 
 	lws_acme_report_status(vhd->vhost, LWS_CUS_FAILED, reason);
 	lws_acme_finished(vhd);
-	vhd->last_acme_failure = lws_now_usecs();
-	acme_note_failure(vhd);
+
+	if (vhd->active_cert) {
+		const char *cn = vhd->active_cert->pvop[
+					LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+		lws_usec_t u = acme_renew_failed(vhd->active_cert,
+						 lws_now_usecs());
+
+		lwsl_vhost_warn(vhd->vhost, "acme: %s: failed acquisition #%d "
+				"(%s), next attempt in %llds", cn ? cn : "unknown",
+				vhd->active_cert->fail_count,
+				reason ? reason : "unknown",
+				(long long)(u / LWS_USEC_PER_SEC));
+	}
+
+	acme_evaluate_again(vhd);
 }
 
 /*
@@ -864,7 +867,6 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 			       "P-256 or P-384, unable to sign with it",
 			       vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
 		lws_jwk_destroy(&vhd->jwk);
-		vhd->last_acme_failure = lws_now_usecs();
 
 		return 1;
 	}
@@ -927,7 +929,6 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 
 		if (r) {
 			lwsl_vhost_warn(vhd->vhost, "unable to save %s via footprint IPC", fp);
-			vhd->last_acme_failure = lws_now_usecs();
 			return 1;
 		}
 	}
@@ -964,12 +965,6 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 
 	if (vhd->ac) {
 		lwsl_vhost_notice(vhd->vhost, "acme: acquisition already in progress, ignoring trigger");
-		return 0;
-	}
-
-	if (vhd->last_acme_failure &&
-	    lws_now_usecs() - vhd->last_acme_failure < 60 * LWS_US_PER_SEC) {
-		lwsl_vhost_notice(vhd->vhost, "acme: recent failure, cooling down");
 		return 0;
 	}
 
@@ -1027,8 +1022,10 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 
 	lws_acme_report_status(vhd->vhost, LWS_CUS_CREATE_KEYS,
 			"Generating auth keys, please wait");
-	if (lws_acme_load_create_auth_keys(vhd, 2048))
-		goto bail;
+	if (lws_acme_load_create_auth_keys(vhd, 2048)) {
+		acme_fail_acquisition(vhd, "no usable account key");
+		return 1;
+	}
 	lws_acme_report_status(vhd->vhost, LWS_CUS_CREATE_KEYS,
 			"Auth keys created");
 
@@ -1036,9 +1033,9 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 				&vhd->ac->cwsi, &vhd->ac->i, buf, "GET"))
 		return 0;
 
-bail:
-	acme_connection_free(vhd->ac);
-	vhd->ac = NULL;
+	/* it can fail before it returns, and then it is already over */
+	if (vhd->ac)
+		acme_fail_acquisition(vhd, "unable to connect to the CA");
 
 	return 1;
 }
@@ -1389,9 +1386,11 @@ acme_ipc_saves_done(struct per_vhost_data__lws_acme_client *vhd)
 
 	lws_acme_finished(vhd);
 	lws_acme_report_status(vhd->vhost, LWS_CUS_SUCCESS, NULL);
-	/* cert fetched AND stored: clear the acquisition failure backoff */
-	vhd->acme_fail_count = 0;
-	vhd->acme_retry_not_before = 0;
+	/* cert fetched AND stored: clear its acquisition failure backoff */
+	if (vhd->active_cert)
+		acme_renew_succeeded(vhd->active_cert);
+
+	acme_evaluate_again(vhd);
 }
 
 /* the answer to the aging validity check for vhd->aging_current_cert */
@@ -1402,30 +1401,30 @@ acme_ipc_validity(struct per_vhost_data__lws_acme_client *vhd,
 {
 	struct lws_acme_cert_config *cfg = lws_container_of(
 			vhd->aging_current_cert, struct lws_acme_cert_config, list);
-	lws_usec_t now;
+	lws_usec_t now = lws_now_usecs();
 
-	if (!cfg->force_reissue && r->ok &&
-	    !(r->total_days && r->days_left <= (r->total_days / 4))) {
+	switch (acme_renew_verdict(cfg, r, now)) {
+	case ACME_RENEW_NOT_DUE:
 		lwsl_vhost_notice(vhd->vhost, "acme: cert %s: %d days left, total %d (skip renewal)", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], r->days_left, r->total_days);
 		vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 		acme_aging_next_cert(vhd);
 		return;
-	}
 
-	now = lws_now_usecs();
-	if (now < vhd->acme_retry_not_before) {
-		/* a recent acquisition for this failed:
-		 * don't hammer the CA with repeated
-		 * orders for the same cert (LE allows
-		 * 5 duplicates / 7 days) */
+	case ACME_RENEW_BACKOFF:
+		/* a recent acquisition for this failed: don't hammer the CA
+		 * with repeated orders for the same cert, but the certs after
+		 * it are still looked at */
 		lwsl_vhost_notice(vhd->vhost, "acme_aging: %s still needs a cert "
-			"but backing off, next attempt in %llds",
-			cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
-			(long long)((vhd->acme_retry_not_before - now) /
+			"(%d days left) but backing off, next attempt in %llds",
+			cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], r->days_left,
+			(long long)((cfg->retry_not_before - now) /
 				    LWS_USEC_PER_SEC));
 		vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 		acme_aging_next_cert(vhd);
 		return;
+
+	case ACME_RENEW_DUE:
+		break;
 	}
 
 	if (cfg->force_reissue)
@@ -2681,12 +2680,6 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 				vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 				continue;
 			}
-		}
-
-		if (vhd->last_acme_failure && lws_now_usecs() - vhd->last_acme_failure < 60 * LWS_US_PER_SEC) {
-			lwsl_vhost_notice(vhd->vhost, "acme_aging: skipping %s: last_acme_failure cooldown\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
-			vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
-			continue;
 		}
 
 		/* Asynchronous IPC validity check */

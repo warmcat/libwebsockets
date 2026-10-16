@@ -94,7 +94,17 @@ Here is an example of configuring `lwsws` to enable the ACME client plugin on a 
 ### Forcing a reissue
 
 Certificates are evaluated at startup and hourly after that, and renewed once
-a quarter or less of their validity is left.  To reissue a certificate
+a quarter or less of their validity is left.  One certificate is acquired at a
+time: an evaluation stops at the first certificate it starts an acquisition
+for, and the certificates are evaluated again a few seconds after the
+acquisition ends, either way.
+
+After a failed acquisition, that certificate backs off for 2h, doubling after
+each further failure up to 24h, before it is tried again (Let's Encrypt allows
+5 duplicate certificates in 7 days).  The backoff belongs to the certificate:
+while one backs off, the others are still evaluated and renewed as usual.
+
+To reissue a certificate
 before then, eg, to move it to a different `profile` straight away, send on
 SMD class `LWSSMDCL_CERTS`
 

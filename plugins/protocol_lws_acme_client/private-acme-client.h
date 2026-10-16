@@ -29,7 +29,8 @@
 /*
  * Private to the ACME client plugin, and to api-test-acme-json, which
  * checks its parsing of the ACME server's JSON (see acme-json.c) against
- * canned responses
+ * canned responses, and api-test-acme-renew, which checks the per-cert
+ * renewal decisions and backoff (see acme-renew.c)
  */
 
 #if !defined(__LWS_PRIVATE_ACME_CLIENT_H__)
@@ -184,14 +185,6 @@ struct per_vhost_data__lws_acme_client {
     lws_sorted_usec_list_t sul_aging;
     lws_sorted_usec_list_t sul_acquisition;
     lws_sorted_usec_list_t sul_watchdog;
-    lws_usec_t last_acme_failure;
-    /*
-     * LE allows 5 duplicate certs / 7 days: repeated acquisition attempts
-     * for an unchanged cert must back off exponentially or we can be
-     * locked out of ordering for the rest of the week
-     */
-    int acme_fail_count;
-    lws_usec_t acme_retry_not_before;
 
 	int count_live_pss;
 	char *dest;
@@ -284,6 +277,30 @@ acme_cert_leaf_len(const struct acme_cert_rx *crx);
 
 void
 acme_cert_rx_free(struct acme_cert_rx *crx);
+
+/*
+ * Whether a cert is renewed on this evaluation, from the root daemon's answer
+ * about its validity, and keeping its backoff after failures, see
+ * acme-renew.c
+ */
+
+typedef enum {
+	ACME_RENEW_NOT_DUE,	/* enough of its life is left */
+	ACME_RENEW_BACKOFF,	/* due, but an acquisition for it failed recently */
+	ACME_RENEW_DUE,
+} acme_renew_t;
+
+acme_renew_t
+acme_renew_verdict(const struct lws_acme_cert_config *cfg,
+		   const struct acme_ipc_reply *r, lws_usec_t now);
+
+/* an acquisition for cfg failed: returns how long it now backs off */
+lws_usec_t
+acme_renew_failed(struct lws_acme_cert_config *cfg, lws_usec_t now);
+
+/* an acquisition for cfg succeeded: its backoff is over */
+void
+acme_renew_succeeded(struct lws_acme_cert_config *cfg);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_AUTHORITATIVE_DNS)
 
