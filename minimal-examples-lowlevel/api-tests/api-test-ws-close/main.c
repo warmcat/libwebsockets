@@ -27,6 +27,11 @@
  * through, the ordinary case of an app refusing a message it has only seen
  * the start of.
  *
+ * Legs over h1, h2 and h3 have the server refuse the connection from its
+ * ESTABLISHED callback, after the upgrade's response went: it must still
+ * close as a ws connection, with a Close frame.  Over h3 the response's
+ * HEADERS are still with quic then, ahead of where the Close goes.
+ *
  * Three legs have the client stop reading (rx flow control) while the
  * server fills the connection, then send the server more than it reads at
  * once: the server sending a big message with pmd (it may not read until
@@ -102,6 +107,8 @@ struct leg {
 					 * message it is partway through */
 	uint8_t		stall;		/* enum stall: the client stops
 					 * reading while the server sends */
+	uint8_t		refuse;		/* the server refuses the connection
+					 * in its ESTABLISHED callback */
 };
 
 enum stall {
@@ -120,29 +127,32 @@ enum {
 };
 
 static const struct leg legs[] = {
-	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0 },
-	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0 },
-	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0 },
-	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0, 0 },
-	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0, 0 },
-	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0 },
-	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0 },
-	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0 },
+	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0, 0 },
+	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0 },
+	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0, 0 },
+	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0, 0, 0 },
+	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0, 0, 0 },
+	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0, 0 },
+	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0, 0 },
+	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0, 0 },
 #if defined(LWS_ROLE_H3)
 	/* ws over h3, RFC 9220: extended CONNECT on an h3 stream */
-	{ "h3, client-initiated",		"cli",	   "h3",       1, 0, 0, 0, 0 },
-	{ "h3, server-initiated",		"cli",	   "h3",       1, 1, 0, 0, 0 },
+	{ "h3, client-initiated",		"cli",	   "h3",       1, 0, 0, 0, 0, 0 },
+	{ "h3, server-initiated",		"cli",	   "h3",       1, 1, 0, 0, 0, 0 },
+	{ "h3, server refuses at established",	"cli",	   "h3",       1, 1, 1, 0, 0, 1 },
 #endif
-	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0 },
-	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0 },
-	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0 },
-	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0 },
+	{ "h1, server refuses at established",	"cli",	   "http/1.1", 0, 1, 1, 0, 0, 1 },
+	{ "h2, server refuses at established",	"cli",	   "h2",       1, 1, 1, 0, 0, 1 },
+	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0, 0 },
+	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0, 0 },
 	{ "h1, pmd, server sends to a client not reading", "cli-pmd", "http/1.1",
-							0, 1, 0, 0, STALL_TX_DRAIN },
+							0, 1, 0, 0, STALL_TX_DRAIN, 0 },
 	{ "h1, server closes with tx buffered, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH },
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH, 0 },
 	{ "h1, server closes on a full socket, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL },
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL, 0 },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
@@ -633,6 +643,12 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: server: established\n", __func__);
 		if (check_encap(wsi))
 			return -1;
+		if (legs[cur].refuse) {
+			/* the response went, then the app changes its mind */
+			sent_close = 1;
+			lwsl_user("%s: server: refusing\n", __func__);
+			return -1;
+		}
 		if (legs[cur].server_initiates && !legs[cur].pmd_mid_drain)
 			lws_callback_on_writable(wsi);
 		break;

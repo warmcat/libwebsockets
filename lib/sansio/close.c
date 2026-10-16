@@ -740,12 +740,17 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 		    ) &&
 		    /*
-		     * A ws stream whose frames have all been sent, over h3
-		     * only not acknowledged yet, has nothing to flush ahead of
-		     * its Close: that goes after them on the stream, and the
-		     * close is the polite one
+		     * A ws stream has nothing to flush ahead of its Close
+		     * unless lws itself still holds some of what it wrote.
+		     * Over h3, what quic has for the stream, still to send
+		     * or not acknowledged yet, is already on it ahead of
+		     * where the Close goes, eg, the upgrade's response
+		     * HEADERS when the app closes or refuses the connection
+		     * as soon as it is established.  The close is the
+		     * polite one: flushing first would end the stream with
+		     * no Close at all.
 		     */
-		    !(lwsi_role_ws(wsi) && !lws_has_unsent_buffered_out(wsi))) {
+		    !(lwsi_role_ws(wsi) && !lws_has_buflist_out(wsi))) {
 			lwsl_wsi_info(wsi, "LRS_FLUSHING_BEFORE_CLOSE");
 			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
 			__lws_set_timeout(wsi,

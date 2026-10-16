@@ -607,6 +607,16 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		    && !wsi->h2.pending_status_code
 #endif
 		) {
+#if defined(LWS_ROLE_WS)
+			if (lwsi_role_ws(wsi))
+				/*
+				 * A ws stream refused after its upgrade's
+				 * response went, eg, by the app's ESTABLISHED:
+				 * it is a ws connection, and closes as one,
+				 * with a Close frame, as on h1 and h2
+				 */
+				return -1;
+#endif
 			lwsl_wsi_notice(wsi, "closing stream after h3 action completed (%d)", n);
 			/* unless its close is already under way */
 			if (lwsi_close(wsi) == LCS_NONE)
