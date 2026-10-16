@@ -2853,11 +2853,16 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		if (!cisin[n + 3] && hnames2[n] == _WSI_TOKEN_CLIENT_METHOD)
 			cisin[n + 3] = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 #endif
+		/*
+		 * A request whose header table never held it has the stash:
+		 * a stream whose response ah didn't, or a QUIC attempt (its
+		 * request stays in the stash) we are falling back to tcp
+		 * from, which must still ask for its ws protocol
+		 */
+		if (!cisin[n + 3] && wsi->stash)
+			cisin[n + 3] = wsi->stash->cis[n + 3];
 	}
 
-	/* a stream whose response ah never held its request has the stash */
-	if (!cisin[CIS_METHOD] && wsi->stash)
-		cisin[CIS_METHOD] = wsi->stash->cis[CIS_METHOD];
 	if (method)
 		cisin[CIS_METHOD] = method;
 
