@@ -673,6 +673,9 @@ static const struct h3_attack h3_attacks[] = {
 	/* a field named "get " once smuggled an unnormalized request path */
 	{ "\"get \" field smuggling a path", "/alive", "get ",
 	  "/f/../secret.txt", 0, 0, 0, V_REFUSED },
+	/* a name lws doesn't know, not the token where it keeps urlargs */
+	{ "\"uri-args\" field adding urlargs", "/alive",
+	  H3_LIT("uri-args", "evil=1"), 0, V_ECHO },
 	{ "CR LF in a field value", "/alive",
 	  H3_LIT("user-agent", "a\r\nb"), 0, V_REFUSED },
 	{ "NUL in a raw literal value", "/alive",
@@ -1431,6 +1434,7 @@ hp_lit_name(uint8_t *p, const char *n, const char *v)
 #define HP_METHOD_POST		0x83
 #define HP_SCHEME_HTTP		0x86
 #define HP_IDX_AUTHORITY	1
+#define HP_IDX_METHOD		2
 #define HP_IDX_PATH		4
 #define HP_IDX_ACCEPT_ENCODING	0x90	/* accept-encoding: gzip, deflate */
 #define HP_IDX_USER_AGENT	58
@@ -1725,6 +1729,61 @@ b_get_smuggle(struct txb *t)
 	return 1;
 }
 
+/*
+ * Fields named for lws tokens that are no field name: once stored against
+ * the token, "uri-args" added urlargs the :path never had, and "put" gave a
+ * request whose :method lws doesn't alias a URI of its choosing, neither
+ * through the :path decoding.  Both are just names lws doesn't know.
+ */
+
+static uint32_t
+b_uri_args_field(struct txb *t)
+{
+	h2_preface(t);
+	h2_get_with(t, "uri-args", "evil=1");
+
+	return 1;
+}
+
+static uint32_t
+b_put_field(struct txb *t)
+{
+	uint8_t hb[512], *p = hb;
+
+	p = hp_lit(p, HP_IDX_METHOD, "PROPFIND", 8);
+	*p++ = HP_SCHEME_HTTP;
+	p = hp_lit(p, HP_IDX_AUTHORITY, "localhost", 9);
+	p = hp_lit(p, HP_IDX_PATH, "/alive", 6);
+	p = hp_lit_name(p, "put", "/f/../secret.txt");
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 1;
+}
+
+/*
+ * A pseudo-header's name matches on its last byte, so one going on past it
+ * once had the rest of its name become the start of that pseudo-header's
+ * value.  It's a pseudo-header lws doesn't know, which is malformed.
+ */
+
+static uint32_t
+b_pseudo_name_runs_on(struct txb *t)
+{
+	uint8_t hb[512], *p = hb;
+
+	p = hp_lit_name(p, ":methodx", "GET");
+	*p++ = HP_SCHEME_HTTP;
+	p = hp_lit(p, HP_IDX_AUTHORITY, "localhost", 9);
+	p = hp_lit(p, HP_IDX_PATH, "/alive", 6);
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 1;
+}
+
 static uint32_t
 b_uppercase_name(struct txb *t)
 {
@@ -1957,6 +2016,11 @@ static const struct h2_attack h2_attacks[] = {
 	/* a field named "get " once smuggled an unnormalized request path */
 	{ "\"get \" field smuggling a path", b_get_smuggle, V_GOAWAY,
 	  H2_ERR_PROTOCOL_ERROR, 0 },
+	{ "\"uri-args\" field adding urlargs", b_uri_args_field, V_ECHO,
+	  200, 0 },
+	{ "\"put\" field smuggling a URI", b_put_field, V_ECHO, 200, 0 },
+	{ "pseudo-header name running on past one lws knows",
+	  b_pseudo_name_runs_on, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
 	{ "uppercase field name", b_uppercase_name, V_GOAWAY,
 	  H2_ERR_PROTOCOL_ERROR, 0 },
 	{ "CR LF in a field value", b_crlf_value, V_NO_2XX, 0, 0 },
@@ -2444,8 +2508,8 @@ case_pick(void)
 			tc.h3a = &h3_attacks[tc.idx];
 			tc.path = tc.h3a->path;
 			tc.v = tc.h3a->v;
-			tc.status = 0;
-			tc.expect = NULL;
+			tc.status = tc.v == V_ECHO ? 200 : 0;
+			tc.expect = tc.v == V_ECHO ? tc.h3a->path : NULL;
 			lws_strncpy(tc.name, tc.h3a->name, sizeof(tc.name));
 			if (only && !strstr(tc.name, only))
 				continue;

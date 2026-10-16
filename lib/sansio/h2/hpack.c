@@ -1880,6 +1880,22 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				 * ends up "unknown" at fin below, which routes
 				 * the field to the ignored-entry handling
 				 */
+				/*
+				 * A regular name only matches on the ':' we
+				 * feed lws_parse() once the name has ended,
+				 * but a pseudo-header's matches on its last
+				 * byte.  A name going on past one, eg
+				 * ":methodx", is no pseudo-header lws knows,
+				 * and its bytes must not become the value of
+				 * the one it starts with
+				 */
+				if (!h2n->unknown_header &&
+				    !lws_h2_hpack_no_store(wsi) &&
+				    ah->parser_state < WSI_TOKEN_COUNT)
+					return lws_h2_goaway(nwsi,
+						H2_ERR_PROTOCOL_ERROR,
+						"Unknown pseudoheader");
+
 				if (!h2n->unknown_header &&
 				    !lws_h2_hpack_no_store(wsi)) {
 					m = lws_parse(wsi, &c1, &plen);

@@ -1042,6 +1042,14 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 							(int)name_len, name);
 					return -1;
 				}
+
+				/*
+				 * Spelled exactly as a token that is no field
+				 * name, eg "put" or "uri-args": a header we
+				 * don't know, not that token
+				 */
+				if (!lws_http_token_is_field_name(tok))
+					tok = -1;
 			}
 		}
 		if (name_len > 0 && name[0] == ':')

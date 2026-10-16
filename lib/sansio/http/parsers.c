@@ -1519,6 +1519,29 @@ lws_h1_token_spelling_is_name(unsigned int n)
 }
 
 /*
+ * The h1 lextable also holds tokens that are no field name: the methods
+ * starting a request line ("get ", "put"), the versions starting a status
+ * line, and "uri-args", where lws keeps a request's urlargs.  An h2 / h3
+ * field name lws knows is one of its regular headers, spelled with the ':'
+ * that ends it on h1, or a pseudo-header, starting with one.
+ *
+ * Nonzero if token n is either.  A field named for any other token is a
+ * header lws doesn't know: storing it against the token would let the peer
+ * set the request's urlargs, or a URI for a method it didn't ask with,
+ * neither through the :path decoding.
+ */
+
+int
+lws_http_token_is_field_name(int n)
+{
+	const char *s = (const char *)lws_token_to_string(
+					(enum lws_token_indexes)n);
+	size_t l = s ? strlen(s) : 0;
+
+	return l > 1 && (s[0] == ':' || s[l - 1] == ':');
+}
+
+/*
  * RFC 9112 2.2: a server ignores at least one empty line before a request
  * line (a client may send a CRLF after a POST body).  We ignore up to this
  * many; past them there is no request coming.
@@ -2077,6 +2100,13 @@ nope:
 						lextable_h1[ah->lextable_pos + 1];
 
 				lwsl_parser("known hdr %d\n", n);
+				if (wsi->mux_substream &&
+				    !lws_http_token_is_field_name((int)n)) {
+					/* not this token, a name we don't know */
+					ah->parser_state = WSI_TOKEN_SKIPPING;
+					break;
+				}
+
 				for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
 					if (n == methods[m] &&
 					    ah->frag_index[methods[m]]) {

@@ -84,7 +84,8 @@ h2, raw frames:
 |hpack table shrunk below the number of entries lws holds, then its newest entry referred to|served|
 |frame over SETTINGS_MAX_FRAME_SIZE|GOAWAY FRAME_SIZE_ERROR|
 |WINDOW_UPDATE past 2^31 - 1|GOAWAY FLOW_CONTROL_ERROR|
-|a `get ` field smuggling a path, an uppercase field name|GOAWAY PROTOCOL_ERROR|
+|a `get ` field smuggling a path, an uppercase field name, a pseudo-header name running on past one lws knows (`:methodx`)|GOAWAY PROTOCOL_ERROR|
+|a `uri-args` field adding urlargs, a `put` field giving an unaliased `:method` a URI|served, from `:path` alone|
 |a pseudo-header repeated with a literal name, or after one added to the dynamic table|GOAWAY PROTOCOL_ERROR|
 |CR LF in a value, no or two `:path`, pseudo-header after a regular one, `connection`, `transfer-encoding`, 1500 fields|nothing served|
 |a POST whose trailers refer to a dynamic table entry lws could not keep|served|
@@ -99,6 +100,7 @@ h3, lws client, with one field of its own added:
 |request|expected|
 |---|---|
 |a `get ` field smuggling a path|connection closed|
+|a `uri-args` field adding urlargs|served, from `:path` alone|
 |CR LF in a field value|connection closed|
 |a NUL in a literal's name or value, not Huffman coded|connection closed|
 |1100 field lines of one byte each|connection closed|

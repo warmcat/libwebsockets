@@ -313,6 +313,9 @@ lws_http_field_name_char_valid(unsigned char c, int first)
 	return c != ':' || first;
 }
 
+int
+lws_http_token_is_field_name(int n);
+
 /* how many 1xx interim responses a client swallows before giving up */
 #define LWS_HTTP_INTERIM_RESPONSE_LIMIT 8
 
