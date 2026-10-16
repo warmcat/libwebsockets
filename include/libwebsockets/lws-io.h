@@ -82,6 +82,7 @@
 #include <libwebsockets/lws-stub.h>
 
 #include <libwebsockets/lws-async-dns.h>
+#include <libwebsockets/lws-sysinfo.h>
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 #include <libwebsockets/lws-auth-dns.h>
 #endif

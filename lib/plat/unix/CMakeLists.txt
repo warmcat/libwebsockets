@@ -85,6 +85,9 @@ if (LWS_WITH_NETWORK)
 			endif()
 		endif()
 	endif()
+	if (LWS_WITH_SYS_INFO)
+		list(APPEND SOURCES plat/unix/unix-sysinfo.c)
+	endif()
 	if (LWS_WITH_SDEVENT AND LWS_HAVE_SYSTEMD_H)
 		list(APPEND SOURCES
 			plat/unix/unix-systemd.c

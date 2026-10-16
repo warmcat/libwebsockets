@@ -65,6 +65,11 @@ if (LWS_WITH_NETWORK)
 		list(APPEND SOURCES
 			system/ntpclient/ntpclient.c)
 	endif()
+	if (LWS_WITH_SYS_INFO)
+		include_directories(./sysinfo)
+		list(APPEND SOURCES
+			system/sysinfo/sysinfo.c)
+	endif()
 	
 	if (LWS_WITH_SYS_WHOIS)
 		list(APPEND SOURCES

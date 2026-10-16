@@ -44,6 +44,9 @@ list(APPEND SOURCES
 if (LWS_WITH_SYS_ASYNC_DNS)
 	list(APPEND SOURCES plat/windows/windows-resolv.c)
 endif()
+if (LWS_WITH_SYS_INFO)
+	list(APPEND SOURCES plat/windows/windows-sysinfo.c)
+endif()
 
 if (LWS_WITH_SPAWN)
 	list(APPEND SOURCES plat/windows/windows-spawn.c)

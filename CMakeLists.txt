@@ -201,6 +201,7 @@ option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 + IPv6 DNS resolver" ON
 option(LWS_WITH_SYS_ASYNC_DNS_DNSSEC "Include DNSSEC parsing/validation in async-dns (requires crypto)" OFF)
 option(LWS_WITH_AUTHORITATIVE_DNS "Authoritative DNS zone signer / server" OFF)
 option(LWS_WITH_SYS_NTPCLIENT "Build in tiny ntpclient good for tls date validation and run via lws_system" OFF)
+option(LWS_WITH_SYS_INFO "System information snapshot: the interfaces and their addresses, hostname, OS, RAM, time, resolver and lws build, see READMEs/README.sysinfo.md" ON)
 option(LWS_WITH_SYS_WHOIS "Build in tiny recursive whois client run via lws_system" OFF)
 option(LWS_WITH_SYS_DHCP_CLIENT "Build in tiny DHCP client" OFF)
 option(LWS_WITH_HTTP_BASIC_AUTH "Support Basic Auth" ON)
@@ -450,6 +451,11 @@ option(LWS_WITH_LWS_DSH "Support lws_dsh_t Disordered Shared Heap" OFF)
 option(LWS_CLIENT_HTTP_PROXYING "Support external http proxies for client connections" ON)
 option(LWS_WITH_FILE_OPS "Support file operations vfs" ON)
 option(LWS_WITH_UDP "Platform supports UDP" ON)
+if (NOT LWS_WITH_NETWORK AND LWS_WITH_SYS_INFO)
+	# the snapshot is mostly about the network interfaces and resolver
+	message(STATUS "LWS_WITH_SYS_INFO requires LWS_WITH_NETWORK, disabling it")
+	set(LWS_WITH_SYS_INFO OFF)
+endif()
 if (NOT LWS_WITH_UDP AND LWS_WITH_SYS_ASYNC_DNS)
 	# the async dns resolver talks to nameservers over UDP, and its public
 	# header (lws-async-dns.h) is compiled out without LWS_WITH_UDP
