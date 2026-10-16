@@ -2655,12 +2655,16 @@ poll_again:
 #endif
 			}
 
-			/* notify lws there was a cert update */
+			/*
+			 * Notify lws there was a cert update.  The copies we
+			 * hand over are what the vhosts load, so they get the
+			 * chain, not the leaf alone.
+			 */
 
 			if (lws_tls_cert_updated(vhd->context,
 					vhd->active_cert->pvop[LWS_TLS_SET_CERT_PATH],
 					vhd->active_cert->pvop[LWS_TLS_SET_KEY_PATH],
-						ac->crx.pem, leaf_len,
+						ac->crx.pem, ac->crx.len,
 						ac->alloc_privkey_pem,
 						ac->len_privkey_pem)) {
 				lwsl_vhost_warn(vhd->vhost, "problem setting certs");
