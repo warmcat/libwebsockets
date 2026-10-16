@@ -58,6 +58,11 @@
  */
 #define LWS_H3_MAX_FIELD_LINES		1024
 
+/* the peer's unidi streams there may be only one of (RFC 9114 6.2.1, 9204 4.2) */
+#define LWS_H3_PEER_UNI_CONTROL		(1 << 0)
+#define LWS_H3_PEER_UNI_QPACK_ENC	(1 << 1)
+#define LWS_H3_PEER_UNI_QPACK_DEC	(1 << 2)
+
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len);
 
@@ -114,6 +119,11 @@ struct lws_h3_netconn {
 
 	/* Peer control streams we receive from the peer */
 	struct lws *peer_control;
+	/*
+	 * which of the peer's one-of-a-kind unidi streams came, by
+	 * LWS_H3_PEER_UNI_*: a second one is a connection error
+	 */
+	uint8_t peer_uni_seen;
 
 	struct lws_qpack_tx_encoder qpack_tx_encoder;
 	struct lws_qpack_tx_table_entry tx_entries[32];

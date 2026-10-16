@@ -1688,9 +1688,33 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 
 		lwsl_wsi_info(wsi, "H3 RX: Unidi stream type %llu", (unsigned long long)type);
 
-		/* Link it to peer's control streams if applicable */
-		if (wsi->h3.h3n && type == 0x00)
-			wsi->h3.h3n->peer_control = wsi;
+		if (wsi->h3.h3n) {
+			uint8_t one = type == 0x00 ? LWS_H3_PEER_UNI_CONTROL :
+				      type == 0x02 ? LWS_H3_PEER_UNI_QPACK_ENC :
+				      type == 0x03 ? LWS_H3_PEER_UNI_QPACK_DEC : 0;
+
+			/*
+			 * RFC 9114 6.2.1, RFC 9204 4.2: the peer has one
+			 * control stream, one qpack encoder and one decoder
+			 * stream.  A second control stream took the place of
+			 * the first, and its SETTINGS were taken again.
+			 */
+			if (one & wsi->h3.h3n->peer_uni_seen) {
+				struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+				lwsl_wsi_notice(wsi, "second peer unidi stream "
+						"of type %u", (unsigned int)type);
+				if (nwsi)
+					lws_quic_enter_closing_state(nwsi,
+						LWS_H3_STREAM_CREATION_ERROR, 0, 1);
+				return 1;
+			}
+			wsi->h3.h3n->peer_uni_seen |= one;
+
+			/* Link it to peer's control streams if applicable */
+			if (type == 0x00)
+				wsi->h3.h3n->peer_control = wsi;
+		}
 	}
 
 #if defined(LWS_ROLE_WT)
@@ -1787,7 +1811,14 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					uint64_t inc;
 					consumed = lws_quic_parse_varint_prefix(p, plen, 6, &inc);
 					if (consumed) {
-						if (inc == 0) {
+						/*
+						 * RFC 9204 4.4.3: nor may it make the
+						 * Known Received Count more than the
+						 * inserts we sent
+						 */
+						if (inc == 0 || (wsi->h3.h3n &&
+						    inc > wsi->h3.h3n->qpack_tx_encoder.insert_count -
+							  wsi->h3.h3n->qpack_tx_encoder.known_received_count)) {
 							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 							lws_quic_enter_closing_state(nwsi, LWS_QPACK_DECODER_STREAM_ERROR, 0, 1);
 							return 1;
@@ -2564,6 +2595,14 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 
 		if (!h3n->cwsi_control || !h3n->cwsi_qpack_enc || !h3n->cwsi_qpack_dec)
 			return 1;
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/* the h3_second_qpack_enc fault opens a second encoder stream */
+		if ((lws_fi(&wsi->fic, "h3_second_qpack_enc") ||
+		     lws_fi(&nwsi->fic, "h3_second_qpack_enc")) &&
+		    !lws_h3_create_unidi_stream(nwsi, 0x02))
+			return 1;
+#endif
 			
 		h3n->qpack_tx_encoder.wsi_qpack_enc = h3n->cwsi_qpack_enc;
 	}

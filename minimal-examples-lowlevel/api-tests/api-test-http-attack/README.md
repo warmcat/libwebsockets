@@ -107,6 +107,7 @@ h3, lws client, with one field of its own added:
 |the server's response carrying a `:method`, straight after its `:status`: the client must refuse it|connection closed|
 |a POST's trailers holding a User-Agent the request did not have (the client's `h3_trailer_field` fault)|served, the request's fields as they were|
 |a pseudo-header in a request's trailers (the client's `h3_trailer_pseudo` fault)|connection closed|
+|a second QPACK encoder stream from the client (its `h3_second_qpack_enc` fault)|connection closed|
 |a SETTINGS frame on the request stream before its HEADERS (the client's `h3_req_frame_settings` fault)|connection closed|
 |the request's stream arriving again after it closed, as a retransmission whose ack was lost does (the client's `quic_stream_replay` fault, with `LWS_WITH_SYS_FAULT_INJECTION`)|served once, the late frame ignored|
 
