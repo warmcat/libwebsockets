@@ -746,16 +746,19 @@ acme_fail_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 	lws_acme_finished(vhd);
 
 	if (vhd->active_cert) {
-		const char *cn = vhd->active_cert->pvop[
-					LWS_TLS_REQ_ELEMENT_COMMON_NAME];
-		lws_usec_t u = acme_renew_failed(vhd->active_cert,
-						 lws_now_usecs());
+		acme_renew_failed(vhd->active_cert, lws_now_usecs());
 
 		lwsl_vhost_warn(vhd->vhost, "acme: %s: failed acquisition #%d "
-				"(%s), next attempt in %llds", cn ? cn : "unknown",
+				"(%s), next attempt in %llds",
+				vhd->active_cert->pvop[
+					LWS_TLS_REQ_ELEMENT_COMMON_NAME] ?
+				vhd->active_cert->pvop[
+					LWS_TLS_REQ_ELEMENT_COMMON_NAME] :
+					"unknown",
 				vhd->active_cert->fail_count,
 				reason ? reason : "unknown",
-				(long long)(u / LWS_USEC_PER_SEC));
+				(long long)((vhd->active_cert->retry_not_before -
+					     lws_now_usecs()) / LWS_USEC_PER_SEC));
 	}
 
 	acme_evaluate_again(vhd);
@@ -1509,6 +1512,73 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 }
 #endif
 
+/*
+ * The CA issued the cert: note how long it is good for, so the log says what
+ * we got, and so does the line saying it was stored
+ */
+
+static void
+acme_cert_note_validity(struct per_vhost_data__lws_acme_client *vhd,
+			struct acme_connection *ac, size_t leaf_len)
+{
+	union lws_tls_cert_info_results ir;
+	struct lws_x509_cert *x = NULL;
+	uint8_t *pem;
+
+	ac->not_after = 0;
+
+	pem = malloc(leaf_len + 1);
+	if (!pem)
+		return;
+	memcpy(pem, ac->crx.pem, leaf_len);
+	pem[leaf_len] = '\0';
+
+	/* mbedtls needs the terminating NUL counted in the PEM's length */
+	if (!lws_x509_create(&x)) {
+		if (!lws_x509_parse_from_pem(x, pem, leaf_len + 1) &&
+		    !lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0))
+			ac->not_after = ir.time;
+		lws_x509_destroy(&x);
+	}
+	free(pem);
+
+	if (ac->not_after)
+		lwsl_vhost_notice(vhd->vhost, "acme: %s: the CA issued a cert "
+				  "valid for %lld days, storing it",
+				  vhd->active_cert->pvop[
+					LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+				  (long long)((ac->not_after -
+					(time_t)lws_now_secs()) / 86400));
+	else
+		lwsl_vhost_warn(vhd->vhost, "acme: %s: unable to read the "
+				"dates of the cert the CA issued, storing it "
+				"anyway", vhd->active_cert->pvop[
+					LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
+}
+
+/* the new cert is fetched and stored: the acquisition is over */
+
+static void
+acme_acquisition_succeeded(struct per_vhost_data__lws_acme_client *vhd)
+{
+	if (vhd->active_cert)
+		lwsl_vhost_notice(vhd->vhost, "acme: %s: renewed, the new cert "
+				  "is stored, valid for %lld more days",
+				  vhd->active_cert->pvop[
+					LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+				  (long long)(vhd->ac && vhd->ac->not_after ?
+					(vhd->ac->not_after -
+					 (time_t)lws_now_secs()) / 86400 : 0));
+
+	lws_acme_finished(vhd);
+	lws_acme_report_status(vhd->vhost, LWS_CUS_SUCCESS, NULL);
+	/* cert fetched AND stored: clear its acquisition failure backoff */
+	if (vhd->active_cert)
+		acme_renew_succeeded(vhd->active_cert);
+
+	acme_evaluate_again(vhd);
+}
+
 /* the cert was fetched, and every save we asked the daemon for is answered */
 
 static void
@@ -1519,13 +1589,7 @@ acme_ipc_saves_done(struct per_vhost_data__lws_acme_client *vhd)
 		return;
 	}
 
-	lws_acme_finished(vhd);
-	lws_acme_report_status(vhd->vhost, LWS_CUS_SUCCESS, NULL);
-	/* cert fetched AND stored: clear its acquisition failure backoff */
-	if (vhd->active_cert)
-		acme_renew_succeeded(vhd->active_cert);
-
-	acme_evaluate_again(vhd);
+	acme_acquisition_succeeded(vhd);
 }
 
 /* the answer to the aging validity check for vhd->aging_current_cert */
@@ -2516,6 +2580,7 @@ poll_again:
 				lwsl_vhost_err(vhd->vhost, "Unable to find ACME cert!");
 				goto failed;
 			}
+			acme_cert_note_validity(vhd, ac, leaf_len);
 
 			{
 				char cert_ts[256], key_ts[256], full_ts[256];
@@ -2666,19 +2731,19 @@ poll_again:
 					vhd->active_cert->pvop[LWS_TLS_SET_KEY_PATH],
 						ac->crx.pem, ac->crx.len,
 						ac->alloc_privkey_pem,
-						ac->len_privkey_pem)) {
-				lwsl_vhost_warn(vhd->vhost, "problem setting certs");
-			}
+						ac->len_privkey_pem))
+				lwsl_vhost_err(vhd->vhost, "acme: %s: a vhost "
+					"serving it could not load the new "
+					"cert, see above",
+					vhd->active_cert->pvop[
+					LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
 
 			if (vhd->ipc_pending_saves > 0) {
 				lwsl_vhost_notice(vhd->vhost, "Waiting for %d IPC saves to complete...", vhd->ipc_pending_saves);
 				/* the last answer finishes it, acme_ipc_line() */
 				ac->saves_awaited = 1;
-			} else {
-				lws_acme_finished(vhd);
-				lws_acme_report_status(vhd->vhost,
-						LWS_CUS_SUCCESS, NULL);
-			}
+			} else
+				acme_acquisition_succeeded(vhd);
 
 			return -1;
 

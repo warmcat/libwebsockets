@@ -151,6 +151,7 @@ struct acme_connection {
 	unsigned int use:1;
 	unsigned int is_sni_02:1;
 	unsigned int saves_awaited:1;	/* cert fetched, waiting on IPC saves */
+	time_t not_after;		/* of the cert the CA issued, or 0 */
 	unsigned int save_refused:1;	/* the daemon refused to store cert / key */
 };
 
