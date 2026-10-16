@@ -27,6 +27,10 @@
  *    redirect is still followed with the request's method, not the
  *    response's
  *
+ *  - a GET answered with DATA before any HEADERS: a response starts with its
+ *    HEADERS (RFC 9113 8.1), so the client must GOAWAY PROTOCOL_ERROR, and
+ *    the app must never see the DATA as body
+ *
  * A case that does not reach its expected end inside CASE_WATCHDOG_S fails.
  */
 
@@ -38,6 +42,7 @@
 #define MAX_SEEN		4
 
 /* h2 frame types and flags the fixture deals in */
+#define H2_DATA			0
 #define H2_HEADERS		1
 #define H2_SETTINGS		4
 #define H2_PING			6
@@ -48,6 +53,7 @@
 #define H2F_PADDED		8
 #define H2F_PRIORITY		0x20
 #define H2_PREFACE_LEN		24
+#define H2_ERR_PROTOCOL_ERROR	1
 
 /* hpack static table indexes the fixture's responses use */
 #define HP_METHOD		2
@@ -58,6 +64,7 @@
 enum {
 	HCP_REDIR_307,		/* 307 to /two, then 200 */
 	HCP_REDIR_307_METHOD,	/* ... the 307 also saying :method: PUT */
+	HCP_DATA_FIRST,		/* DATA, then the HEADERS */
 };
 
 static const struct hcp_case {
@@ -68,13 +75,16 @@ static const struct hcp_case {
 	const char	*want_method;	/* ... the last one with this :method */
 	const char	*want_path;	/* ... and this :path */
 	int		want_status;	/* the client's final status, or 0 */
+	int		want_goaway;	/* the client must GOAWAY so, or 0 */
 } cases[] = {
 	{ "GET answered 307 is followed with GET", "GET", HCP_REDIR_307,
-	  2, "GET", "/two", 200 },
+	  2, "GET", "/two", 200, 0 },
 	{ "HEAD answered 307 is followed with HEAD", "HEAD", HCP_REDIR_307,
-	  2, "HEAD", "/two", 200 },
+	  2, "HEAD", "/two", 200, 0 },
 	{ "GET answered 307 with a :method of its own is followed with GET",
-	  "GET", HCP_REDIR_307_METHOD, 2, "GET", "/two", 200 },
+	  "GET", HCP_REDIR_307_METHOD, 2, "GET", "/two", 200, 0 },
+	{ "DATA before the response HEADERS is refused", "GET",
+	  HCP_DATA_FIRST, 1, "GET", "/one", 0, H2_ERR_PROTOCOL_ERROR },
 };
 
 /* a request the fixture saw */
@@ -99,11 +109,15 @@ static struct {
 	struct seen	seen[MAX_SEEN];
 	int		requests;
 	int		accepted;
+	int		closed;		/* fixture connections closed */
 	int		bad;		/* a request the fixture couldn't read */
+	int		goaway;		/* GOAWAYs from the client */
+	uint32_t	goaway_err;	/* ... the last one's error code */
 } srv;
 
 static struct {
 	int		status;
+	size_t		body;		/* response body bytes the app got */
 	uint8_t		error;
 	uint8_t		completed;
 	uint8_t		closed;
@@ -303,6 +317,11 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 		}
 		fx_respond(p, sid, "200", NULL, NULL);
 		break;
+
+	case HCP_DATA_FIRST:
+		fx_tx_frame(p, H2_DATA, 0, sid, "hello", 5);
+		fx_respond(p, sid, "200", NULL, NULL);
+		break;
 	}
 }
 
@@ -324,6 +343,12 @@ fx_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 
 	case H2_HEADERS:
 		fx_request(p, flags, sid, pl, len);
+		break;
+
+	case H2_GOAWAY:
+		srv.goaway++;
+		if (len >= 8)
+			srv.goaway_err = lws_ser_ru32be(&pl[4]);
 		break;
 
 	default:
@@ -420,6 +445,11 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		p->txlen = 0;
 		break;
 
+	case LWS_CALLBACK_RAW_CLOSE:
+		srv.closed++;
+		case_evaluate();
+		break;
+
 	default:
 		break;
 	}
@@ -459,6 +489,10 @@ case_evaluate(void)
 	if (case_done || (!cli.error && !cli.completed && !cli.closed))
 		return;
 
+	/* a GOAWAY is only all in once the connection has gone */
+	if (c->want_goaway && srv.closed < srv.accepted)
+		return;
+
 	if (srv.bad) {
 		lwsl_err("%s: the fixture couldn't read %d requests\n",
 			 __func__, srv.bad);
@@ -480,6 +514,21 @@ case_evaluate(void)
 				 c->want_method, c->want_path);
 			fail = 1;
 		}
+	}
+
+	if (c->want_goaway &&
+	    (!srv.goaway || srv.goaway_err != (uint32_t)c->want_goaway)) {
+		lwsl_err("%s: no GOAWAY %d from the client (%d, err %u)\n",
+			 __func__, c->want_goaway, srv.goaway,
+			 (unsigned int)srv.goaway_err);
+		fail = 1;
+	}
+
+	if (!c->want_status && (cli.completed || cli.body)) {
+		lwsl_err("%s: client completed %d, with %u body bytes, from a "
+			 "response it must refuse\n", __func__, cli.completed,
+			 (unsigned int)cli.body);
+		fail = 1;
 	}
 
 	if (c->want_status &&
@@ -531,6 +580,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		if (lws_http_client_read(wsi, &px, &lenx) < 0)
 			return -1;
+		return 0;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		cli.body += len;
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:

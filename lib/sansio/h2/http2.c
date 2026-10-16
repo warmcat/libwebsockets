@@ -1644,6 +1644,22 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			break;
 		}
 
+#if defined(LWS_WITH_CLIENT)
+		/*
+		 * RFC 9113 8.1: a response starts with its HEADERS, the final
+		 * one after any 1xx, and DATA before them is malformed.  Taken,
+		 * it reached the app as body of a response it had no status
+		 * or headers for yet.
+		 */
+		if (h2n->swsi->client_mux_substream &&
+		    lwsi_hdrs_pending(h2n->swsi)) {
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					  "DATA before response HEADERS"))
+				return 1;
+			break;
+		}
+#endif
+
 		break;
 
 	case LWS_H2_FRAME_TYPE_PRIORITY:

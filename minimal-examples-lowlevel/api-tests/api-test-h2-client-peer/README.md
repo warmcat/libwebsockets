@@ -10,6 +10,9 @@ was composed from.
    so the request was followed with `:method: 307`.
  - A GET answered 307 by a response carrying a `:method` of its own: the
    redirect is still followed with the request's method, not the response's.
+ - A GET answered with DATA before any HEADERS: a response starts with its
+   HEADERS (RFC 9113 8.1), so the client must GOAWAY PROTOCOL_ERROR, and the
+   app must never see the DATA as body.
 
 The server is a raw socket in the same process speaking just enough h2 by
 hand, so it can answer exactly as each case needs, and see exactly the
