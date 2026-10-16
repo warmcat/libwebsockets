@@ -1549,6 +1549,25 @@ if (LWS_WITH_MCUFONT_ENCODER)
 	add_subdirectory(contrib/mcufont/encoder)
 endif()
 
+#
+# Commands ctest runs before it starts any test, that tests' CMakeLists
+# register in LWS_CTEST_PRE_TEST, eg, api-test-plugins loading the plugins
+# once.  Each is a whole command line, quoted as it needs.  ctest reads them
+# from CTestCustom.cmake where it runs, and runs no tests if one fails.
+#
+
+get_property(_lws_pre_test GLOBAL PROPERTY LWS_CTEST_PRE_TEST)
+if (_lws_pre_test)
+	set(_lws_ctc "set(CTEST_CUSTOM_PRE_TEST")
+	foreach(_c ${_lws_pre_test})
+		string(REPLACE "\\" "\\\\" _c "${_c}")
+		string(REPLACE "\"" "\\\"" _c "${_c}")
+		string(APPEND _lws_ctc "\n\t\"${_c}\"")
+	endforeach()
+	file(GENERATE OUTPUT "${PROJECT_BINARY_DIR}/CTestCustom.cmake"
+		      CONTENT "${_lws_ctc})\n")
+endif()
+
 # Generate the lws_config.h that includes all the public compilation settings.
 message(STATUS "LWS_BUILTIN_PLUGIN_NAMES: ${LWS_BUILTIN_PLUGIN_NAMES}")
 message(STATUS "CONFIG_SCOPE: ${LWS_BUILTIN_PLUGIN_NAMES}")
