@@ -1286,8 +1286,7 @@ lws_adns_watch_start(struct lws_context *cx)
 	lws_adns_watch_acquire(cx, dns->watch_last,
 			       sizeof(dns->watch_last));
 
-	if (!lws_smd_msg_printf(cx, LWSSMDCL_DNS, "{\"ns\":[%s]}",
-				dns->watch_last))
+	if (!lws_smd_msg_printf(cx, LWSSMDCL_DNS, "{%s}", dns->watch_last))
 		lwsl_cx_notice(cx, "platform DNS servers: {%s}",
 				dns->watch_last);
 
