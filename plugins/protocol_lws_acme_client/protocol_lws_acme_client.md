@@ -49,6 +49,18 @@ The plugin dynamically generates paths for your authentication keys, certificate
 
 The plugin creates versioned files with timestamps and maintains a `-latest` symlink pointing to the most recently generated file for easy references by the web server (e.g., `$dns_base_dir/domains/<domain-name>/certs/crt/<common-name>-latest.crt`).
 
+### The account key
+
+Each certificate's ACME account key is kept at
+`$dns_base_dir/domains/<domain-name>/<common-name>-auth.jwk`, and the same key,
+so the same account at the CA, is used for every acquisition: given a key it
+already knows, the CA's `newAccount` answers with the existing account.  When
+the ACME client runs unprivileged alongside `lws-dht-dnssec-monitor`, it can't
+read that file itself, so it asks the monitor's root process for the key over
+their IPC.  Only when there is no stored key does it make a new one, which
+the root process stores for next time.  If the stored key exists but can't be
+had, the acquisition fails rather than replacing it.
+
 ## Example `lwsws` JSON Configuration
 
 Here is an example of configuring `lwsws` to enable the ACME client plugin on a secure vhost.

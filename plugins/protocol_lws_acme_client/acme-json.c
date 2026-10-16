@@ -463,6 +463,12 @@ acme_ipc_classify(const char *line, size_t len, struct acme_ipc_reply *r)
 		return;
 	}
 
+	if (rl == 12 && !strncmp(req, "get_auth_key", 12)) {
+		r->type = ACME_IPC_LINE_AUTH_KEY;
+
+		return;
+	}
+
 	if (rl == 17 && !strncmp(req, "get_cert_validity", 17)) {
 		r->type = ACME_IPC_LINE_VALIDITY;
 		r->days_left = acme_ipc_int(line, len, "\"days_left\":");
@@ -481,6 +487,32 @@ acme_ipc_classify(const char *line, size_t len, struct acme_ipc_reply *r)
 		}
 
 	/* eg, "cert_status" sent to every client: not ours */
+}
+
+int
+acme_ipc_auth_key_import(const char *line, size_t len, struct lws_jwk *jwk)
+{
+	const char *p;
+	size_t al;
+	char *dec;
+	int n, r = 1;
+
+	p = lws_json_simple_find(line, len, "\"jwk\":", &al);
+	if (!p || !al || al > ACME_IPC_AUTH_KEY_B64_MAX)
+		return 1;
+
+	dec = malloc(al + 1);
+	if (!dec)
+		return 1;
+
+	n = lws_b64_decode_string_len(p, (int)al, dec, (int)al + 1);
+	if (n > 0 && !lws_jwk_import(jwk, NULL, NULL, dec, (size_t)n))
+		r = 0;
+
+	lws_explicit_bzero(dec, al + 1);
+	free(dec);
+
+	return r;
 }
 
 /* the issued cert's PEM body */

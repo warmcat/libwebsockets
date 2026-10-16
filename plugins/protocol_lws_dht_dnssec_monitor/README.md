@@ -20,9 +20,9 @@ with a short-lived JWT signed with the secret the two share.  The ACME client
 and the whois lookups in the lwsws process sign theirs with the same secret,
 and each token's `sub` says which of them made it (`ui`, `acme-client` or
 `whois`).  The root process takes the saves of keys, certs and dns-01
-challenges, and resign requests, only from the ACME client, and
-`update_whois` only from the whois lookups, so a browser cannot have the proxy
-make them.
+challenges, resign requests and requests for the ACME account key
+(`get_auth_key`) only from the ACME client, and `update_whois` only from the
+whois lookups, so a browser cannot have the proxy make them.
 
 These UI assets do not contain any inline scripts or styles, ensuring they are strictly Content-Security-Policy (CSP) compliant. The `assets/` directory must be manually mounted by the administrator in the `lwsws` JSON configuration if Web UI management is desired. To prevent unauthenticated users from even loading the UI files, configure the mount to use the `lws-login` interceptor protocol, requiring the `domain-admin` service grant (which aligns identically with the WebSocket backend verification).
 

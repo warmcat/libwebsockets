@@ -65,6 +65,7 @@ typedef enum {
 	ACME_IPC_LINE_UNRELATED,	/* not an answer to a request of ours */
 	ACME_IPC_LINE_SAVE,		/* answers one of our save-type requests */
 	ACME_IPC_LINE_VALIDITY,		/* answers get_cert_validity */
+	ACME_IPC_LINE_AUTH_KEY,		/* answers get_auth_key */
 	ACME_IPC_LINE_REFUSED,		/* refuses a request of ours, unknown which */
 } acme_ipc_line_t;
 
@@ -76,9 +77,12 @@ struct acme_ipc_reply {
 	unsigned int		stores_cert:1;	/* SAVE of the cert or its key */
 };
 
-/* reassembles the daemon's lines across reads */
+/*
+ * reassembles the daemon's lines across reads: room for the longest we take,
+ * get_auth_key's answer carrying an RSA-4096 account key's private JWK
+ */
 struct acme_ipc_rx {
-	char			buf[2048];
+	char			buf[8192];
 	size_t			len;	/* sizeof(buf): overlong line, dropped */
 };
 
@@ -204,9 +208,11 @@ struct per_vhost_data__lws_acme_client {
 	/*
 	 * Save-type requests on the current IPC connection still waiting for
 	 * their answer line.  An aging validity request is outstanding while
-	 * aging_current_cert is set.  Both go when the connection does.
+	 * aging_current_cert is set, and the acquisition's get_auth_key while
+	 * ipc_key_pending is.  All go when the connection does.
 	 */
 	int ipc_pending_saves;
+	char ipc_key_pending;
 	char ipc_failing;
 
 	struct lws_dll2 *aging_current_cert;
@@ -260,6 +266,15 @@ acme_ipc_rx(struct acme_ipc_rx *rx, const char *in, size_t len,
 
 void
 acme_ipc_classify(const char *line, size_t len, struct acme_ipc_reply *r);
+
+/*
+ * The account key from the daemon's ok answer to get_auth_key, whose "jwk" is
+ * the base64url of its private JWK, into jwk.  Returns 0 if it was imported.
+ */
+#define ACME_IPC_AUTH_KEY_B64_MAX	7168
+
+int
+acme_ipc_auth_key_import(const char *line, size_t len, struct lws_jwk *jwk);
 
 /*
  * Append len bytes of the cert body as it arrives.  Returns 1 if the body

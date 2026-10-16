@@ -84,7 +84,8 @@ static const char * const mia_ui_reqs[] = {
 };
 
 static const char * const mia_acme_reqs[] = {
-	"save_auth_key", "save_cert", "save_key", "save_dns_challenge",
+	"save_auth_key", "get_auth_key", "save_cert", "save_key",
+	"save_dns_challenge",
 	"cleanup_dns_challenge", "trigger_resign",
 };
 

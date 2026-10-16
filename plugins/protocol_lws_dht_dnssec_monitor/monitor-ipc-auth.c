@@ -48,6 +48,7 @@ static const struct {
 	const char	*sub;	/* the only requester it is taken from */
 } mon_ipc_only[] = {
 	{ "save_auth_key",		MON_IPC_SUB_ACME },
+	{ "get_auth_key",		MON_IPC_SUB_ACME },
 	{ "save_cert",			MON_IPC_SUB_ACME },
 	{ "save_key",			MON_IPC_SUB_ACME },
 	{ "save_dns_challenge",		MON_IPC_SUB_ACME },
