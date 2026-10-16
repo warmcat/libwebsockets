@@ -37,6 +37,12 @@
  * drop can overtake the upgrade's response still queued in quic, then the
  * client hears of it as a connection error.
  *
+ * With fault injection built in, two h3 legs lose the client's QUIC
+ * datagrams, so it falls back to ws over h2 after its grace, as it does when
+ * a busy machine's QUIC doesn't answer in time.  It must still ask for its
+ * ws protocol, and when the server drops the connection, the client must
+ * hear of the stream's reset promptly.
+ *
  * Three legs have the client stop reading (rx flow control) while the
  * server fills the connection, then send the server more than it reads at
  * once: the server sending a big message with pmd (it may not read until
@@ -116,6 +122,8 @@ struct leg {
 					 * in its ESTABLISHED callback */
 	uint8_t		drop;		/* the server drops the connection
 					 * without a close handshake */
+	uint8_t		fallback;	/* the client's QUIC datagrams are
+					 * lost, so it falls back to h2 */
 };
 
 enum stall {
@@ -134,34 +142,43 @@ enum {
 };
 
 static const struct leg legs[] = {
-	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
-	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0, 0 },
-	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0, 0, 0 },
-	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0, 0, 0, 0 },
-	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0, 0, 0, 0 },
-	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0, 0, 0 },
-	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0, 0, 0 },
-	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0, 0, 0 },
+	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0, 0, 0 },
+	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0, 0, 0, 0 },
+	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0, 0, 0, 0, 0 },
+	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0, 0, 0, 0, 0 },
+	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0, 0, 0, 0, 0 },
+	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0, 0, 0, 0, 0 },
+	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0, 0, 0, 0, 0 },
 #if defined(LWS_ROLE_H3)
 	/* ws over h3, RFC 9220: extended CONNECT on an h3 stream */
-	{ "h3, client-initiated",		"cli",	   "h3",       1, 0, 0, 0, 0, 0, 0 },
-	{ "h3, server-initiated",		"cli",	   "h3",       1, 1, 0, 0, 0, 0, 0 },
-	{ "h3, server refuses at established",	"cli",	   "h3",       1, 1, 1, 0, 0, 1, 0 },
-	{ "h3, server drops the connection",	"cli",	   "h3",       1, 1, 0, 0, 0, 0, 1 },
+	{ "h3, client-initiated",		"cli",	   "h3",       1, 0, 0, 0, 0, 0, 0, 0 },
+	{ "h3, server-initiated",		"cli",	   "h3",       1, 1, 0, 0, 0, 0, 0, 0 },
+	{ "h3, server refuses at established",	"cli",	   "h3",       1, 1, 1, 0, 0, 1, 0, 0 },
+	{ "h3, server drops the connection",	"cli",	   "h3",       1, 1, 0, 0, 0, 0, 1, 0 },
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * The client's QUIC goes unanswered, so after its grace it falls back
+	 * to ws over h2 (RFC 8441), still asking for its ws protocol
+	 */
+	{ "h3 falling back to h2, client-initiated", "cli", "h3",   1, 0, 0, 0, 0, 0, 0, 1 },
+	{ "h3 falling back to h2, server drops the connection", "cli", "h3",
+							1, 1, 0, 0, 0, 0, 1, 1 },
 #endif
-	{ "h1, server refuses at established",	"cli",	   "http/1.1", 0, 1, 1, 0, 0, 1, 0 },
-	{ "h2, server refuses at established",	"cli",	   "h2",       1, 1, 1, 0, 0, 1, 0 },
-	{ "h1, server drops the connection",	"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0, 1 },
-	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
-	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
-	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0, 0, 0 },
-	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0, 0, 0 },
+#endif
+	{ "h1, server refuses at established",	"cli",	   "http/1.1", 0, 1, 1, 0, 0, 1, 0, 0 },
+	{ "h2, server refuses at established",	"cli",	   "h2",       1, 1, 1, 0, 0, 1, 0, 0 },
+	{ "h1, server drops the connection",	"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0, 1, 0 },
+	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0, 0, 0, 0 },
 	{ "h1, pmd, server sends to a client not reading", "cli-pmd", "http/1.1",
-							0, 1, 0, 0, STALL_TX_DRAIN, 0, 0 },
+							0, 1, 0, 0, STALL_TX_DRAIN, 0, 0, 0 },
 	{ "h1, server closes with tx buffered, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH, 0, 0 },
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH, 0, 0, 0 },
 	{ "h1, server closes on a full socket, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL, 0, 0 },
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL, 0, 0, 0 },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
@@ -173,6 +190,10 @@ static const struct leg legs[] = {
  * A close handshake on loopback takes a few ms and a few dozen trips around
  * the service loop.  One that only ends at the 5s close timeout, or a loop
  * that spins meanwhile, is far outside these.
+ *
+ * It's timed from when the server has the connection, not from the
+ * connect: an h3 leg whose QUIC doesn't answer in time falls back to h2
+ * after its 2s grace, and that's not part of the close.
  */
 #define LEG_MAX_US	(3 * LWS_US_PER_SEC)
 #define LEG_MAX_TURNS	2000
@@ -650,6 +671,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED:
 		lwsl_user("%s: server: established\n", __func__);
+		/* the close is timed from here, see LEG_MAX_US */
+		leg_start = lws_now_usecs();
+		leg_turns = turns;
 		if (check_encap(wsi))
 			return -1;
 		if (legs[cur].refuse) {
@@ -965,8 +989,28 @@ start_leg(lws_sorted_usec_list_t *sul)
 	i.protocol = legs[cur].stall ? "wsclose-bulk" : "wsclose";
 	i.local_protocol_name = i.protocol;
 
-	if (!lws_client_connect_via_info(&i))
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	if (legs[cur].fallback) {
+		/* only this connection's datagrams are lost */
+		lws_fi_t fi;
+
+		memset(&fi, 0, sizeof(fi));
+		fi.name = "udp_tx_loss";
+		fi.type = LWSFI_ALWAYS;
+		if (lws_fi_add(&i.fic, &fi)) {
+			fail_leg("unable to add the fault");
+			return;
+		}
+	}
+#endif
+
+	if (!lws_client_connect_via_info(&i)) {
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/* the client wsi takes the faults, unless there was none */
+		lws_fi_destroy(&i.fic);
+#endif
 		fail_leg("client connect failed");
+	}
 }
 
 static void
