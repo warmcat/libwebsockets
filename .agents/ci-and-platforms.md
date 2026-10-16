@@ -23,6 +23,43 @@ SOCKS5, compression, ...).  When adding a Sai dimension, verify it locally
 with `-DLWS_WITH_MINIMAL_EXAMPLES=1` **and** ctest: examples have broken
 the link on a new dimension that built fine without them.
 
+## Reading Sai results and fleet logs
+
+lws is built by the Sai at **https://libwebsockets.org/sai/**.  The Sai at
+warmcat.com is a different instance that only builds sai and gitohashi:
+nothing about an lws build is there, including its fleet logs.
+
+What the web UI shows, events, tasks, their logs and problems, is public.
+`https://libwebsockets.org/sai/rss.json?project=libwebsockets&branch=main-dev`
+lists the latest events as JSON.
+
+The fleet logs are what the Sai daemons themselves logged on every host
+(sai-server, sai-builder, sai-virt, sai-power), tagged with the build they
+were about.  They show what happened around a build that its task log
+can't, eg, a VM being started or reaped, a git fetch failing, or a builder
+restarting.  They're at `https://libwebsockets.org/sai/logs/`, and need an
+account holding the fleet log grant: ask the person you're working with
+for one.  The query is documented in sai's `READMEs/README-logs.md`.  A
+build's 8-hex hash is the first 4 and last 4 hex of its 64-hex task uuid,
+which is also its job dir name: a log path like
+`/home/sai/jobs/A177EBC2/src/...` is build `a177ebc2`.  (Builders older
+than sai's "builder: name the job dir from the whole task uuid" named the
+dir from the wrong 4 at the end, so their job dir names find nothing; use
+the task uuid.)
+
+sai's `scripts/sai-logs.py` makes the queries from the command line,
+logging in with the account's credentials file and keeping its session
+cookie, so you don't log in again on every query:
+
+```
+$ sai-logs.py --creds <file> libwebsockets.org 'hash=a177ebc2'
+$ sai-logs.py libwebsockets.org 'hash=a177ebc2&lvl=warn&src=sai-virt'
+$ sai-logs.py libwebsockets.org 'grep=reap&from=2026-10-14T08:00:00Z&to=2026-10-14T09:00:00Z'
+```
+
+`hash` gives the build's window with a minute either side, by default;
+without it you get the last 10 minutes.  Lines are kept for 14 days.
+
 ## Windows
 
  - **Wrap every POSIX io length** (`read`, `write`, `send`, `recv`,
