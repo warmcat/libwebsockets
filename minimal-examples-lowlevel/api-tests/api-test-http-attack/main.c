@@ -669,12 +669,15 @@ struct h3_attack {
 	 */
 	unsigned int	static_fields;
 	uint8_t		v;
+	/* the request's method, or NULL for GET */
+	const char	*method;
 	/*
-	 * the client's quic_stream_replay fault: the request's first STREAM
-	 * frame comes again once its stream closed, as a retransmission
-	 * whose ack was lost does.  The server must act on it only once.
+	 * a fault for the client, or NULL.  With quic_stream_replay the
+	 * request's first STREAM frame comes again once its stream closed, as
+	 * a retransmission whose ack was lost does, and the server must act
+	 * on it only once.
 	 */
-	uint8_t		replay;
+	const char	*fault;
 };
 
 /* a field sent as a raw literal, name and value exactly these bytes */
@@ -683,21 +686,29 @@ struct h3_attack {
 static const struct h3_attack h3_attacks[] = {
 	/* a field named "get " once smuggled an unnormalized request path */
 	{ "\"get \" field smuggling a path", "/alive", "get ",
-	  "/f/../secret.txt", 0, 0, 0, V_REFUSED, 0 },
+	  "/f/../secret.txt", 0, 0, 0, V_REFUSED, NULL, NULL },
 	/* a name lws doesn't know, not the token where it keeps urlargs */
 	{ "\"uri-args\" field adding urlargs", "/alive",
-	  H3_LIT("uri-args", "evil=1"), 0, V_ECHO, 0 },
+	  H3_LIT("uri-args", "evil=1"), 0, V_ECHO, NULL, NULL },
 	{ "CR LF in a field value", "/alive",
-	  H3_LIT("user-agent", "a\r\nb"), 0, V_REFUSED, 0 },
+	  H3_LIT("user-agent", "a\r\nb"), 0, V_REFUSED, NULL, NULL },
 	{ "NUL in a raw literal value", "/alive",
-	  H3_LIT("user-agent", "a\0b"), 0, V_REFUSED, 0 },
+	  H3_LIT("user-agent", "a\0b"), 0, V_REFUSED, NULL, NULL },
 	{ "NUL in a raw literal name", "/alive",
-	  H3_LIT("user-agent\0x", "a"), 0, V_REFUSED, 0 },
+	  H3_LIT("user-agent\0x", "a"), 0, V_REFUSED, NULL, NULL },
 	/* far more fields than any request has, for almost no bytes */
-	{ "1100 field lines", "/alive", NULL, NULL, 0, 0, 1100, V_REFUSED, 0 },
+	{ "1100 field lines", "/alive", NULL, NULL, 0, 0, 1100, V_REFUSED, NULL, NULL },
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	{ "request stream arriving again after it closed", ATK_REPLAYED_PATH,
-	  NULL, NULL, 0, 0, 0, V_ECHO, 1 },
+	  NULL, NULL, 0, 0, 0, V_ECHO, NULL, "quic_stream_replay" },
+	/*
+	 * A POST is answered once its body is in, after its trailers came:
+	 * a User-Agent there must not be one of the request's
+	 */
+	{ "trailers adding a field to the request", "/alive",
+	  NULL, NULL, 0, 0, 0, V_ECHO, "POST", "h3_trailer_field" },
+	{ "a pseudo-header in trailers", "/alive",
+	  NULL, NULL, 0, 0, 0, V_REFUSED, "POST", "h3_trailer_pseudo" },
 #endif
 };
 
@@ -1201,7 +1212,7 @@ case_done(const char *why)
 	 * LWS_QUIC_FI_REPLAY_DELAY_MS: let it arrive before the probe
 	 */
 	lws_sul_schedule(context, 0, &sul_next, next_case,
-			 tc.h3a && tc.h3a->replay ?
+			 tc.check_replayed && tc.h3a ?
 				ATK_REPLAY_SETTLE_MS * LWS_US_PER_MS : 1);
 }
 
@@ -2550,7 +2561,8 @@ case_pick(void)
 			tc.v = tc.h3a->v;
 			tc.status = tc.v == V_ECHO ? 200 : 0;
 			tc.expect = tc.v == V_ECHO ? tc.h3a->path : NULL;
-			tc.check_replayed = tc.h3a->replay;
+			tc.check_replayed = tc.h3a->fault &&
+				!strcmp(tc.h3a->fault, "quic_stream_replay");
 			srv_replayed = 0;
 			lws_strncpy(tc.name, tc.h3a->name, sizeof(tc.name));
 			if (only && !strstr(tc.name, only))
@@ -2629,18 +2641,18 @@ next_case(lws_sorted_usec_list_t *sul)
 	default:
 		i.port = port_h3;
 		i.path = tc.path;
-		i.method = "GET";
+		i.method = tc.h3a && tc.h3a->method ? tc.h3a->method : "GET";
 		i.alpn = "h3";
 		i.protocol = "h3";
 		i.local_protocol_name = "h3";
 		i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-		if (tc.h3a && tc.h3a->replay) {
+		if (tc.h3a && tc.h3a->fault) {
 			lws_fi_t fi;
 
 			memset(&fi, 0, sizeof(fi));
-			fi.name = "quic_stream_replay";
+			fi.name = tc.h3a->fault;
 			fi.type = LWSFI_ALWAYS;
 			if (lws_fi_add(&i.fic, &fi))
 				goto oom;

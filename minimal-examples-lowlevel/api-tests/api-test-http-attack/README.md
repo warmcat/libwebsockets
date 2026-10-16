@@ -104,6 +104,8 @@ h3, lws client, with one field of its own added:
 |CR LF in a field value|connection closed|
 |a NUL in a literal's name or value, not Huffman coded|connection closed|
 |1100 field lines of one byte each|connection closed|
+|a POST's trailers holding a User-Agent the request did not have (the client's `h3_trailer_field` fault)|served, the request's fields as they were|
+|a pseudo-header in a request's trailers (the client's `h3_trailer_pseudo` fault)|connection closed|
 |the request's stream arriving again after it closed, as a retransmission whose ack was lost does (the client's `quic_stream_replay` fault, with `LWS_WITH_SYS_FAULT_INJECTION`)|served once, the late frame ignored|
 
 h1s, h1 over tls with a raw client: headers never finished, or trickled in a

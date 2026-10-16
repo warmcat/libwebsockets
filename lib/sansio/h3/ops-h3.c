@@ -253,7 +253,12 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 	 * connection's frames
 	 */
 	if (!(wsi->client_http_body_pending || lws_has_buffered_out(wsi) ||
-	      wsi->h23_stream_carries_ws))
+	      wsi->h23_stream_carries_ws
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	      || lws_fi(&wsi->fic, "h3_trailer_field") ||
+	      lws_fi(&wsi->fic, "h3_trailer_pseudo")
+#endif
+	     ))
 		m |= LWS_WRITE_H2_STREAM_END;
 #endif
 
@@ -263,6 +268,37 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)m);
 	if (n != lws_ptr_diff(p, start))
 		return -1;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * The h3_trailer_* faults end a request with no body with a trailers
+	 * block (RFC 9114 4.1), holding a field the request did not have, or
+	 * a pseudo-header, which trailers may not
+	 */
+	if (!(m & LWS_WRITE_H2_STREAM_END) && !wsi->client_http_body_pending &&
+	    !wsi->h23_stream_carries_ws) {
+		int pseudo = lws_fi(&wsi->fic, "h3_trailer_pseudo");
+
+		p = start;
+		p += 2; /* the QPACK prefix, as above */
+		wsi->http.h3_prefix_ptr = start;
+		if (pseudo ?
+		    lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_COLON_PATH,
+				(const unsigned char *)"/trailer", 8, &p, end) :
+		    lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_USER_AGENT,
+				(const unsigned char *)"trailer-ua", 10, &p, end))
+			return -1;
+		if (lws_finalize_http_header(wsi, &p, end))
+			return -1;
+
+		n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+			      LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
+		if (n != lws_ptr_diff(p, start))
+			return -1;
+	}
+#endif
 
 	/* the caller says what follows: a body, or the response */
 
@@ -1084,6 +1120,28 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		    tok == WSI_TOKEN_COLON_PROTOCOL) {
 			is_pseudo = 1;
 		}
+	}
+
+	/*
+	 * A block after the head was acted on is trailers (RFC 9114 4.1).  They
+	 * may carry no pseudo-header (4.1.1), nor connection-specific or
+	 * framing fields (4.2, RFC 9110 6.5.1).  The rest are validated but
+	 * not kept, as on h2: decoded into the live ah, they added to, or with
+	 * an empty value took away, the head's fields that code dispatched on
+	 * still reads.
+	 */
+	if (!lwsi_hdrs_pending(wsi)) {
+		if (is_pseudo || tok == WSI_TOKEN_CONNECTION ||
+		    tok == WSI_TOKEN_HTTP_TRANSFER_ENCODING ||
+		    tok == WSI_TOKEN_TE) {
+			lwsl_wsi_notice(wsi, "trailers can't carry field "
+					"(tok %d)", tok);
+			lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR,
+						     0, 1);
+			return -1;
+		}
+
+		return 0;
 	}
 
 	if (is_pseudo) {
@@ -2148,25 +2206,11 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					 * request (server) or the response
 					 * handling (client)
 					 */
-					lwsl_wsi_info(wsi, "trailers block");
 					/*
-					 * ...but qpack decoded it into the live
-					 * ah all the same, so re-run the
-					 * connection-specific field refusals of
-					 * the first block over it (RFC 9114 4.2,
-					 * and RFC 9110 6.5.1 forbids framing
-					 * fields in trailers), the way h2 does
+					 * ...and its fields were validated, not
+					 * kept, by lws_h3_qpack_header_cb()
 					 */
-					if (lws_hdr_extant(wsi, WSI_TOKEN_CONNECTION) ||
-					    lws_hdr_extant(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING) ||
-					    lws_hdr_extant(wsi, WSI_TOKEN_TE)) {
-						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-
-						lwsl_wsi_notice(wsi, "connection-specific field in trailers");
-						if (nwsi)
-							lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
-						return 1;
-					}
+					lwsl_wsi_info(wsi, "trailers block");
 				} else if ((!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) && wsi->h3.rx_frame_type == 0x01) {
 					/* HEADERS frame complete, validate and notify application! */
 					
