@@ -653,7 +653,15 @@ lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pps)
 	lws_dll2_add_head(&pps->list, &h2n->pps_owner);
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_DISABLE |
 				 LWS_RXFLOW_REASON_H2_PPS_PENDING);
-	lws_callback_on_writable(wsi);
+
+	/*
+	 * The frame goes out on the connection.  A stream that is closing,
+	 * eg, sending the RST_STREAM for itself, can't ask for writeable any
+	 * more, so the connection must ask, or the frame waits until
+	 * something else writes, perhaps not until the connection times out
+	 */
+	if (lws_callback_on_writable(wsi) <= 0 && wsi != nwsi)
+		lws_callback_on_writable(nwsi);
 }
 
 int
@@ -3035,6 +3043,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * close callbacks via lws_h2_get_peer_rst_status().
 			 */
 			h2n->swsi->h2.peer_rst_status = h2n->hpack_e_dep;
+			/*
+			 * Nothing more may go out on a reset stream (RFC 9113
+			 * 6.4): no flush and no ws Close, which would only
+			 * fail and leave the stream waiting for the close to
+			 * time out
+			 */
+			lwsi_set_skt_unusable(h2n->swsi, 1);
 			lws_close_free_wsi(h2n->swsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "peer RST_STREAM");
 			h2n->swsi = NULL;
