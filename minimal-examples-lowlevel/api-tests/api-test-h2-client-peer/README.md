@@ -8,8 +8,10 @@ was composed from.
    must go with the method it was made with.  The response decoded into the
    request's header table used to take over the last of its request items,
    so the request was followed with `:method: 307`.
- - A GET answered 307 by a response carrying a `:method` of its own: the
-   redirect is still followed with the request's method, not the response's.
+ - A GET answered 307 by a response carrying a `:method` of its own: a
+   response has no request pseudo-headers (RFC 9113 8.3.2), so the client
+   must GOAWAY PROTOCOL_ERROR rather than follow it, which once took the
+   response's `:method` for the redirect's.
  - A GET answered with DATA before any HEADERS: a response starts with its
    HEADERS (RFC 9113 8.1), so the client must GOAWAY PROTOCOL_ERROR, and the
    app must never see the DATA as body.

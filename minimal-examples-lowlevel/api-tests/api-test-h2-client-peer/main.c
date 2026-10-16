@@ -23,9 +23,10 @@
  *    the request's header table used to take over the last of its request
  *    items, so the request was followed with ":method: 307"
  *
- *  - a GET answered 307 by a response carrying a ":method" of its own: the
- *    redirect is still followed with the request's method, not the
- *    response's
+ *  - a GET answered 307 by a response carrying a ":method" of its own: a
+ *    response has no request pseudo-headers (RFC 9113 8.3.2), so the client
+ *    must GOAWAY PROTOCOL_ERROR rather than follow it, which once took the
+ *    response's ":method" for the redirect's
  *
  *  - a GET answered with DATA before any HEADERS: a response starts with its
  *    HEADERS (RFC 9113 8.1), so the client must GOAWAY PROTOCOL_ERROR, and
@@ -81,8 +82,9 @@ static const struct hcp_case {
 	  2, "GET", "/two", 200, 0 },
 	{ "HEAD answered 307 is followed with HEAD", "HEAD", HCP_REDIR_307,
 	  2, "HEAD", "/two", 200, 0 },
-	{ "GET answered 307 with a :method of its own is followed with GET",
-	  "GET", HCP_REDIR_307_METHOD, 2, "GET", "/two", 200, 0 },
+	{ "a 307 with a :method of its own is refused",
+	  "GET", HCP_REDIR_307_METHOD, 1, "GET", "/one", 0,
+	  H2_ERR_PROTOCOL_ERROR },
 	{ "DATA before the response HEADERS is refused", "GET",
 	  HCP_DATA_FIRST, 1, "GET", "/one", 0, H2_ERR_PROTOCOL_ERROR },
 };

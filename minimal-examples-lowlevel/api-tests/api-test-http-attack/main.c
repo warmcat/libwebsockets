@@ -46,6 +46,9 @@
 
 /* the path the server counts requests for, see h3_attacks[] */
 #define ATK_REPLAYED_PATH	"/replayed"
+/* the path the server answers with a request pseudo-header, see h3_attacks[] */
+#define ATK_RESP_METHOD_PATH	"/respond-method"
+
 /* how long a replay gets to arrive before its probe */
 #define ATK_REPLAY_SETTLE_MS	500
 
@@ -696,6 +699,9 @@ static const struct h3_attack h3_attacks[] = {
 	  H3_LIT("user-agent", "a\0b"), 0, V_REFUSED, NULL, NULL },
 	{ "NUL in a raw literal name", "/alive",
 	  H3_LIT("user-agent\0x", "a"), 0, V_REFUSED, NULL, NULL },
+	/* the client must refuse it: RFC 9114 4.3.2 */
+	{ "a response with a request's pseudo-header", ATK_RESP_METHOD_PATH,
+	  NULL, NULL, 0, 0, 0, V_REFUSED, NULL, NULL },
 	/* far more fields than any request has, for almost no bytes */
 	{ "1100 field lines", "/alive", NULL, NULL, 0, 0, 1100, V_REFUSED, NULL, NULL },
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -846,9 +852,34 @@ echo_respond(struct lws *wsi, struct pss *pss)
 {
 	uint8_t buf[LWS_PRE + 512], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
+	char *uri;
+	int ulen;
 
-	if (echo_compose(wsi, pss) ||
-	    lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/plain",
+	if (echo_compose(wsi, pss))
+		return 1;
+
+	/*
+	 * A client must refuse a response with a request's pseudo-header,
+	 * here straight after the :status, where it is no out of order one
+	 */
+	if (lws_http_get_uri_and_method(wsi, &uri, &ulen) >= 0 &&
+	    ulen == (int)strlen(ATK_RESP_METHOD_PATH) &&
+	    !memcmp(uri, ATK_RESP_METHOD_PATH, (size_t)ulen)) {
+		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end) ||
+		    lws_add_http_header_by_name(wsi,
+				(const unsigned char *)":method",
+				(const unsigned char *)"PUT", 3, &p, end) ||
+		    lws_add_http_header_content_length(wsi,
+				(lws_filepos_t)pss->len, &p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+
+		lws_callback_on_writable(wsi);
+
+		return 0;
+	}
+
+	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/plain",
 					(lws_filepos_t)pss->len, &p, end) ||
 	    lws_finalize_write_http_header(wsi, start, &p, end))
 		return 1;

@@ -1865,6 +1865,20 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				wsi->h3.rx_frame_payload_read = 0;
 				wsi->h3.rx_setting_count = 0; /* Q-2: per-frame */
 				wsi->h3.rx_field_count = 0;
+				if (wsi->h3.rx_frame_type == 0x01) {
+					/*
+					 * The pseudo-header rules are per
+					 * field section: a final response's
+					 * :status after a 1xx's is no repeat
+					 */
+					wsi->h3.seen_regular_header = 0;
+					wsi->h3.seen_pseudo_method = 0;
+					wsi->h3.seen_pseudo_scheme = 0;
+					wsi->h3.seen_pseudo_authority = 0;
+					wsi->h3.seen_pseudo_path = 0;
+					wsi->h3.seen_pseudo_status = 0;
+					wsi->h3.seen_pseudo_protocol = 0;
+				}
 				lwsl_wsi_info(wsi, "H3 RX: Frame Type %llu, Len %llu on stream type %d (unidi=%d)", 
 					(unsigned long long)wsi->h3.rx_frame_type, (unsigned long long)wsi->h3.rx_frame_len,
 					wsi->h3.stream_type, wsi->quic.qs ? wsi->quic.qs->is_unidirectional : 0);
@@ -2264,6 +2278,26 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						    /* only fails with no frag left */
 						    lws_h3_hdrs_oversize(wsi)) {
 							lws_quic_enter_closing_state(nwsi, LWS_H3_INTERNAL_ERROR, 0, 1);
+							return 1;
+						}
+					} else if (nwsi && nwsi->quic.qn) {
+						/*
+						 * RFC 9114 4.3.2: a response has a
+						 * :status and none of the request's
+						 * pseudo-headers.  A response :method
+						 * or :path was otherwise acted on below
+						 * as if it were a request's.
+						 */
+						if (!wsi->h3.seen_pseudo_status ||
+						    wsi->h3.seen_pseudo_method ||
+						    wsi->h3.seen_pseudo_scheme ||
+						    wsi->h3.seen_pseudo_authority ||
+						    wsi->h3.seen_pseudo_path ||
+						    wsi->h3.seen_pseudo_protocol) {
+							lwsl_wsi_notice(wsi, "H3 MESSAGE_ERROR: "
+								"response pseudo-headers");
+							lws_quic_enter_closing_state(nwsi,
+								LWS_H3_MESSAGE_ERROR, 0, 1);
 							return 1;
 						}
 					}

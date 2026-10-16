@@ -1310,6 +1310,16 @@ lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m)
 	if (m == LWS_HPACK_IGNORE_ENTRY || m == -1)
 		return 0;
 
+#if defined(LWS_WITH_CLIENT)
+	/* RFC 9113 8.3.2: a response has only :status of the pseudo-headers */
+	if (wsi->client_mux_substream && lws_hpack_tok_is_request_pseudo(m)) {
+		if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+				  "Request pseudoheader in response"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
+		return 1;
+	}
+#endif
+
 	if (wsi->seen_nonpseudoheader &&
 	    (lws_header_implies_psuedoheader_map[m >> 3] & (1 << (m & 7)))) {
 
