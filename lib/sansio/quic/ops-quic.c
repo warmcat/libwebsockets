@@ -249,6 +249,7 @@ lws_quic_pmtud_reset(struct lws_quic_netconn *qn)
 	qn->probed_mtu			= LWS_QUIC_PMTU_FIRST_PROBE;
 	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_bh_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_bh_from_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_late_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_probe_fails		= 0;
 	qn->consecutive_mtu_losses	= 0;
@@ -395,9 +396,13 @@ lws_quic_pmtud_lost_packet(struct lws_quic_netconn *qn,
 	qn->pmtud_bh_from_state	= qn->pmtud_state;
 	qn->current_mtu		= LWS_QUIC_PMTU_BASE;
 	qn->pmtud_state		= 0; /* BASE */
-	/* a search probe on its way says nothing now, whatever happens to it */
+	/*
+	 * a search probe on its way says nothing now, whatever happens to it,
+	 * nor does a confirming probe from an earlier black hole
+	 */
 	qn->pmtud_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_late_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_raise_at	= lws_wsi_now(qn->nwsi) + LWS_QUIC_PMTUD_RAISE_US;
 
 	if (qn->pmtud_bh_probe_queued ||
@@ -409,9 +414,30 @@ lws_quic_pmtud_lost_packet(struct lws_quic_netconn *qn,
 }
 
 /*
+ * The base gets through, and the probe of the size from before going back to
+ * it was lost: the path's MTU fell, so the search starts again from the base
+ */
+static void
+lws_quic_pmtud_bh_confirmed(struct lws_quic_netconn *qn)
+{
+	lwsl_wsi_warn(qn->nwsi, "QUIC PMTUD: black hole: packets of %u are "
+		      "lost, the base gets through: searching again from %u",
+		      qn->pmtud_bh_from_mtu - LWS_QUIC_PMTU_OVERHEAD,
+		      LWS_QUIC_PMTU_BASE);
+	qn->pmtud_bh_from_mtu		= 0;
+	qn->consecutive_mtu_losses	= 0;
+	qn->probed_mtu			= LWS_QUIC_PMTU_FIRST_PROBE;
+	qn->pmtud_probe_fails		= 0;
+	qn->pmtud_raise_at		= 0;
+	qn->pmtud_state			= 1; /* SEARCHING */
+	lws_quic_pmtud_kick(qn);
+}
+
+/*
  * Packet f, bigger than the base, was acked.  If going back to the base for a
  * black hole is still unconfirmed, f was sent before then, so it was loss,
- * not a black hole: go back to the size from before.
+ * or it is the probe of the size from before: it wasn't a black hole, so go
+ * back to that size.
  */
 static void
 lws_quic_pmtud_big_acked(struct lws_quic_netconn *qn,
@@ -430,6 +456,8 @@ lws_quic_pmtud_big_acked(struct lws_quic_netconn *qn,
 	qn->current_mtu		= qn->pmtud_bh_from_mtu;
 	qn->pmtud_state		= qn->pmtud_bh_from_state;
 	qn->pmtud_bh_from_mtu	= 0;
+	/* whichever packet it was, the confirming probe has nothing to say */
+	qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 	/* a settled search tries the size it settled under again later */
 	qn->pmtud_raise_at	= qn->pmtud_state == 2 ? lws_wsi_now(qn->nwsi) +
 						LWS_QUIC_PMTUD_RAISE_US : 0;
@@ -448,6 +476,10 @@ lws_quic_pmtud_probe_unsent(struct lws_quic_netconn *qn,
 		if (f->sent_in_pn == qn->pmtud_bh_probe_pn)
 			qn->pmtud_bh_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 		qn->pmtud_bh_probe_queued = 1;
+	} else if (f->pmtud_probe == LWS_QUIC_PMTUD_PROBE_FROM) {
+		if (f->sent_in_pn == qn->pmtud_bh_from_probe_pn)
+			qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+		qn->pmtud_bh_from_probe_queued = 1;
 	} else if (f->pmtud_probe) {
 		if (f->sent_in_pn == qn->pmtud_probe_pn)
 			qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
@@ -461,8 +493,9 @@ lws_quic_pmtud_probe_unsent(struct lws_quic_netconn *qn,
  * size lost LWS_QUIC_PMTUD_MAX_PROBES, then the search settles on the size it
  * has.  A base size probe being lost says the path loses small packets too,
  * eg, it is down for a while, so the big ones lost before it say nothing
- * about its MTU: the base is probed again, until one gets through and the
- * search can start again.
+ * about its MTU: the base is probed again, until one gets through.  The probe
+ * of the size from before going back, sent once the base got through, being
+ * lost confirms the black hole.
  *
  * Returns nonzero if f is a probe, which the caller frees, without sending it
  * again or counting it as congestion.
@@ -473,6 +506,15 @@ lws_quic_pmtud_probe_lost(struct lws_quic_netconn *qn,
 {
 	if (!f->pmtud_probe)
 		return 0;
+
+	if (f->pmtud_probe == LWS_QUIC_PMTUD_PROBE_FROM) {
+		if (f->sent_in_pn != qn->pmtud_bh_from_probe_pn)
+			return 1; /* it has nothing to say any more */
+		qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+		if (qn->pmtud_bh_from_mtu)
+			lws_quic_pmtud_bh_confirmed(qn);
+		return 1;
+	}
 
 	if (f->pmtud_probe == LWS_QUIC_PMTUD_PROBE_BASE) {
 		if (f->sent_in_pn != qn->pmtud_bh_probe_pn)
@@ -1189,27 +1231,25 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
 
 	/*
 	 * PMTUD black hole check: the base size probe got through, and no big
-	 * packet from before going back to the base did, so the path's MTU
-	 * fell, see LWS_QUIC_PMTUD_BH_LOSSES
+	 * packet from before going back to the base did.  The path is up, but
+	 * that doesn't say big packets are lost, eg, after an outage of
+	 * everything: confirm it with a probe of the size from before, see
+	 * LWS_QUIC_PMTUD_BH_LOSSES.  Its ack is a big packet's, which goes back
+	 * to that size, and losing it confirms the black hole.
 	 */
 	if (level == LWS_QUIC_LEVEL_APP &&
 	    qn->pmtud_bh_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
 	    qn->pmtud_bh_probe_pn >= pn_lo && qn->pmtud_bh_probe_pn <= pn_hi) {
 		qn->pmtud_bh_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 
-		if (qn->pmtud_bh_from_mtu) {
-			lwsl_wsi_warn(nwsi, "QUIC PMTUD: black hole: packets "
-				      "bigger than %u lost, the base gets "
-				      "through: searching again from %u",
-				      LWS_QUIC_PMTU_BASE - LWS_QUIC_PMTU_OVERHEAD,
-				      LWS_QUIC_PMTU_BASE);
-			qn->pmtud_bh_from_mtu	= 0;
-			qn->consecutive_mtu_losses = 0;
-			qn->probed_mtu		= LWS_QUIC_PMTU_FIRST_PROBE;
-			qn->pmtud_probe_fails	= 0;
-			qn->pmtud_raise_at	= 0;
-			qn->pmtud_state		= 1; /* SEARCHING */
-			lws_quic_pmtud_kick(qn);
+		if (qn->pmtud_bh_from_mtu &&
+		    !qn->pmtud_bh_from_probe_queued &&
+		    qn->pmtud_bh_from_probe_pn == LWS_QUIC_PMTUD_PROBE_NONE) {
+			lwsl_wsi_info(nwsi, "QUIC PMTUD: the base gets through, "
+				      "probing %u again", qn->pmtud_bh_from_mtu);
+			if (!lws_quic_pmtud_queue_probe(qn,
+						LWS_QUIC_PMTUD_PROBE_FROM))
+				qn->pmtud_bh_from_probe_queued = 1;
 		}
 	}
 
@@ -1560,14 +1600,15 @@ lws_quic_dump_stalled(struct lws *wsi)
 	lwsl_wsi_notice(nwsi, "  conn: handshake done %d, closing %d, tx "
 			"credit %d, pto_count %u, pto armed %d, wants write %d "
 			"(its listener %d), last pass held %d full %d failed %d, "
-			"mtu %u, pmtud state %u, probe queued %d/%d",
+			"mtu %u, pmtud state %u, probe queued %d/%d/%d",
 			qn->handshake_done, qn->is_closing, (int)nwsi->txc.tx_cr,
 			qn->pto_count, !lws_dll2_is_detached(&qn->pto_sul.list),
 			nwsi->mux.requested_POLLOUT, nwsi->mux.parent_wsi ?
 				nwsi->mux.parent_wsi->mux.requested_POLLOUT : -1,
 			qn->tx_held, qn->tx_full, qn->tx_failed,
 			qn->current_mtu, qn->pmtud_state,
-			qn->pmtud_probe_queued, qn->pmtud_bh_probe_queued);
+			qn->pmtud_probe_queued, qn->pmtud_bh_probe_queued,
+			qn->pmtud_bh_from_probe_queued);
 	for (l = 0; l < LWS_QUIC_LEVEL_COUNT; l++)
 		if (qn->pending_tx[l].count || qn->in_flight[l].count ||
 		    qn->needs_ack[l])
@@ -3762,7 +3803,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		 * Behind a black hole, that is never: move it to the front.
 		 */
 		if (level == LWS_QUIC_LEVEL_APP &&
-		    (qn->pmtud_probe_queued || qn->pmtud_bh_probe_queued)) {
+		    (qn->pmtud_probe_queued || qn->pmtud_bh_probe_queued ||
+		     qn->pmtud_bh_from_probe_queued)) {
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					qn->pending_tx[level].head) {
 				struct lws_quic_tx_frame *f =
@@ -4137,6 +4179,9 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 					if (f->pmtud_probe ==
 						LWS_QUIC_PMTUD_PROBE_BASE)
 						qn->pmtud_bh_probe_queued = 0;
+					else if (f->pmtud_probe ==
+						LWS_QUIC_PMTUD_PROBE_FROM)
+						qn->pmtud_bh_from_probe_queued = 0;
 					else
 						qn->pmtud_probe_queued = 0;
 					pmtud_probe = f->pmtud_probe;
@@ -4174,36 +4219,60 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		/*
 		 * PMTUD: the packet with a probe's PING is padded out to the
 		 * datagram size being probed, or for a black hole check, the
-		 * base.  If we can't send one that big anyway, there is nothing
-		 * to find out, and the search is over.  If a server's peer
-		 * moved since the probe was queued, the new path isn't
-		 * validated, so it only gets a plain PING, and the search goes
-		 * on there with the first ack after it is.  So does a search
-		 * probe queued before a black hole stopped the search.
+		 * base, then the size from before it.  If we can't send one
+		 * that big anyway, there is nothing to find out, and the
+		 * search is over.  If a server's peer moved since the probe was
+		 * queued, the new path isn't validated, so it only gets a plain
+		 * PING, and the search goes on there with the first ack after
+		 * it is.  So does a search probe queued before a black hole
+		 * stopped the search, and a probe confirming a black hole that
+		 * was settled meanwhile.
 		 */
-		if (pmtud_probe && !(qn->is_server && !qn->address_validated) &&
-		    (pmtud_probe == LWS_QUIC_PMTUD_PROBE_BASE ||
-		     qn->pmtud_state == 1)) {
-			int base = pmtud_probe == LWS_QUIC_PMTUD_PROBE_BASE;
-			size_t target = (base ? LWS_QUIC_PMTU_BASE :
-					 qn->probed_mtu) - LWS_QUIC_PMTU_OVERHEAD;
+		if (pmtud_probe && !(qn->is_server && !qn->address_validated)) {
+			uint64_t *probe_pn = NULL;
+			uint32_t mtu_probed = 0;
 
-			if (target > max) {
-				if (!base)
-					qn->pmtud_state = 2; /* SEARCH_COMPLETE */
-			} else {
-				if (header_len + payload_len + 16 < target) {
-					size_t pad = target - header_len -
-						     payload_len - 16;
+			switch (pmtud_probe) {
+			case LWS_QUIC_PMTUD_PROBE_BASE:
+				mtu_probed = LWS_QUIC_PMTU_BASE;
+				probe_pn = &qn->pmtud_bh_probe_pn;
+				break;
+			case LWS_QUIC_PMTUD_PROBE_FROM:
+				if (!qn->pmtud_bh_from_mtu)
+					break;
+				mtu_probed = qn->pmtud_bh_from_mtu;
+				probe_pn = &qn->pmtud_bh_from_probe_pn;
+				break;
+			default:
+				if (qn->pmtud_state != 1)
+					break;
+				mtu_probed = qn->probed_mtu;
+				probe_pn = &qn->pmtud_probe_pn;
+				break;
+			}
 
-					memset(p, LWS_QUIC_FT_PADDING, pad);
-					p += pad;
-					payload_len += pad;
+			if (probe_pn) {
+				size_t target = mtu_probed -
+						LWS_QUIC_PMTU_OVERHEAD;
+
+				if (target > max) {
+					if (pmtud_probe ==
+						LWS_QUIC_PMTUD_PROBE_SEARCH)
+						qn->pmtud_state = 2; /* SEARCH_COMPLETE */
+				} else {
+					if (header_len + payload_len + 16 <
+								target) {
+						size_t pad = target -
+							header_len -
+							payload_len - 16;
+
+						memset(p, LWS_QUIC_FT_PADDING,
+						       pad);
+						p += pad;
+						payload_len += pad;
+					}
+					*probe_pn = my_pn;
 				}
-				if (base)
-					qn->pmtud_bh_probe_pn = my_pn;
-				else
-					qn->pmtud_probe_pn = my_pn;
 			}
 		}
 

@@ -267,11 +267,17 @@ enum lws_quic_frame_type {
  * black hole is in both directions, neither side's would ever arrive.
  *
  * If a big packet sent before going back is acked after all, it was loss,
- * not a black hole, and the connection goes back to the size it had.
- * Otherwise, once the base probe gets through, the search starts again from
- * the base (RFC 8899 5.2, BASE to SEARCHING), and settles on the size the path
- * carries now.  If the base probe is lost too, everything is being lost, eg,
- * the path is down for a while: it is probed again until one gets through.
+ * not a black hole, and the connection goes back to the size it had.  If the
+ * base probe is lost too, everything is being lost, eg, the path is down for
+ * a while: it is probed again until one gets through.
+ *
+ * The base getting through only says the path is up again, not that big
+ * packets don't get through: after a short outage of everything, nothing big
+ * was sent since going back, so nothing big could be acked.  So then a probe
+ * of the size from before confirms it (RFC 8899 4.3): if it is acked, it was
+ * an outage, and the connection goes back to that size.  If it is lost, the
+ * search starts again from the base (RFC 8899 5.2, BASE to SEARCHING), and
+ * settles on the size the path carries now.
  */
 #define LWS_QUIC_PMTUD_BH_LOSSES	3u
 #define LWS_QUIC_PMTUD_RAISE_US		(600 * LWS_US_PER_SEC)
@@ -306,6 +312,8 @@ struct lws_quic_tx_frame {
 	/* a PING that is a PMTUD probe, see lws_quic_pmtud_kick() */
 #define LWS_QUIC_PMTUD_PROBE_SEARCH	1 /* of probed_mtu */
 #define LWS_QUIC_PMTUD_PROBE_BASE	2 /* of the base, black hole check */
+#define LWS_QUIC_PMTUD_PROBE_FROM	3 /* of pmtud_bh_from_mtu, confirming
+					   * a black hole */
 	uint8_t			pmtud_probe;
 };
 
@@ -595,6 +603,8 @@ struct lws_quic_netconn {
 	uint64_t		pmtud_probe_pn;
 	/* PN of the base size probe in flight checking for a black hole */
 	uint64_t		pmtud_bh_probe_pn;
+	/* PN of the probe of the size from before, confirming the black hole */
+	uint64_t		pmtud_bh_from_probe_pn;
 	/*
 	 * PN and size of the last search probe given up for lost: if its ack
 	 * comes after all, it was only late, and the path carries its size
@@ -626,6 +636,7 @@ struct lws_quic_netconn {
 	/* a probe's PING is in pending_tx, not sent yet */
 	uint8_t			pmtud_probe_queued:1;
 	uint8_t			pmtud_bh_probe_queued:1;
+	uint8_t			pmtud_bh_from_probe_queued:1;
 
 	/* Path Validation (RFC 9000 Section 8.2) */
 	uint8_t			path_challenge[8];
