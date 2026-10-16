@@ -99,13 +99,15 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 
 #if defined(LWS_ROLE_QUIC)
 	/*
-	 * A stream that timed out sending its close, or waiting for the peer's
-	 * answer to it, or a connection timing out with streams like that:
-	 * say what they were stuck on
+	 * A stream that timed out sending its close, waiting for the peer's
+	 * answer to it, or flushing what it sent before it closes, or a
+	 * connection timing out with streams like that: say what they were
+	 * stuck on
 	 */
 	if ((wsi->quic.qs &&
 	     (wsi->pending_timeout == PENDING_TIMEOUT_CLOSE_SEND ||
-	      wsi->pending_timeout == PENDING_TIMEOUT_CLOSE_ACK)) ||
+	      wsi->pending_timeout == PENDING_TIMEOUT_CLOSE_ACK ||
+	      wsi->pending_timeout == PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE)) ||
 	    wsi->quic.qn)
 		lws_quic_dump_stalled(wsi);
 #endif

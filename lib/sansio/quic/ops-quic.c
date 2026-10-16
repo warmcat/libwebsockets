@@ -1403,10 +1403,11 @@ lws_get_quic_network_wsi(struct lws *wsi)
 
 /*
  * A stream timed out sending its ws close, or waiting for the peer's answer to
- * it, or its connection timed out with streams like that, or with frames of
- * theirs still waiting or in flight: say what the stream and its connection
- * were doing, at notice, ie, which of the things that give a stream its turn
- * to write, or get what it wrote to the peer, didn't happen.  Logging before
+ * it, or flushing what it sent before closing with nothing left to flush, or
+ * its connection timed out with streams like that, or with frames of theirs
+ * still waiting or in flight: say what the stream and its connection were
+ * doing, at notice, ie, which of the things that give a stream its turn to
+ * write, or get what it wrote to the peer, didn't happen.  Logging before
  * such a stall can change its timing enough to hide it, so this is only
  * printed once it happened.
  */
@@ -1438,33 +1439,81 @@ lws_quic_dump_frames(struct lws *wsi, const char *what, lws_dll2_owner_t *o,
 	return n;
 }
 
+/* stream w's frames still waiting or in flight */
+static int
+lws_quic_stream_frames(struct lws_quic_netconn *qn, struct lws *w,
+		       lws_usec_t now)
+{
+	uint64_t sid = w->quic.qs->stream_id;
+
+	return lws_quic_dump_frames(w, NULL, &qn->pending_tx[LWS_QUIC_LEVEL_APP],
+				    sid, now, 0) ||
+	       lws_quic_dump_frames(w, NULL, &qn->in_flight[LWS_QUIC_LEVEL_APP],
+				    sid, now, 0);
+}
+
+/*
+ * Is stream w closing once what it sent has gone, with nothing left to go?
+ * Then it can only be waiting on its own next turn, which never came.  One
+ * still sending, or waiting for the peer to acknowledge it, is not stuck
+ * here: a peer that went away takes as long as its flush timeout.
+ */
+static int
+lws_quic_stream_flush_stuck(struct lws_quic_netconn *qn, struct lws *w,
+			    lws_usec_t now)
+{
+	return lwsi_flushing_to_close(w) && !w->buflist_out &&
+	       !lws_quic_stream_frames(qn, w, now);
+}
+
 /* does stream w still wait on its peer for anything, see above */
 static int
 lws_quic_stream_outstanding(struct lws_quic_netconn *qn, struct lws *w,
 			    lws_usec_t now)
 {
-	uint64_t sid = w->quic.qs->stream_id;
-
 	return lwsi_close(w) == LCS_WAITING_TO_SEND_CLOSE ||
 	       lwsi_close(w) == LCS_AWAITING_CLOSE_ACK ||
-	       lws_quic_dump_frames(w, NULL, &qn->pending_tx[LWS_QUIC_LEVEL_APP],
-				    sid, now, 0) ||
-	       lws_quic_dump_frames(w, NULL, &qn->in_flight[LWS_QUIC_LEVEL_APP],
-				    sid, now, 0);
+	       lws_quic_stream_flush_stuck(qn, w, now) ||
+	       lws_quic_stream_frames(qn, w, now);
 }
+
+static const char * const close_phase_names[] = {
+	[LCS_NONE]			= "none",
+	[LCS_CLOSE_WHEN_FLUSHED]	= "close when flushed",
+	[LCS_CLOSING]			= "closing",
+	[LCS_WAITING_TO_SEND_CLOSE]	= "waiting to send close",
+	[LCS_RETURNED_CLOSE]		= "returned close",
+	[LCS_AWAITING_CLOSE_ACK]	= "awaiting close ack",
+	[LCS_FLUSHING_BEFORE_CLOSE]	= "flushing before close",
+	[LCS_SHUTDOWN]			= "shutdown",
+	[LCS_DEAD_SOCKET]		= "dead socket",
+	[LCS_USER_TOLD]			= "user told",
+};
 
 static void
 lws_quic_dump_stream(struct lws_quic_netconn *qn, struct lws *w,
 		     lws_usec_t now)
 {
 	struct lws_quic_stream *qs = w->quic.qs;
+	unsigned int cp = (unsigned int)lwsi_close(w);
 
-	lwsl_wsi_notice(w, "  stream %llu: tx_offset %llu, tx credit %d, fin "
-			"sent %d, close phase %d, wants write %d",
+	/*
+	 * Its role and state say whose turn to write it gets (a ws stream's
+	 * is not an h3 one's), lws' own held tx is what a close flushes
+	 */
+	lwsl_wsi_notice(w, "  stream %llu: role %s, state 0x%x, close phase "
+			"%s, wants write %d, tx_offset %llu, tx credit %d, "
+			"fin sent %d, fin rx %d, lws holds %u tx",
 			(unsigned long long)qs->stream_id,
+			w->role_ops ? w->role_ops->name : "none",
+			(unsigned int)lwsi_state(w),
+			cp < LWS_ARRAY_SIZE(close_phase_names) &&
+				close_phase_names[cp] ?
+					close_phase_names[cp] : "?",
+			w->mux.requested_POLLOUT,
 			(unsigned long long)qs->tx_offset, (int)w->txc.tx_cr,
-			qs->sent_fin, (int)lwsi_close(w),
-			w->mux.requested_POLLOUT);
+			qs->sent_fin, qs->fin_received,
+			(unsigned int)lws_buflist_total_len(&w->buflist_out));
 	lws_quic_dump_frames(w, "waiting", &qn->pending_tx[LWS_QUIC_LEVEL_APP],
 			     qs->stream_id, now, 1);
 	lws_quic_dump_frames(w, "in flight", &qn->in_flight[LWS_QUIC_LEVEL_APP],
@@ -1486,7 +1535,9 @@ lws_quic_dump_stalled(struct lws *wsi)
 	now = lws_wsi_now(nwsi);
 
 	if (wsi->quic.qs)
-		any = 1;
+		any = wsi->pending_timeout !=
+				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE ||
+		      lws_quic_stream_flush_stuck(qn, wsi, now);
 	else
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
