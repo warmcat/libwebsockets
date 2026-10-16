@@ -260,7 +260,15 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 		return 1;
 	}
 
-	if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frag_index)) {
+	/*
+	 * ah->nfrag names the last slot used, the same as for the ah's other
+	 * writers, lws_parse(), lws_hdr_simple_create() and lws_hdr_alias(),
+	 * so the field claims the next one.  An h2 client's response decodes
+	 * into the ah still holding the request's _WSI_TOKEN_CLIENT_* tokens,
+	 * and starting the field at ah->nfrag took the last of those over.
+	 * Check before moving nfrag on: never leave it naming no slot.
+	 */
+	if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags)) {
 		lwsl_info("%s: frag index %d too big\n", __func__, ah->nfrag);
 		return LWS_H2_FRAG_NO_ROOM;
 	}
@@ -274,8 +282,7 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 	    ah->frag_index[hdr_token_idx])
 		return lws_hpack_pseudo_duplicated(wsi, hdr_token_idx);
 
-	if (ah->nfrag == 0)
-		ah->nfrag = 1;
+	ah->nfrag++;
 
 	ah->frags[ah->nfrag].offset = ah->pos;
 	ah->frags[ah->nfrag].len = 0;
@@ -338,10 +345,12 @@ static int lws_frag_end(struct lws *wsi)
 	if (lws_frag_append(wsi, 0))
 		return LWS_H2_FRAG_NO_ROOM;
 
-	/* don't account for the terminating NUL in the logical length */
+	/*
+	 * don't account for the terminating NUL in the logical length.  The
+	 * fragment stays ah->nfrag, the last slot used, until the next one is
+	 * started
+	 */
 	wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
-
-	wsi->stream.ah->nfrag++;
 
 	return 0;
 }
@@ -394,9 +403,8 @@ lws_hpack_path_end(struct lws *wsi)
 	/*
 	 * :path ended in "/..": back up one dir level if possible, the same
 	 * as the h1 parser does at the end of the request URI.  This has to
-	 * act on the still-open fragment, before lws_frag_end() terminates it
-	 * and moves ah->nfrag on to the next slot (which is one past the end
-	 * of ah->frags[] when all the slots are in use).  There is no query
+	 * act on the still-open fragment, before lws_frag_end() terminates it.
+	 * There is no query
 	 * then: a ? moves the state on from URIPS_SEEN_SLASH_DOT_DOT, so the
 	 * open fragment is the path's.
 	 */

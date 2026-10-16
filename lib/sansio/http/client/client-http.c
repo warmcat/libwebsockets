@@ -2847,21 +2847,17 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	cisin[CIS_PATH]		= path + o;
 	cisin[CIS_HOST]		= host;
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++) {
-		cisin[n + 3] = lws_hdr_simple_ptr(wsi, hnames2[n]);
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
-		if (!cisin[n + 3] && hnames2[n] == _WSI_TOKEN_CLIENT_METHOD)
-			cisin[n + 3] = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-#endif
-		/*
-		 * A request whose header table never held it has the stash:
-		 * a stream whose response ah didn't, or a QUIC attempt (its
-		 * request stays in the stash) we are falling back to tcp
-		 * from, which must still ask for its ws protocol
-		 */
-		if (!cisin[n + 3] && wsi->stash)
-			cisin[n + 3] = wsi->stash->cis[n + 3];
-	}
+	/*
+	 * The request's own items, from the stash when there is one (a QUIC
+	 * attempt keeps its request there, and so must a fallback to tcp
+	 * still asking for its ws protocol), else from the _WSI_TOKEN_CLIENT_*
+	 * tokens in the ah.  Never from anything the response put in the ah:
+	 * a server's ":method" in its response is not the method to follow
+	 * its redirect with.
+	 */
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
+		cisin[n + 3] = lws_wsi_client_stash_item(wsi, n + 3,
+							 hnames2[n]);
 
 	if (method)
 		cisin[CIS_METHOD] = method;
