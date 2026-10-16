@@ -22,8 +22,8 @@
  * IN THE SOFTWARE.
  *
  * A server vhost whose cert and key are files notices them being renewed on
- * disk, and moves onto the new ones with lws_tls_vhost_cert_reload(), without
- * disturbing the connections it is serving.
+ * disk, and moves onto the new ones without disturbing the connections it is
+ * serving.
  *
  * Whoever renews them, and however: an acme client in this process or
  * another, a cert distribution client fetching a copy from elsewhere, or
@@ -36,11 +36,18 @@
  * the cert and the key one after the other.  Where a directory can't be
  * watched, and to cover a missed event, the paths are also looked at hourly.
  *
- * The new cert may be held back for the vhost's grace period
- * (info->tls_cert_grace_secs), counted from when it was issued or written,
- * whichever is later, eg, so that a DANE record for it has replaced cached
- * copies of the old one before it is served.  A CA may backdate a cert's
- * notBefore, so the file's mtime is the better guide to how new it is.
+ * A renewer may also hand the vhost the new pair with lws_tls_cert_updated(),
+ * with copies in memory if, eg, the files are kept where we can't read them
+ * after dropping our privileges.
+ *
+ * Either way, the new pair is loaded into a tls ctx of its own as soon as it
+ * is seen, while we can be sure of having it.  The vhost may hold that ctx
+ * back for its grace period (info->tls_cert_grace_secs), counted from when
+ * the cert was issued or written, whichever is later, eg, so that a DANE
+ * record for it has replaced cached copies of the old one before it is
+ * served.  A CA may backdate a cert's notBefore, so the file's mtime is the
+ * better guide to how new it is.  A restart during the grace period serves
+ * the new pair at once, from the files.
  *
  * A pair that fails to load, eg, a cert whose key is not written yet, is
  * retried, sooner when the files change again, else backing off to hourly.
@@ -192,6 +199,58 @@ lws_tls_cert_watch_dir_add(struct lws_context *cx, const char *path)
 	lws_dll2_add_tail(&wd->list, &cx->tls.cert_watch_dirs);
 }
 
+static void
+lws_tls_cert_watch_pending_drop(struct lws_vhost *v)
+{
+	if (!v->tls.pending.ref)
+		return;
+
+	lws_tls_ctx_ref_unref(v->tls.pending.ref);
+	v->tls.pending.ref = NULL;
+}
+
+/*
+ * The vhost has a new ctx for its renewed pair: serve it now, or once the
+ * vhost's grace period, counted from the later of not_before and written, is
+ * over.  *next is brought forward to then, if that is sooner.
+ */
+
+static void
+lws_tls_cert_watch_stage(struct lws_vhost *v, struct lws_tls_vhost_cert_new *n,
+			 time_t not_before, time_t written, time_t now,
+			 time_t *next)
+{
+	time_t due;
+
+	/* an older renewal still waiting is superseded */
+	lws_tls_cert_watch_pending_drop(v);
+
+	/*
+	 * The grace period only holds back a cert that would replace one being
+	 * served: a vhost that had none takes it at once
+	 */
+
+	due = (not_before > written ? not_before : written) +
+					(time_t)v->tls.cert_grace_secs;
+
+	if (!v->tls.cert_grace_secs || !v->tls.ssl_ctx ||
+	    v->tls.skipped_certs || now >= due) {
+		lws_tls_vhost_cert_commit(v, n);
+		return;
+	}
+
+	v->tls.pending		= *n;
+	v->tls.pending_due	= due;
+	n->ref			= NULL;
+
+	lwsl_vhost_notice(v, "renewed cert %s is loaded, serving it in %llds, "
+			  "after its grace period", v->tls.cfg_alloc_cert_path,
+			  (long long)(due - now));
+
+	if (due < *next)
+		*next = due;
+}
+
 /*
  * Look at one vhost's files, and move it onto them if they changed.  *next is
  * brought forward to when it next needs looking at, if that is sooner.
@@ -201,7 +260,16 @@ static void
 lws_tls_cert_watch_check_vhost(struct lws_vhost *v, time_t now, time_t *next)
 {
 	struct lws_tls_cert_file_id idc, idk;
-	time_t not_before, due;
+	struct lws_tls_vhost_cert_new n;
+	time_t not_before = 0;
+
+	/* a renewal made ready earlier is served once its grace is over */
+	if (v->tls.pending.ref) {
+		if (now >= v->tls.pending_due)
+			lws_tls_vhost_cert_commit(v, &v->tls.pending);
+		else if (v->tls.pending_due < *next)
+			*next = v->tls.pending_due;
+	}
 
 	if (!v->tls.watch_dirs_added) {
 		lws_tls_cert_watch_dir_add(v->context, v->tls.cfg_alloc_cert_path);
@@ -217,7 +285,8 @@ lws_tls_cert_watch_check_vhost(struct lws_vhost *v, time_t now, time_t *next)
 		 */
 		if (!v->tls.watch_unseen)
 			lwsl_vhost_warn(v, "can't see cert %s or key %s (errno %d), "
-					"won't see them renewed until we can",
+					"only renewals handed to it with "
+					"lws_tls_cert_updated() reach it until we can",
 					v->tls.cfg_alloc_cert_path,
 					v->tls.cfg_key_path, errno);
 		v->tls.watch_unseen = 1;
@@ -231,8 +300,32 @@ lws_tls_cert_watch_check_vhost(struct lws_vhost *v, time_t now, time_t *next)
 	v->tls.watch_unseen = 0;
 
 	if (lws_tls_cert_file_id_same(&idc, &v->tls.watch_cert) &&
-	    lws_tls_cert_file_id_same(&idk, &v->tls.watch_key))
-		return; /* what the active ctx was loaded from */
+	    lws_tls_cert_file_id_same(&idk, &v->tls.watch_key)) {
+		/*
+		 * What the active ctx was loaded from, again.  A renewal
+		 * waiting that was loaded from the files is withdrawn, one
+		 * handed over in memory is the renewal whatever they hold.
+		 */
+		if (v->tls.pending.ref && !v->tls.pending.from_mem) {
+			lwsl_vhost_notice(v, "cert %s is back to the one served, "
+					  "dropping the renewal waiting for its "
+					  "grace period",
+					  v->tls.cfg_alloc_cert_path);
+			lws_tls_cert_watch_pending_drop(v);
+		}
+
+		return;
+	}
+
+	/*
+	 * The files the renewal waiting for its grace was loaded from, or
+	 * that were there when it was handed over: nothing new.  Anything
+	 * else is a later renewal, which supersedes it.
+	 */
+	if (v->tls.pending.ref &&
+	    lws_tls_cert_file_id_same(&idc, &v->tls.pending.cert) &&
+	    lws_tls_cert_file_id_same(&idk, &v->tls.pending.key))
+		return;
 
 	if (!lws_tls_cert_file_id_same(&idc, &v->tls.seen_cert) ||
 	    !lws_tls_cert_file_id_same(&idk, &v->tls.seen_key)) {
@@ -252,40 +345,20 @@ lws_tls_cert_watch_check_vhost(struct lws_vhost *v, time_t now, time_t *next)
 		return;
 	}
 
-	/*
-	 * The grace period only holds back a cert that would replace one being
-	 * served: a vhost that had none takes it at once
-	 */
-
-	if (v->tls.cert_grace_secs && v->tls.ssl_ctx && v->tls.watch_cert.valid) {
-		if (lws_tls_cert_get_x509_validity(v->context,
-						   v->tls.cfg_alloc_cert_path,
-						   &not_before, NULL))
-			goto failed; /* eg, not completely written yet */
-
-		due = not_before > (time_t)idc.mtime ? not_before :
-						       (time_t)idc.mtime;
-		due += (time_t)v->tls.cert_grace_secs;
-
-		if (now < due) {
-			lwsl_vhost_info(v, "new cert %s waits %llds for its "
-					"grace period", v->tls.cfg_alloc_cert_path,
-					(long long)(due - now));
-			if (due < *next)
-				*next = due;
-
-			return;
-		}
-	}
-
-	if (!lws_tls_vhost_cert_reload(v, NULL, 0, NULL, 0)) {
+	if (!lws_tls_vhost_cert_prepare(v, NULL, 0, NULL, 0, &n)) {
 		v->tls.watch_retry_at	= 0;
 		v->tls.watch_backoff_s	= 0;
+
+		/* it loaded, so the cert is all there to read the date of */
+		lws_tls_cert_get_x509_validity(v->context,
+					       v->tls.cfg_alloc_cert_path,
+					       &not_before, NULL);
+		lws_tls_cert_watch_stage(v, &n, not_before,
+					 (time_t)n.cert.mtime, now, next);
 
 		return;
 	}
 
-failed:
 	v->tls.watch_backoff_s = v->tls.watch_backoff_s ?
 			v->tls.watch_backoff_s * 2 : LWS_TLS_CERT_WATCH_RETRY_S;
 	if (v->tls.watch_backoff_s > LWS_TLS_CERT_WATCH_POLL_S)
@@ -318,6 +391,69 @@ lws_tls_cert_watch_sul_cb(lws_sorted_usec_list_t *sul)
 
 	lws_tls_cert_watch_schedule(cx, (lws_usec_t)(next - now) *
 					LWS_US_PER_SEC);
+}
+
+/*
+ * A renewer handed the vhost its new pair, with lws_tls_cert_updated().  It
+ * is loaded now, from the copies in memory if given, else the files, and
+ * served now or after the vhost's grace period.
+ */
+
+int
+lws_tls_cert_watch_updated(struct lws_vhost *v,
+			   const char *mem_cert, size_t len_mem_cert,
+			   const char *mem_privkey, size_t len_mem_privkey)
+{
+	struct lws_context *cx = v->context;
+	time_t now = (time_t)lws_now_secs(), next = now + LWS_TLS_CERT_WATCH_POLL_S,
+	       not_before = 0, written;
+	struct lws_tls_vhost_cert_new n;
+	lws_usec_t us;
+
+	if (!v->tls.watched)
+		/* eg, a deprecated context, nothing would serve it later */
+		return lws_tls_vhost_cert_reload(v, mem_cert, len_mem_cert,
+						 mem_privkey, len_mem_privkey);
+
+	if (lws_tls_vhost_cert_prepare(v, mem_cert, len_mem_cert, mem_privkey,
+				       len_mem_privkey, &n))
+		return 1;
+
+	/* the watch need not load the files it was told about again */
+	if (n.cert.valid && n.key.valid) {
+		v->tls.seen_cert	= n.cert;
+		v->tls.seen_key		= n.key;
+		v->tls.watch_retry_at	= 0;
+		v->tls.watch_backoff_s	= 0;
+	}
+
+	/*
+	 * Copies were written when they were handed to us: the files may not
+	 * be what they are copies of, or not be visible to us at all
+	 */
+	if (mem_cert && mem_privkey) {
+		lws_tls_cert_get_x509_validity_mem(mem_cert, len_mem_cert,
+						   &not_before, NULL);
+		written = now;
+	} else {
+		lws_tls_cert_get_x509_validity(cx, v->tls.cfg_alloc_cert_path,
+					       &not_before, NULL);
+		written = n.cert.valid ? (time_t)n.cert.mtime : now;
+	}
+
+	lws_tls_cert_watch_stage(v, &n, not_before, written, now, &next);
+
+	if (!v->tls.pending.ref)
+		return 0;
+
+	/* the watch must come back for it by the time it is due */
+	us = lws_now_usecs() + (lws_usec_t)(next - now) * LWS_US_PER_SEC;
+	if (lws_dll2_is_detached(&cx->tls.sul_cert_watch.list) ||
+	    cx->tls.sul_cert_watch.us > us)
+		lws_tls_cert_watch_schedule(cx, (lws_usec_t)(next - now) *
+						LWS_US_PER_SEC);
+
+	return 0;
 }
 
 /*

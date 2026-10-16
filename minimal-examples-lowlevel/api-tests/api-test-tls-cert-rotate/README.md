@@ -17,6 +17,8 @@ the step expects.
 |rotated back|srv|first cert + key written again|localhost|
 |renewed on disk, held back for the grace period|graced|second cert + key renewed on disk, the client connects 3s later, inside the vhost's 6s grace|localhost|
 |renewed on disk, served after the grace period|graced|nothing, the client reconnects until the grace has passed and the vhost moved on|wronghost.example.com|
+|handed over in memory, held back for the grace period|graced|first cert + key handed to `lws_tls_cert_updated()` as copies in memory, then the live files deleted and the copies scribbled on; the client connects 3s later|wronghost.example.com|
+|handed over in memory, served after the grace period|graced|nothing, the client reconnects until the grace has passed|localhost|
 |rebound off srv, which goes while it holds srv's ctx|127.0.0.1, no SNI|Host: moves it to the `127.0.0.1` vhost; while it waits for the answer, srv's cert is renewed and srv destroyed|localhost|
 
 The two "renewed on disk" kinds of step are renewals nobody tells lws about,
@@ -26,8 +28,16 @@ onto new ones by itself.  The live paths are moved onto the new files with a
 symlink, as those renewers do (on Windows the files are rewritten in place
 instead).  The `graced` vhost, on a listener of its own so its steps don't
 depend on SNI, has a 6s `tls_cert_grace_secs`: a renewal must not be served
-until that long after it was written, then it must be.  Without
-`LWS_WITH_DIR` a renewal is only seen hourly, so these steps are skipped.
+until that long after it was written, then it must be.  The `graced` vhost is also handed a renewal the way a renewer does when the
+vhost can't read the files, eg, the cert distribution client: copies in
+memory, given to `lws_tls_cert_updated()`.  The copies are the renewal,
+whatever the live files hold (here, the other cert), and the grace counts
+from when they were handed over.  They must be loaded into a ctx there and
+then: straight afterwards the live files are deleted and the copies
+scribbled on, so a vhost that waited to load them until its grace was over
+would have nothing to load.  Without `LWS_WITH_DIR` a renewal on disk is only
+seen hourly, so these steps, and the other `graced` ones that follow on from
+them, are skipped.
 
 A failed rotation must leave the vhost on the tls ctx it had, and each
 rotation must give the vhost a ctx of its own for the new cert, so the old one
@@ -89,6 +99,8 @@ come from `--certs <dir>`.  Both certs are self-signed test certs.
 [2026/09/30 18:00:05:0000] U: --- rotated back: served under 'localhost': PASS ---
 [2026/09/30 18:00:08:0000] U: --- renewed on disk, held back for the grace period: served under 'localhost': PASS ---
 [2026/09/30 18:00:11:0000] U: --- renewed on disk, served after the grace period: served under 'wronghost.example.com': PASS ---
+[2026/09/30 18:00:14:0000] U: --- handed over in memory, held back for the grace period: served under 'wronghost.example.com': PASS ---
+[2026/09/30 18:00:17:0000] U: --- handed over in memory, served after the grace period: served under 'localhost': PASS ---
 [2026/09/30 18:00:11:0000] U: drop_srv_cb: srv renewed, destroying it
 [2026/09/30 18:00:11:0000] U: --- rebound off srv, which goes while it holds srv's ctx: served under 'localhost': PASS ---
 [2026/09/30 18:00:11:0000] U: --- all steps passed ---

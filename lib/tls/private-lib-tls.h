@@ -461,6 +461,9 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len);
 int
 lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath,
 			       time_t *not_before, time_t *not_after);
+int
+lws_tls_cert_get_x509_validity_mem(const char *pem, size_t len,
+				   time_t *not_before, time_t *not_after);
 
 #else /* ! WITH_TLS */
 

@@ -1315,12 +1315,13 @@ struct lws_context_creation_info {
 	/**< VHOST: a tls server vhost whose cert and key are files
 	 * (.ssl_cert_filepath, .ssl_private_key_filepath) notices them being
 	 * renewed on disk, eg, by a symlink moving onto new files, and
-	 * switches to the new ones without disturbing its connections.  This
-	 * is how long after the new cert was issued or written, whichever is
-	 * later, it waits before doing so: 0 switches as soon as it is seen.
-	 * A cert published in DNS for DANE should wait for the new record to
-	 * have replaced cached copies of the old one.  Renewals told to
-	 * lws_tls_cert_updated() are applied at once. */
+	 * switches to the new ones without disturbing its connections.  The
+	 * new pair is loaded as soon as it is seen: this is how long after the
+	 * new cert was issued or written, whichever is later, the vhost waits
+	 * before serving it.  0 serves it at once.  A cert published in DNS
+	 * for DANE should wait for the new record to have replaced cached
+	 * copies of the old one.  Renewals handed to lws_tls_cert_updated()
+	 * wait the same way.  A restart serves the newest pair at once. */
 
 	const char			*tls_passthrough;
 	/**< VHOST: NULL, or "host:port" ("[v6addr]:port" for an IPv6

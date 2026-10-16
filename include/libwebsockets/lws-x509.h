@@ -382,14 +382,21 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
  * \param context: our lws_context
  * \param certpath: the filepath to the certificate
  * \param keypath: the filepath to the private key of the certificate
- * \param mem_cert: copy of the cert in memory
+ * \param mem_cert: NULL, or a copy of the new cert in memory
  * \param len_mem_cert: length of the copy of the cert in memory
- * \param mem_privkey: copy of the private key in memory
+ * \param mem_privkey: NULL, or a copy of the new private key in memory
  * \param len_mem_privkey: length of the copy of the private key in memory
  *
  * Checks every vhost to see if it is the using certificate described by the
- * the given filepaths.  If so, it attempts to update the vhost ssl_ctx to use
- * the new certificate.
+ * the given filepaths.  If so, it makes the vhost a new ssl_ctx with the new
+ * certificate at once, loaded from the copies in memory if given, else from
+ * the files.  Give the copies if the vhost may no longer be able to read the
+ * files, eg, after dropping its privileges.
+ *
+ * A vhost with a grace period (info->tls_cert_grace_secs) serves the new
+ * ssl_ctx once that has passed since the cert was issued or written,
+ * whichever is later, where "written" is when this is called if the vhost
+ * can't see the cert file.  Otherwise it serves it at once.
  *
  * Returns 0 on success or nonzero for failure.
  */

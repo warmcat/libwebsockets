@@ -1141,27 +1141,22 @@ bail:
 	return ret;
 }
 
-int
-lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath,
-			       time_t *not_before, time_t *not_after)
+/* p is NUL-terminated after its len */
+
+static int
+lws_tls_cert_x509_validity(const uint8_t *p, size_t len, time_t *not_before,
+			   time_t *not_after)
 {
-	struct lws_x509_cert *x = NULL;
 	union lws_tls_cert_info_results cri, cri1;
-	uint8_t *p;
-	lws_filepos_t amount;
+	struct lws_x509_cert *x = NULL;
 	int res = -1;
 
-	if (alloc_file(context, filepath, &p, &amount))
-		return 1;
-
-	p[amount] = '\0';
-
 	if (lws_x509_create(&x))
-		goto bail;
+		return -1;
 
 	/* mbedtls needs the terminating NUL counted in the PEM's length */
-	if (lws_x509_parse_from_pem(x, p, (size_t)amount + 1))
-		goto bail_destroy;
+	if (lws_x509_parse_from_pem(x, p, len + 1))
+		goto bail;
 
 	if (!lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_FROM, &cri, 0) &&
 	    !lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_TO, &cri1, 0)) {
@@ -1172,9 +1167,44 @@ lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath
 		res = 0;
 	}
 
-bail_destroy:
-	lws_x509_destroy(&x);
 bail:
+	lws_x509_destroy(&x);
+
+	return res;
+}
+
+int
+lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath,
+			       time_t *not_before, time_t *not_after)
+{
+	lws_filepos_t amount;
+	uint8_t *p;
+	int res;
+
+	if (alloc_file(context, filepath, &p, &amount))
+		return 1;
+
+	p[amount] = '\0';
+	res = lws_tls_cert_x509_validity(p, (size_t)amount, not_before,
+					 not_after);
+	lws_free(p);
+
+	return res;
+}
+
+int
+lws_tls_cert_get_x509_validity_mem(const char *pem, size_t len,
+				   time_t *not_before, time_t *not_after)
+{
+	uint8_t *p = lws_malloc(len + 1, __func__);
+	int res;
+
+	if (!p)
+		return 1;
+
+	memcpy(p, pem, len);
+	p[len] = '\0';
+	res = lws_tls_cert_x509_validity(p, len, not_before, not_after);
 	lws_free(p);
 
 	return res;

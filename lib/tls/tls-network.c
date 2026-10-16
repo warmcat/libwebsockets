@@ -227,6 +227,14 @@ lws_tls_ctx_ref_destroy_all(struct lws_vhost *vhost)
 		vhost->tls.ssl_ctx = NULL;
 	}
 
+#if defined(LWS_TLS_CERT_WATCH)
+	/* a renewal still waiting for its grace period was never served */
+	if (vhost->tls.pending.ref) {
+		lws_tls_ctx_ref_unref(vhost->tls.pending.ref);
+		vhost->tls.pending.ref = NULL;
+	}
+#endif
+
 	/* a retired ref is only still listed while connections hold it */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -340,24 +348,29 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 }
 
 /*
- * Give the vhost a new tls ctx with the cert and key from its configured
- * files (or the copies in memory, if it can no longer read them), set up like
- * its first one.  On success the old ctx is retired, staying alive for the
- * connections that handshaked under it until the last of them goes.  On
- * failure the vhost keeps the ctx it had.
+ * Make the vhost a new tls ctx with its renewed cert and key, set up like its
+ * first one, but don't serve it yet: lws_tls_vhost_cert_commit() does that.
+ * The vhost goes on serving the ctx it has either way.
+ *
+ * The cert and key are the copies in memory if given, eg, by a renewer that
+ * we can't read the files of after dropping our privileges, else the
+ * configured files.  Returns 0 with n->ref set, or nonzero.
  */
 
 int
-lws_tls_vhost_cert_reload(struct lws_vhost *v,
-			  const char *mem_cert, size_t len_mem_cert,
-			  const char *mem_privkey, size_t len_mem_privkey)
+lws_tls_vhost_cert_prepare(struct lws_vhost *v,
+			   const char *mem_cert, size_t len_mem_cert,
+			   const char *mem_privkey, size_t len_mem_privkey,
+			   struct lws_tls_vhost_cert_new *n)
 {
-	lws_tls_ctx *old_ctx = v->tls.ssl_ctx;
-	struct lws_tls_ctx_ref *old_ref = v->tls.active_ctx_ref, *new_ref;
-#if defined(LWS_TLS_CERT_WATCH)
-	struct lws_tls_cert_file_id idc, idk;
-#endif
+	const char *cert = v->tls.cfg_alloc_cert_path,
+		   *key = v->tls.cfg_key_path;
+	lws_tls_ctx *active = v->tls.ssl_ctx;
+	unsigned int skipped = v->tls.skipped_certs;
 	struct lws wsi;
+	int ret = 1;
+
+	memset(n, 0, sizeof(*n));
 
 	/*
 	 * This is handed to lws_tls_server_certs_load() and from there to the
@@ -377,31 +390,31 @@ lws_tls_vhost_cert_reload(struct lws_vhost *v,
 	 * record is older than what we loaded, and the watch loads again.
 	 * Taken after, it could be newer, and the change would be missed.
 	 */
-	lws_tls_cert_file_id_get(v->tls.cfg_alloc_cert_path, &idc);
-	lws_tls_cert_file_id_get(v->tls.cfg_key_path, &idk);
+	lws_tls_cert_file_id_get(cert, &n->cert);
+	lws_tls_cert_file_id_get(key, &n->key);
 #endif
+
+	if (mem_cert && mem_privkey) {
+		/* what we were handed is the renewal, whatever is on disk */
+		cert = key = NULL;
+		n->from_mem = 1;
+	}
+
+	/*
+	 * The backend makes, loads and sets up the vhost's ssl_ctx: it is
+	 * the new one only until we take it back out below
+	 */
 
 	if (lws_tls_vhost_backend_create_ctx(v)) {
 		lwsl_vhost_err(v, "Failed to recreate SSL_CTX");
-		return 1;
+		goto out;
 	}
 
-	new_ref = lws_tls_ctx_ref_create(v, v->tls.ssl_ctx);
-	if (!new_ref) {
-		lws_tls_vhost_backend_free_ctx(v->tls.ssl_ctx);
-		v->tls.ssl_ctx = old_ctx;
-		return 1;
-	}
-
-	if (lws_tls_server_certs_load(v, &wsi, v->tls.cfg_alloc_cert_path,
-				      v->tls.cfg_key_path,
+	if (lws_tls_server_certs_load(v, &wsi, cert, key,
 				      mem_cert, len_mem_cert,
 				      mem_privkey, len_mem_privkey)) {
-		/* Failed to load new certs. Revert to old context */
-		lws_tls_ctx_ref_unref(new_ref);
-		v->tls.ssl_ctx = old_ctx;
 		lwsl_vhost_err(v, "Failed to load updated certs");
-		return 1;
+		goto bail;
 	}
 
 	/*
@@ -410,14 +423,43 @@ lws_tls_vhost_cert_reload(struct lws_vhost *v,
 	 * with the renewal
 	 */
 	if (lws_tls_server_vhost_ctx_setup(v, &wsi)) {
-		lws_tls_ctx_ref_unref(new_ref);
-		v->tls.ssl_ctx = old_ctx;
 		lwsl_vhost_err(v, "Failed to set up updated ctx");
-		return 1;
+		goto bail;
 	}
 
-	/* Successfully loaded. Commit new ref and retire old ref */
-	v->tls.active_ctx_ref = new_ref;
+	n->ref = lws_tls_ctx_ref_create(v, v->tls.ssl_ctx);
+	if (!n->ref)
+		goto bail;
+
+	n->skipped_certs = (uint8_t)v->tls.skipped_certs;
+	ret = 0;
+	goto out;
+
+bail:
+	if (v->tls.ssl_ctx)
+		lws_tls_vhost_backend_free_ctx(v->tls.ssl_ctx);
+out:
+	v->tls.ssl_ctx = active;
+	v->tls.skipped_certs = !!skipped;
+
+	return ret;
+}
+
+/*
+ * The vhost serves the ctx lws_tls_vhost_cert_prepare() made from now on.
+ * Its old ctx is retired, staying alive for the connections that handshaked
+ * under it until the last of them goes.
+ */
+
+void
+lws_tls_vhost_cert_commit(struct lws_vhost *v, struct lws_tls_vhost_cert_new *n)
+{
+	struct lws_tls_ctx_ref *old_ref = v->tls.active_ctx_ref;
+
+	v->tls.ssl_ctx = n->ref->ctx;
+	v->tls.active_ctx_ref = n->ref;
+	v->tls.skipped_certs = !!n->skipped_certs;
+	n->ref = NULL;
 
 	if (old_ref) {
 		lws_dll2_add_tail(&old_ref->list, &v->tls.retired_ctx_list);
@@ -425,15 +467,34 @@ lws_tls_vhost_cert_reload(struct lws_vhost *v,
 	}
 
 #if defined(LWS_TLS_CERT_WATCH)
-	v->tls.watch_cert = idc;
-	v->tls.watch_key = idk;
+	v->tls.watch_cert = n->cert;
+	v->tls.watch_key = n->key;
 #endif
 
 	if (v->tls.skipped_certs)
 		lwsl_vhost_notice(v, "vhost %s: cert unset", v->name);
 	else
-		lwsl_vhost_notice(v, "vhost %s: cert %s loaded", v->name,
-				  v->tls.cfg_alloc_cert_path);
+		lwsl_vhost_notice(v, "vhost %s: serving the new cert %s",
+				  v->name, v->tls.cfg_alloc_cert_path);
+}
+
+/*
+ * Give the vhost a new tls ctx with its renewed cert and key, and serve it at
+ * once.  On failure the vhost keeps the ctx it had.
+ */
+
+int
+lws_tls_vhost_cert_reload(struct lws_vhost *v,
+			  const char *mem_cert, size_t len_mem_cert,
+			  const char *mem_privkey, size_t len_mem_privkey)
+{
+	struct lws_tls_vhost_cert_new n;
+
+	if (lws_tls_vhost_cert_prepare(v, mem_cert, len_mem_cert, mem_privkey,
+				       len_mem_privkey, &n))
+		return 1;
+
+	lws_tls_vhost_cert_commit(v, &n);
 
 	return 0;
 }
@@ -452,8 +513,14 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 		if (v->tls.cfg_alloc_cert_path && v->tls.cfg_key_path &&
 		    !strcmp(v->tls.cfg_alloc_cert_path, certpath) &&
 		    !strcmp(v->tls.cfg_key_path, keypath))
+#if defined(LWS_TLS_CERT_WATCH)
+			/* served after the vhost's grace period, if any */
+			lws_tls_cert_watch_updated(v, mem_cert, len_mem_cert,
+						   mem_privkey, len_mem_privkey);
+#else
 			lws_tls_vhost_cert_reload(v, mem_cert, len_mem_cert,
 						  mem_privkey, len_mem_privkey);
+#endif
 	} lws_end_foreach_vhost(v);
 
 	return 0;

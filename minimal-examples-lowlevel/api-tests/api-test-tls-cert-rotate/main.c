@@ -25,7 +25,11 @@
  *
  * A fourth vhost, "graced", on a listener of its own, has its own live files
  * and a grace period: a renewal on disk must be held back until it has
- * passed, then served.
+ * passed, then served.  So must one handed to lws_tls_cert_updated() as
+ * copies in memory, the way a renewer does when the vhost can't read the
+ * files: the copies are the renewal whatever the files hold, and they must
+ * be loaded when handed over, since the files are deleted and the copies
+ * scribbled on straight afterwards.
  *
  * A second vhost, "localhost", shares the listener with its own cert, which
  * is the first cert.  Renewing "srv" must not cost the listener its SNI: once
@@ -47,6 +51,7 @@
  */
 
 #include <libwebsockets.h>
+#include <stdio.h>
 #include <string.h>
 #include <signal.h>
 #if !defined(WIN32)
@@ -74,6 +79,7 @@ enum rotation {
 	ROT_OK,		/* renew the cert, then connect */
 	ROT_NO_KEY,	/* renewal half-written: the key file is still empty */
 	ROT_ON_DISK,	/* renew the files without telling lws, then connect */
+	ROT_HANDED,	/* hand lws copies in memory, delete the files */
 };
 
 struct step {
@@ -133,6 +139,14 @@ static const struct step steps[] = {
 	  .expect_cn = "localhost", .graced = 1, .delay_s = HELD_BACK_S },
 	{ .name = "renewed on disk, served after the grace period",
 	  .sni = "graced", .expect_cn = "wronghost.example.com", .graced = 1,
+	  .wait_cn = 1 },
+	{ .name = "handed over in memory, held back for the grace period",
+	  .sni = "graced", .cert = "localhost-100y.cert",
+	  .key = "localhost-100y.key", .rot = ROT_HANDED,
+	  .expect_cn = "wronghost.example.com", .graced = 1,
+	  .delay_s = HELD_BACK_S },
+	{ .name = "handed over in memory, served after the grace period",
+	  .sni = "graced", .expect_cn = "localhost", .graced = 1,
 	  .wait_cn = 1 },
 	{ .name = "rebound off srv, which goes while it holds srv's ctx",
 	  .sni = REBIND_HOST, .cert = "wronghost.example.com.cert",
@@ -277,6 +291,42 @@ write_live(const char *live, const char *from)
 	}
 
 	return 0;
+}
+
+/*
+ * Hand the graced vhost copies of a new cert and key in memory, then take
+ * away everything it could load them from later: the live files are deleted
+ * and the copies scribbled on
+ */
+
+static int
+hand_over(const char *cert, const char *key)
+{
+	static char c[8192], k[8192];
+	char path[256];
+	int nc, nk, ret;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", certs_dir, cert);
+	nc = lws_plat_read_file(path, c, sizeof(c));
+	lws_snprintf(path, sizeof(path), "%s/%s", certs_dir, key);
+	nk = lws_plat_read_file(path, k, sizeof(k));
+	if (nc <= 0 || nc == (int)sizeof(c) || nk <= 0 || nk == (int)sizeof(k)) {
+		lwsl_err("%s: can't read %s / %s\n", __func__, cert, key);
+		return 1;
+	}
+
+	ret = lws_tls_cert_updated(context, GRACED_CERT, GRACED_KEY,
+				   c, (size_t)nc, k, (size_t)nk);
+
+	memset(c, 'x', sizeof(c));
+	memset(k, 'x', sizeof(k));
+	if (remove(GRACED_CERT) || remove(GRACED_KEY)) {
+		lwsl_err("%s: can't delete the graced vhost's files\n",
+			 __func__);
+		return 1;
+	}
+
+	return ret;
 }
 
 /*
@@ -472,18 +522,26 @@ next_step(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	if (s->wait_cn) {
+	if (s->wait_cn || s->graced) {
 #if defined(LWS_WITH_DIR)
 		notice_deadline = lws_now_usecs() + NOTICE_US;
 #else
-		/* without dir notify, a renewal is only seen hourly */
+		/*
+		 * without dir notify, a renewal is only seen hourly, and the
+		 * graced vhost's steps follow on from the first one's
+		 */
 		lwsl_user("--- %s: skipped here ---\n", s->name);
 		lws_sul_schedule(context, 0, &sul_next, next_step, 1);
 		return;
 #endif
 	}
 
-	if (s->rot == ROT_ON_DISK) {
+	if (s->rot == ROT_HANDED) {
+		if (hand_over(s->cert, s->key)) {
+			step_done("unable to hand over the renewal");
+			return;
+		}
+	} else if (s->rot == ROT_ON_DISK) {
 		if (renew_live(s->graced ? GRACED_CERT : LIVE_CERT, s->cert) ||
 		    renew_live(s->graced ? GRACED_KEY : LIVE_KEY, s->key)) {
 			step_done("unable to renew the files");

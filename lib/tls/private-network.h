@@ -116,6 +116,21 @@ struct lws_tls_cert_file_id {
 #endif
 
 /*
+ * A tls ctx made for a vhost's renewed cert, set up like its first one but
+ * not served yet, see lws_tls_vhost_cert_prepare()
+ */
+struct lws_tls_vhost_cert_new {
+	struct lws_tls_ctx_ref		*ref;
+#if defined(LWS_TLS_CERT_WATCH)
+	/* the configured files as they were before the ctx was made */
+	struct lws_tls_cert_file_id	cert;
+	struct lws_tls_cert_file_id	key;
+#endif
+	uint8_t				skipped_certs;
+	uint8_t				from_mem; /* not the files */
+};
+
+/*
  * Length of the digest that stands in for "which CA store is this", see
  * lws_tls_vhost_set_client_ca_id()
  */
@@ -203,6 +218,9 @@ struct lws_vhost_tls {
 	time_t watch_retry_at;
 	uint32_t watch_backoff_s;
 	uint32_t cert_grace_secs;
+	/* a renewal made ready, served from pending_due, after its grace */
+	struct lws_tls_vhost_cert_new pending;
+	time_t pending_due;
 	unsigned int watched:1;
 	unsigned int watch_dirs_added:1;
 	unsigned int watch_unseen:1;
@@ -345,6 +363,14 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
  void
  lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost);
  int
+ lws_tls_vhost_cert_prepare(struct lws_vhost *v,
+			    const char *mem_cert, size_t len_mem_cert,
+			    const char *mem_privkey, size_t len_mem_privkey,
+			    struct lws_tls_vhost_cert_new *n);
+ void
+ lws_tls_vhost_cert_commit(struct lws_vhost *v,
+			   struct lws_tls_vhost_cert_new *n);
+ int
  lws_tls_vhost_cert_reload(struct lws_vhost *v,
 			   const char *mem_cert, size_t len_mem_cert,
 			   const char *mem_privkey, size_t len_mem_privkey);
@@ -362,6 +388,10 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 			  const struct lws_tls_cert_file_id *key);
  void
  lws_tls_cert_watch_destroy(struct lws_context *cx);
+ int
+ lws_tls_cert_watch_updated(struct lws_vhost *v,
+			    const char *mem_cert, size_t len_mem_cert,
+			    const char *mem_privkey, size_t len_mem_privkey);
 #else
  #define lws_tls_cert_watch_destroy(_a)
 #endif
