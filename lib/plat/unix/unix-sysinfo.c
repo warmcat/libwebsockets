@@ -22,12 +22,21 @@
  * IN THE SOFTWARE.
  */
 
+/*
+ * private-lib-core-net.h defines _POSIX_C_SOURCE, after which Darwin's and
+ * the BSDs' <net/if.h> leave out the IFF_ interface flags.  The core headers
+ * include <net/if.h> before that only when built with IPv6 (and always on
+ * linux), so take it here first, as the platform gives it by default.
+ */
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <net/if.h>
+
 #include "private-lib-core.h"
 #include "private-lib-system-sysinfo.h"
 
 #include <unistd.h>
 #include <sys/utsname.h>
-#include <net/if.h>
 #if !defined(__ANDROID__) || __ANDROID_API__ >= 24
 #include <ifaddrs.h>
 #define LWS_HAVE_IFADDRS
