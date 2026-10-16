@@ -62,6 +62,10 @@
 #include <sys/sysctl.h>
 #endif
 
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 struct lws_stub_req {
 	struct lws_dll2			list;
@@ -104,7 +108,8 @@ struct lws_stub_manager {
 	uint16_t			ctry;
 	char				stub_arg[128];
 	char				uds_arg[272];	/* --lws-uds= + uds_path */
-	const char			*exec_array[5];
+	char				run_as_arg[80];	/* --lws-run-as= + run_as */
+	const char			*exec_array[6];
 	char				addr[256];
 	char				exe_path[256];
 };
@@ -211,6 +216,36 @@ static const struct lws_protocols stub_client_protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+/*
+ * A run_as goes on the stub's cmdline and names who it becomes: a user, and
+ * optionally a group, made of the characters names are, neither part empty
+ * nor looking like an option
+ */
+
+static int
+lws_stub_run_as_ok(const char *ra)
+{
+	int colons = 0, part = 0;
+
+	for (; *ra; ra++) {
+		if (*ra == ':') {
+			if (!part || colons++)
+				return 0;
+			part = 0;
+			continue;
+		}
+		if (!part && *ra == '-')
+			return 0;
+		if (!((*ra >= 'a' && *ra <= 'z') || (*ra >= 'A' && *ra <= 'Z') ||
+		      (*ra >= '0' && *ra <= '9') || *ra == '.' || *ra == '_' ||
+		      *ra == '-'))
+			return 0;
+		part++;
+	}
+
+	return part > 0;
+}
+
 struct lws_stub_manager *
 lws_stub_spawn(const struct lws_stub_config *config)
 {
@@ -251,6 +286,20 @@ lws_stub_spawn(const struct lws_stub_config *config)
 		lws_strncpy(mgr->stub_name, config->stub_name, sizeof(mgr->stub_name));
 	mgr->config.stub_name = mgr->stub_name;
 	mgr->protocols = config->protocols;
+
+	if (config->run_as) {
+		if (!lws_stub_run_as_ok(config->run_as) ||
+		    strlen(config->run_as) + 14 >= sizeof(mgr->run_as_arg)) {
+			lwsl_err("%s: stub '%s': unusable run_as '%s'\n",
+				 __func__, mgr->stub_name, config->run_as);
+			lws_free(mgr);
+
+			return NULL;
+		}
+		lws_snprintf(mgr->run_as_arg, sizeof(mgr->run_as_arg),
+			     "--lws-run-as=%s", config->run_as);
+	}
+	mgr->config.run_as = NULL; /* it is in run_as_arg, not the caller's */
 
 	/*
 	 * track the mgr on the context, so a stub can never outlive either
@@ -353,6 +402,9 @@ lws_stub_spawn(const struct lws_stub_config *config)
 			     mgr->uds_path);
 		mgr->exec_array[n++] = mgr->uds_arg;
 	}
+	/* and who to become once it is listening */
+	if (mgr->run_as_arg[0])
+		mgr->exec_array[n++] = mgr->run_as_arg;
 	mgr->exec_array[n++] = NULL;
 
 	spawn_info.exec_array = mgr->exec_array;
@@ -678,6 +730,108 @@ lws_stub_child_watchdog_init(const struct lws_stub_config *config)
 }
 #endif /* LWS_STUB_AUTONOMOUS_EXIT */
 
+/*
+ * The parent may have told us on our cmdline to run as somebody else.  We
+ * were spawned with its privileges, so we could listen where it wanted, with
+ * the socket owned so its unprivileged process can connect.  Now that we are
+ * listening, we become that user before we serve anything.
+ */
+
+static int
+lws_stub_run_as(const struct lws_stub_config *config)
+{
+	const char *ra = lws_cmdline_option_cx(config->cx, "--lws-run-as");
+	struct lws_context *cx = config->cx;
+#if !defined(WIN32)
+	const char *un = cx->username, *gn = cx->groupname;
+	char u[64], *colon;
+	uid_t uid;
+	gid_t gid = 0;
+	int r;
+#endif
+
+	if (!ra)
+		return 0;
+
+#if defined(WIN32)
+	lwsl_err("%s: stub '%s': can't run as '%s' here\n", __func__,
+		 config->stub_name, ra);
+
+	return -1;
+#else
+	if (!lws_stub_run_as_ok(ra) || strlen(ra) >= sizeof(u)) {
+		lwsl_err("%s: stub '%s': unusable --lws-run-as\n", __func__,
+			 config->stub_name);
+
+		return -1;
+	}
+
+	lws_strncpy(u, ra, sizeof(u));
+	colon = strchr(u, ':');
+	if (colon)
+		*colon++ = '\0';
+
+	if (lws_plat_user_to_uid(u, &uid) ||
+	    (colon && lws_plat_group_to_gid(colon, &gid))) {
+		lwsl_err("%s: stub '%s': no such user or group as '%s'\n",
+			 __func__, config->stub_name, ra);
+
+		return -1;
+	}
+
+	/*
+	 * Spawned by a parent that is already that user, there is nothing to
+	 * drop, and nothing to drop it with
+	 */
+	if (uid && uid == getuid() && uid == geteuid() &&
+	    (!colon || (gid == getgid() && gid == getegid()))) {
+		lwsl_notice("%s: stub '%s': already running as '%s'\n",
+			    __func__, config->stub_name, ra);
+
+		return 0;
+	}
+
+	/*
+	 * The context's ids are the ones from the config we share with the
+	 * parent, that our socket was given to: they are not who we become
+	 */
+	cx->username	= u;
+	cx->groupname	= colon;
+	cx->uid		= 0;
+	cx->gid		= 0;
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	/* nor do we keep any capabilities the config gives the parent */
+	cx->count_caps	= 0;
+#endif
+
+	r = lws_plat_drop_app_privileges(cx, 1);
+
+	cx->username	= un;
+	cx->groupname	= gn;
+
+	if (r || !cx->uid || geteuid() != cx->uid) {
+		lwsl_err("%s: stub '%s': unable to run as '%s'\n", __func__,
+			 config->stub_name, ra);
+
+		return -1;
+	}
+
+#if defined(__linux__)
+	/*
+	 * Changing our credentials cleared the parent death signal
+	 * lws_spawn_piped() armed: arm it again.  If the parent went in
+	 * between, the watchdog sees we were re-parented.
+	 */
+	prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+
+	lwsl_notice("%s: stub '%s': running as '%s'\n", __func__,
+		    config->stub_name, ra);
+
+	return 0;
+#endif
+}
+
 int
 lws_stub_server_init(const struct lws_stub_config *_config, char *secret_out, void *extra_out, size_t extra_len)
 {
@@ -784,6 +938,10 @@ lws_stub_server_init(const struct lws_stub_config *_config, char *secret_out, vo
 	 */
 	lws_stub_child_watchdog_init(config);
 #endif
+
+	/* 5. Become who the parent said, now we are listening */
+	if (lws_stub_run_as(config))
+		return -1;
 
 	/* Signal ready */
 	lwsl_notice("STUB-READY (%s)\n", config->stub_name);

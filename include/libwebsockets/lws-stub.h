@@ -64,6 +64,14 @@ struct lws_stub_config {
 								 * protocol must call lws_spawn_stdwsi_closed()
 								 * with lws_stub_get_lsp(mgr) from its
 								 * LWS_CALLBACK_RAW_CLOSE_FILE handler. */
+	const char			*run_as;		/* Parent side, NULL, or "user" or "user:group"
+								 * the stub becomes once it is listening, before
+								 * it serves anything.  Spawned with root's
+								 * privileges, a stub that only needs some files
+								 * of its own can run as a user the parent's
+								 * unprivileged process isn't, and that its
+								 * files belong to.  Without a group, the user's
+								 * own.  If the stub can't become it, it fails. */
 };
 
 struct lws_stub_manager;
@@ -111,6 +119,11 @@ lws_stub_spawn(const struct lws_stub_config *config);
  * socket file is still its own) and exits the process autonomously.  A stub
  * process has no reason to exist without its parent, so no other shutdown
  * path is taken or possible.
+ *
+ * If the parent gave a config->run_as to lws_stub_spawn(), the stub becomes
+ * that user once its UDS socket is listening, before this returns.  The
+ * socket was made with the privileges it was spawned with, so the parent's
+ * unprivileged process can still reach it.
  *
  * Returns 0 on success, < 0 on failure.
  */
