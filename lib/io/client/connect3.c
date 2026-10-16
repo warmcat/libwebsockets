@@ -1852,6 +1852,23 @@ try_next_dns_result:
 		if (any_valid) {
 			/* some connection is still running */
 			lwsl_wsi_info(wsi, "attempt failed, others still running");
+			/*
+			 * While we are waiting to connect, the attempts still
+			 * running are bounded by the connect timeout, and
+			 * coming back here to find it not armed is taken as
+			 * it having fired.  An attempt that failed inside its
+			 * connect() never armed it, eg, a racer refused at
+			 * once on FreeBSD loopback, whose start also took a
+			 * QUIC primary back to waiting to connect: the
+			 * primary's first datagram abandoned the connection.
+			 */
+			if (lwsi_transport(wsi) == LTS_WAITING_CONNECT &&
+			    !lws_dll2_owner(&wsi->io->sul_connect_timeout.list))
+				lws_sul_schedule(wsi->a.context, wsi->tsi,
+						 &wsi->io->sul_connect_timeout,
+						 lws_client_conn_wait_timeout,
+						 wsi->a.context->timeout_secs *
+							LWS_USEC_PER_SEC);
 			return wsi;
 		}
 	}

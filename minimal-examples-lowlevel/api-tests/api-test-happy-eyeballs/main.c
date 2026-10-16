@@ -134,6 +134,13 @@ static int race_expected;
 static int midrace_mode;
 static const int midrace_conns = 6;
 
+/*
+ * --racer-sync-fail mode: FI fails each connection's happy eyeballs racer
+ * inside its connect() call, as FreeBSD can refuse a loopback connect at once.
+ * The steps must still arrive by the expected protocol: the h3 step's QUIC
+ * primary goes on and wins, it isn't abandoned to h2.
+ */
+
 /* what protocol each step's response must have arrived by */
 static const char * const via_expect[] = { "h2", "h3", "h2" };
 
@@ -535,6 +542,22 @@ int main(int argc, const char **argv)
 		 */
 		lws_fi_t fi = { .name = "wsi/he_race_fast",
 				.type = LWSFI_ALWAYS, .count = 1, .pre = 0 };
+
+		lws_fi_add(&info.fic, &fi);
+#endif
+	}
+
+	if (lws_cmdline_option(argc, argv, "--racer-sync-fail")) {
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/*
+		 * Each connection's second connect(), its happy-eyeballs
+		 * racer, fails inside the connect() call, as FreeBSD can
+		 * refuse a loopback connect at once.  The h3 step's QUIC
+		 * primary must go on and win, not be abandoned to h2.
+		 */
+		lws_fi_t fi = { .name = "wsi/connfail",
+				.type = LWSFI_DETERMINISTIC, .pre = 1,
+				.count = 1 };
 
 		lws_fi_add(&info.fic, &fi);
 #endif

@@ -1288,7 +1288,7 @@ lws_adns_watch_start(struct lws_context *cx)
 
 	if (!lws_smd_msg_printf(cx, LWSSMDCL_DNS, "{\"ns\":[%s]}",
 				dns->watch_last))
-		lwsl_cx_notice(cx, "platform DNS servers: {\"ns\":[%s]}",
+		lwsl_cx_notice(cx, "platform DNS servers: {%s}",
 				dns->watch_last);
 
 #if defined(__APPLE__)

@@ -65,6 +65,32 @@ if (requirements)
 	# exits success with a "not applicable" notice rather than failing.
 	#
 
+	#
+	# FI fails each connection's racer inside its connect() call, as
+	# FreeBSD can refuse a loopback connect at once.  A racer that never
+	# got as far as waiting for its connect left no connect timeout
+	# armed, and starting it had taken the h3 step's QUIC primary back
+	# to waiting to connect: the primary's first datagram was taken as
+	# that timeout having fired, and the h3 step fell back to h2.
+	#
+
+	set(fi_requirements 1)
+	require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 fi_requirements)
+
+	if (fi_requirements)
+		lws_get_free_port(PORT_HE_TCP_RSF)
+		lws_get_free_port(PORT_HE_QUIC_RSF)
+
+		add_test(NAME api-test-happy-eyeballs-racer-sync-fail
+			 COMMAND lws-api-test-happy-eyeballs --racer-sync-fail
+				 --server ${LWS_CTEST_SERVER_RESOLVE}
+				 -p ${PORT_HE_TCP_RSF} -q ${PORT_HE_QUIC_RSF})
+		set_tests_properties(api-test-happy-eyeballs-racer-sync-fail
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-happy-eyeballs
+				     TIMEOUT 60)
+	endif()
+
 	set(uv_requirements 1)
 	require_lws_config(LWS_WITH_LIBUV 1 uv_requirements)
 	require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 uv_requirements)
