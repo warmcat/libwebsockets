@@ -1858,6 +1858,25 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						return -1;
 					}
 
+#if defined(LWS_ROLE_H3)
+					/*
+					 * An h3 server may not open a request
+					 * stream on its client, only one of a
+					 * WebTransport session's streams
+					 */
+					if (nwsi->h3.h3n && !is_unidirectional &&
+					    !lws_h3_peer_bidi_allowed(nwsi)) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: h3 "
+							"server opened bidi "
+							"stream %llu",
+							(unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi,
+							LWS_H3_STREAM_CREATION_ERROR,
+							0, 1);
+						return -1;
+					}
+#endif
+
 					/* Peer initiated a new stream. We must create a child WSI! */
 					wsi_child = lws_create_new_server_wsi(nwsi->a.vhost, nwsi->tsi, LWSLCG_WSI_MUX, "quic stream");
 					if (!wsi_child) return -1;

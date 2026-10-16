@@ -167,7 +167,17 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
 	struct lws *cwsi;
 
-	if (!qn || !wsi_session->wt.is_session)
+	/*
+	 * The wt_stream_without_session fault lets a test be a server opening
+	 * a bidi stream on a connection that has no session, as only a peer
+	 * misbehaving would
+	 */
+	if (!qn || (!wsi_session->wt.is_session
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		    && !lws_fi(&wsi_session->a.vhost->fic,
+			       "wt_stream_without_session")
+#endif
+		   ))
 		return NULL;
 
 	cwsi = lws_create_new_server_wsi(nwsi->a.vhost, nwsi->tsi, 0, "wt_stream");

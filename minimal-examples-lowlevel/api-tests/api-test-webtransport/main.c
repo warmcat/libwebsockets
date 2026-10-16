@@ -34,7 +34,17 @@
  *  - a CONNECT to a mount with basic auth, sent without credentials, is
  *    refused with a 401 before its protocol sees the request.
  *
- * The "nowt" case needs LWS_WITH_SYS_FAULT_INJECTION, the named protocol
+ *  - the server opens a bidi stream on the client's session and sends a
+ *    message on it: the client must get it on a stream of its session.
+ *
+ *  - a plain h3 GET to the "nowt" server, which also has the
+ *    wt_stream_without_session fault, so it opens a bidi stream back on a
+ *    connection without any session.  An h3 server may not do that (RFC 9114
+ *    6.1): the client must fail the connection at once, so the server sees
+ *    its stream close promptly, rather than the stream being handed to the
+ *    client's app and the GET left waiting.
+ *
+ * The "nowt" cases need LWS_WITH_SYS_FAULT_INJECTION, the named protocol
  * case LWS_WITH_CUSTOM_HEADERS, and the basic auth case
  * LWS_WITH_HTTP_BASIC_AUTH: without them those cases are skipped.
  */
@@ -60,6 +70,8 @@ enum {
 	WTAT_NAMED_NOT_WT,	/* offer only a protocol that takes no wt */
 	WTAT_MOUNT_NOT_WT,	/* :path is the mount of a non-wt protocol */
 	WTAT_BASIC_AUTH,	/* :path is a basic auth mount, no credentials */
+	WTAT_SERVER_OPENS,	/* the server opens a stream on the session */
+	WTAT_PLAIN_SERVER_OPENS, /* ... on a connection with no session */
 };
 
 struct xcase {
@@ -88,6 +100,12 @@ static const struct xcase cases[] = {
 	{ "basic auth mount without credentials: refused", "/auth",
 		"WT CONNECT refused 401", WTAT_BASIC_AUTH },
 #endif
+	{ "server opens a stream on the session: client gets its message",
+		"/", NULL, WTAT_SERVER_OPENS },
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	{ "server opens a bidi stream without a session: connection failed",
+		"/", NULL, WTAT_PLAIN_SERVER_OPENS },
+#endif
 };
 
 static struct lws_context *context;
@@ -107,6 +125,8 @@ static struct {
 	int		stream_msgs;	/* STREAM_MSG received on a stream */
 	int		streams_closed;
 	int		plain_requests;	/* anything reaching plain-ws */
+	int		streams_opened;	/* by the server, on the client */
+	int		stream_msg_sent;
 } srv;
 
 /* what the client saw during the case */
@@ -117,6 +137,8 @@ static struct {
 	int		sessions_closed;
 	int		conn_error;
 	char		conn_error_reason[128];
+	int		stream_msgs;	/* STREAM_MSG on a stream the server
+					 * opened */
 } cli;
 
 /* a self-signed test cert does for the client's alpn */
@@ -279,6 +301,31 @@ case_evaluate(void)
 		case_finish(1, NULL);
 		return;
 
+	case WTAT_SERVER_OPENS:
+		if (!srv.sessions_closed || !cli.sessions_closed)
+			return;
+		if (cli.stream_msgs != 1) {
+			case_finish(0, "client did not get the server's message");
+			return;
+		}
+		case_finish(1, NULL);
+		return;
+
+	case WTAT_PLAIN_SERVER_OPENS:
+		/* the client failing the connection closes the server's end */
+		if (!srv.streams_closed)
+			return;
+		if (srv.streams_opened != 1) {
+			case_finish(0, "server did not open its stream");
+			return;
+		}
+		if (lws_now_usecs() - us_close > PEER_CLOSE_BOUND_US) {
+			case_finish(0, "client did not fail the connection");
+			return;
+		}
+		case_finish(1, NULL);
+		return;
+
 	default:
 		break;
 	}
@@ -313,7 +360,37 @@ static int
 callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
+	uint8_t buf[LWS_PRE + sizeof(STREAM_MSG)];
+	struct lws *cwsi;
+
 	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+		/* only the plain GET: it gets a stream back, not an answer */
+		if (cases[cur].type != WTAT_PLAIN_SERVER_OPENS)
+			return -1;
+		cwsi = lws_wt_create_stream(wsi, 0);
+		if (!cwsi) {
+			case_finish(0, "server could not open its stream");
+			return -1;
+		}
+		srv.streams_opened++;
+		srv.stream = cwsi;
+		us_close = lws_now_usecs();
+		lws_callback_on_writable(cwsi);
+		return 0;
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		/* the stream the server opened has its one message */
+		if (lws_wt_is_session(wsi) || !srv.streams_opened ||
+		    srv.stream_msg_sent)
+			break;
+		srv.stream_msg_sent = 1;
+		memcpy(&buf[LWS_PRE], STREAM_MSG, strlen(STREAM_MSG));
+		if (lws_write(wsi, &buf[LWS_PRE], strlen(STREAM_MSG),
+			      LWS_WRITE_BINARY) != (int)strlen(STREAM_MSG))
+			case_finish(0, "server stream write failed");
+		break;
+
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
 		/* issued on the CONNECT stream before the 200 */
 		lwsl_user("%s: server: WebTransport CONNECT on %s\n", __func__,
@@ -428,6 +505,25 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		case_evaluate();
 		break;
 
+	case LWS_CALLBACK_RECEIVE:
+		/* on a stream the server opened on our session */
+		if (lws_wt_is_session(wsi))
+			break;
+		if (len != strlen(STREAM_MSG) || memcmp(in, STREAM_MSG, len)) {
+			case_finish(0, "client got unexpected stream data");
+			break;
+		}
+		lwsl_user("%s: client: server's stream message received\n",
+			  __func__);
+		cli.stream_msgs++;
+		if (cli.session) {
+			us_close = lws_now_usecs();
+			lws_set_timeout(cli.session, PENDING_TIMEOUT_USER_OK,
+					LWS_TO_KILL_ASYNC);
+		} else
+			case_finish(0, "client has no session");
+		break;
+
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		/* the 200 to the CONNECT: the wsi is now the session */
 		if (!lws_wt_is_session(wsi))
@@ -445,6 +541,19 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 						LWS_TO_KILL_ASYNC);
 			} else
 				case_finish(0, "server has no session");
+			break;
+		}
+
+		if (cases[cur].type == WTAT_SERVER_OPENS) {
+			/* the client ends it when the server's message came */
+			cwsi = srv.session ? lws_wt_create_stream(srv.session,
+								  0) : NULL;
+			if (!cwsi) {
+				case_finish(0, "server could not open a stream");
+				break;
+			}
+			srv.streams_opened++;
+			lws_callback_on_writable(cwsi);
 			break;
 		}
 
@@ -526,9 +635,15 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.address = server_addr;
 	i.host = server_addr;
 	i.origin = server_addr;
-	i.port = c->type == WTAT_NOWT ? port_nowt : port_wt;
+	i.port = c->type == WTAT_NOWT || c->type == WTAT_PLAIN_SERVER_OPENS ?
+							port_nowt : port_wt;
 	i.path = c->path;
-	i.protocol = "webtransport";
+	if (c->type == WTAT_PLAIN_SERVER_OPENS) {
+		/* a plain h3 GET, its protocol asking for no session */
+		i.method = "GET";
+		i.local_protocol_name = "plain-h3";
+	} else
+		i.protocol = "webtransport";
 	i.alpn = "h3";
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 			   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
@@ -579,6 +694,7 @@ static const struct lws_http_mount mount_srv = {
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "webtransport", callback_cli, 0, 1024, 0, NULL, 0 },
+	{ "plain-h3", callback_cli, 0, 1024, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -658,6 +774,10 @@ int main(int argc, const char **argv)
 	memset(&fi, 0, sizeof(fi));
 	fi.name = "h3_settings_no_wt";
 	fi.type = LWSFI_ALWAYS;
+	if (lws_fi_add(&info.fic, &fi))
+		goto bail;
+	/* ...and it opens streams without a session */
+	fi.name = "wt_stream_without_session";
 	if (lws_fi_add(&info.fic, &fi))
 		goto bail;
 

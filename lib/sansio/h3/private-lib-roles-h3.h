@@ -62,6 +62,15 @@ int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len);
 
 /*
+ * Nonzero if the h3 connection nwsi may take a bidirectional stream its peer
+ * opens.  A server does, they are requests.  A client only does once it has
+ * a WebTransport session, whose streams they may be: otherwise one is a
+ * connection error (RFC 9114 6.1), not something to hand the app.
+ */
+int
+lws_h3_peer_bidi_allowed(struct lws *nwsi);
+
+/*
  * The peer's FIN has been delivered on a server request stream, after all of
  * the stream's bytes went through lws_h3_rx_stream_data(): a request body
  * with no content-length ends there.  Nonzero means the stream must close.

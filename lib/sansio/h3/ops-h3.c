@@ -1525,25 +1525,60 @@ lws_h3_rx_fin_server(struct lws *wsi)
 }
 #endif
 
+#if defined(LWS_ROLE_WT)
+static int
+lws_h3_has_wt_session(struct lws *nwsi)
+{
+	if (!nwsi)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+		struct lws *child = lws_container_of(d, struct lws,
+						     mux.sibling_list);
+		if (child->wt.is_session)
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+#endif
+
+int
+lws_h3_peer_bidi_allowed(struct lws *nwsi)
+{
+	if (!nwsi->quic.qn || nwsi->quic.qn->is_server)
+		return 1;
+
+#if defined(LWS_ROLE_WT) && defined(LWS_WITH_CLIENT)
+	/*
+	 * The server may open a session's streams as soon as it accepted the
+	 * CONNECT, so one may arrive before we saw its 200: a session asked
+	 * for, by one of our request streams, counts as well as one we have.
+	 * The peer's unidi streams are bound to a protocol too, but they ask
+	 * for nothing.
+	 */
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+		struct lws *child = lws_container_of(d, struct lws,
+						     mux.sibling_list);
+		if (child->wt.is_session ||
+		    (child->quic.qs && !child->quic.qs->is_unidirectional &&
+		     !child->quic.qs->is_server_initiated &&
+		     lws_h3_client_is_wt(child)))
+			return 1;
+	} lws_end_foreach_dll(d);
+#endif
+
+	return 0;
+}
+
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 {
 #if defined(LWS_ROLE_WT)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-	int has_wt_session = 0;
-
-	if (nwsi) {
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
-			struct lws *child = lws_container_of(d, struct lws,
-							     mux.sibling_list);
-			if (child->wt.is_session) {
-				has_wt_session = 1;
-				break;
-			}
-		}
-		lws_end_foreach_dll(d);
-	}
+	int has_wt_session = lws_h3_has_wt_session(nwsi);
 #endif
 
 	/*
