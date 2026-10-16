@@ -30,6 +30,7 @@ arrived.
 |--forwarder|With `--relay`, the relay also sends the server copies of the client's small packets from an address that never answers, see below|
 |--pmtu <bytes>|With `--relay`, the relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send, see below|
 |--delay-spike|With `--pmtu`, when each side starts probing, the relay holds what it sends for 500ms, see below|
+|--pmtu-outage|With `--pmtu`, partway through the server's transfer, the relay loses everything for 100ms, see below|
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
@@ -169,6 +170,24 @@ The same checks as `--pmtu` apply.
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1500 --delay-spike
 ```
 
+With `--pmtu-outage` as well, the path is down for a moment: once the server
+has sent 40 datagrams bigger than an IP MTU of 1280 carries, the relay loses
+everything in both directions for 100ms.  Each side loses big packets with
+none sent after them getting through, so it goes back to 1280, as it does for
+a black hole (see `--blackhole` below).  When its probe of 1232 bytes gets
+through after the outage, that only says the path is up again: nothing big
+was sent since going back, so nothing big could have got through.  So it
+probes the size it had too, and when that is acked, it was an outage, not a
+black hole, and it goes back to that size.  The same checks as `--pmtu`
+apply, leaving out the datagrams the outage lost, except that a side may lose
+four that were too big: a probe on its way when it suspected the black hole
+says nothing about the path, so it doesn't count towards the three.  The
+outage must have lost some of the server's datagrams, or nothing was tested.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400 --pmtu-outage
+```
+
 With `--blackhole` instead, the path's MTU falls under the connection.  The
 relay passes datagrams on as they come, until it has passed ten in a
 direction that are bigger than an IP MTU of 1280 carries, 1232 bytes; from
@@ -181,8 +200,9 @@ once three were lost with none sent after them getting through, it goes back
 to 1280 at once, and sends a probe of 1232 bytes to confirm small packets
 still get through.  It can't wait for that before going back: the other side
 acks the probe in what it sends next, which is big, and lost too.  Once the
-probe gets through, the side searches again from 1280, and settles there when
-its probes of 1380 are lost; it tries 1380 again 10 minutes later.  If a big
+probe gets through, the side probes the size it had, and when that is lost,
+it searches again from 1280, and settles there when its probes of 1380 are
+lost; it tries 1380 again 10 minutes later.  If a big
 packet sent before going back is acked after all, it was ordinary loss, and
 the side goes back to the size it had.  The transfer must complete, and each
 side must have sent big packets into the black hole, or nothing was tested.

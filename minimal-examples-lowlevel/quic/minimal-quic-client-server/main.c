@@ -269,15 +269,29 @@ static const char * const test_key =
 #define RELAY_SPIKE_LIMIT	(1024 * 1024)
 
 /*
+ * With --pmtu-outage as well, once the server has sent
+ * RELAY_PMTU_OUTAGE_AFTER datagrams bigger than RELAY_BH_BASE, the relay loses
+ * everything in both directions for RELAY_PMTU_OUTAGE_US, as a path that is
+ * down for a moment would.  Each side loses big packets with none after them
+ * getting through, and goes back to the base, but it's not a black hole:
+ * once the base gets through, a probe of the size it had must be acked, and
+ * it goes back to that size.  The same checks as --pmtu apply, the datagrams
+ * the outage lost aside, except a side may lose one more probe that was too
+ * big: one on its way when it suspected the black hole says nothing.
+ */
+#define RELAY_PMTU_OUTAGE_AFTER	40
+#define RELAY_PMTU_OUTAGE_US	(100 * LWS_US_PER_MS)
+
+/*
  * With --blackhole, the relay passes datagrams on as they come, until it has
  * passed RELAY_BH_AFTER datagrams bigger than RELAY_BH_BASE in a direction,
  * which the base IP MTU, 1280, carries.  Then it loses every datagram bigger
  * than that in that direction, as a path whose MTU fell to the base would,
  * without telling anyone.  Each side must see the big packets it sends are
  * lost, and go back to the base (RFC 8899 4.3), confirming with a probe of
- * the base size that small packets still get through, so the transfer
- * completes.  The test fails if a direction never had the black hole, since
- * then nothing was tested.
+ * the base size that small packets still get through, then with one of the
+ * size it had that big ones don't, so the transfer completes.  The test fails
+ * if a direction never had the black hole, since then nothing was tested.
  */
 #define RELAY_BH_AFTER		10
 #define RELAY_BH_BASE		(1280 - RELAY_PMTU_OVERHEAD)
@@ -385,7 +399,9 @@ struct relay_dir {
 	unsigned int		dropped;
 
 	size_t			largest;	/* --pmtu: passed on */
-	unsigned int		big;		/* --blackhole: passed on */
+	unsigned int		big;		/* --blackhole, --pmtu-outage:
+						 * passed on */
+	unsigned int		outage_lost;	/* --pmtu-outage */
 
 	/* --delay-spike: held back, then sent on in order */
 	lws_sorted_usec_list_t	sul_spike;
@@ -422,6 +438,8 @@ static struct {
 	char			forwarder;
 
 	size_t			pmtu;		/* --pmtu */
+	lws_usec_t		pmtu_outage_until;
+	char			pmtu_outage;
 	char			delay_spike;
 	char			blackhole;
 } relay;
@@ -565,10 +583,25 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 	if (fd == LWS_SOCK_INVALID)
 		return;
 
+	/*
+	 * Everything is lost in the outage, too big or not: the sender can't
+	 * tell what a probe lost then says about the path, nor should it
+	 */
+	if (relay.pmtu_outage_until &&
+	    lws_now_usecs() < relay.pmtu_outage_until) {
+		d->outage_lost++;
+		return;
+	}
+
 	if (len > relay.pmtu) {
 		d->dropped++;
 		return;
 	}
+
+	if (relay.pmtu_outage && !relay.pmtu_outage_until &&
+	    d == &relay.dir[1] && len > RELAY_BH_BASE &&
+	    ++d->big == RELAY_PMTU_OUTAGE_AFTER)
+		relay.pmtu_outage_until = lws_now_usecs() + RELAY_PMTU_OUTAGE_US;
 
 	if (relay.delay_spike && !d->spike_on && !d->spike_done &&
 	    len > RELAY_BH_BASE) {
@@ -978,10 +1011,27 @@ pmtu_failed(void)
 				 "carries\n", who);
 			e = 1;
 		}
-		if (d->dropped > RELAY_PMTU_MAX_PROBES) {
+		/*
+		 * A search probe on its way when the outage made the side
+		 * suspect a black hole says nothing about the path, lost or
+		 * not, so the side may send one more
+		 */
+		if (d->dropped > RELAY_PMTU_MAX_PROBES +
+				 (relay.pmtu_outage ? 1u : 0u)) {
 			lwsl_err("pmtu: the %s kept sending datagrams too big "
 				 "for the path\n", who);
 			e = 1;
+		}
+
+		if (relay.pmtu_outage) {
+			lwsl_user("pmtu: the outage lost %u of the %s's "
+				  "datagrams\n", d->outage_lost, who);
+			if (n && !d->outage_lost) {
+				lwsl_err("pmtu: the outage lost none of the "
+					 "server's datagrams, nothing was "
+					 "tested\n");
+				e = 1;
+			}
 		}
 
 		if (!relay.delay_spike)
@@ -1206,6 +1256,7 @@ enum {
 	LWS_SW_FORWARDER,
 	LWS_SW_PMTU,
 	LWS_SW_DELAY_SPIKE,
+	LWS_SW_PMTU_OUTAGE,
 	LWS_SW_BLACKHOLE,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
@@ -1225,6 +1276,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_FORWARDER] = { "--forwarder", "The relay also sends the server copies of the client's small packets from an address that never answers (needs --relay)" },
 	[LWS_SW_PMTU]	= { "--pmtu",	"The relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send (needs --relay)" },
 	[LWS_SW_DELAY_SPIKE] = { "--delay-spike", "When each side starts probing, the relay holds what it sends for 500ms, so its first probes are acked after they were given up for lost, and both sides must still find the biggest size (needs --pmtu)" },
+	[LWS_SW_PMTU_OUTAGE] = { "--pmtu-outage", "Partway through the server's transfer, the relay loses everything for 100ms, which both sides must not take for a black hole (needs --pmtu)" },
 	[LWS_SW_BLACKHOLE] = { "--blackhole", "Once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, and both sides must go back to 1280 (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
@@ -1386,6 +1438,13 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_PMTU_OUTAGE].sw) &&
+	    (!pmtu ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_DELAY_SPIKE].sw))) {
+		lwsl_err("--pmtu-outage needs --pmtu, and not --delay-spike\n");
+		return 1;
+	}
+
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw) &&
 	    (!relay_port || outage_ms || pmtu ||
 	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
@@ -1486,6 +1545,8 @@ int main(int argc, const char **argv)
 		relay.pmtu = (size_t)pmtu;
 		relay.delay_spike = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_DELAY_SPIKE].sw);
+		relay.pmtu_outage = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_PMTU_OUTAGE].sw);
 		relay.blackhole = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_BLACKHOLE].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
