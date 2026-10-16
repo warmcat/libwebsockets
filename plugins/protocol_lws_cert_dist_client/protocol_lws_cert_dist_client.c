@@ -358,9 +358,18 @@ cdc_inst_hand_over(struct pss_cert_dist_client *pss,
 	lws_snprintf(key, sizeof(key), "%s/%s/privkey.pem",
 		     conn->vhd->base_dir, conn->name);
 
-	lws_tls_cert_updated(conn->vhd->cx, crt, key,
-			     pss->inst_cert, (size_t)pss->inst_cert_len,
-			     pss->inst_key, (size_t)pss->inst_key_len);
+	/*
+	 * lws_tls_cert_updated() logs what each vhost does with it, and warns
+	 * if no vhost uses those paths at all
+	 */
+	lwsl_notice("%s: handing the new cert for '%s' to the vhosts serving "
+		    "%s\n", __func__, conn->name, crt);
+	if (lws_tls_cert_updated(conn->vhd->cx, crt, key,
+				 pss->inst_cert, (size_t)pss->inst_cert_len,
+				 pss->inst_key, (size_t)pss->inst_key_len))
+		lwsl_err("%s: a vhost serving %s could not load the new cert "
+			 "for '%s' and still serves the old one, see above\n",
+			 __func__, crt, conn->name);
 }
 
 /*
