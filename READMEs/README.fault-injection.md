@@ -316,6 +316,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`createfail`|Creating the client wsi itself fails|
 |cli wsi|`wsi`|`h3_body_with_headers`|An h3 client request with a body makes its first body write right after the HEADERS, so the server sees the request, its body and maybe the FIN all at once (LWS_ROLE_H3)|
 |srv vhost|`vh`|`wt_stream_without_session`|`lws_wt_create_stream()` opens a stream from a wsi that is no WebTransport session, as a peer opening a bidi stream on a plain h3 connection would (LWS_ROLE_WT)|
+|cli wsi|`wsi`|`h3_req_frame_settings`|An h3 client request stream starts with an empty SETTINGS frame, which only the control stream may carry (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_trailer_field`|An h3 client request with no body ends with a trailers block holding `user-agent: trailer-ua` (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_trailer_pseudo`|An h3 client request with no body ends with a trailers block holding a `:path`, which trailers may not (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`quic_stream_replay`|A QUIC stream's first STREAM frame is sent once more 100ms after the stream closed, as a retransmission whose ack was lost would be, after the peer finished with the stream (LWS_ROLE_QUIC)|

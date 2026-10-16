@@ -245,6 +245,23 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * The h3_req_frame_settings fault puts an empty SETTINGS frame on the
+	 * request stream ahead of its HEADERS, where only the control stream
+	 * may have one.  A write that isn't http goes out unframed.
+	 */
+	if (lws_fi(&wsi->fic, "h3_req_frame_settings")) {
+		uint8_t fr[LWS_PRE + 2];
+
+		fr[LWS_PRE] = 0x04; /* SETTINGS */
+		fr[LWS_PRE + 1] = 0x00; /* of no length */
+		if (lws_write(wsi, &fr[LWS_PRE], 2, LWS_WRITE_BINARY) != 2)
+			return -1;
+	}
+#endif
+
 	m = LWS_WRITE_HTTP_HEADERS;
 #if defined(LWS_WITH_CLIENT)
 	/*
@@ -1883,6 +1900,21 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					(unsigned long long)wsi->h3.rx_frame_type, (unsigned long long)wsi->h3.rx_frame_len,
 					wsi->h3.stream_type, wsi->quic.qs ? wsi->quic.qs->is_unidirectional : 0);
 
+				/*
+				 * RFC 9114 7.2.8: the frame types h2 has and h3
+				 * reserved in their place are unexpected on any
+				 * stream (PRIORITY, PING, WINDOW_UPDATE and
+				 * CONTINUATION)
+				 */
+				if (wsi->h3.rx_frame_type == 0x02 ||
+				    wsi->h3.rx_frame_type == 0x06 ||
+				    wsi->h3.rx_frame_type == 0x08 ||
+				    wsi->h3.rx_frame_type == 0x09) {
+					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+					lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_UNEXPECTED, 0, 1);
+					return 1;
+				}
+
 				/* Validation: Control Streams */
 				if (wsi->quic.qs && wsi->quic.qs->is_unidirectional && wsi->h3.stream_type == 0x00) {
 					/* HTTP/3 6.2.1: MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS */
@@ -1891,8 +1923,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						lws_quic_enter_closing_state(nwsi, LWS_H3_MISSING_SETTINGS, 0, 1);
 						return 1;
 					}
-					/* HTTP/3 7.2.1/7.2.2: MUST send H3_FRAME_UNEXPECTED if DATA or HEADERS is received on a control stream */
-					if (wsi->h3.rx_frame_type == 0x00 || wsi->h3.rx_frame_type == 0x01) {
+					/* HTTP/3 7.2.1/7.2.2/7.2.5: MUST send H3_FRAME_UNEXPECTED if DATA, HEADERS or PUSH_PROMISE is received on a control stream */
+					if (wsi->h3.rx_frame_type == 0x00 || wsi->h3.rx_frame_type == 0x01 ||
+					    wsi->h3.rx_frame_type == 0x05) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 						lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_UNEXPECTED, 0, 1);
 						return 1;
@@ -1917,9 +1950,34 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_UNEXPECTED, 0, 1);
 						return 1;
 					}
-					if (wsi->h3.rx_frame_type == 0x03) { /* CANCEL_PUSH */
+					/*
+					 * RFC 9114 7.2.3 / 7.2.4 / 7.2.6 / 7.2.7:
+					 * CANCEL_PUSH, SETTINGS, GOAWAY and
+					 * MAX_PUSH_ID only go on the control
+					 * stream.  A SETTINGS here once passed
+					 * for the peer's, before its real one.
+					 */
+					if (wsi->h3.rx_frame_type == 0x03 ||
+					    wsi->h3.rx_frame_type == 0x04 ||
+					    wsi->h3.rx_frame_type == 0x07 ||
+					    wsi->h3.rx_frame_type == 0x0d) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 						lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_UNEXPECTED, 0, 1);
+						return 1;
+					}
+					/*
+					 * RFC 9114 7.2.5: a server never takes a
+					 * PUSH_PROMISE, and a client that sent
+					 * no MAX_PUSH_ID, as lws doesn't, allows
+					 * no push ID at all
+					 */
+					if (wsi->h3.rx_frame_type == 0x05) {
+						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+						lws_quic_enter_closing_state(nwsi,
+							nwsi && nwsi->quic.qn &&
+							nwsi->quic.qn->is_server ?
+								LWS_H3_FRAME_UNEXPECTED :
+								LWS_H3_ID_ERROR, 0, 1);
 						return 1;
 					}
 #if defined(LWS_WITH_CLIENT)
@@ -2192,7 +2250,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
 
 			if (wsi->h3.rx_frame_payload_read == wsi->h3.rx_frame_len) {
-				if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
+				/* the peer's control stream: a request stream's type is 0 too */
+				if (wsi->quic.qs && wsi->quic.qs->is_unidirectional &&
+				    wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
 					/* SETTINGS frame fully received, wake up children */
 					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 

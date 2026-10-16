@@ -715,6 +715,9 @@ static const struct h3_attack h3_attacks[] = {
 	  NULL, NULL, 0, 0, 0, V_ECHO, "POST", "h3_trailer_field" },
 	{ "a pseudo-header in trailers", "/alive",
 	  NULL, NULL, 0, 0, 0, V_REFUSED, "POST", "h3_trailer_pseudo" },
+	/* only the control stream carries SETTINGS: RFC 9114 7.2.4 */
+	{ "SETTINGS on a request stream", "/alive",
+	  NULL, NULL, 0, 0, 0, V_REFUSED, NULL, "h3_req_frame_settings" },
 #endif
 };
 
