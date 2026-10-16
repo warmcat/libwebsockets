@@ -1987,9 +1987,17 @@ lws_adns_get_server(struct lws_adns_q *q)
 	return q->dsrv;
 }
 
+/*
+ * A query that is answered at once, from the hosts file or a numeric address,
+ * is completed through a temporary on the stack.  lws_async_dns_complete()
+ * and the requesters find the name behind it as they do behind a real query,
+ * so it has the same two DNS_MAX regions: the working copy at +0, and the
+ * pristine copy the requesters are told about at +DNS_MAX.
+ */
+
 struct temp_q {
 	lws_adns_q_t tq;
-	char name[48];
+	char name[DNS_MAX * 2];
 };
 
 /*
@@ -2344,7 +2352,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			lws_dll2_add_head(&wsi->io->adns, &tmq.tq.wsi_adns);
 		} else
 			tmq.tq.standalone_cb = cb;
-		lws_strncpy(tmq.name, name, sizeof(tmq.name));
+		lws_strncpy(tmq.name, name, DNS_MAX);
+		lws_strncpy(tmq.name + DNS_MAX, name, DNS_MAX);
 
 		lws_dll2_add_head(&c->list, &dns->cached);
 		lws_sul_schedule(context, 0, &c->sul, sul_cb_expire,
