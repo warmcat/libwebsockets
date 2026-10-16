@@ -398,7 +398,10 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
  * whichever is later, where "written" is when this is called if the vhost
  * can't see the cert file.  Otherwise it serves it at once.
  *
- * Returns 0 on success or nonzero for failure.
+ * A warning is logged if no vhost uses those paths.
+ *
+ * Returns 0 on success, or nonzero if a vhost using them could not load the
+ * new cert, and goes on serving its old one.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_cert_updated(struct lws_context *context, const char *certpath,

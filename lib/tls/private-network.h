@@ -126,6 +126,7 @@ struct lws_tls_vhost_cert_new {
 	struct lws_tls_cert_file_id	cert;
 	struct lws_tls_cert_file_id	key;
 #endif
+	time_t				not_after; /* 0 if unknown */
 	uint8_t				skipped_certs;
 	uint8_t				from_mem; /* not the files */
 };

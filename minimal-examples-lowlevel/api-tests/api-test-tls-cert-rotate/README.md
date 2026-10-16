@@ -12,7 +12,7 @@ the step expects.
 |rotated|srv|files rewritten with a second cert + key|wronghost.example.com|
 |rotated, the other vhost by SNI|localhost|nothing, the client checks the cert is for the name|localhost|
 |the other vhost by SNI keeps its own alpn|localhost|the client offers h2 and http/1.1, `localhost` only has http/1.1: it must not get h2 from `srv`'s list|localhost|
-|rotation without a key keeps the cert|srv|new cert written, key file still empty, so the load fails|wronghost.example.com|
+|rotation without a key keeps the cert|srv|new cert written, key file still empty, so the load fails, and `lws_tls_cert_updated()` must say so|wronghost.example.com|
 |renewed on disk, lws not told|srv|first cert + key written alongside and the live paths moved onto them, `lws_tls_cert_updated()` not called: the client reconnects until the vhost has noticed|localhost|
 |rotated back|srv|first cert + key written again|localhost|
 |renewed on disk, held back for the grace period|graced|second cert + key renewed on disk, the client connects 3s later, inside the vhost's 6s grace|localhost|

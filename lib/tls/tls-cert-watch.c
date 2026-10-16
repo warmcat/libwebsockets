@@ -223,7 +223,12 @@ lws_tls_cert_watch_stage(struct lws_vhost *v, struct lws_tls_vhost_cert_new *n,
 	time_t due;
 
 	/* an older renewal still waiting is superseded */
-	lws_tls_cert_watch_pending_drop(v);
+	if (v->tls.pending.ref) {
+		lwsl_vhost_notice(v, "a newer renewal of %s replaces the one "
+				  "waiting for its grace period",
+				  v->tls.cfg_alloc_cert_path);
+		lws_tls_cert_watch_pending_drop(v);
+	}
 
 	/*
 	 * The grace period only holds back a cert that would replace one being
@@ -243,8 +248,11 @@ lws_tls_cert_watch_stage(struct lws_vhost *v, struct lws_tls_vhost_cert_new *n,
 	v->tls.pending_due	= due;
 	n->ref			= NULL;
 
-	lwsl_vhost_notice(v, "renewed cert %s is loaded, serving it in %llds, "
-			  "after its grace period", v->tls.cfg_alloc_cert_path,
+	lwsl_vhost_notice(v, "renewed cert %s, valid for %lld more days, is "
+			  "loaded, serving it in %llds, after its grace period",
+			  v->tls.cfg_alloc_cert_path,
+			  (long long)(v->tls.pending.not_after ?
+				(v->tls.pending.not_after - now) / 86400 : 0),
 			  (long long)(due - now));
 
 	if (due < *next)
@@ -349,10 +357,10 @@ lws_tls_cert_watch_check_vhost(struct lws_vhost *v, time_t now, time_t *next)
 		v->tls.watch_retry_at	= 0;
 		v->tls.watch_backoff_s	= 0;
 
-		/* it loaded, so the cert is all there to read the date of */
+		/* it loaded, so the cert is all there to read the dates of */
 		lws_tls_cert_get_x509_validity(v->context,
 					       v->tls.cfg_alloc_cert_path,
-					       &not_before, NULL);
+					       &not_before, &n.not_after);
 		lws_tls_cert_watch_stage(v, &n, not_before,
 					 (time_t)n.cert.mtime, now, next);
 
@@ -417,7 +425,7 @@ lws_tls_cert_watch_updated(struct lws_vhost *v,
 
 	if (lws_tls_vhost_cert_prepare(v, mem_cert, len_mem_cert, mem_privkey,
 				       len_mem_privkey, &n))
-		return 1;
+		return 1; /* the caller says so */
 
 	/* the watch need not load the files it was told about again */
 	if (n.cert.valid && n.key.valid) {
@@ -433,11 +441,11 @@ lws_tls_cert_watch_updated(struct lws_vhost *v,
 	 */
 	if (mem_cert && mem_privkey) {
 		lws_tls_cert_get_x509_validity_mem(mem_cert, len_mem_cert,
-						   &not_before, NULL);
+						   &not_before, &n.not_after);
 		written = now;
 	} else {
 		lws_tls_cert_get_x509_validity(cx, v->tls.cfg_alloc_cert_path,
-					       &not_before, NULL);
+					       &not_before, &n.not_after);
 		written = n.cert.valid ? (time_t)n.cert.mtime : now;
 	}
 

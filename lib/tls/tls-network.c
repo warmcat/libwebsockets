@@ -473,6 +473,12 @@ lws_tls_vhost_cert_commit(struct lws_vhost *v, struct lws_tls_vhost_cert_new *n)
 
 	if (v->tls.skipped_certs)
 		lwsl_vhost_notice(v, "vhost %s: cert unset", v->name);
+	else if (n->not_after)
+		lwsl_vhost_notice(v, "vhost %s: serving the new cert %s, valid "
+				  "for %lld more days", v->name,
+				  v->tls.cfg_alloc_cert_path,
+				  (long long)((n->not_after -
+					(time_t)lws_now_secs()) / 86400));
 	else
 		lwsl_vhost_notice(v, "vhost %s: serving the new cert %s",
 				  v->name, v->tls.cfg_alloc_cert_path);
@@ -509,21 +515,41 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 		     const char *mem_cert, size_t len_mem_cert,
 		     const char *mem_privkey, size_t len_mem_privkey)
 {
+	int matched = 0, failed = 0;
+
 	lws_start_foreach_vhost(v, context) {
 		if (v->tls.cfg_alloc_cert_path && v->tls.cfg_key_path &&
 		    !strcmp(v->tls.cfg_alloc_cert_path, certpath) &&
-		    !strcmp(v->tls.cfg_key_path, keypath))
+		    !strcmp(v->tls.cfg_key_path, keypath)) {
+			matched++;
 #if defined(LWS_TLS_CERT_WATCH)
 			/* served after the vhost's grace period, if any */
-			lws_tls_cert_watch_updated(v, mem_cert, len_mem_cert,
-						   mem_privkey, len_mem_privkey);
+			if (lws_tls_cert_watch_updated(v, mem_cert, len_mem_cert,
+						       mem_privkey,
+						       len_mem_privkey))
 #else
-			lws_tls_vhost_cert_reload(v, mem_cert, len_mem_cert,
-						  mem_privkey, len_mem_privkey);
+			if (lws_tls_vhost_cert_reload(v, mem_cert, len_mem_cert,
+						      mem_privkey,
+						      len_mem_privkey))
 #endif
+			{
+				lwsl_vhost_err(v, "vhost %s: unable to load the "
+					       "new cert %s, still serving the "
+					       "old one", v->name, certpath);
+				failed++;
+			}
+		}
 	} lws_end_foreach_vhost(v);
 
-	return 0;
+	/*
+	 * Whoever renewed it expects it to be served: a vhost meant to serve
+	 * it whose config names the files any other way never will be
+	 */
+	if (!matched)
+		lwsl_cx_warn(context, "no vhost has cert %s and key %s, nothing "
+			     "moves onto them", certpath, keypath);
+
+	return !!failed;
 }
 
 int

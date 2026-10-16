@@ -554,9 +554,13 @@ next_step(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
-		if (lws_tls_cert_updated(context, LIVE_CERT, LIVE_KEY,
-					 NULL, 0, NULL, 0)) {
-			step_done("lws_tls_cert_updated() failed");
+		/* a rotation that can't load must say so */
+		if (!lws_tls_cert_updated(context, LIVE_CERT, LIVE_KEY,
+					  NULL, 0, NULL, 0) !=
+						(s->rot == ROT_OK)) {
+			step_done(s->rot == ROT_OK ?
+				  "lws_tls_cert_updated() failed" :
+				  "lws_tls_cert_updated() didn't fail");
 			return;
 		}
 	}
