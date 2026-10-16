@@ -60,6 +60,13 @@ $ sai-logs.py libwebsockets.org 'grep=reap&from=2026-10-14T08:00:00Z&to=2026-10-
 `hash` gives the build's window with a minute either side, by default;
 without it you get the last 10 minutes.  Lines are kept for 14 days.
 
+Each line keeps the timestamp its source's clock gave it.  A VM that
+logged before its clock was corrected has those lines filed at the wrong
+time, eg, a fedora VM's first lines came an hour early, so a time window
+can miss a VM's lines entirely.  If a source you expect is missing, ask
+for its host (`src=sai-vm-fedora44-*`) over a wider window and look at
+where its lines landed.
+
 ## Windows
 
  - **Wrap every POSIX io length** (`read`, `write`, `send`, `recv`,
