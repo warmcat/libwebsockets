@@ -171,9 +171,14 @@ acme_ipc_sign_jwt(struct per_vhost_data__lws_acme_client *vhd, char *jwt, size_t
 			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = (uint32_t)klen;
 			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = key;
 
+			/*
+			 * "sub" tells the root daemon it is us: it takes the
+			 * saves of keys and certs from nobody else, see the
+			 * dnssec-monitor's monitor-ipc-auth.c
+			 */
 			uint64_t now = (uint64_t)time(NULL);
 			lws_jwt_sign_compact(vhd->context, &jwk, "HS256", jwt, &jwt_len, temp, sizeof(temp),
-			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}",
+			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"sub\":\"acme-client\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}",
 			    (unsigned long long)now, (unsigned long long)now, (unsigned long long)now + 300);
 
 			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = NULL;

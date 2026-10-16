@@ -163,9 +163,11 @@ mon_whois_send(struct vhd *vhd, const char *domain,
 	if (vhd->auth_jwk.kty != LWS_GENCRYPTO_KTY_OCT || !vhd->whois_ipc)
 		return;
 
+	/* root takes update_whois only from us: see monitor-ipc-auth.c */
 	lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\","
-		     "\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,"
-		     "\"exp\":%llu}", now, now - 60, now + 60);
+		     "\"aud\":\"dnssec-monitor\",\"sub\":\"" MON_IPC_SUB_WHOIS
+		     "\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}", now,
+		     now - 60, now + 60);
 	if (lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", jwt,
 				 &jwt_len, temp, sizeof(temp), "%s", claims)) {
 		lwsl_vhost_err(vhd->vhost, "unable to sign IPC token");

@@ -236,6 +236,29 @@ json_escape(char *esc, size_t esc_len, const char *s)
 #define MON_ESC_DOMAIN_SZ	(6 * 256 + 8)
 #define MON_ESC_FIELD_SZ	(6 * 128 + 8)
 
+/* monitor-ipc-auth.c */
+
+/*
+ * Who, in the unprivileged process, signed an IPC request: its JWT's "sub"
+ */
+#define MON_IPC_SUB_UI		"ui"		/* the proxy, for a browser */
+#define MON_IPC_SUB_ACME	"acme-client"
+#define MON_IPC_SUB_WHOIS	"whois"
+
+typedef enum {
+	MON_IPC_AUTH_OK,
+	MON_IPC_AUTH_FAILED,		/* no, bad or expired JWT */
+	MON_IPC_AUTH_NOT_PERMITTED,	/* valid, but not for this request */
+} mon_ipc_auth_t;
+
+/*
+ * Check the JWT of an IPC request to the root process for request req.  The
+ * secret is a LWS_GENCRYPTO_KTY_OCT auth_jwk; anything else fails.
+ */
+mon_ipc_auth_t
+monitor_ipc_authorize(struct lws_context *cx, struct lws_jwk *auth_jwk,
+		      const char *jwt, const char *req);
+
 /* monitor-extip.c */
 
 #define MON_AUTH_KEY_LEN	64

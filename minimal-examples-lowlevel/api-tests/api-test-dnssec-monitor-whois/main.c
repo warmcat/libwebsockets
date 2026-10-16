@@ -15,7 +15,8 @@
  *  - only the domains with a stale or missing whois.json are queried, one
  *    at a time
  *  - each result reaches the root process as an "update_whois" request
- *    carrying a valid IPC JWT, and a payload that is canonical whois JSON
+ *    carrying a valid IPC JWT signed as the whois lookups ("sub":"whois",
+ *    which root requires of it), and a payload that is canonical whois JSON
  *    the root side's purifier accepts without complaint
  *  - a domain that has been asked about is not asked about again straight
  *    away, even though its whois.json has not been rewritten
@@ -181,6 +182,7 @@ mwt_check_update(const char *line, size_t len)
 	     canon[LWS_WHOIS_CANON_MAX + 1];
 	size_t out_len = sizeof(out);
 	unsigned long exp_time;
+	char sub[32];
 	struct lejp_ctx jctx;
 	struct mwt_req a;
 	int n, problems;
@@ -209,8 +211,14 @@ mwt_check_update(const char *line, size_t len)
 				    strlen(a.jwt), temp, sizeof(temp), out,
 				    &out_len) ||
 	    lws_jwt_token_sanity(out, out_len, "acme-ipc", "dnssec-monitor",
-				 NULL, NULL, 0, &exp_time)) {
+				 NULL, sub, sizeof(sub), &exp_time)) {
 		lwsl_err("%s: %s: bad IPC JWT\n", __func__, a.domain);
+		return 1;
+	}
+
+	/* root takes update_whois only from the whois lookups */
+	if (strcmp(sub, MON_IPC_SUB_WHOIS)) {
+		lwsl_err("%s: %s: signed as '%s'\n", __func__, a.domain, sub);
 		return 1;
 	}
 

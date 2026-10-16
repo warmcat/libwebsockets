@@ -3175,31 +3175,15 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 
 	lwsl_debug("[INSTRUMENT] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
 
-	if (vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT) {
-		char jwt_out[2048];
-		size_t jwt_out_len = sizeof(jwt_out);
-		char jwt_temp[2048];
-		unsigned long exp_time;
-
-		if (!a.jwt[0]) {
-			lwsl_notice("[INSTRUMENT] Missing JWT preamble token\n");
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
-			goto done;
-		}
-
-		if (lws_jwt_signed_validate(vhd->context, &vhd->auth_jwk, "HS256", a.jwt, strlen(a.jwt), jwt_temp, sizeof(jwt_temp), jwt_out, &jwt_out_len)) {
-			lwsl_notice("[INSTRUMENT] Invalid/Forged JWT preamble token\n");
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
-			goto done;
-		}
-
-		if (lws_jwt_token_sanity(jwt_out, jwt_out_len, "acme-ipc", "dnssec-monitor", NULL, NULL, 0, &exp_time)) {
-			lwsl_notice("[INSTRUMENT] Expired/Invalid JWT claims\n");
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
-			goto done;
-		}
-	} else {
-		lwsl_notice("[INSTRUMENT] Warning: UDS monitor secret not bootstrapped, rejecting request!\n");
+	switch (monitor_ipc_authorize(vhd->context, &vhd->auth_jwk, a.jwt,
+				      a.req)) {
+	case MON_IPC_AUTH_OK:
+		break;
+	case MON_IPC_AUTH_NOT_PERMITTED:
+		/* authenticated, so it knows what it asked for */
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Not permitted\"}\n", a.req);
+		goto done;
+	default:
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 		goto done;
 	}
@@ -3913,7 +3897,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			char temp[2048];
 			char *first_brace;
 
-			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}", now, now - 60, now + 60);
+			/* a browser's request: see monitor-ipc-auth.c */
+			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"sub\":\"" MON_IPC_SUB_UI "\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}", now, now - 60, now + 60);
 
 			if (!lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", jwt_buf, &jwt_len, temp, sizeof(temp), "%s", claims)) {
 				first_brace = (char *)memchr(in, '{', len);
