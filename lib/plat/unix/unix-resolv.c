@@ -281,7 +281,7 @@ lws_plat_asyncdns_get_search(struct lws_context *context, char *buf,
 		count = 0;
 		used = 0;
 		while (*env) {
-			const char *e = env;
+			const char *e;
 
 			while (*env == ' ' || *env == '\t')
 				env++;

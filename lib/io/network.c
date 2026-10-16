@@ -294,7 +294,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		name[0] = '\0';
 
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
-	if (wsi && wsi->io->proxied && fd == wsi->io->desc.sockfd)
+	if (wsi->io->proxied && fd == wsi->io->desc.sockfd)
 		/* the client a trusted proxy named in its PROXY v2 header */
 		return lws_get_addresses(wsi->a.vhost, &wsi->io->sa46_proxied,
 					 name, name_len, rip, rip_len);
