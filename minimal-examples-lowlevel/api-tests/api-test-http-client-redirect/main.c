@@ -202,7 +202,7 @@ static const struct hcr_redir {
 	{ "307",	307, "/done",				NULL },
 	{ "308",	308, "/done",				NULL },
 	{ "two",	302, "/done",				"/other" },
-	{ "userinfo",	302, "http://u:p@localhost:%d/done",	NULL },
+	{ "userinfo",	302, "http://u:p@localhost:%d/done",	NULL }, /* NOSONAR: dummy test userinfo */
 	{ "port0",	302, "http://localhost:0/done",		NULL },
 	{ "port-big",	302, "http://localhost:65536/done",	NULL },
 	{ "space",	302, "/do ne",				NULL },
@@ -328,7 +328,7 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 		if (n == LWS_ARRAY_SIZE(redirs))
 			return;
 
-		lws_snprintf(loc, sizeof(loc), redirs[n].loc, port);
+		lws_snprintf(loc, sizeof(loc), redirs[n].loc, port); /* NOSONAR: const test table */
 		o += lws_snprintf(o, lws_ptr_diff_size_t(oe, o),
 				  "HTTP/1.1 %d Redirect\r\nLocation: %s\r\n",
 				  redirs[n].status, loc);
@@ -460,7 +460,7 @@ case_check(void)
 		return;
 	}
 
-	lws_snprintf(want, sizeof(want), c->want, port);
+	lws_snprintf(want, sizeof(want), c->want, port); /* NOSONAR: const test table */
 	lwsl_user("%s: server saw \"%s\" (%d), want \"%s\" (%d)\n", __func__,
 		  seen, nseen, want, c->requests);
 
@@ -498,7 +498,7 @@ client_connect(const char *target)
 		i.ssl_connection = LCCSCF_PIPELINE;
 	if (c->kind == HCK_DIGEST) {
 		i.auth_username	= "user";
-		i.auth_password	= "pass";
+		i.auth_password	= "pass"; /* NOSONAR: test fixture */
 	}
 
 	if (!i.vhost || !lws_client_connect_via_info(&i))

@@ -638,6 +638,10 @@ step_next(void)
 {
 	int ok = 0;
 
+	if (step < 0 || step >= ST_DONE)
+		/* a late close or error after the last step finished */
+		return;
+
 	switch (step) {
 	case ST_TERMINATED:
 		ok = !strncmp(body, "front ", 6);

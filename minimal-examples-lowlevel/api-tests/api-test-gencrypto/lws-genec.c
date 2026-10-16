@@ -553,8 +553,7 @@ test_genec5(struct lws_context *context)
 	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_genec_ctx signer, verifier;
 	uint8_t hash[64], sig[132];
-	size_t c, hlen, slen;
-	int n;
+	size_t c, n, hlen, slen;
 
 	for (c = 0; c < LWS_ARRAY_SIZE(cases); c++) {
 		memset(el, 0, sizeof(el));
@@ -569,8 +568,8 @@ test_genec5(struct lws_context *context)
 			goto bail;
 		}
 
-		for (n = 0; n < (int)hlen; n++)
-			hash[n] = (uint8_t)(n * 3 + (int)c);
+		for (n = 0; n < hlen; n++)
+			hash[n] = (uint8_t)(n * 3 + c);
 
 		if (lws_genecdsa_create(&signer, context, NULL) ||
 		    lws_genecdsa_new_keypair(&signer, cases[c].crv, el)) {

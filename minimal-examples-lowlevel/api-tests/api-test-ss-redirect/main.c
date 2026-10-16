@@ -139,7 +139,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* an IPv6 literal goes in a URI in brackets */
 			lws_snprintf(host, sizeof(host),
 				     strchr(ads, ':') ? "[%s]" : "%s", ads);
-			lws_snprintf(loc, sizeof(loc), phases[n].loc, host,
+			lws_snprintf(loc, sizeof(loc), phases[n].loc, host, /* NOSONAR: const test table */
 				     port);
 			pss->resp_len = lws_snprintf(pss->resp,
 					sizeof(pss->resp),

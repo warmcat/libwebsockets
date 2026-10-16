@@ -42,23 +42,26 @@ def log(msg):
 def ms_since(t0):
     return int((time.monotonic() - t0) * 1000)
 
+def pump(a, b, count):
+    # copy each way until one side closes or it all goes quiet, and say which
+    socks = [a, b]
+    while True:
+        r, _, _ = select.select(socks, [], [], 30)
+        if not r:
+            return "idle 30s"
+        for s in r:
+            d = s.recv(65536)
+            if not d:
+                return "client closed" if s is a else "upstream closed"
+            count[s] += len(d)
+            (b if s is a else a).sendall(d)
+
 def relay(cid, a, b, t0):
     socks = [a, b]
     count = {a: 0, b: 0}
     why = "?"
     try:
-        while True:
-            r, _, _ = select.select(socks, [], [], 30)
-            if not r:
-                why = "idle 30s"
-                break
-            for s in r:
-                d = s.recv(65536)
-                if not d:
-                    why = "client closed" if s is a else "upstream closed"
-                    return
-                count[s] += len(d)
-                (b if s is a else a).sendall(d)
+        why = pump(a, b, count)
     except OSError as e:
         why = "error: %s" % e
     finally:
@@ -122,7 +125,7 @@ def resolve(cid, host, port):
     log("c%d: resolving %s took %dms" % (cid, host, ms_since(tr)))
     return ai
 
-def upstream(cid, host, port, t0):
+def upstream(cid, host, port):
     log("c%d: connecting on to %s:%d" % (cid, host, port))
     tu = time.monotonic()
     err = OSError("no addresses for %s" % host)
@@ -160,7 +163,7 @@ def socks5(cid, c, require_auth, t0):
     port = int.from_bytes(recv_exact(c, 2), "big")
     log("c%d: socks5%s CONNECT %s:%d, %dms after accept" %
         (cid, " (auth)" if require_auth else "", host, port, ms_since(t0)))
-    up = upstream(cid, host, port, t0)
+    up = upstream(cid, host, port)
     c.sendall(b"\x05\x00\x00\x01" + b"\x00" * 6)
     return up
 
@@ -179,7 +182,7 @@ def http_connect(cid, c, first, t0):
     log("c%d: http %s, %dms after accept" % (cid, line, ms_since(t0)))
     host, _, port = parts[1].rpartition(":")
     host = host.strip("[]")
-    up = upstream(cid, host, int(port), t0)
+    up = upstream(cid, host, int(port))
     c.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
     return up
 
