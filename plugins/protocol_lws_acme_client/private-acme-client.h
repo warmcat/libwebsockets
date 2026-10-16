@@ -48,6 +48,7 @@ typedef enum {
 	ACME_STATE_POLLING,	/* he should be trying our challenge */
 	ACME_STATE_POLLING_CSR, /* sent CSR, checking result */
 	ACME_STATE_DOWNLOAD_CERT,
+	ACME_STATE_CHALL_REASON, /* challenge failed, fetching the CA's reason */
 
 	ACME_STATE_FINISHED
 } lws_acme_state;
@@ -107,7 +108,7 @@ struct acme_connection {
 	char chall_token[64];
 	char chall_type[16];	/* the challenge authz picked, eg, "dns-01" */
 	char challenge_uri[256];
-	char detail[64];
+	char detail[256];
 	char status[16];
 	char key_auth[256];
 	char urls[6][256]; /* directory contents */

@@ -19,6 +19,9 @@
  *    it once insisted on http-01, failing every dns-01 acquisition
  *  - ...but an answer about a different type of challenge is refused
  *  - an error body's detail is kept
+ *  - a failed challenge, fetched for the CA's reason after the order went
+ *    invalid, gives its status and its error's detail whole... the detail
+ *    was once kept in 64 bytes, and nothing asked for it anyway
  *  - a challenge token that is not base64url is refused, but only for the
  *    challenge we take up
  *
@@ -163,6 +166,26 @@ struct ajt_ipc_got {
 	struct acme_ipc_reply	r[LWS_ARRAY_SIZE(ajt_ipc_want) + 1];
 	size_t			count;
 };
+
+/* a dns-01 challenge the CA could not validate, as it answers a fetch of it */
+
+#define AJT_REASON "During secondary validation: Incorrect TXT record " \
+	"\\\"r7mw1lv3gqzR8vYQm0q9Zx8kq4hVnB2wQb2T0QyXzF0\\\" found at " \
+	"_acme-challenge.npro.rs"
+
+static const char *ajt_chac_invalid =
+	"{\n"
+	"  \"type\": \"dns-01\",\n"
+	"  \"url\": \"" AJT_LE "chall/3871165087/800702818627/HRf5UQ\",\n"
+	"  \"status\": \"invalid\",\n"
+	"  \"validated\": \"2026-10-16T11:13:13Z\",\n"
+	"  \"error\": {\n"
+	"    \"type\": \"urn:ietf:params:acme:error:unauthorized\",\n"
+	"    \"detail\": \"" AJT_REASON "\",\n"
+	"    \"status\": 403\n"
+	"  },\n"
+	"  \"token\": \"Ub6D315kflFKV8LXKceqovfdGeC0hvGNxO-zf9J9GkI\"\n"
+	"}";
 
 /* the http-01 challenge's token is not base64url */
 
@@ -339,6 +362,29 @@ ajt_error(int bw)
 	return ajt_expect("error detail", bw, ac.detail,
 			  "Account is not authorized") |
 	       ajt_expect("error chall token", bw, ac.chall_token, "");
+}
+
+static int
+ajt_chall_reason(int bw)
+{
+	int bad = 0;
+
+	memset(&ac, 0, sizeof(ac));
+	lws_strncpy(ac.chall_type, "dns-01", sizeof(ac.chall_type));
+
+	if (ajt_parse(acme_cb_chac, &ac, acme_jchac_tok,
+		      LWS_ARRAY_SIZE(acme_jchac_tok), ajt_chac_invalid, bw) < 0) {
+		lwsl_err("chall reason (%d): parse failed\n", bw);
+		return 1;
+	}
+
+	bad |= ajt_expect("chall reason status", bw, ac.status, "invalid");
+	bad |= ajt_expect("chall reason detail", bw, ac.detail,
+			  "During secondary validation: Incorrect TXT record "
+			  "\"r7mw1lv3gqzR8vYQm0q9Zx8kq4hVnB2wQb2T0QyXzF0\" "
+			  "found at _acme-challenge.npro.rs");
+
+	return bad;
 }
 
 static int
@@ -584,6 +630,7 @@ main(int argc, const char **argv)
 		ajt_result("dns-01", ajt_challenge(LWS_ACME_CHALLENGE_TYPE_DNS_01, bw));
 		ajt_result("http-01", ajt_challenge(LWS_ACME_CHALLENGE_TYPE_HTTP_01, bw));
 		ajt_result("error", ajt_error(bw));
+		ajt_result("chall reason", ajt_chall_reason(bw));
 		ajt_result("bad token", ajt_bad_token(bw));
 		ajt_result("ipc", ajt_ipc(bw));
 		ajt_result("cert", ajt_cert(bw));

@@ -59,7 +59,7 @@ acme_state_name(lws_acme_state s)
 	static const char *const n[] = {
 		"DIRECTORY", "NEW-NONCE", "NEW-ACCOUNT", "NEW-ORDER",
 		"AUTHZ", "START-CHALL", "POLLING", "POLLING-CSR",
-		"DOWNLOAD-CERT", "FINISHED",
+		"DOWNLOAD-CERT", "CHALL-REASON", "FINISHED",
 	};
 
 	return s <= ACME_STATE_FINISHED ? n[s] : "unknown";
@@ -1762,6 +1762,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		case ACME_STATE_START_CHALL:
+		case ACME_STATE_CHALL_REASON:
 			lejp_construct(&ac->jctx, acme_cb_chac, ac, acme_jchac_tok,
 					LWS_ARRAY_SIZE(acme_jchac_tok));
 			break;
@@ -1893,6 +1894,11 @@ pkt_add_hdrs:
 			lws_strncpy(ac->active_url, ac->order_url, sizeof(ac->active_url));
 			goto pkt_add_hdrs;
 
+		case ACME_STATE_CHALL_REASON:
+			/* POST-as-GET of the challenge */
+			lws_strncpy(ac->active_url, ac->challenge_uri, sizeof(ac->active_url));
+			goto pkt_add_hdrs;
+
 		case ACME_STATE_POLLING_CSR:
 			if (ac->goes_around) {
 				lws_strncpy(ac->active_url, ac->order_url, sizeof(ac->active_url));
@@ -1952,6 +1958,7 @@ pkt_add_hdrs:
 		case ACME_STATE_POLLING_CSR:
 		case ACME_STATE_POLLING:
 		case ACME_STATE_START_CHALL:
+		case ACME_STATE_CHALL_REASON:
 		case ACME_STATE_AUTHZ:
 		case ACME_STATE_NEW_ORDER:
 		case ACME_STATE_DIRECTORY:
@@ -2231,12 +2238,24 @@ poll_again:
 				goto poll_again;
 
 			if (!strcmp(ac->status, "invalid")) {
-				lwsl_vhost_warn(vhd->vhost, "Challenge failed");
-				lws_snprintf(buf, sizeof(buf),
-						"Challenge Invalid: %s",
-						ac->detail);
-				failreason = buf;
-				goto failed;
+				/*
+				 * The order only says that it failed: the
+				 * CA's reason is in the challenge's error, so
+				 * ask for the challenge before we give up
+				 */
+				ac->state = ACME_STATE_CHALL_REASON;
+				ac->detail[0] = '\0';
+				lws_strncpy(buf, ac->challenge_uri, sizeof(buf));
+				cwsi = lws_acme_client_connect(vhd->context,
+						vhd->vhost, &ac->cwsi, &ac->i,
+						buf, "POST");
+				if (!cwsi) {
+					lwsl_vhost_warn(vhd->vhost, "Challenge "
+							"failed, reason unknown");
+					failreason = (char *)"Challenge Invalid";
+					goto failed;
+				}
+				return -1; /* close the completed client connection */
 			}
 
 			lwsl_vhost_notice(vhd->vhost, "ACME challenge passed");
@@ -2272,6 +2291,18 @@ poll_again:
 				goto failed;
 			}
 			return -1; /* close the completed client connection */
+
+		case ACME_STATE_CHALL_REASON:
+			lwsl_vhost_warn(vhd->vhost, "Challenge for %s failed: %s",
+					vhd->active_cert ? vhd->active_cert->pvop[
+					    LWS_TLS_REQ_ELEMENT_COMMON_NAME] :
+					    "unknown",
+					ac->detail[0] ? ac->detail :
+							"the CA gave no reason");
+			lws_snprintf(buf, sizeof(buf), "Challenge Invalid: %s",
+				     ac->detail);
+			failreason = buf;
+			goto failed;
 
 		case ACME_STATE_POLLING_CSR:
 			if (ac->resp < 200 || ac->resp > 202) {

@@ -102,7 +102,8 @@ acquisition ends, either way.
 After a failed acquisition, that certificate backs off for 2h, doubling after
 each further failure up to 24h, before it is tried again (Let's Encrypt allows
 5 duplicate certificates in 7 days).  The backoff belongs to the certificate:
-while one backs off, the others are still evaluated and renewed as usual.
+while one backs off, the others are still evaluated and renewed as usual.  If
+the CA says the challenge failed, the reason it gives is logged.
 
 To reissue a certificate
 before then, eg, to move it to a different `profile` straight away, send on
