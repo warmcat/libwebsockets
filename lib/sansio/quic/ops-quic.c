@@ -1477,6 +1477,7 @@ lws_quic_stream_outstanding(struct lws_quic_netconn *qn, struct lws *w,
 	       lws_quic_stream_frames(qn, w, now);
 }
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 static const char * const close_phase_names[] = {
 	[LCS_NONE]			= "none",
 	[LCS_CLOSE_WHEN_FLUSHED]	= "close when flushed",
@@ -1489,13 +1490,16 @@ static const char * const close_phase_names[] = {
 	[LCS_DEAD_SOCKET]		= "dead socket",
 	[LCS_USER_TOLD]			= "user told",
 };
+#endif
 
 static void
 lws_quic_dump_stream(struct lws_quic_netconn *qn, struct lws *w,
 		     lws_usec_t now)
 {
 	struct lws_quic_stream *qs = w->quic.qs;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	unsigned int cp = (unsigned int)lwsi_close(w);
+#endif
 
 	/*
 	 * Its role and state say whose turn to write it gets (a ws stream's
