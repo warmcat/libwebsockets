@@ -305,9 +305,6 @@ typedef enum {
 	LMQPROP_SHARED_SUBSCRIPTION_AVAIL			= 0x2a
 } lws_mqtt_property;
 
-int
-lws_read_mqtt(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
-
 /* returns 0 if bd1 and bd2 are "the same", that includes empty, else nonzero */
 LWS_VISIBLE LWS_EXTERN int
 lws_mqtt_bindata_cmp(const lws_mqtt_str_t *bd1, const lws_mqtt_str_t *bd2);
@@ -361,6 +358,13 @@ lws_mqtt_str_free(lws_mqtt_str_t **s);
  * up into 1 or 2- mtu sized chunks and send that.
  *
  * Final should be set when you're calling with the last part of the payload.
+ *
+ * While a PUBLISH is going out in parts, nothing else can be sent on the
+ * connection, including the acks lws owes the broker for what it receives.
+ * lws holds a limited number of those, and when they fill up it stops reading
+ * the connection until it can write them, ie, until this PUBLISH is finished.
+ * So finishing a PUBLISH sent in parts must not wait for anything received on
+ * the same connection, or it may wait forever.
  *
  * A QoS0 PUBLISH has no PUBACK, lws acknowledges it locally with
  * LWS_CALLBACK_MQTT_ACK once the last part is sent.  Like a real PUBACK for

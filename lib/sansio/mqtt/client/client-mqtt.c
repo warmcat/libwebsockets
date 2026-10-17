@@ -100,11 +100,11 @@ lws_mqtt_generate_id(struct lws* wsi, lws_mqtt_str_t **ms, const char *client_id
 }
 
 int
-lws_read_mqtt(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
+lws_read_mqtt(struct lws *wsi, const uint8_t *buf, size_t len, size_t *used)
 {
 	lws_mqttc_t *c = &wsi->mqtt->client;
 
-	return _lws_mqtt_rx_parser(wsi, &c->par, buf, (size_t)len);
+	return _lws_mqtt_rx_parser(wsi, &c->par, buf, len, used);
 }
 
 int

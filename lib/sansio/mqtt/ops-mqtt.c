@@ -25,10 +25,12 @@
 #include "private-lib-core.h"
 
 /*
- * sansIO rx for mqtt: the parser takes everything it is given and keeps
- * its own place in a packet, so all of it is consumed.  A failure while a
- * client awaits its CONNACK is reported to the user as a connection
- * failure; any other failure closes.  len 0 is the peer closing.
+ * sansIO rx for mqtt: the parser keeps its own place in a packet, and takes
+ * everything it is given unless it has no room to hold any more acks for
+ * the peer: then it stops at a packet boundary and the rest is parked until
+ * they have been written.  A failure while a client awaits its CONNACK is
+ * reported to the user as a connection failure; any other failure closes.
+ * len 0 is the peer closing.
  */
 static lws_handling_result_t
 rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
@@ -49,7 +51,7 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	if (lws_read_mqtt(wsi, (unsigned char *)buf, len) < 0) {
+	if (lws_read_mqtt(wsi, buf, len, used) < 0) {
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_role_client(wsi) &&
 		    lwsi_state(wsi) == LRS_MQTTC_AWAIT_CONNACK)
@@ -60,15 +62,14 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	*used = len;
-
 	return LWS_HPI_RET_HANDLED;
 }
 
 /*
  * How an mqtt connection is read: not until it is established (the client's
  * transport phases and CONNACK wait are its handler's), then while tls holds
- * more, and not at all once its close is draining our tx.
+ * more, and not at all while rx flow control holds it (eg, the acks we owe
+ * the peer have filled their queue) or once its close is draining our tx.
  */
 static int
 rops_rx_policy_mqtt(struct lws *wsi, int *flags, size_t *max)
@@ -83,6 +84,18 @@ rops_rx_policy_mqtt(struct lws *wsi, int *flags, size_t *max)
 	 * level-armed POLLIN would spin meanwhile, so drop it.
 	 */
 	if (lwsi_flushing_to_close(wsi)) {
+		if (__lws_io_want_read(wsi, 0))
+			return LWS_RXPOL_CLOSE;
+
+		return LWS_RXPOL_HOLD;
+	}
+
+	/*
+	 * Held until our tx moves, which may be never if the broker does not
+	 * read: drop the read interest so a level-armed POLLIN can't spin
+	 * meanwhile.  Writing the acks gives it back.
+	 */
+	if (lws_is_flowcontrolled(wsi)) {
 		if (__lws_io_want_read(wsi, 0))
 			return LWS_RXPOL_CLOSE;
 
@@ -244,39 +257,34 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK;
 	}
 #endif
-	if (wsi->mqtt && !wsi->mqtt->inside_payload &&
-	    (wsi->mqtt->send_pubrec || wsi->mqtt->send_pubrel ||
-	     wsi->mqtt->send_pubcomp)) {
-		uint8_t buf[LWS_PRE + 4];
-		/* Remaining len = 2 */
-		buf[LWS_PRE + 1] = 2;
-		if (wsi->mqtt->send_pubrec) {
-			lwsl_notice("%s: issuing PUBREC for pkt id: %d\n",
-				    __func__, wsi->mqtt->peer_ack_pkt_id);
-			buf[LWS_PRE] = LMQCP_PUBREC << 4;
-			/* Packet ID */
-			lws_ser_wu16be(&buf[LWS_PRE + 2],
-				       wsi->mqtt->peer_ack_pkt_id);
-			wsi->mqtt->send_pubrec = 0;
-		} else if (wsi->mqtt->send_pubrel) {
-			lwsl_notice("%s: issuing PUBREL for pkt id: %d\n",
-				    __func__, wsi->mqtt->ack_pkt_id);
-			buf[LWS_PRE] = LMQCP_PUBREL << 4 | 0x2;
-			lws_ser_wu16be(&buf[LWS_PRE + 2],
-				       wsi->mqtt->ack_pkt_id);
-			wsi->mqtt->send_pubrel = 0;
-		} else {
-			lwsl_notice("%s: issuing PUBCOMP for pkt id: %d\n",
-				    __func__, wsi->mqtt->pubcomp_pkt_id);
-			buf[LWS_PRE] = LMQCP_PUBCOMP << 4;
-			lws_ser_wu16be(&buf[LWS_PRE + 2],
-				       wsi->mqtt->pubcomp_pkt_id);
-			wsi->mqtt->send_pubcomp = 0;
-		}
-		if (lws_write(wsi, (uint8_t *)&buf[LWS_PRE], 4,
-			      LWS_WRITE_BINARY) != 4)
+	/*
+	 * The acks we owe the peer go first, all of them in one write, in
+	 * the order the packets they answer arrived.  Not while one of our
+	 * PUBLISHes is going out in chunks: they would land in its payload.
+	 */
+	if (wsi->mqtt && !wsi->mqtt->inside_payload && wsi->mqtt->ack_tx &&
+	    lws_ring_get_count_waiting_elements(wsi->mqtt->ack_tx, NULL)) {
+		uint8_t buf[LWS_PRE + (LWS_MQTT_MAX_ACK_TX * 4)];
+		size_t n;
+
+		n = lws_ring_consume(wsi->mqtt->ack_tx, NULL, &buf[LWS_PRE],
+				     LWS_MQTT_MAX_ACK_TX);
+		lwsl_wsi_info(wsi, "issuing %d acks", (int)n);
+
+		if (lws_write(wsi, &buf[LWS_PRE], n * 4, LWS_WRITE_BINARY) !=
+								(int)(n * 4))
 			return LWS_HP_RET_BAIL_DIE;
-		return LWS_HP_RET_BAIL_OK;
+
+		if (wsi->mqtt->ack_tx_held) {
+			/* there is room again: the parked rx goes on */
+			wsi->mqtt->ack_tx_held = 0;
+			if (lws_rx_flow_control(wsi,
+					LWS_RXFLOW_REASON_APPLIES_ENABLE |
+					LWS_RXFLOW_REASON_MQTT_ACK_TX) < 0)
+				return LWS_HP_RET_BAIL_DIE;
+		}
+
+		/* the children may still have this pass */
 	}
 
 	wsi = lws_get_network_wsi(wsi);
@@ -343,41 +351,15 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 		/*
 		 * Clear the POLLOUT request we acted on, as
 		 * lws_wsi_mux_move_child_to_tail() did when it was the
-		 * rotation primitive.  The body below re-arms explicitly
-		 * (PUBACK path) when it wants another cycle; without this
-		 * clear the normal path leaves it set and the post-loop
-		 * lws_wsi_mux_action_pending_writeable_reqs() re-arms POLLOUT
-		 * every pass -> level-triggered event loops spin at 100% CPU
-		 * on an always-writable socket.  See ops-h2.c.
+		 * rotation primitive.  Without this clear it stays set and
+		 * the post-loop lws_wsi_mux_action_pending_writeable_reqs()
+		 * re-arms POLLOUT every pass -> level-triggered event loops
+		 * spin at 100% CPU on an always-writable socket.  See ops-h2.c.
 		 */
 		w->mux.requested_POLLOUT = 0;
 
 		lwsl_debug("%s: child %s (wsistate 0x%x)\n", __func__,
 			   lws_wsi_tag(w), (unsigned int)w->wsistate);
-
-		if (lwsi_state(wsi) == LRS_ESTABLISHED &&
-		    !wsi->mqtt->inside_payload &&
-		    wsi->mqtt->send_puback) {
-			uint8_t buf[LWS_PRE + 4];
-			lwsl_notice("%s: issuing PUBACK for pkt id: %d\n",
-				    __func__, wsi->mqtt->ack_pkt_id);
-
-			/* Fixed header */
-			buf[LWS_PRE] = LMQCP_PUBACK << 4;
-			/* Remaining len = 2 */
-			buf[LWS_PRE + 1] = 2;
-			/* Packet ID */
-			lws_ser_wu16be(&buf[LWS_PRE + 2], wsi->mqtt->peer_ack_pkt_id);
-
-			if (lws_write(wsi, (uint8_t *)&buf[LWS_PRE], 4,
-				      LWS_WRITE_BINARY) != 4)
-				return LWS_HP_RET_BAIL_DIE;
-
-			wsi->mqtt->send_puback = 0;
-			w->mux.requested_POLLOUT = 1;
-
-			continue;
-		}
 
 		if (lws_callback_as_writeable(w)) {
 			lwsl_notice("%s: Closing child %s\n", __func__, lws_wsi_tag(w));
@@ -387,6 +369,15 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 	}
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
+
+	/*
+	 * Acks that came due while a PUBLISH of ours was going out in chunks
+	 * waited for it.  If it has finished, they want the next pass whether
+	 * any child does or not.
+	 */
+	if (!wsi->mqtt->inside_payload && wsi->mqtt->ack_tx &&
+	    lws_ring_get_count_waiting_elements(wsi->mqtt->ack_tx, NULL))
+		wsi->mux.requested_POLLOUT = 1;
 
 	{
 		int n = lws_wsi_mux_action_pending_writeable_reqs(wsi);
@@ -468,6 +459,9 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 			lws_free(rx);
 		} lws_end_foreach_dll_safe(p, tp);
 	}
+
+	if (wsi->mqtt->ack_tx)
+		lws_ring_destroy(wsi->mqtt->ack_tx);
 
 	lws_mqtt_publish_param_t *pub =
 			(lws_mqtt_publish_param_t *)

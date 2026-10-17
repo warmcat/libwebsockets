@@ -671,12 +671,62 @@ lws_mqtt_find_sub(struct _lws_mqtt_related *mqtt, const char *ptopic)
 	return NULL;
 }
 
+/*
+ * Queue an ack we owe the peer on the nwsi, already in its wire form, and
+ * ask to write it.  Each keeps the packet id of what it answers, and they
+ * go out in the order those packets arrived [MQTT-4.6.0-2, -3, -4].  The
+ * parser does not start a packet without room for its ack, so the queue
+ * being full here is a bug.
+ */
+static int
+lws_mqtt_ack_tx_queue(struct lws *nwsi, lws_mqtt_control_packet_t ptype,
+		      uint16_t pkt_id)
+{
+	uint8_t ack[4];
+
+	if (!nwsi->mqtt->ack_tx) {
+		/* a ring of n elements holds n - 1 */
+		nwsi->mqtt->ack_tx = lws_ring_create(sizeof(ack),
+						     LWS_MQTT_MAX_ACK_TX + 1,
+						     NULL);
+		if (!nwsi->mqtt->ack_tx)
+			return 1;
+	}
+
+	/* only PUBREL has flags, 0x2 [MQTT-3.6.1-1] */
+	if (lws_mqtt_fill_fixed_header(&ack[0], ptype, 0, QOS0, 0))
+		return 1;
+	ack[1] = 2; /* remaining length: just the packet id */
+	lws_ser_wu16be(&ack[2], pkt_id);
+
+	if (lws_ring_insert(nwsi->mqtt->ack_tx, ack, 1) != 1) {
+		lwsl_wsi_err(nwsi, "ack tx queue full");
+
+		return 1;
+	}
+
+	lws_callback_on_writable(nwsi);
+
+	return 0;
+}
+
+/* is there room for another ack, if the next packet needs one? */
+static int
+lws_mqtt_ack_tx_full(struct lws *nwsi)
+{
+	return nwsi->mqtt->ack_tx &&
+	       !lws_ring_get_count_free_elements(nwsi->mqtt->ack_tx);
+}
+
 int
 _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
-		    const uint8_t *buf, size_t len)
+		    const uint8_t *buf, size_t len, size_t *used)
 {
+	size_t olen = len;
 	struct lws *w;
 	int n;
+
+	*used = len;
 
 	if (par->flag_pending_send_reason_close)
 		return 0;
@@ -692,6 +742,25 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		lwsl_debug("%s: %d, len = %d\n", __func__, par->state, (int)len);
 		switch (par->state) {
 		case LMQCPP_IDLE:
+			if (lws_mqtt_ack_tx_full(wsi)) {
+				/*
+				 * Any packet may need an ack from us, and we
+				 * have no room to hold one until the ones we
+				 * owe have been written.  Stop at this packet
+				 * boundary: what is left of the read is parked
+				 * and rx is held until the acks have gone.
+				 */
+				lwsl_wsi_info(wsi, "ack tx full, holding rx");
+				wsi->mqtt->ack_tx_held = 1;
+				if (lws_rx_flow_control(wsi,
+					    LWS_RXFLOW_REASON_APPLIES_DISABLE |
+					    LWS_RXFLOW_REASON_MQTT_ACK_TX) < 0)
+					return -1;
+				*used = olen - len;
+
+				return 0;
+			}
+
 			par->packet_type_flags = *buf++;
 			len--;
 
@@ -1127,7 +1196,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			par->cpkt_id = lws_ser_ru16be(buf);
 			buf += 2;
 			len -= 2;
-			wsi->mqtt->peer_ack_pkt_id = par->cpkt_id;
 
 			if (pub->qos == QOS2) {
 				lws_mqtt_qos2_rx_t *rx;
@@ -1728,8 +1796,10 @@ cmd_completion:
 							__func__);
 					return -1;
 				}
-				wsi->mqtt->send_pubrel = 1;
-				lws_callback_on_writable(wsi);
+				/* the PUBREL quotes the id from this PUBREC */
+				if (lws_mqtt_ack_tx_queue(wsi, LMQCP_PUBREL,
+							  par->cpkt_id))
+					goto oom;
 				break;
 
 			case LMQCP_PUBCOMP:
@@ -1826,15 +1896,10 @@ cmd_completion:
 						    "pkt id %d\n", __func__,
 						    (int)par->cpkt_id);
 
-				/*
-				 * The PUBCOMP must quote the id from this
-				 * PUBREL... peer_ack_pkt_id belongs to the
-				 * last PUBLISH and an interleaved one would
-				 * make us complete the wrong id.
-				 */
-				wsi->mqtt->pubcomp_pkt_id = par->cpkt_id;
-				wsi->mqtt->send_pubcomp = 1;
-				lws_callback_on_writable(wsi);
+				/* the PUBCOMP quotes the id from this PUBREL */
+				if (lws_mqtt_ack_tx_queue(wsi, LMQCP_PUBCOMP,
+							  par->cpkt_id))
+					goto oom;
 				break;
 			}
 
@@ -2090,14 +2155,14 @@ cmd_completion:
 					break;
 				}
 
-				if (pub->qos == 1) {
-				/* For QOS = 1, send out PUBACK */
-					wsi->mqtt->send_puback = 1;
-					lws_callback_on_writable(wsi);
-				} else if (pub->qos == 2) {
-				/* For QOS = 2, send out PUBREC */
-					wsi->mqtt->send_pubrec = 1;
-					lws_callback_on_writable(wsi);
+				/* QoS1 is answered with PUBACK, QoS2 PUBREC */
+				if (pub->qos != QOS0 &&
+				    lws_mqtt_ack_tx_queue(wsi, pub->qos == QOS1 ?
+						LMQCP_PUBACK : LMQCP_PUBREC,
+						par->cpkt_id)) {
+					lws_free_set_NULL(pub->topic);
+					lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
+					goto oom;
 				}
 
 				par->payload_consumed = 0;

@@ -1431,7 +1431,8 @@ enum {
 	LWS_RXFLOW_REASON_USER_BOOL		= (1 << 0),
 	LWS_RXFLOW_REASON_HTTP_RXBUFFER		= (1 << 6),
 	LWS_RXFLOW_REASON_H2_PPS_PENDING	= (1 << 7),
-	/* b11..b8 are free for more library reasons */
+	LWS_RXFLOW_REASON_MQTT_ACK_TX		= (1 << 8),
+	/* b11..b9 are free for more library reasons */
 
 	LWS_RXFLOW_REASON_APPLIES		= (1 << 14),
 	LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT	= (1 << 13),

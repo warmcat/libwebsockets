@@ -41,6 +41,17 @@ extern struct lws_role_ops role_ops_mqtt;
  */
 #define LWS_MQTT_MAX_QOS2_RX 256
 
+/*
+ * Max acks (PUBACK, PUBREC, PUBREL, PUBCOMP) we will hold for the peer
+ * before they can be written.  When it is full, the parser stops at the next
+ * packet boundary, the rest of the read is parked and rx is held until the
+ * queue has been written: the peer can't make us hold more than this however
+ * fast it sends, and we lose none of what it is owed.  Acks can't be written
+ * while one of our PUBLISHes is going out in chunks, so if it fills then,
+ * rx waits for that PUBLISH to be finished.
+ */
+#define LWS_MQTT_MAX_ACK_TX 32
+
 #define LMQCP_LUT_FLAG_RESERVED_FLAGS  0x10
 #define LMQCP_LUT_FLAG_PACKET_ID_NONE  0x00
 #define LMQCP_LUT_FLAG_PACKET_ID_HAS   0x20
@@ -376,14 +387,13 @@ struct _lws_mqtt_related {
 	lws_sorted_usec_list_t	sul_shadow_wait; /* Device Shadow wait TO */
 	lws_sorted_usec_list_t	sul_local_ack; /* tells acks we made up */
 	struct lws_dll2_owner	qos2_rx_list;
+	/* nwsi: acks owed to the peer, in arrival order, as wire bytes */
+	struct lws_ring		*ack_tx;
 	struct lws		*wsi; /**< so sul can use lws_container_of */
 	lws_dll2_owner_t	subs_owner; /**< heap-allocated subscription objects */
 	void			*rx_cpkt_param;
 	uint16_t		pkt_id;
 	uint16_t		ack_pkt_id;
-	uint16_t		peer_ack_pkt_id;
-	/* packet id from the PUBREL we still owe a PUBCOMP for */
-	uint16_t		pubcomp_pkt_id;
 	uint16_t		sub_size;
 	/* QoS0 PUBLISHes sent, still owed their local MQTT_ACK */
 	uint16_t		local_acks;
@@ -398,12 +408,10 @@ struct _lws_mqtt_related {
 	uint8_t			inside_unsubscribe:1;
 	uint8_t			inside_birth:1;
 	uint8_t			inside_resume_session:1;
-	uint8_t 		send_puback:1;
-	uint8_t 		send_pubrel:1;
-	uint8_t 		send_pubrec:1;
-	uint8_t 		send_pubcomp:1;
 	uint8_t			unacked_publish:1;
 	uint8_t			unacked_pubrel:1;
+	/* nwsi: rx is held until the full ack_tx has been written */
+	uint8_t			ack_tx_held:1;
 
 	uint8_t			qos2_duplicate:1;
 
@@ -465,7 +473,10 @@ lws_mqttc_state_transition(lws_mqttc_t *ep, lwsgs_mqtt_states_t s);
 
 int
 _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
-		    const uint8_t *buf, size_t len);
+		    const uint8_t *buf, size_t len, size_t *used);
+
+int
+lws_read_mqtt(struct lws *wsi, const uint8_t *buf, size_t len, size_t *used);
 
 lws_handling_result_t
 lws_mqtt_client_connack_failed(struct lws *wsi);
