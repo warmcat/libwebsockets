@@ -26,13 +26,15 @@
 
 /*
  * The hangup alone, without the POLLERR that LWS_POLLHUP also carries on
- * unix.  The small platforms number poll events lws' own way, so it is all
- * of LWS_POLLHUP there.
+ * unix, and that error alone.  The small platforms number poll events lws'
+ * own way, so both are all of LWS_POLLHUP there: any hangup is an error.
  */
 #if defined(POLLHUP) && !defined(LWS_PLAT_FREERTOS)
 #define LWS_POLL_HANGUP		(POLLHUP)
+#define LWS_POLL_ERROR		(POLLERR)
 #else
 #define LWS_POLL_HANGUP		(LWS_POLLHUP)
+#define LWS_POLL_ERROR		(LWS_POLLHUP)
 #endif
 
 #if defined(_DEBUG)
@@ -1506,6 +1508,9 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	 * only have finished sending, with what it sent before it (eg, why it
 	 * refused what we are sending) still unread, because reading was held
 	 * behind the partial.  That is read before the wsi goes, below.
+	 * Windows' WSAPoll reports a FIN as POLLHUP too, which is all of
+	 * LWS_POLLHUP there, so it is never a bare hangup; but a hangup with
+	 * no POLLERR is no reset either, and is read the same way.
 	 *
 	 * A wsi asking for neither POLLIN nor POLLOUT (waiting for a header
 	 * table, or rx flow-controlled with nothing to send) is only told of
@@ -1538,7 +1543,9 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN)) {
 
-			if (bare_hangup && wsi->buflist_out) {
+			if (wsi->buflist_out &&
+			    (bare_hangup ||
+			     !(pollfd->revents & LWS_POLL_ERROR))) {
 				/*
 				 * The partial send reading was held behind can
 				 * never go now: drop it, and tell the role its
