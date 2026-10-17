@@ -405,6 +405,9 @@ callback_spawn(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	       void *in, size_t len)
 {
 	char buf[256];
+#if !defined(WIN32)
+	int fd;
+#endif
 	int n;
 
 	switch (reason) {
@@ -420,7 +423,10 @@ callback_spawn(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 * macOS say POLLIN as well as POLLHUP: reading nothing is what
 		 * tells us it's over, and we close it
 		 */
-		n = (int)read(lws_get_socket_fd(wsi), buf, sizeof(buf) - 1);
+		fd = lws_get_socket_fd(wsi);
+		if (fd < 0)
+			return -1;
+		n = (int)read(fd, buf, sizeof(buf) - 1);
 		if (n <= 0)
 			return -1;
 #endif
