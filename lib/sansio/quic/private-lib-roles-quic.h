@@ -275,9 +275,12 @@ enum lws_quic_frame_type {
  * packets don't get through: after a short outage of everything, nothing big
  * was sent since going back, so nothing big could be acked.  So then a probe
  * of the size from before confirms it (RFC 8899 4.3): if it is acked, it was
- * an outage, and the connection goes back to that size.  If it is lost, the
- * search starts again from the base (RFC 8899 5.2, BASE to SEARCHING), and
- * settles on the size the path carries now.
+ * an outage, and the connection goes back to that size.  Like a search probe,
+ * one given up for lost may only be late, eg, a PTO fired while the peer was
+ * still working through a backlog: its ack coming after all says the same,
+ * and another is sent, until LWS_QUIC_PMTUD_MAX_PROBES of them are lost.
+ * Then the search starts again from the base (RFC 8899 5.2, BASE to
+ * SEARCHING), and settles on the size the path carries now.
  *
  * A search probe sent before going back is still the search's while the
  * black hole is unconfirmed: its loss counts against its size, and no other
@@ -639,6 +642,11 @@ struct lws_quic_netconn {
 	/* PN of the probe of the size from before, confirming the black hole */
 	uint64_t		pmtud_bh_from_probe_pn;
 	/*
+	 * PN of the last of those given up for lost: if its ack comes after
+	 * all, it was only late, and it was no black hole
+	 */
+	uint64_t		pmtud_bh_from_late_pn;
+	/*
 	 * PN and size of the last search probe given up for lost: if its ack
 	 * comes after all, it was only late, and the path carries its size
 	 */
@@ -666,6 +674,8 @@ struct lws_quic_netconn {
 	uint8_t			pmtud_bh_from_state;
 	/* probes of probed_mtu lost so far */
 	uint8_t			pmtud_probe_fails;
+	/* probes of pmtud_bh_from_mtu lost so far, confirming a black hole */
+	uint8_t			pmtud_bh_from_fails;
 	/* a probe's PING is in pending_tx, not sent yet */
 	uint8_t			pmtud_probe_queued:1;
 	uint8_t			pmtud_bh_probe_queued:1;

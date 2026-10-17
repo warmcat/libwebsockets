@@ -250,6 +250,8 @@ lws_quic_pmtud_reset(struct lws_quic_netconn *qn)
 	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_bh_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_bh_from_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_bh_from_late_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_bh_from_fails		= 0;
 	qn->pmtud_late_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_probe_fails		= 0;
 	qn->consecutive_mtu_losses	= 0;
@@ -407,6 +409,8 @@ lws_quic_pmtud_lost_packet(struct lws_quic_netconn *qn,
 	 */
 	qn->pmtud_late_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_bh_from_late_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_bh_from_fails	= 0;
 	qn->pmtud_raise_at	= lws_wsi_now(qn->nwsi) + LWS_QUIC_PMTUD_RAISE_US;
 
 	if (qn->pmtud_bh_probe_queued ||
@@ -429,6 +433,7 @@ lws_quic_pmtud_bh_confirmed(struct lws_quic_netconn *qn)
 		      qn->pmtud_bh_from_mtu - LWS_QUIC_PMTU_OVERHEAD,
 		      LWS_QUIC_PMTU_BASE);
 	qn->pmtud_bh_from_mtu		= 0;
+	qn->pmtud_bh_from_late_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->consecutive_mtu_losses	= 0;
 	/* a search probe from before says nothing about the new search */
 	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
@@ -440,10 +445,32 @@ lws_quic_pmtud_bh_confirmed(struct lws_quic_netconn *qn)
 }
 
 /*
+ * A packet bigger than the base got through while a black hole is suspected,
+ * not confirmed yet: it wasn't a black hole, so go back to the size from
+ * before, and the search to where it was
+ */
+static void
+lws_quic_pmtud_bh_undo(struct lws_quic_netconn *qn)
+{
+	lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: a packet bigger than %u got "
+		      "through after all, back to %u", LWS_QUIC_PMTU_BASE -
+		      LWS_QUIC_PMTU_OVERHEAD, qn->pmtud_bh_from_mtu);
+	qn->current_mtu		= qn->pmtud_bh_from_mtu;
+	qn->pmtud_state		= qn->pmtud_bh_from_state;
+	qn->pmtud_bh_from_mtu	= 0;
+	/* whichever packet it was, the confirming probes have nothing to say */
+	qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+	qn->pmtud_bh_from_late_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+	/* a settled search tries the size it settled under again later */
+	qn->pmtud_raise_at	= qn->pmtud_state == 2 ? lws_wsi_now(qn->nwsi) +
+						LWS_QUIC_PMTUD_RAISE_US : 0;
+	lws_quic_pmtud_kick(qn);
+}
+
+/*
  * Packet f, bigger than the base, was acked.  If going back to the base for a
  * black hole is still unconfirmed, f was sent before then, so it was loss,
- * or it is the probe of the size from before: it wasn't a black hole, so go
- * back to that size.
+ * or it is the probe of the size from before: it wasn't a black hole.
  */
 static void
 lws_quic_pmtud_big_acked(struct lws_quic_netconn *qn,
@@ -453,21 +480,8 @@ lws_quic_pmtud_big_acked(struct lws_quic_netconn *qn,
 	if (f->sent_in_pn >= qn->pmtud_big_acked_pn1)
 		qn->pmtud_big_acked_pn1 = f->sent_in_pn + 1;
 
-	if (!qn->pmtud_bh_from_mtu)
-		return;
-
-	lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: a packet bigger than %u got "
-		      "through after all, back to %u", LWS_QUIC_PMTU_BASE -
-		      LWS_QUIC_PMTU_OVERHEAD, qn->pmtud_bh_from_mtu);
-	qn->current_mtu		= qn->pmtud_bh_from_mtu;
-	qn->pmtud_state		= qn->pmtud_bh_from_state;
-	qn->pmtud_bh_from_mtu	= 0;
-	/* whichever packet it was, the confirming probe has nothing to say */
-	qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
-	/* a settled search tries the size it settled under again later */
-	qn->pmtud_raise_at	= qn->pmtud_state == 2 ? lws_wsi_now(qn->nwsi) +
-						LWS_QUIC_PMTUD_RAISE_US : 0;
-	lws_quic_pmtud_kick(qn);
+	if (qn->pmtud_bh_from_mtu)
+		lws_quic_pmtud_bh_undo(qn);
 }
 
 /*
@@ -500,9 +514,11 @@ lws_quic_pmtud_probe_unsent(struct lws_quic_netconn *qn,
  * has.  A base size probe being lost says the path loses small packets too,
  * eg, it is down for a while, so the big ones lost before it say nothing
  * about its MTU: the base is probed again, until one gets through.  The probe
- * of the size from before going back, sent once the base got through, being
- * lost confirms the black hole.  A search probe sent before going back counts
- * as it would have, for the search going on if it was no black hole.
+ * of the size from before going back, sent once the base got through, may
+ * only be late, so it is tried again until LWS_QUIC_PMTUD_MAX_PROBES of them
+ * are lost, which confirms the black hole.  A search probe sent before going
+ * back counts as it would have, for the search going on if it was no black
+ * hole.
  *
  * Returns nonzero if f is a probe, which the caller frees, without sending it
  * again or counting it as congestion.
@@ -518,8 +534,17 @@ lws_quic_pmtud_probe_lost(struct lws_quic_netconn *qn,
 		if (f->sent_in_pn != qn->pmtud_bh_from_probe_pn)
 			return 1; /* it has nothing to say any more */
 		qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
-		if (qn->pmtud_bh_from_mtu)
+		if (!qn->pmtud_bh_from_mtu)
+			return 1;
+		/* its ack may yet come, if it was only late */
+		qn->pmtud_bh_from_late_pn = f->sent_in_pn;
+		if (++qn->pmtud_bh_from_fails >= LWS_QUIC_PMTUD_MAX_PROBES)
 			lws_quic_pmtud_bh_confirmed(qn);
+		else if (!qn->pmtud_bh_from_probe_queued &&
+			 lws_quic_pmtud_may_probe(qn) &&
+			 !lws_quic_pmtud_queue_probe(qn,
+						LWS_QUIC_PMTUD_PROBE_FROM))
+			qn->pmtud_bh_from_probe_queued = 1;
 		return 1;
 	}
 
@@ -1199,6 +1224,18 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
 			      qn->pmtud_late_probe_mtu);
 		qn->pmtud_late_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 		lws_quic_pmtud_carries(qn, qn->pmtud_late_probe_mtu);
+	}
+
+	/* a confirming probe given up for lost was only late: no black hole */
+	if (level == LWS_QUIC_LEVEL_APP && qn->pmtud_bh_from_mtu &&
+	    qn->pmtud_bh_from_late_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
+	    qn->pmtud_bh_from_late_pn >= pn_lo &&
+	    qn->pmtud_bh_from_late_pn <= pn_hi) {
+		lwsl_wsi_info(nwsi, "QUIC PMTUD: probe %llu of %u acked after "
+			      "it was given up for lost",
+			      (unsigned long long)qn->pmtud_bh_from_late_pn,
+			      qn->pmtud_bh_from_mtu);
+		lws_quic_pmtud_bh_undo(qn);
 	}
 
 	/* the next probe, or the first since the search was reset */
