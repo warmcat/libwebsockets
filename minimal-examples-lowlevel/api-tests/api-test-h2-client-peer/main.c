@@ -40,9 +40,13 @@
  *    ACK it, where it once dropped everything that came, unparsed
  *
  *  - a GET whose response HEADERS has no END_HEADERS, its CONTINUATION
- *    coming only after the request timed out and its stream closed: the
- *    rest of the block must still be decoded, for the connection's hpack
- *    table, and not fail the connection, as an unexpected CONTINUATION did
+ *    coming only after the client gave the request up and its stream
+ *    closed: the rest of the block must still be decoded, for the
+ *    connection's hpack table, and not fail the connection, as an
+ *    unexpected CONTINUATION did.  The client closes the stream itself:
+ *    nothing may come between the frames of a header block, not even a
+ *    PING, so a stream left to time out there would race its connection's
+ *    own rx timeout, which is as long, and the connection may go first
  *
  * A case that does not reach its expected end inside CASE_WATCHDOG_S fails.
  */
@@ -52,9 +56,9 @@
 #include <signal.h>
 
 #define CASE_WATCHDOG_S		10
-#define TIMEOUT_S		2	/* context timeout_secs */
 #define IDLE_MS			300	/* the stream gone, before the PING */
-#define STALL_MS		3000	/* > TIMEOUT_S: the CONTINUATION's wait */
+#define ABANDON_MS		300	/* the client gives up, inside the block */
+#define STALL_MS		1000	/* > ABANDON_MS: the CONTINUATION's wait */
 #define SETTLE_MS		500	/* then, for the client to answer */
 #define MAX_SEEN		4
 
@@ -110,7 +114,7 @@ static const struct hcp_case {
 	  HCP_DATA_FIRST, 1, "GET", "/one", 0, H2_ERR_PROTOCOL_ERROR },
 	{ "a connection kept warm answers a PING", "GET", HCP_IDLE_PING,
 	  1, "GET", "/one", 200, -1 },
-	{ "a CONTINUATION after its stream timed out keeps the connection",
+	{ "a CONTINUATION after its stream closed keeps the connection",
 	  "GET", HCP_HDRS_STALL, 1, "GET", "/one", 0, -1 },
 };
 
@@ -157,11 +161,12 @@ static struct {
 	uint8_t		error;
 	uint8_t		completed;
 	uint8_t		closed;
+	struct lws	*wsi;		/* the request's stream, while it lives */
 } cli;
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
-static lws_sorted_usec_list_t sul_next, sul_watchdog;
+static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_abandon;
 static int result, cur = -1, failures, port = 7681, case_done;
 static const char *server_addr = "127.0.0.1";
 
@@ -287,6 +292,20 @@ fx_idle_ping_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("%s: fixture: PING to the idle connection\n", __func__);
 	fx_last_frame(p, H2_PING, 0, 0, FX_PING_DATA, 8);
+}
+
+/* HCP_HDRS_STALL: the client gives its request up inside the header block */
+static void
+cli_abandon_cb(lws_sorted_usec_list_t *sul)
+{
+	if (!cli.wsi) {
+		lwsl_err("%s: the request's stream is already gone\n",
+			 __func__);
+		return;
+	}
+
+	lwsl_user("%s: client: giving the request up\n", __func__);
+	lws_set_timeout(cli.wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC);
 }
 
 static void
@@ -425,6 +444,8 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 		/* the block, END_STREAM and all, but not END_HEADERS */
 		fx_tx_frame(p, H2_HEADERS, H2F_END_STREAM, sid, b, n);
 		p->stall_sid = sid;
+		lws_sul_schedule(context, 0, &sul_abandon, cli_abandon_cb,
+				 ABANDON_MS * LWS_US_PER_MS);
 		lws_sul_schedule(context, 0, &p->sul_later, fx_cont_cb,
 				 STALL_MS * LWS_US_PER_MS);
 		break;
@@ -590,6 +611,7 @@ case_end(int fail)
 {
 	case_done = 1;
 	lws_sul_cancel(&sul_watchdog);
+	lws_sul_cancel(&sul_abandon);
 
 	lwsl_user("case %d: %s: %s\n", cur, fail ? "FAIL" : "PASS",
 		  cases[cur].name);
@@ -701,6 +723,16 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return lws_callback_http_dummy(wsi, reason, user, in, len);
 
 	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		/* the request's stream, composing its headers */
+		cli.wsi = wsi;
+		break;
+
+	case LWS_CALLBACK_WSI_DESTROY:
+		if (wsi == cli.wsi)
+			cli.wsi = NULL;
+		break;
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_user("%s: connection error: %s\n", __func__,
 			  in ? (const char *)in : "(null)");
@@ -811,8 +843,6 @@ int main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	/* the defaults budget fds for a lone client; we have both ends */
 	info.fd_limit_per_thread = 0;
-	/* HCP_HDRS_STALL's stream is to time out before its CONTINUATION */
-	info.timeout_secs = TIMEOUT_S;
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);

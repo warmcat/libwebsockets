@@ -19,9 +19,13 @@ was composed from.
    the stream has gone: an idle connection is still live, and must ACK it,
    where it once dropped everything that came, unparsed.
  - A GET whose response HEADERS has no END_HEADERS, its CONTINUATION
-   coming only after the request timed out and its stream closed: the rest of
-   the block must still be decoded, for the connection's hpack table, and not
-   fail the connection, as an unexpected CONTINUATION did.
+   coming only after the client gave the request up and its stream closed:
+   the rest of the block must still be decoded, for the connection's hpack
+   table, and not fail the connection, as an unexpected CONTINUATION did.
+   The client closes the stream itself, since a stream left to time out
+   inside a header block races the connection's own rx timeout: nothing,
+   not even a PING, may come between the frames of a header block to keep
+   the connection fresh.
 
 The server is a raw socket in the same process speaking just enough h2 by
 hand, so it can answer exactly as each case needs, and see exactly the
