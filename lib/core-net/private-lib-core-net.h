@@ -1412,7 +1412,7 @@ struct lws {
 	char redirects;
 #if defined(LWS_WITH_CLIENT)
 #endif
-	uint8_t rxflow_bitmap;
+	uint16_t rxflow_bitmap; /* LWS_RXFLOW_REASON_ bits b11..b0 */
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif

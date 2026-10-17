@@ -1425,11 +1425,13 @@ lws_heap_limit_set(size_t bytes);
 enum {
 	/*
 	 * Flags for enable and disable rxflow with reason bitmap and with
-	 * backwards-compatible single bool
+	 * backwards-compatible single bool.  b5..b0 are the user's, the
+	 * reasons above them are the library's own.
 	 */
 	LWS_RXFLOW_REASON_USER_BOOL		= (1 << 0),
 	LWS_RXFLOW_REASON_HTTP_RXBUFFER		= (1 << 6),
 	LWS_RXFLOW_REASON_H2_PPS_PENDING	= (1 << 7),
+	/* b11..b8 are free for more library reasons */
 
 	LWS_RXFLOW_REASON_APPLIES		= (1 << 14),
 	LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT	= (1 << 13),

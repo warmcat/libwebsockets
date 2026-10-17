@@ -809,6 +809,9 @@ int lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason,
 	return 0;
 }
 
+/* the reasons in an _enable, as opposed to the flags that say what to do */
+#define LWS_RXFLOW_REASON_MASK 0xfff
+
 int lws_rx_flow_control(struct lws *wsi, int _enable) {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int en = _enable;
@@ -834,9 +837,11 @@ int lws_rx_flow_control(struct lws *wsi, int _enable) {
 
 	/* any bit set in rxflow_bitmap DISABLEs rxflow control */
 	if (en & LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT)
-		wsi->rxflow_bitmap = (uint8_t)(wsi->rxflow_bitmap & ~(en & 0xff));
+		wsi->rxflow_bitmap = (uint16_t)(wsi->rxflow_bitmap &
+					~(en & LWS_RXFLOW_REASON_MASK));
 	else
-		wsi->rxflow_bitmap = (uint8_t)(wsi->rxflow_bitmap | (en & 0xff));
+		wsi->rxflow_bitmap = (uint16_t)(wsi->rxflow_bitmap |
+					(en & LWS_RXFLOW_REASON_MASK));
 
 	if ((LWS_RXFLOW_PENDING_CHANGE | (!wsi->rxflow_bitmap)) ==
 			wsi->rxflow_change_to)
