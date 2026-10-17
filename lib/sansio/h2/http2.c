@@ -3193,6 +3193,14 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 		case LRS_H2_WAITING_TO_SEND_HEADERS:
 		case LRS_ESTABLISHED:
 		case LRS_H2_AWAIT_SETTINGS:
+		/*
+		 * a client connection kept warm with no stream left: still
+		 * a live connection, whose PING, SETTINGS and GOAWAY come
+		 * all the same, and whose framing and hpack state must
+		 * keep in step for its next stream.  Here, they were all
+		 * dropped unparsed.
+		 */
+		case LRS_IDLING:
 
 			if (h2n->frame_state != LWS_H2_FRAME_HEADER_LENGTH)
 				goto try_frame_start;

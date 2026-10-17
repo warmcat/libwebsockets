@@ -32,6 +32,10 @@
  *    HEADERS (RFC 9113 8.1), so the client must GOAWAY PROTOCOL_ERROR, and
  *    the app must never see the DATA as body
  *
+ *  - a GET answered 200 on a connection kept warm, which the fixture PINGs
+ *    once the stream has gone: an idle connection is still live, and must
+ *    ACK it, where it once dropped everything that came, unparsed
+ *
  * A case that does not reach its expected end inside CASE_WATCHDOG_S fails.
  */
 
@@ -40,6 +44,8 @@
 #include <signal.h>
 
 #define CASE_WATCHDOG_S		10
+#define IDLE_MS			300	/* the stream gone, before the PING */
+#define SETTLE_MS		500	/* then, for the client to answer */
 #define MAX_SEEN		4
 
 /* h2 frame types and flags the fixture deals in */
@@ -55,6 +61,7 @@
 #define H2F_PRIORITY		0x20
 #define H2_PREFACE_LEN		24
 #define H2_ERR_PROTOCOL_ERROR	1
+#define FX_PING_DATA		"fxping01"
 
 /* hpack static table indexes the fixture's responses use */
 #define HP_METHOD		2
@@ -66,6 +73,7 @@ enum {
 	HCP_REDIR_307,		/* 307 to /two, then 200 */
 	HCP_REDIR_307_METHOD,	/* ... the 307 also saying :method: PUT */
 	HCP_DATA_FIRST,		/* DATA, then the HEADERS */
+	HCP_IDLE_PING,		/* 200, then a PING after IDLE_MS */
 };
 
 static const struct hcp_case {
@@ -76,7 +84,8 @@ static const struct hcp_case {
 	const char	*want_method;	/* ... the last one with this :method */
 	const char	*want_path;	/* ... and this :path */
 	int		want_status;	/* the client's final status, or 0 */
-	int		want_goaway;	/* the client must GOAWAY so, or 0 */
+	int		want_goaway;	/* the client must GOAWAY so, -1 not at
+					 * all, or 0 for either */
 } cases[] = {
 	{ "GET answered 307 is followed with GET", "GET", HCP_REDIR_307,
 	  2, "GET", "/two", 200, 0 },
@@ -87,6 +96,8 @@ static const struct hcp_case {
 	  H2_ERR_PROTOCOL_ERROR },
 	{ "DATA before the response HEADERS is refused", "GET",
 	  HCP_DATA_FIRST, 1, "GET", "/one", 0, H2_ERR_PROTOCOL_ERROR },
+	{ "a connection kept warm answers a PING", "GET", HCP_IDLE_PING,
+	  1, "GET", "/one", 200, -1 },
 };
 
 /* a request the fixture saw */
@@ -104,6 +115,8 @@ struct fx_pss {
 	size_t		rxlen;
 	size_t		txlen;
 	int		conn;		/* 1-based, in this case */
+	lws_sorted_usec_list_t	sul_later;	/* the case's next frame */
+	lws_sorted_usec_list_t	sul_settle;
 	uint8_t		preface_done;
 };
 
@@ -115,6 +128,9 @@ static struct {
 	int		bad;		/* a request the fixture couldn't read */
 	int		goaway;		/* GOAWAYs from the client */
 	uint32_t	goaway_err;	/* ... the last one's error code */
+	uint8_t		ping_acked;	/* the client ACKed the fixture's PING */
+	uint8_t		settled;	/* the client had its chance to answer
+					 * the case's last frame */
 } srv;
 
 static struct {
@@ -225,6 +241,32 @@ fx_respond(struct fx_pss *p, uint32_t sid, const char *status,
 	fx_tx_frame(p, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, sid, b, n);
 }
 
+static void
+fx_settle_cb(lws_sorted_usec_list_t *sul)
+{
+	srv.settled = 1;
+	case_evaluate();
+}
+
+/* the case's last frame, then time for the client to answer it */
+static void
+fx_last_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
+	      const void *pl, size_t len)
+{
+	fx_tx_frame(p, type, flags, sid, pl, len);
+	lws_sul_schedule(context, 0, &p->sul_settle, fx_settle_cb,
+			 SETTLE_MS * LWS_US_PER_MS);
+}
+
+static void
+fx_idle_ping_cb(lws_sorted_usec_list_t *sul)
+{
+	struct fx_pss *p = lws_container_of(sul, struct fx_pss, sul_later);
+
+	lwsl_user("%s: fixture: PING to the idle connection\n", __func__);
+	fx_last_frame(p, H2_PING, 0, 0, FX_PING_DATA, 8);
+}
+
 /*
  * The request's :method and :path, from a block of literal fields with
  * literal names and no huffman, which is how lws sends them
@@ -324,6 +366,12 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 		fx_tx_frame(p, H2_DATA, 0, sid, "hello", 5);
 		fx_respond(p, sid, "200", NULL, NULL);
 		break;
+
+	case HCP_IDLE_PING:
+		fx_respond(p, sid, "200", NULL, NULL);
+		lws_sul_schedule(context, 0, &p->sul_later, fx_idle_ping_cb,
+				 IDLE_MS * LWS_US_PER_MS);
+		break;
 	}
 }
 
@@ -341,6 +389,9 @@ fx_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 	case H2_PING:
 		if (!(flags & H2F_ACK) && len == 8)
 			fx_tx_frame(p, H2_PING, H2F_ACK, 0, pl, len);
+		if ((flags & H2F_ACK) && len == 8 &&
+		    !memcmp(pl, FX_PING_DATA, 8))
+			srv.ping_acked = 1;
 		break;
 
 	case H2_HEADERS:
@@ -449,6 +500,8 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		srv.closed++;
+		lws_sul_cancel(&p->sul_later);
+		lws_sul_cancel(&p->sul_settle);
 		case_evaluate();
 		break;
 
@@ -492,7 +545,10 @@ case_evaluate(void)
 		return;
 
 	/* a GOAWAY is only all in once the connection has gone */
-	if (c->want_goaway && srv.closed < srv.accepted)
+	if (c->want_goaway > 0 && srv.closed < srv.accepted)
+		return;
+	/* ...or, for none, once the client had every chance to send one */
+	if (c->want_goaway < 0 && !srv.settled)
 		return;
 
 	if (srv.bad) {
@@ -518,7 +574,19 @@ case_evaluate(void)
 		}
 	}
 
-	if (c->want_goaway &&
+	if (c->want_goaway < 0 && srv.goaway) {
+		lwsl_err("%s: client sent GOAWAY %u\n", __func__,
+			 (unsigned int)srv.goaway_err);
+		fail = 1;
+	}
+
+	if (c->action == HCP_IDLE_PING && !srv.ping_acked) {
+		lwsl_err("%s: the idle connection didn't ACK the PING\n",
+			 __func__);
+		fail = 1;
+	}
+
+	if (c->want_goaway > 0 &&
 	    (!srv.goaway || srv.goaway_err != (uint32_t)c->want_goaway)) {
 		lwsl_err("%s: no GOAWAY %d from the client (%d, err %u)\n",
 			 __func__, c->want_goaway, srv.goaway,
@@ -638,6 +706,9 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.method = cases[cur].method;
 	i.protocol = "h2-peer";
 	i.opaque_user_data = (void *)&cases[cur];
+	/* the connection is to outlive the case's stream */
+	if (cases[cur].action == HCP_IDLE_PING)
+		i.keep_warm_secs = 5;
 	i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE;
 
 	if (!lws_client_connect_via_info(&i)) {

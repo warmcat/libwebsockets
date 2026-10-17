@@ -15,6 +15,9 @@ was composed from.
  - A GET answered with DATA before any HEADERS: a response starts with its
    HEADERS (RFC 9113 8.1), so the client must GOAWAY PROTOCOL_ERROR, and the
    app must never see the DATA as body.
+ - A GET answered 200 on a connection kept warm, which the fixture PINGs once
+   the stream has gone: an idle connection is still live, and must ACK it,
+   where it once dropped everything that came, unparsed.
 
 The server is a raw socket in the same process speaking just enough h2 by
 hand, so it can answer exactly as each case needs, and see exactly the
