@@ -555,7 +555,12 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		p->txlen = 0;
 		break;
 
-	case LWS_CALLBACK_RAW_CLOSE:
+	case LWS_CALLBACK_RAW_CLOSE: {
+		char cause[48];
+
+		lws_wsi_close_cause(wsi, cause, sizeof(cause));
+		lwsl_user("%s: fixture: conn %d closed: %s\n", __func__,
+			  p->conn, cause);
 		srv.closed++;
 		lws_sul_cancel(&p->sul_later);
 		lws_sul_cancel(&p->sul_settle);
@@ -564,6 +569,7 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			srv.settled = 1;
 		case_evaluate();
 		break;
+	}
 
 	default:
 		break;
@@ -723,6 +729,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		lwsl_user("%s: closed\n", __func__);
 		cli.closed = 1;
 		case_evaluate();
 		break;
