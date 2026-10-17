@@ -323,8 +323,8 @@ bail_die:
  * consuming it.  Each of those phases ends with our tx (the response, the
  * handshake, the flush, the CLOSE), not with anything the peer sends.
  *
- * A server close staged in SHUTDOWN has sent its FIN and waits only for the
- * peer's: its protocol is gone, so nothing parked on it can ever be consumed
+ * A close staged in SHUTDOWN (a server's, or an h2 client connection's after
+ * its GOAWAY) has sent its FIN and waits only for the peer's: its protocol is gone, so nothing parked on it can ever be consumed
  * either (the staging drops it, see __lws_close_free_wsi()).
  */
 int
@@ -1651,7 +1651,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 #if defined(LWS_WITH_TLS)
 	/*
-	 * A tls server close staged in SHUTDOWN first sees our close_notify
+	 * A tls close staged in SHUTDOWN first sees our close_notify
 	 * away; then it is only waiting for his FIN, as a plaintext one is.
 	 */
 	if (lwsi_close(wsi) == LCS_SHUTDOWN && lws_is_ssl(wsi) &&
@@ -1677,7 +1677,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 #endif
 
 	/*
-	 * A server close staged in SHUTDOWN has sent its FIN (after its tls
+	 * A close staged in SHUTDOWN has sent its FIN (after its tls
 	 * close_notify, if any) and only waits for his; nothing he sends now
 	 * is for anyone (the protocol has been dropped), so it is read and
 	 * discarded rather than parsed by the role or the tls session, and his

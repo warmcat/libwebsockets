@@ -52,6 +52,42 @@ lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
 
 	return 0;
 }
+
+/*
+ * The client connection is going: nothing may piggyback on it any more, and
+ * what was queued on it goes too
+ */
+static void
+lws_client_conn_withdraw(struct lws *wsi)
+{
+	/* we are no longer an active client connection that can piggyback */
+	lws_dll2_remove(&wsi->dll_cli_active_conns);
+
+	lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner, NULL,
+			      lws_close_trans_q_leader);
+}
+
+/*
+ * A client's close is not staged: it closes at once, nobody waits for it.
+ * Except for an h2 client connection that told the peer GOAWAY: closed with
+ * some of the peer's rx still unread, eg, a SETTINGS ACK or PING that crossed
+ * the GOAWAY, the kernel aborts the connection, and a peer told of the abort
+ * may drop what it had not read yet, the GOAWAY with it (Windows does).  Its
+ * streams have closed by now, so like a server's, its close waits for the
+ * peer's FIN.
+ */
+static int
+lws_close_client_stages(struct lws *wsi)
+{
+#if defined(LWS_ROLE_H2)
+	return lws_wsi_is_mux_nwsi(wsi) && lws_wsi_client_nwsi_migrated(wsi) &&
+	       wsi->h2.h2n->we_told_goaway;
+#else
+	(void)wsi;
+
+	return 0;
+#endif
+}
 #endif
 
 void
@@ -80,11 +116,7 @@ __lws_reset_wsi(struct lws *wsi)
 	 */
 	if (wsi->a.vhost) {
 
-		/* we are no longer an active client connection that can piggyback */
-		lws_dll2_remove(&wsi->dll_cli_active_conns);
-
-		lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner, NULL,
-				      lws_close_trans_q_leader);
+		lws_client_conn_withdraw(wsi);
 
 		/*
 		 * !!! If we are closing, but we have pending pipelined
@@ -874,11 +906,25 @@ just_kill_connection:
 	 * for the POLLIN to show a zero-size rx before coming back and doing
 	 * the actual close.
 	 */
-	if (wsi->role_ops != &role_ops_raw_skt && !lwsi_role_client(wsi) &&
+	if (wsi->role_ops != &role_ops_raw_skt &&
+	    (!lwsi_role_client(wsi)
+#if defined(LWS_WITH_CLIENT)
+	     || lws_close_client_stages(wsi)
+#endif
+	    ) &&
 	    lwsi_close(wsi) != LCS_SHUTDOWN &&
 	    lwsi_state(wsi) != LRS_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !lwsi_skt_unusable(wsi)) {
+
+#if defined(LWS_WITH_CLIENT)
+		/*
+		 * a client connection waiting for the peer's FIN is not one
+		 * anything can still join or queue on
+		 */
+		if (lwsi_role_client(wsi) && wsi->a.vhost)
+			lws_client_conn_withdraw(wsi);
+#endif
 
 		/*
 		 * Don't mark the socket unusable here: the LRS_SHUTDOWN

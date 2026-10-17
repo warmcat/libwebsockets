@@ -36,7 +36,11 @@
  *    PROTOCOL_ERROR, and never send the request: the stream's ah still
  *    holds the request's headers, and decoding the peer's block into it
  *    used to leave their fragments describing the peer's bytes, or unwritten
- *    ah storage, which the request was then composed from.
+ *    ah storage, which the request was then composed from.  Behind the
+ *    HEADERS come frames of an unknown type, more than the client reads at
+ *    once, so it still has rx unread when its GOAWAY has gone: its close must
+ *    wait for the fixture's FIN rather than reset the connection, which a
+ *    peer may take as leave to drop the GOAWAY unread (Windows does).
  *
  * A leg that does not reach its expected end inside LEG_WATCHDOG_S fails.
  */
@@ -65,6 +69,9 @@
 #define H2_ERR_PROTOCOL_ERROR	1
 #define H2_ERR_REFUSED_STREAM	7
 #define H2_PREFACE_LEN		24
+#define H2_FILLER		0xfa	/* a frame type h2 must ignore */
+#define FILLER_FRAMES		2
+#define FILLER_LEN		16000	/* under the 16384 frame size default */
 
 struct leg {
 	const char	*name;
@@ -86,7 +93,8 @@ struct fx_pss {
 	lws_sorted_usec_list_t	sul_ping;
 	lws_sorted_usec_list_t	sul_raise;
 	uint8_t			rx[1024];
-	uint8_t			tx[LWS_PRE + 512];
+	uint8_t			tx[LWS_PRE + 512 +
+				   FILLER_FRAMES * (9 + FILLER_LEN)];
 	size_t			rxlen;
 	size_t			txlen;
 	uint8_t			preface_done;
@@ -110,6 +118,7 @@ static struct {
 	int		goaway;		/* GOAWAYs from the client */
 	int		headers;	/* HEADERS from the client */
 	uint32_t	goaway_err;	/* the last GOAWAY's error code */
+	char		close_cause[48]; /* why the fixture's connection went */
 } srv;
 
 static struct req reqs[MAX_REQ];
@@ -319,10 +328,15 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * over the request's last one, at unwritten ah
 			 * storage with no NUL.
 			 */
-			static const uint8_t hb[] = { 0x44, 0x01 };
+			static const uint8_t hb[] = { 0x44, 0x01 },
+					     filler[FILLER_LEN];
+			int n;
 
 			fx_tx_settings_max_streams(p, 1);
 			fx_tx_frame(p, H2_HEADERS, 0, 1, hb, sizeof(hb));
+			for (n = 0; n < FILLER_FRAMES; n++)
+				fx_tx_frame(p, H2_FILLER, 0, 0, filler,
+					    sizeof(filler));
 		} else
 			/* the server preface: SETTINGS, a stream limit of 0 */
 			fx_tx_settings_max_streams(p, 0);
@@ -347,9 +361,11 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
+		lws_wsi_close_cause(wsi, srv.close_cause,
+				    sizeof(srv.close_cause));
 		srv.closed++;
-		lwsl_user("%s: fixture: connection closed (%d of %d)\n",
-			  __func__, srv.closed, srv.accepted);
+		lwsl_user("%s: fixture: connection closed (%d of %d): %s\n",
+			  __func__, srv.closed, srv.accepted, srv.close_cause);
 		lws_sul_cancel(&p->sul_ping);
 		lws_sul_cancel(&p->sul_raise);
 		/* a leg ends with the connection given up */
@@ -403,6 +419,12 @@ leg_evaluate(void)
 			lwsl_err("%s: no GOAWAY PROTOCOL_ERROR (%d, err %u)\n",
 				 __func__, srv.goaway,
 				 (unsigned int)srv.goaway_err);
+			fail = 1;
+		}
+		/* the client's FIN, not a reset, ended the connection */
+		if (strcmp(srv.close_cause, "peer closed")) {
+			lwsl_err("%s: the connection ended with '%s', not the "
+				 "client's FIN\n", __func__, srv.close_cause);
 			fail = 1;
 		}
 	} else if (l->raise) {

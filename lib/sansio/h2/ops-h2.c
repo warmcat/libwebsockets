@@ -383,6 +383,7 @@ rops_tx_sent_h2(struct lws *wsi, int n)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps = h2n->pps_tx;
+	int goaway = pps && pps->type == LWS_H2_PPS_GOAWAY;
 
 	h2n->pps_tx = NULL;
 	if (n < 0) {
@@ -392,7 +393,15 @@ rops_tx_sent_h2(struct lws *wsi, int n)
 	}
 
 	if (lws_h2_pps_done(wsi, pps)) {
-		lwsi_set_skt_unusable(wsi, 1);
+		/*
+		 * Our GOAWAY went: the connection is finished with, but the
+		 * socket is fine, and its close must wait for the peer's FIN
+		 * the polite way, see __lws_close_free_wsi().  Closed at once
+		 * with his rx unread, the kernel resets the connection, and
+		 * the peer may drop the GOAWAY unread.
+		 */
+		if (!goaway)
+			lwsi_set_skt_unusable(wsi, 1);
 		return -1;
 	}
 
