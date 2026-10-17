@@ -397,10 +397,14 @@ lws_quic_pmtud_lost_packet(struct lws_quic_netconn *qn,
 	qn->current_mtu		= LWS_QUIC_PMTU_BASE;
 	qn->pmtud_state		= 0; /* BASE */
 	/*
-	 * a search probe on its way says nothing now, whatever happens to it,
-	 * nor does a confirming probe from an earlier black hole
+	 * A search probe on its way stays the search's: if this was no black
+	 * hole, the search goes on from where it was, and that probe's loss
+	 * counts against its size, as it would have.  Forgotten, nothing would
+	 * stop the search sending another of that size while it is still out,
+	 * so a stall that looked like a black hole would cost the path one
+	 * more probe it can't carry.  A confirming probe from an earlier black
+	 * hole says nothing now.
 	 */
-	qn->pmtud_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_late_probe_pn	= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_bh_from_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->pmtud_raise_at	= lws_wsi_now(qn->nwsi) + LWS_QUIC_PMTUD_RAISE_US;
@@ -426,6 +430,8 @@ lws_quic_pmtud_bh_confirmed(struct lws_quic_netconn *qn)
 		      LWS_QUIC_PMTU_BASE);
 	qn->pmtud_bh_from_mtu		= 0;
 	qn->consecutive_mtu_losses	= 0;
+	/* a search probe from before says nothing about the new search */
+	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	qn->probed_mtu			= LWS_QUIC_PMTU_FIRST_PROBE;
 	qn->pmtud_probe_fails		= 0;
 	qn->pmtud_raise_at		= 0;
@@ -495,7 +501,8 @@ lws_quic_pmtud_probe_unsent(struct lws_quic_netconn *qn,
  * eg, it is down for a while, so the big ones lost before it say nothing
  * about its MTU: the base is probed again, until one gets through.  The probe
  * of the size from before going back, sent once the base got through, being
- * lost confirms the black hole.
+ * lost confirms the black hole.  A search probe sent before going back counts
+ * as it would have, for the search going on if it was no black hole.
  *
  * Returns nonzero if f is a probe, which the caller frees, without sending it
  * again or counting it as congestion.
@@ -535,12 +542,21 @@ lws_quic_pmtud_probe_lost(struct lws_quic_netconn *qn,
 	qn->pmtud_late_probe_mtu	= qn->probed_mtu;
 	qn->pmtud_probe_pn		= LWS_QUIC_PMTUD_PROBE_NONE;
 	if (++qn->pmtud_probe_fails >= LWS_QUIC_PMTUD_MAX_PROBES) {
+		/*
+		 * Back at the base for a black hole, it's the search going on
+		 * from where it was, if it was no black hole, that settles
+		 */
 		lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: %u lost probes of %u, "
 			      "settling on %u", qn->pmtud_probe_fails,
-			      qn->probed_mtu, qn->current_mtu);
-		qn->pmtud_state		= 2; /* SEARCH_COMPLETE */
-		qn->pmtud_raise_at	= lws_wsi_now(qn->nwsi) +
+			      qn->probed_mtu, qn->pmtud_state ?
+				qn->current_mtu : qn->pmtud_bh_from_mtu);
+		if (!qn->pmtud_state)
+			qn->pmtud_bh_from_state	= 2; /* SEARCH_COMPLETE */
+		else {
+			qn->pmtud_state		= 2; /* SEARCH_COMPLETE */
+			qn->pmtud_raise_at	= lws_wsi_now(qn->nwsi) +
 						LWS_QUIC_PMTUD_RAISE_US;
+		}
 	} else
 		lws_quic_pmtud_kick(qn);
 

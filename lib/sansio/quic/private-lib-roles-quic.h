@@ -278,6 +278,11 @@ enum lws_quic_frame_type {
  * an outage, and the connection goes back to that size.  If it is lost, the
  * search starts again from the base (RFC 8899 5.2, BASE to SEARCHING), and
  * settles on the size the path carries now.
+ *
+ * A search probe sent before going back is still the search's while the
+ * black hole is unconfirmed: its loss counts against its size, and no other
+ * probe of that size is sent while it is out.  If it was no black hole, the
+ * search goes on with it, as if it had never gone back.
  */
 #define LWS_QUIC_PMTUD_BH_LOSSES	3u
 #define LWS_QUIC_PMTUD_RAISE_US		(600 * LWS_US_PER_SEC)
