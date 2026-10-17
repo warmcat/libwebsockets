@@ -2652,9 +2652,6 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 	uint8_t exists[LWS_MQTT_MAX_TOPICS], extant;
 	lws_mqtt_subs_t *mysub;
 	uint32_t rem_len;
-#if defined(_DEBUG)
-	uint32_t tops;
-#endif
 	uint32_t n;
 	int m;
 
@@ -2748,15 +2745,11 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 			return 0;
 		}
 
-#if defined(_DEBUG)
 		/*
 		 * zero or more of the topics already existed, but not all,
 		 * so we must go to the server with a filtered list of the
 		 * new ones only
 		 */
-
-		tops = sub->num_topics - extant;
-#endif
 
 		/*
 		 * Pid + (Topic len field + Topic len + Req. QoS) x Num of Topics
@@ -2768,10 +2761,9 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 
 		wsi->mqtt->sub_size = (uint16_t)rem_len;
 
-#if defined(_DEBUG)
 		lwsl_debug("%s: Number of topics = %d, Remaining len = %d\n",
-			   __func__, (int)tops, (int)rem_len);
-#endif
+			   __func__, (int)(sub->num_topics - extant),
+			   (int)rem_len);
 
 		m = lws_mqtt_vbi_encode(rem_len, p);
 		if (m < 0) {
@@ -2885,9 +2877,6 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 	uint32_t rem_len, n;
 	lws_mqtt_subs_t *mysub;
 	int m;
-#if defined(_DEBUG)
-	uint32_t tops;
-#endif
 
 	lwsl_info("%s: Enter\n", __func__);
 
@@ -2942,15 +2931,11 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 
 			return 0;
 		}
-#if defined(_DEBUG)
 		/*
 		 * one or more of the topics needs to be unsubscribed
 		 * from, so we must go to the server with a filtered
 		 * list of the new ones only
 		 */
-
-		tops = orphaned;
-#endif
 
 		if (lws_mqtt_fill_fixed_header(p++, LMQCP_CTOS_UNSUBSCRIBE,
 					       0, 0, 0)) {
@@ -2968,10 +2953,8 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 
 		wsi->mqtt->sub_size = (uint16_t)rem_len;
 
-#if defined(_DEBUG)
 		lwsl_debug("%s: Number of topics = %d, Remaining len = %d\n",
-			   __func__, (int)tops, (int)rem_len);
-#endif
+			   __func__, (int)orphaned, (int)rem_len);
 
 		m = lws_mqtt_vbi_encode(rem_len, p);
 		if (m < 0) {
