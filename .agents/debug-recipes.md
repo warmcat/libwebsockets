@@ -83,6 +83,14 @@ worktree.
    with `revents = 0`.  Any other fd with POLLHUP in revents and POLLIN in
    events gets POLLIN ORed in.  Reproduces mac-only spins (it found a cgi
    stderr pipe being read for 0 bytes every pass).
+ - **Windows FIN semantics on Linux**: in a scratch copy of the tree, make
+   the unix `LWS_POLLHUP` in `include/libwebsockets.h` plain `(POLLHUP)`, as
+   on Windows.  Then wrap `poll()`: add POLLRDHUP to the events of every
+   SOCK_STREAM fd, and afterwards turn a POLLRDHUP into POLLHUP (plus POLLIN
+   if POLLIN was asked, as `windows-service.c` does), and add POLLHUP to any
+   POLLERR.  This reproduced api-test-h2-client-queue's w11-only "no
+   GOAWAY" failure exactly.  Making a FIN POLLHUP | POLLERR on an unchanged
+   tree instead also reproduces it, but can't tell a FIN from a reset.
  - **NULL `%s` finder**: wrap `vsnprintf` / `vfprintf` / `vsprintf` /
    `__vsnprintf_chk` and their variadic wrappers, walk the format with
    `va_copy`, and log the format plus `backtrace_symbols_fd` whenever a

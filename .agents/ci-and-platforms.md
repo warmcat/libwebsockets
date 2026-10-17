@@ -53,6 +53,11 @@ log is usually cut off: get the whole task log for the rest, and to see
 what else was running at the time.  Several flakes in one task that failed
 together, at the same moment, are usually one cause.
 
+`log` ends after 5s with nothing arriving, but while the event is still
+building, other tasks' updates keep the connection busy and it never ends.
+Run it under `timeout 100 python3 -u ...`: the whole log of a finished task
+arrives well inside that.
+
 The fleet logs are what the Sai daemons themselves logged on every host
 (sai-server, sai-builder, sai-virt, sai-power), tagged with the build they
 were about.  They show what happened around a build that its task log
@@ -97,6 +102,13 @@ where its lines landed.
    crash, not a hang (historically a Debug CRT modal dialog; now routed to
    stderr).  The Sai log of a timed-out test is cut at an arbitrary point,
    so its tail says nothing about where it stopped.
+ - **A FIN is POLLHUP, not POLLIN.**  WSAPoll reports the peer's FIN as
+   POLLHUP, which is all of `LWS_POLLHUP` on Windows, so `service.c`
+   takes it as a full hangup, not a "bare" one; only a POLLERR alongside
+   says it was a reset.  Linux reports a FIN as POLLIN, so code that waits
+   for the zero-length read before closing behaves differently there,
+   most visibly on a wsi whose reading was held behind a partial send.
+   [debug-recipes.md](debug-recipes.md) has a way to reproduce it on Linux.
  - Exit code 3 is `abort()` (a Debug CRT assert).  Exit code 252 is
    `lws_spawn_piped_kill_child_process()` killing a child: expected at
    teardown.
