@@ -12,9 +12,12 @@
  *
  * The "server" is a raw tcp fixture speaking just enough h2, in the same
  * process, so it can answer exactly as each case needs and see exactly the
- * :method and :path of every request the client sent, on which of the case's
- * connections.  lws sends each field as a literal with a literal name and
- * no huffman coding, which is all the fixture decodes.
+ * :method, :scheme and :path of every request the client sent, on which of
+ * the case's connections.  lws sends each field as a literal with a literal
+ * name and no huffman coding, which is all the fixture decodes.
+ *
+ * Every request, in every case, must say :scheme "http": the fixture is h2
+ * in the clear, where lws once claimed "https" whatever the connection.
  *
  * Each case starts one request with LCCSCF_H2_PRIOR_KNOWLEDGE:
  *
@@ -115,6 +118,7 @@ static const struct hcp_case {
 struct seen {
 	char		method[16];
 	char		path[64];
+	char		scheme[8];
 	int		conn;
 };
 
@@ -138,7 +142,8 @@ static struct {
 	int		requests;
 	int		accepted;
 	int		closed;		/* fixture connections closed */
-	int		bad;		/* a request the fixture couldn't read */
+	int		bad;		/* a request the fixture couldn't read,
+					 * or refused */
 	int		goaway;		/* GOAWAYs from the client */
 	uint32_t	goaway_err;	/* ... the last one's error code */
 	uint8_t		ping_acked;	/* the client ACKed the fixture's PING */
@@ -297,7 +302,7 @@ fx_cont_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * The request's :method and :path, from a block of literal fields with
+ * The request's :method, :scheme and :path, from a block of literal fields with
  * literal names and no huffman, which is how lws sends them
  */
 static int
@@ -321,11 +326,14 @@ fx_read_request(const uint8_t *pl, size_t len, struct seen *s)
 		if (nl == 5 && !memcmp(pl + i + 2, ":path", 5))
 			lws_strnncpy(s->path, (const char *)pl + i + 3 + nl,
 				     vl, sizeof(s->path));
+		if (nl == 7 && !memcmp(pl + i + 2, ":scheme", 7))
+			lws_strnncpy(s->scheme, (const char *)pl + i + 3 + nl,
+				     vl, sizeof(s->scheme));
 
 		i += 3 + nl + vl;
 	}
 
-	return !s->method[0] || !s->path[0];
+	return !s->method[0] || !s->path[0] || !s->scheme[0];
 }
 
 static void
@@ -374,8 +382,16 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 		return;
 	}
 
-	lwsl_user("%s: fixture: conn %d sid %u: %s %s\n", __func__, p->conn,
-		  (unsigned int)sid, s->method, s->path);
+	lwsl_user("%s: fixture: conn %d sid %u: %s %s (:scheme %s)\n",
+		  __func__, p->conn, (unsigned int)sid, s->method, s->path,
+		  s->scheme);
+
+	/* the fixture is h2 in the clear: an "https" request is a lie */
+	if (strcmp(s->scheme, "http")) {
+		lwsl_err("%s: fixture: :scheme %s, on a cleartext connection\n",
+			 __func__, s->scheme);
+		srv.bad++;
+	}
 
 	switch (c->action) {
 	case HCP_REDIR_307:
@@ -596,8 +612,8 @@ case_evaluate(void)
 		return;
 
 	if (srv.bad) {
-		lwsl_err("%s: the fixture couldn't read %d requests\n",
-			 __func__, srv.bad);
+		lwsl_err("%s: the fixture couldn't read, or refused, %d "
+			 "requests\n", __func__, srv.bad);
 		fail = 1;
 	}
 

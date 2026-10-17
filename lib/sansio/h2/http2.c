@@ -3911,7 +3911,7 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI), *simp;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	const char *path = "/";
+	const char *path = "/", *scheme;
 	int n, m;
 	/*
 	 * The identifier of a newly established stream MUST be numerically
@@ -3984,10 +3984,16 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 			goto fail_length;
 	}
 
+	/*
+	 * The scheme the connection really has: an h2 prior-knowledge
+	 * connection in the clear is "http" (RFC 9113 8.3.1), and a server
+	 * may refuse, or route differently, a request that says otherwise.
+	 */
+	scheme = lws_is_ssl(nwsi) ? "https" : "http";
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_SCHEME,
-				(unsigned char *)"https", 5,
-				&p, end))
+				(unsigned char *)scheme,
+				(int)strlen(scheme), &p, end))
 		goto fail_length;
 
 

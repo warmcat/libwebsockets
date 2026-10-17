@@ -25,9 +25,12 @@ was composed from.
 
 The server is a raw socket in the same process speaking just enough h2 by
 hand, so it can answer exactly as each case needs, and see exactly the
-`:method` and `:path` of every request the client sent, on which of the
-case's connections.  lws sends each field as a literal with a literal name
-and no huffman coding, which is all the fixture decodes.
+`:method`, `:scheme` and `:path` of every request the client sent, on which
+of the case's connections.  lws sends each field as a literal with a literal
+name and no huffman coding, which is all the fixture decodes.
+
+Every request, in every case, must say `:scheme: http`: the fixture is h2 in
+the clear, where lws once claimed `https` whatever the connection.
 
 The test fails if any case does not end as expected inside the watchdog
 period.
