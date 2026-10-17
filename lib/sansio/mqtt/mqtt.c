@@ -3070,6 +3070,12 @@ lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	wsi->client_mux_substream = 1;
 #endif
+	/*
+	 * A stream joining the connection is a mux substream just like the
+	 * one made at CONNACK.  Otherwise, with its carrier established, its
+	 * close takes it for a migrated network wsi and waives its CLOSED.
+	 */
+	wsi->mux_substream = 1;
 
 	lws_wsi_mux_insert(wsi, parent_wsi, wsi->mux.my_sid);
 

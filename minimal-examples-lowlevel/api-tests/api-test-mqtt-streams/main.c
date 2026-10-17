@@ -20,9 +20,15 @@
  * of the established streams are closed, and both waiting streams must be
  * established on the slots they free, on the same broker connection.
  *
+ * Then one more is closed, and an eleventh stream started, which joins the
+ * established connection directly, without queueing; and it is closed too.
+ * Every stream closed must hear LWS_CALLBACK_MQTT_CLIENT_CLOSED.
+ *
  * Before this test the ninth stream was dropped from the queue with its
  * adopt refused and never heard of again, and a stream queued on an
  * established mqtt connection was never adopted however many streams closed.
+ * A stream that joined directly was not marked a mux substream, so its close
+ * took it for the migrated network wsi and it never heard CLOSED.
  *
  * The broker is an in-process fake on an ONLY_RAW vhost, as in
  * api-test-mqtt-unsub: it answers CONNECT with CONNACK and PINGREQ with
@@ -35,7 +41,8 @@
 
 #define MAX_CHILDREN		8	/* lws' LWS_MQTT_MAX_CHILDREN */
 #define N_FIRST			(MAX_CHILDREN + 1)
-#define N_STREAMS		(N_FIRST + 1)
+#define N_JOINER		(N_FIRST + 1)	/* joins directly */
+#define N_STREAMS		(N_JOINER + 1)
 #define SETTLE_MS		300
 #define WATCHDOG_S		15
 
@@ -47,7 +54,8 @@ static lws_sorted_usec_list_t sul_watchdog, sul_step;
 struct stream {
 	struct lws	*wsi;
 	uint8_t		established;
-	uint8_t		closed;
+	uint8_t		closing;	/* we closed it */
+	uint8_t		closed;		/* it heard CLOSED */
 	uint8_t		error;
 };
 
@@ -271,19 +279,42 @@ finish(void)
 	lws_default_loop_exit(cx);
 }
 
+/* close one of the established streams, returns 1 if there was none */
+static int
+stream_close_one(void)
+{
+	int n;
+
+	for (n = 0; n < N_STREAMS; n++)
+		if (streams[n].established && !streams[n].closing &&
+		    streams[n].wsi) {
+			lwsl_user("%s: closing stream %d\n", __func__, n);
+			streams[n].closing = 1;
+			lws_set_timeout(streams[n].wsi, PENDING_TIMEOUT_USER_OK,
+					LWS_TO_KILL_ASYNC);
+
+			return 0;
+		}
+
+	return 1;
+}
+
 /*
  * Steps, each after a settle so what should not happen has had time to:
  *
  *  1: eight of the first nine are established, the ninth waits; start the
  *     tenth
  *  2: the ninth and tenth both still wait; close two established streams
- *  3: all ten were established, on the one connection
+ *  3: all ten were established, on the one connection; close one more
+ *  4: start the eleventh, which joins the connection directly
+ *  5: it was established; close it
+ *  6: every stream closed heard CLOSED, all on the one connection
  */
 static void
 step_cb(lws_sorted_usec_list_t *sul)
 {
 	static int step;
-	int n, k;
+	int n;
 
 	step++;
 	lwsl_user("%s: step %d: %d established, %d errors, %d broker conns\n",
@@ -308,16 +339,36 @@ step_cb(lws_sorted_usec_list_t *sul)
 			fails++;
 		}
 		/* close two of the established streams */
-		for (n = 0, k = 0; n < N_FIRST && k < 2; n++)
-			if (streams[n].established && !streams[n].closed &&
-			    streams[n].wsi) {
-				lwsl_user("%s: closing stream %d\n", __func__,
-					  n);
-				lws_set_timeout(streams[n].wsi,
-						PENDING_TIMEOUT_USER_OK,
-						LWS_TO_KILL_ASYNC);
-				k++;
-			}
+		if (stream_close_one() || stream_close_one())
+			fails++;
+		break;
+
+	case 3:
+		if (n_established() != N_JOINER) {
+			lwsl_err("%s: expected the first %d streams "
+				 "established\n", __func__, N_JOINER);
+			fails++;
+		}
+		/* a free slot for the joiner */
+		if (stream_close_one())
+			fails++;
+		break;
+
+	case 4:
+		if (stream_start(N_JOINER))
+			fails++;
+		break;
+
+	case 5:
+		if (!streams[N_JOINER].established) {
+			lwsl_err("%s: the joiner was not established\n",
+				 __func__);
+			fails++;
+			break;
+		}
+		streams[N_JOINER].closing = 1;
+		lws_set_timeout(streams[N_JOINER].wsi, PENDING_TIMEOUT_USER_OK,
+				LWS_TO_KILL_ASYNC);
 		break;
 
 	default:
@@ -326,6 +377,12 @@ step_cb(lws_sorted_usec_list_t *sul)
 				 __func__, N_STREAMS);
 			fails++;
 		}
+		for (n = 0; n < N_STREAMS; n++)
+			if (streams[n].closing && !streams[n].closed) {
+				lwsl_err("%s: stream %d closed without "
+					 "CLOSED\n", __func__, n);
+				fails++;
+			}
 		if (n_errors()) {
 			lwsl_err("%s: %d streams failed\n", __func__,
 				 n_errors());
