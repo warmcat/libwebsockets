@@ -929,6 +929,23 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		    (wsi->mux.my_sid & 1))
 			lws_h2_sid_closed(h2n, (uint32_t)wsi->mux.my_sid);
 
+		/*
+		 * Closing in the middle of its own header block, eg, a client
+		 * stream timing out between the frames of a response's: the
+		 * rest of the block is still decoded, into the sink, since the
+		 * hpack dynamic table is the whole connection's.  Without, its
+		 * remaining bytes went undecoded, and a CONTINUATION for it
+		 * failed the connection, other streams and all.
+		 */
+		if (h2n && !h2n->hpack_no_store &&
+		    ((h2n->cont_exp && h2n->cont_exp_sid == wsi->mux.my_sid) ||
+		     (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH &&
+		      h2n->sid == wsi->mux.my_sid &&
+		      (h2n->type == LWS_H2_FRAME_TYPE_HEADERS ||
+		       h2n->type == LWS_H2_FRAME_TYPE_CONTINUATION))) &&
+		    lws_h2_hpack_sink_start(wsi->mux.parent_wsi))
+			lwsl_wsi_info(wsi, "no sink, connection failing");
+
 		if (wsi->mux.parent_wsi->h2.h2n &&
 		    wsi->mux.parent_wsi->h2.h2n->swsi == wsi) {
 			struct lws *nwsi = wsi->mux.parent_wsi;

@@ -18,6 +18,10 @@ was composed from.
  - A GET answered 200 on a connection kept warm, which the fixture PINGs once
    the stream has gone: an idle connection is still live, and must ACK it,
    where it once dropped everything that came, unparsed.
+ - A GET whose response HEADERS has no END_HEADERS, its CONTINUATION
+   coming only after the request timed out and its stream closed: the rest of
+   the block must still be decoded, for the connection's hpack table, and not
+   fail the connection, as an unexpected CONTINUATION did.
 
 The server is a raw socket in the same process speaking just enough h2 by
 hand, so it can answer exactly as each case needs, and see exactly the

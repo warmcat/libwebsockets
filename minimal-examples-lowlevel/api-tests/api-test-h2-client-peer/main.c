@@ -36,6 +36,11 @@
  *    once the stream has gone: an idle connection is still live, and must
  *    ACK it, where it once dropped everything that came, unparsed
  *
+ *  - a GET whose response HEADERS has no END_HEADERS, its CONTINUATION
+ *    coming only after the request timed out and its stream closed: the
+ *    rest of the block must still be decoded, for the connection's hpack
+ *    table, and not fail the connection, as an unexpected CONTINUATION did
+ *
  * A case that does not reach its expected end inside CASE_WATCHDOG_S fails.
  */
 
@@ -44,7 +49,9 @@
 #include <signal.h>
 
 #define CASE_WATCHDOG_S		10
+#define TIMEOUT_S		2	/* context timeout_secs */
 #define IDLE_MS			300	/* the stream gone, before the PING */
+#define STALL_MS		3000	/* > TIMEOUT_S: the CONTINUATION's wait */
 #define SETTLE_MS		500	/* then, for the client to answer */
 #define MAX_SEEN		4
 
@@ -54,6 +61,7 @@
 #define H2_SETTINGS		4
 #define H2_PING			6
 #define H2_GOAWAY		7
+#define H2_CONTINUATION		9
 #define H2F_ACK			1
 #define H2F_END_STREAM		1
 #define H2F_END_HEADERS		4
@@ -74,6 +82,7 @@ enum {
 	HCP_REDIR_307_METHOD,	/* ... the 307 also saying :method: PUT */
 	HCP_DATA_FIRST,		/* DATA, then the HEADERS */
 	HCP_IDLE_PING,		/* 200, then a PING after IDLE_MS */
+	HCP_HDRS_STALL,		/* HEADERS, the CONTINUATION after STALL_MS */
 };
 
 static const struct hcp_case {
@@ -98,6 +107,8 @@ static const struct hcp_case {
 	  HCP_DATA_FIRST, 1, "GET", "/one", 0, H2_ERR_PROTOCOL_ERROR },
 	{ "a connection kept warm answers a PING", "GET", HCP_IDLE_PING,
 	  1, "GET", "/one", 200, -1 },
+	{ "a CONTINUATION after its stream timed out keeps the connection",
+	  "GET", HCP_HDRS_STALL, 1, "GET", "/one", 0, -1 },
 };
 
 /* a request the fixture saw */
@@ -115,9 +126,11 @@ struct fx_pss {
 	size_t		rxlen;
 	size_t		txlen;
 	int		conn;		/* 1-based, in this case */
+	uint32_t	stall_sid;	/* HCP_HDRS_STALL: its CONTINUATION's */
 	lws_sorted_usec_list_t	sul_later;	/* the case's next frame */
 	lws_sorted_usec_list_t	sul_settle;
 	uint8_t		preface_done;
+	uint8_t		settling;	/* waiting on the client's answer */
 };
 
 static struct {
@@ -244,6 +257,9 @@ fx_respond(struct fx_pss *p, uint32_t sid, const char *status,
 static void
 fx_settle_cb(lws_sorted_usec_list_t *sul)
 {
+	struct fx_pss *p = lws_container_of(sul, struct fx_pss, sul_settle);
+
+	p->settling = 0;
 	srv.settled = 1;
 	case_evaluate();
 }
@@ -254,6 +270,7 @@ fx_last_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 	      const void *pl, size_t len)
 {
 	fx_tx_frame(p, type, flags, sid, pl, len);
+	p->settling = 1;
 	lws_sul_schedule(context, 0, &p->sul_settle, fx_settle_cb,
 			 SETTLE_MS * LWS_US_PER_MS);
 }
@@ -265,6 +282,18 @@ fx_idle_ping_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("%s: fixture: PING to the idle connection\n", __func__);
 	fx_last_frame(p, H2_PING, 0, 0, FX_PING_DATA, 8);
+}
+
+static void
+fx_cont_cb(lws_sorted_usec_list_t *sul)
+{
+	struct fx_pss *p = lws_container_of(sul, struct fx_pss, sul_later);
+	uint8_t b[16];
+	size_t n = fx_hp_field(b, sizeof(b), HP_CONTENT_LENGTH, "0");
+
+	lwsl_user("%s: fixture: the CONTINUATION, after the stall\n",
+		  __func__);
+	fx_last_frame(p, H2_CONTINUATION, H2F_END_HEADERS, p->stall_sid, b, n);
 }
 
 /*
@@ -372,6 +401,18 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 		lws_sul_schedule(context, 0, &p->sul_later, fx_idle_ping_cb,
 				 IDLE_MS * LWS_US_PER_MS);
 		break;
+
+	case HCP_HDRS_STALL: {
+		uint8_t b[8];
+		size_t n = fx_hp_field_short(b, sizeof(b), HP_STATUS, "200");
+
+		/* the block, END_STREAM and all, but not END_HEADERS */
+		fx_tx_frame(p, H2_HEADERS, H2F_END_STREAM, sid, b, n);
+		p->stall_sid = sid;
+		lws_sul_schedule(context, 0, &p->sul_later, fx_cont_cb,
+				 STALL_MS * LWS_US_PER_MS);
+		break;
+	}
 	}
 }
 
@@ -502,6 +543,9 @@ callback_fx(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		srv.closed++;
 		lws_sul_cancel(&p->sul_later);
 		lws_sul_cancel(&p->sul_settle);
+		/* nothing more can come on it than came */
+		if (p->settling)
+			srv.settled = 1;
 		case_evaluate();
 		break;
 
@@ -707,7 +751,8 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.protocol = "h2-peer";
 	i.opaque_user_data = (void *)&cases[cur];
 	/* the connection is to outlive the case's stream */
-	if (cases[cur].action == HCP_IDLE_PING)
+	if (cases[cur].action == HCP_IDLE_PING ||
+	    cases[cur].action == HCP_HDRS_STALL)
 		i.keep_warm_secs = 5;
 	i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE;
 
@@ -743,6 +788,8 @@ int main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	/* the defaults budget fds for a lone client; we have both ends */
 	info.fd_limit_per_thread = 0;
+	/* HCP_HDRS_STALL's stream is to time out before its CONTINUATION */
+	info.timeout_secs = TIMEOUT_S;
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
