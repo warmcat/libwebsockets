@@ -266,7 +266,7 @@ lws_client_connect_check(struct lws *wsi, lws_sockfd_type fd, int *real_errno)
 			return LCCCR_CONNECTED;
 		}
 
-		lwsl_wsi_notice(wsi, "getsockopt fd %d says %s", fd,
+		lwsl_wsi_info(wsi, "getsockopt fd %d says %s", fd,
 				lws_errno_describe(e, t16, sizeof(t16)));
 
 		*real_errno = e;
