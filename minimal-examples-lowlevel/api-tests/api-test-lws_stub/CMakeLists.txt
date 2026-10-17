@@ -24,7 +24,7 @@ if (requirements)
 	# of 1500s applies, which turns a hang into half an hour of dead time
 	# on a builder.
 	#
-	set_tests_properties(api-test-lws_stub PROPERTIES TIMEOUT 30)
+	set_tests_properties(api-test-lws_stub PROPERTIES TIMEOUT 60)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

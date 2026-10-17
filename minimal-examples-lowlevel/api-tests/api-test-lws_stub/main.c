@@ -49,6 +49,15 @@ int is_stub = 0;
 #define STUB_NAME_PREFIX	"demo-stub-"
 #define STUB_NAME_P3_PREFIX	"demo-stub-p3-"
 
+/*
+ * How long a spawned stub gets to start and accept the parent's connection.
+ * A stub is a whole new process making its own context and tls client ctxs:
+ * on a loaded Windows builder that has taken more than 4s, and the parent's
+ * connect retries back off to 1s apart, so allow well beyond that.  The wait
+ * ends as soon as the connection is up.
+ */
+#define STUB_START_BUDGET_S	15
+
 static char test_stub[64], test_stub_p3[64];
 
 /*
@@ -546,7 +555,8 @@ phase2(int argc, const char **argv)
 		return 1;
 	}
 
-	service_until(cx, 5 * LWS_US_PER_SEC, &established);
+	service_until(cx, STUB_START_BUDGET_S * LWS_US_PER_SEC,
+		      &established);
 
 	/* stub is destroyed from PROTOCOL_DESTROY inside here, after its
 	 * client wsi was closed and freed */
@@ -633,7 +643,8 @@ phase4(int argc, const char **argv)
 			break;
 		}
 
-		service_until(cx, 5 * LWS_US_PER_SEC, &p4_established);
+		service_until(cx, STUB_START_BUDGET_S * LWS_US_PER_SEC,
+			      &p4_established);
 
 		if (!p4_established) {
 			lwsl_err("phase 4: spawn %d never connected\n", n);
@@ -735,7 +746,8 @@ phase3_intermediate(int ready_fd, int argc, const char **argv)
 		return 1;
 	}
 
-	service_until(cx, 5 * LWS_US_PER_SEC, &p3_established);
+	service_until(cx, STUB_START_BUDGET_S * LWS_US_PER_SEC,
+		      &p3_established);
 
 	if (!p3_established) {
 		lwsl_err("phase 3: stub connection never established\n");
