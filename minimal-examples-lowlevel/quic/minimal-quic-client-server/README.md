@@ -31,6 +31,7 @@ arrived.
 |--pmtu <bytes>|With `--relay`, the relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send, see below|
 |--delay-spike|With `--pmtu`, when each side starts probing, the relay holds what it sends for 500ms, see below|
 |--pmtu-outage|With `--pmtu`, partway through the server's transfer, the relay loses everything for 100ms, see below|
+|--stall|With `--pmtu`, once a probe is lost for being too big, the relay holds everything both ways for 600ms, see below|
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
@@ -179,13 +180,31 @@ through after the outage, that only says the path is up again: nothing big
 was sent since going back, so nothing big could have got through.  So it
 probes the size it had too, and when that is acked, it was an outage, not a
 black hole, and it goes back to that size.  The same checks as `--pmtu`
-apply, leaving out the datagrams the outage lost, except that a side may lose
-four that were too big: a probe on its way when it suspected the black hole
-says nothing about the path, so it doesn't count towards the three.  The
-outage must have lost some of the server's datagrams, or nothing was tested.
+apply, leaving out the datagrams the outage lost: a probe on its way when it
+suspected the black hole still counts towards the three, since the search goes
+on from where it was.  The outage must have lost some of the server's
+datagrams, or nothing was tested.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400 --pmtu-outage
+```
+
+With `--stall` as well, the relay, client and server, all in this one process,
+stop being run for a moment, as they may on a busy machine: once the relay lost
+a probe for being too big, right behind three datagrams bigger than an IP MTU
+of 1280 carries in the same direction, it holds everything in both directions
+for 600ms, then sends it all on in order.  Each side's PTO fires before the
+acks held back reach it, so it takes the big packets it sent ahead of the probe
+for lost, and goes back to 1280 for a black hole before it sees the probe was
+lost too.  Its probe of the size it had may also be given up before its ack
+comes, while the other side works through what was held.  Neither is a black
+hole: each side must go back to the size it had when the acks come, and the
+probe on its way still counts, so the same checks as `--pmtu` apply, three
+probes too big lost at most.  The stall must have held some of each side's
+datagrams, or nothing was tested.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400 --stall
 ```
 
 With `--blackhole` instead, the path's MTU falls under the connection.  The

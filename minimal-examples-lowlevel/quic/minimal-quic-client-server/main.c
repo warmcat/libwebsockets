@@ -30,7 +30,10 @@
  * biggest size the path carries, and stop probing past it; with --delay-spike
  * too, the path's delay spikes as each side starts probing, so the acks of its
  * first probes come after it gave them up for lost, and it must still find
- * that size.  With --blackhole,
+ * that size; with --stall too, once a probe was lost for being too big,
+ * everything in both directions is held for a while, as a process that wasn't
+ * scheduled for a moment would see, and each side must still lose no more
+ * probes than it would without the stall.  With --blackhole,
  * the path's MTU falls to the base once each side is sending bigger packets,
  * and each must find that out and go back to the base, or its transfer stalls.
  * --spread <ms> has
@@ -269,6 +272,22 @@ static const char * const test_key =
 #define RELAY_SPIKE_LIMIT	(1024 * 1024)
 
 /*
+ * With --stall as well, once the relay lost a datagram for being too big, a
+ * probe of a size the path doesn't carry, right behind RELAY_STALL_BEHIND
+ * datagrams bigger than RELAY_BH_BASE in the same direction, it holds
+ * everything coming in both directions for RELAY_STALL_US, then sends it all
+ * on in order, as a relay, client and server in one process see when it isn't
+ * scheduled for a while on a busy machine.  The sender's PTO fires before the
+ * acks held back reach it, so it takes the big packets it sent ahead of the
+ * probe for lost, and suspects a black hole before it sees the probe was
+ * lost too; then the acks say it wasn't a black hole.  Its search must go on
+ * from where it was: the probe that was on its way counts, so it must not
+ * lose more probes than RELAY_PMTU_MAX_PROBES.
+ */
+#define RELAY_STALL_US		(600 * LWS_US_PER_MS)
+#define RELAY_STALL_BEHIND	3
+
+/*
  * With --pmtu-outage as well, once the server has sent
  * RELAY_PMTU_OUTAGE_AFTER datagrams bigger than RELAY_BH_BASE, the relay loses
  * everything in both directions for RELAY_PMTU_OUTAGE_US, as a path that is
@@ -276,8 +295,8 @@ static const char * const test_key =
  * getting through, and goes back to the base, but it's not a black hole:
  * once the base gets through, a probe of the size it had must be acked, and
  * it goes back to that size.  The same checks as --pmtu apply, the datagrams
- * the outage lost aside, except a side may lose one more probe that was too
- * big: one on its way when it suspected the black hole says nothing.
+ * the outage lost aside: a probe on its way when it suspected the black hole
+ * still counts, since its search goes on from where it was.
  */
 #define RELAY_PMTU_OUTAGE_AFTER	40
 #define RELAY_PMTU_OUTAGE_US	(100 * LWS_US_PER_MS)
@@ -402,8 +421,10 @@ struct relay_dir {
 	unsigned int		big;		/* --blackhole, --pmtu-outage:
 						 * passed on */
 	unsigned int		outage_lost;	/* --pmtu-outage */
+	unsigned int		big_run;	/* --stall: passed on since the
+						 * last one lost too big */
 
-	/* --delay-spike: held back, then sent on in order */
+	/* --delay-spike, --stall: held back, then sent on in order */
 	lws_sorted_usec_list_t	sul_spike;
 	struct lws_buflist2_owner spike;
 	unsigned int		spike_held;
@@ -441,6 +462,8 @@ static struct {
 	lws_usec_t		pmtu_outage_until;
 	char			pmtu_outage;
 	char			delay_spike;
+	char			stall;
+	char			stall_done;
 	char			blackhole;
 } relay;
 
@@ -570,9 +593,21 @@ relay_spike_cb(lws_sorted_usec_list_t *sul)
 		lws_callback_on_writable(relay.wsi);
 }
 
+/* --delay-spike, --stall: hold what comes in direction d for us */
+
+static void
+relay_hold_start(struct lws *wsi, struct relay_dir *d, lws_usec_t us)
+{
+	d->spike_on = 1;
+	d->spike.limit = RELAY_SPIKE_LIMIT;
+	lws_sul_schedule(lws_get_context(wsi), 0, &d->sul_spike,
+			 relay_spike_cb, us);
+}
+
 /*
  * --pmtu: datagrams go on as they come, unless they're too big.  With
  * --delay-spike, from the first big one, they are held back for a while.
+ * With --stall, from the first too big one, everything is.
  */
 
 static void
@@ -595,8 +630,18 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 
 	if (len > relay.pmtu) {
 		d->dropped++;
+		if (relay.stall && !relay.stall_done &&
+		    d->big_run >= RELAY_STALL_BEHIND) {
+			relay.stall_done = 1;
+			relay_hold_start(wsi, &relay.dir[0], RELAY_STALL_US);
+			relay_hold_start(wsi, &relay.dir[1], RELAY_STALL_US);
+		}
+		d->big_run = 0;
 		return;
 	}
+
+	if (len > RELAY_BH_BASE)
+		d->big_run++;
 
 	if (relay.pmtu_outage && !relay.pmtu_outage_until &&
 	    d == &relay.dir[1] && len > RELAY_BH_BASE &&
@@ -604,12 +649,8 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 		relay.pmtu_outage_until = lws_now_usecs() + RELAY_PMTU_OUTAGE_US;
 
 	if (relay.delay_spike && !d->spike_on && !d->spike_done &&
-	    len > RELAY_BH_BASE) {
-		d->spike_on = 1;
-		d->spike.limit = RELAY_SPIKE_LIMIT;
-		lws_sul_schedule(lws_get_context(wsi), 0, &d->sul_spike,
-				 relay_spike_cb, RELAY_SPIKE_US);
-	}
+	    len > RELAY_BH_BASE)
+		relay_hold_start(wsi, d, RELAY_SPIKE_US);
 
 	if (d->spike_on) {
 		/* past the limit, it's lost, which QUIC recovers from */
@@ -1011,13 +1052,7 @@ pmtu_failed(void)
 				 "carries\n", who);
 			e = 1;
 		}
-		/*
-		 * A search probe on its way when the outage made the side
-		 * suspect a black hole says nothing about the path, lost or
-		 * not, so the side may send one more
-		 */
-		if (d->dropped > RELAY_PMTU_MAX_PROBES +
-				 (relay.pmtu_outage ? 1u : 0u)) {
+		if (d->dropped > RELAY_PMTU_MAX_PROBES) {
 			lwsl_err("pmtu: the %s kept sending datagrams too big "
 				 "for the path\n", who);
 			e = 1;
@@ -1030,6 +1065,17 @@ pmtu_failed(void)
 				lwsl_err("pmtu: the outage lost none of the "
 					 "server's datagrams, nothing was "
 					 "tested\n");
+				e = 1;
+			}
+		}
+
+		if (relay.stall) {
+			lwsl_user("pmtu: the stall held %u of the %s's "
+				  "datagrams\n", d->spike_held, who);
+			if (!d->spike_held) {
+				lwsl_err("pmtu: the stall held none of the "
+					 "%s's datagrams, nothing was "
+					 "tested\n", who);
 				e = 1;
 			}
 		}
@@ -1256,6 +1302,7 @@ enum {
 	LWS_SW_FORWARDER,
 	LWS_SW_PMTU,
 	LWS_SW_DELAY_SPIKE,
+	LWS_SW_STALL,
 	LWS_SW_PMTU_OUTAGE,
 	LWS_SW_BLACKHOLE,
 	LWS_SW_WRITE_SIZE,
@@ -1276,6 +1323,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_FORWARDER] = { "--forwarder", "The relay also sends the server copies of the client's small packets from an address that never answers (needs --relay)" },
 	[LWS_SW_PMTU]	= { "--pmtu",	"The relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send (needs --relay)" },
 	[LWS_SW_DELAY_SPIKE] = { "--delay-spike", "When each side starts probing, the relay holds what it sends for 500ms, so its first probes are acked after they were given up for lost, and both sides must still find the biggest size (needs --pmtu)" },
+	[LWS_SW_STALL]	= { "--stall",	"Once a probe is lost for being too big, the relay holds everything both ways for 600ms, as a busy machine not running this process would, and both sides must still lose no more probes than without it (needs --pmtu smaller than 1452)" },
 	[LWS_SW_PMTU_OUTAGE] = { "--pmtu-outage", "Partway through the server's transfer, the relay loses everything for 100ms, which both sides must not take for a black hole (needs --pmtu)" },
 	[LWS_SW_BLACKHOLE] = { "--blackhole", "Once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, and both sides must go back to 1280 (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
@@ -1445,6 +1493,15 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_STALL].sw) &&
+	    (!pmtu ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_DELAY_SPIKE].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_PMTU_OUTAGE].sw))) {
+		lwsl_err("--stall needs --pmtu, and not --delay-spike or "
+			 "--pmtu-outage\n");
+		return 1;
+	}
+
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw) &&
 	    (!relay_port || outage_ms || pmtu ||
 	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
@@ -1545,6 +1602,8 @@ int main(int argc, const char **argv)
 		relay.pmtu = (size_t)pmtu;
 		relay.delay_spike = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_DELAY_SPIKE].sw);
+		relay.stall = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_STALL].sw);
 		relay.pmtu_outage = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_PMTU_OUTAGE].sw);
 		relay.blackhole = !!lws_cmdline_option(argc, argv,

@@ -232,6 +232,23 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# As a path with an MTU of 1400 again, but the relay, client
+		# and server, all in this process, aren't run for a moment, as
+		# on a busy machine: the PTOs fire before the acks held back
+		# come, which isn't a black hole, and each side must go on from
+		# where it was, losing no more than three probes too big
+		#
+		lws_get_free_port(PORT_QCS_PMTU_STALL)
+		lws_get_free_port(PORT_QCS_PMTU_STALL_RELAY)
+		add_test(NAME ${SAMP}-pmtu-stall COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_PMTU_STALL}
+				--relay ${PORT_QCS_PMTU_STALL_RELAY} --pmtu 1400
+				--stall)
+		set_tests_properties(${SAMP}-pmtu-stall PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# Through the relay losing, in each direction, every datagram
 		# bigger than an IP MTU of 1280 carries, once it has passed ten
 		# of them: each side must find the black hole and go back to
