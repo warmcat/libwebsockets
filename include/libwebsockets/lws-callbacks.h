@@ -908,12 +908,16 @@ enum lws_callback_reasons {
 	/**< When a message is fully sent, if QoS0 this callback is generated
 	 * to locally "acknowledge" it, from the event loop after the send
 	 * call returned.  For QoS1, this callback is only generated when the
-	 * matching PUBACK is received.  Return nonzero to close the wsi.
+	 * matching PUBACK is received, and for QoS2 when the PUBREC is: lws
+	 * completes the exchange.  The stream may start its next operation from
+	 * here.  Return nonzero to close the wsi.
 	 */
 	LWS_CALLBACK_MQTT_RESEND				= 210,
 	/**< In QoS1 or QoS2, this callback is generated instead of the _ACK one
 	 * if we timed out waiting for a PUBACK or a PUBREC, and we must resend
-	 * the message.  Return nonzero to close the wsi.
+	 * the message, with .dup set.  The stream may instead go on to another
+	 * operation, abandoning the message.  An ack that still comes for it
+	 * before either gives the _ACK as usual.  Return nonzero to close the wsi.
 	 */
 	LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT			= 211,
 	/**< When a UNSUBSCRIBE is sent, this callback is generated instead of

@@ -369,6 +369,15 @@ lws_mqtt_str_free(lws_mqtt_str_t **s);
  * A QoS0 PUBLISH has no PUBACK, lws acknowledges it locally with
  * LWS_CALLBACK_MQTT_ACK once the last part is sent.  Like a real PUBACK for
  * QoS1, that comes afterwards from the event loop, never from inside this call.
+ *
+ * A stream has at most one operation awaiting the broker's ack: a QoS1 or QoS2
+ * PUBLISH until its LWS_CALLBACK_MQTT_ACK (for QoS2, that comes at the PUBREC;
+ * lws completes the exchange itself), or a SUBSCRIBE or UNSUBSCRIBE until its
+ * SUBSCRIBED or UNSUBSCRIBED.  Starting a QoS1 or QoS2 PUBLISH while one is
+ * awaiting its ack fails.  After LWS_CALLBACK_MQTT_RESEND, the PUBLISH may be
+ * sent again with \p pub .dup set, which goes with the packet id it went with
+ * before, or the stream may go on to something else instead.  Use more streams
+ * on the connection for more operations at once.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
@@ -385,6 +394,9 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
  * subscribed to be the shared network connection, just trigger the
  * LWS_CALLBACK_MQTT_SUBSCRIBED callback as if a SUBACK had come: like a real
  * SUBACK, it comes afterwards from the event loop, not from inside this call.
+ *
+ * It fails if the stream already has an operation awaiting the broker's ack,
+ * see lws_mqtt_client_send_publish().
  *
  * \p sub doesn't need to exist after the return from this function.
  */
@@ -403,6 +415,9 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub);
  * network connection, just trigger the LWS_CALLBACK_MQTT_UNSUBSCRIBED
  * callback as if a UNSUBACK had come: like a real UNSUBACK, it comes
  * afterwards from the event loop, not from inside this call.
+ *
+ * It fails if the stream already has an operation awaiting the broker's ack,
+ * see lws_mqtt_client_send_publish().
  *
  * \p unsub doesn't need to exist after the return from this function.
  */

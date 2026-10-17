@@ -410,6 +410,8 @@ struct _lws_mqtt_related {
 	uint8_t			inside_resume_session:1;
 	uint8_t			unacked_publish:1;
 	uint8_t			unacked_pubrel:1;
+	/* what is in flight timed out: the app resends it or moves on */
+	uint8_t			op_timed_out:1;
 	/* nwsi: rx is held until the full ack_tx has been written */
 	uint8_t			ack_tx_held:1;
 
@@ -477,6 +479,9 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 
 int
 lws_read_mqtt(struct lws *wsi, const uint8_t *buf, size_t len, size_t *used);
+
+int
+lws_mqtt_stream_busy(struct lws *wsi);
 
 lws_handling_result_t
 lws_mqtt_client_connack_failed(struct lws *wsi);

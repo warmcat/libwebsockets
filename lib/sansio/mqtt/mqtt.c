@@ -459,7 +459,9 @@ lws_mqtt_client_release_subs(struct lws *wsi)
 
 /*
  * This fires if the wsi did a PUBLISH under QoS1 or QoS2, but no PUBACK or
- * PUBREC came before the timeout period
+ * PUBREC came before the timeout period.  The PUBLISH stays in flight, so a
+ * late ack is still taken for it, but the app may now resend it (with dup
+ * set, it goes with the same packet id) or move on to something else.
  */
 
 static void
@@ -469,6 +471,7 @@ lws_mqtt_publish_resend(struct lws_sorted_usec_list *sul)
 			struct _lws_mqtt_related, sul_qos_puback_pubrec_wait);
 
 	lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
+	mqtt->op_timed_out = 1;
 
 	if (mqtt->wsi->a.protocol->callback(mqtt->wsi, LWS_CALLBACK_MQTT_RESEND,
 				mqtt->wsi->user_space, NULL, 0))
@@ -482,6 +485,8 @@ lws_mqtt_unsuback_timeout(struct lws_sorted_usec_list *sul)
 			struct _lws_mqtt_related, sul_unsuback_wait);
 
 	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
+	/* as for the publish resend, the app may move on now */
+	mqtt->op_timed_out = 1;
 
 	if (mqtt->wsi->a.protocol->callback(mqtt->wsi,
 					   LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT,
@@ -669,6 +674,48 @@ lws_mqtt_find_sub(struct _lws_mqtt_related *mqtt, const char *ptopic)
 	} lws_end_foreach_dll(p);
 
 	return NULL;
+}
+
+/*
+ * A stream has at most one operation awaiting its acknowledgement from the
+ * broker: a QoS1 or QoS2 PUBLISH waiting for its PUBACK or PUBREC, or a
+ * SUBSCRIBE or UNSUBSCRIBE waiting for its SUBACK or UNSUBACK.  The stream
+ * tracks it by a single packet id, and LWS_CALLBACK_MQTT_ACK and friends don't
+ * say which operation they are about, so a second one can't be started until
+ * the first is acked, or has timed out and been handed back to the app.
+ */
+int
+lws_mqtt_stream_busy(struct lws *wsi)
+{
+	return (wsi->mqtt->unacked_publish || wsi->mqtt->inside_subscribe ||
+		wsi->mqtt->inside_unsubscribe) && !wsi->mqtt->op_timed_out;
+}
+
+/*
+ * The stream starts an operation that goes to the broker with a new packet
+ * id.  Whatever it had in flight before is abandoned: a PUBLISH that timed
+ * out and that the app chose not to resend, or a QoS2 PUBLISH still waiting
+ * for its PUBCOMP, which the connection completes without it.  If their acks
+ * come late, no stream claims them.
+ */
+static uint16_t
+lws_mqtt_stream_op_start(struct lws *wsi, struct lws *nwsi)
+{
+	wsi->mqtt->unacked_publish = 0;
+	wsi->mqtt->unacked_pubrel = 0;
+	wsi->mqtt->inside_subscribe = 0;
+	wsi->mqtt->inside_unsubscribe = 0;
+	wsi->mqtt->op_timed_out = 0;
+	lws_sul_cancel(&wsi->mqtt->sul_qos_puback_pubrec_wait);
+	lws_sul_cancel(&wsi->mqtt->sul_unsuback_wait);
+
+	/* packet ids are nonzero [MQTT-2.3.1-1] */
+	if (!++nwsi->mqtt->pkt_id)
+		nwsi->mqtt->pkt_id = 1;
+
+	wsi->mqtt->ack_pkt_id = nwsi->mqtt->pkt_id;
+
+	return wsi->mqtt->ack_pkt_id;
 }
 
 /*
@@ -1747,7 +1794,7 @@ cmd_completion:
 				break;
 
 			case LMQCP_PUBREC:
-				lwsl_err("%s: cmd_completion: PUBREC\n",
+				lwsl_info("%s: cmd_completion: PUBREC\n",
 						__func__);
 				/*
 				 * Figure out which child asked for this
@@ -1761,6 +1808,7 @@ cmd_completion:
 						char requested_close = 0;
 
 						w->mqtt->unacked_publish = 0;
+						w->mqtt->op_timed_out = 0;
 						w->mqtt->unacked_pubrel = 1;
 
 						if (user_callback_handle_rxflow(
@@ -1791,11 +1839,18 @@ cmd_completion:
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				if (!n) {
-					lwsl_err("%s: unsolicited PUBREC\n",
-							__func__);
-					return -1;
-				}
+				if (!n)
+					/*
+					 * No stream has this PUBLISH in flight
+					 * any more, eg, it closed, or moved on
+					 * after the PUBLISH timed out.  Nobody
+					 * will resend it: release the id, or
+					 * the broker keeps it held.
+					 */
+					lwsl_notice("%s: PUBREC for no stream, "
+						    "pkt id %d\n", __func__,
+						    (int)par->cpkt_id);
+
 				/* the PUBREL quotes the id from this PUBREC */
 				if (lws_mqtt_ack_tx_queue(wsi, LMQCP_PUBREL,
 							  par->cpkt_id))
@@ -1803,7 +1858,7 @@ cmd_completion:
 				break;
 
 			case LMQCP_PUBCOMP:
-				lwsl_err("%s: cmd_completion: PUBCOMP\n",
+				lwsl_info("%s: cmd_completion: PUBCOMP\n",
 						__func__);
 				n = 0;
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1817,11 +1872,11 @@ cmd_completion:
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				if (!n) {
-					lwsl_err("%s: unsolicited PUBCOMP\n",
-							__func__);
-					return -1;
-				}
+				if (!n)
+					/* eg, the stream moved on after PUBREC */
+					lwsl_info("%s: PUBCOMP for no stream, "
+						  "pkt id %d\n", __func__,
+						  (int)par->cpkt_id);
 
 				/*
 				 * If we published something and PUBCOMP arrived,
@@ -1920,6 +1975,7 @@ cmd_completion:
 						char requested_close = 0;
 
 						w->mqtt->unacked_publish = 0;
+						w->mqtt->op_timed_out = 0;
 						if (user_callback_handle_rxflow(
 							    w->a.protocol->callback,
 							    w, LWS_CALLBACK_MQTT_ACK,
@@ -1947,11 +2003,15 @@ cmd_completion:
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				if (!n) {
-					lwsl_err("%s: unsolicited PUBACK\n",
-							__func__);
-					return -1;
-				}
+				if (!n)
+					/*
+					 * No stream has this PUBLISH in flight
+					 * any more, eg, it closed, or moved on
+					 * after the PUBLISH timed out
+					 */
+					lwsl_notice("%s: PUBACK for no stream, "
+						    "pkt id %d\n", __func__,
+						    (int)par->cpkt_id);
 
 				/*
 				 * If we published something and it was acked,
@@ -2000,11 +2060,11 @@ cmd_completion:
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				if (!n) {
-					lwsl_err("%s: unsolicited SUBACK\n",
-							__func__);
-					return -1;
-				}
+				if (!n)
+					/* eg, the stream closed meanwhile */
+					lwsl_notice("%s: SUBACK for no stream, "
+						    "pkt id %d\n", __func__,
+						    (int)par->cpkt_id);
 
 				/*
 				 * If we subscribed to something and SUBACK came,
@@ -2035,6 +2095,7 @@ cmd_completion:
 						 * was sent
 						 */
 						w->mqtt->inside_unsubscribe = 0;
+						w->mqtt->op_timed_out = 0;
 						if (user_callback_handle_rxflow(
 							    w->a.protocol->callback,
 							    w, LWS_CALLBACK_MQTT_UNSUBSCRIBED,
@@ -2055,12 +2116,11 @@ cmd_completion:
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				if (!n) {
-					lwsl_err("%s: unsolicited UNSUBACK\n",
-							__func__);
-					return -1;
-				}
-
+				if (!n)
+					/* eg, the stream closed meanwhile */
+					lwsl_notice("%s: UNSUBACK for no stream, "
+						    "pkt id %d\n", __func__,
+						    (int)par->cpkt_id);
 
 				/*
 				 * If we unsubscribed to something and
@@ -2486,6 +2546,16 @@ lws_mqtt_client_send_publish_composed(struct lws *wsi, lws_mqtt_publish_param_t 
 		goto do_write;
 	}
 
+	/*
+	 * A resend (dup) of the PUBLISH the stream has in flight is the same
+	 * operation; anything else acked is a new one, which must wait for it
+	 */
+	if (pub->qos != QOS0 && !(pub->dup && wsi->mqtt->unacked_publish) &&
+	    lws_mqtt_stream_busy(wsi)) {
+		lwsl_wsi_err(wsi, "an operation is already awaiting its ack");
+		return 1;
+	}
+
 	start = b + LWS_PRE;
 	p = start;
 	/*
@@ -2551,9 +2621,12 @@ lws_mqtt_client_send_publish_composed(struct lws *wsi, lws_mqtt_publish_param_t 
 	/* Packet ID */
 	if (pub->qos != QOS0) {
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
-		if (!pub->dup)
-			nwsi->mqtt->pkt_id++;
-		wsi->mqtt->ack_pkt_id = pub->packet_id = nwsi->mqtt->pkt_id;
+		if (pub->dup && wsi->mqtt->unacked_publish) {
+			/* the resend goes with the id it went with before */
+			wsi->mqtt->op_timed_out = 0;
+			pub->packet_id = wsi->mqtt->ack_pkt_id;
+		} else
+			pub->packet_id = lws_mqtt_stream_op_start(wsi, nwsi);
 		lwsl_debug("%s: pkt_id = %d\n", __func__,
 			   (int)wsi->mqtt->ack_pkt_id);
 		lws_ser_wu16be(p, pub->packet_id);
@@ -2665,6 +2738,11 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 			 __func__, (unsigned int)sub->num_topics,
 			 (unsigned int)LWS_MQTT_MAX_TOPICS);
 
+		return 1;
+	}
+
+	if (lws_mqtt_stream_busy(wsi)) {
+		lwsl_wsi_err(wsi, "an operation is already awaiting its ack");
 		return 1;
 	}
 
@@ -2791,7 +2869,7 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 
 		/* Packet ID */
-		wsi->mqtt->ack_pkt_id = sub->packet_id = ++nwsi->mqtt->pkt_id;
+		sub->packet_id = lws_mqtt_stream_op_start(wsi, nwsi);
 		lwsl_debug("%s: pkt_id = %d\n", __func__,
 			   (int)sub->packet_id);
 		lws_ser_wu16be(p, wsi->mqtt->ack_pkt_id);
@@ -2893,6 +2971,11 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 		return 1;
 	}
 
+	if (lws_mqtt_stream_busy(wsi)) {
+		lwsl_wsi_err(wsi, "an operation is already awaiting its ack");
+		return 1;
+	}
+
 	switch (lwsi_state(wsi)) {
 	case LRS_ESTABLISHED: /* Protocol connection established */
 		orphaned = 0;
@@ -2982,7 +3065,7 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 
 		/* Packet ID */
-		wsi->mqtt->ack_pkt_id = ++nwsi->mqtt->pkt_id;
+		lws_mqtt_stream_op_start(wsi, nwsi);
 		lwsl_debug("%s: pkt_id = %d\n", __func__,
 			   (int)wsi->mqtt->ack_pkt_id);
 		lws_ser_wu16be(p, wsi->mqtt->ack_pkt_id);

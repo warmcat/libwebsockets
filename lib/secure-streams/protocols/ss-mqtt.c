@@ -290,6 +290,20 @@ secstream_mqtt_birth(struct lws *wsi, uint8_t *buf, size_t buflen) {
 				      LWSSS_FLAG_EOM);
 }
 
+/*
+ * The stream's operation awaiting the broker's ack was acked or timed out: a
+ * WRITEABLE that waited for it can have its turn now
+ */
+static void
+secstream_mqtt_tx_resume(lws_ss_handle_t *h, struct lws *wsi)
+{
+	if (!h->u.mqtt.tx_deferred)
+		return;
+
+	h->u.mqtt.tx_deferred = 0;
+	lws_callback_on_writable(wsi);
+}
+
 static int
 secstream_mqtt_resend(struct lws *wsi, uint8_t *buf) {
 	uint8_t *buffered;
@@ -811,6 +825,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			/* the stream let go of this connection already */
 			break;
+		secstream_mqtt_tx_resume(h, wsi);
 		if (wsi->mqtt->inside_shadow) {
 			wsi->mqtt->done_shadow_subscribe = 1;
 			lws_callback_on_writable(wsi);
@@ -834,6 +849,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_MQTT_ACK:
 		if (!h)
 			break;
+		secstream_mqtt_tx_resume(h, wsi);
 		lws_sul_cancel(&h->sul_timeout);
 		if (h->u.mqtt.send_unacked) {
 			lws_buflist_destroy_all_segments(&h->u.mqtt.buflist_unacked);
@@ -861,6 +877,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_MQTT_RESEND:
 		if (!h)
 			break;
+		secstream_mqtt_tx_resume(h, wsi);
 		lws_sul_cancel(&h->sul_timeout);
 		if (h->u.mqtt.retry_count++ < LWS_MQTT_MAX_PUBLISH_RETRY) {
 			h->u.mqtt.unacked_size =
@@ -899,6 +916,15 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (h->seqstate != SSSEQ_CONNECTED) {
 			lwsl_warn("%s: seqstate %d\n", __func__, h->seqstate);
 			break;
+		}
+
+		/*
+		 * The stream can have only one operation awaiting the broker's
+		 * ack: the next waits until it is acked, or times out
+		 */
+		if (lws_mqtt_stream_busy(wsi)) {
+			h->u.mqtt.tx_deferred = 1;
+			return 0;
 		}
 
 		if (!wsi->mqtt->done_subscribe && h->policy->u.mqtt.subscribe)
@@ -969,6 +995,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			secstream_mqtt_shadow_cleanup(wsi);
 			wsi->mqtt->inside_shadow = 0;
 			wsi->mqtt->done_shadow_subscribe = 0;
+			if (h)
+				secstream_mqtt_tx_resume(h, wsi);
 			break;
 		}
 		if (nwsi && (lws_wsi_mux_child_count(nwsi) == 1))
@@ -986,6 +1014,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			wsi->mqtt->done_shadow_subscribe = 0;
 			lwsl_warn("%s: %s: Unsubscribe (Shadow) timeout.\n",
 				  __func__, lws_ss_tag(h));
+			if (h)
+				secstream_mqtt_tx_resume(h, wsi);
 			break;
 		}
 

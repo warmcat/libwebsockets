@@ -191,6 +191,8 @@ typedef struct lws_ss_handle {
 			uint32_t			unacked_size;
 			uint8_t				retry_count;
 			uint8_t				send_unacked:1;
+			/* a WRITEABLE waited for the stream's ack */
+			uint8_t				tx_deferred:1;
 		} mqtt;
 #endif
 #if defined(LWS_WITH_SYS_SMD)
