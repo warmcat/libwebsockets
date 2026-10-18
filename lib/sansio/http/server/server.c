@@ -3949,8 +3949,7 @@ lws_h1_answer_short(struct lws *wsi)
 	    wsi->http.method_head)
 		return 0;
 
-	return !(code < 200 || code == HTTP_STATUS_NO_CONTENT ||
-		 code == HTTP_STATUS_NOT_MODIFIED);
+	return lws_http_status_has_body(code);
 }
 
 int LWS_WARN_UNUSED_RESULT
@@ -3986,6 +3985,29 @@ lws_http_transaction_completed(struct lws *wsi)
 
 		return 1;
 	}
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	/*
+	 * A coded h1 answer goes chunked, framing lws chose in place of the
+	 * app's Content-Length, and it ends with the coder's end and the
+	 * last-chunk, which only a FINAL write through the coder sends.  An
+	 * app that completes the transaction without one (its body written
+	 * as LWS_WRITE_HTTP to its length, or none at all) leaves the peer
+	 * waiting for the end, and reading the next answer as chunk data:
+	 * lws owes the end of its own framing, so it goes now, and the
+	 * completion waits below for it to drain like any other partial.  A
+	 * HEAD's answer has no body to end.
+	 */
+	if (!wsi->mux_substream && wsi->http.lcs &&
+	    wsi->http.comp_ctx.chunking && !wsi->http.method_head &&
+	    !wsi->http.comp_ctx.final_on_input_side) {
+		uint8_t fin[LWS_PRE + 1];
+
+		lwsl_wsi_info(wsi, "ending the coded answer left open");
+		if (lws_write(wsi, fin + LWS_PRE, 0, LWS_WRITE_HTTP_FINAL) < 0)
+			return 1;
+	}
+#endif
 
 	/* rx parked behind a file transfer may be read again now */
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_ENABLE |

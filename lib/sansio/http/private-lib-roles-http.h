@@ -851,6 +851,20 @@ lws_http_response_progress(struct lws *wsi)
 }
 #endif
 
+/*
+ * Whether an answer with this status has a body (RFC 9110 6.4.1): a 1xx, 204
+ * or 304 never does, whatever its headers say.  code may carry the
+ * LWSAHH_FLAG_ bits of lws_add_http_header_status().
+ */
+static inline int
+lws_http_status_has_body(unsigned int code)
+{
+	code &= LWSAHH_CODE_MASK;
+
+	return !(code < 200 || code == HTTP_STATUS_NO_CONTENT ||
+		 code == HTTP_STATUS_NOT_MODIFIED);
+}
+
 #if defined(LWS_WITH_CLIENT)
 int
 lws_h1_client_issue_handshake(struct lws *wsi);

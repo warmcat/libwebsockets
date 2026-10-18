@@ -449,7 +449,18 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		return 1;
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	if (!wsi->http.lcs && lws_http_compression_candidate(wsi, content_type))
+	/*
+	 * A coding replaces the Content-Length with framing of its own, on h1
+	 * chunks, which only the body's FINAL write through the coder ends.
+	 * An answer that has no body (a headers-only redirect, a 204, a 304)
+	 * never makes that write, and a coding has nothing to code for it
+	 * anyway: it keeps its Content-Length.  A HEAD's answer goes on as
+	 * the GET's would, coding and all, since none of its body is sent
+	 * (RFC 9110 9.3.2).
+	 */
+	if (!wsi->http.lcs && content_len &&
+	    lws_http_status_has_body(code) &&
+	    lws_http_compression_candidate(wsi, content_type))
 		lws_http_compression_apply(wsi, NULL, p, end, 0);
 #endif
 
