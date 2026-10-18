@@ -126,6 +126,11 @@
    `lws_free_set_NULL()`; use `lws_free(x); x = NULL;` in sspc files.
  - api-test-lws_dsh takes no `-d` and the spew limiter hides its later
    lines: judge it by exit code.
+ - **Struct layout on 32-bit without `-m32`:** gcc here rejects `-m32`, but
+   `clang --target=i386-linux-gnu -S -emit-llvm` gives a quick
+   `sizeof` / `offsetof` check.  A test transport that fills its documented
+   headroom with a pattern catches callers passing buffers without it,
+   even on 64-bit where padding hides it (api-test-ss-proxy-mux).
  - **SNI comes from `i.host`, not `i.address`**, so `i.host` sets both
    SNI and `:authority`; a name matching no vhost (and no SNI fallback)
    fails the handshake with a TLS alert.  To send a real Host header next

@@ -326,8 +326,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    only the first carries the header.  Flags are per kind since
    2acd3aa4c: give a record-structured kind
    `lws_dsh_set_kind_flags(dsh, kind, 0)` (G-186); `lws_dsh_empty()` keeps
-   them.  A pointer from `lws_dsh_get_head()` has no LWS_PRE headroom:
-   the object header sits right before it (G-203).
+   them.  A pointer from `lws_dsh_get_head()` has no LWS_PRE headroom
+   (the object header sits right before it), so never pass one to a
+   transport `_write` / `proxy_write`: copy behind `LWS_PRE` first, as
+   `lws_ssproxy_stage_dsh_head()` does.  Transports under the mux get
+   `LWS_PRE - 4` (G-203).
  - **Peer credential checks are one-sided:** C-630 checks client peer ids
    on the proxy side; nothing on the sspc client side calls
    `lws_plat_unix_peer_ids()` on the proxy (G-185).
