@@ -12,9 +12,14 @@
    inexplicably.  It comes back while the root `CMakeCache.txt` exists.
  - **`LWS_WITH_ASAN` turns on UBSan with trap-on-error**, so UB shows as a
    bare SIGTRAP with no report (and there is no gdb here).  To see the
-   report, build with `-fsanitize=undefined -fno-sanitize-recover` and no
-   trap.  ASan + TLS_PASSTHROUGH fails api-test-tls-passthrough this way
-   until G-206 is fixed.
+   report, configure a tree with ASan off and
+   `-DCMAKE_C_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all"`, plus
+   `-fsanitize=undefined` in `CMAKE_EXE_LINKER_FLAGS` and
+   `CMAKE_SHARED_LINKER_FLAGS`.
+ - **The root filesystem (/tmp) is small:** gcc fails with "Cannot create
+   temporary file" when it fills.  `TMPDIR=<build tree>/tmp` for make and
+   ctest avoids it.  Never run two makes in one build tree at once
+   (`ranlib: malformed archive`).
  - **Run a full `make` before ctest.**  `libwebsockets-test-server`, the
    fixture for the http-client-post / multi-post tests, links the static
    library; the minimal examples link the shared one.  After a library

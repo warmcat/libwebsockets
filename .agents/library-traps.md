@@ -115,10 +115,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_peer_track_ah_detach()` asserts (G-196).  Until G-209 is fixed, a
    re-attach that has to wait inside pre-accept leaves POLLIN on and the
    connection busy-loops in rx_policy HOLD.
- - **`lws_parse_numeric_address()` reads leading-zero IPv4 octets as
-   decimal; glibc reads them as octal** (`012.0.0.1` is 12.0.0.1 to lws,
-   10.0.0.1 to `getaddrinfo()`), so never use it as a filter for a string
-   the platform will resolve (G-197).
+ - **Numeric hosts vs libc:** `lws_parse_numeric_address()` is
+   inet_pton-strict since G-197, but glibc `getaddrinfo()` still resolves
+   inet_aton forms (`012.0.0.1` as 10.0.0.1, `10.1`, `167772161`,
+   `0xa.0.0.1`).  `lws_host_is_ambiguous_numeric()` detects those, and the
+   client resolve paths refuse them; use it before trusting any filter
+   decision on a host string the platform will resolve.
 
 ## HTTP
 
