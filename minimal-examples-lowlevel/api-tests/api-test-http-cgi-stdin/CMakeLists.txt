@@ -123,6 +123,15 @@ if (requirements)
 					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 					     TIMEOUT 60)
 
+			lws_get_free_port(PORT_HTTP_CGI_H2_POST_CL0)
+
+			add_test(NAME api-test-http-cgi-h2-post-cl0
+				 COMMAND lws-api-test-http-cgi-stdin --h2-post-cl0
+					 -p ${PORT_HTTP_CGI_H2_POST_CL0})
+			set_tests_properties(api-test-http-cgi-h2-post-cl0 PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
+
 			# the same, ended by an empty DATA after the body
 			lws_get_free_port(PORT_HTTP_CGI_H2_POST_STREAM_END)
 
@@ -136,16 +145,19 @@ if (requirements)
 					     TIMEOUT 60)
 		endif()
 
-		# an h1 POST that waits for the 100 Continue its Expect:
-		# 100-continue asks for
-		lws_get_free_port(PORT_HTTP_CGI_EXPECT_CONTINUE)
+		# a POST saying Content-Length: 0, and an h1 POST that waits
+		# for the 100 Continue its Expect: 100-continue asks for
+		foreach(CGI_CASE post-cl0 expect-continue)
+			lws_get_free_port(PORT_HTTP_CGI_${CGI_CASE})
 
-		add_test(NAME api-test-http-cgi-expect-continue
-			 COMMAND lws-api-test-http-cgi-stdin --expect-continue
-				 -p ${PORT_HTTP_CGI_EXPECT_CONTINUE})
-		set_tests_properties(api-test-http-cgi-expect-continue PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-				     TIMEOUT 60)
+			add_test(NAME api-test-http-cgi-${CGI_CASE}
+				 COMMAND lws-api-test-http-cgi-stdin --${CGI_CASE}
+					 -p ${PORT_HTTP_CGI_${CGI_CASE}})
+			set_tests_properties(api-test-http-cgi-${CGI_CASE}
+					     PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
+		endforeach()
 
 		lws_get_free_port(PORT_HTTP_CGI_ABANDON)
 

@@ -2149,6 +2149,7 @@ lws_http_request_body_framing(struct lws *wsi)
 	/* per-transaction: the last request's framing says nothing of this one's */
 	wsi->http.content_length_given = 0;
 	wsi->http.rx_body_done = 0;
+	wsi->http.expect_continue = 0;
 	/* no status line has been built for this transaction yet */
 	wsi->http.response_code = 0;
 	/*
@@ -2200,6 +2201,9 @@ lws_http_request_body_framing(struct lws *wsi)
 			HTTP_STATUS_EXPECTATION_FAILED, NULL);
 		return 1;
 	}
+	/* what lws_http_action() decides on after the headers may be gone */
+	wsi->http.expect_continue =
+			!!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT);
 
 	wsi->http.rx_chunked = 0;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
@@ -2513,11 +2517,14 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 	 * Snapshot what the method was, while the ah is certainly still
 	 * attached: the request headers are released once the request has been
 	 * dispatched (C-460), but the file-serve path still has to know not to
-	 * emit a body for a HEAD.  Re-decided for every request, so a keepalive
-	 * connection cannot carry a stale answer into the next one.
+	 * emit a body for a HEAD, and lws_http_action() whether an empty body
+	 * is a POST's after a cgi mount let the headers go.  Re-decided for
+	 * every request, so a keepalive connection cannot carry a stale answer
+	 * into the next one.
 	 */
 
 	wsi->http.method_head = methods[g->meth] == WSI_TOKEN_HEAD_URI;
+	wsi->http.method_post = methods[g->meth] == WSI_TOKEN_POST_URI;
 
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
 	lws_metrics_tag_wsi_add(wsi, "meth", method_names[g->meth]);
@@ -3105,7 +3112,7 @@ deal_body:
 		   lws_wsi_is_mux_nwsi(wsi), wsi->mux_substream);
 
 	if (wsi->http.content_length_explicitly_zero &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+	    wsi->http.method_post) {
 
 		/*
 		 * POST with an explicit content-length of zero
@@ -3127,6 +3134,21 @@ deal_body:
 		if (lwsi_state(wsi) == LRS_TXN_COMPLETING ||
 		    lwsi_state(wsi) == LRS_TXN_COMPLETED)
 			goto no_more_body;
+
+#if defined(LWS_WITH_CGI)
+		if (wsi->http.cgi) {
+			/*
+			 * A cgi takes its body on its stdin, and no body
+			 * callbacks: the end of the body ends its stdin (as
+			 * the body reader does at a body's end), and with no
+			 * body that is now.  Otherwise a script reading its
+			 * stdin to the end waits for the cgi timeout.
+			 */
+			lws_cgi_stdin_body_end(wsi);
+
+			goto no_more_body;
+		}
+#endif
 
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 					    wsi->user_space, NULL, 0))
@@ -3166,7 +3188,7 @@ deal_body:
 		if (!wsi->mux_substream &&
 		    wsi->stream.request_version == HTTP_VERSION_1_1 &&
 		    !wsi->http.response_code &&
-		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT)) {
+		    wsi->http.expect_continue) {
 			uint8_t ib[LWS_PRE + 32];
 			static const char cont[] =
 				"HTTP/1.1 100 Continue\x0d\x0a\x0d\x0a";

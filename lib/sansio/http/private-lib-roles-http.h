@@ -476,6 +476,14 @@ struct _lws_http_mode_related {
 	 * time by lws_http_action(), because the file-serve path decides
 	 * whether to emit a body long after the request headers were released
 	 * (C-460).  Re-decided for every request on the connection. */
+	unsigned int method_post:1;
+	/**< the request being served is a POST.  Snapshotted with method_head,
+	 * for lws_http_action()'s decisions after the request's callback has
+	 * returned, by when a cgi mount has given the request headers back. */
+	unsigned int expect_continue:1;
+	/**< the request asked for a 100 Continue before its body (the only
+	 * expectation lws_http_request_body_framing() lets through).
+	 * Snapshotted there, for the same reason as method_post. */
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int content_length_given:1;
 	unsigned int rx_body_done:1;

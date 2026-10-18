@@ -71,12 +71,14 @@
  * in its turn if the connection is kept alive (today an h1 connection is
  * closed after a cgi answer, and the parked request goes with it).
  *
+ * With --post-cl0 (h1) and --h2-post-cl0, the POST says Content-Length: 0
+ * and sends nothing: the script must see the end of its empty stdin, and
+ * answer at once that it got no bytes, told its Content-Length is 0.
+ *
  * With --expect-continue, a raw h1 client POSTs the body with Expect:
  * 100-continue, and holds the body back until the 100 Continue comes, or
- * CONTINUE_WAIT_MS has passed without one.  The script must get the whole
- * body either way.  Whether the 100 is sent is checked against what lws
- * does today, CGI_CONTINUE_TODAY: it is not, since the cgi gave its request
- * headers back at spawn, before the Expect header was looked at.
+ * CONTINUE_WAIT_MS has passed without one.  The 100 must come, and the
+ * script must get the whole body.
  *
  * With --abandon, a client GETs a script that sends its headers and then
  * sleeps, and goes away as soon as it has the headers, ABANDONS times over,
@@ -100,7 +102,7 @@
  *  - the CGI does not report receiving every byte of the POST body,
  *  - (--pipelined) the first answer does not arrive whole, or a cgi is
  *    spawned on the connection while its earlier one is still running,
- *  - (--expect-continue) a 100 Continue was or was not sent, unlike today,
+ *  - (--expect-continue) no 100 Continue was sent,
  *  - (--abandon) children are left running or uncollected afterwards,
  *  - (JOSE) the CGI did not see the interceptor's stamped header value,
  *  - no completion is seen inside the watchdog period,
@@ -149,13 +151,10 @@
 
 /*
  * --expect-continue: how long the client holds its body back for the 100
- * Continue, and whether lws sends one to a cgi POST today.  It does not:
- * the cgi gave its request headers back at spawn, before the Expect header
- * is looked at (G-151, the survey's L2).  When the Expect header is taken
- * at dispatch instead, this becomes 1.
+ * Continue.  The cgi has given its request headers back by when lws decides
+ * to send the 100, so that decision must not need them.
  */
 #define CONTINUE_WAIT_MS	1000
-#define CGI_CONTINUE_TODAY	0
 
 enum body_type {
 	BODY_NONE,
@@ -163,6 +162,7 @@ enum body_type {
 	BODY_CHUNKED,
 	BODY_STREAM,		/* h2: no length, the stream ends it */
 	BODY_STREAM_END,	/* ... with an empty DATA after the body */
+	BODY_CL0,		/* an explicit Content-Length: 0, no body */
 };
 
 enum expect {
@@ -203,6 +203,7 @@ static const struct tcase cases[] = {
 	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY, 0, 0 },
 	{ "pipelined", "GET", "/", BODY_NONE, EXPECT_PIPELINED, 0, 0 },
 	{ "abandon", "GET", "/linger", BODY_NONE, EXPECT_ABANDON, 0, 0 },
+	{ "post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 0, 0 },
 	{ "expect-continue", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_CONTINUE,
 	  0, 0 },
 #if defined(LWS_ROLE_H2)
@@ -211,6 +212,7 @@ static const struct tcase cases[] = {
 	{ "h2-post-stream", "POST", "/", BODY_STREAM, EXPECT_BODY_COUNT, 1, 0 },
 	{ "h2-post-stream-end", "POST", "/", BODY_STREAM_END, EXPECT_BODY_COUNT,
 	  1, 0 },
+	{ "h2-post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0 },
 #endif
 };
 
@@ -331,7 +333,8 @@ static int
 check_body_count(void)
 {
 	const char *p = strstr(run.rx, "bytes=");
-	unsigned long expect = (unsigned long)CHUNKS * CHUNK, seen = 0;
+	unsigned long expect = tc->body == BODY_CL0 ? 0 :
+					(unsigned long)CHUNKS * CHUNK, seen = 0;
 	char clen[32];
 
 	if (!p) {
@@ -348,7 +351,7 @@ check_body_count(void)
 		return 1;
 	}
 
-	if (tc->body == BODY_CONTENT_LENGTH)
+	if (tc->body == BODY_CONTENT_LENGTH || tc->body == BODY_CL0)
 		lws_snprintf(clen, sizeof(clen), "clen=%lu\n", expect);
 	else
 		lws_strncpy(clen, "clen=\n", sizeof(clen));
@@ -424,6 +427,11 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		switch (tc->body) {
 		case BODY_NONE:
 			return 0;
+		case BODY_CL0:
+			/* says it has a body, of nothing: none follows */
+			if (lws_add_http_header_content_length(wsi, 0, pp, end))
+				return -1;
+			return 0;
 		case BODY_CHUNKED:
 			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
@@ -452,7 +460,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		if (tc->body == BODY_NONE || pss->chunks_done > CHUNKS ||
+		if (tc->body == BODY_NONE || tc->body == BODY_CL0 ||
+		    pss->chunks_done > CHUNKS ||
 		    (pss->chunks_done == CHUNKS && tc->body != BODY_STREAM_END))
 			return 0;
 
@@ -1173,16 +1182,11 @@ int main(int argc, const char **argv)
 		case EXPECT_CONTINUE:
 			if (check_body_count())
 				goto done;
-			if (run.got_continue != CGI_CONTINUE_TODAY) {
-				lwsl_err("--- 100 Continue %s, expected %s "
-					 "today ---\n",
-					 run.got_continue ? "sent" : "not sent",
-					 CGI_CONTINUE_TODAY ? "sent" :
-							      "not sent");
+			if (!run.got_continue) {
+				lwsl_err("--- no 100 Continue ---\n");
 				goto done;
 			}
-			lwsl_user("--- 100 Continue %s ---\n",
-				  run.got_continue ? "sent" : "not sent");
+			lwsl_user("--- 100 Continue, then the body ---\n");
 			break;
 		case EXPECT_BIG_BODY:
 			if (run.rx_total != BIG_BODY || run.not_x) {
