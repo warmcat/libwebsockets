@@ -92,3 +92,8 @@ sessions.
    need it or ask.
  - Make your own build directories (`build-<you>-<purpose>`), never use
    `./build`.
+ - **Disk fills up with parallel agents.**  Each ASan build tree is
+   ~250MB under the checkout and the root filesystem (/tmp, scratchpad)
+   has well under 1GB free; detached worktrees with builds in the
+   scratchpad can exhaust it (`ar` fails with ENOSPC).  Remove build
+   trees and worktrees when a phase ends.

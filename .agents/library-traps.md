@@ -112,7 +112,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    before the PROXY header has been read.
  - **The h1 role attaches an ah at adoption, before pre-accept:** anything
    that changes `wsi->peer` later must detach and re-attach the ah, or
-   `lws_peer_track_ah_detach()` asserts (G-196).
+   `lws_peer_track_ah_detach()` asserts (G-196).  Until G-209 is fixed, a
+   re-attach that has to wait inside pre-accept leaves POLLIN on and the
+   connection busy-loops in rx_policy HOLD.
  - **`lws_parse_numeric_address()` reads leading-zero IPv4 octets as
    decimal; glibc reads them as octal** (`012.0.0.1` is 12.0.0.1 to lws,
    10.0.0.1 to `getaddrinfo()`), so never use it as a filter for a string
