@@ -56,6 +56,9 @@
  *    struct's size as its length, as the announce in a search does.  The
  *    request must still be recorded, so R's pong is taken as the answer to
  *    it and R enters A's table (G-128)
+ *  - A probes its good nodes, B and R, for its external address again, and
+ *    R answers that A is at a multicast address.  That must not be counted:
+ *    no vote may decide we are somewhere unroutable (G-095)
  *
  * The UDP ports (four to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
@@ -139,11 +142,14 @@ struct seen {
 	unsigned char ss_ponged:1;	/* ...R answered it */
 	unsigned char ss_ok:1;		/* ...and A took the answer */
 	unsigned char ss_bad:1;		/* ...or dropped it */
+	unsigned char mart_sent:1;	/* A probed B and R again */
+	unsigned char mart_answered:1;	/* ...R said A is at 224.0.0.1 */
+	unsigned char mart_ok:1;	/* ...and A did not believe it */
 };
 
 /* the id R answers A's ping with, and the polls since it did */
 #define KRPC_SS_ID_R		0x77
-static int ss_polls;
+static int ss_polls, mart_polls;
 
 /* R's unasked-for replies to A: how far along, and the polls since */
 static int unsol_state, unsol_polls;
@@ -727,7 +733,7 @@ unsolicited_reply_step(void)
 static void
 seq_step(void)
 {
-	if (!sv.ss_ok || sv.unproven_ok || sv.unproven_bad || raw_tx_len)
+	if (!sv.mart_ok || sv.unproven_ok || sv.unproven_bad || raw_tx_len)
 		return;
 
 	switch (seq_state) {
@@ -822,14 +828,46 @@ storage_ping_step(void)
 	}
 }
 
-/* R's answer to A's ping: the pong, from R's id, echoing A's tid */
+/*
+ * R's answer to A's pings: the pong, from R's id, echoing A's tid.  To A's
+ * external-address probe (tid "ip" + nonce), R says A is at a multicast
+ * address.
+ */
 
 static void
 ss_rx(const uint8_t *in, size_t len)
 {
-	uint8_t q[64], *p = q;
-	ssize_t at = krpc_find(in, len, "1:q4:ping1:t4:");
+	uint8_t q[96], *p = q;
+	ssize_t at = krpc_find(in, len, "1:q4:ping1:t10:ip");
 
+	if (at >= 0 && (size_t)at + 25 <= len && sv.mart_sent &&
+	    !sv.mart_answered) {
+		sv.mart_answered = 1;
+
+		memcpy(p, "d2:ip6:", 7);
+		p += 7;
+		*p++ = 224;
+		*p++ = 0;
+		*p++ = 0;
+		*p++ = 1;
+		*p++ = (uint8_t)(ntohs(sa_a.sin_port) >> 8);
+		*p++ = (uint8_t)ntohs(sa_a.sin_port);
+		memcpy(p, "1:rd2:id20:", 11);
+		p += 11;
+		memset(p, KRPC_SS_ID_R, 20);
+		p += 20;
+		memcpy(p, "e1:t10:", 7);
+		p += 7;
+		memcpy(p, in + at + 15, 10);
+		p += 10;
+		memcpy(p, "1:y1:re", 7);
+		p += 7;
+
+		raw_queue(q, lws_ptr_diff_size_t(p, q), &sa_a);
+		return;
+	}
+
+	at = krpc_find(in, len, "1:q4:ping1:t4:");
 	if (at < 0 || (size_t)at + 18 > len || sv.ss_ponged)
 		return;
 
@@ -847,6 +885,28 @@ ss_rx(const uint8_t *in, size_t len)
 	p += 7;
 
 	raw_queue(q, lws_ptr_diff_size_t(p, q), &sa_a);
+}
+
+/*
+ * Once R is a good node of A's, A probes B and R for its external address;
+ * R's answer names a multicast address, which A must ignore: cb_a() flags any
+ * address report but A's own as extip_bad
+ */
+
+static void
+martian_step(void)
+{
+	if (!sv.ss_ok || sv.mart_ok || raw_tx_len)
+		return;
+
+	if (!sv.mart_sent) {
+		sv.mart_sent = 1;
+		lws_dht_test_external_ips(dht_a);
+		return;
+	}
+
+	if (sv.mart_answered && ++mart_polls >= 5 && !sv.extip_bad)
+		sv.mart_ok = 1;
 }
 
 static void
@@ -1042,6 +1102,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	error_reply_step(&sb);
 	unsolicited_reply_step();
 	storage_ping_step();
+	martian_step();
 	seq_step();
 
 	if (sv.data_ok && !sv.dead_sent) {
@@ -1091,7 +1152,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.unsol_ok && !sv.unsol_bad &&
 	    sv.seq_ok && !sv.seq_bad &&
 	    sv.unproven_ok && !sv.unproven_bad &&
-	    sv.ss_ok && !sv.ss_bad &&
+	    sv.ss_ok && !sv.ss_bad && sv.mart_ok &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -1348,6 +1409,11 @@ int main(int argc, const char **argv)
 			if (!sv.seq_ok || sv.seq_bad) {
 				lwsl_err("A's transfer to R did not complete on "
 					 "R's real ack alone\n");
+				fails++;
+			}
+			if (!sv.mart_ok) {
+				lwsl_err("A was not probed again, or believed "
+					 "R's multicast address for it\n");
 				fails++;
 			}
 			if (!sv.ss_ok || sv.ss_bad) {

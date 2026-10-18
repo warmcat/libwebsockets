@@ -258,33 +258,6 @@ dht_tb_take(struct lws_dht_ctx *ctx, lws_dht_tb_t *tb, int rate, int burst)
 }
 
 /*
- * What a per-source share is accounted to: the IPv4 address, or the IPv6
- * /64, so one host is one source however many ports, or addresses in its
- * prefix, it uses.  Fills a 16-byte key; -1 for a family we don't handle.
- */
-
-int
-dht_source_key(const struct sockaddr *sa, uint8_t key[16])
-{
-	const lws_sockaddr46 *sa46 = (const lws_sockaddr46 *)sa;
-
-	memset(key, 0, 16);
-
-	switch (sa->sa_family) {
-	case AF_INET:
-		memcpy(key, &sa46->sa4.sin_addr, 4);
-		return 0;
-#if defined(LWS_WITH_IPV6)
-	case AF_INET6:
-		memcpy(key, &sa46->sa6.sin6_addr, 8);
-		return 0;
-#endif
-	default:
-		return -1;
-	}
-}
-
-/*
  * Every request costs us a reply, so requests are rate limited (C-071).  A
  * single bucket for all of them let one source, sending ~100 pings/s, take
  * every token, and we then dropped every other peer's requests, including
@@ -995,28 +968,122 @@ lws_dht_get_stats(struct lws_vhost *vh, struct lws_dht_stats *current,
 	return 0;
 }
 
+/*
+ * A probed node's answer about our external address, already bound to its
+ * probe.  It is one witness's vote: see dht-extvote.h for how votes decide.
+ *
+ * The witness is its host (dht_source_key(): an IPv4 address or an IPv6 /64),
+ * as for every other per-peer share in the dht, so one /64 is one vote
+ * however many of its addresses we probed.  The quorum is three such hosts,
+ * or, in a network too small to have three, every host of the family this
+ * round could probe.  ip_probes[] is what we sent, so a peer cannot deflate
+ * it, and keyed by host it cannot inflate it either.
+ *
+ * Only a decided address is reported, and only it rebinds our node id: a
+ * lone vote, however recent, never moves our BEP 42 id.
+ */
+
+void
+lws_dht_ip_vote(struct lws_dht_ctx *ctx, const struct sockaddr *from,
+		size_t fromlen, const lws_sockaddr46 *reported)
+{
+	uint8_t pk[16], pk1[16];
+	lws_sockaddr46 voter, peers[8];
+	struct lws_dht_consensus_info ci;
+	int af = reported->sa4.sin_family, quorum = 0, j, k, ret,
+	    num_peers = (int)LWS_ARRAY_SIZE(peers);
+	lws_dht_extvote_t *ev;
+
+	if (af != AF_INET && af != AF_INET6)
+		return;
+
+	/* a quorum must never decide we are somewhere unroutable */
+	if (is_martian(ctx, (const struct sockaddr *)reported)) {
+		lwsl_dht_warn("%s: unroutable external address reported, "
+			      "ignored\n", __func__);
+		return;
+	}
+
+	if (fromlen > sizeof(voter))
+		return;
+
+	memset(&voter, 0, sizeof(voter));
+	memcpy(&voter, from, fromlen);
+
+	for (j = 0; j < ctx->ip_probe_count; j++) {
+		if (ctx->ip_probes[j].ss.ss_family != af ||
+		    dht_source_key((const struct sockaddr *)
+				   &ctx->ip_probes[j].ss, pk))
+			continue;
+
+		for (k = 0; k < j; k++)
+			if (ctx->ip_probes[k].ss.ss_family == af &&
+			    !dht_source_key((const struct sockaddr *)
+					    &ctx->ip_probes[k].ss, pk1) &&
+			    !memcmp(pk, pk1, sizeof(pk)))
+				break;
+		if (k == j) /* the first probe to this host */
+			quorum++;
+	}
+	if (quorum > 3)
+		quorum = 3;
+
+	ev = &ctx->extvote[af == AF_INET6];
+	ret = lws_dht_extvote_add(ev, &voter, reported, ctx->now, quorum,
+				  peers, &num_peers);
+	if (ret <= LWS_DHT_EXTVOTE_NO_CHANGE)
+		return;
+
+	lwsl_notice("%s: %s external address %s, %d agreeing hosts, "
+		    "quorum %d\n", __func__, af == AF_INET ? "IPv4" : "IPv6",
+		    ret == LWS_DHT_EXTVOTE_SHIFT ? "moved" : "decided",
+		    num_peers, quorum);
+
+	lws_dht_bep42_own_id(ctx, (const struct sockaddr *)&ev->decided);
+
+	memset(&ci, 0, sizeof(ci));
+	memcpy(&ci.ss, &ev->decided, sizeof(ev->decided));
+	ci.sslen = af == AF_INET ? sizeof(struct sockaddr_in) :
+				   sizeof(struct sockaddr_in6);
+	ci.num_peers = num_peers;
+	for (k = 0; k < num_peers; k++)
+		memcpy(&ci.peer_ss[k], &peers[k], sizeof(peers[k]));
+
+	if (ctx->cb)
+		ctx->cb(ctx->closure, af == AF_INET ?
+					LWS_DHT_EVENT_EXTERNAL_ADDR :
+					LWS_DHT_EVENT_EXTERNAL_ADDR6,
+			ret == LWS_DHT_EXTVOTE_SHIFT ? (const void *)"SHIFT" :
+						       NULL,
+			&ci, sizeof(ci), from, fromlen);
+}
+
 int
 lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss,
 			  size_t *sslen)
 {
 	int j;
 
-	if (!ctx->external_ads_set)
-		return -1;
+	/*
+	 * The quorum decision lives where the reports are tallied, and it is
+	 * not a fixed count of three: in a small network it is however many
+	 * nodes there were to ask.  Report what that decided rather than
+	 * re-deriving it here.
+	 */
 
-	for (j = 0; j < ctx->num_reported_ads; j++) {
-		/*
-		 * The quorum decision lives where the reports are tallied, and
-		 * it is not a fixed count of three: in a small network it is
-		 * however many nodes there were to ask.  Report what that
-		 * decided rather than re-deriving it wrongly here.
-		 */
-		if (ctx->reported_ads[j].confirmed) {
-			*ss = ctx->reported_ads[j].ss;
-			*sslen = ctx->reported_ads[j].sslen;
+	for (j = 0; j < (int)LWS_ARRAY_SIZE(ctx->extvote); j++) {
+		const lws_sockaddr46 *d = &ctx->extvote[j].decided;
 
-			return 0;
-		}
+		if (!d->sa4.sin_family)
+			continue;
+
+		memset(ss, 0, sizeof(*ss));
+		memcpy(ss, d, sizeof(*d));
+		*sslen = d->sa4.sin_family == AF_INET ?
+				sizeof(struct sockaddr_in) :
+				sizeof(struct sockaddr_in6);
+
+		return 0;
 	}
 
 	return -1;

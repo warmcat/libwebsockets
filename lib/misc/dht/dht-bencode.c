@@ -1009,13 +1009,11 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		 * A reply to our external-address probe, telling us what our
 		 * address looks like from outside.  It counts only if it
 		 * carries the random nonce we sent to that very node and comes
-		 * from where we sent it, once per probe; each host (IP address)
-		 * gets one vote however many ports it answers from, and nothing
-		 * is believed until a quorum of distinct hosts agree.
+		 * from where we sent it, once per probe; lws_dht_ip_vote()
+		 * decides what it is worth.
 		 */
-		struct sockaddr_storage ss;
-		size_t sslen;
-		int found = -1, j, k, flag, probe = -1, quorum;
+		lws_sockaddr46 rep;
+		int j, probe = -1;
 
 		if (mp.tid_len != LWS_DHT_IP_PROBE_TID_LEN ||
 		    !tid_match(mp.tid, "ip", NULL))
@@ -1038,164 +1036,33 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			goto skip_ip_tracking;
 		}
 
-		memset(&ss, 0, sizeof(ss));
+		memset(&rep, 0, sizeof(rep));
 		if (mp.sender_ip_len == 4) {
-			struct sockaddr_in *sin = (struct sockaddr_in *)&ss;
-			sin->sin_family = AF_INET;
-			memcpy(&sin->sin_addr, mp.sender_ip, 4);
-			sin->sin_port = htons(mp.sender_port);
-			sslen = sizeof(*sin);
+			rep.sa4.sin_family = AF_INET;
+			memcpy(&rep.sa4.sin_addr, mp.sender_ip, 4);
+			rep.sa4.sin_port = htons(mp.sender_port);
 		} else {
-			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&ss;
-			sin6->sin6_family = AF_INET6;
-			memcpy(&sin6->sin6_addr, mp.sender_ip, 16);
-			sin6->sin6_port = htons(mp.sender_port);
-			sslen = sizeof(*sin6);
+#if defined(LWS_WITH_IPV6)
+			rep.sa6.sin6_family = AF_INET6;
+			memcpy(&rep.sa6.sin6_addr, mp.sender_ip, 16);
+			rep.sa6.sin6_port = htons(mp.sender_port);
+#else
+			goto skip_ip_tracking;
+#endif
 		}
+
 		/*
-		 * The quorum is counted over the probes of the reported
-		 * address's family: a v4 node reporting a v6 address for us
-		 * would be its own quorum of one.  A node can only see us on
-		 * the family it was probed on.
+		 * A node can only see us on the family it was probed on: a v4
+		 * node reporting a v6 address for us would be a vote nobody
+		 * else in that family's round could have cast
 		 */
-		if (ss.ss_family != ctx->ip_probes[probe].ss.ss_family) {
+		if (rep.sa4.sin_family != ctx->ip_probes[probe].ss.ss_family) {
 			lwsl_dht_warn("%s: IP tracking reply family mismatch, dropped\n", __func__);
 			goto skip_ip_tracking;
 		}
 		ctx->ip_probes[probe].answered = 1;
-		flag = (ss.ss_family == AF_INET) ? 1 : 2;
 
-		for (j = 0; j < ctx->num_reported_ads; j++)
-			if (ctx->reported_ads[j].sslen == sslen &&
-			    !memcmp(&ctx->reported_ads[j].ss, &ss, sslen)) {
-				found = j;
-				break;
-			}
-
-		if (found < 0) {
-			if (ctx->num_reported_ads >= (int)LWS_ARRAY_SIZE(ctx->reported_ads))
-				goto skip_ip_tracking;
-			found = ctx->num_reported_ads++;
-			memset(&ctx->reported_ads[found], 0, sizeof(ctx->reported_ads[found]));
-			ctx->reported_ads[found].ss = ss;
-			ctx->reported_ads[found].sslen = sslen;
-		}
-
-		{
-			int peer_found = 0;
-
-			/*
-			 * One vote per host: a host that holds several routing
-			 * table entries on different ports was probed on each,
-			 * but it is still one witness
-			 */
-			for (k = 0; k < ctx->reported_ads[found].num_peers; k++)
-				if (!lws_sa46_compare_ads((const lws_sockaddr46 *)
-						&ctx->reported_ads[found].peer_ss[k],
-						(const lws_sockaddr46 *)from)) {
-					peer_found = 1;
-					break;
-				}
-			if (peer_found)
-				goto skip_ip_tracking;
-			if (ctx->reported_ads[found].num_peers <
-			    (int)LWS_ARRAY_SIZE(ctx->reported_ads[found].peer_ss))
-				memcpy(&ctx->reported_ads[found].peer_ss[ctx->reported_ads[found].num_peers++],
-				       from, fromlen);
-			ctx->reported_ads[found].count++;
-		}
-
-		/*
-		 * Three distinct probed hosts agreeing is what we want, but a
-		 * small network may not contain three hosts to ask: then the
-		 * quorum is every host of this family the round could be sent
-		 * to, which is all the confirmation that exists.  ip_probes[]
-		 * is what we sent, so a peer cannot deflate it, and since it
-		 * is counted by IP address, a host cannot inflate it with
-		 * extra ports either.  A two-node network still learns its
-		 * address.
-		 */
-		quorum = 0;
-		for (j = 0; j < ctx->ip_probe_count; j++) {
-			if (ctx->ip_probes[j].ss.ss_family != ss.ss_family)
-				continue;
-
-			for (k = 0; k < j; k++)
-				if (!lws_sa46_compare_ads((const lws_sockaddr46 *)
-						&ctx->ip_probes[k].ss,
-						(const lws_sockaddr46 *)
-						&ctx->ip_probes[j].ss))
-					break;
-			if (k == j) /* first probe to this host */
-				quorum++;
-		}
-		if (quorum > 3)
-			quorum = 3;
-		if (quorum < 1)
-			quorum = 1;
-
-		if (ctx->reported_ads[found].count < quorum)
-			goto skip_ip_tracking; /* no quorum yet */
-
-		{
-			struct lws_dht_consensus_info ci;
-			const void *marker = NULL;
-
-			memset(&ci, 0, sizeof(ci));
-			memcpy(&ci.ss, &ss, sslen);
-			ci.sslen = sslen;
-			ci.num_peers = ctx->reported_ads[found].num_peers;
-			for (k = 0; k < ci.num_peers; k++)
-				memcpy(&ci.peer_ss[k], &ctx->reported_ads[found].peer_ss[k],
-				       sizeof(struct sockaddr_storage));
-
-			if (!ctx->reported_ads[found].confirmed) {
-				ctx->reported_ads[found].confirmed = 1;
-				if (!(ctx->external_ads_set & flag)) {
-					lwsl_notice("%s: reached consensus on external address (%s), %d agreeing nodes, quorum %d\n", __func__, ss.ss_family == AF_INET ? "IPv4" : "IPv6", ctx->reported_ads[found].count, quorum);
-					ctx->external_ads_set |= flag;
-					lws_dht_bep42_own_id(ctx,
-						(const struct sockaddr *)&ss);
-				} else {
-					/*
-					 * A quorum of probed hosts agree on a
-					 * different address than the one
-					 * confirmed before: the network
-					 * shifted.  Forget the old one.
-					 */
-					lwsl_notice("%s: consensus on new external address, shift!\n", __func__);
-					marker = "SHIFT";
-					for (j = 0; j < ctx->num_reported_ads; j++)
-						if (j != found &&
-						    ctx->reported_ads[j].ss.ss_family == ss.ss_family) {
-							/*
-							 * Drop the superseded
-							 * tally along with its
-							 * confirmation: a peer
-							 * already in its list
-							 * can never report it
-							 * again, so leaving the
-							 * tally would pin the
-							 * address below quorum
-							 * for good and we would
-							 * never notice a shift
-							 * back to it.
-							 */
-							ctx->reported_ads[j].confirmed = 0;
-							ctx->reported_ads[j].count = 0;
-							ctx->reported_ads[j].num_peers = 0;
-						}
-				}
-			} else if (ctx->reported_ads[found].count > 8)
-				goto skip_ip_tracking; /* enough said */
-
-			if (ctx->cb)
-				ctx->cb(ctx->closure,
-					ss.ss_family == AF_INET ?
-						LWS_DHT_EVENT_EXTERNAL_ADDR :
-						LWS_DHT_EVENT_EXTERNAL_ADDR6,
-					marker, &ci, sizeof(ci), from, fromlen);
-		}
+		lws_dht_ip_vote(ctx, from, fromlen, &rep);
 skip_ip_tracking:
 		;
 	}

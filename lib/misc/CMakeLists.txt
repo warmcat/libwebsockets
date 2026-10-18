@@ -93,6 +93,7 @@ if (LWS_WITH_DHT)
 		misc/dht/dht.c
 		misc/dht/dht-id.c
 		misc/dht/dht-bencode.c
+		misc/dht/dht-extvote.c
 		misc/dht/dht-tx.c)
 endif()
 

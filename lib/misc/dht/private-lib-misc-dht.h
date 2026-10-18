@@ -26,6 +26,7 @@
 
 #include "../core/private-lib-core.h"
 #include "../core-net/private-lib-core-net.h"
+#include "dht-extvote.h"
 #ifndef _WIN32
 #include <arpa/inet.h>
 #endif
@@ -283,17 +284,8 @@ struct lws_dht_ctx {
 	struct sockaddr_storage blacklist[DHT_MAX_BLACKLISTED];
 	int			next_blacklisted;
 
-	struct {
-		struct sockaddr_storage ss;
-		size_t			sslen;
-		int			count;
-		int			num_peers;
-		struct sockaddr_storage peer_ss[8]; /* one per voting IP */
-		uint8_t			confirmed; /* reached the quorum */
-	} reported_ads[8];
-
-	int			num_reported_ads;
-	int			external_ads_set;
+	/* the vote on our external address: [0] IPv4, [1] IPv6 */
+	lws_dht_extvote_t	extvote[2];
 
 	/*
 	 * The nodes the current external-address probe round was sent to: a
@@ -590,9 +582,9 @@ void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, con
 int is_martian(const struct lws_dht_ctx *ctx, const struct sockaddr *sa);
 int lws_dht_ads_is_private(const struct sockaddr *sa);
 void lws_dht_bep42_own_id(struct lws_dht_ctx *ctx, const struct sockaddr *sa);
-int dht_source_key(const struct sockaddr *sa, uint8_t key[16]);
 int lws_dht_peer_known(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
 int lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
+void lws_dht_ip_vote(struct lws_dht_ctx *ctx, const struct sockaddr *from, size_t fromlen, const lws_sockaddr46 *reported);
 struct lws_transport_sequencer * lws_dht_ts_rx(struct lws_dht_ctx *ctx, const struct sockaddr *from, size_t fromlen, const lws_dht_hash_t *id);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);
