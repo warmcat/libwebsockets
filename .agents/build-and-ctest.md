@@ -34,6 +34,13 @@
  - **`LWS_WITH_SYS_DHCP_CLIENT` gates the system state** at
    `LWS_SYSTATE_DHCP` until an interface has a lease: with it on, client
    tests sit forever before OPERATIONAL.  Never put it in a ctest config.
+ - **The auth-server plugin needs `LWS_WITH_STRUCT_JSON=1`.**  Without
+   it the lwsws-oauth tests still configure but the plugin is silently
+   missing.
+ - **NO_LOGS with lwsws or the DHT does not build on gcc 14** until G-142
+   is fixed (pre-existing unused-variable warnings).  To check changed
+   code in such a build, add `-Wno-error=unused-but-set-variable
+   -Wno-error=unused-variable` and grep the warnings for your files.
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
