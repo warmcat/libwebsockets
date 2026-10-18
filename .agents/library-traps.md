@@ -63,7 +63,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    authenticated packets may change connection state.  Likewise a DHT
    routing-table entry may only change on proof from the endpoint itself
    (its reply to a request we sent there), never because it was named in
-   a nodes list or sent one unsolicited datagram (G-119).
+   a nodes list or sent one unsolicited datagram (G-119).  DHT replies are
+   now only taken against `req_pending`, so a new request sender must go
+   through `dht_send_request()` or its replies are dropped.
  - **Jumps past initialisers.**  A `goto` (or `switch` case) that jumps
    past `char buf[N] = {0};` skips the initialiser: the buffer is
    indeterminate at the label.  -Wall -Wextra are silent; gcc's

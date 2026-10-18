@@ -90,6 +90,13 @@
  - **api-test-sansio covers hpack** but `ctest -R 'h2|h3|http'` does not
    select it: run it whenever hpack.c changes.  Its transcripts can only
    be re-recorded (`--record`) from a fault-injection build.
+ - **QUIC key updates and injection:** `LWS_SERVER_OPTION_QUIC_EARLY_KEY_UPDATE`
+   on both ends gives several key updates per connection (nothing else in
+   ctest exercises them), and a udp relay that learns the server's SCID
+   from its long headers can inject into a live h3 connection (see
+   api-test-quic-forged).
+ - **DHT BEP42 cannot be tested on loopback:** private addresses are
+   always `bep42_ok` (`maybe_new_node()`, `lws_dht_ads_is_private()`).
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
    should be explicit: a deadline that sets failure and cancels service,
    not reliance on the ctest TIMEOUT.  Note a context destroy at the
