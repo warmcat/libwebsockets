@@ -75,6 +75,12 @@
    whose callback calls `lws_cancel_service(cx)`; a flag set in the
    callback alone is not seen until the next wake.  See `service_until()`
    in `api-test-lws_stub`.
+ - **Don't count `lws_service()` returns to detect a spinning loop.**
+   The service wait is truncated to whole ms, so the last <1ms before
+   every timer is spent in `poll(0)` turns: hundreds per timer, varying
+   with machine speed (26815 vs 2569 turns measured for the same case).
+   Count only turns that took >= 1ms ("wakes"); that gave a stable 101
+   unfixed vs 11 fixed in api-test-tls-passthrough.
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
    should be explicit: a deadline that sets failure and cancels service,
    not reliance on the ctest TIMEOUT.  Note a context destroy at the
