@@ -22,7 +22,11 @@ and a bare-named cookie, which a sibling host could have planted, never
 stands in for it, including a validly signed JWT planted that way.  And it
 fences that a name only matches at the start of a cookie-pair: a `name=`
 inside another cookie's value (`a=x name=FORGED`) is not a cookie of that
-name, for the plain getters and the JWT readers alike.  It needs
+name, for the plain getters and the JWT readers alike.  It also fences the
+JWT `purpose` (G-171): a token is only accepted where its signed `"pur"`
+claim is exactly the purpose asked for, a token with a purpose is refused
+where none is asked for, and signing refuses a purpose that could end its
+JSON string or an `extra_json` carrying a `"pur"` of its own.  It needs
 `LWS_WITH_SERVER` and `LWS_WITH_CLIENT`, and `LWS_WITH_JOSE` for the JWT
 cases.
 

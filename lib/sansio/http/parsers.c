@@ -2905,7 +2905,7 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 				     char *out, size_t *out_len)
 {
 	char temp[MAX_JWT_SIZE * 2], name[128];
-	size_t cml = *out_len;
+	size_t cml = *out_len, pl;
 	const char *cp;
 	int n;
 
@@ -2953,6 +2953,20 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 	}
 
 	/*
+	 * Tokens signed with the same jwk, iss and aud for different purposes
+	 * are told apart only by their "pur" claim (G-171): the cookie name
+	 * is the client's choice.  A token with a purpose is never taken
+	 * where none is asked for, nor one without where one is.
+	 */
+
+	if (i->purpose ?
+		lws_json_simple_strcmp(out, cml, "\"pur\":", i->purpose) :
+		!!lws_json_simple_find(out, cml, "\"pur\":", &pl)) {
+		lwsl_notice("%s: jwt purpose mismatch\n", __func__);
+		return 1;
+	}
+
+	/*
 	 * If he's interested in his private JSON part, point him to that in
 	 * the args struct (it's pointing to the data in out
 	 */
@@ -2983,6 +2997,7 @@ jwt_sign_cookie_value(struct lws *wsi,
 	int n, used = (int)sizeof(i->sub) - 1;
 	size_t pl = sizeof(plain);
 	unsigned long long ull;
+	const char *cp;
 
 	/*
 	 * The subject goes into the JWT as a JSON string, and may have come
@@ -3001,6 +3016,29 @@ jwt_sign_cookie_value(struct lws *wsi,
 	}
 
 	/*
+	 * The purpose goes in as it is, so it must not be able to end its
+	 * string early.  And since validation takes the first "pur" it finds,
+	 * nothing ahead of or after ours may carry one of its own.
+	 */
+
+	if (i->purpose)
+		for (cp = i->purpose; *cp; cp++)
+			if (*cp == '"' || *cp == '\\' ||
+			    (unsigned char)*cp < 0x20) {
+				lwsl_err("%s: unusable purpose\n", __func__);
+
+				return -1;
+			}
+
+	if ((i->iss && strstr(i->iss, "\"pur\":")) ||
+	    (i->aud && strstr(i->aud, "\"pur\":")) ||
+	    (i->extra_json && strstr(i->extra_json, "\"pur\":"))) {
+		lwsl_err("%s: \"pur\" outside the purpose\n", __func__);
+
+		return -1;
+	}
+
+	/*
 	 * Create a 16-char random csrf token with the same lifetime as the JWT
 	 */
 
@@ -3008,10 +3046,14 @@ jwt_sign_cookie_value(struct lws *wsi,
 	ull = (unsigned long long)lws_wsi_now_wall(wsi);
 	if (lws_jwt_sign_compact(wsi->a.context, i->jwk, i->alg, plain, &pl,
 			         temp, sizeof(temp),
-			         "{\"iss\":\"%s\",\"aud\":\"%s\","
+			         "{\"iss\":\"%s\",\"aud\":\"%s\",%s%s%s"
 			          "\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu,"
 			          "\"csrf\":\"%s\",\"sub\":\"%s\"%s%s%s}",
-			         i->iss, i->aud, ull, ull - 60,
+			         i->iss, i->aud,
+			         i->purpose ? "\"pur\":\"" : "",
+			         i->purpose ? i->purpose : "",
+			         i->purpose ? "\"," : "",
+			         ull, ull - 60,
 			         ull + i->expiry_unix_time,
 			         csrf, esub,
 			         i->extra_json ? ",\"ext\":{" : "",

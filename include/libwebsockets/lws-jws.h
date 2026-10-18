@@ -574,6 +574,17 @@ struct lws_jwt_sign_set_cookie {
 	unsigned long			expiry_unix_time;
 	/**< sign-entry: seconds the JWT and cookie may live,
 	 * validate-exit: expiry unix time */
+	const char			*purpose;
+	/**< sign-entry, validate-entry: NULL, or a short name for what the
+	 * token is for, eg "pass" or "visit", signed in as a "pur" claim.
+	 * Validation requires the token's "pur" to match it exactly, and when
+	 * it is NULL, requires the token to have no "pur" at all.  Give each
+	 * kind of token signed with one jwk / iss / aud its own purpose, so
+	 * one kind can't be presented as another under a different cookie
+	 * name: the client chooses the name, the signature only covers the
+	 * claims.  It must not contain '"', '\\' or control characters, and
+	 * signing refuses an iss, aud or extra_json containing "pur": of its
+	 * own, since validation takes the first "pur" it finds. */
 };
 
 /**
@@ -649,7 +660,8 @@ lws_jwt_sign_token_set_cookie_ascii(struct lws *wsi,
  * named \p i->cookie_name without the prefix is ignored, since unlike the
  * __Host- one, a sibling host under the registrable domain can set it.  The
  * JWT is validated against \p i->jwk and \p i->alg, and its iss, aud,
- * expiry and, if \p i->csrf_in is given, csrf are checked.  On success the
+ * purpose (see \p i->purpose), expiry and, if \p i->csrf_in is given, csrf
+ * are checked.  On success the
  * subject is copied into \p i->sub, \p i->expiry_unix_time is set, and
  * \p i->extra_json points to any "ext" object inside \p out.
  *

@@ -149,7 +149,7 @@ struct lws_jwt_sign_set_cookie {
 	/**< entry: audience */
 	const char			*cookie_name;
 	/**< entry: the name of the cookie */
-	char				sub[33];
+	char				sub[65];
 	/**< sign-entry, validate-exit: subject */
 	const char			*extra_json;
 	/**< sign-entry, validate-exit:
@@ -163,6 +163,8 @@ struct lws_jwt_sign_set_cookie {
 	unsigned long			expiry_unix_time;
 	/**< sign-entry: seconds the JWT and cookie may live,
 	 * validate-exit: expiry unix time */
+	const char			*purpose;
+	/**< sign-entry, validate-entry: NULL, or what the token is for */
 };
 
 int
@@ -182,3 +184,12 @@ validation reads it back under that full name only: a cookie called plain
 have set, is never taken for it.  The same goes for `lws_http_cookie_get()`
 and `lws_jwt_auth_create()` generally: they resolve exactly the name you give,
 so to read a `__Host-` or `__Secure-` cookie, ask for its full name.
+
+The cookie name is chosen by the client, and the signature covers only the
+claims, so two kinds of token signed with the same `jwk`, `iss` and `aud` are
+interchangeable unless a claim tells them apart: a client can present one kind
+under the other kind's cookie name.  Give each kind its own `purpose`, eg,
+"visit" and "pass": it is signed in as a `"pur"` claim, and validation then
+requires the token's `"pur"` to be exactly the `purpose` asked for.  When
+`purpose` is NULL, validation refuses any token that has a `"pur"`, so a
+purpose-specific token is never accepted by a check that asks for none.

@@ -22,6 +22,12 @@
  *  - a name only matches at the start of a cookie-pair (G-010).  A "name="
  *    inside another cookie's value, eg after a space, which browsers keep in
  *    values, is not a cookie of that name.
+ *
+ *  - a JWT minted for one purpose is not accepted for another (G-171): the
+ *    client chooses which cookie name it presents a token under, so only the
+ *    signed "pur" claim can tell, eg, a visit token from a pass token signed
+ *    with the same key, iss and aud.  A token with a purpose is refused where
+ *    none is asked for, and one without where one is.
  */
 
 #include <libwebsockets.h>
@@ -40,6 +46,7 @@ enum ckg_kind {
 	CKG_NTH,	/* lws_http_cookie_get_nth() */
 	CKG_JWT_VALIDATE, /* lws_jwt_get_http_cookie_validate_jwt() */
 	CKG_JWT_AUTH,	/* lws_jwt_auth_create() */
+	CKG_JWT_SIGN,	/* lws_jwt_sign_token_set_cookie_ascii() */
 };
 
 /* which JWT, if any, is appended to a Cookie: header's text */
@@ -47,6 +54,8 @@ enum ckg_jwt {
 	CKG_J_NONE,
 	CKG_J_VICTIM,
 	CKG_J_ATTACKER,
+	CKG_J_PASS,	/* victim's, minted with purpose "pass" */
+	CKG_J_VISIT,	/* victim's, minted with purpose "visit" */
 };
 
 struct ckg_case {
@@ -59,6 +68,8 @@ struct ckg_case {
 	size_t			buflen;	  /* 0 means the whole buffer */
 	int			want_rc;  /* 0 found, 1 absent, 2 too big */
 	const char		*want;	  /* value, or sub for the JWT kinds */
+	const char		*purpose; /* JWT validate / sign purpose */
+	const char		*ext;	  /* CKG_JWT_SIGN: extra_json */
 };
 
 static const struct ckg_case ckg_cases[] = {
@@ -152,6 +163,34 @@ static const struct ckg_case ckg_cases[] = {
 	  .hdr = { "z=1 __Host-tj=", "__Host-tj=" },
 	  .jwt = { CKG_J_ATTACKER, CKG_J_VICTIM }, .kind = CKG_JWT_VALIDATE,
 	  .name = "tj", .want = "victim" },
+
+	/* G-171: the purpose claim, not the cookie name, tells tokens apart */
+
+	{ .label = "jwt: purpose matches", .hdr = { "__Host-tj=" },
+	  .jwt = { CKG_J_PASS }, .kind = CKG_JWT_VALIDATE, .name = "tj",
+	  .purpose = "pass", .want = "victim" },
+	{ .label = "jwt: other purpose refused", .hdr = { "__Host-tj=" },
+	  .jwt = { CKG_J_VISIT }, .kind = CKG_JWT_VALIDATE, .name = "tj",
+	  .purpose = "pass", .want_rc = 1 },
+	{ .label = "jwt: no purpose refused where one asked",
+	  .hdr = { "__Host-tj=" }, .jwt = { CKG_J_VICTIM },
+	  .kind = CKG_JWT_VALIDATE, .name = "tj", .purpose = "pass",
+	  .want_rc = 1 },
+	{ .label = "jwt: purpose refused where none asked",
+	  .hdr = { "__Host-tj=" }, .jwt = { CKG_J_PASS },
+	  .kind = CKG_JWT_VALIDATE, .name = "tj", .want_rc = 1 },
+	{ .label = "jwt: purpose is not a prefix match",
+	  .hdr = { "__Host-tj=" }, .jwt = { CKG_J_PASS },
+	  .kind = CKG_JWT_VALIDATE, .name = "tj", .purpose = "pas",
+	  .want_rc = 1 },
+	{ .label = "sign: purpose", .kind = CKG_JWT_SIGN, .name = "tj",
+	  .purpose = "pass" },
+	{ .label = "sign: purpose that ends its string refused",
+	  .kind = CKG_JWT_SIGN, .name = "tj", .purpose = "pass\",\"x\":\"",
+	  .want_rc = 1 },
+	{ .label = "sign: \"pur\" in ext refused", .kind = CKG_JWT_SIGN,
+	  .name = "tj", .ext = "\"pur\":\"pass\"", .want_rc = 1 },
+
 	{ .label = "jwt-auth: name inside a value is not read",
 	  .hdr = { "z=1 auth_x=" }, .jwt = { CKG_J_ATTACKER },
 	  .kind = CKG_JWT_AUTH, .name = "auth_x", .want_rc = 1 },
@@ -172,7 +211,8 @@ static int ckg_cur = -1, ckg_port, ckg_fails, ckg_finished, ckg_answered,
 
 #if defined(LWS_WITH_JOSE)
 static struct lws_jwk ckg_jwk;
-static char ckg_jwt_victim[1024], ckg_jwt_attacker[1024];
+static char ckg_jwt_victim[1024], ckg_jwt_attacker[1024],
+	    ckg_jwt_pass[1024], ckg_jwt_visit[1024];
 #endif
 
 static void
@@ -212,9 +252,29 @@ ckg_resolve(struct lws *wsi, const struct ckg_case *c)
 		ck.iss		= CKG_ISS;
 		ck.aud		= CKG_ISS;
 		ck.cookie_name	= c->name;
+		ck.purpose	= c->purpose;
 
 		rc = lws_jwt_get_http_cookie_validate_jwt(wsi, &ck, buf, &bl);
 		lws_strncpy(buf, ck.sub, sizeof(buf));
+		break;
+	}
+	case CKG_JWT_SIGN: {
+		struct lws_jwt_sign_set_cookie ck;
+
+		memset(&ck, 0, sizeof(ck));
+		ck.jwk			= &ckg_jwk;
+		ck.alg			= "ES256";
+		ck.iss			= CKG_ISS;
+		ck.aud			= CKG_ISS;
+		ck.cookie_name		= c->name;
+		ck.purpose		= c->purpose;
+		ck.extra_json		= c->ext;
+		ck.expiry_unix_time	= 60;
+		lws_strncpy(ck.sub, "victim", sizeof(ck.sub));
+
+		rc = lws_jwt_sign_token_set_cookie_ascii(wsi, &ck, buf,
+							 sizeof(buf));
+		got = "";
 		break;
 	}
 	case CKG_JWT_AUTH: {
@@ -310,6 +370,10 @@ ckg_add_line(struct lws *wsi, const char *text, enum ckg_jwt jwt,
 		j = ckg_jwt_victim;
 	if (jwt == CKG_J_ATTACKER)
 		j = ckg_jwt_attacker;
+	if (jwt == CKG_J_PASS)
+		j = ckg_jwt_pass;
+	if (jwt == CKG_J_VISIT)
+		j = ckg_jwt_visit;
 #else
 	(void)jwt;
 #endif
@@ -430,18 +494,22 @@ ckg_next(lws_sorted_usec_list_t *sul)
 }
 
 #if defined(LWS_WITH_JOSE)
+/* the claims as jwt_sign_cookie_value() lays them out, "pur" included */
 static int
-ckg_mint(const char *sub, char *out, size_t out_len)
+ckg_mint(const char *sub, const char *purpose, char *out, size_t out_len)
 {
 	unsigned long long now = (unsigned long long)lws_now_secs();
 	char temp[2048];
 
 	return lws_jwt_sign_compact(ckg_cx, &ckg_jwk, "ES256", out, &out_len,
 				    temp, (int)sizeof(temp),
-				    "{\"iss\":\"%s\",\"aud\":\"%s\","
+				    "{\"iss\":\"%s\",\"aud\":\"%s\",%s%s%s"
 				    "\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu,"
 				    "\"csrf\":\"0123456789abcdef\","
 				    "\"sub\":\"%s\"}", CKG_ISS, CKG_ISS,
+				    purpose ? "\"pur\":\"" : "",
+				    purpose ? purpose : "",
+				    purpose ? "\"," : "",
 				    now, now - 60, now + 600, sub);
 }
 #endif
@@ -485,9 +553,12 @@ ckg_test(const char *server)
 		lwsl_err("%s: jwk generation failed\n", __func__);
 		goto bail;
 	}
-	if (ckg_mint("victim", ckg_jwt_victim, sizeof(ckg_jwt_victim)) ||
-	    ckg_mint("attacker", ckg_jwt_attacker,
-		     sizeof(ckg_jwt_attacker))) {
+	if (ckg_mint("victim", NULL, ckg_jwt_victim, sizeof(ckg_jwt_victim)) ||
+	    ckg_mint("attacker", NULL, ckg_jwt_attacker,
+		     sizeof(ckg_jwt_attacker)) ||
+	    ckg_mint("victim", "pass", ckg_jwt_pass, sizeof(ckg_jwt_pass)) ||
+	    ckg_mint("victim", "visit", ckg_jwt_visit,
+		     sizeof(ckg_jwt_visit))) {
 		lwsl_err("%s: jwt minting failed\n", __func__);
 		lws_jwk_destroy(&ckg_jwk);
 		goto bail;
