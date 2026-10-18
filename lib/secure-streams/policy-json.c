@@ -87,6 +87,8 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.http_devtype_header",
 
 	"s[].*.http_auth_preamble",
+	"s[].*.redirect_credentials_to",
+	"s[].*.redirect_credentials_to[]",
 
 	"s[].*.http_no_content_length",
 	"s[].*.rideshare",	/* streamtype name this rides shotgun with */
@@ -198,6 +200,8 @@ typedef enum {
 	LSSPPT_HTTP_TYPE_HEADER,
 
 	LSSPPT_HTTP_AUTH_PREAMBLE,
+	LSSPPT_REDIRECT_CREDS_TO,
+	LSSPPT_REDIRECT_CREDS_TO_ELEM,
 	LSSPPT_HTTP_NO_CONTENT_LENGTH,
 	LSSPPT_RIDESHARE,
 	LSSPPT_PAYLOAD_FORMAT,
@@ -405,6 +409,14 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		n = LTY_METRICS;
 		break;
 	}
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	/* the list is the one this policy gives, not added to an earlier one */
+	if (reason == LEJPCB_ARRAY_START &&
+	    ctx->path_match - 1 == LSSPPT_REDIRECT_CREDS_TO &&
+	    a->curr[LTY_POLICY].p)
+		a->curr[LTY_POLICY].p->u.http.redirect_creds_to = NULL;
+#endif
 
 	if (reason == LEJPCB_ARRAY_START &&
 	    (ctx->path_match - 1 == LSSPPT_PLUGINS ||
@@ -1113,6 +1125,44 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_HTTP_AUTH_PREAMBLE:
 		pp = (char **)&a->curr[LTY_POLICY].p->u.http.auth_preamble;
 		goto string2;
+
+	case LSSPPT_REDIRECT_CREDS_TO:
+	case LSSPPT_REDIRECT_CREDS_TO_ELEM:
+		/*
+		 * Each a host name, or an address, kept lower-case in one
+		 * comma-separated string.  As with "backoff", the first
+		 * element may arrive matching the array's own name.
+		 */
+		if (reason != LEJPCB_VAL_STR_END || !ctx->npos ||
+		    ctx->npos > 253) {
+			lwsl_err("%s: bad redirect_credentials_to\n", __func__);
+			return -1;
+		}
+		for (n = 0; n < (int)ctx->npos; n++)
+			if (!isalnum((int)(unsigned char)ctx->buf[n]) &&
+			    ctx->buf[n] != '.' && ctx->buf[n] != '-' &&
+			    ctx->buf[n] != ':') {
+				lwsl_err("%s: bad redirect_credentials_to\n",
+					 __func__);
+				return -1;
+			}
+
+		pp = (char **)&a->curr[LTY_POLICY].p->u.http.redirect_creds_to;
+		inl = *pp ? strlen(*pp) + 1 : 0;
+		q = lwsac_use_backfill(&a->ac, inl + (size_t)ctx->npos + 1,
+				       POL_AC_GRAIN);
+		if (!q)
+			goto oom;
+		if (inl) {
+			memcpy(q, *pp, inl - 1);
+			q[inl - 1] = ',';
+		}
+		for (n = 0; n < (int)ctx->npos; n++)
+			q[inl + (size_t)n] = (char)tolower(
+					(int)(unsigned char)ctx->buf[n]);
+		q[inl + ctx->npos] = '\0';
+		*pp = q;
+		break;
 
 	case LSSPPT_HTTP_NO_CONTENT_LENGTH:
 		if (reason == LEJPCB_VAL_TRUE)

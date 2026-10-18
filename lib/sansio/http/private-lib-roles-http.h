@@ -776,6 +776,8 @@ lws_http_tx_drained(struct lws *wsi);
  */
 int
 lws_hdr_token_is_credential(enum lws_token_indexes tok);
+int
+lws_http_header_name_may_be_credential(const char *name);
 
 /*
  * Returns nonzero if the header name or value contains CR, LF, NUL or other

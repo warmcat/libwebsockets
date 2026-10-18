@@ -15,6 +15,7 @@ require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_ROLE_RAW 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_WITH_TLS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
@@ -27,10 +28,17 @@ if (requirements)
 	endif()
 
 	lws_get_free_port(PORT_SS_REDIRECT)
+	lws_get_free_port(PORT_SS_REDIRECT_PLAIN)
+
+	# the test server's tls uses api-test-ws-close's test certificate
+	set(SSR_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
 	add_test(NAME api-test-ss-redirect
 		 COMMAND lws-api-test-ss-redirect
 			 -p ${PORT_SS_REDIRECT}
+			 --port-plain ${PORT_SS_REDIRECT_PLAIN}
+			 --cert ${SSR_CERTS}/localhost-100y.cert
+			 --key ${SSR_CERTS}/localhost-100y.key
 			 --server ${LWS_CTEST_SERVER_RESOLVE})
 	set_tests_properties(api-test-ss-redirect
 			     PROPERTIES

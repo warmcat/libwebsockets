@@ -6,41 +6,60 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * A Secure Streams client whose policy allows redirects, and that sends
- * identity in its headers (here the device serial, as "x-dsn:"), follows a
- * redirect only on the authority its policy named.  The headers would go
- * again to wherever the redirect took it, so a Location naming another
- * authority must be refused, however it is spelled:
+ * A Secure Streams client whose policy allows redirects sends what its policy
+ * and metadata put in its headers again to wherever a redirect takes it.  So a
+ * stream carrying credentials in them (here the device serial, as "x-dsn:",
+ * or an api key in a metadata-bound "x-api-key:") follows a redirect only
+ * over https with strict verification, to the host it started with or a
+ * subdomain of it, or to a host its policy's "redirect_credentials_to" names.
+ * Otherwise the redirect is refused, however it is spelled:
  *
- *  - a relative path, an absolute URI naming our authority, and a
- *    network-path reference ("//host:port/path") naming our authority are
- *    followed
+ *  - a relative path, an absolute URI naming our host, and a network-path
+ *    reference ("//host:port/path") naming our host are followed
  *
  *  - an absolute URI, or a network-path reference, naming another host is
  *    refused: the second is not a path, it names another authority as much
  *    as the first does
  *
- * A small raw socket server in the same process answers "/start/<phase>"
- * with that phase's redirect, and anything else with a 200, noting what it
- * was asked for.  Each phase is a stream of its own, with no retries.  The
- * "other" host is another name for the same server ("127.0.0.1" when the
- * policy says "localhost"), so a redirect to it that was followed would
+ *  - our own host, but over http, is refused
+ *
+ *  - another host the policy names in "redirect_credentials_to" is followed
+ *
+ *  - a stream carrying no credentials, only ordinary headers (an "accept:"
+ *    from metadata), follows a redirect to another host
+ *
+ * A small raw socket server in the same process, over tls and also on a
+ * plaintext port, answers "/start/<phase>" with that phase's redirect, and
+ * anything else with a 200, noting what it was asked for.  Each phase is a
+ * stream of its own, with no retries.  The "other" host is another name for
+ * the same server ("127.0.0.1" when the policy says "localhost"), which its
+ * certificate is also valid for, so a redirect to it that was followed would
  * reach the server, and be seen.
  */
 
 #include <libwebsockets.h>
+#include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 
 enum {
 	LWS_SW_PORT,
+	LWS_SW_PORT_PLAIN,
+	LWS_SW_CERT,
+	LWS_SW_KEY,
 	LWS_SW_SERVER,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_PORT]	= { "-p",	"Port for the test server "
+	[LWS_SW_PORT]	= { "-p",	"Port for the tls test server "
 					"(default 7681)" },
+	[LWS_SW_PORT_PLAIN] = { "--port-plain", "Port for the plaintext test "
+					"server (default 7682)" },
+	[LWS_SW_CERT]	= { "--cert",	"The test server's certificate "
+					"(default localhost-100y.cert)" },
+	[LWS_SW_KEY]	= { "--key",	"The test server's key "
+					"(default localhost-100y.key)" },
 	[LWS_SW_SERVER]	= { "--server",	"Address the client connects to "
 					"(default localhost)" },
 	[LWS_SW_HELP]	= { "--help",	"Show this help information" },
@@ -48,30 +67,49 @@ static const struct lws_switches switches[] = {
 
 typedef struct phase {
 	const char		*name;
+	const char		*streamtype;
 	const char		*loc;		/* a format taking a host and
 						 * the server's port */
 	char			other;		/* the host is not ours */
+	char			plain;		/* the plaintext server's port */
 	const char		*target;	/* followed: what the server
 						 * must be asked for after, or
 						 * NULL: refused */
 } phase_t;
 
 static const phase_t phases[] = {
-	{ "relative path",		"/same",		0, "/same" },
-	{ "absolute URI, our authority", "http://%s:%d/abs",	0, "/abs" },
-	{ "//host:port/path, our authority", "//%s:%d/np",	0, "/np" },
-	{ "absolute URI, another host",	"http://%s:%d/x",	1, NULL },
-	{ "//host:port/path, another host", "//%s:%d/x",	1, NULL },
+	{ "relative path",		"redir", "/same",	0, 0, "/same" },
+	{ "absolute URI, our host",	"redir", "https://%s:%d/abs",
+					0, 0, "/abs" },
+	{ "//host:port/path, our host",	"redir", "//%s:%d/np",	0, 0, "/np" },
+	{ "absolute URI, another host",	"redir", "https://%s:%d/x",
+					1, 0, NULL },
+	{ "//host:port/path, another host", "redir", "//%s:%d/x", 1, 0, NULL },
+	{ "our host, over http",	"redir", "http://%s:%d/down",
+					0, 1, NULL },
+	{ "another host the policy names", "redir-allow", "https://%s:%d/allow",
+					1, 0, "/allow" },
+	{ "another host, no credentials", "redir-anon", "https://%s:%d/anon",
+					1, 0, "/anon" },
+	{ "api key, another host",	"redir-key", "https://%s:%d/x",
+					1, 0, NULL },
+	{ "api key, our host",		"redir-key", "/key",	0, 0, "/key" },
 };
 
-static const char * const phase_md[] = { "0", "1", "2", "3", "4" };
+static const char * const phase_md[] = {
+	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"
+};
+
+/* the test server's certificate, as the client's trust store */
+static const char self_localhost_der_b64[] =
+	"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";
 
 static struct lws_context *context;
 static lws_state_notify_link_t nl;
 static lws_sorted_usec_list_t sul_timeout, sul_next;
 static const char *server_ads = "localhost", *other_ads;
 static unsigned int cur_phase;
-static int failed, port = 7681, phase_ok;
+static int failed, port = 7681, port_plain = 7682, phase_ok;
 static char asked[64];			/* the last thing the server was asked */
 
 static void
@@ -140,7 +178,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_snprintf(host, sizeof(host),
 				     strchr(ads, ':') ? "[%s]" : "%s", ads);
 			lws_snprintf(loc, sizeof(loc), phases[n].loc, host, /* NOSONAR: const test table */
-				     port);
+				     phases[n].plain ? port_plain : port);
 			pss->resp_len = lws_snprintf(pss->resp,
 					sizeof(pss->resp),
 					"HTTP/1.1 302 Found\r\n"
@@ -269,14 +307,21 @@ static const lws_ss_info_t ssi_cli = {
 static void
 start_phase(lws_sorted_usec_list_t *sul)
 {
+	lws_ss_info_t ssi = ssi_cli;
 	struct lws_ss_handle *ss;
 
 	lwsl_user("=== phase %s ===\n", phases[cur_phase].name);
 	phase_ok = 0;
 	asked[0] = '\0';
 
-	if (lws_ss_create(context, 0, &ssi_cli, NULL, &ss, NULL, NULL) ||
+	ssi.streamtype = phases[cur_phase].streamtype;
+
+	if (lws_ss_create(context, 0, &ssi, NULL, &ss, NULL, NULL) ||
 	    lws_ss_set_metadata(ss, "phase", phase_md[cur_phase], 1) ||
+	    (!strcmp(ssi.streamtype, "redir-key") &&
+	     lws_ss_set_metadata(ss, "apikey", "secret-key", 10)) ||
+	    (!strcmp(ssi.streamtype, "redir-anon") &&
+	     lws_ss_set_metadata(ss, "acc", "text/plain", 10)) ||
 	    lws_ss_client_connect(ss)) {
 		lwsl_err("%s: unable to start phase\n", __func__);
 		finish(1);
@@ -319,12 +364,23 @@ sigint_handler(int sig)
 	finish(1);
 }
 
+/* the streamtypes, all of them like this, differing in what they carry */
+
+#define SSR_ST(name, extra) \
+	"{\"" name "\":{" \
+	"\"endpoint\":\"%s\",\"port\":%d,\"protocol\":\"h1\"," \
+	"\"http_method\":\"GET\",\"http_url\":\"start/${phase}\"," \
+	"\"allow_redirects\":true,\"retry\":\"none\"," \
+	"\"tls\":true,\"tls_trust_store\":\"self\"," extra "}}"
+
 int
 main(int argc, const char **argv)
 {
+	const char *cert = "localhost-100y.cert", *key = "localhost-100y.key";
 	struct lws_context_creation_info info;
-	char policy[1024];
+	char *policy;
 	const char *p;
+	size_t pl;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches,
@@ -338,35 +394,57 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
 		port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT_PLAIN].sw)))
+		port_plain = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_CERT].sw)))
+		cert = p;
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KEY].sw)))
+		key = p;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
 		server_ads = p;
 	other_ads = strcmp(server_ads, "localhost") ? "localhost" : "127.0.0.1";
 
 	signal(SIGINT, sigint_handler);
 
-	lwsl_user("LWS API selftest: SS redirects stay on the authority\n");
+	lwsl_user("LWS API selftest: SS redirects keep credentials home\n");
 
 	/* no retries: a refused redirect ends the phase at once */
 
-	lws_snprintf(policy, sizeof(policy),
+	pl = sizeof(self_localhost_der_b64) + 4096;
+	policy = malloc(pl);
+	if (!policy)
+		return 1;
+
+	lws_snprintf(policy, pl,
 		"{\"release\":\"01234567\",\"product\":\"myproduct\","
 		 "\"schema-version\":1,"
 		 "\"retry\":[{\"none\":{\"backoff\":[],"
 			"\"conceal\":0,\"jitterpc\":0,"
 			"\"svalidping\":30,\"svalidhup\":35}}],"
-		 "\"s\":[{\"redir\":{"
-			"\"endpoint\":\"%s\",\"port\":%d,\"protocol\":\"h1\","
-			"\"http_method\":\"GET\",\"http_url\":\"start/${phase}\","
-			"\"metadata\":[{\"phase\":\"\"}],"
-			"\"http_dsn_header\":\"x-dsn:\","
-			"\"allow_redirects\":true,"
-			"\"retry\":\"none\",\"tls\":false}}]}",
-		server_ads, port);
+		 "\"certs\":[{\"self_localhost\":\"%s\"}],"
+		 "\"trust_stores\":[{\"name\":\"self\","
+			"\"stack\":[\"self_localhost\"]}],"
+		 "\"s\":["
+		  SSR_ST("redir", "\"metadata\":[{\"phase\":\"\"}],"
+				  "\"http_dsn_header\":\"x-dsn:\"") ","
+		  SSR_ST("redir-allow", "\"metadata\":[{\"phase\":\"\"}],"
+				  "\"http_dsn_header\":\"x-dsn:\","
+				  "\"redirect_credentials_to\":"
+					"[\"other.example\",\"%s\"]") ","
+		  SSR_ST("redir-anon", "\"metadata\":[{\"phase\":\"\"},"
+					"{\"acc\":\"accept:\"}]") ","
+		  SSR_ST("redir-key", "\"metadata\":[{\"phase\":\"\"},"
+					"{\"apikey\":\"x-api-key:\"}]")
+		 "]}",
+		self_localhost_der_b64,
+		server_ads, port, server_ads, port, other_ads,
+		server_ads, port, server_ads, port);
 
 	nl.name				= "app";
 	nl.notify_cb			= app_system_state_nf;
 
-	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.pss_policies_json		= policy;
 	info.register_notifier_list	= app_notifier_list;
@@ -374,6 +452,7 @@ main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
+		free(policy);
 		return 1;
 	}
 
@@ -383,15 +462,29 @@ main(int argc, const char **argv)
 				   LWS_SYSBLOB_TYPE_DEVICE_SERIAL, 0),
 				   (const uint8_t *)"serial-1234", 11);
 
-	/* the raw socket server vhost */
+	/* the raw socket server vhosts, over tls and plaintext */
+
+	info.protocols	= protocols_srv;
+	info.options	= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+			  LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
+	info.listen_accept_role = "raw-skt";
+	info.listen_accept_protocol = "redir-srv";
 
 	info.vhost_name	= "redir-srv";
 	info.port	= port;
-	info.protocols	= protocols_srv;
-	info.options	= LWS_SERVER_OPTION_ONLY_RAW;
-
+	info.ssl_cert_filepath = cert;
+	info.ssl_private_key_filepath = key;
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create server vhost\n");
+		goto bail;
+	}
+
+	info.vhost_name	= "redir-srv-plain";
+	info.port	= port_plain;
+	info.ssl_cert_filepath = NULL;
+	info.ssl_private_key_filepath = NULL;
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create plaintext server vhost\n");
 		goto bail;
 	}
 
@@ -399,6 +492,7 @@ main(int argc, const char **argv)
 			 30 * LWS_US_PER_SEC);
 
 	lws_context_default_loop_run_destroy(context);
+	free(policy);
 
 	if (cur_phase != LWS_ARRAY_SIZE(phases))
 		failed = 1;
@@ -409,6 +503,7 @@ main(int argc, const char **argv)
 
 bail:
 	lws_context_destroy(context);
+	free(policy);
 
 	return 1;
 }

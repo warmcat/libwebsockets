@@ -262,6 +262,10 @@ typedef struct lws_ss_policy {
 
 			const char	*blob_header[_LWSSS_HBI_COUNT];
 			const char	*auth_preamble;
+			const char	*redirect_creds_to;
+			/**< NULL, or comma-separated hosts a redirect may
+			 * take the stream's credentials to, as well as the
+			 * stream's own host, with their subdomains */
 
 			const lws_ss_http_respmap_t *respmap;
 

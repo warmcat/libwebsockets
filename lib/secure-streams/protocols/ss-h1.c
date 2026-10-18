@@ -491,12 +491,55 @@ static const uint8_t blob_idx[] = {
 };
 
 /*
- * The peer picks the Location: we would be redirected to, but the handshake we
- * would send there re-emits the blob headers below (the system auth token, and
- * the device serial / fw version / device type) and any cached cookies.  Those
- * belong to the authority the policy named... following a redirect to a
- * different authority, or one that drops us out of tls, would hand them to a
- * host of the peer's choosing, in the clear in the tls-downgrade case.
+ * Does the stream carry credentials in what it sends?  The handshake a
+ * redirect leads to sends them again, to wherever the peer's Location takes
+ * it: the blob headers (the system auth token, and the device serial / fw
+ * version / device type), cached cookies, an auth binding (eg, sigv4), and
+ * the headers metadata and instant metadata are sent as, unless they are
+ * headers lws knows to be ordinary ones (accept, user-agent...): one like
+ * x-api-key or authorization may carry a credential.
+ */
+
+static int
+ss_h1_carries_credentials(lws_ss_handle_t *h)
+{
+	const lws_ss_metadata_t *md;
+	int m;
+
+	for (m = 0; m < _LWSSS_HBI_COUNT; m++)
+		if (h->policy->u.http.blob_header[m])
+			return 1;
+
+	if ((h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES) ||
+	    h->policy->auth)
+		return 1;
+
+	for (md = h->policy->metadata; md; md = md->next)
+		if (md->value__may_own_heap &&
+		    ((const char *)md->value__may_own_heap)[0] &&
+		    lws_http_header_name_may_be_credential(
+					(const char *)md->value__may_own_heap))
+			return 1;
+
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	if (h->policy->flags & LWSSSPOLF_DIRECT_PROTO_STR)
+		for (md = h->instant_metadata; md; md = md->next)
+			if (md->name && md->value__may_own_heap &&
+			    lws_http_header_name_may_be_credential(md->name))
+				return 1;
+#endif
+
+	return 0;
+}
+
+/*
+ * The peer picks the Location: we would be redirected to.  A stream carrying
+ * credentials follows it only over https with strict verification, and only
+ * to the host the stream started with or a subdomain of it, or to a host the
+ * policy's "redirect_credentials_to" names or a subdomain of one: anything
+ * else would hand them to a host of the peer's choosing, maybe in the clear.
+ * Such a redirect is refused, so the stream fails visibly, rather than being
+ * followed without them.
  *
  * Returns nonzero if the redirect must be refused.
  */
@@ -505,49 +548,24 @@ static int
 ss_h1_redirect_leaks_identity(lws_ss_handle_t *h, struct lws *wsi,
 			      const char *loc)
 {
-	lws_client_redir_t *r;
-	const char *cur;
-	int m, bad = 0;
+	const lws_client_redir_t *r;
 
 	if (!loc)
 		return 1;
 
-	/* does this stream carry anything of ours worth protecting? */
-
-	for (m = 0; m < _LWSSS_HBI_COUNT; m++)
-		if (h->policy->u.http.blob_header[m])
-			break;
-
-	if (m == _LWSSS_HBI_COUNT &&
-	    !(h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES))
+	if (!ss_h1_carries_credentials(h))
 		return 0;
 
-	/*
-	 * Where the client would really go: a relative reference stays on the
-	 * authority we are talking to, but one starting "//" names another
-	 */
-	r = lws_client_redirect_resolve(wsi, loc);
-	if (!r)
-		return 1;
+	/* where the client would really go, as it resolved the Location */
+	r = wsi->cli_redir_pending;
+	if (r && lws_client_redirect_creds_ok(wsi, r,
+				h->policy->u.http.redirect_creds_to))
+		return 0;
 
-	cur = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	lwsl_ss_warn(h, "refusing redirect: it would take the stream's "
+			"credentials to %s", r ? r->host : "(invalid)");
 
-	if (!cur || strcasecmp(r->address, cur) ||
-	    r->port != lws_get_network_wsi(wsi)->c_port)
-		bad = 1;
-
-#if defined(LWS_WITH_TLS)
-	if (!bad && (wsi->use_ssl & LCCSCF_USE_SSL) && !r->ssl)
-		bad = 1; /* tls downgrade */
-#endif
-
-	lws_free(r);
-
-	if (bad)
-		lwsl_ss_warn(h, "refusing redirect to different authority");
-
-	return bad;
+	return 1;
 }
 
 #if defined(LWS_WITH_SERVER)

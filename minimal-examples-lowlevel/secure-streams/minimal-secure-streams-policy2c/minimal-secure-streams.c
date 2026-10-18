@@ -523,6 +523,9 @@ int main(int argc, const char **argv)
 			if (pol->u.http.auth_preamble)
 				printf("\t\t\t.auth_preamble = \"%s\",\n",
 					pol->u.http.auth_preamble);
+			if (pol->u.http.redirect_creds_to)
+				printf("\t\t\t.redirect_creds_to = \"%s\",\n",
+					pol->u.http.redirect_creds_to);
 
 			if (pol->u.http.respmap) {
 				printf("\t\t\t.respmap = (void *)&%s_http_respmap,\n",

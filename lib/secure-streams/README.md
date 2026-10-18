@@ -324,6 +324,31 @@ of message boundaries, for that reason SOM and EOM are ignored with raw.
 By default redirects are not followed, if you wish a streamtype to observe them, eg,
 because that's how it responds to a POST, set `"allow_redirects": true`
 
+The request a redirect leads to sends the stream's headers again, to wherever the
+server's `Location` takes it.  If the stream carries credentials in them, the
+redirect is only followed over https with strict tls verification, to the host the
+stream started with or a subdomain of it (the rule Go's net/http uses), or to a host
+`redirect_credentials_to` names; any other redirect is refused, and the stream fails
+as it does for any connection error, rather than following it without them.  Those
+headers are
+
+ - the blob headers (`http_auth_header`, `http_dsn_header`, `http_fwv_header`,
+   `http_devtype_header`)
+ - cached cookies (`http_cookies`)
+ - whatever an `auth` binding (`use_auth`, eg, sigv4) adds
+ - the headers `metadata` and instant metadata (`direct_proto_str`) are sent as,
+   unless lws knows the header name as an ordinary one, eg `accept:` or
+   `user-agent:`; one like `authorization:` or `x-api-key:` counts
+
+A stream carrying none of these follows a redirect anywhere.
+
+### `redirect_credentials_to`
+
+An array of host names (or addresses), eg, `"redirect_credentials_to":
+["example.com"]`, that a redirect may take the stream's credentials to as well as the
+stream's own host, together with their subdomains.  The redirect must still be over
+https with strict tls verification.  See `allow_redirects`.
+
 ### `tls`
 
 Set to `true` to enforce the stream travelling in a tls tunnel

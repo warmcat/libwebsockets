@@ -104,6 +104,30 @@ lws_hdr_token_is_credential(enum lws_token_indexes tok)
 	}
 }
 
+/*
+ * May a request header of this name, which lws does not compose itself but
+ * sends with whatever value it was given, carry a credential?  A header lws
+ * knows as an ordinary one (accept, user-agent...) does not, the ones
+ * lws_hdr_token_is_credential() names do, and one lws doesn't know, eg
+ * x-api-key, might.  The name may end with the ':' policies give it.
+ */
+int
+lws_http_header_name_may_be_credential(const char *name)
+{
+	size_t l = strlen(name);
+	int tok;
+
+	if (l && name[l - 1] == ':')
+		l--;
+
+	tok = lws_http_string_to_known_header(name, l);
+	if (tok < 0 || tok >= WSI_TOKEN_COUNT ||
+	    !lws_http_token_is_field_name(tok))
+		return 1;
+
+	return lws_hdr_token_is_credential((enum lws_token_indexes)tok);
+}
+
 #ifdef LWS_WITH_HTTP2
 int
 lws_wsi_is_h2(struct lws *wsi)
