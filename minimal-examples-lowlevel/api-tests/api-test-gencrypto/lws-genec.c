@@ -557,6 +557,7 @@ test_genec5(struct lws_context *context)
 
 	for (c = 0; c < LWS_ARRAY_SIZE(cases); c++) {
 		memset(el, 0, sizeof(el));
+		memset(hash, 0, sizeof(hash));
 		memset(&signer, 0, sizeof(signer));
 		memset(&verifier, 0, sizeof(verifier));
 
