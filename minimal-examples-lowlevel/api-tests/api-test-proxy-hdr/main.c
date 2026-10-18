@@ -63,6 +63,14 @@
  *    and relaying the response never refreshed it, so the parent was reaped
  *    LONG_TIMEOUT_S into the response however much was still flowing.
  *
+ * With --ws-delay, only the ws-proxy scenario runs, and the backend is slow
+ * to take the onward connection: nothing accepts it for WS_DELAY_MS, longer
+ * than the server's ah idle timeout (WS_DELAY_AH_IDLE_S).  The proxied ws
+ * upgrade is completed from the onward leg's CLIENT_ESTABLISHED, which reads
+ * the client's upgrade request headers (Sec-WebSocket-Key, Host, protocol,
+ * cookie...) from the parent's ah: they must still be there however long
+ * the onward leg took, and the parent must not be timed out meanwhile.
+ *
  * Both the proxied parent wsi and the http onward client connection bind
  * to vhost protocols[0]; that protocol must pass everything through to
  * lws_callback_http_dummy(), where the actual proxying lives.  lwsws
@@ -76,6 +84,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(WIN32)
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#endif
 
 /* deliberately just over the 1KB fixed temps proxy_header() used to use */
 #define BIG_HDR_LEN 1070
@@ -91,6 +107,15 @@
 /* http-long: the context timeout, and how long the response outlasts it */
 #define LONG_TIMEOUT_S	2
 #define LONG_TICKS	5
+
+/*
+ * --ws-delay: the server's ah idle timeout, how long the backend leaves the
+ * onward connection unaccepted (well over that), and the context timeout,
+ * well over both
+ */
+#define WS_DELAY_AH_IDLE_S	2
+#define WS_DELAY_MS		((WS_DELAY_AH_IDLE_S * 1000) + 2000)
+#define WS_DELAY_TIMEOUT_S	15
 
 enum test_state {
 	ST_HTTP_CONN,		/* http transaction through the proxy */
@@ -123,9 +148,16 @@ static size_t ws_rx_len;
 static char backend_ws_seen[BIG_HDR_LEN + 1];
 static int backend_ws_seen_len = -1;
 
-static struct lws_vhost *vh_proxy;
+static struct lws_vhost *vh_proxy, *vh_backend;
 static int port_backend, port_proxy;
 static int ws_stage_started;
+
+#if !defined(WIN32)
+/* --ws-delay: the backend's own listen socket, accepted from late */
+static lws_sorted_usec_list_t sul_accept;
+static lws_usec_t ws_us_start;
+static int ws_delay, slow_listen_fd = -1;
+#endif
 
 static int
 start_ws_connection(void);
@@ -275,6 +307,24 @@ callback_hdr_proxy_client(struct lws *wsi, enum lws_callback_reasons reason,
 				 strlen(big_cookie));
 			test_failures++;
 		}
+
+#if !defined(WIN32)
+		if (ws_delay) {
+			lws_usec_t took = lws_now_usecs() - ws_us_start;
+
+			/* the echo can only come after the late accept */
+			if (took < (lws_usec_t)WS_DELAY_MS * LWS_US_PER_MS) {
+				lwsl_err("%s: ws-delay: echo after only %dms\n",
+					 __func__, (int)(took / LWS_US_PER_MS));
+				test_failures++;
+			} else
+				lwsl_user("%s: ws-delay: proxied ws up and "
+					  "echoed after %dms\n", __func__,
+					  (int)(took / LWS_US_PER_MS));
+			state = ST_DONE;
+			break;
+		}
+#endif
 
 		/* on to the empty-body POST */
 
@@ -726,6 +776,71 @@ sigint_handler(int sig)
 	lws_default_loop_exit(context);
 }
 
+#if !defined(WIN32)
+/*
+ * --ws-delay: the backend takes the onward connection only now, handing it
+ * to its vhost as if its own listener had accepted it.  The connect itself
+ * completed long ago, in the kernel's backlog, and the proxy's upgrade
+ * request has been waiting in the socket since.
+ */
+static void
+sul_accept_cb(lws_sorted_usec_list_t *sul)
+{
+	int fd = accept(slow_listen_fd, NULL, NULL);
+
+	if (fd < 0) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			/* the proxy has not connected yet */
+			lws_sul_schedule(context, 0, &sul_accept,
+					 sul_accept_cb, 50 * LWS_US_PER_MS);
+			return;
+		}
+		lwsl_err("%s: accept failed: %d\n", __func__, errno);
+		test_failures++;
+		state = ST_DONE;
+		return;
+	}
+
+	lwsl_user("%s: ws-delay: backend accepts the onward connection\n",
+		  __func__);
+	if (!lws_adopt_socket_vhost(vh_backend, fd)) {
+		lwsl_err("%s: adopt failed\n", __func__);
+		close(fd);
+		test_failures++;
+		state = ST_DONE;
+	}
+}
+
+static int
+slow_listen(void)
+{
+	struct sockaddr_in sa;
+	int one = 1;
+
+	slow_listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (slow_listen_fd < 0)
+		return 1;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sin_family = AF_INET;
+	sa.sin_port = htons((uint16_t)port_backend);
+	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+	if (setsockopt(slow_listen_fd, SOL_SOCKET, SO_REUSEADDR, &one,
+		       sizeof(one)) ||
+	    bind(slow_listen_fd, (struct sockaddr *)&sa, sizeof(sa)) ||
+	    listen(slow_listen_fd, 4) ||
+	    fcntl(slow_listen_fd, F_SETFL,
+		  fcntl(slow_listen_fd, F_GETFL) | O_NONBLOCK) < 0) {
+		close(slow_listen_fd);
+		slow_listen_fd = -1;
+		return 1;
+	}
+
+	return 0;
+}
+#endif
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info, vi;
@@ -740,6 +855,9 @@ int main(int argc, const char **argv)
 	if (argc > 2 && !strcmp(argv[1], "-p"))
 		/* adjacent block from the CI port allocator */
 		port_backend = (int)atoi(argv[2]);
+#if !defined(WIN32)
+	ws_delay = !!lws_cmdline_option(argc, argv, "--ws-delay");
+#endif
 
 	port_proxy = port_backend + 1;
 
@@ -772,6 +890,12 @@ int main(int argc, const char **argv)
 	info.max_http_header_data = 4096;
 	/* http-long: the response must outlast this */
 	info.timeout_secs = LONG_TIMEOUT_S;
+#if !defined(WIN32)
+	if (ws_delay) {
+		info.timeout_secs = WS_DELAY_TIMEOUT_S;
+		info.timeout_secs_ah_idle = WS_DELAY_AH_IDLE_S;
+	}
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -792,7 +916,18 @@ int main(int argc, const char **argv)
 	vi.port		= port_backend;
 	vi.protocols	= protocols;
 	vi.mounts	= &mount_backend;
-	if (!lws_create_vhost(context, &vi)) {
+#if !defined(WIN32)
+	if (ws_delay) {
+		/* the backend's listener is ours, accepted from late */
+		vi.port = CONTEXT_PORT_NO_LISTEN_SERVER;
+		if (slow_listen()) {
+			lwsl_err("backend listen failed\n");
+			goto bail;
+		}
+	}
+#endif
+	vh_backend = lws_create_vhost(context, &vi);
+	if (!vh_backend) {
 		lwsl_err("backend vhost init failed\n");
 		goto bail;
 	}
@@ -820,6 +955,21 @@ int main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul, sul_watchdog_cb, LWS_US_PER_SEC);
 
+#if !defined(WIN32)
+	if (ws_delay) {
+		/* only the ws upgrade, with the backend slow to accept it */
+		ws_stage_started = 1;
+		ws_us_start = lws_now_usecs();
+		if (start_ws_connection()) {
+			lwsl_err("ws client connect failed\n");
+			goto bail;
+		}
+		lws_sul_schedule(context, 0, &sul_accept, sul_accept_cb,
+				 WS_DELAY_MS * LWS_US_PER_MS);
+		goto run;
+	}
+#endif
+
 	/* stage 1: the http transaction through the proxy */
 
 	memset(&i, 0, sizeof(i));
@@ -837,6 +987,9 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
+#if !defined(WIN32)
+run:
+#endif
 	while (state != ST_DONE && lws_service(context, 0) >= 0)
 		;
 
@@ -846,7 +999,14 @@ int main(int argc, const char **argv)
 	n = test_failures ? 1 : 0;
 
 bail:
+#if !defined(WIN32)
+	lws_sul_cancel(&sul_accept);
+#endif
 	lws_context_destroy(context);
+#if !defined(WIN32)
+	if (slow_listen_fd >= 0)
+		close(slow_listen_fd);
+#endif
 
 	if (n)
 		lwsl_user("api-test-proxy-hdr: FAILED\n");

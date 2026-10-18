@@ -136,6 +136,17 @@ if (requirements)
 					     TIMEOUT 60)
 		endif()
 
+		# an h1 POST that waits for the 100 Continue its Expect:
+		# 100-continue asks for
+		lws_get_free_port(PORT_HTTP_CGI_EXPECT_CONTINUE)
+
+		add_test(NAME api-test-http-cgi-expect-continue
+			 COMMAND lws-api-test-http-cgi-stdin --expect-continue
+				 -p ${PORT_HTTP_CGI_EXPECT_CONTINUE})
+		set_tests_properties(api-test-http-cgi-expect-continue PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 60)
+
 		lws_get_free_port(PORT_HTTP_CGI_ABANDON)
 
 		add_test(NAME api-test-http-cgi-abandon

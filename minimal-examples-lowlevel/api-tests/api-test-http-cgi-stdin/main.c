@@ -71,6 +71,13 @@
  * in its turn if the connection is kept alive (today an h1 connection is
  * closed after a cgi answer, and the parked request goes with it).
  *
+ * With --expect-continue, a raw h1 client POSTs the body with Expect:
+ * 100-continue, and holds the body back until the 100 Continue comes, or
+ * CONTINUE_WAIT_MS has passed without one.  The script must get the whole
+ * body either way.  Whether the 100 is sent is checked against what lws
+ * does today, CGI_CONTINUE_TODAY: it is not, since the cgi gave its request
+ * headers back at spawn, before the Expect header was looked at.
+ *
  * With --abandon, a client GETs a script that sends its headers and then
  * sleeps, and goes away as soon as it has the headers, ABANDONS times over,
  * one after the other.  Every other time, the script ignores SIGTERM, as
@@ -93,6 +100,7 @@
  *  - the CGI does not report receiving every byte of the POST body,
  *  - (--pipelined) the first answer does not arrive whole, or a cgi is
  *    spawned on the connection while its earlier one is still running,
+ *  - (--expect-continue) a 100 Continue was or was not sent, unlike today,
  *  - (--abandon) children are left running or uncollected afterwards,
  *  - (JOSE) the CGI did not see the interceptor's stamped header value,
  *  - no completion is seen inside the watchdog period,
@@ -101,6 +109,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -138,6 +147,16 @@
 #define ABANDONS	4
 #define ABANDON_DRAIN_S	12
 
+/*
+ * --expect-continue: how long the client holds its body back for the 100
+ * Continue, and whether lws sends one to a cgi POST today.  It does not:
+ * the cgi gave its request headers back at spawn, before the Expect header
+ * is looked at (G-151, the survey's L2).  When the Expect header is taken
+ * at dispatch instead, this becomes 1.
+ */
+#define CONTINUE_WAIT_MS	1000
+#define CGI_CONTINUE_TODAY	0
+
 enum body_type {
 	BODY_NONE,
 	BODY_CONTENT_LENGTH,
@@ -157,6 +176,10 @@ enum expect {
 				 * runs for the second */
 	EXPECT_ABANDON,		/* clients walk away from lingering scripts,
 				 * and no children are left afterwards */
+	EXPECT_CONTINUE,	/* a raw client's POST with Expect:
+				 * 100-continue: 200, and the script counted
+				 * the body, sent after the 100 or after
+				 * CONTINUE_WAIT_MS without one */
 };
 
 struct tcase {
@@ -180,6 +203,8 @@ static const struct tcase cases[] = {
 	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY, 0, 0 },
 	{ "pipelined", "GET", "/", BODY_NONE, EXPECT_PIPELINED, 0, 0 },
 	{ "abandon", "GET", "/linger", BODY_NONE, EXPECT_ABANDON, 0, 0 },
+	{ "expect-continue", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_CONTINUE,
+	  0, 0 },
 #if defined(LWS_ROLE_H2)
 	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
 	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 1, 0 },
@@ -208,6 +233,8 @@ struct run {
 	int		completed;
 	int		not_x;
 	int		done;
+	int		got_continue;	/* --expect-continue: a 100 came */
+	char		body_sent;	/* --expect-continue */
 };
 
 static const struct tcase *tc;
@@ -608,6 +635,92 @@ raw_responses(void)
 	return count;
 }
 
+/*
+ * --expect-continue: the POST's body, sent after the 100 Continue or after
+ * CONTINUE_WAIT_MS without one
+ */
+static int
+raw_send_body(struct lws *wsi)
+{
+	size_t bl = (size_t)CHUNKS * CHUNK, o;
+	uint8_t *b;
+	int r;
+
+	if (run.body_sent)
+		return 0;
+	run.body_sent = 1;
+
+	b = malloc(LWS_PRE + bl);
+	if (!b)
+		return -1;
+	for (o = 0; o < CHUNKS; o++)
+		memcpy(b + LWS_PRE + (o * CHUNK), &body[LWS_PRE], CHUNK);
+
+	r = lws_write(wsi, b + LWS_PRE, bl, LWS_WRITE_RAW) != (int)bl;
+	free(b);
+
+	return r ? -1 : 0;
+}
+
+/*
+ * --expect-continue: what the server sent, from the start of run.raw.
+ * A 100 Continue ahead of the body is taken off it, and the body sent; then
+ * the final answer must be a 200 with a Content-Length, whose body goes in
+ * run.rx.  Returns 1 when the answer is whole, 0 for more, -1 if it is not
+ * one we can take.
+ */
+static int
+raw_continue_rx(struct lws *wsi)
+{
+	static const char cont[] = "HTTP/1.1 100 Continue\r\n\r\n";
+	const uint8_t *p = run.raw, *end = run.raw + run.raw_len, *h, *e;
+	long cl = -1;
+
+	if (!run.body_sent && run.raw_len >= sizeof(cont) - 1 &&
+	    !memcmp(run.raw, cont, sizeof(cont) - 1)) {
+		run.got_continue = 1;
+		run.raw_len -= sizeof(cont) - 1;
+		memmove(run.raw, run.raw + sizeof(cont) - 1, run.raw_len);
+		end = run.raw + run.raw_len;
+		lwsl_user("%s: raw client: 100 Continue\n", __func__);
+		if (raw_send_body(wsi))
+			return -1;
+	}
+
+	for (e = p; e + 4 <= end; e++)
+		if (!memcmp(e, "\r\n\r\n", 4))
+			break;
+	if (e + 4 > end)
+		return 0;
+
+	if (end - p < 12 || memcmp(p, "HTTP/1.1 200", 12))
+		return -1;
+
+	for (h = p; h < e; h++)
+		if (h[0] == '\n' && raw_hdr_is(h + 1, e, "content-length:")) {
+			h += 1 + strlen("content-length:");
+			while (h < e && *h == ' ')
+				h++;
+			cl = 0;
+			while (h < e && *h >= '0' && *h <= '9' &&
+			       cl < (long)sizeof(run.rx))
+				cl = (cl * 10) + (*h++ - '0');
+			break;
+		}
+	if (cl < 0 || cl >= (long)sizeof(run.rx))
+		return -1;
+
+	e += 4;
+	if ((size_t)(end - e) < (size_t)cl)
+		return 0;
+
+	memcpy(run.rx, e, (size_t)cl);
+	run.rx[cl] = '\0';
+	run.rx_len = (size_t)cl;
+
+	return 1;
+}
+
 static int
 callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -624,6 +737,22 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
+		if (tc->expect == EXPECT_CONTINUE) {
+			/* the head alone: the body waits for the 100 */
+			n = lws_snprintf(buf + LWS_PRE, sizeof(buf) - LWS_PRE,
+					 "POST %s HTTP/1.1\r\nHost: %s\r\n"
+					 "Content-Length: %u\r\n"
+					 "Expect: 100-continue\r\n\r\n",
+					 tc->path, server,
+					 (unsigned int)(CHUNKS * CHUNK));
+			if (lws_write(wsi, (uint8_t *)buf + LWS_PRE, (size_t)n,
+				      LWS_WRITE_RAW) != n)
+				return -1;
+			lws_set_timer_usecs(wsi, CONTINUE_WAIT_MS *
+						 LWS_US_PER_MS);
+			break;
+		}
+
 		/* two bodyless GETs for the script, in one write */
 		n = lws_snprintf(buf + LWS_PRE, sizeof(buf) - LWS_PRE,
 				 "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n"
@@ -641,6 +770,23 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		memcpy(run.raw + run.raw_len, in, len);
 		run.raw_len += len;
+
+		if (tc->expect == EXPECT_CONTINUE) {
+			n = raw_continue_rx(wsi);
+			if (n < 0) {
+				lwsl_err("%s: raw client: unexpected answer\n",
+					 __func__);
+				lwsl_hexdump_err(run.raw, run.raw_len);
+				return -1;
+			}
+			if (!n)
+				break;
+			run.status = 200;
+			run.completed = 1;
+			run_done();
+
+			return -1; /* done: close */
+		}
 
 		n = raw_responses();
 		if (n < 0) {
@@ -663,9 +809,20 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 
 		return -1; /* done: close */
 
+	case LWS_CALLBACK_TIMER:
+		/* no 100 Continue came in time: the body goes anyway */
+		if (tc->expect == EXPECT_CONTINUE && !run.body_sent) {
+			lwsl_user("%s: raw client: no 100 Continue in %dms\n",
+				  __func__, CONTINUE_WAIT_MS);
+			if (raw_send_body(wsi))
+				return -1;
+		}
+		break;
+
 	case LWS_CALLBACK_RAW_CLOSE:
-		lwsl_user("%s: raw client: closed after %d answers\n",
-			  __func__, run.responses);
+		if (tc->expect != EXPECT_CONTINUE)
+			lwsl_user("%s: raw client: closed after %d answers\n",
+				  __func__, run.responses);
 		run_done();
 		break;
 
@@ -902,8 +1059,11 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 	i.origin = server;
 	i.method = tc->method;
 	i.protocol = protocols_cli[0].name;
-	if (tc->expect == EXPECT_PIPELINED) {
-		/* a raw client that pipelines its two requests itself */
+	if (tc->expect == EXPECT_PIPELINED || tc->expect == EXPECT_CONTINUE) {
+		/*
+		 * a raw client that pipelines its two requests itself, or
+		 * that waits for the 100 Continue before sending its body
+		 */
 		i.method = "RAW";
 		i.local_protocol_name = protocols_cli[1].name;
 	}
@@ -993,6 +1153,7 @@ int main(int argc, const char **argv)
 
 	switch (tc->expect) {
 	case EXPECT_BODY_COUNT:
+	case EXPECT_CONTINUE:
 	case EXPECT_BIG_BODY:
 	case EXPECT_QUERY:
 	case EXPECT_PIPELINED:
@@ -1008,6 +1169,20 @@ int main(int argc, const char **argv)
 		case EXPECT_BODY_COUNT:
 			if (check_body_count())
 				goto done;
+			break;
+		case EXPECT_CONTINUE:
+			if (check_body_count())
+				goto done;
+			if (run.got_continue != CGI_CONTINUE_TODAY) {
+				lwsl_err("--- 100 Continue %s, expected %s "
+					 "today ---\n",
+					 run.got_continue ? "sent" : "not sent",
+					 CGI_CONTINUE_TODAY ? "sent" :
+							      "not sent");
+				goto done;
+			}
+			lwsl_user("--- 100 Continue %s ---\n",
+				  run.got_continue ? "sent" : "not sent");
 			break;
 		case EXPECT_BIG_BODY:
 			if (run.rx_total != BIG_BODY || run.not_x) {

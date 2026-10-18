@@ -29,6 +29,19 @@ if (requirements)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 60)
 
+	if (NOT WIN32)
+		# the ws upgrade alone, with the backend slow to accept the
+		# onward connection
+		lws_get_free_ports(PORT_PROXYHDR_WSD 2)
+
+		add_test(NAME api-test-proxy-hdr-ws-delay
+			 COMMAND lws-api-test-proxy-hdr -p ${PORT_PROXYHDR_WSD}
+				 --ws-delay)
+		set_tests_properties(api-test-proxy-hdr-ws-delay PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 60)
+	endif()
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)

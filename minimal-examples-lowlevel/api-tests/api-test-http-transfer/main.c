@@ -59,7 +59,10 @@
  * not reach the app on h2 any more than it does on h1, and a blocked
  * body-bearing request must leave the h1 connection resynchronized (the body
  * is discarded) rather than desynced.  The gated legs check both outcomes,
- * for GET and for POST, over h1 and h2.
+ * for GET and for POST, over h1 and h2, and for POST over h3.  A request the
+ * interceptor passes must still have its request headers at the app's
+ * LWS_CALLBACK_HTTP (its urlargs, and the Content-Length of its body), and
+ * its body must arrive whole at the completion.
  *
  * A 302 from the server must be followed by the client on the same wsi:
  * the wsi is retargeted, its connection torn down without the user hearing
@@ -837,6 +840,15 @@ static const struct xcase cases[] = {
 	{ "h2 POST the interceptor passes reaches the app with its body",
 	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 1, 0, 200,
 	  4000, XG_PASS, 0, 0, 0, 0, 0 },
+#if defined(LWS_ROLE_H3)
+	/* and on h3, which dispatches from its own path again */
+	{ "h3 POST to an interceptor-gated mount is blocked",
+	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 2, 0, 403, 0,
+	  XG_BLOCK, 0, 0, 0, 0, 0 },
+	{ "h3 POST the interceptor passes reaches the app with its body",
+	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 2, 0, 200,
+	  4000, XG_PASS, 0, 0, 0, 0, 0 },
+#endif
 #endif
 #endif
 };
@@ -951,6 +963,8 @@ static struct {
 					 * one the case sent */
 	int		held;		/* whole h3 writes reported as held back */
 	int		body_completions; /* HTTP_BODY_COMPLETION deliveries */
+	int		gate_pass_hdrs;	/* passed requests whose headers were
+					 * readable at LWS_CALLBACK_HTTP */
 	unsigned int	turns_wait_start; /* event loop turns when a "later"
 					   * answer began to wait... */
 	unsigned int	turns_waited;	/* ... and until it was answered */
@@ -1440,6 +1454,29 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				srv.not_close++;
 		}
 
+#if defined(LWS_WITH_JOSE)
+		/*
+		 * A request the interceptor let through still has its request
+		 * headers for this callback: its urlargs, and the
+		 * Content-Length of its body
+		 */
+		if (cur >= 0 && cur < (int)LWS_ARRAY_SIZE(cases) &&
+		    cases[cur].gate == XG_PASS) {
+			char arg[16], cl[24], want[24];
+
+			lws_snprintf(want, sizeof(want), "%u",
+				     (unsigned int)cases[cur].body_len);
+			if (lws_get_urlarg_by_name_safe(wsi, "auth=", arg,
+							sizeof(arg)) >= 0 &&
+			    !strcmp(arg, "1") &&
+			    (cases[cur].req != XR_CL ||
+			     (lws_hdr_copy(wsi, cl, sizeof(cl),
+					WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0 &&
+			      !strcmp(cl, want))))
+				srv.gate_pass_hdrs++;
+		}
+#endif
+
 		/* everything the proxy sends on says who it is for */
 		if (cur >= 0 && cur < (int)LWS_ARRAY_SIZE(cases) &&
 		    cases[cur].via_proxy &&
@@ -1906,6 +1943,11 @@ case_evaluate(void)
 			lwsl_err("app saw %d requests, expected 1\n",
 				 srv.http_cbs);
 			case_finish(0, "authorized request did not reach the app");
+			goto next;
+		}
+		if (srv.gate_pass_hdrs != 1) {
+			case_finish(0, "authorized request's headers were not "
+				       "readable at LWS_CALLBACK_HTTP");
 			goto next;
 		}
 		break;
