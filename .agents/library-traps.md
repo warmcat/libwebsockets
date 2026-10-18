@@ -293,6 +293,17 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    their cert files and swap the TLS ctx (old one retired by refcount).
    Grace period is `info->tls_cert_grace_secs`.
 
+## Raw connections
+
+ - **CONNECT needs a CONNECT mount** (`LWSMPRO_CONNECT`,
+   `"origin": "connect://<protocol>"`, mountpoint = `host:port`) since
+   G-002; anything else gets 405.  A raw connection has a validity timer
+   only where lws started one (today, a CONNECT mount): there
+   `lws_validity_confirmed()` restarts it via
+   `_lws_validity_raw_keepalive()`, elsewhere it does nothing.  Raw has no
+   ping of its own, so the protocol must confirm more often than the
+   hangup time (default 50s).
+
 ## Client connect
 
  - **`i.pwsi` is not cleared when the client wsi closes**: it is written

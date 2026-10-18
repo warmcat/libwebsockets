@@ -180,7 +180,11 @@
    simple way to make SNI and Host / `:authority` differ in a test.
  - **api-test-sansio covers hpack** but `ctest -R 'h2|h3|http'` does not
    select it: run it whenever hpack.c changes.  Its transcripts can only
-   be re-recorded (`--record`) from a fault-injection build.
+   be re-recorded (`--record`) from a `-DLWS_WITH_SYS_FAULT_INJECTION=1`
+   tree: record into a scratch dir and copy back only the changed files
+   after `cmp`.  Its clock jumps delay validity timers (sul insertion is
+   relative to now): use an explicit `at()` at ping+0.5s, then at
+   hangup+1s (cases 51, 53).
  - **QUIC key updates and injection:** `LWS_SERVER_OPTION_QUIC_EARLY_KEY_UPDATE`
    on both ends gives several key updates per connection (nothing else in
    ctest exercises them), and a udp relay that learns the server's SCID
