@@ -158,6 +158,181 @@ lws_create_stdwsi(struct lws_context *context, int tsi,
 	return new_wsi;
 }
 
+/*
+ * A child whose lws_spawn_piped was destroyed before he was collected: the
+ * owner's transaction ended early (a cgi whose client went away), or the
+ * owner is going.  He has been sent SIGTERM; nothing else in the process
+ * knows his pid any more, so we keep it here, poll for him and, if he is
+ * still there after LWS_SPAWN_ORPHAN_GRACE_US, SIGKILL his process group.
+ *
+ * Until we collect him his pid, and the id of the process group he leads,
+ * cannot be anybody else's, so signalling them is safe for as long as our
+ * waitpid() on him answers 0.  Once it tells us he is gone, or that he is
+ * not our child any more (ECHILD: a waitpid(-1) elsewhere took him), we
+ * forget him at once and never signal him again.
+ */
+
+#define LWS_SPAWN_ORPHAN_GRACE_US	(3 * LWS_US_PER_SEC)
+#define LWS_SPAWN_ORPHAN_POLL_US	(250 * LWS_US_PER_MS)
+
+typedef struct lws_spawn_orphan {
+	lws_dll2_t		list;
+	lws_usec_t		since;
+	pid_t			pid;
+	uint8_t			killed;
+#if defined(__linux__)
+	char			cgroup_path[256];
+#endif
+} lws_spawn_orphan_t;
+
+/* 1 if he is gone (and, if he had one, his cgroup removed), else 0 */
+
+static int
+lws_spawn_orphan_collect(lws_spawn_orphan_t *o)
+{
+	int status, n;
+
+	n = waitpid(o->pid, &status, WNOHANG);
+	if (!n || (n < 0 && errno == EINTR))
+		return 0;
+
+	lwsl_info("%s: orphan %d %s\n", __func__, (int)o->pid,
+		  n > 0 ? "collected" : "was collected elsewhere");
+
+#if defined(__linux__)
+	if (o->cgroup_path[0] && rmdir(o->cgroup_path))
+		lwsl_warn("%s: unable to rmdir cgroup %s, errno %d\n",
+			  __func__, o->cgroup_path, errno);
+#endif
+
+	return 1;
+}
+
+static void
+lws_spawn_orphan_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+			struct lws_context_per_thread, sul_spawn_orphans);
+	lws_usec_t now = lws_now_usecs();
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&pt->spawn_orphans)) {
+		lws_spawn_orphan_t *o = lws_container_of(d,
+					lws_spawn_orphan_t, list);
+
+		if (lws_spawn_orphan_collect(o)) {
+			lws_dll2_remove(&o->list);
+			lws_free(o);
+			continue;
+		}
+
+		/* still ours, so still safe to signal */
+
+		if (!o->killed && now - o->since > LWS_SPAWN_ORPHAN_GRACE_US) {
+			lwsl_notice("%s: orphan %d outlived SIGTERM, SIGKILL\n",
+				    __func__, (int)o->pid);
+			if (kill(-o->pid, SIGKILL))
+				kill(o->pid, SIGKILL);
+			o->killed = 1;
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+
+	if (lws_dll2_count(&pt->spawn_orphans))
+		lws_sul_schedule(pt->context, (int)pt->tid,
+				 &pt->sul_spawn_orphans, lws_spawn_orphan_cb,
+				 LWS_SPAWN_ORPHAN_POLL_US);
+}
+
+/*
+ * lsp is being destroyed, but his child has not been collected: make sure he
+ * has been told to go, and keep chasing him after the lsp is gone
+ */
+
+static void
+lws_spawn_orphan_adopt(struct lws_spawn_piped *lsp)
+{
+	struct lws_context *cx = lsp->info.vh->context;
+	struct lws_context_per_thread *pt = &cx->pt[(int)lsp->info.tsi];
+	lws_spawn_orphan_t *o;
+
+	if (!lsp->ungraceful)
+		/* nobody asked him to go yet */
+		lws_spawn_piped_kill_child_process(lsp);
+
+	/* that may have been enough for him to be collected */
+	if (lsp->reaped || lsp->child_pid <= 0)
+		return;
+
+	o = lws_zalloc(sizeof(*o), __func__);
+	if (!o) {
+		/* the best we can still do for him */
+		if (kill(-lsp->child_pid, SIGKILL))
+			kill(lsp->child_pid, SIGKILL);
+		return;
+	}
+
+	o->pid = lsp->child_pid;
+	o->since = lws_now_usecs();
+#if defined(__linux__)
+	lws_strncpy(o->cgroup_path, lsp->cgroup_path, sizeof(o->cgroup_path));
+#endif
+
+	lwsl_info("%s: chasing orphan %d\n", __func__, (int)o->pid);
+
+	lws_dll2_add_tail(&o->list, &pt->spawn_orphans);
+	if (!lws_dll2_owner(&pt->sul_spawn_orphans.list))
+		lws_sul_schedule(cx, (int)lsp->info.tsi,
+				 &pt->sul_spawn_orphans, lws_spawn_orphan_cb,
+				 LWS_SPAWN_ORPHAN_POLL_US);
+}
+
+/*
+ * The pt is going: whatever orphans are left are SIGKILLed, and given a
+ * moment to be collected so they don't stay on as zombies for the rest of
+ * the process' life
+ */
+
+void
+lws_spawn_orphans_destroy(struct lws_context_per_thread *pt)
+{
+	int tries = 100;
+
+	lws_sul_cancel(&pt->sul_spawn_orphans);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&pt->spawn_orphans)) {
+		lws_spawn_orphan_t *o = lws_container_of(d,
+					lws_spawn_orphan_t, list);
+
+		if (!o->killed && !waitpid(o->pid, NULL, WNOHANG)) {
+			/* not collected, so still ours to signal */
+			if (kill(-o->pid, SIGKILL))
+				kill(o->pid, SIGKILL);
+			o->killed = 1;
+		}
+	} lws_end_foreach_dll(d);
+
+	while (lws_dll2_count(&pt->spawn_orphans)) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&pt->spawn_orphans)) {
+			lws_spawn_orphan_t *o = lws_container_of(d,
+					lws_spawn_orphan_t, list);
+
+			/* out of patience, he is left to whoever inherits him */
+			if (!tries || lws_spawn_orphan_collect(o)) {
+				lws_dll2_remove(&o->list);
+				lws_free(o);
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+
+		if (tries) {
+			tries--;
+			if (lws_dll2_count(&pt->spawn_orphans))
+				usleep(1000);
+		}
+	}
+}
+
 void
 lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 {
@@ -182,6 +357,14 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 
 	lws_dll2_remove(&lsp->dll);
 
+	/*
+	 * Nothing will be left to collect him once the lsp is gone: if he has
+	 * not been, hand him on (G-100).  Before the cancels below, since a
+	 * kill that collects him schedules the lsp's sul.
+	 */
+	if (lsp->child_pid > 0 && !lsp->reaped)
+		lws_spawn_orphan_adopt(lsp);
+
 	lws_sul_cancel(&lsp->sul);
 	lws_sul_cancel(&lsp->sul_reap);
 	lws_sul_cancel(&lsp->sul_mem);
@@ -197,6 +380,11 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 		}
 #endif
 		if (lsp->stdwsi[n]) {
+			/*
+			 * It closes after we and maybe our owner have gone:
+			 * it no longer leads to the owner's state
+			 */
+			lws_set_opaque_user_data(lsp->stdwsi[n], NULL);
 			lws_set_timeout(lsp->stdwsi[n], 1, LWS_TO_KILL_ASYNC);
 			lsp->stdwsi[n] = NULL;
 		}

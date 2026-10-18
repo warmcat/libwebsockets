@@ -71,6 +71,13 @@
  * in its turn if the connection is kept alive (today an h1 connection is
  * closed after a cgi answer, and the parked request goes with it).
  *
+ * With --abandon, a client GETs a script that sends its headers and then
+ * sleeps, and goes away as soon as it has the headers, ABANDONS times over,
+ * one after the other.  Every other time, the script ignores SIGTERM, as
+ * does its sleep.  Each abandoned script must still be collected, and one
+ * ignoring SIGTERM killed, so that within ABANDON_DRAIN_S of the last one
+ * the process has no children left at all, neither running nor zombies.
+ *
  * With JOSE in the build, the CGI mount is also gated by a tiny mount
  * interceptor that lets every request through but stamps an onward header
  * on it, the way lws-login stamps its login state; the client sends its
@@ -86,6 +93,7 @@
  *  - the CGI does not report receiving every byte of the POST body,
  *  - (--pipelined) the first answer does not arrive whole, or a cgi is
  *    spawned on the connection while its earlier one is still running,
+ *  - (--abandon) children are left running or uncollected afterwards,
  *  - (JOSE) the CGI did not see the interceptor's stamped header value,
  *  - no completion is seen inside the watchdog period,
  *  - the service loop went around more than MAX_PASSES times, ie, it spun.
@@ -94,6 +102,9 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <errno.h>
 
 /*
  * This must match info.pt_serv_buf_size set in main(): the biggest body
@@ -119,6 +130,14 @@
  */
 #define MAX_PASSES	5000
 
+/*
+ * --abandon: how many scripts are walked away from, and how long after the
+ * last the process may still have children: SIGTERM is ignored by every
+ * other one, and lws gives a child a few seconds' grace before SIGKILL
+ */
+#define ABANDONS	4
+#define ABANDON_DRAIN_S	12
+
 enum body_type {
 	BODY_NONE,
 	BODY_CONTENT_LENGTH,
@@ -136,6 +155,8 @@ enum expect {
 	EXPECT_PIPELINED,	/* a raw client's two GETs in one write: the
 				 * first answered 200 whole before any cgi
 				 * runs for the second */
+	EXPECT_ABANDON,		/* clients walk away from lingering scripts,
+				 * and no children are left afterwards */
 };
 
 struct tcase {
@@ -158,6 +179,7 @@ static const struct tcase cases[] = {
 	{ "no-headers", "GET", "/nohdr", BODY_NONE, EXPECT_NO_ANSWER, 0, 0 },
 	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY, 0, 0 },
 	{ "pipelined", "GET", "/", BODY_NONE, EXPECT_PIPELINED, 0, 0 },
+	{ "abandon", "GET", "/linger", BODY_NONE, EXPECT_ABANDON, 0, 0 },
 #if defined(LWS_ROLE_H2)
 	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
 	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 1, 0 },
@@ -193,7 +215,7 @@ static struct lws_context *context;
 static struct run run;
 static int port_tcp = 7681;
 static const char *server = "127.0.0.1";
-static lws_sorted_usec_list_t sul_timeout, sul_grant;
+static lws_sorted_usec_list_t sul_timeout, sul_grant, sul_children;
 
 static uint8_t body[LWS_PRE + CHUNK];
 
@@ -345,6 +367,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		run.status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("%s: client established, response status %d\n",
 			  __func__, run.status);
+		if (tc->expect == EXPECT_ABANDON)
+			/* walk away from the script while it still runs */
+			return -1;
 #if defined(LWS_ROLE_H2)
 		if (tc->starve) {
 			run.cli = wsi;
@@ -725,6 +750,89 @@ void sigint_handler(int sig)
 }
 
 /*
+ * --abandon: does this process have any children left, running or waiting to
+ * be collected?  WNOWAIT leaves a zombie for lws to collect: we only look.
+ */
+static int
+children_left(void)
+{
+	siginfo_t si;
+
+	memset(&si, 0, sizeof(si));
+	if (waitid(P_ALL, 0, &si, WEXITED | WNOHANG | WNOWAIT))
+		return errno != ECHILD;
+
+	return 1; /* running ones, or si.si_pid waiting to be collected */
+}
+
+static void
+sul_children_cb(lws_sorted_usec_list_t *sul)
+{
+	if (!children_left()) {
+		lwsl_user("--- no children left ---\n");
+		run.completed = 1;
+		run_done();
+		return;
+	}
+
+	lws_sul_schedule(context, 0, &sul_children, sul_children_cb,
+			 100 * LWS_US_PER_MS);
+}
+
+/*
+ * --abandon: walk away from ABANDONS lingering scripts in turn, every other
+ * one ignoring SIGTERM, then give the server ABANDON_DRAIN_S to have no
+ * children left
+ */
+static int
+abandon_and_drain(struct lws_client_connect_info *i)
+{
+	int k;
+
+	for (k = 0; k < ABANDONS; k++) {
+		memset(&run, 0, sizeof(run));
+		i->path = k & 1 ? "/linger-stubborn" : "/linger";
+
+		lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
+				 20 * LWS_US_PER_SEC);
+		if (!lws_client_connect_via_info(i)) {
+			lwsl_err("client connect failed\n");
+			return 1;
+		}
+
+		while (!run.done && lws_service(context, 0) >= 0)
+			;
+
+		if (run.status != 200) {
+			lwsl_err("--- %s: status %d, wanted 200 ---\n",
+				 i->path, run.status);
+			return 1;
+		}
+	}
+
+	memset(&run, 0, sizeof(run));
+	run.us_start = lws_now_usecs();
+	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
+			 ABANDON_DRAIN_S * LWS_US_PER_SEC);
+	lws_sul_schedule(context, 0, &sul_children, sul_children_cb,
+			 100 * LWS_US_PER_MS);
+
+	while (!run.done && lws_service(context, 0) >= 0)
+		run.passes++;
+
+	if (!run.completed) {
+		lwsl_err("--- children left %ds after the last abandon ---\n",
+			 ABANDON_DRAIN_S);
+		return 1;
+	}
+
+	lwsl_user("--- all collected %dms after the last abandon ---\n",
+		  (int)((run.us_end - run.us_start) / LWS_US_PER_MS));
+
+	return 0;
+}
+
+/*
  * One client transaction against the cgi mount, in a context of its own
  * whose fds table has fd_limit places (0 = the process limit).  Returns
  * nonzero if the context or its vhosts could not be created.
@@ -808,6 +916,11 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 	}
 #endif
 
+	if (tc->expect == EXPECT_ABANDON) {
+		ret = abandon_and_drain(&i);
+		goto bail;
+	}
+
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
 			 20 * LWS_US_PER_SEC);
 
@@ -831,6 +944,7 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 bail:
 	lws_sul_cancel(&sul_timeout);
 	lws_sul_cancel(&sul_grant);
+	lws_sul_cancel(&sul_children);
 	lws_context_destroy(context);
 	context = NULL;
 
@@ -946,6 +1060,10 @@ int main(int argc, const char **argv)
 		}
 
 		result = 0;
+		goto done;
+
+	case EXPECT_ABANDON:
+		result = run_one(&info, info.fd_limit_per_thread);
 		goto done;
 
 	case EXPECT_FD_BUDGET:

@@ -1193,8 +1193,12 @@ lws_cgi_kill(struct lws *wsi)
 	pid = wsi->http.cgi->lsp->child_pid;
 
 	args.stdwsi = &wsi->http.cgi->lsp->stdwsi[0];
+	/*
+	 * That only signals him: the lsp stays, and whether or not he has gone
+	 * yet, destroying it in lws_cgi_release() hands him on to be collected
+	 * (and SIGKILLed if he ignores this) after the lsp is gone
+	 */
 	lws_spawn_piped_kill_child_process(wsi->http.cgi->lsp);
-	/* that has invalidated and NULL'd wsi->http.cgi->lsp */
 
 	if (pid != -1) {
 		if (wsi->http.cgi)

@@ -1978,6 +1978,26 @@ LWS_VISIBLE LWS_EXTERN int
 lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
 
 /**
+ * lws_spawn_piped_destroy() - let go of a spawn, whatever its child is doing
+ *
+ * \p lsp: pointer to the spawn object pointer, which is set to NULL
+ *
+ * Destroys the spawn object and closes its stdwsi, without the reap
+ * callback: any stdwsi that finishes closing after this call no longer
+ * carries the spawn's \p opaque.  Use it when the owner is going and can no
+ * longer take the callback, eg, in PROTOCOL_DESTROY.
+ *
+ * A child that has not been collected yet is sent SIGTERM if nobody asked
+ * him to go already, and lws keeps collecting him in the background after
+ * the spawn object is gone, sending SIGKILL to his process group if he is
+ * still there a few seconds later, so he cannot linger as a zombie or keep
+ * running untracked.  (On Windows the child's job object is closed, which
+ * ends him and his tree.)
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_spawn_piped_destroy(struct lws_spawn_piped **lsp);
+
+/**
  * lws_spawn_get_stdwsi_open_count() - return stdwsi unclosed count
  *
  * \p lsp: the spawn object

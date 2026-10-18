@@ -460,6 +460,14 @@ struct lws_context_per_thread {
 #if defined(LWS_ROLE_CGI)
 	lws_sorted_usec_list_t sul_cgi;
 #endif
+#if defined(LWS_WITH_SPAWN) && !defined(WIN32)
+	/*
+	 * children whose lws_spawn_piped went before they were collected, see
+	 * lws_spawn_orphan_adopt()
+	 */
+	lws_dll2_owner_t	spawn_orphans;
+	lws_sorted_usec_list_t	sul_spawn_orphans;
+#endif
 #if defined(LWS_WITH_PEER_LIMITS)
 	lws_sorted_usec_list_t sul_peer_limits;
 #endif
@@ -1496,6 +1504,9 @@ struct lws_spawn_piped {
 #if !defined(WIN32)
 /* how often the memory of a spawn's process tree is added up while it runs */
 #define LWS_SPAWN_TREE_SAMPLE_US	(200 * LWS_US_PER_MS)
+
+void
+lws_spawn_orphans_destroy(struct lws_context_per_thread *pt);
 
 int
 lws_spawn_tree_rss(struct lws_spawn_piped *lsp, uint64_t *rss);

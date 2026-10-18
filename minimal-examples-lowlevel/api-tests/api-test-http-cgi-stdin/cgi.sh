@@ -20,9 +20,22 @@
 #  /nohdr: exits without writing anything, not even its headers
 #  /big:   answers with 32KB of 'x', and is gone before much of that can
 #          have been sent on
+#  /linger: sends its headers and then takes its time, longer than its
+#          client is going to wait for it
+#  /linger-stubborn: the same, but ignoring SIGTERM, as the sleep it runs
+#          then does too
 
 case "$PATH_INFO" in
 nohdr)
+	exit 0 ;;
+linger|linger-stubborn)
+	if [ "$PATH_INFO" = linger-stubborn ]; then
+		trap '' TERM
+	fi
+	printf 'content-type: text/plain\r\n'
+	printf '\r\n'
+	printf 'lingering\n'
+	sleep 30
 	exit 0 ;;
 big)
 	printf 'content-type: text/plain\r\n'

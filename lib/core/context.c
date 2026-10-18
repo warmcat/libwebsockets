@@ -2498,6 +2498,10 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 		(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
 			pt_init_destroy(ctx, NULL, pt, 1);
 #endif
+#if defined(LWS_WITH_SPAWN) && !defined(WIN32)
+	/* the spawns' children nobody was left to collect */
+	lws_spawn_orphans_destroy(pt);
+#endif
 
 	vpt = (volatile struct lws_context_per_thread *)pt;
 	/* helpers take non-volatile owner pointers: keep the direct reads via

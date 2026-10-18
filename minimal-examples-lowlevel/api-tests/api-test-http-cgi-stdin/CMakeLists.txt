@@ -136,6 +136,15 @@ if (requirements)
 					     TIMEOUT 60)
 		endif()
 
+		lws_get_free_port(PORT_HTTP_CGI_ABANDON)
+
+		add_test(NAME api-test-http-cgi-abandon
+			 COMMAND lws-api-test-http-cgi-stdin --abandon
+				 -p ${PORT_HTTP_CGI_ABANDON})
+		set_tests_properties(api-test-http-cgi-abandon PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 120)
+
 		lws_get_free_port(PORT_HTTP_CGI_FD_BUDGET)
 
 		add_test(NAME api-test-http-cgi-fd-budget

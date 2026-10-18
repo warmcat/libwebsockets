@@ -55,9 +55,6 @@ lws_async_dns_drop_server(lws_async_dns_server_t *dsrv);
 
 #endif
 #if (defined(LWS_WITH_SPAWN))
-void
-lws_spawn_piped_destroy(struct lws_spawn_piped **lsp);
-
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp);
 
