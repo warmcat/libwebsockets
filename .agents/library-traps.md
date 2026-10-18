@@ -161,6 +161,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_add_http_header_by_name()` / `_by_token()` wrappers.  Code calling
    `lws_add_http2_*` / `lws_add_http3_*` directly, or composing with
    `lws_snprintf()` (the h1 client request line), gets no check (G-156).
+ - **Per-host keys in plugins:** `lws_get_peer_simple()` resolves h2/h3
+   stream wsis to the connection's real peer (the QUIC netconn address on
+   h3) and honours PROXY v2.
+ - **`content_length_explicitly_zero` is the per-request "no body" signal**
+   on every role, except h3 FIN-without-CL, which ends through
+   `lws_h3_rx_fin_server()` and the body path.
+   `lws_return_http_status()` never applies stream compression.
  - **h3 has no destroy_role:** per-stream state that h1/h2 free in
    destroy_role (eg, the stream compressor) must be freed in
    `rops_close_kill_connection_h3()`.
