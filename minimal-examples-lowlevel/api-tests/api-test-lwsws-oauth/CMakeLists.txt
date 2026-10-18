@@ -322,7 +322,9 @@ if (requirements)
 		#
 		# (d1c) the login limiter keys strikes and bans on an IPv6
 		# client's /64, and counts wrong authenticator codes against
-		# the account.  Once only, over h1: it leaves its account
+		# the account; a completed login forgives only its account's
+		# strikes, and a right password without the code costs the
+		# host a strike.  Once only, over h1: it leaves its account
 		# braked.
 		#
 		add_test(NAME lwsws-oauth-limits

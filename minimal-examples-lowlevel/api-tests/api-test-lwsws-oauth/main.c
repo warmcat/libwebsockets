@@ -52,7 +52,9 @@
  *
  *  limits: the login limiter's strikes and ban land on an IPv6 client's whole
  *          /64, not one address of it, and wrong authenticator codes count
- *          against the account.
+ *          against the account.  A completed login forgives its account's
+ *          strikes but not its host's, and a right password without the
+ *          authenticator code still costs the host a strike.
  *
  *  verify: the mailed registration link.  A GET of it, as a mail scanner
  *          makes, only asks for confirmation; the TOTP seed and backup codes
@@ -115,6 +117,12 @@ static int send_host_hdr;
  */
 #define SEED_USER_LIMIT		"apitest-limit-user"
 #define SEED_UID_LIMIT		4
+/*
+ * a password-only account the limits scenario takes to the edge of its
+ * account brake, to show a completed login forgives its strikes
+ */
+#define SEED_USER_CLEAR		"apitest-clear-user"
+#define SEED_UID_CLEAR		5
 /* holds the '*' grant, for the admin console: only adminws uses it */
 #define SEED_USER_ADMIN		"apitest-admin"
 #define SEED_UID_ADMIN		3
@@ -1011,6 +1019,14 @@ scenario_seed(void)
 		     "totp_last) VALUES (%d, '%s', '%s', '%s', '%s', 0, 0)",
 		     SEED_UID_LIMIT, SEED_USER_LIMIT, hex, SEED_SALT,
 		     SEED_TOTP_SECRET);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (%d, '%s', '%s', '%s', '', 0, 0)",
+		     SEED_UID_CLEAR, SEED_USER_CLEAR, hex, SEED_SALT);
 	if (seed_exec(db, sql))
 		goto bail;
 
@@ -2245,11 +2261,43 @@ scenario_xff(void)
  * the ban must land on the /64.  And once a password is known, the second
  * factor is what is guessed, from however many hosts: those failures must
  * count against the account too.
+ *
+ * A completed login forgives only its account's strikes, not its host's, or a
+ * host holding any account resets its own brake between guesses (G-137).  And
+ * every login that spent a password hash without completing costs its host a
+ * strike, including a right password without the authenticator code, or one
+ * host knowing one password could spend the whole hashing budget and keep
+ * everyone else's logins refused (G-138).
  */
+static int
+limits_login(const char *from, const char *user, const char *pass,
+	     const char *csrf)
+{
+	char b[512];
+
+	lws_snprintf(b, sizeof(b), "username=%s&password=%s&csrf_token=%s",
+		     user, pass, csrf);
+	req_xff = from;
+
+	return req_full(JAR_AUTH, port_auth, "/api/login", b);
+}
+
+static int
+limits_strikes(const char *from)
+{
+	req_xff = from;
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200)
+		return -1;
+
+	return status_strikes();
+}
+
 static int
 scenario_limits(void)
 {
-	char pfx[48], other[48], xff[96], csrf[128], b[512];
+	char pfx[48], other[48], xff[96], csrf[128], b[512], host[48],
+	     host2[48], nobody[48];
 	uint32_t code, wrong;
 	uint8_t r[4];
 	int n;
@@ -2349,8 +2397,95 @@ scenario_limits(void)
 			    "the right one answered %u, wanted 503: '%s'",
 			    status, body);
 
-	lwsl_user("PASS: limits: strikes and the ban land on the /64, and "
-		  "wrong authenticator codes brake the account\n");
+	/*
+	 * (3) a completed login keeps its host's strikes (G-137).  A fresh
+	 * IPv4 host each run, from the benchmarking range: one failure for a
+	 * name that is no account, then a right login, and the strike stays
+	 */
+
+	lws_get_random(context, r, sizeof(r));
+	lws_snprintf(host, sizeof(host), "198.18.%u.%u", r[0],
+		     (unsigned int)(r[1] | 1));
+	lws_snprintf(host2, sizeof(host2), "198.19.%u.%u", r[2],
+		     (unsigned int)(r[3] | 1));
+	lws_snprintf(nobody, sizeof(nobody), "apitest-nobody-%02x%02x%02x%02x",
+		     r[0], r[1], r[2], r[3]);
+
+	if (limits_strikes(host))
+		return fail("limits", "%s starts with %d strikes, wanted none",
+			    host, status_strikes());
+
+	if (limits_login(host, nobody, SEED_PASSWORD, csrf) || status != 401)
+		return fail("limits", "a login as %s from %s answered %u, "
+			    "wanted 401: '%s'", nobody, host, status, body);
+
+	if (limits_login(host, SEED_USER_CLEAR, SEED_PASSWORD, csrf) ||
+	    status != 200)
+		return fail("limits", "a right login from %s answered %u, "
+			    "wanted 200: '%s'", host, status, body);
+
+	n = limits_strikes(host);
+	if (n != 1)
+		return fail("limits", "after a failure and a right login, %s "
+			    "has %d strikes, wanted the failure's 1", host, n);
+
+	/*
+	 * ... but it does forgive its account's.  From loopback, never struck
+	 * itself: seven wrong passwords, a right login, one more wrong one,
+	 * and the account is not braked, since the count started again
+	 */
+
+	for (n = 0; n < 7; n++)
+		if (limits_login(NULL, SEED_USER_CLEAR, "wrong-password",
+				 csrf) || status != 401)
+			return fail("limits", "wrong password %d answered %u, "
+				    "wanted 401: '%s'", n, status, body);
+
+	if (limits_login(NULL, SEED_USER_CLEAR, SEED_PASSWORD, csrf) ||
+	    status != 200)
+		return fail("limits", "after seven wrong passwords the right "
+			    "one answered %u, wanted 200: '%s'", status, body);
+
+	if (limits_login(NULL, SEED_USER_CLEAR, "wrong-password", csrf) ||
+	    status != 401)
+		return fail("limits", "a wrong password after the right login "
+			    "answered %u, wanted 401: '%s'", status, body);
+
+	if (limits_login(NULL, SEED_USER_CLEAR, SEED_PASSWORD, csrf) ||
+	    status != 200)
+		return fail("limits", "a completed login did not forgive the "
+			    "account's strikes: the right password answered "
+			    "%u, wanted 200: '%s'", status, body);
+
+	/*
+	 * (4) a right password without the authenticator code spent a
+	 * password hash, so it costs the host a strike (G-138): after three
+	 * the host is braked before any more hashing
+	 */
+
+	for (n = 0; n < 3; n++)
+		if (limits_login(host2, SEED_USER_TOTP, SEED_PASSWORD, csrf) ||
+		    status != 401 || !strstr(body, "Authenticator Code"))
+			return fail("limits", "right password without the code "
+				    "%d from %s answered %u, wanted 401 asking "
+				    "for the code: '%s'", n, host2, status,
+				    body);
+
+	n = limits_strikes(host2);
+	if (n != 3)
+		return fail("limits", "after three logins without the code, %s "
+			    "has %d strikes, wanted 3", host2, n);
+
+	if (limits_login(host2, SEED_USER_TOTP, SEED_PASSWORD, csrf) ||
+	    status != 503)
+		return fail("limits", "a fourth login without the code from %s "
+			    "answered %u, wanted 503: '%s'", host2, status,
+			    body);
+
+	lwsl_user("PASS: limits: strikes and the ban land on the /64, wrong "
+		  "authenticator codes brake the account, a completed login "
+		  "forgives only its account, and a missing code costs the "
+		  "host\n");
 
 	return 0;
 }

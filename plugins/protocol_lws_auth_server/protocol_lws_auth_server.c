@@ -1263,14 +1263,23 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 	}
 }
 
+/*
+ * The account named user proved itself (a completed login, or a password
+ * reset from its mailed link): forgive its failures.  Only the account's: the
+ * host's strikes stay to decay, since one host may hold any number of
+ * accounts, and clearing them on its own success let it interleave a login to
+ * an account of its own between guesses at others and never be braked
+ * (G-137).
+ */
 static void
-auth_clear_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
+auth_account_clear_strikes(struct per_vhost_data__auth_server *vhd,
+			   const char *user)
 {
-	char key[AUTH_HOST_KEY_LEN];
 	auth_server_strike_t *s;
+	char key[64];
 
-	auth_host_key(ip, key, sizeof(key));
-	s = auth_strike_find(&vhd->ip_strikes, key);
+	auth_account_key(user, key, sizeof(key));
+	s = auth_strike_find(&vhd->user_strikes, key);
 	if (s) {
 		lws_dll2_remove(&s->list);
 		free(s);
@@ -2779,7 +2788,15 @@ lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server 
 					sqlite3_finalize(del_stmt);
 				}
 
-				auth_clear_strike(vhd, peer);
+				if (sqlite3_prepare_v2(vhd->db, "SELECT username FROM users WHERE uid = ?", -1, &del_stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_int(del_stmt, 1, (int)uid);
+					if (sqlite3_step(del_stmt) == SQLITE_ROW &&
+					    sqlite3_column_text(del_stmt, 0))
+						auth_account_clear_strikes(vhd,
+							(const char *)sqlite3_column_text(del_stmt, 0));
+					sqlite3_finalize(del_stmt);
+				}
+
 				pss->http_response_code = HTTP_STATUS_OK;
 				len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"Password updated successfully. Please log in.\"}");
 				goto send;
@@ -2866,7 +2883,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	const char *peer = pss->client_addr;
 	char jwt[1024], pl[1024 + LWS_PRE];
 	const char *user, *pass;
-	int len, users_empty = 0;
+	int len, users_empty = 0, kdf_spent = 0, logged_in = 0;
 	char cookie_hdr[LWS_SSO_MAX_COOKIE] = {0};
 	char refresh_hdr[LWS_SSO_MAX_COOKIE] = {0};
 
@@ -2956,10 +2973,22 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		goto send;
 	}
 
+	/*
+	 * From here the request has spent a token of the KDF budget, which is
+	 * shared by every login and registration on the vhost.  Unless it ends
+	 * in a completed login, it costs its host a strike at send: not only
+	 * a wrong password or code, but also a right password without the
+	 * authenticator code, or one with a redirect we refuse.  Otherwise a
+	 * host knowing any one account's password could spend the whole
+	 * budget, at no cost to itself, and deny every other login (G-138).
+	 * The second factor flow spends a strike on its first step that the
+	 * second step does not give back: the strikes decay one per 120 s.
+	 */
+	kdf_spent = 1;
+
 	if (lws_auth_check_credentials(vhd, user, pass, &uid)) {
 		lwsl_err("%s: Validation failed for user '%s'\n", __func__, user);
 		lwsl_info("login bad credentials\n");
-		auth_record_strike(vhd, peer);
 		/* uid is only filled in for a name that is an account */
 		auth_account_record_strike(vhd, user, !!uid);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
@@ -3013,7 +3042,6 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		 * are what is being guessed, from however many hosts
 		 */
 		if (cn != 6 || totp_code_str[6]) {
-			auth_record_strike(vhd, peer);
 			auth_account_record_strike(vhd, user, 1);
 			lwsl_info("login malformed TOTP\n");
 			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
@@ -3043,7 +3071,6 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			}
 
 			if (matched_t <= last) {
-				auth_record_strike(vhd, peer);
 				auth_account_record_strike(vhd, user, 1);
 				lwsl_notice("%s: uid %u replayed TOTP counter "
 					    "%llu\n", __func__, uid,
@@ -3079,7 +3106,6 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 				}
 				lwsl_notice("%s: User %u consumed a backup code\n", __func__, uid);
 			} else {
-				auth_record_strike(vhd, peer);
 				auth_account_record_strike(vhd, user, 1);
 				lwsl_info("login bad TOTP\n");
 				pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
@@ -3089,7 +3115,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		}
 	}
 
-	auth_clear_strike(vhd, peer);
+	auth_account_clear_strikes(vhd, user);
 
 	/* Emulate OAuth2 whitelist logic for native SSO redirect_uri requests */
 	if ((!client_id || !client_id[0]) && redirect_uri && redirect_uri[0]) {
@@ -3133,6 +3159,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		}
 
 		pss->http_response_code = HTTP_STATUS_OK;
+		logged_in = 1;
 		char host[128] = {0}, enc_state[384];
 		char rurl[768], jurl[1024];
 
@@ -3207,6 +3234,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	/* Fallback / Native mode: generate direct JWT */
 	if (!lws_auth_generate_token(vhd, user, uid, peer, jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
+		logged_in = 1;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
 		if (vhd->cookie_name[0] &&
 		    lws_http_cookie_compose(cookie_hdr, sizeof(cookie_hdr),
@@ -3236,6 +3264,9 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
 
 send:
+	if (kdf_spent && !logged_in)
+		auth_record_strike(vhd, peer);
+
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 		return -1;
 

@@ -305,6 +305,16 @@ that are not accounts are counted the same way, so the brake engaging does
 not tell anyone which names exist, but separately: failures for made-up
 names cannot crowd a real account's count out of memory.
 
+Every login that makes the server hash a password and does not end in a
+completed login costs its host a strike: a wrong password or code, but also a
+right password sent without the authenticator code (the first step of a
+second factor login), or one with a redirect that is refused.  A completed
+login forgives the strikes of the account that logged in, but not those of
+its host, which only decay: otherwise a host holding any one account could
+clear its own brake between guesses at others, or spend the whole hashing
+budget below at no cost to itself.  A second factor user therefore leaves one
+strike behind per login, forgiven after 120 s.
+
 Behind all of that, the password hashing unauthenticated requests can cause
 is budgeted as a whole (`kdf-per-sec`), so however the requests are spread
 across hosts and names, they cannot keep the event loop busy hashing.
