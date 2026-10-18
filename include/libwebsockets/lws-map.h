@@ -75,6 +75,11 @@ typedef struct lws_map_info {
 	/**< number of hashed owner lists to create */
 } lws_map_info_t;
 
+/*
+ * The key and value are stored back to back after the item: the value starts
+ * keylen bytes after the key, so it has no particular alignment.  Copy a
+ * typed value out with memcpy() rather than dereferencing a cast pointer.
+ */
 LWS_VISIBLE LWS_EXTERN const void *
 lws_map_item_key(struct lws_map_item *_item);
 LWS_VISIBLE LWS_EXTERN const void *

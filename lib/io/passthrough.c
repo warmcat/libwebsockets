@@ -1000,13 +1000,23 @@ static void *
 lws_qpt_lookup(struct lws_map *map, const void *key, size_t kl)
 {
 	struct lws_map_item *it;
+	void *v;
 
 	if (!map)
 		return NULL;
 
 	it = lws_map_item_lookup(map, (const lws_map_key_t)key, kl);
+	if (!it)
+		return NULL;
 
-	return it ? *(void **)lws_map_item_value(it) : NULL;
+	/*
+	 * The value is stored straight after the key, so it is only as
+	 * aligned as the key length makes it: copy it out
+	 */
+
+	memcpy(&v, lws_map_item_value(it), sizeof(v));
+
+	return v;
 }
 
 static void

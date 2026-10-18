@@ -104,7 +104,7 @@ The item is opaque, but there are accessors
 |Accessor|Function|
 |---|---|
 |`lws_map_item_key(lws_map_item_t *_item)`|get a pointer to the item key|
-|`lws_map_item_value(lws_map_item_t *_item)`|get a pointer to the item value|
+|`lws_map_item_value(lws_map_item_t *_item)`|get a pointer to the item value (it follows the key, so it is not aligned: memcpy a typed value out)|
 |`lws_map_item_key_len(lws_map_item_t *_item)`|get the key length|
 |`lws_map_item_value_len(lws_map_item_t *_item)`|get the value length|
 
