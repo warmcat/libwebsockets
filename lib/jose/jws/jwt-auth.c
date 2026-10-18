@@ -365,16 +365,12 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 	 */
 	for (;;) {
 		jwt_len = sizeof(jwt);
-		if (!n)
-			/*
-			 * occurrence 0 via the prefix-aware lookup, so the
-			 * __Host- / __Secure- aliases keep working when no
-			 * plain-named cookie exists
-			 */
-			m = lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len);
-		else
-			m = lws_http_cookie_get_nth(wsi, cookie_name, n, jwt,
-						    &jwt_len);
+		/*
+		 * Exactly cookie_name: a caller whose cookie is minted as
+		 * __Host-x passes "__Host-x", and a bare "x" planted by a
+		 * sibling host is never taken for it
+		 */
+		m = lws_http_cookie_get_nth(wsi, cookie_name, n, jwt, &jwt_len);
 		if (m) {
 			if (!r)
 				r = m == 2 ? "Cookie value too large for buffer" :

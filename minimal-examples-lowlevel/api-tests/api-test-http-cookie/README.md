@@ -11,4 +11,19 @@ including the auth-server plugin's `AUTH_SERVER_CLEAR_COOKIE_SZ` sizing, the
 NULL-buffer measuring mode, fail-closed truncation refusal (one byte short
 composes nothing), and refusal of NULL name / value arguments.
 
+`getters.c` covers the request side, `lws_http_cookie_get()`,
+`lws_http_cookie_get_nth()` and the JWT cookie readers built on them
+(`lws_jwt_get_http_cookie_validate_jwt()`, `lws_jwt_auth_create()`), against
+real request headers: a server vhost and a client in the same process, the
+client sending each case's `Cookie:` header(s) and the server resolving the
+case's lookup.  It fences that exactly the name asked for is resolved: a
+`__Host-` or `__Secure-` cookie is only found under its full prefixed name,
+and a bare-named cookie, which a sibling host could have planted, never
+stands in for it, including a validly signed JWT planted that way.  It needs
+`LWS_WITH_SERVER` and `LWS_WITH_CLIENT`, and `LWS_WITH_JOSE` for the JWT
+cases.
+
+ctest passes `--server ${LWS_CTEST_SERVER_RESOLVE}`, the address the client
+connects to; it defaults to `localhost`.
+
 Run via ctest from a build with `-DLWS_WITH_MINIMAL_EXAMPLES=1`.

@@ -1,0 +1,489 @@
+/*
+ * lws-api-test-http-cookie: request cookie getters
+ *
+ * This file is made available under the Creative Commons CC0 1.0 Universal
+ * Public Domain Dedication.
+ *
+ * Fences lws_http_cookie_get(), lws_http_cookie_get_nth() and the JWT cookie
+ * readers built on them, lws_jwt_get_http_cookie_validate_jwt() and
+ * lws_jwt_auth_create(), against real request headers: a server vhost and a
+ * client in this process, the client sending each case's Cookie header(s) and
+ * the server resolving the case's lookup from them.
+ *
+ * The contracts fenced:
+ *
+ *  - exactly the name asked for is resolved.  "__Host-x" is only found by
+ *    asking for "__Host-x" and "x" only by asking for "x", whichever order the
+ *    browser lists them in (G-008): a bare-named cookie, which a sibling host
+ *    can set, never stands in for the prefixed one.  The JWT readers read the
+ *    __Host- cookie the library mints and nothing else, so an attacker's
+ *    validly signed JWT planted under the bare name is not taken.
+ */
+
+#include <libwebsockets.h>
+#include <string.h>
+
+#include "getters.h"
+
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_CLIENT) && \
+    defined(LWS_ROLE_H1)
+
+#define CKG_TIMEOUT_S		5
+#define CKG_ISS			"lws-api-test-http-cookie"
+
+enum ckg_kind {
+	CKG_GET,	/* lws_http_cookie_get() */
+	CKG_NTH,	/* lws_http_cookie_get_nth() */
+	CKG_JWT_VALIDATE, /* lws_jwt_get_http_cookie_validate_jwt() */
+	CKG_JWT_AUTH,	/* lws_jwt_auth_create() */
+};
+
+/* which JWT, if any, is appended to a Cookie: header's text */
+enum ckg_jwt {
+	CKG_J_NONE,
+	CKG_J_VICTIM,
+	CKG_J_ATTACKER,
+};
+
+struct ckg_case {
+	const char		*label;
+	const char		*hdr[2];  /* each non-NULL one is a Cookie: */
+	enum ckg_jwt		jwt[2];   /* appended to the matching hdr */
+	enum ckg_kind		kind;
+	const char		*name;
+	int			nth;
+	size_t			buflen;	  /* 0 means the whole buffer */
+	int			want_rc;  /* 0 found, 1 absent, 2 too big */
+	const char		*want;	  /* value, or sub for the JWT kinds */
+};
+
+static const struct ckg_case ckg_cases[] = {
+	{ .label = "plain", .hdr = { "a=1; b=2" }, .kind = CKG_GET,
+	  .name = "b", .want = "2" },
+	{ .label = "first of name", .hdr = { "a=1; b=2; a=3" },
+	  .kind = CKG_GET, .name = "a", .want = "1" },
+	{ .label = "nth 1", .hdr = { "s=1; s=2" }, .kind = CKG_NTH,
+	  .name = "s", .nth = 1, .want = "2" },
+	{ .label = "nth past end", .hdr = { "s=1; s=2" }, .kind = CKG_NTH,
+	  .name = "s", .nth = 2, .want_rc = 1 },
+	{ .label = "two fields", .hdr = { "a=1", "s=2" }, .kind = CKG_GET,
+	  .name = "s", .want = "2" },
+	{ .label = "nth across fields", .hdr = { "s=1", "s=2" },
+	  .kind = CKG_NTH, .name = "s", .nth = 1, .want = "2" },
+	{ .label = "too big", .hdr = { "s=123456789" }, .kind = CKG_GET,
+	  .name = "s", .buflen = 9, .want_rc = 2 },
+	{ .label = "exact fit", .hdr = { "s=12345678" }, .kind = CKG_GET,
+	  .name = "s", .buflen = 9, .want = "12345678" },
+	{ .label = "absent", .hdr = { "a=1" }, .kind = CKG_GET, .name = "s",
+	  .want_rc = 1 },
+
+	/* G-008: no aliasing between prefixed and bare names */
+
+	{ .label = "bare asked, only __Host-", .hdr = { "__Host-s=H" },
+	  .kind = CKG_GET, .name = "s", .want_rc = 1 },
+	{ .label = "bare asked, only __Secure-", .hdr = { "__Secure-s=S" },
+	  .kind = CKG_GET, .name = "s", .want_rc = 1 },
+	{ .label = "__Host- asked, bare first", .hdr = { "s=B; __Host-s=H" },
+	  .kind = CKG_GET, .name = "__Host-s", .want = "H" },
+	{ .label = "bare asked, bare first", .hdr = { "s=B; __Host-s=H" },
+	  .kind = CKG_GET, .name = "s", .want = "B" },
+	{ .label = "__Host- asked, __Host- first",
+	  .hdr = { "__Host-s=H; s=B" }, .kind = CKG_GET, .name = "__Host-s",
+	  .want = "H" },
+	{ .label = "bare asked, __Host- first", .hdr = { "__Host-s=H; s=B" },
+	  .kind = CKG_GET, .name = "s", .want = "B" },
+	{ .label = "__Host- nth skips bare",
+	  .hdr = { "s=B; __Host-s=H; s=C" }, .kind = CKG_NTH,
+	  .name = "__Host-s", .nth = 1, .want_rc = 1 },
+
+#if defined(LWS_WITH_JOSE)
+	{ .label = "jwt: __Host- validates", .hdr = { "__Host-tj=" },
+	  .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_VALIDATE, .name = "tj",
+	  .want = "victim" },
+	{ .label = "jwt: bare is not read", .hdr = { "tj=" },
+	  .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_VALIDATE, .name = "tj",
+	  .want_rc = 1 },
+	{ .label = "jwt: planted bare does not shadow",
+	  .hdr = { "tj=", "__Host-tj=" },
+	  .jwt = { CKG_J_ATTACKER, CKG_J_VICTIM }, .kind = CKG_JWT_VALIDATE,
+	  .name = "tj", .want = "victim" },
+	{ .label = "jwt-auth: exact prefixed name", .hdr = { "__Host-tj=" },
+	  .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_AUTH, .name = "__Host-tj",
+	  .want = "victim" },
+	{ .label = "jwt-auth: bare name finds no __Host-",
+	  .hdr = { "__Host-tj=" }, .jwt = { CKG_J_VICTIM },
+	  .kind = CKG_JWT_AUTH, .name = "tj", .want_rc = 1 },
+#endif
+};
+
+static struct lws_context *ckg_cx;
+static lws_sorted_usec_list_t ckg_sul_next, ckg_sul_watchdog;
+static const char *ckg_server;
+static int ckg_cur = -1, ckg_port, ckg_fails, ckg_finished, ckg_answered,
+	   ckg_case_done;
+
+#if defined(LWS_WITH_JOSE)
+static struct lws_jwk ckg_jwk;
+static char ckg_jwt_victim[1024], ckg_jwt_attacker[1024];
+#endif
+
+static void
+ckg_fail(const char *why)
+{
+	lwsl_err("case %d (%s): FAIL: %s\n", ckg_cur, ckg_cases[ckg_cur].label,
+		 why);
+	ckg_fails++;
+}
+
+/* the server half: resolve the case's lookup from the request's headers */
+
+static void
+ckg_resolve(struct lws *wsi, const struct ckg_case *c)
+{
+	char buf[2048], why[256];
+	size_t bl = c->buflen ? c->buflen : sizeof(buf);
+	const char *got = buf;
+	int rc = 1;
+
+	buf[0] = '\0';
+
+	switch (c->kind) {
+	case CKG_GET:
+		rc = lws_http_cookie_get(wsi, c->name, buf, &bl);
+		break;
+	case CKG_NTH:
+		rc = lws_http_cookie_get_nth(wsi, c->name, c->nth, buf, &bl);
+		break;
+#if defined(LWS_WITH_JOSE)
+	case CKG_JWT_VALIDATE: {
+		struct lws_jwt_sign_set_cookie ck;
+
+		memset(&ck, 0, sizeof(ck));
+		ck.jwk		= &ckg_jwk;
+		ck.alg		= "ES256";
+		ck.iss		= CKG_ISS;
+		ck.aud		= CKG_ISS;
+		ck.cookie_name	= c->name;
+
+		rc = lws_jwt_get_http_cookie_validate_jwt(wsi, &ck, buf, &bl);
+		lws_strncpy(buf, ck.sub, sizeof(buf));
+		break;
+	}
+	case CKG_JWT_AUTH: {
+		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &ckg_jwk,
+						c->name, NULL, NULL, NULL);
+
+		if (ja) {
+			lws_strncpy(buf, lws_jwt_auth_get_sub(ja),
+				    sizeof(buf));
+			lws_jwt_auth_destroy(&ja);
+			rc = 0;
+		}
+		break;
+	}
+#else
+	default:
+		break;
+#endif
+	}
+
+	if (rc != c->want_rc) {
+		lws_snprintf(why, sizeof(why), "rc %d, want %d (value '%s')",
+			     rc, c->want_rc, rc ? "" : got);
+		ckg_fail(why);
+		return;
+	}
+
+	if (!rc && c->want && strcmp(got, c->want)) {
+		lws_snprintf(why, sizeof(why), "got '%s', want '%s'", got,
+			     c->want);
+		ckg_fail(why);
+	}
+}
+
+static int
+ckg_srv_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	   void *in, size_t len)
+{
+	uint8_t hb[LWS_PRE + 256], *start = &hb[LWS_PRE], *p = start,
+		*end = &hb[sizeof(hb) - 1];
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+		if (ckg_cur >= 0 && ckg_cur < (int)LWS_ARRAY_SIZE(ckg_cases)) {
+			ckg_resolve(wsi, &ckg_cases[ckg_cur]);
+			ckg_answered++;
+		}
+
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain", 0, &p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+
+		return lws_http_transaction_completed(wsi) ? -1 : 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static void
+ckg_next(lws_sorted_usec_list_t *sul);
+
+static void
+ckg_case_end(struct lws *wsi, const char *why)
+{
+	if (lws_get_opaque_user_data(wsi) != (void *)(intptr_t)(ckg_cur + 1) ||
+	    ckg_case_done)
+		return; /* a late event from an earlier case */
+
+	ckg_case_done = 1;
+	if (why)
+		ckg_fail(why);
+	else if (ckg_answered != 1)
+		ckg_fail("server did not see the request");
+
+	lws_sul_cancel(&ckg_sul_watchdog);
+	lws_sul_schedule(ckg_cx, 0, &ckg_sul_next, ckg_next, 1);
+}
+
+static int
+ckg_add_line(struct lws *wsi, const char *text, enum ckg_jwt jwt,
+	     unsigned char **p, unsigned char *end)
+{
+	char line[3072];
+	const char *j = "";
+	int n;
+
+#if defined(LWS_WITH_JOSE)
+	if (jwt == CKG_J_VICTIM)
+		j = ckg_jwt_victim;
+	if (jwt == CKG_J_ATTACKER)
+		j = ckg_jwt_attacker;
+#else
+	(void)jwt;
+#endif
+
+	n = lws_snprintf(line, sizeof(line), "%s%s", text, j);
+	if ((size_t)n >= sizeof(line))
+		return 1;
+
+	return lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+					    (unsigned char *)line, n, p, end);
+}
+
+static int
+ckg_cli_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	   void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+		const struct ckg_case *c;
+		size_t n;
+
+		if (lws_get_opaque_user_data(wsi) !=
+					(void *)(intptr_t)(ckg_cur + 1))
+			return -1;
+		c = &ckg_cases[ckg_cur];
+
+		for (n = 0; n < LWS_ARRAY_SIZE(c->hdr); n++)
+			if (c->hdr[n] && ckg_add_line(wsi, c->hdr[n],
+						       c->jwt[n], p, end))
+				return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP: {
+		char buf[LWS_PRE + 256], *px = buf + LWS_PRE;
+		int lenx = sizeof(buf) - LWS_PRE;
+
+		if (lws_http_client_read(wsi, &px, &lenx) < 0)
+			return -1;
+
+		return 0;
+	}
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		ckg_case_end(wsi, NULL);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		ckg_case_end(wsi, in ? (const char *)in : "connection error");
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		ckg_case_end(wsi, "closed before completion");
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static const struct lws_protocols ckg_protocols_srv[] = {
+	{ "ckg-srv", ckg_srv_cb, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+static const struct lws_protocols ckg_protocols_cli[] = {
+	{ "ckg-cli", ckg_cli_cb, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+static void
+ckg_watchdog(lws_sorted_usec_list_t *sul)
+{
+	ckg_fail("timed out");
+	ckg_case_done = 1;
+	lws_sul_schedule(ckg_cx, 0, &ckg_sul_next, ckg_next, 1);
+}
+
+static void
+ckg_next(lws_sorted_usec_list_t *sul)
+{
+	struct lws_client_connect_info i;
+
+	if (++ckg_cur == (int)LWS_ARRAY_SIZE(ckg_cases)) {
+		ckg_finished = 1;
+		lws_cancel_service(ckg_cx);
+		return;
+	}
+
+	ckg_answered = 0;
+	ckg_case_done = 0;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= ckg_cx;
+	i.vhost			= lws_get_vhost_by_name(ckg_cx, "ckg-cli");
+	i.address		= ckg_server;
+	i.host			= i.address;
+	i.origin		= i.address;
+	i.port			= ckg_port;
+	i.path			= "/";
+	i.method		= "GET";
+	i.protocol		= ckg_protocols_cli[0].name;
+	i.local_protocol_name	= ckg_protocols_cli[0].name;
+	i.opaque_user_data	= (void *)(intptr_t)(ckg_cur + 1);
+
+	lws_sul_schedule(ckg_cx, 0, &ckg_sul_watchdog, ckg_watchdog,
+			 CKG_TIMEOUT_S * LWS_US_PER_SEC);
+
+	if (!lws_client_connect_via_info(&i)) {
+		ckg_fail("connect failed");
+		ckg_case_done = 1;
+		lws_sul_cancel(&ckg_sul_watchdog);
+		lws_sul_schedule(ckg_cx, 0, &ckg_sul_next, ckg_next, 1);
+	}
+}
+
+#if defined(LWS_WITH_JOSE)
+static int
+ckg_mint(const char *sub, char *out, size_t out_len)
+{
+	unsigned long long now = (unsigned long long)lws_now_secs();
+	char temp[2048];
+
+	return lws_jwt_sign_compact(ckg_cx, &ckg_jwk, "ES256", out, &out_len,
+				    temp, (int)sizeof(temp),
+				    "{\"iss\":\"%s\",\"aud\":\"%s\","
+				    "\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu,"
+				    "\"csrf\":\"0123456789abcdef\","
+				    "\"sub\":\"%s\"}", CKG_ISS, CKG_ISS,
+				    now, now - 60, now + 600, sub);
+}
+#endif
+
+int
+ckg_test(const char *server)
+{
+	struct lws_context_creation_info info;
+	struct lws_vhost *vh;
+	int n = 0;
+
+	ckg_server = server;
+	lws_context_info_defaults(&info, NULL);
+	/* a server and a client in one process: don't budget fds */
+	info.fd_limit_per_thread = 0;
+	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+
+	ckg_cx = lws_create_context(&info);
+	if (!ckg_cx) {
+		lwsl_err("%s: context creation failed\n", __func__);
+		return 1;
+	}
+
+	info.port = 0;
+	info.protocols = ckg_protocols_srv;
+	info.vhost_name = "ckg-srv";
+	vh = lws_create_vhost(ckg_cx, &info);
+	if (!vh)
+		goto bail;
+	ckg_port = lws_get_vhost_listen_port(vh);
+
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.protocols = ckg_protocols_cli;
+	info.vhost_name = "ckg-cli";
+	if (!lws_create_vhost(ckg_cx, &info))
+		goto bail;
+
+#if defined(LWS_WITH_JOSE)
+	if (lws_jwk_generate(ckg_cx, &ckg_jwk, LWS_GENCRYPTO_KTY_EC, 0,
+			     "P-256")) {
+		lwsl_err("%s: jwk generation failed\n", __func__);
+		goto bail;
+	}
+	if (ckg_mint("victim", ckg_jwt_victim, sizeof(ckg_jwt_victim)) ||
+	    ckg_mint("attacker", ckg_jwt_attacker,
+		     sizeof(ckg_jwt_attacker))) {
+		lwsl_err("%s: jwt minting failed\n", __func__);
+		lws_jwk_destroy(&ckg_jwk);
+		goto bail;
+	}
+#endif
+
+	lws_sul_schedule(ckg_cx, 0, &ckg_sul_next, ckg_next, 1);
+
+	while (n >= 0 && !ckg_finished)
+		n = lws_service(ckg_cx, 0);
+
+	lws_sul_cancel(&ckg_sul_watchdog);
+	lws_sul_cancel(&ckg_sul_next);
+#if defined(LWS_WITH_JOSE)
+	lws_jwk_destroy(&ckg_jwk);
+#endif
+	lws_context_destroy(ckg_cx);
+
+	if (!ckg_finished) {
+		lwsl_err("%s: service loop ended early\n", __func__);
+		return 1;
+	}
+
+	lwsl_user("%s: %d of %d getter cases failed\n", __func__, ckg_fails,
+		  (int)LWS_ARRAY_SIZE(ckg_cases));
+
+	return ckg_fails;
+
+bail:
+	lwsl_err("%s: setup failed\n", __func__);
+	lws_context_destroy(ckg_cx);
+
+	return 1;
+}
+
+#else
+
+int
+ckg_test(const char *server)
+{
+	(void)server;
+	lwsl_user("%s: needs server, client and h1: skipped\n", __func__);
+
+	return 0;
+}
+
+#endif

@@ -174,3 +174,11 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 				     struct lws_jwt_sign_set_cookie *i,
 				     char *out, size_t *out_len);
 ```
+
+The cookie is set as `__Host-` followed by `cookie_name`, which a browser only
+accepts from this host over https with `Path=/` and no `Domain`.  The
+validation reads it back under that full name only: a cookie called plain
+`cookie_name`, which a sibling host under the same registrable domain could
+have set, is never taken for it.  The same goes for `lws_http_cookie_get()`
+and `lws_jwt_auth_create()` generally: they resolve exactly the name you give,
+so to read a `__Host-` or `__Secure-` cookie, ask for its full name.

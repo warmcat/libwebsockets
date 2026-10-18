@@ -1230,7 +1230,15 @@ lws_http_is_redirected_to_get(struct lws *wsi);
  * NUL, sets *max to the used length, and returns 0.
  *
  * This handles the parsing of the possibly multi-cookie header string and
- * terminating the requested cookie at the next ; if present.
+ * terminating the requested cookie at the next ; if present.  It is the same
+ * as lws_http_cookie_get_nth() with \p n of 0: the first occurrence of
+ * exactly \p name.
+ *
+ * No aliases of \p name are tried.  To read a cookie set as "__Host-x" or
+ * "__Secure-x", ask for that full name; asking for "x" only finds a cookie
+ * literally named "x".  The prefix is the browser's guarantee about who could
+ * set the cookie, so a lookup must not let a bare-named cookie, which any
+ * sibling host under the registrable domain can set, stand in for it.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_cookie_get(struct lws *wsi, const char *name, char *buf, size_t *max);
@@ -1256,7 +1264,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf, size_t *max);
  * out.  Otherwise copies the whole value into buf with a terminating NUL,
  * sets *max to the used length, and returns 0.
  *
- * Unlike lws_http_cookie_get(), no __Host- / __Secure- prefixed aliases of the
+ * As for lws_http_cookie_get(), no __Host- / __Secure- prefixed aliases of the
  * name are considered; exactly \p name is resolved.
  */
 LWS_VISIBLE LWS_EXTERN int

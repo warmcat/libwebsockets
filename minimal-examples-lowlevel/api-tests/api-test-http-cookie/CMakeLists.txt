@@ -6,7 +6,7 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-api-test-http-cookie)
-set(SRCS main.c)
+set(SRCS main.c getters.c)
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
@@ -14,7 +14,9 @@ require_lws_config(LWS_ROLE_H1 1 requirements)
 if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
-	add_test(NAME api-test-http-cookie COMMAND lws-api-test-http-cookie)
+	add_test(NAME api-test-http-cookie COMMAND lws-api-test-http-cookie
+		 --server ${LWS_CTEST_SERVER_RESOLVE})
+	set_tests_properties(api-test-http-cookie PROPERTIES TIMEOUT 120)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

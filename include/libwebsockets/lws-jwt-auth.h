@@ -31,7 +31,11 @@ typedef int (*lws_jwt_auth_cb_t)(struct lws_jwt_auth *ja, int state, void *user)
  *
  * \param wsi: The connection to extract the HTTP cookie from
  * \param jwk: The public JSON Web Key used to verify the issuer's signature
- * \param cookie_name: Natively searches WSI_TOKEN_HTTP_COOKIE for this payload
+ * \param cookie_name: Natively searches WSI_TOKEN_HTTP_COOKIE for this payload.
+ *		Exactly this name is looked for, with no __Host- / __Secure-
+ *		aliasing: give the full name the cookie was minted under, eg,
+ *		"__Host-x" for a cookie set by lws_jwt_sign_token_set_http_cookie()
+ *		with a cookie_name of "x".
  * \param cb: Reauth/Expiry callback handler
  * \param user: Opaque context passed cleanly to the callback
  *

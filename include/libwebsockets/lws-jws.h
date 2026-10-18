@@ -636,6 +636,25 @@ LWS_VISIBLE LWS_EXTERN int
 lws_jwt_sign_token_set_cookie_ascii(struct lws *wsi,
 				    const struct lws_jwt_sign_set_cookie *i,
 				    char *buf, size_t len);
+/**
+ * lws_jwt_get_http_cookie_validate_jwt() - get and validate a JWT cookie
+ *
+ * \param wsi: the wsi whose request headers hold the cookie
+ * \param i: structure describing the cookie and what the JWT must contain
+ * \param out: buffer for the encoded JWT, then the decoded JWT payload
+ * \param out_len: entry: size of \p out, exit: length of the payload
+ *
+ * Reads the cookie lws_jwt_sign_token_set_http_cookie() mints, that is, the
+ * one named "__Host-" plus \p i->cookie_name, and only that one: a cookie
+ * named \p i->cookie_name without the prefix is ignored, since unlike the
+ * __Host- one, a sibling host under the registrable domain can set it.  The
+ * JWT is validated against \p i->jwk and \p i->alg, and its iss, aud,
+ * expiry and, if \p i->csrf_in is given, csrf are checked.  On success the
+ * subject is copied into \p i->sub, \p i->expiry_unix_time is set, and
+ * \p i->extra_json points to any "ext" object inside \p out.
+ *
+ * Returns 0 if the cookie is present and valid, else nonzero.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 				     struct lws_jwt_sign_set_cookie *i,

@@ -2464,8 +2464,6 @@ lws_http_te_is_chunked(struct lws *wsi)
 	return e - p == 7 && !strncasecmp(p, "chunked", 7);
 }
 
-static const char * const cookie_prefixes[] = { "", "__Host-", "__Secure-" };
-
 /*
  * Core of the cookie getters' match action: copy the whole cookie value
  * starting at vs (bounded by pe, ie, the end of the header frag, or the ';'
@@ -2495,61 +2493,8 @@ cookie_value_copy(const char *vs, const char *pe, char *buf, size_t *max_len)
 	return 0;
 }
 
-int
-lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
-		    size_t *max_len)
-{
-	size_t bl;
-	char *p;
-	int n, m;
-
-	for (m = 0; m < (int)LWS_ARRAY_SIZE(cookie_prefixes); m++) {
-		char nbuf[128];
-		const char *use_name = name;
-
-		if (m) {
-			lws_snprintf(nbuf, sizeof(nbuf), "%s%s",
-				     cookie_prefixes[m], name);
-			use_name = nbuf;
-		}
-
-		bl = strlen(use_name);
-		n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-		if ((unsigned int)n < bl + 1)
-			continue;
-
-		{
-			int f = wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_COOKIE];
-			size_t fl;
-
-			while (f) {
-				p = wsi->stream.ah->data + wsi->stream.ah->frags[f].offset;
-				fl = (size_t)wsi->stream.ah->frags[f].len;
-				char *pe = p + fl;
-				char *vp = p;
-
-				while (vp < pe) {
-					if ((size_t)(pe - vp) > bl &&
-					    !memcmp(vp, use_name, bl) &&
-					    vp[bl] == '=' &&
-					    (vp == p || vp[-1] == ' ' ||
-					     vp[-1] == ';'))
-						return cookie_value_copy(
-								vp + bl + 1,
-								pe, buf, max_len);
-					vp++;
-				}
-				f = lws_ah_frag_next(wsi->stream.ah, f);
-			}
-		}
-	}
-
-	return 1;
-}
-
 /*
- * Same cookie extraction as lws_http_cookie_get(), but returns the n-th
- * (0-based) occurrence of the named cookie rather than only the first.
+ * Resolve the n-th (0-based) occurrence of the cookie called exactly name.
  *
  * Browsers legitimately present multiple same-name cookies at once: a
  * host-only cookie and a Domain-scoped cookie for the same name can coexist
@@ -2566,9 +2511,13 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
  * (2); in those cases buf and *max_len are untouched, so no partial value is
  * ever handed out.
  *
- * Unlike lws_http_cookie_get(), no __Host- / __Secure- prefix aliases are
- * tried: it resolves exactly the name asked for, so the occurrence ordering
- * is deterministic against the raw header.
+ * Only the name asked for is resolved, never an alias of it: a __Host- or
+ * __Secure- cookie is found by asking for its full, prefixed name, and asking
+ * for the bare name never finds it.  The prefix is what carries the browser's
+ * guarantee about who could set the cookie, while a bare-named one can be set
+ * by any sibling host under the registrable domain: a lookup that fell back
+ * from one to the other would let the weaker cookie stand in for the
+ * stronger.
  */
 int
 lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
@@ -2605,6 +2554,13 @@ lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 	}
 
 	return 1;
+}
+
+int
+lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
+		    size_t *max_len)
+{
+	return lws_http_cookie_get_nth(wsi, name, 0, buf, max_len);
 }
 
 int
@@ -2679,16 +2635,29 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 				     struct lws_jwt_sign_set_cookie *i,
 				     char *out, size_t *out_len)
 {
-	char temp[MAX_JWT_SIZE * 2];
+	char temp[MAX_JWT_SIZE * 2], name[128];
 	size_t cml = *out_len;
 	const char *cp;
 	int n;
 
+	/*
+	 * We only ever mint this cookie as __Host-<cookie_name> (see
+	 * jwt_sign_cookie_value()), so that is the only name we read it back
+	 * under.  A bare-named cookie of the same name may have been planted
+	 * by a sibling host, and must not be able to stand in for ours.
+	 */
+
+	n = lws_snprintf(name, sizeof(name), "__Host-%s", i->cookie_name);
+	if ((size_t)n >= sizeof(name)) {
+		lwsl_err("%s: cookie name too long\n", __func__);
+		return 1;
+	}
+
 	/* first use out to hold the encoded JWT */
 
-	n = lws_http_cookie_get(wsi, i->cookie_name, out, out_len);
+	n = lws_http_cookie_get(wsi, name, out, out_len);
 	if (n) {
-		lwsl_debug("%s: cookie %s %s\n", __func__, i->cookie_name,
+		lwsl_debug("%s: cookie %s %s\n", __func__, name,
 			   n == 2 ? "too large for buffer" : "not provided");
 		return 1;
 	}

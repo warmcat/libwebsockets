@@ -9,6 +9,9 @@
  * Expires / Max-Age=0 / HttpOnly / SameSite / Secure tail, and a buffer one
  * byte too small must fail closed rather than truncate it.
  *
+ * It also runs the request cookie getter cases in getters.c, against a server
+ * in this process.
+ *
  * This file is made available under the Creative Commons CC0 1.0 Universal
  * Public Domain Dedication.
  */
@@ -17,6 +20,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "getters.h"
 
 /*
  * H1 header writer shrink test: each writer is reference-encoded to learn
@@ -150,7 +155,7 @@ expect_str(int test, const char *label, const char *got, const char *want)
 	return 0;
 }
 
-int main(void)
+int main(int argc, const char **argv)
 {
 	/*
 	 * F-048 worst case: vhd caps are cookie_name[64] (so <= 63 chars)
@@ -160,9 +165,13 @@ int main(void)
 	char name[64], domain[128], buf[512];
 	const char *exp = "Thu, 01 Jan 1970 00:00:00 GMT";
 	char want[512];
+	const char *server, *p;
 	int n, fails = 0;
 
 	lwsl_user("LWS API selftest: http-cookie\n");
+
+	server = (p = lws_cmdline_option(argc, argv, "--server")) ? p :
+								  "localhost";
 
 	memset(name, 'n', sizeof(name) - 1);
 	name[sizeof(name) - 1] = '\0';
@@ -264,12 +273,15 @@ int main(void)
 	/* 8. H1 header writer shrink test */
 	fails += shrink_test();
 
+	/* 9. request cookie getters */
+	fails += ckg_test(server);
+
 	if (fails) {
 		lwsl_err("Failed %d http-cookie tests\n", fails);
 		return 1;
 	}
 
-	lwsl_user("Completed: ALL OK, 8 tests\n");
+	lwsl_user("Completed: ALL OK, 9 tests\n");
 
 	return 0;
 }
