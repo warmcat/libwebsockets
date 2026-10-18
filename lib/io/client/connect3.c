@@ -884,10 +884,17 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (ads && *ads == '+') {
 		ads++;
+		/*
+		 * The path must fit sun_path whole with its NUL: cut short,
+		 * it names some other socket
+		 */
+		if (strlen(ads) >= sizeof(sau.sun_path)) {
+			cce = "unix socket path too long";
+			goto oom4;
+		}
 		memset(&wsi->io->sa46_peer, 0, sizeof(wsi->io->sa46_peer));
 		sau.sun_family = AF_UNIX;
-		strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
-		sau.sun_path[sizeof(sau.sun_path) - 1] = '\0';
+		lws_strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
 
 		lwsl_wsi_info(wsi, "Unix skt: %s", ads);
 

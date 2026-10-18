@@ -52,6 +52,10 @@ dropped, one a callback mount's `LWS_CALLBACK_CHECK_ACCESS_RIGHTS` refuses gets
 over h1 and over h2 alike, the app never seeing the request.  h2 dispatches a
 POST from its own path, which used to apply none of these.
 
+A proxy mount on to a unix socket whose path is too long for `sun_path` is
+refused, rather than the path being copied past the proxy's buffer or cut short
+to name some other socket.
+
 A file mount serves only what it has a mimetype for: a file whose extension
 neither the mount's `extra_mimetypes` nor the server's own table knows is
 refused with 415 over h1 and h2, rather than sent as `application/octet-stream`.

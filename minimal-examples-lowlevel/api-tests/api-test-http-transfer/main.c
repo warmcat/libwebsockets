@@ -83,6 +83,8 @@
  * so the client can confirm the server saw exactly the payload it sent, and
  * that it received exactly what the server sent.
  *
+ * A proxy mount on to a unix socket path too long for sun_path is refused.
+ *
  * The http proxy mount relays the same server's responses, to h1 in the
  * clear and, on a tls vhost set up the way lwsws does it, to h2 and h3; the
  * relay's body-less FINAL at the end of the onward response must end a
@@ -651,6 +653,12 @@ static const struct xcase cases[] = {
 	 */
 	{ "h1 GET via the http proxy mount",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1, 0, 0, 0 },
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+	{ "h1 GET via a proxy mount on to a unix socket path too long for "
+	  "sun_path is refused",
+	  "GET", "/longuds/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, -1, 0,
+	  XG_NONE, 0, 1, 0, 0, 0 },
+#endif
 	{ "h1 POST Content-Length 5KB via the http proxy mount",
 	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 1, 0, 0, 0 },
 	{ "h1 POST Content-Length 100KB, 8KB writes, via the http proxy mount",
@@ -3268,7 +3276,30 @@ static const struct lws_http_mount mount_cb = {
 
 static char proxy_origin[48];
 
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+/*
+ * A proxy mount on to a unix socket whose path is longer than any sun_path:
+ * the proxy must refuse it, not copy it into its address buffer, nor connect
+ * to a shortened path, which would be some other socket
+ */
+
+#define XF_TEN "uuuuuuuuuu"
+
+static const struct lws_http_mount mount_proxy_longuds = {
+	.mountpoint		= "/longuds",
+	.origin			= "+/" XF_TEN XF_TEN XF_TEN XF_TEN XF_TEN XF_TEN
+				  XF_TEN XF_TEN XF_TEN XF_TEN XF_TEN XF_TEN
+				  ":/",
+	.origin_protocol	= LWSMPRO_HTTP,
+	.mountpoint_len		= 8,
+};
+#define MOUNT_PROXY_NEXT (&mount_proxy_longuds)
+#else
+#define MOUNT_PROXY_NEXT NULL
+#endif
+
 static const struct lws_http_mount mount_proxy = {
+	.mount_next		= MOUNT_PROXY_NEXT,
 	.mountpoint		= "/",
 	.origin			= proxy_origin,
 	.origin_protocol	= LWSMPRO_HTTP,

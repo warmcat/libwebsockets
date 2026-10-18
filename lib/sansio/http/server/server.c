@@ -1416,7 +1416,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		     char *uri_ptr, char ws)
 {
 	const char *pcolon, *pslash;
-	char ads[96], host[96], unix_skt = 0, zero_body = 0;
+	/* ads holds any dns name, host that and ":<port>" */
+	char ads[256], host[256 + 8], unix_skt = 0, zero_body = 0;
 	struct lws_client_connect_info i;
 	struct lws *cwsi;
 	int n, na;
@@ -1464,6 +1465,18 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		}
 		n = lws_ptr_diff(pcolon, hit->origin);
 		pslash = pcolon;
+#if defined(LWS_WITH_UNIX_SOCK)
+		/*
+		 * The client connects to the path after the '+', which must
+		 * fit sun_path whole with its NUL: cut short, it names some
+		 * other socket
+		 */
+		if (n - 1 >= (int)sizeof(((struct sockaddr_un *)0)->sun_path)) {
+			lwsl_err("Proxy mount origin unix skt path too long\n");
+
+			return -1;
+		}
+#endif
 	} else {
 		if (pcolon > pslash)
 			pcolon = NULL;
@@ -1472,9 +1485,13 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 			n = (int)(pcolon - hit->origin);
 		else
 			n = (int)(pslash - hit->origin);
+	}
 
-		if (n >= (int)sizeof(ads) - 2)
-			n = sizeof(ads) - 2;
+	/* nor do we shorten a host name, which would name another host */
+	if (n >= (int)sizeof(ads)) {
+		lwsl_err("Proxy mount origin address too long\n");
+
+		return -1;
 	}
 
 	memcpy(ads, hit->origin, (unsigned int)n);
@@ -1486,7 +1503,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		i.port = 443;
 		i.ssl_connection = 1;
 	}
-	if (pcolon)
+	/* for a unix socket, what follows the colon is the path, not a port */
+	if (pcolon && !unix_skt)
 		i.port = atoi(pcolon + 1);
 
 	rpath = lws_malloc(max_http_header_data, __func__);
