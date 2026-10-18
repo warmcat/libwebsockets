@@ -851,11 +851,24 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	if (lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &ce->zone)) {
 		lwsl_notice("parse failed\n");
+		lws_auth_dns_free_zone(&ce->zone);
 		free(ce);
 		free(buf);
 		return 0;
 	}
 	free(buf);
+
+	/*
+	 * The filename's label is what later updates of this zone match and
+	 * unlink it by, so the zone inside has to be that domain's alone
+	 */
+	if (lws_auth_dns_zone_check_origin(&ce->zone, origin)) {
+		lwsl_notice("%s: zone file %s is not exactly zone %s\n",
+			    __func__, name, origin);
+		lws_auth_dns_free_zone(&ce->zone);
+		free(ce);
+		return 0;
+	}
 
 	/* Limit cache */
 	while (lws_dll2_count(&vhd->zones) > 0 &&
@@ -909,6 +922,24 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 				time_t default_ttl = 3600;
 
 				if (!lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &z)) {
+					/*
+					 * G-117: the zone is installed under
+					 * its origin, so that has to be the
+					 * domain the payload was verified as,
+					 * as this parser sees it: one $ORIGIN,
+					 * that one, and nothing outside it
+					 */
+					if (!domain ||
+					    lws_auth_dns_zone_check_origin(&z, domain)) {
+						lwsl_notice("%s: refusing zone handed "
+							    "over as %s\n", __func__,
+							    domain ? domain : "(none)");
+						lws_auth_dns_free_zone(&z);
+						free(buf);
+						close(fpin);
+						return;
+					}
+
 					if (z.default_ttl[0]) default_ttl = (time_t)atoi(z.default_ttl);
 
 					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {

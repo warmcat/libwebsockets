@@ -18,7 +18,15 @@
  * | 3 | world-writable zone dir with planted zone | planted zone served | protocol init refused, no listener |
  * | 4 | zone-dir that is a symlink to a valid dir | followed, zone served | protocol init refused, no listener |
  * | 5 | good dir, but undecorated / short-suffix / group-writable / symlinked zone files | all loaded and served | only the properly shaped file loads, the rest answer REFUSED |
- * | 6 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
+ * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them |
+ * | 7 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
+ *
+ * Phase 6 stands in for lws-dht-dnssec with a protocol of that name whose
+ * ops only collect the callback auth-dns registers for verified zones.  The
+ * test then hands it payloads as the plugin does after checking their
+ * signature against a domain's keys: one carrying a second $ORIGIN for a
+ * zone the dir serves, and one that is wholly another zone, must both be
+ * refused, leaving the served zone as it was.
  *
  * "No listener" is observed two ways: queries stay unanswered, and the UDP
  * port is bindable by the test itself afterwards (the plugin only creates
@@ -26,6 +34,7 @@
  */
 
 #include <libwebsockets.h>
+#include <libwebsockets/lws-dht-dnssec.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -79,10 +88,69 @@ struct phase {
 	const char	*name;
 	const char	*zdir;		/* NULL: no zone-dir pvo */
 	int		check_port_free;
+	int		dht;		/* hand zones over as lws-dht-dnssec */
 	struct qexp	q[MAX_Q];
 };
 
 static struct phase *cur;
+
+/*
+ * Standing in for lws-dht-dnssec: auth-dns finds the ops by the protocol
+ * name and registers its callback for zones the plugin verified
+ */
+
+typedef void (*zd_auth_cb_t)(void *opaque, const char *domain,
+			     const char *payload_path);
+
+static zd_auth_cb_t dht_auth_cb;
+static void *dht_auth_opaque;
+
+static void
+zd_register_auth_cb(struct lws_vhost *vh, zd_auth_cb_t cb, void *opaque)
+{
+	(void)vh;
+	dht_auth_cb = cb;
+	dht_auth_opaque = opaque;
+}
+
+static struct lws_dht_dnssec_ops zd_dht_ops = {
+	.register_auth_cb = zd_register_auth_cb,
+};
+
+/* what is handed over, and the domain it was verified for */
+
+static const struct {
+	const char	*file;
+	const char	*domain;
+	const char	*text;
+} zd_handed[] = {
+	{	/* a zone of its own, as it should be */
+		"handed-ok3.zone", "ok3.example",
+		"$ORIGIN ok3.example.\n"
+		"$TTL 86400\n"
+		"@ IN SOA ns1.ok3.example. hostmaster.ok3.example. "
+			"( 2026090101 3600 1800 604800 86400 )\n"
+		"www IN A 127.0.0.77\n"
+	}, {	/* signed for a.example, with victim.example's records after */
+		"handed-trailing.zone", "a.example",
+		"$ORIGIN a.example.\n"
+		"$TTL 86400\n"
+		"@ IN SOA ns1.a.example. hostmaster.a.example. "
+			"( 2026090199 3600 1800 604800 86400 )\n"
+		"www IN A 127.0.0.65\n"
+		"$ORIGIN victim.example.\n"
+		"@ IN SOA ns1.victim.example. hostmaster.victim.example. "
+			"( 2026090199 3600 1800 604800 86400 )\n"
+		"evil IN A 127.0.0.66\n"
+	}, {	/* signed for a2.example, wholly victim.example's */
+		"handed-foreign.zone", "a2.example",
+		"$ORIGIN victim.example.\n"
+		"$TTL 86400\n"
+		"@ IN SOA ns1.victim.example. hostmaster.victim.example. "
+			"( 2026090199 3600 1800 604800 86400 )\n"
+		"evil2 IN A 127.0.0.66\n"
+	},
+};
 
 static lws_sorted_usec_list_t sul_drive;
 static lws_usec_t t0;
@@ -275,8 +343,37 @@ plant_fixtures(void)
 		return 1;
 	}
 
+	/* phase 6: the zone the handed-over payloads go after */
+
+	lws_snprintf(dir, sizeof(dir), "%s/dht", run_dir);
+	if (mk_zone_dir(dir, 0755) ||
+	    write_zone(dir, "victim.example" DECOR, "victim.example",
+		       "127.0.0.77", 0644))
+		return 1;
+
+	{
+		size_t i;
+
+		for (i = 0; i < LWS_ARRAY_SIZE(zd_handed); i++) {
+			char path[768];
+			size_t l = strlen(zd_handed[i].text);
+			int fd;
+
+			lws_snprintf(path, sizeof(path), "%s/%s", run_dir,
+				     zd_handed[i].file);
+			fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+			if (fd < 0)
+				return 1;
+			if (write(fd, zd_handed[i].text, l) != (ssize_t)l) {
+				close(fd);
+				return 1;
+			}
+			close(fd);
+		}
+	}
+
 	/*
-	 * phases 6+7 (root only): another uid's file in an otherwise good
+	 * phases 7+8 (root only): another uid's file in an otherwise good
 	 * dir, and another uid's dir
 	 */
 
@@ -315,9 +412,17 @@ static void
 unplant_fixtures(void)
 {
 	static const char *const subdirs[] = {
-		"good", "ww", "real", "files", "rootfile", "rootdir"
+		"good", "ww", "real", "files", "dht", "rootfile", "rootdir"
 	};
 	size_t i;
+
+	for (i = 0; i < LWS_ARRAY_SIZE(zd_handed); i++) {
+		char fpath[768];
+
+		lws_snprintf(fpath, sizeof(fpath), "%s/%s", run_dir,
+			     zd_handed[i].file);
+		unlink(fpath);
+	}
 
 	for (i = 0; i < LWS_ARRAY_SIZE(subdirs); i++) {
 		char dpath[600], fpath[768];
@@ -349,6 +454,8 @@ unplant_fixtures(void)
 		lws_snprintf(fpath, sizeof(fpath), "%s/foreign.example" DECOR, dpath);
 		unlink(fpath);
 		lws_snprintf(fpath, sizeof(fpath), "%s/another.example" DECOR, dpath);
+		unlink(fpath);
+		lws_snprintf(fpath, sizeof(fpath), "%s/victim.example" DECOR, dpath);
 		unlink(fpath);
 
 		rmdir(dpath);
@@ -432,6 +539,29 @@ drive_cb(lws_sorted_usec_list_t *sul)
 	/* first tick after the listeners should be up: send the queries */
 
 	if (!phase_failed && !cur->q[0].sent) {
+		if (cur->dht) {
+			size_t i;
+
+			if (!dht_auth_cb) {
+				lwsl_err("%s: auth-dns registered no callback "
+					 "for verified zones\n", __func__);
+				phase_failed = 1;
+				phase_done = 1;
+				return;
+			}
+
+			/* as lws-dht-dnssec does, once it verified each */
+
+			for (i = 0; i < LWS_ARRAY_SIZE(zd_handed); i++) {
+				char path[768];
+
+				lws_snprintf(path, sizeof(path), "%s/%s",
+					     run_dir, zd_handed[i].file);
+				dht_auth_cb(dht_auth_opaque,
+					    zd_handed[i].domain, path);
+			}
+		}
+
 		for (n = 0; n < MAX_Q && cur->q[n].name; n++) {
 			size_t ql = mk_query(buf, sizeof(buf), cur->q[n].id,
 					     cur->q[n].name,
@@ -533,6 +663,11 @@ run_phase(struct phase *p, int idx)
 	const struct lws_protocols my_protocols[] = {
 		lws_auth_dns_protocols[0],
 		{ NULL, NULL, 0, 0, 0, NULL, 0 }
+	}, my_protocols_dht[] = {
+		lws_auth_dns_protocols[0],
+		{ "lws-dht-dnssec", lws_callback_http_dummy, 0, 0, 0,
+		  &zd_dht_ops, 0 },
+		{ NULL, NULL, 0, 0, 0, NULL, 0 }
 	};
 	struct lws_protocol_vhost_options pvo_extra = {
 		NULL, NULL, "cache-max-zones", "499"
@@ -567,7 +702,8 @@ run_phase(struct phase *p, int idx)
 	info.options = LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
 	info.listen_accept_role = "raw-skt";
 	info.listen_accept_protocol = "protocol-lws-auth-dns";
-	info.protocols = my_protocols;
+	info.protocols = p->dht ? my_protocols_dht : my_protocols;
+	dht_auth_cb = NULL;
 
 	if (p->zdir) {
 		lws_snprintf(zd, sizeof(zd), "%s/%s", run_dir, p->zdir);
@@ -646,6 +782,20 @@ main(int argc, const char **argv)
 				{ "www.linked.example", 0x5105, 5, 0, -1, -1, 0 },
 			}
 		}, {
+			.name		= "zones handed over by dht-dnssec",
+			.zdir		= "dht",
+			.dht		= 1,
+			.q		= {
+				/* the served zone is still the dir's own */
+				{ "www.victim.example", 0x1108, 0, 1, -1, -1, 0 },
+				/* nothing from either payload was installed */
+				{ "evil.victim.example", 0x2108, 3, 0, -1, -1, 0 },
+				{ "evil2.victim.example", 0x3108, 3, 0, -1, -1, 0 },
+				{ "www.a.example", 0x4108, 5, 0, -1, -1, 0 },
+				/* while a zone that is its domain's is */
+				{ "www.ok3.example", 0x5108, 0, 1, -1, -1, 0 },
+			}
+		}, {
 			.name		= "another uid's file ignored",
 			.zdir		= "rootfile",
 			.q		= {
@@ -661,7 +811,7 @@ main(int argc, const char **argv)
 			}
 		},
 	};
-	int nph = 5, i, ret;
+	int nph = 6, i, ret;
 	const char *p;
 
 	signal(SIGINT, sigint_handler);

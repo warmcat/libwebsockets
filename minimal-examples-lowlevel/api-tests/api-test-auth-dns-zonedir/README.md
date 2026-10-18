@@ -1,7 +1,9 @@
 # lws-api-test-auth-dns-zonedir
 
 Fence for security-audit finding F-055: the local zone-dir trust policy in
-the authoritative-DNS plugin (`protocol-lws-auth-dns`).
+the authoritative-DNS plugin (`protocol-lws-auth-dns`), and for G-117: the
+zones it is handed by `lws-dht-dnssec` are installed only as the domain they
+were verified for.
 
 Everything the plugin loads from its zone dir is served as **authoritative**
 DNS data, and expired / evicted entries are unlinked from that dir by
@@ -23,14 +25,19 @@ the process umask):
 | 3 | world-writable (0777) zone dir with a planted zone | planted zone served | init refused, no listener |
 | 4 | `zone-dir` that is a symlink to a valid dir | followed for the dir checks; started anyway (listener up, answering) | init refused, no listener |
 | 5 | good dir, but undecorated-name / two-field-suffix / group-writable (0666) / symlinked zone files | all loaded and served | only the properly shaped file loads; the rest answer REFUSED (rcode 5) while the control zone still answers |
-| 6 | *(root only)* zone file owned by another uid | loaded and served | file ignored (REFUSED) while the service-owned control file in the same dir still answers |
-| 7 | *(root only)* zone dir owned by another uid | started | init refused, no listener |
+| 6 | zones handed over by `lws-dht-dnssec` as verified for a domain (G-117): one with a trailing `$ORIGIN` for a zone the dir serves, one wholly that other zone, and a control that is its domain's own | installed under their last `$ORIGIN`, replacing the served zone | only the control is installed; the served zone answers as before and the payloads' names do not exist |
+| 7 | *(root only)* zone file owned by another uid | loaded and served | file ignored (REFUSED) while the service-owned control file in the same dir still answers |
+| 8 | *(root only)* zone dir owned by another uid | started | init refused, no listener |
 
 "No listener" is asserted both by silence (no response within the window)
 and by the test binding the UDP port itself afterwards — the plugin only
 creates its UDP listeners once its protocol init succeeded.
 
-Phases 6-7 need to create files/dirs owned by another uid and are skipped
+Phase 6 stands in for `lws-dht-dnssec` with a protocol of that name on the
+vhost, whose ops only collect the callback auth-dns registers for verified
+zones; the test then hands it the payloads as the plugin does.
+
+Phases 7-8 need to create files/dirs owned by another uid and are skipped
 when the test is not running as root.
 
 ## Commandline

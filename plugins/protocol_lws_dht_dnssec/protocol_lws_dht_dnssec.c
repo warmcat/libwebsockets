@@ -1000,6 +1000,112 @@ jose_jwk_object(const char *h, size_t len, size_t *jwk_len)
 	return NULL;
 }
 
+/*
+ * A JWS payload whose signature was just confirmed against \p domain's keys:
+ * the zone auth-dns will install and serve as \p domain.  Which domain was
+ * chosen to look the keys up for came from a bounded scan of the payload
+ * while it was still unauthenticated; the zone's identity is decided here,
+ * with the parser that will serve it, and has to be exactly \p domain: one
+ * $ORIGIN, that one, and nothing outside it.  Otherwise a zone signed by the
+ * owner of one domain is installed as another (G-117).
+ *
+ * Returns 0 with the zone's SOA serial, its earliest RRSIG expiry (0 if none)
+ * and its default TTL, or nonzero if the payload is refused.
+ */
+static int
+dht_dnssec_payload_check(const char *path, const char *domain,
+			 uint64_t *serial, time_t *sig_expiry,
+			 time_t *default_ttl)
+{
+	struct auth_dns_zone z;
+	struct stat st;
+	char *buf = NULL;
+	int fd, ret = 1;
+
+	*serial = 0;
+	*sig_expiry = 0;
+	*default_ttl = 3600;
+	memset(&z, 0, sizeof(z));
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return 1;
+
+	if (fstat(fd, &st) || st.st_size <= 0 || st.st_size >= 1024 * 1024)
+		goto bail;
+
+	buf = malloc((size_t)st.st_size + 1);
+	if (!buf || read(fd, buf, (size_t)st.st_size) != st.st_size)
+		goto bail;
+	buf[st.st_size] = '\0';
+
+	if (lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &z)) {
+		lwsl_err("%s: %s: zone does not parse\n", __func__, domain);
+		goto bail;
+	}
+
+	if (lws_auth_dns_zone_check_origin(&z, domain)) {
+		lwsl_warn("%s: refusing zone signed for %s that is not "
+			  "exactly that zone\n", __func__, domain);
+		goto bail;
+	}
+
+	if (z.default_ttl[0])
+		*default_ttl = (time_t)atoi(z.default_ttl);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+		if (rs->type == 6) { /* SOA */
+			lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+				struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+				int p2 = 0;
+				while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
+				p2++;
+				while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
+				p2++;
+				if (p2 + 4 <= (int)rr->wire_rdata_len) {
+					*serial = ((uint64_t)rr->wire_rdata[p2] << 24) |
+						  ((uint64_t)rr->wire_rdata[p2+1] << 16) |
+						  ((uint64_t)rr->wire_rdata[p2+2] << 8) |
+						  (uint64_t)rr->wire_rdata[p2+3];
+				}
+				break;
+			} lws_end_foreach_dll(d2);
+		} else if (rs->type == 46) { /* RRSIG */
+			lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+				struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+				if (rr->wire_rdata_len >= 13) {
+					time_t e = ((time_t)rr->wire_rdata[8] << 24) |
+						   ((time_t)rr->wire_rdata[9] << 16) |
+						   ((time_t)rr->wire_rdata[10] << 8) |
+						   (time_t)rr->wire_rdata[11];
+					if (*sig_expiry == 0 || e < *sig_expiry)
+						*sig_expiry = e;
+				}
+			} lws_end_foreach_dll(d2);
+		}
+	} lws_end_foreach_dll(d);
+
+	/*
+	 * The serial is what the replay check and the cached filename are
+	 * built on: a signed zone without one is refused
+	 */
+	if (!*serial) {
+		lwsl_err("%s: %s: missing or invalid SOA serial\n", __func__,
+			 domain);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lws_auth_dns_free_zone(&z);
+	free(buf);
+	close(fd);
+
+	return ret;
+}
+
 static struct lws *
 dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *data, int m, void *opaque)
 {
@@ -1400,73 +1506,21 @@ ds_test_done:
 		lws_snprintf(dir2, sizeof(dir2), "%s/%.2s/%.2s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2);
 		lws_snprintf(final_path, sizeof(final_path), "%s/%.2s/%.2s/%s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash);
 
-		/* Parse the payload to determine SOA serial, TTL and RRSIG expiry for decorated filename */
+		/*
+		 * The payload is what auth-dns will install and serve as
+		 * frag->domain: decide here, with the parser that will serve
+		 * it, that it is exactly that zone, and take its serial (what
+		 * the replay check and the cached filename are built on) and
+		 * expiries from it
+		 */
 		uint64_t serial = 0;
 		time_t sig_expiry = 0;
 		time_t default_ttl = 3600;
-#if defined(LWS_WITH_AUTHORITATIVE_DNS)
-		{
-			int fpin = open(tmp_ppath, O_RDONLY);
-			if (fpin >= 0) {
-				struct stat st;
-				if (fstat(fpin, &st) == 0 && st.st_size > 0 && st.st_size < 1024 * 1024) {
-					char *buf = malloc((size_t)st.st_size + 1);
-					if (buf && read(fpin, buf, (size_t)st.st_size) == st.st_size) {
-						buf[st.st_size] = '\0';
-						struct auth_dns_zone z;
-						memset(&z, 0, sizeof(z));
-						if (!lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &z)) {
-							if (z.default_ttl[0]) default_ttl = (time_t)atoi(z.default_ttl);
-							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
-								struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-								if (rs->type == 6) { /* SOA */
-									lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-										struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-										int p2 = 0;
-										while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
-										p2++;
-										while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
-										p2++;
-										if (p2 + 4 <= (int)rr->wire_rdata_len) {
-											serial = ((uint64_t)rr->wire_rdata[p2] << 24) |
-													 ((uint64_t)rr->wire_rdata[p2+1] << 16) |
-													 ((uint64_t)rr->wire_rdata[p2+2] << 8) |
-													 (uint64_t)rr->wire_rdata[p2+3];
-										}
-										break;
-									} lws_end_foreach_dll(d2);
-								} else if (rs->type == 46) { /* RRSIG */
-									lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-										struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-										if (rr->wire_rdata_len >= 13) {
-											time_t e = ((time_t)rr->wire_rdata[8] << 24) |
-													   ((time_t)rr->wire_rdata[9] << 16) |
-													   ((time_t)rr->wire_rdata[10] << 8) |
-													   (time_t)rr->wire_rdata[11];
-											if (sig_expiry == 0 || e < sig_expiry) sig_expiry = e;
-										}
-									} lws_end_foreach_dll(d2);
-								}
-							} lws_end_foreach_dll(d);
-							lws_auth_dns_free_zone(&z);
-						}
-					}
-					if (buf) free(buf);
-				}
-				close(fpin);
-			}
-		}
-		/*
-		 * The serial is what the replay check and the cached
-		 * filename are built on: a signed zone without one is
-		 * refused, as the unauthenticated pre-check used to do
-		 */
-		if (!serial) {
-			lwsl_err("%s: %s: missing or invalid SOA serial\n",
-				 __func__, frag->domain);
+
+		if (dht_dnssec_payload_check(tmp_ppath, frag->domain, &serial,
+					     &sig_expiry, &default_ttl))
 			goto drop;
-		}
-#endif
+
 		time_t ttl_expiry = time(NULL) + default_ttl;
 		if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
 
@@ -1676,21 +1730,30 @@ drop:
 
 /*
  * Find the zone's name in an as-yet unauthenticated zone file: the argument
- * of its $ORIGIN line, or failing that the owner name of its SOA line.  A
- * bounded scan over lines, nothing is parsed; the caller checks the result
- * with lws_dht_valid_domain_name().  Returns 0 and the name (without the
- * trailing dot) or nonzero if there is none.
+ * of its $ORIGIN line.  A bounded scan over lines, nothing is parsed; the
+ * caller checks the result with lws_dht_valid_domain_name().
+ *
+ * This only chooses which domain's DS to check the signature against.  The
+ * zone's identity is decided after the signature, by the parser that will
+ * serve it (dht_dnssec_payload_check()), and has to come out the same.  So
+ * a $ORIGIN is recognised here only where that parser recognises one, at
+ * the start of a line, and text with more than one is refused outright:
+ * each one changes the origin for what follows, and a zone signed for one
+ * domain must not carry another's records.
+ *
+ * Returns 0 and the name (without the trailing dot), 1 if there is no
+ * $ORIGIN, or -1 if the text has to be refused.
  */
 static int
 dht_dnssec_scan_origin(const char *p, size_t len, char *out, size_t olen)
 {
-	const char *end = p + len, *soa_owner = NULL;
-	size_t soa_owner_len = 0;
+	const char *end = p + len;
+	int found = 0;
 
 	out[0] = '\0';
 
 	while (p < end) {
-		const char *ls = p, *le, *t, *te;
+		const char *ls = p, *le, *v, *ve;
 
 		while (p < end && *p != '\n')
 			p++;
@@ -1698,70 +1761,29 @@ dht_dnssec_scan_origin(const char *p, size_t len, char *out, size_t olen)
 		if (p < end)
 			p++;
 
-		/* the first token on the line */
-		t = ls;
-		while (t < le && (*t == ' ' || *t == '\t'))
-			t++;
-		te = t;
-		while (te < le && *te != ' ' && *te != '\t' && *te != '\r')
-			te++;
-		if (te == t || *t == ';')
+		if (le - ls < 8 || strncmp(ls, "$ORIGIN", 7) ||
+		    (ls[7] != ' ' && ls[7] != '\t'))
 			continue;
 
-		if (te - t == 7 && !strncmp(t, "$ORIGIN", 7)) {
-			const char *v = te, *ve;
+		if (found++)
+			return -1;
 
-			while (v < le && (*v == ' ' || *v == '\t'))
-				v++;
-			ve = v;
-			while (ve < le && *ve != ' ' && *ve != '\t' &&
-			       *ve != '\r' && *ve != ';')
-				ve++;
-			if (ve > v && ve[-1] == '.')
-				ve--;
-			if (ve == v || (size_t)(ve - v) >= olen)
-				return 1;
-			memcpy(out, v, (size_t)(ve - v));
-			out[ve - v] = '\0';
-
-			return 0;
-		}
-
-		/* an SOA line: owner [ttl] [class] SOA ...: remember the first */
-		/* an owner starts the line: blank-owner lines and $directives don't */
-		if (!soa_owner && t == ls && *t != '$') {
-			const char *q = te;
-			int n = 0;
-
-			while (q < le && n < 3) {
-				const char *qs;
-
-				while (q < le && (*q == ' ' || *q == '\t'))
-					q++;
-				qs = q;
-				while (q < le && *q != ' ' && *q != '\t' &&
-				       *q != '\r')
-					q++;
-				if (q - qs == 3 && !strncmp(qs, "SOA", 3)) {
-					soa_owner = t;
-					soa_owner_len = (size_t)(te - t);
-					break;
-				}
-				n++;
-			}
-		}
+		v = ls + 7;
+		while (v < le && (*v == ' ' || *v == '\t'))
+			v++;
+		ve = v;
+		while (ve < le && *ve != ' ' && *ve != '\t' &&
+		       *ve != '\r' && *ve != ';')
+			ve++;
+		if (ve > v && ve[-1] == '.')
+			ve--;
+		if (ve == v || (size_t)(ve - v) >= olen)
+			return -1;
+		memcpy(out, v, (size_t)(ve - v));
+		out[ve - v] = '\0';
 	}
 
-	if (!soa_owner || soa_owner[0] == '@')
-		return 1;
-	if (soa_owner[soa_owner_len - 1] == '.')
-		soa_owner_len--;
-	if (!soa_owner_len || soa_owner_len >= olen)
-		return 1;
-	memcpy(out, soa_owner, soa_owner_len);
-	out[soa_owner_len] = '\0';
-
-	return 0;
+	return !found;
 }
 
 static struct lws *
@@ -2019,16 +2041,22 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 		 * be confirmed once the zone's DS and DNSKEY have been looked
 		 * up, and that needs the zone's name.  So the only thing taken
 		 * from the unauthenticated bytes is that name, by a bounded
-		 * scan for its $ORIGIN line (or the owner of its SOA line),
-		 * checked as a DNS name below.  The full zone parser, the SOA
-		 * serial and the replay checks run on the payload only after
+		 * scan for its $ORIGIN line, checked as a DNS name below.  The
+		 * full zone parser, the zone's identity, the SOA serial and the
+		 * replay checks run on the payload only after
 		 * lws_jws_sig_confirm() has passed (dht_dnssec_dnskey_cb).
 		 */
 		frag->domain[0] = '\0';
 		frag->soa_serial = 0;
-		dht_dnssec_scan_origin((const char *)map.buf[LJWS_PYLD],
-				       map.len[LJWS_PYLD], frag->domain,
-				       sizeof(frag->domain));
+		if (dht_dnssec_scan_origin((const char *)map.buf[LJWS_PYLD],
+					   map.len[LJWS_PYLD], frag->domain,
+					   sizeof(frag->domain)) < 0) {
+			lwsl_warn("%s: rejecting object with ambiguous origin\n",
+				  __func__);
+			free(temp);
+			free(buf);
+			return -1;
+		}
 
 		if (!frag->domain[0]) {
 			if (vhd->cli_get_domain) {
@@ -5542,6 +5570,8 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	info.input_filepath = zone_in;
 	info.output_filepath = zone_out;
 	info.jws_filepath = jws_out;
+	/* sign it only if it is exactly this domain's zone (G-117) */
+	info.domain = args->domain;
 	info.subst_priv = (void *)args->certs_dir;
 	if (args->ipv4[0]) info.ipv4 = args->ipv4;
 	if (args->ipv6[0]) info.ipv6 = args->ipv6;
@@ -5939,7 +5969,11 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 		/* We no longer copy it anywhere; the auth_dns caller receives the notification and parses it right out of the dht! */
 		lwsl_user("%s: Found existing fetched zone in DHT storage %s\n", __func__, fda.found_path);
 
-		if (v->auth_cb)
+		/*
+		 * auth-dns installs the zone only as the domain it is handed,
+		 * so a fetch known only by its hash has no domain to give it
+		 */
+		if (v->auth_cb && strncmp(clean_domain, "dht-hash-", 9))
 			v->auth_cb(v->auth_cb_opaque, args->domain, fda.found_path);
 
 		if (args->cb)

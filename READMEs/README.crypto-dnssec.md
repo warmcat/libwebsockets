@@ -39,6 +39,12 @@ ns2 IN A 192.168.1.2
 www IN A 192.168.1.100
 ```
 
+The zone must have exactly one `$ORIGIN` line, ahead of its records and
+naming the domain, and every record must be at or below it: that is what
+binds the zone to the domain whose keys sign it.  The signer, the DHT
+publisher and auth-dns all refuse a zone with a second `$ORIGIN`, or with
+records outside its origin.
+
 ### Step 2: Generate the Cryptographic Keys
 
 DNSSEC requires a pair of keys: a Key Signing Key (KSK) and a Zone Signing Key (ZSK).
