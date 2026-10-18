@@ -1359,34 +1359,7 @@ auth_admin_ws_recheck_all(struct per_vhost_data__auth_server *vhd)
 static int
 auth_admin_ws_origin_ok(struct lws *wsi)
 {
-	char origin[256], host[256];
-	const char *p;
-
-	if (lws_hdr_copy(wsi, origin, sizeof(origin),
-			 WSI_TOKEN_ORIGIN) <= 0 || !origin[0])
-		return 1;
-
-	/* h2 and h3 carry the authority in :authority, h1 in Host */
-
-	if (lws_hdr_copy(wsi, host, sizeof(host),
-			 WSI_TOKEN_HTTP_COLON_AUTHORITY) <= 0 &&
-	    lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) <= 0)
-		return 1;
-
-	if (!strncmp(origin, "https://", 8))
-		p = origin + 8;
-	else if (!lws_is_ssl(wsi) && !strncmp(origin, "http://", 7))
-		/*
-		 * Not the TLS terminator ourselves, so an https deployment
-		 * behind a proxy looks the same as an http one: accept our
-		 * own host over either scheme then.  A vhost doing its own
-		 * TLS only ever accepts https.
-		 */
-		p = origin + 7;
-	else
-		return 1;
-
-	return !!strcasecmp(p, host);
+	return lws_http_origin_check(wsi, NULL, LWS_HOC_REQUIRE_ORIGIN);
 }
 
 /*

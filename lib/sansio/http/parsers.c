@@ -2679,6 +2679,97 @@ lws_http_cookie_compose(char *buf, size_t len, const char *name,
 	return (int)need;
 }
 
+/*
+ * Is the complete origin o (ol bytes) in the comma-separated list?  Entries
+ * are compared whole and case-insensitively, with whitespace around them
+ * ignored.
+ */
+
+static int
+lws_http_origin_listed(const char *list, const char *o, size_t ol)
+{
+	while (*list) {
+		const char *e;
+		size_t n;
+
+		while (*list == ' ' || *list == '\t' || *list == ',')
+			list++;
+		if (!*list)
+			break;
+
+		e = strchr(list, ',');
+		n = e ? lws_ptr_diff_size_t(e, list) : strlen(list);
+
+		while (n && (list[n - 1] == ' ' || list[n - 1] == '\t'))
+			n--;
+
+		if (n == ol && !strncasecmp(list, o, n))
+			return 1;
+
+		if (!e)
+			break;
+
+		list = e + 1;
+	}
+
+	return 0;
+}
+
+int
+lws_http_origin_check(struct lws *wsi, const char *allow, unsigned int flags)
+{
+	/* an origin is a scheme, a DNS name of up to 253 and a port */
+	char origin[300], host[300];
+	int have_host = 0;
+	const char *p;
+
+	/* without the request headers we can't tell, so it is not allowed */
+	if (!wsi->stream.ah)
+		return 1;
+
+	/*
+	 * Absent is decided on the header's presence, not on whether it could
+	 * be copied: an Origin too long for us, or repeated, must not be taken
+	 * for the no-Origin case a deployment may choose to allow
+	 */
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_ORIGIN))
+		return !!(flags & LWS_HOC_REQUIRE_ORIGIN);
+
+	if (lws_hdr_copy(wsi, origin, sizeof(origin), WSI_TOKEN_ORIGIN) <= 0 ||
+	    lws_hdr_fragment_length(wsi, WSI_TOKEN_ORIGIN, 1))
+		return 1;
+
+	if (allow && lws_http_origin_listed(allow, origin, strlen(origin)))
+		return 0;
+
+	/* h2 and h3 carry the authority in :authority, h1 in Host */
+
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
+	have_host = lws_hdr_copy(wsi, host, sizeof(host),
+				 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0;
+#endif
+	if (!have_host &&
+	    lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) <= 0)
+		return 1;
+
+	if (!strncmp(origin, "https://", 8))
+		p = origin + 8;
+	else if (!lws_is_ssl(lws_get_network_wsi(wsi)) &&
+		 !strncmp(origin, "http://", 7))
+		/*
+		 * We are not the TLS terminator, so we cannot tell an http
+		 * deployment from an https one behind a proxy: accept our own
+		 * authority over either scheme then.  A vhost doing its own
+		 * TLS only ever accepts https.
+		 */
+		p = origin + 7;
+	else
+		/* includes "null", sent by sandboxed or opaque documents */
+		return 1;
+
+	return !!strcasecmp(p, host);
+}
+
 
 #if defined(LWS_WITH_JOSE)
 

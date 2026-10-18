@@ -1308,6 +1308,45 @@ lws_http_cookie_compose(char *buf, size_t len, const char *name,
 			const char *value, const char *domain,
 			unsigned long long max_age, const char *expires);
 
+#define LWS_HOC_REQUIRE_ORIGIN		(1u << 0)
+/**< lws_http_origin_check(): refuse a request with no Origin header */
+
+/**
+ * lws_http_origin_check() - is a request from a page of this same authority
+ *
+ * \param wsi: the server wsi of an http request or ws upgrade, while its
+ *	       request headers are still available
+ * \param allow: NULL, or a comma-separated list of further complete origins
+ *		 to accept, eg "https://a.example.com,https://b.example.com:8443"
+ * \param flags: LWS_HOC_REQUIRE_ORIGIN to refuse a request without Origin
+ *
+ * A ws upgrade is exempt from the same-origin policy, and a form POST is a
+ * CORS "simple request": both are sent with the browser's cookies whatever
+ * page caused them, and SameSite=Lax does not stop a page on a same-site host
+ * (a sibling subdomain) from sending a Lax cookie.  So a ws or a POST that is
+ * authorized by an ambient credential, such as a session cookie, must also
+ * check that the request came from a page of its own: call this from
+ * LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION, or before acting on the POST.
+ *
+ * The Origin must be https://<the authority the request was sent to> (Host on
+ * h1, :authority on h2 / h3), compared case-insensitively, or be listed in
+ * \p allow.  On a connection that is not itself TLS, http://<authority> is
+ * accepted too, since a TLS-terminating proxy in front looks the same as a
+ * plain http deployment.  "null" (sent by sandboxed documents) never matches,
+ * and an Origin header that is repeated or too long to be a real origin is
+ * refused.
+ *
+ * Browsers always send Origin on a ws upgrade and on a POST, so a request
+ * without one is from a non-browser client, which carries no ambient
+ * credential problem; it is accepted unless \p flags has
+ * LWS_HOC_REQUIRE_ORIGIN.
+ *
+ * Returns 0 if the request may proceed, nonzero to refuse it, which includes
+ * when the request headers are no longer available.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_origin_check(struct lws *wsi, const char *allow, unsigned int flags);
+
 /**
  * lws_http_client_http_error() - determine if the response code indicates an error
  *

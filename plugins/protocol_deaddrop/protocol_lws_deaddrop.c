@@ -249,65 +249,6 @@ deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	lws_jwt_auth_destroy(&ja);
 }
 
-/* portable, locale-independent ASCII case-insensitive compare */
-
-static int
-deaddrop_ncasecmp(const char *a, const char *b, size_t n)
-{
-	while (n--) {
-		char ca = *a++, cb = *b++;
-
-		if (ca >= 'A' && ca <= 'Z')
-			ca = (char)(ca + 32);
-		if (cb >= 'A' && cb <= 'Z')
-			cb = (char)(cb + 32);
-
-		if (ca != cb)
-			return 1;
-		if (!ca)
-			return 0;
-	}
-
-	return 0;
-}
-
-/*
- * The "origin-allow" pvo is a comma-separated list of complete origins, eg
- * "https://a.example.com,https://b.example.com:8443"
- */
-
-static int
-deaddrop_origin_listed(const char *list, const char *origin)
-{
-	size_t ol = strlen(origin);
-
-	while (*list) {
-		const char *e;
-		size_t n;
-
-		while (*list == ' ' || *list == '\t' || *list == ',')
-			list++;
-		if (!*list)
-			break;
-
-		e = strchr(list, ',');
-		n = e ? (size_t)(e - list) : strlen(list);
-
-		while (n && (list[n - 1] == ' ' || list[n - 1] == '\t'))
-			n--;
-
-		if (n == ol && !deaddrop_ncasecmp(list, origin, n))
-			return 1;
-
-		if (!e)
-			break;
-
-		list = e + 1;
-	}
-
-	return 0;
-}
-
 /*
  * Both the ws upgrade and the upload POST are authenticated by an ambient
  * credential (the JWT session cookie, or basic auth), and neither is subject
@@ -333,38 +274,9 @@ deaddrop_origin_listed(const char *list, const char *origin)
 static int
 deaddrop_origin_ok(struct vhd_deaddrop *vhd, struct lws *wsi)
 {
-	char origin[256], host[256];
-	const char *p;
-
-	if (lws_hdr_copy(wsi, origin, sizeof(origin),
-			 WSI_TOKEN_ORIGIN) <= 0 || !origin[0])
-		return vhd->require_origin;
-
-	if (vhd->origin_allow && deaddrop_origin_listed(vhd->origin_allow,
-							origin))
-		return 0;
-
-	/* h2 and h3 carry the authority in :authority, h1 in Host */
-
-	if (lws_hdr_copy(wsi, host, sizeof(host),
-			 WSI_TOKEN_HTTP_COLON_AUTHORITY) <= 0 &&
-	    lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) <= 0)
-		return 1;
-
-	if (!strncmp(origin, "https://", 8))
-		p = origin + 8;
-	else if (!lws_is_ssl(wsi) && !strncmp(origin, "http://", 7))
-		/*
-		 * We are not the TLS terminator, so we cannot tell an http
-		 * deployment from an https one in front of a proxy; accept
-		 * our own host over either scheme in that case.  A vhost
-		 * doing its own TLS only ever accepts https.
-		 */
-		p = origin + 7;
-	else
-		return 1;
-
-	return !!deaddrop_ncasecmp(p, host, strlen(p) + 1);
+	return lws_http_origin_check(wsi, vhd->origin_allow,
+				     vhd->require_origin ?
+					LWS_HOC_REQUIRE_ORIGIN : 0);
 }
 
 static int
