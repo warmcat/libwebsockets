@@ -367,6 +367,170 @@ static const lws_surface_info_t ic = {
 
 static lws_displaylist_t displaylist;
 
+/*
+ * Selector matching work must be bounded per element, however the selectors
+ * nest.  Each :is() below can only match after its first alternative has
+ * backtracked over the remembered siblings looking for a <b> that isn't
+ * there, and the descendant chain around them backtracks over the ancestors
+ * the same way, so a matcher that renews its step budget inside :is() pays
+ * the whole inner budget for every outer step, ~1e7 steps per element.  The
+ * elements also repeat a class token that keys more of the same.
+ *
+ * And :not() of an argument that ran out of budget must not turn into a
+ * match: unbudgeted, the argument below simply fails to match (there's no
+ * <b>), so :not() matches the elements with few enough earlier siblings to
+ * decide that, but not the ones where the search runs out.
+ */
+
+#define LHPT_BUDGET_NEST	20
+#define LHPT_BUDGET_SIBS	8
+#define LHPT_BUDGET_COPIES	128
+#define LHPT_BUDGET_CLASSES	500
+#define LHPT_BUDGET_DEADLINE_US	(10 * LWS_US_PER_SEC)
+
+#define LHPT_SIB8		"b~a~a~a~a~a~a~a~a"
+#define LHPT_IS			":is(" LHPT_SIB8 ",a)"
+
+static lws_usec_t budget_start;
+static int budget_a, budget_late, budget_not_matched;
+
+static lws_stateful_ret_t
+budget_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lhp_atr_t *ta;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	/* fail at the first element that finishes late, don't wait for all */
+
+	if (lws_now_usecs() - budget_start > LHPT_BUDGET_DEADLINE_US) {
+		budget_late = 1;
+		return LWS_SRET_FATAL;
+	}
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 1 || *(const char *)&ta[1] != 'a')
+		return 0;
+
+	budget_a++;
+
+	/* only the :not() rule sets a width, which isn't inherited */
+
+	if (ps->css_width && ps->css_width->u.i.whole == 7)
+		budget_not_matched++;
+
+	return 0;
+}
+
+static int
+test_selector_budget(int copies, int classes)
+{
+	size_t alloc = 512 * 1024, n, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i, j;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	budget_a = budget_late = budget_not_matched = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>"
+			  "a:not(" LHPT_SIB8 "){width:7px}\n");
+	for (i = 0; i < copies; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "b " LHPT_IS " " LHPT_IS " " LHPT_IS
+				  "{margin:%dpx}\n"
+				  "b " LHPT_IS " " LHPT_IS " " LHPT_IS
+				  ".x{padding:%dpx}\n", i, i);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body>");
+	for (i = 0; i < LHPT_BUDGET_NEST; i++) {
+		/* closed earlier siblings for '~' to search */
+		for (j = 0; j < LHPT_BUDGET_SIBS; j++)
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc),
+					  "<a></a>");
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<a class=\"");
+		for (n = 0; n < (size_t)classes; n++)
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc), "x ");
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "\">");
+	}
+	for (i = 0; i < LHPT_BUDGET_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</a>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, budget_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	budget_start = lws_now_usecs();
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+	lws_lhp_destruct(ctx);
+
+	lwsl_user("%s: copies %d: %d <a> in %dms, r 0x%x, :not() matched %d\n",
+		  __func__, copies, budget_a,
+		  (int)((lws_now_usecs() - budget_start) / LWS_US_PER_MS),
+		  (unsigned int)r, budget_not_matched);
+
+	if (budget_late) {
+		lwsl_err("%s: selector matching took too long\n", __func__);
+		goto bail;
+	}
+	if (r & LWS_SRET_FATAL ||
+	    budget_a != LHPT_BUDGET_NEST * (LHPT_BUDGET_SIBS + 1)) {
+		lwsl_err("%s: parse failed\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * Elements with few earlier siblings decide the :not() argument
+	 * within the budget, the rest run out.  With the hostile selectors
+	 * present, those may use up an element's budget before the :not() rule
+	 * is tried at all, so only the first run checks the count.
+	 */
+	if (!copies && (!budget_not_matched || budget_not_matched >= budget_a)) {
+		lwsl_err("%s: :not() matched %d of %d\n", __func__,
+			 budget_not_matched, budget_a);
+		goto bail;
+	}
+
+	e = 0;
+
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -423,6 +587,10 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_rel_to_url())
+		goto bail;
+
+	if (test_selector_budget(0, 0) ||
+	    test_selector_budget(LHPT_BUDGET_COPIES, LHPT_BUDGET_CLASSES))
 		goto bail;
 
 	if (content_len != strlen(entity_expect) ||

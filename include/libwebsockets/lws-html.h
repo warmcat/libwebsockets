@@ -828,6 +828,9 @@ typedef struct lhp_ctx {
 					* selectors of theirs that matched */
 	uint32_t		hits_alloc;
 	uint32_t		hits_count;
+	int32_t			sel_budget; /* selector match steps left
+					     * for the element being
+					     * cascaded */
 	uint32_t		selidx_count; /* stanzas indexed */
 	uint32_t		stz_seq;
 

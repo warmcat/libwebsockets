@@ -2149,10 +2149,25 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 /*
  * The descendant combinator makes selector matching backtrack over every
  * ancestor at every level: a selector of 63 " a" against 127 nested <a> is
- * exponential.  Each top-level match gets this many lhp_sel_match() steps;
- * a selector that runs out simply does not match.
+ * exponential.  Each top-level match gets at most LHP_SEL_MATCH_BUDGET
+ * lhp_sel_match() steps; a selector that runs out simply does not match.
+ *
+ * The step counter is threaded through :is() / :where() / :not() arguments
+ * rather than renewed there, or nesting them would multiply the bound.
+ *
+ * The document's own selectors also draw on one LHP_SEL_CASCADE_BUDGET per
+ * element, so however many expensive selectors a page carries, cascading
+ * one of its elements costs a bounded amount.  The user-agent and filter
+ * selectors are trusted and don't draw on it, so a page cannot starve them.
  */
-#define LHP_SEL_MATCH_BUDGET 4096
+#define LHP_SEL_MATCH_BUDGET		4096
+#define LHP_SEL_CASCADE_BUDGET		32768
+
+/*
+ * The most distinct class tokens of one element that the cascade looks up:
+ * each costs a walk of its index bucket
+ */
+#define LHP_SEL_MAX_CLASS_TOKENS	64
 
 /* the parent element of a level: the nearest level above it with a tag */
 
@@ -2176,7 +2191,7 @@ lhp_parent_elem(lhp_pstack_t *ps)
 
 static int
 lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
-		   const char *p, const char *end)
+		   const char *p, const char *end, int *budget)
 {
 	while (p < end) {
 		const char *s = p, *e;
@@ -2196,12 +2211,8 @@ lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			s++;
 		while (e > s && e[-1] == ' ')
 			e--;
-		if (s < e) {
-			int budget = LHP_SEL_MATCH_BUDGET;
-
-			if (lhp_sel_match(atr, parent, s, e, &budget))
-				return 1;
-		}
+		if (s < e && lhp_sel_match(atr, parent, s, e, budget))
+			return 1;
 	}
 
 	return 0;
@@ -2215,18 +2226,23 @@ lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 
 static int
 lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
-	       size_t nl, const char *arg, const char *aend)
+	       size_t nl, const char *arg, const char *aend, int *budget)
 {
 	const lhp_atr_t *ta = lws_container_of(lws_dll2_get_head(atr),
 					       lhp_atr_t, list);
 	const char *tag = (const char *)&ta[1];
 
 	if (nl == 3 && !strncasecmp(n, "not", 3))
-		return arg && !lhp_sel_list_match(atr, parent, arg, aend);
+		/*
+		 * An argument that ran out of budget did not really fail to
+		 * match: it must not invert into a match
+		 */
+		return arg && !lhp_sel_list_match(atr, parent, arg, aend,
+						  budget) && *budget >= 0;
 
 	if ((nl == 2 && !strncasecmp(n, "is", 2)) ||
 	    (nl == 5 && !strncasecmp(n, "where", 5)))
-		return arg && lhp_sel_list_match(atr, parent, arg, aend);
+		return arg && lhp_sel_list_match(atr, parent, arg, aend, budget);
 
 	if (nl == 7 && !strncasecmp(n, "checked", 7))
 		return lhp_atr_get(atr, "checked", 7, 1) != NULL ||
@@ -2260,7 +2276,7 @@ lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
 
 static int
 lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
-		       const char *p, const char *end)
+		       const char *p, const char *end, int *budget)
 {
 	const lhp_atr_t *ta;
 	const char *tag, *s, *v;
@@ -2436,7 +2452,8 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 					return 0;
 				aend = p - 1;
 			}
-			if (!lhp_sel_pseudo(atr, parent, n, nl, arg, aend))
+			if (!lhp_sel_pseudo(atr, parent, n, nl, arg, aend,
+					    budget))
 				return 0;
 			break;
 		}
@@ -2516,7 +2533,7 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 		p--;
 	}
 
-	if (!lhp_sel_match_compound(atr, parent, p, end))
+	if (!lhp_sel_match_compound(atr, parent, p, end, budget))
 		return 0;
 
 	if (!comb)
@@ -2912,6 +2929,36 @@ lhp_selidx_build(lhp_ctx_t *ctx)
 }
 
 /*
+ * Match the selector [sel, end) of nm against the element being cascaded.  A
+ * document selector draws its steps from what is left of the element's
+ * cascade budget.  The user-agent sheet is layer 0 and the filter css is
+ * flagged in its specificity (see lhp_css_add_names())
+ */
+
+static int
+lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm,
+		 const char *sel, const char *end)
+{
+	int doc = (nm->specificity >> 18) & LHP_CSS_LAYER_NONE &&
+		  !(nm->specificity & (1u << 25)),
+	    budget = LHP_SEL_MATCH_BUDGET, start, r;
+
+	if (doc && ctx->sel_budget < budget)
+		budget = (int)ctx->sel_budget;
+	if (budget <= 0)
+		return 0;
+	start = budget;
+
+	r = lhp_sel_match(&ps->atr, lhp_parent_elem(ps), sel, end, &budget);
+	if (doc)
+		ctx->sel_budget -= start - (budget < 0 ? 0 : budget);
+
+	/* a match is only believed if it was decided within the budget */
+
+	return r && budget >= 0;
+}
+
+/*
  * Run the matcher for every indexed selector in the bucket list e whose
  * key is exactly k (or all of them for the keyless list), recording stanza
  * hits for this cascade pass
@@ -2928,7 +2975,6 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 		const char *n = (const char *)&nm[1];
 		lcsp_stanza_t *stz = e->stz;
 		size_t pl;
-		int budget;
 
 		if (kind != LHP_SELKEY_NONE &&
 		    (nm->key_kind != kind || nm->key_len != klen ||
@@ -2944,45 +2990,44 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 			 * A :before / :after pseudo-element selector: the
 			 * element matches the subject part, and the stanza
 			 * generates a pseudo box instead of styling the
-			 * element itself.  The last one in source order wins
+			 * element itself.  The last one in source order wins,
+			 * so one that cannot win needn't be matched
 			 */
-			budget = LHP_SEL_MATCH_BUDGET;
+			lcsp_stanza_t **pse = n[nm->name_len - 1] == 'r' ?
+					&ps->pseudo_after : &ps->pseudo_before;
+
+			/* the name ends 'r' for after, 'e' for before */
 			if (nm->name_len > pl &&
-			    lhp_sel_match(&ps->atr, lhp_parent_elem(ps), n,
-					  n + nm->name_len - pl, &budget)) {
-				/* the name ends 'r' for after, 'e' for before */
-				if (n[nm->name_len - 1] == 'r') {
-					if (!ps->pseudo_after ||
-					    ps->pseudo_after->seq < stz->seq)
-						ps->pseudo_after = stz;
-				} else
-					if (!ps->pseudo_before ||
-					    ps->pseudo_before->seq < stz->seq)
-						ps->pseudo_before = stz;
-			}
+			    (!*pse || (*pse)->seq < stz->seq) &&
+			    lhp_selidx_match(ctx, ps, nm, n,
+					     n + nm->name_len - pl))
+				*pse = stz;
 			continue;
 		}
-
-		budget = LHP_SEL_MATCH_BUDGET;
-		if (!lhp_sel_match(&ps->atr, lhp_parent_elem(ps), n,
-				   n + nm->name_len, &budget))
-			continue;
 
 		/*
 		 * Have we taken this stanza already in this pass?  The hits
 		 * array is the pass, and it holds the handful of stanzas
 		 * that matched one element, so walking it costs less than it
 		 * looks... and unlike the per-stanza serial it replaces, it
-		 * leaves the stanza itself untouched
+		 * leaves the stanza itself untouched.  Looking before
+		 * matching saves matching a selector that could not change
+		 * anything
 		 */
 
 		for (hn = 0; hn < ctx->hits_count; hn++)
 			if (ctx->hits[hn].stz == stz)
 				break;
 
+		if (hn != ctx->hits_count &&
+		    nm->specificity <= ctx->hits[hn].specificity)
+			continue;
+
+		if (!lhp_selidx_match(ctx, ps, nm, n, n + nm->name_len))
+			continue;
+
 		if (hn != ctx->hits_count) {
-			if (nm->specificity > ctx->hits[hn].specificity)
-				ctx->hits[hn].specificity = nm->specificity;
+			ctx->hits[hn].specificity = nm->specificity;
 			continue;
 		}
 
@@ -4187,6 +4232,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 			return 1;
 
 		ctx->hits_count = 0;
+		ctx->sel_budget = LHP_SEL_CASCADE_BUDGET;
 
 		if (lhp_selidx_try(ctx, ps, ctx->selidx_nokey, LHP_SELKEY_NONE,
 				   NULL, 0) ||
@@ -4204,23 +4250,41 @@ lws_css_cascade(lhp_ctx_t *ctx)
 			return 1;
 
 		if (ecls) {
-			const char *c = ecls;
+			const char *c = ecls, *tok[LHP_SEL_MAX_CLASS_TOKENS];
+			size_t tlen[LHP_SEL_MAX_CLASS_TOKENS];
+			unsigned int nt = 0, t;
 
-			/* each class token, bounded by whitespace */
-			while (*c) {
+			/*
+			 * each distinct class token, bounded by whitespace: a
+			 * repeated one would only walk the same bucket again
+			 */
+			while (*c && nt < LWS_ARRAY_SIZE(tok)) {
 				const char *cs;
+				size_t cl;
 
 				while (*c && lhp_ws(*c))
 					c++;
 				cs = c;
 				while (*c && !lhp_ws(*c))
 					c++;
-				if (c > cs &&
-				    lhp_selidx_try(ctx, ps, ctx->selidx[
+				cl = (size_t)(c - cs);
+				if (!cl)
+					continue;
+
+				for (t = 0; t < nt; t++)
+					if (tlen[t] == cl &&
+					    !strncmp(tok[t], cs, cl))
+						break;
+				if (t != nt)
+					continue;
+
+				tok[nt] = cs;
+				tlen[nt++] = cl;
+
+				if (lhp_selidx_try(ctx, ps, ctx->selidx[
 					lhp_selidx_hash(LHP_SELKEY_CLASS, cs,
-						(size_t)(c - cs)) %
-						LHP_SELIDX_BUCKETS],
-					LHP_SELKEY_CLASS, cs, (size_t)(c - cs)))
+						cl) % LHP_SELIDX_BUCKETS],
+					LHP_SELKEY_CLASS, cs, cl))
 					return 1;
 			}
 		}
