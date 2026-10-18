@@ -213,6 +213,11 @@ make_tid_random(struct lws_dht_ctx *ctx, uint8_t *tid_return,
  * Remember a request we sent, so its reply can be told apart from anything
  * else claiming to be one.  An expired entry is reused first; a full table
  * gives up the oldest, whose reply is the most overdue.
+ *
+ * What is kept is the address the family says is there, not salen bytes:
+ * callers holding the peer in a sockaddr_storage may pass its whole size,
+ * and refusing that used to leave the request unrecorded, so its reply was
+ * dropped (G-128).
  */
 
 static void
@@ -221,10 +226,25 @@ dht_req_pending_add(struct lws_dht_ctx *ctx, const uint8_t *tid,
 {
 	time_t now = (time_t)lws_now_secs();
 	int n, slot = 0;
+	size_t cl;
 
-	if (salen > sizeof(ctx->req_pending[0].sa46) ||
-	    tid_len > sizeof(ctx->req_pending[0].tid))
+	switch (sa->sa_family) {
+	case AF_INET:
+		cl = sizeof(struct sockaddr_in);
+		break;
+	case AF_INET6:
+		cl = sizeof(struct sockaddr_in6);
+		break;
+	default:
 		return;
+	}
+
+	if (salen < cl || cl > sizeof(ctx->req_pending[0].sa46) ||
+	    tid_len > sizeof(ctx->req_pending[0].tid)) {
+		lwsl_dht_warn("%s: request not recorded, its reply will be "
+			  "dropped\n", __func__);
+		return;
+	}
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->req_pending); n++) {
 		if (!ctx->req_pending[n].sent ||
@@ -238,7 +258,7 @@ dht_req_pending_add(struct lws_dht_ctx *ctx, const uint8_t *tid,
 
 	memset(&ctx->req_pending[slot].sa46, 0,
 	       sizeof(ctx->req_pending[slot].sa46));
-	memcpy(&ctx->req_pending[slot].sa46, sa, salen);
+	memcpy(&ctx->req_pending[slot].sa46, sa, cl);
 	memcpy(ctx->req_pending[slot].tid, tid, tid_len);
 	ctx->req_pending[slot].tid_len	= (uint8_t)tid_len;
 	ctx->req_pending[slot].sent	= now;

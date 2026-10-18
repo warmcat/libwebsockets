@@ -52,6 +52,10 @@
  *    to, and acks B's answer with the fixed tid, as a spoofer naming R
  *    could.  That must not prove R to B: B's answer to R's second request
  *    goes out once, not once per retry (G-096, C-599)
+ *  - A pings R, passing R's address in a sockaddr_storage with that
+ *    struct's size as its length, as the announce in a search does.  The
+ *    request must still be recorded, so R's pong is taken as the answer to
+ *    it and R enters A's table (G-128)
  *
  * The UDP ports (four to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
@@ -131,7 +135,15 @@ struct seen {
 	unsigned char seq_bad:1;	/* ...or a forged one did */
 	unsigned char unproven_ok:1;	/* B sent R each answer once */
 	unsigned char unproven_bad:1;	/* ...or repeated one */
+	unsigned char ss_sent:1;	/* A pinged R with a storage salen */
+	unsigned char ss_ponged:1;	/* ...R answered it */
+	unsigned char ss_ok:1;		/* ...and A took the answer */
+	unsigned char ss_bad:1;		/* ...or dropped it */
 };
+
+/* the id R answers A's ping with, and the polls since it did */
+#define KRPC_SS_ID_R		0x77
+static int ss_polls;
 
 /* R's unasked-for replies to A: how far along, and the polls since */
 static int unsol_state, unsol_polls;
@@ -228,6 +240,7 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 	case LWS_DHT_EVENT_NOTIFY:
 		sv.notify_ok = 1;
 		break;
+
 	case LWS_DHT_EVENT_WRITE_COMPLETED:
 		if (!from || fromlen < sizeof(sa_r) ||
 		    ((const struct sockaddr_in *)from)->sin_port !=
@@ -371,6 +384,8 @@ krpc_chunk_tid(const uint8_t *buf, size_t len, uint8_t *tid, size_t *tid_len)
 
 static void
 raw_queue(const void *buf, size_t len, const struct sockaddr_in *to);
+static void
+ss_rx(const uint8_t *in, size_t len);
 
 /* R's ack, from R's id, claiming everything below offset */
 
@@ -531,6 +546,11 @@ cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (seq_state != KRPC_SEQ_IDLE) {
 			seq_rx(&udp->sa46.sa4, in, len);
+			break;
+		}
+
+		if (sv.ss_sent && udp->sa46.sa4.sin_port == sa_a.sin_port) {
+			ss_rx(in, len);
 			break;
 		}
 
@@ -707,7 +727,7 @@ unsolicited_reply_step(void)
 static void
 seq_step(void)
 {
-	if (!sv.unsol_ok || sv.unproven_ok || sv.unproven_bad || raw_tx_len)
+	if (!sv.ss_ok || sv.unproven_ok || sv.unproven_bad || raw_tx_len)
 		return;
 
 	switch (seq_state) {
@@ -752,6 +772,81 @@ seq_step(void)
 	default:
 		break;
 	}
+}
+
+/*
+ * After R's unasked-for replies, A pings R with R's address in a
+ * sockaddr_storage, passing the storage's size: that request has to be
+ * recorded like any other, or R's pong to it is dropped as unasked-for.
+ */
+
+static int
+ss_table_cb(void *user, const lws_dht_node_info_t *ni)
+{
+	const struct sockaddr_in *sin = (const struct sockaddr_in *)ni->sa;
+
+	if (ni->id->len == 20 && ni->id->id[0] == KRPC_SS_ID_R &&
+	    ni->sa->sa_family == AF_INET && sin->sin_port == sa_r.sin_port)
+		*(int *)user = 1;
+
+	return 0;
+}
+
+static void
+storage_ping_step(void)
+{
+	struct sockaddr_storage ss;
+	int seen = 0;
+
+	if (!sv.unsol_ok || sv.ss_ok || sv.ss_bad || raw_tx_len)
+		return;
+
+	if (!sv.ss_sent) {
+		sv.ss_sent = 1;
+		memset(&ss, 0, sizeof(ss));
+		memcpy(&ss, &sa_r, sizeof(sa_r));
+		lws_dht_ping_node(dht_a, (struct sockaddr *)&ss, sizeof(ss));
+		return;
+	}
+
+	/* give A a few polls to have processed R's pong */
+	if (!sv.ss_ponged || ++ss_polls < 3)
+		return;
+
+	lws_dht_foreach_node(dht_a, AF_INET, ss_table_cb, &seen);
+	if (seen)
+		sv.ss_ok = 1;
+	else {
+		lwsl_err("%s: R's pong to A's ping was dropped\n", __func__);
+		sv.ss_bad = 1;
+	}
+}
+
+/* R's answer to A's ping: the pong, from R's id, echoing A's tid */
+
+static void
+ss_rx(const uint8_t *in, size_t len)
+{
+	uint8_t q[64], *p = q;
+	ssize_t at = krpc_find(in, len, "1:q4:ping1:t4:");
+
+	if (at < 0 || (size_t)at + 18 > len || sv.ss_ponged)
+		return;
+
+	sv.ss_ponged = 1;
+
+	memcpy(p, "d1:rd2:id20:", 12);
+	p += 12;
+	memset(p, KRPC_SS_ID_R, 20);
+	p += 20;
+	memcpy(p, "e1:t4:", 6);
+	p += 6;
+	memcpy(p, in + at + 14, 4);
+	p += 4;
+	memcpy(p, "1:y1:re", 7);
+	p += 7;
+
+	raw_queue(q, lws_ptr_diff_size_t(p, q), &sa_a);
 }
 
 static void
@@ -946,6 +1041,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	same_id_step();
 	error_reply_step(&sb);
 	unsolicited_reply_step();
+	storage_ping_step();
 	seq_step();
 
 	if (sv.data_ok && !sv.dead_sent) {
@@ -971,6 +1067,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 		}
 	}
 
+
 	/*
 	 * Everything observable has been seen: B answered the ping, the
 	 * subscribe round trip produced a token, the notify was acked, the
@@ -994,6 +1091,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.unsol_ok && !sv.unsol_bad &&
 	    sv.seq_ok && !sv.seq_bad &&
 	    sv.unproven_ok && !sv.unproven_bad &&
+	    sv.ss_ok && !sv.ss_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -1250,6 +1348,11 @@ int main(int argc, const char **argv)
 			if (!sv.seq_ok || sv.seq_bad) {
 				lwsl_err("A's transfer to R did not complete on "
 					 "R's real ack alone\n");
+				fails++;
+			}
+			if (!sv.ss_ok || sv.ss_bad) {
+				lwsl_err("a request sent with a sockaddr_storage "
+					 "length had its reply dropped\n");
 				fails++;
 			}
 			if (!sv.unproven_ok || sv.unproven_bad) {

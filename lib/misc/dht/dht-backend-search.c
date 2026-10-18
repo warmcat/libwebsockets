@@ -264,7 +264,7 @@ search_step(struct lws_dht_ctx *ctx, struct search *sr, lws_dht_callback_t *call
 				lwsl_dht_info("Sending announce_peer.\n");
 				make_tid(tid, "ap", sr->tid);
 				send_announce_peer(ctx, (struct sockaddr*)&n->ss,
-						sizeof(struct sockaddr_storage),
+						n->sslen,
 						tid, 4, sr->id, sr->port,
 						n->token, n->token_len,
 						n->reply_time >= ctx->now - LWS_DHT_PING_TIMEOUT_SECS);
