@@ -105,9 +105,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **Two identities behind PROXY v2:** `lws_get_peer_simple()`,
    `lws_io_peer_address()` and `lws_get_peer_addresses()` return the
    forwarded client (`io->proxied`); anything calling `getpeername()`
-   directly gets the proxy (peer-limits today, G-196).  New per-client
+   directly gets the proxy.  Peer limits key on the named client since
+   G-196 (a trusted proxy's connection counts against nobody until its
+   header arrives).  New per-client
    policy must use the helpers, and anything evaluated at adopt runs
    before the PROXY header has been read.
+ - **The h1 role attaches an ah at adoption, before pre-accept:** anything
+   that changes `wsi->peer` later must detach and re-attach the ah, or
+   `lws_peer_track_ah_detach()` asserts (G-196).
  - **`lws_parse_numeric_address()` reads leading-zero IPv4 octets as
    decimal; glibc reads them as octal** (`012.0.0.1` is 12.0.0.1 to lws,
    10.0.0.1 to `getaddrinfo()`), so never use it as a filter for a string
@@ -129,8 +134,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    them apart (G-171, interceptor visit vs pass).  The library now has
    `purpose` in `struct lws_jwt_sign_set_cookie`, written as a `"pur"`
    claim and required by `lws_jwt_get_http_cookie_validate_jwt()` (a NULL
-   purpose refuses tokens that carry one); `lws_jwt_auth_create()` does
-   not check it yet (G-188).  `lws_json_simple_find()` ignores JSON
+   purpose refuses tokens that carry one).  Session tokens too, since
+   G-188: `lws_jwt_auth_create_via_info()` can require iss / aud /
+   purpose, `lws_jwt_auth_create()` refuses tokens carrying `pur`, and the
+   auth server's tokens carry `"pur":"sso"` (`LWS_JWT_AUTH_PURPOSE_SSO`):
+   tests minting session tokens for lws-login or the auth server must
+   include it.  `lws_json_simple_find()` ignores JSON
    structure, so a claim stays unforgeable only because the signer
    purifies sub and refuses `"pur":` elsewhere: a new free-text claim in
    `jwt_sign_cookie_value()` needs the same treatment.

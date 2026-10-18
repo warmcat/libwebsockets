@@ -10,6 +10,11 @@
    options from its own `lws_config.h` (missing fault injection, TLS code
    compiled with TLS off, ...).  Check for it first when a build fails
    inexplicably.  It comes back while the root `CMakeCache.txt` exists.
+ - **`LWS_WITH_ASAN` turns on UBSan with trap-on-error**, so UB shows as a
+   bare SIGTRAP with no report (and there is no gdb here).  To see the
+   report, build with `-fsanitize=undefined -fno-sanitize-recover` and no
+   trap.  ASan + TLS_PASSTHROUGH fails api-test-tls-passthrough this way
+   until G-206 is fixed.
  - **Run a full `make` before ctest.**  `libwebsockets-test-server`, the
    fixture for the http-client-post / multi-post tests, links the static
    library; the minimal examples link the shared one.  After a library
