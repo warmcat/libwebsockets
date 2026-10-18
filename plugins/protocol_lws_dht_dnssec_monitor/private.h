@@ -351,6 +351,11 @@ struct inv_geo_dl {
 	size_t		got;
 	char		final[1024];
 	char		tmp[1064];
+	/* a CONNECTION_ERROR can arrive while we are still inside
+	 * lws_client_connect_via_info(): the download is left for
+	 * inv_geo_dl_create() to destroy then */
+	char		in_connect;
+	char		failed_early;
 };
 
 struct inv_geo_dl *

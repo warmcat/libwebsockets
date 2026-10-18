@@ -765,6 +765,7 @@ inv_geo_dl_create(struct vhd *vhd, int is_v6)
 {
 	struct lws_client_connect_info i;
 	struct inv_geo_dl *g;
+	struct lws *wsi;
 	char dir[1024];
 
 	g = calloc(1, sizeof(*g));
@@ -803,7 +804,19 @@ inv_geo_dl_create(struct vhd *vhd, int is_v6)
 	i.protocol	= "lws-dht-dnssec-monitor";
 	i.opaque_user_data = g;
 
-	if (!lws_client_connect_via_info(&i)) {
+	/*
+	 * The connect can fail synchronously, eg, NXDOMAIN from the blocking
+	 * resolver or a cached one from async dns, delivering the
+	 * CONNECTION_ERROR (and so inv_geo_dl_fail()) before it returns.
+	 * While in_connect is set, inv_geo_dl_fail() only marks the failure
+	 * and the CCE handler detaches g from the wsi, so g is destroyed
+	 * exactly once, here.
+	 */
+	g->in_connect = 1;
+	wsi = lws_client_connect_via_info(&i);
+	g->in_connect = 0;
+
+	if (!wsi || g->failed_early) {
 		lwsl_notice("%s: connect for %s failed\n", __func__,
 			    inv_geo_file[g->is_v6]);
 		goto bail2;
@@ -879,11 +892,20 @@ inv_geo_dl_fail(struct inv_geo_dl *g)
 	if (!g || g->magic != INV_GEO_DL_MAGIC)
 		return;
 
+	if (g->in_connect) {
+		/* inv_geo_dl_create() destroys it when the connect returns */
+		g->failed_early = 1;
+
+		return;
+	}
+
 	lwsl_notice("%s: %s download failed after %zu bytes, keeping previous\n",
 		    __func__, inv_geo_file[g->is_v6], g->got);
 
-	if (g->fd >= 0)
+	if (g->fd >= 0) {
 		close(g->fd);
+		g->fd = -1;
+	}
 	unlink(g->tmp);
 
 	if (g->is_v6)
