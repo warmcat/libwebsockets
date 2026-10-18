@@ -28,9 +28,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    back).  Bound such walks by the child count at pass start.
  - **Synchronous completion.**  Paths that are usually asynchronous can
    complete inside the call: a TLS client handshake step (resumed TLS 1.3
-   on loopback), or an async DNS cache hit or an NXDOMAIN (connect2.c /
-   connect3.c) making `lws_client_connect_via_info()` deliver the CCE
-   before it returns NULL.  Every plugin caller needs the guard (G-043).
+   on loopback), or an async DNS cache hit, or an NXDOMAIN from the
+   blocking resolver (connect2.c / connect3.c), making
+   `lws_client_connect_via_info()` deliver the CCE before it returns NULL.
+   (Async dns caches an NXDOMAIN but never serves an A/AAAA lookup from
+   it, so a test cannot get an in-call CCE that way.)  Every plugin caller needs the guard (G-043).
    `lws_create_adopt_udp()` likewise delivers RAW_CLOSE inside the call
    when the UDP connect() of a numeric address fails (adopt.c), so state
    its callback can already reach must not be used after it (G-067).
@@ -75,6 +77,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_http_body_completion()`, which latches `wsi->http.rx_body_done`
    so completion happens at most once per request on every role (G-016,
    G-022).  Calling the protocol callback directly reopens that bug.
+ - `WSI_TOKEN_HTTP_COLON_AUTHORITY` exists only in builds with h2 or h3
+   (or `LWS_HTTP_HEADERS_ALL`): library code reading it needs that guard
+   or the h1-only build breaks.
  - **`lws_hdr_extant()`** reads `frags[n].flags & 2`, not just whether a
    fragment index is set.  Anything creating ah fragments itself must set
    the flag, or the header reads as absent (or as the ah's previous

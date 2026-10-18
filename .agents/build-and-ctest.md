@@ -85,6 +85,8 @@
    stream, `lws_write(..., LWS_WRITE_BINARY)` goes out raw with no DATA
    framing (`rops_write_role_protocol_h3()`), so a test can frame the
    stream itself (see the h3 case in api-test-http-attack).
+ - A TLS or h3 client given a literal IP as its host sends no SNI: a
+   simple way to make SNI and Host / `:authority` differ in a test.
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
    should be explicit: a deadline that sets failure and cancels service,
    not reliance on the ctest TIMEOUT.  Note a context destroy at the
