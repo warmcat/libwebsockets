@@ -234,6 +234,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Plugins and stubs
 
+ - In a privileged stub, when one request type hardens its file access
+   (private-dir fd checks, O_NOFOLLOW, regular-file and size checks),
+   check every other request type in the same stub: they usually still
+   open paths directly (G-098, cert-dist client `get_hash`).
+
  - `PROTOCOL_INIT` comes once per vhost instantiating the protocol, so it
    is wrong for once-per-process work.  Use `lws_plugin_protocol_t`
    `.init` / `.deinit` (called once per context).
