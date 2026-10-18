@@ -14,6 +14,9 @@ require_lws_config(LWS_ROLE_RAW 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 
+set(BL_H2 1)
+require_lws_config(LWS_ROLE_H2 1 BL_H2)
+
 if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
@@ -25,14 +28,22 @@ if (requirements)
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 
-	lws_get_free_port(PORT_BL_h1)
+	set(BL_ROLES h1)
+	if (BL_H2)
+		list(APPEND BL_ROLES h2)
+	endif()
 
-	add_test(NAME api-test-http-bodyless-h1
-		 COMMAND lws-api-test-http-bodyless
-			 -p ${PORT_BL_h1}
-			 --server ${LWS_CTEST_SERVER_RESOLVE})
-	set_tests_properties(api-test-http-bodyless-h1
-			     PROPERTIES
-			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-			     TIMEOUT 40)
+	foreach(BL_ROLE ${BL_ROLES})
+		lws_get_free_port(PORT_BL_${BL_ROLE})
+
+		add_test(NAME api-test-http-bodyless-${BL_ROLE}
+			 COMMAND lws-api-test-http-bodyless
+				 --role ${BL_ROLE}
+				 -p ${PORT_BL_${BL_ROLE}}
+				 --server ${LWS_CTEST_SERVER_RESOLVE})
+		set_tests_properties(api-test-http-bodyless-${BL_ROLE}
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+				     TIMEOUT 40)
+	endforeach()
 endif()

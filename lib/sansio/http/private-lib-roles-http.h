@@ -865,6 +865,27 @@ lws_http_status_has_body(unsigned int code)
 		 code == HTTP_STATUS_NOT_MODIFIED);
 }
 
+/*
+ * Whether a write of this kind (the lws_write_protocol, & 0x1f) is body a
+ * server must not send, because it is answering a HEAD: the answer is its
+ * headers alone (RFC 9110 9.3.2), however the handler that writes it was
+ * written.  The role write paths drop the bytes, but still end the stream
+ * where the write would have ended it.
+ */
+#if defined(LWS_WITH_SERVER)
+int
+lws_http_tx_is_head_body(struct lws *wsi, int base);
+#else
+static inline int
+lws_http_tx_is_head_body(struct lws *wsi, int base)
+{
+	(void)wsi;
+	(void)base;
+
+	return 0;
+}
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 int
 lws_h1_client_issue_handshake(struct lws *wsi);

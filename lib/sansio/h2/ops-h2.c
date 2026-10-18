@@ -531,6 +531,35 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		return wsi->h2.h2_state == LWS_H2_STATE_CLOSED ? -1 : 0;
 	}
 
+	if (lws_http_tx_is_head_body(wsi, base)) {
+		/*
+		 * Answering a HEAD: none of the body goes, but the stream
+		 * still ends where the write would have ended it, as an empty
+		 * DATA with END_STREAM, uncoded: there is no body to code
+		 */
+		if (wsi->http.tx_content_length) {
+			if (len >= wsi->http.tx_content_remain)
+				base = LWS_WRITE_HTTP_FINAL;
+			wsi->http.tx_content_remain -= len <
+					wsi->http.tx_content_remain ?
+					(lws_filepos_t)len :
+					wsi->http.tx_content_remain;
+		}
+		if (base != LWS_WRITE_HTTP_FINAL &&
+		    !((*wp) & LWS_WRITE_H2_STREAM_END))
+			return (int)olen;
+
+		wsi->h2.send_END_STREAM = 1;
+		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_DATA,
+				       LWS_H2_FLAG_END_STREAM,
+				       (unsigned int)wsi->mux.my_sid, 0, buf);
+		if (n < 0)
+			return n;
+		lws_http_response_progress(wsi);
+
+		return (int)olen;
+	}
+
 	/* compression transform... */
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)

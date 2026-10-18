@@ -10,11 +10,13 @@
  * expects them to.  On a kept-alive h1 connection anything else desyncs it:
  * the peer reads the next answer from the stray bytes, or waits for an end
  * that never comes.  The server's handlers are written as an app writes
- * them:
+ * them, unaware of either:
  *
  *  - /body answers 200 text/plain with lws_add_http_common_headers() and
  *    its Content-Length, then writes its body with LWS_WRITE_HTTP_FINAL from
- *    the writeable.
+ *    the writeable.  It does not look at the method: for a HEAD, lws must
+ *    drop the body it writes (RFC 9110 9.3.2), on h1 sending nothing of it,
+ *    on h2 just the end of the stream.
  *
  *  - /redir answers a headers-only 302 text/html, Content-Length 0, as the
  *    lws-login and auth-server redirects do.  With
@@ -26,12 +28,16 @@
  *    When lws has chosen to code it, the chunked framing is lws' own, and
  *    lws must end it at the completion.
  *
- * A raw h1 client sends a sequence of requests on one connection, each
- * after the previous answer is whole, and parses the answers byte-exactly:
- * framing (Content-Length or chunked), status, and nothing more than the
- * answer before the next request goes.  Requests say
+ * --role h1 (default): a raw client sends a sequence of requests on one
+ * connection, each after the previous answer is whole, and parses the
+ * answers byte-exactly: framing (Content-Length or chunked), status, and
+ * nothing more than the answer before the next request goes.  Requests say
  * "accept-encoding: deflate", so a build with stream compression codes the
  * text/plain bodies.
+ *
+ * --role h2: an lws client (prior knowledge) sends HEAD /body and
+ * HEAD /redir, which must complete with no body, then GET /body, which
+ * must have one.
  *
  * lws is both ends here, in one process.
  */
@@ -55,9 +61,15 @@ static const char body[] =
 
 #define BL_BODY_LEN		(sizeof(body) - 1)
 
+enum bl_role {
+	BL_H1,
+	BL_H2,
+};
+
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_watchdog;
+static enum bl_role role;
 static const char *server_addr = "127.0.0.1";
 static int port = 7681, result = 1, finished;
 
@@ -191,8 +203,11 @@ struct step {
 };
 
 static const struct step steps[] = {
+	{ "HEAD",	"/body",	200, 1, 0 },
 	{ "GET",	"/redir",	302, 0, 0 },
 	{ "GET",	"/body",	200, 0, 1 },
+	{ "HEAD",	"/redir",	302, 1, 0 },
+	{ "HEAD",	"/nofinal",	200, 1, 0 },
 	{ "GET",	"/nofinal",	200, 0, 1 },
 	{ "GET",	"/body",	200, 0, 1 },
 };
@@ -589,6 +604,130 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+/*
+ * The h2 client: one stream at a time, each counting its body
+ */
+
+static const struct step h2_steps[] = {
+	{ "HEAD",	"/body",	200, 1, 0 },
+	{ "HEAD",	"/redir",	302, 1, 0 },
+	{ "GET",	"/body",	200, 0, 1 },
+};
+
+static struct {
+	size_t		body_len;
+	int		step;
+	int		status;
+	char		completed;
+} h2c;
+
+static int h2_connect(void);
+
+static int
+callback_h2c(struct lws *wsi, enum lws_callback_reasons reason,
+	     void *user, void *in, size_t len)
+{
+	const struct step *s = &h2_steps[h2c.step];
+	char buf[LWS_PRE + 1024], *px = buf + LWS_PRE;
+	int lenx = (int)sizeof(buf) - LWS_PRE;
+
+	/*
+	 * Only the current step's stream counts: the last one's close may
+	 * come after the next one started
+	 */
+	if (reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR && wsi &&
+	    (intptr_t)lws_get_opaque_user_data(wsi) != h2c.step + 1)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+		if (lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_ACCEPT_ENCODING,
+				(unsigned char *)"deflate", 7, p, end))
+			return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		finish(0, in ? (const char *)in : "h2 connection error");
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		h2c.status = (int)lws_http_client_http_response(wsi);
+		break;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		h2c.body_len += len;
+		break;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		if (lws_http_client_read(wsi, &px, &lenx) < 0)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		if (h2c.completed)
+			break;
+		h2c.completed = 1;
+		lwsl_user("%s: %s %s: %d, %u body bytes\n", __func__,
+			  s->method, s->path, h2c.status,
+			  (unsigned int)h2c.body_len);
+		if (h2c.status != s->status ||
+		    !!h2c.body_len != !!s->has_body) {
+			finish(0, "unexpected h2 answer");
+			break;
+		}
+		if (++h2c.step == (int)LWS_ARRAY_SIZE(h2_steps)) {
+			finish(1, "every h2 answer was as expected");
+			break;
+		}
+		if (h2_connect())
+			finish(0, "the next h2 stream could not be started");
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (!h2c.completed)
+			finish(0, "the h2 stream closed before completing");
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static int
+h2_connect(void)
+{
+	struct lws_client_connect_info i;
+
+	h2c.body_len = 0;
+	h2c.status = 0;
+	h2c.completed = 0;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_cli;
+	i.address		= server_addr;
+	i.host			= server_addr;
+	i.origin		= server_addr;
+	i.port			= port;
+	i.path			= h2_steps[h2c.step].path;
+	i.method		= h2_steps[h2c.step].method;
+	/* the 302 is the answer being checked, not where it leads */
+	i.ssl_connection	= LCCSCF_H2_PRIOR_KNOWLEDGE |
+				  LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+	i.protocol		= "bl-h2c";
+	i.opaque_user_data	= (void *)(intptr_t)(h2c.step + 1);
+
+	lwsl_user("%s: %s %s\n", __func__, i.method, i.path);
+
+	return !lws_client_connect_via_info(&i);
+}
+
 static int
 raw_connect(void)
 {
@@ -615,6 +754,7 @@ static const struct lws_protocols protocols_srv[] = {
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "bl-raw", callback_raw, 0, 0, 0, NULL, 0 },
+	{ "bl-h2c", callback_h2c, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -644,8 +784,25 @@ int main(int argc, const char **argv)
 		port = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
+	if ((p = lws_cmdline_option(argc, argv, "--role"))) {
+		if (!strcmp(p, "h2"))
+			role = BL_H2;
+		else if (strcmp(p, "h1")) {
+			lwsl_err("--role h1 | h2\n");
+			return 1;
+		}
+	}
+
+#if !defined(LWS_ROLE_H2)
+	if (role == BL_H2) {
+		lwsl_err("this build has no h2\n");
+		return 1;
+	}
+#endif
+
 	signal(SIGINT, sigint_handler);
-	lwsl_user("LWS API selftest: http answers without a body\n");
+	lwsl_user("LWS API selftest: http answers without a body, %s\n",
+		  role == BL_H2 ? "h2" : "h1");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
@@ -658,11 +815,15 @@ int main(int argc, const char **argv)
 	info.port = port;
 	info.vhost_name = "srv";
 	info.protocols = protocols_srv;
+	if (role == BL_H2)
+		info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create the server vhost\n");
 		goto bail;
 	}
 
+	info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.vhost_name = "cli";
 	info.protocols = protocols_cli;
@@ -675,7 +836,7 @@ int main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 BL_DEADLINE_S * LWS_US_PER_SEC);
 
-	if (raw_connect()) {
+	if (role == BL_H2 ? h2_connect() : raw_connect()) {
 		lwsl_err("The connection could not be started\n");
 		goto bail;
 	}

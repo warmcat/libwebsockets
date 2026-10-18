@@ -3198,6 +3198,9 @@ deal_body:
 			if (lws_write(wsi, &ib[LWS_PRE], sizeof(cont) - 1,
 				      LWS_WRITE_HTTP) != (int)(sizeof(cont) - 1))
 				return 1;
+			/* an interim response is not the head of the answer */
+			wsi->http.tx_head_ended = 0;
+			wsi->http.tx_head_crlf = 0;
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					(int)wsi->a.context->timeout_secs);
 		}
@@ -3921,6 +3924,13 @@ lws_http_response_progress(struct lws *wsi)
 		lws_http_response_watchdog(wsi);
 }
 
+int
+lws_http_tx_is_head_body(struct lws *wsi, int base)
+{
+	return (base == LWS_WRITE_HTTP || base == LWS_WRITE_HTTP_FINAL) &&
+	       wsi->http.method_head && !lwsi_role_client(wsi);
+}
+
 /*
  * Whether an h1 answer is being completed short of what its head said it
  * would be.  An h1 response has no end of its own: what the peer reads after
@@ -4170,6 +4180,11 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->http.tx_content_remain = 0;
 	wsi->http.tx_head_ended = 0;
 	wsi->http.tx_head_crlf = 0;
+	/*
+	 * Until the next request is dispatched, nothing answers a HEAD: an
+	 * error refusing it before then sends its body
+	 */
+	wsi->http.method_head = 0;
 	wsi->sending_chunked = 0;
 	/* an SSE stream the app ended: the next request needs a table */
 	wsi->http_carries_sse = 0;

@@ -2764,6 +2764,7 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 	int is_ws = wsi->h23_stream_carries_ws && lwsi_role_ws(wsi) &&
 		    !is_headers;
 	size_t olen = len;
+	char head_body = 0;
 	int n;
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	unsigned char mtubuf[4096 + LWS_PRE];
@@ -2802,6 +2803,26 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 
 	if (base == LWS_WRITE_HTTP_FINAL) {
 		*wp = (enum lws_write_protocol)((unsigned int)*wp | LWS_WRITE_H2_STREAM_END);
+	}
+
+	if (is_http && lws_http_tx_is_head_body(wsi, base)) {
+		/*
+		 * Answering a HEAD: none of the body goes, but the stream still
+		 * ends where the write would have ended it, as the FIN alone,
+		 * uncoded: there is no body to code
+		 */
+		if (wsi->http.tx_content_length)
+			wsi->http.tx_content_remain -= olen <
+					wsi->http.tx_content_remain ?
+					(lws_filepos_t)olen :
+					wsi->http.tx_content_remain;
+		if (!((*wp) & LWS_WRITE_H2_STREAM_END))
+			return (int)olen;
+
+		len = 0;
+		is_http = 0;
+		head_body = 1;
+		goto send;
 	}
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -2864,6 +2885,7 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 		// lwsl_hexdump_notice(pre, len);
 	}
 
+send:
 	{
 		struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 		const struct lws_role_ops *role = nwsi ? nwsi->role_ops : NULL;
@@ -2873,7 +2895,7 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 		if (nwsi && role && lws_rops_fidx(role, LWS_ROPS_write_role_protocol)) {
 			n = lws_rops_func_fidx(role, LWS_ROPS_write_role_protocol).
 					write_role_protocol(wsi, (is_http || is_ws || is_headers) ? pre : buf, len, wp);
-			if (n <= 0)
+			if (n < 0 || (!n && !head_body))
 				return n;
 
 			if (is_headers)

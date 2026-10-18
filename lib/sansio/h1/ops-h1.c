@@ -1231,28 +1231,33 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
  * (lws_return_http_status() does).  It is counted as the app gives it to us,
  * before any compression, as the app's Content-Length is.  More than the
  * Content-Length is the app's overrun: the count stops at zero.
+ *
+ * Returns how many of the bytes are the head, the rest are body.
  */
-static void
+static size_t
 lws_h1_count_answer(struct lws *wsi, const unsigned char *buf, size_t len)
 {
 	static const char blank_line[] = "\r\n\r\n";
+	size_t head = 0;
 
-	while (len && !wsi->http.tx_head_ended) {
+	while (head < len && !wsi->http.tx_head_ended) {
 		/* tx_head_crlf: how much of blank_line the head ends with */
-		if (*buf == blank_line[wsi->http.tx_head_crlf]) {
+		if (buf[head] == blank_line[wsi->http.tx_head_crlf]) {
 			if (wsi->http.tx_head_crlf == 3)
 				wsi->http.tx_head_ended = 1;
 			else
 				wsi->http.tx_head_crlf++;
 		} else
-			wsi->http.tx_head_crlf = *buf == '\r';
-		buf++;
-		len--;
+			wsi->http.tx_head_crlf = buf[head] == '\r';
+		head++;
 	}
 
-	if (wsi->http.tx_head_ended)
+	len -= head;
+	if (wsi->http.tx_head_ended && wsi->http.tx_content_length)
 		wsi->http.tx_content_remain -= len < wsi->http.tx_content_remain ?
 				(lws_filepos_t)len : wsi->http.tx_content_remain;
+
+	return head;
 }
 
 static int
@@ -1273,8 +1278,23 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			     LWS_HTTP_CHUNK_TRL_MAX_SIZE];
 #endif
 
-	if (!lwsi_role_client(wsi) && wsi->http.tx_content_length)
-		lws_h1_count_answer(wsi, buf, len);
+	if (!lwsi_role_client(wsi)) {
+		size_t head = lws_h1_count_answer(wsi, buf, len);
+
+		if (lws_http_tx_is_head_body(wsi, (*wp) & 0x1f)) {
+			/*
+			 * Answering a HEAD: whatever of the head is in the
+			 * write goes, the body after it does not.  An h1 HEAD
+			 * answer has no end of its own, its head is all of it,
+			 * so there is nothing to end either: nothing of it
+			 * goes through the coder.
+			 */
+			if (!head)
+				return (int)olen;
+			len = head;
+			goto push;
+		}
+	}
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	if (wsi->http.lcs && (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
@@ -1399,6 +1419,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 	}
 #endif
 
+push:
 	n = lws_io_tx_push(wsi, (unsigned char *)buf, len);
 	if (n < 0)
 		return n;
