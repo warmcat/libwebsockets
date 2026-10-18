@@ -150,10 +150,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **A Location built from `WSI_TOKEN_*_URI` needs a backslash check:**
    the URI parser decodes `%5C` to `\` and keeps it while collapsing `//`,
    and browsers follow `/\host` as `//host` (G-173).
- - **HEAD bodies:** `lws_write()` does not drop body bytes for HEAD; only
-   `lws_serve_http_file()` and the keepalive decision look at
-   `method_head`, so a handler writing its own body needs its own HEAD
-   check (G-174).
+ - **HEAD bodies:** since G-190 the role write paths drop a HEAD answer's
+   body bytes and keep END_STREAM / FIN, so handlers need no HEAD check
+   of their own; a HEAD's headers still match the GET's (including any
+   coding).
  - **The control-byte check on outgoing headers**
    (`lws_hdr_add_value_bad()`) lives only in the role-agnostic
    `lws_add_http_header_by_name()` / `_by_token()` wrappers.  Code calling

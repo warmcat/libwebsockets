@@ -97,3 +97,10 @@ sessions.
    has well under 1GB free; detached worktrees with builds in the
    scratchpad can exhaust it (`ar` fails with ENOSPC).  Remove build
    trees and worktrees when a phase ends.
+ - **Committing your hunks when another agent has uncommitted edits in the
+   same file:** build a temporary index (`GIT_INDEX_FILE=<tmp> git
+   read-tree HEAD`, `git apply --cached` a full-context patch of only your
+   hunks, commit from it), then `git reset -q -- <paths>` on the real
+   index only.  Don't use `-U0` patches with `--unidiff-zero`: one applied
+   a hunk on the wrong line without error.  Build and test the resulting
+   commit alone in a worktree.

@@ -144,6 +144,8 @@
  - **To delay a backend's accept in-process**, own the listen socket,
    `accept()` it late from a sul, then `lws_adopt_socket_vhost()` it
    (api-test-proxy-hdr --ws-delay).
+ - The lws h2 client follows a HEAD's 302 unless
+   `LCCSCF_HTTP_NO_FOLLOW_REDIRECT` is set.
  - **SNI comes from `i.host`, not `i.address`**, so `i.host` sets both
    SNI and `:authority`; a name matching no vhost (and no SNI fallback)
    fails the handshake with a TLS alert.  To send a real Host header next
@@ -235,10 +237,6 @@
  - **The lws h1 client drops a HEAD response's body**, so it cannot detect
    a server sending one; use a raw client (`LCCSCF_USE_SSL`, alpn
    `http/1.1`) for byte-exact h1 tests (lwsws-uv-captcha-head).
- - **`LWS_WITH_HTTP_STREAM_COMPRESSION` builds:** a headers-only text/*
-   response through `lws_add_http_common_headers()` gets an unterminated
-   chunked body on h1 until G-200 is fixed; expect keep-alive desync in
-   such tests.
  - Keep scratch files under `--tmpdir` (ctest passes the binary dir),
    not `/tmp`, and create them owner-only.
  - **Measure lhp amplification against a baseline.**  A page's custom
