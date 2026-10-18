@@ -1351,8 +1351,11 @@ static const struct lws_protocols protocols_404[] = {
 };
 
 /*
- * A vhost's raw fallback, which a CONNECT goes to (case 48): it answers
- * the CONNECT as a tunnel would, then echoes what comes through it
+ * The protocol a vhost's CONNECT mount gives a CONNECT to (cases 48, 53):
+ * it answers the CONNECT as a tunnel would, then echoes what comes through
+ * it.  It speaks a little protocol of its own over the tunnel: a "ping" is
+ * echoed, its "pong", and proves the connection alive, which it tells lws;
+ * a "bye" ends the connection.
  */
 static int
 callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason,
@@ -1369,6 +1372,10 @@ callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason,
 			in = (void *)est;
 			len = sizeof(est) - 1;
 		}
+		if (len == 4 && !memcmp(in, "ping", 4))
+			lws_validity_confirmed(wsi);
+		if (len == 3 && !memcmp(in, "bye", 3))
+			return -1;
 		if (len > sizeof(buf) - LWS_PRE)
 			return -1;
 		memcpy(buf + LWS_PRE, in, len);
@@ -1386,6 +1393,22 @@ static const struct lws_protocols protocols_raw[] = {
 	{ "http", callback_uri, sizeof(struct pss_uri), 0, 0, NULL, 0 },
 	{ "raw-echo", callback_raw_echo, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
+};
+
+/* a CONNECT to sansio-raw:443 goes raw, to raw-echo (case 48) */
+static const struct lws_http_mount mount_raw_connect = {
+	.mountpoint		= "sansio-raw:443",
+	.origin			= "raw-echo",
+	.origin_protocol	= LWSMPRO_CONNECT,
+	.mountpoint_len		= 14,
+};
+
+/* and one to sansio-rawv:443, on a vhost checking validity (case 53) */
+static const struct lws_http_mount mount_rawv_connect = {
+	.mountpoint		= "sansio-rawv:443",
+	.origin			= "raw-echo",
+	.origin_protocol	= LWSMPRO_CONNECT,
+	.mountpoint_len		= 15,
 };
 
 /* /cb goes to the protocol directly */
@@ -2232,6 +2255,14 @@ server_refused_frames_half(struct lws_context *cx)
 	return tr_end();
 }
 
+/*
+ * The validity policy of the vhosts checking their connections are valid
+ * (cases 51, 53): a PING after 10s of nothing confirming a connection valid,
+ * and a hangup 10s later
+ */
+#define VALID_PING_S	10
+#define VALID_HUP_S	20
+
 #if defined(LWS_WITH_HTTP2)
 
 /* just enough HPACK (RFC 7541) and h2 framing to say what case 15 needs */
@@ -2306,8 +2337,6 @@ h2_headers(uint8_t *out, uint32_t sid, const uint8_t *b, const uint8_t *e)
  * answer doesn't come.  It moves the time on, so it goes last, and it has no
  * transcript.
  */
-#define VALID_PING_S	10
-#define VALID_HUP_S	20
 
 /* whether what lws wrote holds a PING of its own, not an answer to one */
 static int
@@ -4251,11 +4280,12 @@ h2c_redirect_queued_half(struct lws_context *cx, struct lws_vhost *vh)
 #endif
 
 /*
- * 48: a CONNECT on a vhost whose fallback is a raw protocol, raw-echo: the
- * connection becomes raw, the protocol having the CONNECT's head as its
- * first rx, which it answers as a tunnel, and then what comes through it,
- * which it echoes.  (A CONNECT from a user agent the context turns away is
- * refused first, case 23.)
+ * 48: a CONNECT on a vhost with a CONNECT mount for what it asks for, whose
+ * protocol is raw-echo: the connection becomes raw, the protocol having the
+ * CONNECT's head as its first rx, which it answers as a tunnel, and then
+ * what comes through it, which it echoes, until it is told "bye".  (A
+ * CONNECT from a user agent the context turns away is refused first, case
+ * 23; one nothing is mounted for is refused, case 52.)
  */
 static int
 h1_connect_raw_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -4263,7 +4293,7 @@ h1_connect_raw_half(struct lws_context *cx, struct lws_vhost *vh)
 	static const char req[] =
 		"CONNECT sansio-raw:443 HTTP/1.1\r\n"
 		"Host: sansio-raw\r\n\r\n",
-			  tun[] = "hello";
+			  tun[] = "hello", bye[] = "bye";
 	static struct transport tp;
 	struct lws *wsi;
 	int sv[2];
@@ -4297,9 +4327,163 @@ h1_connect_raw_half(struct lws_context *cx, struct lws_vhost *vh)
 		lwsl_hexdump_err(tp.tx, tp.tx_len);
 		return 1;
 	}
-	lwsl_user("case 48: a CONNECT goes to the vhost's raw fallback: PASS\n");
+	feed(cx, &tp, bye, sizeof(bye) - 1);
+	if (!tp.closed) {
+		lwsl_err("case 48: raw protocol's close not done\n");
+		return 1;
+	}
+	lwsl_user("case 48: a CONNECT goes to the protocol mounted for it: "
+		  "PASS\n");
 
 	return tr_end();
+}
+
+/*
+ * 52: a CONNECT that nothing is mounted for, on a vhost with no CONNECT
+ * mount at all, or with one for another authority, is refused with 405 and
+ * an empty Allow, and the connection shut down: it is not handed to a
+ * protocol that never asked for it, nor left raw with no timeout
+ */
+static int
+h1_connect_unmounted_half(struct lws_context *cx, struct lws_vhost *vh_uri,
+			  struct lws_vhost *vh_raw)
+{
+	static const struct h1_step st_none[] = {
+		{ "CONNECT sansio-uri:443 HTTP/1.1\r\n"
+		  "Host: sansio-uri:443\r\n\r\n",
+		  "HTTP/1.1 405 ", "\r\nallow: \r\n", 1, 0 },
+	}, st_other[] = {
+		{ "CONNECT elsewhere:443 HTTP/1.1\r\n"
+		  "Host: sansio-raw\r\n\r\n",
+		  "HTTP/1.1 405 ", "\r\nallow: \r\n", 1, 0 },
+	};
+
+	if (h1_steps(cx, vh_uri, "h1-connect-unmounted", "case 52", st_none,
+		     LWS_ARRAY_SIZE(st_none)))
+		return 1;
+	if (h1_steps(cx, vh_raw, "h1-connect-other-target", "case 52",
+		     st_other, LWS_ARRAY_SIZE(st_other)))
+		return 1;
+	lwsl_user("case 52: a CONNECT nothing is mounted for is refused: "
+		  "PASS\n");
+
+	return 0;
+}
+
+/* a CONNECT to sansio-rawv taken raw, on its own transport */
+static struct lws *
+h1_connect_rawv(struct lws_context *cx, struct lws_vhost *vh,
+		struct transport *tp)
+{
+	static const char req[] =
+		"CONNECT sansio-rawv:443 HTTP/1.1\r\n"
+		"Host: sansio-rawv\r\n\r\n";
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return NULL;
+	}
+	close(sv[1]);
+	if (tp_register(tp, sv[0]))
+		return NULL;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return NULL;
+	}
+	lws_set_transport(wsi, &tops, tp);
+
+	feed(cx, tp, req, sizeof(req) - 1);
+	if (tp->tx_len < 13 || memcmp(tp->tx, "HTTP/1.1 200 ", 13) ||
+	    tp->closed || tp->shutdown) {
+		lwsl_err("case 53: CONNECT not taken raw\n");
+		return NULL;
+	}
+
+	return wsi;
+}
+
+/*
+ * 53: CONNECTs taken raw on a vhost that hangs up a connection nothing has
+ * confirmed valid for 20s.  Raw has no ping of its own: one connection says
+ * nothing after the CONNECT, and is hung up after the 20s; the other sends
+ * raw-echo's "ping" every 8s, which raw-echo tells lws proves it alive, and
+ * outlives the 20s many times over, until it stops, and is hung up 20s
+ * after its last.  It moves the time on, so it goes last, and it has no
+ * transcript.
+ */
+static int
+h1_connect_validity_half(struct lws_context *cx, struct lws_vhost *vh,
+			 int start_ms)
+{
+	static struct transport tp_idle, tp_ping;
+	int n, last = 0;
+
+	if (!h1_connect_rawv(cx, vh, &tp_idle) ||
+	    !h1_connect_rawv(cx, vh, &tp_ping))
+		return 1;
+
+	for (n = 1; n <= 6; n++) {
+		last = start_ms + n * 8000;
+		at(cx, last);
+		feed(cx, &tp_ping, "ping", 4);
+		if (tp_ping.closed || tp_ping.shutdown ||
+		    tp_ping.tx_len != 4 || memcmp(tp_ping.tx, "ping", 4)) {
+			lwsl_err("case 53: a connection proving itself alive "
+				 "was hung up at %dms\n", last - start_ms);
+			return 1;
+		}
+
+		switch (n) {
+		case 1:
+			/* the silent one's ping time: raw has no ping to send */
+			at(cx, start_ms + VALID_PING_S * 1000 + 500);
+			feed(cx, &tp_ping, NULL, 0);
+			if (tp_idle.closed) {
+				lwsl_err("case 53: a silent raw connection was "
+					 "hung up at its ping time\n");
+				return 1;
+			}
+			break;
+		case 2:
+			/* and its hangup time */
+			at(cx, start_ms + VALID_HUP_S * 1000 + 1000);
+			feed(cx, &tp_ping, NULL, 0);
+			if (!tp_idle.closed) {
+				lwsl_err("case 53: a silent raw connection was "
+					 "not hung up after %ds\n",
+					 VALID_HUP_S);
+				return 1;
+			}
+			break;
+		}
+	}
+
+	/* the pinging one stops: its ping time, then its hangup time */
+	at(cx, last + VALID_PING_S * 1000 + 500);
+	feed(cx, &tp_ping, NULL, 0);
+	at(cx, last + VALID_HUP_S * 1000 - 1000);
+	feed(cx, &tp_ping, NULL, 0);
+	if (tp_ping.closed) {
+		lwsl_err("case 53: hung up before %ds after its last ping\n",
+			 VALID_HUP_S);
+		return 1;
+	}
+	at(cx, last + VALID_HUP_S * 1000 + 1000);
+	feed(cx, &tp_ping, NULL, 0);
+	if (!tp_ping.closed) {
+		lwsl_err("case 53: not hung up %ds after its last ping\n",
+			 VALID_HUP_S);
+		return 1;
+	}
+
+	lwsl_user("case 53: a raw connection from a CONNECT is hung up when "
+		  "nothing proves it valid, and kept while its protocol does: "
+		  "PASS\n");
+
+	return 0;
 }
 
 /*
@@ -5485,15 +5669,15 @@ main(int argc, const char **argv)
 {
 	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, result = 1;
 	struct lws_context_creation_info info;
-	struct lws_vhost *vh, *vh_uri, *vh_raw;
-#if defined(LWS_WITH_FILE_OPS)
-	struct lws_vhost *vh_404;
-#endif
-#if defined(LWS_WITH_HTTP2)
 	static const lws_retry_bo_t validity_policy = {
 		.secs_since_valid_ping		= VALID_PING_S,
 		.secs_since_valid_hangup	= VALID_HUP_S,
 	};
+	struct lws_vhost *vh, *vh_uri, *vh_raw, *vh_rawv;
+#if defined(LWS_WITH_FILE_OPS)
+	struct lws_vhost *vh_404;
+#endif
+#if defined(LWS_WITH_HTTP2)
 	struct lws_vhost *vh_h2, *vh_h2ws, *vh_h2v;
 #endif
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -5829,20 +6013,21 @@ main(int argc, const char **argv)
 	if (h1_completions_half(cx, vh_uri))
 		goto bail;
 
-	/* a vhost whose fallback is a raw protocol */
+	/* a vhost taking a CONNECT to sansio-raw:443 raw, to raw-echo */
 	info.vhost_name = "sansio-raw";
 	info.protocols = protocols_raw;
-	info.listen_accept_role = "raw-skt";
-	info.listen_accept_protocol = "raw-echo";
+	info.mounts = &mount_raw_connect;
 	vh_raw = lws_create_vhost(cx, &info);
-	info.listen_accept_role = NULL;
-	info.listen_accept_protocol = NULL;
+	info.mounts = NULL;
 	if (!vh_raw) {
 		lwsl_err("raw vhost failed\n");
 		goto bail;
 	}
 	at(cx, 355000);
 	if (h1_connect_raw_half(cx, vh_raw))
+		goto bail;
+	at(cx, 355100);
+	if (h1_connect_unmounted_half(cx, vh_uri, vh_raw))
 		goto bail;
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_HTTP_DIGEST_AUTH) && \
@@ -5878,6 +6063,23 @@ main(int argc, const char **argv)
 	if (h2_validity_busy_half(cx, vh_h2v, 400000))
 		goto bail;
 #endif
+
+	/* a vhost taking CONNECTs raw, checking their connections are valid */
+	info.vhost_name = "sansio-rawv";
+	info.protocols = protocols_raw;
+	info.extensions = NULL;
+	info.mounts = &mount_rawv_connect;
+	info.retry_and_idle_policy = &validity_policy;
+	vh_rawv = lws_create_vhost(cx, &info);
+	info.mounts = NULL;
+	info.retry_and_idle_policy = NULL;
+	if (!vh_rawv) {
+		lwsl_err("raw validity vhost failed\n");
+		goto bail;
+	}
+	at(cx, 500000);
+	if (h1_connect_validity_half(cx, vh_rawv, 500000))
+		goto bail;
 
 	result = 0;
 
