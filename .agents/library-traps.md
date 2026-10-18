@@ -300,6 +300,17 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - Scheme / keyword tables indexed by position drift from their enums; use
    `{prefix, ENUM}` pairs.
 
+## DHT transport sequencer
+
+ - **Session model (G-133 / G-141):** a receive half binds to the tid of
+   the first chunk it takes; only that tid feeds it and our acks echo it.
+   A chunk with another tid gets a `"ch"` challenge, and only a chunk
+   echoing `ch` replaces the session (reset to offset 0).  Look up with
+   `lws_dht_ts_find()` (no refresh) and call `lws_dht_ts_touch()` only
+   after the session or nonce check, or stale sequencers stay alive.
+ - `stats.ack_offset` belongs to the send half, `stats.rx_offset` to the
+   receive half (G-140).
+
 ## Plugins and stubs
 
  - **lws-login renewal objects:** a `pending_login_refresh` is freed only

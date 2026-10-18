@@ -57,6 +57,9 @@
    `leak:_dlerror_run` (the dht tests also leak through
    `_dl_catch_error`), which hide only allocations made by the dynamic
    loader and library constructors.
+   A context loads every `libprotocol_*.so` in the build tree's `lib/`, so
+   a test that passed before a full `make` can fail this way after it;
+   "dir_cb: ... was not loaded" lines from stale plugins are harmless.
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
