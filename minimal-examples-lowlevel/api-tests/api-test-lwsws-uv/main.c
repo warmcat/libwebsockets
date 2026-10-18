@@ -35,6 +35,8 @@
  *             GOAWAY that earned it took the response with it.
  *             G-171: the visit and pass tokens must not pass for each
  *             other when presented under each other's cookie names.
+ *             G-173: Locations built from the request's url must carry its
+ *             decoded path and args percent-encoded again.
  *
  *  pipeline   h1 keepalive pipelining across a large transfer, on the
  *             cleartext listener.  Two phases: first the two requests in one
@@ -1024,6 +1026,20 @@ static const struct job jobs_captcha[] = {
 	  JC_VISIT_AS_PASS, JC_NONE, NULL, 200, "captcha", NULL, 0 },
 
 	/*
+	 * G-173: the url-decoded request path must not go back out into a
+	 * Location as it is: "/\host" is "//host" to a browser.  With a
+	 * gated "/", "/%5Cevil.com" would have redirected off-site.  Both the
+	 * lws_interceptor_ok bounce and a refused POST's redirect.
+	 */
+	{ "decoded backslash not in bounce Location", NULL,
+	  "/gated/%5Cevil.com?a=%5C%26&lws_interceptor_ok=1", JS_TLS,
+	  JC_NONE, JC_NONE, NULL, 303, NULL, "/gated/%5Cevil.com?a=%5C%26",
+	  0 },
+	{ "decoded backslash not in refused POST Location", "POST",
+	  "/gated/%5Cevil.com", JS_TLS, JC_NONE, JC_NONE, "captcha=1", 303,
+	  NULL, "/gated/%5Cevil.com", 0 },
+
+	/*
 	 * The challenge page's own assets come off the interceptor's
 	 * mountpoint with no cookies attached at all.
 	 */
@@ -1038,6 +1054,11 @@ static const struct job jobs_captcha[] = {
 	{ "form POST to the gated url", "POST", "/gated/", JS_TLS, JC_VISIT,
 	  JC_PASS, "captcha=1", 303, NULL, "/gated/?lws_interceptor_ok=1",
 	  600 },
+
+	/* G-173: the same for the url a passing POST sends the browser to */
+	{ "decoded backslash not in pass Location", "POST",
+	  "/gated/%5Cevil.com?b=1", JS_TLS, JC_VISIT, JC_NONE, "captcha=1",
+	  303, NULL, "/gated/%5Cevil.com?b=1&lws_interceptor_ok=1", 0 },
 
 	/*
 	 * G-171: nor may the pass token stand in for the visit token the POST

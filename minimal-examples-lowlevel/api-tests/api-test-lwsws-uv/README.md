@@ -91,6 +91,11 @@ Between those steps it checks the gate can't be walked around:
    the visit cookie's name on the form POST is refused with a 303 back to
    `/gated/`, not a fresh pass.  The two are signed with the same key, so only
    their signed purpose claims tell them apart.
+ - **G-173**: every Location the interceptor composes from the request's own
+   url (the `lws_interceptor_ok` bounce, a refused POST's redirect, and a
+   passing POST's) has the url-decoded path and args percent-encoded again:
+   `/gated/%5Cevil.com` must come back as that, not `/gated/\evil.com`, which a
+   browser reads as `/gated//evil.com` (and for a gated `/`, as `//evil.com`).
 
 Each step gets its own client context: lws remembers the negotiated ALPN and
 the advertised Alt-Svc h3 endpoint per context, so a second request on one

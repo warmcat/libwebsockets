@@ -186,16 +186,123 @@ lws_interceptor_inject_header(struct lws *wsi, struct vhd_interceptor *vhd, cons
 	p[cur_len + n] = '\0';
 }
 
+/*
+ * Append s to *p, percent-encoding every byte except the RFC 3986 unreserved
+ * ones (and '/', if keep_slash).  Returns nonzero if it would not fit before
+ * end, which is reserved for the NUL.
+ */
+
 static int
-lws_interceptor_redirect(struct lws *wsi, const char *uri)
+lws_interceptor_pct_encode(char **p, const char *end, const char *s,
+			   size_t len, int keep_slash)
 {
-	char buf[LWS_PRE + 1024], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+	static const char hex[] = "0123456789ABCDEF";
+	unsigned char c;
+
+	while (len--) {
+		c = (unsigned char)*s++;
+
+		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		    (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+		    c == '_' || c == '~' || (keep_slash && c == '/')) {
+			if (*p + 1 > end)
+				return 1;
+			*(*p)++ = (char)c;
+			continue;
+		}
+
+		if (*p + 3 > end)
+			return 1;
+		*(*p)++ = '%';
+		*(*p)++ = hex[c >> 4];
+		*(*p)++ = hex[c & 0xf];
+	}
+
+	return 0;
+}
+
+/*
+ * Compose a Location back to this request's own url into out: its path, then,
+ * if args, its urlargs other than lws_interceptor_ok, then, if add_ok,
+ * lws_interceptor_ok=1.
+ *
+ * The path and args in the ah have already been url-decoded, so they can't go
+ * back out as they are (G-173): a decoded '\' makes "/\host", which browsers
+ * follow to //host, off-site; and a decoded '?', '#' or '&' would change what
+ * the url means.  So they are percent-encoded again.  Anything that is not
+ * a single-slash, path-absolute target, or that does not fit, becomes "/".
+ */
+
+static void
+lws_interceptor_location(struct lws *wsi, char *out, size_t len,
+			 const char *path, int args, int add_ok)
+{
+	char *p = out, *end = out + len - 1, frag[256];
+	int f = 0, first = 1;
+	const char *eq;
+	size_t nl;
+
+	if (path[0] != '/' || path[1] == '/' ||
+	    lws_interceptor_pct_encode(&p, end, path, strlen(path), 1))
+		goto bail;
+
+	while (args && lws_hdr_copy_fragment(wsi, frag, (int)sizeof(frag),
+					     WSI_TOKEN_HTTP_URI_ARGS, f++) >= 0) {
+		nl = strlen(frag);
+		eq = memchr(frag, '=', nl);
+		if (eq)
+			nl = lws_ptr_diff_size_t(eq, frag);
+
+		if (nl == 18 && !strncmp(frag, "lws_interceptor_ok", 18))
+			continue;
+
+		if (p + 1 > end)
+			goto bail;
+		*p++ = first ? '?' : '&';
+		first = 0;
+
+		if (lws_interceptor_pct_encode(&p, end, frag, nl, 0))
+			goto bail;
+		if (!eq)
+			continue;
+
+		if (p + 1 > end)
+			goto bail;
+		*p++ = '=';
+		if (lws_interceptor_pct_encode(&p, end, eq + 1,
+					       strlen(eq + 1), 0))
+			goto bail;
+	}
+
+	if (add_ok) {
+		if (p + 21 > end)
+			goto bail;
+		*p++ = first ? '?' : '&';
+		memcpy(p, "lws_interceptor_ok=1", 20);
+		p += 20;
+	}
+
+	*p = '\0';
+
+	return;
+
+bail:
+	lws_strncpy(out, "/", len);
+}
+
+static int
+lws_interceptor_redirect(struct lws *wsi, const char *path)
+{
+	char buf[LWS_PRE + 1024], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1,
+	     loc[512];
+
+	lws_interceptor_location(wsi, loc, sizeof(loc), path, 0, 0);
 
 	if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER,
 				       (unsigned char **)&p, (unsigned char *)end))
 		return 1;
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
-					 (unsigned char *)uri, (int)strlen(uri),
+					 (unsigned char *)loc, (int)strlen(loc),
 					 (unsigned char **)&p, (unsigned char *)end))
 		return 1;
 	if (lws_finalize_http_header(wsi, (unsigned char **)&p,
@@ -219,38 +326,20 @@ lws_interceptor_redirect(struct lws *wsi, const char *uri)
 static void
 lws_interceptor_ok_uri(struct lws *wsi, char *uri, size_t uri_len)
 {
-	int n, args_len, space;
-	char *p2;
+	char path[512];
+	int n;
 
-	uri[0] = '\0';
-
-	n = lws_hdr_copy(wsi, uri, (int)uri_len, WSI_TOKEN_GET_URI);
+	n = lws_hdr_copy(wsi, path, (int)sizeof(path), WSI_TOKEN_GET_URI);
 	if (n <= 0)
-		n = lws_hdr_copy(wsi, uri, (int)uri_len, WSI_TOKEN_POST_URI);
+		n = lws_hdr_copy(wsi, path, (int)sizeof(path),
+				 WSI_TOKEN_POST_URI);
 	if (n <= 0) {
 		uri[0] = '\0';
 
 		return;
 	}
 
-	args_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
-	p2 = uri + n;
-	space = (int)uri_len - n - 1;
-
-	if (args_len > 0) {
-		if (space >= 22) {
-			*p2++ = '?';
-			space--;
-			n = lws_hdr_copy(wsi, p2, space - 20,
-					 WSI_TOKEN_HTTP_URI_ARGS);
-			if (n > 0) {
-				p2 += n;
-				*p2++ = '&';
-				strcpy(p2, "lws_interceptor_ok=1");
-			}
-		}
-	} else if (space >= 21)
-		strcpy(p2, "?lws_interceptor_ok=1");
+	lws_interceptor_location(wsi, uri, uri_len, path, 1, 1);
 }
 
 static int
@@ -434,12 +523,12 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	struct vhd_interceptor *vhd = (struct vhd_interceptor *)lws_protocol_vh_priv_get(
 			lws_get_vhost(wsi), lws_get_protocol(wsi));
 	char buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
-	char argbuf[256] = "", junk[256], ip[64], uri[512];
+	char argbuf[256] = "", junk[256], ip[64], uri[512], loc[512];
 	char vbuf[LWS_JWT_COOKIE_ASCII_LEN];
 	const char *ctype = "text/html", *file_part, *iat_p;
 	struct lws_jwt_sign_set_cookie vck;
-	int n, frag = 0, first = 1, js_len, auth_valid = 0;
-	char js_buf[512], *p1, *p2, sub_claim[64];
+	int n, js_len, auth_valid = 0;
+	char js_buf[512], *p1, sub_claim[64];
 	size_t vs, iat_len, claim_len;
 	const char *cp_sub;
 	long long iat;
@@ -476,29 +565,13 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 
 
 	if (lws_get_urlarg_by_name(wsi, "lws_interceptor_ok", junk, sizeof(junk))) {
-		int space = (int)sizeof(uri) - n - 1;
-		p2 = uri + n;
-
-		while (lws_hdr_copy_fragment(wsi, argbuf, sizeof(argbuf),
-					     WSI_TOKEN_HTTP_URI_ARGS, frag++) >= 0) {
-			int al = (int)strlen(argbuf);
-			if (!strncmp(argbuf, "lws_interceptor_ok", 18))
-				continue;
-			if (space < 1 + al)
-				break;
-			*p2++ = first ? '?' : '&';
-			first = 0;
-			strcpy(p2, argbuf);
-			p2 += al;
-			space -= 1 + al;
-		}
-		*p2 = '\0';
+		lws_interceptor_location(wsi, loc, sizeof(loc), uri, 1, 0);
 
 		if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER,
 					(unsigned char **)&p, (unsigned char *)end))
 			return 1;
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
-					(unsigned char *)uri, (int)strlen(uri),
+					(unsigned char *)loc, (int)strlen(loc),
 					(unsigned char **)&p, (unsigned char *)end))
 			return 1;
 		if (lws_finalize_http_header(wsi, (unsigned char **)&p,
