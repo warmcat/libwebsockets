@@ -353,7 +353,13 @@ lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 			   LWS_DHT_RL_POOL_BURST);
 }
 
-/* args: data, id, len, offset (alphabetical) */
+/*
+ * args: [ch], data, id, len, offset (alphabetical)
+ *
+ * ch is there once the peer has challenged our session (see
+ * LWS_DHT_SEQ_CH_LEN): it is how the peer knows these chunks come from
+ * whoever it sent the challenge to.
+ */
 
 int
 dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
@@ -363,7 +369,15 @@ dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
 	char pkt[2048];
 	dht_txbuf_t t = { .buf = pkt, .size = sizeof(pkt) };
 
-	if (dht_tx_lit(&t, "d1:ad4:data") ||
+	if (dht_tx_lit(&t, "d1:ad"))
+		goto fail;
+
+	if (dts->tx_ch_set &&
+	    (dht_tx_lit(&t, "2:ch") ||
+	     dht_tx_str(&t, dts->tx_ch, sizeof(dts->tx_ch))))
+		goto fail;
+
+	if (dht_tx_lit(&t, "4:data") ||
 	    dht_tx_str(&t, buf, len) ||
 	    dht_tx_lit(&t, "2:id") ||
 	    dht_tx_id(dts->ctx, &t, dts->ctx->myid) ||
@@ -385,10 +399,11 @@ fail:
 /*
  * reply: id, len, offset, sack (alphabetical)
  *
- * The tid is the one the peer sent its chunk with: that is how its sequencer
- * knows the ack comes from someone who received the chunk.  The offset is how
- * much of the peer's stream we hold, from the receive half: the send half's
- * progress is ours, and the peer refuses an ack beyond what it sent.
+ * The tid is the one the peer's session sends its chunks with: that is how
+ * its sequencer knows the ack comes from someone who received them.  The
+ * offset is how much of the peer's stream we hold, from the receive half:
+ * the send half's progress is ours, and the peer refuses an ack beyond what
+ * it sent.
  */
 
 int
@@ -399,7 +414,7 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 	char pkt[512];
 	dht_txbuf_t t = { .buf = pkt, .size = sizeof(pkt) };
 
-	if (!dts->ack_tid_len)
+	if (!dts->rx_tid_len)
 		return -1; /* we only ack chunks we have been sent */
 
 	if (dht_tx_lit(&t, "d1:rd2:id") ||
@@ -433,7 +448,7 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 	}
 
 	if (dht_tx_lit(&t, "e1:t") ||
-	    dht_tx_str(&t, dts->ack_tid, dts->ack_tid_len) ||
+	    dht_tx_str(&t, dts->rx_tid, dts->rx_tid_len) ||
 	    dht_tx_lit(&t, "1:y1:re"))
 		goto fail;
 
@@ -441,6 +456,35 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 
 fail:
 	return -1;
+}
+
+/*
+ * reply: ch, id (alphabetical)
+ *
+ * The answer to a chunk whose tid is not the peer's session: it echoes that
+ * tid, so only the sequencer that sent the chunk takes it, and carries the
+ * challenge that sequencer must send back to start a new session with us.
+ * It goes to the peer's address, which a blind spoofer does not see.  With
+ * no offset, it acks nothing: peers predating the challenge drop it.
+ */
+
+int
+dht_tx_challenge(lws_dht_ts_t *dts, const uint8_t *tid, size_t tid_len)
+{
+	char pkt[128];
+	dht_txbuf_t t = { .buf = pkt, .size = sizeof(pkt) };
+
+	if (dht_tx_lit(&t, "d1:rd2:ch") ||
+	    dht_tx_str(&t, dts->rx_ch, sizeof(dts->rx_ch)) ||
+	    dht_tx_lit(&t, "2:id") ||
+	    dht_tx_id(dts->ctx, &t, dts->ctx->myid) ||
+	    dht_tx_lit(&t, "e1:t") ||
+	    dht_tx_str(&t, tid, tid_len) ||
+	    dht_tx_lit(&t, "1:y1:re"))
+		return -1;
+
+	return dht_send(dts->ctx, pkt, t.len, (struct sockaddr *)&dts->sa,
+			dts->salen);
 }
 
 int
@@ -695,12 +739,16 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	/*
 	 * The nonce binds the peer's acks to this sequencer: without it, an
 	 * ack is believed from anyone who can put the peer's address on a
-	 * datagram, and acks retire our unsent data and prove the peer
+	 * datagram, and acks retire our unsent data and prove the peer.  The
+	 * challenge does the same for the peer's chunks, when they come with
+	 * a tid that is not its session's.
 	 */
 	dts->tx_tid[0] = 's';
 	dts->tx_tid[1] = 'q';
 	if (lws_get_random(ctx->vhost->context, dts->tx_tid + 2,
-			   LWS_DHT_SEQ_NONCE_LEN) != LWS_DHT_SEQ_NONCE_LEN) {
+			   LWS_DHT_SEQ_NONCE_LEN) != LWS_DHT_SEQ_NONCE_LEN ||
+	    lws_get_random(ctx->vhost->context, dts->rx_ch,
+			   sizeof(dts->rx_ch)) != sizeof(dts->rx_ch)) {
 		lws_free(dts);
 		return NULL;
 	}
@@ -718,28 +766,48 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	return dts->ts;
 }
 
+/* the sequencer for the peer at sa, without counting this as its traffic */
+
+lws_dht_ts_t *
+lws_dht_ts_find(struct lws_dht_ctx *ctx, const struct sockaddr *sa)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->ts_owner)) {
+		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
+
+		if (dht_sa_same_peer((const struct sockaddr *)&dts->sa, sa))
+			return dts;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * The sequencer has seen traffic that belongs to it: what we send, or what
+ * the peer sends bound to our session.  ->ts_owner is kept in least-recently
+ * used order with the stalest at the head, so that the cap in
+ * dht_ts_create() evicts the least interesting sequencer, and an idle one is
+ * destroyed.  Traffic that fails the session checks must not keep a
+ * sequencer alive, or a peer that restarted keeps its stale one forever.
+ */
+
+void
+lws_dht_ts_touch(lws_dht_ts_t *dts)
+{
+	lws_dll2_remove(&dts->list);
+	lws_dll2_add_tail(&dts->list, &dts->ctx->ts_owner);
+	lws_sul_schedule(dts->ctx->vhost->context, 0, &dts->sul_idle,
+			 lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
+}
+
 LWS_VISIBLE struct lws_transport_sequencer *
 lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t salen, int create)
 {
-	lws_dll2_t *d = lws_dll2_get_head(&ctx->ts_owner);
+	lws_dht_ts_t *dts = lws_dht_ts_find(ctx, dest);
 
-	while (d) {
-		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
-
-		if (dht_sa_same_peer((const struct sockaddr *)&dts->sa, dest)) {
-			/*
-			 * ->ts_owner is kept in least-recently-used order with
-			 * the stalest at the head, so that the cap below evicts
-			 * the least interesting sequencer.  Move this one to
-			 * the tail now that it has seen traffic.
-			 */
-			lws_dll2_remove(&dts->list);
-			lws_dll2_add_tail(&dts->list, &ctx->ts_owner);
-			lws_sul_schedule(ctx->vhost->context, 0, &dts->sul_idle, lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
-			return dts->ts;
-		}
-
-		d = lws_dll2_get_next(d);
+	if (dts) {
+		lws_dht_ts_touch(dts);
+		return dts->ts;
 	}
 
 	if (!create)
@@ -754,18 +822,18 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
  * The sequencer an inbound data chunk from `from` belongs to.  Chunks for a
  * transfer already in progress stay outside the limiter, but making a
  * sequencer for a source we have no sequencer for is a request like any
- * other (C-497), in every build.
+ * other (C-497), in every build.  Finding one is not traffic for it until
+ * the chunk is known to be of the peer's session (lws_dht_ts_touch()).
  */
 
 struct lws_transport_sequencer *
 lws_dht_ts_rx(struct lws_dht_ctx *ctx, const struct sockaddr *from,
 	      size_t fromlen, const lws_dht_hash_t *id)
 {
-	struct lws_transport_sequencer *ts = lws_dht_get_ts(ctx, from,
-							    fromlen, 0);
+	lws_dht_ts_t *dts = lws_dht_ts_find(ctx, from);
 
-	if (ts)
-		return ts;
+	if (dts)
+		return dts->ts;
 
 	if (!lws_dht_admit_request(ctx, id, from)) {
 		ctx->stats_current.rx_drops++;

@@ -399,6 +399,13 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		memcpy(mp->sha256, p, 32);
 	}
 
+	/* a sequencer session challenge (a reply) or the answer to one */
+	p = dht_bencode_get_string(meta, meta_end, "ch", &l);
+	if (p && l == sizeof(mp->ch)) {
+		memcpy(mp->ch, p, sizeof(mp->ch));
+		mp->ch_len = (uint8_t)l;
+	}
+
 	p = dht_bencode_get_string(meta, meta_end, "nodes", &l);
 	if (p && l > 0 && l < sizeof(mp->nodes)) {
 		memcpy(mp->nodes, p, l);
@@ -905,22 +912,39 @@ lws_dht_rx_error(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 
 static void
 dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
-	    const struct sockaddr *from, size_t fromlen)
+	    const struct sockaddr *from)
 {
-	struct lws_transport_sequencer *ts;
-	lws_dht_ts_t *dts;
+	lws_dht_ts_t *dts = lws_dht_ts_find(ctx, from);
 
-	ts = lws_dht_get_ts(ctx, from, fromlen, 0);
-	if (!ts) {
+	if (!dts) {
 		lwsl_dht_rx("%s: late ack, no sequencer for its source\n",
 			    __func__);
 		return;
 	}
 
-	dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 	if (lws_timingsafe_bcmp(dts->tx_tid, mp->tid, LWS_DHT_SEQ_TID_LEN)) {
 		lwsl_dht_rx_warn("%s: ack without our sequencer's nonce, "
 				 "dropped\n", __func__);
+		return;
+	}
+
+	lws_dht_ts_touch(dts);
+
+	if (mp->ch_len) {
+		/*
+		 * The peer does not know our session (it lost it, or we
+		 * restarted) and challenges us to prove the chunks are ours:
+		 * from now on they carry its challenge.  A challenge we
+		 * already answer is not a reason to send anything again.
+		 */
+		if (dts->tx_ch_set &&
+		    !memcmp(dts->tx_ch, mp->ch, sizeof(dts->tx_ch)))
+			return;
+
+		memcpy(dts->tx_ch, mp->ch, sizeof(dts->tx_ch));
+		dts->tx_ch_set = 1;
+		lws_transport_sequencer_resend(dts->ts);
+
 		return;
 	}
 
@@ -928,9 +952,81 @@ dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 	if (mp->offset > (uint64_t)-1 - mp->len)
 		return;
 
-	lws_transport_sequencer_acknowledge_sack(ts, mp->offset + mp->len,
+	lws_transport_sequencer_acknowledge_sack(dts->ts, mp->offset + mp->len,
 						 mp->sack, mp->num_sack,
 						 mp->status);
+}
+
+/*
+ * A data chunk: one of the peer's sequencer's, or a forgery with its source
+ * address.  The receive half is bound to the peer's session, the tid its
+ * chunks carry, from the first chunk it takes: anything that can feed the
+ * sequencer or change the tid our acks echo is the session's.  Before this a
+ * spoofer's chunk at the peer's next offset was delivered and the peer's own
+ * acked unseen as a duplicate, and any datagram re-steered the tid of our
+ * acks so the peer dropped them (G-141).
+ *
+ * A chunk with another tid is the peer restarted (a new sequencer, offsets
+ * from 0) or a forgery.  It is not taken; we answer it with our challenge,
+ * which a new sequencer of the peer's gets at the peer's address and sends
+ * back with its chunks.  Only then is the old session replaced, and received
+ * again from 0: before, the restarted peer's chunks were duplicates of the
+ * old stream and acked with offsets it never sent (G-133).  A peer that
+ * cannot answer (predating the challenge) waits for the old session's
+ * sequencer to go idle, which only the session's own traffic prevents.
+ */
+
+static void
+dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
+	     const struct sockaddr *from, size_t fromlen)
+{
+	struct lws_transport_sequencer *ts;
+	lws_dht_ts_t *dts;
+
+	if (!mp->tid_len) /* nothing to bind to, or to echo in our ack */
+		return;
+
+	/*
+	 * Making a sequencer for a source we have never heard from costs
+	 * ~160KB of allocation and an ACK to an unverified address: that is
+	 * rate limited, and the sequencer won't repeat anything to such a
+	 * source until it has acknowledged it
+	 */
+	ts = lws_dht_ts_rx(ctx, from, fromlen, mp->id);
+	if (!ts)
+		return;
+
+	dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+
+	if (!dts->rx_tid_len) {
+		/* the first chunk the sequencer receives starts the session */
+		memcpy(dts->rx_tid, mp->tid, mp->tid_len);
+		dts->rx_tid_len = mp->tid_len;
+	} else if (dts->rx_tid_len != mp->tid_len ||
+		   lws_timingsafe_bcmp(dts->rx_tid, mp->tid,
+					(uint32_t)mp->tid_len)) {
+
+		if (mp->ch_len != sizeof(dts->rx_ch) ||
+		    lws_timingsafe_bcmp(dts->rx_ch, mp->ch,
+					sizeof(dts->rx_ch))) {
+			lwsl_dht_rx("%s: chunk not of the peer's session, "
+				    "challenged\n", __func__);
+			dht_tx_challenge(dts, mp->tid, mp->tid_len);
+			return;
+		}
+
+		lwsl_dht_rx("%s: peer proved a new session\n", __func__);
+		lws_transport_sequencer_rx_reset(ts);
+		memcpy(dts->rx_tid, mp->tid, mp->tid_len);
+		dts->rx_tid_len = mp->tid_len;
+		/* the next session must be proven afresh */
+		if (lws_get_random(ctx->vhost->context, dts->rx_ch,
+				   sizeof(dts->rx_ch)) != sizeof(dts->rx_ch))
+			return;
+	}
+
+	lws_dht_ts_touch(dts);
+	lws_transport_sequencer_rx(ts, mp->offset, mp->data, mp->data_len);
 }
 
 int
@@ -1088,7 +1184,7 @@ skip_ip_tracking:
 		 */
 		if (mp.tid_len == LWS_DHT_SEQ_TID_LEN &&
 		    tid_match(mp.tid, "sq", NULL)) {
-			dht_seq_ack(ctx, &mp, from, fromlen);
+			dht_seq_ack(ctx, &mp, from);
 			break;
 		}
 
@@ -1314,29 +1410,9 @@ skip_ip_tracking:
 
 	case DHT_DATA:
 		if (mp.data) {
-			struct lws_transport_sequencer *ts;
 			lwsl_dht_rx("%s: Received reliable data payload (%d bytes, offset %llu)\n",
 				    __func__, (int)mp.data_len, (unsigned long long)mp.offset);
-			/*
-			 * Making a sequencer for a source we have never heard
-			 * from costs ~160KB of allocation and an ACK to an
-			 * unverified address: that is rate limited, and the
-			 * sequencer won't repeat anything to such a source
-			 * until it has acknowledged it
-			 */
-			ts = lws_dht_ts_rx(ctx, from, fromlen, mp.id);
-			if (ts) {
-				lws_dht_ts_t *dts = (lws_dht_ts_t *)
-					lws_transport_sequencer_get_info(ts)->user_data;
-
-				/* our acks to this chunk echo its tid */
-				dts->ack_tid_len = mp.tid_len;
-				if (dts->ack_tid_len > sizeof(dts->ack_tid))
-					dts->ack_tid_len = 0;
-				memcpy(dts->ack_tid, mp.tid, dts->ack_tid_len);
-
-				lws_transport_sequencer_rx(ts, mp.offset, mp.data, mp.data_len);
-			}
+			dht_seq_data(ctx, &mp, from, fromlen);
 		}
 		break;
 	case DHT_ANNOUNCE_PEER:

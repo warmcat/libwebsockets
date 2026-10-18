@@ -103,6 +103,17 @@
  */
 #define LWS_DHT_SEQ_NONCE_LEN		8
 #define LWS_DHT_SEQ_TID_LEN		(2 + LWS_DHT_SEQ_NONCE_LEN)
+/*
+ * The tid of the peer's chunks is its session: our receive half binds to the
+ * first one it sees, and takes chunks only with that tid.  A chunk with
+ * another tid is a restarted peer or a forgery: it is answered with a reply
+ * carrying a random challenge ("ch"), which goes to the real peer's address.
+ * Only a chunk carrying the challenge back can start a new receive session,
+ * so a blind spoofer can neither feed the session nor replace it.  The
+ * challenge reply has no offset, so peers predating it drop it as a broken
+ * ack.
+ */
+#define LWS_DHT_SEQ_CH_LEN		8
 /* subscribes we sent whose reply we are still waiting for */
 #define LWS_DHT_MAX_PENDING_SUBSCRIBES	8
 /*
@@ -422,9 +433,14 @@ typedef struct lws_dht_ts {
 	lws_sorted_usec_list_t		sul_idle;
 	/* "sq" + our nonce, sent with each chunk; an ack must echo it */
 	uint8_t				tx_tid[LWS_DHT_SEQ_TID_LEN];
-	/* the tid of the peer's latest chunk, echoed in our acks to it */
-	uint8_t				ack_tid[16];
-	size_t				ack_tid_len;
+	/* the challenge the peer asked us to prove our session with */
+	uint8_t				tx_ch[LWS_DHT_SEQ_CH_LEN];
+	/* the peer's session: the tid of its chunks, echoed in our acks */
+	uint8_t				rx_tid[16];
+	size_t				rx_tid_len;
+	/* what a chunk with another tid must carry to start a new session */
+	uint8_t				rx_ch[LWS_DHT_SEQ_CH_LEN];
+	uint8_t				tx_ch_set:1;
 } lws_dht_ts_t;
 
 struct lws_dht_mparams {
@@ -460,6 +476,10 @@ struct lws_dht_mparams {
 
 	lws_transport_sequencer_sack_block_t sack[4];
 	uint8_t			num_sack;
+
+	/* sequencer session challenge, or answer to one, if ch_len */
+	uint8_t			ch[LWS_DHT_SEQ_CH_LEN];
+	uint8_t			ch_len;
 
 	/* DHT_ERROR only: the "e" list, message pointing into the datagram */
 	const uint8_t		*error_msg;
@@ -595,6 +615,9 @@ int lws_dht_peer_known(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const 
 int lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
 void lws_dht_ip_vote(struct lws_dht_ctx *ctx, const struct sockaddr *from, size_t fromlen, const lws_sockaddr46 *reported);
 struct lws_transport_sequencer * lws_dht_ts_rx(struct lws_dht_ctx *ctx, const struct sockaddr *from, size_t fromlen, const lws_dht_hash_t *id);
+lws_dht_ts_t * lws_dht_ts_find(struct lws_dht_ctx *ctx, const struct sockaddr *sa);
+void lws_dht_ts_touch(lws_dht_ts_t *dts);
+int dht_tx_challenge(lws_dht_ts_t *dts, const uint8_t *tid, size_t tid_len);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);
 void * lws_dht_get_closure(struct lws_dht_ctx *ctx);
