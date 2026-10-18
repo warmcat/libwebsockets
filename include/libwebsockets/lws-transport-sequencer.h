@@ -185,6 +185,24 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 					 const lws_transport_sequencer_sack_block_t *blocks,
 					 size_t num_blocks, int status);
 
+/**
+ * lws_transport_sequencer_resend() - Send the oldest unacknowledged chunk now
+ *
+ * \param ts: sequencer instance
+ *
+ * For a peer that asks, through an exchange the transport has bound to this
+ * session as it must an ack (see lws_transport_sequencer_acknowledge_sack()),
+ * for our data again, eg, because it did not recognise our session and wants
+ * it proven.  Having answered our session, the peer receives from us, so an
+ * `unproven_peer` is proven.  The retry schedule is not changed, so a session
+ * the peer never acknowledges still fails on time.
+ *
+ * Returns 0 if a chunk was sent, 1 if nothing is waiting to be acked, or -1
+ * if the session is over.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_transport_sequencer_resend(struct lws_transport_sequencer *ts);
+
 LWS_VISIBLE LWS_EXTERN const lws_transport_sequencer_stats_t *
 lws_transport_sequencer_get_stats(struct lws_transport_sequencer *ts);
 
@@ -195,10 +213,28 @@ lws_transport_sequencer_get_stats(struct lws_transport_sequencer *ts);
  * \param offset: offset from the frame
  * \param buf: payload data
  * \param len: payload length
+ *
+ * The transport must only pass chunks it has bound to the peer's session: see
+ * lws_transport_sequencer_rx_reset().
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 			   uint64_t offset, const uint8_t *buf, size_t len);
+
+/**
+ * lws_transport_sequencer_rx_reset() - Start a new receive stream from 0
+ *
+ * \param ts: sequencer instance
+ *
+ * The receive half only knows offsets: it cannot tell the peer's chunks from
+ * forged ones, or a peer that restarted its stream from one repeating old
+ * chunks.  The transport binds the receive half to the peer's session, and
+ * only passes it chunks of that session.  When it has proof the peer began a
+ * new session, it calls this to forget what was received of the old one, so
+ * the new one is received from offset 0.  The send half is not affected.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_transport_sequencer_rx_reset(struct lws_transport_sequencer *ts);
 
 /**
  * lws_transport_sequencer_get_sack_blocks() - Get OOO blocks for SACK

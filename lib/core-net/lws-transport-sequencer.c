@@ -517,6 +517,35 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	return 0;
 }
 
+void
+lws_transport_sequencer_rx_reset(struct lws_transport_sequencer *ts)
+{
+	lws_dll2_foreach_safe(&ts->rx_scoreboard, NULL, lws_dll2_remove_it);
+	ts->next_rx_offset = 0;
+	ts->stats.rx_offset = 0;
+}
+
+int
+lws_transport_sequencer_resend(struct lws_transport_sequencer *ts)
+{
+	size_t len;
+	void *obj;
+
+	if (ts->completed)
+		return -1;
+
+	if (lws_dsh_get_head(ts->dsh, 0, &obj, &len))
+		return 1;
+
+	/* the transport bound the request to our session: he hears us */
+	ts->peer_proven = 1;
+	ts->stats.tx_retries++;
+
+	return ts->info.ops->tx_chunk(ts, *(uint64_t *)obj,
+				      (uint8_t *)obj + sizeof(uint64_t),
+				      len - sizeof(uint64_t)) < 0 ? -1 : 0;
+}
+
 LWS_VISIBLE const lws_transport_sequencer_info_t *
 lws_transport_sequencer_get_info(struct lws_transport_sequencer *ts)
 {
