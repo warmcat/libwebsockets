@@ -297,6 +297,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - The builtin `__default` streamtype is TLS-only and ignores `http://`
    endpoints ("ignoring non-tls scheme"); in-process plain-http tests
    need their own `pss_policies_json` (see api-test-lhp-doc-cache).
+ - **lws_dsh flags reshape records:** with `LWS_DSHFLAG_ENABLE_COALESCE`,
+   `lws_dsh_alloc_tail()` appends onto the existing tail object; with
+   `ENABLE_SPLIT` and `splitat` it cuts a record into several objects and
+   only the first carries the header.  A dsh whose objects are
+   header-delimited records must not inherit transport flags (G-186).
+ - **Peer credential checks are one-sided:** C-630 checks client peer ids
+   on the proxy side; nothing on the sspc client side calls
+   `lws_plat_unix_peer_ids()` on the proxy (G-185).
  - Server `LWSSSCS_SERVER_UPGRADE` goes to the accepted stream: CREATING,
    CONNECTING, SERVER_UPGRADE, CONNECTED.
  - A body-carrying SS method with a tx callback but no known length is
