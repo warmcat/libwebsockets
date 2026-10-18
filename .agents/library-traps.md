@@ -302,6 +302,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Plugins and stubs
 
+ - **lws-login renewal objects:** a `pending_login_refresh` is freed only
+   by the browser leg's WRITEABLE or the 5-minute sul.  A path that parks
+   a browser wsi on a side channel must free the parked object when that
+   wsi closes and at PROTOCOL_DESTROY (G-166, G-167).
+ - **lws-login uses the page URL itself as redirect_uri** and posts the
+   token to `<page path>/.lws-login-sso`; changing redirect_uri matching
+   in the auth server changes lws-login's contract too (G-112).
+ - **lws-login's cookies (`auth_session`, `auth_csrf`) are unprefixed and
+   usually Domain-scoped**, so siblings can write them: shape-check values
+   read from them before re-emitting them anywhere (G-168).
  - In a privileged stub, when one request type hardens its file access
    (private-dir fd checks, O_NOFOLLOW, regular-file and size checks),
    check every other request type in the same stub: they usually still
