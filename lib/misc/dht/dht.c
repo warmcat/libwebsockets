@@ -465,7 +465,10 @@ fail:
  * tid, so only the sequencer that sent the chunk takes it, and carries the
  * challenge that sequencer must send back to start a new session with us.
  * It goes to the peer's address, which a blind spoofer does not see.  With
- * no offset, it acks nothing: peers predating the challenge drop it.
+ * no offset, it acks nothing: peers predating the challenge drop it.  The
+ * tid it echoes is always a session tid, LWS_DHT_SEQ_TID_LEN long, which
+ * released v5.0.0 refuses as a reply tid: chunks with any other tid are not
+ * answered (dht_seq_data(), G-213).
  */
 
 int

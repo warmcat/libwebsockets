@@ -993,6 +993,16 @@ dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
  * that went to the peer's address, which costs a new transfer one round
  * trip.  A peer predating the challenge drops it as a broken ack, so it can
  * no longer start a transfer to us at all.
+ *
+ * A session tid is "sq" and a nonce, LWS_DHT_SEQ_TID_LEN long, the shape
+ * every sender since G-096 uses.  Anything else gets no answer at all, not
+ * even a challenge.  Released v5.0.0 sends its chunks with the fixed tid
+ * "sqnc" and takes any 4-byte reply tid starting "sq" (or "da") as an ack,
+ * one with no offset as an ack of everything: it would free its data and
+ * report success for a transfer we never took (G-213).  Unanswered, it fails
+ * visibly when its retries run out.  Since our challenges and acks only ever
+ * echo a tid of this shape, v5.0.0 refuses every one of them (it takes only
+ * 4 or 16-byte reply tids), whoever sent the chunk they answer.
  */
 
 static void
@@ -1002,8 +1012,13 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 	struct lws_transport_sequencer *ts;
 	lws_dht_ts_t *dts;
 
-	if (!mp->tid_len) /* nothing to bind to, or to echo in our ack */
+	if (mp->tid_len != LWS_DHT_SEQ_TID_LEN ||
+	    !tid_match(mp->tid, "sq", NULL)) {
+		lwsl_dht_rx("%s: chunk without a session tid (legacy "
+			    "sender?), not answered\n", __func__);
+		ctx->stats_current.rx_drops++;
 		return;
+	}
 
 	/*
 	 * Making a sequencer for a source we have never heard from costs

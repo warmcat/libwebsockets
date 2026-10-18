@@ -110,8 +110,11 @@
  * challenge ("ch"), which goes to the real peer's address.  Only a chunk
  * carrying the challenge back can start a receive session, the first one or
  * a new one, so a blind spoofer can neither start, feed nor replace one
- * (G-141, G-204).  The challenge reply has no offset, so peers predating it
- * drop it as a broken ack, and cannot send to us.
+ * (G-141, G-204).  The challenge reply has no offset, so senders between
+ * G-096 and G-141 drop it as a broken ack, and cannot send to us.  A chunk
+ * whose tid is not "sq" and a nonce, such as released v5.0.0's fixed "sqnc",
+ * is not answered at all: v5.0.0 reads a 4-byte reply tid starting "sq" as
+ * an ack, and one with no offset as an ack of everything (G-213).
  */
 #define LWS_DHT_SEQ_CH_LEN		8
 /* subscribes we sent whose reply we are still waiting for */

@@ -67,9 +67,9 @@
 /* polls to let the second fan-out's sequencers fail and be destroyed */
 #define SR_SETTLE_POLLS	40
 
-#define SR_Q_TID	"qqqqqqqqqq"
-#define SR_R_TID	"rrrrrrrrrr"
-#define SR_V_TID	"vvvvvvvvvv"	/* a spoofer's, from V's address */
+#define SR_Q_TID	"sqQQQQQQQQ"
+#define SR_R_TID	"sqRRRRRRRR"
+#define SR_V_TID	"sqVVVVVVVV"	/* a spoofer's, from V's address */
 
 /* B's session challenge ("ch"), as its reply to a chunk carries it */
 #define SR_CH_LEN	8
