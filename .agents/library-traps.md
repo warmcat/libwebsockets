@@ -138,6 +138,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    drivers that advance on COMPLETED must ignore a previous job's late
    CLOSED: after an h3 → h2 fallback, the h2 stream's CLOSED arrives a
    service pass after its COMPLETED.
+ - An h2 client request moves to a new stream wsi at the SETTINGS
+   migration (http2.c, `h2n->swsi`), so per-request state kept on the
+   client wsi must be copied there explicitly.  `client_no_follow_redirect`
+   is; the redirect counter was not, and reset to 0 on every redirect that
+   needed a new connection (G-026).  h1 and h3 keep the request on the
+   same wsi.
 
 ## State machines
 
