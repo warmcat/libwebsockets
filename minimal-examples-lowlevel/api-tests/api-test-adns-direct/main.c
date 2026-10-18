@@ -20,6 +20,9 @@
  *  - a server that never answers times out
  *  - a port with nothing on it fails at once, as the ICMP refusal arrives
  *  - a cancelled query never calls back
+ *  - a server whose socket can't even connect (the broadcast address,
+ *    refused without SO_BROADCAST) fails to start, without calling back
+ *    from inside the call
  */
 
 #include <libwebsockets.h>
@@ -45,7 +48,7 @@ static struct lws_context *context;
 static lws_sorted_usec_list_t sul_start, sul_deadline;
 static lws_sockaddr46 sa_srv, sa_dead, sa_refused;
 static struct lws_adns_direct *cancelled;
-static int fails, outstanding;
+static int fails, outstanding, unstartable_called;
 
 struct dq {
 	const char		*what;
@@ -122,8 +125,15 @@ direct_cb(void *opaque, const lws_adns_direct_result_t *r)
 }
 
 static void
+unstartable_cb(void *opaque, const lws_adns_direct_result_t *r)
+{
+	unstartable_called = 1;
+}
+
+static void
 start_cb(lws_sorted_usec_list_t *sul)
 {
+	lws_sockaddr46 sa_bcast;
 	size_t n;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(qs); n++) {
@@ -154,6 +164,27 @@ start_cb(lws_sorted_usec_list_t *sul)
 		lwsl_err("%s: FAILED: cancel left the handle\n", __func__);
 		fails++;
 	}
+
+#if defined(LWS_WITH_IPV4)
+	/*
+	 * connect() to the broadcast address fails at once, inside the
+	 * adoption: that must be a NULL return and no callback, not a
+	 * callback from inside the call and then a NULL return (G-067).
+	 * IPv6-only builds would ask its v4-mapped form instead.
+	 */
+	memset(&sa_bcast, 0, sizeof(sa_bcast));
+	sa_bcast.sa4.sin_family = AF_INET;
+	sa_bcast.sa4.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+	if (lws_async_dns_query_direct(context, &sa_bcast,
+				"_acme-challenge." ORIGIN, LWS_ADNS_RECORD_TXT,
+				unstartable_cb, NULL)) {
+		lwsl_err("%s: FAILED: a query to the broadcast address "
+			 "started\n", __func__);
+		fails++;
+	} else
+		lwsl_user("%s: ok: unconnectable server fails to start\n",
+			  __func__);
+#endif
 
 	if (!outstanding)
 		lws_default_loop_exit(context);
@@ -287,6 +318,12 @@ main(int argc, const char **argv)
 	lws_sul_cancel(&sul_start);
 	lws_sul_cancel(&sul_deadline);
 	lws_context_destroy(context);
+
+	if (unstartable_called) {
+		lwsl_err("%s: FAILED: the query that couldn't start called "
+			 "back\n", __func__);
+		fails++;
+	}
 
 	lwsl_user("Completed: %s\n", fails ? "FAIL" : "PASS");
 	r = !!fails;

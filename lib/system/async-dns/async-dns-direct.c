@@ -52,6 +52,9 @@ struct lws_adns_direct {
 	uint16_t			pkt_len;
 	uint8_t				tries;
 
+	uint8_t				adopting:1;	/* in the adopt call */
+	uint8_t				closed_adopting:1;
+
 	char				name[DNS_MAX];
 	uint8_t				pkt[LWS_PRE + DNS_PACKET_LEN];
 };
@@ -223,6 +226,20 @@ lws_adns_direct_callback(struct lws *wsi, enum lws_callback_reasons reason,
 	if (!direct_is_ours(dns, ad))
 		return 0;
 
+	if (ad->adopting) {
+		/*
+		 * Still inside lws_create_adopt_udp(), eg, the connect()
+		 * failed and it is closing the wsi: our caller hasn't got a
+		 * handle yet and was promised no callback if we can't start,
+		 * so only note it for lws_async_dns_query_direct() to deal
+		 * with when the adoption returns
+		 */
+		if (reason == LWS_CALLBACK_RAW_CLOSE)
+			ad->closed_adopting = 1;
+
+		return 1;
+	}
+
 	switch (reason) {
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		if (!wsi->io->udp)
@@ -324,6 +341,7 @@ lws_async_dns_query_direct(struct lws_context *cx,
 			   lws_async_dns_direct_cb_t cb, void *opaque)
 {
 	struct lws_adns_direct *ad;
+	struct lws *wsi;
 	char ads[48];
 
 	if (!cx || !server || !name || !cb || strlen(name) >= DNS_MAX ||
@@ -368,25 +386,33 @@ lws_async_dns_query_direct(struct lws_context *cx,
 		return NULL;
 	}
 
-	/* before the wsi exists, so its first callbacks find us */
+	/*
+	 * Before the wsi exists, so its first callbacks find us.  The numeric
+	 * address means the adoption completes, or fails, inside the call:
+	 * while it is in there, callbacks only record a close (G-067).
+	 */
 	lws_dll2_add_tail(&ad->list, &cx->async_dns.direct);
+	ad->adopting = 1;
 
 	lws_sa46_write_numeric_address(&ad->server, ads, sizeof(ads));
-	ad->wsi = lws_create_adopt_udp(lws_vhost_first(cx), ads,
-				       ntohs(direct_port(&ad->server)), 0,
-				       "lws-async-dns", NULL, NULL, ad, NULL,
-				       "adns-direct");
-	if (!ad->wsi || !ad->wsi->io->udp) {
+	wsi = lws_create_adopt_udp(lws_vhost_first(cx), ads,
+				   ntohs(direct_port(&ad->server)), 0,
+				   "lws-async-dns", NULL, NULL, ad, NULL,
+				   "adns-direct");
+	ad->adopting = 0;
+
+	if (ad->closed_adopting || !wsi || !wsi->io->udp) {
 		lwsl_cx_warn(cx, "%s: no socket to %s", __func__, ads);
-		if (ad->wsi)
+		if (wsi && !ad->closed_adopting)
 			/* adoption didn't complete: it is closing by itself */
-			lws_set_opaque_user_data(ad->wsi, NULL);
-		ad->wsi = NULL;
+			lws_set_opaque_user_data(wsi, NULL);
 		lws_dll2_remove(&ad->list);
 		lws_free(ad);
 
 		return NULL;
 	}
+
+	ad->wsi = wsi;
 	ad->wsi->io->udp->sa46 = ad->server;
 
 	direct_sul_cb(&ad->sul);
