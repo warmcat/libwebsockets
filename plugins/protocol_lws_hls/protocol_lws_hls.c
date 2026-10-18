@@ -785,10 +785,18 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			free(c);
 		}
 
-		/* free task queue, and anything finished but not collected */
+		/* free task queues, and anything finished but not collected */
 		while (lws_dll2_get_head(&vhd->tasks)) {
 			struct hls_task *t = lws_container_of(
 					lws_dll2_get_head(&vhd->tasks),
+					struct hls_task, list);
+
+			lws_dll2_remove(&t->list);
+			lws_hls_task_free(t);
+		}
+		while (lws_dll2_get_head(&vhd->thumb_tasks)) {
+			struct hls_task *t = lws_container_of(
+					lws_dll2_get_head(&vhd->thumb_tasks),
 					struct hls_task, list);
 
 			lws_dll2_remove(&t->list);
@@ -1359,6 +1367,7 @@ err_404:
 				
 				pss->waiting_for_thumbnail = 0;
 				pthread_mutex_unlock(&vhd->lock);
+				lws_hls_thumb_detach(vhd, pss);
 				
 				lws_callback_on_writable(wsi);
 				return 0;
@@ -1367,7 +1376,7 @@ err_404:
 			/* Not in cache. Did it fail? */
 			int is_pending = 0;
 			lws_start_foreach_dll(struct lws_dll2 *, d2,
-					      lws_dll2_get_head(&vhd->tasks)) {
+					      lws_dll2_get_head(&vhd->thumb_tasks)) {
 				struct hls_task *t = lws_container_of(d2,
 							struct hls_task, list);
 
@@ -1390,6 +1399,7 @@ err_404:
 			if (!is_pending) {
 				/* Not pending and not in cache -> extraction failed */
 				pss->waiting_for_thumbnail = 0;
+				lws_hls_thumb_detach(vhd, pss);
 				lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 				return -1;
 			}

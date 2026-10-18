@@ -211,7 +211,9 @@ hls_media_depth(const char *filename)
  *
  * Thumbnails are the exception in that their result goes into a shared
  * cache rather than to one session, since several sessions typically ask
- * for the same one at once (the directory listing).
+ * for the same one at once (the directory listing).  They wait on a queue
+ * of their own, vhd->thumb_tasks, that the worker takes from only when
+ * there is no playback work.
  */
 enum hls_task_type {
 	HLS_TASK_THUMB,		/* result goes into vhd->thumb_cache */
@@ -229,6 +231,13 @@ enum hls_task_state {
 	HLS_TASK_PARKED,	/* on vhd->parked, waiting for an index */
 	HLS_TASK_DONE,		/* on vhd->done, awaiting collection */
 };
+
+/*
+ * The host a request is accounted to (lws_hls_host_key()): the address for
+ * IPv4, the /64 for IPv6, since that is what one host commands.  With
+ * headroom for "a:b:c:d::/64".
+ */
+#define HLS_HOST_KEY_LEN 64
 
 /* what a task hands back: an HTTP status, and for 200, a body */
 struct hls_result {
@@ -271,6 +280,17 @@ struct hls_task {
 	 */
 	int atrans_audio_idx;
 	int64_t atrans_need_us;
+
+	/* the host of the request that queued it, which it counts against */
+	char host[HLS_HOST_KEY_LEN];
+
+	/*
+	 * Thumbnails only, event loop only, under vhd->lock: what the
+	 * sessions waiting on it while it is pending know it by, and how many
+	 * of them there are.  When the last goes away it is dropped unrun.
+	 */
+	uint32_t thumb_id;
+	int thumb_waiters;
 
 	struct hls_result r;
 };
@@ -324,11 +344,33 @@ struct hls_atrans_job {
  * one (HLS_THUMB_DEFAULT_T, -1 here) for a file the viewer has not started,
  * and one at their resume position for a file they have, so several
  * viewers can each be looking at a different frame of the same file.
- * Times are bucketed by the client (HLS_THUMB_T_BUCKET) to bound this.
+ * Times are bucketed to HLS_THUMB_T_BUCKET seconds, by the client and again
+ * here, up to HLS_THUMB_T_MAX.
  */
 #define HLS_THUMB_DEFAULT_T	-1
 #define HLS_THUMB_DEFAULT_SECS	10
 #define HLS_THUMB_CACHE_CAP	64
+#define HLS_THUMB_T_BUCKET	5
+#define HLS_THUMB_T_MAX		(24 * 3600)	/* past any film's end */
+
+/*
+ * Anybody may ask for a thumbnail at any time, and each distinct one costs a
+ * decode of up to HLS_THUMB_MAX_DECODE frames on the worker.  Thumbnails
+ * have their own queue, which the worker only takes from when no playback
+ * work is waiting, and at most these many timed ones may be pending, in
+ * all and from one host: past that, a request is answered with the default
+ * one, whose number is bounded by the media files there are.
+ */
+#define HLS_THUMB_TIMED_PENDING_MAX		32
+#define HLS_THUMB_TIMED_PENDING_PER_HOST	8
+
+/*
+ * Playback tasks are one per transaction and dropped when it goes away, but
+ * one host with many connections or streams could still queue enough of
+ * them to keep everyone else waiting: past this many pending from one host,
+ * a request is answered 503.  A player has a few in flight at most.
+ */
+#define HLS_TASKS_PENDING_PER_HOST		16
 
 struct thumb_cache {
 	lws_dll2_t list;	/* vhd->thumb_cache membership, MRU first */
@@ -370,7 +412,10 @@ struct per_vhost_data__lws_hls {
 	pthread_cond_t cond;
 	int thread_exit;
 
-	lws_dll2_owner_t tasks;		/* pending work, FIFO */
+	lws_dll2_owner_t tasks;		/* pending playback work, FIFO */
+	lws_dll2_owner_t thumb_tasks;	/* pending thumbnails, FIFO, run only
+					 * when tasks is empty */
+	uint32_t thumb_serial;		/* last hls_task.thumb_id given out */
 	lws_dll2_owner_t done;		/* finished, awaiting collection */
 	struct hls_task *running;	/* what the worker has, under lock */
 	lws_dll2_owner_t parked;	/* tasks waiting on an index build */
@@ -619,6 +664,8 @@ struct per_session_data__lws_hls {
 	int waiting_for_thumbnail;
 	char thumb_filename[256];
 	int thumb_t;
+	/* the pending thumbnail task we count as a waiter on, or 0 */
+	uint32_t thumb_task_id;
 	
 	int can_delete;		/* this request may delete media */
 
@@ -663,7 +710,8 @@ lws_hls_worker(void *d);
  * possible) if it could not.  lws_hls_collect_done() is called from
  * LWS_CALLBACK_EVENT_WAIT_CANCELLED to hand finished results to their
  * sessions.  lws_hls_task_detach() is called when a session goes away, so
- * its task is dropped or cancelled rather than delivered to freed memory.
+ * its task is dropped or cancelled rather than delivered to freed memory,
+ * and a pending thumbnail nobody else is waiting for is dropped.
  */
 int
 lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
@@ -677,12 +725,20 @@ void
 lws_hls_task_detach(struct per_vhost_data__lws_hls *vhd,
 		    struct per_session_data__lws_hls *pss);
 
+/* a session stops waiting on its thumbnail, see hls_task.thumb_waiters */
+void
+lws_hls_thumb_detach(struct per_vhost_data__lws_hls *vhd,
+		     struct per_session_data__lws_hls *pss);
+
 void
 lws_hls_task_free(struct hls_task *t);
 
 int
 lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
 			const char *filename, int t);
+
+void
+lws_hls_host_key(struct lws *wsi, char *key, size_t len);
 
 int
 lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd);

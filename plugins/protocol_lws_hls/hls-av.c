@@ -412,7 +412,8 @@ lws_hls_worker(void *d)
 
                 pthread_mutex_lock(&vhd->lock);
 
-                while (!vhd->thread_exit && !lws_dll2_get_head(&vhd->tasks)) {
+                while (!vhd->thread_exit && !lws_dll2_get_head(&vhd->tasks) &&
+		       !lws_dll2_get_head(&vhd->thumb_tasks)) {
                         pthread_cond_wait(&vhd->cond, &vhd->lock);
                 }
                 if (vhd->thread_exit) {
@@ -420,7 +421,14 @@ lws_hls_worker(void *d)
                         break;
                 }
 
-                t = lws_container_of(lws_dll2_get_head(&vhd->tasks),
+		/*
+		 * Playback first: a thumbnail only when no playback work is
+		 * waiting, so however many are queued, a playlist or segment
+		 * waits at most for the one thumbnail already running
+		 */
+                t = lws_container_of(lws_dll2_get_head(&vhd->tasks) ?
+				     lws_dll2_get_head(&vhd->tasks) :
+				     lws_dll2_get_head(&vhd->thumb_tasks),
 				     struct hls_task, list);
                 lws_dll2_remove(&t->list);
 		t->state = HLS_TASK_RUNNING;
@@ -497,6 +505,62 @@ lws_hls_worker(void *d)
         return NULL;
 }
 
+/*
+ * The key a request is accounted to its source host under: the address for
+ * IPv4, but the /64 for IPv6, since that is what one host commands.  A
+ * v4-mapped address is its IPv4 address.  lws_get_peer_simple() gives the
+ * client a trusted PROXY v2 proxy named, where there is one.
+ */
+void
+lws_hls_host_key(struct lws *wsi, char *key, size_t len)
+{
+	char addr[64];
+#if defined(LWS_WITH_IPV6)
+	lws_sockaddr46 sa46;
+#endif
+
+	addr[0] = '\0';
+	lws_get_peer_simple(wsi, addr, sizeof(addr));
+
+#if defined(LWS_WITH_IPV6)
+	if (!lws_sa46_parse_numeric_address(addr, &sa46) &&
+	    sa46.sa4.sin_family == AF_INET6) {
+		const uint8_t *a = sa46.sa6.sin6_addr.s6_addr;
+		static const uint8_t v4map[12] = { [10] = 0xff, [11] = 0xff };
+
+		if (!memcmp(a, v4map, sizeof(v4map)))
+			lws_snprintf(key, len, "%u.%u.%u.%u", a[12], a[13],
+				     a[14], a[15]);
+		else
+			lws_snprintf(key, len, "%x:%x:%x:%x::/64",
+				     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
+				     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
+		return;
+	}
+#endif
+
+	lws_strncpy(key, addr, len);
+}
+
+/* vhd->lock held: how many tasks pending on owner were queued by host */
+static int
+hls_tasks_from_host(const lws_dll2_owner_t *owner, const char *host,
+		    int timed_thumbs_only)
+{
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
+		const struct hls_task *t = lws_container_of(d,
+						struct hls_task, list);
+
+		if ((!timed_thumbs_only || t->segment_idx >= 0) &&
+		    (!host || !strcmp(t->host, host)))
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
 int
 lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		   enum hls_task_type type, const char *filename,
@@ -511,7 +575,9 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		   type == HLS_TASK_SUB_PLAYLIST;
 	struct per_session_data__lws_hls *pss =
 		(struct per_session_data__lws_hls *)lws_wsi_user(wsi);
+	char host[HLS_HOST_KEY_LEN];
 	struct hls_task *t;
+	int n;
 
 	if (!vhd || !pss)
 		return -1;
@@ -522,6 +588,8 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 				       NULL);
 		return -1;
 	}
+
+	lws_hls_host_key(wsi, host, sizeof(host));
 
 	t = calloc(1, sizeof(*t));
 	if (!t) {
@@ -539,13 +607,26 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	if (trackid)
 		lws_strncpy(t->trackid, trackid, sizeof(t->trackid));
 	t->segment_idx = segment_idx;
+	lws_strncpy(t->host, host, sizeof(t->host));
 	t->pss = pss;
 	t->r.status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+
+	pthread_mutex_lock(&vhd->lock);
+
+	n = hls_tasks_from_host(&vhd->tasks, host, 0);
+	if (n >= HLS_TASKS_PENDING_PER_HOST) {
+		pthread_mutex_unlock(&vhd->lock);
+		lwsl_notice("%s: %s has %d tasks pending, refusing type %d\n",
+			    __func__, host, n, type);
+		lws_hls_task_free(t);
+		lws_return_http_status(wsi, HTTP_STATUS_SERVICE_UNAVAILABLE,
+				       NULL);
+		return -1;
+	}
 
 	pss->task = t;
 	pss->resp_ready = 0;
 
-	pthread_mutex_lock(&vhd->lock);
 	if (head)
 		lws_dll2_add_head(&t->list, &vhd->tasks);
 	else
@@ -567,11 +648,52 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	return 0;
 }
 
+/*
+ * A session waiting on a pending thumbnail stops waiting: when nobody else
+ * is, it is dropped rather than run for nobody.  Once the worker has it, it
+ * is no longer on vhd->thumb_tasks and is left to finish into the cache.
+ */
+void
+lws_hls_thumb_detach(struct per_vhost_data__lws_hls *vhd,
+		     struct per_session_data__lws_hls *pss)
+{
+	struct hls_task *drop = NULL;
+	uint32_t id = pss->thumb_task_id;
+
+	if (!id)
+		return;
+
+	pss->thumb_task_id = 0;
+
+	pthread_mutex_lock(&vhd->lock);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->thumb_tasks)) {
+		struct hls_task *t = lws_container_of(d, struct hls_task, list);
+
+		if (t->thumb_id == id) {
+			if (--t->thumb_waiters <= 0) {
+				lws_dll2_remove(&t->list);
+				drop = t;
+			}
+			break;
+		}
+	} lws_end_foreach_dll(d);
+	pthread_mutex_unlock(&vhd->lock);
+
+	if (drop) {
+		lwsl_info("%s: dropped thumbnail '%s' t=%d, nobody waiting\n",
+			  __func__, drop->filename, drop->segment_idx);
+		lws_hls_task_free(drop);
+	}
+}
+
 void
 lws_hls_task_detach(struct per_vhost_data__lws_hls *vhd,
 		    struct per_session_data__lws_hls *pss)
 {
 	struct hls_task *t = pss->task;
+
+	lws_hls_thumb_detach(vhd, pss);
 
 	if (!t)
 		return;
@@ -645,83 +767,137 @@ lws_hls_collect_done(struct per_vhost_data__lws_hls *vhd)
 	}
 }
 
+/* vhd->lock held: the cached thumbnail of filename at t, if any */
+static struct thumb_cache *
+hls_thumb_cached(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		 int t)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->thumb_cache)) {
+		struct thumb_cache *c = lws_container_of(d, struct thumb_cache,
+							 list);
+
+		if (!strcmp(c->filename, filename) && c->t == t)
+			return c;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 int
 lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
 			const char *filename, int t)
 {
-        struct per_vhost_data__lws_hls *vhd = (struct per_vhost_data__lws_hls *)
-                lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
-        struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)
-                lws_wsi_user(wsi);
+	struct per_vhost_data__lws_hls *vhd = (struct per_vhost_data__lws_hls *)
+		lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+					 lws_get_protocol(wsi));
+	struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)
+		lws_wsi_user(wsi);
+	char host[HLS_HOST_KEY_LEN], path[1024];
+	struct hls_task *pending, *nt;
+	struct stat st;
+	int timed, timed_host;
 
-        if (!vhd || !pss) return -1;
+	if (!vhd || !pss)
+		return -1;
 
-        pthread_mutex_lock(&vhd->lock);
+	/*
+	 * Only for media that is there: the default thumbnails are then
+	 * bounded by the files there are, whoever asks
+	 */
+	lws_snprintf(path, sizeof(path), "%s/%s", media_dir, filename);
+	if (stat(path, &st) || !S_ISREG(st.st_mode)) {
+		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+		return -1;
+	}
 
-        struct thumb_cache *c = NULL;
-        lws_start_foreach_dll(struct lws_dll2 *, d,
-                              lws_dll2_get_head(&vhd->thumb_cache)) {
-                struct thumb_cache *cc = lws_container_of(d,
-                                                struct thumb_cache, list);
+	/* ...and the timed ones by the buckets there are in a day */
+	if (t > HLS_THUMB_T_MAX)
+		t = HLS_THUMB_T_MAX;
+	if (t >= 0)
+		t -= t % HLS_THUMB_T_BUCKET;
 
-                if (!strcmp(cc->filename, filename) && cc->t == t) {
-                        c = cc;
-                        break;
-                }
-        } lws_end_foreach_dll(d);
+	lws_hls_host_key(wsi, host, sizeof(host));
 
-        if (c) {
-                pthread_mutex_unlock(&vhd->lock);
-                lws_strncpy(pss->thumb_filename, filename,
-                            sizeof(pss->thumb_filename));
-                pss->thumb_t = t;
-                pss->waiting_for_thumbnail = 1;
-                lws_callback_on_writable(wsi);
-                return 0;
-        }
+	/* not still counted as waiting on whatever we asked for before */
+	lws_hls_thumb_detach(vhd, pss);
+	lws_strncpy(pss->thumb_filename, filename, sizeof(pss->thumb_filename));
 
-        int already_queued = 0;
-        lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&vhd->tasks)) {
-                struct hls_task *tk = lws_container_of(d2,
-                                                struct hls_task, list);
+again:
+	pss->thumb_t = t;
 
-                if (tk->type == HLS_TASK_THUMB && tk->segment_idx == t &&
-		    !strcmp(tk->filename, filename)) {
-                        already_queued = 1;
-                        break;
-                }
-        } lws_end_foreach_dll(d2);
+	pthread_mutex_lock(&vhd->lock);
+
+	if (hls_thumb_cached(vhd, filename, t)) {
+		pthread_mutex_unlock(&vhd->lock);
+		pss->waiting_for_thumbnail = 1;
+		lws_callback_on_writable(wsi);
+		return 0;
+	}
+
+	/* already queued, then we wait on that one too */
+	pending = NULL;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->thumb_tasks)) {
+		struct hls_task *tk = lws_container_of(d, struct hls_task, list);
+
+		if (tk->segment_idx == t && !strcmp(tk->filename, filename)) {
+			pending = tk;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (pending) {
+		pending->thumb_waiters++;
+		pss->thumb_task_id = pending->thumb_id;
+		goto wait;
+	}
 
 	/* ...or being extracted right now */
 	if (vhd->current_task_filename[0] && vhd->current_task_t == t &&
 	    !strcmp(vhd->current_task_filename, filename))
-		already_queued = 1;
+		goto wait;
 
-        if (!already_queued) {
-                struct hls_task *nt = calloc(1, sizeof(*nt));
-                if (!nt) {
-                        pthread_mutex_unlock(&vhd->lock);
-                        return -1;
-                }
-		nt->type = HLS_TASK_THUMB;
-		nt->state = HLS_TASK_PENDING;
-		nt->segment_idx = t;	/* the time wanted, for a thumb */
-                lws_strncpy(nt->filename, filename, sizeof(nt->filename));
+	if (t >= 0) {
+		timed = hls_tasks_from_host(&vhd->thumb_tasks, NULL, 1);
+		timed_host = hls_tasks_from_host(&vhd->thumb_tasks, host, 1);
+		if (timed >= HLS_THUMB_TIMED_PENDING_MAX ||
+		    timed_host >= HLS_THUMB_TIMED_PENDING_PER_HOST) {
+			pthread_mutex_unlock(&vhd->lock);
+			lwsl_info("%s: %d timed thumbnails pending (%d from "
+				  "%s): default one for '%s'\n", __func__,
+				  timed, timed_host, host, filename);
+			t = HLS_THUMB_DEFAULT_T;
+			goto again;
+		}
+	}
 
-                lws_dll2_add_tail(&nt->list, &vhd->tasks);
+	nt = calloc(1, sizeof(*nt));
+	if (!nt) {
+		pthread_mutex_unlock(&vhd->lock);
+		return -1;
+	}
+	nt->type = HLS_TASK_THUMB;
+	nt->state = HLS_TASK_PENDING;
+	nt->segment_idx = t;	/* the time wanted, for a thumb */
+	lws_strncpy(nt->filename, filename, sizeof(nt->filename));
+	lws_strncpy(nt->host, host, sizeof(nt->host));
+	if (!++vhd->thumb_serial)
+		vhd->thumb_serial++;	/* 0 is "none" */
+	nt->thumb_id = vhd->thumb_serial;
+	nt->thumb_waiters = 1;
+	pss->thumb_task_id = nt->thumb_id;
 
-                pthread_cond_signal(&vhd->cond);
-        }
-        
-        pthread_mutex_unlock(&vhd->lock);
-        
-        lws_strncpy(pss->thumb_filename, filename,
-                    sizeof(pss->thumb_filename));
-        pss->thumb_t = t;
-        pss->waiting_for_thumbnail = 1;
-        lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
-        
-        return 0;
+	lws_dll2_add_tail(&nt->list, &vhd->thumb_tasks);
+	pthread_cond_signal(&vhd->cond);
+
+wait:
+	pthread_mutex_unlock(&vhd->lock);
+
+	pss->waiting_for_thumbnail = 1;
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
+
+	return 0;
 }
 
 

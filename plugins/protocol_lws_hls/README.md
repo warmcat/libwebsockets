@@ -67,7 +67,19 @@ the later of the file's date and when the viewer last watched it, so what
 they were watching recently sits at the top alongside what was recently
 added.  Nothing about the viewer is stored on the server: the timed
 thumbnails are cached per (file, seconds) like the default ones, the seconds
-bucketed by the client to 5s so the cache is not asked for every second.
+bucketed to 5s (by the client, and again by the server, which also caps them
+at a day) so the cache is not asked for every second.
+
+Anybody can ask for thumbnails, and each new one costs the worker a decode,
+so the server bounds them.  A thumbnail is only made for a file that is
+there, and waits on a queue of its own that the worker takes from only when
+no playlist or segment is waiting, so playback never waits for more than the
+one thumbnail already being made.  At most 32 timed thumbnails may be
+waiting to be made, and 8 from any one host (an IPv4 address, or an IPv6
+/64); past that, a request for one is answered with the file's default
+thumbnail instead.  A thumbnail nobody is waiting for any more is dropped
+before it is made.  Playback requests are bounded per host too: past 16
+waiting for the worker from one host, more are answered 503.
 
 A timed thumbnail is only cut through the file's keyframe index (see below),
 never by asking the demuxer to seek a large file without cues; a file that
