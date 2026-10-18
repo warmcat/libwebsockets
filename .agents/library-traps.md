@@ -31,6 +31,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    on loopback), or an async DNS cache hit or an NXDOMAIN (connect2.c /
    connect3.c) making `lws_client_connect_via_info()` deliver the CCE
    before it returns NULL.  Every plugin caller needs the guard (G-043).
+   `lws_create_adopt_udp()` likewise delivers RAW_CLOSE inside the call
+   when the UDP connect() of a numeric address fails (adopt.c), so state
+   its callback can already reach must not be used after it (G-067).
    Callers that touch state after the call (or free it in the CCE
    handler) break.  The pattern used: an `in_connect` flag that the CCE
    handler checks, deferring to the connect caller.
