@@ -41,6 +41,10 @@
  *    (1 used to be TOLERATE, which validated nothing: G-070),
  *  - with the context mode set to REQUIRE by lws_async_dns_dnssec_set_mode(),
  *    the same, also after the nameservers were reloaded,
+ *  - those queries, which we validate ourselves, are sent with CD, so the
+ *    upstream gives us what it has whatever it thinks of it; a query we don't
+ *    validate is sent without, so a validating upstream still refuses bogus
+ *    data for us,
  *  - each zone's keys were only fetched once for all of that,
  *  - once the trust anchor is replaced by one that matches no root key,
  *    nothing validates any more, including what was cached as validated
@@ -133,6 +137,7 @@ struct trrset {
 	uint16_t	rrsig_len;
 
 	int		asked;		/* how many times the resolver asked */
+	int		last_cd;	/* the last query had CD set */
 };
 
 static const uint8_t a_www[] = { 127, 0, 0, 7 };
@@ -567,6 +572,7 @@ ns_answer(const uint8_t *q, size_t ql, const struct sockaddr *peer,
 
 	if (s) {
 		s->asked++;
+		s->last_cd = !!(q[3] & 0x10); /* Checking Disabled */
 		if (ns_drop_root && !*s->owner)
 			return; /* never answered */
 		ans = put_rrset(resp, &o, s, NULL);
@@ -624,6 +630,8 @@ struct tstep {
 	int		require;	/* REQUIRE mode instead of WANT_DNSSEC:
 					 * 1: set with the setter, 2: as the
 					 * context was created */
+	int		cd;		/* 1: query must have CD, 2: must not */
+	int		plain;		/* neither WANT_DNSSEC nor REQUIRE */
 };
 
 static const struct tstep steps[] = {
@@ -659,14 +667,22 @@ static const struct tstep steps[] = {
 	 */
 	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
 	  .expect_valid = 1,		.check_a = 1,
-	  .require = 2 },
+	  .require = 2,			.cd = 1 },
 	/*
 	 * Validated because the context mode is REQUIRE, set with the
 	 * setter: it must survive the nameserver reload done first
 	 */
 	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
 	  .expect_valid = 1,		.check_a = 1,
-	  .require = 1 },
+	  .require = 1,			.cd = 1 },
+	/*
+	 * Mode OFF again, and not asking: we don't validate it, so the query
+	 * must not have CD, which would stop a validating upstream refusing
+	 * bogus data for us (G-069)
+	 */
+	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
+	  .check_a = 1,			.cd = 2,
+	  .plain = 1 },
 	/* after the anchor is replaced by one that matches no root key */
 	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
 	  .bogus_anchor = 1 },
@@ -735,6 +751,18 @@ step_check(void)
 			 step_result, t->expect_valid ? "valid" : "failure");
 		fails++;
 		return;
+	}
+
+	if (t->cd) {
+		const struct trrset *r = find_rrset(t->name,
+						    (uint16_t)(t->qtype & 0xffff));
+
+		if (!r || r->last_cd != (t->cd == 1)) {
+			lwsl_err("step %d: query CD bit %d, expected %d\n",
+				 step, r ? r->last_cd : -1, t->cd == 1);
+			fails++;
+			return;
+		}
 	}
 
 	if (t->check_a && memcmp(step_ads, a_www, sizeof(a_www))) {
@@ -839,7 +867,8 @@ step_start(void)
 	step_www_asked = times_asked("www.zone.tld", RR_A);
 
 	n = lws_async_dns_query(cx, 0, t->name, (adns_query_type_t)(t->qtype |
-				(t->require ? 0 : LWS_ADNS_WANT_DNSSEC) |
+				(t->require || t->plain ? 0 :
+						LWS_ADNS_WANT_DNSSEC) |
 				LWS_ADNS_IGNORE_HOSTS_FILE),
 				query_cb, NULL, NULL, NULL);
 

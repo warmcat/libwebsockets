@@ -34,6 +34,9 @@ It checks that
    `lws_async_dns_dnssec_set_mode()`, a lookup that doesn't ask with
    `LWS_ADNS_WANT_DNSSEC` is validated anyway, also after the nameservers were
    reloaded
+ - those queries, which lws validates itself, go out with CD (Checking
+   Disabled); a query lws doesn't validate goes out without it, so a
+   validating upstream still refuses bogus data
  - each zone's keys were only fetched once for all of that
  - after the trust anchor is replaced by one that matches no root key, the
    chain is walked again from the root and nothing validates, not even what

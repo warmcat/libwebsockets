@@ -400,9 +400,16 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 					LADNS_MOST_RECENT_TID(q));
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8) | (1 << 4)); /* RD + CD */
+	/*
+	 * RD, and CD only if we validate this answer ourselves: then we want
+	 * the records and signatures whatever the upstream thinks of them, and
+	 * judge them by our own anchors.  Otherwise CD would stop a validating
+	 * upstream refusing bogus data, and we would take it unchecked.
+	 */
+	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8) |
+				      (lws_adns_q_validates(q) ? (1 << 4) : 0));
 #else
-	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8));
+	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8)); /* RD */
 #endif
 
 	lws_ser_wu16be(&p[DHO_NQUERIES], 1);
