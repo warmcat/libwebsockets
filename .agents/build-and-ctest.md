@@ -81,6 +81,10 @@
    with machine speed (26815 vs 2569 turns measured for the same case).
    Count only turns that took >= 1ms ("wakes"); that gave a stable 101
    unfixed vs 11 fixed in api-test-tls-passthrough.
+ - **Hostile h3 sequences without fault injection:** on an h3 client
+   stream, `lws_write(..., LWS_WRITE_BINARY)` goes out raw with no DATA
+   framing (`rops_write_role_protocol_h3()`), so a test can frame the
+   stream itself (see the h3 case in api-test-http-attack).
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
    should be explicit: a deadline that sets failure and cancels service,
    not reliance on the ctest TIMEOUT.  Note a context destroy at the

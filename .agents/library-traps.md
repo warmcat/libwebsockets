@@ -53,6 +53,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    check silently stops applying once the ah goes (G-016), and on h3 a
    trailers HEADERS block attaches a fresh ah (G-022).  Test any new ah reader
    against an h2 stream in HTTP_WRITEABLE.
+ - Deliver `LWS_CALLBACK_HTTP_BODY_COMPLETION` only through
+   `lws_http_body_completion()`, which latches `wsi->http.rx_body_done`
+   so completion happens at most once per request on every role (G-016,
+   G-022).  Calling the protocol callback directly reopens that bug.
  - **`lws_hdr_extant()`** reads `frags[n].flags & 2`, not just whether a
    fragment index is set.  Anything creating ah fragments itself must set
    the flag, or the header reads as absent (or as the ah's previous
