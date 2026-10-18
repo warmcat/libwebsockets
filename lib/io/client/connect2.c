@@ -304,6 +304,20 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 	adsin = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
 					  _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
+	/*
+	 * Eg, "012.0.0.1" or "2130706433": libc reads it as an address
+	 * (10.0.0.1, 127.0.0.1) where we, and any check made with our
+	 * helpers, saw a name.  Our own resolvers refuse it, but through an
+	 * http or socks5 proxy it goes to the proxy as a name, and the
+	 * proxy's libc reads it the same way (G-212).  So refuse it here,
+	 * whichever way the connection is going out.
+	 */
+	if (adsin && lws_host_is_ambiguous_numeric(adsin)) {
+		lwsl_wsi_warn(wsi, "refusing ambiguous numeric host");
+
+		goto failed1;
+	}
+
 	/* we only pipeline connections that said it was okay */
 
 	if (!wsi->client_pipeline) {

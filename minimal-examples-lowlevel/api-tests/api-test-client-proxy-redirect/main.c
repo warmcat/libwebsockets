@@ -31,8 +31,15 @@
  * given must be the origin's, never the proxy's reply.  It answers the
  * banner and must get the origin's answer back.
  *
- * The test fails if any case does not end with the right echo inside the
- * watchdog period.
+ * A host the platform's libc reads as an address but lws does not, such as
+ * "2130706433" (127.0.0.1), must not reach the proxy either: the proxy's
+ * libc would connect it to that address, where any check made on the name
+ * with the lws helpers saw no address at all (G-212).  The client refuses to
+ * connect to it, through either proxy, whether asked to directly or by a
+ * redirect; with the proxy asked, it reaches the origin here.
+ *
+ * The test fails if any case does not end with the right echo, or the
+ * refusal, inside the watchdog period.
  */
 
 #include <libwebsockets.h>
@@ -84,12 +91,16 @@ show_proxy_log(void)
 #define RAW_BANNER	"220 raw origin\n"
 #define RAW_PING	"ping\n"
 #define RAW_PONG	"pong\n"
+/* 127.0.0.1 to libc, a name to lws_parse_numeric_address() */
+#define CPRX_AMBIGUOUS	"2130706433"
 
 enum {
 	K_HTTP,			/* an http client following redirects */
 	K_RAW,			/* a raw-skt client */
 	K_RAW_TLS,		/* a raw-skt client over tls */
 	K_RAW_PROXY,		/* a raw-proxy role client */
+	K_AMBIGUOUS,		/* asks for CPRX_AMBIGUOUS: refused at once */
+	K_AMBIGUOUS_REDIR,	/* redirected to it: refused then */
 };
 
 static const struct pcase {
@@ -103,6 +114,10 @@ static const struct pcase {
 			"cli-hp",	"/redir-rel",	0, K_HTTP },
 	{ "http CONNECT proxy: redirect to another port",
 			"cli-hp",	"/redir-port",	1, K_HTTP },
+	{ "http CONNECT proxy: ambiguous numeric host refused",
+			"cli-hp",	"/echo",	0, K_AMBIGUOUS },
+	{ "http CONNECT proxy: redirect to ambiguous numeric host refused",
+			"cli-hp",	"/redir-ambiguous", 0, K_AMBIGUOUS_REDIR },
 	{ "http CONNECT proxy: raw-skt client",
 			"cli-hp",	NULL,		0, K_RAW },
 #if defined(LWS_WITH_TLS)
@@ -118,6 +133,10 @@ static const struct pcase {
 			"cli-s5",	"/redir-rel",	0, K_HTTP },
 	{ "socks5: redirect to another port",
 			"cli-s5",	"/redir-port",	1, K_HTTP },
+	{ "socks5: ambiguous numeric host refused",
+			"cli-s5",	"/echo",	0, K_AMBIGUOUS },
+	{ "socks5: redirect to ambiguous numeric host refused",
+			"cli-s5",	"/redir-ambiguous", 0, K_AMBIGUOUS_REDIR },
 	{ "socks5: raw-skt client",
 			"cli-s5",	NULL,		0, K_RAW },
 #if defined(LWS_WITH_TLS)
@@ -135,7 +154,7 @@ static struct lws_context *context;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static int cur = -1, failures, port1 = 7690, port2 = 7691, port_raw = 7693,
 	   port_raw_tls = 7694, status, done, raw_connected, raw_pinged;
-static char redir_port[64], rx[128];
+static char redir_port[64], redir_ambiguous[64], rx[128];
 static size_t rx_len;
 
 struct pss_srv {
@@ -175,6 +194,14 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 					      (const unsigned char *)redir_port,
 					      (int)strlen(redir_port),
 					      &p, end) < 0)
+				return -1;
+			return lws_http_transaction_completed(wsi);
+		}
+		if (!strcmp(path, "/redir-ambiguous")) {
+			if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
+					(const unsigned char *)redir_ambiguous,
+					(int)strlen(redir_ambiguous),
+					&p, end) < 0)
 				return -1;
 			return lws_http_transaction_completed(wsi);
 		}
@@ -285,10 +312,23 @@ case_end(const char *why)
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
 }
 
+static int
+case_refusing(void)
+{
+	return cases[cur].kind == K_AMBIGUOUS ||
+	       cases[cur].kind == K_AMBIGUOUS_REDIR;
+}
+
 static void
 case_check(void)
 {
 	char want[64];
+
+	if (case_refusing()) {
+		case_end("an ambiguous numeric host reached the origin through "
+			 "the proxy");
+		return;
+	}
 
 	if (status != HTTP_STATUS_OK) {
 		case_end("no 200 from the origin");
@@ -342,7 +382,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_user("%s: client: connection error: %s\n", __func__,
 			  in ? (const char *)in : "(null)");
-		case_end("connection error");
+		/* the redirect to it is refused: what we wanted */
+		case_end(cases[cur].kind == K_AMBIGUOUS_REDIR ? NULL :
+							"connection error");
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
@@ -363,7 +405,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		case_end("closed before completing");
+		case_end(cases[cur].kind == K_AMBIGUOUS_REDIR ? NULL :
+						"closed before completing");
 		break;
 
 	default:
@@ -534,6 +577,11 @@ next_case(lws_sorted_usec_list_t *sul)
 		i.local_protocol_name = "raw-proxy";
 		i.protocol	= i.local_protocol_name;
 		break;
+	case K_AMBIGUOUS:
+		i.address	= CPRX_AMBIGUOUS;
+		i.host		= i.address;
+		i.origin	= i.address;
+		break;
 	default:
 		break;
 	}
@@ -541,8 +589,15 @@ next_case(lws_sorted_usec_list_t *sul)
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 CASE_TIMEOUT_S * LWS_US_PER_SEC);
 
-	if (!i.vhost || !lws_client_connect_via_info(&i))
-		case_end("connect failed");
+	if (!i.vhost) {
+		case_end("no client vhost");
+		return;
+	}
+
+	if (!lws_client_connect_via_info(&i))
+		/* refusing to connect is what that case wants */
+		case_end(cases[cur].kind == K_AMBIGUOUS ? NULL :
+							  "connect failed");
 }
 
 static void
@@ -598,6 +653,8 @@ main(int argc, const char **argv)
 
 	lws_snprintf(redir_port, sizeof(redir_port),
 		     "http://localhost:%d/echo", port2);
+	lws_snprintf(redir_ambiguous, sizeof(redir_ambiguous),
+		     "http://" CPRX_AMBIGUOUS ":%d/echo", port1);
 
 	lwsl_user("LWS API selftest: client redirects through a proxy\n");
 
