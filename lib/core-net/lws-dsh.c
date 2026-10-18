@@ -68,18 +68,18 @@ void
 lws_dsh_empty(struct lws_dsh *dsh)
 {
 	lws_dsh_obj_t *obj;
-	size_t oha_len;
 	int n;
 
 	if (!dsh)
 		return;
 
-	oha_len = sizeof(lws_dsh_obj_head_t) * (unsigned int)dsh->count_kinds;
+	/*
+	 * clear down the obj heads array... the per-kind flags are part of the
+	 * dsh's configuration, not its contents, so they survive emptying
+	 */
 
-	/* clear down the obj heads array */
-
-	memset(dsh->oha, 0, oha_len);
 	for (n = 0; n < dsh->count_kinds; n++) {
+		lws_dll2_owner_clear(&dsh->oha[n].owner);
 		dsh->oha[n].kind = n;
 		dsh->oha[n].total_size = 0;
 	}
@@ -99,7 +99,7 @@ lws_dsh_empty(struct lws_dsh *dsh)
 lws_dsh_t *
 lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int _count_kinds)
 {
-	int count_kinds = _count_kinds & 0xff;
+	int count_kinds = _count_kinds & 0xff, n;
 	lws_dsh_t *dsh;
 	size_t oha_len;
 
@@ -137,7 +137,11 @@ lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int _count_kinds)
 	dsh->buffer_size = buf_len;
 	dsh->being_destroyed = 0;
 	dsh->splitat = 0;
-	dsh->flags = (unsigned int)_count_kinds & 0xff000000u;
+
+	/* the LWS_DSHFLAGs given at create apply to every kind to start with */
+
+	for (n = 0; n < count_kinds; n++)
+		dsh->oha[n].flags = (uint32_t)_count_kinds & 0xff000000u;
 
 	lws_dsh_empty(dsh);
 
@@ -169,7 +173,7 @@ search_best_free(struct lws_dll2 *d, void *user)
 //			(int)(s->tail_obj->asize + (size_t)s->natural_required), (int)s->dsh->splitat);
 
 
-	if (s->dsh->flags & LWS_DSHFLAG_ENABLE_COALESCE) {
+	if (s->this_dsh->oha[s->kind].flags & LWS_DSHFLAG_ENABLE_COALESCE) {
 		if (obj == s->natural && s->tail_obj &&
 		    (int)obj->asize >= s->natural_required
 		    &&
@@ -227,6 +231,19 @@ lws_dsh_get_size(struct lws_dsh *dsh, int kind)
 	assert(kind < dsh->count_kinds);
 
 	return dsh->oha[kind].total_size;
+}
+
+int
+lws_dsh_set_kind_flags(struct lws_dsh *dsh, int kind, uint32_t flags)
+{
+	if (kind < 0 || kind + 1 >= dsh->count_kinds ||
+	    (flags & ~(uint32_t)(LWS_DSHFLAG_ENABLE_COALESCE |
+				 LWS_DSHFLAG_ENABLE_SPLIT)))
+		return 1;
+
+	dsh->oha[kind + 1].flags = flags;
+
+	return 0;
 }
 
 static int
@@ -475,7 +492,8 @@ lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 	do {
 		size_t s1 = size1, s2 = size2;
 
-		if (!dsh->splitat || !(dsh->flags & LWS_DSHFLAG_ENABLE_SPLIT)) {
+		if (!dsh->splitat ||
+		    !(dsh->oha[kind + 1].flags & LWS_DSHFLAG_ENABLE_SPLIT)) {
 			s1 = size1;
 			s2 = size2;
 		} else

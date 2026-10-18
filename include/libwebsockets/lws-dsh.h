@@ -140,6 +140,31 @@ LWS_VISIBLE LWS_EXTERN size_t
 lws_dsh_get_size(struct lws_dsh *dsh, int kind);
 
 /**
+ * lws_dsh_set_kind_flags() - set the LWS_DSHFLAGs for one kind
+ *
+ * \param dsh: the dsh
+ * \param kind: the kind of allocation (0 +)
+ * \param flags: the LWS_DSHFLAGs that apply to allocations of \p kind
+ *
+ * The LWS_DSHFLAGs given to lws_dsh_create() apply to every kind.  They suit
+ * a kind whose objects are only ever consumed as a stream of bytes: with
+ * LWS_DSHFLAG_ENABLE_COALESCE, lws_dsh_alloc_tail() may append to the
+ * existing tail object of the kind instead of making a new object, and with
+ * LWS_DSHFLAG_ENABLE_SPLIT and a nonzero splitat, it cuts an allocation into
+ * several objects of up to splitat bytes.
+ *
+ * A kind whose objects are records, eg, each starting with a header that
+ * describes it, must have one object per allocation: use this to give it
+ * flags of 0, or whatever subset of LWS_DSHFLAGs suits it.  The flags apply
+ * to later allocations, and survive lws_dsh_empty().
+ *
+ * Returns 0 if OK, or nonzero if \p kind is out of range for the dsh or
+ * \p flags has bits that are not LWS_DSHFLAGs.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dsh_set_kind_flags(struct lws_dsh *dsh, int kind, uint32_t flags);
+
+/**
  * lws_dsh_get_head() - get the head allocation inside the dsh
  *
  * \param dsh: the dsh tracking the allocation

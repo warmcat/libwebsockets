@@ -553,6 +553,103 @@ bail:
 	return 1;
 }
 
+/*
+ * the head object of kind must be exactly len bytes of exp
+ */
+
+static int
+test9_head(struct lws_dsh *dsh, int kind, const char *exp, size_t len)
+{
+	size_t size;
+	void *a1;
+
+	if (lws_dsh_get_head(dsh, kind, &a1, &size)) {
+		lwsl_err("%s: kind %d: no head\n", __func__, kind);
+
+		return 1;
+	}
+	if (size != len || memcmp(a1, exp, len)) {
+		lwsl_err("%s: kind %d: head is %d bytes, expected %d\n",
+			 __func__, kind, (int)size, (int)len);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+int
+test9(void)
+{
+	struct lws_dsh *dsh;
+	int n;
+
+	/*
+	 * test 9: COALESCE given at create applies to every kind, but a kind
+	 * can be given its own flags... kind 0 here holds records, that must
+	 * stay one object per allocation, kind 1 a byte stream that may be
+	 * coalesced.  The per-kind flags must survive lws_dsh_empty().
+	 */
+
+	dsh = lws_dsh_create(NULL, 4096, 2 | LWS_DSHFLAG_ENABLE_COALESCE);
+	if (!dsh) {
+		lwsl_err("%s: Failed to create dsh\n", __func__);
+
+		return 1;
+	}
+
+	if (!lws_dsh_set_kind_flags(dsh, 2, 0) ||
+	    !lws_dsh_set_kind_flags(dsh, -1, 0) ||
+	    !lws_dsh_set_kind_flags(dsh, 0, 1)) {
+		lwsl_err("%s: bad kind or flags accepted\n", __func__);
+
+		goto bail;
+	}
+
+	if (lws_dsh_set_kind_flags(dsh, 0, 0)) {
+		lwsl_err("%s: set kind flags failed\n", __func__);
+
+		goto bail;
+	}
+
+	for (n = 0; n < 2; n++) {
+		if (lws_dsh_alloc_tail(dsh, 0, "abc", 3, NULL, 0) ||
+		    lws_dsh_alloc_tail(dsh, 0, "defg", 4, NULL, 0) ||
+		    lws_dsh_alloc_tail(dsh, 1, "hij", 3, NULL, 0) ||
+		    lws_dsh_alloc_tail(dsh, 1, "klmn", 4, NULL, 0)) {
+			lwsl_err("%s: Failed to alloc\n", __func__);
+
+			goto bail;
+		}
+
+		/* the records stay separate, the stream is coalesced */
+
+		if (test9_head(dsh, 0, "abc", 3) ||
+		    test9_head(dsh, 1, "hijklmn", 7))
+			goto bail;
+
+		lws_dsh_consume(dsh, 0, 3);
+
+		if (test9_head(dsh, 0, "defg", 4))
+			goto bail;
+
+		/* and again with the same flags, after emptying it */
+
+		lws_dsh_empty(dsh);
+	}
+
+	lws_dsh_destroy(&dsh);
+
+	return 0;
+bail:
+#if defined(_DEBUG)
+	lws_dsh_describe(dsh, "test9 fail");
+#endif
+	lws_dsh_destroy(&dsh);
+
+	return 1;
+}
+
 int main(int argc, const char **argv)
 {
 	
@@ -606,6 +703,12 @@ int main(int argc, const char **argv)
 
 	n = test8();
 	lwsl_user("%s: test8: %d\n", __func__, n);
+	ret |= n;
+	if (ret)
+		goto bail;
+
+	n = test9();
+	lwsl_user("%s: test9: %d\n", __func__, n);
 	ret |= n;
 
 bail:

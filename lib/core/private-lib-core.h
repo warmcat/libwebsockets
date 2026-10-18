@@ -167,6 +167,7 @@
 typedef struct lws_dsh_obj_head {
 	lws_dll2_owner_t		owner;
 	size_t				total_size; /* for this kind in dsh */
+	uint32_t			flags; /* LWS_DSHFLAGs for this kind */
 	int				kind;
 } lws_dsh_obj_head_t;
 
@@ -188,7 +189,6 @@ typedef struct lws_dsh {
 	size_t				locally_in_use;
 	size_t				locally_free;
 	int				count_kinds;
-	uint32_t			flags;
 	uint8_t				being_destroyed;
 	/*
 	 * Overallocations at create:
