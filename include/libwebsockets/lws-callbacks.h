@@ -426,7 +426,11 @@ enum lws_callback_reasons {
 	 * it against the request as RFC 3986 5.2 says (so "//host/path" names
 	 * another authority, and a relative path is merged with ours), and
 	 * refuses one that is not a valid http(s) URI reference, has userinfo
-	 * or a port outside 1 - 65535, or comes with a second Location */
+	 * or a port outside 1 - 65535, or comes with a second Location.
+	 * lws_client_redirect_info() tells where it resolved it to, and
+	 * whether credentials the request carries may go there: headers added
+	 * in LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER go again to the
+	 * redirected request */
 
 	LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL			= 85,
 	LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL			= 76,

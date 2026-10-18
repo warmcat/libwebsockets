@@ -2348,6 +2348,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 */
 			h2n->swsi->client_no_follow_redirect =
 					wsi->client_no_follow_redirect;
+			/*
+			 * ... and so does where the request started, if it
+			 * has been redirected, which judges where it may take
+			 * its credentials (lws_client_redirect_creds_ok())
+			 */
+			h2n->swsi->cli_redir_origin = wsi->cli_redir_origin;
+			wsi->cli_redir_origin = NULL;
 #if defined(LWS_WITH_CONMON)
 			/* sid1 needs to represent the connection experience
 			 * ... we take over responsibility for the DNS list

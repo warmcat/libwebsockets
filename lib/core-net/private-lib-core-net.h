@@ -1279,6 +1279,14 @@ struct lws {
 #if defined(LWS_WITH_CLIENT)
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;
+	/*
+	 * The host of the request before its first redirect, whose
+	 * credentials it carries (see lws_client_redirect_creds_ok()), and
+	 * where the redirect being judged by user code goes, only during
+	 * LWS_CALLBACK_CLIENT_HTTP_REDIRECT
+	 */
+	char				*cli_redir_origin;
+	const struct lws_client_redir	*cli_redir_pending;
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	uint16_t			quic_alt_port;
 	/**< RFC 7838 alt-svc learned h3 port for the origin, 0 = none, so
@@ -2104,6 +2112,10 @@ typedef struct lws_client_redir {
 
 lws_client_redir_t * LWS_WARN_UNUSED_RESULT
 lws_client_redirect_resolve(struct lws *wsi, const char *loc);
+
+int
+lws_client_redirect_creds_ok(struct lws *wsi, const lws_client_redir_t *r,
+			     const char *also);
 
 
 char * LWS_WARN_UNUSED_RESULT

@@ -23,6 +23,14 @@ that decide what it sends where afterwards.
  - A digest auth challenge that closes its connection is answered on a new
    one, to the same authority, so the request's `Host:` is kept (when lws has
    digest auth and a tls library, whose hashes it uses).
+ - `lws_client_redirect_info()` tells the redirect callback where a redirect
+   goes, and whether credentials set for the request may go there: only over
+   https, to the request's host or a subdomain of it (another port is the
+   same host; a host merely ending the same way, or an address, is not).  It
+   tells the handshake header callback of a request a redirect made where it
+   is going, and nothing for one that was not redirected.
+ - lws itself refuses a redirect that would take the digest auth credentials
+   it holds for the request elsewhere.
 
 The server is a raw socket in the same process speaking http by hand, so it
 can send exactly these redirects, and see exactly the request line, `Host:`

@@ -34,6 +34,15 @@
  *  - a digest auth challenge that closes its connection is answered on a
  *    new one, to the same authority, so the request's Host: is kept
  *
+ *  - lws_client_redirect_info() tells the redirect callback where the
+ *    redirect goes, and whether credentials set for the request may go
+ *    there: only over https, to the request's host or a subdomain of it.
+ *    It tells the handshake header callback of a request a redirect made
+ *    where it is going, and nothing for one that was not redirected
+ *
+ *  - lws itself refuses a redirect that would take the digest auth
+ *    credentials it holds for the request anywhere else
+ *
  * The server is a raw socket in the same process speaking http by hand, so
  * it can send exactly the redirects above, and see exactly the request line,
  * Host: and body the client sent, and on which of the case's connections.
@@ -65,6 +74,8 @@ enum {
 	HCK_TWO,	/* a second request, pipelining, once the first is done */
 	HCK_SLOW,	/* a POST whose body goes in slow pieces */
 	HCK_DIGEST,	/* a GET with credentials, challenged for them */
+	HCK_INFO,	/* the redirect callback judges where it goes */
+	HCK_CREDS,	/* a GET with credentials, redirected */
 };
 
 static const struct hcr_case {
@@ -79,98 +90,143 @@ static const struct hcr_case {
 	const char	*why;		/* refused: in the connection error */
 	int		requests;	/* the server must see this many */
 	char		kind;
+	/* HCK_INFO: what lws_client_redirect_info() must say */
+	const char	*ri_host;
+	char		ri_tls;
+	char		ri_creds;
 } cases[] = {
 
 	/* relative references */
 
 	{ "relative path is merged with the request's",
 	  "cli", "GET", "/a/b/start?redir=rel", NULL,
-	  "GET /a/b/c?x=1 host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /a/b/c?x=1 host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "dot segments are removed",
 	  "cli", "GET", "/a/b/start?redir=dots", NULL,
-	  "GET /a/d/f host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /a/d/f host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "a query alone keeps the path",
 	  "cli", "GET", "/a/b/start?redir=query", NULL,
 	  "GET /a/b/start?z=3 host=" HCR_VHOST " len=0 conn=2", NULL, 2,
-	  HCK_REDIR },
+	  HCK_REDIR, NULL, 0, 0 },
 	{ "//host:port/path names an authority, not a path",
 	  "cli", "GET", "/a/b/start?redir=netpath", NULL,
-	  "GET /n/p host=localhost:%d len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /n/p host=localhost:%d len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "absolute URI",
 	  "cli", "GET", "/a/b/start?redir=abs", NULL,
-	  "GET /abs host=localhost:%d len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /abs host=localhost:%d len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "absolute URI with no path goes to /",
 	  "cli", "GET", "/a/b/start?redir=abs-root", NULL,
-	  "GET / host=localhost:%d len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET / host=localhost:%d len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 
 	/* methods */
 
 	{ "POST 301 is followed with a GET",
 	  "cli", "POST", "/start?redir=301", NULL,
-	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "POST 302 is followed with a GET",
 	  "cli", "POST", "/start?redir=302", NULL,
-	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "PUT 302 stays a PUT, with its body",
 	  "cli", "PUT", "/start?redir=302", NULL,
-	  "PUT /done host=" HCR_VHOST " len=5 conn=2", NULL, 2, HCK_REDIR },
+	  "PUT /done host=" HCR_VHOST " len=5 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "DELETE 301 stays a DELETE",
 	  "cli", "DELETE", "/start?redir=301", NULL,
-	  "DELETE /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "DELETE /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "POST 303 is followed with a GET",
 	  "cli", "POST", "/start?redir=303", NULL,
-	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "DELETE 303 is followed with a GET",
 	  "cli", "DELETE", "/start?redir=303", NULL,
-	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "GET /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "HEAD 303 stays a HEAD",
 	  "cli", "HEAD", "/start?redir=303", NULL,
-	  "HEAD /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR },
+	  "HEAD /done host=" HCR_VHOST " len=0 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "POST 307 stays a POST, with its body",
 	  "cli", "POST", "/start?redir=307", NULL,
-	  "POST /done host=" HCR_VHOST " len=5 conn=2", NULL, 2, HCK_REDIR },
+	  "POST /done host=" HCR_VHOST " len=5 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 	{ "PUT 308 stays a PUT, with its body",
 	  "cli", "PUT", "/start?redir=308", NULL,
-	  "PUT /done host=" HCR_VHOST " len=5 conn=2", NULL, 2, HCK_REDIR },
+	  "PUT /done host=" HCR_VHOST " len=5 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
 
 	/* Locations refused */
 
 	{ "two Locations are refused",
 	  "cli", "GET", "/start?redir=two", NULL, NULL,
-	  "more than one Location", 1, HCK_REDIR },
+	  "more than one Location", 1, HCK_REDIR, NULL, 0, 0 },
 	{ "userinfo is refused",
 	  "cli", "GET", "/start?redir=userinfo", NULL, NULL,
-	  "Location refused", 1, HCK_REDIR },
+	  "Location refused", 1, HCK_REDIR, NULL, 0, 0 },
 	{ "port 0 is refused",
 	  "cli", "GET", "/start?redir=port0", NULL, NULL,
-	  "Location refused", 1, HCK_REDIR },
+	  "Location refused", 1, HCK_REDIR, NULL, 0, 0 },
 	{ "port 65536 is refused",
 	  "cli", "GET", "/start?redir=port-big", NULL, NULL,
-	  "Location refused", 1, HCK_REDIR },
+	  "Location refused", 1, HCK_REDIR, NULL, 0, 0 },
 	{ "a space is refused",
 	  "cli", "GET", "/start?redir=space", NULL, NULL,
-	  "Location refused", 1, HCK_REDIR },
+	  "Location refused", 1, HCK_REDIR, NULL, 0, 0 },
 	{ "a broken percent-escape is refused",
 	  "cli", "GET", "/start?redir=pct", NULL, NULL,
-	  "Location refused", 1, HCK_REDIR },
+	  "Location refused", 1, HCK_REDIR, NULL, 0, 0 },
 	{ "a scheme other than http(s) is refused",
 	  "cli", "GET", "/start?redir=scheme", NULL, NULL,
-	  "Location refused", 1, HCK_REDIR },
+	  "Location refused", 1, HCK_REDIR, NULL, 0, 0 },
 
 	/* Connection: close */
 
 	{ "without Connection: close, the next request rides the connection",
 	  "cli-keep", "GET", "/first", "/second",
-	  "GET /second host=localhost len=0 conn=1", NULL, 2, HCK_TWO },
+	  "GET /second host=localhost len=0 conn=1", NULL, 2, HCK_TWO, NULL, 0, 0 },
 	{ "after Connection: close, the next request has its own connection",
 	  "cli-close", "GET", "/first?close=1", "/second",
-	  "GET /second host=localhost len=0 conn=2", NULL, 2, HCK_TWO },
+	  "GET /second host=localhost len=0 conn=2", NULL, 2, HCK_TWO, NULL, 0, 0 },
 
 	/* upload timeout */
 
 	{ "an upload longer than the timeout completes while it moves",
 	  "cli", "POST", "/slow", NULL,
-	  "POST /slow host=localhost len=1000 conn=1", NULL, 1, HCK_SLOW },
+	  "POST /slow host=localhost len=1000 conn=1", NULL, 1, HCK_SLOW, NULL, 0, 0 },
+
+	/* where the redirect callback is told the redirect goes */
+
+	{ "a subdomain over https may have the credentials",
+	  "cli", "GET", "/start?redir=sub", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  "sub." HCR_VHOST, 1, 1 },
+	{ "the host on another port over https may have them",
+	  "cli", "GET", "/start?redir=port", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  HCR_VHOST ":8443", 1, 1 },
+	{ "the host in another case, with a trailing dot, may have them",
+	  "cli", "GET", "/start?redir=dotcase", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  "VHOST.Example.", 1, 1 },
+	{ "a host only ending the same way may not",
+	  "cli", "GET", "/start?redir=suffix", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  "evil" HCR_VHOST, 1, 0 },
+	{ "a host starting with ours may not",
+	  "cli", "GET", "/start?redir=prefix", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  HCR_VHOST ".evil.example", 1, 0 },
+	{ "a subdomain over http may not",
+	  "cli", "GET", "/start?redir=http-sub", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  "sub." HCR_VHOST, 0, 0 },
+	{ "//subdomain keeps http, and may not",
+	  "cli", "GET", "/start?redir=netpath-sub", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  "sub." HCR_VHOST, 0, 0 },
+	{ "an address may not",
+	  "cli", "GET", "/start?redir=ip", NULL, NULL,
+	  "user code rejected redirect", 1, HCK_INFO,
+	  "127.0.0.1", 1, 0 },
+
+	/* lws refuses for the credentials it holds */
+
+	{ "credentials are not taken over http",
+	  "cli", "GET", "/start?redir=abs", NULL, NULL,
+	  "credentials elsewhere", 1, HCK_CREDS, NULL, 0, 0 },
 
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
 	/* digest auth, whose hashes come from the tls library */
@@ -178,7 +234,7 @@ static const struct hcr_case {
 	{ "a digest retry on a new connection keeps the Host:",
 	  "cli", "GET", "/auth", NULL,
 	  "GET /auth host=" HCR_VHOST " len=0 conn=2 auth=digest", NULL, 2,
-	  HCK_DIGEST },
+	  HCK_DIGEST, NULL, 0, 0 },
 #endif
 };
 
@@ -208,13 +264,22 @@ static const struct hcr_redir {
 	{ "space",	302, "/do ne",				NULL },
 	{ "pct",	302, "/do%%zzne",			NULL },
 	{ "scheme",	302, "ftp://localhost:%d/done",		NULL },
+	{ "sub",	302, "https://sub." HCR_VHOST "/x",	NULL },
+	{ "port",	302, "https://" HCR_VHOST ":8443/x",	NULL },
+	{ "dotcase",	302, "https://VHOST.Example./x",	NULL },
+	{ "suffix",	302, "https://evil" HCR_VHOST "/x",	NULL },
+	{ "prefix",	302, "https://" HCR_VHOST ".evil.example/x", NULL },
+	{ "http-sub",	302, "http://sub." HCR_VHOST "/x",	NULL },
+	{ "netpath-sub", 302, "//sub." HCR_VHOST "/x",		NULL },
+	{ "ip",		302, "https://127.0.0.1/x",		NULL },
 };
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_second, sul_piece;
 static struct lws *cwsi;
 static int cur = -1, failures, port = 7730, status, done, phase, conns,
-	   conn_base, nseen, pieces_sent, piece_due;
+	   conn_base, nseen, pieces_sent, piece_due, nappend;
+static const char *ri_bad;
 static char seen[160];
 
 /* ---- the server: http by hand on a raw socket ---- */
@@ -466,6 +531,8 @@ case_check(void)
 
 	if (strcmp(seen, want) || nseen != c->requests)
 		case_end("the server did not see the request it should have");
+	else if (ri_bad)
+		case_end(ri_bad);
 	else
 		case_end(NULL);
 }
@@ -485,8 +552,8 @@ client_connect(const char *target)
 	 * relative reference must keep.  A request that pipelines must name
 	 * the address it dials, to be one others can join.
 	 */
-	i.host		= c->kind == HCK_REDIR || c->kind == HCK_DIGEST ?
-						HCR_VHOST : i.address;
+	i.host		= c->kind == HCK_TWO || c->kind == HCK_SLOW ?
+						i.address : HCR_VHOST;
 	i.origin	= i.host;
 	i.port		= port;
 	i.path		= target;
@@ -496,7 +563,7 @@ client_connect(const char *target)
 	i.opaque_user_data = (void *)(intptr_t)(cur + 1);
 	if (c->kind == HCK_TWO)
 		i.ssl_connection = LCCSCF_PIPELINE;
-	if (c->kind == HCK_DIGEST) {
+	if (c->kind == HCK_DIGEST || c->kind == HCK_CREDS) {
 		i.auth_username	= "user";
 		i.auth_password	= "pass"; /* NOSONAR: test fixture */
 	}
@@ -526,6 +593,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	const struct hcr_case *c = &cases[cur];
 	char buf[LWS_PRE + 1024], *px = &buf[LWS_PRE];
 	int lenx = sizeof(buf) - LWS_PRE, n;
+	lws_client_redirect_info_t ri;
 	uint8_t **pp, *end;
 	size_t body;
 
@@ -547,10 +615,42 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		else if (nseen != c->requests)
 			case_end("refused, but the server saw a request after");
 		else
-			case_end(NULL);
+			case_end(ri_bad);
 		break;
 
+	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
+		if (lws_client_redirect_info(wsi, &ri)) {
+			ri_bad = "no redirect info in the redirect callback";
+			return 1;
+		}
+		lwsl_user("%s: redirect to %s (host %s) port %d tls %d "
+			  "credentials %d\n", __func__, ri.address, ri.host,
+			  ri.port, ri.tls, ri.credentials_ok);
+		if (c->kind != HCK_INFO)
+			break;
+		if (strcmp(ri.host, c->ri_host) || ri.tls != c->ri_tls ||
+#if defined(LWS_WITH_TLS)
+		    ri.credentials_ok != c->ri_creds
+#else
+		    /* with no tls to verify, nowhere is fit for them */
+		    ri.credentials_ok
+#endif
+		   )
+			ri_bad = "the redirect info is wrong";
+
+		/* that's all we wanted to know */
+		return 1;
+
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		/*
+		 * Only a request a redirect made is told where it is going,
+		 * which for these is plain http: no credentials
+		 */
+		n = lws_client_redirect_info(wsi, &ri);
+		if (c->kind == HCK_REDIR &&
+		    (!nappend++ ? !n : (n || ri.tls || ri.credentials_ok)))
+			ri_bad = "the handshake's redirect info is wrong";
+
 		/* a request reissued after a redirect sends its body again */
 		pieces_sent = 0;
 		piece_due = 1;
@@ -673,6 +773,8 @@ next_case(lws_sorted_usec_list_t *sul)
 	status = 0;
 	phase = 0;
 	nseen = 0;
+	nappend = 0;
+	ri_bad = NULL;
 	seen[0] = '\0';
 	conn_base = conns;
 

@@ -155,6 +155,192 @@ lws_uri_remove_dot_segments(char *o, const char *p, const char *end)
 }
 
 /*
+ * The host of a Host: header value or an address: an IPv6 literal without its
+ * brackets, no port, and no trailing dot, which names the same host
+ */
+static void
+lws_client_hostname(const char *h, const char **s, size_t *len)
+{
+	const char *e;
+
+	if (*h == '[') {
+		h++;
+		e = strchr(h, ']');
+	} else {
+		e = strchr(h, ':');
+		/* more than one ':' is a bare IPv6 literal, with no port */
+		if (e && strchr(e + 1, ':'))
+			e = NULL;
+	}
+	if (!e)
+		e = h + strlen(h);
+	if (e > h && e[-1] == '.')
+		e--;
+
+	*s = h;
+	*len = lws_ptr_diff_size_t(e, h);
+}
+
+#if defined(LWS_WITH_TLS)
+static int
+lws_client_host_is_address(const char *h, size_t len)
+{
+	size_t n;
+
+	if (memchr(h, ':', len) || memchr(h, '%', len))
+		return 1; /* IPv6, or a zone */
+
+	for (n = 0; n < len; n++)
+		if (!isdigit((int)(unsigned char)h[n]) && h[n] != '.')
+			return 0;
+
+	return 1;
+}
+
+/*
+ * Go net/http's rule for the hosts a redirected request may take the
+ * initial request's credentials to: the same host, or a subdomain of it.
+ * An address has no subdomains, and is nobody's subdomain.
+ */
+static int
+lws_client_host_domain_match(const char *sub, size_t sl, const char *parent,
+			     size_t pl)
+{
+	if (!sl || !pl)
+		return 0;
+
+	if (sl == pl && !strncasecmp(sub, parent, sl))
+		return 1;
+
+	if (lws_client_host_is_address(sub, sl) ||
+	    lws_client_host_is_address(parent, pl))
+		return 0;
+
+	return sl > pl + 1 && sub[sl - pl - 1] == '.' &&
+	       !strncasecmp(sub + sl - pl, parent, pl);
+}
+#endif
+
+/*
+ * The host the request had before its first redirect: credentials set for the
+ * request are set for it, wherever the redirects then take the request
+ */
+static int
+lws_client_redir_origin_capture(struct lws *wsi)
+{
+	const char *h, *s;
+	size_t len;
+
+	if (wsi->cli_redir_origin)
+		return 0;
+
+	h = lws_wsi_client_stash_item(wsi, CIS_HOST, _WSI_TOKEN_CLIENT_HOST);
+	if (!h)
+		h = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	if (!h)
+		return 1;
+
+	lws_client_hostname(h, &s, &len);
+	wsi->cli_redir_origin = lws_malloc(len + 1, __func__);
+	if (!wsi->cli_redir_origin)
+		return 1;
+	memcpy(wsi->cli_redir_origin, s, len);
+	wsi->cli_redir_origin[len] = '\0';
+
+	return 0;
+}
+
+/*
+ * May what the request carries as credentials go where redirect r takes it?
+ * Only over https with strict verification, and only to the host the request
+ * started with or a subdomain of it, or to a host in, or a subdomain of a
+ * host in, also: a comma-separated list of hosts, or NULL.
+ */
+int
+lws_client_redirect_creds_ok(struct lws *wsi, const lws_client_redir_t *r,
+			     const char *also)
+{
+#if defined(LWS_WITH_TLS)
+	const char *th, *oh, *a;
+	size_t tl, ol;
+
+	if (!r->ssl || (wsi->flags & (LCCSCF_ALLOW_SELFSIGNED |
+				      LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
+				      LCCSCF_ALLOW_EXPIRED |
+				      LCCSCF_ALLOW_INSECURE)))
+		return 0;
+
+	lws_client_hostname(r->host, &th, &tl);
+
+	oh = wsi->cli_redir_origin;
+	if (!oh)
+		oh = lws_wsi_client_stash_item(wsi, CIS_HOST,
+					       _WSI_TOKEN_CLIENT_HOST);
+	if (oh) {
+		lws_client_hostname(oh, &oh, &ol);
+		if (lws_client_host_domain_match(th, tl, oh, ol))
+			return 1;
+	}
+
+	while (also && *also) {
+		a = strchr(also, ',');
+		if (!a)
+			a = also + strlen(also);
+		if (lws_client_host_domain_match(th, tl, also,
+						 lws_ptr_diff_size_t(a, also)))
+			return 1;
+		also = *a ? a + 1 : a;
+	}
+#endif
+
+	return 0;
+}
+
+int
+lws_client_redirect_info(struct lws *wsi, lws_client_redirect_info_t *info)
+{
+	const lws_client_redir_t *r;
+	lws_client_redir_t cur;
+
+	if (!wsi || !info)
+		return 1;
+
+	r = wsi->cli_redir_pending;
+	if (!r) {
+		/* not being redirected now: was this request redirected? */
+		if (!wsi->cli_redir_origin)
+			return 1;
+
+		cur.address = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		cur.host = lws_wsi_client_stash_item(wsi, CIS_HOST,
+					_WSI_TOKEN_CLIENT_HOST);
+		cur.path = lws_wsi_client_stash_item(wsi, CIS_PATH,
+					_WSI_TOKEN_CLIENT_URI);
+		if (!cur.address)
+			return 1;
+		if (!cur.host)
+			cur.host = cur.address;
+		if (!cur.path)
+			cur.path = "/";
+		cur.port = lws_get_network_wsi(wsi)->c_port;
+		cur.ssl = !!(wsi->flags & LCCSCF_USE_SSL);
+		r = &cur;
+	}
+
+	info->address		= r->address;
+	info->host		= r->host;
+	info->path		= r->path;
+	info->port		= r->port;
+	info->tls		= (uint8_t)!!r->ssl;
+	info->credentials_ok	= (uint8_t)!!lws_client_redirect_creds_ok(wsi,
+								r, NULL);
+
+	return 0;
+}
+
+/*
  * Where a redirect's Location takes the request it answers, resolved against
  * that request as RFC 3986 5.2 says.  A reference with a scheme, or starting
  * "//", names a new authority.  Otherwise it keeps ours, the Host: header
@@ -1351,7 +1537,7 @@ lws_handling_result_t
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
 	lws_handling_result_t hr;
-	int n;
+	int n, rej;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	const char *meth, *cce = NULL;
 	struct allocated_headers *ah, *ah1;
@@ -1647,18 +1833,50 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 #endif
 
+		/*
+		 * Where it would take us, which the user code may ask about
+		 * (lws_client_redirect_info()), to judge whether what it sends
+		 * as credentials may go there, the way we judge what we send
+		 * on its behalf below
+		 */
+
+		redir = lws_client_redirect_resolve(wsi, p);
+		if (lws_client_redir_origin_capture(wsi)) {
+			cce = "HS: OOM";
+			goto bail3_l;
+		}
+
 		/* let's let the user code know, if he cares */
 
-		if (wsi->a.protocol->callback(wsi,
+		wsi->cli_redir_pending = redir;
+		rej = wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
-					wsi->user_space, p, (unsigned int)n)) {
+					wsi->user_space, p, (unsigned int)n);
+		wsi->cli_redir_pending = NULL;
+		if (rej) {
 			cce = "HS: user code rejected redirect";
 			goto bail3_l;
 		}
 
-		redir = lws_client_redirect_resolve(wsi, p);
 		if (!redir) {
 			cce = "HS: Redirect Location refused";
+			goto bail3_l;
+		}
+
+		/*
+		 * The cookies from our jar, and the digest auth credentials,
+		 * are what we would send for the user code: the same rule
+		 * goes for them.  A secure stream's policy decided for its
+		 * stream in its redirect callback.
+		 */
+		if (
+#if defined(LWS_WITH_SECURE_STREAMS)
+		    !wsi->for_ss &&
+#endif
+		    ((wsi->flags & LCCSCF_CACHE_COOKIES) ||
+		     (wsi->stash && wsi->stash->cis[CIS_USERNAME])) &&
+		    !lws_client_redirect_creds_ok(wsi, redir, NULL)) {
+			cce = "HS: Redirect would take credentials elsewhere";
 			goto bail3_l;
 		}
 

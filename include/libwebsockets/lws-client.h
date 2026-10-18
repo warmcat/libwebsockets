@@ -389,6 +389,56 @@ LWS_VISIBLE LWS_EXTERN unsigned int
 lws_http_client_http_response(struct lws *wsi);
 
 /**
+ * lws_client_redirect_info_t - where a redirected client request goes
+ */
+typedef struct lws_client_redirect_info {
+	const char	*address;	/**< what it connects to */
+	const char	*host;		/**< its Host: header, the authority */
+	const char	*path;		/**< from the '/', with any query */
+	int		port;		/**< the port it connects to */
+	uint8_t		tls;		/**< 1: over tls, ie, https */
+	uint8_t		credentials_ok;
+	/**< 1: credentials set for the request before it was redirected may
+	 * go there too: it is https with strict tls verification (none of
+	 * LCCSCF_ALLOW_SELFSIGNED, LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK,
+	 * LCCSCF_ALLOW_EXPIRED or LCCSCF_ALLOW_INSECURE), to the host the
+	 * request started with or a subdomain of it (Go net/http's rule).
+	 * 0: they must not go there */
+} lws_client_redirect_info_t;
+
+/**
+ * lws_client_redirect_info() - where a client request is being redirected
+ *
+ * \param wsi: client connection
+ * \param info: filled with where the request goes, if it is redirected
+ *
+ * Headers added in LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER are added
+ * again to the request a redirect makes, to wherever the server's Location
+ * takes it.  So user code adding credentials there (an Authorization, an api
+ * key...) must judge where they would go.
+ *
+ * In LWS_CALLBACK_CLIENT_HTTP_REDIRECT, this tells where the redirect would
+ * take the request, as lws resolved the Location; returning nonzero from the
+ * callback refuses the redirect, and the connection fails.  In
+ * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER, it tells where a request that
+ * was redirected is going now.  In either, \p info->credentials_ok says
+ * whether credentials set for the request before its first redirect may go
+ * there; refuse the redirect rather than strip them and follow it, so the
+ * failure is visible.
+ *
+ * Cookies from the lws cookie jar (LCCSCF_CACHE_COOKIES) and digest auth
+ * credentials are sent by lws for the user code: lws itself refuses a
+ * redirect that would take them where \p info->credentials_ok is 0.
+ *
+ * The strings in \p info are valid only during the callback.
+ *
+ * Returns 0 with \p info filled, or nonzero if the request is not being, or
+ * was not, redirected.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_client_redirect_info(struct lws *wsi, lws_client_redirect_info_t *info);
+
+/**
  * lws_tls_client_vhost_extra_cert_mem() - add more certs to vh client tls ctx
  *
  * \param vh: the vhost to give more client certs to

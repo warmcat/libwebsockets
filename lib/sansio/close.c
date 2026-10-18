@@ -390,6 +390,7 @@ __lws_free_wsi(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->stash)
 		lws_free_set_NULL(wsi->stash);
+	lws_free_set_NULL(wsi->cli_redir_origin);
 #endif
 
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
