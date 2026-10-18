@@ -2533,13 +2533,24 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	int use_shadow = 0;
 	memset(&ash, 0, sizeof(ash));
 
-	int *stream_mapping = malloc((size_t)in_ctx->nb_streams * sizeof(int));
+	/*
+	 * The map covers the streams known after find_stream_info().  That is
+	 * not final: demuxers with AVFMTCTX_NOHEADER (mpegts, flv, hls...)
+	 * add a stream whenever a new PID / tag type first shows up, anywhere
+	 * in the file, and av_read_frame() then hands back a stream_index
+	 * past the end of the map.  Such late streams were never selected and
+	 * have no output stream, so the demux loop drops their packets
+	 * against nb_mapped (never re-read from in_ctx) rather than growing
+	 * the map.
+	 */
+	unsigned int nb_mapped = in_ctx->nb_streams;
+	int *stream_mapping = malloc((size_t)nb_mapped * sizeof(int));
 	if (!stream_mapping) {
 		avformat_free_context(out_ctx);
 		avformat_close_input(&in_ctx);
 		return;
 	}
-	for (unsigned int i = 0; i < in_ctx->nb_streams; i++) {
+	for (unsigned int i = 0; i < nb_mapped; i++) {
 		stream_mapping[i] = -1;
 	}
 	int stream_index = 0;
@@ -2833,6 +2844,13 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 
 	AVPacket pkt;
 	while (av_read_frame(in_ctx, &pkt) >= 0) {
+		if (pkt.stream_index < 0 ||
+		    (unsigned int)pkt.stream_index >= nb_mapped) {
+			/* a stream the demuxer added after the probe: unmapped */
+			av_packet_unref(&pkt);
+			continue;
+		}
+
 		AVStream *in_stream  = in_ctx->streams[pkt.stream_index];
 
 		if (HLS_CANCELLED(cancel)) {
