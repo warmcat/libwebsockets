@@ -51,6 +51,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    absolute `file://` URL whatever the base's scheme, and SS opens any
    `file://` endpoint, so a remote document can name local files (G-088).
    Callers resolving untrusted URLs need their own scheme policy.
+ - **Per-host limits on IPv6.**  One IPv6 host commands a whole /64.  In
+   the DHT, `dht_source_key()` (dht.c) is the per-host key used by
+   admission, the bucket cap and BEP 42; anything counting distinct peers
+   (votes, quorums, rate limits) must key on it, not on the full address
+   (G-094).
  - **Fixed quorums.**  Any consensus threshold written as a fixed count
    of peers is wrong for small deployments.  Derive it from what the
    routing table can actually supply.
