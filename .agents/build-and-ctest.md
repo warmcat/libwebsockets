@@ -148,6 +148,9 @@
    `sizeof` / `offsetof` check.  A test transport that fills its documented
    headroom with a pattern catches callers passing buffers without it,
    even on 64-bit where padding hides it (api-test-ss-proxy-mux).
+ - **cgi stdin edge cases:** add a row to `cases[]` in
+   api-test-http-cgi-stdin; its cgi.sh reads stdin to EOF, so a stdin
+   that is never ended shows as a timeout (quick red/green).
  - **To delay a backend's accept in-process**, own the listen socket,
    `accept()` it late from a sul, then `lws_adopt_socket_vhost()` it
    (api-test-proxy-hdr --ws-delay).
