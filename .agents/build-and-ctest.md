@@ -189,6 +189,9 @@
    an h1 client ("server closed before responding"), but an h2/h3 client
    stream gets no callback until its deadline (G-135).  Tests expecting
    "no answer" need a short deadline of their own.
+ - **The lws h1 client drops a HEAD response's body**, so it cannot detect
+   a server sending one; use a raw client (`LCCSCF_USE_SSL`, alpn
+   `http/1.1`) for byte-exact h1 tests (lwsws-uv-captcha-head).
  - Keep scratch files under `--tmpdir` (ctest passes the binary dir),
    not `/tmp`, and create them owner-only.
  - **Measure lhp amplification against a baseline.**  A page's custom

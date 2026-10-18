@@ -109,7 +109,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_jwt_get_http_cookie_validate_jwt()` checks signature, iss, aud,
    nbf, exp and sub only; the client chooses the cookie name.  Two cookies
    signed with one jwk for different purposes need a claim that tells
-   them apart (G-171, interceptor visit vs pass).
+   them apart (G-171, interceptor visit vs pass).  The library now has
+   `purpose` in `struct lws_jwt_sign_set_cookie`, written as a `"pur"`
+   claim and required by `lws_jwt_get_http_cookie_validate_jwt()` (a NULL
+   purpose refuses tokens that carry one); `lws_jwt_auth_create()` does
+   not check it yet (G-188).
  - **A Location built from `WSI_TOKEN_*_URI` needs a backslash check:**
    the URI parser decodes `%5C` to `\` and keeps it while collapsing `//`,
    and browsers follow `/\host` as `//host` (G-173).
