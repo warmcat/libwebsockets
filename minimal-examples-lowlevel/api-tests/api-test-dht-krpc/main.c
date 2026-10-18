@@ -43,6 +43,15 @@
  *    tids A's own maintenance uses.  Neither the nodes named nor R itself
  *    may enter A's routing table: only an answer to a request A sent to
  *    that endpoint may change it (G-119)
+ *  - A sends R reliable data, and R answers its chunk with acks that claim
+ *    it all: one with the fixed tid acks used to carry, one with the wrong
+ *    nonce, one echoing the chunk's tid but acking bytes A never sent.
+ *    None of them may complete the transfer, so A keeps retransmitting; only
+ *    an ack echoing the chunk's tid for what was sent completes it (G-096)
+ *  - R asks B for its capabilities, as a stranger B must not repeat itself
+ *    to, and acks B's answer with the fixed tid, as a spoofer naming R
+ *    could.  That must not prove R to B: B's answer to R's second request
+ *    goes out once, not once per retry (G-096, C-599)
  *
  * The UDP ports (four to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
@@ -66,7 +75,7 @@ static struct lws_vhost *vh_a, *vh_b, *vh_c;
 static struct lws_dht_ctx *dht_a, *dht_b, *dht_c;
 static lws_sorted_usec_list_t sul_poll, sul_deadline;
 
-static struct sockaddr_in sa_a, sa_b, sa_c, sa_dead;
+static struct sockaddr_in sa_a, sa_b, sa_c, sa_r, sa_dead;
 
 static const char *data_msg = "PUT 0102030405 0 5 hello";
 static const char *cap_req = "CAP_REQ 0102030405 0 0 ";
@@ -118,10 +127,37 @@ struct seen {
 	unsigned char unsol_ok:1;	/* R's unasked-for replies changed
 					 * nothing in A's table */
 	unsigned char unsol_bad:1;	/* ...or they did */
+	unsigned char seq_ok:1;		/* only A's real ack completed */
+	unsigned char seq_bad:1;	/* ...or a forged one did */
+	unsigned char unproven_ok:1;	/* B sent R each answer once */
+	unsigned char unproven_bad:1;	/* ...or repeated one */
 };
 
 /* R's unasked-for replies to A: how far along, and the polls since */
 static int unsol_state, unsol_polls;
+
+/*
+ * R as the far end of reliable transfers: A's data to R, answered with forged
+ * acks, then R's capability requests to B, whose answers R counts
+ */
+enum {
+	KRPC_SEQ_IDLE,
+	KRPC_SEQ_A_SENT,	/* A sent R data, waiting for its chunk */
+	KRPC_SEQ_ACKED_SQNC,	/* R acked it with the old fixed tid */
+	KRPC_SEQ_ACKED_NONCE,	/* ... with the wrong nonce */
+	KRPC_SEQ_ACKED_BEYOND,	/* ... for bytes A never sent */
+	KRPC_SEQ_ACKED_REAL,	/* ... properly: now it may complete */
+	KRPC_SEQ_CAP1,		/* R asked B for its capabilities */
+	KRPC_SEQ_CAP1_ACKED,	/* R acked B's answer with the fixed tid */
+	KRPC_SEQ_CAP2,		/* R asked again, counting B's answers */
+	KRPC_SEQ_DONE
+};
+
+static const char *seq_msg = "PUT 0102030405 0 5 ahoy!";
+static int seq_state, seq_polls, cap_rsps;
+static uint8_t seq_tid[16];
+static size_t seq_tid_len;
+static uint64_t cap_rsp_len;
 
 /* the ids R's unasked-for replies name: R's own, and the nodes it lists */
 #define KRPC_UNSOL_ID_R		0x66
@@ -192,7 +228,31 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 	case LWS_DHT_EVENT_NOTIFY:
 		sv.notify_ok = 1;
 		break;
+	case LWS_DHT_EVENT_WRITE_COMPLETED:
+		if (!from || fromlen < sizeof(sa_r) ||
+		    ((const struct sockaddr_in *)from)->sin_port !=
+							sa_r.sin_port)
+			break;
+		/* R's only real ack goes out after the forged ones */
+		if (seq_state != KRPC_SEQ_ACKED_REAL) {
+			lwsl_err("%s: a forged ack completed A's transfer to "
+				 "R (state %d)\n", __func__, seq_state);
+			sv.seq_bad = 1;
+			seq_state = KRPC_SEQ_ACKED_REAL;
+		} else
+			sv.seq_ok = 1;
+		break;
 	case LWS_DHT_EVENT_WRITE_FAILED:
+		if (from && fromlen >= sizeof(sa_r) &&
+		    ((const struct sockaddr_in *)from)->sin_port ==
+							sa_r.sin_port) {
+			lwsl_err("%s: A's transfer to R failed (state %d)\n",
+				 __func__, seq_state);
+			sv.seq_bad = 1;
+			seq_state = KRPC_SEQ_ACKED_REAL;
+			break;
+		}
+
 		if (from && fromlen >= sizeof(sa_dead) &&
 		    ((const struct sockaddr_in *)from)->sin_port ==
 							sa_dead.sin_port)
@@ -247,6 +307,186 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 	}
 }
 
+/* where needle starts in buf, or -1 (memmem() is not portable) */
+
+static ssize_t
+krpc_find(const uint8_t *buf, size_t len, const char *needle)
+{
+	size_t nl = strlen(needle), n;
+
+	for (n = 0; n + nl <= len; n++)
+		if (!memcmp(buf + n, needle, nl))
+			return (ssize_t)n;
+
+	return -1;
+}
+
+/* the bencode integer following key, eg "6:offseti", or -1 */
+
+static int64_t
+krpc_int(const uint8_t *buf, size_t len, const char *key)
+{
+	ssize_t at = krpc_find(buf, len, key);
+	int64_t v = 0;
+	size_t n;
+
+	if (at < 0)
+		return -1;
+
+	for (n = (size_t)at + strlen(key); n < len && buf[n] != 'e'; n++) {
+		if (buf[n] < '0' || buf[n] > '9' || v > 0x7fffffffffffll / 10)
+			return -1;
+		v = (v * 10) + (buf[n] - '0');
+	}
+
+	return n < len ? v : -1;
+}
+
+/*
+ * A reliable-transport chunk is a "data" query whose tid follows the verb:
+ * ...1:q4:data1:t<len>:<tid>1:y1:qe.  Copies the tid out, or returns -1 if
+ * this is not a chunk.
+ */
+
+static int
+krpc_chunk_tid(const uint8_t *buf, size_t len, uint8_t *tid, size_t *tid_len)
+{
+	ssize_t at = krpc_find(buf, len, "1:q4:data1:t");
+	size_t n, l = 0;
+
+	if (at < 0)
+		return -1;
+
+	for (n = (size_t)at + 12; n < len && buf[n] >= '0' && buf[n] <= '9'; n++)
+		l = (l * 10) + (size_t)(buf[n] - '0');
+
+	if (n >= len || buf[n] != ':' || !l || l > 16 || n + 1 + l > len)
+		return -1;
+
+	memcpy(tid, buf + n + 1, l);
+	*tid_len = l;
+
+	return 0;
+}
+
+static void
+raw_queue(const void *buf, size_t len, const struct sockaddr_in *to);
+
+/* R's ack, from R's id, claiming everything below offset */
+
+static void
+krpc_queue_ack(const uint8_t *tid, size_t tid_len, uint64_t offset,
+	       const struct sockaddr_in *to)
+{
+	uint8_t q[128];
+	int n;
+
+	n = lws_snprintf((char *)q, sizeof(q), "d1:rd2:id20:"
+			 "33333333333333333333"
+			 "3:leni0e6:offseti%llue" "e1:t%u:",
+			 (unsigned long long)offset, (unsigned int)tid_len);
+	if (n < 0 || (size_t)n + tid_len + 7 > sizeof(q))
+		return;
+
+	memcpy(q + n, tid, tid_len);
+	memcpy(q + (size_t)n + tid_len, "1:y1:re", 7);
+
+	raw_queue(q, (size_t)n + tid_len + 7, to);
+}
+
+/* R's data chunk to B, carrying a capability request */
+
+static void
+krpc_queue_cap_req(uint64_t offset)
+{
+	uint8_t q[160];
+	int n;
+
+	n = lws_snprintf((char *)q, sizeof(q), "d1:ad4:data%u:%s2:id20:"
+			 "33333333333333333333"
+			 "3:leni%ue6:offseti%lluee1:q4:data1:t10:sqRRRRRRRR"
+			 "1:y1:qe", (unsigned int)strlen(cap_req), cap_req,
+			 (unsigned int)strlen(cap_req),
+			 (unsigned long long)offset);
+	if (n < 0 || (size_t)n >= sizeof(q) - 1)
+		return;
+
+	raw_queue(q, (size_t)n, &sa_b);
+}
+
+/*
+ * A datagram for R while the transport cases run: from A, chunks of the data
+ * A is sending R; from B, its answers to R's capability requests (and its
+ * acks of R's requests, which R ignores)
+ */
+
+static void
+seq_rx(const struct sockaddr_in *from, const uint8_t *in, size_t len)
+{
+	uint8_t tid[16];
+	size_t tid_len;
+
+	if (krpc_chunk_tid(in, len, tid, &tid_len))
+		return;
+
+	if (from->sin_port == sa_b.sin_port) {
+		if (krpc_find(in, len, "CAP_RSP ") < 0)
+			return;
+
+		cap_rsps++;
+
+		if (seq_state == KRPC_SEQ_CAP1 && !raw_tx_len) {
+			/*
+			 * Acked with the tid acks used to have, which anyone
+			 * naming R as the source could send
+			 */
+			cap_rsp_len = (uint64_t)krpc_int(in, len, "3:leni");
+			krpc_queue_ack((const uint8_t *)"sqnc", 4, cap_rsp_len,
+				       &sa_b);
+			seq_state = KRPC_SEQ_CAP1_ACKED;
+		}
+		return;
+	}
+
+	if (from->sin_port != sa_a.sin_port || raw_tx_len)
+		return;
+
+	/*
+	 * Each chunk from A after the first is a retransmit, so the ack R
+	 * sent before it did not retire A's data: R tries the next one.
+	 */
+
+	switch (seq_state) {
+	case KRPC_SEQ_A_SENT:
+		memcpy(seq_tid, tid, tid_len);
+		seq_tid_len = tid_len;
+		krpc_queue_ack((const uint8_t *)"sqnc", 4, (uint64_t)-1, &sa_a);
+		seq_state = KRPC_SEQ_ACKED_SQNC;
+		break;
+	case KRPC_SEQ_ACKED_SQNC:
+		if (tid_len != seq_tid_len || memcmp(tid, seq_tid, tid_len)) {
+			lwsl_err("%s: A's retransmit has another tid\n",
+				 __func__);
+			sv.seq_bad = 1;
+			break;
+		}
+		tid[tid_len - 1] ^= 1;
+		krpc_queue_ack(tid, tid_len, strlen(seq_msg), &sa_a);
+		seq_state = KRPC_SEQ_ACKED_NONCE;
+		break;
+	case KRPC_SEQ_ACKED_NONCE:
+		krpc_queue_ack(tid, tid_len, strlen(seq_msg) + 1, &sa_a);
+		seq_state = KRPC_SEQ_ACKED_BEYOND;
+		break;
+	case KRPC_SEQ_ACKED_BEYOND:
+		krpc_queue_ack(tid, tid_len, strlen(seq_msg), &sa_a);
+		seq_state = KRPC_SEQ_ACKED_REAL;
+		break;
+	default:
+		break;
+	}
+}
+
 /*
  * R: a plain UDP socket speaking KRPC by hand, the peer the DHT contexts
  * cannot be made to be.  It sends whatever was queued in raw_tx when the
@@ -286,8 +526,15 @@ cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_RX:
 		udp = lws_get_udp(wsi);
-		if (!udp || udp->sa46.sa4.sin_family != AF_INET ||
-		    udp->sa46.sa4.sin_port != sa_b.sin_port)
+		if (!udp || udp->sa46.sa4.sin_family != AF_INET)
+			break;
+
+		if (seq_state != KRPC_SEQ_IDLE) {
+			seq_rx(&udp->sa46.sa4, in, len);
+			break;
+		}
+
+		if (udp->sa46.sa4.sin_port != sa_b.sin_port)
 			break;
 
 		/*
@@ -448,6 +695,61 @@ unsolicited_reply_step(void)
 			sv.unsol_bad = 1;
 		} else
 			sv.unsol_ok = 1;
+		break;
+	}
+}
+
+/*
+ * After R's unasked-for replies, R is the far end of reliable transfers: see
+ * seq_rx() for what R answers A's chunks with
+ */
+
+static void
+seq_step(void)
+{
+	if (!sv.unsol_ok || sv.unproven_ok || sv.unproven_bad || raw_tx_len)
+		return;
+
+	switch (seq_state) {
+	case KRPC_SEQ_IDLE:
+		seq_state = KRPC_SEQ_A_SENT;
+		lws_dht_send_data(dht_a, (struct sockaddr *)&sa_r,
+				  seq_msg, strlen(seq_msg));
+		break;
+
+	case KRPC_SEQ_ACKED_REAL:
+		/* (the two cases are independent: go on even if it failed) */
+		if (!sv.seq_ok && !sv.seq_bad)
+			break;
+
+		/* R is a stranger to B, which answers it once, unrepeated */
+		seq_state = KRPC_SEQ_CAP1;
+		krpc_queue_cap_req(0);
+		break;
+
+	case KRPC_SEQ_CAP1_ACKED:
+		/* the forged ack has gone: ask again */
+		seq_state = KRPC_SEQ_CAP2;
+		seq_polls = 0;
+		krpc_queue_cap_req(strlen(cap_req));
+		break;
+
+	case KRPC_SEQ_CAP2:
+		/* B retransmits every 100ms by now: give it 1.5s to */
+		if (++seq_polls < 15)
+			break;
+
+		if (cap_rsps == 2)
+			sv.unproven_ok = 1;
+		else {
+			lwsl_err("%s: R got %d answers to its 2 requests\n",
+				 __func__, cap_rsps);
+			sv.unproven_bad = 1;
+		}
+		seq_state = KRPC_SEQ_DONE;
+		break;
+
+	default:
 		break;
 	}
 }
@@ -644,6 +946,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	same_id_step();
 	error_reply_step(&sb);
 	unsolicited_reply_step();
+	seq_step();
 
 	if (sv.data_ok && !sv.dead_sent) {
 		sv.dead_sent = 1;
@@ -674,8 +977,10 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * data payload arrived verbatim, A's maintenance find_node probe
 	 * reached B, B told A its external address, C's use of B's id did
 	 * not move B's entry in A's table, B's refusal of R's broken
-	 * find_node was well-formed on the wire and understood by A, and
-	 * R's replies to nothing A asked left A's table alone.
+	 * find_node was well-formed on the wire and understood by A,
+	 * R's replies to nothing A asked left A's table alone, only R's real
+	 * ack completed A's transfer to it, and B did not repeat itself to R
+	 * on the word of an ack anyone could have sent.
 	 */
 
 	if (sv.token_ok && !sv.token_ih_bad && sv.table_ok && sv.acked &&
@@ -687,6 +992,8 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.err_wire_ok && !sv.err_wire_bad &&
 	    sv.err_decoded_ok && !sv.err_decoded_bad &&
 	    sv.unsol_ok && !sv.unsol_bad &&
+	    sv.seq_ok && !sv.seq_bad &&
+	    sv.unproven_ok && !sv.unproven_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -761,6 +1068,8 @@ int main(int argc, const char **argv)
 	sa_b.sin_port = htons((uint16_t)port_b);
 	sa_c = sa_a;
 	sa_c.sin_port = htons((uint16_t)port_c);
+	sa_r = sa_a;
+	sa_r.sin_port = htons((uint16_t)port_r);
 	sa_dead = sa_a;
 	sa_dead.sin_port = htons((uint16_t)port_dead);
 
@@ -936,6 +1245,16 @@ int main(int argc, const char **argv)
 			if (!sv.unsol_ok || sv.unsol_bad) {
 				lwsl_err("replies A never asked for changed its "
 					 "routing table\n");
+				fails++;
+			}
+			if (!sv.seq_ok || sv.seq_bad) {
+				lwsl_err("A's transfer to R did not complete on "
+					 "R's real ack alone\n");
+				fails++;
+			}
+			if (!sv.unproven_ok || sv.unproven_bad) {
+				lwsl_err("a forged ack made B repeat itself to "
+					 "R\n");
 				fails++;
 			}
 		}

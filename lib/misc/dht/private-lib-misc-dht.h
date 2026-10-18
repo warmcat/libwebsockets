@@ -93,6 +93,15 @@
  */
 #define LWS_DHT_IP_PROBE_NONCE_LEN	8
 #define LWS_DHT_IP_PROBE_TID_LEN	(2 + LWS_DHT_IP_PROBE_NONCE_LEN)
+/*
+ * A reliable-transport sequencer's data chunks carry the tid "sq" followed by
+ * a random nonce the sequencer chose when it was made, and the receiver's acks
+ * echo the tid of the chunk they answer.  Acks are replies, and replies can be
+ * sent from any source address: only one carrying the nonce our sequencer for
+ * that endpoint sends with comes from someone who saw our data.
+ */
+#define LWS_DHT_SEQ_NONCE_LEN		8
+#define LWS_DHT_SEQ_TID_LEN		(2 + LWS_DHT_SEQ_NONCE_LEN)
 /* subscribes we sent whose reply we are still waiting for */
 #define LWS_DHT_MAX_PENDING_SUBSCRIBES	8
 /*
@@ -412,6 +421,11 @@ typedef struct lws_dht_ts {
 	size_t				salen;
 	struct lws_dht_ctx		*ctx;
 	lws_sorted_usec_list_t		sul_idle;
+	/* "sq" + our nonce, sent with each chunk; an ack must echo it */
+	uint8_t				tx_tid[LWS_DHT_SEQ_TID_LEN];
+	/* the tid of the peer's latest chunk, echoed in our acks to it */
+	uint8_t				ack_tid[16];
+	size_t				ack_tid_len;
 } lws_dht_ts_t;
 
 struct lws_dht_mparams {

@@ -147,6 +147,9 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
  * \param ts: sequencer instance
  * \param offset: the offset acknowledged by the peer
  * \param len: the length acknowledged
+ * \param status: protocol status, nonzero fails the session
+ *
+ * As lws_transport_sequencer_acknowledge_sack(), for one acknowledged range.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_acknowledge(struct lws_transport_sequencer *ts,
@@ -159,7 +162,17 @@ lws_transport_sequencer_acknowledge(struct lws_transport_sequencer *ts,
  * \param cumulative_offset: the highest contiguous offset acknowledged
  * \param blocks: pointer to array of SACK blocks
  * \param num_blocks: number of SACK blocks
- * \param status: protocol status
+ * \param status: protocol status, nonzero fails the session
+ *
+ * The sequencer cannot tell a real ack from a forged one: the transport must
+ * only pass it acks it has bound to this session, eg, by a random nonce sent
+ * with the data that the peer must echo, not just by source address, which
+ * can be spoofed on datagram transports.  An ack retires the data it covers
+ * and proves an `unproven_peer`.
+ *
+ * An ack covering bytes that were never sent (the cumulative offset or any
+ * SACK block beyond the highest offset sent) is refused whole and returns -1:
+ * nothing is retired and the peer is not proven by it.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,

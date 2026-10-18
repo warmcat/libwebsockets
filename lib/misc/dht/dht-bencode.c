@@ -894,6 +894,45 @@ lws_dht_rx_error(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 		from, fromlen);
 }
 
+/*
+ * An ack for data one of our sequencers sent.  Acks are replies, which anyone
+ * can send with any source address, and what they say retires our copy of the
+ * data and proves the peer receives from us (so we retransmit to it).  So an
+ * ack counts only if it echoes the random tid the sequencer for that endpoint
+ * sends its chunks with, which only someone who saw our chunks knows; the
+ * sequencer itself then refuses one claiming bytes we never sent.
+ */
+
+static void
+dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
+	    const struct sockaddr *from, size_t fromlen)
+{
+	struct lws_transport_sequencer *ts;
+	lws_dht_ts_t *dts;
+
+	ts = lws_dht_get_ts(ctx, from, fromlen, 0);
+	if (!ts) {
+		lwsl_dht_rx("%s: late ack, no sequencer for its source\n",
+			    __func__);
+		return;
+	}
+
+	dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+	if (lws_timingsafe_bcmp(dts->tx_tid, mp->tid, LWS_DHT_SEQ_TID_LEN)) {
+		lwsl_dht_rx_warn("%s: ack without our sequencer's nonce, "
+				 "dropped\n", __func__);
+		return;
+	}
+
+	/* an ack lacking the offset leaves it at ~0, refused below */
+	if (mp->offset > (uint64_t)-1 - mp->len)
+		return;
+
+	lws_transport_sequencer_acknowledge_sack(ts, mp->offset + mp->len,
+						 mp->sack, mp->num_sack,
+						 mp->status);
+}
+
 int
 lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			const struct sockaddr *from, size_t fromlen)
@@ -1178,11 +1217,15 @@ skip_ip_tracking:
 		 * any address, and what they carry (the sender's id, nodes
 		 * lists) goes into our routing table: an unsolicited or forged
 		 * one is dropped whole (G-119).  The transport's acks are
-		 * bound to their sequencer by endpoint instead.
+		 * bound to their sequencer by its nonce instead.
 		 */
-		if (!tid_match(mp.tid, "da", NULL) &&
-		    !tid_match(mp.tid, "sq", NULL) &&
-		    !dht_req_pending_take(ctx, mp.tid, mp.tid_len, from)) {
+		if (mp.tid_len == LWS_DHT_SEQ_TID_LEN &&
+		    tid_match(mp.tid, "sq", NULL)) {
+			dht_seq_ack(ctx, &mp, from, fromlen);
+			break;
+		}
+
+		if (!dht_req_pending_take(ctx, mp.tid, mp.tid_len, from)) {
 			lwsl_dht_rx_warn("%s: reply to no request of ours, "
 					 "dropped\n", __func__);
 			break;
@@ -1221,36 +1264,6 @@ skip_ip_tracking:
 			break;
 		}
 #endif
-
-		if (tid_match(mp.tid, "da", NULL) || tid_match(mp.tid, "sqnc", NULL)) {
-			struct lws_transport_sequencer *ts;
-
-			ts = lws_dht_get_ts(ctx, from, fromlen, 0);
-			if (ts) {
-				lws_transport_sequencer_acknowledge_sack(ts, mp.offset + mp.len,
-									 mp.sack, mp.num_sack, mp.status);
-			} else {
-				char ads[64];
-				lws_sa46_write_numeric_address((lws_sockaddr46 *)from, ads, sizeof(ads));
-
-                int p2 = 0;
-                if (from->sa_family == AF_INET) p2 = ntohs(((struct sockaddr_in *)from)->sin_port);
-                else if (from->sa_family == AF_INET6) p2 = ntohs(((struct sockaddr_in6 *)from)->sin6_port);
-				lwsl_info("%s: Duplicate/Late ACK received from %s:%d (len %d) - no active sequencer\n", __func__, ads, p2, (int)fromlen);
-
-                lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->ts_owner)) {
-                    lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
-                    char d_ads[64];
-                    lws_sa46_write_numeric_address((lws_sockaddr46 *)&dts->sa, d_ads, sizeof(d_ads));
-                    int p1 = 0;
-                    if (dts->sa.ss_family == AF_INET) p1 = ntohs(((struct sockaddr_in *)&dts->sa)->sin_port);
-                    else if (dts->sa.ss_family == AF_INET6) p1 = ntohs(((struct sockaddr_in6 *)&dts->sa)->sin6_port);
-                    lwsl_debug("   ... Active Sequencer in pool: dest %s:%d (family %d vs %d)\n", d_ads, p1, dts->sa.ss_family, from->sa_family);
-                } lws_end_foreach_dll(d);
-			}
-			break;
-		}
-
 
 		lwsl_dht_rx_warn("%s: Unexpected reply (tid '%.*s' len %d)\n", __func__, (int)mp.tid_len, mp.tid, (int)mp.tid_len);
 		lwsl_hexdump_dht(buf, buflen);
@@ -1460,8 +1473,18 @@ skip_ip_tracking:
 			 * until it has acknowledged it
 			 */
 			ts = lws_dht_ts_rx(ctx, from, fromlen, mp.id);
-			if (ts)
+			if (ts) {
+				lws_dht_ts_t *dts = (lws_dht_ts_t *)
+					lws_transport_sequencer_get_info(ts)->user_data;
+
+				/* our acks to this chunk echo its tid */
+				dts->ack_tid_len = mp.tid_len;
+				if (dts->ack_tid_len > sizeof(dts->ack_tid))
+					dts->ack_tid_len = 0;
+				memcpy(dts->ack_tid, mp.tid, dts->ack_tid_len);
+
 				lws_transport_sequencer_rx(ts, mp.offset, mp.data, mp.data_len);
+			}
 		}
 		break;
 	case DHT_ANNOUNCE_PEER:

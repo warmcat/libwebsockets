@@ -398,7 +398,9 @@ dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
 	    dht_tx_int(&t, len) ||
 	    dht_tx_lit(&t, "6:offset") ||
 	    dht_tx_int(&t, offset) ||
-	    dht_tx_lit(&t, "e1:q4:data1:t4:sqnc1:y1:qe"))
+	    dht_tx_lit(&t, "e1:q4:data1:t") ||
+	    dht_tx_str(&t, dts->tx_tid, sizeof(dts->tx_tid)) ||
+	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
 	return dht_send(dts->ctx, pkt, t.len, (struct sockaddr *)&dts->sa, dts->salen);
@@ -407,7 +409,12 @@ fail:
 	return -1;
 }
 
-/* reply: id, len, offset, sack (alphabetical) */
+/*
+ * reply: id, len, offset, sack (alphabetical)
+ *
+ * The tid is the one the peer sent its chunk with: that is how its sequencer
+ * knows the ack comes from someone who received the chunk.
+ */
 
 int
 dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
@@ -416,6 +423,9 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 	const lws_transport_sequencer_stats_t *stats = lws_transport_sequencer_get_stats(ts);
 	char pkt[512];
 	dht_txbuf_t t = { .buf = pkt, .size = sizeof(pkt) };
+
+	if (!dts->ack_tid_len)
+		return -1; /* we only ack chunks we have been sent */
 
 	if (dht_tx_lit(&t, "d1:rd2:id") ||
 	    dht_tx_id(dts->ctx, &t, dts->ctx->myid) ||
@@ -447,7 +457,9 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 		}
 	}
 
-	if (dht_tx_lit(&t, "e1:t4:sqnc1:y1:re"))
+	if (dht_tx_lit(&t, "e1:t") ||
+	    dht_tx_str(&t, dts->ack_tid, dts->ack_tid_len) ||
+	    dht_tx_lit(&t, "1:y1:re"))
 		goto fail;
 
 	return dht_send(dts->ctx, pkt, t.len, (struct sockaddr *)&dts->sa, dts->salen);
@@ -704,6 +716,20 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	dts->ctx = ctx;
 	dts->salen = salen;
 	memcpy(&dts->sa, dest, salen);
+
+	/*
+	 * The nonce binds the peer's acks to this sequencer: without it, an
+	 * ack is believed from anyone who can put the peer's address on a
+	 * datagram, and acks retire our unsent data and prove the peer
+	 */
+	dts->tx_tid[0] = 's';
+	dts->tx_tid[1] = 'q';
+	if (lws_get_random(ctx->vhost->context, dts->tx_tid + 2,
+			   LWS_DHT_SEQ_NONCE_LEN) != LWS_DHT_SEQ_NONCE_LEN) {
+		lws_free(dts);
+		return NULL;
+	}
+
 	dts->ts = lws_transport_sequencer_create(&tsi);
 
 	if (!dts->ts) {

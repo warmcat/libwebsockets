@@ -261,6 +261,22 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	if (ts->completed)
 		return -1;
 
+	/*
+	 * The transport has bound this ack to our session, but its contents
+	 * are still the peer's word.  An ack for bytes we never sent is not a
+	 * delivery report, it is a forgery or a broken peer: refuse it whole,
+	 * before it can retire anything or prove the peer.  The SACK blocks are
+	 * checked without overflowing, start + len is the peer's arithmetic.
+	 */
+
+	if (cumulative_offset > ts->next_tx_offset)
+		goto bad_ack;
+
+	for (i = 0; i < num_blocks; i++)
+		if (blocks[i].start > ts->next_tx_offset ||
+		    blocks[i].len > ts->next_tx_offset - blocks[i].start)
+			goto bad_ack;
+
 	if (status != 0) {
 		lwsl_notice("%s: received error status %d, failing session\n",
 			    __func__, status);
@@ -286,8 +302,7 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 			 * The peer acknowledged data we really sent, so it
 			 * receives at the address we are sending to
 			 */
-			if (cumulative_offset <= ts->next_tx_offset)
-				ts->peer_proven = 1;
+			ts->peer_proven = 1;
 			r->acked = 1;
 			if (r->dsh_obj)
 				lws_dsh_free(&r->dsh_obj);
@@ -300,6 +315,7 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 			r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 			if (r->offset >= blocks[i].start &&
 			    r->offset + r->len <= blocks[i].start + blocks[i].len) {
+				ts->peer_proven = 1;
 				r->acked = 1;
 				if (r->dsh_obj)
 					lws_dsh_free(&r->dsh_obj);
@@ -342,12 +358,22 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	}
 
 	return 0;
+
+bad_ack:
+	lwsl_notice("%s: ack beyond what was sent (%llu), refused\n", __func__,
+		    (unsigned long long)ts->next_tx_offset);
+
+	return -1;
 }
 
 int
 lws_transport_sequencer_acknowledge(struct lws_transport_sequencer *ts,
 				    uint64_t offset, size_t len, int status)
 {
+	/* the range is the peer's: bound it before adding it up */
+	if (offset > ts->next_tx_offset || len > ts->next_tx_offset - offset)
+		return -1;
+
 	if (offset == ts->ack_offset)
 		return lws_transport_sequencer_acknowledge_sack(ts, offset + len, NULL, 0, status);
 
