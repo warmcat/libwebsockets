@@ -207,6 +207,18 @@ struct node {
 #define LWS_DHT_MAX_INTRODUCED_PER_SEARCH	(SEARCH_NODES / 4)
 /* candidates a search keeps back, to fall back on when ones it asks fail */
 #define LWS_DHT_SEARCH_BACKLOG		8
+/* the closest candidates that answered, that a search completes on */
+#define LWS_DHT_SEARCH_RESULT_NODES	8
+/*
+ * endpoints a search remembers failed to answer it, so a nodes list naming
+ * one again does not bring it back as a fresh candidate
+ */
+#define LWS_DHT_SEARCH_DEAD		16
+/*
+ * however its candidates come and go, a search ends this long after it was
+ * started, on the candidates that answered it by then
+ */
+#define LWS_DHT_SEARCH_MAX_SECS		(5 * 60)
 
 struct bucket {
 	int                     af;
@@ -237,6 +249,8 @@ struct search_cand {
 	lws_dht_hash_t          *id;
 	struct sockaddr_storage ss;
 	size_t                  sslen;
+	time_t                  request_time;        /* as search_node, kept */
+	int                     pinged;              /* ...across the backlog */
 	lws_sockaddr46          intro;               /* as search_node.intro */
 };
 
@@ -244,6 +258,7 @@ struct search {
 	unsigned short          tid;
 	int                     af;
 	time_t                  step_time;           /* the time of the last search_step */
+	time_t                  start_time;          /* when lws_dht_search() started it */
 	lws_dht_hash_t          *id;
 	unsigned short          port;                /* 0 for pure searches */
 	int                     done;
@@ -252,6 +267,10 @@ struct search {
 	/* sorted by distance like nodes[]; never asked until moved into it */
 	struct search_cand      backlog[LWS_DHT_SEARCH_BACKLOG];
 	int                     numbacklog;
+	/* a ring of endpoints that never answered this search */
+	lws_sockaddr46          dead[LWS_DHT_SEARCH_DEAD];
+	int                     numdead;
+	int                     nextdead;
 	lws_dll2_t              list;                /* ctx ->searches membership */
 };
 

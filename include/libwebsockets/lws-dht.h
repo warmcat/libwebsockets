@@ -544,7 +544,8 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
  *
  * The \p callback is also called with event `LWS_DHT_EVENT_SEARCH_DONE` (or
  * `LWS_DHT_EVENT_SEARCH_DONE6`) when the search operation has exhausted all
- * potential nodes or reached a timeout.
+ * potential nodes or reached a timeout.  A search completes at the latest
+ * five minutes after it was started, on the nodes that answered it by then.
  *
  * \return 1 if search started successfully, 0 if answered locally (callback still called), or -1 on error.
  */

@@ -641,6 +641,19 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		return;
 	}
 
+#if defined(LWS_WITH_DHT_BACKEND)
+	/*
+	 * Record the reply before what it lists: while the replier still
+	 * looked unanswered, a closer node from its own list could push it
+	 * out of a full search, and its reply then went to the backlog, which
+	 * keeps no reply or token, so it was asked again, and listed the same
+	 * node again, for ever (G-211).  introduce was decided from before.
+	 */
+	if (sr)
+		insert_search_node(ctx, mp->id, from, fromlen, sr, 1, mp->token,
+				   mp->token_len, NULL);
+#endif
+
 	offset = 0;
 	while (offset < mp->nodes_len) {
 		uint8_t *ni = (uint8_t *)mp->nodes + offset;
@@ -747,12 +760,6 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 		offset += step;
 	}
-
-#if defined(LWS_WITH_DHT_BACKEND)
-	if (sr) {
-		insert_search_node(ctx, mp->id, from, fromlen, sr, 1, mp->token, mp->token_len, NULL);
-	}
-#endif
 
 	/*
 	 * Only a token in reply to a request of ours to this node is news
