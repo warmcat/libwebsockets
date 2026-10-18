@@ -28,8 +28,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    back).  Bound such walks by the child count at pass start.
  - **Synchronous completion.**  Paths that are usually asynchronous can
    complete inside the call: a TLS client handshake step (resumed TLS 1.3
-   on loopback), or an async DNS cache hit making
-   `lws_client_connect_via_info()` deliver the CCE before it returns.
+   on loopback), or an async DNS cache hit or an NXDOMAIN (connect2.c /
+   connect3.c) making `lws_client_connect_via_info()` deliver the CCE
+   before it returns NULL.  Every plugin caller needs the guard (G-043).
    Callers that touch state after the call (or free it in the CCE
    handler) break.  The pattern used: an `in_connect` flag that the CCE
    handler checks, deferring to the connect caller.
