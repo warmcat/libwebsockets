@@ -786,36 +786,31 @@ payload_ff:
 
 			/*
 			 * client side does not have access to policy
-			 * and any metadata are new to it each time,
-			 * we allocate them, removing any existing with
-			 * the same name first
-			 */
-
-			tot = 0;
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					lws_dll2_get_head(
-						&h->metadata_owner_rx)) {
-				md = lws_container_of(d,
-					   lws_sspc_metadata_t, list);
-
-				if (!strcmp(md->name,
-					    par->metadata_name)) {
-					lws_dll2_remove(&md->list);
-					lws_free(md);
-				} else
-					tot += md->len;
-
-			} lws_end_foreach_dll_safe(d, d1);
-
-			/*
+			 * and any metadata are new to it each time, we
+			 * allocate them, replacing any existing with the same
+			 * name.
+			 *
 			 * The proxy is not necessarily trustworthy, and rx
 			 * metadata is only reaped at stream destroy or when
 			 * replaced by the same name... so bound how much of
-			 * it we can be made to hold on to
+			 * it we can be made to hold on to, counting what we
+			 * will hold once this value replaces any old one
 			 */
 
-			if (lws_dll2_count(&h->metadata_owner_rx) >=
-					LWS_SSPC_RX_METADATA_MAX_ITEMS ||
+			tot = 0;
+			n = 0;
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&h->metadata_owner_rx)) {
+				md = lws_container_of(d,
+					   lws_sspc_metadata_t, list);
+
+				if (strcmp(md->name, par->metadata_name)) {
+					tot += md->len;
+					n++;
+				}
+			} lws_end_foreach_dll(d);
+
+			if (n >= LWS_SSPC_RX_METADATA_MAX_ITEMS ||
 			    tot + (size_t)par->rem >
 					LWS_SSPC_RX_METADATA_MAX_TOTAL) {
 				lwsl_sspc_err(h, "rx metadata cap exceeded");
@@ -823,8 +818,19 @@ payload_ff:
 			}
 
 			/*
-			 * Create the client's rx metadata entry
+			 * The value arrives a byte at a time, maybe over
+			 * several rx callbacks, and the link may go down
+			 * before all of it has come.  So stage the new entry
+			 * privately in the parser, and only list it, in place
+			 * of any old value, once it is complete: until then
+			 * lws_sspc_get_metadata() keeps returning whatever
+			 * complete value it had.
 			 */
+
+			if (par->rxmd) {
+				lws_free(par->rxmd);
+				par->rxmd = NULL;
+			}
 
 #if !defined(STANDALONE)
 			if (lws_fi(&h->fic, "sspc_rx_metadata_oom"))
@@ -850,21 +856,46 @@ payload_ff:
 			 * apis that's the most common usage
 			 */
 			par->rxmetaval[md->len] = '\0';
-			lws_dll2_add_tail(&md->list,
-					  &h->metadata_owner_rx);
+			par->rxmd = md;
 			par->ctr = 0;
 			break;
 
 		case RPAR_METADATA_VALUE:
 			/* both client and proxy */
 
+			if (!par->rxmd) {
+				/* nothing staged to take the value */
+				lwsl_info("MDV\n");
+				goto hangup;
+			}
+
 			*par->rxmetaval++ = *cp++;
 			if (--par->rem)
 				break;
 
-			/* we think we got all the value */
+			/*
+			 * We have all the value: it replaces any old value
+			 * with the same name
+			 */
 
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
+
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				      lws_dll2_get_head(&h->metadata_owner_rx)) {
+				md = lws_container_of(d,
+					   lws_sspc_metadata_t, list);
+
+				if (!strcmp(md->name, par->rxmd->name)) {
+					lws_dll2_remove(&md->list);
+					lws_free(md);
+				}
+			} lws_end_foreach_dll_safe(d, d1);
+
+			lws_dll2_add_tail(&par->rxmd->list,
+					  &h->metadata_owner_rx);
+			par->rxmd = NULL;
+			par->rxmetaval = NULL;
+
 			lwsl_sspc_notice(h, "RX METADATA %s", par->metadata_name);
 			par->ps = RPAR_TYPE;
 			break;

@@ -356,7 +356,12 @@ struct lws_ss_serialization_parser {
 	 * all of it has arrived and it can be installed on the onward handle
 	 */
 	uint8_t			*mdstage;
-	/* client: where the next byte of an rx metadata value goes */
+	/*
+	 * client: an rx metadata entry being received, staged here until all
+	 * of its value has arrived and it can be listed on the handle
+	 */
+	struct lws_sspc_metadata *rxmd;
+	/* client: where the next byte of that value goes */
 	uint8_t			*rxmetaval;
 
 	int			ps;

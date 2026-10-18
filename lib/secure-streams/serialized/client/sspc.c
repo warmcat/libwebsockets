@@ -497,6 +497,11 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	lws_sspc_metadata_list_destroy(&h->metadata_owner);
 	lws_sspc_metadata_list_destroy(&h->metadata_owner_synced);
 	lws_sspc_metadata_list_destroy(&h->metadata_owner_rx);
+	if (h->parser.rxmd) {
+		/* a metadata value that was still arriving */
+		lws_free(h->parser.rxmd);
+		h->parser.rxmd = NULL;
+	}
 
 	lws_sspc_event_helper(h, LWSSSCS_DESTROYING, 0);
 	*ph = NULL;

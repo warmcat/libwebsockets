@@ -301,6 +301,12 @@ lws_sspc_txp_event_closed(lws_transport_priv_t priv)
 	}
 
 	h->parser.ps = RPAR_TYPE;
+	/* a metadata value cut off with the link is never listed */
+	if (h->parser.rxmd) {
+		lws_free(h->parser.rxmd);
+		h->parser.rxmd = NULL;
+	}
+	h->parser.rxmetaval = NULL;
 
 	lws_dsh_empty(h->dsh);
 	h->txp_path.priv_onw = NULL;
