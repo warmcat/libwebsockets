@@ -70,6 +70,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    -Wjump-misses-init finds it (C only: g++ rejects it under -Werror,
    clang accepts and ignores it).  Declare everything a label's path uses
    before the first jump (G-105 sent stack to the peer as Set-Cookie).
+ - **Two parsers deciding identity.**  When a signed payload is checked by
+   one parser and consumed by another, they must agree on what it is.
+   dht-dnssec bound a zone to its first `$ORIGIN` while auth-dns installs
+   it under its last one, so a zone signed for one domain was served as
+   another (G-117).  The consumer must re-derive the identity with the
+   parser that will serve it and compare.
  - **Fixed quorums.**  Any consensus threshold written as a fixed count
    of peers is wrong for small deployments.  Derive it from what the
    routing table can actually supply.
