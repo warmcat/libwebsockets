@@ -159,6 +159,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_add_http_header_by_name()` / `_by_token()` wrappers.  Code calling
    `lws_add_http2_*` / `lws_add_http3_*` directly, or composing with
    `lws_snprintf()` (the h1 client request line), gets no check (G-156).
+ - **`rx_policy()` runs only on POLLIN / POLLOUT revents** (io/service.c),
+   so an h1 ah re-attach after a release happens at the next poll event,
+   not every service pass.  Pipeline depth in
+   `lws_http_transaction_completed()` is counted only on the branch that
+   still has the ah (G-151 stage 0 notes).
+ - **A cgi takes no BODY / BODY_COMPLETION callbacks**: its body ends via
+   `lws_cgi_stdin_body_end()`.  `lws_get_child()` is true for a cgi wsi
+   (the stdwsis are its children), so the proxy branches in
+   `lws_callback_http_dummy()` trigger for cgi too.
  - **Header (ah) lifetime.**  User code may read request headers in
    `LWS_CALLBACK_HTTP` and, for a request with a body, through
    `LWS_CALLBACK_HTTP_BODY` to `LWS_CALLBACK_HTTP_BODY_COMPLETION`; after

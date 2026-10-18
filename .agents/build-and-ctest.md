@@ -141,6 +141,9 @@
    `sizeof` / `offsetof` check.  A test transport that fills its documented
    headroom with a pattern catches callers passing buffers without it,
    even on 64-bit where padding hides it (api-test-ss-proxy-mux).
+ - **To delay a backend's accept in-process**, own the listen socket,
+   `accept()` it late from a sul, then `lws_adopt_socket_vhost()` it
+   (api-test-proxy-hdr --ws-delay).
  - **SNI comes from `i.host`, not `i.address`**, so `i.host` sets both
    SNI and `:authority`; a name matching no vhost (and no SNI fallback)
    fails the handshake with a TLS alert.  To send a real Host header next
