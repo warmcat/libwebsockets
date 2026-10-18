@@ -28,8 +28,38 @@
 #include <private-lib-core.h>
 
 /*
+ * The C->P queue doesn't hold what we expect: every object should be one
+ * chunk we queued ourselves, with its 23-byte header.  If the head isn't, we
+ * can't trust where anything after it starts either... drop all of it rather
+ * than leave the head in place, where it would be retried forever, and let
+ * the caller end the stream.
+ */
+
+static int
+lws_ss_deserialize_tx_incoherent(struct lws_dsh *dsh, const char *why,
+				 size_t *len)
+{
+	uint8_t *p;
+	size_t si;
+
+	lwsl_err("%s: dropping queued client tx: %s\n", __func__, why);
+
+	while (!lws_dsh_get_head(dsh, KIND_C_TO_P, (void **)&p, &si))
+		lws_dsh_free((void **)&p);
+
+	*len = 0;
+
+	return -1;
+}
+
+/*
  * event loop is consuming dsh-buffered, already-serialized tx from the
  * foreign side
+ *
+ * Returns 0 if *len / *flags describe the next chunk (*len may be 0 if there
+ * is nothing queued), 1 if the head chunk was dropped but the stream can go
+ * on, or -1 if the queue was not coherent and has been emptied, and the
+ * stream should be ended.
  */
 
 int
@@ -50,11 +80,9 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 	 * and strip it so we just forward the payload
 	 */
 
-	if (si < 23) {
+	if (si < 23)
 		/* everything we queue has the 23-byte header */
-		assert(0);
-		return 1;
-	}
+		return lws_ss_deserialize_tx_incoherent(dsh, "short", len);
 
 	if (si - 23 > *len) {
 		/*
@@ -75,22 +103,18 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 
 		return 1;
 	}
-	if (p[0] != LWSSS_SER_TXPRE_TX_PAYLOAD) {
-		assert(0);
-		return 1;
-	}
+	if (p[0] != LWSSS_SER_TXPRE_TX_PAYLOAD)
+		return lws_ss_deserialize_tx_incoherent(dsh, "type", len);
 
-	*len = (size_t)(lws_ser_ru16be(&p[1]) - (23 - 3));
-	if (*len != si - 23) {
+	if (lws_ser_ru16be(&p[1]) != si - 3)
 		/*
 		 * We cannot accept any length that doesn't reflect the actual
 		 * length of what came in from the dsh, either something nasty
 		 * happened with truncation or we are being attacked
 		 */
-		assert(0);
+		return lws_ss_deserialize_tx_incoherent(dsh, "length", len);
 
-		return 1;
-	}
+	*len = si - 23;
 
 	memcpy(buf, p + 23, si - 23);
 

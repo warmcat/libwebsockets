@@ -99,6 +99,19 @@ __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size)
 
 	conn->dsh->splitat = 1300;
 
+	/*
+	 * The transport's dsh flags suit KIND_SS_TO_P, which is drained onto
+	 * the client link as a stream of bytes.  But each KIND_C_TO_P object
+	 * is one chunk of client tx with its own 23-byte header, and
+	 * lws_ss_deserialize_tx_payload() takes them back whole: they must
+	 * never be coalesced onto, or split.
+	 */
+
+	if (lws_dsh_set_kind_flags(conn->dsh, KIND_C_TO_P, 0)) {
+		lws_dsh_destroy(&conn->dsh);
+		return -1;
+	}
+
 	conn->txp_path.ops_onw->event_onward_bind(conn->txp_path.priv_onw,
 						  conn->ss);
 
@@ -312,14 +325,20 @@ lws_sss_proxy_onward_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	 * next thing out of the dsh
 	 */
 
-	if (lws_ss_deserialize_tx_payload(m->conn->dsh, m->ss->wsi,
-					  ord, buf, len, flags)) {
+	switch (lws_ss_deserialize_tx_payload(m->conn->dsh, m->ss->wsi,
+					      ord, buf, len, flags)) {
+	case 0:
+		break;
+	case 1:
 		/* if it dropped a chunk, anything after it still wants to go */
 		if (!lws_dsh_get_head(m->conn->dsh, KIND_C_TO_P, (void **)&p,
 				      &si))
 			_lws_ss_request_tx(m->conn->ss);
 
 		return LWSSSSRET_TX_DONT_SEND;
+	default:
+		/* we lost track of the client's tx, the stream can't go on */
+		return LWSSSSRET_DISCONNECT_ME;
 	}
 
 	/* ... there's more we want to send? */
