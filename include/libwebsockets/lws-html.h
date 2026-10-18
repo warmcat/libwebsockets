@@ -806,6 +806,10 @@ typedef struct lhp_ctx {
 	uint8_t			cb_depth; /* containing blocks being resolved
 					   * for a %, see
 					   * lws_css_compute_cascaded_length() */
+	uint8_t			calc_nest; /* lws_csp_calc() in progress,
+					    * including those a % term drives */
+	int32_t			calc_budget; /* calc() steps left for the
+					      * outermost lws_csp_calc() */
 
 	lcsp_css_units_t	unit;
 	lcsp_stanza_t		*stz; /* current stanza getting properties */

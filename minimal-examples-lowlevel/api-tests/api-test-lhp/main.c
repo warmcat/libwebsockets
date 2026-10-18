@@ -531,6 +531,149 @@ bail:
 	return e;
 }
 
+/*
+ * calc() work must be bounded per resolve however var() expands: here each of
+ * four levels names the next calc() custom property LHPT_CALC_BREADTH times,
+ * so evaluating the top one expands to LHPT_CALC_BREADTH^4 var() lookups.
+ * It must resolve promptly, to the 0 a calc() that runs out of budget is
+ * worth, while an ordinary calc() through var() still resolves to its value.
+ */
+
+#define LHPT_CALC_BREADTH	100
+#define LHPT_CALC_DEADLINE_US	(2 * LWS_US_PER_SEC)
+
+static int calc_t_seen, calc_u_seen, calc_late;
+static lws_fx_t calc_t, calc_u;
+
+static lws_stateful_ret_t
+calc_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const char *id;
+	lws_usec_t t;
+	lws_fx_t v;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr) ||
+	    !ps->css_width)
+		return 0;
+
+	id = lws_html_get_atr(ps, "id", 2);
+	if (!id)
+		return 0;
+
+	t = lws_now_usecs();
+	v = *lws_csp_px(ps->css_width, ps);
+	t = lws_now_usecs() - t;
+
+	lwsl_user("%s: #%s width %d.%u in %dms\n", __func__, id,
+		  (int)v.whole, (unsigned int)v.frac, (int)(t / LWS_US_PER_MS));
+
+	if (t > LHPT_CALC_DEADLINE_US)
+		calc_late = 1;
+
+	if (!strcmp(id, "t")) {
+		calc_t = v;
+		calc_t_seen = 1;
+	}
+	if (!strcmp(id, "u")) {
+		calc_u = v;
+		calc_u_seen = 1;
+	}
+
+	return 0;
+}
+
+static int
+calc_breadth(char *p, size_t len, const char *name, const char *next)
+{
+	char *s = p;
+	int i;
+
+	s += lws_snprintf(s, len, "%s:calc(", name);
+	for (i = 0; i < LHPT_CALC_BREADTH; i++)
+		s += lws_snprintf(s, len - lws_ptr_diff_size_t(s, p),
+				  "%svar(%s)", i ? "+" : "", next);
+	s += lws_snprintf(s, len - lws_ptr_diff_size_t(s, p), ");");
+
+	return lws_ptr_diff(s, p);
+}
+
+static int
+test_calc_budget(void)
+{
+	size_t alloc = 16 * 1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+
+	p = doc;
+	p += lws_snprintf(p, alloc, "<html><head><style>#t{--d:1px;");
+	p += calc_breadth(p, alloc - lws_ptr_diff_size_t(p, doc), "--c", "--d");
+	p += calc_breadth(p, alloc - lws_ptr_diff_size_t(p, doc), "--b", "--c");
+	p += calc_breadth(p, alloc - lws_ptr_diff_size_t(p, doc), "--a", "--b");
+	p += calc_breadth(p, alloc - lws_ptr_diff_size_t(p, doc), "width",
+			  "--a");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "}\n#u{--u:10px;width:calc(var(--u) * 3 + 5px)}"
+			  "</style></head><body>"
+			  "<div id=\"t\">x</div><div id=\"u\">y</div>"
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, calc_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+	lws_lhp_destruct(ctx);
+
+	if (r & LWS_SRET_FATAL || !calc_t_seen || !calc_u_seen) {
+		lwsl_err("%s: parse failed\n", __func__);
+		goto bail;
+	}
+	if (calc_late) {
+		lwsl_err("%s: calc() took too long\n", __func__);
+		goto bail;
+	}
+	if (calc_t.whole || calc_t.frac) {
+		lwsl_err("%s: exhausted calc() was not 0\n", __func__);
+		goto bail;
+	}
+	if (calc_u.whole != 35 || calc_u.frac) {
+		lwsl_err("%s: ordinary calc() resolved wrongly\n", __func__);
+		goto bail;
+	}
+
+	e = 0;
+
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -591,6 +734,9 @@ main(int argc, const char **argv)
 
 	if (test_selector_budget(0, 0) ||
 	    test_selector_budget(LHPT_BUDGET_COPIES, LHPT_BUDGET_CLASSES))
+		goto bail;
+
+	if (test_calc_budget())
 		goto bail;
 
 	if (content_len != strlen(entity_expect) ||

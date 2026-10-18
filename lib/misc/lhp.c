@@ -924,7 +924,16 @@ lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
  * is a scalar, for the * and / that css allows.  var() takes the custom
  * property's value: a length, a number, or another calc() evaluated in
  * turn, with the fallback after the comma if it is not defined.
+ *
+ * The text is remote, and var() lets a short calc() expand into the same
+ * long one again at every level: the nesting is bounded, but each level can
+ * name a calc() property hundreds of times.  So every factor, wherever it is
+ * reached from, draws on one LHP_CALC_BUDGET for the outermost
+ * lws_csp_calc(), shared with any calc() a % term's containing block
+ * resolution evaluates on the way.  A calc() that runs out is worth 0.
  */
+
+#define LHP_CALC_BUDGET 4096
 
 /*
  * The containing block length that the % terms are of, resolved on first use
@@ -1018,6 +1027,13 @@ lhp_calc_factor(struct lhp_calc *cs)
 	const char *n;
 	size_t nl;
 	int neg = 0, fn_paren = 0;
+
+	if (--cs->ctx->calc_budget < 0) {
+		/* spent: stop evaluating, at every level */
+		cs->p = cs->end;
+
+		return v;
+	}
 
 	lhp_calc_ws(cs);
 
@@ -1299,7 +1315,18 @@ lws_csp_calc(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base,
 	cs.paren = 0;
 	cs.unitless = 1;
 
+	if (!cs.ctx->calc_nest++)
+		cs.ctx->calc_budget = LHP_CALC_BUDGET;
+
 	v = lhp_calc_expr(&cs);
+
+	cs.ctx->calc_nest--;
+	if (cs.ctx->calc_budget < 0) {
+		/* a partial result means nothing */
+		v.whole = 0;
+		v.frac = 0;
+	}
+
 	if (unitless)
 		*unitless = cs.unitless;
 
