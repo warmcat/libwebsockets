@@ -154,6 +154,11 @@
  - **Tolerate unrequested WRITEABLE.**  Especially on h3 streams, a
    WRITEABLE can arrive without being asked for.  Track "done" yourself;
    never infer completion from a WRITEABLE.
+ - **api-test-lwsws-oauth uses fixed ports 18011 / 18012**, so two trees
+   cannot run it at once, and `lwsws-oauth-limits` has a 60s ctest
+   TIMEOUT: a case waiting for a fresh TOTP step (30s) must run outside
+   ctest (`ctest -R 'st_lwsws_oauth|sd_lwsws_oauth'`, then the binary with
+   the arguments from `ctest -N -V`, then `ki_lwsws_oauth`).
  - **api-test-lwsws-oauth strike accounting:** a scenario can read its
    host's strikes from `/api/status` "strikes" via a trusted xff address,
    and loopback itself is never host-struck, so per-account effects are
