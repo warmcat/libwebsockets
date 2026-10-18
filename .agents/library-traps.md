@@ -102,6 +102,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
+ - **qpack decoder:** the only bound on a peer-chosen dynamic index is the
+   late `insert_count` / `used_entries` check; Required Insert Count and
+   Base are not validated (G-191).  Any new path resolving a dynamic
+   reference must go through `lws_qpack_get_dynamic_entry()`.
  - **h2/h3 trailers never reach the request headers:**
    `lws_h2_hpack_no_store()` gates every hpack store once the stream has
    left `LRS_HEADERS`, and h3 drops trailer fields after validating them.
