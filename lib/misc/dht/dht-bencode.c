@@ -981,9 +981,18 @@ dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
  * which a new sequencer of the peer's gets at the peer's address and sends
  * back with its chunks.  Only then is the old session replaced, and received
  * again from 0: before, the restarted peer's chunks were duplicates of the
- * old stream and acked with offsets it never sent (G-133).  A peer that
- * cannot answer (predating the challenge) waits for the old session's
- * sequencer to go idle, which only the session's own traffic prevents.
+ * old stream and acked with offsets it never sent (G-133).
+ *
+ * The first session is proven the same way.  Binding the receive half to
+ * whatever tid came first let a blind spoofer of a peer we already had a
+ * proven sequencer for (one we made to send to it, or a good node of our
+ * routing table) start the session with its own tid, and have each forged
+ * request answered to that peer in full: the send half's proof, the peer
+ * acking what we sent, says nothing about who sent what we receive (G-204).
+ * So a receive half takes nothing until a chunk carries back the challenge
+ * that went to the peer's address, which costs a new transfer one round
+ * trip.  A peer predating the challenge drops it as a broken ack, so it can
+ * no longer start a transfer to us at all.
  */
 
 static void
@@ -998,8 +1007,8 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 
 	/*
 	 * Making a sequencer for a source we have never heard from costs
-	 * ~160KB of allocation and an ACK to an unverified address: that is
-	 * rate limited, and the sequencer won't repeat anything to such a
+	 * ~160KB of allocation and a challenge to an unverified address: that
+	 * is rate limited, and the sequencer won't repeat anything to such a
 	 * source until it has acknowledged it
 	 */
 	ts = lws_dht_ts_rx(ctx, from, fromlen, mp->id);
@@ -1008,25 +1017,22 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 
 	dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 
-	if (!dts->rx_tid_len) {
-		/* the first chunk the sequencer receives starts the session */
-		memcpy(dts->rx_tid, mp->tid, mp->tid_len);
-		dts->rx_tid_len = mp->tid_len;
-	} else if (dts->rx_tid_len != mp->tid_len ||
-		   lws_timingsafe_bcmp(dts->rx_tid, mp->tid,
-					(uint32_t)mp->tid_len)) {
+	if (!dts->rx_tid_len || dts->rx_tid_len != mp->tid_len ||
+	    lws_timingsafe_bcmp(dts->rx_tid, mp->tid, (uint32_t)mp->tid_len)) {
 
 		if (mp->ch_len != sizeof(dts->rx_ch) ||
 		    lws_timingsafe_bcmp(dts->rx_ch, mp->ch,
 					sizeof(dts->rx_ch))) {
-			lwsl_dht_rx("%s: chunk not of the peer's session, "
-				    "challenged\n", __func__);
+			lwsl_dht_rx("%s: chunk not of a proven session of the "
+				    "peer's, challenged\n", __func__);
 			dht_tx_challenge(dts, mp->tid, mp->tid_len);
 			return;
 		}
 
-		lwsl_dht_rx("%s: peer proved a new session\n", __func__);
-		lws_transport_sequencer_rx_reset(ts);
+		lwsl_dht_rx("%s: peer proved a %s session\n", __func__,
+			    dts->rx_tid_len ? "new" : "first");
+		if (dts->rx_tid_len)
+			lws_transport_sequencer_rx_reset(ts);
 		memcpy(dts->rx_tid, mp->tid, mp->tid_len);
 		dts->rx_tid_len = mp->tid_len;
 		/* the next session must be proven afresh */

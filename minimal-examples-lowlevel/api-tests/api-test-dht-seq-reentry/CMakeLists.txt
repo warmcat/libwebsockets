@@ -32,6 +32,7 @@ if (requirements)
 		lws_get_free_port(PORT_DHT_SR_B)
 		lws_get_free_port(PORT_DHT_SR_Q)
 		lws_get_free_port(PORT_DHT_SR_R)
+		lws_get_free_port(PORT_DHT_SR_V)
 		lws_get_free_port(PORT_DHT_SR_FAN)
 
 		add_test(NAME api-test-dht-seq-reentry COMMAND
@@ -39,6 +40,7 @@ if (requirements)
 			 --port-b ${PORT_DHT_SR_B}
 			 --port-q ${PORT_DHT_SR_Q}
 			 --port-r ${PORT_DHT_SR_R}
+			 --port-v ${PORT_DHT_SR_V}
 			 --port-fan ${PORT_DHT_SR_FAN})
 		set_tests_properties(api-test-dht-seq-reentry PROPERTIES
 			TIMEOUT 60

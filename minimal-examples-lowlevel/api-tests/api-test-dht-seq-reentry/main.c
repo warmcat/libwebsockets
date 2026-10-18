@@ -31,6 +31,20 @@
  *    sent.  Once R acks that reply, B sends the rest, and R's acks of all of
  *    it complete B's transfer
  *
+ * and that a receive session must be proven before B takes anything from it
+ * (G-204):
+ *
+ *  - B challenges the first chunk of every new session, Q's and R's
+ *    included: they send their chunks again carrying B's challenge, which
+ *    only reaches the real sender's address
+ *
+ *  - B sends a third socket V a message, so B's sequencer for V is one it
+ *    made to send, and starts out proven, and V acks it.  Then chunks
+ *    claiming to be from V, with a session tid of their own and no answer to
+ *    B's challenge, as a blind spoofer of V's address would send, ask for
+ *    BIG replies.  B must not take them: its handler is never called for
+ *    them, and V gets nothing from B but challenges
+ *
  * The UDP ports are allocated uniquely at build time and passed in on the
  * command line, so parallel ctest instances do not collide.  Nothing
  * listens on the fan-out port, at 127.0.0.2.. and 127.0.1.2..
@@ -55,6 +69,12 @@
 
 #define SR_Q_TID	"qqqqqqqqqq"
 #define SR_R_TID	"rrrrrrrrrr"
+#define SR_V_TID	"vvvvvvvvvv"	/* a spoofer's, from V's address */
+
+/* B's session challenge ("ch"), as its reply to a chunk carries it */
+#define SR_CH_LEN	8
+/* the forged requests from V's address */
+#define SR_V_COUNT	4
 
 /* R's requests, and the size of B's answer to each */
 #define SR_BIG_COUNT	16
@@ -64,13 +84,14 @@
 
 static struct lws_context *cx;
 static struct lws_dht_ctx *dht_b;
-static struct lws *wsi_q, *wsi_r;
-static struct sockaddr_in sa_b, sa_r;
+static struct lws *wsi_q, *wsi_r, *wsi_v;
+static struct sockaddr_in sa_b, sa_r, sa_v;
 static lws_sorted_usec_list_t sul_poll, sul_deadline;
 static int port_fan, retcode = 1;
 
 static const char *fan_msg = "FAN 0102030405 0 0 ";
 static const char *big_msg = "BIG 0102030405 0 0 ";
+static const char *nop_msg = "NOP 0102030405 0 0 ";
 static const char *sr_verbs[] = { "FAN", "BIG" };
 
 static struct {
@@ -80,6 +101,8 @@ static struct {
 	unsigned int	q_sent:1;	/* Q sent B its FAN chunk */
 	unsigned int	q_acked:1;	/* ...B acked it, whole, with Q's tid */
 	unsigned int	q_bad:1;	/* ...or acked something else */
+	unsigned int	q_ch_set:1;	/* B challenged Q's chunk */
+	uint8_t		q_ch[SR_CH_LEN];
 	unsigned int	failed:1;	/* a fan-out send was reported failed */
 
 	int		r_state;
@@ -93,6 +116,16 @@ static struct {
 	size_t		b_tid_len;
 	unsigned int	r_bad:1;	/* B's chunks to R were not as expected */
 	unsigned int	r_completed:1;	/* R's acks completed B's transfer */
+	unsigned int	r_ch_set:1;	/* B challenged R's chunks */
+	uint8_t		r_ch[SR_CH_LEN];
+
+	int		v_state;
+	lws_usec_t	v_t;
+	uint8_t		v_b_tid[16];	/* the tid of B's chunks to V */
+	size_t		v_b_tid_len;
+	int		v_big;		/* B's handler took a BIG from V */
+	int		v_challenged;	/* B challenged the forged chunks */
+	size_t		v_got;		/* bytes B sent V beyond its message */
 } sr;
 
 /* the endpoint of the i-th fan-out target of set s, nobody listens there */
@@ -145,6 +178,11 @@ cb_sr_verbs(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* a reply much bigger than the request */
 		char rsp[64 + SR_BIG_PAYLOAD];
 		int n;
+
+		if (args->from && args->from->sa_family == AF_INET &&
+		    ((const struct sockaddr_in *)args->from)->sin_port ==
+								sa_v.sin_port)
+			sr.v_big++;
 
 		n = lws_dht_msg_gen(rsp, sizeof(rsp) - SR_BIG_PAYLOAD, "RSP",
 				    args->msg->hash, 0, SR_BIG_PAYLOAD);
@@ -235,46 +273,101 @@ sr_sendto(struct lws *wsi, const void *buf, size_t len)
 		lwsl_err("%s: sendto returned %d\n", __func__, (int)n);
 }
 
-/* a data chunk to B: d1:ad4:data..2:id..3:len..6:offset..e1:q4:data1:t.. */
+/*
+ * a data chunk to B: d1:ad[2:ch..]4:data..2:id..3:len..6:offset..e1:q4:data
+ * 1:t.., carrying B's challenge ch once B asked for it
+ */
 
 static size_t
 sr_send_chunk(struct lws *wsi, const char *id, const char *tid,
-	      uint64_t offset, const char *msg)
+	      uint64_t offset, const char *msg, const uint8_t *ch)
 {
 	char q[256];
+	size_t o = 5;
 	int n;
 
-	n = lws_snprintf(q, sizeof(q), "d1:ad4:data%u:%s2:id20:%s"
+	memcpy(q, "d1:ad", 5);
+	if (ch) {
+		memcpy(q + o, "2:ch8:", 6);
+		memcpy(q + o + 6, ch, SR_CH_LEN);
+		o += 6 + SR_CH_LEN;
+	}
+
+	n = lws_snprintf(q + o, sizeof(q) - o, "4:data%u:%s2:id20:%s"
 			 "3:leni%ue6:offseti%lluee1:q4:data1:t%u:%s1:y1:qe",
 			 (unsigned int)strlen(msg), msg, id,
 			 (unsigned int)strlen(msg), (unsigned long long)offset,
 			 (unsigned int)strlen(tid), tid);
-	if (n <= 0 || (size_t)n >= sizeof(q) - 1)
+	if (n <= 0 || (size_t)n >= sizeof(q) - o - 1)
 		return 0;
 
-	sr_sendto(wsi, q, (size_t)n);
+	sr_sendto(wsi, q, o + (size_t)n);
 
 	return strlen(msg);
 }
 
-/* R's ack of B's chunks below offset, echoing the tid of B's chunks */
+/* a raw peer's ack of B's chunks below offset, echoing their tid */
 
 static void
-sr_r_send_ack(uint64_t offset)
+sr_send_ack(struct lws *wsi, const uint8_t *tid, size_t tid_len,
+	    uint64_t offset)
 {
 	char q[160];
 	int n;
 
 	n = lws_snprintf(q, sizeof(q), "d1:rd2:id20:55555555555555555555"
 			 "3:leni0e6:offseti%llue" "e1:t%u:",
-			 (unsigned long long)offset, (unsigned int)sr.b_tid_len);
-	if (n <= 0 || (size_t)n + sr.b_tid_len + 7 > sizeof(q))
+			 (unsigned long long)offset, (unsigned int)tid_len);
+	if (n <= 0 || (size_t)n + tid_len + 7 > sizeof(q))
 		return;
 
-	memcpy(q + n, sr.b_tid, sr.b_tid_len);
-	memcpy(q + (size_t)n + sr.b_tid_len, "1:y1:re", 7);
+	memcpy(q + n, tid, tid_len);
+	memcpy(q + (size_t)n + tid_len, "1:y1:re", 7);
 
-	sr_sendto(wsi_r, q, (size_t)n + sr.b_tid_len + 7);
+	sr_sendto(wsi, q, (size_t)n + tid_len + 7);
+}
+
+static void
+sr_r_send_ack(uint64_t offset)
+{
+	sr_send_ack(wsi_r, sr.b_tid, sr.b_tid_len, offset);
+}
+
+/*
+ * B's challenge to a chunk with tid: d1:rd2:ch8:<ch>2:id..e1:t<tid>1:y1:re.
+ * Copies the challenge out, or returns -1 if this is not one.
+ */
+
+static int
+sr_challenge(const uint8_t *buf, size_t len, const char *tid, uint8_t *ch)
+{
+	char t[32];
+
+	if (sr_find(buf, len, "d1:rd2:ch8:") != 0 || len < 11 + SR_CH_LEN)
+		return -1;
+
+	lws_snprintf(t, sizeof(t), "e1:t%u:%s1:y1:re",
+		     (unsigned int)strlen(tid), tid);
+	if (sr_find(buf, len, t) < 0)
+		return -1;
+
+	memcpy(ch, buf + 11, SR_CH_LEN);
+
+	return 0;
+}
+
+/* R's requests from offset 0 to what it sent, carrying ch if set */
+
+static void
+sr_r_send_requests(const uint8_t *ch)
+{
+	size_t sent = 0;
+	int n;
+
+	for (n = 0; n < SR_BIG_COUNT; n++)
+		sent += sr_send_chunk(wsi_r, "55555555555555555555", SR_R_TID,
+				      sent, big_msg, ch);
+	sr.r_sent = sent;
 }
 
 /*
@@ -312,6 +405,15 @@ sr_r_rx(const uint8_t *in, size_t len)
 	size_t tid_len;
 	uint32_t bit;
 
+	if (!sr_challenge(in, len, SR_R_TID, sr.r_ch)) {
+		/* the first time, R sends its requests again, answering it */
+		if (!sr.r_ch_set) {
+			sr.r_ch_set = 1;
+			sr_r_send_requests(sr.r_ch);
+		}
+		return;
+	}
+
 	if (sr_chunk_tid(in, len, tid, &tid_len))
 		return; /* B's acks of R's chunks */
 
@@ -340,6 +442,87 @@ sr_r_rx(const uint8_t *in, size_t len)
 		sr.r_got_unproven += (size_t)clen;
 }
 
+/*
+ * What B sends V: its message, which V acks, and challenges to the forged
+ * chunks.  Anything else is B answering the forgeries.
+ */
+
+static void
+sr_v_rx(const uint8_t *in, size_t len)
+{
+	int64_t off = sr_int(in, len, "6:offseti"),
+		clen = sr_int(in, len, "3:leni");
+	uint8_t tid[16], ch[SR_CH_LEN];
+	size_t tid_len;
+
+	if (!sr_challenge(in, len, SR_V_TID, ch)) {
+		sr.v_challenged++;
+		return;
+	}
+
+	if (sr_chunk_tid(in, len, tid, &tid_len))
+		return; /* B's acks: there are none, it took nothing */
+
+	if (!off && clen == (int64_t)strlen(nop_msg)) {
+		/* B's message: V acks it, as its own sequencer would */
+		memcpy(sr.v_b_tid, tid, tid_len);
+		sr.v_b_tid_len = tid_len;
+		sr_send_ack(wsi_v, tid, tid_len, (uint64_t)clen);
+		return;
+	}
+
+	sr.v_got += clen > 0 ? (size_t)clen : 0;
+}
+
+/* B sends V something, then V's address is used to ask B for more */
+
+static int
+sr_v_step(void)
+{
+	lws_usec_t now = lws_now_usecs();
+	size_t sent = 0;
+	int n;
+
+	switch (sr.v_state) {
+	case 0:
+		if (lws_dht_send_data(dht_b, (const struct sockaddr *)&sa_v,
+				      nop_msg, strlen(nop_msg))) {
+			lwsl_err("%s: B could not send to V\n", __func__);
+			return -1;
+		}
+		sr.v_t = now;
+		sr.v_state++;
+		break;
+
+	case 1:
+		if (!sr.v_b_tid_len) {
+			if (now - sr.v_t > 2 * LWS_US_PER_SEC) {
+				lwsl_err("%s: B's message never reached V\n",
+					 __func__);
+				return -1;
+			}
+			break;
+		}
+
+		/* a blind spoofer's requests, with V's address */
+		for (n = 0; n < SR_V_COUNT; n++)
+			sent += sr_send_chunk(wsi_v, "66666666666666666666",
+					      SR_V_TID, sent, big_msg, NULL);
+		sr.v_t = now;
+		sr.v_state++;
+		break;
+
+	case 2:
+		/* give B time to have answered all it is going to */
+		if (now - sr.v_t < 300 * LWS_US_PER_MS)
+			break;
+
+		return 1;
+	}
+
+	return 0;
+}
+
 static int
 cb_peer(struct lws *wsi, enum lws_callback_reasons reason, void *user,
      void *in, size_t len)
@@ -357,6 +540,22 @@ cb_peer(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	if (wsi == wsi_r) {
 		sr_r_rx(in, len);
+		return 0;
+	}
+
+	if (wsi == wsi_v) {
+		sr_v_rx(in, len);
+		return 0;
+	}
+
+	/* B's challenge to Q's chunk: Q sends it again, answering it */
+
+	if (!sr_challenge(in, len, SR_Q_TID, sr.q_ch)) {
+		if (!sr.q_ch_set) {
+			sr.q_ch_set = 1;
+			sr_send_chunk(wsi_q, "44444444444444444444", SR_Q_TID,
+				      0, fan_msg, sr.q_ch);
+		}
 		return 0;
 	}
 
@@ -387,13 +586,10 @@ static int
 sr_r_step(void)
 {
 	lws_usec_t now = lws_now_usecs();
-	int n;
 
 	switch (sr.r_state) {
 	case 0:
-		for (n = 0; n < SR_BIG_COUNT; n++)
-			sr.r_sent += sr_send_chunk(wsi_r, "55555555555555555555",
-						   SR_R_TID, sr.r_sent, big_msg);
+		sr_r_send_requests(NULL);
 		sr.r_t = now;
 		sr.r_state++;
 		break;
@@ -430,14 +626,19 @@ sr_r_step(void)
 		break;
 
 	case 3:
-		if (sr.r_completed)
-			return 1;
+		if (sr.r_completed) {
+			sr.r_state++;
+			break;
+		}
 		if (now - sr.r_t > 2 * LWS_US_PER_SEC) {
 			lwsl_err("%s: R's acks did not complete B's transfer\n",
 				 __func__);
 			return -1;
 		}
 		break;
+
+	case 4:
+		return sr_v_step();
 	}
 
 	return 0;
@@ -450,7 +651,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 
 	if (!sr.q_sent) {
 		sr_send_chunk(wsi_q, "44444444444444444444", SR_Q_TID, 0,
-			      fan_msg);
+			      fan_msg, NULL);
 		sr.q_sent = 1;
 	}
 
@@ -494,7 +695,7 @@ int main(int argc, const char **argv)
 	struct lws_vhost *vh;
 	lws_dht_info_t di;
 	uint8_t idb[20];
-	int port_b = 0, port_q = 0, port_r = 0, n = 0;
+	int port_b = 0, port_q = 0, port_r = 0, port_v = 0, n = 0;
 	const char *p;
 
 	lws_context_info_defaults(&info, NULL);
@@ -506,16 +707,21 @@ int main(int argc, const char **argv)
 		port_q = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-r")))
 		port_r = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-v")))
+		port_v = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-fan")))
 		port_fan = atoi(p);
 
 	if (port_b < 1 || port_b > 65535 || port_q < 1 || port_q > 65535 ||
-	    port_r < 1 || port_r > 65535 ||
+	    port_r < 1 || port_r > 65535 || port_v < 1 || port_v > 65535 ||
 	    port_fan < 1 || port_fan > 65535 || port_b == port_q ||
 	    port_r == port_b || port_r == port_q ||
-	    port_fan == port_b || port_fan == port_q || port_fan == port_r) {
+	    port_v == port_b || port_v == port_q || port_v == port_r ||
+	    port_fan == port_b || port_fan == port_q || port_fan == port_r ||
+	    port_fan == port_v) {
 		lwsl_err("usage: --port-b <udp port> --port-q <udp port> "
-			 "--port-r <udp port> --port-fan <unused udp port>\n");
+			 "--port-r <udp port> --port-v <udp port> "
+			 "--port-fan <unused udp port>\n");
 		return 1;
 	}
 
@@ -529,6 +735,8 @@ int main(int argc, const char **argv)
 	sa_b.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	sa_r = sa_b;
 	sa_r.sin_port = htons((uint16_t)port_r);
+	sa_v = sa_b;
+	sa_v.sin_port = htons((uint16_t)port_v);
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
@@ -574,7 +782,10 @@ int main(int argc, const char **argv)
 	wsi_r = lws_create_adopt_udp(vh, "127.0.0.1", port_r, LWS_CAUDP_BIND,
 				     protocols[1].name, NULL, NULL, NULL, NULL,
 				     "sr-r");
-	if (!wsi_q || !wsi_r) {
+	wsi_v = lws_create_adopt_udp(vh, "127.0.0.1", port_v, LWS_CAUDP_BIND,
+				     protocols[1].name, NULL, NULL, NULL, NULL,
+				     "sr-v");
+	if (!wsi_q || !wsi_r || !wsi_v) {
 		lwsl_err("raw udp socket creation failed\n");
 		goto bail;
 	}
@@ -612,6 +823,14 @@ int main(int argc, const char **argv)
 	    sr.r_got != SR_BIG_COUNT * sr.reply_len) {
 		lwsl_err("B's transfer to R did not complete once R was "
 			 "proven\n");
+		retcode = 1;
+	}
+
+	lwsl_user("V: B's handler took %d forged requests, B challenged %d, "
+		  "sent V %u bytes beyond its message\n", sr.v_big,
+		  sr.v_challenged, (unsigned int)sr.v_got);
+	if (sr.v_state != 2 || sr.v_big || sr.v_got || !sr.v_challenged) {
+		lwsl_err("B took requests from an unproven session of V's\n");
 		retcode = 1;
 	}
 

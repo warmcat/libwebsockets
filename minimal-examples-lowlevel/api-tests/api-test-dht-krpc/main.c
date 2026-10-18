@@ -49,9 +49,10 @@
  *    None of them may complete the transfer, so A keeps retransmitting; only
  *    an ack echoing the chunk's tid for what was sent completes it (G-096)
  *  - R asks B for its capabilities, as a stranger B must not repeat itself
- *    to, and acks B's answer with the fixed tid, as a spoofer naming R
- *    could.  That must not prove R to B: B's answer to R's second request
- *    goes out once, not once per retry (G-096, C-599)
+ *    to (answering B's challenge to its first chunk, see Q below), and acks
+ *    B's answer with the fixed tid, as a spoofer naming R could.  That must
+ *    not prove R to B: B's answer to R's second request goes out once, not
+ *    once per retry (G-096, C-599)
  *  - A pings R, passing R's address in a sockaddr_storage with that
  *    struct's size as its length, as the announce in a search does.  The
  *    request must still be recorded, so R's pong is taken as the answer to
@@ -81,10 +82,12 @@
  *    host, starts storage for only as many as are left of A's share
  *    (G-121)
  *  - a second plain UDP socket Q sends B a reliable stream whose chunks
- *    carry Q's session tid.  A chunk at Q's next offset with another tid, as
- *    a blind spoofer would have to send, is not taken: B challenges it, and
- *    Q's own chunk at that offset is still delivered and acked with Q's tid
- *    (G-141).  B then sends Q more than Q sent B.  Q challenges B's chunk,
+ *    carry Q's session tid.  B takes nothing of a session until it is
+ *    proven: Q's first chunk is challenged, and taken when Q sends it again
+ *    carrying B's challenge (G-204).  A chunk at Q's next offset with
+ *    another tid, as a blind spoofer would have to send, is not taken: B
+ *    challenges it, and Q's own chunk at that offset is still delivered and
+ *    acked with Q's tid (G-141).  B then sends Q more than Q sent B.  Q challenges B's chunk,
  *    and B, which repeats nothing to Q unproven, sends it again at once
  *    carrying Q's challenge, since answering B's session proves Q; Q acks
  *    it.  A repeat of Q's chunk is still acked at Q's offset, not at B's
@@ -237,6 +240,7 @@ static int seq_state, seq_polls, cap_rsps;
 static uint8_t seq_tid[16];
 static size_t seq_tid_len;
 static uint64_t cap_rsp_len;
+static uint8_t cap_ch[8];	/* B's challenge to R's first request */
 
 /*
  * Q sends B a reliable stream by hand, as a peer of B's with session tid T.
@@ -247,7 +251,8 @@ static uint64_t cap_rsp_len;
  */
 enum {
 	KRPC_QS_IDLE,
-	KRPC_QS_T0,		/* Q's first chunk, tid T at 0 */
+	KRPC_QS_T0_FIRST,	/* Q's first chunk, tid T at 0, unproven */
+	KRPC_QS_T0,		/* ...again, answering B's challenge */
 	KRPC_QS_FORGED,		/* a forged chunk at Q's next offset */
 	KRPC_QS_T1,		/* Q's own chunk at that offset */
 	KRPC_QS_B_SENDS,	/* B sends Q more than Q sent B: Q challenges
@@ -582,24 +587,35 @@ krpc_queue_ack(struct raw_peer *p, const uint8_t *tid, size_t tid_len,
 	peer_queue(p, q, (size_t)n + tid_len + 7, to);
 }
 
-/* R's data chunk to B, carrying a capability request */
+/*
+ * R's data chunk to B, carrying a capability request, and the answer to B's
+ * challenge if it has one
+ */
 
 static void
-krpc_queue_cap_req(uint64_t offset)
+krpc_queue_cap_req(uint64_t offset, const uint8_t *ch)
 {
 	uint8_t q[160];
+	size_t o = 5;
 	int n;
 
-	n = lws_snprintf((char *)q, sizeof(q), "d1:ad4:data%u:%s2:id20:"
+	memcpy(q, "d1:ad", 5);
+	if (ch) {
+		memcpy(q + o, "2:ch8:", 6);
+		memcpy(q + o + 6, ch, sizeof(cap_ch));
+		o += 6 + sizeof(cap_ch);
+	}
+
+	n = lws_snprintf((char *)q + o, sizeof(q) - o, "4:data%u:%s2:id20:"
 			 "33333333333333333333"
 			 "3:leni%ue6:offseti%lluee1:q4:data1:t10:sqRRRRRRRR"
 			 "1:y1:qe", (unsigned int)strlen(cap_req), cap_req,
 			 (unsigned int)strlen(cap_req),
 			 (unsigned long long)offset);
-	if (n < 0 || (size_t)n >= sizeof(q) - 1)
+	if (n < 0 || o + (size_t)n >= sizeof(q) - 1)
 		return;
 
-	raw_queue(q, (size_t)n, &sa_b);
+	raw_queue(q, o + (size_t)n, &sa_b);
 }
 
 /*
@@ -613,6 +629,16 @@ seq_rx(const struct sockaddr_in *from, const uint8_t *in, size_t len)
 {
 	uint8_t tid[16];
 	size_t tid_len;
+
+	if (from->sin_port == sa_b.sin_port && seq_state == KRPC_SEQ_CAP1 &&
+	    !peer_r.tx_len && krpc_find(in, len, "d1:rd2:ch8:") == 0 &&
+	    len >= 11 + sizeof(cap_ch) &&
+	    krpc_find(in, len, "e1:t10:sqRRRRRRRR") >= 0) {
+		/* B challenged R's first request: R asks again, answering */
+		memcpy(cap_ch, in + 11, sizeof(cap_ch));
+		krpc_queue_cap_req(0, cap_ch);
+		return;
+	}
 
 	if (krpc_chunk_tid(in, len, tid, &tid_len))
 		return;
@@ -947,14 +973,14 @@ seq_step(void)
 
 		/* R is a stranger to B, which answers it once, unrepeated */
 		seq_state = KRPC_SEQ_CAP1;
-		krpc_queue_cap_req(0);
+		krpc_queue_cap_req(0, NULL);
 		break;
 
 	case KRPC_SEQ_CAP1_ACKED:
 		/* the forged ack has gone: ask again */
 		seq_state = KRPC_SEQ_CAP2;
 		seq_polls = 0;
-		krpc_queue_cap_req(strlen(cap_req));
+		krpc_queue_cap_req(strlen(cap_req), NULL);
 		break;
 
 	case KRPC_SEQ_CAP2:
@@ -1109,6 +1135,14 @@ q_rx(const uint8_t *in, size_t len)
 	off = krpc_int(in, len, "6:offseti");
 
 	switch (q_state) {
+	case KRPC_QS_T0_FIRST:
+		q_expect(q_answers(in, len, KRPC_Q_TID_T) &&
+			 q_is_challenge(in, len),
+			 "B took the first chunk of a session unchallenged");
+		q_queue_chunk(KRPC_Q_TID_T, 0, q_msg[0], q_ch);
+		q_state = KRPC_QS_T0;
+		break;
+
 	case KRPC_QS_T0:
 		q_expect(q_answers(in, len, KRPC_Q_TID_T) &&
 			 off == (int64_t)l0, "first chunk not acked");
@@ -1199,7 +1233,7 @@ q_step(void)
 		if (!sv.q_up || !sv.data_ok)
 			break;
 		q_queue_chunk(KRPC_Q_TID_T, 0, q_msg[0], NULL);
-		q_state = KRPC_QS_T0;
+		q_state = KRPC_QS_T0_FIRST;
 		break;
 
 	case KRPC_QS_B_SENDS:

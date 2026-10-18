@@ -104,14 +104,14 @@
 #define LWS_DHT_SEQ_NONCE_LEN		8
 #define LWS_DHT_SEQ_TID_LEN		(2 + LWS_DHT_SEQ_NONCE_LEN)
 /*
- * The tid of the peer's chunks is its session: our receive half binds to the
- * first one it sees, and takes chunks only with that tid.  A chunk with
- * another tid is a restarted peer or a forgery: it is answered with a reply
- * carrying a random challenge ("ch"), which goes to the real peer's address.
- * Only a chunk carrying the challenge back can start a new receive session,
- * so a blind spoofer can neither feed the session nor replace it.  The
- * challenge reply has no offset, so peers predating it drop it as a broken
- * ack.
+ * The tid of the peer's chunks is its session: our receive half takes chunks
+ * only with that tid.  A chunk with no session yet, or with another tid (a
+ * restarted peer, or a forgery) is answered with a reply carrying a random
+ * challenge ("ch"), which goes to the real peer's address.  Only a chunk
+ * carrying the challenge back can start a receive session, the first one or
+ * a new one, so a blind spoofer can neither start, feed nor replace one
+ * (G-141, G-204).  The challenge reply has no offset, so peers predating it
+ * drop it as a broken ack, and cannot send to us.
  */
 #define LWS_DHT_SEQ_CH_LEN		8
 /* subscribes we sent whose reply we are still waiting for */
