@@ -91,6 +91,14 @@ To enable the plugin, attach it to your configuration and provide the following 
 | `signature-duration` | The duration in seconds for which the newly generated DNSSEC signatures should remain valid. | 31536000 (1 year) |
 | `jwk_path` | Absolute path to the JSON Web Key (JWK) for JWT verification in the web UI. | `NULL` |
 | `cookie-name` | Name of the HTTP cookie that the monitor should check for JWT sessions. | `auth_session` |
+| `origin-allow` | Comma-separated list of further complete origins (eg `https://admin.example.com`) whose pages may open the UI WebSocket, for a UI served from somewhere other than the host the ws is on. | none |
+
+The UI WebSocket is authorized by the session cookie, and a WebSocket is not
+covered by the browser's same-origin policy, so the upgrade must also carry an
+`Origin` of the host it was sent to (`https://<host>`, or `http://<host>` on a
+vhost that is not itself doing TLS), or one listed in `origin-allow`; an
+upgrade with no `Origin`, or any other, is refused.  The UI page served by the
+mount above always sends its own.
 
 ## Domain JSON Configuration (`$dns_base_dir/domains`)
 

@@ -115,6 +115,8 @@ struct vhd {
 	int root_process_active;
 
 	char cookie_name[64];
+	/* "origin-allow" pvo: further origins the UI ws accepts, or NULL */
+	const char *origin_allow;
 	char jwk_path[256];
 	struct lws_jwk jwk;
 

@@ -3589,6 +3589,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			else
 				lws_strncpy(vhd->cookie_name, "auth_session", sizeof(vhd->cookie_name));
 
+			if ((pvo = lws_pvo_search(in, "origin-allow")))
+				vhd->origin_allow = pvo->value;
+
 			if ((pvo = lws_pvo_search(in, "jwk_path")))
 				lws_strncpy(vhd->jwk_path, pvo->value, sizeof(vhd->jwk_path));
 			else
@@ -3874,7 +3877,29 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
-		if (vhd && vhd->root_process_active) {
+		/*
+		 * The browser UI ws is the only ws we serve, and only from the
+		 * unprivileged proxy while the root process is up: anything
+		 * else has nothing to talk to, and must not be let in
+		 * unauthenticated to wait for the root process to come back
+		 */
+		if (!vhd || !vhd->root_process_active) {
+			lwsl_notice("%s: no root process, bounced proxy UI connection\n", __func__);
+			return -1;
+		}
+		/*
+		 * The upgrade is authorized by the ambient session cookie and a
+		 * ws is exempt from the same-origin policy, while SameSite=Lax
+		 * still sends the cookie from any same-site page: without this,
+		 * script on any sibling host of ours could drive the UI as the
+		 * logged-in admin.  The UI's own page always sends our Origin.
+		 */
+		if (lws_http_origin_check(wsi, vhd->origin_allow,
+					  LWS_HOC_REQUIRE_ORIGIN)) {
+			lwsl_notice("%s: Origin is not ours, bounced proxy UI connection\n", __func__);
+			return -1;
+		}
+		{
 			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 			if (!ja) {
 				lwsl_notice("%s: No valid JWT found, bounced proxy UI connection\n", __func__);
