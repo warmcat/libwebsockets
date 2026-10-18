@@ -50,12 +50,22 @@
  * arrived in pieces: then POLLIN is taken off, and given back a little later
  * by a timer, so we look again without spinning.  The connection's accept
  * timeout bounds how long that can go on.
+ *
+ * What we do then must be proportional to what the peer sends, not to how
+ * long it makes us wait: a peer that sends most of a ClientHello and goes
+ * quiet must not have it copied and parsed again every few ms until the
+ * timeout.  So the wait backs off each time, and the ClientHello is only
+ * peeked and parsed again once more of it has arrived.
  */
 
 #include "private-lib-core.h"
 
-/* how long to wait before peeking again at a partial header or ClientHello */
+/*
+ * How long to wait before peeking again at a partial header or ClientHello:
+ * 10ms the first time, doubling each time after, up to 160ms
+ */
 #define LWS_PRE_ACCEPT_REPEEK_US	(10 * LWS_US_PER_MS)
+#define LWS_PRE_ACCEPT_REPEEK_MAX_SHIFT	4
 
 /* stop reading one side while this much is queued for the other */
 #define LWS_PASSTHROUGH_HIGH		(256 * 1024)
@@ -303,11 +313,22 @@ lws_pre_accept_repeek_cb(lws_sorted_usec_list_t *sul)
 static int
 lws_pre_accept_wait(struct lws *wsi)
 {
+	lws_usec_t us = LWS_PRE_ACCEPT_REPEEK_US <<
+			(wsi->io->pa_waits < LWS_PRE_ACCEPT_REPEEK_MAX_SHIFT ?
+			 wsi->io->pa_waits : LWS_PRE_ACCEPT_REPEEK_MAX_SHIFT);
+
+	/*
+	 * Backing off whether or not more came meanwhile: the peer cannot buy
+	 * itself a look every 10ms by sending a byte at a time either
+	 */
+	if (wsi->io->pa_waits < 255)
+		wsi->io->pa_waits++;
+
 	if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
 		return 1;
 
 	lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->io->sul_pre_accept,
-			 lws_pre_accept_repeek_cb, LWS_PRE_ACCEPT_REPEEK_US);
+			 lws_pre_accept_repeek_cb, us);
 
 	return 0;
 }
@@ -421,9 +442,23 @@ lws_pre_accept_service(struct lws *wsi)
 		if (n)
 			return lws_pre_accept_wait(wsi);
 		wsi->io->pa_proxy_v2 = 0;
+		/* the ClientHello gets its own backoff */
+		wsi->io->pa_waits = 0;
 	}
 
 	if (wsi->io->pa_sni) {
+		size_t pending;
+
+		/*
+		 * POLLIN only says the bytes we already looked at are still
+		 * there: if the platform can tell us nothing was added to
+		 * them, don't copy and parse them again to find that out
+		 */
+		if (wsi->io->pa_seen &&
+		    !lws_plat_rx_pending(wsi->io->desc.sockfd, &pending) &&
+		    pending <= wsi->io->pa_seen)
+			return lws_pre_accept_wait(wsi);
+
 		if (!wsi->io->pa_peek) {
 			wsi->io->pa_peek = lws_malloc(LWS_TLS_CH_MAX, __func__);
 			if (!wsi->io->pa_peek)
@@ -436,6 +471,11 @@ lws_pre_accept_service(struct lws *wsi)
 		if (!s)
 			/* nothing yet: POLLIN will tell us */
 			return 0;
+
+		if ((size_t)s <= wsi->io->pa_seen)
+			/* nothing new since we last looked */
+			return lws_pre_accept_wait(wsi);
+		wsi->io->pa_seen = (size_t)s;
 
 		n = lws_tls_client_hello_sni(wsi->io->pa_peek, (size_t)s, name,
 					     sizeof(name));

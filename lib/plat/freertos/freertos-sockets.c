@@ -75,6 +75,16 @@ lws_plat_set_nonblocking(lws_sockfd_type fd)
 }
 
 int
+lws_plat_rx_pending(lws_sockfd_type fd, size_t *pending)
+{
+	/* lwip only answers FIONREAD in some configurations: say we can't */
+	(void)fd;
+	(void)pending;
+
+	return -1;
+}
+
+int
 lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 {
 	int optval = 1;

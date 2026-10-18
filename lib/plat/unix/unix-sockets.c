@@ -87,6 +87,26 @@ lws_plat_set_nonblocking(lws_sockfd_type fd)
 }
 
 int
+lws_plat_rx_pending(lws_sockfd_type fd, size_t *pending)
+{
+#if defined(FIONREAD)
+	int n = 0;
+
+	if (ioctl(fd, FIONREAD, &n) < 0 || n < 0)
+		return -1;
+
+	*pending = (size_t)n;
+
+	return 0;
+#else
+	(void)fd;
+	(void)pending;
+
+	return -1;
+#endif
+}
+
+int
 lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 {
 	int optval = 1;

@@ -1070,6 +1070,10 @@ struct lws_io_adjunct {
 	lws_sockaddr46			sa46_proxied; /* the client a trusted
 						       * proxy named */
 	uint8_t				*pa_peek;
+	size_t				pa_seen;	/* ClientHello bytes we
+							 * last looked at */
+	uint8_t				pa_waits;	/* times we waited for
+							 * more, for the backoff */
 	unsigned int			pre_accept:1;
 	unsigned int			pa_tls:1;	/* tls accept after */
 	unsigned int			pa_proxy_v2:1;	/* header expected */

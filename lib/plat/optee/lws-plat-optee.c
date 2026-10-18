@@ -167,6 +167,15 @@ lws_plat_set_nonblocking(lws_sockfd_type fd)
 }
 
 int
+lws_plat_rx_pending(lws_sockfd_type fd, size_t *pending)
+{
+	(void)fd;
+	(void)pending;
+
+	return -1;
+}
+
+int
 lws_plat_drop_app_privileges(struct lws_context *context, int actually_init)
 {
 	return 0;

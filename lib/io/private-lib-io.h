@@ -103,6 +103,14 @@ lws_wsi_can_consume_parked_rx(struct lws *wsi);
 int
 lws_plat_set_nonblocking(lws_sockfd_type fd);
 
+/*
+ * How many bytes are waiting to be read on the socket, without reading them.
+ * Returns 0 with *pending set, or -1 if the platform cannot say, when the
+ * caller must find out some other way.
+ */
+int
+lws_plat_rx_pending(lws_sockfd_type fd, size_t *pending);
+
 int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 			    int unix_skt);

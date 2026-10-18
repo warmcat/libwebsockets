@@ -34,6 +34,12 @@
  *    tcp writes a little apart, is still seen as naming pass.test and passed
  *    through: the backend answers it with a ServerHello;
  *
+ *  - half of the recorded ClientHello, the rest sent only a second later:
+ *    while the front waits for the rest it must not keep looking at the half
+ *    it has, which kept the event loop turning every few ms for as long as a
+ *    peer liked, and it must still pass the connection through once the rest
+ *    comes;
+ *
  *  - straight to the backend from 127.0.0.1, which it trusts, without a
  *    PROXY v2 header, the connection is dropped unanswered;
  *
@@ -68,6 +74,7 @@ enum {
 	ST_PASSTHROUGH,
 	ST_CAPTURE,
 	ST_MULTIRECORD,
+	ST_PARTIAL_IDLE,
 	ST_TRUSTED_NO_HEADER,
 	ST_UNTRUSTED_FORGED,
 	ST_FRONT_FORGED,
@@ -83,6 +90,8 @@ static const char * const step_names[] = {
 		"the real client",
 	"a real ClientHello for pass.test is recorded",
 	"a ClientHello in three records and three writes is passed through",
+	"waiting a second for the rest of a ClientHello costs the front only "
+		"a few looks at it",
 	"a trusted peer without a PROXY v2 header is dropped",
 	"a forged PROXY v2 header from an untrusted peer is not believed",
 	"a forged PROXY v2 header sent to the front is not passed through",
@@ -113,9 +122,26 @@ static int got_server_hello, rx_bytes, step_closed;
 static uint8_t hello[16384];
 static size_t hello_len;
 
-/* what the raw client sends, in pieces */
+/* what the raw client sends, in pieces, this far apart */
 static uint8_t tx[16384 + 64];
 static size_t tx_len, tx_pos, tx_piece;
+static lws_usec_t tx_gap;
+
+#define PT_GAP_US		(30 * LWS_US_PER_MS)
+#define PT_IDLE_GAP_US		LWS_US_PER_SEC
+
+/*
+ * Times the event loop slept and woke, and how many of those there were while
+ * the front waited for the rest of a ClientHello.  A turn of the loop that
+ * took at least PT_SLEPT_US slept in poll() until something woke it: the
+ * turns that did not are the loop polling without waiting through the last
+ * millisecond before a timer, which only says how fast this machine is.
+ * Waiting properly for a second wakes ten or so times; looking again every
+ * 10ms wakes a hundred.
+ */
+static unsigned int wakes, wakes_at_piece, wakes_waited;
+#define PT_SLEPT_US		LWS_US_PER_MS
+#define PT_IDLE_MAX_WAKES	40
 
 static void
 expect(const char *what, int ok)
@@ -428,14 +454,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			n = tx_len - tx_pos;
 		if (!n)
 			break;
+		if (tx_pos)
+			/* the loop woke this often while we held back */
+			wakes_waited = wakes - wakes_at_piece;
 		memcpy(buf + LWS_PRE, tx + tx_pos, n);
 		if (lws_write(wsi, buf + LWS_PRE, n, LWS_WRITE_RAW) < (int)n)
 			return -1;
 		tx_pos += n;
+		wakes_at_piece = wakes;
 		if (tx_pos < tx_len)
 			/* the next piece a little later, as its own segment */
 			lws_sul_schedule(context, 0, &sul_send, send_piece,
-					 30 * LWS_US_PER_MS);
+					 tx_gap);
 		break;
 	}
 
@@ -549,6 +579,8 @@ step_start(void)
 	step_closed = 0;
 	step_wsi = NULL;
 	accepts_at_step = backend_accepts;
+	tx_gap = PT_GAP_US;
+	wakes_waited = 0;
 
 	switch (step) {
 	case ST_TERMINATED:
@@ -586,6 +618,18 @@ step_start(void)
 			tx_len += n;
 		}
 		if (raw_send("127.0.0.1", port_front, 5 + part))
+			goto fail;
+		break;
+
+	case ST_PARTIAL_IDLE:
+		/*
+		 * Half the ClientHello's record, then nothing for a second:
+		 * the front has to wait for the rest
+		 */
+		memcpy(tx, hello, hello_len);
+		tx_len = hello_len;
+		tx_gap = PT_IDLE_GAP_US;
+		if (raw_send("127.0.0.1", port_front, (hello_len + 1) / 2))
 			goto fail;
 		break;
 
@@ -664,6 +708,12 @@ step_next(void)
 		 * the name were not found: it must be the backend's
 		 */
 		ok = got_server_hello && backend_accepts > accepts_at_step;
+		break;
+	case ST_PARTIAL_IDLE:
+		lwsl_user("  the event loop woke %u times while the front "
+			  "waited\n", wakes_waited);
+		ok = got_server_hello && backend_accepts > accepts_at_step &&
+		     wakes_waited && wakes_waited < PT_IDLE_MAX_WAKES;
 		break;
 	case ST_TRUSTED_NO_HEADER:
 		ok = !got_server_hello && !rx_bytes;
@@ -873,8 +923,13 @@ main(int argc, const char **argv)
 	step = 0;
 	step_start();
 
-	while (n >= 0 && !done)
+	while (n >= 0 && !done) {
+		lws_usec_t t = lws_now_usecs();
+
 		n = lws_service(context, 0);
+		if (lws_now_usecs() - t >= PT_SLEPT_US)
+			wakes++;
+	}
 
 	expect("every step ran", step == ST_DONE);
 
