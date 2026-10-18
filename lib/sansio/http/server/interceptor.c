@@ -24,7 +24,13 @@
 
 #include "private-lib-core.h"
 
-
+/*
+ * The visit and pass cookies are signed with the same jwk, iss, aud and sub,
+ * and the client chooses which cookie name it presents a token under, so the
+ * signed purpose is the only thing telling the two apart (G-171).
+ */
+#define LWS_INTERCEPTOR_PUR_VISIT	"lws-interceptor-visit"
+#define LWS_INTERCEPTOR_PUR_PASS	"lws-interceptor-pass"
 
 /* deliberately a plain singly-linked chain: parsed once from mount
  * options, only walked read-only when matching connections */
@@ -82,7 +88,7 @@ struct pss_interceptor {
 static void
 lws_interceptor_init_jwt_cookie(struct lws_jwt_sign_set_cookie *ck,
 			    struct vhd_interceptor *vhd, const char *ip,
-			    const char *cookie_name)
+			    const char *cookie_name, const char *purpose)
 {
 	memset(ck, 0, sizeof(*ck));
 	ck->alg		= vhd->jwt_alg;
@@ -92,6 +98,7 @@ lws_interceptor_init_jwt_cookie(struct lws_jwt_sign_set_cookie *ck,
 	if (ip)
 		lws_strncpy(ck->sub, ip, sizeof(ck->sub));
 	ck->cookie_name	= cookie_name;
+	ck->purpose	= purpose;
 }
 
 static void
@@ -265,7 +272,8 @@ lws_interceptor_issue_cookie(struct lws *wsi, const char *redirect_uri)
 			  wsi->role_ops ? wsi->role_ops->name : "?",
 			  vhd->cookie_name, ip);
 
-	lws_interceptor_init_jwt_cookie(&ck, vhd, ip, vhd->cookie_name);
+	lws_interceptor_init_jwt_cookie(&ck, vhd, ip, vhd->cookie_name,
+					LWS_INTERCEPTOR_PUR_PASS);
 	ck.expiry_unix_time	= (unsigned long)vhd->jwt_expiry;
 
 	if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER,
@@ -348,7 +356,8 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 	if (vhd->auth_header_name)
 		lws_http_zap_header(wsi, vhd->auth_header_name);
 
-	lws_interceptor_init_jwt_cookie(&ck, vhd, NULL, vhd->cookie_name);
+	lws_interceptor_init_jwt_cookie(&ck, vhd, NULL, vhd->cookie_name,
+					LWS_INTERCEPTOR_PUR_PASS);
 
 	s = sizeof(buf);
 	if (lws_jwt_get_http_cookie_validate_jwt(wsi, &ck, buf, &s)) {
@@ -439,7 +448,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 		return 1;
 
 	sub_claim[0] = '\0';
-	lws_interceptor_init_jwt_cookie(&vck, vhd, NULL, vhd->cookie_name);
+	lws_interceptor_init_jwt_cookie(&vck, vhd, NULL, vhd->cookie_name,
+					LWS_INTERCEPTOR_PUR_PASS);
 	vs = sizeof(buf);
 	if (!lws_jwt_get_http_cookie_validate_jwt(wsi, &vck, buf, &vs)) {
 		auth_valid = 1;
@@ -588,7 +598,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 
 		vhd->count_served++;
 
-		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v");
+		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v",
+						LWS_INTERCEPTOR_PUR_VISIT);
 		vck.expiry_unix_time = 3600; /* valid for 1h */
 
 		lwsl_vhost_info(vhd->vhost,
@@ -629,7 +640,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 
 		vs = sizeof(vbuf);
 
-		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v");
+		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v",
+						LWS_INTERCEPTOR_PUR_VISIT);
 
 		if (lws_jwt_get_http_cookie_validate_jwt(wsi, &vck, vbuf, &vs)) {
 			lwsl_vhost_notice(vhd->vhost, "%s: POST: missing or invalid visit cookie", __func__);

@@ -8,6 +8,15 @@ When a user accesses a protected mount, LWS checks for a valid JWT cookie. If th
 
 Both before, and after when the user clicks the button, the plugin enforces a configurable wait. After the wait, it issues a signed JWT cookie valid for a configured duration (default 10 minutes) and redirects the user back to the original URL.
 
+The challenge page itself comes with a short-lived "visit" cookie, which the
+wait before the button is measured from.  It is signed with the same key,
+issuer, audience and subject (the peer IP) as the pass cookie, so the two are
+told apart by a signed purpose claim (`"pur"`, see `README.jwt.md`), not by
+their cookie names, which the client chooses: a visit token presented under
+the pass cookie's name does not pass the gate.  Pass cookies minted before the
+purpose claim existed carry none, so after upgrading, visitors holding one are
+challenged once more.
+
 ## Configuration
 
 ### 1. Enable the Plugin

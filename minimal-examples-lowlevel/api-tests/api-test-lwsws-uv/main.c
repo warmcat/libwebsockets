@@ -33,6 +33,8 @@
  *             to send the body again from the writeable callback that the
  *             server's WINDOW_UPDATE re-armed after END_STREAM, and the
  *             GOAWAY that earned it took the response with it.
+ *             G-171: the visit and pass tokens must not pass for each
+ *             other when presented under each other's cookie names.
  *
  *  pipeline   h1 keepalive pipelining across a large transfer, on the
  *             cleartext listener.  Two phases: first the two requests in one
@@ -106,7 +108,13 @@ enum job_scheme {
 enum job_cookie {
 	JC_NONE,
 	JC_VISIT,	/* the interceptor's visit cookie */
-	JC_PASS		/* the interceptor's pass cookie */
+	JC_PASS,	/* the interceptor's pass cookie */
+	/*
+	 * G-171: one cookie's token presented under the other cookie's name,
+	 * which is all a client has to do to swap them
+	 */
+	JC_VISIT_AS_PASS,
+	JC_PASS_AS_VISIT
 };
 
 struct job {
@@ -269,12 +277,30 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
-		const char *ck = NULL;
+		const char *ck = NULL, *v;
+		char swapped[1100];
 
 		if (j->send_cookie == JC_VISIT)
 			ck = cookie_visit;
 		if (j->send_cookie == JC_PASS)
 			ck = cookie_pass;
+
+		if (j->send_cookie == JC_VISIT_AS_PASS ||
+		    j->send_cookie == JC_PASS_AS_VISIT) {
+			/* keep the token, change only the name */
+			v = strchr(j->send_cookie == JC_VISIT_AS_PASS ?
+					cookie_visit : cookie_pass, '=');
+			if (!v) {
+				lwsl_err("%s: '%s': no cookie to swap\n",
+					 __func__, j->name);
+				return -1;
+			}
+			lws_snprintf(swapped, sizeof(swapped), "__Host-%s%s",
+				     j->send_cookie == JC_VISIT_AS_PASS ?
+					COOKIE_PASS_NAME : COOKIE_VISIT_NAME,
+				     v);
+			ck = swapped;
+		}
 
 		if (ck && ck[0] &&
 		    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
@@ -991,6 +1017,13 @@ static const struct job jobs_captcha[] = {
 	  NULL, 200, "captcha", NULL, 0 },
 
 	/*
+	 * G-171: the visit cookie every challenged GET is given must not pass
+	 * the gate when it is presented under the pass cookie's name.
+	 */
+	{ "visit token as pass cookie -> challenge", NULL, "/gated/", JS_TLS,
+	  JC_VISIT_AS_PASS, JC_NONE, NULL, 200, "captcha", NULL, 0 },
+
+	/*
 	 * The challenge page's own assets come off the interceptor's
 	 * mountpoint with no cookies attached at all.
 	 */
@@ -1005,6 +1038,15 @@ static const struct job jobs_captcha[] = {
 	{ "form POST to the gated url", "POST", "/gated/", JS_TLS, JC_VISIT,
 	  JC_PASS, "captcha=1", 303, NULL, "/gated/?lws_interceptor_ok=1",
 	  600 },
+
+	/*
+	 * G-171: nor may the pass token stand in for the visit token the POST
+	 * is measured against: it is refused with a redirect back to the
+	 * challenge, not a fresh pass for the reload
+	 */
+	{ "pass token as visit cookie on POST refused", "POST", "/gated/",
+	  JS_TLS, JC_PASS_AS_VISIT, JC_NONE, "captcha=1", 303, NULL,
+	  "/gated/", 0 },
 
 	/* the reload the 303 sends the browser to */
 	{ "reload with lws_interceptor_ok", NULL,

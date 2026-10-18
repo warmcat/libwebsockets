@@ -84,6 +84,14 @@ any library cmdline support.
 4. `GET /gated/?lws_interceptor_ok=1` with the pass cookie -> 303 to `/gated/`.
 5. `GET /gated/` with the pass cookie -> 200 and the real gated content.
 
+Between those steps it checks the gate can't be walked around:
+
+ - **G-171**: the visit token presented under the pass cookie's name gets the
+   challenge page, not the gated content, and the pass token presented under
+   the visit cookie's name on the form POST is refused with a 303 back to
+   `/gated/`, not a fresh pass.  The two are signed with the same key, so only
+   their signed purpose claims tell them apart.
+
 Each step gets its own client context: lws remembers the negotiated ALPN and
 the advertised Alt-Svc h3 endpoint per context, so a second request on one
 context would silently be upgraded to h3 whatever role the case asked for.
