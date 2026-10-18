@@ -23,8 +23,11 @@
  *  - the client publishes at QoS2: the broker's PUBREC must get our PUBREL,
  *    and its PUBCOMP complete the publish
  *  - the client unsubscribes: the UNSUBACK must complete it
+ *  - the client subscribes to exactly lws/frag/a, and the broker sends a
+ *    PUBLISH whose topic is "lws/frag/a", a NUL, and more: the client must
+ *    close the connection without delivering it [MQTT-1.5.4-2]
  *
- * Any failure to parse closes the connection, which fails the test.
+ * Any other failure to parse closes the connection, which fails the test.
  */
 
 #include <libwebsockets.h>
@@ -56,6 +59,19 @@ static lws_mqtt_subscribe_param_t sub_param = {
 	.num_topics				= LWS_ARRAY_SIZE(topics),
 };
 
+/* the topic with a NUL in it is delivered to nobody, even if cut short */
+
+static lws_mqtt_topic_elem_t topics_exact[] = {
+	{ .name = FRAG_PREFIX "a", .qos = QOS0 },
+};
+
+static lws_mqtt_subscribe_param_t sub_param_exact = {
+	.topic					= topics_exact,
+	.num_topics				= LWS_ARRAY_SIZE(topics_exact),
+};
+
+static const char nul_topic[] = FRAG_PREFIX "a\0x";
+
 static const lws_mqtt_client_connect_param_t conn_param = {
 	.client_id				= "lws-api-test-mqtt-fragment",
 	.keep_alive				= 60,
@@ -72,6 +88,7 @@ static enum {
 	FCS_IDLE,
 	FCS_PUBLISH_QOS2,
 	FCS_UNSUBSCRIBE,
+	FCS_SUBSCRIBE_EXACT,
 } client_action;
 
 /* the broker's steps: each waits for one packet from the client */
@@ -86,14 +103,18 @@ enum {
 	FBS_CLIENT_PUBLISH,
 	FBS_CLIENT_PUBREL,
 	FBS_UNSUBSCRIBE,
-	FBS_DONE
+	FBS_SUBSCRIBE_EXACT,
+	FBS_NUL_CLOSE
 };
 
 static const char * const step_names[] = {
 	"CONNECT", "SUBSCRIBE", "PUBACK (qos1)", "PUBREC (qos2)",
 	"PUBCOMP (qos2)", "PUBACK (long topic)", "client PUBLISH",
-	"client PUBREL", "UNSUBSCRIBE", "done"
+	"client PUBREL", "UNSUBSCRIBE", "SUBSCRIBE (exact)",
+	"the client to close"
 };
+
+static int broker_step;
 
 /*
  * Fake MQTT broker side
@@ -337,11 +358,29 @@ broker_rx_pkt(struct broker_pss *pss, const uint8_t *pkt, size_t pkt_len,
 		broker_kick(pss, 1);
 		break;
 
+	case FBS_SUBSCRIBE_EXACT:
+		if (pkt[0] >> 4 != LMQCP_CTOS_SUBSCRIBE || remlen < 2)
+			return 1;
+		id = (uint16_t)((pay[0] << 8) | pay[1]);
+		tlen = (uint16_t)(sizeof(nul_topic) - 1);
+		/* granted at QoS0, then a QoS0 PUBLISH with the NUL topic */
+		if (broker_tx(pss, (const uint8_t[]){
+				0x90, 0x03, (uint8_t)(id >> 8),
+				(uint8_t)(id & 0xff), 0x00 }, 5) ||
+		    broker_tx(pss, (const uint8_t[]){
+				0x30, (uint8_t)(2 + tlen + 3), 0,
+				(uint8_t)tlen }, 4) ||
+		    broker_tx(pss, nul_topic, tlen) ||
+		    broker_tx(pss, "nul", 3))
+			return 1;
+		broker_kick(pss, 1);
+		break;
+
 	default:
 		return 1;
 	}
 
-	pss->step++;
+	broker_step = ++pss->step;
 	lwsl_user("%s: now waiting for %s\n", __func__, step_names[pss->step]);
 
 	return 0;
@@ -486,6 +525,11 @@ client_writeable(struct lws *wsi)
 		client_action = FCS_IDLE;
 
 		return lws_mqtt_client_send_unsubcribe(wsi, &sub_param);
+
+	case FCS_SUBSCRIBE_EXACT:
+		client_action = FCS_IDLE;
+
+		return lws_mqtt_client_send_subcribe(wsi, &sub_param_exact);
 	}
 
 	return 0;
@@ -551,8 +595,15 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_MQTT_CLIENT_CLOSED:
 		client_wsi = NULL;
-		if (!completed)
-			fail_test("connection closed before completion");
+		if (broker_step == FBS_NUL_CLOSE && rx_count == 3) {
+			/* it refused the NUL topic, and delivered nothing */
+			completed = 1;
+			lws_sul_cancel(&sul_watchdog);
+			lws_default_loop_exit(cx);
+			lws_cancel_service(cx);
+			break;
+		}
+		fail_test("connection closed before completion");
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED:
@@ -602,10 +653,8 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 			fail_test("wrong counts");
 			break;
 		}
-		completed = 1;
-		lws_sul_cancel(&sul_watchdog);
-		lws_default_loop_exit(cx);
-		lws_cancel_service(cx);
+		client_action = FCS_SUBSCRIBE_EXACT;
+		lws_callback_on_writable(wsi);
 		break;
 
 	default:

@@ -1243,6 +1243,36 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			if (par->n != pub->topic_len)
 				break; /* need more */
 
+			/*
+			 * The topic is complete.  It must be UTF-8 without
+			 * U+0000 [MQTT-1.5.4-1, -2]: a NUL would cut the C
+			 * string short, so that it matched subscriptions to
+			 * its prefix.  And a PUBLISH topic may not hold
+			 * wildcards [MQTT-3.3.2-2].
+			 */
+			{
+				unsigned char u8 = 0;
+				lws_mqtt_reason_t reason = LMQCP_REASON_SUCCESS;
+
+				if (lws_check_utf8(&u8, (unsigned char *)pub->topic,
+						   pub->topic_len) || u8 ||
+				    memchr(pub->topic, '\0', pub->topic_len))
+					reason = LMQCP_REASON_MALFORMED_PACKET;
+				else
+					if (memchr(pub->topic, '+', pub->topic_len) ||
+					    memchr(pub->topic, '#', pub->topic_len))
+						reason = LMQCP_REASON_TOPIC_NAME_INVALID;
+
+				if (reason != LMQCP_REASON_SUCCESS) {
+					lwsl_notice("%s: bad PUBLISH topic\n",
+						    __func__);
+					lws_free_set_NULL(pub->topic);
+					lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
+					par->reason = reason;
+					goto send_reason_and_close;
+				}
+			}
+
 			pub->payload_pos = 0;
 
 			if (pub->qos == QOS0) {

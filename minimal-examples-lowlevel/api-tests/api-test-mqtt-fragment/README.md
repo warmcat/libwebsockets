@@ -21,9 +21,10 @@ waits for the client's exact reply, byte for byte, before the next.
 |QoS1 `PUBLISH` 0x0103 whose topic is 6000 bytes, more than one read brings, in one write|deliver it with the whole topic, `PUBACK` 0x0103|
 |`PUBREC`, then `PUBCOMP`, for the client's own QoS2 `PUBLISH`|send `PUBREL` with its id|
 |`UNSUBACK` for the client's `UNSUBSCRIBE`|report the unsubscribe|
+|`SUBACK` for the client's `SUBSCRIBE` to exactly `lws/frag/a`, then a `PUBLISH` whose topic is `lws/frag/a`, a NUL and `x`|close the connection without delivering it: the topic would otherwise be cut at the NUL and match the exact subscription [MQTT-1.5.4-2]|
 
-Any failure to parse closes the connection, which fails the test; so does a
-step that doesn't complete within 20s.
+Apart from the last step, a failure to parse closes the connection, which
+fails the test; so does a step that doesn't complete within 20s.
 
 ctest passes `-p <port>` with a free port.
 
