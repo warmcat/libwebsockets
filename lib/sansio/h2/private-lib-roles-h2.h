@@ -468,6 +468,8 @@ int LWS_WARN_UNUSED_RESULT
 lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason);
 int
 lws_h2_hpack_sink_start(struct lws *wsi);
+int
+lws_h2_hpack_sink_trailers(struct lws *wsi);
 
 /* whether sid is one of the peer's streams we finished with last */
 int

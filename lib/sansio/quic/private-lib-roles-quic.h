@@ -399,6 +399,10 @@ struct lws_quic_stream {
 	lws_usec_t		last_rx_update_us;
 	
 	uint64_t		rx_final_size;
+	uint64_t		close_app_err;	/* the application error code
+						 * our RESET_STREAM /
+						 * STOP_SENDING at close give,
+						 * eg H3_REQUEST_REJECTED */
 	uint8_t			fin_received:1;
 	uint8_t			fin_delivered:1;
 	

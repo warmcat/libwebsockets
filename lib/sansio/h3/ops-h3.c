@@ -1019,6 +1019,23 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 			 */
 			return -1;
 
+		if (ar == LWS_AH_ATTACH_WAITING && lwsi_role_server(wsi)) {
+			/*
+			 * No ah for it now (the pool is in use, or peer
+			 * limits): that is this request's problem, not the
+			 * connection's.  It isn't waiting for one either, it
+			 * is refused with H3_REQUEST_REJECTED, which tells the
+			 * peer it is safe to retry (RFC 9114 4.1.1).  qpack's
+			 * decoder state is only changed by the encoder stream,
+			 * so stopping the block here costs it nothing (G-028).
+			 */
+			lwsl_wsi_notice(wsi, "no ah for request, refusing it");
+			lws_header_table_detach(wsi, 0);
+			wsi->h3.ah_refused = 1;
+
+			return -1;
+		}
+
 		if (ar != LWS_AH_ATTACH_OK) {
 			lwsl_wsi_err(wsi, "Failed to attach ah");
 			return -1;
@@ -2072,6 +2089,14 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					}
 					if (lws_qpack_decode_header_block(wsi->h3.qpack_dec_state, ctx, buf, chunk, lws_h3_qpack_header_cb, wsi)) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+						if (wsi->h3.ah_refused) {
+							/* only the stream is closed */
+							if (wsi->quic.qs)
+								wsi->quic.qs->close_app_err =
+									LWS_H3_REQUEST_REJECTED;
+							return 1;
+						}
 						lws_quic_enter_closing_state(nwsi, LWS_QPACK_DECOMPRESSION_FAILED, 0, 1);
 						return 1;
 					}

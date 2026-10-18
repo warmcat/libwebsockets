@@ -1461,6 +1461,58 @@ lws_h2_sid_closed(struct lws_h2_netconn *h2n, uint32_t sid)
 }
 
 /*
+ * The peer's new stream h2n->swsi can't have an ah now, so we won't serve
+ * it: RST_STREAM REFUSED_STREAM, which tells the peer it is safe to retry
+ * (RFC 9113 8.7), and the connection and its other streams go on (G-028).
+ *
+ * The stream is closed now, which also takes it off the ah wait list.  Its
+ * header block is still decoded, into the sink, since the hpack dynamic
+ * table is the whole connection's, as for a HEADERS for a stream we closed.
+ * Its sid is recorded as closed, so whatever else the peer had in flight
+ * for it is ignored.  The stream was never given a window, so only the
+ * connection window needs anything for DATA it sends meanwhile, and the
+ * straggling DATA handling does that.
+ *
+ * Nonzero only if the connection is failing anyway.
+ */
+static int
+lws_h2_refuse_stream(struct lws *nwsi)
+{
+	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
+	struct lws_h2_protocol_send *pps;
+	struct lws *swsi = h2n->swsi;
+
+	lwsl_wsi_notice(swsi, "no ah for new stream, refusing it");
+
+	pps = lws_h2_new_pps(LWS_H2_PPS_RST_STREAM);
+	if (!pps)
+		return 1;
+
+	pps->u.rs.sid = h2n->sid;
+	pps->u.rs.err = H2_ERR_REFUSED_STREAM;
+
+	/*
+	 * Not lws_h2_rst_stream(): that ignores the rest of the frame, but
+	 * the block in it must still be decoded
+	 */
+	lws_close_free_wsi(swsi, LWS_CLOSE_STATUS_NOSTATUS, "h2 no ah");
+	h2n->swsi = NULL;
+
+	if (lws_h2_hpack_sink_start(nwsi)) {
+		lws_free(pps);
+		return 1;
+	}
+
+	h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
+	h2n->cont_exp_sid = h2n->sid;
+	h2n->cont_exp_headers = 1;
+
+	lws_pps_schedule(nwsi, pps);
+
+	return 0;
+}
+
+/*
  * The frame header part has just completely arrived.
  * Perform actions for header completion.
  */
@@ -1469,7 +1521,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
-	int n;
+	int n, new_stream = 0;
 
 	/*
 	 * We just got the frame header
@@ -1996,18 +2048,27 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				h2n->highest_sid = h2n->sid + 2;
 
 			h2n->swsi->h2.initialized = 1;
-
-			if (lws_h2_update_peer_txcredit(h2n->swsi,
-					(unsigned int)h2n->swsi->mux.my_sid,
-					LWS_H2_STREAM_RX_CREDIT))
-				goto cleanup_wsi_l;
+			new_stream = 1;
 		}
 
-		/*
-		 * ah needs attaching to child wsi, even though
-		 * we only fill it from network wsi
-		 */
-		if (!h2n->swsi->stream.ah) {
+		if (!h2n->swsi->stream.ah && !new_stream &&
+		    lwsi_role_server(h2n->swsi) &&
+		    !lwsi_hdrs_pending(h2n->swsi)) {
+			/*
+			 * Trailers, on a stream that gave its ah back after
+			 * its dispatch.  Nothing in them is kept, so they
+			 * don't take an ah from the pool again, where a full
+			 * pool would fail the connection: they are decoded
+			 * into the sink, for the dynamic table, and the stream
+			 * and their END_STREAM go on as usual (G-028)
+			 */
+			if (lws_h2_hpack_sink_trailers(h2n->swsi))
+				return 1;
+		} else if (!h2n->swsi->stream.ah) {
+			/*
+			 * ah needs attaching to child wsi, even though
+			 * we only fill it from network wsi
+			 */
 			lws_ah_attach_result_t ar =
 				lws_header_table_attach(h2n->swsi, 0);
 
@@ -2021,11 +2082,26 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				 */
 				h2n->swsi = NULL;
 
+			if (ar == LWS_AH_ATTACH_WAITING)
+				/*
+				 * No ah for it now (the pool is in use, or
+				 * peer limits): that is this request's
+				 * problem, not the connection's
+				 */
+				return lws_h2_refuse_stream(wsi);
+
 			if (ar != LWS_AH_ATTACH_OK) {
 				lwsl_err("%s: Failed to get ah\n", __func__);
 				return 1;
 			}
 		}
+
+		/* only a stream we take on gets its window */
+		if (new_stream &&
+		    lws_h2_update_peer_txcredit(h2n->swsi,
+					(unsigned int)h2n->swsi->mux.my_sid,
+					LWS_H2_STREAM_RX_CREDIT))
+			goto cleanup_wsi_l;
 
 		/*
 		 * The first use of a new stream identifier implicitly closes
@@ -2055,9 +2131,12 @@ update_end_headers:
 		/*
 		 * Whatever path brought us here, hpack must have an ah on
 		 * the stream to decode into (the client path above does not
-		 * attach one, and the ah is dropped on eg, ws upgrade)
+		 * attach one, and the ah is dropped on eg, ws upgrade)...
+		 * except a server stream's trailers, decoded into the sink
 		 */
-		if (!h2n->swsi->stream.ah) {
+		if (!h2n->swsi->stream.ah &&
+		    (!lwsi_role_server(h2n->swsi) ||
+		     lwsi_hdrs_pending(h2n->swsi) || !h2n->hpack_sink)) {
 			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				      "HEADERS on stream without ah"))
 				return 1;
@@ -2459,7 +2538,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 * fit the ah must not be refused over a Host the peer never
 		 * sent.
 		 */
-		if (!lws_hdr_extant(h2n->swsi, WSI_TOKEN_HOST) &&
+		if (lwsi_hdrs_pending(h2n->swsi) &&
+		    !lws_hdr_extant(h2n->swsi, WSI_TOKEN_HOST) &&
 		    lws_hdr_alias(h2n->swsi, WSI_TOKEN_HOST,
 				  WSI_TOKEN_HTTP_COLON_AUTHORITY) &&
 		    /* the only way it fails: no frag left for it */

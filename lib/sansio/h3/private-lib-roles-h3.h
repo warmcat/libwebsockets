@@ -163,6 +163,8 @@ struct _lws_h3_related {
 	uint8_t seen_pseudo_protocol:1;
 	/* the request's headers did not fit: answer 431 (see h2's) */
 	uint8_t hdrs_oversized:1;
+	/* server: no ah for the request, it is refused (G-028) */
+	uint8_t ah_refused:1;
 	/* a WT bidi stream's type came, its session ID has not yet */
 	uint8_t wt_sid_pending:1;
 	/* server: the request's trailers came, the message is over */

@@ -1192,6 +1192,41 @@ lws_h2_hpack_sink_ah(struct lws *wsi)
 	return h2n->hpack_sink;
 }
 
+/*
+ * The ah a header block decodes into.  Trailers store nothing (see
+ * lws_h2_hdrs_are_trailers()), so a stream that already gave its ah back
+ * decodes them into the sink rather than taking one from the pool again:
+ * only parser_state and lextable_pos are used, as for sinking.
+ */
+static struct allocated_headers *
+lws_h2_hpack_ah(struct lws *wsi, struct lws_h2_netconn *h2n)
+{
+	if (lws_h2_hpack_sinking(wsi) ||
+	    (!wsi->stream.ah && wsi != lws_get_network_wsi(wsi) &&
+	     lws_h2_hdrs_are_trailers(wsi)))
+		return h2n->hpack_sink;
+
+	return wsi->stream.ah;
+}
+
+/*
+ * A trailers block is starting on a stream with no ah: make the sink ready
+ * for lws_h2_hpack_ah() to decode it into.  The stream and its END_STREAM
+ * are handled as usual.  Nonzero only if the connection is failing (OOM).
+ */
+int
+lws_h2_hpack_sink_trailers(struct lws *wsi)
+{
+	if (lws_h2_hpack_sink_ah(wsi))
+		return 0;
+
+	if (lws_h2_goaway(lws_get_network_wsi(wsi), H2_ERR_INTERNAL_ERROR,
+			  "OOM"))
+		lwsl_info("%s: GOAWAY not queued\n", __func__);
+
+	return 1;
+}
+
 int
 lws_h2_hpack_sink_start(struct lws *wsi)
 {
@@ -1437,7 +1472,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 	if (!h2n)
 		return -1;
 
-	ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
+	ah = lws_h2_hpack_ah(wsi, h2n);
 	if (!ah)
 		return -1;
 
@@ -1771,7 +1806,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		}
 
 		/* a reference to a lost entry makes us sink the rest */
-		ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
+		ah = lws_h2_hpack_ah(wsi, h2n);
 
 		if (n == LWS_HPACK_IGNORE_ENTRY || n == -1)
 			h2n->hdr_idx = LWS_HPACK_IGNORE_ENTRY;
@@ -2184,8 +2219,7 @@ fin:
 				 * dynamic index that we can't succeed to look up
 				 */
 				return 1;
-			ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink :
-							 wsi->stream.ah;
+			ah = lws_h2_hpack_ah(wsi, h2n);
 			goto add_it;
 		/* NEW literal hdr with value */
 		case HPKT_LITERAL_HDR_VALUE_INCR:
@@ -2312,7 +2346,7 @@ add_it:
 		}
 
 		/* a reference to a lost entry makes us sink the rest */
-		ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
+		ah = lws_h2_hpack_ah(wsi, h2n);
 
 		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
 		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&

@@ -5649,7 +5649,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 			if (f_reset) {
 				f_reset->type = LWS_QUIC_FT_RESET_STREAM;
 				f_reset->stream_id = sid;
-				f_reset->offset = 0; /* app error code */
+				f_reset->offset = wsi->quic.qs->close_app_err; /* app error code */
 				f_reset->limit = wsi->quic.qs->tx_offset; /* final size */
 				lws_quic_dbg_1rtt_account(qn, f_reset, "reset-stream");
 				lws_dll2_add_head(&f_reset->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
@@ -5670,7 +5670,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 			if (f_stop) {
 				f_stop->type = LWS_QUIC_FT_STOP_SENDING;
 				f_stop->stream_id = sid;
-				f_stop->offset = 0; /* app error code */
+				f_stop->offset = wsi->quic.qs->close_app_err; /* app error code */
 				lws_quic_dbg_1rtt_account(qn, f_stop, "stop-sending");
 				lws_dll2_add_tail(&f_stop->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 			}
