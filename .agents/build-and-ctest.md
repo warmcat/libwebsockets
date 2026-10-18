@@ -192,6 +192,9 @@
    127.0.0.2 and up on one never-listened port (api-test-dht-seq-reentry).
  - **Red-test in a detached worktree** at the previous commit with the new
    test copied in: an ASan red without disturbing the shared tree.
+ - **Many raw UDP sockets in one test context** need
+   `info.fd_limit_per_thread = 0`; bind port 0 and read the port back with
+   `getsockname()` (api-test-dht-search-livelock).
  - **DHT BEP42 cannot be tested on loopback:** private addresses are
    always `bep42_ok` (`maybe_new_node()`, `lws_dht_ads_is_private()`).
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
