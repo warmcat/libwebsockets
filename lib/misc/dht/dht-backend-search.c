@@ -124,7 +124,7 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 			goto found;
 		}
 		if (!lws_dht_ads_is_private(sa) &&
-		    dht_sa_same_host((const struct sockaddr *)&sr->nodes[i].ss,
+		    lws_dht_same_host((const struct sockaddr *)&sr->nodes[i].ss,
 				     sa))
 			same++;
 	}

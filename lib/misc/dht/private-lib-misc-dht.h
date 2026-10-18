@@ -484,7 +484,6 @@ struct node * find_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int a
 int node_good(struct lws_dht_ctx *ctx, struct node *node);
 void blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen);
 struct node * maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, int confirm);
-int dht_sa_same_host(const struct sockaddr *a, const struct sockaddr *b);
 int dht_endpoint_refused(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen);
 int expire_buckets(struct lws_dht_ctx *ctx, lws_dll2_owner_t *bo);
 void lws_dht_dump_tables(struct lws_dht_ctx *ctx);

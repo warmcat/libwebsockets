@@ -697,6 +697,23 @@ lws_dht_bep42_id(struct lws_context *cx, const struct sockaddr *sa,
 		 uint8_t rand, int type, int len);
 
 /**
+ * lws_dht_same_host() - are two addresses the same host, as the DHT counts
+ *
+ * \param a: one address
+ * \param b: the other address
+ *
+ * The DHT gives each source host its share of what it limits (request
+ * admission, routing table and search entries, storage, votes): a host is an
+ * IPv4 address or an IPv6 /64, whatever the port, since one machine can use
+ * any number of ports and any number of addresses in its prefix.  Protocols
+ * running over the DHT should account to the same notion of a host.
+ *
+ * \return 1 if \p a and \p b are the same host, else 0
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_same_host(const struct sockaddr *a, const struct sockaddr *b);
+
+/**
  * lws_dht_bep42_check() - does a node id conform to BEP42 for its address
  *
  * \param id: the node id the peer claims

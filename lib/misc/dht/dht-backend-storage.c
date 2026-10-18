@@ -166,7 +166,7 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	 */
 	for (i = 0; i < st->numpeers; i++) {
 		storage_peer_sa(&st->peers[i], &psa);
-		if (!dht_sa_same_host((const struct sockaddr *)&psa, sa))
+		if (!lws_dht_same_host((const struct sockaddr *)&psa, sa))
 			continue;
 
 		if (st->peers[i].len == len &&

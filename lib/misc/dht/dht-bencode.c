@@ -1248,7 +1248,7 @@ skip_ip_tracking:
 					found = 1;
 					break;
 				}
-				if (dht_sa_same_host((const struct sockaddr *)
+				if (lws_dht_same_host((const struct sockaddr *)
 						     &sub->ss, from))
 					from_src++;
 			} lws_end_foreach_dll(d);

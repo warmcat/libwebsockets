@@ -399,20 +399,6 @@ node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
 }
 
 /*
- * The same host, whatever the port: the same dht_source_key(), an IPv4
- * address or an IPv6 /64
- */
-int
-dht_sa_same_host(const struct sockaddr *a, const struct sockaddr *b)
-{
-	uint8_t ka[LWS_DHT_EXTVOTE_KEY_LEN], kb[LWS_DHT_EXTVOTE_KEY_LEN];
-
-	return a->sa_family == b->sa_family &&
-	       !dht_source_key(a, ka) && !dht_source_key(b, kb) &&
-	       !memcmp(ka, kb, sizeof(ka));
-}
-
-/*
  * An endpoint we must not take as a node, however we heard of it: one that
  * is martian (or private, when we are public-only), or blacklisted.  Both
  * the routing table and a search's candidate list refuse these.
@@ -526,7 +512,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		lws_start_foreach_dll(struct lws_dll2 *, d4,
 				      lws_dll2_get_head(&b->nodes)) {
 			n = lws_container_of(d4, struct node, list);
-			if (dht_sa_same_host((const struct sockaddr *)&n->ss, sa))
+			if (lws_dht_same_host((const struct sockaddr *)&n->ss, sa))
 				same++;
 		} lws_end_foreach_dll(d4);
 

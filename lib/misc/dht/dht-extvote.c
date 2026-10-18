@@ -49,6 +49,16 @@ dht_source_key(const struct sockaddr *sa, uint8_t key[LWS_DHT_EXTVOTE_KEY_LEN])
 	}
 }
 
+int
+lws_dht_same_host(const struct sockaddr *a, const struct sockaddr *b)
+{
+	uint8_t ka[LWS_DHT_EXTVOTE_KEY_LEN], kb[LWS_DHT_EXTVOTE_KEY_LEN];
+
+	return a->sa_family == b->sa_family &&
+	       !dht_source_key(a, ka) && !dht_source_key(b, kb) &&
+	       !memcmp(ka, kb, sizeof(ka));
+}
+
 /* the same external endpoint: family, address and port */
 
 static int

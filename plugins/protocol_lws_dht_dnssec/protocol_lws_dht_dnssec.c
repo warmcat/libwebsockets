@@ -383,6 +383,12 @@ struct dht_fragment {
 	int				hash_init_done;
 	int				retries;
 	int				validation_started;
+	/*
+	 * An inbound PUT from from_sa, rather than our own fetch: the two
+	 * are kept apart, so a PUT can never take over or fail a fetch
+	 */
+	uint8_t				inbound;
+	lws_usec_t			created;
 
 	/* DNSSEC and Validation State */
 	struct sockaddr_storage		from_sa;
@@ -410,10 +416,16 @@ struct dht_fragment {
 /*
  * Nothing else reaps a server-side PUT reassembly, and each one costs an fd
  * and a file in <storage>/tmp: without a cap and a reaper, one 60-byte
- * datagram per unseen hash exhausts the process fd table.
+ * datagram per unseen hash exhausts the process fd table.  One source host
+ * (lws_dht_same_host()) may only have a few of the slots, and a reassembly
+ * is reaped when it stops making progress, or at the latest a fixed time
+ * after it started, whatever the sender keeps sending: the object is at most
+ * 128KiB.
  */
-#define LWS_DHT_DNSSEC_MAX_FRAGMENTS	64
-#define LWS_DHT_DNSSEC_FRAGMENT_STALE_SECS 60
+#define LWS_DHT_DNSSEC_MAX_FRAGMENTS		64
+#define LWS_DHT_DNSSEC_MAX_FRAGMENTS_PER_SRC	4
+#define LWS_DHT_DNSSEC_FRAGMENT_STALE_SECS	60
+#define LWS_DHT_DNSSEC_FRAGMENT_MAX_SECS	180
 
 /*
  * An unauthenticated NOTIFY carrying a new domain name auto-subscribes an
@@ -759,16 +771,66 @@ typedef enum {
 
 #define LWS_ADNS_DNSKEY_PROTOCOL_DNSSEC	3
 
+/* our own fetch of hash in progress, or NULL; any fetch if hash is NULL */
+
 static struct dht_fragment *
 dht_dnssec_find_fragment(struct vhd_dht_dnssec *vhd, const char *hash)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->fragments)) {
 		struct dht_fragment *frag = lws_container_of(d, struct dht_fragment, list);
-		if (!strcmp(frag->safe_hash, hash))
+		if (!frag->inbound && (!hash || !strcmp(frag->safe_hash, hash)))
 			return frag;
 	} lws_end_foreach_dll(d);
 
 	return NULL;
+}
+
+/*
+ * The PUT of hash that from is sending us.  Each sender address has its own
+ * reassembly of a hash: the hash is public (SHA256("lws-dnssec-dht-" +
+ * domain)), and keyed on it alone, whoever opened one first held it against
+ * the real publisher.
+ */
+
+static struct dht_fragment *
+dht_dnssec_find_put_fragment(struct vhd_dht_dnssec *vhd, const char *hash,
+			     const struct sockaddr *from)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->fragments)) {
+		struct dht_fragment *frag = lws_container_of(d, struct dht_fragment, list);
+		if (frag->inbound && !strcmp(frag->safe_hash, hash) &&
+		    !lws_sa46_compare_ads((const lws_sockaddr46 *)&frag->from_sa,
+					  (const lws_sockaddr46 *)from))
+			return frag;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * A reassembly failed: our fetches waiting on the same hash fail with it if
+ * it was our fetch.  An inbound PUT failing says nothing about them.
+ */
+
+static void
+dht_dnssec_fragment_fail_fetches(struct dht_fragment *frag)
+{
+	if (frag->inbound)
+		return;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&frag->vhd->fetch_reqs)) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d,
+				struct lws_dht_dnssec_fetch_req, list);
+
+		if (!strcmp(req->target_hash, frag->safe_hash)) {
+			if (req->cb)
+				req->cb(req->opaque, req->domain, -1);
+			lws_sul_cancel(&req->sul_timeout);
+			lws_dll2_remove(d);
+			free(req);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
 }
 
 /*
@@ -823,12 +885,26 @@ dht_dnssec_fragment_stale_cb(lws_sorted_usec_list_t *sul)
 	dht_dnssec_fragment_free(frag);
 }
 
+/*
+ * The reassembly made progress: it may live LWS_DHT_DNSSEC_FRAGMENT_STALE_SECS
+ * more, but not past LWS_DHT_DNSSEC_FRAGMENT_MAX_SECS from its start
+ */
+
 static void
 dht_dnssec_fragment_touch(struct dht_fragment *frag)
 {
+	lws_usec_t now = lws_now_usecs(),
+		   until = now + LWS_DHT_DNSSEC_FRAGMENT_STALE_SECS *
+							LWS_US_PER_SEC,
+		   end = frag->created + LWS_DHT_DNSSEC_FRAGMENT_MAX_SECS *
+							LWS_US_PER_SEC;
+
+	if (until > end)
+		until = end;
+
 	lws_sul_schedule(frag->vhd->context, 0, &frag->sul_stale,
 			 dht_dnssec_fragment_stale_cb,
-			 LWS_DHT_DNSSEC_FRAGMENT_STALE_SECS * LWS_US_PER_SEC);
+			 until > now ? until - now : 1);
 }
 
 static struct lws_dht_dnssec_fetch_req *
@@ -1714,15 +1790,7 @@ drop:
 		vhd->cb_completion(vhd->cb_closure, 1);
 	}
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
-		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, -1);
-			lws_sul_cancel(&req->sul_timeout);
-			lws_dll2_remove(d);
-			free(req);
-		}
-	} lws_end_foreach_dll_safe(d, d1);
+	dht_dnssec_fragment_fail_fetches(frag);
 
 	dht_dnssec_fragment_free(frag);
 	return wsi;
@@ -1904,15 +1972,7 @@ drop:
 	if (frag->vhd->cb_completion && !frag->vhd->cli_put_file)
 		frag->vhd->cb_completion(frag->vhd->cb_closure, 1);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&frag->vhd->fetch_reqs)) {
-		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, -1);
-			lws_sul_cancel(&req->sul_timeout);
-			lws_dll2_remove(d);
-			free(req);
-		}
-	} lws_end_foreach_dll_safe(d, d1);
+	dht_dnssec_fragment_fail_fetches(frag);
 
 	dht_dnssec_fragment_free(frag);
 	if (result) lws_async_dns_freeaddrinfo(&result);
@@ -2209,21 +2269,49 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		}
 	}
 
-	frag = dht_dnssec_find_fragment(vhd, msg->hash);
+	frag = dht_dnssec_find_put_fragment(vhd, msg->hash, from);
 	if (!frag) {
+		int from_src = 0;
+
 		if (msg->offset != 0) {
 			lwsl_user("%s: Rejecting initial chunk for %s with non-zero offset %llu (likely trailing packets from failed/completed transfer)\n",
 				    __func__, msg->hash, msg->offset);
 			return 0;
 		}
 
-		if (lws_dll2_count(&vhd->fragments) >=
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vhd->fragments)) {
+			struct dht_fragment *f = lws_container_of(d,
+						struct dht_fragment, list);
+
+			if (f->inbound && lws_dht_same_host(
+					(const struct sockaddr *)&f->from_sa,
+					from))
+				from_src++;
+		} lws_end_foreach_dll(d);
+
+		if (from_src >= LWS_DHT_DNSSEC_MAX_FRAGMENTS_PER_SRC ||
+		    lws_dll2_count(&vhd->fragments) >=
 					LWS_DHT_DNSSEC_MAX_FRAGMENTS) {
-			lwsl_warn("%s: refusing PUT for %s, %u reassemblies "
-				  "already in flight\n", __func__, msg->hash,
+			char err[256];
+
+			lwsl_warn("%s: refusing PUT for %s, %d reassemblies "
+				  "from its host, %u in all\n", __func__,
+				  msg->hash, from_src,
 				  (unsigned int)lws_dll2_count(&vhd->fragments));
+			/*
+			 * Say so, so a real publisher can go elsewhere
+			 * rather than wait out its retries
+			 */
+			lws_dht_msg_gen(err, sizeof(err), "ERR", msg->hash,
+					0, 0);
+			lws_dht_send_data(ctx, from, err, strlen(err));
+
 			return 0;
 		}
+
+		if (fromlen > sizeof(frag->from_sa))
+			return 0;
 
 		lwsl_user("%s: PUT fragment not found. Creating new metadata for %s\n", __func__, msg->hash);
 		frag = calloc(1, sizeof(*frag));
@@ -2231,19 +2319,16 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		lws_strncpy(frag->safe_hash, msg->hash, sizeof(frag->safe_hash));
 		frag->total_len = msg->len;
 		frag->vhd = vhd;
+		frag->inbound = 1;
+		frag->created = lws_now_usecs();
 
 		/*
-		 * Bind the reassembly to whoever opened it: fragments are
-		 * looked up by hash alone, and the hash is public
-		 * (SHA256("lws-dnssec-dht-" + domain)), so without this any
-		 * peer can write into another peer's open temp file at an
-		 * offset of its choosing, and misdirect the ACK/ERR and the
-		 * strike accounting that follows.
+		 * The reassembly belongs to whoever opened it: only its
+		 * chunks find it, and the ACK / ERR and the strike accounting
+		 * that follow go to it
 		 */
-		if (fromlen <= sizeof(frag->from_sa)) {
-			memcpy(&frag->from_sa, from, fromlen);
-			frag->from_salen = fromlen;
-		}
+		memcpy(&frag->from_sa, from, fromlen);
+		frag->from_salen = fromlen;
 
 		lws_get_random(vhd->context, &frag->temp_token, sizeof(frag->temp_token));
 		lws_dll2_add_tail(&frag->list, &vhd->fragments);
@@ -2264,20 +2349,13 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 			return -1;
 		}
 		lwsl_user("%s: Opened %s successfully\n", __func__, path);
-	} else {
-		if (frag->from_salen &&
-		    lws_sa46_compare_ads((const lws_sockaddr46 *)&frag->from_sa,
-					 (const lws_sockaddr46 *)from)) {
-			lwsl_warn("%s: refusing PUT chunk for %s from an "
-				  "address other than the one that opened it\n",
-				  __func__, frag->safe_hash);
-			return 0;
-		}
-
+	} else
 		lwsl_user("%s: Continuing transfer for %s, already got %llu bytes\n", __func__, frag->safe_hash, (unsigned long long)frag->received_len);
-	}
 
-	dht_dnssec_fragment_touch(frag);
+	/*
+	 * Only chunks that write something within the declared total keep the
+	 * reassembly alive (dht_dnssec_fragment_touch() below)
+	 */
 
 	if (frag->validation_started) {
 		lwsl_user("%s: Ignoring duplicate/retried chunk for %s (validation already in progress)\n", __func__, frag->safe_hash);
@@ -2310,6 +2388,8 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		lwsl_err("%s: write failed (wrote %d of expected %zu, errno %d)\n", __func__, n, msg->payload_len, errno);
 		goto drop;
 	}
+
+	dht_dnssec_fragment_touch(frag);
 
 	/* Only update received_len if we actually extended the file */
 	if (msg->offset + msg->payload_len > frag->received_len)
@@ -2364,15 +2444,7 @@ drop:
 		lws_dht_send_data(ctx, from, err, strlen(err));
 	}
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
-		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, -1);
-			lws_sul_cancel(&req->sul_timeout);
-			lws_dll2_remove(d);
-			free(req);
-		}
-	} lws_end_foreach_dll_safe(d, d1);
+	dht_dnssec_fragment_fail_fetches(frag);
 
 	dht_dnssec_fragment_free(frag);
 	return -1;
@@ -2556,6 +2628,7 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		lws_strncpy(frag->safe_hash, msg->hash, sizeof(frag->safe_hash));
 		frag->total_len = msg->len;
 		frag->vhd = vhd;
+		frag->created = lws_now_usecs();
 
 		if (from && fromlen > 0 && fromlen <= sizeof(frag->from_sa)) {
 			memcpy(&frag->from_sa, from, fromlen);
@@ -2670,15 +2743,7 @@ drop:
 	if (vhd->cb_completion && !vhd->cli_put_file)
 		vhd->cb_completion(vhd->cb_closure, 1);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
-		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, -1);
-			lws_sul_cancel(&req->sul_timeout);
-			lws_dll2_remove(d);
-			free(req);
-		}
-	} lws_end_foreach_dll_safe(d, d1);
+	dht_dnssec_fragment_fail_fetches(frag);
 
 	dht_dnssec_fragment_free(frag);
 	return -1;
@@ -3629,13 +3694,12 @@ dht_dnssec_sul_timeout_cb(struct lws_sorted_usec_list *sul)
 	vhd->put_retries++;
 	lwsl_user("%s: UDP timeout, initiating retry %d/3\n", __func__, vhd->put_retries);
 
-	if (vhd->cli_get_hash || vhd->cli_get_domain || lws_dll2_count(&vhd->fragments) > 0) {
-		struct dht_fragment *frag = NULL;
+	if (vhd->cli_get_hash || vhd->cli_get_domain ||
+	    dht_dnssec_find_fragment(vhd, NULL)) {
+		struct dht_fragment *frag;
 
-		if (vhd->cli_get_hash)
-			frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
-		else if (lws_dll2_count(&vhd->fragments) > 0)
-			frag = lws_container_of(lws_dll2_get_head(&vhd->fragments), struct dht_fragment, list);
+		/* our own fetch: an inbound PUT is nothing to retry */
+		frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
 
 		if (frag) {
 			/* Retry next chunk specifically */
