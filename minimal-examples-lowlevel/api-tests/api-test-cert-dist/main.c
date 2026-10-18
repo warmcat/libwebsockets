@@ -740,10 +740,19 @@ static int
 write_config(const char *certs_dir, const char *server, int port)
 {
 	char ew[sizeof(work) * 6], ec[256 * 6], url[128], path[256];
-	struct passwd *pw = getpwuid(getuid());
+	struct passwd *pw;
 	char *conf;
 	size_t len = 8192;
 	int r;
+#if defined(LWS_HAVE_GETPWUID_R)
+	struct passwd pwd;
+	char pstrs[512];
+
+	if (getpwuid_r(getuid(), &pwd, pstrs, sizeof(pstrs), &pw))
+		return 1;
+#else
+	pw = getpwuid(getuid());
+#endif
 
 	if (strlen(certs_dir) >= 256 || !pw)
 		return 1;
