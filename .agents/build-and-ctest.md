@@ -154,6 +154,14 @@
  - `LWS_WITH_RANGES` defaults off: range work needs `-DLWS_WITH_RANGES=1`
    and its code the guard.  `-DLWS_WITH_FILE_OPS=0` fails to configure
    unless `-DLWS_WITHOUT_TESTAPPS=1` is also given.
+ - **A vhost created after `lws_create_context()` gets PROTOCOL_INIT only
+   once the loop runs**: a test calling a plugin's ops straight after
+   `lws_create_vhost()` must service until `lws_protocol_vh_priv_get()`
+   is non-NULL.  `lws_context_info_defaults()` sets EXPLICIT_VHOSTS, so
+   there is no "default" vhost: create your own.
+ - **Red half for a plugin-folding test needing new header constants:**
+   keep the new header and restore only the `.c` from HEAD, or select
+   with `#if defined(<new macro>)` in the test (api-test-hls-queue).
  - **cgi stdin edge cases:** add a row to `cases[]` in
    api-test-http-cgi-stdin; its cgi.sh reads stdin to EOF, so a stdin
    that is never ended shows as a timeout (quick red/green).
