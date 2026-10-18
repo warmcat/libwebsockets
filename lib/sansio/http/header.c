@@ -1068,16 +1068,6 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 		  unsigned char **p, unsigned char *end)
 {
 	unsigned char *start = *p;
-	char *uri_ptr = NULL;
-	int uri_len = 0;
-
-	if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) < 0) {
-		uri_ptr = "unknown";
-		uri_len = 7;
-	}
-
-	// lwsl_notice("%s: code=%d, from='%.*s', loc='%.*s'\n", __func__, code,
-	//	    uri_len, uri_ptr, len, loc);
 
 	if (lws_add_http_header_status(wsi, (unsigned int)code, p, end))
 		return -1;
