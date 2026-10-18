@@ -407,7 +407,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `q_queue_chunk()` in api-test-dht-krpc).
  - **Only 10-byte "sq" + nonce tids are answered** (G-213): a chunk with
    any other tid (v5.0.0's fixed `sqnc`, forgeries) gets no reply, since
-   v5.0.0 reads a challenge as an ack of everything.  Hand-driven raw test
+   v5.0.0 read a challenge as an ack of offset 0 that reset its
+   retry count (endless retransmit).  Note `parse_message()` zeroes `mp`,
+   so a missing offset parses as 0, not ~0, whatever the caller preset
+   (G-217).  Hand-driven raw test
    peers must use "sq" + 8 bytes as their session tid or they are ignored.
  - **Search policy (G-158 / G-211):** the replier is recorded before its
    nodes list; only the 8 closest replied candidates are protected; the
