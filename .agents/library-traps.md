@@ -117,7 +117,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `purpose` in `struct lws_jwt_sign_set_cookie`, written as a `"pur"`
    claim and required by `lws_jwt_get_http_cookie_validate_jwt()` (a NULL
    purpose refuses tokens that carry one); `lws_jwt_auth_create()` does
-   not check it yet (G-188).
+   not check it yet (G-188).  `lws_json_simple_find()` ignores JSON
+   structure, so a claim stays unforgeable only because the signer
+   purifies sub and refuses `"pur":` elsewhere: a new free-text claim in
+   `jwt_sign_cookie_value()` needs the same treatment.
  - **A Location built from `WSI_TOKEN_*_URI` needs a backslash check:**
    the URI parser decodes `%5C` to `\` and keeps it while collapsing `//`,
    and browsers follow `/\host` as `//host` (G-173).
