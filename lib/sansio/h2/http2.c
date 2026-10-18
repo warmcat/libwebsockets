@@ -2582,15 +2582,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * has any effect, handled the same way as END_STREAM
 			 * on a DATA frame.
 			 *
-			 * But hpack decoded the trailer fields into the same
-			 * ah, chaining repeats onto the existing value, so
-			 * whatever the peer put in the trailers is now part of
-			 * the header set the application, the access log and
-			 * any onward h1 leg will read -- after we validated
-			 * the first block.  Re-run the RFC 7540 8.1.2.2
-			 * connection-specific header checks over the ah, so a
-			 * trailer cannot smuggle in the 'connection' or 'te'
-			 * headers we refused in the first block.
+			 * hpack decodes trailer fields only to keep its
+			 * dynamic table in step: lws_h2_hpack_no_store() gates
+			 * every store into the ah, so nothing in the trailers
+			 * joins the header set the application, the access log
+			 * or any onward h1 leg reads.  The connection-specific
+			 * header checks below are kept as a backstop in case
+			 * that gating ever changes.
 			 */
 
 			/*
