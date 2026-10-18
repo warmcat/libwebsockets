@@ -56,6 +56,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    admission, the bucket cap and BEP 42; anything counting distinct peers
    (votes, quorums, rate limits) must key on it, not on the full address
    (G-094).
+ - **Heuristics driven by unauthenticated input.**  A counter or state
+   change moved by packets that never authenticated is an attacker's
+   lever: QUIC's consecutive-decrypt-failure close and key-phase probe
+   counters (ops-quic.c) let an injector kill a connection (G-104).  Only
+   authenticated packets may change connection state.
  - **Fixed quorums.**  Any consensus threshold written as a fixed count
    of peers is wrong for small deployments.  Derive it from what the
    routing table can actually supply.
