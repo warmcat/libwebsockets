@@ -112,15 +112,17 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    before the PROXY header has been read.
  - **The h1 role attaches an ah at adoption, before pre-accept:** anything
    that changes `wsi->peer` later must detach and re-attach the ah, or
-   `lws_peer_track_ah_detach()` asserts (G-196).  Until G-209 is fixed, a
-   re-attach that has to wait inside pre-accept leaves POLLIN on and the
-   connection busy-loops in rx_policy HOLD.
+   `lws_peer_track_ah_detach()` asserts (G-196).  The ah wait list takes
+   POLLIN off on every refused attach, and pre-accept leaves an ah waiter
+   deaf (G-209); POLLIN returns when the ah is granted.
  - **Numeric hosts vs libc:** `lws_parse_numeric_address()` is
    inet_pton-strict since G-197, but glibc `getaddrinfo()` still resolves
    inet_aton forms (`012.0.0.1` as 10.0.0.1, `10.1`, `167772161`,
    `0xa.0.0.1`).  `lws_host_is_ambiguous_numeric()` detects those, and the
    client resolve paths refuse them; use it before trusting any filter
-   decision on a host string the platform will resolve.
+   decision on a host string the platform will resolve.  The client
+   connect refuses them in `lws_client_connect_2_dnsreq_MAY_CLOSE_WSI()`
+   before the proxy decision, so SOCKS5 / HTTP CONNECT are covered (G-212).
 
 ## HTTP
 

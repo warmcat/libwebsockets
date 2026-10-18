@@ -121,6 +121,13 @@
    with machine speed (26815 vs 2569 turns measured for the same case).
    Count only turns that took >= 1ms ("wakes"); that gave a stable 101
    unfixed vs 11 fixed in api-test-tls-passthrough.
+   That catches a loop that wakes periodically, not a hot spin (all its
+   turns are < 1ms): to catch a spin, add up the duration of the turns
+   shorter than 1ms instead (489ms spinning vs 0-2ms idle over 500ms in
+   api-test-proxy-v2-peer-limits).
+ - **Red-testing proxied clients:** api-test-client-proxy-redirect's
+   proxy-fixture.py resolves with the platform libc, so an inet_aton-form
+   host like `2130706433` really reaches the local origin through it.
  - **Hostile h3 sequences without fault injection:** on an h3 client
    stream, `lws_write(..., LWS_WRITE_BINARY)` goes out raw with no DATA
    framing (`rops_write_role_protocol_h3()`), so a test can frame the
