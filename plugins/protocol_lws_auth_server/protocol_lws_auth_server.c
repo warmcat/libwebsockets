@@ -1970,6 +1970,14 @@ static int
 lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			  struct per_session_data__auth_server *pss)
 {
+	/*
+	 * Every path, including the early CSRF refusal that jumps to send:,
+	 * hands these to send_auth_headers(), so they must be initialised
+	 * before the first goto: a jump past a declaration skips its
+	 * initialiser.
+	 */
+	char cookie_hdr[LWS_SSO_MAX_COOKIE] = {0};
+	char refresh_hdr[LWS_SSO_MAX_COOKIE] = {0};
 	char pl[1024 + LWS_PRE];
 	int len;
 
@@ -1978,9 +1986,6 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"CSRF validation failed\"}");
 		goto send;
 	}
-
-	char cookie_hdr[LWS_SSO_MAX_COOKIE] = {0};
-	char refresh_hdr[LWS_SSO_MAX_COOKIE] = {0};
 
 	const char *redirect_uri = lws_spa_get_string(pss->spa, EP_REDIRECT_URI);
 	if (redirect_uri && redirect_uri[0]) {

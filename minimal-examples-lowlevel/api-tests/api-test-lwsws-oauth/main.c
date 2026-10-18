@@ -1415,8 +1415,26 @@ scenario_login(void)
 				     "session after a successful login: '%s'",
 			    body);
 
+	/*
+	 * (6) an sso_exchange that fails the CSRF double-submit must be refused
+	 * with nothing else in the response.  Its refusal path used to jump
+	 * past the initialisation of the cookie buffers it hands to the
+	 * response headers, so it answered with Set-Cookie headers made of
+	 * whatever the stack held: most likely the session cookies the login
+	 * above just composed there (G-105).
+	 */
+
+	if (req_full(JAR_AUTH, port_auth, "/api/sso_exchange",
+		     "redirect_uri=x") || status != 403)
+		return fail("login", "an sso_exchange with no csrf_token "
+				     "answered %u, wanted 403", status);
+
+	if (set_cookie[0])
+		return fail("login", "the refused sso_exchange still set a "
+				     "cookie: '%s'", set_cookie);
+
 	lwsl_user("PASS: login: %s authenticated, session planted, widget "
-		  "agrees\n", SEED_USER);
+		  "agrees, refused sso_exchange sets nothing\n", SEED_USER);
 
 	return 0;
 }
