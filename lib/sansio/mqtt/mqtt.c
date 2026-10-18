@@ -765,6 +765,24 @@ lws_mqtt_ack_tx_full(struct lws *nwsi)
 	       !lws_ring_get_count_free_elements(nwsi->mqtt->ack_tx);
 }
 
+/*
+ * A packet id, which like every other field may arrive split across reads:
+ * LMSPR_COMPLETED once par->cpkt_id holds it.  par->vbit must have been
+ * prepared with lws_mqtt_2byte_init().
+ */
+
+static lws_mqtt_stateful_primitive_return_t
+lws_mqtt_rx_pkt_id(lws_mqtt_parser_t *par, const uint8_t **buf, size_t *len)
+{
+	lws_mqtt_stateful_primitive_return_t r;
+
+	r = lws_mqtt_mb_parse(&par->vbit, buf, len);
+	if (r == LMSPR_COMPLETED)
+		par->cpkt_id = (uint16_t)par->vbit.value;
+
+	return r;
+}
+
 int
 _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		    const uint8_t *buf, size_t len, size_t *used)
@@ -1004,6 +1022,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
 					goto send_protocol_error_and_close;
+				lws_mqtt_2byte_init(&par->vbit);
 				par->state = LMQCPP_PUBREC_VH_PKT_ID;
 				break;
 			default:
@@ -1013,15 +1032,13 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			break;
 
 		case LMQCPP_PUBREC_VH_PKT_ID:
-			if (len < 2) {
-				lwsl_notice("%s: len breakage 3\n", __func__);
-				return -1;
-			}
+			n = (int)lws_mqtt_rx_pkt_id(par, &buf, &len);
+			if (n == LMSPR_NEED_MORE)
+				break;
+			if (n != LMSPR_COMPLETED)
+				goto send_protocol_error_and_close;
 
-			par->cpkt_id = lws_ser_ru16be(buf);
 			wsi->mqtt->ack_pkt_id = par->cpkt_id;
-			buf += 2;
-			len -= 2;
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
@@ -1044,6 +1061,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
 					goto send_protocol_error_and_close;
+				lws_mqtt_2byte_init(&par->vbit);
 				par->state = LMQCPP_PUBREL_VH_PKT_ID;
 				break;
 			default:
@@ -1053,15 +1071,13 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			break;
 
 		case LMQCPP_PUBREL_VH_PKT_ID:
-			if (len < 2) {
-				lwsl_notice("%s: len breakage 3\n", __func__);
-				return -1;
-			}
+			n = (int)lws_mqtt_rx_pkt_id(par, &buf, &len);
+			if (n == LMSPR_NEED_MORE)
+				break;
+			if (n != LMSPR_COMPLETED)
+				goto send_protocol_error_and_close;
 
-			par->cpkt_id = lws_ser_ru16be(buf);
 			wsi->mqtt->ack_pkt_id = par->cpkt_id;
-			buf += 2;
-			len -= 2;
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
@@ -1084,6 +1100,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
 					goto send_protocol_error_and_close;
+				lws_mqtt_2byte_init(&par->vbit);
 				par->state = LMQCPP_PUBCOMP_VH_PKT_ID;
 				break;
 			default:
@@ -1093,15 +1110,13 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			break;
 
 		case LMQCPP_PUBCOMP_VH_PKT_ID:
-			if (len < 2) {
-				lwsl_notice("%s: len breakage 3\n", __func__);
-				return -1;
-			}
+			n = (int)lws_mqtt_rx_pkt_id(par, &buf, &len);
+			if (n == LMSPR_NEED_MORE)
+				break;
+			if (n != LMSPR_COMPLETED)
+				goto send_protocol_error_and_close;
 
-			par->cpkt_id = lws_ser_ru16be(buf);
 			wsi->mqtt->ack_pkt_id = par->cpkt_id;
-			buf += 2;
-			len -= 2;
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
@@ -1130,7 +1145,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				lwsl_debug("%s: PUBLISH pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				/* Move on to PUBLISH's variable header */
-				par->state = LMQCPP_PUBLISH_VH_TOPIC;
+				lws_mqtt_2byte_init(&par->vbit);
+				par->state = LMQCPP_PUBLISH_VH_TOPIC_LEN;
 				break;
 			default:
 				lwsl_notice("%s: pubrem bad vbi\n", __func__);
@@ -1138,34 +1154,46 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			}
 			break;
 
-		case LMQCPP_PUBLISH_VH_TOPIC:
+		case LMQCPP_PUBLISH_VH_TOPIC_LEN:
 		{
-			lws_mqtt_publish_param_t *pub = NULL;
+			lws_mqtt_publish_param_t *pub;
+			lws_mqtt_qos_levels_t qos;
 			unsigned int overhead;
 
-			if (len < 2) {
-				lwsl_notice("%s: topic too short\n", __func__);
-				return -1;
-			}
-
-			/* Topic len */
-			par->n = lws_ser_ru16be(buf);
-			buf += 2;
-			len -= 2;
-
-			if (len < par->n) {/* the way this is written... */
-				lwsl_notice("%s: len breakage\n", __func__);
-				return -1;
-			}
+			n = (int)lws_mqtt_mb_parse(&par->vbit, &buf, &len);
+			if (n == LMSPR_NEED_MORE)
+				break;
+			if (n != LMSPR_COMPLETED)
+				goto send_protocol_error_and_close;
 
 			/* Invalid topic len */
-			if (par->n == 0) {
+			if (!par->vbit.value) {
 				lwsl_notice("%s: zero topic len\n", __func__);
 				par->reason = LMQCP_REASON_MALFORMED_PACKET;
 				goto send_reason_and_close;
 			}
+
+			/* Extract QoS Level from Fixed Header Flags */
+			qos = (lws_mqtt_qos_levels_t)
+					((par->packet_type_flags >> 1) & 0x3);
+			if (qos > QOS2) {
+				par->reason = LMQCP_REASON_MALFORMED_PACKET;
+				goto send_reason_and_close;
+			}
+
+			/*
+			 * The topic and any packet id must fit in the packet
+			 * before we allocate for the topic
+			 */
+			overhead = (unsigned int)(2 + par->vbit.value +
+						  (qos ? 2 : 0));
+			if (par->cpkt_remlen < overhead) {
+				par->reason = LMQCP_REASON_MALFORMED_PACKET;
+				goto send_reason_and_close;
+			}
+
 			lwsl_debug("%s: PUBLISH topic len %d\n",
-				   __func__, (int)par->n);
+				   __func__, (int)par->vbit.value);
 			assert(!wsi->mqtt->rx_cpkt_param);
 			wsi->mqtt->rx_cpkt_param = lws_zalloc(
 				sizeof(lws_mqtt_publish_param_t), "rx pub param");
@@ -1173,23 +1201,14 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				goto oom;
 			pub = (lws_mqtt_publish_param_t *)wsi->mqtt->rx_cpkt_param;
 
-			pub->topic_len = (uint16_t)par->n;
+			pub->topic_len = (uint16_t)par->vbit.value;
+			pub->qos = qos;
+			pub->payload_len = par->cpkt_remlen - overhead;
 
-			/* Topic Name */
 			pub->topic = (char *)lws_zalloc((size_t)pub->topic_len + 1,
 							"rx publish topic");
 			if (!pub->topic)
 				goto oom;
-			lws_strncpy(pub->topic, (const char *)buf,
-				    (size_t)pub->topic_len + 1);
-			buf += pub->topic_len;
-			len -= pub->topic_len;
-
-			/* Extract QoS Level from Fixed Header Flags */
-			pub->qos = (lws_mqtt_qos_levels_t)
-					((par->packet_type_flags >> 1) & 0x3);
-
-			pub->payload_pos = 0;
 
 			/*
 			 * The dup decision belongs to the PUBLISH we are
@@ -1201,48 +1220,53 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			 */
 			wsi->mqtt->qos2_duplicate = 0;
 
-			overhead = (unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
-			if (par->cpkt_remlen < overhead) {
-				par->reason = LMQCP_REASON_MALFORMED_PACKET;
-				lws_free_set_NULL(pub->topic);
-				lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
-				goto send_reason_and_close;
-			}
-			pub->payload_len = par->cpkt_remlen - overhead;
+			par->n = 0; /* topic bytes we have */
+			par->state = LMQCPP_PUBLISH_VH_TOPIC;
+			break;
+		}
 
-			switch (pub->qos) {
-			case QOS0:
+		case LMQCPP_PUBLISH_VH_TOPIC:
+		{
+			lws_mqtt_publish_param_t *pub =
+				(lws_mqtt_publish_param_t *)wsi->mqtt->rx_cpkt_param;
+			size_t chunk = pub->topic_len - par->n;
+
+			/* the topic can be up to 64KB: take what this read has */
+
+			if (chunk > len)
+				chunk = len;
+			memcpy(pub->topic + par->n, buf, chunk);
+			buf += chunk;
+			len -= chunk;
+			par->n += (uint32_t)chunk;
+
+			if (par->n != pub->topic_len)
+				break; /* need more */
+
+			pub->payload_pos = 0;
+
+			if (pub->qos == QOS0) {
 				par->state = LMQCPP_PAYLOAD;
 				if (pub->payload_len == 0)
 					goto cmd_completion;
 
 				break;
-			case QOS1:
-			case QOS2:
-				par->state = LMQCPP_PUBLISH_VH_PKT_ID;
-				break;
-			default:
-				par->reason = LMQCP_REASON_MALFORMED_PACKET;
-				lws_free_set_NULL(pub->topic);
-				lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
-				goto send_reason_and_close;
 			}
+
+			lws_mqtt_2byte_init(&par->vbit);
+			par->state = LMQCPP_PUBLISH_VH_PKT_ID;
 			break;
 		}
 		case LMQCPP_PUBLISH_VH_PKT_ID:
 		{
 			lws_mqtt_publish_param_t *pub =
 				(lws_mqtt_publish_param_t *)wsi->mqtt->rx_cpkt_param;
-			unsigned int overhead;
 
-			if (len < 2) {
-				lwsl_notice("%s: len breakage 2\n", __func__);
-				return -1;
-			}
-
-			par->cpkt_id = lws_ser_ru16be(buf);
-			buf += 2;
-			len -= 2;
+			n = (int)lws_mqtt_rx_pkt_id(par, &buf, &len);
+			if (n == LMSPR_NEED_MORE)
+				break;
+			if (n != LMSPR_COMPLETED)
+				goto send_protocol_error_and_close;
 
 			if (pub->qos == QOS2) {
 				lws_mqtt_qos2_rx_t *rx;
@@ -1289,15 +1313,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			lwsl_debug("%s: Packet ID %d\n",
 					__func__, (int)par->cpkt_id);
 			par->state = LMQCPP_PAYLOAD;
-			pub->payload_pos = 0;
-			overhead = (unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
-			if (par->cpkt_remlen < overhead) {
-				par->reason = LMQCP_REASON_MALFORMED_PACKET;
-				lws_free_set_NULL(pub->topic);
-				lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
-				goto send_reason_and_close;
-			}
-			pub->payload_len = par->cpkt_remlen - overhead;
 			if (pub->payload_len == 0)
 				goto cmd_completion;
 
@@ -1460,6 +1475,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen <= 2)
 					goto send_protocol_error_and_close;
+				lws_mqtt_2byte_init(&par->vbit);
 				par->state = LMQCPP_SUBACK_VH_PKT_ID;
 				break;
 			default:
@@ -1469,16 +1485,13 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			break;
 
 		case LMQCPP_SUBACK_VH_PKT_ID:
+			n = (int)lws_mqtt_rx_pkt_id(par, &buf, &len);
+			if (n == LMSPR_NEED_MORE)
+				break;
+			if (n != LMSPR_COMPLETED)
+				goto send_protocol_error_and_close;
 
-			if (len < 2) {
-				lwsl_notice("%s: len breakage 4\n", __func__);
-				return -1;
-			}
-
-			par->cpkt_id = lws_ser_ru16be(buf);
 			wsi->mqtt->ack_pkt_id = par->cpkt_id;
-			buf += 2;
-			len -= 2;
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 			par->state = LMQCPP_SUBACK_PAYLOAD;
@@ -1532,6 +1545,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
 					goto send_protocol_error_and_close;
+				lws_mqtt_2byte_init(&par->vbit);
 				par->state = LMQCPP_UNSUBACK_VH_PKT_ID;
 				break;
 			default:
@@ -1541,16 +1555,13 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			break;
 
 		case LMQCPP_UNSUBACK_VH_PKT_ID:
+			n = (int)lws_mqtt_rx_pkt_id(par, &buf, &len);
+			if (n == LMSPR_NEED_MORE)
+				break;
+			if (n != LMSPR_COMPLETED)
+				goto send_protocol_error_and_close;
 
-			if (len < 2) {
-				lwsl_notice("%s: len breakage 3\n", __func__);
-				return -1;
-			}
-
-			par->cpkt_id = lws_ser_ru16be(buf);
 			wsi->mqtt->ack_pkt_id = par->cpkt_id;
-			buf += 2;
-			len -= 2;
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
