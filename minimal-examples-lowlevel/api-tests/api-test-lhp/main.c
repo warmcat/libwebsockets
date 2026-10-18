@@ -674,6 +674,128 @@ bail:
 	return e;
 }
 
+/*
+ * A class-keyed cosmetic filter rule must apply to an element with that
+ * class however many other classes, distinct or repeated, come before it.
+ * Only the element with id "ad" has the filtered class.
+ */
+
+#define LHPT_FILTER_CLASSES	100
+
+static int filter_ad_seen, filter_ad_hidden, filter_other_hidden;
+
+static lws_stateful_ret_t
+filter_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const char *id;
+	int hit;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	id = lws_html_get_atr(ps, "id", 2);
+	if (!id)
+		return 0;
+
+	/* the filter rule sets a width, which isn't inherited */
+
+	hit = ps->css_width && ps->css_width->u.i.whole == 7;
+
+	if (!strcmp(id, "ad")) {
+		filter_ad_seen = 1;
+		filter_ad_hidden = hit;
+	} else if (hit)
+		filter_other_hidden = 1;
+
+	return 0;
+}
+
+static int
+test_filter_classes(int classes)
+{
+	static const lws_lhp_filter_t filter = {
+		.cosmetic_css = ".junk{width:7px}"
+	};
+	size_t alloc = 8 * 1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	filter_ad_seen = filter_ad_hidden = filter_other_hidden = 0;
+
+	/*
+	 * Distinct leading classes, each also repeated, then the filtered one,
+	 * then more junk after it.  The second div has the same junk without
+	 * the filtered class and must not be styled.
+	 */
+
+	p = doc;
+	p += lws_snprintf(p, alloc, "<html><body><div id=\"ad\" class=\"");
+	for (i = 0; i < classes; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "c%d c%d ", i, i);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "junk c0 junk\">x</div><div id=\"ok\" class=\"");
+	for (i = 0; i < classes; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "c%d ", i);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "junkx\">y</div></body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, filter_cb, &drt, &ic))
+		goto bail;
+	if (lws_lhp_set_filter(ctx, &filter)) {
+		lws_lhp_destruct(ctx);
+		goto bail;
+	}
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+	lws_lhp_destruct(ctx);
+
+	lwsl_user("%s: %d leading classes: filtered %d, other %d\n", __func__,
+		  classes, filter_ad_hidden, filter_other_hidden);
+
+	if (r & LWS_SRET_FATAL || !filter_ad_seen) {
+		lwsl_err("%s: parse failed\n", __func__);
+		goto bail;
+	}
+	if (!filter_ad_hidden || filter_other_hidden) {
+		lwsl_err("%s: filter rule applied wrongly\n", __func__);
+		goto bail;
+	}
+
+	e = 0;
+
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -737,6 +859,10 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_calc_budget())
+		goto bail;
+
+	if (test_filter_classes(0) ||
+	    test_filter_classes(LHPT_FILTER_CLASSES))
 		goto bail;
 
 	if (content_len != strlen(entity_expect) ||

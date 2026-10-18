@@ -782,6 +782,8 @@ typedef struct lhp_block_rule {
 	/* lowercased rule text + NUL follows */
 } lhp_block_rule_t;
 
+struct lhp_cls_tok;
+
 typedef struct lhp_ctx {
 	lws_dll2_owner_t	stack; /* lhp_pstack_t */
 
@@ -832,6 +834,9 @@ typedef struct lhp_ctx {
 					* selectors of theirs that matched */
 	uint32_t		hits_alloc;
 	uint32_t		hits_count;
+	struct lhp_cls_tok	*ctok; /* the class tokens of the element
+					* being cascaded, private to lhp.c */
+	uint32_t		ctok_alloc;
 	int32_t			sel_budget; /* selector match steps left
 					     * for the element being
 					     * cascaded */

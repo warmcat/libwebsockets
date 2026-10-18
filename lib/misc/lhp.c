@@ -2191,10 +2191,15 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 #define LHP_SEL_CASCADE_BUDGET		32768
 
 /*
- * The most distinct class tokens of one element that the cascade looks up:
- * each costs a walk of its index bucket
+ * One class token of the element being cascaded, with its selector index
+ * hash.  They are sorted so repeats are adjacent and each distinct token is
+ * looked up once, however many there are
  */
-#define LHP_SEL_MAX_CLASS_TOKENS	64
+typedef struct lhp_cls_tok {
+	const char		*s;
+	size_t			len;
+	uint32_t		h;
+} lhp_cls_tok_t;
 
 /* the parent element of a level: the nearest level above it with a tag */
 
@@ -3086,6 +3091,90 @@ lhp_hits_cmp(const void *a, const void *b)
 			    *sb = ((const lcsp_match_t *)b)->stz;
 
 	return sa->seq < sb->seq ? -1 : sa->seq > sb->seq;
+}
+
+static int
+lhp_cls_tok_cmp(const void *a, const void *b)
+{
+	const lhp_cls_tok_t *ta = (const lhp_cls_tok_t *)a,
+			    *tb = (const lhp_cls_tok_t *)b;
+
+	if (ta->h != tb->h)
+		return ta->h < tb->h ? -1 : 1;
+	if (ta->len != tb->len)
+		return ta->len < tb->len ? -1 : 1;
+
+	return memcmp(ta->s, tb->s, ta->len);
+}
+
+/*
+ * Try the indexed selectors keyed by each distinct class token of the
+ * element, in the whitespace-separated class attribute value c.
+ *
+ * Every token is looked up: a selector keyed by a class the element has must
+ * be tried however many other classes come before it, or a page can hide an
+ * element from a class-keyed filter rule behind enough junk classes.  A
+ * repeated token would only walk the same bucket and retry the same selectors
+ * again, so the tokens are sorted and each distinct one is looked up once.
+ * That bounds the work: each indexed selector has exactly one key, so it is
+ * matched at most once per element, with document selectors also drawing on
+ * the element's cascade budget.  What is left per distinct token is a walk of
+ * its bucket comparing keys, and the number of tokens is bounded by the
+ * length of the attribute.
+ */
+
+static int
+lhp_selidx_try_classes(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *c)
+{
+	uint32_t nt = 0, t;
+
+	while (*c) {
+		const char *cs;
+		size_t cl;
+
+		while (*c && lhp_ws(*c))
+			c++;
+		cs = c;
+		while (*c && !lhp_ws(*c))
+			c++;
+		cl = lws_ptr_diff_size_t(c, cs);
+		if (!cl)
+			continue;
+
+		if (nt == ctx->ctok_alloc) {
+			uint32_t na = ctx->ctok_alloc ?
+					ctx->ctok_alloc * 2 : 8;
+			lhp_cls_tok_t *ct = lws_realloc(ctx->ctok,
+							na * sizeof(*ct),
+							__func__);
+
+			if (!ct)
+				return 1;
+			ctx->ctok = ct;
+			ctx->ctok_alloc = na;
+		}
+
+		ctx->ctok[nt].s = cs;
+		ctx->ctok[nt].len = cl;
+		ctx->ctok[nt++].h = lhp_selidx_hash(LHP_SELKEY_CLASS, cs, cl);
+	}
+
+	if (nt > 1)
+		qsort(ctx->ctok, nt, sizeof(*ctx->ctok), lhp_cls_tok_cmp);
+
+	for (t = 0; t < nt; t++) {
+		const lhp_cls_tok_t *ct = &ctx->ctok[t];
+
+		if (t && !lhp_cls_tok_cmp(ct - 1, ct))
+			continue; /* a repeat of the token just looked up */
+
+		if (lhp_selidx_try(ctx, ps,
+				   ctx->selidx[ct->h % LHP_SELIDX_BUCKETS],
+				   LHP_SELKEY_CLASS, ct->s, ct->len))
+			return 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -4276,45 +4365,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 				   LHP_SELKEY_ID, eid, strlen(eid)))
 			return 1;
 
-		if (ecls) {
-			const char *c = ecls, *tok[LHP_SEL_MAX_CLASS_TOKENS];
-			size_t tlen[LHP_SEL_MAX_CLASS_TOKENS];
-			unsigned int nt = 0, t;
-
-			/*
-			 * each distinct class token, bounded by whitespace: a
-			 * repeated one would only walk the same bucket again
-			 */
-			while (*c && nt < LWS_ARRAY_SIZE(tok)) {
-				const char *cs;
-				size_t cl;
-
-				while (*c && lhp_ws(*c))
-					c++;
-				cs = c;
-				while (*c && !lhp_ws(*c))
-					c++;
-				cl = (size_t)(c - cs);
-				if (!cl)
-					continue;
-
-				for (t = 0; t < nt; t++)
-					if (tlen[t] == cl &&
-					    !strncmp(tok[t], cs, cl))
-						break;
-				if (t != nt)
-					continue;
-
-				tok[nt] = cs;
-				tlen[nt++] = cl;
-
-				if (lhp_selidx_try(ctx, ps, ctx->selidx[
-					lhp_selidx_hash(LHP_SELKEY_CLASS, cs,
-						cl) % LHP_SELIDX_BUCKETS],
-					LHP_SELKEY_CLASS, cs, cl))
-					return 1;
-			}
-		}
+		if (ecls && lhp_selidx_try_classes(ctx, ps, ecls))
+			return 1;
 
 		/* the matched stanzas, in source order for cascade ties */
 
@@ -4493,6 +4545,8 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 	lwsac_free(&ctx->idxac);
 	lws_free_set_NULL(ctx->hits);
 	ctx->hits_alloc = 0;
+	lws_free_set_NULL(ctx->ctok);
+	ctx->ctok_alloc = 0;
 	ctx->hits_count = 0;
 	ctx->selidx_count = 0;
 }
