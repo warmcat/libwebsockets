@@ -2464,31 +2464,91 @@ lws_http_te_is_chunked(struct lws *wsi)
 	return e - p == 7 && !strncasecmp(p, "chunked", 7);
 }
 
+static int
+cookie_is_wsp(char c)
+{
+	return c == ' ' || c == '\t';
+}
+
 /*
- * Core of the cookie getters' match action: copy the whole cookie value
- * starting at vs (bounded by pe, ie, the end of the header frag, or the ';'
- * starting the next cookie in it) into buf.
+ * Take the next cookie-pair from the Cookie header fragment [*pp, pe), and
+ * advance *pp past it and its ';'.
  *
- * Returns 0 if it fit (buf then holds the NUL-terminated value and *max_len
- * is set to the value length) or 2 if the value, with its terminating NUL,
- * needs more than *max_len bytes.  On a nonzero return, buf and *max_len are
- * untouched: partial values are never handed out, since callers use these to
- * resolve credentials.
+ * A Cookie header is a list of cookie-pairs separated by ';' and optional
+ * whitespace (RFC 6265bis 4.2.1 / 5.6); a name can only start a pair.  So a
+ * pair runs from one ';' (or the start of the fragment) to the next ';' (or
+ * the end), its name is what comes before its first '=', and its value
+ * everything after that, each with surrounding whitespace trimmed.  A pair
+ * with no '=' has no name (*nl is 0) and so never matches a lookup.
+ *
+ * Splitting into pairs first is what keeps a "name=" appearing inside some
+ * other cookie's value, eg after a space, from being taken for a cookie of
+ * that name: browsers keep spaces inside values, and a sibling host can set
+ * a cookie whose value is chosen to contain one.
+ *
+ * Returns 0 if the fragment has no more pairs, else 1 with the name and the
+ * value described by ns / nl and vs / vl.
  */
 static int
-cookie_value_copy(const char *vs, const char *pe, char *buf, size_t *max_len)
+cookie_pair_next(const char **pp, const char *pe, const char **ns,
+		 size_t *nl, const char **vs, size_t *vl)
 {
-	const char *ve = vs;
+	const char *p = *pp, *e, *eq, *ne, *ve;
 
-	while (ve < pe && *ve != ';')
-		ve++;
+	if (p >= pe)
+		return 0;
 
-	if (lws_ptr_diff_size_t(ve, vs) + 1 > *max_len)
+	e = memchr(p, ';', lws_ptr_diff_size_t(pe, p));
+	if (!e)
+		e = pe;
+	*pp = e < pe ? e + 1 : pe;
+
+	eq = memchr(p, '=', lws_ptr_diff_size_t(e, p));
+	if (!eq) {
+		*ns = *vs = p;
+		*nl = *vl = 0;
+
+		return 1;
+	}
+
+	while (p < eq && cookie_is_wsp(*p))
+		p++;
+	ne = eq;
+	while (ne > p && cookie_is_wsp(ne[-1]))
+		ne--;
+
+	eq++;
+	while (eq < e && cookie_is_wsp(*eq))
+		eq++;
+	ve = e;
+	while (ve > eq && cookie_is_wsp(ve[-1]))
+		ve--;
+
+	*ns = p;
+	*nl = lws_ptr_diff_size_t(ne, p);
+	*vs = eq;
+	*vl = lws_ptr_diff_size_t(ve, eq);
+
+	return 1;
+}
+
+/*
+ * Copy a cookie value of vl bytes at vs into buf, NUL-terminated.
+ *
+ * Returns 0 if it fit (*max_len is then set to the value length) or 2 if the
+ * value, with its terminating NUL, needs more than *max_len bytes.  On a
+ * nonzero return, buf and *max_len are untouched: partial values are never
+ * handed out, since callers use these to resolve credentials.
+ */
+static int
+cookie_value_copy(const char *vs, size_t vl, char *buf, size_t *max_len)
+{
+	if (vl + 1 > *max_len)
 		return 2;
 
-	*max_len = lws_ptr_diff_size_t(ve, vs);
-	memcpy(buf, vs, *max_len);
-	buf[*max_len] = '\0';
+	memcpy(buf, vs, vl);
+	buf[vl] = '\0';
+	*max_len = vl;
 
 	return 0;
 }
@@ -2523,34 +2583,28 @@ int
 lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 			char *buf, size_t *max)
 {
-	size_t bl = strlen(name);
-	char *p;
+	struct allocated_headers *ah = wsi->stream.ah;
+	size_t bl = strlen(name), nl, vl;
+	const char *p, *pe, *ns, *vs;
+	int f;
 
-	if (n < 0 || lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE) < (int)bl + 1)
+	if (!ah || !bl || n < 0 ||
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE) < (int)bl + 1)
 		return 1;
 
-	{
-		int f = wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_COOKIE];
-		size_t fl;
+	/*
+	 * h2 and h3 may split the cookies over several cookie header fields,
+	 * and an h1 request may repeat the header: each is its own fragment
+	 */
 
-		while (f) {
-			p = wsi->stream.ah->data + wsi->stream.ah->frags[f].offset;
-			fl = (size_t)wsi->stream.ah->frags[f].len;
-			char *pe = p + fl;
-			char *vp = p;
+	for (f = ah->frag_index[WSI_TOKEN_HTTP_COOKIE]; f;
+	     f = lws_ah_frag_next(ah, f)) {
+		p = ah->data + ah->frags[f].offset;
+		pe = p + ah->frags[f].len;
 
-			while (vp < pe) {
-				if ((size_t)(pe - vp) > bl &&
-				    !memcmp(vp, name, bl) && vp[bl] == '=' &&
-				    (vp == p || vp[-1] == ' ' || vp[-1] == ';') &&
-				    !n--)
-					return cookie_value_copy(
-						   vp + bl + 1,
-						   pe, buf, max);
-				vp++;
-			}
-			f = lws_ah_frag_next(wsi->stream.ah, f);
-		}
+		while (cookie_pair_next(&p, pe, &ns, &nl, &vs, &vl))
+			if (nl == bl && !memcmp(ns, name, bl) && !n--)
+				return cookie_value_copy(vs, vl, buf, max);
 	}
 
 	return 1;

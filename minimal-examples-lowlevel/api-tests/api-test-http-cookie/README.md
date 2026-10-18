@@ -19,7 +19,10 @@ client sending each case's `Cookie:` header(s) and the server resolving the
 case's lookup.  It fences that exactly the name asked for is resolved: a
 `__Host-` or `__Secure-` cookie is only found under its full prefixed name,
 and a bare-named cookie, which a sibling host could have planted, never
-stands in for it, including a validly signed JWT planted that way.  It needs
+stands in for it, including a validly signed JWT planted that way.  And it
+fences that a name only matches at the start of a cookie-pair: a `name=`
+inside another cookie's value (`a=x name=FORGED`) is not a cookie of that
+name, for the plain getters and the JWT readers alike.  It needs
 `LWS_WITH_SERVER` and `LWS_WITH_CLIENT`, and `LWS_WITH_JOSE` for the JWT
 cases.
 

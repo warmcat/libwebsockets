@@ -1229,10 +1229,12 @@ lws_http_is_redirected_to_get(struct lws *wsi);
  * If the cookie is found, copies its whole value into buf with a terminating
  * NUL, sets *max to the used length, and returns 0.
  *
- * This handles the parsing of the possibly multi-cookie header string and
- * terminating the requested cookie at the next ; if present.  It is the same
- * as lws_http_cookie_get_nth() with \p n of 0: the first occurrence of
- * exactly \p name.
+ * The Cookie header(s) are parsed as a list of name=value cookie-pairs
+ * separated by ';', so a name only matches at the start of a pair, never a
+ * "name=" appearing inside another cookie's value.  The name and the value
+ * have any surrounding whitespace trimmed; the value is otherwise returned as
+ * it was sent.  It is the same as lws_http_cookie_get_nth() with \p n of 0:
+ * the first occurrence of exactly \p name.
  *
  * No aliases of \p name are tried.  To read a cookie set as "__Host-x" or
  * "__Secure-x", ask for that full name; asking for "x" only finds a cookie

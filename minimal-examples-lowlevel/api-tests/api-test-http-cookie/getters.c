@@ -18,6 +18,10 @@
  *    can set, never stands in for the prefixed one.  The JWT readers read the
  *    __Host- cookie the library mints and nothing else, so an attacker's
  *    validly signed JWT planted under the bare name is not taken.
+ *
+ *  - a name only matches at the start of a cookie-pair (G-010).  A "name="
+ *    inside another cookie's value, eg after a space, which browsers keep in
+ *    values, is not a cookie of that name.
  */
 
 #include <libwebsockets.h>
@@ -96,6 +100,40 @@ static const struct ckg_case ckg_cases[] = {
 	  .hdr = { "s=B; __Host-s=H; s=C" }, .kind = CKG_NTH,
 	  .name = "__Host-s", .nth = 1, .want_rc = 1 },
 
+	/* G-010: names only match at the start of a cookie-pair */
+
+	{ .label = "name inside a value", .hdr = { "a=x s=F; s=R" },
+	  .kind = CKG_GET, .name = "s", .want = "R" },
+	{ .label = "name inside a value only", .hdr = { "a=x s=F" },
+	  .kind = CKG_GET, .name = "s", .want_rc = 1 },
+	{ .label = "__Host- name inside a value",
+	  .hdr = { "z=1 __Host-s=F", "__Host-s=R" }, .kind = CKG_GET,
+	  .name = "__Host-s", .want = "R" },
+	{ .label = "nth skips names inside values",
+	  .hdr = { "a=x s=F; s=1; s=2" }, .kind = CKG_NTH, .name = "s",
+	  .nth = 1, .want = "2" },
+	{ .label = "nth past names inside values",
+	  .hdr = { "a=x s=F; s=1; s=2" }, .kind = CKG_NTH, .name = "s",
+	  .nth = 2, .want_rc = 1 },
+	{ .label = "name after '=' in a value", .hdr = { "a=b=s=F; s=R" },
+	  .kind = CKG_GET, .name = "s", .want = "R" },
+	{ .label = "no space after ';'", .hdr = { "a=1;s=2" },
+	  .kind = CKG_GET, .name = "s", .want = "2" },
+	{ .label = "whitespace trimmed", .hdr = { "a=1;  s = 2  ; b=3" },
+	  .kind = CKG_GET, .name = "s", .want = "2" },
+	{ .label = "value with '='", .hdr = { "s=a=b" }, .kind = CKG_GET,
+	  .name = "s", .want = "a=b" },
+	{ .label = "empty value", .hdr = { "s=; b=1" }, .kind = CKG_GET,
+	  .name = "s", .want = "" },
+	{ .label = "nameless pair", .hdr = { "junk; s=1" }, .kind = CKG_GET,
+	  .name = "s", .want = "1" },
+	{ .label = "nameless pair is not the name", .hdr = { "s; b=1" },
+	  .kind = CKG_GET, .name = "s", .want_rc = 1 },
+	{ .label = "name is a suffix", .hdr = { "xs=1" }, .kind = CKG_GET,
+	  .name = "s", .want_rc = 1 },
+	{ .label = "name is a prefix", .hdr = { "sx=1" }, .kind = CKG_GET,
+	  .name = "s", .want_rc = 1 },
+
 #if defined(LWS_WITH_JOSE)
 	{ .label = "jwt: __Host- validates", .hdr = { "__Host-tj=" },
 	  .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_VALIDATE, .name = "tj",
@@ -107,6 +145,16 @@ static const struct ckg_case ckg_cases[] = {
 	  .hdr = { "tj=", "__Host-tj=" },
 	  .jwt = { CKG_J_ATTACKER, CKG_J_VICTIM }, .kind = CKG_JWT_VALIDATE,
 	  .name = "tj", .want = "victim" },
+	{ .label = "jwt: __Host- name inside a value is not read",
+	  .hdr = { "z=1 __Host-tj=" }, .jwt = { CKG_J_ATTACKER },
+	  .kind = CKG_JWT_VALIDATE, .name = "tj", .want_rc = 1 },
+	{ .label = "jwt: __Host- name inside a value does not shadow",
+	  .hdr = { "z=1 __Host-tj=", "__Host-tj=" },
+	  .jwt = { CKG_J_ATTACKER, CKG_J_VICTIM }, .kind = CKG_JWT_VALIDATE,
+	  .name = "tj", .want = "victim" },
+	{ .label = "jwt-auth: name inside a value is not read",
+	  .hdr = { "z=1 auth_x=" }, .jwt = { CKG_J_ATTACKER },
+	  .kind = CKG_JWT_AUTH, .name = "auth_x", .want_rc = 1 },
 	{ .label = "jwt-auth: exact prefixed name", .hdr = { "__Host-tj=" },
 	  .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_AUTH, .name = "__Host-tj",
 	  .want = "victim" },
