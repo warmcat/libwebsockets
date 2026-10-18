@@ -38,6 +38,12 @@
  *             G-173: Locations built from the request's url must carry its
  *             decoded path and args percent-encoded again.
  *
+ *  captcha-head
+ *             G-174.  HEAD then GET of the interceptor's generated
+ *             interceptor-config.js, pipelined on one raw h1 tls
+ *             connection.  The HEAD response must be headers only: body
+ *             bytes after them are read as the start of the GET's response.
+ *
  *  pipeline   h1 keepalive pipelining across a large transfer, on the
  *             cleartext listener.  Two phases: first the two requests in one
  *             write the C-460 report describes, then the same thing with the
@@ -579,6 +585,7 @@ struct h1_resp {
 	int		pattern_bad;
 	char		first[64];	/* first bytes of body, for text */
 	size_t		first_len;
+	int		no_body;	/* answers a HEAD: done at the headers */
 };
 
 static const char pat[] = "0123456789abcdef";
@@ -640,7 +647,7 @@ h1_resp_consume(struct h1_resp *r, const uint8_t *p, size_t len)
 				}
 			}
 
-			if (r->content_length <= 0)
+			if (r->content_length <= 0 || r->no_body)
 				r->complete = 1;
 
 			continue;
@@ -994,6 +1001,122 @@ callback_pl(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return 0;
 }
 
+/* ------------------------------------------- raw h1 HEAD case (G-174) */
+
+static struct h1_resp	hd_r[2];
+static int		hd_ridx, hd_write_pending;
+static char		hd_req[512];
+
+#define HD_JS_PATH	"/captcha/interceptor-config.js"
+#define HD_JS_START	"var lws_interceptor_pre_delay_ms"
+
+static int
+hd_judge(void)
+{
+	const struct h1_resp *h = &hd_r[0], *g = &hd_r[1];
+
+	if (h->status != 200 || h->content_length <= 0) {
+		lwsl_err("%s: HEAD: status %u, content-length %lld\n",
+			 __func__, h->status, h->content_length);
+
+		return 1;
+	}
+
+	/*
+	 * If the HEAD response carried the js after its headers, that is
+	 * where the GET's response appears to start, so it doesn't parse as
+	 * one: no status, or a body that isn't the js
+	 */
+
+	if (g->status != 200 || g->content_length != h->content_length ||
+	    g->body_got != g->content_length ||
+	    strncmp(g->first, HD_JS_START, strlen(HD_JS_START))) {
+		lwsl_err("%s: GET after HEAD: status %u, content-length %lld "
+			 "(HEAD said %lld), body '%.20s'\n", __func__, g->status,
+			 g->content_length, h->content_length, g->first);
+
+		return 1;
+	}
+
+	lwsl_user("%s: HEAD then GET on one connection: OK (%lld bytes)\n",
+		  __func__, g->body_got);
+
+	return 0;
+}
+
+static int
+callback_hd(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	    void *in, size_t len)
+{
+	(void)user;
+
+	switch (reason) {
+
+	case LWS_CALLBACK_RAW_CONNECTED:
+		h1_resp_reset(&hd_r[0], 0);
+		hd_r[0].no_body = 1;
+		h1_resp_reset(&hd_r[1], 0);
+		hd_ridx = 0;
+		hd_write_pending = 1;
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE: {
+		uint8_t buf[LWS_PRE + 512], *p = &buf[LWS_PRE];
+		size_t l = strlen(hd_req);
+
+		if (!hd_write_pending)
+			break;
+		hd_write_pending = 0;
+
+		/* both requests in one write, as a pipelining peer may */
+		memcpy(p, hd_req, l);
+		if (lws_write(wsi, p, l, LWS_WRITE_RAW) < (int)l) {
+			lwsl_err("%s: short write\n", __func__);
+			finish(1);
+
+			return -1;
+		}
+		break;
+	}
+
+	case LWS_CALLBACK_RAW_RX: {
+		const uint8_t *p = (const uint8_t *)in;
+		size_t rem = len, used;
+
+		while (rem && hd_ridx < 2) {
+			used = h1_resp_consume(&hd_r[hd_ridx], p, rem);
+			p += used;
+			rem -= used;
+
+			if (!hd_r[hd_ridx].complete)
+				break;
+			hd_ridx++;
+		}
+
+		if (hd_ridx < 2)
+			break;
+
+		finish(hd_judge() || rem);
+
+		return -1;
+	}
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		if (hd_ridx < 2) {
+			lwsl_err("%s: closed after %d responses\n", __func__,
+				 hd_ridx);
+			finish(1);
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 /* -------------------------------------------------------------- protocols */
 
 static const struct lws_protocols
@@ -1001,10 +1124,12 @@ static const struct lws_protocols
 	prot_cli = { "lws-api-test-lwsws-uv-cli", callback_cli, 0, 0, 0,
 		     NULL, 0 },
 	prot_pl = { "lws-api-test-lwsws-uv-pl", callback_pl, 0, 0, 0,
+		    NULL, 0 },
+	prot_hd = { "lws-api-test-lwsws-uv-hd", callback_hd, 0, 0, 0,
 		    NULL, 0 };
 
 static const struct lws_protocols *pprotocols[] = {
-	&defprot, &prot_cli, &prot_pl, NULL
+	&defprot, &prot_cli, &prot_pl, &prot_hd, NULL
 };
 
 /* ------------------------------------------------------------- the cases */
@@ -1317,6 +1442,56 @@ run_quicabort(void)
 }
 
 static int
+run_head(void)
+{
+	struct lws_client_connect_info i;
+	int n;
+
+	if (make_context())
+		return 1;
+
+	result		= 1;
+
+	n = lws_snprintf(hd_req, sizeof(hd_req),
+		     "HEAD " HD_JS_PATH " HTTP/1.1\x0d\x0a"
+		     "Host: %s:%d\x0d\x0a\x0d\x0a", g_server, g_port_tls);
+	lws_snprintf(hd_req + n, sizeof(hd_req) - (size_t)n,
+		     "GET " HD_JS_PATH " HTTP/1.1\x0d\x0a"
+		     "Host: %s:%d\x0d\x0a\x0d\x0a", g_server, g_port_tls);
+
+	memset(&i, 0, sizeof(i));
+	i.context		= cx;
+	i.address		= g_server;
+	i.host			= g_server;
+	i.port			= g_port_tls;
+	i.method		= "RAW";
+	i.alpn			= "http/1.1";
+	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED;
+	i.protocol		= "defprot";
+	i.local_protocol_name	= "lws-api-test-lwsws-uv-hd";
+
+	lws_sul_schedule(cx, 0, &sul_watchdog, watchdog_cb,
+			 20 * LWS_USEC_PER_SEC);
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("%s: raw tls client connect failed\n", __func__);
+		lws_context_destroy(cx);
+		cx = NULL;
+
+		return 1;
+	}
+
+	service_until_done();
+
+	lws_sul_cancel(&sul_watchdog);
+	if (cx)
+		lws_context_destroy(cx);
+	cx = NULL;
+
+	return result;
+}
+
+static int
 run_pipeline(void)
 {
 	struct lws_client_connect_info i;
@@ -1408,8 +1583,8 @@ main(int argc, const char **argv)
 	p = lws_cmdline_option(argc, argv, "-t");
 	if (!p || !g_port_tls || !g_port_plain) {
 		lwsl_err("Usage: lws-api-test-lwsws-uv -t "
-			 "<captcha|captcha-h2|pipeline|proxy|h3race|"
-			 "quicabort> "
+			 "<captcha|captcha-h2|captcha-head|pipeline|proxy|"
+			 "h3race|quicabort> "
 			 "--server <host> -p <tls port> "
 			 "--plain-port <port> [--evlib uv|poll] [-d <level>]\n");
 
@@ -1436,6 +1611,9 @@ main(int argc, const char **argv)
 				     (int)LWS_ARRAY_SIZE(jobs_captcha), "h2",
 				     1);
 		}
+	else
+		if (!strcmp(p, "captcha-head"))
+			r = run_head();
 	else
 		if (!strcmp(p, "proxy"))
 			r = run_jobs(jobs_proxy,

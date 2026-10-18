@@ -117,6 +117,17 @@ The interceptor binds its cookies to the peer's IP (the JWT `sub` claim), so
 these cases pin the client to one address family -- `localhost` resolves to
 both, and lws is free to pick either per connect.
 
+### `captcha-head` -- HEAD of the generated config js (G-174)
+
+On one raw h1 tls connection, `HEAD` then `GET` of
+`/captcha/interceptor-config.js`, pipelined in one write.  The interceptor
+writes that js itself rather than through `lws_serve_http_file()`, and
+`lws_write()` does not drop body bytes for a HEAD, so it used to send the js
+after the HEAD's headers: a peer, or an intermediary pooling the connection,
+reads those bytes as the start of the next response.  The HEAD response must
+be headers only, with the GET's `content-length`, and the GET's response
+must then parse and carry the js.
+
 ### `pipeline` -- h1 keepalive across a transfer (C-460)
 
 On one raw keepalive connection to the cleartext listener:

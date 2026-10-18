@@ -588,7 +588,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	/*
 	 * HEAD is handled like GET: the page and asset selection is the same,
 	 * lws_serve_http_file() already answers a HEAD with headers only (and,
-	 * on h2 / h3, END_STREAM on the headers).
+	 * on h2 / h3, END_STREAM on the headers).  The generated config js
+	 * does its own HEAD handling below.
 	 */
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI)) {
@@ -631,6 +632,23 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 					return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 					return 1;
+
+				/*
+				 * Unlike lws_serve_http_file(), nothing below
+				 * lws_write() drops a body for HEAD (G-174): the
+				 * headers, with the GET's content-length, are
+				 * the whole response, and on h2 / h3 they end
+				 * the stream.
+				 */
+				if (wsi->http.method_head) {
+					if (lws_write(wsi, (unsigned char *)buf + LWS_PRE,
+						      lws_ptr_diff_size_t(p, buf + LWS_PRE),
+						      LWS_WRITE_HTTP_HEADERS |
+						      LWS_WRITE_H2_STREAM_END) < 0)
+						return -1;
+
+					return lws_http_transaction_completed(wsi);
+				}
 
 				lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 

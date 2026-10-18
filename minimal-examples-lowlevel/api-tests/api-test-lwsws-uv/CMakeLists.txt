@@ -179,6 +179,12 @@ if (requirements)
 			 COMMAND ${SAMP} -t captcha --evlib uv ${ARGS_COMMON})
 		list(APPEND mytests lwsws-uv-captcha-uv)
 
+		# G-174: HEAD of the interceptor's generated config js is
+		# headers only, so a GET pipelined behind it still parses
+		add_test(NAME lwsws-uv-captcha-head
+			 COMMAND ${SAMP} -t captcha-head ${ARGS_COMMON})
+		list(APPEND mytests lwsws-uv-captcha-head)
+
 		# (b) h1 pipelining during a transfer, on the cleartext listener
 		add_test(NAME lwsws-uv-pipeline
 			 COMMAND ${SAMP} -t pipeline ${ARGS_COMMON})
