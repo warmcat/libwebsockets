@@ -183,6 +183,8 @@ struct node {
 
 /* how many routing table entries one address (IPv4, or IPv6 /64) may hold in a bucket */
 #define LWS_DHT_MAX_SAME_ADS_PER_BUCKET	2
+/* ... and how many candidates it may hold in one search's node list */
+#define LWS_DHT_MAX_SAME_ADS_PER_SEARCH	2
 
 struct bucket {
 	int                     af;
@@ -477,6 +479,8 @@ struct node * find_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int a
 int node_good(struct lws_dht_ctx *ctx, struct node *node);
 void blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen);
 struct node * maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, int confirm);
+int dht_sa_same_host(const struct sockaddr *a, const struct sockaddr *b);
+int dht_endpoint_refused(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen);
 int expire_buckets(struct lws_dht_ctx *ctx, lws_dll2_owner_t *bo);
 void lws_dht_dump_tables(struct lws_dht_ctx *ctx);
 int bucket_maintenance(struct lws_dht_ctx *ctx, int af);

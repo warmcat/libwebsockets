@@ -59,6 +59,12 @@
  *  - A probes its good nodes, B and R, for its external address again, and
  *    R answers that A is at a multicast address.  That must not be counted:
  *    no vote may decide we are somewhere unroutable (G-095)
+ *  - A searches for a target, and R answers A's get_peers with a nodes list
+ *    naming 5 ids next to the target, all at one public address, three
+ *    unusable endpoints (multicast, address 0, port 0) closer still, and B's
+ *    id at another address.  At most two of the one host's ids may enter the
+ *    search, none of the unusable endpoints, and B's candidate must stay at
+ *    B: otherwise one host owns the lookup (G-123)
  *
  * The UDP ports (four to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
@@ -99,7 +105,7 @@ static const char raw_query_head[] = "d1:ad2:id20:";
 static const char raw_query_tail[] = "e1:q9:find_node1:t2:aa1:y1:qe";
 static const char err_msg[] = "find_node with no target";
 static struct lws *wsi_raw;
-static uint8_t raw_tx[256];
+static uint8_t raw_tx[1024];
 static size_t raw_tx_len;
 static struct sockaddr_in raw_tx_to;
 
@@ -145,6 +151,10 @@ struct seen {
 	unsigned char mart_sent:1;	/* A probed B and R again */
 	unsigned char mart_answered:1;	/* ...R said A is at 224.0.0.1 */
 	unsigned char mart_ok:1;	/* ...and A did not believe it */
+	unsigned char srch_started:1;	/* A searched for KRPC_SRCH_TARGET */
+	unsigned char srch_answered:1;	/* ...R answered its get_peers */
+	unsigned char srch_ok:1;	/* ...and the search took little of it */
+	unsigned char srch_bad:1;	/* ...or it took too much */
 };
 
 /* the id R answers A's ping with, and the polls since it did */
@@ -176,6 +186,22 @@ static int seq_state, seq_polls, cap_rsps;
 static uint8_t seq_tid[16];
 static size_t seq_tid_len;
 static uint64_t cap_rsp_len;
+
+/*
+ * The search A makes once the transport cases are done, and what R's answer
+ * names: one public host (TEST-NET-3, never routed) with many ids next to the
+ * target, unusable endpoints, and B's id somewhere else
+ */
+#define KRPC_SRCH_TARGET	0x5a
+/* (a nodes list holds at most 9 entries: the rest of it is below) */
+#define KRPC_SRCH_HOST_IDS	5
+#define KRPC_SRCH_PER_HOST	2	/* what the library lets one host have */
+static const uint8_t srch_host[] = { 203, 0, 113, 7 },
+		     srch_host_b[] = { 203, 0, 113, 8 },
+		     srch_host_port0[] = { 203, 0, 113, 9 },
+		     srch_mcast[] = { 224, 0, 0, 1 },
+		     srch_zero[] = { 0, 0, 0, 1 };
+static int srch_polls;
 
 /* the ids R's unasked-for replies name: R's own, and the nodes it lists */
 #define KRPC_UNSOL_ID_R		0x66
@@ -392,6 +418,8 @@ static void
 raw_queue(const void *buf, size_t len, const struct sockaddr_in *to);
 static void
 ss_rx(const uint8_t *in, size_t len);
+static void
+search_rx(const uint8_t *in, size_t len);
 
 /* R's ack, from R's id, claiming everything below offset */
 
@@ -549,6 +577,12 @@ cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		udp = lws_get_udp(wsi);
 		if (!udp || udp->sa46.sa4.sin_family != AF_INET)
 			break;
+
+		if (sv.srch_started && !sv.srch_answered &&
+		    udp->sa46.sa4.sin_port == sa_a.sin_port) {
+			search_rx(in, len);
+			break;
+		}
 
 		if (seq_state != KRPC_SEQ_IDLE) {
 			seq_rx(&udp->sa46.sa4, in, len);
@@ -909,6 +943,169 @@ martian_step(void)
 		sv.mart_ok = 1;
 }
 
+/*
+ * After the transport cases, A searches for KRPC_SRCH_TARGET.  R is one of the
+ * nodes A asks, and answers with a nodes list that tries to take the search
+ * over (see the top of the file); then the search's candidates are checked.
+ */
+
+static lws_dht_hash_t *
+search_target(void)
+{
+	uint8_t idata[20];
+
+	memset(idata, KRPC_SRCH_TARGET, sizeof(idata));
+
+	return lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, idata);
+}
+
+/* one nodes list entry: SHA1 id of fill bytes ending in last, at ads:port */
+
+static uint8_t *
+search_node_info(uint8_t *p, uint8_t fill, uint8_t last, const uint8_t *ads,
+		 uint16_t port)
+{
+	*p++ = LWS_DHT_HASH_TYPE_SHA1;
+	*p++ = 20;
+	memset(p, fill, 20);
+	p[19] = last;
+	p += 20;
+	memcpy(p, ads, 4);
+	p += 4;
+	*p++ = (uint8_t)(port >> 8);
+	*p++ = (uint8_t)port;
+
+	return p;
+}
+
+static void
+search_rx(const uint8_t *in, size_t len)
+{
+	ssize_t at = krpc_find(in, len, "1:q9:get_peers1:t4:");
+	uint8_t q[400], *p = q, *nodes;
+	int n;
+
+	if (at < 0 || (size_t)at + 23 > len)
+		return;
+
+	sv.srch_answered = 1;
+
+	memcpy(p, "d1:rd2:id20:", 12);
+	p += 12;
+	memset(p, KRPC_SS_ID_R, 20);
+	p += 20;
+	n = lws_snprintf((char *)p, 16, "5:nodes%u:",
+			 (KRPC_SRCH_HOST_IDS + 4) * 28);
+	p += n;
+	nodes = p;
+
+	for (n = 0; n < KRPC_SRCH_HOST_IDS; n++)
+		p = search_node_info(p, KRPC_SRCH_TARGET, (uint8_t)(0x80 + n),
+				     srch_host, (uint16_t)(20000 + n));
+	/* unusable endpoints, with ids closer to the target than any */
+	p = search_node_info(p, KRPC_SRCH_TARGET, 1, srch_mcast, 20100);
+	p = search_node_info(p, KRPC_SRCH_TARGET, 2, srch_zero, 20101);
+	p = search_node_info(p, KRPC_SRCH_TARGET, 3, srch_host_port0, 0);
+	/* B's id, somewhere B is not */
+	p = search_node_info(p, 0x22, 0x22, srch_host_b, 20200);
+
+	if (lws_ptr_diff_size_t(p, nodes) != (KRPC_SRCH_HOST_IDS + 4) * 28) {
+		lwsl_err("%s: nodes list size mismatch\n", __func__);
+		sv.srch_bad = 1;
+		return;
+	}
+
+	memcpy(p, "5:token8:RRRRRRRRe1:t4:", 23);
+	p += 23;
+	memcpy(p, in + at + 19, 4);
+	p += 4;
+	memcpy(p, "1:y1:re", 7);
+	p += 7;
+
+	raw_queue(q, lws_ptr_diff_size_t(p, q), &sa_a);
+}
+
+struct srch_tally {
+	int		host, unusable, b_at_b, b_moved, total;
+};
+
+static int
+search_node_cb(void *user, const lws_dht_node_info_t *ni)
+{
+	const struct sockaddr_in *sin = (const struct sockaddr_in *)ni->sa;
+	struct srch_tally *t = (struct srch_tally *)user;
+
+	t->total++;
+	if (ni->sa->sa_family != AF_INET)
+		return 0;
+
+	if (!memcmp(&sin->sin_addr, srch_host, 4))
+		t->host++;
+	if (!memcmp(&sin->sin_addr, srch_mcast, 4) ||
+	    !memcmp(&sin->sin_addr, srch_zero, 4) || !sin->sin_port)
+		t->unusable++;
+	if (ni->id->len == 20 && ni->id->id[0] == 0x22 &&
+	    ni->id->id[19] == 0x22) {
+		if (sin->sin_port == sa_b.sin_port &&
+		    sin->sin_addr.s_addr == sa_b.sin_addr.s_addr)
+			t->b_at_b++;
+		else
+			t->b_moved++;
+	}
+
+	return 0;
+}
+
+static void
+search_step_check(void)
+{
+	struct srch_tally t;
+	lws_dht_hash_t *target;
+
+	if (seq_state != KRPC_SEQ_DONE || sv.srch_ok || sv.srch_bad ||
+	    raw_tx_len)
+		return;
+
+	target = search_target();
+	if (!target) {
+		sv.srch_bad = 1;
+		return;
+	}
+
+	if (!sv.srch_started) {
+		sv.srch_started = 1;
+		if (lws_dht_search(dht_a, target, 0, AF_INET, NULL, NULL) < 0) {
+			lwsl_err("%s: lws_dht_search failed\n", __func__);
+			sv.srch_bad = 1;
+		}
+		goto bail;
+	}
+
+	/* give A a few polls to have processed R's answer */
+	if (!sv.srch_answered || ++srch_polls < 3)
+		goto bail;
+
+	memset(&t, 0, sizeof(t));
+	if (lws_dht_foreach_search_node(dht_a, target, AF_INET,
+					search_node_cb, &t) < 0) {
+		lwsl_err("%s: A has no search for the target\n", __func__);
+		sv.srch_bad = 1;
+		goto bail;
+	}
+
+	if (t.host > KRPC_SRCH_PER_HOST || !t.host || t.unusable ||
+	    t.b_moved || !t.b_at_b) {
+		lwsl_err("%s: search took %d candidates from one host, %d "
+			 "unusable, B at B %d, B moved %d (of %d)\n", __func__,
+			 t.host, t.unusable, t.b_at_b, t.b_moved, t.total);
+		sv.srch_bad = 1;
+	} else
+		sv.srch_ok = 1;
+
+bail:
+	lws_dht_hash_destroy(&target);
+}
+
 static void
 cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
@@ -1104,6 +1301,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	storage_ping_step();
 	martian_step();
 	seq_step();
+	search_step_check();
 
 	if (sv.data_ok && !sv.dead_sent) {
 		sv.dead_sent = 1;
@@ -1137,8 +1335,9 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * not move B's entry in A's table, B's refusal of R's broken
 	 * find_node was well-formed on the wire and understood by A,
 	 * R's replies to nothing A asked left A's table alone, only R's real
-	 * ack completed A's transfer to it, and B did not repeat itself to R
-	 * on the word of an ack anyone could have sent.
+	 * ack completed A's transfer to it, B did not repeat itself to R
+	 * on the word of an ack anyone could have sent, and R's answer to
+	 * A's search did not take it over.
 	 */
 
 	if (sv.token_ok && !sv.token_ih_bad && sv.table_ok && sv.acked &&
@@ -1153,6 +1352,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.seq_ok && !sv.seq_bad &&
 	    sv.unproven_ok && !sv.unproven_bad &&
 	    sv.ss_ok && !sv.ss_bad && sv.mart_ok &&
+	    sv.srch_ok && !sv.srch_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -1424,6 +1624,11 @@ int main(int argc, const char **argv)
 			if (!sv.unproven_ok || sv.unproven_bad) {
 				lwsl_err("a forged ack made B repeat itself to "
 					 "R\n");
+				fails++;
+			}
+			if (!sv.srch_ok || sv.srch_bad) {
+				lwsl_err("one host's get_peers answer took A's "
+					 "search over\n");
 				fails++;
 			}
 		}

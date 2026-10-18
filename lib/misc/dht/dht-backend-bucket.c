@@ -398,23 +398,30 @@ node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
 	return n;
 }
 
-/* the same host, whatever the port: IPv4 address, or IPv6 /64 */
-static int
+/*
+ * The same host, whatever the port: the same dht_source_key(), an IPv4
+ * address or an IPv6 /64
+ */
+int
 dht_sa_same_host(const struct sockaddr *a, const struct sockaddr *b)
 {
-	if (a->sa_family != b->sa_family)
-		return 0;
+	uint8_t ka[LWS_DHT_EXTVOTE_KEY_LEN], kb[LWS_DHT_EXTVOTE_KEY_LEN];
 
-	if (a->sa_family == AF_INET)
-		return !memcmp(&((const struct sockaddr_in *)a)->sin_addr,
-			       &((const struct sockaddr_in *)b)->sin_addr, 4);
+	return a->sa_family == b->sa_family &&
+	       !dht_source_key(a, ka) && !dht_source_key(b, kb) &&
+	       !memcmp(ka, kb, sizeof(ka));
+}
 
-	if (a->sa_family == AF_INET6)
-		return !memcmp(((const struct sockaddr_in6 *)a)->sin6_addr.s6_addr,
-			       ((const struct sockaddr_in6 *)b)->sin6_addr.s6_addr,
-			       8);
-
-	return 0;
+/*
+ * An endpoint we must not take as a node, however we heard of it: one that
+ * is martian (or private, when we are public-only), or blacklisted.  Both
+ * the routing table and a search's candidate list refuse these.
+ */
+int
+dht_endpoint_refused(struct lws_dht_ctx *ctx, const struct sockaddr *sa,
+		     size_t salen)
+{
+	return is_martian(ctx, sa) || node_blacklisted(ctx, sa, salen);
 }
 
 /* a bucket entry is given to a newcomer, in place */
@@ -468,7 +475,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		return NULL;
 	}
 
-	if (is_martian(ctx, sa) || node_blacklisted(ctx, sa, salen)) {
+	if (dht_endpoint_refused(ctx, sa, salen)) {
 		char buf[64] = "unknown";
 		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa, buf, sizeof(buf));
 		lwsl_dht_warn("%s: martian or blacklisted: %s\n", __func__, buf);

@@ -81,6 +81,19 @@ search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr,
  * A search contains a list of nodes, sorted by decreasing distance to the
  * target.  We just got a new candidate, insert it at the right spot or
  * discard it.
+ *
+ * Candidates mostly come from the nodes lists in replies, which name any
+ * endpoint and any id their sender likes, so the list applies the same
+ * admission the routing table does (maybe_new_node()): no martian or
+ * blacklisted endpoints, and no more than a couple of entries from one host
+ * (dht_source_key()) however many ids it presents.  Otherwise one host
+ * answering us can list a dozen ids of its own next to the target, which
+ * sort ahead of every honest node, and own the lookup and where its
+ * announce goes; or have us send requests to internal addresses.
+ *
+ * An entry also keeps the endpoint it was admitted with: a nodes list
+ * naming a known candidate's id somewhere else, or a reply from another
+ * endpoint claiming it, does not move it there.
  */
 int
 insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
@@ -90,24 +103,46 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 {
 	lws_dht_hash_t *nid;
 	struct search_node *n;
-	int i, j;
+	int i, j, same = 0;
 
 	if (sa->sa_family != sr->af) {
 		lwsl_dht_warn("Attempted to insert node in the wrong family.\n");
 		return 0;
 	}
 
+	if (dht_endpoint_refused(ctx, sa, salen))
+		return 0;
+
+	/* a candidate we already have, and what its host already holds */
+
 	for (i = 0; i < sr->numnodes; i++) {
 		if (id_cmp(id, sr->nodes[i].id) == 0) {
 			n = &sr->nodes[i];
+			if (!dht_sa_same_peer((const struct sockaddr *)&n->ss,
+					      sa))
+				return 0;
 			goto found;
 		}
+		if (!lws_dht_ads_is_private(sa) &&
+		    dht_sa_same_host((const struct sockaddr *)&sr->nodes[i].ss,
+				     sa))
+			same++;
+	}
+
+	/* a newcomer: where it sorts */
+
+	for (i = 0; i < sr->numnodes; i++)
 		if (xorcmp(id, sr->nodes[i].id, sr->id) < 0)
 			break;
-	}
 
 	if (i >= SEARCH_NODES)
 		return 0;
+
+	if (same >= LWS_DHT_MAX_SAME_ADS_PER_SEARCH) {
+		lwsl_dht_info("%s: host already has %d search candidates\n",
+			      __func__, same);
+		return 0;
+	}
 
 	/*
 	 * Take the copy of the id before disturbing the list, so a failure here
@@ -357,6 +392,48 @@ new_search(struct lws_dht_ctx *ctx)
 		oldest->list = list; /* ... but stay on the searches list */
 	}
 	return oldest;
+}
+
+int
+lws_dht_foreach_search_node(struct lws_dht_ctx *ctx,
+			    const lws_dht_hash_t *target, int af,
+			    lws_dht_node_cb_t cb, void *user)
+{
+	lws_dht_node_info_t ni;
+	int i;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->searches)) {
+		struct search *sr = lws_container_of(d, struct search, list);
+
+		if (sr->af != af || id_cmp(sr->id, target))
+			continue;
+
+		for (i = 0; i < sr->numnodes; i++) {
+			struct search_node *n = &sr->nodes[i];
+			const struct sockaddr *sa =
+					(const struct sockaddr *)&n->ss;
+
+			memset(&ni, 0, sizeof(ni));
+			ni.id		= n->id;
+			ni.sa		= sa;
+			ni.salen	= n->sslen;
+			ni.replied	= n->replied ?
+					  (long)(ctx->now - n->reply_time) : -1;
+			ni.heard	= ni.replied;
+			ni.pinged	= n->pinged;
+			ni.good		= !!n->replied;
+			ni.bep42_ok	= lws_dht_ads_is_private(sa) ||
+					  lws_dht_bep42_check(n->id, sa);
+
+			if (cb(user, &ni))
+				return i + 1;
+		}
+
+		return sr->numnodes;
+	} lws_end_foreach_dll(d);
+
+	return -1;
 }
 
 /* Insert the contents of a bucket into a search structure. */

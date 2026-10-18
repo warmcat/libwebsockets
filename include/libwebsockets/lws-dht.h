@@ -602,6 +602,31 @@ lws_dht_foreach_node(struct lws_dht_ctx *ctx, int af, lws_dht_node_cb_t cb,
 		     void *user);
 
 /**
+ * lws_dht_foreach_search_node() - visit the candidates of a search
+ *
+ * \param ctx: DHT context
+ * \param target: the id the search is for, as given to lws_dht_search()
+ * \param af: the search's address family, AF_INET or AF_INET6
+ * \param cb: called with each candidate, return nonzero to stop
+ * \param user: passed to \p cb
+ *
+ * Visits the nodes a search is querying, or has queried, closest to
+ * \p target first, so the application can see where a lookup went.  In the
+ * lws_dht_node_info_t, \p heard and \p replied are the seconds since the
+ * node answered this search (-1 if it has not), \p pinged is how many
+ * requests this search sent it that are unanswered, \p good is whether it
+ * answered this search, and \p bep42_ok is as for lws_dht_foreach_node().
+ * The search must not be changed from \p cb.
+ *
+ * \return how many candidates \p cb was called with, or -1 if there is no
+ * search for \p target in \p af.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_foreach_search_node(struct lws_dht_ctx *ctx,
+			    const lws_dht_hash_t *target, int af,
+			    lws_dht_node_cb_t cb, void *user);
+
+/**
  * lws_dht_dump_tables() - Log the state of DHT routing tables
  *
  * \param ctx: DHT context
