@@ -488,7 +488,13 @@ lws_dht_search(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int port, int 
 		}
 		sr->af		= af;
 		sr->tid		= ctx->search_id++;
-		sr->step_time	= ctx->now;
+		/*
+		 * Never stepped: the search_step() below sends the first
+		 * round of requests at once and sets ->step_time itself.
+		 * Starting it at ->now held those back for the retransmit
+		 * interval, so a new lookup sat idle for 15 - 25s.
+		 */
+		sr->step_time	= 0;
 		sr->id		= lws_dht_hash_dup(id);
 
 		if (!sr->id) {
