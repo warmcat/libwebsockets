@@ -97,6 +97,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    requested by any child during a pass latches
    `io.leave_pollout_active`, overriding a DROP; a child that re-arms while
    it cannot progress spins the loop on the always-writable UDP socket.
+ - On a server, every QUIC connection that completed its handshake has a
+   bidi stream child from the ALPN migration onwards
+   (`rops_alpn_negotiated_quic()`: the old wsi becomes stream 0 under the
+   new netconn), whether or not the peer ever opens a stream.  "Idle" or
+   "has requests" decided by counting bidi children is therefore always
+   "busy" after the handshake.
  - A failed `lws_write()` marks the socket unusable and leaves closing it
    to the caller, and `lws_callback_on_writable()` refuses an unusable
    wsi.  A protocol that keeps such a wsi (a long-lived UDP socket, say)
