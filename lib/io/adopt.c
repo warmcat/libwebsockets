@@ -1222,6 +1222,13 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		h.ai_flags |= AI_ADDRCONFIG;
 #endif
 
+		if (ads && lws_host_is_ambiguous_numeric(ads)) {
+			/* eg, "012.0.0.1", which libc reads as 10.0.0.1 */
+			lwsl_cx_warn(vhost->context,
+				     "refusing ambiguous numeric host");
+			goto bail1;
+		}
+
 		/* if the dns lookup is synchronous, do the whole thing now */
 		lws_snprintf(buf, sizeof(buf), "%u", port);
 		n = getaddrinfo(ads, buf, &h, &r);

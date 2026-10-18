@@ -97,6 +97,26 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 		return -4;
 
 	/*
+	 * Be as strict as inet_pton(): the platform resolver and any other
+	 * parser looking at the same string must agree with us about what it
+	 * is, or a check made on our reading is bypassed by theirs.
+	 *
+	 * Only the characters an address is written in are allowed, since
+	 * lws_tokenize would otherwise skip whitespace between the parts, and
+	 * the string must neither begin nor end with a separator, except as
+	 * part of a "::".
+	 */
+
+	for (n = 0; n < ts.len; n++)
+		if (!strchr("0123456789abcdefABCDEF:.", ads[n]))
+			return -1;
+
+	if (ads[0] == '.' || ads[ts.len - 1] == '.' ||
+	    (ads[0] == ':' && ads[1] != ':') ||
+	    (ads[ts.len - 1] == ':' && ads[ts.len - 2] != ':'))
+		return -18;
+
+	/*
 	 * We can only ever produce 4 (v4) or 16 (v6) bytes... a caller with a
 	 * bigger buffer must not let us accept an overlong literal, since the
 	 * "::" reassembly at ENDED below is written around a 16-byte result
@@ -135,6 +155,14 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 				for (n = 0; n < ts.token_len; n++)
 					if (t[n] < '0' || t[n] > '9')
 						return -1;
+				/*
+				 * A leading zero makes the octet octal to
+				 * inet_aton() and the libc resolvers built on
+				 * it (012 is 10 to them), so it has no single
+				 * meaning: refuse it, as inet_pton() does
+				 */
+				if (ts.token_len > 1 && t[0] == '0')
+					return -19;
 				u = strtol(t, NULL, 10);
 				if (u > 0xff)
 					return -6;
@@ -234,6 +262,51 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 	lwsl_err("%s: ended on e %d\n", __func__, ts.e);
 
 	return -14;
+}
+
+/*
+ * Async dns would send these to the nameserver as a name, libc parses them
+ * itself as inet_aton() does: what such a host means depends on who is asked.
+ *
+ * The test is the WHATWG URL "ends in a number" one: the last label (after
+ * dropping one trailing '.') is all decimal digits, or "0x" and hex digits.
+ */
+
+int
+lws_host_is_ambiguous_numeric(const char *host)
+{
+	const char *e, *p;
+	uint8_t a[16];
+	int hex = 0;
+
+	if (lws_parse_numeric_address(host, a, sizeof(a)) > 0)
+		return 0;
+
+	e = host + strlen(host);
+	if (e > host && e[-1] == '.')
+		e--;
+
+	p = e;
+	while (p > host && p[-1] != '.')
+		p--;
+
+	if (p == e)
+		return 0;
+
+	if (e - p >= 2 && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+		hex = 1;
+		p += 2;
+	}
+
+	while (p < e) {
+		if (!((*p >= '0' && *p <= '9') ||
+		      (hex && ((*p >= 'a' && *p <= 'f') ||
+			       (*p >= 'A' && *p <= 'F')))))
+			return 0;
+		p++;
+	}
+
+	return 1;
 }
 
 int

@@ -2246,6 +2246,15 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	if ((qtype & 0xff) == LWS_ADNS_RECORD_A || (qtype & 0xff) == LWS_ADNS_RECORD_AAAA) {
 		m = lws_parse_numeric_address(name, ads, 16);
+		if (m < 0 && lws_host_is_ambiguous_numeric(name)) {
+			/*
+			 * Eg, "012.0.0.1": libc would make 10.0.0.1 of it,
+			 * the nameserver something else again; it is not a
+			 * name or an address we can agree with anyone about
+			 */
+			lwsl_cx_notice(context, "ambiguous numeric host");
+			goto failed;
+		}
 #if !defined(LWS_WITH_IPV6)
 		if (m == 16) {
 			/*

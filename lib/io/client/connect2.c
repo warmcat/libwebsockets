@@ -97,6 +97,20 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	 */
 	if (lws_parse_numeric_address(ads, naddr, sizeof(naddr)) > 0)
 		hints.ai_flags |= AI_NUMERICHOST;
+	else
+		if (lws_host_is_ambiguous_numeric(ads)) {
+			/*
+			 * Eg, "012.0.0.1": libc would read it as 10.0.0.1,
+			 * while we, and any check made with our helpers, did
+			 * not see an address at all
+			 */
+			lwsl_wsi_warn(wsi, "refusing ambiguous numeric host");
+#if defined(EAI_NONAME)
+			return EAI_NONAME;
+#else
+			return EAI_FAIL;
+#endif
+		}
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon_datum = lws_now_usecs();

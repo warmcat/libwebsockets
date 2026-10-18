@@ -78,6 +78,105 @@ int main(void)
 	}
 
 	/*
+	 * G-197: the parser must be as strict as inet_pton(), so it can never
+	 * read an address differently from libc's resolver.  A leading zero
+	 * makes an octet octal to libc ("012.0.0.1" is 10.0.0.1 to it), and
+	 * stray separators or whitespace are accepted by nothing else.
+	 */
+	{
+		static const char * const refused[] = {
+			"012.0.0.1",
+			"010.0.0.1",
+			"1.2.3.04",
+			"00.1.2.3",
+			"::ffff:012.0.0.1",
+			":1:2:3:4:5:6:7:8",
+			"1:2:3:4:5:6:7:8:",
+			":1::",
+			"1::2:",
+			" 1 .2. 3.4",
+			"1.2.3.4 ",
+			"\t1.2.3.4",
+			".1.2.3.4",
+			"1.2.3.4.",
+			"::ffff:1.2.3.4.",
+			"1.2.3.4\n",
+			"[::1]",
+			"::1%lo",
+		};
+		static const struct {
+			const char	*ads;
+			int		len;
+			uint8_t		b[4];
+		} accepted[] = {
+			{ "0.0.0.0",		4, { 0, 0, 0, 0 } },
+			{ "10.0.0.1",		4, { 10, 0, 0, 1 } },
+			{ "100.200.0.255",	4, { 100, 200, 0, 255 } },
+			{ "::",			16, { 0, 0, 0, 0 } },
+			{ "::1",		16, { 0, 0, 0, 0 } },
+			{ "1::",		16, { 0, 1, 0, 0 } },
+			{ "::ffff:10.0.0.1",	16, { 0, 0, 0, 0 } },
+		};
+		uint8_t q[16];
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(refused); n++)
+			if (lws_parse_numeric_address(refused[n], q,
+						      sizeof(q)) >= 0) {
+				lwsl_err("accepted non-strict '%s'\n",
+					 refused[n]);
+				e++;
+			}
+
+		for (n = 0; n < LWS_ARRAY_SIZE(accepted); n++)
+			if (lws_parse_numeric_address(accepted[n].ads, q,
+						      sizeof(q)) !=
+							accepted[n].len ||
+			    memcmp(q, accepted[n].b, 4)) {
+				lwsl_err("refused or misread '%s'\n",
+					 accepted[n].ads);
+				e++;
+			}
+	}
+
+	/*
+	 * ... and what libc would still take as ipv4 (and lws therefore
+	 * refuses to resolve for a connection) is recognized as ambiguous
+	 */
+	{
+		static const struct {
+			const char	*host;
+			int		amb;
+		} hosts[] = {
+			{ "012.0.0.1",		1 },
+			{ "10.1",		1 },
+			{ "167772161",		1 },
+			{ "0xa.0.0.1",		1 },
+			{ "0x0a000001",		1 },
+			{ "1.2.3.0x4",		1 },
+			{ "1.2.3.4.",		1 },
+			{ "example.com.1",	1 },
+			{ "1.2.3.4",		0 },
+			{ "::1",		0 },
+			{ "example.com",	0 },
+			{ "example.com.",	0 },
+			{ "1.example",		0 },
+			{ "0xg",		0 },
+			{ "",			0 },
+			{ ".",			0 },
+		};
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(hosts); n++)
+			if (lws_host_is_ambiguous_numeric(hosts[n].host) !=
+							hosts[n].amb) {
+				lwsl_err("ambiguous numeric '%s' != %d\n",
+					 hosts[n].host, hosts[n].amb);
+				e++;
+			}
+	}
+
+	/*
 	 * ... and the same for the raw parser with an exact-size ipv4 result
 	 * buffer, where the extra octet goes 1 byte past the end
 	 */

@@ -209,11 +209,35 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
  * Converts a 1.2.3.4 or 2001:abcd:123:: or ::ffff:1.2.3.4 formatted numeric
  * address into an array of network ordered byte address elements.
  *
+ * The parse is as strict as inet_pton(): the string must contain nothing but
+ * the address, and an ipv4 octet may not have a leading zero, since libc's
+ * resolver reads one as octal (to it "012.0.0.1" is 10.0.0.1).
+ *
  * Returns < 0 on error, else length of result set, either 4 or 16 for ipv4 /
  * ipv6.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len);
+
+/**
+ * lws_host_is_ambiguous_numeric() - a host libc would take as ipv4 but we don't
+ *
+ * \param host: the host name or address string
+ *
+ * libc's getaddrinfo() also takes a host whose last label is a number as an
+ * ipv4 address, in the inet_aton() forms lws_parse_numeric_address() refuses:
+ * octets with a leading zero are octal, 0x is hex, and fewer than four parts
+ * are allowed ("012.0.0.1", "10.1" and "167772161" are all 10.0.0.1 to it).
+ * Such a host means different things to different resolvers, so lws refuses
+ * to resolve it for a client connection; a filter deciding whether a host is
+ * acceptable should refuse it too.
+ *
+ * Returns 1 if \p host is not a strict numeric address, but its last label
+ * (ignoring one trailing '.') is all decimal digits, or "0x" and hex digits;
+ * else 0.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_host_is_ambiguous_numeric(const char *host);
 
 /*
  * lws_sa46_parse_numeric_address() - converts numeric ipv4 or ipv6 to sa46
