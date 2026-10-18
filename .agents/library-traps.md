@@ -60,7 +60,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    change moved by packets that never authenticated is an attacker's
    lever: QUIC's consecutive-decrypt-failure close and key-phase probe
    counters (ops-quic.c) let an injector kill a connection (G-104).  Only
-   authenticated packets may change connection state.
+   authenticated packets may change connection state.  Likewise a DHT
+   routing-table entry may only change on proof from the endpoint itself
+   (its reply to a request we sent there), never because it was named in
+   a nodes list or sent one unsolicited datagram (G-119).
  - **Jumps past initialisers.**  A `goto` (or `switch` case) that jumps
    past `char buf[N] = {0};` skips the initialiser: the buffer is
    indeterminate at the label.  -Wall -Wextra are silent; gcc's
