@@ -125,6 +125,18 @@
  - **Tolerate unrequested WRITEABLE.**  Especially on h3 streams, a
    WRITEABLE can arrive without being asked for.  Track "done" yourself;
    never infer completion from a WRITEABLE.
+ - **api-test-lwsws-oauth's sqlite db persists across ctest runs**; only
+   a configure removes it (`file(REMOVE)` at configure time).  A test that
+   causes bans must use a fresh client address each run (the existing
+   scenarios use random 198.18/15 and 2001:db8 addresses).
+ - **Checking for leftover children without reaping them:**
+   `waitid(P_ALL, 0, &si, WEXITED | WNOHANG | WNOWAIT)`: ECHILD means
+   none, `si_pid != 0` a zombie, 0 with `si_pid == 0` one still running
+   (api-test-http-cgi-abandon).
+ - **A server returning -1 at LWS_CALLBACK_HTTP** is reported promptly to
+   an h1 client ("server closed before responding"), but an h2/h3 client
+   stream gets no callback until its deadline (G-135).  Tests expecting
+   "no answer" need a short deadline of their own.
  - Keep scratch files under `--tmpdir` (ctest passes the binary dir),
    not `/tmp`, and create them owner-only.
  - `memmem()` is GNU-only: don't use it in examples.
