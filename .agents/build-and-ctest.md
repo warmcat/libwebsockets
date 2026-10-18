@@ -41,6 +41,11 @@
    is fixed (pre-existing unused-variable warnings).  To check changed
    code in such a build, add `-Wno-error=unused-but-set-variable
    -Wno-error=unused-variable` and grep the warnings for your files.
+   In such a tree `api-test-lws_dsh` also fails to link (undefined
+   `lws_dsh_describe`).
+ - **The dht-dnssec plugin, lws-crypto-dnssec and their api-tests do not
+   build with `LWS_IPV6=OFF`** until G-159 is fixed; only the DHT core
+   can be checked in an IPv4-only tree.
  - **Client-only builds need `-DLWS_WITHOUT_SERVER=1`.**
    `-DLWS_WITH_SERVER=0` is silently overridden; check `lws_config.h`
    has no `LWS_WITH_SERVER` before trusting a "client-only" result.
@@ -48,8 +53,10 @@
    lws's:** system libraries pulled in by a plugin (eg, the HLS plugin's
    ffmpeg / samba) leak in their constructors at dlopen; the stacks show
    `<unknown module>` because the plugin is unloaded before the report.
-   Use `LSAN_OPTIONS=suppressions=<file>` with `leak:_dl_init`, which
-   hides only allocations made in library constructors.
+   Use `LSAN_OPTIONS=suppressions=<file>` with `leak:_dl_init` and
+   `leak:_dlerror_run` (the dht tests also leak through
+   `_dl_catch_error`), which hide only allocations made by the dynamic
+   loader and library constructors.
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
