@@ -102,6 +102,18 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
+ - **JWT cookies are interchangeable across purposes.**
+   `lws_jwt_get_http_cookie_validate_jwt()` checks signature, iss, aud,
+   nbf, exp and sub only; the client chooses the cookie name.  Two cookies
+   signed with one jwk for different purposes need a claim that tells
+   them apart (G-171, interceptor visit vs pass).
+ - **A Location built from `WSI_TOKEN_*_URI` needs a backslash check:**
+   the URI parser decodes `%5C` to `\` and keeps it while collapsing `//`,
+   and browsers follow `/\host` as `//host` (G-173).
+ - **HEAD bodies:** `lws_write()` does not drop body bytes for HEAD; only
+   `lws_serve_http_file()` and the keepalive decision look at
+   `method_head`, so a handler writing its own body needs its own HEAD
+   check (G-174).
  - **The control-byte check on outgoing headers**
    (`lws_hdr_add_value_bad()`) lives only in the role-agnostic
    `lws_add_http_header_by_name()` / `_by_token()` wrappers.  Code calling
