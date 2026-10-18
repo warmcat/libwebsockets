@@ -74,6 +74,8 @@
  * With --post-cl0 (h1) and --h2-post-cl0, the POST says Content-Length: 0
  * and sends nothing: the script must see the end of its empty stdin, and
  * answer at once that it got no bytes, told its Content-Length is 0.
+ * --put-cl0 and --h2-put-cl0 are the same as a PUT: it is the framing that
+ * says there is no body, not the method.
  *
  * With --expect-continue, a raw h1 client POSTs the body with Expect:
  * 100-continue, and holds the body back until the 100 Continue comes, or
@@ -204,6 +206,9 @@ static const struct tcase cases[] = {
 	{ "pipelined", "GET", "/", BODY_NONE, EXPECT_PIPELINED, 0, 0 },
 	{ "abandon", "GET", "/linger", BODY_NONE, EXPECT_ABANDON, 0, 0 },
 	{ "post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 0, 0 },
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+	{ "put-cl0", "PUT", "/", BODY_CL0, EXPECT_BODY_COUNT, 0, 0 },
+#endif
 	{ "expect-continue", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_CONTINUE,
 	  0, 0 },
 #if defined(LWS_ROLE_H2)
@@ -213,6 +218,9 @@ static const struct tcase cases[] = {
 	{ "h2-post-stream-end", "POST", "/", BODY_STREAM_END, EXPECT_BODY_COUNT,
 	  1, 0 },
 	{ "h2-post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0 },
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+	{ "h2-put-cl0", "PUT", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0 },
+#endif
 #endif
 };
 

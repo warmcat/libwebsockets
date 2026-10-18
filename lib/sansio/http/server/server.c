@@ -3111,6 +3111,24 @@ deal_body:
 		   (long long)wsi->http.rx_content_length,
 		   lws_wsi_is_mux_nwsi(wsi), wsi->mux_substream);
 
+#if defined(LWS_WITH_CGI)
+	if (wsi->http.content_length_explicitly_zero && wsi->http.cgi) {
+		/*
+		 * A cgi takes its body on its stdin, and no body callbacks:
+		 * the end of the body ends its stdin (as the body reader does
+		 * at a body's end), and with no body that is now.  Otherwise a
+		 * script reading its stdin to the end waits for the cgi
+		 * timeout.  It is the framing that says there is no body, an
+		 * explicit Content-Length: 0, an h2 / h3 stream ended with its
+		 * headers, or an h1 request with no framing at all, whatever
+		 * the method: a PUT or PATCH has a body as much as a POST.
+		 */
+		lws_cgi_stdin_body_end(wsi);
+
+		goto no_more_body;
+	}
+#endif
+
 	if (wsi->http.content_length_explicitly_zero &&
 	    wsi->http.method_post) {
 
@@ -3134,21 +3152,6 @@ deal_body:
 		if (lwsi_state(wsi) == LRS_TXN_COMPLETING ||
 		    lwsi_state(wsi) == LRS_TXN_COMPLETED)
 			goto no_more_body;
-
-#if defined(LWS_WITH_CGI)
-		if (wsi->http.cgi) {
-			/*
-			 * A cgi takes its body on its stdin, and no body
-			 * callbacks: the end of the body ends its stdin (as
-			 * the body reader does at a body's end), and with no
-			 * body that is now.  Otherwise a script reading its
-			 * stdin to the end waits for the cgi timeout.
-			 */
-			lws_cgi_stdin_body_end(wsi);
-
-			goto no_more_body;
-		}
-#endif
 
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 					    wsi->user_space, NULL, 0))
