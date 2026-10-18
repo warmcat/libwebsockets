@@ -3847,9 +3847,16 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_dir_notify_destroy(&vhd->dn);
 			}
 #endif
-		if (vhd->lsp) {
-			lws_spawn_piped_kill_child_process(vhd->lsp);
-		}
+		/*
+		 * The vhd, which the spawn's reap callback would be given, is
+		 * about to go: let go of the spawn now.  lws asks the root
+		 * process to go and goes on collecting it after the spawn is
+		 * gone (G-100).  Only killing it left the spawn behind, with
+		 * nothing ever collecting the child and the spawn pointing
+		 * into this freed vhd.
+		 */
+		lws_spawn_piped_destroy(&vhd->lsp);
+		vhd->root_process_active = 0;
 
 		/*
 		 * The vhd owns these lists but the entries live in pss that
@@ -4465,8 +4472,18 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
         int ilen;
 
         switch (reason) {
-        case LWS_CALLBACK_RAW_CLOSE_FILE:
+        case LWS_CALLBACK_RAW_CLOSE_FILE: {
+		/*
+		 * The spawn has to be told, or it never sees its last pipe
+		 * close and never collects the child; and it must not be left
+		 * pointing at this wsi once it is gone
+		 */
+		struct vhd *vhd = (struct vhd *)lws_get_opaque_user_data(wsi);
+
+		if (vhd)
+			lws_spawn_stdwsi_closed(vhd->lsp, wsi);
                 break;
+	}
 
         case LWS_CALLBACK_RAW_RX_FILE: {
                 int _fd = (int)(intptr_t)lws_get_socket_fd(wsi);
