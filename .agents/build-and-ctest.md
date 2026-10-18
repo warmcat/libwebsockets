@@ -44,6 +44,12 @@
  - **Client-only builds need `-DLWS_WITHOUT_SERVER=1`.**
    `-DLWS_WITH_SERVER=0` is silently overridden; check `lws_config.h`
    has no `LWS_WITH_SERVER` before trusting a "client-only" result.
+ - **Plugin-loading tests under ASan can fail on leaks that are not
+   lws's:** system libraries pulled in by a plugin (eg, the HLS plugin's
+   ffmpeg / samba) leak in their constructors at dlopen; the stacks show
+   `<unknown module>` because the plugin is unloaded before the report.
+   Use `LSAN_OPTIONS=suppressions=<file>` with `leak:_dl_init`, which
+   hides only allocations made in library constructors.
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
@@ -109,6 +115,12 @@
    key 127.0.0.1, so they are one witness and the quorum is 1.  Test vote
    logic with several hosts through the dht-extvote module directly
    (api-test-dht-extvote).
+ - **A DHT nodes list carries at most 9 IPv4 entries** in lws format
+   (`mp->nodes` is 256 bytes; longer lists are dropped): tests needing
+   more must send several replies.
+ - **The dht-dnssec plugin creates its DHT after the context is up**, not
+   in `lws_create_context()`: a test building the plugin in waits in a
+   sul until `vhd->dht` is set (see api-test-dht-dnssec-put).
  - **DHT BEP42 cannot be tested on loopback:** private addresses are
    always `bep42_ok` (`maybe_new_node()`, `lws_dht_ads_is_private()`).
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
@@ -168,7 +180,10 @@
 ## Debug logging in ctest
 
 The default log spew handling keeps only the last 10 lines, so at
-`-d1039` a busy fixture loses the middle of what you are debugging.
+`-d1039` a busy fixture loses the middle of what you are debugging.  It
+also swallows lines from a burst at default log levels (35 of 64 lines
+in 20ms were lost in one test), so pass `--log-spew-tail 20000` whenever
+a log is evidence that something was or was not emitted.
 
  - Apps using `lws_cmdline_option_handle_builtin()` (lwsws, examples)
    take `--log-spew-tail <lines>`.
