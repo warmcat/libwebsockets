@@ -559,7 +559,8 @@ sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
 /*
  * Kick off a silent side-channel renewal against the auth server's
  * /api/sso_exchange, forwarding the browser's full cookie jar (so the server
- * sees auth_refresh_session + auth_csrf exactly as it would for a direct call).
+ * sees auth_refresh_session exactly as it would for a direct call) with the
+ * csrf double-submit pair put in front of it.
  *
  * Used by both:
  *  - the background BFF (.lws-login-refresh, mode=BFF), and
@@ -762,7 +763,18 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	ps->vhd = vhd;
 	ps->wsi_server = wsi;
 	ps->mode = mode;
-	lws_strncpy(ps->cookie_hdr, cookie, sizeof(ps->cookie_hdr));
+	/*
+	 * The auth server double-submits csrf_token= against its csrf cookie,
+	 * which in a browser's jar on its own host is the __Host- prefixed
+	 * one that no sibling host can plant (G-106).  This side channel
+	 * produces both halves of the pair itself, so put the cookie half
+	 * first in the forwarded jar under that name, and, for an auth server
+	 * that predates the prefix, under the bare name as well.  Being first,
+	 * the pair also survives a very large jar being truncated to fit.
+	 */
+	lws_snprintf(ps->cookie_hdr, sizeof(ps->cookie_hdr),
+		     "__Host-auth_csrf=%s; auth_csrf=%s; %s", csrf, csrf,
+		     cookie);
 	if (orig_path)
 		lws_strncpy(ps->orig_path, orig_path, sizeof(ps->orig_path));
 	if (authform_url)
@@ -876,10 +888,10 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
  * the whole page to the auth form.
  *
  * The auth server's csrf check on /api/sso_exchange is a double-submit
- * comparison between the csrf_token= form field and the auth_csrf cookie in
- * the forwarded jar -- both of which this side channel itself produces.  So
- * when the jar lacks auth_csrf, mint a fresh value and inject the matching
- * pair into the exchange: a browser without access to the HttpOnly cookies
+ * comparison between the csrf_token= form field and the csrf cookie in the
+ * forwarded jar -- both of which this side channel itself produces (see
+ * lws_login_kick_refresh()).  So when the jar lacks auth_csrf, mint a fresh
+ * value for the pair: a browser without access to the HttpOnly cookies
  * cannot reach this code, and a cross-site form POST cannot carry the
  * SameSite=Lax auth_refresh_session, so the browser-side csrf cookie was not
  * adding protection the refresh cookie does not already provide.  If the
@@ -889,10 +901,6 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
  * On exchange success the BFF / cold-load completion paths rotate a fresh
  * auth_csrf cookie into the browser jar themselves, healing the underlying
  * state.
- *
- * The minted cookie is prepended to the forwarded jar so that even if a very
- * large jar has to be truncated into ps->cookie_hdr, the pair we are about to
- * double-submit survives intact.
  */
 static int
 lws_login_kick_refresh_selfheal(struct vhd_login *vhd, struct lws *wsi,
@@ -900,22 +908,11 @@ lws_login_kick_refresh_selfheal(struct vhd_login *vhd, struct lws *wsi,
 				const char *orig_path, const char *authform_url)
 {
 	char minted[33];
-	size_t alen = strlen(cookie) + sizeof(minted) + 16;
-	char *jar;
-	int kicked;
-
-	jar = malloc(alen);
-	if (!jar)
-		return 0;
 
 	lws_login_mint_csrf(vhd, minted);
-	lws_snprintf(jar, alen, "auth_csrf=%s; %s", minted, cookie);
 
-	kicked = lws_login_kick_refresh(vhd, wsi, jar, minted, mode,
-					orig_path, authform_url);
-	free(jar);
-
-	return kicked;
+	return lws_login_kick_refresh(vhd, wsi, cookie, minted, mode,
+				      orig_path, authform_url);
 }
 
 /*

@@ -39,9 +39,15 @@
  *          key cannot be saved).  Both must answer 503, and the process must
  *          still be serving the real auth vhost afterwards.
  *
+ *  csrf:  a same-site sibling page tries to approve an attacker's device code
+ *          for the victim logged in on the auth server: a POST naming a
+ *          foreign Origin, and one double-submitting an auth_csrf cookie the
+ *          sibling planted, must both be refused, and the auth server's own
+ *          page must still approve.
+ *
  *  verify: the mailed registration link.  A GET of it, as a mail scanner
  *          makes, only asks for confirmation; the TOTP seed and backup codes
- *          come from the POST that page makes with the auth_csrf double
+ *          come from the POST that page makes with the csrf double
  *          submit, once; the QR image of the seed is only served for a live
  *          registration that became the account.
  */
@@ -200,7 +206,8 @@ loc_has(const char *key)
  * hiding the thing that can.
  */
 
-enum { JAR_AUTH, JAR_APP, JAR_COUNT };
+/* JAR_DEVICE is a device's own client, which holds no browser cookies */
+enum { JAR_AUTH, JAR_APP, JAR_DEVICE, JAR_COUNT };
 
 struct cookie {
 	char		name[64];
@@ -213,7 +220,7 @@ struct cookie {
 
 static struct cookie	jar[JAR_COUNT][COOKIES_MAX];
 
-static const char *jar_name[JAR_COUNT] = { "auth", "app" };
+static const char *jar_name[JAR_COUNT] = { "auth", "app", "device" };
 
 static struct cookie *
 jar_find(int j, const char *name, const char *domain)
@@ -429,6 +436,21 @@ struct req_args {
 static struct req_args cur;
 static char	hostport_cur[128];
 
+/*
+ * The Origin the next request presents.  NULL leaves it to the client, which
+ * sends https://<host> on h1 and nothing on h2 / h3; "" sends none on any
+ * transport; anything else is sent as it is, on every transport, the way a
+ * browser sends one on every POST.  req_full() resets it after each request.
+ */
+static const char *req_origin;
+
+/*
+ * Cookies the next request sends in front of the jar's own, for a cookie some
+ * other host planted with a scope the browser orders first.  req_full()
+ * resets it after each request.
+ */
+static const char *req_cookie_front;
+
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
@@ -450,7 +472,14 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			char ck[4096];
 
 			{
-				int cl = jar_header(cur.jar, ck, sizeof(ck));
+				int cl = 0;
+
+				if (req_cookie_front)
+					cl = lws_snprintf(ck, sizeof(ck),
+							  "%s; ",
+							  req_cookie_front);
+				cl += jar_header(cur.jar, ck + cl,
+						 sizeof(ck) - (size_t)cl);
 
 				lwsl_wsi_info(wsi, "cookie header: %d bytes, "
 					      "room %d", cl, (int)(pend - *pp));
@@ -469,6 +498,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			    lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
 					(unsigned char *)hostport_cur,
 					(int)strlen(hostport_cur), pp, pend))
+				return -1;
+
+			if (req_origin && req_origin[0] &&
+			    lws_add_http_header_by_token(wsi, WSI_TOKEN_ORIGIN,
+					(unsigned char *)req_origin,
+					(int)strlen(req_origin), pp, pend))
 				return -1;
 
 			if (cur.body) {
@@ -621,7 +656,8 @@ req_full(int which_jar, int port, const char *path, const char *req_body)
 	i.address		= server;
 	i.path			= path;
 	i.host			= hostport;
-	i.origin		= hostport;
+	/* an Origin of our own choosing goes out from APPEND_HANDSHAKE_HEADER */
+	i.origin		= req_origin ? NULL : hostport;
 	i.method		= req_body ? "POST" : "GET";
 	i.protocol		= protocols[0].name;
 	i.alpn			= alpn;
@@ -642,8 +678,11 @@ req_full(int which_jar, int port, const char *path, const char *req_body)
 	loc[0] = set_cookie[0] = body[0] = '\0';
 	body_len = 0;
 
-	if (!lws_client_connect_via_info(&i))
+	if (!lws_client_connect_via_info(&i)) {
+		req_origin = req_cookie_front = NULL;
+
 		return 1;
+	}
 
 	{
 		lws_usec_t deadline = lws_now_usecs() + (20 * LWS_US_PER_SEC);
@@ -652,10 +691,13 @@ req_full(int which_jar, int port, const char *path, const char *req_body)
 			if (lws_now_usecs() > deadline) {
 				lwsl_err("%s: %s timed out with no completed "
 					 "transaction\n", __func__, path);
+				req_origin = req_cookie_front = NULL;
 
 				return 1;
 			}
 	}
+
+	req_origin = req_cookie_front = NULL;
 
 	return 0;
 }
@@ -1261,8 +1303,8 @@ scenario_login(void)
 
 	/*
 	 * (2) the auth server's own page state.  This is where the browser gets
-	 * the auth_csrf cookie, and the csrf_token to submit with it: /api/login
-	 * enforces the double-submit, so a test that skips this gets a 403 and
+	 * the __Host-auth_csrf cookie, and the csrf_token to submit with it:
+	 * /api/login enforces the double-submit, so a test that skips this gets a 403 and
 	 * learns nothing about the credentials.
 	 */
 
@@ -1274,9 +1316,10 @@ scenario_login(void)
 		return fail("login", "no csrf_token in the /api/status body "
 				     "'%s'", body);
 
-	if (!jar_value(JAR_AUTH, "auth_csrf"))
-		return fail("login", "/api/status set no auth_csrf cookie, so "
-				     "the double-submit cannot be satisfied");
+	if (!jar_value(JAR_AUTH, "__Host-auth_csrf"))
+		return fail("login", "/api/status set no __Host-auth_csrf "
+				     "cookie, so the double-submit cannot be "
+				     "satisfied");
 
 	/*
 	 * (3a) the same credentials with a redirect_uri the browser would
@@ -1808,7 +1851,7 @@ not_found(void)
  * verify: the mailed registration link, which mail gateways and "safe link"
  * scanners GET before the user sees it.  The GET must only ask for
  * confirmation; what creates the account and shows the second factor is the
- * page's POST, which carries the auth_csrf double submit and works once.
+ * page's POST, which carries the csrf double submit and works once.
  */
 static int
 scenario_verify(void)
@@ -1834,9 +1877,10 @@ scenario_verify(void)
 
 	/* the page's token, whose cookie the first GET planted in the jar */
 	v = strstr(body, tok);
-	if (!v || !jar_value(JAR_AUTH, "auth_csrf"))
+	if (!v || !jar_value(JAR_AUTH, "__Host-auth_csrf"))
 		return fail("verify", "the confirmation page carries no "
-			    "csrf_token, or set no auth_csrf cookie: '%s'",
+			    "csrf_token, or set no __Host-auth_csrf cookie: "
+			    "'%s'",
 			    body);
 	lws_strnncpy(csrf, v + strlen(tok), 32, sizeof(csrf));
 
@@ -1892,6 +1936,140 @@ scenario_verify(void)
 
 	lwsl_user("PASS: verify: GET only asks, the POST confirms once, the "
 		  "QR follows it and expiry\n");
+
+	return 0;
+}
+
+/*
+ * csrf: a page on a same-site sibling host of the auth server, with a victim
+ * logged in there, tries to approve the attacker's device code (G-106).
+ *
+ * SameSite=Lax does not stop it: a sibling is same-site, so its form POST
+ * carries the victim's session cookie.  Two things must each refuse it: the
+ * Origin the browser names the sibling page by, and the csrf double submit,
+ * whose cookie a sibling can no longer plant in front of the real one now that
+ * it is __Host- prefixed.  And the real page must still get through.
+ */
+static int
+scenario_csrf(void)
+{
+	char csrf[128], b[512], own[160], sibling[160], planted[96],
+	     dev_code[96], user_code[32], csrf_sc[512];
+	const char *sc;
+
+	lws_snprintf(own, sizeof(own), "https://%s:%d", server, port_auth);
+	lws_snprintf(sibling, sizeof(sibling), "https://sibling.%s:%d", server,
+		     port_auth);
+
+	/* (1) the victim's page on the auth server, and their session */
+
+	req_origin = own;
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 ||
+	    json_str(body, "csrf_token", csrf, sizeof(csrf)) || !csrf[0])
+		return fail("csrf", "/api/status answered %u with no csrf",
+			    status);
+
+	/* checked in (5): the refusals are what we want to see first */
+	lws_strncpy(csrf_sc, set_cookie, sizeof(csrf_sc));
+
+	lws_snprintf(b, sizeof(b), "username=%s&password=%s&csrf_token=%s",
+		     SEED_USER, SEED_PASSWORD, csrf);
+	req_origin = own;
+	if (req_full(JAR_AUTH, port_auth, "/api/login", b) || status != 200 ||
+	    !jar_value(JAR_AUTH, "auth_session"))
+		return fail("csrf", "/api/login from the auth server's own "
+			    "page answered %u: '%s'", status, body);
+
+	/*
+	 * (2) the attacker's device asks for a code, as a device does: a
+	 * server-side client, so no Origin at all
+	 */
+
+	req_origin = "";
+	if (req_full(JAR_DEVICE, port_auth, "/api/device_auth", "x=1") ||
+	    status != 200 ||
+	    json_str(body, "device_code", dev_code, sizeof(dev_code)) ||
+	    json_str(body, "user_code", user_code, sizeof(user_code)))
+		return fail("csrf", "/api/device_auth with no Origin answered "
+			    "%u: '%s'", status, body);
+
+	/*
+	 * (3) the sibling page's POST.  It even has the real token: the
+	 * Origin alone must refuse it
+	 */
+
+	lws_snprintf(b, sizeof(b), "user_code=%s&csrf_token=%s", user_code,
+		     csrf);
+	req_origin = sibling;
+	if (req_full(JAR_AUTH, port_auth, "/api/device_approve", b) ||
+	    status != 403)
+		return fail("csrf", "device_approve from Origin %s answered "
+			    "%u, wanted 403: '%s'", sibling, status, body);
+
+	req_origin = "null";
+	if (req_full(JAR_AUTH, port_auth, "/api/device_approve", b) ||
+	    status != 403)
+		return fail("csrf", "device_approve from Origin null answered "
+			    "%u, wanted 403", status);
+
+	/*
+	 * (4) the sibling's cookie toss: auth_csrf=K planted with
+	 * Domain=<parent> and a longer Path, so the browser sends it first,
+	 * and the form submits K.  Sent with no Origin, so that only the
+	 * double submit stands in the way
+	 */
+
+	lws_snprintf(planted, sizeof(planted),
+		     "auth_csrf=%s", "0123456789abcdef0123456789abcdef");
+	lws_snprintf(b, sizeof(b), "user_code=%s&csrf_token=%s", user_code,
+		     "0123456789abcdef0123456789abcdef");
+	req_origin = "";
+	req_cookie_front = planted;
+	if (req_full(JAR_AUTH, port_auth, "/api/device_approve", b) ||
+	    status != 403)
+		return fail("csrf", "device_approve with a planted auth_csrf "
+			    "answered %u, wanted 403: '%s'", status, body);
+
+	/* (5) and so the attacker's device is still waiting */
+
+	lws_snprintf(b, sizeof(b), "device_code=%s", dev_code);
+	req_origin = "";
+	if (req_full(JAR_DEVICE, port_auth, "/api/device_token", b) ||
+	    !strstr(body, "authorization_pending"))
+		return fail("csrf", "after the refused approvals the device "
+			    "token poll answered %u: '%s'", status, body);
+
+	/*
+	 * The token cookie must be one only this host can set: __Host-, so
+	 * Secure, Path=/ and no Domain
+	 */
+	lws_strncpy(set_cookie, csrf_sc, sizeof(set_cookie));
+	sc = strstr(set_cookie, "__Host-auth_csrf=");
+	if (!sc || !strstr(sc, "Path=/") || !strstr(sc, "Secure") ||
+	    strstr(set_cookie, "Domain=") || has_cookie("auth_csrf"))
+		return fail("csrf", "/api/status csrf cookie is not a host-only "
+			    "__Host-auth_csrf: '%s'", set_cookie);
+
+	/* (6) the auth server's own device page does get through */
+
+	lws_snprintf(b, sizeof(b), "user_code=%s&csrf_token=%s", user_code,
+		     csrf);
+	req_origin = own;
+	if (req_full(JAR_AUTH, port_auth, "/api/device_approve", b) ||
+	    status != 200)
+		return fail("csrf", "device_approve from the auth server's own "
+			    "page answered %u: '%s'", status, body);
+
+	lws_snprintf(b, sizeof(b), "device_code=%s", dev_code);
+	req_origin = "";
+	if (req_full(JAR_DEVICE, port_auth, "/api/device_token", b) ||
+	    status != 200 || !strstr(body, "access_token"))
+		return fail("csrf", "after approval the device token poll "
+			    "answered %u: '%s'", status, body);
+
+	lwsl_user("PASS: csrf: a sibling Origin and a planted auth_csrf are "
+		  "both refused, the auth server's own page approves\n");
 
 	return 0;
 }
@@ -1978,6 +2156,8 @@ main(int argc, const char **argv)
 		bad = scenario_adminws();
 	else if (!strcmp(test, "verify"))
 		bad = scenario_verify();
+	else if (!strcmp(test, "csrf"))
+		bad = scenario_csrf();
 	else if (!strcmp(test, "uninit")) {
 		if (!port_uninit || !port_failinit) {
 			lwsl_err("%s: uninit needs --uninit-port and "

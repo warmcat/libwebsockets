@@ -275,6 +275,29 @@ if (requirements)
 		list(APPEND mytests lwsws-oauth-adminws)
 
 		#
+		# (d1) CSRF from a same-site sibling host: a device approval
+		# POSTed with a foreign Origin, or double-submitting an
+		# auth_csrf cookie the sibling planted, is refused, and the
+		# auth server's own page still approves.  Per transport, since
+		# the Origin and Cookie headers travel differently on each.
+		#
+		add_test(NAME lwsws-oauth-csrf-h1
+			 COMMAND ${SAMP} -t csrf --h1 ${ARGS_COMMON})
+		list(APPEND mytests lwsws-oauth-csrf-h1)
+
+		if (has_h2)
+			add_test(NAME lwsws-oauth-csrf-h2
+				 COMMAND ${SAMP} -t csrf --h2 ${ARGS_COMMON})
+			list(APPEND mytests lwsws-oauth-csrf-h2)
+		endif()
+
+		if (has_h3)
+			add_test(NAME lwsws-oauth-csrf-h3
+				 COMMAND ${SAMP} -t csrf --h3 ${ARGS_COMMON})
+			list(APPEND mytests lwsws-oauth-csrf-h3)
+		endif()
+
+		#
 		# (d2) the mailed registration link: a GET only asks for
 		# confirmation, the page's POST creates the account and shows
 		# the second factor once, and the QR image of the seed needs

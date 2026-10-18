@@ -99,10 +99,19 @@ enum enum_param_names {
 
 /*
  * How many clearing Set-Cookies a session teardown emits: the session
- * JWT, auth_csrf and auth_refresh_session, each in its Domain-scoped and
- * its host-only form.
+ * JWT, the legacy unprefixed auth_csrf and auth_refresh_session, each in its
+ * Domain-scoped and its host-only form, and the AUTH_SERVER_CSRF_COOKIE,
+ * which only exists host-only.
  */
-#define AUTH_SERVER_CLEAR_COOKIES 6
+#define AUTH_SERVER_CLEAR_COOKIES 7
+
+/*
+ * The double-submit CSRF cookie.  A browser only stores a __Host- cookie
+ * that is Secure, has Path=/ and no Domain, ie, one set by this host for
+ * this host alone: a same-site sibling cannot plant or shadow it the way it
+ * could a bare "auth_csrf" (G-106).  Only this name is ever read back.
+ */
+#define AUTH_SERVER_CSRF_COOKIE "__Host-auth_csrf"
 
 /*
  * Room for a whole response header block.
@@ -1693,7 +1702,7 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 	lwsl_wsi_debug(wsi, "sso_exchange: Cookie header is %d bytes",
 				lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE));
 
-	lws_http_cookie_get(wsi, "auth_csrf", csrf_ck, &csrf_len);
+	lws_http_cookie_get(wsi, AUTH_SERVER_CSRF_COOKIE, csrf_ck, &csrf_len);
 
 	if (!csrf_form || !csrf_ck[0] || strlen(csrf_ck) != strlen(csrf_form) || lws_timingsafe_bcmp(csrf_ck, csrf_form, (uint32_t)strlen(csrf_ck))) {
 		char peer[64];
@@ -1717,15 +1726,16 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 }
 
 /*
- * Return the caller's auth_csrf token in csrf (which must be at least 33
- * bytes), minting a fresh one when the caller presented none.
+ * Return the caller's csrf token in csrf (which must be at least 33 bytes),
+ * minting a fresh one when the caller presented none.
  *
  * A presented value is only adopted if it has the exact 32-lowercase-hex
  * shape we are the only setter of: the token is composed into a JSON
- * string (/api/status) and into an HTML attribute (/api/device), and a
- * cookie planted by, say, a sibling host must not be able to break out
- * of either context.  Anything else is treated as "no token": the caller
- * is given a fresh one, which also overwrites the bogus cookie.
+ * string (/api/status) and into an HTML attribute (/api/device), and even
+ * with the __Host- prefix keeping siblings out, a value we did not mint
+ * must not be able to break out of either context.  Anything else is
+ * treated as "no token": the caller is given a fresh one, which also
+ * overwrites the bogus cookie.
  *
  * Returns 1 if the caller already holds this token (no Set-Cookie
  * needed), 0 if it was just minted and must be handed out.
@@ -1740,7 +1750,8 @@ auth_csrf_get_or_make(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	csrf[0] = '\0';
 
-	if (!lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len) &&
+	if (!lws_http_cookie_get(wsi, AUTH_SERVER_CSRF_COOKIE, csrf,
+				 &csrf_len) &&
 	    strlen(csrf) == 32) {
 		for (n = 0; n < 32; n++)
 			if (!((csrf[n] >= '0' && csrf[n] <= '9') ||
@@ -1750,13 +1761,32 @@ auth_csrf_get_or_make(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		if (n == 32)
 			return 1;
 
-		lwsl_wsi_notice(wsi, "discarding malformed auth_csrf cookie");
+		lwsl_wsi_notice(wsi, "discarding malformed csrf cookie");
 	}
 
 	lws_get_random(vhd->context, rnd, sizeof(rnd));
 	lws_hex_from_byte_array(rnd, sizeof(rnd), csrf, csrf_size);
 
 	return 0;
+}
+
+/*
+ * Compose the Set-Cookie handing out a csrf token from
+ * auth_csrf_get_or_make() into out.
+ *
+ * F-048: deliberately not composed with lws_http_cookie_compose(): this is a
+ * browser-session cookie (no Max-Age), which that api's fixed scoping does
+ * not express.  Every input is fixed-shape (the __Host- name, a 32-hex
+ * value, Path=/, no Domain, Secure, all that prefix requires), so the result
+ * is provably 89 bytes and cannot truncate in AUTH_SERVER_CSRF_SC_SZ.
+ */
+#define AUTH_SERVER_CSRF_SC_SZ 128
+
+static void
+auth_csrf_set_cookie(char out[AUTH_SERVER_CSRF_SC_SZ], const char *csrf)
+{
+	lws_snprintf(out, AUTH_SERVER_CSRF_SC_SZ, AUTH_SERVER_CSRF_COOKIE
+		     "=%s; Path=/; SameSite=Lax; HttpOnly; Secure", csrf);
 }
 
 /*
@@ -1819,9 +1849,10 @@ auth_server_destroy_refresh_sessions(struct lws *wsi,
 }
 
 /*
- * Compose the six clearing Set-Cookie headers a session teardown emits:
- * the session JWT, auth_csrf and auth_refresh_session, each in its
- * Domain-scoped and its host-only form (a jar can hold both).  Entries
+ * Compose the clearing Set-Cookie headers a session teardown emits: the
+ * session JWT, the legacy auth_csrf and auth_refresh_session, each in its
+ * Domain-scoped and its host-only form (a jar can hold both), and the
+ * host-only AUTH_SERVER_CSRF_COOKIE.  Entries
  * that would not fit come back empty and must be skipped by the caller,
  * see auth_server_clear_cookie().
  */
@@ -1854,6 +1885,7 @@ auth_server_clear_session_cookies(struct per_vhost_data__auth_server *vhd,
 	auth_server_clear_cookie(hdr[4], "auth_refresh_session",
 				 vhd->cookie_domain, exp);
 	auth_server_clear_cookie(hdr[5], "auth_refresh_session", NULL, exp);
+	auth_server_clear_cookie(hdr[6], AUTH_SERVER_CSRF_COOKIE, NULL, exp);
 }
 
 /*
@@ -2342,7 +2374,7 @@ send:
  *
  * This is the state-changing sibling of the GET /api/logout link
  * lws-login points a top-level navigation at.  Having a body, it can
- * carry -- and require -- the auth_csrf double submit, so a third-party
+ * carry -- and require -- the csrf double submit, so a third-party
  * page cannot force a logout with a scripted fetch or form post.  It is
  * what assets/auth.js uses, replacing the CSRF-free GET
  * /api/status?destroy=1 it used to fetch.
@@ -4285,7 +4317,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<p>Enter the 8-character code displayed on your device or in the waiting room.</p>"
 				"<input type=\"text\" id=\"userCode\" maxlength=\"9\" placeholder=\"XXXX-YYYY\" value=\"%s\" />"
 				/*
-				 * The auth_csrf cookie is HttpOnly, so
+				 * The csrf cookie is HttpOnly, so
 				 * device.js cannot read the double-submit
 				 * token out of document.cookie: hand it to
 				 * the page here instead, the way
@@ -4346,18 +4378,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			free(pl);
 
 			if (!has_csrf) {
-				/*
-				 * Same fixed-shape composition as /status:
-				 * a browser-session cookie (no Max-Age),
-				 * which lws_http_cookie_compose()'s scoping
-				 * does not express, and provably 82 bytes.
-				 */
-				char cookie_hdr[128];
+				char cookie_hdr[AUTH_SERVER_CSRF_SC_SZ];
 
-				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					     "auth_csrf=%s; Path=/; "
-					     "SameSite=Lax; HttpOnly; Secure",
-					     csrf);
+				auth_csrf_set_cookie(cookie_hdr, csrf);
 
 				return send_auth_headers(wsi, pss, "text/html",
 							 cookie_hdr, NULL);
@@ -4670,20 +4693,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					return -1;
 
 				if (!has_csrf) {
-					/*
-					 * F-048: deliberately NOT composed via
-					 * lws_http_cookie_compose(): this is a
-					 * browser-session cookie (no Max-Age),
-					 * which that api's fixed scoping does
-					 * not express.  Every input here is
-					 * fixed-shape (name "auth_csrf", a
-					 * 32-hex-char value, no Domain), so
-					 * the result is provably 82 bytes and
-					 * cannot truncate in the 128-byte
-					 * buffer.
-					 */
-					char cookie_hdr[128];
-					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Lax; HttpOnly; Secure", csrf);
+					char cookie_hdr[AUTH_SERVER_CSRF_SC_SZ];
+
+					auth_csrf_set_cookie(cookie_hdr, csrf);
 					return send_auth_headers(wsi, pss, "application/json", cookie_hdr, set_cookie_jwt[0] ? set_cookie_jwt : NULL);
 				}
 
@@ -4825,7 +4837,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!strncmp((const char *)in, "/verify", 7) &&
 		    !auth_is_post(wsi)) {
 			struct auth_registration r;
-			char hbuf[64], csrf[33], cookie_hdr[128], pl[4096 + LWS_PRE];
+			char hbuf[64], csrf[33], cookie_hdr[AUTH_SERVER_CSRF_SC_SZ],
+			     pl[4096 + LWS_PRE];
 			int has_csrf, n;
 
 			/*
@@ -4853,7 +4866,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			lws_explicit_bzero(&r, sizeof(r));
 
-			/* the confirming POST carries the auth_csrf double submit */
+			/* the confirming POST carries the csrf double submit */
 			has_csrf = auth_csrf_get_or_make(wsi, vhd, csrf, sizeof(csrf));
 
 			/*
@@ -4887,8 +4900,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (has_csrf)
 				return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
 
-			/* fixed shape, as for /api/status (F-048) */
-			lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Lax; HttpOnly; Secure", csrf);
+			auth_csrf_set_cookie(cookie_hdr, csrf);
 
 			return send_auth_headers(wsi, pss, "text/html", cookie_hdr, NULL);
 		}
@@ -5115,6 +5127,35 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "logout") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve") || !strncmp((const char *)in, "/verify", 7))) {
+			/*
+			 * G-106: the csrf double submit proves only that the
+			 * requester could choose a cookie the browser sends,
+			 * and a form POST is sent with the session cookie from
+			 * any same-site page, a sibling host included.  So
+			 * every API POST must also come from a page of our
+			 * own.  Browsers always send Origin on a POST; the
+			 * server-to-server clients (lws-login's renewal, the
+			 * oauth2 client's /api/token, device clients) either
+			 * send none or name this host, and carry no ambient
+			 * browser credential, so a missing Origin is allowed.
+			 * Decided here, while the request headers are
+			 * certainly still attached.
+			 */
+			if (lws_http_origin_check(wsi, NULL, 0)) {
+				char peer[64];
+
+				auth_client_address(wsi, vhd, peer,
+						    sizeof(peer));
+				lwsl_wsi_notice(wsi, "%s from %s: refusing a "
+						"foreign Origin",
+						(const char *)in, peer);
+				if (lws_return_http_status(wsi,
+						HTTP_STATUS_FORBIDDEN, NULL))
+					return -1;
+
+				return lws_http_transaction_completed(wsi);
+			}
+
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_info("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);

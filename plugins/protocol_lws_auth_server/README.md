@@ -214,7 +214,26 @@ the plugin's own output escaping.
 Every state-changing endpoint (`/api/login`, `/api/register`,
 `/api/forgot_password`, `/api/reset_password`, `/api/device_approve`,
 `/api/sso_exchange`, `POST /api/logout`, `POST /api/verify`) requires a `csrf_token` form field
-matching the `auth_csrf` cookie, compared with `lws_timingsafe_bcmp()`.
+matching the `__Host-auth_csrf` cookie, compared with `lws_timingsafe_bcmp()`.
+
+The `__Host-` prefix matters: a browser only accepts a cookie of that name
+when it is `Secure`, `Path=/` and has no `Domain`, so only this host can set
+it.  A bare-named cookie could be planted by any host under the same
+registrable domain (`Domain=<parent>`, with a longer `Path` so it is sent
+first), and the double submit then only proved the attacker knew the value
+they planted.  The bare `auth_csrf` is no longer read, only cleared at logout.
+
+The double submit is backed by an Origin check on every `/api/` POST
+(`lws_http_origin_check()`): a POST whose `Origin` is not this vhost's own
+`https://<host>` (or `http://<host>` when the vhost is not itself doing the
+TLS) is refused with `403` before anything else happens.  `SameSite=Lax` does
+not stop a same-site sibling page from posting with the session cookie, but
+the browser names that page in `Origin`.  A POST with no `Origin` at all is
+accepted, since browsers always send one on a POST: those come from
+server-side clients such as `lws-login`'s renewal or `lws-oauth2-client`'s
+`/api/token`, which carry no ambient browser credential.  Behind a reverse
+proxy, the proxy must pass the browser's `Host` through unchanged for this to
+match.
 
 That cookie is `HttpOnly`, so the page cannot read it back out of
 `document.cookie`: the server hands the token to the page separately, in the
@@ -223,10 +242,10 @@ button for the `/api/device` page.  If you write your own front end, take the
 token from one of those and never from `document.cookie` — and do not make the
 cookie readable to fix it, since that is what the double submit is proving.
 
-A presented `auth_csrf` cookie is only adopted if it has the exact
+A presented csrf cookie is only adopted if it has the exact
 32-lowercase-hex shape the server is the only setter of; anything else is
-replaced with a fresh token, so a cookie planted by a sibling host cannot
-reach the JSON or the HTML attribute the token is composed into.
+replaced with a fresh token, so a value the server did not mint cannot reach
+the JSON or the HTML attribute the token is composed into.
 
 ### Session revocation
 
@@ -283,7 +302,7 @@ floor, not a policy — put a real one in front of it if you need one.
   navigations go through), so a third-party page can no longer force a
   logout from any browser that sends the header (all current ones); a browser
   too old to send it is taken at its word.  The session teardown the UI
-  itself uses is `POST /api/logout` with the `auth_csrf` double-submit
+  itself uses is `POST /api/logout` with the csrf double-submit
   (`assets/auth.js`).
 - `/api/register` answers `200` "if the address is free, a verification email
   has been sent" whether the address is free, registered or pending, so it no

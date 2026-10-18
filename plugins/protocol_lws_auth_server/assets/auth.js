@@ -162,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = true;
             /*
              * Teardown is state-changing: a POST carrying the
-             * auth_csrf double submit, not a CSRF-able GET.
+             * csrf double submit, not a CSRF-able GET.
              */
             const body = new URLSearchParams();
             body.append('csrf_token', window.csrf_token || '');

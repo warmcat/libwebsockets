@@ -236,8 +236,10 @@ The same renewal side channel is also used for **cold-load silent renewal**: whe
 ### CSRF sidecar self-heal
 
 The renewal double-submit on the auth server compares the `csrf_token=` form
-field against the `auth_csrf` cookie in the browser's forwarded jar — both of
-which the side channel itself produces.  If the browser's jar has a valid
+field against its csrf cookie (`__Host-auth_csrf`, so that a same-site sibling
+host cannot plant it) in the forwarded jar — both of which the side channel
+itself produces: it puts that cookie, holding the value it submits (the
+browser's app-side `auth_csrf`), in front of the jar it forwards.  If the browser's jar has a valid
 `auth_refresh_session` but its `auth_csrf` sidecar has been lost or expired
 (they can be minted by different flows with different scopes and birthdays —
 eg a native login on the auth server's own host plants an unpaired

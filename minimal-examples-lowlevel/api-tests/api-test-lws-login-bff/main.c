@@ -14,7 +14,8 @@
  *
  * The side-channel exchange POSTs csrf_token=<csrf> alongside the browser's
  * forwarded cookie jar to the auth server /api/sso_exchange, which
- * double-submits the form field against the auth_csrf cookie in that jar.
+ * double-submits the form field against the __Host-auth_csrf cookie the side
+ * channel puts in front of that jar.
  * The incident class this guards against: the jar's auth_csrf expires or is
  * lost while auth_refresh_session lives on (they are minted by different
  * flows -- a native login on the auth server's own host plants an unpaired
@@ -548,9 +549,11 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION: {
 		/*
 		 * This is the auth server's csrf double-submit check: the
-		 * csrf_token= form field must match the auth_csrf cookie in
-		 * the (forwarded) jar.  The side channel always posts exactly
-		 * "csrf_token=<csrf>" as the whole body.
+		 * csrf_token= form field must match the __Host-auth_csrf
+		 * cookie in the (forwarded) jar, the only name the auth
+		 * server reads it under (G-106), whatever the browser's
+		 * app-side jar calls its own.  The side channel always posts
+		 * exactly "csrf_token=<csrf>" as the whole body.
 		 */
 		char csrf_ck[64] = {0};
 		size_t csrf_ck_len = sizeof(csrf_ck);
@@ -575,7 +578,7 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 		/* the session's user is who the renewed token is for */
 		mock_u2 = mock_got_refresh && !strcmp(refresh, BFF_REFRESH_U2);
 		got_cookie_csrf =
-			lws_http_cookie_get(wsi, "auth_csrf",
+			lws_http_cookie_get(wsi, "__Host-auth_csrf",
 					    csrf_ck, &csrf_ck_len) == 0 &&
 			csrf_ck[0];
 

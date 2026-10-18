@@ -1,6 +1,6 @@
 /*
- * The auth_csrf cookie is the server half of the double-submit pair and
- * is deliberately HttpOnly, so script cannot read it out of
+ * The __Host-auth_csrf cookie is the server half of the double-submit pair
+ * and is deliberately HttpOnly, so script cannot read it out of
  * document.cookie.  The /api/device page therefore carries the current
  * token in a data-csrf attribute on the button, exactly as /api/status
  * hands it to auth.js in its JSON.
