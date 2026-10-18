@@ -48,7 +48,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    after dispatch; h1 currently holds it to transaction completion, but
    that is not promised.  Library code must not read the ah after
    dispatch: snapshot what it needs onto the wsi.  Never gate body
-   delivery on `wsi->http.ah` being present.  Test any new ah reader
+   delivery, or a check on the body's state ("body already complete",
+   "more than content-length"), on `wsi->http.ah` being present: the
+   check silently stops applying once the ah goes (G-016), and on h3 a
+   trailers HEADERS block attaches a fresh ah (G-022).  Test any new ah reader
    against an h2 stream in HTTP_WRITEABLE.
  - **`lws_hdr_extant()`** reads `frags[n].flags & 2`, not just whether a
    fragment index is set.  Anything creating ah fragments itself must set
