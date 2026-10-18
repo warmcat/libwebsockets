@@ -326,12 +326,14 @@ node_known_bad(struct lws_dht_ctx *ctx, const struct node *n)
  *
  * A node that really moved stops answering at its old endpoint, so the
  * entry only moves once the old endpoint has failed our pings, the same
- * known-bad state that already lets any other node take the slot.  Until
- * then a direct claim just makes us ping the old endpoint (at most once per
- * ping timeout), so a real move is noticed within a few timeouts.  The moved
- * entry starts unconfirmed, like a new node: it is not good, and so not
- * handed out or probed, until it answers a ping at the new endpoint, which
- * we send it now.
+ * known-bad state that lets another node take the slot.  Until then a direct
+ * claim just makes us ping the old endpoint (at most once per ping timeout),
+ * so a real move is noticed within a few timeouts.
+ *
+ * Even then the claim is not proof: the entry moves only for an answer from
+ * the new endpoint to a request of ours (confirm 2).  A direct claim makes us
+ * ask the new endpoint, so a node that really moved answers and moves its
+ * entry; one only named in a nodes list moves nothing (G-119).
  */
 static struct node *
 node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
@@ -340,7 +342,7 @@ node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
 {
 	uint8_t tid[4];
 
-	make_tid(tid, "pn", 0);
+	make_tid_random(ctx, tid, "pn");
 
 	if (!node_known_bad(ctx, n)) {
 		if (confirm &&
@@ -376,27 +378,26 @@ node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
 		return NULL;
 	}
 
+	if (confirm < 2) {
+		if (confirm)
+			send_ping(ctx, sa, salen, tid, sizeof(tid));
+
+		return NULL;
+	}
+
 	lwsl_dht_info("%s: old endpoint dead, moving node\n", __func__);
 
 	memcpy(&n->ss, sa, salen);
 	n->sslen	= salen;
-	n->time		= confirm ? ctx->now : 0;
-	n->reply_time	= 0;
+	n->time		= ctx->now;
+	n->reply_time	= ctx->now;
 	n->pinged_time	= 0;
 	n->pinged	= 0;
-
-	if (confirm) {
-		send_ping(ctx, sa, salen, tid, sizeof(tid));
-		mark_as_pinged(ctx, n, b);
-	}
+	b->time		= ctx->now;
 
 	return n;
 }
 
-/*
- * We just learnt about a node, not necessarily a new one.  Confirm is 1 if
- * the node sent a message, 2 if it sent us a reply.
- */
 /* the same host, whatever the port: IPv4 address, or IPv6 /64 */
 static int
 dht_sa_same_host(const struct sockaddr *a, const struct sockaddr *b)
@@ -438,6 +439,11 @@ node_take_over(struct lws_dht_ctx *ctx, struct node *n,
 	return n;
 }
 
+/*
+ * We just learnt about a node, not necessarily a new one.  Confirm is 0 if
+ * somebody named it to us, 1 if it sent us a request (from a source address
+ * anyone can forge), 2 if it answered a request we sent to that endpoint.
+ */
 struct node *
 maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		const struct sockaddr *sa, size_t salen,
@@ -534,25 +540,38 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 			ctx->mybucket6_grow_time = ctx->now;
 	}
 
-	/* First, try to get rid of a known-bad node. */
-	lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&b->nodes)) {
-		n = lws_container_of(d2, struct node, list);
+	/*
+	 * An entry is only ever given to a newcomer that proved itself, by
+	 * answering a request we sent to that endpoint (confirm 2).  One that
+	 * was named in a nodes list (0), or sent us one datagram from a
+	 * source anyone can forge (1), may take a free slot or be cached for
+	 * a ping, but evicts nobody: otherwise a stream of forged datagrams
+	 * naming made-up nodes empties or takes over the table (G-119).
+	 *
+	 * First, try to get rid of a known-bad node.
+	 */
+	if (confirm >= 2)
+		lws_start_foreach_dll(struct lws_dll2 *, d2,
+				      lws_dll2_get_head(&b->nodes)) {
+			n = lws_container_of(d2, struct node, list);
 
-		if (node_known_bad(ctx, n))
-			return node_take_over(ctx, n, id, sa, salen, confirm,
-					      bep42_ok);
-	} lws_end_foreach_dll(d2);
+			if (node_known_bad(ctx, n))
+				return node_take_over(ctx, n, id, sa, salen,
+						      confirm, bep42_ok);
+		} lws_end_foreach_dll(d2);
 
 	if (lws_dll2_count(&b->nodes) >= 8) {
 		/*
 		 * Bucket full: a conforming newcomer displaces an entry whose
-		 * id is not bound to its address, before we start pinging
+		 * id is not bound to its address, before we start pinging,
+		 * but only one that is not good: a live node is never evicted
+		 * for anybody, BEP42 only decides between dubious ones
 		 */
-		if (bep42_ok)
+		if (bep42_ok && confirm >= 2)
 			lws_start_foreach_dll(struct lws_dll2 *, d5,
 					      lws_dll2_get_head(&b->nodes)) {
 				n = lws_container_of(d5, struct node, list);
-				if (!n->bep42_ok) {
+				if (!n->bep42_ok && !node_good(ctx, n)) {
 					lwsl_dht_info("%s: BEP42 node displaces an unbound one\n",
 						      __func__);
 					return node_take_over(ctx, n, id, sa,
@@ -577,7 +596,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 				if (n->pinged_time < ctx->now - LWS_DHT_PING_TIMEOUT_SECS) {
 					uint8_t tid[4];
 					lwsl_dht_info("Sending ping to dubious node.\n");
-					make_tid(tid, "pn", 0);
+					make_tid_random(ctx, tid, "pn");
 					send_ping(ctx, (struct sockaddr*)&n->ss, n->sslen,
 							tid, 4);
 					mark_as_pinged(ctx, n, b);
@@ -878,7 +897,7 @@ bucket_maintenance(struct lws_dht_ctx *ctx, int af)
 
 					lwsl_dht_info("%s: Sending find_node for%s bucket maintenance\n",
 							__func__, af == AF_INET6 ? " IPv6" : "");
-					make_tid(tid, "fn", 0);
+					make_tid_random(ctx, tid, "fn");
 					send_find_node(ctx, (struct sockaddr*)&n->ss, n->sslen,
 							tid, 4, id, want,
 							n->reply_time >= ctx->now - LWS_DHT_PING_TIMEOUT_SECS);
@@ -937,7 +956,7 @@ neighbourhood_maintenance(struct lws_dht_ctx *ctx, int af)
 
 			lwsl_dht_info("%s: Sending find_node for%s neighborhood maintenance\n",
 					__func__, af == AF_INET6 ? " IPv6" : "");
-			make_tid(tid, "fn", 0);
+			make_tid_random(ctx, tid, "fn");
 			send_find_node(ctx, (struct sockaddr*)&n->ss, n->sslen,
 					tid, 4, id, want,
 					n->reply_time >= ctx->now - LWS_DHT_PING_TIMEOUT_SECS);

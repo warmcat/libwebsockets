@@ -194,6 +194,98 @@ make_tid(uint8_t *tid_return, const char *prefix, unsigned short seqno)
 	memcpy(tid_return + 2, &seqno, 2);
 }
 
+/*
+ * A request's tid with a random seq: the reply has to echo it, which a blind
+ * sender forging the source of a node we asked can only guess
+ */
+
+void
+make_tid_random(struct lws_dht_ctx *ctx, uint8_t *tid_return,
+		const char *prefix)
+{
+	unsigned short seq;
+
+	lws_get_random(ctx->vhost->context, &seq, sizeof(seq));
+	make_tid(tid_return, prefix, seq);
+}
+
+/*
+ * Remember a request we sent, so its reply can be told apart from anything
+ * else claiming to be one.  An expired entry is reused first; a full table
+ * gives up the oldest, whose reply is the most overdue.
+ */
+
+static void
+dht_req_pending_add(struct lws_dht_ctx *ctx, const uint8_t *tid,
+		    size_t tid_len, const struct sockaddr *sa, size_t salen)
+{
+	time_t now = (time_t)lws_now_secs();
+	int n, slot = 0;
+
+	if (salen > sizeof(ctx->req_pending[0].sa46) ||
+	    tid_len > sizeof(ctx->req_pending[0].tid))
+		return;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->req_pending); n++) {
+		if (!ctx->req_pending[n].sent ||
+		    ctx->req_pending[n].sent < now - LWS_DHT_PING_TIMEOUT_SECS) {
+			slot = n;
+			break;
+		}
+		if (ctx->req_pending[n].sent < ctx->req_pending[slot].sent)
+			slot = n;
+	}
+
+	memset(&ctx->req_pending[slot].sa46, 0,
+	       sizeof(ctx->req_pending[slot].sa46));
+	memcpy(&ctx->req_pending[slot].sa46, sa, salen);
+	memcpy(ctx->req_pending[slot].tid, tid, tid_len);
+	ctx->req_pending[slot].tid_len	= (uint8_t)tid_len;
+	ctx->req_pending[slot].sent	= now;
+}
+
+/*
+ * Is this reply the answer to a request we sent, from the endpoint we sent it
+ * to, and in time?  Each request is answered once.
+ */
+
+int
+dht_req_pending_take(struct lws_dht_ctx *ctx, const uint8_t *tid,
+		     size_t tid_len, const struct sockaddr *from)
+{
+	time_t now = (time_t)lws_now_secs();
+	int n;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->req_pending); n++)
+		if (ctx->req_pending[n].sent &&
+		    ctx->req_pending[n].sent >= now - LWS_DHT_PING_TIMEOUT_SECS &&
+		    ctx->req_pending[n].tid_len == tid_len &&
+		    !memcmp(ctx->req_pending[n].tid, tid, tid_len) &&
+		    dht_sa_same_peer((const struct sockaddr *)
+				     &ctx->req_pending[n].sa46, from)) {
+			ctx->req_pending[n].sent = 0;
+
+			return 1;
+		}
+
+	return 0;
+}
+
+/* send a request, remembering it so its reply will be taken */
+
+static int
+dht_send_request(struct lws_dht_ctx *ctx, const void *buf, size_t len,
+		 const struct sockaddr *sa, size_t salen, const uint8_t *tid,
+		 size_t tid_len)
+{
+	int n = dht_send(ctx, buf, len, sa, salen);
+
+	if (n >= 0)
+		dht_req_pending_add(ctx, tid, tid_len, sa, salen);
+
+	return n;
+}
+
 int
 tid_match(const uint8_t *tid, const char *prefix,
 		unsigned short *seqno_return)
@@ -312,7 +404,7 @@ send_ping(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
-	return dht_send(ctx, buf, t.len, sa, salen);
+	return dht_send_request(ctx, buf, t.len, sa, salen, tid, tid_len);
 
 fail:
 	errno = ENOSPC;
@@ -343,7 +435,7 @@ send_get_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
-	return dht_send(ctx, buf, t.len, sa, salen);
+	return dht_send_request(ctx, buf, t.len, sa, salen, tid, tid_len);
 
 fail:
 	errno = ENOSPC;
@@ -375,7 +467,7 @@ send_announce_peer(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sa
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
-	return dht_send(ctx, buf, t.len, sa, salen);
+	return dht_send_request(ctx, buf, t.len, sa, salen, tid, tid_len);
 
 fail:
 	errno = ENOSPC;
@@ -406,7 +498,7 @@ send_find_node(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
-	return dht_send(ctx, buf, t.len, sa, salen);
+	return dht_send_request(ctx, buf, t.len, sa, salen, tid, tid_len);
 
 fail:
 	errno = ENOSPC;
@@ -483,7 +575,7 @@ lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
-	n = dht_send(ctx, buf, t.len, sa, salen);
+	n = dht_send_request(ctx, buf, t.len, sa, salen, tid, sizeof(tid));
 	if (n >= 0)
 		lws_dht_sb_pending_add(ctx, seq, sa, salen, infohash);
 
@@ -553,7 +645,15 @@ lws_dht_send_notify(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t s
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
-	return dht_send(ctx, buf, t.len, sa, salen);
+	/*
+	 * A subscriber's 16-byte tid is acked against the subscription it
+	 * belongs to (lws_dht_clear_pending_notify()), anything shorter is
+	 * one of our own whose reply we take like any other
+	 */
+	if (tid_len == 16)
+		return dht_send(ctx, buf, t.len, sa, salen);
+
+	return dht_send_request(ctx, buf, t.len, sa, salen, tid, tid_len);
 
 fail:
 	errno = ENOSPC;

@@ -1297,7 +1297,7 @@ lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen)
 	uint8_t tid[4];
 
 	lwsl_dht_info("Sending ping.\n");
-	make_tid(tid, "pn", 0);
+	make_tid_random(ctx, tid, "pn");
 
 	return send_ping(ctx, sa, salen, tid, 4);
 }

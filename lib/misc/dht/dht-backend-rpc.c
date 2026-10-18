@@ -66,7 +66,7 @@ send_cached_ping(struct lws_dht_ctx *ctx, struct bucket *b)
 		return 0;
 
 	lwsl_dht_info("Sending ping to cached node.\n");
-	make_tid(tid, "pn", 0);
+	make_tid_random(ctx, tid, "pn");
 	rc = send_ping(ctx, (struct sockaddr*)&b->cached, b->cachedlen, tid, 4);
 
 	b->cached.ss_family = 0;

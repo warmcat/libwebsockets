@@ -38,6 +38,11 @@
  *    d1:eli203e<len>:<message>e1:t<tid>1:y1:ee.  R then relays B's refusal
  *    verbatim to A, as a peer refusing A would, and A's parser reports it as
  *    LWS_DHT_EVENT_ERROR with the code, message and tid, not as a drop
+ *  - R then sends A replies to requests A never sent: a find_node reply
+ *    whose nodes list names three made-up nodes, and a pong, both with the
+ *    tids A's own maintenance uses.  Neither the nodes named nor R itself
+ *    may enter A's routing table: only an answer to a request A sent to
+ *    that endpoint may change it (G-119)
  *
  * The UDP ports (four to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
@@ -78,7 +83,7 @@ static const char raw_query_head[] = "d1:ad2:id20:";
 static const char raw_query_tail[] = "e1:q9:find_node1:t2:aa1:y1:qe";
 static const char err_msg[] = "find_node with no target";
 static struct lws *wsi_raw;
-static uint8_t raw_tx[128];
+static uint8_t raw_tx[256];
 static size_t raw_tx_len;
 static struct sockaddr_in raw_tx_to;
 
@@ -110,7 +115,17 @@ struct seen {
 	unsigned char err_wire_bad:1;	/* ...or it is not */
 	unsigned char err_decoded_ok:1;	/* A decoded the relayed refusal */
 	unsigned char err_decoded_bad:1;/* ...or decoded something else */
+	unsigned char unsol_ok:1;	/* R's unasked-for replies changed
+					 * nothing in A's table */
+	unsigned char unsol_bad:1;	/* ...or they did */
 };
+
+/* R's unasked-for replies to A: how far along, and the polls since */
+static int unsol_state, unsol_polls;
+
+/* the ids R's unasked-for replies name: R's own, and the nodes it lists */
+#define KRPC_UNSOL_ID_R		0x66
+#define KRPC_UNSOL_ID_LISTED	0x55
 
 static struct seen sv;
 static int samid_warned;
@@ -353,6 +368,90 @@ error_reply_step(const struct lws_dht_stats *sb)
 	raw_queue(q, sizeof(q), &sa_b);
 }
 
+/*
+ * Once A holds B as good, R sends A replies to requests A never made, with
+ * the tids A's maintenance find_node and pings use: first a find_node reply
+ * listing three made-up nodes (on loopback, which A admits), then a pong.
+ * Anyone can send those, from any address, so after a while A's table must
+ * still not hold R or any node R named.
+ */
+
+static int
+unsol_table_cb(void *user, const lws_dht_node_info_t *ni)
+{
+	if (ni->id->len == 20 && (ni->id->id[0] == KRPC_UNSOL_ID_R ||
+				  ni->id->id[0] == KRPC_UNSOL_ID_LISTED))
+		(*(int *)user)++;
+
+	return 0;
+}
+
+static void
+unsolicited_reply_step(void)
+{
+	uint8_t q[256], *p = q;
+	int n, seen = 0;
+
+	/* after R's relay of B's refusal, which also goes out from R */
+	if (!sv.raw_up || !sv.table_ok || !sv.err_decoded_ok || sv.unsol_ok ||
+	    sv.unsol_bad || raw_tx_len)
+		return;
+
+	switch (unsol_state) {
+	case 0:
+		/* d1:rd2:id20:<R>5:nodes84:<3 x node info>e1:t4:fn..1:y1:re */
+		memcpy(p, "d1:rd2:id20:", 12);
+		p += 12;
+		memset(p, KRPC_UNSOL_ID_R, 20);
+		p += 20;
+		memcpy(p, "5:nodes84:", 10);
+		p += 10;
+		for (n = 0; n < 3; n++) {
+			*p++ = LWS_DHT_HASH_TYPE_SHA1;
+			*p++ = 20;
+			memset(p, KRPC_UNSOL_ID_LISTED, 20);
+			p[19] = (uint8_t)n;
+			p += 20;
+			memcpy(p, &sa_dead.sin_addr, 4);
+			p += 4;
+			/* ports nobody uses, next to the unused one */
+			*p++ = (uint8_t)((ntohs(sa_dead.sin_port) + n) >> 8);
+			*p++ = (uint8_t)(ntohs(sa_dead.sin_port) + n);
+		}
+		memcpy(p, "e1:t4:fn\0\0" "1:y1:re", 17);
+		p += 17;
+		raw_queue(q, lws_ptr_diff_size_t(p, q), &sa_a);
+		unsol_state++;
+		break;
+
+	case 1:
+		/* d1:rd2:id20:<R>e1:t4:pn..1:y1:re */
+		memcpy(p, "d1:rd2:id20:", 12);
+		p += 12;
+		memset(p, KRPC_UNSOL_ID_R, 20);
+		p += 20;
+		memcpy(p, "e1:t4:pn\0\0" "1:y1:re", 17);
+		p += 17;
+		raw_queue(q, lws_ptr_diff_size_t(p, q), &sa_a);
+		unsol_state++;
+		break;
+
+	default:
+		/* give A a few polls to have processed both */
+		if (++unsol_polls < 5)
+			break;
+
+		lws_dht_foreach_node(dht_a, AF_INET, unsol_table_cb, &seen);
+		if (seen) {
+			lwsl_err("%s: unasked-for replies put %d nodes in A's "
+				 "table\n", __func__, seen);
+			sv.unsol_bad = 1;
+		} else
+			sv.unsol_ok = 1;
+		break;
+	}
+}
+
 static void
 cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
@@ -544,6 +643,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	subscription_step();
 	same_id_step();
 	error_reply_step(&sb);
+	unsolicited_reply_step();
 
 	if (sv.data_ok && !sv.dead_sent) {
 		sv.dead_sent = 1;
@@ -573,8 +673,9 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * subscribe round trip produced a token, the notify was acked, the
 	 * data payload arrived verbatim, A's maintenance find_node probe
 	 * reached B, B told A its external address, C's use of B's id did
-	 * not move B's entry in A's table, and B's refusal of R's broken
-	 * find_node was well-formed on the wire and understood by A.
+	 * not move B's entry in A's table, B's refusal of R's broken
+	 * find_node was well-formed on the wire and understood by A, and
+	 * R's replies to nothing A asked left A's table alone.
 	 */
 
 	if (sv.token_ok && !sv.token_ih_bad && sv.table_ok && sv.acked &&
@@ -585,6 +686,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.samid_ok && !sv.samid_bad &&
 	    sv.err_wire_ok && !sv.err_wire_bad &&
 	    sv.err_decoded_ok && !sv.err_decoded_bad &&
+	    sv.unsol_ok && !sv.unsol_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -829,6 +931,11 @@ int main(int argc, const char **argv)
 			if (!sv.err_decoded_ok || sv.err_decoded_bad) {
 				lwsl_err("A did not decode the relayed error "
 					 "reply\n");
+				fails++;
+			}
+			if (!sv.unsol_ok || sv.unsol_bad) {
+				lwsl_err("replies A never asked for changed its "
+					 "routing table\n");
 				fails++;
 			}
 		}

@@ -95,6 +95,12 @@
 #define LWS_DHT_IP_PROBE_TID_LEN	(2 + LWS_DHT_IP_PROBE_NONCE_LEN)
 /* subscribes we sent whose reply we are still waiting for */
 #define LWS_DHT_MAX_PENDING_SUBSCRIBES	8
+/*
+ * requests we sent whose reply we are still waiting for: searches, bucket
+ * maintenance, pings and an external-address probe round all in flight at
+ * once fit, the oldest is given up if not
+ */
+#define LWS_DHT_MAX_PENDING_REQUESTS	128
 
 /* Serialization Field Sizes */
 #define LWS_DHT_IPV4_VLEN                  4
@@ -308,6 +314,20 @@ struct lws_dht_ctx {
 		uint8_t			ih_len;
 		uint8_t			ih[LWS_GENHASH_LARGEST];
 	} sb_pending[LWS_DHT_MAX_PENDING_SUBSCRIBES];
+
+	/*
+	 * Every request we sent and have had no reply to, with the endpoint
+	 * it went to.  Anyone can send y=r from any address naming any tid,
+	 * so a reply is taken only if it answers one of these, from where
+	 * that went, once: only that proves anything about the endpoint, and
+	 * only that may change our routing table (G-119).
+	 */
+	struct {
+		lws_sockaddr46		sa46;
+		time_t			sent;	/* 0 = free */
+		uint8_t			tid[LWS_DHT_IP_PROBE_TID_LEN];
+		uint8_t			tid_len;
+	} req_pending[LWS_DHT_MAX_PENDING_REQUESTS];
 
 #if defined(LWS_WITH_DHT_BACKEND)
 	time_t			search_time;
@@ -529,6 +549,10 @@ int dht_tx_v(struct lws_dht_ctx *ctx, dht_txbuf_t *t);
 int dht_tx_ip(dht_txbuf_t *t, const struct sockaddr *sa);
 int dht_tx_want(dht_txbuf_t *t, int want);
 void make_tid(uint8_t *tid_return, const char *prefix, unsigned short seqno);
+void make_tid_random(struct lws_dht_ctx *ctx, uint8_t *tid_return,
+		     const char *prefix);
+int dht_req_pending_take(struct lws_dht_ctx *ctx, const uint8_t *tid,
+			 size_t tid_len, const struct sockaddr *from);
 int tid_match(const uint8_t *tid, const char *prefix, unsigned short *seqno_return);
 int node_blacklisted(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen);
 int dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len, const struct sockaddr *sa, size_t salen);

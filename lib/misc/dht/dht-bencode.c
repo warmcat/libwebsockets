@@ -511,37 +511,14 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 	return message;
 }
 
-#if defined(LWS_WITH_DHT_BACKEND)
-/*
- * Did we send this node something it could be replying to?  A known node
- * with a ping outstanding qualifies, if the reply comes from the endpoint we
- * sent it to; an address we never spoke to does not, whatever id it claims.
- */
-static int
-lws_dht_reply_solicited(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
-			const struct sockaddr *from)
-{
-	struct node *n = id ? find_node(ctx, id, from->sa_family) : NULL;
-
-	return n && n->pinged &&
-	       dht_sa_same_peer((const struct sockaddr *)&n->ss, from);
-}
-#endif
-
 static void
 lws_dht_reply_pong(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		   const struct sockaddr *from, size_t fromlen)
 {
 	lwsl_dht_rx("%s: Pong!\n", __func__);
 #if defined(LWS_WITH_DHT_BACKEND)
-	/*
-	 * A pong only confirms a node we pinged; nothing stops anyone
-	 * sending y=r from any address, and confirming those would let a
-	 * blind sender promote itself to a good node.  Unsolicited replies
-	 * may introduce a candidate, which we ping before trusting.
-	 */
-	maybe_new_node(ctx, mp->id, from, fromlen,
-		       lws_dht_reply_solicited(ctx, mp->id, from) ? 2 : 1);
+	/* only a reply to a request of ours from that endpoint gets here */
+	maybe_new_node(ctx, mp->id, from, fromlen, 2);
 #endif
 }
 
@@ -629,14 +606,10 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 #if defined(LWS_WITH_DHT_BACKEND)
 	/*
-	 * Credit the sender for replying so their pinged count resets to 0,
-	 * but only if we actually asked them (a search or subscribe of ours
-	 * had this tid outstanding to this address, or we pinged the node):
-	 * see the pong
+	 * Credit the sender for replying so their pinged count resets to 0:
+	 * only a reply to a request of ours from that endpoint gets here
 	 */
-	maybe_new_node(ctx, mp->id, from, fromlen,
-		       (bound || lws_dht_reply_solicited(ctx, mp->id, from)) ?
-									2 : 1);
+	maybe_new_node(ctx, mp->id, from, fromlen, 2);
 #endif
 
 	if (ctx->legacy && (mp->nodes_len % LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN != 0 ||
@@ -1190,6 +1163,31 @@ skip_ip_tracking:
 
 	switch(message) {
 	case DHT_REPLY:
+		if (mp.tid_len == 16) {
+#if defined(LWS_WITH_DHT_BACKEND)
+			/* bound to the subscription the tid belongs to */
+			lws_dht_clear_pending_notify(ctx, mp.tid, mp.tid_len,
+						     from);
+#endif
+			break;
+		}
+
+		/*
+		 * Every other reply has to answer a request we sent, from the
+		 * endpoint we sent it to, once.  Replies are free to send from
+		 * any address, and what they carry (the sender's id, nodes
+		 * lists) goes into our routing table: an unsolicited or forged
+		 * one is dropped whole (G-119).  The transport's acks are
+		 * bound to their sequencer by endpoint instead.
+		 */
+		if (!tid_match(mp.tid, "da", NULL) &&
+		    !tid_match(mp.tid, "sq", NULL) &&
+		    !dht_req_pending_take(ctx, mp.tid, mp.tid_len, from)) {
+			lwsl_dht_rx_warn("%s: reply to no request of ours, "
+					 "dropped\n", __func__);
+			break;
+		}
+
 		if (mp.tid_len == LWS_DHT_IP_PROBE_TID_LEN &&
 		    tid_match(mp.tid, "ip", NULL)) {
 			/* the pong to an external-address probe */
@@ -1197,20 +1195,13 @@ skip_ip_tracking:
 			lws_dht_reply_pong(ctx, &mp, from, fromlen);
 			break;
 		}
-		if (mp.tid_len != 4 && mp.tid_len != 16) {
+		if (mp.tid_len != 4) {
 			/*
 			 * Not blacklisted: a reply's source is unverified, so a
 			 * malformed one with a spoofed source would blacklist
 			 * whoever the attacker names for us
 			 */
 			lwsl_dht_rx_warn("%s: Broken node truncates transaction ids\n", __func__);
-			break;
-		}
-		if (mp.tid_len == 16) {
-#if defined(LWS_WITH_DHT_BACKEND)
-			lws_dht_clear_pending_notify(ctx, mp.tid, mp.tid_len,
-						     from);
-#endif
 			break;
 		}
 		if (tid_match(mp.tid, "pn", NULL) || tid_match(mp.tid, "nt", NULL)) {

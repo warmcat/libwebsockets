@@ -27,10 +27,22 @@ address as BEP42 describes (the first 21 bits derive from the masked IP and a
 random byte that ends the id).  Peers' ids are checked the same way when they
 enter the routing table: an id that is not bound to its address is still kept
 while a bucket has room, since a node may not know its address yet, but a
-bound one displaces it when the bucket is full, and no address may hold more
-than two entries in a bucket however many ids it presents.
+bound one displaces it when the bucket is full and it is not a good node, and
+no address may hold more than two entries in a bucket however many ids it
+presents.
 `lws_dht_bep42_id()` and `lws_dht_bep42_check()` are available to applications
 that supply their own ids.
+
+## Replies and the routing table
+
+A reply is only taken if it answers a request this node sent, from the
+endpoint it was sent to, within the ping timeout, and only once; anything
+else claiming to be a reply is dropped whole.  Only such an answer proves a
+node is at its endpoint, so only a node that gave one may take over a
+routing-table entry: a dead one, or, for a BEP42-bound newcomer, an unbound
+one that is not good.  Nodes named in a nodes list, or that only sent us a
+request, may take a free slot, or wait in the bucket's cache to be pinged.
+A live, good entry is never evicted.
 
 ## Configuration Options (`lws_dht_info_t`)
 
