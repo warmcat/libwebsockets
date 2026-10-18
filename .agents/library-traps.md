@@ -61,6 +61,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    lever: QUIC's consecutive-decrypt-failure close and key-phase probe
    counters (ops-quic.c) let an injector kill a connection (G-104).  Only
    authenticated packets may change connection state.
+ - **Jumps past initialisers.**  A `goto` (or `switch` case) that jumps
+   past `char buf[N] = {0};` skips the initialiser: the buffer is
+   indeterminate at the label.  -Wall -Wextra are silent; gcc's
+   -Wjump-misses-init finds it (C only: g++ rejects it under -Werror,
+   clang accepts and ignores it).  Declare everything a label's path uses
+   before the first jump (G-105 sent stack to the peer as Set-Cookie).
  - **Fixed quorums.**  Any consensus threshold written as a fixed count
    of peers is wrong for small deployments.  Derive it from what the
    routing table can actually supply.
@@ -90,6 +96,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - `WSI_TOKEN_HTTP_COLON_AUTHORITY` exists only in builds with h2 or h3
    (or `LWS_HTTP_HEADERS_ALL`): library code reading it needs that guard
    or the h1-only build breaks.
+ - async-dns caps every reply at 1500 bytes, TCP included
+   (`LWS_ADNS_MAX_PAYLOAD`).  That cap is currently the only bound on
+   DNSSEC verification work per response (G-113): raising it needs a
+   verification budget at the same time.
  - On h3, a header block started with `lws_add_http_header_status()`
    must be finalized (`lws_finalize_write_http_header()` /
    `lws_finalize_http_header()`) before it is written: the QPACK prefix is
