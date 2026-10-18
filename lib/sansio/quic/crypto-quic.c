@@ -635,6 +635,99 @@ bail:
 	return ret;
 }
 
+/*
+ * The 1-RTT read keys of the next key phase (RFC 9001 6.3), derived once per
+ * phase from the current ones and kept until the phase changes, so a packet
+ * whose key-phase bit differs from ours is tried against them with no
+ * derivation of its own.  Whether it authenticates or not changes nothing
+ * here: packets that fail authentication are not from the peer, so they must
+ * neither cost us a derivation each (or reveal by timing that one happened,
+ * RFC 9001 9.5) nor be able to stop us following the peer's key updates.
+ *
+ * The keys are a copy of the APP level ones with only the read side moved
+ * on; the header protection key does not change across key updates.
+ * Returns NULL if there are no APP keys yet or the derivation failed.
+ */
+
+struct lws_quic_keys *
+lws_quic_rx_next_keys(struct lws_quic_netconn *qn)
+{
+	struct lws_quic_keys *k = qn->keys[LWS_QUIC_LEVEL_APP], *nk;
+
+	if (qn->rx_next)
+		return qn->rx_next;
+
+	if (!k)
+		return NULL;
+
+	nk = lws_malloc(sizeof(*nk), __func__);
+	if (!nk)
+		return NULL;
+
+	*nk = *k;
+
+	/* backend handles belong to k, and the copy never writes */
+	nk->aead_rx	= NULL;
+	nk->aead_tx	= NULL;
+	nk->hp_rx	= NULL;
+	nk->hp_tx	= NULL;
+	lws_explicit_bzero(nk->secret_tx, sizeof(nk->secret_tx));
+	lws_explicit_bzero(nk->key_aead_tx, sizeof(nk->key_aead_tx));
+	lws_explicit_bzero(nk->key_hp_tx, sizeof(nk->key_hp_tx));
+	lws_explicit_bzero(nk->iv_tx, sizeof(nk->iv_tx));
+	nk->el_aead_tx.len = 0;
+	nk->el_hp_tx.len = 0;
+
+	/* the elems point into the struct they were derived in: re-anchor */
+	nk->el_aead_rx.buf	= nk->key_aead_rx;
+	nk->el_aead_tx.buf	= nk->key_aead_tx;
+	nk->el_hp_rx.buf	= nk->key_hp_rx;
+	nk->el_hp_tx.buf	= nk->key_hp_tx;
+
+	if (lws_quic_update_keys(nk, 1)) {
+		lws_quic_keys_destroy(nk);
+		return NULL;
+	}
+
+	qn->rx_next = nk;
+
+	return nk;
+}
+
+/*
+ * A packet authenticated under the next phase's read keys: they become the
+ * APP level's read keys, along with the backend handle already made for them
+ */
+
+void
+lws_quic_rx_next_commit(struct lws_quic_netconn *qn)
+{
+	struct lws_quic_keys *k = qn->keys[LWS_QUIC_LEVEL_APP],
+			     *nk = qn->rx_next;
+
+	if (!k || !nk)
+		return;
+
+	lws_quic_keys_release_aead_rx(k);
+
+	memcpy(k->secret_rx, nk->secret_rx, sizeof(k->secret_rx));
+	memcpy(k->key_aead_rx, nk->key_aead_rx, sizeof(k->key_aead_rx));
+	memcpy(k->iv_rx, nk->iv_rx, sizeof(k->iv_rx));
+	k->el_aead_rx.buf	= k->key_aead_rx;
+	k->el_aead_rx.len	= nk->el_aead_rx.len;
+	k->aead_rx		= nk->aead_rx;
+	nk->aead_rx		= NULL;
+
+	lws_quic_rx_next_discard(qn);
+}
+
+void
+lws_quic_rx_next_discard(struct lws_quic_netconn *qn)
+{
+	lws_quic_keys_destroy(qn->rx_next);
+	qn->rx_next = NULL;
+}
+
 int
 lws_quic_unmask_header(struct lws_quic_keys *keys, uint8_t *packet, size_t packet_len, size_t pn_offset)
 {

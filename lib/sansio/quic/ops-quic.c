@@ -1421,6 +1421,9 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 		qn->keys[level] = NULL;
 		discarded = 1;
 	}
+	if (level == LWS_QUIC_LEVEL_APP)
+		/* derived from them */
+		lws_quic_rx_next_discard(qn);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[level].head) {
 		struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
@@ -2756,31 +2759,27 @@ tp_ok:
 		uint64_t full_pn = lws_quic_decode_packet_number(largest_pn, truncated_pn, pn_len * 8);
 		lwsl_wsi_info(wsi, "QUIC RX: Packet level %d, decoded full_pn = %llu", level, (unsigned long long)full_pn);
 
-		struct lws_quic_keys scratch_keys;
 		struct lws_quic_keys *decryption_keys = k;
 		int is_key_update = 0;
 
 		if (!(p[0] & 0x80)) { /* Short header */
 			uint8_t kp = (uint8_t)((p[0] & 0x04) >> 2);
 			if (nwsi->quic.qn && nwsi->quic.qn->handshake_done &&
-			    nwsi->quic.qn->rx_key_phase != kp &&
-			    nwsi->quic.qn->kp_probe_fail < LWS_QUIC_KP_PROBE_LIMIT) {
+			    nwsi->quic.qn->rx_key_phase != kp) {
 				/*
-				 * Provisional key update.  The key-phase bit is
-				 * only 1 bit and is trivially flipped by wire
-				 * corruption, so this probe can fire on junk.
-				 * If it then fails AEAD we count it below and,
-				 * once kp_probe_fail saturates, we stop trusting
-				 * the bit entirely and treat mismatches as
-				 * corruption rather than a peer rotation.
+				 * Maybe the peer's key update: try the next
+				 * phase's read keys, which are derived once
+				 * and kept.  The bit is unprotected until the
+				 * packet authenticates, so a forged or corrupted
+				 * one only costs the attempt; it can't make us
+				 * stop following real key updates (G-104).
 				 */
-				scratch_keys = *k;
-				scratch_keys.aead_rx = NULL;
-				scratch_keys.aead_tx = NULL;
-				if (lws_quic_update_keys(&scratch_keys, 1) == 0) {
-					decryption_keys = &scratch_keys;
+				struct lws_quic_keys *nk =
+					lws_quic_rx_next_keys(nwsi->quic.qn);
+
+				if (nk) {
+					decryption_keys = nk;
 					is_key_update = 1;
-					lwsl_wsi_notice(wsi, "QUIC RX: Attempting provisional key update");
 				}
 			}
 		}
@@ -2788,43 +2787,26 @@ tp_ok:
 		/* 4. Decryption: Authenticate and decrypt the payload in-place! */
 		int dec_len = lws_quic_decrypt_payload(decryption_keys, p, packet_size, pn_offset, (uint8_t)pn_len, full_pn);
 		if (dec_len < 0) {
-			lwsl_wsi_notice(wsi, "QUIC RX: AEAD Decryption failed (bad tag or truncated)");
-			if (is_key_update) {
-				/*
-				 * The key-phase bit mismatched and the rotated
-				 * keys still failed AEAD: that mismatch was
-				 * corruption, not a peer key update.  Account
-				 * it so we stop chasing key rotations on junk
-				 * once it becomes a pattern.
-				 */
-				lws_quic_keys_release_aead_rx(&scratch_keys);
-				lws_quic_keys_release_aead_tx(&scratch_keys);
-				if (nwsi->quic.qn)
-					nwsi->quic.qn->kp_probe_fail++;
-			}
+			lwsl_wsi_info(wsi, "QUIC RX: AEAD Decryption failed (bad tag or truncated)");
 
 			/*
-			 * Corruption circuit-breaker.  A single undecryptable
-			 * packet is normal (loss, a stale PN, a probe for a key
-			 * phase we discarded).  A sustained run with no progress
-			 * is wire/path corruption that the loss machinery cannot
-			 * recover from at this rate: rather than spin key
-			 * derivation and stall until PTO exhaustion, close the
-			 * connection cleanly with NO_VIABLE_PATH so the peer and
-			 * any test harness see a decisive transport error.
+			 * Anyone who sees the DCID can send these, so they
+			 * change nothing about the connection, beyond the
+			 * count RFC 9001 6.6 asks for: past the AEAD's
+			 * integrity limit, the chance that some forgery got
+			 * through is too high to go on (G-104)
 			 */
 			if (nwsi && nwsi->quic.qn) {
-				if (++nwsi->quic.qn->consec_decrypt_fail[pn_space] >=
-				    LWS_QUIC_DECRYPT_FAIL_LIMIT) {
-					lwsl_wsi_warn(wsi,
-						"QUIC RX: %u consecutive decrypt "
-						"failures in pn_space %d with no "
-						"progress; path is corrupted, "
-						"closing",
-						nwsi->quic.qn->consec_decrypt_fail[pn_space],
-						pn_space);
+				if (++nwsi->quic.qn->rx_auth_fail >
+				    (k->cipher_type == 1 ?
+					LWS_QUIC_AEAD_INTEGRITY_LIMIT_CHACHA :
+					LWS_QUIC_AEAD_INTEGRITY_LIMIT_GCM)) {
+					lwsl_wsi_warn(wsi, "QUIC RX: AEAD "
+						      "integrity limit reached, "
+						      "closing");
 					lws_quic_enter_closing_state(nwsi,
-						LWS_QUIC_ERR_NO_VIABLE_PATH, 0, 0);
+						LWS_QUIC_ERR_AEAD_LIMIT_REACHED,
+						0, 0);
 					/*
 					 * On the server, wsi is the listener
 					 * shared by every connection: only
@@ -2876,19 +2858,6 @@ tp_ok:
 			/* Short header: Bits 0x18 MUST be zero */
 			if (p[0] & 0x18) {
 				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in short header");
-				/*
-				 * The packet authenticated under the provisional
-				 * next-phase keys, but we are refusing it, so
-				 * they are neither committed below nor released
-				 * by the decrypt-failure path above: a backend
-				 * that keeps a per-key AEAD handle (gnutls)
-				 * allocated it into the stack copy during the
-				 * decrypt, and it would leak with this stack frame
-				 */
-				if (is_key_update) {
-					lws_quic_keys_release_aead_rx(&scratch_keys);
-					lws_quic_keys_release_aead_tx(&scratch_keys);
-				}
 				if (nwsi && nwsi != wsi) {
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
@@ -2899,22 +2868,9 @@ tp_ok:
 
 		/* Decryption succeeded! Commit key update if pending */
 		if (is_key_update) {
-			lws_quic_keys_release_aead_rx(k);
-			lws_quic_keys_release_aead_tx(k);
-			*k = scratch_keys;
-			/*
-			 * The keyelems point at the key arrays inside the
-			 * struct they were derived into; lws_quic_update_keys()
-			 * anchored the new rx key inside scratch_keys, which
-			 * is about to go out of scope.  Re-anchor every elem
-			 * to this struct's own arrays, otherwise backends
-			 * that read the key per packet (chacha, non-gnutls
-			 * aes) would use a dead stack frame.
-			 */
-			k->el_aead_rx.buf = k->key_aead_rx;
-			k->el_aead_tx.buf = k->key_aead_tx;
-			k->el_hp_rx.buf = k->key_hp_rx;
-			k->el_hp_tx.buf = k->key_hp_tx;
+			lws_quic_rx_next_commit(nwsi->quic.qn);
+			/* ...and have the phase after ready (RFC 9001 6.3) */
+			lws_quic_rx_next_keys(nwsi->quic.qn);
 			nwsi->quic.qn->rx_key_phase ^= 1;
 			nwsi->quic.qn->rx_packets_since_update = 0;
 			if (!nwsi->quic.qn->key_update_pending) {
@@ -2997,15 +2953,6 @@ tp_ok:
 		/* Check for duplicate/replayed packet numbers (Security Fix) */
 		int is_out_of_order = 0;
 		if (nwsi->quic.qn) {
-			/*
-			 * Reaching here means the packet authenticated cleanly,
-			 * so any prior decrypt-failure run for this pn_space is
-			 * over: reset the corruption circuit-breaker and the
-			 * key-phase-probe accounting.
-			 */
-			nwsi->quic.qn->consec_decrypt_fail[pn_space] = 0;
-			nwsi->quic.qn->kp_probe_fail = 0;
-
 			uint64_t highest = nwsi->quic.qn->highest_rx_pn[pn_space];
 			if ((nwsi->quic.qn->rx_pn_bitmask[pn_space] != 0 || highest != 0) && full_pn <= highest) {
 				uint64_t diff = highest - full_pn;
@@ -5960,6 +5907,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 		lws_peer_track_wsi_close(qn->nwsi->a.context, qn->peer);
 	qn->peer = NULL;
 #endif
+
+	lws_quic_rx_next_discard(qn);
 
 	for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 		/* Free keys */

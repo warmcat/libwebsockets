@@ -202,20 +202,12 @@ enum lws_quic_frame_type {
 #define LWS_QUIC_ERR_NO_VIABLE_PATH           0x10
 
 /*
- * Corruption-defense thresholds.
- *
- * LWS_QUIC_DECRYPT_FAIL_LIMIT: how many consecutive undecryptable packets in
- *	a pn_space (with no successful decrypt in between) we tolerate before
- *	declaring the path corrupted and closing with NO_VIABLE_PATH.  This is
- *	deliberately generous: a burst of losses or coalesced junk from a
- *	pmtud probe can produce several, and the PTO/loss machinery already
- *	recovers genuine loss.  We only act on a sustained run that real loss
- *	could not produce at this rate.
- *
- * LWS_QUIC_KP_PROBE_LIMIT: how many times we let a demasked key-phase
- *	mismatch drive a provisional key update that then fails AEAD, before
- *	we stop trusting the key-phase bit as a rotation signal.  Past this,
- *	a KP mismatch is treated as corruption, not a peer-initiated update.
+ * Packets that fail authentication are not from the peer, and change nothing
+ * about the connection, with one exception RFC 9001 6.6 requires: past the
+ * AEAD's integrity limit, the number of forgeries over the life of the
+ * connection that an attacker gets to try before one may succeed, the
+ * connection is closed with AEAD_LIMIT_REACHED.  2^52 for AES-GCM, 2^36 for
+ * ChaCha20-Poly1305.
  *
  * LWS_QUIC_PN_FORWARD_JUMP_LIMIT: largest acceptable jump of a freshly
  *	decoded packet number ahead of highest_rx_pn.  QUIC senders do not gap
@@ -223,8 +215,8 @@ enum lws_quic_frame_type {
  *	always a corrupted truncated PN, and committing it would wreck the
  *	receive bitmask and ACK accounting.  We drop the packet instead.
  */
-#define LWS_QUIC_DECRYPT_FAIL_LIMIT	256u
-#define LWS_QUIC_KP_PROBE_LIMIT		8u
+#define LWS_QUIC_AEAD_INTEGRITY_LIMIT_GCM	(1ull << 52)
+#define LWS_QUIC_AEAD_INTEGRITY_LIMIT_CHACHA	(1ull << 36)
 #define LWS_QUIC_PN_FORWARD_JUMP_LIMIT	1024u
 
 /*
@@ -502,6 +494,8 @@ struct lws_quic_netconn {
 
 	/* Array of pointers to lazily allocated key material */
 	struct lws_quic_keys	*keys[LWS_QUIC_LEVEL_COUNT];
+	/* the next 1-RTT key phase's read keys, see lws_quic_rx_next_keys() */
+	struct lws_quic_keys	*rx_next;
 
 	uint64_t		crypto_tx_offset[LWS_QUIC_LEVEL_COUNT];
 	uint64_t		tx_conn_offset;
@@ -543,25 +537,12 @@ struct lws_quic_netconn {
 	uint8_t			needs_ack[LWS_QUIC_LEVEL_COUNT];
 
 	/*
-	 * Corruption defense (inbound sanity self-checks).
-	 *
-	 * If a packet passes header protection but fails AEAD, it is either a
-	 * legitimate loss (the packet belongs to a key phase we no longer have,
-	 * or it is genuinely lost in flight) or it is wire/path corruption that
-	 * happened to look plausible enough to reach decryption.  We cannot tell
-	 * the two apart from a single failure, but a sustained run of failures
-	 * with no progress is corruption until proven otherwise.
-	 *
-	 * consec_decrypt_fail[] counts undecryptable packets per pn_space since
-	 * the last packet that decrypted cleanly; it is reset on every success.
-	 *
-	 * kp_probe_fail counts provisional key-update attempts (a short-header
-	 * packet whose demasked key-phase bit differs from rx_key_phase) that
-	 * subsequently failed AEAD.  A single bit flip in junk flips this, so we
-	 * refuse to keep re-deriving keys once it's clear the bit is just noise.
+	 * Received packets that failed authentication over the life of the
+	 * connection, under any key, for the AEAD integrity limit (RFC 9001
+	 * 6.6).  Nothing else about a packet that failed may change the
+	 * connection: anyone who sees its DCID can send them.
 	 */
-	uint32_t		consec_decrypt_fail[LWS_QUIC_LEVEL_COUNT];
-	uint32_t		kp_probe_fail;
+	uint64_t		rx_auth_fail;
 
 	/* a server's 1-RTT packets that came before its handshake completed */
 	lws_dll2_owner_t	early_pkts;
@@ -855,6 +836,15 @@ void lws_quic_keys_release_aead_tx(struct lws_quic_keys *keys);
 
 int
 lws_quic_update_keys(struct lws_quic_keys *k, int is_rx);
+
+struct lws_quic_keys *
+lws_quic_rx_next_keys(struct lws_quic_netconn *qn);
+
+void
+lws_quic_rx_next_commit(struct lws_quic_netconn *qn);
+
+void
+lws_quic_rx_next_discard(struct lws_quic_netconn *qn);
 
 int
 lws_quic_unmask_header(struct lws_quic_keys *keys, uint8_t *packet, size_t packet_len, size_t pn_offset);
