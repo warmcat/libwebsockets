@@ -449,7 +449,9 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->lhp.sshtmlevsul = &m->sul;
 	m->lhp.ids = &rs->ids;
 
-	if (lws_ss_set_metadata(m->ss, "endpoint", url, strlen(url))) {
+	/* the caller's url need not outlive this call, but the fetch does */
+
+	if (lws_ss_alloc_set_metadata(m->ss, "endpoint", url, strlen(url))) {
 		lwsl_err("%s: failed to use metadata %s\n", __func__, url);
 		goto bail2;
 	}
