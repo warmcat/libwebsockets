@@ -113,6 +113,17 @@
    stream, `lws_write(..., LWS_WRITE_BINARY)` goes out raw with no DATA
    framing (`rops_write_role_protocol_h3()`), so a test can frame the
    stream itself (see the h3 case in api-test-http-attack).
+ - **In-process SS proxy tests:** a mux proxy can run on a link transport
+   of your own under `lws_transport_mux_proxy_ops`
+   (api-test-ss-proxy-mux; deliver client->proxy bytes from a sul, never
+   re-entrantly from `proxy_write`).  A fake proxy for sspc is a raw UDS
+   vhost; the context reads `info.ss_proxy_bind` at connect time, so a
+   random name can be written there after `lws_create_context()`
+   (api-test-sspc-rx-metadata).
+ - **STANDALONE sspc builds redefine `lws_free`** but not
+   `lws_free_set_NULL()`; use `lws_free(x); x = NULL;` in sspc files.
+ - api-test-lws_dsh takes no `-d` and the spew limiter hides its later
+   lines: judge it by exit code.
  - **SNI comes from `i.host`, not `i.address`**, so `i.host` sets both
    SNI and `:authority`; a name matching no vhost (and no SNI fallback)
    fails the handshake with a TLS alert.  To send a real Host header next

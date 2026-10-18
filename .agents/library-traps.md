@@ -323,8 +323,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **lws_dsh flags reshape records:** with `LWS_DSHFLAG_ENABLE_COALESCE`,
    `lws_dsh_alloc_tail()` appends onto the existing tail object; with
    `ENABLE_SPLIT` and `splitat` it cuts a record into several objects and
-   only the first carries the header.  A dsh whose objects are
-   header-delimited records must not inherit transport flags (G-186).
+   only the first carries the header.  Flags are per kind since
+   2acd3aa4c: give a record-structured kind
+   `lws_dsh_set_kind_flags(dsh, kind, 0)` (G-186); `lws_dsh_empty()` keeps
+   them.  A pointer from `lws_dsh_get_head()` has no LWS_PRE headroom:
+   the object header sits right before it (G-203).
  - **Peer credential checks are one-sided:** C-630 checks client peer ids
    on the proxy side; nothing on the sspc client side calls
    `lws_plat_unix_peer_ids()` on the proxy (G-185).
