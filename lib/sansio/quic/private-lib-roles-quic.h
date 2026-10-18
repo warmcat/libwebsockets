@@ -513,6 +513,8 @@ struct lws_quic_netconn {
 	uint64_t		peer_initial_max_stream_data_uni;
 	uint64_t		peer_max_datagram_frame_size;
 	uint64_t		peer_ack_delay_exponent;
+	/* peer's max_idle_timeout (TP 0x01) in ms, 0 if it has none */
+	uint64_t		peer_max_idle_timeout_ms;
 
 	uint64_t		rx_max_data;
 	uint64_t		advertised_rx_max_data;
@@ -573,6 +575,22 @@ struct lws_quic_netconn {
 
 	/* Probe Timeout timer for packet loss detection */
 	lws_sorted_usec_list_t	pto_sul;
+
+	/*
+	 * Transport idle timeout (RFC 9000 10.1), armed when the handshake
+	 * completes.  idle_restart_us is when the idle period last restarted:
+	 * a packet from the peer was processed, or we sent the first
+	 * ack-eliciting packet since then.  idle_sul is not moved on every
+	 * packet, it looks at idle_restart_us when it fires and goes again
+	 * for whatever is left.
+	 */
+	lws_sorted_usec_list_t	idle_sul;
+	lws_usec_t		idle_restart_us;
+	/*
+	 * when a server's handshake must have completed by, so the deadline
+	 * goes with the connection if the ALPN migration comes first (0-RTT)
+	 */
+	lws_usec_t		hs_deadline_us;
 
 	/* Congestion Control Ops */
 	const struct lws_cc_ops	*cc_ops;
@@ -756,6 +774,8 @@ struct lws_quic_netconn {
 	uint8_t			pto_probe_needed:2;
 	uint8_t			address_validated:1;
 	uint8_t			is_closing:1;
+	/* we sent an ack-eliciting packet since the peer's last one */
+	uint8_t			idle_tx_since_rx:1;
 
 	uint8_t			early_data_status; /* enum lws_0rtt_status */
 	
@@ -947,6 +967,12 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 
 void
 lws_quic_server_idle_check(struct lws *nwsi);
+
+void
+lws_quic_idle_start(struct lws_quic_netconn *qn);
+
+void
+lws_quic_idle_restart(struct lws_quic_netconn *qn, int tx);
 #if defined(LWS_WITH_SERVER)
 int
 lws_quic_server_admit_established(struct lws *nwsi);

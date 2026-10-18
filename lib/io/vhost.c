@@ -691,6 +691,8 @@ lws_create_vhost(struct lws_context *context,
 	vh->ka_interval = info->ka_interval;
 
 	vh->quic_mtu = info->quic_mtu ? info->quic_mtu : 1280;
+	vh->quic_max_idle_ms = info->quic_max_idle_timeout_ms ?
+				info->quic_max_idle_timeout_ms : 30000;
 	vh->ka_probes = info->ka_probes;
 
 	if (vh->options & LWS_SERVER_OPTION_STS)

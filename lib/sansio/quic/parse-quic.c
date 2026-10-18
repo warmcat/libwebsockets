@@ -1816,12 +1816,22 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				 * made with it), is opened now
 				 */
 				if (wsi_child && is_peer_initiated &&
-				    lws_quic_idtr_open(&qn->peer_opened[
+				    !lws_quic_idtr_is_opened(&qn->peer_opened[
 						is_unidirectional ? 1 : 0],
 						stream_id >> 2)) {
-					lws_quic_enter_closing_state(nwsi,
-						LWS_QUIC_ERR_INTERNAL_ERROR, type, 0);
-					return -1;
+					if (lws_quic_idtr_open(&qn->peer_opened[
+						is_unidirectional ? 1 : 0],
+						stream_id >> 2)) {
+						lws_quic_enter_closing_state(nwsi,
+							LWS_QUIC_ERR_INTERNAL_ERROR,
+							type, 0);
+						return -1;
+					}
+					/*
+					 * stream 0 is a request stream from
+					 * now: the connection is not idle
+					 */
+					lws_quic_server_idle_check(nwsi);
 				}
 
 				if (!wsi_child) {
@@ -2237,6 +2247,12 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				return -1;
 			}
 			seen_odcid = 1;
+			break;
+		case 0x01: /* max_idle_timeout (milliseconds, 0 for none) */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) != param_len)
+				return -1;
+			/* RFC 9000 10.1: the shorter of both sides' applies */
+			qn->peer_max_idle_timeout_ms = val;
 			break;
 		case 0x03: /* max_udp_payload_size */
 			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {

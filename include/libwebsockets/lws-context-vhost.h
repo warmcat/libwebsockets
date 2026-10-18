@@ -1352,6 +1352,16 @@ struct lws_context_creation_info {
 	 * not.  The list applies to every vhost sharing the listener.  Needs
 	 * LWS_WITH_TLS_PASSTHROUGH. */
 
+	uint32_t			quic_max_idle_timeout_ms;
+	/**< VHOST: 0 for default (30000), or the max_idle_timeout in ms this
+	 * vhost's QUIC connections advertise to their peer, as servers and as
+	 * clients.  A connection is closed silently (RFC 9000 10.1) once it
+	 * has been idle for the shorter of this and the peer's own value (but
+	 * at least three PTOs): nothing arrived from the peer, and we sent it
+	 * nothing it has to acknowledge, for that long.  It is a property of
+	 * the transport, whatever streams are open: a peer keeps a quiet
+	 * connection by sending something, eg, PING. */
+
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */
 #endif

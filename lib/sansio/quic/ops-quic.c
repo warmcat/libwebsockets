@@ -2265,7 +2265,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			LWS_QUIC_WRITE_TP_VARINT(0x08, nwsi->quic.qn->max_streams_bidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x09, nwsi->quic.qn->max_streams_unidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x20, 65535);
-			LWS_QUIC_WRITE_TP_VARINT(0x01, 30000);
+			LWS_QUIC_WRITE_TP_VARINT(0x01, nwsi->a.vhost->quic_max_idle_ms);
 
 			LWS_QUIC_WRITE_TP_BUF(0x0F, nwsi->quic.qn->loc_cid.id, nwsi->quic.qn->loc_cid.len);
 			LWS_QUIC_WRITE_TP_BUF(0x00, nwsi->quic.qn->orig_dcid.id, nwsi->quic.qn->orig_dcid.len);
@@ -2441,6 +2441,9 @@ tp_ok:
 		 */
 		lws_set_timeout(nwsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 				(int)wsi->a.context->timeout_secs);
+		nwsi->quic.qn->hs_deadline_us = lws_wsi_now(nwsi) +
+				(lws_usec_t)wsi->a.context->timeout_secs *
+								LWS_US_PER_SEC;
 
 		/* ... and count it against the half-open limits until then */
 		lws_dll2_add_tail(&nwsi->quic.qn->pt_list,
@@ -3344,14 +3347,17 @@ tp_ok:
 
 			/*
 			 * A packet that authenticated and parsed is activity:
-			 * refresh the idle timeout, as h2 does on rx, so a
-			 * peer keeping the connection alive with PINGs (RFC
-			 * 9000 10.1.2) is not reaped as idle.
+			 * it restarts the transport idle timeout (RFC 9000
+			 * 10.1), and refreshes the server's keepalive, as h2
+			 * does on rx, so a peer keeping the connection alive
+			 * with PINGs (RFC 9000 10.1.2) is not reaped as idle.
 			 */
-			if (parse_res >= 0 && nwsi && nwsi->quic.qn &&
-			    nwsi->quic.qn->is_server &&
-			    nwsi->pending_timeout == PENDING_TIMEOUT_UDP_IDLE)
-				lws_quic_server_idle_check(nwsi);
+			if (parse_res >= 0 && nwsi && nwsi->quic.qn) {
+				lws_quic_idle_restart(nwsi->quic.qn, 0);
+				if (nwsi->quic.qn->is_server &&
+				    nwsi->pending_timeout == PENDING_TIMEOUT_UDP_IDLE)
+					lws_quic_server_idle_check(nwsi);
+			}
 
 			if (parse_res < 0) {
 			if (parse_res == -3) {
@@ -4530,6 +4536,7 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 	}
 
 	if (ack_eliciting) {
+		lws_quic_idle_restart(qn, 1);
 		if (qn->pto_probe_needed > 0)
 			qn->pto_probe_needed--;
 		if (qn->cc_ops && qn->cc_ops->on_sent)
@@ -5390,7 +5397,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 			LWS_QUIC_WRITE_TP_VARINT(0x08, wsi->quic.qn->max_streams_bidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x09, wsi->quic.qn->max_streams_unidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x20, 65535);
-			LWS_QUIC_WRITE_TP_VARINT(0x01, 30000);
+			LWS_QUIC_WRITE_TP_VARINT(0x01, wsi->a.vhost->quic_max_idle_ms);
 
 			LWS_QUIC_WRITE_TP_BUF(0x0F, wsi->quic.qn->loc_cid.id, wsi->quic.qn->loc_cid.len);
                         if (wsi->a.context->options & LWS_SERVER_OPTION_QUIC_LATEST_VERSION) {
@@ -5784,7 +5791,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 }
 
 /*
- * Server-side idle reaping.
+ * Server-side keepalive reaping.
  *
  * A server connection is idle when it has no bidirectional (request)
  * streams.  The child count cannot be used for that: the h3 control and
@@ -5794,10 +5801,19 @@ lws_quic_stream_cleanup(struct lws *wsi)
  * network wsi.  So count request streams directly and use a reason the
  * immortal check does not apply to.
  *
- * Called when the handshake completes, when a peer-initiated stream is
- * created, when a child closes, and (to refresh) when a packet is accepted
- * while the idle timeout is armed.  Leaves the timeout alone if something
- * else owns it, eg, the CONNECTION_CLOSE drain in lws_quic_enter_closing_state().
+ * Stream 0 is a child from the ALPN migration on, whether or not the peer
+ * ever uses it, so a stream of the peer's counts only once the peer has
+ * opened it (sent a STREAM frame for it).
+ *
+ * This is the shorter policy for connections with nothing to do: the
+ * transport's own idle timeout (lws_quic_idle_start()) bounds every
+ * connection, whatever its streams.
+ *
+ * Called when the handshake completes, when the ALPN migration has made
+ * stream 0, when the peer opens a stream, when a child closes, and (to
+ * refresh) when a packet is accepted while the idle timeout is armed.
+ * Leaves the timeout alone if something else owns it, eg, the
+ * CONNECTION_CLOSE drain in lws_quic_enter_closing_state().
  */
 void
 lws_quic_server_idle_check(struct lws *nwsi)
@@ -5819,7 +5835,10 @@ lws_quic_server_idle_check(struct lws *nwsi)
 			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
-		if (w->quic.qs && !w->quic.qs->is_unidirectional) {
+		if (w->quic.qs && !w->quic.qs->is_unidirectional &&
+		    (w->quic.qs->is_server_initiated ||
+		     lws_quic_idtr_is_opened(&qn->peer_opened[0],
+					     w->quic.qs->stream_id >> 2))) {
 			/* has a request stream: not idle */
 			if (nwsi->pending_timeout != NO_PENDING_TIMEOUT)
 				lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
@@ -5830,6 +5849,91 @@ lws_quic_server_idle_check(struct lws *nwsi)
 	lws_set_timeout(nwsi, PENDING_TIMEOUT_UDP_IDLE,
 			nwsi->a.vhost->keepalive_timeout ?
 				nwsi->a.vhost->keepalive_timeout : 5);
+}
+
+/*
+ * The transport idle timeout, RFC 9000 10.1, on server and client
+ * connections alike.  It is the shorter of the max_idle_timeout we
+ * advertised and the peer's, but at least three PTOs, and it restarts when
+ * a packet from the peer is processed, and when we send an ack-eliciting
+ * packet after one, but not again until the peer sends another.  When it
+ * runs out the connection is closed silently: the peer, by the same rule,
+ * has already discarded it, or will.
+ *
+ * It is armed when the handshake completes (before that the handshake's own
+ * deadline bounds the connection), and has nothing to do with streams: a
+ * peer that wants a quiet connection kept sends something, eg, PING.
+ */
+
+static lws_usec_t
+lws_quic_idle_timeout_us(const struct lws_quic_netconn *qn)
+{
+	uint64_t ms = qn->nwsi->a.vhost->quic_max_idle_ms;
+	lws_usec_t us, pto3 = 3 * lws_quic_pto_base_us(qn);
+
+	if (qn->peer_max_idle_timeout_ms && qn->peer_max_idle_timeout_ms < ms)
+		ms = qn->peer_max_idle_timeout_ms;
+
+	us = (lws_usec_t)ms * LWS_US_PER_MS;
+
+	return us < pto3 ? pto3 : us;
+}
+
+static void
+lws_quic_idle_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_quic_netconn *qn = lws_container_of(sul,
+					struct lws_quic_netconn, idle_sul);
+	struct lws *nwsi = qn->nwsi;
+	lws_usec_t now, due;
+
+	/* a connection closing already ends by its own deadline */
+	if (!nwsi || qn->is_closing)
+		return;
+
+	now = lws_wsi_now(nwsi);
+	due = qn->idle_restart_us + lws_quic_idle_timeout_us(qn);
+	if (now < due) {
+		/* it restarted since we were scheduled */
+		lws_sul_schedule(nwsi->a.context, nwsi->tsi, &qn->idle_sul,
+				 lws_quic_idle_cb, due - now);
+		return;
+	}
+
+	lwsl_wsi_info(nwsi, "QUIC idle timeout, closing silently");
+
+	/* nothing is sent: is_closing keeps CONNECTION_CLOSE back */
+	qn->is_closing = 1;
+	lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "quic idle timeout");
+}
+
+void
+lws_quic_idle_start(struct lws_quic_netconn *qn)
+{
+	if (!qn->nwsi)
+		return;
+
+	qn->idle_restart_us = lws_wsi_now(qn->nwsi);
+	qn->idle_tx_since_rx = 0;
+	lws_sul_schedule(qn->nwsi->a.context, qn->nwsi->tsi, &qn->idle_sul,
+			 lws_quic_idle_cb, lws_quic_idle_timeout_us(qn));
+}
+
+void
+lws_quic_idle_restart(struct lws_quic_netconn *qn, int tx)
+{
+	if (!qn->handshake_done || !qn->nwsi)
+		return;
+
+	if (tx) {
+		/* only the first ack-eliciting one since the peer's last */
+		if (qn->idle_tx_since_rx)
+			return;
+		qn->idle_tx_since_rx = 1;
+	} else
+		qn->idle_tx_since_rx = 0;
+
+	qn->idle_restart_us = lws_wsi_now(qn->nwsi);
 }
 
 /*
@@ -5850,6 +5954,7 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 		return;
 
 	lws_dll2_remove(&qn->pt_list);
+	lws_sul_cancel(&qn->idle_sul);
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (qn->peer && qn->nwsi)
 		lws_peer_track_wsi_close(qn->nwsi->a.context, qn->peer);
@@ -5942,6 +6047,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 		lws_sul_cancel(&qn->prefaddr_sul);
 		lws_sul_cancel(&qn->path_probe_sul);
 		lws_sul_cancel(&qn->pto_sul);
+		lws_sul_cancel(&qn->idle_sul);
 		lws_sul_cancel(&qn->pacer_sul);
 		lws_sul_cancel(&qn->ack_delay_sul);
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -6396,15 +6502,32 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
                 nwsi->quic.qn->next_stream_id_bidi_local = 4;
         lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
 	/*
-	 * A server reaps the connection when it's idle from when its handshake
-	 * completed, which was while this wsi was the connection.  It's only
-	 * stream 0 now, and the connection, which has it as a stream, isn't
-	 * idle: otherwise stream 0 is closed when that runs out, however much
-	 * is still coming on it, since what refreshes it only looks at the
-	 * connection's network wsi.
+	 * A server's connection deadlines were set while this wsi was the
+	 * connection: the handshake's, or once that completed, the keepalive
+	 * reap.  They belong to the connection, not stream 0: left here, stream
+	 * 0 was closed when they ran out, however much was still coming on it,
+	 * and the connection was left with no deadline at all.  The handshake
+	 * is still going if 0-RTT brought us here early, and then its deadline
+	 * goes on unchanged on the new network wsi.  Otherwise the keepalive
+	 * is decided again for the connection, where stream 0 counts only once
+	 * the peer uses it.
 	 */
-	if (wsi->pending_timeout == PENDING_TIMEOUT_UDP_IDLE)
-		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	if (nwsi->quic.qn->is_server) {
+		if (wsi->pending_timeout == PENDING_TIMEOUT_UDP_IDLE ||
+		    wsi->pending_timeout == PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND)
+			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+		if (!nwsi->quic.qn->handshake_done) {
+			lws_usec_t now = lws_wsi_now(nwsi),
+				   dl = nwsi->quic.qn->hs_deadline_us;
+
+			/* already due: it goes on the next pass */
+			lws_set_timeout_us(nwsi,
+				PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+				dl > now ? dl - now : 1);
+		} else
+			lws_quic_server_idle_check(nwsi);
+	}
 
 	if (listener) {
 		nwsi->mux_substream = 1;

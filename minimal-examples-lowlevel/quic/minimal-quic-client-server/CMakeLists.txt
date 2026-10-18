@@ -73,6 +73,33 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# After the handshake nobody sends anything, and the client
+		# never uses its stream: the server must reap the connection
+		# by its keepalive, although stream 0 exists from the start
+		#
+		lws_get_free_port(PORT_QCS_QUIET_CONN)
+		add_test(NAME ${SAMP}-quiet-conn COMMAND ${SAMP}
+				--server ${LWS_CTEST_SERVER_RESOLVE}
+				-p ${PORT_QCS_QUIET_CONN} --quiet conn)
+		set_tests_properties(${SAMP}-quiet-conn PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 30)
+
+		#
+		# The client writes once on its stream, never finishing it,
+		# and then nobody sends anything: the transport idle timeout,
+		# 2s here, is all that ends the connection, and must
+		#
+		lws_get_free_port(PORT_QCS_QUIET_STREAM)
+		add_test(NAME ${SAMP}-quiet-stream COMMAND ${SAMP}
+				--server ${LWS_CTEST_SERVER_RESOLVE}
+				-p ${PORT_QCS_QUIET_STREAM} --quiet stream
+				--max-idle 2000)
+		set_tests_properties(${SAMP}-quiet-stream PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 30)
+
+		#
 		# The same through the reordering relay, with small writes: the
 		# handshake's CRYPTO and many small STREAM frames each way reach
 		# the peer out of order and must be reassembled.  The relay

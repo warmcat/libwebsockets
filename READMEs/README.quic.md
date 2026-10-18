@@ -255,6 +255,28 @@ Once installed, re-run `cmake` on your lws build directory so it can discover th
 
 ---
 
+## How long quiet connections live
+
+Every QUIC connection, server or client, has the transport idle timeout of
+RFC 9000 10.1.  Each side advertises a `max_idle_timeout`: lws sends the
+vhost's `.quic_max_idle_timeout_ms` from `lws_context_creation_info`, 30s by
+default.  Once the handshake has completed, a connection is closed silently,
+without a CONNECTION_CLOSE, when nothing from the peer was processed, and
+nothing we sent it needed acknowledging, for the shorter of the two sides'
+values (but at least three PTOs).  This applies whatever streams are open: a
+peer that wants a quiet connection kept, eg, one waiting for a slow response,
+has to send something, such as PING, as browsers do.
+
+A server also reaps connections that have nothing to do sooner: with no
+request stream the peer has opened, the connection goes after the vhost's
+`keepalive_timeout` (5s by default).  The first bidirectional stream exists
+from the handshake on, but it does not count until the peer sends on it.
+
+Before its handshake completes, a server connection has the context's
+`timeout_secs` to complete it, including when it accepted 0-RTT.
+
+---
+
 ## Congestion Control
 
 Libwebsockets features a pluggable QUIC Congestion Control architecture. By default, it uses a New Reno algorithm, but we also provide an implementation of CUBIC.

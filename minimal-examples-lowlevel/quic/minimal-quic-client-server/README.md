@@ -36,6 +36,8 @@ arrived.
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
+|--quiet conn\|stream|After the handshake both sides go quiet, and the server must close the connection in time, see below|
+|--max-idle <ms>|The QUIC idle timeout both sides advertise, 1000 to 10000 (default 30000), see below|
 
 ```
  $ ./lws-minimal-quic-client-server
@@ -51,6 +53,36 @@ busy for idle.
 
 ```
  $ ./lws-minimal-quic-client-server --spread 8000
+```
+
+## quiet connections
+
+Two things bound how long a quiet QUIC server connection is kept.  The
+transport's idle timeout (RFC 9000 10.1) closes any connection, silently,
+once nothing came from the peer, and we sent it nothing it has to
+acknowledge, for the shorter of the `max_idle_timeout` the two sides
+advertise.  lws advertises the vhost's `.quic_max_idle_timeout_ms`, 30s by
+default; `--max-idle <ms>` sets it for the vhost the server and client here
+share.  Before that, a server connection with no request stream the peer has
+used is reaped by the vhost's keepalive, 5s by default.
+
+With `--quiet conn`, once the handshake completed neither side sends anything,
+and the client never uses its stream.  The server has stream 0 from the
+handshake, but the client never opened it, so the keepalive must close the
+connection within a few seconds.
+
+```
+ $ ./lws-minimal-quic-client-server --quiet conn
+```
+
+With `--quiet stream`, the client writes once on its stream, without finishing
+it, and then neither side sends anything.  The stream is open, so the
+keepalive leaves the connection alone, and only the idle timeout ends it: the
+server must close it no sooner than `--max-idle` after the client's data
+arrived, and not much later.
+
+```
+ $ ./lws-minimal-quic-client-server --quiet stream --max-idle 2000
 ```
 
 ## the reordering relay

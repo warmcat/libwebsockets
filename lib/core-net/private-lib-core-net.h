@@ -846,6 +846,7 @@ struct lws_vhost {
 	uint32_t		tls_session_cache_max;
 #endif
 	uint32_t		quic_mtu;
+	uint32_t		quic_max_idle_ms; /* TP max_idle_timeout we send */
 	/*
 	 * bitmap, one bit per protocol on the vhost, set when that protocol's
 	 * PROTOCOL_INIT succeeded; sized for count_protocols (a vhost can carry

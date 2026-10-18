@@ -1189,6 +1189,8 @@ error_handling:
 #endif
 
 		wsi->quic.qn->handshake_done = 1;
+		/* from now on the transport idle timeout bounds it */
+		lws_quic_idle_start(wsi->quic.qn);
 
 		/* 0-RTT is over, any of it not sent yet goes in 1-RTT */
 		if (!wsi->quic.qn->is_server)

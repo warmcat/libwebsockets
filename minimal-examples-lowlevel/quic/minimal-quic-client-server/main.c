@@ -38,7 +38,11 @@
  * and each must find that out and go back to the base, or its transfer stalls.
  * --spread <ms> has
  * the client spread its writes over that long, rather than send as fast as it
- * can.
+ * can.  With --quiet conn, neither side sends anything after the handshake,
+ * and the client never uses its stream; with --quiet stream, the client
+ * writes once on its stream, and then both sides are quiet.  Either way the
+ * server must close the connection itself in good time: --max-idle <ms> sets
+ * the idle timeout both sides advertise.
  */
 
 #include <libwebsockets.h>
@@ -51,6 +55,31 @@ static int server_only = 0;
 static size_t write_size = 1024;
 /* --spread: the client spreads its writes over this long, from established */
 static lws_usec_t spread_us, spread_start;
+
+/*
+ * --quiet: after the handshake, both sides stop sending.  With QCS_QUIET_CONN
+ * the client never uses its stream, so the server has no request stream and
+ * must reap the connection by its keepalive, the vhost's keepalive_timeout,
+ * 5s by default.  With QCS_QUIET_STREAM the client opens its stream with one
+ * write and stops there, the stream never finished, so it is only the
+ * transport's idle timeout (RFC 9000 10.1) that ends it: no sooner than
+ * --max-idle after the last the server heard from the client, and not much
+ * later either.
+ */
+enum {
+	QCS_QUIET_NO,
+	QCS_QUIET_CONN,
+	QCS_QUIET_STREAM,
+};
+static int quiet;
+static uint32_t max_idle_ms;		/* --max-idle, 0 for the default */
+static struct lws *server_stream;	/* the server's stream of the connection */
+static lws_usec_t server_estab_us, server_last_rx_us;
+static lws_sorted_usec_list_t sul_quiet;
+static char quiet_over;	/* the verdict is in: later closes are teardown */
+
+#define QCS_QUIET_KEEPALIVE_US	(5 * LWS_US_PER_SEC)	/* vhost default */
+#define QCS_QUIET_SLACK_US	(3 * LWS_US_PER_SEC)
 
 static const struct lws_http_mount mount_redir = {
 	.mountpoint = "/",
@@ -1134,6 +1163,60 @@ teardown_cb(lws_sorted_usec_list_t *sul)
 
 static lws_sorted_usec_list_t sul_teardown;
 
+/* --quiet: the server kept the quiet connection longer than it may */
+
+static void
+quiet_deadline_cb(lws_sorted_usec_list_t *sul)
+{
+	quiet_over = 1;
+	lwsl_err("quiet: the server still has the connection, %lldms after "
+		 "it went quiet\n", (long long)((lws_now_usecs() -
+		 (quiet == QCS_QUIET_CONN ? server_estab_us :
+					    server_last_rx_us)) /
+						LWS_US_PER_MS));
+	result = 1;
+	lws_default_loop_exit(context);
+}
+
+static void
+quiet_deadline_set(lws_usec_t from, lws_usec_t bound)
+{
+	lws_sul_schedule(context, 0, &sul_quiet, quiet_deadline_cb,
+			 from + bound - lws_now_usecs());
+}
+
+/* --quiet: the server closed its stream, with the connection */
+
+static void
+quiet_server_closed(void)
+{
+	lws_usec_t now = lws_now_usecs(),
+		   idle = (lws_usec_t)max_idle_ms * LWS_US_PER_MS;
+
+	if (quiet_over)
+		return;
+	quiet_over = 1;
+	lws_sul_cancel(&sul_quiet);
+
+	if (quiet == QCS_QUIET_CONN) {
+		lwsl_user("quiet: the server closed the connection %lldms "
+			  "after its handshake\n",
+			  (long long)((now - server_estab_us) / LWS_US_PER_MS));
+		result = 0;
+	} else {
+		lwsl_user("quiet: the server closed the connection %lldms "
+			  "after the client's last data\n",
+			  (long long)((now - server_last_rx_us) /
+							LWS_US_PER_MS));
+		/* RFC 9000 10.1: not before the idle timeout */
+		result = !server_rx || now - server_last_rx_us < idle;
+		if (result)
+			lwsl_err("quiet: the server closed it too soon\n");
+	}
+
+	lws_default_loop_exit(context);
+}
+
 static void
 check_test_completion(struct lws *wsi)
 {
@@ -1165,6 +1248,17 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
 		lwsl_wsi_info(wsi, "Server received new QUIC client connection!");
+		/* the connection's stream, not the listener */
+		if (quiet && lws_get_network_wsi(wsi) != wsi) {
+			/* the server sends nothing either */
+			server_stream = wsi;
+			server_estab_us = lws_now_usecs();
+			if (quiet == QCS_QUIET_CONN)
+				quiet_deadline_set(server_estab_us,
+						   QCS_QUIET_KEEPALIVE_US +
+						   QCS_QUIET_SLACK_US);
+			break;
+		}
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -1172,7 +1266,8 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_wsi_notice(wsi, "Client successfully established QUIC connection!");
 		spread_start = lws_now_usecs();
 		/* Trigger a write to send bulk data */
-		lws_callback_on_writable(wsi);
+		if (quiet != QCS_QUIET_CONN)
+			lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_TIMER:
@@ -1184,7 +1279,10 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		uint8_t buf[LWS_PRE + 1024];
 
-		if (client_sent >= TOTAL_DATA || client_write_not_due(wsi))
+		if (client_sent >= TOTAL_DATA ||
+		    quiet == QCS_QUIET_CONN ||
+		    (quiet && client_sent) || /* --quiet stream: one write */
+		    client_write_not_due(wsi))
 			break;
 
 		size_t to_send = TOTAL_DATA - client_sent;
@@ -1195,7 +1293,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
                 if (n > 0) {
                         client_sent += (size_t)n;
-                        if (client_sent < TOTAL_DATA)
+                        if (client_sent < TOTAL_DATA && !quiet)
                                 lws_callback_on_writable(wsi);
                 }
 		break;
@@ -1205,11 +1303,18 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_callback_on_writable(wsi);
 		break;
 
+	case LWS_CALLBACK_CLOSED:
+		if (quiet && wsi == server_stream) {
+			server_stream = NULL;
+			quiet_server_closed();
+		}
+		break;
+
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 	{
 		uint8_t buf[LWS_PRE + 1024];
 
-		if (server_only)
+		if (server_only || quiet)
 			break;
 
 		if (server_sent >= TOTAL_DATA)
@@ -1264,6 +1369,12 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		server_rx += len;
 		server_hash = simple_hash(server_hash, in, len);
+		if (quiet == QCS_QUIET_STREAM) {
+			server_last_rx_us = last_rx_us;
+			quiet_deadline_set(server_last_rx_us,
+				(lws_usec_t)max_idle_ms * LWS_US_PER_MS +
+				QCS_QUIET_SLACK_US);
+		}
 		if (server_rx >= TOTAL_DATA && !server_done) {
 			lwsl_wsi_notice(wsi, "Server received all %lu bytes, hash %u", (unsigned long)server_rx, server_hash);
 			server_done = 1;
@@ -1308,6 +1419,8 @@ enum {
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
+	LWS_SW_QUIET,
+	LWS_SW_MAX_IDLE,
 };
 
 static const struct lws_switches switches[] = {
@@ -1329,6 +1442,8 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
+	[LWS_SW_QUIET]	= { "--quiet",	"conn: after the handshake nobody sends anything; stream: the client writes once on its stream first.  The server must close the connection in time" },
+	[LWS_SW_MAX_IDLE] = { "--max-idle", "The QUIC max_idle_timeout both sides advertise, in ms, 1000 to 10000 (default 30000)" },
 };
 
 #if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
@@ -1414,6 +1529,38 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 		spread_us = (lws_usec_t)ms * LWS_US_PER_MS;
+	}
+
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_MAX_IDLE].sw);
+	if (p) {
+		int ms = atoi(p);
+
+		/* the test has to see it inside its 15s without rx */
+		if (ms < 1000 || ms > 10000) {
+			lwsl_err("--max-idle must be 1000 to 10000\n");
+			return 1;
+		}
+		max_idle_ms = (uint32_t)ms;
+	}
+
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_QUIET].sw);
+	if (p) {
+		if (!strcmp(p, "conn"))
+			quiet = QCS_QUIET_CONN;
+		else if (!strcmp(p, "stream") && max_idle_ms)
+			quiet = QCS_QUIET_STREAM;
+		else {
+			lwsl_err("--quiet must be conn, or stream with "
+				 "--max-idle\n");
+			return 1;
+		}
+		if (server_only || lws_cmdline_option(argc, argv, "-u") ||
+		    lws_cmdline_option(argc, argv,
+				       switches[LWS_SW_RELAY].sw)) {
+			lwsl_err("--quiet needs the server and client in this "
+				 "process, and no --relay\n");
+			return 1;
+		}
 	}
 
 	p = lws_cmdline_option(argc, argv, switches[LWS_SW_RELAY].sw);
@@ -1563,6 +1710,9 @@ int main(int argc, const char **argv)
 		info.port			        = CONTEXT_PORT_NO_LISTEN;
 		info.vhost_name			        = "quic-client";
 	}
+
+	/* without -u, the client shares the server's vhost, and so this */
+	info.quic_max_idle_timeout_ms = max_idle_ms;
 
 	vh = lws_create_vhost(context, &info);
 	if (!vh) {
