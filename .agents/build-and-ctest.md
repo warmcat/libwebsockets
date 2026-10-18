@@ -95,6 +95,10 @@
    ctest exercises them), and a udp relay that learns the server's SCID
    from its long headers can inject into a live h3 connection (see
    api-test-quic-forged).
+ - **DHT external-address votes on loopback:** every node shares source
+   key 127.0.0.1, so they are one witness and the quorum is 1.  Test vote
+   logic with several hosts through the dht-extvote module directly
+   (api-test-dht-extvote).
  - **DHT BEP42 cannot be tested on loopback:** private addresses are
    always `bep42_ok` (`maybe_new_node()`, `lws_dht_ads_is_private()`).
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
