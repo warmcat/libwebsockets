@@ -232,6 +232,29 @@ lws_peer_cull_peer_wait_list(struct lws_context *context)
 }
 
 /*
+ * Is peer already at ip_limit_wsi, so that a new connection from it must be
+ * refused?  If so pl_notify_cb, if any, is told, with sockfd the new
+ * connection's socket, or LWS_SOCK_INVALID if it has none of its own, and
+ * the peer's address: the one the connection is attributed to.
+ */
+int
+lws_peer_wsi_limit_reached(struct lws_context *context, struct lws_peer *peer,
+			   lws_sockfd_type sockfd)
+{
+	if (!peer || !context->ip_limit_wsi ||
+	    peer->count_wsi < context->ip_limit_wsi)
+		return 0;
+
+	lwsl_info("%s: peer reached wsi limit %d\n", __func__,
+		  context->ip_limit_wsi);
+
+	if (context->pl_notify_cb)
+		context->pl_notify_cb(context, sockfd, &peer->sa46);
+
+	return 1;
+}
+
+/*
  * Count a connection against peer.  wsi is the one it belongs to, whose close
  * gives it back, or NULL if the caller holds on to peer and gives it back
  * itself with lws_peer_track_wsi_close(), as a QUIC connection, which moves

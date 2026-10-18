@@ -244,6 +244,34 @@ lws_passthrough_vhost_destroy(struct lws_vhost *vh)
 /* -------------------------------------------------------------- pre-accept */
 
 /*
+ * Does any vhost on lv's listener trust peer to send a PROXY v2 header?  If
+ * so, a connection from it on that listener is held in the pre-accept stage
+ * for it, and attributed to the client it names.
+ */
+int
+lws_proxy_v2_trusts(struct lws_vhost *lv, const lws_sockaddr46 *peer)
+{
+	struct lws_vhost *v;
+
+	for (v = lws_vhost_first(lv->context); v; v = lws_vhost_next(v)) {
+		if (v->being_destroyed ||
+		    (v != lv && !lws_vhost_compare_listen(v, lv)))
+			continue;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&v->proxy_v2_trusted)) {
+			lws_proxy_v2_trust_t *t = lws_container_of(d,
+						lws_proxy_v2_trust_t, list);
+
+			if (!lws_sa46_on_net(peer, &t->sa46, t->net_len))
+				return 1;
+		} lws_end_foreach_dll(d);
+	}
+
+	return 0;
+}
+
+/*
  * Called when a server connection is adopted, before its tls or role sees
  * anything.  Returns 1 if it is held in the pre-accept stage: from a proxy
  * any vhost on the listener trusts for a PROXY v2 header, or on a listener
@@ -255,34 +283,16 @@ lws_pre_accept_wanted(struct lws *wsi, int tls)
 	struct lws_vhost *lv = wsi->a.vhost, *v;
 	lws_sockaddr46 peer;
 	socklen_t sl = sizeof(peer);
-	int have_peer, trusted = 0, sni = 0;
+	int trusted = 0, sni = 0;
 
 	memset(&peer, 0, sizeof(peer));
-	have_peer = !getpeername(wsi->io->desc.sockfd,
-				 (struct sockaddr *)&peer, &sl);
+	if (!getpeername(wsi->io->desc.sockfd, (struct sockaddr *)&peer, &sl))
+		trusted = lws_proxy_v2_trusts(lv, &peer);
 
-	for (v = lws_vhost_first(wsi->a.context); v; v = lws_vhost_next(v)) {
-		if (v->being_destroyed ||
-		    (v != lv && !lws_vhost_compare_listen(v, lv)))
-			continue;
-
-		if (v->passthrough_host)
+	for (v = lws_vhost_first(wsi->a.context); v; v = lws_vhost_next(v))
+		if (!v->being_destroyed && v->passthrough_host &&
+		    (v == lv || lws_vhost_compare_listen(v, lv)))
 			sni = 1;
-
-		if (!have_peer || trusted)
-			continue;
-
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      lws_dll2_get_head(&v->proxy_v2_trusted)) {
-			lws_proxy_v2_trust_t *t = lws_container_of(d,
-						lws_proxy_v2_trust_t, list);
-
-			if (!lws_sa46_on_net(&peer, &t->sa46, t->net_len)) {
-				trusted = 1;
-				break;
-			}
-		} lws_end_foreach_dll(d);
-	}
 
 	if (!trusted && !sni)
 		return 0;
@@ -370,6 +380,12 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 {
 	uint8_t hdr[LWS_PROXY_V2_MAX];
 	char peer[64], client[64];
+#if defined(LWS_WITH_PEER_LIMITS)
+	struct lws_peer *pl;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	int ah_held;
+#endif
+#endif
 	lws_proxy_v2_t pv;
 	ssize_t s;
 	int n;
@@ -416,6 +432,51 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 		lws_sa46_write_numeric_address(&pv.src, client, sizeof(client));
 	lwsl_wsi_info(wsi, "proxy %s forwards %s", peer,
 		      pv.local ? "its own connection" : client);
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	/*
+	 * Adoption left a trusted proxy's connection uncounted (see
+	 * lws_adopt_descriptor_vhost_via_info()): now we know who it is, it
+	 * counts against the client named, as a QUIC client the proxy relays
+	 * does, or for a LOCAL header, the proxy's own connection, against the
+	 * proxy.  Otherwise every client behind the proxy shares one budget,
+	 * and any one of them can spend it for all the others.
+	 */
+	pl = lws_get_or_create_peer_sa46(wsi->a.vhost, pv.local ?
+					 &wsi->io->sa46_peer : &pv.src);
+	if (lws_peer_wsi_limit_reached(wsi->a.context, pl,
+				       wsi->io->desc.sockfd)) {
+		lwsl_wsi_info(wsi, "%s %s at its connection limit: dropped",
+			      pv.local ? "proxy" : "client",
+			      pv.local ? peer : client);
+		return -1;
+	}
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	/*
+	 * An http role attaches an ah at adoption, when nobody was counting
+	 * him: give it back while he is still nobody's, and ask again once he
+	 * is the peer's, so that it is counted against the peer, and
+	 * ip_limit_ah may leave him waiting for one like any other connection
+	 * of the peer's.  Nothing has been read into it yet: the role only
+	 * reads once we are done here.
+	 */
+	ah_held = !!wsi->stream.ah;
+	if (ah_held)
+		lws_header_table_detach(wsi, 0);
+#endif
+
+	lws_peer_add_wsi(wsi->a.context, pl, wsi);
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	if (ah_held) {
+		/* attached, or waiting for one: both leave him as he was */
+		n = lws_header_table_attach(wsi, 0);
+		/* only autoservice or a client connect can close him in there */
+		assert(n != LWS_AH_ATTACH_WSI_GONE);
+	}
+#endif
+#endif
 
 	return 0;
 }

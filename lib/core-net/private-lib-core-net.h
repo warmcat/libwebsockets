@@ -1887,6 +1887,8 @@ lws_passthrough_vhost_init(struct lws_vhost *vh,
 void
 lws_passthrough_vhost_destroy(struct lws_vhost *vh);
 int
+lws_proxy_v2_trusts(struct lws_vhost *lv, const lws_sockaddr46 *peer);
+int
 lws_pre_accept_wanted(struct lws *wsi, int tls);
 int
 lws_pre_accept_service(struct lws *wsi);
@@ -2281,6 +2283,9 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd);
 struct lws_peer *
 lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
 			    const lws_sockaddr46 *sa46);
+int
+lws_peer_wsi_limit_reached(struct lws_context *context, struct lws_peer *peer,
+			   lws_sockfd_type sockfd);
 void
 lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 		 struct lws *wsi);

@@ -757,6 +757,13 @@ looked at for one, so nobody else can claim to be somebody they are not, and
 a header after the first, wherever it came from, is just the client's data.
 The list applies to every vhost on the same listener.
 
+The global per-IP limits, `"ip-limit-wsi"` and `"ip-limit-ah"`, count a proxied
+connection against the client its header names, not the proxy, so one client
+behind the proxy can't spend the budget of all the others; a connection the
+proxy makes for itself, with a LOCAL header, counts against the proxy.  Until
+its header has arrived, a connection from a trusted proxy counts against
+nobody: it is bounded by the accept timeout and the fd limit instead.
+
 ## Lwsws Plugins
 
 Protcols and extensions may also be provided from "plugins", these are

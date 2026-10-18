@@ -1060,7 +1060,9 @@ struct lws_context_creation_info {
 	 *
 	 * The callback provides the context, and an lws_sockaddr46 with the
 	 * peer address and port.  The sockfd is LWS_SOCK_INVALID for a QUIC
-	 * connection, which has no socket of its own.
+	 * connection, which has no socket of its own.  For a connection from
+	 * a .proxy_v2_trusted proxy, the address is the client its PROXY v2
+	 * header named.
 	 */
 	unsigned short ip_limit_ah;
 	/**< CONTEXT: max number of ah a single IP may use simultaneously
@@ -1349,8 +1351,11 @@ struct lws_context_creation_info {
 	 * the connection's peer address as lws reports it, eg, from
 	 * lws_get_peer_simple().  A connection from anywhere else is never
 	 * looked at for one, so nobody else can claim to be somebody they are
-	 * not.  The list applies to every vhost sharing the listener.  Needs
-	 * LWS_WITH_TLS_PASSTHROUGH. */
+	 * not.  The list applies to every vhost sharing the listener.  With
+	 * LWS_WITH_PEER_LIMITS, ip_limit_wsi and ip_limit_ah apply to the
+	 * client named too, and a LOCAL header's connection to the proxy
+	 * itself; until its header has been read, a proxy's connection counts
+	 * against nobody.  Needs LWS_WITH_TLS_PASSTHROUGH. */
 
 	uint32_t			quic_max_idle_timeout_ms;
 	/**< VHOST: 0 for default (30000), or the max_idle_timeout in ms this

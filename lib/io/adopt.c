@@ -483,15 +483,24 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 	if (info->type & LWS_ADOPT_SOCKET) {
 		peer = lws_get_or_create_peer(info->vh, info->fd.sockfd);
 
-		if (peer && info->vh->context->ip_limit_wsi &&
-		    peer->count_wsi >= info->vh->context->ip_limit_wsi) {
-			lwsl_info("Peer reached wsi limit %d\n",
-					info->vh->context->ip_limit_wsi);
-			if (info->vh->context->pl_notify_cb)
-				info->vh->context->pl_notify_cb(
-							info->vh->context,
-							info->fd.sockfd,
-							&peer->sa46);
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+		/*
+		 * A connection from a proxy we trust for a PROXY v2 header is
+		 * held in the pre-accept stage until the header says who the
+		 * client is, and is only counted then, against that client
+		 * (lws_pre_accept_proxy_v2()): counting it against the proxy
+		 * would make every client behind it share one budget.  Until
+		 * then it is counted against nobody: it is the operator's own
+		 * proxy, the header comes first on its connections, and the
+		 * stage is bounded by the accept timeout and the fd limit.
+		 */
+		if (peer && !(info->type & LWS_ADOPT_FLAG_UDP) &&
+		    lws_proxy_v2_trusts(info->vh, &peer->sa46))
+			peer = NULL;
+#endif
+
+		if (lws_peer_wsi_limit_reached(info->vh->context, peer,
+					       info->fd.sockfd)) {
 			compatible_close(info->fd.sockfd);
 			return NULL;
 		}

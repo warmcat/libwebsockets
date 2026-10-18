@@ -1827,13 +1827,8 @@ lws_quic_server_admit_established(struct lws *nwsi)
 	if (nwsi->a.vhost)
 		peer = lws_get_or_create_peer_sa46(nwsi->a.vhost,
 						   &qn->path_sa46);
-	if (peer && cx->ip_limit_wsi && peer->count_wsi >= cx->ip_limit_wsi) {
-		lwsl_wsi_info(nwsi, "Peer reached wsi limit %d",
-			      cx->ip_limit_wsi);
-		if (cx->pl_notify_cb)
-			cx->pl_notify_cb(cx, LWS_SOCK_INVALID, &peer->sa46);
+	if (lws_peer_wsi_limit_reached(cx, peer, LWS_SOCK_INVALID))
 		return 1;
-	}
 	/* the connection gives it back, lws_quic_netconn_destroy() */
 	lws_peer_add_wsi(cx, peer, NULL);
 	qn->peer = peer;
