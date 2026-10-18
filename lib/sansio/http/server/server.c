@@ -2117,7 +2117,7 @@ lws_h1_request_framing(struct lws *wsi)
  * request: for h1 that is as soon as the head is parsed, in
  * lws_handshake_server(), since the mount's redirect and a refused upgrade are
  * answered there.  h2 / h3 frame their bodies themselves, and decide it in
- * lws_http_action().
+ * lws_http_action_gates(), whichever path dispatches the request.
  */
 static int
 lws_http_request_body_framing(struct lws *wsi)
@@ -2411,28 +2411,37 @@ lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done)
 	lws_header_table_detach(wsi, 0);
 }
 
-int
-lws_http_action(struct lws *wsi)
+/*
+ * The request gates.
+ *
+ * Everything a request passes before anything mounted may act on it lives in
+ * these three helpers, run in this order: lws_http_action_request(), then
+ * lws_http_action_gates(), then for a mount bound to a protocol,
+ * lws_http_action_bind_mount().  lws_http_action() uses them for every role,
+ * and so does lws_h2_bind_for_post_before_action(), which dispatches h2 POSTs
+ * itself because of how their body is delivered.  Keeping the gates here, and
+ * only here, is what stops a gate added later from applying on one path and
+ * not the other: the h2 POST path used to carry its own partial copy, and
+ * skipped the app's FILTER_HTTP_CONNECTION and CHECK_ACCESS_RIGHTS and the
+ * body size limits (G-001), as it had skipped the interceptors (C-461).
+ *
+ * Each returns 0 to let the request on, or 1 if it decided the request
+ * (answered it, refused it, or the app took it over): g->verdict is then what
+ * lws_http_action() returns for it.
+ */
+
+static int
+lws_http_gate_bail(struct lws *wsi, struct lws_http_gate *g)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int uri_len = 0, meth, m, ha;
-	const struct lws_http_mount *hit = NULL;
-	struct lws_process_html_args args;
-	char *uri_ptr = NULL;
-#if defined(LWS_WITH_FILE_OPS)
-	char *s;
-#endif
-	/*
-	 * Set once the request has had its LWS_CALLBACK_HTTP (or was served
-	 * from a file mount).  The cgi and proxy paths jump straight into the
-	 * body handling with it clear: they own their own ah lifetime.
-	 */
-	char dispatched = 0;
-	unsigned int n;
+	lws_header_table_detach(wsi, 1);
+	g->verdict = 1;
 
-	lwsl_debug("H3_TRACE: lws_http_action entered for wsi %p. vhost=%s, mux_substream=%d\n", 
-		wsi, wsi->a.vhost ? wsi->a.vhost->name : "none", wsi->mux_substream);
+	return 1;
+}
 
+int
+lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
+{
 	/*
 	 * An h2 / h3 request whose headers did not fit was decoded to the end
 	 * without keeping them, so there is nothing here to act on: say why.
@@ -2443,21 +2452,22 @@ lws_http_action(struct lws *wsi)
 		lws_return_http_status(wsi,
 				HTTP_STATUS_REQ_HEADER_FIELDS_TOO_LARGE,
 				"Oversized headers");
-		goto bail_nuke_ah;
+		return lws_http_gate_bail(wsi, g);
 	}
 
-	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
-	if (meth < 0) {
-		lwsl_debug("H3_TRACE: lws_http_action for wsi %p aborting because get_uri_and_method returned < 0\n", wsi);
-		goto bail_nuke_ah;
+	g->meth = lws_http_get_uri_and_method(wsi, &g->uri_ptr, &g->uri_len);
+	if (g->meth < 0) {
+		lwsl_debug("%s: %p: no uri and method\n", __func__, wsi);
+		return lws_http_gate_bail(wsi, g);
 	}
 
-	if (meth >= (int)LWS_ARRAY_SIZE(method_names)) {
+	if (g->meth >= (int)LWS_ARRAY_SIZE(method_names)) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 		char name[48];
-		lwsl_wsi_warn(wsi, "invalid method %d: %s", meth, lws_io_peer_address(wsi, name, sizeof(name)));
+		lwsl_wsi_warn(wsi, "invalid method %d: %s", g->meth,
+			      lws_io_peer_address(wsi, name, sizeof(name)));
 #endif
-		goto bail_nuke_ah;
+		return lws_http_gate_bail(wsi, g);
 	}
 
 	/*
@@ -2468,27 +2478,322 @@ lws_http_action(struct lws *wsi)
 	 * connection cannot carry a stale answer into the next one.
 	 */
 
-	wsi->http.method_head = methods[meth] == WSI_TOKEN_HEAD_URI;
+	wsi->http.method_head = methods[g->meth] == WSI_TOKEN_HEAD_URI;
 
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
-	lws_metrics_tag_wsi_add(wsi, "meth", method_names[meth]);
+	lws_metrics_tag_wsi_add(wsi, "meth", method_names[g->meth]);
 
 	/* we insist on absolute paths */
 
-	if (!uri_ptr || uri_ptr[0] != '/') {
+	if (!g->uri_ptr || g->uri_ptr[0] != '/') {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 		char name[48];
-		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr (meth=%d, uri_len=%d, uri_ptr=%p): peer %s",
-				meth, (int)uri_len, (void *)uri_ptr,
-				lws_io_peer_address(wsi, name, sizeof(name)));
+		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr (meth=%d, "
+			      "uri_len=%d, uri_ptr=%p): peer %s", g->meth,
+			      (int)g->uri_len, (void *)g->uri_ptr,
+			      lws_io_peer_address(wsi, name, sizeof(name)));
 #endif
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
-		goto bail_nuke_ah;
+		return lws_http_gate_bail(wsi, g);
 	}
 
-	lwsl_debug("Method: '%s' (%d), request for '%s' (vhost '%s')\n", method_names[meth],
-		  meth, uri_ptr, wsi->a.vhost->name);
+	lwsl_debug("Method: '%s' (%d), request for '%s' (vhost '%s')\n",
+		   method_names[g->meth], g->meth, g->uri_ptr,
+		   wsi->a.vhost->name);
+
+	return 0;
+}
+
+int
+lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const struct lws_http_mount *hit;
+	int ha;
+	unsigned int n;
+
+	g->hit = NULL;
+	g->mount_rel = NULL;
+
+	if (lws_ensure_user_space(wsi))
+		return lws_http_gate_bail(wsi, g);
+
+	/*
+	 * An h1 request's body framing was decided with its head, in
+	 * lws_handshake_server(), before anything could answer it
+	 */
+	if (wsi->mux_substream && lws_http_request_body_framing(wsi)) {
+		g->verdict = 1;
+		return 1;
+	}
+
+	if (wsi->mux_substream)
+		wsi->stream.request_version = HTTP_VERSION_2;
+	else
+		lws_h1_request_framing(wsi);
+
+	n = (unsigned int)wsi->a.protocol->callback(wsi,
+				LWS_CALLBACK_FILTER_HTTP_CONNECTION,
+				wsi->user_space, g->uri_ptr,
+				(unsigned int)g->uri_len);
+	if (n) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+		char name[64];
+
+		lwsl_notice("User code denied HTTP connection: protocol=%s, "
+			    "peer=%s, uri=%s\n", wsi->a.protocol->name,
+			    lws_io_peer_address(wsi, name, sizeof(name)),
+			    g->uri_ptr);
+#endif
+		g->verdict = 1;
+
+		return 1;
+	}
+	/*
+	 * if there is content supposed to be coming,
+	 * put a timeout on it having arrived
+	 */
+	if (!wsi->mux_stream_immortal)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				(int)wsi->a.context->timeout_secs);
+#if defined(LWS_WITH_TLS)
+	if (wsi->redirect_to_https) {
+		/*
+		 * We accepted http:// only so we could redirect to
+		 * https://, so issue the redirect.  Create the redirection
+		 * URI from the host: header, and regenerate the path part from
+		 * the parsed pieces
+		 */
+		unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
+			      *end = p + wsi->a.context->pt_serv_buf_size -
+				     LWS_PRE;
+
+		n = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
+		if (!n || n > 128)
+			return lws_http_gate_bail(wsi, g);
+
+		if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST))
+			return lws_http_gate_bail(wsi, g);
+
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "https://");
+		memcpy(p, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST), n);
+		p += n;
+		*p++ = '/';
+		if (g->uri_len >= lws_ptr_diff(end, p))
+			return lws_http_gate_bail(wsi, g);
+
+		if (g->uri_ptr[0])
+			p--;
+		memcpy(p, g->uri_ptr, (unsigned int)g->uri_len);
+		p += g->uri_len;
+
+		n = 0;
+		while (lws_hdr_copy_fragment(wsi, (char *)p + 1,
+					     lws_ptr_diff(end, p) - 2,
+					     WSI_TOKEN_HTTP_URI_ARGS, (int)n) > 0) {
+			*p = n ? '&' : '?';
+			p += strlen((char *)p);
+			if (p >= end - 2)
+				return lws_http_gate_bail(wsi, g);
+			n++;
+		}
+
+		n = (unsigned int)lws_ptr_diff(p, start);
+
+		p += LWS_PRE;
+		n = (unsigned int)lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
+				      start, (int)n, &p, end);
+		if ((int)n < 0)
+			return lws_http_gate_bail(wsi, g);
+
+		g->verdict = lws_http_transaction_completed(wsi);
+
+		return 1;
+	}
+#endif
+
+#ifdef LWS_WITH_ACCESS_LOG
+	lws_prepare_access_log_info(wsi, g->uri_ptr, g->uri_len, g->meth);
+#endif
+
+	/* can we serve it from the mount list? */
+
+	wsi->mount_hit = 0;
+	wsi->http.mount_specific_headers = NULL;
+	wsi->http.mount_specific_keepalive_timeout_secs = 0;
+
+	hit = lws_find_mount(wsi, g->uri_ptr, g->uri_len);
+	lwsl_debug("%s: lws_find_mount returned %p (%s) for wsi %p\n", __func__,
+		   hit, hit ? hit->mountpoint : "none", wsi);
+	if (!hit)
+		/* nothing further to gate: the vhost's own protocol has it */
+		return 0;
+
+	wsi->mount_hit = 1;
+	wsi->http.mount_specific_headers = hit->headers;
+	wsi->http.mount_specific_keepalive_timeout_secs = hit->keepalive_timeout;
+
+	if (hit->max_http_body_size) {
+		if (wsi->http.content_length_given) {
+			if (wsi->http.rx_content_length > hit->max_http_body_size) {
+				lwsl_warn("%s: mount rejected Content-Length %llu > max %llu\n",
+					__func__, (unsigned long long)wsi->http.rx_content_length,
+					(unsigned long long)hit->max_http_body_size);
+				lws_return_http_status(wsi, HTTP_STATUS_REQ_ENTITY_TOO_LARGE, NULL);
+				g->verdict = 1;
+
+				return 1;
+			}
+		} else if (wsi->http.rx_content_length >
+						hit->max_http_body_size) {
+			/*
+			 * A body with no length up front (chunked, or an h2 /
+			 * h3 stream's, ended by the stream): the mount's limit
+			 * is its countdown.  A request with no body has none
+			 * to limit, and must not be given one to wait for.
+			 */
+			wsi->http.rx_content_length = hit->max_http_body_size;
+			wsi->http.rx_content_remain = hit->max_http_body_size;
+		}
+	}
+
+	/*
+	 * What follows the mountpoint in the path the peer asked for, taken
+	 * before an interceptor may repoint the path at its own mountpoint
+	 */
+	g->mount_rel = g->uri_ptr + hit->mountpoint_len;
+
+	n = (unsigned int)lws_http_redirect_hit(pt, wsi, hit, g->uri_ptr,
+						g->uri_len, &ha);
+	if (ha) {
+		g->verdict = (int)n;
+
+		return 1;
+	}
+
+	/*
+	 * If the mount has a interceptor requirement, and the plugin that implements
+	 * it says we are not authorized, divert the connection to the interceptor
+	 * mount
+	 */
+	hit = lws_http_evaluate_interceptors(wsi, hit, &g->uri_ptr, &g->uri_len);
+	if (!hit) {
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+		return lws_http_gate_bail(wsi, g);
+	}
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+
+	/* basic auth? */
+
+	switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
+				     hit->auth_mask & AUTH_MODE_MASK)) {
+	case LCBA_CONTINUE:
+	case LCBA_AUTH_RETRY_KEEPALIVE:
+		break;
+	case LCBA_FAILED_AUTH:
+		g->verdict = lws_unauthorised_basic_auth(wsi);
+		return 1;
+	case LCBA_END_TRANSACTION:
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+		g->verdict = lws_http_transaction_completed(wsi);
+		return 1;
+	}
+#endif
+
+	g->hit = hit;
+
+	return 0;
+}
+
+int
+lws_http_action_bind_mount(struct lws *wsi, struct lws_http_gate *g)
+{
+	const struct lws_http_mount *hit = g->hit;
+	struct lws_process_html_args args;
+	const struct lws_protocols *pp;
+	const char *name = hit->protocol ? hit->protocol : hit->origin;
+
+	/*
+	 * For the duration of this http transaction, bind us to the
+	 * protocol mounted here
+	 */
+
+	pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
+	if (!pp) {
+		lwsl_err("Unable to find plugin '%s'\n", name);
+		g->verdict = 1;
+
+		return 1;
+	}
+
+	if (lws_bind_protocol(wsi, pp, "http action CALLBACK bind")) {
+		g->verdict = 1;
+
+		return 1;
+	}
+
+	lwsl_debug("%s: %s, checking access rights for mask 0x%x\n",
+			__func__, hit->origin, hit->auth_mask);
+
+	args.p = g->uri_ptr;
+	args.len = g->uri_len;
+	args.max_len = hit->auth_mask & ~AUTH_MODE_MASK;
+	args.final = 0; /* used to signal callback dealt with it */
+	args.chunked = 0;
+
+	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
+				      wsi->user_space, &args, 0)) {
+		lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
+		return lws_http_gate_bail(wsi, g);
+	}
+	if (args.final) { /* callback completely handled it well */
+		g->verdict = 0;
+
+		return 1;
+	}
+
+	if (hit->cgienv && wsi->a.protocol->callback(wsi,
+			LWS_CALLBACK_HTTP_PMO,
+			wsi->user_space, (void *)hit->cgienv, 0)) {
+		g->verdict = 1;
+
+		return 1;
+	}
+
+	return 0;
+}
+
+int
+lws_http_action(struct lws *wsi)
+{
+	const struct lws_http_mount *hit = NULL;
+	struct lws_http_gate g;
+	int uri_len = 0, m;
+	char *uri_ptr = NULL;
+#if defined(LWS_WITH_FILE_OPS)
+	char *s;
+#endif
+	/*
+	 * Set once the request has had its LWS_CALLBACK_HTTP (or was served
+	 * from a file mount).  The cgi and proxy paths jump straight into the
+	 * body handling with it clear: they own their own ah lifetime.
+	 */
+	char dispatched = 0;
+#if defined(LWS_WITH_FILE_OPS) || defined(LWS_WITH_CGI) || \
+    defined(LWS_WITH_HTTP_PROXY)
+	unsigned int n;
+#endif
+
+	lwsl_debug("H3_TRACE: lws_http_action entered for wsi %p. vhost=%s, mux_substream=%d\n", 
+		wsi, wsi->a.vhost ? wsi->a.vhost->name : "none", wsi->mux_substream);
+
+	memset(&g, 0, sizeof(g));
+	if (lws_http_action_request(wsi, &g))
+		return g.verdict;
+	uri_ptr = g.uri_ptr;
+	uri_len = g.uri_len;
 
 #if defined(LWS_WITH_JOSE) && \
     ((defined(LWS_ROLE_WS) && (defined(LWS_ROLE_H2) || \
@@ -2550,107 +2855,14 @@ lws_http_action(struct lws *wsi)
 			goto bail_nuke_ah;
 		}
 
-	if (lws_ensure_user_space(wsi))
-		goto bail_nuke_ah;
+	g.uri_ptr = uri_ptr;
+	g.uri_len = uri_len;
+	if (lws_http_action_gates(wsi, &g))
+		return g.verdict;
+	uri_ptr = g.uri_ptr;
+	uri_len = g.uri_len;
+	hit = g.hit;
 
-	/*
-	 * An h1 request's body framing was decided with its head, in
-	 * lws_handshake_server(), before anything could answer it
-	 */
-	if (wsi->mux_substream && lws_http_request_body_framing(wsi))
-		return 1;
-
-	if (wsi->mux_substream)
-		wsi->stream.request_version = HTTP_VERSION_2;
-	else
-		lws_h1_request_framing(wsi);
-
-	n = (unsigned int)wsi->a.protocol->callback(wsi, LWS_CALLBACK_FILTER_HTTP_CONNECTION,
-				    wsi->user_space, uri_ptr, (unsigned int)uri_len);
-	if (n) {
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-		char name[64];
-
-		lwsl_notice("User code denied HTTP connection: protocol=%s, peer=%s, uri=%s\n",
-			    wsi->a.protocol->name, lws_io_peer_address(wsi, name, sizeof(name)), uri_ptr);
-#endif
-
-		return 1;
-	}
-	/*
-	 * if there is content supposed to be coming,
-	 * put a timeout on it having arrived
-	 */
-	if (!wsi->mux_stream_immortal)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-				(int)wsi->a.context->timeout_secs);
-#if defined(LWS_WITH_TLS)
-	if (wsi->redirect_to_https) {
-		/*
-		 * We accepted http:// only so we could redirect to
-		 * https://, so issue the redirect.  Create the redirection
-		 * URI from the host: header, and regenerate the path part from
-		 * the parsed pieces
-		 */
-		unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
-			      *end = p + wsi->a.context->pt_serv_buf_size -
-				     LWS_PRE;
-
-		n = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
-		if (!n || n > 128)
-			goto bail_nuke_ah;
-
-		if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST))
-			goto bail_nuke_ah;
-
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "https://");
-		memcpy(p, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST), n);
-		p += n;
-		*p++ = '/';
-		if (uri_len >= lws_ptr_diff(end, p))
-			goto bail_nuke_ah;
-
-		if (uri_ptr[0])
-			p--;
-		memcpy(p, uri_ptr, (unsigned int)uri_len);
-		p += uri_len;
-
-		n = 0;
-		while (lws_hdr_copy_fragment(wsi, (char *)p + 1,
-					     lws_ptr_diff(end, p) - 2,
-					     WSI_TOKEN_HTTP_URI_ARGS, (int)n) > 0) {
-			*p = n ? '&' : '?';
-			p += strlen((char *)p);
-			if (p >= end - 2)
-				goto bail_nuke_ah;
-			n++;
-		}
-
-		n = (unsigned int)lws_ptr_diff(p, start);
-
-		p += LWS_PRE;
-		n = (unsigned int)lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
-				      start, (int)n, &p, end);
-		if ((int)n < 0)
-			goto bail_nuke_ah;
-
-		return lws_http_transaction_completed(wsi);
-	}
-#endif
-
-#ifdef LWS_WITH_ACCESS_LOG
-	lws_prepare_access_log_info(wsi, uri_ptr, uri_len, meth);
-#endif
-
-	/* can we serve it from the mount list? */
-
-	wsi->mount_hit = 0;
-	wsi->http.mount_specific_headers = NULL;
-	wsi->http.mount_specific_keepalive_timeout_secs = 0;
-
-	hit = lws_find_mount(wsi, uri_ptr, uri_len);
-	lwsl_debug("H3_TRACE: lws_find_mount returned %p (%s) for wsi %p\n", 
-		hit, hit ? hit->mountpoint : "none", wsi);
 	if (!hit) {
 		/* deferred cleanup and reset to protocols[0] */
 
@@ -2668,65 +2880,8 @@ lws_http_action(struct lws *wsi)
 		goto after;
 	}
 
-	wsi->mount_hit = 1;
-	wsi->http.mount_specific_headers = hit->headers;
-	wsi->http.mount_specific_keepalive_timeout_secs = hit->keepalive_timeout;
-
-	if (hit->max_http_body_size) {
-		if (wsi->http.content_length_given) {
-			if (wsi->http.rx_content_length > hit->max_http_body_size) {
-				lwsl_warn("%s: mount rejected Content-Length %llu > max %llu\n",
-					__func__, (unsigned long long)wsi->http.rx_content_length,
-					(unsigned long long)hit->max_http_body_size);
-				lws_return_http_status(wsi, HTTP_STATUS_REQ_ENTITY_TOO_LARGE, NULL);
-				return 1;
-			}
-		} else if (wsi->http.rx_content_length >
-						hit->max_http_body_size) {
-			/*
-			 * A body with no length up front (chunked, or an h2 /
-			 * h3 stream's, ended by the stream): the mount's limit
-			 * is its countdown.  A request with no body has none
-			 * to limit, and must not be given one to wait for.
-			 */
-			wsi->http.rx_content_length = hit->max_http_body_size;
-			wsi->http.rx_content_remain = hit->max_http_body_size;
-		}
-	}
-
 #if defined(LWS_WITH_FILE_OPS)
-	s = uri_ptr + hit->mountpoint_len;
-#endif
-	n = (unsigned int)lws_http_redirect_hit(pt, wsi, hit, uri_ptr, uri_len, &ha);
-	if (ha)
-		return (int)n;
-
-	/*
-	 * If the mount has a interceptor requirement, and the plugin that implements
-	 * it says we are not authorized, divert the connection to the interceptor
-	 * mount
-	 */
-	hit = lws_http_evaluate_interceptors(wsi, hit, &uri_ptr, &uri_len);
-	if (!hit) {
-		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-		goto bail_nuke_ah;
-	}
-
-#if defined(LWS_WITH_HTTP_BASIC_AUTH)
-
-	/* basic auth? */
-
-	switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
-				     hit->auth_mask & AUTH_MODE_MASK)) {
-	case LCBA_CONTINUE:
-	case LCBA_AUTH_RETRY_KEEPALIVE:
-		break;
-	case LCBA_FAILED_AUTH:
-		return lws_unauthorised_basic_auth(wsi);
-	case LCBA_END_TRANSACTION:
-		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-		return lws_http_transaction_completed(wsi);
-	}
+	s = g.mount_rel;
 #endif
 
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -2765,45 +2920,8 @@ lws_http_action(struct lws *wsi)
 	 * associated protocol
 	 */
 	if (hit->origin_protocol == LWSMPRO_CALLBACK || hit->protocol) {
-		const struct lws_protocols *pp;
-		const char *name = hit->origin;
-		if (hit->protocol)
-			name = hit->protocol;
-
-		pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
-		if (!pp) {
-			lwsl_err("Unable to find plugin '%s'\n",
-				 name);
-			return 1;
-		}
-
-		if (lws_bind_protocol(wsi, pp, "http action CALLBACK bind"))
-			return 1;
-
-		lwsl_debug("%s: %s, checking access rights for mask 0x%x\n",
-				__func__, hit->origin, hit->auth_mask);
-
-		args.p = uri_ptr;
-		args.len = uri_len;
-		args.max_len = hit->auth_mask & ~AUTH_MODE_MASK;
-		args.final = 0; /* used to signal callback dealt with it */
-		args.chunked = 0;
-
-		n = (unsigned int)wsi->a.protocol->callback(wsi,
-					    LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
-					    wsi->user_space, &args, 0);
-		if (n) {
-			lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED,
-					       NULL);
-			goto bail_nuke_ah;
-		}
-		if (args.final) /* callback completely handled it well */
-			return 0;
-
-		if (hit->cgienv && wsi->a.protocol->callback(wsi,
-				LWS_CALLBACK_HTTP_PMO,
-				wsi->user_space, (void *)hit->cgienv, 0))
-			return 1;
+		if (lws_http_action_bind_mount(wsi, &g))
+			return g.verdict;
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 			lws_wsi_event(wsi, LWS_WSIEV_ACTION_BEGIN);

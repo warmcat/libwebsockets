@@ -1121,10 +1121,11 @@ lws_h2_stashed_body_nobodys(struct lws *wsi)
 }
 
 static int
-lws_h2_bind_for_post_before_action(struct lws *wsi)
+lws_h2_bind_for_post_before_action(struct lws *wsi, int *verdict)
 {
 	const struct lws_http_mount *hit;
 	int uri_len = 0, methidx, n;
+	struct lws_http_gate g;
 	char *uri_ptr = NULL;
 	uint8_t *buffered;
 	const char *p;
@@ -1133,14 +1134,6 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 	if (!p || strcmp(p, "POST"))
 		return 0;
-
-	/*
-	 * We dispatch this one ourselves rather than through
-	 * lws_http_action(), so take the method snapshot it would have taken
-	 * (C-460): from here on nothing may consult the ah for the method
-	 */
-
-	wsi->http.method_head = 0;
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) ||
 	    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH))
@@ -1154,13 +1147,10 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		return -1;
 
 	/*
-	 * Resolve the method URI up front: the mount lookup, the interceptor
-	 * chain and the dispatch all work from it, and an interceptor that
-	 * takes the request repoints it at the interceptor's own mountpoint.
-	 *
-	 * If we cannot get it, hand the request back to lws_http_action(),
-	 * which refuses it in exactly the same way it would on h1 rather than
-	 * having a second opinion about it here.
+	 * Decide whether we are the dispatch for this POST, from the mount it
+	 * is aimed at.  If we cannot even get the method URI, hand the request
+	 * back to lws_http_action(), which refuses it in exactly the same way
+	 * it would on h1 rather than having a second opinion about it here.
 	 */
 
 	methidx = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
@@ -1174,8 +1164,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 	/*
 	 * Mounts we do not dispatch: hand the request back to
-	 * lws_http_action(), which does the whole job for them, interceptor
-	 * chain and access logging included
+	 * lws_http_action(), which does the whole job for them
 	 */
 
 	if (hit && (hit->origin_protocol == LWSMPRO_CGI ||
@@ -1187,65 +1176,36 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		return 0;
 
 	/*
-	 * From here we are the dispatch for this request.  Log what he
-	 * actually asked for, before an interceptor may repoint uri_ptr at its
-	 * own mountpoint, as lws_http_action() does... and only now that we
-	 * know nobody else will log it, since preparing it twice flushes an
-	 * access log line for a request that was never served.
+	 * From here we are the dispatch for this request, so it passes the
+	 * same request gates lws_http_action() applies, from the same code:
+	 * the body framing and size limits, the app's
+	 * LWS_CALLBACK_FILTER_HTTP_CONNECTION, the mount's redirect, its
+	 * interceptor chain and basic auth, and once bound to the mount's
+	 * protocol, its LWS_CALLBACK_CHECK_ACCESS_RIGHTS.  They decide the
+	 * mount we serve, and prepare the access log.
+	 *
+	 * If they decided the request instead, it is over as it would be from
+	 * lws_http_action(), whose verdict the caller acts on.  The body
+	 * stashed while we deferred is nobody's: drop it, so the stream does
+	 * not feed it to whatever the request was refused with.
 	 */
 
-#if defined(LWS_WITH_ACCESS_LOG)
-	lws_prepare_access_log_info(wsi, uri_ptr, uri_len, methidx);
-#endif
+	memset(&g, 0, sizeof(g));
+	if (lws_http_action_request(wsi, &g) ||
+	    lws_http_action_gates(wsi, &g) ||
+	    (g.hit && lws_http_action_bind_mount(wsi, &g))) {
+		lws_buflist_destroy_all_segments(&wsi->buflist);
+		lws_dll2_remove(&wsi->dll_buflist);
+		*verdict = g.verdict;
 
-	if (hit) {
-		const struct lws_protocols *pp;
-		const char *name;
+		return 3;
+	}
 
-		/*
-		 * The mount's interceptor chain gets the request before the
-		 * bind and before LWS_CALLBACK_HTTP, ie, before any of the
-		 * protected mount's code can run, exactly as in
-		 * lws_http_action().  Without this, dispatching the POST from
-		 * here was a way past the gate that did not exist on h1.
-		 */
+	hit = g.hit;
+	uri_ptr = g.uri_ptr;
+	uri_len = g.uri_len;
 
-		hit = lws_http_evaluate_interceptors(wsi, hit, &uri_ptr,
-						     &uri_len);
-		if (!hit) {
-			/* a configured interceptor is missing: fail closed */
-			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-
-			return lws_http_transaction_completed(wsi) < 0 ? -1 : 2;
-		}
-
-		name = hit->protocol ? hit->protocol : hit->origin;
-
-		pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
-		if (!pp) {
-			lwsl_info("Unable to find protocol '%s'\n", name);
-			return -1;
-		}
-
-		if (lws_bind_protocol(wsi, pp, __func__))
-			return -1;
-#if defined(LWS_WITH_HTTP_BASIC_AUTH)
-		/* basic auth? */
-
-		switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
-					     hit->auth_mask & AUTH_MODE_MASK)) {
-		case LCBA_CONTINUE:
-		case LCBA_AUTH_RETRY_KEEPALIVE:
-			break;
-		case LCBA_FAILED_AUTH:
-			/* the response is already on its way out */
-			return lws_unauthorised_basic_auth(wsi) < 0 ? -1 : 2;
-		case LCBA_END_TRANSACTION:
-			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-			return lws_http_transaction_completed(wsi) < 0 ? -1 : 2;
-		}
-#endif
-	} else {
+	if (!hit) {
 		/*
 		 * We are this POST's dispatch, and there was no mount hit.
 		 *
@@ -1257,10 +1217,6 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		 * and invisibility to apis that walk the vhost's bound protocol
 		 * list.  Do the same reset to protocols[0] lws_http_action()
 		 * does for the no-mount case, so all paths behave the same.
-		 *
-		 * This is the first callback the protocol has had on this wsi,
-		 * so the unbind step in the bind (freeing and re-making the
-		 * unused user_space) cannot lose anything.
 		 */
 		if (lws_bind_protocol(wsi, &wsi->a.vhost->protocols[0],
 				      "no mount hit"))
@@ -1762,6 +1718,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 #if defined(LWS_WITH_SERVER)
 		if (lwsi_state(w) == LRS_DEFERRING_ACTION) {
+			int verdict = 0;
 
 			/*
 			 * we had to defer the http_action to the POLLOUT
@@ -1783,7 +1740,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					&pt->dll_buflist_owner);
 			}
 
-			n = lws_h2_bind_for_post_before_action(w);
+			n = lws_h2_bind_for_post_before_action(w, &verdict);
 			if (n < 0)
 				return -1;
 
@@ -1799,9 +1756,13 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * a second LWS_CALLBACK_HTTP for the same request.
 			 *
 			 * 2 additionally means it is already over: the request
-			 * was answered or refused (eg, by a mount interceptor)
-			 * without waiting on the body, so this stream -- and
-			 * only this stream -- closes now.
+			 * was answered without waiting on the body, so this
+			 * stream -- and only this stream -- closes now.
+			 *
+			 * 3 means the request gates decided it before any
+			 * dispatch, as they would have in lws_http_action():
+			 * verdict is what lws_http_action() would have returned,
+			 * and is acted on in the same way.
 			 */
 
 			if (n == 2) {
@@ -1812,11 +1773,15 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				continue;
 			}
 
-			if (n)
-				continue;
+			if (n == 3)
+				n = verdict;
+			else {
+				if (n)
+					continue;
 
-			lwsl_info("  h2 action start...\n");
-			n = lws_http_action(w);
+				lwsl_info("  h2 action start...\n");
+				n = lws_http_action(w);
+			}
 			if (n < 0)
 				lwsl_info ("   h2 action result %d\n", n);
 			else

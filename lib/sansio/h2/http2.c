@@ -2653,10 +2653,16 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			if (!simp) /* coverity */
 				return 1;
 			{
-				long long cl_val = atoll(simp);
-				if (cl_val < 0)
+				uint64_t cl_val;
+
+				/*
+				 * The same strict parse h1 and the request
+				 * body framing use: atoll() took "12abc" as 12
+				 * and wrapped what does not fit
+				 */
+				if (lws_http_parse_content_length(simp, &cl_val))
 					return 1;
-				h2n->swsi->http.rx_content_length = (unsigned long long)cl_val;
+				h2n->swsi->http.rx_content_length = cl_val;
 			}
 			h2n->swsi->http.rx_content_remain =
 					h2n->swsi->http.rx_content_length;

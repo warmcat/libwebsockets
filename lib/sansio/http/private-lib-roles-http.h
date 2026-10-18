@@ -594,6 +594,34 @@ lws_http_onward_header_append(struct lws *wsi, const char *name,
 
 #if defined(LWS_WITH_SERVER)
 /*
+ * The request gates every server request passes before anything mounted may
+ * act on it, shared by lws_http_action() and the h2 POST dispatch (see the
+ * comment on the implementation in server.c).  Each returns 0 to let the
+ * request on, or 1 if it decided it, verdict then being what lws_http_action()
+ * returns for it.
+ */
+struct lws_http_gate {
+	const struct lws_http_mount	*hit;
+	/**< the mount to serve the request from, NULL for none */
+	char				*uri_ptr;
+	/**< the request path, repointed at the interceptor's mountpoint if an
+	 * interceptor took the request */
+	char				*mount_rel;
+	/**< what followed the mountpoint in the path the peer sent */
+	int				uri_len;
+	int				meth;
+	/**< index of the request method, from lws_http_get_uri_and_method() */
+	int				verdict;
+};
+
+int
+lws_http_action_request(struct lws *wsi, struct lws_http_gate *g);
+int
+lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g);
+int
+lws_http_action_bind_mount(struct lws *wsi, struct lws_http_gate *g);
+
+/*
  * The one place mount interceptors are evaluated, shared by every role that
  * dispatches a request (see the comment on the implementation in server.c)
  */

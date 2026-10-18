@@ -45,6 +45,13 @@ On h3, a response write lws took whole must not report the stream as a partial
 (`lws_partial_buffered()`) or choked (`lws_send_pipe_choked()`) just because
 quic has yet to send it or have it acked: quic throttles its streams itself.
 
+The request gates do not depend on the role.  A POST the app refuses at
+`LWS_CALLBACK_FILTER_HTTP_CONNECTION` (to a callback mount and to no mount) is
+dropped, one a callback mount's `LWS_CALLBACK_CHECK_ACCESS_RIGHTS` refuses gets
+401, and a Content-Length over the mount's or the server's body limit gets 413,
+over h1 and over h2 alike, the app never seeing the request.  h2 dispatches a
+POST from its own path, which used to apply none of these.
+
 A file mount serves only what it has a mimetype for: a file whose extension
 neither the mount's `extra_mimetypes` nor the server's own table knows is
 refused with 415 over h1 and h2, rather than sent as `application/octet-stream`.

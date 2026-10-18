@@ -102,6 +102,13 @@
  * because quic has not sent it, or had it acked, yet.  That gated a writer to
  * one write per round trip, and a lossy long-rtt path stalled it for good.
  *
+ * The request gates are the same for every role and method: a POST the app
+ * refuses at LWS_CALLBACK_FILTER_HTTP_CONNECTION, or that a callback mount's
+ * LWS_CALLBACK_CHECK_ACCESS_RIGHTS refuses (401), or that declares a
+ * Content-Length over the mount's or the server's body limit (413), must be
+ * refused on h2 exactly as on h1, without the app ever seeing the request.
+ * h2 dispatches a POST from its own path, which used to apply none of these.
+ *
  * A file mount serves only what it has a mimetype for: a file with an
  * extension neither the mount nor the server knows is refused with 415, over
  * h1 and h2, rather than sent as application/octet-stream.
@@ -170,7 +177,22 @@ enum xf_gate {
 	XG_BLOCK,	/* the interceptor must take the request: the app
 			 * protocol must see no request and no body at all */
 	XG_PASS,	/* the interceptor must let it through to the app */
+	XG_REFUSED,	/* the request gates must refuse it: the app protocol
+			 * is asked at FILTER_HTTP_CONNECTION or
+			 * CHECK_ACCESS_RIGHTS, but must see no request and no
+			 * body */
 };
+
+/*
+ * Paths the server's protocol refuses at the request gates: at
+ * LWS_CALLBACK_FILTER_HTTP_CONNECTION, and at the callback mount's
+ * LWS_CALLBACK_CHECK_ACCESS_RIGHTS
+ */
+#define XF_REFUSE_FILTER	"refuse-filter"
+#define XF_REFUSE_ACCESS	"refuse-access"
+
+/* a declared body over the server's default 100MB body limit */
+#define XF_OVER_VHOST_LIMIT	200000000
 
 struct xcase {
 	const char	*name;
@@ -379,6 +401,22 @@ static const struct xcase cases[] = {
 	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 1, 0, 0, 0, 0 },
 	{ "h1 POST with an unknown Expect gets 417",
 	  "POST", "/echo-cl", XR_CL, 0, 5, 8192, 0, 0, 417, -1, XG_NONE, 2, 0, 0, 0, 0 },
+	{ "h1 POST Content-Length over the server's body limit gets 413",
+	  "POST", "/echo-cl", XR_CL, 0, XF_OVER_VHOST_LIMIT, 8192, 0, 0, 413,
+	  -1, XG_NONE, 0, 0, 0, 0, 0 },
+	/*
+	 * The request gates the app has a say in.  The h2 twins of these are
+	 * below: the answer must not depend on the role.
+	 */
+	{ "h1 POST the app refuses at FILTER_HTTP_CONNECTION is dropped",
+	  "POST", "/" XF_REFUSE_FILTER, XR_CL, 4000, 0, 8192, 0, 0, -1, 0,
+	  XG_REFUSED, 0, 0, 0, 0, 0 },
+	{ "h1 POST to a mount, refused at FILTER_HTTP_CONNECTION, is dropped",
+	  "POST", "/cb/" XF_REFUSE_FILTER, XR_CL, 4000, 0, 8192, 0, 0, -1, 0,
+	  XG_REFUSED, 0, 0, 0, 0, 0 },
+	{ "h1 POST the mount's CHECK_ACCESS_RIGHTS refuses gets 401",
+	  "POST", "/cb/" XF_REFUSE_ACCESS, XR_CL, 4000, 0, 8192, 0, 0, 401, 0,
+	  XG_REFUSED, 0, 0, 0, 0, 0 },
 #if defined(LWS_WITH_JOSE)
 	/*
 	 * Mount interceptor gating.  "/gated" is guarded by the "/bouncer"
@@ -744,6 +782,27 @@ static const struct xcase cases[] = {
 	{ "h2 POST with neither header: zero-length body",
 	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
 	/*
+	 * The request gates, as on h1 above.  h2 dispatches a POST to a
+	 * callback mount, or to no mount, from its own path, which applied
+	 * none of these: the app's refusals were ignored and a body of any
+	 * declared size was taken
+	 */
+	{ "h2 POST Content-Length over the mount limit gets 413",
+	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 1, 0, 413, -1,
+	  XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h2 POST Content-Length over the server's body limit gets 413",
+	  "POST", "/echo-cl", XR_CL, 0, XF_OVER_VHOST_LIMIT, 8192, 1, 0, 413,
+	  -1, XG_NONE, 0, 0, 0, 0, 0 },
+	{ "h2 POST the app refuses at FILTER_HTTP_CONNECTION is dropped",
+	  "POST", "/" XF_REFUSE_FILTER, XR_CL, 4000, 0, 8192, 1, 0, -1, 0,
+	  XG_REFUSED, 0, 0, 0, 0, 0 },
+	{ "h2 POST to a mount, refused at FILTER_HTTP_CONNECTION, is dropped",
+	  "POST", "/cb/" XF_REFUSE_FILTER, XR_CL, 4000, 0, 8192, 1, 0, -1, 0,
+	  XG_REFUSED, 0, 0, 0, 0, 0 },
+	{ "h2 POST the mount's CHECK_ACCESS_RIGHTS refuses gets 401",
+	  "POST", "/cb/" XF_REFUSE_ACCESS, XR_CL, 4000, 0, 8192, 1, 0, 401, 0,
+	  XG_REFUSED, 0, 0, 0, 0, 0 },
+	/*
 	 * No h2 Transfer-Encoding refusal case: the lws h2 client does not
 	 * forward a Transfer-Encoding header, so it cannot provoke one
 	 */
@@ -874,6 +933,9 @@ static struct {
 	int		conns_first;	/* ... when a reuse case's first request
 					 * completed */
 	int		gate_blocks;	/* requests the mount interceptor took */
+	int		gate_refusals;	/* requests the app refused at
+					 * FILTER_HTTP_CONNECTION or
+					 * CHECK_ACCESS_RIGHTS */
 	int		not_close;	/* requests without connection: close */
 	int		no_xff;		/* proxied requests without the
 					 * proxy's X-Forwarded-For */
@@ -1335,6 +1397,25 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 #endif
 
+	case LWS_CALLBACK_FILTER_HTTP_CONNECTION:
+		/* in is the request path, the user space is not ours yet */
+		if (path && strstr(path, XF_REFUSE_FILTER)) {
+			srv.gate_refusals++;
+			return 1;
+		}
+		break;
+
+	case LWS_CALLBACK_CHECK_ACCESS_RIGHTS: {
+		const struct lws_process_html_args *a =
+				(const struct lws_process_html_args *)in;
+
+		if (a && a->p && strstr(a->p, XF_REFUSE_ACCESS)) {
+			srv.gate_refusals++;
+			return 1;
+		}
+		break;
+	}
+
 	case LWS_CALLBACK_HTTP:
 		if (srv.http_cbs < (int)LWS_ARRAY_SIZE(srv.paths))
 			lws_strncpy(srv.paths[srv.http_cbs], path ? path : "",
@@ -1784,6 +1865,25 @@ case_evaluate(void)
 			lwsl_err("app saw %d requests, expected none\n",
 				 srv.http_cbs);
 			case_finish(0, "blocked request reached the app");
+			goto next;
+		}
+		break;
+	case XG_REFUSED:
+		/*
+		 * The app was asked at the gate and refused, so it must never
+		 * have been dispatched: no LWS_CALLBACK_HTTP, and (checked by
+		 * expect_server_rx below) no body either
+		 */
+		if (srv.gate_refusals != 1) {
+			lwsl_err("app refused %d requests at the gates, "
+				 "expected 1\n", srv.gate_refusals);
+			case_finish(0, "the request gates were not asked");
+			goto next;
+		}
+		if (srv.http_cbs) {
+			lwsl_err("app saw %d requests, expected none\n",
+				 srv.http_cbs);
+			case_finish(0, "refused request reached the app");
 			goto next;
 		}
 		break;
