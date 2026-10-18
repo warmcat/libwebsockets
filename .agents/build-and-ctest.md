@@ -148,6 +148,12 @@
    `sizeof` / `offsetof` check.  A test transport that fills its documented
    headroom with a pattern catches callers passing buffers without it,
    even on 64-bit where padding hides it (api-test-ss-proxy-mux).
+ - **"Snapshot at dispatch" red/green:** api-test-http-ah-lifetime's late-*
+   cases have the server call `lws_http_headers_detach()` at
+   LWS_CALLBACK_HTTP, on h1/h2/h3.
+ - `LWS_WITH_RANGES` defaults off: range work needs `-DLWS_WITH_RANGES=1`
+   and its code the guard.  `-DLWS_WITH_FILE_OPS=0` fails to configure
+   unless `-DLWS_WITHOUT_TESTAPPS=1` is also given.
  - **cgi stdin edge cases:** add a row to `cases[]` in
    api-test-http-cgi-stdin; its cgi.sh reads stdin to EOF, so a stdin
    that is never ended shows as a timeout (quick red/green).

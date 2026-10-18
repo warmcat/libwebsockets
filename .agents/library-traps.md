@@ -161,6 +161,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_add_http_header_by_name()` / `_by_token()` wrappers.  Code calling
    `lws_add_http2_*` / `lws_add_http3_*` directly, or composing with
    `lws_snprintf()` (the h1 client request line), gets no check (G-156).
+ - **h3 has no destroy_role:** per-stream state that h1/h2 free in
+   destroy_role (eg, the stream compressor) must be freed in
+   `rops_close_kill_connection_h3()`.
+ - **Snapshots taken at dispatch (G-151 stage 1):** Content-Type
+   (`wsi->http.content_type`, used by lws_spa), Range, gzip-acceptable,
+   stream coding (validated in the gate, so h3 too), basic-auth user
+   (`lws_http_basic_auth_user()`), method_post, expect_continue.  New code
+   must use these, not the ah, after LWS_CALLBACK_HTTP.
  - **`rx_policy()` runs only on POLLIN / POLLOUT revents** (io/service.c),
    so an h1 ah re-attach after a release happens at the next poll event,
    not every service pass.  Pipeline depth in
