@@ -86,6 +86,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **Before filing "unbounded buflist"**: every `lws_buflist` refuses to
    grow past `LWS_BUFLIST_OOM_LIMIT` (2MB, `lws_buflist_check_room()`),
    so check the append's failure handling instead (G-076, disputed).
+ - **DNS name encoders trust their input.**  In the auth-dns signer a
+   passing NSEC3 pre-pass does not cover every owner (NSEC3 owners are
+   added afterwards with one more label), so every `name_to_wire()`
+   failure must be checked where it is called (G-162); name syntax
+   (labels 1..63, total <= 255, no empty labels) is validated nowhere in
+   the zone parser.  The async-dns query encoder is bounded only by
+   `DNS_MAX` in `lws_async_dns_query()` (G-161): raising it needs real
+   checks in `lws_async_dns_writeable()`.
+ - **`lws_auth_dns_verify_zone()` is a self-consistency check, not
+   authentication** (G-163): it trusts DNSKEYs in the zone text itself.
  - **Varint-length encoders:** bounding a whole field up front with
    "len + length + small slack" is wrong once both length varints go
    multi-byte; bound each piece just before writing it (G-154, hpack).
