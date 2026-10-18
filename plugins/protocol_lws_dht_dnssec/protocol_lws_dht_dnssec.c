@@ -4640,6 +4640,12 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 				lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 			lws_sul_cancel(&req->sul_timeout);
 			lws_dll2_remove(d);
+			/*
+			 * the strike tracker of a NOTIFY's fetch is ours, and
+			 * only its completion would have freed it
+			 */
+			if (req->cb == notify_fetch_completion_cb)
+				free(req->opaque);
 			free(req);
 		} lws_end_foreach_dll_safe(d, d1);
 
