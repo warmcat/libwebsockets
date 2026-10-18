@@ -60,10 +60,22 @@ typedef enum {
 	LADNS_RET_CONTINUING
 } lws_async_dns_retcode_t;
 
+/*
+ * The values are those lws_system_ops_t .async_dns_dnssec_mode documents.
+ * Before 2026-10 REQUIRE and TOLERATE were the other way around (1 was
+ * TOLERATE), so binaries built against older headers that use the enum names
+ * now get the other mode: rebuild them.
+ */
 typedef enum {
-	LWS_ADNS_DNSSEC_OFF = 0,
-	LWS_ADNS_DNSSEC_TOLERATE,
-	LWS_ADNS_DNSSEC_REQUIRE,
+	LWS_ADNS_DNSSEC_OFF		= 0,
+	/**< no DNSSEC: queries don't ask for it and nothing is validated */
+	LWS_ADNS_DNSSEC_REQUIRE		= 1,
+	/**< every query is validated (except one marked
+	 * LWS_ADNS_INDICATE_LACKS_DNSSEC), and one that fails validation
+	 * fails */
+	LWS_ADNS_DNSSEC_TOLERATE	= 2,
+	/**< queries ask for DNSSEC records, but only those made with
+	 * LWS_ADNS_WANT_DNSSEC are validated; the rest are taken unvalidated */
 } lws_async_dns_dnssec_mode_t;
 
 #define LWS_ADNS_DNSSEC_VALID	(1 << 8)

@@ -35,9 +35,12 @@
  *    points at would,
  *  - a validated answer's cache entry holds only the RRset that was
  *    validated, not the RRSIG that came with it,
+ *  - with the context mode REQUIRE as the context was created with it, from
+ *    lws_system_ops_t .async_dns_dnssec_mode = 1, the value documented for
+ *    REQUIRE, a lookup that doesn't ask for validation is validated anyway
+ *    (1 used to be TOLERATE, which validated nothing: G-070),
  *  - with the context mode set to REQUIRE by lws_async_dns_dnssec_set_mode(),
- *    a lookup that doesn't ask for validation is validated anyway, also
- *    after the nameservers were reloaded,
+ *    the same, also after the nameservers were reloaded,
  *  - each zone's keys were only fetched once for all of that,
  *  - once the trust anchor is replaced by one that matches no root key,
  *    nothing validates any more, including what was cached as validated
@@ -618,7 +621,9 @@ struct tstep {
 	int		check_a;
 	int		from_cache;	/* must be answered from the cache */
 	int		bogus_anchor;	/* set a wrong trust anchor first */
-	int		require;	/* REQUIRE mode instead of WANT_DNSSEC */
+	int		require;	/* REQUIRE mode instead of WANT_DNSSEC:
+					 * 1: set with the setter, 2: as the
+					 * context was created */
 };
 
 static const struct tstep steps[] = {
@@ -647,6 +652,14 @@ static const struct tstep steps[] = {
 	{ .name = "www.rogue.tld",	.qtype = RR_A },
 	/* an unsigned CNAME to it isn't believed */
 	{ .name = "plain.zone.tld",	.qtype = RR_A },
+	/*
+	 * Validated because the context mode is REQUIRE, as it was created
+	 * with it from the system ops (everything above asked for validation
+	 * itself, so ran the same under it)
+	 */
+	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
+	  .expect_valid = 1,		.check_a = 1,
+	  .require = 2 },
 	/*
 	 * Validated because the context mode is REQUIRE, set with the
 	 * setter: it must survive the nameserver reload done first
@@ -811,7 +824,7 @@ step_start(void)
 		}
 	}
 
-	if (t->require) {
+	if (t->require == 1) {
 		/*
 		 * A reload asks the platform for its nameservers again (ours
 		 * is pinned, so it stays the only one), as happens when the
@@ -945,6 +958,7 @@ main(int argc, const char **argv)
 {
 	static const char *servers[] = { "127.0.0.1", NULL };
 	struct lws_context_creation_info info;
+	lws_system_ops_t ops;
 	lws_adns_ds_anchor_t an;
 	uint8_t anchor_rd[4 + 32];
 	uint16_t anchor_rdlen, port;
@@ -966,9 +980,17 @@ main(int argc, const char **argv)
 	lws_snprintf(portstr, sizeof(portstr), "%u", port);
 	setenv("LWS_ASYNCDNS_PORT", portstr, 1);
 
+	/*
+	 * The default mode, as an integrator following lws_system_ops_t's
+	 * documentation writes it: 1 is REQUIRE
+	 */
+	memset(&ops, 0, sizeof(ops));
+	ops.async_dns_dnssec_mode = 1;
+
 	info.port		= CONTEXT_PORT_NO_LISTEN;
 	info.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.async_dns_servers	= servers;
+	info.system_ops		= &ops;
 
 	cx = lws_create_context(&info);
 	if (!cx) {

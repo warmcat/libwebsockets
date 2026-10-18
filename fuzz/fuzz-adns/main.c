@@ -182,8 +182,8 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	}
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-	lws_async_dns_dnssec_set_mode(cx,
-			(lws_async_dns_dnssec_mode_t)(data[0] & 3) > LWS_ADNS_DNSSEC_REQUIRE ?
+	/* 0 .. 2 are the modes; 3 is OFF as well */
+	lws_async_dns_dnssec_set_mode(cx, (data[0] & 3) == 3 ?
 				LWS_ADNS_DNSSEC_OFF :
 				(lws_async_dns_dnssec_mode_t)(data[0] & 3));
 #endif

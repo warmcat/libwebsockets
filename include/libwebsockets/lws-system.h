@@ -266,10 +266,14 @@ typedef struct lws_system_ops {
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	uint8_t			async_dns_dnssec_mode;
-	/**< 0: OFF, 1: REQUIRE, 2: TOLERATE */
+	/**< lws_async_dns_dnssec_mode_t: 0: LWS_ADNS_DNSSEC_OFF,
+	 * 1: LWS_ADNS_DNSSEC_REQUIRE, 2: LWS_ADNS_DNSSEC_TOLERATE.  Any
+	 * other value is logged and treated as REQUIRE. */
 
 	const char		*async_dns_dnssec_trust_anchor;
-	/**< base64 DS record string serving as the root trust anchor */
+	/**< NOT IMPLEMENTED: nothing reads this, the built-in root anchors
+	 * are used whatever it says.  Set your own root anchors with
+	 * lws_async_dns_dnssec_set_root_anchors(). */
 #endif
 
 #if defined(LWS_WITH_NETWORK)

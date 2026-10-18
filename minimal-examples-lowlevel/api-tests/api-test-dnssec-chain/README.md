@@ -27,6 +27,9 @@ It checks that
    would validate
  - a validated address answer's cache entry holds only the A RRset, not the
    RRSIG that came with it
+ - with the context created with `lws_system_ops_t`
+   `.async_dns_dnssec_mode = 1`, the documented value for REQUIRE, a lookup
+   that doesn't ask with `LWS_ADNS_WANT_DNSSEC` is validated anyway
  - with the context mode set to `LWS_ADNS_DNSSEC_REQUIRE` by
    `lws_async_dns_dnssec_set_mode()`, a lookup that doesn't ask with
    `LWS_ADNS_WANT_DNSSEC` is validated anyway, also after the nameservers were

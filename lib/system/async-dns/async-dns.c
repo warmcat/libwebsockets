@@ -1030,7 +1030,9 @@ lws_async_dns_init(struct lws_context *context)
 	if (!dns->cx) {
 		const lws_system_ops_t *ops = lws_system_get_ops(context);
 
-		dns->dnssec_mode = ops ? ops->async_dns_dnssec_mode : 0;
+		lws_async_dns_dnssec_set_mode(context, ops ?
+			(lws_async_dns_dnssec_mode_t)ops->async_dns_dnssec_mode :
+			LWS_ADNS_DNSSEC_OFF);
 	}
 
 	dns->cx = context;
@@ -2657,6 +2659,22 @@ void
 lws_async_dns_dnssec_set_mode(struct lws_context *context,
 			      lws_async_dns_dnssec_mode_t mode)
 {
+	/*
+	 * Someone asked for some kind of DNSSEC but we don't know which: the
+	 * safe reading is the one that validates
+	 */
+	switch (mode) {
+	case LWS_ADNS_DNSSEC_OFF:
+	case LWS_ADNS_DNSSEC_REQUIRE:
+	case LWS_ADNS_DNSSEC_TOLERATE:
+		break;
+	default:
+		lwsl_cx_err(context, "unknown DNSSEC mode %d, using REQUIRE",
+			    (int)mode);
+		mode = LWS_ADNS_DNSSEC_REQUIRE;
+		break;
+	}
+
 	/* nameserver reloads keep it, see lws_async_dns_init() */
 	context->async_dns.dnssec_mode = (uint8_t)mode;
 }
