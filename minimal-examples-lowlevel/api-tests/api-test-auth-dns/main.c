@@ -113,16 +113,20 @@ load_zone(struct auth_dns_zone *z, const char *path)
 	return r;
 }
 
-/* sign \p in to \p out with a fixed validity, so the result is reproducible */
+/*
+ * sign \p in to \p out with a fixed validity, so the result is reproducible,
+ * as zone \p domain if not NULL
+ */
 
 static int
-sign_zone_to(struct lws_context *cx, const char *in, const char *out,
-	     const char *jws)
+sign_zone_as(struct lws_context *cx, const char *in, const char *out,
+	     const char *jws, const char *domain)
 {
 	struct lws_auth_dns_sign_info info;
 
 	memset(&info, 0, sizeof(info));
 	info.cx			= cx;
+	info.domain		= domain;
 	info.input_filepath	= in;
 	info.output_filepath	= out;
 	info.jws_filepath	= jws;
@@ -132,6 +136,13 @@ sign_zone_to(struct lws_context *cx, const char *in, const char *out,
 	info.sign_validity_duration = 30 * 24 * 3600;
 
 	return lws_auth_dns_sign_zone(&info);
+}
+
+static int
+sign_zone_to(struct lws_context *cx, const char *in, const char *out,
+	     const char *jws)
+{
+	return sign_zone_as(cx, in, out, jws, NULL);
 }
 
 static int
@@ -409,6 +420,125 @@ bail:
 	lws_auth_dns_free_zone(&z);
 
 	return r;
+}
+
+/*
+ * G-117: a zone's identity is its $ORIGIN, but zone text can carry several,
+ * each changing the origin for what follows, and different readers took
+ * different ones.  A zone signed with one domain's keys was installed and
+ * served as whatever its last $ORIGIN named.  The signer, and anything else
+ * binding zone text to a domain, must refuse text that is not exactly that
+ * one domain's zone.
+ */
+
+static const char *origin_victim_tail =
+	"$ORIGIN victim.\n"
+	"@ IN SOA ns1.victim. hostmaster.victim. ( 2026090899 60 120 1209600 120 )\n"
+	"www IN A 127.0.0.66\n";
+
+static int
+origin_check_text(const char *text, const char *domain)
+{
+	struct auth_dns_zone z;
+	int r;
+
+	memset(&z, 0, sizeof(z));
+	r = lws_auth_dns_parse_zone_buf(text, strlen(text), &z);
+	if (!r)
+		r = lws_auth_dns_zone_check_origin(&z, domain);
+	lws_auth_dns_free_zone(&z);
+
+	return r;
+}
+
+static int
+test_origin_identity(struct lws_context *cx)
+{
+	static const struct {
+		const char	*what;
+		const char	*text;
+		const char	*domain;
+		int		refused;
+	} c[] = {
+		{ "single origin", "$ORIGIN example.com.\n"
+		  "www IN A 127.0.0.2\n", "example.com", 0 },
+		{ "domain case and dot", "$ORIGIN example.com\n"
+		  "www IN A 127.0.0.2\n", "EXAMPLE.com.", 0 },
+		{ "absolute owner in zone", "$ORIGIN example.com.\n"
+		  "www.example.com. IN A 127.0.0.2\n", "example.com", 0 },
+		{ "other domain", "$ORIGIN example.com.\n"
+		  "www IN A 127.0.0.2\n", "victim", 1 },
+		{ "suffix is not the domain", "$ORIGIN xexample.com.\n"
+		  "www IN A 127.0.0.2\n", "example.com", 1 },
+		{ "trailing $ORIGIN", "$ORIGIN example.com.\n"
+		  "www IN A 127.0.0.2\n$ORIGIN victim.\n"
+		  "www IN A 127.0.0.66\n", "example.com", 1 },
+		{ "trailing $ORIGIN, no domain", "$ORIGIN example.com.\n"
+		  "www IN A 127.0.0.2\n$ORIGIN victim.\n"
+		  "www IN A 127.0.0.66\n", NULL, 1 },
+		{ "repeated same $ORIGIN", "$ORIGIN example.com.\n"
+		  "$ORIGIN example.com.\nwww IN A 127.0.0.2\n",
+		  "example.com", 1 },
+		{ "no $ORIGIN", "www.example.com. IN A 127.0.0.2\n",
+		  "example.com", 1 },
+		{ "owner outside zone", "$ORIGIN example.com.\n"
+		  "www.victim. IN A 127.0.0.66\n", "example.com", 1 },
+		{ "owner suffix outside zone", "$ORIGIN example.com.\n"
+		  "wwwexample.com. IN A 127.0.0.66\n", "example.com", 1 },
+	};
+	char body[2048];
+	size_t n;
+	int fd;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(c); n++)
+		if (!origin_check_text(c[n].text, c[n].domain) != !c[n].refused) {
+			lwsl_err("%s: %s: %s\n", __func__, c[n].what,
+				 c[n].refused ? "accepted" : "refused");
+			return 1;
+		}
+
+	/* the signer: the zone alone signs as its domain... */
+
+	if (write_zone("./test-origin.zone.in", "$ORIGIN example.com.\n") ||
+	    sign_zone_as(cx, "./test-origin.zone.in", "./test-origin.zone.signed",
+			 "./test-origin.zone.signed.jws", "example.com")) {
+		lwsl_err("%s: control zone did not sign\n", __func__);
+		return 1;
+	}
+
+	/* ...but not as another domain */
+
+	if (!sign_zone_as(cx, "./test-origin.zone.in", "./test-origin.zone.signed",
+			  "./test-origin.zone.signed.jws", "victim")) {
+		lwsl_err("%s: signed example.com as victim\n", __func__);
+		return 1;
+	}
+
+	/* ...and not with another domain's records after it */
+
+	n = (size_t)lws_snprintf(body, sizeof(body), "$ORIGIN example.com.\n%s%s",
+				 zone_body, origin_victim_tail);
+	fd = open("./test-origin.zone.in", LWS_O_WRONLY | LWS_O_CREAT |
+						LWS_O_TRUNC, 0600);
+	if (fd < 0 || write(fd, body, n) != (ssize_t)n) {
+		if (fd >= 0)
+			close(fd);
+		lwsl_err("%s: unable to write zone\n", __func__);
+		return 1;
+	}
+	close(fd);
+
+	if (!sign_zone_as(cx, "./test-origin.zone.in", "./test-origin.zone.signed",
+			  "./test-origin.zone.signed.jws", "example.com") ||
+	    !sign_zone_as(cx, "./test-origin.zone.in", "./test-origin.zone.signed",
+			  "./test-origin.zone.signed.jws", NULL)) {
+		lwsl_err("%s: signed a zone with a trailing $ORIGIN\n", __func__);
+		return 1;
+	}
+
+	lwsl_user("%s: ok\n", __func__);
+
+	return 0;
 }
 
 /* canonical wire form of a text name, "." or "" is the root */
@@ -925,6 +1055,9 @@ int main(int argc, const char **argv)
 		goto bail;
 
 	if (test_unexpanded())
+		goto bail;
+
+	if (test_origin_identity(cx))
 		goto bail;
 
 	if (test_nsec3())

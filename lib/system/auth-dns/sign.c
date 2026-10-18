@@ -2114,6 +2114,16 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 
 	if (lws_auth_dns_parse_zone_buf(buf, (size_t)n, &zone)) {
 		lwsl_err("Verify failed to parse zone\n");
+		lws_auth_dns_free_zone(&zone);
+		lws_free(buf);
+		return 1;
+	}
+
+	/* signatures over a zone are only as good as its identity */
+	if (lws_auth_dns_zone_check_origin(&zone, info->domain)) {
+		lwsl_err("%s: zone is not %s\n", __func__,
+			 info->domain ? info->domain : "coherent");
+		lws_auth_dns_free_zone(&zone);
 		lws_free(buf);
 		return 1;
 	}

@@ -48,10 +48,33 @@ struct auth_dns_zone {
 	lws_dll2_owner_t rrset_list;
 	char default_ttl[16];
 	char origin[256];
+	unsigned int origin_lines;	/* $ORIGIN directives the text had */
 };
 
 LWS_VISIBLE LWS_EXTERN int
 lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone);
+
+/**
+ * lws_auth_dns_zone_check_origin() - confirm a parsed zone is one domain's
+ *
+ * \param z: the zone as lws_auth_dns_parse_zone_buf() parsed it
+ * \param domain: the domain the zone must be for, with or without its
+ *		  trailing dot, or NULL to only check the zone is coherent
+ *
+ * A zone's identity is its origin, but zone text can carry any number of
+ * $ORIGIN lines, and each one changes the origin for the records after it.
+ * Anything that binds zone text to a domain (signing it with that domain's
+ * keys, accepting it as signed by them, installing it as that domain's zone)
+ * must agree with the parser that will serve it about which domain that is.
+ *
+ * Returns 0 if the text set its origin with exactly one $ORIGIN line, that
+ * origin is \p domain (ignoring case) when \p domain is given, and every
+ * owner name in the zone is the origin or a name below it.  Otherwise
+ * nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_auth_dns_zone_check_origin(const struct auth_dns_zone *z,
+			       const char *domain);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_auth_dns_free_zone(struct auth_dns_zone *z);
@@ -133,6 +156,7 @@ struct lws_auth_dns_sign_info {
 	const char			*ipv4;              /* detected external addresses, */
 	const char			*ipv6;              /* for subst_cb's ${EXTIP4} / ${EXTIP6} */
 	struct lws_context		*cx;                /* For logging/alloc */
+	const char			*domain;            /* NULL, or the only zone the input may be, see lws_auth_dns_zone_check_origin() */
 
 	const char			*curr_line;
 	size_t				curr_line_len;
@@ -143,6 +167,10 @@ struct lws_auth_dns_sign_info {
  * lws_auth_dns_sign_zone() - read, sign and output an authoritative DNS zone
  *
  * \param info: the params for configuring the sign operation
+ *
+ * The input zone must pass lws_auth_dns_zone_check_origin() against
+ * \p info->domain (or, with that NULL, against itself), otherwise nothing
+ * is signed and nonzero is returned.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info);

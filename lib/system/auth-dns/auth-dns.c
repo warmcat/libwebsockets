@@ -143,6 +143,73 @@ auth_dns_name_qualify(char *name, size_t len, const char *origin)
 	lws_strncpy(name, t, len);
 }
 
+/* is name (with or without its trailing dot) the origin, or below it? */
+
+static int
+auth_dns_name_in_origin(const char *name, const char *origin, size_t ol)
+{
+	size_t nl = strlen(name);
+
+	if (nl && name[nl - 1] == '.')
+		nl--;
+
+	if (!ol) /* the root: every name is below it */
+		return 1;
+
+	if (nl == ol)
+		return !strncasecmp(name, origin, ol);
+
+	return nl > ol && name[nl - ol - 1] == '.' &&
+	       !strncasecmp(name + nl - ol, origin, ol);
+}
+
+int
+lws_auth_dns_zone_check_origin(const struct auth_dns_zone *z,
+			       const char *domain)
+{
+	size_t ol = strlen(z->origin), dl;
+
+	/*
+	 * No $ORIGIN leaves relative names unqualified, and more than one
+	 * makes the zone's identity depend on which one a reader takes
+	 */
+	if (z->origin_lines != 1 || !ol) {
+		lwsl_warn("%s: zone must set its origin exactly once (%u "
+			  "$ORIGIN lines)\n", __func__, z->origin_lines);
+		return 1;
+	}
+
+	if (z->origin[ol - 1] == '.')
+		ol--;
+
+	if (domain) {
+		dl = strlen(domain);
+		if (dl && domain[dl - 1] == '.')
+			dl--;
+
+		if (dl != ol || strncasecmp(domain, z->origin, ol)) {
+			lwsl_warn("%s: zone origin %s is not %s\n", __func__,
+				  z->origin, domain);
+			return 1;
+		}
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d,
+					struct auth_dns_rrset, list);
+
+		if (!rs->name ||
+		    !auth_dns_name_in_origin(rs->name, z->origin, ol)) {
+			lwsl_warn("%s: owner %s is outside zone %s\n", __func__,
+				  rs->name ? rs->name : "(none)", z->origin);
+			return 1;
+		}
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 int
 lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone)
 {
@@ -216,6 +283,14 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 
 				if (!strncmp(line_accum, "$ORIGIN", 7)) {
 					const char *v = line_accum + 7;
+
+					/*
+					 * each one changes the origin for the
+					 * records after it: count them, so a
+					 * zone's identity can be checked by
+					 * lws_auth_dns_zone_check_origin()
+					 */
+					zone->origin_lines++;
 					while (*v == ' ' || *v == '\t') v++;
 					lws_strncpy(zone->origin, v, sizeof(zone->origin));
 					char *sp = (char *)strchr(zone->origin, ' ');
@@ -517,6 +592,18 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 
 	if (lws_auth_dns_parse_zone_buf(expbuf, uout, &zone)) {
 		lwsl_err("Failed to parse zone\n");
+		goto bail_zone;
+	}
+
+	/*
+	 * The signed output carries one $ORIGIN, the last one the input had,
+	 * so whatever the input said its domain was elsewhere, only signing
+	 * input that is exactly the one zone we were asked to sign means the
+	 * signature binds to what it says
+	 */
+	if (lws_auth_dns_zone_check_origin(&zone, info->domain)) {
+		lwsl_err("%s: refusing to sign zone %s\n", __func__,
+			 info->domain ? info->domain : zone.origin);
 		goto bail_zone;
 	}
 
