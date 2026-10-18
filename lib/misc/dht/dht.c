@@ -386,7 +386,9 @@ fail:
  * reply: id, len, offset, sack (alphabetical)
  *
  * The tid is the one the peer sent its chunk with: that is how its sequencer
- * knows the ack comes from someone who received the chunk.
+ * knows the ack comes from someone who received the chunk.  The offset is how
+ * much of the peer's stream we hold, from the receive half: the send half's
+ * progress is ours, and the peer refuses an ack beyond what it sent.
  */
 
 int
@@ -405,7 +407,7 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 	    dht_tx_lit(&t, "3:len") ||
 	    dht_tx_int(&t, 0) ||
 	    dht_tx_lit(&t, "6:offset") ||
-	    dht_tx_int(&t, stats->ack_offset))
+	    dht_tx_int(&t, stats->rx_offset))
 		goto fail;
 
 	{

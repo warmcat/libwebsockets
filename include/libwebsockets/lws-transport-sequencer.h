@@ -81,6 +81,11 @@ typedef struct lws_transport_sequencer_stats {
 	uint64_t	tx_bytes;
 	uint64_t	rx_bytes;
 	uint64_t	ack_offset;
+	/**< send half: the peer has acknowledged everything we sent below
+	 * this offset */
+	uint64_t	rx_offset;
+	/**< receive half: we have received everything the peer sent below
+	 * this offset, the cumulative point our acks report */
 } lws_transport_sequencer_stats_t;
 
 typedef struct lws_transport_sequencer_info {

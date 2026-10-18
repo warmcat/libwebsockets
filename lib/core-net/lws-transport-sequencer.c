@@ -457,7 +457,7 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	/* Update next_rx_offset for cumulative ACK if it matches exactly */
 	if (offset == ts->next_rx_offset) {
 		ts->next_rx_offset += len;
-		ts->stats.ack_offset = ts->next_rx_offset;
+		ts->stats.rx_offset = ts->next_rx_offset;
 	}
 
 	ts->stats.rx_packets++;
@@ -500,8 +500,11 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 
 		if ((uint64_t)r->offset + r->len > ts->next_rx_offset) {
 			ts->next_rx_offset = (uint64_t)r->offset + r->len;
-			/* for a receiver, stats ack_offset is next_rx_offset */
-			ts->stats.ack_offset = ts->next_rx_offset;
+			/*
+			 * what our acks report as received: not
+			 * stats.ack_offset, which is the send half's
+			 */
+			ts->stats.rx_offset = ts->next_rx_offset;
 		}
 
 		lws_dll2_remove(&r->list);

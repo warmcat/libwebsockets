@@ -71,8 +71,12 @@
  *    its own token: B, made with a share of KRPC_SHARE hashes per source
  *    host, starts storage for only as many as are left of A's share
  *    (G-121)
+ *  - a second plain UDP socket Q sends B a reliable stream, and B then
+ *    sends Q more than Q sent B, which Q acks.  A repeat of Q's chunk is
+ *    still acked at Q's offset, not at B's send progress (G-140).  B
+ *    delivers each of Q's chunks exactly once
  *
- * The UDP ports (four to listen on, one left unused) are allocated uniquely
+ * The UDP ports (five to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
  * instances do not collide.
  *
@@ -94,7 +98,7 @@ static struct lws_vhost *vh_a, *vh_b, *vh_c;
 static struct lws_dht_ctx *dht_a, *dht_b, *dht_c;
 static lws_sorted_usec_list_t sul_poll, sul_deadline;
 
-static struct sockaddr_in sa_a, sa_b, sa_c, sa_r, sa_dead;
+static struct sockaddr_in sa_a, sa_b, sa_c, sa_r, sa_q, sa_dead;
 
 static const char *data_msg = "PUT 0102030405 0 5 hello";
 static const char *cap_req = "CAP_REQ 0102030405 0 0 ";
@@ -110,10 +114,17 @@ static size_t token_len;
 static const char raw_query_head[] = "d1:ad2:id20:";
 static const char raw_query_tail[] = "e1:q9:find_node1:t2:aa1:y1:qe";
 static const char err_msg[] = "find_node with no target";
-static struct lws *wsi_raw;
-static uint8_t raw_tx[1024];
-static size_t raw_tx_len;
-static struct sockaddr_in raw_tx_to;
+
+/* a hand-driven KRPC peer: its socket and the one datagram it has queued */
+struct raw_peer {
+	struct lws		*wsi;
+	uint8_t			tx[1024];
+	size_t			tx_len;
+	struct sockaddr_in	to;
+};
+
+/* R, and Q, the sender of a reliable stream to B */
+static struct raw_peer peer_r, peer_q;
 
 struct seen {
 	unsigned char token_ok:1;	/* A got B's get_peers token */
@@ -163,6 +174,10 @@ struct seen {
 	unsigned char srch_bad:1;	/* ...or it took too much */
 	unsigned char share_ok:1;	/* B kept to the token and the share */
 	unsigned char share_bad:1;	/* ...or it did not */
+	unsigned char q_up:1;		/* Q's socket is bound */
+	unsigned char q_b_sent:1;	/* B's send to Q completed */
+	unsigned char q_ok:1;		/* B kept to Q's session */
+	unsigned char q_bad:1;		/* ...or it did not */
 };
 
 /* the id R answers A's ping with, and the polls since it did */
@@ -194,6 +209,32 @@ static int seq_state, seq_polls, cap_rsps;
 static uint8_t seq_tid[16];
 static size_t seq_tid_len;
 static uint64_t cap_rsp_len;
+
+/*
+ * Q sends B a reliable stream by hand, as a peer of B's with session tid T.
+ * Each state is waiting for B's answer to the chunk Q sent in it.
+ */
+enum {
+	KRPC_QS_IDLE,
+	KRPC_QS_T0,		/* Q's first chunk, tid T at 0 */
+	KRPC_QS_T1,		/* Q's next chunk */
+	KRPC_QS_B_SENDS,	/* B sends Q more than Q sent B, Q acks it */
+	KRPC_QS_DUP,		/* Q repeats its chunk at T1's offset */
+	KRPC_QS_DONE
+};
+
+#define KRPC_Q_TID_T		"sqTTTTTTTT"
+
+/*
+ * What Q sends B, in order.  B's message to Q is longer than everything Q
+ * sends B.
+ */
+static const char * const q_msg[] = {
+	"Q session T chunk 0.",
+	"Q session T chunk 1.",
+};
+static const char *q_b_msg = "B to Q: longer than all Q sent B on T so far";
+static int q_state, q_seen[LWS_ARRAY_SIZE(q_msg)];
 
 /*
  * The search A makes once the transport cases are done, and what R's answer
@@ -445,17 +486,20 @@ krpc_chunk_tid(const uint8_t *buf, size_t len, uint8_t *tid, size_t *tid_len)
 }
 
 static void
+peer_queue(struct raw_peer *p, const void *buf, size_t len,
+	   const struct sockaddr_in *to);
+static void
 raw_queue(const void *buf, size_t len, const struct sockaddr_in *to);
 static void
 ss_rx(const uint8_t *in, size_t len);
 static void
 search_rx(const uint8_t *in, size_t len);
 
-/* R's ack, from R's id, claiming everything below offset */
+/* a raw peer's ack, from R's id, claiming everything below offset */
 
 static void
-krpc_queue_ack(const uint8_t *tid, size_t tid_len, uint64_t offset,
-	       const struct sockaddr_in *to)
+krpc_queue_ack(struct raw_peer *p, const uint8_t *tid, size_t tid_len,
+	       uint64_t offset, const struct sockaddr_in *to)
 {
 	uint8_t q[128];
 	int n;
@@ -470,7 +514,7 @@ krpc_queue_ack(const uint8_t *tid, size_t tid_len, uint64_t offset,
 	memcpy(q + n, tid, tid_len);
 	memcpy(q + (size_t)n + tid_len, "1:y1:re", 7);
 
-	raw_queue(q, (size_t)n + tid_len + 7, to);
+	peer_queue(p, q, (size_t)n + tid_len + 7, to);
 }
 
 /* R's data chunk to B, carrying a capability request */
@@ -514,20 +558,20 @@ seq_rx(const struct sockaddr_in *from, const uint8_t *in, size_t len)
 
 		cap_rsps++;
 
-		if (seq_state == KRPC_SEQ_CAP1 && !raw_tx_len) {
+		if (seq_state == KRPC_SEQ_CAP1 && !peer_r.tx_len) {
 			/*
 			 * Acked with the tid acks used to have, which anyone
 			 * naming R as the source could send
 			 */
 			cap_rsp_len = (uint64_t)krpc_int(in, len, "3:leni");
-			krpc_queue_ack((const uint8_t *)"sqnc", 4, cap_rsp_len,
-				       &sa_b);
+			krpc_queue_ack(&peer_r, (const uint8_t *)"sqnc", 4,
+				       cap_rsp_len, &sa_b);
 			seq_state = KRPC_SEQ_CAP1_ACKED;
 		}
 		return;
 	}
 
-	if (from->sin_port != sa_a.sin_port || raw_tx_len)
+	if (from->sin_port != sa_a.sin_port || peer_r.tx_len)
 		return;
 
 	/*
@@ -539,7 +583,8 @@ seq_rx(const struct sockaddr_in *from, const uint8_t *in, size_t len)
 	case KRPC_SEQ_A_SENT:
 		memcpy(seq_tid, tid, tid_len);
 		seq_tid_len = tid_len;
-		krpc_queue_ack((const uint8_t *)"sqnc", 4, (uint64_t)-1, &sa_a);
+		krpc_queue_ack(&peer_r, (const uint8_t *)"sqnc", 4,
+			       (uint64_t)-1, &sa_a);
 		seq_state = KRPC_SEQ_ACKED_SQNC;
 		break;
 	case KRPC_SEQ_ACKED_SQNC:
@@ -550,15 +595,16 @@ seq_rx(const struct sockaddr_in *from, const uint8_t *in, size_t len)
 			break;
 		}
 		tid[tid_len - 1] ^= 1;
-		krpc_queue_ack(tid, tid_len, strlen(seq_msg), &sa_a);
+		krpc_queue_ack(&peer_r, tid, tid_len, strlen(seq_msg), &sa_a);
 		seq_state = KRPC_SEQ_ACKED_NONCE;
 		break;
 	case KRPC_SEQ_ACKED_NONCE:
-		krpc_queue_ack(tid, tid_len, strlen(seq_msg) + 1, &sa_a);
+		krpc_queue_ack(&peer_r, tid, tid_len, strlen(seq_msg) + 1,
+			       &sa_a);
 		seq_state = KRPC_SEQ_ACKED_BEYOND;
 		break;
 	case KRPC_SEQ_ACKED_BEYOND:
-		krpc_queue_ack(tid, tid_len, strlen(seq_msg), &sa_a);
+		krpc_queue_ack(&peer_r, tid, tid_len, strlen(seq_msg), &sa_a);
 		seq_state = KRPC_SEQ_ACKED_REAL;
 		break;
 	default:
@@ -567,24 +613,61 @@ seq_rx(const struct sockaddr_in *from, const uint8_t *in, size_t len)
 }
 
 /*
- * R: a plain UDP socket speaking KRPC by hand, the peer the DHT contexts
- * cannot be made to be.  It sends whatever was queued in raw_tx when the
- * event loop lets it, and inspects what B answers.
+ * R and Q: plain UDP sockets speaking KRPC by hand, the peers the DHT
+ * contexts cannot be made to be.  Each sends whatever was queued in its tx
+ * when the event loop lets it, and inspects what the contexts answer.
  */
 
 static void
-raw_queue(const void *buf, size_t len, const struct sockaddr_in *to)
+peer_queue(struct raw_peer *p, const void *buf, size_t len,
+	   const struct sockaddr_in *to)
 {
-	if (len > sizeof(raw_tx)) {
+	if (len > sizeof(p->tx)) {
 		lwsl_err("%s: %u bytes too long to queue\n", __func__,
 			 (unsigned int)len);
 		return;
 	}
 
-	memcpy(raw_tx, buf, len);
-	raw_tx_len = len;
-	raw_tx_to = *to;
-	lws_callback_on_writable(wsi_raw);
+	memcpy(p->tx, buf, len);
+	p->tx_len = len;
+	p->to = *to;
+	lws_callback_on_writable(p->wsi);
+}
+
+static void
+raw_queue(const void *buf, size_t len, const struct sockaddr_in *to)
+{
+	peer_queue(&peer_r, buf, len, to);
+}
+
+static void
+peer_send(struct raw_peer *p)
+{
+	lws_sockfd_type fd;
+	ssize_t n;
+
+	if (!p->tx_len)
+		return;
+
+	fd = lws_get_socket_fd(p->wsi);
+	if (fd == LWS_SOCK_INVALID) {
+		lwsl_err("%s: no socket to send on\n", __func__);
+		p->tx_len = 0;
+		return;
+	}
+	n = sendto(fd,
+#if defined(WIN32)
+		   (const char *)
+#endif
+		   p->tx,
+#if defined(WIN32)
+		   (int)
+#endif
+		   p->tx_len, 0, (const struct sockaddr *)&p->to,
+		   sizeof(p->to));
+	if (n != (ssize_t)p->tx_len)
+		lwsl_err("%s: sendto returned %d\n", __func__, (int)n);
+	p->tx_len = 0;
 }
 
 static int
@@ -592,7 +675,6 @@ cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
        void *in, size_t len)
 {
 	const struct lws_udp *udp;
-	lws_sockfd_type fd;
 	char exp[96];
 	ssize_t n;
 
@@ -649,28 +731,7 @@ cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		if (!raw_tx_len)
-			break;
-
-		fd = lws_get_socket_fd(wsi);
-		if (fd == LWS_SOCK_INVALID) {
-			lwsl_err("%s: no socket to send on\n", __func__);
-			raw_tx_len = 0;
-			break;
-		}
-		n = sendto(fd,
-#if defined(WIN32)
-			   (const char *)
-#endif
-			   raw_tx,
-#if defined(WIN32)
-			   (int)
-#endif
-			   raw_tx_len, 0, (const struct sockaddr *)&raw_tx_to,
-			   sizeof(raw_tx_to));
-		if (n != (ssize_t)raw_tx_len)
-			lwsl_err("%s: sendto returned %d\n", __func__, (int)n);
-		raw_tx_len = 0;
+		peer_send(&peer_r);
 		break;
 
 	default:
@@ -731,7 +792,7 @@ unsolicited_reply_step(void)
 
 	/* after R's relay of B's refusal, which also goes out from R */
 	if (!sv.raw_up || !sv.table_ok || !sv.err_decoded_ok || sv.unsol_ok ||
-	    sv.unsol_bad || raw_tx_len)
+	    sv.unsol_bad || peer_r.tx_len)
 		return;
 
 	switch (unsol_state) {
@@ -797,7 +858,7 @@ unsolicited_reply_step(void)
 static void
 seq_step(void)
 {
-	if (!sv.mart_ok || sv.unproven_ok || sv.unproven_bad || raw_tx_len)
+	if (!sv.mart_ok || sv.unproven_ok || sv.unproven_bad || peer_r.tx_len)
 		return;
 
 	switch (seq_state) {
@@ -845,6 +906,162 @@ seq_step(void)
 }
 
 /*
+ * Q's chunk to B: "d1:ad4:data<msg>2:id20:<Q>3:len..6:offset..e1:q4:data
+ * 1:t10:<tid>1:y1:qe"
+ */
+
+static void
+q_queue_chunk(const char *tid, uint64_t offset, const char *msg)
+{
+	uint8_t q[256];
+	size_t m = strlen(msg);
+	int n;
+
+	n = lws_snprintf((char *)q, sizeof(q), "d1:ad4:data%u:%s2:id20:"
+			 "44444444444444444444"
+			 "3:leni%ue6:offseti%lluee1:q4:data1:t10:%s1:y1:qe",
+			 (unsigned int)m, msg, (unsigned int)m,
+			 (unsigned long long)offset, tid);
+	if (n < 0 || (size_t)n >= sizeof(q) - 1)
+		return;
+
+	peer_queue(&peer_q, q, (size_t)n, &sa_b);
+}
+
+static void
+q_expect(int ok, const char *what)
+{
+	if (ok)
+		return;
+
+	lwsl_err("%s: Q: %s\n", __func__, what);
+	sv.q_bad = 1;
+}
+
+/*
+ * B's answer to Q's chunk is an ack, "d1:rd2:id..3:len..6:offset..[4:sack..]
+ * e1:t<tid>1:y1:re", echoing the tid of the chunk it answers.
+ */
+
+static int
+q_answers(const uint8_t *in, size_t len, const char *tid)
+{
+	char t[16];
+
+	lws_snprintf(t, sizeof(t), "e1:t10:%s", tid);
+
+	return krpc_find(in, len, t) >= 0;
+}
+
+static void
+q_rx(const uint8_t *in, size_t len)
+{
+	size_t l0 = strlen(q_msg[0]), l1 = strlen(q_msg[1]);
+	uint8_t tid[16];
+	size_t tid_len;
+	int64_t off;
+
+	if (!krpc_chunk_tid(in, len, tid, &tid_len)) {
+		/* B's own data to Q: ack it truly, so it completes */
+		if (q_state == KRPC_QS_B_SENDS)
+			krpc_queue_ack(&peer_q, tid, tid_len,
+				       (uint64_t)krpc_int(in, len, "3:leni"),
+				       &sa_b);
+		return;
+	}
+
+	off = krpc_int(in, len, "6:offseti");
+
+	switch (q_state) {
+	case KRPC_QS_T0:
+		q_expect(q_answers(in, len, KRPC_Q_TID_T) &&
+			 off == (int64_t)l0, "first chunk not acked");
+		q_queue_chunk(KRPC_Q_TID_T, l0, q_msg[1]);
+		q_state = KRPC_QS_T1;
+		break;
+
+	case KRPC_QS_T1:
+		q_expect(q_answers(in, len, KRPC_Q_TID_T) &&
+			 off == (int64_t)(l0 + l1), "next chunk not acked");
+		/* B answers Q with more than Q has sent it */
+		q_state = KRPC_QS_B_SENDS;
+		lws_dht_send_data(dht_b, (struct sockaddr *)&sa_q, q_b_msg,
+				  strlen(q_b_msg));
+		break;
+
+	case KRPC_QS_DUP:
+		q_expect(q_answers(in, len, KRPC_Q_TID_T) &&
+			 off == (int64_t)(l0 + l1),
+			 "repeated chunk acked with other than Q's offset");
+		q_expect(q_seen[0] == 1 && q_seen[1] == 1,
+			 "B did not deliver Q's chunks once each");
+		q_state = KRPC_QS_DONE;
+		if (!sv.q_bad)
+			sv.q_ok = 1;
+		break;
+
+	default:
+		break;
+	}
+}
+
+/* Q starts once B is up, and repeats itself once B's send to it is done */
+
+static void
+q_step(void)
+{
+	switch (q_state) {
+	case KRPC_QS_IDLE:
+		if (!sv.q_up || !sv.data_ok)
+			break;
+		q_queue_chunk(KRPC_Q_TID_T, 0, q_msg[0]);
+		q_state = KRPC_QS_T0;
+		break;
+
+	case KRPC_QS_B_SENDS:
+		if (!sv.q_b_sent)
+			break;
+		q_queue_chunk(KRPC_Q_TID_T, strlen(q_msg[0]), q_msg[1]);
+		q_state = KRPC_QS_DUP;
+		break;
+
+	default:
+		break;
+	}
+}
+
+static int
+cb_q(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+     void *in, size_t len)
+{
+	const struct lws_udp *udp;
+
+	(void)user;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		sv.q_up = 1;
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		udp = lws_get_udp(wsi);
+		if (udp && udp->sa46.sa4.sin_family == AF_INET &&
+		    udp->sa46.sa4.sin_port == sa_b.sin_port)
+			q_rx(in, len);
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		peer_send(&peer_q);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/*
  * After R's unasked-for replies, A pings R with R's address in a
  * sockaddr_storage, passing the storage's size: that request has to be
  * recorded like any other, or R's pong to it is dropped as unasked-for.
@@ -868,7 +1085,7 @@ storage_ping_step(void)
 	struct sockaddr_storage ss;
 	int seen = 0;
 
-	if (!sv.unsol_ok || sv.ss_ok || sv.ss_bad || raw_tx_len)
+	if (!sv.unsol_ok || sv.ss_ok || sv.ss_bad || peer_r.tx_len)
 		return;
 
 	if (!sv.ss_sent) {
@@ -960,7 +1177,7 @@ ss_rx(const uint8_t *in, size_t len)
 static void
 martian_step(void)
 {
-	if (!sv.ss_ok || sv.mart_ok || raw_tx_len)
+	if (!sv.ss_ok || sv.mart_ok || peer_r.tx_len)
 		return;
 
 	if (!sv.mart_sent) {
@@ -1093,7 +1310,7 @@ search_step_check(void)
 	lws_dht_hash_t *target;
 
 	if (seq_state != KRPC_SEQ_DONE || sv.srch_ok || sv.srch_bad ||
-	    raw_tx_len)
+	    peer_r.tx_len)
 		return;
 
 	target = search_target();
@@ -1141,16 +1358,31 @@ cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
      size_t fromlen)
 {
+	size_t n;
+	int from_q = from && fromlen >= sizeof(sa_q) &&
+		     ((const struct sockaddr_in *)from)->sin_port ==
+							sa_q.sin_port;
+
 	(void)closure;
 	(void)info_hash;
-	(void)from;
-	(void)fromlen;
 
 	switch (event) {
 	case LWS_DHT_EVENT_DATA:
+		if (from_q) {
+			/* count what B delivers of Q's stream */
+			for (n = 0; n < LWS_ARRAY_SIZE(q_msg); n++)
+				if (data_len == strlen(q_msg[n]) &&
+				    !memcmp(data, q_msg[n], data_len))
+					q_seen[n]++;
+			break;
+		}
 		if (data_len == data_msg_len &&
 		    !memcmp(data, data_msg, data_len))
 			sv.data_ok = 1;
+		break;
+	case LWS_DHT_EVENT_WRITE_COMPLETED:
+		if (from_q)
+			sv.q_b_sent = 1;
 		break;
 	default:
 		break;
@@ -1450,6 +1682,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	storage_ping_step();
 	martian_step();
 	seq_step();
+	q_step();
 	search_step_check();
 
 	if (sv.data_ok && !sv.dead_sent) {
@@ -1504,6 +1737,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.ss_ok && !sv.ss_bad && sv.mart_ok &&
 	    sv.srch_ok && !sv.srch_bad &&
 	    sv.share_ok && !sv.share_bad &&
+	    sv.q_ok && !sv.q_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -1530,12 +1764,13 @@ int main(int argc, const char **argv)
 	static const struct lws_protocols protocols[] = {
 		{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 		{ "krpc-raw", cb_raw, 0, 0, 0, NULL, 0 },
+		{ "krpc-q", cb_q, 0, 0, 0, NULL, 0 },
 		LWS_PROTOCOL_LIST_TERM
 	};
 	uint8_t ida[20], idb[20];
 	const char *p;
-	int port_a = 0, port_b = 0, port_c = 0, port_r = 0, port_dead = 0,
-	    n = 0;
+	int port_a = 0, port_b = 0, port_c = 0, port_r = 0, port_q = 0,
+	    port_dead = 0, n = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	/* the builtin options keep the emit function we set here */
@@ -1550,18 +1785,24 @@ int main(int argc, const char **argv)
 		port_c = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-r")))
 		port_r = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-q")))
+		port_q = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-dead")))
 		port_dead = atoi(p);
 
 	if (port_a < 1 || port_a > 65535 || port_b < 1 || port_b > 65535 ||
 	    port_c < 1 || port_c > 65535 || port_r < 1 || port_r > 65535 ||
+	    port_q < 1 || port_q > 65535 ||
 	    port_dead < 1 || port_dead > 65535 ||
 	    port_a == port_b || port_a == port_c || port_b == port_c ||
 	    port_r == port_a || port_r == port_b || port_r == port_c ||
+	    port_q == port_a || port_q == port_b || port_q == port_c ||
+	    port_q == port_r ||
 	    port_dead == port_a || port_dead == port_b || port_dead == port_c ||
-	    port_dead == port_r) {
+	    port_dead == port_r || port_dead == port_q) {
 		lwsl_err("usage: --port-a <udp port> --port-b <udp port> "
 			 "--port-c <udp port> --port-r <udp port> "
+			 "--port-q <udp port> "
 			 "--port-dead <unused udp port>\n");
 		return 1;
 	}
@@ -1580,6 +1821,8 @@ int main(int argc, const char **argv)
 	sa_c.sin_port = htons((uint16_t)port_c);
 	sa_r = sa_a;
 	sa_r.sin_port = htons((uint16_t)port_r);
+	sa_q = sa_a;
+	sa_q.sin_port = htons((uint16_t)port_q);
 	sa_dead = sa_a;
 	sa_dead.sin_port = htons((uint16_t)port_dead);
 
@@ -1654,10 +1897,20 @@ int main(int argc, const char **argv)
 
 	/* R: the hand-driven KRPC peer */
 
-	wsi_raw = lws_create_adopt_udp(vh_c, "127.0.0.1", port_r,
+	peer_r.wsi = lws_create_adopt_udp(vh_c, "127.0.0.1", port_r,
 				       LWS_CAUDP_BIND, protocols[1].name, NULL,
 				       NULL, NULL, NULL, "krpc-r");
-	if (!wsi_raw) {
+	if (!peer_r.wsi) {
+		lwsl_err("raw udp socket creation failed\n");
+		goto bail;
+	}
+
+	/* Q: the hand-driven sender of a reliable stream to B */
+
+	peer_q.wsi = lws_create_adopt_udp(vh_c, "127.0.0.1", port_q,
+				       LWS_CAUDP_BIND, protocols[2].name, NULL,
+				       NULL, NULL, NULL, "krpc-q");
+	if (!peer_q.wsi) {
 		lwsl_err("raw udp socket creation failed\n");
 		goto bail;
 	}
@@ -1781,6 +2034,11 @@ int main(int argc, const char **argv)
 			if (!sv.share_ok || sv.share_bad) {
 				lwsl_err("B did not keep A to its tokens' hashes "
 					 "and its share of hashes\n");
+				fails++;
+			}
+			if (!sv.q_ok || sv.q_bad) {
+				lwsl_err("B did not ack Q's stream at Q's "
+					 "offsets (state %d)\n", q_state);
 				fails++;
 			}
 			if (!sv.srch_ok || sv.srch_bad) {
