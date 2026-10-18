@@ -764,6 +764,17 @@ lws_http_parse_content_length(const char *in, uint64_t *result);
 int
 lws_http_te_is_chunked(struct lws *wsi);
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+/*
+ * Nonzero if an h2 / h3 request carries both :authority and Host and they
+ * do not name the same authority (RFC 9113 8.3.1, RFC 9114 4.3.1): the hosts
+ * compared case-insensitively, a missing port taken as the :scheme's default.
+ * Either one repeated, or not of the form host [ ":" port ], disagrees.
+ */
+int
+lws_http_host_authority_disagree(struct lws *wsi);
+#endif
+
 /* the h1 and h2 tx_drained role op: a deferred completion completes */
 int
 lws_http_tx_drained(struct lws *wsi);

@@ -2413,6 +2413,23 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						}
 
 						/*
+						 * RFC 9114 4.3.1: if both :authority
+						 * and Host are present they must name
+						 * the same authority, or the request
+						 * is malformed.  We route on
+						 * :authority, but redirects, origin
+						 * checks, the proxy and user code
+						 * read Host: they must not be able to
+						 * say different things.  h2 refuses
+						 * it the same way.
+						 */
+						if (lws_http_host_authority_disagree(wsi)) {
+							lwsl_wsi_notice(wsi, "H3 MESSAGE_ERROR: Host disagrees with :authority");
+							lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
+							return 1;
+						}
+
+						/*
 						 * Server code asks for the Host it
 						 * would have had on h1: give it the
 						 * :authority, once the block is done

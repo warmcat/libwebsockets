@@ -2464,6 +2464,130 @@ lws_http_te_is_chunked(struct lws *wsi)
 	return e - p == 7 && !strncasecmp(p, "chunked", 7);
 }
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+
+/*
+ * The one value of header h, as a pointer into the ah and a length.  Returns
+ * nonzero if h is absent, or was sent more than once (its fragments chained):
+ * a list is not a single authority.
+ */
+static int
+lws_hdr_single(struct lws *wsi, enum lws_token_indexes h, const char **p,
+	       size_t *len)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+	int n;
+
+	if (!ah)
+		return 1;
+
+	n = ah->frag_index[h];
+	if (!n || lws_ah_frag_next(ah, n))
+		return 1;
+
+	*p = ah->data + ah->frags[n].offset;
+	*len = ah->frags[n].len;
+
+	return 0;
+}
+
+/*
+ * Split an http(s) authority, host [ ":" port ] (RFC 3986 3.2, with no
+ * userinfo, RFC 9110 4.2.4), into the length of its host and its port.  An
+ * IPv6 literal host is bracketed.  *port is -1 when there is no port, or it
+ * is empty, which RFC 3986 3.2.3 says is the same as omitting it.  Returns
+ * nonzero if the authority is not of that shape.
+ */
+static int
+lws_http_authority_split(const char *a, size_t len, size_t *host_len,
+			 int *port)
+{
+	const char *c, *e = a + len;
+	int v = 0;
+
+	if (len && *a == '[') {
+		c = memchr(a, ']', len);
+		if (!c)
+			return 1;
+		c++;
+	} else {
+		/* a reg-name or IPv4address has no ':', so any is the port's */
+		c = memchr(a, ':', len);
+		if (!c)
+			c = e;
+	}
+
+	*host_len = lws_ptr_diff_size_t(c, a);
+	*port = -1;
+
+	if (!*host_len)
+		return 1;
+
+	if (c == e)
+		return 0;
+
+	if (*c++ != ':')
+		return 1;
+
+	if (c == e)
+		return 0; /* empty port */
+
+	while (c < e) {
+		if (*c < '0' || *c > '9')
+			return 1;
+		v = (v * 10) + (*c++ - '0');
+		if (v > 65535)
+			return 1;
+	}
+
+	*port = v;
+
+	return 0;
+}
+
+int
+lws_http_host_authority_disagree(struct lws *wsi)
+{
+	const char *auth, *host, *scheme;
+	size_t al, hl, ahl, hhl;
+	int ap, hp, def = -1;
+
+	/* without both there is nothing to disagree */
+	if (!lws_hdr_extant(wsi, WSI_TOKEN_HOST) ||
+	    !lws_hdr_extant(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY))
+		return 0;
+
+	if (lws_hdr_single(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY, &auth, &al) ||
+	    lws_hdr_single(wsi, WSI_TOKEN_HOST, &host, &hl) ||
+	    lws_http_authority_split(auth, al, &ahl, &ap) ||
+	    lws_http_authority_split(host, hl, &hhl, &hp))
+		return 1;
+
+	/* host is case-insensitive (RFC 3986 3.2.2) */
+	if (ahl != hhl || strncasecmp(auth, host, ahl))
+		return 1;
+
+	/*
+	 * A port that is the scheme's default is the same as none (RFC 9110
+	 * 4.2.3), so "example.com" and "example.com:443" name one https
+	 * origin.  Any other port present on only one of them names another.
+	 */
+	scheme = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_SCHEME);
+	if (scheme && !strcasecmp(scheme, "https"))
+		def = 443;
+	else if (scheme && !strcasecmp(scheme, "http"))
+		def = 80;
+
+	if (ap < 0)
+		ap = def;
+	if (hp < 0)
+		hp = def;
+
+	return ap != hp;
+}
+
+#endif
+
 static int
 cookie_is_wsp(char c)
 {

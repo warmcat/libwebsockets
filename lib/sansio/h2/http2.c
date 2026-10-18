@@ -2930,6 +2930,21 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			}
 		}
 
+		/*
+		 * RFC 9113 8.3.1: a Host that names another authority than
+		 * :authority makes the request malformed (8.1.1, a stream
+		 * error).  We route on :authority, but redirects, origin
+		 * checks, the proxy and user code read Host: the two must not
+		 * be able to say different things about one request.  A
+		 * missing Host was aliased to :authority above.
+		 */
+		if (lws_http_host_authority_disagree(h2n->swsi)) {
+			if (lws_h2_rst_stream(h2n->swsi, H2_ERR_PROTOCOL_ERROR,
+					      "Host disagrees with :authority"))
+				return 1;
+			break;
+		}
+
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 		lws_http_compression_validate(h2n->swsi);
 #endif
