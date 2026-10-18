@@ -86,9 +86,17 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **Before filing "unbounded buflist"**: every `lws_buflist` refuses to
    grow past `LWS_BUFLIST_OOM_LIMIT` (2MB, `lws_buflist_check_room()`),
    so check the append's failure handling instead (G-076, disputed).
+ - **Varint-length encoders:** bounding a whole field up front with
+   "len + length + small slack" is wrong once both length varints go
+   multi-byte; bound each piece just before writing it (G-154, hpack).
 
 ## HTTP
 
+ - **The control-byte check on outgoing headers**
+   (`lws_hdr_add_value_bad()`) lives only in the role-agnostic
+   `lws_add_http_header_by_name()` / `_by_token()` wrappers.  Code calling
+   `lws_add_http2_*` / `lws_add_http3_*` directly, or composing with
+   `lws_snprintf()` (the h1 client request line), gets no check (G-156).
  - **Header (ah) lifetime.**  User code may read request headers in
    `LWS_CALLBACK_HTTP` and, for a request with a body, through
    `LWS_CALLBACK_HTTP_BODY` to `LWS_CALLBACK_HTTP_BODY_COMPLETION`; after
