@@ -117,7 +117,11 @@ typedef struct lws_transport_sequencer_info {
 	 * first, over a transport where the source address can be forged.
 	 * Nothing is retransmitted to it until it has acknowledged data we
 	 * sent, so a forged source gets at most one copy of anything we
-	 * send in reply, not one per retry. */
+	 * send in reply, not one per retry.  And after the first chunk, we
+	 * send it at most a small allowance more than it has sent us: the
+	 * rest is kept, and sent in order once it has acknowledged
+	 * something, so a forged source cannot have us send its victim
+	 * more than it sent us. */
 } lws_transport_sequencer_info_t;
 
 /**

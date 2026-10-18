@@ -21,6 +21,16 @@
  * Run under ASan, the old behaviour shows as a heap use-after-free (or a
  * double free) inside the DHT.
  *
+ * It also checks what a peer that has not proven its address can make B
+ * send (G-182):
+ *
+ *  - a second socket R, a stranger to B, sends B 16 small chunks with the
+ *    verb "BIG", each of which B's handler answers with a 1KB reply.  R's
+ *    source address could be forged, so until R acks something B must not
+ *    send it more than its first reply and a small allowance beyond what R
+ *    sent.  Once R acks that reply, B sends the rest, and R's acks of all of
+ *    it complete B's transfer
+ *
  * The UDP ports are allocated uniquely at build time and passed in on the
  * command line, so parallel ctest instances do not collide.  Nothing
  * listens on the fan-out port, at 127.0.0.2.. and 127.0.1.2..
@@ -44,16 +54,24 @@
 #define SR_SETTLE_POLLS	40
 
 #define SR_Q_TID	"qqqqqqqqqq"
+#define SR_R_TID	"rrrrrrrrrr"
+
+/* R's requests, and the size of B's answer to each */
+#define SR_BIG_COUNT	16
+#define SR_BIG_PAYLOAD	1000
+/* what B may send unproven R beyond one reply and what R sent: 2KB */
+#define SR_R_ALLOWANCE	2048
 
 static struct lws_context *cx;
 static struct lws_dht_ctx *dht_b;
-static struct lws *wsi_q;
-static struct sockaddr_in sa_b;
+static struct lws *wsi_q, *wsi_r;
+static struct sockaddr_in sa_b, sa_r;
 static lws_sorted_usec_list_t sul_poll, sul_deadline;
 static int port_fan, retcode = 1;
 
 static const char *fan_msg = "FAN 0102030405 0 0 ";
-static const char *sr_verbs[] = { "FAN" };
+static const char *big_msg = "BIG 0102030405 0 0 ";
+static const char *sr_verbs[] = { "FAN", "BIG" };
 
 static struct {
 	int		fanned;		/* B's FAN handler sent to this many */
@@ -63,6 +81,18 @@ static struct {
 	unsigned int	q_acked:1;	/* ...B acked it, whole, with Q's tid */
 	unsigned int	q_bad:1;	/* ...or acked something else */
 	unsigned int	failed:1;	/* a fan-out send was reported failed */
+
+	int		r_state;
+	lws_usec_t	r_t;
+	size_t		r_sent;		/* bytes of requests R sent B */
+	size_t		r_got;		/* bytes of B's replies R got */
+	size_t		r_got_unproven;	/* ...before R acked anything */
+	size_t		reply_len;	/* each of B's replies */
+	uint32_t	r_offsets;	/* bitmap of B's replies R got */
+	uint8_t		b_tid[16];	/* the tid of B's chunks to R */
+	size_t		b_tid_len;
+	unsigned int	r_bad:1;	/* B's chunks to R were not as expected */
+	unsigned int	r_completed:1;	/* R's acks completed B's transfer */
 } sr;
 
 /* the endpoint of the i-th fan-out target of set s, nobody listens there */
@@ -111,6 +141,20 @@ cb_sr_verbs(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	if (!strcmp(args->msg->verb, "FAN"))
 		sr.fanned = sr_fanout(args->ctx, 0);
 
+	if (!strcmp(args->msg->verb, "BIG")) {
+		/* a reply much bigger than the request */
+		char rsp[64 + SR_BIG_PAYLOAD];
+		int n;
+
+		n = lws_dht_msg_gen(rsp, sizeof(rsp) - SR_BIG_PAYLOAD, "RSP",
+				    args->msg->hash, 0, SR_BIG_PAYLOAD);
+		if (n <= 0)
+			return 0;
+		memset(rsp + n, 'x', SR_BIG_PAYLOAD);
+		sr.reply_len = (size_t)n + SR_BIG_PAYLOAD;
+		lws_dht_send_data(args->ctx, args->from, rsp, sr.reply_len);
+	}
+
 	return 0;
 }
 
@@ -121,6 +165,13 @@ cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
      size_t fromlen)
 {
+	if (event == LWS_DHT_EVENT_WRITE_COMPLETED && from &&
+	    from->sa_family == AF_INET &&
+	    ((const struct sockaddr_in *)from)->sin_port == sa_r.sin_port) {
+		sr.r_completed = 1;
+		return;
+	}
+
 	if (event != LWS_DHT_EVENT_WRITE_FAILED || sr.failed)
 		return;
 
@@ -163,9 +214,9 @@ sr_int(const uint8_t *buf, size_t len, const char *key)
 }
 
 static void
-sr_sendto(const void *buf, size_t len)
+sr_sendto(struct lws *wsi, const void *buf, size_t len)
 {
-	lws_sockfd_type fd = lws_get_socket_fd(wsi_q);
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
 	ssize_t n;
 
 	if (fd == LWS_SOCK_INVALID)
@@ -184,26 +235,113 @@ sr_sendto(const void *buf, size_t len)
 		lwsl_err("%s: sendto returned %d\n", __func__, (int)n);
 }
 
-/* Q's data chunk to B: d1:ad4:data..2:id..3:len..6:offset..e1:q4:data1:t.. */
+/* a data chunk to B: d1:ad4:data..2:id..3:len..6:offset..e1:q4:data1:t.. */
 
-static void
-sr_q_send_chunk(uint64_t offset, const char *msg)
+static size_t
+sr_send_chunk(struct lws *wsi, const char *id, const char *tid,
+	      uint64_t offset, const char *msg)
 {
 	char q[256];
 	int n;
 
-	n = lws_snprintf(q, sizeof(q), "d1:ad4:data%u:%s2:id20:"
-			 "44444444444444444444"
+	n = lws_snprintf(q, sizeof(q), "d1:ad4:data%u:%s2:id20:%s"
 			 "3:leni%ue6:offseti%lluee1:q4:data1:t%u:%s1:y1:qe",
-			 (unsigned int)strlen(msg), msg,
+			 (unsigned int)strlen(msg), msg, id,
 			 (unsigned int)strlen(msg), (unsigned long long)offset,
-			 (unsigned int)strlen(SR_Q_TID), SR_Q_TID);
-	if (n > 0 && (size_t)n < sizeof(q) - 1)
-		sr_sendto(q, (size_t)n);
+			 (unsigned int)strlen(tid), tid);
+	if (n <= 0 || (size_t)n >= sizeof(q) - 1)
+		return 0;
+
+	sr_sendto(wsi, q, (size_t)n);
+
+	return strlen(msg);
+}
+
+/* R's ack of B's chunks below offset, echoing the tid of B's chunks */
+
+static void
+sr_r_send_ack(uint64_t offset)
+{
+	char q[160];
+	int n;
+
+	n = lws_snprintf(q, sizeof(q), "d1:rd2:id20:55555555555555555555"
+			 "3:leni0e6:offseti%llue" "e1:t%u:",
+			 (unsigned long long)offset, (unsigned int)sr.b_tid_len);
+	if (n <= 0 || (size_t)n + sr.b_tid_len + 7 > sizeof(q))
+		return;
+
+	memcpy(q + n, sr.b_tid, sr.b_tid_len);
+	memcpy(q + (size_t)n + sr.b_tid_len, "1:y1:re", 7);
+
+	sr_sendto(wsi_r, q, (size_t)n + sr.b_tid_len + 7);
+}
+
+/*
+ * A chunk of B's to R: ...e1:q4:data1:t<len>:<tid>1:y1:qe.  Copies the tid
+ * out, or returns -1 if this is not a chunk.
+ */
+
+static int
+sr_chunk_tid(const uint8_t *buf, size_t len, uint8_t *tid, size_t *tid_len)
+{
+	ssize_t at = sr_find(buf, len, "1:q4:data1:t");
+	size_t n, l = 0;
+
+	if (at < 0)
+		return -1;
+
+	for (n = (size_t)at + 12; n < len && buf[n] >= '0' && buf[n] <= '9'; n++)
+		l = (l * 10) + (size_t)(buf[n] - '0');
+
+	if (n >= len || buf[n] != ':' || !l || l > 16 || n + 1 + l > len)
+		return -1;
+
+	memcpy(tid, buf + n + 1, l);
+	*tid_len = l;
+
+	return 0;
+}
+
+static void
+sr_r_rx(const uint8_t *in, size_t len)
+{
+	int64_t off = sr_int(in, len, "6:offseti"),
+		clen = sr_int(in, len, "3:leni");
+	uint8_t tid[16];
+	size_t tid_len;
+	uint32_t bit;
+
+	if (sr_chunk_tid(in, len, tid, &tid_len))
+		return; /* B's acks of R's chunks */
+
+	if (!sr.reply_len || off < 0 || clen != (int64_t)sr.reply_len ||
+	    off % (int64_t)sr.reply_len ||
+	    off / (int64_t)sr.reply_len >= SR_BIG_COUNT ||
+	    (sr.b_tid_len && (tid_len != sr.b_tid_len ||
+			      memcmp(tid, sr.b_tid, tid_len)))) {
+		lwsl_err("%s: unexpected chunk from B\n", __func__);
+		sr.r_bad = 1;
+		return;
+	}
+
+	if (!sr.b_tid_len) {
+		memcpy(sr.b_tid, tid, tid_len);
+		sr.b_tid_len = tid_len;
+	}
+
+	bit = 1u << (off / (int64_t)sr.reply_len);
+	if (sr.r_offsets & bit)
+		return; /* a retransmit */
+
+	sr.r_offsets |= bit;
+	sr.r_got += (size_t)clen;
+	if (sr.r_state < 2)
+		sr.r_got_unproven += (size_t)clen;
 }
 
 static int
-cb_q(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+cb_peer(struct lws *wsi, enum lws_callback_reasons reason, void *user,
      void *in, size_t len)
 {
 	const struct lws_udp *udp;
@@ -216,6 +354,11 @@ cb_q(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	if (!udp || udp->sa46.sa4.sin_family != AF_INET ||
 	    udp->sa46.sa4.sin_port != sa_b.sin_port)
 		return 0;
+
+	if (wsi == wsi_r) {
+		sr_r_rx(in, len);
+		return 0;
+	}
 
 	/* an ack: d1:rd2:id..3:len..6:offset..e1:t<tid>1:y1:re */
 
@@ -238,18 +381,89 @@ cb_q(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return 0;
 }
 
+/* R asks B for more than it sends, then proves itself */
+
+static int
+sr_r_step(void)
+{
+	lws_usec_t now = lws_now_usecs();
+	int n;
+
+	switch (sr.r_state) {
+	case 0:
+		for (n = 0; n < SR_BIG_COUNT; n++)
+			sr.r_sent += sr_send_chunk(wsi_r, "55555555555555555555",
+						   SR_R_TID, sr.r_sent, big_msg);
+		sr.r_t = now;
+		sr.r_state++;
+		break;
+
+	case 1:
+		/* give B time to have answered all it is going to */
+		if (now - sr.r_t < 300 * LWS_US_PER_MS)
+			break;
+
+		if (!sr.b_tid_len) {
+			lwsl_err("%s: B never answered R\n", __func__);
+			return -1;
+		}
+
+		/* prove R, by acking B's first reply */
+		sr_r_send_ack(sr.reply_len);
+		sr.r_t = now;
+		sr.r_state++;
+		break;
+
+	case 2:
+		if (sr.r_offsets != (1u << SR_BIG_COUNT) - 1) {
+			if (now - sr.r_t > 2 * LWS_US_PER_SEC) {
+				lwsl_err("%s: B did not send R the rest\n",
+					 __func__);
+				return -1;
+			}
+			break;
+		}
+
+		sr_r_send_ack((uint64_t)SR_BIG_COUNT * sr.reply_len);
+		sr.r_t = now;
+		sr.r_state++;
+		break;
+
+	case 3:
+		if (sr.r_completed)
+			return 1;
+		if (now - sr.r_t > 2 * LWS_US_PER_SEC) {
+			lwsl_err("%s: R's acks did not complete B's transfer\n",
+				 __func__);
+			return -1;
+		}
+		break;
+	}
+
+	return 0;
+}
+
 static void
 poll_cb(lws_sorted_usec_list_t *sul)
 {
+	int n;
+
 	if (!sr.q_sent) {
-		sr_q_send_chunk(0, fan_msg);
+		sr_send_chunk(wsi_q, "44444444444444444444", SR_Q_TID, 0,
+			      fan_msg);
 		sr.q_sent = 1;
 	}
 
-	if (sr.q_acked && sr.fanned2 && ++sr.settle >= SR_SETTLE_POLLS) {
-		retcode = 0;
-		lws_default_loop_exit(cx);
-		return;
+	if (sr.q_acked && sr.fanned2 && sr.settle < SR_SETTLE_POLLS)
+		sr.settle++;
+
+	if (sr.settle >= SR_SETTLE_POLLS) {
+		n = sr_r_step();
+		if (n) {
+			retcode = n < 0;
+			lws_default_loop_exit(cx);
+			return;
+		}
 	}
 
 	lws_sul_schedule(cx, 0, &sul_poll, poll_cb, SR_POLL_US);
@@ -273,14 +487,14 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	static const struct lws_protocols protocols[] = {
 		{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
-		{ "sr-q", cb_q, 0, 0, 0, NULL, 0 },
+		{ "sr-peer", cb_peer, 0, 0, 0, NULL, 0 },
 		{ "sr-verbs", cb_sr_verbs, 0, 0, 0, NULL, 0 },
 		LWS_PROTOCOL_LIST_TERM
 	};
 	struct lws_vhost *vh;
 	lws_dht_info_t di;
 	uint8_t idb[20];
-	int port_b = 0, port_q = 0, n = 0;
+	int port_b = 0, port_q = 0, port_r = 0, n = 0;
 	const char *p;
 
 	lws_context_info_defaults(&info, NULL);
@@ -290,14 +504,18 @@ int main(int argc, const char **argv)
 		port_b = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-q")))
 		port_q = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-r")))
+		port_r = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-fan")))
 		port_fan = atoi(p);
 
 	if (port_b < 1 || port_b > 65535 || port_q < 1 || port_q > 65535 ||
+	    port_r < 1 || port_r > 65535 ||
 	    port_fan < 1 || port_fan > 65535 || port_b == port_q ||
-	    port_fan == port_b || port_fan == port_q) {
+	    port_r == port_b || port_r == port_q ||
+	    port_fan == port_b || port_fan == port_q || port_fan == port_r) {
 		lwsl_err("usage: --port-b <udp port> --port-q <udp port> "
-			 "--port-fan <unused udp port>\n");
+			 "--port-r <udp port> --port-fan <unused udp port>\n");
 		return 1;
 	}
 
@@ -309,6 +527,8 @@ int main(int argc, const char **argv)
 	sa_b.sin_family = AF_INET;
 	sa_b.sin_port = htons((uint16_t)port_b);
 	sa_b.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	sa_r = sa_b;
+	sa_r.sin_port = htons((uint16_t)port_r);
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
@@ -351,7 +571,10 @@ int main(int argc, const char **argv)
 	wsi_q = lws_create_adopt_udp(vh, "127.0.0.1", port_q, LWS_CAUDP_BIND,
 				     protocols[1].name, NULL, NULL, NULL, NULL,
 				     "sr-q");
-	if (!wsi_q) {
+	wsi_r = lws_create_adopt_udp(vh, "127.0.0.1", port_r, LWS_CAUDP_BIND,
+				     protocols[1].name, NULL, NULL, NULL, NULL,
+				     "sr-r");
+	if (!wsi_q || !wsi_r) {
 		lwsl_err("raw udp socket creation failed\n");
 		goto bail;
 	}
@@ -374,6 +597,21 @@ int main(int argc, const char **argv)
 	if (sr.fanned2 != SR_FANOUT) {
 		lwsl_err("B's WRITE_FAILED handler sent to %d of %d\n",
 			 sr.fanned2, SR_FANOUT);
+		retcode = 1;
+	}
+	lwsl_user("R sent B %u, got %u before acking, %u in all\n",
+		  (unsigned int)sr.r_sent, (unsigned int)sr.r_got_unproven,
+		  (unsigned int)sr.r_got);
+	if (sr.r_got_unproven > sr.reply_len + sr.r_sent + SR_R_ALLOWANCE) {
+		lwsl_err("B sent unproven R %u bytes for its %u\n",
+			 (unsigned int)sr.r_got_unproven,
+			 (unsigned int)sr.r_sent);
+		retcode = 1;
+	}
+	if (sr.r_bad || !sr.r_completed ||
+	    sr.r_got != SR_BIG_COUNT * sr.reply_len) {
+		lwsl_err("B's transfer to R did not complete once R was "
+			 "proven\n");
 		retcode = 1;
 	}
 

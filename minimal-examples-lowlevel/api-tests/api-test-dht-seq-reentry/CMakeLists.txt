@@ -31,12 +31,14 @@ if (requirements)
 		#
 		lws_get_free_port(PORT_DHT_SR_B)
 		lws_get_free_port(PORT_DHT_SR_Q)
+		lws_get_free_port(PORT_DHT_SR_R)
 		lws_get_free_port(PORT_DHT_SR_FAN)
 
 		add_test(NAME api-test-dht-seq-reentry COMMAND
 			 $<TARGET_FILE:${SAMP}>
 			 --port-b ${PORT_DHT_SR_B}
 			 --port-q ${PORT_DHT_SR_Q}
+			 --port-r ${PORT_DHT_SR_R}
 			 --port-fan ${PORT_DHT_SR_FAN})
 		set_tests_properties(api-test-dht-seq-reentry PROPERTIES
 			TIMEOUT 60

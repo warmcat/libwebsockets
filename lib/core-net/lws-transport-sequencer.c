@@ -30,6 +30,7 @@ struct lws_transport_sequencer_range {
 	uint32_t			len;
 	void				*dsh_obj;
 	uint8_t				acked;
+	uint8_t				sent; /* tx: has been on the wire */
 };
 
 /*
@@ -40,6 +41,16 @@ struct lws_transport_sequencer_range {
  */
 
 #define LWS_TS_MAX_RX_RANGES 64
+
+/*
+ * What we will send an unproven peer, beyond its first chunk, before it has
+ * acknowledged anything: at most this many bytes more than it has sent us.
+ * Its source address may be forged, and anything it gets us to send, eg, a
+ * bigger reply to each small request, goes to whoever really has that
+ * address (G-182).  The rest waits in the dsh until the peer proves itself.
+ */
+
+#define LWS_TS_UNPROVEN_TX_ALLOWANCE 1536
 
 static int
 range_compare(const lws_dll2_t *d, const lws_dll2_t *i)
@@ -75,6 +86,8 @@ struct lws_transport_sequencer {
 	uint64_t			ack_offset;     /* Cumulative ACK point */
 	uint64_t			next_rx_offset; /* Cumulative receive point */
 	uint64_t			active_offset; /* offset of currently in-flight chunk */
+	uint64_t			unproven_tx; /* bytes sent while unproven */
+	uint32_t			held; /* tx ranges waiting for the proof */
 
 	uint16_t			retry_count;
 	uint16_t			active_len;
@@ -185,6 +198,38 @@ lws_transport_sequencer_destroy(struct lws_transport_sequencer **pts)
 	*pts = NULL;
 }
 
+/*
+ * The peer has proven it receives from us: send what was held back from it
+ * while it was unproven, in the order it was written
+ */
+
+static void
+lws_ts_send_held(struct lws_transport_sequencer *ts)
+{
+	struct lws_transport_sequencer_range *r;
+
+	if (!ts->peer_proven || !ts->held)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ts->scoreboard)) {
+		r = lws_container_of(d, struct lws_transport_sequencer_range,
+				     list);
+
+		if (!r->sent) {
+			r->sent = 1;
+			ts->held--;
+			if (r->dsh_obj) {
+				ts->info.ops->tx_chunk(ts, r->offset,
+					(uint8_t *)r->dsh_obj + sizeof(uint64_t),
+					r->len);
+				ts->stats.tx_packets++;
+				ts->stats.tx_bytes += r->len;
+			}
+		}
+	} lws_end_foreach_dll(d);
+}
+
 int
 lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 				 uint64_t offset, const uint8_t *buf, size_t len)
@@ -196,15 +241,16 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 
 	/* Windowing is now heap-limited by DSH, not range-based */
 
-	/* Buffer in DSH with offset prefix */
-	if (lws_dsh_alloc_tail(ts->dsh, 0, &offset, sizeof(offset), buf, len)) {
-		lwsl_notice("%s: DSH alloc failed\n", __func__);
-		return 1;
-	}
-
 	r = lws_zalloc(sizeof(*r), __func__);
 	if (!r)
 		return 1;
+
+	/* Buffer in DSH with offset prefix */
+	if (lws_dsh_alloc_tail(ts->dsh, 0, &offset, sizeof(offset), buf, len)) {
+		lwsl_notice("%s: DSH alloc failed\n", __func__);
+		lws_free(r);
+		return 1;
+	}
 
 	r->offset = offset;
 	r->len = (uint32_t)len;
@@ -218,10 +264,23 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 	if (offset + len > ts->next_tx_offset)
 		ts->next_tx_offset = offset + len;
 
-	/* Always send the packet immediately (Broadsiding) */
-	ts->info.ops->tx_chunk(ts, offset, buf, len);
-	ts->stats.tx_packets++;
-	ts->stats.tx_bytes += len;
+	/*
+	 * Send the packet immediately (Broadsiding)... unless the peer is
+	 * unproven and has had its allowance: then it waits, in order, for
+	 * the peer to ack what it was sent
+	 */
+	if (ts->peer_proven ||
+	    (!ts->held && (!ts->unproven_tx ||
+			   ts->unproven_tx + len <= ts->stats.rx_bytes +
+					LWS_TS_UNPROVEN_TX_ALLOWANCE))) {
+		if (!ts->peer_proven)
+			ts->unproven_tx += len;
+		r->sent = 1;
+		ts->info.ops->tx_chunk(ts, offset, buf, len);
+		ts->stats.tx_packets++;
+		ts->stats.tx_bytes += len;
+	} else
+		ts->held++;
 
 	/*
 	 * Ensure retransmission timer is running for the unacked
@@ -336,9 +395,14 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 		if (ts->active_offset == r->offset)
 			lws_sul_cancel(&ts->sul_retry);
 
+		if (!r->sent) /* acked unseen, it is not held any more */
+			ts->held--;
 		lws_dll2_remove(&r->list);
 		lws_free(r);
 	} lws_end_foreach_dll_safe(d, d1);
+
+	/* the ack proved the peer: what we held back from it can go */
+	lws_ts_send_held(ts);
 
 	/* Schedule next retransmission from head of DSH if window not empty */
 	if (ts->next_tx_offset > ts->ack_offset) {
@@ -523,8 +587,10 @@ lws_transport_sequencer_rx_reset(struct lws_transport_sequencer *ts)
 int
 lws_transport_sequencer_resend(struct lws_transport_sequencer *ts)
 {
+	struct lws_transport_sequencer_range *r;
 	size_t len;
 	void *obj;
+	int n;
 
 	if (ts->completed)
 		return -1;
@@ -536,9 +602,28 @@ lws_transport_sequencer_resend(struct lws_transport_sequencer *ts)
 	ts->peer_proven = 1;
 	ts->stats.tx_retries++;
 
-	return ts->info.ops->tx_chunk(ts, *(uint64_t *)obj,
-				      (uint8_t *)obj + sizeof(uint64_t),
-				      len - sizeof(uint64_t)) < 0 ? -1 : 0;
+	/* the oldest chunk goes now, even if it was held back */
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ts->scoreboard)) {
+		r = lws_container_of(d, struct lws_transport_sequencer_range,
+				     list);
+		if (r->dsh_obj == obj) {
+			if (!r->sent) {
+				r->sent = 1;
+				ts->held--;
+			}
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	n = ts->info.ops->tx_chunk(ts, *(uint64_t *)obj,
+				   (uint8_t *)obj + sizeof(uint64_t),
+				   len - sizeof(uint64_t));
+
+	/* and gets what we held back from him meanwhile */
+	lws_ts_send_held(ts);
+
+	return n < 0 ? -1 : 0;
 }
 
 LWS_VISIBLE const lws_transport_sequencer_info_t *
