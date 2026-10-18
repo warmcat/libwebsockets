@@ -50,6 +50,10 @@
  *          never the proxy, and one whose last element is not an address is
  *          refused.
  *
+ *  limits: the login limiter's strikes and ban land on an IPv6 client's whole
+ *          /64, not one address of it, and wrong authenticator codes count
+ *          against the account.
+ *
  *  verify: the mailed registration link.  A GET of it, as a mail scanner
  *          makes, only asks for confirmation; the TOTP seed and backup codes
  *          come from the POST that page makes with the csrf double
@@ -105,6 +109,12 @@ static int send_host_hdr;
  */
 #define SEED_USER		"apitest-user"
 #define SEED_USER_TOTP		"apitest-totp-user"
+/*
+ * a second factor account only the limits scenario uses, since it leaves the
+ * account's logins braked for the rest of the fixture's life
+ */
+#define SEED_USER_LIMIT		"apitest-limit-user"
+#define SEED_UID_LIMIT		4
 /* holds the '*' grant, for the admin console: only adminws uses it */
 #define SEED_USER_ADMIN		"apitest-admin"
 #define SEED_UID_ADMIN		3
@@ -992,6 +1002,15 @@ scenario_seed(void)
 		     "password_hash, salt, totp_secret, session_epoch, "
 		     "totp_last) VALUES (%d, '%s', '%s', '%s', '', 0, 0)",
 		     SEED_UID_ADMIN, SEED_USER_ADMIN, hex, SEED_SALT);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (%d, '%s', '%s', '%s', '%s', 0, 0)",
+		     SEED_UID_LIMIT, SEED_USER_LIMIT, hex, SEED_SALT,
+		     SEED_TOTP_SECRET);
 	if (seed_exec(db, sql))
 		goto bail;
 
@@ -2218,6 +2237,124 @@ scenario_xff(void)
 	return 0;
 }
 
+/*
+ * limits: what the login limiter keys on, and what it counts (G-108).
+ *
+ * An IPv6 host commands its whole /64, so a strike per address meant a host
+ * starting again with none from a fresh address every attempt: the strikes and
+ * the ban must land on the /64.  And once a password is known, the second
+ * factor is what is guessed, from however many hosts: those failures must
+ * count against the account too.
+ */
+static int
+scenario_limits(void)
+{
+	char pfx[48], other[48], xff[96], csrf[128], b[512];
+	uint32_t code, wrong;
+	uint8_t r[4];
+	int n;
+
+	/*
+	 * (1) one host's /64, a fresh one each run since bans outlive it,
+	 * through the trusted proxy, a new address for every request
+	 */
+
+	lws_get_random(context, r, sizeof(r));
+	lws_snprintf(pfx, sizeof(pfx), "2001:db8:%x:%x::",
+		     (r[0] << 8) | r[1], (r[2] << 8) | r[3]);
+	lws_snprintf(other, sizeof(other), "2001:db8:%x:%x::1",
+		     (r[0] << 8) | r[1], ((r[2] << 8) | r[3]) ^ 1);
+
+	lws_snprintf(xff, sizeof(xff), "%s1", pfx);
+	req_xff = xff;
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 || status_strikes())
+		return fail("limits", "/api/status for %s answered %u with "
+			    "strikes %d, wanted 200 and none", xff, status,
+			    status_strikes());
+
+	for (n = 2; n < 6; n++) {
+		lws_snprintf(xff, sizeof(xff), "%s%d", pfx, n);
+		req_xff = xff;
+		if (req_full(JAR_AUTH, port_auth, "/api/login", "x=1") ||
+		    status != 403)
+			return fail("limits", "a login with no csrf_token from "
+				    "%s answered %u, wanted 403", xff, status);
+	}
+
+	lws_snprintf(xff, sizeof(xff), "%s6", pfx);
+	req_xff = xff;
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 || status_strikes() != 4)
+		return fail("limits", "after four failures from four addresses "
+			    "of %s/64, a fifth has %d strikes, wanted 4", pfx,
+			    status_strikes());
+
+	lws_snprintf(xff, sizeof(xff), "%s7", pfx);
+	req_xff = xff;
+	if (req_full(JAR_AUTH, port_auth, "/api/login", "x=1") ||
+	    status != 403)
+		return fail("limits", "the fifth failed login answered %u, "
+			    "wanted 403", status);
+
+	/* a ban drops the request unanswered, so this needn't wait long */
+	lws_snprintf(xff, sizeof(xff), "%s8", pfx);
+	req_xff = xff;
+	req_deadline_secs = 3;
+	if (!req_full(JAR_AUTH, port_auth, "/api/status", NULL) && status)
+		return fail("limits", "%s in the banned /64 still got an answer "
+			    "%u", xff, status);
+
+	req_xff = other;
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 || status_strikes())
+		return fail("limits", "%s in the neighbouring /64 answered %u "
+			    "with %d strikes, wanted 200 and none", other,
+			    status, status_strikes());
+
+	/*
+	 * (2) the second factor.  From loopback, which is never struck
+	 * itself, so only the account's count can stop it: eight wrong codes
+	 * after the right password, and then the right code is too late
+	 */
+
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 ||
+	    json_str(body, "csrf_token", csrf, sizeof(csrf)) || !csrf[0])
+		return fail("limits", "/api/status answered %u with no csrf",
+			    status);
+
+	if (totp_now(SEED_TOTP_SECRET, &code))
+		return fail("limits", "unable to compute the TOTP code");
+	wrong = (code + 500000) % 1000000;
+
+	for (n = 0; n < 8; n++) {
+		lws_snprintf(b, sizeof(b), "username=%s&password=%s"
+			     "&csrf_token=%s&totp=%06u", SEED_USER_LIMIT,
+			     SEED_PASSWORD, csrf, (unsigned int)wrong);
+		if (req_full(JAR_AUTH, port_auth, "/api/login", b) ||
+		    status != 401)
+			return fail("limits", "wrong authenticator code %d "
+				    "answered %u, wanted 401: '%s'", n, status,
+				    body);
+	}
+
+	if (totp_now(SEED_TOTP_SECRET, &code))
+		return fail("limits", "unable to compute the TOTP code");
+	lws_snprintf(b, sizeof(b), "username=%s&password=%s&csrf_token=%s"
+		     "&totp=%06u", SEED_USER_LIMIT, SEED_PASSWORD, csrf,
+		     (unsigned int)code);
+	if (req_full(JAR_AUTH, port_auth, "/api/login", b) || status != 503)
+		return fail("limits", "after eight wrong authenticator codes "
+			    "the right one answered %u, wanted 503: '%s'",
+			    status, body);
+
+	lwsl_user("PASS: limits: strikes and the ban land on the /64, and "
+		  "wrong authenticator codes brake the account\n");
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -2304,6 +2441,8 @@ main(int argc, const char **argv)
 		bad = scenario_csrf();
 	else if (!strcmp(test, "xff"))
 		bad = scenario_xff();
+	else if (!strcmp(test, "limits"))
+		bad = scenario_limits();
 	else if (!strcmp(test, "uninit")) {
 		if (!port_uninit || !port_failinit) {
 			lwsl_err("%s: uninit needs --uninit-port and "

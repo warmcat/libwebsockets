@@ -320,6 +320,16 @@ if (requirements)
 		endif()
 
 		#
+		# (d1c) the login limiter keys strikes and bans on an IPv6
+		# client's /64, and counts wrong authenticator codes against
+		# the account.  Once only, over h1: it leaves its account
+		# braked.
+		#
+		add_test(NAME lwsws-oauth-limits
+			 COMMAND ${SAMP} -t limits --h1 ${ARGS_COMMON})
+		list(APPEND mytests lwsws-oauth-limits)
+
+		#
 		# (d2) the mailed registration link: a GET only asks for
 		# confirmation, the page's POST creates the account and shows
 		# the second factor once, and the QR image of the seed needs

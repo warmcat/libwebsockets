@@ -202,9 +202,21 @@ struct per_vhost_data__auth_server {
 	char				email_subject[256];
 	char				email_body[1024];
 	struct lws_smtpc		*smtp;
-	lws_dll2_owner_t		ip_strikes;
-	lws_dll2_owner_t		user_strikes; /* per account, keyed on name */
+	lws_dll2_owner_t		ip_strikes; /* per host, see auth_host_key() */
+	/* per account, keyed on the lowercased name: accounts that exist ... */
+	lws_dll2_owner_t		user_strikes;
+	/* ... and names that do not, which can never evict those */
+	lws_dll2_owner_t		nouser_strikes;
 	lws_dll2_owner_t		ip_bans;
+
+	/*
+	 * Token bucket for the PBKDF2 an unauthenticated request can cause, in
+	 * thousandths of a run: whatever the spread of hosts and names, the
+	 * event loop spends at most kdf_per_sec runs a second in it
+	 */
+	lws_usec_t			kdf_last;
+	unsigned int			kdf_tokens;
+	unsigned int			kdf_per_sec;
 	/* comma-separated addresses whose X-Forwarded-For we believe */
 	char				trusted_proxies[256];
 	char				jwks_json[8192];
@@ -956,33 +968,139 @@ auth_strike_decay(auth_server_strike_t *strike, uint64_t now)
 }
 
 /*
- * Current (decayed) strike count for an address, without recording one.  Used
- * to apply the limiter *before* expensive work is done on an unauthenticated
- * request.  Addresses that never accrue strikes (our own / loopback, see
- * auth_record_strike()) simply have no record and answer 0.
+ * The key a client's strikes and bans are kept under: the address for IPv4,
+ * but the /64 for IPv6, since that is what one host commands (2^64 source
+ * addresses, each of which would otherwise start again at no strikes).  A
+ * v4-mapped address is its IPv4 address.  key must be at least
+ * AUTH_HOST_KEY_LEN.
+ */
+#define AUTH_HOST_KEY_LEN 64
+
+static void
+auth_host_key(const char *addr, char *key, size_t len)
+{
+#if defined(LWS_WITH_IPV6)
+	lws_sockaddr46 sa46;
+
+	if (!lws_sa46_parse_numeric_address(addr, &sa46) &&
+	    sa46.sa4.sin_family == AF_INET6) {
+		const uint8_t *a = sa46.sa6.sin6_addr.s6_addr;
+		static const uint8_t v4map[12] = { [10] = 0xff, [11] = 0xff };
+
+		if (!memcmp(a, v4map, sizeof(v4map)))
+			lws_snprintf(key, len, "%u.%u.%u.%u", a[12], a[13],
+				     a[14], a[15]);
+		else
+			lws_snprintf(key, len, "%x:%x:%x:%x::/64",
+				     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
+				     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
+		return;
+	}
+#endif
+
+	lws_strncpy(key, addr, len);
+}
+
+static auth_server_strike_t *
+auth_strike_find(lws_dll2_owner_t *owner, const char *key)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
+		auth_server_strike_t *s = lws_container_of(d,
+					auth_server_strike_t, list);
+
+		if (!strcmp(s->ip, key))
+			return s;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * Record a strike against key in owner, creating its record if need be, and
+ * return the record (NULL on OOM).  Records are kept least recently struck
+ * first.
+ *
+ * When the list already holds max records, a record that has fully decayed
+ * makes room first; only if there is none is the least recently struck one
+ * dropped.  So a flood of fresh keys can only push out records that were
+ * already harmless, or once the flood is bigger than max, the oldest.  max of
+ * 0 means the list is bounded some other way.
+ */
+static auth_server_strike_t *
+auth_strike_add(lws_dll2_owner_t *owner, const char *key, unsigned int max)
+{
+	uint64_t now = (uint64_t)time(NULL);
+	auth_server_strike_t *strike = auth_strike_find(owner, key);
+
+	if (strike) {
+		auth_strike_decay(strike, now);
+		lws_dll2_remove(&strike->list);
+	} else {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(owner)) {
+			auth_server_strike_t *s = lws_container_of(d,
+						auth_server_strike_t, list);
+
+			if (!max || lws_dll2_count(owner) < max)
+				break;
+			auth_strike_decay(s, now);
+			if (!s->strikes) {
+				lws_dll2_remove(&s->list);
+				free(s);
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+
+		if (max && lws_dll2_count(owner) >= max) {
+			auth_server_strike_t *s = lws_container_of(
+					lws_dll2_get_head(owner),
+					auth_server_strike_t, list);
+
+			lws_dll2_remove(&s->list);
+			free(s);
+		}
+
+		strike = malloc(sizeof(*strike));
+		if (!strike)
+			return NULL;
+		memset(strike, 0, sizeof(*strike));
+		lws_strncpy(strike->ip, key, sizeof(strike->ip));
+	}
+
+	lws_dll2_add_tail(&strike->list, owner);
+	strike->last_strike = now;
+	strike->strikes++;
+
+	return strike;
+}
+
+/*
+ * Current (decayed) strike count for a client address, without recording
+ * one.  Used to apply the limiter *before* expensive work is done on an
+ * unauthenticated request.  Addresses that never accrue strikes (our own /
+ * loopback, see auth_record_strike()) simply have no record and answer 0.
  */
 static int
 auth_peer_strikes(struct per_vhost_data__auth_server *vhd, const char *ip)
 {
-	uint64_t now = (uint64_t)time(NULL);
+	char key[AUTH_HOST_KEY_LEN];
+	auth_server_strike_t *s;
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&vhd->ip_strikes)) {
-		auth_server_strike_t *s = lws_container_of(d,
-					auth_server_strike_t, list);
+	auth_host_key(ip, key, sizeof(key));
+	s = auth_strike_find(&vhd->ip_strikes, key);
+	if (!s)
+		return 0;
 
-		if (!strcmp(s->ip, ip)) {
-			auth_strike_decay(s, now);
+	auth_strike_decay(s, (uint64_t)time(NULL));
 
-			return s->strikes;
-		}
-	} lws_end_foreach_dll_safe(d, d1);
-
-	return 0;
+	return s->strikes;
 }
 
 /* the ip_bans list is walked for every inbound request: keep it bounded */
 #define AUTH_SERVER_MAX_BANS 512
+/* hosts with live strikes we remember, see auth_strike_add() */
+#define AUTH_SERVER_MAX_HOST_STRIKES 1024
+/* names that are not accounts with live strikes we remember */
+#define AUTH_SERVER_MAX_NOUSER_STRIKES 256
 
 /*
  * Failures are also counted per account, keyed on the lowercased name, with
@@ -991,6 +1109,13 @@ auth_peer_strikes(struct per_vhost_data__auth_server *vhd, const char *ip)
  * list here, the count itself is the brake (auth_account_strikes() is read
  * before the KDF), so the worst a known name buys an attacker is keeping
  * that account's logins refused while it keeps trying.
+ *
+ * Names that are accounts and names that are not are kept apart: the
+ * accounts' list is bounded by the number of accounts and never evicts a
+ * live record, so failures for made-up names, however many, cannot push a
+ * real account's record out and reset its brake (G-108).  The made-up names
+ * are still counted and braked the same way, or the brake engaging would
+ * tell which names are accounts.
  */
 static void
 auth_account_key(const char *user, char *key, size_t len)
@@ -1008,79 +1133,50 @@ auth_account_key(const char *user, char *key, size_t len)
 static int
 auth_account_strikes(struct per_vhost_data__auth_server *vhd, const char *user)
 {
+	auth_server_strike_t *s;
 	char key[64];
 
 	auth_account_key(user, key, sizeof(key));
 
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&vhd->user_strikes)) {
-		auth_server_strike_t *s = lws_container_of(d,
-					auth_server_strike_t, list);
+	s = auth_strike_find(&vhd->user_strikes, key);
+	if (!s)
+		s = auth_strike_find(&vhd->nouser_strikes, key);
+	if (!s)
+		return 0;
 
-		if (!strcmp(s->ip, key)) {
-			auth_strike_decay(s, (uint64_t)time(NULL));
+	auth_strike_decay(s, (uint64_t)time(NULL));
 
-			return s->strikes;
-		}
-	} lws_end_foreach_dll(d);
-
-	return 0;
+	return s->strikes;
 }
 
+/*
+ * A failed password, TOTP or backup code for user; exists says whether user
+ * is an account
+ */
 static void
 auth_account_record_strike(struct per_vhost_data__auth_server *vhd,
-			   const char *user)
+			   const char *user, int exists)
 {
-	auth_server_strike_t *strike = NULL;
-	uint64_t now = (uint64_t)time(NULL);
+	auth_server_strike_t *strike;
 	char key[64];
 
 	auth_account_key(user, key, sizeof(key));
 
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&vhd->user_strikes)) {
-		auth_server_strike_t *s = lws_container_of(d,
-					auth_server_strike_t, list);
-
-		if (!strcmp(s->ip, key)) {
-			strike = s;
-			break;
-		}
-	} lws_end_foreach_dll(d);
-
-	if (!strike) {
-		if (lws_dll2_count(&vhd->user_strikes) >= 128) {
-			/* LRU eviction */
-			auth_server_strike_t *s = lws_container_of(
-				lws_dll2_get_head(&vhd->user_strikes),
-				auth_server_strike_t, list);
-
-			lws_dll2_remove(&s->list);
-			free(s);
-		}
-		strike = malloc(sizeof(*strike));
-		if (!strike)
-			return;
-		memset(strike, 0, sizeof(*strike));
-		lws_strncpy(strike->ip, key, sizeof(strike->ip));
-	} else {
-		auth_strike_decay(strike, now);
-		lws_dll2_remove(&strike->list);
-	}
-
-	lws_dll2_add_tail(&strike->list, &vhd->user_strikes); /* LRU tail */
-	strike->last_strike = now;
-	strike->strikes++;
-
-	lwsl_notice("%s: account strike %d\n", __func__, strike->strikes);
+	strike = exists ? auth_strike_add(&vhd->user_strikes, key, 0) :
+			  auth_strike_add(&vhd->nouser_strikes, key,
+					  AUTH_SERVER_MAX_NOUSER_STRIKES);
+	if (strike)
+		lwsl_notice("%s: account strike %d\n", __func__,
+			    strike->strikes);
 }
 
 static void
 auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 {
-	auth_server_strike_t *strike = NULL;
+	char key[AUTH_HOST_KEY_LEN];
+	auth_server_strike_t *strike;
 	uint64_t now = (uint64_t)time(NULL);
-	int strikes = 1;
+	int strikes;
 
 	/*
 	 * Never accrue strikes against this server's own addresses: the
@@ -1094,48 +1190,25 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 		return;
 	}
 
-	/* Find existing strike record */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
-		auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
-		if (!strcmp(s->ip, ip)) {
-			strike = s;
-			break;
-		}
-	} lws_end_foreach_dll_safe(d, d1);
+	auth_host_key(ip, key, sizeof(key));
 
-	if (!strike) {
-		if (lws_dll2_count(&vhd->ip_strikes) >= 128) {
-			/* LRU eviction */
-			auth_server_strike_t *s = lws_container_of(lws_dll2_get_head(
-				&vhd->ip_strikes), auth_server_strike_t, list);
-			lws_dll2_remove(&s->list);
-			free(s);
-		}
-		strike = malloc(sizeof(*strike));
-		if (!strike) return;
-		memset(strike, 0, sizeof(*strike));
-		lws_strncpy(strike->ip, ip, sizeof(strike->ip));
-		lws_dll2_add_tail(&strike->list, &vhd->ip_strikes);
-	} else {
-		auth_strike_decay(strike, now);
-		lws_dll2_remove(&strike->list);
-		lws_dll2_add_tail(&strike->list, &vhd->ip_strikes); /* move to tail (LRU) */
-	}
-
-	strike->last_strike = now;
-	strike->strikes++;
+	strike = auth_strike_add(&vhd->ip_strikes, key,
+				 AUTH_SERVER_MAX_HOST_STRIKES);
+	if (!strike)
+		return;
 	strikes = strike->strikes;
 
-	lwsl_notice("%s: IP %s recorded strike %d\n", __func__, ip, strikes);
+	lwsl_notice("%s: %s (%s) recorded strike %d\n", __func__, ip, key,
+		    strikes);
 
 	if (strikes >= 5) {
 		auth_server_ban_t *ban = NULL;
 		sqlite3_stmt *stmt;
 
-		lwsl_warn("%s: Banning IP %s due to heavy abuse\n", __func__, ip);
+		lwsl_warn("%s: Banning %s due to heavy abuse\n", __func__, key);
 
 		/*
-		 * Exactly one entry per address, and a hard ceiling on the
+		 * Exactly one entry per host, and a hard ceiling on the
 		 * list: it is walked linearly for every inbound HTTP request,
 		 * so appending a fresh entry on every re-ban (and never
 		 * sweeping) let a distributed attacker set our resident memory
@@ -1147,7 +1220,7 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 			auth_server_ban_t *b = lws_container_of(d,
 						auth_server_ban_t, list);
 
-			if (!strcmp(b->ip, ip)) {
+			if (!strcmp(b->ip, key)) {
 				ban = b;
 				break;
 			}
@@ -1171,14 +1244,14 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 			if (!ban)
 				return;
 			memset(ban, 0, sizeof(*ban));
-			lws_strncpy(ban->ip, ip, sizeof(ban->ip));
+			lws_strncpy(ban->ip, key, sizeof(ban->ip));
 			lws_dll2_add_tail(&ban->list, &vhd->ip_bans);
 		}
 
 		ban->banned_until = now + (24 * 3600); /* 24 hours */
 
 		if (sqlite3_prepare_v2(vhd->db, "INSERT OR REPLACE INTO bans (ip, banned_until) VALUES (?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
-			sqlite3_bind_text(stmt, 1, ip, -1, SQLITE_STATIC);
+			sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
 			sqlite3_bind_int64(stmt, 2, (sqlite_int64)ban->banned_until);
 			sqlite3_step(stmt);
 			sqlite3_finalize(stmt);
@@ -1193,14 +1266,48 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 static void
 auth_clear_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 {
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
-		auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
-		if (!strcmp(s->ip, ip)) {
-			lws_dll2_remove(&s->list);
-			free(s);
-			return;
-		}
-	} lws_end_foreach_dll_safe(d, d1);
+	char key[AUTH_HOST_KEY_LEN];
+	auth_server_strike_t *s;
+
+	auth_host_key(ip, key, sizeof(key));
+	s = auth_strike_find(&vhd->ip_strikes, key);
+	if (s) {
+		lws_dll2_remove(&s->list);
+		free(s);
+	}
+}
+
+/*
+ * May an unauthenticated request make us run PBKDF2 now?  100000 rounds of
+ * HMAC-SHA512 run inline on the event loop thread, so this bounds how much of
+ * the loop requests can spend in it, however they are spread across hosts
+ * and names that the per-host and per-account brakes key on.  Returns 0 and
+ * takes a token if so.
+ */
+static int
+auth_kdf_budget_take(struct per_vhost_data__auth_server *vhd)
+{
+	lws_usec_t now = lws_now_usecs();
+	uint64_t cap = (uint64_t)vhd->kdf_per_sec * 2000, t = vhd->kdf_tokens;
+
+	/* refill at kdf_per_sec runs a second, up to two seconds' worth */
+	if (now > vhd->kdf_last) {
+		t += ((uint64_t)(now - vhd->kdf_last) * vhd->kdf_per_sec) /
+							LWS_US_PER_MS;
+		if (t > cap)
+			t = cap;
+	}
+	vhd->kdf_last = now;
+
+	if (t < 1000) {
+		vhd->kdf_tokens = (unsigned int)t;
+
+		return 1;
+	}
+
+	vhd->kdf_tokens = (unsigned int)(t - 1000);
+
+	return 0;
 }
 
 /*
@@ -2841,11 +2948,20 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		goto send;
 	}
 
+	/* and whoever is asking, the KDF may only take so much of the loop */
+	if (auth_kdf_budget_take(vhd)) {
+		lwsl_wsi_notice(wsi, "%s: KDF budget exhausted", __func__);
+		pss->http_response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Too many attempts, try again shortly\"}");
+		goto send;
+	}
+
 	if (lws_auth_check_credentials(vhd, user, pass, &uid)) {
 		lwsl_err("%s: Validation failed for user '%s'\n", __func__, user);
 		lwsl_info("login bad credentials\n");
 		auth_record_strike(vhd, peer);
-		auth_account_record_strike(vhd, user);
+		/* uid is only filled in for a name that is an account */
+		auth_account_record_strike(vhd, user, !!uid);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Validation failed\"}");
 		goto send;
@@ -2891,8 +3007,14 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			if (totp_code_str[cn] < '0' || totp_code_str[cn] > '9')
 				break;
 
+		/*
+		 * Every second factor failure counts against the account too:
+		 * once the password is known, the code and the backup codes
+		 * are what is being guessed, from however many hosts
+		 */
 		if (cn != 6 || totp_code_str[6]) {
 			auth_record_strike(vhd, peer);
+			auth_account_record_strike(vhd, user, 1);
 			lwsl_info("login malformed TOTP\n");
 			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Authenticator Code\"}");
@@ -2922,6 +3044,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 			if (matched_t <= last) {
 				auth_record_strike(vhd, peer);
+				auth_account_record_strike(vhd, user, 1);
 				lwsl_notice("%s: uid %u replayed TOTP counter "
 					    "%llu\n", __func__, uid,
 					    (unsigned long long)matched_t);
@@ -2957,6 +3080,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 				lwsl_notice("%s: User %u consumed a backup code\n", __func__, uid);
 			} else {
 				auth_record_strike(vhd, peer);
+				auth_account_record_strike(vhd, user, 1);
 				lwsl_info("login bad TOTP\n");
 				pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 				len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Authenticator Code\"}");
@@ -3711,6 +3835,13 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	auth_record_strike(vhd, peer); /* Throttle IP naturally to maximally 4 gen / 120s universally */
 
+	if (auth_kdf_budget_take(vhd)) {
+		lwsl_wsi_notice(wsi, "%s: KDF budget exhausted", __func__);
+		pss->http_response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Too many attempts, try again shortly\"}");
+		goto send;
+	}
+
 	const char *query = "INSERT OR REPLACE INTO registrations (email, password_hash, salt, totp_secret, verify_hash, expires) VALUES (?, ?, ?, ?, ?, ?)";
 
 	lws_get_random(vhd->context, salt_raw, sizeof(salt_raw));
@@ -3832,6 +3963,15 @@ auth_server_vhd_release(struct per_vhost_data__auth_server *vhd)
 	} lws_end_foreach_dll_safe(d, d1);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->nouser_strikes)) {
+		auth_server_strike_t *s = lws_container_of(d,
+						auth_server_strike_t, list);
+
+		lws_dll2_remove(&s->list);
+		free(s);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&vhd->ip_bans)) {
 		auth_server_ban_t *b = lws_container_of(d, auth_server_ban_t,
 							list);
@@ -3884,6 +4024,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->jwt_validity_secs = 86400; // 24 hours
 		vhd->registration_ui = 0;
 		vhd->auth_log_limit = 10;
+		vhd->kdf_per_sec = 8;
 
 		pvo = lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in, "db_path");
@@ -3986,6 +4127,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			(const struct lws_protocol_vhost_options *)in, "auth-log-limit");
 		if (pvo)
 			vhd->auth_log_limit = (unsigned int)atoi(pvo->value);
+
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in, "kdf-per-sec");
+		if (pvo && pvo->value) {
+			int k = atoi(pvo->value);
+
+			/* at least one, and few enough to keep the sums sane */
+			vhd->kdf_per_sec = (unsigned int)(k < 1 ? 1 :
+							  (k > 1000 ? 1000 : k));
+		}
 
 		lwsl_notice("Auth Server plugin initialized: domain '%s', db '%s', jwk '%s', alg '%s', reg_ui %d\n",
 			 vhd->auth_domain, vhd->db_path, vhd->jwk_path, vhd->jwt_alg, vhd->registration_ui);
@@ -4118,10 +4269,22 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (sqlite3_prepare_v2(vhd->db, "SELECT ip, banned_until FROM bans WHERE banned_until > ?", -1, &stmt, NULL) == SQLITE_OK) {
 				sqlite3_bind_int64(stmt, 1, (sqlite_int64)now);
 				while (sqlite3_step(stmt) == SQLITE_ROW) {
-					auth_server_ban_t *ban = malloc(sizeof(*ban));
+					const char *bip = (const char *)
+						sqlite3_column_text(stmt, 0);
+					auth_server_ban_t *ban;
+
+					if (!bip)
+						continue;
+					ban = malloc(sizeof(*ban));
 					if (!ban) break;
 					memset(ban, 0, sizeof(*ban));
-					lws_strncpy(ban->ip, (const char *)sqlite3_column_text(stmt, 0), sizeof(ban->ip));
+					/*
+					 * a ban recorded on a whole IPv6
+					 * address before bans were per /64
+					 * carries over to its /64
+					 */
+					auth_host_key(bip, ban->ip,
+						      sizeof(ban->ip));
 					ban->banned_until = (uint64_t)sqlite3_column_int64(stmt, 1);
 					lws_dll2_add_tail(&ban->list, &vhd->ip_bans);
 					lwsl_notice("Loaded active ban for %s\n", ban->ip);
@@ -4228,12 +4391,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			const char *peer = pss->client_addr;
 			uint64_t now = (uint64_t)time(NULL);
+			char key[AUTH_HOST_KEY_LEN];
 
-			/* Rapid ban-check */
+			/* Rapid ban-check, on the host's key */
+			auth_host_key(peer, key, sizeof(key));
 			int is_banned = 0;
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_bans)) {
 				auth_server_ban_t *b = lws_container_of(d, auth_server_ban_t, list);
-				if (!strcmp(b->ip, peer)) {
+				if (!strcmp(b->ip, key)) {
 					if (now > b->banned_until) {
 						/* expired, sweep it */
 						lws_dll2_remove(&b->list);
@@ -4241,7 +4406,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						/* database sweep occurs below lazily, or we could explicitly: */
 						sqlite3_stmt *st;
 						if (sqlite3_prepare_v2(vhd->db, "DELETE FROM bans WHERE ip = ?", -1, &st, NULL) == SQLITE_OK) {
-							sqlite3_bind_text(st, 1, peer, -1, SQLITE_STATIC);
+							sqlite3_bind_text(st, 1, key, -1, SQLITE_STATIC);
 							sqlite3_step(st);
 							sqlite3_finalize(st);
 						}
@@ -4258,7 +4423,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						free(b);
 						sqlite3_stmt *st;
 						if (sqlite3_prepare_v2(vhd->db, "DELETE FROM bans WHERE ip = ?", -1, &st, NULL) == SQLITE_OK) {
-							sqlite3_bind_text(st, 1, peer, -1, SQLITE_STATIC);
+							sqlite3_bind_text(st, 1, key, -1, SQLITE_STATIC);
 							sqlite3_step(st);
 							sqlite3_finalize(st);
 						}
@@ -4273,7 +4438,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			} lws_end_foreach_dll_safe(d, d1);
 
 			if (is_banned) {
-				lwsl_wsi_notice(wsi, "Banned IP %s blocked", peer);
+				lwsl_wsi_notice(wsi, "Banned %s (%s) blocked",
+						peer, key);
 				return -1;
 			}
 		}
@@ -4590,17 +4756,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (pss) {
 				const char *peer = pss->client_addr;
-				int strikes = 0;
-
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
-					auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
-					if (!strcmp(s->ip, peer)) {
-						/* same leaky-bucket ageing the limiter uses */
-						auth_strike_decay(s, (uint64_t)time(NULL));
-						strikes = s->strikes;
-						break;
-					}
-				} lws_end_foreach_dll_safe(d, d1);
+				int strikes = auth_peer_strikes(vhd, peer);
 
 				char csrf[33];
 				int has_csrf = auth_csrf_get_or_make(wsi, vhd,

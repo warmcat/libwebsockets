@@ -39,6 +39,7 @@ request with `503` and its admin WebSocket upgrade is refused.
 | `jwt-validity-secs` | Optional: Time-to-live for the signed JWT in seconds. Defaults to `86400` (24 hours). | `3600` |
 | `refresh-validity-secs` | Optional: Duration in seconds to issue stateful, database-backed refresh sessions. If set `> 0`, transparent silent renewals are natively permitted. Defaults to `0` (stateless). | `2592000` |
 | `auth-log-limit` | Optional: Maximum number of recent authentication IP audit logs to retain per-identity in the database. Set to `0` to completely disable logging. Defaults to `10`. | `10` |
+| `kdf-per-sec` | Optional: how many password hashes (100000 rounds of PBKDF2-SHA512, run on the event loop thread) unauthenticated logins and registrations may cause per second in total, with up to two seconds' worth in a burst.  Beyond it they are answered `503` "Too many attempts" until the budget refills, so a flood cannot stall the server.  Defaults to `8`. | `8` |
 | `registration_ui` | Optional. If `1` or `true`, exposes public web UI endpoints. Useful for general signups. Defaults to `0` or false. | `true` |
 | `email-from` | Optional: The sender email address for outgoing SMTP verification emails. Defaults to `noreply@warmcat.com`. | `noreply@example.com` |
 | `email-subject` | Optional: The subject line for the verification email. Defaults to `Complete your registration`. | `Please confirm your ExampleApp account` |
@@ -289,12 +290,24 @@ get the proxy, and so every user, banned.  A request from a trusted proxy
 with no `X-Forwarded-For` at all is taken to be from the proxy's host itself,
 as the in-process API clients are.
 
-Failures are also counted per account: after eight wrong passwords for one
-account (one forgiven every 120 s, like the address strikes) its logins are
-refused with `503` until they decay, whatever addresses they come from.  That
-is a nuisance an attacker can inflict on a known account name; it is the
-price of a password-guessing campaign spread over many addresses no longer
-getting a free run.
+Strikes and bans are kept per host, not per address: an IPv4 address, but an
+IPv6 client's whole /64, since one host commands all of it and could
+otherwise start again with no strikes from a fresh address every attempt.
+Audit rows still record the full address.
+
+Failures are also counted per account: after eight wrong passwords,
+authenticator codes or backup codes for one account (one forgiven every
+120 s, like the address strikes) its logins are refused with `503` until
+they decay, whatever addresses they come from.  That is a nuisance an
+attacker can inflict on a known account name; it is the price of a guessing
+campaign spread over many addresses no longer getting a free run.  Names
+that are not accounts are counted the same way, so the brake engaging does
+not tell anyone which names exist, but separately: failures for made-up
+names cannot crowd a real account's count out of memory.
+
+Behind all of that, the password hashing unauthenticated requests can cause
+is budgeted as a whole (`kdf-per-sec`), so however the requests are spread
+across hosts and names, they cannot keep the event loop busy hashing.
 
 ### Password policy
 
@@ -317,7 +330,8 @@ floor, not a policy — put a real one in front of it if you need one.
   longer enumerates accounts; a registered or pending address still costs a
   strike.
 - The 100000-round PBKDF2 runs inline on the event loop thread.  The limiter is
-  applied before it, per address and per account, but it still belongs on the
-  threadpool, with the login response completed from the worker.
+  applied before it, per host, per account and in total (`kdf-per-sec`), but
+  it still belongs on the threadpool, with the login response completed from
+  the worker.
 - The admin WebSocket accepts `{"op":"device_revoke","uid":N,"client_id":"<device_id>"}`
   to revoke one device token; the admin page does not offer it yet.
