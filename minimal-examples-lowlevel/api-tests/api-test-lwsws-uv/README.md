@@ -128,6 +128,20 @@ reads those bytes as the start of the next response.  The HEAD response must
 be headers only, with the GET's `content-length`, and the GET's response
 must then parse and carry the js.
 
+### `deaddrop` -- only session tokens name a deaddrop user (G-188)
+
+The fixture gives `lws-deaddrop` the same jwk as the interceptor, as a
+deployment sharing one key might.  deaddrop takes the `sub` of the token in its
+`auth_session` cookie as the user, and the interceptor hands a visit token,
+`sub` = the peer's IP, to anyone who GETs a gated page.  The case fetches a
+visit token, then opens deaddrop's ws three times, with `auth_session` set to:
+
+ - the visit token: the user deaddrop reports in its first message must be
+   empty (anonymous), not the IP;
+ - a token signed with the key and carrying `"pur":"sso"`, as the auth server
+   mints them: the user must be its `sub`;
+ - the same token without the purpose: anonymous again.
+
 ### `pipeline` -- h1 keepalive across a transfer (C-460)
 
 On one raw keepalive connection to the cleartext listener:

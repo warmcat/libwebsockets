@@ -248,6 +248,18 @@ A presented csrf cookie is only adopted if it has the exact
 replaced with a fresh token, so a value the server did not mint cannot reach
 the JSON or the HTML attribute the token is composed into.
 
+### Token purpose
+
+Every session and device JWT the server issues carries `"pur":"sso"`
+(`LWS_JWT_AUTH_PURPOSE_SSO`), and the server and the in-tree relying parties
+(lws-login, deaddrop, hls, oauth-preauth, the dnssec monitor) accept only
+tokens carrying it, via `lws_jwt_auth_create_via_info()`.  So another kind of
+token signed with the same key, eg an interceptor's visit cookie, is never
+taken for a session.  Tokens issued before the claim was added are refused:
+users log in again, and device tokens have to be issued again.  A key shared
+with other token minters is only safe while each of them signs its own
+purpose; see `READMEs/README.jwt.md`.
+
 ### Session revocation
 
 Every issued JWT carries the user's `session_epoch` as the `sec` claim, and

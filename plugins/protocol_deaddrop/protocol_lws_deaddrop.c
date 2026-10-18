@@ -196,13 +196,17 @@ deaddrop_parse_user_agent(const char *ua, char *platform, size_t plat_len,
  *  - the JWT session cookie, which must both verify and still be live:
  *    lws_jwt_auth_create() deliberately hands back a token that verified but
  *    has expired, leaving the expiry policy to us.  For a session credential,
- *    expired means no session.
+ *    expired means no session.  And it must be a session token, signed with
+ *    the auth server's "sso" purpose: the jwk may be shared with other
+ *    minters, eg an interceptor whose visit token, sub = the peer IP, is
+ *    handed to anyone (G-188).
  */
 
 static void
 deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 			   struct lws *wsi)
 {
+	struct lws_jwt_auth_info ai;
 	struct lws_jwt_auth *ja;
 	const char *sub;
 
@@ -225,8 +229,13 @@ deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	if (!vhd->has_jwk)
 		return;
 
-	ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi,
-				 NULL);
+	memset(&ai, 0, sizeof(ai));
+	ai.jwk		= &vhd->jwk;
+	ai.cookie_name	= vhd->cookie_name;
+	ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
+	ai.user		= wsi;
+
+	ja = lws_jwt_auth_create_via_info(wsi, &ai, NULL);
 	if (!ja)
 		return;
 

@@ -2019,7 +2019,8 @@ mint_session_cookie(struct lws_jwk *jwk, char *ck, size_t ck_len,
 
 	if (lws_jwt_sign_compact(context, jwk, "ES256", tok, &tok_len, temp,
 				 sizeof(temp),
-				 "{\"iss\":\"apitest\",\"sub\":\"alice\","
+				 "{\"iss\":\"apitest\",\"pur\":\""
+				 LWS_JWT_AUTH_PURPOSE_SSO "\",\"sub\":\"alice\","
 				 "\"uid\":%u,\"sec\":%u,%s%s%s\"iat\":%llu,"
 				 "\"exp\":%llu,\"grants\":{%s}}",
 				 uid, sec, did ? "\"did\":\"" : "",
@@ -2155,7 +2156,8 @@ int main(int argc, const char **argv)
 			if (lws_jwt_sign_compact(context, &jwk, "ES256",
 						 minted_jwt, &out_len, temp,
 						 sizeof(temp),
-						 "{\"iss\":\"apitest\",\"sub\":"
+						 "{\"iss\":\"apitest\",\"pur\":\""
+						 LWS_JWT_AUTH_PURPOSE_SSO "\",\"sub\":"
 						 "\"sso\",\"uid\":1,\"sec\":5,"
 						 "\"iat\":%llu,\"exp\":%llu,"
 						 "\"grants\":{\"default-service\":1},"

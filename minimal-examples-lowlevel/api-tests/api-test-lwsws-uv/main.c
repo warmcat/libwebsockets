@@ -44,6 +44,12 @@
  *             connection.  The HEAD response must be headers only: body
  *             bytes after them are read as the start of the GET's response.
  *
+ *  deaddrop   G-188.  lws-deaddrop shares its jwk with the interceptor in
+ *             the fixture.  The interceptor's visit token presented as
+ *             deaddrop's session cookie, and a token signed with that key
+ *             but no "sso" purpose, must leave the ws anonymous; a session
+ *             token with the purpose must name its user.
+ *
  *  pipeline   h1 keepalive pipelining across a large transfer, on the
  *             cleartext listener.  Two phases: first the two requests in one
  *             write the C-460 report describes, then the same thing with the
@@ -1117,6 +1123,144 @@ callback_hd(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return 0;
 }
 
+/* ------------------------------------------- deaddrop session token case */
+
+/*
+ * G-188.  lws-deaddrop takes the "sub" of the token in its session cookie as
+ * the user, and the fixture's deaddrop shares its jwk with the interceptor,
+ * which hands a visit token, sub = the peer's IP, to anyone who GETs a gated
+ * page.  Only the auth server's session tokens, signed with the "sso"
+ * purpose, may name a deaddrop user: the visit token, and a token signed with
+ * the right key but no purpose, must leave the connection anonymous.
+ *
+ * The fixture's deaddrop has "allow-anonymous", so every one of these
+ * upgrades is accepted, and the identity deaddrop settled on comes back as
+ * "user" in the first message it sends.
+ */
+
+/* the fixture's throwaway key, LWSWS_UV_JWK in CMakeLists.txt */
+static const char dd_jwk[] =
+	"{\"kty\":\"oct\",\"k\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}";
+
+#define DD_COOKIE_NAME		"auth_session"
+#define DD_USER			"dd-alice"
+
+enum dd_token {
+	DD_T_VISIT,		/* the interceptor's visit token */
+	DD_T_SSO,		/* a session token, "pur":"sso" */
+	DD_T_NO_PURPOSE,	/* the right key, but no "pur" */
+};
+
+static const struct dd_case {
+	const char		*name;
+	enum dd_token		token;
+	const char		*want_user;	/* "" is anonymous */
+} dd_cases[] = {
+	{ "deaddrop: interceptor visit token is no user", DD_T_VISIT, "" },
+	{ "deaddrop: session token names the user", DD_T_SSO, DD_USER },
+	{ "deaddrop: token with no purpose is no user", DD_T_NO_PURPOSE, "" },
+};
+
+static const struct job jobs_dd_visit[] = {
+	{ "get an interceptor visit cookie", NULL, "/gated/", JS_TLS, JC_NONE,
+	  JC_VISIT, NULL, 200, "captcha", NULL, 0 },
+};
+
+static const struct dd_case	*dd_c;
+static char			dd_cookie[1200];
+static char			dd_rx[4096];
+static size_t			dd_rx_len;
+static int			dd_judged;
+
+static void
+dd_judge(void)
+{
+	const char *v;
+	size_t alen = 0;
+
+	dd_judged = 1;
+
+	v = lws_json_simple_find(dd_rx, dd_rx_len, "\"user\":", &alen);
+	if (!v) {
+		lwsl_err("%s: '%s': no \"user\" in '%.*s'\n", __func__,
+			 dd_c->name, (int)dd_rx_len, dd_rx);
+		finish(1);
+
+		return;
+	}
+
+	if (alen != strlen(dd_c->want_user) ||
+	    strncmp(v, dd_c->want_user, alen)) {
+		lwsl_err("%s: '%s': user '%.*s', expected '%s'\n", __func__,
+			 dd_c->name, (int)alen, v, dd_c->want_user);
+		finish(1);
+
+		return;
+	}
+
+	lwsl_user("%s: '%s': OK (user '%s')\n", __func__, dd_c->name,
+		  dd_c->want_user);
+	finish(0);
+}
+
+static int
+callback_dd(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	    void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+					(const unsigned char *)dd_cookie,
+					(int)strlen(dd_cookie), p, end))
+			return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_CLIENT_RECEIVE: {
+		size_t n = len;
+
+		if (dd_judged)
+			return -1;
+
+		/* "user" is near the start: judge on what fits */
+		if (n > sizeof(dd_rx) - dd_rx_len)
+			n = sizeof(dd_rx) - dd_rx_len;
+		memcpy(dd_rx + dd_rx_len, in, n);
+		dd_rx_len += n;
+
+		if (lws_is_final_fragment(wsi) || dd_rx_len == sizeof(dd_rx)) {
+			dd_judge();
+
+			return -1;
+		}
+		break;
+	}
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_err("%s: '%s': connect error: %s\n", __func__, dd_c->name,
+			 in ? (const char *)in : "(null)");
+		dd_judged = 1;
+		finish(1);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		if (!dd_judged) {
+			lwsl_err("%s: '%s': closed before the first message\n",
+				 __func__, dd_c->name);
+			dd_judged = 1;
+			finish(1);
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 /* -------------------------------------------------------------- protocols */
 
 static const struct lws_protocols
@@ -1126,10 +1270,12 @@ static const struct lws_protocols
 	prot_pl = { "lws-api-test-lwsws-uv-pl", callback_pl, 0, 0, 0,
 		    NULL, 0 },
 	prot_hd = { "lws-api-test-lwsws-uv-hd", callback_hd, 0, 0, 0,
+		    NULL, 0 },
+	prot_dd = { "lws-api-test-lwsws-uv-dd", callback_dd, 0, 0, 0,
 		    NULL, 0 };
 
 static const struct lws_protocols *pprotocols[] = {
-	&defprot, &prot_cli, &prot_pl, &prot_hd, NULL
+	&defprot, &prot_cli, &prot_pl, &prot_hd, &prot_dd, NULL
 };
 
 /* ------------------------------------------------------------- the cases */
@@ -1441,6 +1587,125 @@ run_quicabort(void)
 			"http/1.1", 1);
 }
 
+/* a token as the auth server mints them, with "pur" as given, or none */
+
+static int
+dd_mint(const char *pur, char *out, size_t out_len)
+{
+	unsigned long long now = (unsigned long long)lws_now_secs();
+	struct lws_jwk jwk;
+	char temp[2048];
+	int r;
+
+	if (lws_jwk_import(&jwk, NULL, NULL, dd_jwk, strlen(dd_jwk)))
+		return 1;
+
+	r = lws_jwt_sign_compact(cx, &jwk, "HS256", out, &out_len, temp,
+				 (int)sizeof(temp),
+				 "{\"iss\":\"lwsws-apitest\",%s%s%s"
+				 "\"sub\":\"" DD_USER "\",\"uid\":1,"
+				 "\"iat\":%llu,\"exp\":%llu}",
+				 pur ? "\"pur\":\"" : "", pur ? pur : "",
+				 pur ? "\"," : "", now, now + 600);
+	lws_jwk_destroy(&jwk);
+
+	return r;
+}
+
+static int
+run_dd_case(const struct dd_case *c)
+{
+	struct lws_client_connect_info i;
+	static char host_hdr[128];
+	char tok[1024];
+	const char *v;
+
+	if (make_context())
+		return 1;
+
+	dd_c		= c;
+	dd_rx_len	= 0;
+	dd_judged	= 0;
+	result		= 1;
+
+	switch (c->token) {
+	case DD_T_VISIT:
+		/* the token alone, presented under deaddrop's cookie name */
+		v = strchr(cookie_visit, '=');
+		if (!v || !v[1]) {
+			lwsl_err("%s: no visit token\n", __func__);
+			goto bail;
+		}
+		lws_snprintf(dd_cookie, sizeof(dd_cookie), DD_COOKIE_NAME "%s",
+			     v);
+		break;
+	case DD_T_SSO:
+	case DD_T_NO_PURPOSE:
+		if (dd_mint(c->token == DD_T_SSO ? LWS_JWT_AUTH_PURPOSE_SSO :
+						   NULL, tok, sizeof(tok))) {
+			lwsl_err("%s: minting failed\n", __func__);
+			goto bail;
+		}
+		lws_snprintf(dd_cookie, sizeof(dd_cookie),
+			     DD_COOKIE_NAME "=%s", tok);
+		break;
+	}
+
+	memset(&i, 0, sizeof(i));
+	i.context		= cx;
+	i.address		= g_server;
+	i.port			= g_port_tls;
+	i.path			= "/deaddrop/";
+	lws_snprintf(host_hdr, sizeof(host_hdr), "%s:%d", g_server,
+		     g_port_tls);
+	i.host			= host_hdr;
+	i.alpn			= "http/1.1";
+	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED;
+	i.protocol		= "lws-deaddrop";
+	i.local_protocol_name	= "lws-api-test-lwsws-uv-dd";
+
+	lws_sul_schedule(cx, 0, &sul_watchdog, watchdog_cb,
+			 20 * LWS_USEC_PER_SEC);
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("%s: ws client connect failed\n", __func__);
+		goto bail;
+	}
+
+	service_until_done();
+
+	lws_sul_cancel(&sul_watchdog);
+	if (cx)
+		lws_context_destroy(cx);
+	cx = NULL;
+
+	return result;
+
+bail:
+	lws_sul_cancel(&sul_watchdog);
+	lws_context_destroy(cx);
+	cx = NULL;
+
+	return 1;
+}
+
+static int
+run_deaddrop(void)
+{
+	size_t k;
+
+	g_pin_family = 1;
+	if (run_jobs(jobs_dd_visit, (int)LWS_ARRAY_SIZE(jobs_dd_visit),
+		     "http/1.1", 1))
+		return 1;
+
+	for (k = 0; k < LWS_ARRAY_SIZE(dd_cases); k++)
+		if (run_dd_case(&dd_cases[k]))
+			return 1;
+
+	return 0;
+}
+
 static int
 run_head(void)
 {
@@ -1583,8 +1848,8 @@ main(int argc, const char **argv)
 	p = lws_cmdline_option(argc, argv, "-t");
 	if (!p || !g_port_tls || !g_port_plain) {
 		lwsl_err("Usage: lws-api-test-lwsws-uv -t "
-			 "<captcha|captcha-h2|captcha-head|pipeline|proxy|"
-			 "h3race|quicabort> "
+			 "<captcha|captcha-h2|captcha-head|deaddrop|pipeline|"
+			 "proxy|h3race|quicabort> "
 			 "--server <host> -p <tls port> "
 			 "--plain-port <port> [--evlib uv|poll] [-d <level>]\n");
 
@@ -1614,6 +1879,9 @@ main(int argc, const char **argv)
 	else
 		if (!strcmp(p, "captcha-head"))
 			r = run_head();
+	else
+		if (!strcmp(p, "deaddrop"))
+			r = run_deaddrop();
 	else
 		if (!strcmp(p, "proxy"))
 			r = run_jobs(jobs_proxy,

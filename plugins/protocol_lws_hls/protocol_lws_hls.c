@@ -537,9 +537,18 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 #endif
 
 	if (vhd->has_jwk) {
-		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk,
-					"auth_session", NULL, wsi, NULL);
+		struct lws_jwt_auth_info ai;
+		struct lws_jwt_auth *ja;
 		int ok = 0;
+
+		/* only the auth server's session tokens, not any it signed */
+		memset(&ai, 0, sizeof(ai));
+		ai.jwk		= &vhd->jwk;
+		ai.cookie_name	= "auth_session";
+		ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
+		ai.user		= wsi;
+
+		ja = lws_jwt_auth_create_via_info(wsi, &ai, NULL);
 
 		if (!ja) {
 			lws_snprintf(why, wl, "no valid auth_session jwt");

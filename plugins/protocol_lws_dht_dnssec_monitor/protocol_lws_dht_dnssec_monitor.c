@@ -3907,7 +3907,16 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 		{
-			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
+			struct lws_jwt_auth_info ai;
+			struct lws_jwt_auth *ja;
+
+			/* only the auth server's session tokens */
+			memset(&ai, 0, sizeof(ai));
+			ai.jwk		= &vhd->jwk;
+			ai.cookie_name	= vhd->cookie_name;
+			ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
+
+			ja = lws_jwt_auth_create_via_info(wsi, &ai, NULL);
 			if (!ja) {
 				lwsl_notice("%s: No valid JWT found, bounced proxy UI connection\n", __func__);
 				return -1;

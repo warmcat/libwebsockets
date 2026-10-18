@@ -75,6 +75,8 @@ if (requirements)
 		#
 		# Throwaway HS256 key (32 bytes 0x00..0x1f): it only signs the
 		# captcha visit / pass cookies inside this test's own lwsws.
+		# deaddrop is given the same key, as a deployment sharing one
+		# key might, and main.c holds a copy to mint session tokens.
 		# The quotes are backslash-escaped because the whole JWK is one
 		# JSON string value inside the lwsws config.
 		#
@@ -184,6 +186,12 @@ if (requirements)
 		add_test(NAME lwsws-uv-captcha-head
 			 COMMAND ${SAMP} -t captcha-head ${ARGS_COMMON})
 		list(APPEND mytests lwsws-uv-captcha-head)
+
+		# G-188: deaddrop shares the interceptor's jwk here, and only
+		# an "sso" session token may name a deaddrop user
+		add_test(NAME lwsws-uv-deaddrop-jwt
+			 COMMAND ${SAMP} -t deaddrop ${ARGS_COMMON})
+		list(APPEND mytests lwsws-uv-deaddrop-jwt)
 
 		# (b) h1 pipelining during a transfer, on the cleartext listener
 		add_test(NAME lwsws-uv-pipeline

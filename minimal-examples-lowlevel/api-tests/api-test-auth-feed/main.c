@@ -212,7 +212,8 @@ mint_token(char *ck, size_t ck_len, unsigned int uid, unsigned int sec,
 
 	r = lws_jwt_sign_compact(context, &jwk, "ES256", tok, &tok_len, temp,
 				 sizeof(temp),
-				 "{\"iss\":\"apitest\",\"sub\":\"alice\","
+				 "{\"iss\":\"apitest\",\"pur\":\""
+				 LWS_JWT_AUTH_PURPOSE_SSO "\",\"sub\":\"alice\","
 				 "\"uid\":%u,\"sec\":%u,\"iat\":%llu,"
 				 "\"exp\":%llu,\"grants\":{%s}}", uid, sec,
 				 now, now + 3600, grants);

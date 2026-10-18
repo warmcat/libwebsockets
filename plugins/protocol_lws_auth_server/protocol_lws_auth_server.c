@@ -516,7 +516,8 @@ lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
 	/* The format string maps directly to the JWS payload */
 	int sig_ret = lws_jwt_sign_compact(vhd->context, &vhd->jwk, vhd->jwt_alg,
 	                         out, out_len, temp, sizeof(temp),
-	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
+	                         "{\"iss\":\"%s\",\"pur\":\"" LWS_JWT_AUTH_PURPOSE_SSO
+	                         "\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
 	                         "\"iat\":%llu,\"exp\":%llu%s%s}",
 	                         vhd->auth_domain, username, uid, session_epoch,
 	                         (unsigned long long)now, (unsigned long long)exp,
@@ -551,7 +552,8 @@ lws_auth_issue_device_jwt(struct per_vhost_data__auth_server *vhd,
 
 	int sig_ret = lws_jwt_sign_compact(vhd->context, &vhd->jwk, vhd->jwt_alg,
 	                         out, out_len, temp, sizeof(temp),
-	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
+	                         "{\"iss\":\"%s\",\"pur\":\"" LWS_JWT_AUTH_PURPOSE_SSO
+	                         "\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
 	                         "\"did\":\"%s\",\"iat\":%llu,\"exp\":%llu%s%s}",
 	                         vhd->auth_domain, username, uid, session_epoch, device_id,
 	                         (unsigned long long)now, (unsigned long long)exp,
@@ -1431,17 +1433,25 @@ auth_session_claims_live(struct lws *wsi,
  *    /api/device_token "for granular revocation".  Nothing read that table, so
  *    nothing could revoke a device token before its (ten-year) exp.  Require
  *    the row to still exist.
+ *
+ * And it must be one of our session or device tokens, signed with the "sso"
+ * purpose, not some other kind of token signed with the same jwk (G-188).
  */
 static struct lws_jwt_auth *
 auth_session_jwt(struct lws *wsi, struct per_vhost_data__auth_server *vhd)
 {
+	struct lws_jwt_auth_info ai;
 	struct lws_jwt_auth *ja;
 
 	if (!vhd->cookie_name[0])
 		return NULL;
 
-	ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL,
-				 NULL);
+	memset(&ai, 0, sizeof(ai));
+	ai.jwk		= &vhd->jwk;
+	ai.cookie_name	= vhd->cookie_name;
+	ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
+
+	ja = lws_jwt_auth_create_via_info(wsi, &ai, NULL);
 	if (!ja)
 		return NULL;
 

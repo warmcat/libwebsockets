@@ -143,7 +143,8 @@ plugin takes it from, in order:
    default
 
  - `"jwt-jwk"`: the auth server's public JWK, to validate the `auth_session`
-   cookie directly; the `"*"` wildcard grant or a `"service-name"` (default
+   cookie directly (only its session tokens, signed with the `"pur":"sso"`
+   purpose, are accepted); the `"*"` wildcard grant or a `"service-name"` (default
    `hls`) grant at level 2 or more qualifies.  For a vhost with the bouncer
    neither in-process nor in front of it
 

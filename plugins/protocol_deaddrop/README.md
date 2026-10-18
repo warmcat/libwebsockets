@@ -10,7 +10,7 @@ Just configure lws with `cmake .. -DLWS_WITH_PLUGINS=1` and build lws as normal.
 |---|---|
 |upload-dir|A writeable directory where uploaded files will go|
 |max-size|Maximum individual file size in bytes|
-|jwt-jwk|Path to the JSON Web Key (JWK) used to verify JWT signatures|
+|jwt-jwk|Path to the JSON Web Key (JWK) used to verify JWT signatures.  Only the lws auth server's session tokens, which carry `"pur":"sso"`, are accepted|
 |cookie-name|Optional: Name of the HTTP cookie that the server should expect the JWT payload in. Defaults to `auth_session`|
 |basic-auth|Optional: path to an lws basic-auth password file.  The `Authorization` header is only trusted as an identity if this is set, since that is what makes lws validate and rewrite it|
 |allow-anonymous|Optional: set to other than `off` / `0` to allow unauthenticated ws connections.  By default they are refused|

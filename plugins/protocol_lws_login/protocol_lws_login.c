@@ -1786,6 +1786,27 @@ lws_login_jwt_auth_cb(struct lws_jwt_auth *ja, int state, void *user)
 }
 
 /*
+ * The session token on wsi, if any verified: it must be one of the auth
+ * server's session or device tokens, signed with the "sso" purpose, so that
+ * nothing else signed with the same jwk can stand in for one (G-188).
+ */
+static struct lws_jwt_auth *
+lws_login_ja_create(struct lws *wsi, struct vhd_login *vhd,
+		    lws_jwt_auth_cb_t cb)
+{
+	struct lws_jwt_auth_info ai;
+
+	memset(&ai, 0, sizeof(ai));
+	ai.jwk		= &vhd->jwk;
+	ai.cookie_name	= vhd->cookie_name;
+	ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
+	ai.cb		= cb;
+	ai.user		= wsi;
+
+	return lws_jwt_auth_create_via_info(wsi, &ai, NULL);
+}
+
+/*
  * lws_jwt_auth_create() is documented to hand back a token that verified but
  * has already expired, leaving "what an expired token means" to the caller
  * (it can only tell us the cookie is authentic, not that the session is still
@@ -3038,7 +3059,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!service_name)
 			service_name = "";
 
-		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
+		ja = lws_login_ja_create(wsi, vhd, lws_login_jwt_auth_cb);
 		if (ja && (lws_login_jwt_expired(wsi, &ja) ||
 			   lws_login_jwt_stale(wsi, vhd, &ja)))
 			return 1; /* not a live session: unauthenticated */
@@ -3188,7 +3209,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
+		ja = lws_login_ja_create(wsi, vhd, lws_login_jwt_auth_cb);
 		/* an authentic but expired cookie is not a live session: this
 		 * is the gate that grants access, it must decide it here just
 		 * as the LWS_CALLBACK_HTTP path does */
@@ -3360,7 +3381,7 @@ anon:
 			return 0; /* Fall through to LWS_CALLBACK_HTTP_BODY */
 
 		if (!pss->ja)
-			pss->ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
+			pss->ja = lws_login_ja_create(wsi, vhd, lws_login_jwt_auth_cb);
 
 		if (pss->ja)
 			lws_login_jwt_expired(wsi, &pss->ja);
@@ -3803,10 +3824,8 @@ anon:
 								if (ps) {
 									/* what the gate saw, see ja_probe */
 									ps->ja_probe = pss->ja ? pss->ja :
-										lws_jwt_auth_create(wsi,
-											&vhd->jwk,
-											vhd->cookie_name,
-											NULL, NULL, NULL);
+										lws_login_ja_create(wsi,
+											vhd, NULL);
 									pss->ja = NULL;
 									lws_strncpy(ps->service_name,
 										    service_name,
