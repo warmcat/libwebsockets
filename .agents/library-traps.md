@@ -200,6 +200,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    every build (it used to free it early with SOCKS5).  Read the address
    with
    `lws_wsi_client_stash_item(wsi, CIS_ADDRESS, _WSI_TOKEN_CLIENT_PEER_ADDRESS)`.
+ - Whether credentials may follow a client redirect is decided only by
+   `lws_client_redirect_creds_ok()` (https with strict verification, same
+   host or a subdomain, or an SS policy `redirect_credentials_to` entry).
+   New credential-bearing paths must go through it (G-027).
  - Happy-eyeballs racers for a QUIC-first attempt are TCP.  Client job
    drivers that advance on COMPLETED must ignore a previous job's late
    CLOSED: after an h3 → h2 fallback, the h2 stream's CLOSED arrives a
