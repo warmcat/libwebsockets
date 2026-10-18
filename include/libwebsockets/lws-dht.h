@@ -324,6 +324,12 @@ lws_dht_capture_announce_cb_t(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash,
 /* The maximum number of hashes we're willing to track. */
 #define DHT_MAX_HASHES 16384
 
+/*
+ * By default, how many of those one source host (an IPv4 address or an IPv6
+ * /64) may have us start tracking, by announce_peer or subscribe_confirm
+ */
+#define DHT_MAX_HASHES_PER_SOURCE (DHT_MAX_HASHES / 16)
+
 /* The maximum number of searches we keep data about. */
 #define DHT_MAX_SEARCHES 1024
 
@@ -401,6 +407,12 @@ struct lws_dht_error_info {
  * \param blacklist_cb: (optional) user blacklist cb
  * \param hash_cb: (optional) user hash cb
  * \param capture_announce_cb: (optional) user capture announce cb
+ * \param max_hashes_per_source: 0 for the default, DHT_MAX_HASHES_PER_SOURCE,
+ *	or how many info hashes one source host (an IPv4 address or an IPv6
+ *	/64) may have us start storing peers or subscribers for.  Hashes that
+ *	are already stored take anybody's announce or subscription; this
+ *	stops one host filling the DHT_MAX_HASHES table so no new hash can be
+ *	stored for anyone else.
  */
 typedef struct lws_dht_info {
 	struct lws_vhost		*vhost;
@@ -419,6 +431,7 @@ typedef struct lws_dht_info {
 	lws_dht_blacklist_cb_t		*blacklist_cb;
 	lws_dht_hash_cb_t		*hash_cb;
 	lws_dht_capture_announce_cb_t	*capture_announce_cb;
+	unsigned int			max_hashes_per_source;
 } lws_dht_info_t;
 
 /**

@@ -121,9 +121,18 @@ rotate_secrets(struct lws_dht_ctx *ctx)
 	return 1;
 }
 
+/*
+ * A token is a keyed hash of the requester's endpoint and the info hash it
+ * asked about: it is what lets an announce_peer or subscribe_confirm put
+ * something in our storage, so it only buys that one hash.  Bound to the
+ * endpoint alone, one get_peers bought announces and subscriptions on any
+ * number of hashes for the next 15 - 90 minutes.
+ */
 void
-make_token(struct lws_dht_ctx *ctx, const struct sockaddr *sa, int old, uint8_t *token_return)
+make_token(struct lws_dht_ctx *ctx, const struct sockaddr *sa,
+	   const lws_dht_hash_t *ih, int old, uint8_t *token_return)
 {
+	uint8_t ep[16 + 2];
 	unsigned short port;
 	int iplen;
 	void *ip;
@@ -141,25 +150,29 @@ make_token(struct lws_dht_ctx *ctx, const struct sockaddr *sa, int old, uint8_t 
 	} else
 		abort();
 
+	memcpy(ep, ip, (size_t)iplen);
+	memcpy(ep + iplen, &port, 2);
+
+	/* ih is all bytes, its type, len and id contiguous */
 	lws_dht_hash(ctx, token_return, TOKEN_SIZE,
 			old ? ctx->oldsecret : ctx->secret, sizeof(ctx->secret),
-			ip, iplen, (uint8_t*)&port, 2);
+			ep, iplen + 2, ih, 2 + ih->len);
 }
 
 int
 token_match(struct lws_dht_ctx *ctx, const uint8_t *token, size_t token_len,
-		const struct sockaddr *sa)
+		const struct sockaddr *sa, const lws_dht_hash_t *ih)
 {
 	uint8_t t[TOKEN_SIZE];
 
 	if (token_len != TOKEN_SIZE)
 		return 0;
 
-	make_token(ctx, sa, 0, t);
+	make_token(ctx, sa, ih, 0, t);
 	if (!lws_timingsafe_bcmp(t, token, TOKEN_SIZE))
 		return 1;
 
-	make_token(ctx, sa, 1, t);
+	make_token(ctx, sa, ih, 1, t);
 	if (!lws_timingsafe_bcmp(t, token, TOKEN_SIZE))
 		return 1;
 

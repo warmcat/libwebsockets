@@ -1135,6 +1135,9 @@ lws_dht_create(const lws_dht_info_t *info)
 	 */
 	ctx->legacy = info->legacy;
 	ctx->allow_private_ads = info->allow_private_ads;
+	ctx->max_hashes_per_source = info->max_hashes_per_source ?
+					info->max_hashes_per_source :
+					DHT_MAX_HASHES_PER_SOURCE;
 	lws_dll2_owner_clear(&ctx->ts_owner);
 	lws_dll2_owner_clear(&ctx->verb_owner);
 

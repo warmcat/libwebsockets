@@ -1190,9 +1190,10 @@ skip_ip_tracking:
 			 * the reply: send_closest_nodes() only includes the
 			 * token member when token_len is set, and without it
 			 * peers can never announce on this hash, since a
-			 * valid token is what authorize announce_peer.
+			 * valid token is what authorize announce_peer.  It
+			 * is only good for this info_hash.
 			 */
-			make_token(ctx, from, 0, mp.token);
+			make_token(ctx, from, mp.info_hash, 0, mp.token);
 			mp.token_len = TOKEN_SIZE;
 
 			/* Has it? */
@@ -1214,33 +1215,19 @@ skip_ip_tracking:
 			goto fail;
 		}
 
-		if (!token_match(ctx, mp.token, mp.token_len, from)) {
+		if (!token_match(ctx, mp.token, mp.token_len, from,
+				 mp.info_hash))
 			goto fail;
-		}
 
 		/* Validation passed, register the subscriber */
 		{
-			struct storage *st = find_storage(ctx, mp.info_hash);
+			struct storage *st = storage_get(ctx, mp.info_hash,
+							 from);
 			struct subscriber *sub = NULL;
-			uint8_t key[16], skey[16];
 			int found = 0, from_src = 0;
 
-			if (dht_source_key(from, key))
+			if (!st)
 				goto fail;
-
-			if (!st) {
-				if (lws_dll2_count(&ctx->storage) >= DHT_MAX_HASHES)
-					goto fail;
-
-				st = lws_zalloc(sizeof(*st), "dht storage");
-				if (!st) goto fail;
-				st->id = lws_dht_hash_dup(mp.info_hash);
-				if (!st->id) {
-					lws_free(st);
-					goto fail;
-				}
-				lws_dll2_add_head(&st->list, &ctx->storage);
-			}
 
 			/*
 			 * A subscriber is an endpoint: a renewed confirm from
@@ -1261,10 +1248,8 @@ skip_ip_tracking:
 					found = 1;
 					break;
 				}
-				if (!dht_source_key((const struct sockaddr *)
-						    &sub->ss, skey) &&
-				    sub->ss.ss_family == from->sa_family &&
-				    !memcmp(skey, key, sizeof(key)))
+				if (dht_sa_same_host((const struct sockaddr *)
+						     &sub->ss, from))
 					from_src++;
 			} lws_end_foreach_dll(d);
 
@@ -1363,10 +1348,9 @@ skip_ip_tracking:
 			goto fail;
 		}
 
-		if (!token_match(ctx, mp.token, mp.token_len, from)) {
-			/*lwsl_dht_rx_info( "token match failed\n");*/
+		if (!token_match(ctx, mp.token, mp.token_len, from,
+				 mp.info_hash))
 			goto fail;
-		}
 
 		/* lwsl_info("%s: Announce peer\n", __func__); */
 
@@ -1380,7 +1364,7 @@ skip_ip_tracking:
 		 * pingable.
 		 */
 
-		storage_store(ctx, mp.info_hash, from, mp.port);
+		storage_store(ctx, mp.info_hash, from, mp.port, 0);
 
 		/*
 		 * we just drop it if we didn't add it.

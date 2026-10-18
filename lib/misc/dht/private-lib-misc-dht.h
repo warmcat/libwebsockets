@@ -248,6 +248,9 @@ struct storage {
 	struct peer             *peers;
 	lws_dll2_owner_t        subscribers;
 	lws_dll2_t              list;                /* ctx ->storage membership */
+	/* the dht_source_key() of the host it was started for, if not us */
+	uint8_t                 src[LWS_DHT_EXTVOTE_KEY_LEN];
+	uint8_t                 src_af;              /* 0: started by us */
 };
 
 #endif
@@ -373,6 +376,8 @@ struct lws_dht_ctx {
 	uint8_t			allow_private_ads:1;
 	uint8_t			id_random:1; /* myid was not given: BEP42 may replace it */
 
+	unsigned int		max_hashes_per_source;
+
 	const char		*fallback_nodes_path;
 	const char		*iface;
 	lws_dht_blacklist_cb_t	*blacklist_cb;
@@ -492,7 +497,8 @@ void expire_searches(struct lws_dht_ctx *ctx);
 int search_send_get_peers(struct lws_dht_ctx *ctx, struct search *sr, struct search_node *n);
 void search_step(struct lws_dht_ctx *ctx, struct search *sr, lws_dht_callback_t *callback, void *closure);
 struct storage * find_storage(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id);
-int storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, unsigned short port);
+struct storage * storage_get(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *src);
+int storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, unsigned short port, int ours);
 int expire_storage(struct lws_dht_ctx *ctx);
 void lws_dht_periodic_cb(lws_sorted_usec_list_t *sul);
 #endif
@@ -575,8 +581,8 @@ void flush_search_node(struct search_node *n, struct search *sr);
 int send_get_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash, int want, int confirm);
 int send_announce_peer(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash, unsigned short port, uint8_t *token, size_t token_len, int confirm);
 int rotate_secrets(struct lws_dht_ctx *ctx);
-void make_token(struct lws_dht_ctx *ctx, const struct sockaddr *sa, int old, uint8_t *token_return);
-int token_match(struct lws_dht_ctx *ctx, const uint8_t *token, size_t token_len, const struct sockaddr *sa);
+void make_token(struct lws_dht_ctx *ctx, const struct sockaddr *sa, const lws_dht_hash_t *ih, int old, uint8_t *token_return);
+int token_match(struct lws_dht_ctx *ctx, const uint8_t *token, size_t token_len, const struct sockaddr *sa, const lws_dht_hash_t *ih);
 int send_find_node(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, const lws_dht_hash_t *target, int want, int confirm);
 int send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, struct lws_dht_mparams *mp, const lws_dht_hash_t *id, int af, struct storage *st);
 int send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, int code, const char *message);

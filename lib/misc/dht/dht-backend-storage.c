@@ -40,12 +40,99 @@ find_storage(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id)
 	return NULL;
 }
 
+/*
+ * The storage for a hash, or a new one started for src, the host that sent
+ * the announce or subscription, or for ourselves if src is NULL.
+ *
+ * The table is global and capped, so each source host (dht_source_key()) may
+ * only start ctx->max_hashes_per_source of its entries: otherwise one host,
+ * holding a valid token, fills it with made-up hashes and from then on no new
+ * hash can be stored for anyone.  Hashes already stored take anyone's peers or
+ * subscriptions, within the per-hash shares.
+ */
+struct storage *
+storage_get(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
+	    const struct sockaddr *src)
+{
+	uint8_t key[LWS_DHT_EXTVOTE_KEY_LEN];
+	struct storage *st = find_storage(ctx, id);
+	unsigned int held = 0;
+
+	if (st)
+		return st;
+
+	if (lws_dll2_count(&ctx->storage) >= DHT_MAX_HASHES)
+		return NULL;
+
+	if (src) {
+		if (dht_source_key(src, key))
+			return NULL;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ctx->storage)) {
+			st = lws_container_of(d, struct storage, list);
+
+			if (st->src_af == src->sa_family &&
+			    !memcmp(st->src, key, sizeof(key)))
+				held++;
+		} lws_end_foreach_dll(d);
+
+		if (held >= ctx->max_hashes_per_source) {
+			lwsl_dht_warn("%s: source has started its share of "
+				      "%u hashes\n", __func__, held);
+			return NULL;
+		}
+	}
+
+	st = lws_zalloc(sizeof(struct storage), __func__);
+	if (st == NULL)
+		return NULL;
+
+	st->id = lws_dht_hash_dup(id);
+	if (!st->id) {
+		lws_free(st);
+		return NULL;
+	}
+
+	if (src) {
+		memcpy(st->src, key, sizeof(key));
+		st->src_af = (uint8_t)src->sa_family;
+	}
+
+	lws_dll2_add_head(&st->list, &ctx->storage);
+
+	return st;
+}
+
+/* a stored peer's address, as a sockaddr */
+
+static void
+storage_peer_sa(const struct peer *p, lws_sockaddr46 *sa46)
+{
+	memset(sa46, 0, sizeof(*sa46));
+
+	if (p->len == 4) {
+		sa46->sa4.sin_family = AF_INET;
+		memcpy(&sa46->sa4.sin_addr, p->ip, 4);
+		return;
+	}
+#if defined(LWS_WITH_IPV6)
+	sa46->sa6.sin6_family = AF_INET6;
+	memcpy(&sa46->sa6.sin6_addr, p->ip, 16);
+#endif
+}
+
+/*
+ * Store sa:port as a peer for the hash id, for the source sa, or for
+ * ourselves if ours.
+ */
 int
 storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
-		const struct sockaddr *sa, unsigned short port)
+		const struct sockaddr *sa, unsigned short port, int ours)
 {
 	struct sockaddr_in *sin = (struct sockaddr_in*)sa;
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6*)sa;
+	lws_sockaddr46 psa;
 	struct storage *st;
 	struct peer *p;
 	uint8_t *ip;
@@ -64,36 +151,27 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		return -1;
 	}
 
-	st = find_storage(ctx, id);
-
-	if (st == NULL) {
-		if (lws_dll2_count(&ctx->storage) >= DHT_MAX_HASHES)
-			return -1;
-
-		st = lws_zalloc(sizeof(struct storage), __func__);
-		if (st == NULL)
-			return -1;
-		st->id			= lws_dht_hash_dup(id);
-		if (!st->id) {
-			lws_free(st);
-			return -1;
-		}
-		lws_dll2_add_head(&st->list, &ctx->storage);
-	}
+	st = storage_get(ctx, id, ours ? NULL : sa);
+	if (!st)
+		return -1;
 
 	/*
 	 * The announced port comes from the message rather than from the source
 	 * socket, so without per-source accounting one host can fill all
 	 * DHT_MAX_PEERS slots of every hash by itself.  We are already walking
 	 * the array to dedup, so count this source's existing entries in the
-	 * same pass and refuse it more than its share.
+	 * same pass and refuse it more than its share.  A source is a host,
+	 * dht_source_key(), so an IPv6 /64 is one source however many of its
+	 * addresses it announces from.
 	 */
 	for (i = 0; i < st->numpeers; i++) {
-		if (st->peers[i].len != len ||
-		    memcmp(st->peers[i].ip, ip, (size_t)len))
+		storage_peer_sa(&st->peers[i], &psa);
+		if (!dht_sa_same_host((const struct sockaddr *)&psa, sa))
 			continue;
 
-		if (st->peers[i].port == port)
+		if (st->peers[i].len == len &&
+		    !memcmp(st->peers[i].ip, ip, (size_t)len) &&
+		    st->peers[i].port == port)
 			break;
 
 		from_src++;

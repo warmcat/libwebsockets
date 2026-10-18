@@ -482,7 +482,7 @@ lws_dht_search(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int port, int 
 			/* If we have a bound wsi, maybe use its address? */
 			/* But effectively we just want to put "us" in the storage. */
 
-			storage_store(ctx, id, (struct sockaddr *)&sin, (unsigned short)port);
+			storage_store(ctx, id, (struct sockaddr *)&sin, (unsigned short)port, 1);
 		}
 	}
 

@@ -65,6 +65,12 @@
  *    id at another address.  At most two of the one host's ids may enter the
  *    search, none of the unusable endpoints, and B's candidate must stay at
  *    B: otherwise one host owns the lookup (G-123)
+ *  - once A's subscription works, A confirms another hash with the token B
+ *    gave it for the first: B must refuse it, since a token only buys the
+ *    hash it was asked for.  Then A subscribes to six more hashes, each with
+ *    its own token: B, made with a share of KRPC_SHARE hashes per source
+ *    host, starts storage for only as many as are left of A's share
+ *    (G-121)
  *
  * The UDP ports (four to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
@@ -155,6 +161,8 @@ struct seen {
 	unsigned char srch_answered:1;	/* ...R answered its get_peers */
 	unsigned char srch_ok:1;	/* ...and the search took little of it */
 	unsigned char srch_bad:1;	/* ...or it took too much */
+	unsigned char share_ok:1;	/* B kept to the token and the share */
+	unsigned char share_bad:1;	/* ...or it did not */
 };
 
 /* the id R answers A's ping with, and the polls since it did */
@@ -202,6 +210,18 @@ static const uint8_t srch_host[] = { 203, 0, 113, 7 },
 		     srch_mcast[] = { 224, 0, 0, 1 },
 		     srch_zero[] = { 0, 0, 0, 1 };
 static int srch_polls;
+
+/*
+ * How many hashes one source host may have each DHT start storing, and the
+ * hashes A subscribes to on B to use up its share: 0x46... with the last byte
+ * the index.  A's first subscription (sub_hash()) already holds one.
+ */
+#define KRPC_SHARE		4
+#define KRPC_SHARE_FILL		0x46
+#define KRPC_SHARE_HASHES	6
+static uint8_t share_token[KRPC_SHARE_HASHES][8];
+static unsigned int share_tokens;	/* bitmap of the ones that came */
+static int share_state, share_polls;
 
 /* the ids R's unasked-for replies name: R's own, and the nodes it lists */
 #define KRPC_UNSOL_ID_R		0x66
@@ -251,6 +271,16 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 
 	switch (event) {
 	case LWS_DHT_EVENT_TOKEN:
+		if (info_hash && info_hash->len == 20 &&
+		    info_hash->id[0] == KRPC_SHARE_FILL) {
+			uint8_t k = info_hash->id[19];
+
+			if (data_len == 8 && k < KRPC_SHARE_HASHES) {
+				memcpy(share_token[k], data, 8);
+				share_tokens |= 1u << k;
+			}
+			break;
+		}
 		/*
 		 * B's subscribe reply carries the anti-spoof token, reported
 		 * with the hash we subscribed to: that is what we must
@@ -1246,6 +1276,124 @@ bail:
 	lws_dht_hash_destroy(&ih);
 }
 
+/*
+ * Once A's subscription to sub_hash() works, A confirms a hash it has no
+ * token for using that one's token, and then uses up its share of hashes on B
+ */
+
+static lws_dht_hash_t *
+share_hash(uint8_t fill, uint8_t k)
+{
+	uint8_t idata[20];
+
+	memset(idata, fill, sizeof(idata));
+	idata[19] = k;
+
+	return lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, idata);
+}
+
+static void
+share_confirm(lws_dht_hash_t *ih, uint8_t *tok)
+{
+	uint8_t tid[16], sha[32];
+
+	lws_get_random(cx, tid, sizeof(tid));
+	memset(sha, 0, sizeof(sha));
+	lws_dht_send_subscribe_confirm(dht_a, (struct sockaddr *)&sa_b,
+				       sizeof(sa_b), tid, sizeof(tid), ih,
+				       tok, 8, sha, 1);
+}
+
+static void
+share_step(void)
+{
+	uint8_t sha[32];
+	lws_dht_hash_t *ih;
+	int k, stored = 0;
+
+	if (!sv.acked || sv.share_ok || sv.share_bad)
+		return;
+
+	switch (share_state) {
+	case 0:
+		/* another hash, with sub_hash()'s token */
+		ih = share_hash(0x45, 0);
+		if (!ih)
+			goto bad;
+		share_confirm(ih, token);
+		lws_dht_hash_destroy(&ih);
+
+		for (k = 0; k < KRPC_SHARE_HASHES; k++) {
+			ih = share_hash(KRPC_SHARE_FILL, (uint8_t)k);
+			if (!ih)
+				goto bad;
+			lws_dht_send_subscribe(dht_a, (struct sockaddr *)&sa_b,
+					       sizeof(sa_b), ih, 0, 0);
+			lws_dht_hash_destroy(&ih);
+		}
+		share_state++;
+		break;
+
+	case 1:
+		if (share_tokens != (1u << KRPC_SHARE_HASHES) - 1)
+			break;
+
+		for (k = 0; k < KRPC_SHARE_HASHES; k++) {
+			ih = share_hash(KRPC_SHARE_FILL, (uint8_t)k);
+			if (!ih)
+				goto bad;
+			share_confirm(ih, share_token[k]);
+			lws_dht_hash_destroy(&ih);
+		}
+		share_state++;
+		break;
+
+	case 2:
+		/* give B a few polls to have processed the confirms */
+		if (++share_polls < 5)
+			break;
+
+		memset(sha, 0x99, sizeof(sha));
+
+		ih = share_hash(0x45, 0);
+		if (!ih)
+			goto bad;
+		k = lws_dht_notify_subscribers(dht_b, ih, sha, NULL, 0);
+		lws_dht_hash_destroy(&ih);
+		if (k) {
+			lwsl_err("%s: B took a token for one hash as good for "
+				 "another\n", __func__);
+			goto bad;
+		}
+
+		for (k = 0; k < KRPC_SHARE_HASHES; k++) {
+			ih = share_hash(KRPC_SHARE_FILL, (uint8_t)k);
+			if (!ih)
+				goto bad;
+			if (lws_dht_notify_subscribers(dht_b, ih, sha,
+						       NULL, 0) > 0)
+				stored++;
+			lws_dht_hash_destroy(&ih);
+		}
+
+		/* sub_hash() is one of A's share already */
+		if (stored != KRPC_SHARE - 1) {
+			lwsl_err("%s: B started %d of A's %d hashes, its share "
+				 "left is %d\n", __func__, stored,
+				 KRPC_SHARE_HASHES, KRPC_SHARE - 1);
+			goto bad;
+		}
+
+		sv.share_ok = 1;
+		break;
+	}
+
+	return;
+
+bad:
+	sv.share_bad = 1;
+}
+
 static void
 poll_cb(lws_sorted_usec_list_t *sul)
 {
@@ -1295,6 +1443,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	subscription_step();
+	share_step();
 	same_id_step();
 	error_reply_step(&sb);
 	unsolicited_reply_step();
@@ -1337,7 +1486,8 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * R's replies to nothing A asked left A's table alone, only R's real
 	 * ack completed A's transfer to it, B did not repeat itself to R
 	 * on the word of an ack anyone could have sent, and R's answer to
-	 * A's search did not take it over.
+	 * A's search did not take it over, and B kept A to the hash each
+	 * token was for and to its share of hashes.
 	 */
 
 	if (sv.token_ok && !sv.token_ih_bad && sv.table_ok && sv.acked &&
@@ -1353,6 +1503,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.unproven_ok && !sv.unproven_bad &&
 	    sv.ss_ok && !sv.ss_bad && sv.mart_ok &&
 	    sv.srch_ok && !sv.srch_bad &&
+	    sv.share_ok && !sv.share_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -1457,6 +1608,7 @@ int main(int argc, const char **argv)
 
 	memset(&di, 0, sizeof(di));
 	di.allow_private_ads = 1; /* the nodes are all on loopback */
+	di.max_hashes_per_source = KRPC_SHARE;
 	di.vhost	= vh_a;
 	di.cb		= cb_a;
 	di.name		= "krpc-a";
@@ -1624,6 +1776,11 @@ int main(int argc, const char **argv)
 			if (!sv.unproven_ok || sv.unproven_bad) {
 				lwsl_err("a forged ack made B repeat itself to "
 					 "R\n");
+				fails++;
+			}
+			if (!sv.share_ok || sv.share_bad) {
+				lwsl_err("B did not keep A to its tokens' hashes "
+					 "and its share of hashes\n");
 				fails++;
 			}
 			if (!sv.srch_ok || sv.srch_bad) {
