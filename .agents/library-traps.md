@@ -34,6 +34,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_create_adopt_udp()` likewise delivers RAW_CLOSE inside the call
    when the UDP connect() of a numeric address fails (adopt.c), so state
    its callback can already reach must not be used after it (G-067).
+   `*i->pwsi` is only stored after the client bind (io/client/connect.c),
+   so a CCE handler that identifies its connection by `wsi == *pwsi` does
+   not recognise one delivered inside the connect call.
    Callers that touch state after the call (or free it in the CCE
    handler) break.  The pattern used: an `in_connect` flag that the CCE
    handler checks, deferring to the connect caller.
