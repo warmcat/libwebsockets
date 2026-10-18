@@ -33,6 +33,7 @@ if (requirements)
 		lws_get_free_port(PORT_DHT_KRPC_C)
 		lws_get_free_port(PORT_DHT_KRPC_R)
 		lws_get_free_port(PORT_DHT_KRPC_Q)
+		lws_get_free_port(PORT_DHT_KRPC_R2)
 		lws_get_free_port(PORT_DHT_KRPC_DEAD)
 
 		add_test(NAME api-test-dht-krpc COMMAND
@@ -42,6 +43,7 @@ if (requirements)
 			 --port-c ${PORT_DHT_KRPC_C}
 			 --port-r ${PORT_DHT_KRPC_R}
 			 --port-q ${PORT_DHT_KRPC_Q}
+			 --port-r2 ${PORT_DHT_KRPC_R2}
 			 --port-dead ${PORT_DHT_KRPC_DEAD})
 		set_tests_properties(api-test-dht-krpc PROPERTIES
 			TIMEOUT 60

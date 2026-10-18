@@ -568,7 +568,9 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	lws_dht_hash_t *ih = (lws_dht_hash_t *)ihbuf;
 	int gp = 0, bound = 0;
 #if defined(LWS_WITH_DHT_BACKEND)
+	struct search_node *sn;
 	struct search *sr = NULL;
+	int introduce = 0;
 #endif
 	unsigned short ttid;
 	size_t offset;
@@ -597,12 +599,20 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		 * can stuff our lookup with his own nodes, token and values.
 		 * The reply may still teach the routing table below.
 		 */
-		if (sr && !search_awaiting_reply_from(ctx, sr, from)) {
+		sn = sr ? search_awaiting_reply_from(ctx, sr, from) : NULL;
+		if (sr && !sn) {
 			lwsl_dht_rx_warn("%s: get_peers reply from an address "
 					 "with no request outstanding\n",
 					 __func__);
 			sr = NULL;
 		}
+		/*
+		 * Only its first reply to our request may add candidates to
+		 * the search: further datagrams from a node that replied
+		 * already are taken for their token and values, but would
+		 * otherwise let it list as many candidates as it likes (G-158)
+		 */
+		introduce = sn && !sn->replied;
 		bound = !!sr;
 #endif
 	}
@@ -672,8 +682,8 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 				}
 #if defined(LWS_WITH_DHT_BACKEND)
 				maybe_new_node(ctx, node_id, (struct sockaddr*)&sin, sizeof(sin), 0);
-				if (sr && sr->af == AF_INET)
-					insert_search_node(ctx, node_id, (struct sockaddr*)&sin, sizeof(sin), sr, 0, NULL, 0);
+				if (introduce && sr->af == AF_INET)
+					insert_search_node(ctx, node_id, (struct sockaddr*)&sin, sizeof(sin), sr, 0, NULL, 0, from);
 #endif
 
 			}
@@ -727,8 +737,8 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 #if defined(LWS_WITH_DHT_BACKEND)
 				maybe_new_node(ctx, node_id, (struct sockaddr*)&sin6, sizeof(sin6), 0);
-				if (sr && sr->af == AF_INET6)
-					insert_search_node(ctx, node_id, (struct sockaddr*)&sin6, sizeof(sin6), sr, 0, NULL, 0);
+				if (introduce && sr->af == AF_INET6)
+					insert_search_node(ctx, node_id, (struct sockaddr*)&sin6, sizeof(sin6), sr, 0, NULL, 0, from);
 #endif
 
 			}
@@ -740,7 +750,7 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 #if defined(LWS_WITH_DHT_BACKEND)
 	if (sr) {
-		insert_search_node(ctx, mp->id, from, fromlen, sr, 1, mp->token, mp->token_len);
+		insert_search_node(ctx, mp->id, from, fromlen, sr, 1, mp->token, mp->token_len, NULL);
 	}
 #endif
 

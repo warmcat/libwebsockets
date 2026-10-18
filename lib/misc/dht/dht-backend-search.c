@@ -48,9 +48,10 @@ find_search(struct lws_dht_ctx *ctx, unsigned short tid, int af)
  * early.  The search node list is our pending-request table: it holds the
  * addresses we sent get_peers / announce_peer to, along with the time, so we
  * require the reply to come from one of those with a request outstanding.
+ * Returns that candidate, or NULL.
  */
 
-int
+struct search_node *
 search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr,
 			   const struct sockaddr *sa)
 {
@@ -71,10 +72,138 @@ search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr,
 			continue;
 
 		if (dht_sa_same_peer((const struct sockaddr *)&n->ss, sa))
-			return 1;
+			return n;
 	}
 
-	return 0;
+	return NULL;
+}
+
+void
+search_free_nodes(struct search *sr)
+{
+	int i;
+
+	for (i = 0; i < sr->numnodes; i++)
+		lws_dht_hash_destroy(&sr->nodes[i].id);
+	for (i = 0; i < sr->numbacklog; i++)
+		lws_dht_hash_destroy(&sr->backlog[i].id);
+
+	sr->numnodes = 0;
+	sr->numbacklog = 0;
+}
+
+/* a candidate we asked LWS_DHT_MAX_PING_FAILURES times without an answer */
+
+static int
+search_node_dead(const struct search_node *n)
+{
+	return !n->replied && n->pinged >= LWS_DHT_MAX_PING_FAILURES;
+}
+
+/* record who introduced a candidate; family 0 if nobody (our own table) */
+
+static void
+search_intro_set(lws_sockaddr46 *intro, const struct sockaddr *sa)
+{
+	size_t cl = 0;
+
+	memset(intro, 0, sizeof(*intro));
+	if (!sa)
+		return;
+
+	switch (sa->sa_family) {
+	case AF_INET:
+		cl = sizeof(struct sockaddr_in);
+		break;
+#if defined(LWS_WITH_IPV6)
+	case AF_INET6:
+		cl = sizeof(struct sockaddr_in6);
+		break;
+#endif
+	default:
+		return;
+	}
+
+	if (cl <= sizeof(*intro))
+		memcpy(intro, sa, cl);
+}
+
+/*
+ * Is intro the same introducer as sa?  A public introducer is its host
+ * (dht_source_key()), the same unit the per-host caps use, so one host gets
+ * one share however many of its endpoints we query.  Private addresses are
+ * never collapsed into one host by the caps (on a LAN or loopback several
+ * real nodes share an address), so there the introducer is the endpoint.
+ */
+
+static int
+search_intro_same(const lws_sockaddr46 *intro, const struct sockaddr *sa)
+{
+	const struct sockaddr *i = (const struct sockaddr *)intro;
+
+	if (!intro->sa4.sin_family || i->sa_family != sa->sa_family)
+		return 0;
+
+	if (lws_dht_ads_is_private(sa) || lws_dht_ads_is_private(i))
+		return dht_sa_same_peer(i, sa);
+
+	return lws_dht_same_host(i, sa);
+}
+
+/*
+ * Keep a candidate back for later, taking ownership of id: in distance order,
+ * and when full the farthest one is dropped (perhaps the one offered)
+ */
+
+static void
+search_backlog_add(struct search *sr, lws_dht_hash_t *id,
+		   const struct sockaddr_storage *ss, size_t sslen,
+		   const lws_sockaddr46 *intro)
+{
+	struct search_cand *c;
+	int i, j;
+
+	for (i = 0; i < sr->numbacklog; i++)
+		if (xorcmp(id, sr->backlog[i].id, sr->id) < 0)
+			break;
+
+	if (i >= LWS_DHT_SEARCH_BACKLOG) {
+		lws_dht_hash_destroy(&id);
+		return;
+	}
+
+	if (sr->numbacklog >= LWS_DHT_SEARCH_BACKLOG)
+		lws_dht_hash_destroy(&sr->backlog[LWS_DHT_SEARCH_BACKLOG - 1].id);
+	else
+		sr->numbacklog++;
+
+	for (j = sr->numbacklog - 1; j > i; j--)
+		sr->backlog[j] = sr->backlog[j - 1];
+
+	c		= &sr->backlog[i];
+	c->id		= id;
+	c->ss		= *ss;
+	c->sslen	= sslen;
+	c->intro	= *intro;
+}
+
+/* take a candidate out of the node list, keeping it in the backlog if useful */
+
+static void
+search_node_retire(struct search *sr, int i)
+{
+	struct search_node *n = &sr->nodes[i];
+	int j;
+
+	if (search_node_dead(n))
+		lws_dht_hash_destroy(&n->id);
+	else
+		/* the backlog owns the id now */
+		search_backlog_add(sr, n->id, &n->ss, n->sslen, &n->intro);
+
+	for (j = i; j < sr->numnodes - 1; j++)
+		sr->nodes[j] = sr->nodes[j + 1];
+	sr->numnodes--;
 }
 
 /*
@@ -91,6 +220,22 @@ search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr,
  * sort ahead of every honest node, and own the lookup and where its
  * announce goes; or have us send requests to internal addresses.
  *
+ * The ids and endpoints a reply lists need not answer either, so one host
+ * could still list decoys at many hosts that sort ahead of every honest
+ * candidate and push them all out, and once the decoys time out the search
+ * would complete on whatever that host left in it (G-158).  So
+ *
+ *  - intro is who listed the candidate (NULL for our routing table and for
+ *    the replier itself), and the candidates one introducer listed that have
+ *    not answered yet are capped, across the list and the backlog: a closer
+ *    newcomer from it may take the place of its own farthest one only
+ *
+ *  - a candidate that replied is never pushed out by one that has not
+ *
+ *  - unverified candidates pushed out, or that sort after a full list, go to
+ *    a small backlog that search_step() refills the list from when candidates
+ *    it asked fail to answer
+ *
  * An entry also keeps the endpoint it was admitted with: a nodes list
  * naming a known candidate's id somewhere else, or a reply from another
  * endpoint claiming it, does not move it there.
@@ -99,21 +244,26 @@ int
 insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 		const struct sockaddr *sa, size_t salen,
 		struct search *sr, int replied,
-		const uint8_t *token, size_t token_len)
+		const uint8_t *token, size_t token_len,
+		const struct sockaddr *intro)
 {
+	struct sockaddr_storage ss;
+	int i, j, same = 0, introduced = 0, intro_far = -1, victim = -1;
 	lws_dht_hash_t *nid;
 	struct search_node *n;
-	int i, j, same = 0;
 
 	if (sa->sa_family != sr->af) {
 		lwsl_dht_warn("Attempted to insert node in the wrong family.\n");
 		return 0;
 	}
 
-	if (dht_endpoint_refused(ctx, sa, salen))
+	if (salen > sizeof(ss) || dht_endpoint_refused(ctx, sa, salen))
 		return 0;
 
-	/* a candidate we already have, and what its host already holds */
+	/*
+	 * a candidate we already have, what its host already holds, and what
+	 * its introducer already put in that has not answered
+	 */
 
 	for (i = 0; i < sr->numnodes; i++) {
 		if (id_cmp(id, sr->nodes[i].id) == 0) {
@@ -127,7 +277,34 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 		    lws_dht_same_host((const struct sockaddr *)&sr->nodes[i].ss,
 				     sa))
 			same++;
+		if (intro && !sr->nodes[i].replied &&
+		    search_intro_same(&sr->nodes[i].intro, intro)) {
+			introduced++;
+			intro_far = i;
+		}
 	}
+
+	for (i = 0; i < sr->numbacklog; i++) {
+		if (id_cmp(id, sr->backlog[i].id))
+			continue;
+		/*
+		 * Held back already: only the node itself answering us (a
+		 * candidate pushed out while our request to it was
+		 * outstanding) brings it back, and at the endpoint it had
+		 */
+		if (!replied || !dht_sa_same_peer(
+				(const struct sockaddr *)&sr->backlog[i].ss, sa))
+			return 0;
+		lws_dht_hash_destroy(&sr->backlog[i].id);
+		for (j = i; j < sr->numbacklog - 1; j++)
+			sr->backlog[j] = sr->backlog[j + 1];
+		sr->numbacklog--;
+		break;
+	}
+
+	for (i = 0; i < sr->numbacklog; i++)
+		if (intro && search_intro_same(&sr->backlog[i].intro, intro))
+			introduced++;
 
 	/* a newcomer: where it sorts */
 
@@ -135,13 +312,31 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 		if (xorcmp(id, sr->nodes[i].id, sr->id) < 0)
 			break;
 
-	if (i >= SEARCH_NODES)
-		return 0;
-
 	if (same >= LWS_DHT_MAX_SAME_ADS_PER_SEARCH) {
 		lwsl_dht_info("%s: host already has %d search candidates\n",
 			      __func__, same);
 		return 0;
+	}
+
+	if (introduced >= LWS_DHT_MAX_INTRODUCED_PER_SEARCH) {
+		/*
+		 * Its introducer's share is used up: it may only replace the
+		 * farthest of that introducer's own unanswered candidates in
+		 * the list, and only if it is closer
+		 */
+		if (intro_far < i) {
+			lwsl_dht_info("%s: introducer already has %d unverified "
+				      "candidates\n", __func__, introduced);
+			return 0;
+		}
+		victim = intro_far;
+	} else if (sr->numnodes >= SEARCH_NODES) {
+		/* make room by the farthest that sorts after it and not replied */
+		for (j = sr->numnodes - 1; j >= i; j--)
+			if (!sr->nodes[j].replied) {
+				victim = j;
+				break;
+			}
 	}
 
 	/*
@@ -152,26 +347,42 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 	if (!nid)
 		return 0;
 
-	/*
-	 * ->id is a heap object here (it is inline in the original dht.c).  If
-	 * the list is already full, the shift below drops the last entry off
-	 * the end by overwriting it, so destroy its id first or it is leaked
-	 * unrecoverably (nothing walks past ->numnodes).
-	 */
-	if (sr->numnodes >= SEARCH_NODES) {
-		lws_dht_hash_destroy(&sr->nodes[SEARCH_NODES - 1].id);
-		sr->numnodes = SEARCH_NODES;
-	} else
-		sr->numnodes++;
+	if (sr->numnodes >= SEARCH_NODES && victim < 0) {
+		/* it sorts after everything, or only after replied ones */
+		lws_sockaddr46 i46;
 
-	for (j = sr->numnodes - 1; j > i; j--) {
-		sr->nodes[j] = sr->nodes[j - 1];
+		memset(&ss, 0, sizeof(ss));
+		memcpy(&ss, sa, salen);
+		search_intro_set(&i46, intro);
+		search_backlog_add(sr, nid, &ss, salen, &i46);
+
+		return 0;
 	}
+
+	if (victim >= 0) {
+		/*
+		 * Removing an entry at or after i leaves where the newcomer
+		 * sorts unchanged.  One replaced inside its introducer's share
+		 * is dropped, not kept back, or the share would not bound it.
+		 */
+		if (introduced >= LWS_DHT_MAX_INTRODUCED_PER_SEARCH) {
+			lws_dht_hash_destroy(&sr->nodes[victim].id);
+			for (j = victim; j < sr->numnodes - 1; j++)
+				sr->nodes[j] = sr->nodes[j + 1];
+			sr->numnodes--;
+		} else
+			search_node_retire(sr, victim);
+	}
+
+	for (j = sr->numnodes; j > i; j--)
+		sr->nodes[j] = sr->nodes[j - 1];
+	sr->numnodes++;
 
 	n = &sr->nodes[i];
 
 	memset(n, 0, sizeof(struct search_node));
 	n->id = nid;
+	search_intro_set(&n->intro, intro);
 
 found:
 	memcpy(&n->ss, sa, (size_t)salen);
@@ -195,6 +406,40 @@ found:
 	return 1;
 }
 
+/*
+ * When candidates we asked never answered, give their slots to ones the
+ * backlog held, so a search pushed off course by candidates that do not
+ * exist returns to the ones that do instead of completing on what is left
+ */
+
+static void
+search_refill(struct lws_dht_ctx *ctx, struct search *sr)
+{
+	struct search_cand c;
+	int i;
+
+	if (!sr->numbacklog)
+		return;
+
+	for (i = sr->numnodes - 1; i >= 0; i--)
+		if (search_node_dead(&sr->nodes[i]))
+			flush_search_node(&sr->nodes[i], sr);
+
+	while (sr->numbacklog && sr->numnodes < SEARCH_NODES) {
+		c = sr->backlog[0];
+		for (i = 0; i < sr->numbacklog - 1; i++)
+			sr->backlog[i] = sr->backlog[i + 1];
+		sr->numbacklog--;
+
+		/* admitted again as from the start, so the caps still hold */
+		insert_search_node(ctx, c.id, (const struct sockaddr *)&c.ss,
+				   c.sslen, sr, 0, NULL, 0,
+				   c.intro.sa4.sin_family ?
+				     (const struct sockaddr *)&c.intro : NULL);
+		lws_dht_hash_destroy(&c.id);
+	}
+}
+
 void
 expire_searches(struct lws_dht_ctx *ctx)
 {
@@ -205,8 +450,7 @@ expire_searches(struct lws_dht_ctx *ctx)
 		if (sr->step_time < ctx->now - DHT_SEARCH_EXPIRE_TIME) {
 			lws_dll2_remove(d);
 			lws_dht_hash_destroy(&sr->id);
-			for (int i = 0; i < sr->numnodes; i++)
-				lws_dht_hash_destroy(&sr->nodes[i].id);
+			search_free_nodes(sr);
 			lws_free(sr);
 		}
 	} lws_end_foreach_dll_safe(d, d1);
@@ -257,6 +501,8 @@ search_step(struct lws_dht_ctx *ctx, struct search *sr, lws_dht_callback_t *call
 {
 	int i, j;
 	int all_done = 1;
+
+	search_refill(ctx, sr);
 
 	/* Check if the first 8 live nodes have replied. */
 	j = 0;
@@ -365,8 +611,7 @@ new_search(struct lws_dht_ctx *ctx)
 	if (oldest && oldest->step_time < ctx->now - DHT_SEARCH_EXPIRE_TIME) {
 		lws_dll2_remove(&oldest->list);
 		lws_dht_hash_destroy(&oldest->id);
-		for (int i = 0; i < oldest->numnodes; i++)
-			lws_dht_hash_destroy(&oldest->nodes[i].id);
+		search_free_nodes(oldest);
 		lws_free(oldest);
 		oldest = NULL;
 	}
@@ -386,8 +631,7 @@ new_search(struct lws_dht_ctx *ctx)
 		lws_dll2_t list = oldest->list;
 
 		lws_dht_hash_destroy(&oldest->id);
-		for (int i = 0; i < oldest->numnodes; i++)
-			lws_dht_hash_destroy(&oldest->nodes[i].id);
+		search_free_nodes(oldest);
 		memset(oldest, 0, sizeof(*oldest)); /* Clear old data */
 		oldest->list = list; /* ... but stay on the searches list */
 	}
@@ -447,7 +691,7 @@ insert_search_bucket(struct lws_dht_ctx *ctx, struct bucket *b, struct search *s
 		struct node *n = lws_container_of(d, struct node, list);
 
 		insert_search_node(ctx, n->id, (struct sockaddr*)&n->ss, n->sslen,
-				sr, 0, NULL, 0);
+				sr, 0, NULL, 0, NULL);
 	} lws_end_foreach_dll(d);
 }
 

@@ -1475,8 +1475,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 
 		lws_dll2_remove(&sr->list);
 		lws_dht_hash_destroy(&sr->id);
-		for (int i = 0; i < sr->numnodes; i++)
-			lws_dht_hash_destroy(&sr->nodes[i].id);
+		search_free_nodes(sr);
 		lws_free(sr);
 	}
 #endif

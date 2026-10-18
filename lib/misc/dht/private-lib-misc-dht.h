@@ -196,6 +196,14 @@ struct node {
 #define LWS_DHT_MAX_SAME_ADS_PER_BUCKET	2
 /* ... and how many candidates it may hold in one search's node list */
 #define LWS_DHT_MAX_SAME_ADS_PER_SEARCH	2
+/*
+ * how many unverified candidates (not yet replied) one search may hold, in its
+ * node list and backlog together, that were introduced by the nodes list of
+ * one host's replies
+ */
+#define LWS_DHT_MAX_INTRODUCED_PER_SEARCH	(SEARCH_NODES / 4)
+/* candidates a search keeps back, to fall back on when ones it asks fail */
+#define LWS_DHT_SEARCH_BACKLOG		8
 
 struct bucket {
 	int                     af;
@@ -218,6 +226,15 @@ struct search_node {
 	size_t                  token_len;
 	int                     replied;             /* whether we have received a reply */
 	int                     acked;               /* whether they acked our announcement */
+	lws_sockaddr46          intro;               /* who listed it, family 0: our table */
+};
+
+/* a candidate held back in a search's backlog */
+struct search_cand {
+	lws_dht_hash_t          *id;
+	struct sockaddr_storage ss;
+	size_t                  sslen;
+	lws_sockaddr46          intro;               /* as search_node.intro */
 };
 
 struct search {
@@ -229,6 +246,9 @@ struct search {
 	int                     done;
 	struct search_node      nodes[SEARCH_NODES];
 	int                     numnodes;
+	/* sorted by distance like nodes[]; never asked until moved into it */
+	struct search_cand      backlog[LWS_DHT_SEARCH_BACKLOG];
+	int                     numbacklog;
 	lws_dll2_t              list;                /* ctx ->searches membership */
 };
 
@@ -517,8 +537,9 @@ void lws_dht_dump_tables(struct lws_dht_ctx *ctx);
 int bucket_maintenance(struct lws_dht_ctx *ctx, int af);
 int neighbourhood_maintenance(struct lws_dht_ctx *ctx, int af);
 struct search * find_search(struct lws_dht_ctx *ctx, unsigned short tid, int af);
-int search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr, const struct sockaddr *sa);
-int insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, struct search *sr, int replied, const uint8_t *token, size_t token_len);
+struct search_node *search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr, const struct sockaddr *sa);
+int insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, struct search *sr, int replied, const uint8_t *token, size_t token_len, const struct sockaddr *intro);
+void search_free_nodes(struct search *sr);
 void expire_searches(struct lws_dht_ctx *ctx);
 int search_send_get_peers(struct lws_dht_ctx *ctx, struct search *sr, struct search_node *n);
 void search_step(struct lws_dht_ctx *ctx, struct search *sr, lws_dht_callback_t *callback, void *closure);

@@ -65,6 +65,15 @@
  *    id at another address.  At most two of the one host's ids may enter the
  *    search, none of the unusable endpoints, and B's candidate must stay at
  *    B: otherwise one host owns the lookup (G-123)
+ *  - a third plain UDP socket R2, the attacker's second endpoint, pings A
+ *    with an id next to a second target, and A searches for that target.
+ *    Once B has answered, R and R2 answer too, each listing 9 made-up ids
+ *    closer to the target than B, each at a public address of its own, so
+ *    the per-host cap never applies.  Together they would push every other
+ *    candidate out of the search's 14 slots, B included, though B replied,
+ *    and once they time out the search would complete on R and R2 alone.
+ *    B must still be a candidate, and each of R and R2 may have put in no
+ *    more than the few unverified candidates one introducer may (G-158)
  *  - once A's subscription works, A confirms another hash with the token B
  *    gave it for the first: B must refuse it, since a token only buys the
  *    hash it was asked for.  Then A subscribes to six more hashes, each with
@@ -84,7 +93,7 @@
  *    session from 0, after which the old tid is a stranger's (G-133).  B
  *    delivers each of Q's chunks exactly once and none of the others
  *
- * The UDP ports (five to listen on, one left unused) are allocated uniquely
+ * The UDP ports (six to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
  * instances do not collide.
  *
@@ -131,8 +140,11 @@ struct raw_peer {
 	struct sockaddr_in	to;
 };
 
-/* R, and Q, the sender of a reliable stream to B */
-static struct raw_peer peer_r, peer_q;
+/*
+ * R, Q, the sender of a reliable stream to B, and R2, R's second endpoint in
+ * the second search
+ */
+static struct raw_peer peer_r, peer_q, peer_r2;
 
 struct seen {
 	unsigned char token_ok:1;	/* A got B's get_peers token */
@@ -180,6 +192,14 @@ struct seen {
 	unsigned char srch_answered:1;	/* ...R answered its get_peers */
 	unsigned char srch_ok:1;	/* ...and the search took little of it */
 	unsigned char srch_bad:1;	/* ...or it took too much */
+	unsigned char ecl_pinged:1;	/* R2 pinged A */
+	unsigned char ecl_ponged:1;	/* ...and A answered */
+	unsigned char ecl_started:1;	/* A searched for KRPC_ECL_TARGET */
+	unsigned char ecl_asked:1;	/* ...R saw its get_peers */
+	unsigned char ecl_asked2:1;	/* ...R2 saw its get_peers */
+	unsigned char ecl_sent:1;	/* ...R and R2 sent their decoys */
+	unsigned char ecl_ok:1;		/* ...and B kept its place */
+	unsigned char ecl_bad:1;	/* ...or the decoys took the search */
 	unsigned char share_ok:1;	/* B kept to the token and the share */
 	unsigned char share_bad:1;	/* ...or it did not */
 	unsigned char q_up:1;		/* Q's socket is bound */
@@ -279,6 +299,21 @@ static const uint8_t srch_host[] = { 203, 0, 113, 7 },
 		     srch_mcast[] = { 224, 0, 0, 1 },
 		     srch_zero[] = { 0, 0, 0, 1 };
 static int srch_polls;
+
+/*
+ * The second search, that R and R2 try to eclipse: decoy ids KRPC_ECL_TARGET
+ * but for the last byte, 9 from each (all a nodes list holds), each at its
+ * own TEST-NET-3 address from KRPC_ECL_ADS_BASE up.  R2's own id is the
+ * target but for its last byte, KRPC_ECL_ID_R2.
+ */
+#define KRPC_ECL_TARGET		0x3c
+#define KRPC_ECL_ID_R2		0x01
+#define KRPC_ECL_PER_PEER	9
+#define KRPC_ECL_DECOYS		(2 * KRPC_ECL_PER_PEER)
+#define KRPC_ECL_ADS_BASE	30
+#define KRPC_ECL_INTRO_CAP	3	/* what one introducer may have pending */
+static uint8_t ecl_tid[4], ecl_tid2[4];
+static int ecl_polls;
 
 /*
  * How many hashes one source host may have each DHT start storing, and the
@@ -520,6 +555,8 @@ static void
 raw_queue(const void *buf, size_t len, const struct sockaddr_in *to);
 static void
 ss_rx(const uint8_t *in, size_t len);
+static int
+eclipse_rx(const uint8_t *in, size_t len, uint8_t *tid);
 static void
 search_rx(const uint8_t *in, size_t len);
 
@@ -721,6 +758,13 @@ cb_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (sv.srch_started && !sv.srch_answered &&
 		    udp->sa46.sa4.sin_port == sa_a.sin_port) {
 			search_rx(in, len);
+			break;
+		}
+
+		if (sv.ecl_started && !sv.ecl_asked &&
+		    udp->sa46.sa4.sin_port == sa_a.sin_port &&
+		    eclipse_rx(in, len, ecl_tid)) {
+			sv.ecl_asked = 1;
 			break;
 		}
 
@@ -1493,6 +1537,227 @@ bail:
 	lws_dht_hash_destroy(&target);
 }
 
+/*
+ * Once the first search is checked, R2 pings A so A knows it, and A searches
+ * for KRPC_ECL_TARGET.  R and R2 note the tid of A's get_peers for it, and
+ * answer only after B has, with their decoys; then the search's candidates
+ * are checked.
+ */
+
+static int
+eclipse_rx(const uint8_t *in, size_t len, uint8_t *tid)
+{
+	char needle[21];
+	ssize_t at;
+
+	/* the target, however the hash is framed */
+	memset(needle, KRPC_ECL_TARGET, 20);
+	needle[20] = '\0';
+
+	at = krpc_find(in, len, "1:q9:get_peers1:t4:");
+	if (at < 0 || (size_t)at + 23 > len || krpc_find(in, len, needle) < 0)
+		return 0;
+
+	memcpy(tid, in + at + 19, 4);
+
+	return 1;
+}
+
+/* the id R2 uses, next to the target */
+
+static void
+eclipse_id_r2(uint8_t *id20)
+{
+	memset(id20, KRPC_ECL_TARGET, 20);
+	id20[19] = KRPC_ECL_ID_R2;
+}
+
+/* a get_peers answer from p, with id id20, listing decoys from first on */
+
+static void
+eclipse_queue(struct raw_peer *p, const uint8_t *id20, const uint8_t *tid,
+	      int first)
+{
+	uint8_t q[400], *o = q, ads[4] = { 203, 0, 113, 0 };
+	int n;
+
+	memcpy(o, "d1:rd2:id20:", 12);
+	o += 12;
+	memcpy(o, id20, 20);
+	o += 20;
+	o += lws_snprintf((char *)o, 16, "5:nodes%u:",
+			  (unsigned int)KRPC_ECL_PER_PEER * 28);
+
+	for (n = first; n < first + KRPC_ECL_PER_PEER; n++) {
+		ads[3] = (uint8_t)(KRPC_ECL_ADS_BASE + n);
+		o = search_node_info(o, KRPC_ECL_TARGET, (uint8_t)(0x40 + n),
+				     ads, (uint16_t)(21000 + n));
+	}
+
+	memcpy(o, "5:token8:RRRRRRRRe1:t4:", 23);
+	o += 23;
+	memcpy(o, tid, 4);
+	o += 4;
+	memcpy(o, "1:y1:re", 7);
+	o += 7;
+
+	peer_queue(p, q, lws_ptr_diff_size_t(o, q), &sa_a);
+}
+
+static int
+cb_r2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+      void *in, size_t len)
+{
+	const struct lws_udp *udp;
+
+	(void)user;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_RX:
+		udp = lws_get_udp(wsi);
+		if (!udp || udp->sa46.sa4.sin_family != AF_INET ||
+		    udp->sa46.sa4.sin_port != sa_a.sin_port)
+			break;
+		if (krpc_find(in, len, "1:t2:e2") >= 0 &&
+		    krpc_find(in, len, "1:y1:r") >= 0) {
+			sv.ecl_ponged = 1;
+			break;
+		}
+		if (sv.ecl_started && !sv.ecl_asked2 &&
+		    eclipse_rx(in, len, ecl_tid2))
+			sv.ecl_asked2 = 1;
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		peer_send(&peer_r2);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+struct ecl_tally {
+	int		decoys, b_replied, b_present, total;
+};
+
+static int
+eclipse_node_cb(void *user, const lws_dht_node_info_t *ni)
+{
+	const struct sockaddr_in *sin = (const struct sockaddr_in *)ni->sa;
+	struct ecl_tally *t = (struct ecl_tally *)user;
+	const uint8_t *a;
+
+	t->total++;
+	if (ni->sa->sa_family != AF_INET)
+		return 0;
+
+	a = (const uint8_t *)&sin->sin_addr;
+	if (a[0] == 203 && a[1] == 0 && a[2] == 113 &&
+	    a[3] >= KRPC_ECL_ADS_BASE &&
+	    a[3] < KRPC_ECL_ADS_BASE + KRPC_ECL_DECOYS)
+		t->decoys++;
+
+	if (sin->sin_port == sa_b.sin_port &&
+	    sin->sin_addr.s_addr == sa_b.sin_addr.s_addr) {
+		t->b_present++;
+		if (ni->replied >= 0)
+			t->b_replied++;
+	}
+
+	return 0;
+}
+
+static void
+eclipse_step(void)
+{
+	lws_dht_hash_t *target;
+	struct ecl_tally t;
+	uint8_t idata[20];
+
+	if (!sv.srch_ok || sv.ecl_ok || sv.ecl_bad || peer_r.tx_len ||
+	    peer_r2.tx_len)
+		return;
+
+	if (!sv.ecl_pinged) {
+		static const char ping_head[] = "d1:ad2:id20:",
+				  ping_tail[] = "e1:q4:ping1:t2:e21:y1:qe";
+		uint8_t q[64];
+
+		/* R2 makes itself known to A, as any node can */
+		sv.ecl_pinged = 1;
+		memcpy(q, ping_head, sizeof(ping_head) - 1);
+		eclipse_id_r2(q + sizeof(ping_head) - 1);
+		memcpy(q + sizeof(ping_head) - 1 + 20, ping_tail,
+		       sizeof(ping_tail) - 1);
+		peer_queue(&peer_r2, q, sizeof(ping_head) - 1 + 20 +
+					sizeof(ping_tail) - 1, &sa_a);
+		return;
+	}
+
+	if (!sv.ecl_ponged)
+		return;
+
+	memset(idata, KRPC_ECL_TARGET, sizeof(idata));
+	target = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, idata);
+	if (!target) {
+		sv.ecl_bad = 1;
+		return;
+	}
+
+	if (!sv.ecl_started) {
+		sv.ecl_started = 1;
+		if (lws_dht_search(dht_a, target, 0, AF_INET, NULL, NULL) < 0) {
+			lwsl_err("%s: lws_dht_search failed\n", __func__);
+			sv.ecl_bad = 1;
+		}
+		goto bail;
+	}
+
+	memset(&t, 0, sizeof(t));
+	if (lws_dht_foreach_search_node(dht_a, target, AF_INET,
+					eclipse_node_cb, &t) < 0) {
+		lwsl_err("%s: A has no search for the target\n", __func__);
+		sv.ecl_bad = 1;
+		goto bail;
+	}
+
+	if (!sv.ecl_sent) {
+		uint8_t id20[20];
+
+		/* R and R2 answer once A asked them, and B has answered A */
+		if (!sv.ecl_asked || !sv.ecl_asked2 || !t.b_replied)
+			goto bail;
+
+		memset(id20, KRPC_SS_ID_R, sizeof(id20));
+		eclipse_queue(&peer_r, id20, ecl_tid, 0);
+		eclipse_id_r2(id20);
+		eclipse_queue(&peer_r2, id20, ecl_tid2, KRPC_ECL_PER_PEER);
+		sv.ecl_sent = 1;
+		goto bail;
+	}
+
+	/* give A a few polls to have processed the answers */
+	if (++ecl_polls < 3)
+		goto bail;
+
+	if (!t.b_replied || !t.decoys || t.decoys > 2 * KRPC_ECL_INTRO_CAP) {
+		lwsl_err("%s: B present %d (replied %d), %d of R and R2's "
+			 "decoys (of %d)\n", __func__, t.b_present,
+			 t.b_replied, t.decoys, t.total);
+		sv.ecl_bad = 1;
+	} else {
+		lwsl_user("%s: B kept, %d decoys taken (of %d)\n", __func__,
+			  t.decoys, t.total);
+		sv.ecl_ok = 1;
+	}
+
+bail:
+	lws_dht_hash_destroy(&target);
+}
+
 static void
 cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
@@ -1827,6 +2092,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	seq_step();
 	q_step();
 	search_step_check();
+	eclipse_step();
 
 	if (sv.data_ok && !sv.dead_sent) {
 		sv.dead_sent = 1;
@@ -1862,7 +2128,8 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * R's replies to nothing A asked left A's table alone, only R's real
 	 * ack completed A's transfer to it, B did not repeat itself to R
 	 * on the word of an ack anyone could have sent, and R's answer to
-	 * A's search did not take it over, and B kept A to the hash each
+	 * A's search did not take it over, nor did its decoys at many
+	 * addresses take the second search over, and B kept A to the hash each
 	 * token was for and to its share of hashes.
 	 */
 
@@ -1879,6 +2146,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	    sv.unproven_ok && !sv.unproven_bad &&
 	    sv.ss_ok && !sv.ss_bad && sv.mart_ok &&
 	    sv.srch_ok && !sv.srch_bad &&
+	    sv.ecl_ok && !sv.ecl_bad &&
 	    sv.share_ok && !sv.share_bad &&
 	    sv.q_ok && !sv.q_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
@@ -1908,12 +2176,13 @@ int main(int argc, const char **argv)
 		{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 		{ "krpc-raw", cb_raw, 0, 0, 0, NULL, 0 },
 		{ "krpc-q", cb_q, 0, 0, 0, NULL, 0 },
+		{ "krpc-r2", cb_r2, 0, 0, 0, NULL, 0 },
 		LWS_PROTOCOL_LIST_TERM
 	};
 	uint8_t ida[20], idb[20];
 	const char *p;
 	int port_a = 0, port_b = 0, port_c = 0, port_r = 0, port_q = 0,
-	    port_dead = 0, n = 0;
+	    port_r2 = 0, port_dead = 0, n = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	/* the builtin options keep the emit function we set here */
@@ -1930,22 +2199,28 @@ int main(int argc, const char **argv)
 		port_r = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-q")))
 		port_q = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-r2")))
+		port_r2 = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-dead")))
 		port_dead = atoi(p);
 
 	if (port_a < 1 || port_a > 65535 || port_b < 1 || port_b > 65535 ||
 	    port_c < 1 || port_c > 65535 || port_r < 1 || port_r > 65535 ||
 	    port_q < 1 || port_q > 65535 ||
+	    port_r2 < 1 || port_r2 > 65535 ||
 	    port_dead < 1 || port_dead > 65535 ||
 	    port_a == port_b || port_a == port_c || port_b == port_c ||
 	    port_r == port_a || port_r == port_b || port_r == port_c ||
 	    port_q == port_a || port_q == port_b || port_q == port_c ||
 	    port_q == port_r ||
+	    port_r2 == port_a || port_r2 == port_b || port_r2 == port_c ||
+	    port_r2 == port_r || port_r2 == port_q ||
 	    port_dead == port_a || port_dead == port_b || port_dead == port_c ||
-	    port_dead == port_r || port_dead == port_q) {
+	    port_dead == port_r || port_dead == port_q ||
+	    port_dead == port_r2) {
 		lwsl_err("usage: --port-a <udp port> --port-b <udp port> "
 			 "--port-c <udp port> --port-r <udp port> "
-			 "--port-q <udp port> "
+			 "--port-q <udp port> --port-r2 <udp port> "
 			 "--port-dead <unused udp port>\n");
 		return 1;
 	}
@@ -2054,6 +2329,16 @@ int main(int argc, const char **argv)
 				       LWS_CAUDP_BIND, protocols[2].name, NULL,
 				       NULL, NULL, NULL, "krpc-q");
 	if (!peer_q.wsi) {
+		lwsl_err("raw udp socket creation failed\n");
+		goto bail;
+	}
+
+	/* R2: R's second endpoint in the second search */
+
+	peer_r2.wsi = lws_create_adopt_udp(vh_c, "127.0.0.1", port_r2,
+				       LWS_CAUDP_BIND, protocols[3].name, NULL,
+				       NULL, NULL, NULL, "krpc-r2");
+	if (!peer_r2.wsi) {
 		lwsl_err("raw udp socket creation failed\n");
 		goto bail;
 	}
@@ -2187,6 +2472,11 @@ int main(int argc, const char **argv)
 			if (!sv.srch_ok || sv.srch_bad) {
 				lwsl_err("one host's get_peers answer took A's "
 					 "search over\n");
+				fails++;
+			}
+			if (!sv.ecl_ok || sv.ecl_bad) {
+				lwsl_err("decoys at many addresses pushed B "
+					 "out of A's search\n");
 				fails++;
 			}
 		}
