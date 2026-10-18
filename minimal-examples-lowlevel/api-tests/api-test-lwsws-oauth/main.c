@@ -571,10 +571,14 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 				 * Without these the request goes out with no
 				 * body at all and the peer closes on us: the
 				 * canonical pattern is to declare the body
-				 * pending here and ask for the writeable
+				 * pending here and ask for the writeable.  An
+				 * empty body is complete already: declared
+				 * pending, nothing would ever end it.
 				 */
-				lws_client_http_body_pending(wsi, 1);
-				lws_callback_on_writable(wsi);
+				if (cur.body_len) {
+					lws_client_http_body_pending(wsi, 1);
+					lws_callback_on_writable(wsi);
+				}
 			}
 		}
 		break;
@@ -1526,6 +1530,24 @@ scenario_login(void)
 			    body);
 
 	/*
+	 * (5b) and the widget's background renewal works against the real auth
+	 * server: lws-login starts an exchange only for an auth_refresh_session
+	 * in the shape the auth server mints (G-166), so this fences that the
+	 * two agree on it
+	 */
+
+	if (req_full(JAR_APP, port_app, "/sai/.lws-login-refresh", "") ||
+	    status != 200)
+		return fail("login", "the background renewal answered %u after "
+				     "a successful login: body '%s'", status,
+			    body);
+
+	if (!strstr(set_cookie, "auth_session="))
+		return fail("login", "the background renewal planted no fresh "
+				     "auth_session (Set-Cookie seen: '%s')",
+			    set_cookie);
+
+	/*
 	 * (6) an sso_exchange that fails the CSRF double-submit must be refused
 	 * with nothing else in the response.  Its refusal path used to jump
 	 * past the initialisation of the cookie buffers it hands to the
@@ -1544,7 +1566,8 @@ scenario_login(void)
 				     "cookie: '%s'", set_cookie);
 
 	lwsl_user("PASS: login: %s authenticated, session planted, widget "
-		  "agrees, refused sso_exchange sets nothing\n", SEED_USER);
+		  "agrees, background renewal works, refused sso_exchange "
+		  "sets nothing\n", SEED_USER);
 
 	return 0;
 }

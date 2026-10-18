@@ -56,6 +56,8 @@ This plugin handles several PVO options to control the redirection routing and t
 | `unauth-allow` | If set to `1`, unauthenticated connections are **not** actively bounced via a 302 redirect. Traffic is instead permitted through to the underlying application mount unhindered. This enables scenarios where an underlying mount might conditionally render public views while relying securely on `/.lws-login-status` responses to dictate authenticated view logic without hard-failing unauthenticated guests. |
 | `unauth-protocols` | Optional comma-separated list of `Sec-WebSocket-Protocol` names (e.g., `lws-oauth-preauth`) that are permitted to bypass the JWT requirement during the upgrade phase. This allows unauthenticated headless devices to negotiate specific protocols to complete RFC 8628 Device Flow pairing. The exemption is decided on the subprotocol the upgrade will **bind**, not on the offer list as a whole: lws binds the first name the client offered that the vhost has a protocol for, in the client's order (RFC 6455 4.2.2), and it is that name which must be a **whole-token** member of this list. So a configured `lws-oauth-preauth` does not wave through `auth` or `preauth`, and it does not wave through an offer of `some-app-protocol, lws-oauth-preauth` either, since that upgrade would bind `some-app-protocol`; `lws-oauth-preauth, some-app-protocol` is admitted and binds the waiting room. On a mount proxied to an origin server the origin does the binding, so there *every* name the client offered must be in the list. |
 | `trust-forwarded-proto` | Defaults to `1`. Whether an `X-Forwarded-Proto: https` request header from a TLS-terminating reverse proxy in front of us may set the scheme of the `redirect_uri` we hand to the auth server (and of the cold-load self-redirect). It can only ever *upgrade* to `https`: a real TLS link is always reported as `https` whatever the header says, so a client cannot downgrade its own login round trip to cleartext. Set to `0` on a vhost that browsers reach directly, so the client-settable header is ignored entirely. |
+| `renewals-max` | Default `256`.  The most silent renewals (see [Background Token Renewal](#background-token-renewal-silent-auth)) that may be in flight on the vhost at once.  Each holds an outbound connection to the auth server and about 11KB until it ends.  Over the limit, the background renewal is answered `503` (which the widget retries later), and a cold-load falls back to the `303` to the auth form. |
+| `renewals-max-per-host` | Default `16`.  The most silent renewals that may be in flight at once for one source host: an IPv4 address, or an IPv6 /64.  Behind a reverse proxy every browser is the proxy's host unless the proxy tells lws who the client is (eg, PROXY v2 with the vhost's `proxy_v2_trusted`), so raise it there. |
 
 **Where does the JWK come from?**
 The central `auth-server` plugin automatically generates an Elliptic Curve (EC P-256) keypair upon its first startup and saves it to its configured `jwk_path` (e.g., `/var/db/lws-auth.jwk`).  With `auth-feed-secret` set, `lws-login` is told its public half by the auth feed, and needs no `jwt-jwk`; until the first snapshot arrives, no token verifies.
@@ -232,6 +234,24 @@ ws.onclose = async function() {
 This functions by initiating an invisible HTTP `POST` to the localized `/.lws-login-refresh` endpoint. The `lws-login` C-plugin intercepts this, securely acts as a Backend-For-Frontend (BFF) proxy using Libwebsockets' asynchronous non-blocking client API, fetches the new token directly from the Auth Server, and sets your browser's new `auth_session` cookie. Because all of this occurs entirely over backend TLS interfaces, your frontend Javascript never directly touches or exposes the Cross-Site Request Forgery (CSRF) tokens or OAuth codes!
 
 The same renewal side channel is also used for **cold-load silent renewal**: when a browser holding a valid `auth_refresh_session` cookie requests a protected page whose JWT has lapsed, the bouncer renews server-side and answers with a `302` back to the exact URL that was asked for — **query string included** — so app deep links (eg `sai`'s `?project=…&task=…`) survive re-login intact instead of landing the user on a shortened, unusable URL.
+
+### Renewal admission and lifetime
+
+Every renewal costs an outbound connection to the auth server, and anybody
+can send a request with an `auth_refresh_session` cookie, so the bouncer
+bounds what such requests can cost before the auth server has said anything:
+
+ - the jar must hold an `auth_refresh_session` value of the shape the auth
+   server mints (64 hex characters); otherwise no exchange is started, and
+   the request is treated as having no refresh session at all (`401` for the
+   background renewal, `303` to the auth form for a cold-load);
+ - at most `renewals-max` renewals may be in flight on the vhost, and
+   `renewals-max-per-host` from one source host (an IPv4 address or an IPv6
+   /64, the way the auth server keys its strikes); over either, the background
+   renewal is answered `503` and a cold-load falls back to the `303`;
+ - a renewal ends with the browser request it is for: if the browser goes
+   away first, the side channel to the auth server is closed and its state
+   freed at once.
 
 ### CSRF sidecar self-heal
 

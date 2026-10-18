@@ -24,8 +24,8 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	# app + second app (relative auth-api-url) + mock auth + proxied echo
-	# backend vhosts listen on adjacent ports
-	lws_get_free_ports(PORT_LOGINBFF 4)
+	# backend + third app (renewal bounds) vhosts listen on adjacent ports
+	lws_get_free_ports(PORT_LOGINBFF 5)
 
 	add_test(NAME api-test-lws-login-bff
 		 COMMAND lws-api-test-lws-login-bff -p ${PORT_LOGINBFF})

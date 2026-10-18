@@ -52,6 +52,13 @@
  *  - "anonymous": no auth cookies at all -> still denied with 401 (an
  *    anonymous visitor's renewal probe must never start an exchange);
  *
+ *  - "refresh-junk", "refresh-junk-coldload": an auth_refresh_session value
+ *    not in the shape the auth server mints (64 hex chars) -> no exchange,
+ *    401 / 303 as for no refresh session at all (G-166); anybody can send
+ *    one, and each used to cost an outbound exchange with the auth server.
+ *    "refresh-junk-then-good": a junk value ahead of a good one in the jar
+ *    does not hide the good one;
+ *
  *  - "relative-authapi": a second app vhost whose lws-login has only a
  *    relative auth-server-url ("/oauth/login", the BFF-delegate shape with
  *    no auth-api-url PVO) and a paired jar -> the side channel must be
@@ -176,6 +183,24 @@
  *    backend on another vhost, which says what it received: each stamp
  *    exactly once, with the stamped values, and no client copy.
  *
+ * plus renewal admission bursts, run after the scenarios above (G-166,
+ * G-167): several browser legs from one host ask for a renewal at once while
+ * the mock auth server holds every exchange open.
+ *
+ *  - "renewal-cap-per-host": only renewals-max-per-host exchanges may start,
+ *    the rest are answered 503 (retry), never 401 (dead session); when the
+ *    parked browser legs go away, the exchanges they waited on must be closed
+ *    promptly, not held with their ~11KB state for 5 minutes as they were;
+ *
+ *  - "renewal-cap-per-host-again": the same, showing the slots came back;
+ *
+ *  - "renewal-cap-vhost": a third app vhost bounds renewals-max, the total;
+ *
+ *  - "renewal-vhost-destroy": that vhost is destroyed at runtime with a
+ *    renewal in flight: the exchange must be closed and its state freed with
+ *    the vhost (under ASan, a leak or a later write into the freed vhost's
+ *    list fails the test).
+ *
  * The app vhost runs the real lws-login plugin (builtin plugins build) with
  * lws_login_client enabled on the same vhost as the side channel requires,
  * against an in-process mock auth server.  Ports come from the CI port
@@ -266,10 +291,17 @@ static char	o_origin_good[64], o_origin_evil[64], o_referer_good[64];
  * the mock's feed snapshot holds: uid 1 is at session_epoch 5 holding
  * default-service:1, and owns device "dev-ok"
  */
-#define BFF_REFRESH_JAR	"auth_refresh_session=0123456789abcdef0123456789abcdef; " \
+/*
+ * auth_refresh_session values in the shape the auth server mints, 64 hex
+ * chars: lws-login starts no exchange for any other shape
+ */
+#define BFF_REFRESH_OK	"0123456789abcdef0123456789abcdef" \
+			"0123456789abcdef0123456789abcdef"
+#define BFF_REFRESH_JAR	"auth_refresh_session=" BFF_REFRESH_OK "; " \
 			"auth_csrf=fedcba9876543210fedcba9876543210"
 /* uid 2's long-term session: the mock auth server renews it as uid 2 */
-#define BFF_REFRESH_U2	"2222222222222222222222222222222a"
+#define BFF_REFRESH_U2	"22222222222222222222222222222222" \
+			"2222222222222222222222222222222a"
 #define BFF_REFRESH_JAR_U2 "auth_refresh_session=" BFF_REFRESH_U2 "; " \
 			"auth_csrf=fedcba9876543210fedcba9876543210"
 static char	ck_live[1024], ck_revoked[1024], ck_regranted[1024],
@@ -287,11 +319,10 @@ static const char jwk_json[] =
 
 static const struct scenario scenarios[] = {
 	{ "paired-jar", "/.lws-login-refresh", NULL, NULL, NULL,
-	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
-	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
+	  BFF_REFRESH_JAR, 200u, 1, 1, 0,
 	  "POST", 0, 0, 0, 0, NULL, NULL },
 	{ "self-heal", "/.lws-login-refresh", NULL, NULL, NULL,
-	  "auth_refresh_session=0123456789abcdef0123456789abcdef", 200u, 1, 1, 0,
+	  "auth_refresh_session=" BFF_REFRESH_OK, 200u, 1, 1, 0,
 	  "POST", 0, 0, 0, 0, NULL, NULL },
 	/* a WRITEABLE the parked browser leg gets while the exchange is
 	 * still in flight (over h3 the quic stream gets one) must not be
@@ -299,10 +330,24 @@ static const struct scenario scenarios[] = {
 	 * with an instant 401 "no auth server response" on the sai
 	 * deployment */
 	{ "writeable-in-flight", "/.lws-login-refresh", NULL, NULL, NULL,
-	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
-	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
+	  BFF_REFRESH_JAR, 200u, 1, 1, 0,
 	  "POST", 0, 0, 0, 1, NULL, NULL },
 	{ "anonymous", "/.lws-login-refresh", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
+	  "POST", 0, 0, 0, 0, NULL, NULL },
+
+	/* G-166: only an auth_refresh_session value in the shape the auth
+	 * server mints may cost an exchange with it */
+	{ "refresh-junk", "/.lws-login-refresh", NULL, NULL, NULL,
+	  "auth_refresh_session=x; "
+	  "auth_csrf=fedcba9876543210fedcba9876543210", 401u, 0, 0, 0,
+	  "POST", 0, 0, 0, 0, NULL, NULL },
+	{ "refresh-junk-coldload", "/gated", NULL, NULL, NULL,
+	  "auth_refresh_session=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+	  "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", 303u, 0, 0, -1,
+	  "GET", 0, 0, 0, 0, NULL, NULL },
+	/* ... but a junk value ahead of a good one does not hide it */
+	{ "refresh-junk-then-good", "/.lws-login-refresh", NULL, NULL, NULL,
+	  "auth_refresh_session=x; " BFF_REFRESH_JAR, 200u, 1, 1, 0,
 	  "POST", 0, 0, 0, 0, NULL, NULL },
 
 	/* F-027: an auth_session cookie holding a compact JWT whose JOSE
@@ -367,8 +412,7 @@ static const struct scenario scenarios[] = {
 	/* refusal must be immediate and legible: no exchange started against
 	 * the empty host the relative URL parses to (second app vhost) */
 	{ "relative-authapi", "/.lws-login-refresh", NULL, NULL, NULL,
-	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
-	  "auth_csrf=fedcba9876543210fedcba9876543210", 401u, 0, 0, 0,
+	  BFF_REFRESH_JAR, 401u, 0, 0, 0,
 	  "POST", 0, 0, 1, 0, NULL, NULL },
 
 	/* C-774: cookieless ws upgrades against the gated mount, where the
@@ -404,8 +448,8 @@ static const struct scenario scenarios[] = {
 
 static struct lws_context *context;
 
-static int	g_port_app, g_port_auth, g_port_app2, g_port_echo;
-static struct lws_vhost *g_vh_cli, *g_vh_app;
+static int	g_port_app, g_port_auth, g_port_app2, g_port_echo, g_port_app3;
+static struct lws_vhost *g_vh_cli, *g_vh_app, *g_vh_app3;
 
 static int	step;
 static int	step_done;		/* 1 = completed, -1 = failed */
@@ -454,7 +498,17 @@ struct pss_auth {
 	struct lws	*wsi;
 	char		body[256];
 	size_t		body_len;
+	int		counted;	/* in mock_open */
 };
+
+/*
+ * The renewal admission bursts (see bursts[] below): while one runs, the mock
+ * holds every exchange open without answering, and counts how many it has
+ * open at once, so the test sees exactly how many lws-login let through and
+ * whether it closes them when their browser legs go away
+ */
+static int	burst_step = -1;	/* -1 = not in the burst phase */
+static int	mock_open, mock_open_peak;
 
 /*
  * Built in main() from the genuinely-minted SSO JWT (~4KB): the mock must
@@ -532,9 +586,20 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 				 __func__, uri ? uri : "(null)");
 			return 1;
 		}
+		pss->counted = 1;
+		if (++mock_open > mock_open_peak)
+			mock_open_peak = mock_open;
 		/* wait for the POST body, then answer from a later pass */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 10);
 		return 0;
+
+	case LWS_CALLBACK_CLOSED_HTTP:
+		lws_sul_cancel(&pss->sul_resp);
+		if (pss->counted) {
+			pss->counted = 0;
+			mock_open--;
+		}
+		break;
 
 	case LWS_CALLBACK_HTTP_BODY:
 		if (pss->body_len + len < sizeof(pss->body)) {
@@ -604,6 +669,9 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_notice("%s: mock exchange validated: refresh=%d "
 			    "pair=%d\n", __func__, mock_got_refresh,
 			    mock_pair_ok);
+
+		if (burst_step >= 0)
+			return 0; /* held until lws-login closes it */
 
 		if (scenarios[step].poke) {
 			/*
@@ -707,6 +775,8 @@ callback_feedmock(struct lws *wsi, enum lws_callback_reasons reason,
 
 static void
 step_advance(void);
+static void
+burst_start(void);
 
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
@@ -937,6 +1007,69 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 /*
+ * A browser leg of a renewal admission burst: a bodyless POST to
+ * .lws-login-refresh with a paired jar, like the widget's.  lws-login either
+ * parks it on an exchange (the mock holds it, so no answer comes until the
+ * driver closes it), or refuses it for load with 503.  Its burst_wsi[] slot
+ * is cleared when it goes away.
+ */
+
+#define BURST_MAX	12
+
+static struct lws	*burst_wsi[BURST_MAX];
+static int		burst_503, burst_other;
+
+static int
+callback_burst(struct lws *wsi, enum lws_callback_reasons reason,
+	       void *user, void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in;
+		unsigned char *end = (*p) + len;
+
+		if (lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_CONTENT_TYPE,
+				(const unsigned char *)"application/x-www-form-urlencoded",
+				33, p, end) ||
+		    lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_CONTENT_LENGTH,
+				(const unsigned char *)"0", 1, p, end) ||
+		    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+				(const unsigned char *)BFF_REFRESH_JAR,
+				(int)strlen(BFF_REFRESH_JAR), p, end))
+			return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (lws_http_client_http_response(wsi) == 503)
+			burst_503++;
+		else {
+			lwsl_err("%s: burst leg answered %d\n", __func__,
+				 (int)lws_http_client_http_response(wsi));
+			burst_other++;
+		}
+		return -1; /* the status is all we came for */
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_WSI_DESTROY: {
+		int n;
+
+		for (n = 0; n < BURST_MAX; n++)
+			if (burst_wsi[n] == wsi)
+				burst_wsi[n] = NULL;
+		break;
+	}
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+/*
  * The two ws protocols living on the app vhost behind the gated mount: a
  * stand-in for a privileged application protocol, and the exempt waiting
  * room.  Neither does any auth of its own, exactly the deployment the
@@ -1111,6 +1244,8 @@ static const struct lws_protocols
 	prot_feed = { "lws-auth-feed", callback_feedmock, 0, 0, 0, NULL, 0 },
 	prot_cli = { "lws-api-test-lws-login-bff-cli", callback_cli,
 		     0, 0, 0, NULL, 0 },
+	prot_burst = { "lws-api-test-lws-login-bff-burst", callback_burst,
+		       0, 0, 0, NULL, 0 },
 	prot_priv = { BFF_WS_PRIV, callback_gated_ws, 0, 0, 0, NULL, 0 },
 	prot_waiting = { BFF_WS_WAITING, callback_gated_ws, 0, 0, 0, NULL, 0 },
 	prot_stamps = { BFF_STAMPS_PROT, callback_stamps,
@@ -1125,7 +1260,7 @@ static const struct lws_protocols
 
 static const struct lws_protocols
 	*pprotocols_auth[] = { &defprot, &prot_auth, &prot_feed, NULL },
-	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL },
+	*pprotocols_cli[]  = { &defprot, &prot_cli, &prot_burst, NULL },
 	*pprotocols_app[]  = { &defprot, &prot_priv, &prot_waiting,
 			       &prot_stamps, NULL };
 
@@ -1221,8 +1356,24 @@ static struct lws_protocol_vhost_options
 	pvo_jwk	= {
 		NULL, NULL, "jwt-jwk", jwk_json
 	},
+	/* G-166: few enough renewals per host for a burst to go over */
+	pvo_rmh		= { NULL, NULL, "renewals-max-per-host", "3" },
 	pvo_login	= { NULL, NULL, "lws-login", NULL },
 	pvo_lc		= { NULL, NULL, "lws_login_client", NULL };
+
+/*
+ * Third app vhost's lws-login options: renewing against the mock auth server
+ * like the first, but bounded to fewer renewals in all than the first allows
+ * per host, so a burst from one host meets the vhost's bound.  It is destroyed
+ * at runtime with a renewal in flight by the last burst.
+ */
+static struct lws_protocol_vhost_options
+	pvo_cdom3	= { NULL, NULL, "cookie-domain", "127.0.0.1" },
+	pvo_asu3	= { NULL, NULL, "auth-server-url", NULL },
+	pvo_rm3		= { NULL, NULL, "renewals-max", "2" },
+	pvo_jwk3	= { NULL, NULL, "jwt-jwk", jwk_json },
+	pvo_login3	= { NULL, NULL, "lws-login", NULL },
+	pvo_lc3		= { NULL, NULL, "lws_login_client", NULL };
 
 /*
  * Second app vhost's lws-login options, mirroring the sai deployment shape
@@ -1696,10 +1847,153 @@ step_advance(void)
 		return;
 	}
 
-	if (!fail)
-		result = 0;
+	burst_step = 0;
+	burst_start();
+}
+
+/*
+ * Renewal admission bursts (G-166, G-167): n browser legs ask for a renewal
+ * at once, from one host, while the mock auth server holds every exchange
+ * open.  Exactly `admit` exchanges may reach the mock, the rest must be
+ * refused for load with 503, never 401, which the widget would take as the
+ * session being dead.  Then the parked browser legs go away (closed by the
+ * client, or by destroying the vhost they are on): lws-login must close the
+ * exchanges they were waiting on promptly, rather than hold them and their
+ * state for minutes.  Running the first burst again shows its slots were
+ * given back.
+ */
+
+static const struct burst {
+	const char	*name;
+	int		app3;	/* on the third app vhost, else the first */
+	int		n;	/* browser legs asking at once */
+	int		admit;	/* exchanges that may start */
+	int		destroy; /* end it by destroying the vhost */
+} bursts[] = {
+	/* the first app vhost allows 3 per host */
+	{ "renewal-cap-per-host",	0, 8, 3, 0 },
+	{ "renewal-cap-per-host-again",	0, 8, 3, 0 },
+	/* the third allows 2 in all */
+	{ "renewal-cap-vhost",		1, 5, 2, 0 },
+	/* G-167: the vhost goes with a renewal in flight */
+	{ "renewal-vhost-destroy",	1, 1, 1, 1 },
+};
+
+static lws_sorted_usec_list_t sul_burst;
+static lws_usec_t burst_deadline;
+static int burst_closing;
+
+static void
+burst_end(int ok)
+{
+	const struct burst *b = &bursts[burst_step];
+
+	lws_sul_cancel(&sul_burst);
+	tests++;
+
+	if (!ok) {
+		lwsl_err("%s: FAIL burst '%s': mock open %d (peak %d), "
+			 "503s %d, other %d, closing %d\n", __func__,
+			 b->name, mock_open, mock_open_peak, burst_503,
+			 burst_other, burst_closing);
+		fail++;
+	} else
+		lwsl_user("  burst '%s': PASS\n", b->name);
+
+	if (ok && ++burst_step < (int)LWS_ARRAY_SIZE(bursts)) {
+		burst_start();
+		return;
+	}
+
+	result = !!fail;
 	sequence_done = 1;
 	lws_cancel_service(context);
+}
+
+static void
+burst_poll(lws_sorted_usec_list_t *sul)
+{
+	const struct burst *b = &bursts[burst_step];
+	int n, open_legs = 0;
+
+	(void)sul;
+
+	for (n = 0; n < b->n; n++)
+		if (burst_wsi[n])
+			open_legs++;
+
+	if (mock_open_peak > b->admit || burst_other) {
+		burst_end(0);
+		return;
+	}
+
+	if (!burst_closing) {
+		if (mock_open == b->admit && burst_503 == b->n - b->admit &&
+		    open_legs == b->admit) {
+			/* every leg has its verdict: now the browsers go */
+			burst_closing = 1;
+			if (b->destroy) {
+				lws_vhost_destroy(g_vh_app3);
+				g_vh_app3 = NULL;
+			} else
+				for (n = 0; n < b->n; n++)
+					if (burst_wsi[n])
+						lws_wsi_close(burst_wsi[n],
+							LWS_TO_KILL_ASYNC);
+		}
+	} else if (!mock_open && !open_legs) {
+		burst_end(1);
+		return;
+	}
+
+	if (lws_now_usecs() > burst_deadline) {
+		burst_end(0);
+		return;
+	}
+
+	lws_sul_schedule(context, 0, &sul_burst, burst_poll,
+			 20 * LWS_US_PER_MS);
+}
+
+static void
+burst_start(void)
+{
+	const struct burst *b = &bursts[burst_step];
+	struct lws_client_connect_info i;
+	static char host_hdr[32];
+	int n;
+
+	mock_open_peak = mock_open;
+	burst_503 = burst_other = burst_closing = 0;
+
+	lws_snprintf(host_hdr, sizeof(host_hdr), "127.0.0.1:%d",
+		     b->app3 ? g_port_app3 : g_port_app);
+
+	for (n = 0; n < b->n; n++) {
+		memset(&i, 0, sizeof(i));
+		i.context		= context;
+		i.vhost			= g_vh_cli;
+		i.address		= "127.0.0.1";
+		i.port			= b->app3 ? g_port_app3 : g_port_app;
+		i.path			= "/.lws-login-refresh";
+		i.host			= host_hdr;
+		i.origin		= host_hdr;
+		i.method		= "POST";
+		i.ssl_connection	= LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+		i.protocol		= "defprot";
+		i.local_protocol_name	= "lws-api-test-lws-login-bff-burst";
+		i.pwsi			= &burst_wsi[n];
+
+		if (!lws_client_connect_via_info(&i)) {
+			lwsl_err("%s: burst connect failed\n", __func__);
+			burst_end(0);
+			return;
+		}
+	}
+
+	burst_deadline = lws_now_usecs() + 5 * LWS_US_PER_SEC;
+	lws_sul_schedule(context, 0, &sul_burst, burst_poll,
+			 20 * LWS_US_PER_MS);
 }
 
 static void
@@ -1768,12 +2062,13 @@ int main(int argc, const char **argv)
 	g_port_auth = g_port_app + 1;
 	g_port_app2 = g_port_app + 2;
 	g_port_echo = g_port_app + 3;
+	g_port_app3 = g_port_app + 4;
 
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS API selftest: lws-login BFF refresh / csrf self-heal"
 		  " + SSO origin gate + widget JS/CSS fence"
-		  " + unauth-protocols bind fence\n");
+		  " + unauth-protocols bind fence + renewal bounds\n");
 
 	{
 		static char auth_url[128];
@@ -1781,6 +2076,7 @@ int main(int argc, const char **argv)
 		lws_snprintf(auth_url, sizeof(auth_url), "http://127.0.0.1:%d",
 			     g_port_auth);
 		pvo_asu.value = auth_url;
+		pvo_asu3.value = auth_url;
 	}
 
 	/* options chain for lws-login:
@@ -1790,6 +2086,7 @@ int main(int argc, const char **argv)
 	pvo_asu.next	= &pvo_cdom;
 	pvo_cdom.next	= &pvo_feed;
 	pvo_feed.next	= &pvo_uap;
+	pvo_uap.next	= &pvo_rmh;
 	pvo_login.options = &pvo_jwk;
 
 	/* protocol-enabling chain: lws-login (with options) then the
@@ -1804,6 +2101,14 @@ int main(int argc, const char **argv)
 	pvo_asu2.next	= &pvo_cdom2;
 	pvo_login2.options = &pvo_jwk2;
 	pvo_login2.next	= &pvo_lc2;
+
+	/* third app vhost's chain: renewing like the first, but with no auth
+	 * feed and only 2 renewals in flight in all */
+	pvo_jwk3.next	= &pvo_asu3;
+	pvo_asu3.next	= &pvo_cdom3;
+	pvo_cdom3.next	= &pvo_rm3;
+	pvo_login3.options = &pvo_jwk3;
+	pvo_login3.next	= &pvo_lc3;
 
 	/* --------------------------------------------------- context/vhosts */
 
@@ -1966,6 +2271,18 @@ int main(int argc, const char **argv)
 
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create second app vhost\n");
+		goto bail;
+	}
+
+	/* third app vhost: lws-login bounded to 2 renewals in flight, for the
+	 * renewal admission bursts, which finally destroy it */
+	info.port		= g_port_app3;
+	info.vhost_name		= "app3";
+	info.pvo		= &pvo_login3;
+
+	g_vh_app3 = lws_create_vhost(context, &info);
+	if (!g_vh_app3) {
+		lwsl_err("Failed to create third app vhost\n");
 		goto bail;
 	}
 

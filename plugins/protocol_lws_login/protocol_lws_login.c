@@ -110,6 +110,15 @@ struct vhd_login {
 	struct lws_jwk          jwk;
 	char			jwk_pinned; /* by jwt-jwk, not the feed */
 	lws_dll2_owner_t        pending_refresh_list;
+	/*
+	 * Bounds on the renewals in flight on pending_refresh_list (each an
+	 * outbound connection to the auth server and ~11KB of state), in all
+	 * and per source host (see lws_login_host_key()), so that peers who
+	 * can present any auth_refresh_session value at all cannot exhaust
+	 * memory or outbound connections with them
+	 */
+	unsigned int		renewals_max;
+	unsigned int		renewals_max_per_host;
 
 	struct lws_login_feed	feed;
 };
@@ -146,6 +155,21 @@ struct pss_login {
  */
 #define LWS_LOGIN_MAX_URI 512
 
+/*
+ * The auth server mints an auth_refresh_session value as 32 random bytes in
+ * hex (lws_auth_mint_refresh()).  Nothing else can name a session it knows,
+ * so a request whose jar has no value of that shape is answered without
+ * starting a renewal exchange.
+ */
+#define LWS_LOGIN_REFRESH_SESSION_LEN		64
+
+/* default renewal bounds, see vhd->renewals_max(_per_host) */
+#define LWS_LOGIN_RENEWALS_MAX_DEF		256
+#define LWS_LOGIN_RENEWALS_MAX_PER_HOST_DEF	16
+
+/* "a:b:c:d::/64", or an IPv4 address, with headroom */
+#define LWS_LOGIN_HOST_KEY_LEN			64
+
 struct pending_login_refresh {
 	lws_dll2_t              list;
 	lws_sorted_usec_list_t  sul;
@@ -153,6 +177,9 @@ struct pending_login_refresh {
 
 	struct lws              *wsi_server;
 	struct lws              *wsi_client;
+
+	/* the source host this renewal is accounted to */
+	char			host_key[LWS_LOGIN_HOST_KEY_LEN];
 
 	/*
 	 * The browser's Cookie header we forward verbatim to the auth server.
@@ -536,6 +563,115 @@ lws_login_pending_find(struct vhd_login *vhd, struct lws *wsi)
 	return NULL;
 }
 
+/*
+ * The browser leg a renewal is parked on is closing: nobody is left to
+ * answer, so end the renewal now, closing its side channel, rather than
+ * leaving it to hold its state and its connection to the auth server until
+ * the sul gives up on it
+ */
+
+static void
+lws_login_pending_drop(struct vhd_login *vhd, struct lws *wsi)
+{
+	struct pending_login_refresh *ps = lws_login_pending_find(vhd, wsi);
+
+	if (!ps)
+		return;
+
+	lwsl_wsi_info(wsi, "browser leg closed, abandoning its renewal");
+	ps->wsi_server = NULL;
+	pending_login_release(ps);
+}
+
+/*
+ * The key renewals are accounted to their source host under: the address for
+ * IPv4, but the /64 for IPv6, since that is what one host commands.  A
+ * v4-mapped address is its IPv4 address.  The auth server keys its strikes
+ * the same way.
+ */
+
+static void
+lws_login_host_key(const char *addr, char *key, size_t len)
+{
+#if defined(LWS_WITH_IPV6)
+	lws_sockaddr46 sa46;
+
+	if (!lws_sa46_parse_numeric_address(addr, &sa46) &&
+	    sa46.sa4.sin_family == AF_INET6) {
+		const uint8_t *a = sa46.sa6.sin6_addr.s6_addr;
+		static const uint8_t v4map[12] = { [10] = 0xff, [11] = 0xff };
+
+		if (!memcmp(a, v4map, sizeof(v4map)))
+			lws_snprintf(key, len, "%u.%u.%u.%u", a[12], a[13],
+				     a[14], a[15]);
+		else
+			lws_snprintf(key, len, "%x:%x:%x:%x::/64",
+				     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
+				     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
+		return;
+	}
+#endif
+
+	lws_strncpy(key, addr, len);
+}
+
+/*
+ * May one more renewal from host_key start?  The list is bounded by
+ * renewals_max, so walking it is bounded too.
+ */
+
+static int
+lws_login_renewal_admit(struct vhd_login *vhd, const char *host_key)
+{
+	unsigned int same = 0;
+
+	if (vhd->pending_refresh_list.count >= vhd->renewals_max)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pending_refresh_list)) {
+		struct pending_login_refresh *ps = lws_container_of(d,
+					struct pending_login_refresh, list);
+
+		if (!strcmp(ps->host_key, host_key) &&
+		    ++same >= vhd->renewals_max_per_host)
+			return 0;
+	} lws_end_foreach_dll(d);
+
+	return 1;
+}
+
+/*
+ * Does the request's jar carry an auth_refresh_session value of the shape
+ * the auth server mints?  A browser can hold several same-named values (see
+ * auth_resolve_refresh_session() in the auth server, which walks them the
+ * same way), so any one of them will do.
+ */
+
+static int
+lws_login_refresh_session_plausible(struct lws *wsi)
+{
+	uint8_t b[LWS_LOGIN_REFRESH_SESSION_LEN / 2];
+	char v[LWS_LOGIN_REFRESH_SESSION_LEN + 1];
+	int n, m;
+
+	for (n = 0; n < 16; n++) {
+		size_t vl = sizeof(v);
+
+		m = lws_http_cookie_get_nth(wsi, "auth_refresh_session", n,
+					    v, &vl);
+		if (m == 1)
+			break;		/* no more of them */
+		if (!m && vl == LWS_LOGIN_REFRESH_SESSION_LEN &&
+		    lws_hex_len_to_byte_array(v, vl, b, (int)sizeof(b)) ==
+							(int)sizeof(b))
+			return 1;
+		/* too long, too short or not hex: try the next one */
+	}
+
+	return 0;
+}
+
 static void
 sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
 {
@@ -575,7 +711,11 @@ sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
  * Returns 1 if the renewal was kicked off (caller must stop processing and
  * suspend), 0 if it could not start (no valid auth_refresh_session / auth_csrf
  * present, or the auth-server URL won't parse) -- in the 0 case the caller
- * proceeds with its existing fallback (303 to login form, or BFF 401).
+ * proceeds with its existing fallback (303 to login form, or BFF 401) -- or
+ * -1 if too many renewals are already in flight, in all or from this peer's
+ * host (vhd->renewals_max(_per_host)): that says nothing about the session,
+ * so the BFF answers 503 for the widget to try again later, while a
+ * cold-load falls back to the 303.
  *
  * `ck_len` is lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE).  `cookie` is the
  * caller-owned copy of that header (we lws_strncpy it into ps).  `orig_path` is
@@ -735,6 +875,7 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 {
 	struct pending_login_refresh *ps;
 	struct lws_client_connect_info i;
+	char ip[64], host_key[LWS_LOGIN_HOST_KEY_LEN];
 	lws_parse_uri_t *puri;
 
 	/*
@@ -756,6 +897,23 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 		return 0;
 	}
 
+	/*
+	 * Each renewal costs an outbound connection and ps until it ends,
+	 * and anybody can present an auth_refresh_session value of the right
+	 * shape: bound how many may be in flight before costing anything
+	 */
+	ip[0] = '\0';
+	lws_get_peer_simple(wsi, ip, sizeof(ip));
+	lws_login_host_key(ip, host_key, sizeof(host_key));
+	if (!lws_login_renewal_admit(vhd, host_key)) {
+		lwsl_wsi_notice(wsi, "renewal refused: %u in flight (max %u, "
+				"%u per host), host %s", (unsigned int)
+				vhd->pending_refresh_list.count,
+				vhd->renewals_max, vhd->renewals_max_per_host,
+				host_key);
+		return -1;
+	}
+
 	ps = malloc(sizeof(*ps));
 	if (!ps)
 		return 0;
@@ -763,6 +921,8 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	ps->vhd = vhd;
 	ps->wsi_server = wsi;
 	ps->mode = mode;
+	lws_strncpy(ps->host_key, host_key, sizeof(ps->host_key));
+	lws_strncpy(ps->client_ip, ip, sizeof(ps->client_ip));
 	/*
 	 * The auth server double-submits csrf_token= against its csrf cookie,
 	 * which in a browser's jar on its own host is the __Host- prefixed
@@ -791,7 +951,6 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	 */
 
 	lws_login_orig_host(wsi, ps->orig_host, sizeof(ps->orig_host));
-	lws_get_peer_simple(wsi, ps->client_ip, sizeof(ps->client_ip));
 	lws_strncpy(ps->orig_scheme, lws_login_scheme(wsi, vhd),
 		    sizeof(ps->orig_scheme));
 
@@ -2616,6 +2775,24 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		{
+			int rm = LWS_LOGIN_RENEWALS_MAX_DEF,
+			    rh = LWS_LOGIN_RENEWALS_MAX_PER_HOST_DEF;
+
+			if (!lws_pvo_get_str(in, "renewals-max", &cp))
+				rm = atoi(cp);
+			if (!lws_pvo_get_str(in, "renewals-max-per-host", &cp))
+				rh = atoi(cp);
+			if (rm < 1 || rh < 1) {
+				lwsl_err("%s: renewals-max and "
+					 "renewals-max-per-host must be at "
+					 "least 1\n", __func__);
+				return -1;
+			}
+			vhd->renewals_max = (unsigned int)rm;
+			vhd->renewals_max_per_host = (unsigned int)rh;
+		}
+
+		{
 			const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 			while (pvo) {
 				if (!strcmp(pvo->name, "whitelist")) {
@@ -3232,8 +3409,6 @@ anon:
 		if (lws_login_ends_with(path, "/.lws-login-refresh")) {
 			char csrf[64] = {0};
 			size_t csrf_len = sizeof(csrf);
-			char refresh_session[128] = {0};
-			size_t refresh_session_len = sizeof(refresh_session);
 			int ck_len;
 
 			ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
@@ -3248,11 +3423,8 @@ anon:
 								wsi, "auth_csrf",
 								csrf, &csrf_len) == 0
 								&& csrf[0];
-						int got_refresh = lws_http_cookie_get(
-								wsi, "auth_refresh_session",
-								refresh_session,
-								&refresh_session_len) == 0
-								&& refresh_session[0];
+						int got_refresh =
+							lws_login_refresh_session_plausible(wsi);
 						if (got_csrf && got_refresh)
 							kicked = lws_login_kick_refresh(
 									vhd, wsi,
@@ -3286,13 +3458,14 @@ anon:
 							lwsl_wsi_notice(wsi,
 								"background refresh denied: "
 								"auth_refresh_session cookie "
-								"missing (not logged in via "
-								"refreshable session)");
+								"missing or malformed (not "
+								"logged in via refreshable "
+								"session)");
 							lws_login_diag_jar(wsi, vhd);
 						} else {
 							lwsl_wsi_notice(wsi,
 								"background refresh denied: no "
-								"auth_csrf and no "
+								"auth_csrf and no well-formed "
 								"auth_refresh_session");
 							lws_login_diag_jar(wsi, vhd);
 						}
@@ -3302,8 +3475,22 @@ anon:
 							"malformed Cookie header");
 					}
 					free(cookie);
-					if (kicked)
+					if (kicked > 0)
 						return 0; /* suspend */
+					if (kicked < 0)
+						/*
+						 * Too many renewals in flight:
+						 * not a verdict on the session,
+						 * so not the 401 the widget
+						 * takes as "dead"
+						 */
+						return simple_response(wsi, pss,
+							"Renewal busy, retry",
+							"text/plain",
+							HTTP_STATUS_SERVICE_UNAVAILABLE,
+							(unsigned char *)buf + LWS_PRE,
+							(unsigned char **)&p,
+							(unsigned char *)end);
 				}
 			} else {
 				/*
@@ -3541,17 +3728,11 @@ anon:
 				if (ck_len2 > 0) {
 					char csrf2[64] = {0};
 					size_t csrf2_len = sizeof(csrf2);
-					char refresh2[128] = {0};
-					size_t refresh2_len = sizeof(refresh2);
 					int got_csrf2 = lws_http_cookie_get(wsi,
 							"auth_csrf", csrf2,
 							&csrf2_len) == 0 && csrf2[0];
 					int got_refresh2 =
-						lws_http_cookie_get(wsi,
-							"auth_refresh_session",
-							refresh2,
-							&refresh2_len) == 0 &&
-							refresh2[0];
+						lws_login_refresh_session_plausible(wsi);
 
 					if (got_refresh2) {
 						char *cookie2 = malloc((size_t)ck_len2 + 1);
@@ -3597,7 +3778,10 @@ anon:
 							else
 								kicked = 0;
 							free(cookie2);
-							if (kicked) {
+							/* refused for load (< 0)
+							 * or not started: the
+							 * 303 below */
+							if (kicked > 0) {
 								struct pending_login_refresh *ps =
 									lws_login_pending_find(vhd, wsi);
 
@@ -4205,20 +4389,9 @@ anon:
 		case LWS_CALLBACK_CLOSED_HTTP:
 		case LWS_CALLBACK_CLOSED:
 			lws_login_pss_reset(pss);
-
-		if (vhd) {
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-						   lws_dll2_get_head(&vhd->pending_refresh_list)) {
-				struct pending_login_refresh *s = lws_container_of(d, struct pending_login_refresh, list);
-
-                                if (s->wsi_server == wsi) {
-					s->wsi_server = NULL;
-					lwsl_wsi_notice(wsi, "cleared dangling "
-						"wsi_server from pending refresh");
-				}
-			} lws_end_foreach_dll_safe(d, d1);
-		}
-		break;
+			if (vhd)
+				lws_login_pending_drop(vhd, wsi);
+			break;
 
 	default:
 		break;
