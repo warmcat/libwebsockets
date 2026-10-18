@@ -49,8 +49,8 @@
  - **Client-only builds need `-DLWS_WITHOUT_SERVER=1`.**
    `-DLWS_WITH_SERVER=0` is silently overridden; check `lws_config.h`
    has no `LWS_WITH_SERVER` before trusting a "client-only" result.
- - **Plugin-loading tests under ASan can fail on leaks that are not
-   lws's:** system libraries pulled in by a plugin (eg, the HLS plugin's
+ - **ASan suites with plugins or libuv fail on leaks that are not lws's**
+   (lwsws-uv-*, api-test-plugins, hs_evlib_foreign_uv, dht, hls...): system libraries pulled in by a plugin (eg, the HLS plugin's
    ffmpeg / samba) leak in their constructors at dlopen; the stacks show
    `<unknown module>` because the plugin is unloaded before the report.
    Use `LSAN_OPTIONS=suppressions=<file>` with `leak:_dl_init` and
@@ -154,6 +154,13 @@
  - **Tolerate unrequested WRITEABLE.**  Especially on h3 streams, a
    WRITEABLE can arrive without being asked for.  Track "done" yourself;
    never infer completion from a WRITEABLE.
+ - **api-test-lwsws-oauth strike accounting:** a scenario can read its
+   host's strikes from `/api/status` "strikes" via a trusted xff address,
+   and loopback itself is never host-struck, so per-account effects are
+   testable from loopback without host noise.  For red/green of a plugin
+   change, `make` and ctest the fixture plus the one test (eg,
+   `ctest -R 'lwsws_oauth|lwsws-oauth-limits'`): the fixture loads the
+   rebuilt plugin.
  - **api-test-lwsws-oauth's sqlite db persists across ctest runs**; only
    a configure removes it (`file(REMOVE)` at configure time).  A test that
    causes bans must use a fresh client address each run (the existing
