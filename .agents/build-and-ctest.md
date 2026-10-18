@@ -146,6 +146,11 @@
    "no answer" need a short deadline of their own.
  - Keep scratch files under `--tmpdir` (ctest passes the binary dir),
    not `/tmp`, and create them owner-only.
+ - **lhp stores selector names normalised, with spaces inside parentheses
+   removed**, so a descendant combinator inside `:is()` is lost in a test
+   selector; use `~`, `>` or `+` there.
+ - `lws_dir(..., lws_dir_rm_rf_cb)` empties a directory but leaves it;
+   `rmdir()` it afterwards.
  - `memmem()` is GNU-only: don't use it in examples.
  - `lws_cmdline_option()` is a prefix match: a new option must not start
    with an existing option's name.

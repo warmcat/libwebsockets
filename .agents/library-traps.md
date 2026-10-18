@@ -83,6 +83,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    routing table can actually supply.
  - **ANY-from state rows hide bugs.**  Prefer explicit source states in
    the state tables.
+ - **Before filing "unbounded buflist"**: every `lws_buflist` refuses to
+   grow past `LWS_BUFLIST_OOM_LIMIT` (2MB, `lws_buflist_check_room()`),
+   so check the append's failure handling instead (G-076, disputed).
 
 ## HTTP
 
@@ -248,6 +251,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    one-time init there.  In sspc, a `DISCONNECT_ME` from any proxied state
    drops the whole proxy link, unlike direct SS.
  - `lws_ss_set_metadata()` binds by reference: don't pass stack buffers.
+   The value must outlive every reconnect, not just the first connect;
+   use `lws_ss_alloc_set_metadata()` for anything the caller owns (G-143,
+   seen by ASan only on the retry path).
+ - SS flow windows (`manual_initial_tx_credit`,
+   `lws_ss_add_peer_tx_credit()`) only act on protocols with `tx_cr_add`,
+   ie, h2.  On h1 nothing holds the peer back (G-144).
+ - The builtin `__default` streamtype is TLS-only and ignores `http://`
+   endpoints ("ignoring non-tls scheme"); in-process plain-http tests
+   need their own `pss_policies_json` (see api-test-lhp-doc-cache).
  - Server `LWSSSCS_SERVER_UPGRADE` goes to the accepted stream: CREATING,
    CONNECTING, SERVER_UPGRADE, CONNECTED.
  - A body-carrying SS method with a tx callback but no known length is
