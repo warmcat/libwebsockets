@@ -85,6 +85,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - `WSI_TOKEN_HTTP_COLON_AUTHORITY` exists only in builds with h2 or h3
    (or `LWS_HTTP_HEADERS_ALL`): library code reading it needs that guard
    or the h1-only build breaks.
+ - On h3, a header block started with `lws_add_http_header_status()`
+   must be finalized (`lws_finalize_write_http_header()` /
+   `lws_finalize_http_header()`) before it is written: the QPACK prefix is
+   only filled in then, and `LWS_WRITE_HTTP_HEADERS_CONTINUATION` is not
+   framed on h3 (qpack.c, ops-h3.c; G-101).
  - **`lws_hdr_extant()`** reads `frags[n].flags & 2`, not just whether a
    fragment index is set.  Anything creating ah fragments itself must set
    the flag, or the header reads as absent (or as the ah's previous
