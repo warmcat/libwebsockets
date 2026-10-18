@@ -26,7 +26,14 @@ name, for the plain getters and the JWT readers alike.  It also fences the
 JWT `purpose` (G-171): a token is only accepted where its signed `"pur"`
 claim is exactly the purpose asked for, a token with a purpose is refused
 where none is asked for, and signing refuses a purpose that could end its
-JSON string or an `extra_json` carrying a `"pur"` of its own.  It needs
+JSON string or an `extra_json` carrying a `"pur"` of its own.  And it fences
+the same contract for session tokens (G-188): `lws_jwt_auth_create_via_info()`
+accepts a token only when its top-level `"iss"`, `"aud"` and `"pur"` are each
+present once and exactly what was asked for (a duplicated, nested, non-string
+or longer `"pur"` is refused, as is an empty requirement),
+`lws_jwt_auth_create()` refuses any token with a purpose, a live token with
+the right purpose is found behind one with the wrong purpose, and
+`lws_jwt_auth_update()` keeps the purpose the object was created with.  It needs
 `LWS_WITH_SERVER` and `LWS_WITH_CLIENT`, and `LWS_WITH_JOSE` for the JWT
 cases.
 

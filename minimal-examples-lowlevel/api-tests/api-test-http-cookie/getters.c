@@ -28,6 +28,14 @@
  *    signed "pur" claim can tell, eg, a visit token from a pass token signed
  *    with the same key, iss and aud.  A token with a purpose is refused where
  *    none is asked for, and one without where one is.
+ *
+ *  - lws_jwt_auth_create_via_info() holds session tokens to the same
+ *    contract (G-188): the iss, aud and purpose asked for must each be the
+ *    token's top-level claim, exactly and once, so eg an interceptor's visit
+ *    token signed with a shared key is not a session; lws_jwt_auth_create()
+ *    asks for none, so refuses any token with a purpose; and
+ *    lws_jwt_auth_update() keeps the requirements the object was created
+ *    with.
  */
 
 #include <libwebsockets.h>
@@ -45,7 +53,8 @@ enum ckg_kind {
 	CKG_GET,	/* lws_http_cookie_get() */
 	CKG_NTH,	/* lws_http_cookie_get_nth() */
 	CKG_JWT_VALIDATE, /* lws_jwt_get_http_cookie_validate_jwt() */
-	CKG_JWT_AUTH,	/* lws_jwt_auth_create() */
+	CKG_JWT_AUTH,	/* lws_jwt_auth_create(), or _via_info() */
+	CKG_JWT_AUTH_UPDATE, /* lws_jwt_auth_update() after _via_info() */
 	CKG_JWT_SIGN,	/* lws_jwt_sign_token_set_cookie_ascii() */
 };
 
@@ -56,6 +65,13 @@ enum ckg_jwt {
 	CKG_J_ATTACKER,
 	CKG_J_PASS,	/* victim's, minted with purpose "pass" */
 	CKG_J_VISIT,	/* victim's, minted with purpose "visit" */
+	CKG_J_SSO,	/* victim's, minted with purpose "sso" */
+	CKG_J_PUR_DUP,	/* "pur":"sso" and then "pur":"visit" */
+	CKG_J_PUR_NESTED, /* "sso" only as a "pur" inside an object */
+	CKG_J_PUR_NUM,	/* "pur":1 */
+	CKG_J_PUR_LONGER, /* "pur":"ssox" */
+
+	CKG_J_COUNT
 };
 
 struct ckg_case {
@@ -70,6 +86,10 @@ struct ckg_case {
 	const char		*want;	  /* value, or sub for the JWT kinds */
 	const char		*purpose; /* JWT validate / sign purpose */
 	const char		*ext;	  /* CKG_JWT_SIGN: extra_json */
+	const char		*iss;	  /* CKG_JWT_AUTH*: iss required */
+	const char		*aud;	  /* CKG_JWT_AUTH*: aud required */
+	enum ckg_jwt		upd;	  /* CKG_JWT_AUTH_UPDATE: new token */
+	char			via_info; /* CKG_JWT_AUTH: use _via_info() */
 };
 
 static const struct ckg_case ckg_cases[] = {
@@ -200,6 +220,66 @@ static const struct ckg_case ckg_cases[] = {
 	{ .label = "jwt-auth: bare name finds no __Host-",
 	  .hdr = { "__Host-tj=" }, .jwt = { CKG_J_VICTIM },
 	  .kind = CKG_JWT_AUTH, .name = "tj", .want_rc = 1 },
+
+	/* G-188: session tokens are held to iss / aud / purpose too */
+
+	{ .label = "jwt-auth: purpose refused where none asked",
+	  .hdr = { "s=" }, .jwt = { CKG_J_VISIT }, .kind = CKG_JWT_AUTH,
+	  .name = "s", .want_rc = 1 },
+	{ .label = "jwt-auth info: purpose matches", .hdr = { "s=" },
+	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH, .via_info = 1,
+	  .name = "s", .purpose = "sso", .want = "victim" },
+	{ .label = "jwt-auth info: other purpose refused", .hdr = { "s=" },
+	  .jwt = { CKG_J_VISIT }, .kind = CKG_JWT_AUTH, .via_info = 1,
+	  .name = "s", .purpose = "sso", .want_rc = 1 },
+	{ .label = "jwt-auth info: no purpose refused where one asked",
+	  .hdr = { "s=" }, .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_AUTH,
+	  .via_info = 1, .name = "s", .purpose = "sso", .want_rc = 1 },
+	{ .label = "jwt-auth info: purpose refused where none asked",
+	  .hdr = { "s=" }, .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH,
+	  .via_info = 1, .name = "s", .want_rc = 1 },
+	{ .label = "jwt-auth info: no purpose where none asked",
+	  .hdr = { "s=" }, .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_AUTH,
+	  .via_info = 1, .name = "s", .want = "victim" },
+	{ .label = "jwt-auth info: purpose is not a prefix match",
+	  .hdr = { "s=" }, .jwt = { CKG_J_PUR_LONGER }, .kind = CKG_JWT_AUTH,
+	  .via_info = 1, .name = "s", .purpose = "sso", .want_rc = 1 },
+	{ .label = "jwt-auth info: duplicate purpose refused",
+	  .hdr = { "s=" }, .jwt = { CKG_J_PUR_DUP }, .kind = CKG_JWT_AUTH,
+	  .via_info = 1, .name = "s", .purpose = "sso", .want_rc = 1 },
+	{ .label = "jwt-auth info: nested purpose is not the purpose",
+	  .hdr = { "s=" }, .jwt = { CKG_J_PUR_NESTED }, .kind = CKG_JWT_AUTH,
+	  .via_info = 1, .name = "s", .purpose = "sso", .want_rc = 1 },
+	{ .label = "jwt-auth info: non-string purpose refused",
+	  .hdr = { "s=" }, .jwt = { CKG_J_PUR_NUM }, .kind = CKG_JWT_AUTH,
+	  .via_info = 1, .name = "s", .want_rc = 1 },
+	{ .label = "jwt-auth info: live one behind a wrong purpose",
+	  .hdr = { "s=", "s=" }, .jwt = { CKG_J_VISIT, CKG_J_SSO },
+	  .kind = CKG_JWT_AUTH, .via_info = 1, .name = "s",
+	  .purpose = "sso", .want = "victim" },
+	{ .label = "jwt-auth info: iss and aud match", .hdr = { "s=" },
+	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH, .via_info = 1,
+	  .name = "s", .purpose = "sso", .iss = CKG_ISS, .aud = CKG_ISS,
+	  .want = "victim" },
+	{ .label = "jwt-auth info: other iss refused", .hdr = { "s=" },
+	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH, .via_info = 1,
+	  .name = "s", .purpose = "sso", .iss = "someone-else",
+	  .want_rc = 1 },
+	{ .label = "jwt-auth info: other aud refused", .hdr = { "s=" },
+	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH, .via_info = 1,
+	  .name = "s", .purpose = "sso", .aud = CKG_ISS "x", .want_rc = 1 },
+	{ .label = "jwt-auth info: empty purpose refused", .hdr = { "s=" },
+	  .jwt = { CKG_J_VICTIM }, .kind = CKG_JWT_AUTH, .via_info = 1,
+	  .name = "s", .purpose = "", .want_rc = 1 },
+	{ .label = "jwt-auth update: same purpose", .hdr = { "s=" },
+	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH_UPDATE, .name = "s",
+	  .purpose = "sso", .upd = CKG_J_SSO, .want = "victim" },
+	{ .label = "jwt-auth update: other purpose refused", .hdr = { "s=" },
+	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH_UPDATE, .name = "s",
+	  .purpose = "sso", .upd = CKG_J_VISIT, .want_rc = 1 },
+	{ .label = "jwt-auth update: no purpose refused", .hdr = { "s=" },
+	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH_UPDATE, .name = "s",
+	  .purpose = "sso", .upd = CKG_J_VICTIM, .want_rc = 1 },
 #endif
 };
 
@@ -211,8 +291,7 @@ static int ckg_cur = -1, ckg_port, ckg_fails, ckg_finished, ckg_answered,
 
 #if defined(LWS_WITH_JOSE)
 static struct lws_jwk ckg_jwk;
-static char ckg_jwt_victim[1024], ckg_jwt_attacker[1024],
-	    ckg_jwt_pass[1024], ckg_jwt_visit[1024];
+static char ckg_jwts[CKG_J_COUNT][1024]; /* by enum ckg_jwt */
 #endif
 
 static void
@@ -277,16 +356,37 @@ ckg_resolve(struct lws *wsi, const struct ckg_case *c)
 		got = "";
 		break;
 	}
-	case CKG_JWT_AUTH: {
-		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &ckg_jwk,
-						c->name, NULL, NULL, NULL);
+	case CKG_JWT_AUTH:
+	case CKG_JWT_AUTH_UPDATE: {
+		struct lws_jwt_auth_info ai;
+		struct lws_jwt_auth *ja;
 
-		if (ja) {
-			lws_strncpy(buf, lws_jwt_auth_get_sub(ja),
+		memset(&ai, 0, sizeof(ai));
+		ai.jwk		= &ckg_jwk;
+		ai.cookie_name	= c->name;
+		ai.iss		= c->iss;
+		ai.aud		= c->aud;
+		ai.purpose	= c->purpose;
+
+		if (c->kind == CKG_JWT_AUTH && !c->via_info)
+			ja = lws_jwt_auth_create(wsi, &ckg_jwk, c->name, NULL,
+						 NULL, NULL);
+		else
+			ja = lws_jwt_auth_create_via_info(wsi, &ai, NULL);
+
+		if (!ja)
+			break;
+
+		rc = 0;
+		if (c->kind == CKG_JWT_AUTH_UPDATE &&
+		    lws_jwt_auth_update(ja, ckg_jwts[c->upd], NULL))
+			rc = 1;
+
+		if (!rc)
+			lws_strncpy(buf, lws_jwt_auth_get_sub(ja) ?
+				    lws_jwt_auth_get_sub(ja) : "",
 				    sizeof(buf));
-			lws_jwt_auth_destroy(&ja);
-			rc = 0;
-		}
+		lws_jwt_auth_destroy(&ja);
 		break;
 	}
 #else
@@ -366,14 +466,8 @@ ckg_add_line(struct lws *wsi, const char *text, enum ckg_jwt jwt,
 	int n;
 
 #if defined(LWS_WITH_JOSE)
-	if (jwt == CKG_J_VICTIM)
-		j = ckg_jwt_victim;
-	if (jwt == CKG_J_ATTACKER)
-		j = ckg_jwt_attacker;
-	if (jwt == CKG_J_PASS)
-		j = ckg_jwt_pass;
-	if (jwt == CKG_J_VISIT)
-		j = ckg_jwt_visit;
+	if (jwt != CKG_J_NONE && jwt < CKG_J_COUNT)
+		j = ckg_jwts[jwt];
 #else
 	(void)jwt;
 #endif
@@ -494,23 +588,25 @@ ckg_next(lws_sorted_usec_list_t *sul)
 }
 
 #if defined(LWS_WITH_JOSE)
-/* the claims as jwt_sign_cookie_value() lays them out, "pur" included */
+/*
+ * The claims as jwt_sign_cookie_value() lays them out, with pur, if any,
+ * being the raw members for the purpose
+ */
 static int
-ckg_mint(const char *sub, const char *purpose, char *out, size_t out_len)
+ckg_mint(enum ckg_jwt which, const char *sub, const char *pur)
 {
 	unsigned long long now = (unsigned long long)lws_now_secs();
+	size_t out_len = sizeof(ckg_jwts[0]);
 	char temp[2048];
 
-	return lws_jwt_sign_compact(ckg_cx, &ckg_jwk, "ES256", out, &out_len,
-				    temp, (int)sizeof(temp),
-				    "{\"iss\":\"%s\",\"aud\":\"%s\",%s%s%s"
+	return lws_jwt_sign_compact(ckg_cx, &ckg_jwk, "ES256", ckg_jwts[which],
+				    &out_len, temp, (int)sizeof(temp),
+				    "{\"iss\":\"%s\",\"aud\":\"%s\",%s"
 				    "\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu,"
 				    "\"csrf\":\"0123456789abcdef\","
 				    "\"sub\":\"%s\"}", CKG_ISS, CKG_ISS,
-				    purpose ? "\"pur\":\"" : "",
-				    purpose ? purpose : "",
-				    purpose ? "\"," : "",
-				    now, now - 60, now + 600, sub);
+				    pur ? pur : "", now, now - 60, now + 600,
+				    sub);
 }
 #endif
 
@@ -553,12 +649,17 @@ ckg_test(const char *server)
 		lwsl_err("%s: jwk generation failed\n", __func__);
 		goto bail;
 	}
-	if (ckg_mint("victim", NULL, ckg_jwt_victim, sizeof(ckg_jwt_victim)) ||
-	    ckg_mint("attacker", NULL, ckg_jwt_attacker,
-		     sizeof(ckg_jwt_attacker)) ||
-	    ckg_mint("victim", "pass", ckg_jwt_pass, sizeof(ckg_jwt_pass)) ||
-	    ckg_mint("victim", "visit", ckg_jwt_visit,
-		     sizeof(ckg_jwt_visit))) {
+	if (ckg_mint(CKG_J_VICTIM, "victim", NULL) ||
+	    ckg_mint(CKG_J_ATTACKER, "attacker", NULL) ||
+	    ckg_mint(CKG_J_PASS, "victim", "\"pur\":\"pass\",") ||
+	    ckg_mint(CKG_J_VISIT, "victim", "\"pur\":\"visit\",") ||
+	    ckg_mint(CKG_J_SSO, "victim", "\"pur\":\"sso\",") ||
+	    ckg_mint(CKG_J_PUR_DUP, "victim",
+		     "\"pur\":\"sso\",\"pur\":\"visit\",") ||
+	    ckg_mint(CKG_J_PUR_NESTED, "victim",
+		     "\"ext\":{\"pur\":\"sso\"},") ||
+	    ckg_mint(CKG_J_PUR_NUM, "victim", "\"pur\":1,") ||
+	    ckg_mint(CKG_J_PUR_LONGER, "victim", "\"pur\":\"ssox\",")) {
 		lwsl_err("%s: jwt minting failed\n", __func__);
 		lws_jwk_destroy(&ckg_jwk);
 		goto bail;

@@ -193,3 +193,25 @@ under the other kind's cookie name.  Give each kind its own `purpose`, eg,
 requires the token's `"pur"` to be exactly the `purpose` asked for.  When
 `purpose` is NULL, validation refuses any token that has a `"pur"`, so a
 purpose-specific token is never accepted by a check that asks for none.
+
+## Session tokens: `lws_jwt_auth_create_via_info()`
+
+`lws_jwt_auth_create()` (in `./include/libwebsockets/lws-jwt-auth.h`) takes an
+SSO session token from a cookie, verifies it and exposes its subject, uid,
+grants and expiry.  It is what the lws auth server's relying parties use.  The
+same rule applies to it: the signature says who minted a token, not what for,
+so any token signed with the same jwk would otherwise be a session.
+
+`lws_jwt_auth_create_via_info()` takes a `struct lws_jwt_auth_info` with an
+optional `iss`, `aud` and `purpose`; each one given must be exactly the
+token's top-level `"iss"`, `"aud"` (as a string) or `"pur"` claim, present
+once.  As above, a NULL `purpose` refuses any token that has a `"pur"`, and
+`lws_jwt_auth_create()` is the same call with all three NULL.
+
+The lws auth server signs `"pur":"sso"` (`LWS_JWT_AUTH_PURPOSE_SSO`) into the
+session and device tokens it issues, and the in-tree relying parties require
+it.  So a jwk shared between the auth server and, eg, an interceptor, whose
+visit and pass tokens carry their own purposes, no longer lets one kind of
+token stand in for the other.  Sharing one jwk across several kinds of token
+is only safe when every kind is minted with its own purpose and every check
+asks for the purpose it wants; otherwise give each its own jwk.

@@ -18,6 +18,15 @@
 
 #define LWS_AUTH_MAX_COOKIE_LEN 4096
 
+/*
+ * The claims a caller can require, held by value in the object so that a later
+ * lws_jwt_auth_update() applies the same contract without the caller's strings
+ * having to outlive the create call.  An empty one is not required, except the
+ * purpose: empty there means the token must carry no "pur" at all.
+ */
+#define LWS_JWT_AUTH_MAX_ISS_AUD	128
+#define LWS_JWT_AUTH_MAX_PURPOSE	32
+
 struct lws_jwt_auth {
 	struct lws_context *cx;
 	struct lws *wsi;
@@ -33,6 +42,9 @@ struct lws_jwt_auth {
 	char cookie_name[64];
 	char sub[128];
 	char did[128];
+	char req_iss[LWS_JWT_AUTH_MAX_ISS_AUD];
+	char req_aud[LWS_JWT_AUTH_MAX_ISS_AUD];
+	char req_pur[LWS_JWT_AUTH_MAX_PURPOSE];
 	uint32_t uid;
 	uint32_t session_epoch;
 };
@@ -115,8 +127,28 @@ lws_jwt_auth_schedule(struct lws_jwt_auth *ja)
 	}
 }
 
+/*
+ * One top-level claim the caller may require: the token's value, its length
+ * (a decoded \u0000 must not let a longer value compare equal), and how many
+ * times it appeared, as any JSON type
+ */
+struct jwt_auth_claim {
+	char val[LWS_JWT_AUTH_MAX_ISS_AUD];
+	int len;		/* -1 unless it appeared as a string */
+	int seen;
+};
+
+enum {
+	JAC_ISS,
+	JAC_AUD,
+	JAC_PUR,
+
+	JAC_COUNT
+};
+
 struct jwt_auth_parse_ctx {
 	struct lws_jwt_auth *ja;
+	struct jwt_auth_claim claim[JAC_COUNT];
 	int parsing_grants;
 	int spos;		/* collation offset for the current string */
 	char got_sub;		/* a "sub" claim was seen: "email" can't win */
@@ -133,6 +165,9 @@ static const char * const auth_paths[] = {
 	"did",
 	"sec",
 	"nbf",
+	"iss",
+	"aud",
+	"pur",
 };
 
 enum {
@@ -146,6 +181,9 @@ enum {
 	JAP_DID,
 	JAP_SEC,
 	JAP_NBF,
+	JAP_ISS,
+	JAP_AUD,
+	JAP_PUR,
 };
 
 /*
@@ -169,10 +207,71 @@ jwt_auth_collate(char *dest, size_t dest_len, int *pos, struct lejp_ctx *ctx)
 	return 0;
 }
 
+/*
+ * The slot for a top-level claim we judge, or NULL.  iss and aud are judged
+ * only when the caller requires them, so that a token whose iss we don't care
+ * about can't be refused for its shape.  "pur" is always judged: with no
+ * purpose required, its mere presence refuses the token.
+ */
+
+static struct jwt_auth_claim *
+jwt_auth_claim(struct jwt_auth_parse_ctx *pctx, struct lejp_ctx *ctx)
+{
+	switch (ctx->path_match - 1) {
+	case JAP_ISS:
+		return pctx->ja->req_iss[0] ? &pctx->claim[JAC_ISS] : NULL;
+	case JAP_AUD:
+		return pctx->ja->req_aud[0] ? &pctx->claim[JAC_AUD] : NULL;
+	case JAP_PUR:
+		return &pctx->claim[JAC_PUR];
+	}
+
+	return NULL;
+}
+
 static signed char
 jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jwt_auth_parse_ctx *pctx = (struct jwt_auth_parse_ctx *)ctx->user;
+	struct jwt_auth_claim *cl = jwt_auth_claim(pctx, ctx);
+
+	if (cl) {
+		switch (reason) {
+		case LEJPCB_VAL_STR_START:
+		case LEJPCB_VAL_TRUE:
+		case LEJPCB_VAL_FALSE:
+		case LEJPCB_VAL_NULL:
+		case LEJPCB_VAL_NUM_INT:
+		case LEJPCB_VAL_NUM_FLOAT:
+		case LEJPCB_OBJECT_START:
+		case LEJPCB_ARRAY_START:
+			/*
+			 * A claim we judge must be unambiguous: a second
+			 * occurrence refuses the token rather than letting
+			 * member order decide which one we read
+			 */
+			if (cl->seen++)
+				return -1;
+			cl->len = -1;
+			pctx->spos = 0;
+			return 0;
+
+		case LEJPCB_VAL_STR_CHUNK:
+		case LEJPCB_VAL_STR_END:
+			/*
+			 * Too long to fit is too long to match anything a
+			 * caller can require, so refusing is right
+			 */
+			if (jwt_auth_collate(cl->val, sizeof(cl->val),
+					     &pctx->spos, ctx))
+				return -1;
+			if (reason == LEJPCB_VAL_STR_END)
+				cl->len = pctx->spos;
+			return 0;
+		}
+
+		return 0;
+	}
 
 	if (reason == LEJPCB_OBJECT_START && ctx->path_match == JAP_GRANTS + 1) {
 		pctx->parsing_grants = 1;
@@ -248,6 +347,23 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
  */
 #define LWS_JWT_AUTH_BUF	LWS_SSO_MAX_COOKIE
 
+/*
+ * Nonzero unless the token carried the claim once, as a string exactly equal
+ * to req.  An empty req is not required, and never mismatches.
+ */
+
+static int
+jwt_auth_claim_mismatch(const struct jwt_auth_claim *cl, const char *req)
+{
+	size_t rl = strlen(req);
+
+	if (!rl)
+		return 0;
+
+	return cl->seen != 1 || cl->len < 0 || (size_t)cl->len != rl ||
+	       memcmp(cl->val, req, rl);
+}
+
 int
 lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reason)
 {
@@ -312,6 +428,33 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	}
 
 	/*
+	 * Tokens signed with one jwk for different purposes are told apart only
+	 * by their claims: the signature covers the claims, and the client
+	 * chooses which cookie it presents a token under.  So the issuer,
+	 * audience and purpose the caller requires must be exactly the token's,
+	 * and with no purpose required, a token that has one, ie, that was
+	 * minted for something else, is refused (the same contract as
+	 * lws_jwt_get_http_cookie_validate_jwt()).
+	 */
+
+	if (jwt_auth_claim_mismatch(&pctx.claim[JAC_ISS], ja->req_iss) ||
+	    jwt_auth_claim_mismatch(&pctx.claim[JAC_AUD], ja->req_aud)) {
+		lwsl_notice("%s: JWT iss / aud mismatch\n", __func__);
+		if (reason)
+			*reason = "JWT iss or aud mismatch";
+		return -1;
+	}
+
+	if (ja->req_pur[0] ?
+		jwt_auth_claim_mismatch(&pctx.claim[JAC_PUR], ja->req_pur) :
+		pctx.claim[JAC_PUR].seen) {
+		lwsl_notice("%s: JWT purpose mismatch\n", __func__);
+		if (reason)
+			*reason = "JWT purpose mismatch";
+		return -1;
+	}
+
+	/*
 	 * RFC7519 leaves "exp" optional, but a session token without one never
 	 * expires: refuse it rather than treat it as live forever.  All lws
 	 * issuers mint an "exp".
@@ -338,11 +481,39 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	return 0;
 }
 
+/*
+ * A required claim must be held whole: a truncated requirement would accept
+ * tokens it should not.  NULL is "not required"; "" can't be told from that,
+ * so it is refused.
+ */
+
+static int
+jwt_auth_req_bad(const char *req, size_t max)
+{
+	return req && (!*req || strlen(req) >= max);
+}
+
 struct lws_jwt_auth *
 lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 		    const char *cookie_name,
 		    lws_jwt_auth_cb_t cb, void *user,
 		    const char **reason)
+{
+	struct lws_jwt_auth_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.jwk		= jwk;
+	i.cookie_name	= cookie_name;
+	i.cb		= cb;
+	i.user		= user;
+
+	return lws_jwt_auth_create_via_info(wsi, &i, reason);
+}
+
+struct lws_jwt_auth *
+lws_jwt_auth_create_via_info(struct lws *wsi,
+			     const struct lws_jwt_auth_info *i,
+			     const char **reason)
 {
 	struct lws_jwt_auth *ja = NULL, *cand;
 	uint64_t now = (uint64_t)lws_now_secs();
@@ -350,6 +521,17 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 	char jwt[8192];
 	size_t jwt_len;
 	int n = 0, m;
+
+	if (jwt_auth_req_bad(i->iss, LWS_JWT_AUTH_MAX_ISS_AUD) ||
+	    jwt_auth_req_bad(i->aud, LWS_JWT_AUTH_MAX_ISS_AUD) ||
+	    jwt_auth_req_bad(i->purpose, LWS_JWT_AUTH_MAX_PURPOSE)) {
+		lwsl_err("%s: iss, aud or purpose empty or too long\n",
+			 __func__);
+		if (reason)
+			*reason = "Unusable iss, aud or purpose requirement";
+
+		return NULL;
+	}
 
 	/*
 	 * Browsers legitimately present several same-named cookies at once
@@ -370,7 +552,8 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 		 * __Host-x passes "__Host-x", and a bare "x" planted by a
 		 * sibling host is never taken for it
 		 */
-		m = lws_http_cookie_get_nth(wsi, cookie_name, n, jwt, &jwt_len);
+		m = lws_http_cookie_get_nth(wsi, i->cookie_name, n, jwt,
+					    &jwt_len);
 		if (m) {
 			if (!r)
 				r = m == 2 ? "Cookie value too large for buffer" :
@@ -389,11 +572,21 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 
 		cand->cx = lws_get_context(wsi);
 		cand->wsi = wsi;
-		cand->jwk = jwk;
-		cand->cb = cb;
-		cand->user = user;
-		lws_strncpy(cand->cookie_name, cookie_name,
+		cand->jwk = i->jwk;
+		cand->cb = i->cb;
+		cand->user = i->user;
+		lws_strncpy(cand->cookie_name, i->cookie_name,
 			    sizeof(cand->cookie_name));
+
+		if (i->iss)
+			lws_strncpy(cand->req_iss, i->iss,
+				    sizeof(cand->req_iss));
+		if (i->aud)
+			lws_strncpy(cand->req_aud, i->aud,
+				    sizeof(cand->req_aud));
+		if (i->purpose)
+			lws_strncpy(cand->req_pur, i->purpose,
+				    sizeof(cand->req_pur));
 
 		cr = NULL;
 		if (lws_jwt_auth_update(cand, jwt, &cr)) {

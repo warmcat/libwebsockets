@@ -26,6 +26,63 @@ struct lws_jwt_auth;
 
 typedef int (*lws_jwt_auth_cb_t)(struct lws_jwt_auth *ja, int state, void *user);
 
+/*
+ * The "pur" claim the lws auth server signs into its session and device
+ * tokens, and that its in-tree relying parties (lws-login, deaddrop, hls,
+ * oauth-preauth, dht-dnssec-monitor, the auth server itself) require.  Any
+ * other kind of token signed with the same jwk carries a different purpose,
+ * or none, and is refused by them.
+ */
+#define LWS_JWT_AUTH_PURPOSE_SSO "sso"
+
+/**
+ * struct lws_jwt_auth_info - what lws_jwt_auth_create_via_info() requires
+ *
+ * The strings are copied into the object, so they need not outlive the call;
+ * lws_jwt_auth_update() on the object later applies the same requirements.
+ */
+struct lws_jwt_auth_info {
+	struct lws_jwk		*jwk;
+	/**< the key the issuer's signature must verify with */
+	const char		*cookie_name;
+	/**< exactly the name of the cookie to look for, eg "__Host-x" */
+	const char		*iss;
+	/**< NULL, or the issuer the token's "iss" must be exactly (< 128) */
+	const char		*aud;
+	/**< NULL, or the audience the token's "aud" must be exactly, as a
+	 * string (< 128) */
+	const char		*purpose;
+	/**< NULL, or the purpose the token's "pur" must be exactly (< 32).
+	 * When NULL, a token that has a "pur" claim at all is refused: it was
+	 * minted for something else.  The signature covers the claims but not
+	 * the cookie name, which the client chooses, so a jwk that signs more
+	 * than one kind of token is only safe when every kind has its own
+	 * purpose and every check asks for the one it wants. */
+	lws_jwt_auth_cb_t	cb;
+	/**< NULL, or the reauth / expiry callback */
+	void			*user;
+	/**< opaque pointer passed to cb */
+};
+
+/**
+ * lws_jwt_auth_create_via_info() - lws_jwt_auth_create() with claim requirements
+ *
+ * \param wsi: The connection to extract the HTTP cookie from
+ * \param i: the key, cookie name, required claims and callback
+ * \param reason: NULL, or set to why on failure
+ *
+ * As lws_jwt_auth_create(), but each occurrence of the cookie must also carry
+ * exactly the "iss", "aud" and "pur" claims \p i requires (see struct
+ * lws_jwt_auth_info), each once, at the top level of the claims.  An
+ * occurrence that doesn't is treated as one that failed verification.
+ *
+ * Returns NULL if no occurrence verified, or if \p i asks for an empty or
+ * over-long claim, otherwise the allocated opaque object.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_jwt_auth *
+lws_jwt_auth_create_via_info(struct lws *wsi, const struct lws_jwt_auth_info *i,
+			     const char **reason);
+
 /**
  * lws_jwt_auth_create() - Instantiates an opaque heap allocation from an incoming HTTP request
  *
@@ -48,6 +105,11 @@ typedef int (*lws_jwt_auth_cb_t)(struct lws_jwt_auth *ja, int state, void *user)
  * first.  Every occurrence is tried: the first one that verifies and is
  * unexpired wins.  If none is live, the first that verified is returned so
  * the caller decides what an expired token means (check lws_jwt_auth_get_exp()).
+ *
+ * It requires no iss or aud, and no purpose: so a token that carries a "pur"
+ * claim, ie, one minted for a specific purpose, is refused.  To accept tokens
+ * of one purpose, or to require an issuer or audience, use
+ * lws_jwt_auth_create_via_info().
  *
  * Returns NULL if no occurrence verified, or the allocated opaque object.
  */
@@ -135,7 +197,9 @@ lws_jwt_auth_count_grants(struct lws_jwt_auth *ja);
  * \param jwt: The raw refreshed JWT signed blob string
  *
  * Processes the updated JWT cryptographically. Re-evaluates all grant strings,
- * recalculates exp, and safely shifts the SUL timer natively.
+ * recalculates exp, and safely shifts the SUL timer natively.  The new JWT
+ * must meet the same iss / aud / purpose requirements the object was created
+ * with.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reason);
