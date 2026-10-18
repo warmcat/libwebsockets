@@ -403,6 +403,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    8 bytes after `d1:rd2:ch8:` and resend with `2:ch8:<ch>` ahead of
    `4:data` (`sr_challenge()` in api-test-dht-seq-reentry,
    `q_queue_chunk()` in api-test-dht-krpc).
+ - **Released v5.0.0 reads any reply whose tid starts with "sq" as a
+   sequencer ack**, and one with no offset / len as an ack of everything
+   (G-213): never send v5.0.0-style peers (fixed tid `sqnc`) a reply it
+   can parse as an ack of data we did not take.
+ - **In `lws_dht_reply_nodes()` the replier is recorded after its nodes
+   list**, so any search policy that can displace unreplied entries can
+   displace the replier with its own list (G-211).
  - **Unproven peers** get their first chunk plus at most
    `LWS_TS_UNPROVEN_TX_ALLOWANCE` (1536) bytes beyond what they sent us
    until they ack; the rest is held and flushed on proof (G-182).
