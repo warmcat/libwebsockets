@@ -43,6 +43,8 @@
    -Wno-error=unused-variable` and grep the warnings for your files.
    In such a tree `api-test-lws_dsh` also fails to link (undefined
    `lws_dsh_describe`).
+ - **`LWS_WITH_DHT=1` with JOSE off fails `api-test-plugins`** until G-178
+   is fixed: the dht_object_store plugin needs JOSE and fails to dlopen.
  - **The dht-dnssec plugin, lws-crypto-dnssec and their api-tests do not
    build with `LWS_IPV6=OFF`** until G-159 is fixed; only the DHT core
    can be checked in an IPv4-only tree.
@@ -111,6 +113,12 @@
    stream, `lws_write(..., LWS_WRITE_BINARY)` goes out raw with no DATA
    framing (`rops_write_role_protocol_h3()`), so a test can frame the
    stream itself (see the h3 case in api-test-http-attack).
+ - **SNI comes from `i.host`, not `i.address`**, so `i.host` sets both
+   SNI and `:authority`; a name matching no vhost (and no SNI fallback)
+   fails the handshake with a TLS alert.  To send a real Host header next
+   to `:authority` on h2/h3, add it with
+   `lws_add_http_header_by_token(WSI_TOKEN_HOST, ...)` in
+   `LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER` (api-test-h3-authority).
  - A TLS or h3 client given a literal IP as its host sends no SNI: a
    simple way to make SNI and Host / `:authority` differ in a test.
  - **api-test-sansio covers hpack** but `ctest -R 'h2|h3|http'` does not
