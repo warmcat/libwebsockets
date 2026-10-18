@@ -41,6 +41,9 @@
    is fixed (pre-existing unused-variable warnings).  To check changed
    code in such a build, add `-Wno-error=unused-but-set-variable
    -Wno-error=unused-variable` and grep the warnings for your files.
+ - **Client-only builds need `-DLWS_WITHOUT_SERVER=1`.**
+   `-DLWS_WITH_SERVER=0` is silently overridden; check `lws_config.h`
+   has no `LWS_WITH_SERVER` before trusting a "client-only" result.
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
@@ -146,6 +149,10 @@
    "no answer" need a short deadline of their own.
  - Keep scratch files under `--tmpdir` (ctest passes the binary dir),
    not `/tmp`, and create them owner-only.
+ - **Measure lhp amplification against a baseline.**  A page's custom
+   properties on `*` are costly by themselves (40 stanzas of 200
+   properties over 120 nested divs: ~12s under ASan with no calc() at
+   all), so compare with and without the construct before filing.
  - **lhp stores selector names normalised, with spaces inside parentheses
    removed**, so a descendant combinator inside `:is()` is lost in a test
    selector; use `~`, `>` or `+` there.
