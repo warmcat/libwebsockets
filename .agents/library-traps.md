@@ -158,6 +158,19 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - Renaming member accesses across the tree: never include `plugins/`
    (they can't see `struct lws`), and audit directories no local build
    compiles (`plat/windows`, freertos, optee, ...) before committing.
+ - ws has two writeable paths, h1 (`rops_handle_POLLOUT_ws()`) and the mux
+   one ws over h2 / h3 uses (`lws_ws_mux_child_pollout()`), and two rx
+   parsers, server (`server-ws.c` / `ops-ws.c`) and client
+   (`client-parser-ws.c`).  The client handshake offer is composed twice
+   too (h1 in `client-ws.c`, h2 / h3 in `http2.c`), with the accept checks
+   in a third place.  Fixes have repeatedly landed in only one of each set
+   (G-036, G-040, G-041, G-042, G-044): check the twins.
+ - At MQTT CONNACK the whole `wsi->mqtt` struct, including per-connection
+   client settings (`client.qos2_state_ops`, `id`, `aws_iot`), moves to
+   the sid 1 child and the network wsi gets a fresh zeroed one
+   (`mqtt.c`, after `w->mqtt = wsi->mqtt`).  Parser code reading
+   `wsi->mqtt->client.*` on the network wsi after CONNACK sees nothing
+   (G-037).
 
 ## Secure Streams
 
