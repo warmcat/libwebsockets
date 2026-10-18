@@ -298,6 +298,28 @@ if (requirements)
 		endif()
 
 		#
+		# (d1b) behind a trusted reverse proxy, the strikes and the ban
+		# of a client sending an overlong X-Forwarded-For land on that
+		# client, never on the proxy; a last element that is not an
+		# address is refused.  Each run is a fresh client address.
+		#
+		add_test(NAME lwsws-oauth-xff-h1
+			 COMMAND ${SAMP} -t xff --h1 ${ARGS_COMMON})
+		list(APPEND mytests lwsws-oauth-xff-h1)
+
+		if (has_h2)
+			add_test(NAME lwsws-oauth-xff-h2
+				 COMMAND ${SAMP} -t xff --h2 ${ARGS_COMMON})
+			list(APPEND mytests lwsws-oauth-xff-h2)
+		endif()
+
+		if (has_h3)
+			add_test(NAME lwsws-oauth-xff-h3
+				 COMMAND ${SAMP} -t xff --h3 ${ARGS_COMMON})
+			list(APPEND mytests lwsws-oauth-xff-h3)
+		endif()
+
+		#
 		# (d2) the mailed registration link: a GET only asks for
 		# confirmation, the page's POST creates the account and shows
 		# the second factor once, and the QR image of the seed needs

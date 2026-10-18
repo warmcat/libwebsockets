@@ -56,7 +56,11 @@
                 "registration_ui":              "1",
                 # what the app vhost's lws-login subscribes to the auth
                 # feed with
-                "feed-secret":                  "@OAUTH_FEED_SECRET@"
+                "feed-secret":                  "@OAUTH_FEED_SECRET@",
+                # a reverse proxy on the same host, as the README suggests:
+                # the in-process clients send no X-Forwarded-For, or the
+                # browser's, and the xff scenario sends a client's
+                "trusted-proxies":              "127.0.0.1,::1"
         },
         "lws-auth-feed": {
                 "status":                       "ok"

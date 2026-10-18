@@ -277,9 +277,17 @@ there, or the proxy is the client as far as the limiter is concerned:
   proxy address, ie every user, for 24 hours.
 
 Only the last `X-Forwarded-For` entry is used, since the trusted proxy wrote
-it; earlier entries came from the client or hops you do not trust.  A proxy
-that is not listed gets no say, so a forged header from an ordinary client
-changes nothing.
+it; earlier entries came from the client or hops you do not trust, and their
+length does not matter.  A proxy that is not listed gets no say, so a forged
+header from an ordinary client changes nothing.
+
+When a trusted proxy forwards a request, the forwarded address is the only
+answer: if the last entry is not a numeric address, the request is refused
+with `400` rather than being keyed on the proxy itself, which would let the
+client either escape the limits (a local proxy's address is never struck) or
+get the proxy, and so every user, banned.  A request from a trusted proxy
+with no `X-Forwarded-For` at all is taken to be from the proxy's host itself,
+as the in-process API clients are.
 
 Failures are also counted per account: after eight wrong passwords for one
 account (one forgiven every 120 s, like the address strikes) its logins are

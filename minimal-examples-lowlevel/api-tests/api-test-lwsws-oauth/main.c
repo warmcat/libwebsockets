@@ -45,6 +45,11 @@
  *          sibling planted, must both be refused, and the auth server's own
  *          page must still approve.
  *
+ *  xff:   behind a trusted reverse proxy, a client sending an overlong
+ *          X-Forwarded-For must still be the one its strikes and ban land on,
+ *          never the proxy, and one whose last element is not an address is
+ *          refused.
+ *
  *  verify: the mailed registration link.  A GET of it, as a mail scanner
  *          makes, only asks for confirmation; the TOTP seed and backup codes
  *          come from the POST that page makes with the csrf double
@@ -451,6 +456,18 @@ static const char *req_origin;
  */
 static const char *req_cookie_front;
 
+/*
+ * The X-Forwarded-For the next request carries, as a reverse proxy in front of
+ * the auth server would send it.  req_full() resets it after each request.
+ */
+static const char *req_xff;
+
+/*
+ * How long the next request may take, when it is expected to get no answer at
+ * all.  req_full() resets it after each request.
+ */
+static int req_deadline_secs;
+
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
@@ -498,6 +515,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			    lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
 					(unsigned char *)hostport_cur,
 					(int)strlen(hostport_cur), pp, pend))
+				return -1;
+
+			if (req_xff &&
+			    lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_X_FORWARDED_FOR,
+					(unsigned char *)req_xff,
+					(int)strlen(req_xff), pp, pend))
 				return -1;
 
 			if (req_origin && req_origin[0] &&
@@ -626,7 +650,7 @@ static const struct lws_protocols protocols[] = {
  * its own, so the test has to see every status and header itself.
  */
 static int
-req_full(int which_jar, int port, const char *path, const char *req_body)
+req_issue(int which_jar, int port, const char *path, const char *req_body)
 {
 	struct lws_client_connect_info i;
 	char hostport[128];
@@ -678,28 +702,36 @@ req_full(int which_jar, int port, const char *path, const char *req_body)
 	loc[0] = set_cookie[0] = body[0] = '\0';
 	body_len = 0;
 
-	if (!lws_client_connect_via_info(&i)) {
-		req_origin = req_cookie_front = NULL;
-
+	if (!lws_client_connect_via_info(&i))
 		return 1;
-	}
 
 	{
-		lws_usec_t deadline = lws_now_usecs() + (20 * LWS_US_PER_SEC);
+		lws_usec_t deadline = lws_now_usecs() +
+				((req_deadline_secs ? req_deadline_secs : 20) *
+				 LWS_US_PER_SEC);
 
 		while (!interrupted && lws_service(context, 0) >= 0)
 			if (lws_now_usecs() > deadline) {
 				lwsl_err("%s: %s timed out with no completed "
 					 "transaction\n", __func__, path);
-				req_origin = req_cookie_front = NULL;
 
 				return 1;
 			}
 	}
 
-	req_origin = req_cookie_front = NULL;
-
 	return 0;
+}
+
+/* a request, with whatever req_* overrides were set for it alone */
+static int
+req_full(int which_jar, int port, const char *path, const char *req_body)
+{
+	int r = req_issue(which_jar, port, path, req_body);
+
+	req_origin = req_cookie_front = req_xff = NULL;
+	req_deadline_secs = 0;
+
+	return r;
 }
 
 /* the app vhost, which is what the old scenario only ever talked to */
@@ -2074,6 +2106,118 @@ scenario_csrf(void)
 	return 0;
 }
 
+/* the "strikes" the auth server's /api/status reports for whoever asked */
+static int
+status_strikes(void)
+{
+	const char *p = strstr(body, "\"strikes\":");
+
+	return p ? atoi(p + 10) : -1;
+}
+
+/*
+ * xff: the auth vhost trusts loopback as a reverse proxy, as its README
+ * suggests for a proxy on the same host, so its strikes and bans key on the
+ * last X-Forwarded-For element.  The client controls everything before that
+ * element, including its length (G-111).
+ *
+ * A header long enough that it used to be unreadable had the limiter fall back
+ * to the proxy's own address, loopback, which is never struck: the client was
+ * exempt from every per-address limit.  It must be keyed on the forwarded
+ * client however long the header is, while the proxy's own address stays
+ * clean; and a last element that is no address must be refused, not keyed on
+ * the proxy either.
+ */
+static int
+scenario_xff(void)
+{
+	char client[48], xff[1024];
+	uint8_t r[2];
+	int n, m = 0;
+
+	/*
+	 * The db and the server's strike and ban lists outlive a run, so each
+	 * run is a client nobody has been yet, from the benchmarking range
+	 */
+	lws_get_random(context, r, sizeof(r));
+	lws_snprintf(client, sizeof(client), "198.18.%u.%u", r[0],
+		     (unsigned int)(r[1] | 1));
+
+	/* what the client sent, with the trusted proxy's element appended */
+	for (n = 0; n < 60; n++)
+		m += lws_snprintf(xff + m, sizeof(xff) - (size_t)m,
+				  "10.%d.0.1, ", n);
+	lws_snprintf(xff + m, sizeof(xff) - (size_t)m, "%s", client);
+	lwsl_user("xff: %d-byte X-Forwarded-For for %s\n", (int)strlen(xff),
+		  client);
+
+	/* (1) the forwarded client starts clean */
+
+	req_xff = xff;
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 || status_strikes())
+		return fail("xff", "/api/status for %s answered %u with "
+			    "strikes %d, wanted 200 and none", client, status,
+			    status_strikes());
+
+	/* (2) four failed double submits from it */
+
+	for (n = 0; n < 4; n++) {
+		req_xff = xff;
+		if (req_full(JAR_AUTH, port_auth, "/api/login", "x=1") ||
+		    status != 403)
+			return fail("xff", "a login with no csrf_token answered "
+				    "%u, wanted 403", status);
+	}
+
+	/* (3) are its strikes, not loopback's */
+
+	req_xff = xff;
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 || status_strikes() != 4)
+		return fail("xff", "after four failures through the proxy, "
+			    "%s has %d strikes, wanted 4", client,
+			    status_strikes());
+
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 || status_strikes())
+		return fail("xff", "the proxy's own address has %d strikes, "
+			    "wanted none", status_strikes());
+
+	/* (4) the fifth bans the forwarded client, and only it */
+
+	req_xff = xff;
+	if (req_full(JAR_AUTH, port_auth, "/api/login", "x=1") ||
+	    status != 403)
+		return fail("xff", "the fifth failed login answered %u, wanted "
+			    "403", status);
+
+	/* a ban drops the request unanswered, so this needn't wait long */
+	req_xff = xff;
+	req_deadline_secs = 3;
+	if (!req_full(JAR_AUTH, port_auth, "/api/status", NULL) && status)
+		return fail("xff", "banned %s still got an answer %u", client,
+			    status);
+
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200)
+		return fail("xff", "with %s banned, the proxy's own requests "
+			    "answered %u, wanted 200", client, status);
+
+	/* (5) a forwarded address that is no address is refused */
+
+	req_xff = "192.0.2.1, not-an-address";
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 400)
+		return fail("xff", "a last X-Forwarded-For element that is not "
+			    "an address answered %u, wanted 400", status);
+
+	lwsl_user("PASS: xff: a long X-Forwarded-For keys and bans the "
+		  "forwarded client, never the proxy\n");
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -2158,6 +2302,8 @@ main(int argc, const char **argv)
 		bad = scenario_verify();
 	else if (!strcmp(test, "csrf"))
 		bad = scenario_csrf();
+	else if (!strcmp(test, "xff"))
+		bad = scenario_xff();
 	else if (!strcmp(test, "uninit")) {
 		if (!port_uninit || !port_failinit) {
 			lwsl_err("%s: uninit needs --uninit-port and "

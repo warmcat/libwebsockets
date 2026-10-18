@@ -277,6 +277,14 @@ struct per_session_data__auth_server {
 	struct lws_buflist              *tx_buflist;
 
 	/*
+	 * The client address the strikes, bans and audit rows key on, resolved
+	 * by auth_client_address() at LWS_CALLBACK_HTTP while the request
+	 * headers are certainly attached, so the BODY_COMPLETION handlers do
+	 * not depend on them still being there (G-111)
+	 */
+	char				client_addr[64];
+
+	/*
 	 * admin ws only: the session it was authorised with at the upgrade,
 	 * since the cookie is gone by the time the ops arrive
 	 */
@@ -823,20 +831,41 @@ auth_peer_is_own(const char *peer)
  * before it was supplied by the client or an untrusted hop).  A proxy not in
  * the list is treated as the client it is, so a forged header from an
  * ordinary peer changes nothing.
+ *
+ * A trusted proxy that sends no X-Forwarded-For at all is speaking for
+ * itself: that is the in-process API clients on the auth server's own host,
+ * when the operator lists loopback.  But when it does forward for someone,
+ * the forwarded address is the only answer: if the last element is not a
+ * numeric address, nonzero is returned and the caller must refuse the
+ * request.  Falling back to the proxy's own address there let a client
+ * choose its key (G-111): loopback, which is never struck, or a remote proxy
+ * address shared with every other user.
+ *
+ * The client controls the length of what precedes the proxy's element, so
+ * the header is read whole, at whatever length the request's header table
+ * admitted.
+ *
+ * It reads the request headers, so it can only be used while they are
+ * certainly attached: LWS_CALLBACK_HTTP keeps the answer in the pss for the
+ * request's later callbacks.
+ *
+ * Returns 0 with the address in buf, or nonzero if the request must be
+ * refused, with buf holding the proxy's address for logging only.
  */
-static void
+static int
 auth_client_address(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		    char *buf, size_t len)
 {
-	char xff[512], *last;
 	struct lws_tokenize ts;
 	lws_sockaddr46 sa46;
-	int trusted = 0, n;
+	int trusted = 0, n, tl, ret = 1;
+	char *xff, *last;
 
+	buf[0] = '\0';
 	lws_get_peer_simple(wsi, buf, len);
 
 	if (!vhd || !vhd->trusted_proxies[0])
-		return;
+		return 0;
 
 	lws_tokenize_init(&ts, vhd->trusted_proxies, LWS_TOKENIZE_F_NO_INTEGERS |
 			  LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_MINUS_NONTERM |
@@ -850,25 +879,45 @@ auth_client_address(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	} while (ts.e > 0 && !trusted);
 
 	if (!trusted)
-		return;
+		return 0;
 
-	n = lws_hdr_copy(wsi, xff, sizeof(xff), WSI_TOKEN_X_FORWARDED_FOR);
-	if (n <= 0)
-		return;
+	if (!lws_hdr_extant(wsi, WSI_TOKEN_X_FORWARDED_FOR))
+		/* the proxy's own host, not forwarding for anyone */
+		return 0;
 
-	last = strrchr(xff, ',');
-	last = last ? last + 1 : xff;
-	while (*last == ' ' || *last == '\t')
-		last++;
-	n = (int)strlen(last);
-	while (n && (last[n - 1] == ' ' || last[n - 1] == '\t'))
-		last[--n] = '\0';
+	/* bounded by the size of the request's header table */
+	tl = lws_hdr_total_length(wsi, WSI_TOKEN_X_FORWARDED_FOR);
+	xff = tl > 0 ? malloc((size_t)tl + 1) : NULL;
+	if (xff) {
+		if (lws_hdr_copy(wsi, xff, tl + 1,
+				 WSI_TOKEN_X_FORWARDED_FOR) > 0) {
+			last = strrchr(xff, ',');
+			last = last ? last + 1 : xff;
+			while (*last == ' ' || *last == '\t')
+				last++;
+			n = (int)strlen(last);
+			while (n && (last[n - 1] == ' ' || last[n - 1] == '\t'))
+				last[--n] = '\0';
 
-	/* only a numeric address: never a name, never anything else */
-	if (!n || lws_sa46_parse_numeric_address(last, &sa46))
-		return;
+			/*
+			 * Only a numeric address that fits our key: never a
+			 * name, never anything else
+			 */
+			if (n && (size_t)n < len &&
+			    !lws_sa46_parse_numeric_address(last, &sa46)) {
+				lws_strncpy(buf, last, len);
+				ret = 0;
+			}
+		}
+		free(xff);
+	}
 
-	lws_strncpy(buf, last, len);
+	if (ret)
+		lwsl_wsi_notice(wsi, "trusted proxy %s forwarded no usable "
+				     "client address (X-Forwarded-For %d bytes)",
+				buf, tl);
+
+	return ret;
 }
 
 /*
@@ -1705,7 +1754,6 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 	lws_http_cookie_get(wsi, AUTH_SERVER_CSRF_COOKIE, csrf_ck, &csrf_len);
 
 	if (!csrf_form || !csrf_ck[0] || strlen(csrf_ck) != strlen(csrf_form) || lws_timingsafe_bcmp(csrf_ck, csrf_form, (uint32_t)strlen(csrf_ck))) {
-		char peer[64];
 		/*
 		 * State the mismatch precisely (which half is missing, and the
 		 * lengths) but never log the values themselves: they are
@@ -1718,8 +1766,7 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 				csrf_ck[0] ? "present" : "MISSING",
 				csrf_form ? (int)strlen(csrf_form) : 0,
 				(int)strlen(csrf_ck));
-		auth_client_address(wsi, vhd, peer, sizeof(peer));
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, pss->client_addr);
 		return -1;
 	}
 	return 0;
@@ -2080,10 +2127,8 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 
 	char jwt[1024];
 	size_t jwt_len = sizeof(jwt);
-	char peer[64];
-	auth_client_address(wsi, vhd, peer, sizeof(peer));
-
-	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
+	if (!lws_auth_generate_token(vhd, username, uid, pss->client_addr,
+				     jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
 		
@@ -2265,10 +2310,9 @@ lws_auth_api_device_token(struct lws *wsi, struct per_vhost_data__auth_server *v
 
 		char jwt[1024];
 		size_t jwt_len = sizeof(jwt);
-		char peer[64];
-		auth_client_address(wsi, vhd, peer, sizeof(peer));
-
-		if (!lws_auth_generate_device_token(vhd, username, uid, device_code, peer, jwt, &jwt_len)) {
+		if (!lws_auth_generate_device_token(vhd, username, uid, device_code,
+						    pss->client_addr, jwt,
+						    &jwt_len)) {
 			pss->http_response_code = HTTP_STATUS_OK;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"access_token\":\"%s\",\"token_type\":\"bearer\"}", jwt);
 
@@ -2443,7 +2487,8 @@ static int
 lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			     struct per_session_data__auth_server *pss)
 {
-	char peer[64], pl[1024 + LWS_PRE];
+	const char *peer = pss->client_addr;
+	char pl[1024 + LWS_PRE];
 	const char *email;
 	int len;
 	sqlite3_stmt *stmt;
@@ -2456,7 +2501,6 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 	}
 
 	email = lws_spa_get_string(pss->spa, EP_EMAIL);
-	auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (!email || !email[0]) {
 		auth_record_strike(vhd, peer);
@@ -2557,7 +2601,8 @@ static int
 lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			    struct per_session_data__auth_server *pss)
 {
-	char peer[64], pl[1024 + LWS_PRE];
+	const char *peer = pss->client_addr;
+	char pl[1024 + LWS_PRE];
 	const char *token, *new_password;
 	int len;
 	sqlite3_stmt *stmt;
@@ -2571,7 +2616,6 @@ lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server 
 
 	token = lws_spa_get_string(pss->spa, EP_RESET_TOKEN);
 	new_password = lws_spa_get_string(pss->spa, EP_NEW_PASS);
-	auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (!token || !token[0] || !new_password || strlen(new_password) < 8) {
 		auth_record_strike(vhd, peer);
@@ -2712,7 +2756,8 @@ static int
 lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		   struct per_session_data__auth_server *pss)
 {
-	char peer[64], jwt[1024], pl[1024 + LWS_PRE];
+	const char *peer = pss->client_addr;
+	char jwt[1024], pl[1024 + LWS_PRE];
 	const char *user, *pass;
 	int len, users_empty = 0;
 	char cookie_hdr[LWS_SSO_MAX_COOKIE] = {0};
@@ -2731,8 +2776,6 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
         size_t jwt_len = sizeof(jwt);
         char totp_secret[64] = {0};
         uint32_t uid = 0;
-
-        auth_client_address(wsi, vhd, peer, sizeof(peer));
 
         if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1,
 				   &stmt_chk, NULL) == SQLITE_OK) {
@@ -3256,10 +3299,8 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	size_t jwt_len = sizeof(jwt);
-	char peer[64];
-	auth_client_address(wsi, vhd, peer, sizeof(peer));
-
-	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
+	if (!lws_auth_generate_token(vhd, username, uid, pss->client_addr,
+				     jwt, &jwt_len)) {
 		/*
 		 * If long-term refresh sessions are enabled, mint one for this
 		 * user and include it in the response so the OAuth client (the
@@ -3394,10 +3435,7 @@ lws_auth_api_verify(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	lws_strncpy(hbuf, h, sizeof(hbuf));
 
 	if (auth_registration_lookup(vhd, hbuf, &r)) {
-		char peer[64];
-
-		auth_client_address(wsi, vhd, peer, sizeof(peer));
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, pss->client_addr);
 
 		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
 
@@ -3424,12 +3462,9 @@ lws_auth_api_verify(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	if (!ins_ok) {
-		char peer[64];
-
 		lwsl_notice("verify: registration already "
 			    "consumed or user exists\n");
-		auth_client_address(wsi, vhd, peer, sizeof(peer));
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, pss->client_addr);
 		lws_return_http_status(wsi,
 			HTTP_STATUS_BAD_REQUEST,
 			"Invalid or Expired Link");
@@ -3552,7 +3587,8 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 		      struct per_session_data__auth_server *pss)
 {
-	char pl[1024 + LWS_PRE], peer[64], auto_salt[64] = {0}, hex[129] = {0}, totp_b32[64] = {0}, verify_hash[64] = {0};
+	const char *peer = pss->client_addr;
+	char pl[1024 + LWS_PRE], auto_salt[64] = {0}, hex[129] = {0}, totp_b32[64] = {0}, verify_hash[64] = {0};
         uint8_t salt_raw[16], hash[64], totp_bytes[10], vhash_raw[16];
         sqlite3_stmt *stmt_chk, *stmt;
         int len, users_empty = 0;
@@ -3566,8 +3602,6 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
             }
             sqlite3_finalize(stmt_chk);
         }
-
-        auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 	if (users_empty) {
 		/* Allow initial TOFU admin bootstrap globally across interfaces without IP restriction */
@@ -4178,9 +4212,21 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			return lws_http_transaction_completed(wsi);
 		}
+		/*
+		 * Who the request is from, for the ban check here and for
+		 * every strike, ban and audit row the request's later
+		 * callbacks key on (G-111)
+		 */
+		if (auth_client_address(wsi, vhd, pss->client_addr,
+					sizeof(pss->client_addr))) {
+			if (lws_return_http_status(wsi,
+					HTTP_STATUS_BAD_REQUEST, NULL))
+				return -1;
+
+			return lws_http_transaction_completed(wsi);
+		}
 		{
-			char peer[64];
-			auth_client_address(wsi, vhd, peer, sizeof(peer));
+			const char *peer = pss->client_addr;
 			uint64_t now = (uint64_t)time(NULL);
 
 			/* Rapid ban-check */
@@ -4543,9 +4589,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				(struct per_session_data__auth_server *)user;
 
 			if (pss) {
-				char peer[64] = {0};
+				const char *peer = pss->client_addr;
 				int strikes = 0;
-				auth_client_address(wsi, vhd, peer, sizeof(peer));
 
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
 					auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
@@ -4855,10 +4900,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (auth_registration_lookup(vhd, hbuf, &r)) {
-				char peer[64];
-
-				auth_client_address(wsi, vhd, peer, sizeof(peer));
-				auth_record_strike(vhd, peer);
+				auth_record_strike(vhd, pss->client_addr);
 
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
 
@@ -5142,13 +5184,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			 * certainly still attached.
 			 */
 			if (lws_http_origin_check(wsi, NULL, 0)) {
-				char peer[64];
-
-				auth_client_address(wsi, vhd, peer,
-						    sizeof(peer));
 				lwsl_wsi_notice(wsi, "%s from %s: refusing a "
 						"foreign Origin",
-						(const char *)in, peer);
+						(const char *)in,
+						pss->client_addr);
 				if (lws_return_http_status(wsi,
 						HTTP_STATUS_FORBIDDEN, NULL))
 					return -1;
@@ -5938,7 +5977,8 @@ callback_auth_feed(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!auth_feed_authorized(wsi, vhd)) {
 			char peer[64];
 
-			auth_client_address(wsi, vhd, peer, sizeof(peer));
+			/* refused either way: this only names it in the log */
+			(void)auth_client_address(wsi, vhd, peer, sizeof(peer));
 			lwsl_wsi_warn(wsi, "auth feed subscription from %s "
 				      "without the feed secret refused", peer);
 			return 1;
