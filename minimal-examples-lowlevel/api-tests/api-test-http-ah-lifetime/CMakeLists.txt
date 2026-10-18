@@ -36,16 +36,16 @@ if (requirements)
 	# One test per case and role, so ctest -j runs them side by side and a
 	# failure names both
 	#
-	set(AHL_TESTS pipeline-depth:h1 slow-cl:h1 slow-stream:h1)
+	set(AHL_TESTS pipeline-depth:h1 slow-cl:h1 slow-stream:h1 late-spa:h1)
 	if (AHL_FILE AND NOT WIN32)
 		# the file it serves is made at runtime, with posix file apis
 		list(APPEND AHL_TESTS file-stall:h1)
 	endif()
 	if (AHL_H2)
-		list(APPEND AHL_TESTS slow-cl:h2 slow-stream:h2)
+		list(APPEND AHL_TESTS slow-cl:h2 slow-stream:h2 late-spa:h2)
 	endif()
 	if (AHL_H3)
-		list(APPEND AHL_TESTS slow-cl:h3 slow-stream:h3)
+		list(APPEND AHL_TESTS slow-cl:h3 slow-stream:h3 late-spa:h3)
 	endif()
 
 	set(AHL_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)

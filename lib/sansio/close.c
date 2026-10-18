@@ -990,6 +990,11 @@ just_kill_connection:
 	 */
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
 #endif
+#if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || \
+     defined(LWS_ROLE_H3)) && defined(LWS_WITH_SERVER)
+	/* likewise the request's Content-Type snapshot */
+	lws_free_set_NULL(wsi->http.content_type);
+#endif
 
 	/*
 	 * we won't be servicing or receiving anything further from this guy:

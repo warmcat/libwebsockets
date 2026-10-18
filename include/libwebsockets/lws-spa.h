@@ -86,7 +86,12 @@ struct lws_spa;
  * \param opt_cb: NULL, or callback to receive file upload data.
  * \param opt_data: NULL, or user pointer provided to opt_cb.
  *
- * Creates a urldecode parser and initializes it.
+ * Creates a urldecode parser and initializes it.  Whether the body is a
+ * multipart form, and its boundary, come from the request's Content-Type as
+ * it was when the request was dispatched, so the parser may be created at
+ * any time during the request, eg, lazily at the first
+ * LWS_CALLBACK_HTTP_BODY, whether or not the request headers are still
+ * around then.
  *
  * It's recommended to use the newer api, lws_spa_create_via_info()
  * instead.

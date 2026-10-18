@@ -2473,6 +2473,35 @@ lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done)
  * lws_http_action() returns for it.
  */
 
+/*
+ * Take a copy of the request's Content-Type, if it has one, replacing
+ * anything left from an earlier request on the connection.  The ah bounds
+ * how long it can be.  Returns nonzero only on OOM.
+ */
+static int
+lws_http_snapshot_content_type(struct lws *wsi)
+{
+	int len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE);
+
+	lws_free_set_NULL(wsi->http.content_type);
+
+	if (len <= 0)
+		return 0;
+
+	wsi->http.content_type = lws_malloc((size_t)len + 1, "content-type");
+	if (!wsi->http.content_type)
+		return 1;
+
+	if (lws_hdr_copy(wsi, wsi->http.content_type, len + 1,
+			 WSI_TOKEN_HTTP_CONTENT_TYPE) != len) {
+		lws_free_set_NULL(wsi->http.content_type);
+
+		return 1;
+	}
+
+	return 0;
+}
+
 static int
 lws_http_gate_bail(struct lws *wsi, struct lws_http_gate *g)
 {
@@ -2525,6 +2554,14 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 
 	wsi->http.method_head = methods[g->meth] == WSI_TOKEN_HEAD_URI;
 	wsi->http.method_post = methods[g->meth] == WSI_TOKEN_POST_URI;
+
+	/*
+	 * ... and the Content-Type, for an lws_spa created after the headers
+	 * may have gone (lws_urldecode_s_create()): without it a multipart
+	 * form would silently be parsed as urlencoded
+	 */
+	if (lws_http_snapshot_content_type(wsi))
+		return lws_http_gate_bail(wsi, g);
 
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
 	lws_metrics_tag_wsi_add(wsi, "meth", method_names[g->meth]);
@@ -3969,6 +4006,7 @@ int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
+	lws_free_set_NULL(wsi->http.content_type);
 
 	/*
 	 * A connection already closing has no transaction left to complete,

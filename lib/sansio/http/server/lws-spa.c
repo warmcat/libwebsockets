@@ -102,7 +102,7 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 		       int out_len, lws_urldecode_stateful_cb output)
 {
 	struct lws_urldecode_stateful *s;
-	char buf[205], *p;
+	const char *ct, *p;
 	int m = 0;
 
 	if (spa->i.ac)
@@ -124,17 +124,22 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 	s->data = spa;
 	s->wsi = wsi;
 
-	if (lws_hdr_copy(wsi, buf, sizeof(buf),
-			 WSI_TOKEN_HTTP_CONTENT_TYPE) > 0) {
+	/*
+	 * The request's Content-Type as it was when the request was
+	 * dispatched: an spa is often created after that, at the first
+	 * LWS_CALLBACK_HTTP_BODY, when the request headers may be gone
+	 */
+	ct = wsi->http.content_type;
+	if (ct) {
 	/* multipart/form-data;
 	 * boundary=----WebKitFormBoundarycc7YgAPEIHvgE9Bf */
 
-		if (!strncmp(buf, "multipart/form-data", 19) ||
-		    !strncmp(buf, "multipart/related", 17)) {
+		if (!strncmp(ct, "multipart/form-data", 19) ||
+		    !strncmp(ct, "multipart/related", 17)) {
 			s->multipart_form_data = 1;
 			s->state = MT_LOOK_BOUND_IN;
 			s->mp = 2;
-			p = (char *)strstr(buf, "boundary=");
+			p = strstr(ct, "boundary=");
 			if (p) {
 				p += 9;
 				s->mime_boundary[m++] = '\x0d';

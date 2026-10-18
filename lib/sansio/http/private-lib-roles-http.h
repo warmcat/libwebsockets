@@ -422,6 +422,13 @@ struct _lws_http_mode_related {
 #endif
 
 #if defined(LWS_WITH_SERVER)
+	char *content_type;
+	/**< server: the request's Content-Type, or NULL if it had none.
+	 * Snapshotted at dispatch by lws_http_action_request(), for lws_spa,
+	 * which reads it when it is created: apps commonly create one lazily
+	 * at the first LWS_CALLBACK_HTTP_BODY, and the request headers are not
+	 * promised to be there then.  Per transaction: freed when it
+	 * completes, or when the wsi closes. */
 	unsigned int response_code;
 	const struct lws_protocol_vhost_options *mount_specific_headers;
 	unsigned int mount_specific_keepalive_timeout_secs;

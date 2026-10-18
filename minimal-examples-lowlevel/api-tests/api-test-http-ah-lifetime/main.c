@@ -42,6 +42,14 @@
  *     gave the ah back at dispatch and then attached a fresh one to read
  *     the body would arm the ah idle timeout over the first pause.
  *
+ *  --case late-spa (h1, h2, h3): an lws client POSTs a multipart form.  The
+ *     server gives the request headers back at LWS_CALLBACK_HTTP
+ *     (lws_http_headers_detach()), the way a server releasing them at
+ *     dispatch would, and only creates its lws_spa at the first
+ *     LWS_CALLBACK_HTTP_BODY, as apps commonly do.  The spa must still know
+ *     the body is multipart, and its boundary, from the Content-Type the
+ *     request came with, and so find the form's field.
+ *
  * lws is both ends here, in one process: a crash or memory error in the
  * server fails the test as well as a wrong answer does.
  */
@@ -81,6 +89,16 @@
 /* the Content-Type the client sends, read back at LWS_CALLBACK_HTTP */
 #define AHL_CT			"application/x-ahl-probe"
 
+/* late-spa: the form the client POSTs, and the field the server looks for */
+#define AHL_FORM_CT		"multipart/form-data; boundary=ahlb"
+#define AHL_FORM_FIELD		"f"
+#define AHL_FORM_VALUE		"late"
+#define AHL_FORM		"--ahlb\r\n" \
+				"Content-Disposition: form-data; name=\"" \
+					AHL_FORM_FIELD "\"\r\n\r\n" \
+				AHL_FORM_VALUE "\r\n" \
+				"--ahlb--\r\n"
+
 #define AHL_DEADLINE_S		30
 
 /* a small answer, for the pipelined GETs */
@@ -95,10 +113,11 @@ enum ahl_case {
 	AHL_PIPELINE_DEPTH,
 	AHL_SLOW_CL,
 	AHL_SLOW_STREAM,
+	AHL_LATE_SPA,
 };
 
 static const char * const case_names[] = {
-	"file-stall", "pipeline-depth", "slow-cl", "slow-stream"
+	"file-stall", "pipeline-depth", "slow-cl", "slow-stream", "late-spa"
 };
 
 enum ahl_role {
@@ -128,7 +147,7 @@ static struct {
 	int		file_done;	/* LWS_CALLBACK_HTTP_FILE_COMPLETION */
 	int		slow_http;	/* LWS_CALLBACK_HTTP for /slow */
 	int		ct_ok;		/* ... with the client's Content-Type */
-	int		completions;	/* /slow body completions */
+	int		completions;	/* /slow and /spa body completions */
 	lws_usec_t	max_gap_us;	/* longest wait for a piece of /slow */
 } srv;
 
@@ -184,7 +203,10 @@ finish(int ok, const char *why)
  * The server
  */
 
+static const char * const form_names[] = { AHL_FORM_FIELD };
+
 struct pss_srv {
+	struct lws_spa	*spa;		/* /spa: made at the first body */
 	lws_usec_t	last_us;	/* /slow: when the last piece came */
 	size_t		rx_len;
 	uint32_t	rx_sum;
@@ -249,6 +271,19 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			return answer(wsi, pss);
 		}
 
+		if (path && !strcmp(path, "/spa")) {
+			memset(pss, 0, sizeof(*pss));
+			/*
+			 * Done with the request headers already, as if they
+			 * had been released at dispatch: the spa, made later,
+			 * must not need them
+			 */
+			if (lws_http_headers_detach(wsi))
+				return -1;
+
+			return 0;
+		}
+
 		if (!path || strcmp(path, "/slow")) {
 			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND,
 						   NULL) ||
@@ -275,6 +310,19 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_BODY:
+		if (tcase == AHL_LATE_SPA) {
+			if (!pss->spa) {
+				pss->spa = lws_spa_create(wsi, form_names,
+						LWS_ARRAY_SIZE(form_names),
+						256, NULL, NULL);
+				if (!pss->spa)
+					return -1;
+			}
+
+			return lws_spa_process(pss->spa, (const char *)in,
+					       (int)len);
+		}
+
 		now = lws_now_usecs();
 		if (now - pss->last_us > srv.max_gap_us)
 			srv.max_gap_us = now - pss->last_us;
@@ -286,6 +334,24 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		srv.completions++;
+
+		if (tcase == AHL_LATE_SPA) {
+			const char *v = NULL;
+
+			if (pss->spa && !lws_spa_finalize(pss->spa))
+				v = lws_spa_get_string(pss->spa, 0);
+			pss->resp_len = (size_t)lws_snprintf(
+					&pss->resp[LWS_PRE],
+					sizeof(pss->resp) - LWS_PRE,
+					AHL_FORM_FIELD "=%s", v ? v : "(none)");
+			if (pss->spa) {
+				lws_spa_destroy(pss->spa);
+				pss->spa = NULL;
+			}
+
+			return answer(wsi, pss);
+		}
+
 		lwsl_user("%s: body complete, %u bytes, longest wait %dms\n",
 			  __func__, (unsigned int)pss->rx_len,
 			  (int)(srv.max_gap_us / LWS_US_PER_MS));
@@ -305,6 +371,13 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->resp_len = 0;
 
 		return lws_http_transaction_completed(wsi) ? -1 : 0;
+
+	case LWS_CALLBACK_CLOSED_HTTP:
+		if (pss && pss->spa) {
+			lws_spa_destroy(pss->spa);
+			pss->spa = NULL;
+		}
+		break;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
 		srv.file_done++;
@@ -677,6 +750,26 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
 
+		if (tcase == AHL_LATE_SPA) {
+			/* the form, all of it as soon as it can go */
+			n = lws_snprintf(cl, sizeof(cl), "%u",
+					 (unsigned int)strlen(AHL_FORM));
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_TYPE,
+					(const unsigned char *)AHL_FORM_CT,
+					(int)strlen(AHL_FORM_CT), p, end) ||
+			    lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					(const unsigned char *)cl, n, p, end))
+				return -1;
+
+			cli.wsi = wsi;
+			cli.ready = 1;
+			lws_client_http_body_pending(wsi, 1);
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
 		if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_CONTENT_TYPE,
 				(const unsigned char *)AHL_CT,
@@ -707,6 +800,17 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
 		if (!cli.ready || cli.piece == AHL_PIECES)
 			return 0;
+
+		if (tcase == AHL_LATE_SPA) {
+			n = (int)strlen(AHL_FORM);
+			memcpy(buf + LWS_PRE, AHL_FORM, (size_t)n);
+			lws_client_http_body_pending(wsi, 0);
+			cli.ready = 0;
+			cli.piece = AHL_PIECES;
+
+			return lws_write(wsi, buf + LWS_PRE, (size_t)n,
+					 LWS_WRITE_HTTP_FINAL) != n ? -1 : 0;
+		}
 
 		for (n = 0; n < AHL_PIECE_LEN; n++)
 			buf[LWS_PRE + n] = pat((size_t)((cli.piece *
@@ -767,9 +871,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		cli.wsi = NULL;
 		lws_sul_cancel(&cli.sul);
 
-		lws_snprintf(want, sizeof(want), "len=%u sum=%08x",
-			     (unsigned int)(AHL_PIECES * AHL_PIECE_LEN),
-			     sum_pat(AHL_PIECES * AHL_PIECE_LEN));
+		if (tcase == AHL_LATE_SPA)
+			lws_strncpy(want, AHL_FORM_FIELD "=" AHL_FORM_VALUE,
+				    sizeof(want));
+		else
+			lws_snprintf(want, sizeof(want), "len=%u sum=%08x",
+				     (unsigned int)(AHL_PIECES * AHL_PIECE_LEN),
+				     sum_pat(AHL_PIECES * AHL_PIECE_LEN));
 
 		if (!cli.completed || cli.status != 200)
 			finish(0, "the POST was not answered 200");
@@ -777,6 +885,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_err("%s: answer '%s', want '%s'\n", __func__,
 				 cli.body, want);
 			finish(0, "the server did not get the body sent");
+		} else if (tcase == AHL_LATE_SPA) {
+			if (srv.completions != 1)
+				finish(0, "the form was not completed once");
+			else
+				finish(1, "the late spa parsed the multipart "
+					  "form");
 		} else if (srv.slow_http != 1 || srv.ct_ok != 1 ||
 			   srv.completions != 1)
 			finish(0, "the request headers were not readable at "
@@ -911,8 +1025,8 @@ int main(int argc, const char **argv)
 	if (c < 0 || (c < AHL_SLOW_CL && r != AHL_H1) ||
 	    (r == AHL_H3 && (!cert || !key))) {
 		lwsl_err("--case file-stall | pipeline-depth (h1 only) | "
-			 "slow-cl | slow-stream, --role h1 | h2 | h3 (h3 "
-			 "needs --cert and --key)\n");
+			 "slow-cl | slow-stream | late-spa, --role h1 | h2 | "
+			 "h3 (h3 needs --cert and --key)\n");
 		return 1;
 	}
 	tcase = (enum ahl_case)c;
@@ -1012,7 +1126,7 @@ int main(int argc, const char **argv)
 		i.host		= server_addr;
 		i.origin	= server_addr;
 		i.port		= port;
-		i.path		= "/slow";
+		i.path		= tcase == AHL_LATE_SPA ? "/spa" : "/slow";
 		i.method	= "POST";
 		i.protocol	= "ahl-cli";
 		if (role == AHL_H2)
