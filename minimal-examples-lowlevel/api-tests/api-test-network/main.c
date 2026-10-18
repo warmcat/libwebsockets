@@ -195,6 +195,59 @@ int main(void)
 	}
 
 	/*
+	 * G-198: a cidr's prefix is bounded by the family it is written in,
+	 * in every build.  An IPv6-only build stores a v4 net v4-mapped, and
+	 * used to accept a v4 prefix up to 128 there, where 33..96 match every
+	 * IPv4 address.
+	 */
+	{
+		static const struct {
+			const char	*cidr;
+			int		len; /* -1 = refused */
+		} cidrs[] = {
+			{ "10.0.0.0/8",		8 },
+			{ "10.0.0.0/32",	32 },
+			{ "10.0.0.1",		32 },
+			{ "10.0.0.0/33",	-1 },
+			{ "10.0.0.0/64",	-1 },
+			{ "10.0.0.0/96",	-1 },
+			{ "10.0.0.0/104",	-1 },
+			{ "010.0.0.0/8",	-1 },
+			{ "10.0.0.0/",		-1 },
+#if defined(LWS_WITH_IPV6)
+			{ "2001:db8::/32",	32 },
+			{ "2001:db8::/128",	128 },
+			{ "2001:db8::1",	128 },
+			{ "::ffff:10.0.0.0/104", 104 },
+			{ "2001:db8::/129",	-1 },
+#endif
+		};
+		lws_sockaddr46 net, a;
+		size_t n;
+		int len;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(cidrs); n++) {
+			len = -1;
+			if (lws_parse_cidr(cidrs[n].cidr, &net, &len))
+				len = -1;
+			if (len != cidrs[n].len) {
+				lwsl_err("cidr '%s': len %d, expected %d\n",
+					 cidrs[n].cidr, len, cidrs[n].len);
+				e++;
+			}
+		}
+
+		if (lws_parse_cidr("10.0.0.0/8", &net, &len) ||
+		    lws_sa46_parse_numeric_address("10.1.2.3", &a) ||
+		    lws_sa46_on_net(&a, &net, len) ||
+		    lws_sa46_parse_numeric_address("11.0.0.1", &a) ||
+		    !lws_sa46_on_net(&a, &net, len)) {
+			lwsl_err("10.0.0.0/8 cidr membership wrong\n");
+			e++;
+		}
+	}
+
+	/*
 	 * lws_sa46_on_net() has to give the same answers however the v4
 	 * addresses are represented: natively as AF_INET in dual builds, or
 	 * normalized to v4-mapped AF_INET6 in an IPv6-only build (the prefix

@@ -820,7 +820,7 @@ int
 lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 {
 	char buf[64], *p;
-	int n;
+	int n, max;
 
 	lws_strncpy(buf, cidr, sizeof(buf));
 	p = (char *)strchr(buf, '/');
@@ -852,21 +852,25 @@ lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 	if (n)
 		return n;
 
+	/*
+	 * The prefix length is in the space of the family the net was written
+	 * in, not the one it is stored as: an IPv6-only build stores a v4 net
+	 * as v4-mapped AF_INET6, but its prefix is still a v4 one, and
+	 * lws_sa46_on_net() only reads it as v4 when it is <= 32.  Refuse
+	 * anything wider than the written family in every build, so a v4 net
+	 * with a prefix of, eg, 48 can't mean "all of IPv4" in one build when
+	 * it's an error in another.
+	 */
+
+	max = strchr(buf, ':') ? 128 : 32;
+
 	if (*len == -1) {
-		*len = sa46->sa4.sin_family == AF_INET6 ? 128 : 32;
+		*len = max;
 
 		return 0;
 	}
 
-	/*
-	 * The prefix length is in the address family space of the net address
-	 * (an IPv6-only build stores v4 nets as v4-mapped AF_INET6, with the
-	 * prefix length still in v4 space, so accept up to 128 for AF_INET6);
-	 * refuse anything wider, so consumers like lws_sa46_on_net() can never
-	 * be handed a prefix wider than the addresses they compare.
-	 */
-
-	if (*len > (sa46->sa4.sin_family == AF_INET6 ? 128 : 32))
+	if (*len > max)
 		return -1;
 
 	return 0;
