@@ -2513,31 +2513,36 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						/*
 						 * Select vhost based on authority.
 						 *
+						 * Only among the vhosts sharing the listener
+						 * he arrived on, as h1 does with Host: a
+						 * vhost on another port or interface, or a
+						 * unix socket one, is not reachable from
+						 * here, whatever he names.  A vhost with no
+						 * listen port of its own (eg, a quic listener
+						 * adopted onto it) shares it with nobody.
+						 *
 						 * h3 is always over tls, so the name he gave
-						 * here already had to be accepted at SNI time
-						 * by lws_select_vhost_sni()... apply the same
+						 * was also judged at SNI time by
+						 * lws_select_vhost_sni()... apply the same
 						 * rules again rather than let an unrecognized
 						 * authority move him onto whichever vhost is
 						 * first on the port.  If nothing matches he
 						 * stays on the vhost that accepted him.
 						 */
 						if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY)) {
-							int port = wsi->a.vhost->listen_port;
-							struct lws_vhost *vhost = lws_select_vhost_sni(
-								wsi->a.context, port,
-								lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY));
+							struct lws_vhost *lv = wsi->a.vhost,
+									 *vhost = NULL;
 
-							if (!vhost && port != 443) {
-								vhost = lws_select_vhost_sni(wsi->a.context, 443,
+							if (lv->listen_port > 0)
+								vhost = lws_select_vhost_sni(
+									wsi->a.context, lv->listen_port,
 									lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY));
-							}
-							if (!vhost) {
-								vhost = lws_select_vhost_sni(wsi->a.context, 0,
-									lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY));
-							}
+							if (vhost && vhost != lv &&
+							    !lws_vhost_compare_listen(vhost, lv))
+								vhost = NULL;
 
-							lwsl_debug("H3_TRACE: lws_select_vhost_sni returned %p (%s). Original port: %d\n", 
-								vhost, vhost ? vhost->name : "none", port);
+							lwsl_debug("H3_TRACE: :authority selects %s, arrived on %s\n",
+								vhost ? vhost->name : "none", lv->name);
 							if (vhost && lws_vhost_rebind_mtls_refused(wsi, vhost)) {
 								/*
 								 * He named a vhost that requires a client
