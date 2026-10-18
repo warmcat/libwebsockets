@@ -1070,15 +1070,21 @@ static char srch_seen[SRCH_MAX_NAMES][64];
 static const char *
 sc_qname(const struct sc_query *q, char *buf, size_t len)
 {
-	size_t o = 12, used = 0;
+	size_t o = 12, used = 0, qo = sc_qtype_ofs(q->pkt, q->len);
 
-	if (!sc_qtype_ofs(q->pkt, q->len))
+	if (!qo)
 		return NULL;
 
-	while (q->pkt[o]) {
+	/*
+	 * The qname ends at its zero length byte, just before qo.  Check each
+	 * label length against that end here too, rather than trusting the
+	 * walk sc_qtype_ofs() already did, since it came off the wire
+	 */
+
+	while (o < qo - 1) {
 		size_t l = q->pkt[o++];
 
-		if (used + l + 2 > len)
+		if (l > qo - 1 - o || used + l + 2 > len)
 			return NULL;
 		if (used)
 			buf[used++] = '.';
