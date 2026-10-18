@@ -2951,6 +2951,21 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
+			/*
+			 * Renewals still pending are on our list, and each has
+			 * a sul on the context that would later unlink it from
+			 * the list owner inside vhd, which is freed after this.
+			 * Their browser legs closing normally end them first,
+			 * but nothing must be left to chance here: release
+			 * each, which cancels its sul and closes its side
+			 * channel.
+			 */
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&vhd->pending_refresh_list)) {
+				pending_login_release(lws_container_of(d,
+					struct pending_login_refresh, list));
+			} lws_end_foreach_dll_safe(d, d1);
+
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->wl)) {
 				struct login_whitelist *w = lws_container_of(d, struct login_whitelist, list);
 				lws_dll2_remove(d);
