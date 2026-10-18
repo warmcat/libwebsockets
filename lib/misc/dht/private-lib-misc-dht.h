@@ -440,6 +440,13 @@ typedef struct lws_dht_ts {
 	size_t				rx_tid_len;
 	/* what a chunk with another tid must carry to start a new session */
 	uint8_t				rx_ch[LWS_DHT_SEQ_CH_LEN];
+	/*
+	 * nonzero while the sequencer is calling back into the consumer, ie,
+	 * delivering data or reporting the session's end: whatever the
+	 * callback sends, it must not recycle this sequencer from under the
+	 * call (G-181), see dht_ts_create()
+	 */
+	uint8_t				in_cb;
 	uint8_t				tx_ch_set:1;
 } lws_dht_ts_t;
 

@@ -161,6 +161,9 @@ struct vhd_dht_dnssec {
 	lws_sorted_usec_list_t		sul_notify_rotate;
 	lws_dll2_owner_t		notify_strikes;
 	lws_dll2_owner_t		notify_ratelimiters;
+	/* verified NOTIFYs waiting to be acted on outside the DHT rx path */
+	lws_dll2_owner_t		notify_deferred;
+	lws_sorted_usec_list_t		sul_notify_deferred;
 	lws_dht_hash_t			*myid;
 	int				sweep_prefix_idx;
 };
@@ -192,6 +195,22 @@ struct notify_strike {
 struct notify_strike_tracking {
 	struct vhd_dht_dnssec *vhd;
 	lws_sockaddr46 sa;
+};
+
+/*
+ * A NOTIFY that passed the NOTC cookie exchange, queued to be handled from
+ * the event loop instead of the DHT's receive path (G-181).  Few are useful
+ * at once: each may fan a fetch out to every good node.
+ */
+
+#define DHT_DNSSEC_NOTIFY_DEFERRED_MAX	8
+
+struct notify_deferred {
+	lws_dll2_t		list;
+	lws_sockaddr46		sa;
+	size_t			salen;
+	uint8_t			hash[32];
+	uint8_t			serial[8];
 };
 
 static const uint32_t bo_notify_ms[] = {
@@ -3569,6 +3588,50 @@ verb_notc_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const str
 }
 
 static int
+dht_dnssec_notify_deferred_free(struct lws_dll2 *d, void *user)
+{
+	lws_dll2_remove(d);
+	free(lws_container_of(d, struct notify_deferred, list));
+
+	return 0;
+}
+
+/*
+ * Act on the cookie-verified NOTIFYs.  This used to happen inside the NOTIFY
+ * chunk's delivery, where the fetch's sends to up to 65 nodes made the DHT
+ * recycle sequencers, including the one still delivering the chunk (G-181).
+ * Here nothing is below us on the stack.
+ */
+
+static void
+dht_dnssec_sul_notify_deferred_cb(lws_sorted_usec_list_t *sul)
+{
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul,
+				struct vhd_dht_dnssec, sul_notify_deferred);
+	struct notify_deferred *nd;
+	lws_dht_hash_t *idhash;
+	lws_dll2_t *d;
+
+	while ((d = lws_dll2_get_head(&vhd->notify_deferred))) {
+		nd = lws_container_of(d, struct notify_deferred, list);
+		lws_dll2_remove(d);
+
+		idhash = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256,
+					     sizeof(nd->hash), nd->hash);
+		if (idhash) {
+			vhd->notify_verified = 1;
+			cb_dht(vhd, LWS_DHT_EVENT_NOTIFY, idhash, nd->serial,
+			       sizeof(nd->serial),
+			       (const struct sockaddr *)&nd->sa, nd->salen);
+			vhd->notify_verified = 0;
+			lws_dht_hash_destroy(&idhash);
+		}
+
+		free(nd);
+	}
+}
+
+static int
 verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const struct lws_dht_msg *msg,
 		    const struct sockaddr *from, size_t fromlen)
 {
@@ -3655,13 +3718,32 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 							(int)sizeof(bin_hash))
 			return 0;
 
-		lws_dht_hash_t *idhash = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, bin_hash);
-		if (idhash) {
-			vhd->notify_verified = 1;
-			cb_dht(vhd, LWS_DHT_EVENT_NOTIFY, idhash, p, 8, from, fromlen);
-			vhd->notify_verified = 0;
-			lws_dht_hash_destroy(&idhash);
+		/*
+		 * Acting on it may send to every good node: not from inside
+		 * the DHT's delivery of this chunk (G-181), but from the
+		 * event loop.  A notifier that floods us with valid cookies
+		 * only refills a short queue.
+		 */
+		if (fromlen > sizeof(sa46) ||
+		    lws_dll2_count(&vhd->notify_deferred) >=
+					DHT_DNSSEC_NOTIFY_DEFERRED_MAX) {
+			lwsl_notice("%s: NOTIFY queue full, dropped\n", __func__);
+			return 0;
 		}
+
+		struct notify_deferred *nd = malloc(sizeof(*nd));
+		if (!nd)
+			return 0;
+
+		memset(nd, 0, sizeof(*nd));
+		nd->sa = sa46;
+		nd->salen = fromlen;
+		memcpy(nd->hash, bin_hash, sizeof(nd->hash));
+		memcpy(nd->serial, p, sizeof(nd->serial));
+		lws_dll2_add_tail(&nd->list, &vhd->notify_deferred);
+
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_notify_deferred,
+				 dht_dnssec_sul_notify_deferred_cb, 1);
 	}
 	return 0;
 }
@@ -4623,6 +4705,9 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_resubscribe);
 		lws_sul_cancel(&vhd->sul_dump);
 		lws_sul_cancel(&vhd->sul_notify_rotate);
+		lws_sul_cancel(&vhd->sul_notify_deferred);
+		lws_dll2_foreach_safe(&vhd->notify_deferred, NULL,
+				      dht_dnssec_notify_deferred_free);
 		/* a bootstrap seed resolution in flight would call back into freed vhd */
 		lws_async_dns_cancel_by_opaque(vhd->context, vhd);
 

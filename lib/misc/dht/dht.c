@@ -487,22 +487,18 @@ dht_tx_challenge(lws_dht_ts_t *dts, const uint8_t *tid, size_t tid_len)
 			dts->salen);
 }
 
-int
-dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
-	       const uint8_t *buf, size_t len)
-{
-	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
-	struct lws_dht_msg msg;
+/*
+ * A chunk the sequencer for the peer at `from` received.  Whatever the
+ * handlers send from here may create or touch up to LWS_DHT_MAX_TS other
+ * sequencers: dht_on_rx_data() keeps the receiving one from being recycled
+ * meanwhile, and `from` is a copy, not the sequencer's own address.
+ */
 
-	char buf_ip[64] = "unknown";
-	if (dts->sa.ss_family == AF_INET) {
-		struct sockaddr_in *s = (struct sockaddr_in *)&dts->sa;
-		inet_ntop(AF_INET, &s->sin_addr, buf_ip, sizeof(buf_ip));
-	} else if (dts->sa.ss_family == AF_INET6) {
-		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&dts->sa;
-		inet_ntop(AF_INET6, &s->sin6_addr, buf_ip, sizeof(buf_ip));
-	}
-	// lwsl_notice("%s: [DEBUG] Received raw UDP packet from %s on sequencer: offset=%llu len=%zu\n", __func__, buf_ip, (unsigned long long)offset, len);
+static int
+dht_deliver(struct lws_dht_ctx *ctx, const struct sockaddr *from,
+	    size_t fromlen, const uint8_t *buf, size_t len)
+{
+	struct lws_dht_msg msg;
 
 	int parse_ret = lws_dht_msg_parse((const char *)buf, len, &msg);
 	if (!parse_ret) {
@@ -518,16 +514,15 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 			 * source never acknowledges the answer, the sequencer
 			 * does not repeat it: see dht_ts_create().)
 			 */
-			if (!lws_dht_admit_request(dts->ctx, NULL,
-					(const struct sockaddr *)&dts->sa)) {
-				dts->ctx->stats_current.rx_drops++;
+			if (!lws_dht_admit_request(ctx, NULL, from)) {
+				ctx->stats_current.rx_drops++;
 				return 0;
 			}
 
 			n = lws_snprintf(json, sizeof(json), "{\"protocols\":[");
 
 			/* Gather protocols (dumb uniqueness since they are added consecutively by register_verbs) */
-			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->verb_owner)) {
 				struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
 
 				lwsl_notice("CAP_REQ Generator Iteration: verb=%s, protocol=%s\n",
@@ -542,13 +537,13 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 			} lws_end_foreach_dll(d);
 
 			/* Also return the peer's perceived public IP/port */
-			if (dts->sa.ss_family == AF_INET) {
-				struct sockaddr_in *sin = (struct sockaddr_in *)&dts->sa;
+			if (from->sa_family == AF_INET) {
+				const struct sockaddr_in *sin = (const struct sockaddr_in *)from;
 				char ip[64];
 				inet_ntop(AF_INET, &sin->sin_addr, ip, sizeof(ip));
 				lws_snprintf(json + n, sizeof(json) - (size_t)n, "],\"peer_ip\":\"%s\",\"peer_port\":%d}", ip, ntohs(sin->sin_port));
 			} else {
-				struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&dts->sa;
+				const struct sockaddr_in6 *sin6 = (const struct sockaddr_in6 *)from;
 				char ip[64];
 				inet_ntop(AF_INET6, &sin6->sin6_addr, ip, sizeof(ip));
 				lws_snprintf(json + n, sizeof(json) - (size_t)n, "],\"peer_ip\":\"%s\",\"peer_port\":%d}", ip, ntohs(sin6->sin6_port));
@@ -557,30 +552,30 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 			n = lws_dht_msg_gen(ack, sizeof(ack), "CAP_RSP", msg.hash, 0, (unsigned long long)strlen(json));
 			if (n > 0 && (size_t)n + strlen(json) < sizeof(ack)) {
 				memcpy(ack + n, json, strlen(json));
-				lws_dht_send_data(dts->ctx, (const struct sockaddr *)&dts->sa, ack, (size_t)n + strlen(json));
+				lws_dht_send_data(ctx, from, ack, (size_t)n + strlen(json));
 			}
 			return 0;
 		}
 
-		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->verb_owner)) {
 			struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
 
 			if (!strcmp(vl->v.name, msg.verb)) {
 				struct lws_dht_verb_dispatch_args args;
-				struct lws_context *cx = dts->ctx->vhost->context;
+				struct lws_context *cx = ctx->vhost->context;
 				int n;
-				lws_fakewsi_def_plwsa(&cx->pt[dts->ctx->wsi_v4 ?
-						dts->ctx->wsi_v4->tsi : 0]);
+				lws_fakewsi_def_plwsa(&cx->pt[ctx->wsi_v4 ?
+						ctx->wsi_v4->tsi : 0]);
 
 				if (!strcmp(msg.verb, "PUT"))
-					dts->ctx->stats_current.rx_put++;
+					ctx->stats_current.rx_put++;
 				else if (!strcmp(msg.verb, "GET"))
-					dts->ctx->stats_current.rx_get++;
+					ctx->stats_current.rx_get++;
 
-				args.ctx = dts->ctx;
+				args.ctx = ctx;
 				args.msg = &msg;
-				args.from = (const struct sockaddr *)&dts->sa;
-				args.fromlen = dts->salen;
+				args.from = from;
+				args.fromlen = fromlen;
 
 				/*
 				 * There is no connection for this callback: it
@@ -591,7 +586,7 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 				 * the end of a stack object
 				 */
 				lws_fakewsi_prep_plwsa_ctx(cx);
-				plwsa->vhost = dts->ctx->vhost;
+				plwsa->vhost = ctx->vhost;
 				plwsa->protocol = vl->v.protocol;
 
 				args.out_precedence = LWS_DHT_VERB_RESULT_PROCEED;
@@ -599,7 +594,7 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 				// lwsl_notice("DISPATCHING %s to protocol %s\n", msg.verb, vl->v.protocol->name);
 
 				n = vl->v.protocol->callback((struct lws *)plwsa, LWS_CALLBACK_DHT_VERB_DISPATCH,
-							lws_protocol_vh_priv_get(dts->ctx->vhost, vl->v.protocol),
+							lws_protocol_vh_priv_get(ctx->vhost, vl->v.protocol),
 							&args, 0);
 
 				if (n < 0 || args.out_precedence == LWS_DHT_VERB_RESULT_DROP_OLDER || args.out_precedence == LWS_DHT_VERB_RESULT_ERROR)
@@ -629,11 +624,37 @@ pass:
 		} lws_end_foreach_dll(d);
 	}
 
-	if (dts->ctx->cb)
-		dts->ctx->cb(dts->ctx->closure, LWS_DHT_EVENT_DATA,
-			     NULL, buf, len, (struct sockaddr *)&dts->sa, dts->salen);
+	if (ctx->cb)
+		ctx->cb(ctx->closure, LWS_DHT_EVENT_DATA, NULL, buf, len,
+			from, fromlen);
 
 	return 0;
+}
+
+int
+dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
+	       const uint8_t *buf, size_t len)
+{
+	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+	struct sockaddr_storage from;
+	size_t fromlen = dts->salen;
+	int n;
+
+	(void)offset;
+
+	/*
+	 * The sequencer is done with this chunk, but we are not done with the
+	 * sequencer: in_cb keeps dht_ts_create() from recycling it while the
+	 * handlers send (G-181)
+	 */
+	memcpy(&from, &dts->sa, sizeof(from));
+
+	dts->in_cb++;
+	n = dht_deliver(dts->ctx, (const struct sockaddr *)&from, fromlen,
+			buf, len);
+	dts->in_cb--;
+
+	return n;
 }
 
 static void
@@ -655,13 +676,22 @@ void
 dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 {
 	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+	struct sockaddr_storage peer;
 
-	if (dts->ctx->cb)
+	/*
+	 * The callback may send, and so recycle sequencers, but not this one,
+	 * which we still have to destroy if the session failed (G-181)
+	 */
+	if (dts->ctx->cb) {
+		memcpy(&peer, &dts->sa, sizeof(peer));
+		dts->in_cb++;
 		dts->ctx->cb(dts->ctx->closure,
 			     state == 0 ? LWS_DHT_EVENT_WRITE_COMPLETED :
 					  LWS_DHT_EVENT_WRITE_FAILED,
 			     NULL, (void *)(intptr_t)status, 0,
-			     (struct sockaddr *)&dts->sa, dts->salen);
+			     (struct sockaddr *)&peer, dts->salen);
+		dts->in_cb--;
+	}
 
 	if (state != 0)
 		lws_dht_ts_destroy(dts);
@@ -708,15 +738,34 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	    (dest->sa_family == AF_INET6 && salen < sizeof(struct sockaddr_in6)))
 		return NULL;
 
+	/*
+	 * A sequencer calling back into the consumer is never recycled, even
+	 * when it is the stalest: the callback may be what is creating this
+	 * one, and the sequencer still has its caller on the stack (G-181).
+	 * If every one is busy that way, there is no room.
+	 */
 	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
-		lws_dll2_t *lru = lws_dll2_get_head(&ctx->ts_owner);
+		lws_dht_ts_t *victim = NULL;
 
-		if (!lru)
-			break;
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ctx->ts_owner)) {
+			lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t, list);
+
+			if (!c->in_cb) {
+				victim = c;
+				break;
+			}
+		} lws_end_foreach_dll(d);
+
+		if (!victim) {
+			lwsl_dht_warn("%s: sequencer table full and busy\n",
+				      __func__);
+			return NULL;
+		}
 
 		lwsl_dht_warn("%s: sequencer table full, evicting LRU\n",
 			      __func__);
-		lws_dht_ts_destroy(lws_container_of(lru, lws_dht_ts_t, list));
+		lws_dht_ts_destroy(victim);
 	}
 
 	dts = lws_zalloc(sizeof(*dts), "dht ts");

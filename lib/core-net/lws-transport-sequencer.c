@@ -451,22 +451,14 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	    lws_dll2_count(&ts->rx_scoreboard) >= LWS_TS_MAX_RX_RANGES)
 		return 0;
 
-	/* Deliver immediately - Sparse Transport */
-	ts->info.ops->on_rx_data(ts, offset, buf, len);
-
-	/* Update next_rx_offset for cumulative ACK if it matches exactly */
-	if (offset == ts->next_rx_offset) {
-		ts->next_rx_offset += len;
-		ts->stats.rx_offset = ts->next_rx_offset;
-	}
-
-	ts->stats.rx_packets++;
-
-	/* Check if we can now retire next_rx_offset from OOO buffered scoreboard...
-	 * Wait, if we deliver EVERY packet immediately, we don't need a scoreboard
-	 * or DSH buffering for RX at all!
-	 *
-	 * We still need to ACK it though.
+	/*
+	 * Everything the sequencer does with this chunk is done before it is
+	 * delivered: on_rx_data is the last thing that sees ts, because the
+	 * consumer may destroy the sequencer from inside it, eg, by sending to
+	 * enough new peers that its transport recycles this one (G-181).
+	 * Delivery is immediate and unconditional, so acking first acks
+	 * nothing that is not delivered.  If we cannot record the range, we
+	 * neither deliver nor ack it, and the peer retransmits it.
 	 */
 
 	r = lws_zalloc(sizeof(*r), __func__);
@@ -477,12 +469,13 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	r->len = (uint32_t)len;
 	lws_dll2_add_sorted(&r->list, &ts->rx_scoreboard, range_compare);
 
-	/* Always ACK anything within window */
+	ts->stats.rx_packets++;
 	ts->stats.rx_bytes += len;
 
 	/*
-	 * Since we delivered immediately, we just need to keep next_rx_offset
-	 * up to date for cumulative ACKs by checking the scoreboard for contiguous blocks.
+	 * Since we deliver immediately, we just need to keep next_rx_offset
+	 * up to date for cumulative ACKs by checking the scoreboard for
+	 * contiguous blocks, including the one just added.
 	 */
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ts->rx_scoreboard)) {
 		r = lws_container_of(d, struct lws_transport_sequencer_range, list);
@@ -512,9 +505,11 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 
 	} lws_end_foreach_dll_safe(d, d1);
 
+	/* Always ACK anything within window */
 	ts->info.ops->tx_ack(ts, ack_offset, ack_len);
 
-	return 0;
+	/* Deliver immediately - Sparse Transport.  ts may not exist after. */
+	return ts->info.ops->on_rx_data(ts, offset, buf, len);
 }
 
 void

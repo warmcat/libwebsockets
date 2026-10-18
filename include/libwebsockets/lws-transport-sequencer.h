@@ -50,26 +50,41 @@ typedef struct lws_transport_sequencer_sack_block {
 	uint32_t	len;
 } lws_transport_sequencer_sack_block_t;
 
+/*
+ * Lifetime: tx_chunk and tx_ack are called in the middle of the sequencer's
+ * work and must not destroy it.  on_rx_data and on_state_change are always
+ * the last thing the sequencer does before returning to its caller, and it
+ * does not touch ts after them, so they (or what they call) may destroy it.
+ * A caller of lws_transport_sequencer_rx(), _acknowledge(), or
+ * _acknowledge_sack() must not use ts after it returns, unless it knows its
+ * callbacks did not destroy it.
+ */
+
 typedef struct lws_transport_sequencer_ops {
 	const char *name;
 
 	int (*tx_chunk)(struct lws_transport_sequencer *ts, uint64_t offset,
 			const uint8_t *buf, size_t len);
 	/**< Protocol-specific way to send a data chunk. DHT would wrap this
-	 * in its Bencode/CMD frame. */
+	 * in its Bencode/CMD frame.  Must not destroy the sequencer. */
 
 	int (*tx_ack)(struct lws_transport_sequencer *ts, uint64_t offset,
 		      size_t len);
-	/**< Protocol-specific way to send an ACK. */
+	/**< Protocol-specific way to send an ACK.  Must not destroy the
+	 * sequencer. */
 
 	int (*on_rx_data)(struct lws_transport_sequencer *ts, uint64_t offset,
 			  const uint8_t *buf, size_t len);
-	/**< Callback when the sequencer has confirmed in-order data reception. */
+	/**< Delivers received data.  The chunk has already been recorded and
+	 * acked, and this is the last thing lws_transport_sequencer_rx()
+	 * does: it may destroy the sequencer.  Its return is what
+	 * lws_transport_sequencer_rx() returns. */
 
 	void (*on_state_change)(struct lws_transport_sequencer *ts, int state, int status);
 	/**< Notify that the sequencer session state changed.
 	 * state 0 = SUCCESS, 1 = FAILED.
-	 * status is protocol-specific error code (e.g., DHT_STATUS_OUT_OF_STORAGE). */
+	 * status is protocol-specific error code (e.g., DHT_STATUS_OUT_OF_STORAGE).
+	 * This is the last thing the sequencer does: it may destroy it. */
 
 } lws_transport_sequencer_ops_t;
 
@@ -216,6 +231,14 @@ lws_transport_sequencer_get_stats(struct lws_transport_sequencer *ts);
  *
  * The transport must only pass chunks it has bound to the peer's session: see
  * lws_transport_sequencer_rx_reset().
+ *
+ * A new chunk is recorded and acked, then delivered with ops->on_rx_data(),
+ * which may destroy the sequencer: ts must not be used after this returns,
+ * unless the caller knows on_rx_data did not destroy it.
+ *
+ * Returns what on_rx_data returned for a delivered chunk, 0 for a chunk that
+ * was not delivered (a duplicate, or outside the window), or 1 if the chunk
+ * could not be recorded (it is neither delivered nor acked).
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,

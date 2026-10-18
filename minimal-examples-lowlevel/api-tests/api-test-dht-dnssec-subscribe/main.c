@@ -23,6 +23,11 @@
  *  - a newer serial from S once the minimum interval has passed is fetched
  *    at once, which also covers the deferred one
  *  - P's routing table, with S in it, can be logged as a broadcast does
+ *  - S then sends P the NOTIFY verb over the reliable transport, is
+ *    challenged with a NOTC cookie, and returns it with a newer serial: P
+ *    acts on that from its event loop, not inside the DHT's delivery of
+ *    the chunk, where the fetch's sends could recycle the very sequencer
+ *    delivering it (G-181), and fetches the zone
  */
 
 #include <libwebsockets.h>
@@ -41,14 +46,18 @@
 #define SUBT_SERIAL1	2026100501ull
 #define SUBT_SERIAL2	2026100502ull
 #define SUBT_SERIAL3	2026100503ull
+#define SUBT_SERIAL4	2026100504ull
 
 static struct lws_context *context;
 static struct lws_vhost *vh_p, *vh_s;
 static struct lws_dht_ctx *dht_s;
-static struct sockaddr_in sa_s;
+static struct sockaddr_in sa_s, sa_p;
 static lws_sorted_usec_list_t sul_step;
 static lws_usec_t t_start, t_step, t_first_notify;
 static int step, fails;
+/* the NOTC challenge P answered S's NOTIFY verb with: serial + cookie */
+static uint8_t notc[16];
+static int notc_seen;
 static lws_dht_hash_t *zone_hash, *other_hash;
 
 static int
@@ -83,6 +92,41 @@ subt_notify(const lws_dht_hash_t *h, uint64_t serial)
 	memcpy(sha, pl, 8);
 
 	return lws_dht_notify_subscribers(dht_s, h, sha, pl, sizeof(pl));
+}
+
+/* S sends P the NOTIFY verb: 8 bytes of serial, then the cookie if any */
+
+static int
+subt_notify_verb(const uint8_t *pl, size_t pl_len)
+{
+	char hex[65], buf[160];
+	int n;
+
+	lws_hex_from_byte_array(zone_hash->id, (size_t)zone_hash->len, hex,
+				sizeof(hex));
+	n = lws_dht_msg_gen(buf, sizeof(buf), "NOTIFY", hex, 0, pl_len);
+	if (n <= 0 || (size_t)n + pl_len > sizeof(buf))
+		return 1;
+	memcpy(buf + n, pl, pl_len);
+
+	return lws_dht_send_data(dht_s, (const struct sockaddr *)&sa_p,
+				 buf, (size_t)n + pl_len);
+}
+
+/* S registers no verbs, so P's NOTC comes to it whole */
+
+static void
+subt_s_cb(void *closure, int event, const lws_dht_hash_t *info_hash,
+	  const void *data, size_t data_len, const struct sockaddr *from,
+	  size_t fromlen)
+{
+	if (event != LWS_DHT_EVENT_DATA || data_len < 5 + sizeof(notc) ||
+	    memcmp(data, "NOTC ", 5))
+		return;
+
+	memcpy(notc, (const uint8_t *)data + data_len - sizeof(notc),
+	       sizeof(notc));
+	notc_seen = 1;
 }
 
 static void
@@ -182,11 +226,62 @@ subt_step_cb(lws_sorted_usec_list_t *sul)
 			subt_expect(lws_dht_foreach_node(vhd->dht, AF_INET,
 					dht_dnssec_log_node_cb, NULL) >= 1,
 				    "P's routing table is logged");
-			goto done;
+			step++;
+			t_step = now;
+			break;
 		}
 		if (now - t_step > 3 * LWS_US_PER_SEC) {
 			subt_expect(0, "a newer serial from the holder is "
 				       "fetched at once");
+			goto done;
+		}
+		break;
+
+	case 6:
+		/* a newer serial jumps the rate limit after the minimum */
+		if (now - t_step < (DHT_DNSSEC_NOTIFY_FETCH_MIN_SECS *
+				    LWS_US_PER_SEC) + 500 * LWS_US_PER_MS)
+			break;
+		{
+			uint8_t pl[8];
+			int n;
+
+			for (n = 0; n < 8; n++)
+				pl[n] = (uint8_t)(SUBT_SERIAL4 >> (56 - (8 * n)));
+			if (subt_expect(!subt_notify_verb(pl, sizeof(pl)),
+					"S sends P the NOTIFY verb"))
+				goto done;
+		}
+		step++;
+		t_step = now;
+		break;
+
+	case 7:
+		if (notc_seen) {
+			subt_expect(1, "P challenges the NOTIFY verb with NOTC");
+			if (subt_expect(!subt_notify_verb(notc, sizeof(notc)),
+					"S answers the NOTC challenge"))
+				goto done;
+			step++;
+			t_step = now;
+			break;
+		}
+		if (now - t_step > 3 * LWS_US_PER_SEC) {
+			subt_expect(0, "P challenges the NOTIFY verb with NOTC");
+			goto done;
+		}
+		break;
+
+	case 8:
+		if (sub && sub->last_notify_soa == SUBT_SERIAL4) {
+			subt_expect(lws_dll2_is_empty(&vhd->notify_deferred),
+				    "a verified NOTIFY verb is acted on from "
+				    "the event loop and fetches the zone");
+			goto done;
+		}
+		if (now - t_step > 3 * LWS_US_PER_SEC) {
+			subt_expect(0, "a verified NOTIFY verb fetches the "
+				       "zone");
 			goto done;
 		}
 		break;
@@ -247,6 +342,8 @@ main(int argc, const char **argv)
 	sa_s.sin_family = AF_INET;
 	sa_s.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	sa_s.sin_port = htons((uint16_t)port_s);
+	sa_p = sa_s;
+	sa_p.sin_port = htons((uint16_t)atoi(port_p));
 
 	/* P: the plugin, on the default vhost, bootstrapping from S */
 
@@ -295,6 +392,7 @@ main(int argc, const char **argv)
 
 	memset(&di, 0, sizeof(di));
 	di.vhost		= vh_s;
+	di.cb			= subt_s_cb;
 	di.name			= "holder";
 	di.port			= port_s;
 	di.allow_private_ads	= 1; /* both nodes are on loopback */
@@ -334,7 +432,7 @@ bail:
 	lws_dir(SUBT_STORE, NULL, lws_dir_rm_rf_cb);
 	rmdir(SUBT_STORE);
 
-	lwsl_user("Completed: %s\n", fails || step != 5 ? "FAIL" : "PASS");
+	lwsl_user("Completed: %s\n", fails || step != 8 ? "FAIL" : "PASS");
 
-	return fails || step != 5;
+	return fails || step != 8;
 }
