@@ -102,6 +102,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
+ - **h2/h3 trailers never reach the request headers:**
+   `lws_h2_hpack_no_store()` gates every hpack store once the stream has
+   left `LRS_HEADERS`, and h3 drops trailer fields after validating them.
  - **JWT cookies are interchangeable across purposes.**
    `lws_jwt_get_http_cookie_validate_jwt()` checks signature, iss, aud,
    nbf, exp and sub only; the client chooses the cookie name.  Two cookies
