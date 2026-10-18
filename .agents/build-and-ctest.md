@@ -139,6 +139,10 @@
  - **The dht-dnssec plugin creates its DHT after the context is up**, not
    in `lws_create_context()`: a test building the plugin in waits in a
    sul until `vhd->dht` is set (see api-test-dht-dnssec-put).
+ - **To make a DHT node create many sequencers** in a test, send to
+   127.0.0.2 and up on one never-listened port (api-test-dht-seq-reentry).
+ - **Red-test in a detached worktree** at the previous commit with the new
+   test copied in: an ASan red without disturbing the shared tree.
  - **DHT BEP42 cannot be tested on loopback:** private addresses are
    always `bep42_ok` (`maybe_new_node()`, `lws_dht_ads_is_private()`).
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path

@@ -360,14 +360,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    after the session or nonce check, or stale sequencers stay alive.
  - `stats.ack_offset` belongs to the send half, `stats.rx_offset` to the
    receive half (G-140).
- - **Sequencer callbacks may destroy the sequencer** (G-181): any
-   `lws_dht_send_data()` from inside `on_rx_data` (a verb handler) can
-   evict and free the receiving sequencer through the 64-entry LRU cap in
-   `dht_ts_create()`; `args.from` points into `dts->sa` too.  Nothing may
-   touch `ts` after a callback unless the callback cannot free it.
- - **The unproven-peer rule stops retransmits only, not first sends**, and
-   DATA chunks are outside the request limiter: reply bytes per spoofed
-   chunk need their own cap (G-182).
+ - **Sequencer callback contract** (G-181): `on_rx_data` and
+   `on_state_change` are called last and may destroy the sequencer;
+   `tx_chunk` and `tx_ack` must not.  In the DHT, `lws_dht_ts_t.in_cb`
+   keeps a sequencer that is calling back from being recycled by the LRU
+   cap in `dht_ts_create()`; new code calling back into a consumer from a
+   sequencer must set it, and pass a copy of the peer address, never
+   `&dts->sa`.
+ - **Unproven peers** get their first chunk plus at most
+   `LWS_TS_UNPROVEN_TX_ALLOWANCE` (1536) bytes beyond what they sent us
+   until they ack; the rest is held and flushed on proof (G-182).
  - **`find_node()` matches by id only:** any `find_node(id)` then
    `mark_as_pinged()` must also check the node's endpoint is the one the
    request went to (G-179).
