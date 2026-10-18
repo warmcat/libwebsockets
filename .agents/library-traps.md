@@ -236,6 +236,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Client connect
 
+ - **`i.pwsi` is not cleared when the client wsi closes**: it is written
+   at connect and NULLed only on a connect failure.  Track closure with
+   `LWS_CALLBACK_WSI_DESTROY`, not by watching `*pwsi`.
  - `lws_client_stash_to_headers()` keeps `wsi->stash` until close in
    every build (it used to free it early with SOCKS5).  Read the address
    with
@@ -351,10 +354,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Plugins and stubs
 
- - **lws-login renewal objects:** a `pending_login_refresh` is freed only
-   by the browser leg's WRITEABLE or the 5-minute sul.  A path that parks
-   a browser wsi on a side channel must free the parked object when that
-   wsi closes and at PROTOCOL_DESTROY (G-166, G-167).
+ - **lws-login renewal objects** (`pending_login_refresh`) are bounded per
+   vhd and per host, released when their browser leg closes, and at
+   PROTOCOL_DESTROY (G-166, G-167).  A new path that parks a browser wsi
+   on a side channel must do the same.  Renewals start only for an
+   `auth_refresh_session` of exactly 64 hex characters, so test fixtures
+   expecting one must use that shape.
  - **lws-login uses the page URL itself as redirect_uri** and posts the
    token to `<page path>/.lws-login-sso`; changing redirect_uri matching
    in the auth server changes lws-login's contract too (G-112).

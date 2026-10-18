@@ -165,6 +165,8 @@
  - **Tolerate unrequested WRITEABLE.**  Especially on h3 streams, a
    WRITEABLE can arrive without being asked for.  Track "done" yourself;
    never infer completion from a WRITEABLE.
+ - **`api-test-lws-login-bff` needs `LWS_WITH_PLUGINS_BUILTIN=1`**; it is
+   silently not built in PLUGINS=1 trees.
  - **api-test-lwsws-oauth uses fixed ports 18011 / 18012**, so two trees
    cannot run it at once, and `lwsws-oauth-limits` has a 60s ctest
    TIMEOUT: a case waiting for a fresh TOTP step (30s) must run outside
