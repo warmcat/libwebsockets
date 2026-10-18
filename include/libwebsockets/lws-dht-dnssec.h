@@ -56,8 +56,36 @@ struct lws_dht_dnssec_importnsd_args {
 	const char *key2_prefix; /* optional if only importing 1 key */
 };
 
+/*
+ * The status a zone fetch completes with
+ */
+enum lws_dht_dnssec_fetch_status {
+	LWS_DHT_DNSSEC_FETCH_ABORTED	= -2, /* refused or dropped unfinished,
+					       * eg, vhost destroyed: no result
+					       * and nothing more will come */
+	LWS_DHT_DNSSEC_FETCH_INVALID	= -1, /* what came failed validation */
+	LWS_DHT_DNSSEC_FETCH_TIMEOUT	= 0,  /* nobody answered in time */
+	LWS_DHT_DNSSEC_FETCH_OK		= 1,  /* the zone is in DHT storage */
+};
+
+/*
+ * status is one of enum lws_dht_dnssec_fetch_status
+ */
 typedef void (*lws_dht_dnssec_fetch_cb_t)(void *opaque, const char *domain, int status);
 
+/*
+ * Ownership of opaque: a fetch_zone() call that is not a cancel calls cb
+ * exactly once with opaque, whatever happens to the fetch, so cb is the one
+ * place that needs to release it.  That may happen before fetch_zone()
+ * returns: when the zone is already in storage (FETCH_OK), and when the
+ * fetch is refused (FETCH_ABORTED, and fetch_zone() returns nonzero).
+ *
+ * A request with the same domain, cb and opaque as one still pending is
+ * merged into it, and cb is called once for both.
+ *
+ * A cancel (is_cancel = 1) drops the pending requests for that domain and
+ * opaque without calling their cb: opaque is the caller's again.
+ */
 struct lws_dht_dnssec_fetch_zone_args {
 	struct lws_vhost *vhost;
 	const char *domain;

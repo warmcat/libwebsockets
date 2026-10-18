@@ -1135,6 +1135,13 @@ auth_dns_fetch_cb(void *opaque, const char *domain, int status)
 {
 	struct per_vhost_data__auth_dns *vhd = (struct per_vhost_data__auth_dns *)opaque;
 
+	/*
+	 * Refused, or dropped as the dht-dnssec vhost goes away (when ours may
+	 * be going too): the waiting queries keep their own timeouts
+	 */
+	if (status == LWS_DHT_DNSSEC_FETCH_ABORTED)
+		return;
+
 	if (status == 1) {
 		/* Search latest file via dir callback?
 		 * Actually, auth_dns_local_zone_cb is already called and creates the file.

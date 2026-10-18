@@ -368,12 +368,12 @@ static void
 notify_fetch_completion_cb(void *opaque, const char *domain, int status)
 {
 	struct notify_strike_tracking *trk = (struct notify_strike_tracking *)opaque;
-	if (status == 0) {
+	if (status == LWS_DHT_DNSSEC_FETCH_TIMEOUT) {
 		add_peer_strike(trk->vhd, &trk->sa);
 		lwsl_notice("%s: Added strike to peer due to fetch network timeout for %s\n", __func__, domain);
-	} else if (status < 0) {
+	} else if (status == LWS_DHT_DNSSEC_FETCH_INVALID) {
 		lwsl_notice("%s: Fetch for %s failed DNSSEC validation, skipping strike penalty for peer\n", __func__, domain);
-	} else if (status == 1) {
+	} else if (status == LWS_DHT_DNSSEC_FETCH_OK) {
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(
 			&trk->vhd->notify_strikes)) {
 			struct notify_strike *n = lws_container_of(d, struct notify_strike, list);
@@ -844,7 +844,8 @@ dht_dnssec_fragment_fail_fetches(struct dht_fragment *frag)
 
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
 			if (req->cb)
-				req->cb(req->opaque, req->domain, -1);
+				req->cb(req->opaque, req->domain,
+					LWS_DHT_DNSSEC_FETCH_INVALID);
 			lws_sul_cancel(&req->sul_timeout);
 			lws_dll2_remove(d);
 			free(req);
@@ -1762,7 +1763,8 @@ ds_test_done:
 						}
 
 						if (req->cb)
-							req->cb(req->opaque, req->domain, 1);
+							req->cb(req->opaque, req->domain,
+								LWS_DHT_DNSSEC_FETCH_OK);
 
 						lws_sul_cancel(&req->sul_timeout);
 						lws_dll2_remove(d);
@@ -3409,6 +3411,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 
 			struct lws_dht_dnssec_fetch_zone_args args;
 			memset(&args, 0, sizeof(args));
+			args.vhost = vhd->vhost;
 			args.domain = target_domain;
 			args.cache_dir = NULL;
 			args.force_network = 1;
@@ -4725,12 +4728,10 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 				lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 			lws_sul_cancel(&req->sul_timeout);
 			lws_dll2_remove(d);
-			/*
-			 * the strike tracker of a NOTIFY's fetch is ours, and
-			 * only its completion would have freed it
-			 */
-			if (req->cb == notify_fetch_completion_cb)
-				free(req->opaque);
+			/* only its completion knows how to release opaque */
+			if (req->cb)
+				req->cb(req->opaque, req->domain,
+					LWS_DHT_DNSSEC_FETCH_ABORTED);
 			free(req);
 		} lws_end_foreach_dll_safe(d, d1);
 
@@ -6020,7 +6021,9 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 
 	if (req->retries >= 3) {
 		lwsl_err("%s: Fetch req for %s fully timed out after 3 retries\n", __func__, req->domain);
-		if (req->cb) req->cb(req->opaque, req->domain, 0);
+		if (req->cb)
+			req->cb(req->opaque, req->domain,
+				LWS_DHT_DNSSEC_FETCH_TIMEOUT);
 
 		/* We must ALSO clean up any stale fragment state associated with this hash so future fetches start clean */
 		struct dht_fragment *frag = dht_dnssec_find_fragment(vhd, req->target_hash);
@@ -6055,24 +6058,16 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 	lws_sul_schedule(vhd->context, 0, &req->sul_timeout, dht_dnssec_sul_fetch_req_timeout, 15 * LWS_US_PER_SEC);
 }
 
+/*
+ * Returns nonzero if the fetch was refused, having neither completed it nor
+ * queued a request for it: do_fetch_zone() then completes it as aborted
+ */
+
 static int
-do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args)
+dht_dnssec_fetch_zone_start(struct lws_context *context,
+			    struct vhd_dht_dnssec *v,
+			    struct lws_dht_dnssec_fetch_zone_args *args)
 {
-	struct vhd_dht_dnssec *v = get_dnssec_vhd(context, args->vhost);
-	if (!v || !args->domain) return 1;
-
-	if (args->is_cancel) {
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&v->fetch_reqs)) {
-			struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-			if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
-				lws_sul_cancel(&req->sul_timeout);
-				lws_dll2_remove(d);
-				free(req);
-			}
-		} lws_end_foreach_dll_safe(d, d1);
-		return 0;
-	}
-
 	char clean_domain[256];
 	lws_strncpy(clean_domain, args->domain, sizeof(clean_domain));
 	int clen = (int)strlen(clean_domain);
@@ -6132,15 +6127,18 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 			v->auth_cb(v->auth_cb_opaque, args->domain, fda.found_path);
 
 		if (args->cb)
-			args->cb(args->opaque, args->domain, 1);
+			args->cb(args->opaque, args->domain,
+				 LWS_DHT_DNSSEC_FETCH_OK);
 
 		return 0;
 	}
 
+	/* the pending request's one completion covers this call too */
 	int already = 0;
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&v->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-		if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
+		if (!strcmp(req->domain, args->domain) && req->cb == args->cb &&
+		    req->opaque == args->opaque) {
 			already = 1;
 			break;
 		}
@@ -6214,6 +6212,44 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 	}
 
 	return 0;
+}
+
+/*
+ * The ownership rule for args->opaque (see lws-dht-dnssec.h): unless this is
+ * a cancel, args->cb is called exactly once, now or later, on every path,
+ * since it is the only thing that knows how to release opaque.
+ */
+
+static int
+do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args)
+{
+	struct vhd_dht_dnssec *v = get_dnssec_vhd(context, args->vhost);
+
+	if (args->is_cancel) {
+		if (!v || !args->domain)
+			return 1;
+
+		/* the canceller takes opaque back: the cbs are not called */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&v->fetch_reqs)) {
+			struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+			if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
+				lws_sul_cancel(&req->sul_timeout);
+				lws_dll2_remove(d);
+				free(req);
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+
+		return 0;
+	}
+
+	if (v && args->domain && !dht_dnssec_fetch_zone_start(context, v, args))
+		return 0;
+
+	if (args->cb)
+		args->cb(args->opaque, args->domain ? args->domain : "",
+			 LWS_DHT_DNSSEC_FETCH_ABORTED);
+
+	return 1;
 }
 
 static int
