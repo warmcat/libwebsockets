@@ -2724,6 +2724,15 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 {
 	lws_quic_stream_cleanup(wsi);
 
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	/*
+	 * An answer compressed on the fly leaves its compressor behind, as on
+	 * h1 and h2, whose destroy_role frees it: nothing more is written on
+	 * the stream now
+	 */
+	lws_http_compression_destroy(wsi);
+#endif
+
 	if (wsi->h3.qpack_dec_state) {
 		lws_free(wsi->h3.qpack_dec_state);
 		wsi->h3.qpack_dec_state = NULL;

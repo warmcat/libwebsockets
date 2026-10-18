@@ -262,17 +262,46 @@ lws_ranges_reset(struct lws_range_parsing *rp)
 }
 
 /*
- * returns count of valid ranges
+ * Keep our own copy of the request's Range: header, replacing whatever an
+ * earlier request on the connection left.  It is taken when the request is
+ * dispatched, since a file may be served for it long after the request
+ * headers have gone, and it lasts as long as the response takes: the parser
+ * is walked again for each range as its budget is spent.  The ah bounds how
+ * long it can be.  Returns nonzero only if there was no memory for it.
  */
 int
-lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
-		unsigned long long extent)
+lws_ranges_snapshot(struct lws *wsi, struct lws_range_parsing *rp)
 {
 	int len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_RANGE);
 
-	/* the previous request on this connection may have had ranges */
 	lws_ranges_destroy(rp);
+	rp->len = 0;
 
+	if (len <= 0)
+		return 0; /* no Range: at all */
+
+	rp->buf = lws_malloc((size_t)len + 1, "ranges");
+	if (!rp->buf)
+		return 1;
+
+	len = lws_hdr_copy(wsi, rp->buf, len + 1, WSI_TOKEN_HTTP_RANGE);
+	if (len <= 0) {
+		lws_ranges_destroy(rp);
+
+		return 1;
+	}
+	rp->len = len;
+
+	return 0;
+}
+
+/*
+ * returns count of valid ranges in the request's Range: header, as
+ * lws_ranges_snapshot() kept it
+ */
+int
+lws_ranges_init(struct lws_range_parsing *rp, unsigned long long extent)
+{
 	rp->agg = 0;
 	rp->send_ctr = 0;
 	rp->inside = 0;
@@ -283,27 +312,8 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 
 	rp->extent = extent;
 
-	if (!len)
-		return 0; /* no Range: at all, serve the whole thing */
-
-	/*
-	 * Keep our own copy of the header for as long as the response takes:
-	 * the parser is walked again for each range as its budget is spent,
-	 * by which time the ah has long been handed to somebody else.  The
-	 * ah bounds what len can be.
-	 */
-
-	rp->buf = lws_malloc((size_t)len + 1, "ranges");
 	if (!rp->buf)
-		return -1;
-	rp->len = len;
-
-	if (lws_hdr_copy(wsi, rp->buf, len + 1,
-			 WSI_TOKEN_HTTP_RANGE) <= 0) {
-		lws_ranges_destroy(rp);
-
-		return -1;
-	}
+		return 0; /* no Range: at all, serve the whole thing */
 
 	rp->state = LWSRS_BYTES_EQ;
 

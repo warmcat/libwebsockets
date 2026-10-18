@@ -2943,10 +2943,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		}
 
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-		lws_http_compression_validate(h2n->swsi);
-#endif
-
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
 		/*
 		 * duplicate :path into the individual method uri header

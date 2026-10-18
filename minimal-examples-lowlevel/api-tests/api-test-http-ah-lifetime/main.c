@@ -50,6 +50,15 @@
  *     the body is multipart, and its boundary, from the Content-Type the
  *     request came with, and so find the form's field.
  *
+ *  --case late-range, --case late-coded (h1, h2, h3): an lws client GETs a
+ *     path whose server gives the request headers back at
+ *     LWS_CALLBACK_HTTP and only then serves a file for it with
+ *     lws_serve_http_file().  late-range asks for "Range: bytes=2-11": the
+ *     answer must be a 206 of exactly those bytes.  late-coded says
+ *     "Accept-Encoding: deflate": the text file must come deflated.  What
+ *     the request asked for must still decide the answer when the headers
+ *     have gone, on every role.
+ *
  * lws is both ends here, in one process: a crash or memory error in the
  * server fails the test as well as a wrong answer does.
  */
@@ -74,6 +83,11 @@
 #define AHL_PIPELINE_AFTER_MS	300
 /* file-stall: the file, much larger than the socket buffers */
 #define AHL_FILE_LEN		(8 * 1024 * 1024)
+/* late-range, late-coded: the file is much smaller */
+#define AHL_LATE_FILE_LEN	4096
+/* late-range: the range asked for */
+#define AHL_RANGE_FROM		2
+#define AHL_RANGE_TO		11
 #define AHL_SNDBUF		16384
 
 /* pipeline-depth: the most requests lws answers back to back */
@@ -114,10 +128,13 @@ enum ahl_case {
 	AHL_SLOW_CL,
 	AHL_SLOW_STREAM,
 	AHL_LATE_SPA,
+	AHL_LATE_RANGE,
+	AHL_LATE_CODED,
 };
 
 static const char * const case_names[] = {
-	"file-stall", "pipeline-depth", "slow-cl", "slow-stream", "late-spa"
+	"file-stall", "pipeline-depth", "slow-cl", "slow-stream", "late-spa",
+	"late-range", "late-coded"
 };
 
 enum ahl_role {
@@ -139,6 +156,12 @@ static int port = 7681, result = 1, finished;
 #if !defined(WIN32)
 static char docroot[64], fpath[96];
 #endif
+
+static int
+late_file_case(void)
+{
+	return tcase == AHL_LATE_RANGE || tcase == AHL_LATE_CODED;
+}
 
 /* what the server saw */
 
@@ -283,6 +306,28 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 			return 0;
 		}
+
+#if defined(LWS_WITH_FILE_OPS) && !defined(WIN32)
+		if (path && !strcmp(path, "/late") && late_file_case()) {
+			int n;
+
+			/*
+			 * Done with the request headers already, as if they
+			 * had been released at dispatch: what the request
+			 * asked of the file must not need them
+			 */
+			if (lws_http_headers_detach(wsi))
+				return -1;
+
+			n = lws_serve_http_file(wsi, fpath, "text/plain",
+						NULL, 0);
+			if (n < 0 || (n > 0 &&
+				      lws_http_transaction_completed(wsi)))
+				return -1;
+
+			return 0;
+		}
+#endif
 
 		if (!path || strcmp(path, "/slow")) {
 			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND,
@@ -724,6 +769,8 @@ static struct {
 	struct lws		*wsi;
 	char			body[64];
 	size_t			body_len;
+	size_t			rx_total;	/* late-*: all the body */
+	char			ce[32];		/* late-*: content-encoding */
 	int			piece;
 	int			status;
 	char			ready;	/* the next piece may go */
@@ -743,12 +790,25 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
 	uint8_t buf[LWS_PRE + AHL_PIECE_LEN];
-	char rb[LWS_PRE + 256], *px = rb + LWS_PRE, cl[16];
+	char rb[LWS_PRE + 256], *px = rb + LWS_PRE, cl[24];
 	int lenx = (int)sizeof(rb) - LWS_PRE, n, wp;
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+		if (tcase == AHL_LATE_RANGE) {
+			n = lws_snprintf(cl, sizeof(cl), "bytes=%d-%d",
+					 AHL_RANGE_FROM, AHL_RANGE_TO);
+			return lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_RANGE,
+					(const unsigned char *)cl, n, p, end);
+		}
+		if (tcase == AHL_LATE_CODED)
+			return lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_ACCEPT_ENCODING,
+					(const unsigned char *)"deflate", 7,
+					p, end);
 
 		if (tcase == AHL_LATE_SPA) {
 			/* the form, all of it as soon as it can go */
@@ -839,6 +899,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		cli.status = (int)lws_http_client_http_response(wsi);
+		if (lws_hdr_copy(wsi, cli.ce, sizeof(cli.ce),
+				 WSI_TOKEN_HTTP_CONTENT_ENCODING) < 0)
+			cli.ce[0] = '\0';
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -847,6 +910,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		cli.rx_total += len;
 		if (len > sizeof(cli.body) - 1 - cli.body_len)
 			len = sizeof(cli.body) - 1 - cli.body_len;
 		memcpy(cli.body + cli.body_len, in, len);
@@ -870,6 +934,41 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 		cli.wsi = NULL;
 		lws_sul_cancel(&cli.sul);
+
+		if (tcase == AHL_LATE_RANGE || tcase == AHL_LATE_CODED) {
+			int want_status = tcase == AHL_LATE_RANGE ? 206 : 200;
+			size_t k;
+
+			if (!cli.completed || cli.status != want_status) {
+				lwsl_err("%s: status %d, want %d\n", __func__,
+					 cli.status, want_status);
+				finish(0, "the file was not answered as the "
+					  "request asked");
+				break;
+			}
+			if (tcase == AHL_LATE_CODED) {
+				if (strcmp(cli.ce, "deflate") || !cli.rx_total)
+					finish(0, "the file did not come "
+						  "deflated");
+				else
+					finish(1, "the late file came "
+						  "deflated");
+				break;
+			}
+			if (cli.rx_total != AHL_RANGE_TO - AHL_RANGE_FROM + 1) {
+				finish(0, "the range is the wrong length");
+				break;
+			}
+			for (k = 0; k < cli.rx_total; k++)
+				if ((uint8_t)cli.body[k] !=
+						pat(AHL_RANGE_FROM + k))
+					break;
+			if (k != cli.rx_total)
+				finish(0, "the range has the wrong bytes");
+			else
+				finish(1, "the late file honoured the range");
+			break;
+		}
 
 		if (tcase == AHL_LATE_SPA)
 			lws_strncpy(want, AHL_FORM_FIELD "=" AHL_FORM_VALUE,
@@ -933,7 +1032,7 @@ static struct lws_http_mount mount_file = {
 
 /* the file to serve, made at runtime under the cwd, owner-only */
 static int
-make_file(void)
+make_file(size_t len)
 {
 	uint8_t b[4096];
 	size_t n, o;
@@ -949,7 +1048,7 @@ make_file(void)
 	if (fd < 0)
 		return 1;
 
-	for (o = 0; o < AHL_FILE_LEN; o += sizeof(b)) {
+	for (o = 0; o < len; o += sizeof(b)) {
 		for (n = 0; n < sizeof(b); n++)
 			b[n] = pat(o + n);
 		if (write(fd, b, sizeof(b)) != (ssize_t)sizeof(b)) {
@@ -1025,8 +1124,9 @@ int main(int argc, const char **argv)
 	if (c < 0 || (c < AHL_SLOW_CL && r != AHL_H1) ||
 	    (r == AHL_H3 && (!cert || !key))) {
 		lwsl_err("--case file-stall | pipeline-depth (h1 only) | "
-			 "slow-cl | slow-stream | late-spa, --role h1 | h2 | "
-			 "h3 (h3 needs --cert and --key)\n");
+			 "slow-cl | slow-stream | late-spa | late-range | "
+			 "late-coded, --role h1 | h2 | h3 (h3 needs --cert "
+			 "and --key)\n");
 		return 1;
 	}
 	tcase = (enum ahl_case)c;
@@ -1045,13 +1145,28 @@ int main(int argc, const char **argv)
 	}
 #endif
 
-#if defined(WIN32)
-	if (tcase == AHL_FILE_STALL) {
-		lwsl_err("file-stall is not supported on this platform\n");
+#if !defined(LWS_WITH_RANGES)
+	if (tcase == AHL_LATE_RANGE) {
+		lwsl_err("this build has no ranges\n");
+		return 1;
+	}
+#endif
+#if !defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (tcase == AHL_LATE_CODED) {
+		lwsl_err("this build has no stream compression\n");
+		return 1;
+	}
+#endif
+
+#if defined(WIN32) || !defined(LWS_WITH_FILE_OPS)
+	if (tcase == AHL_FILE_STALL || late_file_case()) {
+		lwsl_err("%s is not supported on this platform\n",
+			 case_names[tcase]);
 		return 1;
 	}
 #else
-	if (tcase == AHL_FILE_STALL && make_file()) {
+	if (((tcase == AHL_FILE_STALL && make_file(AHL_FILE_LEN)) ||
+	     (late_file_case() && make_file(AHL_LATE_FILE_LEN)))) {
 		lwsl_err("could not make the file to serve\n");
 		return 1;
 	}
@@ -1126,8 +1241,9 @@ int main(int argc, const char **argv)
 		i.host		= server_addr;
 		i.origin	= server_addr;
 		i.port		= port;
-		i.path		= tcase == AHL_LATE_SPA ? "/spa" : "/slow";
-		i.method	= "POST";
+		i.path		= tcase == AHL_LATE_SPA ? "/spa" :
+				  (late_file_case() ? "/late" : "/slow");
+		i.method	= late_file_case() ? "GET" : "POST";
 		i.protocol	= "ahl-cli";
 		if (role == AHL_H2)
 			i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE;

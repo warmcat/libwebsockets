@@ -275,18 +275,8 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 static lws_fop_flags_t
 lws_vfs_prepare_flags(struct lws *wsi)
 {
-	lws_fop_flags_t f = 0;
-
-	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))
-		return f;
-
-	if ((char *)strstr(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING),
-		   "gzip")) {
-		lwsl_info("client indicates GZIP is acceptable\n");
-		f |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
-	}
-
-	return f;
+	/* what the request said, as it was dispatched */
+	return wsi->http.accept_gzip ? LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP : 0;
 }
 
 /*
@@ -614,12 +604,14 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		    (unsigned long long)lws_vfs_get_length(wsi->http.fop_fd),
 		    (unsigned long)lws_vfs_get_mod_time(wsi->http.fop_fd));
 
+#if defined(LWS_WITH_RANGES)
 	/* disable ranges if IF_RANGE token invalid */
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_RANGE))
 		if (strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_RANGE)))
 			/* differs - defeat Range: */
-			wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+			lws_ranges_destroy(&wsi->http.range);
+#endif
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH)) {
 		/*
@@ -738,7 +730,9 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		 * file: byte ranges of the file mean nothing in it,
 		 * and the range framing doesn't survive the transform
 		 */
-		wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+#if defined(LWS_WITH_RANGES)
+		lws_ranges_destroy(&wsi->http.range);
+#endif
 
 		wsi->protocol_interpret_idx = (char)(
 			lws_vhost_name_to_protocol(wsi->a.vhost,
@@ -2563,6 +2557,26 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 	if (lws_http_snapshot_content_type(wsi))
 		return lws_http_gate_bail(wsi, g);
 
+	/*
+	 * ... and what a file served for it later needs to know: whether a
+	 * pre-gzipped copy is acceptable, the codings the answer may be
+	 * compressed with on the fly (on every role), and the Range: it asked
+	 * for
+	 */
+	{
+		const char *ae = lws_hdr_simple_ptr(wsi,
+					WSI_TOKEN_HTTP_ACCEPT_ENCODING);
+
+		wsi->http.accept_gzip = ae && strstr(ae, "gzip");
+	}
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	lws_http_compression_validate(wsi);
+#endif
+#if defined(LWS_WITH_RANGES)
+	if (lws_ranges_snapshot(wsi, &wsi->http.range))
+		return lws_http_gate_bail(wsi, g);
+#endif
+
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
 	lws_metrics_tag_wsi_add(wsi, "meth", method_names[g->meth]);
 
@@ -3840,10 +3854,6 @@ raw_transition:
 		wsi->http.fop_fd = NULL;
 #endif
 
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-		lws_http_compression_validate(wsi);
-#endif
-
 		lwsl_debug("%s: %s: ah %p\n", __func__, lws_wsi_tag(wsi),
 			   (void *)wsi->stream.ah);
 
@@ -4462,7 +4472,7 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 #endif
 
 #if defined(LWS_WITH_RANGES)
-	ranges = lws_ranges_init(wsi, rp, wsi->http.filelen);
+	ranges = lws_ranges_init(rp, wsi->http.filelen);
 
 	lwsl_debug("Range count %d\n", ranges);
 	/*

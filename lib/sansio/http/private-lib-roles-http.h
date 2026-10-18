@@ -130,8 +130,9 @@ struct lws_range_parsing {
 #define LWS_RANGES_CLOSE	"\x0d\x0a--%s--\x0d\x0a"
 
 int
-lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
-		unsigned long long extent);
+lws_ranges_snapshot(struct lws *wsi, struct lws_range_parsing *rp);
+int
+lws_ranges_init(struct lws_range_parsing *rp, unsigned long long extent);
 int
 lws_ranges_next(struct lws_range_parsing *rp);
 void
@@ -483,6 +484,10 @@ struct _lws_http_mode_related {
 	 * time by lws_http_action(), because the file-serve path decides
 	 * whether to emit a body long after the request headers were released
 	 * (C-460).  Re-decided for every request on the connection. */
+	unsigned int accept_gzip:1;
+	/**< the request's Accept-Encoding mentions gzip, so a file may be
+	 * served from a pre-gzipped copy.  Snapshotted with method_head, since
+	 * a file may be served long after the request headers have gone. */
 	unsigned int method_post:1;
 	/**< the request being served is a POST.  Snapshotted with method_head,
 	 * for lws_http_action()'s decisions after the request's callback has
