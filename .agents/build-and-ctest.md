@@ -157,8 +157,14 @@
    logic with several hosts through the dht-extvote module directly
    (api-test-dht-extvote).
  - **A DHT nodes list carries at most 9 IPv4 entries** in lws format
-   (`mp->nodes` is 256 bytes; longer lists are dropped): tests needing
-   more must send several replies.
+   (`mp->nodes` is 256 bytes; longer lists are dropped).  The pending
+   request table consumes the tid on the first reply, so tests needing
+   more need several queried endpoints, not several datagrams.
+ - **Getting a raw test socket into A's search:** have it ping A first (A
+   adds pinging nodes to its routing table).  A's pong carries ip / v
+   fields after the tid, so match the tid alone.  Per-introducer search
+   caps treat a private introducer as its exact endpoint, so loopback
+   peers count separately.
  - **The dht-dnssec plugin creates its DHT after the context is up**, not
    in `lws_create_context()`: a test building the plugin in waits in a
    sul until `vhd->dht` is set (see api-test-dht-dnssec-put).
