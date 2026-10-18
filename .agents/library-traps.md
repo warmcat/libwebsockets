@@ -109,6 +109,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    (`LWS_ADNS_MAX_PAYLOAD`).  That cap is currently the only bound on
    DNSSEC verification work per response (G-113): raising it needs a
    verification budget at the same time.
+ - A prior-knowledge h2 network connection holds a pool ah for its whole
+   life (attached at connect, detached at destroy), so every h2
+   connection costs one ah before any stream.  Contexts with SS ConMon
+   also run a captive-portal check whose client takes one: tests that
+   size the ah pool need `LWS_SERVER_OPTION_CPD_BYPASS`.
  - On h3, a header block started with `lws_add_http_header_status()`
    must be finalized (`lws_finalize_write_http_header()` /
    `lws_finalize_http_header()`) before it is written: the QPACK prefix is
@@ -189,11 +194,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Client connect
 
- - `lws_client_stash_to_headers()` frees `wsi->stash` early in
-   `LWS_WITH_SOCKS5` builds, and keeps it until close otherwise.  Sai's
-   distro / coverage configs imply SOCKS5; little else does.  Any
-   `if (wsi->stash ...)` guard is a feature that is off in distro
-   packages.  Read the address with
+ - `lws_client_stash_to_headers()` keeps `wsi->stash` until close in
+   every build (it used to free it early with SOCKS5).  Read the address
+   with
    `lws_wsi_client_stash_item(wsi, CIS_ADDRESS, _WSI_TOKEN_CLIENT_PEER_ADDRESS)`.
  - Happy-eyeballs racers for a QUIC-first attempt are TCP.  Client job
    drivers that advance on COMPLETED must ignore a previous job's late

@@ -87,6 +87,9 @@
    stream itself (see the h3 case in api-test-http-attack).
  - A TLS or h3 client given a literal IP as its host sends no SNI: a
    simple way to make SNI and Host / `:authority` differ in a test.
+ - **api-test-sansio covers hpack** but `ctest -R 'h2|h3|http'` does not
+   select it: run it whenever hpack.c changes.  Its transcripts can only
+   be re-recorded (`--record`) from a fault-injection build.
  - **Make deadlines produce FAIL, not TIMEOUT.**  A test's failure path
    should be explicit: a deadline that sets failure and cancels service,
    not reliance on the ctest TIMEOUT.  Note a context destroy at the
