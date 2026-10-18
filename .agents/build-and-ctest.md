@@ -45,6 +45,8 @@
    `lws_dsh_describe`).
  - **`LWS_WITH_DHT=1` with JOSE off fails `api-test-plugins`** until G-178
    is fixed: the dht_object_store plugin needs JOSE and fails to dlopen.
+ - **minimal-crypto-dnssec does not build with PLUGINS_BUILTIN** (PLUGINS
+   off) until G-205 is fixed; `make -k` builds the rest.
  - **The dht-dnssec plugin, lws-crypto-dnssec and their api-tests do not
    build with `LWS_IPV6=OFF`** until G-159 is fixed; only the DHT core
    can be checked in an IPv4-only tree.

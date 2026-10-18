@@ -370,6 +370,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    cap in `dht_ts_create()`; new code calling back into a consumer from a
    sequencer must set it, and pass a copy of the peer address, never
    `&dts->sa`.
+ - **`peer_proven` is about the send half only.**  A receive half binds to
+   the first tid it sees whatever `peer_proven` says, and "known good node
+   at that endpoint" proves the routing entry, not that a datagram came
+   from that node (G-204).
  - **Unproven peers** get their first chunk plus at most
    `LWS_TS_UNPROVEN_TX_ALLOWANCE` (1536) bytes beyond what they sent us
    until they ack; the rest is held and flushed on proof (G-182).
