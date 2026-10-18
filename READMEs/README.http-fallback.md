@@ -94,6 +94,60 @@ vhost on the port to use the specified role and protocol in the first place.
 |---|---|---|
 |LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG|`"apply-listen-accept": "1"`|Force vhost to use listen-accept-role / listen-accept-protocol|
 
+## http CONNECT to a raw protocol
+
+An h1 `CONNECT host:port HTTP/1.1` request can also take its connection out
+of http, to a raw protocol, but only where the vhost the request selected
+(by its `Host:` header) has a CONNECT mount for exactly that authority.  The
+mount's origin type is `LWSMPRO_CONNECT`, its mountpoint is the authority, as
+`host:port`, compared in full (the host part without regard to case), and its
+origin, or `.protocol`, names the protocol on the vhost that takes the
+connection.
+
+```
+	static const struct lws_http_mount mount_connect = {
+		.mountpoint		= "tunnel.example.com:443",
+		.mountpoint_len		= 22,
+		.origin			= "my-raw-protocol",
+		.origin_protocol	= LWSMPRO_CONNECT,
+	};
+```
+
+In lwsws / lejp-conf, that is a mount with a `connect://` origin
+
+```
+	       {
+	        "mountpoint": "tunnel.example.com:443",
+	        "origin": "connect://my-raw-protocol"
+	       }
+```
+
+A CONNECT anywhere else, on a vhost with no CONNECT mount or to an authority
+it has none for, is answered `405 Method Not Allowed` with an empty `Allow:`,
+and the connection is closed.  CONNECT mounts are never matched by other
+requests, and no other mount takes a CONNECT.
+
+The connection goes to the raw-skt role (or the vhost's `listen_accept_role`
+if it gives one), bound to the mount's protocol, which gets
+`LWS_CALLBACK_RAW_ADOPT`, then the request head itself, and whatever came with
+it, as its first `LWS_CALLBACK_RAW_RX`: answering the CONNECT, eg, with
+`HTTP/1.1 200 Connection established`, is up to the protocol, as is any
+authorization of the request.
+
+Unlike the fallback above, the connection stays subject to the vhost's
+validity policy (`.retry_and_idle_policy` in the vhost creation info, or the
+context default, 40s / 50s).  Raw has no ping of its own, so lws issues none:
+the connection is hung up once `secs_since_valid_hangup` passes without the
+protocol calling `lws_validity_confirmed(wsi)`.  A protocol calls it when it
+sees the connection is alive in both directions, eg, when the answer to its own
+inline PING arrives, and must arrange that to happen more often than the
+hangup time.  A policy with `secs_since_valid_hangup` 0 leaves the connection
+without a validity timeout.
+
+h2 and h3 have no such transition: a plain CONNECT there is refused, and an
+extended CONNECT (RFC 8441 ws, WebTransport) is governed by the vhost's
+`SETTINGS_ENABLE_CONNECT_PROTOCOL` and the ws / WebTransport protocol it names.
+
 ## Using http(s) fallback with raw-proxy
 
 If enabled for build with `cmake .. -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_PLUGINS=1`

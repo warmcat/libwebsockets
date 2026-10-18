@@ -801,6 +801,15 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 
 	hm = wsi->a.vhost->http.mount_list;
 	while (hm) {
+		/*
+		 * A CONNECT mount's mountpoint is an authority, not a path:
+		 * only lws_http_connect_protocol() looks at it
+		 */
+		if (hm->origin_protocol == LWSMPRO_CONNECT) {
+			hm = hm->mount_next;
+			continue;
+		}
+
 		int cond1 = uri_len >= hm->mountpoint_len;
 		int cond2 = cond1 && !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len);
 		int cond3 = cond2 && (hm->exact_match ?
@@ -3435,8 +3444,61 @@ bad_format:
 }
 
 #if defined(LWS_WITH_SERVER)
-int
-lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
+/*
+ * The protocol of the vhost's CONNECT mount for the authority an h1 CONNECT
+ * asks for, or NULL if there is none, or it names a protocol the vhost does
+ * not have.  The authority must match the mountpoint exactly, the host part
+ * in any case (RFC 9110 4.2.3): a CONNECT is only ever taken where something
+ * was registered to take it.
+ */
+static const struct lws_protocols *
+lws_http_connect_protocol(struct lws *wsi)
+{
+	const char *target = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECT);
+	int tlen = lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT);
+	const struct lws_http_mount *hm;
+	const struct lws_protocols *pr;
+	const char *name;
+
+	if (!target || tlen <= 0)
+		return NULL;
+
+	for (hm = wsi->a.vhost->http.mount_list; hm; hm = hm->mount_next) {
+		if (hm->origin_protocol != LWSMPRO_CONNECT ||
+		    hm->mountpoint_len != tlen ||
+		    strncasecmp(target, hm->mountpoint,
+				(size_t)hm->mountpoint_len))
+			continue;
+
+		name = hm->protocol ? hm->protocol : hm->origin;
+		pr = name ? lws_vhost_name_to_protocol(wsi->a.vhost, name) :
+			    NULL;
+		if (!pr)
+			lwsl_wsi_err(wsi, "CONNECT mount %s: no protocol '%s' "
+					  "on vhost %s", hm->mountpoint,
+					  name ? name : "(none)",
+					  wsi->a.vhost->name);
+
+		return pr;
+	}
+
+	return NULL;
+}
+
+/*
+ * The connection leaves http for a raw role, taking the whole read with it.
+ * connect_pr is NULL for the vhost's fallback (listen_accept_role and
+ * listen_accept_protocol), or the protocol of the CONNECT mount that took the
+ * request.  A CONNECT's connection stays under the vhost's validity policy
+ * (retry_and_idle_policy): with no ping of its own, the raw connection is
+ * hung up once secs_since_valid_hangup passes without the protocol saying it
+ * saw it alive, with lws_validity_confirmed().  The fallback is for
+ * connections lws cannot see into at all (eg, ssh through raw-proxy), which
+ * no protocol could ever confirm, so it is left without one.
+ */
+static int
+lws_http_to_raw(struct lws *wsi, const struct lws_protocols *connect_pr,
+		unsigned char *obuf, size_t olen)
 {
 	const struct lws_role_ops *role = &role_ops_raw_skt;
 	const struct lws_protocols *p1, *protocol =
@@ -3448,7 +3510,9 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 	    lws_role_by_name(wsi->a.vhost->listen_accept_role))
 		role = lws_role_by_name(wsi->a.vhost->listen_accept_role);
 
-	if (wsi->a.vhost->listen_accept_protocol) {
+	if (connect_pr)
+		protocol = connect_pr;
+	else if (wsi->a.vhost->listen_accept_protocol) {
 		p1 = lws_vhost_name_to_protocol(wsi->a.vhost,
 			    wsi->a.vhost->listen_accept_protocol);
 		if (p1)
@@ -3461,6 +3525,13 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 
 	lws_header_table_detach(wsi, 0);
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	/*
+	 * Before the protocol hears of it, so it can confirm validity from
+	 * its first callback
+	 */
+	if (connect_pr)
+		_lws_validity_confirmed_role(wsi);
 
 	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
 	if (wsi->role_ops->adoption_cb[1])
@@ -3497,10 +3568,17 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 }
 
 int
+lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
+{
+	return lws_http_to_raw(wsi, NULL, obuf, olen);
+}
+
+int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	const struct lws_protocols *connect_pr = NULL;
 #if defined(LWS_WITH_HTTP2)
 	struct allocated_headers *ah;
 #endif
@@ -3553,7 +3631,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 			 */
 raw_transition:
 
-			if (lws_http_to_fallback(wsi, obuf, olen)) {
+			if (lws_http_to_raw(wsi, connect_pr, obuf, olen)) {
 				lwsl_info("%s: fallback -> close\n", __func__);
 				goto bail_nuke_ah;
 			}
@@ -3656,13 +3734,26 @@ raw_transition:
 #endif
 
 		/*
-		 * A CONNECT goes to the fallback role with the whole read,
-		 * headers and all, so it is decided before anything of the
-		 * read is parked
+		 * A CONNECT is only taken where the vhost has a CONNECT mount
+		 * for the authority it asks for.  It goes raw to the mount's
+		 * protocol with the whole read, headers and all, so it is
+		 * decided before anything of the read is parked.  Anywhere
+		 * else nothing is allowed for it: 405, with an empty Allow
+		 * (RFC 9110 10.2.1), and the connection closed, since the
+		 * peer may already be sending what it wanted to tunnel.
 		 */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT)) {
-			lwsl_info("Changing to RAW mode\n");
-			goto raw_transition;
+			connect_pr = lws_http_connect_protocol(wsi);
+			if (connect_pr) {
+				lwsl_info("Changing to RAW mode\n");
+				goto raw_transition;
+			}
+
+			lwsl_wsi_info(wsi, "CONNECT: nothing mounted for it");
+			_lws_return_http_status(wsi,
+					HTTP_STATUS_METHOD_NOT_ALLOWED, NULL,
+					WSI_TOKEN_HTTP_ALLOW, "");
+			goto bail_nuke_ah;
 		}
 
 		/*

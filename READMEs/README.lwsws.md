@@ -508,6 +508,17 @@ payload generation inside a plugin.
 
 See the related notes in README.coding.md
 
+`connect://` is how a vhost accepts an h1 `CONNECT`: the mountpoint is the
+authority asked for, as `host:port`, and the connection becomes raw, bound to
+the named protocol.  A CONNECT nothing is mounted for is refused with a 405.
+```
+	       {
+	        "mountpoint": "tunnel.example.com:443",
+	        "origin": "connect://my-raw-protocol"
+	       }
+```
+See README.http-fallback.md for how the protocol keeps the connection valid.
+
 5) Cache policy of the files in the mount can also be set.  If no
 options are given, the content is marked uncacheable.
 ```

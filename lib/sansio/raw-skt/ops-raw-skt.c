@@ -258,6 +258,8 @@ static const lws_rops_t rops_table_raw_skt[] = {
 #endif
 	/*  8, or 6 with no client */
 	{ .tx_drained			  = rops_tx_drained_raw_skt },
+	/*  9, or 7 with no client */
+	{ .issue_keepalive		  = _lws_validity_raw_keepalive },
 };
 const struct lws_role_ops role_ops_raw_skt = {
 	/* role name */			"raw-skt",
@@ -285,7 +287,7 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_adoption_bind */			0x00, 0x02,
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_bind */
-	  /* LWS_ROPS_issue_keepalive */		0x04, 0x00,
+	  /* LWS_ROPS_issue_keepalive */		0x04, 0x09,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x07, 0x05,
 	  /* LWS_ROPS_rx_dgram */
@@ -296,7 +298,7 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_tx_drained */			0x08,
 #else
 	  /* LWS_ROPS_client_bind */
-	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
+	  /* LWS_ROPS_issue_keepalive */		0x00, 0x07,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x04,
 	  /* LWS_ROPS_rx_dgram */

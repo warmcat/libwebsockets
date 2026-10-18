@@ -61,7 +61,9 @@ static const char * const mount_protocols[] = {
 	"cgi://",
 	">http://",
 	">https://",
-	"callback://"
+	"callback://",
+	"gzip://",		/* LWSMPRO_NO_MOUNT, as lejp-conf spells it */
+	"connect://",
 };
 #endif
 
@@ -638,7 +640,9 @@ lws_create_vhost(struct lws_context *context,
 	while (mounts) {
 		(void)mount_protocols[0];
 		lwsl_vhost_info(vh, "   mounting %s%s to %s",
-			  mount_protocols[mounts->origin_protocol],
+			  mounts->origin_protocol <
+				LWS_ARRAY_SIZE(mount_protocols) ?
+			      mount_protocols[mounts->origin_protocol] : "?://",
 			  mounts->origin ? mounts->origin : "none",
 			  mounts->mountpoint);
 

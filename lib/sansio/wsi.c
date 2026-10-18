@@ -2792,6 +2792,24 @@ _lws_validity_confirmed_role(struct lws *wsi)
 				rbo->secs_since_valid_ping)) * LWS_US_PER_SEC);
 }
 
+/*
+ * The issue_keepalive op of the raw roles.  Raw has no ping of its own, so
+ * lws never issues one (isvalid 0), and a raw connection is only under a
+ * validity policy where lws put it there, a connection taken from an http
+ * CONNECT (lws_http_to_raw()): its timer is running.  There the protocol says
+ * it saw the connection alive, eg, its own inline PONG, with
+ * lws_validity_confirmed(), and that restarts it.  Elsewhere confirming has no
+ * timer to restart, as before.
+ */
+int
+_lws_validity_raw_keepalive(struct lws *wsi, int isvalid)
+{
+	if (isvalid && !lws_dll2_is_detached(&wsi->sul_validity.list))
+		_lws_validity_confirmed_role(wsi);
+
+	return 0;
+}
+
 void
 lws_validity_confirmed(struct lws *wsi)
 {

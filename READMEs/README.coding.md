@@ -1241,6 +1241,8 @@ destroyed, since they are not copied but used in place.
 		LWSMPRO_REDIR_HTTP,
 		LWSMPRO_REDIR_HTTPS,
 		LWSMPRO_CALLBACK,
+		LWSMPRO_NO_MOUNT,
+		LWSMPRO_CONNECT,
 	};
 ```
 
@@ -1255,6 +1257,11 @@ origin URL.
 
  - LWSMPRO_CALLBACK causes the http connection to attach to the callback
 associated with the named protocol (which may be a plugin).
+
+ - LWSMPRO_CONNECT is the only way an h1 `CONNECT` is accepted: its mountpoint
+is the authority, `host:port`, a CONNECT asks for, and the connection becomes
+a raw connection bound to the protocol named in origin.  A CONNECT nothing is
+mounted for is refused with a 405.  See README.http-fallback.md.
 
 
 @section mountcallback Operation of LWSMPRO_CALLBACK mounts

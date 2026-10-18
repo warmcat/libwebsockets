@@ -179,6 +179,7 @@ static const lws_rops_t rops_table_raw_proxy[] = {
 	/*  5 */ { .rx			= rops_rx_raw_proxy },
 	/*  6 */ { .rx_policy		= rops_rx_policy_raw_proxy },
 	/*  7 */ { .tx_drained		= rops_tx_drained_raw_proxy },
+	/*  8 */ { .issue_keepalive	= _lws_validity_raw_keepalive },
 };
 
 
@@ -207,7 +208,7 @@ const struct lws_role_ops role_ops_raw_proxy = {
 	  /* LWS_ROPS_destroy_role */
 	  /* LWS_ROPS_adoption_bind */			0x00, 0x03,
 	  /* LWS_ROPS_client_bind */
-	  /* LWS_ROPS_issue_keepalive */		0x04, 0x00,
+	  /* LWS_ROPS_issue_keepalive */		0x04, 0x08,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x05,
 	  /* LWS_ROPS_rx_dgram */

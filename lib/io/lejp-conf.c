@@ -960,6 +960,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			">https://",
 			"callback://",
 			"gzip://",
+			"connect://",
 		};
 
 		if (!a->fresh_mount)
@@ -1008,12 +1009,14 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			return 1;
 		}
 
-		if (m->origin_protocol == LWSMPRO_CALLBACK)
+		if (m->origin_protocol == LWSMPRO_CALLBACK ||
+		    m->origin_protocol == LWSMPRO_CONNECT)
 			/*
-			 * the protocol name is whatever follows "callback://",
-			 * ie, exactly what the scheme scan above left in
-			 * m->origin.  Decided here rather than at the value,
-			 * where only the last chunk of it was visible.
+			 * the protocol name is whatever follows "callback://"
+			 * or "connect://", ie, exactly what the scheme scan
+			 * above left in m->origin.  Decided here rather than at
+			 * the value, where only the last chunk of it was
+			 * visible.
 			 */
 			m->protocol = m->origin;
 

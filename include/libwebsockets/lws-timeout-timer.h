@@ -299,6 +299,12 @@ lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
  * If the PONG comes, or user code observes traffic that satisfies the proof
  * that both directions are passing traffic to the peer and calls this api,
  * the connection validity timer is reset and the scheme repeats.
+ *
+ * Raw connections have no PING of their own.  One taken from an http CONNECT
+ * (a LWSMPRO_CONNECT mount) is under the vhost's policy anyway: its protocol
+ * must call this when it sees the connection alive, eg, its own inline PONG,
+ * within .secs_since_valid_hangup, or it is hung up.  On other raw connections
+ * there is no validity timer, and calling it does nothing.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_validity_confirmed(struct lws *wsi);

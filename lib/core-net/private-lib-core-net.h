@@ -1832,6 +1832,8 @@ void
 __lws_wsi_remove_from_sul(struct lws *wsi);
 void
 _lws_validity_confirmed_role(struct lws *wsi);
+int
+_lws_validity_raw_keepalive(struct lws *wsi, int isvalid);
 void
 lws_validity_confirmed(struct lws *wsi);
 int

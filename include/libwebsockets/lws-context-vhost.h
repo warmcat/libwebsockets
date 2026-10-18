@@ -1891,6 +1891,10 @@ enum lws_mount_protocols {
 	LWSMPRO_REDIR_HTTPS	= 5, /**< redirect to https:// url */
 	LWSMPRO_CALLBACK	= 6, /**< handle by named protocol's callback */
 	LWSMPRO_NO_MOUNT        = 7, /**< matches fall back to no match processing */
+	LWSMPRO_CONNECT		= 8, /**< an h1 CONNECT to the authority
+				      * "host:port" in .mountpoint becomes a
+				      * raw connection bound to the protocol
+				      * named in .origin (or .protocol) */
 };
 
 /** enum lws_authentication_mode
