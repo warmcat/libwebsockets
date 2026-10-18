@@ -40,6 +40,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    Callers that touch state after the call (or free it in the CCE
    handler) break.  The pattern used: an `in_connect` flag that the CCE
    handler checks, deferring to the connect caller.
+ - **Per-level budgets that multiply.**  A work or depth budget reset
+   inside each nested construct bounds one level but not the total: k
+   levels of a 4096-step budget is 4096^k.  lhp's `:is()` / `:where()` /
+   `:not()` selector budget and calc() `var()` expansion had this shape
+   (G-080, G-082).  Bound total work per document / request, not per level.
+ - **Resolving untrusted URLs.**  `lws_http_rel_to_url()` copies an
+   absolute `file://` URL whatever the base's scheme, and SS opens any
+   `file://` endpoint, so a remote document can name local files (G-088).
+   Callers resolving untrusted URLs need their own scheme policy.
  - **Fixed quorums.**  Any consensus threshold written as a fixed count
    of peers is wrong for small deployments.  Derive it from what the
    routing table can actually supply.
