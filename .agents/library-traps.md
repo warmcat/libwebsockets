@@ -100,6 +100,19 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    "len + length + small slack" is wrong once both length varints go
    multi-byte; bound each piece just before writing it (G-154, hpack).
 
+## Addresses and PROXY v2
+
+ - **Two identities behind PROXY v2:** `lws_get_peer_simple()`,
+   `lws_io_peer_address()` and `lws_get_peer_addresses()` return the
+   forwarded client (`io->proxied`); anything calling `getpeername()`
+   directly gets the proxy (peer-limits today, G-196).  New per-client
+   policy must use the helpers, and anything evaluated at adopt runs
+   before the PROXY header has been read.
+ - **`lws_parse_numeric_address()` reads leading-zero IPv4 octets as
+   decimal; glibc reads them as octal** (`012.0.0.1` is 12.0.0.1 to lws,
+   10.0.0.1 to `getaddrinfo()`), so never use it as a filter for a string
+   the platform will resolve (G-197).
+
 ## HTTP
 
  - **qpack decoder:** the only bound on a peer-chosen dynamic index is the
