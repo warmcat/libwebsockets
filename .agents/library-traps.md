@@ -60,9 +60,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **Header (ah) lifetime.**  User code may read request headers in
    `LWS_CALLBACK_HTTP` and, for a request with a body, through
    `LWS_CALLBACK_HTTP_BODY` to `LWS_CALLBACK_HTTP_BODY_COMPLETION`; after
-   that they are not guaranteed.  h2 / h3 streams release the ah right
-   after dispatch; h1 currently holds it to transaction completion, but
-   that is not promised.  Library code must not read the ah after
+   that they are not guaranteed.  h2 / h3 streams release the ah after
+   `LWS_CALLBACK_HTTP` for a bodyless request, or after
+   `HTTP_BODY_COMPLETION` (lws_http_ah_release_after_dispatch(), server.c);
+   h1 currently holds it to transaction completion, but that is not
+   promised.  Library code must not read the ah after
    dispatch: snapshot what it needs onto the wsi.  Never gate body
    delivery, or a check on the body's state ("body already complete",
    "more than content-length"), on `wsi->http.ah` being present: the
