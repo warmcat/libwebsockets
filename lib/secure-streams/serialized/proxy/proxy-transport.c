@@ -196,6 +196,32 @@ lws_ssproxy_txp_rx(lws_transport_priv_t txp_priv, const uint8_t *in, size_t len)
 	return LWSSSSRET_OK;
 }
 
+/*
+ * proxy_write() may use LWS_PRE bytes behind the buffer it is given, eg, the
+ * transport mux writes its DATA header there.  The payload of a dsh object
+ * has the object's own header right behind it, so the head of the queue is
+ * never written from in place: copy as much of it as fits into s, which has
+ * LWS_PRE in front of it.  Returns the number of bytes staged, or 0 if the
+ * queue is empty.
+ */
+
+static int
+lws_ssproxy_stage_dsh_head(struct lws_sss_proxy_conn *conn, char *s,
+			   size_t room)
+{
+	size_t si;
+	void *p;
+
+	if (lws_dsh_get_head(conn->dsh, KIND_SS_TO_P, &p, &si))
+		return 0;
+
+	if (si > room)
+		si = room;
+	memcpy(s, p, si);
+
+	return (int)si;
+}
+
 static lws_ss_state_return_t
 lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -384,12 +410,12 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 		 * dsh
 		 */
 
-		if (lws_dsh_get_head(conn->dsh, KIND_SS_TO_P, (void **)&p, &si))
+		n = lws_ssproxy_stage_dsh_head(conn, s, sizeof(_s) - LWS_PRE);
+		if (n <= 0)
 			break;
 
-		cp = p;
+		cp = (const uint8_t *)s;
 		pay = 1;
-		n = (int)si;
 		break;
 	default:
 		break;
@@ -406,7 +432,7 @@ do_write_nz:
 				lws_fi(fic, "ssproxy_client_write_fail"))
 			n = -1;
 		else {
-			si = csi = (size_t)n;
+			csi = (size_t)n;
 			n = conn->txp_path.ops_onw->proxy_write(conn->txp_path.priv_onw,
 							  (uint8_t *)cp, &csi);
 		}
@@ -422,10 +448,8 @@ do_write_nz:
 			goto hangup;
 		case LPCSPROX_OPERATIONAL:
 			if (pay) {
-				if (si == csi)
-					lws_dsh_free((void **)&p);
-				else
-					lws_dsh_consume(conn->dsh, KIND_SS_TO_P, csi);
+				/* frees the object once it is all written */
+				lws_dsh_consume(conn->dsh, KIND_SS_TO_P, csi);
 
 				/*
 				 * Did we go below the rx flow threshold for
@@ -458,9 +482,10 @@ do_write_nz:
 				if (conn->txp_path.ops_onw->proxy_check_write_more &&
 				    conn->txp_path.ops_onw->proxy_check_write_more(
 						conn->txp_path.priv_onw)) {
-					cp = p;
+					n = lws_ssproxy_stage_dsh_head(conn, s,
+							sizeof(_s) - LWS_PRE);
+					cp = (const uint8_t *)s;
 					pay = 1;
-					n = (int)si;
 					continue;
 				}
 

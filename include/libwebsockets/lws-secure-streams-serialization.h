@@ -364,7 +364,10 @@ typedef struct lws_transport_client_ops {
  	/**< Request a write to the proxy on this channel */
  	int (*_write)(lws_transport_priv_t priv, uint8_t *buf, size_t len);
  	/**< Write the requested data on the channel to the proxy *** MUST have
- 	 * LWS_PRE usable behind buf */
+ 	 * LWS_PRE usable behind buf, so it must not be eg, a pointer into a
+ 	 * dsh object, which has the object header behind it.  The transport
+ 	 * mux uses 4 bytes of it for its own header, so a transport under the
+ 	 * mux gets only LWS_PRE - 4 usable behind what it is given. */
  	lws_ss_state_return_t (*event_read)(lws_transport_priv_t priv,
  					    const uint8_t *buf, size_t len);
  	/**< len bytes at buf have been received */
@@ -423,8 +426,11 @@ typedef struct lws_transport_proxy_ops {
 	/**< Transport can now be written on, after earlier proxy_req_write */
  	int (*proxy_write)(lws_transport_priv_t priv, uint8_t *buf, size_t *len);
  	/**< Write the requested data on the channel to the proxy *** MUST have
- 	 * LWS_PRE usable behind buf.  May do partial writes, len is set on return
- 	 * to actual length written*/
+ 	 * LWS_PRE usable behind buf, so it must not be eg, a pointer into a
+ 	 * dsh object, which has the object header behind it.  The transport
+ 	 * mux uses 4 bytes of it for its own header, so a transport under the
+ 	 * mux gets only LWS_PRE - 4 usable behind what it is given.  May do
+ 	 * partial writes, len is set on return to actual length written */
 	lws_ss_state_return_t (*event_close_conn)(
 				struct lws_sss_proxy_conn *conn);
 	/**< proxy sees an existing conn closes */

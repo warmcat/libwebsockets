@@ -29,6 +29,10 @@
  *    take anything
  *
  * The sink must receive exactly the bytes that were sent, in order.
+ *
+ * The link transport also uses the LWS_PRE - 4 bytes of headroom that a
+ * transport under the mux may use behind each write, so a write from a
+ * buffer without it (eg, straight out of a dsh object) is caught.
  */
 
 #include <libwebsockets.h>
@@ -437,6 +441,16 @@ link_req_write(lws_transport_priv_t priv)
 static int
 link_write(lws_transport_priv_t priv, uint8_t *buf, size_t *len)
 {
+	/*
+	 * A transport under the mux may use LWS_PRE - 4 bytes behind buf (the
+	 * mux used 4 of the LWS_PRE for its own header), eg, to frame the
+	 * write for its link.  Use all of it, so a write from a buffer that
+	 * does not really have that headroom is caught: a dsh object's
+	 * payload, say, which has the object's header right before it.
+	 */
+
+	memset(buf - (LWS_PRE - 4), 0xa5, LWS_PRE - 4);
+
 	/* the whole write is taken, it goes straight to the client */
 
 	if (client_mux_rx(buf, *len))

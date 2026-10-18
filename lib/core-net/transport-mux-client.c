@@ -165,6 +165,12 @@ lws_transport_mux_write(lws_transport_priv_t priv, uint8_t *buf, size_t len)
 
 	assert(len < 0xffff);
 
+	/*
+	 * The caller gives us LWS_PRE usable behind buf (lws_sspc_txp_tx()
+	 * builds every frame behind LWS_PRE): our header goes there, and what
+	 * we pass on has LWS_PRE - 4 left behind it
+	 */
+
 	buf[-4] = LWSSSS_LLM_MUX;
 	buf[-3] = tmc->ch_idx;
 	buf[-2] = (len >> 8) & 0xff;

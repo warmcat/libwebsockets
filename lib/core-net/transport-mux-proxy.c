@@ -288,10 +288,12 @@ lws_transport_mux_proxy_event_proxy_can_write(
 {
 	lws_transport_mux_t *tm = (lws_transport_mux_t *)priv;
 	struct lws_sss_proxy_conn *conn;
-	uint8_t buf[2048];
-	size_t r = sizeof(buf), r1;
+	uint8_t _buf[LWS_PRE + 2048], *buf = _buf + LWS_PRE;
+	size_t r = sizeof(_buf) - LWS_PRE, r1;
 
 	assert_is_tm(tm);
+
+	/* proxy_write() may use LWS_PRE behind what it is given */
 
 	if (lws_transport_mux_pending(tm, buf, &r, &cbs)) {
 		r1 = r;
@@ -370,7 +372,11 @@ lws_transport_mux_proxy_write(lws_transport_priv_t priv, uint8_t *buf, size_t *l
 
 	assert(*len < 0xffff);
 
-	/* use the LWS_PRE area to encapsulate the SSS inside the mux protocol */
+	/*
+	 * Use the LWS_PRE area to encapsulate the SSS inside the mux protocol:
+	 * our caller must give us LWS_PRE usable behind buf, and what we pass
+	 * on has LWS_PRE - 4 left behind it
+	 */
 
 	buf[-4] = LWSSSS_LLM_MUX;
 	buf[-3] = tmc->ch_idx;

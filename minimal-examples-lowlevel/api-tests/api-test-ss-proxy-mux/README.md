@@ -25,6 +25,14 @@ The sink must receive exactly the 1430 bytes that were sent, in order.  The
 proxy queues each chunk of client tx as one dsh object with its own header,
 so the queue must not coalesce or split them as the mux's flags would.
 
+Every write the proxy makes on the link has its headroom checked too: a
+transport's `proxy_write()` may use `LWS_PRE` bytes behind the buffer it is
+given, and a transport under the mux, which takes 4 of them for its header,
+may use `LWS_PRE - 4`.  The link transport fills all of that with a pattern,
+as a transport framing writes for its link might, so a write made from a
+buffer that does not really have it (eg, straight out of a dsh object, whose
+header is right behind the payload) corrupts that header or trips ASan.
+
 ## Build
 
 Needs `LWS_WITH_SECURE_STREAMS_PROXY_API`, `LWS_WITH_CLIENT` and a JSON policy
