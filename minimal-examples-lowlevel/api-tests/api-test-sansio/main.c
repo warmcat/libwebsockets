@@ -2530,10 +2530,8 @@ h2c_upgrade_half(struct lws_context *cx, struct lws_vhost *vh)
  * 15: an h2 request whose header block does not fit the ah is answered 431
  * "Oversized headers", and the connection goes on.  The rest of the block
  * is still decoded, which keeps the connection's hpack state in step: a
- * field it put in the dynamic table before the ah filled is still there for
- * later requests, but one it put there afterwards could not be kept, so a
- * later request that refers to it is answered 431 too, rather than served
- * as if the peer had not sent it.
+ * field it put in the dynamic table, before the ah filled or after, is there
+ * for later requests with its value, as it is in the peer's table.
  */
 static int
 h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -2593,7 +2591,7 @@ h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
 		return 1;
 	}
 
-	/* sid 3: GET / referring to accept, which could not be kept */
+	/* sid 3: GET / referring to accept, entered after the ah filled */
 	p = blk;
 	*p++ = 0x82;
 	*p++ = 0x86;
@@ -2602,8 +2600,10 @@ h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
 	*p++ = 0x80 | 62; /* accept */
 	n = h2_headers(fr, 3, blk, p);
 	feed(cx, &tp, fr, n);
-	if (!find_bytes(tp.tx, tp.tx_len, "Oversized headers")) {
-		lwsl_err("case 15: lost entry not refused\n");
+	if (tp.closed || tp.shutdown ||
+	    find_bytes(tp.tx, tp.tx_len, "Oversized headers") ||
+	    !find_bytes(tp.tx, tp.tx_len, "/\n")) {
+		lwsl_err("case 15: entry made after the ah filled not served\n");
 		lwsl_hexdump_err(tp.tx, tp.tx_len);
 		return 1;
 	}

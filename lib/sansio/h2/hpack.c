@@ -432,25 +432,31 @@ lws_hpack_path_end(struct lws *wsi)
  * as it arrives, and it is this copy that is inserted.  lws_hpack_use_idx_hdr()
  * then feeds an indexed :path through lws_hpack_path_char() the same way.
  *
+ * A block decoded without storing (sunk, or trailers) has no ah to take any
+ * value from, but the peer's table holds its entries all the same, and later
+ * blocks refer to them: a request the server refused is retried referring to
+ * the entries its first try made.  So in such a block, every field being added
+ * to the table is collected here too.
+ *
  * An entry bigger than the whole table can't be in the peer's table (RFC 7541
  * 4.4), so no more than that is collected: a value that overflows it is kept
  * as a lost entry, which the peer has no business referring to.
  */
 static void
-lws_hpack_path_raw_release(struct lws_h2_netconn *h2n)
+lws_hpack_dyn_val_release(struct lws_h2_netconn *h2n)
 {
-	if (h2n->path_raw)
-		lws_free_set_NULL(h2n->path_raw);
-	h2n->path_raw_on = 0;
+	if (h2n->dyn_val)
+		lws_free_set_NULL(h2n->dyn_val);
+	h2n->dyn_val_on = 0;
 }
 
 static int
-lws_hpack_path_raw_start(struct lws_h2_netconn *h2n)
+lws_hpack_dyn_val_start(struct lws_h2_netconn *h2n)
 {
 	uint32_t max = h2n->hpack_dyn_table.virtual_payload_max;
 	uint64_t bound = h2n->hpack_len;
 
-	lws_hpack_path_raw_release(h2n);
+	lws_hpack_dyn_val_release(h2n);
 
 	/* a huffman code is at least 5 bits */
 	if (h2n->huff)
@@ -460,28 +466,105 @@ lws_hpack_path_raw_start(struct lws_h2_netconn *h2n)
 	if (bound < max)
 		max = (uint32_t)bound;
 
-	h2n->path_raw = lws_malloc(max + 1, "hpack path");
-	if (!h2n->path_raw)
+	h2n->dyn_val = lws_malloc(max + 1, "hpack dyn val");
+	if (!h2n->dyn_val)
 		return 1;
 
-	h2n->path_raw_max = (uint16_t)max;
-	h2n->path_raw_len = 0;
-	h2n->path_raw_lost = 0;
-	h2n->path_raw_on = 1;
+	h2n->dyn_val_max = (uint16_t)max;
+	h2n->dyn_val_len = 0;
+	h2n->dyn_val_lost = 0;
+	h2n->dyn_val_on = 1;
 
 	return 0;
 }
 
 static void
-lws_hpack_path_raw_char(struct lws_h2_netconn *h2n, uint8_t c)
+lws_hpack_dyn_val_char(struct lws_h2_netconn *h2n, uint8_t c)
 {
-	if (h2n->path_raw_len >= h2n->path_raw_max) {
-		h2n->path_raw_lost = 1;
+	if (h2n->dyn_val_len >= h2n->dyn_val_max) {
+		h2n->dyn_val_lost = 1;
 		return;
 	}
 
-	h2n->path_raw[h2n->path_raw_len] = (char)c;
-	h2n->path_raw_len = (uint16_t)(h2n->path_raw_len + 1);
+	h2n->dyn_val[h2n->dyn_val_len] = (char)c;
+	h2n->dyn_val_len = (uint16_t)(h2n->dyn_val_len + 1);
+}
+
+static int
+lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
+			 int lws_hdr_index, char *arg, size_t len);
+
+/* a literal name's byte in a block decoded without storing */
+
+static void
+lws_hpack_sink_name_char(struct lws_h2_netconn *h2n, uint8_t c)
+{
+	if (h2n->sink_name_len >= sizeof(h2n->sink_name)) {
+		h2n->sink_name_lost = 1;
+		return;
+	}
+
+	h2n->sink_name[h2n->sink_name_len++] = (char)c;
+}
+
+/*
+ * The token of the literal name collected by lws_hpack_sink_name_char(), the
+ * one lws_parse() finds for it when the block is stored, or
+ * LWS_HPACK_IGNORE_ENTRY for a header lws doesn't know
+ */
+
+static int
+lws_hpack_sink_name_tok(struct lws_h2_netconn *h2n)
+{
+	int tok;
+
+	if (h2n->sink_name_lost)
+		return LWS_HPACK_IGNORE_ENTRY;
+
+	tok = lws_http_string_to_known_header(h2n->sink_name,
+					      h2n->sink_name_len);
+	if (tok < 0 || tok >= WSI_TOKEN_COUNT ||
+	    !lws_http_token_is_field_name(tok))
+		return LWS_HPACK_IGNORE_ENTRY;
+
+	return tok;
+}
+
+/*
+ * A field of a block decoded without storing is being added to the dynamic
+ * table: the entry it makes, with its value, so the table holds what the
+ * peer's does.  A value that would be malformed in a block we store fails
+ * the connection the same way here, rather than come out of the table later
+ * into a block we do store.
+ */
+
+static int
+lws_hpack_sink_dyn_insert(struct lws *wsi, int tok)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
+	uint16_t n;
+
+	if (tok < 0 || tok == LWS_HPACK_IGNORE_ENTRY || !h2n->dyn_val_on)
+		/* an entry for a header lws doesn't know has no value */
+		return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len,
+				wsi != nwsi && wsi->h2.hdrs_oversized ?
+					LWS_HPACK_LOST_ENTRY :
+					LWS_HPACK_IGNORE_ENTRY, NULL, 0);
+
+	if (h2n->dyn_val_lost)
+		/* too big to be in the peer's table either */
+		return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len,
+					LWS_HPACK_LOST_ENTRY, NULL, 0);
+
+	for (n = 0; n < h2n->dyn_val_len; n++)
+		if (h2n->dyn_val[n] == '\r' || h2n->dyn_val[n] == '\n' ||
+		    !h2n->dyn_val[n])
+			return lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+					     "CR/LF/NUL in header value");
+
+	return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len, tok,
+					h2n->dyn_val, h2n->dyn_val_len);
 }
 
 
@@ -1168,7 +1251,7 @@ lws_h2_hpack_sink_destroy(struct lws *wsi)
 		lws_free_set_NULL(wsi->h2.h2n->hpack_sink);
 
 	/* a connection that died partway through a :path value */
-	lws_hpack_path_raw_release(wsi->h2.h2n);
+	lws_hpack_dyn_val_release(wsi->h2.h2n);
 }
 
 static int
@@ -1235,7 +1318,7 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx)
 		/*
 		 * The entry is the :path as it was sent: it's decoded into the
 		 * ah exactly as a literal :path is, see
-		 * lws_hpack_path_raw_start()
+		 * lws_hpack_dyn_val_start()
 		 */
 		if (p)
 			while (*p && len--) {
@@ -1730,7 +1813,15 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
 		    !lws_h2_hpack_no_store(wsi) &&
 		    ah->hdr_token_idx == WSI_TOKEN_HTTP_COLON_PATH &&
-		    lws_hpack_path_raw_start(h2n))
+		    lws_hpack_dyn_val_start(h2n))
+			return lws_h2_goaway(nwsi, H2_ERR_INTERNAL_ERROR,
+					     "OOM");
+
+		/* ... and any field for it, when there is no ah keeping it */
+		if ((h2n->hpack_type == HPKT_INDEXED_HDR_6_VALUE_INCR ||
+		     h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR) &&
+		    lws_h2_hpack_no_store(wsi) &&
+		    lws_hpack_dyn_val_start(h2n))
 			return lws_h2_goaway(nwsi, H2_ERR_INTERNAL_ERROR,
 					     "OOM");
 
@@ -1791,14 +1882,19 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 			if (h2n->value) { /* value */
 
+				if (h2n->dyn_val_on &&
+				    lws_h2_hpack_no_store(wsi))
+					/* nothing else keeps it */
+					lws_hpack_dyn_val_char(h2n, c1);
+
 				if (h2n->hdr_idx &&
 				    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
 				    !lws_h2_hpack_no_store(wsi)) {
 
 					if (ah->hdr_token_idx ==
 					    WSI_TOKEN_HTTP_COLON_PATH) {
-						if (h2n->path_raw_on)
-							lws_hpack_path_raw_char(
+						if (h2n->dyn_val_on)
+							lws_hpack_dyn_val_char(
 								h2n, c1);
 						m = lws_hpack_path_char(wsi, c1);
 					} else
@@ -1850,6 +1946,18 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			 	 * will be set.
 			 	 */
 				h2n->hpack_hdr_len++;
+				if (h2n->is_first_header_char) {
+					/*
+					 * Only a name we have from its start
+					 * is any use, not the rest of one the
+					 * block stopped storing partway through
+					 */
+					h2n->sink_name_len = 0;
+					h2n->sink_name_lost =
+						!lws_h2_hpack_no_store(wsi);
+				}
+				if (lws_h2_hpack_no_store(wsi))
+					lws_hpack_sink_name_char(h2n, c1);
 				if (h2n->is_first_header_char) {
 					h2n->is_first_header_char = 0;
 					h2n->first_hdr_char = (char)c1;
@@ -2116,19 +2224,35 @@ add_it:
 				ah = h2n->hpack_sink;
 			}
 
-			if (m == LWS_HPACK_IGNORE_ENTRY ||
-			    lws_h2_hpack_no_store(wsi)) {
+			if (lws_h2_hpack_no_store(wsi)) {
 				/*
-				 * There is no lws token for this header (or it
-				 * is in a trailer block, which we decode
-				 * without storing), so nobody started a
-				 * fragment for it and ah->frags[ah->nfrag] is
-				 * not ours to look at: it is whatever the
-				 * previous header left there or, once all the
-				 * frag slots are used, one past the end of the
-				 * array.  Store the placeholder entry without
-				 * any value, so our dynamic table indexes stay
-				 * aligned with the peer's.
+				 * Nothing of this block is stored, so nobody
+				 * started a fragment for it and
+				 * ah->frags[ah->nfrag] is not ours to look at:
+				 * the entry is made from what we collected
+				 */
+				if (h2n->hpack_type ==
+						HPKT_LITERAL_HDR_VALUE_INCR)
+					m = lws_hpack_sink_name_tok(h2n);
+				if (lws_hpack_sink_dyn_insert(wsi, m)) {
+					lwsl_notice("%s: tok_insert fail\n",
+						    __func__);
+					return 1;
+				}
+				break;
+			}
+
+			if (m == LWS_HPACK_IGNORE_ENTRY) {
+				/*
+				 * There is no lws token for this header, so
+				 * nobody started a fragment for it and
+				 * ah->frags[ah->nfrag] is not ours to look at:
+				 * it is whatever the previous header left
+				 * there or, once all the frag slots are used,
+				 * one past the end of the array.  Store the
+				 * placeholder entry without any value, so our
+				 * dynamic table indexes stay aligned with the
+				 * peer's.
 				 */
 				if (lws_dynamic_token_insert(wsi,
 						(int)h2n->hpack_hdr_len,
@@ -2144,18 +2268,18 @@ add_it:
 				break;
 			}
 
-			if (h2n->path_raw_on) {
+			if (h2n->dyn_val_on) {
 				/*
 				 * A :path: not what is in the ah, but what was
-				 * sent, see lws_hpack_path_raw_start()
+				 * sent, see lws_hpack_dyn_val_start()
 				 */
 				n = lws_dynamic_token_insert(wsi,
 						(int)h2n->hpack_hdr_len,
-						h2n->path_raw_lost ?
+						h2n->dyn_val_lost ?
 							LWS_HPACK_LOST_ENTRY : m,
-						h2n->path_raw,
-						h2n->path_raw_lost ? 0 :
-							h2n->path_raw_len);
+						h2n->dyn_val,
+						h2n->dyn_val_lost ? 0 :
+							h2n->dyn_val_len);
 			} else
 				n = lws_dynamic_token_insert(wsi,
 					(int)h2n->hpack_hdr_len, m,
@@ -2171,8 +2295,8 @@ add_it:
 			break;
 		}
 
-		/* inserted, or not wanted after all if we are sinking now */
-		lws_hpack_path_raw_release(h2n);
+		/* inserted, or not wanted after all */
+		lws_hpack_dyn_val_release(h2n);
 
 		if (h2n->hpack_type != HPKT_INDEXED_HDR_6_VALUE_INCR) {
 

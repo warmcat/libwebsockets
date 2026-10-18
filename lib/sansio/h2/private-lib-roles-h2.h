@@ -274,17 +274,29 @@ struct lws_h2_netconn {
 	struct allocated_headers *hpack_sink;
 
 	/*
-	 * The value of a :path field line that is being added to the dynamic
-	 * table, as the peer sent it: what the ah gets is percent-decoded,
-	 * normalised and split into urlargs, which is not the field value
-	 * the peer's table holds (see lws_hpack_path_raw_start())
+	 * The value of a field line that is being added to the dynamic table,
+	 * as the peer sent it, when the ah doesn't have it: a :path, which the
+	 * ah gets percent-decoded, normalised and split into urlargs, or any
+	 * field of a block decoded without storing (see
+	 * lws_hpack_dyn_val_start())
 	 */
-	char *path_raw;
-	uint16_t path_raw_len;
-	uint16_t path_raw_max;
+	char *dyn_val;
+	uint16_t dyn_val_len;
+	uint16_t dyn_val_max;
 
-	unsigned int path_raw_on:1;
-	unsigned int path_raw_lost:1;
+	/*
+	 * The literal name of a field in a block decoded without storing,
+	 * kept to know its token for its dynamic table entry.  The longest
+	 * name lws has a token for is far shorter: a longer one is no header
+	 * lws knows.
+	 */
+#define LWS_H2_SINK_NAME_MAX 48
+	char sink_name[LWS_H2_SINK_NAME_MAX];
+	uint8_t sink_name_len;
+
+	unsigned int dyn_val_on:1;
+	unsigned int dyn_val_lost:1;
+	unsigned int sink_name_lost:1;
 	unsigned int huff:1;
 	unsigned int value:1;
 	unsigned int unknown_header:1;
