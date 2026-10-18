@@ -2148,6 +2148,7 @@ lws_http_request_body_framing(struct lws *wsi)
 	wsi->http.content_length_explicitly_zero = 0;
 	/* per-transaction: the last request's framing says nothing of this one's */
 	wsi->http.content_length_given = 0;
+	wsi->http.rx_body_done = 0;
 	/* no status line has been built for this transaction yet */
 	wsi->http.response_code = 0;
 	/*
@@ -2369,6 +2370,26 @@ lws_http_mux_body_completed(struct lws *wsi)
 	 */
 	if (lwsi_state(wsi) == LRS_BODY || lwsi_state(wsi) == LRS_ISSUING_FILE)
 		lws_wsi_event(wsi, LWS_WSIEV_BODY_COMPLETE);
+}
+
+int
+lws_http_body_completion(struct lws *wsi)
+{
+	/*
+	 * The peer can make the body look complete again after it was, eg,
+	 * with more DATA on an h2 stream whose content-length was met, or a
+	 * trailers block and an empty DATA on h3.  The roles refuse that, but
+	 * whatever gets here, user code is told once: it may answer, free its
+	 * per-request state or act on the request then, and a second time
+	 * would be a second request it never got.
+	 */
+	if (wsi->http.rx_body_done)
+		return 0;
+
+	wsi->http.rx_body_done = 1;
+
+	return wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
+					 wsi->user_space, NULL, 0);
 }
 
 void
@@ -3110,8 +3131,7 @@ deal_body:
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 					    wsi->user_space, NULL, 0))
 			return 1;
-		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
-					    wsi->user_space, NULL, 0))
+		if (lws_http_body_completion(wsi))
 			return 1;
 
 		goto no_more_body;
@@ -3231,8 +3251,11 @@ no_more_body:
 	 * Not for cgi or proxy mounts, which jumped in above with `dispatched`
 	 * clear because they own their own ah lifetime.
 	 */
-	if (dispatched)
+	if (dispatched) {
+		/* nor body: any that comes is not this request's */
+		wsi->http.rx_body_done = 1;
 		lws_http_ah_release_after_dispatch(wsi, 0);
+	}
 
 	return 0;
 

@@ -3376,14 +3376,6 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					lwsl_info("%s: substream has pending\n",
 						  __func__);
 
-				if (lwsi_role_http(h2n->swsi) &&
-				    (lwsi_state(h2n->swsi) == LRS_ESTABLISHED ||
-				     lwsi_state(h2n->swsi) == LRS_HEADERS)) {
-					lws_wsi_event(h2n->swsi, LWS_WSIEV_BODY_BEGIN);
-					lwsl_info("%s: %s to LRS_BODY\n",
-							__func__, lws_wsi_tag(h2n->swsi));
-				}
-
 				/*
 				 * in + length may cover multiple frames, we
 				 * can only consider the length of the DATA
@@ -3401,6 +3393,35 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					m -= (int)(h2n->preamble + h2n->padding);
 				else
 					m = 0;
+
+				/*
+				 * A request whose body is over, its completion
+				 * delivered or dispatched with none, has no
+				 * more of it (RFC 9113 8.1.1).  Taken as body,
+				 * it put the stream back in LRS_BODY from
+				 * ESTABLISHED, where its body completion left
+				 * it, and had the completion delivered again.
+				 * What says so is on the wsi: the stream gave
+				 * its ah back at dispatch or completion.
+				 */
+				if (m && lwsi_role_http(h2n->swsi) &&
+				    lwsi_role_server(h2n->swsi) &&
+				    lwsi_state(h2n->swsi) == LRS_ESTABLISHED &&
+				    h2n->swsi->http.rx_body_done) {
+					if (lws_h2_goaway(wsi,
+						      H2_ERR_PROTOCOL_ERROR,
+						      "DATA after the request body"))
+						return 1;
+					break;
+				}
+
+				if (lwsi_role_http(h2n->swsi) &&
+				    (lwsi_state(h2n->swsi) == LRS_ESTABLISHED ||
+				     lwsi_state(h2n->swsi) == LRS_HEADERS)) {
+					lws_wsi_event(h2n->swsi, LWS_WSIEV_BODY_BEGIN);
+					lwsl_info("%s: %s to LRS_BODY\n",
+							__func__, lws_wsi_tag(h2n->swsi));
+				}
 
 				/*
 				 * This also catches DATA payload on a stream
@@ -3432,9 +3453,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						      rem - (lws_filepos_t)st;
 					}
 
-				if (lws_hdr_total_length(h2n->swsi,
-					     WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-				    h2n->swsi->http.content_length_given &&
+				/*
+				 * From the wsi's snapshot of the framing, not
+				 * the ah, which the stream may have given back
+				 */
+				if (h2n->swsi->http.content_length_given &&
 				    rem + h2n->inside < (lws_filepos_t)m && /* last */
 				    h2n->inside < h2n->length) {
 

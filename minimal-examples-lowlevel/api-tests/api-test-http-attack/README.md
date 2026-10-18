@@ -22,6 +22,11 @@ still be served.
    `User-Agent`.  So for each hostile path, the test sees what a user
    callback would have been given to act on.
 
+ - a POST to `/body-once` is answered the same way, but only 500ms after its
+   body completed, and the server counts the body completions it is given
+   for it: there must be exactly one, whatever the client sends after the
+   body.
+
 The client side is raw for h1 and h2 (cleartext, prior knowledge), so it can
 send bytes no well-behaved client would.  For h3 it is the lws client, which
 can only send what that client composes: paths starting `//` are skipped
@@ -90,6 +95,7 @@ h2, raw frames:
 |CR LF in a value, no or two `:path`, pseudo-header after a regular one, `connection`, `transfer-encoding`, 1500 fields|nothing served|
 |a POST whose trailers refer to a dynamic table entry lws could not keep|served|
 |a POST's trailers arriving after the server finished its stream, then a GET on another stream|the trailers dropped, the GET served|
+|a POST to `/body-once` with a 10-byte body, sent once the request was dispatched, and a DATA of one byte more in the same write|GOAWAY PROTOCOL_ERROR, and one body completion|
 
 Where the client sends more than the server reads before it gives up on it,
 the server closes with that unread, the kernel resets the connection and what
@@ -110,6 +116,7 @@ h3, lws client, with one field of its own added:
 |a pseudo-header in a request's trailers (the client's `h3_trailer_pseudo` fault)|connection closed|
 |a second QPACK encoder stream from the client (its `h3_second_qpack_enc` fault)|connection closed|
 |a SETTINGS frame on the request stream before its HEADERS (the client's `h3_req_frame_settings` fault)|connection closed|
+|a POST to `/body-once` with a 10-byte body, then once it completed, trailers, an empty DATA, trailers and an empty DATA again, framed by the test itself|connection closed, and one body completion|
 |the request's stream arriving again after it closed, as a retransmission whose ack was lost does (the client's `quic_stream_replay` fault, with `LWS_WITH_SYS_FAULT_INJECTION`)|served once, the late frame ignored|
 
 h1s, h1 over tls with a raw client: headers never finished, or trickled in a

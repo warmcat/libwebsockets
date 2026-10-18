@@ -544,9 +544,13 @@ postbody_completion:
 				lwsl_info("HTTP_BODY_COMPLETION: %s (%s)\n",
 					  lws_wsi_tag(wsi), wsi->a.protocol->name);
 
+#if defined(LWS_WITH_SERVER)
+				n = (unsigned int)lws_http_body_completion(wsi);
+#else
 				n = (unsigned int)wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);
+#endif
 				if (n) {
 					lwsl_info("%s: bailing after BODY_COMPLETION\n", __func__);
 					goto bail;

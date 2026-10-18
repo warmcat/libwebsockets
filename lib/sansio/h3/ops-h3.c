@@ -1000,8 +1000,13 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		return -1;
 	}
 
-	/* If we haven't attached an ah, do it now */
-	if (!wsi->stream.ah) {
+	/*
+	 * The head's fields go in an ah, attached for its first one.  Not a
+	 * trailers block's, which is validated below but not kept: one
+	 * attached for it put an ah back on a stream past its dispatch, which
+	 * gave its own back
+	 */
+	if (lwsi_hdrs_pending(wsi) && !wsi->stream.ah) {
 		lws_ah_attach_result_t ar = lws_header_table_attach(wsi, 0);
 
 		if (ar == LWS_AH_ATTACH_WSI_GONE)
@@ -1982,6 +1987,28 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						return 1;
 					}
 					/*
+					 * RFC 9114 4.1: a request is its
+					 * head, its DATA and optionally a
+					 * trailers block, which ends it.
+					 * Neither DATA nor HEADERS may follow
+					 * the trailers
+					 */
+					if (lwsi_role_http(wsi) &&
+					    lwsi_role_server(wsi) &&
+					    !lwsi_hdrs_pending(wsi) &&
+					    (wsi->h3.rx_frame_type == 0x00 ||
+					     wsi->h3.rx_frame_type == 0x01)) {
+						if (wsi->h3.rx_trailers_seen) {
+							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+							lwsl_wsi_notice(wsi, "frame after trailers");
+							lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_UNEXPECTED, 0, 1);
+							return 1;
+						}
+						if (wsi->h3.rx_frame_type == 0x01)
+							wsi->h3.rx_trailers_seen = 1;
+					}
+					/*
 					 * RFC 9114 7.2.3 / 7.2.4 / 7.2.6 / 7.2.7:
 					 * CANCEL_PUSH, SETTINGS, GOAWAY and
 					 * MAX_PUSH_ID only go on the control
@@ -2151,30 +2178,32 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							 * body after a complete header
 							 * block: before it, DATA is
 							 * H3_FRAME_UNEXPECTED.  And a
-							 * stream back in ESTABLISHED
-							 * with its ah detached has
-							 * finished its body: a further
-							 * DATA frame would go into
-							 * lws_read_h1()'s header parser
-							 * with a NULL ah.  Refuse both.
+							 * request whose body is over,
+							 * its completion delivered or
+							 * dispatched with none, has no
+							 * more of it, not even an
+							 * empty DATA: taken as body it
+							 * put the stream back in
+							 * LRS_BODY, and an empty one
+							 * had the completion delivered
+							 * again.  Refuse both.
 							 *
-							 * But the ah being gone is not
-							 * by itself "outside the body
-							 * phase": the POLLOUT handler
-							 * detaches it as soon as
-							 * lws_http_action() returned,
-							 * while a POST stream is still
-							 * legitimately in LRS_BODY
-							 * waiting for its body, and in
-							 * the body states lws_read_h1()
-							 * goes straight to the body
-							 * path and needs no ah.  Gating
-							 * on the ah alone refused every
-							 * h3 POST body.
+							 * That is known from the wsi,
+							 * not the ah: the POLLOUT
+							 * handler detaches it as soon
+							 * as lws_http_action()
+							 * returned, while a POST
+							 * stream is still legitimately
+							 * in LRS_BODY waiting for its
+							 * body, and in the body states
+							 * lws_read_h1() goes straight
+							 * to the body path and needs
+							 * no ah.
 							 *
 							 * Mirror h2: a stream still in
-							 * ESTABLISHED with its ah moves
-							 * to LRS_BODY here.
+							 * ESTABLISHED, where its body
+							 * completion also leaves it,
+							 * moves to LRS_BODY here.
 							 */
 							if (lwsi_role_http(wsi)) {
 								if (lwsi_hdrs_pending(wsi)) {
@@ -2182,8 +2211,13 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 									return 1;
 								}
 								if (lwsi_state(wsi) == LRS_ESTABLISHED) {
-									if (!wsi->stream.ah) {
-										lwsl_wsi_notice(wsi, "DATA after body completed");
+									if (wsi->http.rx_body_done) {
+										struct lws *nwsi =
+											lws_get_quic_network_wsi(wsi);
+
+										lwsl_wsi_notice(wsi, "DATA after the request body");
+										lws_quic_enter_closing_state(nwsi,
+											LWS_H3_MESSAGE_ERROR, 0, 1);
 										return 1;
 									}
 									lws_wsi_event(wsi, LWS_WSIEV_BODY_BEGIN);

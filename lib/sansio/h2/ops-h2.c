@@ -1292,9 +1292,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi, int *verdict)
 					      wsi->user_space, NULL, 0))
 			return 2;
 
-		if (wsi->a.protocol->callback(wsi,
-					      LWS_CALLBACK_HTTP_BODY_COMPLETION,
-					      wsi->user_space, NULL, 0))
+		if (lws_http_body_completion(wsi))
 			return 2;
 		lws_http_mux_body_completed(wsi);
 
@@ -1423,8 +1421,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi, int *verdict)
 	 * response watchdog lws_http_response_started() arms takes over.
 	 */
 
-	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
-				      wsi->user_space, NULL, 0))
+	if (lws_http_body_completion(wsi))
 		return 2;
 	lws_http_mux_body_completed(wsi);
 

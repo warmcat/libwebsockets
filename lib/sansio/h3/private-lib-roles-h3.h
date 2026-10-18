@@ -165,6 +165,8 @@ struct _lws_h3_related {
 	uint8_t hdrs_oversized:1;
 	/* a WT bidi stream's type came, its session ID has not yet */
 	uint8_t wt_sid_pending:1;
+	/* server: the request's trailers came, the message is over */
+	uint8_t rx_trailers_seen:1;
 
 	/* H3 Frame parsing state */
 	uint8_t rx_frame_state; /* 0: type, 1: length, 2: payload */

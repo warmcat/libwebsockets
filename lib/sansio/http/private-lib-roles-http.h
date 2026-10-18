@@ -478,6 +478,13 @@ struct _lws_http_mode_related {
 	 * (C-460).  Re-decided for every request on the connection. */
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int content_length_given:1;
+	unsigned int rx_body_done:1;
+	/**< server: the request's body phase is over, it was dispatched with no
+	 * body, or its LWS_CALLBACK_HTTP_BODY_COMPLETION was delivered.  Body
+	 * that comes after is refused by the mux roles, and there is never a
+	 * second completion.  On the wsi, not read from the ah, which a mux
+	 * stream gives back at dispatch.  Per transaction, cleared by
+	 * lws_http_request_body_framing(). */
 	unsigned int rx_chunked:1; /* rx body uses chunked transfer-coding */
 	unsigned int did_stream_close:1;
 	unsigned int multipart:1;
@@ -648,6 +655,15 @@ lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done);
  */
 void
 lws_http_mux_body_completed(struct lws *wsi);
+
+/*
+ * Deliver LWS_CALLBACK_HTTP_BODY_COMPLETION for the request, at most once:
+ * every role's completion goes through here, and it latches
+ * wsi->http.rx_body_done first.  0 if it was delivered before, or the
+ * callback's return.
+ */
+int
+lws_http_body_completion(struct lws *wsi);
 #endif
 
 #if defined(LWS_ROLE_H1)

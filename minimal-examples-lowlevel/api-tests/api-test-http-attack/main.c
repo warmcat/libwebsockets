@@ -48,6 +48,18 @@
 #define ATK_REPLAYED_PATH	"/replayed"
 /* the path the server answers with a request pseudo-header, see h3_attacks[] */
 #define ATK_RESP_METHOD_PATH	"/respond-method"
+/*
+ * The path whose POST the server answers only this long after its body
+ * completed, counting the completions it is given: there must be one, however
+ * the peer goes on after the body, see b_data_after_body() and h3_attacks[]
+ */
+#define ATK_ONCE_PATH		"/body-once"
+#define ATK_ONCE_ANSWER_MS	500
+/* the client's body to ATK_ONCE_PATH, and its content-length */
+#define ATK_ONCE_BODY		"0123456789"
+#define ATK_ONCE_CL		"10"
+/* h3: how long after its body the client sends what follows it */
+#define ATK_ONCE_AFTER_MS	100
 
 /*
  * h2: how long after the server ended the case's first stream the rest of
@@ -710,6 +722,14 @@ static const struct h3_attack h3_attacks[] = {
 	  NULL, NULL, 0, 0, 0, V_REFUSED, NULL, NULL },
 	/* far more fields than any request has, for almost no bytes */
 	{ "1100 field lines", "/alive", NULL, NULL, 0, 0, 1100, V_REFUSED, NULL, NULL },
+	/*
+	 * Once its body completed, a request's trailers end it (RFC 9114
+	 * 4.1): an empty DATA after them, and more trailers and DATA, once
+	 * had the completion delivered again each time.  The client sends
+	 * those itself, see callback_h3()
+	 */
+	{ "trailers and empty DATA after the body completed", ATK_ONCE_PATH,
+	  NULL, NULL, 0, 0, 0, V_REFUSED, "POST", NULL },
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	{ "request stream arriving again after it closed", ATK_REPLAYED_PATH,
 	  NULL, NULL, 0, 0, 0, V_ECHO, NULL, "quic_stream_replay" },
@@ -779,11 +799,15 @@ static struct {
 	 * server must have acted on ATK_REPLAYED_PATH exactly once
 	 */
 	uint8_t		check_replayed;
+	/* the server must have had ATK_ONCE_PATH's body completion once */
+	uint8_t		check_once;
 } tc = { XP_H1, PH_PATHS, -1, 0, "", NULL, NULL, NULL, NULL, 0, 0, NULL, 0,
-	 0, 0 };
+	 0, 0, 0 };
 
 /* requests the server acted on for ATK_REPLAYED_PATH */
 static int srv_replayed;
+/* body completions the server was given for ATK_ONCE_PATH */
+static int srv_completions;
 
 /* the client's view of the case */
 
@@ -795,6 +819,8 @@ static struct {
 					 * trickles it, h2 lets it all go
 					 * once the first stream ended */
 	uint8_t		hold_released;	/* h2: ...which is on its way */
+	uint8_t		hold_till_rx;	/* h2: ...or once the server spoke */
+	uint8_t		once_phase;	/* h3: ATK_ONCE_PATH, what was sent */
 
 	uint8_t		rx[ATK_RX_MAX];	/* h1: raw; h2 / h3: body bytes */
 	size_t		rx_len;
@@ -831,6 +857,8 @@ next_case(lws_sorted_usec_list_t *sul);
 struct pss {
 	char		body[1024];
 	int		len;
+	int		once_len;	/* ATK_ONCE_PATH: the answer waiting */
+	uint8_t		once;		/* the request is for ATK_ONCE_PATH */
 };
 
 /*
@@ -920,6 +948,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		if (n >= 0 && ulen == (int)strlen(ATK_REPLAYED_PATH) &&
 		    !memcmp(uri, ATK_REPLAYED_PATH, (size_t)ulen))
 			srv_replayed++;
+		if (n >= 0 && ulen == (int)strlen(ATK_ONCE_PATH) &&
+		    !memcmp(uri, ATK_ONCE_PATH, (size_t)ulen))
+			pss->once = 1;
 		if (n == LWSHUMETH_POST)
 			return 0;
 
@@ -929,7 +960,37 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		return echo_respond(wsi, pss);
+		if (!pss->once)
+			return echo_respond(wsi, pss);
+		/*
+		 * Answered a while after, with the stream still open for the
+		 * peer to go on after its body.  The headers may only be read
+		 * up to now, so the answer is composed now
+		 */
+		if (srv_completions++)
+			return 0;
+		if (echo_compose(wsi, pss))
+			return 1;
+		pss->once_len = pss->len;
+		pss->len = 0; /* not for a WRITEABLE before its headers */
+		lws_set_timer_usecs(wsi, ATK_ONCE_ANSWER_MS * LWS_US_PER_MS);
+		return 0;
+
+	case LWS_CALLBACK_TIMER: {
+		uint8_t *start = &buf[LWS_PRE], *p = start,
+			*end = &buf[sizeof(buf) - 1];
+
+		if (!pss || !pss->once_len)
+			break;
+		pss->len = pss->once_len;
+		pss->once_len = 0;
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+				"text/plain", (lws_filepos_t)pss->len, &p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+		lws_callback_on_writable(wsi);
+		return 0;
+	}
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		if (!pss || !pss->len)
@@ -1050,6 +1111,14 @@ evaluate(void)
 	/* whatever else, nothing may ever have served the secret */
 	if (find(cn.rx, cn.rx_len, ATK_SECRET_MARK)) {
 		case_done("served the secret");
+		return;
+	}
+
+	/* the body completed once, whatever the peer sent after it */
+	if (tc.check_once && srv_completions != 1) {
+		lws_snprintf(why, sizeof(why), "the server was given the "
+			     "body's completion %d times", srv_completions);
+		case_done(why);
 		return;
 	}
 
@@ -1544,6 +1613,7 @@ hp_lit_name(uint8_t *p, const char *n, const char *v)
 #define HP_IDX_AUTHORITY	1
 #define HP_IDX_METHOD		2
 #define HP_IDX_PATH		4
+#define HP_IDX_CONTENT_LENGTH	28
 #define HP_IDX_ACCEPT_ENCODING	0x90	/* accept-encoding: gzip, deflate */
 #define HP_IDX_USER_AGENT	58
 #define HP_IDX_DYN_NEWEST	62	/* the last dynamic table insert */
@@ -1919,6 +1989,34 @@ b_trailers_after_close(struct txb *t)
 	return 3;
 }
 
+/*
+ * A POST of a 10-byte body, the body only once the server has had time to
+ * dispatch the request: then the body in a DATA without END_STREAM, and a
+ * byte more in another DATA, in one write.  The first DATA completes the
+ * body, and the stream gives back its headers.  The second is more than its
+ * content-length, and once went by unrefused, taken as body and completing
+ * it again.  ATK_ONCE_PATH answers only later, so it is not that.
+ */
+
+static uint32_t
+b_data_after_body(struct txb *t)
+{
+	uint8_t hb[512], *p = hp_request(hb, HP_METHOD_POST, ATK_ONCE_PATH);
+
+	p = hp_lit(p, HP_IDX_CONTENT_LENGTH, ATK_ONCE_CL,
+		   strlen(ATK_ONCE_CL));
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+	cn.trickle_from = t->len;
+	cn.hold_till_rx = 1;
+
+	h2_frame(t, H2_DATA, 0, 1, ATK_ONCE_BODY, strlen(ATK_ONCE_BODY));
+	h2_frame(t, H2_DATA, 0, 1, "x", 1);
+
+	return 1;
+}
+
 static uint32_t
 b_uppercase_name(struct txb *t)
 {
@@ -2174,6 +2272,8 @@ static const struct h2_attack h2_attacks[] = {
 	  b_trailers_lost_entry, V_ECHO, 200, 0 },
 	{ "trailers arriving after the server finished their stream",
 	  b_trailers_after_close, V_ECHO, 200, 0 },
+	{ "DATA after the body completed", b_data_after_body, V_GOAWAY,
+	  H2_ERR_PROTOCOL_ERROR, 0 },
 };
 
 /*
@@ -2339,7 +2439,8 @@ callback_raw_h2(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		if (h2_rx(wsi, (const uint8_t *)in, len))
 			return -1;
-		if (cn.trickle_from && cn.first_ended && !cn.hold_released) {
+		if (cn.trickle_from && !cn.hold_released &&
+		    (cn.first_ended || cn.hold_till_rx)) {
 			cn.hold_released = 1;
 			lws_sul_schedule(context, 0, &sul_trickle,
 					 h2_hold_release_cb,
@@ -2363,6 +2464,61 @@ callback_raw_h2(struct lws *wsi, enum lws_callback_reasons reason,
  * The h3 client
  */
 
+/*
+ * ATK_ONCE_PATH: the client frames what it sends after its request headers
+ * itself, as a write that is not http goes out as it is.  First the body, in
+ * a DATA frame.  A while later, once the server completed the body, a
+ * trailers block, which ends the request (RFC 9114 4.1), an empty DATA, the
+ * same again, and the start of another trailers block, for the server to see
+ * the empty DATA before it end.  The stream is never finished.
+ */
+
+enum {
+	ATK_ONCE_SEND_BODY,
+	ATK_ONCE_WAIT,
+	ATK_ONCE_SEND_AFTER,
+	ATK_ONCE_SENT,
+};
+
+static int
+h3_once_tx(struct lws *wsi)
+{
+	static const uint8_t after[] = {
+		/* HEADERS: the qpack prefix, and static row 29, accept */
+		0x01, 0x03, 0x00, 0x00, 0xc0 | 29,
+		0x00, 0x00,			/* DATA, empty */
+		0x01, 0x03, 0x00, 0x00, 0xc0 | 29,
+		0x00, 0x00,
+		0x01, 0x03, 0x00, 0x00, 0xc0 | 29,
+	};
+	uint8_t buf[LWS_PRE + 32];
+	size_t n = sizeof(ATK_ONCE_BODY) - 1;
+
+	switch (cn.once_phase) {
+	case ATK_ONCE_SEND_BODY:
+		buf[LWS_PRE] = 0x00;		/* DATA */
+		buf[LWS_PRE + 1] = (uint8_t)n;
+		memcpy(&buf[LWS_PRE + 2], ATK_ONCE_BODY, n);
+		n += 2;
+		break;
+	case ATK_ONCE_SEND_AFTER:
+		memcpy(&buf[LWS_PRE], after, sizeof(after));
+		n = sizeof(after);
+		break;
+	default:
+		/* an unasked for WRITEABLE: nothing is due */
+		return 0;
+	}
+
+	if (lws_write(wsi, &buf[LWS_PRE], n, LWS_WRITE_BINARY) != (int)n)
+		return -1;
+
+	if (cn.once_phase++ == ATK_ONCE_SEND_BODY)
+		lws_set_timer_usecs(wsi, ATK_ONCE_AFTER_MS * LWS_US_PER_MS);
+
+	return 0;
+}
+
 static int
 callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 	    void *user, void *in, size_t len)
@@ -2378,6 +2534,8 @@ callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+	case LWS_CALLBACK_TIMER:
 		if (!is_current(wsi))
 			return lws_callback_http_dummy(wsi, reason, user, in,
 						       len);
@@ -2394,6 +2552,18 @@ callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!tc.h3a)
 			break;
+
+		if (tc.check_once) {
+			/* the body, and what follows it, are sent by us */
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					(const unsigned char *)ATK_ONCE_CL,
+					(int)strlen(ATK_ONCE_CL), p, end))
+				return -1;
+			lws_client_http_body_pending(wsi, 1);
+			lws_callback_on_writable(wsi);
+			break;
+		}
 
 		if (tc.h3a->static_fields) {
 			unsigned int n;
@@ -2450,6 +2620,18 @@ callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		cn.ended = 1;
 		evaluate();
+		break;
+
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		if (tc.check_once)
+			return h3_once_tx(wsi);
+		break;
+
+	case LWS_CALLBACK_TIMER:
+		if (tc.check_once && cn.once_phase == ATK_ONCE_WAIT) {
+			cn.once_phase = ATK_ONCE_SEND_AFTER;
+			lws_callback_on_writable(wsi);
+		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -2590,6 +2772,7 @@ case_pick(void)
 		tc.h2a = NULL;
 		tc.h3a = NULL;
 		tc.lossy = 0;
+		tc.check_once = 0;
 
 		if (tc.phase == PH_PATHS) {
 			const struct path_case *pc;
@@ -2646,6 +2829,8 @@ case_pick(void)
 			tc.status = tc.h2a->status;
 			tc.expect = "/alive";	/* what the cases ask for */
 			tc.lossy = tc.h2a->lossy;
+			tc.check_once = tc.h2a->build == b_data_after_body;
+			srv_completions = 0;
 			lws_strncpy(tc.name, tc.h2a->name, sizeof(tc.name));
 			if (only && !strstr(tc.name, only))
 				continue;
@@ -2661,6 +2846,8 @@ case_pick(void)
 			tc.check_replayed = tc.h3a->fault &&
 				!strcmp(tc.h3a->fault, "quic_stream_replay");
 			srv_replayed = 0;
+			tc.check_once = !strcmp(tc.path, ATK_ONCE_PATH);
+			srv_completions = 0;
 			lws_strncpy(tc.name, tc.h3a->name, sizeof(tc.name));
 			if (only && !strstr(tc.name, only))
 				continue;
@@ -2692,6 +2879,7 @@ next_case(lws_sorted_usec_list_t *sul)
 		tc.status = 200;
 		tc.expect = "/alive";
 		tc.lossy = 0;
+		tc.check_once = 0;
 		n = (int)strlen(tc.name);
 		lws_snprintf(tc.name + n, sizeof(tc.name) - (size_t)n,
 			     ", then /alive");
