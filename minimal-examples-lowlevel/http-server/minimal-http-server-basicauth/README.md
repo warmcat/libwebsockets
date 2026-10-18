@@ -11,8 +11,10 @@ combinations.
 
 ## Discovering the authenticated user
 
-After a successful authentication, the `WSI_TOKEN_HTTP_AUTHORIZATION` token
-contains the authenticated username.
+After a successful authentication, `lws_http_basic_auth_user(wsi)` returns
+the authenticated username until the transaction completes.  While the
+request headers last, the `WSI_TOKEN_HTTP_AUTHORIZATION` token also contains
+it.
 
 ## build
 

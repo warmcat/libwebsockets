@@ -5,7 +5,8 @@ the build has: h1, h2 with prior knowledge, h2 over tls and h3.  lws is both
 ends, in one process.
 
 `/` is a public file mount on `./docroot`, and `/private` a file mount on
-`./docroot/private`, inside it, behind the login file.
+`./docroot/private`, inside it, behind the login file.  `/who` is a callback
+mount behind the same login file.
 
 |request|expected|
 |---|---|
@@ -14,6 +15,8 @@ ends, in one process.
 |`/private/index.html`, credentials the login file lists|200, the private file|
 |`/index.html`|200, the public file|
 |`/PRIVATE/index.html`, `/Private/index.html`, `/private./index.html`, `/private%20/index.html`, no credentials|anything but the private file|
+|`/who`, no credentials|401, with the challenge|
+|`/who`, credentials the login file lists|200, naming the user from `lws_http_basic_auth_user()`, read after the callback gave the request headers back|
 
 The last row is for filesystems that find a file by more names than its own:
 case folds on windows and macOS, and windows drops the dots and spaces a name

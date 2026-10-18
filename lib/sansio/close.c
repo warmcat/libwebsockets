@@ -992,8 +992,11 @@ just_kill_connection:
 #endif
 #if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || \
      defined(LWS_ROLE_H3)) && defined(LWS_WITH_SERVER)
-	/* likewise the request's Content-Type snapshot */
+	/* likewise the request's Content-Type snapshot and basic auth user */
 	lws_free_set_NULL(wsi->http.content_type);
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	lws_free_set_NULL(wsi->http.basic_auth_user);
+#endif
 #endif
 
 	/*

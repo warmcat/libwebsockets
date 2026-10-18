@@ -430,6 +430,12 @@ struct _lws_http_mode_related {
 	 * at the first LWS_CALLBACK_HTTP_BODY, and the request headers are not
 	 * promised to be there then.  Per transaction: freed when it
 	 * completes, or when the wsi closes. */
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	char *basic_auth_user;
+	/**< server: the user name lws's basic auth accepted for this request
+	 * (or ws connection), or NULL; see lws_http_basic_auth_user().  Kept
+	 * like content_type, and dropped at the next request's dispatch. */
+#endif
 	unsigned int response_code;
 	const struct lws_protocol_vhost_options *mount_specific_headers;
 	unsigned int mount_specific_keepalive_timeout_secs;

@@ -570,8 +570,10 @@ The file should be readable by lwsws, and for a little bit of extra security not
 have a file suffix, so lws would reject to serve it even if it could find it on
 a mount.
 
-After successful authentication, `WSI_TOKEN_HTTP_AUTHORIZATION` contains the
-authenticated username.
+After successful authentication, `lws_http_basic_auth_user(wsi)` returns the
+authenticated username until the transaction completes, whether or not the
+request headers are still around.  `WSI_TOKEN_HTTP_AUTHORIZATION` is also
+rewritten to contain it, while the headers last.
 
 8) You can also control the exact path matching and redirect behavior per-mount.
 

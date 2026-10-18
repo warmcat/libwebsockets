@@ -987,6 +987,26 @@ enum {
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len);
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && defined(LWS_WITH_SERVER)
+/**
+ * lws_http_basic_auth_user() - the user name basic auth accepted
+ *
+ * \param wsi: the server connection or stream
+ *
+ * Returns the user name lws's own basic auth (a mount's
+ * "basic-auth" login file or LWSAUTHM_BASIC_AUTH_CALLBACK, or a ws
+ * protocol's "basic-auth" pvo) accepted for the request being served, or
+ * NULL if it was not authenticated that way.
+ *
+ * Unlike WSI_TOKEN_HTTP_AUTHORIZATION, which lws also rewrites to the user
+ * name, it does not depend on the request headers still being there: it is
+ * valid until the transaction completes, or for a ws connection, until it
+ * closes.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_http_basic_auth_user(struct lws *wsi);
+#endif
+
 ///@}
 
 /*! \defgroup urlendec Urlencode and Urldecode

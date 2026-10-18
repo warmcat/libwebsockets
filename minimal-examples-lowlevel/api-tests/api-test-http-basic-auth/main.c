@@ -19,6 +19,11 @@
  * to /, which must still not serve them without credentials.  Elsewhere
  * there is no such file: either way, the private file is not served.
  *
+ * /who is a callback mount behind the same login file, whose callback gives
+ * the request headers back at once and then answers with the name
+ * lws_http_basic_auth_user() reports: it must be the user the credentials
+ * were for, without the headers.
+ *
  * lws is both ends here.  The login file is ./basic-auth.txt and the files
  * are in ./docroot, so run it with the test directory as the cwd.
  */
@@ -49,6 +54,7 @@ enum expect {
 	EX_PRIVATE,	/* 200, the private file */
 	EX_PUBLIC,	/* 200, the public file */
 	EX_NOT_PRIVATE,	/* anything but the private file */
+	EX_WHO,		/* 200, naming the authenticated user */
 };
 
 struct xcase {
@@ -60,6 +66,7 @@ struct xcase {
 
 #define PRIVATE_MARK	"lws-basic-auth-private"
 #define PUBLIC_MARK	"lws-basic-auth-public"
+#define WHO_MARK	"who=test-user"
 
 #define XP_CASES(x) \
 	{ x, CR_NONE,  EX_CHALLENGE,   "/private/index.html" }, \
@@ -69,7 +76,9 @@ struct xcase {
 	{ x, CR_NONE,  EX_NOT_PRIVATE, "/PRIVATE/index.html" }, \
 	{ x, CR_NONE,  EX_NOT_PRIVATE, "/Private/index.html" }, \
 	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private./index.html" }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private%20/index.html" }
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private%20/index.html" }, \
+	{ x, CR_NONE,  EX_CHALLENGE,   "/who" }, \
+	{ x, CR_RIGHT, EX_WHO,         "/who" }
 
 static const struct xcase cases[] = {
 	XP_CASES(XP_H1),
@@ -200,7 +209,17 @@ static const char * const test_key =
  * has goes to the mount's protocol, the dummy callback, which answers 404.
  */
 
+static const struct lws_http_mount mount_who = {
+	.mountpoint		= "/who",
+	.origin			= "who",
+	.protocol		= "who",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 4,
+	.basic_auth_login_file	= "./basic-auth.txt",
+};
+
 static const struct lws_http_mount mount_private = {
+	.mount_next		= &mount_who,
 	.mountpoint		= "/private",
 	.origin			= "./docroot/private",
 	.def			= "index.html",
@@ -269,6 +288,13 @@ case_evaluate(void)
 		if (cli.status != HTTP_STATUS_OK ||
 		    !strstr(cli.body, PUBLIC_MARK))
 			case_done("not served");
+		else
+			case_done(NULL);
+		return;
+
+	case EX_WHO:
+		if (cli.status != HTTP_STATUS_OK || !strstr(cli.body, WHO_MARK))
+			case_done("not answered with the authenticated user");
 		else
 			case_done(NULL);
 		return;
@@ -380,8 +406,36 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * /who: done with the request headers at once, then names the user basic
+ * auth accepted
+ */
+static int
+callback_who(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	     void *in, size_t len)
+{
+	const char *u;
+	char body[64];
+
+	if (reason != LWS_CALLBACK_HTTP)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	if (lws_http_headers_detach(wsi))
+		return -1;
+
+	u = lws_http_basic_auth_user(wsi);
+	lws_snprintf(body, sizeof(body), "who=%s", u ? u : "(nobody)");
+
+	if (lws_return_http_status(wsi, HTTP_STATUS_OK, body) ||
+	    lws_http_transaction_completed(wsi))
+		return -1;
+
+	return 0;
+}
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "who", callback_who, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 

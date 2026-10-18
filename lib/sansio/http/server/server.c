@@ -1181,16 +1181,24 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 	}
 
 	/*
-	 * Rewrite WSI_TOKEN_HTTP_AUTHORIZATION so it is just the
-	 * authorized username
+	 * Keep the authorized user name on the wsi, where it outlives the
+	 * request headers, and for compatibility rewrite
+	 * WSI_TOKEN_HTTP_AUTHORIZATION so it is just that name too
 	 */
 
 	le = lws_ptr_diff_size_t(pcolon, plain);
 	plain[le] = '\0';
-	lws_authorization_rewrite(wsi, plain, le);
 
-	lwsl_wsi_info(wsi, "%s: basic auth accepted for '%s'\n", __func__,       
-			lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION));
+	lws_free(wsi->http.basic_auth_user);
+	wsi->http.basic_auth_user = lws_strdup(plain);
+	lws_explicit_bzero(plain, sizeof(plain));
+	if (!wsi->http.basic_auth_user)
+		return LCBA_END_TRANSACTION;
+
+	lws_authorization_rewrite(wsi, wsi->http.basic_auth_user, le);
+
+	lwsl_wsi_info(wsi, "%s: basic auth accepted for '%s'\n", __func__,
+		      wsi->http.basic_auth_user);
 
 	return LCBA_CONTINUE;
 #else
@@ -1200,6 +1208,14 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 #endif
 }
 
+#endif
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+const char *
+lws_http_basic_auth_user(struct lws *wsi)
+{
+	return wsi->http.basic_auth_user;
+}
 #endif
 
 /*
@@ -2556,6 +2572,10 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 	 */
 	if (lws_http_snapshot_content_type(wsi))
 		return lws_http_gate_bail(wsi, g);
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	/* an earlier request's authorization says nothing about this one */
+	lws_free_set_NULL(wsi->http.basic_auth_user);
+#endif
 
 	/*
 	 * ... and what a file served for it later needs to know: whether a
@@ -4017,6 +4037,9 @@ lws_http_transaction_completed(struct lws *wsi)
 {
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
 	lws_free_set_NULL(wsi->http.content_type);
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	lws_free_set_NULL(wsi->http.basic_auth_user);
+#endif
 
 	/*
 	 * A connection already closing has no transaction left to complete,
