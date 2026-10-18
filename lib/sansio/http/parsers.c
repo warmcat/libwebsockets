@@ -183,24 +183,56 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	lws_pt_unlock(pt);
 }
 
-static void
-_lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
+/* the link to wsi on his pt's ah wait list, or NULL if he is not on it */
+
+static struct lws **
+__lws_ah_wait_list_find(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws **pwsi = &pt->http.ah_wait_list;
 
 	while (*pwsi) {
 		if (*pwsi == wsi)
-			return;
+			return pwsi;
 		pwsi = &(*pwsi)->http.ah_wait_list;
 	}
 
-	lwsl_info("%s: wsi: %s\n", __func__, lws_wsi_tag(wsi));
-	wsi->http.ah_wait_list = pt->http.ah_wait_list;
-	pt->http.ah_wait_list = wsi;
-	pt->http.ah_wait_list_length++;
+	return NULL;
+}
 
-	/* we cannot accept input then */
+int
+lws_header_table_is_waiting(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	int n;
+
+	lws_pt_lock(pt, __func__);
+	n = !!__lws_ah_wait_list_find(wsi);
+	lws_pt_unlock(pt);
+
+	return n;
+}
+
+static void
+_lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	if (!__lws_ah_wait_list_find(wsi)) {
+		lwsl_info("%s: wsi: %s\n", __func__, lws_wsi_tag(wsi));
+		wsi->http.ah_wait_list = pt->http.ah_wait_list;
+		pt->http.ah_wait_list = wsi;
+		pt->http.ah_wait_list_length++;
+	}
+
+	/*
+	 * We cannot accept input until he has an ah: the ah's arrival turns
+	 * POLLIN on again (__lws_header_table_detach()).  Make sure of it on
+	 * every refusal, not only the first: a waiter left readable is
+	 * reported readable on every poll and refused unread every time, a
+	 * spin until an ah frees up, so whatever turned POLLIN on behind the
+	 * wait list's back costs one pass, not that (G-209).
+	 */
 
 	__lws_io_want_read(wsi, 0);
 }
@@ -208,24 +240,20 @@ _lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
 static int
 __lws_remove_from_ah_waiting_list(struct lws *wsi)
 {
-        struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct lws **pwsi =&pt->http.ah_wait_list;
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws **pwsi = __lws_ah_wait_list_find(wsi);
 
-	while (*pwsi) {
-		if (*pwsi == wsi) {
-			lwsl_info("%s: wsi %s\n", __func__, lws_wsi_tag(wsi));
-			/* point prev guy to our next */
-			*pwsi = wsi->http.ah_wait_list;
-			/* we shouldn't point anywhere now */
-			wsi->http.ah_wait_list = NULL;
-			pt->http.ah_wait_list_length--;
+	if (!pwsi)
+		return 0;
 
-			return 1;
-		}
-		pwsi = &(*pwsi)->http.ah_wait_list;
-	}
+	lwsl_info("%s: wsi %s\n", __func__, lws_wsi_tag(wsi));
+	/* point prev guy to our next */
+	*pwsi = wsi->http.ah_wait_list;
+	/* we shouldn't point anywhere now */
+	wsi->http.ah_wait_list = NULL;
+	pt->http.ah_wait_list_length--;
 
-	return 0;
+	return 1;
 }
 
 lws_ah_attach_result_t LWS_WARN_UNUSED_RESULT

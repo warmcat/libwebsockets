@@ -1939,6 +1939,10 @@ __lws_header_table_detach(struct lws *wsi, int autoservice);
 void
 lws_header_table_reset(struct lws *wsi, int autoservice);
 
+/* nonzero if the wsi is on its pt's wait list for an ah */
+int
+lws_header_table_is_waiting(struct lws *wsi);
+
 /*
  * Give token dst, which must not be present, the value src already has,
  * without copying it: dst gets a fragment of its own over src's bytes, so it

@@ -575,7 +575,20 @@ lws_pre_accept_service(struct lws *wsi)
 		return 1;
 	}
 
-	/* the role reads what he sent */
+	/*
+	 * The role reads what he sent, unless he is waiting for an ah to read
+	 * it into since he became the named client's
+	 * (lws_pre_accept_proxy_v2()).  The role refuses to read without one,
+	 * so readable meanwhile, he would be reported, and refused, on every
+	 * poll until an ah frees up (G-209): he stays deaf until the ah's
+	 * arrival turns POLLIN on (__lws_header_table_detach()).
+	 */
+#if defined(LWS_WITH_PEER_LIMITS) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+	if (lws_header_table_is_waiting(wsi))
+		return lws_change_pollfd(wsi, LWS_POLLIN, 0);
+#endif
+
 	return lws_change_pollfd(wsi, 0, LWS_POLLIN);
 }
 

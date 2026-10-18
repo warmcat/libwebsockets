@@ -41,6 +41,15 @@
  *
  *  - one naming B sends a whole GET and is served at once: A holding its
  *    one ah must not hold B's.
+ *
+ * While a connection is held, the server must wait for something to happen,
+ * not spin on it: a connection left waiting for an ah with POLLIN on is
+ * reported readable on every poll, and turned away unread every time
+ * (G-209).  The event loop's turns that did not sleep are counted by how
+ * long they took: a loop that waits properly spends at most the last
+ * millisecond before each timer that way, polling without waiting because
+ * the wait is truncated to whole ms, while a spinning one spends the whole
+ * held window.
  */
 
 #include <libwebsockets.h>
@@ -52,6 +61,10 @@
 #define PVL_STEP_US	(3 * LWS_US_PER_SEC)
 /* how long a connection that should be left waiting is watched for */
 #define PVL_HELD_US	(500 * LWS_US_PER_MS)
+/* an event loop turn shorter than this did not sleep */
+#define PVL_SLEPT_US	LWS_US_PER_MS
+/* how long of a held window the loop may spend not sleeping */
+#define PVL_BUSY_MAX_US	(100 * LWS_US_PER_MS)
 
 enum pvl_outcome {
 	PVL_SERVED,	/* answered, and left open */
@@ -101,6 +114,7 @@ static const char *server = "localhost";
 static const struct pvl_step *steps;
 static int nsteps, port, step, fails, finished, judged, answered, closed;
 static int notifies, check_notify;
+static lws_usec_t busy_us;	/* this step's event loop turns not sleeping */
 static char notified[64];
 
 static void
@@ -129,6 +143,16 @@ pvl_judge(const char *why)
 			fails++;
 		} else
 			lwsl_user("  PASS: %s\n", s->name);
+
+	if (s->expect == PVL_HELD) {
+		lwsl_user("  the event loop did not sleep for %dms of it\n",
+			  (int)(busy_us / LWS_US_PER_MS));
+		if (busy_us > PVL_BUSY_MAX_US) {
+			lwsl_err("  FAIL: %s: the server spun meanwhile\n",
+				 s->name);
+			fails++;
+		}
+	}
 
 	lws_sul_schedule(context, 0, &sul_step, pvl_next, 1);
 }
@@ -284,6 +308,7 @@ pvl_next(lws_sorted_usec_list_t *sul)
 	judged		= 0;
 	answered	= 0;
 	closed		= 0;
+	busy_us		= 0;
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
@@ -312,6 +337,7 @@ pvl_phase(const char *what, const struct pvl_step *s, int n,
 {
 	struct lws_context_creation_info info;
 	struct lws_vhost *vh;
+	lws_usec_t t;
 	int m = 0;
 
 	lwsl_user("%s\n", what);
@@ -362,8 +388,13 @@ pvl_phase(const char *what, const struct pvl_step *s, int n,
 
 	lws_sul_schedule(context, 0, &sul_step, pvl_next, 1);
 
-	while (m >= 0 && !finished)
+	while (m >= 0 && !finished) {
+		t = lws_now_usecs();
 		m = lws_service(context, 0);
+		t = lws_now_usecs() - t;
+		if (t < PVL_SLEPT_US)
+			busy_us += t;
+	}
 
 	lws_sul_cancel(&sul_step);
 	lws_context_destroy(context);
