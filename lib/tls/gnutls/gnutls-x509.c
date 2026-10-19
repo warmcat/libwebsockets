@@ -137,13 +137,13 @@ lws_x509_create_cert(struct lws_context *context,
 	}
 	*key_buf = malloc((size_t)data.size);
 	if (!*key_buf) {
-		gnutls_free(data.data);
+		lws_gnutls_free_secret(&data);
 		free(*cert_buf);
 		goto bail;
 	}
 	memcpy(*key_buf, data.data, (size_t)data.size);
 	*key_len = (size_t)data.size;
-	gnutls_free(data.data);
+	lws_gnutls_free_secret(&data);
 
 	ret = 0;
 
@@ -416,9 +416,11 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		    e.size != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len ||
 		    memcmp(e.data, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, e.size)) {
 			lwsl_err("%s: privkey doesn't match jwk pubkey\n", __func__);
-			gnutls_free(m.data); gnutls_free(e.data); gnutls_free(d.data);
-			gnutls_free(p.data); gnutls_free(q.data); gnutls_free(u.data);
-			gnutls_free(exp1.data); gnutls_free(exp2.data);
+			gnutls_free(m.data); gnutls_free(e.data);
+			lws_gnutls_free_secret(&d); lws_gnutls_free_secret(&p);
+			lws_gnutls_free_secret(&q); lws_gnutls_free_secret(&u);
+			lws_gnutls_free_secret(&exp1);
+			lws_gnutls_free_secret(&exp2);
 			goto bail;
 		}
 
@@ -435,9 +437,10 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		    lws_gnutls_datum_to_keyelem(&exp2,
 				&jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ]);
 
-		gnutls_free(m.data); gnutls_free(e.data); gnutls_free(d.data);
-		gnutls_free(p.data); gnutls_free(q.data); gnutls_free(u.data);
-		gnutls_free(exp1.data); gnutls_free(exp2.data);
+		gnutls_free(m.data); gnutls_free(e.data);
+		lws_gnutls_free_secret(&d); lws_gnutls_free_secret(&p);
+		lws_gnutls_free_secret(&q); lws_gnutls_free_secret(&u);
+		lws_gnutls_free_secret(&exp1); lws_gnutls_free_secret(&exp2);
 
 		if (n)
 			goto bail;
@@ -472,14 +475,16 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		    memcmp(y.data, jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
 			   y.size)) {
 			lwsl_err("%s: EC privkey doesn't match jwk pubkey\n", __func__);
-			gnutls_free(x.data); gnutls_free(y.data); gnutls_free(k.data);
+			gnutls_free(x.data); gnutls_free(y.data);
+			lws_gnutls_free_secret(&k);
 			goto bail;
 		}
 
 		n = lws_gnutls_datum_to_keyelem(&k,
 					&jwk->e[LWS_GENCRYPTO_EC_KEYEL_D]);
 
-		gnutls_free(x.data); gnutls_free(y.data); gnutls_free(k.data);
+		gnutls_free(x.data); gnutls_free(y.data);
+		lws_gnutls_free_secret(&k);
 
 		if (n)
 			goto bail;
@@ -684,15 +689,17 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 	if (gnutls_x509_privkey_export2(key, GNUTLS_X509_FMT_PEM, &der) < 0)
 		goto bail_crq;
 
+	/* der is now the PEM private key */
+
 	*privkey_pem = malloc((size_t)der.size + 1);
 	if (!*privkey_pem) {
-		gnutls_free(der.data);
+		lws_gnutls_free_secret(&der);
 		goto bail_crq;
 	}
 	memcpy(*privkey_pem, der.data, der.size);
 	(*privkey_pem)[der.size] = '\0';
 	*privkey_len = der.size;
-	gnutls_free(der.data);
+	lws_gnutls_free_secret(&der);
 
 	ret = csr_b64_len;
 

@@ -89,7 +89,8 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 	gnutls_priority_deinit(ctx->priority);
 #if GNUTLS_VERSION_NUMBER >= 0x030603
 	if (ctx->ticket_key_valid) {
-		gnutls_free(ctx->ticket_key.data);
+		/* it encrypts every session ticket the vhost issued */
+		lws_gnutls_free_secret(&ctx->ticket_key);
 		ctx->ticket_key_valid = 0;
 	}
 #endif

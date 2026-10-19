@@ -153,23 +153,23 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		/* It failed halfway, caller will call destroy */
 		gnutls_free(m.data);
 		gnutls_free(e.data);
-		gnutls_free(d.data);
-		gnutls_free(p.data);
-		gnutls_free(q.data);
-		gnutls_free(u.data);
-		gnutls_free(e1.data);
-		gnutls_free(e2.data);
+		lws_gnutls_free_secret(&d);
+		lws_gnutls_free_secret(&p);
+		lws_gnutls_free_secret(&q);
+		lws_gnutls_free_secret(&u);
+		lws_gnutls_free_secret(&e1);
+		lws_gnutls_free_secret(&e2);
 		goto bail;
 	}
 
 	gnutls_free(m.data);
 	gnutls_free(e.data);
-	gnutls_free(d.data);
-	gnutls_free(p.data);
-	gnutls_free(q.data);
-	gnutls_free(u.data);
-	gnutls_free(e1.data);
-	gnutls_free(e2.data);
+	lws_gnutls_free_secret(&d);
+	lws_gnutls_free_secret(&p);
+	lws_gnutls_free_secret(&q);
+	lws_gnutls_free_secret(&u);
+	lws_gnutls_free_secret(&e1);
+	lws_gnutls_free_secret(&e2);
 
 	ret = 0;
 
@@ -289,14 +289,16 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
+	/* the plaintext is often a key itself, eg, a JWE CEK */
+
 	if (v_out.size > out_max) {
-		gnutls_free(v_out.data);
+		lws_gnutls_free_secret(&v_out);
 		return -1;
 	}
 
 	memcpy(out, v_out.data, v_out.size);
 	n = (int)v_out.size;
-	gnutls_free(v_out.data);
+	lws_gnutls_free_secret(&v_out);
 
 	return n;
 }

@@ -242,13 +242,16 @@ lws_gendtls_destroy(struct lws_gendtls_ctx *ctx)
 	if (ctx->cred)
 		gnutls_certificate_free_credentials(ctx->cred);
 
-	if (ctx->cookie_key.data)
-		gnutls_free(ctx->cookie_key.data);
+	/* the cookie HMAC key */
+	lws_gnutls_free_secret(&ctx->cookie_key);
 
 	/* the cert and key copies taken by set_cert_mem() / set_key_mem() */
 
 	lws_free_set_NULL(ctx->cert_mem);
-	lws_free_set_NULL(ctx->key_mem);
+	if (ctx->key_mem) {
+		lws_explicit_bzero(ctx->key_mem, ctx->key_len);
+		lws_free_set_NULL(ctx->key_mem);
+	}
 
 	lws_buflist_destroy_all_segments(&ctx->rx_head);
 	lws_buflist_destroy_all_segments(&ctx->tx_head);
@@ -285,8 +288,12 @@ lws_gendtls_set_cert_mem(struct lws_gendtls_ctx *ctx, const uint8_t *cert, size_
 LWS_VISIBLE int
 lws_gendtls_set_key_mem(struct lws_gendtls_ctx *ctx, const uint8_t *key, size_t len)
 {
-	if (ctx->key_mem)
-		lws_free(ctx->key_mem);
+	if (ctx->key_mem) {
+		/* our copy of the private key we are replacing */
+		lws_explicit_bzero(ctx->key_mem, ctx->key_len);
+		lws_free_set_NULL(ctx->key_mem);
+		ctx->key_len = 0;
+	}
 
 	ctx->key_mem = lws_malloc(len + 1, "gendtls_key");
 	if (!ctx->key_mem)

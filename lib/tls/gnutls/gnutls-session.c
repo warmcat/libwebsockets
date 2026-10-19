@@ -41,6 +41,31 @@ typedef struct lws_tls_session_cache_gnutls {
 
 #define lwsl_tlssess lwsl_info
 
+/*
+ * The serialized session is the resumption secret (TLS1.3) or master secret
+ * (TLS1.2) along with the ticket: copies of it must not be left in freed heap
+ */
+
+static void
+lws_tls_session_blob_free(void *blob, size_t len)
+{
+	if (!blob)
+		return;
+
+	lws_explicit_bzero(blob, len);
+	free(blob);
+}
+
+static void
+lws_tls_session_ser_data_clear(lws_ser_sess_t *sd)
+{
+	if (sd->data) {
+		lws_explicit_bzero(sd->data, sd->len);
+		lws_free_set_NULL(sd->data);
+	}
+	sd->len = 0;
+}
+
 static void
 __lws_tls_session_destroy(lws_tls_scm_t *ts)
 {
@@ -54,8 +79,7 @@ __lws_tls_session_destroy(lws_tls_scm_t *ts)
 	lws_sul_cancel(&ts->sul_ttl);
 	lws_dll2_remove(&ts->list);		/* vh lock */
 	if (ts->ser_data) {
-		if (ts->ser_data->data)
-			lws_free(ts->ser_data->data);
+		lws_tls_session_ser_data_clear(ts->ser_data);
 		lws_free(ts->ser_data);
 	}
 
@@ -275,7 +299,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	if (gd.size < 32) {
 		lwsl_info("%s: session data too small (%u bytes), ignoring stub ticket\n",
 			    __func__, gd.size);
-		gnutls_free(gd.data);
+		lws_gnutls_free_secret(&gd);
 		return 0;
 	}
 
@@ -357,8 +381,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 			memset(ts->ser_data, 0, sizeof(*ts->ser_data));
 		}
 
-		if (ts->ser_data->data)
-			lws_free(ts->ser_data->data);
+		lws_tls_session_ser_data_clear(ts->ser_data);
 
 		ts->ser_data->data = lws_malloc(gd.size, __func__);
 		if (!ts->ser_data->data) {
@@ -376,7 +399,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
 	}
 
-	gnutls_free(gd.data);
+	lws_gnutls_free_secret(&gd);
 
 	lws_vhost_unlock(vh); /* } vh --------------  */
 	lws_context_unlock(vh->context); /* } cx --------------  */
@@ -394,7 +417,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	return 1;
 
 bail:
-	gnutls_free(gd.data);
+	lws_gnutls_free_secret(&gd);
 	lws_vhost_unlock(vh); /* } vh --------------  */
 	lws_context_unlock(vh->context); /* } cx --------------  */
 
@@ -479,6 +502,7 @@ lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
 	else
 		ret = 0;
 
+	lws_explicit_bzero(v, d.blob_len);
 	lws_free(v);
 
 bail:
@@ -527,14 +551,14 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 	ts = lws_tls_session_add_entry(vh, d.tag);
 	if (!ts) {
 		lwsl_warn("%s: unable to add cache entry\n", __func__);
-		free(v);
+		lws_tls_session_blob_free(v, d.blob_len);
 		goto bail1;
 	}
 
 	if (!ts->ser_data) {
 		ts->ser_data = lws_malloc(sizeof(*ts->ser_data), __func__);
 		if (!ts->ser_data) {
-			free(v);
+			lws_tls_session_blob_free(v, d.blob_len);
 			goto bail1;
 		}
 		memset(ts->ser_data, 0, sizeof(*ts->ser_data));
@@ -542,13 +566,13 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 
 	ts->ser_data->data = lws_malloc(d.blob_len, __func__);
 	if (!ts->ser_data->data) {
-		free(v);
+		lws_tls_session_blob_free(v, d.blob_len);
 		goto bail1;
 	}
 
 	memcpy(ts->ser_data->data, v, d.blob_len);
 	ts->ser_data->len = d.blob_len;
-	free(v);
+	lws_tls_session_blob_free(v, d.blob_len);
 
 	/*
 	 * A session that came back from cold storage needs the same expiry as

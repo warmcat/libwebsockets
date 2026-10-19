@@ -242,7 +242,11 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 bail:
 	lws_free(x_pad);
 	lws_free(y_pad);
-	lws_free(d_pad);
+	if (d_pad) {
+		/* our padded copy of the private key */
+		lws_explicit_bzero(d_pad, (size_t)keybytes);
+		lws_free(d_pad);
+	}
 
 	return ret;
 }
@@ -332,7 +336,7 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 bail_datum:
 	gnutls_free(x.data);
 	gnutls_free(y.data);
-	gnutls_free(d.data);
+	lws_gnutls_free_secret(&d);
 bail:
 	if (ret) {
 		gnutls_privkey_deinit(ctx->priv);
@@ -363,7 +367,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 		if ((int)secret.size == *ss_len + 1 && secret.data[0] == 0) {
 			memcpy(ss, secret.data + 1, (size_t)*ss_len);
 		} else {
-			gnutls_free(secret.data);
+			lws_gnutls_free_secret(&secret);
 			return -1;
 		}
 	} else if ((int)secret.size < *ss_len) {
@@ -376,7 +380,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 
 	/* keep *ss_len as the requested derivation size (keybytes of the curve), which is the padded length */
 
-	gnutls_free(secret.data);
+	lws_gnutls_free_secret(&secret);
 
 	return 0;
 }

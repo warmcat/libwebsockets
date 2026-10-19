@@ -43,6 +43,23 @@ struct lws_x509_cert {
 	gnutls_x509_crt_t cert;
 };
 
+/*
+ * Free a gnutls-allocated datum that held something secret (private key
+ * elements, a session ticket key, a serialized session, a derived secret or
+ * decrypted plaintext): gnutls_free() alone leaves it in freed heap
+ */
+
+static LWS_INLINE void
+lws_gnutls_free_secret(gnutls_datum_t *d)
+{
+	if (d->data) {
+		lws_explicit_bzero(d->data, d->size);
+		gnutls_free(d->data);
+		d->data = NULL;
+	}
+	d->size = 0;
+}
+
 struct lws;
 
 #if defined(LWS_WITH_CLIENT)
