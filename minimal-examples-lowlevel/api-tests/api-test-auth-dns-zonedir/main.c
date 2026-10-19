@@ -20,7 +20,8 @@
  * | 5 | good dir, but undecorated / short-suffix / group-writable / symlinked zone files | all loaded and served | only the properly shaped file loads, the rest answer REFUSED |
  * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them |
  * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
- * | 8 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
+ * | 8 | a zone with a delegation (G-246) | names at / below the cut answered authoritatively from the zone text | referred: no AA, the cut's NS in authority; only the DS at the cut answered |
+ * | 9 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
  *
  * Phase 6 stands in for lws-dht-dnssec with a protocol of that name whose
  * ops only collect the callback auth-dns registers for verified zones.  The
@@ -34,6 +35,12 @@
  * times out (5s) and is answered REFUSED, nothing is waiting for the zone any
  * more: the fetch must have been given up, its completion called exactly
  * once, as timed out, leaving nothing holding auth-dns' opaque.
+ *
+ * Phase 8 serves a zone delegating a subdomain, with glue and with data
+ * occluded by the delegation in the zone text: the zone is not
+ * authoritative for any of it, so every name at or below the cut must be
+ * referred to the child's name servers, except the DS at the cut, which is
+ * the parent's own.
  *
  * "No listener" is observed two ways: queries stay unanswered, and the UDP
  * port is bindable by the test itself afterwards (the plugin only creates
@@ -89,6 +96,10 @@ struct qexp {
 	int		got_rcode;
 	int		got_anc;
 	int		sent;
+	uint16_t	qtype;		/* 0: A */
+	int		expect_ref;	/* 1: a referral, 2: an AA answer */
+	int		got_aa;
+	int		got_nsc;
 };
 
 #define MAX_Q		5
@@ -330,29 +341,21 @@ mk_zone_dir(const char *path, mode_t mode)
 }
 
 static int
-write_zone(const char *dir, const char *fname, const char *origin,
-	   const char *ip, mode_t mode)
+write_zone_text(const char *dir, const char *fname, const char *text,
+		mode_t mode)
 {
-	char path[1024], buf[2048];
+	size_t l = strlen(text);
+	char path[1024];
 	int fd, n;
 
 	lws_snprintf(path, sizeof(path), "%s/%s", dir, fname);
-	n = lws_snprintf(buf, sizeof(buf),
-			"$ORIGIN %s.\n"
-			"$TTL 86400\n"
-			"@	IN	SOA	ns1.%s. hostmaster.%s. (\n"
-			"			2026090101 ; serial\n"
-			"			3600 1800 604800 86400 )\n"
-			"@	IN	NS	ns1.%s.\n"
-			"www	IN	A	%s\n",
-			origin, origin, origin, origin, ip);
 
 	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (fd < 0) {
 		lwsl_err("%s: open %s failed\n", __func__, path);
 		return 1;
 	}
-	n = (write(fd, buf, (size_t)n) == n);
+	n = (write(fd, text, l) == (ssize_t)l);
 	close(fd);
 
 	if (!n || chmod(path, mode)) {
@@ -362,6 +365,44 @@ write_zone(const char *dir, const char *fname, const char *origin,
 
 	return 0;
 }
+
+static int
+write_zone(const char *dir, const char *fname, const char *origin,
+	   const char *ip, mode_t mode)
+{
+	char buf[2048];
+
+	lws_snprintf(buf, sizeof(buf),
+			"$ORIGIN %s.\n"
+			"$TTL 86400\n"
+			"@	IN	SOA	ns1.%s. hostmaster.%s. (\n"
+			"			2026090101 ; serial\n"
+			"			3600 1800 604800 86400 )\n"
+			"@	IN	NS	ns1.%s.\n"
+			"www	IN	A	%s\n",
+			origin, origin, origin, origin, ip);
+
+	return write_zone_text(dir, fname, buf, mode);
+}
+
+/*
+ * phase 8: sub.dl.example is delegated, with glue, and the zone text also
+ * has an A record below the cut that the zone cannot be authoritative for
+ */
+
+static const char *zone_deleg =
+	"$ORIGIN dl.example.\n"
+	"$TTL 86400\n"
+	"@	IN	SOA	ns1.dl.example. hostmaster.dl.example. "
+		"( 2026090101 3600 1800 604800 86400 )\n"
+	"@	IN	NS	ns1.dl.example.\n"
+	"ns1	IN	A	127.0.0.1\n"
+	"www	IN	A	127.0.0.77\n"
+	"sub	IN	NS	ns.sub.dl.example.\n"
+	"sub	IN	DS	12345 13 2 0123456789abcdef0123456789abcdef"
+		"0123456789abcdef0123456789abcdef\n"
+	"ns.sub	IN	A	127.0.0.53\n"
+	"www.sub	IN	A	127.0.0.66\n";
 
 static int
 plant_fixtures(void)
@@ -472,8 +513,15 @@ plant_fixtures(void)
 		}
 	}
 
+	/* phase 8: a zone with a delegation */
+
+	lws_snprintf(dir, sizeof(dir), "%s/deleg", run_dir);
+	if (mk_zone_dir(dir, 0755) ||
+	    write_zone_text(dir, "dl.example" DECOR, zone_deleg, 0644))
+		return 1;
+
 	/*
-	 * phases 7+8 (root only): another uid's file in an otherwise good
+	 * phases 9+10 (root only): another uid's file in an otherwise good
 	 * dir, and another uid's dir
 	 */
 
@@ -512,7 +560,8 @@ static void
 unplant_fixtures(void)
 {
 	static const char *const subdirs[] = {
-		"good", "ww", "real", "files", "dht", "rootfile", "rootdir"
+		"good", "ww", "real", "files", "dht", "deleg", "rootfile",
+		"rootdir"
 	};
 	size_t i;
 
@@ -556,6 +605,8 @@ unplant_fixtures(void)
 		lws_snprintf(fpath, sizeof(fpath), "%s/another.example" DECOR, dpath);
 		unlink(fpath);
 		lws_snprintf(fpath, sizeof(fpath), "%s/victim.example" DECOR, dpath);
+		unlink(fpath);
+		lws_snprintf(fpath, sizeof(fpath), "%s/dl.example" DECOR, dpath);
 		unlink(fpath);
 
 		rmdir(dpath);
@@ -634,6 +685,8 @@ drive_cb(lws_sorted_usec_list_t *sul)
 
 		q->got_rcode = buf[3] & 0xf;
 		q->got_anc = (buf[6] << 8) | buf[7];
+		q->got_aa = !!(buf[2] & 0x04);
+		q->got_nsc = (buf[8] << 8) | buf[9];
 	} while (1);
 
 	/* first tick after the listeners should be up: send the queries */
@@ -665,7 +718,8 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		for (n = 0; n < MAX_Q && cur->q[n].name; n++) {
 			size_t ql = mk_query(buf, sizeof(buf), cur->q[n].id,
 					     cur->q[n].name,
-					     LWS_ADNS_RECORD_A);
+					     cur->q[n].qtype ? cur->q[n].qtype :
+							LWS_ADNS_RECORD_A);
 
 			if (!ql ||
 			    sendto(cli_fd, buf, ql, 0,
@@ -714,6 +768,27 @@ drive_cb(lws_sorted_usec_list_t *sul)
 					lwsl_user("phase '%s': %s stayed "
 						  "unanswered\n", cur->name,
 						  cur->q[i].name);
+				continue;
+			}
+			/*
+			 * a referral: not authoritative, no answer, the cut's
+			 * NS RRset in the authority section
+			 */
+			if (cur->q[i].expect_ref == 1 &&
+			    (cur->q[i].got_aa || cur->q[i].got_anc ||
+			     cur->q[i].got_nsc < 1)) {
+				lwsl_err("phase '%s': FAIL %s not referred: "
+					 "aa %d anc %d nsc %d\n", cur->name,
+					 cur->q[i].name, cur->q[i].got_aa,
+					 cur->q[i].got_anc, cur->q[i].got_nsc);
+				phase_failed = 1;
+				continue;
+			}
+			if (cur->q[i].expect_ref == 2 && !cur->q[i].got_aa) {
+				lwsl_err("phase '%s': FAIL %s not answered "
+					 "authoritatively\n", cur->name,
+					 cur->q[i].name);
+				phase_failed = 1;
 				continue;
 			}
 			if (cur->q[i].got_rcode != cur->q[i].expect_rcode ||
@@ -878,38 +953,38 @@ main(int argc, const char **argv)
 			.name		= "good dir serves decorated zone",
 			.zdir		= "good",
 			.q		= {
-				{ "www.ok.example", 0x1101, 0, 1, -1, -1, 0 },
+				{ "www.ok.example", 0x1101, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "missing zone-dir pvo refused",
 			.zdir		= NULL,
 			.check_port_free = 1,
 			.q		= {
-				{ "www.any.example", 0x1102, -1, 0, -1, -1, 0 },
+				{ "www.any.example", 0x1102, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "world-writable zone dir refused",
 			.zdir		= "ww",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.pwn.example", 0x1103, -1, 0, -1, -1, 0 },
+				{ "www.pwn.example", 0x1103, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "symlinked zone dir refused",
 			.zdir		= "symlink",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.via.example", 0x1104, -1, 0, -1, -1, 0 },
+				{ "www.via.example", 0x1104, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "foreign files in good dir ignored",
 			.zdir		= "files",
 			.q		= {
-				{ "www.ok2.example", 0x1105, 0, 1, -1, -1, 0 },
-				{ "www.plain.example", 0x2105, 5, 0, -1, -1, 0 },
-				{ "www.short.example", 0x3105, 5, 0, -1, -1, 0 },
-				{ "www.badmode.example", 0x4105, 5, 0, -1, -1, 0 },
-				{ "www.linked.example", 0x5105, 5, 0, -1, -1, 0 },
+				{ "www.ok2.example", 0x1105, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.plain.example", 0x2105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.short.example", 0x3105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.badmode.example", 0x4105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.linked.example", 0x5105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "zones handed over by dht-dnssec",
@@ -917,13 +992,13 @@ main(int argc, const char **argv)
 			.dht		= 1,
 			.q		= {
 				/* the served zone is still the dir's own */
-				{ "www.victim.example", 0x1108, 0, 1, -1, -1, 0 },
+				{ "www.victim.example", 0x1108, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
 				/* nothing from either payload was installed */
-				{ "evil.victim.example", 0x2108, 3, 0, -1, -1, 0 },
-				{ "evil2.victim.example", 0x3108, 3, 0, -1, -1, 0 },
-				{ "www.a.example", 0x4108, 5, 0, -1, -1, 0 },
+				{ "evil.victim.example", 0x2108, 3, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "evil2.victim.example", 0x3108, 3, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.a.example", 0x4108, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 				/* while a zone that is its domain's is */
-				{ "www.ok3.example", 0x5108, 0, 1, -1, -1, 0 },
+				{ "www.ok3.example", 0x5108, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "zone fetch given up with its query",
@@ -931,25 +1006,45 @@ main(int argc, const char **argv)
 			.fetch		= 1,
 			.q		= {
 				/* REFUSED once its 5s wait for the zone ends */
-				{ "www.unserved.example", 0x1109, 5, 0, -1, -1, 0 },
+				{ "www.unserved.example", 0x1109, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+			}
+		}, {
+			.name		= "names at or below a zone cut referred",
+			.zdir		= "deleg",
+			.q		= {
+				/* the zone's own data, as before */
+				{ "www.dl.example", 0x110a, 0, 1, -1, -1, 0,
+				  0, 2, 0, 0 },
+				/* data occluded by the cut */
+				{ "www.sub.dl.example", 0x210a, 0, 0, -1, -1, 0,
+				  0, 1, 0, 0 },
+				/* glue */
+				{ "ns.sub.dl.example", 0x310a, 0, 0, -1, -1, 0,
+				  0, 1, 0, 0 },
+				/* a name the zone text does not have */
+				{ "x.sub.dl.example", 0x410a, 0, 0, -1, -1, 0,
+				  0, 1, 0, 0 },
+				/* but the DS at the cut is the parent's */
+				{ "sub.dl.example", 0x510a, 0, 1, -1, -1, 0,
+				  43, 2, 0, 0 },
 			}
 		}, {
 			.name		= "another uid's file ignored",
 			.zdir		= "rootfile",
 			.q		= {
-				{ "www.okroot.example", 0x1106, 0, 1, -1, -1, 0 },
-				{ "www.foreign.example", 0x2106, 5, 0, -1, -1, 0 },
+				{ "www.okroot.example", 0x1106, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.foreign.example", 0x2106, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "another uid's zone dir refused",
 			.zdir		= "rootdir",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.another.example", 0x1107, -1, 0, -1, -1, 0 },
+				{ "www.another.example", 0x1107, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		},
 	};
-	int nph = 7, i, ret;
+	int nph = 8, i, ret;
 	const char *p;
 
 	signal(SIGINT, sigint_handler);

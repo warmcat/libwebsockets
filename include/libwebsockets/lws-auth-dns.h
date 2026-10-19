@@ -79,6 +79,24 @@ lws_auth_dns_zone_check_origin(const struct auth_dns_zone *z,
 LWS_VISIBLE LWS_EXTERN void
 lws_auth_dns_free_zone(struct auth_dns_zone *z);
 
+/**
+ * lws_auth_dns_zone_cut() - the delegation a name is at or below, if any
+ *
+ * \param z: the zone as lws_auth_dns_parse_zone_buf() parsed it
+ * \param name: a name in the zone, with or without its trailing dot
+ *
+ * An NS RRset at an owner below the zone apex makes that owner a delegation
+ * point, a zone cut.  The zone is not authoritative for anything at or below
+ * a cut, apart from the DS RRset at the cut itself: an authoritative server
+ * answers queries for those names with a referral to the cut's NS RRset, and
+ * never from whatever else the zone text has there.
+ *
+ * Returns the NS RRset of the topmost cut at or above \p name, or NULL if
+ * \p name is not at or below a delegation.
+ */
+LWS_VISIBLE LWS_EXTERN struct auth_dns_rrset *
+lws_auth_dns_zone_cut(struct auth_dns_zone *z, const char *name);
+
 #define LWS_AUTH_DNS_NSEC3_HASH_LEN 20 /* SHA-1, the only NSEC3 hash */
 
 /*

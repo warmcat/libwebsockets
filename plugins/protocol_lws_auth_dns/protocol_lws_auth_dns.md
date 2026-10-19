@@ -77,6 +77,23 @@ section.  If the proof does not fit in the querier's advertised EDNS0 buffer
 the `TC` bit is set rather than a partial (and therefore useless) proof
 emitted.
 
+## Delegations
+
+A served zone may delegate names below its apex, with an `NS` RRset there.
+The zone is not authoritative for anything at or below such a zone cut,
+apart from the `DS` RRset at the cut, so queries for those names are not
+answered from the zone text, whatever it has there (glue, or records the
+delegation occludes).  They get a referral instead (RFC 1034 4.3.2): no `AA`
+bit, an empty answer section, the cut's `NS` RRset in the authority section
+with, for a `DO` querier, the signed `DS` RRset or the signed `NSEC3`
+proving there is none (RFC 5155 7.2.7), and the addresses the zone has for
+the name servers in the additional section.  A query for the `DS` at the
+cut is answered authoritatively.
+
+When several served zones enclose a query name, the closest one answers it,
+so a parent zone served alongside a child it delegates to does not answer
+for the child's names.
+
 Note there is no response rate limiting (RRL/SLIP) or DNS cookie (RFC 7873)
 support in the plugin yet, so a DNSSEC negative answer remains a usable UDP
 amplification vector towards a spoofed source; front the service with a

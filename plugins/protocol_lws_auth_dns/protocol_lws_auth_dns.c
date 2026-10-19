@@ -56,12 +56,9 @@
 
 /*
  * The NSEC3 owner hash is recomputed per query, so the zone's iteration
- * count is a CPU cost an (untrusted, eg DHT-published) zone gets to choose.
- * RFC 5155 A.1 caps useful iterations at 150 and RFC 9276 deprecates any
- * value above 0, so refuse to hash beyond that rather than burn the event
- * loop thread.
+ * count is a CPU cost an (untrusted, eg DHT-published) zone gets to choose:
+ * LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS from lws-auth-dns.h bounds it.
  */
-#define LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS	150
 
 #if !defined(O_NOFOLLOW)
 #define O_NOFOLLOW 0
@@ -481,6 +478,192 @@ auth_dns_nsec3_proof(struct auth_dns_zone *z, const char *qname,
 	}
 
 	return count;
+}
+
+/*
+ * Emit every RR of \p rs, or with \p sigs, the RRSIGs at its owner covering
+ * it instead.  Returns how many were emitted, or -1 if they did not all fit.
+ */
+
+static int
+auth_dns_emit_rrset(uint8_t **rp, uint8_t *dbuf, size_t max_buf,
+		    struct auth_dns_zone *z, struct auth_dns_rrset *rs, int sigs)
+{
+	int n = 0;
+
+	if (!sigs) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&rs->rr_list)) {
+			struct auth_dns_rr *rr = lws_container_of(d,
+						struct auth_dns_rr, list);
+
+			if (!rr->wire_rdata)
+				continue;
+			if (auth_dns_emit_rr(rp, dbuf, max_buf, rs, rr,
+					     z->origin))
+				return -1;
+			n++;
+		} lws_end_foreach_dll(d);
+
+		return n;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *sg = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		if (sg->type != 46 || strcmp(sg->name, rs->name))
+			continue;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d2,
+				      lws_dll2_get_head(&sg->rr_list)) {
+			struct auth_dns_rr *rr = lws_container_of(d2,
+						struct auth_dns_rr, list);
+
+			if (!rr->wire_rdata || rr->wire_rdata_len < 2 ||
+			    lws_ser_ru16be(rr->wire_rdata) != rs->type)
+				continue;
+			if (auth_dns_emit_rr(rp, dbuf, max_buf, sg, rr,
+					     z->origin))
+				return -1;
+			n++;
+		} lws_end_foreach_dll(d2);
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
+/*
+ * RFC 1034 4.3.2 / RFC 4035 3.1.4: the zone is not authoritative for a name
+ * at or below one of its zone cuts (except for the DS RRset at the cut), the
+ * child zone's servers are.  So whatever the zone text has there, glue or
+ * occluded data, is never answered: the querier is referred to the child,
+ * with no AA and an empty answer section, the cut's NS RRset in the authority
+ * section and, for a DNSSEC querier, the signed DS RRset there or else the
+ * signed NSEC3 proving there is none (RFC 5155 7.2.7), and the addresses the
+ * zone has for the name servers in the additional section.
+ *
+ * The response header is at \p hdr, whose ID is already written; \p qsec /
+ * \p qlen is the question section to echo.  Returns where the response
+ * ends, or NULL if not even the header and question fit.
+ */
+
+static uint8_t *
+auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
+		  uint16_t qflags, const uint8_t *qsec, size_t qlen,
+		  struct auth_dns_zone *z, struct auth_dns_rrset *cut,
+		  int do_bit, int edns)
+{
+	uint16_t rflags = (uint16_t)(0x8000 | (qflags & 0x0100)); /* RD */
+	struct auth_dns_rrset *ds = NULL;
+	int nsc = 0, arc = 0, n, trunc = 0;
+	uint8_t *rp = hdr + 12;
+
+	if (lws_ptr_diff_size_t(rp, dbuf) + qlen > max_buf)
+		return NULL;
+
+	memset(hdr + 2, 0, 10);
+	hdr[5] = 1; /* QDCOUNT */
+	memcpy(rp, qsec, qlen);
+	rp += qlen;
+
+	n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z, cut, 0);
+	if (n < 0)
+		trunc = 1;
+	else
+		nsc += n;
+
+	if (do_bit && !trunc) {
+		struct auth_dns_rrset *proof = NULL;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&z->rrset_list)) {
+			struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+			if (rs->type == 43 && !strcmp(rs->name, cut->name)) {
+				ds = rs;
+				break;
+			}
+		} lws_end_foreach_dll(d);
+
+		if (ds)
+			proof = ds;
+		else {
+			struct auth_dns_nsec3_params pa;
+			char h[64];
+
+			if (!auth_dns_nsec3_params(z, &pa) &&
+			    !auth_dns_nsec3_hash(cut->name, &pa, h, sizeof(h)))
+				proof = auth_dns_nsec3_find(z, h, 0);
+		}
+
+		if (proof) {
+			n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z, proof, 0);
+			if (n >= 0) {
+				nsc += n;
+				n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z,
+							proof, 1);
+			}
+			if (n < 0)
+				trunc = 1;
+			else
+				nsc += n;
+		}
+	}
+
+	/* the addresses the zone has for the name servers it refers to */
+
+	if (!trunc)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&cut->rr_list)) {
+			struct auth_dns_rr *ns = lws_container_of(d,
+						struct auth_dns_rr, list);
+
+			lws_start_foreach_dll(struct lws_dll2 *, d2,
+					      lws_dll2_get_head(&z->rrset_list)) {
+				struct auth_dns_rrset *rs = lws_container_of(d2,
+						struct auth_dns_rrset, list);
+				uint8_t w[256];
+				size_t wl = sizeof(w);
+
+				if (trunc || (rs->type != 1 && rs->type != 28) ||
+				    name_to_wire(rs->name, z->origin, w, &wl) ||
+				    !ns->wire_rdata || ns->wire_rdata_len != wl ||
+				    memcmp(ns->wire_rdata, w, wl))
+					continue;
+
+				n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z,
+							rs, 0);
+				if (n < 0)
+					trunc = 1;
+				else
+					arc += n;
+			} lws_end_foreach_dll(d2);
+		} lws_end_foreach_dll(d);
+
+	/* answer EDNS with EDNS, echoing DO */
+
+	if (edns && !trunc && lws_ptr_diff_size_t(rp, dbuf) + 11 <= max_buf) {
+		*rp++ = 0; /* root name */
+		*rp++ = 0; *rp++ = 41; /* Type OPT */
+		*rp++ = 16; *rp++ = 0; /* UDP payload size 4096 */
+		*rp++ = 0; *rp++ = 0; /* Ext rcode + version */
+		*rp++ = do_bit ? 0x80 : 0; *rp++ = 0; /* DO bit */
+		*rp++ = 0; *rp++ = 0; /* rdlen 0 */
+		arc++;
+	}
+
+	/* an incomplete referral is not one: have the querier use TCP */
+	if (trunc)
+		rflags |= 0x0200; /* TC */
+
+	lws_ser_wu16be(hdr + 2, rflags);
+	lws_ser_wu16be(hdr + 8, (uint16_t)nsc);
+	lws_ser_wu16be(hdr + 10, (uint16_t)arc);
+
+	return rp;
 }
 
 struct auth_dns_cache_entry {
@@ -1825,32 +2008,57 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		uint16_t rflags = 0x8400 | (flags & 0x0100);
 
 		struct auth_dns_cache_entry *matched_ce = NULL;
-		struct auth_dns_rrset *found_rs = NULL;
+		struct auth_dns_rrset *found_rs = NULL, *cut = NULL;
+		int matched_ol = -1;
+
+		/*
+		 * The zone answering is the closest enclosing one we have: if
+		 * we also serve a zone delegated from another, the parent is
+		 * not authoritative for the child's names
+		 */
 
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->zones)) {
 			struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
 			int ql = (int)strlen(qname);
 			int ol = (int)strlen(ce->zone.origin);
 			if (ol > 0 && ce->zone.origin[ol - 1] == '.') ol--;
-			if (ql >= ol) {
+			if (ql >= ol && ol > matched_ol) {
 				const char *tail = qname + ql - ol;
 				if ((ql == ol || *(tail - 1) == '.') && !strncmp(tail, ce->zone.origin, (size_t)ol)) {
 					matched_ce = ce; /* We have the zone */
-					lws_start_foreach_dll(struct lws_dll2 *, cd, lws_dll2_get_head(&ce->zone.rrset_list)) {
-						struct auth_dns_rrset *rs = lws_container_of(cd, struct auth_dns_rrset, list);
-						int rnl = (int)strlen(rs->name);
-						if (rnl > 0 && rs->name[rnl - 1] == '.') rnl--;
-						if (rnl == ql && !strncmp(rs->name, qname, (size_t)ql) && rs->type == qtype && rs->class_ == qclass) {
-							found_rs = rs;
-							break;
-						}
-					} lws_end_foreach_dll(cd);
-					if (found_rs) {
-						break;
-					}
+					matched_ol = ol;
 				}
 			}
 		} lws_end_foreach_dll(d);
+
+		if (matched_ce) {
+			int ql = (int)strlen(qname);
+
+			/*
+			 * At or below a zone cut, only the DS at the cut is
+			 * ours to answer: everything else is referred
+			 */
+			cut = lws_auth_dns_zone_cut(&matched_ce->zone, qname);
+			if (cut && qtype == 43 /* DS */) {
+				int cnl = (int)strlen(cut->name);
+
+				if (cnl > 0 && cut->name[cnl - 1] == '.')
+					cnl--;
+				if (cnl == ql && !strncmp(cut->name, qname, (size_t)ql))
+					cut = NULL;
+			}
+
+			if (!cut)
+				lws_start_foreach_dll(struct lws_dll2 *, cd, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
+					struct auth_dns_rrset *rs = lws_container_of(cd, struct auth_dns_rrset, list);
+					int rnl = (int)strlen(rs->name);
+					if (rnl > 0 && rs->name[rnl - 1] == '.') rnl--;
+					if (rnl == ql && !strncmp(rs->name, qname, (size_t)ql) && rs->type == qtype && rs->class_ == qclass) {
+						found_rs = rs;
+						break;
+					}
+				} lws_end_foreach_dll(cd);
+		}
 
 		if (matched_ce && reason == LWS_CALLBACK_RAW_RX) {
 			/* MRU Promotion */
@@ -1866,7 +2074,16 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lwsl_info("found_rs? %p\n", found_rs);
 
-		if (!found_rs) {
+		if (cut) {
+			rp = auth_dns_referral(rp, dbuf, max_buf, flags, p + 12,
+					       lws_ptr_diff_size_t(q, p + 12),
+					       &matched_ce->zone, cut, do_bit,
+					       arcount > 0);
+			if (!rp) {
+				lwsl_notice("DNS: response too large for buffer\n");
+				goto done;
+			}
+		} else if (!found_rs) {
 			if (matched_ce) {
 				/* We have the zone but the record doesn't exist. Send NXDOMAIN. */
 				goto send_nxdomain;

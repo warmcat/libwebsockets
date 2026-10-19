@@ -210,6 +210,42 @@ lws_auth_dns_zone_check_origin(const struct auth_dns_zone *z,
 	return 0;
 }
 
+struct auth_dns_rrset *
+lws_auth_dns_zone_cut(struct auth_dns_zone *z, const char *name)
+{
+	struct auth_dns_rrset *cut = NULL;
+	size_t ol = strlen(z->origin);
+
+	if (ol && z->origin[ol - 1] == '.')
+		ol--;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		size_t l;
+
+		if (rs->type != 2 || !rs->name)
+			continue;
+
+		l = strlen(rs->name);
+		if (l && rs->name[l - 1] == '.')
+			l--;
+
+		/* only an owner strictly below the apex is a cut */
+		if (!l || l <= ol ||
+		    !auth_dns_name_in_origin(rs->name, z->origin, ol) ||
+		    !auth_dns_name_in_origin(name, rs->name, l))
+			continue;
+
+		/* everything below the topmost cut is the child's */
+		if (!cut || strlen(rs->name) < strlen(cut->name))
+			cut = rs;
+	} lws_end_foreach_dll(d);
+
+	return cut;
+}
+
 int
 lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone)
 {
