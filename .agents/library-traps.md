@@ -528,6 +528,18 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - `PROTOCOL_DESTROY` is not delivered to protocols a plugins-build vhost
    never instantiated: core protocols injected into every vhost tear down
    their per-vhost state in vhost destroy instead.
+ - `lwsac_unreference()` only frees (and NULLs the caller's pointer)
+   when the lwsac is detached and the count reaches 0; otherwise the
+   caller's pointer is left set.  Clear your own copy after unreferencing
+   or a later use is a use-after-free (seen under ASan in B42's deaddrop
+   work).
+ - `lws_serve_http_file()` takes its extra headers already encoded with
+   `lws_add_http_header_by_name()` on the same wsi; that works on h2 too.
+   A `callback://` mount gets the GET with the URL part after the
+   mountpoint as `in`.
+ - deaddrop serves downloads itself from a `callback://lws-deaddrop`
+   `get` mount (G-282), never as a file mount: deployments using a file
+   mount on the upload dir must change it.
  - A test that drives plugin internals with a `struct vhd` of its own
    (eg on the stack) must run that plugin's PROTOCOL_DESTROY teardown
    itself on every exit, or LSan fails it on allocations the plugin
