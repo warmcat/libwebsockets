@@ -408,6 +408,7 @@ lws_tls_bearssl_client_cert_load(struct lws_vhost *vh, struct lws_tls_ctx *ctx,
 	/* the decoder does not copy; rsa_key / ec_key point into key_buf */
 
 	ctx->key_buf = buf;
+	ctx->key_buf_len = (size_t)amount;
 	br_skey_decoder_init(&ctx->skc);
 	br_skey_decoder_push(&ctx->skc, buf, amount);
 	err = br_skey_decoder_last_error(&ctx->skc);

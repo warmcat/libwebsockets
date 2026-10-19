@@ -43,6 +43,7 @@ struct lws_tls_ctx {
 	 * into it, so it must be kept until the ctx is destroyed
 	 */
 	uint8_t *key_buf;
+	size_t key_buf_len;
 	/*
 	 * .ssl_options_clear / .ssl_client_options_clear as given in the
 	 * creation info: the app's way to lower the protocol floor, see
@@ -52,6 +53,7 @@ struct lws_tls_ctx {
 #if defined(LWS_WITH_TLS_SESSIONS)
 	br_ssl_session_cache_lru lru;
 	uint8_t *lru_buffer;
+	size_t lru_buffer_len;
 #endif
 };
 
@@ -136,5 +138,10 @@ struct lws_br_prng_ctx {
 
 void
 lws_br_prng_ctx_init(struct lws_br_prng_ctx *prng, struct lws_context *context);
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+void
+lws_bearssl_ctx_lru_destroy(struct lws_tls_ctx *ctx);
+#endif
 
 #endif

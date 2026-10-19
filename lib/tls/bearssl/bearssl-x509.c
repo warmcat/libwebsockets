@@ -851,10 +851,12 @@ int lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		LWS_GENCRYPTO_RSA_KEYEL_Q, LWS_GENCRYPTO_RSA_KEYEL_DP,
 		LWS_GENCRYPTO_RSA_KEYEL_DQ, LWS_GENCRYPTO_RSA_KEYEL_QI,
 	};
+	br_skey_decoder_context sc;
 	struct der_buf db;
 	br_pem_decoder_context pc;
 	const uint8_t *p = (const uint8_t *)pem;
 	size_t remaining = len;
+	int ret = -1;
 
 	/*
 	 * The caller's jwk already carries the matching public parts from
@@ -862,6 +864,7 @@ int lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	 */
 
 	memset(&db, 0, sizeof(db));
+	memset(&sc, 0, sizeof(sc));
 
 	br_pem_decoder_init(&pc);
 	br_pem_decoder_setdest(&pc, pem_der_dest, &db);
@@ -878,7 +881,7 @@ int lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 				     "ENCRYPTED PRIVATE KEY", 21)) {
 				lwsl_err("%s: BearSSL provides no encrypted "
 					 "private key PEM pieces\n", __func__);
-				return -1;
+				goto out;
 			}
 			break;
 
@@ -893,7 +896,7 @@ int lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 done:
 	if (db.overflow || db.len < 8) {
 		lwsl_err("%s: privkey decode failed\n", __func__);
-		return -1;
+		goto out;
 	}
 
 	/* RSA: the DER carries n and e too, so the key can be confirmed
@@ -933,14 +936,14 @@ done:
 				       el_lens[n]);
 			}
 
-			return 0;
+			ret = 0;
+			goto out;
 		}
 	}
 
 	/* EC */
 
 	{
-		br_skey_decoder_context sc;
 		const br_ec_private_key *ec;
 
 		br_skey_decoder_init(&sc);
@@ -948,7 +951,7 @@ done:
 		if (br_skey_decoder_last_error(&sc) ||
 		    br_skey_decoder_key_type(&sc) != BR_KEYTYPE_EC) {
 			lwsl_err("%s: privkey decode failed\n", __func__);
-			return -1;
+			goto out;
 		}
 
 		if (jwk->kty != LWS_GENCRYPTO_KTY_EC) {
@@ -1007,12 +1010,20 @@ done:
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (uint32_t)ec->xlen;
 		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf, ec->x, ec->xlen);
 
-		return 0;
+		ret = 0;
+		goto out;
 	}
 
 bail:
 	lws_jwk_destroy(jwk);
-	return -1;
+
+out:
+	/* db is the DER private key, the decoders hold pieces of it */
+	lws_explicit_bzero(&db, sizeof(db));
+	lws_explicit_bzero(&sc, sizeof(sc));
+	lws_explicit_bzero(&pc, sizeof(pc));
+
+	return ret;
 }
 #endif
 
@@ -1235,6 +1246,7 @@ int lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi, const ch
 			 * into buf, so the ctx takes ownership of it
 			 */
 			ctx->key_buf = buf;
+			ctx->key_buf_len = (size_t)amount;
 			br_skey_decoder_init(&ctx->skc);
 			br_skey_decoder_push(&ctx->skc, buf, amount);
 			err = br_skey_decoder_last_error(&ctx->skc);

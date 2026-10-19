@@ -658,6 +658,9 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name, stru
 	 * last-set-wins: release any key already in the ctx, without
 	 * disturbing its created state
 	 */
+	if (ctx->kbuf_priv)
+		/* the EC private scalar of the key we are replacing */
+		lws_explicit_bzero(ctx->kbuf_priv, BR_EC_KBUF_PRIV_MAX_SIZE);
 	lws_free_set_NULL(ctx->kbuf_priv);
 	lws_free_set_NULL(ctx->kbuf_pub);
 	if (ctx->pub.q) {

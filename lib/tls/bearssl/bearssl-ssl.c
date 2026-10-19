@@ -363,6 +363,11 @@ int lws_ssl_close(struct lws *wsi)
 		lws_free(conn->alpn_strings);
 	}
 
+	/*
+	 * the engine holds the session's master secret and the record keys
+	 * derived from it
+	 */
+	lws_explicit_bzero(&conn->u, sizeof(conn->u));
 	lws_free(conn);
 	wsi->io->tls.ssl = NULL;
 
@@ -468,6 +473,7 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 		size_t buflen = max * 128; /* approx 100 bytes per session + overhead */
 		vh->tls.ssl_ctx->lru_buffer = lws_malloc(buflen, "bearssl lru cache");
 		if (vh->tls.ssl_ctx->lru_buffer) {
+			vh->tls.ssl_ctx->lru_buffer_len = buflen;
 			br_ssl_session_cache_lru_init(&vh->tls.ssl_ctx->lru,
 						      vh->tls.ssl_ctx->lru_buffer,
 						      buflen);
@@ -482,6 +488,42 @@ int lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host, uint
 int lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host, uint16_t port, unsigned int flags, lws_tls_sess_cb_t cb_load, void *opq) { return -1; }
 int lws_tls_session_is_reused(struct lws *wsi) { return 0; }
 int lws_tls_session_vh_destroy(struct lws_vhost *vh) { return 0; }
+#endif
+
+/*
+ * The private key a ctx holds lives in key_buf, the skey decoder context and
+ * the rsa_key / ec_key copies taken from the decoder: wipe all of it, before
+ * the ctx is freed
+ */
+
+static void
+lws_bearssl_ctx_key_destroy(struct lws_tls_ctx *ctx)
+{
+	if (ctx->key_buf) {
+		lws_explicit_bzero(ctx->key_buf, ctx->key_buf_len);
+		lws_free_set_NULL(ctx->key_buf);
+	}
+	ctx->key_buf_len = 0;
+	lws_explicit_bzero(&ctx->skc, sizeof(ctx->skc));
+	lws_explicit_bzero(&ctx->rsa_key, sizeof(ctx->rsa_key));
+	lws_explicit_bzero(&ctx->ec_key, sizeof(ctx->ec_key));
+}
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+/*
+ * BearSSL's server LRU session cache keeps each session's master secret in
+ * the buffer we gave it
+ */
+
+void
+lws_bearssl_ctx_lru_destroy(struct lws_tls_ctx *ctx)
+{
+	if (ctx->lru_buffer) {
+		lws_explicit_bzero(ctx->lru_buffer, ctx->lru_buffer_len);
+		lws_free_set_NULL(ctx->lru_buffer);
+	}
+	ctx->lru_buffer_len = 0;
+}
 #endif
 
 void
@@ -518,12 +560,10 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 		lws_free(ctx->chain);
 	}
 
-	/* rsa_key / ec_key point into key_buf */
-	lws_free(ctx->key_buf);
+	lws_bearssl_ctx_key_destroy(ctx);
 
 #if defined(LWS_WITH_TLS_SESSIONS)
-	if (ctx->lru_buffer)
-		lws_free(ctx->lru_buffer);
+	lws_bearssl_ctx_lru_destroy(ctx);
 #endif
 
 	lws_free(ctx);

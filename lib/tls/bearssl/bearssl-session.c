@@ -46,6 +46,8 @@ __lws_tls_session_destroy(lws_tls_scm_t *ts)
 	lws_sul_cancel(&ts->sul_ttl);
 	lws_dll2_remove(&ts->list);
 	if (ts->ser_data) {
+		/* the session parameters include the master secret */
+		lws_explicit_bzero(ts->ser_data, sizeof(*ts->ser_data));
 		lws_free(ts->ser_data);
 		ts->ser_data = NULL;
 	}
@@ -151,10 +153,8 @@ lws_tls_session_vh_destroy(struct lws_vhost *vh)
 	lws_dll2_foreach_safe(&vh->tls_sessions, NULL,
 			      lws_tls_session_destroy_dll);
 
-	if (vh->tls.ssl_ctx && vh->tls.ssl_ctx->lru_buffer) {
-		lws_free(vh->tls.ssl_ctx->lru_buffer);
-		vh->tls.ssl_ctx->lru_buffer = NULL;
-	}
+	if (vh->tls.ssl_ctx)
+		lws_bearssl_ctx_lru_destroy(vh->tls.ssl_ctx);
 }
 
 static void
@@ -349,11 +349,15 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 
 	if (d.blob_len != sizeof(sp)) {
 		lwsl_err("%s: session dump length mismatch\n", __func__);
+		if (d.blob)
+			lws_explicit_bzero(d.blob, d.blob_len);
 		free(d.blob);
 		return 0;
 	}
 
+	/* the session parameters include the master secret */
 	memcpy(&sp, d.blob, sizeof(sp));
+	lws_explicit_bzero(d.blob, d.blob_len);
 	free(d.blob);
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
@@ -401,6 +405,8 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 bail:
 	lws_vhost_unlock(vh); /* } vh --------------  */
 	lws_context_unlock(vh->context); /* } cx --------------  */
+
+	lws_explicit_bzero(&sp, sizeof(sp));
 
 	return 0;
 }
