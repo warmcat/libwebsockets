@@ -1459,7 +1459,7 @@ struct lws {
 
 };
 
-#define lws_is_flowcontrolled(w) (!!(wsi->rxflow_bitmap))
+#define lws_is_flowcontrolled(w) (!!((w)->rxflow_bitmap))
 
 #if defined(LWS_WITH_SPAWN)
 
