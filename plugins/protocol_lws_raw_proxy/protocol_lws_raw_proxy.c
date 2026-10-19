@@ -38,6 +38,13 @@
 
 #define RING_DEPTH 8
 
+/*
+ * Once one side has closed, the other is only kept up to write out what the
+ * closed side sent before it went.  Each piece written renews this deadline,
+ * so a peer that stops reading cannot hold the survivor open.
+ */
+#define RAW_PROXY_FLUSH_SECS 5
+
 struct packet {
 	void *payload;
 	uint32_t len;
@@ -82,6 +89,7 @@ struct raw_pss {
 
 struct raw_vhd {
 	char addr[128];
+	int idle_secs; /* 0 = no idle timeout */
 	uint16_t port;
 	char ipv6;
 };
@@ -165,6 +173,140 @@ flow_control(struct conn *conn, int side, int enable)
 	return 0;
 }
 
+/*
+ * While both sides are up, anything passing through restarts the idle timeout
+ * on both of them, if the vhost configured one
+ */
+static void
+conn_active(const struct raw_vhd *vhd, struct conn *conn)
+{
+	int side;
+
+	if (!vhd || !vhd->idle_secs || conn->closed[ACC] || conn->closed[ONW])
+		return;
+
+	for (side = ACC; side <= ONW; side++)
+		if (conn->wsi[side] && conn->established[side])
+			lws_set_timeout(conn->wsi[side], PENDING_TIMEOUT_USER_OK,
+					vhd->idle_secs);
+}
+
+/*
+ * One side went.  Nothing more is coming from it, so the other side is sent
+ * what the closed side had already sent, and then closes too.  The conn goes
+ * with whichever side closes last.
+ */
+static void
+conn_side_gone(struct conn *conn, int side)
+{
+	int other = !side;
+
+	conn->wsi[side] = NULL;
+	conn->closed[side] = 1;
+	conn->established[side] = 0;
+
+	if (conn->closed[other]) {
+		destroy_conn(conn);
+		return;
+	}
+
+	/*
+	 * An onward side still connecting has nothing to flush: CLI_ADOPT
+	 * or CLIENT_CONNECTION_ERROR finishes it
+	 */
+	if (!conn->wsi[other] || !conn->established[other])
+		return;
+
+	/*
+	 * Keep reading the survivor, even if it was flow-controlled, so its
+	 * own close is seen; what it sends now has nowhere to go and is
+	 * dropped.  It gets a bounded time to take the flush.
+	 */
+	flow_control(conn, other, 1);
+	lws_set_timeout(conn->wsi[other], PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE,
+			RAW_PROXY_FLUSH_SECS);
+	lws_callback_on_writable(conn->wsi[other]);
+}
+
+/*
+ * The side "side" can write: send it the next of what the other side sent.
+ * When the other side has closed and everything it sent is written, close
+ * this side too.
+ */
+static int
+conn_writeable(const struct raw_vhd *vhd, struct lws *wsi, struct conn *conn,
+	       int side)
+{
+	int src = !side, n;
+	const struct packet *ppkt;
+
+	ppkt = lws_ring_get_element(conn->r[src], &conn->t[src]);
+	if (!ppkt) {
+		if (conn->closed[src])
+			/*
+			 * there is never going to be any more... but we may
+			 * have some tx still in tx buflist / partial
+			 */
+			return lws_raw_transaction_completed(wsi);
+
+		lwsl_info("%s: %s WRITEABLE with nothing to send\n", __func__,
+			  side ? "ONW" : "ACC");
+		return 0;
+	}
+
+	/*
+	 * While both sides are up, the two directions are written in the
+	 * order they arrived.  If the packet due next is in the other ring,
+	 * only the src side can retire it.  Once src has closed, what is
+	 * waiting for it is never written, and does not hold up the flush.
+	 */
+	if (!conn->closed[src] && ppkt->ticket != conn->ticket_retired + 1) {
+		lwsl_info("%s: %s ring has %d but next %d\n", __func__,
+			  src ? "ONW" : "ACC", ppkt->ticket,
+			  conn->ticket_retired + 1);
+		lws_callback_on_writable(conn->wsi[src]);
+		return 0;
+	}
+
+	n = lws_write(wsi, ppkt->payload, ppkt->len, LWS_WRITE_RAW);
+	if (n < 0) {
+		lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
+
+		return -1;
+	}
+
+	conn->ticket_retired = ppkt->ticket;
+	lws_ring_consume(conn->r[src], &conn->t[src], NULL, 1);
+	lws_ring_update_oldest_tail(conn->r[src], conn->t[src]);
+
+	lwsl_debug("%s: %s ring free: %d\n", __func__, src ? "ONW" : "ACC",
+		   (int)lws_ring_get_count_free_elements(conn->r[src]));
+
+	if (conn->closed[src]) {
+		/* flushing: the deadline is per piece written */
+		lws_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE,
+				RAW_PROXY_FLUSH_SECS);
+		lws_callback_on_writable(wsi);
+
+		return 0;
+	}
+
+	if (!conn->rx_enabled[src] &&
+	    lws_ring_get_count_free_elements(conn->r[src]) > 2)
+		flow_control(conn, src, 1);
+
+	conn_active(vhd, conn);
+
+	ppkt = lws_ring_get_element(conn->r[src], &conn->t[src]);
+	if (ppkt && ppkt->ticket == conn->ticket_retired + 1)
+		lws_callback_on_writable(wsi);
+	else if (lws_ring_get_element(conn->r[side], &conn->t[side]))
+		/* the other direction may have been waiting on this one */
+		lws_callback_on_writable(conn->wsi[src]);
+
+	return 0;
+}
+
 static int
 callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		   void *user, void *in, size_t len)
@@ -172,13 +314,11 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	struct raw_pss *pss = (struct raw_pss *)user;
 	struct raw_vhd *vhd = (struct raw_vhd *)lws_protocol_vh_priv_get(
 				     lws_get_vhost(wsi), lws_get_protocol(wsi));
-	const struct packet *ppkt;
 	struct conn *conn = NULL;
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
 	struct packet pkt;
 	const char *cp;
-	int n;
 
 	if (pss)
 		conn = pss->conn;
@@ -237,6 +377,15 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		} else
 			lws_strncpy(vhd->addr, ts.token, sizeof(vhd->addr));
 
+		if (!lws_pvo_get_str(in, "idle-timeout-secs", &cp)) {
+			vhd->idle_secs = atoi(cp);
+			if (vhd->idle_secs < 0) {
+				lwsl_err("%s: idle-timeout-secs must be >= 0\n",
+					 __func__);
+				return -1;
+			}
+		}
+
 		lwsl_notice("%s: vh %s: onward %s:%s:%d\n", __func__,
 			    lws_get_vhost_name(lws_get_vhost(wsi)),
 			    vhd->ipv6 ? "ipv6": "ipv4", vhd->addr, vhd->port);
@@ -273,19 +422,8 @@ bad_onward:
 		if (pss)
 			pss->conn = NULL;
 
-		conn->wsi[ONW] = NULL;
-		conn->closed[ONW] = 1;
-		conn->established[ONW] = 0;
-
-		if (conn->closed[ACC]) {
-			destroy_conn(conn);
-			break;
-		}
-
 		/* take the accepted side down with us */
-
-		if (conn->wsi[ACC])
-			lws_wsi_close(conn->wsi[ACC], LWS_TO_KILL_ASYNC);
+		conn_side_gone(conn, ONW);
 		break;
 
         case LWS_CALLBACK_RAW_PROXY_CLI_ADOPT:
@@ -297,6 +435,17 @@ bad_onward:
 			break;
 		conn->established[ONW] = 1;
 
+		if (conn->closed[ACC]) {
+			/*
+			 * The accepted side went while we were connecting:
+			 * write anything it sent, then close
+			 */
+			lws_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE,
+					RAW_PROXY_FLUSH_SECS);
+			lws_callback_on_writable(wsi);
+			break;
+		}
+
 		/*
 		 * The accepted side disabled his rx while waiting for us to
 		 * be established... rx_enabled[] was initialized at SRV_ADOPT
@@ -306,6 +455,7 @@ bad_onward:
 
 		lws_callback_on_writable(wsi);
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+		conn_active(vhd, conn);
 		break;
 
 	case LWS_CALLBACK_RAW_PROXY_CLI_CLOSE:
@@ -314,12 +464,7 @@ bad_onward:
 			break;
 
 		pss->conn = NULL;
-		conn->wsi[ONW] = NULL;
-		conn->closed[ONW] = 1;
-
-		if (conn->closed[ACC])
-			destroy_conn(conn);
-
+		conn_side_gone(conn, ONW);
 		break;
 
 	case LWS_CALLBACK_RAW_PROXY_CLI_RX:
@@ -328,11 +473,10 @@ bad_onward:
 		if (!conn)
 			return 0;
 
-		if (!pss || !conn->wsi[ACC] || conn->closed[ACC]) {
-			lwsl_info(" pss %p, wsi[ACC] %p, closed[ACC] %d\n",
-				  pss, conn->wsi[ACC], conn->closed[ACC]);
-			return -1;
-		}
+		if (conn->closed[ACC])
+			/* nowhere to send it: we are only flushing to onward */
+			return 0;
+
 		pkt.payload = malloc(len);
 		if (!pkt.payload) {
 			lwsl_notice("OOM: dropping\n");
@@ -355,8 +499,8 @@ bad_onward:
 		    lws_ring_get_count_free_elements(conn->r[ONW]) < 2)
 			flow_control(conn, ONW, 0);
 
-		if (!conn->closed[ACC])
-			lws_callback_on_writable(conn->wsi[ACC]);
+		conn_active(vhd, conn);
+		lws_callback_on_writable(conn->wsi[ACC]);
 		break;
 
 	case LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE:
@@ -365,70 +509,7 @@ bad_onward:
 		if (!conn)
 			break;
 
-		ppkt = lws_ring_get_element(conn->r[ACC], &conn->t[ACC]);
-		if (!ppkt) {
-			lwsl_info("%s: CLI_WRITABLE had nothing in acc ring\n",
-				  __func__);
-			break;
-		}
-
-		if (ppkt->ticket != conn->ticket_retired + 1) {
-			lwsl_info("%s: acc ring has %d but next %d\n", __func__,
-				  ppkt->ticket, conn->ticket_retired + 1);
-			/*
-			 * The tickets are shared between both directions, so
-			 * the packet we need retired next may be sitting in
-			 * the other ring; only the accepted side can retire
-			 * it.  If it has gone, nothing will ever unblock us.
-			 */
-			if (conn->closed[ACC] || !conn->wsi[ACC])
-				return -1;
-			lws_callback_on_writable(conn->wsi[ACC]);
-			break;
-		}
-
-		n = lws_write(wsi, ppkt->payload, ppkt->len, LWS_WRITE_RAW);
-		if (n < 0) {
-			lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
-
-			return -1;
-		}
-
-		conn->ticket_retired = ppkt->ticket;
-		lws_ring_consume(conn->r[ACC], &conn->t[ACC], NULL, 1);
-		lws_ring_update_oldest_tail(conn->r[ACC], conn->t[ACC]);
-
-		lwsl_debug("acc free: %d...\n",
-			  (int)lws_ring_get_count_free_elements(conn->r[ACC]));
-
-		if (!conn->rx_enabled[ACC] &&
-		    lws_ring_get_count_free_elements(conn->r[ACC]) > 2)
-			flow_control(conn, ACC, 1);
-
-		ppkt = lws_ring_get_element(conn->r[ACC], &conn->t[ACC]);
-		lwsl_debug("%s: CLI_WRITABLE: next acc pkt %p idx %d vs %d\n",
-			   __func__, ppkt, ppkt ? ppkt->ticket : 0,
-					   conn->ticket_retired + 1);
-
-		if (ppkt && ppkt->ticket == conn->ticket_retired + 1)
-			lws_callback_on_writable(wsi);
-		else {
-			/*
-			 * defer checking for accepted side closing until we
-			 * sent everything in the ring to onward
-			 */
-			if (conn->closed[ACC])
-				/*
-				 * there is never going to be any more... but
-				 * we may have some tx still in tx buflist /
-				 * partial
-				 */
-				return lws_raw_transaction_completed(wsi);
-
-			if (lws_ring_get_element(conn->r[ONW], &conn->t[ONW]))
-				lws_callback_on_writable(conn->wsi[ACC]);
-		}
-		break;
+		return conn_writeable(vhd, wsi, conn, ONW);
 
 	/* callbacks related to raw socket descriptor "accepted side" */
 
@@ -497,22 +578,20 @@ adopt_fail:
 			break;
 
 		pss->conn = NULL;
-		conn->wsi[ACC] = NULL;
-		conn->closed[ACC] = 1;
-		if (conn->closed[ONW])
-			destroy_conn(conn);
+		conn_side_gone(conn, ACC);
 		break;
 
 	case LWS_CALLBACK_RAW_PROXY_SRV_RX:
 		lwsl_debug("LWS_CALLBACK_RAW_PROXY_SRV_RX: rx %d\n", (int)len);
 
-		if (!conn || !conn->wsi[ONW]) {
+		if (!conn)
+			return -1;
+		if (conn->closed[ONW])
+			/* nowhere to send it: we are only flushing to accepted */
+			return 0;
+		if (!conn->wsi[ONW]) {
 			lwsl_err("%s: LWS_CALLBACK_RAW_PROXY_SRV_RX: "
 				 "conn->wsi[ONW] NULL\n", __func__);
-			return -1;
-		}
-		if (conn->closed[ONW]) {
-			lwsl_info(" closed[ONW] %d\n", conn->closed[ONW]);
 			return -1;
 		}
 
@@ -541,74 +620,18 @@ adopt_fail:
 		    lws_ring_get_count_free_elements(conn->r[ACC]) <= 2)
 			flow_control(conn, ACC, 0);
 
-		if (conn->established[ONW] && !conn->closed[ONW])
+		conn_active(vhd, conn);
+		if (conn->established[ONW])
 			lws_callback_on_writable(conn->wsi[ONW]);
 		break;
 
 	case LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE:
 		lwsl_debug("LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE\n");
 
-		if (!conn || !conn->established[ONW] || conn->closed[ONW])
+		if (!conn || (!conn->established[ONW] && !conn->closed[ONW]))
 			break;
 
-		ppkt = lws_ring_get_element(conn->r[ONW], &conn->t[ONW]);
-		if (!ppkt) {
-			lwsl_info("%s: SRV_WRITABLE nothing in onw ring\n",
-				  __func__);
-			break;
-		}
-
-		if (ppkt->ticket != conn->ticket_retired + 1) {
-			lwsl_info("%s: onw ring has %d but next %d\n", __func__,
-				  ppkt->ticket, conn->ticket_retired + 1);
-			lws_callback_on_writable(conn->wsi[ONW]);
-			break;
-		}
-
-		n = lws_write(wsi, ppkt->payload, ppkt->len, LWS_WRITE_RAW);
-		if (n < 0) {
-			lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
-
-			return -1;
-		}
-
-		conn->ticket_retired = ppkt->ticket;
-		lws_ring_consume(conn->r[ONW], &conn->t[ONW], NULL, 1);
-		lws_ring_update_oldest_tail(conn->r[ONW], conn->t[ONW]);
-
-		lwsl_debug("onward free: %d... waiting %d\n",
-			  (int)lws_ring_get_count_free_elements(conn->r[ONW]),
-			  (int)lws_ring_get_count_waiting_elements(conn->r[ONW],
-								&conn->t[ONW]));
-
-		if (!conn->rx_enabled[ONW] &&
-		    lws_ring_get_count_free_elements(conn->r[ONW]) > 2)
-			flow_control(conn, ONW, 1);
-
-		ppkt = lws_ring_get_element(conn->r[ONW], &conn->t[ONW]);
-		lwsl_debug("%s: SRV_WRITABLE: next onw pkt %p idx %d vs %d\n",
-			   __func__, ppkt, ppkt ? ppkt->ticket : 0,
-					   conn->ticket_retired + 1);
-
-		if (ppkt && ppkt->ticket == conn->ticket_retired + 1)
-			lws_callback_on_writable(wsi);
-		else {
-			/*
-			 * defer checking for onward side closing until we
-			 * sent everything in the ring to accepted side
-			 */
-			if (conn->closed[ONW])
-				/*
-				 * there is never going to be any more... but
-				 * we may have some tx still in tx buflist /
-				 * partial
-				 */
-				return lws_raw_transaction_completed(wsi);
-
-		if (lws_ring_get_element(conn->r[ACC], &conn->t[ACC]))
-			lws_callback_on_writable(conn->wsi[ONW]);
-		}
-		break;
+		return conn_writeable(vhd, wsi, conn, ACC);
 
 	default:
 		break;

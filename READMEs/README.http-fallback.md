@@ -189,6 +189,20 @@ want...
 	info.pvo = &pvo;
 ```
 
+### raw-proxy connection lifetime
+
+When either side of a proxied connection closes, the other side is sent what
+the closed side had already sent, and then it is closed too.  It is given 5s
+per piece written to take that, so a peer that stops reading cannot hold it
+open.
+
+By default an idle proxied connection stays up as long as both sides do, as a
+tcp connection would.  The optional pvo "idle-timeout-secs" closes both sides
+of a connection once nothing has passed in either direction for that many
+seconds, eg, `"idle-timeout-secs": "3600"`.  Only set it for protocols whose
+sessions do not legitimately stay quiet for longer (an interactive ssh session
+without keepalives may).
+
 ### fallback with raw-proxy in JSON conf
 
 On the first vhost for the port, enable the raw-proxy protocol on the vhost and

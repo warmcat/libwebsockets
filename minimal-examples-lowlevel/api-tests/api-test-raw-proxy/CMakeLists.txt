@@ -26,6 +26,7 @@ if (requirements)
 	lws_get_free_port(PORT_RAWPX_ORIGIN_TLS)
 	lws_get_free_port(PORT_RAWPX_PROXY)
 	lws_get_free_port(PORT_RAWPX_FALLBACK)
+	lws_get_free_port(PORT_RAWPX_PROXY_IDLE)
 
 	# the origin's tls uses api-test-ws-close's test certificate
 	set(RAWPX_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
@@ -36,6 +37,7 @@ if (requirements)
 			 --port-tls ${PORT_RAWPX_ORIGIN_TLS}
 			 --port-proxy ${PORT_RAWPX_PROXY}
 			 --port-fallback ${PORT_RAWPX_FALLBACK}
+			 --port-proxy-idle ${PORT_RAWPX_PROXY_IDLE}
 			 --cert ${RAWPX_CERTS}/localhost-100y.cert
 			 --key ${RAWPX_CERTS}/localhost-100y.key)
 	set_tests_properties(api-test-raw-proxy PROPERTIES

@@ -11,7 +11,18 @@
  *  - protocol_lws_raw_proxy on a vhost accepting into the raw-proxy role,
  *    its "onward" a raw echo origin: a raw client connects to the proxy,
  *    the proxy's onward connection comes up, and what the client sends
- *    comes back to it from the origin through the proxy
+ *    comes back to it from the origin through the proxy.  When the client
+ *    closes, the proxy's onward connection to the origin closes too.
+ *
+ *  - a raw client connecting to the proxy and closing at once, sending
+ *    nothing: the proxy's onward connection to the origin still closes
+ *
+ *  - the origin answering and closing at once: the proxy writes the client
+ *    everything the origin sent before it closed, then closes the client
+ *
+ *  - a second proxy vhost with the "idle-timeout-secs" pvo: a client that
+ *    goes quiet after its echo is closed by the proxy once that long has
+ *    passed, and the onward connection to the origin with it
  *
  *  - an app's own raw-proxy client, over tls (which the plugin never asks
  *    for), straight to the origin's tls vhost: its transport comes up after
@@ -26,8 +37,9 @@
  *    the connection error says why the handshake failed, not that a
  *    certificate could not be verified
  *
- * Each leg is done when its echo has come back, the last when its
- * connection error has.
+ * Each leg is done when its echo has come back and its client has closed,
+ * the last when its connection error has.  The legs through a proxy are also
+ * only done once the proxy's onward connection to the origin has closed.
  */
 
 #include <libwebsockets.h>
@@ -38,25 +50,50 @@
 #include "protocol_lws_raw_proxy.c"
 
 #define WATCHDOG_S		20
+/* the idle timeout of the second proxy vhost */
+#define IDLE_S			1
 
 static int port_origin = 7681, port_origin_tls = 7682, port_proxy = 7683,
-	   port_fallback = 7684, fails, done, leg = -1;
+	   port_fallback = 7684, port_proxy_idle = 7685, fails, done, leg = -1,
+	   cli_closed;
+static lws_usec_t replied_at;
+/* connections the plain origin has open, and has had in this leg */
+static int origin_open, origin_seen;
 static struct lws_context *cx;
-static struct lws_vhost *vh_cli;
+static struct lws_vhost *vh_cli, *vh_origin;
 static lws_sorted_usec_list_t sul_watchdog, sul_next;
 static const char *cert, *key;
 
+enum {
+	LEG_PROXY_ECHO,
+	LEG_PROXY_CONNECT_CLOSE,
+	LEG_PROXY_ORIGIN_CLOSES,
+	LEG_PROXY_IDLE,
+	LEG_APP_CLIENT_TLS,		/* this and later legs need --cert, --key */
+	LEG_PLAIN_TO_TLS,
+	LEG_TLS_TO_PLAIN,
+};
+
+#define leg_via_proxy(_l) ((_l) <= LEG_PROXY_IDLE)
+
 static const char * const leg_names[] = {
 	"raw client through the raw proxy",
+	"raw client connecting to the raw proxy and closing at once",
+	"origin replying and closing at once, through the raw proxy",
+	"raw client going quiet, through a raw proxy with an idle timeout",
 	"an app's raw-proxy client over tls",
 	"plain text to a tls listener falling back to raw",
 	"tls to a plain listener",
 };
 
-#define LEG_TLS_TO_PLAIN 3
+/* what the client sends, and what it must get back */
+static const char * const leg_msg[] = { "hello", "", "bye", "idle",
+					"tls-hello", "plain-hello", "" };
+static const char * const leg_reply[] = { "hello", "", "farewell", "idle",
+					  "tls-hello", "plain-hello", "" };
 
-static const char * const leg_msg[] = { "hello", "tls-hello", "plain-hello",
-					"" };
+/* the origin answers "bye" with this, then closes */
+#define ORIGIN_BYE		"bye"
 
 /*
  * The origin: echoes what it is sent
@@ -65,7 +102,10 @@ static const char * const leg_msg[] = { "hello", "tls-hello", "plain-hello",
 struct echo_pss {
 	uint8_t		buf[LWS_PRE + 64];
 	size_t		len;
+	char		close_after;
 };
+
+static void maybe_next_leg(void);
 
 static int
 callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason,
@@ -74,11 +114,29 @@ callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason,
 	struct echo_pss *pss = (struct echo_pss *)user;
 
 	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		if (lws_get_vhost(wsi) != vh_origin)
+			break;
+		origin_open++;
+		origin_seen++;
+		break;
+
 	case LWS_CALLBACK_RAW_RX:
-		if (pss->len + len > sizeof(pss->buf) - LWS_PRE)
+		if (pss->close_after ||
+		    pss->len + len > sizeof(pss->buf) - LWS_PRE)
 			return -1;
 		memcpy(pss->buf + LWS_PRE + pss->len, in, len);
 		pss->len += len;
+		if (leg == LEG_PROXY_ORIGIN_CLOSES) {
+			if (pss->len < strlen(ORIGIN_BYE))
+				break;
+			if (pss->len != strlen(ORIGIN_BYE) ||
+			    memcmp(pss->buf + LWS_PRE, ORIGIN_BYE, pss->len))
+				return -1;
+			pss->len = strlen(leg_reply[leg]);
+			memcpy(pss->buf + LWS_PRE, leg_reply[leg], pss->len);
+			pss->close_after = 1;
+		}
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -88,6 +146,16 @@ callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason,
 			      LWS_WRITE_RAW) != (int)pss->len)
 			return -1;
 		pss->len = 0;
+		if (pss->close_after)
+			/* close straight after the reply */
+			return lws_raw_transaction_completed(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		if (lws_get_vhost(wsi) != vh_origin)
+			break;
+		origin_open--;
+		maybe_next_leg();
 		break;
 
 	default:
@@ -104,6 +172,7 @@ callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason,
 struct cli_pss {
 	char		rx[64];
 	size_t		rx_len;
+	char		replied;
 };
 
 static void
@@ -122,12 +191,15 @@ next_leg(lws_sorted_usec_list_t *sul)
 {
 	struct lws_client_connect_info i;
 
-	if (++leg == (int)LWS_ARRAY_SIZE(leg_names) || (leg && !(cert && key))) {
+	if (++leg == (int)LWS_ARRAY_SIZE(leg_names) ||
+	    (leg >= LEG_APP_CLIENT_TLS && !(cert && key))) {
 		finish();
 		return;
 	}
 
 	lwsl_user("%s: leg %d: %s\n", __func__, leg, leg_names[leg]);
+	cli_closed = 0;
+	origin_seen = 0;
 
 	memset(&i, 0, sizeof i);
 	i.context		= cx;
@@ -145,9 +217,11 @@ next_leg(lws_sorted_usec_list_t *sul)
 		i.ssl_connection	= LCCSCF_USE_SSL |
 					  LCCSCF_ALLOW_SELFSIGNED |
 					  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
-	} else if (leg != 1) {
+	} else if (leg != LEG_APP_CLIENT_TLS) {
 		/* a raw client, through the proxy, or plain to tls */
-		i.port			= leg ? port_fallback : port_proxy;
+		i.port			= leg == LEG_PROXY_IDLE ? port_proxy_idle :
+					  leg_via_proxy(leg) ? port_proxy :
+							       port_fallback;
 		i.protocol		= "raw-cli";
 		i.local_protocol_name	= "raw-cli";
 	} else {
@@ -167,10 +241,24 @@ next_leg(lws_sorted_usec_list_t *sul)
 	}
 }
 
+/*
+ * A leg moves on once its client has closed and, through the proxy, once the
+ * proxy's onward connection to the origin has closed as well
+ */
+static void
+maybe_next_leg(void)
+{
+	if (done || !cli_closed ||
+	    (leg_via_proxy(leg) && (!origin_seen || origin_open)))
+		return;
+
+	lws_sul_schedule(cx, 0, &sul_next, next_leg, 1);
+}
+
 static int
 cli_rx(struct lws *wsi, struct cli_pss *pss, const void *in, size_t len)
 {
-	size_t want = strlen(leg_msg[leg]);
+	size_t want = strlen(leg_reply[leg]);
 
 	if (pss->rx_len + len > sizeof(pss->rx))
 		return -1;
@@ -180,7 +268,7 @@ cli_rx(struct lws *wsi, struct cli_pss *pss, const void *in, size_t len)
 	if (pss->rx_len < want)
 		return 0;
 
-	if (pss->rx_len != want || memcmp(pss->rx, leg_msg[leg], want)) {
+	if (pss->rx_len != want || memcmp(pss->rx, leg_reply[leg], want)) {
 		lwsl_err("%s: leg %d: wrong echo\n", __func__, leg);
 		lwsl_hexdump_err(pss->rx, pss->rx_len);
 		fails++;
@@ -189,11 +277,45 @@ cli_rx(struct lws *wsi, struct cli_pss *pss, const void *in, size_t len)
 		return -1;
 	}
 
-	lwsl_user("%s: leg %d: echoed\n", __func__, leg);
-	/* the next leg once this one has closed */
+	lwsl_user("%s: leg %d: replied\n", __func__, leg);
+	pss->replied = 1;
 	pss->rx_len = 0;
 
+	if (leg == LEG_PROXY_ORIGIN_CLOSES || leg == LEG_PROXY_IDLE) {
+		/* the proxy must close us: after the reply, or when idle */
+		replied_at = lws_now_usecs();
+		return 0;
+	}
+
+	/* the next leg once this one has closed */
 	return -1;
+}
+
+static void
+cli_closed_cb(struct cli_pss *pss)
+{
+	if (done)
+		return;
+
+	if (leg != LEG_PROXY_CONNECT_CLOSE && !pss->replied) {
+		lwsl_err("%s: leg %d: closed before the whole reply came\n",
+			 __func__, leg);
+		fails++;
+		finish();
+		return;
+	}
+
+	if (leg == LEG_PROXY_IDLE &&
+	    lws_now_usecs() - replied_at < (IDLE_S * LWS_USEC_PER_SEC) * 9 / 10) {
+		lwsl_err("%s: leg %d: closed before the idle timeout\n",
+			 __func__, leg);
+		fails++;
+		finish();
+		return;
+	}
+
+	cli_closed = 1;
+	maybe_next_leg();
 }
 
 static int
@@ -228,7 +350,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				finish();
 				break;
 			}
-			lws_sul_schedule(cx, 0, &sul_next, next_leg, 1);
+			cli_closed = 1;
+			maybe_next_leg();
 			break;
 		}
 		lwsl_err("%s: leg %d: connection error: %s\n", __func__, leg,
@@ -237,20 +360,22 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		finish();
 		break;
 
-	/* the raw client of leg 0 */
+	/* the raw clients */
 	case LWS_CALLBACK_RAW_ADOPT:
 		lws_callback_on_writable(wsi);
 		break;
 	case LWS_CALLBACK_RAW_WRITEABLE:
+		if (leg == LEG_PROXY_CONNECT_CLOSE)
+			/* gone as soon as we can, without sending anything */
+			return -1;
 		return cli_send(wsi);
 	case LWS_CALLBACK_RAW_RX:
 		return cli_rx(wsi, pss, in, len);
 	case LWS_CALLBACK_RAW_CLOSE:
-		if (!done)
-			lws_sul_schedule(cx, 0, &sul_next, next_leg, 1);
+		cli_closed_cb(pss);
 		break;
 
-	/* our own raw-proxy client of leg 1 */
+	/* our own raw-proxy client */
 	case LWS_CALLBACK_RAW_PROXY_CLI_ADOPT:
 		lws_callback_on_writable(wsi);
 		break;
@@ -259,8 +384,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_PROXY_CLI_RX:
 		return cli_rx(wsi, pss, in, len);
 	case LWS_CALLBACK_RAW_PROXY_CLI_CLOSE:
-		if (!done)
-			lws_sul_schedule(cx, 0, &sul_next, next_leg, 1);
+		cli_closed_cb(pss);
 		break;
 
 	default:
@@ -306,9 +430,15 @@ int main(int argc, const char **argv)
 		NULL, NULL, "onward", NULL
 	}, pvo = {
 		NULL, &pvo_onward, "raw-proxy", ""
+	}, pvo_idle_secs = {
+		NULL, NULL, "idle-timeout-secs", NULL
+	}, pvo_idle_onward = {
+		&pvo_idle_secs, NULL, "onward", NULL
+	}, pvo_idle = {
+		NULL, &pvo_idle_onward, "raw-proxy", ""
 	};
 	struct lws_context_creation_info info;
-	char onward[64];
+	char onward[64], idle[8];
 	const char *p;
 	int n = 0;
 
@@ -327,6 +457,8 @@ int main(int argc, const char **argv)
 		port_proxy = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-fallback")))
 		port_fallback = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-proxy-idle")))
+		port_proxy_idle = atoi(p);
 	cert = lws_cmdline_option(argc, argv, "--cert");
 	key = lws_cmdline_option(argc, argv, "--key");
 
@@ -349,7 +481,8 @@ int main(int argc, const char **argv)
 	info.protocols = protocols_origin;
 	info.vhost_name = "origin";
 	info.port = port_origin;
-	if (!lws_create_vhost(cx, &info))
+	vh_origin = lws_create_vhost(cx, &info);
+	if (!vh_origin)
 		goto bail;
 	if (cert && key) {
 		info.vhost_name = "origin-tls";
@@ -385,6 +518,16 @@ int main(int argc, const char **argv)
 	info.pvo = &pvo;
 	info.vhost_name = "proxy";
 	info.port = port_proxy;
+	if (!lws_create_vhost(cx, &info))
+		goto bail;
+
+	/* ... and another, with an idle timeout */
+	lws_snprintf(idle, sizeof(idle), "%d", IDLE_S);
+	pvo_idle_secs.value = idle;
+	pvo_idle_onward.value = onward;
+	info.pvo = &pvo_idle;
+	info.vhost_name = "proxy-idle";
+	info.port = port_proxy_idle;
 	if (!lws_create_vhost(cx, &info))
 		goto bail;
 	info.pvo = NULL;
