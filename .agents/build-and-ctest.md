@@ -370,3 +370,8 @@ a log is evidence that something was or was not emitted.
  - Any minimal example runs on libuv with `--uv` when `LD_LIBRARY_PATH`
    includes the build tree's `lib/` (where the evlib plugin is built): a
    quick way to fault-inject the evlib-plugin paths.
+ - Raw-socket wsi skip the close shutdown (close.c, role_ops_raw_skt): an
+   lws raw client that sets SO_LINGER 0 and returns -1 sends a
+   deterministic RST, an easy way to test a server seeing a peer reset.
+ - Never delete untracked directories in the source tree during cleanup
+   unless you created them: they may be the maintainer's.
