@@ -187,16 +187,25 @@ static const struct leg legs[] = {
 #define SRV_REASON	"srv"
 
 /*
- * A close handshake on loopback takes a few ms and a few dozen trips around
- * the service loop.  One that only ends at the 5s close timeout, or a loop
- * that spins meanwhile, is far outside these.
+ * A close handshake on loopback takes a few ms and a few trips around the
+ * service loop.  One that only ends at the 5s close timeout, or a loop that
+ * spins meanwhile, is far outside these.
+ *
+ * Spinning is judged by the time spent in service turns shorter than 1ms,
+ * not by counting turns.  The wait for the next timer is in
+ * whole ms, so the last part of a ms before every timer that fires is spent
+ * in turns that do not wait at all: hundreds of them per timer, how many
+ * depending on the machine's speed, and more of them in a close that a busy
+ * machine stretches over more timers (eg QUIC's).  They add up to less than
+ * 1ms per timer, while a loop that spins through the close adds up to the
+ * whole time it spins.
  *
  * It's timed from when the server has the connection, not from the
  * connect: an h3 leg whose QUIC doesn't answer in time falls back to h2
  * after its 2s grace, and that's not part of the close.
  */
 #define LEG_MAX_US	(3 * LWS_US_PER_SEC)
-#define LEG_MAX_TURNS	2000
+#define LEG_MAX_SPIN_US	(100 * LWS_US_PER_MS)
 
 /* the compressible message the pmd leg's client sends */
 #define PMD_MSG_LEN	(16 * 1024)
@@ -250,6 +259,8 @@ static struct lws *srv_wsi, *cli_wsi;
 static const char *server_ads = "127.0.0.1";
 static int port_tcp = 7681, cur = -1, result = 1, legs_run, failed;
 static unsigned long turns, leg_turns, stall_turns;
+/* time spent in service turns shorter than 1ms, see LEG_MAX_SPIN_US */
+static lws_usec_t spin_us, leg_spin_us;
 static lws_usec_t leg_start, stall_started, last_fill, stall_cpu;
 
 /* per-leg state */
@@ -341,16 +352,19 @@ leg_done_check(void)
 	 */
 	us = lws_now_usecs() - leg_start;
 	if (us > LEG_MAX_US ||
-	    (!legs[cur].stall && turns - leg_turns > LEG_MAX_TURNS)) {
-		lwsl_err("%dms, %lu service turns\n", (int)(us / LWS_US_PER_MS),
-			 turns - leg_turns);
+	    (!legs[cur].stall && spin_us - leg_spin_us > LEG_MAX_SPIN_US)) {
+		lwsl_err("%dms, %lu service turns, %dms in turns under 1ms\n",
+			 (int)(us / LWS_US_PER_MS), turns - leg_turns,
+			 (int)((spin_us - leg_spin_us) / LWS_US_PER_MS));
 		fail_leg(us > LEG_MAX_US ? "close took too long" :
 					   "service loop spun during the close");
 		return;
 	}
 
-	lwsl_user("--- leg %d (%s): OK (%dms, %lu service turns) ---\n", cur,
-		  legs[cur].name, (int)(us / LWS_US_PER_MS), turns - leg_turns);
+	lwsl_user("--- leg %d (%s): OK (%dms, %lu service turns, %dus in "
+		  "turns under 1ms) ---\n", cur, legs[cur].name,
+		  (int)(us / LWS_US_PER_MS), turns - leg_turns,
+		  (int)(spin_us - leg_spin_us));
 	legs_run++;
 
 	/* leave the close path before reconnecting */
@@ -547,6 +561,7 @@ stall_cb(lws_sorted_usec_list_t *sul)
 		/* the leg's own clock starts again from here */
 		leg_start = lws_now_usecs();
 		leg_turns = turns;
+		leg_spin_us = spin_us;
 		lws_rx_flow_control(cli_wsi, 1);
 		break;
 	}
@@ -674,6 +689,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		/* the close is timed from here, see LEG_MAX_US */
 		leg_start = lws_now_usecs();
 		leg_turns = turns;
+		leg_spin_us = spin_us;
 		if (check_encap(wsi))
 			return -1;
 		if (legs[cur].refuse) {
@@ -699,6 +715,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			/* the close is timed from here, not the big message */
 			leg_start = lws_now_usecs();
 			leg_turns = turns;
+			leg_spin_us = spin_us;
 			sent_close = 1;
 			lws_close_reason(wsi, SRV_CODE,
 					 (unsigned char *)SRV_REASON,
@@ -974,6 +991,7 @@ start_leg(lws_sorted_usec_list_t *sul)
 	srv_wsi = cli_wsi = NULL;
 	leg_start = lws_now_usecs();
 	leg_turns = turns;
+	leg_spin_us = spin_us;
 
 	memset(&i, 0, sizeof(i));
 	i.context = context;
@@ -1184,7 +1202,12 @@ int main(int argc, const char **argv)
 			 45 * LWS_US_PER_SEC);
 
 	while (n >= 0) {
+		lws_usec_t t = lws_now_usecs();
+
 		n = lws_service(context, 0);
+		t = lws_now_usecs() - t;
+		if (t < LWS_US_PER_MS)
+			spin_us += t;
 		turns++;
 	}
 
