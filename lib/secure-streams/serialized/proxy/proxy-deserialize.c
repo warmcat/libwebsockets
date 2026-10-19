@@ -879,12 +879,10 @@ payload_ff_l:
 			pm->value_on_lws_heap = 1;
 			par->mdstage = NULL;
 
+			/* metadata may be a credential: never log the value */
 			lwsl_ss_info(proxy_pss_to_ss_h(pss),
 				     "RPAR_METADATA_VALUE for %s (len %d)",
 				     pm->name, (int)pm->length);
-			lwsl_hexdump_ss_info(proxy_pss_to_ss_h(pss),
-					     pm->value__may_own_heap,
-					     pm->length);
 			break;
 
 		case RPAR_STREAMTYPE:

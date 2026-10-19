@@ -721,8 +721,8 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 
 	if (len) {
 #if !defined(STANDALONE)
-		lwsl_sspc_info(h, "set metadata %s", name);
-		lwsl_hexdump_sspc_info(h, value, len);
+		/* metadata may be a credential: never log the value */
+		lwsl_sspc_info(h, "set metadata %s (len %d)", name, (int)len);
 #endif
 	} else
 		lwsl_sspc_info(h, "serializing tx cr adj %d",

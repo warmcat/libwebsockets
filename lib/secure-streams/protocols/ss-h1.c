@@ -343,10 +343,9 @@ lws_apply_instant_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 
 	while (imd) {
 		if (imd->name && imd->value__may_own_heap) {
-			lwsl_debug("%s add header %s %s %d\n", __func__,
-					           imd->name,
-			                           (char *)imd->value__may_own_heap,
-						   (int)imd->length);
+			/* eg, authorization: never log the value */
+			lwsl_debug("%s: add header %s (len %d)\n", __func__,
+				   imd->name, (int)imd->length);
 			if (lws_add_http_header_by_name(wsi,
 					(const unsigned char *)imd->name,
 					(const unsigned char *)imd->value__may_own_heap,
@@ -1121,7 +1120,9 @@ malformed_l:
 				return -1;
 
 			buf[(unsigned int)o + buflen] = '\0';
-			lwsl_debug("%s: adding blob %d: %s\n", __func__, m, buf);
+			/* the blob is the credential: never log the value */
+			lwsl_debug("%s: adding blob %d (len %d)\n", __func__, m,
+				   (int)((int)buflen + o));
 
 			if (lws_add_http_header_by_name(wsi,
 				 (uint8_t *)h->policy->u.http.blob_header[m],
