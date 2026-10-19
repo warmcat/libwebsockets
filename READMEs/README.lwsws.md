@@ -387,11 +387,13 @@ and auth-server plugins do that for their pages.
  - "`access-log`": "filepath"   sets where apache-compatible access logs will be written
 
    The first field of each line is the client's address, eg `192.0.2.10`,
-   exactly as it always was, when that is all lws knows of who the peer is.
-   When the connection has more layers than its own peer's address, eg the
-   client a trusted front named in a PROXY v2 header (see
-   `proxy-v2-trusted`), the field is every layer instead, still as one field
-   with no spaces: top (the most specific claim) first, joined by `<`, each
+   exactly as it always was, when that is all lws knows of who the peer is
+   and the connection's handshake proved it; a client on an AF_UNIX socket
+   is `unix`.  When the connection has more layers than its own peer's
+   address, eg the client a trusted front named in a PROXY v2 header (see
+   `proxy-v2-trusted`), or its only one is not proven, eg the source address
+   of datagrams, the field is every layer instead, still as one field with no
+   spaces: top (the most specific claim) first, joined by `<`, each
    `address[:port]~cred`, where cred is the initial of how far the layer can
    be believed, `h`earsay, `v`ouched, `r`outable or `c`rypto, and an IPv6
    address with a port is in brackets, eg

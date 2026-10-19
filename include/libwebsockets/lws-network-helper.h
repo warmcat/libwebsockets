@@ -436,7 +436,7 @@ lws_peer_entries_effective(const lws_peer_entry_t *e, int count);
 
 /* lws_peer_describe() flags */
 #define LWS_PEER_DESC_TOKEN	(1 << 0) /* one token, no spaces, see below */
-#define LWS_PEER_DESC_BARE_SINGLE (1 << 1) /* one entry: just its address */
+#define LWS_PEER_DESC_BARE_SINGLE (1 << 1) /* one proven entry: its address */
 
 /*
  * Room for any description of what lws_peer_walk() can give, including the
@@ -464,11 +464,14 @@ lws_peer_entries_effective(const lws_peer_entry_t *e, int count);
  *
  *   "203.0.113.9:51234~v<10.0.0.2:40122~r"
  *
- * With LWS_PEER_DESC_BARE_SINGLE, a single entry is just its bare address,
- * without port, kind or cred, eg "10.0.0.2": the peer is usually only the
- * transport's, and that is what logs have always shown for it.  Deeper
- * stacks are described in full either way, since then the other layers are
- * exactly what a log needs to show.
+ * With LWS_PEER_DESC_BARE_SINGLE, a single entry the transport proved, at
+ * LWS_PEER_CRED_ROUTABLE or better, or an AF_UNIX (LWS_PEER_KIND_LOCAL) one,
+ * is just its bare address, without port, kind or cred, eg "10.0.0.2": the
+ * peer is usually only the transport's, and that is what logs have always
+ * shown for it.  A single entry below ROUTABLE, eg a datagram's source, is
+ * still described in full, so that hearsay never looks like a proven peer in
+ * a log, and so are deeper stacks, since then the other layers are exactly
+ * what a log needs to show.
  *
  * An IPv6 address with a port is bracketed, eg "[2001:db8::1]:443".  An
  * AF_UNIX (LWS_PEER_KIND_LOCAL) entry's address is "unix", and an address of
@@ -496,11 +499,17 @@ lws_peer_entries_describe(const lws_peer_entry_t *e, int count, char *buf,
  * lws_peer_entries_describe() of what lws_peer_walk() gives for \p wsi; a
  * connection with no peer gives "unknown".
  *
- * With LWS_PEER_DESC_BARE_SINGLE, a connection with no more than one entry
- * is described by exactly the text lws_get_peer_simple() gives for it, so
- * that a log or access log line is the same as it always was in the usual
- * case, and only grows the other layers when there are some.  This is how
- * lws describes the peer in its own logs and access log.
+ * The description comes only from the stack, what the connection recorded
+ * when it was accepted or connected: the socket is not asked again, so it
+ * is the same when the connection is being closed, after the peer reset it,
+ * or (for a stream) after its connection's socket was closed.
+ *
+ * With LWS_PEER_DESC_BARE_SINGLE, a connection whose only entry is its
+ * proven IP peer is described by its bare address, the text
+ * lws_get_peer_simple() gives for it, so that a log or access log line is
+ * the same as it always was in the usual case, and only grows the other
+ * layers when there are some.  An AF_UNIX peer is "unix".  This is how lws
+ * describes the peer in its own logs and access log.
  *
  * Returns \p buf.
  */

@@ -10,8 +10,10 @@ hearsay, vouched, routable, crypto).
    test, in the log format and as one token, with IPv6 brackets, AF_UNIX, an
    address of no family lws can write, the cred and kind names, and buffers
    too small for the result.  With `LWS_PEER_DESC_BARE_SINGLE`, which is how
-   lws's own logs describe the peer, a single entry is just its address,
-   while a deeper stack is still described in full.
+   lws's own logs describe the peer, a single entry the transport proved
+   (routable or better, or AF_UNIX) is just its address, while a single
+   hearsay or vouched entry keeps its cred, and a deeper stack is still
+   described in full.
 
  - **effective**: `lws_peer_entries_effective()` on stacks made up in the
    test, including ones lws does not build yet: a hearsay entry above a
@@ -22,7 +24,14 @@ hearsay, vouched, routable, crypto).
    entry, the socket's peer, ROUTABLE and effective, which is what
    `lws_get_peer_simple()` gives, and what `lws_peer_describe()` gives with
    `LWS_PEER_DESC_BARE_SINGLE`, so logs show it as they always did; the
-   client sees the server it connected to the same way.
+   client sees the server it connected to the same way.  The client then
+   resets the connection, and when the server closes it, it is still
+   described the same: from the stack, not by asking the socket, which by
+   then no longer knows its peer.
+
+ - **unix** (with `LWS_WITH_UNIX_SOCK`, not on Windows): a connection adopted
+   from a socketpair is one LOCAL entry, described as `unix`, also as a
+   token, so its access log line's host field has no spaces.
 
  - **proxy-v2** (with `LWS_WITH_TLS_PASSTHROUGH`): the client sends a PROXY v2
    header first, to a vhost trusting loopback for one.  The client it names
@@ -33,7 +42,9 @@ hearsay, vouched, routable, crypto).
 
  - **udp** (with `LWS_WITH_UDP`): a bound UDP socket's peer is the last
    datagram's source, HEARSAY, as a DATAGRAM entry: the socket has no peer of
-   its own, so nothing (eg, the route checks) takes it for one.
+   its own, so nothing (eg, the route checks) takes it for one.  Being only
+   hearsay, lws's logs show it with its cred, and bare once it is raised to
+   routable.
    `lws_peer_raise()` raises it only for its own address (and port, when one
    is given), never lowers it, and after a datagram from another socket has
    replaced the entry, evidence about the old source raises nothing.  The
@@ -53,7 +64,8 @@ hearsay, vouched, routable, crypto).
    log.  The line for the tcp phase's GET starts with just the client's
    address, exactly what `lws_get_peer_simple()` gives, as access logs always
    did; the line for the proxy-v2 phase's starts with both layers as one
-   field, `192.0.2.10:40000~v<127.0.0.1:<port>~r`.
+   field, `192.0.2.10:40000~v<127.0.0.1:<port>~r`, and the unix phase's with
+   `unix`.
 
 ## Commandline
 

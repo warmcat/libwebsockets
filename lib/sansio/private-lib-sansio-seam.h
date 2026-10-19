@@ -226,7 +226,8 @@ lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
  * who the connection's peer is, as text into buf for a log: each layer of
  * its peer address stack with its credibility, top first, or with
  * LWS_PEER_DESC_BARE_SINGLE, just the address when there is only the
- * transport's (lws_io_ops_t.peer_describe, IO's lws_peer_describe()).
+ * transport's proven peer (lws_io_ops_t.peer_describe, IO's
+ * lws_peer_describe()).
  * Returns buf.
  */
 static LWS_INLINE const char *

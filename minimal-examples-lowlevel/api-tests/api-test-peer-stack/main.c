@@ -10,15 +10,22 @@
  * peer is, layer by layer, each tagged with how far it can be believed.
  *
  *  - the formatter, on entries made up here: both formats, IPv6 brackets,
- *    AF_UNIX, the names, cutting short, and a single entry given bare, as
- *    lws's own logs give the usual peer;
+ *    AF_UNIX, the names, cutting short, and a single proven entry given
+ *    bare, as lws's own logs give the usual peer, while a single entry that
+ *    is not proven keeps its cred;
  *
  *  - the effective entry rule, on entries made up here: a hearsay entry
  *    above a believable one is never the effective entry;
  *
  *  - a plain TCP connection: the server sees one entry, the socket's peer,
  *    ROUTABLE, which is also the effective entry, and the client sees the
- *    server the same way once connected;
+ *    server the same way once connected.  The client resets the connection,
+ *    and when the server closes it, it is still described as it was: from
+ *    the stack, not by asking the socket, which no longer knows;
+ *
+ *  - an AF_UNIX connection (adopted from a socketpair) is one LOCAL entry,
+ *    described as "unix" in logs and in its access log line, which has no
+ *    spaces in its host field;
  *
  *  - with TLS passthrough, a PROXY v2 header from a front the vhost trusts
  *    (loopback): the client it names goes on top, VOUCHED, and being the
@@ -53,16 +60,24 @@
 #define PS_STRANGER	"198.51.100.1"	/* nobody on any stack */
 #define PS_PHASE_US	(3 * LWS_US_PER_SEC)
 
+/* AF_UNIX connections are adopted from a socketpair */
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+#define PS_UNIX
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 enum {
 	PS_PHASE_TCP,
 	PS_PHASE_PROXY_V2,
 	PS_PHASE_UDP,
 	PS_PHASE_REDIRECT,
+	PS_PHASE_UNIX,
 	PS_PHASE_COUNT
 };
 
 static const char * const phase_names[] = {
-	"tcp", "proxy-v2", "udp", "redirect"
+	"tcp", "proxy-v2", "udp", "redirect", "unix"
 };
 
 static struct lws_context *cx;
@@ -71,10 +86,16 @@ static lws_sorted_usec_list_t sul_phase;
 static const char *server = "localhost";
 #if defined(LWS_WITH_ACCESS_LOG)
 static const char *alog;		/* the servers' access log file */
-static char alog_host[2][LWS_PEER_DESC_LEN];	/* host field per phase */
+/* host field of the tcp, proxy-v2 and unix phases' lines */
+static char alog_host[PS_PHASE_COUNT][LWS_PEER_DESC_LEN];
 #endif
+static struct lws *srv_tcp;		/* the server's tcp phase connection */
+static char srv_tcp_desc[LWS_PEER_DESC_LEN];	/* ... as it was described */
 static int phase = -1, fails, finished, phase_done, srv_checked, udp_port,
-	   redirected, redial_seen;
+	   redirected, redial_seen, srv_tcp_closed;
+#if defined(PS_UNIX)
+static int unix_fd = -1;		/* our end of the socketpair */
+#endif
 #if defined(LWS_WITH_UDP)
 static lws_peer_entry_t udp_first;	/* the first datagram's source */
 static struct lws *udp_tx1;		/* the first sender */
@@ -242,9 +263,34 @@ ps_formatter(void)
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN),
 		  "10.0.0.2~h", "hearsay, no port, as a token");
+
+	/* a lone entry is bare only if it is proven */
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "10.0.0.2", "a single entry is bare whatever its cred");
+		  "10.0.0.2 socket/hearsay",
+		  "bare single: lone hearsay keeps its cred, for logs");
+	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "10.0.0.2~h", "bare single: and as a token");
+	entry(&e[0], "10.0.0.2", 53, LWS_PEER_KIND_DATAGRAM,
+	      LWS_PEER_CRED_HEARSAY);
+	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "10.0.0.2:53~h", "bare single: a datagram's source too");
+	entry(&e[0], "192.0.2.10", 40000, LWS_PEER_KIND_PROXY_V2,
+	      LWS_PEER_CRED_VOUCHED);
+	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "192.0.2.10:40000~v", "bare single: lone vouched too");
+	entry(&e[0], "10.0.0.2", 443, LWS_PEER_KIND_SOCKET,
+	      LWS_PEER_CRED_CRYPTO);
+	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "10.0.0.2", "bare single: lone crypto is bare");
 
 #if defined(LWS_WITH_IPV6)
 	entry(&e[0], "2001:db8::1", 443, LWS_PEER_KIND_RELAY,
@@ -413,8 +459,31 @@ ps_srv_check(struct lws *wsi)
 		lws_strncpy(alog_host[PS_PHASE_TCP], t,
 			    sizeof(alog_host[PS_PHASE_TCP]));
 #endif
+		/* to compare with how it is described when it is closed */
+		srv_tcp = wsi;
+		lws_strncpy(srv_tcp_desc, t, sizeof(srv_tcp_desc));
 		return;
 	}
+
+#if defined(PS_UNIX)
+	if (phase == PS_PHASE_UNIX) {
+		check(n == 1 && e[0].kind == LWS_PEER_KIND_LOCAL &&
+		      e[0].cred == LWS_PEER_CRED_ROUTABLE,
+		      "server: an AF_UNIX peer, one local entry");
+		check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+					    LWS_PEER_DESC_BARE_SINGLE), "unix",
+			  "server: an AF_UNIX peer is unix in logs");
+		check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE), "unix",
+			  "server: and as a token, with no spaces");
+#if defined(LWS_WITH_ACCESS_LOG)
+		lws_strncpy(alog_host[PS_PHASE_UNIX], "unix",
+			    sizeof(alog_host[PS_PHASE_UNIX]));
+#endif
+		return;
+	}
+#endif
 
 	/* PS_PHASE_PROXY_V2 */
 
@@ -502,7 +571,26 @@ ps_srv_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		    lws_finalize_write_http_header(wsi, start, &p, end))
 			return 1;
 
+		/* nobody reads the answer on the socketpair */
+		if (phase == PS_PHASE_UNIX)
+			ps_phase_end(NULL);
+
 		return lws_http_transaction_completed(wsi) ? -1 : 0;
+	}
+
+	if (reason == LWS_CALLBACK_CLOSED_HTTP && wsi == srv_tcp) {
+		char buf[LWS_PEER_DESC_LEN];
+
+		/*
+		 * The client reset the connection: asked now, the socket no
+		 * longer knows who it was connected to, but the stack does
+		 */
+		check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+					    LWS_PEER_DESC_BARE_SINGLE),
+			  srv_tcp_desc,
+			  "server: described the same after a reset, at close");
+		srv_tcp = NULL;
+		srv_tcp_closed = 1;
 	}
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
@@ -570,6 +658,17 @@ ps_cli_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		else
 			ps_phase_end(srv_checked ? NULL :
 					"answered without the server's checks");
+		if (phase == PS_PHASE_TCP) {
+			struct linger lin;
+
+			/* a raw socket is closed at once: this resets it */
+			lin.l_onoff	= 1;
+			lin.l_linger	= 0;
+			if (setsockopt(lws_get_socket_fd(wsi), SOL_SOCKET,
+				       SO_LINGER, (const char *)&lin,
+				       sizeof(lin)))
+				check(0, "client: set to reset on close");
+		}
 		return -1;
 
 	case LWS_CALLBACK_RAW_CLOSE:
@@ -697,6 +796,9 @@ ps_udp_rx_first(struct lws *wsi)
 	expect_entry(exp, sizeof(exp), &e[0], 0);
 	check_str(lws_peer_describe(wsi, buf, sizeof(buf), 0), exp,
 		  "udp: described for logs");
+	check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+				    LWS_PEER_DESC_BARE_SINGLE), exp,
+		  "udp: hearsay, so lws's logs show its cred");
 
 	/* raising: only on evidence from that address */
 
@@ -718,6 +820,10 @@ ps_udp_rx_first(struct lws *wsi)
 	      lws_peer_walk(wsi, e, 1) == 1 &&
 	      e[0].cred == LWS_PEER_CRED_ROUTABLE,
 	      "udp: evidence from its address and port raises it");
+	lws_sa46_write_numeric_address(&e[0].sa46, exp, sizeof(exp));
+	check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+				    LWS_PEER_DESC_BARE_SINGLE), exp,
+		  "udp: proven, lws's logs show it bare");
 
 	check(!lws_peer_raise(wsi, &udp_first.sa46, LWS_PEER_CRED_HEARSAY) &&
 	      lws_peer_walk(wsi, e, 1) == 1 &&
@@ -926,6 +1032,9 @@ ps_next(lws_sorted_usec_list_t *sul)
 #if !defined(LWS_WITH_UDP)
 		phase == PS_PHASE_UDP ||
 #endif
+#if !defined(PS_UNIX)
+		phase == PS_PHASE_UNIX ||
+#endif
 		0);
 
 	lwsl_user("%s:\n", phase_names[phase]);
@@ -943,6 +1052,27 @@ ps_next(lws_sorted_usec_list_t *sul)
 			return;
 		}
 		udp_tx1 = ps_udp_sender("ps-udp-tx1");
+		return;
+	}
+#endif
+
+#if defined(PS_UNIX)
+	if (phase == PS_PHASE_UNIX) {
+		static const char get[] = "GET / HTTP/1.1\x0d\x0aHost: ps\x0d\x0a"
+					  "\x0d\x0a";
+		int sv[2];
+
+		/* the request waits in the socketpair for the server */
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+			ps_phase_end("socketpair failed");
+			return;
+		}
+		unix_fd = sv[0];
+		if (write(sv[0], get, sizeof(get) - 1) !=
+						(ssize_t)(sizeof(get) - 1) ||
+		    !lws_adopt_socket_vhost(vh_srv, sv[1]))
+			/* the adopt closed sv[1] if it failed */
+			ps_phase_end("adopting the AF_UNIX connection failed");
 		return;
 	}
 #endif
@@ -1026,6 +1156,13 @@ ps_access_log(void)
 		ps_access_log_line(log, PS_PHASE_TCP,
 				   "a plain connection's line starts with "
 				   "just its address");
+#if defined(PS_UNIX)
+	check(!!alog_host[PS_PHASE_UNIX][0], "the AF_UNIX connection was seen");
+	if (alog_host[PS_PHASE_UNIX][0])
+		ps_access_log_line(log, PS_PHASE_UNIX,
+				   "an AF_UNIX connection's line starts with "
+				   "unix");
+#endif
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
 	check(!!alog_host[PS_PHASE_PROXY_V2][0],
 	      "the PROXY v2 connection was seen");
@@ -1122,6 +1259,13 @@ main(int argc, const char **argv)
 
 	lws_sul_cancel(&sul_phase);
 	lws_context_destroy(cx);
+#if defined(PS_UNIX)
+	if (unix_fd >= 0)
+		close(unix_fd);
+#endif
+
+	/* by the time the context is gone, the server closed it */
+	check(srv_tcp_closed, "server: the reset connection was closed");
 
 #if defined(LWS_WITH_ACCESS_LOG)
 	/* the vhosts flushed and closed it */

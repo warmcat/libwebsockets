@@ -376,8 +376,15 @@ lws_peer_entries_describe(const lws_peer_entry_t *e, int count, char *buf,
 		goto done;
 	}
 
-	/* the usual case, just the transport's peer, looks as it always has */
-	if (count == 1 && (flags & LWS_PEER_DESC_BARE_SINGLE)) {
+	/*
+	 * The usual case, just the transport's peer, proven by its handshake
+	 * (or by the kernel, for AF_UNIX), looks as it always has.  A lone
+	 * entry that is not proven, eg, a datagram's source, keeps its cred,
+	 * so a log never shows hearsay as if it were a proven peer.
+	 */
+	if (count == 1 && (flags & LWS_PEER_DESC_BARE_SINGLE) &&
+	    (e[0].kind == LWS_PEER_KIND_LOCAL ||
+	     e[0].cred >= LWS_PEER_CRED_ROUTABLE)) {
 		lws_peer_desc_address(&d, &e[0], 0);
 		goto done;
 	}
@@ -416,22 +423,15 @@ const char *
 lws_peer_describe(struct lws *wsi, char *buf, size_t len, int flags)
 {
 	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
-	int count = lws_peer_walk(wsi, e, LWS_ARRAY_SIZE(e));
 
-#if !defined(LWS_PLAT_OPTEE)
 	/*
-	 * Where there is nothing more to say than the transport's peer, say
-	 * what logs and access logs always did, exactly, so the usual line
-	 * stays as it was for whoever parses it
+	 * Only what the stack recorded when the connection was accepted or
+	 * connected, never the socket asked again: a close is often logged
+	 * when the socket was already reset, or (for a stream) when its
+	 * connection's socket is already closed, and then only the stack still
+	 * knows who the peer was
 	 */
-	if (wsi && count <= 1 && (flags & LWS_PEER_DESC_BARE_SINGLE)) {
-		if (!len)
-			return buf;
-		*buf = '\0';
-
-		return lws_get_peer_simple(wsi, buf, len);
-	}
-#endif
-
-	return lws_peer_entries_describe(e, count, buf, len, flags);
+	return lws_peer_entries_describe(e, lws_peer_walk(wsi, e,
+						(int)LWS_ARRAY_SIZE(e)),
+					 buf, len, flags);
 }
