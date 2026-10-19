@@ -281,8 +281,8 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
         	struct lws *nwsi = lws_get_network_wsi(new_wsi);
 		char ta[64];
 
-        	if (nwsi->io->sa46_peer.sa4.sin_family)
-        	        lws_sa46_write_numeric_address(&nwsi->io->sa46_peer, ta, sizeof(ta));
+        	if (nwsi->io->pstack[0].sa46.sa4.sin_family)
+        	        lws_sa46_write_numeric_address(&nwsi->io->pstack[0].sa46, ta, sizeof(ta));
         	else
                 	strncpy(ta, "unknown", sizeof(ta));
 		__lws_lc_tag_append(&new_wsi->lc, ta);
@@ -536,7 +536,7 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 #endif
 
 	if (info->type & LWS_ADOPT_SOCKET &&
-	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->io->sa46_peer,
+	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->io->pstack[0].sa46,
 								    &slen) < 0)
 		lwsl_info("%s: getpeername failed\n", __func__);
 
@@ -932,7 +932,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * route of that family.
 		 */
 		if (!wsi->io->do_bind)
-			wsi->io->sa46_peer = s->dest;
+			wsi->io->pstack[0].sa46 = s->dest;
 
 		/* we connected: complete the udp socket adoption flow */
 
@@ -1131,7 +1131,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (wsi->io->udp)
 		wsi->io->udp->sa46 = dest;
 	if (!wsi->io->do_bind)
-		wsi->io->sa46_peer = dest;
+		wsi->io->pstack[0].sa46 = dest;
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	{

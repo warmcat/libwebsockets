@@ -303,6 +303,20 @@ struct client_info_stash {
 #define lws_wsi_is_udp(___wsi) (!!(___wsi)->io->udp)
 #endif
 
+/*
+ * The connection's peer address stack: the transport's own peer, and with
+ * TLS passthrough, one claim above it (a PROXY v2 header is exactly one)
+ */
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+#define LWS_PEER_STACK_MAX 2
+#else
+#define LWS_PEER_STACK_MAX 1
+#endif
+
+typedef struct lws_peer_entry {
+	lws_sockaddr46			sa46;
+} lws_peer_entry_t;
+
 #if defined(LWS_WITH_CLIENT)
 #define LWS_MAX_PARALLEL_CONNS 3
 struct lws_client_parallel_conn {
@@ -1070,7 +1084,13 @@ struct lws_io_adjunct {
 #endif
 	/* the connection's addresses, family and route */
 	lws_sockaddr46			sa46_local;
-	lws_sockaddr46			sa46_peer;
+	/*
+	 * Who the peer is, as a stack: pstack[0] is the transport's own peer,
+	 * and a claim about the client, eg a trusted proxy's PROXY v2 header,
+	 * is pushed above it.  pstack_count is 2 while a claim is pushed.
+	 */
+	lws_peer_entry_t		pstack[LWS_PEER_STACK_MAX];
+	uint8_t				pstack_count;
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
 	/*
 	 * A server connection's first bytes, looked at before its tls or role
@@ -1078,8 +1098,6 @@ struct lws_io_adjunct {
 	 * proxy, then the ClientHello's SNI to see if it is passed through
 	 */
 	lws_sorted_usec_list_t		sul_pre_accept;
-	lws_sockaddr46			sa46_proxied; /* the client a trusted
-						       * proxy named */
 	uint8_t				*pa_peek;
 	size_t				pa_seen;	/* ClientHello bytes we
 							 * last looked at */
@@ -1089,7 +1107,6 @@ struct lws_io_adjunct {
 	unsigned int			pa_tls:1;	/* tls accept after */
 	unsigned int			pa_proxy_v2:1;	/* header expected */
 	unsigned int			pa_sni:1;	/* passthrough possible */
-	unsigned int			proxied:1;	/* sa46_proxied is set */
 #endif
 #if defined(LWS_WITH_ROUTING)
 	lws_route_uidx_t		peer_route_uidx;
@@ -1128,7 +1145,7 @@ struct lws_io_adjunct {
 #if defined(LWS_WITH_CLIENT)
 	lws_dll2_owner_t		dns_sorted_list;
 	/*
-	 * While racers run, sa46_peer is the latest attempt's: the address
+	 * While racers run, pstack[0] is the latest attempt's: the address
 	 * (and route) the attempt on desc is connecting to is kept here
 	 */
 	lws_sockaddr46			sa46_primary;

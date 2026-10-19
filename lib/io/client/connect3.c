@@ -892,7 +892,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			cce = "unix socket path too long";
 			goto oom4;
 		}
-		memset(&wsi->io->sa46_peer, 0, sizeof(wsi->io->sa46_peer));
+		memset(&wsi->io->pstack[0].sa46, 0, sizeof(wsi->io->pstack[0].sa46));
 		sau.sun_family = AF_UNIX;
 		lws_strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
 
@@ -931,7 +931,7 @@ next_dns_result_seq:
 		cce = "Unable to connect";
 
 	/*
-	 * Copy the wsi head sorted dns result into the wsi->io->sa46_peer, and
+	 * Copy the wsi head sorted dns result into the wsi->io->pstack[0].sa46, and
 	 * remove and free the original from the sorted list
 	 */
 
@@ -939,7 +939,7 @@ next_dns_result_seq:
 	curr = lws_container_of(d, lws_dns_sort_t, list);
 
 	lws_dll2_remove(&curr->list);
-	wsi->io->sa46_peer = curr->dest;
+	wsi->io->pstack[0].sa46 = curr->dest;
 #if defined(LWS_WITH_UDP)
 	/* the datagram peer is the primary attempt's, not a TCP racer's */
 	if (wsi->io->udp && !lws_socket_is_valid(wsi->io->desc.sockfd)) {
@@ -954,10 +954,10 @@ next_dns_result_seq:
 
 	lws_free(curr);
 
-	sa46_sockport(&wsi->io->sa46_peer, htons(port));
+	sa46_sockport(&wsi->io->pstack[0].sa46, htons(port));
 
-	psa = sa46_sockaddr(&wsi->io->sa46_peer);
-	n = (int)sa46_socklen(&wsi->io->sa46_peer);
+	psa = sa46_sockaddr(&wsi->io->pstack[0].sa46);
+	n = (int)sa46_socklen(&wsi->io->pstack[0].sa46);
 
 #if defined(LWS_WITH_UNIX_SOCK)
 ads_known:
@@ -1000,7 +1000,7 @@ ads_known:
 		else
 #endif
 		{
-			af = wsi->io->sa46_peer.sa4.sin_family;
+			af = wsi->io->pstack[0].sa46.sa4.sin_family;
 			/*
 			 * Only the primary attempt of a UDP or QUIC client
 			 * gets a datagram socket.  A happy-eyeballs racer
@@ -1017,7 +1017,7 @@ ads_known:
 #endif
 				    (wsi->role_ops &&
 				     !strcmp(wsi->role_ops->name, "quic")));
-			new_fd = socket(wsi->io->sa46_peer.sa4.sin_family, want_udp ? SOCK_DGRAM : SOCK_STREAM, 0);
+			new_fd = socket(wsi->io->pstack[0].sa46.sa4.sin_family, want_udp ? SOCK_DGRAM : SOCK_STREAM, 0);
 			if (lws_socket_is_valid(new_fd) && want_udp) {
 				int opt = 4 * 1024 * 1024;
 				if (setsockopt(new_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0) {
@@ -1078,7 +1078,7 @@ ads_known:
 		if (want_udp && wsi->role_ops &&
 		    !strcmp(wsi->role_ops->name, "quic") &&
 		    lws_plat_set_socket_dontfrag(new_fd,
-					wsi->io->sa46_peer.sa4.sin_family))
+					wsi->io->pstack[0].sa46.sa4.sin_family))
 			lwsl_wsi_info(wsi, "unable to set Don't Fragment");
 #endif
 
@@ -1230,11 +1230,11 @@ ads_known:
 		 * connect() can route to the correct network interface.
 		 */
 		if (iface && *iface &&
-		    wsi->io->sa46_peer.sa4.sin_family == AF_INET6 &&
-		    !wsi->io->sa46_peer.sa6.sin6_scope_id) {
+		    wsi->io->pstack[0].sa46.sa4.sin_family == AF_INET6 &&
+		    !wsi->io->pstack[0].sa46.sa6.sin6_scope_id) {
 			unsigned long scope = lws_get_addr_scope(wsi, iface);
 			if (scope)
-				wsi->io->sa46_peer.sa6.sin6_scope_id = (uint32_t)scope;
+				wsi->io->pstack[0].sa46.sa6.sin6_scope_id = (uint32_t)scope;
 		}
 #endif
 	}
@@ -1270,22 +1270,22 @@ ads_known:
 	if (!wsi->io->unix_skt)
 #endif
 	{
-		memmove(&wsi->io->sa46_peer, psa, (unsigned int)n);
+		memmove(&wsi->io->pstack[0].sa46, psa, (unsigned int)n);
 
 		/*
 		 * ... and one that stays with this attempt's socket, since a
-		 * later racer overwrites sa46_peer: whichever attempt wins,
+		 * later racer overwrites pstack[0]: whichever attempt wins,
 		 * its own peer becomes the connection's at conn_good
 		 */
 		if (is_parallel) {
 			wsi->io->parallel_conns[pidx].sa46_peer =
-							wsi->io->sa46_peer;
+							wsi->io->pstack[0].sa46;
 #if defined(LWS_WITH_ROUTING)
 			wsi->io->parallel_conns[pidx].route_uidx =
 						wsi->io->peer_route_uidx;
 #endif
 		} else {
-			wsi->io->sa46_primary = wsi->io->sa46_peer;
+			wsi->io->sa46_primary = wsi->io->pstack[0].sa46;
 #if defined(LWS_WITH_ROUTING)
 			wsi->io->primary_route_uidx = wsi->io->peer_route_uidx;
 #endif
@@ -1406,7 +1406,7 @@ ads_known:
 
 			char nads[48];
 
-			lws_sa46_write_numeric_address(&wsi->io->sa46_peer, nads,
+			lws_sa46_write_numeric_address(&wsi->io->pstack[0].sa46, nads,
 						       sizeof(nads));
 
 			lws_snprintf(dcce, sizeof(dcce),
@@ -1415,7 +1415,7 @@ ads_known:
 				     nads, port);
 			cce = dcce;
 
-			wsi->io->sa46_peer.sa4.sin_family = 0;
+			wsi->io->pstack[0].sa46.sa4.sin_family = 0;
 			lwsl_wsi_info(wsi, "%s", cce);
 #if defined(LWS_WITH_UNIX_SOCK)
 			} else {
@@ -1663,7 +1663,7 @@ conn_good:
 	if (!wsi->io->unix_skt)
 #endif
 	{
-		wsi->io->sa46_peer = wsi->io->sa46_primary;
+		wsi->io->pstack[0].sa46 = wsi->io->sa46_primary;
 #if defined(LWS_WITH_ROUTING)
 		wsi->io->peer_route_uidx = wsi->io->primary_route_uidx;
 #endif
@@ -1687,9 +1687,9 @@ conn_good:
 			lwsl_info("getsockname: %s\n", lws_errno_describe(en, t16, sizeof(t16)));
 		} else {
 #if defined(LWS_WITH_IPV6)
-			if (wsi->io->sa46_peer.sa4.sin_family == AF_INET6 &&
+			if (wsi->io->pstack[0].sa46.sa4.sin_family == AF_INET6 &&
 			    wsi->io->sa46_local.sa4.sin_family == AF_INET6) {
-				const uint8_t *pb = (const uint8_t *)&wsi->io->sa46_peer.sa6.sin6_addr;
+				const uint8_t *pb = (const uint8_t *)&wsi->io->pstack[0].sa46.sa6.sin6_addr;
 				const uint8_t *lb = (const uint8_t *)&wsi->io->sa46_local.sa6.sin6_addr;
 				int peer_is_ll = (pb[0] == 0xfe && (pb[1] & 0xc0) == 0x80);
 				int local_is_ll = (lb[0] == 0xfe && (lb[1] & 0xc0) == 0x80);

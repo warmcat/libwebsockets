@@ -423,8 +423,8 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 				      peer);
 			return -1;
 		}
-		wsi->io->sa46_proxied = pv.src;
-		wsi->io->proxied = 1;
+		wsi->io->pstack[1].sa46 = pv.src;
+		wsi->io->pstack_count = 2;
 	}
 
 	client[0] = '\0';
@@ -443,7 +443,7 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 	 * and any one of them can spend it for all the others.
 	 */
 	pl = lws_get_or_create_peer_sa46(wsi->a.vhost, pv.local ?
-					 &wsi->io->sa46_peer : &pv.src);
+					 &wsi->io->pstack[0].sa46 : &pv.src);
 	if (lws_peer_wsi_limit_reached(wsi->a.context, pl,
 				       wsi->io->desc.sockfd)) {
 		lwsl_wsi_info(wsi, "%s %s at its connection limit: dropped",
@@ -791,8 +791,8 @@ lws_passthrough_start(struct lws *wsi, struct lws_vhost *vh, const char *sni)
 		memset(&pv, 0, sizeof(pv));
 
 		/* the client, as we know it, which a proxy before us may say */
-		if (wsi->io->proxied)
-			pv.src = wsi->io->sa46_proxied;
+		if (wsi->io->pstack_count > 1)
+			pv.src = wsi->io->pstack[1].sa46;
 		else {
 			sl = sizeof(pv.src);
 			if (getpeername(wsi->io->desc.sockfd,

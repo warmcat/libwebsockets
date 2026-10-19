@@ -250,7 +250,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 
 	if (wsi && wsi->quic.qn) {
 		/* the netconn told IO its committed path's peer */
-		lws_sa46_write_numeric_address(&wsi->io->sa46_peer, name, namelen);
+		lws_sa46_write_numeric_address(&wsi->io->pstack[0].sa46, name, namelen);
 		return name;
 	}
 #endif
@@ -262,9 +262,9 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 	}
 #endif
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
-	if (wsi->io->proxied) {
+	if (wsi->io->pstack_count > 1) {
 		/* the client a trusted proxy named in its PROXY v2 header */
-		lws_sa46_write_numeric_address(&wsi->io->sa46_proxied, name,
+		lws_sa46_write_numeric_address(&wsi->io->pstack[1].sa46, name,
 					       namelen);
 		return name;
 	}
@@ -316,9 +316,9 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		name[0] = '\0';
 
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
-	if (wsi->io->proxied && fd == wsi->io->desc.sockfd)
+	if (wsi->io->pstack_count > 1 && fd == wsi->io->desc.sockfd)
 		/* the client a trusted proxy named in its PROXY v2 header */
-		return lws_get_addresses(wsi->a.vhost, &wsi->io->sa46_proxied,
+		return lws_get_addresses(wsi->a.vhost, &wsi->io->pstack[1].sa46,
 					 name, name_len, rip, rip_len);
 #endif
 
@@ -1061,12 +1061,12 @@ lws_set_transport(struct lws *wsi, const lws_transport_ops_t *ops,
 void
 lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46)
 {
-	wsi->io->sa46_peer = *sa46;
+	wsi->io->pstack[0].sa46 = *sa46;
 #if defined(LWS_WITH_ROUTING)
 	{
 		struct lws_context_per_thread *pt =
 				&wsi->a.context->pt[(int)wsi->tsi];
-		lws_route_t *er = _lws_route_est_outgoing(pt, &wsi->io->sa46_peer);
+		lws_route_t *er = _lws_route_est_outgoing(pt, &wsi->io->pstack[0].sa46);
 
 		if (er)
 			wsi->io->peer_route_uidx = er->uidx;
@@ -1086,7 +1086,7 @@ lws_io_peer(struct lws *wsi)
 	 * shares its listener's socket, whose bound-side peer is never set,
 	 * which put "unknown" in every h3 request's access log and metrics
 	 */
-	return &lws_get_network_wsi(wsi)->io->sa46_peer;
+	return &lws_get_network_wsi(wsi)->io->pstack[0].sa46;
 }
 
 #if defined(LWS_WITH_UDP)
@@ -1285,7 +1285,7 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 #endif
 #endif
 	nwsi->io->desc = wsi->io->desc;
-	nwsi->io->sa46_peer = wsi->io->sa46_peer;
+	nwsi->io->pstack[0].sa46 = wsi->io->pstack[0].sa46;
 #if defined(LWS_WITH_UDP)
 	nwsi->io->udp = wsi->io->udp;
 	wsi->io->udp = NULL;
