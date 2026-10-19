@@ -302,7 +302,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_validity_confirmed()` restarts it via
    `_lws_validity_raw_keepalive()`, elsewhere it does nothing.  Raw has no
    ping of its own, so the protocol must confirm more often than the
-   hangup time (default 50s).
+   hangup time (default 50s).  Until G-222 is fixed the tunnel uses the
+   listening vhost's `retry_and_idle_policy`, not the Host-selected one's
+   (a Host rebind does not update `retry_policy`).
 
 ## Client connect
 
@@ -459,6 +461,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    cancel with domain NULL drops every request with that opaque (G-220).
    auth-dns with dht-dnssec only works on the same vhost:
    `get_dnssec_vhd()` resolves to the caller's own vhost.
+ - **vhost destroy order:** every instantiated protocol's PROTOCOL_DESTROY
+   runs before any per-vhost data is freed (lib/io/vhost.c), so a
+   protocol's destroy may still use another protocol's per-vhost data on
+   the same vhost.
  - **lws-login renewal objects** (`pending_login_refresh`) are bounded per
    vhd and per host, released when their browser leg closes, and at
    PROTOCOL_DESTROY (G-166, G-167).  A new path that parks a browser wsi
