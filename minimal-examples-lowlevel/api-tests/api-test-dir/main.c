@@ -18,6 +18,7 @@
 #define rmdir _rmdir
 #else
 #include <unistd.h>
+#include <stdio.h>
 #include <signal.h>
 #include <sys/wait.h>
 #if defined(__linux__)
@@ -169,14 +170,26 @@ exists(const char *path)
 	return !lstat(path, &st);
 }
 
-/* extend path p with directories until it is exactly target chars long */
+/*
+ * Extend path p with directories until it is exactly target chars long.
+ *
+ * Each one is made relative to an fd on its parent, never by the whole path,
+ * so the tree can go deeper than a path the platform takes in one piece (OSX
+ * PATH_MAX is 1024).  If pdfd is given, it is set to an fd on the deepest
+ * dir, which the caller closes.
+ */
 
 static int
-grow_to(char *p, size_t cap, size_t target, char c)
+grow_to(char *p, size_t cap, size_t target, char c, int *pdfd)
 {
 	size_t l = strlen(p), n;
+	int dfd, fd;
 
 	if (target + 1 > cap)
+		return 1;
+
+	dfd = open(p, O_RDONLY | O_DIRECTORY);
+	if (dfd < 0)
 		return 1;
 
 	while (l < target) {
@@ -188,10 +201,22 @@ grow_to(char *p, size_t cap, size_t target, char c)
 		p[l] = '/';
 		memset(p + l + 1, c, n);
 		p[l + 1 + n] = '\0';
-		if (mkdir(p, 0700))
+		if (mkdirat(dfd, p + l + 1, 0700)) {
+			close(dfd);
 			return 1;
+		}
+		fd = openat(dfd, p + l + 1, O_RDONLY | O_DIRECTORY);
+		close(dfd);
+		if (fd < 0)
+			return 1;
+		dfd = fd;
 		l += 1 + n;
 	}
+
+	if (pdfd)
+		*pdfd = dfd;
+	else
+		close(dfd);
 
 	return 0;
 }
@@ -217,12 +242,14 @@ static int
 test_rm_rf_long(void)
 {
 	char p[2048], root[512], keep[512];
-	int r = 1, n;
+	int r = 1, n, dfd, fd;
 
 	lwsl_user("%s\n", __func__);
 
-	if (mkdir(RMRF_BASE, 0700))
+	if (mkdir(RMRF_BASE, 0700)) {
+		lwsl_err("%s: mkdir failed %d\n", __func__, errno);
 		return 1;
+	}
 
 	/*
 	 * A tree whose own path is 400 long.  Its entries' paths cut at 383
@@ -230,27 +257,27 @@ test_rm_rf_long(void)
 	 */
 
 	lws_strncpy(root, RMRF_BASE, sizeof(root));
-	if (grow_to(root, sizeof(root), 299, 'p'))
-		goto bail;
+	if (grow_to(root, sizeof(root), 299, 'p', NULL))
+		goto setup;
 	lws_strncpy(keep, root, sizeof(keep));
-	if (grow_to(keep, sizeof(keep), 383, 'r'))
-		goto bail;
+	if (grow_to(keep, sizeof(keep), 383, 'r', NULL))
+		goto setup;
 	lws_strncpy(p, keep, sizeof(p));
 	if (mkdir_sub(p, sizeof(p), "x") || create_file(RMRF_BASE "/kf", 1))
-		goto bail;
+		goto setup;
 	cat_to(p, sizeof(p), "/f");
 	if (create_file(p, 1))
-		goto bail;
+		goto setup;
 
 	root[299] = '\0';
-	if (grow_to(root, sizeof(root), 400, 'r'))
-		goto bail;
+	if (grow_to(root, sizeof(root), 400, 'r', NULL))
+		goto setup;
 	lws_strncpy(p, root, sizeof(p));
 	if (mkdir_sub(p, sizeof(p), "a") || mkdir_sub(p, sizeof(p), "b"))
-		goto bail;
+		goto setup;
 	cat_to(p, sizeof(p), "/f");
 	if (create_file(p, 1))
-		goto bail;
+		goto setup;
 
 	lws_dir(root, NULL, lws_dir_rm_rf_cb);
 	if (rmdir(root)) {
@@ -271,24 +298,28 @@ test_rm_rf_long(void)
 
 	lws_strncpy(root, RMRF_BASE "/deep", sizeof(root));
 	if (mkdir(root, 0700))
-		goto bail;
+		goto setup;
 
 	for (n = 382; n <= 383; n++) {
 		lws_snprintf(p, sizeof(p), "%s/%c", root, 'a' + (n & 1));
-		if (mkdir(p, 0700) || grow_to(p, sizeof(p), (size_t)n, 'd') ||
+		if (mkdir(p, 0700) ||
+		    grow_to(p, sizeof(p), (size_t)n, 'd', NULL) ||
 		    mkdir_sub(p, sizeof(p), "x") || mkdir_sub(p, sizeof(p), "y"))
-			goto bail;
+			goto setup;
 		cat_to(p, sizeof(p), "/f");
 		if (create_file(p, 1))
-			goto bail;
+			goto setup;
 	}
 
 	lws_snprintf(p, sizeof(p), "%s/c", root);
-	if (mkdir(p, 0700) || grow_to(p, sizeof(p), 1100, 'e'))
-		goto bail;
-	cat_to(p, sizeof(p), "/f");
-	if (create_file(p, 1))
-		goto bail;
+	if (mkdir(p, 0700) || grow_to(p, sizeof(p), 1100, 'e', &dfd))
+		goto setup;
+	/* its path is too long to name in one piece everywhere */
+	fd = openat(dfd, "f", O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	close(dfd);
+	if (fd < 0)
+		goto setup;
+	close(fd);
 
 	lws_dir(root, NULL, lws_dir_rm_rf_cb);
 	if (rmdir(root)) {
@@ -300,10 +331,10 @@ test_rm_rf_long(void)
 
 	lws_strncpy(p, root, sizeof(p));
 	if (mkdir(p, 0700))
-		goto bail;
+		goto setup;
 	for (n = 0; n < 70; n++)
 		if (mkdir_sub(p, sizeof(p), "d"))
-			goto bail;
+			goto setup;
 
 	lws_dir(root, NULL, lws_dir_rm_rf_cb);
 	if (!exists(root) || !rmdir(root)) {
@@ -322,7 +353,10 @@ test_rm_rf_long(void)
 
 	lwsl_user("%s: ok\n", __func__);
 	r = 0;
+	goto bail;
 
+setup:
+	lwsl_err("%s: making the test tree failed %d\n", __func__, errno);
 bail:
 	lws_dir(RMRF_BASE, NULL, lws_dir_rm_rf_cb);
 	rmdir(RMRF_BASE);
@@ -423,21 +457,26 @@ race_reset(void)
 	race_clear(RACE_TMP);
 
 	if (mkdir(RACE_D, 0700) || symlink("../outside", RACE_LNK))
-		return -1;
+		goto fail;
 
 	for (n = 0; n < RACE_FILES; n++) {
 		lws_snprintf(p, sizeof(p), RACE_D "/s%02d", n);
 		if (create_file(p, 1))
-			return -1;
+			goto fail;
 		lws_snprintf(p, sizeof(p), RACE_OUT "/s%02d", n);
 		if (!exists(p)) {
 			lost++;
 			if (create_file(p, 1))
-				return -1;
+				goto fail;
 		}
 	}
 
 	return lost;
+
+fail:
+	lwsl_err("%s: failed %d\n", __func__, errno);
+
+	return -1;
 }
 
 static int
@@ -451,18 +490,18 @@ test_rm_rf_swap_race(void)
 
 	if (mkdir(RACE_BASE, 0700) || mkdir(RACE_ROOT, 0700) ||
 	    mkdir(RACE_OUT, 0700))
-		goto bail0;
+		goto setup;
 	for (n = 0; n < RACE_FILES; n++) {
 		lws_snprintf(p, sizeof(p), RACE_OUT "/s%02d", n);
 		if (create_file(p, 1))
-			goto bail0;
+			goto setup;
 	}
 
 	/* a symlink in the tree, to a dir and to a file, is removed itself */
 
 	if (race_reset() || symlink("../outside", RACE_ROOT "/ldir") ||
 	    symlink("../outside/s00", RACE_ROOT "/lfile"))
-		goto bail0;
+		goto setup;
 	lws_dir(RACE_ROOT, NULL, lws_dir_rm_rf_cb);
 	if (exists(RACE_ROOT "/ldir") || exists(RACE_ROOT "/lfile") ||
 	    exists(RACE_D)) {
@@ -477,7 +516,7 @@ test_rm_rf_swap_race(void)
 
 	child = fork();
 	if (child < 0)
-		goto bail0;
+		goto setup;
 	if (!child)
 		race_swapper(parent);
 
@@ -489,16 +528,24 @@ test_rm_rf_swap_race(void)
 
 		/* stop the swapper while we set up the next pass */
 		if (kill(child, SIGSTOP) ||
-		    waitpid(child, &n, WUNTRACED) != child)
+		    waitpid(child, &n, WUNTRACED) != child) {
+			lwsl_err("%s: stopping the swapper failed %d\n",
+				 __func__, errno);
 			goto bail;
+		}
 
 		n = race_reset();
-		if (n < 0)
+		if (n < 0) {
+			lwsl_err("%s: pass %d: reset failed\n", __func__, pass);
 			goto bail;
+		}
 		lost += n;
 
-		if (kill(child, SIGCONT))
+		if (kill(child, SIGCONT)) {
+			lwsl_err("%s: resuming the swapper failed %d\n",
+				 __func__, errno);
 			goto bail;
+		}
 	}
 
 	if (lost) {
@@ -514,6 +561,10 @@ bail:
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER, NULL);
 	kill(child, SIGKILL);
 	waitpid(child, &n, 0);
+	goto bail0;
+
+setup:
+	lwsl_err("%s: making the test tree failed %d\n", __func__, errno);
 bail0:
 	race_clear(RACE_D);
 	race_clear(RACE_LNK);
