@@ -153,6 +153,16 @@ is closed with CONNECTION_REFUSED.  `lws_get_peer_host_key()` makes the same
 decision for plugins' per-client keys, giving `LWS_HOST_KEY_UNPROVEN` for a
 hearsay peer.
 
+A nonzero `unproven_limit_wsi` trades availability for bounded unproven
+state.  An unvalidated QUIC connection lives until its handshake times out
+(`timeout_secs`), and a sender spoofing source addresses needs no answer, so
+about `unproven_limit_wsi / timeout_secs` Initials a second keep the budget
+full, and every new QUIC client is refused for as long as that goes on
+(connections already validated are not affected).  That is why it defaults to
+0: unvalidated QUIC connections are still bounded per service thread by its
+half-open limit, which makes room for a new one by evicting the oldest, so
+real clients still get in.
+
 @section evtloop Libwebsockets is singlethreaded
 
 Libwebsockets works in a serialized event loop, in a single thread.  It supports

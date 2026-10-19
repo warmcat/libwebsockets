@@ -1858,13 +1858,19 @@ lws_quic_server_admit_established(struct lws *nwsi)
  * (lws_io_path() commits it so), and is raised on evidence that travelled
  * the path:
  *
- *  - ROUTABLE, address validation (RFC 9000 8.1): a packet from seen that
- *    is protected with the Handshake keys, which only an endpoint that
- *    received our Initial at that address can have, a valid Retry token
- *    bound to it, or a PATH_RESPONSE from it to our PATH_CHALLENGE (8.2)
+ *  - ROUTABLE, address validation (RFC 9000 8.1): a packet protected with
+ *    the Handshake keys, which only an endpoint that received our Initial
+ *    can have, proves the address that Initial went to (initial_sa46), not
+ *    the source of the datagram carrying it; a valid Retry token proves the
+ *    address it is bound to, and a PATH_RESPONSE to our PATH_CHALLENGE the
+ *    address it came from (8.2)
  *
  *  - CRYPTO, the handshake done: every entry already validated is now bound
- *    to the keys the peer proved it holds
+ *    to the keys the peer proved it holds.  A server's handshake completes
+ *    over Handshake packets, so its peer is proven by then; if it is not, it
+ *    would count against no host's limits for as long as it lives, so it is
+ *    refused instead (an embedder whose IO carries no peer stack has no
+ *    peer to key anything on either way)
  *
  * lws_peer_raise() raises only an entry with seen's address and port, so
  * evidence arriving from somewhere else, eg, the new address of a path
@@ -1892,6 +1898,14 @@ lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
 			if (e[n].cred >= LWS_PEER_CRED_ROUTABLE)
 				lws_peer_raise(nwsi, &e[n].sa46,
 					       LWS_PEER_CRED_CRYPTO);
+
+		if (nwsi->quic.qn && nwsi->quic.qn->is_server &&
+		    !lws_peer_effective(nwsi, &e[0]) &&
+		    e[0].cred < LWS_PEER_CRED_VOUCHED) {
+			lwsl_wsi_err(nwsi, "handshake done, peer unproven");
+
+			return 1;
+		}
 	}
 
 	return lws_quic_peer_account(nwsi);
@@ -2287,8 +2301,12 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->txc.peer_tx_cr_est = LWS_QUIC_DEFAULT_WINDOW; /* How much the peer can write to us */
 		/* tx_cr is strictly initialized when we parse the peer's initial_max_data parameter */
 
-		/* the peer we were born from is the committed path */
+		/*
+		 * the peer we were born from is the committed path, and where
+		 * our Initial goes
+		 */
 		nwsi->quic.qn->path_sa46 = sa46;
+		nwsi->quic.qn->initial_sa46 = sa46;
 		lws_io_path(nwsi, LWS_IOPATH_COMMIT, &sa46);
 
 		/*
@@ -3011,9 +3029,18 @@ tp_ok:
 
 		if (nwsi->quic.qn && level == LWS_QUIC_LEVEL_HANDSHAKE) {
 			nwsi->quic.qn->address_validated = 1;
-			/* only who got our Initial there has these keys */
-			if (lws_quic_peer_proven(nwsi, &sa46,
-						 LWS_PEER_CRED_ROUTABLE)) {
+			/*
+			 * Only who got our Initial has these keys, so what
+			 * they prove is the address it went to, not this
+			 * datagram's source: a client whose Handshake packets
+			 * come from another port (two sockets, or a NAT
+			 * rebinding mid-handshake) has still proven the path
+			 * it is on, and the other address is only a migration
+			 * to probe like any other, below
+			 */
+			if (lws_quic_peer_proven(nwsi,
+					&nwsi->quic.qn->initial_sa46,
+					LWS_PEER_CRED_ROUTABLE)) {
 				/* its proven address is at its limit */
 				lws_quic_enter_closing_state(nwsi,
 					LWS_QUIC_ERR_CONNECTION_REFUSED, 0, 0);
@@ -6650,8 +6677,11 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 	 * "migrated" mid-handshake: cc, rtt and pmtud reset, the path
 	 * unvalidated and a PATH_CHALLENGE sent
 	 */
-	if (wsi->quic.qn)
+	if (wsi->quic.qn) {
 		wsi->quic.qn->path_sa46 = *peer;
+		/* ...and where our Initial goes */
+		wsi->quic.qn->initial_sa46 = *peer;
+	}
 
 	/* quic drives its own tls handshake, inside its packets */
 	lws_wsi_event(wsi, LWS_WSIEV_TLS_START);

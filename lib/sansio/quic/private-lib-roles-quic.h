@@ -692,6 +692,13 @@ struct lws_quic_netconn {
 	uint8_t			path_challenge_pending:1;
 	/* the committed path's peer: where our packets go, what IO is told */
 	lws_sockaddr46		path_sa46;
+	/*
+	 * where our first Initial went: for a server, the peer the connection
+	 * was born from, for a client, the server it dialled.  A packet
+	 * protected by the Handshake keys proves this address (RFC 9000 8.1),
+	 * whatever source the datagram carrying it claims
+	 */
+	lws_sockaddr46		initial_sa46;
 	lws_sockaddr46		probing_sa46;
 	uint8_t			probing_sa46_valid:1;
 	uint8_t			rx_has_non_probing:1;

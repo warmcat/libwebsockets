@@ -26,6 +26,15 @@ An h3 server and client run in one process.
    from hearsay and is raised by its own validation, it does not keep the
    CRYPTO the handshake proved about the old path.
 
+ - **split**: the NAT sends the client's first Initial from one port, and
+   every later long header packet, its Handshake packets among them, from
+   another, whose answers it drops, as a client with two sockets or a NAT
+   rebinding during the handshake would.  The Handshake keys prove the
+   address the server's Initial went to (RFC 9000 8.1), not the source a
+   Handshake packet claims, so the server sees the client on the first port
+   at CRYPTO, keyed as its own host: it is not left unproven for its life,
+   counted against no host's `ip_limit_wsi`.
+
  - **access log** (with `LWS_WITH_ACCESS_LOG`): the levels phase's request
    is logged with just the client's address as its host field.
 

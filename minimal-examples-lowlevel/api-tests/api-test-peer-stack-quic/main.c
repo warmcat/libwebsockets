@@ -21,7 +21,14 @@
  *    new path and moved the connection to it (RFC 9000 9), its peer entry
  *    is the new address and port, at ROUTABLE: a new path starts again from
  *    hearsay and is raised by its validation, it keeps nothing of what the
- *    handshake proved about the old one.
+ *    handshake proved about the old one;
+ *
+ *  - split: the NAT sends the client's first Initial from one port, and
+ *    every later long header packet, its Handshake packets among them, from
+ *    another, whose answers it drops.  The Handshake keys prove the address
+ *    the server's Initial went to (RFC 9000 8.1), not where a Handshake
+ *    packet claims to come from, so the server sees the client on the first
+ *    port at CRYPTO, keyed as its own host, not as unproven.
  *
  * and with LWS_WITH_PEER_LIMITS, the unproven budget, in a context of its own,
  * so that nothing of the phases above is still counted, with ip_limit_wsi and
@@ -60,6 +67,7 @@
 enum {
 	PQ_PHASE_LEVELS,
 	PQ_PHASE_MIGRATE,
+	PQ_PHASE_SPLIT,
 
 	/* the budget part, in a context of its own */
 	PQ_PHASE_HOLD,
@@ -73,6 +81,7 @@ enum {
 static const char * const phase_names[] = {
 	"levels: hearsay while dialling, crypto once the handshake is done",
 	"migration: a new path is only routable once validated",
+	"split: Handshake packets from another port prove the Initial's path",
 	"hold: a validated client's request is held",
 	"host: a client is refused only once validated, at its host's limit",
 	"unproven: an unvalidated Initial fills the unproven budget, the next "
@@ -108,11 +117,14 @@ static char alog_host[LWS_PEER_DESC_LEN]; /* the levels phase's host field */
  * The "NAT": the client sends to nat_in, which passes it on to the server
  * from nat_out[nat_cur], and what the server sends back there goes back to
  * the client.  Moving nat_cur is a NAT rebinding, as the server sees it.
+ * [0] and [1] are the migration phase's ports, before and after; [2] is the
+ * split phase's, and [3] the one it sends the client's long header packets
+ * after the first from, answers to which go nowhere.
  */
-static struct lws *nat_in, *nat_out[2];
+static struct lws *nat_in, *nat_out[4];
 static lws_sockaddr46 nat_client;
-static unsigned int nat_out_port[2];
-static int nat_cur;
+static unsigned int nat_out_port[4];
+static int nat_cur, nat_long_headers;
 
 static void
 pq_next(lws_sorted_usec_list_t *sul);
@@ -293,6 +305,19 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			pss->slow = 1;
 			return pq_srv_answer(wsi, "/slow");
 		}
+		if (in && !strcmp((const char *)in, "/split")) {
+			char hk[LWS_HOST_KEY_LEN];
+
+			if (phase != PQ_PHASE_SPLIT)
+				return 1;
+			/* its Handshake packets proved the Initial's path */
+			one_socket_entry(wsi, LWS_PEER_CRED_CRYPTO,
+					 nat_out_port[2], "server, split");
+			check_str(lws_get_peer_host_key(wsi, hk, sizeof(hk)),
+				  "127.0.0.1", "server, split: the client is "
+					       "keyed as its own host");
+			return pq_srv_answer(wsi, "/");
+		}
 		if (phase == PQ_PHASE_LEVELS)
 			pq_srv_levels(wsi);
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -404,12 +429,22 @@ callback_nat(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	if (wsi == nat_in) {
+		struct lws *out = nat_out[nat_cur];
+
 		nat_client = lws_get_udp(wsi)->sa46;
 		memset(&srv, 0, sizeof(srv));
 		if (lws_sa46_parse_numeric_address("127.0.0.1", &srv))
 			return 0;
 		sa46_sockport(&srv, htons((uint16_t)port_srv));
-		nat_sendto(nat_out[nat_cur], in, len, &srv);
+		/*
+		 * In the split phase, the client's long header packets after
+		 * its first Initial, its Handshake packets among them, leave
+		 * from another port
+		 */
+		if (phase == PQ_PHASE_SPLIT && len &&
+		    (((const uint8_t *)in)[0] & 0x80) && nat_long_headers++)
+			out = nat_out[3];
+		nat_sendto(out, in, len, &srv);
 		return 0;
 	}
 
@@ -702,6 +737,10 @@ pq_next(lws_sorted_usec_list_t *sul)
 	case PQ_PHASE_MIGRATE:
 		r = pq_get(port_nat, "/slow");
 		break;
+	case PQ_PHASE_SPLIT:
+		nat_cur = 2;
+		r = pq_get(port_nat, "/split");
+		break;
 #if defined(LWS_WITH_PEER_LIMITS)
 	case PQ_PHASE_HOLD:
 		r = pq_get(port_srv, "/hold");
@@ -844,22 +883,23 @@ pq_run(const struct lws_context_creation_info *ci, int first, int last)
 	}
 
 	if (first == PQ_PHASE_LEVELS) {
-		/* the NAT's two sides, on ports the kernel picks */
+		/* the NAT's sides, on ports the kernel picks */
 		nat_in = lws_create_adopt_udp(vh_cli[first], "127.0.0.1", 0,
 					      LWS_CAUDP_BIND, "pq-nat", NULL,
 					      NULL, NULL, NULL, NULL);
-		for (n = 0; n < 2; n++)
+		port_nat = nat_in ? (int)local_port(nat_in) : 0;
+		if (!port_nat)
+			goto bail;
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(nat_out); n++) {
 			nat_out[n] = lws_create_adopt_udp(vh_cli[first],
 						"127.0.0.1", 0, LWS_CAUDP_BIND,
 						"pq-nat", NULL, NULL, NULL,
 						NULL, NULL);
-		if (!nat_in || !nat_out[0] || !nat_out[1])
-			goto bail;
-		port_nat	= (int)local_port(nat_in);
-		nat_out_port[0]	= local_port(nat_out[0]);
-		nat_out_port[1]	= local_port(nat_out[1]);
-		if (!port_nat || !nat_out_port[0] || !nat_out_port[1])
-			goto bail;
+			nat_out_port[n] = nat_out[n] ?
+						local_port(nat_out[n]) : 0;
+			if (!nat_out_port[n])
+				goto bail;
+		}
 	}
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (first == PQ_PHASE_HOLD) {
@@ -930,7 +970,7 @@ main(int argc, const char **argv)
 	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
-	if (pq_run(&info, PQ_PHASE_LEVELS, PQ_PHASE_MIGRATE))
+	if (pq_run(&info, PQ_PHASE_LEVELS, PQ_PHASE_SPLIT))
 		return 1;
 
 #if defined(LWS_WITH_ACCESS_LOG)

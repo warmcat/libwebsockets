@@ -1478,7 +1478,17 @@ struct lws_context_creation_info {
 	 * connection, until its address is proven and it moves to its own.
 	 * Size it for the connections still proving their address you expect
 	 * at once: a new one beyond it is dropped, eg, an unvalidated QUIC
-	 * Initial, while connections already proven are not affected. */
+	 * Initial, while connections already proven are not affected.
+	 *
+	 * A nonzero limit trades availability for bounded unproven state: an
+	 * unvalidated QUIC connection lives until its handshake times out
+	 * (.timeout_secs), so a sender spoofing source addresses, who never
+	 * needs an answer, keeps the budget full with about
+	 * unproven_limit_wsi / timeout_secs Initials a second, and every new
+	 * QUIC client is refused meanwhile.  That is why the default is 0:
+	 * unvalidated QUIC connections are still bounded per service thread
+	 * by its half-open limit, which makes room for a new one by evicting
+	 * the oldest, so real clients still get in. */
 #endif
 
 #if !defined(__STRICT_ANSI__)

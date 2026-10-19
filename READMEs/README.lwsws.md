@@ -174,7 +174,14 @@ their address is whatever the sender wrote; they are not counted against that
 address's `ip-limit-wsi` until it is proven.  It defaults to 0, no limit.  Set
 it to the number of such connections you expect at one time, with room to
 spare: a new one beyond it is dropped, while connections already proven are
-not affected.
+not affected.  But a nonzero limit trades availability for bounded unproven
+state: an unvalidated QUIC connection lives until its handshake times out
+(`timeout-secs`), and a sender spoofing source addresses needs no answer, so
+about `unproven-limit-wsi / timeout-secs` Initials a second keep the budget
+full, and every new QUIC client is refused for as long as that goes on.  That
+is why it defaults to 0: unvalidated QUIC connections are still bounded by
+the half-open limit, which makes room for a new one by evicting the oldest,
+so real clients still get in.
 
  - `http-header-pool-per-mux` sets how many request header tables the streams
 of one h2 or h3 connection may hold at once while they wait on the client, eg,

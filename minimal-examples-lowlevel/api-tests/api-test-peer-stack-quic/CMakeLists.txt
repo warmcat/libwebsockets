@@ -10,7 +10,7 @@ set(SRCS main.c)
 
 #
 # an h3 server and client in one process, and a udp "NAT" between them for
-# the migration phase
+# the migration and split phases
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H3 1 requirements)
