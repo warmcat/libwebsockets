@@ -79,8 +79,8 @@
 #include <assert.h>
 
 /*
- * Cap on how much of a single metrics dump we will accumulate from one proxy
- * ws client before dropping the connection.  A real dump is a few kB.
+ * Cap on the memory the metrics dump we accumulate from one proxy ws client
+ * may take before we drop the connection.  A real dump is a few kB.
  */
 #define OM_MAX_DUMP_SIZE (1024 * 1024)
 
@@ -1113,23 +1113,36 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 		}
 
 		/*
-		 * A ws message may legally be enormous, and the client may
-		 * simply never send the final fragment; cap what one client
-		 * can make us hold
+		 * An empty fragment carries nothing, and our client never
+		 * sends one; there is nothing to stash, unless it is the
+		 * whole message, which the scraper still has to be sent
 		 */
 
-		if (pss->tot + len > OM_MAX_DUMP_SIZE) {
-			lwsl_warn("%s: client '%s' exceeded dump cap\n",
-				  __func__, pss->proxy_path);
+		if (len || (lws_is_final_fragment(wsi) && !pss->ac)) {
 
-			return -1;
-		}
+			/*
+			 * A ws message may legally be enormous, and the client
+			 * may simply never send the final fragment; cap what
+			 * one client can make us hold.  Each fragment is
+			 * stashed in a chunk of its own, so the cap is on what
+			 * the chunks take, not only on their payload, or many
+			 * tiny fragments cost us far more than they count.
+			 */
 
-		if (lws_metrics_om_ac_stash(pss, (const char *)in, len)) {
-			pss->walk = NULL;
-			pss->ac_head = NULL;
+			if (lwsac_total_alloc(pss->ac) + lwsac_sizeof(!pss->ac) +
+					LWS_PRE + 2 + len > OM_MAX_DUMP_SIZE) {
+				lwsl_warn("%s: client '%s' exceeded dump cap\n",
+					  __func__, pss->proxy_path);
 
-			return -1;
+				return -1;
+			}
+
+			if (lws_metrics_om_ac_stash(pss, (const char *)in, len)) {
+				pss->walk = NULL;
+				pss->ac_head = NULL;
+
+				return -1;
+			}
 		}
 
 		if (lws_is_final_fragment(wsi)) {
