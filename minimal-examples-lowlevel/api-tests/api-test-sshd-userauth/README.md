@@ -1,7 +1,8 @@
 # lws-api-test-sshd-userauth
 
 Fences the F-056 security fixes in the sshd plugin's USERAUTH handling,
-and the G-284 / G-285 fixes in its pre-auth transport parser.
+the G-284 / G-285 fixes in its pre-auth transport parser, and G-286: the
+services run only on the transport the key exchange sets up.
 
 Both the public key blob and the signature blob sent with a
 `SSH_MSG_USERAUTH_REQUEST` are walked with attacker-chosen inner lengths;
@@ -10,8 +11,10 @@ the RSA verify is handed pointers past the blob allocations (pre-auth
 remote heap OOB read).
 
 An sshd vhost (with runtime-generated ops) and a raw client run in one
-process.  The client skips KEX and drives the USERAUTH states directly on
-the plaintext transport:
+process.  The client does a real `curve25519-sha256@libssh.org` key
+exchange with the plugin's own primitives, checks the server's ed25519
+signature over the exchange hash, and drives the USERAUTH states over
+`chacha20-poly1305@openssh.com`:
 
 1. with ops that accept any blob structure (a consumer without the demo's
    whole-blob byte-compare fence), a pubkey blob with a huge inner length,
@@ -23,26 +26,36 @@ the plaintext transport:
    junk so the blob is not exactly consumed) must likewise be rejected
    with `USERAUTH_FAILURE`,
 3. a genuinely signed request (signed with a runtime-generated keypair
-   over the plaintext the server reconstructs, with the all-zero pre-KEX
-   session id) must still authenticate, open a session channel, and have
+   over the plaintext the server reconstructs, which starts with the
+   session id from the key exchange) must still authenticate, open a
+   session channel, and have
    a 1-byte `exec` command refused with `CHANNEL_FAILURE` without reading
    past the command allocation looking for an `"scp "` prefix.
 
 Three further scenarios, each on a fresh connection, fence the pre-auth
 transport parser:
 
-4. a `KEXINIT`, then (after a `SERVICE_ACCEPT` shows the connection is
-   still up) a second `KEXINIT` while the first key exchange is in
-   progress: the server must close the connection, rather than orphan its
-   copy of the first one (RFC4253 7.1),
+4. a second `KEXINIT` while the first key exchange is in progress: the
+   server must close the connection, rather than orphan its copy of the
+   first one (RFC4253 7.1); that a single `KEXINIT` is accepted is shown by
+   the scenarios that complete a key exchange,
 5. a `DISCONNECT` with a 1000-byte description and language tag `"en"`,
-   followed by another packet in the same write: the `disconnect_reason`
-   op must be called exactly once with both strings intact, and the server
+   followed by an `IGNORE` in the same write: the `disconnect_reason` op
+   must be called exactly once with both strings intact, and the server
    must close the connection without acting on the packet that follows,
-6. a `SERVICE_REQUEST` for an empty service name must be accepted (an
-   empty string completes, rather than swallowing the following bytes),
-   then a `DISCONNECT` with empty description and language tag must reach
-   the op once and close the connection.
+6. after the key exchange, a `SERVICE_REQUEST` for an empty service name
+   must be accepted (an empty string completes, rather than swallowing the
+   following bytes), then a `DISCONNECT` with empty description and
+   language tag must reach the op once and close the connection.
+
+And three more fence G-286, each of which must close the connection
+without any reply:
+
+7. a `SERVICE_REQUEST` for `ssh-userauth` before any key exchange,
+8. a `USERAUTH_REQUEST` before any key exchange (it used to be judged in
+   plaintext, its signature made over an all-zero session id),
+9. after the key exchange, a `USERAUTH_REQUEST` following an accepted
+   `SERVICE_REQUEST` for a service other than `ssh-userauth`.
 
 The test exits 0 if all the expectations held.
 

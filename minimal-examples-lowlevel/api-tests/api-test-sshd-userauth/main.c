@@ -7,10 +7,10 @@
  * blob they walk, or the RSA verify is fed data from wild pointers.  The
  * "scp " exec prefix check is also bounded by the exec command length.
  *
- * An sshd vhost and a raw client run in one process.  The client skips
- * KEX (the USERAUTH states are reachable on the plaintext transport, the
- * session_id is all-zeroes until KEX completes) and drives the USERAUTH
- * states directly:
+ * An sshd vhost and a raw client run in one process.  The client does a
+ * real curve25519-sha256 key exchange using the plugin's own primitives,
+ * verifies the server's signature over the exchange hash, and then drives
+ * the USERAUTH states over chacha20-poly1305:
  *
  *  - with ops that accept any blob structure (a consumer without the
  *    demo's whole-blob byte-compare fence), a pubkey blob with a huge
@@ -22,7 +22,8 @@
  *    trailing junk so the blob is not exactly consumed) must likewise
  *    draw USERAUTH_FAILURE rather than read past the sig allocation,
  *  - a genuinely signed USERAUTH request (signed with a runtime-made
- *    keypair over the plaintext the server reconstructs) must still
+ *    keypair over the plaintext the server reconstructs, including the
+ *    session id from the key exchange) must still
  *    authenticate and open a session channel, and a 1-byte "exec"
  *    command must be refused with CHANNEL_FAILURE without reading past
  *    the 1-byte command allocation looking for an "scp " prefix.
@@ -44,6 +45,12 @@
  *    must reach the op once and close (empty strings used to swallow the
  *    following bytes until the parser bailed).
  *
+ * And the services run only on the transport the key exchange set up
+ * (G-286): a SERVICE_REQUEST or a USERAUTH_REQUEST before the key exchange,
+ * or a USERAUTH_REQUEST after it without the "ssh-userauth" service having
+ * been requested, must close the connection without a reply (they used to
+ * be served in plaintext, with an all-zero session id signed by userauth).
+ *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  */
@@ -62,12 +69,18 @@ enum scenario {
 	SC_KEXINIT_REPEAT,	/* second KEXINIT during the kex */
 	SC_DISCONNECT_LONG,	/* DISCONNECT, then more bytes */
 	SC_DISCONNECT_EMPTY,	/* zero-length strings */
+	SC_PREKEX_SERVICE,	/* SERVICE_REQUEST before the kex */
+	SC_PREKEX_USERAUTH,	/* USERAUTH_REQUEST before the kex */
+	SC_USERAUTH_WRONG_SVC,	/* USERAUTH_REQUEST, no ssh-userauth service */
 
 	SC_COUNT
 };
 
 enum cli_state {
 	ST_CLI_VERSION,		/* skipping the server's id string */
+	ST_CLI_KEX_KEXINIT,	/* waiting for the server's KEXINIT */
+	ST_CLI_KEX_REPLY,	/* waiting for KEX_ECDH_REPLY */
+	ST_CLI_KEX_NEWKEYS,	/* waiting for the server's NEWKEYS */
 	ST_CLI_SVC_ACCEPT,	/* waiting for SERVICE_ACCEPT */
 	ST_CLI_UAF_PUB_HUGE,	/* lax ops, huge inner length in pubkey blob */
 	ST_CLI_UAF_PUB_OFF1,	/* lax ops, pubkey mpint len off-by-one */
@@ -77,8 +90,8 @@ enum cli_state {
 	ST_CLI_UA_SUCCESS,	/* genuine sig, expecting success */
 	ST_CLI_CH_CONFIRM,	/* expecting CHANNEL_OPEN_CONFIRMATION */
 	ST_CLI_CH_FAIL,		/* expecting CHANNEL_FAILURE for exec "x" */
-	ST_CLI_KEXR_SVC_ACCEPT,	/* first KEXINIT taken, SERVICE_ACCEPT */
 	ST_CLI_EMPTY_SVC_ACCEPT,/* SERVICE_ACCEPT for the empty service name */
+	ST_CLI_WRONG_SVC_ACCEPT,/* SERVICE_ACCEPT for "ssh-connection" */
 	ST_CLI_EXPECT_CLOSE,	/* the server must close us now */
 	ST_CLI_DONE,		/* scenario passed, we are closing */
 };
@@ -102,7 +115,28 @@ static uint32_t txlen;
 static uint8_t pay[1600];	/* ssh packet payload under construction */
 static uint32_t paylen;
 
+static uint8_t rxpt[RXBUF_LEN];	/* decrypted rx packet */
+
+/* the client's side of the key exchange and transport */
+
+#define CLI_ID_STRING		"SSH-2.0-lwsApiTest"
+
+static struct lws_ssh_keys cli_keys_cts;	/* we encrypt with these */
+static struct lws_ssh_keys cli_keys_stc;	/* we decrypt with these */
+static uint32_t cli_seq_tx, cli_seq_rx;
+static uint8_t cli_eph_pri[LWS_SIZE_EC25519];
+static uint8_t cli_Q_C[LWS_SIZE_EC25519];
+static uint8_t cli_I_C[256];		/* our KEXINIT payload */
+static uint32_t cli_I_C_len;
+static uint8_t cli_I_S[1024];		/* the server's KEXINIT payload */
+static uint32_t cli_I_S_len;
+static uint8_t session_id[LWS_SIZE_SHA256];
+
 /* the runtime-generated authorized key material */
+
+static struct lws_gencrypto_keyelem rsa_el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+static struct lws_genrsa_ctx rsa_ctx;
+static char rsa_ctx_valid;
 
 static uint8_t keyblob[768];	/* string "ssh-rsa" + mpint e + mpint n */
 static uint32_t keyblob_len;
@@ -278,29 +312,48 @@ poke_u32(uint8_t *p, uint32_t v)
 
 /*
  * Wrap the assembled payload in pay[] into an SSH binary packet appended
- * to any unsent tx in txbuf, ready to write
+ * to any unsent tx in txbuf, ready to write.  Once our NEWKEYS is sent, it
+ * is encrypted with chacha20-poly1305@openssh.com.
  */
 static int
 pac_done(void)
 {
-	uint8_t *o = txbuf + LWS_PRE + txlen;
-	uint32_t pad, msg_len;
-
-	if (paylen + 64 > sizeof(txbuf) - LWS_PRE - txlen)
-		return 1;
+	uint8_t pkt[sizeof(pay) + 32], *o = txbuf + LWS_PRE + txlen;
+	uint32_t pad, msg_len, aligned;
 
 	msg_len = 1 + paylen;		/* padding length byte + payload */
 
-	pad = 8 - ((4 + msg_len) & 7);	/* whole packet stays 8-aligned */
-	if (pad < 4)			/* RFC4253 wants >= 4 */
+	/*
+	 * RFC4253 6 wants the packet a multiple of 8, and >= 4 bytes of
+	 * padding; with chacha20-poly1305 the encrypted length field is not
+	 * counted
+	 */
+	aligned = cli_keys_cts.valid ? msg_len : 4 + msg_len;
+	pad = 8 - (aligned & 7);
+	if (pad < 4)
 		pad += 8;
 	msg_len += pad;
 
-	poke_u32(o, msg_len);
-	o[4] = (uint8_t)pad;
-	memcpy(o + 5, pay, paylen);
-	memset(o + 5 + paylen, 0, pad);
-	txlen += 4 + msg_len;
+	if (4 + msg_len + POLY1305_TAGLEN > sizeof(pkt) ||
+	    4 + msg_len + POLY1305_TAGLEN > sizeof(txbuf) - LWS_PRE - txlen)
+		return 1;
+
+	poke_u32(pkt, msg_len);
+	pkt[4] = (uint8_t)pad;
+	memcpy(pkt + 5, pay, paylen);
+	memset(pkt + 5 + paylen, 0, pad);
+
+	if (cli_keys_cts.valid) {
+		if (lws_chacha_encrypt(&cli_keys_cts, cli_seq_tx, pkt,
+				       4 + msg_len, o))
+			return 1;
+		txlen += 4 + msg_len + cli_keys_cts.MAC_length;
+	} else {
+		memcpy(o, pkt, 4 + msg_len);
+		txlen += 4 + msg_len;
+	}
+
+	cli_seq_tx++;
 
 	return 0;
 }
@@ -346,6 +399,47 @@ msg_kexinit(void)
 	pay_cstr("");				/* languages stc */
 	pay_u8(0);				/* first_kex_packet_follows */
 	pay_u32(0);				/* reserved */
+
+	/* I_C, for the exchange hash */
+	memcpy(cli_I_C, pay, paylen);
+	cli_I_C_len = paylen;
+
+	return pac_done();
+}
+
+/* our ephemeral curve25519 key, and the KEX_ECDH_INIT carrying it */
+
+static int
+msg_ecdh_init(void)
+{
+	lws_get_random(context, cli_eph_pri, sizeof(cli_eph_pri));
+	cli_eph_pri[0] &= 248;
+	cli_eph_pri[31] &= 127;
+	cli_eph_pri[31] |= 64;
+	crypto_scalarmult_curve25519(cli_Q_C, cli_eph_pri, basepoint);
+
+	paylen = 0;
+	pay_u8(SSH_MSG_KEX_ECDH_INIT);
+	pay_str(cli_Q_C, sizeof(cli_Q_C));
+
+	return pac_done();
+}
+
+static int
+msg_newkeys(void)
+{
+	paylen = 0;
+	pay_u8(SSH_MSG_NEWKEYS);
+
+	return pac_done();
+}
+
+static int
+msg_ignore(void)
+{
+	paylen = 0;
+	pay_u8(SSH_MSG_IGNORE);
+	pay_cstr("ignore me");
 
 	return pac_done();
 }
@@ -407,6 +501,138 @@ msg_channel_exec(const char *cmd, uint32_t cmd_len)
 	return pac_done();
 }
 
+/* take one bounded RFC4251 string out of a received payload */
+
+static int
+get_str(const uint8_t **p, const uint8_t *end, const uint8_t **s,
+	uint32_t *len)
+{
+	if (end - *p < 4)
+		return 1;
+
+	*len = peek_u32(*p);
+	*p += 4;
+	if (*len > (uint32_t)(end - *p))
+		return 1;
+
+	*s = *p;
+	*p += *len;
+
+	return 0;
+}
+
+/*
+ * The server's KEX_ECDH_REPLY: compute the shared secret and the exchange
+ * hash H, check the server signed H with the host key it sent, and derive
+ * the keys for both directions (RFC4253 7.2, RFC8731)
+ */
+static int
+cli_kex_reply(const uint8_t *pl, uint32_t pl_len)
+{
+	const uint8_t *p = pl, *end = pl + pl_len, *ks, *qs, *sb, *q, *n,
+		      *hostpub, *sig;
+	uint8_t K[LWS_SIZE_EC25519], kbi[LWS_SIZE_EC25519 + 5],
+		sm[64 + LWS_SIZE_SHA256], m[64 + LWS_SIZE_SHA256];
+	uint32_t ks_len, qs_len, sb_len, l, hp_len, sig_len;
+	struct lws_genhash_ctx gh;
+	unsigned long long mlen;
+	int c, ret = 1, kbi_len;
+	uint8_t a = 0;
+
+	if (get_str(&p, end, &ks, &ks_len) ||	/* K_S, host key blob */
+	    get_str(&p, end, &qs, &qs_len) ||	/* Q_S */
+	    get_str(&p, end, &sb, &sb_len) ||	/* signature of H */
+	    p != end || qs_len != LWS_SIZE_EC25519)
+		return 1;
+
+	/* K_S: string "ssh-ed25519", string 32-byte public key */
+
+	q = ks;
+	if (get_str(&q, ks + ks_len, &n, &l) || l != 11 ||
+	    memcmp(n, "ssh-ed25519", 11) ||
+	    get_str(&q, ks + ks_len, &hostpub, &hp_len) ||
+	    hp_len != LWS_SIZE_EC25519_PUBKEY || q != ks + ks_len)
+		return 1;
+
+	/* signature: string "ssh-ed25519", string 64-byte signature */
+
+	q = sb;
+	if (get_str(&q, sb + sb_len, &n, &l) || l != 11 ||
+	    memcmp(n, "ssh-ed25519", 11) ||
+	    get_str(&q, sb + sb_len, &sig, &sig_len) || sig_len != 64 ||
+	    q != sb + sb_len)
+		return 1;
+
+	crypto_scalarmult_curve25519(K, cli_eph_pri, qs);
+	lws_explicit_bzero(cli_eph_pri, sizeof(cli_eph_pri));
+	for (c = 0; c < (int)sizeof(K); c++)
+		a |= K[c];
+	if (!a)
+		goto bail;
+
+	kbi_len = lws_mpint_rfc4251(kbi, K, LWS_SIZE_EC25519, 1);
+
+	if (lws_genhash_init(&gh, LWS_GENHASH_TYPE_SHA256))
+		goto bail;
+	if (_genhash_update_len(&gh, CLI_ID_STRING, strlen(CLI_ID_STRING)) ||
+	    _genhash_update_len(&gh, ops.server_string,
+				strlen(ops.server_string)) ||
+	    _genhash_update_len(&gh, cli_I_C, cli_I_C_len) ||
+	    _genhash_update_len(&gh, cli_I_S, cli_I_S_len) ||
+	    _genhash_update_len(&gh, ks, ks_len) ||
+	    _genhash_update_len(&gh, cli_Q_C, sizeof(cli_Q_C)) ||
+	    _genhash_update_len(&gh, qs, qs_len) ||
+	    lws_genhash_update(&gh, kbi, (size_t)kbi_len)) {
+		lws_genhash_destroy(&gh, NULL);
+		goto bail;
+	}
+	if (lws_genhash_destroy(&gh, session_id))
+		goto bail;
+
+	/* the server must have signed H with the host key it sent us */
+
+	memcpy(sm, sig, 64);
+	memcpy(sm + 64, session_id, LWS_SIZE_SHA256);
+	if (crypto_sign_ed25519_open(m, &mlen, sm, sizeof(sm), hostpub)) {
+		lwsl_err("%s: bad host signature of H\n", __func__);
+		goto bail;
+	}
+
+	/* H is also the session id, since this is the first exchange */
+
+	for (c = 0; c < 3; c++)
+		if (kex_ecdh_dv(cli_keys_cts.key[c], LWS_SIZE_CHACHA256_KEY,
+				kbi, kbi_len, session_id, (char)('A' + (c * 2)),
+				session_id) ||
+		    kex_ecdh_dv(cli_keys_stc.key[c], LWS_SIZE_CHACHA256_KEY,
+				kbi, kbi_len, session_id, (char)('B' + (c * 2)),
+				session_id))
+			goto bail;
+
+	ret = 0;
+
+bail:
+	lws_explicit_bzero(K, sizeof(K));
+	lws_explicit_bzero(kbi, sizeof(kbi));
+
+	return ret;
+}
+
+/* drop the client's transport state, between scenarios and at exit */
+
+static void
+cli_transport_reset(void)
+{
+	lws_chacha_destroy(&cli_keys_cts);
+	lws_chacha_destroy(&cli_keys_stc);
+	lws_explicit_bzero(&cli_keys_cts, sizeof(cli_keys_cts));
+	lws_explicit_bzero(&cli_keys_stc, sizeof(cli_keys_stc));
+	lws_explicit_bzero(cli_eph_pri, sizeof(cli_eph_pri));
+	cli_seq_tx = cli_seq_rx = 0;
+	cli_I_C_len = cli_I_S_len = 0;
+	memset(session_id, 0, sizeof(session_id));
+}
+
 static int
 test_fail(const char *why)
 {
@@ -419,6 +645,44 @@ test_fail(const char *why)
 	return 1;
 }
 
+static int sign_userauth(void);
+
+/*
+ * The key exchange is complete in both directions: send the scenario's
+ * first message on the encrypted transport
+ */
+static int
+cli_kex_done(void)
+{
+	switch (scenario) {
+	case SC_USERAUTH:
+		/* the signature covers the session id we now have */
+		if (sign_userauth() ||
+		    msg_service_request("ssh-userauth"))
+			return test_fail("tx prep");
+		cli_state = ST_CLI_SVC_ACCEPT;
+		break;
+
+	case SC_DISCONNECT_EMPTY:
+		if (msg_service_request(""))
+			return test_fail("tx prep");
+		cli_state = ST_CLI_EMPTY_SVC_ACCEPT;
+		break;
+
+	case SC_USERAUTH_WRONG_SVC:
+		/* a service that is not the one USERAUTH_REQUEST belongs to */
+		if (msg_service_request("ssh-connection"))
+			return test_fail("tx prep");
+		cli_state = ST_CLI_WRONG_SVC_ACCEPT;
+		break;
+
+	default:
+		return test_fail("no kex in this scenario");
+	}
+
+	return cli_send_next();
+}
+
 /*
  * This is where the expectations for each phase of the script are
  * asserted, and the next message to send is prepared
@@ -426,15 +690,49 @@ test_fail(const char *why)
 static int
 handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 {
-	switch (msg) {
-	case SSH_MSG_KEXINIT:
-		/* the server's unsolicited kex offer; we don't do kex */
-		return 0;
-	default:
-		break;
+	if (msg == SSH_MSG_KEXINIT) {
+		/*
+		 * The server's offer is unsolicited and comes on every
+		 * connection; the scenarios with no key exchange ignore it
+		 */
+		if (cli_state != ST_CLI_KEX_KEXINIT)
+			return 0;
+
+		/* I_S, for the exchange hash: the payload from the msg id */
+		if (pl_len + 1 > sizeof(cli_I_S))
+			return test_fail("server KEXINIT too large");
+		memcpy(cli_I_S, pl - 1, pl_len + 1);
+		cli_I_S_len = pl_len + 1;
+
+		if (msg_ecdh_init())
+			return test_fail("tx prep");
+		cli_state = ST_CLI_KEX_REPLY;
+		return cli_send_next();
 	}
 
 	switch (cli_state) {
+	case ST_CLI_KEX_REPLY:
+		if (msg != SSH_MSG_KEX_ECDH_REPLY)
+			return test_fail("expected KEX_ECDH_REPLY");
+		if (cli_kex_reply(pl, pl_len))
+			return test_fail("key exchange failed");
+
+		/* our NEWKEYS goes in plaintext, then our keys are active */
+		if (msg_newkeys() || lws_chacha_activate(&cli_keys_cts))
+			return test_fail("tx prep");
+		cli_state = ST_CLI_KEX_NEWKEYS;
+		return cli_send_next();
+
+	case ST_CLI_KEX_NEWKEYS:
+		if (msg != SSH_MSG_NEWKEYS)
+			return test_fail("expected NEWKEYS");
+
+		/* everything the server sends after this is encrypted */
+		if (lws_chacha_activate(&cli_keys_stc))
+			return test_fail("activating rx keys");
+
+		return cli_kex_done();
+
 	case ST_CLI_SVC_ACCEPT:
 		if (msg != SSH_MSG_SERVICE_ACCEPT)
 			return test_fail("expected SERVICE_ACCEPT");
@@ -551,8 +849,8 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 
 		/*
 		 * phase 6: genuine blob and genuine signature.  The server
-		 * reconstructs and hashes the plaintext with the (still
-		 * all-zero) session_id and verifies against the pubkey we
+		 * reconstructs and hashes the plaintext with the session_id
+		 * from the key exchange and verifies against the pubkey we
 		 * generated.  This must still authenticate.
 		 */
 		{
@@ -609,27 +907,27 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 		cli_state = ST_CLI_DONE;
 		return 1;
 
-	case ST_CLI_KEXR_SVC_ACCEPT:
-		/*
-		 * The connection survived our first KEXINIT.  A second one
-		 * while that key exchange is in progress is a protocol
-		 * error the server must close us for.
-		 */
-		if (msg != SSH_MSG_SERVICE_ACCEPT)
-			return test_fail("expected SERVICE_ACCEPT (kexinit)");
-
-		if (msg_kexinit())
-			return test_fail("tx prep");
-		cli_state = ST_CLI_EXPECT_CLOSE;
-		return cli_send_next();
-
 	case ST_CLI_EMPTY_SVC_ACCEPT:
 		/* the empty service name completed as a string */
-		if (msg != SSH_MSG_SERVICE_ACCEPT || pl_len != 1 + 4 ||
+		if (msg != SSH_MSG_SERVICE_ACCEPT || pl_len != 4 ||
 		    peek_u32(pl))
 			return test_fail("expected SERVICE_ACCEPT for \"\"");
 
 		if (msg_disconnect(SSH_DISCONNECT_BY_APPLICATION, 0, ""))
+			return test_fail("tx prep");
+		cli_state = ST_CLI_EXPECT_CLOSE;
+		return cli_send_next();
+
+	case ST_CLI_WRONG_SVC_ACCEPT:
+		/*
+		 * The service was accepted, but without "ssh-userauth" a
+		 * USERAUTH_REQUEST must close us
+		 */
+		if (msg != SSH_MSG_SERVICE_ACCEPT)
+			return test_fail("expected SERVICE_ACCEPT (wrong svc)");
+
+		if (msg_userauth(keyblob, keyblob_len, dummysig,
+				 (uint32_t)sizeof(dummysig)))
 			return test_fail("tx prep");
 		cli_state = ST_CLI_EXPECT_CLOSE;
 		return cli_send_next();
@@ -642,17 +940,20 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 /* the state the server's reply moves us to once its id string arrived */
 
 static const enum cli_state scenario_first_state[] = {
-	[SC_USERAUTH]		= ST_CLI_SVC_ACCEPT,
-	[SC_KEXINIT_REPEAT]	= ST_CLI_KEXR_SVC_ACCEPT,
+	[SC_USERAUTH]		= ST_CLI_KEX_KEXINIT,
+	[SC_KEXINIT_REPEAT]	= ST_CLI_EXPECT_CLOSE,
 	[SC_DISCONNECT_LONG]	= ST_CLI_EXPECT_CLOSE,
-	[SC_DISCONNECT_EMPTY]	= ST_CLI_EMPTY_SVC_ACCEPT,
+	[SC_DISCONNECT_EMPTY]	= ST_CLI_KEX_KEXINIT,
+	[SC_PREKEX_SERVICE]	= ST_CLI_EXPECT_CLOSE,
+	[SC_PREKEX_USERAUTH]	= ST_CLI_EXPECT_CLOSE,
+	[SC_USERAUTH_WRONG_SVC]	= ST_CLI_KEX_KEXINIT,
 };
 
 static int
 cli_rx(const void *in, size_t len)
 {
-	const uint8_t *p = (const uint8_t *)in;
-	uint32_t plen, pad, n, remain;
+	const uint8_t *p = (const uint8_t *)in, *pkt;
+	uint32_t plen, pad, n, remain, mac;
 
 	while (len--) {
 		if (rxlen >= sizeof(rxbuf))
@@ -687,28 +988,47 @@ cli_rx(const void *in, size_t len)
 		if (rxlen < 5)
 			return 0;
 
-		plen = peek_u32(rxbuf);
-		pad = rxbuf[4];
+		/* after the server's NEWKEYS, packets are encrypted */
 
-		if (plen < 6 || plen >= sizeof(rxbuf) - 4)
+		mac = 0;
+		if (cli_keys_stc.valid) {
+			plen = lws_chachapoly_get_length(&cli_keys_stc,
+							 cli_seq_rx, rxbuf);
+			mac = cli_keys_stc.MAC_length;
+		} else
+			plen = peek_u32(rxbuf);
+
+		if (plen < 6 || plen >= sizeof(rxbuf) - 4 - mac)
 			return test_fail("bad rx packet length");
+		if (rxlen < 4 + plen + mac)
+			return 0;	/* wait for the rest of it */
+
+		pkt = rxbuf;
+		if (cli_keys_stc.valid) {
+			if (lws_chacha_decrypt(&cli_keys_stc, cli_seq_rx,
+					       rxbuf, 4 + plen + mac, rxpt))
+				return test_fail("rx decryption failed");
+			pkt = rxpt;
+		}
+		cli_seq_rx++;
+
+		pad = pkt[4];
 		if (pad + 2 > plen)	/* payload must have >= 1 byte */
 			return test_fail("bad rx padding");
-		if (rxlen < 4 + plen)
-			return 0;	/* wait for the rest of it */
 
 		/*
 		 * Snapshot the post-packet rxbuf length now, from the
 		 * validated plen and rxlen, so it stays provably in range
 		 * across the handle_msg() call below
 		 */
-		remain = rxlen - 4 - plen;
+		remain = rxlen - 4 - plen - mac;
 
-		if (handle_msg(rxbuf[5], rxbuf + 6, plen - 1 - pad))
+		/* the payload after the msg id, without the padding */
+		if (handle_msg(pkt[5], pkt + 6, plen - 2 - pad))
 			return 1;
 
 		/* keep any further whole packets already buffered */
-		memmove(rxbuf, rxbuf + 4 + plen, remain);
+		memmove(rxbuf, rxbuf + 4 + plen + mac, remain);
 		rxlen = remain;
 	}
 }
@@ -717,27 +1037,43 @@ cli_rx(const void *in, size_t len)
 static int
 cli_connected(void)
 {
-	memcpy(txbuf + LWS_PRE, "SSH-2.0-lwsApiTest\r\n", 20);
-	txlen = 20;
+	memcpy(txbuf + LWS_PRE, CLI_ID_STRING "\r\n",
+	       sizeof(CLI_ID_STRING) + 1);
+	txlen = sizeof(CLI_ID_STRING) + 1;
 
 	switch (scenario) {
 	case SC_USERAUTH:
-		/* a service request for the service we want to auth into */
-		return msg_service_request("ssh-connection");
+	case SC_DISCONNECT_EMPTY:
+	case SC_USERAUTH_WRONG_SVC:
+		/* these scenarios start once the key exchange completes */
+		return msg_kexinit();
 
 	case SC_KEXINIT_REPEAT:
-		/* start a kex, and show the connection is still up after */
-		return msg_kexinit() ||
-		       msg_service_request("ssh-connection");
+		/*
+		 * A second KEXINIT while the first one's exchange is in
+		 * progress.  That one KEXINIT is accepted is shown by the
+		 * scenarios that complete a key exchange.
+		 */
+		return msg_kexinit() || msg_kexinit();
 
 	case SC_DISCONNECT_LONG:
 		/* the server must not act on the packet after DISCONNECT */
 		return msg_disconnect(SSH_DISCONNECT_BY_APPLICATION,
 				      DISC_DESC_LONG, "en") ||
-		       msg_service_request("ssh-connection");
+		       msg_ignore();
 
-	case SC_DISCONNECT_EMPTY:
-		return msg_service_request("");
+	case SC_PREKEX_SERVICE:
+		/* the userauth service, before any key exchange */
+		return msg_service_request("ssh-userauth");
+
+	case SC_PREKEX_USERAUTH:
+		/*
+		 * a USERAUTH_REQUEST in plaintext before any key exchange,
+		 * which used to be judged (and signed over an all-zero
+		 * session id), even with no service requested
+		 */
+		return msg_userauth(keyblob, keyblob_len, dummysig,
+				    (uint32_t)sizeof(dummysig));
 
 	default:
 		return 1;
@@ -760,6 +1096,7 @@ cli_connect(lws_sorted_usec_list_t *sul)
 	cli_state = ST_CLI_VERSION;
 	rxlen = 0;
 	txlen = 0;
+	cli_transport_reset();
 	disc_count = 0;
 	disc_desc_len = 0;
 	disc_desc_head[0] = '\0';
@@ -797,6 +1134,9 @@ cli_closed(void)
 	case ST_CLI_EXPECT_CLOSE:
 		switch (scenario) {
 		case SC_KEXINIT_REPEAT:
+		case SC_PREKEX_SERVICE:
+		case SC_PREKEX_USERAUTH:
+		case SC_USERAUTH_WRONG_SVC:
 			if (disc_count) {
 				test_fail("unexpected disconnect_reason");
 				return;
@@ -899,89 +1239,46 @@ static const struct lws_protocols protocols_cli[] = {
 };
 
 /*
- * Generate the authorized keypair at runtime, and produce the signature
- * of the USERAUTH plaintext the server will reconstruct and verify
+ * Generate the authorized keypair at runtime, and the public key blob for it
  */
 static int
 gen_keypair(void)
 {
-	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
-	struct lws_genrsa_ctx ctx;
-	uint8_t pt[768 + 128], hash[32], *o;
-	/* pt is built piece by piece; the session_id stretch is all-zeroes
-	 * pre-KEX, everything else is written over zeroed space anyway */
-
-	struct lws_genhash_ctx gh;
-	size_t pt_len;
 	uint32_t elen;
-	int n;
+	uint8_t *o;
 
-	memset(el, 0, sizeof(el));
-	memset(&ctx, 0, sizeof(ctx));
-	/* the session_id stretch of pt stays zeroes, pre-KEX */
-	memset(pt, 0, sizeof(pt));
+	memset(rsa_el, 0, sizeof(rsa_el));
+	memset(&rsa_ctx, 0, sizeof(rsa_ctx));
 
-	if (lws_genrsa_new_keypair(context, &ctx, LGRSAM_PKCS1_1_5, el, 2048)) {
+	if (lws_genrsa_new_keypair(context, &rsa_ctx, LGRSAM_PKCS1_1_5,
+				   rsa_el, 2048)) {
 		lwsl_err("keygen failed\n");
 		return 1;
 	}
+	rsa_ctx_valid = 1;
 
 	/* public key blob: string "ssh-rsa" + mpint e + mpint n */
+
+	elen = rsa_el[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+	keyblob_n_len = rsa_el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+	if (4 + 7 + 4 + elen + 4 + keyblob_n_len > sizeof(keyblob))
+		return 1;
 
 	o = keyblob;
 	poke_u32(o, 7);
 	o += 4;
 	memcpy(o, "ssh-rsa", 7);
 	o += 7;
-	elen = el[LWS_GENCRYPTO_RSA_KEYEL_E].len;
 	poke_u32(o, elen);
 	o += 4;
-	memcpy(o, el[LWS_GENCRYPTO_RSA_KEYEL_E].buf, elen);
+	memcpy(o, rsa_el[LWS_GENCRYPTO_RSA_KEYEL_E].buf, elen);
 	o += elen;
 	keyblob_n_len_off = (uint32_t)(o - keyblob);
-	keyblob_n_len = el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
 	poke_u32(o, keyblob_n_len);
 	o += 4;
-	memcpy(o, el[LWS_GENCRYPTO_RSA_KEYEL_N].buf, keyblob_n_len);
+	memcpy(o, rsa_el[LWS_GENCRYPTO_RSA_KEYEL_N].buf, keyblob_n_len);
 	o += keyblob_n_len;
 	keyblob_len = (uint32_t)(o - keyblob);
-
-	/* the USERAUTH plaintext the server reconstructs for verifying */
-
-	o = pt;
-	poke_u32(o, 32);			/* session_id, all zeroes pre-kex */
-	o += 4;
-	o += 32;
-	*o++ = SSH_MSG_USERAUTH_REQUEST;
-	poke_u32(o, 5);  o += 4; memcpy(o, "jtest", 5);           o += 5;
-	poke_u32(o, 14); o += 4; memcpy(o, "ssh-connection", 14); o += 14;
-	poke_u32(o, 9);  o += 4; memcpy(o, "publickey", 9);       o += 9;
-	*o++ = 1;				/* sig_present = TRUE */
-	poke_u32(o, 12); o += 4; memcpy(o, "rsa-sha2-256", 12);   o += 12;
-	poke_u32(o, keyblob_len);
-	o += 4;
-	memcpy(o, keyblob, keyblob_len);
-	o += keyblob_len;
-	pt_len = (size_t)(o - pt);
-
-	if (lws_genhash_init(&gh, LWS_GENHASH_TYPE_SHA256) ||
-	    lws_genhash_update(&gh, pt, pt_len) ||
-	    lws_genhash_destroy(&gh, hash)) {
-		lwsl_err("hash failed\n");
-		goto bail;
-	}
-
-	n = lws_genrsa_hash_sign(&ctx, hash, LWS_GENHASH_TYPE_SHA256,
-				 rsasig, sizeof(rsasig));
-	if (n < 0) {
-		lwsl_err("sign failed\n");
-		goto bail;
-	}
-	rsasig_len = (uint32_t)n;
-
-bail:
-	lws_genrsa_destroy_elements(el);
-	lws_genrsa_destroy(&ctx);
 
 	/*
 	 * a well-formed-but-wrong sig blob for the phases that don't reach
@@ -996,7 +1293,57 @@ bail:
 	o += 4;
 	memset(o, 0xa5, 16);
 
-	return keyblob_len && rsasig_len ? 0 : 1;
+	return 0;
+}
+
+/*
+ * Sign the USERAUTH plaintext the server will reconstruct and verify
+ * (RFC4252 7), which starts with the session id from the key exchange
+ */
+static int
+sign_userauth(void)
+{
+	uint8_t pt[768 + 128], hash[32], *o = pt;
+	struct lws_genhash_ctx gh;
+	int n;
+
+	if (4 + LWS_SIZE_SHA256 + 1 + 4 + 5 + 4 + 14 + 4 + 9 + 1 + 4 + 12 +
+	    4 + keyblob_len > sizeof(pt))
+		return 1;
+
+	poke_u32(o, LWS_SIZE_SHA256);
+	o += 4;
+	memcpy(o, session_id, LWS_SIZE_SHA256);
+	o += LWS_SIZE_SHA256;
+	*o++ = SSH_MSG_USERAUTH_REQUEST;
+	poke_u32(o, 5);  o += 4; memcpy(o, "jtest", 5);           o += 5;
+	poke_u32(o, 14); o += 4; memcpy(o, "ssh-connection", 14); o += 14;
+	poke_u32(o, 9);  o += 4; memcpy(o, "publickey", 9);       o += 9;
+	*o++ = 1;				/* sig_present = TRUE */
+	poke_u32(o, 12); o += 4; memcpy(o, "rsa-sha2-256", 12);   o += 12;
+	poke_u32(o, keyblob_len);
+	o += 4;
+	memcpy(o, keyblob, keyblob_len);
+	o += keyblob_len;
+
+	if (lws_genhash_init(&gh, LWS_GENHASH_TYPE_SHA256))
+		return 1;
+	if (lws_genhash_update(&gh, pt, (size_t)(o - pt))) {
+		lws_genhash_destroy(&gh, NULL);
+		return 1;
+	}
+	if (lws_genhash_destroy(&gh, hash))
+		return 1;
+
+	n = lws_genrsa_hash_sign(&rsa_ctx, hash, LWS_GENHASH_TYPE_SHA256,
+				 rsasig, sizeof(rsasig));
+	if (n <= 0) {
+		lwsl_err("sign failed\n");
+		return 1;
+	}
+	rsasig_len = (uint32_t)n;
+
+	return 0;
 }
 
 void sigint_handler(int sig)
@@ -1040,7 +1387,7 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
-	/* the sshd vhost: raw plaintext ssh (no kex is done by this test) */
+	/* the sshd vhost: raw ssh */
 
 	info.port = port_tcp;
 	info.options = LWS_SERVER_OPTION_ONLY_RAW;
@@ -1075,6 +1422,11 @@ main(int argc, const char **argv)
 		n = lws_service(context, 0);
 
 bail:
+	cli_transport_reset();
+	if (rsa_ctx_valid) {
+		lws_genrsa_destroy_elements(rsa_el);
+		lws_genrsa_destroy(&rsa_ctx);
+	}
 	lws_context_destroy(context);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");

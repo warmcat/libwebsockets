@@ -703,6 +703,25 @@ lws_ssh_exec_finish(void *finish_handle, int retcode)
 	write_task(pss, ch, SSH_WT_CH_CLOSE);
 }
 
+/*
+ * RFC4253 7 and RFC4252 1: the services (ssh-userauth, and ssh-connection
+ * after it) run on the transport the first key exchange sets up.  Until then
+ * there is no session id for a userauth signature to bind to (it is all
+ * zeroes), and nothing the peer sends is confidential or integrity-protected.
+ *
+ * We accept the peer's NEWKEYS only after our KEX_ECDH_REPLY went out, which
+ * is when the session id was computed, and by then our own NEWKEYS is sent or
+ * queued ahead of anything we might reply.  So once the peer's keys are
+ * active, the exchange is complete in both directions for everything that
+ * follows, without refusing a peer that pipelines its first service request
+ * behind its NEWKEYS before ours has reached it.
+ */
+static int
+ssh_transport_up(struct per_session_data__sshd *pss)
+{
+	return pss->active_keys_cts.valid;
+}
+
 static int
 lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 {
@@ -787,6 +806,21 @@ again:
 		case SSHS_MSG_ID:
 			pss->msg_id = *p++;
 			pss->ctr = 0;
+
+			/*
+			 * The service, userauth (50..79) and connection
+			 * (80..127) messages are a protocol error before the
+			 * key exchange completed
+			 */
+			if ((pss->msg_id == SSH_MSG_SERVICE_REQUEST ||
+			     pss->msg_id == SSH_MSG_SERVICE_ACCEPT ||
+			     pss->msg_id >= SSH_MSG_USERAUTH_REQUEST) &&
+			    !ssh_transport_up(pss)) {
+				lwsl_notice("%s: msg %d before key exchange\n",
+					    __func__, pss->msg_id);
+				goto bail;
+			}
+
 			switch (pss->msg_id) {
 			case SSH_MSG_DISCONNECT:
 				/*
@@ -938,6 +972,17 @@ again:
 				 *    string    public key blob
 				 */
 				lwsl_info("SSH_MSG_USERAUTH_REQUEST\n");
+				/*
+				 * RFC4253 10: the peer has to have asked for
+				 * the userauth service first
+				 */
+				if (!pss->okayed_userauth) {
+					lwsl_notice("%s: USERAUTH_REQUEST without "
+						    "ssh-userauth service\n",
+						    __func__);
+
+					goto bail;
+				}
 				if (pss->ua) {
 					lwsl_notice("pss->ua overwrite\n");
 
@@ -1281,7 +1326,12 @@ again:
 			 */
 			lws_strncpy(pss->service, pss->name,
 				    sizeof(pss->service));
-			pss->okayed_userauth = 1;
+			/*
+			 * USERAUTH_REQUEST is only accepted once the peer
+			 * asked for the service that carries it
+			 */
+			if (!strcmp(pss->name, "ssh-userauth"))
+				pss->okayed_userauth = 1;
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
 			/*
 			 * this only 'accepts' that we can negotiate auth for
