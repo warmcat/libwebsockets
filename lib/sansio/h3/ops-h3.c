@@ -2781,7 +2781,12 @@ static int
 rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
-	unsigned char *pre = buf - LWS_PRE;
+	/*
+	 * Where the framed write starts, set below when there is a frame
+	 * header to put before buf.  Not buf - LWS_PRE up front: a write
+	 * draining the compressor's buffered input comes with a NULL buf
+	 */
+	unsigned char *pre = buf;
 	int base = (*wp & 0x1f);
 	int is_http = base == LWS_WRITE_HTTP || base == LWS_WRITE_HTTP_FINAL;
 	int is_headers = base == LWS_WRITE_HTTP_HEADERS;
