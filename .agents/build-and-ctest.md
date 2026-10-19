@@ -395,3 +395,8 @@ a log is evidence that something was or was not emitted.
  - The lws h2 encoder never indexes headers: to exercise the HPACK
    dynamic-table path, write raw bytes in APPEND_HANDSHAKE_HEADER (0x40
    literal, then 0x80|62 on the next request with LCCSCF_PIPELINE).
+ - A test NAT / relay should pass back only datagrams from the expected
+   source, or a server answering the wrong address still looks green
+   (how the G-199 P5 flood red showed in api-test-tls-passthrough).
+ - `LWS_IO_OPS_ABI_VERSION` must be bumped whenever `lws_io_ops_t` gains a
+   member (it is 3 since c9ef2a268).
