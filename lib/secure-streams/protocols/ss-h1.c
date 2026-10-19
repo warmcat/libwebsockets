@@ -1635,7 +1635,16 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 	if (used_out + 1 < len - 1)
 		buf[used_out + 1] = '\0';
 
-	__lws_lc_tag_append(&h->lc, buf);
+	{
+		char lp[64];
+
+		/*
+		 * The tag is in every log line about the stream: show the
+		 * path without the query string, which may carry tokens
+		 */
+		__lws_lc_tag_append(&h->lc, lws_http_log_path(lp, sizeof(lp),
+							      buf));
+	}
 
 	return 0;
 }

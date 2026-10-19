@@ -1321,8 +1321,15 @@ str_val:
 		lws_hex_from_byte_array(digest,
 					lws_genhash_size(hash_type),
 					a2, sizeof(a2));
-		lwsl_debug("A2: %s:%s = %s\n", wsi->stash->cis[CIS_METHOD],
-				uri, a2);
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+		{
+			char lp[128];
+
+			lwsl_debug("A2: %s:%s = %s\n",
+				   wsi->stash->cis[CIS_METHOD],
+				   lws_http_log_path(lp, sizeof(lp), uri), a2);
+		}
+#endif
 
 		if (lws_hex_random(lws_get_context(wsi), cnonce, sizeof(cnonce)))
 			goto bail;
@@ -3103,11 +3110,20 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	cisin[CIS_ALPN] = "http/1.1";
 #endif
 
-	lwsl_notice("%s: REDIRECT %d: %s %s:%d, path='%s', ssl = %d, alpn='%s'\n",
-		    __func__, wsi->stream.ah ?
-					(int)wsi->stream.ah->http_response : 0,
-		    cisin[CIS_METHOD] ? cisin[CIS_METHOD] : "(null)", address,
-		    port, path, ssl, cisin[CIS_ALPN]);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	{
+		char lp[128];
+
+		/* F-016: a followed redirect's query may carry a token */
+		lwsl_notice("%s: REDIRECT %d: %s %s:%d, path='%s', ssl = %d, "
+			    "alpn='%s'\n", __func__, wsi->stream.ah ?
+				(int)wsi->stream.ah->http_response : 0,
+			    cisin[CIS_METHOD] ? cisin[CIS_METHOD] : "(null)",
+			    address, port, lws_http_log_path(lp, sizeof(lp),
+							     path),
+			    ssl, cisin[CIS_ALPN]);
+	}
+#endif
 
 	{
 		/*

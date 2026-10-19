@@ -128,6 +128,52 @@ lws_http_header_name_may_be_credential(const char *name)
 	return lws_hdr_token_is_credential((enum lws_token_indexes)tok);
 }
 
+/*
+ * Copy what may be logged of value into buf: up to a '?' if cut_query, and
+ * no more than fits, with control and non-ASCII bytes shown as '.' so a
+ * value can't forge log lines.  value may be buf itself.
+ */
+static const char *
+lws_http_log_copy(char *buf, size_t len, const char *value, size_t value_len,
+		  int cut_query)
+{
+	const char *q;
+	size_t n;
+
+	if (cut_query) {
+		q = memchr(value, '?', value_len);
+		if (q)
+			value_len = lws_ptr_diff_size_t(q, value);
+	}
+
+	for (n = 0; n < value_len && n < len - 1; n++)
+		buf[n] = ((unsigned char)value[n] < 0x20 ||
+			  (unsigned char)value[n] >= 0x7f) ? '.' : value[n];
+	buf[n] = '\0';
+
+	return buf;
+}
+
+/*
+ * F-016: urlargs are a common place for apps to put session or authorization
+ * tokens (OAuth code=, presigned URL signatures, ?api_key=...).  A log line
+ * that shows a request path, sent or received, shows it with this: cut at
+ * the '?', so the query string never reaches log sinks, which outlive the
+ * connection and reach a wider audience than the path's owner.
+ *
+ * Returns buf, always NUL-terminated, or "NULL" if path is NULL.
+ */
+const char *
+lws_http_log_path(char *buf, size_t len, const char *path)
+{
+	if (!path)
+		return "NULL";
+	if (!len)
+		return "";
+
+	return lws_http_log_copy(buf, len, path, strlen(path), 1);
+}
+
 #ifdef LWS_WITH_HTTP2
 int
 lws_wsi_is_h2(struct lws *wsi)

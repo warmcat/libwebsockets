@@ -53,37 +53,6 @@ lws_h3_dbg_value_len(int tok, const char *value, size_t value_len)
 }
 #endif
 
-#if (_LWS_ENABLED_LOGS & LLL_INFO)
-/*
- * F-016: urlargs are a common place for apps to put session or authorization
- * tokens.  When a log line wants to show the request path, show it truncated
- * at the '?' so the query string never reaches log sinks, which outlive the
- * connection.
- *
- * Returns path copied into buf, NUL-terminated, truncated at the first '?'
- * and to len - 1 bytes... or "NULL" if path is NULL.
- */
-static const char *
-lws_h3_log_path_sans_urlargs(char *buf, size_t len, const char *path)
-{
-	const char *q;
-	size_t n;
-
-	if (!path)
-		return "NULL";
-
-	q = strchr(path, '?');
-	n = q ? (size_t)(q - path) : strlen(path);
-	if (n > len - 1)
-		n = len - 1;
-
-	memcpy(buf, path, n);
-	buf[n] = '\0';
-
-	return buf;
-}
-#endif
-
 
 #if defined(LWS_WITH_CLIENT)
 #if defined(LWS_ROLE_WT)
@@ -2488,7 +2457,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						/* F-016: show the path, but not any query string */
 						lwsl_wsi_info(wsi, "Decoded method: %s, Decoded path: %s",
 							      p ? p : "NULL",
-							      lws_h3_log_path_sans_urlargs(pbuf, sizeof(pbuf),
+							      lws_http_log_path(pbuf, sizeof(pbuf),
 						lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH)));
 					}
 #endif

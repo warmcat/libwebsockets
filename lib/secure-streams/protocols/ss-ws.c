@@ -301,11 +301,19 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 			      &used_in, &used_out) != LSTRX_DONE)
 		return 1;
 
-	__lws_lc_tag_append(&h->lc, buf);
-
 	i->protocol = h->policy->u.http.u.ws.subprotocol;
 
-	lwsl_ss_info(h, "url %s, ws subprotocol %s", buf, i->protocol);
+	{
+		char lp[64];
+
+		/*
+		 * The tag is in every log line about the stream: show the
+		 * path without the query string, which may carry tokens
+		 */
+		__lws_lc_tag_append(&h->lc, lws_http_log_path(lp, sizeof(lp),
+							      buf));
+		lwsl_ss_info(h, "url %s, ws subprotocol %s", lp, i->protocol);
+	}
 
 	return 0;
 }
