@@ -453,6 +453,13 @@ struct dht_fragment {
  */
 #define LWS_DHT_DNSSEC_MAX_SUBSCRIBED	256
 
+/*
+ * A fetch's GET goes to at most 32 IPv4 and 32 IPv6 routing table nodes and
+ * the bootstrap target each round: the hosts it went to, the only ones whose
+ * RSP may open the transfer
+ */
+#define LWS_DHT_DNSSEC_FETCH_MAX_ASKED		65
+
 struct lws_dht_dnssec_fetch_req {
 	lws_dll2_t			list;
 	char				domain[256];
@@ -463,6 +470,9 @@ struct lws_dht_dnssec_fetch_req {
 	struct vhd_dht_dnssec		*vhd;
 	int				retries;
 	lws_sorted_usec_list_t		sul_timeout;
+	lws_sockaddr46			asked[LWS_DHT_DNSSEC_FETCH_MAX_ASKED];
+	uint8_t				asked_count;
+	uint8_t				asked_next; /* oldest, once full */
 };
 
 struct lws_dir_args {
@@ -937,6 +947,80 @@ dht_dnssec_find_fetch_req(struct vhd_dht_dnssec *vhd, const char *hash)
 	} lws_end_foreach_dll(d);
 
 	return NULL;
+}
+
+/*
+ * Send a fetch's GET to sa, noting the host it went to: only a host one of
+ * our GETs for the hash went to may answer it.  The hash is public, so
+ * otherwise whoever got an RSP for it to us first, from anywhere, opened
+ * (and so owned) our transfer of it ahead of the nodes we asked.  A host,
+ * as the DHT counts them (lws_dht_same_host()), not an exact endpoint.
+ */
+
+static void
+dht_dnssec_fetch_req_send(struct vhd_dht_dnssec *vhd,
+			  struct lws_dht_dnssec_fetch_req *req,
+			  const struct sockaddr *sa, const char *buf)
+{
+	size_t salen;
+	int n;
+
+	switch (sa->sa_family) {
+	case AF_INET:
+		salen = sizeof(struct sockaddr_in);
+		break;
+#if defined(LWS_WITH_IPV6)
+	case AF_INET6:
+		salen = sizeof(struct sockaddr_in6);
+		break;
+#endif
+	default:
+		return;
+	}
+
+	for (n = 0; n < req->asked_count; n++)
+		if (lws_dht_same_host((const struct sockaddr *)&req->asked[n],
+				      sa))
+			break;
+
+	if (n == req->asked_count) {
+		/* a new host: once full, it replaces the oldest */
+		if (req->asked_count < LWS_ARRAY_SIZE(req->asked))
+			n = req->asked_count++;
+		else {
+			n = req->asked_next;
+			req->asked_next = (uint8_t)((req->asked_next + 1) %
+						LWS_ARRAY_SIZE(req->asked));
+		}
+		memset(&req->asked[n], 0, sizeof(req->asked[n]));
+		memcpy(&req->asked[n], sa, salen);
+	}
+
+	lws_dht_send_data(vhd->dht, sa, buf, strlen(buf));
+}
+
+/* did a GET from any fetch of ours for hash go to the host from is? */
+
+static int
+dht_dnssec_fetch_asked(struct vhd_dht_dnssec *vhd, const char *hash,
+		       const struct sockaddr *from)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->fetch_reqs)) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d,
+				struct lws_dht_dnssec_fetch_req, list);
+		int n;
+
+		if (strcmp(req->target_hash, hash))
+			continue;
+
+		for (n = 0; n < req->asked_count; n++)
+			if (lws_dht_same_host(
+				(const struct sockaddr *)&req->asked[n], from))
+				return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
 }
 
 static void
@@ -2642,6 +2726,13 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 			lwsl_notice("%s: Rejecting initial chunk for %s with non-zero offset %llu (likely trailing packets from failed transfer)\n",
 				    __func__, msg->hash, msg->offset);
 			return 0; /* Ignore it, sender will eventually time out or we wait for our next scheduled retry */
+		}
+
+		/* only a host we asked can open the transfer */
+		if (!from || !dht_dnssec_fetch_asked(vhd, msg->hash, from)) {
+			lwsl_warn("%s: refusing RSP for %s from a host our GET "
+				  "did not go to\n", __func__, msg->hash);
+			return 0;
 		}
 
 		frag = calloc(1, sizeof(*frag));
@@ -6051,7 +6142,8 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 		if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) == 0) {
 			sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 			lws_dht_msg_gen(buf, sizeof(buf), "GET", req->target_hash, 0, 1024);
-			lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
+			dht_dnssec_fetch_req_send(vhd, req,
+					(struct sockaddr *)&sa46, buf);
 		}
 	}
 
@@ -6134,18 +6226,18 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 	}
 
 	/* the pending request's one completion covers this call too */
-	int already = 0;
+	struct lws_dht_dnssec_fetch_req *req = NULL;
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&v->fetch_reqs)) {
-		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-		if (!strcmp(req->domain, args->domain) && req->cb == args->cb &&
-		    req->opaque == args->opaque) {
-			already = 1;
+		struct lws_dht_dnssec_fetch_req *r = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(r->domain, args->domain) && r->cb == args->cb &&
+		    r->opaque == args->opaque) {
+			req = r;
 			break;
 		}
 	} lws_end_foreach_dll(d);
 
-	if (!already) {
-		struct lws_dht_dnssec_fetch_req *req = calloc(1, sizeof(*req));
+	if (!req) {
+		req = calloc(1, sizeof(*req));
 		if (!req) return 1;
 		lws_strncpy(req->domain, args->domain, sizeof(req->domain));
 		if (args->cache_dir)
@@ -6172,12 +6264,14 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 		lws_dht_get_nodes(v->dht, sin, &num_v4, sin6, &num_v6);
 
 		for (i = 0; i < num_v4; i++) {
-			lws_dht_send_data(v->dht, (struct sockaddr *)&sin[i], buf, strlen(buf));
+			dht_dnssec_fetch_req_send(v, req,
+					(struct sockaddr *)&sin[i], buf);
 			sent++;
 		}
 #if defined(LWS_WITH_IPV6)
 		for (i = 0; i < num_v6; i++) {
-			lws_dht_send_data(v->dht, (struct sockaddr *)&sin6[i], buf, strlen(buf));
+			dht_dnssec_fetch_req_send(v, req,
+					(struct sockaddr *)&sin6[i], buf);
 			sent++;
 		}
 #endif
@@ -6188,7 +6282,8 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 		lws_sockaddr46 sa46;
 		if (lws_sa46_parse_numeric_address(v->target_ip, &sa46) == 0) {
 			sa46_sockport(&sa46, htons((uint16_t)v->target_port));
-			lws_dht_send_data(v->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
+			dht_dnssec_fetch_req_send(v, req,
+					(struct sockaddr *)&sa46, buf);
 			sent++;
 		} else {
 			struct addrinfo hints, *result;
@@ -6199,7 +6294,8 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 				sa46_sockport(&sa46, htons((uint16_t)v->target_port));
 				freeaddrinfo(result);
 
-				lws_dht_send_data(v->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
+				dht_dnssec_fetch_req_send(v, req,
+						(struct sockaddr *)&sa46, buf);
 				sent++;
 			}
 		}

@@ -19,6 +19,9 @@
  *    real publisher, at another address, from PUTting the same key
  *  - nor does it stop our own fetch of that key: the responder's first RSP
  *    starts a fetch reassembly of its own
+ *  - but only a host our fetch's GET went to can start it: an RSP from any
+ *    other host is refused, one from another port of the host we asked is
+ *    not (G-153)
  *  - however long a sender keeps a reassembly making progress, it is reaped
  *    at a fixed time after it started
  */
@@ -150,7 +153,8 @@ static void
 putt_run(struct vhd_dht_dnssec *vhd)
 {
 	struct lws_dht_dnssec_fetch_req *req;
-	lws_sockaddr46 h1, h2, h3, h4, resp;
+	lws_sockaddr46 h1, h2, h3, h4, resp, stranger;
+	char get[128];
 	struct dht_fragment *f;
 	char hash[65], victim[65];
 	lws_usec_t left;
@@ -211,8 +215,10 @@ putt_run(struct vhd_dht_dnssec *vhd)
 		    "a PUT of a key does not lock other publishers out of it");
 
 	/*
-	 * ... and our own fetch of it: the responder's first RSP must start
-	 * a fetch reassembly, not be refused as a stranger to h3's PUT
+	 * ... and our own fetch of it, whose GET went to resp: the
+	 * responder's first RSP must start a fetch reassembly, not be refused
+	 * as a stranger to h3's PUT.  But a host the GET did not go to must
+	 * not start it, racing the responder.
 	 */
 
 	req = calloc(1, sizeof(*req));
@@ -224,6 +230,17 @@ putt_run(struct vhd_dht_dnssec *vhd)
 	lws_dll2_add_tail(&req->list, &vhd->fetch_reqs);
 
 	putt_v4(&resp, 5, 1000);
+	lws_dht_msg_gen(get, sizeof(get), "GET", victim, 0, 1024);
+	dht_dnssec_fetch_req_send(vhd, req, (const struct sockaddr *)&resp,
+				  get);
+
+	putt_v4(&stranger, 6, 1000);
+	putt_chunk(vhd, 1, victim, 0, &stranger);
+	putt_expect(!dht_dnssec_find_fragment(vhd, victim),
+		    "an RSP from a host our GET did not go to is refused");
+
+	/* the host we asked, answering from another of its ports */
+	putt_v4(&resp, 5, 1001);
 	putt_chunk(vhd, 1, victim, 0, &resp);
 	putt_expect(!!putt_frag(vhd, victim, &resp, 0),
 		    "an inbound PUT of a key does not block our fetch of it");

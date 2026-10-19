@@ -20,6 +20,8 @@
  *  - a cancel with no domain takes back every fetch with that opaque, of
  *    any domain, and only those, as auth-dns does when its vhost goes,
  *    since fetches outlive the queries that started them (G-220)
+ *  - a fetch's transfer is only opened by an RSP from a host its GET went
+ *    to, here the target node: one from another host is refused (G-153)
  *
  * Each opaque is heap allocated and released only by its completion, so
  * one never released also shows as a leak under LSan.
@@ -44,6 +46,7 @@ enum {
 	FOT_PENDING,
 	FOT_CANCELLED,
 	FOT_CANCEL_ALL,
+	FOT_RSP_SOURCE,
 
 	FOT_COUNT
 };
@@ -54,7 +57,13 @@ static const char * const fot_names[] = {
 	"pending, and a request merged into it",
 	"cancelled",
 	"cancelled with every domain of its opaque",
+	"answered by a host it did not ask, then one it did",
 };
+
+/* the zone key the RSP source case fetches, "dht-hash-" and 64 hex */
+#define FOT_RSP_HASH	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa01"
+/* a JWS starts "ey...": the first chunk of a 100-byte zone */
+#define FOT_RSP_CHUNK	"eyJhbGciOi"
 
 static int fot_calls[FOT_COUNT], fot_status[FOT_COUNT], fails;
 
@@ -116,6 +125,36 @@ fot_fetch(const struct lws_dht_dnssec_ops *ops, struct lws_context *cx,
 	return ops->fetch_zone(cx, &args);
 }
 
+/* the first RSP chunk of FOT_RSP_HASH, as if from 127.0.0.<last>:port */
+
+static void
+fot_rsp(struct vhd_dht_dnssec *vhd, uint8_t last, int port)
+{
+	struct lws_dht_verb_dispatch_args args;
+	struct lws_dht_msg msg;
+	lws_sockaddr46 sa46;
+
+	memset(&sa46, 0, sizeof(sa46));
+	sa46.sa4.sin_family = AF_INET;
+	sa46.sa4.sin_addr.s_addr = htonl(0x7f000000u | last);
+	sa46.sa4.sin_port = htons((uint16_t)port);
+
+	memset(&msg, 0, sizeof(msg));
+	lws_strncpy(msg.verb, "RSP", sizeof(msg.verb));
+	lws_strncpy(msg.hash, FOT_RSP_HASH, sizeof(msg.hash));
+	msg.len		= 100;
+	msg.payload	= FOT_RSP_CHUNK;
+	msg.payload_len	= strlen(FOT_RSP_CHUNK);
+
+	memset(&args, 0, sizeof(args));
+	args.ctx	= vhd->dht;
+	args.msg	= &msg;
+	args.from	= (const struct sockaddr *)&sa46;
+	args.fromlen	= sizeof(struct sockaddr_in);
+
+	verb_rsp_handler(vhd, &args);
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -125,6 +164,7 @@ main(int argc, const char **argv)
 	struct lws_protocol_vhost_options pvo[5], pvo_wrap;
 	const struct lws_dht_dnssec_ops *ops = NULL;
 	struct fot_opaque *o_pending, *o_cancel, *o_all;
+	struct vhd_dht_dnssec *vhd;
 	struct lws_context_creation_info info;
 	const struct lws_protocols *pcol;
 	const char *port, *tport;
@@ -251,6 +291,31 @@ main(int argc, const char **argv)
 		   "cancel with no domain does not complete them");
 	free(o_all);
 
+	/*
+	 * The GET goes to the target node, 127.0.0.1, once the plugin has its
+	 * DHT: an RSP from 127.0.0.2, a host it did not go to, must not open
+	 * the transfer; the target's own RSP does.  It stays pending, so it
+	 * completes once at destroy.
+	 */
+
+	vhd = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vh, pcol);
+	t_start = lws_now_usecs();
+	while (!vhd->dht && lws_now_usecs() - t_start < 10 * LWS_US_PER_SEC)
+		if (lws_service(cx, 0) < 0)
+			break;
+	if (fot_expect(!!vhd->dht, "plugin has its DHT"))
+		goto bail;
+
+	n = fot_fetch(ops, cx, vh, "dht-hash-" FOT_RSP_HASH,
+		      fot_opaque_create(FOT_RSP_SOURCE), 0);
+	fot_expect(!n, "fetch to be answered pending");
+	fot_rsp(vhd, 2, atoi(tport));
+	fot_expect(!dht_dnssec_find_fragment(vhd, FOT_RSP_HASH),
+		   "an RSP from a host the GET did not go to is refused");
+	fot_rsp(vhd, 1, atoi(tport));
+	fot_expect(!!dht_dnssec_find_fragment(vhd, FOT_RSP_HASH),
+		   "the asked host's RSP opens the transfer");
+
 	/* a little service, so the fetches really went out */
 
 	for (n = 0; n < 5; n++)
@@ -267,6 +332,8 @@ bail:
 		   "cancelled fetch never completed");
 	fot_expect(!fot_calls[FOT_CANCEL_ALL],
 		   "fetches cancelled with no domain never completed");
+	fot_expect(fot_calls[FOT_RSP_SOURCE] == 1,
+		   "answered fetch completed once at destroy");
 
 	for (n = 0; n < FOT_COUNT; n++)
 		lwsl_user("%s: %s: %d completion(s), status %d\n", __func__,
