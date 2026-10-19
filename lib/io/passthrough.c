@@ -386,6 +386,7 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *pl;
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	lws_ah_attach_result_t ar;
 	int ah_held;
 #endif
 #endif
@@ -485,9 +486,10 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (ah_held) {
 		/* attached, or waiting for one: both leave him as he was */
-		n = lws_header_table_attach(wsi, 0);
+		ar = lws_header_table_attach(wsi, 0);
 		/* only autoservice or a client connect can close him in there */
-		assert(n != LWS_AH_ATTACH_WSI_GONE);
+		assert(ar != LWS_AH_ATTACH_WSI_GONE);
+		(void)ar;
 	}
 #endif
 #endif
