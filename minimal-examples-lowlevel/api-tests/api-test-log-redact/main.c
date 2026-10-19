@@ -29,6 +29,12 @@
  *    the server has and so selects.  The offer and the answer are logged
  *    with known protocol names in clear and anything else only as its
  *    length, "<unknown:NN>" (G-354).
+ *
+ *  --case proxy: the h1 client's request, with the credential headers and
+ *    an OAuth-style code= in its query, goes to a reverse proxy mount on the
+ *    server, which passes it on to a plain http backend vhost on the next
+ *    port (G-364).  The proxy forwards Authorization and Cookie, but no
+ *    X-Api-Key.
  */
 
 #include <libwebsockets.h>
@@ -77,6 +83,7 @@ enum {
 	LRD_PEM,
 	LRD_WS,
 	LRD_WS_H2,
+	LRD_PROXY,
 };
 
 static const struct lrd_case {
@@ -92,6 +99,8 @@ static const struct lrd_case {
 	[LRD_PEM]	= { "pem",	NULL,		NULL,		0 },
 	[LRD_WS]	= { "ws",	"http/1.1",	"/",		1 },
 	[LRD_WS_H2]	= { "ws-h2",	"h2",		"/",		1 },
+	[LRD_PROXY]	= { "proxy",	"http/1.1",	"/proxy/landing?code="
+						LRD_M_QUERY "&state=1",	1 },
 };
 
 static struct lws_context *context;
@@ -155,9 +164,11 @@ lrd_creds_arrived(struct lws *wsi)
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	char v[128];
 
-	if (lws_hdr_custom_copy(wsi, v, sizeof(v), "x-api-key:", 10) !=
+	/* the reverse proxy passes on a fixed set of headers, not this one */
+	if (tc != &lrd_cases[LRD_PROXY] &&
+	    (lws_hdr_custom_copy(wsi, v, sizeof(v), "x-api-key:", 10) !=
 						(int)strlen(lrd_apikey) ||
-	    strcmp(v, lrd_apikey)) {
+	     strcmp(v, lrd_apikey))) {
 		lwsl_user("%s: x-api-key did not arrive intact\n", __func__);
 		return 0;
 	}
@@ -200,6 +211,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 						(int)strlen(LRD_M_QUERY) &&
 			    !strcmp(v, LRD_M_QUERY))
 				landed++;
+			/* the proxied request passed its credentials on */
+			if (tc == &lrd_cases[LRD_PROXY])
+				creds_ok += lrd_creds_arrived(wsi);
 		} else
 			creds_ok += lrd_creds_arrived(wsi);
 
@@ -425,6 +439,17 @@ static const struct lws_protocols protocols_cli[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+#if defined(LWS_WITH_HTTP_PROXY)
+static char origin[64];
+
+static const struct lws_http_mount mount_proxy = {
+	.mountpoint		= "/proxy",
+	.mountpoint_len		= 6,
+	.origin			= origin,
+	.origin_protocol	= LWSMPRO_HTTP,
+};
+#endif
+
 static void
 watchdog_cb(lws_sorted_usec_list_t *sul)
 {
@@ -550,9 +575,16 @@ int main(int argc, const char **argv)
 
 	if (!cert || !key || !tc) {
 		lwsl_err("--cert, --key and --case h1|h2|h3|redirect|pem|ws|"
-			 "ws-h2 are required\n");
+			 "ws-h2|proxy are required\n");
 		return 1;
 	}
+
+#if !defined(LWS_WITH_HTTP_PROXY)
+	if (tc == &lrd_cases[LRD_PROXY]) {
+		lwsl_err("--case proxy needs LWS_WITH_HTTP_PROXY\n");
+		return 1;
+	}
+#endif
 
 	signal(SIGINT, sigint_handler);
 	lwsl_user("LWS API selftest: no secrets in logs, %s\n", mode);
@@ -584,11 +616,35 @@ int main(int argc, const char **argv)
 	info.ssl_private_key_filepath	= key;
 	info.alpn			= "h2,http/1.1,h3";
 	info.vhost_name			= "localhost";
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (tc == &lrd_cases[LRD_PROXY]) {
+		/* the server proxies /proxy to the backend on the next port */
+		lws_snprintf(origin, sizeof(origin), "localhost:%d/", port + 1);
+		info.mounts		= &mount_proxy;
+	}
+#endif
 
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create the server vhost\n");
 		goto bail;
 	}
+	info.mounts			= NULL;
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (tc == &lrd_cases[LRD_PROXY]) {
+		/* the proxy's backend, plain http */
+		info.port			= port + 1;
+		info.ssl_cert_filepath		= NULL;
+		info.ssl_private_key_filepath	= NULL;
+		info.alpn			= NULL;
+		info.vhost_name			= "backend";
+
+		if (!lws_create_vhost(context, &info)) {
+			lwsl_err("Failed to create the backend vhost\n");
+			goto bail;
+		}
+	}
+#endif
 
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.ssl_cert_filepath		= NULL;
@@ -622,6 +678,8 @@ int main(int argc, const char **argv)
 			 tc->requests);
 	else if (tc == &lrd_cases[LRD_REDIRECT] && landed != 1)
 		lwsl_err("FAIL: the redirect was not followed intact\n");
+	else if (tc == &lrd_cases[LRD_PROXY] && landed != 1)
+		lwsl_err("FAIL: the query did not reach the backend intact\n");
 	else if (tc == &lrd_cases[LRD_WS] || tc == &lrd_cases[LRD_WS_H2]) {
 #if (_LWS_ENABLED_LOGS & LLL_PARSER)
 		/* where the offer is logged, it is logged usefully */

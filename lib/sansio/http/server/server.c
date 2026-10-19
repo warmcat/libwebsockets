@@ -1884,9 +1884,9 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 //	i.uri_replace_from = hit->origin;
 //	i.uri_replace_to = hit->mountpoint;
 
-	lwsl_info("proxying to %s port %d url %s, ssl %d, from %s, to %s\n",
-		   i.address, i.port, i.path, i.ssl_connection,
-		   i.uri_replace_from, i.uri_replace_to);
+	/* the onward path was logged as "proxied path" above, without its query */
+	lwsl_info("proxying to %s port %d, ssl %d\n", i.address, i.port,
+		  i.ssl_connection);
 
 	if (!lws_io_client_connect(&i)) {
 		lwsl_err("proxy connect fail\n");

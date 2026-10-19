@@ -10,8 +10,9 @@ set(SRCS main.c)
 
 #
 # Captures every log line at every level while credentials pass through
-# h1 / h2 / h3, a followed redirect, the PEM key loader and a ws
-# subprotocol offer, and fails if any of them reaches the log
+# h1 / h2 / h3, a followed redirect, the PEM key loader, a ws
+# subprotocol offer and a reverse proxy, and fails if any of them reaches
+# the log
 #
 set(requirements 1)
 require_lws_config(LWS_WITH_TLS 1 requirements)
@@ -25,6 +26,8 @@ set(LRD_H3 1)
 require_lws_config(LWS_ROLE_H3 1 LRD_H3)
 set(LRD_WS 1)
 require_lws_config(LWS_ROLE_WS 1 LRD_WS)
+set(LRD_PROXY 1)
+require_lws_config(LWS_WITH_HTTP_PROXY 1 LRD_PROXY)
 
 if (requirements AND NOT WIN32)
 	add_executable(${SAMP} ${SRCS})
@@ -44,9 +47,17 @@ if (requirements AND NOT WIN32)
 	if (LRD_H3)
 		list(APPEND LRD_CASES h3)
 	endif()
+	if (LRD_PROXY)
+		list(APPEND LRD_CASES proxy)
+	endif()
 
 	foreach(LRD_CASE ${LRD_CASES})
-		lws_get_free_port(PORT_LRD_${LRD_CASE})
+		if (LRD_CASE STREQUAL "proxy")
+			# the proxy's backend listens on the next port
+			lws_get_free_ports(PORT_LRD_${LRD_CASE} 2)
+		else()
+			lws_get_free_port(PORT_LRD_${LRD_CASE})
+		endif()
 
 		add_test(NAME api-test-log-redact-${LRD_CASE}
 			 COMMAND lws-api-test-log-redact
