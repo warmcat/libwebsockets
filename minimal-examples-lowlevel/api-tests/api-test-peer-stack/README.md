@@ -23,10 +23,13 @@ hearsay, vouched, routable, crypto).
    address raises nothing.
 
  - **udp** (with `LWS_WITH_UDP`): a bound UDP socket's peer is the last
-   datagram's source, HEARSAY.  `lws_peer_raise()` raises it only for its own
-   address (and port, when one is given), never lowers it, and after a
-   datagram from another socket has replaced the entry, evidence about the
-   old source raises nothing.
+   datagram's source, HEARSAY, as a DATAGRAM entry: the socket has no peer of
+   its own, so nothing (eg, the route checks) takes it for one.
+   `lws_peer_raise()` raises it only for its own address (and port, when one
+   is given), never lowers it, and after a datagram from another socket has
+   replaced the entry, evidence about the old source raises nothing.  The
+   receiver answers the first sender, a connected socket, which keeps its
+   own peer, a SOCKET entry, when the answer arrives.
 
 ## Commandline
 

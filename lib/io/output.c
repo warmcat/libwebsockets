@@ -447,13 +447,8 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 					sa46_sockaddr(&wsi->io->udp->sa46), &slt);
 			en = LWS_ERRNO;
 			if (n >= 0)
-				/*
-				 * Who a datagram is from is only what it says:
-				 * the peer is the last one's source, as hearsay
-				 */
-				lws_io_peer_set(wsi, &wsi->io->udp->sa46,
-						LWS_PEER_KIND_SOCKET,
-						LWS_PEER_CRED_HEARSAY);
+				/* who a datagram is from is only what it says */
+				lws_io_peer_datagram(wsi, &wsi->io->udp->sa46);
 		}
 	} else
 #endif

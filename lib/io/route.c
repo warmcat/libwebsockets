@@ -364,23 +364,22 @@ int
 _lws_route_check_wsi(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	/* a datagram's last source is not who the socket talks to */
+	const lws_sockaddr46 *dest = lws_io_peer_route_dest(wsi);
 	char buf[72];
 
-	if (!wsi->io->pstack[0].sa46.sa4.sin_family ||
-	    /* a bound datagram socket's peer is only its last sender */
-	    wsi->io->do_bind ||
+	if (!dest ||
 #if defined(LWS_WITH_UNIX_SOCK)
 	     wsi->io->unix_skt ||
-	     wsi->io->pstack[0].sa46.sa4.sin_family == AF_UNIX ||
 #endif
 	    wsi->io->desc.sockfd == LWS_SOCK_INVALID)
-		/* not a socket, cannot judge by route, or not connected,
+		/* not a socket, cannot judge by route, or no fixed peer,
 		 * leave it alone */
 		return 0; /* OK */
 
 	/* the route to the peer is still workable? */
 
-	if (!_lws_route_est_outgoing(pt, &wsi->io->pstack[0].sa46)) {
+	if (!_lws_route_est_outgoing(pt, dest)) {
 		/* no way to talk to the peer */
 		lwsl_wsi_notice(wsi, "dest route gone");
 		return 1;
@@ -459,12 +458,10 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 			continue;
 
 		if (wsi->io->desc.sockfd != LWS_SOCK_INVALID &&
-		    !wsi->io->do_bind &&
 #if defined(LWS_WITH_UNIX_SOCK)
 		    !wsi->io->unix_skt &&
-		    wsi->io->pstack[0].sa46.sa4.sin_family != AF_UNIX &&
 #endif
-		    wsi->io->pstack[0].sa46.sa4.sin_family &&
+		    lws_io_peer_route_dest(wsi) &&
 		    wsi->io->peer_route_uidx == uidx) {
 			lwsl_wsi_notice(wsi, "culling wsi");
 			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);

@@ -22,10 +22,12 @@
  *    entry, which is what lws_get_peer_simple() gives;
  *
  *  - with UDP, a bound socket's peer is the last datagram's source, only
- *    HEARSAY, and the effective entry for want of a better one.
- *    lws_peer_raise() raises it only for its own address (and port, if
- *    given), never lowers it, and once a datagram from somewhere else has
- *    moved the entry on, evidence about the old source raises nothing.
+ *    HEARSAY, and the effective entry for want of a better one; it is a
+ *    DATAGRAM entry, not a peer the socket is fixed to.  lws_peer_raise()
+ *    raises it only for its own address (and port, if given), never lowers
+ *    it, and once a datagram from somewhere else has moved the entry on,
+ *    evidence about the old source raises nothing.  A connected sender
+ *    answered by the receiver keeps its own peer, a SOCKET entry.
  */
 
 #include <libwebsockets.h>
@@ -53,7 +55,8 @@ static const char *server = "localhost";
 static int phase = -1, fails, finished, phase_done, srv_checked, udp_port;
 #if defined(LWS_WITH_UDP)
 static lws_peer_entry_t udp_first;	/* the first datagram's source */
-static int udp_rxed;
+static struct lws *udp_tx1;		/* the first sender */
+static int udp_rxed, udp_tx1_rxed;
 #endif
 
 static void
@@ -482,10 +485,10 @@ ps_udp_rx_first(struct lws *wsi)
 	lws_sockaddr46 sa46;
 
 	check(lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
-	      e[0].kind == LWS_PEER_KIND_SOCKET &&
+	      e[0].kind == LWS_PEER_KIND_DATAGRAM &&
 	      e[0].cred == LWS_PEER_CRED_HEARSAY &&
 	      is_loopback(&e[0].sa46) && port_of(&e[0].sa46),
-	      "udp: the datagram's source, as hearsay");
+	      "udp: the datagram's source, as a hearsay datagram entry");
 	udp_first = e[0];
 
 	check(!lws_peer_effective(wsi, &eff) &&
@@ -532,8 +535,8 @@ ps_udp_rx_first(struct lws *wsi)
 	      e[0].cred == LWS_PEER_CRED_CRYPTO,
 	      "udp: evidence naming only the address matches any port");
 
-	/* now a datagram from somewhere else */
-	ps_udp_sender("ps-udp-tx2");
+	/* answer it: the sender's peer is the one it is connected to */
+	lws_callback_on_writable(wsi);
 }
 
 static void
@@ -542,6 +545,7 @@ ps_udp_rx_second(struct lws *wsi)
 	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
 
 	check(lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
+	      e[0].kind == LWS_PEER_KIND_DATAGRAM &&
 	      e[0].cred == LWS_PEER_CRED_HEARSAY &&
 	      is_loopback(&e[0].sa46) &&
 	      port_of(&e[0].sa46) != port_of(&udp_first.sa46),
@@ -559,9 +563,19 @@ static int
 ps_udp_rx_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
+	uint8_t buf[LWS_PRE + 4];
+
 	(void)user;
 	(void)in;
 	(void)len;
+
+	if (reason == LWS_CALLBACK_RAW_WRITEABLE) {
+		/* back to whoever sent the last datagram */
+		memcpy(buf + LWS_PRE, "back", 4);
+		if (lws_write(wsi, buf + LWS_PRE, 4, LWS_WRITE_RAW) != 4)
+			ps_phase_end("udp answer failed");
+		return 0;
+	}
 
 	if (reason != LWS_CALLBACK_RAW_RX)
 		return 0;
@@ -578,6 +592,23 @@ ps_udp_rx_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	}
 
 	return 0;
+}
+
+/* the first sender hears the receiver's answer */
+static void
+ps_udp_tx1_rx(struct lws *wsi)
+{
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+
+	check(lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
+	      e[0].kind == LWS_PEER_KIND_SOCKET &&
+	      e[0].cred == LWS_PEER_CRED_HEARSAY &&
+	      is_loopback(&e[0].sa46) &&
+	      (int)port_of(&e[0].sa46) == udp_port,
+	      "udp sender: an answer leaves it its own peer, a socket entry");
+
+	/* now a datagram from somewhere else */
+	ps_udp_sender("ps-udp-tx2");
 }
 
 static int
@@ -606,6 +637,16 @@ ps_udp_tx_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		memcpy(buf + LWS_PRE, "peer", 4);
 		if (lws_write(wsi, buf + LWS_PRE, 4, LWS_WRITE_RAW) != 4)
 			ps_phase_end("udp write failed");
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		if (wsi == udp_tx1 && !udp_tx1_rxed++)
+			ps_udp_tx1_rx(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		if (wsi == udp_tx1)
+			udp_tx1 = NULL;
 		break;
 
 	default:
@@ -667,7 +708,7 @@ ps_next(lws_sorted_usec_list_t *sul)
 			ps_phase_end("binding the UDP receiver failed");
 			return;
 		}
-		ps_udp_sender("ps-udp-tx1");
+		udp_tx1 = ps_udp_sender("ps-udp-tx1");
 		return;
 	}
 #endif

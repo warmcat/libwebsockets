@@ -360,6 +360,9 @@ typedef enum lws_peer_kind {
 	LWS_PEER_KIND_PROXY_V2,	/**< PROXY v2 source from a trusted TCP front */
 	LWS_PEER_KIND_RELAY,	/**< PROXY v2 source in a relayed datagram */
 	LWS_PEER_KIND_XFF,	/**< X-Forwarded-For or similar on a stream */
+	LWS_PEER_KIND_DATAGRAM,	/**< the last datagram's source, on a socket
+				 *   with no peer of its own (eg, bound and
+				 *   not connected): not who it talks to */
 } lws_peer_kind_t;
 
 /**

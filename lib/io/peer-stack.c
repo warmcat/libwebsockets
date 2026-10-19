@@ -37,14 +37,14 @@ static const char * const cred_names[] = {
 static const char cred_initials[] = "nhvrc";
 
 static const char * const kind_names[] = {
-	"socket", "local", "proxy-v2", "relay", "xff"
+	"socket", "local", "proxy-v2", "relay", "xff", "datagram"
 };
 
 typedef char lws_peer_cred_names_match[
 	LWS_ARRAY_SIZE(cred_names) == LWS_PEER_CRED_CRYPTO + 1 &&
 	sizeof(cred_initials) == LWS_PEER_CRED_CRYPTO + 2 ? 1 : -1];
 typedef char lws_peer_kind_names_match[
-	LWS_ARRAY_SIZE(kind_names) == LWS_PEER_KIND_XFF + 1 ? 1 : -1];
+	LWS_ARRAY_SIZE(kind_names) == LWS_PEER_KIND_DATAGRAM + 1 ? 1 : -1];
 /* the connection's stack is never deeper than a walk can give */
 typedef char lws_peer_stack_fits_walk[
 	LWS_PEER_STACK_MAX <= LWS_PEER_WALK_MAX ? 1 : -1];
@@ -131,6 +131,48 @@ lws_io_peer_set(struct lws *wsi, const lws_sockaddr46 *sa46,
 
 	if (!wsi->io->pstack_count)
 		wsi->io->pstack_count = 1;
+}
+
+/*
+ * A datagram came from src.  A socket with a peer of its own (connected, or
+ * made to talk to one address, like the DHCP client's PF_PACKET socket whose
+ * sources are not even IP addresses) keeps it: that is still who it talks
+ * to.  On one without (bound, or an unconnected descriptor the user
+ * adopted), the source is all there is, so it stands as the peer, but as a
+ * DATAGRAM entry, which nothing takes for a peer the socket is fixed to.
+ */
+void
+lws_io_peer_datagram(struct lws *wsi, const lws_sockaddr46 *src)
+{
+	if (wsi->io->pstack_count &&
+	    wsi->io->pstack[0].kind == LWS_PEER_KIND_SOCKET)
+		return;
+
+	lws_io_peer_set(wsi, src, LWS_PEER_KIND_DATAGRAM,
+			LWS_PEER_CRED_HEARSAY);
+}
+
+/*
+ * The IP address the transport is fixed to talk to, the one its route can
+ * be judged by: the socket's own peer, not a datagram's last source, an
+ * AF_UNIX peer or a claim above it.  NULL if there is none.
+ */
+const lws_sockaddr46 *
+lws_io_peer_route_dest(struct lws *wsi)
+{
+	const lws_peer_entry_t *e = &wsi->io->pstack[0];
+
+	if (!wsi->io->pstack_count || e->kind != LWS_PEER_KIND_SOCKET)
+		return NULL;
+
+	if (e->sa46.sa4.sin_family == AF_INET
+#if defined(LWS_WITH_IPV6)
+	    || e->sa46.sa4.sin_family == AF_INET6
+#endif
+	   )
+		return &e->sa46;
+
+	return NULL;
 }
 
 /*

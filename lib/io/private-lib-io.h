@@ -434,6 +434,10 @@ lws_io_peer_set(struct lws *wsi, const lws_sockaddr46 *sa46,
 int
 lws_io_peer_push(struct lws *wsi, const lws_sockaddr46 *sa46,
 		 lws_peer_kind_t kind, lws_peer_cred_t cred);
+void
+lws_io_peer_datagram(struct lws *wsi, const lws_sockaddr46 *src);
+const lws_sockaddr46 *
+lws_io_peer_route_dest(struct lws *wsi);
 lws_sockaddr46 *
 lws_io_peer(struct lws *wsi);
 int
