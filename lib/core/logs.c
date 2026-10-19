@@ -991,7 +991,11 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 		back--;
 	} while (back > 0);
 
-	if (prep)
+	/*
+	 * The object prepends describe their object: there's nothing for them
+	 * to say about a NULL one, eg, a context that does not exist yet
+	 */
+	if (prep && obj)
 		prep(cxp, obj, &p, end);
 
 	if (_fun)

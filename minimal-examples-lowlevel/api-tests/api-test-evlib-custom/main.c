@@ -15,9 +15,13 @@
  * picks an event lib for apps that did not choose one; the app's loop object
  * here is its own struct, not a uv_loop_t, so the custom lib must still be the
  * one in use.
+ *
+ * With --missing-evlib, it instead asks through LWS_EVLIB for an event lib
+ * this lws was built without, and confirms context creation fails cleanly.
  */
 
 #include <libwebsockets.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define EVC_MAGIC 0x45564c43u /* "EVLC" */
@@ -106,6 +110,76 @@ static const lws_plugin_evlib_t evlib_custom = {
 	.ops	= &evc_ops
 };
 
+/*
+ * LWS_EVLIB naming an event lib that is not built in (or, with evlib plugins,
+ * whose plugin was not built) must fail context creation cleanly
+ */
+
+static int
+missing_evlib(struct lws_context_creation_info *info)
+{
+	static const char * const missing[] = {
+#if !defined(LWS_WITH_LIBUV)
+		"uv",
+#endif
+#if !defined(LWS_WITH_LIBEVENT)
+		"event",
+#endif
+#if !defined(LWS_WITH_LIBEV)
+		"ev",
+#endif
+#if !defined(LWS_WITH_GLIB)
+		"glib",
+#endif
+#if !defined(LWS_WITH_SDEVENT)
+		"sd",
+#endif
+#if !defined(LWS_WITH_ULOOP)
+		"uloop",
+#endif
+		NULL
+	};
+	struct lws_context *cx;
+
+#if !defined(LWS_WITH_EVENT_LIBS)
+	/* without event lib support, LWS_EVLIB is not consulted at all */
+	(void)info;
+	(void)missing;
+	(void)cx;
+	lwsl_user("%s: no event lib support, skipping\n", __func__);
+
+	return 0;
+#else
+	if (!missing[0]) {
+		lwsl_user("%s: every event lib is built in, skipping\n",
+			  __func__);
+		return 0;
+	}
+
+	lwsl_user("%s: asking for '%s'\n", __func__, missing[0]);
+
+#if defined(WIN32)
+	if (_putenv_s("LWS_EVLIB", missing[0]))
+#else
+	if (setenv("LWS_EVLIB", missing[0], 1))
+#endif
+		return 1;
+
+	info->port = CONTEXT_PORT_NO_LISTEN;
+
+	cx = lws_create_context(info);
+	if (cx) {
+		lwsl_err("%s: context created without event lib '%s'\n",
+			 __func__, missing[0]);
+		lws_context_destroy(cx);
+
+		return 1;
+	}
+
+	return 0;
+#endif
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -117,6 +191,13 @@ main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+	if (lws_cmdline_option(argc, argv, "--missing-evlib")) {
+		fail = missing_evlib(&info);
+		lwsl_user("Completed: %s\n", fail ? "FAIL" : "PASS");
+
+		return fail;
+	}
 
 	e = getenv("LWS_EVLIB");
 	lwsl_user("LWS API selftest: custom event lib (LWS_EVLIB '%s')\n",

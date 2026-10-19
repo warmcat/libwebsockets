@@ -898,7 +898,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #else
 	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBUV)) {
-		lwsl_cx_err(context, "Application wants libuv, but lws not built with it");
+		lwsl_err("%s: Application wants libuv, but lws not built with it\n",
+			 __func__);
 		goto bail;
 	}
 #endif
@@ -911,7 +912,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #else
 	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBEVENT)) {
-		lwsl_cx_err(context, "Application wants libevent, but lws not built with it");
+		lwsl_err("%s: Application wants libevent, but lws not built with it\n",
+			 __func__);
 		goto bail;
 	}
 #endif
@@ -924,7 +926,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #else
 	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_GLIB)) {
-		lwsl_cx_err(context, "Application wants glib, but lws not built with it");
+		lwsl_err("%s: Application wants glib, but lws not built with it\n",
+			 __func__);
 		goto bail;
 	}
 #endif
@@ -937,7 +940,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #else
 	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBEV)) {
-		lwsl_cx_err(context, "Application wants libev, but lws not built with it");
+		lwsl_err("%s: Application wants libev, but lws not built with it\n",
+			 __func__);
 		goto bail;
 	}
 #endif
@@ -950,7 +954,8 @@ lws_create_context(const struct lws_context_creation_info *info)
     }
 #else
 	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_SDEVENT)) {
-		lwsl_cx_err(context, "Application wants sdevent, but lws not built with it");
+		lwsl_err("%s: Application wants sdevent, but lws not built with it\n",
+			 __func__);
 		goto bail;
 	}
 #endif
@@ -963,7 +968,8 @@ lws_create_context(const struct lws_context_creation_info *info)
     }
 #else
 	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_ULOOP)) {
-		lwsl_cx_err(context, "Application wants uloop, but lws not built with it");
+		lwsl_err("%s: Application wants uloop, but lws not built with it\n",
+			 __func__);
 		goto bail;
 	}
 #endif
@@ -2362,8 +2368,9 @@ bail_libuv_aware:
 
 #if defined(LWS_WITH_NETWORK)
 fail_event_libs:
-	if (context)
-	lwsl_cx_err(context, "Requested event library support not configured");
+	/* we come here before the context is allocated */
+	lwsl_err("%s: Requested event library support not configured\n",
+		 __func__);
 #endif
 
 #if defined(LWS_WITH_NETWORK)

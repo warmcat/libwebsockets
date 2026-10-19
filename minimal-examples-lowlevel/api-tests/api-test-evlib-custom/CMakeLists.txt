@@ -20,7 +20,12 @@ if (requirements)
 	set_tests_properties(api-test-evlib-custom-env PROPERTIES
 			     ENVIRONMENT "LWS_EVLIB=uv")
 
+	# LWS_EVLIB naming an event lib that was not built fails cleanly
+	add_test(NAME api-test-evlib-custom-missing
+		 COMMAND lws-api-test-evlib-custom --missing-evlib)
+
 	set_tests_properties(api-test-evlib-custom api-test-evlib-custom-env
+			     api-test-evlib-custom-missing
 			     PROPERTIES TIMEOUT 20)
 
 	if (websockets_shared)
