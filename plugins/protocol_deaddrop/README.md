@@ -55,10 +55,27 @@ be protected from snooping by tls.
    URL for deaddrop is "/tools/share", this would be at "/tools/share/upload".
    It must also be protected by the JWT bouncer.
 
-4) Add a fileserving mount at the url "get" (continuing the example above, it
-   would be "/tools/share/get" whose origin matches the "upload-dir" pvo
-   value you selected.  This mount needs any additional mimtype mappings since
-   it's where the uploaded files are shared from.
+4) Add a second callback mount into "lws-deaddrop" at "get"... continuing the
+   example above, it would be "/tools/share/get".  The plugin serves the
+   uploaded files from there itself (see "Downloads" below), so do not serve
+   "upload-dir" with a file mount.  It must also be protected by the JWT
+   bouncer.
+
+## Downloads
+
+deaddrop never delivers anything renderable: it moves text where there is no
+clipboard, and binary files.  Every download from the "get" mount is sent
+whatever its extension as
+
+ - `Content-Type: application/octet-stream`
+ - `Content-Disposition: attachment` with a safe filename (the uploaded name
+   without the owner prefix)
+ - `X-Content-Type-Options: nosniff`
+ - `Content-Security-Policy: sandbox; default-src 'none'`
+
+so a shared `.html`, `.svg` or `.js` can never run as active content on the
+deaddrop origin, as whoever opens its link.  Downloads need an authenticated
+user (as uploads do), unless the vhost set `allow-anonymous`.
 
 ## Using with C
 
@@ -83,20 +100,7 @@ The mountpoints would look something like this (added to vhost/mounts)
          "origin": "callback://lws-deaddrop"
         }, {
          "mountpoint": "/tools/share/get",
-         "origin": "file:///var/cache/deaddrop-uploads",
-
-	 "extra-mimetypes": {
-		".bin": "application/octet-stream",
-		".ttf": "application/x-font-truetype",
-		".otf": "application/font-sfnt",
-		".zip": "application/zip",
-		".webm": "video/webm",
-		".romfs": "application/octet-stream",
-		".pdf": "application/pdf",
-		".odt": "application/vnd.oasis.opendocument.text",
-		".tgz": "application/x-gzip",
-		".tar.gz": "application/x-gzip"
-	  }
+         "origin": "callback://lws-deaddrop"
 	}
 ```
 

@@ -11,6 +11,8 @@ whose names share a prefix, `bob` and `bob_smith`.
 |`bob` sends `{"del":"<bob_smith's file>"}`|refused, the file stays|
 |`bob` sends a message that leaves `"}` in the server's rx buffer, then `{"del":"<his file>` with no closing quote, then short `del` frames|all ignored, nothing deleted|
 |`bob` deletes his own file|deleted, and every session's listing drops it|
+|`bob` uploads `x.html`, `x.svg`, `x.js`; `bob_smith` fetches them from `/get/`|each 200, `application/octet-stream`, `Content-Disposition: attachment` naming the file, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, the content intact|
+|`bob_smith` fetches a name that does not exist|404|
 
 ## running it
 

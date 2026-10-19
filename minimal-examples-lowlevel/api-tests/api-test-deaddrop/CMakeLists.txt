@@ -22,6 +22,7 @@ require_lws_config(LWS_WITH_JOSE 1 requirements)
 require_lws_config(LWS_WITH_LEJP 1 requirements)
 require_lws_config(LWS_WITH_HTTP_BASIC_AUTH 1 requirements)
 require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
+require_lws_config(LWS_WITH_CUSTOM_HEADERS 1 requirements)
 
 if (requirements AND UNIX AND LWS_HAVE_PTHREAD_H)
 	add_executable(${SAMP} ${SRCS})

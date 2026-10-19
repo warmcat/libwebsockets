@@ -41,9 +41,7 @@
 #ifdef WIN32
 #include <io.h>
 #endif
-#if defined(__linux__)
 #include <limits.h>
-#endif
 #include <stdio.h>
 #include <errno.h>
 #if defined(__linux__)
@@ -1010,9 +1008,170 @@ deaddrop_handler_server_protocol_destroy(struct vhd_deaddrop *vhd)
 #endif
 }
 
+/*
+ * Turn a stored file name from a peer into its path in the upload dir, into
+ * path (which must be PATH_MAX).  The name must be a single path component,
+ * and the file it names must really be inside the upload dir.  Returns 0 if
+ * path is usable.
+ */
+
+static int
+deaddrop_resolve_name(struct vhd_deaddrop *vhd, struct lws *wsi,
+		      const char *fname, char *path, size_t path_len)
+{
+#if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
+	char resolved_path[PATH_MAX];
+	size_t ul;
+#endif
+
+	if (!fname[0] || strchr(fname, '/') || !strcmp(fname, ".") ||
+	    !strcmp(fname, ".."))
+		return 1;
+
+	if (lws_snprintf(path, path_len, "%s/%s", vhd->upload_dir,
+			 fname) >= (int)path_len)
+		return 1;
+
+#if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
+	if (!realpath(path, resolved_path))
+		return 1;
+
+	ul = strlen(vhd->upload_dir);
+	if (strncmp(resolved_path, vhd->upload_dir, ul) ||
+	    resolved_path[ul] != '/') {
+		lwsl_wsi_err(wsi, "illegal path '%s' -> '%s'", path,
+			     resolved_path);
+		return 1;
+	}
+	lws_strncpy(path, resolved_path, path_len);
+#endif
+
+	return 0;
+}
+
+/*
+ * RFC 8187 attr-char, the characters a filename*= value may carry as they are
+ */
+
+static int
+deaddrop_attr_char(char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+	       (c >= '0' && c <= '9') || strchr("!#$&+-.^_`|~", c);
+}
+
+/*
+ * Content-Disposition for a download: the name without its owner prefix, as a
+ * plain ASCII filename= with anything risky in a quoted-string replaced, and
+ * exactly as a percent-encoded UTF-8 filename*=
+ */
+
+static int
+deaddrop_content_disposition(char *buf, size_t len, const char *fname)
+{
+	const char *cp = strchr(fname, '_'), *q;
+	size_t o;
+
+	if (cp && cp != fname && cp[1])
+		fname = cp + 1;
+
+	o = (size_t)lws_snprintf(buf, len, "attachment; filename=\"");
+	for (q = fname; *q && o + 2 < len; q++)
+		buf[o++] = (*q >= 0x20 && *q < 0x7f && *q != '\"' &&
+			    *q != '\\') ? *q : '_';
+	if (o + 20 >= len)
+		return 1;
+	o += (size_t)lws_snprintf(buf + o, len - o, "\"; filename*=UTF-8''");
+
+	for (q = fname; *q; q++) {
+		if (o + 4 >= len)
+			return 1;
+		if (deaddrop_attr_char(*q)) {
+			buf[o++] = *q;
+			continue;
+		}
+		buf[o++] = '%';
+		lws_hex_from_byte_array((const uint8_t *)q, 1, buf + o, 3);
+		o += 2;
+	}
+	buf[o] = '\0';
+
+	return 0;
+}
+
+/*
+ * deaddrop only ever hands files back to be saved, never to be rendered: it
+ * moves text where there is no clipboard, and binary files.  So whatever the
+ * uploader named it, a download goes out as an octet-stream attachment that
+ * may not be sniffed, and that a browser would sandbox with nothing allowed
+ * if it rendered it anyway.  Otherwise a shared .html / .svg / .js would run
+ * as active content on our origin, as whoever opened the link.
+ *
+ * Returns 0 if the transaction continues, -1 to close.
+ */
+
+static int
+deaddrop_serve_download(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+			struct lws *wsi, const char *in, size_t len)
+{
+	uint8_t hdrs[1536], *p = hdrs, *end = &hdrs[sizeof(hdrs) - 1];
+	char fname[256], path[PATH_MAX], cd[1024];
+	int status = HTTP_STATUS_NOT_FOUND, n;
+	struct stat s;
+
+	if (!pss->user[0] && !vhd->allow_anon) {
+		status = HTTP_STATUS_FORBIDDEN;
+		goto refuse;
+	}
+
+	/* we get "/<stored name>", the part of the url after the mountpoint */
+	if (!in || len < 2 || len > sizeof(fname) || *in != '/' ||
+	    memchr(in, '\0', len))
+		goto refuse;
+	memcpy(fname, in + 1, len - 1);
+	fname[len - 1] = '\0';
+
+	/* temp files are uploads still in progress */
+	if (fname[strlen(fname) - 1] == '~' ||
+	    deaddrop_resolve_name(vhd, wsi, fname, path, sizeof(path)) ||
+	    stat(path, &s) || !S_ISREG(s.st_mode))
+		goto refuse;
+
+	if (deaddrop_content_disposition(cd, sizeof(cd), fname) ||
+	    lws_add_http_header_by_name(wsi,
+			(const unsigned char *)"content-disposition:",
+			(const unsigned char *)cd, (int)strlen(cd), &p, end) ||
+	    lws_add_http_header_by_name(wsi,
+			(const unsigned char *)"x-content-type-options:",
+			(const unsigned char *)"nosniff", 7, &p, end) ||
+	    lws_add_http_header_by_name(wsi,
+			(const unsigned char *)"content-security-policy:",
+			(const unsigned char *)"sandbox; default-src 'none'",
+			27, &p, end)) {
+		status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+		goto refuse;
+	}
+	*p = '\0';
+
+	n = lws_serve_http_file(wsi, path, "application/octet-stream",
+				(const char *)hdrs, lws_ptr_diff(p, hdrs));
+	if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
+		return -1;
+
+	return 0;
+
+refuse:
+	lwsl_wsi_info(wsi, "refusing download (%d)", status);
+	if (lws_return_http_status(wsi, (unsigned int)status, NULL) ||
+	    lws_http_transaction_completed(wsi))
+		return -1;
+
+	return 0;
+}
+
 static int
 deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
-		    struct lws *wsi)
+			     struct lws *wsi, const char *in, size_t len)
 {
 	char *uri_ptr;
 	int uri_len;
@@ -1028,6 +1187,8 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		lwsl_wsi_warn(wsi, "%s: HTTP POST: no auth\n", __func__);
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+	if (meth == LWSHUMETH_GET || meth == LWSHUMETH_HEAD)
+		return deaddrop_serve_download(vhd, pss, wsi, in, len) ? -1 : 2;
 	if (meth != LWSHUMETH_POST || !uri_ptr)
 		return 1;
 	if (!(char *)strstr(uri_ptr, "/upload/"))
@@ -1304,22 +1465,13 @@ static void
 deaddrop_del(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	     struct lws *wsi, const char *fname)
 {
-#if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
-	char path[512], resolved_path[PATH_MAX];
-	size_t ul;
-#else
-	char path[512];
-#endif
+	char path[PATH_MAX];
 	const char *cp;
 	size_t n;
 
-	/*
-	 * It must be a single path component in the upload dir, and it must
-	 * have an owner prefix
-	 */
+	/* it must have an owner prefix */
 	cp = strchr(fname, '_');
-	if (strchr(fname, '/') || !strcmp(fname, ".") ||
-	    !strcmp(fname, "..") || !cp || cp == fname) {
+	if (!cp || cp == fname) {
 		lwsl_wsi_notice(wsi, "del: refusing bad name");
 		return;
 	}
@@ -1337,27 +1489,10 @@ deaddrop_del(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		return;
 	}
 
-	if (lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
-			 fname) >= (int)sizeof(path)) {
-		lwsl_wsi_notice(wsi, "del: name too long");
+	if (deaddrop_resolve_name(vhd, wsi, fname, path, sizeof(path))) {
+		lwsl_wsi_notice(wsi, "del: refusing bad name");
 		return;
 	}
-
-#if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
-	if (!realpath(path, resolved_path)) {
-		lwsl_wsi_warn(wsi, "delete: realpath failed %s", path);
-		return;
-	}
-
-	ul = strlen(vhd->upload_dir);
-	if (strncmp(resolved_path, vhd->upload_dir, ul) ||
-	    resolved_path[ul] != '/') {
-		lwsl_err("%s: illegal delete attempt '%s' -> '%s'\n",
-			 __func__, path, resolved_path);
-		return;
-	}
-	lws_strncpy(path, resolved_path, sizeof(path));
-#endif
 
 	lwsl_wsi_notice(wsi, "deleting '%s'", path);
 
@@ -1670,8 +1805,10 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
-		switch (deaddrop_handler_server_http(vhd, pss, wsi)) {
+		switch (deaddrop_handler_server_http(vhd, pss, wsi,
+						     (const char *)in, len)) {
 		case 0:
+		case 2:		 /* download dealt with */
 			return 0;
 		case -1:	 /* refused, status already sent */
 			return -1;

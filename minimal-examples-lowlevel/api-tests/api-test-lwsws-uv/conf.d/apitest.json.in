@@ -40,10 +40,7 @@
         "origin": "callback://lws-deaddrop"
        }, {
         "mountpoint": "/deaddrop/get",
-        "origin": "file://@LWSWS_UV_DEADDROP_UPLOAD_DIR@",
-        "extra-mimetypes": {
-                "*": ""
-        }
+        "origin": "callback://lws-deaddrop"
        }, {
         "mountpoint": "/deaddrop",
         "origin": "file://@LWSWS_UV_DEADDROP_ASSETS_DIR@",

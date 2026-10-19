@@ -72,3 +72,18 @@ username with only `$ % : \` and `..` replaced by `_`: a file uploaded that
 way by a user whose name contained any other character is now attributed to
 whatever precedes its first `_`.  Rename such files to the new encoding (or
 delete them) when upgrading.
+
+## Downloads
+
+Mount the plugin (`callback://lws-deaddrop`) at the `get` url beside the page,
+as well as at `upload`: the plugin serves the stored files from there itself,
+rather than `upload-dir` being served by a file mount.  deaddrop never
+delivers anything renderable, so whatever a file's extension, a download is
+sent as `application/octet-stream`, `Content-Disposition: attachment` with a
+safe filename (the stored name without its owner prefix, also given as an
+RFC 8187 `filename*`), `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: sandbox; default-src 'none'`.  A shared `.html`,
+`.svg` or `.js` therefore can never run as active content on the deaddrop
+origin as whoever opens its link.  Only names directly in `upload-dir` are
+served, not uploads still in progress, and only to an authenticated user
+unless `allow-anonymous` is set.

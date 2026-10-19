@@ -25,6 +25,10 @@
  *    buffer, and some short del frames: all ignored (G-276)
  *
  *  - bob deletes his own file properly: done, and bob_smith's file survives
+ *
+ *  - bob uploads x.html, x.svg and x.js, and bob_smith downloads them from
+ *    get/: each must come back as an application/octet-stream attachment,
+ *    with nosniff and a sandboxing CSP, never as active content (G-282)
  */
 
 #include <libwebsockets.h>
@@ -53,6 +57,8 @@ enum {
 	ST_ATTACKS,
 	ST_ATTACKS_SETTLE,
 	ST_OWN_DEL,
+	ST_UPLOAD_ACTIVE,
+	ST_DOWNLOADS,
 	ST_DONE
 };
 
@@ -63,6 +69,23 @@ struct upload {
 	const char		*content;
 	int			status;
 	int			part;
+	char			started;
+	char			done;
+};
+
+struct download {
+	const char		*name;		/* stored name */
+	int			expect_status;
+	const char		*expect_cd;	/* expected Content-Disposition */
+	const char		*expect_body;
+
+	int			status;
+	char			ct[64];
+	char			cd[256];
+	char			nosniff[32];
+	char			csp[64];
+	char			body[128];
+	size_t			body_len;
 	char			started;
 	char			done;
 };
@@ -99,10 +122,33 @@ struct ws_client {
 	char			closed;
 };
 
+#define HTML_CONTENT	"<html><script>alert(1)</script></html>\n"
+#define SVG_CONTENT	"<svg xmlns=\"http://www.w3.org/2000/svg\">" \
+			"<script>alert(1)</script></svg>\n"
+#define JS_CONTENT	"alert(1);\n"
+
 static struct upload uploads[] = {
 	{ "bob_smith", "smith-password", "notes.txt", SMITH_CONTENT, 0, 0, 0, 0 },
 	{ "bob", "bob-password", "smith_notes.txt", BOB_CONTENT, 0, 0, 0, 0 },
+	/* active content, for the downloads */
+	{ "bob", "bob-password", "x.html", HTML_CONTENT, 0, 0, 0, 0 },
+	{ "bob", "bob-password", "x.svg", SVG_CONTENT, 0, 0, 0, 0 },
+	{ "bob", "bob-password", "x.js", JS_CONTENT, 0, 0, 0, 0 },
 };
+
+static struct download downloads[] = {
+	{ "bob_x.html", 200,
+	  "attachment; filename=\"x.html\"; filename*=UTF-8''x.html",
+	  HTML_CONTENT, 0, "", "", "", "", "", 0, 0, 0 },
+	{ "bob_x.svg", 200,
+	  "attachment; filename=\"x.svg\"; filename*=UTF-8''x.svg",
+	  SVG_CONTENT, 0, "", "", "", "", "", 0, 0, 0 },
+	{ "bob_x.js", 200,
+	  "attachment; filename=\"x.js\"; filename*=UTF-8''x.js",
+	  JS_CONTENT, 0, "", "", "", "", "", 0, 0, 0 },
+	{ "bob_missing.html", 404, NULL, NULL, 0, "", "", "", "", "", 0, 0, 0 },
+};
+static int upload_idx, download_idx;
 
 static struct ws_client wsc[NUM_WS];
 static struct lws_context *context;
@@ -239,11 +285,20 @@ is_ws(const void *opaque)
 }
 
 static int
+is_dl(const void *opaque)
+{
+	return (const struct download *)opaque >= downloads &&
+	       (const struct download *)opaque <
+				downloads + LWS_ARRAY_SIZE(downloads);
+}
+
+static int
 callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		void *user, void *in, size_t len)
 {
 	struct ws_client *c = (struct ws_client *)lws_get_opaque_user_data(wsi);
 	struct upload *u = (struct upload *)lws_get_opaque_user_data(wsi);
+	struct download *dl = (struct download *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
 	char rbuf[LWS_PRE + 256], *rp = rbuf + LWS_PRE;
@@ -256,17 +311,20 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **pp = (unsigned char **)in, *e = (*pp) + len;
-		int ws = is_ws(c);
+		int ws = is_ws(c), d = is_dl(dl);
 
-		if (lws_http_basic_auth_gen(ws ? c->user : u->user,
-					    ws ? c->pass : u->pass,
+		/* bob_smith fetches the downloads */
+		if (lws_http_basic_auth_gen(ws ? c->user :
+					    (d ? "bob_smith" : u->user),
+					    ws ? c->pass :
+					    (d ? "smith-password" : u->pass),
 					    b, sizeof(b)) ||
 		    lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_AUTHORIZATION,
 				(unsigned char *)b, (int)strlen(b), pp, e))
 			return -1;
 
-		if (!ws) {
+		if (!ws && !d) {
 			lws_client_http_body_pending(wsi, 1);
 			lws_callback_on_writable(wsi);
 		}
@@ -276,7 +334,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 	/* the upload POSTs */
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		if (!u || is_ws(u))
+		if (!u || is_ws(u) || is_dl(u))
 			return 0;
 		n = LWS_WRITE_HTTP;
 		switch (u->part++) {
@@ -310,6 +368,23 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (is_dl(dl)) {
+			dl->status = (int)lws_http_client_http_response(wsi);
+			if (lws_hdr_copy(wsi, dl->ct, sizeof(dl->ct),
+					 WSI_TOKEN_HTTP_CONTENT_TYPE) < 0)
+				dl->ct[0] = '\0';
+			if (lws_hdr_copy(wsi, dl->cd, sizeof(dl->cd),
+					 WSI_TOKEN_HTTP_CONTENT_DISPOSITION) < 0)
+				dl->cd[0] = '\0';
+			if (lws_hdr_custom_copy(wsi, dl->nosniff,
+					sizeof(dl->nosniff),
+					"x-content-type-options:", 23) < 0)
+				dl->nosniff[0] = '\0';
+			if (lws_hdr_custom_copy(wsi, dl->csp, sizeof(dl->csp),
+					"content-security-policy:", 24) < 0)
+				dl->csp[0] = '\0';
+			break;
+		}
 		if (u && !is_ws(u))
 			u->status = (int)lws_http_client_http_response(wsi);
 		break;
@@ -320,10 +395,21 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (is_dl(dl)) {
+			if (len > sizeof(dl->body) - 1 - dl->body_len)
+				len = sizeof(dl->body) - 1 - dl->body_len;
+			memcpy(dl->body + dl->body_len, in, len);
+			dl->body_len += len;
+			dl->body[dl->body_len] = '\0';
+		}
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (is_dl(dl)) {
+			dl->done = 1;
+			break;
+		}
 		if (u && !is_ws(u) && !u->done) {
 			u->done = 1;
 			lwsl_user("upload '%s' as %s: %d\n", u->filename,
@@ -392,6 +478,9 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 			c->closed = 1;
 			if (state != ST_DONE)
 				fail("ws session closed", (int)(c - wsc));
+		} else if (is_dl(dl)) {
+			dl->done = 1;
+			dl->status = -1;
 		} else if (u && !u->done) {
 			u->done = 1;
 			u->status = -1;
@@ -415,7 +504,17 @@ static const struct lws_protocols protocols_srv[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+/* deaddrop serves the downloads itself */
+
+static struct lws_http_mount mount_get = {
+	.mountpoint		= "/get",
+	.protocol		= "lws-deaddrop",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 4,
+};
+
 static struct lws_http_mount mount_upload = {
+	.mount_next		= &mount_get,
 	.mountpoint		= "/upload",
 	.protocol		= "lws-deaddrop",
 	.origin_protocol	= LWSMPRO_CALLBACK,
@@ -459,6 +558,47 @@ start_upload(struct upload *u)
 	i.opaque_user_data	= u;
 
 	return !lws_client_connect_via_info(&i);
+}
+
+static int
+start_download(struct download *d)
+{
+	struct lws_client_connect_info i;
+	char path[300];
+
+	lws_snprintf(path, sizeof(path), "/get/%s", d->name);
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_cli;
+	i.address		= server_addr;
+	i.host			= server_addr;
+	i.port			= port;
+	i.path			= path;
+	i.method		= "GET";
+	i.protocol		= "dd-test-client";
+	i.local_protocol_name	= "dd-test-client";
+	i.opaque_user_data	= d;
+
+	return !lws_client_connect_via_info(&i);
+}
+
+static int
+check_download(const struct download *d)
+{
+	lwsl_user("get %s: %d, ct '%s', cd '%s', nosniff '%s', csp '%s'\n",
+		  d->name, d->status, d->ct, d->cd, d->nosniff, d->csp);
+
+	if (d->status != d->expect_status)
+		return 1;
+	if (d->expect_status != 200)
+		return 0;
+
+	return strcmp(d->ct, "application/octet-stream") ||
+	       strcmp(d->cd, d->expect_cd) ||
+	       strcmp(d->nosniff, "nosniff") ||
+	       strcmp(d->csp, "sandbox; default-src 'none'") ||
+	       strcmp(d->body, d->expect_body);
 }
 
 static int
@@ -682,8 +822,53 @@ tick(lws_sorted_usec_list_t *sul)
 				fail("ws closed", n);
 				goto finish;
 			}
-		result = 0;
-		goto finish;
+		upload_idx = ST_UPLOAD_BOB + 1;
+		state = ST_UPLOAD_ACTIVE;
+		break;
+
+	case ST_UPLOAD_ACTIVE:
+		if (upload_idx == (int)LWS_ARRAY_SIZE(uploads)) {
+			state = ST_DOWNLOADS;
+			break;
+		}
+		if (!uploads[upload_idx].started) {
+			uploads[upload_idx].started = 1;
+			if (start_upload(&uploads[upload_idx])) {
+				fail("upload connect", -1);
+				goto finish;
+			}
+			break;
+		}
+		if (!uploads[upload_idx].done)
+			break;
+		if (uploads[upload_idx].status != 200) {
+			fail("upload refused", -1);
+			goto finish;
+		}
+		upload_idx++;
+		break;
+
+	case ST_DOWNLOADS:
+		if (download_idx == (int)LWS_ARRAY_SIZE(downloads)) {
+			result = 0;
+			goto finish;
+		}
+		if (!downloads[download_idx].started) {
+			downloads[download_idx].started = 1;
+			if (start_download(&downloads[download_idx])) {
+				fail("download connect", -1);
+				goto finish;
+			}
+			break;
+		}
+		if (!downloads[download_idx].done)
+			break;
+		if (check_download(&downloads[download_idx])) {
+			fail("download not served as an inert attachment", -1);
+			goto finish;
+		}
+		download_idx++;
+		break;
 	}
 
 again:
@@ -783,6 +968,7 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "--passwords")))
 		pvo_ba.value = p;
 	mount_upload.basic_auth_login_file = pvo_ba.value;
+	mount_get.basic_auth_login_file = pvo_ba.value;
 
 	signal(SIGINT, sigint_handler);
 	lwsl_user("LWS API selftest: deaddrop\n");

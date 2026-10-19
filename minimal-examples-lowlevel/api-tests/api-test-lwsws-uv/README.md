@@ -44,7 +44,7 @@ Mounts on the tls vhost:
 | `/captcha` | `callback://lws_captcha_ratelimit` | the interceptor, with a very short `pre-delay-ms` / `post-delay-ms` |
 | `/ws` | `callback://lws-status` | ws protocol mount |
 | `/proxy` | `http://127.0.0.1:PORT+1/` | proxies back into this same lwsws |
-| `/deaddrop`, `/deaddrop/upload`, `/deaddrop/get` | assets / `callback://lws-deaddrop` / upload dir | |
+| `/deaddrop`, `/deaddrop/upload`, `/deaddrop/get` | assets / `callback://lws-deaddrop` / `callback://lws-deaddrop` | |
 
 `keepalive_timeout` is 5s and the global `timeout-secs` is 10s, so the idle
 close paths are reached inside a 60s test.

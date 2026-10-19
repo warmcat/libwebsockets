@@ -13,6 +13,11 @@ uploader is able to delete the files he uploaded.
 
 Multiple simultaneous ongoing file uploads are supported.
 
+Downloads are served by the plugin itself from its `/get` callback mount,
+always as an `application/octet-stream` attachment with
+`X-Content-Type-Options: nosniff` and a sandboxing CSP, so a shared `.html`
+or `.svg` can never run as active content on this origin.
+
 ## build
 
 To build this standalone, you must tell cmake where the lws source tree

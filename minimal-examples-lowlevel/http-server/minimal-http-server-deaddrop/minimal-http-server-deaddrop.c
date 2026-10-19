@@ -41,20 +41,6 @@ static const char * const plugin_dirs[] = {
 
 static struct lws_context *context;
 
-/*
- * teach the /get mount how to present various filetypes to the client...
- * lws won't serve files it doesn't know the mimetype for as a security
- * measure.
- */
-
-static struct lws_protocol_vhost_options em3 = {
-        NULL, NULL, ".zip", "application/zip"
-}, em2 = {
-	&em3, NULL, ".pdf", "application/pdf"
-}, extra_mimetypes = {
-	&em2, NULL, ".tar.gz", "application/x-gzip"
-};
-
 /* wire up /upload URLs to the plugin (protected by basic auth) */
 
 static const struct lws_http_mount mount_upload = {
@@ -66,15 +52,18 @@ static const struct lws_http_mount mount_upload = {
 	.basic_auth_login_file		= "./ba-passwords",
 };
 
-/* wire up /get URLs to the upload directory (protected by basic auth) */
+/*
+ * wire up /get URLs to the plugin too (protected by basic auth): it serves the
+ * uploaded files itself, always as inert attachments, so a shared .html or
+ * .svg can never run as active content on this origin
+ */
 
 static const struct lws_http_mount mount_get = {
 	.mount_next			= &mount_upload,	/* linked-list "next" */
 	.mountpoint			= "/get",		/* mountpoint URL */
-	.origin				= "./uploads",
+	.protocol			= "lws-deaddrop",
 	.def				= "",
-	.extra_mimetypes		= &extra_mimetypes,
-	.origin_protocol		= LWSMPRO_FILE, 	/* dynamic */
+	.origin_protocol		= LWSMPRO_CALLBACK,
 	.mountpoint_len			= 4,			/* char count */
 	.basic_auth_login_file		= "./ba-passwords",
 };
