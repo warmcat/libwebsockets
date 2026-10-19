@@ -117,9 +117,11 @@
    callback alone is not seen until the next wake.  See `service_until()`
    in `api-test-lws_stub`.
  - **Don't count `lws_service()` returns to detect a spinning loop.**
-   The service wait is truncated to whole ms, so the last <1ms before
-   every timer is spent in `poll(0)` turns: hundreds per timer, varying
-   with machine speed (26815 vs 2569 turns measured for the same case).
+   Before 279c65470 (G-348) the service wait was truncated to whole ms,
+   so the last <1ms before every timer was spent in `poll(0)` turns,
+   hundreds per timer (26815 vs 2569 turns measured for the same case).
+   Since then waits round up (`lws_us_to_ms_ceil()`) and a timer costs
+   1-2 turns (api-test-sul-wait), but turn counts still vary with load.
    Count only turns that took >= 1ms ("wakes"); that gave a stable 101
    unfixed vs 11 fixed in api-test-tls-passthrough.
    That catches a loop that wakes periodically, not a hot spin (all its
@@ -382,10 +384,9 @@ a log is evidence that something was or was not emitted.
  - With `LWS_WITH_SECURE_STREAMS_AUTH_SIGV4` on, minimal-secure-streams-
    proxy exits if `~/.aws/credentials` is missing and ~10 sspc ctests
    time out; point `HOME` at a dir with a dummy credentials file.
- - With poll, each firing timer is preceded by up to ~1ms of zero-wait
-   service turns (~240 on a loaded ASan host): a test that counts turns
-   to detect spinning will flake; measure wall time spent in sub-ms turns
-   instead (api-test-ws-close since e8e10bab3).
+ - api-test-ws-close measures wall time spent in sub-ms turns rather than
+   counting turns (e8e10bab3); the busy turns before timers it worked
+   around were fixed in 279c65470 (G-348).
  - Cleanup that kills processes by pattern must match only your own
    build tree's paths: a broad match killed another agent's test fixture.
  - Log-capture tests need `LLLF_LOG_SPEW_OFF` in `lws_set_log_level()`:
