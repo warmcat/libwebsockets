@@ -717,7 +717,7 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount)
 {
-	lws_filepos_t len, flen = 0;
+	lws_filepos_t len, flen = 0, olen;
 	uint8_t *pem = NULL, *p, *end;
 	uint8_t *q;
 	int n;
@@ -775,14 +775,15 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 	if (!filename) {
 		/* we don't know if it's in const memory... alloc the output */
-		pem = lws_malloc(((size_t)(inlen + 3) * 3) / 4, "alloc_der");
+		olen = ((inlen + 3) * 3) / 4;
+		pem = lws_malloc((size_t)olen, "alloc_der");
 		if (!pem) {
-			lwsl_err("a\n");
+			lwsl_err("%s: OOM\n", __func__);
 			return 1;
 		}
-
-
-	} /* else overwrite the allocated, b64 input with decoded DER */
+	} else
+		/* overwrite the allocated, b64 input with decoded DER */
+		olen = flen;
 
 	/* trim the first line */
 
@@ -836,15 +837,25 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	if (n == -1) /* coverity */
 		goto bail;
 
-    lwsl_info("%s: PEM payload len %d\n", __func__, n);
-    lwsl_hexdump_info(p, (size_t)n);
+	/*
+	 * The payload may be a private key: never log its content
+	 */
+	lwsl_info("%s: PEM payload len %d\n", __func__, n);
 
 	n = lws_b64_decode_string_len((char *)p, n,
-				      (char *)pem, (int)(long long)len);
+				      (char *)pem, (int)(long long)olen);
 	if (n < 0) {
 		lwsl_err("%s: base64 pem decode failed\n", __func__);
 		goto bail;
 	}
+
+	/*
+	 * In the file case the buffer still holds the rest of the PEM after
+	 * the DER we decoded over its start.  Callers scrub only the DER
+	 * length of a private key before freeing it, so clear the tail here.
+	 */
+	if ((lws_filepos_t)n < olen)
+		lws_explicit_bzero(pem + n, (size_t)(olen - (lws_filepos_t)n));
 
 	*amount = (unsigned int)n;
 	*buf = (uint8_t *)pem;
@@ -852,6 +863,8 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	return 0;
 
 bail:
+	if (pem)
+		lws_explicit_bzero(pem, (size_t)olen);
 	lws_free((uint8_t *)pem);
 
 	return 4;

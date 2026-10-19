@@ -515,6 +515,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	ret = wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p, (long) flen,
 						WOLFSSL_FILETYPE_ASN1);
 #endif
+	/* our DER copy of the private key is a secret too */
+	lws_explicit_bzero(p, (size_t)flen);
 	lws_free_set_NULL(p);
 	if (ret != 1)  {
 		lwsl_notice("unable to use memory privkey\n");
@@ -539,16 +541,17 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			return 1;
 		}
 #ifndef USE_WOLFSSL
-		if (SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx,
+		m = SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx,
 						 (int)flen,
-						 (uint8_t *)p) != 1) {
+						 (uint8_t *)p);
 #else
-		if (wolfSSL_CTX_use_certificate_buffer(vhost->tls.ssl_ctx,
+		m = wolfSSL_CTX_use_certificate_buffer(vhost->tls.ssl_ctx,
 						 (uint8_t *)p,
 						 (int)flen,
-						 WOLFSSL_FILETYPE_ASN1) != 1) {
-
+						 WOLFSSL_FILETYPE_ASN1);
 #endif
+		lws_free_set_NULL(p);
+		if (m != 1) {
 			lwsl_err("Problem loading update cert\n");
 
 			return 1;
@@ -562,13 +565,17 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			return 1;
 		}
 #ifndef USE_WOLFSSL
-		if (SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA,
+		m = SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA,
 						vhost->tls.ssl_ctx, p,
-						(long)(long long)flen) != 1) {
+						(long)(long long)flen);
 #else
-		if (wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p,
-					    (long)flen, WOLFSSL_FILETYPE_ASN1) != 1) {
+		m = wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p,
+					    (long)flen, WOLFSSL_FILETYPE_ASN1);
 #endif
+		/* our DER copy of the private key is a secret too */
+		lws_explicit_bzero(p, (size_t)flen);
+		lws_free_set_NULL(p);
+		if (m != 1) {
 			lwsl_notice("unable to use memory privkey\n");
 
 			return 1;

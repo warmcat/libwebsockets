@@ -1262,6 +1262,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #endif
 						flen);
 
+		/* our DER copy of the private key is a secret too */
+		lws_explicit_bzero(p, (size_t)flen);
 		lws_free_set_NULL(p);
 
 		if (n != 1)  {
