@@ -1972,6 +1972,15 @@ send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, co
 	unsigned int resp_code = pss->http_response_code ? pss->http_response_code : HTTP_STATUS_OK;
         size_t amount = (size_t)lws_buflist_next_segment_len(&pss->tx_buflist, &pq);
 
+	/*
+	 * These answers are no-store and may set the session cookies; the
+	 * pages carry the csrf double-submit token next to values from the
+	 * request.  None of them is compressed, so the compressed length can't
+	 * leak the token (BREACH)
+	 */
+	if (lws_http_compression_opt_out(wsi))
+		return -1;
+
         if (lws_add_http_common_headers(wsi, resp_code, content_type,
                                         (unsigned int)(amount ? amount - LWS_PRE: LWS_ILLEGAL_HTTP_CONTENT_LEN), &p,
                                         end)) {
@@ -2738,7 +2747,9 @@ lws_auth_api_logout(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	pl_len = (size_t)lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
 				      "{\"destroy\":1}");
 
-	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json",
+	/* no-store and clears the cookies: not compressed, as above */
+	if (lws_http_compression_opt_out(wsi) ||
+	    lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json",
 					(lws_filepos_t)pl_len, &p, end) ||
 	    lws_add_http_header_by_name(wsi, (unsigned char *)"Cache-Control:",
 			(unsigned char *)"no-cache, no-store, must-revalidate",
@@ -4927,7 +4938,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len + LWS_PRE) < 0)
 				return -1;
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end))
+			/* it clears the cookies: not compressed, as above */
+			if (lws_http_compression_opt_out(wsi) ||
+			    lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 
 			if (auth_server_add_clear_cookies(wsi, hdr,
@@ -5228,7 +5241,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			uint8_t *h_start = hdr_buf + LWS_PRE;
 			uint8_t *h_p = h_start;
 			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "image/svg+xml", (lws_filepos_t)body_len, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
+			/* the code encodes a secret: not compressed, as above */
+			if (lws_http_compression_opt_out(wsi) ||
+			    lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "image/svg+xml", (lws_filepos_t)body_len, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
 			if (lws_finalize_write_http_header(wsi, h_start, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
 
 			struct per_session_data__auth_server *pss = (struct per_session_data__auth_server *)user;

@@ -2477,6 +2477,15 @@ simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const c
         char eb[LWS_PRE + 1024];
 	int l = lws_snprintf(eb + LWS_PRE, sizeof(eb) - LWS_PRE, "%s", msg);
 
+	/*
+	 * no-store answers about the session, some next to values from the
+	 * request: never compressed, so the compressed length can't leak what
+	 * they carry (BREACH).  The same goes for every answer here with a
+	 * body that sets a cookie.
+	 */
+	if (lws_http_compression_opt_out(wsi))
+		return -1;
+
 	if (lws_add_http_common_headers(wsi, code, mime_type, (lws_filepos_t)l, p, end))
 		return -1;
 
@@ -3708,7 +3717,9 @@ anon:
 			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len) < 0) return -1;
 			pss->tx_remaining = (size_t)html_len;
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end)) return 1;
+			/* it sets a cookie: not compressed, see simple_response() */
+			if (lws_http_compression_opt_out(wsi) ||
+			    lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)u, (int)strlen(u), (unsigned char **)&p, (unsigned char *)end)) return 1;
@@ -4317,7 +4328,9 @@ anon:
 					return 1;
 				}
 
-				if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", 13, (unsigned char **)&up, (unsigned char *)uend)) return 1;
+				/* it sets cookies: not compressed, see simple_response() */
+				if (lws_http_compression_opt_out(wsi) ||
+				    lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", 13, (unsigned char **)&up, (unsigned char *)uend)) return 1;
 				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, n, (unsigned char **)&up, (unsigned char *)uend)) return 1;
 				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)csrf_cookie, cn, (unsigned char **)&up, (unsigned char *)uend)) return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&up, (unsigned char *)uend)) return 1;
