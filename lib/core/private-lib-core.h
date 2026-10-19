@@ -943,6 +943,7 @@ struct lws_context {
 	unsigned short deprecation_pending_listen_close_count;
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	uint16_t	ss_proxy_port;
+	uint8_t		ss_proxy_tcp_allow_remote;
 #endif
 	/* 0 if not known, else us resolution of the poll wait */
 	uint16_t us_wait_resolution;

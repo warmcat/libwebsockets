@@ -375,12 +375,19 @@ lws_ss_client_connect(struct lws_ss_handle *h);
  *
  * \param context: lws_context
  * \param bind: if port is 0, unix domain path with leading @ for abstract.
- *		if port nonzero, NULL, or network interface to bind listen to
+ *		if port nonzero, NULL for loopback, or the numeric address to
+ *		bind the listen socket to
  * \param port: tcp port to listen on
  *
  * Creates a vhost that listens either on an abstract namespace unix domain
  * socket (port = 0) or a tcp listen socket (port nonzero).  If bind is NULL
  * and port is 0, the abstract unix domain socket defaults to "proxy.ss.lws".
+ *
+ * The tcp link has no client authentication: anybody who can connect to it
+ * can use the proxy's policy and the credentials it holds.  So with a port
+ * and a NULL bind, it listens on loopback only (127.0.0.1, or ::1 if there is
+ * no IPv4 support), and a bind that is not a numeric loopback address fails
+ * unless the context was created with .ss_proxy_tcp_allow_remote set.
  *
  * Client connections to this proxy to Secure Streams are fulfilled using the
  * policy local to the proxy and the data passed between the client and the

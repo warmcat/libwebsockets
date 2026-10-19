@@ -858,7 +858,9 @@ to allow any local process.  For a socket in the Linux abstract namespace (the
 default, `@proxy.ss.lws`), which has no filesystem permissions, the proxy
 checks each client's credentials when it connects.  For a socket path in the
 filesystem, the socket file's owner and mode control it.  A proxy listening on
-tcp has no such check and should be bound to a loopback address.
+tcp has no client authentication at all: by default it listens on loopback
+only, and lws refuses a bind address that is not loopback unless the creation
+info sets `.ss_proxy_tcp_allow_remote` (see READMEs/README.secure-streams.md).
 
 In this case the proxy uses secure-streams.c and policy.c as before to fulfil
 the inbound proxy streams, but uses secure-streams-serialize.c to serialize and

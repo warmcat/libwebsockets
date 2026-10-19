@@ -1031,14 +1031,21 @@ struct lws_context_creation_info {
 	 * point to a string giving the Unix Domain Socket address to use (start
 	 * with @ for abstract namespace), ss_proxy_port nonzero: set the
 	 * network interface address (not name, it's ambiguous for ipv4/6) to
-	 * bind the tcp connection to the proxy to */
+	 * bind the tcp connection to the proxy to.
+	 *
+	 * For a proxy listening on tcp (lws_ss_proxy_create() with a port),
+	 * NULL listens on the loopback address only (127.0.0.1, or ::1 if
+	 * the build has no IPv4).  A bind that is not a numeric loopback
+	 * address is refused unless .ss_proxy_tcp_allow_remote is set. */
 	const char *ss_proxy_address; /**< CONTEXT: NULL, or if ss_proxy_port
 	 * nonzero: the tcp address of the ss proxy to connect to */
 	uint16_t ss_proxy_port; /* 0 = if connecting to ss proxy, do it via a
 	 * Unix Domain Socket, "+@proxy.ss.lws" if ss_proxy_bind is NULL else
 	 * the socket path given in ss_proxy_bind (start it with a + or +@);
 	 * nonzero means connect via a tcp socket to the tcp address in
-	 * ss_proxy_bind and the given port */
+	 * ss_proxy_bind and the given port.  The tcp link has no
+	 * authentication in either direction: the proxy cannot tell who its
+	 * clients are, nor the clients who the proxy is. */
 	const struct lws_transport_proxy_ops *txp_ops_ssproxy; /**< CONTEXT: NULL, or
 	 * custom sss transport ops used for ss proxy communication.  NULL means
 	 * to use the default wsi-based proxy server */
@@ -1314,7 +1321,7 @@ struct lws_context_creation_info {
 	 * socket in the filesystem, its permissions control access instead;
 	 * without "user:group" they are as for any lws Unix Domain Socket
 	 * vhost (see .unix_socket_perms).  A proxy listening on tcp has no
-	 * peer check, bind it to a loopback address. */
+	 * peer check at all, see .ss_proxy_tcp_allow_remote. */
 
 	uint32_t			tls_cert_grace_secs;
 	/**< VHOST: a tls server vhost whose cert and key are files
@@ -1415,6 +1422,22 @@ struct lws_context_creation_info {
 	uint16_t			http_body_grace_secs;
 	/**< VHOST: 0 for default (20), or the seconds a request body has
 	 * before .http_body_min_rate starts to count against it */
+
+	uint8_t				ss_proxy_tcp_allow_remote;
+	/**< CONTEXT: 0 (the default), or 1 to let an SS proxy listening on
+	 * tcp (lws_ss_proxy_create() with a port) bind to an address that is
+	 * not loopback, eg, for clients in containers or VMs.
+	 *
+	 * The tcp link has no client authentication: anybody who can reach
+	 * the port can create any client streamtype in the proxy's policy,
+	 * set its metadata and send payload, and the proxy fulfils it with
+	 * whatever the policy binds to it, the system auth token, client
+	 * certificates, signing keys, cookies.  So by default the listener
+	 * is bound to loopback (127.0.0.1, or ::1 without IPv4) when no
+	 * .ss_proxy_bind is given, and a bind that is not a numeric loopback
+	 * address is refused.  Only set this where the network the listener
+	 * is reachable from is itself trusted, eg, firewalled to the
+	 * intended clients; lws warns about it when the proxy starts. */
 
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */

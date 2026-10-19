@@ -264,6 +264,76 @@ lws_sss_proxy_wsi_write(lws_transport_priv_t priv, uint8_t *buf, size_t *len)
 }
 
 
+/*
+ * Is a numeric listen address one only this host can reach?  127.0.0.0/8,
+ * ::1, or 127.0.0.0/8 mapped into IPv6.
+ */
+
+static int
+lws_sss_proxy_ads_is_loopback(const char *ads)
+{
+	static const uint8_t lo6[] = { 0, 0, 0, 0, 0, 0, 0, 0,
+				       0, 0, 0, 0, 0, 0, 0, 1 },
+			     v4mapped[] = { 0, 0, 0, 0, 0, 0, 0, 0,
+					    0, 0, 0xff, 0xff };
+	uint8_t a[16];
+
+	switch (lws_parse_numeric_address(ads, a, sizeof(a))) {
+	case 4:
+		return a[0] == 127;
+	case 16:
+		if (!memcmp(a, v4mapped, sizeof(v4mapped)))
+			return a[12] == 127;
+
+		return !memcmp(a, lo6, sizeof(lo6));
+	default:
+		return 0;
+	}
+}
+
+/*
+ * Anybody who can reach the proxy's tcp listener can use it, and with it the
+ * proxy's policy and credentials: nothing identifies or authenticates the
+ * client on that link.  So with no bind given, we listen on loopback only,
+ * and we refuse to listen anywhere that is not certainly loopback unless
+ * the creation info said .ss_proxy_tcp_allow_remote.
+ */
+
+static int
+lws_sss_proxy_tcp_bind_refused(struct lws_context *context, const char **bind)
+{
+	if (!*bind) {
+#if defined(LWS_WITH_IPV4)
+		*bind = "127.0.0.1";
+#else
+		*bind = "::1";
+#endif
+		lwsl_cx_notice(context, "ss proxy tcp listener defaults to "
+					"loopback %s", *bind);
+
+		return 0;
+	}
+
+	if (lws_sss_proxy_ads_is_loopback(*bind))
+		return 0;
+
+	if (!context->ss_proxy_tcp_allow_remote) {
+		lwsl_cx_err(context, "refusing ss proxy tcp bind to '%s': not a "
+			    "numeric loopback address, and the tcp link has "
+			    "no client authentication (see "
+			    ".ss_proxy_tcp_allow_remote)", *bind);
+
+		return 1;
+	}
+
+	lwsl_cx_warn(context, "**** ss proxy tcp listener on '%s' is NOT "
+		     "loopback: anyone who can reach it can use the proxy's "
+		     "policy and credentials, it has no client "
+		     "authentication ****", *bind);
+
+	return 0;
+}
+
 int
 lws_sss_proxy_wsi_init_proxy_server(struct lws_context *context,
 			      const struct lws_transport_proxy_ops *txp_ops_inward,
@@ -291,7 +361,8 @@ lws_sss_proxy_wsi_init_proxy_server(struct lws_context *context,
 			bind = "/tmp/proxy.ss.lws";
 #endif
 		info.options |= LWS_SERVER_OPTION_UNIX_SOCK;
-	}
+	} else if (lws_sss_proxy_tcp_bind_refused(context, &bind))
+		return 1;
 	info.iface			= bind;
 	/*
 	 * For a socket in the filesystem, the perms become its owner and

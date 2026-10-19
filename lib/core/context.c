@@ -1286,6 +1286,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->ss_proxy_port = info->ss_proxy_port;
 	context->ss_proxy_address = info->ss_proxy_address;
 	context->ss_proxy_perms = info->ss_proxy_perms;
+	context->ss_proxy_tcp_allow_remote = info->ss_proxy_tcp_allow_remote;
 
 	if (info->txp_ops_ssproxy)
 		context->txp_ppath.ops_onw = info->txp_ops_ssproxy;
