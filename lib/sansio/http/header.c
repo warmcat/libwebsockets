@@ -174,6 +174,7 @@ lws_http_log_path(char *buf, size_t len, const char *path)
 	return lws_http_log_copy(buf, len, path, strlen(path), 1);
 }
 
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
 /*
  * A Sec-WebSocket-Protocol list as lws_http_hdr_log_value() shows it, eg,
  * "lws-minimal, <unknown:72>": entries naming one of the protocols of wsi's
@@ -240,6 +241,7 @@ lws_ws_protocols_log(struct lws *wsi, char *buf, size_t len,
 
 	return buf;
 }
+#endif
 
 /*
  * Every log line that shows an http header value, h1, h2 or h3, sent or
@@ -299,8 +301,10 @@ lws_http_hdr_log_value(struct lws *wsi, char *buf, size_t len, int tok,
 		return buf;
 	}
 
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
 	if (tok == WSI_TOKEN_PROTOCOL)
 		return lws_ws_protocols_log(wsi, buf, len, value, value_len);
+#endif
 
 	return lws_http_log_copy(buf, len, value, value_len,
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || \
