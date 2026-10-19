@@ -208,6 +208,8 @@ struct per_vhost_data__auth_server {
 	/* ... and names that do not, which can never evict those */
 	lws_dll2_owner_t		nouser_strikes;
 	lws_dll2_owner_t		ip_bans;
+	/* step 1s of two-step logins, see auth_2fa_pending_add() */
+	lws_dll2_owner_t		pending_2fa;
 
 	/*
 	 * Token bucket for the PBKDF2 an unauthenticated request can cause, in
@@ -241,6 +243,18 @@ typedef struct auth_server_strike {
 	uint64_t			last_strike;
 	int				strikes;
 } auth_server_strike_t;
+
+/*
+ * A two-step login whose first step (the right password, no authenticator
+ * code) struck its host: if the second step completes the login from the same
+ * host, that strike is given back
+ */
+typedef struct auth_server_2fa_pending {
+	lws_dll2_t			list;
+	char				host[64]; /* auth_host_key() */
+	char				user[64]; /* auth_account_key() */
+	uint64_t			since;
+} auth_server_2fa_pending_t;
 
 typedef struct auth_server_ban {
 	lws_dll2_t			list;
@@ -1286,6 +1300,147 @@ auth_account_clear_strikes(struct per_vhost_data__auth_server *vhd,
 		lws_dll2_remove(&s->list);
 		free(s);
 	}
+}
+
+/*
+ * Two-step logins.  The first step of the stock UI's second factor flow, the
+ * right password without the authenticator code, spends a KDF token without
+ * completing a login, so it strikes the host (G-138).  When the second step
+ * then completes the login, that strike must not stay active (G-223), or a
+ * few people logging in with a second factor from one host or /64 (an
+ * office, a NAT) brake and then ban it among themselves.
+ *
+ * So the first step also records which host and account it struck for, and
+ * the completed login gives back that one strike, and only that one: not the
+ * host's other strikes (G-137), not a strike struck for another account's
+ * first step, and not one struck so long ago that it may already have decayed
+ * (a strike can only decay AUTH_2FA_PENDING_SECS after it was struck, so
+ * within that it is certainly still counted).  Repeating the first step costs
+ * a strike each time, but one completed login gives back only one.  The KDF
+ * budget token the first step took is not given back.
+ */
+#define AUTH_2FA_PENDING_SECS		120
+/* first steps waiting on their second we remember */
+#define AUTH_SERVER_MAX_2FA_PENDING	1024
+
+static auth_server_2fa_pending_t *
+auth_2fa_pending_find(struct per_vhost_data__auth_server *vhd,
+		      const char *host, const char *user)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pending_2fa)) {
+		auth_server_2fa_pending_t *p = lws_container_of(d,
+					auth_server_2fa_pending_t, list);
+
+		if (!strcmp(p->host, host) && !strcmp(p->user, user))
+			return p;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * The first step of a two-step login from ip for user has just struck its
+ * host
+ */
+static void
+auth_2fa_pending_add(struct per_vhost_data__auth_server *vhd, const char *ip,
+		     const char *user)
+{
+	char host[AUTH_HOST_KEY_LEN], ukey[64];
+	uint64_t now = (uint64_t)time(NULL);
+	auth_server_2fa_pending_t *p;
+
+	auth_host_key(ip, host, sizeof(host));
+
+	/*
+	 * Our own addresses are never struck, and a ban wipes the host's
+	 * strikes: either way there is no strike to give back later
+	 */
+	if (!auth_strike_find(&vhd->ip_strikes, host))
+		return;
+
+	auth_account_key(user, ukey, sizeof(ukey));
+
+	p = auth_2fa_pending_find(vhd, host, ukey);
+	if (p)
+		lws_dll2_remove(&p->list);
+	else {
+		/* sweep the expired ones, then drop the oldest if still full */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&vhd->pending_2fa)) {
+			auth_server_2fa_pending_t *o = lws_container_of(d,
+					auth_server_2fa_pending_t, list);
+
+			if (now - o->since < AUTH_2FA_PENDING_SECS)
+				break; /* kept oldest first */
+			lws_dll2_remove(&o->list);
+			free(o);
+		} lws_end_foreach_dll_safe(d, d1);
+
+		if (lws_dll2_count(&vhd->pending_2fa) >=
+						AUTH_SERVER_MAX_2FA_PENDING) {
+			auth_server_2fa_pending_t *o = lws_container_of(
+					lws_dll2_get_head(&vhd->pending_2fa),
+					auth_server_2fa_pending_t, list);
+
+			lws_dll2_remove(&o->list);
+			free(o);
+		}
+
+		p = malloc(sizeof(*p));
+		if (!p)
+			return;
+		memset(p, 0, sizeof(*p));
+		lws_strncpy(p->host, host, sizeof(p->host));
+		lws_strncpy(p->user, ukey, sizeof(p->user));
+	}
+
+	p->since = now;
+	lws_dll2_add_tail(&p->list, &vhd->pending_2fa);
+}
+
+/*
+ * user completed a login with its second factor from ip: give back the strike
+ * its first step from the same host struck, if it is still pending
+ */
+static void
+auth_2fa_pending_settle(struct per_vhost_data__auth_server *vhd,
+			const char *ip, const char *user)
+{
+	char host[AUTH_HOST_KEY_LEN], ukey[64];
+	uint64_t now = (uint64_t)time(NULL);
+	auth_server_2fa_pending_t *p;
+	auth_server_strike_t *s;
+	int live;
+
+	auth_host_key(ip, host, sizeof(host));
+	auth_account_key(user, ukey, sizeof(ukey));
+
+	p = auth_2fa_pending_find(vhd, host, ukey);
+	if (!p)
+		return;
+
+	live = now >= p->since && now - p->since < AUTH_2FA_PENDING_SECS;
+	lws_dll2_remove(&p->list);
+	free(p);
+	if (!live)
+		return;
+
+	s = auth_strike_find(&vhd->ip_strikes, host);
+	if (!s)
+		return;
+
+	auth_strike_decay(s, now);
+	if (s->strikes > 0)
+		s->strikes--;
+	if (!s->strikes) {
+		lws_dll2_remove(&s->list);
+		free(s);
+	}
+
+	lwsl_notice("%s: %s gave back its first step's strike\n", __func__,
+		    host);
 }
 
 /*
@@ -2893,7 +3048,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	const char *peer = pss->client_addr;
 	char jwt[1024], pl[1024 + LWS_PRE];
 	const char *user, *pass;
-	int len, users_empty = 0, kdf_spent = 0, logged_in = 0;
+	int len, users_empty = 0, kdf_spent = 0, logged_in = 0, totp_asked = 0,
+	    totp_passed = 0;
 	char cookie_hdr[LWS_SSO_MAX_COOKIE] = {0};
 	char refresh_hdr[LWS_SSO_MAX_COOKIE] = {0};
 
@@ -2991,8 +3147,9 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	 * authenticator code, or one with a redirect we refuse.  Otherwise a
 	 * host knowing any one account's password could spend the whole
 	 * budget, at no cost to itself, and deny every other login (G-138).
-	 * The second factor flow spends a strike on its first step that the
-	 * second step does not give back: the strikes decay one per 120 s.
+	 * The second factor flow spends a strike on its first step, which the
+	 * second step gives back if it completes the login from the same host
+	 * (G-223, see auth_2fa_pending_add()).
 	 */
 	kdf_spent = 1;
 
@@ -3028,6 +3185,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			lwsl_info("login missing TOTP\n");
 			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 			pss->totp_required = 1;
+			totp_asked = 1;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Authenticator Code Required\"}");
 			goto send;
 		}
@@ -3123,6 +3281,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 				goto send;
 			}
 		}
+
+		totp_passed = 1;
 	}
 
 	auth_account_clear_strikes(vhd, user);
@@ -3274,8 +3434,13 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
 
 send:
-	if (kdf_spent && !logged_in)
+	if (kdf_spent && !logged_in) {
 		auth_record_strike(vhd, peer);
+		if (totp_asked)
+			auth_2fa_pending_add(vhd, peer, user);
+	}
+	if (logged_in && totp_passed)
+		auth_2fa_pending_settle(vhd, peer, user);
 
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 		return -1;
@@ -4019,6 +4184,15 @@ auth_server_vhd_release(struct per_vhost_data__auth_server *vhd)
 
 		lws_dll2_remove(&b->list);
 		free(b);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->pending_2fa)) {
+		auth_server_2fa_pending_t *p = lws_container_of(d,
+					auth_server_2fa_pending_t, list);
+
+		lws_dll2_remove(&p->list);
+		free(p);
 	} lws_end_foreach_dll_safe(d, d1);
 }
 

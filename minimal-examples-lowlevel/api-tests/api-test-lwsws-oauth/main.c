@@ -54,7 +54,8 @@
  *          /64, not one address of it, and wrong authenticator codes count
  *          against the account.  A completed login forgives its account's
  *          strikes but not its host's, and a right password without the
- *          authenticator code still costs the host a strike.
+ *          authenticator code still costs the host a strike, which a
+ *          completed second step from the same host gives back.
  *
  *  verify: the mailed registration link.  A GET of it, as a mail scanner
  *          makes, only asks for confirmation; the TOTP seed and backup codes
@@ -123,6 +124,16 @@ static int send_host_hdr;
  */
 #define SEED_USER_CLEAR		"apitest-clear-user"
 #define SEED_UID_CLEAR		5
+/*
+ * a second factor account with backup codes, which the limits scenario logs
+ * in to with the two-step flow several times in a row: a TOTP code is good
+ * for one login per 30 s step, a backup code needs no waiting
+ */
+#define SEED_USER_2FA		"apitest-2fa-user"
+#define SEED_UID_2FA		6
+static const char * const seed_backup_codes[] = {
+	"314159", "271828", "161803", "141421", "173205"
+};
 /* holds the '*' grant, for the admin console: only adminws uses it */
 #define SEED_USER_ADMIN		"apitest-admin"
 #define SEED_UID_ADMIN		3
@@ -949,7 +960,7 @@ scenario_seed(void)
 {
 	char sql[1024], hex[LWS_GENHASH_LARGEST * 2 + 1];
 	sqlite3 *db = NULL;
-	int r = 1;
+	int r = 1, n;
 
 	if (!db_path)
 		return fail("seed", "--db is required for the seed step");
@@ -1033,6 +1044,30 @@ scenario_seed(void)
 		     SEED_UID_CLEAR, SEED_USER_CLEAR, hex, SEED_SALT);
 	if (seed_exec(db, sql))
 		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (%d, '%s', '%s', '%s', '%s', 0, 0)",
+		     SEED_UID_2FA, SEED_USER_2FA, hex, SEED_SALT,
+		     SEED_TOTP_SECRET);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	/* its backup codes, unused again whatever an earlier run spent */
+
+	lws_snprintf(sql, sizeof(sql), "DELETE FROM backup_codes WHERE "
+		     "uid = %d", SEED_UID_2FA);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(seed_backup_codes); n++) {
+		lws_snprintf(sql, sizeof(sql), "INSERT INTO backup_codes("
+			     "code, uid, used) VALUES ('%s', %d, 0)",
+			     seed_backup_codes[n], SEED_UID_2FA);
+		if (seed_exec(db, sql))
+			goto bail;
+	}
 
 	/*
 	 * The admin holds only '*'.  adminws demotes him, so put that back as
@@ -2290,7 +2325,10 @@ scenario_xff(void)
  * every login that spent a password hash without completing costs its host a
  * strike, including a right password without the authenticator code, or one
  * host knowing one password could spend the whole hashing budget and keep
- * everyone else's logins refused (G-138).
+ * everyone else's logins refused (G-138).  But when the second step then
+ * completes the login from the same host, that one strike is given back, or a
+ * few second factor logins from one host or /64 within the decay time brake
+ * and then ban it (G-223).
  */
 static int
 limits_login(const char *from, const char *user, const char *pass,
@@ -2320,7 +2358,7 @@ static int
 scenario_limits(void)
 {
 	char pfx[48], other[48], xff[96], csrf[128], b[512], host[48],
-	     host2[48], nobody[48];
+	     host2[48], host3[48], nobody[48];
 	uint32_t code, wrong;
 	uint8_t r[4];
 	int n;
@@ -2431,6 +2469,9 @@ scenario_limits(void)
 		     (unsigned int)(r[1] | 1));
 	lws_snprintf(host2, sizeof(host2), "198.19.%u.%u", r[2],
 		     (unsigned int)(r[3] | 1));
+	/* even where host2 is odd, so never the same host */
+	lws_snprintf(host3, sizeof(host3), "198.19.%u.%u", r[1],
+		     (unsigned int)(r[0] & 0xfe));
 	lws_snprintf(nobody, sizeof(nobody), "apitest-nobody-%02x%02x%02x%02x",
 		     r[0], r[1], r[2], r[3]);
 
@@ -2505,10 +2546,59 @@ scenario_limits(void)
 			    "answered %u, wanted 503: '%s'", host2, status,
 			    body);
 
+	/*
+	 * (5) ... but a second step completing the login gives that strike
+	 * back (G-223): four two-step logins in a row from one fresh host, as
+	 * the stock UI makes them (the password, then the password with the
+	 * code), all complete and leave no strike.  The second steps take
+	 * backup codes, since a TOTP code is good for one login per 30 s.
+	 */
+
+	if (limits_strikes(host3))
+		return fail("limits", "%s starts with %d strikes, wanted none",
+			    host3, status_strikes());
+
+	for (n = 0; n < 4; n++) {
+		if (limits_login(host3, SEED_USER_2FA, SEED_PASSWORD, csrf) ||
+		    status != 401 || !strstr(body, "Authenticator Code"))
+			return fail("limits", "two-step login %d's first step "
+				    "from %s answered %u, wanted 401 asking "
+				    "for the code: '%s'", n, host3, status,
+				    body);
+
+		lws_snprintf(b, sizeof(b), "username=%s&password=%s"
+			     "&csrf_token=%s&totp=%s", SEED_USER_2FA,
+			     SEED_PASSWORD, csrf, seed_backup_codes[n]);
+		req_xff = host3;
+		if (req_full(JAR_AUTH, port_auth, "/api/login", b) ||
+		    status != 200)
+			return fail("limits", "two-step login %d's second step "
+				    "from %s answered %u, wanted 200: '%s'", n,
+				    host3, status, body);
+	}
+
+	n = limits_strikes(host3);
+	if (n)
+		return fail("limits", "after four completed two-step logins, "
+			    "%s has %d strikes, wanted none", host3, n);
+
+	/* a first step not followed by its second still costs the strike */
+
+	if (limits_login(host3, SEED_USER_2FA, SEED_PASSWORD, csrf) ||
+	    status != 401 || !strstr(body, "Authenticator Code"))
+		return fail("limits", "a lone first step from %s answered %u, "
+			    "wanted 401 asking for the code: '%s'", host3,
+			    status, body);
+
+	n = limits_strikes(host3);
+	if (n != 1)
+		return fail("limits", "after a first step with no second, %s "
+			    "has %d strikes, wanted 1", host3, n);
+
 	lwsl_user("PASS: limits: strikes and the ban land on the /64, wrong "
 		  "authenticator codes brake the account, a completed login "
-		  "forgives only its account, and a missing code costs the "
-		  "host\n");
+		  "forgives only its account, a missing code costs the host "
+		  "and a completed second step gives that back\n");
 
 	return 0;
 }
