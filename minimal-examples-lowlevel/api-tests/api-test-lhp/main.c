@@ -119,7 +119,8 @@ static const char * const html_tests[] = {
 	 * sets in body text, mixed with numeric ones */
 
 	("<html><body>Dr Alp&ouml;ge &euro;5 &ldquo;x&rdquo; &Omega;&amp;&#233;"
-	 "&nbsp;&iexcl;&yuml;&bogus;</body></html>")
+	 "&nbsp;&iexcl;&yuml;&bogus; &#65 &#x42;&#x43!&#;&#xg&#a1&#00000068i"
+	 "</body></html>")
 };
 
 /* the last test's body text, once the entities are expanded to utf-8 */
@@ -127,7 +128,12 @@ static const char * const html_tests[] = {
 #define ENTITY_TEST_IDX (LWS_ARRAY_SIZE(html_tests) - 1)
 static const char * const entity_expect =
 	"Dr Alp\xc3\xb6ge \xe2\x82\xac" "5 \xe2\x80\x9cx\xe2\x80\x9d "
-	"\xce\xa9&\xc3\xa9\xc2\xa0\xc2\xa1\xc3\xbf&bogus;";
+	"\xce\xa9&\xc3\xa9\xc2\xa0\xc2\xa1\xc3\xbf&bogus; "
+	/*
+	 * as in html, a numeric reference's ';' is optional, and one
+	 * without digits is just text
+	 */
+	"A BC!&#;&#xg&#a1Di";
 
 /* the content arrives in pieces, one per entity: collect it */
 
@@ -990,6 +996,116 @@ bail:
 	return e;
 }
 
+/*
+ * Where the html tokenizer reads more of a class value out of an attribute
+ * than a naive one, lhp must read it too, or a class-keyed cosmetic filter
+ * rule misses an element a browser would apply it to (G-235).  Each of these
+ * gives the element the class "junk" in a browser, so with the filter
+ * ".junk{display:none}" it must be hidden, whether the document arrives at
+ * once or a byte at a time.
+ */
+
+static const char * const tok_classes[] = {
+	/* a numeric reference's ';' is optional */
+	"class=\"x&#0 junk\"",
+	"class=\"x&#65 junk\"",
+	"class=\"x&#x0 junk\"",
+	"class=\"x&#x41 junk\"",
+	"class=\"x&#9junk\"",
+	"class=x&#x20junk",
+	/* ... and its digits are not limited in number */
+	"class=\"x&#000000000000000000000000000000000000000032;junk\"",
+	"class=\"x&#x0000000000020;junk\"",
+	/* whitespace around '=' */
+	"class =\"x junk\"",
+	"class= \"x junk\"",
+	"class \t=\n 'x junk'",
+	"class = junk",
+	/* the named references to whitespace */
+	"class=\"x&Tab;junk\"",
+	"class=\"x&NewLine;junk\"",
+	/* an '&#' with no digits is text, not the start of a reference */
+	"class=\"&#; junk\"",
+	"class=\"&#xg junk\"",
+};
+
+static int
+test_filter_tokenizer(const char *cls, int bytewise)
+{
+	static const lws_lhp_filter_t filter = {
+		.cosmetic_css = ".junk{display:none}"
+	};
+	lws_stateful_ret_t r = 0;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	char doc[512];
+	size_t len, one;
+	lhp_ctx_t *ctx;
+	int e = 1;
+
+	ctx = malloc(sizeof(*ctx));
+	if (!ctx)
+		return 1;
+	memset(ctx, 0, sizeof(*ctx));
+	susp_ad_seen = susp_ad_hidden = susp_ok_seen = susp_ok_hidden = 0;
+
+	len = (size_t)lws_snprintf(doc, sizeof(doc),
+			"<html><body><div data-t=\"ad\" %s>x</div>"
+			"<div data-t=\"ok\" class=\"y\">y</div>"
+			"</body></html>", cls);
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, susp_cb, &drt, &ic))
+		goto bail;
+	if (lws_lhp_set_filter(ctx, &filter)) {
+		lws_lhp_destruct(ctx);
+		goto bail;
+	}
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	if (!bytewise) {
+		ctx->flags = LHP_FLAG_DOCUMENT_END;
+		r = lws_lhp_parse(ctx, &data, &len);
+	} else
+		while (len && !(r & LWS_SRET_FATAL)) {
+			if (len == 1)
+				ctx->flags = LHP_FLAG_DOCUMENT_END;
+			one = 1;
+			r = lws_lhp_parse(ctx, &data, &one);
+			if (one) {
+				lwsl_err("%s: byte not taken\n", __func__);
+				r = LWS_SRET_FATAL;
+				break;
+			}
+			len--;
+		}
+	lws_lhp_destruct(ctx);
+
+	if (r & LWS_SRET_FATAL || !susp_ad_seen || !susp_ok_seen) {
+		lwsl_err("%s: '%s' (bytewise %d): parse failed\n", __func__,
+			 cls, bytewise);
+		goto bail;
+	}
+	if (!susp_ad_hidden || susp_ok_hidden) {
+		lwsl_err("%s: '%s' (bytewise %d): ad hidden %d, ok hidden %d\n",
+			 __func__, cls, bytewise, susp_ad_hidden,
+			 susp_ok_hidden);
+		goto bail;
+	}
+
+	e = 0;
+
+bail:
+	free(ctx);
+
+	return e;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -1063,6 +1179,13 @@ main(int argc, const char **argv)
 		if (test_filter_suspicious(sc, 0) ||
 		    test_filter_suspicious(sc, 1))
 			goto bail;
+
+	for (sc = 0; sc < (int)LWS_ARRAY_SIZE(tok_classes); sc++)
+		if (test_filter_tokenizer(tok_classes[sc], 0) ||
+		    test_filter_tokenizer(tok_classes[sc], 1))
+			e++;
+	if (e)
+		goto bail;
 
 	if (content_len != strlen(entity_expect) ||
 	    memcmp(content_acc, entity_expect, content_len)) {

@@ -71,6 +71,7 @@ enum {
 	LHPS_BAD_TAG,
 	LHPS_DO_START_ELEM,
 	LHPS_ATTRIB,
+	LHPS_ATTRIB_AFTER_NAME,
 	LHPS_ATTRIB_VAL,
 	LHPS_AMP,
 	LHPS_AMPHASH,
@@ -153,6 +154,8 @@ static const struct {
 	const char *name;
 	uint32_t val;
 } entities[] = {
+	{ "Tab", 9 },
+	{ "NewLine", 10 },
 	{ "quot", 34 },
 	{ "amp", 38 },
 	{ "apos", 39 },
@@ -4746,6 +4749,70 @@ lhp_close_through(lhp_ctx_t *ctx, lhp_pstack_t *th)
 	}
 }
 
+/*
+ * A "&#" (and the 'x' collected after it, if any) that turned out not to start
+ * a character reference, because no digits followed, is text, as in html: put
+ * it back in front of anything collected since.
+ */
+
+static void
+lhp_amphash_literal(lhp_ctx_t *ctx)
+{
+	if (ctx->npos + 2 <= LHP_STRING_CHUNK - 4) {
+		memmove(ctx->buf + ctx->entity_start + 2,
+			ctx->buf + ctx->entity_start,
+			(size_t)(ctx->npos - ctx->entity_start));
+		ctx->buf[ctx->entity_start] = '&';
+		ctx->buf[ctx->entity_start + 1] = '#';
+		ctx->npos += 2;
+	} else {
+		/* as in LHPS_AMP, nl_temp indexes into what we are dropping */
+		if (ctx->saved_state == LHPS_ATTRIB_VAL)
+			lhp_atr_val_overflow(ctx);
+		ctx->npos = 0;
+		ctx->nl_temp = 0;
+	}
+
+	ctx->state = ctx->saved_state;
+}
+
+/*
+ * The digits of a numeric character reference have ended, at a ';' or, as
+ * html allows, at anything else: replace what was collected for it with the
+ * character in ctx->temp.
+ */
+
+static void
+lhp_amphash_emit(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	if (ctx->npos >= LHP_STRING_CHUNK - 5) {
+		if (ctx->saved_state == LHPS_OUTER) {
+			if (ctx->in_body)
+				ps->cb(ctx, LHPCB_CONTENT);
+			else
+				/* Not delivering this text anyway: drop it */
+				ctx->entity_start = 0;
+			ctx->npos = 0;
+		} else {
+			/*
+			 * The expansion doesn't fit in the attribute value:
+			 * discard the attribute rather than fail the document
+			 */
+			lhp_atr_val_overflow(ctx);
+			ctx->npos = 0;
+			ctx->nl_temp = 0;
+			ctx->entity_start = 0;
+		}
+	}
+
+	/* &#0; in a value is a NUL, as above */
+	if (!ctx->temp && ctx->saved_state == LHPS_ATTRIB_VAL)
+		lhp_elem_suspicious(ctx);
+	ctx->npos = ctx->entity_start;
+	lhp_uni_emit(ctx);
+	ctx->state = ctx->saved_state;
+}
+
 lws_stateful_ret_t
 lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 {
@@ -5763,6 +5830,16 @@ close_done:
 				break;
 			}
 
+			if (c != '>' && ctx->npos && !ctx->u.f.atr_drop) {
+				/*
+				 * Whitespace after a name: as in html, an '='
+				 * may still follow and give it a value
+				 */
+				ctx->state = LHPS_ATTRIB_AFTER_NAME;
+				break;
+			}
+
+attrib_name_done:
 			if (ctx->u.f.atr_drop) {
 				/* the attribute name overflowed: discard it */
 				ctx->u.f.atr_drop = 0;
@@ -5779,7 +5856,39 @@ close_done:
 			}
 			break;
 
+		case LHPS_ATTRIB_AFTER_NAME:
+			/* the name in buf is complete, did it have a value? */
+
+			if (hspace(c))
+				break;
+
+			if (c == '=') {
+				/* ATTRIB stopped collecting with room for it */
+				ctx->nl_temp = ctx->npos;
+				ctx->buf[ctx->npos++] = '=';
+				ctx->state = LHPS_ATTRIB_VAL;
+				break;
+			}
+
+			/*
+			 * No: it was a valueless attribute, and c starts
+			 * whatever is next
+			 */
+			ctx->state = LHPS_ATTRIB;
+			if (c == '>')
+				goto attrib_name_done;
+			(*len)++;
+			(*buf)--;
+			if (!lhp_atr_new(ctx, (size_t)ctx->npos, 0))
+				goto oom;
+			break;
+
 		case LHPS_ATTRIB_VAL:
+
+			/* as in html, whitespace before the value is skipped */
+			if (!ctx->u.f.inq && ctx->npos == ctx->nl_temp + 1 &&
+			    hspace(c))
+				break;
 
 			/*
 			 * An opening quote of either kind starts the value; the
@@ -5889,9 +5998,10 @@ attrib_val_done:
 
 		case LHPS_AMP:
 			/* the character after the & */
-			if (c == '#') {
+			if (c == '#' && ctx->npos == ctx->entity_start) {
 				ctx->state = LHPS_AMPHASH;
 				ctx->temp = 0;
+				ctx->temp_count = 0;
 				break;
 			}
 
@@ -5966,142 +6076,69 @@ done_amp:
 		case LHPS_AMPHASH:
 			/*
 			 * This is either decimal or hex unicode like
-			 * &#1234; or &#xfc16;
+			 * &#1234; or &#xfc16;.  As in html, the ';' is
+			 * optional: the reference ends at the first character
+			 * that can't be part of it, which is then processed
+			 * normally.  temp_count is how many digits we saw.
 			 */
-			if (c == 'x' || c == 'X') {
+			if (!ctx->temp_count && (c == 'x' || c == 'X')) {
+				/* kept in case no hex digits follow */
+				if (ctx->npos < LHP_STRING_CHUNK - 4)
+					ctx->buf[ctx->npos++] = (char)c;
 				ctx->state = LHPS_AMPHASH_HEX;
-				break;
-			}
-
-			if (ctx->temp_count++ > 32 /* sanity */) {
-				ctx->state = ctx->saved_state;
-				break;
-			}
-			if (c == ';') {
-				if (ctx->npos >= LHP_STRING_CHUNK - 5) {
-					if (ctx->saved_state == LHPS_OUTER) {
-						if (ctx->in_body) {
-							ps->cb(ctx, LHPCB_CONTENT);
-						} else {
-							/*
-							 * Not delivering this
-							 * text anyway: drop it
-							 */
-							ctx->entity_start = 0;
-						}
-						ctx->npos = 0;
-					} else {
-						/*
-						 * The expansion doesn't fit
-						 * in the attribute value:
-						 * discard the attribute
-						 * rather than fail the
-						 * document
-						 */
-						lhp_atr_val_overflow(ctx);
-						ctx->npos = 0;
-						ctx->nl_temp = 0;
-						ctx->entity_start = 0;
-					}
-				}
-				/* &#0; in a value is a NUL, as above */
-				if (!ctx->temp &&
-				    ctx->saved_state == LHPS_ATTRIB_VAL)
-					lhp_elem_suspicious(ctx);
-				ctx->npos = ctx->entity_start;
-				lhp_uni_emit(ctx);
-				ctx->state = ctx->saved_state;
 				break;
 			}
 
 			if (c >= '0' && c <= '9') {
 				/*
-				 * The digit count limit above doesn't bound
-				 * the value; stop accumulating once we are
-				 * already outside unicode range, so we can't
-				 * overflow (the out-of-range value is still
-				 * handled by lhp_uni_emit())
+				 * There may be any number of digits; stop
+				 * accumulating once we are already outside
+				 * unicode range, so we can't overflow (the
+				 * out-of-range value is still handled by
+				 * lhp_uni_emit())
 				 */
+				ctx->temp_count = 1;
 				if (ctx->temp <= 0x10ffff)
 					ctx->temp = (ctx->temp * 10) +
 						    (uint32_t)(c - '0');
-			} else
-				ctx->state = ctx->saved_state;
+				break;
+			}
 
-			break;
+			goto amphash_end;
 
 		case LHPS_AMPHASH_HEX:
-			if (c == ';') {
-				if (ctx->npos >= LHP_STRING_CHUNK - 5) {
-					if (ctx->saved_state == LHPS_OUTER) {
-						if (ctx->in_body) {
-							ps->cb(ctx, LHPCB_CONTENT);
-						} else {
-							/*
-							 * Not delivering this
-							 * text anyway: drop it
-							 */
-							ctx->entity_start = 0;
-						}
-						ctx->npos = 0;
-					} else {
-						/*
-						 * The expansion doesn't fit
-						 * in the attribute value:
-						 * discard the attribute
-						 * rather than fail the
-						 * document
-						 */
-						lhp_atr_val_overflow(ctx);
-						ctx->npos = 0;
-						ctx->nl_temp = 0;
-						ctx->entity_start = 0;
-					}
-				}
-				/* &#0; in a value is a NUL, as above */
-				if (!ctx->temp &&
-				    ctx->saved_state == LHPS_ATTRIB_VAL)
-					lhp_elem_suspicious(ctx);
-				ctx->npos = ctx->entity_start;
-				lhp_uni_emit(ctx);
-				ctx->state = ctx->saved_state;
-				break;
-			}
-
-			if (ctx->temp_count++ > 8 /* sanity */) {
-				ctx->state = ctx->saved_state;
-				break;
-			}
-
-			/*
-			 * As for the decimal case, the digit count limit
-			 * above doesn't bound the value; stop accumulating
-			 * once we are already outside unicode range
-			 */
-
 			if (c >= '0' && c <= '9') {
+				ctx->temp_count = 1;
+				/* as above, stop beyond unicode range */
 				if (ctx->temp <= 0x10ffff)
 					ctx->temp = (ctx->temp << 4) +
 						    (uint32_t)(c - '0');
 				break;
 			}
 
-			if (c >= 'A' && c <= 'F') {
+			if ((c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')) {
+				ctx->temp_count = 1;
 				if (ctx->temp <= 0x10ffff)
 					ctx->temp = (ctx->temp << 4) +
-						    (uint32_t)(c - 'A') + 10;
+						    (uint32_t)((c | 0x20) - 'a') +
+						    10;
 				break;
 			}
 
-			if (c >= 'a' && c <= 'f') {
-				if (ctx->temp <= 0x10ffff)
-					ctx->temp = (ctx->temp << 4) +
-						    (uint32_t)(c - 'a') + 10;
-				break;
-			}
+amphash_end:
+			if (!ctx->temp_count)
+				/* "&#" or "&#x" then no digits: just text */
+				lhp_amphash_literal(ctx);
+			else
+				lhp_amphash_emit(ctx, ps);
 
-			ctx->state = ctx->saved_state;
+			if (c != ';' || !ctx->temp_count) {
+				/* c is not part of it, process it normally */
+				(*len)++;
+				(*buf)--;
+			}
 			break;
+
 		case LHPS_SCOMMENT1: /* we have <! */
 			if (c == '-') {
 				ctx->state = LHPS_SCOMMENT2;
