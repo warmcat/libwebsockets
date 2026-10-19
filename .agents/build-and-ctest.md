@@ -400,3 +400,7 @@ a log is evidence that something was or was not emitted.
    (how the G-199 P5 flood red showed in api-test-tls-passthrough).
  - `LWS_IO_OPS_ABI_VERSION` must be bumped whenever `lws_io_ops_t` gains a
    member (it is 3 since c9ef2a268).
+ - A NO_LOGS build with `_DEBUG` still compiles `#if defined(_DEBUG)`
+   blocks but compiles out `lwsl_header()` etc: a buffer used only by a
+   log under such a block goes unused.  Guard by the log level,
+   `#if (_LWS_ENABLED_LOGS & LLL_x)`, not by `_DEBUG`.
