@@ -7,9 +7,9 @@
  * F-055 fence: the local zone-dir trust policy in protocol-lws-auth-dns.
  *
  * Everything the plugin loads from its zone dir is served as authoritative
- * data and its filename drives later unlinks in that dir, so the dir must
- * be exclusively controlled by the service uid.  The test plants zones the
- * pre-fix plugin happily served, and asserts they are now refused:
+ * data, so the dir must be exclusively controlled by the service uid.  The
+ * test plants zones the pre-fix plugin happily served, and asserts they are
+ * now refused:
  *
  * | phase | arrangement | pre-fix behavior | post-fix behavior |
  * |-------|-------------|------------------|-------------------|
@@ -21,7 +21,9 @@
  * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them |
  * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
  * | 8 | a zone with a delegation (G-246) | names at / below the cut answered authoritatively from the zone text | referred: no AA, the cut's NS in authority; only the DS at the cut answered |
- * | 9 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
+ * | 9 | more zone files than cache-max-zones (G-290) | the surplus evicted at startup and its files unlinked | all served, every file still there |
+ * | 10 | cache-max-zones 1, an operator zone and DHT-handed zones (G-290) | the operator zone evicted for a DHT zone and its file unlinked | the operator zone served and its file kept, the DHT zones evicting each other |
+ * | 11 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
  *
  * Phase 6 stands in for lws-dht-dnssec with a protocol of that name whose
  * ops only collect the callback auth-dns registers for verified zones.  The
@@ -110,6 +112,8 @@ struct phase {
 	int		check_port_free;
 	int		dht;		/* hand zones over as lws-dht-dnssec */
 	int		fetch;		/* take zone fetches as lws-dht-dnssec */
+	const char	*cache_max;	/* "cache-max-zones" pvo, if any */
+	const char	*keep[4];	/* zdir files that must survive */
 	struct qexp	q[MAX_Q];
 };
 
@@ -260,6 +264,13 @@ static const struct {
 		"@ IN SOA ns1.victim.example. hostmaster.victim.example. "
 			"( 2026090199 3600 1800 604800 86400 )\n"
 		"evil2 IN A 127.0.0.66\n"
+	}, {	/* another of its own, handed over after ok3.example */
+		"handed-ok4.zone", "ok4.example",
+		"$ORIGIN ok4.example.\n"
+		"$TTL 86400\n"
+		"@ IN SOA ns1.ok4.example. hostmaster.ok4.example. "
+			"( 2026090101 3600 1800 604800 86400 )\n"
+		"www IN A 127.0.0.78\n"
 	},
 };
 
@@ -520,6 +531,22 @@ plant_fixtures(void)
 	    write_zone_text(dir, "dl.example" DECOR, zone_deleg, 0644))
 		return 1;
 
+	/* phase 9: three operator zones, with cache-max-zones 1 */
+
+	lws_snprintf(dir, sizeof(dir), "%s/pressure", run_dir);
+	if (mk_zone_dir(dir, 0755) ||
+	    write_zone(dir, "p1.example" DECOR, "p1.example", "127.0.0.71", 0644) ||
+	    write_zone(dir, "p2.example" DECOR, "p2.example", "127.0.0.72", 0644) ||
+	    write_zone(dir, "p3.example" DECOR, "p3.example", "127.0.0.73", 0644))
+		return 1;
+
+	/* phase 10: one operator zone, then DHT zones, cache-max-zones 1 */
+
+	lws_snprintf(dir, sizeof(dir), "%s/dhtpress", run_dir);
+	if (mk_zone_dir(dir, 0755) ||
+	    write_zone(dir, "loc.example" DECOR, "loc.example", "127.0.0.74", 0644))
+		return 1;
+
 	/*
 	 * phases 9+10 (root only): another uid's file in an otherwise good
 	 * dir, and another uid's dir
@@ -560,8 +587,12 @@ static void
 unplant_fixtures(void)
 {
 	static const char *const subdirs[] = {
-		"good", "ww", "real", "files", "dht", "deleg", "rootfile",
-		"rootdir"
+		"good", "ww", "real", "files", "dht", "deleg", "pressure",
+		"dhtpress", "rootfile", "rootdir"
+	};
+	static const char *const zones[] = {
+		"ok", "pwn", "via", "ok2", "badmode", "linked", "okroot",
+		"foreign", "another", "victim", "dl", "p1", "p2", "p3", "loc"
 	};
 	size_t i;
 
@@ -575,38 +606,22 @@ unplant_fixtures(void)
 
 	for (i = 0; i < LWS_ARRAY_SIZE(subdirs); i++) {
 		char dpath[600], fpath[768];
+		size_t z;
 
 		lws_snprintf(dpath, sizeof(dpath), "%s/%s", run_dir, subdirs[i]);
 
 		lws_snprintf(fpath, sizeof(fpath), "%s/symlink", run_dir);
 		unlink(fpath);
 
-		lws_snprintf(fpath, sizeof(fpath), "%s/ok.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/pwn.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/via.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/ok2.example" DECOR, dpath);
-		unlink(fpath);
+		for (z = 0; z < LWS_ARRAY_SIZE(zones); z++) {
+			lws_snprintf(fpath, sizeof(fpath), "%s/%s.example" DECOR,
+				     dpath, zones[z]);
+			unlink(fpath);
+		}
 		lws_snprintf(fpath, sizeof(fpath), "%s/plain.example.zone", dpath);
 		unlink(fpath);
 		lws_snprintf(fpath, sizeof(fpath),
 				"%s/short.example_2000000000_2000000000.zone", dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/badmode.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/linked.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/okroot.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/foreign.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/another.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/victim.example" DECOR, dpath);
-		unlink(fpath);
-		lws_snprintf(fpath, sizeof(fpath), "%s/dl.example" DECOR, dpath);
 		unlink(fpath);
 
 		rmdir(dpath);
@@ -875,13 +890,16 @@ run_phase(struct phase *p, int idx)
 	struct lws_protocol_vhost_options pvo_extra = {
 		NULL, NULL, "cache-max-zones", "499"
 	};
+	struct lws_protocol_vhost_options pvo_cache_max = {
+		NULL, NULL, "cache-max-zones", ""
+	};
 	struct lws_protocol_vhost_options pvo_zonedir = {
 		NULL, NULL, "zone-dir", ""
 	};
 	struct lws_protocol_vhost_options pvo = {
 		NULL, NULL, "protocol-lws-auth-dns", ""
 	};
-	char zd[512];
+	char zd[512] = "";
 	int n = 0;
 
 	cur = p;
@@ -914,6 +932,10 @@ run_phase(struct phase *p, int idx)
 		lws_snprintf(zd, sizeof(zd), "%s/%s", run_dir, p->zdir);
 		pvo_zonedir.value = zd;
 		pvo.options = &pvo_zonedir;
+		if (p->cache_max) {
+			pvo_cache_max.value = p->cache_max;
+			pvo_zonedir.next = &pvo_cache_max;
+		}
 	} else
 		/*
 		 * some pvo content is needed so the plugin actually runs its
@@ -938,6 +960,22 @@ run_phase(struct phase *p, int idx)
 
 	lws_context_destroy(context);
 	context = NULL;
+
+	/* the operator's zone files are still where they put them */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(p->keep) && p->keep[n]; n++) {
+		char path[768];
+		struct stat st;
+
+		lws_snprintf(path, sizeof(path), "%s/%s", zd, p->keep[n]);
+		if (stat(path, &st)) {
+			lwsl_err("phase '%s': FAIL zone file %s is gone\n",
+				 p->name, p->keep[n]);
+			phase_failed = 1;
+		} else
+			lwsl_user("phase '%s': zone file %s kept\n", p->name,
+				  p->keep[n]);
+	}
 
 	if (phase_failed)
 		test_ok = 0;
@@ -1029,6 +1067,30 @@ main(int argc, const char **argv)
 				  43, 2, 0, 0 },
 			}
 		}, {
+			.name		= "operator zones over cache-max-zones",
+			.zdir		= "pressure",
+			.cache_max	= "1",
+			.keep		= { "p1.example" DECOR, "p2.example" DECOR,
+					    "p3.example" DECOR },
+			.q		= {
+				{ "www.p1.example", 0x110b, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.p2.example", 0x210b, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.p3.example", 0x310b, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+			}
+		}, {
+			.name		= "operator zone under DHT cache pressure",
+			.zdir		= "dhtpress",
+			.dht		= 1,
+			.cache_max	= "1",
+			.keep		= { "loc.example" DECOR },
+			.q		= {
+				/* the operator's zone is still served */
+				{ "www.loc.example", 0x110c, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				/* the DHT zones are bounded: ok4 evicted ok3 */
+				{ "www.ok3.example", 0x210c, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.ok4.example", 0x310c, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+			}
+		}, {
 			.name		= "another uid's file ignored",
 			.zdir		= "rootfile",
 			.q		= {
@@ -1044,7 +1106,8 @@ main(int argc, const char **argv)
 			}
 		},
 	};
-	int nph = 8, i, ret;
+	int nph = 10, i, ret;
+
 	const char *p;
 
 	signal(SIGINT, sigint_handler);

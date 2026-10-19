@@ -41,12 +41,19 @@ bounded in-memory LRU cache of parsed zones.  When integrated with
 `lws-dht-dnssec`, the DHT's own hashed store is the long-term disk cache and
 only currently-active zones are pulled into memory.
 
- - **LRU eviction**: bounded by the `cache-max-zones` PVO (default 1000).  When
-   exceeded, the least recently queried zones are freed.
+ - **LRU eviction**: the DHT-fetched zones held are bounded by the
+   `cache-max-zones` PVO (default 1000).  When exceeded, the least recently
+   queried of them are freed.  Zones loaded from `zone-dir` are the
+   operator's: they are always held and served, are never evicted to make
+   room, and do not count against `cache-max-zones`.  A newer serial of such
+   a zone arriving from the DHT replaces it in memory and is held the same
+   way.
  - **Expiry eviction**: a periodic timer purges zones whose SOA-derived TTL
-   expiry or DNSSEC `RRSIG` validity has passed.  An expired zone that came
-   from the local scan is also unlinked from `zone-dir` (see the note on
-   privilege drop under the trust policy below).
+   expiry or DNSSEC `RRSIG` validity has passed.  This is in memory only.
+
+The plugin only ever reads `zone-dir`: it never deletes, rewrites or creates
+files there, whatever happens to its in-memory copies.  Replacing an expired
+or superseded zone file is up to the operator.
 
 Zone updates are serial-gated: a replacement zone whose SOA serial is not newer
 (RFC 1982 comparison) than the one already held is rejected, so a replayed
@@ -110,7 +117,7 @@ no UDP sockets are bound and nothing is logged.
 | PVO Name   | Description |
 | ---------- | ----------- |
 | `zone-dir` | **Required.** Absolute path of the directory holding locally-served zone files.  It is scanned once at vhost initialization; only files matching the trust policy below are loaded.  The directory must exist and pass the ownership / mode checks below even if all zones will come from the DHT.  If this PVO is missing the protocol refuses to start (there is no default: an earlier default of shared `/tmp/lws-auth-dns` allowed any local user to inject authoritative zones and was removed). |
-| `cache-max-zones` | Optional. Maximum number of zones held in the in-memory LRU cache. Defaults to 1000. When reached, the least recently queried zones are evicted. |
+| `cache-max-zones` | Optional. Maximum number of DHT-fetched zones held in the in-memory LRU cache. Defaults to 1000. When reached, the least recently queried of them are evicted. Zones from `zone-dir` are always held and are not counted. |
 | `dht-max-pending` | Optional. Maximum number of *distinct domains* per vhost whose queries may be suspended awaiting a DHT fetch. Defaults to 128. There are additional fixed limits of 16 distinct domains and 64 queries per source address, and 1024 pending queries in total. When any limit is reached, new queries needing a DHT fetch are answered `REFUSED` immediately rather than queued. |
 | `dnsbl` | Optional. Comma-separated list of DNSBL zones (eg, `zen.spamhaus.org,test.local`). When set, the queried name and the IPs in the answer are checked asynchronously against every listed DNSBL before the response is sent; a positive (listed) result suppresses the answer and is cached for 5 minutes. |
 
@@ -122,9 +129,9 @@ further queries are answered `REFUSED`.
 
 ## Zone Directory Trust Policy
 
-Everything loaded from `zone-dir` is served as **authoritative** data, and
-expired or superseded local zone files are unlinked from it, so the directory
-must be under the exclusive control of the account the plugin initializes as.
+Everything loaded from `zone-dir` is served as **authoritative** data, so the
+directory must be under the exclusive control of the account the plugin
+initializes as.
 At `PROTOCOL_INIT` the plugin fails closed (refuses to start, logging at
 `err` level) unless `zone-dir`:
 
@@ -159,11 +166,9 @@ owned by root (`root:root`, dir `0755`, files `0644`, or stricter), regardless
 of the account lwsws later drops to.  A directory chowned to the service
 account fails the check.
 
-After the drop, the plugin can no longer unlink files in a root-owned `0755`
-directory.  That is harmless: the in-memory copy is still evicted on expiry,
-and an on-disk file whose expiry has passed is skipped (and unlinked, while
-still privileged) at the next startup scan.  DHT-fetched zones are never
-written to disk, so DHT-fed operation is unaffected.
+The plugin only reads `zone-dir`, at init, so it does not matter that the
+account it drops to cannot write there.  DHT-fetched zones are never written
+to disk, so DHT-fed operation is unaffected.
 
 ## Logging
 
@@ -259,6 +264,8 @@ journalctl -u lwsws -b | grep -iE 'zone.dir|failed init|foreign name|bound to ip
 name".**  The filename is not in the decorated shape, or the file is not owned
 by the init-time uid, or is group/world-writable.
 
-**Zone file present but "expired logically, unlinking" at startup.**  The
+**Zone file present but "has expired, not loading it" at startup.**  The
 `<ttl-expiry>` or `<sig-expiry>` field in the filename is in the past; regenerate
-the zone (and its filename) with a current signing.
+the zone (and its filename) with a current signing.  The expired file is left
+where it is.
+

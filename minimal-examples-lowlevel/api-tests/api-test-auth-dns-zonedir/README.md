@@ -4,11 +4,12 @@ Fence for security-audit finding F-055: the local zone-dir trust policy in
 the authoritative-DNS plugin (`protocol-lws-auth-dns`), for G-117: the
 zones it is handed by `lws-dht-dnssec` are installed only as the domain they
 were verified for, and for G-246: names at or below a zone cut are referred
-to the child zone, not answered from the zone text.
+to the child zone, not answered from the zone text, and for G-290: the
+operator's zone files are never deleted, and their zones are never evicted
+to make room for DHT-fetched ones.
 
 Everything the plugin loads from its zone dir is served as **authoritative**
-DNS data, and expired / evicted entries are unlinked from that dir by
-filename.  Pre-fix, a missing `zone-dir` pvo silently defaulted to shared
+DNS data.  Pre-fix, a missing `zone-dir` pvo silently defaulted to shared
 `/tmp/lws-auth-dns` and the init dir-scan trusted any `*.zone` file on
 syntax alone — no ownership, permission, or name-shape check — so any local
 user who pre-created or owned the directory could inject zones and have
@@ -29,8 +30,10 @@ the process umask):
 | 6 | zones handed over by `lws-dht-dnssec` as verified for a domain (G-117): one with a trailing `$ORIGIN` for a zone the dir serves, one wholly that other zone, and a control that is its domain's own | installed under their last `$ORIGIN`, replacing the served zone | only the control is installed; the served zone answers as before and the payloads' names do not exist |
 | 7 | a query for a zone nobody serves, whose fetch from `lws-dht-dnssec` never answers (G-224) | the query timed out (REFUSED after 5s) but its fetch was left running, holding auth-dns' opaque | when the query times out the fetch is given up: completed exactly once, as timed out, and nothing holds the opaque |
 | 8 | a zone delegating `sub.dl.example` (G-246), with glue, a DS and an `A` record below the cut | every name at or below the cut answered authoritatively from the zone text (`www.sub` with the occluded record, `ns.sub` with the glue), `x.sub` NXDOMAIN, and the DS not served at all | names at or below the cut are referred (no `AA`, empty answer, the cut's `NS` in authority); the zone's own `www` and the `DS` at the cut are answered authoritatively |
-| 9 | *(root only)* zone file owned by another uid | loaded and served | file ignored (REFUSED) while the service-owned control file in the same dir still answers |
-| 10 | *(root only)* zone dir owned by another uid | started | init refused, no listener |
+| 9 | three zone files with `cache-max-zones` 1 (G-290) | all but the last evicted at startup, and their files unlinked | all three served, every file still there |
+| 10 | `cache-max-zones` 1, one zone file, then two zones handed over by `lws-dht-dnssec` (G-290) | the operator's zone evicted for the first DHT zone and its file unlinked | the operator's zone still served and its file kept; the second DHT zone evicts the first |
+| 11 | *(root only)* zone file owned by another uid | loaded and served | file ignored (REFUSED) while the service-owned control file in the same dir still answers |
+| 12 | *(root only)* zone dir owned by another uid | started | init refused, no listener |
 
 "No listener" is asserted both by silence (no response within the window)
 and by the test binding the UDP port itself afterwards — the plugin only
@@ -44,7 +47,7 @@ Phase 7 stands in for the zone fetches too, keeping to the `fetch_zone()`
 contract in `lws-dht-dnssec.h` (merge, cancel without completion, fail with
 one completion as timed out) and never answering.
 
-Phases 9-10 need to create files/dirs owned by another uid and are skipped
+Phases 11-12 need to create files/dirs owned by another uid and are skipped
 when the test is not running as root.
 
 ## Commandline

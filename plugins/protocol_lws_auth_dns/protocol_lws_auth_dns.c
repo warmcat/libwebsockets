@@ -676,6 +676,14 @@ struct auth_dns_cache_entry {
 
 	lws_sorted_usec_list_t sul_subscribe;
 	struct per_vhost_data__auth_dns *vhd;
+
+	/*
+	 * G-290: the operator provisioned this zone, it came from the
+	 * zone-dir scan (or is a DHT update of one that did).  It is held
+	 * until it expires, never evicted to make room for DHT-fetched
+	 * zones, and does not count against cache-max-zones.
+	 */
+	uint8_t is_local;
 };
 
 struct per_vhost_data__auth_dns {
@@ -685,6 +693,7 @@ struct per_vhost_data__auth_dns {
 	char zone_dir[1024];
 	uint32_t dht_max_pending;
 	uint32_t cache_max_zones;
+	uint32_t cached_zones;	/* zones entries that are not is_local */
 	const struct lws_dht_dnssec_ops *dht_ops;
 	lws_dll2_owner_t zones;
 	lws_dll2_owner_t pending_queries;
@@ -817,36 +826,67 @@ auth_dns_sul_subscribe_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * Cache admission control: evict the oldest zone cache entry (the list tail,
- * fresh entries go on the head).  The on-disk zone file under dir_prefix, if
- * any, is removed along with it.
+ * Every cache entry goes on and comes off vhd->zones through these, so
+ * vhd->cached_zones stays the count of the evictable (DHT-fetched) ones.
+ *
+ * G-290: nothing here touches the zone dir.  DHT-fetched zones only ever
+ * live in memory, and the files in the zone dir are the operator's: the
+ * plugin reads them and never deletes them, whatever happens to the
+ * in-memory copy.
  */
+
 static void
-auth_dns_evict_oldest(struct per_vhost_data__auth_dns *vhd,
-		      const char *dir_prefix)
+auth_dns_ce_add(struct per_vhost_data__auth_dns *vhd,
+		struct auth_dns_cache_entry *ce)
 {
-	struct auth_dns_cache_entry *old = lws_container_of(
-			lws_dll2_get_tail(&vhd->zones),
-			struct auth_dns_cache_entry, list);
-	char dpath[1024];
+	ce->vhd = vhd;
+	lws_dll2_add_head(&ce->list, &vhd->zones);
+	if (!ce->is_local)
+		vhd->cached_zones++;
+}
 
-	if (dir_prefix && dir_prefix[0]) {
-		lws_snprintf(dpath, sizeof(dpath), "%s/%s", dir_prefix,
-			     old->filename);
-		unlink(dpath);
-	}
+static void
+auth_dns_ce_destroy(struct auth_dns_cache_entry *ce)
+{
+	if (!ce->is_local && ce->vhd && ce->vhd->cached_zones)
+		ce->vhd->cached_zones--;
 
-	lws_sul_cancel(&old->sul_subscribe);
-	lws_auth_dns_free_zone(&old->zone);
-	lws_dll2_remove(&old->list);
-	free(old);
+	lws_sul_cancel(&ce->sul_subscribe);
+	lws_auth_dns_free_zone(&ce->zone);
+	lws_dll2_remove(&ce->list);
+	free(ce);
+}
+
+/*
+ * Cache admission control: drop the least recently used DHT-fetched zone
+ * (fresh and queried entries go on the head).  Zones the operator
+ * provisioned are not candidates.  Returns nonzero if there was nothing
+ * evictable.
+ */
+
+static int
+auth_dns_evict_oldest(struct per_vhost_data__auth_dns *vhd)
+{
+	lws_start_foreach_dll_back(struct lws_dll2 *, d,
+				   lws_dll2_get_tail(&vhd->zones)) {
+		struct auth_dns_cache_entry *ce = lws_container_of(d,
+					struct auth_dns_cache_entry, list);
+
+		if (!ce->is_local) {
+			/* we stop iterating as soon as we touched the list */
+			auth_dns_ce_destroy(ce);
+			return 0;
+		}
+	} lws_end_foreach_dll_back(d);
+
+	return 1;
 }
 
 /*
  * F-055: cache entries mint a filename label from the zone origin,
  * <origin>_<ttl-expiry>_<sig-expiry>_<serial>.zone, that is later used to
- * compose unlink paths inside the zone dir and to prefix-match other cache
- * entries.  Restrict the origin part to presentation-format DNS names
+ * prefix-match other cache entries.  Restrict the origin part to
+ * presentation-format DNS names
  * without underscores, so '_' can only act as the decorator separator and
  * the prefix matching cannot be made ambiguous (eg, a zone for
  * "a_b.example" matching victim prefix "a_").
@@ -981,9 +1021,9 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	}
 
 	/*
-	 * F-055: everything loaded from here is served as authoritative data
-	 * and its filename drives later unlinks in this dir; only files the
-	 * service uid owns, that nobody else can write, are admitted
+	 * F-055: everything loaded from here is served as authoritative data;
+	 * only files the service uid owns, that nobody else can write, are
+	 * admitted
 	 */
 	if (!S_ISREG(st.st_mode) || st.st_uid != geteuid() ||
 	    (st.st_mode & (S_IWGRP | S_IWOTH))) {
@@ -1025,8 +1065,9 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	time_t now = time(NULL);
 	if ((ce->ttl_expiry && now >= ce->ttl_expiry) ||
 	    (ce->sig_expiry && now >= ce->sig_expiry)) {
-		lwsl_notice("%s: zone %s expired logically, unlinking\n", __func__, lde->name);
-		unlink(filepath);
+		/* G-290: the file is the operator's to replace, not ours */
+		lwsl_notice("%s: zone file %s has expired, not loading it\n",
+			    __func__, lde->name);
 		free(ce);
 		free(buf);
 		return 0;
@@ -1042,8 +1083,8 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	free(buf);
 
 	/*
-	 * The filename's label is what later updates of this zone match and
-	 * unlink it by, so the zone inside has to be that domain's alone
+	 * The filename's label is what later updates of this zone match it
+	 * by, so the zone inside has to be that domain's alone
 	 */
 	if (lws_auth_dns_zone_check_origin(&ce->zone, origin)) {
 		lwsl_notice("%s: zone file %s is not exactly zone %s\n",
@@ -1053,13 +1094,12 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 	}
 
-	/* Limit cache */
-	while (lws_dll2_count(&vhd->zones) > 0 &&
-	       lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones)
-		auth_dns_evict_oldest(vhd, dirpath);
-
-	ce->vhd = vhd;
-	lws_dll2_add_head(&ce->list, &vhd->zones);
+	/*
+	 * G-290: the operator's zones are all served, cache-max-zones only
+	 * bounds how many DHT-fetched zones are held alongside them
+	 */
+	ce->is_local = 1;
+	auth_dns_ce_add(vhd, ce);
 
 	lwsl_info("Parsed zone %s from %s (serial %llu, ttl_exp %llu, sig_exp %llu)\n",
 		ce->zone.origin, filepath, (unsigned long long)ce->serial,
@@ -1082,13 +1122,7 @@ static void
 auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_path)
 {
 	struct per_vhost_data__auth_dns *vhd = (struct per_vhost_data__auth_dns *)opaque;
-	char tzdir[1024];
-
-	/* Prefer dht_zone_dir if available, otherwise zone_dir */
-	if (vhd->zone_dir[0])
-		lws_strncpy(tzdir, vhd->zone_dir, sizeof(tzdir));
-	else
-		return;
+	uint8_t replaces_local = 0;
 
 	int fpin = open(payload_path, O_RDONLY);
 	if (fpin >= 0) {
@@ -1178,9 +1212,8 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					/*
 					 * F-055: the origin becomes the cache
 					 * entry's filename label, which is
-					 * used to compose unlink paths and
-					 * prefix-match other entries in the
-					 * zone dir; keep it to unambiguous
+					 * used to prefix-match other entries;
+					 * keep it to unambiguous
 					 * presentation-format DNS names
 					 */
 					if (!auth_dns_zone_origin_valid(clean_origin)) {
@@ -1204,15 +1237,13 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 								serial_is_newer = 0;
 								break;
 							}
-							char dpath[1024];
-							if (tzdir[0]) {
-								lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
-								unlink(dpath);
-							}
-							lws_sul_cancel(&old->sul_subscribe);
-							lws_auth_dns_free_zone(&old->zone);
-							lws_dll2_remove(&old->list);
-							free(old);
+							/*
+							 * G-290: an update of an operator's zone
+							 * stays one; their file is left alone and
+							 * is loaded again at the next start
+							 */
+							replaces_local |= old->is_local;
+							auth_dns_ce_destroy(old);
 						}
 					} lws_end_foreach_dll_safe(d, d1);
 
@@ -1223,10 +1254,14 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 						return;
 					}
 
-					/* Enforce cache limits */
-					while (lws_dll2_count(&vhd->zones) > 0 &&
-					       lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones)
-						auth_dns_evict_oldest(vhd, tzdir);
+					/*
+					 * Enforce the cache limit on DHT-fetched zones,
+					 * the operator's are never evicted for room
+					 */
+					while (!replaces_local && vhd->cached_zones &&
+					       vhd->cached_zones >= vhd->cache_max_zones &&
+					       !auth_dns_evict_oldest(vhd))
+						;
 
 					struct auth_dns_cache_entry *ce = malloc(sizeof(*ce));
 					if (ce) {
@@ -1252,8 +1287,8 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 							} lws_end_foreach_dll(d2);
 						} lws_end_foreach_dll(d);
 
-						ce->vhd = vhd;
-						lws_dll2_add_head(&ce->list, &vhd->zones);
+						ce->is_local = replaces_local;
+						auth_dns_ce_add(vhd, ce);
 
 						lwsl_info("Loaded DHT payload %s from %s natively (serial %llu, ttl_exp %llu, sig_exp %llu)\n",
 							ce->zone.origin, payload_path, (unsigned long long)ce->serial,
@@ -1414,25 +1449,15 @@ auth_dns_evict_cb(lws_sorted_usec_list_t *sul)
 {
 	struct per_vhost_data__auth_dns *vhd = lws_container_of(sul, struct per_vhost_data__auth_dns, sul_evict);
 	time_t now = time(NULL);
-	char tzdir[1024];
-
-	if (vhd->zone_dir[0])
-		lws_strncpy(tzdir, vhd->zone_dir, sizeof(tzdir));
-	else
-		return;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 		struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
 		if ((ce->ttl_expiry && now >= ce->ttl_expiry) ||
 		    (ce->sig_expiry && now >= ce->sig_expiry)) {
-			char dpath[1024];
-			lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, ce->filename);
-			lwsl_notice("%s: Evicting expired zone %s from disk and memory\n", __func__, ce->filename);
-			unlink(dpath);
-			lws_sul_cancel(&ce->sul_subscribe);
-			lws_auth_dns_free_zone(&ce->zone);
-			lws_dll2_remove(&ce->list);
-			free(ce);
+			/* G-290: memory only, the zone dir is the operator's */
+			lwsl_notice("%s: evicting expired zone %s\n", __func__,
+				    ce->filename);
+			auth_dns_ce_destroy(ce);
 		}
 	} lws_end_foreach_dll_safe(d, d1);
 
@@ -1649,8 +1674,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * must already exist, be a real directory (not a
 			 * symlink), belong to our effective uid and not be
 			 * group- or world-writable.  Otherwise the dir scan
-			 * would load, and the expiry / evict paths unlink,
-			 * files other local users control.
+			 * would load files other local users control.
+
 			 */
 			{
 				struct stat st;
@@ -1754,11 +1779,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 				struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
-				lws_sul_cancel(&ce->sul_subscribe);
-				lws_auth_dns_free_zone(&ce->zone);
-				lws_dll2_remove(&ce->list);
-				free(ce);
+				auth_dns_ce_destroy(ce);
 			} lws_end_foreach_dll_safe(d, d1);
+
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 				struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
