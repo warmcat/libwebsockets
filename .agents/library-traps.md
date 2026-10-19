@@ -104,8 +104,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
  - **Two identities behind PROXY v2:** `lws_get_peer_simple()`,
    `lws_io_peer_address()` and `lws_get_peer_addresses()` return the
-   forwarded client (`io->proxied`); anything calling `getpeername()`
-   directly gets the proxy.  Peer limits key on the named client since
+   forwarded client (the effective entry of the peer stack,
+   `pstack_count > 1`, `lws_peer_effective()`, since G-199 P1
+   8ad13a51f / ae12f5f60); anything calling `getpeername()` directly gets
+   the proxy.  Each stack entry has a credibility level (HEARSAY <
+   VOUCHED < ROUTABLE < CRYPTO); per-client policy must not key on
+   HEARSAY, see security-audit/reports/peer-address-stack.md.  Peer limits key on the named client since
    G-196 (a trusted proxy's connection counts against nobody until its
    header arrives).  New per-client
    policy must use the helpers, and anything evaluated at adopt runs
