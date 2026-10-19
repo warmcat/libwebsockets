@@ -1099,6 +1099,11 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 							wsi->a.protocol->name);
 				wsi->a.protocol = pr ? pr : v->protocols;
 				/*
+				 * v may be tls where we were not, or the other
+				 * way: pause or reopen it for v
+				 */
+				__lws_accept_listener_arm(wsi);
+				/*
 				 * ... remove the fake wsi bind
 				 */
 				v->count_bound_wsi--;

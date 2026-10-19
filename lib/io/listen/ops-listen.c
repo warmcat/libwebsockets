@@ -696,6 +696,8 @@ done_list:
 		lws_dll2_remove(&wsi->pre_natal);
 
 		lws_dll2_add_tail(&wsi->listen_list, &a->vhost->listen_wsi);
+		/* paused from the start if accepts are paused now */
+		__lws_accept_listener_arm(wsi);
 		lws_pt_unlock(pt);
 
 #if defined(WIN32) && defined(TCP_FASTOPEN)

@@ -267,6 +267,30 @@ lws_accept_listener_open(struct lws *wsi)
 }
 
 /*
+ * A listener just joined a vhost's listen list: it was created (a vhost made
+ * after the context, an iface listener retried when its interface appeared),
+ * or moved to another vhost when its own went away.  The pausers only act on
+ * listeners when their own state changes, so one made while either pause is
+ * in effect would otherwise keep the POLLIN it was inserted with, and its
+ * connects, declined at accept, keep it readable: the loop spins.  It takes
+ * the same decision now; whichever pause is lifted later reopens it with the
+ * rest, since it is on the list they walk.
+ *
+ * Call with the listener's pt lock held.
+ */
+int
+__lws_accept_listener_arm(struct lws *wsi)
+{
+	int open = lws_accept_listener_open(wsi);
+
+	if (open < 0)
+		return 0;
+
+	return __lws_change_pollfd(wsi, open ? 0 : LWS_POLLIN,
+				   open ? LWS_POLLIN : 0);
+}
+
+/*
  * Listeners are paused while no pt has room for another connection, since an
  * accept is adopted onto the idlest pt (lws_get_idlest_tsi()), whichever pt
  * the listener itself is on.

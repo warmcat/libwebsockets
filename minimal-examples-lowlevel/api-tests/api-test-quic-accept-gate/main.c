@@ -9,7 +9,8 @@
  * Fences G-361: pausing a server's accepts must not stop its established
  * QUIC connections, and new QUIC connections honour the tls restriction
  * (simultaneous_ssl_[handshake_]restriction), but only once their address
- * is validated.
+ * is validated.  And G-366: a listener made while accepts are paused starts
+ * paused.
  *
  * A server QUIC connection has no socket of its own: every datagram of every
  * connection on a vhost arrives through its udp listener.  Accepts are
@@ -53,6 +54,16 @@
  *    anyone able to send Initials, from any source address they like, could
  *    pause the server's tls accepts.
  *
+ *  --case late: simultaneous_ssl_handshake_restriction is CGA_HS, and CGA_HS
+ *    idle tcp connects fill it.  Then a second tls vhost is made, listening
+ *    on the --relay-port, and one tcp connect made to it.  Its listener must
+ *    start paused: one that is readable while every accept on it is
+ *    declined spins the service loop until the restriction lifts.  So over
+ *    CGA_LATE_HOLD_MS, the time spent in service turns shorter than 1ms (a
+ *    spin is made of nothing else) must stay under CGA_LATE_MAX_SPIN_US, and
+ *    nothing is accepted.  Then the first connects go, and the new vhost's
+ *    connect must be accepted: lifting the pause reopens its listener too.
+ *
  * (The client's tls connections count in the same context's restriction as
  * the server's, which is why the handshake limit is 2: one QUIC handshake
  * holds a slot at each end.  For the same reason a new connection can't be
@@ -85,16 +96,19 @@
 #define CGA_PAT(_n)		((char)('a' + ((_n) % 26)))
 #define CGA_SMALL		"small response"
 #define CGA_INITIAL_MAX		1500
+#define CGA_LATE_HOLD_MS	500
+#define CGA_LATE_MAX_SPIN_US	(50 * LWS_US_PER_MS)
 
 enum {
 	CGA_HANDSHAKES,
 	CGA_SESSIONS,
 	CGA_FDS,
-	CGA_FLOOD_CASE
+	CGA_FLOOD_CASE,
+	CGA_LATE
 };
 
 static const char * const case_names[] = {
-	"handshakes", "sessions", "fds", "flood"
+	"handshakes", "sessions", "fds", "flood", "late"
 };
 
 /* the client connections, told apart by their opaque user data */
@@ -119,19 +133,25 @@ enum {
 	CGA_ST_CAPTURE,		/* flood: collecting Initials */
 	CGA_ST_FLOOD,		/* flood: the server has them */
 	CGA_ST_ACCEPT,		/* flood: a tcp connect must be accepted */
+	CGA_ST_LATE_FILL,	/* late: tcp connects fill the restriction */
+	CGA_ST_LATE_HOLD,	/* late: the new listener must not spin us */
+	CGA_ST_LATE_ACCEPT,	/* late: its connect must now be accepted */
 	CGA_ST_DONE
 };
 
 static struct lws_context *context;
-static struct lws_vhost *vh_cli;
+static struct lws_vhost *vh_cli, *vh_late;
+static const char *cert, *key;
 static lws_sorted_usec_list_t sul_watchdog, sul_tick;
 static struct lws *srv_slow, *relay_in, *relay_out, *flood_wsi,
 		  *accepted_wsi[CGA_FDS_CONNECTS];
-static lws_usec_t deadline;
+/* time spent in service turns shorter than 1ms, see --case late */
+static lws_usec_t deadline, spin_us, spin_us_base;
 static uint8_t initials[CGA_FLOOD][CGA_INITIAL_MAX];
 static size_t initial_len[CGA_FLOOD], body_len[CGA_CONN_COUNT];
 static int port = 7700, port_relay, tcase = -1, state, accepted,
 	   accepted_last, stable, tcp[CGA_FDS_CONNECTS], tcp_count,
+	   accepted_late, tcp_late = -1,
 	   accepting, accepted_wsis, tcp_gone, tcp_held,
 	   released,
 	   served_small, completed[CGA_CONN_COUNT], refused, captured,
@@ -176,6 +196,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		/* a tcp connect is being accepted: its wsi is made next */
 		accepting = 1;
 		accepted++;
+		if (vh_late && lws_get_vhost(wsi) == vh_late)
+			accepted_late++;
 		return 0;
 
 	case LWS_CALLBACK_WSI_CREATE:
@@ -417,7 +439,7 @@ connect_h3(int tag)
 /* a tcp connect to the server, that never says anything */
 
 static int
-tcp_connect(void)
+tcp_connect(int to_port)
 {
 	struct sockaddr_in sin;
 	int fd;
@@ -431,7 +453,7 @@ tcp_connect(void)
 
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)port);
+	sin.sin_port = htons((uint16_t)to_port);
 	sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
 	/* to loopback, it completes in the kernel, accepted or not */
@@ -450,6 +472,35 @@ tcp_close_all(void)
 {
 	while (tcp_count)
 		close(tcp[--tcp_count]);
+}
+
+/* late: a second tls vhost, made while the restriction is reached */
+static int
+start_late(void)
+{
+	struct lws_context_creation_info info;
+
+	lws_context_info_defaults(&info, NULL);
+	info.port			= port_relay;
+	info.protocols			= protocols_srv;
+	info.ssl_cert_filepath		= cert;
+	info.ssl_private_key_filepath	= key;
+	info.alpn			= "http/1.1";
+	info.vhost_name			= "late";
+	vh_late = lws_create_vhost(context, &info);
+	if (!vh_late) {
+		fail("the late vhost could not be made");
+		return 1;
+	}
+
+	/* kept apart: it must outlast the ones holding the restriction */
+	if (tcp_connect(port_relay)) {
+		fail("tcp connect to the late vhost");
+		return 1;
+	}
+	tcp_late = tcp[--tcp_count];
+
+	return 0;
 }
 
 static void
@@ -520,7 +571,7 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		n = tcase == CGA_FDS ? CGA_FDS_CONNECTS :
 		    (tcase == CGA_HANDSHAKES ? CGA_HS : 1);
 		while (n--)
-			if (tcp_connect()) {
+			if (tcp_connect(port)) {
 				fail("tcp connect");
 				return;
 			}
@@ -663,13 +714,68 @@ tick_cb(lws_sorted_usec_list_t *sul)
 			break;
 		}
 		accepted_last = accepted;
-		if (tcp_connect()) {
+		if (tcp_connect(port)) {
 			fail("tcp connect");
 			return;
 		}
 		set_deadline(CGA_ACCEPT_MS);
 		state = CGA_ST_ACCEPT;
 		break;
+
+	case CGA_ST_LATE_FILL:
+		if (!tcp_count)
+			for (n = 0; n < CGA_HS; n++)
+				if (tcp_connect(port)) {
+					fail("tcp connect");
+					return;
+				}
+		if (accepted < CGA_HS)
+			break;
+		if (start_late())
+			return;
+		lwsl_user("late vhost made with the restriction reached, and "
+			  "connected to\n");
+		spin_us_base = spin_us;
+		set_deadline(CGA_LATE_HOLD_MS);
+		state = CGA_ST_LATE_HOLD;
+		break;
+
+	case CGA_ST_LATE_HOLD:
+		if (spin_us - spin_us_base > CGA_LATE_MAX_SPIN_US) {
+			lwsl_err("%dms in service turns under 1ms\n",
+				 (int)((spin_us - spin_us_base) / LWS_US_PER_MS));
+			fail("the service loop spun on the late listener");
+			return;
+		}
+		if (lws_now_usecs() < deadline)
+			break;
+		if (accepted_late) {
+			fail("the late vhost accepted with the restriction "
+			     "reached");
+			return;
+		}
+		lwsl_user("late listener quiet, %dus in turns under 1ms over "
+			  "%dms; the first connects go\n",
+			  (int)(spin_us - spin_us_base), CGA_LATE_HOLD_MS);
+		tcp_close_all();
+		set_deadline(CGA_FLOW_MS);
+		state = CGA_ST_LATE_ACCEPT;
+		break;
+
+	case CGA_ST_LATE_ACCEPT:
+		if (!accepted_late) {
+			if (lws_now_usecs() > deadline) {
+				fail("the late vhost never accepted once the "
+				     "restriction lifted");
+				return;
+			}
+			break;
+		}
+		lwsl_user("the late vhost accepted once the restriction "
+			  "lifted\n");
+		state = CGA_ST_DONE;
+		lws_default_loop_exit(context);
+		return;
 
 	case CGA_ST_ACCEPT:
 		if (accepted == accepted_last) {
@@ -708,7 +814,7 @@ sigint_handler(int sig)
 
 int main(int argc, const char **argv)
 {
-	const char *p, *cert = NULL, *key = NULL, *mode = NULL;
+	const char *p, *mode = NULL;
 	struct lws_context_creation_info info;
 	int n, result = 1;
 
@@ -730,7 +836,7 @@ int main(int argc, const char **argv)
 
 	if (!cert || !key || tcase < 0) {
 		lwsl_err("--cert, --key and --case handshakes|sessions|fds|"
-			 "flood are required\n");
+			 "flood|late are required\n");
 		return 1;
 	}
 
@@ -746,6 +852,7 @@ int main(int argc, const char **argv)
 	switch (tcase) {
 	case CGA_HANDSHAKES:
 	case CGA_FLOOD_CASE:
+	case CGA_LATE:
 		info.simultaneous_ssl_handshake_restriction = CGA_HS;
 		break;
 	case CGA_SESSIONS:
@@ -807,13 +914,22 @@ int main(int argc, const char **argv)
 			goto bail;
 		}
 		state = CGA_ST_CAPTURE;
-	} else if (!connect_h3(CGA_CONN_SLOW)) {
+	} else if (tcase == CGA_LATE)
+		state = CGA_ST_LATE_FILL;
+	else if (!connect_h3(CGA_CONN_SLOW)) {
 		lwsl_err("The connection could not be started\n");
 		goto bail;
 	}
 
-	while (lws_service(context, 0) >= 0)
-		;
+	n = 0;
+	while (n >= 0) {
+		lws_usec_t t = lws_now_usecs();
+
+		n = lws_service(context, 0);
+		t = lws_now_usecs() - t;
+		if (t < LWS_US_PER_MS)
+			spin_us += t;
+	}
 
 	if (timed_out)
 		lwsl_err("FAIL: timed out in state %d (slow: %u bytes, "
@@ -826,6 +942,8 @@ bail:
 	lws_sul_cancel(&sul_tick);
 	lws_sul_cancel(&sul_watchdog);
 	tcp_close_all();
+	if (tcp_late >= 0)
+		close(tcp_late);
 	lws_context_destroy(context);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");

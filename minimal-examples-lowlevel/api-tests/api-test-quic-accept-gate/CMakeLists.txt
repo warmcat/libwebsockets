@@ -12,7 +12,8 @@ set(SRCS main.c)
 # An h3 server and client in one process: pausing the server's tcp accepts,
 # for the tls restriction or a full fds table, must not stop its established
 # QUIC connections, and new QUIC connections honour the tls restriction
-# once their address is validated, not before
+# once their address is validated, not before; and a tls listener made while
+# accepts are paused starts paused (the late case)
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H3 1 requirements)
@@ -26,8 +27,9 @@ if (requirements AND NOT WIN32)
 
 	set(CGA_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
-	foreach(CGA_CASE handshakes sessions fds flood)
-		# the server, and the flood case's udp relay
+	foreach(CGA_CASE handshakes sessions fds flood late)
+		# the server, and the flood case's udp relay or the late case's
+		# second vhost
 		lws_get_free_ports(PORT_CGA_${CGA_CASE} 2)
 		math(EXPR PORT_CGA_RELAY_${CGA_CASE} "${PORT_CGA_${CGA_CASE}} + 1")
 

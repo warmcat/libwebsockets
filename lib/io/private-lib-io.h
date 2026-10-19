@@ -219,6 +219,8 @@ lws_plat_pipe_signal(struct lws_context *ctx, int tsi);
 #if defined(LWS_WITH_SERVER)
 int
 lws_accept_listener_open(struct lws *wsi);
+int
+__lws_accept_listener_arm(struct lws *wsi);
 #endif
 
 #if defined(LWS_WITH_SERVER) && LWS_MAX_SMP > 1
