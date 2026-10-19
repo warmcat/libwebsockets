@@ -506,10 +506,34 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 
 	switch (ctx->path_match - 1) {
 	case LEJPGP_UID:
-		a->info->uid = (unsigned int)atoi(ctx->buf);
-		return 0;
 	case LEJPGP_GID:
-		a->info->gid = (unsigned int)atoi(ctx->buf);
+		/*
+		 * A numeric id or a name.  Anything else must not quietly mean
+		 * 0, ie, "do not drop privileges", so it fails the config.
+		 */
+		if (reason == LEJPCB_VAL_STR_CHUNK)
+			/* only act on the whole string, at its end */
+			return 0;
+
+		if (reason == LEJPCB_VAL_STR_END) {
+			if (lejp_string_unify(ctx, &a->ac))
+				return lwsws_exhausted(ctx);
+			p = ctx->su.fp;
+		} else
+			if (reason == LEJPCB_VAL_NUM_INT)
+				p = ctx->buf;
+			else
+				p = NULL;
+
+		if (!p || (ctx->path_match - 1 == LEJPGP_UID ?
+			   lws_plat_user_to_uid(p, &a->info->uid) :
+			   lws_plat_group_to_gid(p, &a->info->gid))) {
+			lwsl_err("%s: %s: not a known name or numeric id\n",
+				 __func__, ctx->path);
+
+			return -1;
+		}
+
 		return 0;
 	case LEJPGP_USERNAME:
 		a->info->username = a->p;

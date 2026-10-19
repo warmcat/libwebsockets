@@ -192,11 +192,18 @@ context_creation(int argc, const char **argv)
 	const char *stub = lws_cmdline_option(argc, argv, "--lws-stub");
 	if (lws_cmdline_option(argc, argv, "--lws-dht-dnssec-monitor-root") || stub) {
 		const char *p;
-		if ((p = lws_cmdline_option(argc, argv, "--uid")))
-			info.uid = (unsigned int)atoi(p);
-		if ((p = lws_cmdline_option(argc, argv, "--gid")))
-			info.gid = (unsigned int)atoi(p);
-		
+		/* a numeric id or a name, anything else is refused */
+		if ((p = lws_cmdline_option(argc, argv, "--uid")) &&
+		    lws_plat_user_to_uid(p, &info.uid)) {
+			lwsl_err("--uid: unknown user '%s'\n", p);
+			goto init_failed;
+		}
+		if ((p = lws_cmdline_option(argc, argv, "--gid")) &&
+		    lws_plat_group_to_gid(p, &info.gid)) {
+			lwsl_err("--gid: unknown group '%s'\n", p);
+			goto init_failed;
+		}
+
 		info.lws_stub = stub ? stub : "dnssec-monitor";
 		/* Root monitor / stubs make outbound TLS probes but skip user vhosts, force global TLS init */
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP;

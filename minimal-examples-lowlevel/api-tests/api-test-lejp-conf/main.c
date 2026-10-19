@@ -455,6 +455,40 @@ done_vh:
 		;
 	}
 
+#if !defined(WIN32)
+	/*
+	 * 9: global uid / gid take a numeric id (string or number, defines
+	 * applied) or a name
+	 */
+
+	if (setup_case("ids",
+		"{\n\"global\": {\n"
+		  "\"=U\": \"48\",\n"
+		  "\"uid\": \"${U}\",\n"
+		  "\"gid\": 49\n"
+		"}\n}\n", NULL, NULL))
+		return fail("ids", "setup");
+
+	n = run_globals("ids", &info);
+	if (n)
+		e += fail("ids", "parse failed");
+	else if (info.uid != 48 || info.gid != 49)
+		e += fail("ids", "numeric uid / gid");
+
+	if (setup_case("ids-names",
+		"{\n\"global\": {\n"
+		  "\"uid\": \"root\",\n"
+		  "\"gid\": \"0\"\n"
+		"}\n}\n", NULL, NULL))
+		return fail("ids-names", "setup");
+
+	n = run_globals("ids-names", &info);
+	if (n)
+		e += fail("ids-names", "parse failed");
+	else if (info.uid || info.gid)
+		e += fail("ids-names", "user name as uid");
+#endif
+
 	/*
 	 * error cases: all of these must fail the parse loudly
 	 */
@@ -481,6 +515,21 @@ done_vh:
 						"invalid define name" },
 		{ "err-emptyname",	"{\"global\":{\"=\":\"x\"}}",
 						"empty define name" },
+		/* a uid / gid that is not an id or a name must not mean 0 */
+		{ "err-uid-name",
+			"{\"global\":{\"uid\":\"lws-api-test-no-such-user\"}}",
+						"unknown user as uid" },
+		{ "err-gid-name",
+			"{\"global\":{\"gid\":\"lws-api-test-no-such-group\"}}",
+						"unknown group as gid" },
+		{ "err-uid-junk",	"{\"global\":{\"uid\":\"48x\"}}",
+						"trailing junk in uid" },
+		{ "err-gid-neg",	"{\"global\":{\"gid\":\"-1\"}}",
+						"negative gid" },
+		{ "err-uid-bool",	"{\"global\":{\"uid\":true}}",
+						"boolean uid" },
+		{ "err-uid-float",	"{\"global\":{\"uid\":4.8}}",
+						"float uid" },
 	};
 	size_t i;
 

@@ -37,7 +37,12 @@ having to change the config if your install path was different.
 config schema, it defines a substitution symbol instead.  See
 "Scoped substitution defines" below.
 
-There is a single file intended for global settings
+There is a single file intended for global settings.  If lwsws starts as root,
+it switches to the user and group in "username" / "groupname" (names) or
+"uid" / "gid" (each either a numeric id or a name) once it is listening; a
+value that is not a numeric id or a known name is a config error.  If the
+switch fails, lwsws exits rather than serve as root.  See "Dropping root
+privileges" in README.coding.md.
 
 /etc/lwsws/conf
 ```

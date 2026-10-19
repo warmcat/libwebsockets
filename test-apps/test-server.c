@@ -432,10 +432,18 @@ int main(int argc, char **argv)
 			break;
 #endif
 		case 'u':
-			uid = (uid_t)atoi(optarg);
+			/* a numeric uid or a user name */
+			if (lws_plat_user_to_uid(optarg, &uid)) {
+				fprintf(stderr, "unknown user '%s'\n", optarg);
+				return 1;
+			}
 			break;
 		case 'g':
-			gid = (gid_t)atoi(optarg);
+			/* a numeric gid or a group name */
+			if (lws_plat_group_to_gid(optarg, &gid)) {
+				fprintf(stderr, "unknown group '%s'\n", optarg);
+				return 1;
+			}
 			break;
 		case 'd':
 			debug_level = atoi(optarg);
