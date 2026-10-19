@@ -1865,6 +1865,45 @@ lws_quic_server_admit_established(struct lws *nwsi)
 }
 #endif
 
+/*
+ * What a connection's peer address stack says about it follows what QUIC
+ * proved.  A netconn's entry starts as hearsay, a datagram's source address
+ * (lws_io_path() commits it so), and is raised on evidence that travelled
+ * the path:
+ *
+ *  - ROUTABLE, address validation (RFC 9000 8.1): a packet from seen that
+ *    is protected with the Handshake keys, which only an endpoint that
+ *    received our Initial at that address can have, a valid Retry token
+ *    bound to it, or a PATH_RESPONSE from it to our PATH_CHALLENGE (8.2)
+ *
+ *  - CRYPTO, the handshake done: every entry already validated is now bound
+ *    to the keys the peer proved it holds
+ *
+ * lws_peer_raise() raises only an entry with seen's address and port, so
+ * evidence arriving from somewhere else, eg, the new address of a path
+ * migration that is not committed yet, raises nothing; a path that is
+ * committed (RFC 9000 9) starts again at hearsay, until its validation
+ * raises it.
+ */
+void
+lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
+		     lws_peer_cred_t cred)
+{
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+	int n;
+
+	if (cred != LWS_PEER_CRED_CRYPTO) {
+		if (seen)
+			lws_peer_raise(nwsi, seen, cred);
+		return;
+	}
+
+	n = lws_peer_walk(nwsi, e, (int)LWS_ARRAY_SIZE(e));
+	while (n-- > 0)
+		if (e[n].cred >= LWS_PEER_CRED_ROUTABLE)
+			lws_peer_raise(nwsi, &e[n].sa46, LWS_PEER_CRED_CRYPTO);
+}
+
 static void
 lws_quic_replies_destroy(struct lws *lwsi)
 {
@@ -2215,6 +2254,13 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		/* the peer we were born from is the committed path */
 		nwsi->quic.qn->path_sa46 = sa46;
 		lws_io_path(nwsi, LWS_IOPATH_COMMIT, &sa46);
+		if (valid_retry_scid.len)
+			/*
+			 * its Retry token, bound to the address our Retry went
+			 * to, came back (RFC 9000 8.1.2)
+			 */
+			lws_quic_peer_proven(nwsi, &sa46,
+					     LWS_PEER_CRED_ROUTABLE);
 
 #if defined(LWS_WITH_TLS)
 		nwsi->use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
@@ -2919,6 +2965,9 @@ tp_ok:
 
 		if (nwsi->quic.qn && level == LWS_QUIC_LEVEL_HANDSHAKE) {
 			nwsi->quic.qn->address_validated = 1;
+			/* only who got our Initial there has these keys */
+			lws_quic_peer_proven(nwsi, &sa46,
+					     LWS_PEER_CRED_ROUTABLE);
 		}
 
 		/*

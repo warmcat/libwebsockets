@@ -975,6 +975,9 @@ lws_quic_idle_restart(struct lws_quic_netconn *qn, int tx);
 int
 lws_quic_server_admit_established(struct lws *nwsi);
 #endif
+void
+lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
+		     lws_peer_cred_t cred);
 
 int
 lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t len);

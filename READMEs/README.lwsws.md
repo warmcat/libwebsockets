@@ -393,8 +393,8 @@ and auth-server plugins do that for their pages.
 
    The first field of each line is the client's address, eg `192.0.2.10`,
    exactly as it always was, when that is all lws knows of who the peer is
-   and the connection's handshake proved it; a client on an AF_UNIX socket
-   is `unix`.  When the connection has more layers than its own peer's
+   and the connection's handshake proved it (for h3, QUIC's handshake on a
+   validated path); a client on an AF_UNIX socket is `unix`.  When the connection has more layers than its own peer's
    address, eg the client a trusted front named in a PROXY v2 header (see
    `proxy-v2-trusted`), or its only one is not proven, eg the source address
    of datagrams, the field is every layer instead, still as one field with no

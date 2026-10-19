@@ -346,9 +346,10 @@ typedef enum lws_peer_cred {
 				 *   from a trusted front on TCP */
 	LWS_PEER_CRED_ROUTABLE,	/**< we saw it ourselves: a round trip carrying a
 				 *   value it could not guess (a TCP handshake,
-				 *   or a protocol's evidence via
-				 *   lws_peer_raise()) */
-	LWS_PEER_CRED_CRYPTO,	/**< bound to a key the peer proved */
+				 *   QUIC address validation, or a protocol's
+				 *   evidence via lws_peer_raise()) */
+	LWS_PEER_CRED_CRYPTO,	/**< bound to a key the peer proved: a QUIC
+				 *   handshake done on a validated path */
 } lws_peer_cred_t;
 
 /**

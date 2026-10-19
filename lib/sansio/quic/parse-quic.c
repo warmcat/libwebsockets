@@ -1661,6 +1661,14 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						nwsi->quic.qn->latest_rtt = 0;
 						lws_quic_pmtud_reset(nwsi->quic.qn);
 					}
+
+					/*
+					 * The path it came on is validated
+					 * (RFC 9000 8.2.2): a newly committed one
+					 * is hearsay until now
+					 */
+					lws_quic_peer_proven(nwsi, sa46,
+						LWS_PEER_CRED_ROUTABLE);
 				} else {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Spurious or mismatched PATH_RESPONSE, ignoring");
 				}
