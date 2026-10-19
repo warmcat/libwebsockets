@@ -188,7 +188,12 @@ lws_dsh_get_head(struct lws_dsh *dsh, int kind, void **obj, size_t *size);
  * \param dsh: the dsh to dump
  * \param desc: text that appears at the top of the dump
  *
- * Useful information for debugging lws_dsh
+ * Useful information for debugging lws_dsh.  In builds without _DEBUG, or
+ * with LWS_WITH_NO_LOGS, it is not in the library and compiles to nothing.
  */
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 LWS_VISIBLE LWS_EXTERN void
 lws_dsh_describe(struct lws_dsh *dsh, const char *desc);
+#else
+#define lws_dsh_describe(_d, _desc)
+#endif
