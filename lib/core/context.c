@@ -856,7 +856,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		if (!ok || lws_fi(&info->fic, "ctx_createfail_plugin_init")) {
 			lwsl_err("%s: failed to load %s\n", __func__,
 					map[n].name);
-			goto bail;
+			goto free_context_fail;
 		}
 
 #if defined(LWS_WITH_LIBUV)
@@ -869,7 +869,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 			lwsl_err("%s: unable to load evlib plugin %s\n",
 					__func__, map[n].name);
 
-			goto bail;
+			goto free_context_fail;
 		}
 		plev = (const lws_plugin_evlib_t *)evlib_plugin_list->hdr;
 		break;
@@ -990,10 +990,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context = lws_zalloc(size, "context");
 	if (!context || lws_fi(&info->fic, "ctx_createfail_oom_ctx")) {
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-		lws_free(context);
+		lws_free_set_NULL(context);
 #endif
 		lwsl_err("OOM");
-		goto early_bail;
+		goto free_context_fail2;
 	}
 
 	context->name			= info->vhost_name;
@@ -2034,9 +2034,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 		    lws_fi(&context->fic, "ctx_createfail_def_vh")) {
 			lwsl_cx_err(context, "Failed to create default vhost");
 
-#if defined(LWS_WITH_PEER_LIMITS)
-			lws_free_set_NULL(context->pl_hash_table);
-#endif
 			goto bail;
 		}
 	}
@@ -2385,7 +2382,19 @@ free_context_fail:
 	}
 #endif
 free_context_fail2:
+	/*
+	 * Everything allocated since the context was, up to where the
+	 * failures start going to bail / bail_libuv_aware (which hand the
+	 * whole context to lws_context_destroy()), is freed here
+	 */
 	if (context) {
+#if defined(LWS_WITH_PEER_LIMITS)
+		/* no peers can exist yet, only the table */
+		lws_free_set_NULL(context->pl_hash_table);
+#endif
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_TLS_JIT_TRUST)
+		lws_cache_destroy(&context->trust_cache);
+#endif
 #if defined(LWS_WITH_SYS_METRICS)
 		lws_metrics_destroy(context);
 #endif
@@ -2399,6 +2408,11 @@ free_context_fail2:
 #endif
 	}
 	lws_fi_destroy(&info->fic);
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
+	/* the same list as context->evlib_plugin_list, if we got that far */
+	if (evlib_plugin_list)
+		lws_plugins_destroy(&evlib_plugin_list, NULL, NULL);
+#endif
 	if (context) {
 		lwsl_refcount_cx(context->log_cx, -1);
 		lws_free(context);
