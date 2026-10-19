@@ -388,3 +388,9 @@ a log is evidence that something was or was not emitted.
    instead (api-test-ws-close since e8e10bab3).
  - Cleanup that kills processes by pattern must match only your own
    build tree's paths: a broad match killed another agent's test fixture.
+ - Log-capture tests need `LLLF_LOG_SPEW_OFF` in `lws_set_log_level()`:
+   every level trips the spew limiter (64 lines in 20ms), which drops
+   lines silently (api-test-log-redact).
+ - The lws h2 encoder never indexes headers: to exercise the HPACK
+   dynamic-table path, write raw bytes in APPEND_HANDSHAKE_HEADER (0x40
+   literal, then 0x80|62 on the next request with LCCSCF_PIPELINE).

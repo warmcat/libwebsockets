@@ -325,6 +325,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    server wsi's inherited `retry_policy` to the new vhost's and re-arms a
    running validity timer (G-222).
 
+## Logging secrets
+
+ - Header values go through `lws_http_hdr_log_value()` (credential
+   headers, urlargs and unknown names: length only; paths lose the
+   query) and paths through `lws_http_log_path()` since G-350 / G-351.
+   New log sites must use them; never hexdump key, PEM, cookie, token or
+   metadata buffers at any level (G-345, G-349).
+
 ## Vhost selection
 
  - Host / :authority / SNI / passthrough vhost selection is scoped to the
