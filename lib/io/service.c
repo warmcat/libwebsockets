@@ -1302,24 +1302,46 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	return 0;
 }
+
+/*
+ * Service all guys with pending rxflow that reached a state they can accept
+ * the pending data.
+ *
+ * Servicing one can close and free others on the list, not only itself: an
+ * h2 network connection's parked rx can reset a stream that is listed too,
+ * or fail the connection, which frees all its streams.  So no pointer to
+ * another member can be kept across servicing one.  Instead, the guys listed
+ * when the pass starts move to a list of our own, and are taken from its
+ * head one at a time, going back on the pt's list before each is serviced,
+ * where the rest of lws expects to find him while he has parked rx.  A guy
+ * freed meanwhile is removed from whichever of the two lists he is on
+ * (__lws_free_wsi()), so he is simply never taken.  Guys that park rx during
+ * the pass are listed on the pt's list, for the next pass.
+ */
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 {
+	lws_dll2_owner_t pass;
 	struct lws_pollfd pfd;
+	struct lws_dll2 *d;
 
-	if(lws_dll2_is_empty(&pt->dll_buflist_owner))
+	if (lws_dll2_is_empty(&pt->dll_buflist_owner))
 		return;
 
-	/*
-	 * service all guys with pending rxflow that reached a state they can
-	 * accept the pending data
-	 */
+	lws_dll2_owner_clear(&pass);
 
 	lws_pt_lock(pt, __func__);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&pt->dll_buflist_owner)) {
+	while ((d = lws_dll2_get_head(&pt->dll_buflist_owner))) {
+		lws_dll2_remove(d);
+		lws_dll2_add_tail(d, &pass);
+	}
+
+	while ((d = lws_dll2_get_head(&pass))) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
+
+		lws_dll2_remove(d);
+		lws_dll2_add_tail(d, &pt->dll_buflist_owner);
 
 		pfd.events = LWS_POLLIN;
 		pfd.revents = LWS_POLLIN;
@@ -1360,8 +1382,7 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 						"close_and_handled");
 			pt->inside_lws_service = 0;
 		}
-
-	} lws_end_foreach_dll_safe(d, d1);
+	}
 
 	lws_pt_unlock(pt);
 }
