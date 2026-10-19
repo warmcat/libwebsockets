@@ -30,7 +30,10 @@ signature over the exchange hash, and drives the USERAUTH states over
    session id from the key exchange) must still authenticate, open a
    session channel, and have
    a 1-byte `exec` command refused with `CHANNEL_FAILURE` without reading
-   past the command allocation looking for an `"scp "` prefix.
+   past the command allocation looking for an `"scp "` prefix.  Before the
+   channel is opened, two more genuinely signed requests are sent after
+   the success: they are silently ignored (RFC4252 5.1), and must not leak
+   their signature allocations (G-303, LSan reports them otherwise).
 
 Three further scenarios, each on a fresh connection, fence the pre-auth
 transport parser:

@@ -1273,6 +1273,15 @@ again:
 			    pss->len > 16 * 1024 * 1024 ||
 			    ssh_string_overruns_packet(pss))
 				goto bail;
+			/*
+			 * Every state given an allocated string adopts or
+			 * frees it; if one ever forgets, don't orphan it
+			 */
+			if (pss->last_alloc) {
+				lwsl_err("%s: unadopted string in state %d\n",
+					 __func__, pss->state_after_string);
+				ssh_free_set_NULL(pss->last_alloc);
+			}
 			pss->last_alloc = sshd_zalloc(pss->len + 1);
 			lwsl_debug("SSHS_GET_STRING_LEN_ALLOC: %p, state %d\n",
 				   pss->last_alloc, pss->state_after_string);
@@ -1459,15 +1468,20 @@ again:
 			 * When SSH_MSG_USERAUTH_SUCCESS has been sent, any
 			 * further authentication requests received after that
 			 * SHOULD be silently ignored.
+			 *
+			 * Adopt the signature before deciding that, so every
+			 * way out frees (and scrubs) it with the ua; left in
+			 * last_alloc, the next string allocation orphaned it.
 			 */
+			pss->ua->sig = pss->last_alloc;
+			pss->last_alloc = NULL; /* it was adopted */
+			pss->ua->sig_len = pss->npos;
+
 			if (pss->ssh_auth_state == SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) {
 				lwsl_info("Silently ignoring auth req after accepted\n");
 				goto ua_fail_silently;
 			}
 			lwsl_info("SSHS_DO_UAR_SIG\n");
-			pss->ua->sig = pss->last_alloc;
-			pss->last_alloc = NULL; /* it was adopted */
-			pss->ua->sig_len = pss->npos;
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
 
 			/*

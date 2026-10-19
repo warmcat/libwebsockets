@@ -26,7 +26,10 @@
  *    session id from the key exchange) must still
  *    authenticate and open a session channel, and a 1-byte "exec"
  *    command must be refused with CHANNEL_FAILURE without reading past
- *    the 1-byte command allocation looking for an "scp " prefix.
+ *    the 1-byte command allocation looking for an "scp " prefix,
+ *  - two more signed USERAUTH requests after the success are silently
+ *    ignored, and must not leak their signature allocations (G-303; LSan
+ *    reports them otherwise).
  *
  * Further scenarios, each on a fresh connection, fence the pre-auth
  * transport parser (G-284, G-285):
@@ -475,6 +478,25 @@ msg_userauth(const uint8_t *pub, uint32_t pub_len,
 	return pac_done();
 }
 
+/* the authorized key, with a genuine signature of this session's request */
+
+static int
+msg_userauth_genuine(void)
+{
+	uint8_t m[4 + 12 + 4 + sizeof(rsasig)], *o = m;
+
+	poke_u32(o, 12);
+	o += 4;
+	memcpy(o, "rsa-sha2-256", 12);
+	o += 12;
+	poke_u32(o, rsasig_len);
+	o += 4;
+	memcpy(o, rsasig, rsasig_len);
+
+	return msg_userauth(keyblob, keyblob_len, m,
+			    (uint32_t)(4 + 12 + 4 + rsasig_len));
+}
+
 static int
 msg_channel_open(void)
 {
@@ -853,21 +875,8 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 		 * from the key exchange and verifies against the pubkey we
 		 * generated.  This must still authenticate.
 		 */
-		{
-			uint8_t m[4 + 12 + 4 + 512];
-			uint8_t *o = m;
-
-			poke_u32(o, 12);
-			o += 4;
-			memcpy(o, "rsa-sha2-256", 12);
-			o += 12;
-			poke_u32(o, rsasig_len);
-			o += 4;
-			memcpy(o, rsasig, rsasig_len);
-			if (msg_userauth(keyblob, keyblob_len, m,
-					 (uint32_t)(4 + 12 + 4 + rsasig_len)))
-				return test_fail("tx prep");
-		}
+		if (msg_userauth_genuine())
+			return test_fail("tx prep");
 		cli_state = ST_CLI_UA_SUCCESS;
 		return cli_send_next();
 
@@ -875,7 +884,14 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 		if (msg != SSH_MSG_USERAUTH_SUCCESS)
 			return test_fail("expected USERAUTH_SUCCESS");
 
-		if (msg_channel_open())
+		/*
+		 * Signed requests after the success are silently ignored
+		 * (RFC4252 5.1), and must not leak their signature: the
+		 * next string the server allocates (the exec command
+		 * below) used to orphan it
+		 */
+		if (msg_userauth_genuine() || msg_userauth_genuine() ||
+		    msg_channel_open())
 			return test_fail("tx prep");
 		cli_state = ST_CLI_CH_CONFIRM;
 		return cli_send_next();
