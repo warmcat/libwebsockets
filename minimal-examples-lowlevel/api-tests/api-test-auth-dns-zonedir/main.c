@@ -19,7 +19,8 @@
  * | 4 | zone-dir that is a symlink to a valid dir | followed, zone served | protocol init refused, no listener |
  * | 5 | good dir, but undecorated / short-suffix / group-writable / symlinked zone files | all loaded and served | only the properly shaped file loads, the rest answer REFUSED |
  * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them |
- * | 7 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
+ * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
+ * | 8 | (root only) zone file or dir owned by another uid | loaded / started | file ignored (REFUSED) / init refused |
  *
  * Phase 6 stands in for lws-dht-dnssec with a protocol of that name whose
  * ops only collect the callback auth-dns registers for verified zones.  The
@@ -27,6 +28,12 @@
  * signature against a domain's keys: one carrying a second $ORIGIN for a
  * zone the dir serves, and one that is wholly another zone, must both be
  * refused, leaving the served zone as it was.
+ *
+ * Phase 7's stand-in also takes zone fetches, keeping their completion and
+ * opaque as the plugin does, and never answers them.  When auth-dns' query
+ * times out (5s) and is answered REFUSED, nothing is waiting for the zone any
+ * more: the fetch must have been given up, its completion called exactly
+ * once, as timed out, leaving nothing holding auth-dns' opaque.
  *
  * "No listener" is observed two ways: queries stay unanswered, and the UDP
  * port is bindable by the test itself afterwards (the plugin only creates
@@ -51,6 +58,8 @@
 
 #define TICK_US			(50 * LWS_US_PER_MS)
 #define RESP_US			(2 * LWS_US_PER_SEC)  /* wait for expected replies */
+/* auth-dns answers a query waiting on a zone fetch after 5s */
+#define RESP_FETCH_US		(7 * LWS_US_PER_SEC)
 #define QUIET_US		(700 * LWS_US_PER_MS)  /* prove silence */
 #define DEADLINE_US		(8 * LWS_US_PER_SEC)
 
@@ -89,6 +98,7 @@ struct phase {
 	const char	*zdir;		/* NULL: no zone-dir pvo */
 	int		check_port_free;
 	int		dht;		/* hand zones over as lws-dht-dnssec */
+	int		fetch;		/* take zone fetches as lws-dht-dnssec */
 	struct qexp	q[MAX_Q];
 };
 
@@ -114,6 +124,96 @@ zd_register_auth_cb(struct lws_vhost *vh, zd_auth_cb_t cb, void *opaque)
 }
 
 static struct lws_dht_dnssec_ops zd_dht_ops = {
+	.register_auth_cb = zd_register_auth_cb,
+};
+
+/*
+ * Phase 7 stands in for the zone fetches as well, keeping to the fetch_zone()
+ * contract in lws-dht-dnssec.h: a request merged by domain, cb and opaque, a
+ * cancel dropping it without completing it, a fail completing it once, as
+ * timed out.  Nobody ever answers, so a request only ends by those.
+ */
+
+static struct {
+	char				domain[256];
+	lws_dht_dnssec_fetch_cb_t	cb;
+	void				*opaque;
+	int				pending;
+} zd_fetch;
+
+static int zd_fetch_starts, zd_fetch_completions, zd_fetch_status;
+
+static void
+zd_fetch_reset(void)
+{
+	memset(&zd_fetch, 0, sizeof(zd_fetch));
+	zd_fetch_starts = zd_fetch_completions = 0;
+	zd_fetch_status = -100;
+}
+
+static int
+zd_fetch_matches(const struct lws_dht_dnssec_fetch_zone_args *a)
+{
+	return zd_fetch.pending && a->opaque == zd_fetch.opaque &&
+	       (!a->domain || !strcmp(a->domain, zd_fetch.domain));
+}
+
+static int
+zd_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *a)
+{
+	(void)cx;
+
+	if (a->is_cancel) {
+		if (zd_fetch_matches(a))
+			zd_fetch.pending = 0;
+
+		return 0;
+	}
+
+	if (a->is_fail) {
+		if (zd_fetch_matches(a)) {
+			zd_fetch.pending = 0;
+			zd_fetch_completions++;
+			zd_fetch_status = LWS_DHT_DNSSEC_FETCH_TIMEOUT;
+			zd_fetch.cb(zd_fetch.opaque, zd_fetch.domain,
+				    LWS_DHT_DNSSEC_FETCH_TIMEOUT);
+		}
+
+		return 0;
+	}
+
+	if (!a->domain)
+		goto refuse;
+
+	if (zd_fetch.pending) {
+		if (!strcmp(a->domain, zd_fetch.domain) &&
+		    a->cb == zd_fetch.cb && a->opaque == zd_fetch.opaque)
+			return 0; /* merged */
+
+		/* the phase only asks for one zone */
+		goto refuse;
+	}
+
+	lws_strncpy(zd_fetch.domain, a->domain, sizeof(zd_fetch.domain));
+	zd_fetch.cb = a->cb;
+	zd_fetch.opaque = a->opaque;
+	zd_fetch.pending = 1;
+	zd_fetch_starts++;
+
+	return 0;
+
+refuse:
+	zd_fetch_completions++;
+	zd_fetch_status = LWS_DHT_DNSSEC_FETCH_ABORTED;
+	if (a->cb)
+		a->cb(a->opaque, a->domain ? a->domain : "",
+		      LWS_DHT_DNSSEC_FETCH_ABORTED);
+
+	return 1;
+}
+
+static struct lws_dht_dnssec_ops zd_dht_fetch_ops = {
+	.fetch_zone = zd_fetch_zone,
 	.register_auth_cb = zd_register_auth_cb,
 };
 
@@ -596,7 +696,8 @@ drive_cb(lws_sorted_usec_list_t *sul)
 			still_waiting++;
 	}
 
-	window = still_waiting ? RESP_US : QUIET_US;
+	window = still_waiting ? (cur->fetch ? RESP_FETCH_US : RESP_US) :
+				 QUIET_US;
 
 	if (now - t0 >= (lws_usec_t)window || now - t0 >= DEADLINE_US) {
 		int i;
@@ -631,6 +732,28 @@ drive_cb(lws_sorted_usec_list_t *sul)
 					  cur->q[i].name,
 					  cur->q[i].got_rcode,
 					  cur->q[i].got_anc);
+		}
+
+		/*
+		 * the query was answered after its timeout: nothing waits for
+		 * the zone, so its fetch must be over, completed once
+		 */
+		if (cur->fetch) {
+			if (zd_fetch_starts != 1 || zd_fetch.pending ||
+			    zd_fetch_completions != 1 ||
+			    zd_fetch_status != LWS_DHT_DNSSEC_FETCH_TIMEOUT) {
+				lwsl_err("phase '%s': FAIL fetch started %d, "
+					 "still pending %d, completed %d "
+					 "(status %d), wanted 1, 0, 1 (%d)\n",
+					 cur->name, zd_fetch_starts,
+					 zd_fetch.pending, zd_fetch_completions,
+					 zd_fetch_status,
+					 LWS_DHT_DNSSEC_FETCH_TIMEOUT);
+				phase_failed = 1;
+			} else
+				lwsl_user("phase '%s': fetch given up and "
+					  "completed once, as timed out\n",
+					  cur->name);
 		}
 
 		if (cur->check_port_free && !udp_port_free(ports[phase_idx & 1])) {
@@ -668,6 +791,11 @@ run_phase(struct phase *p, int idx)
 		{ "lws-dht-dnssec", lws_callback_http_dummy, 0, 0, 0,
 		  &zd_dht_ops, 0 },
 		{ NULL, NULL, 0, 0, 0, NULL, 0 }
+	}, my_protocols_fetch[] = {
+		lws_auth_dns_protocols[0],
+		{ "lws-dht-dnssec", lws_callback_http_dummy, 0, 0, 0,
+		  &zd_dht_fetch_ops, 0 },
+		{ NULL, NULL, 0, 0, 0, NULL, 0 }
 	};
 	struct lws_protocol_vhost_options pvo_extra = {
 		NULL, NULL, "cache-max-zones", "499"
@@ -702,8 +830,10 @@ run_phase(struct phase *p, int idx)
 	info.options = LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
 	info.listen_accept_role = "raw-skt";
 	info.listen_accept_protocol = "protocol-lws-auth-dns";
-	info.protocols = p->dht ? my_protocols_dht : my_protocols;
+	info.protocols = p->fetch ? my_protocols_fetch :
+			 (p->dht ? my_protocols_dht : my_protocols);
 	dht_auth_cb = NULL;
+	zd_fetch_reset();
 
 	if (p->zdir) {
 		lws_snprintf(zd, sizeof(zd), "%s/%s", run_dir, p->zdir);
@@ -796,6 +926,14 @@ main(int argc, const char **argv)
 				{ "www.ok3.example", 0x5108, 0, 1, -1, -1, 0 },
 			}
 		}, {
+			.name		= "zone fetch given up with its query",
+			.zdir		= "good",
+			.fetch		= 1,
+			.q		= {
+				/* REFUSED once its 5s wait for the zone ends */
+				{ "www.unserved.example", 0x1109, 5, 0, -1, -1, 0 },
+			}
+		}, {
 			.name		= "another uid's file ignored",
 			.zdir		= "rootfile",
 			.q		= {
@@ -811,7 +949,7 @@ main(int argc, const char **argv)
 			}
 		},
 	};
-	int nph = 6, i, ret;
+	int nph = 7, i, ret;
 	const char *p;
 
 	signal(SIGINT, sigint_handler);

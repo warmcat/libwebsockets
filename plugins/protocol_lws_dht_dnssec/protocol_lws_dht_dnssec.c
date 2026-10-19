@@ -6342,6 +6342,45 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 		return 0;
 	}
 
+	if (args->is_fail) {
+		lws_dll2_owner_t failing;
+
+		if (!v)
+			return 1;
+
+		/*
+		 * Take the requests off the list before completing any, so
+		 * a cb that starts a new fetch neither sees them nor has its
+		 * new request failed with them.  Any transfer already under
+		 * way is left to finish or time out on its own: what it
+		 * stores is there for the next fetch.
+		 */
+		lws_dll2_owner_clear(&failing);
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&v->fetch_reqs)) {
+			struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+			if ((!args->domain || !strcmp(req->domain, args->domain)) &&
+			    req->opaque == args->opaque) {
+				lws_sul_cancel(&req->sul_timeout);
+				lws_dll2_remove(d);
+				lws_dll2_add_tail(d, &failing);
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&failing)) {
+			struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+
+			lws_dll2_remove(d);
+			lwsl_info("%s: fetch for %s given up\n", __func__,
+				  req->domain);
+			if (req->cb)
+				req->cb(req->opaque, req->domain,
+					LWS_DHT_DNSSEC_FETCH_TIMEOUT);
+			free(req);
+		} lws_end_foreach_dll_safe(d, d1);
+
+		return 0;
+	}
+
 	if (v && args->domain && !dht_dnssec_fetch_zone_start(context, v, args))
 		return 0;
 

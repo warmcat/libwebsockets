@@ -22,6 +22,10 @@
  *    since fetches outlive the queries that started them (G-220)
  *  - a fetch's transfer is only opened by an RSP from a host its GET went
  *    to, here the target node: one from another host is refused (G-153)
+ *  - a failed fetch, as auth-dns makes when the query that wanted the zone
+ *    times out (G-224), completes once, as timed out, before fetch_zone()
+ *    returns, and never again; a fetch of the same domain with another
+ *    opaque goes on
  *
  * Each opaque is heap allocated and released only by its completion, so
  * one never released also shows as a leak under LSan.
@@ -47,6 +51,8 @@ enum {
 	FOT_CANCELLED,
 	FOT_CANCEL_ALL,
 	FOT_RSP_SOURCE,
+	FOT_FAILED,
+	FOT_FAIL_OTHER,
 
 	FOT_COUNT
 };
@@ -58,6 +64,8 @@ static const char * const fot_names[] = {
 	"cancelled",
 	"cancelled with every domain of its opaque",
 	"answered by a host it did not ask, then one it did",
+	"failed",
+	"same domain as the failed one, another opaque",
 };
 
 /* the zone key the RSP source case fetches, "dht-hash-" and 64 hex */
@@ -107,10 +115,14 @@ fot_expect(int cond, const char *what)
 	return 0;
 }
 
+#define FOT_FETCH	0
+#define FOT_CANCEL	1
+#define FOT_FAIL	2
+
 static int
 fot_fetch(const struct lws_dht_dnssec_ops *ops, struct lws_context *cx,
 	  struct lws_vhost *vh, const char *domain, void *opaque,
-	  int is_cancel)
+	  int op)
 {
 	struct lws_dht_dnssec_fetch_zone_args args;
 
@@ -119,7 +131,8 @@ fot_fetch(const struct lws_dht_dnssec_ops *ops, struct lws_context *cx,
 	args.domain		= domain;
 	args.cb			= fot_fetch_cb;
 	args.opaque		= opaque;
-	args.is_cancel		= is_cancel;
+	args.is_cancel		= op == FOT_CANCEL;
+	args.is_fail		= op == FOT_FAIL;
 	args.force_network	= 1;
 
 	return ops->fetch_zone(cx, &args);
@@ -163,7 +176,7 @@ main(int argc, const char **argv)
 	};
 	struct lws_protocol_vhost_options pvo[5], pvo_wrap;
 	const struct lws_dht_dnssec_ops *ops = NULL;
-	struct fot_opaque *o_pending, *o_cancel, *o_all;
+	struct fot_opaque *o_pending, *o_cancel, *o_all, *o_fail;
 	struct vhd_dht_dnssec *vhd;
 	struct lws_context_creation_info info;
 	const struct lws_protocols *pcol;
@@ -251,12 +264,13 @@ main(int argc, const char **argv)
 	/* refused before anything was queued: completed before returning */
 
 	n = fot_fetch(ops, cx, vh, "dht-hash-NOT-HEX",
-		      fot_opaque_create(FOT_MALFORMED), 0);
+		      fot_opaque_create(FOT_MALFORMED), FOT_FETCH);
 	fot_expect(n && fot_calls[FOT_MALFORMED] == 1 &&
 		   fot_status[FOT_MALFORMED] == LWS_DHT_DNSSEC_FETCH_ABORTED,
 		   "malformed hash token refused and completed as aborted");
 
-	n = fot_fetch(ops, cx, vh, NULL, fot_opaque_create(FOT_NO_DOMAIN), 0);
+	n = fot_fetch(ops, cx, vh, NULL, fot_opaque_create(FOT_NO_DOMAIN),
+		      FOT_FETCH);
 	fot_expect(n && fot_calls[FOT_NO_DOMAIN] == 1 &&
 		   fot_status[FOT_NO_DOMAIN] == LWS_DHT_DNSSEC_FETCH_ABORTED,
 		   "no domain refused and completed as aborted");
@@ -264,18 +278,18 @@ main(int argc, const char **argv)
 	/* pending: nobody answers, so it completes only at destroy */
 
 	o_pending = fot_opaque_create(FOT_PENDING);
-	n = fot_fetch(ops, cx, vh, "pending.example", o_pending, 0);
+	n = fot_fetch(ops, cx, vh, "pending.example", o_pending, FOT_FETCH);
 	fot_expect(!n && !fot_calls[FOT_PENDING], "fetch pending");
-	n = fot_fetch(ops, cx, vh, "pending.example", o_pending, 0);
+	n = fot_fetch(ops, cx, vh, "pending.example", o_pending, FOT_FETCH);
 	fot_expect(!n && !fot_calls[FOT_PENDING],
 		   "same fetch merged into the pending one");
 
 	/* cancelled: the opaque comes back to us */
 
 	o_cancel = fot_opaque_create(FOT_CANCELLED);
-	n = fot_fetch(ops, cx, vh, "cancel.example", o_cancel, 0);
+	n = fot_fetch(ops, cx, vh, "cancel.example", o_cancel, FOT_FETCH);
 	fot_expect(!n, "fetch to cancel pending");
-	n = fot_fetch(ops, cx, vh, "cancel.example", o_cancel, 1);
+	n = fot_fetch(ops, cx, vh, "cancel.example", o_cancel, FOT_CANCEL);
 	fot_expect(!n && !fot_calls[FOT_CANCELLED],
 		   "cancel does not complete the fetch");
 	free(o_cancel);
@@ -283,13 +297,31 @@ main(int argc, const char **argv)
 	/* one opaque for two domains, taken back by one cancel naming none */
 
 	o_all = fot_opaque_create(FOT_CANCEL_ALL);
-	n = fot_fetch(ops, cx, vh, "all-1.example", o_all, 0);
-	n |= fot_fetch(ops, cx, vh, "all-2.example", o_all, 0);
+	n = fot_fetch(ops, cx, vh, "all-1.example", o_all, FOT_FETCH);
+	n |= fot_fetch(ops, cx, vh, "all-2.example", o_all, FOT_FETCH);
 	fot_expect(!n, "two fetches with one opaque pending");
-	n = fot_fetch(ops, cx, vh, NULL, o_all, 1);
+	n = fot_fetch(ops, cx, vh, NULL, o_all, FOT_CANCEL);
 	fot_expect(!n && !fot_calls[FOT_CANCEL_ALL],
 		   "cancel with no domain does not complete them");
 	free(o_all);
+
+	/*
+	 * failed: completed now, as timed out, and its opaque released by
+	 * that completion, so a later reference shows under ASan.  The fetch
+	 * of the same domain with another opaque is not touched.
+	 */
+
+	o_fail = fot_opaque_create(FOT_FAILED);
+	n = fot_fetch(ops, cx, vh, "fail.example", o_fail, FOT_FETCH);
+	n |= fot_fetch(ops, cx, vh, "fail.example",
+		       fot_opaque_create(FOT_FAIL_OTHER), FOT_FETCH);
+	fot_expect(!n && !fot_calls[FOT_FAILED] && !fot_calls[FOT_FAIL_OTHER],
+		   "fetch to fail, and another of its domain, pending");
+	n = fot_fetch(ops, cx, vh, "fail.example", o_fail, FOT_FAIL);
+	fot_expect(!n && fot_calls[FOT_FAILED] == 1 &&
+		   fot_status[FOT_FAILED] == LWS_DHT_DNSSEC_FETCH_TIMEOUT &&
+		   !fot_calls[FOT_FAIL_OTHER],
+		   "fail completes only its fetch, once, as timed out");
 
 	/*
 	 * The GET goes to the target node, 127.0.0.1, once the plugin has its
@@ -307,7 +339,7 @@ main(int argc, const char **argv)
 		goto bail;
 
 	n = fot_fetch(ops, cx, vh, "dht-hash-" FOT_RSP_HASH,
-		      fot_opaque_create(FOT_RSP_SOURCE), 0);
+		      fot_opaque_create(FOT_RSP_SOURCE), FOT_FETCH);
 	fot_expect(!n, "fetch to be answered pending");
 	fot_rsp(vhd, 2, atoi(tport));
 	fot_expect(!dht_dnssec_find_fragment(vhd, FOT_RSP_HASH),
@@ -334,6 +366,11 @@ bail:
 		   "fetches cancelled with no domain never completed");
 	fot_expect(fot_calls[FOT_RSP_SOURCE] == 1,
 		   "answered fetch completed once at destroy");
+	fot_expect(fot_calls[FOT_FAILED] == 1,
+		   "failed fetch never completed again");
+	fot_expect(fot_calls[FOT_FAIL_OTHER] == 1 &&
+		   fot_status[FOT_FAIL_OTHER] == LWS_DHT_DNSSEC_FETCH_ABORTED,
+		   "the other fetch of its domain completed once, at destroy");
 
 	for (n = 0; n < FOT_COUNT; n++)
 		lwsl_user("%s: %s: %d completion(s), status %d\n", __func__,

@@ -88,6 +88,13 @@ typedef void (*lws_dht_dnssec_fetch_cb_t)(void *opaque, const char *domain, int 
  * with domain NULL drops every pending request with that opaque, so a caller
  * going away can take back everything it handed out at once.  A cancel must
  * not be made from inside cb.
+ *
+ * A fail (is_fail = 1) gives up the pending requests for that domain and
+ * opaque (every domain with that opaque if domain is NULL) now, as a caller
+ * does when whatever wanted the zone stopped waiting for it: each is
+ * completed as it would be had nobody answered, its cb called once with
+ * LWS_DHT_DNSSEC_FETCH_TIMEOUT before fetch_zone() returns, and then forgotten.
+ * cb may start a new fetch.
  */
 struct lws_dht_dnssec_fetch_zone_args {
 	struct lws_vhost *vhost;
@@ -99,6 +106,9 @@ struct lws_dht_dnssec_fetch_zone_args {
 			* pair, or for every domain with opaque if domain is
 			* NULL */
 	int force_network; /* If 1, bypass local cache and query network directly */
+	int is_fail; /* If 1, complete the pending requests for this domain /
+		      * opaque pair, or for every domain with opaque if domain
+		      * is NULL, now, as timed out */
 };
 
 struct lws_dht_dnssec_ops {

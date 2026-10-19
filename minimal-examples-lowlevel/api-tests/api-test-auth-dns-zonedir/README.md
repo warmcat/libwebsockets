@@ -26,8 +26,9 @@ the process umask):
 | 4 | `zone-dir` that is a symlink to a valid dir | followed for the dir checks; started anyway (listener up, answering) | init refused, no listener |
 | 5 | good dir, but undecorated-name / two-field-suffix / group-writable (0666) / symlinked zone files | all loaded and served | only the properly shaped file loads; the rest answer REFUSED (rcode 5) while the control zone still answers |
 | 6 | zones handed over by `lws-dht-dnssec` as verified for a domain (G-117): one with a trailing `$ORIGIN` for a zone the dir serves, one wholly that other zone, and a control that is its domain's own | installed under their last `$ORIGIN`, replacing the served zone | only the control is installed; the served zone answers as before and the payloads' names do not exist |
-| 7 | *(root only)* zone file owned by another uid | loaded and served | file ignored (REFUSED) while the service-owned control file in the same dir still answers |
-| 8 | *(root only)* zone dir owned by another uid | started | init refused, no listener |
+| 7 | a query for a zone nobody serves, whose fetch from `lws-dht-dnssec` never answers (G-224) | the query timed out (REFUSED after 5s) but its fetch was left running, holding auth-dns' opaque | when the query times out the fetch is given up: completed exactly once, as timed out, and nothing holds the opaque |
+| 8 | *(root only)* zone file owned by another uid | loaded and served | file ignored (REFUSED) while the service-owned control file in the same dir still answers |
+| 9 | *(root only)* zone dir owned by another uid | started | init refused, no listener |
 
 "No listener" is asserted both by silence (no response within the window)
 and by the test binding the UDP port itself afterwards — the plugin only
@@ -37,7 +38,11 @@ Phase 6 stands in for `lws-dht-dnssec` with a protocol of that name on the
 vhost, whose ops only collect the callback auth-dns registers for verified
 zones; the test then hands it the payloads as the plugin does.
 
-Phases 7-8 need to create files/dirs owned by another uid and are skipped
+Phase 7 stands in for the zone fetches too, keeping to the `fetch_zone()`
+contract in `lws-dht-dnssec.h` (merge, cancel without completion, fail with
+one completion as timed out) and never answering.
+
+Phases 8-9 need to create files/dirs owned by another uid and are skipped
 when the test is not running as root.
 
 ## Commandline
@@ -50,4 +55,4 @@ when the test is not running as root.
 The planted fixtures are (re)created under a per-run scratch dir
 `zones-f055/<pid>` in the working directory (so runs under different uids
 cannot trip over each other's leftovers) and removed again at exit; the
-whole test takes a few seconds.
+whole test takes about ten seconds.

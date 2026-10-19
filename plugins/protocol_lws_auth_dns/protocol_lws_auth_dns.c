@@ -1100,10 +1100,11 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 /*
  * Take one pending query off the vhd queue, cancelling its timeout and
  * keeping vhd->pending_unique_domains in step.  Every free of a
- * struct pending_dns_query goes through here.
+ * struct pending_dns_query goes through here.  Returns nonzero if other
+ * queries for the same domain are still waiting.
  */
 
-static void
+static int
 pending_query_detach(struct pending_dns_query *q)
 {
 	struct per_vhost_data__auth_dns *vhd = q->vhd;
@@ -1113,7 +1114,7 @@ pending_query_detach(struct pending_dns_query *q)
 	lws_dll2_remove(&q->list);
 
 	if (!vhd)
-		return;
+		return 1;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&vhd->pending_queries)) {
@@ -1128,6 +1129,8 @@ pending_query_detach(struct pending_dns_query *q)
 
 	if (!others && vhd->pending_unique_domains)
 		vhd->pending_unique_domains--;
+
+	return others;
 }
 
 static void
@@ -1261,14 +1264,36 @@ static void
 pending_query_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	struct pending_dns_query *q = lws_container_of(sul, struct pending_dns_query, sul_timeout);
+	struct per_vhost_data__auth_dns *vhd = q->vhd;
+	int others;
+
 	lwsl_info("%s: timeout for query\n", __func__);
 
-	pending_query_detach(q);
+	others = pending_query_detach(q);
 
 	if (q->wsi) {
 		const struct lws_protocols *prot = lws_get_protocol(q->wsi);
 		if (prot && prot->callback)
 			prot->callback(q->wsi, LWS_CALLBACK_USER, lws_wsi_user(q->wsi), q, 0);
+	}
+
+	/*
+	 * Nobody is waiting for the zone any more: give its fetch up now
+	 * rather than leave it retrying for a minute holding a fetch slot and
+	 * our vhd (G-224).  It completes as timed out, through
+	 * auth_dns_fetch_cb(), which finds no query left to replay.  A later
+	 * query for the domain starts a fresh fetch.
+	 */
+	if (!others && vhd && vhd->dht_ops && vhd->dht_ops->fetch_zone) {
+		struct lws_dht_dnssec_fetch_zone_args args;
+
+		memset(&args, 0, sizeof(args));
+		args.vhost = vhd->vhost;
+		args.domain = q->domain;
+		args.cb = auth_dns_fetch_cb;
+		args.opaque = vhd;
+		args.is_fail = 1;
+		vhd->dht_ops->fetch_zone(vhd->context, &args);
 	}
 
 	free(q);
@@ -1566,11 +1591,11 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			} lws_end_foreach_dll_safe(d, d1);
 
 			/*
-			 * Every zone fetch we started holds vhd as its opaque,
-			 * including ones whose queries timed out already (the
-			 * fetch outlives them, so a slow zone still arrives
-			 * for the client's retries): take them all back, so
-			 * none can complete into vhd after it is freed (G-220)
+			 * Every zone fetch we started for a query still
+			 * waiting holds vhd as its opaque (those whose last
+			 * query timed out were given up then): take them all
+			 * back, so none can complete into vhd after it is
+			 * freed (G-220)
 			 */
 			if (vhd->dht_ops && vhd->dht_ops->fetch_zone) {
 				struct lws_dht_dnssec_fetch_zone_args args;
