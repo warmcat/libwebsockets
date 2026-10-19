@@ -367,3 +367,6 @@ a log is evidence that something was or was not emitted.
    context creation, or `_exit(1)` from a deferred `lws_finalize_startup()`;
    `ctx_privdrop_finalize` fault injection and api-test-privdrop test it
    without root.
+ - Any minimal example runs on libuv with `--uv` when `LD_LIBRARY_PATH`
+   includes the build tree's `lib/` (where the evlib plugin is built): a
+   quick way to fault-inject the evlib-plugin paths.
