@@ -3951,7 +3951,7 @@ do_query_serials(struct lws_context *cx,
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	struct dht_dnssec_serial_query *q;
 	uint32_t serial = 0;
-	int n, hl;
+	int n, hl, held;
 
 	dht_dnssec_serial_query_drop(args->opaque);
 	if (args->is_cancel)
@@ -3998,11 +3998,14 @@ do_query_serials(struct lws_context *cx,
 	q->pending = q->count;
 	lws_dll2_add_tail(&q->list, &serial_queries);
 
-	/* our own copy needs no asking */
-	dht_dnssec_serial_report(q, NULL,
-			dht_dnssec_stored_serial(vhd, q->hex, &serial) ?
-				LWS_DHT_DNSSEC_SERIAL_NONE :
-				LWS_DHT_DNSSEC_SERIAL_HELD, serial);
+	/*
+	 * our own copy needs no asking... look it up before the report, the
+	 * order the report's arguments are evaluated in is unspecified
+	 */
+	held = !dht_dnssec_stored_serial(vhd, q->hex, &serial);
+	dht_dnssec_serial_report(q, NULL, held ? LWS_DHT_DNSSEC_SERIAL_HELD :
+						 LWS_DHT_DNSSEC_SERIAL_NONE,
+				 serial);
 
 	if (!q->pending) {
 		dht_dnssec_serial_query_finish(q);

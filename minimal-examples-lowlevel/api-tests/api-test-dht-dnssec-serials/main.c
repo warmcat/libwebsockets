@@ -245,12 +245,18 @@ sert_step_cb(lws_sorted_usec_list_t *sul)
 
 		/* the first query, replaced at once by the second */
 		if (sert_expect(!sert_query(SERT_DOMAIN, &rq[0], 0),
-				"first query started") ||
-		    sert_expect(rq[0].self == 1 &&
+				"first query started"))
+			goto done;
+		if (sert_expect(rq[0].self == 1 &&
 				rq[0].self_state == LWS_DHT_DNSSEC_SERIAL_HELD &&
 				rq[0].self_serial == SERT_SERIAL_P,
-				"P's own copy is reported in the call") ||
-		    sert_expect(!sert_query(SERT_DOMAIN, &rq[0], 0),
+				"P's own copy is reported in the call")) {
+			lwsl_err("%s: reported %d times, state %d, serial %u\n",
+				 __func__, rq[0].self, rq[0].self_state,
+				 (unsigned int)rq[0].self_serial);
+			goto done;
+		}
+		if (sert_expect(!sert_query(SERT_DOMAIN, &rq[0], 0),
 				"second query, same opaque, started"))
 			goto done;
 
