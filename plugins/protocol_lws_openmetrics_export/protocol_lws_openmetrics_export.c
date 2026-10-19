@@ -147,7 +147,9 @@ omc_connect_client(lws_sorted_usec_list_t *sul)
 
 	memset(&i, 0, sizeof(i));
 
-	lwsl_notice("%s: %s %s %s\n", __func__, vhd->ws_server_uri, vhd->metrics_proxy_path, vhd->ba_secret);
+	/* never the ba-secret: it is the credential the proxy admits us by */
+	lwsl_notice("%s: %s %s\n", __func__, vhd->ws_server_uri,
+		    vhd->metrics_proxy_path);
 
 	puri = lws_parse_uri_create(vhd->ws_server_uri);
 	if (!puri) {
@@ -1283,8 +1285,8 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 		}
 		lws_strncpy(vhd->ba_secret, cp, sizeof(vhd->ba_secret));
 
-		lwsl_notice("%s: scheduling connect %s %s %s\n", __func__,
-				vhd->ws_server_uri, vhd->metrics_proxy_path, vhd->ba_secret);
+		lwsl_notice("%s: scheduling connect %s %s\n", __func__,
+				vhd->ws_server_uri, vhd->metrics_proxy_path);
 
 		lws_validity_confirmed(wsi);
 		lws_sul_schedule(cx, 0, &vhd->sul, omc_connect_client, 1);
