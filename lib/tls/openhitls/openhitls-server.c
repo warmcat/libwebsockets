@@ -519,14 +519,15 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	}
 	ret = HITLS_CFG_LoadKeyBuffer(config, der_buf, (uint32_t)flen,
 				      TLS_PARSE_FORMAT_ASN1);
+	/* our DER copy of the private key is a secret too */
+	lws_explicit_bzero(der_buf, (size_t)flen);
+	lws_free_set_NULL(der_buf);
 	if (ret != HITLS_SUCCESS) {
-		lws_free_set_NULL(der_buf);
 		lws_openhitls_log_error_string("unable to convert memory privkey",
 					       "memory", ret);
 
 		return 1;
 	}
-	lws_free_set_NULL(der_buf);
 
 	/* verify private key */
 	ret = HITLS_CFG_CheckPrivateKey(config);
@@ -1050,6 +1051,9 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 		ret = HITLS_CFG_CheckPrivateKey(config);
 
 	BSL_SAL_FREE(cert_der.data);
+	if (key_der.data)
+		/* the DER private key */
+		lws_explicit_bzero(key_der.data, key_der.dataLen);
 	BSL_SAL_FREE(key_der.data);
 	HITLS_X509_DnListFree(dn);
 	if (ret != HITLS_SUCCESS)
@@ -1059,6 +1063,9 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 bail:
 	BSL_SAL_FREE(cert_der.data);
+	if (key_der.data)
+		/* the DER private key */
+		lws_explicit_bzero(key_der.data, key_der.dataLen);
 	BSL_SAL_FREE(key_der.data);
 	if (dn)
 		HITLS_X509_DnListFree(dn);
@@ -1235,6 +1242,9 @@ bail:
 		*privkey_len = 0;
 	}
 	BSL_SAL_FREE(csr_der.data);
+	if (key_pem.data)
+		/* the PEM private key */
+		lws_explicit_bzero(key_pem.data, key_pem.dataLen);
 	BSL_SAL_FREE(key_pem.data);
 	HITLS_X509_CsrFree(req);
 	CRYPT_EAL_PkeyFreeCtx(pkey);

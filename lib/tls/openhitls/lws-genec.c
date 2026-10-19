@@ -497,14 +497,13 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 err:
 	if (pubKeyBuf)
 		lws_free(pubKeyBuf);
-	if (prvKeyBuf)
+	if (prvKeyBuf) {
+		/* it may already hold the private key */
+		lws_explicit_bzero(prvKeyBuf, (size_t)curve->key_bytes);
 		lws_free(prvKeyBuf);
+	}
 
-	for (int n = LWS_GENCRYPTO_EC_KEYEL_CRV; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++)
-		if (el[n].buf) {
-			lws_free_set_NULL(el[n].buf);
-			el[n].len = 0;
-		}
+	lws_genec_destroy_elements(el);
 	CRYPT_EAL_PkeyFreeCtx(ctx->ctx[side]);
 	ctx->ctx[side] = NULL;
 
@@ -881,12 +880,8 @@ lws_geneddsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	return 0;
 
 bail:
-	for (int n = LWS_GENCRYPTO_OKP_KEYEL_CRV;
-	     n < LWS_GENCRYPTO_OKP_KEYEL_COUNT; n++)
-		if (el[n].buf) {
-			lws_free_set_NULL(el[n].buf);
-			el[n].len = 0;
-		}
+	/* d may already have been written */
+	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_OKP_KEYEL_COUNT);
 	if (ctx->ctx[0]) {
 		CRYPT_EAL_PkeyFreeCtx(ctx->ctx[0]);
 		ctx->ctx[0] = NULL;

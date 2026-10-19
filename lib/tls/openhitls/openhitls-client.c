@@ -1188,6 +1188,8 @@ int lws_tls_client_create_vhost_context(
 		}
 		ret = HITLS_CFG_LoadKeyBuffer(config, der_buf, (uint32_t)flen,
 					      TLS_PARSE_FORMAT_ASN1);
+		/* our DER copy of the private key is a secret too */
+		lws_explicit_bzero(der_buf, (size_t)flen);
 		lws_free_set_NULL(der_buf);
 		if (ret != HITLS_SUCCESS) {
 			lwsl_err("%s: HITLS_CFG_LoadKeyBuffer failed: 0x%x\n",

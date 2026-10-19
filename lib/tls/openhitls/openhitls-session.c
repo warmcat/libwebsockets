@@ -442,6 +442,8 @@ lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
 			ret = 0;
 	}
 
+	/* the encoded session carries its master / resumption secret */
+	lws_explicit_bzero(d.blob, len);
 	lws_free(d.blob);
 
 bail:
@@ -542,6 +544,9 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 
 bail:
 	HITLS_SESS_Free(sess);
+	if (v)
+		/* the encoded session carries its master / resumption secret */
+		lws_explicit_bzero(v, d.blob_len);
 	free(v); /* user code will have used malloc() */
 bail1:
 

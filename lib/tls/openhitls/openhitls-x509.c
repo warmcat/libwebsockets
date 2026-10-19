@@ -797,6 +797,7 @@ lws_x509_jwk_privkey_pem_ec(struct lws_jwk *jwk, CRYPT_EAL_PkeyCtx *pkey, CRYPT_
 	ret = CRYPT_EAL_PkeyGetPrv(pkey, &prv);
 	if (ret != CRYPT_SUCCESS) {
 		lwsl_err("%s: failed to extract EC private key, ret=0x%x\n", __func__, ret);
+		lws_explicit_bzero(tmp_ec_d, coord_len);
 		lws_free(tmp_ec_d);
 		return -1;
 	}
