@@ -776,8 +776,7 @@ lws_passthrough_start(struct lws *wsi, struct lws_vhost *vh, const char *sni)
 		return 1;
 
 	/* he belongs to the passed through vhost now */
-	lws_vhost_bind_wsi(vh, wsi);
-	if (wsi->a.vhost != vh) {
+	if (lws_vhost_bind_wsi(vh, wsi)) {
 		lws_free(c);
 		return 1;
 	}

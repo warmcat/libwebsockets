@@ -736,9 +736,20 @@ lws_tls_server_handshake_policy(struct lws *wsi)
 			 * whether or not the bind is then allowed, since it
 			 * is a fact about the handshake rather than about
 			 * where he ends up bound (C-318).
+			 *
+			 * If the move is refused anyway (eg, vh is being
+			 * destroyed, or has no protocol like one he is already
+			 * bound to), drop him: he handshaked with vh's
+			 * certificate, and serving him from the vhost he
+			 * arrived on instead is not what he asked for.
 			 */
 			lws_tls_wsi_record_hs_ca(wsi, vh);
-			lws_vhost_bind_wsi(vh, wsi);
+			if (lws_vhost_bind_wsi(vh, wsi)) {
+				lwsl_wsi_notice(wsi, "dropping: can't move to "
+						     "vh %s", vh->name);
+
+				return 1;
+			}
 		} else {
 			lwsl_wsi_notice(wsi, "no vhost owns the tls ctx this "
 					     "connection handshaked under");

@@ -2015,6 +2015,8 @@ struct lws_vhost *
  lws_select_vhost(struct lws_vhost *lv, const char *servername);
 struct lws_vhost *
  lws_select_vhost_by_name(struct lws_vhost *lv, const char *servername);
+int
+ lws_http_server_rebind(struct lws *wsi, struct lws_vhost *vh);
 int LWS_WARN_UNUSED_RESULT
  lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len);
 void
@@ -2081,7 +2083,8 @@ _lws_close_free_wsi_final(struct lws *wsi);
 #endif
 
 
-void
+/* 0 if wsi is now bound to vh, else nonzero: the move was refused */
+int
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
 
 #if defined(LWS_WITH_TLS)

@@ -335,15 +335,96 @@ lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh)
 static void
 lws_validity_cb(lws_sorted_usec_list_t *sul);
 
-static void
+/*
+ * Which protocol of vh a wsi on another vhost takes when he is moved onto vh.
+ *
+ * His protocol is normally an entry in the protocols array of the vhost he is
+ * leaving, which is freed with that vhost, and nothing makes that vhost
+ * outlive him once he is not bound to it: he must not take a pointer into it
+ * onto vh.  Eg, an h2 connection moved by SNI called its old vhost's protocol
+ * callback from freed memory when it closed after the listening vhost had
+ * gone, and an h1 one when a websocket upgrade request then came.
+ *
+ * If he is not bound to it yet (no BIND_PROTOCOL whose DROP_PROTOCOL must go
+ * to the same callback) and has nothing allocated against it, he takes vh's
+ * protocol of the same name, else vh's default one: exactly what he would
+ * have had had he arrived on vh.
+ *
+ * If he is bound to it, or has its per-session data, he can only take vh's
+ * protocol of the same name if that is the same protocol, the same callback
+ * with the same size of per-session data, as it is for vhosts made from the
+ * same protocols list or plugins.  Anything else can't be carried over, and
+ * the move must be refused.
+ *
+ * A protocol that is not one of his old vhost's (eg, lws' own ws proxy one)
+ * does not go away with it, and is left alone if there is no same-named one.
+ *
+ * Returns 0 with *np set to the protocol he should take (NULL: keep his own),
+ * or nonzero if he can't be moved onto vh.
+ */
+
+static int
+lws_vhost_rebind_protocol(struct lws_vhost *vh, struct lws *wsi,
+			  const struct lws_protocols **np)
+{
+	const struct lws_protocols *op = wsi->a.protocol;
+	struct lws_vhost *ov = wsi->a.vhost;
+	int own, attached;
+
+	*np = NULL;
+	if (!ov || !op)
+		return 0;
+
+	own = ov->protocols && op >= ov->protocols &&
+	      op < ov->protocols + ov->count_protocols;
+	attached = wsi->protocol_bind_balance || !!wsi->user_space;
+
+	if (op->name)
+		*np = lws_vhost_name_to_protocol(vh, op->name);
+
+	if (!own) {
+		if (attached)
+			*np = NULL;
+
+		return 0;
+	}
+
+	if (attached) {
+		if (*np && (*np)->callback == op->callback &&
+		    (*np)->per_session_data_size == op->per_session_data_size)
+			return 0;
+
+		lwsl_wsi_notice(wsi, "refusing rebind to vh %s: it has no "
+				     "protocol %s like the one he is bound to",
+				vh->name, op->name ? op->name : "(unnamed)");
+
+		return 1;
+	}
+
+	if (!*np && vh->count_protocols)
+		*np = &vh->protocols[vh->default_protocol_index <
+				     vh->count_protocols ?
+					vh->default_protocol_index : 0];
+
+	if (!*np) {
+		lwsl_wsi_notice(wsi, "refusing rebind to vh %s: no protocols",
+				vh->name);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+static int
 _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 {
-	const struct lws_protocols *p = NULL;
+	const struct lws_protocols *p = NULL, *np = NULL;
 	const lws_retry_bo_t *old_rbo = NULL;
 	char policy_moved = 0;
 
 	if (wsi->a.vhost == vh)
-		return;
+		return 0;
 
 	/*
 	 * A peer can ask to be rebound to any vhost on a shared listener by
@@ -362,7 +443,7 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 	if (vh->being_destroyed && wsi->a.vhost) {
 		lwsl_wsi_info(wsi, "refusing rebind to dying vh %s", vh->name);
 
-		return;
+		return 1;
 	}
 
 	/*
@@ -377,9 +458,16 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 	 * itself enforces the requirement and no cert has been asked for yet.
 	 */
 	if (!tls_hs && wsi->a.vhost && lws_vhost_rebind_mtls_refused(wsi, vh))
-		return;
+		return 1;
 
 	lws_context_lock(vh->context, __func__); /* ---------- context { */
+
+	/* nor may he take a protocol of the vhost he is leaving with him */
+	if (lws_vhost_rebind_protocol(vh, wsi, &np)) {
+		lws_context_unlock(vh->context); /* } context ---------- */
+
+		return 1;
+	}
 
 	/*
 	 * If he was bound to a different vhost before, we have to give back
@@ -397,15 +485,16 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 	 * touches it, so we must take him off it here, before the unbind can
 	 * destroy the vhost holding it.
 	 *
-	 * If the new vhost has a protocol of the same name, note it so we can
-	 * relink him there below and lws_callback_on_writable_all_protocol_
+	 * If he takes the new vhost's protocol of the same name, note it so we
+	 * can relink him there below and lws_callback_on_writable_all_protocol_
 	 * vhost() still finds him; otherwise leave him detached and the next
 	 * lws_bind_protocol() places him.
 	 */
 
 	if (!lws_dll2_is_detached(&wsi->same_vh_protocol)) {
-		if (wsi->a.protocol && wsi->a.protocol->name)
-			p = lws_vhost_name_to_protocol(vh, wsi->a.protocol->name);
+		if (np && wsi->a.protocol && wsi->a.protocol->name &&
+		    np->name && !strcmp(np->name, wsi->a.protocol->name))
+			p = np;
 
 		if (wsi->a.vhost)
 			lws_same_vh_protocol_remove(wsi);
@@ -419,32 +508,10 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 			lws_dll2_remove(&wsi->same_vh_protocol);
 	}
 
-	/*
-	 * His protocol is normally an entry in the protocols array of the
-	 * vhost he is leaving, which is freed with that vhost, and nothing
-	 * makes the vhost he is leaving outlive him once he is not bound to
-	 * it.  A connection moved by a TLS SNI callback, or by the post-accept
-	 * SNI adaptation, is the listener's network connection, and nothing
-	 * later rebinds its protocol the way an h1 request's is when it is
-	 * served; so eg, an h2 connection moved onto another vhost called
-	 * its old vhost's protocol callback from freed memory when it closed
-	 * after the listening vhost had gone.
-	 *
-	 * If he is not bound to that protocol yet (no BIND_PROTOCOL whose
-	 * DROP_PROTOCOL must go to the same callback) and has nothing
-	 * allocated against it, take the new vhost's protocol of the same name
-	 * instead, which is exactly what he would have had had he arrived
-	 * there.
-	 */
+	/* the protocol lws_vhost_rebind_protocol() decided he takes */
 
-	if (wsi->a.vhost && wsi->a.protocol && wsi->a.protocol->name &&
-	    !wsi->protocol_bind_balance && !wsi->user_space) {
-		const struct lws_protocols *np =
-			lws_vhost_name_to_protocol(vh, wsi->a.protocol->name);
-
-		if (np)
-			wsi->a.protocol = np;
-	}
+	if (np)
+		wsi->a.protocol = np;
 
 #if defined(LWS_WITH_CLIENT)
 	/*
@@ -536,10 +603,12 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 			wsi->a.protocol ? wsi->a.protocol->name : "none",
 			vh->count_bound_wsi);
 	assert(wsi->a.vhost->count_bound_wsi > 0);
+
+	return 0;
 }
 
-void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
-	_lws_vhost_bind_wsi(vh, wsi, 0);
+int lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
+	return _lws_vhost_bind_wsi(vh, wsi, 0);
 }
 
 #if defined(LWS_WITH_TLS)
@@ -557,9 +626,7 @@ void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
 
 void lws_vhost_bind_wsi_sni(struct lws_vhost *vh, struct lws *wsi) {
 	/* the session recorded the CA already (lws_tls_sni_bind()) */
-	_lws_vhost_bind_wsi(vh, wsi, 1);
-
-	if (wsi->a.vhost == vh)
+	if (!_lws_vhost_bind_wsi(vh, wsi, 1))
 		wsi->sni_vh_bound = 1;
 }
 #endif

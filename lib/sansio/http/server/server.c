@@ -201,6 +201,45 @@ lws_select_vhost_sni(struct lws_vhost *lv, const char *servername)
 	return NULL;
 }
 
+/*
+ * Move a server http request, h1 or an h3 stream, onto the vhost its Host: or
+ * :authority selected, before it is served.
+ *
+ * He may still be bound to a protocol of the vhost he is leaving: an h1
+ * keep-alive connection is left bound to its vhost's protocols[0] between
+ * requests (lws_http_transaction_completed()), and an h3 stream to its
+ * connection's protocol.  That is only a placeholder until lws_http_action()
+ * binds the protocol that serves the request, but a bound protocol can't be
+ * carried onto another vhost (lws_vhost_bind_wsi()).  So give it back first,
+ * on the vhost it belongs to, and arrive on the new vhost as a new connection
+ * would have, on the old vhost's default protocol, unbound, which the move
+ * then swaps for the new vhost's.
+ *
+ * Returns 0 if he is on vh now, else nonzero: the move was refused and he
+ * must not be served by the vhost he is still on as if he had named it.
+ */
+
+int
+lws_http_server_rebind(struct lws *wsi, struct lws_vhost *vh)
+{
+	struct lws_vhost *ov = wsi->a.vhost;
+
+	if (ov == vh)
+		return 0;
+
+	if (ov && wsi->protocol_bind_balance) {
+		if (lws_bind_protocol(wsi, NULL, "vhost rebind"))
+			return 1;
+		if (ov->count_protocols)
+			wsi->a.protocol = &ov->protocols[
+				ov->default_protocol_index <
+					ov->count_protocols ?
+					ov->default_protocol_index : 0];
+	}
+
+	return lws_vhost_bind_wsi(vh, wsi);
+}
+
 static const struct lws_mimetype {
 	const char *extension;
 	const char *mimetype;
@@ -3739,14 +3778,16 @@ raw_transition:
 				wsi->a.vhost,
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 
-			if (vhost && lws_vhost_rebind_mtls_refused(wsi, vhost)) {
-				/* 421 Misdirected Request */
+			/*
+			 * 421 Misdirected Request if he named a vhost his
+			 * connection can't be moved to, eg, because it needs
+			 * a client cert his handshake didn't satisfy
+			 */
+			if (vhost && (lws_vhost_rebind_mtls_refused(wsi, vhost) ||
+				      lws_http_server_rebind(wsi, vhost))) {
 				lws_return_http_status(wsi, 421, NULL);
 				goto bail_nuke_ah;
 			}
-
-			if (vhost)
-				lws_vhost_bind_wsi(vhost, wsi);
 		} else
 			lwsl_info("no host\n");
 
