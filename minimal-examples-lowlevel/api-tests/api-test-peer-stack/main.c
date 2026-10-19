@@ -46,6 +46,14 @@
  *    same wsi: while it dials, the new connection is hearsay, not what the
  *    last one proved, and routable again once connected;
  *
+ *  - with TLS, h2 and ws, a stream on an h2 connection has no stack of its
+ *    own: it is described by its connection's.  The role takes a closing
+ *    stream off its connection before its close callbacks, and there it is
+ *    still described as it was while it was live, for an http stream at
+ *    LWS_CALLBACK_CLOSED_HTTP and a ws-over-h2 stream at LWS_CALLBACK_CLOSED.
+ *    With h3, the same for an http stream and a ws-over-h3 stream on a QUIC
+ *    connection;
+ *
  *  - with LWS_WITH_ACCESS_LOG, the access log line of the plain connection
  *    starts with just the client's address, as access logs always did, and
  *    that of the PROXY v2 one with both layers, as one field.
@@ -67,21 +75,47 @@
 #include <unistd.h>
 #endif
 
+/* streams on a connection: http and ws over h2, and over h3 */
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_HTTP2) && defined(LWS_ROLE_WS)
+#define PS_STREAMS
+#if defined(LWS_ROLE_H3)
+#define PS_H3
+#endif
+#endif
+
 enum {
 	PS_PHASE_TCP,
 	PS_PHASE_PROXY_V2,
 	PS_PHASE_UDP,
 	PS_PHASE_REDIRECT,
 	PS_PHASE_UNIX,
+	PS_PHASE_H2,
+	PS_PHASE_H2_WS,
+	PS_PHASE_H3,
+	PS_PHASE_H3_WS,
 	PS_PHASE_COUNT
 };
 
 static const char * const phase_names[] = {
-	"tcp", "proxy-v2", "udp", "redirect", "unix"
+	"tcp", "proxy-v2", "udp", "redirect", "unix", "h2", "ws-over-h2",
+	"h3", "ws-over-h3"
 };
+
+#define ps_phase_is_stream(_p) ((_p) >= PS_PHASE_H2 && (_p) <= PS_PHASE_H3_WS)
+#define ps_phase_is_ws(_p) ((_p) == PS_PHASE_H2_WS || (_p) == PS_PHASE_H3_WS)
+#define ps_phase_is_h3(_p) ((_p) == PS_PHASE_H3 || (_p) == PS_PHASE_H3_WS)
 
 static struct lws_context *cx;
 static struct lws_vhost *vh_cli, *vh_srv, *vh_pv2;
+#if defined(PS_STREAMS)
+static struct lws_vhost *vh_tls;	/* offers h2 (and h3), and ws */
+static int tls_port;
+/* the server's stream in a stream phase, and its stack while it was live */
+static struct lws *srv_stream;
+static lws_peer_entry_t srv_stream_e[LWS_PEER_WALK_MAX];
+static char srv_stream_desc[LWS_PEER_DESC_LEN];
+static int srv_stream_n;
+#endif
 static lws_sorted_usec_list_t sul_phase;
 static const char *server = "localhost";
 #if defined(LWS_WITH_ACCESS_LOG)
@@ -544,6 +578,134 @@ ps_srv_check(struct lws *wsi)
 	      "server: evidence about another address raises nothing");
 }
 
+#if defined(PS_STREAMS)
+
+/*
+ * A server stream on an h2 or QUIC connection, while it is live: it has no
+ * stack of its own, it is described by its connection's
+ */
+
+static void
+ps_srv_stream_live(struct lws *wsi)
+{
+	check(lws_get_network_wsi(wsi) != wsi,
+	      "stream: it is a stream on a connection");
+
+	srv_stream_n = lws_peer_walk(wsi, srv_stream_e, LWS_PEER_WALK_MAX);
+	check(srv_stream_n == 1 && is_loopback(&srv_stream_e[0].sa46) &&
+	      port_of(&srv_stream_e[0].sa46),
+	      "stream: its connection's peer, the client's loopback address");
+	lws_peer_describe(wsi, srv_stream_desc, sizeof(srv_stream_desc),
+			  LWS_PEER_DESC_TOKEN);
+
+	srv_stream	= wsi;
+	srv_checked	= 1;
+}
+
+/*
+ * ... and at its close callback, after the role took it off its connection.
+ * QUIC takes each datagram as hearsay until it proves it again, so on h3 the
+ * cred may have moved since: there, compare only who the peer is.
+ */
+
+static void
+ps_srv_stream_closed(struct lws *wsi)
+{
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+	char buf[LWS_PEER_DESC_LEN];
+	const char *tilde;
+	size_t cl;
+	int n, m, same;
+
+	srv_stream = NULL;
+
+	n = lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX);
+	same = n == srv_stream_n;
+	for (m = 0; same && m < n; m++)
+		same = e[m].kind == srv_stream_e[m].kind &&
+		       !lws_sa46_compare_ads(&e[m].sa46,
+					     &srv_stream_e[m].sa46) &&
+		       port_of(&e[m].sa46) == port_of(&srv_stream_e[m].sa46);
+	check(same, "stream: at close, the same peer as while it was live");
+
+	lws_peer_describe(wsi, buf, sizeof(buf), LWS_PEER_DESC_TOKEN);
+	cl = strlen(srv_stream_desc) + 1;
+	tilde = strrchr(srv_stream_desc, '~');
+	if (ps_phase_is_h3(phase) && tilde)
+		cl = lws_ptr_diff_size_t(tilde, srv_stream_desc) + 1;
+	check(!strncmp(buf, srv_stream_desc, cl),
+	      "stream: described at close as it was while live");
+	if (strncmp(buf, srv_stream_desc, cl))
+		lwsl_err("        got '%s', live '%s'\n", buf, srv_stream_desc);
+
+	ps_phase_end(NULL);
+}
+
+/* the ws server, over h2 and h3 */
+
+static int
+ps_ws_srv_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	     void *in, size_t len)
+{
+	(void)user;
+	(void)in;
+	(void)len;
+
+	switch (reason) {
+	case LWS_CALLBACK_ESTABLISHED:
+		if (ps_phase_is_ws(phase))
+			ps_srv_stream_live(wsi);
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		if (srv_stream && wsi == srv_stream)
+			ps_srv_stream_closed(wsi);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/* the client of the stream phases: a GET, or a ws connection it closes */
+
+static int
+ps_stream_cli_cb(struct lws *wsi, enum lws_callback_reasons reason,
+		 void *user, void *in, size_t len)
+{
+	if (lws_get_opaque_user_data(wsi) != (void *)(intptr_t)(phase + 1))
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	switch (reason) {
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (lws_http_client_http_response(wsi) != HTTP_STATUS_OK)
+			ps_phase_end("stream client: not answered 200");
+		break;
+
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		/* the server's ws stream is closed by the client */
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
+		return -1;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		ps_phase_end(in ? (const char *)in : "connection error");
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+#endif
+
 static int
 ps_srv_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	  void *in, size_t len)
@@ -562,6 +724,10 @@ ps_srv_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				return lws_http_transaction_completed(wsi) ?
 									-1 : 0;
 			}
+#if defined(PS_STREAMS)
+		} else if (ps_phase_is_stream(phase)) {
+			ps_srv_stream_live(wsi);
+#endif
 		} else
 			ps_srv_check(wsi);
 		srv_checked = 1;
@@ -592,6 +758,12 @@ ps_srv_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		srv_tcp = NULL;
 		srv_tcp_closed = 1;
 	}
+
+#if defined(PS_STREAMS)
+	if (reason == LWS_CALLBACK_CLOSED_HTTP && srv_stream &&
+	    wsi == srv_stream)
+		ps_srv_stream_closed(wsi);
+#endif
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
@@ -1001,9 +1173,20 @@ static const struct lws_protocols ps_srv_protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+#if defined(PS_STREAMS)
+static const struct lws_protocols ps_tls_protocols[] = {
+	{ "ps-srv", ps_srv_cb, 0, 0, 0, NULL, 0 },
+	{ "ps-ws", ps_ws_srv_cb, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+#endif
+
 static const struct lws_protocols ps_cli_protocols[] = {
 	{ "ps-cli", ps_cli_cb, 0, 0, 0, NULL, 0 },
 	{ "ps-http", ps_http_cb, 0, 0, 0, NULL, 0 },
+#if defined(PS_STREAMS)
+	{ "ps-ws", ps_stream_cli_cb, 0, 0, 0, NULL, 0 },
+#endif
 #if defined(LWS_WITH_UDP)
 	{ "ps-udp-rx", ps_udp_rx_cb, 0, 0, 0, NULL, 0 },
 	{ "ps-udp-tx", ps_udp_tx_cb, 0, 0, 0, NULL, 0 },
@@ -1034,6 +1217,12 @@ ps_next(lws_sorted_usec_list_t *sul)
 #endif
 #if !defined(PS_UNIX)
 		phase == PS_PHASE_UNIX ||
+#endif
+#if !defined(PS_STREAMS)
+		ps_phase_is_stream(phase) ||
+#endif
+#if !defined(PS_H3)
+		ps_phase_is_h3(phase) ||
 #endif
 		0);
 
@@ -1077,9 +1266,37 @@ ps_next(lws_sorted_usec_list_t *sul)
 	}
 #endif
 
+	memset(&i, 0, sizeof(i));
+
+#if defined(PS_STREAMS)
+	if (ps_phase_is_stream(phase)) {
+		srv_stream		= NULL;
+		i.context		= cx;
+		i.vhost			= vh_cli;
+		i.address		= server;
+		i.host			= server;
+		i.origin		= server;
+		i.port			= tls_port;
+		i.path			= "/";
+		i.ssl_connection	= LCCSCF_USE_SSL |
+					  LCCSCF_ALLOW_SELFSIGNED |
+					  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		i.alpn			= ps_phase_is_h3(phase) ? "h3" : "h2";
+		if (ps_phase_is_ws(phase))
+			i.protocol	= "ps-ws";
+		else
+			i.method	= "GET";
+		i.local_protocol_name	= "ps-ws";
+		i.opaque_user_data	= (void *)(intptr_t)(phase + 1);
+
+		if (!lws_client_connect_via_info(&i))
+			ps_phase_end("connect failed");
+		return;
+	}
+#endif
+
 	vh = phase == PS_PHASE_PROXY_V2 ? vh_pv2 : vh_srv;
 
-	memset(&i, 0, sizeof(i));
 	i.context		= cx;
 	i.vhost			= vh_cli;
 	i.address		= server;
@@ -1189,6 +1406,12 @@ main(int argc, const char **argv)
 		udp_port = atoi(p);
 	else
 		udp_port = 7691;
+#if defined(PS_STREAMS)
+	if ((p = lws_cmdline_option(argc, argv, "--tls-port")))
+		tls_port = atoi(p);
+	else
+		tls_port = 7692;
+#endif
 #if defined(LWS_WITH_ACCESS_LOG)
 	alog = lws_cmdline_option(argc, argv, "--access-log");
 	/* only this run's lines in it */
@@ -1206,6 +1429,9 @@ main(int argc, const char **argv)
 	/* a server and a client in one process: don't budget fds */
 	info.fd_limit_per_thread	= 0;
 	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+#if defined(PS_STREAMS)
+	info.options		       |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#endif
 
 	cx = lws_create_context(&info);
 	if (!cx) {
@@ -1239,6 +1465,26 @@ main(int argc, const char **argv)
 
 #if defined(LWS_WITH_ACCESS_LOG)
 	info.log_filepath	= NULL;
+#endif
+
+#if defined(PS_STREAMS)
+	/* streams: h2 (and h3, on its own quic listener on the same port) */
+	info.port		= tls_port;
+	info.vhost_name		= "ps-tls";
+	info.protocols		= ps_tls_protocols;
+#if defined(PS_H3)
+	info.alpn		= "h2,http/1.1,h3";
+#else
+	info.alpn		= "h2,http/1.1";
+#endif
+	info.ssl_cert_filepath		= "localhost-100y.cert";
+	info.ssl_private_key_filepath	= "localhost-100y.key";
+	vh_tls = lws_create_vhost(cx, &info);
+	if (!vh_tls)
+		goto bail;
+	info.alpn			= NULL;
+	info.ssl_cert_filepath		= NULL;
+	info.ssl_private_key_filepath	= NULL;
 #endif
 	info.port		= CONTEXT_PORT_NO_LISTEN;
 	info.protocols		= ps_cli_protocols;

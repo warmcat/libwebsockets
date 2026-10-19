@@ -438,6 +438,8 @@ void
 lws_io_peer_datagram(struct lws *wsi, const lws_sockaddr46 *src);
 void
 lws_io_peer_forget(struct lws *wsi);
+void
+lws_io_peer_keep(struct lws *wsi);
 const lws_sockaddr46 *
 lws_io_peer_route_dest(struct lws *wsi);
 lws_sockaddr46 *

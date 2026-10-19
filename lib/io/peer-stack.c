@@ -192,6 +192,29 @@ lws_io_peer_forget(struct lws *wsi)
 }
 
 /*
+ * A stream is closing.  Its close callbacks still ask who its peer was, but
+ * the role detaches it from its connection before they run (h2, h3, mqtt),
+ * and the walk from a detached stream ends at the stream itself, whose own
+ * stack is unused.  So copy the connection's stack, as it stands now, into
+ * the stream's own adjunct.  A copy, not a pointer to the connection, so
+ * nothing about it depends on how long the connection lives.  A wsi that is
+ * its own connection is left as it is.
+ */
+void
+lws_io_peer_keep(struct lws *wsi)
+{
+	struct lws *cw = lws_io_peer_conn(wsi);
+
+	/* a wsi without a transport of its own shares the context's fake_io */
+	if (!cw || cw == wsi || cw->io == wsi->io ||
+	    wsi->io == wsi->a.context->fake_io)
+		return;
+
+	memcpy(wsi->io->pstack, cw->io->pstack, sizeof(wsi->io->pstack));
+	wsi->io->pstack_count = cw->io->pstack_count;
+}
+
+/*
  * A claim about the client, on top of what we have.  Returns nonzero if
  * there is no transport entry under it, or no room above it.
  */

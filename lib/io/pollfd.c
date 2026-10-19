@@ -728,6 +728,12 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 
 	switch (phase) {
 	case LWS_IOCLOSE_QUIESCE:
+		/*
+		 * a stream's transport is its connection, which the role
+		 * takes it off next, before its close callbacks: it keeps a
+		 * copy of the connection's peer stack for them
+		 */
+		lws_io_peer_keep(wsi);
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS) && \
     defined(LWS_WITH_GNUTLS)
 		/*
