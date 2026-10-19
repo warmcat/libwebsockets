@@ -382,3 +382,9 @@ a log is evidence that something was or was not emitted.
  - With `LWS_WITH_SECURE_STREAMS_AUTH_SIGV4` on, minimal-secure-streams-
    proxy exits if `~/.aws/credentials` is missing and ~10 sspc ctests
    time out; point `HOME` at a dir with a dummy credentials file.
+ - With poll, each firing timer is preceded by up to ~1ms of zero-wait
+   service turns (~240 on a loaded ASan host): a test that counts turns
+   to detect spinning will flake; measure wall time spent in sub-ms turns
+   instead (api-test-ws-close since e8e10bab3).
+ - Cleanup that kills processes by pattern must match only your own
+   build tree's paths: a broad match killed another agent's test fixture.
