@@ -58,6 +58,31 @@ struct dir_entry {
 };
 /* filename follows */
 
+/*
+ * One connected user, rendered as a JSON object when a listing send starts,
+ * so a listing that spans several writeables neither depends on the other
+ * connections staying alive nor sees the list change halfway through
+ */
+
+struct deaddrop_user_snap {
+	lws_dll2_t		list;
+	size_t			len;
+	/* rendered JSON object follows, NUL-terminated */
+};
+
+/*
+ * A listing message is streamed out over as many writeables as it needs, in
+ * these phases
+ */
+
+enum deaddrop_send_phase {
+	DDSP_HEADER,
+	DDSP_USERS,
+	DDSP_FILES_OPEN,
+	DDSP_FILES,
+	DDSP_DONE
+};
+
 /* the only ws message we accept, {"del":"<name>"}, JSON-escaped */
 #define DEADDROP_RX_MAX		1024
 
@@ -127,18 +152,27 @@ struct pss_deaddrop {
 
 	struct lwsac			*lwsac_head;
 	struct dir_entry		*dire;
+
+	struct lwsac			*users_ac;	/* user snapshot */
+	lws_dll2_owner_t		users;
+	lws_dll2_t			*users_cursor;
+
 	int				filelist_version;
 	int				userlist_version;
 	int				sending_filelist_version;
 	int				sending_userlist_version;
 
+	uint8_t				phase; /* enum deaddrop_send_phase */
+
 	uint8_t				completed:1;
 	uint8_t				sent_headers:1;
 	uint8_t				sent_body:1;
-	uint8_t				first:1;
 	uint8_t				sent_initial:1;
 	uint8_t				ws_ongoing_send:1;
 	uint8_t				has_star_grant:1;
+	uint8_t				send_users:1;
+	uint8_t				send_files:1;
+	uint8_t				item_first:1;
 	uint8_t				rx_overflow:1;
 };
 
@@ -303,19 +337,134 @@ deaddrop_de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 	return (int)(p2->mtime - p1->mtime);
 }
 
+/*
+ * JSON-escape src into dst (which is clamped and always terminated).
+ * Usernames and uploader names are attacker-influenced and must not be able
+ * to close the string and forge members, nor emit invalid JSON that kills
+ * JSON.parse() in every connected client's UI.
+ */
+
+static const char *
+deaddrop_json_esc(char *dst, size_t dst_len, const char *src)
+{
+	int in_used = 0;
+
+	return lws_json_purify(dst, src, (int)dst_len, &in_used);
+}
+
+/*
+ * Worst-case emitted length of the listing header, one connected-user and one
+ * file object below.  Every writeable has room for the header plus at least
+ * one entry, so each one makes progress.
+ */
+#define DEADDROP_HEADER_MAX	384
+#define DEADDROP_USER_ENTRY_MAX	384
+#define DEADDROP_FILE_ENTRY_MAX	768
+#define DEADDROP_SEND_BUF	LWS_RECOMMENDED_MIN_HEADER_SPACE
+
+#if DEADDROP_SEND_BUF < DEADDROP_HEADER_MAX + DEADDROP_FILE_ENTRY_MAX + 16
+#error "deaddrop send buffer can't hold the header and one file entry"
+#endif
+
 static void
-deaddrop_start_sending_dir(struct pss_deaddrop *pss)
+deaddrop_users_snapshot_free(struct pss_deaddrop *pss)
+{
+	lwsac_free(&pss->users_ac);
+	lws_dll2_owner_clear(&pss->users);
+	pss->users_cursor = NULL;
+}
+
+/*
+ * Render the connected (authenticated) users for this pss's listing as it
+ * stands now
+ */
+
+static void
+deaddrop_users_snapshot(struct pss_deaddrop *pss)
+{
+	char esc_user[128], line[DEADDROP_USER_ENTRY_MAX];
+	struct deaddrop_user_snap *us;
+	int n;
+
+	deaddrop_users_snapshot_free(pss);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&pss->vhd->pss_head)) {
+		struct pss_deaddrop *pss1 = lws_container_of(d,
+					struct pss_deaddrop, pss_list);
+
+		/* Only list authenticated connections */
+		if (!pss1->wsi || !pss1->user[0])
+			continue;
+
+		n = lws_snprintf(line, sizeof(line),
+				 "{\"user\":\"%s\", \"ip\":\"%s\", "
+				 "\"platform\":\"%s\", \"browser\":\"%s\"%s%s}",
+				 deaddrop_json_esc(esc_user, sizeof(esc_user),
+						   pss1->user),
+				 pss1->ip, pss1->platform, pss1->browser,
+				 pss1->has_star_grant ? ", \"is_admin\":1" : "",
+				 (pss1 == pss) ? ", \"is_self\":1" : "");
+		if (n >= (int)sizeof(line))
+			/* can't happen, the fields are all bounded */
+			continue;
+
+		us = lwsac_use(&pss->users_ac, sizeof(*us) + (size_t)n + 1, 0);
+		if (!us) {
+			lwsl_wsi_warn(pss->wsi, "%s: OOM", __func__);
+			break;
+		}
+
+		memset(&us->list, 0, sizeof(us->list));
+		us->len = (size_t)n;
+		memcpy(&us[1], line, (size_t)n + 1);
+		lws_dll2_add_tail(&us->list, &pss->users);
+	} lws_end_foreach_dll(d);
+
+	pss->users_cursor = lws_dll2_get_head(&pss->users);
+}
+
+/*
+ * Drop our reference on the file list lwsac; lwsac_unreference() only frees
+ * it (and NULLs our pointer) when we were the last user of a detached one
+ */
+
+static void
+deaddrop_release_filelist(struct pss_deaddrop *pss)
 {
 	if (pss->lwsac_head)
 		lwsac_unreference(&pss->lwsac_head);
+	pss->lwsac_head	= NULL;
+	pss->dire	= NULL;
+}
 
-	if (pss->vhd->lwsac_head)
-		lwsac_reference(pss->vhd->lwsac_head);
-	pss->lwsac_head = pss->vhd->lwsac_head;
-	pss->dire = pss->vhd->dire_head;
+static void
+deaddrop_start_sending_dir(struct pss_deaddrop *pss)
+{
+	deaddrop_release_filelist(pss);
+
 	pss->sending_filelist_version = pss->vhd->filelist_version;
 	pss->sending_userlist_version = pss->vhd->userlist_version;
-	pss->first = 1;
+	pss->send_users = pss->userlist_version !=
+				pss->sending_userlist_version ||
+			  !pss->sent_initial;
+	pss->send_files = pss->filelist_version !=
+				pss->sending_filelist_version ||
+			  !pss->sent_initial;
+
+	if (pss->send_files) {
+		if (pss->vhd->lwsac_head)
+			lwsac_reference(pss->vhd->lwsac_head);
+		pss->lwsac_head = pss->vhd->lwsac_head;
+		pss->dire = pss->vhd->dire_head;
+	}
+
+	if (pss->send_users)
+		deaddrop_users_snapshot(pss);
+	else
+		deaddrop_users_snapshot_free(pss);
+
+	pss->phase = DDSP_HEADER;
 	pss->ws_ongoing_send = 1;
 }
 
@@ -955,8 +1104,8 @@ deaddrop_handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop 
 	lwsl_notice("%s: WS connection closed (user: '%s', ip: %s)\n",
 		    __func__, pss->user, pss->ip);
 
-	if (pss->lwsac_head)
-		lwsac_unreference(&pss->lwsac_head);
+	deaddrop_release_filelist(pss);
+	deaddrop_users_snapshot_free(pss);
 	/* remove our closing pss from the list of live pss */
 	lws_dll2_remove(&pss->pss_list);
 
@@ -1144,172 +1293,179 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 }
 
 /*
- * JSON-escape src into dst (which is clamped and always terminated).
- * Usernames and uploader names are attacker-influenced and must not be able
- * to close the string and forge members, nor emit invalid JSON that kills
- * JSON.parse() in every connected client's UI.
+ * Append one listing file entry at p, returning the new p, or NULL if this
+ * entry should be skipped
  */
 
-static const char *
-deaddrop_json_esc(char *dst, size_t dst_len, const char *src)
+static uint8_t *
+deaddrop_render_file(struct pss_deaddrop *pss, uint8_t *p, uint8_t *end,
+		     const struct dir_entry *dire)
 {
-	int in_used = 0;
+	char esc_fname[512], esc_up[128];
+	const char *fname = (const char *)&dire[1], *p_fn = fname;
+	int is_yours, is_text = 0, in_used = 0, n;
 
-	return lws_json_purify(dst, src, (int)dst_len, &in_used);
+	is_yours = pss->user[0] &&
+		   (pss->has_star_grant || !strcmp(pss->user, dire->user));
+
+	if (dire->user[0])
+		p_fn += strlen(dire->user) + 1;
+
+	/* check for YYYY-MM-DD_HH-MM-SS.txt format */
+	if (strlen(p_fn) == 23 &&
+	    p_fn[4] == '-' && p_fn[7] == '-' &&
+	    p_fn[10] == '_' && p_fn[13] == '-' &&
+	    p_fn[16] == '-' && !strcmp(p_fn + 19, ".txt"))
+		is_text = 1;
+
+	/* a name we can't send intact can be neither fetched nor deleted */
+	lws_json_purify(esc_fname, fname, sizeof(esc_fname), &in_used);
+	if ((size_t)in_used != strlen(fname))
+		return NULL;
+
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+			 "%c{\"name\":\"%s\", "
+			 "\"uploader\":\"%s\","
+			 "\"size\":%llu,"
+			 "\"mtime\":%llu,"
+			 "\"yours\":%d,"
+			 "\"is_text\":%d}",
+			 pss->item_first ? ' ' : ',',
+			 esc_fname,
+			 deaddrop_json_esc(esc_up, sizeof(esc_up), dire->user),
+			 dire->size, (unsigned long long)dire->mtime,
+			 is_yours, is_text);
+	if (n >= (int)lws_ptr_diff_size_t(end, p))
+		/* can't happen, the caller ensured room for the worst case */
+		return NULL;
+
+	return p + n;
 }
 
 /*
- * Worst-case emitted length of one connected-user / one file object below,
- * used to stop before the fixed send buffer truncates mid-token
+ * Stream the listing message out, a buffer per writeable.  Each writeable
+ * either completes the message or sends at least one more entry of it, and
+ * the message is one ws message: the first buffer starts it, the rest
+ * continue it, and the last one is FIN.
  */
-#define DEADDROP_USER_ENTRY_MAX 384
-#define DEADDROP_FILE_ENTRY_MAX 512
 
 static int
-deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
-			    struct lws *wsi)
+deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd,
+				     struct pss_deaddrop *pss, struct lws *wsi)
 {
-	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
-		*start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1];
-	char esc_user[128], esc_up[64];
-	int n, was = 0;
+	uint8_t buf[LWS_PRE + DEADDROP_SEND_BUF], *start = &buf[LWS_PRE],
+		*p = start, *end = &buf[sizeof(buf) - 1], *np;
+	char esc_user[128], esc_cookie[64];
+	struct deaddrop_user_snap *us;
+	int som, n;
 
 	/* if nothing to write, write nothing */
 	if (!pss->ws_ongoing_send)
 		return 0;
 
-	int send_users = (pss->userlist_version != pss->sending_userlist_version) || !pss->sent_initial;
-	int send_files = (pss->filelist_version != pss->sending_filelist_version) || !pss->sent_initial;
+	som = pss->phase == DDSP_HEADER;
 
-	if (pss->first) {
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				  "{\"max_size\":%llu, \"user\":\"%s\", \"cookie\":\"%s\"",
-				  vhd->max_size,
-				  deaddrop_json_esc(esc_user,
-						    sizeof(esc_user),
-						    pss->user),
-				  vhd->cookie_name);
-
-		if (send_users) {
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  ", \"connected_users\":[");
-
-			int first_user = 1;
-			lws_start_foreach_dll(struct lws_dll2 *, d,
-					      lws_dll2_get_head(&vhd->pss_head)) {
-				struct pss_deaddrop *pss1 =
-					lws_container_of(d, struct pss_deaddrop,
-							 pss_list);
-
-				/* Only list authenticated connections */
-				if (pss1->wsi && pss1->user[0]) {
-					/* stop before we truncate mid-token */
-					if (lws_ptr_diff_size_t(end, p) <
-							DEADDROP_USER_ENTRY_MAX)
-						break;
-
-					p += lws_snprintf((char *)p,
-							  lws_ptr_diff_size_t(end, p),
-						"%c{\"user\":\"%s\", \"ip\":\"%s\", "
-						"\"platform\":\"%s\", \"browser\":\"%s\"%s%s}",
-						first_user ? ' ' : ',',
-						deaddrop_json_esc(esc_user,
-								  sizeof(esc_user),
-								  pss1->user),
-						pss1->ip, pss1->platform,
-						pss1->browser,
-						pss1->has_star_grant ? ", \"is_admin\":1" : "",
-						(pss1 == pss) ? ", \"is_self\":1" : "");
-
-					first_user = 0;
-				}
-			} lws_end_foreach_dll(d);
-
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "]");
-		}
-
-		if (send_files) {
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  ", \"files\": [");
-			was = 1;
-		} else {
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "}");
-			pss->dire = NULL;
-			was = 1;
-		}
-	}
-
-	n = 5;
-	while (n-- && pss->dire) {
-		int is_yours;
-
-		/*
-		 * Stop before the entry would be truncated: pss->dire is our
-		 * resume cursor, so the rest simply goes out in the next
-		 * writeable.  Otherwise a long filename or a busy user list
-		 * cuts the JSON mid-token and every client's JSON.parse()
-		 * throws, permanently.
-		 */
-		if (lws_ptr_diff_size_t(end, p) < DEADDROP_FILE_ENTRY_MAX)
+	while (pss->phase != DDSP_DONE) {
+		switch (pss->phase) {
+		case DDSP_HEADER:
+			p += lws_snprintf((char *)p,
+				lws_ptr_diff_size_t(end, p),
+				"{\"max_size\":%llu, \"user\":\"%s\", "
+				"\"cookie\":\"%s\"",
+				vhd->max_size,
+				deaddrop_json_esc(esc_user, sizeof(esc_user),
+						  pss->user),
+				deaddrop_json_esc(esc_cookie,
+						  sizeof(esc_cookie),
+						  vhd->cookie_name));
+			if (pss->send_users) {
+				p += lws_snprintf((char *)p,
+					lws_ptr_diff_size_t(end, p),
+					", \"connected_users\":[");
+				pss->item_first	= 1;
+				pss->phase	= DDSP_USERS;
+			} else
+				pss->phase	= DDSP_FILES_OPEN;
 			break;
 
-		is_yours = (pss->has_star_grant ||
-			    !strcmp(pss->user, pss->dire->user)) &&
-			   pss->user[0];
-		const char *fname = (const char *)&pss->dire[1];
-		const char *p_fn = fname;
-		int is_text = 0;
+		case DDSP_USERS:
+			if (!pss->users_cursor) {
+				if (lws_ptr_diff_size_t(end, p) < 2)
+					goto send;
+				*p++ = ']';
+				pss->phase = DDSP_FILES_OPEN;
+				break;
+			}
+			us = lws_container_of(pss->users_cursor,
+					      struct deaddrop_user_snap, list);
+			if (lws_ptr_diff_size_t(end, p) < us->len + 2)
+				goto send;
+			*p++ = pss->item_first ? ' ' : ',';
+			memcpy(p, &us[1], us->len);
+			p += us->len;
+			pss->item_first		= 0;
+			pss->users_cursor	= pss->users_cursor->next;
+			break;
 
-		if (pss->dire->user[0])
-			p_fn += strlen(pss->dire->user) + 1;
+		case DDSP_FILES_OPEN:
+			if (lws_ptr_diff_size_t(end, p) < 16)
+				goto send;
+			if (pss->send_files) {
+				p += lws_snprintf((char *)p,
+					lws_ptr_diff_size_t(end, p),
+					", \"files\": [");
+				pss->item_first	= 1;
+				pss->phase	= DDSP_FILES;
+			} else {
+				*p++		= '}';
+				pss->phase	= DDSP_DONE;
+			}
+			break;
 
-		/* check for YYYY-MM-DD_HH-MM-SS.txt format */
-		if (strlen(p_fn) == 23 &&
-		    p_fn[4] == '-' && p_fn[7] == '-' &&
-		    p_fn[10] == '_' && p_fn[13] == '-' &&
-		    p_fn[16] == '-' && !strcmp(p_fn + 19, ".txt"))
-			is_text = 1;
-		char escaped_fname[256];
-		int in_used = 0;
-		lws_json_purify(escaped_fname, fname, sizeof(escaped_fname), &in_used);
+		case DDSP_FILES:
+			if (!pss->dire) {
+				if (lws_ptr_diff_size_t(end, p) < 3)
+					goto send;
+				*p++		= ']';
+				*p++		= '}';
+				pss->phase	= DDSP_DONE;
+				break;
+			}
+			/*
+			 * Stop before the entry could be truncated: pss->dire
+			 * is our resume cursor, so the rest goes out in the
+			 * next writeable
+			 */
+			if (lws_ptr_diff_size_t(end, p) <
+						DEADDROP_FILE_ENTRY_MAX)
+				goto send;
+			np = deaddrop_render_file(pss, p, end, pss->dire);
+			if (np) {
+				p = np;
+				pss->item_first = 0;
+			}
+			pss->dire = lp_to_dir_entry(pss->dire->next, next);
+			break;
 
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				  "%c{\"name\":\"%s\", "
-				  "\"uploader\":\"%s\","
-				  "\"size\":%llu,"
-				  "\"mtime\":%llu,"
-				  "\"yours\":%d,"
-				  "\"is_text\":%d}",
-				  pss->first ? ' ' : ',',
-				  escaped_fname,
-				  deaddrop_json_esc(esc_up, sizeof(esc_up),
-						    pss->dire->user),
-				  pss->dire->size,
-				  (unsigned long long)pss->dire->mtime,
-				  is_yours, is_text);
-		pss->first = 0;
-		pss->dire = lp_to_dir_entry(pss->dire->next, next);
+		default:
+			pss->phase = DDSP_DONE;
+			break;
+		}
 	}
 
-	if (!pss->dire) {
-		int send_files = (pss->filelist_version != pss->sending_filelist_version) || !pss->sent_initial;
-		if (send_files) {
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  "]}");
-		}
-		if (pss->lwsac_head) {
-			lwsac_unreference(&pss->lwsac_head);
-			pss->lwsac_head = NULL;
-		}
-		pss->ws_ongoing_send = 0;
-		pss->sent_initial = 1;
-		pss->userlist_version = pss->sending_userlist_version;
-		pss->filelist_version = pss->sending_filelist_version;
+send:
+	if (pss->phase == DDSP_DONE) {
+		deaddrop_release_filelist(pss);
+		deaddrop_users_snapshot_free(pss);
+		pss->ws_ongoing_send	= 0;
+		pss->sent_initial	= 1;
+		pss->userlist_version	= pss->sending_userlist_version;
+		pss->filelist_version	= pss->sending_filelist_version;
 	}
 
 	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-		      lws_write_ws_flags(LWS_WRITE_TEXT, was, !pss->dire));
+		      lws_write_ws_flags(LWS_WRITE_TEXT, som,
+					 pss->phase == DDSP_DONE));
 	if (n < 0) {
 		lwsl_notice("%s: ws write failed\n", __func__);
 		return 1;
@@ -1417,7 +1573,8 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		deaddrop_handler_server_ws_writeable(vhd, pss, wsi);
+		if (deaddrop_handler_server_ws_writeable(vhd, pss, wsi))
+			return -1;
 		return 0;
 
 	/* POST-related */
