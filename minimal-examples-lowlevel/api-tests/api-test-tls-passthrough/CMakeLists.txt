@@ -28,6 +28,25 @@ if (requirements)
 			 --certs ${CMAKE_CURRENT_SOURCE_DIR})
 	set_tests_properties(api-test-tls-passthrough PROPERTIES TIMEOUT 90)
 
+	#
+	# The same with the backend forgetting quiet relayed clients after
+	# 700ms, swept every 50ms, instead of 120s and 10s: the slow responses'
+	# 1.5s pause is then a long idle, which a proven relay of a live
+	# connection must survive, while a handshake still has the time it
+	# needs under a sanitizer on a loaded machine
+	#
+	set(has_fault_injection 1)
+	require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
+	if (has_fault_injection)
+		lws_get_free_ports(PORT_TLSPT_IDLE 5)
+		add_test(NAME api-test-tls-passthrough-relay-idle
+			 COMMAND lws-api-test-tls-passthrough -p ${PORT_TLSPT_IDLE}
+				 --certs ${CMAKE_CURRENT_SOURCE_DIR}
+				 --fault-injection "qpt_sweep_ms(50..51),qpt_relayed_idle_ms(700..701)")
+		set_tests_properties(api-test-tls-passthrough-relay-idle
+				     PROPERTIES TIMEOUT 90)
+	endif()
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)

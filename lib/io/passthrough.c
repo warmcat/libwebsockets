@@ -943,8 +943,9 @@ bail:
  *    apart, least recently used first, with a cap of their own, and only
  *    they are dropped to make room;
  *
- *  - a proven entry lives as long as the connections that proved it (or
- *    until its relay is quiet for LWS_QPT_RELAYED_IDLE_US), and a relayed
+ *  - a proven entry lives exactly as long as the connections that proved
+ *    it, however quiet they are (only hearsay is forgotten after
+ *    LWS_QPT_RELAYED_IDLE_US of quiet), and a relayed
  *    connection is only ever answered through a relay for it, never
  *    directly, while a direct connection is never answered through one.
  */
@@ -1219,16 +1220,46 @@ lws_qpt_relayed_destroy(struct lws_context *cx, lws_qpt_relayed_t *r)
 	lws_free(r);
 }
 
-static void
-lws_qpt_relayed_sweep(struct lws_context *cx, lws_dll2_owner_t *owner,
-		      lws_usec_t now)
+/*
+ * A sweep interval or idle time: fault injection can give a shorter one in
+ * ms from a range, eg "qpt_relayed_idle_ms(100..101)", so a test can see what
+ * a long quiet spell does without waiting for it
+ */
+static lws_usec_t
+lws_qpt_us(struct lws_context *cx, const char *fi_name, lws_usec_t us)
 {
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	uint64_t ms;
+
+	if (!lws_fi_range(&cx->fic, fi_name, &ms))
+		return (lws_usec_t)ms * LWS_US_PER_MS;
+#else
+	(void)cx;
+	(void)fi_name;
+#endif
+
+	return us;
+}
+
+/*
+ * Only hearsay entries are forgotten when quiet.  A proven one stands for the
+ * live connections that proved it, which may be quiet for longer than any
+ * idle time of ours, and still be answered through it: it goes when the last
+ * of them does (lws_qpt_conn_release()), so there are never more than there
+ * are connections.
+ */
+static void
+lws_qpt_relayed_sweep(struct lws_context *cx, lws_usec_t now)
+{
+	lws_usec_t idle = lws_qpt_us(cx, "qpt_relayed_idle_ms",
+				     LWS_QPT_RELAYED_IDLE_US);
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(owner)) {
+				   lws_dll2_get_head(&cx->pt_relayed_owner)) {
 		lws_qpt_relayed_t *r = lws_container_of(d, lws_qpt_relayed_t,
 							list);
 
-		if (now - r->last > LWS_QPT_RELAYED_IDLE_US)
+		if (now - r->last > idle)
 			lws_qpt_relayed_destroy(cx, r);
 	} lws_end_foreach_dll_safe(d, d1);
 }
@@ -1248,14 +1279,13 @@ lws_qpt_sweep_cb(lws_sorted_usec_list_t *sul)
 			lws_qpt_flow_destroy(cx, f);
 	} lws_end_foreach_dll_safe(d, d1);
 
-	lws_qpt_relayed_sweep(cx, &cx->pt_relayed_owner, now);
-	lws_qpt_relayed_sweep(cx, &cx->pt_relayed_proven_owner, now);
+	lws_qpt_relayed_sweep(cx, now);
 
 	if (lws_dll2_count(&cx->pt_qflow_owner) ||
-	    lws_dll2_count(&cx->pt_relayed_owner) ||
-	    lws_dll2_count(&cx->pt_relayed_proven_owner))
+	    lws_dll2_count(&cx->pt_relayed_owner))
 		lws_sul_schedule(cx, 0, &cx->sul_pt_sweep, lws_qpt_sweep_cb,
-				 LWS_QPT_SWEEP_US);
+				 lws_qpt_us(cx, "qpt_sweep_ms",
+					    LWS_QPT_SWEEP_US));
 }
 
 static void
@@ -1265,7 +1295,7 @@ lws_qpt_sweep_arm(struct lws_context *cx)
 		return;
 
 	lws_sul_schedule(cx, 0, &cx->sul_pt_sweep, lws_qpt_sweep_cb,
-			 LWS_QPT_SWEEP_US);
+			 lws_qpt_us(cx, "qpt_sweep_ms", LWS_QPT_SWEEP_US));
 }
 
 void

@@ -77,6 +77,11 @@
  *
  * Each NAT only passes back what comes from the front, so an answer the
  * backend sends anywhere else is lost, as it would be in real life.
+ *
+ * ctest also runs it with fault injection making the backend forget a quiet
+ * relayed client after 700ms instead of 120s: the slow responses' pause is
+ * then a long quiet spell, which the relays the clients' connections proved
+ * must survive, still answering them and still not moved by the spoofer.
  */
 
 #include <libwebsockets.h>

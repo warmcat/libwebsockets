@@ -1334,6 +1334,16 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 	nwsi->io->desc = wsi->io->desc;
 	memcpy(nwsi->io->pstack, wsi->io->pstack, sizeof(nwsi->io->pstack));
 	nwsi->io->pstack_count = wsi->io->pstack_count;
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+	/*
+	 * So does the connection's part in its relay entry: it is the new wsi
+	 * whose QUIC proves, moves and finally releases it, not the old one,
+	 * which goes on as a stream and must not release it when that ends
+	 */
+	nwsi->io->relay_lport = wsi->io->relay_lport;
+	nwsi->io->relay_proven = wsi->io->relay_proven;
+	wsi->io->relay_proven = 0;
+#endif
 #if defined(LWS_WITH_UDP)
 	nwsi->io->udp = wsi->io->udp;
 	wsi->io->udp = NULL;
