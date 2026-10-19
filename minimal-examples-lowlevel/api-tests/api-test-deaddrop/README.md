@@ -17,6 +17,7 @@ must resolve itself.
 |`bob` uploads `x.html`, `x.svg`, `x.js`; `bob_smith` fetches them from `/get/`|each 200, `application/octet-stream`, `Content-Disposition: attachment` naming the file, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, the content intact|
 |`bob_smith` fetches a name that does not exist|404|
 |`bob_smith` fetches `bob_escape.txt`, a symlink in the upload dir to `<upload dir>x` beside it|404|
+|on `/open/upload/` and `/open/get/`, plugin mounts with no basic auth of their own, an upload sent with a bare `Authorization: bob` and a download with `Authorization: bob_smith`|both 403, nothing stored: only a user lws itself authenticated is believed, despite the `basic-auth` pvo|
 
 ## running it
 

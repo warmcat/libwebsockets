@@ -12,7 +12,7 @@ Just configure lws with `cmake .. -DLWS_WITH_PLUGINS=1` and build lws as normal.
 |max-size|Maximum individual file size in bytes|
 |jwt-jwk|Path to the JSON Web Key (JWK) used to verify JWT signatures.  Only the lws auth server's session tokens, which carry `"pur":"sso"`, are accepted|
 |cookie-name|Optional: Name of the HTTP cookie that the server should expect the JWT payload in. Defaults to `auth_session`|
-|basic-auth|Optional: path to an lws basic-auth password file.  The `Authorization` header is only trusted as an identity if this is set, since that is what makes lws validate and rewrite it|
+|basic-auth|Optional: path to an lws basic-auth password file, that lws checks the ws upgrade against.  If this is set, a user lws's own basic auth accepted for the request is a deaddrop user: from this file on the ws, and from the mount's own basic auth login file on the `upload` and `get` mounts.  The `Authorization` header itself is never believed, so a mount without basic auth has no basic auth user|
 |allow-anonymous|Optional: set to other than `off` / `0` to allow unauthenticated ws connections.  By default they are refused|
 |origin-allow|Optional: comma-separated list of extra origins (eg, `https://a.example.com,https://b.example.com`) accepted on the ws upgrade and the upload POST, in addition to the vhost's own origin|
 |require-origin|Optional: set to other than `off` / `0` to also refuse requests that carry no `Origin` header at all, ie, non-browser clients|

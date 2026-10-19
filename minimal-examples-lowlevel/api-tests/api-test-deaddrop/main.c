@@ -35,6 +35,11 @@
  *    the above to work (G-308); and a stored name that is a symlink to a file
  *    outside it, beside the dir with the dir's name as its prefix, must not
  *    be served (G-282)
+ *
+ *  - on mounts that have no basic auth of their own, an upload claiming
+ *    "Authorization: bob" and a download claiming "Authorization: bob_smith"
+ *    are just unauthenticated, ie 403, although the vhost gave the plugin the
+ *    "basic-auth" pvo (G-309)
  */
 
 #include <libwebsockets.h>
@@ -80,6 +85,11 @@ struct upload {
 	const char		*pass;
 	const char		*filename;
 	const char		*content;
+	const char		*path;		/* NULL: "/upload/" */
+	const char		*forge;		/* raw Authorization: instead */
+	const char		*stored;	/* NULL, or name it is stored as */
+	int			expect_status;	/* 0: 200 */
+
 	int			status;
 	int			part;
 	char			started;
@@ -88,6 +98,8 @@ struct upload {
 
 struct download {
 	const char		*name;		/* stored name */
+	const char		*mount;		/* NULL: "/get" */
+	const char		*forge;		/* raw Authorization: instead */
 	int			expect_status;
 	const char		*expect_cd;	/* expected Content-Disposition */
 	const char		*expect_body;
@@ -141,26 +153,41 @@ struct ws_client {
 #define JS_CONTENT	"alert(1);\n"
 
 static struct upload uploads[] = {
-	{ "bob_smith", "smith-password", "notes.txt", SMITH_CONTENT, 0, 0, 0, 0 },
-	{ "bob", "bob-password", "smith_notes.txt", BOB_CONTENT, 0, 0, 0, 0 },
+	{ .user = "bob_smith", .pass = "smith-password",
+	  .filename = "notes.txt", .content = SMITH_CONTENT },
+	{ .user = "bob", .pass = "bob-password",
+	  .filename = "smith_notes.txt", .content = BOB_CONTENT },
 	/* active content, for the downloads */
-	{ "bob", "bob-password", "x.html", HTML_CONTENT, 0, 0, 0, 0 },
-	{ "bob", "bob-password", "x.svg", SVG_CONTENT, 0, 0, 0, 0 },
-	{ "bob", "bob-password", "x.js", JS_CONTENT, 0, 0, 0, 0 },
+	{ .user = "bob", .pass = "bob-password",
+	  .filename = "x.html", .content = HTML_CONTENT },
+	{ .user = "bob", .pass = "bob-password",
+	  .filename = "x.svg", .content = SVG_CONTENT },
+	{ .user = "bob", .pass = "bob-password",
+	  .filename = "x.js", .content = JS_CONTENT },
+	/* a claimed, unauthenticated identity on a mount with no basic auth */
+	{ .filename = "forged.txt", .content = "forged\n",
+	  .path = "/open/upload/", .forge = "bob", .stored = "bob_forged.txt",
+	  .expect_status = 403 },
 };
 
 static struct download downloads[] = {
-	{ "bob_x.html", 200,
-	  "attachment; filename=\"x.html\"; filename*=UTF-8''x.html",
-	  HTML_CONTENT, 0, "", "", "", "", "", 0, 0, 0 },
-	{ "bob_x.svg", 200,
-	  "attachment; filename=\"x.svg\"; filename*=UTF-8''x.svg",
-	  SVG_CONTENT, 0, "", "", "", "", "", 0, 0, 0 },
-	{ "bob_x.js", 200,
-	  "attachment; filename=\"x.js\"; filename*=UTF-8''x.js",
-	  JS_CONTENT, 0, "", "", "", "", "", 0, 0, 0 },
-	{ "bob_missing.html", 404, NULL, NULL, 0, "", "", "", "", "", 0, 0, 0 },
-	{ ESCAPE_NAME, 404, NULL, NULL, 0, "", "", "", "", "", 0, 0, 0 },
+	{ .name = "bob_x.html", .expect_status = 200,
+	  .expect_cd = "attachment; filename=\"x.html\"; "
+		       "filename*=UTF-8''x.html",
+	  .expect_body = HTML_CONTENT },
+	{ .name = "bob_x.svg", .expect_status = 200,
+	  .expect_cd = "attachment; filename=\"x.svg\"; "
+		       "filename*=UTF-8''x.svg",
+	  .expect_body = SVG_CONTENT },
+	{ .name = "bob_x.js", .expect_status = 200,
+	  .expect_cd = "attachment; filename=\"x.js\"; "
+		       "filename*=UTF-8''x.js",
+	  .expect_body = JS_CONTENT },
+	{ .name = "bob_missing.html", .expect_status = 404 },
+	{ .name = ESCAPE_NAME, .expect_status = 404 },
+	/* a claimed, unauthenticated identity on a mount with no basic auth */
+	{ .name = "bob_x.html", .mount = "/open/get", .forge = "bob_smith",
+	  .expect_status = 403 },
 };
 static int upload_idx, download_idx;
 
@@ -326,17 +353,26 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **pp = (unsigned char **)in, *e = (*pp) + len;
 		int ws = is_ws(c), d = is_dl(dl);
+		const char *forge = ws ? NULL : (d ? dl->forge : u->forge);
 
-		/* bob_smith fetches the downloads */
-		if (lws_http_basic_auth_gen(ws ? c->user :
+		if (forge) {
+			/* a bare name, as if something had validated it */
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_AUTHORIZATION,
+					(unsigned char *)forge,
+					(int)strlen(forge), pp, e))
+				return -1;
+		} else
+			/* bob_smith fetches the downloads */
+			if (lws_http_basic_auth_gen(ws ? c->user :
 					    (d ? "bob_smith" : u->user),
 					    ws ? c->pass :
 					    (d ? "smith-password" : u->pass),
 					    b, sizeof(b)) ||
-		    lws_add_http_header_by_token(wsi,
+			    lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_AUTHORIZATION,
 				(unsigned char *)b, (int)strlen(b), pp, e))
-			return -1;
+				return -1;
 
 		if (!ws && !d) {
 			lws_client_http_body_pending(wsi, 1);
@@ -427,7 +463,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (u && !is_ws(u) && !u->done) {
 			u->done = 1;
 			lwsl_user("upload '%s' as %s: %d\n", u->filename,
-				  u->user, u->status);
+				  u->forge ? u->forge : u->user, u->status);
 		}
 		break;
 
@@ -518,9 +554,30 @@ static const struct lws_protocols protocols_srv[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+/*
+ * The same plugin mounts without basic auth of their own: only an identity
+ * lws actually authenticated may be believed there, and there is none
+ */
+
+static struct lws_http_mount mount_open_get = {
+	.mountpoint		= "/open/get",
+	.protocol		= "lws-deaddrop",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 9,
+};
+
+static struct lws_http_mount mount_open_upload = {
+	.mount_next		= &mount_open_get,
+	.mountpoint		= "/open/upload",
+	.protocol		= "lws-deaddrop",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 12,
+};
+
 /* deaddrop serves the downloads itself */
 
 static struct lws_http_mount mount_get = {
+	.mount_next		= &mount_open_upload,
 	.mountpoint		= "/get",
 	.protocol		= "lws-deaddrop",
 	.origin_protocol	= LWSMPRO_CALLBACK,
@@ -564,7 +621,7 @@ start_upload(struct upload *u)
 	i.host			= server_addr;
 	i.origin		= server_addr;
 	i.port			= port;
-	i.path			= "/upload/";
+	i.path			= u->path ? u->path : "/upload/";
 	i.method		= "POST";
 	i.ssl_connection	= LCCSCF_HTTP_MULTIPART_MIME;
 	i.protocol		= "dd-test-client";
@@ -580,7 +637,8 @@ start_download(struct download *d)
 	struct lws_client_connect_info i;
 	char path[300];
 
-	lws_snprintf(path, sizeof(path), "/get/%s", d->name);
+	lws_snprintf(path, sizeof(path), "%s/%s", d->mount ? d->mount : "/get",
+		     d->name);
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
@@ -595,6 +653,29 @@ start_download(struct download *d)
 	i.opaque_user_data	= d;
 
 	return !lws_client_connect_via_info(&i);
+}
+
+static int file_exists(const char *name);
+
+static int
+check_upload(const struct upload *u)
+{
+	int expect = u->expect_status ? u->expect_status : 200;
+
+	if (u->status != expect) {
+		lwsl_err("%s: '%s': %d, expected %d\n", __func__, u->filename,
+			 u->status, expect);
+		return 1;
+	}
+
+	/* only an accepted upload may have stored anything */
+	if (u->stored && file_exists(u->stored) != (expect == 200)) {
+		lwsl_err("%s: '%s' %sstored as '%s'\n", __func__, u->filename,
+			 expect == 200 ? "not " : "", u->stored);
+		return 1;
+	}
+
+	return 0;
 }
 
 static int
@@ -888,8 +969,8 @@ tick(lws_sorted_usec_list_t *sul)
 		}
 		if (!uploads[upload_idx].done)
 			break;
-		if (uploads[upload_idx].status != 200) {
-			fail("upload refused", -1);
+		if (check_upload(&uploads[upload_idx])) {
+			fail("upload not as expected", -1);
 			goto finish;
 		}
 		upload_idx++;
@@ -911,7 +992,7 @@ tick(lws_sorted_usec_list_t *sul)
 		if (!downloads[download_idx].done)
 			break;
 		if (check_download(&downloads[download_idx])) {
-			fail("download not served as an inert attachment", -1);
+			fail("download not as expected", -1);
 			goto finish;
 		}
 		download_idx++;

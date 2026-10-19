@@ -137,10 +137,10 @@ struct vhd_deaddrop {
 	struct lws_jwk			jwk;
 	uint8_t				has_jwk:1;
 	/*
-	 * set if this vhost gave the protocol a "basic-auth" pvo, ie, lws
-	 * itself checks the Authorization header at ws upgrade and rewrites
-	 * it to the validated username.  Without it, the header is just
-	 * something the peer typed and must not be believed.
+	 * set if this vhost gave the protocol a "basic-auth" pvo, ie, users
+	 * that lws's own basic auth accepted are deaddrop users: lws checks
+	 * the ws upgrade against the pvo's file, and http requests against
+	 * their mount's login file, if it has one
 	 */
 	uint8_t				basic_auth:1;
 	/* set by the "allow-anonymous" pvo: serve unauthenticated ws peers */
@@ -331,12 +331,12 @@ as_is:
  *
  * Two sources are accepted:
  *
- *  - the Authorization header, but ONLY if this vhost actually configured
- *    basic auth on the protocol.  In that case lws has already validated it
- *    and rewritten the header to the bare username
- *    (lws_authorization_rewrite()).  Without that pvo, nothing validates or
- *    rewrites it, and any peer could just send "Authorization: alice" and
- *    be treated as alice.
+ *  - if this vhost gave us the "basic-auth" pvo, the user lws's own basic
+ *    auth accepted for this very request (lws_http_basic_auth_user()): the
+ *    pvo's file on the ws upgrade, or the mount's login file on http.  Never
+ *    the Authorization header itself: the pvo only makes lws check the ws
+ *    upgrade, so on a mount without its own basic auth the header is just
+ *    what the peer typed, eg "Authorization: alice".
  *
  *  - the JWT session cookie, which must both verify and still be live:
  *    lws_jwt_auth_create() deliberately hands back a token that verified but
@@ -355,18 +355,25 @@ deaddrop_get_auth_identity_user(struct vhd_deaddrop *vhd,
 	struct lws_jwt_auth *ja;
 	const char *sub;
 
-	if (vhd->basic_auth &&
-	    lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-			 WSI_TOKEN_HTTP_AUTHORIZATION) > 0 &&
-	    strncmp(pss->user, "Basic ", 6) &&
-	    strncmp(pss->user, "Bearer ", 7)) {
+	pss->user[0] = '\0';
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && defined(LWS_WITH_SERVER)
+	sub = vhd->basic_auth ? lws_http_basic_auth_user(wsi) : NULL;
+	if (sub) {
+		/* a name that does not fit is no user, never a shorter one */
+		if (strlen(sub) >= sizeof(pss->user)) {
+			lwsl_wsi_notice(wsi, "%s: basic auth user too long",
+					__func__);
+
+			return;
+		}
+		lws_strncpy(pss->user, sub, sizeof(pss->user));
 		lwsl_wsi_info(wsi, "%s: basic auth user '%s'", __func__,
 			      pss->user);
 
 		return;
 	}
-
-	pss->user[0] = '\0'; /* discard any raw header we do not trust */
+#endif
 
 	if (!vhd->has_jwk)
 		return;
