@@ -926,11 +926,7 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
                 if (payload_len > sizeof(tmp))
                         return -1;
                 memcpy(tmp, &packet[payload_offset], payload_len);
-                lwsl_debug("GnuTLS AEAD TX: full_pn=%llu, pn_offset=%d, payload_offset=%d, payload_len=%d\n",
-                            (unsigned long long)full_pn, (int)pn_offset, (int)payload_offset, (int)payload_len);
-                lwsl_hexdump_debug(packet, payload_offset); /* Print AAD */
-                lwsl_hexdump_debug(keys->iv_tx, 12); /* Print IV */
-                lwsl_hexdump_debug(nonce, 12); /* Print Nonce */
+                /* key material (IV, nonce) is never logged */
                 if (gnutls_aead_cipher_encrypt(hd, nonce, 12, packet, payload_offset,
                                                16, tmp, payload_len,
                                                &packet[payload_offset], &ct_len) < 0) {
@@ -938,11 +934,7 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
                         return -1;
                 }
 
-                /* GnuTLS automatically appends the tag to the end of the ciphertext output */
-                /* We copy it to 'tag' just for the debug dump */
-                memcpy(tag, &packet[payload_offset + payload_len], 16);
-                lwsl_debug("GnuTLS AEAD TX TAG:\n");
-                lwsl_hexdump_debug(tag, 16);
+                /* GnuTLS appends the tag to the end of the ciphertext */
 #else
 		struct lws_genaes_ctx aead;
 		if (lws_genaes_create(&aead, LWS_GAESO_ENC, LWS_GAESM_GCM, &keys->el_aead_tx, LWS_GAESP_NO_PADDING, NULL)) {
