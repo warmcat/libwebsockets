@@ -124,16 +124,20 @@ direct_cb(void *opaque, const lws_adns_direct_result_t *r)
 		lws_default_loop_exit(context);
 }
 
+#if defined(LWS_WITH_IPV4)
 static void
 unstartable_cb(void *opaque, const lws_adns_direct_result_t *r)
 {
 	unstartable_called = 1;
 }
+#endif
 
 static void
 start_cb(lws_sorted_usec_list_t *sul)
 {
+#if defined(LWS_WITH_IPV4)
 	lws_sockaddr46 sa_bcast;
+#endif
 	size_t n;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(qs); n++) {
