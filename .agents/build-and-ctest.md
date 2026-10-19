@@ -295,6 +295,11 @@
    declare corpus / document builders with `LWS_FORMAT(n)` so the compiler
    checks them.
 
+ - `setsockopt bind to device 127.0.0.1 error (19)` in a test log is
+   harmless: Linux builds default `LWS_WITH_BINDTODEVICE` on, and
+   `lws_socket_bind()` hands a numeric iface to `SO_BINDTODEVICE`, which
+   fails without privilege (G-225).
+
 ## Debug logging in ctest
 
 The default log spew handling keeps only the last 10 lines, so at

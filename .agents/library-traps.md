@@ -393,9 +393,17 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    transport `_write` / `proxy_write`: copy behind `LWS_PRE` first, as
    `lws_ssproxy_stage_dsh_head()` does.  Transports under the mux get
    `LWS_PRE - 4` (G-203).
- - **Peer credential checks are one-sided:** C-630 checks client peer ids
-   on the proxy side; nothing on the sspc client side calls
-   `lws_plat_unix_peer_ids()` on the proxy (G-185).
+ - **Peer credential checks are one-sided by design:** C-630 checks client
+   peer ids on the proxy side; the sspc client only logs the proxy's
+   uid/gid and does not require it to match (maintainer, G-185).  Any
+   local user can squat an abstract UDS name: where the proxy's identity
+   matters, use a filesystem-path UDS.
+ - **The SS tcp proxy listens on loopback by default** (G-187): with
+   `ss_proxy_port` and no `ss_proxy_bind` it binds 127.0.0.1 (::1 with no
+   IPv4), and any bind that is not a numeric loopback address (including
+   interface names like "lo") is refused unless
+   `.ss_proxy_tcp_allow_remote` is set.  The tcp link has no client
+   authentication.
  - Server `LWSSSCS_SERVER_UPGRADE` goes to the accepted stream: CREATING,
    CONNECTING, SERVER_UPGRADE, CONNECTED.
  - A body-carrying SS method with a tx callback but no known length is
@@ -470,7 +478,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    is still listed, so cancelling from inside cb is a use-after-free; a
    cancel with domain NULL drops every request with that opaque (G-220).
    auth-dns with dht-dnssec only works on the same vhost:
-   `get_dnssec_vhd()` resolves to the caller's own vhost.
+   `get_dnssec_vhd()` resolves to the caller's own vhost.  `is_fail`
+   in the fetch args fails an opaque's requests with one
+   `LWS_DHT_DNSSEC_FETCH_TIMEOUT` cb each; auth-dns uses it when the last
+   query waiting on a domain times out (G-224).  The stand-in
+   lws-dht-dnssec protocol in api-test-auth-dns-zonedir can take fetches
+   that never answer, to test auth-dns fetch handling without a DHT.
  - **dht-dnssec fetches open only for an RSP from a host the GET went to**
    (G-153): tests that hand-make a `lws_dht_dnssec_fetch_req` must record
    the responder with `dht_dnssec_fetch_req_send()`.
@@ -487,6 +500,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **lws-login uses the page URL itself as redirect_uri** and posts the
    token to `<page path>/.lws-login-sso`; changing redirect_uri matching
    in the auth server changes lws-login's contract too (G-112).
+ - **auth-server 2FA in tests:** a TOTP code is good for one login per
+   30 s, so back-to-back two-step logins in a test use backup codes (the
+   lwsws-oauth "limits" scenario does).  Step 1 of a two-step login
+   strikes the host; a completed step 2 from the same host and account
+   within 120 s gives exactly that strike back (G-223).
  - **lws-login's cookies (`auth_session`, `auth_csrf`) are unprefixed and
    usually Domain-scoped**, so siblings can write them: shape-check values
    read from them before re-emitting them anywhere (G-168).
