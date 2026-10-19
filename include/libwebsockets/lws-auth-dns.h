@@ -81,6 +81,14 @@ lws_auth_dns_free_zone(struct auth_dns_zone *z);
 
 #define LWS_AUTH_DNS_NSEC3_HASH_LEN 20 /* SHA-1, the only NSEC3 hash */
 
+/*
+ * Anything hashing a zone's NSEC3 owner names spends the zone's iteration
+ * count of CPU per hash, and the zone can be untrusted (eg, DHT-published).
+ * RFC 5155 A.1 caps useful iterations at 150 and RFC 9276 deprecates any
+ * value above 0, so zones asking for more are not hashed.
+ */
+#define LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS 150
+
 /**
  * lws_auth_dns_nsec3_hash() - RFC 5155 hashed owner name
  *
@@ -172,6 +180,14 @@ struct lws_auth_dns_sign_info {
  * The input zone must pass lws_auth_dns_zone_check_origin() against
  * \p info->domain (or, with that NULL, against itself), otherwise nothing
  * is signed and nonzero is returned.
+ *
+ * As RFC 4035 2.2 requires, the NS RRset at a delegation point (an owner
+ * below the apex with an NS RRset) and glue (A / AAAA RRsets at or below a
+ * delegation point, at a name some NS RR names) are not signed, and the
+ * NSEC3 chain does not include the names below a delegation point.  A DS
+ * RRset at a delegation point is signed.  A zone that holds anything else
+ * at or below a delegation point (occluded data), or a DS RRset anywhere but
+ * at a delegation point, is refused.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info);
@@ -192,9 +208,17 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info);
  *  - the DNSKEY RRset must carry a valid RRSIG made by that KSK
  *  - every authoritative RRset other than RRSIG, including the NSEC3 chain
  *    and NSEC3PARAM, must carry at least one valid RRSIG made by a zone key
- *    in that DNSKEY RRset.  Per RFC 4035 2.2, the NS RRset at a delegation
- *    point and the glue at or below it need not be signed; the DS and NSEC
- *    RRsets at a delegation point must be.
+ *    in that DNSKEY RRset
+ *  - an owner below the apex with an NS RRset is only taken as a delegation
+ *    point if the zone's NSEC3 RR for it (with the apex NSEC3PARAM's
+ *    parameters, which must not exceed LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS)
+ *    lists NS and not SOA, so only delegations the signer made are exempt
+ *    from being signed.  Zones using NSEC3 opt-out for insecure delegations
+ *    therefore do not verify.
+ *  - per RFC 4035 2.2, the NS RRset at a delegation point and glue (A / AAAA
+ *    at or below one, at a name an NS RR names) must not be signed, the DS
+ *    RRset at a delegation point must be, and nothing else may be at or
+ *    below a delegation point, nor a DS anywhere else
  *  - every RRSIG in the zone must be valid: over an RRset its owner has,
  *    signed by the zone apex, with the owner's label count and the RRset's
  *    TTL as its original TTL, inside its inception / expiration period at

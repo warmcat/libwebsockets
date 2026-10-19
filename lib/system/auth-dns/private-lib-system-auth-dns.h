@@ -43,7 +43,7 @@ lws_auth_dns_inject_mock_keys(struct lws_auth_dns_sign_info *info, struct auth_d
 void
 lws_auth_dns_sort_zone(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z);
 
-void
+int
 lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z);
 
 void

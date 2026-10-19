@@ -608,11 +608,15 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	}
 
 	if (lws_auth_dns_inject_mock_keys(info, &zone)) {
-		lwsl_err("%s: unable to build the NSEC3 chain\n", __func__);
+		lwsl_err("%s: unable to prepare the zone for signing\n",
+			 __func__);
 		goto bail_zone;
 	}
 	lws_auth_dns_sort_zone(info, &zone);
-	lws_auth_dns_sign_rrsets(info, &zone);
+	if (lws_auth_dns_sign_rrsets(info, &zone)) {
+		lwsl_err("%s: unable to sign the zone\n", __func__);
+		goto bail_zone;
+	}
 
 	/* Write canonical sorted and combined zone into output_filepath (or fallback to user output string dump) */
 	fd = open(info->output_filepath ? info->output_filepath : "signed.zone", LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);

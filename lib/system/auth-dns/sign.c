@@ -106,6 +106,7 @@ static const struct {
 	{ "TXT",	16 },
 	{ "AAAA",	28 },
 	{ "LOC",	29 },
+	{ "DS",		43 },
 	{ "RRSIG",	46 },
 	{ "DNSKEY",	48 },
 	{ "NSEC3",	50 },
@@ -115,23 +116,38 @@ static const struct {
 	{ "CAA",	257 },
 };
 
+/* a decimal number 0..max and nothing else: 0 if so, with it in *v */
+
+static int
+auth_dns_decimal(const char *s, uint32_t max, uint32_t *v)
+{
+	uint64_t t = 0; /* <= max before each step, so it cannot overflow */
+
+	if (!*s)
+		return 1;
+
+	while (*s >= '0' && *s <= '9') {
+		t = (t * 10) + (uint64_t)(*s++ - '0');
+		if (t > max)
+			return 1;
+	}
+
+	if (*s)
+		return 1;
+
+	*v = (uint32_t)t;
+
+	return 0;
+}
+
 /* a decimal RR type 1..65535 and nothing else, or 0 */
 
 static uint16_t
 auth_dns_type_decimal(const char *s)
 {
-	uint32_t t = 0;
+	uint32_t t;
 
-	if (!*s)
-		return 0;
-
-	while (*s >= '0' && *s <= '9' && t <= 0xffff)
-		t = (t * 10) + (uint32_t)(*s++ - '0');
-
-	if (*s || t > 0xffff)
-		return 0;
-
-	return (uint16_t)t;
+	return auth_dns_decimal(s, 0xffff, &t) ? 0 : (uint16_t)t;
 }
 
 uint16_t
@@ -570,6 +586,33 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		}
 		size_t hlen = strlen(sc->accum) / 2;
 		WCHK(hlen);
+		if (hex_to_wire(sc->accum, w + wl, hlen))
+			goto fail;
+		wl += hlen;
+	} else if (type == 43 && num_toks >= 4) { // DS, RFC 4034 5.3
+		uint32_t keytag, alg, dtype;
+		size_t hlen;
+
+		if (auth_dns_decimal(toks[0], 0xffff, &keytag) ||
+		    auth_dns_decimal(toks[1], 0xff, &alg) ||
+		    auth_dns_decimal(toks[2], 0xff, &dtype))
+			goto fail;
+
+		/* the digest may be split into several tokens */
+		sc->accum[0] = '\0';
+		for (int i = 3; i < num_toks; i++)
+			strncat(sc->accum, toks[i],
+				sizeof(sc->accum) - strlen(sc->accum) - 1);
+
+		hlen = strlen(sc->accum) / 2;
+		if (!hlen)
+			goto fail;
+
+		WCHK(4 + hlen);
+		lws_ser_wu16be(w, (uint16_t)keytag);
+		w[2] = (uint8_t)alg;
+		w[3] = (uint8_t)dtype;
+		wl = 4;
 		if (hex_to_wire(sc->accum, w + wl, hlen))
 			goto fail;
 		wl += hlen;
@@ -1444,6 +1487,168 @@ bail_jwk:
 }
 
 /*
+ * Zone cuts
+ *
+ * RFC 4034 / RFC 4035 2.2: an NS RRset at an owner below the apex makes that
+ * owner a delegation point, a zone cut.  What is at and below a cut belongs
+ * to the child zone, apart from
+ *
+ *  - the NS RRset at the cut, which the parent holds but is not
+ *    authoritative for, so does not sign
+ *  - the DS RRset at the cut, which is the parent's own data, and signed
+ *  - glue: addresses of name servers whose names are at or below a cut,
+ *    which the parent carries so the child can be reached, and does not sign
+ *
+ * Anything else at or below a cut is occluded: no resolver would ever be
+ * given it by the parent, and nobody can sign it.  We do not let such data
+ * into a zone at all, rather than carry records that the signer would leave
+ * unsigned and the server could only serve unsigned.  A DS anywhere but at
+ * a cut (including at the apex, where the DS is the parent's) is the same.
+ *
+ * The signer and the verifier decide all this here, so they cannot disagree
+ * about which RRsets are signed.
+ */
+
+enum auth_dns_role {
+	AUTH_DNS_ROLE_AUTH,	/* this zone's own data, signed */
+	AUTH_DNS_ROLE_DELEG,	/* the NS RRset at a cut, not signed */
+	AUTH_DNS_ROLE_GLUE,	/* a name server's address at / below a cut */
+	AUTH_DNS_ROLE_OCCLUDED,	/* not data this zone may hold */
+};
+
+struct auth_dns_cuts {
+	const struct auth_dns_rrset	**ns;	 /* every NS RRset, apex too */
+	int				count;
+};
+
+/* is \p name strictly below \p anc?  Both are fully-qualified */
+
+static int
+auth_dns_name_below(const char *name, const char *anc)
+{
+	size_t nl = strlen(name), al = strlen(anc);
+
+	return nl > al && name[nl - al - 1] == '.' &&
+	       !strcasecmp(name + nl - al, anc);
+}
+
+static void
+auth_dns_cuts_destroy(struct auth_dns_cuts *c)
+{
+	lws_free_set_NULL(c->ns);
+	c->count = 0;
+}
+
+/*
+ * Collect the zone's NS RRsets.  The ones below the apex are the cuts, and
+ * the names all of them point to are the ones that can have glue.
+ */
+
+static int
+auth_dns_cuts_find(const struct auth_dns_zone *z, struct auth_dns_cuts *c)
+{
+	int n = 0;
+
+	memset(c, 0, sizeof(*c));
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		if (lws_container_of(d, struct auth_dns_rrset, list)->type == 2)
+			c->count++;
+	} lws_end_foreach_dll(d);
+
+	if (!c->count)
+		return 0;
+
+	c->ns = lws_malloc(sizeof(*c->ns) * (size_t)c->count, "auth_dns_cuts");
+	if (!c->ns) {
+		c->count = 0;
+		return 1;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		const struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		if (rs->type == 2)
+			c->ns[n++] = rs;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
+/* is \p name the target of any NS RR in the zone? */
+
+static int
+auth_dns_ns_target(const struct auth_dns_zone *z, const struct auth_dns_cuts *c,
+		   const char *name)
+{
+	uint8_t w[256];
+	size_t wl = sizeof(w);
+	int n;
+
+	if (name_to_wire(name, z->origin, w, &wl))
+		return 0;
+
+	for (n = 0; n < c->count; n++)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&c->ns[n]->rr_list)) {
+			const struct auth_dns_rr *rr = lws_container_of(d,
+						struct auth_dns_rr, list);
+
+			/* both sides are canonical (lowercase) wire names */
+			if (rr->wire_rdata && rr->wire_rdata_len == wl &&
+			    !memcmp(rr->wire_rdata, w, wl))
+				return 1;
+		} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
+static enum auth_dns_role
+auth_dns_rrset_role(const struct auth_dns_zone *z,
+		    const struct auth_dns_cuts *c,
+		    const struct auth_dns_rrset *rs)
+{
+	int n, at = 0, addr = rs->type == 1 || rs->type == 28;
+
+	/*
+	 * NSEC3 owners are hashes, one label below the apex, and the chain is
+	 * always the zone's own (RFC 5155 7.1)
+	 */
+	if (rs->type == 50)
+		return AUTH_DNS_ROLE_AUTH;
+
+	for (n = 0; n < c->count; n++) {
+		const char *cut = c->ns[n]->name;
+
+		if (!strcasecmp(cut, z->origin))
+			continue;
+
+		/* below any cut, including below a cut below a cut */
+		if (auth_dns_name_below(rs->name, cut))
+			return addr && auth_dns_ns_target(z, c, rs->name) ?
+				AUTH_DNS_ROLE_GLUE : AUTH_DNS_ROLE_OCCLUDED;
+
+		if (!strcasecmp(rs->name, cut))
+			at = 1;
+	}
+
+	if (at) {
+		if (rs->type == 2)
+			return AUTH_DNS_ROLE_DELEG;
+		if (rs->type == 43)
+			return AUTH_DNS_ROLE_AUTH;
+
+		return addr && auth_dns_ns_target(z, c, rs->name) ?
+			AUTH_DNS_ROLE_GLUE : AUTH_DNS_ROLE_OCCLUDED;
+	}
+
+	return rs->type == 43 ? AUTH_DNS_ROLE_OCCLUDED : AUTH_DNS_ROLE_AUTH;
+}
+
+/*
  * An NSEC3's types follow its five other fields and are read back through
  * lws_auth_dns_rdata_to_wire(), so this is the most one can carry
  */
@@ -1455,6 +1660,7 @@ struct nsec3_node {
 	char		b32[64];
 	uint16_t	types[NSEC3_MAX_TYPES]; /* ascending, no duplicates */
 	int		num_types;
+	char		is_signed; /* has an RRset the signer signs */
 };
 
 /*
@@ -1540,6 +1746,10 @@ nsec3_add_rr(struct auth_dns_zone *z, const char *name, uint16_t type,
  * Build the NSEC3 chain and NSEC3PARAM.  Each owner name must be in the
  * chain with all of its types, or the zone would carry a signed denial of
  * something it serves, so any failure fails the whole thing.
+ *
+ * RFC 5155 7.1: names below a zone cut (glue owners) are not in the chain,
+ * and a cut's NSEC3 lists only the types the parent has there (NS, and DS
+ * with RRSIG if there is a DS), never the glue at it (RFC 4035 2.3).
  */
 
 static int
@@ -1548,6 +1758,7 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 	int max_names = (int)lws_dll2_count(&z->rrset_list), num_names = 0,
 	    ret = -1, i, n;
 	struct nsec3_node **nodes;
+	struct auth_dns_cuts cuts;
 	size_t salt_len = 0;
 	uint8_t salt[256];
 	char tb[1024];
@@ -1567,15 +1778,24 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 		salt_len = (size_t)n;
 	}
 
+	if (auth_dns_cuts_find(z, &cuts))
+		return -1;
+
 	/* there cannot be more owner names than rrsets */
 
 	nodes = lws_zalloc(sizeof(*nodes) * (size_t)(max_names + 1), "nsec3_nodes");
-	if (!nodes)
+	if (!nodes) {
+		auth_dns_cuts_destroy(&cuts);
 		return -1;
+	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
 		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+		enum auth_dns_role role = auth_dns_rrset_role(z, &cuts, rs);
 		int found = -1;
+
+		if (role != AUTH_DNS_ROLE_AUTH && role != AUTH_DNS_ROLE_DELEG)
+			continue;
 
 		for (i = 0; i < num_names; i++)
 			if (!strcmp(nodes[i]->name, rs->name)) {
@@ -1596,6 +1816,8 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 		/* type 0 is what the parser gives a type it cannot read */
 		if (rs->type && nsec3_node_add_type(nodes[found], rs->type))
 			goto bail;
+		if (role == AUTH_DNS_ROLE_AUTH)
+			nodes[found]->is_signed = 1;
 	} lws_end_foreach_dll(d);
 
 	for (i = 0; i < num_names; i++) {
@@ -1603,10 +1825,11 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 		size_t wl = sizeof(wire);
 
 		/*
-		 * Every owner gets RRSIGs, and the apex also gets the
-		 * NSEC3PARAM added below
+		 * Every owner with an RRset the signer signs gets RRSIGs (an
+		 * unsigned delegation is only its NS), and the apex also gets
+		 * the NSEC3PARAM added below
 		 */
-		if (nsec3_node_add_type(nodes[i], 46) ||
+		if ((nodes[i]->is_signed && nsec3_node_add_type(nodes[i], 46)) ||
 		    (!strcmp(nodes[i]->name, z->origin) &&
 		     nsec3_node_add_type(nodes[i], 51)))
 			goto bail;
@@ -1672,6 +1895,7 @@ bail:
 		lws_free(nodes[i]);
 	}
 	lws_free(nodes);
+	auth_dns_cuts_destroy(&cuts);
 
 	return ret;
 }
@@ -1679,6 +1903,33 @@ bail:
 int
 lws_auth_dns_inject_mock_keys(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 {
+	struct auth_dns_cuts cuts;
+	int bad = 0;
+
+	/*
+	 * Refuse a zone holding data it cannot hold: it could only be signed
+	 * as something lws_auth_dns_verify_zone() then rejects
+	 */
+	if (auth_dns_cuts_find(z, &cuts))
+		return 1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		const struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		if (auth_dns_rrset_role(z, &cuts, rs) == AUTH_DNS_ROLE_OCCLUDED) {
+			lwsl_err("%s: %s type %d is occluded by a delegation, "
+				 "or is a DS away from one\n", __func__,
+				 rs->name, rs->type);
+			bad = 1;
+		}
+	} lws_end_foreach_dll(d);
+
+	auth_dns_cuts_destroy(&cuts);
+	if (bad)
+		return 1;
+
 	/* Inject keys into list before sort */
 	lws_auth_dns_add_dnskey(z, info->zsk_jwk_filepath, 256);
 	lws_auth_dns_add_dnskey(z, info->ksk_jwk_filepath, 257);
@@ -1853,9 +2104,14 @@ bail:
 	return 1;
 }
 
-void
+int
 lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 {
+	struct auth_dns_cuts cuts;
+
+	if (auth_dns_cuts_find(z, &cuts))
+		return 1;
+
 	if (info->zsk_jwk_filepath) {
 		struct lws_jwk zsk, ksk;
 		memset(&zsk, 0, sizeof(zsk));
@@ -2003,6 +2259,14 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 											/* Don't sign RRSIGs */
 											if (rs->type == 46)
+												goto next_rrset;
+
+											/*
+											 * RFC 4035 2.2: nor a delegation's
+											 * NS RRset or glue
+											 */
+											if (auth_dns_rrset_role(z, &cuts, rs) !=
+													AUTH_DNS_ROLE_AUTH)
 												goto next_rrset;
 
 											/* Only sign DNSKEYs if we have a KSK */
@@ -2156,6 +2420,10 @@ zsk_done:
 		if (fd_ksk >= 0)
 			close(fd_ksk);
 	}
+
+	auth_dns_cuts_destroy(&cuts);
+
+	return 0;
 }
 
 /*
@@ -2167,45 +2435,167 @@ struct auth_dns_verify {
 	struct auth_dns_zone		*z;
 	const struct auth_dns_rrset	*keyset; /* the apex DNSKEY RRset */
 	const struct auth_dns_rr	*ksk;	 /* the given KSK, in keyset */
-	const char			**cuts;	 /* delegation points */
+	struct auth_dns_cuts		cuts;
 	uint8_t				apex[256];
 	size_t				apex_len;
-	int				num_cuts;
 	uint32_t			now;
 	int				passes;
 };
 
-/* is \p name strictly below \p anc?  Both are fully-qualified */
-
-static int
-auth_dns_name_below(const char *name, const char *anc)
-{
-	size_t nl = strlen(name), al = strlen(anc);
-
-	return nl > al && name[nl - al - 1] == '.' &&
-	       !strcasecmp(name + nl - al, anc);
-}
-
 /*
- * RFC 4035 2.2: everything in the zone is signed, except the NS RRset at a
- * delegation point and the glue (or anything else occluded) at or below it.
- * The DS and NSEC RRsets at a delegation point belong to this zone and are
- * signed.
+ * Is \p type in the NSEC3 type bitmap \p b / \p len?  1 if so, 0 if not, -1
+ * if the bitmap is malformed
  */
 
 static int
-auth_dns_rrset_authoritative(const struct auth_dns_verify *v,
-			     const struct auth_dns_rrset *rs)
+auth_dns_bitmap_has(const uint8_t *b, size_t len, uint16_t type)
 {
-	int n;
+	unsigned int win = (unsigned int)type >> 8,
+		     oct = ((unsigned int)type & 0xff) >> 3;
 
-	for (n = 0; n < v->num_cuts; n++) {
-		if (auth_dns_name_below(rs->name, v->cuts[n]))
-			return 0;
-		if (!strcasecmp(rs->name, v->cuts[n]) &&
-		    rs->type != 43 /* DS */ && rs->type != 47 /* NSEC */)
-			return 0;
+	while (len) {
+		size_t bl;
+
+		if (len < 2 || !b[1] || b[1] > 32 || len < 2u + b[1])
+			return -1;
+		bl = b[1];
+
+		if (b[0] == win && oct < bl &&
+		    (b[2 + oct] & (0x80u >> ((unsigned int)type & 7))))
+			return 1;
+
+		b += 2 + bl;
+		len -= 2 + bl;
 	}
+
+	return 0;
+}
+
+/*
+ * A zone cut is only one if the signed zone says it is: the NSEC3 for the
+ * cut's name, made with the apex NSEC3PARAM's parameters, must be in the zone
+ * with NS, and not SOA, in its type bitmap (RFC 5155 7.2.7 / 8.9, RFC 4035
+ * 2.3).  Like every NSEC3 it must then also be validly signed, which the main
+ * pass checks.
+ *
+ * Without this, anybody able to edit the zone text could add an NS RRset at
+ * any owner and so exempt everything there from being signed.  The cost is
+ * that a zone using NSEC3 opt-out, with no NSEC3 at its insecure cuts, does
+ * not verify; lws' signer does not use opt-out.
+ */
+
+static int
+auth_dns_verify_cut(struct auth_dns_verify *v, const char *cut)
+{
+	const struct auth_dns_rrset *param = NULL;
+	const uint8_t *pw = NULL, *salt;
+	uint8_t w[256], h[LWS_AUTH_DNS_NSEC3_HASH_LEN];
+	char b32[40], owner[sizeof(b32) + sizeof(v->z->origin)];
+	unsigned int iterations;
+	size_t wl = sizeof(w), salt_len;
+	int found = 0;
+
+	/* the apex NSEC3PARAM says how the zone hashes its owner names */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&v->z->rrset_list)) {
+		const struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		if (rs->type == 51 && !strcasecmp(rs->name, v->z->origin))
+			param = rs;
+	} lws_end_foreach_dll(d);
+
+	if (param)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&param->rr_list)) {
+			const struct auth_dns_rr *rr = lws_container_of(d,
+						struct auth_dns_rr, list);
+
+			/* SHA-1, flags 0 (RFC 5155 4.1.2), and well-formed */
+			if (rr->wire_rdata_len >= 5 && rr->wire_rdata[0] == 1 &&
+			    !rr->wire_rdata[1] &&
+			    rr->wire_rdata_len == 5u + rr->wire_rdata[4]) {
+				pw = rr->wire_rdata;
+				break;
+			}
+		} lws_end_foreach_dll(d);
+
+	if (!pw) {
+		lwsl_err("%s: delegation %s, but no usable NSEC3PARAM\n",
+			 __func__, cut);
+		return 1;
+	}
+
+	iterations = lws_ser_ru16be(pw + 2);
+	salt_len = pw[4];
+	salt = pw + 5;
+
+	/* each cut costs a hash of this many rounds, the zone chooses it */
+	if (iterations > LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS) {
+		lwsl_err("%s: NSEC3PARAM iterations %u > %d\n", __func__,
+			 iterations, LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS);
+		return 1;
+	}
+
+	if (name_to_wire(cut, v->z->origin, w, &wl) ||
+	    lws_auth_dns_nsec3_hash(w, wl, salt, salt_len, iterations, h))
+		return 1;
+
+	lws_auth_dns_b32hex_encode(h, sizeof(h), b32);
+	lws_snprintf(owner, sizeof(owner), "%s.%s", b32, v->z->origin);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&v->z->rrset_list)) {
+		const struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		if (rs->type != 50 || strcasecmp(rs->name, owner))
+			continue;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d2,
+				      lws_dll2_get_head(&rs->rr_list)) {
+			const struct auth_dns_rr *rr = lws_container_of(d2,
+						struct auth_dns_rr, list);
+			const uint8_t *r = rr->wire_rdata;
+			size_t len = rr->wire_rdata_len, o;
+			int ns, soa;
+
+			/* alg flags iterations(2) salt-len salt hash-len hash */
+			if (len < 6 || 6u + r[4] > len ||
+			    6u + r[4] + r[5u + r[4]] > len)
+				goto malformed;
+			o = 6u + r[4] + r[5u + r[4]];
+
+			/* RFC 5155 4.1.1: one with other parameters is ignored */
+			if (r[0] != 1 || lws_ser_ru16be(r + 2) != iterations ||
+			    r[4] != salt_len || memcmp(r + 5, salt, salt_len))
+				continue;
+
+			ns = auth_dns_bitmap_has(r + o, len - o, 2);
+			soa = auth_dns_bitmap_has(r + o, len - o, 6);
+			if (ns < 0 || soa < 0)
+				goto malformed;
+
+			if (!ns || soa) {
+				lwsl_err("%s: %s has an NS RRset, but the "
+					 "zone's NSEC3 for it says it is not "
+					 "a delegation\n", __func__, cut);
+				return 1;
+			}
+
+			found = 1;
+		} lws_end_foreach_dll(d2);
+	} lws_end_foreach_dll(d);
+
+	if (!found)
+		lwsl_err("%s: %s has an NS RRset, but the zone has no NSEC3 "
+			 "for it attesting a delegation\n", __func__, cut);
+
+	return !found;
+
+malformed:
+	lwsl_err("%s: malformed NSEC3 for %s\n", __func__, cut);
 
 	return 1;
 }
@@ -2296,7 +2686,33 @@ static int
 auth_dns_verify_rrset(struct auth_dns_verify *v, const struct auth_dns_rrset *rs,
 		      const struct auth_dns_rrset *sigs)
 {
+	enum auth_dns_role role = auth_dns_rrset_role(v->z, &v->cuts, rs);
 	int verified = 0, by_ksk = 0;
+
+	if (role == AUTH_DNS_ROLE_OCCLUDED) {
+		lwsl_err("%s: %s type %d is occluded by a delegation, or is a "
+			 "DS away from one\n", __func__, rs->name, rs->type);
+		return 1;
+	}
+
+	if (role != AUTH_DNS_ROLE_AUTH) {
+		/* RFC 4035 2.2: the delegation NS RRset and glue are unsigned */
+		if (sigs)
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&sigs->rr_list)) {
+				const struct auth_dns_rr *rr = lws_container_of(d,
+							struct auth_dns_rr, list);
+
+				if (lws_ser_ru16be(rr->wire_rdata) == rs->type) {
+					lwsl_err("%s: %s type %d is a delegation's "
+						 "NS or glue, and is signed\n",
+						 __func__, rs->name, rs->type);
+					return 1;
+				}
+			} lws_end_foreach_dll(d);
+
+		return 0;
+	}
 
 	if (sigs)
 		lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -2325,7 +2741,7 @@ auth_dns_verify_rrset(struct auth_dns_verify *v, const struct auth_dns_rrset *rs
 		return 1;
 	}
 
-	if (!verified && auth_dns_rrset_authoritative(v, rs)) {
+	if (!verified) {
 		lwsl_err("%s: %s type %d is not signed\n", __func__, rs->name,
 			 rs->type);
 		return 1;
@@ -2394,7 +2810,7 @@ auth_dns_verify(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 	/*
 	 * Everything we hash must have a wire form, and a type we know it by:
 	 * a record we cannot read is a record we cannot say was signed.  Find
-	 * the apex DNSKEY RRset and the delegation points while we are at it.
+	 * the apex DNSKEY RRset while we are at it.
 	 */
 
 	lws_start_foreach_dll(struct lws_dll2 *, d1,
@@ -2424,8 +2840,6 @@ auth_dns_verify(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 
 		if (apex && rs->type == 48)
 			v.keyset = rs;
-		if (!apex && rs->type == 2)
-			v.num_cuts++;
 	} lws_end_foreach_dll(d1);
 
 	if (!v.keyset) {
@@ -2433,21 +2847,18 @@ auth_dns_verify(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 		return 1;
 	}
 
-	if (v.num_cuts) {
-		v.cuts = lws_malloc(sizeof(*v.cuts) * (size_t)v.num_cuts,
-				    "auth_dns_cuts");
-		if (!v.cuts)
-			return 1;
+	/*
+	 * The delegation points: owners below the apex with an NS RRset, but
+	 * only those the zone's signed NSEC3 chain says are delegations
+	 */
 
-		lws_start_foreach_dll(struct lws_dll2 *, d1,
-				      lws_dll2_get_head(&z->rrset_list)) {
-			const struct auth_dns_rrset *rs = lws_container_of(d1,
-						struct auth_dns_rrset, list);
+	if (auth_dns_cuts_find(z, &v.cuts))
+		return 1;
 
-			if (rs->type == 2 && strcasecmp(rs->name, z->origin))
-				v.cuts[n++] = rs->name;
-		} lws_end_foreach_dll(d1);
-	}
+	for (n = 0; n < v.cuts.count; n++)
+		if (strcasecmp(v.cuts.ns[n]->name, z->origin) &&
+		    auth_dns_verify_cut(&v, v.cuts.ns[n]->name))
+			goto bail;
 
 	/* the zone must publish the keys we were given */
 
@@ -2516,7 +2927,7 @@ auth_dns_verify(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 	ret = 0;
 
 bail:
-	lws_free(v.cuts);
+	auth_dns_cuts_destroy(&v.cuts);
 
 	return ret;
 }

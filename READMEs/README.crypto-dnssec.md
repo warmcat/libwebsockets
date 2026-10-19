@@ -131,9 +131,25 @@ are used).  It passes the zone only if the apex `DNSKEY` RRset publishes the
 given KSK (and ZSK, if given) and is signed by that KSK, and every other
 authoritative RRset, including the `NSEC3` chain, has an `RRSIG` from a key
 in that `DNSKEY` RRset.  Every `RRSIG` in the zone must verify, be from the
-zone apex and be inside its validity period (at `verify_time`, or now).  As
-RFC 4035 has it, a delegation's `NS` RRset and its glue need not be signed.
+zone apex and be inside its validity period (at `verify_time`, or now).
 So records spliced into the zone after it was signed, a zone re-signed with
-other keys, and expired signatures all fail.  RSASHA256 (8),
+other keys, and expired signatures all fail.
+
+### Delegations
+
+An `NS` RRset at a name below the apex delegates that name to a child zone.
+As RFC 4035 2.2 requires, the signer leaves that `NS` RRset and the glue
+(`A` / `AAAA` records at or below the delegation, for names an `NS` record
+points to) unsigned, keeps the names below the delegation out of the `NSEC3`
+chain, and signs a `DS` RRset at the delegation, which is the parent's own
+data.  It refuses to sign a zone with anything else at or below a
+delegation (data the delegation occludes), or a `DS` anywhere else.
+
+The verifier agrees, and only exempts a delegation the signed zone itself
+attests: the zone's `NSEC3` record for the name must list `NS` (and not
+`SOA`), otherwise adding an unsigned `NS` RRset at any name would exempt
+everything there from being signed.  Zones using `NSEC3` opt-out for
+insecure delegations therefore do not verify.  Glue is not the zone's
+data and is not protected by its signatures, for lws as for any validator.  RSASHA256 (8),
 ECDSAP256SHA256 (13) and ECDSAP384SHA384 (14), the algorithms the signer
 uses, are verified.  The outer JWS is checked separately, with the KSK.

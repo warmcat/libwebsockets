@@ -1000,13 +1000,14 @@ verify_zone(struct lws_context *cx, const char *path, const char *ksk,
 
 /*
  * Copy the zone text at \p in to \p out, leaving out every line holding
- * \p drop (if given) and replacing the first \p from with \p to (if given),
- * then appending \p add (if given)
+ * \p drop (if given), and \p drop_also too if that is given, and replacing
+ * the first \p from with \p to (if given), then appending \p add (if given)
  */
 
 static int
-edit_zone(const char *in, const char *out, const char *drop, const char *from,
-	  const char *to, const char *add)
+edit_zone_lines(const char *in, const char *out, const char *drop,
+		const char *drop_also, const char *from, const char *to,
+		const char *add)
 {
 	char *buf = NULL, *p, *end, *nl, *hit;
 	int fd = open(in, LWS_O_RDONLY), ofd = -1, r = 1, replaced = 0;
@@ -1041,6 +1042,8 @@ edit_zone(const char *in, const char *out, const char *drop, const char *from,
 
 			*nl = '\0';
 			hit = strstr(p, drop);
+			if (hit && drop_also)
+				hit = strstr(p, drop_also);
 			*nl = c;
 		}
 
@@ -1087,11 +1090,150 @@ bail:
 	return r;
 }
 
-/* a zone with a delegation, whose NS RRset and glue need not be signed */
+static int
+edit_zone(const char *in, const char *out, const char *drop, const char *from,
+	  const char *to, const char *add)
+{
+	return edit_zone_lines(in, out, drop, NULL, from, to, add);
+}
+
+/*
+ * A zone with two delegations: a secure one, with a DS and glue, and an
+ * insecure one to a name server in the zone itself.  RFC 4035 2.2: the NS
+ * RRsets and the glue are not signed, the DS is.
+ */
 
 static const char *zone_deleg =
 	"sub			IN	NS	ns.sub.example.com.\n"
-	"ns.sub			IN	A	127.0.0.53\n";
+	"sub			IN	DS	12345 13 2 "
+	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+	"ns.sub			IN	A	127.0.0.53\n"
+	"insec			IN	NS	ns1.example.com.\n";
+
+/* which types the RRSIGs at \p owner cover, as a bitmask of types 0..63 */
+
+static uint64_t
+t_signed_types(struct auth_dns_zone *z, const char *owner)
+{
+	uint64_t m = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		if (s->type != 46 || strcmp(s->name, owner))
+			continue;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d2,
+				      lws_dll2_get_head(&s->rr_list)) {
+			struct auth_dns_rr *rr = lws_container_of(d2,
+						struct auth_dns_rr, list);
+
+			if (rr->wire_rdata && rr->wire_rdata_len >= 2 &&
+			    ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) < 64)
+				m |= 1ull << ((rr->wire_rdata[0] << 8) |
+					      rr->wire_rdata[1]);
+		} lws_end_foreach_dll(d2);
+	} lws_end_foreach_dll(d);
+
+	return m;
+}
+
+/* is \p type in the bitmap of the NSEC3 for \p owner?  -1: no NSEC3 */
+
+static int
+t_nsec3_lists(struct auth_dns_zone *z, const char *owner, uint16_t type,
+	      const uint8_t *salt, int salt_len, int it)
+{
+	struct auth_dns_rrset *n3 = t_nsec3_of(z, owner, salt, salt_len, it);
+	struct auth_dns_rr *rr;
+
+	if (!n3)
+		return -1;
+
+	rr = lws_container_of(lws_dll2_get_head(&n3->rr_list),
+			      struct auth_dns_rr, list);
+
+	return rr->wire_rdata &&
+	       t_nsec3_has_type(rr->wire_rdata, rr->wire_rdata_len, type);
+}
+
+/*
+ * What the signer made of zone_deleg: the DS signed and nothing else at the
+ * cuts or below them, the cuts in the NSEC3 chain with only the types the
+ * parent has there, and the glue owner not in the chain at all
+ */
+
+static int
+t_check_delegations(const char *path)
+{
+	struct auth_dns_zone z;
+	int it, salt_len, r = 1;
+	uint8_t salt[255];
+
+	if (load_zone(&z, path)) {
+		lwsl_err("%s: unable to reload %s\n", __func__, path);
+		return 1;
+	}
+
+	if (t_signed_types(&z, "sub.example.com.") != (1ull << 43) ||
+	    t_signed_types(&z, "ns.sub.example.com.") ||
+	    t_signed_types(&z, "insec.example.com.") ||
+	    t_signed_types(&z, "ns1.example.com.") != ((1ull << 1) |
+			(1ull << 29) | (1ull << 44))) {
+		lwsl_err("%s: delegation NS, glue or DS signing is wrong\n",
+			 __func__);
+		goto bail;
+	}
+
+	if (t_nsec3param(&z, salt, sizeof(salt), &salt_len, &it)) {
+		lwsl_err("%s: no usable NSEC3PARAM\n", __func__);
+		goto bail;
+	}
+
+	if (t_nsec3_lists(&z, "sub.example.com.", 2, salt, salt_len, it) != 1 ||
+	    t_nsec3_lists(&z, "sub.example.com.", 43, salt, salt_len, it) != 1 ||
+	    t_nsec3_lists(&z, "sub.example.com.", 46, salt, salt_len, it) != 1 ||
+	    t_nsec3_lists(&z, "sub.example.com.", 1, salt, salt_len, it) != 0 ||
+	    t_nsec3_lists(&z, "insec.example.com.", 2, salt, salt_len, it) != 1 ||
+	    t_nsec3_lists(&z, "insec.example.com.", 46, salt, salt_len, it) != 0 ||
+	    t_nsec3_lists(&z, "ns.sub.example.com.", 1, salt, salt_len, it) != -1) {
+		lwsl_err("%s: NSEC3 chain is wrong at the delegations\n",
+			 __func__);
+		goto bail;
+	}
+
+	r = 0;
+
+bail:
+	lws_auth_dns_free_zone(&z);
+
+	return r;
+}
+
+/* signing \p extra on top of the delegation zone must be refused */
+
+static int
+t_sign_refused(struct lws_context *cx, const char *zin, const char *zs,
+	       const char *extra)
+{
+	char body[2048];
+	size_t n;
+	int fd;
+
+	n = (size_t)lws_snprintf(body, sizeof(body), "$ORIGIN example.com.\n"
+				 "%s%s%s", zone_body, zone_deleg, extra);
+	fd = open(zin, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
+	if (fd < 0)
+		return 1;
+	if (write(fd, body, n) != (ssize_t)n) {
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	return !sign_zone_keys(cx, zin, zs, "./ksk.jwk", "./zsk.jwk");
+}
 
 static int
 test_verify(struct lws_context *cx)
@@ -1172,6 +1314,11 @@ test_verify(struct lws_context *cx)
 		return 1;
 	}
 
+	/* RFC 4035 2.2: the DS signed, delegation NS and glue not (G-240) */
+
+	if (t_check_delegations(zs))
+		fails++;
+
 	/* an unsigned A record spliced in, at a new owner or a signed one */
 
 	if (edit_zone(zs, ze, NULL, NULL, NULL,
@@ -1213,17 +1360,91 @@ test_verify(struct lws_context *cx)
 	}
 
 	/*
-	 * RFC 4035 2.2: the delegation NS RRset and the glue need not be
-	 * signed, so taking their RRSIGs away, or adding glue, is still a
-	 * good zone
+	 * An NS RRset spliced in at a signed owner does not make it a
+	 * delegation, so its records cannot then be changed with their RRSIGs
+	 * taken away (G-246): the zone's signed NSEC3 for the owner says it
+	 * is not one.  Not even when the NS makes the changed record glue.
 	 */
 
-	if (edit_zone(zs, ze, "sub.example.com.", NULL, NULL,
-		      "sub\t1200\tIN\tNS\tns.sub.example.com.\n"
-		      "ns.sub\t1200\tIN\tA\t127.0.0.53\n"
+	if (edit_zone_lines(zs, ze, "www.example.com.", "RRSIG", "127.0.0.2",
+			    "10.6.6.6", "www.example.com.\t1200\tIN\tNS\t"
+			    "ns.evil.net.\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: spliced NS over changed A passed\n", __func__);
+		fails++;
+	}
+	if (edit_zone_lines(zs, ze, "www.example.com.", "RRSIG", "127.0.0.2",
+			    "10.6.6.6", "www.example.com.\t1200\tIN\tNS\t"
+			    "www.example.com.\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: spliced NS making changed A glue passed\n",
+			 __func__);
+		fails++;
+	}
+	if (edit_zone_lines(zs, ze, "x.deeper.example.com.", "RRSIG",
+			    "127.0.0.3", "10.6.6.6", "deeper.example.com.\t"
+			    "1200\tIN\tNS\tns.evil.net.\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: spliced NS above changed A passed\n", __func__);
+		fails++;
+	}
+	if (edit_zone(zs, ze, NULL, NULL, NULL,
+		      "evil\t1200\tIN\tNS\tns.evil.net.\n"
+		      "x.evil\t1200\tIN\tA\t10.6.6.6\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: spliced delegation passed\n", __func__);
+		fails++;
+	}
+
+	/*
+	 * Below a real delegation, only glue is unsigned: anything else is
+	 * occluded data, not the zone's, and fails it
+	 */
+
+	if (edit_zone(zs, ze, NULL, NULL, NULL,
+		      "x.sub\t1200\tIN\tTXT\t\"evil\"\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: occluded TXT passed\n", __func__);
+		fails++;
+	}
+	if (edit_zone(zs, ze, NULL, NULL, NULL,
 		      "ns2.sub\t1200\tIN\tA\t127.0.0.54\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: A below a cut no NS names passed\n", __func__);
+		fails++;
+	}
+
+	/* ...and the DS at a delegation is the zone's, so must be signed */
+
+	if (edit_zone_lines(zs, ze, "sub.example.com.", "RRSIG\t43 ", NULL,
+			    NULL, NULL) ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: unsigned DS passed\n", __func__);
+		fails++;
+	}
+
+	/*
+	 * Glue is not the zone's data and is not signed: changing it is
+	 * still a good zone (a validator does not trust glue either)
+	 */
+
+	if (edit_zone(zs, ze, NULL, "127.0.0.53", "127.0.0.99", NULL) ||
 	    verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
-		lwsl_err("%s: unsigned delegation failed\n", __func__);
+		lwsl_err("%s: zone with changed glue failed\n", __func__);
+		fails++;
+	}
+
+	/*
+	 * The signer refuses zones with data that cannot be signed: occluded
+	 * by a delegation, or a DS away from one
+	 */
+
+	if (t_sign_refused(cx, "./test-refused.zone.in", ze,
+			   "x.sub\t\tIN\tTXT\t\"occluded\"\n") ||
+	    t_sign_refused(cx, "./test-refused.zone.in", ze,
+			   "www\t\tIN\tDS\t1 13 2 0123456789abcdef\n")) {
+		lwsl_err("%s: zone with occluded data / stray DS signed\n",
+			 __func__);
 		fails++;
 	}
 
