@@ -559,8 +559,12 @@ lws_pre_accept_service(struct lws *wsi)
 		wsi->io->pa_sni = 0;
 
 		if (n == LWS_TLS_CH_SNI_FOUND) {
-			vh = lws_select_vhost_by_name(wsi->a.context,
-					wsi->a.vhost->listen_port, name);
+			/*
+			 * only among the vhosts on the listener he arrived
+			 * on: a vhost passed through on another interface
+			 * with the same port is not his to reach
+			 */
+			vh = lws_select_vhost_by_name(wsi->a.vhost, name);
 			if (vh && vh->passthrough_host) {
 				lws_pre_accept_destroy(wsi);
 
@@ -943,8 +947,8 @@ typedef struct lws_qpt_addr_key {
 /* front: one connection we relay to a server */
 typedef struct lws_qpt_flow {
 	lws_dll2_t		list;		/* cx->pt_qflow_owner */
-	struct lws_vhost	*vh;		/* the passed through vhost */
-	int			listen_port;	/* where the client reaches us */
+	struct lws_vhost	*vh;		/* the passed through vhost, on the
+						 * listener the client reaches */
 	lws_sockaddr46		client;		/* where it is now */
 	lws_sockaddr46		prev_client;	/* where it was before */
 	lws_usec_t		last;
@@ -966,7 +970,7 @@ typedef struct lws_qpt_pending {
 	lws_dll2_t		list;		/* cx->pt_qpending_owner */
 	lws_sorted_usec_list_t	sul;
 	struct lws_context	*cx;
-	int			listen_port;
+	struct lws_vhost	*lv;		/* the listener's, it came to */
 	struct lws_quic_cid	dcid;
 	lws_dll2_owner_t	held;		/* lws_qpt_dgram_t */
 	uint8_t			crypto[LWS_TLS_CH_MAX];
@@ -1059,14 +1063,17 @@ lws_qpt_unmap(struct lws_map *map, const void *key, size_t kl)
 		lws_map_item_destroy(it);
 }
 
-/* one of the quic listeners on port, to send a client a datagram from */
+/*
+ * The quic listener of the listener vhost sv is on, to send a client a
+ * datagram from: not another interface's on the same port
+ */
 static struct lws *
-lws_qpt_listener(struct lws_context *cx, int port)
+lws_qpt_listener(struct lws_vhost *sv)
 {
 	struct lws_vhost *v;
 
-	for (v = lws_vhost_first(cx); v; v = lws_vhost_next(v)) {
-		if (v->being_destroyed || v->listen_port != port)
+	for (v = lws_vhost_first(sv->context); v; v = lws_vhost_next(v)) {
+		if (v->being_destroyed || !lws_vhost_shares_listener(sv, v))
 			continue;
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				      lws_dll2_get_head(&v->listen_wsi)) {
@@ -1224,6 +1231,16 @@ lws_qpt_vhost_gone(struct lws_vhost *vh)
 		if (f->vh == vh)
 			lws_qpt_flow_destroy(cx, f);
 	} lws_end_foreach_dll_safe(d, d1);
+
+	/* an Initial still pending on its listener's vhost is dropped too */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_qpending_owner)) {
+		lws_qpt_pending_t *pd = lws_container_of(d, lws_qpt_pending_t,
+							 list);
+
+		if (pd->lv == vh)
+			lws_qpt_pending_destroy(pd);
+	} lws_end_foreach_dll_safe(d, d1);
 }
 
 /* ---- front */
@@ -1272,7 +1289,7 @@ lws_qpt_to_server(lws_qpt_flow_t *f, const uint8_t *buf, size_t len,
 	memset(&pv, 0, sizeof(pv));
 	pv.dgram = 1;
 	pv.src = *client;
-	lw = lws_qpt_listener(f->vh->context, f->listen_port);
+	lw = lws_qpt_listener(f->vh);
 	if (lw)
 		pv.dst = lw->io->udp->sa46;
 #if defined(LWS_WITH_IPV6)
@@ -1354,7 +1371,7 @@ lws_qpt_hold(lws_qpt_pending_t *pd, const uint8_t *buf, size_t len,
 static void
 lws_qpt_release_local(lws_qpt_pending_t *pd)
 {
-	struct lws *lw = lws_qpt_listener(pd->cx, pd->listen_port);
+	struct lws *lw = lws_qpt_listener(pd->lv);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&pd->held)) {
@@ -1380,11 +1397,14 @@ lws_qpt_pending_timeout_cb(lws_sorted_usec_list_t *sul)
 	lws_qpt_pending_destroy(pd);
 }
 
-/* a passed through vhost on port that quic may be relayed for, by name */
+/*
+ * a passed through vhost on listener vhost lv's listener that quic may be
+ * relayed for, by name
+ */
 static struct lws_vhost *
-lws_qpt_vhost(struct lws_context *cx, int port, const char *name)
+lws_qpt_vhost(struct lws_vhost *lv, const char *name)
 {
-	struct lws_vhost *vh = lws_select_vhost_by_name(cx, port, name);
+	struct lws_vhost *vh = lws_select_vhost_by_name(lv, name);
 
 	if (!vh || !vh->passthrough_host || !vh->passthrough_proxy_v2 ||
 	    !vh->passthrough_sa46.sa4.sin_family)
@@ -1394,12 +1414,12 @@ lws_qpt_vhost(struct lws_context *cx, int port, const char *name)
 }
 
 static int
-lws_qpt_port_has_passthrough(struct lws_context *cx, int port)
+lws_qpt_listener_has_passthrough(struct lws_vhost *lv)
 {
 	struct lws_vhost *v;
 
-	for (v = lws_vhost_first(cx); v; v = lws_vhost_next(v))
-		if (!v->being_destroyed && v->listen_port == port &&
+	for (v = lws_vhost_first(lv->context); v; v = lws_vhost_next(v))
+		if (!v->being_destroyed && lws_vhost_shares_listener(lv, v) &&
 		    v->passthrough_sa46.sa4.sin_family &&
 		    v->passthrough_proxy_v2)
 			return 1;
@@ -1438,7 +1458,7 @@ lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
 	}
 
 	if (n == LWS_TLS_CH_SNI_FOUND)
-		vh = lws_qpt_vhost(cx, listener->a.vhost->listen_port, name);
+		vh = lws_qpt_vhost(listener->a.vhost, name);
 
 	if (!vh ||
 	    lws_dll2_count(&cx->pt_qflow_owner) >= LWS_QPT_MAX_FLOWS) {
@@ -1453,7 +1473,6 @@ lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
 	if (!f)
 		goto local;
 	f->vh = vh;
-	f->listen_port = listener->a.vhost->listen_port;
 	f->client = *peer;
 	f->last = lws_now_usecs();
 	lws_dll2_add_tail(&f->list, &cx->pt_qflow_owner);
@@ -1511,12 +1530,13 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 	memcpy(k.id, dcid.id, dcid.len);
 
 	/*
-	 * Only on the port the flow came in on: a process can be a server
+	 * Only on the listener the flow came in on: a process can be a server
 	 * behind a relay as well as a front, and the server's listener must
-	 * not take its own relayed datagrams for a flow to relay
+	 * not take its own relayed datagrams for a flow to relay, nor may
+	 * another interface's listener on the same port drive it
 	 */
 	f = (lws_qpt_flow_t *)lws_qpt_lookup(cx->pt_qflows, &k, sizeof(k));
-	if (f && f->listen_port != listener->a.vhost->listen_port)
+	if (f && !lws_vhost_shares_listener(listener->a.vhost, f->vh))
 		return 0;
 	if (f) {
 		if (!lws_qpt_same_addr(&f->client, peer)) {
@@ -1541,7 +1561,7 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 
 	pd = (lws_qpt_pending_t *)lws_qpt_lookup(cx->pt_qpending, &k,
 						 sizeof(k));
-	if (pd && pd->listen_port != listener->a.vhost->listen_port)
+	if (pd && !lws_vhost_shares_listener(listener->a.vhost, pd->lv))
 		return 0;
 	if (!pd) {
 		/*
@@ -1550,8 +1570,7 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 		 * whose keys can't be derived from it
 		 */
 		if (!initial || lws_quic_find_child_by_dcid(listener, &dcid) ||
-		    !lws_qpt_port_has_passthrough(cx,
-					listener->a.vhost->listen_port) ||
+		    !lws_qpt_listener_has_passthrough(listener->a.vhost) ||
 		    lws_dll2_count(&cx->pt_qpending_owner) >=
 							LWS_QPT_MAX_PENDING ||
 		    lws_qpt_maps(cx))
@@ -1561,7 +1580,7 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 		if (!pd)
 			return 0;
 		pd->cx = cx;
-		pd->listen_port = listener->a.vhost->listen_port;
+		pd->lv = listener->a.vhost;
 		pd->dcid = k;
 		if (!lws_map_item_create(cx->pt_qpending,
 					 (const lws_map_key_t)&k, sizeof(k),
@@ -1647,7 +1666,7 @@ lws_qpt_from_server(struct lws *wsi, const uint8_t *buf, size_t len)
 		lws_qpt_flow_add_cid(cx, f, &scid);
 
 	/* to that address as we know it */
-	lw = lws_qpt_listener(cx, f->listen_port);
+	lw = lws_qpt_listener(f->vh);
 	if (lw)
 		lws_io_send_dgram(lw, buf, len, to);
 }

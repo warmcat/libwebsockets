@@ -278,7 +278,7 @@ lws_ssl_server_name_cb(HITLS_Ctx *ssl, int *alert, void *arg)
 		return HITLS_ACCEPT_SNI_ERR_OK;
 	}
 
-	vhost = lws_select_vhost_sni(context, vh->listen_port, servername);
+	vhost = lws_select_vhost_sni(vh, servername);
 	if (!vhost) {
 		/*
 		 * He named something that is not served on this listener, and

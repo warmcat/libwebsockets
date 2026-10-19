@@ -2579,7 +2579,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						 * lws_select_vhost_sni()... apply the same
 						 * rules again rather than let an unrecognized
 						 * authority move him onto whichever vhost is
-						 * first on the port.  If nothing matches he
+						 * first on the listener.  If nothing matches he
 						 * stays on the vhost that accepted him.
 						 */
 						if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY)) {
@@ -2587,12 +2587,8 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 									 *vhost = NULL;
 
 							if (lv->listen_port > 0)
-								vhost = lws_select_vhost_sni(
-									wsi->a.context, lv->listen_port,
+								vhost = lws_select_vhost_sni(lv,
 									lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY));
-							if (vhost && vhost != lv &&
-							    !lws_vhost_compare_listen(vhost, lv))
-								vhost = NULL;
 
 							lwsl_debug("H3_TRACE: :authority selects %s, arrived on %s\n",
 								vhost ? vhost->name : "none", lv->name);

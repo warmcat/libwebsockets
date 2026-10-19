@@ -250,7 +250,14 @@ true vhosts on one listening socket and the active vhost decided at SSL
 negotiation time (via SNI) or if no SSL, then after the Host: header from
 the client has been parsed.
 
- - A tls connection whose SNI name matches no vhost on the port it arrived on is
+ - Only the vhosts on the listening socket a connection arrived on can be chosen
+for it, by SNI, `Host:`, `:authority` or a tls passthrough.  Vhosts on the same
+port but a different `interface` have listening sockets of their own, so a peer
+reaching one interface cannot name his way onto a vhost that listens only on
+another, eg, an admin vhost on `lo` beside a public one on the same port.  An
+unknown name falls back only among the vhosts on his listening socket too.
+
+ - A tls connection whose SNI name matches no vhost on the listener it arrived on is
 refused, with a fatal `unrecognized_name` alert.  Otherwise the certificate the
 peer is shown, and the client certificate policy he meets, would be decided by
 vhost creation order just because he named something that does not exist.  A

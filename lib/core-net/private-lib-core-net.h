@@ -2012,10 +2012,9 @@ lws_ensure_user_space(struct lws *wsi);
 
 #if defined(LWS_WITH_SERVER)
 struct lws_vhost *
- lws_select_vhost(struct lws_context *context, int port, const char *servername);
+ lws_select_vhost(struct lws_vhost *lv, const char *servername);
 struct lws_vhost *
- lws_select_vhost_by_name(struct lws_context *context, int port,
-			  const char *servername);
+ lws_select_vhost_by_name(struct lws_vhost *lv, const char *servername);
 int LWS_WARN_UNUSED_RESULT
  lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len);
 void
@@ -2396,6 +2395,10 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh);
 
 int
 lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2);
+
+/* nonzero if a connection that arrived on lv may be moved to v by name */
+int
+lws_vhost_shares_listener(struct lws_vhost *lv, struct lws_vhost *v);
 
 
 int

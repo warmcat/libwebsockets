@@ -274,8 +274,9 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 		return SSL_TLSEXT_ERR_NOACK;
 
 	/*
-	 * Which vhost accepted him?  Only vhosts on the same port are
-	 * candidates for his SNI name.  The SSL was made from the accepting
+	 * Which vhost accepted him?  Only vhosts sharing the listener he
+	 * arrived on (same port and interface) are candidates for his SNI
+	 * name.  The SSL was made from the accepting
 	 * vhost's ctx, but a cert rotation since then may have retired that
 	 * ctx, so ask the connection, which stays bound to the accepting vhost
 	 * until the handshake has completed.
@@ -298,7 +299,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 		goto stay;
 	}
 
-	vhost = lws_select_vhost_sni(context, vh->listen_port, servername);
+	vhost = lws_select_vhost_sni(vh, servername);
 	if (!vhost) {
 		/*
 		 * He named something that is not served on this listener, and

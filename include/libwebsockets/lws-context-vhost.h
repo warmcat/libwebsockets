@@ -1793,16 +1793,22 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name);
 /**
  * lws_select_vhost_sni() - vhost for a TLS SNI name, or NULL to refuse him
  *
- * \param context: the lws_context to look in
- * \param port: the listen port the connection arrived on
+ * \param lv: the vhost that accepted the connection
  * \param servername: the SNI name the peer sent, NUL-terminated
  *
- * Returns the vhost on \p port whose name matches \p servername exactly, or
- * failing that the vhost that a *.name wildcard match resolves to, or failing
- * that the vhost on \p port marked LWS_SERVER_OPTION_SNI_FALLBACK, if any.
+ * The candidates are only the vhosts served by the listener the connection
+ * arrived on, ie, \p lv and the vhosts sharing its listen socket: the same
+ * port *and* interface.  A vhost on the same port but another interface is
+ * never selected, since its interface may be all that restricts who can
+ * reach it.
  *
- * Returns NULL if the name matches no vhost on the port and no fallback vhost
- * was nominated there.  In that case the caller must refuse the connection
+ * Returns the candidate whose name matches \p servername exactly, or failing
+ * that the one that a *.name wildcard match resolves to, or failing that the
+ * one marked LWS_SERVER_OPTION_SNI_FALLBACK, if any, or failing that the only
+ * candidate, if there is just the one.
+ *
+ * Returns NULL if the name matches no vhost on the listener and no fallback
+ * vhost was nominated there.  In that case the caller must refuse the connection
  * with a fatal unrecognized_name alert: continuing on an arbitrary vhost
  * would let the peer choose which certificate he is shown, and which client
  * certificate policy he meets, by naming something that does not exist.
@@ -1813,8 +1819,7 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name);
  * time.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_vhost *
-lws_select_vhost_sni(struct lws_context *context, int port,
-		     const char *servername);
+lws_select_vhost_sni(struct lws_vhost *lv, const char *servername);
 
 /**
  * lws_get_vhost_port() - returns the port a vhost listens on, or -1

@@ -49,17 +49,22 @@ static const char * const intermediates[] = { "private", "public" };
 
 
 /*
- * Match a name to a vhost on the port, exactly (priority 1) or as the parent
- * of a *.name wildcard (priority 2).  Returns NULL if the name names no vhost
- * on the port at all... what that should mean is up to the caller, it is not
- * the same answer for a TLS SNI name as it is for a Host: header.
+ * Match a name to a vhost on the listener a connection arrived on (the one
+ * listening vhost lv shares, see lws_vhost_shares_listener()), exactly
+ * (priority 1) or as the parent of a *.name wildcard (priority 2).  Returns
+ * NULL if the name names no vhost on that listener at all... what that should
+ * mean is up to the caller, it is not the same answer for a TLS SNI name as
+ * it is for a Host: header.
+ *
+ * A vhost on the same port but another interface is never a candidate: it has
+ * a listen socket of its own, and its interface may be the only thing that
+ * keeps peers on the other one from reaching it.
  */
 
 struct lws_vhost *
-lws_select_vhost_by_name(struct lws_context *context, int port,
-			 const char *servername)
+lws_select_vhost_by_name(struct lws_vhost *lv, const char *servername)
 {
-	struct lws_vhost *vhost = lws_vhost_first(context);
+	struct lws_vhost *vhost = lws_vhost_first(lv->context);
 	const char *p;
 	int n, colon;
 
@@ -78,7 +83,8 @@ lws_select_vhost_by_name(struct lws_context *context, int port,
 	 */
 
 	while (vhost) {
-		if (port == vhost->listen_port && !vhost->being_destroyed &&
+		if (!vhost->being_destroyed &&
+		    lws_vhost_shares_listener(lv, vhost) &&
 		    strlen(vhost->name) == (size_t)colon &&
 		    !strncmp(vhost->name, servername, (unsigned int)colon)) {
 			lwsl_info("SNI: Found: %s\n", servername);
@@ -94,11 +100,11 @@ lws_select_vhost_by_name(struct lws_context *context, int port,
 	 * never reach here.  SSL will still fail it if the cert doesn't allow
 	 * *.x.com.
 	 */
-	vhost = lws_vhost_first(context);
+	vhost = lws_vhost_first(lv->context);
 	while (vhost) {
 		int m = (int)strlen(vhost->name);
-		if (port && port == vhost->listen_port &&
-		    !vhost->being_destroyed &&
+		if (!vhost->being_destroyed &&
+		    lws_vhost_shares_listener(lv, vhost) &&
 		    m <= (colon - 2) &&
 		    servername[colon - m - 1] == '.' &&
 		    !strncmp(vhost->name, servername + colon - m, (unsigned int)m)) {
@@ -109,22 +115,21 @@ lws_select_vhost_by_name(struct lws_context *context, int port,
 		vhost = lws_vhost_next(vhost);
 	}
 
-	/* the name doesn't name any vhost on this port */
+	/* the name doesn't name any vhost on this listener */
 
 	return NULL;
 }
 
 struct lws_vhost *
-lws_select_vhost(struct lws_context *context, int port, const char *servername)
+lws_select_vhost(struct lws_vhost *lv, const char *servername)
 {
-	struct lws_vhost *vhost = lws_select_vhost_by_name(context, port,
-							   servername);
+	struct lws_vhost *vhost = lws_select_vhost_by_name(lv, servername);
 
 	if (vhost)
 		return vhost;
 
 	/*
-	 * Priority 3: match the first vhost on our port.
+	 * Priority 3: match the first vhost on our listener.
 	 *
 	 * This is the answer for a Host: header, since a server with a single
 	 * vhost is reached by IP address, or by any of the names that resolve
@@ -132,12 +137,12 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	 * SNI name, see lws_select_vhost_sni().
 	 */
 
-	vhost = lws_vhost_first(context);
+	vhost = lws_vhost_first(lv->context);
 	while (vhost) {
-		if (port && port == vhost->listen_port &&
-		    !vhost->being_destroyed) {
-			lwsl_info("%s: vhost match to %s based on port %d\n",
-					__func__, vhost->name, port);
+		if (!vhost->being_destroyed &&
+		    lws_vhost_shares_listener(lv, vhost)) {
+			lwsl_info("%s: vhost match to %s based on listener %d\n",
+					__func__, vhost->name, lv->listen_port);
 			return vhost;
 		}
 		vhost = lws_vhost_next(vhost);
@@ -149,11 +154,9 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 }
 
 struct lws_vhost *
-lws_select_vhost_sni(struct lws_context *context, int port,
-		     const char *servername)
+lws_select_vhost_sni(struct lws_vhost *lv, const char *servername)
 {
-	struct lws_vhost *vhost = lws_select_vhost_by_name(context, port,
-							   servername),
+	struct lws_vhost *vhost = lws_select_vhost_by_name(lv, servername),
 			 *only = NULL;
 	int n = 0;
 
@@ -162,22 +165,22 @@ lws_select_vhost_sni(struct lws_context *context, int port,
 
 	/*
 	 * He named something that is not served here.  Handing him "the first
-	 * vhost on the port" would let him decide by vhost creation order
+	 * vhost on the listener" would let him decide by vhost creation order
 	 * which certificate he is shown, and which client certificate policy
 	 * he meets, just by naming something that does not exist.
 	 *
 	 * So only a vhost the configuration explicitly nominated as the
 	 * fallback for this listener may take an unrecognized name... unless
-	 * the port has exactly one vhost anyway, in which case there is
+	 * the listener has exactly one vhost anyway, in which case there is
 	 * nothing for him to steer between and refusing would only break
 	 * every single-vhost server whose vhost name is not what clients
 	 * dial (eg, "default" reached as https://localhost).
 	 */
 
-	vhost = lws_vhost_first(context);
+	vhost = lws_vhost_first(lv->context);
 	while (vhost) {
-		if (port && port == vhost->listen_port &&
-		    !vhost->being_destroyed) {
+		if (!vhost->being_destroyed &&
+		    lws_vhost_shares_listener(lv, vhost)) {
 			if (lws_check_opt(vhost->options,
 					  LWS_SERVER_OPTION_SNI_FALLBACK)) {
 				lwsl_info("%s: unrecognized name -> fallback vhost %s\n",
@@ -3725,12 +3728,15 @@ raw_transition:
 		 */
 		lws_h1_request_framing(wsi);
 
-		/* select vhost */
+		/*
+		 * select vhost: only among those served by the listener he
+		 * arrived on, whatever he names
+		 */
 
 		if (wsi->a.vhost->listen_port &&
 		    lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
 			struct lws_vhost *vhost = lws_select_vhost(
-				context, wsi->a.vhost->listen_port,
+				wsi->a.vhost,
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 
 			if (vhost && lws_vhost_rebind_mtls_refused(wsi, vhost)) {

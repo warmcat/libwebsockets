@@ -176,8 +176,8 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 	lwsl_info("%s: SNI '%s'\n", __func__, sn_str);
 
 	/*
-	 * Find out which listening vhost took us, so we only match vhosts on
-	 * the same port.
+	 * Find out which listening vhost took us, so we only match vhosts
+	 * sharing its listener (same port and interface).
 	 */
 
 	vh = lws_mbedtls_vhost_from_ctx(context, conn->ctx);
@@ -193,7 +193,7 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		return 0;
 	}
 
-	vhost = lws_select_vhost_sni(context, vh->listen_port, sn_str);
+	vhost = lws_select_vhost_sni(vh, sn_str);
 	if (!vhost) {
 		/*
 		 * He named something that is not served on this listener, and

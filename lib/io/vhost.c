@@ -944,6 +944,38 @@ lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2)
 		v1->listen_port == v2->listen_port;
 }
 
+/*
+ * returns nonzero if a connection that arrived on vhost lv may be moved onto
+ * vhost v by a name he sent: TLS SNI, Host:, :authority, or the SNI a
+ * passthrough is chosen by.
+ *
+ * Only if v is served by the listener he arrived on, ie, it shares lv's
+ * listen socket: the same port *and* interface.  Vhosts on one port but on
+ * different interfaces have separate listen sockets, and the interface a
+ * vhost listens on is often the only thing restricting who can reach it (eg,
+ * an admin vhost on lo:443 beside a public one on eth0:443): a peer on one
+ * interface must not be able to name his way onto the other's vhost.
+ *
+ * Vhosts that listen on nothing have their connections adopted onto them by
+ * the application, which keeps them in groups by the same listen_port value
+ * and iface, as it always has: a connection adopted onto one of them can
+ * still be moved by name onto another of its group.
+ */
+int
+lws_vhost_shares_listener(struct lws_vhost *lv, struct lws_vhost *v)
+{
+	if (v == lv)
+		return 1;
+
+	if (lv->listen_port != CONTEXT_PORT_NO_LISTEN &&
+	    lv->listen_port != CONTEXT_PORT_NO_LISTEN_SERVER)
+		return lws_vhost_compare_listen(lv, v);
+
+	return v->listen_port == lv->listen_port &&
+	       ((!v->iface && !lv->iface) ||
+		(v->iface && lv->iface && !strcmp(v->iface, lv->iface)));
+}
+
 /* helper to interate every listen socket on any vhost and call cb on it */
 int
 lws_vhost_foreach_listen_wsi(struct lws_context *cx, void *arg,

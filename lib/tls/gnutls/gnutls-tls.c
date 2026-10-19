@@ -564,8 +564,7 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 	 */
 	lws_context_lock(wsi->a.context, __func__); /* ------------- cx { */
 
-	vhost = lws_select_vhost_sni(wsi->a.context, wsi->a.vhost->listen_port,
-				     servername);
+	vhost = lws_select_vhost_sni(wsi->a.vhost, servername);
 	if (!vhost) {
 		lws_context_unlock(wsi->a.context); /* } cx ------------- */
 

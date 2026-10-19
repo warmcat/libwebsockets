@@ -441,8 +441,7 @@ lws_tls_server_sni_select(struct lws *wsi, const char *servername)
 		 */
 		return 0;
 
-	vhost = lws_select_vhost_sni(wsi->a.context, wsi->a.vhost->listen_port,
-				     servername);
+	vhost = lws_select_vhost_sni(wsi->a.vhost, servername);
 	if (!vhost) {
 		/*
 		 * He named something that is not served on this listener, and
