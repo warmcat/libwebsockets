@@ -193,6 +193,35 @@ lws_adns_name_cmp(const char *a, const char *b)
 }
 
 /*
+ * Does the question section of the response \p pkt differ from the question
+ * we asked: \p name, type \p qtype, class IN?  The response must have
+ * exactly one question, which the caller has checked.
+ *
+ * Returns 0 if it is our question.
+ */
+
+static int
+lws_adns_question_mismatch(const uint8_t *pkt, size_t len, const char *name,
+			   uint16_t qtype)
+{
+	const uint8_t *p = pkt + DHO_SIZEOF, *e = pkt + len;
+	char qn[DNS_MAX + 10], *sp = qn;
+	int n;
+
+	qn[0] = '\0';
+	n = lws_adns_parse_label(pkt, (int)len, p, lws_ptr_diff(e, p), &sp,
+				 sizeof(qn));
+	if (n <= 0 || lws_ptr_diff(e, p) < n + 4)
+		return 1;
+
+	p += n;
+
+	return lws_adns_name_cmp(qn, name) ||
+	       lws_ser_ru16be(p) != qtype ||
+	       lws_ser_ru16be(p + 2) != 1; /* IN */
+}
+
+/*
  * Walk the response packet, calling back to the user-provided callback for each
  * A (and AAAA if LWS_IPV6=1) record with a matching name found in there.
  *
@@ -266,12 +295,11 @@ lws_adns_iterate_type(uint16_t qtype, int follow, const uint8_t *pkt, int len,
 	if (qtype == LWS_ADNS_RECORD_A || qtype == LWS_ADNS_RECORD_AAAA) {
 		/*
 		 * An address lookup is issued as two queries, one for A and one
-		 * for AAAA, whose tids differ only in b0; b0 of the response tid
-		 * (already matched against ours by our caller) selects which of
-		 * the two this response belongs to.  So accept either type in
-		 * the question echo... which of the pair it is does not change
-		 * how we treat the response, and the type of each RR we
-		 * actually consume is validated separately below.
+		 * for AAAA, each with its own tid; our caller already matched
+		 * the response's tid and question to one of them.  So accept
+		 * either type in the question echo here... which of the pair it
+		 * is does not change how we treat the response, and the type of
+		 * each RR we actually consume is validated separately below.
 		 */
 		expqtype = LWS_ADNS_RECORD_A;
 		expqtype2 = LWS_ADNS_RECORD_AAAA;
@@ -631,7 +659,6 @@ lws_adns_q_restart(lws_adns_q_t *q)
 	if (lws_async_dns_get_new_tid(q->context, q))
 		return -1;
 
-	LADNS_MOST_RECENT_TID(q) &= 0xfffe;
 	q->asked = q->responded = 0;
 #if defined(LWS_WITH_IPV6)
 	q->sent[1] = 0;
@@ -968,15 +995,6 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	}
 #endif
 
-	/*
-	 * we may have recursed and the packet we just got started earlier than
-	 * the current TID we are working with... if so, ignore it
-	 */
-
-	if ((lws_ser_ru16be(pkt + DHO_TID) & 0xfffe) !=
-			(LADNS_MOST_RECENT_TID(q) & 0xfffe))
-		return;
-
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	if (q->dnssec_chk_cname)
 		/*
@@ -987,10 +1005,25 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		return;
 #endif
 
-	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
-		rn = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
-	else
-		rn = 1;
+	/* which of our questions, if it is an address lookup's pair */
+
+	rn = lws_adns_q_is_addr(q) &&
+	     lws_ser_ru16be(pkt + DHO_TID) == q->tid[1] ? 2 : 1;
+
+	/*
+	 * Whatever it says, the answer has to be to the question we asked with
+	 * that tid: matching the tid alone leaves a spoofer 16 bits to guess,
+	 * and the question is checked here, before anything, including the
+	 * rcode, TC or an empty answer section, is believed (RFC 5452 9.1)
+	 */
+
+	if (lws_adns_question_mismatch(pkt, len, (const char *)&q[1],
+				       lws_adns_q_resp_type(q, rn))) {
+		lwsl_info("%s: tid 0x%x: answer to a different question\n",
+			  __func__, lws_ser_ru16be(pkt + DHO_TID));
+
+		return;
+	}
 
 	if (q->responded & rn) {
 		lwsl_notice("%s: dup\n", __func__);

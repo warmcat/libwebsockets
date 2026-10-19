@@ -142,7 +142,15 @@ typedef struct lws_adns_q {
 	lws_adns_cache_t	*firstcache;
 
 	lws_async_dns_retcode_t	ret;
-	uint16_t		tid[3]; /* last 3 sent tid */
+	/*
+	 * The tids of the questions we have outstanding: an address lookup
+	 * asks its A question with tid[0] and its AAAA one with tid[1],
+	 * anything else only uses tid[0].  Each is a full 16 random bits,
+	 * unique among the queries in flight, and both are replaced when the
+	 * query asks about a different name, so answers to the old question
+	 * stop matching (RFC 5452).
+	 */
+	uint16_t		tid[2];
 	uint16_t		qtype;
 	uint16_t		retry;
 	uint8_t			tsi;
@@ -156,7 +164,6 @@ typedef struct lws_adns_q {
 	uint8_t			responded;
 
 	uint8_t			recursion;
-	uint8_t			tids;
 	uint8_t			go_nogo;
 
 	uint8_t			is_retry:1;
@@ -223,8 +230,26 @@ typedef struct lws_adns_q {
 	/* name overallocated here */
 } lws_adns_q_t;
 
-#define LADNS_MOST_RECENT_TID(_q) \
-		_q->tid[_q->tids ? ((int)(_q->tids - 1) % (int)LWS_ARRAY_SIZE(_q->tid)) : 0]
+/* an address lookup is a pair of questions, A and AAAA */
+static inline int
+lws_adns_q_is_addr(const lws_adns_q_t *q)
+{
+	return q->qtype == LWS_ADNS_RECORD_A ||
+	       q->qtype == LWS_ADNS_RECORD_AAAA;
+}
+
+/*
+ * The RR type response \p resp of q asked for: an address lookup is a pair of
+ * queries, response bit 1 is the A half of the pair, bit 2 the AAAA
+ */
+static inline uint16_t
+lws_adns_q_resp_type(const lws_adns_q_t *q, int resp)
+{
+	if (lws_adns_q_is_addr(q))
+		return (resp & 2) ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A;
+
+	return q->qtype;
+}
 
 enum {
 	DHO_TID,
@@ -409,19 +434,6 @@ lws_adns_q_validates(const lws_adns_q_t *q)
 {
 	return (q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE ||
 		q->want_dnssec) && !q->lacks_dnssec;
-}
-
-/*
- * The RR type response \p resp of q asked for: an address lookup is a pair of
- * queries, response bit 1 is the A half of the pair, bit 2 the AAAA
- */
-static inline uint16_t
-lws_adns_q_resp_type(const lws_adns_q_t *q, int resp)
-{
-	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
-		return (resp & 2) ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A;
-
-	return q->qtype;
 }
 #endif
 

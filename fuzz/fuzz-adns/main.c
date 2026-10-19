@@ -168,7 +168,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	struct lws_async_dns *dns;
 	struct lws_adns_q *q = NULL;
 	adns_query_type_t qtype;
-	uint16_t tid;
+	uint16_t tid, tid_aaaa;
 	uint8_t *pkt;
 	size_t len;
 
@@ -200,6 +200,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	dns  = lws_adns_get_async_dns(q);
 	dsrv = lws_adns_get_server(q);
 	tid  = lws_adns_get_tid(q);
+	tid_aaaa = lws_adns_get_tid_aaaa(q);
 
 	/* let lws compose and send the query, so the pending state is real */
 
@@ -215,15 +216,28 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	/* q may be destroyed inside the parse; don't touch it afterwards */
 
 	pkt[0] = (uint8_t)(tid >> 8);
-	pkt[1] = (uint8_t)(tid & 0xfe);
+	pkt[1] = (uint8_t)tid;
 	lws_adns_parse_udp(dns, pkt, len, dsrv);
 
 	/* A / AAAA lookups want both answers before completing: send the
-	 * same packet again as the AAAA half (tid low bit set) */
+	 * same packet again as the AAAA half, with that question's tid */
 
 	if (!done && (qtype == LWS_ADNS_RECORD_A ||
 		      qtype == LWS_ADNS_RECORD_AAAA)) {
-		pkt[1] |= 1;
+		size_t o = 12;
+
+		pkt[0] = (uint8_t)(tid_aaaa >> 8);
+		pkt[1] = (uint8_t)tid_aaaa;
+
+		/* ... and it is only taken as an answer to the AAAA question,
+		 * so make an uncompressed question one if it's there */
+		while (o < len && pkt[o] && pkt[o] < 64)
+			o += (size_t)pkt[o] + 1;
+		if (o + 3 <= len && !pkt[o]) {
+			pkt[o + 1] = 0;
+			pkt[o + 2] = (uint8_t)LWS_ADNS_RECORD_AAAA;
+		}
+
 		lws_adns_parse_udp(dns, pkt, len, dsrv);
 	}
 

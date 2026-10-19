@@ -313,8 +313,12 @@ lws_async_dns_server_remove(struct lws_context *cx, const lws_sockaddr46 *sa46);
 
 /* only needed for testing */
 
+/* the tid of q's A question, or of its only question if not an address */
 LWS_VISIBLE LWS_EXTERN uint16_t
 lws_adns_get_tid(struct lws_adns_q *q);
+/* the tid of an address lookup's AAAA question */
+LWS_VISIBLE LWS_EXTERN uint16_t
+lws_adns_get_tid_aaaa(struct lws_adns_q *q);
 LWS_VISIBLE LWS_EXTERN struct lws_async_dns *
 lws_adns_get_async_dns(struct lws_adns_q *q);
 

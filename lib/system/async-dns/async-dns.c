@@ -80,15 +80,14 @@ lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&dns->waiting)) {
 		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
-		int n = 0, nmax = q->tids >= LWS_ARRAY_SIZE(q->tid) ?
-				  LWS_ARRAY_SIZE(q->tid) : q->tids;
 
-		if (!name) {
-			for (n = 0; n < nmax; n++) {
-				if ((tid & 0xfffe) == (q->tid[n] & 0xfffe))
-					return q;
-			}
-		}
+		/* only an address lookup asks a second question, the AAAA */
+		if (!name && (tid == q->tid[0]
+#if defined(LWS_WITH_IPV6)
+			      || (lws_adns_q_is_addr(q) && tid == q->tid[1])
+#endif
+		   ))
+			return q;
 
 		if (name) {
 			/* q->qtype only ever holds the RR type, not the
@@ -391,13 +390,9 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	lwsl_wsi_info(wsi, "%s, which %d", name, which);
 
-	/* we hack b0 of the tid to be 0 = A, 1 = AAAA */
+	/* the A (or only) question has tid[0], the AAAA one tid[1] */
 
-	lws_ser_wu16be(&p[DHO_TID],
-#if defined(LWS_WITH_IPV6)
-			which ? (LADNS_MOST_RECENT_TID(q) | 1) :
-#endif
-					LADNS_MOST_RECENT_TID(q));
+	lws_ser_wu16be(&p[DHO_TID], q->tid[which]);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	/*
@@ -1823,47 +1818,53 @@ static int
 check_tid(struct lws_dll2 *d, void *user)
 {
 	lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
-	int n = 0, nmax = q->tids >= LWS_ARRAY_SIZE(q->tid) ?
-			  LWS_ARRAY_SIZE(q->tid) : q->tids;
 	uint16_t check = (uint16_t)(intptr_t)user;
 
-	for (n = 0; n < nmax; n++)
-		if (check == q->tid[n])
-			return 1;
-
-	return 0;
+	return check == q->tid[0] || check == q->tid[1];
 }
+
+/*
+ * Give q a new pair of tids, for its A (or only) and AAAA questions.  The tid
+ * is all an off-path spoofer has to guess besides our source port, so each is
+ * a full 16 bits from the CSPRNG, independent of the other (RFC 5452 4.3),
+ * and unique among the queries in flight, including q's own previous ones,
+ * so a late answer to an earlier question can't match.
+ */
 
 int
 lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 {
-	int budget = 10;
+	uint16_t nt[2];
+	int n, budget;
 
 	assert(q->dsrv);
 
-	/*
-	 * Make the TID unpredictable, but must be unique amongst ongoing ones
-	 */
-	do {
-		uint16_t tid;
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(nt); n++) {
+		budget = 10;
 
-		if (lws_get_random(context, &tid, 2) != 2)
+		do {
+			if (lws_get_random(context, &nt[n], sizeof(nt[n])) !=
+							sizeof(nt[n]))
+				return -1;
+
+			if ((!n || nt[n] != nt[0]) &&
+			    !lws_dll2_foreach_safe(&q->dns->waiting,
+						   (void *)(intptr_t)nt[n],
+						   check_tid))
+				break;
+		} while (--budget);
+
+		if (!budget) {
+			lwsl_cx_err(context, "unable to get unique tid");
+
 			return -1;
+		}
+	}
 
-		if (lws_dll2_foreach_safe(&q->dns->waiting,
-					  (void *)(intptr_t)tid, check_tid))
-			continue;
+	q->tid[0] = nt[0];
+	q->tid[1] = nt[1];
 
-		q->tids++;
-		LADNS_MOST_RECENT_TID(q) = tid;
-
-		return 0;
-
-	} while (budget--);
-
-	lwsl_cx_err(context, "unable to get unique tid");
-
-	return -1;
+	return 0;
 }
 
 /* max matching addresses we will collect from the hosts file */
@@ -1981,7 +1982,13 @@ lws_adns_scan_hostsfile(const char *name, uint8_t *ads, uint8_t *lens,
 uint16_t
 lws_adns_get_tid(struct lws_adns_q *q)
 {
-	return LADNS_MOST_RECENT_TID(q);
+	return q->tid[0];
+}
+
+uint16_t
+lws_adns_get_tid_aaaa(struct lws_adns_q *q)
+{
+	return q->tid[1];
 }
 
 struct lws_async_dns *
@@ -2548,8 +2555,6 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		lwsl_cx_err(context, "tid fail");
 		goto failed_unpublished_q;
 	}
-
-	LADNS_MOST_RECENT_TID(q) &= 0xfffe;
 
 	if (pq)
 		*pq = q;

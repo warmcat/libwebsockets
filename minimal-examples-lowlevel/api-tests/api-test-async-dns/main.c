@@ -592,6 +592,17 @@ bail:
  * with it.  It used to be freed at the expiry and then written to by the AAAA
  * answer, seen as a use-after-free under ASAN.
  *
+ * The wrong-question leg (G-068) has the fake nameserver itself answer first
+ * with the right tid but not our question: the qname altered, or the A
+ * question's tid with the AAAA question in it.  The answers are empty
+ * NXDOMAINs, which used to be believed with no look at the question at all.
+ * They must be ignored, and the later real answer accepted.
+ *
+ * The tid leg (G-068) asks several address lookups at once and looks at the
+ * tids that reach the fake nameserver: each question's tid must be drawn from
+ * all 16 bits, and the A and AAAA questions of a pair must not share all but
+ * one bit of them, as they used to (b0 picked A or AAAA).
+ *
  * This is a unit test of our own filtering against sockets we own on
  * loopback; nothing leaves the machine.
  */
@@ -602,7 +613,8 @@ bail:
 #define SC_FOREIGN_TICKS	10	/* > the 300ms first async-dns retry */
 #define SC_DEADLINE_TICKS	120	/* ~6s */
 #define SC_TTL0_TICKS		4	/* < the 300ms first async-dns retry */
-#define SC_MAX_QUERIES		8
+#define SC_TID_NAMES		16	/* address lookups in the tid leg */
+#define SC_MAX_QUERIES		(SC_TID_NAMES * 2 + 8)
 
 /* the fake nameserver's answer, and the one the foreign socket tries */
 
@@ -625,6 +637,8 @@ enum {
 	SC_MODE_PLAIN,
 	SC_MODE_FOREIGN,
 	SC_MODE_TTL0,
+	SC_MODE_WRONGQ,
+	SC_MODE_TIDS,
 };
 
 static int sc_fail, sc_mode, sc_done;
@@ -758,6 +772,120 @@ sc_answer_all(int fd, const uint8_t *ads, uint16_t qtype, uint8_t ttl,
 		}
 }
 
+/*
+ * From the real nameserver, answer each captured query with its own tid, an
+ * empty NXDOMAIN... but for a question other than the one it asked: \p how 0
+ * alters the qname, 1 swaps A and AAAA
+ */
+
+static void
+sc_answer_wrong_question(int how)
+{
+	uint8_t resp[sizeof(sc_q[0].pkt)];
+	int n;
+
+	for (n = 0; n < sc_qs; n++) {
+		struct sc_query *q = &sc_q[n];
+		size_t qo = sc_qtype_ofs(q->pkt, q->len), o;
+		uint16_t qtype = sc_qtype(q);
+
+		if (!qo || q->pkt[12] < 1)
+			continue;
+
+		o = qo + 4;
+		memcpy(resp, q->pkt, o);
+
+		resp[2] = 0x81;			/* QR + RD */
+		resp[3] = 0x83;			/* RA, rcode NXDOMAIN */
+		memset(&resp[6], 0, 6);		/* no answer, auth, other */
+
+		if (!how)
+			resp[13] = (uint8_t)(resp[13] == 'x' ? 'y' : 'x');
+		else {
+			qtype = qtype == LWS_ADNS_RECORD_A ?
+				LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A;
+			resp[qo] = (uint8_t)(qtype >> 8);
+			resp[qo + 1] = (uint8_t)qtype;
+		}
+
+		if (sendto(sc_fd, (const char *)resp, o, 0,
+			   (struct sockaddr *)&q->peer, q->peer_len) < 0)
+			lwsl_err("%s: sendto failed, errno %d\n", __func__,
+				 errno);
+	}
+}
+
+/*
+ * The tids of the address lookups the tid leg made: every A question's tid
+ * must be able to have b0 set, which it never could when b0 was the A / AAAA
+ * selector, and a pair's two tids must not be the same but for b0
+ */
+
+static int
+sc_check_tids(void)
+{
+	int n, m, a = 0, a_odd = 0, pairs = 0, pairs_b0 = 0;
+
+	for (n = 0; n < sc_qs; n++) {
+		const struct sc_query *q = &sc_q[n];
+		size_t qo = sc_qtype_ofs(q->pkt, q->len);
+		uint16_t tid = (uint16_t)((q->pkt[0] << 8) | q->pkt[1]);
+
+		if (!qo || sc_qtype(q) != LWS_ADNS_RECORD_A)
+			continue;
+
+		a++;
+		a_odd += tid & 1;
+
+		/* its AAAA question is the one with the same qname */
+
+		for (m = 0; m < sc_qs; m++) {
+			const struct sc_query *q6 = &sc_q[m];
+
+			if (sc_qtype(q6) != LWS_ADNS_RECORD_AAAA ||
+			    sc_qtype_ofs(q6->pkt, q6->len) != qo ||
+			    memcmp(q6->pkt + 12, q->pkt + 12, qo - 12))
+				continue;
+
+			pairs++;
+			if ((tid ^ (uint16_t)((q6->pkt[0] << 8) |
+						q6->pkt[1])) == 1)
+				pairs_b0++;
+			break;
+		}
+	}
+
+	lwsl_user("%s: %d A questions, %d with odd tid, %d A / AAAA pairs, "
+		  "%d differing only in b0\n", __func__, a, a_odd, pairs,
+		  pairs_b0);
+
+	if (a < SC_TID_NAMES) {
+		lwsl_err("%s: only %d of %d lookups seen\n", __func__, a,
+			 SC_TID_NAMES);
+		return 1;
+	}
+
+	/* 2^-16 chance this fails when the tid is random */
+	if (!a_odd) {
+		lwsl_err("%s: no A question's tid has b0 set\n", __func__);
+		return 1;
+	}
+
+#if defined(LWS_WITH_IPV6)
+	if (pairs < SC_TID_NAMES || pairs_b0 == pairs) {
+		lwsl_err("%s: A / AAAA tids not independent\n", __func__);
+		return 1;
+	}
+#else
+	if (pairs || pairs_b0) {
+		lwsl_err("%s: AAAA asked without IPv6\n", __func__);
+		return 1;
+	}
+#endif
+
+	return 0;
+}
+
 /* collect whatever the resolver sent our fake nameserver since last time */
 
 static void
@@ -841,6 +969,25 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 		if (!sc_qs || ++sc_quiet < SC_QUIET_TICKS)
 			break;
 
+		if (sc_mode == SC_MODE_TIDS) {
+			if (sc_qs < SC_TID_NAMES)
+				break;
+			if (sc_check_tids())
+				sc_fail++;
+			sc_done = 1;
+			lws_default_loop_exit(sc_cx);
+			break;
+		}
+
+		if (sc_mode == SC_MODE_WRONGQ) {
+			lwsl_user("%s: answering a different question\n",
+					__func__);
+			sc_answer_wrong_question(0);
+			sc_answer_wrong_question(1);
+			sc_phase = 1;
+			break;
+		}
+
 		if (sc_mode == SC_MODE_TTL0) {
 			lwsl_user("%s: answering A with TTL 0, AAAA later\n",
 					__func__);
@@ -861,10 +1008,10 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 		sc_phase = 1;
 		break;
 
-	case 1: /* the foreign answer must not be taken, nor redirect us */
+	case 1: /* the bogus answer must not be taken, nor redirect us */
 		if (sc_resolved) {
-			lwsl_err("%s: took an answer from a foreign source\n",
-					__func__);
+			lwsl_err("%s: took an answer from a foreign source "
+				 "or to another question\n", __func__);
 			sc_fail++;
 			sc_done = 1;
 			lws_default_loop_exit(sc_cx);
@@ -902,7 +1049,7 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 }
 
 static const char * const sc_mode_names[] = {
-	"plain", "foreign answer", "ttl 0 expiry"
+	"plain", "foreign answer", "ttl 0 expiry", "wrong question", "tids"
 };
 
 static void
@@ -961,16 +1108,29 @@ sc_run(int mode)
 			lws_async_dns_server_remove(sc_cx, &sa46);
 	}
 
-	if (lws_async_dns_query(sc_cx, 0, SC_NAME,
-				(adns_query_type_t)(LWS_ADNS_RECORD_A |
+	{
+		int n, nq = mode == SC_MODE_TIDS ? SC_TID_NAMES : 1;
+		char name[64];
+
+		for (n = 0; n < nq; n++) {
+			if (mode == SC_MODE_TIDS)
+				lws_snprintf(name, sizeof(name), "t%d.%s", n,
+					     SC_NAME);
+			else
+				lws_strncpy(name, SC_NAME, sizeof(name));
+
+			if (lws_async_dns_query(sc_cx, 0, name,
+					(adns_query_type_t)(LWS_ADNS_RECORD_A |
 						LWS_ADNS_NOCACHE |
 						LWS_ADNS_IGNORE_HOSTS_FILE |
 						LWS_ADNS_INDICATE_LACKS_DNSSEC),
-				sc_cb, NULL, NULL, NULL) !=
-						LADNS_RET_CONTINUING) {
-		lwsl_err("%s: query did not start\n", __func__);
-		sc_fail++;
-		goto destroy;
+					sc_cb, NULL, NULL, NULL) !=
+							LADNS_RET_CONTINUING) {
+				lwsl_err("%s: query did not start\n", __func__);
+				sc_fail++;
+				goto destroy;
+			}
+		}
 	}
 
 	lws_sul_schedule(sc_cx, 0, &sul_sc, sul_sc_cb, SC_TICK_US);
@@ -998,6 +1158,11 @@ bail:
 
 	if (sc_fail)
 		return;
+
+	if (mode == SC_MODE_TIDS) {
+		lwsl_user("Resolver tid leg: PASS\n");
+		return;
+	}
 
 	if (!sc_resolved) {
 		lwsl_err("%s: query never completed\n", __func__);
@@ -1886,6 +2051,34 @@ timeout_cb(lws_sorted_usec_list_t *sul)
 	lws_default_loop_exit(context);
 }
 
+/*
+ * A canned answer is to the A or the AAAA question of the pair, which each
+ * have their own tid: give it the tid of the question it answers
+ */
+
+static void
+canned_set_tid(struct lws_adns_q *q, uint8_t *pkt, size_t len)
+{
+	size_t o = 12;
+	uint16_t tid = lws_adns_get_tid(q);
+
+	while (o < len && pkt[o] && pkt[o] < 64)
+		o += (size_t)pkt[o] + 1;
+
+	if (o + 3 <= len && !pkt[o] &&
+	    ((pkt[o + 1] << 8) | pkt[o + 2]) == LWS_ADNS_RECORD_AAAA) {
+#if defined(LWS_WITH_IPV6)
+		tid = lws_adns_get_tid_aaaa(q);
+#else
+		/* no AAAA question is asked: it stands in for the A one */
+		pkt[o + 2] = (uint8_t)LWS_ADNS_RECORD_A;
+#endif
+	}
+
+	pkt[0] = (uint8_t)(tid >> 8);
+	pkt[1] = (uint8_t)tid;
+}
+
 static void
 next_test_cb(lws_sorted_usec_list_t *sul)
 {
@@ -1909,31 +2102,27 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 		lwsl_notice("%s: injecting result\n", __func__);
 
 		if (!strcmp(adt[dtest].dns_name, "c.msn.com")) {
-			canned_c_msn_com[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
-			canned_c_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
+			canned_set_tid(q, canned_c_msn_com, sizeof(canned_c_msn_com));
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					   canned_c_msn_com,
 					   sizeof(canned_c_msn_com), lws_adns_get_server(q));
 		}
 
 		if (!strcmp(adt[dtest].dns_name, "assets.msn.com")) {
-			canned_assets_msn_com[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
-			canned_assets_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
+			canned_set_tid(q, canned_assets_msn_com, sizeof(canned_assets_msn_com));
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					   canned_assets_msn_com,
 					   sizeof(canned_assets_msn_com), lws_adns_get_server(q));
 		}
 
 		if (!strcmp(adt[dtest].dns_name, "e28578.d.akamaiedge.net")) {
-			canned_e28578_d_akamaiedge_net[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
-			canned_e28578_d_akamaiedge_net[1] = (uint8_t)lws_adns_get_tid(q);
+			canned_set_tid(q, canned_e28578_d_akamaiedge_net, sizeof(canned_e28578_d_akamaiedge_net));
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					canned_e28578_d_akamaiedge_net,
 					   sizeof(canned_e28578_d_akamaiedge_net), lws_adns_get_server(q));
 		}
 		if (!strcmp(adt[dtest].dns_name, "a-0003.a-msedge.net")) {
-			canned_a_0003_a_msedge_net[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
-			canned_a_0003_a_msedge_net[1] = (uint8_t)lws_adns_get_tid(q);
+			canned_set_tid(q, canned_a_0003_a_msedge_net, sizeof(canned_a_0003_a_msedge_net));
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					canned_a_0003_a_msedge_net,
 					   sizeof(canned_a_0003_a_msedge_net), lws_adns_get_server(q));
@@ -1941,17 +2130,13 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 		if (first &&
 		    !strcmp(adt[dtest].dns_name, "c-msn-com-europe-vip.trafficmanager.net")) {
 			first = 0;
-			canned_c_msn_com_europe_vip_trafficmanager_net[0] =
-					(uint8_t)(lws_adns_get_tid(q) >> 8);
-			canned_c_msn_com_europe_vip_trafficmanager_net[1] =
-					(uint8_t)lws_adns_get_tid(q);
+			canned_set_tid(q, canned_c_msn_com_europe_vip_trafficmanager_net, sizeof(canned_c_msn_com_europe_vip_trafficmanager_net));
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 				canned_c_msn_com_europe_vip_trafficmanager_net,
 				sizeof(canned_c_msn_com_europe_vip_trafficmanager_net), lws_adns_get_server(q));
 		}
 		if (!strcmp(adt[dtest].dns_name, "tcp-fallback.libwebsockets.org")) {
-			canned_tc_libwebsockets_org[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
-			canned_tc_libwebsockets_org[1] = (uint8_t)lws_adns_get_tid(q);
+			canned_set_tid(q, canned_tc_libwebsockets_org, sizeof(canned_tc_libwebsockets_org));
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					canned_tc_libwebsockets_org,
 					sizeof(canned_tc_libwebsockets_org), lws_adns_get_server(q));
@@ -2209,6 +2394,14 @@ main(int argc, const char **argv)
 
 		sc_run(SC_MODE_PLAIN);
 		sc_run(SC_MODE_FOREIGN);
+
+		/*
+		 * G-068: an answer is only taken to the question it has the
+		 * tid of, and each question's tid is a full 16 random bits
+		 */
+
+		sc_run(SC_MODE_WRONGQ);
+		sc_run(SC_MODE_TIDS);
 
 		/*
 		 * A cache entry whose TTL runs out while its query still
