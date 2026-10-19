@@ -129,8 +129,10 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	uint8_t pkt[LWS_PRE + 48];
+#if defined(LWS_PLAT_FREERTOS) || (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	struct timeval t1;
 	int64_t delta_us;
+#endif
 	uint64_t ns;
 
 	switch (reason) {
@@ -251,8 +253,10 @@ do_close_l:
 		     (((uint64_t)lws_ser_ru32be(((uint8_t *)in) + 44) *
 						1000000000ull) >> 32);
 
+#if defined(LWS_PLAT_FREERTOS) || (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		/*
-		 * Compute the step
+		 * Compute the step, only needed to adjust the nonmonotonic
+		 * suls on freertos, and for the log
 		 */
 
 		gettimeofday(&t1, NULL);
@@ -263,6 +267,7 @@ do_close_l:
 		lwsl_notice("%s: Unix time: %llu, step: %lldus\n", __func__,
 				(unsigned long long)ns / 1000000000,
 				(long long)delta_us);
+#endif
 
 #if defined(LWS_PLAT_FREERTOS)
 		{

@@ -281,6 +281,7 @@ lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 void
 lws_peer_dump_from_wsi(struct lws *wsi)
 {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	struct lws_peer *peer;
 
 	if (!wsi || !wsi->peer)
@@ -299,6 +300,7 @@ lws_peer_dump_from_wsi(struct lws *wsi)
 			lws_wsi_tag(wsi),
 			(unsigned long long)peer->time_created,
 			peer->count_wsi, peer->total_wsi);
+#endif
 #endif
 }
 

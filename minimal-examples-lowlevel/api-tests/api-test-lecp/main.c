@@ -26,7 +26,10 @@ static const struct lws_switches switches[] = {
 #include <math.h>
 #endif
 
+/* the per-callback trace needs notice logs built in */
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 #define VERBOSE
+#endif
 
 #if defined(VERBOSE)
 static const char * const reason_names[] = {

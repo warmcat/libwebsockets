@@ -566,7 +566,7 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	/* the hash the request this answers was about */
 	uint8_t ihbuf[sizeof(lws_dht_hash_t) + LWS_GENHASH_LARGEST];
 	lws_dht_hash_t *ih = (lws_dht_hash_t *)ihbuf;
-	int gp = 0, bound = 0;
+	int bound = 0;
 #if defined(LWS_WITH_DHT_BACKEND)
 	struct search_node *sn;
 	struct search *sr = NULL;
@@ -589,7 +589,6 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 			lwsl_dht_rx_warn("%s: subscribe reply with no subscribe "
 					 "outstanding\n", __func__);
 	} else if (tid_match(mp->tid, "gp", &ttid)) {
-		gp = 1;
 #if defined(LWS_WITH_DHT_BACKEND)
 		sr = find_search(ctx, ttid, from->sa_family);
 		/*
@@ -612,7 +611,7 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 	lwsl_dht_rx("%s: Nodes found (%d+%d)%s\n", __func__, (int)(mp->nodes_len / LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN),
 			(int)(mp->nodes6_len / LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN),
-			gp ? " for get_peers" : "");
+			tid_match(mp->tid, "gp", NULL) ? " for get_peers" : "");
 
 #if defined(LWS_WITH_DHT_BACKEND)
 	/*
@@ -1099,15 +1098,12 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 
 	if (id_cmp(mp.id, ctx->myid) == 0) {
 		char ip[64] = "unknown";
-		int port = 0;
-		if (from->sa_family == AF_INET) {
+
+		if (from->sa_family == AF_INET)
 			inet_ntop(AF_INET, &((struct sockaddr_in *)from)->sin_addr, ip, sizeof(ip));
-			port = ntohs(((struct sockaddr_in *)from)->sin_port);
-		} else if (from->sa_family == AF_INET6) {
+		else if (from->sa_family == AF_INET6)
 			inet_ntop(AF_INET6, &((struct sockaddr_in6 *)from)->sin6_addr, ip, sizeof(ip));
-			port = ntohs(((struct sockaddr_in6 *)from)->sin6_port);
-		}
-		lwsl_dht_info("%s: Received message from self. from %s:%d id %02x ctx->myid %02x, ctx %p\n", __func__, ip, port, mp.id->id[0], ctx->myid->id[0], ctx);
+		lwsl_dht_info("%s: Received message from self. from %s:%u id %02x ctx->myid %02x, ctx %p\n", __func__, ip, (unsigned int)ntohs(dht_sa_port(from)), mp.id->id[0], ctx->myid->id[0], ctx);
 		goto done;
 	}
 
@@ -1429,8 +1425,7 @@ skip_ip_tracking:
 		{
 			char peer_ip[64];
 			lws_sa46_write_numeric_address((lws_sockaddr46 *)from, peer_ip, sizeof(peer_ip));
-			int peer_port = from->sa_family == AF_INET ? ntohs(((struct sockaddr_in *)from)->sin_port) : ntohs(((struct sockaddr_in6 *)from)->sin6_port);
-			lwsl_notice("%s: Parsed NOTIFY from %s:%d. TID is %d bytes:\n", __func__, peer_ip, peer_port, (int)mp.tid_len);
+			lwsl_notice("%s: Parsed NOTIFY from %s:%u. TID is %d bytes:\n", __func__, peer_ip, (unsigned int)ntohs(dht_sa_port(from)), (int)mp.tid_len);
 		}
 		/* Disable hexdump on rx as it is a bit noisy unless debugging, keeping structural logs: */
 		/* lwsl_hexdump_notice(mp.tid, mp.tid_len); */

@@ -268,7 +268,6 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	unsigned int bytes;
 	uint8_t htype;
-	size_t hs;
 
 	if (alg->completed)
 		return;
@@ -277,12 +276,12 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 	case LWSCOSE_WKAECDSA_ALG_ES256: /* ECDSA w/ SHA-256 */
 	case LWSCOSE_WKAECDSA_ALG_ES384: /* ECDSA w/ SHA-384 */
 	case LWSCOSE_WKAECDSA_ALG_ES512: /* ECDSA w/ SHA-512 */
-		hs = lws_genhash_size(alg->hash_ctx.type);
 		bytes = (unsigned int)lws_gencrypto_bits_to_bytes(alg->keybits);
 		if (lws_genhash_destroy(&alg->hash_ctx, digest))
 			alg->failed = 1;
 		alg->rhash_len = 0;
-		lwsl_notice("alg keybits %d hs %d\n", (int)alg->keybits, (int)hs);
+		lwsl_notice("alg keybits %d hs %d\n", (int)alg->keybits,
+			    (int)lws_genhash_size(alg->hash_ctx.type));
 		if (!alg->failed &&
 		    lws_genecdsa_hash_sign_jws(&alg->u.ecdsactx, digest,
 						alg->hash_ctx.type,

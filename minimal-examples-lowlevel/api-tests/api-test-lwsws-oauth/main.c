@@ -254,7 +254,9 @@ struct cookie {
 
 static struct cookie	jar[JAR_COUNT][COOKIES_MAX];
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 static const char *jar_name[JAR_COUNT] = { "auth", "app", "device" };
+#endif
 
 static struct cookie *
 jar_find(int j, const char *name, const char *domain)

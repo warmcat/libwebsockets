@@ -722,20 +722,19 @@ dump_bucket(struct lws_dht_ctx *ctx, struct bucket *b)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&b->nodes)) {
 		struct node *n = lws_container_of(d, struct node, list);
 		char buf[64];
-		unsigned short port;
 
 		lwsl_dht_info("    Node ");
 		lwsl_hexdump_dht(n->id->id, n->id->len);
 		switch (n->ss.ss_family) {
 		case AF_INET:
 			lws_sa46_write_numeric_address((lws_sockaddr46 *)&n->ss, buf, sizeof(buf));
-			port = ntohs(((struct sockaddr_in*)&n->ss)->sin_port);
-			lwsl_dht_info(" %s:%d ", buf, port);
+			lwsl_dht_info(" %s:%u ", buf, (unsigned int)
+				ntohs(dht_sa_port((struct sockaddr *)&n->ss)));
 			break;
 		case AF_INET6:
 			lws_sa46_write_numeric_address((lws_sockaddr46 *)&n->ss, buf, sizeof(buf));
-			port = ntohs(((struct sockaddr_in6*)&n->ss)->sin6_port);
-			lwsl_dht_info(" [%s]:%d ", buf, port);
+			lwsl_dht_info(" [%s]:%u ", buf, (unsigned int)
+				ntohs(dht_sa_port((struct sockaddr *)&n->ss)));
 			break;
 		default:
 			lwsl_dht_info(" Unknown AF %d ", n->ss.ss_family);
