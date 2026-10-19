@@ -323,8 +323,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 ## Client connect
 
  - **`i.pwsi` is not cleared when the client wsi closes**: it is written
-   at connect and NULLed only on a connect failure.  Track closure with
-   `LWS_CALLBACK_WSI_DESTROY`, not by watching `*pwsi`.
+   at connect and NULLed only on a connect failure.  Track closure by
+   the wsi's final callback on its own protocol, not by watching `*pwsi`:
+   since G-298 (ccd5e26a0) every client wsi gets exactly one
+   CLIENT_CONNECTION_ERROR (never connected) or CLOSED, including during
+   context destroy.  `LWS_CALLBACK_WSI_DESTROY` only goes to
+   protocols[0].  A wsi's timers are cancelled after its vhost unbind
+   (1af9d316b), so PROTOCOL_DESTROY arming one on a dying wsi is safe.
  - `lws_client_stash_to_headers()` keeps `wsi->stash` until close in
    every build (it used to free it early with SOCKS5).  Read the address
    with

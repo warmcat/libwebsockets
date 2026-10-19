@@ -349,3 +349,6 @@ a log is evidence that something was or was not emitted.
  - A raw UDP wsi receives at most the protocol's `rx_buffer_size`; a
    longer datagram is silently truncated.  Sends are one datagram, never
    split (G-279, see READMEs/README.udp.md).
+ - lwsws-oauth-limits and lwsws-oauth-login-h3 occasionally time out at
+   -j6 under ASan and pass on rerun (seen by several agents 2026-10-19):
+   rerun the group alone before treating it as a regression.
