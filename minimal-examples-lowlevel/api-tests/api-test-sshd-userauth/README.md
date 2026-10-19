@@ -1,7 +1,7 @@
 # lws-api-test-sshd-userauth
 
 Fences the F-056 security fixes in the sshd plugin's USERAUTH handling,
-and the G-284 fix in its pre-auth transport parser.
+and the G-284 / G-285 fixes in its pre-auth transport parser.
 
 Both the public key blob and the signature blob sent with a
 `SSH_MSG_USERAUTH_REQUEST` are walked with attacker-chosen inner lengths;
@@ -28,13 +28,21 @@ the plaintext transport:
    a 1-byte `exec` command refused with `CHANNEL_FAILURE` without reading
    past the command allocation looking for an `"scp "` prefix.
 
-A further scenario, on a fresh connection, fences the pre-auth transport
-parser:
+Three further scenarios, each on a fresh connection, fence the pre-auth
+transport parser:
 
 4. a `KEXINIT`, then (after a `SERVICE_ACCEPT` shows the connection is
    still up) a second `KEXINIT` while the first key exchange is in
    progress: the server must close the connection, rather than orphan its
-   copy of the first one (RFC4253 7.1).
+   copy of the first one (RFC4253 7.1),
+5. a `DISCONNECT` with a 1000-byte description and language tag `"en"`,
+   followed by another packet in the same write: the `disconnect_reason`
+   op must be called exactly once with both strings intact, and the server
+   must close the connection without acting on the packet that follows,
+6. a `SERVICE_REQUEST` for an empty service name must be accepted (an
+   empty string completes, rather than swallowing the following bytes),
+   then a `DISCONNECT` with empty description and language tag must reach
+   the op once and close the connection.
 
 The test exits 0 if all the expectations held.
 

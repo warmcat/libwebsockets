@@ -1201,6 +1201,21 @@ again:
                         if (++pss->ctr != 4)
                                 break;
                         pss->ctr = 0;
+			if (pss->len > sizeof(pss->name) - 1 ||
+			    ssh_string_overruns_packet(pss)) {
+				lwsl_notice("non-alloc string length %u\n",
+					    (unsigned int)pss->len);
+				goto bail;
+			}
+			if (!pss->len) {
+				/*
+				 * An empty string has no body bytes to wait
+				 * for: it is complete now
+				 */
+				pss->name[0] = '\0';
+				pss->parser_state = pss->state_after_string;
+				goto again;
+			}
 			pss->parser_state = SSHS_GET_STRING;
 			break;
 
@@ -1233,6 +1248,11 @@ again:
 			if (!pss->last_alloc) {
 				lwsl_notice("alloc string too big\n");
 				goto bail;
+			}
+			if (!pss->len) {
+				/* empty, and already NUL-terminated by zalloc */
+				pss->parser_state = pss->state_after_string;
+				goto again;
 			}
 			pss->parser_state = SSHS_GET_STRING_ALLOC;
 			break;
@@ -1566,6 +1586,7 @@ again:
 
 		case SSHS_NVC_DISCONNECT_DESC:
 			pss->disconnect_desc = (char *)pss->last_alloc;
+			pss->last_alloc = NULL; /* it was adopted */
 			state_get_string(pss, SSHS_NVC_DISCONNECT_LANG);
 			break;
 
@@ -1575,8 +1596,13 @@ again:
 				pss->vhd->ops->disconnect_reason(
 					pss->disconnect_reason,
 					pss->disconnect_desc, pss->name);
-			ssh_free_set_NULL(pss->last_alloc);
-			break;
+			ssh_free_set_NULL(pss->disconnect_desc);
+			/*
+			 * RFC4253 11.1: the peer is closing the connection and
+			 * will send nothing more we can act on.  Close our end
+			 * now rather than parse whatever follows.
+			 */
+			return SSH_DISCONNECT_BY_APPLICATION;
 
 			/*
 			 * Channel: Open
@@ -1796,7 +1822,7 @@ again:
 			 *
 			 * scp sends "scp -t /path/..."
 			 */
-			lwsl_info("exec cmd: %s %02X\n", pss->last_alloc, *p);
+			lwsl_info("exec cmd: %s\n", pss->last_alloc);
 
 			pss->channel_doing_spawn = pss->ch_temp->server_ch;
 
@@ -1956,7 +1982,8 @@ again:
 							    pp[n], pp[n]);
 
 					/* Header triggers the transfer? */
-					if (pp[0] == 'C' && pp[pss->npos - 1] == '\x0a') {
+					if (pss->npos && pp[0] == 'C' &&
+					    pp[pss->npos - 1] == '\x0a') {
 						char *fname;
 						uint64_t max_body;
 						
@@ -2442,6 +2469,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_ua_destroy(pss);
 
 		ssh_free_set_NULL(pss->last_alloc);
+		ssh_free_set_NULL(pss->disconnect_desc);
 
 		while(!lws_dll2_is_empty(&pss->ch_list))
 			ssh_destroy_channel(pss, lws_container_of(

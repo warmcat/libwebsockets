@@ -27,12 +27,22 @@
  *    command must be refused with CHANNEL_FAILURE without reading past
  *    the 1-byte command allocation looking for an "scp " prefix.
  *
- * A further scenario, on a fresh connection, fences the pre-auth
- * transport parser (G-284):
+ * Further scenarios, each on a fresh connection, fence the pre-auth
+ * transport parser (G-284, G-285):
  *
  *  - a second KEXINIT while the first one's key exchange is in progress
  *    must close the connection (it used to orphan the first KEXINIT's
- *    copy, up to 256KB a time).
+ *    copy, up to 256KB a time),
+ *  - a DISCONNECT with a long description and a language tag, followed
+ *    by another packet in the same write, must reach the disconnect_reason
+ *    op exactly once with intact strings, and the server must close the
+ *    connection without parsing what follows (the parser used to stay in
+ *    the DISCONNECT lang state and pass the freed description to the op
+ *    for every later byte),
+ *  - zero-length strings must complete: a SERVICE_REQUEST for "" must be
+ *    accepted, and a DISCONNECT with empty description and language tag
+ *    must reach the op once and close (empty strings used to swallow the
+ *    following bytes until the parser bailed).
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -50,6 +60,8 @@
 enum scenario {
 	SC_USERAUTH,		/* the USERAUTH blob walk phases */
 	SC_KEXINIT_REPEAT,	/* second KEXINIT during the kex */
+	SC_DISCONNECT_LONG,	/* DISCONNECT, then more bytes */
+	SC_DISCONNECT_EMPTY,	/* zero-length strings */
 
 	SC_COUNT
 };
@@ -66,6 +78,7 @@ enum cli_state {
 	ST_CLI_CH_CONFIRM,	/* expecting CHANNEL_OPEN_CONFIRMATION */
 	ST_CLI_CH_FAIL,		/* expecting CHANNEL_FAILURE for exec "x" */
 	ST_CLI_KEXR_SVC_ACCEPT,	/* first KEXINIT taken, SERVICE_ACCEPT */
+	ST_CLI_EMPTY_SVC_ACCEPT,/* SERVICE_ACCEPT for the empty service name */
 	ST_CLI_EXPECT_CLOSE,	/* the server must close us now */
 	ST_CLI_DONE,		/* scenario passed, we are closing */
 };
@@ -103,6 +116,15 @@ static uint32_t server_ch;	/* server's number for the session channel */
 
 static char ops_lax;		/* is_pubkey_authorized accepts any blob */
 
+/* what the disconnect_reason op was told */
+
+#define DISC_DESC_LONG		1000
+
+static int disc_count;
+static uint32_t disc_reason;
+static size_t disc_desc_len;
+static char disc_desc_head[16], disc_lang[16];
+
 /* the sshd side's ops */
 
 static int
@@ -135,6 +157,20 @@ static int
 ops_tx_waiting(void *priv)
 {
 	return 0;
+}
+
+static void
+ops_disconnect_reason(uint32_t reason, const char *desc, const char *desc_lang)
+{
+	/*
+	 * Read all of both strings, so a stale pointer is a sanitizer
+	 * report rather than a quiet pass
+	 */
+	disc_count++;
+	disc_reason = reason;
+	disc_desc_len = strlen(desc);
+	lws_strncpy(disc_desc_head, desc, sizeof(disc_desc_head));
+	lws_strncpy(disc_lang, desc_lang, sizeof(disc_lang));
 }
 
 /* in-memory store for the generated server host key */
@@ -171,6 +207,7 @@ static const struct lws_ssh_ops ops = {
 	.set_server_key			= ops_set_server_key,
 	.exec				= ops_exec,
 	.is_pubkey_authorized		= ops_is_pubkey_authorized,
+	.disconnect_reason		= ops_disconnect_reason,
 	.server_string			= "SSH-2.0-LibwebsocketsAPITest",
 	.api_version			= LWS_SSH_OPS_VERSION,
 };
@@ -309,6 +346,20 @@ msg_kexinit(void)
 	pay_cstr("");				/* languages stc */
 	pay_u8(0);				/* first_kex_packet_follows */
 	pay_u32(0);				/* reserved */
+
+	return pac_done();
+}
+
+static int
+msg_disconnect(uint32_t reason, uint32_t desc_len, const char *lang)
+{
+	paylen = 0;
+	pay_u8(SSH_MSG_DISCONNECT);
+	pay_u32(reason);
+	pay_u32(desc_len);
+	memset(pay + paylen, 'D', desc_len);
+	paylen += desc_len;
+	pay_cstr(lang);
 
 	return pac_done();
 }
@@ -572,6 +623,17 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 		cli_state = ST_CLI_EXPECT_CLOSE;
 		return cli_send_next();
 
+	case ST_CLI_EMPTY_SVC_ACCEPT:
+		/* the empty service name completed as a string */
+		if (msg != SSH_MSG_SERVICE_ACCEPT || pl_len != 1 + 4 ||
+		    peek_u32(pl))
+			return test_fail("expected SERVICE_ACCEPT for \"\"");
+
+		if (msg_disconnect(SSH_DISCONNECT_BY_APPLICATION, 0, ""))
+			return test_fail("tx prep");
+		cli_state = ST_CLI_EXPECT_CLOSE;
+		return cli_send_next();
+
 	default:
 		return test_fail("unexpected message");
 	}
@@ -582,6 +644,8 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 static const enum cli_state scenario_first_state[] = {
 	[SC_USERAUTH]		= ST_CLI_SVC_ACCEPT,
 	[SC_KEXINIT_REPEAT]	= ST_CLI_KEXR_SVC_ACCEPT,
+	[SC_DISCONNECT_LONG]	= ST_CLI_EXPECT_CLOSE,
+	[SC_DISCONNECT_EMPTY]	= ST_CLI_EMPTY_SVC_ACCEPT,
 };
 
 static int
@@ -666,6 +730,15 @@ cli_connected(void)
 		return msg_kexinit() ||
 		       msg_service_request("ssh-connection");
 
+	case SC_DISCONNECT_LONG:
+		/* the server must not act on the packet after DISCONNECT */
+		return msg_disconnect(SSH_DISCONNECT_BY_APPLICATION,
+				      DISC_DESC_LONG, "en") ||
+		       msg_service_request("ssh-connection");
+
+	case SC_DISCONNECT_EMPTY:
+		return msg_service_request("");
+
 	default:
 		return 1;
 	}
@@ -687,6 +760,10 @@ cli_connect(lws_sorted_usec_list_t *sul)
 	cli_state = ST_CLI_VERSION;
 	rxlen = 0;
 	txlen = 0;
+	disc_count = 0;
+	disc_desc_len = 0;
+	disc_desc_head[0] = '\0';
+	disc_lang[0] = '\0';
 
 	lwsl_user("%s: scenario %d\n", __func__, scenario);
 
@@ -720,6 +797,30 @@ cli_closed(void)
 	case ST_CLI_EXPECT_CLOSE:
 		switch (scenario) {
 		case SC_KEXINIT_REPEAT:
+			if (disc_count) {
+				test_fail("unexpected disconnect_reason");
+				return;
+			}
+			break;
+		case SC_DISCONNECT_LONG:
+			if (disc_count != 1 ||
+			    disc_reason != SSH_DISCONNECT_BY_APPLICATION ||
+			    disc_desc_len != DISC_DESC_LONG ||
+			    strcmp(disc_desc_head, "DDDDDDDDDDDDDDD") ||
+			    strcmp(disc_lang, "en")) {
+				lwsl_err("disconnect_reason x%d: %u, %u, '%s'\n",
+					 disc_count, (unsigned int)disc_reason,
+					 (unsigned int)disc_desc_len,
+					 disc_lang);
+				test_fail("bad disconnect_reason (long)");
+				return;
+			}
+			break;
+		case SC_DISCONNECT_EMPTY:
+			if (disc_count != 1 || disc_desc_len || disc_lang[0]) {
+				test_fail("bad disconnect_reason (empty)");
+				return;
+			}
 			break;
 		default:
 			test_fail("unexpected close");
@@ -884,7 +985,7 @@ bail:
 
 	/*
 	 * a well-formed-but-wrong sig blob for the phases that don't reach
-	 * the sig walk (the parser treats a zero-length string as fatal)
+	 * the sig walk
 	 */
 	o = dummysig;
 	poke_u32(o, 12);
