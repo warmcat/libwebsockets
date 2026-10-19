@@ -361,6 +361,15 @@ document rules that use it.  Any selector the css engine understands can be
 used.  Matched elements are removed from the layout together with their whole
 subtree and any space they would have reserved, exactly as `display: none`.
 
+With cosmetic css set, an element lhp cannot see as a browser does is treated
+as matched and removed the same way, rather than filtered on what lhp could
+keep of it: one whose `class` or `id` value is too long to hold (2KB,
+`LHP_STRING_CHUNK`), or that has a NUL, raw or as `&#0;`, in any attribute
+value.  A browser sees every class token in both cases, so otherwise a page
+could hide its junk from class- and id-keyed rules by padding its class or
+putting a NUL in front of the filtered token.  NULs and other invalid character
+references are stored as U+FFFD, as the html tokenizer does.
+
 The `block_rules` are newline-separated, `#` starts a comment, and each rule
 either matches at the host, like `||ads.example.com` (also matching any
 subdomain), or is a plain substring matched anywhere in the resolved asset

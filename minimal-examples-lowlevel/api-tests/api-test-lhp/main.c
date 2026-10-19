@@ -796,10 +796,204 @@ bail:
 	return e;
 }
 
+/*
+ * An element lhp can't hold as a browser sees it fails closed against a
+ * cosmetic filter (G-172): a class or id too long to keep, or a NUL (raw or a
+ * character reference to 0) in an attribute value, gets the element hidden
+ * rather than filtered on a truncated or missing class.  An overlong value of
+ * any other attribute (eg, a data: URI) is just discarded, as before.
+ *
+ * The elements are told apart by data-t, "ad" must be hidden and "ok" not.
+ */
+
+#define LHPT_SUSP_PAD		2100
+
+static int susp_ad_seen, susp_ad_hidden, susp_ok_seen, susp_ok_hidden;
+
+static lws_stateful_ret_t
+susp_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const char *t;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	t = lws_html_get_atr(ps, "data-t", 6);
+	if (!t)
+		return 0;
+
+	if (!strcmp(t, "ad")) {
+		susp_ad_seen = 1;
+		susp_ad_hidden = ps->hidden;
+	}
+	if (!strcmp(t, "ok")) {
+		susp_ok_seen = 1;
+		susp_ok_hidden = ps->hidden;
+	}
+
+	return 0;
+}
+
+enum {
+	LHPT_SUSP_PLAIN,	/* class="x junk": the filter rule itself */
+	LHPT_SUSP_NUL_DEC,	/* class="x&#0; junk" */
+	LHPT_SUSP_NUL_HEX,	/* class="x&#x0; junk" */
+	LHPT_SUSP_NUL_RAW,	/* class="x<0x00> junk" */
+	LHPT_SUSP_NUL_OTHER,	/* title="a<0x00>b" class="y" */
+	LHPT_SUSP_LONG_CLASS,	/* class="junk <pad>" */
+	LHPT_SUSP_LONG_ID,	/* id="<pad>" */
+	LHPT_SUSP_LONG_ENT,	/* class="junk <pad>&#65;" */
+	LHPT_SUSP_LONG_OTHER,	/* title="<pad>" class="y": not suspicious */
+
+	LHPT_SUSP_COUNT
+};
+
+static int
+test_filter_suspicious(int c, int with_filter)
+{
+	static const lws_lhp_filter_t filter = {
+		.cosmetic_css = ".junk{display:none}"
+	};
+	size_t alloc = 8 * 1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	int e = 1, expect;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	susp_ad_seen = susp_ad_hidden = susp_ok_seen = susp_ok_hidden = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc, "<html><body><div data-t=\"ad\" ");
+
+	switch (c) {
+	case LHPT_SUSP_PLAIN:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "class=\"x junk\"");
+		break;
+	case LHPT_SUSP_NUL_DEC:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "class=\"x&#0; junk\"");
+		break;
+	case LHPT_SUSP_NUL_HEX:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "class=\"x&#x0; junk\"");
+		break;
+	case LHPT_SUSP_NUL_RAW:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "class=\"x");
+		*p++ = '\0';
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  " junk\"");
+		break;
+	case LHPT_SUSP_NUL_OTHER:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "title=\"a");
+		*p++ = '\0';
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "b\" class=\"y\"");
+		break;
+	case LHPT_SUSP_LONG_CLASS:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "class=\"junk ");
+		memset(p, ' ', LHPT_SUSP_PAD);
+		p += LHPT_SUSP_PAD;
+		*p++ = '\"';
+		break;
+	case LHPT_SUSP_LONG_ID:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "id=\"");
+		memset(p, 'i', LHPT_SUSP_PAD);
+		p += LHPT_SUSP_PAD;
+		*p++ = '\"';
+		break;
+	case LHPT_SUSP_LONG_ENT:
+		/*
+		 * The value collected so far, from "class=", is
+		 * LHP_STRING_CHUNK - 5 long at the '&': it is the character
+		 * reference's expansion that finds the value doesn't fit
+		 */
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "class=\"junk ");
+		memset(p, 'c', LHP_STRING_CHUNK - 16);
+		p += LHP_STRING_CHUNK - 16;
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "&#65;\"");
+		break;
+	case LHPT_SUSP_LONG_OTHER:
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "title=\"");
+		memset(p, 't', LHPT_SUSP_PAD);
+		p += LHPT_SUSP_PAD;
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "\" class=\"y\"");
+		break;
+	}
+
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  ">x</div><div data-t=\"ok\" class=\"y\">y</div>"
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, susp_cb, &drt, &ic))
+		goto bail;
+	if (with_filter && lws_lhp_set_filter(ctx, &filter)) {
+		lws_lhp_destruct(ctx);
+		goto bail;
+	}
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+	lws_lhp_destruct(ctx);
+
+	/* without a filter nothing is hidden; with it, all but the last */
+	expect = with_filter && c != LHPT_SUSP_LONG_OTHER;
+
+	lwsl_user("%s: case %d, filter %d: ad hidden %d (expect %d), "
+		  "ok hidden %d\n", __func__, c, with_filter, susp_ad_hidden,
+		  expect, susp_ok_hidden);
+
+	if (r & LWS_SRET_FATAL || !susp_ad_seen || !susp_ok_seen) {
+		lwsl_err("%s: parse failed\n", __func__);
+		goto bail;
+	}
+	if (susp_ad_hidden != expect || susp_ok_hidden) {
+		lwsl_err("%s: case %d hidden wrongly\n", __func__, c);
+		goto bail;
+	}
+
+	e = 0;
+
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
 int
 main(int argc, const char **argv)
 {
-	int e = 0;
+	int e = 0, sc;
 	lws_stateful_ret_t n;
 	lws_dl_rend_t drt;
 	lhp_ctx_t ctx;
@@ -864,6 +1058,11 @@ main(int argc, const char **argv)
 	if (test_filter_classes(0) ||
 	    test_filter_classes(LHPT_FILTER_CLASSES))
 		goto bail;
+
+	for (sc = 0; sc < LHPT_SUSP_COUNT; sc++)
+		if (test_filter_suspicious(sc, 0) ||
+		    test_filter_suspicious(sc, 1))
+			goto bail;
 
 	if (content_len != strlen(entity_expect) ||
 	    memcmp(content_acc, entity_expect, content_len)) {

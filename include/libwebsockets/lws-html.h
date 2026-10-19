@@ -568,6 +568,11 @@ typedef struct lhp_pstack {
 	uint8_t				css_resolved:1;
 	uint8_t				in_body:1;
 	uint8_t				hidden:1; /* display: none on us or an ancestor */
+	uint8_t				suspicious:1; /* our class or id could not
+						       * be held as given, or an
+						       * attribute value had a
+						       * NUL: a cosmetic filter
+						       * hides us */
 	uint8_t				ti_done:1; /* applied our text-indent already */
 
 	/* user layout owns these after initial values set */
@@ -976,6 +981,11 @@ lws_lhp_destruct(lhp_ctx_t *ctx);
  * ".junk { display: none; }" rules are already authoritative; "!important" is
  * also available for grouping with other declarations.  Any selector the css
  * engine understands can be used (classes, ids, [attr^=...] and so on).
+ * An element lhp can't see as a browser does, so can't match reliably, is
+ * hidden whenever there is cosmetic css: one whose class or id attribute is
+ * too long to hold (LHP_STRING_CHUNK), or with a NUL (raw or &#0;) in any
+ * attribute value.  Otherwise a page could hide junk from class / id keyed
+ * rules by padding or truncating its class.
  *
  * \p block_rules: newline-separated URL block rules, or NULL for none.
  * Lines starting with '#' and empty lines are ignored; other lines are either

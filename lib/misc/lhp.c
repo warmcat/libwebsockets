@@ -1549,6 +1549,45 @@ lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 	return a;
 }
 
+/*
+ * The element whose attributes are being parsed can't be held as a browser
+ * sees it: its class or id would be truncated or lost.  Selectors keyed on
+ * those are how a cosmetic filter finds junk, so filtering on what we were
+ * able to keep would hand the page a bypass: instead the element fails
+ * closed, a cosmetic filter hides it (G-172)
+ */
+
+static void
+lhp_elem_suspicious(lhp_ctx_t *ctx)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+
+	ps->suspicious = 1;
+}
+
+/*
+ * The attribute value being collected doesn't fit in the chunk: the attribute
+ * is discarded.  Oversize values are a real thing, eg inline data: URIs, so
+ * that is fine for most attributes, but a class or id we can't hold makes the
+ * element suspicious.  buf holds the name up to nl_temp, where the '=' is,
+ * so this must be called before nl_temp is reset.
+ */
+
+static void
+lhp_atr_val_overflow(lhp_ctx_t *ctx)
+{
+	if (ctx->u.f.atr_drop)
+		return;
+
+	lwsl_info("%s: overlong attribute discarded\n", __func__);
+	ctx->u.f.atr_drop = 1;
+
+	if ((ctx->nl_temp == 5 && !strncasecmp(ctx->buf, "class", 5)) ||
+	    (ctx->nl_temp == 2 && !strncasecmp(ctx->buf, "id", 2)))
+		lhp_elem_suspicious(ctx);
+}
+
 static int
 hspace(uint8_t c)
 {
@@ -1569,6 +1608,15 @@ lhp_uni_emit(lhp_ctx_t *ctx)
 
 	if (ctx->npos < 0 || ctx->npos > LHP_STRING_CHUNK - 4)
 		return;
+
+	/*
+	 * As the html tokenizer does, a NUL, a surrogate or something beyond
+	 * unicode becomes U+FFFD: the strings we collect are used as C
+	 * strings, and must be valid UTF-8
+	 */
+	if (!ctx->temp || (ctx->temp >= 0xd800 && ctx->temp <= 0xdfff) ||
+	    ctx->temp > 0x10ffff)
+		ctx->temp = 0xfffd;
 
 	/* emit */
 	if (ctx->temp <= 0x7f) {
@@ -4416,6 +4464,13 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		      ps->css_display->propval == LCSP_PROPVAL_NONE);
 
 	/*
+	 * An element we could not see as a browser does fails closed against
+	 * a cosmetic filter, see lhp_elem_suspicious()
+	 */
+	if (ps->suspicious && ctx->filter_css)
+		ps->hidden = 1;
+
+	/*
 	 * opacity: 0 and visibility: hidden show nothing either.  In css
 	 * the box still takes its space; here the subtree is left out, which
 	 * is the same thing for the usual case, an out-of-flow menu or
@@ -5766,10 +5821,19 @@ close_done:
 				 * failing it
 				 */
 				if (ctx->npos >= LHP_STRING_CHUNK - 4) {
-					if (!ctx->u.f.atr_drop)
-						lwsl_info("%s: overlong attribute"
-						        " discarded\n", __func__);
-					ctx->u.f.atr_drop = 1;
+					lhp_atr_val_overflow(ctx);
+					break;
+				}
+				if (!c) {
+					/*
+					 * A raw NUL: a browser sees U+FFFD
+					 * and the rest of the value, ours is
+					 * a C string.  Keep the rest, but the
+					 * element is suspicious
+					 */
+					lhp_elem_suspicious(ctx);
+					ctx->temp = 0xfffd;
+					lhp_uni_emit(ctx);
 					break;
 				}
 				/* collect the attrib value */
@@ -5866,8 +5930,12 @@ attrib_val_done:
 					 * We're dumping what we collected...
 					 * nl_temp indexes into it, so it has
 					 * to go too or the attribute lengths
-					 * derived from it are garbage
+					 * derived from it are garbage.  An
+					 * attribute value we dump is
+					 * discarded whole
 					 */
+					if (ctx->saved_state == LHPS_ATTRIB_VAL)
+						lhp_atr_val_overflow(ctx);
 					ctx->npos = 0;
 					ctx->nl_temp = 0;
 					ctx->state = ctx->saved_state;
@@ -5887,6 +5955,8 @@ attrib_val_done:
 			} else {
 				/* as above, nl_temp indexes into what we are
 				 * dropping, it can't survive it */
+				if (ctx->saved_state == LHPS_ATTRIB_VAL)
+					lhp_atr_val_overflow(ctx);
 				ctx->npos = 0;
 				ctx->nl_temp = 0;
 				ctx->state = ctx->saved_state;
@@ -5928,12 +5998,16 @@ done_amp:
 						 * rather than fail the
 						 * document
 						 */
-						ctx->u.f.atr_drop = 1;
+						lhp_atr_val_overflow(ctx);
 						ctx->npos = 0;
 						ctx->nl_temp = 0;
 						ctx->entity_start = 0;
 					}
 				}
+				/* &#0; in a value is a NUL, as above */
+				if (!ctx->temp &&
+				    ctx->saved_state == LHPS_ATTRIB_VAL)
+					lhp_elem_suspicious(ctx);
 				ctx->npos = ctx->entity_start;
 				lhp_uni_emit(ctx);
 				ctx->state = ctx->saved_state;
@@ -5978,12 +6052,16 @@ done_amp:
 						 * rather than fail the
 						 * document
 						 */
-						ctx->u.f.atr_drop = 1;
+						lhp_atr_val_overflow(ctx);
 						ctx->npos = 0;
 						ctx->nl_temp = 0;
 						ctx->entity_start = 0;
 					}
 				}
+				/* &#0; in a value is a NUL, as above */
+				if (!ctx->temp &&
+				    ctx->saved_state == LHPS_ATTRIB_VAL)
+					lhp_elem_suspicious(ctx);
 				ctx->npos = ctx->entity_start;
 				lhp_uni_emit(ctx);
 				ctx->state = ctx->saved_state;
