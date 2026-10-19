@@ -103,6 +103,8 @@ struct vhd_dht_dnssec {
 
 	uint8_t				bulk_fragment_checking:1;
 	uint8_t				bootstrap_resolving:1;
+	/* we said the bootstrap seed is only ourselves, don't keep on */
+	uint8_t				bootstrap_self_said:1;
 	lws_dll2_owner_t		owner_domains; /* tracking our lws_dht_dnssec_domain structures */
 	uint8_t				cli_bulk:1;
 	uint8_t				gen_manifest:1;
@@ -2989,6 +2991,54 @@ static void
 dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul);
 
 /*
+ * Is a bootstrap seed address our own: loopback, on one of our interfaces,
+ * or the external address the DHT found for us?  The policy's seed is one of
+ * the nodes using the policy, so on that node it names itself, and pinging
+ * it only reaches us, which the DHT drops: nothing would ever answer, and we
+ * would try again every 5s for ever.
+ */
+
+static int
+dht_dnssec_seed_is_self(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa46)
+{
+	lws_sockaddr46 ext;
+#if !defined(_WIN32)
+	struct ifaddrs *ifa, *i;
+	int self = 0;
+#endif
+
+	if (sa46->sa4.sin_family == AF_INET &&
+	    (ntohl(sa46->sa4.sin_addr.s_addr) >> 24) == 127)
+		return 1;
+#if defined(LWS_WITH_IPV6)
+	if (sa46->sa4.sin_family == AF_INET6 &&
+	    !lws_sa46_compare_sin6_addr(&sa46->sa6.sin6_addr, &in6addr_loopback))
+		return 1;
+#endif
+
+	if (!lws_extip_get_best(vhd->context, sa46->sa4.sin_family, &ext) &&
+	    !lws_sa46_compare_ads(&ext, sa46))
+		return 1;
+
+#if !defined(_WIN32)
+	if (getifaddrs(&ifa))
+		return 0;
+
+	for (i = ifa; i && !self; i = i->ifa_next)
+		self = i->ifa_addr && (i->ifa_addr->sa_family == AF_INET ||
+				       i->ifa_addr->sa_family == AF_INET6) &&
+		       !lws_sa46_compare_ads((const lws_sockaddr46 *)i->ifa_addr,
+					     sa46);
+
+	freeifaddrs(ifa);
+
+	return self;
+#else
+	return 0;
+#endif
+}
+
+/*
  * Async resolver completion for the bootstrap seed: ping one node per
  * address family from the results, then go back to the 5s routing table
  * check.  Standalone query, so we own a reference on result.
@@ -2999,7 +3049,7 @@ dht_dnssec_bootstrap_dns_cb(struct lws *wsi, const char *ads,
 			    const struct addrinfo *result, int n, void *opaque)
 {
 	struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)opaque;
-	int booted_v4 = 0, booted_v6 = 0;
+	int booted_v4 = 0, booted_v6 = 0, self = 0;
 	const struct addrinfo *rp;
 
 	vhd->bootstrap_resolving = 0;
@@ -3014,7 +3064,6 @@ dht_dnssec_bootstrap_dns_cb(struct lws *wsi, const char *ads,
 
 	for (rp = result; rp; rp = rp->ai_next) {
 		lws_sockaddr46 sa46;
-		int is_self = 0;
 
 		if (!rp->ai_addr || rp->ai_addrlen > sizeof(sa46))
 			continue;
@@ -3024,25 +3073,16 @@ dht_dnssec_bootstrap_dns_cb(struct lws *wsi, const char *ads,
 		if (rp->ai_family == AF_INET6 && booted_v6) continue;
 		if (rp->ai_family != AF_INET && rp->ai_family != AF_INET6) continue;
 
-		if (vhd->target_port == vhd->dht_port) {
-			if (rp->ai_family == AF_INET) {
-				if (((struct sockaddr_in *)rp->ai_addr)->sin_addr.s_addr == htonl(INADDR_LOOPBACK))
-					is_self = 1;
-			} else {
-				if (lws_sa46_compare_sin6_addr(&((struct sockaddr_in6 *)rp->ai_addr)->sin6_addr, &in6addr_loopback) == 0)
-					is_self = 1;
-			}
-		}
-
-		if (is_self) {
-			lwsl_notice("%s: Skipping bootstrap to localhost on %s\n", __func__, rp->ai_family == AF_INET ? "IPv4" : "IPv6");
-			continue;
-		}
-
 		/* the resolver result carries no port, apply the seed's */
 		memset(&sa46, 0, sizeof(sa46));
 		memcpy(&sa46, rp->ai_addr, rp->ai_addrlen);
 		sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
+
+		if (vhd->target_port == vhd->dht_port &&
+		    dht_dnssec_seed_is_self(vhd, &sa46)) {
+			self = 1;
+			continue;
+		}
 
 		lwsl_notice("%s: Bootstrapping DHT against target node %s:%d (AF_INET%s)\n", __func__, vhd->target_ip, vhd->target_port, rp->ai_family == AF_INET6 ? "6" : "");
 		lws_dht_ping_node(vhd->dht, (struct sockaddr *)&sa46, sa46_socklen(&sa46));
@@ -3051,9 +3091,16 @@ dht_dnssec_bootstrap_dns_cb(struct lws *wsi, const char *ads,
 		if (rp->ai_family == AF_INET6) booted_v6 = 1;
 	}
 
-	if (!booted_v4 && !booted_v6)
-		/* Target is purely ourselves. Quietly passive until contacted. */
-		lwsl_notice("%s: no bootstrap peer in %s, waiting to be contacted\n", __func__, ads);
+	if (booted_v4 || booted_v6)
+		vhd->bootstrap_self_said = 0;
+	else if (!self)
+		lwsl_notice("%s: no bootstrap peer in %s\n", __func__, ads);
+	else if (!vhd->bootstrap_self_said) {
+		/* say it once, we come back here every 5s */
+		vhd->bootstrap_self_said = 1;
+		lwsl_notice("%s: the bootstrap seed %s is this node, "
+			    "waiting to be contacted\n", __func__, ads);
+	}
 
 again:
 	if (result)
