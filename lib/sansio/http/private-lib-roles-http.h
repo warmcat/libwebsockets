@@ -861,12 +861,14 @@ lws_http_header_name_may_be_credential(const char *name);
 /*
  * Renders into buf what a log line may show of a header value: its length
  * only for headers that may carry credentials (or are unknown), a request
- * path without its query string, else the value with control bytes masked.
- * Every log of an http header value uses this.
+ * path without its query string, of a Sec-WebSocket-Protocol list only the
+ * names of protocols wsi's vhost has (wsi may be NULL), else the value with
+ * control bytes masked.  Every log of an http header value uses this.
  */
 const char *
-lws_http_hdr_log_value(char *buf, size_t len, int tok, const char *name,
-		       size_t name_len, const char *value, size_t value_len);
+lws_http_hdr_log_value(struct lws *wsi, char *buf, size_t len, int tok,
+		       const char *name, size_t name_len, const char *value,
+		       size_t value_len);
 /*
  * Renders into buf a request path for logging, without its query string
  * (F-016).  Every log of a request path or url uses this.

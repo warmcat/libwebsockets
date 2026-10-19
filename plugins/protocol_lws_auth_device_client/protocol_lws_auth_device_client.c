@@ -428,13 +428,15 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 		if (lws_hdr_copy(wsi, loc, sizeof(loc), WSI_TOKEN_HTTP_LOCATION) <= 0)
 			break;
 
-		lwsl_notice("Redirected to auth server: %s\n", loc);
-
 		/* The redirect might not have a '/' before the query string, which breaks
 		 * lws_parse_uri. We only need the base auth server URL anyway, so we
-		 * can just strip the query string completely before parsing. */
+		 * can just strip the query string completely before parsing.  The
+		 * query is the authorize request (state, PKCE challenge...), so it
+		 * is not logged either. */
 		if ((q = (char *)strchr(loc, '?')))
 			*q = '\0';
+
+		lwsl_notice("Redirected to auth server: %s\n", loc);
 
 		lws_parse_uri_t *puri = lws_parse_uri_create(loc);
 		if (!puri)

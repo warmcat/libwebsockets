@@ -2798,7 +2798,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				/* keep the diagnostic, lose any credential */
 				lwsl_info("    %s = %s (len %d)\n", (char *)c,
 					  m < 0 ? "!oversize!" :
-					  lws_http_hdr_log_value(buf,
+					  lws_http_hdr_log_value(h2n->swsi, buf,
 						sizeof(buf), n, NULL, 0, buf,
 						(size_t)m), len);
 				n++;

@@ -1100,7 +1100,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 			/* keep the diagnostic, lose any credential */
 			lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, "
 				       "value=%s", (int)name_len, name,
-				       lws_http_hdr_log_value(lv, sizeof(lv),
+				       lws_http_hdr_log_value(wsi, lv, sizeof(lv),
 						tok, NULL, 0, value,
 						value_len));
 		}
@@ -1115,7 +1115,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 				       "value=%s", tok, (const char *)
 				       lws_token_to_string(
 						(enum lws_token_indexes)tok),
-				       lws_http_hdr_log_value(lv, sizeof(lv),
+				       lws_http_hdr_log_value(wsi, lv, sizeof(lv),
 						tok, NULL, 0, value,
 						value_len));
 		}

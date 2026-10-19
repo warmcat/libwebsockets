@@ -1017,8 +1017,15 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		if (!puri->scheme[0] && !puri->host[0])
 			lws_parse_uri_destroy(&puri);
 		else {
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+			char lp[128];
+
+			/* the endpoint may be metadata-expanded: no query */
 			lwsl_debug("%s: using uri parse results '%s' '%s' %d '%s'\n",
-					__func__, puri->scheme, puri->host, puri->port, puri->path);
+					__func__, puri->scheme, puri->host, puri->port,
+					lws_http_log_path(lp, sizeof(lp), puri->path));
+#endif
 			prot = puri->scheme;
 			ads = puri->host;
 			port = puri->port;

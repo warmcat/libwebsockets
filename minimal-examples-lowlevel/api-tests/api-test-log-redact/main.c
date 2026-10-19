@@ -22,6 +22,13 @@
  *
  *  --case pem: lws_tls_alloc_pem_to_der_file() converts the PEM private
  *    key, from memory and from the file (G-349).
+ *
+ *  --case ws / ws-h2: a ws client, over h1 or h2, offers two subprotocols:
+ *    first one carrying a bearer token, as some deployments do (eg,
+ *    base64url.bearer.authorization.k8s.io.<token>), then "lrd-ws", which
+ *    the server has and so selects.  The offer and the answer are logged
+ *    with known protocol names in clear and anything else only as its
+ *    length, "<unknown:NN>" (G-354).
  */
 
 #include <libwebsockets.h>
@@ -44,18 +51,22 @@
 #define LRD_M_COOKIE	"LwsRdCook9K4m"
 #define LRD_M_APIKEY	"LwsRdApik3Z8p"
 #define LRD_M_QUERY	"LwsRdQury5T1w"
+#define LRD_M_SUBP	"LwsRdSubp2V6n"
 
 static const char lrd_auth[]	= "Bearer " LRD_M_AUTH "-0123456789",
 		  lrd_cookie[]	= "sid=" LRD_M_COOKIE "-0123456789abcdef",
 		  lrd_apikey[]	= LRD_M_APIKEY "-0123456789",
-		  lrd_landing[]	= "/landing?code=" LRD_M_QUERY "&state=1";
+		  lrd_landing[]	= "/landing?code=" LRD_M_QUERY "&state=1",
+		  /* short enough for the 64-byte limit lws applies on h2 */
+		  lrd_ws_offer[] = "base64url.bearer.authorization.k8s.io."
+				   LRD_M_SUBP ", lrd-ws";
 
 /* plus, for --case pem, four 16-byte pieces of the key's base64 body */
 #define LRD_PEM_MARKS	4
 static char lrd_pem_mark[LRD_PEM_MARKS][17];
 
 static const char * const lrd_markers[] = {
-	LRD_M_AUTH, LRD_M_COOKIE, LRD_M_APIKEY, LRD_M_QUERY
+	LRD_M_AUTH, LRD_M_COOKIE, LRD_M_APIKEY, LRD_M_QUERY, LRD_M_SUBP
 };
 
 enum {
@@ -64,6 +75,8 @@ enum {
 	LRD_H3,
 	LRD_REDIRECT,
 	LRD_PEM,
+	LRD_WS,
+	LRD_WS_H2,
 };
 
 static const struct lrd_case {
@@ -77,6 +90,8 @@ static const struct lrd_case {
 	[LRD_H3]	= { "h3",	"h3",		"/creds",	1 },
 	[LRD_REDIRECT]	= { "redirect",	"http/1.1",	"/redir",	1 },
 	[LRD_PEM]	= { "pem",	NULL,		NULL,		0 },
+	[LRD_WS]	= { "ws",	"http/1.1",	"/",		1 },
+	[LRD_WS_H2]	= { "ws-h2",	"h2",		"/",		1 },
 };
 
 static struct lws_context *context;
@@ -84,7 +99,7 @@ static lws_sorted_usec_list_t sul_watchdog, sul_next;
 static struct lws_vhost *vh_cli;
 static const struct lrd_case *tc;
 static int port = 7700, timed_out, failed, leaks, lines, creds_ok, landed,
-	   done, started;
+	   done, started, subp_shown;
 
 /* the emit function every log line goes through */
 
@@ -102,6 +117,10 @@ lrd_emit(int level, const char *line)
 	for (n = 0; n < LRD_PEM_MARKS; n++)
 		if (lrd_pem_mark[n][0] && strstr(line, lrd_pem_mark[n]))
 			goto leak;
+
+	/* the ws offer, shown as it should be */
+	if (strstr(line, "<unknown:") && strstr(line, "lrd-ws"))
+		subp_shown++;
 
 	/* pass on only what a default log level shows */
 	if (level & (LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER))
@@ -291,6 +310,12 @@ lrd_connect(void)
 	i.path			= tc->path;
 	i.method		= "GET";
 	i.protocol		= "lrd";
+	if (tc == &lrd_cases[LRD_WS] || tc == &lrd_cases[LRD_WS_H2]) {
+		/* a ws upgrade, offering the token-carrying subprotocol */
+		i.method		= NULL;
+		i.protocol		= lrd_ws_offer;
+		i.local_protocol_name	= "lrd-ws";
+	}
 	i.alpn			= tc->alpn;
 	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
@@ -362,13 +387,41 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/* the ws cases: the client is done once the server took its offer */
+
+static int
+callback_ws(struct lws *wsi, enum lws_callback_reasons reason,
+	    void *user, void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		done++;
+		lws_cancel_service(context);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_user("%s: connection error: %s\n", __func__,
+			  in ? (const char *)in : "(null)");
+		failed = 1;
+		lws_cancel_service(context);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "lrd", callback_srv, sizeof(struct pss_srv), 0, 0, NULL, 0 },
+	{ "lrd-ws", callback_ws, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "lrd", callback_cli, 0, 0, 0, NULL, 0 },
+	{ "lrd-ws", callback_ws, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -496,8 +549,8 @@ int main(int argc, const char **argv)
 			tc = &lrd_cases[n];
 
 	if (!cert || !key || !tc) {
-		lwsl_err("--cert, --key and --case h1|h2|h3|redirect|pem "
-			 "are required\n");
+		lwsl_err("--cert, --key and --case h1|h2|h3|redirect|pem|ws|"
+			 "ws-h2 are required\n");
 		return 1;
 	}
 
@@ -569,7 +622,16 @@ int main(int argc, const char **argv)
 			 tc->requests);
 	else if (tc == &lrd_cases[LRD_REDIRECT] && landed != 1)
 		lwsl_err("FAIL: the redirect was not followed intact\n");
-	else if (tc != &lrd_cases[LRD_REDIRECT] && creds_ok != tc->requests)
+	else if (tc == &lrd_cases[LRD_WS] || tc == &lrd_cases[LRD_WS_H2]) {
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
+		/* where the offer is logged, it is logged usefully */
+		if (!subp_shown)
+			lwsl_err("FAIL: no log line showed the offer as "
+				 "lrd-ws and <unknown:NN>\n");
+		else
+#endif
+			result = 0;
+	} else if (tc != &lrd_cases[LRD_REDIRECT] && creds_ok != tc->requests)
 		lwsl_err("FAIL: credentials arrived intact on %d of %d "
 			 "requests\n", creds_ok, tc->requests);
 	else

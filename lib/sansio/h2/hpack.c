@@ -587,8 +587,8 @@ static void lws_dump_header(struct lws *wsi, int hdr)
 		lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
 			    p ? (char *)p : (char *)"null",
 			    len < 0 ? "(too big to show)" :
-				lws_http_hdr_log_value(s, sizeof(s), hdr, NULL,
-						       0, s, (size_t)len),
+				lws_http_hdr_log_value(wsi, s, sizeof(s), hdr,
+						       NULL, 0, s, (size_t)len),
 			    lws_hdr_total_length(wsi,
 						 (enum lws_token_indexes)hdr));
 	}
@@ -871,7 +871,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 			  "'%s' len %d\n", __func__,
 			  (long)LWS_ARRAY_SIZE(static_token), lws_hdr_index,
 			  hdr_len, dyn->entries[new_index].value ?
-				lws_http_hdr_log_value(lv, sizeof(lv),
+				lws_http_hdr_log_value(wsi, lv, sizeof(lv),
 					lws_hdr_index, NULL, 0,
 					dyn->entries[new_index].value, len) :
 				"null", (int)len);
@@ -1309,7 +1309,7 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx)
 		char lv[128];
 
 		lwsl_header("%s: dyn: idx %d '%s' tok %d\n", __func__, idx,
-			    lws_http_hdr_log_value(lv, sizeof(lv), tok, NULL, 0,
+			    lws_http_hdr_log_value(wsi, lv, sizeof(lv), tok, NULL, 0,
 						   arg, (size_t)len), tok);
 	} else
 #endif
@@ -2471,7 +2471,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 		char lv[128];
 
 		lwsl_header("%s: %s %s (len %d)\n", __func__, name,
-			    lws_http_hdr_log_value(lv, sizeof(lv), -1,
+			    lws_http_hdr_log_value(wsi, lv, sizeof(lv), -1,
 					(const char *)name,
 					strlen((const char *)name),
 					(const char *)value, (size_t)length),

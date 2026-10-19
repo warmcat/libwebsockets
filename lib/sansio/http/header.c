@@ -175,6 +175,73 @@ lws_http_log_path(char *buf, size_t len, const char *path)
 }
 
 /*
+ * A Sec-WebSocket-Protocol list as lws_http_hdr_log_value() shows it, eg,
+ * "lws-minimal, <unknown:72>": entries naming one of the protocols of wsi's
+ * vhost in clear, anything else only as its length.
+ */
+static const char *
+lws_ws_protocols_log(struct lws *wsi, char *buf, size_t len,
+		     const char *value, size_t value_len)
+{
+	const struct lws_vhost *vh = wsi ? wsi->a.vhost : NULL;
+	size_t o = 0, el, vl = value_len;
+	const char *c, *e, *end;
+	char list[256];
+	int n, known;
+
+	/* value may be buf: work from a copy */
+	if (vl > sizeof(list))
+		vl = sizeof(list);
+	memcpy(list, value, vl);
+	c = list;
+	end = list + vl;
+	buf[0] = '\0';
+
+	while (c < end && o + 1 < len) {
+		e = memchr(c, ',', lws_ptr_diff_size_t(end, c));
+		if (!e)
+			e = end;
+		while (c < e && (*c == ' ' || *c == '\t'))
+			c++;
+		el = lws_ptr_diff_size_t(e, c);
+		while (el && (c[el - 1] == ' ' || c[el - 1] == '\t'))
+			el--;
+
+		if (el) {
+			known = 0;
+			for (n = 0; vh && n < vh->count_protocols; n++)
+				if (vh->protocols[n].name &&
+				    strlen(vh->protocols[n].name) == el &&
+				    !strncmp(vh->protocols[n].name, c, el)) {
+					known = 1;
+					break;
+				}
+
+			if (o)
+				o += (size_t)lws_snprintf(buf + o, len - o,
+							  ", ");
+			if (o + 1 >= len)
+				break;
+			if (known)
+				lws_http_log_copy(buf + o, len - o, c, el, 0);
+			else
+				lws_snprintf(buf + o, len - o, "<unknown:%u>",
+					     (unsigned int)el);
+			o += strlen(buf + o);
+		}
+
+		c = e + 1;
+	}
+
+	/* what didn't fit in list is shown only as its length */
+	if (vl != value_len && o + 1 < len)
+		lws_snprintf(buf + o, len - o, " <+%u>",
+			     (unsigned int)(value_len - vl));
+
+	return buf;
+}
+
+/*
  * Every log line that shows an http header value, h1, h2 or h3, sent or
  * received, takes what it shows from here, so there is one policy:
  *
@@ -184,18 +251,25 @@ lws_http_log_path(char *buf, size_t len, const char *path)
  *  - the urlargs (WSI_TOKEN_HTTP_URI_ARGS) are treated the same way, and a
  *    request path (:path, the method URI tokens) is shown as
  *    lws_http_log_path() shows it, without its query string
+ *  - a Sec-WebSocket-Protocol list shows the entries naming a protocol of
+ *    wsi's vhost in clear, the negotiated one among them, and any other
+ *    entry only as its length, since some deployments carry a bearer token
+ *    as a subprotocol (eg, base64url.bearer.authorization.k8s.io.<token>)
  *  - anything else is shown, truncated to fit buf, with control and
  *    non-ASCII bytes shown as '.' so a value can't forge log lines
  *
- * tok is the lws token index when the caller has one, else -1 and the header
- * is named by name / name_len (name may then be NULL, meaning unknown).
- * value may be buf itself, in which case it is masked in place.
+ * wsi is the connection the header belongs to, or NULL if there is none, when
+ * no protocol name is known.  tok is the lws token index when the caller has
+ * one, else -1 and the header is named by name / name_len (name may then be
+ * NULL, meaning unknown).  value may be buf itself, in which case it is
+ * masked in place.
  *
  * Returns buf, always NUL-terminated.
  */
 const char *
-lws_http_hdr_log_value(char *buf, size_t len, int tok, const char *name,
-		       size_t name_len, const char *value, size_t value_len)
+lws_http_hdr_log_value(struct lws *wsi, char *buf, size_t len, int tok,
+		       const char *name, size_t name_len, const char *value,
+		       size_t value_len)
 {
 	if (!len)
 		return "";
@@ -224,6 +298,9 @@ lws_http_hdr_log_value(char *buf, size_t len, int tok, const char *name,
 
 		return buf;
 	}
+
+	if (tok == WSI_TOKEN_PROTOCOL)
+		return lws_ws_protocols_log(wsi, buf, len, value, value_len);
 
 	return lws_http_log_copy(buf, len, value, value_len,
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || \
@@ -1259,7 +1336,7 @@ lws_ah_lifecheck_dump(struct lws *wsi)
 		/* keep the diagnostic, lose any credential */
 		lwsl_notice("   %s = %s (len %d)\n", (const char *)c,
 			    n < 0 ? "(too big to show)" :
-			    lws_http_hdr_log_value(buf, sizeof(buf), m,
+			    lws_http_hdr_log_value(wsi, buf, sizeof(buf), m,
 					NULL, 0, buf, (size_t)n), len);
 		m++;
 	} while (1);

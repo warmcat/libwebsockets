@@ -1707,7 +1707,14 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	lws_free_set_NULL(enc);
 
 	i.path = rpath;
-	lwsl_wsi_info(wsi, "proxied path '%s'", i.path);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	{
+		char lp[128];
+
+		lwsl_wsi_info(wsi, "proxied path '%s'",
+			      lws_http_log_path(lp, sizeof(lp), i.path));
+	}
+#endif
 
 	/* incoming may be h1 or h2... if he sends h1 HOST, use that
 	 * directly, otherwise we must convert h2 :authority to h1

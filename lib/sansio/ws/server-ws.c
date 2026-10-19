@@ -694,7 +694,17 @@ lws_process_ws_upgrade(struct lws *wsi)
 				return ws_upgrade_refuse(wsi,
 						HTTP_STATUS_BAD_REQUEST,
 						"protocol name too long");
-			lwsl_debug("checking %s\n", name);
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+			{
+				char lv[128];
+
+				/* an offer can carry a token: only ours */
+				lwsl_wsi_debug(wsi, "checking %s",
+					lws_http_hdr_log_value(wsi, lv,
+						sizeof(lv), WSI_TOKEN_PROTOCOL,
+						NULL, 0, name, strlen(name)));
+			}
+#endif
 			pcol = lws_vhost_name_to_protocol(wsi->a.vhost, name);
 			if (pcol) {
 				/* if we know it, bind to it and stop looking */

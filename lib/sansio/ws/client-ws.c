@@ -319,11 +319,18 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	/* a mux client stream may carry its request in the stash instead */
 	if (!pc && wsi->stash && wsi->stash->cis[CIS_PROTOCOL])
 		pc = wsi->stash->cis[CIS_PROTOCOL];
-#if defined(_DEBUG)
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
 	if (!pc)
 		lwsl_wsi_parser(wsi, "lws_client_int_s_hs: no protocol list");
-	else
-		lwsl_wsi_parser(wsi, "lws_client_int_s_hs: protocol list '%s'", pc);
+	else {
+		char lv[128];
+
+		/* an offer can carry a token: only our protocols in clear */
+		lwsl_wsi_parser(wsi, "lws_client_int_s_hs: protocol list '%s'",
+				lws_http_hdr_log_value(wsi, lv, sizeof(lv),
+						WSI_TOKEN_PROTOCOL, NULL, 0,
+						pc, strlen(pc)));
+	}
 #endif
 
 	/*
@@ -369,7 +376,14 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	}
 
 	if (!okay) {
-		lwsl_wsi_info(wsi, "got bad protocol %s", p);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+		char lv[128];
+
+		lwsl_wsi_info(wsi, "got bad protocol %s",
+			      lws_http_hdr_log_value(wsi, lv, sizeof(lv),
+					WSI_TOKEN_PROTOCOL, NULL, 0, p,
+					(size_t)len));
+#endif
 		*cce = "HS: PROTOCOL malformed";
 		goto bail2;
 	}
@@ -401,7 +415,14 @@ identify_protocol:
 	if (n == wsi->a.vhost->count_protocols) { /* no match */
 		/* if server, that's already fatal */
 		if (!lwsi_role_client(wsi)) {
-			lwsl_wsi_info(wsi, "fail protocol %s", p);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+			char lv[128];
+
+			lwsl_wsi_info(wsi, "fail protocol %s",
+				      lws_http_hdr_log_value(wsi, lv,
+					sizeof(lv), WSI_TOKEN_PROTOCOL, NULL,
+					0, p, strlen(p)));
+#endif
 			*cce = "HS: Cannot match protocol";
 			goto bail2;
 		}

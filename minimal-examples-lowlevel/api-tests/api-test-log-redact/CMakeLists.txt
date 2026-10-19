@@ -10,8 +10,8 @@ set(SRCS main.c)
 
 #
 # Captures every log line at every level while credentials pass through
-# h1 / h2 / h3, a followed redirect and the PEM key loader, and fails if
-# any of them reaches the log
+# h1 / h2 / h3, a followed redirect, the PEM key loader and a ws
+# subprotocol offer, and fails if any of them reaches the log
 #
 set(requirements 1)
 require_lws_config(LWS_WITH_TLS 1 requirements)
@@ -23,6 +23,8 @@ set(LRD_H2 1)
 require_lws_config(LWS_ROLE_H2 1 LRD_H2)
 set(LRD_H3 1)
 require_lws_config(LWS_ROLE_H3 1 LRD_H3)
+set(LRD_WS 1)
+require_lws_config(LWS_ROLE_WS 1 LRD_WS)
 
 if (requirements AND NOT WIN32)
 	add_executable(${SAMP} ${SRCS})
@@ -30,8 +32,14 @@ if (requirements AND NOT WIN32)
 	set(LRD_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
 	set(LRD_CASES h1 redirect pem)
+	if (LRD_WS)
+		list(APPEND LRD_CASES ws)
+	endif()
 	if (LRD_H2)
 		list(APPEND LRD_CASES h2)
+		if (LRD_WS)
+			list(APPEND LRD_CASES ws-h2)
+		endif()
 	endif()
 	if (LRD_H3)
 		list(APPEND LRD_CASES h3)
