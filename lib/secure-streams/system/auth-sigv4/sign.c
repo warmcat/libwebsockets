@@ -361,9 +361,6 @@ build_auth_string(struct lws *wsi, char * buf, size_t bufsz,
 		struct lws_ss_handle *h, struct sigv4 *s,
 		uint8_t *signature_bin)
 {
-#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
-	char *start = buf;
-#endif
 	char *end = &buf[bufsz - 1];
 	char *c;
 	lws_system_blob_t *ab;
@@ -411,9 +408,7 @@ build_auth_string(struct lws *wsi, char * buf, size_t bufsz,
 		return -1;
 	}
 
-#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
-	lwsl_debug("%s %s\n", __func__, start);
-#endif
+	/* the result carries the key id and signature: it is never logged */
 
 	return 0;
 
@@ -510,62 +505,92 @@ lws_ss_sigv4_set_aws_key(struct lws_context* context, uint8_t idx,
 
 /* ie, if we have filesystem ops */
 
+/*
+ * A credentials file is a few lines per profile: this is far more than any
+ * real one needs, it just bounds what we read
+ */
+#define LWS_AWS_CREDS_FILE_MAX 16384
+
+static void
+lws_aws_free_secret(char **p)
+{
+	if (!*p)
+		return;
+
+	lws_explicit_bzero(*p, strlen(*p));
+	free(*p);
+	*p = NULL;
+}
+
 int
 lws_aws_filesystem_credentials_helper(const char *path, const char *kid,
 				      const char *ak, char **aws_keyid,
 				      char **aws_key)
 {
-	char *str = NULL, *val = NULL, *line = NULL, sth[128];
-	size_t len = sizeof(sth);
-	const char *home = "";
-	int i, poff = 0;
-	ssize_t rd;
-	FILE *fp;
+	const char *home = "", *p, *end, *eol, *str;
+	char sth[512], *buf;
+	int i, n, poff = 0;
+	size_t slen;
 
 	*aws_keyid = *aws_key = NULL;
 
 	if (path[0] == '~') {
 		home = getenv("HOME");
-		if (home && strlen(home) > sizeof(sth) - 1) /* coverity */
-			return -1;
-		else {
-			if (!home)
-				home = "";
+		if (!home)
+			home = "";
+		poff = 1;
+	}
 
-			poff = 1;
-		}
+	/* a truncated path would read some other file */
+	if (strlen(home) + strlen(path + poff) >= sizeof(sth)) {
+		lwsl_err("%s: path too long\n", __func__);
+		return -1;
 	}
 	lws_snprintf(sth, sizeof(sth), "%s%s", home, path + poff);
 
-	fp = fopen(sth, "r");
-	if (!fp) {
-		lwsl_err("%s can't open '%s'\n", __func__, sth);
+	/* the file holds the secret: it is scrubbed before it is freed */
+	buf = lws_malloc(LWS_AWS_CREDS_FILE_MAX, __func__);
+	if (!buf)
+		return -1;
+
+	n = lws_plat_read_file(sth, buf, LWS_AWS_CREDS_FILE_MAX);
+	if (n < 0 || n == LWS_AWS_CREDS_FILE_MAX) {
+		lwsl_err("%s: can't %s '%s'\n", __func__,
+			 n < 0 ? "read" : "use oversize", sth);
+		lws_explicit_bzero(buf, LWS_AWS_CREDS_FILE_MAX);
+		lws_free(buf);
 
 		return -1;
 	}
 
-	while ((rd = getline(&line, &len, fp)) != -1) {
-		for (i = 0; i < 2; i++) {
-			size_t slen;
+	p = buf;
+	end = buf + n;
 
-			if (strncmp(line, i ? kid : ak, strlen(i ? kid : ak)))
+	while (p < end) {
+		eol = memchr(p, '\n', lws_ptr_diff_size_t(end, p));
+		if (!eol)
+			eol = end;
+
+		for (i = 0; i < 2; i++) {
+			const char *name = i ? kid : ak;
+			char **dest = i ? aws_keyid : aws_key;
+			size_t nl = strlen(name);
+
+			/* only read the first key for each */
+			if (*dest || lws_ptr_diff_size_t(eol, p) < nl ||
+			    strncmp(p, name, nl))
 				continue;
 
-			str = (char *)strchr(line, '=');
+			str = memchr(p, '=', lws_ptr_diff_size_t(eol, p));
 			if (!str)
 				continue;
 
 			str++;
-
-			/* only read the first key for each */
-			if (*(i ? aws_keyid : aws_key))
-				continue;
+			slen = lws_ptr_diff_size_t(eol, str);
 
 			/*
 			 * Trim whitespace from the start and end
 			 */
-
-			slen = (size_t)(rd - lws_ptr_diff(str, line));
 
 			while (slen && *str == ' ') {
 				str++;
@@ -573,43 +598,35 @@ lws_aws_filesystem_credentials_helper(const char *path, const char *kid,
 			}
 
 			while (slen && (str[slen - 1] == '\r' ||
-					str[slen - 1] == '\n' ||
 					str[slen - 1] == ' '))
 				slen--;
 
-			val = malloc(slen + 1);
-			if (!val)
+			*dest = malloc(slen + 1);
+			if (!*dest)
 				goto bail;
 
-			strncpy(val, str, slen);
-			val[slen] = '\0';
-
-			*(i ? aws_keyid : aws_key) = val;
-
+			memcpy(*dest, str, slen);
+			(*dest)[slen] = '\0';
 		}
+
+		p = eol + 1;
 	}
 
 bail:
-	fclose(fp);
-
-	if (line)
-		free(line);
+	lws_explicit_bzero(buf, LWS_AWS_CREDS_FILE_MAX);
+	lws_free(buf);
 
 	if (!*aws_keyid || !*aws_key) {
-		if (*aws_keyid) {
-			free(*aws_keyid);
-			*aws_keyid = NULL;
-		}
-		if (*aws_key) {
-			free(*aws_key);
-			*aws_key = NULL;
-		}
-		lwsl_err("%s can't find aws credentials! \
-				please check %s\n", __func__, path);
+		lws_aws_free_secret(aws_keyid);
+		lws_aws_free_secret(aws_key);
+		lwsl_err("%s: can't find aws credentials in %s\n", __func__,
+			 path);
+
 		return -1;
 	}
 
-	lwsl_info("%s: '%s' '%s'\n", __func__, *aws_keyid, *aws_key);
+	/* never log the secret key, at any level */
+	lwsl_info("%s: loaded key id %s\n", __func__, *aws_keyid);
 
 	return 0;
 }
