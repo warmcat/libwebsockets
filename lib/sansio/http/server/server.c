@@ -1401,6 +1401,80 @@ bail:
 	return -1;
 }
 
+#if defined(LWS_WITH_TLS)
+/*
+ * He spoke plaintext to a tls listener whose vhost has
+ * LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS.  All he is ever told is to come
+ * back over https for exactly the url he asked for: the authority he named
+ * in Host:, the path and the query, nothing from any vhost's config.  The
+ * path and query are re-encoded from the parsed, decoded pieces, so the https
+ * request parses to the same ones; a Host: that could make the Location
+ * point anywhere else is refused.
+ *
+ * Returns 0 if the redirect was sent, else nonzero: close the connection.
+ */
+static int
+lws_http_redirect_to_https(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	/*
+	 * The Location is made in the first half of compose_buf, the
+	 * response headers after it in the second
+	 */
+	unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
+		      *end = pt->compose_buf +
+				(wsi->a.context->pt_serv_buf_size / 2),
+		      *hend = pt->compose_buf +
+				wsi->a.context->pt_serv_buf_size;
+	const char *host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
+	int hl = lws_hdr_total_length(wsi, WSI_TOKEN_HOST), uri_len, n;
+	char *uri_ptr = NULL;
+
+	if (!host || hl <= 0 || hl > 128 ||
+	    lws_http_authority_check(host, (size_t)hl) ||
+	    lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) < 0 ||
+	    !uri_ptr || uri_ptr[0] != '/') {
+		lwsl_wsi_info(wsi, "can't make an https url of his request");
+		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
+
+		return 1;
+	}
+
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "https://");
+	if (hl >= lws_ptr_diff(end, p))
+		goto too_long;
+	memcpy(p, host, (size_t)hl);
+	p += hl;
+
+	n = lws_http_pct_encode((char *)p, lws_ptr_diff_size_t(end, p),
+				uri_ptr, (size_t)uri_len, LWS_PROXY_KEEP_PATH);
+	if (n < 0)
+		goto too_long;
+	p += n;
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS) > 0) {
+		if (p + 2 >= end)
+			goto too_long;
+		*p++ = '?';
+		n = lws_http_requery(wsi, (char *)p, lws_ptr_diff_size_t(end, p));
+		if (n < 0)
+			goto too_long;
+		p += n;
+	}
+
+	n = lws_ptr_diff(p, start);
+	p = end + LWS_PRE;
+
+	return lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY, start, n,
+				 &p, hend) < 0;
+
+too_long:
+	lws_return_http_status(wsi, HTTP_STATUS_REQ_URI_TOO_LONG, NULL);
+
+	return 1;
+}
+#endif
+
 #if defined(LWS_WITH_HTTP_PROXY)
 
 /*
@@ -2789,61 +2863,6 @@ lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 	if (!wsi->mux_stream_immortal)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 				(int)wsi->a.context->timeout_secs);
-#if defined(LWS_WITH_TLS)
-	if (wsi->redirect_to_https) {
-		/*
-		 * We accepted http:// only so we could redirect to
-		 * https://, so issue the redirect.  Create the redirection
-		 * URI from the host: header, and regenerate the path part from
-		 * the parsed pieces
-		 */
-		unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
-			      *end = p + wsi->a.context->pt_serv_buf_size -
-				     LWS_PRE;
-
-		n = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
-		if (!n || n > 128)
-			return lws_http_gate_bail(wsi, g);
-
-		if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST))
-			return lws_http_gate_bail(wsi, g);
-
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "https://");
-		memcpy(p, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST), n);
-		p += n;
-		*p++ = '/';
-		if (g->uri_len >= lws_ptr_diff(end, p))
-			return lws_http_gate_bail(wsi, g);
-
-		if (g->uri_ptr[0])
-			p--;
-		memcpy(p, g->uri_ptr, (unsigned int)g->uri_len);
-		p += g->uri_len;
-
-		n = 0;
-		while (lws_hdr_copy_fragment(wsi, (char *)p + 1,
-					     lws_ptr_diff(end, p) - 2,
-					     WSI_TOKEN_HTTP_URI_ARGS, (int)n) > 0) {
-			*p = n ? '&' : '?';
-			p += strlen((char *)p);
-			if (p >= end - 2)
-				return lws_http_gate_bail(wsi, g);
-			n++;
-		}
-
-		n = (unsigned int)lws_ptr_diff(p, start);
-
-		p += LWS_PRE;
-		n = (unsigned int)lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
-				      start, (int)n, &p, end);
-		if ((int)n < 0)
-			return lws_http_gate_bail(wsi, g);
-
-		g->verdict = lws_http_transaction_completed(wsi);
-
-		return 1;
-	}
-#endif
 
 #ifdef LWS_WITH_ACCESS_LOG
 	lws_prepare_access_log_info(wsi, g->uri_ptr, g->uri_len, g->meth);
@@ -3769,10 +3788,12 @@ raw_transition:
 
 		/*
 		 * select vhost: only among those served by the listener he
-		 * arrived on, whatever he names
+		 * arrived on, whatever he names.  One who is only ever
+		 * answered with a redirect to https (below) stays where he
+		 * is: that answer is the listener's vhost's to give.
 		 */
 
-		if (wsi->a.vhost->listen_port &&
+		if (!wsi->redirect_to_https && wsi->a.vhost->listen_port &&
 		    lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
 			struct lws_vhost *vhost = lws_select_vhost(
 				wsi->a.vhost,
@@ -3781,9 +3802,14 @@ raw_transition:
 			/*
 			 * 421 Misdirected Request if he named a vhost his
 			 * connection can't be moved to, eg, because it needs
-			 * a client cert his handshake didn't satisfy
+			 * a client cert his handshake didn't satisfy, or he
+			 * has no tls at all: only the tls listener's own
+			 * vhost said that is ok, another sharing it may
+			 * expect to be reached over tls only
 			 */
-			if (vhost && (lws_vhost_rebind_mtls_refused(wsi, vhost) ||
+			if (vhost && ((vhost != wsi->a.vhost &&
+				       wsi->plaintext_on_tls_listener) ||
+				      lws_vhost_rebind_mtls_refused(wsi, vhost) ||
 				      lws_http_server_rebind(wsi, vhost))) {
 				lws_return_http_status(wsi, 421, NULL);
 				goto bail_nuke_ah;
@@ -3855,7 +3881,9 @@ raw_transition:
 		 * peer may already be sending what it wanted to tunnel.
 		 */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT)) {
-			connect_pr = lws_http_connect_protocol(wsi);
+			/* nothing is tunneled for him without tls */
+			connect_pr = wsi->redirect_to_https ? NULL :
+					lws_http_connect_protocol(wsi);
 			if (connect_pr) {
 				lwsl_info("Changing to RAW mode\n");
 				goto raw_transition;
@@ -3929,6 +3957,20 @@ raw_transition:
 		 */
 		if (lws_http_request_body_framing(wsi))
 			goto bail_nuke_ah;
+
+#if defined(LWS_WITH_TLS)
+		/*
+		 * He spoke plaintext to a tls listener only to be told to use
+		 * https: that is his whole answer, whatever he asked for, with
+		 * no mount, interceptor or upgrade acting on it first
+		 */
+		if (wsi->redirect_to_https) {
+			if (lws_http_redirect_to_https(wsi))
+				goto bail_nuke_ah;
+
+			return lws_http_transaction_completed(wsi);
+		}
+#endif
 
 		/*
 		 * So he may have come to us requesting one or another kind

@@ -2570,6 +2570,8 @@ lws_hdr_single(struct lws *wsi, enum lws_token_indexes h, const char **p,
 	return 0;
 }
 
+#endif
+
 /*
  * Split an http(s) authority, host [ ":" port ] (RFC 3986 3.2, with no
  * userinfo, RFC 9110 4.2.4), into the length of its host and its port.  An
@@ -2623,6 +2625,42 @@ lws_http_authority_split(const char *a, size_t len, size_t *host_len,
 
 	return 0;
 }
+
+int
+lws_http_authority_check(const char *a, size_t len)
+{
+	size_t hl, n;
+	int port;
+
+	if (lws_http_authority_split(a, len, &hl, &port))
+		return 1;
+
+	if (*a == '[') {
+		/* an IPv6 literal, "[...]" with something inside */
+		if (hl < 3 || a[hl - 1] != ']')
+			return 1;
+		for (n = 1; n < hl - 1; n++)
+			if (!((a[n] >= '0' && a[n] <= '9') ||
+			      (a[n] >= 'a' && a[n] <= 'f') ||
+			      (a[n] >= 'A' && a[n] <= 'F') ||
+			      a[n] == ':' || a[n] == '.'))
+				return 1;
+
+		return 0;
+	}
+
+	for (n = 0; n < hl; n++)
+		if (!((a[n] >= '0' && a[n] <= '9') ||
+		      (a[n] >= 'a' && a[n] <= 'z') ||
+		      (a[n] >= 'A' && a[n] <= 'Z') ||
+		      a[n] == '-' || a[n] == '.' || a[n] == '_' ||
+		      a[n] == '~'))
+			return 1;
+
+	return 0;
+}
+
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
 int
 lws_http_host_authority_disagree(struct lws *wsi)

@@ -12,7 +12,9 @@ set(SRCS main.c)
 # Server vhosts on the same port on 127.0.0.1 and 127.0.0.2, and the client,
 # in one process: a name the client sends may only select a vhost on the
 # listener it arrived on (G-329, G-007); a connection moved onto another vhost
-# keeps no protocol of the vhost it left (G-330).
+# keeps no protocol of the vhost it left (G-330); plaintext let onto a tls
+# listener by its vhost reaches no other vhost on it, and a redirect to https
+# goes to exactly the url asked for (G-362).
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
@@ -63,7 +65,9 @@ if (requirements)
 			endforeach()
 		endif()
 
-		list(APPEND VLS_TESTS proto-moved proto-keepalive)
+		list(APPEND VLS_TESTS proto-moved proto-keepalive
+			plain-tls-same plain-tls-other redir-other
+			redir-upgrade redir-mount redir-badhost)
 	endif()
 
 	foreach(VLS_T ${VLS_TESTS})

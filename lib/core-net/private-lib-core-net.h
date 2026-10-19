@@ -1411,6 +1411,7 @@ struct lws {
 	unsigned int			client_proxy_onward:1;
 #endif
 	unsigned int			redirect_to_https:1;
+	unsigned int			plaintext_on_tls_listener:1; /* the tls listener's vhost let him in without tls */
 	unsigned int			sni_vh_bound:1; /* the SNI callback bound us to the vhost serving the handshake */
 	unsigned int			tried_quic:1;
 #if defined(LWS_WITH_SERVER) && defined(LWS_ROLE_QUIC)

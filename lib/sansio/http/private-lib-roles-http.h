@@ -821,6 +821,17 @@ lws_http_parse_content_length(const char *in, uint64_t *result);
 int
 lws_http_te_is_chunked(struct lws *wsi);
 
+/*
+ * Nonzero unless a, of len bytes, is an authority, host [ ":" port ], whose
+ * host can only be read one way: a reg-name or IPv4address made of letters,
+ * digits, '-', '.', '_' and '~', or a bracketed IPv6 literal of hex digits,
+ * ':' and '.'.  Userinfo, percent-encoding and the sub-delims are refused,
+ * legal or not: an authority echoed into a url, eg, a redirect's Location,
+ * must not be able to change where it points.
+ */
+int
+lws_http_authority_check(const char *a, size_t len);
+
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 /*
  * Nonzero if an h2 / h3 request carries both :authority and Host and they

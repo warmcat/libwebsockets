@@ -1020,6 +1020,13 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				* connection upgrade directly.
 				*/
 				wsi->use_ssl = 0;
+				/*
+				 * Only the listener's vhost said plaintext is
+				 * ok here: he can't be moved by Host: to
+				 * another vhost sharing the listener, that
+				 * expects to be reached over tls
+				 */
+				wsi->plaintext_on_tls_listener = 1;
 
 				lws_tls_server_abort_connection(wsi);
 				/*

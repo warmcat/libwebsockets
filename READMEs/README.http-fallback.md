@@ -83,6 +83,16 @@ protocol will fail is earlier, when the tls tunnel is being set up.
 
 The latter two options are higher priority than, and defeat, the first one.
 
+They are taken from the vhost that owns the tls listen socket, ie, the first
+one created on that interface and port.  A plaintext connection they let in
+stays on that vhost: if its `Host:` names another vhost sharing the listener,
+which may expect to be reached only over tls, it is refused with a 421
+Misdirected Request, or with `REDIRECT_HTTP_TO_HTTPS`, redirected to https for
+the url it asked for like any other.  A connection let in only to be
+redirected gets nothing but that redirect, to `https://` plus exactly the
+`Host:`, path and query it sent: no mount, interceptor, `CONNECT` or upgrade
+acts on it, and a `Host:` that is not a plain host[:port] is refused.
+
 ### Non-http listener
 
 ![non-http flow](/doc-assets/accept-flow-3.svg)

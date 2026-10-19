@@ -52,6 +52,28 @@
  *                          with Host: gb: both are served, each by its own
  *                          vhost.
  *
+ * Fences G-362: plaintext on a tls listener is only allowed by the options
+ * of the vhost that owns the listener, so it must not reach another vhost
+ * sharing it, which may expect to be reached over tls only.  "va" and "va2"
+ * share a tls listener on 127.0.0.1, only "va" allows plaintext on it.  A
+ * raw plaintext client sends the request and the answer is checked.  With
+ * "va" allowing http on the tls listener:
+ *
+ *  --case plain-tls-same:  Host: va, must be served by "va"
+ *  --case plain-tls-other: Host: va2, must be refused with a 421
+ *
+ * and with "va" redirecting plaintext http to https, which must be all he
+ * is ever answered, for exactly the url he asked for:
+ *
+ *  --case redir-other:     Host: va2, a path and query with encoded bytes:
+ *                          the Location is the same url as https, va2 does
+ *                          not serve it
+ *  --case redir-upgrade:   a websocket upgrade is redirected, not upgraded
+ *  --case redir-mount:     a redirect mount on "va" doesn't act for him,
+ *                          the https redirect does
+ *  --case redir-badhost:   a Host: that would make the Location point
+ *                          somewhere else is refused with a 400
+ *
  * Where 127.0.0.2 can't be listened on (it is not a loopback address on
  * every platform), the cases needing it are skipped.
  */
@@ -71,12 +93,15 @@ enum {
 	VLS_L_TLS2,	/* va, va2 tls on .1, vb on .2 */
 	VLS_L_PT,	/* va + passthrough pa on .1, vb + pb on .2, backend */
 	VLS_L_PROTO,	/* ga, gb tls on .1, protocols named differently */
+	VLS_L_HTTP_ON_TLS, /* va, va2 tls on .1, va allows http on it */
+	VLS_L_REDIR,	/* va, va2 tls on .1, va redirects http to https */
 };
 
 enum {
 	VLS_K_GET,		/* an lws http client GET */
 	VLS_K_UPGRADE_LATE,	/* raw tls, upgrade request after ga is gone */
 	VLS_K_KEEPALIVE,	/* raw tls, two requests naming two vhosts */
+	VLS_K_PLAIN,		/* raw plaintext, req, answer must hold want */
 };
 
 static const struct vls_case {
@@ -85,16 +110,53 @@ static const struct vls_case {
 	uint8_t		kind;
 	const char	*host;	/* SNI and Host / :authority */
 	const char	*want;	/* the vhost that must serve it, NULL: refused */
+	/*
+	 * VLS_K_PLAIN: the request, and what the answer must not contain;
+	 * want is then what the answer must contain (both lowercase, the
+	 * answer is lowercased)
+	 */
+	const char	*req;
+	const char	*nogo;
 } vls_cases[] = {
-	{ "host-other",		VLS_L_PLAIN,	VLS_K_GET,	"vb",	"va" },
-	{ "host-same",		VLS_L_PLAIN,	VLS_K_GET,	"va2",	"va2" },
-	{ "sni-other",		VLS_L_TLS1,	VLS_K_GET,	"vb",	"va" },
-	{ "sni-same",		VLS_L_TLS2,	VLS_K_GET,	"va2",	"va2" },
-	{ "sni-refused",	VLS_L_TLS2,	VLS_K_GET,	"vb",	NULL },
-	{ "pt-same",		VLS_L_PT,	VLS_K_GET,	"pa",	"backend" },
-	{ "pt-other",		VLS_L_PT,	VLS_K_GET,	"pb",	NULL },
-	{ "proto-moved",	VLS_L_PROTO,	VLS_K_UPGRADE_LATE, "gb", "gb" },
-	{ "proto-keepalive",	VLS_L_PROTO,	VLS_K_KEEPALIVE, "ga",	"gb" },
+	{ "host-other",		VLS_L_PLAIN,	VLS_K_GET,	"vb",	"va",
+	  NULL, NULL },
+	{ "host-same",		VLS_L_PLAIN,	VLS_K_GET,	"va2",	"va2",
+	  NULL, NULL },
+	{ "sni-other",		VLS_L_TLS1,	VLS_K_GET,	"vb",	"va",
+	  NULL, NULL },
+	{ "sni-same",		VLS_L_TLS2,	VLS_K_GET,	"va2",	"va2",
+	  NULL, NULL },
+	{ "sni-refused",	VLS_L_TLS2,	VLS_K_GET,	"vb",	NULL,
+	  NULL, NULL },
+	{ "pt-same",		VLS_L_PT,	VLS_K_GET,	"pa",	"backend",
+	  NULL, NULL },
+	{ "pt-other",		VLS_L_PT,	VLS_K_GET,	"pb",	NULL,
+	  NULL, NULL },
+	{ "proto-moved",	VLS_L_PROTO,	VLS_K_UPGRADE_LATE, "gb", "gb",
+	  NULL, NULL },
+	{ "proto-keepalive",	VLS_L_PROTO,	VLS_K_KEEPALIVE, "ga",	"gb",
+	  NULL, NULL },
+	{ "plain-tls-same",	VLS_L_HTTP_ON_TLS, VLS_K_PLAIN, NULL, "vh=va",
+	  "GET / HTTP/1.1\r\nHost: va\r\n\r\n", "vh=va2" },
+	{ "plain-tls-other",	VLS_L_HTTP_ON_TLS, VLS_K_PLAIN, NULL,
+	  "http/1.1 421", "GET / HTTP/1.1\r\nHost: va2\r\n\r\n", "vh=" },
+	{ "redir-other",	VLS_L_REDIR,	VLS_K_PLAIN,	NULL,
+	  "\r\nlocation: https://va2/a%20b%3fc/d?x=1&y=%26z%20%2b\r\n",
+	  "GET /a%20b%3Fc/d?x=1&y=%26z+%2B HTTP/1.1\r\nHost: va2\r\n\r\n",
+	  "vh=" },
+	{ "redir-upgrade",	VLS_L_REDIR,	VLS_K_PLAIN,	NULL,
+	  "\r\nlocation: https://va/ws\r\n",
+	  "GET /ws HTTP/1.1\r\nHost: va\r\nConnection: Upgrade\r\n"
+	  "Upgrade: websocket\r\n"
+	  "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+	  "Sec-WebSocket-Version: 13\r\n\r\n", "http/1.1 101" },
+	{ "redir-mount",	VLS_L_REDIR,	VLS_K_PLAIN,	NULL,
+	  "\r\nlocation: https://va/m\r\n",
+	  "GET /m HTTP/1.1\r\nHost: va\r\n\r\n", "elsewhere" },
+	{ "redir-badhost",	VLS_L_REDIR,	VLS_K_PLAIN,	NULL,
+	  "http/1.1 400",
+	  "GET / HTTP/1.1\r\nHost: va@elsewhere.invalid\r\n\r\n",
+	  "location:" },
 };
 
 static const struct vls_case *tc;
@@ -119,6 +181,9 @@ static const char *keepalive_req[] = {
 	"GET / HTTP/1.1\r\nHost: ga\r\n\r\n",
 	"GET / HTTP/1.1\r\nHost: gb\r\n\r\n",
 };
+
+/* only on "va" with VLS_L_REDIR: it must not act for a plaintext peer */
+static struct lws_http_mount mount_redir;
 
 struct pss_srv {
 	char		resp[LWS_PRE + 64];
@@ -267,7 +332,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		if (tc->kind == VLS_K_UPGRADE_LATE) {
+		if (tc->kind == VLS_K_PLAIN) {
+			if (!stage++)
+				req = tc->req;
+		} else if (tc->kind == VLS_K_UPGRADE_LATE) {
 			if (stage == 2) {
 				req = upgrade_req;
 				stage = 3;
@@ -293,6 +361,19 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		memcpy(body + body_len, in, len);
 		body_len += len;
 		body[body_len] = '\0';
+
+		if (tc->kind == VLS_K_PLAIN) {
+			/* header names' case is not significant: lowercase */
+			for (n = 0; n < body_len; n++)
+				if (body[n] >= 'A' && body[n] <= 'Z')
+					body[n] = (char)(body[n] + ('a' - 'A'));
+			/* what he wanted to see is there: we are done */
+			if (strstr(body, tc->want)) {
+				completed = 1;
+				return -1;
+			}
+			break;
+		}
 
 		if (tc->kind == VLS_K_KEEPALIVE && completed &&
 		    strstr(body, stage ? "vh=gb" : "vh=ga")) {
@@ -393,7 +474,7 @@ int main(int argc, const char **argv)
 	struct lws_client_connect_info i;
 	struct lws_vhost *vh_cli;
 	char want[64], target[64];
-	int result = 1, tls;
+	int result = 1, tls, cli_tls;
 	size_t n;
 
 	lws_context_info_defaults(&info, NULL);
@@ -419,13 +500,15 @@ int main(int argc, const char **argv)
 	}
 
 	tls = tc->layout != VLS_L_PLAIN;
+	/* the plain cases speak plaintext to a tls listener */
+	cli_tls = tls && tc->kind != VLS_K_PLAIN;
 	if (tls && (!cert || !key)) {
 		lwsl_err("--cert and --key are required for %s\n", tc->name);
 		return 1;
 	}
 
 	lwsl_user("LWS API selftest: vhost listener scope, %s (%s)\n",
-		  tc->name, tls ? alpn : "plain");
+		  tc->name, cli_tls ? alpn : "plain");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -449,6 +532,34 @@ int main(int argc, const char **argv)
 		vls_info_tls(&info, cert, key, "h2,http/1.1,h3");
 
 	switch (tc->layout) {
+	case VLS_L_HTTP_ON_TLS:
+	case VLS_L_REDIR:
+		/*
+		 * Only va, the listener's owner, takes plaintext on it.  He
+		 * lets it be served, or redirects it to https
+		 */
+		info.options |= LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT |
+			(tc->layout == VLS_L_REDIR ?
+				LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS :
+				LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER);
+		if (tc->layout == VLS_L_REDIR) {
+			mount_redir.mountpoint		= "/m";
+			mount_redir.mountpoint_len	= 2;
+			mount_redir.origin		= "elsewhere.invalid/";
+			mount_redir.origin_protocol	= LWSMPRO_REDIR_HTTP;
+			info.mounts			= &mount_redir;
+		}
+		if (!vls_vhost(&info, "va", VLS_ADS_A))
+			goto bail;
+		info.options &= ~(uint64_t)
+				(LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT |
+				 LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS |
+				 LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER);
+		info.mounts = NULL;
+		if (!vls_vhost(&info, "va2", VLS_ADS_A))
+			goto bail;
+		break;
+
 	case VLS_L_PROTO:
 		info.protocols = protocols_ga;
 		vh_ga = vls_vhost(&info, "ga", VLS_ADS_A);
@@ -532,7 +643,7 @@ int main(int argc, const char **argv)
 	i.path			= "/";
 	i.local_protocol_name	= "vls-cli";
 	i.protocol		= "vls-cli";
-	if (tls) {
+	if (cli_tls) {
 		i.alpn		= alpn;
 		i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
@@ -540,6 +651,9 @@ int main(int argc, const char **argv)
 	/* an h3 case must be decided on h3, not by a fallback to tcp */
 	i.disable_h3_fallback	= 1;
 	i.method		= tc->kind == VLS_K_GET ? "GET" : "RAW";
+	if (tc->kind == VLS_K_PLAIN)
+		/* no Host: or SNI of the client's own, the request has it */
+		i.host = i.origin = VLS_ADS_A;
 
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 VLS_TIMEOUT_S * LWS_US_PER_SEC);
@@ -568,6 +682,12 @@ int main(int argc, const char **argv)
 		if (!completed || stage != (int)LWS_ARRAY_SIZE(keepalive_req))
 			lwsl_err("FAIL: %d of 2 answered as asked, last '%s'\n",
 				 stage, body);
+		else
+			result = 0;
+	} else if (tc->kind == VLS_K_PLAIN) {
+		if (!completed || strstr(body, tc->nogo))
+			lwsl_err("FAIL: answered '%s', want '%s', never '%s'\n",
+				 body, tc->want, tc->nogo);
 		else
 			result = 0;
 	} else if (!tc->want) {

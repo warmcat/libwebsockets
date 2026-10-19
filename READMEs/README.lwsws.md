@@ -774,6 +774,12 @@ protocol "myprotocol".
 	"allow-http-on-https":		"1",
 ```
 
+   These are read from the vhost that owns the listen socket, the first one
+   created on that interface and port.  The plaintext connections they let in
+   are never served by another vhost sharing the listener: one whose `Host:`
+   names another vhost is refused with a 421, or with `redirect-http` only
+   redirected to the same url over https.
+
 ## Passing a vhost's tls through to another server
 
 A vhost can have its tls connections passed, still encrypted, to another
