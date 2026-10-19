@@ -11,6 +11,7 @@ $ cmake .. -DLWS_ROLE_RAW_PROXY=1
 |pvo|value meaning|
 |---|---|
 |onward|The onward proxy destination, in the form `ipv4:addr[:port]`|
+|idle-timeout-secs|Optional: close both sides once nothing has passed in either direction for this many seconds.  Default 300, `0` disables it.  See `./READMEs/README.http-fallback.md` "raw-proxy connection lifetime"|
 
 ## Note for vhost selection
 

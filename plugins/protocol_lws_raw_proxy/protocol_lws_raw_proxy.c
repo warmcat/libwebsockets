@@ -45,6 +45,15 @@
  */
 #define RAW_PROXY_FLUSH_SECS 5
 
+/*
+ * While both sides are up, a connection with nothing passing in either
+ * direction for this long is closed, unless the vhost's "idle-timeout-secs"
+ * pvo says otherwise (0 disables it).  Five minutes reclaims connections a
+ * peer abandoned without closing, and is longer than ssh's own keepalive
+ * interval when one is configured (eg, ServerAliveInterval 60).
+ */
+#define RAW_PROXY_IDLE_SECS_DEFAULT 300
+
 struct packet {
 	void *payload;
 	uint32_t len;
@@ -335,6 +344,8 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd)
 			return 0;
 
+		vhd->idle_secs = RAW_PROXY_IDLE_SECS_DEFAULT;
+
                if (lws_pvo_get_str(in, "onward", &cp)) {
                        lwsl_vhost_warn(lws_get_vhost(wsi), "%s: pvo 'onward' required\n", __func__);
 			return 0;
@@ -378,17 +389,26 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_strncpy(vhd->addr, ts.token, sizeof(vhd->addr));
 
 		if (!lws_pvo_get_str(in, "idle-timeout-secs", &cp)) {
-			vhd->idle_secs = atoi(cp);
-			if (vhd->idle_secs < 0) {
-				lwsl_err("%s: idle-timeout-secs must be >= 0\n",
-					 __func__);
+			/*
+			 * 0 turns the idle timeout off, so a malformed value
+			 * must not quietly become 0 the way atoi() would make it
+			 */
+			lws_tokenize_init(&ts, cp, LWS_TOKENIZE_F_NO_FLOATS);
+			ts.len = strlen(cp);
+			if (lws_tokenize(&ts) != LWS_TOKZE_INTEGER ||
+			    ts.token_len > 9 ||
+			    lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+				lwsl_err("%s: idle-timeout-secs must be 0 .. "
+					 "999999999, not '%s'\n", __func__, cp);
 				return -1;
 			}
+			vhd->idle_secs = atoi(cp);
 		}
 
-		lwsl_notice("%s: vh %s: onward %s:%s:%d\n", __func__,
-			    lws_get_vhost_name(lws_get_vhost(wsi)),
-			    vhd->ipv6 ? "ipv6": "ipv4", vhd->addr, vhd->port);
+		lwsl_notice("%s: vh %s: onward %s:%s:%d, idle timeout %ds\n",
+			    __func__, lws_get_vhost_name(lws_get_vhost(wsi)),
+			    vhd->ipv6 ? "ipv6": "ipv4", vhd->addr, vhd->port,
+			    vhd->idle_secs);
 		break;
 
 bad_onward:

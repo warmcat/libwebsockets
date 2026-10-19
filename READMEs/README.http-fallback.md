@@ -196,12 +196,21 @@ the closed side had already sent, and then it is closed too.  It is given 5s
 per piece written to take that, so a peer that stops reading cannot hold it
 open.
 
-By default an idle proxied connection stays up as long as both sides do, as a
-tcp connection would.  The optional pvo "idle-timeout-secs" closes both sides
-of a connection once nothing has passed in either direction for that many
-seconds, eg, `"idle-timeout-secs": "3600"`.  Only set it for protocols whose
-sessions do not legitimately stay quiet for longer (an interactive ssh session
-without keepalives may).
+While both sides are up, a proxied connection with nothing passing in either
+direction for 300s is closed, both sides of it; anything passing either way
+starts the 300s again.  Without this, a peer that goes away without closing
+(or a client that never sends anything) holds a local fd and a connection to
+the onward server indefinitely.
+
+The pvo "idle-timeout-secs" sets a different idle time for the vhost, eg,
+`"idle-timeout-secs": "3600"`, and `"0"` disables the idle timeout, so the
+connection stays up as long as both sides do, as a tcp connection would.
+
+If you proxy ssh (eg, ssh on 443 as below), an interactive session left quiet
+for 5 minutes is closed by default.  Either have the ssh clients send
+keepalives more often than the idle time (`ServerAliveInterval 60` in the
+client's ssh config, or `ClientAliveInterval 60` on the sshd), which keeps the
+default protection, or set a larger "idle-timeout-secs", or `"0"`.
 
 ### fallback with raw-proxy in JSON conf
 

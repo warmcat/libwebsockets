@@ -6,11 +6,21 @@ The `raw-proxy` plugin behaves as an active raw-socket proxy capable of port-for
 
 ## Per-Vhost Options (PVOs)
 
-This plugin requires one Per-Vhost Option (PVO) at instantiation to define the routing destination:
+This plugin requires one Per-Vhost Option (PVO) at instantiation to define the routing destination, and takes one optional one:
 
 | PVO Name | Description |
 |---|---|
 | `onward` | **Required.** String encoding specifying the proxy loop destination. The required format is either `ipv4:IP_ADDR[:PORT]` or `ipv6:IP_ADDR`. |
+| `idle-timeout-secs` | Optional.  While both sides are up, close both once nothing has passed in either direction for this many seconds; anything passing either way restarts it.  Default `300`, `0` disables the idle timeout.  A value that is not a decimal integer fails the vhost's protocol init. |
+
+## Idle timeout
+
+By default a proxied connection idle in both directions for 300s is closed, so
+a peer that vanishes without closing, or never sends anything, cannot hold an
+fd and an onward connection indefinitely.  Protocols with long legitimately
+quiet sessions, eg, interactive ssh, should either send keepalives more often
+than that (ssh `ServerAliveInterval` / `ClientAliveInterval`), or have the
+vhost set a larger `idle-timeout-secs`, or `0`.
 
 ## Behaviour when the onward connection fails
 

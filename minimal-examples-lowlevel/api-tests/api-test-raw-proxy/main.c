@@ -21,8 +21,15 @@
  *    everything the origin sent before it closed, then closes the client
  *
  *  - a second proxy vhost with the "idle-timeout-secs" pvo: a client that
- *    goes quiet after its echo is closed by the proxy once that long has
- *    passed, and the onward connection to the origin with it
+ *    sends again part way through the idle time is not closed then, since
+ *    traffic restarts the timeout, but once it goes quiet after its second
+ *    echo it is closed by the proxy when that long has passed, and the onward
+ *    connection to the origin with it
+ *
+ *  - the idle timeout's configuration: the first proxy vhost, with no
+ *    "idle-timeout-secs" pvo, has the nonzero default idle timeout; one with
+ *    "0" has none; and one with a malformed value fails its protocol init,
+ *    rather than the value quietly becoming 0, ie, no idle timeout
  *
  *  - an app's own raw-proxy client, over tls (which the plugin never asks
  *    for), straight to the origin's tls vhost: its transport comes up after
@@ -60,7 +67,8 @@ static lws_usec_t replied_at;
 /* connections the plain origin has open, and has had in this leg */
 static int origin_open, origin_seen;
 static struct lws_context *cx;
-static struct lws_vhost *vh_cli, *vh_origin;
+static struct lws_vhost *vh_cli, *vh_origin, *vh_proxy, *vh_proxy_noidle,
+			*vh_proxy_badidle;
 static lws_sorted_usec_list_t sul_watchdog, sul_next;
 static const char *cert, *key;
 
@@ -173,6 +181,7 @@ struct cli_pss {
 	char		rx[64];
 	size_t		rx_len;
 	char		replied;
+	char		sends;
 };
 
 static void
@@ -186,10 +195,58 @@ finish(void)
 	lws_default_loop_exit(cx);
 }
 
+/*
+ * The idle timeout each proxy vhost's protocol init settled on, or -1 if its
+ * init failed and it has no vhd
+ */
+static int
+vh_idle_secs(struct lws_vhost *vh)
+{
+	const struct raw_vhd *vhd = (const struct raw_vhd *)
+		lws_protocol_vh_priv_get(vh,
+				lws_vhost_name_to_protocol(vh, "raw-proxy"));
+
+	return vhd ? vhd->idle_secs : -1;
+}
+
+static int
+check_idle_config(void)
+{
+	int def = vh_idle_secs(vh_proxy), off = vh_idle_secs(vh_proxy_noidle),
+	    bad = vh_idle_secs(vh_proxy_badidle);
+
+	lwsl_user("%s: idle timeout: default %d, \"0\" %d, malformed %d\n",
+		  __func__, def, off, bad);
+
+	if (def <= 0 || def != RAW_PROXY_IDLE_SECS_DEFAULT) {
+		lwsl_err("%s: no default idle timeout\n", __func__);
+		return 1;
+	}
+	if (off) {
+		lwsl_err("%s: idle-timeout-secs 0 did not disable it\n",
+			 __func__);
+		return 1;
+	}
+	if (bad != -1) {
+		lwsl_err("%s: malformed idle-timeout-secs accepted\n",
+			 __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
 static void
 next_leg(lws_sorted_usec_list_t *sul)
 {
 	struct lws_client_connect_info i;
+
+	/* the vhosts' protocols are initialized once the first leg has run */
+	if (leg == LEG_PROXY_ECHO && check_idle_config()) {
+		fails++;
+		finish();
+		return;
+	}
 
 	if (++leg == (int)LWS_ARRAY_SIZE(leg_names) ||
 	    (leg >= LEG_APP_CLIENT_TLS && !(cert && key))) {
@@ -281,6 +338,16 @@ cli_rx(struct lws *wsi, struct cli_pss *pss, const void *in, size_t len)
 	pss->replied = 1;
 	pss->rx_len = 0;
 
+	if (leg == LEG_PROXY_IDLE && pss->sends == 1) {
+		/*
+		 * Send again part way through the idle time: the proxy must
+		 * not close us when the idle time since the first echo is up
+		 */
+		replied_at = lws_now_usecs();
+		lws_set_timer_usecs(wsi, (IDLE_S * LWS_USEC_PER_SEC) * 6 / 10);
+		return 0;
+	}
+
 	if (leg == LEG_PROXY_ORIGIN_CLOSES || leg == LEG_PROXY_IDLE) {
 		/* the proxy must close us: after the reply, or when idle */
 		replied_at = lws_now_usecs();
@@ -305,10 +372,10 @@ cli_closed_cb(struct cli_pss *pss)
 		return;
 	}
 
-	if (leg == LEG_PROXY_IDLE &&
-	    lws_now_usecs() - replied_at < (IDLE_S * LWS_USEC_PER_SEC) * 9 / 10) {
-		lwsl_err("%s: leg %d: closed before the idle timeout\n",
-			 __func__, leg);
+	if (leg == LEG_PROXY_IDLE && (pss->sends != 2 ||
+	    lws_now_usecs() - replied_at < (IDLE_S * LWS_USEC_PER_SEC) * 9 / 10)) {
+		lwsl_err("%s: leg %d: closed before the idle timeout since "
+			 "the last traffic\n", __func__, leg);
 		fails++;
 		finish();
 		return;
@@ -319,11 +386,12 @@ cli_closed_cb(struct cli_pss *pss)
 }
 
 static int
-cli_send(struct lws *wsi)
+cli_send(struct lws *wsi, struct cli_pss *pss)
 {
 	uint8_t buf[LWS_PRE + 64];
 	size_t n = strlen(leg_msg[leg]);
 
+	pss->sends++;
 	memcpy(buf + LWS_PRE, leg_msg[leg], n);
 
 	return lws_write(wsi, buf + LWS_PRE, n, LWS_WRITE_RAW) != (int)n;
@@ -368,11 +436,15 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (leg == LEG_PROXY_CONNECT_CLOSE)
 			/* gone as soon as we can, without sending anything */
 			return -1;
-		return cli_send(wsi);
+		return cli_send(wsi, pss);
 	case LWS_CALLBACK_RAW_RX:
 		return cli_rx(wsi, pss, in, len);
 	case LWS_CALLBACK_RAW_CLOSE:
 		cli_closed_cb(pss);
+		break;
+	case LWS_CALLBACK_TIMER:
+		/* the idle leg's second send */
+		lws_callback_on_writable(wsi);
 		break;
 
 	/* our own raw-proxy client */
@@ -380,7 +452,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_callback_on_writable(wsi);
 		break;
 	case LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE:
-		return cli_send(wsi);
+		return cli_send(wsi, pss);
 	case LWS_CALLBACK_RAW_PROXY_CLI_RX:
 		return cli_rx(wsi, pss, in, len);
 	case LWS_CALLBACK_RAW_PROXY_CLI_CLOSE:
@@ -436,6 +508,18 @@ int main(int argc, const char **argv)
 		&pvo_idle_secs, NULL, "onward", NULL
 	}, pvo_idle = {
 		NULL, &pvo_idle_onward, "raw-proxy", ""
+	}, pvo_noidle_secs = {
+		NULL, NULL, "idle-timeout-secs", "0"
+	}, pvo_noidle_onward = {
+		&pvo_noidle_secs, NULL, "onward", NULL
+	}, pvo_noidle = {
+		NULL, &pvo_noidle_onward, "raw-proxy", ""
+	}, pvo_badidle_secs = {
+		NULL, NULL, "idle-timeout-secs", "5x"
+	}, pvo_badidle_onward = {
+		&pvo_badidle_secs, NULL, "onward", NULL
+	}, pvo_badidle = {
+		NULL, &pvo_badidle_onward, "raw-proxy", ""
 	};
 	struct lws_context_creation_info info;
 	char onward[64], idle[8];
@@ -518,7 +602,8 @@ int main(int argc, const char **argv)
 	info.pvo = &pvo;
 	info.vhost_name = "proxy";
 	info.port = port_proxy;
-	if (!lws_create_vhost(cx, &info))
+	vh_proxy = lws_create_vhost(cx, &info);
+	if (!vh_proxy)
 		goto bail;
 
 	/* ... and another, with an idle timeout */
@@ -529,6 +614,24 @@ int main(int argc, const char **argv)
 	info.vhost_name = "proxy-idle";
 	info.port = port_proxy_idle;
 	if (!lws_create_vhost(cx, &info))
+		goto bail;
+
+	/*
+	 * ... and two more only to see their idle timeout config: no idle
+	 * timeout, and a malformed one, neither listening
+	 */
+	pvo_noidle_onward.value = onward;
+	info.pvo = &pvo_noidle;
+	info.vhost_name = "proxy-noidle";
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	vh_proxy_noidle = lws_create_vhost(cx, &info);
+	if (!vh_proxy_noidle)
+		goto bail;
+	pvo_badidle_onward.value = onward;
+	info.pvo = &pvo_badidle;
+	info.vhost_name = "proxy-badidle";
+	vh_proxy_badidle = lws_create_vhost(cx, &info);
+	if (!vh_proxy_badidle)
 		goto bail;
 	info.pvo = NULL;
 
