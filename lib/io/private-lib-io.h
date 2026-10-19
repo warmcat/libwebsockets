@@ -45,6 +45,15 @@ lws_wsi_is_async_dns(const struct lws *wsi);
 lws_usec_t
 __lws_sul_service_ripe(lws_dll2_owner_t *own, int num_own, lws_usec_t usnow);
 
+/*
+ * The wait in whole ms, for a loop that waits in ms, until a deadline that
+ * is _us away and not due yet: rounded up, so the loop sleeps until it is due.
+ * Rounded down, the loop wakes short of it and then goes around without
+ * waiting, hundreds of times, until it is due.
+ */
+#define lws_us_to_ms_ceil(_us) \
+	(((_us) + LWS_US_PER_MS - 1) / LWS_US_PER_MS)
+
 void
 lws_async_dns_cancel(struct lws *wsi);
 

@@ -151,9 +151,14 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (!lws_service_adjust_timeout(context, 1, tsi))
 		timeout_us = 0;
 
-	/* ensure we don't wrap at 2^31 with poll()'s signed int ms */
+	/*
+	 * poll() waits in ms: round up, so a timer not due yet is slept until
+	 * rather than woken short of and then spun on until it is due.  It
+	 * can't wrap poll()'s signed int ms, timeout_us is at most
+	 * LWS_POLL_WAIT_LIMIT ms
+	 */
 
-	timeout_us /= LWS_US_PER_MS; /* ms now */
+	timeout_us = lws_us_to_ms_ceil(timeout_us); /* ms now */
 
 #if defined(LWS_WITH_SYS_METRICS)
 	a = lws_now_usecs() - b;

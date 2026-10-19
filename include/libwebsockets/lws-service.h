@@ -202,6 +202,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
  * If anybody needs "forced service", returned timeout is zero.  In that case,
  * you can call lws_service_tsi() with a timeout of -1 to only service
  * guys who need forced service.
+ *
+ * Otherwise it returns timeout_ms, or less if an lws timer is due sooner: the
+ * ms until it is due, rounded up, so it is at least 1.  A timer that is not
+ * due yet does not make it return zero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi);

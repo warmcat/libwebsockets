@@ -133,7 +133,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				lws_context_unlock(pt->context);
 			}
 
-			n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
+			/* in ms, rounded up: sleep until a timer is due */
+			n = poll(pt->fds, pt->fds_count,
+				 (int)lws_us_to_ms_ceil(timeout_us));
 
 			m = 0;
 

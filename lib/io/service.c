@@ -438,10 +438,12 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 				      LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 		/*
 		 * We will come back with 0 if nothing to do at the moment, or
-		 * the number of us until something to do
+		 * the number of us until something to do.  A timer that is not
+		 * due yet is not forced service: wait until it is due, never
+		 * less than 1ms
 		 */
-		if (u && u < (lws_usec_t)timeout_ms * (lws_usec_t)1000)
-			timeout_ms = (int)(u / 1000);
+		if (u && u < (lws_usec_t)timeout_ms * LWS_US_PER_MS)
+			timeout_ms = (int)lws_us_to_ms_ceil(u);
 
 		lws_pt_unlock(pt);
 		lws_context_unlock(pt->context);

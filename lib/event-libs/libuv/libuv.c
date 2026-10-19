@@ -49,7 +49,7 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 				    lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
-			       LWS_US_TO_MS((uint64_t)us), 0);
+			       (uint64_t)lws_us_to_ms_ceil(us), 0);
 	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
 }
@@ -83,7 +83,7 @@ lws_uv_idle(uv_idle_t *handle
 				    lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
-			       LWS_US_TO_MS((uint64_t)us), 0);
+			       (uint64_t)lws_us_to_ms_ceil(us), 0);
 
 	/* if there is nobody who needs service forcing, shut down idle */
 	if (lws_service_adjust_timeout(pt->context, 1, pt->tid))

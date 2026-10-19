@@ -178,7 +178,12 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 //	lwsl_notice("%s: in %dms, count %d\n", __func__, (int)(timeout_us / 1000), pt->fds_count);
 //	for (n = 0; n < (int)pt->fds_count; n++)
 //		lwsl_notice("%s: fd %d ev 0x%x POLLIN %d, POLLOUT %d\n", __func__, (int)pt->fds[n].fd, (int)pt->fds[n].events, POLLIN, POLLOUT);
-	int d = WSAPoll((WSAPOLLFD *)&pt->fds[0], pt->fds_count, (int)(timeout_us / LWS_US_PER_MS));
+	/*
+	 * WSAPoll() waits in ms: round up, so a timer not due yet is slept
+	 * until rather than woken short of and then spun on until it is due
+	 */
+	int d = WSAPoll((WSAPOLLFD *)&pt->fds[0], pt->fds_count,
+			(int)lws_us_to_ms_ceil(timeout_us));
 	if (d < 0) {
 		lwsl_err("%s: WSAPoll failed: count %d, err %d: %d\n", __func__, pt->fds_count, d, WSAGetLastError());
 		return 0;

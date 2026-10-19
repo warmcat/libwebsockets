@@ -178,9 +178,8 @@ lws_glib_hrtimer_cb(void *p)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		ms = (unsigned int)(us / LWS_US_PER_MS);
-		if (!ms)
-			ms = 1;
+		/* not due yet: sleep until it is, not short of it */
+		ms = (unsigned int)lws_us_to_ms_ceil(us);
 
 		lws_glib_set_timeout(pt, ms);
 	}

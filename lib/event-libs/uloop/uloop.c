@@ -37,10 +37,8 @@
 static int
 lws_uloop_ms(lws_usec_t us)
 {
-	if (us < 1000)
-		return 1;
-
-	us /= 1000;
+	/* not due yet: sleep until it is, not short of it */
+	us = lws_us_to_ms_ceil(us);
 
 	if (us > (lws_usec_t)INT_MAX)
 		return INT_MAX;
