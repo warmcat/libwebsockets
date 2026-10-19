@@ -416,3 +416,7 @@ a log is evidence that something was or was not emitted.
    reload on the first service pass closes its socket when it can't read
    resolv.conf (set `LWS_ASYNCDNS_WATCH_MS` high).  Service once first
    (api-test-quic-accept-gate emfile).
+ - Test logs written to the eMMC build disk can block the process for
+   seconds under load (seen as a 3.5-6s stall in api-test-ws-close
+   proxied runs; clean with logs on tmpfs): suspect this before blaming
+   the library for a sporadic multi-second stall.

@@ -121,3 +121,8 @@ sessions.
    your hunks (B51 swept a concurrent agent's README and header hunks
    into a commit and had to rebuild it, 2026-10-19).  Never move the
    branch with update-ref unless you are the only one committing.
+ - Concurrent subagents share one scratchpad directory: use a per-agent
+   subdirectory (eg scratchpad/<agent-name>/) for commit messages and
+   helper files, or another agent may overwrite them (B69, 2026-10-19:
+   two commits went in with another agent's messages and had to be
+   rebuilt).
