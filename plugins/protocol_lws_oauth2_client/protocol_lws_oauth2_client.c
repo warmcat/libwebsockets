@@ -1043,7 +1043,9 @@ rand_fail:
 				return 1;
 			}
 
-			lwsl_wsi_notice(wsi, "/oauth/login: writing 302 -> %s", loc);
+			/* not loc itself: its query has the state and challenge */
+			lwsl_wsi_notice(wsi, "/oauth/login: writing 302 -> "
+					"%s/api/authorize", vhd->remote_auth_url);
 
 			/* headers-only 302: under h2 the HEADERS frame must carry
 			 * END_STREAM or the stream hangs open waiting for a body

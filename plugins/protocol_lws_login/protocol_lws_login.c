@@ -3722,7 +3722,9 @@ anon:
 			return 0;
 		}
 
-		lwsl_info("%s: bouncing unauth to %s\n", __func__, dest);
+		/* dest's query carries the request's own uri and query */
+		lwsl_info("%s: bouncing unauth to %s\n", __func__,
+			  vhd->auth_server_url);
 
 		/*
 		 * Cold-load silent renewal: this is a genuine page request whose JWT
@@ -3948,12 +3950,24 @@ anon:
 						    strcmp(puri_auth->scheme, puri_chk->scheme) ||
 						    strcasecmp(puri_auth->host, puri_chk->host) ||
 						    puri_auth->port != puri_chk->port) {
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+							char lp[128];
+
+							/* a Referer can carry a query */
 							lwsl_err("%s: blocking SSO CSRF from origin/referer %s (expected %s)\n",
-								 __func__, chk_url, vhd->auth_api_url);
+								 __func__,
+								 lws_http_log_path(lp, sizeof(lp), chk_url),
+								 vhd->auth_api_url);
+#endif
 							token = NULL;
 						} else {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+							char lp[128];
+
 							lwsl_notice("%s: allowing SSO request matching auth server origin %s\n",
-								    __func__, chk_url);
+								    __func__,
+								    lws_http_log_path(lp, sizeof(lp), chk_url));
+#endif
 						}
 					}
 
@@ -4008,7 +4022,13 @@ anon:
 							} else if (auth_verify_redirect_uri(vhd, target)) {
 								final_target = target;
 							} else {
-								lwsl_err("%s: untrusted absolute target %s\n", __func__, target);
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+								char lp[128];
+
+								lwsl_err("%s: untrusted absolute target %s\n",
+									 __func__,
+									 lws_http_log_path(lp, sizeof(lp), target));
+#endif
 							}
 							lws_parse_uri_destroy(&puri_tgt);
 						}

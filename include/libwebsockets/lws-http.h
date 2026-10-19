@@ -645,6 +645,25 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_remove_urlarg(struct lws *wsi, const char *name);
 
 /**
+ * lws_http_log_path() - render a url or request path for a log line
+ *
+ * \param buf: the buffer to render into
+ * \param len: the usable size of buf in bytes, including the NUL
+ * \param path: the url or path to render, or NULL
+ *
+ * Query strings commonly carry credentials (OAuth code= and state=, presigned
+ * URL signatures, ?api_key=...), and logs outlive the connection and reach a
+ * wider audience than the url's owner.  So a log line showing a url or path,
+ * sent or received, should show it through this: it is copied cut at the
+ * first '?', truncated to fit, with control and non-ASCII bytes shown as '.'
+ * so it cannot forge log lines.
+ *
+ * Returns buf, always NUL-terminated, or "NULL" if path is NULL.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_http_log_path(char *buf, size_t len, const char *path);
+
+/**
  * lws_http_zap_header() - remove a named header from the header table
  *
  * \param wsi: the connection to check

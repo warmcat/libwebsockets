@@ -4897,7 +4897,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!redirect_uri[0] || !auth_verify_redirect_uri(vhd, NULL, redirect_uri))
 				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
 
-			lwsl_notice("%s: Extracted redirect_uri: %s\n", __func__, redirect_uri);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+			{
+				char lp[128];
+
+				/* a client's redirect_uri can carry a query */
+				lwsl_notice("%s: Extracted redirect_uri: %s\n",
+					    __func__, lws_http_log_path(lp,
+						sizeof(lp), redirect_uri));
+			}
+#endif
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 			/*
@@ -5361,8 +5370,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-			lwsl_info("%s: /authorize client_id='%s' redirect_uri='%s'\n",
-				    __func__, client_id, redirect_uri);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+			{
+				char lp[128];
+
+				lwsl_info("%s: /authorize client_id='%s' "
+					  "redirect_uri='%s'\n", __func__,
+					  client_id, lws_http_log_path(lp,
+						sizeof(lp), redirect_uri));
+			}
+#endif
 
 			lws_get_urlarg_by_name_safe(wsi, "response_type=", response_type, sizeof(response_type));
 			lws_get_urlarg_by_name_safe(wsi, "state=", state, sizeof(state));

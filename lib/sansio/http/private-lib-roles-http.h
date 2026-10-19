@@ -870,13 +870,6 @@ lws_http_hdr_log_value(struct lws *wsi, char *buf, size_t len, int tok,
 		       const char *name, size_t name_len, const char *value,
 		       size_t value_len);
 /*
- * Renders into buf a request path for logging, without its query string
- * (F-016).  Every log of a request path or url uses this.
- */
-const char *
-lws_http_log_path(char *buf, size_t len, const char *path);
-
-/*
  * Returns nonzero if the header name or value contains CR, LF, NUL or other
  * control bytes (HTAB excepted) or DEL, ie, it is not safe to splice into a
  * header line.  Every header composer should fence its inputs with this.
