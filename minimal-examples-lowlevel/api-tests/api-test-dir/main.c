@@ -18,6 +18,11 @@
 #define rmdir _rmdir
 #else
 #include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
 #endif
 
 static int
@@ -326,6 +331,201 @@ bail:
 }
 #endif
 
+#if !defined(WIN32)
+/*
+ * lws_dir_rm_rf_cb() must never act outside the tree it was given, even
+ * when a directory in the tree is swapped for a symlink to somewhere else
+ * while it is being removed.  A child process keeps exchanging the
+ * directory ./test-rmrf-race/root/d with a symlink to ../outside, which
+ * holds sentinel files with the same names as the files in d, while the
+ * parent rm -rf's root over and over.  Not one sentinel may go.
+ */
+
+#define RACE_BASE	"./test-rmrf-race"
+#define RACE_ROOT	RACE_BASE "/root"
+#define RACE_D		RACE_ROOT "/d"
+#define RACE_LNK	RACE_BASE "/lnk"
+#define RACE_TMP	RACE_BASE "/tmpd"
+#define RACE_OUT	RACE_BASE "/outside"
+#define RACE_FILES	64
+#define RACE_PASSES	400
+
+#if defined(__linux__) && defined(SYS_renameat2)
+#if !defined(RENAME_EXCHANGE)
+#define RENAME_EXCHANGE (1 << 1)
+#endif
+static int
+race_swap(void)
+{
+	/* one atomic exchange of the two names */
+	return (int)syscall(SYS_renameat2, AT_FDCWD, RACE_D, AT_FDCWD,
+			    RACE_LNK, RENAME_EXCHANGE);
+}
+#else
+static int
+race_swap(void)
+{
+	/* without an atomic exchange, two renames each way */
+	if (rename(RACE_D, RACE_TMP))
+		return -1;
+	if (rename(RACE_LNK, RACE_D)) {
+		rename(RACE_TMP, RACE_D);
+		return -1;
+	}
+	if (rename(RACE_D, RACE_LNK))
+		return -1;
+
+	return rename(RACE_TMP, RACE_D);
+}
+#endif
+
+static void
+race_swapper(pid_t parent)
+{
+	/* runs until killed, or until the parent is gone */
+	while (getppid() == parent)
+		race_swap();
+
+	_exit(0);
+}
+
+/* whatever the swapper left at path, get rid of it (swapper is stopped) */
+
+static void
+race_clear(const char *path)
+{
+	struct stat st;
+
+	if (lstat(path, &st))
+		return;
+
+	if (S_ISDIR(st.st_mode)) {
+		lws_dir(path, NULL, lws_dir_rm_rf_cb);
+		rmdir(path);
+	} else
+		unlink(path);
+}
+
+/*
+ * Put the swapped names back to a directory full of files at RACE_D and a
+ * symlink to the outside at RACE_LNK, and count (and replace) any sentinel
+ * that went missing.  The swapper is stopped while this runs.
+ */
+
+static int
+race_reset(void)
+{
+	char p[64];
+	int n, lost = 0;
+
+	race_clear(RACE_D);
+	race_clear(RACE_LNK);
+	race_clear(RACE_TMP);
+
+	if (mkdir(RACE_D, 0700) || symlink("../outside", RACE_LNK))
+		return -1;
+
+	for (n = 0; n < RACE_FILES; n++) {
+		lws_snprintf(p, sizeof(p), RACE_D "/s%02d", n);
+		if (create_file(p, 1))
+			return -1;
+		lws_snprintf(p, sizeof(p), RACE_OUT "/s%02d", n);
+		if (!exists(p)) {
+			lost++;
+			if (create_file(p, 1))
+				return -1;
+		}
+	}
+
+	return lost;
+}
+
+static int
+test_rm_rf_swap_race(void)
+{
+	int r = 1, n, pass, lost = 0;
+	pid_t parent = getpid(), child;
+	char p[64];
+
+	lwsl_user("%s\n", __func__);
+
+	if (mkdir(RACE_BASE, 0700) || mkdir(RACE_ROOT, 0700) ||
+	    mkdir(RACE_OUT, 0700))
+		goto bail0;
+	for (n = 0; n < RACE_FILES; n++) {
+		lws_snprintf(p, sizeof(p), RACE_OUT "/s%02d", n);
+		if (create_file(p, 1))
+			goto bail0;
+	}
+
+	/* a symlink in the tree, to a dir and to a file, is removed itself */
+
+	if (race_reset() || symlink("../outside", RACE_ROOT "/ldir") ||
+	    symlink("../outside/s00", RACE_ROOT "/lfile"))
+		goto bail0;
+	lws_dir(RACE_ROOT, NULL, lws_dir_rm_rf_cb);
+	if (exists(RACE_ROOT "/ldir") || exists(RACE_ROOT "/lfile") ||
+	    exists(RACE_D)) {
+		lwsl_err("%s: tree not emptied\n", __func__);
+		goto bail0;
+	}
+	race_clear(RACE_LNK);
+	if (race_reset()) {
+		lwsl_err("%s: static symlink followed\n", __func__);
+		goto bail0;
+	}
+
+	child = fork();
+	if (child < 0)
+		goto bail0;
+	if (!child)
+		race_swapper(parent);
+
+	/* the walk warns about every swap it meets, keep it quiet */
+	lws_set_log_level(LLL_ERR | LLL_USER, NULL);
+
+	for (pass = 0; pass < RACE_PASSES; pass++) {
+		lws_dir(RACE_ROOT, NULL, lws_dir_rm_rf_cb);
+
+		/* stop the swapper while we set up the next pass */
+		if (kill(child, SIGSTOP) ||
+		    waitpid(child, &n, WUNTRACED) != child)
+			goto bail;
+
+		n = race_reset();
+		if (n < 0)
+			goto bail;
+		lost += n;
+
+		if (kill(child, SIGCONT))
+			goto bail;
+	}
+
+	if (lost) {
+		lwsl_err("%s: %d files outside the tree deleted\n", __func__,
+			 lost);
+		goto bail;
+	}
+
+	lwsl_user("%s: ok\n", __func__);
+	r = 0;
+
+bail:
+	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER, NULL);
+	kill(child, SIGKILL);
+	waitpid(child, &n, 0);
+bail0:
+	race_clear(RACE_D);
+	race_clear(RACE_LNK);
+	race_clear(RACE_TMP);
+	lws_dir(RACE_BASE, NULL, lws_dir_rm_rf_cb);
+	rmdir(RACE_BASE);
+
+	return r;
+}
+#endif
+
+
 int main(int argc, const char **argv)
 {
 	
@@ -388,6 +588,8 @@ int main(int argc, const char **argv)
 	if (test_symlink_rotate())
 		result = 1;
 	if (test_rm_rf_long())
+		result = 1;
+	if (test_rm_rf_swap_race())
 		result = 1;
 #endif
 

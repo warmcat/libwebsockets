@@ -54,6 +54,8 @@
 #include "../../win32port/dirent/dirent-win32.h"
 #else
 #include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 static int filter(const struct dirent *ent)
@@ -340,12 +342,185 @@ lws_dir_glob_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 }
 
 /*
- * How deep below the starting dir rm -rf will go.  The path is never
- * truncated, so the walk always makes progress and the OS's path length
- * limit ends it anyway; this keeps the stack it can take on a small thread
- * bounded as well.  A subtree deeper than this is left in place and logged.
+ * How deep below the starting dir rm -rf will go.  The walk never composes
+ * a path that could be truncated, so it always makes progress; this keeps
+ * the stack (and, on the descriptor walk, the open directory fds) it can
+ * take bounded.  A subtree deeper than this is left in place and logged.
  */
 #define LWS_DIR_RM_RF_MAX_DEPTH 64
+
+#if !defined(WIN32) && !defined(_WIN32) && defined(O_DIRECTORY) && \
+    defined(O_NOFOLLOW) && defined(AT_REMOVEDIR) && \
+    defined(AT_SYMLINK_NOFOLLOW)
+/*
+ * rm -rf walks relative to directory fds wherever the platform has the
+ * *at() calls (Linux, the BSDs, OSX, ...).  Each directory is opened with
+ * O_NOFOLLOW from an fd on its parent and emptied through its own fd, so no
+ * path is ever re-resolved: a directory swapped for a symlink to somewhere
+ * else between our look at it and our use of it makes the open fail rather
+ * than taking us out of the tree, and everything we remove is named
+ * relative to a directory we hold open inside it.
+ *
+ * Platforms without them (windows, which also has no O_NOFOLLOW, and any
+ * other without openat()) keep the walk by path below, which refuses links
+ * it can see but can't close the race against one appearing afterwards.
+ */
+#define LWS_DIR_RM_RF_AT
+
+#if !defined(O_CLOEXEC)
+#define O_CLOEXEC 0
+#endif
+
+static int
+lws_dir_rm_rf_fd(int fd, int depth);
+
+/*
+ * Remove name, relative to the open directory dfd, with everything below it.
+ * Returns 0 if it is gone.
+ */
+
+static int
+lws_dir_rm_rf_at(int dfd, const char *name, int depth)
+{
+	struct stat st;
+	int fd;
+
+	if (fstatat(dfd, name, &st, AT_SYMLINK_NOFOLLOW))
+		return errno != ENOENT;
+
+	if (!S_ISDIR(st.st_mode)) {
+		/*
+		 * Files, and symlinks wherever they point: unlinkat() removes
+		 * the link itself, it never follows it
+		 */
+		if (unlinkat(dfd, name, 0)) {
+			lwsl_warn("%s: unlink %s failed %d\n", __func__, name,
+				  errno);
+			return 1;
+		}
+
+		return 0;
+	}
+
+	if (depth >= LWS_DIR_RM_RF_MAX_DEPTH) {
+		lwsl_warn("%s: depth limit, leaving %s\n", __func__, name);
+
+		return 1;
+	}
+
+	fd = openat(dfd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW |
+			       O_CLOEXEC | O_NONBLOCK);
+	if (fd < 0) {
+		if (errno != ELOOP && errno != ENOTDIR) {
+			lwsl_warn("%s: open %s failed %d\n", __func__, name,
+				  errno);
+			return 1;
+		}
+
+		/*
+		 * It was swapped for a symlink or a file since the fstatat():
+		 * we refused to follow it, now remove it like any other link.
+		 * If it was swapped back to a dir meanwhile this fails and we
+		 * leave it, rather than chase it.
+		 */
+		if (unlinkat(dfd, name, 0)) {
+			lwsl_warn("%s: unlink %s failed %d\n", __func__, name,
+				  errno);
+			return 1;
+		}
+
+		return 0;
+	}
+
+	if (lws_dir_rm_rf_fd(fd, depth + 1))
+		return 1; /* something below stays, already logged */
+
+	if (unlinkat(dfd, name, AT_REMOVEDIR)) {
+		lwsl_warn("%s: rmdir %s failed %d\n", __func__, name, errno);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Empty the directory open on fd, taking ownership of fd.  Returns nonzero
+ * if something in it could not be removed.
+ */
+
+static int
+lws_dir_rm_rf_fd(int fd, int depth)
+{
+	int pass, removed, failed = 0;
+	struct dirent *de;
+	DIR *d;
+
+	d = fdopendir(fd);
+	if (!d) {
+		lwsl_warn("%s: fdopendir failed %d\n", __func__, errno);
+		close(fd);
+		return 1;
+	}
+
+	/*
+	 * Whether readdir() still reports every remaining entry after others
+	 * were removed under it is unspecified (some filesystems skip some),
+	 * so take another pass while the last one removed anything.  It is
+	 * bounded so something refilling the dir as fast as we empty it can't
+	 * keep us here.
+	 */
+
+	for (pass = 0; pass < 8; pass++) {
+		removed = failed = 0;
+		while ((de = readdir(d))) {
+			if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+				continue;
+			if (lws_dir_rm_rf_at(fd, de->d_name, depth))
+				failed = 1;
+			else
+				removed = 1;
+		}
+		if (!removed)
+			break;
+		rewinddir(d);
+	}
+
+	closedir(d); /* closes fd */
+
+	return failed;
+}
+
+int
+lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	int dfd;
+
+	/* user is documented as ignored */
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	/*
+	 * The starting dir must itself be a directory, not a symlink to one:
+	 * it may be a name that someone else can replace (eg, an hls media
+	 * subdir).  lws_dir() listed it by path, but the names it gives us
+	 * are only ever acted on relative to what we open here.
+	 */
+
+	dfd = open(dirpath, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC |
+			    O_NONBLOCK);
+	if (dfd < 0) {
+		lwsl_warn("%s: open %s failed %d\n", __func__, dirpath, errno);
+		return 1; /* stop the walk, it isn't a dir we can act in */
+	}
+
+	lws_dir_rm_rf_at(dfd, lde->name, 0);
+	close(dfd);
+
+	return 0;
+}
+
+#else /* walk by path */
 
 static int
 lws_dir_rm_rf_entry(const char *dirpath, int *depth, struct lws_dir_entry *lde);
@@ -360,6 +535,7 @@ lws_dir_rm_rf_inner_cb(const char *dirpath, void *user,
 static int
 lws_dir_rm_rf_entry(const char *dirpath, int *depth, struct lws_dir_entry *lde)
 {
+	int recurse = 1;
 	char *path;
 
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
@@ -370,7 +546,19 @@ lws_dir_rm_rf_entry(const char *dirpath, int *depth, struct lws_dir_entry *lde)
 		return 1; /* OOM: stop rather than act on a partial walk */
 
 	if (lde->type == LDOT_DIR) {
-#if !defined(WIN32) && !defined(_WIN32) && !defined(__COVERITY__)
+#if defined(WIN32) || defined(_WIN32)
+		DWORD attr = GetFileAttributesA(path);
+
+		/*
+		 * Junctions and directory symlinks are reparse points that
+		 * the dirent emulation reports as dirs.  Never walk into one:
+		 * the rmdir() below (RemoveDirectory) removes the link itself,
+		 * leaving what it points to alone.
+		 */
+		if (attr == INVALID_FILE_ATTRIBUTES ||
+		    (attr & FILE_ATTRIBUTE_REPARSE_POINT))
+			recurse = 0;
+#elif !defined(__COVERITY__)
 		char dummy[8];
 		/*
 		 * hm... eg, recursive dir symlinks can show up a LDOT_DIR
@@ -384,9 +572,10 @@ lws_dir_rm_rf_entry(const char *dirpath, int *depth, struct lws_dir_entry *lde)
 		 * Hide this from Coverity since it flags any use of readlink()
 		 * even if safe.
 		 */
-		if (readlink(path, dummy, sizeof(dummy)) < 0)
+		if (readlink(path, dummy, sizeof(dummy)) >= 0)
+			recurse = 0;
 #endif
-		{
+		if (recurse) {
 			if (*depth >= LWS_DIR_RM_RF_MAX_DEPTH) {
 				lwsl_warn("%s: depth limit, leaving %s\n",
 					  __func__, path);
@@ -428,6 +617,7 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	return lws_dir_rm_rf_entry(dirpath, &depth, lde);
 }
+#endif
 
 #if !defined(WIN32) && !defined(_WIN32)
 /*

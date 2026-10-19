@@ -1586,10 +1586,17 @@ lws_dir_via_info(struct lws_dir_info *info);
  * This is a readymade rm -rf callback for use with lws_dir.  It recursively
  * removes everything below the starting dir; the caller rmdir()s the starting
  * dir itself afterwards if it wants it gone.  Symlinks are removed, never
- * followed.  Paths are composed without truncation, and a subtree nested
- * more than 64 directories below the starting dir is left in place (and
- * logged) rather than recursed into without bound.
- * Works on linux, OSX and Windows at least.
+ * followed, and a subtree nested more than 64 directories below the starting
+ * dir is left in place (and logged) rather than recursed into without bound.
+ *
+ * Where the platform has openat() and friends (Linux, the BSDs, OSX, ...)
+ * the walk is made relative to directory fds opened with O_NOFOLLOW, so a
+ * directory swapped for a symlink while it is being removed is refused, not
+ * followed out of the tree.  There the starting dir must itself be a real
+ * directory, not a symlink to one, or nothing is removed.  On Windows
+ * junctions and directory symlinks are removed without being walked into,
+ * but the walk is by path, so one swapped in mid-walk can't be ruled out;
+ * the same goes for platforms with neither.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
