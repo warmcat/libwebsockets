@@ -379,3 +379,6 @@ a log is evidence that something was or was not emitted.
    joins later requests to the same endpoint on that vhost onto it:
    tests counting server connections need a client vhost per client and
    a fresh context per part (B57, api-test-peer-stack-quic).
+ - With `LWS_WITH_SECURE_STREAMS_AUTH_SIGV4` on, minimal-secure-streams-
+   proxy exits if `~/.aws/credentials` is missing and ~10 sspc ctests
+   time out; point `HOME` at a dir with a dummy credentials file.
