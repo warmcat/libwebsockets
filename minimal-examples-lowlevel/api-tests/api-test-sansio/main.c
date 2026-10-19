@@ -4411,18 +4411,21 @@ h1_connect_rawv(struct lws_context *cx, struct lws_vhost *vh,
  * nothing after the CONNECT, and is hung up after the 20s; the other sends
  * raw-echo's "ping" every 8s, which raw-echo tells lws proves it alive, and
  * outlives the 20s many times over, until it stops, and is hung up 20s
- * after its last.  It moves the time on, so it goes last, and it has no
- * transcript.
+ * after its last.  A third, silent too, is accepted on another vhost that
+ * checks nothing (vh_named), and names sansio-rawv in its Host: it is held
+ * to the policy of the vhost it named, and is hung up with the first.  It
+ * moves the time on, so it goes last, and it has no transcript.
  */
 static int
 h1_connect_validity_half(struct lws_context *cx, struct lws_vhost *vh,
-			 int start_ms)
+			 struct lws_vhost *vh_named, int start_ms)
 {
-	static struct transport tp_idle, tp_ping;
+	static struct transport tp_idle, tp_ping, tp_named;
 	int n, last = 0;
 
 	if (!h1_connect_rawv(cx, vh, &tp_idle) ||
-	    !h1_connect_rawv(cx, vh, &tp_ping))
+	    !h1_connect_rawv(cx, vh, &tp_ping) ||
+	    !h1_connect_rawv(cx, vh_named, &tp_named))
 		return 1;
 
 	for (n = 1; n <= 6; n++) {
@@ -4441,7 +4444,7 @@ h1_connect_validity_half(struct lws_context *cx, struct lws_vhost *vh,
 			/* the silent one's ping time: raw has no ping to send */
 			at(cx, start_ms + VALID_PING_S * 1000 + 500);
 			feed(cx, &tp_ping, NULL, 0);
-			if (tp_idle.closed) {
+			if (tp_idle.closed || tp_named.closed) {
 				lwsl_err("case 53: a silent raw connection was "
 					 "hung up at its ping time\n");
 				return 1;
@@ -4455,6 +4458,12 @@ h1_connect_validity_half(struct lws_context *cx, struct lws_vhost *vh,
 				lwsl_err("case 53: a silent raw connection was "
 					 "not hung up after %ds\n",
 					 VALID_HUP_S);
+				return 1;
+			}
+			if (!tp_named.closed) {
+				lwsl_err("case 53: a silent raw connection on "
+					 "the vhost its Host: named was not hung "
+					 "up after %ds\n", VALID_HUP_S);
 				return 1;
 			}
 			break;
@@ -5673,7 +5682,9 @@ main(int argc, const char **argv)
 		.secs_since_valid_ping		= VALID_PING_S,
 		.secs_since_valid_hangup	= VALID_HUP_S,
 	};
-	struct lws_vhost *vh, *vh_uri, *vh_raw, *vh_rawv;
+	/* the policy of a vhost that checks nothing (case 53) */
+	static const lws_retry_bo_t no_validity_policy = { 0 };
+	struct lws_vhost *vh, *vh_uri, *vh_raw, *vh_rawv, *vh_rawn;
 #if defined(LWS_WITH_FILE_OPS)
 	struct lws_vhost *vh_404;
 #endif
@@ -6077,8 +6088,20 @@ main(int argc, const char **argv)
 		lwsl_err("raw validity vhost failed\n");
 		goto bail;
 	}
+	/*
+	 * and one checking nothing, that a connection is accepted on before
+	 * its Host: moves it to sansio-rawv
+	 */
+	info.vhost_name = "sansio-rawn";
+	info.retry_and_idle_policy = &no_validity_policy;
+	vh_rawn = lws_create_vhost(cx, &info);
+	info.retry_and_idle_policy = NULL;
+	if (!vh_rawn) {
+		lwsl_err("raw no-validity vhost failed\n");
+		goto bail;
+	}
 	at(cx, 500000);
-	if (h1_connect_validity_half(cx, vh_rawv, 500000))
+	if (h1_connect_validity_half(cx, vh_rawv, vh_rawn, 500000))
 		goto bail;
 
 	result = 0;
