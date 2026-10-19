@@ -80,6 +80,10 @@ struct lws_protocols {
 	 * these size chunks.  Since that is expensive, it's preferable
 	 * to restrict one fragment you are trying to send to match this
 	 * size.
+	 *
+	 * Neither this nor .rx_buffer_size limits writes on a UDP wsi: each
+	 * write there is one datagram, sent whole or not at all, see
+	 * READMEs/README.udp.md.
 	 */
 
 	/* Add new things just above here ---^

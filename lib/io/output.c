@@ -120,17 +120,31 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->io->desc.sockfd))
 		lwsl_wsi_err(wsi, "invalid sock");
 
-	/* limit sending */
-	if (wsi->a.protocol->tx_packet_size)
-		n = (unsigned int)wsi->a.protocol->tx_packet_size;
-	else {
-		n = (unsigned int)wsi->a.protocol->rx_buffer_size;
-		if (!n)
-			n = context->pt_serv_buf_size;
-	}
-	n += LWS_PRE + 4;
-	if (n > len)
+#if defined(LWS_WITH_UDP)
+	if (lws_wsi_is_udp(wsi))
+		/*
+		 * Each send on a UDP socket is one datagram, so it is never
+		 * split by the stream limits below: the pieces would arrive as
+		 * separate datagrams the peer cannot join, the first one
+		 * looking complete.  The datagram goes whole, or the send
+		 * fails (eg, EMSGSIZE when it is too big for the socket).
+		 */
 		n = (unsigned int)len;
+	else
+#endif
+	{
+		/* limit sending */
+		if (wsi->a.protocol->tx_packet_size)
+			n = (unsigned int)wsi->a.protocol->tx_packet_size;
+		else {
+			n = (unsigned int)wsi->a.protocol->rx_buffer_size;
+			if (!n)
+				n = context->pt_serv_buf_size;
+		}
+		n += LWS_PRE + 4;
+		if (n > len)
+			n = (unsigned int)len;
+	}
 
 	/* nope, send it on the socket directly */
 
@@ -176,6 +190,18 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 		lwsi_set_skt_unusable(wsi, 1);
 		return -1;
 	}
+
+#if defined(LWS_WITH_UDP)
+	if (lws_wsi_is_udp(wsi) && m && m != n) {
+		/*
+		 * Datagram sockets don't send part of one, but if what is
+		 * under us did, the rest can't follow as a datagram of its
+		 * own: what went is all that will, take it as gone
+		 */
+		lwsl_wsi_warn(wsi, "datagram truncated, %u of %u", m, n);
+		m = n;
+	}
+#endif
 
 	/*
 	 * we were sending this from buflist_out?  Then not sending everything
