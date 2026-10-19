@@ -862,6 +862,12 @@ tcp has no client authentication at all: by default it listens on loopback
 only, and lws refuses a bind address that is not loopback unless the creation
 info sets `.ss_proxy_tcp_allow_remote` (see READMEs/README.secure-streams.md).
 
+Clients do not check who the proxy is in turn.  A name in the abstract
+namespace can be bound by any local user while the proxy is not listening, who
+then sees what the clients send and answers them; where that matters, use a
+socket path in the filesystem, in a directory only the proxy's user may create
+files in (see READMEs/README.secure-streams.md).
+
 In this case the proxy uses secure-streams.c and policy.c as before to fulfil
 the inbound proxy streams, but uses secure-streams-serialize.c to serialize and
 deserialize the proxied SS API activity.  The proxy clients define

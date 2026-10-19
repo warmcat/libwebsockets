@@ -31,6 +31,27 @@ clients using its own policy and whatever credentials it holds: the system
 auth token, client certificates, signing keys, cookies.  Anybody who can use
 the proxy gets the use of them, so it matters who can reach its listener.
 
+### Unix Domain Socket proxy link
+
+By default the proxy listens on, and clients connect to, `@proxy.ss.lws` in the
+Linux abstract namespace (`/tmp/proxy.ss.lws` elsewhere).  The proxy checks
+who each client is, see `.ss_proxy_perms`.  But clients do **not** check who
+the proxy is, and a name in the abstract namespace has no filesystem
+permissions: it belongs to whichever local process binds it first, whatever
+user it runs as.  A local user who binds the name while the proxy is not
+listening (before it starts, or while it restarts, after which the real
+proxy's own bind fails) receives every client's streamtypes, metadata (which
+may be API keys or tokens) and payload, and can answer them with anything it
+likes.
+
+So where the proxy's identity matters, give the proxy and its clients a socket
+path in the filesystem instead (`.ss_proxy_bind`, eg, `/run/myproxy/proxy.ss`
+for the proxy and `+/run/myproxy/proxy.ss` for the clients), in a directory
+only the proxy's user may create files in.  Then the file's owner and mode
+decide who can be the proxy and who can reach it.  Clients log the proxy's
+uid and gid when they connect, where the platform can tell them (Linux and
+the BSDs).
+
 ### tcp proxy link
 
 A proxy listening on tcp (`lws_ss_proxy_create()` with a port, eg,

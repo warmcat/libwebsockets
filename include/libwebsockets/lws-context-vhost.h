@@ -1033,6 +1033,20 @@ struct lws_context_creation_info {
 	 * network interface address (not name, it's ambiguous for ipv4/6) to
 	 * bind the tcp connection to the proxy to.
 	 *
+	 * A name in the Linux abstract namespace (starting with @, as the
+	 * default "@proxy.ss.lws" does) has no filesystem permissions and
+	 * belongs to whichever local process binds it first, whatever its
+	 * user.  The proxy checks who its clients are (see .ss_proxy_perms),
+	 * but sspc clients do not check who the proxy is: a local user who
+	 * binds the name while the proxy is not listening, eg, before it
+	 * starts or while it restarts, sees everything the clients send,
+	 * metadata included, and answers them as it likes.  Where the
+	 * proxy's identity matters, use a socket path in the filesystem
+	 * instead, in a directory only the proxy's user may create files in,
+	 * so the file's owner and permissions decide who can be the proxy
+	 * and who can reach it.  Clients log the proxy's uid and gid when
+	 * they connect, where the platform can tell them.
+	 *
 	 * For a proxy listening on tcp (lws_ss_proxy_create() with a port),
 	 * NULL listens on the loopback address only (127.0.0.1, or ::1 if
 	 * the build has no IPv4).  A bind that is not a numeric loopback

@@ -19,6 +19,14 @@ filesystem permissions, so the proxy checks each client's credentials
 itself; a socket path (`-i /path`) is created owned by the given user:group
 with mode 0660 instead.  The tcp listener (-p) has no such check, see above.
 
+The proxy checks who its clients are, but clients do not check who the proxy
+is.  A name in the abstract namespace, like the default, has no filesystem
+permissions: any local user who binds it while the proxy is not running gets
+the clients' traffic, metadata included, and answers them.  Where the proxy's
+identity matters, use a socket path (`-i /path`, and `--ssproxy-iface +/path`
+for the clients) in a directory only the proxy's user may create files in.
+Clients log the proxy's uid and gid when they connect.
+
 ## build
 
 ```

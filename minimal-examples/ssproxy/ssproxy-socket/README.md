@@ -11,6 +11,14 @@ another numeric address, and lws refuses an address that is not loopback
 unless --allow-remote is also given.  Only use that where the network the
 port is reachable from is trusted, eg, firewalled to the intended clients.
 
+The proxy checks who its clients are, but clients do not check who the proxy
+is.  A name in the abstract namespace, like the default, has no filesystem
+permissions: any local user who binds it while the proxy is not running gets
+the clients' traffic, metadata included, and answers them.  Where the proxy's
+identity matters, use a socket path (`-i /path`, and `--ssproxy-iface +/path`
+for the clients) in a directory only the proxy's user may create files in.
+Clients log the proxy's uid and gid when they connect.
+
 ## build
 
 ```

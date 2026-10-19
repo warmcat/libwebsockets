@@ -75,6 +75,23 @@ lws_sss_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason,
 			 * connecting, the wsi is already being closed
 			 */
 			return -1;
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+		if (!h->context->ss_proxy_port) {
+			lws_sockfd_type fd = lws_get_socket_fd(wsi);
+			uid_t uid;
+			gid_t gid;
+
+			/*
+			 * We don't require anything of the proxy's identity,
+			 * but a name in the abstract namespace belongs to
+			 * whoever bound it first, so say who we are talking to
+			 */
+			if (fd >= 0 && !lws_plat_unix_peer_ids(fd, &uid, &gid))
+				lwsl_sspc_notice(h, "proxy is uid %u, gid %u",
+						 (unsigned int)uid,
+						 (unsigned int)gid);
+		}
+#endif
 		h->txp_path.priv_in = (lws_transport_priv_t)wsi;
         	if (h->txp_path.ops_in->event_connect_disposition(h, 0))
         		return -1;
