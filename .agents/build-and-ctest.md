@@ -300,6 +300,10 @@
    `lws_socket_bind()` hands a numeric iface to `SO_BINDTODEVICE`, which
    fails without privilege (G-225).
 
+ - api-test-http-compression is the only test covering h3 stream
+   compression with large bodies: the compressor drain under h3 credit
+   pressure (G-233) only showed with a 3MB body, not 1MB or less.
+
 ## Debug logging in ctest
 
 The default log spew handling keeps only the last 10 lines, so at
@@ -316,3 +320,7 @@ a log is evidence that something was or was not emitted.
    fixtures is `-d1039`, which also makes lwsws install its crash handler,
    so a fixture segfault leaves a backtrace in that log.
  - Logs containing binary bytes need `grep -a`.
+ - QUIC info logs during a transfer are mostly dropped by the log spew
+   rate limiter, so grepping `-d 1039` output cannot prove a fault
+   injection fired mid-transfer; rely on the test's red half.  Transport
+   parameter values do show.

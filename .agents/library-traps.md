@@ -528,5 +528,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - `PROTOCOL_DESTROY` is not delivered to protocols a plugins-build vhost
    never instantiated: core protocols injected into every vhost tear down
    their per-vhost state in vhost destroy instead.
+ - A test that drives plugin internals with a `struct vhd` of its own
+   (eg on the stack) must run that plugin's PROTOCOL_DESTROY teardown
+   itself on every exit, or LSan fails it on allocations the plugin
+   frees in real use (G-226, api-test-dnssec-monitor-inventory).
  - Logic in plugins with no end-to-end test (eg ACME) goes in a separate
    testable file (`acme-json.c`) that an api-test compiles in.
