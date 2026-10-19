@@ -17,6 +17,9 @@
  *  - a pending fetch, and one merged into it, complete once between them,
  *    as aborted, when the vhost goes away unfinished
  *  - a cancelled fetch never completes: its opaque is the caller's again
+ *  - a cancel with no domain takes back every fetch with that opaque, of
+ *    any domain, and only those, as auth-dns does when its vhost goes,
+ *    since fetches outlive the queries that started them (G-220)
  *
  * Each opaque is heap allocated and released only by its completion, so
  * one never released also shows as a leak under LSan.
@@ -40,6 +43,7 @@ enum {
 	FOT_NO_DOMAIN,
 	FOT_PENDING,
 	FOT_CANCELLED,
+	FOT_CANCEL_ALL,
 
 	FOT_COUNT
 };
@@ -49,6 +53,7 @@ static const char * const fot_names[] = {
 	"refused for no domain",
 	"pending, and a request merged into it",
 	"cancelled",
+	"cancelled with every domain of its opaque",
 };
 
 static int fot_calls[FOT_COUNT], fot_status[FOT_COUNT], fails;
@@ -119,7 +124,7 @@ main(int argc, const char **argv)
 	};
 	struct lws_protocol_vhost_options pvo[5], pvo_wrap;
 	const struct lws_dht_dnssec_ops *ops = NULL;
-	struct fot_opaque *o_pending, *o_cancel;
+	struct fot_opaque *o_pending, *o_cancel, *o_all;
 	struct lws_context_creation_info info;
 	const struct lws_protocols *pcol;
 	const char *port, *tport;
@@ -235,6 +240,17 @@ main(int argc, const char **argv)
 		   "cancel does not complete the fetch");
 	free(o_cancel);
 
+	/* one opaque for two domains, taken back by one cancel naming none */
+
+	o_all = fot_opaque_create(FOT_CANCEL_ALL);
+	n = fot_fetch(ops, cx, vh, "all-1.example", o_all, 0);
+	n |= fot_fetch(ops, cx, vh, "all-2.example", o_all, 0);
+	fot_expect(!n, "two fetches with one opaque pending");
+	n = fot_fetch(ops, cx, vh, NULL, o_all, 1);
+	fot_expect(!n && !fot_calls[FOT_CANCEL_ALL],
+		   "cancel with no domain does not complete them");
+	free(o_all);
+
 	/* a little service, so the fetches really went out */
 
 	for (n = 0; n < 5; n++)
@@ -249,6 +265,8 @@ bail:
 		   "pending fetch completed once, as aborted, at destroy");
 	fot_expect(!fot_calls[FOT_CANCELLED],
 		   "cancelled fetch never completed");
+	fot_expect(!fot_calls[FOT_CANCEL_ALL],
+		   "fetches cancelled with no domain never completed");
 
 	for (n = 0; n < FOT_COUNT; n++)
 		lwsl_user("%s: %s: %d completion(s), status %d\n", __func__,

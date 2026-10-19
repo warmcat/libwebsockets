@@ -84,7 +84,10 @@ typedef void (*lws_dht_dnssec_fetch_cb_t)(void *opaque, const char *domain, int 
  * merged into it, and cb is called once for both.
  *
  * A cancel (is_cancel = 1) drops the pending requests for that domain and
- * opaque without calling their cb: opaque is the caller's again.
+ * opaque without calling their cb: opaque is the caller's again.  A cancel
+ * with domain NULL drops every pending request with that opaque, so a caller
+ * going away can take back everything it handed out at once.  A cancel must
+ * not be made from inside cb.
  */
 struct lws_dht_dnssec_fetch_zone_args {
 	struct lws_vhost *vhost;
@@ -92,7 +95,9 @@ struct lws_dht_dnssec_fetch_zone_args {
 	const char *cache_dir;
 	lws_dht_dnssec_fetch_cb_t cb;
 	void *opaque;
-	int is_cancel; /* If 1, cancel an ongoing fetch for this domain/opaque pair */
+	int is_cancel; /* If 1, cancel an ongoing fetch for this domain/opaque
+			* pair, or for every domain with opaque if domain is
+			* NULL */
 	int force_network; /* If 1, bypass local cache and query network directly */
 };
 

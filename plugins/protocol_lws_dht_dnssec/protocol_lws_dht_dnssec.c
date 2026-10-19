@@ -6226,13 +6226,17 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 	struct vhd_dht_dnssec *v = get_dnssec_vhd(context, args->vhost);
 
 	if (args->is_cancel) {
-		if (!v || !args->domain)
+		if (!v)
 			return 1;
 
-		/* the canceller takes opaque back: the cbs are not called */
+		/*
+		 * the canceller takes opaque back: the cbs are not called.  No
+		 * domain cancels every request with that opaque.
+		 */
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&v->fetch_reqs)) {
 			struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-			if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
+			if ((!args->domain || !strcmp(req->domain, args->domain)) &&
+			    req->opaque == args->opaque) {
 				lws_sul_cancel(&req->sul_timeout);
 				lws_dll2_remove(d);
 				free(req);

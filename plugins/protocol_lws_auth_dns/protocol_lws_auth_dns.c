@@ -1562,17 +1562,25 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				 */
 				lws_sul_cancel(&q->sul_timeout);
 				lws_dll2_remove(&q->list);
-				if (vhd->dht_ops && vhd->dht_ops->fetch_zone) {
-					struct lws_dht_dnssec_fetch_zone_args args;
-					memset(&args, 0, sizeof(args));
-					args.vhost = vhd->vhost;
-					args.domain = q->domain;
-					args.opaque = vhd;
-					args.is_cancel = 1;
-					vhd->dht_ops->fetch_zone(vhd->context, &args);
-				}
 				free(q);
 			} lws_end_foreach_dll_safe(d, d1);
+
+			/*
+			 * Every zone fetch we started holds vhd as its opaque,
+			 * including ones whose queries timed out already (the
+			 * fetch outlives them, so a slow zone still arrives
+			 * for the client's retries): take them all back, so
+			 * none can complete into vhd after it is freed (G-220)
+			 */
+			if (vhd->dht_ops && vhd->dht_ops->fetch_zone) {
+				struct lws_dht_dnssec_fetch_zone_args args;
+
+				memset(&args, 0, sizeof(args));
+				args.vhost = vhd->vhost;
+				args.opaque = vhd;
+				args.is_cancel = 1;
+				vhd->dht_ops->fetch_zone(vhd->context, &args);
+			}
 
 			vhd->pending_unique_domains = 0;
 
