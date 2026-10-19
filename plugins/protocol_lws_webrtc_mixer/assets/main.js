@@ -32,6 +32,11 @@ let unreadCount = 0;
 let lastSentJoinedState = null;
 let lastSentStats = null;
 let debugContextReason = "";
+/*
+ * The peer connection whose offer we sent and which has not had its answer
+ * yet.  Only one answer is taken per offer: see the 'answer' handler.
+ */
+let answerPendingFor = null;
 
 // Persistence keys
 const STORAGE_VIDEO_ID = 'lws_mixer_video_id';
@@ -829,20 +834,37 @@ async function connectSignalling() {
             const msg = JSON.parse(event.data);
             if (msg.type === 'answer') {
                 /*
+                 * Only the answer to the offer we sent, and only once: an
+                 * answer arriving any other time is not part of our own
+                 * exchange with the server, and must not be able to replace
+                 * the server's media endpoint with somebody else's.
+                 */
+                if (!pc || answerPendingFor !== pc ||
+                    pc.signalingState !== 'have-local-offer' ||
+                    typeof msg.sdp !== 'string') {
+                    console.warn("Ignoring unexpected answer");
+                    return;
+                }
+                answerPendingFor = null;
+
+                /*
                  * Pass the generated Answer directly to setRemoteDescription.
                  * Previous manual SDP pruning stripped PTs from the m=video line but left
                  * orphan a=rtpmap attributes, causing Chromium to throw "Failed to parse codecs correctly".
                  * Codec preferences are already handled cleanly via setCodecPreferences during Offer generation.
                  */
 
-                await pc.setRemoteDescription(new RTCSessionDescription(msg));
-            } else if (msg.type === 'candidate') {
-                await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-            } else if (msg.type === 'request_res') {
-                const track = localStream.getVideoTracks()[0];
-                if (track) {
-                    await track.applyConstraints({ width: { ideal: msg.width }, height: { ideal: msg.height } });
-                }
+                await pc.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: msg.sdp
+                }));
+
+                /*
+                 * There is deliberately no handler for trickled 'candidate's
+                 * (or 'request_res'): the mixer is ICE-lite and gives its
+                 * candidates in the answer's SDP, and never sends either, so
+                 * accepting them would only ever take them from somebody else.
+                 */
             } else if (msg.type === 'remote_capabilities') {
                 /*
                  * {"type":"remote_capabilities","target":"<opaque id>",
@@ -1390,6 +1412,7 @@ async function join() {
     }).then(() => {
         const name = loggedInEmail || 'Anonymous';
         log(`Sending offer for ${name}...`);
+        answerPendingFor = pc;
         ws.send(JSON.stringify({
             type: pc.localDescription.type,
             sdp: pc.localDescription.sdp,

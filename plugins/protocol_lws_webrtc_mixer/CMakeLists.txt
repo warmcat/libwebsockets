@@ -1,6 +1,7 @@
 set(PLUGIN_NAME protocol_lws_webrtc_mixer)
 set(requirements 1)
 require_lws_config(LWS_WITH_WEBRTC_MIXER 1 requirements)
+require_lws_config(LWS_WITH_LEJP 1 requirements)
 
 if (requirements)
 	find_package(PkgConfig QUIET)
@@ -12,7 +13,7 @@ if (requirements)
 		message(FATAL_ERROR "GStreamer 1.0 and gstreamer-app-1.0 are required for the WebRTC mixer plugin")
 	endif()
 
-	create_plugin(${PLUGIN_NAME} "." "protocol_lws_webrtc_mixer.c;mixer-media.c;mixer-wav.c;layout-quad.c;layout-speaker.c" "" "")
+	create_plugin(${PLUGIN_NAME} "." "protocol_lws_webrtc_mixer.c;mixer-media.c;mixer-signal.c;mixer-wav.c;layout-quad.c;layout-speaker.c" "" "")
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
 		target_include_directories(${PLUGIN_NAME} PRIVATE .)

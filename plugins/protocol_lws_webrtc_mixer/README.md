@@ -82,6 +82,18 @@ Within a room, the plugin does enforce the following:
    stored capability blob is capped at 2KB, and no more text is queued to a
    peer whose tx backlog is already over 256KB.
 
+Nothing a peer sends is relayed to another peer as received.  The plugin picks
+a message's type from the first `"type"` in it, but a browser's `JSON.parse()`
+keeps the last of duplicate keys, so a relayed message could be one thing to
+the mixer and any other server message to its target.  A `set_control` is
+parsed strictly (one flat object holding exactly `type`, `target`, `kind`,
+`id` and `val`, each once, `id` an unsigned and `val` a signed 32-bit integer)
+and the target is sent a message the mixer composed from those:
+
+```
+{"type":"set_control","from":"<sender id>","kind":"video"|"audio","id":<n>,"val":<n>}
+```
+
 A capability blob is bytes we received from a peer and never parsed, so it is
 relayed as an escaped JSON *string* in the `payload` member, which the client
 parses separately.  Do not "simplify" that back into splicing the raw blob in

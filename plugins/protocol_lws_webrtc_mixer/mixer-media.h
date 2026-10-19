@@ -3,6 +3,7 @@
 
 #include <libwebsockets.h>
 #include "../protocol_lws_webrtc/protocol_lws_webrtc.h"
+#include "mixer-signal.h"
 
 #include <opus/opus.h>
 #include <pthread.h>
@@ -243,7 +244,7 @@ struct participant {
 	 * the room, and only the controller may drive somebody else's camera
 	 * controls or read their device capabilities.
 	 */
-	char                    id[24];
+	char                    id[MIXER_SIGNAL_ID_MAX];
 	int                     controller;
 	lws_usec_t              last_caps_req;
 

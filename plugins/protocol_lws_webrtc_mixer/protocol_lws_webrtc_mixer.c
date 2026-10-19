@@ -31,6 +31,7 @@
 
 #include "../protocol_lws_webrtc/protocol_lws_webrtc.h"
 #include "mixer-media.h"
+#include "mixer-signal.h"
 #include <libwebsockets/lws-rtp.h>
 
 const struct lws_webrtc_ops *we_ops;
@@ -1021,51 +1022,61 @@ est_fail:
 
 					/*
 					 * Handle set_control:
-					 * {"type":"set_control","target":"<id>","id":...,"val":...}
+					 * {"type":"set_control","target":"<id>","kind":...,
+					 *  "id":...,"val":...}
 					 *
 					 * lws_json_simple_find() strips the quotes, so the
 					 * value is exactly "set_control".
 					 */
 					if (tal == 11 && !strncmp(v, "set_control", 11)) {
-						const char *target = lws_json_simple_find((const char *)in, len, "\"target\":", &al);
-						if (target) {
-							char target_id[sizeof(p->id)];
-							struct participant *tp;
+						struct mixer_set_control sc;
+						char msg[160];
+						struct participant *tp;
+						int n;
 
-							if (mixer_json_str(target_id, sizeof(target_id),
-									   target, al))
-								break;
-
-							tp = find_participant_by_id(p->room, target_id);
-							if (!tp || !tp->pss) {
-								lwsl_warn("%s: set_control: no such participant\n",
-										__func__);
-								break;
-							}
-
-							/*
-							 * This drives the target's camera and
-							 * microphone device settings, so a peer
-							 * may only aim it at itself unless it is
-							 * the room's controller.
-							 */
-							if (!mixer_may_control(p, tp)) {
-								lwsl_warn("%s: '%s' not entitled to control '%s'\n",
-										__func__, p->id, tp->id);
-								break;
-							}
-
-							/*
-							 * The target only looks at "type", "id" and
-							 * "val", and ignores "target", so the
-							 * message can be forwarded as-is --- it
-							 * goes to a peer that has just been shown
-							 * to be a legitimate destination for it.
-							 */
-							mixer_send_text(tp, (const char *)in, len);
-							lwsl_notice("%s: Forwarded set_control from '%s' to '%s'\n",
-									__func__, p->id, tp->id);
+						/*
+						 * Never relay what the peer sent: we took
+						 * the type from the first "type" in it, but
+						 * the target's JSON.parse() keeps the last,
+						 * so a relayed set_control could be any
+						 * server message (eg, a WebRTC answer) to
+						 * the target.  Parse it strictly into what
+						 * it may carry, and compose a fresh one.
+						 */
+						if (mixer_set_control_parse((const char *)in,
+									    len, &sc)) {
+							lwsl_warn("%s: malformed set_control from '%s'\n",
+									__func__, p->id);
+							break;
 						}
+
+						tp = find_participant_by_id(p->room, sc.target);
+						if (!tp || !tp->pss) {
+							lwsl_warn("%s: set_control: no such participant\n",
+									__func__);
+							break;
+						}
+
+						/*
+						 * This drives the target's camera and
+						 * microphone device settings, so a peer
+						 * may only aim it at itself unless it is
+						 * the room's controller.
+						 */
+						if (!mixer_may_control(p, tp)) {
+							lwsl_warn("%s: '%s' not entitled to control '%s'\n",
+									__func__, p->id, tp->id);
+							break;
+						}
+
+						n = mixer_set_control_compose(msg, sizeof(msg),
+									      p->id, &sc);
+						if (n < 0)
+							break;
+
+						mixer_send_text(tp, msg, (size_t)n);
+						lwsl_notice("%s: Sent set_control from '%s' to '%s'\n",
+								__func__, p->id, tp->id);
 					}
 
 					if (is_join) {
