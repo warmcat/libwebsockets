@@ -1771,7 +1771,10 @@ lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 	struct hls_webvtt_cue *wcues = NULL;
 	double t0 = 0.0, t1 = 0.0, t_lo;
 	struct hls_sub_track *tracks;
-	int ntracks, ti, i, wn = 0, total, emitted, rr;
+	int ntracks, ti, i, wn = 0, emitted, rr;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	int total;
+#endif
 	struct seg_timeline tl;
 
 	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
@@ -1824,7 +1827,9 @@ lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 			goto bail;
 		}
 		rr = render_sub_segment(&out, wcues, wn, t0, t1, &emitted);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		total = wn;
+#endif
 		free_cues(wcues, wn);
 		if (rr)
 			goto bail;
@@ -1843,7 +1848,9 @@ lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 		}
 		rr = render_sub_segment(&out, cache->cues, cache->n_cues, t0,
 					t1, &emitted);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		total = cache->n_cues;
+#endif
 		if (rr) {
 			pthread_mutex_unlock(&vhd->sub_lock);
 			goto bail;

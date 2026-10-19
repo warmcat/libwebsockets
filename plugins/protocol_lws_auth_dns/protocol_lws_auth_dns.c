@@ -1512,7 +1512,9 @@ static struct lws *
 dnsbl_query_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, int n, void *opaque)
 {
 	struct pending_dnsbl_query *q = (struct pending_dnsbl_query *)opaque;
+#if (_LWS_ENABLED_LOGS & (LLL_INFO | LLL_NOTICE))
 	char pn[512];
+#endif
 
 	lwsl_info("%s: n=%d for ads=%s\n", __func__, n,
 		  ads ? lws_json_purify(pn, ads, (int)sizeof(pn), NULL) : "null");
@@ -1694,8 +1696,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* read zone files to identify domains we are authoritative for */
 		if (vhd->zone_dir[0] != '\0') {
 			lwsl_notice("%s: scanning directory %s (local disk mode)\n", __func__, vhd->zone_dir);
-			int r = lws_dir(vhd->zone_dir, vhd, auth_dns_dir_cb);
-			lwsl_notice("%s: lws_dir returned %d\n", __func__, r);
+			/* the cb never stops the scan, so nothing to check */
+			lws_dir(vhd->zone_dir, vhd, auth_dns_dir_cb);
 		}
 
 		{

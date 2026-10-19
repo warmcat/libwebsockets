@@ -1810,7 +1810,9 @@ scan_keyframes(const char *url, int video_idx, volatile int *cancel,
 	struct scan_kf *arr = NULL;
 	int n = 0, cap = 0, ret = -1, fd = -1;
 	int64_t cluster_pos = -1, fsize = 0;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	lws_usec_t t0 = lws_now_usecs();
+#endif
 	AVStream *st;
 	AVPacket pkt;
 
@@ -2215,6 +2217,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		else if (in_ctx->duration > 0)
 			total_dur_s = (double)in_ctx->duration / AV_TIME_BASE;
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		/* only the diagnostic calls (manifest's -1 probe, and seg 0),
 		 * so a long file's per-segment manifest loop does not flood */
 		if (target_seg_idx <= 0) {
@@ -2236,9 +2239,11 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 					    e2 ? (long long)e2->timestamp : -1);
 			}
 		}
+#endif
 
 		if (total_dur_s > 2.0 * HLS_SEGMENT_DUR &&
 		    total_dur_s / (double)(current_seg + 1) > 2.0 * HLS_SEGMENT_DUR) {
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 			const AVIndexEntry *el = count > 0 ? get_index_entry(st, count - 1) : NULL;
 
 			lwsl_warn("HLS-INDEX: %s: keyframe grouping degenerate "
@@ -2256,6 +2261,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 				  el ? (long long)el->timestamp : -1,
 				  (idx && idx->count > 0) ? (long long)idx->entries[idx->count - 1].dts : -1,
 				  max_dur_seen);
+#endif
 			return -1;
 		}
 	}
@@ -2812,15 +2818,18 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	int audio_buffer_count = 0;
 	memset(audio_buffer, 0, sizeof(audio_buffer));
 
-	/* Diagnostics variables */
-	int64_t first_video_pts = AV_NOPTS_VALUE, last_video_pts = AV_NOPTS_VALUE;
-	int64_t first_video_dts = AV_NOPTS_VALUE, last_video_dts = AV_NOPTS_VALUE;
+	/* Diagnostics variables, the ones only the summary log uses guarded */
+	int64_t first_video_pts = AV_NOPTS_VALUE;
 	int64_t first_audio_pts = AV_NOPTS_VALUE, last_audio_pts = AV_NOPTS_VALUE;
 	int64_t first_audio_dts = AV_NOPTS_VALUE, last_audio_dts = AV_NOPTS_VALUE;
 	int video_packets_written = 0, audio_packets_written = 0;
 	int video_packets_discarded = 0, audio_packets_discarded = 0;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	int64_t last_video_pts = AV_NOPTS_VALUE;
+	int64_t first_video_dts = AV_NOPTS_VALUE, last_video_dts = AV_NOPTS_VALUE;
 	AVRational video_out_time_base = {0, 0};
 	AVRational audio_out_time_base = {0, 0};
+#endif
 
         out_ctx->avoid_negative_ts = 0;
         if (avformat_write_header(out_ctx, &opts) < 0) {
@@ -3422,10 +3431,14 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
 			if (first_video_pts == AV_NOPTS_VALUE) {
 				first_video_pts = pkt.pts;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 				first_video_dts = pkt.dts;
+#endif
 			}
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			last_video_pts = pkt.pts;
 			last_video_dts = pkt.dts;
+#endif
 			video_packets_written++;
 		} else if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
 			if (first_audio_pts == AV_NOPTS_VALUE) {
@@ -3533,12 +3546,14 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 
 	av_write_trailer(out_ctx);
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	if (video_idx >= 0 && stream_mapping[video_idx] >= 0) {
 		video_out_time_base = out_ctx->streams[stream_mapping[video_idx]]->time_base;
 	}
 	if (audio_idx >= 0 && stream_mapping[audio_idx] >= 0) {
 		audio_out_time_base = out_ctx->streams[stream_mapping[audio_idx]]->time_base;
 	}
+#endif
 
 done:
 	/* freed here, not on the success path, so the goto done above (eg,
@@ -3572,6 +3587,7 @@ done:
         size_t offset = find_moof_offset(hb.ptr, hb.size);
         size_t send_size = hb.size - offset;
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	/* Calculate and log stats */
 	double video_duration_sec = 0.0;
 	double audio_duration_sec = 0.0;
@@ -3624,6 +3640,7 @@ done:
 		  start_av_delta_sec,
 		  end_av_delta_sec,
 		  hb.size, send_size);
+#endif
 
         r->body = malloc(LWS_PRE + send_size);
         if (!r->body) {
