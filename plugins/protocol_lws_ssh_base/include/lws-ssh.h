@@ -415,6 +415,7 @@ struct lws_kex {
 	uint32_t kex_r_len;
 	uint8_t match_bitfield;
 	uint8_t newkeys; /* which sides newkeys have been applied */
+	uint8_t ecdh_init_seen; /* the peer's KEX_ECDH_INIT has arrived */
 
 	/*
 	 * The peer's host key name-list is parsed one name at a time; cache

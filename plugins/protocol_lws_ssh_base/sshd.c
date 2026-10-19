@@ -818,6 +818,20 @@ again:
 				break;
 
 			case SSH_MSG_KEXINIT:
+				/*
+				 * RFC4253 7.1: a key exchange begins with one
+				 * KEXINIT from each side.  While ours is in
+				 * progress (we hold the peer's I_C until
+				 * both NEWKEYS are applied), another is a
+				 * protocol error.  Accepting it would orphan
+				 * the I_C copy and merge its algorithm
+				 * matches into this negotiation's.
+				 */
+				if (pss->kex && pss->kex->I_C) {
+					lwsl_notice("%s: KEXINIT during kex\n",
+						    __func__);
+					goto bail;
+				}
 				if (pss->kex_state !=
 					    KEX_STATE_EXPECTING_CLIENT_OFFER) {
 					pss->parser_state = SSH_KEX_STATE_SKIP;
@@ -851,6 +865,18 @@ again:
 						    __func__);
 					goto bail;
 				}
+				/*
+				 * It answers the peer's KEXINIT, once.  A
+				 * repeat would redo the exchange over the
+				 * keys already derived, and queue a second
+				 * reply.
+				 */
+				if (!pss->kex->I_C || pss->kex->ecdh_init_seen) {
+					lwsl_notice("%s: unexpected ECDH_INIT\n",
+						    __func__);
+					goto bail;
+				}
+				pss->kex->ecdh_init_seen = 1;
 				pss->parser_state = SSH_KEX_STATE_ECDH_KEYLEN;
 				break;
 

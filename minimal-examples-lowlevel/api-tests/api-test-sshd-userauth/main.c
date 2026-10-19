@@ -27,6 +27,13 @@
  *    command must be refused with CHANNEL_FAILURE without reading past
  *    the 1-byte command allocation looking for an "scp " prefix.
  *
+ * A further scenario, on a fresh connection, fences the pre-auth
+ * transport parser (G-284):
+ *
+ *  - a second KEXINIT while the first one's key exchange is in progress
+ *    must close the connection (it used to orphan the first KEXINIT's
+ *    copy, up to 256KB a time).
+ *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  */
@@ -40,6 +47,13 @@
 
 #define RXBUF_LEN		8192
 
+enum scenario {
+	SC_USERAUTH,		/* the USERAUTH blob walk phases */
+	SC_KEXINIT_REPEAT,	/* second KEXINIT during the kex */
+
+	SC_COUNT
+};
+
 enum cli_state {
 	ST_CLI_VERSION,		/* skipping the server's id string */
 	ST_CLI_SVC_ACCEPT,	/* waiting for SERVICE_ACCEPT */
@@ -51,14 +65,19 @@ enum cli_state {
 	ST_CLI_UA_SUCCESS,	/* genuine sig, expecting success */
 	ST_CLI_CH_CONFIRM,	/* expecting CHANNEL_OPEN_CONFIRMATION */
 	ST_CLI_CH_FAIL,		/* expecting CHANNEL_FAILURE for exec "x" */
-	ST_CLI_DONE,
+	ST_CLI_KEXR_SVC_ACCEPT,	/* first KEXINIT taken, SERVICE_ACCEPT */
+	ST_CLI_EXPECT_CLOSE,	/* the server must close us now */
+	ST_CLI_DONE,		/* scenario passed, we are closing */
 };
 
 static struct lws_context *context;
 static struct lws *cli_wsi;
 static lws_sorted_usec_list_t sul_timeout;
+static lws_sorted_usec_list_t sul_next;
+static struct lws_vhost *vh_cli;
+static enum scenario scenario = SC_USERAUTH;
 static enum cli_state cli_state = ST_CLI_VERSION;
-static int result = 1;
+static int result = 1, failed;
 static uint16_t port_tcp = 21046;
 
 static uint8_t rxbuf[RXBUF_LEN];
@@ -260,11 +279,36 @@ cli_send_next(void)
 }
 
 static int
-msg_service_request(void)
+msg_service_request(const char *service)
 {
 	paylen = 0;
 	pay_u8(SSH_MSG_SERVICE_REQUEST);
-	pay_cstr("ssh-connection");
+	pay_cstr(service);
+
+	return pac_done();
+}
+
+/* a KEXINIT offering exactly what the sshd plugin supports */
+
+static int
+msg_kexinit(void)
+{
+	paylen = 0;
+	pay_u8(SSH_MSG_KEXINIT);
+	memset(pay + paylen, 0x5a, 16);		/* cookie */
+	paylen += 16;
+	pay_cstr("curve25519-sha256@libssh.org");
+	pay_cstr("ssh-ed25519");
+	pay_cstr("chacha20-poly1305@openssh.com");
+	pay_cstr("chacha20-poly1305@openssh.com");
+	pay_cstr("hmac-sha2-256");
+	pay_cstr("hmac-sha2-256");
+	pay_cstr("none");
+	pay_cstr("none");
+	pay_cstr("");				/* languages cts */
+	pay_cstr("");				/* languages stc */
+	pay_u8(0);				/* first_kex_packet_follows */
+	pay_u32(0);				/* reserved */
 
 	return pac_done();
 }
@@ -315,7 +359,9 @@ msg_channel_exec(const char *cmd, uint32_t cmd_len)
 static int
 test_fail(const char *why)
 {
-	lwsl_err("%s: %s (state %d)\n", __func__, why, cli_state);
+	lwsl_err("%s: %s (scenario %d, state %d)\n", __func__, why,
+		 scenario, cli_state);
+	failed = 1;
 	lws_default_loop_exit(context);
 	lws_cancel_service(context);
 
@@ -507,19 +553,36 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 		if (msg != SSH_MSG_CHANNEL_FAILURE)
 			return test_fail("expected CHANNEL_FAILURE");
 
-		/* all phases completed */
+		/* all phases of this scenario completed, close and move on */
 
-		result = 0;
 		cli_state = ST_CLI_DONE;
-		lws_default_loop_exit(context);
-		lws_cancel_service(context);
-		lwsl_user("Completed: ALL OK\n");
-		return 0;
+		return 1;
+
+	case ST_CLI_KEXR_SVC_ACCEPT:
+		/*
+		 * The connection survived our first KEXINIT.  A second one
+		 * while that key exchange is in progress is a protocol
+		 * error the server must close us for.
+		 */
+		if (msg != SSH_MSG_SERVICE_ACCEPT)
+			return test_fail("expected SERVICE_ACCEPT (kexinit)");
+
+		if (msg_kexinit())
+			return test_fail("tx prep");
+		cli_state = ST_CLI_EXPECT_CLOSE;
+		return cli_send_next();
 
 	default:
 		return test_fail("unexpected message");
 	}
 }
+
+/* the state the server's reply moves us to once its id string arrived */
+
+static const enum cli_state scenario_first_state[] = {
+	[SC_USERAUTH]		= ST_CLI_SVC_ACCEPT,
+	[SC_KEXINIT_REPEAT]	= ST_CLI_KEXR_SVC_ACCEPT,
+};
 
 static int
 cli_rx(const void *in, size_t len)
@@ -553,7 +616,7 @@ cli_rx(const void *in, size_t len)
 				if (rxlen)
 					memmove(rxbuf, rxbuf + n, rxlen);
 			}
-			cli_state = ST_CLI_SVC_ACCEPT;
+			cli_state = scenario_first_state[scenario];
 			continue;
 		}
 
@@ -586,6 +649,104 @@ cli_rx(const void *in, size_t len)
 	}
 }
 
+/* what each scenario sends straight after our id string */
+static int
+cli_connected(void)
+{
+	memcpy(txbuf + LWS_PRE, "SSH-2.0-lwsApiTest\r\n", 20);
+	txlen = 20;
+
+	switch (scenario) {
+	case SC_USERAUTH:
+		/* a service request for the service we want to auth into */
+		return msg_service_request("ssh-connection");
+
+	case SC_KEXINIT_REPEAT:
+		/* start a kex, and show the connection is still up after */
+		return msg_kexinit() ||
+		       msg_service_request("ssh-connection");
+
+	default:
+		return 1;
+	}
+}
+
+static void
+sul_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	lwsl_err("test timed out in scenario %d state %d\n", scenario,
+		 cli_state);
+	test_fail("timeout");
+}
+
+static void
+cli_connect(lws_sorted_usec_list_t *sul)
+{
+	struct lws_client_connect_info i;
+
+	cli_state = ST_CLI_VERSION;
+	rxlen = 0;
+	txlen = 0;
+
+	lwsl_user("%s: scenario %d\n", __func__, scenario);
+
+	memset(&i, 0, sizeof(i));
+	i.context = context;
+	i.vhost = vh_cli;
+	i.address = "127.0.0.1";
+	i.port = port_tcp;
+	i.host = i.address;
+	i.origin = i.address;
+	i.method = "RAW";
+	i.local_protocol_name = "sshd-userauth-cli";
+
+	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
+			 15 * LWS_US_PER_SEC);
+
+	if (!lws_client_connect_via_info(&i))
+		test_fail("client connect failed");
+}
+
+/* our connection closed: was that the expected end of the scenario? */
+
+static void
+cli_closed(void)
+{
+	switch (cli_state) {
+	case ST_CLI_DONE:
+		/* we closed it after the scenario's last expectation held */
+		break;
+
+	case ST_CLI_EXPECT_CLOSE:
+		switch (scenario) {
+		case SC_KEXINIT_REPEAT:
+			break;
+		default:
+			test_fail("unexpected close");
+			return;
+		}
+		break;
+
+	default:
+		test_fail("server closed us early");
+		return;
+	}
+
+	lwsl_user("%s: scenario %d passed\n", __func__, scenario);
+
+	if (++scenario == SC_COUNT) {
+		lws_sul_cancel(&sul_timeout);
+		result = 0;
+		lws_default_loop_exit(context);
+		lws_cancel_service(context);
+		lwsl_user("Completed: ALL OK\n");
+		return;
+	}
+
+	/* the next scenario on a fresh connection, outside this callback */
+	lws_sul_schedule(context, 0, &sul_next, cli_connect, 1);
+}
+
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -593,13 +754,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_RAW_CONNECTED:
 		cli_wsi = wsi;
-		/*
-		 * our id string, then a service request for the service
-		 * we want to auth into
-		 */
-		memcpy(txbuf + LWS_PRE, "SSH-2.0-lwsApiTest\r\n", 20);
-		txlen = 20;
-		if (msg_service_request())
+		if (cli_connected())
 			return -1;
 		lws_callback_on_writable(wsi);
 		break;
@@ -622,8 +777,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		cli_wsi = NULL;
-		if (cli_state != ST_CLI_DONE)
-			test_fail("server closed us early");
+		if (!failed)
+			cli_closed();
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -641,13 +796,6 @@ static const struct lws_protocols protocols_cli[] = {
 	{ "sshd-userauth-cli", callback_cli, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
-
-static void
-sul_timeout_cb(lws_sorted_usec_list_t *sul)
-{
-	lwsl_err("test timed out in state %d\n", cli_state);
-	test_fail("timeout");
-}
 
 /*
  * Generate the authorized keypair at runtime, and produce the signature
@@ -759,8 +907,6 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_client_connect_info i;
-	struct lws_vhost *vh_cli;
 	const char *p;
 	int n = 0;
 
@@ -778,7 +924,7 @@ main(int argc, const char **argv)
 		port_tcp = (uint16_t)__pt;
 	}
 
-	lwsl_user("LWS API selftest: sshd userauth blob walks\n");
+	lwsl_user("LWS API selftest: sshd userauth and transport parser\n");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
@@ -820,26 +966,11 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
-	memset(&i, 0, sizeof(i));
-	i.context = context;
-	i.vhost = vh_cli;
-	i.address = "127.0.0.1";
-	i.port = port_tcp;
-	i.host = i.address;
-	i.origin = i.address;
-	i.method = "RAW";
-	i.local_protocol_name = "sshd-userauth-cli";
-
-	cli_wsi = lws_client_connect_via_info(&i);
-	if (!cli_wsi) {
-		lwsl_err("client connect failed\n");
+	cli_connect(&sul_next);
+	if (failed)
 		goto bail;
-	}
 
-	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
-			 30 * LWS_US_PER_SEC);
-
-	while (n >= 0)
+	while (n >= 0 && !failed)
 		n = lws_service(context, 0);
 
 bail:
