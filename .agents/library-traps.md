@@ -320,6 +320,22 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    server wsi's inherited `retry_policy` to the new vhost's and re-arms a
    running validity timer (G-222).
 
+## Vhost selection
+
+ - Host / :authority / SNI / passthrough vhost selection is scoped to the
+   accepting listener since G-329 (36126a218): `lws_select_vhost*()` take
+   the accepting vhost and only consider `lws_vhost_shares_listener()`
+   vhosts.  `lws_vhost_bind_wsi()` returns nonzero when it refuses a move
+   (a connection bound to a protocol the new vhost lacks, G-330): every
+   caller must act on it (drop, 421, reject).
+ - An h3 vhost with `iface` had no quic listener before 65b2f2a40 (the
+   quic listener did SO_BINDTODEVICE unconditionally: "unable to create
+   INET socket 19"); now only with `.bind_iface`, like tcp.
+ - A raw TLS client (method "RAW" with `LCCSCF_USE_SSL`) gets
+   RAW_CONNECTED after the handshake, SNI from `i.host`; delaying the
+   request from a sul lets a test destroy a vhost in between
+   (api-test-vhost-listener-scope proto-moved).
+
 ## Lists
 
  - `lws_start_foreach_dll_safe` survives removal of the current entry
