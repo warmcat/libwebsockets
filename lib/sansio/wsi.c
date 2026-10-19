@@ -333,9 +333,14 @@ lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh)
 }
 
 static void
+lws_validity_cb(lws_sorted_usec_list_t *sul);
+
+static void
 _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 {
 	const struct lws_protocols *p = NULL;
+	const lws_retry_bo_t *old_rbo = NULL;
+	char policy_moved = 0;
 
 	if (wsi->a.vhost == vh)
 		return;
@@ -458,10 +463,32 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 	}
 #endif
 
+	/*
+	 * A server-side wsi takes its retry / idle policy from the vhost he
+	 * was accepted on, the listener's (lws_create_new_server_wsi()).
+	 * When he is moved to the vhost he named (SNI, Host:, :authority), he
+	 * must be held to that vhost's policy instead, or eg, a CONNECT
+	 * tunnel matched on a name-based vhost gets the listener's validity
+	 * limits, and none at all if the listener opted out of validity.
+	 *
+	 * Only a policy he inherited from the vhost he is leaving moves: one
+	 * given to him explicitly stays.  Client wsis keep theirs too, it
+	 * comes from the connect info or the context default, never from the
+	 * vhost.  Note it before the unbind, which may free the old vhost.
+	 */
+	if (wsi->a.vhost && !lwsi_role_client(wsi))
+		old_rbo = wsi->a.vhost->retry_policy;
+
 	if (wsi->a.vhost)
 		__lws_vhost_unbind_wsi(wsi); /* req cx lock, takes vh lock */
 
 	wsi->a.vhost = vh;
+
+	if (old_rbo && wsi->retry_policy == old_rbo &&
+	    vh->retry_policy != old_rbo) {
+		wsi->retry_policy = vh->retry_policy;
+		policy_moved = 1;
+	}
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	if (!vh->count_bound_wsi && vh->grace_after_unref) {
@@ -487,6 +514,22 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 		lws_same_vh_protocol_insert(wsi, (int)(p - vh->protocols));
 
 	lws_context_unlock(vh->context); /* } context ---------- */
+
+	/*
+	 * If his validity timer is already running, it was set under the old
+	 * policy: restart it under the new one, or stop it if the new vhost
+	 * has no validity hangup.  sul_validity has other users on some
+	 * roles (eg, the listener's accept pause), so only touch it when it
+	 * is the validity timer.
+	 */
+	if (policy_moved && wsi->sul_validity.cb == lws_validity_cb &&
+	    !lws_dll2_is_detached(&wsi->sul_validity.list)) {
+		if (wsi->retry_policy &&
+		    wsi->retry_policy->secs_since_valid_hangup)
+			_lws_validity_confirmed_role(wsi);
+		else
+			lws_sul_cancel(&wsi->sul_validity);
+	}
 
 	lwsl_wsi_debug(wsi, "vh %s: wsi %s/%s, count_bound_wsi %d\n", vh->name,
 			wsi->role_ops ? wsi->role_ops->name : "none",
