@@ -561,6 +561,7 @@ int neighbourhood_maintenance(struct lws_dht_ctx *ctx, int af);
 struct search * find_search(struct lws_dht_ctx *ctx, unsigned short tid, int af);
 struct search_node *search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr, const struct sockaddr *sa);
 int insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, struct search *sr, int replied, const uint8_t *token, size_t token_len, const struct sockaddr *intro);
+int search_record_reply(struct lws_dht_ctx *ctx, struct search *sr, struct search_node *sn, lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, const uint8_t *token, size_t token_len);
 void search_free_nodes(struct search *sr);
 void expire_searches(struct lws_dht_ctx *ctx);
 int search_send_get_peers(struct lws_dht_ctx *ctx, struct search *sr, struct search_node *n);

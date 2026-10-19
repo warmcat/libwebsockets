@@ -39,6 +39,20 @@ if (requirements)
 			TIMEOUT 180
 			WORKING_DIRECTORY .
 			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
+
+		#
+		# a node answering under another id than it was asked as
+		# (G-216), on a port of its own so it can run alongside
+		#
+		lws_get_free_port(PORT_DHT_SLL_SW)
+
+		add_test(NAME api-test-dht-search-id-switch COMMAND
+			 $<TARGET_FILE:${SAMP}>
+			 --port-a ${PORT_DHT_SLL_SW} --case id-switch)
+		set_tests_properties(api-test-dht-search-id-switch PROPERTIES
+			TIMEOUT 180
+			WORKING_DIRECTORY .
+			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 	endif()
 
 endif()

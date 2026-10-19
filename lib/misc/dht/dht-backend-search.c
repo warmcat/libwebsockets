@@ -520,6 +520,69 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 			     token_len, intro, 0, 0);
 }
 
+/* has an entry at this endpoint answered the search already? */
+
+static int
+search_endpoint_replied(const struct search *sr, const struct sockaddr *sa)
+{
+	int i;
+
+	for (i = 0; i < sr->numnodes; i++)
+		if (sr->nodes[i].replied &&
+		    dht_sa_same_peer((const struct sockaddr *)&sr->nodes[i].ss,
+				     sa))
+			return 1;
+
+	return 0;
+}
+
+/*
+ * Record a get_peers reply from sa, claiming id, against sn, the candidate
+ * search_awaiting_reply_from() found we asked at that endpoint.  Returns 1 if
+ * this reply may add the candidates it lists to the search, 0 if not.
+ *
+ * An endpoint introduces once per search, on its first reply (G-158).  That
+ * is decided by the endpoint, not by the id the reply claims: entries match
+ * by id, so a reply under another id than the one the endpoint was listed and
+ * asked as used to leave the asked entry unanswered, and the next ask of it
+ * introduced again, each time with fresh decoys replacing the last (G-216).
+ *
+ * So a reply under another id answers for the entry we asked: that entry
+ * goes, since nothing answers as that id there, and the reply is recorded
+ * under the id it claims, as an entry for that endpoint that replied.  An
+ * honest node that restarted with a new id at its old endpoint is then
+ * counted under its new id, rather than asked again under the old one until
+ * it looked dead.  An id another endpoint holds in the search is not taken
+ * over, and that reply introduces nothing.
+ */
+
+int
+search_record_reply(struct lws_dht_ctx *ctx, struct search *sr,
+		    struct search_node *sn, lws_dht_hash_t *id,
+		    const struct sockaddr *sa, size_t salen,
+		    const uint8_t *token, size_t token_len)
+{
+	int first = !sn->replied && !search_endpoint_replied(sr, sa);
+
+	if (id_cmp(sn->id, id)) {
+		if (sn->replied) {
+			/*
+			 * It answered already as the id we have it under: the
+			 * entry stays as it was, and is not doubled
+			 */
+			lwsl_dht_info("%s: replier changed its id\n", __func__);
+
+			return 0;
+		}
+
+		/* sn is not used after this */
+		flush_search_node(sn, sr);
+	}
+
+	return search_insert(ctx, id, sa, salen, sr, 1, token, token_len,
+			     NULL, 0, 0) && first;
+}
+
 /*
  * Give the backlog's candidates the slots of ones we asked that never
  * answered, so a search pushed off course by candidates that do not exist

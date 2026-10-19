@@ -606,13 +606,6 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 					 __func__);
 			sr = NULL;
 		}
-		/*
-		 * Only its first reply to our request may add candidates to
-		 * the search: further datagrams from a node that replied
-		 * already are taken for their token and values, but would
-		 * otherwise let it list as many candidates as it likes (G-158)
-		 */
-		introduce = sn && !sn->replied;
 		bound = !!sr;
 #endif
 	}
@@ -647,11 +640,17 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	 * looked unanswered, a closer node from its own list could push it
 	 * out of a full search, and its reply then went to the backlog, which
 	 * keeps no reply or token, so it was asked again, and listed the same
-	 * node again, for ever (G-211).  introduce was decided from before.
+	 * node again, for ever (G-211).
+	 *
+	 * Only the endpoint's first reply may add candidates to the search:
+	 * further datagrams from it are taken for their token and values, but
+	 * would otherwise let it list as many candidates as it likes (G-158),
+	 * whatever id each claims (G-216).  sn is not valid after this.
 	 */
 	if (sr)
-		insert_search_node(ctx, mp->id, from, fromlen, sr, 1, mp->token,
-				   mp->token_len, NULL);
+		introduce = search_record_reply(ctx, sr, sn, mp->id, from,
+						fromlen, mp->token,
+						mp->token_len);
 #endif
 
 	offset = 0;
