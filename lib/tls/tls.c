@@ -202,6 +202,10 @@ lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
 			return -1;
 		}
 
+		/*
+		 * Its tls restriction slot is taken later, when its address
+		 * is validated (lws_tls_quic_admit())
+		 */
 		if (lws_tls_server_new_nonblocking(wsi, LWS_SOCK_INVALID)) {
 			lwsl_wsi_err(wsi, "no tls session");
 			return -1;
@@ -218,6 +222,33 @@ lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
 
 	return 0;
 }
+
+#if defined(LWS_WITH_SERVER)
+/*
+ * A server quic connection's client address is validated: it holds a tls
+ * restriction slot from now on, as a tcp connection does from its accept
+ * (lws_server_socket_service_ssl()), its handshake part until
+ * lws_tls_quic_confirm_peer(), the rest until it closes.
+ *
+ * Not before: the Initial's source is hearsay, and a slot taken for it would
+ * let a spoofer fill the restriction from anywhere and so pause every tls
+ * vhost's tcp accepts.  Until now the connection is bounded by the half-open
+ * caps and the unproven peer budget instead.
+ *
+ * At the limit, the connection is refused.  The ones already up carry on: the
+ * quic listener that brings their datagrams is never paused
+ * (lws_accept_listener_open()).  0 admitted, or it already was; nonzero
+ * refused.
+ */
+int
+lws_tls_quic_admit(struct lws *wsi)
+{
+	if (wsi->io->tls_borrowed)
+		return 0;
+
+	return lws_tls_restrict_borrow(wsi);
+}
+#endif
 
 /*
  * A quic connection's handshake completed: is the peer acceptable, as tls
@@ -361,6 +392,22 @@ alpn_cb_openhitls(HITLS_Ctx *ctx, uint8_t **selectedProto,
 }
 #endif
 
+/*
+ * Is either tls restriction, of sessions or of handshakes in progress, at its
+ * limit?  Then nothing more may borrow (lws_tls_restrict_borrow()), and new
+ * connections are refused: stream listeners are paused (lws_gate_accepts()),
+ * validated new quic connections refused (lws_tls_quic_admit()).
+ */
+int
+lws_tls_restrict_reached(struct lws_context *cx)
+{
+	return (cx->simultaneous_ssl_restriction &&
+		cx->simultaneous_ssl >= cx->simultaneous_ssl_restriction) ||
+	       (cx->simultaneous_ssl_handshake_restriction &&
+		cx->simultaneous_ssl_handshake >=
+				cx->simultaneous_ssl_handshake_restriction);
+}
+
 int
 lws_tls_restrict_borrow(struct lws *wsi)
 {
@@ -398,11 +445,7 @@ lws_tls_restrict_borrow(struct lws *wsi)
 				cx->simultaneous_ssl_handshake_restriction);
 
 #if defined(LWS_WITH_SERVER)
-	lws_gate_accepts(cx,
-			(cx->simultaneous_ssl_restriction &&
-			 cx->simultaneous_ssl == cx->simultaneous_ssl_restriction) ||
-			(cx->simultaneous_ssl_handshake_restriction &&
-			 cx->simultaneous_ssl_handshake == cx->simultaneous_ssl_handshake_restriction));
+	lws_gate_accepts(cx, lws_tls_restrict_reached(cx));
 #endif
 
 	return 0;
@@ -417,11 +460,7 @@ _lws_tls_restrict_return(struct lws *wsi)
 	assert(cx->simultaneous_ssl_handshake >= 0);
 	assert(cx->simultaneous_ssl >= 0);
 
-	lws_gate_accepts(cx,
-			(cx->simultaneous_ssl_restriction &&
-			 cx->simultaneous_ssl == cx->simultaneous_ssl_restriction) ||
-			(cx->simultaneous_ssl_handshake_restriction &&
-			 cx->simultaneous_ssl_handshake == cx->simultaneous_ssl_handshake_restriction));
+	lws_gate_accepts(cx, lws_tls_restrict_reached(cx));
 #endif
 }
 

@@ -55,7 +55,7 @@
  * The version of lws_io_ops_t: its members, their order and what they
  * mean.  Any change to them changes it.
  */
-#define LWS_IO_OPS_ABI_VERSION 3
+#define LWS_IO_OPS_ABI_VERSION 4
 
 /*
  * The close request reaches the transport in phases, in this order over a
@@ -274,6 +274,14 @@ typedef struct lws_io_ops {
 	int (*tls_quic_alpn)(struct lws *wsi, char *buf, size_t len);
 	/**< the alpn wsi's handshake selected: 1 with it copied into buf of
 	 * len, 0 when there is none. */
+	int (*tls_quic_admit)(struct lws *wsi);
+	/**< (since ABI version 4) the server quic connection wsi's client
+	 * address is validated: it takes its place in the tls restriction
+	 * (simultaneous_ssl_[handshake_]restriction), as a tcp connection does
+	 * at accept.  Only a validated connection may, so that Initials from
+	 * spoofed sources can't fill it.  0 admitted (or it already was),
+	 * nonzero at the limit: it is refused.  May be NULL: nothing
+	 * restricts. */
 
 	/*
 	 * tx: the transport taking sansIO's bytes

@@ -213,6 +213,9 @@ enum lws_tls_extant {
 #endif
 
 int
+lws_tls_restrict_reached(struct lws_context *cx);
+
+int
 lws_tls_restrict_borrow(struct lws *wsi);
 
 void

@@ -217,6 +217,7 @@ embedder carries nothing that needs it.
 | tls | `tls_quic_set_tp`, `tls_quic_get_tp` | quic's transport parameters | `lws_tls_quic_set/get_transport_parameters()` |
 | tls | `tls_confirm_peer_cert` | is the peer's certificate acceptable: the server's on a client, the client's under its vhost's policy on a server | `lws_tls_quic_confirm_peer()` |
 | tls | `tls_quic_aead`, `tls_quic_alert`, `tls_quic_alpn` | what quic's handshake settled | `lws_tls_quic_aead_type()`, `_alert()`, `_alpn()` |
+| tls | `tls_quic_admit` (optional) | a server quic connection's address is validated: may it take a tls restriction slot | `lws_tls_quic_admit()` |
 | tx | `tx_push` | take these framed bytes now (the push) | `lws_io_tx_push()` |
 | tx | `tx_now` (optional) | pull a datagram connection's tx now | `lws_io_tx_now()` |
 | tx | `tx_choked` | would the transport block a write now | `lws_io_tx_choked_pollfd()` (a transport connection is not choked by its poll fd; a socket asks `lws_plat_tx_choked()`) |

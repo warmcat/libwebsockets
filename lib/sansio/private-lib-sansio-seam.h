@@ -316,6 +316,19 @@ lws_io_tls_quic_get_tp(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 	return wsi->a.context->io_ops->tls_quic_get_tp(wsi, tp, tp_len);
 }
 
+/*
+ * IO's lws_tls_quic_admit(): a server connection's address is validated, may
+ * it take its tls restriction slot?  0 yes, nonzero it is to be refused
+ */
+static LWS_INLINE int
+lws_io_tls_quic_admit(struct lws *wsi)
+{
+	if (!wsi->a.context->io_ops->tls_quic_admit)
+		return 0;
+
+	return wsi->a.context->io_ops->tls_quic_admit(wsi);
+}
+
 /* IO's lws_tls_quic_confirm_peer(): is the peer acceptable, either role */
 static LWS_INLINE int
 lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)

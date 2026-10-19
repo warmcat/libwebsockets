@@ -552,10 +552,17 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 	return !!failed;
 }
 
+/*
+ * The tls restriction was reached (on), or is no longer: tls vhosts' stream
+ * listeners stop, or start again, taking new connections.  Only those: see
+ * lws_accept_listener_open() for why the udp listeners on the list are left
+ * alone, and how this and the fds table pause agree.
+ */
 int
 lws_gate_accepts(struct lws_context *context, int on)
 {
 	struct lws_vhost *v = lws_vhost_first(context);
+	int open;
 
 	if (context->tls_gate_accepts == (char)on)
 		return 0;
@@ -571,8 +578,9 @@ lws_gate_accepts(struct lws_context *context, int on)
 							   listen_list);
 
 			if (v->tls.use_ssl &&
-			    lws_change_pollfd(wsi, on ? LWS_POLLIN : 0,
-						   on ? 0 : LWS_POLLIN))
+			    (open = lws_accept_listener_open(wsi)) >= 0 &&
+			    lws_change_pollfd(wsi, open ? 0 : LWS_POLLIN,
+						   open ? LWS_POLLIN : 0))
 				lwsl_cx_notice(context, "Unable to set POLLIN %d", on);
 		} lws_end_foreach_dll(d);
 

@@ -79,9 +79,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * listener this round and used it up already
 		 */
 		if (wsi->a.vhost->tls.use_ssl &&
-		    context->simultaneous_ssl_restriction &&
-		    context->simultaneous_ssl ==
-				  context->simultaneous_ssl_restriction)
+		    lws_tls_restrict_reached(context))
 			/*
 			 * no... ignore it, he won't come again until
 			 * we are below the simultaneous_ssl_restriction

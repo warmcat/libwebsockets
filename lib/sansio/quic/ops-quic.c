@@ -3062,8 +3062,15 @@ tp_ok:
 			 */
 			if (lws_quic_peer_proven(nwsi,
 					&nwsi->quic.qn->initial_sa46,
-					LWS_PEER_CRED_ROUTABLE)) {
-				/* its proven address is at its limit */
+					LWS_PEER_CRED_ROUTABLE) ||
+			    /*
+			     * and a server's connection, validated, takes its
+			     * tls restriction slot only now, so spoofed
+			     * Initials can't fill it
+			     */
+			    (nwsi->quic.qn->is_server &&
+			     lws_io_tls_quic_admit(nwsi))) {
+				/* its proven address, or tls, is at its limit */
 				lws_quic_enter_closing_state(nwsi,
 					LWS_QUIC_ERR_CONNECTION_REFUSED, 0, 0);
 				if (nwsi != wsi)

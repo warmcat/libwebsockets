@@ -681,9 +681,15 @@ struct lws_context_creation_info {
 	/**< VHOST: Any bits set here will be cleared as server SSL options */
 	int simultaneous_ssl_restriction;
 	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL sessions
-	 * possible.*/
+	 * possible.  Client and server, tcp and QUIC connections all count.
+	 * While it, or simultaneous_ssl_handshake_restriction, is reached,
+	 * new connections are refused: the tls vhosts' tcp listeners stop
+	 * accepting, and a new QUIC connection is refused once its client's
+	 * address is validated (it takes no slot before then, so spoofed
+	 * Initials cannot fill it).  Established QUIC connections carry on.*/
 	int simultaneous_ssl_handshake_restriction;
-	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL handshakes ongoing */
+	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL handshakes
+	 * ongoing, counted and enforced like simultaneous_ssl_restriction */
 	int ssl_info_event_mask;
 	/**< VHOST: mask of ssl events to be reported on LWS_CALLBACK_SSL_INFO
 	 * callback for connections on this vhost.  The mask values are of

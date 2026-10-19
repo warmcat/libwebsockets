@@ -226,6 +226,47 @@ bail:
 
 #if defined(LWS_WITH_SERVER)
 /*
+ * Should this listener hear new connections now?  1 if so, 0 if it is to be
+ * paused, or -1 if it is not one whose POLLIN accept pausing may touch.
+ *
+ * Only a stream listen socket's POLLIN means nothing but "a new connection".
+ * A bound udp socket on a vhost's listen list (the quic listener, the tls
+ * passthrough relay's socket to its server) also carries every datagram of
+ * the connections already established over it: a server quic connection has
+ * no socket of its own.  Pausing one of those to stop new connections would
+ * freeze all the existing ones, so they are never paused.  New quic
+ * connections are refused for themselves instead: by the half-open caps
+ * (lws_quic_halfopen_admit()), and, once their address is validated, by the
+ * tls restriction (lws_tls_quic_admit()).
+ *
+ * A stream listener is paused while no pt has room for another connection
+ * (lws_accept_modulation()), and, on a tls vhost, while the tls restriction
+ * is reached (lws_gate_accepts()).  Each of those decides from both, so one
+ * opening never undoes the other's pause: a listener with POLLIN that then
+ * declines to accept would be readable for ever, and spin the loop.
+ */
+int
+lws_accept_listener_open(struct lws *wsi)
+{
+	struct lws_context *cx = wsi->a.context;
+	int n;
+
+	if (wsi->role_ops != &role_ops_listen)
+		return -1;
+
+#if defined(LWS_WITH_TLS)
+	if (wsi->a.vhost->tls.use_ssl && cx->tls_gate_accepts)
+		return 0;
+#endif
+
+	for (n = 0; n < cx->count_threads; n++)
+		if (!cx->pt[n].accept_full)
+			return 1;
+
+	return 0;
+}
+
+/*
  * Listeners are paused while no pt has room for another connection, since an
  * accept is adopted onto the idlest pt (lws_get_idlest_tsi()), whichever pt
  * the listener itself is on.
@@ -246,7 +287,7 @@ lws_accept_modulation(struct lws_context_per_thread *pt)
 	struct lws_context *cx = pt->context;
 	struct lws_vhost *vh;
 	struct lws_pollargs pa1;
-	int n, allow = 0, acted = 0;
+	int n, allow = 0, acted = 0, open;
 
 	for (n = 0; n < cx->count_threads; n++)
 		if (!cx->pt[n].accept_full) {
@@ -260,9 +301,10 @@ lws_accept_modulation(struct lws_context_per_thread *pt)
 			struct lws *wsi = lws_container_of(d, struct lws,
 							   listen_list);
 
-			if (wsi->tsi == pt->tid) {
-				_lws_change_pollfd(wsi, allow ? 0 : LWS_POLLIN,
-						   allow ? LWS_POLLIN : 0, &pa1);
+			if (wsi->tsi == pt->tid &&
+			    (open = lws_accept_listener_open(wsi)) >= 0) {
+				_lws_change_pollfd(wsi, open ? 0 : LWS_POLLIN,
+						   open ? LWS_POLLIN : 0, &pa1);
 				acted = 1;
 			}
 		} lws_end_foreach_dll(d);
@@ -1021,6 +1063,9 @@ const lws_io_ops_t lws_io_ops_default = {
 	.tls_quic_aead		= lws_tls_quic_aead_type,
 	.tls_quic_alert		= lws_tls_quic_alert,
 	.tls_quic_alpn		= lws_tls_quic_alpn,
+#if defined(LWS_WITH_SERVER)
+	.tls_quic_admit		= lws_tls_quic_admit,
+#endif
 #endif
 #endif
 
