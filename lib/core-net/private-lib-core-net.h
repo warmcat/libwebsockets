@@ -1084,9 +1084,9 @@ struct lws_io_adjunct {
 	 * Who the peer is, as a stack (lws_peer_walk()): pstack[0] is the
 	 * transport's own peer, and a claim about the client, eg a trusted
 	 * proxy's PROXY v2 header, is pushed above it.  pstack_count is the
-	 * number of entries in use.  Written only by lws_io_peer_set(),
-	 * lws_io_peer_push() and lws_peer_raise(), except that the client
-	 * connect machine aims its attempts with pstack[0].sa46.
+	 * number of entries in use.  Written only by the helpers in
+	 * lib/io/peer-stack.c, except that the client connect machine aims
+	 * its attempts with pstack[0].sa46.
 	 */
 	lws_peer_entry_t		pstack[LWS_PEER_STACK_MAX];
 	uint8_t				pstack_count;

@@ -10,6 +10,11 @@ hearsay, vouched, routable, crypto).
    test, in the log format and as one token, with IPv6 brackets, AF_UNIX, the
    cred and kind names, and buffers too small for the result.
 
+ - **effective**: `lws_peer_entries_effective()` on stacks made up in the
+   test, including ones lws does not build yet: a hearsay entry above a
+   vouched, routable or crypto one is never the effective entry; with
+   nothing believable, the top entry is.
+
  - **tcp**: a raw client sends a GET to an http vhost.  The server sees one
    entry, the socket's peer, ROUTABLE and effective, which is what
    `lws_get_peer_simple()` gives; the client sees the server it connected to

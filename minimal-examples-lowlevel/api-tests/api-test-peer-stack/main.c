@@ -12,6 +12,9 @@
  *  - the formatter, on entries made up here: both formats, IPv6 brackets,
  *    AF_UNIX, the names, and cutting short;
  *
+ *  - the effective entry rule, on entries made up here: a hearsay entry
+ *    above a believable one is never the effective entry;
+ *
  *  - a plain TCP connection: the server sees one entry, the socket's peer,
  *    ROUTABLE, which is also the effective entry, and the client sees the
  *    server the same way once connected;
@@ -275,6 +278,49 @@ ps_formatter(void)
 		  "kind name");
 	check_str(lws_peer_kind_name((lws_peer_kind_t)99), "?",
 		  "unknown kind name");
+}
+
+/*
+ * The effective entry, on stacks made up here: stacks lws does not build yet
+ * (a hearsay claim above a believable entry) must follow the rule too
+ */
+
+static void
+ps_effective(void)
+{
+	lws_peer_entry_t e[3];
+
+	lwsl_user("effective:\n");
+
+	entry(&e[0], "198.51.100.7", 0, LWS_PEER_KIND_XFF,
+	      LWS_PEER_CRED_HEARSAY);
+	entry(&e[1], "192.0.2.10", 40000, LWS_PEER_KIND_PROXY_V2,
+	      LWS_PEER_CRED_VOUCHED);
+	entry(&e[2], "10.0.0.2", 40122, LWS_PEER_KIND_SOCKET,
+	      LWS_PEER_CRED_ROUTABLE);
+	check(lws_peer_entries_effective(e, 3) == 1,
+	      "hearsay above a vouched claim: the claim");
+	check(lws_peer_entries_effective(&e[1], 2) == 0,
+	      "a vouched claim above a routable socket: the claim");
+
+	e[1] = e[2];
+	check(lws_peer_entries_effective(e, 2) == 1,
+	      "hearsay above a routable socket: the socket");
+
+	entry(&e[1], "10.0.0.2", 40122, LWS_PEER_KIND_SOCKET,
+	      LWS_PEER_CRED_CRYPTO);
+	check(lws_peer_entries_effective(e, 2) == 1,
+	      "hearsay above a crypto socket: the socket");
+
+	entry(&e[0], "198.51.100.7", 40000, LWS_PEER_KIND_RELAY,
+	      LWS_PEER_CRED_HEARSAY);
+	entry(&e[1], "10.0.0.2", 40122, LWS_PEER_KIND_SOCKET,
+	      LWS_PEER_CRED_HEARSAY);
+	check(lws_peer_entries_effective(e, 2) == 0,
+	      "nothing believable: the top entry");
+
+	check(lws_peer_entries_effective(e, 0) == -1,
+	      "no entries: none is effective");
 }
 
 /* the http server: what it sees of the peer, then a 200 */
@@ -876,6 +922,7 @@ main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: peer address stack\n");
 
 	ps_formatter();
+	ps_effective();
 
 	/* a server and a client in one process: don't budget fds */
 	info.fd_limit_per_thread	= 0;

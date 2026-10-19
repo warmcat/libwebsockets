@@ -418,6 +418,22 @@ lws_peer_walk(struct lws *wsi, lws_peer_entry_t *dest, int max);
 LWS_VISIBLE LWS_EXTERN int
 lws_peer_effective(struct lws *wsi, lws_peer_entry_t *dest);
 
+/**
+ * lws_peer_entries_effective() - which of some peer entries is effective
+ *
+ * \param e: the entries, top first, as lws_peer_walk() gives them
+ * \param count: the number of entries in \p e
+ *
+ * The rule of lws_peer_effective(), on entries the caller has, eg a
+ * connection's stack with a layer of its own on top: the first entry from
+ * the top at LWS_PEER_CRED_VOUCHED or better, else the top one.
+ *
+ * Returns the index of the effective entry in \p e, or -1 if \p count is
+ * not positive.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_peer_entries_effective(const lws_peer_entry_t *e, int count);
+
 /* lws_peer_describe() flags */
 #define LWS_PEER_DESC_TOKEN	(1 << 0) /* one token, no spaces, see below */
 

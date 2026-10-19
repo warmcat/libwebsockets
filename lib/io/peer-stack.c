@@ -229,15 +229,19 @@ lws_peer_walk(struct lws *wsi, lws_peer_entry_t *dest, int max)
 	return count;
 }
 
-static int
-lws_peer_effective_idx(const lws_peer_entry_t *e, int count)
+int
+lws_peer_entries_effective(const lws_peer_entry_t *e, int count)
 {
 	int n;
+
+	if (count <= 0)
+		return -1;
 
 	for (n = 0; n < count; n++)
 		if (e[n].cred >= LWS_PEER_CRED_VOUCHED)
 			return n;
 
+	/* nothing believable: the top entry, which is only hearsay */
 	return 0;
 }
 
@@ -250,7 +254,7 @@ lws_peer_effective(struct lws *wsi, lws_peer_entry_t *dest)
 	if (!count)
 		return 1;
 
-	*dest = e[lws_peer_effective_idx(e, count)];
+	*dest = e[lws_peer_entries_effective(e, count)];
 
 	return 0;
 }
