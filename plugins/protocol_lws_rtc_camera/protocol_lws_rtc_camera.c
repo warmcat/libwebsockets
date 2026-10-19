@@ -21,6 +21,7 @@
 #include <string.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "protocol_lws_rtc_camera.h"
 #include "webcam-media.h"
@@ -55,6 +56,59 @@ static void alsa_audio_cb(void *user_data, const uint8_t *payload, size_t len)
 	}
 }
 #endif
+
+/*
+ * The capture fds belong to the media layer, which closes them in its own
+ * destroy (alsa's only through snd_pcm_close()), while lws closes whatever
+ * it adopted when that wsi closes.  So lws gets its own reference, a dup()
+ * of the fd: each side closes exactly the fd it owns, and neither can end
+ * up closing an fd number the other already gave back to the OS.
+ */
+static struct lws *
+rtc_camera_adopt_fd(struct lws_vhost *vh, int fd, struct pss_camshow *app_state)
+{
+	struct lws_adopt_desc ad;
+	struct lws *w;
+	int dfd;
+
+	dfd = dup(fd);
+	if (dfd < 0)
+		return NULL;
+
+	memset(&ad, 0, sizeof(ad));
+	ad.vh = vh;
+	ad.type = LWS_ADOPT_RAW_FILE_DESC;
+	ad.fd.filefd = (lws_filefd_type)(lws_intptr_t)dfd;
+	ad.vh_prot_name = "lws-rtc-camera-v4l2";
+
+	w = lws_adopt_descriptor_vhost_via_info(&ad);
+	if (!w) {
+		/* a failed file adopt leaves the fd with the caller */
+		close(dfd);
+		return NULL;
+	}
+
+	lws_set_wsi_user(w, app_state);
+
+	return w;
+}
+
+/*
+ * Detach an adopted capture wsi from app_state, which is about to be freed,
+ * and have lws close it (and its dup of the fd).  The close is async, since
+ * we may be inside a callback of that very wsi; until then it has no user,
+ * so nothing it reports can reach app_state.
+ */
+static void
+rtc_camera_unadopt(struct lws **pwsi)
+{
+	if (!*pwsi)
+		return;
+
+	lws_set_wsi_user(*pwsi, NULL);
+	lws_wsi_close(*pwsi, LWS_TO_KILL_ASYNC);
+	*pwsi = NULL;
+}
 
 static void
 emit_state(struct lws_vhost *vh, const char *dev, enum lws_rtc_camera_states state)
@@ -333,18 +387,9 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 
 				if (app_state->ops) {
 					int fd = app_state->ops->get_event_fd(app_state);
-					if (fd >= 0) {
-						struct lws_adopt_desc ad;
-						memset(&ad, 0, sizeof(ad));
-						ad.vh = lws_get_vhost(wsi);
-						ad.type = LWS_ADOPT_RAW_FILE_DESC;
-						ad.fd.filefd = (lws_filefd_type)(long)fd;
-						ad.vh_prot_name = "lws-rtc-camera-v4l2";
-						app_state->wsi_v4l2 = lws_adopt_descriptor_vhost_via_info(&ad);
-						if (app_state->wsi_v4l2) {
-							lws_set_wsi_user(app_state->wsi_v4l2, app_state);
-						}
-					}
+					if (fd >= 0)
+						app_state->wsi_v4l2 = rtc_camera_adopt_fd(
+							lws_get_vhost(wsi), fd, app_state);
 				}
 
 #if defined(LWS_WITH_OPUS)
@@ -358,18 +403,9 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 				app_state->alsa_cap = lws_alsa_opus_capture_create(&ainfo, alsa_audio_cb, app_state);
 				if (app_state->alsa_cap) {
 					int fd = lws_alsa_opus_get_fd(app_state->alsa_cap);
-					if (fd >= 0) {
-						struct lws_adopt_desc ad;
-						memset(&ad, 0, sizeof(ad));
-						ad.vh = lws_get_vhost(wsi);
-						ad.type = LWS_ADOPT_RAW_FILE_DESC;
-						ad.fd.filefd = (lws_filefd_type)(long)fd;
-						ad.vh_prot_name = "lws-rtc-camera-v4l2";
-						app_state->wsi_alsa = lws_adopt_descriptor_vhost_via_info(&ad);
-						if (app_state->wsi_alsa) {
-							lws_set_wsi_user(app_state->wsi_alsa, app_state);
-						}
-					}
+					if (fd >= 0)
+						app_state->wsi_alsa = rtc_camera_adopt_fd(
+							lws_get_vhost(wsi), fd, app_state);
 				}
 #endif
 
@@ -518,6 +554,13 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 				struct pss_camshow *app_state = (struct pss_camshow *)we_ops->get_user_data(user);
 				if (app_state) {
 					emit_state(lws_get_vhost(wsi), app_state->video_device ? app_state->video_device : "?", LWS_RTC_CAMERA_STATE_CLOSED);
+					/*
+					 * Before the media layer closes the fds and
+					 * app_state goes, the capture wsis must stop
+					 * pointing at it
+					 */
+					rtc_camera_unadopt(&app_state->wsi_v4l2);
+					rtc_camera_unadopt(&app_state->wsi_alsa);
 					if (app_state->ops && app_state->ops->deinit)
 						app_state->ops->deinit(app_state);
 #if defined(LWS_WITH_OPUS)
@@ -532,18 +575,35 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			break;
 
-		case LWS_CALLBACK_CLOSED:
-			/* fallthrough */
+		case LWS_CALLBACK_RAW_CLOSE_FILE:
+			{
+				/*
+				 * lws closed a capture wsi under us (eg, at
+				 * context destroy): app_state must not keep it
+				 */
+				struct pss_camshow *app_state = (struct pss_camshow *)user;
+
+				if (app_state && wsi == app_state->wsi_v4l2)
+					app_state->wsi_v4l2 = NULL;
+				if (app_state && wsi == app_state->wsi_alsa)
+					app_state->wsi_alsa = NULL;
+			}
+			break;
 
 		case LWS_CALLBACK_RAW_RX_FILE:
 			{
 				struct pss_camshow *app_state = (struct pss_camshow *)user;
-				if (app_state && wsi == app_state->wsi_v4l2) {
+
+				if (!app_state)
+					/* detached at CLIENT_CLOSED, closing */
+					return -1;
+
+				if (wsi == app_state->wsi_v4l2) {
 					if (app_state->ops && app_state->ops->process_rx)
 						app_state->ops->process_rx(app_state);
 				}
 #if defined(LWS_WITH_OPUS)
-				else if (app_state && wsi == app_state->wsi_alsa) {
+				else if (wsi == app_state->wsi_alsa) {
 					if (app_state->alsa_cap)
 						lws_alsa_opus_read(app_state->alsa_cap);
 				}

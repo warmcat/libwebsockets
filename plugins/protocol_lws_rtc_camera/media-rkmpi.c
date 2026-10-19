@@ -97,8 +97,11 @@ static int media_rkmpi_get_event_fd(struct pss_camshow *pss) {
 
 static int media_rkmpi_process_rx(struct pss_camshow *pss) {
 	VENC_STREAM_S stFrame;
+	VENC_PACK_S stPack;
+
 	memset(&stFrame, 0, sizeof(stFrame));
-	stFrame.pstPack = malloc(sizeof(VENC_PACK_S));
+	memset(&stPack, 0, sizeof(stPack));
+	stFrame.pstPack = &stPack;
 
 	if (RK_MPI_VENC_GetStream(chnId, &stFrame, 0) == RK_SUCCESS) {
 		if (stFrame.pstPack->u32Len > 0) {
@@ -113,7 +116,6 @@ static int media_rkmpi_process_rx(struct pss_camshow *pss) {
 		}
 		RK_MPI_VENC_ReleaseStream(chnId, &stFrame);
 	}
-	free(stFrame.pstPack);
 	return 0;
 }
 
