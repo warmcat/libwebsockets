@@ -45,7 +45,9 @@ and Let's Encrypt allows only 5 identical certificates per week.
 For the domain's DNSSEC chain to reach the root, the parent zone must publish
 a DS record for the domain's KSK, which you give your registrar.  The domain's
 header's Registrar row shows the DS fields registrars ask for, each with a
-Copy button: the key tag, algorithm, digest type and digest.  The root process
+Copy button: the key tag, algorithm, digest type and digest.  The digest
+wraps to fit, and a click selects just the value, which copies unbroken.  The
+root process
 computes them from the KSK with `lws_auth_dns_key_records()`, the same way the
 signer does when it logs the DS.  They are all public.
 
@@ -64,9 +66,9 @@ and the root process validates them again before writing `whois.json`.
 
 #### DHT propagation
 
-The bottom of the domain page has a table of every node in the DHT routing
-table, with the serial of the domain's zone it holds, so you can watch a saved
-zone spread, and see which nodes don't get it.  The DHT runs in the lwsws
+The domain page's header, right of the WHOIS details, has a table of every
+node in the DHT routing table, with the serial of the domain's zone it holds,
+so you can watch a saved zone spread, and see which nodes don't get it.  The DHT runs in the lwsws
 process, so the proxy answers this itself rather than the root process: while
 the page is open it asks every node with the dht-dnssec plugin's
 `query_serials` (see its README), in rounds every 2s for a minute after the
@@ -80,7 +82,8 @@ editor saved, so the proxy tells the page that one, and the editor reloads the
 zone to show it, unless it has changes that aren't saved.  A node is
 "current" at that serial, "behind" on an older one, "doesn't hold it", or "no
 answer" if it didn't answer within 5s, which includes a node too old to know
-the query.  "Since" is how long ago the page saw the node change to what it
+the query.  Under each node's address is the start of its node id, and
+"dubious" if our routing table hasn't heard from it lately.  "Since" is how long ago the page saw the node change to what it
 shows.
 
 #### Server IP Inventory

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DNSSEC Monitor</title>
     <!-- Strict CSP prevents inline styles, and using external font CDNs without explicit whitelist, so we use system fonts -->
-    <link rel="stylesheet" href="monitor.css?v=8">
+    <link rel="stylesheet" href="monitor.css?v=9">
     <script src="lws-login.js"></script>
 </head>
 <body>
@@ -98,23 +98,36 @@
                 </div>
             </section>
             <section class="panel detail-panel hidden-panel" id="detail-panel">
-                <div class="panel-header">
-                    <div class="title-group">
-                        <div class="title-actions">
-                            <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
-                        </div>
+                <div class="panel-header detail-header">
+                    <div class="detail-side">
+                        <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
                         <h2 id="detail-title"><span>---</span></h2>
+                        <div id="dnssec-status"></div>
+                        <button id="btn-save-zonefile" class="btn primary" disabled>Save Zonefile</button>
+                        <label class="domain-acme-label" title="Enable Let's Encrypt automated certificate fetching for this domain">
+                            <input type="checkbox" id="cb-domain-acme-enable"> ACME Enabled
+                        </label>
                     </div>
                     <div id="whois-header" class="whois-header"></div>
-                    <div class="actions-group">
-                        <div id="actions-table" class="actions-table">
-                            <div class="actions-cell"><div id="dnssec-status"></div></div>
-                            <div class="actions-cell"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></div>
-                            <div class="actions-cell">
-                                <label class="domain-acme-label" title="Enable Let's Encrypt automated certificate fetching for this domain">
-                                    <input type="checkbox" id="cb-domain-acme-enable"> ACME Enabled
-                                </label>
-                            </div>
+                    <div class="dht-serials">
+                        <div class="dht-serials-header">
+                            <h3 class="ext-title">DHT Propagation</h3>
+                            <span id="dht-serials-summary" class="inv-count"></span>
+                        </div>
+                        <div class="dht-serials-table table-responsive">
+                            <table id="table-dht-serials" class="table-nowrap">
+                                <thead>
+                                    <tr>
+                                        <th>DHT Node</th>
+                                        <th>Serial</th>
+                                        <th>State</th>
+                                        <th>Since</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="4" class="loading">Asking the DHT nodes...</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -151,30 +164,6 @@
                     <div class="ext-actions">
                         <button id="btn-cancel-edit" class="btn hollow">Discard</button>
                         <button id="btn-apply-record" class="btn primary">Apply Changes</button>
-                    </div>
-                </div>
-
-                <div class="dht-serials">
-                    <div class="dht-serials-header">
-                        <h3 class="ext-title">DHT Propagation</h3>
-                        <span id="dht-serials-summary" class="inv-count"></span>
-                    </div>
-                    <div class="dht-serials-table table-responsive">
-                        <table id="table-dht-serials" class="table-striped table-nowrap">
-                            <thead>
-                                <tr>
-                                    <th>DHT Node</th>
-                                    <th>Node ID</th>
-                                    <th>Routing</th>
-                                    <th>Serial</th>
-                                    <th>State</th>
-                                    <th>Since</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr><td colspan="6" class="loading">Asking the DHT nodes...</td></tr>
-                            </tbody>
-                        </table>
                     </div>
                 </div>
             </section>
@@ -348,6 +337,6 @@
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js?v=25"></script>
+    <script src="monitor.js?v=26"></script>
 </body>
 </html>

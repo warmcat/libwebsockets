@@ -1711,7 +1711,7 @@ function renderWhoisHeader() {
     if (dsParts.length === 4) {
         const regRow = (label, value, note) => `
             <span class="reg-ds-lbl">${label}</span>
-            <span class="reg-ds-val">${escapeHtml(value)}${note ? ` <span class="dns-fg-gray">(${escapeHtml(note)})</span>` : ''}</span>
+            <span class="reg-ds-val"><span class="reg-ds-copyval">${escapeHtml(value)}</span>${note ? ` <span class="dns-fg-gray">(${escapeHtml(note)})</span>` : ''}</span>
             <button class="btn hollow btn-sm reg-ds-copy" data-copy="${escapeHtml(value)}">Copy</button>`;
 
         registrarHTML = `
@@ -1730,7 +1730,7 @@ function renderWhoisHeader() {
 
     let overallSigned = isSigned && !localMismatch && !globalMismatch;
     let overrideClass = overallSigned ? 'ok' : 'warn';
-    let overrideText = overallSigned ? '✔ DNSSEC<br>OK' : '✘<br>INSECURE';
+    let overrideText = overallSigned ? '✔ DNSSEC OK' : '✘ INSECURE';
 
     let dnssecLookupsHTML = '';
     if (localMismatch || globalMismatch) {
@@ -1802,7 +1802,8 @@ function renderWhoisHeader() {
 
             /* no clipboard api: select the value, for ctrl-c */
             const range = document.createRange();
-            range.selectNodeContents(btn.previousElementSibling);
+            range.selectNodeContents(btn.previousElementSibling
+                                     .querySelector('.reg-ds-copyval'));
             const sel = window.getSelection();
             sel.removeAllRanges();
             sel.addRange(range);
@@ -2031,13 +2032,13 @@ function renderDhtSerials() {
 
     sum.textContent = '';
     if (!rows.length) {
-        tb.innerHTML = `<tr><td colspan="6" class="loading">${dhtSerials.domain ? 'Asking the DHT nodes...' : ''}</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="4" class="loading">${dhtSerials.domain ? 'Asking the DHT nodes...' : ''}</td></tr>`;
         return;
     }
 
     let current = 0;
     tb.innerHTML = rows.map(r => {
-        let st, cls;
+        let st, cls, tip = '';
 
         if (r.state === 'held') {
             if (ref === null) {
@@ -2060,14 +2061,20 @@ function renderDhtSerials() {
         } else {
             st = 'no answer';
             cls = 'dht-badge-err';
+            tip = 'Nothing came back in 5s: the node is unreachable, or ' +
+                  'runs a version that doesn\'t answer serial queries';
         }
 
-        const node = r.peer ? escapeHtml(r.peer) : '<span class="dht-node-self">this node</span>';
-        const routing = r.peer ? (r.good ? 'good' : '<span class="dht-dubious">dubious</span>') : '';
+        /* the node's id, and if our routing table doubts it, under it */
+        const node = r.peer ?
+            `${escapeHtml(r.peer)}<div class="dht-node-id">${escapeHtml(r.id)}` +
+            `${r.good ? '' : ' <span class="dht-dubious">dubious</span>'}</div>` :
+            '<span class="dht-node-self">this node</span>';
 
-        return `<tr><td>${node}</td><td class="ext-mono">${escapeHtml(r.id)}</td><td>${routing}</td>` +
+        return `<tr><td>${node}</td>` +
                `<td class="ext-mono">${r.state === 'held' ? r.serial : ''}</td>` +
-               `<td><span class="inv-badge ${cls}">${st}</span></td><td>${formatSince(r.since)}</td></tr>`;
+               `<td><span class="inv-badge ${cls}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${st}</span></td>` +
+               `<td>${formatSince(r.since)}</td></tr>`;
     }).join('');
 
     if (ref !== null)
