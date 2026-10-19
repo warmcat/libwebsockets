@@ -159,6 +159,9 @@
    `lws_create_vhost()` must service until `lws_protocol_vh_priv_get()`
    is non-NULL.  `lws_context_info_defaults()` sets EXPLICIT_VHOSTS, so
    there is no "default" vhost: create your own.
+ - **Red-testing an opaque-ownership fix:** free the opaque right after the
+   cancel, so a missed cancel shows as an ASan use-after-free at vhost
+   destroy.
  - **Red half for a plugin-folding test needing new header constants:**
    keep the new header and restore only the `.c` from HEAD, or select
    with `#if defined(<new macro>)` in the test (api-test-hls-queue).

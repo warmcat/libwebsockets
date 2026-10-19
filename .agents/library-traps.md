@@ -438,7 +438,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    so a missing offset parses as 0, not ~0, whatever the caller preset
    (G-217).  Hand-driven raw test
    peers must use "sq" + 8 bytes as their session tid or they are ignored.
- - **Search policy (G-158 / G-211):** the replier is recorded before its
+ - **Search policy (G-158 / G-211 / G-216):** a get_peers reply is
+   recorded through `search_record_reply()`, for the entry asked at that
+   endpoint whatever id it claims; an endpoint introduces once per search;
+   the replier is recorded before its
    nodes list; only the 8 closest replied candidates are protected; the
    backlog keeps failure counts; failed endpoints are remembered per
    search; a search ends `LWS_DHT_SEARCH_MAX_SECS` (300s) after it starts.
@@ -451,6 +454,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Plugins and stubs
 
+ - **dht-dnssec `fetch_zone`:** the fetch cb is called while the request
+   is still listed, so cancelling from inside cb is a use-after-free; a
+   cancel with domain NULL drops every request with that opaque (G-220).
+   auth-dns with dht-dnssec only works on the same vhost:
+   `get_dnssec_vhd()` resolves to the caller's own vhost.
  - **lws-login renewal objects** (`pending_login_refresh`) are bounded per
    vhd and per host, released when their browser leg closes, and at
    PROTOCOL_DESTROY (G-166, G-167).  A new path that parks a browser wsi
