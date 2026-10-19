@@ -74,6 +74,7 @@ if (requirements)
 		set_tests_properties(api-test-ss-server-accept-libuv
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
 				     TIMEOUT 60)
 	endif()
 endif()

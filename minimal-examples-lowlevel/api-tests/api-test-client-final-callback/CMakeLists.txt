@@ -58,6 +58,7 @@ if (requirements)
 		set_tests_properties(api-test-client-final-callback-libuv
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
 				     TIMEOUT 30)
 	endif()
 endif()
