@@ -115,7 +115,13 @@ struct vhd_deaddrop {
 
 	lws_dll2_owner_t		pss_head; /* list of live pss */
 
-	const char			*upload_dir;
+	/*
+	 * the "upload-dir" pvo canonicalised once at init (absolute, no
+	 * symlinks, no trailing '/'), since every stored name is resolved and
+	 * then required to be inside it.  Empty if the vhost has no usable
+	 * upload dir, in which case we serve nothing.
+	 */
+	char				upload_dir[PATH_MAX];
 	const char			*cookie_name;
 
 	struct lwsac			*lwsac_head;
@@ -957,10 +963,27 @@ deaddrop_handler_server_protocol_init(struct lws *wsi, void *in)
 		}
 		vhd->has_jwk = 1;
 	}
-	if (lws_pvo_get_str(in, "upload-dir", &vhd->upload_dir)) {
+	if (lws_pvo_get_str(in, "upload-dir", &cp)) {
 		lwsl_vhost_warn(lws_get_vhost(wsi), "%s: requires 'upload-dir' pvo\n", __func__);
 		return 0;
 	}
+
+	/*
+	 * Names are checked to be inside the upload dir by comparing their
+	 * realpath() against it, so it must be in the same canonical form, or
+	 * a relative dir, one with a trailing '/', or one reached through a
+	 * symlink would never match anything
+	 */
+#if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
+	if (!realpath(cp, vhd->upload_dir)) {
+		vhd->upload_dir[0] = '\0';
+		lwsl_vhost_err(lws_get_vhost(wsi), "%s: upload-dir '%s' unusable "
+			       "(errno %d)", __func__, cp, errno);
+		return 0;
+	}
+#else
+	lws_strncpy(vhd->upload_dir, cp, sizeof(vhd->upload_dir));
+#endif
 
 #if defined(__linux__)
 	/*
@@ -1036,7 +1059,13 @@ deaddrop_resolve_name(struct vhd_deaddrop *vhd, struct lws *wsi,
 	if (!realpath(path, resolved_path))
 		return 1;
 
+	/*
+	 * Both are canonical, so inside means the upload dir followed by a
+	 * '/' (once canonical, the dir itself only ends in one if it is "/")
+	 */
 	ul = strlen(vhd->upload_dir);
+	if (ul && vhd->upload_dir[ul - 1] == '/')
+		ul--;
 	if (strncmp(resolved_path, vhd->upload_dir, ul) ||
 	    resolved_path[ul] != '/') {
 		lwsl_wsi_err(wsi, "illegal path '%s' -> '%s'", path,
@@ -1773,7 +1802,8 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	 * calls PROTOCOL_INIT for a vhost that has a pvo for it.  On any other
 	 * vhost of the same process, vhd stays NULL forever, and a peer can
 	 * still bind us with "Sec-WebSocket-Protocol: lws-deaddrop" or by a
-	 * callback mount.  Refuse those cleanly rather than deref NULL.
+	 * callback mount.  Refuse those cleanly rather than deref NULL, and
+	 * likewise on a vhost whose upload dir could not be used.
 	 */
 
 	switch (reason) {
@@ -1785,7 +1815,7 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED:
 	case LWS_CALLBACK_RECEIVE:
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (!vhd)
+		if (!vhd || !vhd->upload_dir[0])
 			return -1;
 		break;
 	default:

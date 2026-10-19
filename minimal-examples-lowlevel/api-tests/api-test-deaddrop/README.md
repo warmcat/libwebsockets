@@ -2,7 +2,10 @@
 
 Drives the `lws-deaddrop` plugin, built into the test with
 `LWS_PLUGIN_STATIC`, over http and ws in one process, as two basic auth users
-whose names share a prefix, `bob` and `bob_smith`.
+whose names share a prefix, `bob` and `bob_smith`.  The plugin is given its
+upload dir as `./dd-upload-link/`, a symlink in the working dir to the real
+one: relative, through a symlink and with a trailing `/`, all of which it
+must resolve itself.
 
 |step|expected|
 |---|---|
@@ -13,6 +16,7 @@ whose names share a prefix, `bob` and `bob_smith`.
 |`bob` deletes his own file|deleted, and every session's listing drops it|
 |`bob` uploads `x.html`, `x.svg`, `x.js`; `bob_smith` fetches them from `/get/`|each 200, `application/octet-stream`, `Content-Disposition: attachment` naming the file, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, the content intact|
 |`bob_smith` fetches a name that does not exist|404|
+|`bob_smith` fetches `bob_escape.txt`, a symlink in the upload dir to `<upload dir>x` beside it|404|
 
 ## running it
 
@@ -25,5 +29,5 @@ $ ./bin/lws-api-test-deaddrop --server localhost -p 7681 \
 |---|---|
 |`-p <port>`|port for the deaddrop server vhost|
 |`--server <addr>`|address the clients connect to|
-|`--upload-dir <dir>`|upload dir; created if needed and emptied of files first|
+|`--upload-dir <dir>`|upload dir; created if needed and emptied of files and symlinks first|
 |`--passwords <file>`|basic auth login file (`./ba-passwords` here)|

@@ -10,7 +10,7 @@ This plugin accepts the following configuring Per-Vhost Options (PVOs):
 
 | PVO Name | Description |
 |---|---|
-| `upload-dir` | **Required.** An absolute file path pointing to the directory where uploaded files should be stored by the server. |
+| `upload-dir` | **Required.** The directory where uploaded files are stored.  It is resolved once when the vhost is created (a relative path against the current directory, and through any symlinks), so it must exist by then; if it can't be resolved, the plugin refuses every request on that vhost.  Only names that resolve to a file directly inside it are ever served or deleted. |
 | `max-size` | Optional integer expressing the maximum permitted file upload size in bytes. Any file POSTs over this size will be aborted with an HTTP 413 "Payload Too Large". Defaults to `20971520` (20MB). |
 | `cookie-name` | Optional string defining the authentication session cookie name to clear during a logout hook in the UI. Defaults to `auth_session`. |
 | `jwt-jwk` | Optional JSON string or absolute path to a file containing a JSON Web Key (JWK) for JWT token validation. When provided, the plugin will natively read the value from the cookie set by `cookie-name`, validate it against the JWK, and use the JWT `"sub"` subject field as the authenticated identity. Only the lws auth server's session tokens are accepted (signed with the `"pur":"sso"` purpose, `LWS_JWT_AUTH_PURPOSE_SSO`): any other token signed with the same key, eg an interceptor's visit cookie, is refused. Recommended when used securely behind an `lws-login` interceptor mount. |

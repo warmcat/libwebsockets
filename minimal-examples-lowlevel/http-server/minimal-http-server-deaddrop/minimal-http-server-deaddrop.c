@@ -88,7 +88,7 @@ static struct lws_protocol_vhost_options pvo3 = {
 }, pvo2 = {
 	&pvo3, NULL, "max-size", "10000000"
 }, pvo1 = {
-        &pvo2, NULL, "upload-dir", "./uploads" /* would be an absolute path */
+        &pvo2, NULL, "upload-dir", "./uploads" /* resolved once at startup */
 }, pvo = {
         NULL,                  /* "next" pvo linked-list */
         &pvo1,                 /* "child" pvo linked-list */

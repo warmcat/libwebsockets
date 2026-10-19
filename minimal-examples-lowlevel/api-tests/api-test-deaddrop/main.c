@@ -29,6 +29,12 @@
  *  - bob uploads x.html, x.svg and x.js, and bob_smith downloads them from
  *    get/: each must come back as an application/octet-stream attachment,
  *    with nosniff and a sandboxing CSP, never as active content (G-282)
+ *
+ *  - the plugin is given its upload dir as a relative path, through a
+ *    symlink and with a trailing '/', which it must resolve itself for any of
+ *    the above to work (G-308); and a stored name that is a symlink to a file
+ *    outside it, beside the dir with the dir's name as its prefix, must not
+ *    be served (G-282)
  */
 
 #include <libwebsockets.h>
@@ -49,6 +55,13 @@
 #define SMITH_CONTENT	"bob_smith's notes\n"
 #define BOB_CONTENT	"bob's notes, overwriting\n"
 #define LEGACY_NAME	"bob_legacy.txt"
+/* a symlink in the upload dir to a file outside it */
+#define ESCAPE_NAME	"bob_escape.txt"
+/*
+ * the plugin is told the upload dir is here: relative, through a symlink in
+ * the test's working dir, and with a trailing '/'
+ */
+#define UPLOAD_LINK	"dd-upload-link"
 
 enum {
 	ST_UPLOAD_SMITH,
@@ -147,6 +160,7 @@ static struct download downloads[] = {
 	  "attachment; filename=\"x.js\"; filename*=UTF-8''x.js",
 	  JS_CONTENT, 0, "", "", "", "", "", 0, 0, 0 },
 	{ "bob_missing.html", 404, NULL, NULL, 0, "", "", "", "", "", 0, 0, 0 },
+	{ ESCAPE_NAME, 404, NULL, NULL, 0, "", "", "", "", "", 0, 0, 0 },
 };
 static int upload_idx, download_idx;
 
@@ -155,7 +169,7 @@ static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_tick, sul_watchdog;
 static const char *server_addr = "localhost";
-static char upload_dir[PATH_MAX];
+static char upload_dir[PATH_MAX]; /* canonical, for our own checks */
 static int port = 7681, state, result = 1, failed, settle;
 
 /* parsing a listing message */
@@ -524,7 +538,7 @@ static struct lws_http_mount mount_upload = {
 static struct lws_protocol_vhost_options pvo_ba = {
 	NULL, NULL, "basic-auth", NULL /* set from --passwords */
 }, pvo_dir = {
-	&pvo_ba, NULL, "upload-dir", upload_dir
+	&pvo_ba, NULL, "upload-dir", "./" UPLOAD_LINK "/"
 }, pvo = {
 	NULL, &pvo_dir, "lws-deaddrop", ""
 };
@@ -707,6 +721,35 @@ check_listings(void)
 	lwsl_user("bob_smith's file '%s', bob's '%s'\n", smith_name, bob_name);
 }
 
+/*
+ * A stored name that is a symlink to a file outside the upload dir, whose path
+ * starts with the upload dir's own path ("<dir>x"), so only the '/' after the
+ * dir in the resolved path tells it is outside.  It is planted only now, so the
+ * listings earlier do not count it.
+ */
+
+static int
+plant_escape(void)
+{
+	char outside[PATH_MAX + 4], path[PATH_MAX + 260];
+	int fd;
+
+	lws_snprintf(outside, sizeof(outside), "%sx", upload_dir);
+	fd = open(outside, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+	if (fd < 0)
+		return 1;
+	if (write(fd, "outside\n", 8) != 8) {
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	lws_snprintf(path, sizeof(path), "%s/%s", upload_dir, ESCAPE_NAME);
+	unlink(path);
+
+	return symlink(outside, path);
+}
+
 static void
 tick(lws_sorted_usec_list_t *sul)
 {
@@ -828,6 +871,10 @@ tick(lws_sorted_usec_list_t *sul)
 
 	case ST_UPLOAD_ACTIVE:
 		if (upload_idx == (int)LWS_ARRAY_SIZE(uploads)) {
+			if (plant_escape()) {
+				fail("could not plant the escape symlink", -1);
+				goto finish;
+			}
 			state = ST_DOWNLOADS;
 			break;
 		}
@@ -900,7 +947,7 @@ empty_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	char path[PATH_MAX + 260];
 
-	if (lde->type != LDOT_FILE)
+	if (lde->type != LDOT_FILE && lde->type != LDOT_LINK)
 		return 0;
 
 	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
@@ -923,6 +970,13 @@ prepare_upload_dir(const char *dir)
 
 	/* nothing left over from an earlier run */
 	lws_dir(upload_dir, NULL, empty_dir_cb);
+
+	/* what the plugin is told the upload dir is */
+	unlink(UPLOAD_LINK);
+	if (symlink(upload_dir, UPLOAD_LINK)) {
+		lwsl_err("%s: can't create %s\n", __func__, UPLOAD_LINK);
+		return 1;
+	}
 
 	/*
 	 * A file stored by the old "<user>_<name>" scheme: bob's name encodes

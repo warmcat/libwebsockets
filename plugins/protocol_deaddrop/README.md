@@ -8,7 +8,7 @@ Just configure lws with `cmake .. -DLWS_WITH_PLUGINS=1` and build lws as normal.
 
 |pvo name|value meaning|
 |---|---|
-|upload-dir|A writeable directory where uploaded files will go|
+|upload-dir|A writeable directory where uploaded files will go.  It must exist when the vhost is created, when it is resolved (relative to the current directory, through any symlinks) once for good|
 |max-size|Maximum individual file size in bytes|
 |jwt-jwk|Path to the JSON Web Key (JWK) used to verify JWT signatures.  Only the lws auth server's session tokens, which carry `"pur":"sso"`, are accepted|
 |cookie-name|Optional: Name of the HTTP cookie that the server should expect the JWT payload in. Defaults to `auth_session`|
