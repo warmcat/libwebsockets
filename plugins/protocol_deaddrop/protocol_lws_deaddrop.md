@@ -52,3 +52,23 @@ only the browser that a hostile page can aim at the server with the victim's
 cookie attached.  Refusing those unconditionally would break scripted use of
 the drop without closing an attack, so it is left to the deployment: set
 `require-origin` on a vhost that only ever serves browsers.
+
+## Stored file names and ownership
+
+Uploads are stored directly in `upload-dir` as `<owner>_<name>`, and the
+`<owner>` prefix is the only record of who uploaded a file: it decides who may
+delete it, and who it is listed as "yours" to.  So that the prefix can never
+be ambiguous, it is the authenticated username encoded so it contains no `_`:
+characters other than `A-Z a-z 0-9 . @ + -` are written as `=xx` (lowercase
+hex of the byte).  The owner prefix of a stored name always ends at its first
+`_`, whatever the uploaded file was called, and only that exact user (or a
+user with the `*` grant) may delete the file.  Eg, user `bob` uploading
+`smith_notes.txt` stores `bob_smith_notes.txt`, while user `bob_smith`
+uploading `notes.txt` stores `bob=5fsmith_notes.txt`.
+
+Usernames made only of the characters above encode to themselves, so files
+stored by earlier versions keep their owner.  Earlier versions stored the
+username with only `$ % : \` and `..` replaced by `_`: a file uploaded that
+way by a user whose name contained any other character is now attributed to
+whatever precedes its first `_`.  Rename such files to the new encoding (or
+delete them) when upgrading.

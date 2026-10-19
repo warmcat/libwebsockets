@@ -50,9 +50,29 @@
 #include <sys/inotify.h>
 #endif
 
+/*
+ * Uploaded files are stored as "<owner>_<name>" directly in the upload dir,
+ * and the ownership of a file is nothing more than that <owner> prefix.  So
+ * the prefix has to identify the uploader unambiguously: it is the
+ * authenticated username encoded so it can never contain '_' (nor '/'),
+ * which makes the first '_' in an on-disk name always the end of the owner.
+ * Bytes outside [A-Za-z0-9.@+-] become "=xx" (lowercase hex), so the encoding
+ * is one-to-one, and "bob" and "bob_smith" ("bob=5fsmith") can never claim
+ * each other's files.
+ *
+ * Usernames made only of those characters encode to themselves, so files
+ * stored by the earlier "<purified user>_<name>" scheme keep their owner.
+ * Files stored earlier by a user whose name contained anything else are
+ * attributed to whatever precedes their first '_', and should be renamed to
+ * the new encoding (or deleted) by the administrator.
+ */
+
+#define DEADDROP_USER_MAX	64
+#define DEADDROP_OWNER_MAX	(((DEADDROP_USER_MAX - 1) * 3) + 1)
+
 struct dir_entry {
 	lws_list_ptr next; /* sorted by mtime */
-	char user[32];
+	size_t owner_len; /* length of the owner prefix of the name, or 0 */
 	unsigned long long size;
 	time_t mtime;
 };
@@ -136,10 +156,12 @@ struct pss_deaddrop {
 	struct vhd_deaddrop		*vhd;
 	struct lws			*wsi;
 	char				result[LWS_PRE + 2048];
-	char				filename[256];
+	char				filename[512];
 	char				platform[32];
 	char				browser[32];
-	char				user[64];
+	char				user[DEADDROP_USER_MAX];
+	/* user, encoded as the owner prefix of the files it uploads */
+	char				owner[DEADDROP_OWNER_MAX];
 	char				rx[DEADDROP_RX_MAX];
 	size_t				rx_len;
 	char				tab_id[32];
@@ -220,9 +242,88 @@ deaddrop_parse_user_agent(const char *ua, char *platform, size_t plat_len,
 		lws_strncpy(browser, "Chrome", browser_len);
 }
 
+static int
+deaddrop_owner_char_ok(char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+	       (c >= '0' && c <= '9') ||
+	       c == '.' || c == '@' || c == '+' || c == '-';
+}
+
+/*
+ * Encode username into the owner prefix used on disk (see the comment at the
+ * top).  Returns 0, or -1 if it is empty or would not fit in dst.
+ */
+
+static int
+deaddrop_owner_encode(char *dst, size_t dst_len, const char *user)
+{
+	size_t o = 0;
+
+	while (*user) {
+		if (deaddrop_owner_char_ok(*user)) {
+			if (o + 1 >= dst_len)
+				return -1;
+			dst[o++] = *user++;
+			continue;
+		}
+
+		if (o + 3 >= dst_len)
+			return -1;
+		dst[o++] = '=';
+		lws_hex_from_byte_array((const uint8_t *)user++, 1, dst + o, 3);
+		o += 2;
+	}
+
+	dst[o] = '\0';
+
+	return o ? 0 : -1;
+}
+
+/*
+ * The username an owner prefix stands for, for display.  A prefix that is not
+ * a valid encoding (eg, from a file placed in the upload dir by other means)
+ * is shown as it is.
+ */
+
+static const char *
+deaddrop_owner_decode(char *dst, size_t dst_len, const char *owner,
+		      size_t owner_len)
+{
+	size_t o = 0, n = 0;
+	uint8_t b;
+
+	while (n < owner_len && o + 1 < dst_len) {
+		if (owner[n] != '=') {
+			if (!deaddrop_owner_char_ok(owner[n]))
+				goto as_is;
+			dst[o++] = owner[n++];
+			continue;
+		}
+
+		if (n + 3 > owner_len ||
+		    lws_hex_len_to_byte_array(owner + n + 1, 2, &b, 1) != 1 ||
+		    !b)
+			goto as_is;
+		dst[o++] = (char)b;
+		n += 3;
+	}
+
+	if (n == owner_len) {
+		dst[o] = '\0';
+
+		return dst;
+	}
+
+as_is:
+	lws_strnncpy(dst, owner, owner_len, dst_len);
+
+	return dst;
+}
+
 /*
  * Establish the authenticated identity for this connection into pss->user
- * (left empty if there is none) and pss->has_star_grant.
+ * (left empty if there is none), pss->owner and pss->has_star_grant.
  *
  * Two sources are accepted:
  *
@@ -243,15 +344,12 @@ deaddrop_parse_user_agent(const char *ua, char *platform, size_t plat_len,
  */
 
 static void
-deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
-			   struct lws *wsi)
+deaddrop_get_auth_identity_user(struct vhd_deaddrop *vhd,
+				struct pss_deaddrop *pss, struct lws *wsi)
 {
 	struct lws_jwt_auth_info ai;
 	struct lws_jwt_auth *ja;
 	const char *sub;
-
-	pss->user[0]		= '\0';
-	pss->has_star_grant	= 0;
 
 	if (vhd->basic_auth &&
 	    lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
@@ -296,6 +394,24 @@ deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	lwsl_wsi_info(wsi, "%s: JWT user '%s'", __func__, pss->user);
 
 	lws_jwt_auth_destroy(&ja);
+}
+
+static void
+deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+			   struct lws *wsi)
+{
+	pss->user[0]		= '\0';
+	pss->owner[0]		= '\0';
+	pss->has_star_grant	= 0;
+
+	deaddrop_get_auth_identity_user(vhd, pss, wsi);
+
+	if (pss->user[0] &&
+	    deaddrop_owner_encode(pss->owner, sizeof(pss->owner), pss->user)) {
+		/* can't happen with owner sized for user, but fail closed */
+		pss->user[0]		= '\0';
+		pss->has_star_grant	= 0;
+	}
 }
 
 /*
@@ -502,7 +618,8 @@ deaddrop_broadcast_filelist_update(struct vhd_deaddrop *vhd)
 static int
 deaddrop_scan_upload_dir(struct vhd_deaddrop *vhd)
 {
-	char filepath[512], *p_owner_end;
+	char filepath[512];
+	const char *p_owner_end;
 	struct lwsac *lwsac_head = NULL;
 	lws_list_ptr sorted_head = NULL;
 	struct dir_entry *dire;
@@ -544,16 +661,11 @@ deaddrop_scan_upload_dir(struct vhd_deaddrop *vhd)
 		dire->next = NULL;
 		dire->size = (unsigned long long)s.st_size;
 		dire->mtime = s.st_mtime;
-		dire->user[0] = '\0';
 
-		p_owner_end = (char *)strchr(de->d_name, '_');
-		if (p_owner_end) {
-			size_t owner_len = (size_t)(p_owner_end - de->d_name);
-			if (owner_len < sizeof(dire->user)) {
-				memcpy(dire->user, de->d_name, owner_len);
-				dire->user[owner_len] = '\0';
-			}
-		}
+		/* the owner prefix can't contain '_', so ends at the first */
+		p_owner_end = strchr(de->d_name, '_');
+		dire->owner_len = p_owner_end ?
+				(size_t)(p_owner_end - de->d_name) : 0;
 
 		memcpy(&dire[1], de->d_name, m);
 
@@ -569,7 +681,6 @@ deaddrop_scan_upload_dir(struct vhd_deaddrop *vhd)
 	while (old_dire && new_dire) {
 		if (old_dire->size != new_dire->size ||
 		    old_dire->mtime != new_dire->mtime ||
-		    strcmp(old_dire->user, new_dire->user) ||
 		    strcmp((const char *)&old_dire[1], (const char *)&new_dire[1])) {
 			changed = 1;
 			break;
@@ -622,7 +733,7 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 		  state, ((struct pss_deaddrop *)data)->user);
 
 	struct pss_deaddrop *pss = (struct pss_deaddrop *)data;
-	char filename2[256];
+	char filename2[256], *q;
 	size_t len = (size_t)_len;
 	int n;
 
@@ -670,16 +781,35 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 			return -1;
 		}
 		lws_filename_purify_inplace(filename2);
-		lws_filename_purify_inplace(pss->user);
+		/* it is one path component in the upload dir */
+		for (q = filename2; *q; q++)
+			if (*q == '/')
+				*q = '_';
+
+		if (!filename2[0] || !pss->owner[0]) {
+			pss->response_code = HTTP_STATUS_BAD_REQUEST;
+
+			return -1;
+		}
 
 		/*
-		 * Server is authoritative: construct filename from
-		 * authenticated user and the base filename from the
-		 * request.
+		 * Server is authoritative: construct filename from the
+		 * authenticated user's owner prefix and the base filename
+		 * from the request.  The owner prefix contains no '_', so
+		 * whatever the request's filename is, it can only ever
+		 * name a file of this user.
 		 */
-		lws_snprintf(pss->filename, sizeof(pss->filename),
-			     "%s/%s_%s~", pss->vhd->upload_dir,
-			     pss->user, filename2);
+		if (lws_snprintf(pss->filename, sizeof(pss->filename),
+				 "%s/%s_%s~", pss->vhd->upload_dir,
+				 pss->owner, filename2) >=
+						(int)sizeof(pss->filename)) {
+			pss->filename[0] = '\0';
+			pss->response_code = HTTP_STATUS_BAD_REQUEST;
+			lwsl_wsi_warn(pss->wsi, "%s: filename too long",
+				      __func__);
+
+			return -1;
+		}
 		lwsl_notice("%s: filename '%s'\n", __func__, pss->filename);
 
 		pss->fd = (lws_filefd_type)(long long)lws_open(pss->filename,
@@ -718,14 +848,22 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 		if (state == LWS_UFS_CONTENT)
 			break;
 
-		if (pss->fd != LWS_INVALID_FILE)
-			close((int)(lws_intptr_t)pss->fd);
+		if (pss->fd == LWS_INVALID_FILE)
+			/* no file in progress to complete */
+			break;
+
+		close((int)(lws_intptr_t)pss->fd);
 
 		/* the temp filename without the ~ */
-		lws_strncpy(filename2, pss->filename, sizeof(filename2));
-		filename2[strlen(filename2) - 1] = '\0';
-		if (rename(pss->filename, filename2) < 0)
-			lwsl_err("%s: unable to rename\n", __func__);
+		{
+			char final_name[sizeof(pss->filename)];
+
+			lws_strncpy(final_name, pss->filename,
+				    sizeof(final_name));
+			final_name[strlen(final_name) - 1] = '\0';
+			if (rename(pss->filename, final_name) < 0)
+				lwsl_err("%s: unable to rename\n", __func__);
+		}
 
 		pss->fd = LWS_INVALID_FILE;
 		pss->response_code = HTTP_STATUS_OK;
@@ -1164,7 +1302,7 @@ deaddrop_rx_cb(struct lejp_ctx *ctx, char reason)
 
 static void
 deaddrop_del(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
-	     struct lws *wsi, char *fname)
+	     struct lws *wsi, const char *fname)
 {
 #if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
 	char path[512], resolved_path[PATH_MAX];
@@ -1172,17 +1310,8 @@ deaddrop_del(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 #else
 	char path[512];
 #endif
-	char user[sizeof(pss->user)];
 	const char *cp;
 	size_t n;
-
-	/*
-	 * Purify the requested name FIRST: the name we are going to unlink is
-	 * the purified one, so that is what the ownership check has to be
-	 * made on.  Checking the raw request instead lets, eg, user 'bob$1'
-	 * pass the check with 'bob$1_x' and then unlink 'bob_1's file.
-	 */
-	lws_filename_purify_inplace(fname);
 
 	/*
 	 * It must be a single path component in the upload dir, and it must
@@ -1195,13 +1324,13 @@ deaddrop_del(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		return;
 	}
 
-	/* the owner prefix on disk was formed from the purified username */
-	lws_strncpy(user, pss->user, sizeof(user));
-	lws_filename_purify_inplace(user);
-
+	/*
+	 * The owner prefix ends at the first '_', since an encoded owner never
+	 * contains one.  Only that exact owner (or an admin) may delete it.
+	 */
 	n = (size_t)(cp - fname);
-	if (!pss->has_star_grant && (strlen(user) != n ||
-	    strncmp(user, fname, n))) {
+	if (!pss->has_star_grant && (strlen(pss->owner) != n ||
+	    strncmp(pss->owner, fname, n))) {
 		lwsl_wsi_notice(wsi, "del: auth mismatch, user '%s' tried to "
 				"delete a file of owner '%.*s'", pss->user,
 				(int)n, fname);
@@ -1251,7 +1380,7 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 	 * An anonymous session owns nothing, so it has nothing it may ask us
 	 * to do: ignore everything it sends
 	 */
-	if (!pss || !pss->user[0])
+	if (!pss || !pss->user[0] || !pss->owner[0])
 		return;
 
 	/* collect the whole message, which may arrive in pieces */
@@ -1301,15 +1430,21 @@ static uint8_t *
 deaddrop_render_file(struct pss_deaddrop *pss, uint8_t *p, uint8_t *end,
 		     const struct dir_entry *dire)
 {
-	char esc_fname[512], esc_up[128];
+	char esc_fname[512], esc_up[128], up[DEADDROP_USER_MAX];
 	const char *fname = (const char *)&dire[1], *p_fn = fname;
 	int is_yours, is_text = 0, in_used = 0, n;
 
 	is_yours = pss->user[0] &&
-		   (pss->has_star_grant || !strcmp(pss->user, dire->user));
+		   (pss->has_star_grant ||
+		    (dire->owner_len &&
+		     dire->owner_len == strlen(pss->owner) &&
+		     !strncmp(fname, pss->owner, dire->owner_len)));
 
-	if (dire->user[0])
-		p_fn += strlen(dire->user) + 1;
+	up[0] = '\0';
+	if (dire->owner_len) {
+		deaddrop_owner_decode(up, sizeof(up), fname, dire->owner_len);
+		p_fn += dire->owner_len + 1;
+	}
 
 	/* check for YYYY-MM-DD_HH-MM-SS.txt format */
 	if (strlen(p_fn) == 23 &&
@@ -1332,7 +1467,7 @@ deaddrop_render_file(struct pss_deaddrop *pss, uint8_t *p, uint8_t *end,
 			 "\"is_text\":%d}",
 			 pss->item_first ? ' ' : ',',
 			 esc_fname,
-			 deaddrop_json_esc(esc_up, sizeof(esc_up), dire->user),
+			 deaddrop_json_esc(esc_up, sizeof(esc_up), up),
 			 dire->size, (unsigned long long)dire->mtime,
 			 is_yours, is_text);
 	if (n >= (int)lws_ptr_diff_size_t(end, p))

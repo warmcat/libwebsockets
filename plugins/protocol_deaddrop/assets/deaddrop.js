@@ -450,8 +450,15 @@
 								var displayName = fullName;
 								var isOwner = f.yours;
 
+								/*
+								 * The stored name is "<owner>_<name>",
+								 * where the encoded owner never contains
+								 * '_'.  "uploader" is the decoded
+								 * username, so its length says nothing
+								 * about where the name starts.
+								 */
 								if (f.uploader && f.uploader.length > 0)
-									displayName = fullName.substring(f.uploader.length + 1);
+									displayName = fullName.substring(fullName.indexOf("_") + 1);
 
 								var date = new Date(f.mtime * 1000);
 								var html = "<td class=\"dow r\">" + humanize(f.size) + "</td>" +
