@@ -1220,6 +1220,42 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 			   unsigned char **p, unsigned char *end, char decomp);
 
 /**
+ * lws_http_compression_opt_out() - don't compress this response
+ *
+ * \param wsi: the server wsi (h1 connection, or h2 / h3 stream) whose response
+ *	       must not be compressed
+ *
+ * In a build with LWS_WITH_HTTP_STREAM_COMPRESSION, lws compresses text-ish
+ * responses on the fly when the client accepts it: those composed with
+ * lws_add_http_common_headers(), and files served by lws_serve_http_file().
+ * A response that carries a secret (a csrf token, a session-bound value)
+ * together with anything the client can influence (a reflected parameter)
+ * must not be compressed, since the compressed length can leak the secret to
+ * an attacker able to make the victim's browser send many requests and watch
+ * the size of the TLS records (BREACH).
+ *
+ * Call this before composing the response headers, eg, at LWS_CALLBACK_HTTP,
+ * to send this one response uncompressed: lws_add_http_common_headers(),
+ * lws_serve_http_file() and lws_http_compression_apply() then leave it as it
+ * is, and it does not say "vary: accept-encoding".  It applies to the response
+ * to the current request only, on every role; the next request on the
+ * connection is compressed as usual.  To stop a whole vhost compressing, use
+ * LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION instead.  It does not affect a
+ * file served from a mount that is already stored gzipped.
+ *
+ * lws does not decide this for itself from the response's headers, eg, a
+ * Set-Cookie or "cache-control: no-store": the coding is chosen when the
+ * common headers are composed, before the app adds those, and lws' own file
+ * serving says no-store for files on mounts without caching policy.
+ *
+ * Returns 0, or -1 if it is too late: the response is already being
+ * compressed.  If the library was built without
+ * LWS_WITH_HTTP_STREAM_COMPRESSION, it's a NOP returning 0.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_compression_opt_out(struct lws *wsi);
+
+/**
  * lws_http_is_redirected_to_get() - true if redirected to GET
  *
  * \param wsi: the wsi to check

@@ -28,6 +28,10 @@
  *    When lws has chosen to code it, the chunked framing is lws' own, and
  *    lws must end it at the completion.
  *
+ *  - /optout answers like /body after lws_http_compression_opt_out(): it
+ *    must not be coded, and the opt-out must be for that answer only, the
+ *    next /body on the connection is coded again.
+ *
  * --role h1 (default): a raw client sends a sequence of requests on one
  * connection, each after the previous answer is whole, and parses the
  * answers byte-exactly: framing (Content-Length or chunked), status, and
@@ -161,6 +165,11 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			return answer_body(wsi, pss, BL_ANS_NOFINAL);
 		if (path && !strcmp(path, "/redir"))
 			return answer_redirect(wsi);
+		if (path && !strcmp(path, "/optout")) {
+			if (lws_http_compression_opt_out(wsi))
+				return -1;
+			return answer_body(wsi, pss, BL_ANS_FINAL);
+		}
 
 		if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL) ||
 		    lws_http_transaction_completed(wsi))
@@ -194,22 +203,30 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
  * parsed exactly before the next request goes
  */
 
+enum bl_coding {
+	BL_COD_ANY,
+	BL_COD_IDENTITY,	/* must not be coded */
+	BL_COD_CODED,		/* must be coded, when lws can code */
+};
+
 struct step {
 	const char	*method;
 	const char	*path;
 	int		status;
 	char		head;		/* a HEAD: the answer has no body */
 	char		has_body;	/* a body is expected */
+	enum bl_coding	coding;
 };
 
 static const struct step steps[] = {
-	{ "HEAD",	"/body",	200, 1, 0 },
-	{ "GET",	"/redir",	302, 0, 0 },
-	{ "GET",	"/body",	200, 0, 1 },
-	{ "HEAD",	"/redir",	302, 1, 0 },
-	{ "HEAD",	"/nofinal",	200, 1, 0 },
-	{ "GET",	"/nofinal",	200, 0, 1 },
-	{ "GET",	"/body",	200, 0, 1 },
+	{ "HEAD",	"/body",	200, 1, 0, BL_COD_ANY },
+	{ "GET",	"/redir",	302, 0, 0, BL_COD_ANY },
+	{ "GET",	"/body",	200, 0, 1, BL_COD_ANY },
+	{ "HEAD",	"/redir",	302, 1, 0, BL_COD_ANY },
+	{ "HEAD",	"/nofinal",	200, 1, 0, BL_COD_ANY },
+	{ "GET",	"/nofinal",	200, 0, 1, BL_COD_ANY },
+	{ "GET",	"/optout",	200, 0, 1, BL_COD_IDENTITY },
+	{ "GET",	"/body",	200, 0, 1, BL_COD_CODED },
 };
 
 enum rx_state {
@@ -358,6 +375,17 @@ raw_answer_ok(void)
 		}
 
 		return 1;
+	}
+
+	if ((s->coding == BL_COD_IDENTITY && raw.coded)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	    || (s->coding == BL_COD_CODED && !raw.coded)
+#endif
+	   ) {
+		lwsl_err("%s: %s, expected %s\n", __func__,
+			 raw.coded ? "coded" : "identity",
+			 raw.coded ? "identity" : "coded");
+		return 0;
 	}
 
 	if (raw.coded)
@@ -609,9 +637,9 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
  */
 
 static const struct step h2_steps[] = {
-	{ "HEAD",	"/body",	200, 1, 0 },
-	{ "HEAD",	"/redir",	302, 1, 0 },
-	{ "GET",	"/body",	200, 0, 1 },
+	{ "HEAD",	"/body",	200, 1, 0, BL_COD_ANY },
+	{ "HEAD",	"/redir",	302, 1, 0, BL_COD_ANY },
+	{ "GET",	"/body",	200, 0, 1, BL_COD_ANY },
 };
 
 static struct {

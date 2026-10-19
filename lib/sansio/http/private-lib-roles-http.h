@@ -447,6 +447,9 @@ struct _lws_http_mode_related {
 	struct lws_compression_support *lcs;
 	lws_comp_ctx_t comp_ctx;
 	unsigned char comp_accept_mask;
+	/* the app forbade coding this response, see
+	 * lws_http_compression_opt_out(); per request, like comp_accept_mask */
+	unsigned char comp_opt_out;
 #endif
 
 	enum http_conn_type conn_type;

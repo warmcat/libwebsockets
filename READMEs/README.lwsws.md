@@ -356,7 +356,9 @@ where a response mixes secrets with content the client influences, since the
 compressed length can leak the secret (BREACH).  Without it, in a build with
 `LWS_WITH_HTTP_STREAM_COMPRESSION`, text-ish responses are compressed when the
 client accepts it, and say `vary: accept-encoding` so caches keep the codings
-apart.
+apart.  A plugin can instead keep just one response uncompressed by calling
+`lws_http_compression_opt_out()` before composing its headers; the lws-login
+and auth-server plugins do that for their pages.
 
  - `keepalive_timeout` (in secs, default 5) is how long the vhost waits on a
    client connection with nothing outstanding on it before closing it.  A

@@ -15,3 +15,10 @@ before it can process new input, the transform adds a new kind of buflist
 delivered to be processed but couldn't be accepted.
 
 Currently, zlib 'deflate' and brotli 'br' are supported on the server side.
+
+On the server side, a text-ish response is compressed when the client accepts
+it, unless the vhost has `LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION`, or the
+app called `lws_http_compression_opt_out()` for that one response before
+composing its headers.  Responses that carry a secret next to anything the
+client can influence must not be compressed (BREACH): they should use the
+opt-out.

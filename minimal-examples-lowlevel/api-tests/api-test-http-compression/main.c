@@ -8,8 +8,9 @@
  *
  * One process: a file mount serves a large generated text file whose name
  * is its own sha256, and the client side fetches it back over h1 and h2c
- * with every content-encoding the server can offer (identity, deflate and
- * brotli when built), plus one it cannot (gzip).  The client decodes what
+ * (and h3, when built and given a certificate) with every content-encoding
+ * the server can offer (identity, deflate and brotli when built), plus one it
+ * cannot (gzip).  The client decodes what
  * it receives and checks the digest and length against the name, so a
  * corrupted, truncated or mis-framed compressed transfer shows up as a
  * digest mismatch, not a silent success.
@@ -25,6 +26,13 @@
  *  - a coded body has no content-length, since it is coded on the fly: on
  *    h1 it goes chunked, on h2 it ends with the stream.  An identity one
  *    has its content-length and no transfer-encoding, and h2 never has one
+ *
+ * A callback mount, /dyn, answers with the same content as an app would:
+ * /dyn/compose composes the headers with lws_add_http_common_headers() and
+ * writes the body itself, /dyn/file passes the file to lws_serve_http_file().
+ * Both are compressed as the mount is.  /dyn/compose-optout and
+ * /dyn/file-optout do the same after lws_http_compression_opt_out(), and must
+ * come uncompressed, without vary, on every role (BREACH, G-201).
  *
  * The file is text/plain because lws only compresses text-ish mimetypes,
  * and its content is a pseudo-random hex stream interleaved with repeated
@@ -56,13 +64,23 @@ enum vh {
 	VH_NO_COMPRESSION,	/* LWS_SERVER_OPTION_NO_HTTP_STREAM_COMPRESSION */
 };
 
+enum role {
+	ROLE_H1,
+	ROLE_H2,		/* h2c, prior knowledge */
+	ROLE_H3,		/* on its own tls vhost, VH_DEFAULT only */
+};
+
+/* the body /dyn/compose writes at a time */
+#define DYN_CHUNK 4096
+
 struct xcase {
 	const char	*name;
 	const char	*accept;	/* accept-encoding to send, or NULL */
 	const char	*expect_ce;	/* content-encoding expected, or NULL */
 	enum dec	dec;
-	int		h2;
+	enum role	role;
 	enum vh		vh;
+	const char	*dyn;		/* a path under the /dyn mount, or NULL */
 	int		bin;		/* the .bin name, not compressible */
 	int		revalidate;	/* if-none-match the last etag, want 304 */
 	int		range;		/* ask for the first RANGE_LEN, want 206 */
@@ -98,28 +116,76 @@ static const struct xcase cases[] = {
 	{ .name = "h1 range, accept deflate", .accept = "deflate", .range = 1 },
 #endif
 #if defined(LWS_WITH_HTTP2)
-	{ .name = "h2 no accept-encoding", .h2 = 1, .vary = 1 },
-	{ .name = "h2 accept gzip (not offered)", .accept = "gzip", .h2 = 1,
+	{ .name = "h2 no accept-encoding", .role = ROLE_H2, .vary = 1 },
+	{ .name = "h2 accept gzip (not offered)", .accept = "gzip", .role = ROLE_H2,
 	  .vary = 1 },
 	{ .name = "h2 accept deflate", .accept = "deflate",
-	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .h2 = 1, .vary = 1 },
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .role = ROLE_H2, .vary = 1 },
 #if defined(LWS_WITH_HTTP_BROTLI)
 	{ .name = "h2 accept br", .accept = "br", .expect_ce = "br",
-	  .dec = DEC_BR, .h2 = 1, .vary = 1 },
+	  .dec = DEC_BR, .role = ROLE_H2, .vary = 1 },
 #endif
 	{ .name = "h2 revalidate, accept deflate", .accept = "deflate",
-	  .h2 = 1, .revalidate = 1, .vary = 1 },
+	  .role = ROLE_H2, .revalidate = 1, .vary = 1 },
 	{ .name = "h2 not compressible, accept deflate", .accept = "deflate",
-	  .h2 = 1, .bin = 1 },
+	  .role = ROLE_H2, .bin = 1 },
 	{ .name = "h2 vhost without compression, accept deflate",
-	  .accept = "deflate", .h2 = 1, .vh = VH_NO_COMPRESSION },
+	  .accept = "deflate", .role = ROLE_H2, .vh = VH_NO_COMPRESSION },
 	{ .name = "h2 vhost without compression, revalidate",
-	  .accept = "deflate", .h2 = 1, .vh = VH_NO_COMPRESSION,
+	  .accept = "deflate", .role = ROLE_H2, .vh = VH_NO_COMPRESSION,
 	  .revalidate = 1 },
 #if defined(LWS_WITH_RANGES)
-	{ .name = "h2 range, accept deflate", .accept = "deflate", .h2 = 1,
+	{ .name = "h2 range, accept deflate", .accept = "deflate", .role = ROLE_H2,
 	  .range = 1 },
 #endif
+#endif
+#if defined(LWS_ROLE_H3)
+	{ .name = "h3 no accept-encoding", .role = ROLE_H3, .vary = 1 },
+	{ .name = "h3 accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .role = ROLE_H3,
+	  .vary = 1 },
+	{ .name = "h3 revalidate, accept deflate", .accept = "deflate",
+	  .role = ROLE_H3, .revalidate = 1, .vary = 1 },
+#endif
+
+	/*
+	 * The app's own answers, and the ones it opted out of compression.
+	 * These come last: they leave no ETag for the revalidations
+	 */
+
+	{ .name = "h1 composed, accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .dyn = "/compose",
+	  .vary = 1 },
+	{ .name = "h1 composed, opted out", .accept = "deflate",
+	  .dyn = "/compose-optout" },
+	{ .name = "h1 served, accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .dyn = "/file",
+	  .vary = 1 },
+	{ .name = "h1 served, opted out", .accept = "deflate",
+	  .dyn = "/file-optout" },
+#if defined(LWS_WITH_HTTP2)
+	{ .name = "h2 composed, accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .dyn = "/compose",
+	  .role = ROLE_H2, .vary = 1 },
+	{ .name = "h2 composed, opted out", .accept = "deflate",
+	  .dyn = "/compose-optout", .role = ROLE_H2 },
+	{ .name = "h2 served, accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .dyn = "/file",
+	  .role = ROLE_H2, .vary = 1 },
+	{ .name = "h2 served, opted out", .accept = "deflate",
+	  .dyn = "/file-optout", .role = ROLE_H2 },
+#endif
+#if defined(LWS_ROLE_H3)
+	{ .name = "h3 composed, accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .dyn = "/compose",
+	  .role = ROLE_H3, .vary = 1 },
+	{ .name = "h3 composed, opted out", .accept = "deflate",
+	  .dyn = "/compose-optout", .role = ROLE_H3 },
+	{ .name = "h3 served, accept deflate", .accept = "deflate",
+	  .expect_ce = "deflate", .dec = DEC_DEFLATE, .dyn = "/file",
+	  .role = ROLE_H3, .vary = 1 },
+	{ .name = "h3 served, opted out", .accept = "deflate",
+	  .dyn = "/file-optout", .role = ROLE_H3 },
 #endif
 };
 
@@ -147,8 +213,10 @@ static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static int cur = -1, failures, interrupted;
 /* the listen ports, by vhost and then h1 / h2 */
-static int ports[2][2] = { { 7681, 7682 }, { 7683, 7684 } };
+static int ports[2][2] = { { 7681, 7682 }, { 7683, 7684 } }, h3_port = 7685;
+static const char *cert, *key;
 static size_t file_size = 3 * 1024 * 1024;
+static uint8_t *file_mem; /* the file's content, for /dyn/compose */
 static char tmpdir[256], file_path[384], bin_path[384], file_name[80],
 	    etag[64];
 static const char *tmpbase = ".";
@@ -184,6 +252,12 @@ generate_file(void)
 		return 1;
 	}
 
+	file_mem = malloc(file_size + 1);
+	if (!file_mem) {
+		lwsl_err("%s: OOM\n", __func__);
+		return 1;
+	}
+
 	lws_snprintf(file_path, sizeof(file_path), "%s/gen.txt", tmpdir);
 	f = fopen(file_path, "wb");
 	if (!f) {
@@ -211,6 +285,7 @@ generate_file(void)
 			memcpy(file_head + done, line,
 			       l < sizeof(file_head) - done ? l :
 					sizeof(file_head) - done);
+		memcpy(file_mem + done, line, l);
 		if (fwrite(line, 1, l, f) != l ||
 		    lws_genhash_update(&hc, line, l)) {
 			lwsl_err("%s: write failed\n", __func__);
@@ -253,6 +328,8 @@ generate_file(void)
 static void
 cleanup_file(void)
 {
+	free(file_mem);
+	file_mem = NULL;
 	if (bin_path[0])
 		unlink(bin_path);
 	if (file_path[0])
@@ -420,14 +497,14 @@ conn_finish(struct conn *cn, const struct xcase *c, int completed)
 	}
 #endif
 	/* a coded body goes chunked on h1; nothing else has a coding */
-	if (strcmp(cn->te, !c->h2 && c->expect_ce ? "chunked" : "")) {
+	if (strcmp(cn->te, c->role == ROLE_H1 && c->expect_ce ? "chunked" : "")) {
 		lwsl_err("%s: unexpected transfer-encoding '%s'\n", __func__,
 			 cn->te);
 		ok = 0;
 	}
 	/*
 	 * An identity body says how long it is, a coded one can't know.  h2
-	 * ends a body with its stream, and lws' file serving leaves the
+	 * and h3 end a body with its stream, and lws' file serving leaves the
 	 * content-length out there: one it does send must be right
 	 */
 	if (status == HTTP_STATUS_NOT_MODIFIED || c->expect_ce)
@@ -435,7 +512,7 @@ conn_finish(struct conn *cn, const struct xcase *c, int completed)
 	else
 		lws_snprintf(expect_cl, sizeof(expect_cl), "%u",
 			     (unsigned int)expect_len);
-	if (strcmp(cn->cl, expect_cl) && (!c->h2 || cn->cl[0])) {
+	if (strcmp(cn->cl, expect_cl) && (c->role == ROLE_H1 || cn->cl[0])) {
 		lwsl_err("%s: expected content-length '%s', got '%s'\n",
 			 __func__, expect_cl, cn->cl);
 		ok = 0;
@@ -607,9 +684,14 @@ next_case(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("--- case %d: %s ---\n", cur, c->name);
 
-	if (c->range && file_size < RANGE_LEN) {
-		lwsl_user("%s: skipped, the file is shorter than the range\n",
-			  __func__);
+	if ((c->range && file_size < RANGE_LEN) ||
+	    /* an empty composed body has nothing to code */
+	    (c->dyn && !file_size && !strncmp(c->dyn, "/compose", 8)) ||
+	    (c->role == ROLE_H3 && (!cert || !key))) {
+		lwsl_user("%s: skipped, %s\n", __func__,
+			  c->role == ROLE_H3 && (!cert || !key) ?
+				"h3 needs --cert and --key" :
+				"the file is too short for it");
 		lws_sul_schedule(context, 0, &sul_next, next_case,
 				 LWS_US_PER_MS);
 		return;
@@ -624,7 +706,10 @@ next_case(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	lws_snprintf(path, sizeof(path), "/%s", file_name);
+	if (c->dyn)
+		lws_snprintf(path, sizeof(path), "/dyn%s", c->dyn);
+	else
+		lws_snprintf(path, sizeof(path), "/%s", file_name);
 	if (c->bin)
 		/* the same file, as .bin */
 		memcpy(path + strlen(path) - 4, ".bin", 4);
@@ -635,9 +720,23 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.address = server_addr;
 	i.host = server_addr;
 	i.origin = server_addr;
-	i.port = ports[c->vh][!!c->h2];
-	if (c->h2)
+	switch (c->role) {
+	case ROLE_H1:
+		i.port = ports[c->vh][0];
+		break;
+	case ROLE_H2:
+		i.port = ports[c->vh][1];
 		i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE;
+		break;
+	case ROLE_H3:
+		i.port = h3_port;
+		i.alpn = "h3";
+		i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
+				   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		/* decided on h3, not by a fallback to tcp */
+		i.disable_h3_fallback = 1;
+		break;
+	}
 	i.path = path;
 	i.method = "GET";
 	i.protocol = "http-comp";
@@ -668,8 +767,109 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
+/*
+ * The /dyn mount: answers as an app composes them.  "/compose" composes the
+ * headers with lws_add_http_common_headers() and writes the file's content
+ * itself, "/file" passes the file to lws_serve_http_file().  "-optout" on
+ * either opts the response out of compression first.
+ */
+
+struct pss_dyn {
+	size_t		sent;
+	char		composing;
+};
+
+static int
+callback_dyn(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	     void *in, size_t len)
+{
+	struct pss_dyn *pss = (struct pss_dyn *)user;
+	uint8_t buf[LWS_PRE + DYN_CHUNK], *start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - 1];
+	const char *path = (const char *)in;
+	size_t n, base;
+	int r;
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+		pss->sent = 0;
+		pss->composing = 0;
+
+		/* the url's last part, whether in has the mountpoint or not */
+		n = 0;
+		while (n < len && path[len - n - 1] != '/')
+			n++;
+		path += len - n;
+		base = n;
+
+		if (n > 7 && !strncmp(path + n - 7, "-optout", 7)) {
+			if (lws_http_compression_opt_out(wsi))
+				return -1;
+			base = n - 7;
+		}
+
+		if (base == 4 && !strncmp(path, "file", 4)) {
+			r = lws_serve_http_file(wsi, file_path, "text/plain",
+						NULL, 0);
+			if (r < 0 || (r > 0 &&
+				      lws_http_transaction_completed(wsi)))
+				return -1;
+
+			return 0;
+		}
+
+		if (base != 7 || strncmp(path, "compose", 7))
+			return lws_return_http_status(wsi,
+					HTTP_STATUS_NOT_FOUND, NULL) ? -1 :
+				lws_http_transaction_completed(wsi);
+
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain",
+						(lws_filepos_t)file_size,
+						&p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return -1;
+
+		pss->composing = 1;
+		lws_callback_on_writable(wsi);
+
+		return 0;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!pss->composing)
+			break;
+
+		n = file_size - pss->sent;
+		if (n > DYN_CHUNK)
+			n = DYN_CHUNK;
+		memcpy(start, file_mem + pss->sent, n);
+		pss->sent += n;
+
+		if (lws_write(wsi, start, n, pss->sent == file_size ?
+				LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP) != (int)n)
+			return -1;
+
+		if (pss->sent != file_size) {
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
+		pss->composing = 0;
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "dyn", callback_dyn, sizeof(struct pss_dyn), 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -683,7 +883,15 @@ static const struct lws_protocol_vhost_options mimetype_bin = {
 	NULL, NULL, ".bin", "application/octet-stream"
 };
 
+static const struct lws_http_mount mount_dyn = {
+	.mountpoint		= "/dyn",
+	.origin			= "dyn",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 4,
+};
+
 static struct lws_http_mount mount = {
+	.mount_next		= &mount_dyn,
 	.mountpoint		= "/",
 	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 1,
@@ -717,6 +925,12 @@ main(int argc, const char **argv)
 		ports[VH_NO_COMPRESSION][0] = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--nc-h2-port")))
 		ports[VH_NO_COMPRESSION][1] = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--h3-port")))
+		h3_port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--cert")))
+		cert = p;
+	if ((p = lws_cmdline_option(argc, argv, "--key")))
+		key = p;
 	if ((p = lws_cmdline_option(argc, argv, "--size")))
 		file_size = (size_t)atol(p);
 	if ((p = lws_cmdline_option(argc, argv, "--tmpdir")))
@@ -732,7 +946,8 @@ main(int argc, const char **argv)
 	memset(&info, 0, sizeof(info));
 	lws_context_info_defaults(&info, NULL);
 	info.port = CONTEXT_PORT_NO_LISTEN;
-	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.fd_limit_per_thread = 0;
 
 	context = lws_create_context(&info);
@@ -770,6 +985,24 @@ main(int argc, const char **argv)
 		}
 		info.options = opts;
 	}
+
+#if defined(LWS_ROLE_H3)
+	if (cert && key) {
+		info.port = h3_port;
+		info.vhost_name = "srv-h3";
+		info.ssl_cert_filepath = cert;
+		info.ssl_private_key_filepath = key;
+		info.alpn = "h2,http/1.1,h3";
+		if (!lws_create_vhost(context, &info)) {
+			lwsl_err("Failed to create vhost %s\n",
+				 info.vhost_name);
+			goto bail;
+		}
+		info.ssl_cert_filepath = NULL;
+		info.ssl_private_key_filepath = NULL;
+		info.alpn = NULL;
+	}
+#endif
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.vhost_name = "cli";

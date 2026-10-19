@@ -1109,6 +1109,14 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 
 	return 0;
 }
+
+int
+lws_http_compression_opt_out(struct lws *wsi)
+{
+	(void)wsi;
+
+	return 0;
+}
 #endif
 
 int

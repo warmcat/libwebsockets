@@ -59,6 +59,7 @@ lws_http_compression_validate(struct lws *wsi)
 	size_t n;
 
 	wsi->http.comp_accept_mask = 0;
+	wsi->http.comp_opt_out = 0;
 
 	if (!wsi->stream.ah || !lwsi_role_server(wsi))
 		return 0;
@@ -143,9 +144,25 @@ lws_http_compression_vh_disabled(struct lws *wsi)
 }
 
 int
+lws_http_compression_opt_out(struct lws *wsi)
+{
+	if (wsi->http.lcs && !wsi->http.comp_ctx.is_decompression) {
+		/* its Content-Encoding has already been composed */
+		lwsl_wsi_warn(wsi, "too late, the response is already coded");
+
+		return -1;
+	}
+
+	wsi->http.comp_opt_out = 1;
+
+	return 0;
+}
+
+int
 lws_http_compression_candidate(struct lws *wsi, const char *content_type)
 {
-	return !lws_http_compression_vh_disabled(wsi) && content_type &&
+	return !lws_http_compression_vh_disabled(wsi) &&
+	       !wsi->http.comp_opt_out && content_type &&
 	       (!strncmp(content_type, "text/", 5) ||
 		!strcmp(content_type, "application/javascript") ||
 		!strcmp(content_type, "image/svg+xml"));
@@ -160,8 +177,12 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 	if (wsi->http.lcs)
 		lws_http_compression_destroy(wsi);
 
-	/* the vhost offers no content codings: the response doesn't vary */
-	if (!decomp && lws_http_compression_vh_disabled(wsi))
+	/*
+	 * The vhost offers no content codings, or the app forbade them for
+	 * this response: the response doesn't vary
+	 */
+	if (!decomp && (lws_http_compression_vh_disabled(wsi) ||
+			wsi->http.comp_opt_out))
 		return 1;
 
 	/*
