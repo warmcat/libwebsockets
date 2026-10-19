@@ -343,6 +343,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    defined: a static inline in a TLS backend header can't use them, put
    such helpers in a .c file.
 
+## QUIC io state
+
+ - When a QUIC connection moves to a new wsi on ALPN negotiation (h3,
+   lws-quic), only what `lws_io_udp_transfer_socket()` copies explicitly
+   moves: any new per-connection io state (peer stack, relay port, relay
+   proof...) must be added there too (G-359, 7e91787ff).
+
 ## Vhost selection
 
  - Host / :authority / SNI / passthrough vhost selection is scoped to the
