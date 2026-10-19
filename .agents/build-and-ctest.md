@@ -359,3 +359,11 @@ a log is evidence that something was or was not emitted.
  - A build tree's `include/` holds header copies made at cmake time:
    when compiling against a different checkout or worktree, put that
    tree's source `include/` first on the include path.
+ - With no event lib configured `LWS_WITH_EVENT_LIBS` is undefined, so
+   `LWS_EVLIB` and the evlib option bits are ignored (poll loop).  To
+   exercise built-in evlib selection, configure an event lib with
+   `-DLWS_WITH_EVLIB_PLUGINS=OFF`.
+ - Privilege drop (G-324): a uid/gid that can't be dropped to now fails
+   context creation, or `_exit(1)` from a deferred `lws_finalize_startup()`;
+   `ctx_privdrop_finalize` fault injection and api-test-privdrop test it
+   without root.
