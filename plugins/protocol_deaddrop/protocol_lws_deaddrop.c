@@ -58,6 +58,9 @@ struct dir_entry {
 };
 /* filename follows */
 
+/* the only ws message we accept, {"del":"<name>"}, JSON-escaped */
+#define DEADDROP_RX_MAX		1024
+
 #define lp_to_dir_entry(p, _n) lws_list_ptr_container(p, struct dir_entry, _n)
 
 struct pss_deaddrop;
@@ -112,6 +115,8 @@ struct pss_deaddrop {
 	char				platform[32];
 	char				browser[32];
 	char				user[64];
+	char				rx[DEADDROP_RX_MAX];
+	size_t				rx_len;
 	char				tab_id[32];
 	char				ip[46];
 	unsigned long long		file_length;
@@ -134,6 +139,7 @@ struct pss_deaddrop {
 	uint8_t				sent_initial:1;
 	uint8_t				ws_ongoing_send:1;
 	uint8_t				has_star_grant:1;
+	uint8_t				rx_overflow:1;
 };
 
 static const char * const param_names[] = {
@@ -957,25 +963,69 @@ deaddrop_handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop 
 	deaddrop_broadcast_userlist_update(vhd);
 }
 
+/*
+ * The ws protocol from the client has one message, {"del":"<name>"}, composed
+ * by JSON.stringify(), so the name may arrive escaped
+ */
+
+static const char * const deaddrop_rx_paths[] = {
+	"del",
+};
+
+struct deaddrop_rx_del {
+	char		name[256];
+	size_t		len;
+	uint8_t		seen:1;
+	uint8_t		bad:1;
+};
+
+static signed char
+deaddrop_rx_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct deaddrop_rx_del *r = (struct deaddrop_rx_del *)ctx->user;
+
+	if (!ctx->path_match)
+		return 0;
+
+	switch (reason) {
+	case LEJPCB_VAL_STR_START:
+		r->len	= 0;
+		r->seen	= 0;
+		r->bad	= 0;
+		break;
+	case LEJPCB_VAL_STR_CHUNK:
+	case LEJPCB_VAL_STR_END:
+		if (r->len + ctx->npos >= sizeof(r->name) ||
+		    memchr(ctx->buf, '\0', ctx->npos)) {
+			r->bad = 1;
+			break;
+		}
+		memcpy(r->name + r->len, ctx->buf, ctx->npos);
+		r->len += ctx->npos;
+		r->name[r->len] = '\0';
+		if (reason == LEJPCB_VAL_STR_END)
+			r->seen = 1;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static void
-deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
-		     struct lws *wsi, void *in, size_t len)
+deaddrop_del(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+	     struct lws *wsi, char *fname)
 {
 #if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
 	char path[512], resolved_path[PATH_MAX];
+	size_t ul;
 #else
 	char path[512];
 #endif
-	char fname[256], user[sizeof(pss->user)], *wp;
+	char user[sizeof(pss->user)];
 	const char *cp;
-	int n;
-
-	/* we get this kind of thing {"del":"user_agreen.txt"} */
-	if (!pss || len < 10)
-		return;
-
-	if (strncmp((const char *)in, "{\"del\":\"", 8))
-		return;
+	size_t n;
 
 	/*
 	 * Purify the requested name FIRST: the name we are going to unlink is
@@ -983,48 +1033,37 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 	 * made on.  Checking the raw request instead lets, eg, user 'bob$1'
 	 * pass the check with 'bob$1_x' and then unlink 'bob_1's file.
 	 */
-
-	lws_strncpy(fname, ((const char *)in) + 8, sizeof(fname));
-	wp = (char *)strchr((const char *)fname, '\"');
-	if (wp)
-		*wp = '\0';
-
 	lws_filename_purify_inplace(fname);
 
-	cp = (char *)strchr(fname, '_');
-	if (!cp) {
-		lwsl_warn("%s: del: no owner in filename\n", __func__);
-		return;
-	}
-
-	n = (int)(cp - fname);
-
 	/*
-	 * An anonymous session owns nothing, and neither does the empty owner
-	 * prefix of, eg, "_x": without these, pss->user "" == "" and the
-	 * comparison below passes for an unauthenticated peer.
+	 * It must be a single path component in the upload dir, and it must
+	 * have an owner prefix
 	 */
-	if (!pss->user[0] || !n) {
-		lwsl_wsi_notice(wsi, "del: refusing '%s' for unowned request",
-				fname);
+	cp = strchr(fname, '_');
+	if (strchr(fname, '/') || !strcmp(fname, ".") ||
+	    !strcmp(fname, "..") || !cp || cp == fname) {
+		lwsl_wsi_notice(wsi, "del: refusing bad name");
 		return;
 	}
 
 	/* the owner prefix on disk was formed from the purified username */
-
 	lws_strncpy(user, pss->user, sizeof(user));
 	lws_filename_purify_inplace(user);
 
-	if (!pss->has_star_grant && ((int)strlen(user) != n ||
-	    strncmp(user, fname, (unsigned int)n))) {
-		lwsl_wsi_notice(wsi, "del: auth mismatch "
-			    " user '%s' tried to delete file with "
-			    "owner '%.*s'", pss->user, n, fname);
+	n = (size_t)(cp - fname);
+	if (!pss->has_star_grant && (strlen(user) != n ||
+	    strncmp(user, fname, n))) {
+		lwsl_wsi_notice(wsi, "del: auth mismatch, user '%s' tried to "
+				"delete a file of owner '%.*s'", pss->user,
+				(int)n, fname);
 		return;
 	}
 
-	lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
-		     fname);
+	if (lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
+			 fname) >= (int)sizeof(path)) {
+		lwsl_wsi_notice(wsi, "del: name too long");
+		return;
+	}
 
 #if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
 	if (!realpath(path, resolved_path)) {
@@ -1032,8 +1071,9 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 		return;
 	}
 
-	if (strncmp(resolved_path, vhd->upload_dir,
-		    strlen(vhd->upload_dir))) {
+	ul = strlen(vhd->upload_dir);
+	if (strncmp(resolved_path, vhd->upload_dir, ul) ||
+	    resolved_path[ul] != '/') {
 		lwsl_err("%s: illegal delete attempt '%s' -> '%s'\n",
 			 __func__, path, resolved_path);
 		return;
@@ -1048,6 +1088,59 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 				path, strerror(errno));
 
 	deaddrop_scan_upload_dir(vhd);
+}
+
+static void
+deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+			      struct lws *wsi, void *in, size_t len)
+{
+	struct deaddrop_rx_del r;
+	struct lejp_ctx ctx;
+	int m;
+
+	/*
+	 * An anonymous session owns nothing, so it has nothing it may ask us
+	 * to do: ignore everything it sends
+	 */
+	if (!pss || !pss->user[0])
+		return;
+
+	/* collect the whole message, which may arrive in pieces */
+
+	if (lws_is_first_fragment(wsi)) {
+		pss->rx_len		= 0;
+		pss->rx_overflow	= 0;
+	}
+
+	if (len > sizeof(pss->rx) - pss->rx_len)
+		pss->rx_overflow = 1;
+	else if (!pss->rx_overflow) {
+		memcpy(pss->rx + pss->rx_len, in, len);
+		pss->rx_len += len;
+	}
+
+	if (!lws_is_final_fragment(wsi))
+		return;
+
+	if (pss->rx_overflow) {
+		lwsl_wsi_notice(wsi, "ignoring oversize message");
+		return;
+	}
+
+	memset(&r, 0, sizeof(r));
+	lejp_construct(&ctx, deaddrop_rx_cb, &r, deaddrop_rx_paths,
+		       LWS_ARRAY_SIZE(deaddrop_rx_paths));
+	m = lejp_parse(&ctx, (const uint8_t *)pss->rx, (int)pss->rx_len);
+	lejp_destruct(&ctx);
+
+	pss->rx_len = 0;
+
+	if (m < 0 || !r.seen || r.bad) {
+		lwsl_wsi_notice(wsi, "ignoring malformed message");
+		return;
+	}
+
+	deaddrop_del(vhd, pss, wsi, r.name);
 }
 
 /*
