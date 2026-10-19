@@ -386,6 +386,11 @@ and auth-server plugins do that for their pages.
 
  - "`access-log`": "filepath"   sets where apache-compatible access logs will be written
 
+   Each request is always one line.  Quotes in the request, referrer and
+   user agent are logged as `'` and control characters as `_`, and when a
+   line would be too long, the referrer and user agent are cut short, never
+   the quotes or the newline.
+
    The first field of each line is the client's address, eg `192.0.2.10`,
    exactly as it always was, when that is all lws knows of who the peer is
    and the connection's handshake proved it; a client on an AF_UNIX socket

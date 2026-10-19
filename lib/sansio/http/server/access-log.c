@@ -41,6 +41,18 @@ static const char * const hver[] = {
 };
 
 /*
+ * The parts of the request line we prepare are bounded by their buffers, so
+ * the prepared part of the line is never longer than this, and the line has
+ * room for it and at least 512 bytes of status, size, referrer and user agent
+ */
+#define LWS_AL_DATE_LEN		64
+#define LWS_AL_URI_LEN		256
+#define LWS_AL_METHOD_MAX	15
+#define LWS_AL_HDR_MAX		(LWS_PEER_DESC_LEN + LWS_AL_DATE_LEN + \
+				 LWS_AL_METHOD_MAX + LWS_AL_URI_LEN + 8 + 16)
+#define LWS_AL_LINE_LEN		(LWS_AL_HDR_MAX + 512)
+
+/*
  * The log line is one record per request; peer-controlled fields must not
  * be able to add fake records (CR / LF), hide the rest of the line (NUL /
  * other C0 controls) or break the quoting.  h1 framing already excludes
@@ -63,14 +75,13 @@ lws_access_log_sanitize(char *s, int len)
 void
 lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
-	char da[64], uri[256], ta[LWS_PEER_DESC_LEN];
+	char da[LWS_AL_DATE_LEN], uri[LWS_AL_URI_LEN], ta[LWS_PEER_DESC_LEN];
 	time_t t = lws_wsi_now_wall(wsi);
 	const char *me;
 #if defined(LWS_ROLE_H2)
-	char me_buf[16];
+	char me_buf[LWS_AL_METHOD_MAX + 1];
 #endif
 	int l, m;
-	size_t tl;
 	struct tm *ptm = NULL;
 #if defined(LWS_HAVE_LOCALTIME_R)
 	struct tm tm;
@@ -96,14 +107,6 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	 */
 	lws_io_peer_describe(wsi, ta, sizeof(ta),
 			     LWS_PEER_DESC_TOKEN | LWS_PEER_DESC_BARE_SINGLE);
-
-	/* room as there always was, and what a longer host field needs */
-	tl = strlen(ta);
-	l = 256 + (tl > 63 ? (int)tl - 63 : 0);
-
-	wsi->stream.access_log.header_log = lws_malloc((unsigned int)l, "access log");
-	if (!wsi->stream.access_log.header_log)
-		return;
 
 #if defined(LWS_HAVE_LOCALTIME_R)
 	ptm = localtime_r(&t, &tm);
@@ -142,9 +145,18 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	uri[m] = '\0';
 	lws_access_log_sanitize(uri, m);
 
-	lws_snprintf(wsi->stream.access_log.header_log, (size_t)l,
-		     "%s - - [%s] \"%s %s %s\"",
-		     ta, da, me, uri, hver[wsi->stream.request_version]);
+	/*
+	 * Room for all of it, so the request is never cut short, which would
+	 * lose its closing quote and put the peer's referrer outside quotes
+	 */
+	wsi->stream.access_log.header_log = lws_malloc(LWS_AL_HDR_MAX,
+						       "access log");
+	if (!wsi->stream.access_log.header_log)
+		return;
+
+	lws_snprintf(wsi->stream.access_log.header_log, LWS_AL_HDR_MAX,
+		     "%s - - [%s] \"%.*s %s %s\"", ta, da, LWS_AL_METHOD_MAX,
+		     me, uri, hver[wsi->stream.request_version]);
 
 	//lwsl_notice("%s\n", wsi->stream.access_log.header_log);
 
@@ -185,9 +197,11 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 int
 lws_access_log(struct lws *wsi)
 {
-	char *p = wsi->stream.access_log.user_agent, ass[512],
-	     *p1 = wsi->stream.access_log.referrer;
-	int l;
+	const char *ua = wsi->stream.access_log.user_agent,
+		   *ref = wsi->stream.access_log.referrer;
+	size_t room, rl, ul;
+	char ass[LWS_AL_LINE_LEN];
+	int n;
 
 	if (!wsi->a.vhost)
 		return 0;
@@ -201,32 +215,47 @@ lws_access_log(struct lws *wsi)
 	if (!wsi->stream.access_log.header_log)
 		return 0;
 
-	if (!p)
-		p = "";
+	if (!ua)
+		ua = "";
 
-	if (!p1)
-		p1 = "";
+	if (!ref)
+		ref = "";
 
-	/*
-	 * We do this in two parts to restrict an oversize referrer such that
-	 * we will always have space left to append an empty useragent, while
-	 * maintaining the structure of the log text
-	 */
-	l = lws_snprintf(ass, sizeof(ass) - 7, "%s %d %lu \"%s",
+	n = lws_snprintf(ass, sizeof(ass), "%s %d %lu \"",
 			 wsi->stream.access_log.header_log,
 			 wsi->stream.access_log.response,
-			 wsi->stream.access_log.sent, p1);
-	if (strlen(p) > sizeof(ass) - 6 - (unsigned int)l) {
-		p[sizeof(ass) - 6 - (unsigned int)l] = '\0';
-		l--;
+			 wsi->stream.access_log.sent);
+
+	/*
+	 * One request is one line, always: whatever is too long to fit is cut
+	 * from the peer's referrer and user agent, never the quotes around
+	 * them or the newline.  After the referrer, the line is '" "', the
+	 * user agent and '"\n', and there is the NUL.
+	 */
+	if ((size_t)n + 6 >= sizeof(ass)) {
+		/* the prepared part is bounded well below this */
+		lwsl_wsi_err(wsi, "access log line too long");
+		goto bail;
 	}
-	l += lws_snprintf(ass + (unsigned int)l, sizeof(ass) - 1 - (unsigned int)l, "\" \"%s\"\n", p);
+	room = sizeof(ass) - 1 - (size_t)n - 5;
 
-	ass[sizeof(ass) - 1] = '\0';
+	rl = strlen(ref);
+	ul = strlen(ua);
+	if (rl + ul > room) {
+		/* each gets half, or more if the other needs less */
+		if (rl > room / 2)
+			rl = ul < room / 2 ? room - ul : room / 2;
+		if (ul > room - rl)
+			ul = room - rl;
+	}
 
-	if ((int)write(wsi->a.vhost->log_fd, ass, (size_t)l) != l)
+	n += lws_snprintf(ass + (size_t)n, sizeof(ass) - (size_t)n,
+			  "%.*s\" \"%.*s\"\n", (int)rl, ref, (int)ul, ua);
+
+	if ((int)write(wsi->a.vhost->log_fd, ass, (size_t)n) != n)
 		lwsl_err("Failed to write log\n");
 
+bail:
 	if (wsi->stream.access_log.header_log) {
 		lws_free(wsi->stream.access_log.header_log);
 		wsi->stream.access_log.header_log = NULL;
