@@ -250,7 +250,9 @@ A member marked optional is checked before it is called, and a NULL one
 answers as though the request could not be done (no file can be sent, no
 onward connection made, no fallback taken, no session or certificate
 information), so leaving one NULL in a build that has the feature fails
-that feature, not the process.
+that feature, not the process.  The exception is `tls_quic_admit`, which
+asks permission rather than for something to be done: NULL there means
+nothing restricts, so every validated connection is admitted.
 
 What sansIO asks of features only lws' own IO has is not in the contract:
 a restarted client's rebind onto a jit-trust vhost and a jit-trust vhost's
