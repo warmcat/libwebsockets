@@ -941,6 +941,10 @@ lws_quic_stream_cleanup(struct lws *wsi);
 struct lws *
 lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id);
 
+int32_t
+lws_quic_peer_initial_stream_cr(const struct lws_quic_netconn *qn, int bidi,
+				int locally_initiated);
+
 int
 lws_quic_idtr_is_opened(const struct lws_quic_idtr *t, uint64_t idx);
 

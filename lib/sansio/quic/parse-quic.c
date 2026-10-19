@@ -820,6 +820,35 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 }
 
 /*
+ * The tx credit a new stream starts with, from the peer's transport
+ * parameters (RFC 9000 18.2): for a bidi stream the peer opened, its
+ * initial_max_stream_data_bidi_local, for one we opened, its
+ * initial_max_stream_data_bidi_remote, and for a uni stream (which can only
+ * be one we opened, if we are to send on it), initial_max_stream_data_uni.
+ *
+ * The values are up to 2^62 - 1 and saturate at INT32_MAX.  A value of 0 is
+ * taken as the parameter having been absent, which gets 65535.
+ */
+int32_t
+lws_quic_peer_initial_stream_cr(const struct lws_quic_netconn *qn, int bidi,
+				int locally_initiated)
+{
+	uint64_t val;
+
+	if (!bidi)
+		val = qn->peer_initial_max_stream_data_uni;
+	else
+		val = locally_initiated ?
+			qn->peer_initial_max_stream_data_bidi_remote :
+			qn->peer_initial_max_stream_data_bidi_local;
+
+	if (!val)
+		return 65535;
+
+	return lws_txc_limit_to_cr(val, 0);
+}
+
+/*
  * Finds a child WSI for a given QUIC Stream ID, or returns NULL.
  */
 struct lws *
@@ -1950,43 +1979,13 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						wsi_child->a.protocol->callback(wsi_child, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi_child->user_space, NULL, 0);
 					}
 
-					struct lws_quic_netconn *qn = nwsi->quic.qn;
-					/* Initialize Stream TX Credit from Peer Transport Parameters */
-					int is_bidi = (wsi_child->quic.qs->is_unidirectional == 0);
-					int is_remote_initiated = (wsi_child->quic.qs->is_server_initiated == nwsi->quic.qn->is_server ? 0 : 1);
-					if (is_bidi) {
-						if (is_remote_initiated) {
-							if (qn->peer_initial_max_stream_data_bidi_local) {
-								uint64_t val = qn->peer_initial_max_stream_data_bidi_local;
-								int32_t cval = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
-								wsi_child->txc.peer_tx_cr_est = cval;
-								wsi_child->txc.tx_cr = cval;
-							} else {
-								wsi_child->txc.peer_tx_cr_est = 65535;
-								wsi_child->txc.tx_cr = 65535;
-							}
-						} else {
-							if (qn->peer_initial_max_stream_data_bidi_remote) {
-								uint64_t val = qn->peer_initial_max_stream_data_bidi_remote;
-								int32_t cval = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
-								wsi_child->txc.peer_tx_cr_est = cval;
-								wsi_child->txc.tx_cr = cval;
-							} else {
-								wsi_child->txc.peer_tx_cr_est = 65535;
-								wsi_child->txc.tx_cr = 65535;
-							}
-						}
-					} else {
-						if (qn->peer_initial_max_stream_data_uni) {
-							uint64_t val = qn->peer_initial_max_stream_data_uni;
-							int32_t cval = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
-							wsi_child->txc.peer_tx_cr_est = cval;
-							wsi_child->txc.tx_cr = cval;
-						} else {
-							wsi_child->txc.peer_tx_cr_est = 65535;
-							wsi_child->txc.tx_cr = 65535;
-						}
-					}
+					/* the stream's tx credit, from the peer's transport parameters */
+					wsi_child->txc.tx_cr = lws_quic_peer_initial_stream_cr(
+						nwsi->quic.qn,
+						!wsi_child->quic.qs->is_unidirectional,
+						wsi_child->quic.qs->is_server_initiated ==
+								nwsi->quic.qn->is_server);
+					wsi_child->txc.peer_tx_cr_est = wsi_child->txc.tx_cr;
 				}
 
 				/* Dynamic Flow Control Enforcement */
@@ -2055,12 +2054,12 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					type == LWS_QUIC_FT_MAX_DATA ? "MAX_DATA" : "DATA_BLOCKED", (unsigned long long)max_data);
 
 				if (type == LWS_QUIC_FT_MAX_DATA) {
-					int64_t current_max = (int64_t)nwsi->quic.qn->tx_conn_offset + nwsi->txc.tx_cr;
-					if ((int64_t)max_data > current_max) {
-						int64_t delta64 = (int64_t)max_data - current_max;
-						int32_t delta = (delta64 > (int64_t)INT32_MAX) ? INT32_MAX : (int32_t)delta64;
+					/* max_data is absolute, up to 2^62 - 1 */
+					int32_t delta = lws_txc_limit_raise(nwsi->txc.tx_cr,
+							max_data, nwsi->quic.qn->tx_conn_offset);
+
+					if (delta)
 						lws_wsi_tx_credit(nwsi, LWSTXCR_US_TO_PEER, delta);
-					}
 				}
 				break;
 			} else if (type == LWS_QUIC_FT_MAX_STREAM_DATA || type == LWS_QUIC_FT_STREAM_DATA_BLOCKED) {
@@ -2122,12 +2121,12 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				if (type == LWS_QUIC_FT_MAX_STREAM_DATA) {
 					struct lws *child = lws_quic_stream_find(nwsi, stream_id);
 					if (child) {
-						int64_t current_max = (int64_t)(child->quic.qs ? child->quic.qs->tx_offset : 0) + child->txc.tx_cr;
-						if ((int64_t)max_stream_data > current_max) {
-							int64_t delta64 = (int64_t)max_stream_data - current_max;
-							int32_t delta = (delta64 > (int64_t)INT32_MAX) ? INT32_MAX : (int32_t)delta64;
+						int32_t delta = lws_txc_limit_raise(child->txc.tx_cr,
+							max_stream_data, child->quic.qs ?
+								child->quic.qs->tx_offset : 0);
+
+						if (delta)
 							lws_wsi_tx_credit(child, LWSTXCR_US_TO_PEER, delta);
-						}
 					}
 				}
 				break;
@@ -2267,14 +2266,18 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			break;
 		case 0x04: /* initial_max_data */
 			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
-				qn->peer_initial_max_data = val;
 				struct lws *nwsi = qn->nwsi ? qn->nwsi : wsi;
-				int64_t diff = (int64_t)val - 65535;
-				if (diff > 0) {
-					int32_t clamped = (diff > INT32_MAX) ? INT32_MAX : (int32_t)diff;
-					nwsi->txc.peer_tx_cr_est += clamped;
-					nwsi->txc.tx_cr += clamped;
-				}
+
+				qn->peer_initial_max_data = val;
+				/*
+				 * The connection's tx credit is what's left of
+				 * this absolute limit (up to 2^62 - 1), after
+				 * anything we already sent as 0-RTT.  It's what
+				 * we may send, so it says nothing about what the
+				 * peer may send us, peer_tx_cr_est.
+				 */
+				nwsi->txc.tx_cr = lws_txc_limit_to_cr(val,
+							qn->tx_conn_offset);
 			} else return -1;
 			break;
 		case 0x05: /* initial_max_stream_data_bidi_local */

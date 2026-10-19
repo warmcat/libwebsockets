@@ -252,6 +252,62 @@ struct lws_tx_credit {
 	uint8_t			manual;
 };
 
+/*
+ * Tx credit is held as int32, but a peer may grant much more than that: QUIC
+ * flow control limits are 62-bit absolute offsets.  Wherever peer-granted
+ * credit meets the int32, it saturates at INT32_MAX rather than wrapping.
+ * That's safe because saturated credit is always less than or equal to what
+ * the peer really granted, so we can never overrun it; the rest is relearned
+ * as we use it up and the peer grants again.
+ */
+
+/* the credit left under an absolute limit, given how much we used of it */
+static LWS_INLINE int32_t
+lws_txc_limit_to_cr(uint64_t limit, uint64_t used)
+{
+	if (limit <= used)
+		return 0;
+
+	limit -= used;
+
+	return limit > (uint64_t)INT32_MAX ? INT32_MAX : (int32_t)limit;
+}
+
+/* tx credit adjusted by add, saturated to the int32 range */
+static LWS_INLINE int32_t
+lws_txc_cr_add(int32_t cr, int64_t add)
+{
+	int64_t r;
+
+	if (add > (int64_t)INT32_MAX - (int64_t)INT32_MIN)
+		return INT32_MAX;
+	if (add < (int64_t)INT32_MIN - (int64_t)INT32_MAX)
+		return INT32_MIN;
+
+	r = (int64_t)cr + add;
+	if (r > INT32_MAX)
+		return INT32_MAX;
+	if (r < INT32_MIN)
+		return INT32_MIN;
+
+	return (int32_t)r;
+}
+
+/*
+ * How much a new absolute limit raises credit cr that is already held
+ * against it, for adding with lws_txc_cr_add(): 0 if it doesn't
+ */
+static LWS_INLINE int32_t
+lws_txc_limit_raise(int32_t cr, uint64_t limit, uint64_t used)
+{
+	int64_t d = (int64_t)lws_txc_limit_to_cr(limit, used) - (int64_t)cr;
+
+	if (d <= 0)
+		return 0;
+
+	return d > (int64_t)INT32_MAX ? INT32_MAX : (int32_t)d;
+}
+
 #ifdef LWS_WITH_IPV6
 #if defined(WIN32) || defined(_WIN32)
 #include <iphlpapi.h>

@@ -757,8 +757,9 @@ rops_tx_credit_h2(struct lws *wsi, char peer_to_us, int add)
 		 * to the peer
 		 */
 
-		wsi->txc.tx_cr += add;
-		nwsi->txc.tx_cr += add;
+		wsi->txc.tx_cr = lws_txc_cr_add(wsi->txc.tx_cr, add);
+		if (nwsi != wsi)
+			nwsi->txc.tx_cr = lws_txc_cr_add(nwsi->txc.tx_cr, add);
 
 		return 0;
 	}

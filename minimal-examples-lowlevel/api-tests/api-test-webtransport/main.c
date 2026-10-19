@@ -44,6 +44,10 @@
  *    its stream close promptly, rather than the stream being handed to the
  *    client's app and the GET left waiting.
  *
+ * ctest also runs it with the wsi/quic_tp_window(V..V+1) fault, so both ends
+ * advertise flow control limits of V = 2^31, 2^32 and 2^62 - 1 (G-231): the
+ * streams the client and server open must still start with credit to send.
+ *
  * The "nowt" cases need LWS_WITH_SYS_FAULT_INJECTION, the named protocol
  * case LWS_WITH_CUSTOM_HEADERS, and the basic auth case
  * LWS_WITH_HTTP_BASIC_AUTH: without them those cases are skipped.

@@ -122,6 +122,30 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
 }
 
 /*
+ * A flow control limit we advertise: our transport parameters' initial_max_*
+ * and the limits in MAX_DATA / MAX_STREAM_DATA.  Fault injection can
+ * advertise a bigger one from a range, eg "wsi/quic_tp_window(2^62-1..2^62)",
+ * to exercise how the peer handles huge grants.  Only the advertisement
+ * changes, not what we enforce, so a test using it must keep each stream and
+ * the connection under the window we really give (LWS_QUIC_DEFAULT_WINDOW).
+ */
+static uint64_t
+lws_quic_fi_window(struct lws *wsi, const char *fi_name, uint64_t limit)
+{
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	uint64_t u;
+
+	if (!lws_fi_range(&wsi->fic, fi_name, &u))
+		return u;
+#else
+	(void)wsi;
+	(void)fi_name;
+#endif
+
+	return limit;
+}
+
+/*
  * RFC 9000 17.2.3: a client stops sending 0-RTT once it has the 1-RTT keys.
  * 0-RTT and 1-RTT share the application PN space, so a frame first sent in
  * 0-RTT that has to go again after that, eg because the server refused 0-RTT
@@ -2234,6 +2258,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			}
 			uint8_t *tp = local_tp_buf;
 			uint8_t *tp_end = tp + 4096;
+			uint64_t win;
 
 #define LWS_QUIC_WRITE_TP_VARINT(_id, _val) \
 	do { \
@@ -2256,10 +2281,12 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 	} while (0)
 
 			// lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf));
-			LWS_QUIC_WRITE_TP_VARINT(0x04, LWS_QUIC_DEFAULT_WINDOW);
-			LWS_QUIC_WRITE_TP_VARINT(0x05, LWS_QUIC_DEFAULT_WINDOW);
-			LWS_QUIC_WRITE_TP_VARINT(0x06, LWS_QUIC_DEFAULT_WINDOW);
-			LWS_QUIC_WRITE_TP_VARINT(0x07, LWS_QUIC_DEFAULT_WINDOW);
+			win = lws_quic_fi_window(nwsi, "quic_tp_window",
+						 LWS_QUIC_DEFAULT_WINDOW);
+			LWS_QUIC_WRITE_TP_VARINT(0x04, win);
+			LWS_QUIC_WRITE_TP_VARINT(0x05, win);
+			LWS_QUIC_WRITE_TP_VARINT(0x06, win);
+			LWS_QUIC_WRITE_TP_VARINT(0x07, win);
 			LWS_QUIC_WRITE_TP_VARINT(0x08, nwsi->quic.qn->max_streams_bidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x09, nwsi->quic.qn->max_streams_unidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x20, 65535);
@@ -4103,11 +4130,16 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			} else if ((type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
 				if (type & 0x01) /* LEN */
 					p += lws_quic_write_varint(p, max - (size_t)(p - buf), send_len);
-			} else if (type == LWS_QUIC_FT_MAX_DATA || type == LWS_QUIC_FT_DATA_BLOCKED) {
+			} else if (type == LWS_QUIC_FT_DATA_BLOCKED) {
 				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->limit);
+			} else if (type == LWS_QUIC_FT_MAX_DATA) {
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf),
+					lws_quic_fi_window(wsi, "quic_max_data", f->limit));
 			} else if (type == LWS_QUIC_FT_MAX_STREAM_DATA || type == LWS_QUIC_FT_STREAM_DATA_BLOCKED) {
                                 p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id);
-				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->limit);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf),
+					type == LWS_QUIC_FT_STREAM_DATA_BLOCKED ? f->limit :
+					lws_quic_fi_window(wsi, "quic_max_data", f->limit));
 			} else if (type == LWS_QUIC_FT_RESET_STREAM) {
                                 p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id);
 				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->offset); /* app_err_code */
@@ -5275,13 +5307,17 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		if (wsi->quic.qn->cc_ops->init)
 			wsi->quic.qn->cc_ops->init(wsi);
 
-		/* Initialize Flow Control Credits */
+		/*
+		 * Connection flow control: what the peer may send us is the
+		 * window we advertise, and what we may send it is set from its
+		 * initial_max_data when its transport parameters arrive
+		 */
 		int32_t init_cr = i->manual_initial_tx_credit;
 		if (!init_cr)
 			init_cr = 65535;
-		wsi->txc.peer_tx_cr_est = init_cr;
+		wsi->txc.peer_tx_cr_est = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->txc.tx_cr = init_cr;
-		
+
 		wsi->quic.qn->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qn->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qn->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
@@ -5311,6 +5347,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 			}
 			uint8_t *tp = local_tp_buf;
 			uint8_t *tp_end = tp + 4096;
+			uint64_t win;
 
 #define LWS_QUIC_WRITE_TP_VARINT(_id, _val) \
 	do { \
@@ -5332,10 +5369,12 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		tp += (_len); \
 	} while (0)
 
-			LWS_QUIC_WRITE_TP_VARINT(0x04, 1048576);
-			LWS_QUIC_WRITE_TP_VARINT(0x05, 1048576);
-			LWS_QUIC_WRITE_TP_VARINT(0x06, 1048576);
-			LWS_QUIC_WRITE_TP_VARINT(0x07, 1048576);
+			win = lws_quic_fi_window(wsi, "quic_tp_window",
+						 LWS_QUIC_DEFAULT_WINDOW);
+			LWS_QUIC_WRITE_TP_VARINT(0x04, win);
+			LWS_QUIC_WRITE_TP_VARINT(0x05, win);
+			LWS_QUIC_WRITE_TP_VARINT(0x06, win);
+			LWS_QUIC_WRITE_TP_VARINT(0x07, win);
 			LWS_QUIC_WRITE_TP_VARINT(0x08, wsi->quic.qn->max_streams_bidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x09, wsi->quic.qn->max_streams_unidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x20, 65535);
@@ -6064,8 +6103,11 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 	if (add) {
 		if (peer_to_us == LWSTXCR_PEER_TO_US) {
 			/* We want to tell the peer they can write an additional "add" bytes to us */
-			wsi->txc.peer_tx_cr_est += add;
-			nwsi->txc.peer_tx_cr_est += add;
+			wsi->txc.peer_tx_cr_est = lws_txc_cr_add(
+					wsi->txc.peer_tx_cr_est, add);
+			if (nwsi != wsi)
+				nwsi->txc.peer_tx_cr_est = lws_txc_cr_add(
+					nwsi->txc.peer_tx_cr_est, add);
 
 			lws_usec_t now = lws_wsi_now(wsi);
 
@@ -6139,8 +6181,11 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 			return 0;
 		}
 
-		/* We're being told we can write an additional "add" bytes to the peer */
-		wsi->txc.tx_cr += add;
+		/*
+		 * We're being told we can write an additional "add" bytes to
+		 * the peer: the peer may have granted more than int32 holds
+		 */
+		wsi->txc.tx_cr = lws_txc_cr_add(wsi->txc.tx_cr, add);
 		if (add > 0)
 			wsi->quic.tx_blocked_sent = 0;
 
@@ -6327,21 +6372,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	/* Initialize flow control credits for the new child stream */
 	int32_t init_cr = nwsi->txc.manual_initial_tx_credit;
 	if (!init_cr) {
-		int is_bidi = (wsi->quic.qs && wsi->quic.qs->is_unidirectional == 0);
-		int is_remote_initiated = (wsi->quic.qs && wsi->quic.qs->is_server_initiated == nwsi->quic.qn->is_server ? 0 : 1);
-		uint64_t val = 0;
-		if (nwsi->quic.qn) {
-			if (is_bidi) {
-				if (is_remote_initiated)
-					val = nwsi->quic.qn->peer_initial_max_stream_data_bidi_local;
-				else
-					val = nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote;
-			} else {
-				val = nwsi->quic.qn->peer_initial_max_stream_data_uni;
-			}
-		}
-		if (val)
-			init_cr = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
+		if (nwsi->quic.qn)
+			init_cr = lws_quic_peer_initial_stream_cr(nwsi->quic.qn,
+				!wsi->quic.qs->is_unidirectional,
+				wsi->quic.qs->is_server_initiated ==
+						nwsi->quic.qn->is_server);
 		else
 			init_cr = 65535;
 	}

@@ -209,28 +209,16 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 		cwsi->quic.qs->is_unidirectional = 1;
 		cwsi->quic.qs->stream_id = qn->next_stream_id_unidi_local;
 		qn->next_stream_id_unidi_local += 4;
-		
-		if (qn->peer_initial_max_stream_data_uni) {
-			cwsi->txc.tx_cr = (int32_t)qn->peer_initial_max_stream_data_uni;
-			cwsi->txc.peer_tx_cr_est = (int32_t)qn->peer_initial_max_stream_data_uni;
-		} else {
-			cwsi->txc.tx_cr = 65535;
-			cwsi->txc.peer_tx_cr_est = 65535;
-		}
 	} else {
 		cwsi->wt.is_unidi = 0;
 		cwsi->quic.qs->is_unidirectional = 0;
 		cwsi->quic.qs->stream_id = qn->next_stream_id_bidi_local;
 		qn->next_stream_id_bidi_local += 4;
-		
-		if (qn->peer_initial_max_stream_data_bidi_remote) {
-			cwsi->txc.tx_cr = (int32_t)qn->peer_initial_max_stream_data_bidi_remote;
-			cwsi->txc.peer_tx_cr_est = (int32_t)qn->peer_initial_max_stream_data_bidi_remote;
-		} else {
-			cwsi->txc.tx_cr = 65535;
-			cwsi->txc.peer_tx_cr_est = 65535;
-		}
 	}
+
+	/* a stream we opened: its tx credit from the peer's parameters */
+	cwsi->txc.tx_cr = lws_quic_peer_initial_stream_cr(qn, !unidi, 1);
+	cwsi->txc.peer_tx_cr_est = cwsi->txc.tx_cr;
 
 	cwsi->quic.qs->is_server_initiated = qn->is_server ? 1u : 0u;
 	cwsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
