@@ -324,3 +324,12 @@ a log is evidence that something was or was not emitted.
    rate limiter, so grepping `-d 1039` output cannot prove a fault
    injection fired mid-transfer; rely on the test's red half.  Transport
    parameter values do show.
+ - The log spew limiter can also swallow `lwsl_user` lines at `-d 1039`;
+   read test verdicts from a default-level run.
+ - An lws ws client masks its payload in place: a buffer reused across
+   `lws_write()` calls must be refilled before each write, or the next
+   frame is garbage (a TEXT one then fails UTF-8 at the server).
+ - A TLS listen vhost whose listen-accept protocol is raw sees
+   `RAW_ADOPT` / `RAW_CLOSE` on that protocol with no client connected
+   (two at startup, seen by B39 in api-test-raw-proxy): tests counting a
+   server's connections must filter by vhost.
