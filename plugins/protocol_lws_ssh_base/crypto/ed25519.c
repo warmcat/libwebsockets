@@ -73,6 +73,11 @@ int crypto_sign_ed25519_keypair(
   ge25519_pack(pk, &gepk);
   for(i=0;i<32;i++)
     sk[32 + i] = pk[i];
+
+  /* the expanded secret scalar */
+  lws_explicit_bzero(extsk, sizeof(extsk));
+  lws_explicit_bzero(&scsk, sizeof(scsk));
+
   return 0;
 }
 
@@ -126,6 +131,16 @@ int crypto_sign_ed25519(
   sc25519_to32bytes(s,&scs); /* cat s */
   for (i = 0; i < 32; i++)
     sm[32 + i] = s[i];
+
+  /*
+   * the expanded secret key and the nonce k derived from it: either one
+   * reveals the private key
+   */
+  lws_explicit_bzero(extsk, sizeof(extsk));
+  lws_explicit_bzero(hmg, sizeof(hmg));
+  lws_explicit_bzero(&sck, sizeof(sck));
+  lws_explicit_bzero(&scsk, sizeof(scsk));
+  lws_explicit_bzero(&scs, sizeof(scs));
 
   return 0;
 }

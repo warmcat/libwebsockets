@@ -475,7 +475,6 @@ struct per_session_data__sshd {
 	struct lws_kex *kex;
 	char *disconnect_desc;
 
-	uint8_t K[LWS_SIZE_EC25519]; /* shared secret */
 	uint8_t session_id[LWS_SIZE_SHA256]; /* H from first working KEX */
 	char name[64];
 	/*
@@ -612,6 +611,10 @@ lws_pad_set_length(struct per_session_data__sshd *pss, void *start, uint8_t **p,
 
 extern size_t
 get_gen_server_key_25519(struct per_session_data__sshd *pss, uint8_t *b, size_t len);
+
+extern int
+lws_ssh_server_key_type(struct per_session_data__sshd *pss, char *type,
+			size_t type_len);
 
 extern int
 crypto_sign_ed25519(unsigned char *sm, unsigned long long *smlen,

@@ -19,6 +19,8 @@ int
 lws_chacha_activate(struct lws_ssh_keys *keys)
 {
 	if (keys->cipher) {
+		lws_explicit_bzero(keys->cipher,
+				   sizeof(struct lws_cipher_chacha));
 		free(keys->cipher);
 		keys->cipher = NULL;
 	}
@@ -33,6 +35,9 @@ lws_chacha_activate(struct lws_ssh_keys *keys)
 	lws_chacha_keysetup(K_2(keys), keys->key[SSH_KEYIDX_ENC], 256);
 	lws_chacha_keysetup(K_1(keys), &keys->key[SSH_KEYIDX_ENC][32], 256);
 
+	/* the key schedule in keys->cipher is all we use from here on */
+	lws_explicit_bzero(keys->key, sizeof(keys->key));
+
 	keys->valid = 1;
 	keys->full_length = 1;
 	keys->padding_alignment = 8; // CHACHA_BLOCKLEN;
@@ -45,9 +50,12 @@ void
 lws_chacha_destroy(struct lws_ssh_keys *keys)
 {
 	if (keys->cipher) {
+		lws_explicit_bzero(keys->cipher,
+				   sizeof(struct lws_cipher_chacha));
 		free(keys->cipher);
 		keys->cipher = NULL;
 	}
+	lws_explicit_bzero(keys->key, sizeof(keys->key));
 }
 
 uint32_t

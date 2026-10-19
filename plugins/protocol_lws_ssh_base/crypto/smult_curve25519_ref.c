@@ -6,6 +6,8 @@ Public domain.
 Derived from public domain code by D. J. Bernstein.
 */
 
+#include <libwebsockets.h>
+
 static void add(unsigned int out[32],const unsigned int a[32],const unsigned int b[32])
 {
   unsigned int j;
@@ -261,5 +263,10 @@ int crypto_scalarmult_curve25519(unsigned char *q,
   mult(work + 64,work,work + 32);
   freeze(work + 64);
   for (i = 0;i < 32;++i) q[i] = (unsigned char)work[64 + i];
+
+  /* our copy of the private scalar, and the result (eg, a shared secret) */
+  lws_explicit_bzero(e, sizeof(e));
+  lws_explicit_bzero(work, sizeof(work));
+
   return 0;
 }

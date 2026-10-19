@@ -303,10 +303,13 @@ kex_ecdh_dv(uint8_t *dest, int dest_len, const uint8_t *kbi, int kbi_len,
 		dest += m;
 	}
 
+	lws_explicit_bzero(pool, sizeof(pool));
+
 	return 0;
 
 hash_failed:
 	lws_genhash_destroy(&ctx, NULL);
+	lws_explicit_bzero(pool, sizeof(pool));
 
 	return 1;
 }
@@ -339,32 +342,62 @@ get_gen_server_key_25519(struct per_session_data__sshd *pss, uint8_t *b,
 	return s;
 }
 
+/*
+ * The type name of our host key, eg, "ssh-ed25519".  The key file holds the
+ * private key too, so it is read into a scratch buffer that is scrubbed
+ * before we return.
+ */
+int
+lws_ssh_server_key_type(struct per_session_data__sshd *pss, char *type,
+			size_t type_len)
+{
+	uint8_t keybuf[256];
+	size_t len;
+	int r = 1;
+
+	len = get_gen_server_key_25519(pss, keybuf, sizeof(keybuf));
+	if (len)
+		r = ed25519_key_parse(keybuf, len, type, type_len, NULL, NULL);
+
+	lws_explicit_bzero(keybuf, sizeof(keybuf));
+
+	return r;
+}
+
 int
 kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 {
-	uint8_t pri_key[64], temp[64], payload_sig[64 + 32], a, *lp, kbi[64];
+	uint8_t pri_key[64], temp[64], payload_sig[64 + 32], a, *lp, kbi[64],
+		K[LWS_SIZE_EC25519]; /* the shared secret */
 	struct lws_kex *kex = pss->kex;
 	struct lws_genhash_ctx ctx;
         unsigned long long smlen;
 	uint8_t *p = reply + 5;
 	uint32_t be, kbi_len;
 	uint8_t servkey[256];
+	int r, c, ret = 1;
 	char keyt[33];
-	int r, c;
+
+	/*
+	 * servkey and pri_key hold our long-lived host private key, and K,
+	 * kbi and temp (H) the secrets of this exchange: every way out of here
+	 * goes via "out", which scrubs them
+	 */
 
 	r = (int)get_gen_server_key_25519(pss, servkey, (int)sizeof(servkey));
 	if (!r) {
 		lwsl_err("%s: Failed to get or gen server key\n", __func__);
 
-		return 1;
+		goto out;
 	}
 
 	r = ed25519_key_parse(servkey, (unsigned int)r, keyt, sizeof(keyt),
 			      pss->K_S /* public key */, pri_key);
+	lws_explicit_bzero(servkey, sizeof(servkey));
 	if (r) {
 		lwsl_notice("%s: server key parse failed: %d\n", __func__, r);
 
-		return 1;
+		goto out;
 	}
 	keyt[32] = '\0';
 
@@ -404,7 +437,8 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 		a |= kex->Q_S[r];
 	if (!a) {
 		lwsl_notice("all zero pubkey\n");
-		return SSH_DISCONNECT_KEY_EXCHANGE_FAILED;
+		ret = SSH_DISCONNECT_KEY_EXCHANGE_FAILED;
+		goto out;
 	}
 
 	/*
@@ -414,14 +448,17 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 	 * X is the 32 bytes point obtained by the scalar multiplication of
 	 * the other side's public key and the local private key scalar.
 	 */
-	crypto_scalarmult_curve25519(pss->K, kex->eph_pri_key, kex->Q_C);
+	crypto_scalarmult_curve25519(K, kex->eph_pri_key, kex->Q_C);
+	/* the ephemeral private key has done its job */
+	lws_explicit_bzero(kex->eph_pri_key, sizeof(kex->eph_pri_key));
 
 	a = 0;
-	for (r = 0; r < (int)sizeof(pss->K); r++)
-		a |= pss->K[r];
+	for (r = 0; r < (int)sizeof(K); r++)
+		a |= K[r];
 	if (!a) {
 		lwsl_notice("all zero shared secret K\n");
-		return SSH_DISCONNECT_KEY_EXCHANGE_FAILED;
+		ret = SSH_DISCONNECT_KEY_EXCHANGE_FAILED;
+		goto out;
 	}
 
 	/*
@@ -429,7 +466,7 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 	 * integer k.  This conversion follows the network byte order. This
 	 * step differs from RFC5656.
 	 */
-	kbi_len = (uint32_t)lws_mpint_rfc4251(kbi, pss->K, LWS_SIZE_EC25519, 1);
+	kbi_len = (uint32_t)lws_mpint_rfc4251(kbi, K, LWS_SIZE_EC25519, 1);
 
 	/*
 	 * The exchange hash H is computed as the hash of the concatenation of
@@ -452,7 +489,7 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 
 	if (lws_genhash_init(&ctx, LWS_GENHASH_TYPE_SHA256)) {
 		lwsl_notice("genhash init failed\n");
-		return 1;
+		goto out;
 	}
 
 	if (_genhash_update_len(&ctx, pss->V_C, strlen(pss->V_C)))
@@ -497,9 +534,11 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 	 * The signature is itself 64 bytes
 	 */
         smlen = LWS_SIZE_EC25519 + 64;
-        if (crypto_sign_ed25519(payload_sig, &smlen, temp, LWS_SIZE_EC25519,
-				pri_key))
-		return 1;
+        r = crypto_sign_ed25519(payload_sig, &smlen, temp, LWS_SIZE_EC25519,
+				pri_key);
+	lws_explicit_bzero(pri_key, sizeof(pri_key));
+	if (r)
+		goto out;
 
 #if 0
         l = LWS_SIZE_EC25519;
@@ -573,21 +612,28 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 	 *
 	 *
 	 */
-	for (c = 0; c < 3; c++) {
-		kex_ecdh_dv(kex->keys_next_cts.key[c], LWS_SIZE_CHACHA256_KEY,
-			    kbi, (int)kbi_len, temp, (char)('A' + (c * 2)),
-			    pss->session_id);
-		kex_ecdh_dv(kex->keys_next_stc.key[c], LWS_SIZE_CHACHA256_KEY,
-			    kbi, (int)kbi_len, temp, (char)('B' + (c * 2)),
-			    pss->session_id);
-	}
+	for (c = 0; c < 3; c++)
+		if (kex_ecdh_dv(kex->keys_next_cts.key[c],
+				LWS_SIZE_CHACHA256_KEY, kbi, (int)kbi_len,
+				temp, (char)('A' + (c * 2)), pss->session_id) ||
+		    kex_ecdh_dv(kex->keys_next_stc.key[c],
+				LWS_SIZE_CHACHA256_KEY, kbi, (int)kbi_len,
+				temp, (char)('B' + (c * 2)), pss->session_id))
+			goto out;
 
-	lws_explicit_bzero(temp, sizeof(temp));
-
-	return 0;
+	ret = 0;
+	goto out;
 
 hash_probs:
 	lws_genhash_destroy(&ctx, NULL);
 
-	return 1;
+out:
+	lws_explicit_bzero(servkey, sizeof(servkey));
+	lws_explicit_bzero(pri_key, sizeof(pri_key));
+	lws_explicit_bzero(K, sizeof(K));
+	lws_explicit_bzero(kbi, sizeof(kbi));
+	lws_explicit_bzero(temp, sizeof(temp));
+	lws_explicit_bzero(payload_sig, sizeof(payload_sig));
+
+	return ret;
 }

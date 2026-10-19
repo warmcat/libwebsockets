@@ -172,18 +172,10 @@ offer(struct per_session_data__sshd *pss, uint8_t *p, uint32_t len, int first,
       int *payload_len)
 {
 	uint8_t *op = p, *lp, *end = p + len - 1;
-	int n, padc = 4, keylen;
+	int n, padc = 4;
 	char keyt[32];
-	uint8_t keybuf[256];
 
-	keylen = (int)get_gen_server_key_25519(pss, keybuf, (int)sizeof(keybuf));
-	if (!keylen) {
-		lwsl_notice("get_gen_server_key failed\n");
-		return 1;
-	}
-	lwsl_info("keylen %d\n", keylen);
-	n = ed25519_key_parse(keybuf, (unsigned int)keylen,
-			      keyt, sizeof(keyt), NULL, NULL);
+	n = lws_ssh_server_key_type(pss, keyt, sizeof(keyt));
 	if (n) {
 		lwsl_notice("unable to parse server key: %d\n", n);
 		return 1;
@@ -327,8 +319,6 @@ handle_name(struct per_session_data__sshd *pss)
 {
 	struct lws_kex *kex = pss->kex;
 	char keyt[32];
-	uint8_t keybuf[256];
-	int len;
 
 	switch (pss->parser_state) {
 	case SSH_KEX_NL_KEX_ALGS:
@@ -345,11 +335,7 @@ handle_name(struct per_session_data__sshd *pss)
 		 */
 		if (!kex->hostkey_checked) {
 			kex->hostkey_checked = 1;
-			len = (int)get_gen_server_key_25519(pss, keybuf,
-							(int)sizeof(keybuf));
-			if (!len || ed25519_key_parse(keybuf, (unsigned int)len,
-						      keyt, sizeof(keyt),
-						      NULL, NULL))
+			if (lws_ssh_server_key_type(pss, keyt, sizeof(keyt)))
 				lwsl_err("%s: unable to parse host key\n",
 					 __func__);
 			else
@@ -2313,6 +2299,7 @@ parse(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 			uint32_t cp, l = pss->msg_len + 4 +
 				pss->active_keys_cts.MAC_length;
 			uint8_t pt[2048];
+			int r;
 
 			len++;
 			cp = (uint32_t)len;
@@ -2350,7 +2337,10 @@ parse(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 				goto bail;
 			}
 
-			if (lws_ssh_parse_plaintext(pss, pt + 4, pss->msg_len))
+			r = lws_ssh_parse_plaintext(pss, pt + 4, pss->msg_len);
+			/* the decrypted packet does not outlive its parsing */
+			lws_explicit_bzero(pt, pss->pa_pos);
+			if (r)
 				goto bail;
 
 			pss->pa_pos = 0;
@@ -2390,6 +2380,8 @@ pad_and_encrypt(uint8_t *dest, void *ps, uint8_t *pp,
 
 	lws_chacha_encrypt(&pss->active_keys_stc, pss->ssh_sequence_ctr_stc,
 			   ps, n, dest);
+	/* the plaintext staging copy is not needed once it is encrypted */
+	lws_explicit_bzero(ps, n);
 	n += pss->active_keys_stc.MAC_length;
 
 	return n;
@@ -2528,6 +2520,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_chacha_destroy(&pss->active_keys_cts);
 		lws_chacha_destroy(&pss->active_keys_stc);
+		lws_explicit_bzero(pss->session_id, sizeof(pss->session_id));
 
 		lws_dll2_remove(&pss->list);
 		break;
