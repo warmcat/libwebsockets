@@ -104,3 +104,7 @@ sessions.
    index only.  Don't use `-U0` patches with `--unidiff-zero`: one applied
    a hunk on the wrong line without error.  Build and test the resulting
    commit alone in a worktree.
+ - **Another fixer's hunks can appear mid-phase in a file that was not on
+   their list.**  Diff each file against what you tested just before
+   committing, and if a make fails partway, rebuild before trusting the
+   ctest that follows.

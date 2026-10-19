@@ -302,9 +302,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_validity_confirmed()` restarts it via
    `_lws_validity_raw_keepalive()`, elsewhere it does nothing.  Raw has no
    ping of its own, so the protocol must confirm more often than the
-   hangup time (default 50s).  Until G-222 is fixed the tunnel uses the
-   listening vhost's `retry_and_idle_policy`, not the Host-selected one's
-   (a Host rebind does not update `retry_policy`).
+   hangup time (default 50s).  A rebind (SNI, Host:, :authority) moves a
+   server wsi's inherited `retry_policy` to the new vhost's and re-arms a
+   running validity timer (G-222).
 
 ## Client connect
 
@@ -461,6 +461,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    cancel with domain NULL drops every request with that opaque (G-220).
    auth-dns with dht-dnssec only works on the same vhost:
    `get_dnssec_vhd()` resolves to the caller's own vhost.
+ - **dht-dnssec fetches open only for an RSP from a host the GET went to**
+   (G-153): tests that hand-make a `lws_dht_dnssec_fetch_req` must record
+   the responder with `dht_dnssec_fetch_req_send()`.
  - **vhost destroy order:** every instantiated protocol's PROTOCOL_DESTROY
    runs before any per-vhost data is freed (lib/io/vhost.c), so a
    protocol's destroy may still use another protocol's per-vhost data on

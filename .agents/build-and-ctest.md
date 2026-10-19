@@ -181,6 +181,9 @@
    `LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER` (api-test-h3-authority).
  - A TLS or h3 client given a literal IP as its host sends no SNI: a
    simple way to make SNI and Host / `:authority` differ in a test.
+ - **Host: rebinds in api-test-sansio:** its vhosts are NO_LISTEN
+   (`listen_port` -1), so `lws_select_vhost()` matches them by name and a
+   connection adopted on one with `Host: <other>` really is rebound.
  - **api-test-sansio covers hpack** but `ctest -R 'h2|h3|http'` does not
    select it: run it whenever hpack.c changes.  Its transcripts can only
    be re-recorded (`--record`) from a `-DLWS_WITH_SYS_FAULT_INJECTION=1`
