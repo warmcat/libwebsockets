@@ -548,6 +548,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    check every other request type in the same stub: they usually still
    open paths directly (G-098, cert-dist client `get_hash`).
 
+ - The interceptor's cookies carry a `__Host-` prefix even over plain
+   http and must be sent back under that name (B56, api-test-captcha-login).
+ - Seen by B56: a plugin protocol's init (and its vhd) happened after the
+   first service turn, not at `lws_create_vhost()`; a test that needs the
+   vhd must service once first.
  - `PROTOCOL_INIT` comes once per vhost instantiating the protocol, so it
    is wrong for once-per-process work.  Use `lws_plugin_protocol_t`
    `.init` / `.deinit` (called once per context).
