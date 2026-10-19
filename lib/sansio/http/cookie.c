@@ -567,7 +567,8 @@ lws_cookie_parse_nsc(struct lws_cookie *c, const char *b, size_t l)
 		return -1;
 
 	memset(c, 0, sizeof(*c));
-	lwsl_cookie("%s: parsing (%.*s) \n", __func__, (int)l, b);
+	/* the line carries the cookie value: never log it, see below */
+	lwsl_cookie("%s: parsing jar line, len %d\n", __func__, (int)l);
 
 	while (l) {
 		l--;
@@ -610,9 +611,19 @@ lws_cookie_parse_nsc(struct lws_cookie *c, const char *b, size_t l)
 			c->f[CE_VALUE] = b;
 			c->l[CE_VALUE] = n + 1;
 
+			/*
+			 * The value is the credential (session ids, tokens):
+			 * log only its length, at any level
+			 */
 			for (n = 0; n < LWS_ARRAY_SIZE(c->f); n++)
-				lwsl_cookie("%s: %d: %.*s\n", __func__,
-						(int)n, (int)c->l[n], c->f[n]);
+				if (n == CE_VALUE)
+					lwsl_cookie("%s: %d: <%d bytes>\n",
+						    __func__, (int)n,
+						    (int)c->l[n]);
+				else
+					lwsl_cookie("%s: %d: %.*s\n", __func__,
+						    (int)n, (int)c->l[n],
+						    c->f[n]);
 
 			return 0;
 		default:
@@ -758,8 +769,9 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 			(int)c->l[CE_VALUE], c->f[CE_VALUE]);
 	lws_cookie_lower(cookie_string, c->l[CE_DOMAIN]);
 
-	lwsl_cookie("%s: name %s\n", __func__, cache_name);
-	lwsl_cookie("%s: c %s\n", __func__, cookie_string);
+	/* cookie_string carries the value: log only its length */
+	lwsl_cookie("%s: name %s, value len %d\n", __func__, cache_name,
+		    (int)c->l[CE_VALUE]);
 
 	/*
 	 * Convert expiry in UNIX time to lws_usec_t (monotonic clock).
@@ -780,7 +792,6 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	}
 
 #if defined(LWS_COOKIE_DEBUG)
-	char *po;
 	if (lws_cache_item_get(l1, cache_name, (const void **)&po, &size) ||
 	    size != strlen(cookie_string) || memcmp(po, cookie_string, size)) {
 		lwsl_err("%s: L1 '%s' missing\n", __func__, cache_name);
@@ -790,8 +801,8 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 			       (const void **)&po, &size) ||
 			       size != strlen(cookie_string) ||
 			       memcmp(po, cookie_string, size)) {
-		lwsl_err("%s: NSC '%s' missing, size %llu, po %s\n", __func__,
-			 cache_name, (unsigned long long)size, po);
+		lwsl_err("%s: NSC '%s' missing, size %llu\n", __func__,
+			 cache_name, (unsigned long long)size);
 	}
 #endif
 
@@ -1122,9 +1133,9 @@ lws_parse_set_cookie(struct lws *wsi)
 		if (!cookiep || !fl)
 			continue;
 
-#if defined(LWS_COOKIE_DEBUG)
-		lwsl_notice("%s:parsing: %.*s\n", __func__, (int)fl, cookiep);
-#endif
+		/* the header carries the cookie value: never log it */
+		lwsl_cookie("%s: parsing Set-Cookie, len %d\n", __func__,
+			    (int)fl);
 
 		buf_head = cookiep;
 		buf_end = cookiep + fl - 1;
@@ -1181,9 +1192,8 @@ lws_parse_set_cookie(struct lws *wsi)
 				c.f[CE_VALUE]++;
 				c.l[CE_VALUE] -= 2;
 			}
-			lwsl_cookie("%s: c value l %d v:%.*s\n", __func__,
-				    (int)c.l[CE_VALUE], (int)c.l[CE_VALUE],
-				    c.f[CE_VALUE]);
+			lwsl_cookie("%s: c value len %d\n", __func__,
+				    (int)c.l[CE_VALUE]);
 			continue;
 
 parse_av:
@@ -1264,18 +1274,10 @@ lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 
 	lwsl_notice("%s: size %d\n", __func__, size);
 
-#if defined(LWS_COOKIE_DEBUG)
-		char *p_dbg = *pp;
-#endif
-
 	start = *pp;
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE, NULL, size,
 								(unsigned char **)pp, (unsigned char *)end))
 		return -1;
-
-#if defined(LWS_COOKIE_DEBUG)
-		lwsl_notice("%s: dummy copy (%.*s) \n", __func__, (int)(*pp - p_dbg), p_dbg);
-#endif
 
 
 #ifdef LWS_WITH_HTTP2
@@ -1305,10 +1307,9 @@ lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 		return -1;
 	}
 
-#if defined(LWS_COOKIE_DEBUG)
-		lwsl_notice("%s: real copy (%.*s) total len %d\n", __func__, (int)(*pp - p_dbg), p_dbg, (int)(*pp - p_dbg));
-		lwsl_hexdump_notice(p_dbg, (size_t)(*pp - p_dbg));
-#endif
+	/* the header carries the cookie values: log only its length */
+	lwsl_cookie("%s: attached Cookie:, len %d\n", __func__,
+		    (int)lws_ptr_diff(*pp, start));
 
 	return 0;
 }
