@@ -56,6 +56,10 @@ static void
 __lws_peer_add_to_peer_wait_list(struct lws_context *context,
 				 struct lws_peer *peer)
 {
+	/* the unproven pseudo-peer lives as long as the context */
+	if (peer == &context->peer_unproven)
+		return;
+
 	__lws_peer_remove_from_peer_wait_list(context, peer);
 
 	lws_dll2_add_head(&peer->wait_list, &context->peer_wait_owner);
@@ -186,6 +190,53 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	return lws_get_or_create_peer_sa46(vhost, &sa46);
 }
 
+/*
+ * The peer a connection is accounted to: its own, from the address it would
+ * be keyed on, if that is believable (see lws_io_peer_policy(), where
+ * lws_get_peer_host_key() decides the same), else the context's one
+ * unproven pseudo-peer, which every peer known only by hearsay shares, with
+ * its own limit.  NULL if it has no peer to count.
+ */
+struct lws_peer *
+lws_get_or_create_peer_wsi(struct lws *wsi)
+{
+	lws_sockaddr46 sa46;
+
+	if (!wsi->a.vhost)
+		return NULL;
+
+	switch (lws_io_peer_policy(wsi, &sa46)) {
+	case LWS_IO_PEER_POLICY_PROVEN:
+		return lws_get_or_create_peer_sa46(wsi->a.vhost, &sa46);
+	case LWS_IO_PEER_POLICY_UNPROVEN:
+		return &wsi->a.context->peer_unproven;
+	}
+
+	return NULL;
+}
+
+/*
+ * One connection, counted against *ppeer (or nothing, if NULL), is to be
+ * counted against peer instead, eg, its address was proven.  Returns nonzero,
+ * changing nothing, if peer is at its limit (and the connection must go).
+ */
+int
+lws_peer_move_wsi(struct lws_context *context, struct lws_peer **ppeer,
+		  struct lws_peer *peer, lws_sockfd_type sockfd)
+{
+	if (peer == *ppeer)
+		return 0;
+
+	if (lws_peer_wsi_limit_reached(context, peer, sockfd))
+		return 1;
+
+	lws_peer_add_wsi(context, peer, NULL);
+	lws_peer_track_wsi_close(context, *ppeer);
+	*ppeer = peer;
+
+	return 0;
+}
+
 /* requires context->lock */
 static int
 __lws_peer_destroy(struct lws_context *context, struct lws_peer *peer)
@@ -232,21 +283,26 @@ lws_peer_cull_peer_wait_list(struct lws_context *context)
 }
 
 /*
- * Is peer already at ip_limit_wsi, so that a new connection from it must be
- * refused?  If so pl_notify_cb, if any, is told, with sockfd the new
- * connection's socket, or LWS_SOCK_INVALID if it has none of its own, and
- * the peer's address: the one the connection is attributed to.
+ * Is peer already at ip_limit_wsi (for the unproven pseudo-peer,
+ * unproven_limit_wsi), so that a new connection from it must be refused?  If
+ * so pl_notify_cb, if any, is told, with sockfd the new connection's socket,
+ * or LWS_SOCK_INVALID if it has none of its own, and the peer's address: the
+ * one the connection is attributed to, or for the unproven pseudo-peer, none.
  */
 int
 lws_peer_wsi_limit_reached(struct lws_context *context, struct lws_peer *peer,
 			   lws_sockfd_type sockfd)
 {
-	if (!peer || !context->ip_limit_wsi ||
-	    peer->count_wsi < context->ip_limit_wsi)
+	unsigned int limit = peer == &context->peer_unproven ?
+				context->unproven_limit_wsi :
+				context->ip_limit_wsi;
+
+	if (!peer || !limit || peer->count_wsi < limit)
 		return 0;
 
-	lwsl_info("%s: peer reached wsi limit %d\n", __func__,
-		  context->ip_limit_wsi);
+	lwsl_info("%s: %s reached wsi limit %u\n", __func__,
+		  peer == &context->peer_unproven ? "unproven peers" : "peer",
+		  limit);
 
 	if (context->pl_notify_cb)
 		context->pl_notify_cb(context, sockfd, &peer->sa46);

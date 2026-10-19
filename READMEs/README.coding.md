@@ -139,6 +139,20 @@ try to access the site through NAT, etc.  So the limits should err on the side
 of being generous, while still making it impossible for one IP to exhaust
 all the server resources.
 
+A connection is only counted against its peer's IP if that address has been
+proven, eg, by a TCP handshake, or vouched for by a trusted PROXY v2 front.  A
+peer address that is only hearsay, eg, the source address of the Initial that
+starts a QUIC connection, might be anything the sender wrote: counting it per
+IP would let a sender spread itself over addresses of its choosing, or spend
+a real client's budget.  So all such connections share one budget instead,
+`info.unproven_limit_wsi` (0, the default, is no limit), sized for the
+connections you expect to be proving their address at once; a new one beyond
+it is dropped.  A QUIC connection moves from it to its peer's own budget once
+QUIC has validated its address, and if that is already at `ip_limit_wsi`, it
+is closed with CONNECTION_REFUSED.  `lws_get_peer_host_key()` makes the same
+decision for plugins' per-client keys, giving `LWS_HOST_KEY_UNPROVEN` for a
+hearsay peer.
+
 @section evtloop Libwebsockets is singlethreaded
 
 Libwebsockets works in a serialized event loop, in a single thread.  It supports

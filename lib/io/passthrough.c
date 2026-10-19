@@ -450,10 +450,11 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 	 * counts against the client named, as a QUIC client the proxy relays
 	 * does, or for a LOCAL header, the proxy's own connection, against the
 	 * proxy.  Otherwise every client behind the proxy shares one budget,
-	 * and any one of them can spend it for all the others.
+	 * and any one of them can spend it for all the others.  The claim is
+	 * now the effective entry of the connection's stack, the proxy's own
+	 * connection for a LOCAL header.
 	 */
-	pl = lws_get_or_create_peer_sa46(wsi->a.vhost, pv.local ?
-					 &wsi->io->pstack[0].sa46 : &pv.src);
+	pl = lws_get_or_create_peer_wsi(wsi);
 	if (lws_peer_wsi_limit_reached(wsi->a.context, pl,
 				       wsi->io->desc.sockfd)) {
 #if (_LWS_ENABLED_LOGS & LLL_INFO)

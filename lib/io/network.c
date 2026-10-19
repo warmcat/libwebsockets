@@ -286,9 +286,20 @@ lws_get_peer_host_key(struct lws *wsi, char *key, size_t len)
 
 	/*
 	 * The one place per-client admission decisions learn who the client
-	 * is, so any later judgement of how far the address can be believed
-	 * belongs here too
+	 * is, deciding with peer limits in lws_io_peer_policy() whether the
+	 * address can be believed
 	 */
+
+	switch (lws_io_peer_policy(wsi, &sa46)) {
+	case LWS_IO_PEER_POLICY_PROVEN:
+		lws_sa46_host_key(&sa46, key, len);
+		return key;
+	case LWS_IO_PEER_POLICY_UNPROVEN:
+		lws_strncpy(key, LWS_HOST_KEY_UNPROVEN, len);
+		return key;
+	}
+
+	/* no stack: whatever the socket says, as lws_get_peer_simple() */
 
 	ads[0] = '\0';
 	lws_get_peer_simple(wsi, ads, sizeof(ads));

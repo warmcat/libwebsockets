@@ -442,6 +442,13 @@ void
 lws_io_peer_keep(struct lws *wsi);
 const lws_sockaddr46 *
 lws_io_peer_route_dest(struct lws *wsi);
+enum {
+	LWS_IO_PEER_POLICY_NONE		= -1,	/* no peer at all */
+	LWS_IO_PEER_POLICY_PROVEN	= 0,	/* the address is believable */
+	LWS_IO_PEER_POLICY_UNPROVEN	= 1,	/* only hearsay */
+};
+int
+lws_io_peer_policy(struct lws *wsi, lws_sockaddr46 *sa46);
 lws_sockaddr46 *
 lws_io_peer(struct lws *wsi);
 int

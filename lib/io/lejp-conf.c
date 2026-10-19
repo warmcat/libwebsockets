@@ -56,6 +56,7 @@ static const char * const paths_global[] = {
 	"global.quic-early-key-update",
 	"global.http-header-data",
 	"global.http-header-pool-per-mux",
+	"global.unproven-limit-wsi",
 };
 
 enum lejp_global_paths {
@@ -83,6 +84,7 @@ enum lejp_global_paths {
 	LEJPGP_QUIC_EARLY_KEY_UPDATE,
 	LEJPGP_HTTP_HEADER_DATA,
 	LEJPGP_HTTP_HEADER_POOL_PER_MUX,
+	LEJPGP_UNPROVEN_LIMIT_WSI,
 };
 
 static const char * const paths_vhosts[] = {
@@ -634,6 +636,13 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	case LWJPGP_IP_LIMIT_WSI:
 		a->info->ip_limit_wsi = (uint16_t)atoi(ctx->buf);
 		return 0;
+
+	case LEJPGP_UNPROVEN_LIMIT_WSI: {
+		int n = atoi(ctx->buf);
+
+		a->info->unproven_limit_wsi = n > 0 ? (unsigned int)n : 0;
+		return 0;
+	}
 #endif
 
 	case LWJPGP_FD_LIMIT_PT:

@@ -1827,9 +1827,10 @@ lws_quic_halfopen_admit(struct lws *lwsi, const lws_sockaddr46 *sa46)
  * no fd either, and a peer keeps one up as long as it likes (a PING refreshes
  * the idle timeout), so they are bounded here: a service thread keeps at most
  * as many as it has fd slots (fd_limit_per_thread), the bound TCP connections
- * have, and with LWS_WITH_PEER_LIMITS each counts as one wsi of its peer's
- * address against ip_limit_wsi, as a TCP connection does.  Beyond either, the
- * newest, this one, is refused.  Returns nonzero if it is to be closed.
+ * have.  Beyond that, the newest, this one, is refused.  (With
+ * LWS_WITH_PEER_LIMITS, it has counted against its peer's limits since it
+ * was born, see lws_quic_peer_account().)  Returns nonzero if it is to be
+ * closed.
  */
 int
 lws_quic_server_admit_established(struct lws *nwsi)
@@ -1837,26 +1838,12 @@ lws_quic_server_admit_established(struct lws *nwsi)
 	struct lws_context *cx = nwsi->a.context;
 	struct lws_context_per_thread *pt = &cx->pt[(int)nwsi->tsi];
 	struct lws_quic_netconn *qn = nwsi->quic.qn;
-#if defined(LWS_WITH_PEER_LIMITS)
-	struct lws_peer *peer = NULL;
-#endif
 
 	if (pt->quic_established.count >= cx->fd_limit_per_thread) {
 		lwsl_wsi_notice(nwsi, "QUIC connections at limit (%u), "
 				      "refusing", cx->fd_limit_per_thread);
 		return 1;
 	}
-
-#if defined(LWS_WITH_PEER_LIMITS)
-	if (nwsi->a.vhost)
-		peer = lws_get_or_create_peer_sa46(nwsi->a.vhost,
-						   &qn->path_sa46);
-	if (lws_peer_wsi_limit_reached(cx, peer, LWS_SOCK_INVALID))
-		return 1;
-	/* the connection gives it back, lws_quic_netconn_destroy() */
-	lws_peer_add_wsi(cx, peer, NULL);
-	qn->peer = peer;
-#endif
 
 	lws_dll2_remove(&qn->pt_list);
 	lws_dll2_add_tail(&qn->pt_list, &pt->quic_established);
@@ -1884,8 +1871,12 @@ lws_quic_server_admit_established(struct lws *nwsi)
  * migration that is not committed yet, raises nothing; a path that is
  * committed (RFC 9000 9) starts again at hearsay, until its validation
  * raises it.
+ *
+ * A server connection's peer limits accounting follows it, see
+ * lws_quic_peer_account().  Returns nonzero if the connection is to be
+ * refused for them.
  */
-void
+int
 lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
 		     lws_peer_cred_t cred)
 {
@@ -1895,13 +1886,58 @@ lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
 	if (cred != LWS_PEER_CRED_CRYPTO) {
 		if (seen)
 			lws_peer_raise(nwsi, seen, cred);
-		return;
+	} else {
+		n = lws_peer_walk(nwsi, e, (int)LWS_ARRAY_SIZE(e));
+		while (n-- > 0)
+			if (e[n].cred >= LWS_PEER_CRED_ROUTABLE)
+				lws_peer_raise(nwsi, &e[n].sa46,
+					       LWS_PEER_CRED_CRYPTO);
 	}
 
-	n = lws_peer_walk(nwsi, e, (int)LWS_ARRAY_SIZE(e));
-	while (n-- > 0)
-		if (e[n].cred >= LWS_PEER_CRED_ROUTABLE)
-			lws_peer_raise(nwsi, &e[n].sa46, LWS_PEER_CRED_CRYPTO);
+	return lws_quic_peer_account(nwsi);
+}
+
+/*
+ * With LWS_WITH_PEER_LIMITS, a server connection counts as one wsi from its
+ * first Initial until it is closed (lws_quic_netconn_destroy() gives it
+ * back), but against whom follows its peer address stack: while the address
+ * is only hearsay, a datagram's source anyone could have written, against
+ * the one unproven budget all such connections share (unproven_limit_wsi),
+ * and once QUIC proved it, against that address's own peer (ip_limit_wsi),
+ * as a TCP connection does; lws_get_or_create_peer_wsi() decides which, as
+ * lws_get_peer_host_key() would.  So unvalidated Initials, whatever source
+ * they claim, can spend neither a real client's budget nor more than the
+ * unproven one, and connections already proven are not touched by it.
+ *
+ * Returns nonzero if where it now belongs is at its limit: it is to be
+ * refused.  While it closes, it then counts against nobody, so a connection
+ * refused for its proven address's limit does not hold on to the unproven
+ * budget either: like every connection, it is still bounded by the
+ * thread's QUIC connection limits until it is gone.
+ */
+int
+lws_quic_peer_account(struct lws *nwsi)
+{
+#if defined(LWS_WITH_PEER_LIMITS) && defined(LWS_WITH_SERVER)
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+
+	if (!qn || !qn->is_server)
+		return 0;
+
+	if (!lws_peer_move_wsi(nwsi->a.context, &qn->peer,
+			       lws_get_or_create_peer_wsi(nwsi),
+			       LWS_SOCK_INVALID))
+		return 0;
+
+	lws_peer_track_wsi_close(nwsi->a.context, qn->peer);
+	qn->peer = NULL;
+
+	return 1;
+#else
+	(void)nwsi;
+
+	return 0;
+#endif
 }
 
 static void
@@ -2254,13 +2290,23 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		/* the peer we were born from is the committed path */
 		nwsi->quic.qn->path_sa46 = sa46;
 		lws_io_path(nwsi, LWS_IOPATH_COMMIT, &sa46);
-		if (valid_retry_scid.len)
-			/*
-			 * its Retry token, bound to the address our Retry went
-			 * to, came back (RFC 9000 8.1.2)
-			 */
+
+		/*
+		 * It counts from now on, in the unproven budget, unless its
+		 * Retry token, bound to the address our Retry went to, came
+		 * back (RFC 9000 8.1.2) and proved it.  Refused, it never
+		 * completed a handshake, so the close sends it nothing.
+		 */
+		if (valid_retry_scid.len ?
 			lws_quic_peer_proven(nwsi, &sa46,
-					     LWS_PEER_CRED_ROUTABLE);
+					     LWS_PEER_CRED_ROUTABLE) :
+			lws_quic_peer_account(nwsi)) {
+			lwsl_wsi_info(wsi, "QUIC RX: peer limit, dropping "
+					   "Initial");
+			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "quic peer limit");
+			return LWS_HPI_RET_HANDLED;
+		}
 
 #if defined(LWS_WITH_TLS)
 		nwsi->use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
@@ -2966,8 +3012,15 @@ tp_ok:
 		if (nwsi->quic.qn && level == LWS_QUIC_LEVEL_HANDSHAKE) {
 			nwsi->quic.qn->address_validated = 1;
 			/* only who got our Initial there has these keys */
-			lws_quic_peer_proven(nwsi, &sa46,
-					     LWS_PEER_CRED_ROUTABLE);
+			if (lws_quic_peer_proven(nwsi, &sa46,
+						 LWS_PEER_CRED_ROUTABLE)) {
+				/* its proven address is at its limit */
+				lws_quic_enter_closing_state(nwsi,
+					LWS_QUIC_ERR_CONNECTION_REFUSED, 0, 0);
+				if (nwsi != wsi)
+					goto next_packet;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
 		}
 
 		/*

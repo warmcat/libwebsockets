@@ -275,6 +275,11 @@ lws_sa46_is_ipv4_mapped(const lws_sockaddr46 *sa46);
 #define LWS_HOST_KEY_LEN	32
 /* the one key every peer whose address is not IPv4 or IPv6 shares */
 #define LWS_HOST_KEY_UNKNOWN	"unknown"
+/*
+ * the one key every peer whose address nothing proved shares, see
+ * lws_get_peer_host_key()
+ */
+#define LWS_HOST_KEY_UNPROVEN	"unproven"
 
 /**
  * lws_sa46_host_key() - the key a peer's host is accounted under
@@ -311,6 +316,16 @@ lws_sa46_host_key(const lws_sockaddr46 *sa46, char *key, size_t len);
  * lws_sa46_host_key() of the address lws_get_peer_simple() gives, ie, the
  * client a trusted PROXY v2 proxy named where there is one.  A peer whose
  * address can't be determined or parsed gets LWS_HOST_KEY_UNKNOWN.
+ *
+ * But only if the address is believable, ie, the connection's effective
+ * peer entry (lws_peer_effective()) is at least LWS_PEER_CRED_VOUCHED.  If
+ * it is only hearsay, eg, the source of a datagram, or a QUIC connection's
+ * before QUIC validated its address, anyone may have written it: it is
+ * neither keyed as its own host, which would let a sender spread itself
+ * over keys of its choice or spend a victim's budget, nor as unknown, but
+ * as LWS_HOST_KEY_UNPROVEN, one key shared by all such peers, which a
+ * caller should give a budget sized for the unproven traffic it expects.
+ * Peer limits (LWS_WITH_PEER_LIMITS) make the same decision, the same way.
  *
  * Use this to key per-client admission decisions, so they all agree on who
  * the client is.

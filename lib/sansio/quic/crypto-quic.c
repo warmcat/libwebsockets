@@ -1281,9 +1281,15 @@ error_handling:
 		}
 #endif
 
-		wsi->quic.qn->handshake_done = 1;
 		/* the validated path is bound to the keys the peer proved */
-		lws_quic_peer_proven(wsi, NULL, LWS_PEER_CRED_CRYPTO);
+		if (lws_quic_peer_proven(wsi, NULL, LWS_PEER_CRED_CRYPTO)) {
+			lws_quic_enter_closing_state(wsi,
+					LWS_QUIC_ERR_CONNECTION_REFUSED, 0, 0);
+
+			return -1;
+		}
+
+		wsi->quic.qn->handshake_done = 1;
 		/* from now on the transport idle timeout bounds it */
 		lws_quic_idle_start(wsi->quic.qn);
 

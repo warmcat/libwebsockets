@@ -167,6 +167,15 @@ sites that deal with very fat response headers (for example, release
 redirects from github with many cookies) should raise it, eg `"8192"`.
 The maximum is 32768.
 
+ - `unproven-limit-wsi` (with `LWS_WITH_PEER_LIMITS`) sets how many
+connections whose peer address is not proven yet, eg, QUIC connections whose
+address QUIC has not validated yet, may exist at once, all together, since
+their address is whatever the sender wrote; they are not counted against that
+address's `ip-limit-wsi` until it is proven.  It defaults to 0, no limit.  Set
+it to the number of such connections you expect at one time, with room to
+spare: a new one beyond it is dropped, while connections already proven are
+not affected.
+
  - `http-header-pool-per-mux` sets how many request header tables the streams
 of one h2 or h3 connection may hold at once while they wait on the client, eg,
 for their bodies.  A new stream with more to come over the limit is refused

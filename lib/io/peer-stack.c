@@ -282,6 +282,35 @@ lws_peer_effective(struct lws *wsi, lws_peer_entry_t *dest)
 	return 0;
 }
 
+/*
+ * Who per-client policy may take the peer to be: lws_get_peer_host_key() and
+ * peer limits both decide it here, so they always agree.  The effective entry
+ * is the peer only if it is believable, VOUCHED or better.  Below that it is
+ * only hearsay, which anyone could have written: keyed as its own host, a
+ * sender could spread itself over addresses of its choosing, or spend
+ * somebody else's budget, so it goes to the one budget every unproven peer
+ * shares instead.
+ *
+ * Returns LWS_IO_PEER_POLICY_PROVEN with *sa46 the effective address,
+ * LWS_IO_PEER_POLICY_UNPROVEN if it is only hearsay, or
+ * LWS_IO_PEER_POLICY_NONE if the connection has no stack.
+ */
+int
+lws_io_peer_policy(struct lws *wsi, lws_sockaddr46 *sa46)
+{
+	lws_peer_entry_t e;
+
+	if (lws_peer_effective(wsi, &e))
+		return LWS_IO_PEER_POLICY_NONE;
+
+	if (e.cred < LWS_PEER_CRED_VOUCHED)
+		return LWS_IO_PEER_POLICY_UNPROVEN;
+
+	*sa46 = e.sa46;
+
+	return LWS_IO_PEER_POLICY_PROVEN;
+}
+
 int
 lws_peer_raise(struct lws *wsi, const lws_sockaddr46 *seen,
 	       lws_peer_cred_t cred)

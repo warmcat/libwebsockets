@@ -870,6 +870,11 @@ struct lws_context {
 #if defined(LWS_WITH_PEER_LIMITS)
 	lws_dll2_owner_t		*pl_hash_table; /* peer limits hash buckets */
 	lws_dll2_owner_t		peer_wait_owner;
+	/*
+	 * every connection whose peer is only hearsay counts against this
+	 * one, never hashed, never culled: lws_get_or_create_peer_wsi()
+	 */
+	struct lws_peer			peer_unproven;
 	lws_peer_limits_notify_t	pl_notify_cb;
 	time_t				next_cull;
 #endif
@@ -958,6 +963,7 @@ struct lws_context {
 	uint32_t count_peers;		/* protected by context->lock */
 	unsigned short ip_limit_ah;
 	unsigned short ip_limit_wsi;
+	unsigned int unproven_limit_wsi;
 #endif
 
 #if defined(LWS_WITH_SYS_SMD)

@@ -22,6 +22,27 @@
  *    is the new address and port, at ROUTABLE: a new path starts again from
  *    hearsay and is raised by its validation, it keeps nothing of what the
  *    handshake proved about the old one.
+ *
+ * and with LWS_WITH_PEER_LIMITS, the unproven budget, in a context of its own,
+ * so that nothing of the phases above is still counted, with ip_limit_wsi and
+ * unproven_limit_wsi both 1.  Each client has a client vhost of its own, so
+ * that none joins another's connection:
+ *
+ *  - hold: a client's request is held unanswered by the server, so its
+ *    validated connection stays up, counted against its host, 127.0.0.1;
+ *
+ *  - host: another client from 127.0.0.1 is let in while its address is
+ *    unproven, but refused when QUIC validates it, since its host is then
+ *    at its limit: pl_notify_cb is told about 127.0.0.1;
+ *
+ *  - unproven: a lone QUIC Initial sent from a raw socket in the test, which
+ *    never goes on to validate its address, is let in: the held connection
+ *    no longer counts in the unproven budget.  It fills that budget, so the
+ *    next client's Initial is refused for it, and pl_notify_cb is told about
+ *    no address, since the client's is only hearsay at that point;
+ *
+ *  - release: the held request is answered, its connection unaffected by
+ *    the full unproven budget.
  */
 
 #include <libwebsockets.h>
@@ -29,6 +50,8 @@
 #include <stdlib.h>
 
 #define PQ_PHASE_US	(10 * LWS_US_PER_SEC)
+/* how long an Initial nobody refuses takes to be let in, at most */
+#define PQ_SETTLE_US	(300 * LWS_US_PER_MS)
 
 /* the slow response, in two halves either side of the NAT rebinding */
 #define PQ_SLOW_1	"first half|"
@@ -38,21 +61,43 @@ enum {
 	PQ_PHASE_LEVELS,
 	PQ_PHASE_MIGRATE,
 
+	/* the budget part, in a context of its own */
+	PQ_PHASE_HOLD,
+	PQ_PHASE_HOST,
+	PQ_PHASE_UNPROVEN,
+	PQ_PHASE_RELEASE,
+
 	PQ_PHASE_COUNT
 };
 
 static const char * const phase_names[] = {
 	"levels: hearsay while dialling, crypto once the handshake is done",
 	"migration: a new path is only routable once validated",
+	"hold: a validated client's request is held",
+	"host: a client is refused only once validated, at its host's limit",
+	"unproven: an unvalidated Initial fills the unproven budget, the next "
+		"is refused",
+	"release: the held client is unaffected",
 };
 
 static struct lws_context *cx;
-static struct lws_vhost *vh_cli;
+static struct lws_vhost *vh_cli[PQ_PHASE_COUNT];
 static lws_sorted_usec_list_t sul_phase;
 static const char *cert, *key;
-static int phase = -1, fails, finished, phase_done, port_srv, port_nat;
-static char body[256];
-static size_t body_len;
+static int phase = -1, phase_last, fails, finished, phase_done, port_srv,
+	   port_nat;
+
+/* each phase's client, and what it was answered */
+static struct lws *cli[PQ_PHASE_COUNT];
+static char body[PQ_PHASE_COUNT][64];
+static size_t body_len[PQ_PHASE_COUNT];
+
+#if defined(LWS_WITH_PEER_LIMITS)
+static struct lws *hold_wsi;		/* the server's held request */
+static struct lws *raw_udp;		/* sends the lone Initial */
+static lws_sorted_usec_list_t sul_settle, sul_kill;
+static int refused_host, refused_unproven;
+#endif
 
 #if defined(LWS_WITH_ACCESS_LOG)
 static const char *alog;		/* the server's access log file */
@@ -171,6 +216,7 @@ struct pss_srv {
 	struct lws		*wsi;
 	int			slow;	/* 1: first half to go, 2: second */
 	int			due;	/* the second half's time has come */
+	int			held;	/* the answer waits for the release */
 	int			done;	/* the whole answer went */
 };
 
@@ -187,9 +233,11 @@ pq_slow_due(lws_sorted_usec_list_t *sul)
 static void
 pq_srv_levels(struct lws *wsi)
 {
-	char simple[64], desc[LWS_PEER_DESC_LEN];
+	char simple[64], desc[LWS_PEER_DESC_LEN], hk[LWS_HOST_KEY_LEN];
 
 	one_socket_entry(wsi, LWS_PEER_CRED_CRYPTO, 0, "server");
+	check_str(lws_get_peer_host_key(wsi, hk, sizeof(hk)), "127.0.0.1",
+		  "server: the client is keyed as its own host");
 
 	lws_get_peer_simple(wsi, simple, sizeof(simple));
 	check_str(lws_peer_describe(wsi, desc, sizeof(desc),
@@ -247,12 +295,28 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 		if (phase == PQ_PHASE_LEVELS)
 			pq_srv_levels(wsi);
+#if defined(LWS_WITH_PEER_LIMITS)
+		if (in && !strcmp((const char *)in, "/hold")) {
+			if (phase != PQ_PHASE_HOLD)
+				return 1;
+			/* validated, and counted against 127.0.0.1 */
+			one_socket_entry(wsi, LWS_PEER_CRED_CRYPTO, 0,
+					 "server, held request");
+			pss->held = 1;
+			hold_wsi = wsi;
+			pq_phase_end(NULL);
+		} else if (phase == PQ_PHASE_HOST || phase == PQ_PHASE_UNPROVEN)
+			check(0, "server: a request over a limit was served");
+#endif
 
 		return pq_srv_answer(wsi, "/");
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		/* h3 also asks for WRITEABLE for its own reasons */
 		if (!pss || !pss->wsi || pss->done)
+			break;
+
+		if (pss->held)
 			break;
 
 		if (!pss->slow) {
@@ -306,6 +370,10 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_CLOSED_HTTP:
 		if (pss)
 			lws_sul_cancel(&pss->sul);
+#if defined(LWS_WITH_PEER_LIMITS)
+		if (wsi == hold_wsi)
+			hold_wsi = NULL;
+#endif
 		break;
 
 	default:
@@ -356,29 +424,91 @@ callback_nat(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 /* ------------------------------------------------------------- client */
 
-static struct lws *cli_wsi;
+/*
+ * A phase's client ended, answered (ok) or not.  Most are to be answered
+ * within their phase, but those over a limit must not be, and the held one
+ * only once the release phase lets the server answer it.
+ */
+static void
+pq_client_done(int ph, int ok, const char *why)
+{
+	if (!cli[ph])
+		return; /* it already ended */
+	cli[ph] = NULL;
+
+	switch (ph) {
+#if defined(LWS_WITH_PEER_LIMITS)
+	case PQ_PHASE_HOST:
+		check(!ok && refused_host == 1 && !refused_unproven,
+		      "client: refused, its host at its limit, once validated");
+		if (ok || refused_host != 1 || refused_unproven)
+			lwsl_err("        answered %d, refusals: %d for the "
+				 "host, %d unproven\n", ok, refused_host,
+				 refused_unproven);
+		pq_phase_end(NULL);
+		return;
+
+	case PQ_PHASE_UNPROVEN:
+		check(!ok && refused_unproven >= 1 && refused_host == 1,
+		      "client: its unvalidated Initial was refused for the "
+		      "unproven budget");
+		if (ok || !refused_unproven || refused_host != 1)
+			lwsl_err("        answered %d, refusals: %d for the "
+				 "host, %d unproven\n", ok, refused_host,
+				 refused_unproven);
+		pq_phase_end(NULL);
+		return;
+
+	case PQ_PHASE_HOLD:
+		if (phase != PQ_PHASE_RELEASE) {
+			check(0, "client: the held request ended before its "
+				 "release");
+			return;
+		}
+		break;
+#endif
+	default:
+		break;
+	}
+
+	if (!ok) {
+		pq_phase_end(why);
+		return;
+	}
+
+	check_str(body[ph], ph == PQ_PHASE_MIGRATE ? PQ_SLOW_1 PQ_SLOW_2 :
+						    "ok",
+		  "client: the whole answer arrived");
+	pq_phase_end(NULL);
+}
 
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
+	int ph = (int)(intptr_t)lws_get_opaque_user_data(wsi) - 1;
 	char buf[LWS_PRE + 1024], *px;
 	int alen;
 
-	if (wsi != cli_wsi && reason != LWS_CALLBACK_CONNECTING)
+	if (ph < 0 || ph >= PQ_PHASE_COUNT)
 		return lws_callback_http_dummy(wsi, reason, user, in, len);
 
 	switch (reason) {
-	case LWS_CALLBACK_CONNECTING:
+	case LWS_CALLBACK_CONNECTING: {
+		char hk[LWS_HOST_KEY_LEN];
+
 		/* nothing has answered from where we dial yet */
-		if (lws_get_opaque_user_data(wsi) ==
-					(void *)(intptr_t)(phase + 1))
-			one_socket_entry(wsi, LWS_PEER_CRED_HEARSAY, 0,
-					 "client, dialling");
+		one_socket_entry(wsi, LWS_PEER_CRED_HEARSAY, 0,
+				 "client, dialling");
+		/* so nothing may be keyed on its address */
+		check_str(lws_get_peer_host_key(wsi, hk, sizeof(hk)),
+			  LWS_HOST_KEY_UNPROVEN,
+			  "client, dialling: the host key is the unproven one");
 		break;
+	}
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		if (phase == PQ_PHASE_LEVELS)
+		if (ph == PQ_PHASE_LEVELS)
 			one_socket_entry(wsi, LWS_PEER_CRED_CRYPTO, 0,
 					 "client, handshake done");
 		break;
@@ -391,34 +521,29 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		if (phase == PQ_PHASE_MIGRATE && !nat_cur) {
+		if (ph == PQ_PHASE_MIGRATE && !nat_cur) {
 			/* the first half is here: the NAT rebinds */
 			lwsl_user("  NAT rebinding to a new port\n");
 			nat_cur = 1;
 		}
-		if (body_len + len < sizeof(body)) {
-			memcpy(body + body_len, in, len);
-			body_len += len;
-			body[body_len] = '\0';
+		if (body_len[ph] + len < sizeof(body[ph])) {
+			memcpy(body[ph] + body_len[ph], in, len);
+			body_len[ph] += len;
+			body[ph][body_len[ph]] = '\0';
 		}
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-		check_str(body, phase == PQ_PHASE_MIGRATE ?
-				PQ_SLOW_1 PQ_SLOW_2 : "ok",
-			  "client: the whole answer arrived");
-		cli_wsi = NULL;
-		pq_phase_end(NULL);
+		pq_client_done(ph, 1, NULL);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		cli_wsi = NULL;
-		pq_phase_end(in ? (const char *)in : "connection error");
+		pq_client_done(ph, 0, in ? (const char *)in :
+					   "connection error");
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		cli_wsi = NULL;
-		pq_phase_end("closed before the answer was complete");
+		pq_client_done(ph, 0, "closed before the answer was complete");
 		break;
 
 	default:
@@ -435,7 +560,7 @@ pq_get(int port, const char *path)
 
 	memset(&i, 0, sizeof(i));
 	i.context		= cx;
-	i.vhost			= vh_cli;
+	i.vhost			= vh_cli[phase];
 	i.address		= "127.0.0.1";
 	i.port			= port;
 	i.host			= "localhost";
@@ -449,10 +574,94 @@ pq_get(int port, const char *path)
 	i.protocol		= "pq-cli";
 	i.local_protocol_name	= "pq-cli";
 	i.opaque_user_data	= (void *)(intptr_t)(phase + 1);
-	i.pwsi			= &cli_wsi;
+	i.pwsi			= &cli[phase];
 
 	return !lws_client_connect_via_info(&i);
 }
+
+#if defined(LWS_WITH_PEER_LIMITS)
+
+/* ------------------------------------------------------------- budget */
+
+static void
+pq_kill_unproven(lws_sorted_usec_list_t *sul)
+{
+	(void)sul;
+
+	if (cli[PQ_PHASE_UNPROVEN])
+		lws_set_timeout(cli[PQ_PHASE_UNPROVEN], PENDING_TIMEOUT_USER_OK,
+				LWS_TO_KILL_ASYNC);
+}
+
+static int
+pq_pl_notify(struct lws_context *ctx, lws_sockfd_type sockfd,
+	     lws_sockaddr46 *sa46)
+{
+	(void)ctx;
+	(void)sockfd;
+
+	if (sa46->sa4.sin_family) {
+		refused_host++;
+		return 0;
+	}
+
+	/* a refusal for the unproven budget names no address */
+	if (!refused_unproven++ && phase == PQ_PHASE_UNPROVEN)
+		/* it would try again: we have seen what we came for */
+		lws_sul_schedule(cx, 0, &sul_kill, pq_kill_unproven, 1);
+
+	return 0;
+}
+
+/*
+ * A QUIC Initial that will never decrypt, padded to the 1200 bytes a server
+ * insists on: the server takes it for a new client, whose address is never
+ * validated, and keeps it until its handshake times out
+ */
+static int
+pq_send_lone_initial(void)
+{
+	uint8_t d[1200];
+	lws_sockaddr46 srv;
+	size_t plen = sizeof(d) - 26;
+
+	if (lws_get_random(cx, d, sizeof(d)) != sizeof(d))
+		return 1;
+
+	d[0]	= 0xc3;			/* long header, Initial, 4-byte pn */
+	d[1]	= 0;			/* version 1 */
+	d[2]	= 0;
+	d[3]	= 0;
+	d[4]	= 1;
+	d[5]	= 8;			/* random DCID */
+	d[14]	= 8;			/* random SCID */
+	d[23]	= 0;			/* no token */
+	d[24]	= (uint8_t)(0x40 | (plen >> 8)); /* 2-byte length */
+	d[25]	= (uint8_t)(plen & 0xff);
+
+	memset(&srv, 0, sizeof(srv));
+	if (lws_sa46_parse_numeric_address("127.0.0.1", &srv))
+		return 1;
+	sa46_sockport(&srv, htons((uint16_t)port_srv));
+
+	return sendto(lws_get_socket_fd(raw_udp), (const char *)d,
+		      LWS_POSIX_LENGTH_CAST(sizeof(d)), 0, sa46_sockaddr(&srv),
+		      sa46_socklen(&srv)) != (int)sizeof(d);
+}
+
+/* the lone Initial had its chance to be refused: was it let in? */
+static void
+pq_settled(lws_sorted_usec_list_t *sul)
+{
+	(void)sul;
+
+	check(!refused_unproven, "server: the lone unvalidated Initial was "
+				 "let in, the held client counts elsewhere");
+
+	if (pq_get(port_srv, "/"))
+		pq_phase_end("connect failed");
+}
+#endif
 
 static const struct lws_protocols
 	pcol_srv = { "pq-srv", callback_srv, sizeof(struct pss_srv), 0, 0,
@@ -473,25 +682,51 @@ pq_next(lws_sorted_usec_list_t *sul)
 
 	(void)sul;
 
-	if (++phase == PQ_PHASE_COUNT) {
+	if (phase == phase_last) {
+		/* this context's part is done */
 		finished = 1;
 		lws_cancel_service(cx);
 		return;
 	}
+	phase++;
 
 	lwsl_user("%s:\n", phase_names[phase]);
 	phase_done	= 0;
-	body_len	= 0;
-	body[0]		= '\0';
 	lws_sul_schedule(cx, 0, &sul_phase, pq_deadline, PQ_PHASE_US);
 
 	switch (phase) {
 	case PQ_PHASE_LEVELS:
+	case PQ_PHASE_HOST:
 		r = pq_get(port_srv, "/");
 		break;
 	case PQ_PHASE_MIGRATE:
 		r = pq_get(port_nat, "/slow");
 		break;
+#if defined(LWS_WITH_PEER_LIMITS)
+	case PQ_PHASE_HOLD:
+		r = pq_get(port_srv, "/hold");
+		break;
+	case PQ_PHASE_UNPROVEN:
+		r = pq_send_lone_initial();
+		if (!r)
+			lws_sul_schedule(cx, 0, &sul_settle, pq_settled,
+					 PQ_SETTLE_US);
+		break;
+	case PQ_PHASE_RELEASE:
+		if (!hold_wsi || !cli[PQ_PHASE_HOLD]) {
+			pq_phase_end("the held request is gone");
+			return;
+		}
+		/* answer the held request now: the client ends the phase */
+		{
+			struct pss_srv *pss = (struct pss_srv *)
+					lws_wsi_user(hold_wsi);
+
+			pss->held = 0;
+			lws_callback_on_writable(hold_wsi);
+		}
+		break;
+#endif
 	}
 
 	if (r)
@@ -549,12 +784,124 @@ pq_access_log(void)
 }
 #endif
 
+/*
+ * Run the phases first..last in a context of their own: the server, a client
+ * vhost for each phase, and the udp sockets the phases need
+ */
+static int
+pq_run(const struct lws_context_creation_info *ci, int first, int last)
+{
+	struct lws_context_creation_info info = *ci;
+	char name[16];
+	int m = 0, n;
+
+	phase		= first - 1;
+	phase_last	= last;
+	finished	= 0;
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (first == PQ_PHASE_HOLD) {
+		/* one connection per host, and one still proving its address */
+		info.ip_limit_wsi	= 1;
+		info.unproven_limit_wsi	= 1;
+		info.pl_notify_cb	= pq_pl_notify;
+	}
+#endif
+
+	cx = lws_create_context(&info);
+	if (!cx) {
+		lwsl_err("lws init failed\n");
+		return 1;
+	}
+
+	info.port			= port_srv;
+	info.pprotocols			= pp_srv;
+	info.vhost_name			= "localhost";
+	info.ssl_cert_filepath		= cert;
+	info.ssl_private_key_filepath	= key;
+	info.alpn			= "h3";
+#if defined(LWS_WITH_ACCESS_LOG)
+	if (first == PQ_PHASE_LEVELS)
+		info.log_filepath	= alog;
+#endif
+	if (!lws_create_vhost(cx, &info))
+		goto bail;
+
+#if defined(LWS_WITH_ACCESS_LOG)
+	info.log_filepath		= NULL;
+#endif
+	info.ssl_cert_filepath		= NULL;
+	info.ssl_private_key_filepath	= NULL;
+	info.alpn			= NULL;
+	info.port			= CONTEXT_PORT_NO_LISTEN;
+	info.pprotocols			= pp_cli;
+	for (n = first; n <= last; n++) {
+		lws_snprintf(name, sizeof(name), "pq-cli-%d", n);
+		info.vhost_name		= name;
+		vh_cli[n] = lws_create_vhost(cx, &info);
+		if (!vh_cli[n])
+			goto bail;
+	}
+
+	if (first == PQ_PHASE_LEVELS) {
+		/* the NAT's two sides, on ports the kernel picks */
+		nat_in = lws_create_adopt_udp(vh_cli[first], "127.0.0.1", 0,
+					      LWS_CAUDP_BIND, "pq-nat", NULL,
+					      NULL, NULL, NULL, NULL);
+		for (n = 0; n < 2; n++)
+			nat_out[n] = lws_create_adopt_udp(vh_cli[first],
+						"127.0.0.1", 0, LWS_CAUDP_BIND,
+						"pq-nat", NULL, NULL, NULL,
+						NULL, NULL);
+		if (!nat_in || !nat_out[0] || !nat_out[1])
+			goto bail;
+		port_nat	= (int)local_port(nat_in);
+		nat_out_port[0]	= local_port(nat_out[0]);
+		nat_out_port[1]	= local_port(nat_out[1]);
+		if (!port_nat || !nat_out_port[0] || !nat_out_port[1])
+			goto bail;
+	}
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (first == PQ_PHASE_HOLD) {
+		raw_udp = lws_create_adopt_udp(vh_cli[first], "127.0.0.1", 0,
+					       LWS_CAUDP_BIND, "pq-nat", NULL,
+					       NULL, NULL, NULL, NULL);
+		if (!raw_udp)
+			goto bail;
+	}
+#endif
+
+	lws_sul_schedule(cx, 0, &sul_phase, pq_next, 1);
+
+	while (m >= 0 && !finished)
+		m = lws_service(cx, 0);
+
+	if (!finished) {
+		lwsl_err("service loop ended early\n");
+		fails++;
+	}
+
+	lws_sul_cancel(&sul_phase);
+#if defined(LWS_WITH_PEER_LIMITS)
+	lws_sul_cancel(&sul_settle);
+	lws_sul_cancel(&sul_kill);
+#endif
+	lws_context_destroy(cx);
+
+	return 0;
+
+bail:
+	lwsl_err("setup failed\n");
+	lws_context_destroy(cx);
+
+	return 1;
+}
+
 int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p;
-	int m = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -578,71 +925,13 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS API selftest: peer address stack on QUIC\n");
 
-	/* a server and a client in one process: don't budget fds */
+	/* servers and clients in one process: don't budget fds */
 	info.fd_limit_per_thread	= 0;
 	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
-	cx = lws_create_context(&info);
-	if (!cx) {
-		lwsl_err("lws init failed\n");
+	if (pq_run(&info, PQ_PHASE_LEVELS, PQ_PHASE_MIGRATE))
 		return 1;
-	}
-
-	info.port			= port_srv;
-	info.pprotocols			= pp_srv;
-	info.vhost_name			= "localhost";
-	info.ssl_cert_filepath		= cert;
-	info.ssl_private_key_filepath	= key;
-	info.alpn			= "h3";
-#if defined(LWS_WITH_ACCESS_LOG)
-	info.log_filepath		= alog;
-#endif
-	if (!lws_create_vhost(cx, &info))
-		goto bail;
-
-#if defined(LWS_WITH_ACCESS_LOG)
-	info.log_filepath		= NULL;
-#endif
-	info.ssl_cert_filepath		= NULL;
-	info.ssl_private_key_filepath	= NULL;
-	info.alpn			= NULL;
-	info.port			= CONTEXT_PORT_NO_LISTEN;
-	info.pprotocols			= pp_cli;
-	info.vhost_name			= "pq-cli";
-	vh_cli = lws_create_vhost(cx, &info);
-	if (!vh_cli)
-		goto bail;
-
-	/* the NAT's two sides, on ports the kernel picks */
-	nat_in = lws_create_adopt_udp(vh_cli, "127.0.0.1", 0, LWS_CAUDP_BIND,
-				      "pq-nat", NULL, NULL, NULL, NULL, NULL);
-	nat_out[0] = lws_create_adopt_udp(vh_cli, "127.0.0.1", 0,
-					  LWS_CAUDP_BIND, "pq-nat", NULL, NULL,
-					  NULL, NULL, NULL);
-	nat_out[1] = lws_create_adopt_udp(vh_cli, "127.0.0.1", 0,
-					  LWS_CAUDP_BIND, "pq-nat", NULL, NULL,
-					  NULL, NULL, NULL);
-	if (!nat_in || !nat_out[0] || !nat_out[1])
-		goto bail;
-	port_nat	= (int)local_port(nat_in);
-	nat_out_port[0]	= local_port(nat_out[0]);
-	nat_out_port[1]	= local_port(nat_out[1]);
-	if (!port_nat || !nat_out_port[0] || !nat_out_port[1])
-		goto bail;
-
-	lws_sul_schedule(cx, 0, &sul_phase, pq_next, 1);
-
-	while (m >= 0 && !finished)
-		m = lws_service(cx, 0);
-
-	if (!finished) {
-		lwsl_err("service loop ended early\n");
-		fails++;
-	}
-
-	lws_sul_cancel(&sul_phase);
-	lws_context_destroy(cx);
 
 #if defined(LWS_WITH_ACCESS_LOG)
 	/* the vhost flushed and closed it */
@@ -650,13 +939,12 @@ main(int argc, const char **argv)
 		pq_access_log();
 #endif
 
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (pq_run(&info, PQ_PHASE_HOLD, PQ_PHASE_RELEASE))
+		return 1;
+#endif
+
 	lwsl_user("Completed: %s\n", fails ? "FAIL" : "PASS");
 
 	return !!fails;
-
-bail:
-	lwsl_err("setup failed\n");
-	lws_context_destroy(cx);
-
-	return 1;
 }

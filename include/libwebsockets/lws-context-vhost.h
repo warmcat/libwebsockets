@@ -1095,7 +1095,9 @@ struct lws_context_creation_info {
 	 * peer address and port.  The sockfd is LWS_SOCK_INVALID for a QUIC
 	 * connection, which has no socket of its own.  For a connection from
 	 * a .proxy_v2_trusted proxy, the address is the client its PROXY v2
-	 * header named.
+	 * header named.  For a connection refused because the unproven budget
+	 * (.unproven_limit_wsi) is spent, the sa46 is empty (family 0): its
+	 * address is only hearsay, and must not be acted on, eg, blocked.
 	 */
 	unsigned short ip_limit_ah;
 	/**< CONTEXT: max number of ah a single IP may use simultaneously
@@ -1110,9 +1112,11 @@ struct lws_context_creation_info {
 	 *	      0 is no limit.  This is a hard limit, connections from
 	 *	      the same IP will simply be dropped once it acquires the
 	 *	      amount of simultaneous wsi / accepted connections
-	 *	      given here.  A QUIC server connection counts as one
-	 *	      when its handshake completes, and one completing beyond
-	 *	      the limit is closed with CONNECTION_REFUSED.
+	 *	      given here.  A QUIC server connection counts against
+	 *	      .unproven_limit_wsi from its first Initial, and as one of
+	 *	      its peer's from when QUIC has validated its address; one
+	 *	      validated beyond the limit is closed with
+	 *	      CONNECTION_REFUSED.
 	 */
 
 #endif /* PEER_LIMITS */
@@ -1461,6 +1465,21 @@ struct lws_context_creation_info {
 	 * address is refused.  Only set this where the network the listener
 	 * is reachable from is itself trusted, eg, firewalled to the
 	 * intended clients; lws warns about it when the proxy starts. */
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	unsigned int			unproven_limit_wsi;
+	/**< CONTEXT: max number of wsi all peers whose address is unproven
+	 * may use simultaneously, 0 is no limit.  A connection whose peer
+	 * address is only hearsay (lws_get_peer_host_key() gives
+	 * LWS_HOST_KEY_UNPROVEN), eg, a QUIC server connection before QUIC
+	 * validated its address, might have any source address the sender
+	 * chose to write, so it is not counted against that address's
+	 * .ip_limit_wsi, but in this one budget shared by every such
+	 * connection, until its address is proven and it moves to its own.
+	 * Size it for the connections still proving their address you expect
+	 * at once: a new one beyond it is dropped, eg, an unvalidated QUIC
+	 * Initial, while connections already proven are not affected. */
+#endif
 
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */

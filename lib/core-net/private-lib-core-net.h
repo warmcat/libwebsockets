@@ -2307,6 +2307,11 @@ lws_peer_cull_peer_wait_list(struct lws_context *context);
 struct lws_peer *
 lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd);
 struct lws_peer *
+lws_get_or_create_peer_wsi(struct lws *wsi);
+int
+lws_peer_move_wsi(struct lws_context *context, struct lws_peer **ppeer,
+		  struct lws_peer *peer, lws_sockfd_type sockfd);
+struct lws_peer *
 lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
 			    const lws_sockaddr46 *sa46);
 int
