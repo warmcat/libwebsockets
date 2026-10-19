@@ -192,13 +192,13 @@ static const struct leg legs[] = {
  * spins meanwhile, is far outside these.
  *
  * Spinning is judged by the time spent in service turns shorter than 1ms,
- * not by counting turns.  The wait for the next timer is in
- * whole ms, so the last part of a ms before every timer that fires is spent
- * in turns that do not wait at all: hundreds of them per timer, how many
- * depending on the machine's speed, and more of them in a close that a busy
- * machine stretches over more timers (eg QUIC's).  They add up to less than
- * 1ms per timer, while a loop that spins through the close adds up to the
- * whole time it spins.
+ * not by counting turns.  How many turns a close takes depends on how the
+ * machine schedules the two ends, and a busy machine stretches a close over
+ * more of them (eg QUIC's timers), but each does some work and they add up
+ * to a few ms, while a loop that spins through the close adds up to the
+ * whole time it spins.  (Until G-348, the loop also woke short of every timer
+ * and went around without waiting until it was due, hundreds of turns per
+ * timer.)
  *
  * It's timed from when the server has the connection, not from the
  * connect: an h3 leg whose QUIC doesn't answer in time falls back to h2
