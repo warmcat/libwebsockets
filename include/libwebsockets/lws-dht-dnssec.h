@@ -111,6 +111,60 @@ struct lws_dht_dnssec_fetch_zone_args {
 		      * is NULL, now, as timed out */
 };
 
+/*
+ * What a DHT node says of its copy of a zone, in answer to query_serials()
+ */
+enum lws_dht_dnssec_serial_state {
+	LWS_DHT_DNSSEC_SERIAL_HELD,	 /* it holds the zone, at serial */
+	LWS_DHT_DNSSEC_SERIAL_NONE,	 /* it holds no copy of the zone */
+	LWS_DHT_DNSSEC_SERIAL_NO_ANSWER, /* it didn't answer in time: it may be
+					  * down, or too old to know the query */
+};
+
+/*
+ * One node's answer.  sa is NULL for this node's own copy.  Everything
+ * pointed to is only valid during the callback.
+ */
+struct lws_dht_dnssec_serial_report {
+	const struct sockaddr	*sa;
+	size_t			salen;
+	const lws_dht_hash_t	*id;	/* its DHT node id, NULL for ours */
+	uint32_t		serial;	/* when state is ..._HELD */
+	uint8_t			state;	/* enum lws_dht_dnssec_serial_state */
+	uint8_t			good;	/* the routing table holds it as good */
+};
+
+/*
+ * r is NULL once every node asked has been reported: the query is over
+ */
+typedef void (*lws_dht_dnssec_serial_cb_t)(void *opaque, const char *domain,
+				const struct lws_dht_dnssec_serial_report *r);
+
+/*
+ * Ask every node in the DHT routing table which serial of domain's zone it
+ * holds, eg, to watch a new serial propagate.  cb is called once for each
+ * node, as its answer arrives or as NO_ANSWER when the query times out after
+ * LWS_DHT_DNSSEC_SERIAL_QUERY_SECS, and then once with a NULL report.  This
+ * node's own copy is reported first, from inside query_serials(), and so is
+ * the end of the query if the routing table is empty.
+ *
+ * There is one query per opaque: a new one replaces any still in progress for
+ * that opaque, with no further cb for the old one.  A cancel (is_cancel = 1)
+ * drops it the same way, and must be made before opaque goes away.  cb must
+ * not start or cancel a query itself.
+ *
+ * Returns nonzero if the query was refused, and then cb is not called.
+ */
+#define LWS_DHT_DNSSEC_SERIAL_QUERY_SECS 5
+
+struct lws_dht_dnssec_query_serials_args {
+	struct lws_vhost *vhost;
+	const char *domain;		/* not used for a cancel */
+	lws_dht_dnssec_serial_cb_t cb;
+	void *opaque;
+	int is_cancel;
+};
+
 struct lws_dht_dnssec_ops {
 	int (*keygen)(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args);
 	int (*dsfromkey)(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args);
@@ -137,6 +191,18 @@ struct lws_dht_dnssec_ops {
 				    const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial);
 
 	void (*register_auth_cb)(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque);
+
+	/*
+	 * See struct lws_dht_dnssec_query_serials_args
+	 */
+	int (*query_serials)(struct lws_context *cx,
+			     struct lws_dht_dnssec_query_serials_args *args);
+
+	/*
+	 * The SOA serial of a zone file, or of a signed zone as
+	 * lws_auth_dns_sign_zone() writes it.  Returns nonzero if it has none.
+	 */
+	int (*zone_file_serial)(const char *filepath, uint32_t *serial);
 };
 
 

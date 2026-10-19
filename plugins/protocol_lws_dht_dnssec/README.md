@@ -18,6 +18,13 @@ The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` D
 - When the holder accepts a new version of the zone, it sends a `NOTIFY` carrying the new serial and the domain to its subscribers, retrying until they acknowledge it.  The plugin acknowledges it and fetches the zone.
 - A zone is fetched for `NOTIFY`s at most once a minute, except that a newer serial from the holder it subscribed with (or from a `NOTIFY` sender that passed the cookie exchange) is fetched at once, at most every 5 seconds.  A `NOTIFY` inside that minute is not dropped: one fetch when the minute ends covers it.
 
+## Zone Serial Queries
+To see a new version of a zone spread across the DHT, eg, in the dnssec monitor's domain page, the `query_serials` op asks every node in the routing table which serial of a zone it holds:
+- The plugin sends each node `SOA_REQ <zone hash> 0 0` followed by an 8-byte nonce, random per query.
+- A node answers `SOA_RSP <zone hash> <serial> <1 if it holds the zone, else 0>` followed by the same nonce.  Only an answer from a node that was asked, carrying that query's nonce, is taken.
+- The caller hears each node's answer as it comes, and of the nodes that didn't answer within `LWS_DHT_DNSSEC_SERIAL_QUERY_SECS` (5s): a node older than these verbs never answers.  Its own copy is reported too, and then the end of the query.
+- One query runs per caller (opaque) at a time, and at most 16 at once.  Each asks at most 24 nodes, half from each address family first: every node asked takes one of the DHT's 64 transport sequencers, which zone transfers need too.
+
 ## Zonefile Security Validation
 To prevent abuse from malicious peers or compromised routing, the plugin enforces strict boundaries on incoming zonefiles before they are committed to the local cache:
 1. **Size Limits**: `PUT` and `GET` chunk sequences have a hard limit of 128KB (`131072` bytes). Payloads exceeding this size are aggressively dropped, preventing disk and memory exhaustion attacks.

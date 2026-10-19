@@ -172,6 +172,12 @@ struct vhd_dht_dnssec {
 
 static struct vhd_dht_dnssec *global_dnssec_vhd = NULL;
 
+/*
+ * query_serials() in progress, struct dht_dnssec_serial_query, on every vhd:
+ * a cancel finds its caller's query here whichever vhd it was made on
+ */
+static lws_dll2_owner_t serial_queries;
+
 struct lws_dht_dnssec_subscribed_domain {
 	lws_dll2_t list;
 	struct vhd_dht_dnssec *vhd;
@@ -523,6 +529,9 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain, const lws_s
 static int
 do_subscribe_zone(struct lws_vhost *vhost, const char *domain);
 
+static struct vhd_dht_dnssec *
+get_dnssec_vhd(struct lws_context *context, struct lws_vhost *preferred_vh);
+
 /*
  * A node serving a zone subscribes to it with the node it fetched it from,
  * so it is told as soon as that node has a new version, rather than when
@@ -585,24 +594,31 @@ dht_dnssec_sub_subscribe(struct vhd_dht_dnssec *vhd,
 	lws_dht_send_subscribe(vhd->dht, sa, salen, h, 0, 0);
 }
 
-static int
-dht_dnssec_from_holder(const struct lws_dht_dnssec_subscribed_domain *sub,
-		       const struct sockaddr *from)
-{
-	uint16_t pf, ph;
+/* is from the endpoint sa, address and port? */
 
-	if (!sub->holder.sa4.sin_family ||
-	    from->sa_family != sub->holder.sa4.sin_family ||
-	    lws_sa46_compare_ads(&sub->holder, (const lws_sockaddr46 *)from))
+static int
+dht_dnssec_same_endpoint(const lws_sockaddr46 *sa, const struct sockaddr *from)
+{
+	uint16_t pf, ps;
+
+	if (!sa->sa4.sin_family || from->sa_family != sa->sa4.sin_family ||
+	    lws_sa46_compare_ads(sa, (const lws_sockaddr46 *)from))
 		return 0;
 
 	pf = from->sa_family == AF_INET ?
 		((const struct sockaddr_in *)from)->sin_port :
 		((const struct sockaddr_in6 *)from)->sin6_port;
-	ph = sub->holder.sa4.sin_family == AF_INET ? sub->holder.sa4.sin_port :
-						     sub->holder.sa6.sin6_port;
+	ps = sa->sa4.sin_family == AF_INET ? sa->sa4.sin_port :
+					     sa->sa6.sin6_port;
 
-	return pf == ph;
+	return pf == ps;
+}
+
+static int
+dht_dnssec_from_holder(const struct lws_dht_dnssec_subscribed_domain *sub,
+		       const struct sockaddr *from)
+{
+	return dht_dnssec_same_endpoint(&sub->holder, from);
 }
 
 static void
@@ -3719,6 +3735,374 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 	}
 }
 
+/*
+ * The DHT hash a domain's zone is stored under, and its hex, derived as
+ * do_fetch_zone() and the others do
+ */
+
+static int
+dht_dnssec_domain_hash(const char *domain, uint8_t *hash, char *hex,
+		       size_t hex_len)
+{
+	char clean[256], s[256];
+	struct lws_genhash_ctx ctx;
+	size_t n;
+
+	/* the domain is the same with or without its root dot */
+	lws_strncpy(clean, domain, sizeof(clean));
+	n = strlen(clean);
+	if (n && clean[n - 1] == '.')
+		clean[n - 1] = '\0';
+
+	lws_snprintf(s, sizeof(s), "lws-dnssec-dht-%s", clean);
+
+	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
+	    lws_genhash_update(&ctx, s, strlen(s)) ||
+	    lws_genhash_destroy(&ctx, hash))
+		return 1;
+
+	lws_hex_from_byte_array(hash, lws_genhash_size(LWS_DHT_STORE_GENHASH),
+				hex, hex_len);
+
+	return 0;
+}
+
+/* the serial of our copy of the zone stored under hash hex, if we have one */
+
+static int
+dht_dnssec_stored_serial(struct vhd_dht_dnssec *vhd, const char *hex,
+			 uint32_t *serial)
+{
+	struct lws_dir_args da;
+	char dir_path[256];
+
+	memset(&da, 0, sizeof(da));
+	da.prefix = hex;
+	lws_snprintf(dir_path, sizeof(dir_path), "%s/%.2s/%.2s",
+		     vhd->storage_path, hex, hex + 2);
+	lws_dir(dir_path, &da, dht_dnssec_find_highest_serial_cb);
+	if (!da.is_outdated) /* ie, found */
+		return 1;
+
+	*serial = (uint32_t)da.new_serial;
+
+	return 0;
+}
+
+/*
+ * query_serials(): we ask each node in our routing table which serial of a
+ * zone it holds with "SOA_REQ <hash> 0 0 <nonce>", and it answers
+ * "SOA_RSP <hash> <serial> <1 if it holds the zone, else 0> <nonce>".  The
+ * nonce is random per query, so only a node we asked, that saw our question,
+ * can answer it.  A node too old to know SOA_REQ just doesn't answer.
+ */
+
+/*
+ * Each node asked takes one of the DHT's LWS_DHT_MAX_TS (64) transport
+ * sequencers, and making one past that recycles the oldest, eg, one carrying
+ * a zone fetch.  Concurrent queries ask the same routing table, so this many
+ * is all the queries take between them, leaving the rest to the transfers.
+ */
+#define DHT_DNSSEC_SERIAL_QUERIES_MAX	16
+#define DHT_DNSSEC_SERIAL_NODES_MAX	24
+#define DHT_DNSSEC_SERIAL_NONCE_LEN	8
+
+struct dht_dnssec_serial_node {
+	lws_sockaddr46		sa;
+	uint8_t			id[LWS_GENHASH_LARGEST];
+	uint8_t			id_type;
+	uint8_t			id_len;
+	uint8_t			good;
+	uint8_t			answered;
+};
+
+struct dht_dnssec_serial_query {
+	lws_dll2_t		list;		/* serial_queries */
+	struct vhd_dht_dnssec	*vhd;
+	lws_sorted_usec_list_t	sul;		/* gives up on the rest */
+	lws_dht_dnssec_serial_cb_t cb;
+	void			*opaque;
+	char			domain[256];
+	char			hex[LWS_GENHASH_LARGEST * 2 + 1];
+	uint8_t			nonce[DHT_DNSSEC_SERIAL_NONCE_LEN];
+	int			count;
+	int			pending;
+	int			fill;		/* how many to take while adding */
+	struct dht_dnssec_serial_node node[DHT_DNSSEC_SERIAL_NODES_MAX];
+};
+
+static void
+dht_dnssec_serial_report(struct dht_dnssec_serial_query *q,
+			 const struct dht_dnssec_serial_node *sn,
+			 uint8_t state, uint32_t serial)
+{
+	uint8_t hbuf[sizeof(lws_dht_hash_t) + LWS_GENHASH_LARGEST];
+	lws_dht_hash_t *id = (lws_dht_hash_t *)hbuf;
+	struct lws_dht_dnssec_serial_report r;
+
+	memset(&r, 0, sizeof(r));
+	r.state = state;
+	r.serial = serial;
+
+	if (sn) {
+		id->type = sn->id_type;
+		id->len = sn->id_len;
+		memcpy(id->id, sn->id, sn->id_len);
+
+		r.sa = (const struct sockaddr *)&sn->sa;
+		r.salen = sa46_socklen(&sn->sa);
+		r.id = id;
+		r.good = sn->good;
+	}
+
+	q->cb(q->opaque, q->domain, &r);
+}
+
+static void
+dht_dnssec_serial_query_free(struct dht_dnssec_serial_query *q)
+{
+	lws_sul_cancel(&q->sul);
+	lws_dll2_remove(&q->list);
+	free(q);
+}
+
+/* everyone asked has been reported: say so, and we are done */
+
+static void
+dht_dnssec_serial_query_finish(struct dht_dnssec_serial_query *q)
+{
+	q->cb(q->opaque, q->domain, NULL);
+	dht_dnssec_serial_query_free(q);
+}
+
+static void
+dht_dnssec_serial_query_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	struct dht_dnssec_serial_query *q = lws_container_of(sul,
+				struct dht_dnssec_serial_query, sul);
+	int n;
+
+	for (n = 0; n < q->count; n++)
+		if (!q->node[n].answered)
+			dht_dnssec_serial_report(q, &q->node[n],
+					LWS_DHT_DNSSEC_SERIAL_NO_ANSWER, 0);
+
+	dht_dnssec_serial_query_finish(q);
+}
+
+/* lws_dht_foreach_node() callback: note each node to ask */
+
+static int
+dht_dnssec_serial_add_node(void *user, const lws_dht_node_info_t *ni)
+{
+	struct dht_dnssec_serial_query *q =
+				(struct dht_dnssec_serial_query *)user;
+	struct dht_dnssec_serial_node *sn;
+
+	int n;
+
+	if (q->count >= q->fill)
+		return 1; /* stop */
+
+	if (ni->salen > sizeof(sn->sa) || !ni->id ||
+	    ni->id->len > sizeof(sn->id) ||
+	    (ni->sa->sa_family != AF_INET && ni->sa->sa_family != AF_INET6))
+		return 0;
+
+	/* a second pass over a table sees the first pass' nodes again */
+	for (n = 0; n < q->count; n++)
+		if (dht_dnssec_same_endpoint(&q->node[n].sa, ni->sa))
+			return 0;
+
+	sn = &q->node[q->count++];
+	memcpy(&sn->sa, ni->sa, ni->salen);
+	sn->id_type = ni->id->type;
+	sn->id_len = ni->id->len;
+	memcpy(sn->id, ni->id->id, ni->id->len);
+	sn->good = ni->good;
+
+	return 0;
+}
+
+/* drop the query of opaque, if any, without telling it any more */
+
+static void
+dht_dnssec_serial_query_drop(void *opaque)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&serial_queries)) {
+		struct dht_dnssec_serial_query *q = lws_container_of(d,
+					struct dht_dnssec_serial_query, list);
+
+		if (q->opaque == opaque)
+			dht_dnssec_serial_query_free(q);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+static int
+do_query_serials(struct lws_context *cx,
+		 struct lws_dht_dnssec_query_serials_args *args)
+{
+	struct vhd_dht_dnssec *vhd = get_dnssec_vhd(cx, args->vhost);
+	char buf[LWS_GENHASH_LARGEST * 2 + 64];
+	uint8_t hash[LWS_GENHASH_LARGEST];
+	struct dht_dnssec_serial_query *q;
+	uint32_t serial = 0;
+	int n, hl;
+
+	dht_dnssec_serial_query_drop(args->opaque);
+	if (args->is_cancel)
+		return 0;
+
+	if (!vhd || !args->cb || !args->domain ||
+	    !lws_dht_valid_domain_name(args->domain) ||
+	    lws_dll2_count(&serial_queries) >=
+					DHT_DNSSEC_SERIAL_QUERIES_MAX)
+		return 1;
+
+	q = calloc(1, sizeof(*q));
+	if (!q)
+		return 1;
+
+	q->vhd = vhd;
+	q->cb = args->cb;
+	q->opaque = args->opaque;
+	lws_strncpy(q->domain, args->domain, sizeof(q->domain));
+
+	if (dht_dnssec_domain_hash(args->domain, hash, q->hex, sizeof(q->hex)) ||
+	    lws_get_random(cx, q->nonce, sizeof(q->nonce)) != sizeof(q->nonce)) {
+		free(q);
+		return 1;
+	}
+
+	/*
+	 * Everyone the routing table knows, good or not, as many as we may:
+	 * half each from IPv4 and IPv6 first, so one can't crowd out the
+	 * other, then the rest from either
+	 */
+	if (vhd->dht) {
+		q->fill = DHT_DNSSEC_SERIAL_NODES_MAX / 2;
+		lws_dht_foreach_node(vhd->dht, AF_INET,
+				     dht_dnssec_serial_add_node, q);
+		q->fill = DHT_DNSSEC_SERIAL_NODES_MAX;
+#if defined(LWS_WITH_IPV6)
+		lws_dht_foreach_node(vhd->dht, AF_INET6,
+				     dht_dnssec_serial_add_node, q);
+#endif
+		lws_dht_foreach_node(vhd->dht, AF_INET,
+				     dht_dnssec_serial_add_node, q);
+	}
+	q->pending = q->count;
+	lws_dll2_add_tail(&q->list, &serial_queries);
+
+	/* our own copy needs no asking */
+	dht_dnssec_serial_report(q, NULL,
+			dht_dnssec_stored_serial(vhd, q->hex, &serial) ?
+				LWS_DHT_DNSSEC_SERIAL_NONE :
+				LWS_DHT_DNSSEC_SERIAL_HELD, serial);
+
+	if (!q->pending) {
+		dht_dnssec_serial_query_finish(q);
+		return 0;
+	}
+
+	hl = lws_dht_msg_gen(buf, sizeof(buf) - sizeof(q->nonce), "SOA_REQ",
+			     q->hex, 0, 0);
+	if (hl < 0 || (size_t)hl >= sizeof(buf) - sizeof(q->nonce)) {
+		/* cb has been called, so it ends as the contract says */
+		dht_dnssec_serial_query_timeout_cb(&q->sul);
+		return 0;
+	}
+	memcpy(buf + hl, q->nonce, sizeof(q->nonce));
+
+	for (n = 0; n < q->count; n++)
+		lws_dht_send_data(vhd->dht,
+				  (const struct sockaddr *)&q->node[n].sa, buf,
+				  (size_t)hl + sizeof(q->nonce));
+
+	lws_sul_schedule(cx, 0, &q->sul, dht_dnssec_serial_query_timeout_cb,
+			 LWS_DHT_DNSSEC_SERIAL_QUERY_SECS * LWS_US_PER_SEC);
+
+	return 0;
+}
+
+/* a node asks which serial of a zone we hold */
+
+static int
+verb_soa_req_handler(struct vhd_dht_dnssec *vhd,
+		     struct lws_dht_verb_dispatch_args *args)
+{
+	const struct lws_dht_msg *msg = args->msg;
+	char buf[LWS_GENHASH_LARGEST * 2 + 64];
+	uint32_t serial = 0;
+	int held, hl;
+
+	if (msg->payload_len != DHT_DNSSEC_SERIAL_NONCE_LEN ||
+	    !dht_dnssec_hash_token_ok(msg->hash))
+		return 0;
+
+	held = !dht_dnssec_stored_serial(vhd, msg->hash, &serial);
+
+	hl = lws_dht_msg_gen(buf, sizeof(buf) - DHT_DNSSEC_SERIAL_NONCE_LEN,
+			     "SOA_RSP", msg->hash, held ? serial : 0,
+			     (unsigned long long)held);
+	if (hl < 0 || (size_t)hl >= sizeof(buf) - DHT_DNSSEC_SERIAL_NONCE_LEN)
+		return 0;
+
+	memcpy(buf + hl, msg->payload, DHT_DNSSEC_SERIAL_NONCE_LEN);
+	lws_dht_send_data(args->ctx, args->from, buf,
+			  (size_t)hl + DHT_DNSSEC_SERIAL_NONCE_LEN);
+
+	return 0;
+}
+
+/* a node we asked tells us which serial of the zone it holds */
+
+static int
+verb_soa_rsp_handler(struct vhd_dht_dnssec *vhd,
+		     struct lws_dht_verb_dispatch_args *args)
+{
+	const struct lws_dht_msg *msg = args->msg;
+	int n;
+
+	if (msg->payload_len != DHT_DNSSEC_SERIAL_NONCE_LEN ||
+	    msg->len > 1 || msg->offset > 0xffffffffull)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&serial_queries)) {
+		struct dht_dnssec_serial_query *q = lws_container_of(d,
+					struct dht_dnssec_serial_query, list);
+
+		if (strcmp(q->hex, msg->hash) ||
+		    lws_timingsafe_bcmp(q->nonce, msg->payload,
+					sizeof(q->nonce)))
+			continue;
+
+		for (n = 0; n < q->count; n++) {
+			struct dht_dnssec_serial_node *sn = &q->node[n];
+
+			if (sn->answered ||
+			    !dht_dnssec_same_endpoint(&sn->sa, args->from))
+				continue;
+
+			sn->answered = 1;
+			dht_dnssec_serial_report(q, sn, msg->len ?
+					LWS_DHT_DNSSEC_SERIAL_HELD :
+					LWS_DHT_DNSSEC_SERIAL_NONE,
+					(uint32_t)msg->offset);
+			if (!--q->pending)
+				dht_dnssec_serial_query_finish(q);
+			break;
+		}
+
+		/* the nonce is only this query's */
+		break;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 static int
 verb_notc_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const struct lws_dht_msg *msg,
 		  const struct sockaddr *from, size_t fromlen)
@@ -4579,6 +4963,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		if (!strcmp(args->msg->verb, "ERR")) return verb_err_handler(vhd, args);
 		if (!strcmp(args->msg->verb, "NOTIFY")) return verb_notify_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
 		if (!strcmp(args->msg->verb, "NOTC")) return verb_notc_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "SOA_REQ")) return verb_soa_req_handler(vhd, args);
+		if (!strcmp(args->msg->verb, "SOA_RSP")) return verb_soa_rsp_handler(vhd, args);
 
 		/* We'll handle notification subscription confirmation here, empty for now */
 		if (!strcmp(args->msg->verb, "SUBSCRIBE_CONFIRM")) return 0;
@@ -4602,6 +4988,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			"SUBSCRIBE_CONFIRM",
 			"NOTIFY",
 			"NOTC",
+			"SOA_REQ",
+			"SOA_RSP",
 		};		/* Do not initialize the DHT plugin if we are running as the spawned root monitor */
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root")) {
 			lwsl_vhost_notice(vhost, "  ...leaving early: skipped in root monitor process");
@@ -4877,6 +5265,16 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 				req->cb(req->opaque, req->domain,
 					LWS_DHT_DNSSEC_FETCH_ABORTED);
 			free(req);
+		} lws_end_foreach_dll_safe(d, d1);
+
+		/* their opaques are their callers', who hear no more */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&serial_queries)) {
+			struct dht_dnssec_serial_query *q = lws_container_of(d,
+					struct dht_dnssec_serial_query, list);
+
+			if (q->vhd == vhd)
+				dht_dnssec_serial_query_free(q);
 		} lws_end_foreach_dll_safe(d, d1);
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -5553,6 +5951,23 @@ dht_dnssec_find_soa_serial(char *buf, char **start, char **end,
 	}
 
 	return 1;
+}
+
+static int
+dht_dnssec_zone_file_serial(const char *filepath, uint32_t *serial)
+{
+	char *buf, *start, *end;
+	size_t len;
+	int n;
+
+	buf = dht_dnssec_read_text(filepath, &len);
+	if (!buf)
+		return 1;
+
+	n = dht_dnssec_find_soa_serial(buf, &start, &end, serial);
+	free(buf);
+
+	return n;
 }
 
 /* RFC1982 serial number arithmetic: is a later than b? */
@@ -6916,6 +7331,8 @@ static const struct lws_dht_dnssec_ops ops = {
 	.subscribe_zone = do_subscribe_zone,
 	.notify_peer_outdated = do_notify_peer_outdated,
 	.register_auth_cb = dht_dnssec_register_auth_cb,
+	.query_serials = do_query_serials,
+	.zone_file_serial = dht_dnssec_zone_file_serial,
 };
 
 LWS_VISIBLE const struct lws_protocols lws_dht_dnssec_protocols[] = {
