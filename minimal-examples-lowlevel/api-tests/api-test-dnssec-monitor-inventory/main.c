@@ -448,7 +448,7 @@ int main(void)
 	struct t_iface *f;
 	struct t_name *nm;
 	char path[512];
-	int fails = 0, n;
+	int fails = 0, ret = 1, n;
 
 	unlink("./ip-inventory.sqlite3");
 	lws_dir("./inv-corpus", NULL, lws_dir_rm_rf_cb);
@@ -481,7 +481,7 @@ int main(void)
 	if (t_fetch(&vhd)) {
 		lwsl_err("%s: fetch failed\n", __func__);
 
-		return 1;
+		goto bail;
 	}
 
 	fails += t_expect(ti.nif == 4, "four interfaces");
@@ -624,7 +624,7 @@ int main(void)
 	if (t_fetch_hints(&vhd, NULL, NULL)) {
 		lwsl_err("%s: hintless fetch failed\n", __func__);
 
-		return 1;
+		goto bail;
 	}
 
 	fails += t_expect(ti.nif == 4, "four interfaces without hints");
@@ -715,13 +715,13 @@ int main(void)
 page_fail:
 		lwsl_err("%s: corpus page build failed\n", __func__);
 
-		return 1;
+		goto bail;
 	}
 
 	if (t_fetch(&vhd)) {
 		lwsl_err("%s: paged fetch failed\n", __func__);
 
-		return 1;
+		goto bail;
 	}
 
 	/* every interface exactly once, and the promised count */
@@ -747,13 +747,20 @@ page_fail:
 	rmdir("./inv-corpus");
 	unlink("./ip-inventory.sqlite3");
 
-	if (fails) {
+	if (fails)
 		lwsl_err("%s: %d failures\n", __func__, fails);
-
-		return 1;
+	else {
+		lwsl_user("Completed: OK\n");
+		ret = 0;
 	}
 
-	lwsl_user("Completed: OK\n");
+bail:
+	/*
+	 * The vhd is ours rather than a vhost's, so what the plugin frees
+	 * with it at PROTOCOL_DESTROY, like the geo tables the lookups
+	 * parsed, is ours to free
+	 */
+	inv_geo_destroy(&vhd);
 
-	return 0;
+	return ret;
 }
