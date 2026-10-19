@@ -328,9 +328,8 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	return 0;
 
 bail2:
-	for (n = 0; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++)
-		if (el[n].buf)
-			lws_free_set_NULL(el[n].buf);
+	/* the elements written so far may include d */
+	lws_genec_destroy_elements(el);
 bail1:
 	mbedtls_ecdsa_free(&ecdsa);
 
@@ -409,9 +408,8 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	return 0;
 
 bail2:
-	for (n = 0; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++)
-		if (el[n].buf)
-			lws_free_set_NULL(el[n].buf);
+	/* the elements written so far may include d */
+	lws_genec_destroy_elements(el);
 bail1:
 
 	/* release the ctx's internal state as well as the heap ctx */
@@ -859,12 +857,8 @@ lws_genec_new_keypair_v4(struct lws_genec_ctx *ctx, const char *curve_name,
 
 bail:
 	lws_explicit_bzero(d_buf, sizeof(d_buf));
-	for (int n = 0; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++) {
-		if (el[n].buf) {
-			lws_free(el[n].buf);
-			el[n].buf = NULL;
-		}
-	}
+	/* the elements written so far may include d */
+	lws_genec_destroy_elements(el);
 	psa_destroy_key(ctx->key_id);
 	ctx->key_id = 0;
 	return -1;

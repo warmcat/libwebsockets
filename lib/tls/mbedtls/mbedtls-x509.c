@@ -951,6 +951,8 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	ret = 0;
 
 bail:
+	/* der holds the whole private key */
+	lws_explicit_bzero(der, sizeof(der));
 	mbedtls_pk_free(&pk);
 	return ret;
 #else

@@ -215,9 +215,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	return 0;
 
 cleanup:
-	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
-		if (el[n].buf)
-			lws_free_set_NULL(el[n].buf);
+	/* the elements written so far may be private */
+	lws_genrsa_destroy_elements(el);
 cleanup_1:
 	/*
 	 * mbedtls_rsa_gen_key() may already have filled in (and heap-allocated

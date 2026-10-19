@@ -378,6 +378,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 #else
 		n = mbedtls_pk_parse_key(vhost->tls.ssl_ctx->key, p, (size_t)flen, NULL, 0);
 #endif
+		/* our DER copy of the private key is a secret too */
+		lws_explicit_bzero(p, (size_t)flen);
 		lws_free(p);
 		if (n != 0) {
 			lwsl_err("Problem loading mem key: %d\n", n);
