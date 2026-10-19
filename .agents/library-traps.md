@@ -333,6 +333,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    New log sites must use them; never hexdump key, PEM, cookie, token or
    metadata buffers at any level (G-345, G-349).
 
+ - Secret buffers (keys, DER, PEM, session tickets, ECDH secrets) are
+   wiped before free in every TLS backend since G-349 (24e8da514 openssl,
+   45ce40b50 gnutls, f60d12dad mbedtls, 5c59cdb13 bearssl, ce6ca0b17
+   schannel, b94714bff openhitls); the last four were not compiled here,
+   only in Sai.
+ - `private-lib-tls.h` and the backend headers are included early in
+   `private-lib-core.h`, before `lws_free` / `lws_free_set_NULL` are
+   defined: a static inline in a TLS backend header can't use them, put
+   such helpers in a .c file.
+
 ## Vhost selection
 
  - Host / :authority / SNI / passthrough vhost selection is scoped to the
