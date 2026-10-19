@@ -232,13 +232,6 @@ enum hls_task_state {
 	HLS_TASK_DONE,		/* on vhd->done, awaiting collection */
 };
 
-/*
- * The host a request is accounted to (lws_hls_host_key()): the address for
- * IPv4, the /64 for IPv6, since that is what one host commands.  With
- * headroom for "a:b:c:d::/64".
- */
-#define HLS_HOST_KEY_LEN 64
-
 /* what a task hands back: an HTTP status, and for 200, a body */
 struct hls_result {
 	uint8_t *body;		/* malloc'd, payload at body + LWS_PRE */
@@ -282,7 +275,7 @@ struct hls_task {
 	int64_t atrans_need_us;
 
 	/* the host of the request that queued it, which it counts against */
-	char host[HLS_HOST_KEY_LEN];
+	char host[LWS_HOST_KEY_LEN]; /* lws_get_peer_host_key() */
 
 	/*
 	 * Thumbnails only, event loop only, under vhd->lock: what the
@@ -736,9 +729,6 @@ lws_hls_task_free(struct hls_task *t);
 int
 lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
 			const char *filename, int t);
-
-void
-lws_hls_host_key(struct lws *wsi, char *key, size_t len);
 
 int
 lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd);

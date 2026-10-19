@@ -113,7 +113,7 @@ struct vhd_login {
 	/*
 	 * Bounds on the renewals in flight on pending_refresh_list (each an
 	 * outbound connection to the auth server and ~11KB of state), in all
-	 * and per source host (see lws_login_host_key()), so that peers who
+	 * and per source host (see lws_get_peer_host_key()), so that peers who
 	 * can present any auth_refresh_session value at all cannot exhaust
 	 * memory or outbound connections with them
 	 */
@@ -167,9 +167,6 @@ struct pss_login {
 #define LWS_LOGIN_RENEWALS_MAX_DEF		256
 #define LWS_LOGIN_RENEWALS_MAX_PER_HOST_DEF	16
 
-/* "a:b:c:d::/64", or an IPv4 address, with headroom */
-#define LWS_LOGIN_HOST_KEY_LEN			64
-
 struct pending_login_refresh {
 	lws_dll2_t              list;
 	lws_sorted_usec_list_t  sul;
@@ -179,7 +176,7 @@ struct pending_login_refresh {
 	struct lws              *wsi_client;
 
 	/* the source host this renewal is accounted to */
-	char			host_key[LWS_LOGIN_HOST_KEY_LEN];
+	char			host_key[LWS_HOST_KEY_LEN];
 
 	/*
 	 * The browser's Cookie header we forward verbatim to the auth server.
@@ -584,38 +581,6 @@ lws_login_pending_drop(struct vhd_login *vhd, struct lws *wsi)
 }
 
 /*
- * The key renewals are accounted to their source host under: the address for
- * IPv4, but the /64 for IPv6, since that is what one host commands.  A
- * v4-mapped address is its IPv4 address.  The auth server keys its strikes
- * the same way.
- */
-
-static void
-lws_login_host_key(const char *addr, char *key, size_t len)
-{
-#if defined(LWS_WITH_IPV6)
-	lws_sockaddr46 sa46;
-
-	if (!lws_sa46_parse_numeric_address(addr, &sa46) &&
-	    sa46.sa4.sin_family == AF_INET6) {
-		const uint8_t *a = sa46.sa6.sin6_addr.s6_addr;
-		static const uint8_t v4map[12] = { [10] = 0xff, [11] = 0xff };
-
-		if (!memcmp(a, v4map, sizeof(v4map)))
-			lws_snprintf(key, len, "%u.%u.%u.%u", a[12], a[13],
-				     a[14], a[15]);
-		else
-			lws_snprintf(key, len, "%x:%x:%x:%x::/64",
-				     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
-				     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
-		return;
-	}
-#endif
-
-	lws_strncpy(key, addr, len);
-}
-
-/*
  * May one more renewal from host_key start?  The list is bounded by
  * renewals_max, so walking it is bounded too.
  */
@@ -875,7 +840,7 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 {
 	struct pending_login_refresh *ps;
 	struct lws_client_connect_info i;
-	char ip[64], host_key[LWS_LOGIN_HOST_KEY_LEN];
+	char ip[64], host_key[LWS_HOST_KEY_LEN];
 	lws_parse_uri_t *puri;
 
 	/*
@@ -904,7 +869,7 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	 */
 	ip[0] = '\0';
 	lws_get_peer_simple(wsi, ip, sizeof(ip));
-	lws_login_host_key(ip, host_key, sizeof(host_key));
+	lws_get_peer_host_key(wsi, host_key, sizeof(host_key));
 	if (!lws_login_renewal_admit(vhd, host_key)) {
 		lwsl_wsi_notice(wsi, "renewal refused: %u in flight (max %u, "
 				"%u per host), host %s", (unsigned int)

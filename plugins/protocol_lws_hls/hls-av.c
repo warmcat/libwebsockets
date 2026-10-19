@@ -505,43 +505,6 @@ lws_hls_worker(void *d)
         return NULL;
 }
 
-/*
- * The key a request is accounted to its source host under: the address for
- * IPv4, but the /64 for IPv6, since that is what one host commands.  A
- * v4-mapped address is its IPv4 address.  lws_get_peer_simple() gives the
- * client a trusted PROXY v2 proxy named, where there is one.
- */
-void
-lws_hls_host_key(struct lws *wsi, char *key, size_t len)
-{
-	char addr[64];
-#if defined(LWS_WITH_IPV6)
-	lws_sockaddr46 sa46;
-#endif
-
-	addr[0] = '\0';
-	lws_get_peer_simple(wsi, addr, sizeof(addr));
-
-#if defined(LWS_WITH_IPV6)
-	if (!lws_sa46_parse_numeric_address(addr, &sa46) &&
-	    sa46.sa4.sin_family == AF_INET6) {
-		const uint8_t *a = sa46.sa6.sin6_addr.s6_addr;
-		static const uint8_t v4map[12] = { [10] = 0xff, [11] = 0xff };
-
-		if (!memcmp(a, v4map, sizeof(v4map)))
-			lws_snprintf(key, len, "%u.%u.%u.%u", a[12], a[13],
-				     a[14], a[15]);
-		else
-			lws_snprintf(key, len, "%x:%x:%x:%x::/64",
-				     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
-				     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
-		return;
-	}
-#endif
-
-	lws_strncpy(key, addr, len);
-}
-
 /* vhd->lock held: how many tasks pending on owner were queued by host */
 static int
 hls_tasks_from_host(const lws_dll2_owner_t *owner, const char *host,
@@ -575,7 +538,7 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		   type == HLS_TASK_SUB_PLAYLIST;
 	struct per_session_data__lws_hls *pss =
 		(struct per_session_data__lws_hls *)lws_wsi_user(wsi);
-	char host[HLS_HOST_KEY_LEN];
+	char host[LWS_HOST_KEY_LEN];
 	struct hls_task *t;
 	int n;
 
@@ -589,7 +552,7 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		return -1;
 	}
 
-	lws_hls_host_key(wsi, host, sizeof(host));
+	lws_get_peer_host_key(wsi, host, sizeof(host));
 
 	t = calloc(1, sizeof(*t));
 	if (!t) {
@@ -793,7 +756,7 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
 					 lws_get_protocol(wsi));
 	struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)
 		lws_wsi_user(wsi);
-	char host[HLS_HOST_KEY_LEN], path[1024];
+	char host[LWS_HOST_KEY_LEN], path[1024];
 	struct hls_task *pending, *nt;
 	struct stat st;
 	int timed, timed_host;
@@ -817,7 +780,7 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
 	if (t >= 0)
 		t -= t % HLS_THUMB_T_BUCKET;
 
-	lws_hls_host_key(wsi, host, sizeof(host));
+	lws_get_peer_host_key(wsi, host, sizeof(host));
 
 	/* not still counted as waiting on whatever we asked for before */
 	lws_hls_thumb_detach(vhd, pss);

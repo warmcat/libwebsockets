@@ -984,37 +984,24 @@ auth_strike_decay(auth_server_strike_t *strike, uint64_t now)
 }
 
 /*
- * The key a client's strikes and bans are kept under: the address for IPv4,
- * but the /64 for IPv6, since that is what one host commands (2^64 source
- * addresses, each of which would otherwise start again at no strikes).  A
- * v4-mapped address is its IPv4 address.  key must be at least
- * AUTH_HOST_KEY_LEN.
+ * The key a client's strikes and bans are kept under, lws_sa46_host_key(): the
+ * address for IPv4, but the /64 for IPv6, since that is what one host commands
+ * (2^64 source addresses, each of which would otherwise start again at no
+ * strikes).  A v4-mapped address is its IPv4 address.  Anything that is not
+ * an address is kept as it is: bans stored before they were per /64 carry
+ * over through here, and those stored since are already keys.  key must be at
+ * least AUTH_HOST_KEY_LEN.
  */
 #define AUTH_HOST_KEY_LEN 64
 
 static void
 auth_host_key(const char *addr, char *key, size_t len)
 {
-#if defined(LWS_WITH_IPV6)
 	lws_sockaddr46 sa46;
 
-	if (!lws_sa46_parse_numeric_address(addr, &sa46) &&
-	    sa46.sa4.sin_family == AF_INET6) {
-		const uint8_t *a = sa46.sa6.sin6_addr.s6_addr;
-		static const uint8_t v4map[12] = { [10] = 0xff, [11] = 0xff };
-
-		if (!memcmp(a, v4map, sizeof(v4map)))
-			lws_snprintf(key, len, "%u.%u.%u.%u", a[12], a[13],
-				     a[14], a[15]);
-		else
-			lws_snprintf(key, len, "%x:%x:%x:%x::/64",
-				     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
-				     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
-		return;
-	}
-#endif
-
-	lws_strncpy(key, addr, len);
+	if (lws_sa46_parse_numeric_address(addr, &sa46) ||
+	    lws_sa46_host_key(&sa46, key, len))
+		lws_strncpy(key, addr, len);
 }
 
 static auth_server_strike_t *
