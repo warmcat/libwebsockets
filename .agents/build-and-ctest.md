@@ -410,3 +410,9 @@ a log is evidence that something was or was not emitted.
  - `LWS_CALLBACK_WSI_DESTROY` can't match an accepted TCP wsi by fd (the
    fd is already closed then): record the wsi at the `WSI_CREATE` after
    `FILTER_NETWORK_CONNECTION`.
+ - EMFILE tests: lws frees fds on its own early on, letting a "starved"
+   accept succeed: captive portal detection's TLS client takes a tls slot
+   (set `LWS_SERVER_OPTION_CPD_BYPASS`), and the async-DNS nameserver
+   reload on the first service pass closes its socket when it can't read
+   resolv.conf (set `LWS_ASYNCDNS_WATCH_MS` high).  Service once first
+   (api-test-quic-accept-gate emfile).
