@@ -320,6 +320,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    server wsi's inherited `retry_policy` to the new vhost's and re-arms a
    running validity timer (G-222).
 
+## Lists
+
+ - `lws_start_foreach_dll_safe` survives removal of the current entry
+   only.  Removing the cached next inside the body trips the dll2
+   generation guard: an assert abort in builds with asserts (Debug, or
+   CMake build type None), a log and restart from the head with NDEBUG.
+   A "UAF from a stale _safe next" is really an assert DoS / revisit
+   (G-312, api-test-h2-parked-rx).  Walks whose body can free arbitrary
+   members move the list to a local owner and take from its head.
+
 ## Client connect
 
  - **`i.pwsi` is not cleared when the client wsi closes**: it is written
