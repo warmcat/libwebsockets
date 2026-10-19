@@ -17,19 +17,38 @@
  * anybody got the pass cookie at once by submitting the challenge straight
  * away, and the rate limit was gone (G-249).
  *
+ * The challenge page's interceptor-config.js tells captcha.js whether to
+ * submit the challenge at once for a logged-in visitor.  captcha.js once
+ * decided that from lws-login's /.lws-login-status, which reports a grant
+ * level >= 1 for the service of the *status URL's* mount, while the server
+ * wants min-grant-level for the *gated* mount's service.  Where those differ
+ * the page auto-submitted, was refused for the pre-delay, got a fresh
+ * challenge and auto-submitted again, forever (G-340, G-341).  So here the
+ * vhost's min-grant-level is 2 and the gated mount names its own
+ * service-name, and the config js must agree with the submission's outcome
+ * for sessions that fall in each gap.
+ *
  * Each step is one request from a fresh client connection:
  *
  *  - "visit": GET the page with no cookies: the captcha page is served,
  *    with its visit cookie, which the later steps send back
  *
- *  - "anon-submit": submit the challenge at once with only the visit
- *    cookie: no pass cookie, since the pre-delay has not passed
+ *  - "<who>-config": GET the page's interceptor-config.js with the session
+ *    (if any): lws_interceptor_session_live must be 1 only for "live"
  *
- *  - "nogrant-submit": the same, also with a genuine, live lws-login session
- *    that lacks the page's service grant: no pass cookie either
+ *  - "<who>-submit": submit the challenge at once, with the visit cookie and
+ *    the session (if any): the pass cookie must come at once only for
+ *    "live", everybody else is refused for the pre-delay
  *
- *  - "live-submit": the same with a live session holding the grant: the
- *    pass cookie comes at once (the logged-in user skips the delays)
+ * The visitors are
+ *
+ *  - "anon": no session
+ *  - "nogrant": a genuine, live session with no grant for any service here
+ *  - "wrongsvc": level 2 for lws-login's vhost-wide service-name, not the
+ *    one the gated mount names (G-340)
+ *  - "lowlevel": level 1 for the gated mount's service, under the vhost's
+ *    min-grant-level 2 (G-341)
+ *  - "live": level 2 for the gated mount's service, who skips the delays
  */
 
 #include <libwebsockets.h>
@@ -52,30 +71,60 @@
  */
 #define PRE_DELAY_MS		"30000"
 
+#define PAGE			"/public/"
+#define CONFIG_JS		"/public/interceptor-config.js"
+#define LIVE_VAR		"var lws_interceptor_session_live = "
+
+/* the sessions the visitors carry, minted in main() */
 enum {
-	ST_VISIT,
-	ST_ANON_SUBMIT,
-	ST_NOGRANT_SUBMIT,
-	ST_LIVE_SUBMIT,
+	SESS_NONE,
+	SESS_NOGRANT,
+	SESS_WRONGSVC,
+	SESS_LOWLEVEL,
+	SESS_LIVE,
+
+	SESS_COUNT
 };
+
+static const char * const session_grants[] = {
+	[SESS_NOGRANT]	= "\"other-service\":2",
+	[SESS_WRONGSVC]	= "\"default-service\":2",
+	[SESS_LOWLEVEL]	= "\"public-svc\":1",
+	[SESS_LIVE]	= "\"public-svc\":2",
+};
+
+static char sessions[SESS_COUNT][1024];
 
 static const struct step {
 	const char	*name;
 	const char	*method;
+	const char	*path;
+	int		session;	/* SESS_ */
 	unsigned int	status;		/* expected */
 	char		visit;		/* the response must mint the visit
 					 * cookie */
 	char		pass;		/* 1: it must set the pass cookie,
 					 * 0: it must not */
+	signed char	live;		/* -1: not the config js, else the
+					 * lws_interceptor_session_live it must
+					 * report */
 } steps[] = {
-	{ "visit",		"GET",  200, 1, 0 },
-	{ "anon-submit",	"POST", 303, 0, 0 },
-	{ "nogrant-submit",	"POST", 303, 0, 0 },
-	{ "live-submit",	"POST", 303, 0, 1 },
+	{ "visit",		"GET",  PAGE,      SESS_NONE,     200, 1, 0, -1 },
+	{ "anon-config",	"GET",  CONFIG_JS, SESS_NONE,     200, 0, 0,  0 },
+	{ "anon-submit",	"POST", PAGE,      SESS_NONE,     303, 0, 0, -1 },
+	{ "nogrant-config",	"GET",  CONFIG_JS, SESS_NOGRANT,  200, 0, 0,  0 },
+	{ "nogrant-submit",	"POST", PAGE,      SESS_NOGRANT,  303, 0, 0, -1 },
+	{ "wrongsvc-config",	"GET",  CONFIG_JS, SESS_WRONGSVC, 200, 0, 0,  0 },
+	{ "wrongsvc-submit",	"POST", PAGE,      SESS_WRONGSVC, 303, 0, 0, -1 },
+	{ "lowlevel-config",	"GET",  CONFIG_JS, SESS_LOWLEVEL, 200, 0, 0,  0 },
+	{ "lowlevel-submit",	"POST", PAGE,      SESS_LOWLEVEL, 303, 0, 0, -1 },
+	{ "live-config",	"GET",  CONFIG_JS, SESS_LIVE,     200, 0, 0,  1 },
+	{ "live-submit",	"POST", PAGE,      SESS_LIVE,     303, 0, 1, -1 },
 };
 
-/* minted in main() */
-static char ck_live[1024], ck_nogrant[1024];
+/* the config js body, as it arrives */
+static char body[1024];
+static size_t body_len;
 
 /*
  * Throwaway P-256 key: the test signs session tokens with it, lws-login
@@ -125,6 +174,8 @@ next_step(lws_sorted_usec_list_t *sul)
 
 	lwsl_user("%s: step %d: %s\n", __func__, step, steps[step].name);
 
+	body_len = 0;
+
 	lws_snprintf(host, sizeof(host), "127.0.0.1:%d", port);
 
 	memset(&i, 0, sizeof(i));
@@ -132,7 +183,7 @@ next_step(lws_sorted_usec_list_t *sul)
 	i.vhost			= vh_cli;
 	i.address		= "127.0.0.1";
 	i.port			= port;
-	i.path			= "/public/";
+	i.path			= steps[step].path;
 	i.host			= host;
 	i.origin		= host;
 	i.method		= steps[step].method;
@@ -152,17 +203,23 @@ next_step(lws_sorted_usec_list_t *sul)
 static int
 append_headers(struct lws *wsi, unsigned char **p, unsigned char *end)
 {
-	const char *session = step == ST_NOGRANT_SUBMIT ? ck_nogrant :
-			      step == ST_LIVE_SUBMIT ? ck_live : NULL;
-	char cookie[sizeof(visit) + sizeof(ck_live) + 64];
+	const char *session = steps[step].session == SESS_NONE ? NULL :
+			      sessions[steps[step].session];
+	char cookie[sizeof(visit) + sizeof(sessions[0]) + 64];
 
-	if (step == ST_VISIT)
+	if (!visit[0])
 		return 0;
 
-	/* the challenge form's bodyless submission, with what we were sent */
+	/* what we were sent, and the session if the visitor has one */
 	lws_snprintf(cookie, sizeof(cookie), "%s%s%s", visit,
 		     session ? "; " : "", session ? session : "");
 
+	if (strcmp(steps[step].method, "POST"))
+		return lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+				(const unsigned char *)cookie,
+				(int)strlen(cookie), p, end);
+
+	/* the challenge form's bodyless submission */
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 			(const unsigned char *)"application/x-www-form-urlencoded",
 			33, p, end) ||
@@ -234,6 +291,48 @@ judge(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * Judge the config js body: it must say whether submitting the challenge
+ * is waved through, and say what the submission step for the same visitor
+ * then finds
+ */
+static int
+judge_config(void)
+{
+	const char *p;
+	int live;
+
+	body[body_len] = '\0';
+	p = strstr(body, LIVE_VAR);
+	if (!p) {
+		lwsl_err("%s: step %d: no lws_interceptor_session_live in "
+			 "the config js\n", __func__, step);
+		return 1;
+	}
+	live = atoi(p + strlen(LIVE_VAR));
+
+	lwsl_user("%s: step %d: %s: session_live %d\n", __func__, step,
+		  steps[step].name, live);
+
+	if (live != steps[step].live) {
+		lwsl_err("%s: step %d: expected session_live %d: captcha.js "
+			 "would %s\n", __func__, step, steps[step].live,
+			 live ? "auto-submit a challenge the server refuses" :
+				"not auto-submit for a live session");
+		return 1;
+	}
+
+	return 0;
+}
+
+static void
+step_done(void)
+{
+	/* we are done with this connection */
+	current_wsi = NULL;
+	lws_sul_schedule(cx, 0, &sul_next, next_step, 1);
+}
+
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -254,9 +353,44 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			finish();
 			return -1;
 		}
+		if (steps[step].live >= 0)
+			break; /* go on to read the config js body */
+
 		/* the headers are all we came for */
-		current_wsi = NULL;
-		lws_sul_schedule(cx, 0, &sul_next, next_step, 1);
+		step_done();
+		return -1;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+	{
+		char buf[LWS_PRE + 1024], *px = buf + LWS_PRE;
+		int lenx = sizeof(buf) - LWS_PRE;
+
+		if (lws_http_client_read(wsi, &px, &lenx) < 0)
+			return -1;
+
+		return 0;
+	}
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (len >= sizeof(body) - body_len) {
+			lwsl_err("%s: step %d: config js too large\n",
+				 __func__, step);
+			fails++;
+			finish();
+			return -1;
+		}
+		memcpy(body + body_len, in, len);
+		body_len += len;
+
+		return 0;
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		if (judge_config()) {
+			fails++;
+			finish();
+			return -1;
+		}
+		step_done();
 		return -1;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -295,9 +429,14 @@ static const struct lws_protocols *pprotocols_app[] = {
 	&prot_defprot, &prot_login, &prot_login_client, &prot_captcha, NULL
 }, *pprotocols_cli[] = { &prot_cli, NULL };
 
-/* lws-login lets anonymous visitors see the public page */
-static const struct lws_protocol_vhost_options pmo_unauth = {
-	NULL, NULL, "unauth-allow", "1"
+/*
+ * lws-login lets anonymous visitors see the public page, whose service is
+ * not lws-login's vhost-wide one
+ */
+static const struct lws_protocol_vhost_options pmo_service = {
+	NULL, NULL, "service-name", "public-svc"
+}, pmo_unauth = {
+	&pmo_service, NULL, "unauth-allow", "1"
 };
 
 static const struct lws_http_mount mount_public = {
@@ -325,7 +464,9 @@ static struct lws_protocol_vhost_options
 
 	pvo_l_asu	= { NULL, NULL, "auth-server-url",
 			    "https://auth.invalid/login" },
-	pvo_l_jwk	= { &pvo_l_asu, NULL, "jwt-jwk", jwk_pub },
+	/* a grant of level 1 is not enough for anything on this vhost */
+	pvo_l_level	= { &pvo_l_asu, NULL, "min-grant-level", "2" },
+	pvo_l_jwk	= { &pvo_l_level, NULL, "jwt-jwk", jwk_pub },
 	pvo_login	= { &pvo_captcha, &pvo_l_jwk, "lws-login", "" };
 
 /* a genuine, unexpired lws-login session token with the given grants */
@@ -399,12 +540,12 @@ int main(int argc, const char **argv)
 		lwsl_err("jwk import failed\n");
 		goto bail;
 	}
-	n = mint_session(&jwk, ck_live, sizeof(ck_live),
-			 "\"default-service\":1") ||
-	    mint_session(&jwk, ck_nogrant, sizeof(ck_nogrant),
-			 "\"other-service\":1");
+	for (n = SESS_NOGRANT; n < SESS_COUNT; n++)
+		if (mint_session(&jwk, sessions[n], sizeof(sessions[n]),
+				 session_grants[n]))
+			break;
 	lws_jwk_destroy(&jwk);
-	if (n)
+	if (n != SESS_COUNT)
 		goto bail;
 
 	info.vhost_name		= "app";

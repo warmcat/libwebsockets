@@ -75,22 +75,45 @@ document.addEventListener('DOMContentLoaded', function() {
         requestAnimationFrame(frame);
     }
 
-    if (typeof lws_interceptor_path !== 'undefined') {
-        fetch(lws_interceptor_path + '/.lws-login-status')
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                // the server only waves through a session with the grant
-                if (d.logged_in && d.has_grant && form) {
-                    if (msg) msg.innerText = 'Authenticated via login... bypassing...';
-                    setStatus('pressed');
-                    btn.disabled = true;
-                    btn.style.display = 'none';
-                    if (barFill) barFill.style.width = '100%';
-                    form.action = window.location.pathname;
-                    form.submit();
-                }
-            })
-            .catch(function(e) { console.log('bypass check failed:', e); });
+    /*
+     * interceptor-config.js tells us if the server will wave the challenge
+     * through at once for this visitor (a live lws-login session with the
+     * grant this page needs): it asks the same question the server asks of
+     * the submission.  Then submit it now, so a logged-in user does not sit
+     * through the delays.
+     *
+     * Whatever the server said, only ever auto-submit once in a row: if an
+     * auto-submission comes back to the challenge (eg, the session ended in
+     * between), fall back to the normal delayed flow here instead of
+     * submitting again and again.  Without sessionStorage to remember that
+     * by, don't auto-submit at all.
+     */
+    var autoKey = 'lws_interceptor_auto:' + window.location.pathname;
+
+    function autoSubmitAllowed() {
+        try {
+            var last = parseInt(window.sessionStorage.getItem(autoKey) || '0', 10);
+
+            window.sessionStorage.removeItem(autoKey);
+            if (!isNaN(last) && last && Date.now() - last < 60000)
+                return false;
+            window.sessionStorage.setItem(autoKey, String(Date.now()));
+
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    if (typeof lws_interceptor_session_live !== 'undefined' &&
+        lws_interceptor_session_live === 1 && form && autoSubmitAllowed()) {
+        if (msg) msg.innerText = 'Authenticated via login... bypassing...';
+        setStatus('pressed');
+        btn.disabled = true;
+        if (barFill) barFill.style.width = '100%';
+        form.action = window.location.pathname;
+        form.submit();
+        return;
     }
 
     // Stage 1: Pre-delay

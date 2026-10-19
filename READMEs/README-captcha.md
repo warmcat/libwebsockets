@@ -49,7 +49,7 @@ The `captcha_ratelimit` handles this natively, when `lws-login` is enabled on th
 
 Only a real session skips the delays.  On a vhost or mount where `lws-login` has `unauth-allow` set, anonymous visitors are let through by `lws-login` itself, but they are not logged in, so they still wait out the captcha: rate limiting anonymous visitors to public pages is what the captcha is there for.
 
-To spare logged-in users even seeing the challenge, the client-side `captcha.js`, using its injected `lws_interceptor_path`, queries `lws-login`'s `/.lws-login-status` endpoint and, if it reports a session with the grant, submits the challenge immediately.  The server makes its own decision as above, so this is only a convenience: a client claiming to be logged in gains nothing.
+To spare logged-in users even seeing the challenge, the generated `interceptor-config.js` the challenge page loads sets `lws_interceptor_session_live` to 1 when the visitor would be waved through.  It is asked with the same `LWS_LOGIN_CALLBACK_SESSION_LIVE` question as the submission, on a request to the same gated mount, so it names the same service and needs the same `min-grant-level`; `captcha.js` then submits the challenge immediately.  The server makes its own decision as above, so this is only a convenience: a client claiming to be logged in gains nothing.  `captcha.js` never auto-submits twice in a row: if an automatic submission comes back to the challenge, it falls back to the normal delayed flow rather than looping.
 
 **JWK Generation:**
 

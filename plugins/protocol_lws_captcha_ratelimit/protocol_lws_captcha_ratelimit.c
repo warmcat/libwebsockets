@@ -53,19 +53,29 @@
  * It must be asked as a session question: lws-login's interceptor check
  * also says "let it through" for an anonymous visitor on an unauth-allow
  * vhost or mount, which is exactly who the delays are for.
+ *
+ * lws-login resolves the service from the request's own URI, so this gives
+ * the same answer for any request under the gated mount: the challenge
+ * submission, and the challenge page's interceptor-config.js.
  */
-static lws_interceptor_result_t
-ratelimit_verify(struct lws *wsi, const void *in, size_t len)
+static int
+ratelimit_session_live(struct lws *wsi)
 {
 	const struct lws_protocols *pt = lws_vhost_name_to_protocol(
 					lws_get_vhost(wsi), "lws-login");
 
+	return pt && !pt->callback(wsi, (enum lws_callback_reasons)
+					LWS_LOGIN_CALLBACK_SESSION_LIVE,
+				   NULL, NULL, 0);
+}
+
+static lws_interceptor_result_t
+ratelimit_verify(struct lws *wsi, const void *in, size_t len)
+{
 	(void)in;
 	(void)len;
 
-	if (pt && !pt->callback(wsi, (enum lws_callback_reasons)
-					LWS_LOGIN_CALLBACK_SESSION_LIVE,
-				NULL, NULL, 0)) {
+	if (ratelimit_session_live(wsi)) {
 		lwsl_info("%s: live lws-login session, no delay\n", __func__);
 		return LWS_INTERCEPTOR_RET_PASS;
 	}
@@ -80,14 +90,29 @@ ratelimit_get_config_js(struct lws *wsi, char *buf, size_t max_len)
 	const struct lws_http_mount *m;
 	int n = 0;
 
-       if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) < 0)
-               return 0;
+	if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) < 0)
+		return 0;
 
 	m = lws_find_mount(wsi, uri, (int)strlen(uri));
 	if (m && m->interceptor_path) {
 		n = lws_snprintf(buf, max_len, "var lws_interceptor_path = \"%s\";\n",
 					 m->interceptor_path);
 	}
+
+	/*
+	 * Tell captcha.js if submitting the challenge will be waved through
+	 * at once, so it can submit it for a logged-in visitor without them
+	 * seeing the delays.  This config js is fetched from the challenge
+	 * page's own directory, on the gated mount, so it is the very
+	 * question ratelimit_verify() will ask about the submission: the same
+	 * service, the same minimum grant level.  The server still decides
+	 * for itself when the challenge is submitted.
+	 */
+	if ((size_t)n < max_len)
+		n += lws_snprintf(buf + n, max_len - (size_t)n,
+				  "var lws_interceptor_session_live = %d;\n",
+				  ratelimit_session_live(wsi));
+
 	return n;
 }
 
