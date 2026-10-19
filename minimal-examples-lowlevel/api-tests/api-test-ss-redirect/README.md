@@ -22,15 +22,16 @@ it is spelled:
 A small raw socket server in the same process, over tls and on a plaintext
 port, answers `/start/<phase>` with that phase's redirect, and anything else
 with a 200, noting what it was asked for.  Each phase is a stream of its own,
-with no retries.  The other host is another name for the same server
-(`127.0.0.1` when the policy says `localhost`), which its certificate is also
-valid for, so a redirect to it that was followed would reach the server, and
-be seen.
+with no retries.  The server is `srv.localhost` and the other host is
+`other.localhost`, another name for the same server, which its certificate is
+also valid for, so a redirect to it that was followed would reach the server,
+and be seen.  lws resolves any name under `localhost` to loopback itself
+(RFC 6761), and they are names, not addresses, so every tls backend can check
+them.  They are siblings, since credentials may follow a redirect to a
+subdomain of the stream's own host.
 
 ```
-$ ./lws-api-test-ss-redirect -p 7681 --port-plain 7682 \
-	--cert ../api-test-ws-close/localhost-100y.cert \
-	--key ../api-test-ws-close/localhost-100y.key
+$ ./lws-api-test-ss-redirect -p 7681 --port-plain 7682
 ```
 
 Option|Meaning
@@ -38,7 +39,7 @@ Option|Meaning
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
 -p <port>|Port for the tls test server (default 7681)
 --port-plain <port>|Port for the plaintext test server (default 7682)
---cert <file>|The test server's certificate (default localhost-100y.cert)
---key <file>|The test server's key (default localhost-100y.key)
---server <address>|Address the client connects to (default localhost)
+--cert <file>|The test server's certificate (default ss-redirect-100y.cert)
+--key <file>|The test server's key (default ss-redirect-100y.key)
+--server <address>|Address the client connects to (default srv.localhost)
 --help|Show the options

@@ -31,10 +31,11 @@
  * A small raw socket server in the same process, over tls and also on a
  * plaintext port, answers "/start/<phase>" with that phase's redirect, and
  * anything else with a 200, noting what it was asked for.  Each phase is a
- * stream of its own, with no retries.  The "other" host is another name for
- * the same server ("127.0.0.1" when the policy says "localhost"), which its
- * certificate is also valid for, so a redirect to it that was followed would
- * reach the server, and be seen.
+ * stream of its own, with no retries.  The server is "srv.localhost" and the
+ * "other" host is "other.localhost", another name for the same server, which
+ * its certificate is also valid for, so a redirect to it that was followed
+ * would reach the server, and be seen.  lws resolves both to loopback itself,
+ * and they are names, not addresses, so every tls backend can check them.
  */
 
 #include <libwebsockets.h>
@@ -57,11 +58,11 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_PORT_PLAIN] = { "--port-plain", "Port for the plaintext test "
 					"server (default 7682)" },
 	[LWS_SW_CERT]	= { "--cert",	"The test server's certificate "
-					"(default localhost-100y.cert)" },
+					"(default ss-redirect-100y.cert)" },
 	[LWS_SW_KEY]	= { "--key",	"The test server's key "
-					"(default localhost-100y.key)" },
+					"(default ss-redirect-100y.key)" },
 	[LWS_SW_SERVER]	= { "--server",	"Address the client connects to "
-					"(default localhost)" },
+					"(default srv.localhost)" },
 	[LWS_SW_HELP]	= { "--help",	"Show this help information" },
 };
 
@@ -102,12 +103,17 @@ static const char * const phase_md[] = {
 
 /* the test server's certificate, as the client's trust store */
 static const char self_localhost_der_b64[] =
-	"MIIGFTCCA/2gAwIBAgIJANq50IuwPFKgMA0GCSqGSIb3DQEBCwUAMIGGMQswCQYDVQQGEwJHQjEQMA4GA1UECAwHRXJld2hvbjETMBEGA1UEBwwKQWxsIGFyb3VuZDEbMBkGA1UECgwSbGlid2Vic29ja2V0cy10ZXN0MRIwEAYDVQQDDAlsb2NhbGhvc3QxHzAdBgkqhkiG9w0BCQEWEG5vbmVAaW52YWxpZC5vcmcwIBcNMTgwMzIwMDQxNjA3WhgPMjExODAyMjQwNDE2MDdaMIGGMQswCQYDVQQGEwJHQjEQMA4GA1UECAwHRXJld2hvbjETMBEGA1UEBwwKQWxsIGFyb3VuZDEbMBkGA1UECgwSbGlid2Vic29ja2V0cy10ZXN0MRIwEAYDVQQDDAlsb2NhbGhvc3QxHzAdBgkqhkiG9w0BCQEWEG5vbmVAaW52YWxpZC5vcmcwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCjYtuWaICCY0tJPubxpIgIL+WWmz/fmK8IQr11Wtee6/IUyUlo5I602mq1qcLhT/kmpoR8Di3DAmHKnSWdPWtn1BtXLErLlUiHgZDrZWInmEBjKM1DZf+CvNGZ+EzPgBv5nTekLWcfI5ZZtoGuIP1Dl/IkNDw8zFz4cpiMe/BFGemyxdHhLrKHSm8Eo+nT734tItnHKT/m6DSU0xlZ13d6ehLRm7/+Nx47M3XMTRH5qKP/7TTE2s0U6+M0tsGI2zpRi+m6jzhNyMBTJ1u58qAe3ZW5/+YAiuZYAB6n5bhUp4oFuB5wYbcBywVR8ujInpF8buWQUjy5N8pSNp7szdYsnLJpvAd0sibrNPjC0FQCNrpNjgJmIK3+mKk4kXX7ZTwefoAzTK4l2pHNuC53QVc/EF++GBLAxmvCDq9ZpMIYi7OmzkkAKKC9Ue6Ef217LFQCFIBKIzv9cgi9fwPMLhrKleoVRNsecBsCP569WgJXhUnwf2lon4fEZr3+vRuc9shfqnV0nPN1IMSnzXCast7I2fiuRXdIz96KjlGQpP4XfNVA+RGL7aMnWOFIaVrKWLzAtgzoGMTvP/AuehKXncBJhYtW0ltTioVx+5yTYSAZWl+IssmXjefxJqYi2/7QWmv1QC9psNcjTMaBQLN03T1Qelbs7Y27sxdEnNUth4kI+wIDAQABo4GBMH8wHQYDVR0OBBYEFPZmFNt7Vts7KJpCkwF2q469r47rMB8GA1UdIwQYMBaAFPZmFNt7Vts7KJpCkwF2q469r47rMA8GA1UdEwEB/wQFMAMBAf8wLAYDVR0RBCUwI4IJbG9jYWxob3N0hwR/AAABhxAAAAAAAAAAAAAAAAAAAAABMA0GCSqGSIb3DQEBCwUAA4ICAQAV32Y+c+Cyn+i9/D6Y8coug3BttA1W47FH/gWAQcGecIwkQ/7O4N+1yWQFUBBZ7wRNoKQ4Bd5mYcQerHEX7p4q+RvQGSUgYvjH/ZDFwI5HZPtPNj3MnVTEPtiKeTR+jeZz6fDhQz4w70wL59O8gcodCQQul9R4nPdQDoqWmuqQogrsNTu2Zql5d0Ls14h9shEV7Pt5bUnAvuCQCG6RqW+aBgBSKb6r4UdBqUs4JrfyZl8xqjPH3RuvKuuZnkJLYQ/GndWmwIpPtCKstT70NhPydefOKplbsCoTxCDH8cX9nB0tlGp+q64cqljXpZIN/a0duEasmrEAxj1gsFMZN6eRMwsUIrcQHcN4dxSk97A2J2UnHsjVifGADuiSnHfjd/Eil2wuqkDAw6FbsPlp3U0ukqRh1pnM5+jveVWAtewKCVACh97eRnRwhyNxJMjWY8Me2hnqzQMWvlum0lYMwAdfau+YfIaLlbV9shtEyJAjmnrSSg+KTsVER4HnZIoHlGeiALxAUx2wyTWvkwPnrIAmoSfbU+LBJa3a+6cLTJzgGwr9vrgkKrGLbngLRagh48co/dqphyea9Ts+XC+zWb4YHZEVVuni1Iz4DKoJDxDHsHH2re5ZYg99SuG5UmyegPkS7GbxVdXhdZvO+7n2DDr0ESoqdnduxTGxxd85GR2eOw==";
+	"MIIDjzCCAnegAwIBAgIUZpD2XZZN038OHhbmXtxQPfdmLLwwDQYJKoZIhvcNAQELBQAwNTEbMBkGA1UECgwSbGlid2Vic29ja2V0cy10ZXN0MRYwFAYDVQQDDA1zcnYubG9jYWxob3N0MCAXDTI2MTAxOTIwNDU1NFoYDzIxMjYwOTI1MjA0NTU0WjA1MRswGQYDVQQKDBJsaWJ3ZWJzb2NrZXRzLXRlc3QxFjAUBgNVBAMMDXNydi5sb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCYoU8tBbhl1iSZItdhSL1ZJqI0addrRV1Wj94EA0+09uo7awzpXa9Gkllzou/ctAGJprAj5eX5Q/p++SkcwNU16SdXJl0KNC4/k9udlAiS53IbHHAZgCMKVz0SP/Ao4NMhFubiSvWsYdwjHNWKEpo6EZEx1ggXFQ6qeqa03kDKoNUC8P4+mradUA1a2EYsAT2Qkv/dkoPVaCNbzbW/OHUNJwcN8W0snSdwdUiyzoA/DmPkJjKYXe0o9iR6Llwhb0OObZgqd35qMqD/qU5ekaDizcOa1pUGVj6KlXkNOu9PSCEMKYBPVHOilAqQ+yp6NdqyPZBZLu5M52sgXzxiossdAgMBAAGjgZQwgZEwHQYDVR0OBBYEFIKRYvaoCN6OS/MrQc4Z1DsxuJNQMB8GA1UdIwQYMBaAFIKRYvaoCN6OS/MrQc4Z1DsxuJNQMEEGA1UdEQQ6MDiCDXNydi5sb2NhbGhvc3SCD290aGVyLmxvY2FsaG9zdIcEfwAAAYcQAAAAAAAAAAAAAAAAAAAAATAMBgNVHRMBAf8EAjAAMA0GCSqGSIb3DQEBCwUAA4IBAQA40Yv5Pi99X5xTXkzGAAJ7ZwsAsVpaGLya5m4DcpsETQ33fkuTknPus0zdkD7ZFVnuqDASw3ZWioSI6WW0DPinrwzMSj3k5YbjzLv3K9eGFPmnaqNuRw0CJlbqTE9cmIyMySGTIMlgYUbJiQxz3q0EXDZR3E8qYlgqN3fIk7I1ylgJ5HWW4eel/u6O+Z/38tEwPsoroYjQ9wAYPfi5//11KZW6zkNuXBPZ4awbjcqPA5OLGtobDlKT5/k+MIup/YSuihZOmEFX0+MRqTpxgIjAkJK7seWqvdicRLwCPnqpr3RjKIkWSuWzFAIlQRl/436YDYyl9vmNu69yeK/zhB36";
 
 static struct lws_context *context;
 static lws_state_notify_link_t nl;
 static lws_sorted_usec_list_t sul_timeout, sul_next;
-static const char *server_ads = "localhost", *other_ads;
+/*
+ * Siblings under "localhost", which lws resolves to loopback itself: the other
+ * host must not be a subdomain of ours, where credentials may follow
+ */
+static const char *server_ads = "srv.localhost",
+		  *other_ads = "other.localhost";
 static unsigned int cur_phase;
 static int failed, port = 7681, port_plain = 7682, phase_ok;
 static char asked[64];			/* the last thing the server was asked */
@@ -376,7 +382,7 @@ sigint_handler(int sig)
 int
 main(int argc, const char **argv)
 {
-	const char *cert = "localhost-100y.cert", *key = "localhost-100y.key";
+	const char *cert = "ss-redirect-100y.cert", *key = "ss-redirect-100y.key";
 	struct lws_context_creation_info info;
 	char *policy;
 	const char *p;
@@ -402,7 +408,6 @@ main(int argc, const char **argv)
 		key = p;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
 		server_ads = p;
-	other_ads = strcmp(server_ads, "localhost") ? "localhost" : "127.0.0.1";
 
 	signal(SIGINT, sigint_handler);
 

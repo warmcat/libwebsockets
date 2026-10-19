@@ -30,16 +30,20 @@ if (requirements)
 	lws_get_free_port(PORT_SS_REDIRECT)
 	lws_get_free_port(PORT_SS_REDIRECT_PLAIN)
 
-	# the test server's tls uses api-test-ws-close's test certificate
-	set(SSR_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
+	# single-stack builds pin the client to their family's address
+	if (LWS_CTEST_SERVER_RESOLVE STREQUAL "localhost")
+		set(SSR_SERVER srv.localhost)
+	else()
+		set(SSR_SERVER ${LWS_CTEST_SERVER_RESOLVE})
+	endif()
 
 	add_test(NAME api-test-ss-redirect
 		 COMMAND lws-api-test-ss-redirect
 			 -p ${PORT_SS_REDIRECT}
 			 --port-plain ${PORT_SS_REDIRECT_PLAIN}
-			 --cert ${SSR_CERTS}/localhost-100y.cert
-			 --key ${SSR_CERTS}/localhost-100y.key
-			 --server ${LWS_CTEST_SERVER_RESOLVE})
+			 --cert ${CMAKE_CURRENT_SOURCE_DIR}/ss-redirect-100y.cert
+			 --key ${CMAKE_CURRENT_SOURCE_DIR}/ss-redirect-100y.key
+			 --server ${SSR_SERVER})
 	set_tests_properties(api-test-ss-redirect
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
