@@ -143,6 +143,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		el[LWS_GENCRYPTO_RSA_KEYEL_P].len ? BCRYPT_RSAPRIVATE_BLOB : BCRYPT_RSAPUBLIC_BLOB,
 		&ctx->u.hKey, (PUCHAR)rsablob, bloblen, 0);
 
+	/* our copy of the private elements */
+	lws_explicit_bzero(rsablob, bloblen);
 	lws_free(rsablob);
 
 	if (!BCRYPT_SUCCESS(status)) {
@@ -282,6 +284,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	assert(p <= (uint8_t *)rsablob + reslen);
 
+	/* the exported private key */
+	lws_explicit_bzero(rsablob, bloblen);
 	lws_free(rsablob);
 
 	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
@@ -289,7 +293,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	return 0;
 
 fail:
-	if (rsablob) lws_free(rsablob);
+	if (rsablob) {
+		lws_explicit_bzero(rsablob, bloblen);
+		lws_free(rsablob);
+	}
 	lws_genrsa_destroy_elements(el);
 	lws_genrsa_destroy(ctx);
 	return -1;
@@ -642,6 +649,7 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 
 	status = BCryptExportKey(ctx->u.hKey, NULL, type, (PUCHAR)blob, bloblen, &reslen, 0);
 	if (!BCRYPT_SUCCESS(status)) {
+		lws_explicit_bzero(blob, bloblen); /* may be the private key */
 		lws_free(blob);
 		return -1;
 	}
@@ -673,6 +681,7 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 		seq_len += lws_asn1_integer_size(coeff, blob->cbPrime1);
 
 		if (1 + lws_asn1_length_size(seq_len) + seq_len > pkey_asn1_len) {
+			lws_explicit_bzero(blob, bloblen); /* may be the private key */
 			lws_free(blob);
 			return -1;
 		}
@@ -695,6 +704,7 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 		seq_len += lws_asn1_integer_size(pub_exp, blob->cbPublicExp);
 
 		if (1 + lws_asn1_length_size(seq_len) + seq_len > pkey_asn1_len) {
+			lws_explicit_bzero(blob, bloblen); /* may be the private key */
 			lws_free(blob);
 			return -1;
 		}
@@ -705,6 +715,7 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 		lws_asn1_encode_integer(&out, pub_exp, blob->cbPublicExp);
 	}
 
+	lws_explicit_bzero(blob, bloblen); /* may be the private key */
 	lws_free(blob);
 	return (int)(out - pkey_asn1);
 }

@@ -170,6 +170,8 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 		el[LWS_GENCRYPTO_EC_KEYEL_D].len ? BCRYPT_ECCPRIVATE_BLOB : BCRYPT_ECCPUBLIC_BLOB,
 		target_key_handle, (PUCHAR)eccblob, bloblen, 0);
 
+	/* our copy of d, if it was a private key */
+	lws_explicit_bzero(eccblob, bloblen);
 	lws_free(eccblob);
 
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
@@ -234,11 +236,16 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	LWS_GENEC_ALLOC_EL(LWS_GENCRYPTO_EC_KEYEL_D, eccblob->cbKey);
 	memcpy(el[LWS_GENCRYPTO_EC_KEYEL_D].buf, p, eccblob->cbKey);
 
+	/* the exported private key */
+	lws_explicit_bzero(eccblob, bloblen);
 	lws_free(eccblob);
 	return 0;
 
 fail:
-	if (eccblob) lws_free(eccblob);
+	if (eccblob) {
+		lws_explicit_bzero(eccblob, bloblen);
+		lws_free(eccblob);
+	}
 	lws_genec_destroy_elements(el);
 	return -1;
 }

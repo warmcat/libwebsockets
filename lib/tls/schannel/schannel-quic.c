@@ -600,6 +600,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 					if (secrets->TrafficSecretSize > 48) {
 						lwsl_err("%s: TrafficSecretSize %zu exceeds 48\n", __func__, secrets->TrafficSecretSize);
+						lws_explicit_bzero(sec_traf_buf, sizeof(sec_traf_buf));
 						return -1;
 					}
 
@@ -674,6 +675,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 						if (wsi->io->tls.quic_secret_cb(wsi, mapped_type, secrets->TrafficSecret, secrets->TrafficSecretSize) < 0) {
 							lwsl_err("%s: quic_secret_cb failed for type %d\n", __func__, mapped_type);
+							lws_explicit_bzero(sec_traf_buf, sizeof(sec_traf_buf));
 							return -1;
 						}
 					}
@@ -681,6 +683,9 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			}
 		}
 	}
+
+	/* the traffic secrets have been handed on: don't leave them on the stack */
+	lws_explicit_bzero(sec_traf_buf, sizeof(sec_traf_buf));
 
 	if (out && out_len) {
 		if (split_offset > 0 && split_offset < *out_len) {

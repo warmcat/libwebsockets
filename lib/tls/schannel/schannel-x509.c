@@ -691,7 +691,7 @@ int
 lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			 void *pem, size_t len, const char *passphrase)
 {
-	DWORD dwLen = 0, dwSkip, dwFlags;
+	DWORD dwLen = 0, dwSkip, dwFlags, der_alloc = 0;
 	const uint8_t *p, *end;
 	uint8_t *der = NULL;
 	size_t seq_len;
@@ -726,11 +726,10 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	der = lws_malloc(dwLen, "privkey der");
 	if (!der)
 		return -1;
+	der_alloc = dwLen;
 
-	if (!CryptStringToBinaryA((LPCSTR)pem, (DWORD)len, dwFlags, der, &dwLen, NULL, NULL)) {
-		lws_free(der);
-		return -1;
-	}
+	if (!CryptStringToBinaryA((LPCSTR)pem, (DWORD)len, dwFlags, der, &dwLen, NULL, NULL))
+		goto bail;
 
 	p = der;
 	end = der + dwLen;
@@ -846,6 +845,8 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	ret = 0;
 
 bail:
+	/* our DER copy of the private key */
+	lws_explicit_bzero(der, der_alloc);
 	lws_free(der);
 
 	return ret;
@@ -920,6 +921,21 @@ static int lws_tls_schannel_wrap_pkcs8(const uint8_t *pkcs1, size_t pkcs1_len, u
 	return 0;
 }
 
+/*
+ * Our copies of a private key, as DER or as the CAPI blob made from it, must
+ * not be left in freed heap
+ */
+
+static void
+lws_schannel_free_secret(uint8_t **p, size_t len)
+{
+	if (!*p)
+		return;
+
+	lws_explicit_bzero(*p, len);
+	lws_free_set_NULL(*p);
+}
+
 int
 lws_tls_schannel_cert_info_load(struct lws_context *context,
 		const char *cert, const char *private_key,
@@ -938,7 +954,8 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	HCRYPTKEY hKey = 0;
 	int ret = -1, is_ec = 0;
 	uint8_t *key_der = NULL, *pkcs8 = NULL, *der = NULL;
-	size_t key_der_len, seq_len, ver_len, alg_len, oct_len, pkcs8_len;
+	size_t key_der_len = 0, seq_len, ver_len, alg_len, oct_len, pkcs8_len,
+	       pkcs8_alloc = 0;
 	const uint8_t *kp = NULL, *kend = NULL;
 	DWORD flags = NCRYPT_SILENT_FLAG;
 	WCHAR wContainer[128];
@@ -1097,7 +1114,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		status = NCryptOpenStorageProvider(&hProvCNG, MS_KEY_STORAGE_PROVIDER, 0);
 		if (status != ERROR_SUCCESS) {
 			lwsl_err("NCryptOpenStorageProvider failed 0x%x\n", (int)status);
-			lws_free(key_der);
 			goto cleanup;
 		}
 
@@ -1155,10 +1171,9 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			/* However, CryptImportPKCS8 is CAPI. */
 			lwsl_err("NCryptImportKey (PKCS8) failed 0x%x. Note: EC SEC1 keys not auto-converted.\n", (int)status);
 			NCryptFreeObject(hProvCNG);
-			lws_free(key_der);
 			goto cleanup;
 		}
-		lws_free(key_der);
+		lws_schannel_free_secret(&key_der, key_der_len);
 
 		/* Set usage to all to ensure SChannel doesn't reject it */
 		flags = NCRYPT_ALLOW_ALL_USAGES;
@@ -1219,26 +1234,22 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 	if (kp >= kend || *kp != 0x30) {
 		lwsl_err("%s: Failed to find SEQUENCE tag at start of key\n", __func__);
-		lws_free(key_der);
 		goto cleanup;
 	}
 	kp++;
 	if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) {
 		lwsl_err("%s: Failed to read key SEQUENCE length\n", __func__);
-		lws_free(key_der);
 		goto cleanup;
 	}
 
 	/* Check for version */
 	if (kp >= kend || *kp != 0x02) {
 		lwsl_err("%s: Failed to find version tag\n", __func__);
-		lws_free(key_der);
 		goto cleanup;
 	}
 	kp++;
 	if (lws_asn1_read_length(&kp, kend, &ver_len) < 0) {
 		lwsl_err("%s: Failed to read version length\n", __func__);
-		lws_free(key_der);
 		goto cleanup;
 	}
 	kp += ver_len;
@@ -1251,22 +1262,16 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		kp++;
 		if (lws_asn1_read_length(&kp, kend, &alg_len) < 0) {
 			lwsl_err("%s: PKCS#8 Failed to read alg SEQUENCE length\n", __func__);
-			lws_free(key_der);
-
 			goto cleanup;
 		}
 		kp += alg_len;
 		if (kp >= kend || *kp != 0x04) {
 			lwsl_err("%s: PKCS#8 Failed to find OCTET STRING (0x04) tag\n", __func__);
-			lws_free(key_der);
-
 			goto cleanup;
 		}
 		kp++;
 		if (lws_asn1_read_length(&kp, kend, &oct_len) < 0) {
 			lwsl_err("%s: PKCS#8 Failed to read octet length\n", __func__);
-			lws_free(key_der);
-
 			goto cleanup;
 		}
 
@@ -1274,15 +1279,11 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 		if (kp >= kend || *kp != 0x30) {
 			lwsl_err("%s: PKCS#8 Failed to find inner SEQUENCE\n", __func__);
-			lws_free(key_der);
-
 			goto cleanup;
 		}
 		kp++;
 		if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) {
 			lwsl_err("%s: PKCS#8 Failed to read inner SEQUENCE length\n", __func__);
-			lws_free(key_der);
-
 			goto cleanup;
 		}
 
@@ -1295,8 +1296,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		/* PKCS#1: kp points to Modulus tag. Version already consumed. */
 	} else {
 		lwsl_err("%s: Unknown key format at 0x%02X\n", __func__, kp < kend ? *kp : 0xFF);
-		lws_free(key_der);
-
 		goto cleanup;
 	}
 
@@ -1320,13 +1319,13 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		lwsl_err("%s: OOM allocating CAPI blob (%d bytes)\n", __func__, (int)pkcs8_len);
 		goto cleanup;
 	}
+	pkcs8_alloc = pkcs8_len;
 
 	if (!CryptDecodeObjectEx(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
 				PKCS_RSA_PRIVATE_KEY,
 				pkcs1_ptr, (DWORD)pkcs1_len,
 				0, NULL, pkcs8, (DWORD *)&pkcs8_len)) {
 		lwsl_err("%s: CryptDecodeObjectEx (Convert) failed 0x%x\n", __func__, GetLastError());
-		lws_free(pkcs8);
 		goto cleanup;
 	}
 	lwsl_debug("%s: CAPI RSA Blob created, len %d\n", __func__, (int)pkcs8_len);
@@ -1353,7 +1352,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		WCHAR wContainerInfo[128];
 		if (!container_name || !MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wContainerInfo, sizeof(wContainerInfo)/sizeof(WCHAR))) {
 			lwsl_err("%s: Missing or invalid container name for RSA\n", __func__);
-			lws_free(pkcs8);
 			goto cleanup;
 		}
 
@@ -1362,12 +1360,10 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			if (GetLastError() == NTE_BAD_KEYSET) {
 				if (!CryptAcquireContextW(&hProv, wContainerInfo, LWS_MS_ENH_RSA_AES_PROV_W, PROV_RSA_AES, CRYPT_NEWKEYSET | CRYPT_MACHINE_KEYSET | CRYPT_SILENT)) {
 					lwsl_err("%s: CryptAcquireContext (Create Machine Keyset) failed 0x%x\n", __func__, GetLastError());
-					lws_free(pkcs8);
 					goto cleanup;
 				}
 			} else {
 				lwsl_err("%s: CryptAcquireContext (Open Machine Keyset) failed 0x%x\n", __func__, GetLastError());
-				lws_free(pkcs8);
 				goto cleanup;
 			}
 		}
@@ -1375,10 +1371,9 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		/* Import the key into the persisted keyset */
 		if (!CryptImportKey(hProv, pkcs8, (DWORD)pkcs8_len, 0, 0, &hKey)) {
 			lwsl_err("%s: CryptImportKey (Machine Keyset) failed 0x%x\n", __func__, GetLastError());
-			lws_free(pkcs8);
 			goto cleanup;
 		}
-		lws_free(pkcs8);
+		lws_schannel_free_secret(&pkcs8, pkcs8_alloc);
 		lwsl_debug("%s: CryptImportKey success into machine keyset, hKey %p, hProv %p\n", __func__, (void*)hKey, (void*)hProv);
 
 		/* 0. Clear conflicting properties */
@@ -1413,6 +1408,9 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		hProv = 0; /* Caller owns hProv now, or it gets released during lws_ssl_destroy but the keyset remains until explictly deleted */
 	}
 
+	/* pkcs1_ptr pointed into it */
+	lws_schannel_free_secret(&key_der, key_der_len);
+
 	lwsl_debug("%s: returning success\n", __func__);
 	*pcert = x509_obj.cert;
 
@@ -1424,6 +1422,9 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	 */
 
 cleanup:
+	lws_schannel_free_secret(&key_der, key_der_len);
+	lws_schannel_free_secret(&pkcs8, pkcs8_alloc);
+
 	if (hKey)
 		CryptDestroyKey(hKey);
 
@@ -1471,7 +1472,7 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 	WCHAR wCN[256] = {0}, wSAN[256] = {0};
 	char *p;
 	int ret = -1;
-	DWORD cbPriv = 0;
+	DWORD cbPriv = 0, cbPrivAlloc = 0;
 	BYTE *pbPriv = NULL;
 	int csr_b64_len = -1;
 
@@ -1601,6 +1602,7 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 	if (NCryptExportKey(hKey, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, NULL, 0, &cbPriv, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
 		goto bail;
 	pbPriv = lws_malloc(cbPriv, "privkey_raw");
+	cbPrivAlloc = pbPriv ? cbPriv : 0;
 	if (!pbPriv || NCryptExportKey(hKey, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, pbPriv, cbPriv, &cbPriv, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
 		goto bail;
 
@@ -1621,6 +1623,7 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 		if (!CryptBinaryToStringA(pbPriv, cbPriv,
 					  CRYPT_STRING_BASE64HEADER,
 					  *privkey_pem, &cchPem)) {
+			lws_explicit_bzero(*privkey_pem, alloc);
 			lws_free_set_NULL(*privkey_pem);
 			goto bail;
 		}
@@ -1632,7 +1635,11 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 	ret = csr_b64_len;
 
 bail:
-	if (pbPriv) lws_free(pbPriv);
+	if (pbPriv) {
+		/* the exported PKCS#8 private key */
+		lws_explicit_bzero(pbPriv, cbPrivAlloc);
+		lws_free(pbPriv);
+	}
 	if (pbCsr) lws_free(pbCsr);
 	if (pbExtsEncoded) LocalFree(pbExtsEncoded);
 	if (pbSanEncoded) LocalFree(pbSanEncoded);
@@ -1872,7 +1879,7 @@ lws_schannel_export_key_der(NCRYPT_KEY_HANDLE hKey,
 {
 	CRYPT_ECC_PRIVATE_KEY_INFO eki;
 	BYTE *blob = NULL, *pub = NULL;
-	DWORD blen = 0, len = 0;
+	DWORD blen = 0, len = 0, alen = 0;
 	BCRYPT_ECCKEY_BLOB *b;
 	const void *what;
 	LPCSTR type;
@@ -1930,9 +1937,12 @@ lws_schannel_export_key_der(NCRYPT_KEY_HANDLE hKey,
 	*out = malloc(len);
 	if (!*out)
 		goto bail;
+	alen = len;
 
 	if (!CryptEncodeObjectEx(X509_ASN_ENCODING, type, what, 0, NULL, *out,
 				 &len)) {
+		/* it may hold part of the private key */
+		lws_explicit_bzero(*out, alen);
 		free(*out);
 		*out = NULL;
 		goto bail;

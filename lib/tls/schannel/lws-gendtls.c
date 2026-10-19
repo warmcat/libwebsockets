@@ -134,7 +134,11 @@ lws_gendtls_destroy(struct lws_gendtls_ctx *ctx)
     lws_buflist_destroy_all_segments(&ctx->tx_head);
 
     if (ctx->cert_mem) lws_free(ctx->cert_mem);
-    if (ctx->key_mem) lws_free(ctx->key_mem);
+    if (ctx->key_mem) {
+        /* our copy of the private key */
+        lws_explicit_bzero(ctx->key_mem, ctx->key_len);
+        lws_free(ctx->key_mem);
+    }
 }
 
 static int
@@ -223,7 +227,12 @@ lws_gendtls_set_cert_mem(struct lws_gendtls_ctx *ctx, const uint8_t *cert, size_
 int
 lws_gendtls_set_key_mem(struct lws_gendtls_ctx *ctx, const uint8_t *key, size_t len)
 {
-    if (ctx->key_mem) lws_free(ctx->key_mem);
+    if (ctx->key_mem) {
+        /* our copy of the private key we are replacing */
+        lws_explicit_bzero(ctx->key_mem, ctx->key_len);
+        lws_free(ctx->key_mem);
+        ctx->key_len = 0;
+    }
     ctx->key_mem = lws_malloc(len, "gendtls key");
     if (!ctx->key_mem) return -1;
     memcpy(ctx->key_mem, key, len);
