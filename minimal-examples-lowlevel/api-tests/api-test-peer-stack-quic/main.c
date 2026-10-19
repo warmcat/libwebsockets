@@ -84,8 +84,8 @@ static const char * const phase_names[] = {
 	"split: Handshake packets from another port prove the Initial's path",
 	"hold: a validated client's request is held",
 	"host: a client is refused only once validated, at its host's limit",
-	"unproven: an unvalidated Initial fills the unproven budget, the next "
-		"is refused",
+	("unproven: an unvalidated Initial fills the unproven budget, the next "
+		"is refused"),
 	"release: the held client is unaffected",
 };
 
