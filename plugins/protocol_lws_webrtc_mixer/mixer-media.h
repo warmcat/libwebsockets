@@ -4,6 +4,7 @@
 #include <libwebsockets.h>
 #include "../protocol_lws_webrtc/protocol_lws_webrtc.h"
 #include "mixer-signal.h"
+#include "mixer-depkt.h"
 
 #include <opus/opus.h>
 #include <pthread.h>
@@ -163,14 +164,7 @@ struct mixer_media_session {
 	GstElement              *decodebin;
 	GstPad                  *compositor_pad;
 
-	uint8_t                 *video_buf;
-	size_t                  video_len;
-	size_t                  video_alloc;
-	int                     fu_a_active;
-
-	uint8_t                 *obu_buf;
-	size_t                  obu_len;
-	size_t                  obu_alloc;
+	struct mixer_depkt      depkt;
 
 	uint32_t                video_timestamp;
 

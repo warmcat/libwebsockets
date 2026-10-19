@@ -348,8 +348,7 @@ mixer_media_session_destroy(struct mixer_media_session *s)
         free(r->buf); free(r);
     } lws_end_foreach_dll_safe(d, d1);
 
-	if (s->video_buf) free(s->video_buf);
-	if (s->obu_buf) free(s->obu_buf);
+	mixer_depkt_destroy(&s->depkt);
 
 	if (s->ring_input) lws_ring_destroy(s->ring_input);
 
@@ -509,164 +508,6 @@ mixer_worker_drain(struct vhd_mixer *vhd)
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
-/*
- * Append `len` bytes to a growable accumulation buffer, growing it if needed.
- *
- * Returns 0 if the bytes were appended.  On any failure --- the cap would be
- * exceeded, or realloc() could not grow the buffer --- it returns 1 having
- * appended nothing and having reset *plen to 0, ie, the partly-accumulated
- * frame is dropped and the caller must stop appending to it.  This is the
- * only correct response to a failed grow: the old buffer is still valid but
- * is too small, so writing into it anyway would be a heap overflow of
- * attacker-chosen length.
- */
-static int
-mixer_buf_append(uint8_t **pbuf, size_t *plen, size_t *palloc,
-		 const uint8_t *data, size_t len, size_t cap)
-{
-	size_t needed = *plen + len;
-
-	if (needed > cap || needed < *plen /* overflow */)
-		goto drop;
-
-	if (*palloc < needed) {
-		size_t na = needed + 4096;
-		uint8_t *tmp = realloc(*pbuf, na);
-
-		if (!tmp)
-			goto drop;
-
-		*pbuf = tmp;
-		*palloc = na;
-	}
-
-	memcpy(*pbuf + *plen, data, len);
-	*plen = needed;
-
-	return 0;
-
-drop:
-	*plen = 0;
-
-	return 1;
-}
-
-/* the accumulated Annex-B frame and the reassembled AV1 OBU are both capped */
-#define MIXER_VIDEO_BUF_CAP (16 * 1024 * 1024)
-
-static int
-mixer_video_append(struct mixer_media_session *s, const uint8_t *d, size_t n)
-{
-	return mixer_buf_append(&s->video_buf, &s->video_len, &s->video_alloc,
-				d, n, MIXER_VIDEO_BUF_CAP);
-}
-
-static int
-mixer_obu_append(struct mixer_media_session *s, const uint8_t *d, size_t n)
-{
-	return mixer_buf_append(&s->obu_buf, &s->obu_len, &s->obu_alloc,
-				d, n, MIXER_VIDEO_BUF_CAP);
-}
-
-static void
-append_av1_obu(struct mixer_media_session *s, const uint8_t *data, size_t len)
-{
-	if (len < 1) return;
-
-	static int dbg_obu = 0;
-	if (dbg_obu++ < 25) {
-		char hexb[256] = {0};
-		for(int h=0; h<(int)(len<48?len:48); h++) snprintf(hexb+strlen(hexb), sizeof(hexb)-strlen(hexb), "%02x ", data[h]);
-		lwsl_notice("APPEND OBU (len %zu): %s\n", len, hexb);
-	}
-
-	uint8_t hdr = data[0];
-	int has_ext = (hdr & 0x04) != 0;
-	int has_size = (hdr & 0x02) != 0;
-
-	size_t hdr_len = 1 + (has_ext ? 1 : 0);
-	if (len < hdr_len) return;
-
-	size_t payload_len = len - hdr_len;
-	size_t off = hdr_len;
-
-	/* If the OBU has an internal size field, we MUST strip it out for Annex B. */
-	if (has_size) {
-		size_t leb_len = 0;
-		size_t tmp = 0;
-		for (size_t j = 0; j < 8 && off + j < len; j++) {
-			uint8_t byte = data[off + j];
-			tmp |= ((size_t)(byte & 0x7F)) << (j * 7);
-			if (!(byte & 0x80)) { leb_len = j + 1; break; }
-		}
-		if (!leb_len) {
-			lwsl_notice("%s: Invalid internal LEB128 size (len=%zu, off=%zu). Hex:\n", __func__, len, off);
-			char hexb[128] = {0};
-			for(int h=0; h<(int)(len<24?len:24); h++) snprintf(hexb+strlen(hexb), sizeof(hexb)-strlen(hexb), "%02x ", data[h]);
-			lwsl_notice("  %s\n", hexb);
-			/* Fallback: assume the rest of the payload IS the size if leb failed. */
-			payload_len = len - off;
-		} else {
-			off += leb_len;
-			payload_len = len - off;
-		}
-	}
-
-	/*
-	 * In "Section 5" (Low Overhead Bitstream Format) which libdav1d expects
-	 * from FFmpeg out-of-band frames:
-	 * We MUST set obu_has_size_field = 1.
-	 * Then we write: Header -> Ext -> LEB128 Payload Size -> Payload.
-	 */
-	uint8_t leb[8];
-	size_t leb_len = 0;
-	size_t tmp = payload_len; /* Size of JUST the payload */
-	do {
-		uint8_t byte = tmp & 0x7F;
-		tmp >>= 7;
-		if (tmp != 0) byte |= 0x80;
-		leb[leb_len++] = byte;
-	} while (tmp != 0);
-
-	size_t needed = s->video_len + hdr_len + leb_len + payload_len + 4;
-	if (needed > 16 * 1024 * 1024) return;
-	if (s->video_alloc < needed) {
-		size_t na = needed + 4096;
-		/* Q-13: realloc to a temp; commit only on success so a NULL
-		 * return doesn't leak the old buffer or leave video_alloc
-		 * larger than the (now NULL) video_buf */
-		uint8_t *tmp = realloc(s->video_buf, na);
-		if (!tmp)
-			return;
-		s->video_buf = tmp;
-		s->video_alloc = na;
-	}
-
-	if (s->video_buf) {
-		if (s->video_len == 0 && ((hdr & 0x78) >> 3) != 2) {
-			/* Prepend Temporal Delimiter OBU (Type 2) with size_field=1, length=0 */
-			s->video_buf[s->video_len++] = 0x12; /* 0001 0010 */
-			s->video_buf[s->video_len++] = 0x00;
-		}
-
-		/* 1. Write OBU Header with `obu_has_size_field` FORCE set */
-		s->video_buf[s->video_len++] = hdr | 0x02;
-
-		/* 2. Write extension header if present */
-		if (has_ext) {
-			s->video_buf[s->video_len++] = data[1];
-		}
-
-		/* 3. Append LEB128 Payload Length */
-		memcpy(s->video_buf + s->video_len, leb, leb_len);
-		s->video_len += leb_len;
-
-		/* 4. Write Payload */
-		memcpy(s->video_buf + s->video_len, data + off, payload_len);
-		s->video_len += payload_len;
-	}
-}
-
 static void
 process_session_media(struct mixer_media_session *s)
 {
@@ -734,11 +575,10 @@ process_session_media(struct mixer_media_session *s)
 		} else if (msg->type == MSG_VIDEO_FRAME) {
 			/* Check for missing packets / lost marker using timestamps */
 			if (msg->timestamp != s->video_timestamp) {
-				if (s->video_len > 0) {
-					lwsl_warn("%s: Dropping incomplete video frame (timestamp changed %u -> %u)\n", 
+				if (s->depkt.frame.len) {
+					lwsl_warn("%s: Dropping incomplete video frame (timestamp changed %u -> %u)\n",
 							__func__, s->video_timestamp, msg->timestamp);
-					s->video_len = 0;
-					s->obu_len = 0;
+					mixer_depkt_reset(&s->depkt);
 				}
 				s->video_timestamp = msg->timestamp;
 			}
@@ -768,196 +608,27 @@ process_session_media(struct mixer_media_session *s)
 
 				if (msg->codec == LWS_CODEC_H264 && in_data && in_len > 0) {
 					ready_to_decode = 0;
-					uint8_t header = in_data[0];
-					uint8_t type = header & 0x1F;
-					const uint8_t annexb_start[4] = { 0, 0, 0, 1 };
+					mixer_depkt_h264(&s->depkt, in_data, in_len);
 
-					if (type >= 1 && type <= 23) {
-						/* Single NAL Unit */
-						if (!mixer_video_append(s, annexb_start, 4))
-							mixer_video_append(s, in_data, in_len);
-					} else if (type == 24) {
-						/* STAP-A: Single-Time Aggregation Packet */
-						size_t off = 1; /* Skip STAP-A header */
-						while (off + 2 <= in_len) {
-							uint16_t nal_size = (uint16_t)((in_data[off] << 8) | in_data[off+1]);
-							off += 2;
-							if (nal_size == 0 || nal_size > 65000) {
-								lwsl_err("%s: H264 Parse Error: invalid NAL size %u in STAP-A detected, breaking loop\n", __func__, nal_size);
-								break;
-							}
-							if (off + nal_size > in_len) break;
-
-							if (mixer_video_append(s, annexb_start, 4) ||
-							    mixer_video_append(s, in_data + off, nal_size))
-								break;
-
-							static int dbg_stap = 0;
-							if (dbg_stap++ % 100 == 0) lwsl_notice("STAP-A: appended %u bytes\n", nal_size);
-
-							off += nal_size;
-						}
-					} else if (type == 28) {
-						/* FU-A: Fragmentation Unit */
-						if (in_len >= 2) {
-							uint8_t fu_header = in_data[1];
-							uint8_t S = (fu_header & 0x80) >> 7;
-							// uint8_t E = (fu_header & 0x40) >> 6;
-							uint8_t nal_type = fu_header & 0x1F;
-							size_t payload_len = in_len - 2;
-							const uint8_t *payload = in_data + 2;
-
-							if (S) {
-								/* Start of fragment */
-								uint8_t nal_hdr = (uint8_t)((header & 0xE0) | nal_type);
-
-								s->fu_a_active = 1;
-
-								/* Reconstruct start code + NAL header + payload */
-								if (mixer_video_append(s, annexb_start, 4) ||
-								    mixer_video_append(s, &nal_hdr, 1) ||
-								    mixer_video_append(s, payload, payload_len))
-									s->fu_a_active = 0;
-							} else if (s->video_buf && s->video_len > 0 && s->fu_a_active) {
-								/* Middle or end of fragment */
-								if (mixer_video_append(s, payload, payload_len))
-									s->fu_a_active = 0;
-								/* We don't decode on 'E', we decode on 'marker' */
-							}
-						}
-					}
-
-					if (msg->marker && s->video_buf && s->video_len > 0) {
-						s->fu_a_active = 0; /* Frame boundary hit, reset FU-A state */
-						in_data = s->video_buf;
-						in_len = s->video_len;
+					if (msg->marker && s->depkt.frame.len) {
+						/* Frame boundary hit, reset FU-A state */
+						s->depkt.fu_a_active = 0;
+						in_data = s->depkt.frame.buf;
+						in_len = s->depkt.frame.len;
 						ready_to_decode = 1;
-
-					//	static int dbg_marker = 0;
-					//	if (dbg_marker++ % 50 == 0)
-					//		lwsl_notice("H264 Marker Received! Feeding Frame to decoder (len %zu)\n", in_len);
 					}
 				} else if (msg->codec == LWS_CODEC_AV1 && in_data && in_len > 1) {
-					ready_to_decode = 0; /* VERY IMPORTANT! Do not decode until marker=1 */
-					/*
-					   static int dbg_hex = 0;
-					   if (dbg_hex++ < 25) {
-					   char hexbuf[128] = {0};
-					   int max = in_len > 24 ? 24 : (int)in_len;
-					   for(int h=0; h<max; h++) lws_snprintf(hexbuf + strlen(hexbuf), sizeof(hexbuf) - strlen(hexbuf), "%02x ", in_data[h]);
-					   lwsl_notice("AV1 RAW IN (len %zu, marker %d): %s\n", in_len, msg->marker, hexbuf);
-					   }
-					   */
-
-					uint8_t aggr_header = in_data[0];
-					uint8_t Z = (aggr_header >> 7) & 1;
-					uint8_t Y = (aggr_header >> 6) & 1;
-					uint8_t W = (aggr_header >> 4) & 3;
-
-					static int dbg_aggr = 0;
-					if (dbg_aggr++ < 50) {
-						lwsl_notice("AGGR HDR: Z=%d Y=%d W=%d (in_len=%zu, marker=%d)\n", Z, Y, W, in_len, msg->marker);
-					}
-
-					size_t off = 1; /* Skip aggregation header */
-
-					/* If Z == 0, this packet starts with a fresh OBU. Discard any incomplete fragments. */
-					if (Z == 0) {
-						s->obu_len = 0;
-					}
-
-					/* Track if we have a valid fragment chain */
-					int drop_fragment = (Z == 1 && s->obu_len == 0);
-
-					/* Loop over payload to extract OBUs based on W */
-					/* Loop over payload to extract OBUs based on W */
-					int elem_idx = 0;
-					while (off < in_len) {
-						size_t obu_size = 0, leb_len = 0;
-						int has_size_field = 0;
-
-						if (W == 0) {
-							/* If W=0, EVERY element has an explicit size field.
-							 * We parse until we hit the end of the packet. */
-							has_size_field = 1;
-						} else {
-							/* If W=1, 2, or 3, it counts exactly how many elements exist.
-							 * EVERY element EXCEPT the last one has a size field.
-							 * The last one spans the rest of the packet. */
-							has_size_field = (elem_idx == (W - 1)) ? 0 : 1;
-						}
-
-						if (has_size_field) {
-							size_t tmp = 0;
-							for (size_t j = 0; j < 8 && off + j < in_len; j++) {
-								uint8_t byte = in_data[off + j];
-								tmp |= ((size_t)(byte & 0x7F)) << (j * 7);
-								if (!(byte & 0x80)) {
-									leb_len = j + 1;
-									obu_size = tmp;
-									break;
-								}
-							}
-
-							/* Overran packet or invalid LEB128 */
-							if (!leb_len || off + leb_len + obu_size > in_len) {
-								/* If W=1, W=2, W=3, it might just be the last element which omits the size field implicitly */
-								has_size_field = 0;
-							}
-						}
-
-						/* If we determined there is no size field (either by W rule or fallback from overrun) */
-						if (!has_size_field) {
-							leb_len = 0;
-							obu_size = in_len - off; /* Consume remainder of packet */
-						}
-
-						off += leb_len;
-
-						int is_first_elem = (elem_idx == 0);
-						int is_last_elem_in_packet = (off + obu_size == in_len);
-
-						if (is_first_elem && Z == 1) {
-							/* Continuation fragment from a PREVIOUS packet */
-							if (!drop_fragment && s->obu_buf) {
-								if (!mixer_obu_append(s, in_data + off, obu_size)) {
-									/* Complete if not continuing into NEXT packet */
-									if (!(is_last_elem_in_packet && Y == 1)) {
-										append_av1_obu(s, s->obu_buf, s->obu_len);
-										s->obu_len = 0;
-									}
-								}
-							}
-						} else {
-							/* Brand new element starting in THIS packet */
-							if (is_last_elem_in_packet && Y == 1) {
-								/* Begins here, continues into NEXT packet */
-								if (dbg_aggr < 50) lwsl_notice("  -> Frag START: idx=%d, size=%zu\n", elem_idx, obu_size);
-								s->obu_len = 0;
-								if (obu_size > 0)
-									mixer_obu_append(s, in_data + off, obu_size);
-							} else {
-								/* Complete within this packet */
-								if (dbg_aggr < 50) lwsl_notice("  -> Frag COMPLETE: idx=%d, size=%zu\n", elem_idx, obu_size);
-								append_av1_obu(s, in_data + off, obu_size);
-							}
-						}
-
-						off += obu_size;
-						if (leb_len == 0 && obu_size == 0) {
-							lwsl_err("%s: AV1 Parse Error: 0-length OBU detected, breaking loop\n", __func__);
-							break;
-						}
-						elem_idx++;
-					}
+					/* Do not decode until marker=1 */
+					ready_to_decode = 0;
+					mixer_depkt_av1(&s->depkt, in_data, in_len);
 
 					if (msg->marker) {
 						static int dbg_marker = 0;
 						if (dbg_marker++ % 50 == 0)
-							lwsl_notice("%s: Received RTP marker for room %s, frame len %zu\n", __func__, s->room->name, s->video_len);
-						if (s->video_buf && s->video_len > 0) {
-							in_data = s->video_buf;
-							in_len = s->video_len;
+							lwsl_notice("%s: Received RTP marker for room %s, frame len %zu\n", __func__, s->room->name, s->depkt.frame.len);
+						if (s->depkt.frame.len) {
+							in_data = s->depkt.frame.buf;
+							in_len = s->depkt.frame.len;
 							ready_to_decode = 1;
 						}
 					}
@@ -1011,8 +682,7 @@ process_session_media(struct mixer_media_session *s)
 					}
 
 					/* Reset buffer for next frame */
-					s->video_len = 0;
-					s->obu_len = 0;
+					mixer_depkt_reset(&s->depkt);
 				}
 
 			}
@@ -1825,15 +1495,10 @@ init_session_media(struct mixer_media_session *s, enum lws_video_codec codec)
 	lws_dll2_owner_clear(&s->video_queue);
 	lws_dll2_owner_clear(&s->rtp_queue);
 
-	s->video_buf            = NULL;
-	s->video_len            = 0;
-	s->video_alloc          = 0;
-	s->obu_buf              = NULL;
+	/* frees anything left from a previous media chain */
+	mixer_depkt_destroy(&s->depkt);
 
 	s->audio_seen           = 0;
-
-	s->obu_len              = 0;
-	s->obu_alloc            = 0;
 
 	s->last_dec_w           = 0;
 	s->last_dec_h           = 0;
