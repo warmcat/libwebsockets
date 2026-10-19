@@ -337,3 +337,7 @@ a log is evidence that something was or was not emitted.
    compile with `clang --target=i386-linux-gnu -fsyntax-only` plus
    `-D__uint128_t="unsigned long long"` (the host asm headers otherwise
    fail on it), and static-assert `sizeof(size_t) == 4`.
+ - api-test-sshd-userauth compiles the ssh-base plugin sources in
+   statically: for a red run, recompile just that test with its plugin
+   include path pointed at a HEAD copy of plugins/ssh-base, no library
+   rebuild needed.
