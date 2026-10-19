@@ -1248,6 +1248,10 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 			goto bail1;
 		}
 
+		/* any name under "localhost" is loopback too (RFC 6761) */
+		if (ads && lws_host_is_localhost(ads))
+			ads = "localhost";
+
 		/* if the dns lookup is synchronous, do the whole thing now */
 		lws_snprintf(buf, sizeof(buf), "%u", port);
 		n = getaddrinfo(ads, buf, &h, &r);

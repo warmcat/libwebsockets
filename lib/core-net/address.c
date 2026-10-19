@@ -310,6 +310,20 @@ lws_host_is_ambiguous_numeric(const char *host)
 }
 
 int
+lws_host_is_localhost(const char *host)
+{
+	size_t l = strlen(host);
+
+	if (l && host[l - 1] == '.')
+		l--;
+
+	if (l < 9 || strncasecmp(host + l - 9, "localhost", 9))
+		return 0;
+
+	return l == 9 || host[l - 10] == '.';
+}
+
+int
 lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46)
 {
 	uint8_t a[16];
@@ -922,7 +936,7 @@ lws_is_local_address(const char *ads)
 
 	if (!strcmp(ads, "127.0.0.1") ||
 	    !strcmp(ads, "::1") ||
-	    !strcmp(ads, "localhost") ||
+	    lws_host_is_localhost(ads) ||
 	    !strcmp(ads, "localhost4") ||
 	    !strcmp(ads, "localhost6"))
 		return 1;

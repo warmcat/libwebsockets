@@ -239,6 +239,22 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len);
 LWS_VISIBLE LWS_EXTERN int
 lws_host_is_ambiguous_numeric(const char *host);
 
+/**
+ * lws_host_is_localhost() - a host lws resolves to loopback itself
+ *
+ * \param host: the host name
+ *
+ * RFC 6761 6.3 reserves "localhost" and every name under it for the loopback
+ * interface, and asks that queries for them are never sent to a nameserver.
+ * lws resolves such a host to loopback itself, whether through libc or async
+ * dns, so eg, "other.localhost" reaches a local server on every platform.
+ *
+ * Returns 1 if the last label of \p host (ignoring one trailing '.') is
+ * "localhost", in any case, else 0.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_host_is_localhost(const char *host);
+
 /*
  * lws_sa46_parse_numeric_address() - converts numeric ipv4 or ipv6 to sa46
  *
@@ -645,7 +661,7 @@ lws_is_lan_address(const char *ads);
  * \param ads: the address string to check
  *
  * Returns 1 if the address is a recognized local address like "localhost" or "127.0.0.1",
- * else 0.
+ * or a name under "localhost" (see lws_host_is_localhost()), else 0.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_is_local_address(const char *ads);

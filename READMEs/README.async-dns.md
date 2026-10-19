@@ -58,6 +58,14 @@ to deduct from the reference count.  Cached items with a nonzero
 reference count can't be destroyed from the cache, so it's safe to keep
 a pointer to the results and iterate through them.
 
+## Names under localhost
+
+"localhost" and any name under it, eg "other.localhost", are loopback
+(RFC 6761 6.3).  lws answers A and AAAA for them itself, after the hosts file,
+and never asks a nameserver about them, whichever resolver is in use: with
+libc `getaddrinfo()` they are looked up as "localhost", the one such name every
+platform knows.  `lws_host_is_localhost()` tells if a host is one of them.
+
 ## Search list
 
 A name with fewer dots than the resolver's `ndots` (1 unless the platform says

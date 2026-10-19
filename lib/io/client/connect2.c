@@ -116,6 +116,13 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	wsi->conmon_datum = lws_now_usecs();
 #endif
 
+	/*
+	 * libc only knows "localhost" itself everywhere, but any name under it
+	 * is loopback too, and must not be asked of a nameserver (RFC 6761)
+	 */
+	if (lws_host_is_localhost(ads))
+		ads = "localhost";
+
 	wsi->io->dns_reachability = 0;
 	if (lws_fi(&wsi->fic, "dnsfail"))
 		n = EAI_FAIL;

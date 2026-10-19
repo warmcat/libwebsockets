@@ -176,6 +176,37 @@ int main(void)
 			}
 	}
 
+	/* ... names lws resolves to loopback itself (RFC 6761 6.3) */
+	{
+		static const struct {
+			const char	*host;
+			int		lh;
+		} hosts[] = {
+			{ "localhost",		1 },
+			{ "localhost.",		1 },
+			{ "LocalHost",		1 },
+			{ "other.localhost",	1 },
+			{ "a.b.localhost.",	1 },
+			{ ".localhost",		1 },
+			{ "notlocalhost",	0 },
+			{ "localhost.example",	0 },
+			{ "localhost..",	0 },
+			{ "localhos",		0 },
+			{ "127.0.0.1",		0 },
+			{ "",			0 },
+			{ ".",			0 },
+		};
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(hosts); n++)
+			if (lws_host_is_localhost(hosts[n].host) !=
+							hosts[n].lh) {
+				lwsl_err("localhost '%s' != %d\n",
+					 hosts[n].host, hosts[n].lh);
+				e++;
+			}
+	}
+
 	/*
 	 * ... and the same for the raw parser with an exact-size ipv4 result
 	 * buffer, where the extra octet goes 1 byte past the end

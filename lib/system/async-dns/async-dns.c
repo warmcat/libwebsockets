@@ -2292,8 +2292,10 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			 */
 			matches = lws_adns_scan_hostsfile(name, ads, ads_lens,
 					LWS_ADNS_HOSTS_MAX_MATCHES, qtype & 0xff);
+#endif
 
-		if (!matches && !strcmp(name, "localhost")) {
+		/* "localhost" and any name under it (RFC 6761 6.3) */
+		if (!matches && lws_host_is_localhost(name)) {
 #if defined(LWS_WITH_IPV4)
 			if ((qtype & 0xff) == LWS_ADNS_RECORD_A) {
 				ads[0] = 127; ads[1] = 0; ads[2] = 0; ads[3] = 1;
@@ -2315,7 +2317,6 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			}
 #endif
 		}
-#endif
 	}
 
 	if (matches) {
@@ -2387,6 +2388,18 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		lws_adns_dump(dns);
 
 		return lws_async_dns_complete(&tmq.tq, c);
+	}
+
+	/*
+	 * A name under "localhost" that we could not answer above, eg, a
+	 * record type other than A or AAAA, is still never asked of a
+	 * nameserver (RFC 6761 6.3)
+	 */
+
+	if (lws_host_is_localhost(name)) {
+		lwsl_cx_info(context, "no %d record for loopback %s",
+			     qtype & 0xff, name);
+		goto failed;
 	}
 
 	/*
