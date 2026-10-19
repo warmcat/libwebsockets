@@ -112,3 +112,6 @@ sessions.
    HEAD:<file>` plus your hunk: extracted earlier, HEAD may have moved and
    the commit silently reverts another fixer's change.  Check with
    `git diff HEAD~1 HEAD -- <file>`.
+ - Building a temp index can race another agent's commit ("cannot lock
+   ref HEAD"): redo `read-tree HEAD` on the temp index, re-apply, then
+   reset the real index entries for your paths.

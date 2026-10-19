@@ -333,3 +333,7 @@ a log is evidence that something was or was not emitted.
    `RAW_ADOPT` / `RAW_CLOSE` on that protocol with no client connected
    (two at startup, seen by B39 in api-test-raw-proxy): tests counting a
    server's connections must filter by vhost.
+ - No 32-bit runtime on the aarch64 dev host; to check 32-bit arithmetic
+   compile with `clang --target=i386-linux-gnu -fsyntax-only` plus
+   `-D__uint128_t="unsigned long long"` (the host asm headers otherwise
+   fail on it), and static-assert `sizeof(size_t) == 4`.
