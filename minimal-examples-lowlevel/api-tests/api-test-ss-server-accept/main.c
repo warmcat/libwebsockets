@@ -52,6 +52,7 @@ enum {
 	LWS_SW_PORT_PLAIN,
 	LWS_SW_PORT_RAW,
 	LWS_SW_SERVER,
+	LWS_SW_CYCLES,
 	LWS_SW_HELP,
 };
 
@@ -65,10 +66,11 @@ static const struct lws_switches switches[] = {
 					"server (default 7683)" },
 	[LWS_SW_SERVER]	= { "--server",	"Address the client connects to "
 					"(default 127.0.0.1)" },
+	[LWS_SW_CYCLES]	= { "--cycles",	"Runs of each phase (default 3)" },
 	[LWS_SW_HELP]	= { "--help",	"Show this help information" },
 };
 
-#define CYCLES 3
+static int cycles = 3;
 
 static const char h1_partial[] = "GET / HTTP/1.1\r\nHost: localhost\r\n";
 
@@ -123,7 +125,7 @@ static phase_t phases[] = {
 static int
 phase_cycles(const phase_t *ph)
 {
-	return ph->destroy_server ? 1 : CYCLES;
+	return ph->destroy_server ? 1 : cycles;
 }
 
 static struct lws_context *context;
@@ -573,12 +575,20 @@ main(int argc, const char **argv)
 		servers[SRV_RAW].port = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
 		server_ads = p;
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_CYCLES].sw))) {
+		cycles = atoi(p);
+		if (cycles < 1 || cycles > 1000) {
+			lwsl_err("--cycles must be 1 to 1000\n");
+			return 1;
+		}
+	}
 
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS API selftest: SS server accepted stream lifetime\n");
 
-	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+	/* keep an event library chosen on the commandline, eg, --uv */
+	info.options			|= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.pss_policies_json		= policy;
@@ -604,7 +614,7 @@ main(int argc, const char **argv)
 	}
 
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
-			 60 * LWS_US_PER_SEC);
+			 (30 + 10 * cycles) * LWS_US_PER_SEC);
 
 	lws_context_default_loop_run_destroy(context);
 

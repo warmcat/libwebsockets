@@ -576,7 +576,6 @@ lws_handling_result_t
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		     const char *caller)
 {
-	lws_handling_result_t hr;
 	int est_at_entry;
 	struct lws_context_per_thread *pt;
 	const struct lws_protocols *pro;
@@ -1174,7 +1173,13 @@ async_close:
 #endif
 					hh->wsi = NULL;
 					wsi->a.opaque_user_data = NULL;
-				}
+				} else
+					/*
+					 * it stays bound to the wsi, which
+					 * lives on: this close says nothing
+					 * to it
+					 */
+					hh = NULL;
 			}
 		}
 	}
@@ -1184,15 +1189,16 @@ async_close:
 	lws_remove_child_from_any_parent(wsi);
 	lwsi_set_skt_unusable(wsi, 1);
 
-	if (wsi->a.context->event_loop_ops->wsi_logical_close)
-		if (wsi->a.context->event_loop_ops->wsi_logical_close(wsi))
-			return LWS_HPI_RET_CLOSING;
-
-	hr = _lws_close_free_wsi_final(wsi);
-
 #if defined(LWS_WITH_SECURE_STREAMS)
+	/*
+	 * The ss handle is no longer bound to the wsi, so it can be told now,
+	 * before the event library is asked to finish the close.  It must be
+	 * now: an event library that finishes closes later (libuv, glib)
+	 * makes us return below, and its later final free knows nothing of
+	 * the handle (G-299).
+	 */
 #if defined(LWS_WITH_SERVER)
-	if (hh && hh_accepted) {
+	if (hh && hh_accepted)
 		/*
 		 * Whatever state it reached, the accepted stream goes with its
 		 * connection.  The role's close handling can't be relied on to
@@ -1203,9 +1209,7 @@ async_close:
 		 * if it did get CONNECTED.
 		 */
 		lws_ss_destroy(&hh);
-
-		return hr;
-	}
+	else
 #endif
 	if (hh && hh->ss_dangling_connected &&
 	    lws_ss_event_helper(hh, LWSSSCS_DISCONNECTED) == LWSSSSRET_DESTROY_ME)
@@ -1219,7 +1223,11 @@ async_close:
 	}
 #endif
 
-	return hr;
+	if (wsi->a.context->event_loop_ops->wsi_logical_close)
+		if (wsi->a.context->event_loop_ops->wsi_logical_close(wsi))
+			return LWS_HPI_RET_CLOSING;
+
+	return _lws_close_free_wsi_final(wsi);
 }
 
 

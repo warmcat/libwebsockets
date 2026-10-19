@@ -48,4 +48,32 @@ if (requirements)
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 60)
+
+	#
+	# libuv finishes a close later, from its own close callback: the
+	# accepted streams must still go with their connections (G-299).
+	# Its own ports, and so its own policy, so the two can run at once
+	#
+
+	set(uv_requirements 1)
+	require_lws_config(LWS_WITH_LIBUV 1 uv_requirements)
+
+	if (uv_requirements)
+		lws_get_free_port(PORT_SS_SRV_ACCEPT)
+		lws_get_free_port(PORT_SS_SRV_ACCEPT_PLAIN)
+		lws_get_free_port(PORT_SS_SRV_ACCEPT_RAW)
+		configure_file(policy.json.in policy-uv.json @ONLY)
+
+		add_test(NAME api-test-ss-server-accept-libuv
+			 COMMAND lws-api-test-ss-server-accept --uv
+				 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-uv.json
+				 -p ${PORT_SS_SRV_ACCEPT}
+				 --port-plain ${PORT_SS_SRV_ACCEPT_PLAIN}
+				 --port-raw ${PORT_SS_SRV_ACCEPT_RAW}
+				 --server ${LWS_CTEST_SERVER_RESOLVE})
+		set_tests_properties(api-test-ss-server-accept-libuv
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 60)
+	endif()
 endif()

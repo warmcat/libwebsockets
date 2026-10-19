@@ -12,9 +12,14 @@ destroyed.
 The policy describes three server streamtypes: `accsrv` (http over tls),
 `accplain` (http without tls) and `accraw` (raw).  The user code counts each
 accepted stream's `LWSSSCS_CREATING` and `LWSSSCS_DESTROYING`, so it knows how
-many are alive.  A client in the same process runs each phase three times;
-after each run, every accepted stream the server made for it must have been
-destroyed.
+many are alive.  A client in the same process runs each phase three times
+(`--cycles`); after each run, every accepted stream the server made for it
+must have been destroyed.
+
+ctest runs it on the default event loop, and again on libuv when that is built
+in (`api-test-ss-server-accept-libuv`): libuv finishes a connection's close
+later, from its own close callback, and the accepted stream must still go with
+the connection.
 
 In the "refused" phases the user code returns `LWSSSSRET_DESTROY_ME` from an
 accepted stream's `LWSSSCS_CREATING`: the connection (or for h2, the stream)
@@ -43,6 +48,8 @@ must be closed cleanly, freed once, with no accepted stream left.
 |--port-plain <port>|Port of the policy's plaintext server (default 7682)|
 |--port-raw <port>|Port of the policy's raw server (default 7683)|
 |--server <address>|Address the client connects to (default 127.0.0.1)|
+|--cycles <n>|Runs of each phase, except server-gone which runs once (default 3)|
+|--uv|Run on a libuv event loop (an lws built-in option)|
 |--help|Show the options|
 
 ## Run
