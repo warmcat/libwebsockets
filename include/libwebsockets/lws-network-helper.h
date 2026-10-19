@@ -268,6 +268,58 @@ lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46);
 LWS_VISIBLE LWS_EXTERN int
 lws_sa46_is_ipv4_mapped(const lws_sockaddr46 *sa46);
 
+/*
+ * Room for any key lws_sa46_host_key() / lws_get_peer_host_key() writes,
+ * including the terminating NUL
+ */
+#define LWS_HOST_KEY_LEN	32
+/* the one key every peer whose address is not IPv4 or IPv6 shares */
+#define LWS_HOST_KEY_UNKNOWN	"unknown"
+
+/**
+ * lws_sa46_host_key() - the key a peer's host is accounted under
+ *
+ * \param sa46: the peer address
+ * \param key: buffer for the key, at least LWS_HOST_KEY_LEN
+ * \param len: size of \p key
+ *
+ * Per-peer admission caps, strikes and rate limits must count one host as
+ * one peer.  For IPv4 that is the address, but an IPv6 host commands its
+ * whole /64 (2^64 source addresses), so counting per address does not bound
+ * it at all.  The key is therefore:
+ *
+ *  - IPv4, or IPv4-mapped IPv6: the dotted quad, eg "192.0.2.1"
+ *  - other IPv6: the /64, eg "2001:db8:1:2::/64"
+ *  - anything else (eg, an unset sa46): LWS_HOST_KEY_UNKNOWN, one bucket
+ *    shared by every such peer, so they are counted together rather than
+ *    not at all
+ *
+ * Keys compare equal with strcmp() exactly when the hosts are the same.
+ *
+ * Returns 0 if the key is a host's, or 1 if it is LWS_HOST_KEY_UNKNOWN.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_sa46_host_key(const lws_sockaddr46 *sa46, char *key, size_t len);
+
+/**
+ * lws_get_peer_host_key() - the host key of the client connected to wsi
+ *
+ * \param wsi: the connection
+ * \param key: buffer for the key, at least LWS_HOST_KEY_LEN
+ * \param len: size of \p key
+ *
+ * lws_sa46_host_key() of the address lws_get_peer_simple() gives, ie, the
+ * client a trusted PROXY v2 proxy named where there is one.  A peer whose
+ * address can't be determined or parsed gets LWS_HOST_KEY_UNKNOWN.
+ *
+ * Use this to key per-client admission decisions, so they all agree on who
+ * the client is.
+ *
+ * Returns \p key.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_peer_host_key(struct lws *wsi, char *key, size_t len);
+
 /**
  * lws_write_numeric_address() - convert network byte order ads to text
  *

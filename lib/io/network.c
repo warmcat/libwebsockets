@@ -271,6 +271,28 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 #endif
 	return lws_get_peer_simple_fd(wsi->io->desc.sockfd, name, namelen);
 }
+
+const char *
+lws_get_peer_host_key(struct lws *wsi, char *key, size_t len)
+{
+	lws_sockaddr46 sa46;
+	char ads[64];
+
+	/*
+	 * The one place per-client admission decisions learn who the client
+	 * is, so any later judgement of how far the address can be believed
+	 * belongs here too
+	 */
+
+	ads[0] = '\0';
+	lws_get_peer_simple(wsi, ads, sizeof(ads));
+	if (lws_sa46_parse_numeric_address(ads, &sa46))
+		memset(&sa46, 0, sizeof(sa46));
+
+	lws_sa46_host_key(&sa46, key, len);
+
+	return key;
+}
 #endif
 
 int

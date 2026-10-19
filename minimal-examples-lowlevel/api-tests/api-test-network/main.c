@@ -340,6 +340,50 @@ int main(void)
 	}
 #endif
 
+	/*
+	 * Host keys: one host is one key, an IPv4 address or an IPv6 /64, and
+	 * anything that isn't an IP address shares the one "unknown" key
+	 */
+	{
+		static const struct {
+			const char	*ads;
+			const char	*key;
+		} hk[] = {
+			{ "192.0.2.1",			"192.0.2.1" },
+			{ "203.0.113.255",		"203.0.113.255" },
+#if defined(LWS_WITH_IPV6)
+			{ "::ffff:192.0.2.1",		"192.0.2.1" },
+			{ "2001:db8:1:2::1",		"2001:db8:1:2::/64" },
+			{ "2001:db8:1:2:ffff:ffff:ffff:ffff",
+							"2001:db8:1:2::/64" },
+			{ "2001:db8:1:3::1",		"2001:db8:1:3::/64" },
+			{ "::1",			"0:0:0:0::/64" },
+			{ "ffff:ffff:ffff:ffff::",	"ffff:ffff:ffff:ffff::/64" },
+#endif
+		};
+		char key[LWS_HOST_KEY_LEN];
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(hk); n++) {
+			key[0] = '\0';
+			if (lws_sa46_parse_numeric_address(hk[n].ads, &sa46) ||
+			    lws_sa46_host_key(&sa46, key, sizeof(key)) ||
+			    strcmp(key, hk[n].key)) {
+				lwsl_err("host key of %s: '%s', expected "
+					 "'%s'\n", hk[n].ads, key, hk[n].key);
+				e++;
+			}
+		}
+
+		/* not an address: the shared bucket, not "never the same" */
+		memset(&sa46, 0, sizeof(sa46));
+		if (lws_sa46_host_key(&sa46, key, sizeof(key)) != 1 ||
+		    strcmp(key, LWS_HOST_KEY_UNKNOWN)) {
+			lwsl_err("host key of an unset sa46: '%s'\n", key);
+			e++;
+		}
+	}
+
 	lwsl_user("Completed: %d fails\n", e);
 
 	return e;

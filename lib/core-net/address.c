@@ -392,6 +392,44 @@ lws_sa46_is_ipv4_mapped(const lws_sockaddr46 *sa46)
 }
 
 int
+lws_sa46_host_key(const lws_sockaddr46 *sa46, char *key, size_t len)
+{
+	const uint8_t *a;
+
+	if (sa46->sa4.sin_family == AF_INET) {
+		a = (const uint8_t *)&sa46->sa4.sin_addr;
+		goto v4;
+	}
+
+#if defined(LWS_WITH_IPV6)
+	if (sa46->sa4.sin_family == AF_INET6) {
+		a = sa46->sa6.sin6_addr.s6_addr;
+
+		if (lws_sa46_is_ipv4_mapped(sa46)) {
+			a += 12;
+			goto v4;
+		}
+
+		/* the host is its /64 */
+		lws_snprintf(key, len, "%x:%x:%x:%x::/64",
+			     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
+			     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
+
+		return 0;
+	}
+#endif
+
+	lws_strncpy(key, LWS_HOST_KEY_UNKNOWN, len);
+
+	return 1;
+
+v4:
+	lws_snprintf(key, len, "%u.%u.%u.%u", a[0], a[1], a[2], a[3]);
+
+	return 0;
+}
+
+int
 lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 {
 	char c, elided = 0, soe = 0, zb = (char)-1, n, ipv4 = 0;
