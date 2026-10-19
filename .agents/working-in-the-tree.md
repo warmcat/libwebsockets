@@ -108,3 +108,7 @@ sessions.
    their list.**  Diff each file against what you tested just before
    committing, and if a make fails partway, rebuild before trusting the
    ctest that follows.
+ - **Build a temporary-index blob at commit time**, from `git show
+   HEAD:<file>` plus your hunk: extracted earlier, HEAD may have moved and
+   the commit silently reverts another fixer's change.  Check with
+   `git diff HEAD~1 HEAD -- <file>`.

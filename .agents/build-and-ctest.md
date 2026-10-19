@@ -165,6 +165,9 @@
  - **Red half for a plugin-folding test needing new header constants:**
    keep the new header and restore only the `.c` from HEAD, or select
    with `#if defined(<new macro>)` in the test (api-test-hls-queue).
+ - **http-client-multi-post-pipe sends 8 concurrent POSTs on one h2
+   connection** and the lws client does not retry REFUSED_STREAM: any
+   per-connection stream refusal policy below 8 fails it.
  - **cgi stdin edge cases:** add a row to `cases[]` in
    api-test-http-cgi-stdin; its cgi.sh reads stdin to EOF, so a stdin
    that is never ended shows as a timeout (quick red/green).

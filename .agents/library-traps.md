@@ -168,6 +168,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    on every role, except h3 FIN-without-CL, which ends through
    `lws_h3_rx_fin_server()` and the body path.
    `lws_return_http_status()` never applies stream compression.
+ - **h2 server dispatch is deferred to the writeable walk:** every HEADERS
+   in one read is decoded, each taking an ah, before any is dispatched.
+   Per-connection ah accounting must exclude streams the peer has
+   finished (END_STREAM / half-closed remote; h3 `qs->fin_received`), as
+   `lws_mux_ah_cap_reached()` does (G-028 2a, cap
+   `max_http_header_pool_per_mux`, default 8).
+ - **Request bodies have a minimum rate on every role** since G-028 2b
+   (`http_body_min_rate` 500 B/s after `http_body_grace_secs` 20s): a test
+   trickling a body slower than that past 20s must raise the grace or use
+   `LWS_HTTP_BODY_MIN_RATE_NONE`.
  - **h3 has no destroy_role:** per-stream state that h1/h2 free in
    destroy_role (eg, the stream compressor) must be freed in
    `rops_close_kill_connection_h3()`.
