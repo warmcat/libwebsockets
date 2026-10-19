@@ -411,7 +411,15 @@ lws_dir_rm_rf_at(int dfd, const char *name, int depth)
 	fd = openat(dfd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW |
 			       O_CLOEXEC | O_NONBLOCK);
 	if (fd < 0) {
-		if (errno != ELOOP && errno != ENOTDIR) {
+		/*
+		 * O_NOFOLLOW on a symlink is ELOOP on Linux and OSX, EMLINK on
+		 * FreeBSD and EFTYPE on NetBSD
+		 */
+		if (errno != ELOOP && errno != ENOTDIR && errno != EMLINK
+#if defined(EFTYPE)
+		    && errno != EFTYPE
+#endif
+		) {
 			lwsl_warn("%s: open %s failed %d\n", __func__, name,
 				  errno);
 			return 1;
