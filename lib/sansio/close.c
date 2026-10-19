@@ -381,7 +381,6 @@ __lws_free_wsi(struct lws *wsi)
 	vh = wsi->a.vhost;
 
 	__lws_reset_wsi(wsi);
-	__lws_wsi_remove_from_sul(wsi);
 
 	if (vh)
 		/* this may destroy vh */
@@ -396,11 +395,22 @@ __lws_free_wsi(struct lws *wsi)
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
 		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
 
+	/*
+	 * Since we will free the wsi, make absolutely sure no timer is left
+	 * scheduled in it.  This must come after the vhost unbind: when the
+	 * wsi was the last one bound to a vhost being destroyed, the unbind
+	 * runs the vhost's PROTOCOL_DESTROY, and user code there may still
+	 * act on the wsi, eg, set a timeout on it (G-298)
+	 */
+	__lws_wsi_remove_from_sul(wsi);
+
 	lwsl_wsi_debug(wsi, "tsi fds count %d\n",
 			wsi->a.context->pt[(int)wsi->tsi].fds_count);
 
-	/* confirm no sul left scheduled in wsi itself */
-	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(*wsi), __func__);
+	/* confirm no sul left scheduled in wsi itself, or in IO's part of it */
+	lws_sul_debug_zombies(wsi->a.context, wsi,
+			      sizeof(*wsi) + wsi->a.context->wsi_io_size,
+			      __func__);
 
 	lwsi_set_skt_unusable(wsi, 1); /* !!! */
 

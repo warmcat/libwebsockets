@@ -27,6 +27,8 @@
  *  - unroutable:      a client of 192.0.2.1 (TEST-NET-1): still connecting
  *                     at the destroy where that address is routed, else
  *                     refused before it
+ *  - late:            a ws client of the silent server, from a protocol
+ *                     that is protocols[0] of a vhost of its own
  *
  * Once they are all in those states, the context is destroyed.  Each must
  * have had exactly one final callback, of the kind it should, by the time
@@ -34,6 +36,11 @@
  * there.  The first final callback during the destroy also tries to connect
  * again, as a naive retry would: lws must refuse it, since a connection
  * made there could restart the destroy's close loop forever.
+ *
+ * The late client is the only wsi bound to its vhost, so that vhost's
+ * PROTOCOL_DESTROY runs inside the client's free.  The late protocol sets a
+ * timeout and a timer on the client there, which lws must not leave
+ * scheduled in the freed wsi (ASan sees the next timer list walk read it).
  *
  * ctest runs it on the default event loop and on libuv, which finishes the
  * closes later, from its own close callbacks.
@@ -80,6 +87,7 @@ typedef struct fcb_client {
 	char			ws;		/* a ws upgrade, else a GET */
 	char			tls;
 	char			expect;		/* FCB_FINAL_ */
+	char			late;		/* on the late vhost */
 
 	/* results */
 	struct lws		*wsi;		/* held until its final cb */
@@ -100,15 +108,19 @@ static fcb_client_t clients[] = {
 	  .expect = FCB_FINAL_CLOSED },
 	{ .name = "unroutable", .target = FCB_TGT_UNROUTABLE,
 	  .expect = FCB_FINAL_CCE },
+	/* connected last, so the destroy closes it early */
+	{ .name = "late", .target = FCB_TGT_SILENT, .ws = 1,
+	  .expect = FCB_FINAL_CCE, .late = 1 },
 };
 
 static struct lws_context *cx;
-static struct lws_vhost *vh_cli;
+static struct lws_vhost *vh_cli, *vh_late;
+static struct lws *late_dying;
 static lws_sorted_usec_list_t sul_start, sul_check;
 static const char *server_ads = "localhost";
 static int port_silent = 7681, port_ws = 7682;
 static int failed, silent_heard, ws_established, retry_tried, retry_refused,
-	   protocol_destroyed;
+	   protocol_destroyed, late_armed;
 static lws_usec_t deadline;
 
 /*
@@ -156,7 +168,7 @@ fcb_connect(fcb_client_t *c)
 
 	memset(&i, 0, sizeof(i));
 	i.context		= cx;
-	i.vhost			= vh_cli;
+	i.vhost			= c->late ? vh_late : vh_cli;
 	i.address		= server_ads;
 	i.port			= c->target == FCB_TGT_WS ? port_ws : port_silent;
 	if (c->target == FCB_TGT_UNROUTABLE) {
@@ -166,7 +178,7 @@ fcb_connect(fcb_client_t *c)
 	i.host			= i.address;
 	i.origin		= i.address;
 	i.path			= "/";
-	i.local_protocol_name	= "fcb-cli";
+	i.local_protocol_name	= c->late ? "fcb-late" : "fcb-cli";
 	i.opaque_user_data	= c;
 	i.pwsi			= &c->wsi;
 
@@ -277,6 +289,48 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * The late protocol is protocols[0] of a vhost of its own, with its one
+ * client the only wsi bound there: so it hears the client's
+ * LWS_CALLBACK_WSI_DESTROY, and the vhost's PROTOCOL_DESTROY comes from
+ * inside the client's free, when the free unbinds it from the vhost.
+ *
+ * User code there may still act on the wsi being freed, eg, set a timeout
+ * on it: this does, and lws must not leave that timer scheduled in the
+ * freed wsi.
+ */
+
+static int
+callback_late(struct lws *wsi, enum lws_callback_reasons reason,
+	      void *user, void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_WSI_DESTROY:
+		/* the client is about to be freed */
+		late_dying = wsi;
+		break;
+
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (!late_dying) {
+			lwsl_err("%s: PROTOCOL_DESTROY outside the client's "
+				 "free\n", __func__);
+			failed = 1;
+			break;
+		}
+		lws_set_timeout(late_dying, PENDING_TIMEOUT_USER_OK,
+				LWS_TO_KILL_ASYNC);
+		lws_set_timer_usecs(late_dying, LWS_US_PER_SEC);
+		late_dying = NULL;
+		late_armed = 1;
+		break;
+
+	default:
+		return callback_cli(wsi, reason, user, in, len);
+	}
+
+	return 0;
+}
+
 static const struct lws_protocols protocols_silent[] = {
 	{ "fcb-silent", callback_silent, sizeof(struct pss_silent), 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
@@ -292,6 +346,11 @@ static const struct lws_protocols protocols_ws[] = {
 static const struct lws_protocols protocols_cli[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	{ "fcb-cli", callback_cli, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+static const struct lws_protocols protocols_late[] = {
+	{ "fcb-late", callback_late, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -429,6 +488,12 @@ main(int argc, const char **argv)
 	if (!vh_cli)
 		goto bail;
 
+	info.vhost_name			= "late";
+	info.protocols			= protocols_late;
+	vh_late = lws_create_vhost(cx, &info);
+	if (!vh_late)
+		goto bail;
+
 	lws_sul_schedule(cx, 0, &sul_start, start_cb, 1);
 
 	lws_context_default_loop_run_destroy(cx);
@@ -447,6 +512,10 @@ main(int argc, const char **argv)
 			result = 1;
 	}
 
+	if (!late_armed) {
+		lwsl_err("%s: the late protocol armed no timers\n", __func__);
+		result = 1;
+	}
 	if (!protocol_destroyed) {
 		lwsl_err("%s: no PROTOCOL_DESTROY\n", __func__);
 		result = 1;
