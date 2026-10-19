@@ -452,6 +452,21 @@ behind the response needs a table; do not rely on that, the window above is the
 contract for every role.  Mounts that have their own lifetime, ie, cgi and the
 reverse proxy, release the headers even earlier, at spawn / proxy start.
 
+Since a request with a body holds an ah until its body has arrived, two limits
+stop clients from holding the pool against everybody else.  The streams of
+one h2 or h3 connection that are waiting on the peer, eg, for their bodies,
+may only hold `info.max_http_header_pool_per_mux` ahs at once (by default one
+less than the pool's ahs per fd, but at least 8); a new stream with more to
+come over that is refused on its own with `REFUSED_STREAM` /
+`H3_REQUEST_REJECTED`, which tell the client it may retry.  Requests that
+arrive whole, eg, a burst of GETs, are never refused for it.  And on every role
+a request body must keep up with a minimum average rate,
+`info.http_body_min_rate` bytes/s (default 500) after a grace time of
+`info.http_body_grace_secs` (default 20s) from the request's headers, besides
+coming within `timeout_secs` per piece: a body falling behind is given up on
+as for a timeout.  A vhost whose clients may legitimately stream request
+bodies more slowly than that can set `LWS_HTTP_BODY_MIN_RATE_NONE`.
+
 Anything important must be copied into your `pss` inside the window.  The
 accessors (`lws_hdr_copy()`, `lws_hdr_total_length()`,
 `lws_get_urlarg_by_name_safe()`, `lws_http_cookie_get()`, ...) do not fail

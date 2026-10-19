@@ -2065,12 +2065,23 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			if (lws_h2_hpack_sink_trailers(h2n->swsi))
 				return 1;
 		} else if (!h2n->swsi->stream.ah) {
+			lws_ah_attach_result_t ar;
+
+			/*
+			 * A request the peer has more to send for, eg, a
+			 * POST's body, holds its ah until it does: only so
+			 * many of those per connection (G-028)
+			 */
+			if (new_stream &&
+			    !(h2n->flags & LWS_H2_FLAG_END_STREAM) &&
+			    lws_mux_ah_cap_reached(h2n->swsi))
+				return lws_h2_refuse_stream(wsi);
+
 			/*
 			 * ah needs attaching to child wsi, even though
 			 * we only fill it from network wsi
 			 */
-			lws_ah_attach_result_t ar =
-				lws_header_table_attach(h2n->swsi, 0);
+			ar = lws_header_table_attach(h2n->swsi, 0);
 
 			if (ar == LWS_AH_ATTACH_WSI_GONE)
 				/*

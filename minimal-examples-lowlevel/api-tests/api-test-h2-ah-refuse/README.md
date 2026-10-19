@@ -15,8 +15,18 @@ entries to the hpack dynamic table, and a last request refers to them: the
 server has to see their values, as a client retrying the refused request on
 the connection would need.
 
+`--case cap`: the streams of one connection waiting on the client may only
+hold so many ahs at once (3 here), so one client cannot take the pool from
+everybody else by opening many slow POSTs.  The pool has room for 8.
+Connection A opens six POSTs whose bodies don't come: three must be refused
+with `REFUSED_STREAM`.  Connection B then GETs and must be answered, and when
+A's bodies end, its three kept streams are answered.  Without the cap, A's
+streams and its own ah take 7 of the 8, B's connection the last, and B's GET
+is refused.
+
 ```
 $ ./lws-api-test-h2-ah-refuse -p 7681
+$ ./lws-api-test-h2-ah-refuse --case cap -p 7681
 ```
 
 Option|Meaning
@@ -24,3 +34,4 @@ Option|Meaning
 -d <loglevel>|Debug verbosity in decimal, eg, -d1151
 -p <port>|Port for the h2 prior-knowledge server (default 7681)
 --server <addr>|Server address to connect to (default 127.0.0.1)
+--case <case>|`pool` (default, the pool is full) or `cap` (one connection's share of it)

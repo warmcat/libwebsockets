@@ -5774,7 +5774,15 @@ main(int argc, const char **argv)
 
 	info.vhost_name = "sansio-uri";
 	info.protocols = protocols_uri;
+	/*
+	 * Case 37's body comes a byte every 10s for 50s, far below the
+	 * default minimum body rate once its 20s grace is up: give it the
+	 * grace to cover that, so what it shows is the body's own timeout
+	 * between pieces
+	 */
+	info.http_body_grace_secs = 60;
 	vh_uri = lws_create_vhost(cx, &info);
+	info.http_body_grace_secs = 0;
 	if (!vh_uri) {
 		lwsl_err("uri vhost failed\n");
 		goto bail;

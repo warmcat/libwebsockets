@@ -59,6 +59,24 @@
  *     the request asked for must still decide the answer when the headers
  *     have gone, on every role.
  *
+ *  --case body-rate (h1, h2, h3): the server's request bodies must keep up
+ *     with a minimum rate, here AHL_RATE bytes/s after AHL_RATE_GRACE_S, as
+ *     well as come within the timeout between pieces.  Two lws clients POST
+ *     at once, on one connection on h2 and h3: /trickle sends 10 bytes
+ *     every 500ms, renewing the timeout each time but far below the rate,
+ *     and must be reset by the server soon after the grace time, without
+ *     its body completing; /steady sends 16KB at 4KB/s, with a 1.5s pause
+ *     in the middle, and must arrive whole after that, on the same
+ *     connection on h2 / h3.
+ *
+ *  --case mux-cap (h2, h3): the streams of one connection waiting on the
+ *     peer may only hold so many request header tables at once (AHL_MUX_CAP
+ *     here).  Four lws clients POST on one connection, holding their bodies
+ *     back, and three GET on it too: the server must dispatch only
+ *     AHL_MUX_CAP of the POSTs, refusing the others on their own, but answer
+ *     every GET, which arrives whole and never waits on the peer.  When the
+ *     bodies are sent the POSTs it took must be answered.
+ *
  * lws is both ends here, in one process: a crash or memory error in the
  * server fails the test as well as a wrong answer does.
  */
@@ -115,6 +133,26 @@
 
 #define AHL_DEADLINE_S		30
 
+/* body-rate: the server's minimum body rate and its grace time */
+#define AHL_RATE		1000
+#define AHL_RATE_GRACE_S	2
+/* body-rate: /trickle, 10 bytes every 500ms, would take this long */
+#define AHL_TRICKLE_PIECE	10
+#define AHL_TRICKLE_MS		500
+#define AHL_TRICKLE_PIECES	10
+/* body-rate: /steady, 1000 bytes every 250ms, a pause after the 8th */
+#define AHL_STEADY_PIECE	1000
+#define AHL_STEADY_MS		250
+#define AHL_STEADY_PIECES	16
+#define AHL_STEADY_PAUSE_AT	8
+#define AHL_STEADY_PAUSE_MS	1500
+
+/* mux-cap: the server's cap, the POSTs and GETs on one connection, and when */
+#define AHL_MUX_CAP		2
+#define AHL_MUX_REQS		4
+#define AHL_MUX_GETS		3
+#define AHL_MUX_RELEASE_MS	1500
+
 /* a small answer, for the pipelined GETs */
 #define AHL_SMALL_PATH		"/s"
 #define AHL_SMALL_BODY		"ok"
@@ -130,11 +168,13 @@ enum ahl_case {
 	AHL_LATE_SPA,
 	AHL_LATE_RANGE,
 	AHL_LATE_CODED,
+	AHL_BODY_RATE,
+	AHL_MUX_CAP_CASE,
 };
 
 static const char * const case_names[] = {
 	"file-stall", "pipeline-depth", "slow-cl", "slow-stream", "late-spa",
-	"late-range", "late-coded"
+	"late-range", "late-coded", "body-rate", "mux-cap"
 };
 
 enum ahl_role {
@@ -171,6 +211,11 @@ static struct {
 	int		slow_http;	/* LWS_CALLBACK_HTTP for /slow */
 	int		ct_ok;		/* ... with the client's Content-Type */
 	int		completions;	/* /slow and /spa body completions */
+	int		trickle_resets;	/* /trickle closed before its body */
+	lws_usec_t	trickle_reset_us; /* ... this long after its dispatch */
+	int		held;		/* /hold dispatched, its body to come */
+	int		held_max;
+	int		hold_dispatched;
 	lws_usec_t	max_gap_us;	/* longest wait for a piece of /slow */
 } srv;
 
@@ -230,11 +275,14 @@ static const char * const form_names[] = { AHL_FORM_FIELD };
 
 struct pss_srv {
 	struct lws_spa	*spa;		/* /spa: made at the first body */
+	lws_usec_t	start_us;	/* when it was dispatched */
 	lws_usec_t	last_us;	/* /slow: when the last piece came */
 	size_t		rx_len;
 	uint32_t	rx_sum;
 	char		resp[LWS_PRE + 64];
 	size_t		resp_len;
+	char		kind;		/* 't'rickle, 'h'old, or 0 */
+	char		body_done;
 };
 
 /*
@@ -329,6 +377,21 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 #endif
 
+		if (path && (!strcmp(path, "/trickle") ||
+			     !strcmp(path, "/steady") ||
+			     !strcmp(path, "/hold"))) {
+			/* the body follows, summed as for /slow */
+			memset(pss, 0, sizeof(*pss));
+			pss->start_us = pss->last_us = lws_now_usecs();
+			pss->kind = path[1] == 's' ? 0 : path[1];
+			if (pss->kind == 'h') {
+				srv.hold_dispatched++;
+				if (++srv.held > srv.held_max)
+					srv.held_max = srv.held;
+			}
+			return 0;
+		}
+
 		if (!path || strcmp(path, "/slow")) {
 			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND,
 						   NULL) ||
@@ -379,6 +442,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		srv.completions++;
+		pss->body_done = 1;
+		if (pss->kind == 'h')
+			srv.held--;
 
 		if (tcase == AHL_LATE_SPA) {
 			const char *v = NULL;
@@ -421,6 +487,18 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss && pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
+		}
+		if (pss && pss->kind == 't' && !pss->body_done) {
+			srv.trickle_resets++;
+			srv.trickle_reset_us = lws_now_usecs() - pss->start_us;
+			lwsl_user("%s: /trickle closed after %dms, body "
+				  "incomplete at %u bytes\n", __func__,
+				  (int)(srv.trickle_reset_us / LWS_US_PER_MS),
+				  (unsigned int)pss->rx_len);
+		}
+		if (pss && pss->kind == 'h' && !pss->body_done) {
+			srv.held--;
+			pss->kind = 0;
 		}
 		break;
 
@@ -1010,6 +1088,315 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * The lws clients of body-rate and mux-cap: several requests at once, each
+ * with its own state, on one connection on h2 and h3
+ */
+
+struct mreq {
+	lws_sorted_usec_list_t	sul;	/* the wait for its next piece */
+	struct lws		*wsi;
+	const char		*path;
+	size_t			piece_len;
+	int			pieces;
+	int			piece_ms;
+	int			pause_at;	/* a longer pause after this one */
+	int			pause_ms;
+	int			piece;	/* pieces sent */
+	int			status;
+	char			body[64];
+	size_t			body_len;
+	char			ready;	/* the next piece may go */
+	char			held;	/* mux-cap: until the release */
+	char			get;	/* mux-cap: a GET, no body */
+	char			completed;
+	char			closed;
+};
+
+static struct mreq mreqs[AHL_MUX_REQS + AHL_MUX_GETS];
+static int mreq_count;
+static lws_sorted_usec_list_t sul_release;
+
+static size_t
+mreq_cl(const struct mreq *r)
+{
+	return r->piece_len * (size_t)r->pieces;
+}
+
+static void
+mreq_next_piece(lws_sorted_usec_list_t *sul)
+{
+	struct mreq *r = lws_container_of(sul, struct mreq, sul);
+
+	r->ready = 1;
+	if (r->wsi)
+		lws_callback_on_writable(r->wsi);
+}
+
+static void
+mux_cap_release(lws_sorted_usec_list_t *sul)
+{
+	int n;
+
+	if (srv.hold_dispatched != AHL_MUX_CAP ||
+	    srv.held_max != AHL_MUX_CAP) {
+		lwsl_err("%s: server dispatched %d of %d, held %d at once, "
+			 "cap %d\n", __func__, srv.hold_dispatched,
+			 AHL_MUX_REQS, srv.held_max, AHL_MUX_CAP);
+		finish(0, "the server did not take exactly the cap's worth "
+			  "of the connection's POSTs");
+		return;
+	}
+
+	/* the requests the server took get their bodies now */
+	for (n = 0; n < mreq_count; n++)
+		if (!mreqs[n].get && mreqs[n].wsi && !mreqs[n].closed) {
+			mreqs[n].held = 0;
+			mreq_next_piece(&mreqs[n].sul);
+		}
+}
+
+static void
+multi_check(void)
+{
+	struct mreq *tr = &mreqs[0], *st = &mreqs[1];
+	char want[64];
+	int n, answered = 0, gets = 0;
+
+	if (tcase == AHL_MUX_CAP_CASE) {
+		for (n = 0; n < mreq_count; n++) {
+			if (!mreqs[n].closed)
+				continue;
+			if (mreqs[n].get) {
+				if (!mreqs[n].completed ||
+				    mreqs[n].status != 200 ||
+				    strcmp(mreqs[n].body, AHL_SMALL_BODY)) {
+					finish(0, "a GET on the capped "
+						  "connection was not served");
+					return;
+				}
+				gets++;
+				continue;
+			}
+			if (mreqs[n].completed && mreqs[n].status == 200)
+				answered++;
+		}
+		if (answered == AHL_MUX_CAP && gets == AHL_MUX_GETS)
+			finish(1, "the cap refused the POSTs over it, the "
+				  "others and every GET were answered");
+		return;
+	}
+
+	/* body-rate */
+	if (tr->closed && tr->completed && tr->status == 200) {
+		finish(0, "the trickling body was served");
+		return;
+	}
+	if (!st->closed)
+		return;
+
+	lws_snprintf(want, sizeof(want), "len=%u sum=%08x",
+		     (unsigned int)mreq_cl(st), sum_pat(mreq_cl(st)));
+	if (!st->completed || st->status != 200 || strcmp(st->body, want)) {
+		lwsl_err("%s: status %d, answer '%s', want '%s'\n", __func__,
+			 st->status, st->body, want);
+		finish(0, "the steady upload was cut or got the wrong body");
+		return;
+	}
+	if (srv.trickle_resets != 1) {
+		finish(0, "the trickling body was not reset");
+		return;
+	}
+	if (srv.trickle_reset_us < AHL_RATE_GRACE_S * LWS_US_PER_SEC ||
+	    srv.trickle_reset_us >= (AHL_TRICKLE_PIECES - 1) *
+				AHL_TRICKLE_MS * LWS_US_PER_MS) {
+		lwsl_err("%s: reset after %dms\n", __func__,
+			 (int)(srv.trickle_reset_us / LWS_US_PER_MS));
+		finish(0, "the trickling body was not reset at its deadline");
+		return;
+	}
+
+	finish(1, "the trickling body was reset at its deadline, the steady "
+		  "upload arrived whole");
+}
+
+static int
+callback_multi(struct lws *wsi, enum lws_callback_reasons reason,
+	       void *user, void *in, size_t len)
+{
+	struct mreq *r = (struct mreq *)lws_get_opaque_user_data(wsi);
+	uint8_t buf[LWS_PRE + AHL_STEADY_PIECE];
+	char rb[LWS_PRE + 256], *px = rb + LWS_PRE, cl[24];
+	int lenx = (int)sizeof(rb) - LWS_PRE, n, wp;
+	size_t o;
+
+	if (!r)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+		if (r->get) {
+			r->wsi = wsi;
+			return 0;
+		}
+
+		n = lws_snprintf(cl, sizeof(cl), "%u",
+				 (unsigned int)mreq_cl(r));
+		if (lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_CONTENT_LENGTH,
+				(const unsigned char *)cl, n, p, end))
+			return -1;
+
+		r->wsi = wsi;
+		lws_client_http_body_pending(wsi, 1);
+		if (!r->held)
+			lws_sul_schedule(context, 0, &r->sul, mreq_next_piece,
+					 r->piece_ms * LWS_US_PER_MS);
+		return 0;
+	}
+
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		if (r->get || !r->ready || r->held || r->piece == r->pieces)
+			return 0;
+
+		o = r->piece_len * (size_t)r->piece;
+		for (n = 0; n < (int)r->piece_len; n++)
+			buf[LWS_PRE + n] = pat(o + (size_t)n);
+
+		wp = LWS_WRITE_HTTP;
+		if (r->piece == r->pieces - 1) {
+			lws_client_http_body_pending(wsi, 0);
+			wp = LWS_WRITE_HTTP_FINAL;
+		}
+
+		if (lws_write(wsi, buf + LWS_PRE, r->piece_len,
+			      (enum lws_write_protocol)wp) != (int)r->piece_len)
+			return -1;
+
+		r->ready = 0;
+		if (++r->piece == r->pieces)
+			return 0;
+
+		lws_sul_schedule(context, 0, &r->sul, mreq_next_piece,
+				 (r->piece == r->pause_at ? r->pause_ms :
+							    r->piece_ms) *
+				 LWS_US_PER_MS);
+		return 0;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		if (lws_http_client_read(wsi, &px, &lenx) < 0)
+			return -1;
+		return 0;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (len > sizeof(r->body) - 1 - r->body_len)
+			len = sizeof(r->body) - 1 - r->body_len;
+		memcpy(r->body + r->body_len, in, len);
+		r->body_len += len;
+		r->body[r->body_len] = '\0';
+		return 0;
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		r->completed = 1;
+		r->status = (int)lws_http_client_http_response(wsi);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (r->closed)
+			break;
+		lwsl_user("%s: %s (%d) closed, status %d, '%s'\n", __func__,
+			  r->path, (int)(r - mreqs),
+			  r->completed ? r->status : 0, r->body);
+		r->closed = 1;
+		r->wsi = NULL;
+		lws_sul_cancel(&r->sul);
+		lws_set_opaque_user_data(wsi, NULL);
+		multi_check();
+		return 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static int
+multi_start(void)
+{
+	struct lws_client_connect_info i;
+	int n;
+
+	memset(mreqs, 0, sizeof(mreqs));
+	if (tcase == AHL_BODY_RATE) {
+		mreqs[0].path		= "/trickle";
+		mreqs[0].piece_len	= AHL_TRICKLE_PIECE;
+		mreqs[0].pieces		= AHL_TRICKLE_PIECES;
+		mreqs[0].piece_ms	= AHL_TRICKLE_MS;
+		mreqs[0].pause_at	= -1;
+		mreqs[1].path		= "/steady";
+		mreqs[1].piece_len	= AHL_STEADY_PIECE;
+		mreqs[1].pieces		= AHL_STEADY_PIECES;
+		mreqs[1].piece_ms	= AHL_STEADY_MS;
+		mreqs[1].pause_at	= AHL_STEADY_PAUSE_AT;
+		mreqs[1].pause_ms	= AHL_STEADY_PAUSE_MS;
+		mreq_count = 2;
+	} else {
+		for (n = 0; n < AHL_MUX_REQS; n++) {
+			mreqs[n].path		= "/hold";
+			mreqs[n].piece_len	= 1;
+			mreqs[n].pieces		= 1;
+			mreqs[n].pause_at	= -1;
+			mreqs[n].held		= 1;
+		}
+		/* GETs too, which arrive whole and must not be refused */
+		for (n = AHL_MUX_REQS; n < AHL_MUX_REQS + AHL_MUX_GETS; n++) {
+			mreqs[n].path		= AHL_SMALL_PATH;
+			mreqs[n].get		= 1;
+		}
+		mreq_count = AHL_MUX_REQS + AHL_MUX_GETS;
+		lws_sul_schedule(context, 0, &sul_release, mux_cap_release,
+				 AHL_MUX_RELEASE_MS * LWS_US_PER_MS);
+	}
+
+	for (n = 0; n < mreq_count; n++) {
+		memset(&i, 0, sizeof(i));
+		i.context		= context;
+		i.vhost			= vh_cli;
+		i.address		= server_addr;
+		i.host			= server_addr;
+		i.origin		= server_addr;
+		i.port			= port;
+		i.path			= mreqs[n].path;
+		i.method		= mreqs[n].get ? "GET" : "POST";
+		i.protocol		= "ahl-multi";
+		i.opaque_user_data	= &mreqs[n];
+		if (role == AHL_H2)
+			/* one connection for them all */
+			i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE |
+					   LCCSCF_PIPELINE;
+#if defined(LWS_ROLE_H3)
+		if (role == AHL_H3) {
+			i.alpn = "h3";
+			i.ssl_connection = LCCSCF_USE_SSL |
+					   LCCSCF_ALLOW_SELFSIGNED |
+					LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
+					   LCCSCF_PIPELINE;
+			i.disable_h3_fallback = 1;
+		}
+#endif
+		/* on h1, each its own connection, so they go at once */
+
+		if (!lws_client_connect_via_info(&i))
+			return 1;
+	}
+
+	return 0;
+}
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "ahl", callback_srv, sizeof(struct pss_srv), 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
@@ -1018,6 +1405,7 @@ static const struct lws_protocols protocols_srv[] = {
 static const struct lws_protocols protocols_cli[] = {
 	{ "ahl-cli", callback_cli, 0, 0, 0, NULL, 0 },
 	{ "ahl-raw", callback_raw, 0, 0, 0, NULL, 0 },
+	{ "ahl-multi", callback_multi, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -1122,11 +1510,12 @@ int main(int argc, const char **argv)
 	if (r < 0)
 		r = AHL_H1;
 	if (c < 0 || (c < AHL_SLOW_CL && r != AHL_H1) ||
+	    (c == AHL_MUX_CAP_CASE && r == AHL_H1) ||
 	    (r == AHL_H3 && (!cert || !key))) {
 		lwsl_err("--case file-stall | pipeline-depth (h1 only) | "
 			 "slow-cl | slow-stream | late-spa | late-range | "
-			 "late-coded, --role h1 | h2 | h3 (h3 needs --cert "
-			 "and --key)\n");
+			 "late-coded | body-rate | mux-cap (h2, h3 only), "
+			 "--role h1 | h2 | h3 (h3 needs --cert and --key)\n");
 		return 1;
 	}
 	tcase = (enum ahl_case)c;
@@ -1180,6 +1569,13 @@ int main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.timeout_secs = AHL_TIMEOUT_S;
 	info.timeout_secs_ah_idle = AHL_AH_IDLE_S;
+	if (tcase == AHL_MUX_CAP_CASE)
+		info.max_http_header_pool_per_mux = AHL_MUX_CAP;
+	if (tcase == AHL_BODY_RATE) {
+		/* the server vhost's, below */
+		info.http_body_min_rate = AHL_RATE;
+		info.http_body_grace_secs = AHL_RATE_GRACE_S;
+	}
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -1233,6 +1629,11 @@ int main(int argc, const char **argv)
 			lwsl_err("The raw connection could not be started\n");
 			goto bail;
 		}
+	} else if (tcase >= AHL_BODY_RATE) {
+		if (multi_start()) {
+			lwsl_err("The connections could not be started\n");
+			goto bail;
+		}
 	} else {
 		memset(&i, 0, sizeof(i));
 		i.context	= context;
@@ -1270,6 +1671,9 @@ int main(int argc, const char **argv)
 bail:
 	lws_sul_cancel(&sul_watchdog);
 	lws_sul_cancel(&cli.sul);
+	lws_sul_cancel(&sul_release);
+	for (c = 0; c < mreq_count; c++)
+		lws_sul_cancel(&mreqs[c].sul);
 	lws_context_destroy(context);
 bail1:
 #if !defined(WIN32)

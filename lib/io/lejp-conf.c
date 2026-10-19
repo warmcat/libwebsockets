@@ -55,6 +55,7 @@ static const char * const paths_global[] = {
 	"global.quic-only-latest",
 	"global.quic-early-key-update",
 	"global.http-header-data",
+	"global.http-header-pool-per-mux",
 };
 
 enum lejp_global_paths {
@@ -81,6 +82,7 @@ enum lejp_global_paths {
 	LEJPGP_QUIC_ONLY_LATEST,
 	LEJPGP_QUIC_EARLY_KEY_UPDATE,
 	LEJPGP_HTTP_HEADER_DATA,
+	LEJPGP_HTTP_HEADER_POOL_PER_MUX,
 };
 
 static const char * const paths_vhosts[] = {
@@ -186,6 +188,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].tls-passthrough",
 	"vhosts[].tls-passthrough-proxy-v2",
 	"vhosts[].proxy-v2-trusted",
+	"vhosts[].http-body-min-rate",
+	"vhosts[].http-body-grace-secs",
 };
 
 enum lejp_vhost_paths {
@@ -293,6 +297,8 @@ enum lejp_vhost_paths {
 	LEJPVP_TLS_PASSTHROUGH,
 	LEJPVP_TLS_PASSTHROUGH_PROXY_V2,
 	LEJPVP_PROXY_V2_TRUSTED,
+	LEJPVP_HTTP_BODY_MIN_RATE,
+	LEJPVP_HTTP_BODY_GRACE_SECS,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -580,6 +586,15 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		a->info->max_http_header_data =
 				(unsigned short)atoi(ctx->buf);
 		return 0;
+
+	/* how many ahs one h2 / h3 connection's streams may hold at once */
+	case LEJPGP_HTTP_HEADER_POOL_PER_MUX: {
+		int n = atoi(ctx->buf);
+
+		a->info->max_http_header_pool_per_mux = n > 0 ?
+							(unsigned int)n : 0;
+		return 0;
+	}
 
 #if defined(LWS_WITH_TLS)
 	case LWJPGP_DEFAULT_ALPN:
@@ -1452,6 +1467,22 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_HOST_SSL_CERT_GRACE_SECS:
 		n = atoi(ctx->buf);
 		a->info->tls_cert_grace_secs = n > 0 ? (uint32_t)n : 0;
+		return 0;
+
+	case LEJPVP_HTTP_BODY_MIN_RATE:
+		if (!strcmp(ctx->buf, "none")) {
+			a->info->http_body_min_rate =
+					LWS_HTTP_BODY_MIN_RATE_NONE;
+			return 0;
+		}
+		n = atoi(ctx->buf);
+		a->info->http_body_min_rate = n > 0 ? (uint32_t)n : 0;
+		return 0;
+
+	case LEJPVP_HTTP_BODY_GRACE_SECS:
+		n = atoi(ctx->buf);
+		a->info->http_body_grace_secs = n > 0 && n <= 65535 ?
+							(uint16_t)n : 0;
 		return 0;
 
 	case LEJPVP_LISTEN_ACCEPT_ROLE:

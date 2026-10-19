@@ -35,6 +35,16 @@
  *
  * Without the fix, the full pool closed the whole connection at the
  * trailers, and again at the refused stream's HEADERS.
+ *
+ * --case cap: one connection's streams waiting on the peer may only hold so
+ * many ahs at once (3 here), so a client opening many slow POSTs on one
+ * connection can't take the pool from everybody else.  The pool has room for
+ * 8 ahs.  Connection A opens six POSTs whose bodies don't come: the
+ * first three take ahs, the other three must be refused with REFUSED_STREAM.
+ * Then connection B GETs: it must be answered, with its connection's ah and
+ * its stream's from what A could not take.  Then A's bodies end and its held
+ * streams are answered.  Without the cap, A's six streams and its own ah
+ * take 7 of the 8, B's connection the last, and B's GET is refused.
  */
 
 #include <libwebsockets.h>
@@ -55,6 +65,13 @@
 /* the client sends the rest this long after the first part */
 #define AHR_PHASE1_MS		200
 #define AHR_DEADLINE_S		10
+
+/* --case cap: the pool, the POSTs A opens and how many of them may hold one */
+#define AHR_CAP_POOL		8
+#define AHR_CAP_STREAMS		6
+#define AHR_CAP			3
+/* B connects this long after A has sent its POSTs */
+#define AHR_CAP_B_MS		300
 
 /* h2 framing */
 #define AHR_DATA		0
@@ -85,12 +102,14 @@ struct pss_srv {
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
-static lws_sorted_usec_list_t sul_phase1, sul_deadline;
+static lws_sorted_usec_list_t sul_phase1, sul_cap_b, sul_deadline;
 static const char *server_addr = "127.0.0.1";
-static int port = 7681, fails, done, phase1;
+static int port = 7681, fails, done, phase1, case_cap;
 
 /* what the server saw */
 static int srv_later_seen, srv_tr_completed_early, srv_refused_seen;
+/* --case cap: A's POSTs dispatched with their bodies to come, and the most */
+static int srv_cap_held, srv_cap_held_max;
 
 /* what the client saw */
 static int cli_refused, cli_answered[AHR_SID_LATER + 1], cli_later_sent;
@@ -151,8 +170,11 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				srv_later_seen = 1;
 		}
 
-		if (post)
+		if (post) {
+			if (case_cap && ++srv_cap_held > srv_cap_held_max)
+				srv_cap_held_max = srv_cap_held;
 			return 0; /* answered at its body completion */
+		}
 
 		pss->respond = 1;
 		lws_callback_on_writable(wsi);
@@ -162,6 +184,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		if (case_cap)
+			srv_cap_held--;
 		if (!strcmp(pss->path, "/trailers")) {
 			/*
 			 * The ah goes back now, before the trailers come:
@@ -197,17 +221,20 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 /* ---- client: raw h2 ---- */
 
-struct ahr_tx {
-	uint8_t		buf[LWS_PRE + 1024];
-	size_t		len;
+struct ahr_conn {
+	struct lws	*wsi;
+	uint8_t		tx[LWS_PRE + 1024];
+	size_t		tx_len;
+	/* frames are reassembled here */
+	uint8_t		rxf[16384 + 9];
+	size_t		rxf_len;
+	/* --case cap: what came back on each stream */
+	char		refused[AHR_SID_LATER + 4];
+	char		answered[AHR_SID_LATER + 4];
 };
 
-static struct ahr_tx tx;
-static struct lws *cli_wsi;
-
-/* frames are reassembled here */
-static uint8_t rxf[16384 + 9];
-static size_t rxf_len;
+/* the connection of the default case, and A of --case cap; then B */
+static struct ahr_conn conns[2];
 
 static void
 ahr_finish(const char *why, int failed)
@@ -222,26 +249,27 @@ ahr_finish(const char *why, int failed)
 		lwsl_user("%s: %s\n", __func__, why);
 
 	lws_sul_cancel(&sul_phase1);
+	lws_sul_cancel(&sul_cap_b);
 	lws_sul_cancel(&sul_deadline);
 	lws_cancel_service(context);
 }
 
 static void
-ahr_add(const void *p, size_t len)
+ahr_add(struct ahr_conn *c, const void *p, size_t len)
 {
-	if (tx.len + len > sizeof(tx.buf) - LWS_PRE) {
+	if (c->tx_len + len > sizeof(c->tx) - LWS_PRE) {
 		ahr_finish("tx overflow", 1);
 		return;
 	}
-	memcpy(tx.buf + LWS_PRE + tx.len, p, len);
-	tx.len += len;
-	if (cli_wsi)
-		lws_callback_on_writable(cli_wsi);
+	memcpy(c->tx + LWS_PRE + c->tx_len, p, len);
+	c->tx_len += len;
+	if (c->wsi)
+		lws_callback_on_writable(c->wsi);
 }
 
 static void
-ahr_frame(uint8_t type, uint8_t flags, uint32_t sid, const void *pl,
-	  size_t len)
+ahr_frame(struct ahr_conn *c, uint8_t type, uint8_t flags, uint32_t sid,
+	  const void *pl, size_t len)
 {
 	uint8_t h[9];
 
@@ -255,9 +283,9 @@ ahr_frame(uint8_t type, uint8_t flags, uint32_t sid, const void *pl,
 	h[7] = (uint8_t)(sid >> 8);
 	h[8] = (uint8_t)sid;
 
-	ahr_add(h, sizeof(h));
+	ahr_add(c, h, sizeof(h));
 	if (len)
-		ahr_add(pl, len);
+		ahr_add(c, pl, len);
 }
 
 /* hpack literal, without indexing (or with, if incr), indexed name */
@@ -282,7 +310,8 @@ ahr_lit(uint8_t *p, int name_idx, int incr, const char *v)
 
 /* POST path, content-length cl, body to follow */
 static void
-ahr_post(uint32_t sid, const char *path, int incr, const char *cl)
+ahr_post(struct ahr_conn *c, uint32_t sid, const char *path, int incr,
+	 const char *cl)
 {
 	/* literal with incremental indexing, literal name */
 	static const uint8_t ua[] = {
@@ -302,20 +331,26 @@ ahr_post(uint32_t sid, const char *path, int incr, const char *cl)
 		n += sizeof(ua);
 	}
 
-	ahr_frame(AHR_HEADERS, AHR_FL_END_HEADERS, sid, b, n);
+	ahr_frame(c, AHR_HEADERS, AHR_FL_END_HEADERS, sid, b, n);
 }
 
 static void
-ahr_phase0(void)
+ahr_preface(struct ahr_conn *c)
 {
 	static const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-	ahr_add(preface, sizeof(preface) - 1);
-	ahr_frame(AHR_SETTINGS, 0, 0, NULL, 0);
+	ahr_add(c, preface, sizeof(preface) - 1);
+	ahr_frame(c, AHR_SETTINGS, 0, 0, NULL, 0);
+}
 
-	ahr_post(AHR_SID_HOLD_A, "/hold-a", 0, "1");
-	ahr_post(AHR_SID_TRAILERS, "/trailers", 0, AHR_TR_CL);
-	ahr_frame(AHR_DATA, 0, AHR_SID_TRAILERS, AHR_TR_BODY,
+static void
+ahr_phase0(struct ahr_conn *c)
+{
+	ahr_preface(c);
+
+	ahr_post(c, AHR_SID_HOLD_A, "/hold-a", 0, "1");
+	ahr_post(c, AHR_SID_TRAILERS, "/trailers", 0, AHR_TR_CL);
+	ahr_frame(c, AHR_DATA, 0, AHR_SID_TRAILERS, AHR_TR_BODY,
 		  sizeof(AHR_TR_BODY) - 1);
 }
 
@@ -327,16 +362,18 @@ ahr_phase1_cb(lws_sorted_usec_list_t *sul)
 		0x00, 9, 'x', '-', 't', 'r', 'a', 'i', 'l', 'e', 'r', 1, '1'
 	};
 
+	struct ahr_conn *c = &conns[0];
+
 	phase1 = 1;
 
-	ahr_post(AHR_SID_HOLD_B, "/hold-b", 0, "1");
-	ahr_frame(AHR_HEADERS, AHR_FL_END_HEADERS | AHR_FL_END_STREAM,
+	ahr_post(c, AHR_SID_HOLD_B, "/hold-b", 0, "1");
+	ahr_frame(c, AHR_HEADERS, AHR_FL_END_HEADERS | AHR_FL_END_STREAM,
 		  AHR_SID_TRAILERS, trailers, sizeof(trailers));
 	/*
 	 * Its :path and user-agent go in the dynamic table, as entries 63
 	 * and 62
 	 */
-	ahr_post(AHR_SID_REFUSED, "/later", 1, "1");
+	ahr_post(c, AHR_SID_REFUSED, "/later", 1, "1");
 }
 
 static void
@@ -360,12 +397,33 @@ ahr_check_progress(void)
 	    cli_answered[AHR_SID_HOLD_A] && cli_answered[AHR_SID_HOLD_B] &&
 	    cli_answered[AHR_SID_TRAILERS]) {
 		cli_later_sent = 1;
-		ahr_frame(AHR_HEADERS, AHR_FL_END_HEADERS | AHR_FL_END_STREAM,
+		ahr_frame(&conns[0], AHR_HEADERS,
+			  AHR_FL_END_HEADERS | AHR_FL_END_STREAM,
 			  AHR_SID_LATER, get_later, sizeof(get_later));
 	}
 
 	if (cli_answered[AHR_SID_LATER])
 		ahr_finish("all streams answered, refused one refused", 0);
+}
+
+/* the start of a HEADERS frame's header block */
+static int
+ahr_hdrs_block(uint8_t flags, const uint8_t **pl, size_t *len)
+{
+	if (flags & AHR_FL_PADDED) {
+		if (!*len)
+			return 1;
+		(*pl)++;
+		(*len)--;
+	}
+	if (flags & AHR_FL_PRIORITY) {
+		if (*len < 5)
+			return 1;
+		*pl += 5;
+		*len -= 5;
+	}
+
+	return 0;
 }
 
 /*
@@ -384,7 +442,7 @@ ahr_status_200(const uint8_t *pl, size_t len)
 }
 
 static int
-ahr_rx_frame(const uint8_t *f, size_t len)
+ahr_rx_frame(struct ahr_conn *c, const uint8_t *f, size_t len)
 {
 	uint32_t sid = ((uint32_t)(f[5] & 0x7f) << 24) | ((uint32_t)f[6] << 16) |
 		       ((uint32_t)f[7] << 8) | f[8];
@@ -395,22 +453,12 @@ ahr_rx_frame(const uint8_t *f, size_t len)
 	switch (type) {
 	case AHR_SETTINGS:
 		if (!(flags & AHR_FL_ACK))
-			ahr_frame(AHR_SETTINGS, AHR_FL_ACK, 0, NULL, 0);
+			ahr_frame(c, AHR_SETTINGS, AHR_FL_ACK, 0, NULL, 0);
 		break;
 
 	case AHR_HEADERS:
-		if (flags & AHR_FL_PADDED) {
-			if (!len)
-				return 1;
-			pl++;
-			len--;
-		}
-		if (flags & AHR_FL_PRIORITY) {
-			if (len < 5)
-				return 1;
-			pl += 5;
-			len -= 5;
-		}
+		if (ahr_hdrs_block(flags, &pl, &len))
+			return 1;
 		if (!ahr_status_200(pl, len) || sid > AHR_SID_LATER ||
 		    sid == AHR_SID_REFUSED) {
 			lwsl_err("%s: unexpected HEADERS on sid %u (0x%02x)\n",
@@ -439,8 +487,10 @@ ahr_rx_frame(const uint8_t *f, size_t len)
 		}
 		cli_refused = 1;
 		/* the held streams' bodies end now */
-		ahr_frame(AHR_DATA, AHR_FL_END_STREAM, AHR_SID_HOLD_A, "x", 1);
-		ahr_frame(AHR_DATA, AHR_FL_END_STREAM, AHR_SID_HOLD_B, "x", 1);
+		ahr_frame(c, AHR_DATA, AHR_FL_END_STREAM, AHR_SID_HOLD_A,
+			  "x", 1);
+		ahr_frame(c, AHR_DATA, AHR_FL_END_STREAM, AHR_SID_HOLD_B,
+			  "x", 1);
 		ahr_check_progress();
 		break;
 
@@ -455,35 +505,190 @@ ahr_rx_frame(const uint8_t *f, size_t len)
 	return 0;
 }
 
+/* ---- --case cap ---- */
+
+static int ahr_connect(struct ahr_conn *c);
+
+static void
+ahr_cap_b_cb(lws_sorted_usec_list_t *sul)
+{
+	if (ahr_connect(&conns[1]))
+		ahr_finish("B could not connect", 1);
+}
+
+/* A: six POSTs with a content-length of 1, whose bodies don't come yet */
+static void
+ahr_cap_a_start(struct ahr_conn *c)
+{
+	char path[16];
+	int n;
+
+	ahr_preface(c);
+	for (n = 0; n < AHR_CAP_STREAMS; n++) {
+		lws_snprintf(path, sizeof(path), "/hold-%d", n);
+		ahr_post(c, (uint32_t)(1 + (2 * n)), path, 0, "1");
+	}
+
+	lws_sul_schedule(context, 0, &sul_cap_b, ahr_cap_b_cb,
+			 AHR_CAP_B_MS * LWS_US_PER_MS);
+}
+
+/* B: one GET */
+static void
+ahr_cap_b_start(struct ahr_conn *c)
+{
+	uint8_t b[64];
+	size_t n = 0;
+
+	b[n++] = 0x82;	/* :method GET */
+	b[n++] = 0x86;	/* :scheme http */
+	n += ahr_lit(b + n, 4, 0, "/other");		/* :path */
+	n += ahr_lit(b + n, 1, 0, "localhost");		/* :authority */
+
+	ahr_preface(c);
+	ahr_frame(c, AHR_HEADERS, AHR_FL_END_HEADERS | AHR_FL_END_STREAM, 1,
+		  b, n);
+}
+
+static void
+ahr_cap_check(void)
+{
+	struct ahr_conn *a = &conns[0], *b = &conns[1];
+	int n, sid, refused = 0, answered = 0;
+
+	if (b->refused[1]) {
+		ahr_finish("B's GET was refused: A's streams hold the pool", 1);
+		return;
+	}
+	if (!b->answered[1])
+		return;
+
+	for (n = 0; n < AHR_CAP_STREAMS; n++) {
+		sid = 1 + (2 * n);
+		refused += a->refused[sid];
+		answered += a->answered[sid];
+	}
+
+	if (!phase1) {
+		/* B was served: A's bodies come now, for the streams it kept */
+		phase1 = 1;
+		for (n = 0; n < AHR_CAP_STREAMS; n++) {
+			sid = 1 + (2 * n);
+			if (!a->refused[sid])
+				ahr_frame(a, AHR_DATA, AHR_FL_END_STREAM,
+					  (uint32_t)sid, "x", 1);
+		}
+	}
+
+	if (refused + answered < AHR_CAP_STREAMS)
+		return;
+
+	if (refused != AHR_CAP_STREAMS - AHR_CAP) {
+		lwsl_err("%s: A had %d of %d streams refused, want %d\n",
+			 __func__, refused, AHR_CAP_STREAMS,
+			 AHR_CAP_STREAMS - AHR_CAP);
+		ahr_finish("A's connection was not capped", 1);
+		return;
+	}
+	if (srv_cap_held_max > AHR_CAP) {
+		lwsl_err("%s: the server held %d of A's POSTs at once\n",
+			 __func__, srv_cap_held_max);
+		ahr_finish("A's connection held more than its cap", 1);
+		return;
+	}
+
+	ahr_finish("B served while A was capped, A's kept streams answered",
+		   0);
+}
+
 static int
-ahr_rx(const uint8_t *in, size_t len)
+ahr_cap_rx_frame(struct ahr_conn *c, const uint8_t *f, size_t len)
+{
+	uint32_t sid = ((uint32_t)(f[5] & 0x7f) << 24) | ((uint32_t)f[6] << 16) |
+		       ((uint32_t)f[7] << 8) | f[8];
+	const uint8_t *pl = f + 9;
+	uint8_t type = f[3], flags = f[4];
+	const char *cn = c == &conns[0] ? "A" : "B";
+	uint32_t err;
+
+	switch (type) {
+	case AHR_SETTINGS:
+		if (!(flags & AHR_FL_ACK))
+			ahr_frame(c, AHR_SETTINGS, AHR_FL_ACK, 0, NULL, 0);
+		return 0;
+
+	case AHR_HEADERS:
+		if (ahr_hdrs_block(flags, &pl, &len) ||
+		    !ahr_status_200(pl, len) || sid >= sizeof(c->answered)) {
+			lwsl_err("%s: %s: unexpected HEADERS on sid %u\n",
+				 __func__, cn, (unsigned int)sid);
+			return 1;
+		}
+		lwsl_user("%s: %s: sid %u answered 200\n", __func__, cn,
+			  (unsigned int)sid);
+		c->answered[sid] = 1;
+		break;
+
+	case AHR_RST_STREAM:
+		if (len != 4 || sid >= sizeof(c->refused))
+			return 1;
+		err = ((uint32_t)pl[0] << 24) | ((uint32_t)pl[1] << 16) |
+		      ((uint32_t)pl[2] << 8) | pl[3];
+		lwsl_user("%s: %s: RST_STREAM sid %u err %u\n", __func__, cn,
+			  (unsigned int)sid, (unsigned int)err);
+		if (err == AHR_ERR_REFUSED) {
+			c->refused[sid] = 1;
+			break;
+		}
+		/* the server finished with a stream we were done with */
+		if (!err && c->answered[sid])
+			return 0;
+		return 1;
+
+	case AHR_GOAWAY:
+		lwsl_err("%s: %s: GOAWAY\n", __func__, cn);
+		return 1;
+
+	default:
+		return 0;
+	}
+
+	ahr_cap_check();
+
+	return 0;
+}
+
+static int
+ahr_rx(struct ahr_conn *c, const uint8_t *in, size_t len)
 {
 	while (len) {
 		size_t need = 9, flen, n;
 
-		if (rxf_len >= 9)
-			need = 9 + (((size_t)rxf[0] << 16) |
-				    ((size_t)rxf[1] << 8) | rxf[2]);
-		if (need > sizeof(rxf))
+		if (c->rxf_len >= 9)
+			need = 9 + (((size_t)c->rxf[0] << 16) |
+				    ((size_t)c->rxf[1] << 8) | c->rxf[2]);
+		if (need > sizeof(c->rxf))
 			return 1;
 
-		n = need - rxf_len;
+		n = need - c->rxf_len;
 		if (n > len)
 			n = len;
-		memcpy(rxf + rxf_len, in, n);
-		rxf_len += n;
+		memcpy(c->rxf + c->rxf_len, in, n);
+		c->rxf_len += n;
 		in += n;
 		len -= n;
 
-		if (rxf_len < 9)
+		if (c->rxf_len < 9)
 			continue;
-		flen = ((size_t)rxf[0] << 16) | ((size_t)rxf[1] << 8) | rxf[2];
-		if (rxf_len < 9 + flen)
+		flen = ((size_t)c->rxf[0] << 16) | ((size_t)c->rxf[1] << 8) |
+		       c->rxf[2];
+		if (c->rxf_len < 9 + flen)
 			continue;
 
-		if (ahr_rx_frame(rxf, flen))
+		if (case_cap ? ahr_cap_rx_frame(c, c->rxf, flen) :
+			       ahr_rx_frame(c, c->rxf, flen))
 			return 1;
-		rxf_len = 0;
+		c->rxf_len = 0;
 	}
 
 	return 0;
@@ -493,37 +698,49 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
+	struct ahr_conn *c = (struct ahr_conn *)lws_get_opaque_user_data(wsi);
+
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		ahr_finish("could not connect", 1);
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
-		cli_wsi = wsi;
-		ahr_phase0();
+		if (!c)
+			return -1;
+		c->wsi = wsi;
+		if (case_cap) {
+			if (c == &conns[0])
+				ahr_cap_a_start(c);
+			else
+				ahr_cap_b_start(c);
+			break;
+		}
+		ahr_phase0(c);
 		lws_sul_schedule(context, 0, &sul_phase1, ahr_phase1_cb,
 				 AHR_PHASE1_MS * LWS_US_PER_MS);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		if (!tx.len)
+		if (!c || !c->tx_len)
 			break;
-		if (lws_write(wsi, tx.buf + LWS_PRE, tx.len, LWS_WRITE_RAW) !=
-							(int)tx.len)
+		if (lws_write(wsi, c->tx + LWS_PRE, c->tx_len, LWS_WRITE_RAW) !=
+							(int)c->tx_len)
 			return -1;
-		tx.len = 0;
+		c->tx_len = 0;
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
-		if (ahr_rx((const uint8_t *)in, len)) {
+		if (!c || ahr_rx(c, (const uint8_t *)in, len)) {
 			ahr_finish("unexpected frame from the server", 1);
 			return -1;
 		}
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		cli_wsi = NULL;
-		ahr_finish("the server closed the connection", 1);
+		if (c)
+			c->wsi = NULL;
+		ahr_finish("the server closed a connection", 1);
 		break;
 
 	default:
@@ -543,6 +760,25 @@ static const struct lws_protocols protocols_cli[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+static int
+ahr_connect(struct ahr_conn *c)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_cli;
+	i.address		= server_addr;
+	i.host			= server_addr;
+	i.origin		= server_addr;
+	i.port			= port;
+	i.method		= "RAW";
+	i.local_protocol_name	= "raw-h2";
+	i.opaque_user_data	= c;
+
+	return !lws_client_connect_via_info(&i);
+}
+
 static void
 sigint_handler(int sig)
 {
@@ -553,7 +789,6 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_client_connect_info i;
 	const char *p;
 	int n = 0;
 
@@ -566,14 +801,25 @@ main(int argc, const char **argv)
 		port = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
+	if ((p = lws_cmdline_option(argc, argv, "--case"))) {
+		if (strcmp(p, "pool") && strcmp(p, "cap")) {
+			lwsl_err("--case pool (default) | cap\n");
+			return 1;
+		}
+		case_cap = !strcmp(p, "cap");
+	}
 
 	signal(SIGINT, sigint_handler);
-	lwsl_user("LWS API selftest: h2 stream refused when no ah is free\n");
+	lwsl_user("LWS API selftest: h2 stream refused when %s\n",
+		  case_cap ? "its connection holds its share of ahs" :
+			     "no ah is free");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_CPD_BYPASS;
 	info.count_threads = 1;
-	info.max_http_header_pool = AHR_POOL;
+	info.max_http_header_pool = case_cap ? AHR_CAP_POOL : AHR_POOL;
+	if (case_cap)
+		info.max_http_header_pool_per_mux = AHR_CAP;
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -603,21 +849,14 @@ main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_deadline, ahr_deadline_cb,
 			 AHR_DEADLINE_S * LWS_US_PER_SEC);
 
-	memset(&i, 0, sizeof(i));
-	i.context		= context;
-	i.vhost			= vh_cli;
-	i.address		= server_addr;
-	i.host			= server_addr;
-	i.origin		= server_addr;
-	i.port			= port;
-	i.method		= "RAW";
-	i.local_protocol_name	= "raw-h2";
-
-	if (!lws_client_connect_via_info(&i))
+	if (ahr_connect(&conns[0]))
 		ahr_finish("connect failed", 1);
 
 	while (!done && n >= 0)
 		n = lws_service(context, 0);
+
+	if (case_cap)
+		goto bail;
 
 	if (!srv_tr_completed_early) {
 		lwsl_err("FAILED: /trailers' body didn't complete before its "

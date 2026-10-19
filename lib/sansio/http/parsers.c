@@ -256,6 +256,57 @@ __lws_remove_from_ah_waiting_list(struct lws *wsi)
 	return 1;
 }
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+/*
+ * Is the peer done sending on this mux stream?  Then what it holds is not
+ * for the peer to keep: a request with all its headers and no body gives its
+ * ah back at its dispatch, however many arrive together.
+ */
+static int
+lws_mux_stream_peer_done(struct lws *w)
+{
+#if defined(LWS_ROLE_H2)
+	if (lwsi_role_h2(w))
+		return w->h2.END_STREAM ||
+		       w->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE ||
+		       w->h2.h2_state == LWS_H2_STATE_CLOSED;
+#endif
+#if defined(LWS_ROLE_H3)
+	if (lwsi_role_h3(w))
+		return w->quic.qs && w->quic.qs->fin_received;
+#endif
+
+	return 0;
+}
+
+int
+lws_mux_ah_cap_reached(struct lws *wsi)
+{
+	unsigned int held = 0;
+
+	if (!wsi->mux_substream || !lwsi_role_server(wsi) ||
+	    !wsi->mux.parent_wsi)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(
+				&wsi->mux.parent_wsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+
+		if (w != wsi && w->stream.ah && !lws_mux_stream_peer_done(w))
+			held++;
+	} lws_end_foreach_dll(d);
+
+	if (held < wsi->a.context->max_http_header_pool_per_mux)
+		return 0;
+
+	lwsl_wsi_notice(wsi, "%u of its connection's streams waiting on the "
+			"peer hold ahs already", held);
+
+	return 1;
+}
+#endif
+
 lws_ah_attach_result_t LWS_WARN_UNUSED_RESULT
 lws_header_table_attach(struct lws *wsi, int autoservice)
 {

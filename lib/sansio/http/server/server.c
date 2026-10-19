@@ -2142,6 +2142,64 @@ lws_h1_request_framing(struct lws *wsi)
 }
 
 /*
+ * A request body's timeout.  Each piece renews the wait for the next, up to
+ * timeout_secs, but the body as a whole must also keep up with the vhost's
+ * minimum rate (G-028): it may take the grace time from its request's
+ * headers, plus a second for each http_body_min_rate bytes of it taken so
+ * far.  Whichever comes sooner is armed.  A body already behind is given up
+ * on now, as the timeout would, which resets an h2 / h3 stream, giving back
+ * its ah, or closes an h1 connection.
+ */
+void
+lws_http_body_timeout_arm(struct lws *wsi)
+{
+	const struct lws_vhost *vh = wsi->a.vhost;
+	lws_usec_t to = (lws_usec_t)wsi->a.context->timeout_secs *
+							LWS_US_PER_SEC,
+		   now, spent, allowed;
+	uint64_t secs;
+
+	if (vh->http_body_min_rate == LWS_HTTP_BODY_MIN_RATE_NONE ||
+	    wsi->mux_stream_immortal) {
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				(int)wsi->a.context->timeout_secs);
+		return;
+	}
+
+	now = lws_wsi_now(wsi);
+	if (!wsi->http.rx_body_start)
+		wsi->http.rx_body_start = now;
+	spent = now - wsi->http.rx_body_start;
+
+	/* a day's worth of credit is as good as no limit, and can't wrap */
+	secs = wsi->http.rx_body_count / vh->http_body_min_rate;
+	if (secs < 86400) {
+		allowed = (lws_usec_t)(vh->http_body_grace_secs + secs) *
+								LWS_US_PER_SEC +
+			  (lws_usec_t)(((wsi->http.rx_body_count %
+				vh->http_body_min_rate) * LWS_US_PER_SEC) /
+					vh->http_body_min_rate);
+
+		if (spent >= allowed) {
+			lwsl_wsi_notice(wsi, "body too slow: %llu bytes in "
+					"%llums, giving up",
+					(unsigned long long)
+						wsi->http.rx_body_count,
+					(unsigned long long)
+						(spent / LWS_US_PER_MS));
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+					LWS_TO_KILL_ASYNC);
+			return;
+		}
+
+		if (allowed - spent < to)
+			to = allowed - spent;
+	}
+
+	lws_set_timeout_us(wsi, PENDING_TIMEOUT_HTTP_CONTENT, to);
+}
+
+/*
  * How the request's body is framed: its Content-Length, or a chunked
  * Transfer-Encoding, validated into rx_content_length, rx_content_remain,
  * content_length_given and rx_chunked.  A request we might frame differently
@@ -2168,6 +2226,9 @@ lws_http_request_body_framing(struct lws *wsi)
 	/* per-transaction: the last request's framing says nothing of this one's */
 	wsi->http.content_length_given = 0;
 	wsi->http.rx_body_done = 0;
+	/* the body's minimum rate is counted from its request's headers */
+	wsi->http.rx_body_start = lws_wsi_now(wsi);
+	wsi->http.rx_body_count = 0;
 	wsi->http.expect_continue = 0;
 	/* no status line has been built for this transaction yet */
 	wsi->http.response_code = 0;

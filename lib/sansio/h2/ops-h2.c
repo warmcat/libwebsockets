@@ -1086,16 +1086,15 @@ rops_callback_on_writable_h2(struct lws *wsi)
  * and whatever the user allocated at LWS_CALLBACK_HTTP for the life of the
  * connection.
  *
- * Arm the same body timeout h1 uses: lws_read_h1() re-arms it as body arrives
- * and clears it at body completion.
+ * Arm the same body timeout h1 uses, with its minimum rate: lws_read_h1()
+ * re-arms it as body arrives and clears it at body completion.
  */
 
 static void
 lws_h2_await_body_timeout(struct lws *wsi)
 {
 	if (!wsi->mux_stream_immortal)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-				(int)wsi->a.context->timeout_secs);
+		lws_http_body_timeout_arm(wsi);
 }
 
 /*

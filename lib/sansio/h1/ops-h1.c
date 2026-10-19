@@ -97,11 +97,21 @@ lws_h1_body_timeout(struct lws *wsi, int arm)
 	     (!lwsi_role_client(wsi) && wsi->http.sent_response_headers)))
 		return;
 
-	if (arm)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-				(int)wsi->a.context->timeout_secs);
-	else
+	if (!arm) {
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+		return;
+	}
+
+#if defined(LWS_WITH_SERVER)
+	if (lwsi_role_server(wsi)) {
+		/* the body as a whole must keep up with a minimum rate too */
+		lws_http_body_timeout_arm(wsi);
+		return;
+	}
+#endif
+
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+			(int)wsi->a.context->timeout_secs);
 }
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
@@ -402,6 +412,10 @@ http_postbody:
 			}
 #endif
 			lwsl_info("%s: advancing buf by %d\n", __func__, (int)n);
+#if defined(LWS_WITH_SERVER)
+			/* what the body's minimum rate counts */
+			wsi->http.rx_body_count += n;
+#endif
 			buf += n;
 			lws_servbuf_trim(pt, buf);
 

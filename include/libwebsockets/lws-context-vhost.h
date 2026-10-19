@@ -433,6 +433,9 @@ typedef uint64_t (*lws_quic_tx_credit_cb_t)(struct lws *wsi, uint64_t current_wi
 
 #define LWS_FD_LIMIT_PER_THREAD_MIN (LWS_FD_LIMIT_INTERNAL + 8 /* overhead */)
 
+/* for .http_body_min_rate: a request body may arrive as slowly as it likes */
+#define LWS_HTTP_BODY_MIN_RATE_NONE	0xffffffffu
+
 struct lws_context_creation_info {
 #if defined(LWS_WITH_NETWORK)
 	const char *iface;
@@ -1366,6 +1369,52 @@ struct lws_context_creation_info {
 	 * nothing it has to acknowledge, for that long.  It is a property of
 	 * the transport, whatever streams are open: a peer keeps a quiet
 	 * connection by sending something, eg, PING. */
+
+	unsigned int			max_http_header_pool_per_mux;
+	/**< CONTEXT: 0 for default, or how many of a thread's request header
+	 * tables (ahs, see .max_http_header_pool) the streams of one h2 or h3
+	 * server connection may hold at once while they wait on the peer.  A
+	 * stream holds one from its HEADERS until its request is dispatched,
+	 * or, for a request with a body, until all of its body has arrived.
+	 * Streams the peer has finished sending on, eg, GETs waiting to be
+	 * dispatched, don't count, and are never refused for it.  A new
+	 * stream with more to come over the limit is refused on its own, with
+	 * RST_STREAM REFUSED_STREAM on h2 or H3_REQUEST_REJECTED on h3, which
+	 * tell the client it may retry; the connection and its other streams
+	 * go on.  Without a limit, a few connections opening many streams
+	 * whose bodies never finish could hold the whole pool, and nobody
+	 * else's request could be read.
+	 *
+	 * The default is one less than the pool's ahs per fd of the thread,
+	 * but at least 8, since clients (lws' own among them) commonly send
+	 * several uploads on one connection at once and do not retry a
+	 * refused stream.  With the default pool, 4 ahs per fd, that is 8:
+	 * connections then need nearly half the fds to fill the pool, each
+	 * keeping 8 bodies coming at .http_body_min_rate.  3 or less makes
+	 * that need every fd, as on h1, at the price of refusing a fourth
+	 * concurrent upload on a connection. */
+
+	uint32_t			http_body_min_rate;
+	/**< VHOST: 0 for default (500), the slowest a request body may arrive
+	 * on average, in bytes per second, or LWS_HTTP_BODY_MIN_RATE_NONE for
+	 * no limit beyond .timeout_secs between its pieces.  The body has
+	 * .http_body_grace_secs from its request's headers, plus a second for
+	 * each .http_body_min_rate bytes of it taken so far: one falling
+	 * behind that is given up on as for a timeout, which resets an h2 or
+	 * h3 stream, giving back what it holds, or closes an h1 connection.
+	 * Each piece still has to come within .timeout_secs of the last.
+	 *
+	 * Without it, a peer trickling a byte of body every few seconds holds
+	 * its request, and its header table, for as long as it likes.  The
+	 * default, like Apache httpd's mod_reqtimeout MinRate, cuts no upload
+	 * of any size going faster than 4 kbit/s.  Time the server itself is
+	 * not taking the body counts too, eg, while rx flow control is off, or
+	 * a cgi or the onward connection of a proxy mount is slow to take it.
+	 * Immortal streams (eg, long polls) are not limited. */
+
+	uint16_t			http_body_grace_secs;
+	/**< VHOST: 0 for default (20), or the seconds a request body has
+	 * before .http_body_min_rate starts to count against it */
 
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */

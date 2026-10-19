@@ -34,4 +34,14 @@ if (requirements)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 			     TIMEOUT 30)
 
+	lws_get_free_port(PORT_H2_AH_REFUSE_CAP)
+
+	add_test(NAME api-test-h2-ah-refuse-cap
+		 COMMAND lws-api-test-h2-ah-refuse --case cap
+			 -p ${PORT_H2_AH_REFUSE_CAP}
+			 --server ${LWS_CTEST_SERVER_RESOLVE})
+	set_tests_properties(api-test-h2-ah-refuse-cap PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+			     TIMEOUT 30)
+
 endif()

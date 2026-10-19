@@ -265,6 +265,10 @@ lws_create_vhost(struct lws_context *context,
 	vh->unix_socket_perms		= info->unix_socket_perms;
 	vh->fo_listen_queue		= info->fo_listen_queue;
 	vh->max_http_body_size		= info->max_http_body_size;
+	vh->http_body_min_rate		= info->http_body_min_rate ?
+					  info->http_body_min_rate : 500;
+	vh->http_body_grace_secs	= info->http_body_grace_secs ?
+					  info->http_body_grace_secs : 20;
 
 	LWS_FOR_EVERY_ROLE_START(ar)
 	if (lws_rops_fidx(ar, LWS_ROPS_init_vhost) &&

@@ -1007,7 +1007,23 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	 * gave its own back
 	 */
 	if (lwsi_hdrs_pending(wsi) && !wsi->stream.ah) {
-		lws_ah_attach_result_t ar = lws_header_table_attach(wsi, 0);
+		lws_ah_attach_result_t ar;
+
+		/*
+		 * A request the peer has more to send for, eg, a POST's
+		 * body, holds its ah until it does: only so many of those
+		 * per connection (G-028).  Refused like one finding the pool
+		 * full, below.
+		 */
+		if (lwsi_role_server(wsi) &&
+		    !(wsi->quic.qs && wsi->quic.qs->fin_received) &&
+		    lws_mux_ah_cap_reached(wsi)) {
+			wsi->h3.ah_refused = 1;
+
+			return -1;
+		}
+
+		ar = lws_header_table_attach(wsi, 0);
 
 		if (ar == LWS_AH_ATTACH_WSI_GONE)
 			/*

@@ -454,6 +454,11 @@ struct _lws_http_mode_related {
 	lws_filepos_t tx_content_remain;
 	lws_filepos_t rx_content_length;
 	lws_filepos_t rx_content_remain;
+#if defined(LWS_WITH_SERVER)
+	/* the request body's minimum rate: since when, and how much so far */
+	lws_usec_t rx_body_start;
+	uint64_t rx_body_count;
+#endif
 
 	/*
 	 * Transfer-Encoding: chunked decoder state for the rx body on this
@@ -690,6 +695,14 @@ lws_http_mux_body_completed(struct lws *wsi);
  */
 int
 lws_http_body_completion(struct lws *wsi);
+
+/*
+ * (Re)arm a server request body's timeout: the wait for its next piece, or
+ * sooner, when the body must have more by then to keep up with the vhost's
+ * http_body_min_rate.  A body already behind is closed as for a timeout.
+ */
+void
+lws_http_body_timeout_arm(struct lws *wsi);
 #endif
 
 #if defined(LWS_ROLE_H1)
@@ -729,6 +742,21 @@ lws_http_mux_body_ended_by_peer(struct lws *wsi);
  * the return is unchanged; but a caller that only tests for nonzero is a bug
  * on any path that can reach the reentrant parts.
  */
+
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+/*
+ * One h2 / h3 server connection's streams may only hold so many ahs at once
+ * while they wait on the peer (G-028: context max_http_header_pool_per_mux),
+ * or a few connections opening many streams whose requests never finish,
+ * eg, bodies trickling in, would hold the whole pool and nobody else's
+ * request could be read.  Streams the peer has finished sending on, eg,
+ * GETs waiting for their dispatch, give theirs back without the peer's help
+ * and don't count.  Nonzero if a new stream the peer is not done with must
+ * be refused on its own, as for a full pool: the peer may retry it.
+ */
+int
+lws_mux_ah_cap_reached(struct lws *wsi);
+#endif
 
 typedef enum lws_ah_attach_result {
 	LWS_AH_ATTACH_OK		= 0,	/* wsi owns an ah, wsi valid */

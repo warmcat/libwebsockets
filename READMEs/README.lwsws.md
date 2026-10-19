@@ -161,6 +161,16 @@ per connection, for server and client connections.  It defaults to 4096;
 sites that deal with very fat response headers (for example, release
 redirects from github with many cookies) should raise it, eg `"8192"`.
 The maximum is 32768.
+
+ - `http-header-pool-per-mux` sets how many request header tables the streams
+of one h2 or h3 connection may hold at once while they wait on the client, eg,
+for their bodies.  A new stream with more to come over the limit is refused
+on its own (h2 `REFUSED_STREAM`, h3 `H3_REQUEST_REJECTED`, both safe for the
+client to retry), so a few connections opening many streams that never finish
+their bodies cannot use up the pool everybody's requests need.  Requests that
+arrive whole, like a burst of GETs, are never refused for it.  The default is
+one less than the pool's tables per fd, but at least 8: with the default pool
+that is 8.
  
 ## Lwsws Vhosts
 
@@ -318,6 +328,18 @@ may have typed .../myapp, to get them to .../myapp/ where the app actually takes
  When the cert and key files are renewed on disk, eg, by moving a `-latest` symlink onto new files the way the acme plugin, the cert distribution client or certbot do, the vhost notices and moves onto them without a restart and without disturbing its connections.  Connections made before the renewal carry on with the old cert until they close.  The files must still be readable by lwsws after it has dropped its privileges for it to see the renewal by itself; a warning is logged once if they aren't.  A renewer that keeps them out of lwsws's reach, like the cert distribution client, hands the vhost copies of the new pair instead (`lws_tls_cert_updated()`).
 
  - "`host-ssl-cert-grace-secs`": "900" holds a renewed cert back for that many seconds after it was issued or written, whichever is later, before the vhost serves it.  The renewed pair is loaded as soon as it is seen, so it is served when the time is up even if it can't be read by then; a restart serves it at once.  Use it when the cert is published in DNS for DANE, so the new TLSA record has replaced cached copies of the old one first.  Default 0, the renewed cert is served as soon as it is seen.
+
+ - "`http-body-min-rate`": "500" is the slowest, in bytes per second on
+average, that a request body may arrive on this vhost, after its grace time
+"`http-body-grace-secs`": "20" from the request's headers.  The body is
+allowed the grace time plus a second for every `http-body-min-rate` bytes of
+it so far; one falling behind is given up on as for a timeout (an h2 or h3
+stream is reset, an h1 connection closed), so a client cannot hold a request
+open for ever by trickling its body.  Those are the defaults, which cut no
+upload faster than 4 kbit/s whatever its size.  Time the server itself is not
+reading the body, eg, while a cgi or a proxy mount's onward connection is slow
+to take it, counts as well.  "none" leaves only the timeout between pieces of
+body (`timeout-secs`).
 
  - "`sni-fallback`": "1" makes this vhost the one that serves tls connections
 arriving on its listen port with an SNI name that matches no vhost there.  At

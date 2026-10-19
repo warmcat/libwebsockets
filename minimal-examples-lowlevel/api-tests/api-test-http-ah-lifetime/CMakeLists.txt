@@ -40,7 +40,8 @@ if (requirements)
 	# One test per case and role, so ctest -j runs them side by side and a
 	# failure names both
 	#
-	set(AHL_TESTS pipeline-depth:h1 slow-cl:h1 slow-stream:h1 late-spa:h1)
+	set(AHL_TESTS pipeline-depth:h1 slow-cl:h1 slow-stream:h1 late-spa:h1
+		      body-rate:h1)
 	set(AHL_ROLES h1)
 	if (AHL_H2)
 		list(APPEND AHL_ROLES h2)
@@ -61,10 +62,12 @@ if (requirements)
 		endforeach()
 	endif()
 	if (AHL_H2)
-		list(APPEND AHL_TESTS slow-cl:h2 slow-stream:h2 late-spa:h2)
+		list(APPEND AHL_TESTS slow-cl:h2 slow-stream:h2 late-spa:h2
+				      body-rate:h2 mux-cap:h2)
 	endif()
 	if (AHL_H3)
-		list(APPEND AHL_TESTS slow-cl:h3 slow-stream:h3 late-spa:h3)
+		list(APPEND AHL_TESTS slow-cl:h3 slow-stream:h3 late-spa:h3
+				      body-rate:h3 mux-cap:h3)
 	endif()
 
 	set(AHL_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)

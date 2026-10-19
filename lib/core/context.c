@@ -1595,6 +1595,31 @@ lws_create_context(const struct lws_context_creation_info *info)
 			context->fd_limit_per_thread = context->max_fds /
 							context->count_threads;
 
+#if defined(LWS_WITH_NETWORK) && (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+	/*
+	 * One h2 / h3 connection's streams waiting on the peer, eg, for their
+	 * bodies, may only hold so much of a thread's ah pool at once
+	 * (G-028).  By default, one less than the pool's ahs per fd, so a
+	 * connection's own ah and its streams' are its share of the pool, but
+	 * at least 8: lws' own client sends 8 POSTs on one connection at once
+	 * (minimal-http-client-multi), and like browsers it does not retry a
+	 * refused stream.  With the default pool of 4 per fd, connections then
+	 * need nearly half the fds to fill the pool, each keeping 8 bodies
+	 * coming at the vhost's minimum body rate.
+	 */
+	if (info->max_http_header_pool_per_mux)
+		context->max_http_header_pool_per_mux =
+				info->max_http_header_pool_per_mux;
+	else {
+		unsigned int per_fd = context->fd_limit_per_thread ?
+				context->max_http_header_pool /
+					context->fd_limit_per_thread : 0;
+
+		context->max_http_header_pool_per_mux =
+				per_fd > 9 ? per_fd - 1 : 8;
+	}
+#endif
+
 #if defined(LWS_WITH_SYS_SMD)
 	lws_mutex_init(context->smd.lock_messages);
 	lws_mutex_init(context->smd.lock_peers);

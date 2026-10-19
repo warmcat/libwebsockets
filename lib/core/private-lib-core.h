@@ -888,6 +888,8 @@ struct lws_context {
 	unsigned int pt_serv_buf_size;
 	unsigned int max_http_header_data;
 	unsigned int max_http_header_pool;
+	/* how many of the pool one mux connection's streams may hold */
+	unsigned int max_http_header_pool_per_mux;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
 	int simultaneous_ssl_handshake_restriction;
