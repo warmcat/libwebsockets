@@ -17,7 +17,7 @@ This is the server-side protocol plugin for the certificate distribution system.
 
 ## Usage
 
-When a client connects, the plugin extracts the Common Name (CN) from the client's TLS certificate to identify the requesting subdomain.  The CN must be a plain hostname (`[A-Za-z0-9.-]`, no leading or trailing `.` or `-`, no `..`); anything else is rejected at `ESTABLISHED` with a policy violation close.  The domain is the CN with its leftmost label removed (or the CN itself if it has one dot or fewer).
+When a client connects, the plugin extracts the Common Name (CN) from the client's TLS certificate to identify the requesting subdomain.  The CN must be a plain hostname (`[A-Za-z0-9.-]`, no leading or trailing `.` or `-`, no `..`), or a domain's wildcard spelled the way the acme client files it, `_.<domain>` with `<domain>` such a hostname; anything else is rejected at `ESTABLISHED` with a policy violation close.  The domain is the CN with its leftmost label removed (or the CN itself if it has one dot or fewer); for a wildcard it is the `<domain>` it is the wildcard for.
 
 ### Authorisation
 
@@ -38,7 +38,18 @@ If authorized, it sends the client the cert chain and key the acme client keeps 
 <pki-root>/domains/<domain>/certs/production/key/<subdomain>-latest.key
 ```
 
-If there is no cert for that name, the domain's wildcard cert is used, which the acme client files under the name `_.<domain>` and which covers `<subdomain>`, one label under `<domain>`.  No other cert in the domain is ever sent to it: the client for `auth.example.com` is not given the key for `example.com` or `www.example.com`.  A client whose name is the domain itself gets the domain's cert.  The dirs also hold the timestamped files the links point to, leaf-only certs and the outgoing pair linked as `-previous`; none of those is ever sent.  The pair is only sent if the key belongs to the cert (with `LWS_WITH_JOSE`), since for a moment during a renewal the links can point to the new key and the old cert; the change that completes the renewal sends it then.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.
+If there is no cert for that name, the client gets nothing: no other cert in the domain is ever sent to it.  The client for `auth.example.com` is not given the key for `example.com` or `www.example.com`, nor the domain's wildcard, whose key is good for `www.example.com` as well.  A client whose name is the domain itself gets the domain's cert.
+
+#### Distributing a wildcard
+
+A host that should have the domain's wildcard cert is provisioned for the wildcard itself: its distribution client cert is issued for the CN `_.<domain>`, the name the acme client files the wildcard under, and held at `<pki-root>/domains/<domain>/dist-client/distribution-client-_.<domain>.crt`.  The dnssec monitor's `provisioning_bundle` request does that when its subdomain is `_.<domain>` (its UI only offers bundles for the names of its TLS endpoints).  That client is then sent
+
+```
+<pki-root>/domains/<domain>/certs/production/crt/_.<domain>-latest-fullchain.crt
+<pki-root>/domains/<domain>/certs/production/key/_.<domain>-latest.key
+```
+
+like any other name.  Since the wildcard's key can serve every name one label under `<domain>`, a host only gets it when it was explicitly provisioned for it; a host provisioned for its own name never falls back to it.  The dirs also hold the timestamped files the links point to, leaf-only certs and the outgoing pair linked as `-previous`; none of those is ever sent.  The pair is only sent if the key belongs to the cert (with `LWS_WITH_JOSE`), since for a moment during a renewal the links can point to the new key and the old cert; the change that completes the renewal sends it then.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.
 
 ### Renewals
 

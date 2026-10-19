@@ -133,6 +133,35 @@ cert_dist_valid_name(const char *s, size_t max)
 }
 
 /*
+ * A distribution client is provisioned for one name, and is only ever given
+ * the cert and key for that name.  The name is a hostname, or a domain's
+ * wildcard, spelled the way the acme client files it, "_.<domain>".  The
+ * wildcard's key is good for every name one label under <domain>, so it only
+ * goes to a client that was provisioned for the wildcard itself, never to
+ * one provisioned for a single name that happens to have no cert of its own.
+ */
+
+static int
+cert_dist_is_wildcard(const char *s)
+{
+	return s[0] == '_' && s[1] == '.';
+}
+
+static int
+cert_dist_valid_dist_name(const char *s, size_t max)
+{
+	if (cert_dist_is_wildcard(s)) {
+		if (max <= 2)
+			return 0;
+		/* what follows the "_." is the domain, a plain hostname */
+		s += 2;
+		max -= 2;
+	}
+
+	return cert_dist_valid_name(s, max);
+}
+
+/*
  * The cert hash is a SHA-1 in hex: anything else cannot match and has no
  * business being interpolated into the stub request JSON
  */
@@ -240,13 +269,14 @@ bail:
  *
  * The dirs also hold the timestamped files those point to, the leaf-only
  * certs, and the outgoing pair linked as -previous, so nothing else there can
- * be picked by its name.  <name> is <subdomain> itself, or failing that the
- * domain's wildcard, which the acme client files as "_.<domain>" and which
- * covers <subdomain>, since that is exactly one label under <domain>.
+ * be picked by its name.  <name> is <subdomain> itself and nothing else.
  *
  * Never any other name in the domain: the client for auth.example.com must
- * not be handed example.com's key, or www.example.com's.  (A client whose
- * name is the domain itself gets the domain's cert.)
+ * not be handed example.com's key, or www.example.com's, nor the wildcard's,
+ * "_.example.com", whose key is good for www.example.com too.  A name with no
+ * cert of its own gets nothing.  Only a client provisioned for the wildcard
+ * itself, whose name is then "_.<domain>", gets the wildcard, and a client
+ * whose name is the domain itself gets the domain's cert.
  *
  * On success *cert and *key are allocated and must be freed.
  */
@@ -256,38 +286,21 @@ cds_read_domain_cert(struct lws_context *cx, const char *pki_root,
 		     const char *domain, const char *subdomain, char **cert,
 		     char **key)
 {
-	char name[160], path[512];
-	size_t n;
+	char path[512];
 
-	for (n = 0; n < 2; n++) {
-		if (!n)
-			lws_strncpy(name, subdomain, sizeof(name));
-		else
-			lws_snprintf(name, sizeof(name), "_.%s", domain);
-
-		lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/"
-			     "production/crt/%s-latest-fullchain.crt",
-			     pki_root, domain, name);
-		*cert = read_pem_file(path);
-		if (*cert)
-			break;
-	}
-
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/production/crt/"
+		     "%s-latest-fullchain.crt", pki_root, domain, subdomain);
+	*cert = read_pem_file(path);
 	if (!*cert)
 		return 1;
 
-	/*
-	 * A cert we found but can't offer yet stops us there: falling back
-	 * to the wildcard would hand the client a different cert meanwhile
-	 */
-
 	lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/production/key/"
-		     "%s-latest.key", pki_root, domain, name);
+		     "%s-latest.key", pki_root, domain, subdomain);
 	*key = read_pem_file(path);
 	if (!*key) {
 		/* never offer a cert without its key */
 		lwsl_notice("%s: %s has a cert but no key yet\n", __func__,
-			    name);
+			    subdomain);
 		goto bail;
 	}
 
@@ -295,7 +308,7 @@ cds_read_domain_cert(struct lws_context *cx, const char *pki_root,
 	if (cds_pair_matches(cx, *cert, *key)) {
 		/* the next change will settle it */
 		lwsl_notice("%s: %s cert and key don't match (yet)\n",
-			    __func__, name);
+			    __func__, subdomain);
 		lws_explicit_bzero(*key, strlen(*key));
 		free(*key);
 		*key = NULL;
@@ -305,7 +318,7 @@ cds_read_domain_cert(struct lws_context *cx, const char *pki_root,
 	(void)cx;
 #endif
 
-	lwsl_notice("%s: %s: distributing %s\n", __func__, subdomain, name);
+	lwsl_notice("%s: distributing %s\n", __func__, subdomain);
 
 	return 0;
 
@@ -598,8 +611,8 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 			return -1;
 		}
 
-		if (!cert_dist_valid_name(pss->args.subdomain,
-					  sizeof(pss->args.subdomain)) ||
+		if (!cert_dist_valid_dist_name(pss->args.subdomain,
+					       sizeof(pss->args.subdomain)) ||
 		    !cert_dist_valid_name(pss->args.domain,
 					  sizeof(pss->args.domain))) {
 			lwsl_err("%s: Bad subdomain or domain\n", __func__);
@@ -1081,7 +1094,8 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		if (!cert_dist_valid_name(ir->ns.name, sizeof(pss->subdomain))) {
+		if (!cert_dist_valid_dist_name(ir->ns.name,
+					       sizeof(pss->subdomain))) {
 			lwsl_wsi_warn(wsi, "%s: client cert CN is not a "
 					   "hostname\n", __func__);
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION,
@@ -1104,7 +1118,15 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		{
+		/*
+		 * The wildcard's domain is the one it is the wildcard for.
+		 * Otherwise the domain is the name less its first label, or
+		 * the name itself if it has no more than two labels
+		 */
+		if (cert_dist_is_wildcard(pss->subdomain))
+			lws_strncpy(pss->domain, pss->subdomain + 2,
+				    sizeof(pss->domain));
+		else {
 			int dots = 0;
 			char *q;
 			for (q = pss->subdomain; *q; q++) if (*q == '.') dots++;

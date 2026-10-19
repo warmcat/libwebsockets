@@ -18,10 +18,12 @@
  *    which the client is told to trust as its CA with its "ca-filepath" pvo;
  *
  *  - the server vhost requires a client cert signed by ca.crt, a throwaway
- *    test CA whose key is not kept.  node1.crt and node2.crt are signed by it,
- *    for CN node1.example.com and node2.example.com.
+ *    test CA whose key is not kept.  node1.crt, node2.crt, node4.crt and
+ *    wild.crt are signed by it, for CN node1.example.com, node2.example.com,
+ *    node4.example.com and _.example.com, the name the acme client files the
+ *    example.com wildcard under.
  *
- * The client has three certs[] entries, and so three mTLS links:
+ * The client has five certs[] entries, and so five mTLS links:
  *
  *  - node1: trusted, and provisioned on the server, which holds the client
  *    cert it issued node1.  It must get the cert and key for its own name,
@@ -35,7 +37,15 @@
  *    not hand it anything;
  *
  *  - node3: presents the localhost-100y cert, which ca.crt did not sign.  The
- *    TLS handshake must fail, so it gets nothing either.
+ *    TLS handshake must fail, so it gets nothing either;
+ *
+ *  - node4: trusted and provisioned, but its name has no cert of its own.
+ *    The domain's wildcard is there, and covers node4.example.com, but its
+ *    key is good for every name in the domain: node4 was not provisioned for
+ *    it, so it must get nothing rather than the wildcard;
+ *
+ *  - wild: trusted, and provisioned for the wildcard itself, _.example.com.
+ *    It must get the wildcard's cert and key.
  *
  * A tls server vhost, node1-svc, serves node1's installed fullchain.pem and
  * privkey.pem.  The stub writes those as files the vhost may not be able to
@@ -153,9 +163,18 @@ static const char * const ver_stem[VERSIONS] = {
 #define APEX_NAME	"example.com"
 #define APEX_VER	1
 
-/* where the server keeps the client cert it issued node1 */
-#define NODE1_ISSUED	"pki/domains/example.com/dist-client/" \
-			"distribution-client-node1.example.com.crt"
+/*
+ * The domain's wildcard, filed by the acme client as "_.example.com", is a
+ * pair of its own too.  Only the client provisioned for the wildcard itself
+ * may get it, never node4, provisioned for a name with no cert of its own.
+ */
+#define WILD_NAME	"_.example.com"
+#define WILD_VER	0
+#define NODE4_NAME	"node4.example.com"
+
+/* where the server keeps the client cert it issued each name */
+#define ISSUED_DIR	"pki/domains/example.com/dist-client/"
+#define NODE1_ISSUED	ISSUED_DIR "distribution-client-" NODE1_NAME ".crt"
 
 /*
  * A PEM body never contains a double quote.  One that does would, if the
@@ -325,11 +344,11 @@ publish(int v, size_t from, size_t to)
 }
 
 /*
- * Set the server's record of the client cert it issued node1 to the cert in
- * file, in the --certs dir
+ * Provision the server to distribute to name, by setting its record of the
+ * client cert it issued for name to the cert in file, in the --certs dir
  */
 static int
-set_node1_issued(const char *file)
+set_issued(const char *name, const char *file)
 {
 	char path[256], pem[PEM_MAX];
 	int n;
@@ -340,9 +359,16 @@ set_node1_issued(const char *file)
 		return 1;
 	pem[n] = '\0';
 
-	lws_snprintf(path, sizeof(path), "%s/" NODE1_ISSUED, work);
+	lws_snprintf(path, sizeof(path), "%s/" ISSUED_DIR
+		     "distribution-client-%s.crt", work, name);
 
 	return write_file(path, pem);
+}
+
+static int
+set_node1_issued(const char *file)
+{
+	return set_issued(NODE1_NAME, file);
 }
 
 /* read the pairs we distribute from the --certs dir */
@@ -384,16 +410,24 @@ bail:
 	return 1;
 }
 
+/* 1 if the client's certs[] entry has version v of the cert and key */
+static int
+installed(const char *entry, int v)
+{
+	char fc[256], pk[256];
+
+	lws_snprintf(fc, sizeof(fc), "%s/install/%s/fullchain.pem", work,
+		     entry);
+	lws_snprintf(pk, sizeof(pk), "%s/install/%s/privkey.pem", work, entry);
+
+	return file_is(fc, ver_cert[v]) && file_is(pk, ver_key[v]);
+}
+
 /* 1 if node1 has version v of the cert and key installed */
 static int
 node1_has(int v)
 {
-	char fc[256], pk[256];
-
-	lws_snprintf(fc, sizeof(fc), "%s/install/node1/fullchain.pem", work);
-	lws_snprintf(pk, sizeof(pk), "%s/install/node1/privkey.pem", work);
-
-	return file_is(fc, ver_cert[v]) && file_is(pk, ver_key[v]);
+	return installed("node1", v);
 }
 
 /* 1 if node1-svc serves the cert of version v */
@@ -810,6 +844,14 @@ write_config(const char *certs_dir, const char *server, int port)
 		"        \"node3\": {\n"
 		"          \"cert\": \"%s/localhost-100y.cert\",\n"
 		"          \"key\": \"%s/localhost-100y.key\"\n"
+		"        },\n"
+		"        \"node4\": {\n"
+		"          \"cert\": \"%s/node4.crt\",\n"
+		"          \"key\": \"%s/node4.key\"\n"
+		"        },\n"
+		"        \"wild\": {\n"
+		"          \"cert\": \"%s/wild.crt\",\n"
+		"          \"key\": \"%s/wild.key\"\n"
 		"        }\n"
 		"      }\n"
 		"    }\n"
@@ -822,7 +864,7 @@ write_config(const char *certs_dir, const char *server, int port)
 		"  \"ignore-missing-cert\": \"1\"\n"
 		"}]}\n",
 		port, ec, ec, ec, ew, ew, ew, ew, pw->pw_name, url, ec, ec, ec,
-		ec, ec, ec, ec, ew, ew);
+		ec, ec, ec, ec, ec, ec, ec, ec, ew, ew);
 
 	lws_snprintf(path, sizeof(path), "%s/conf.d/cert-dist", work);
 	r = write_file(path, conf);
@@ -832,8 +874,9 @@ write_config(const char *certs_dir, const char *server, int port)
 }
 
 /*
- * The server side PKI: certs and keys for example.com and node1.example.com,
- * and the provisioning of node1.example.com (only) to receive its own
+ * The server side PKI: certs and keys for example.com, its wildcard and
+ * node1.example.com, and the provisioning of node1.example.com, of
+ * node4.example.com, which has no cert of its own, and of the wildcard
  */
 static int
 write_pki(void)
@@ -854,11 +897,14 @@ write_pki(void)
 
 	/*
 	 * Provision node1, by the server holding the very client cert it
-	 * issued node1, and give the domain a cert of its own besides
-	 * node1's
+	 * issued node1, and likewise node4 and the wildcard.  Give the domain
+	 * a cert of its own besides node1's, and a wildcard cert.
 	 */
 	return set_node1_issued("node1.crt") ||
+	       set_issued(NODE4_NAME, "node4.crt") ||
+	       set_issued(WILD_NAME, "wild.crt") ||
 	       publish_as(APEX_NAME, APEX_VER, 0, PUB_ALL) ||
+	       publish_as(WILD_NAME, WILD_VER, 0, PUB_ALL) ||
 	       publish(0, 0, PUB_ALL);
 }
 
@@ -984,6 +1030,11 @@ main(int argc, const char **argv)
 	lws_snprintf(path, sizeof(path), "%s/install/node3", work);
 	expect("node3 with an untrusted client cert got nothing",
 	       !exists(path));
+	lws_snprintf(path, sizeof(path), "%s/install/node4", work);
+	expect("node4, with no cert of its own, did not get the wildcard",
+	       !exists(path));
+	expect("wild, provisioned for the wildcard, got the wildcard",
+	       installed("wild", WILD_VER));
 
 bail:
 	lws_context_destroy(context);

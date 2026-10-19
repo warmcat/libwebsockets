@@ -27,7 +27,9 @@ On the front's dnssec monitor:
  - make sure ACME issues a cert for the service name itself.  The
    distribution server sends a client the cert filed under its own name
    (`domains/example.com/certs/production/crt/auth.example.com-latest-*`),
-   or else the domain's wildcard, never another name in the domain;
+   and nothing else: not another name in the domain, and not the domain's
+   wildcard, unless the client was provisioned for the wildcard itself, as
+   `_.example.com`;
  - in its UI, create the distribution client for `auth` in example.com.  You
    get `distribution-client-auth.example.com.crt` and `.key`, CN
    `auth.example.com`.  Copy both to the service box, and also

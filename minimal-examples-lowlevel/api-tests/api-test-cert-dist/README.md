@@ -10,8 +10,8 @@ writes into a private work dir under `/tmp` along with the server's PKI tree:
 
  - vhost `cds` serves `lws-cert-dist-server` over TLS and requires a client
    cert signed by `ca.crt`
- - vhost `cdc` runs `lws-cert-dist-client`, with three `certs` entries and so
-   three mTLS links to `cds`
+ - vhost `cdc` runs `lws-cert-dist-client`, with five `certs` entries and so
+   five mTLS links to `cds`
  - vhost `node1-svc` is a tls server vhost whose cert and key are `node1`'s
    installed `fullchain.pem` and `privkey.pem`.  It doesn't listen, and comes
    up without them (`ignore-missing-cert`), since nothing is installed yet
@@ -29,21 +29,26 @@ privileges.
 |`ca.crt`|A throwaway mTLS CA, its key not kept. The server trusts client certs it signed|
 |`node1.crt` / `.key`|Client cert for CN `node1.example.com`, signed by `ca.crt`|
 |`node2.crt` / `.key`|Client cert for CN `node2.example.com`, signed by `ca.crt`|
+|`node4.crt` / `.key`|Client cert for CN `node4.example.com`, signed by `ca.crt`|
+|`wild.crt` / `.key`|Client cert for CN `_.example.com`, the name the acme client files the `example.com` wildcard under, signed by `ca.crt`|
 
 The cert and key distributed for `node1.example.com` are just pairs the test
 has to hand: `localhost-100y`, then `node2` for the renewal, `localhost-100y`
 again for the renewal whose install fails at first, and `node2` again for the
 one made while the server's record of the cert it issued `node1` is wrong, and
 `node1` with junk appended for the last one.  `example.com` has a cert of its
-own beside them, the `node2` pair, which `node1` must never get.  They have to
+own beside them, the `node2` pair, which `node1` must never get, and a wildcard
+cert, `_.example.com`, the `localhost-100y` pair.  They have to
 be real pairs, since the server only sends a key that belongs to its cert.  The
 test stores them the way the acme client does with the dnssec monitor:
 timestamped leaf cert, key and fullchain files in `certs/production/crt` and
 `key`, with `node1.example.com-latest*` symlinks moved onto each in turn and
-the outgoing ones kept as `node1.example.com-previous*`.  The server is only
+the outgoing ones kept as `node1.example.com-previous*`.  The server is
 provisioned to hand them to `node1.example.com`, by holding the client cert it
 issued it, `node1.crt`, as
-`dist-client/distribution-client-node1.example.com.crt`.
+`dist-client/distribution-client-node1.example.com.crt`.  It is provisioned the
+same way for `node4.example.com`, which has no cert of its own, and for the
+wildcard, `_.example.com`, with `wild.crt`.
 
 ## What is checked
 
@@ -80,6 +85,11 @@ issued it, `node1.crt`, as
  - `node2`, trusted for mTLS but not provisioned, gets nothing
  - `node3`, presenting a cert `ca.crt` did not sign, fails the handshake and
    gets nothing
+ - `node4`, provisioned for a name with no cert of its own, gets nothing: not
+   the wildcard either, although it covers `node4.example.com`, since its key
+   is good for every other name in the domain too
+ - `wild`, provisioned for the wildcard itself, gets the wildcard's cert and
+   key
 
 ## Running it
 
