@@ -55,21 +55,53 @@ static const char * const hver[] = {
 /*
  * The log line is one record per request; peer-controlled fields must not
  * be able to add fake records (CR / LF), hide the rest of the line (NUL /
- * other C0 controls) or break the quoting.  h1 framing already excludes
- * CR / LF from header values and hpack refuses them on h2, so this is
- * defence in depth for the log format itself.
+ * other C0 controls), break the quoting, or reach the terminal of whoever
+ * reads the log with anything but printable ASCII.  h1 framing already
+ * excludes CR / LF from header values and hpack refuses them on h2, so this
+ * is defence in depth for the log format itself.
+ *
+ * A '"' becomes '\'' and a C0 control '_', as they always did, so ordinary
+ * text is logged as it came.  A backslash is doubled and DEL and every byte
+ * above it, UTF-8 and C1 controls like CSI included, is written \xhh, as
+ * Apache's mod_log_config does: readers of the format that honour escapes
+ * then never see a field's closing quote escaped by the peer's backslash.
+ *
+ * Writes the escaped form of up to len bytes of src (less at a NUL) to dst,
+ * no more than max bytes of it and never part of an escape, without a NUL,
+ * and returns how many bytes that is.  With dst NULL, only counts them.
  */
-static void
-lws_access_log_sanitize(char *s, int len)
+static size_t
+lws_access_log_escape(char *dst, size_t max, const char *src, size_t len)
 {
-	int m;
+	static const char hex[] = "0123456789abcdef";
+	size_t n = 0, m, el;
+	unsigned char c;
 
-	for (m = 0; m < len && s[m]; m++)
-		if (s[m] == '\"')
-			s[m] = '\'';
-		else
-			if ((unsigned char)s[m] < 0x20 || s[m] == 0x7f)
-				s[m] = '_';
+	for (m = 0; m < len && src[m]; m++) {
+		c = (unsigned char)src[m];
+		el = c == '\\' ? 2 : (c >= 0x7f ? 4 : 1);
+		if (n + el > max)
+			break;
+
+		if (dst) {
+			if (el == 1)
+				dst[n] = c == '\"' ? '\'' :
+					 (c < 0x20 ? '_' : (char)c);
+			else {
+				dst[n] = '\\';
+				if (el == 2)
+					dst[n + 1] = '\\';
+				else {
+					dst[n + 1] = 'x';
+					dst[n + 2] = hex[c >> 4];
+					dst[n + 3] = hex[c & 15];
+				}
+			}
+		}
+		n += el;
+	}
+
+	return n;
 }
 
 void
@@ -79,9 +111,10 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	time_t t = lws_wsi_now_wall(wsi);
 	const char *me;
 #if defined(LWS_ROLE_H2)
-	char me_buf[LWS_AL_METHOD_MAX + 1];
+	char me_buf[LWS_AL_METHOD_MAX + 1], me_esc[LWS_AL_METHOD_MAX + 1];
 #endif
-	int l, m;
+	size_t m;
+	int l;
 	struct tm *ptm = NULL;
 #if defined(LWS_HAVE_LOCALTIME_R)
 	struct tm tm;
@@ -121,13 +154,15 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 #if defined(LWS_ROLE_H2)
 	if (wsi->mux_substream) {
 		/*
-		 * :method is peer-chosen text on h2; take a bounded, sanitized
+		 * :method is peer-chosen text on h2; take a bounded, escaped
 		 * copy rather than pointing into the ah
 		 */
 		if (lws_hdr_copy(wsi, me_buf, sizeof(me_buf),
 				 WSI_TOKEN_HTTP_COLON_METHOD) > 0) {
-			lws_access_log_sanitize(me_buf, (int)strlen(me_buf));
-			me = me_buf;
+			m = lws_access_log_escape(me_esc, sizeof(me_esc) - 1,
+						  me_buf, sizeof(me_buf));
+			me_esc[m] = '\0';
+			me = me_esc;
 		} else
 			me = NULL;
 	} else
@@ -137,15 +172,16 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	if (!me)
 		me = "(null)";
 
-	m = uri_len;
-	if (m > (int)sizeof(uri) - 1)
-		m = sizeof(uri) - 1;
-
-	strncpy(uri, uri_ptr, (unsigned int)m);
+	/* as much of it as fits, escaped */
+	m = lws_access_log_escape(uri, sizeof(uri) - 1, uri_ptr,
+				  uri_len > 0 ? (size_t)uri_len : 0);
 	uri[m] = '\0';
-	lws_access_log_sanitize(uri, m);
 
 	/*
+	 * The peer's referrer and user agent are kept as they came, and
+	 * escaped as they are written into the line, where it is decided
+	 * how much of each fits.
+	 *
 	 * Room for all of it, so the request is never cut short, which would
 	 * lose its closing quote and put the peer's referrer outside quotes
 	 */
@@ -172,8 +208,8 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 		wsi->stream.access_log.user_agent[0] = '\0';
 
 		if (lws_hdr_copy(wsi, wsi->stream.access_log.user_agent, l + 4,
-				 WSI_TOKEN_HTTP_USER_AGENT) >= 0)
-			lws_access_log_sanitize(wsi->stream.access_log.user_agent, l);
+				 WSI_TOKEN_HTTP_USER_AGENT) < 0)
+			wsi->stream.access_log.user_agent[0] = '\0';
 	}
 	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
 	if (l) {
@@ -186,9 +222,8 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 		}
 		wsi->stream.access_log.referrer[0] = '\0';
 		if (lws_hdr_copy(wsi, wsi->stream.access_log.referrer,
-				l + 4, WSI_TOKEN_HTTP_REFERER) >= 0)
-
-			lws_access_log_sanitize(wsi->stream.access_log.referrer, l);
+				l + 4, WSI_TOKEN_HTTP_REFERER) < 0)
+			wsi->stream.access_log.referrer[0] = '\0';
 	}
 	wsi->access_log_pending = 1;
 }
@@ -229,8 +264,9 @@ lws_access_log(struct lws *wsi)
 	/*
 	 * One request is one line, always: whatever is too long to fit is cut
 	 * from the peer's referrer and user agent, never the quotes around
-	 * them or the newline.  After the referrer, the line is '" "', the
-	 * user agent and '"\n', and there is the NUL.
+	 * them, the newline, or an escape.  After the referrer, the line is
+	 * '" "', the user agent and '"\n', and there is the NUL.  The budget
+	 * is in escaped bytes.
 	 */
 	if ((size_t)n + 6 >= sizeof(ass)) {
 		/* the prepared part is bounded well below this */
@@ -239,8 +275,9 @@ lws_access_log(struct lws *wsi)
 	}
 	room = sizeof(ass) - 1 - (size_t)n - 5;
 
-	rl = strlen(ref);
-	ul = strlen(ua);
+	/* how long each is escaped, as far as it could matter */
+	rl = lws_access_log_escape(NULL, room, ref, strlen(ref));
+	ul = lws_access_log_escape(NULL, room, ua, strlen(ua));
 	if (rl + ul > room) {
 		/* each gets half, or more if the other needs less */
 		if (rl > room / 2)
@@ -249,8 +286,12 @@ lws_access_log(struct lws *wsi)
 			ul = room - rl;
 	}
 
-	n += lws_snprintf(ass + (size_t)n, sizeof(ass) - (size_t)n,
-			  "%.*s\" \"%.*s\"\n", (int)rl, ref, (int)ul, ua);
+	n += (int)lws_access_log_escape(ass + (size_t)n, rl, ref, strlen(ref));
+	memcpy(ass + (size_t)n, "\" \"", 3);
+	n += 3;
+	n += (int)lws_access_log_escape(ass + (size_t)n, ul, ua, strlen(ua));
+	memcpy(ass + (size_t)n, "\"\n", 3); /* with the NUL */
+	n += 2;
 
 	if ((int)write(wsi->a.vhost->log_fd, ass, (size_t)n) != n)
 		lwsl_err("Failed to write log\n");

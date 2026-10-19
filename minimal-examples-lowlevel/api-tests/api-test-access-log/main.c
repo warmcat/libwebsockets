@@ -10,18 +10,22 @@
  * client sends GETs to an http vhost writing an access log, each on its own
  * connection, with Referer and User-Agent headers of many lengths (every
  * length around where the line fills up), much too long ones, ones with a
- * quote and control characters in them, and a much too long URI.  After the
- * context is gone, every line of the log must:
+ * quote and control characters in them, ones ending in a backslash, ones
+ * with bytes above 0x7f (UTF-8 and a raw C1 CSI), and a much too long URI.
+ * After the context is gone, every line of the log must:
  *
- *  - end with a newline, with no NUL or other control character in it, so
- *    that it can never run into the next line,
+ *  - end with a newline, with nothing but printable ASCII in it, so that it
+ *    can never run into the next line or reach a terminal as a control,
  *
  *  - have exactly the six quotes of the request, referrer and user agent
- *    fields, with a host field that has no spaces, and
+ *    fields, with a host field that has no spaces, and in those fields
+ *    every backslash starting an escape, \\ or \xhh, so that a reader
+ *    honouring escapes (as Apache's format has them) finds the same fields,
  *
  *  - have the request, referrer and user agent the client sent, with any
- *    quote or control character in them replaced, and cut short only when
- *    the line could not hold them.
+ *    quote or C0 control in them replaced, any backslash, DEL or byte above
+ *    it escaped, and cut short, never inside an escape, only when the line
+ *    could not hold them.
  */
 
 #include <libwebsockets.h>
@@ -108,7 +112,7 @@ al_cases(void)
 	char *uri;
 	int n;
 
-	cases = calloc(AL_SWEEP_MAX + 8, sizeof(*cases));
+	cases = calloc(AL_SWEEP_MAX + 16, sizeof(*cases));
 	if (!cases)
 		return 1;
 
@@ -127,7 +131,25 @@ al_cases(void)
 	    al_case_add("empty", "/", al_str(0, "r"), al_str(0, "u")) ||
 	    /* a quote, a tab and DEL may be in a header value */
 	    al_case_add("quotes and controls", "/",
-			al_str(16, "a\"b\tc\x7f"), al_str(16, "x\"y\t\x7fz")))
+			al_str(16, "a\"b\tc\x7f"), al_str(16, "x\"y\t\x7fz")) ||
+	    /* a reader honouring escapes must still find the closing quotes */
+	    al_case_add("trailing backslash", "/b\\", al_str(2, "x\\"),
+			al_str(1, "\\")) ||
+	    /* UTF-8 U+009B (CSI), and a raw 8-bit CSI */
+	    al_case_add("high bytes", "/\xc3\xa9\x9b",
+			al_str(5, "\xc2\x9b" "31m"), al_str(5, "\x9b[2J\x7f")) ||
+	    /* escaped, both are much too long: the cut is between escapes */
+	    al_case_add("escapes too long", "/", al_str(AL_LONG, "\x9b"),
+			al_str(AL_LONG, "a\\")))
+		return 1;
+
+	uri = al_str(AL_LONG_URI, "/\xe9");
+	if (!uri)
+		return 1;
+	n = al_case_add("long escaped uri", uri, al_str(40, "r"),
+			al_str(40, "u"));
+	free(uri);
+	if (n)
 		return 1;
 
 	uri = al_str(AL_LONG_URI, "/abcdefgh");
@@ -139,15 +161,49 @@ al_cases(void)
 	return n;
 }
 
-/* what the log has for a peer's text: quotes and controls replaced */
-static void
-al_sanitized(char *s)
+/*
+ * What the log has for a peer's text, as much of it as fits in max bytes,
+ * never part of an escape: quotes and C0 controls replaced, a backslash
+ * doubled and DEL and above as \xhh
+ */
+static char *
+al_escaped(const char *s, size_t max)
 {
-	for (; *s; s++)
-		if (*s == '\"')
-			*s = '\'';
-		else if ((unsigned char)*s < 0x20 || *s == 0x7f)
-			*s = '_';
+	static const char hex[] = "0123456789abcdef";
+	char *e = malloc(strlen(s) * 4 + 1);
+	size_t n = 0, el;
+	unsigned char c;
+
+	if (!e)
+		return NULL;
+
+	for (; *s; s++) {
+		c = (unsigned char)*s;
+		el = c == '\\' ? 2 : (c >= 0x7f ? 4 : 1);
+		if (n + el > max)
+			break;
+		if (el == 1)
+			e[n] = c == '\"' ? '\'' : (c < 0x20 ? '_' : (char)c);
+		else if (el == 2) {
+			e[n] = '\\';
+			e[n + 1] = '\\';
+		} else {
+			e[n] = '\\';
+			e[n + 1] = 'x';
+			e[n + 2] = hex[c >> 4];
+			e[n + 3] = hex[c & 15];
+		}
+		n += el;
+	}
+	e[n] = '\0';
+
+	return e;
+}
+
+static int
+al_is_hex(char c)
+{
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
 }
 
 static int
@@ -299,6 +355,21 @@ al_field(const char *p, const char *eol, const char *exp, int whole,
 	check(*got <= strlen(exp) && !strncmp(p, exp, *got) &&
 	      (!whole || *got == strlen(exp)), idx, what);
 
+	/* as a reader honouring escapes sees it: whole escapes only */
+	while (p < q) {
+		if (*p++ != '\\')
+			continue;
+		if (p < q && *p == '\\')
+			p++;
+		else if (q - p >= 3 && p[0] == 'x' && al_is_hex(p[1]) &&
+			 al_is_hex(p[2]))
+			p += 3;
+		else {
+			check(0, idx, "a backslash that starts no escape");
+			return NULL;
+		}
+	}
+
 	return q + 1;
 }
 
@@ -306,14 +377,14 @@ static void
 al_check_line(int idx, const char *p, const char *eol)
 {
 	al_case_t *c = &cases[idx];
-	char req[AL_LONG_URI + 32], *ref, *ua;
-	size_t rl, ul, got_r = 0, got_u = 0, n;
+	char req[AL_LONG_URI * 4 + 32], *uri, *ref = NULL, *ua = NULL;
+	size_t rl, ul, got_r = 0, got_u = 0;
 	const char *sp;
 	int quotes = 0, whole;
 
 	for (sp = p; sp < eol; sp++) {
-		if ((unsigned char)*sp < 0x20 || *sp == 0x7f) {
-			check(0, idx, "no NUL or control character in the line");
+		if ((unsigned char)*sp < 0x20 || (unsigned char)*sp >= 0x7f) {
+			check(0, idx, "nothing but printable ASCII in the line");
 			return;
 		}
 		if (*sp == '\"')
@@ -337,10 +408,13 @@ al_check_line(int idx, const char *p, const char *eol)
 	sp += 2;
 
 	/* the request, the uri as much of it as the log keeps */
-	n = strlen(c->uri);
-	if (n > 255)
-		n = 255;
-	lws_snprintf(req, sizeof(req), "GET %.*s HTTP/1.1", (int)n, c->uri);
+	uri = al_escaped(c->uri, 255);
+	if (!uri) {
+		check(0, idx, "OOM");
+		return;
+	}
+	lws_snprintf(req, sizeof(req), "GET %s HTTP/1.1", uri);
+	free(uri);
 	sp = al_field(sp, eol, req, 1, &got_r, idx, "the request, whole");
 	if (!sp)
 		return;
@@ -359,14 +433,12 @@ al_check_line(int idx, const char *p, const char *eol)
 	}
 	sp++;
 
-	ref = al_str(strlen(c->ref), c->ref);
-	ua = al_str(strlen(c->ua), c->ua);
+	ref = al_escaped(c->ref, (size_t)-1);
+	ua = al_escaped(c->ua, (size_t)-1);
 	if (!ref || !ua) {
 		check(0, idx, "OOM");
 		goto bail;
 	}
-	al_sanitized(ref);
-	al_sanitized(ua);
 	rl = strlen(ref);
 	ul = strlen(ua);
 	whole = rl + ul <= AL_FITS;

@@ -488,7 +488,11 @@ struct lws_context_creation_info {
 	 *		has more layers than its own address (eg, a trusted
 	 *		front's PROXY v2 header), the host field is all of them,
 	 *		as lws_peer_describe() gives with LWS_PEER_DESC_TOKEN |
-	 *		LWS_PEER_DESC_BARE_SINGLE (see README.lwsws.md) */
+	 *		LWS_PEER_DESC_BARE_SINGLE (see README.lwsws.md).  The
+	 *		peer's text in the request, referrer and user agent is
+	 *		written as printable ASCII only: a '"' as '\'', a C0
+	 *		control as '_', and, as Apache does, a backslash as
+	 *		"\\\\" and DEL or any byte above it as "\\xhh" */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	const struct lws_http_mount *mounts;
 	/**< VHOST: optional linked list of mounts for this vhost */
