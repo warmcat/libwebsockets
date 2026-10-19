@@ -404,3 +404,9 @@ a log is evidence that something was or was not emitted.
    blocks but compiles out `lwsl_header()` etc: a buffer used only by a
    log under such a block goes unused.  Guard by the log level,
    `#if (_LWS_ENABLED_LOGS & LLL_x)`, not by `_DEBUG`.
+ - In an in-process QUIC test, the client's own TLS handshake slot comes
+   back before the server sees its first Handshake packet: a handshake-
+   limit refusal can't be shown in-process; use the sessions limit.
+ - `LWS_CALLBACK_WSI_DESTROY` can't match an accepted TCP wsi by fd (the
+   fd is already closed then): record the wsi at the `WSI_CREATE` after
+   `FILTER_NETWORK_CONNECTION`.

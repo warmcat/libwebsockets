@@ -350,6 +350,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    moves: any new per-connection io state (peer stack, relay port, relay
    proof...) must be added there too (G-359, 7e91787ff).
 
+## Accept gating
+
+ - Only TCP listen sockets (`role_ops_listen`) are ever paused; QUIC and
+   passthrough relay UDP sockets carry established flows and never are
+   (G-361, eac559ac5).  `lws_accept_listener_open()` is the single
+   decision for both the TLS restriction gate and the fds-full pause.
+   A server QUIC connection takes its TLS slot only at address validation
+   (io op `tls_quic_admit`, `LWS_IO_OPS_ABI_VERSION` 4): spoofed Initials
+   never consume slots.
+
 ## Vhost selection
 
  - Host / :authority / SNI / passthrough vhost selection is scoped to the
