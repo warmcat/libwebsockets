@@ -1879,7 +1879,9 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			lwsl_notice("%s: Generating self-signed certificate (this may take a few seconds)...\n", __func__);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			lws_usec_t t1 = lws_now_usecs();
+#endif
 			struct lws_x509_cert_gen_info cert_info;
 			memset(&cert_info, 0, sizeof(cert_info));
 			cert_info.san = vhd->external_ip[0] ? vhd->external_ip : "localhost";
@@ -2293,7 +2295,9 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 		return 0;
 
 	/* If we don't know the PSS yet (NAT), try to find it via USERNAME */
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	int found_username = 0;
+#endif
 	if (!pss) {
 		/*
 		 * C-089: bound the walk by the declared STUN message length, not
@@ -2310,7 +2314,9 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 			uint16_t attr_len = (uint16_t)((p[i + 2] << 8) | p[i + 3]);
 
 			if (attr_type == LWS_STUN_ATTR_USERNAME) { /* USERNAME */
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 				found_username = 1;
+#endif
 				if (i + 4 + attr_len > slen)
 					break;
 

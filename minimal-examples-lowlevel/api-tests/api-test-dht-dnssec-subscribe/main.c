@@ -222,10 +222,12 @@ subt_step_cb(lws_sorted_usec_list_t *sul)
 			subt_expect(lws_dll2_is_detached(&sub->sul_refetch.list),
 				    "a newer serial from the holder is fetched "
 				    "at once, covering the deferred one");
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			/* what a broadcast logs about the nodes it tells */
 			subt_expect(lws_dht_foreach_node(vhd->dht, AF_INET,
 					dht_dnssec_log_node_cb, NULL) >= 1,
 				    "P's routing table is logged");
+#endif
 			step++;
 			t_step = now;
 			break;

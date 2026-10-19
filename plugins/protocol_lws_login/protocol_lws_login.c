@@ -2231,70 +2231,73 @@ lws_login_feed_device(struct lws_login_feed *f, const char *did)
  * lws_login_feed_current()), the same goes, unless auth-feed-fail-closed
  * says to refuse every token instead.
  *
- * Returns 1 (and destroys *pja, NULLing it) when the token is stale.
+ * lws_login_jwt_stale_why() returns why the token is stale, or NULL if it is
+ * still good; lws_login_jwt_stale() returns 1 (and destroys *pja, NULLing it)
+ * when the token is stale.
  */
-static int
-lws_login_jwt_stale(struct lws *wsi, struct vhd_login *vhd,
-		    struct lws_jwt_auth **pja)
+static const char *
+lws_login_jwt_stale_why(struct vhd_login *vhd, struct lws_jwt_auth *ja)
 {
 	struct lws_login_feed *f = &vhd->feed;
 	const lws_auth_feed_device_t *dev;
 	const lws_auth_feed_user_t *u;
-	const char *did, *why;
 	size_t n, count = 0;
+	const char *did;
 	uint32_t uid;
+
+	uid = lws_jwt_auth_get_uid(ja);
+
+	if (!f->secret[0])
+		return NULL;
+
+	if (!lws_login_feed_current(vhd))
+		return f->fail_closed ? "no current auth feed snapshot, and "
+					"auth-feed-fail-closed" : NULL;
+
+	u = lws_login_feed_user(f, uid);
+	if (!u)
+		return "user is gone";
+	if (u->sec != lws_jwt_auth_get_sec(ja))
+		return "session epoch revoked";
+
+	did = lws_jwt_auth_get_did(ja);
+	if (did && did[0]) {
+		dev = lws_login_feed_device(f, did);
+		if (!dev || dev->uid != uid)
+			return "device revoked";
+	}
+
+	/* the token must carry exactly the grants the records hold now */
+	for (n = lws_login_feed_grants(f, uid);
+	     n < f->n_grants && f->grants[n]->uid == uid; n++) {
+		if (!f->grants[n]->svc ||
+		    lws_jwt_auth_query_grant(ja, f->grants[n]->svc) !=
+						(int)f->grants[n]->level)
+			return "grants changed";
+		count++;
+	}
+
+	if (count != lws_jwt_auth_count_grants(ja))
+		return "grants changed";
+
+	return NULL;
+}
+
+static int
+lws_login_jwt_stale(struct lws *wsi, struct vhd_login *vhd,
+		    struct lws_jwt_auth **pja)
+{
+	const char *why;
 
 	if (!pja || !*pja)
 		return 1;
 
-	uid = lws_jwt_auth_get_uid(*pja);
-
-	if (!f->secret[0])
+	why = lws_login_jwt_stale_why(vhd, *pja);
+	if (!why)
 		return 0;
 
-	if (!lws_login_feed_current(vhd)) {
-		if (!f->fail_closed)
-			return 0;
-		why = "no current auth feed snapshot, and auth-feed-fail-closed";
-		goto stale;
-	}
-
-	u = lws_login_feed_user(f, uid);
-	if (!u) {
-		why = "user is gone";
-		goto stale;
-	}
-	if (u->sec != lws_jwt_auth_get_sec(*pja)) {
-		why = "session epoch revoked";
-		goto stale;
-	}
-
-	did = lws_jwt_auth_get_did(*pja);
-	if (did && did[0]) {
-		dev = lws_login_feed_device(f, did);
-		if (!dev || dev->uid != uid) {
-			why = "device revoked";
-			goto stale;
-		}
-	}
-
-	/* the token must carry exactly the grants the records hold now */
-	why = "grants changed";
-	for (n = lws_login_feed_grants(f, uid);
-	     n < f->n_grants && f->grants[n]->uid == uid; n++) {
-		if (!f->grants[n]->svc ||
-		    lws_jwt_auth_query_grant(*pja, f->grants[n]->svc) !=
-						(int)f->grants[n]->level)
-			goto stale;
-		count++;
-	}
-
-	if (count == lws_jwt_auth_count_grants(*pja))
-		return 0;
-
-stale:
 	lwsl_wsi_notice(wsi, "uid %u: %s, token no longer good",
-			(unsigned int)uid, why);
+			(unsigned int)lws_jwt_auth_get_uid(*pja), why);
 	lws_jwt_auth_destroy(pja);
 
 	return 1;

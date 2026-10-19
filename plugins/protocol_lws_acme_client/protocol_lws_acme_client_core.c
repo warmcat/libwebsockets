@@ -53,6 +53,7 @@
 
 #include "private-acme-client.h"
 
+#if (_LWS_ENABLED_LOGS & (LLL_WARN | LLL_NOTICE))
 static const char *
 acme_state_name(lws_acme_state s)
 {
@@ -64,6 +65,7 @@ acme_state_name(lws_acme_state s)
 
 	return s <= ACME_STATE_FINISHED ? n[s] : "unknown";
 }
+#endif
 
 
 static void
@@ -892,6 +894,7 @@ lws_acme_watchdog_cb(lws_sorted_usec_list_t *sul)
 	if (!vhd->ac)
 		return;
 
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 	{
 		const char *cn = vhd->active_cert ?
 				vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] : NULL;
@@ -900,6 +903,7 @@ lws_acme_watchdog_cb(lws_sorted_usec_list_t *sul)
 				cn ? cn : "unknown",
 				acme_state_name(vhd->ac->state));
 	}
+#endif
 
 	/*
 	 * Answers still owed to this attempt must not be counted against
@@ -1056,7 +1060,9 @@ static void
 acme_ipc_auth_key(struct per_vhost_data__lws_acme_client *vhd,
 		  const char *line, size_t len, int ok)
 {
+#if (_LWS_ENABLED_LOGS & (LLL_WARN | LLL_NOTICE))
 	const char *cn = vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+#endif
 
 	if (!ok) {
 		if (lws_json_simple_strcmp(line, len, "\"none\":", "true")) {
@@ -2967,7 +2973,9 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 	/* caa != NULL means we were called from lws vhost cert aging rather
 	 * than our own periodic scan: identify the caller in the logs so
 	 * concurrent entries can be told apart */
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	const char *src = caa ? "vhost-cert-aging" : "periodic-scan";
+#endif
 
 	if (!vhd || !lws_dll2_get_head(&vhd->cert_configs)) {
 		if (vhd)
@@ -2979,28 +2987,34 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 
 	/* If we are already doing an ACME check, busy. Try again later */
 	if (vhd->ac) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		const char *cn = vhd->active_cert ?
 				vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] : NULL;
 		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting (%s), "
 				"acquisition for %s already in progress (state %s)\n",
 				src, cn ? cn : "unknown",
 				acme_state_name(vhd->ac->state));
+#endif
 		return 0;
 	}
 
 	/* Prevent re-entrancy if already iterating */
 	if (vhd->aging_current_cert) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		struct lws_acme_cert_config *cfg = lws_container_of(vhd->aging_current_cert,
 				struct lws_acme_cert_config, list);
 		const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
 		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting (%s), "
 				"already iterating cert configs (at %s)\n",
 				src, cn ? cn : "unknown");
+#endif
 		return 0;
 	}
 
 	vhd->aging_is_production = 0;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	int has_config = 0;
+#endif
 	int global_enabled = 1;
 	vhd->aging_global_email[0] = '\0';
 	vhd->aging_global_profile[0] = '\0';
@@ -3042,7 +3056,9 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 					vhd->aging_global_profile[(size_t)(profile_end - profile_start)] = '\0';
 				}
 			}
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			has_config = 1;
+#endif
 		}
 		close(fd_cfg);
 	} else {

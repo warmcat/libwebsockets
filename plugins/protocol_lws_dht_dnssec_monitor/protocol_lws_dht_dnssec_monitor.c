@@ -2604,10 +2604,6 @@ struct lws * handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss,
 	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "root-monitor-dummy");
 	i.vhost = vh ? vh : vhd->vhost;
 
-	const char *url = (vhd->acme_production) ?
-		"https://acme-v02.api.letsencrypt.org/directory" :
-		"https://acme-staging-v02.api.letsencrypt.org/directory";
-
 	i.address = vhd->acme_production ? "acme-v02.api.letsencrypt.org" : "acme-staging-v02.api.letsencrypt.org";
 	i.port = 443;
 	i.ssl_connection = LCCSCF_USE_SSL;
@@ -2629,7 +2625,8 @@ struct lws * handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss,
 		       LWS_ARRAY_SIZE(acme_dir_paths));
 	i.opaque_user_data = afi;
 
-	lwsl_notice("%s: Fetching ACME directory from %s\n", __func__, url);
+	lwsl_notice("%s: Fetching ACME directory from https://%s%s\n",
+		    __func__, i.address, i.path);
 
 	afi->in_connect = 1;
 	struct lws *wsi = lws_client_connect_via_info(&i);

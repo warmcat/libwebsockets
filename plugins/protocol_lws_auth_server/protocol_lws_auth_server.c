@@ -2120,16 +2120,18 @@ auth_csrf_set_cookie(char out[AUTH_SERVER_CSRF_SC_SZ], const char *csrf)
  * first-or-nothing left live rows behind -- which then keep "silent
  * renewal" half-alive on other hosts after this logout.
  *
- * Returns the number of rows deleted; *seen, if given, gets the number of
- * cookie values presented.
+ * It logs how many values were presented and how many rows went, for the
+ * logout paths that call it.
  */
-static int
+static void
 auth_server_destroy_refresh_sessions(struct lws *wsi,
-				     struct per_vhost_data__auth_server *vhd,
-				     int *seen)
+				     struct per_vhost_data__auth_server *vhd)
 {
 	char refresh_tk[128];
-	int n, deleted = 0, saw = 0;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	int deleted = 0, saw = 0;
+#endif
+	int n;
 
 	for (n = 0; n < 16; n++) {
 		size_t rl = sizeof(refresh_tk);
@@ -2149,7 +2151,9 @@ auth_server_destroy_refresh_sessions(struct lws *wsi,
 				break;
 			continue;
 		}
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		saw++;
+#endif
 		if (!refresh_tk[0])
 			continue;
 		if (sqlite3_prepare_v2(vhd->db,
@@ -2160,16 +2164,16 @@ auth_server_destroy_refresh_sessions(struct lws *wsi,
 					  SQLITE_TRANSIENT);
 			sqlite3_step(stmt);
 			sqlite3_finalize(stmt);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			deleted++;
+#endif
 		} else
 			lwsl_wsi_err(wsi, "DB prepare failed: %s",
 				     sqlite3_errmsg(vhd->db));
 	}
 
-	if (seen)
-		*seen = saw;
-
-	return deleted;
+	lwsl_wsi_notice(wsi, "logout: %d auth_refresh_session value(s) "
+			"presented, %d session row(s) deleted", saw, deleted);
 }
 
 /*
@@ -2361,7 +2365,10 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 
 	struct lws_jwt_auth *ja = auth_session_jwt(wsi, vhd);
 	char rnote[96] = "no auth_refresh_session cookie presented";
-	int was_refreshed = 0, had_jwt = !!ja;
+	int was_refreshed = 0;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	int had_jwt = !!ja;
+#endif
 	uint32_t uid = 0;
 
 	if (ja) {
@@ -2709,7 +2716,6 @@ lws_auth_api_logout(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	uint8_t *start = (uint8_t *)buf + LWS_PRE, *p = start,
 		*end = (uint8_t *)buf + sizeof(buf) - 1;
 	size_t pl_len;
-	int deleted;
 
 	if (auth_check_csrf(wsi, vhd, pss)) {
 		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
@@ -2725,8 +2731,7 @@ lws_auth_api_logout(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 					 NULL);
 	}
 
-	deleted = auth_server_destroy_refresh_sessions(wsi, vhd, NULL);
-	lwsl_wsi_notice(wsi, "logout: %d session row(s) deleted", deleted);
+	auth_server_destroy_refresh_sessions(wsi, vhd);
 
 	auth_server_clear_session_cookies(vhd, hdr);
 
@@ -4896,16 +4901,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 #endif
 
-			{
-				int seen = 0, deleted =
-					auth_server_destroy_refresh_sessions(wsi,
-								vhd, &seen);
-
-				lwsl_wsi_notice(wsi, "logout: %d "
-					"auth_refresh_session value(s) "
-					"presented, %d session row(s) deleted",
-					seen, deleted);
-			}
+			auth_server_destroy_refresh_sessions(wsi, vhd);
 
 			char hdr[AUTH_SERVER_CLEAR_COOKIES]
 				[AUTH_SERVER_CLEAR_COOKIE_SZ];

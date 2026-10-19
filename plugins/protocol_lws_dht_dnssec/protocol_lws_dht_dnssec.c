@@ -682,6 +682,7 @@ dht_dnssec_sul_sub_refetch_cb(lws_sorted_usec_list_t *sul)
  * holds about each node, so a missing one can be seen and explained
  */
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 static int
 dht_dnssec_log_node_cb(void *user, const lws_dht_node_info_t *ni)
 {
@@ -710,6 +711,7 @@ dht_dnssec_log_node_cb(void *user, const lws_dht_node_info_t *ni)
 
 	return 0;
 }
+#endif
 
 static void
 dht_dnssec_broadcast_notify(struct vhd_dht_dnssec *vhd, const char *domain, uint64_t soa_serial)
@@ -726,10 +728,12 @@ dht_dnssec_broadcast_notify(struct vhd_dht_dnssec *vhd, const char *domain, uint
 	lwsl_user("%s: Broadcasting SOA %llu for %s to %d IPv4 and %d IPv6 peers\n",
 		  __func__, (unsigned long long)soa_serial, domain, num_v4, num_v6);
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	lwsl_notice("%s: routing table (only good nodes are told):\n", __func__);
 	lws_dht_foreach_node(vhd->dht, AF_INET, dht_dnssec_log_node_cb, NULL);
 #if defined(LWS_WITH_IPV6)
 	lws_dht_foreach_node(vhd->dht, AF_INET6, dht_dnssec_log_node_cb, NULL);
+#endif
 #endif
 
 	for (i = 0; i < num_v4; i++) {
@@ -3222,10 +3226,12 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 
 
 		{
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			char peer_ip[64];
 			lws_sa46_write_numeric_address((lws_sockaddr46 *)from, peer_ip, sizeof(peer_ip));
 			int peer_port = from->sa_family == AF_INET ? ntohs(((struct sockaddr_in *)from)->sin_port) : ntohs(((struct sockaddr_in6 *)from)->sin6_port);
 			lwsl_notice("%s: Received NOTIFY from %s:%u for domain hash with SOA %llu!\n", __func__, peer_ip, peer_port, (unsigned long long)newer_soa);
+#endif
 
 			struct notify_ratelimit *nrl = NULL, *oldest_nrl = NULL;
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->notify_ratelimiters)) {
