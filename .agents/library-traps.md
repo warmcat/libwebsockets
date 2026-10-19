@@ -109,7 +109,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    8ad13a51f / ae12f5f60); anything calling `getpeername()` directly gets
    the proxy.  Each stack entry has a credibility level (HEARSAY <
    VOUCHED < ROUTABLE < CRYPTO); per-client policy must not key on
-   HEARSAY, see security-audit/reports/peer-address-stack.md.  Peer limits key on the named client since
+   HEARSAY, see security-audit/reports/peer-address-stack.md.  Since
+   500f08eab `lws_io_peer_policy()` decides: an effective entry at VOUCHED
+   or better is believed; otherwise `lws_get_peer_host_key()` returns
+   `LWS_HOST_KEY_UNPROVEN` and peer limits count it in one context-wide
+   unproven pseudo-peer (`.unproven_limit_wsi`).  QUIC entries rise to
+   ROUTABLE / CRYPTO as QUIC proves them (1a9eb394b).  Peer limits key on the named client since
    G-196 (a trusted proxy's connection counts against nobody until its
    header arrives).  New per-client
    policy must use the helpers, and anything evaluated at adopt runs

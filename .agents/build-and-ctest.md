@@ -375,3 +375,7 @@ a log is evidence that something was or was not emitted.
    deterministic RST, an easy way to test a server seeing a peer reset.
  - Never delete untracked directories in the source tree during cleanup
    unless you created them: they may be the maintainer's.
+ - The lws h3 client keeps an idle connection warm for at least 1s and
+   joins later requests to the same endpoint on that vhost onto it:
+   tests counting server connections need a client vhost per client and
+   a fresh context per part (B57, api-test-peer-stack-quic).
