@@ -101,7 +101,10 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
 		return 0;
 
-	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+	/* a truncated path names something else: never act on it */
+	if (lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name) >=
+							(int)sizeof(path))
+		return 0;
 
 	if (lde->type == LDOT_DIR) {
 		/* .index holds our keyframe indexes, not media */
@@ -199,14 +202,26 @@ hls_purge_probe_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
 		return 0;
 
-	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+	/*
+	 * A path we cannot compose, or a subtree below the depth cap, is
+	 * one we did not look in: it may hold media, so it keeps the
+	 * directory.  Never conclude "nothing playable" from a partial walk,
+	 * since the conclusion is an rm -rf.
+	 */
+	if (lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name) >=
+							(int)sizeof(path)) {
+		ps->has_media = 1;
+		return 1;
+	}
 
 	if (lde->type == LDOT_DIR) {
 		if (lde->name[0] == '.')
 			return 0;
 		/* the depth cap also bounds symlink loops, as in hls_dir_cb */
-		if (ps->depth >= HLS_DIR_MAX_DEPTH)
-			return 0;
+		if (ps->depth >= HLS_DIR_MAX_DEPTH) {
+			ps->has_media = 1;
+			return 1;
+		}
 		ps->depth++;
 		lws_dir(path, ps, hls_purge_probe_cb);
 		ps->depth--;
@@ -257,8 +272,9 @@ hls_purge_top_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (lde->type != LDOT_DIR || lde->name[0] == '.')
 		return 0;
 
-	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
-	hls_purge_one(vhd, path);
+	if (lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name) <
+							(int)sizeof(path))
+		hls_purge_one(vhd, path);
 
 	return 0;
 }
@@ -276,9 +292,9 @@ lws_hls_purge_subdir(struct per_vhost_data__lws_hls *vhd, const char *top,
 	    memchr(top, '/', len))
 		return;
 
-	lws_snprintf(path, sizeof(path), "%s/%.*s", vhd->media_dir, (int)len,
-		     top);
-	if (lstat(path, &st) || !S_ISDIR(st.st_mode))
+	if (lws_snprintf(path, sizeof(path), "%s/%.*s", vhd->media_dir,
+			 (int)len, top) >= (int)sizeof(path) ||
+	    lstat(path, &st) || !S_ISDIR(st.st_mode))
 		return;
 
 	hls_purge_one(vhd, path);

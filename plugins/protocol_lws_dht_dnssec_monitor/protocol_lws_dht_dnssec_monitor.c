@@ -1151,7 +1151,10 @@ reset_dist_client_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	char path[1024];
 	if (lde->type == LDOT_DIR && lde->name[0] != '.') {
-		lws_snprintf(path, sizeof(path), "%s/%s/dist-client", dirpath, lde->name);
+		/* a truncated path names something else: never rm -rf it */
+		if (lws_snprintf(path, sizeof(path), "%s/%s/dist-client",
+				 dirpath, lde->name) >= (int)sizeof(path))
+			return 0;
 		lws_dir(path, NULL, lws_dir_rm_rf_cb);
 		rmdir(path);
 	}

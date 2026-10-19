@@ -48,8 +48,6 @@
 #endif
 #endif /* win32 */
 
-#define COMBO_SIZEOF 512
-
 #if !defined(LWS_PLAT_FREERTOS)
 
 #if defined(WIN32)
@@ -73,14 +71,40 @@ static char csep = '/';
 static char csep = '\\';
 #endif
 
-static void
-lws_dir_via_stat(char *combo, size_t l, const char *path, struct lws_dir_entry *lde)
+/*
+ * dirpath + separator + name, allocated to fit.  The callers act on the
+ * result (stat, recurse, unlink, rmdir), so it must never be a truncated
+ * prefix that names something else: there is no fixed-size buffer here to
+ * truncate into, the OS judges whether the length is usable.
+ */
+static char *
+lws_dir_compose(const char *dirpath, const char *name)
 {
-        struct stat s;
+	size_t ld = strlen(dirpath), ln = strlen(name);
+	char *p = lws_malloc(ld + ln + 2, __func__);
 
-        lws_strncpy(combo + l, path, COMBO_SIZEOF - l);
+	if (!p)
+		return NULL;
 
-        lde->type = LDOT_UNKNOWN;
+	memcpy(p, dirpath, ld);
+	p[ld] = csep;
+	memcpy(p + ld + 1, name, ln + 1);
+
+	return p;
+}
+
+static void
+lws_dir_via_stat(const char *dirpath, const char *name,
+		 struct lws_dir_entry *lde)
+{
+	struct stat s;
+	char *combo;
+
+	lde->type = LDOT_UNKNOWN;
+
+	combo = lws_dir_compose(dirpath, name);
+	if (!combo)
+		return;
 
 	/*
 	 * This is the fallback for filesystems that don't fill in d_type (XFS
@@ -92,9 +116,9 @@ lws_dir_via_stat(char *combo, size_t l, const char *path, struct lws_dir_entry *
 	 */
 
 #if defined(WIN32) || defined(_WIN32)
-        if (!stat(combo, &s)) {
+	if (!stat(combo, &s)) {
 #else
-        if (!lstat(combo, &s)) {
+	if (!lstat(combo, &s)) {
 #endif
 		switch (s.st_mode & S_IFMT) {
 		case S_IFBLK:
@@ -120,11 +144,14 @@ lws_dir_via_stat(char *combo, size_t l, const char *path, struct lws_dir_entry *
 		default:
 			break;
 		}
-        }
+	}
+
+	lws_free(combo);
 }
 
 static void
-_fill_lde(char *combo, size_t l, const char *name, unsigned int type, struct lws_dir_entry *lde)
+_fill_lde(const char *dirpath, const char *name, unsigned int type,
+	  struct lws_dir_entry *lde)
 {
 	lde->name = name;
 
@@ -134,7 +161,7 @@ _fill_lde(char *combo, size_t l, const char *name, unsigned int type, struct lws
 	 */
 
 #if defined(__sun) || defined(__QNX__)
-	lws_dir_via_stat(combo, l, name, lde);
+	lws_dir_via_stat(dirpath, name, lde);
 #else
 	/*
 	 * XFS on Linux doesn't fill in d_type at all, always zero.
@@ -156,7 +183,7 @@ _fill_lde(char *combo, size_t l, const char *name, unsigned int type, struct lws
 		lde->type = LDOTT_SOCKET;
 	else {
 		lde->type = LDOT_UNKNOWN;
-		lws_dir_via_stat(combo, l, name, lde);
+		lws_dir_via_stat(dirpath, name, lde);
 	}
 #endif
 }
@@ -166,17 +193,11 @@ lws_dir_via_info(struct lws_dir_info *info)
 {
 	struct dirent **namelist = NULL;
 	struct lws_dir_entry lde;
-	char combo[COMBO_SIZEOF];
 	unsigned int type = 0;
 	int n, i, ret = 1;
-	size_t l;
 
 	assert(info->dirpath);
 	assert(info->cb);
-
-	l = (size_t)(ssize_t)lws_snprintf(combo, COMBO_SIZEOF - 2, "%s", info->dirpath);
-	combo[l++] = csep;
-	combo[l] = '\0';
 
 	n = scandir((char *)info->dirpath, &namelist, filter, alphasort);
 	if (n < 0) {
@@ -191,7 +212,7 @@ lws_dir_via_info(struct lws_dir_info *info)
 		if ((char *)strchr(namelist[i]->d_name, '~'))
 			goto skip;
 
-		_fill_lde(combo, l, namelist[i]->d_name, type, &lde);
+		_fill_lde(info->dirpath, namelist[i]->d_name, type, &lde);
 
 		if (info->cb(info->dirpath, info->user, &lde)) {
 			while (i < n)
@@ -205,7 +226,7 @@ skip:
 
 	if (info->do_toplevel_cb) {
 		lde.name = "";
-		lws_dir_via_stat(combo, l, "", &lde);
+		lws_dir_via_stat(info->dirpath, "", &lde);
 
 		if (info->cb(info->dirpath, info->user, &lde))
 			ret = 0; /* told to stop by cb */
@@ -259,16 +280,19 @@ int
 lws_dir_du_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	lws_dir_du_t *du = (lws_dir_du_t *)user;
-	char path[384];
 	struct stat s;
+	char *path;
 
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
 		return 0;
 
-	lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep, lde->name);
+	path = lws_dir_compose(dirpath, lde->name);
+	if (!path)
+		return 1;
 
 	if (lde->type == LDOT_DIR) {
 		lws_dir(path, user, lws_dir_du_cb);
+		lws_free(path);
 
 		return 0;
 	}
@@ -283,6 +307,8 @@ lws_dir_du_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		}
 	}
 
+	lws_free(path);
+
 	return 0;
 }
 
@@ -294,7 +320,7 @@ int
 lws_dir_glob_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	lws_dir_glob_t *filter = (lws_dir_glob_t*)user;
-	char path[384];
+	char *path;
 
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
 		return 0;
@@ -303,23 +329,45 @@ lws_dir_glob_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 
 	if (lws_dir_glob_check(lde->name, filter->filter)) {
-		lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep,
-							   lde->name);
+		path = lws_dir_compose(dirpath, lde->name);
+		if (!path)
+			return 1;
 		filter->cb(filter->user, path);
+		lws_free(path);
 	}
 
 	return 0;
 }
 
-int
-lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+/*
+ * How deep below the starting dir rm -rf will go.  The path is never
+ * truncated, so the walk always makes progress and the OS's path length
+ * limit ends it anyway; this keeps the stack it can take on a small thread
+ * bounded as well.  A subtree deeper than this is left in place and logged.
+ */
+#define LWS_DIR_RM_RF_MAX_DEPTH 64
+
+static int
+lws_dir_rm_rf_entry(const char *dirpath, int *depth, struct lws_dir_entry *lde);
+
+static int
+lws_dir_rm_rf_inner_cb(const char *dirpath, void *user,
+		       struct lws_dir_entry *lde)
 {
-	char path[384];
+	return lws_dir_rm_rf_entry(dirpath, (int *)user, lde);
+}
+
+static int
+lws_dir_rm_rf_entry(const char *dirpath, int *depth, struct lws_dir_entry *lde)
+{
+	char *path;
 
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
 		return 0;
 
-	lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep, lde->name);
+	path = lws_dir_compose(dirpath, lde->name);
+	if (!path)
+		return 1; /* OOM: stop rather than act on a partial walk */
 
 	if (lde->type == LDOT_DIR) {
 #if !defined(WIN32) && !defined(_WIN32) && !defined(__COVERITY__)
@@ -338,7 +386,18 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		 */
 		if (readlink(path, dummy, sizeof(dummy)) < 0)
 #endif
-			lws_dir(path, NULL, lws_dir_rm_rf_cb);
+		{
+			if (*depth >= LWS_DIR_RM_RF_MAX_DEPTH) {
+				lwsl_warn("%s: depth limit, leaving %s\n",
+					  __func__, path);
+				lws_free(path);
+
+				return 0;
+			}
+			(*depth)++;
+			lws_dir(path, depth, lws_dir_rm_rf_inner_cb);
+			(*depth)--;
+		}
 
 		if (rmdir(path))
 			lwsl_warn("%s: rmdir %s failed %d\n", __func__, path, errno);
@@ -355,7 +414,19 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		}
 	}
 
+	lws_free(path);
+
 	return 0;
+}
+
+int
+lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	int depth = 0;
+
+	/* user is documented as ignored: our own depth rides on the inner cb */
+
+	return lws_dir_rm_rf_entry(dirpath, &depth, lde);
 }
 
 #if !defined(WIN32) && !defined(_WIN32)

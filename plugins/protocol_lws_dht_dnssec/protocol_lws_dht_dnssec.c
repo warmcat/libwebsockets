@@ -513,7 +513,10 @@ dht_dnssec_sweep_old_payload_cb(const char *dirpath, void *user, struct lws_dir_
 			}
 		}
 		char upath[1024];
-		lws_snprintf(upath, sizeof(upath), "%s/%s", dirpath, lde->name);
+		/* a truncated path names something else: never unlink it */
+		if (lws_snprintf(upath, sizeof(upath), "%s/%s", dirpath,
+				 lde->name) >= (int)sizeof(upath))
+			return 0;
 		unlink(upath);
 		lwsl_notice("%s: unlinked old payload %s\n", __func__, upath);
 	}
@@ -4860,7 +4863,10 @@ dht_dnssec_sweep_level2_cb(const char *dirpath, void *user, struct lws_dir_entry
 
 			if (is_legacy || (sig_expiry > 0 && sig_expiry < (uint64_t)lws_now_secs())) {
 				char fp[1024];
-				lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath, lde->name);
+				/* never unlink a truncated path */
+				if (lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath,
+						 lde->name) >= (int)sizeof(fp))
+					return 0;
 				lwsl_notice("Expunging %s payload %s\n", is_legacy ? "legacy" : "expired", fp);
 				unlink(fp);
 
@@ -4871,8 +4877,9 @@ dht_dnssec_sweep_level2_cb(const char *dirpath, void *user, struct lws_dir_entry
 					hash[i++] = *p++;
 				}
 				hash[i] = '\0';
-				lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath, hash);
-				unlink(fp);
+				if (lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath,
+						 hash) < (int)sizeof(fp))
+					unlink(fp);
 			}
 		}
 	}

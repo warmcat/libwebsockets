@@ -142,9 +142,13 @@ hls_atrans_ent_fill(struct hls_atrans_ent *e, const char *media_dir,
 	if (nl < 5 || strcmp(name + nl - 4, ".hdr"))
 		return -1;
 
-	lws_snprintf(e->hdr, sizeof(e->hdr), "%s/%s", dirpath, name);
-	lws_snprintf(e->m4a, sizeof(e->m4a), "%.*s.m4a",
-		     (int)(strlen(e->hdr) - 4), e->hdr);
+	/* -1 leaves it alone: a truncated path is not this entry's */
+	if (lws_snprintf(e->hdr, sizeof(e->hdr), "%s/%s", dirpath, name) >=
+							(int)sizeof(e->hdr) ||
+	    lws_snprintf(e->m4a, sizeof(e->m4a), "%.*s.m4a",
+			 (int)(strlen(e->hdr) - 4), e->hdr) >=
+							(int)sizeof(e->m4a))
+		return -1;
 
 	fd = open(e->hdr, O_RDONLY);
 	if (fd < 0)
@@ -886,8 +890,9 @@ hls_atrans_sweep_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	/* an unfinished hdr write: nothing will complete it */
 	if (nl > 4 && !strcmp(lde->name + nl - 4, ".tmp")) {
-		lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
-		unlink(path);
+		if (lws_snprintf(path, sizeof(path), "%s/%s", dirpath,
+				 lde->name) < (int)sizeof(path))
+			unlink(path);
 		return 0;
 	}
 
@@ -898,11 +903,15 @@ hls_atrans_sweep_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	case -1:
 		/* not a .hdr: shadow media without its header is an orphan */
 		if (nl > 4 && !strcmp(lde->name + nl - 4, ".m4a")) {
-			lws_snprintf(e.hdr, sizeof(e.hdr), "%s/%.*s.hdr",
-				     dirpath, (int)(nl - 4), lde->name);
+			/* never judge or unlink a truncated path */
+			if (lws_snprintf(e.hdr, sizeof(e.hdr), "%s/%.*s.hdr",
+					 dirpath, (int)(nl - 4), lde->name) >=
+							(int)sizeof(e.hdr) ||
+			    lws_snprintf(e.m4a, sizeof(e.m4a), "%s/%s",
+					 dirpath, lde->name) >=
+							(int)sizeof(e.m4a))
+				return 0;
 			if (access(e.hdr, F_OK)) {
-				lws_snprintf(e.m4a, sizeof(e.m4a), "%s/%s",
-					     dirpath, lde->name);
 				lwsl_notice("HLS-ATRANS: sweep: removing "
 					    "orphan %s\n", e.m4a);
 				unlink(e.m4a);

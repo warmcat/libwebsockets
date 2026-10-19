@@ -338,7 +338,10 @@ hls_index_sweep_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (lde->type != LDOT_FILE)
 		return 0;
 
-	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+	/* a truncated path names something else: never act on it */
+	if (lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name) >=
+							(int)sizeof(path))
+		return 0;
 	nl = strlen(lde->name);
 
 	/* a .tmp is a save that never completed: nothing will finish it */

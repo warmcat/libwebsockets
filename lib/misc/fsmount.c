@@ -37,42 +37,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-static int
-rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
-{
-	char path[384];
-
-	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
-		return 0;
-
-	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
-
-	if (lde->type == LDOT_DIR) {
-#if !defined(__COVERITY__)
-		char dummy[8];
-
-		/*
-		 * A symlink to a directory can be reported as LDOT_DIR (eg,
-		 * when the fs gave no d_type and we had to fall back to a
-		 * stat()).  Recursing into it would take the deletion outside
-		 * the session dir, so like lws_dir_rm_rf_cb() only recurse if
-		 * readlink() says it is not a symlink.
-		 *
-		 * dummy[] is immediately discarded without being looked in, so
-		 * its lack of NUL termination cannot bite us.  Hidden from
-		 * Coverity, which flags any use of readlink() even if safe.
-		 */
-		if (readlink(path, dummy, sizeof(dummy)) < 0)
-#endif
-			lws_dir(path, NULL, rm_rf_cb);
-
-		rmdir(path);
-	} else
-		unlink(path);
-
-	return 0;
-}
-
 /*
  * ovname, distro and the layer names are pasted both into the overlayfs mount
  * option string (where ':' separates lowerdirs and ',' separates options) and
@@ -162,7 +126,7 @@ lws_fsmount_mount(struct lws_fsmount *fsm)
 		goto too_long;
 
 	lwsl_info("%s: emptying session dir %s\n", __func__, opts);
-	lws_dir(opts, NULL, rm_rf_cb);
+	lws_dir(opts, NULL, lws_dir_rm_rf_cb);
 
 	/*
 	 * Piece together the options for the overlay mount...

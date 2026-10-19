@@ -146,6 +146,186 @@ bail:
 }
 #endif
 
+#if !defined(WIN32)
+/*
+ * lws_dir_rm_rf_cb() must act on exactly the entries it walks, however long
+ * their paths: never a truncated prefix of one, which names the directory
+ * being walked, an ancestor (so it recursed forever) or a sibling outside
+ * the tree (so it was deleted).  And it must stop at its depth bound.
+ */
+
+#define RMRF_BASE "./test-rmrf"
+
+static int
+exists(const char *path)
+{
+	struct stat st;
+
+	return !lstat(path, &st);
+}
+
+/* extend path p with directories until it is exactly target chars long */
+
+static int
+grow_to(char *p, size_t cap, size_t target, char c)
+{
+	size_t l = strlen(p), n;
+
+	if (target + 1 > cap)
+		return 1;
+
+	while (l < target) {
+		n = target - l - 1;
+		if (n > 200)
+			n = 200;
+		if (target - l - 1 - n == 1)
+			n--; /* the next component can't be empty */
+		p[l] = '/';
+		memset(p + l + 1, c, n);
+		p[l + 1 + n] = '\0';
+		if (mkdir(p, 0700))
+			return 1;
+		l += 1 + n;
+	}
+
+	return 0;
+}
+
+static int
+cat_to(char *p, size_t cap, const char *s)
+{
+	size_t l = strlen(p);
+
+	return lws_snprintf(p + l, cap - l, "%s", s) >= (int)(cap - l);
+}
+
+static int
+mkdir_sub(char *p, size_t cap, const char *sub)
+{
+	if (cat_to(p, cap, "/") || cat_to(p, cap, sub))
+		return 1;
+
+	return mkdir(p, 0700);
+}
+
+static int
+test_rm_rf_long(void)
+{
+	char p[2048], root[512], keep[512];
+	int r = 1, n;
+
+	lwsl_user("%s\n", __func__);
+
+	if (mkdir(RMRF_BASE, 0700))
+		return 1;
+
+	/*
+	 * A tree whose own path is 400 long.  Its entries' paths cut at 383
+	 * name "keep", its sibling: that must survive the tree's removal.
+	 */
+
+	lws_strncpy(root, RMRF_BASE, sizeof(root));
+	if (grow_to(root, sizeof(root), 299, 'p'))
+		goto bail;
+	lws_strncpy(keep, root, sizeof(keep));
+	if (grow_to(keep, sizeof(keep), 383, 'r'))
+		goto bail;
+	lws_strncpy(p, keep, sizeof(p));
+	if (mkdir_sub(p, sizeof(p), "x") || create_file(RMRF_BASE "/kf", 1))
+		goto bail;
+	cat_to(p, sizeof(p), "/f");
+	if (create_file(p, 1))
+		goto bail;
+
+	root[299] = '\0';
+	if (grow_to(root, sizeof(root), 400, 'r'))
+		goto bail;
+	lws_strncpy(p, root, sizeof(p));
+	if (mkdir_sub(p, sizeof(p), "a") || mkdir_sub(p, sizeof(p), "b"))
+		goto bail;
+	cat_to(p, sizeof(p), "/f");
+	if (create_file(p, 1))
+		goto bail;
+
+	lws_dir(root, NULL, lws_dir_rm_rf_cb);
+	if (rmdir(root)) {
+		lwsl_err("%s: long tree not emptied\n", __func__);
+		goto bail;
+	}
+	cat_to(keep, sizeof(keep), "/x/f");
+	if (!exists(keep) || !exists(RMRF_BASE "/kf")) {
+		lwsl_err("%s: rm -rf reached outside its tree\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * Directories whose paths are exactly 382 (cut, its child's path is
+	 * the dir itself) and 383 (cut, its grandchildren's paths are it), and
+	 * a branch on to past 1KB, each with more below.
+	 */
+
+	lws_strncpy(root, RMRF_BASE "/deep", sizeof(root));
+	if (mkdir(root, 0700))
+		goto bail;
+
+	for (n = 382; n <= 383; n++) {
+		lws_snprintf(p, sizeof(p), "%s/%c", root, 'a' + (n & 1));
+		if (mkdir(p, 0700) || grow_to(p, sizeof(p), (size_t)n, 'd') ||
+		    mkdir_sub(p, sizeof(p), "x") || mkdir_sub(p, sizeof(p), "y"))
+			goto bail;
+		cat_to(p, sizeof(p), "/f");
+		if (create_file(p, 1))
+			goto bail;
+	}
+
+	lws_snprintf(p, sizeof(p), "%s/c", root);
+	if (mkdir(p, 0700) || grow_to(p, sizeof(p), 1100, 'e'))
+		goto bail;
+	cat_to(p, sizeof(p), "/f");
+	if (create_file(p, 1))
+		goto bail;
+
+	lws_dir(root, NULL, lws_dir_rm_rf_cb);
+	if (rmdir(root)) {
+		lwsl_err("%s: deep tree not emptied\n", __func__);
+		goto bail;
+	}
+
+	/* a nesting past the depth bound is left alone, not recursed into */
+
+	lws_strncpy(p, root, sizeof(p));
+	if (mkdir(p, 0700))
+		goto bail;
+	for (n = 0; n < 70; n++)
+		if (mkdir_sub(p, sizeof(p), "d"))
+			goto bail;
+
+	lws_dir(root, NULL, lws_dir_rm_rf_cb);
+	if (!exists(root) || !rmdir(root)) {
+		lwsl_err("%s: depth bound not applied\n", __func__);
+		goto bail;
+	}
+
+	/* ... and removing it from halfway down gets it all */
+	p[strlen(root) + 2 * 35] = '\0';
+	lws_dir(p, NULL, lws_dir_rm_rf_cb);
+	lws_dir(root, NULL, lws_dir_rm_rf_cb);
+	if (rmdir(root)) {
+		lwsl_err("%s: depth-bounded tree not removable\n", __func__);
+		goto bail;
+	}
+
+	lwsl_user("%s: ok\n", __func__);
+	r = 0;
+
+bail:
+	lws_dir(RMRF_BASE, NULL, lws_dir_rm_rf_cb);
+	rmdir(RMRF_BASE);
+
+	return r;
+}
+#endif
+
 int main(int argc, const char **argv)
 {
 	
@@ -206,6 +386,8 @@ int main(int argc, const char **argv)
 
 #if !defined(WIN32)
 	if (test_symlink_rotate())
+		result = 1;
+	if (test_rm_rf_long())
 		result = 1;
 #endif
 

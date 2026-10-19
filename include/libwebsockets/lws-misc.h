@@ -1584,7 +1584,11 @@ lws_dir_via_info(struct lws_dir_info *info);
  * \param lde: lws_dir info on the file or directory we are at
  *
  * This is a readymade rm -rf callback for use with lws_dir.  It recursively
- * removes everything below the starting dir and then the starting dir itself.
+ * removes everything below the starting dir; the caller rmdir()s the starting
+ * dir itself afterwards if it wants it gone.  Symlinks are removed, never
+ * followed.  Paths are composed without truncation, and a subtree nested
+ * more than 64 directories below the starting dir is left in place (and
+ * logged) rather than recursed into without bound.
  * Works on linux, OSX and Windows at least.
  */
 LWS_VISIBLE LWS_EXTERN int
