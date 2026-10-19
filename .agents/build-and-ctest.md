@@ -341,3 +341,7 @@ a log is evidence that something was or was not emitted.
    statically: for a red run, recompile just that test with its plugin
    include path pointed at a HEAD copy of plugins/ssh-base, no library
    rebuild needed.
+ - Since G-286 the client in api-test-sshd-userauth does a complete
+   curve25519 + chacha20-poly1305 key exchange: a new pre-auth scenario
+   must start from that exchange, or expect to be closed if it sends
+   anything but transport messages first.
