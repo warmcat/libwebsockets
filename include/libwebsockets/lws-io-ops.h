@@ -55,7 +55,7 @@
  * The version of lws_io_ops_t: its members, their order and what they
  * mean.  Any change to them changes it.
  */
-#define LWS_IO_OPS_ABI_VERSION 2
+#define LWS_IO_OPS_ABI_VERSION 3
 
 /*
  * The close request reaches the transport in phases, in this order over a
@@ -88,6 +88,15 @@ enum lws_io_path_op {
 	LWS_IOPATH_NEW_SOCKET,	/* move onto a fresh socket (a new local
 				 * port) connected to this address, closing
 				 * the old; the reported peer is unchanged */
+	LWS_IOPATH_RELAYED,	/* a server connection was just born, and
+				 * committed to its peer, from a datagram IO
+				 * delivered as carried by a relay at this
+				 * address: the peer is the relay's claim, and
+				 * is reached through the relay */
+	LWS_IOPATH_PROVEN,	/* the protocol validated the path to the
+				 * peer at this address (quic address
+				 * validation, RFC 9000 8): what carried it,
+				 * eg, a relay, is proven along with it */
 };
 
 struct lws_client_connect_info;
@@ -128,15 +137,18 @@ typedef struct lws_io_ops {
 	 * the peer's end arrives through rx, 0 when it cannot.  Called from
 	 * the wsi's close path with the context and vhost locks held. */
 	int (*path)(struct lws *wsi, int op, const union lws_sockaddr46 *peer);
-	/**< the datagram connection wsi's path changed, by enum
-	 * lws_io_path_op.  wsi is the connection, which on a server shares
-	 * its listener's socket: there is nothing to aim, and COMMIT only
-	 * records the peer.  A wsi on a transport (lws_set_transport()) has no
-	 * socket either.  Called without the service thread lock.  0 = ok,
-	 * nonzero when the socket could not be aimed or made: after a failed
-	 * NEW_SOCKET the old socket is still in place if the new one could
-	 * not be opened, else the wsi is left with none.  May be NULL when no
-	 * datagram connection is carried. */
+	/**< the datagram connection wsi's path changed, or was proven, by
+	 * enum lws_io_path_op.  wsi is the connection, which on a server
+	 * shares its listener's socket: there is nothing to aim, and COMMIT
+	 * only records the peer.  A wsi on a transport (lws_set_transport())
+	 * has no socket either.  RELAYED only comes for a datagram IO itself
+	 * delivered as relayed, and PROVEN matters only to a connection that
+	 * is: IO recognising no relays returns 0 for PROVEN.  Called without
+	 * the service thread lock.  0 = ok, nonzero when the socket could not
+	 * be aimed or made, or a relayed connection could not be set up (it is
+	 * then closed): after a failed NEW_SOCKET the old socket is still in
+	 * place if the new one could not be opened, else the wsi is left with
+	 * none.  May be NULL when no datagram connection is carried. */
 	void (*created)(struct lws *wsi);
 	/**< a connection object was just made: IO sets up its half of it, as
 	 * having no transport yet (no socket, no place in the poll set).

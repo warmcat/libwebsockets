@@ -1892,6 +1892,14 @@ lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
 	if (cred != LWS_PEER_CRED_CRYPTO) {
 		if (seen)
 			lws_peer_raise(nwsi, seen, cred);
+		/*
+		 * QUIC validated the path to it (RFC 9000 8): if a relay
+		 * carries it, the relay is proven too, as long as it is still
+		 * the one the connection was reached through.  A Retry token
+		 * does not count: it is bound to an address, not a path.
+		 */
+		if (seen && nwsi->quic.qn && nwsi->quic.qn->address_validated)
+			lws_io_path(nwsi, LWS_IOPATH_PROVEN, seen);
 	} else {
 		n = lws_peer_walk(nwsi, e, (int)LWS_ARRAY_SIZE(e));
 		while (n-- > 0)
@@ -2065,7 +2073,8 @@ lws_quic_hold_early_pkt(struct lws_quic_netconn *qn, const uint8_t *pkt,
 
 static lws_handling_result_t
 rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
-		   const lws_sockaddr46 *peer, uint8_t ecn)
+		   const lws_sockaddr46 *peer, uint8_t ecn,
+		   const lws_peer_entry_t *via)
 {
 	lws_sockaddr46 sa46 = *peer;
 	int n = (int)len, orig_n = n;
@@ -2308,6 +2317,19 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->quic.qn->path_sa46 = sa46;
 		nwsi->quic.qn->initial_sa46 = sa46;
 		lws_io_path(nwsi, LWS_IOPATH_COMMIT, &sa46);
+
+		/*
+		 * A trusted relay carried it: sa46 is the client the relay
+		 * claims, and what we send it goes back through the relay.
+		 * The claim stays where our Initial goes, and what the
+		 * handshake proves (initial_sa46)
+		 */
+		if (via && lws_io_path(nwsi, LWS_IOPATH_RELAYED,
+				       &via[0].sa46)) {
+			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "quic relay");
+			return LWS_HPI_RET_HANDLED;
+		}
 
 		/*
 		 * It counts from now on, in the unproven budget, unless its
@@ -3599,7 +3621,7 @@ lws_quic_rx_early_pkts(struct lws *wsi, struct lws_quic_netconn *qn)
 			lwsl_wsi_info(wsi, "QUIC RX: processing held 1-RTT "
 					   "packet, %zu bytes", ep->len);
 			r = rops_rx_dgram_quic(wsi, (uint8_t *)&ep[1], ep->len,
-					       &ep->peer, ep->ecn);
+					       &ep->peer, ep->ecn, NULL);
 		}
 		lws_free(ep);
 	}

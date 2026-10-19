@@ -1388,7 +1388,19 @@ struct lws_context_creation_info {
 	 * the connection's peer address as lws reports it, eg, from
 	 * lws_get_peer_simple().  A connection from anywhere else is never
 	 * looked at for one, so nobody else can claim to be somebody they are
-	 * not.  The list applies to every vhost sharing the listener.  With
+	 * not.  That holds for TCP, whose handshake proves where a connection
+	 * is from.  A datagram's source is whatever its sender wrote, so on
+	 * a QUIC listener, a header in a datagram from a trusted address is
+	 * only hearsay: lws_peer_walk() shows the client as a
+	 * LWS_PEER_KIND_RELAY claim above the relay, both hearsay until the
+	 * client's QUIC connection validates its address through that relay,
+	 * and only that proves the relay.  Hearsay never moves a proven relay
+	 * nor pushes it out, but it can still make the listener spend work on
+	 * Initials and remember unproven clients, as anyone sending Initials
+	 * can, and it can disturb a client's handshake before it is proven:
+	 * prefer a path to the relay that its address cannot be spoofed on,
+	 * eg, loopback or a private link.  The list applies to every vhost
+	 * sharing the listener.  With
 	 * LWS_WITH_PEER_LIMITS, ip_limit_wsi and ip_limit_ah apply to the
 	 * client named too, and a LOCAL header's connection to the proxy
 	 * itself; until its header has been read, a proxy's connection counts

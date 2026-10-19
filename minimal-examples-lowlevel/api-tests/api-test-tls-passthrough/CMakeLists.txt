@@ -20,8 +20,8 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	# the front, the backend, the ClientHello capture listener, and the udp
-	# "NAT" the h3 migration step goes through
-	lws_get_free_ports(PORT_TLSPT 4)
+	# "NAT"s the h3 migration and spoofing steps go through
+	lws_get_free_ports(PORT_TLSPT 5)
 
 	add_test(NAME api-test-tls-passthrough
 		 COMMAND lws-api-test-tls-passthrough -p ${PORT_TLSPT}

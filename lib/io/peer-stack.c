@@ -236,6 +236,23 @@ lws_io_peer_push(struct lws *wsi, const lws_sockaddr46 *sa46,
 	return 0;
 }
 
+/*
+ * The claim above the transport's peer is now this one, replacing any there
+ * was: a relayed client that moved is a new claim, not a second one.  Returns
+ * nonzero if there is no transport entry under it, or no room above it.
+ */
+int
+lws_io_peer_claim(struct lws *wsi, const lws_sockaddr46 *sa46,
+		  lws_peer_kind_t kind, lws_peer_cred_t cred)
+{
+	if (!wsi->io->pstack_count)
+		return 1;
+
+	wsi->io->pstack_count = 1;
+
+	return lws_io_peer_push(wsi, sa46, kind, cred);
+}
+
 int
 lws_peer_walk(struct lws *wsi, lws_peer_entry_t *dest, int max)
 {

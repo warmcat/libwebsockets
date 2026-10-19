@@ -933,7 +933,7 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 #if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
 	/* a client a trusted relay forwards is answered through the relay */
 	if (dest && !lwsi_role_client(nwsi) &&
-	    lws_relayed_dgram_tx(nwsi, fd, buf, len, dest, &n))
+	    lws_relayed_dgram_tx(wsi, nwsi, fd, buf, len, dest, &n))
 		return n;
 #endif
 
@@ -1245,6 +1245,11 @@ lws_io_path_dgram(struct lws *wsi, int op, const lws_sockaddr46 *peer)
 
 	switch (op) {
 	case LWS_IOPATH_COMMIT:
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+		if (lws_qpt_conn_commit(wsi, peer))
+			/* a relayed connection: no socket of its own to aim */
+			return 0;
+#endif
 		lws_io_set_peer(wsi, peer);
 		if (!own || !lws_socket_is_valid(wsi->io->desc.sockfd) ||
 		    (!lws_sa46_compare_ads(&wsi->io->udp->sa46, peer) &&
@@ -1259,6 +1264,20 @@ lws_io_path_dgram(struct lws *wsi, int op, const lws_sockaddr46 *peer)
 			return 0;
 
 		return lws_io_udp_swap_socket(wsi, peer);
+
+	case LWS_IOPATH_RELAYED:
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+		return lws_qpt_conn_relayed(wsi, peer);
+#else
+		/* we recognise no relays, so we never said it was relayed */
+		return 1;
+#endif
+
+	case LWS_IOPATH_PROVEN:
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+		lws_qpt_conn_proven(wsi, peer);
+#endif
+		return 0;
 	}
 
 	return 1;

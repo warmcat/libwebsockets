@@ -848,6 +848,20 @@ looked at for one, so nobody else can claim to be somebody they are not, and
 a header after the first, wherever it came from, is just the client's data.
 The list applies to every vhost on the same listener.
 
+That is as good as the source address it rests on.  A TCP handshake proves
+it; a datagram's source is whatever its sender wrote, port included, so on a
+QUIC listener the client a datagram's header names, and the relay it came
+from, are only hearsay until the client's QUIC connection validates its
+address, which our packets can only do by reaching it through that relay.
+Logs and the access log show such a client as a relay claim above the relay,
+each with its cred.  Once proven, a relay is never moved or pushed out by
+datagrams from anywhere else, which still reach QUIC under the claim, where
+they are dropped unless they decrypt; before that, a sender who can spoof the
+front's address can disturb a client's handshake, or make the server keep
+some unproven state, as anyone sending Initials can.  So keep the path from
+the front to the server one its address can't be spoofed on, eg, loopback or
+a private link.
+
 The global per-IP limits, `"ip-limit-wsi"` and `"ip-limit-ah"`, count a proxied
 connection against the client its header names, not the proxy, so one client
 behind the proxy can't spend the budget of all the others; a connection the

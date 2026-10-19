@@ -776,6 +776,10 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 	/* LWS_IOCLOSE_RELEASE */
 
 	lws_io_quiesce_pollfd(wsi);
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+	/* a relay it proved is proven by one connection less */
+	lws_qpt_conn_release(wsi);
+#endif
 
 	if (!wsi->io->shadow) {
 		ssl_handled = lws_ssl_close(wsi);

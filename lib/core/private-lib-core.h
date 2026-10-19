@@ -1024,7 +1024,8 @@ struct lws_context {
 	 * quic passthrough (lib/io/passthrough.c): on a front, the flows it
 	 * relays to a server and the Initials it is still reading the SNI of,
 	 * by DCID; on a server, the clients a trusted relay forwards, by
-	 * address
+	 * address, those only claimed (hearsay, least recently used first)
+	 * apart from those a connection's QUIC proved
 	 */
 	struct lws_map			*pt_qflows;
 	struct lws_map			*pt_qpending;
@@ -1032,6 +1033,9 @@ struct lws_context {
 	lws_dll2_owner_t		pt_qflow_owner;
 	lws_dll2_owner_t		pt_qpending_owner;
 	lws_dll2_owner_t		pt_relayed_owner;
+	lws_dll2_owner_t		pt_relayed_proven_owner;
+	lws_usec_t			pt_relayed_refused_log;
+	uint32_t			pt_relayed_refused;
 	lws_sorted_usec_list_t		sul_pt_sweep;
 	int				count_quic_passthrough;
 #endif

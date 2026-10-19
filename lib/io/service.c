@@ -872,6 +872,10 @@ lws_handling_result_t
 lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 		  struct lws_pollfd *pollfd, int *nothing)
 {
+	const lws_peer_entry_t *via = NULL;
+#if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
+	lws_peer_entry_t relayed[2];
+#endif
 	lws_handling_result_t hr;
 	lws_sockaddr46 sa46;
 	socklen_t slen = sizeof(sa46);
@@ -978,19 +982,22 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 	l = (size_t)n;
 #if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
 	/*
-	 * A trusted relay's PROXY v2 header comes off first, then a
-	 * datagram for a passed through vhost goes on to its server
-	 * (lib/io/passthrough.c)
+	 * A trusted relay's PROXY v2 header comes off first, leaving how the
+	 * datagram came in via, then a datagram for a passed through vhost
+	 * goes on to its server (lib/io/passthrough.c)
 	 */
-	if (wsi->io->listener && wsi->role_ops == &role_ops_quic &&
-	    (lws_relayed_dgram_rx(wsi, &b, &l, &sa46) ||
-	     lws_quic_passthrough_rx(wsi, b, l, &sa46, ecn))) {
-		lws_servbuf_release(pt, sb);
-		return LWS_HPI_RET_HANDLED;
+	if (wsi->io->listener && wsi->role_ops == &role_ops_quic) {
+		if (lws_relayed_dgram_rx(wsi, &b, &l, &sa46, relayed) ||
+		    lws_quic_passthrough_rx(wsi, b, l, &sa46, ecn)) {
+			lws_servbuf_release(pt, sb);
+			return LWS_HPI_RET_HANDLED;
+		}
+		if (relayed[0].cred != LWS_PEER_CRED_NONE)
+			via = relayed;
 	}
 #endif
 	hr = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_dgram).
-			rx_dgram(wsi, b, l, &sa46, ecn);
+			rx_dgram(wsi, b, l, &sa46, ecn, via);
 	lws_servbuf_release(pt, sb);
 
 	return hr;

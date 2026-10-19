@@ -1106,6 +1106,16 @@ struct lws_io_adjunct {
 	unsigned int			pa_tls:1;	/* tls accept after */
 	unsigned int			pa_proxy_v2:1;	/* header expected */
 	unsigned int			pa_sni:1;	/* passthrough possible */
+#if defined(LWS_ROLE_QUIC)
+	/*
+	 * A server QUIC connection whose client a trusted relay carries: its
+	 * listener's port, which with the client keys the relay's entry, and
+	 * whether this connection's QUIC proved that entry's relay
+	 * (lib/io/passthrough.c)
+	 */
+	uint16_t			relay_lport;
+	unsigned int			relay_proven:1;
+#endif
 #endif
 #if defined(LWS_WITH_ROUTING)
 	lws_route_uidx_t		peer_route_uidx;
@@ -1922,10 +1932,19 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 			const lws_sockaddr46 *peer, uint8_t ecn);
 int
 lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
-		     lws_sockaddr46 *peer);
+		     lws_sockaddr46 *peer, lws_peer_entry_t *via);
 int
-lws_relayed_dgram_tx(struct lws *nwsi, lws_sockfd_type fd, const uint8_t *buf,
-		     size_t len, const lws_sockaddr46 *dest, int *sent);
+lws_relayed_dgram_tx(struct lws *wsi, struct lws *nwsi, lws_sockfd_type fd,
+		     const uint8_t *buf, size_t len,
+		     const lws_sockaddr46 *dest, int *sent);
+int
+lws_qpt_conn_relayed(struct lws *cw, const lws_sockaddr46 *relay);
+int
+lws_qpt_conn_commit(struct lws *cw, const lws_sockaddr46 *peer);
+void
+lws_qpt_conn_proven(struct lws *cw, const lws_sockaddr46 *seen);
+void
+lws_qpt_conn_release(struct lws *cw);
 void
 lws_quic_passthrough_context_destroy(struct lws_context *cx);
 #endif

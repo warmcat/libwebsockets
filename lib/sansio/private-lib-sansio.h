@@ -680,11 +680,20 @@ typedef lws_handling_result_t (*lws_rops_rx_t)(struct lws *wsi,
  * the ECN bits it arrived with (0 where the transport does not report them).
  * peer is in the socket's family.  The datagram is taken whole and the buffer
  * is the role's to work in for the duration of the call; nothing is parked.
+ *
+ * via is NULL for a datagram straight from peer.  When a trusted relay
+ * carried it, peer is the client the relay's header claims, and via is how
+ * it came, a stack of two entries like a connection's (lws_peer_walk(), but
+ * bottom first): via[0] the relay's own address, via[1] the claim, both
+ * only hearsay.  It describes this datagram alone: a connection it creates
+ * is reached through the relay (LWS_IOPATH_RELAYED), but it never changes
+ * what an existing connection is.
+ *
  * Returns what rx does, but for *used.
  */
 typedef lws_handling_result_t (*lws_rops_rx_dgram_t)(struct lws *wsi,
 		uint8_t *buf, size_t len, const lws_sockaddr46 *peer,
-		uint8_t ecn);
+		uint8_t ecn, const lws_peer_entry_t *via);
 /*
  * sansIO tx (README.sans-io-split.md, "Sending is a pull"): the transport
  * wsi owns can take bytes.  Produce the next of them into buf, at most max.

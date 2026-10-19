@@ -919,6 +919,29 @@ bail:
  * client it names is the datagram's peer as far as quic knows, and the relay
  * is remembered, so what quic sends that client goes back through it, with a
  * header naming the client.  Nobody else's datagrams are looked at for one.
+ *
+ * But a datagram's source address is whatever its sender wrote, port and
+ * all, so being from a trusted address proves nothing on its own: until the
+ * client's QUIC connection validates its address, which it can only do if
+ * our packets reached it through that relay, the relay we remember for it
+ * is hearsay.  A connection born from a relayed datagram carries the relay
+ * under the claim on its peer address stack, both hearsay, and its QUIC
+ * proving the claim (LWS_IOPATH_PROVEN) proves the relay too, if it is still
+ * the one the connection was reached through.  Then:
+ *
+ *  - a proven relay is never changed by a datagram from anywhere else: such
+ *    a datagram still goes to quic under the claim, where it is dropped
+ *    unless it decrypts, and changes nothing if it does;
+ *
+ *  - hearsay may move a hearsay entry, about which nothing was proven
+ *    either, but never pushes out a proven one: the hearsay entries are kept
+ *    apart, least recently used first, with a cap of their own, and only
+ *    they are dropped to make room;
+ *
+ *  - a proven entry lives as long as the connections that proved it (or
+ *    until its relay is quiet for LWS_QPT_RELAYED_IDLE_US), and a relayed
+ *    connection is only ever answered through a relay for it, never
+ *    directly, while a direct connection is never answered through one.
  */
 
 #define LWS_QPT_FLOW_IDLE_US		(60 * LWS_US_PER_SEC)
@@ -927,7 +950,9 @@ bail:
 #define LWS_QPT_SWEEP_US		(10 * LWS_US_PER_SEC)
 #define LWS_QPT_PENDING_DGRAMS		8
 #define LWS_QPT_MAX_FLOWS		4096
-#define LWS_QPT_MAX_RELAYED		4096
+#define LWS_QPT_MAX_RELAYED		4096	/* all of them */
+#define LWS_QPT_MAX_HEARSAY		1024	/* of those, unproven */
+#define LWS_QPT_REFUSED_LOG_US		(10 * LWS_US_PER_SEC)
 #define LWS_QPT_MAX_PENDING		64
 #define LWS_QPT_MAX_CIDS		4
 #define LWS_QPT_MAX_DGRAM		4096
@@ -979,11 +1004,15 @@ typedef struct lws_qpt_pending {
 
 /* server: a client a trusted relay forwards */
 typedef struct lws_qpt_relayed {
-	lws_dll2_t		list;		/* cx->pt_relayed_owner */
+	lws_dll2_t		list;		/* cx->pt_relayed_owner while
+						 * hearsay, else
+						 * cx->pt_relayed_proven_owner */
 	lws_qpt_addr_key_t	key;
 	lws_sockaddr46		relay;		/* the relay's socket */
 	lws_sockaddr46		front;		/* what the client sent to */
 	lws_usec_t		last;
+	uint32_t		proven;		/* connections whose QUIC
+						 * proved relay carries it */
 } lws_qpt_relayed_t;
 
 static void
@@ -1153,6 +1182,20 @@ lws_qpt_relayed_destroy(struct lws_context *cx, lws_qpt_relayed_t *r)
 }
 
 static void
+lws_qpt_relayed_sweep(struct lws_context *cx, lws_dll2_owner_t *owner,
+		      lws_usec_t now)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(owner)) {
+		lws_qpt_relayed_t *r = lws_container_of(d, lws_qpt_relayed_t,
+							list);
+
+		if (now - r->last > LWS_QPT_RELAYED_IDLE_US)
+			lws_qpt_relayed_destroy(cx, r);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+static void
 lws_qpt_sweep_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context *cx = lws_container_of(sul, struct lws_context,
@@ -1167,17 +1210,12 @@ lws_qpt_sweep_cb(lws_sorted_usec_list_t *sul)
 			lws_qpt_flow_destroy(cx, f);
 	} lws_end_foreach_dll_safe(d, d1);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&cx->pt_relayed_owner)) {
-		lws_qpt_relayed_t *r = lws_container_of(d, lws_qpt_relayed_t,
-							list);
-
-		if (now - r->last > LWS_QPT_RELAYED_IDLE_US)
-			lws_qpt_relayed_destroy(cx, r);
-	} lws_end_foreach_dll_safe(d, d1);
+	lws_qpt_relayed_sweep(cx, &cx->pt_relayed_owner, now);
+	lws_qpt_relayed_sweep(cx, &cx->pt_relayed_proven_owner, now);
 
 	if (lws_dll2_count(&cx->pt_qflow_owner) ||
-	    lws_dll2_count(&cx->pt_relayed_owner))
+	    lws_dll2_count(&cx->pt_relayed_owner) ||
+	    lws_dll2_count(&cx->pt_relayed_proven_owner))
 		lws_sul_schedule(cx, 0, &cx->sul_pt_sweep, lws_qpt_sweep_cb,
 				 LWS_QPT_SWEEP_US);
 }
@@ -1209,6 +1247,11 @@ lws_quic_passthrough_context_destroy(struct lws_context *cx)
 	} lws_end_foreach_dll_safe(d, d1);
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&cx->pt_relayed_owner)) {
+		lws_qpt_relayed_destroy(cx, lws_container_of(d,
+						lws_qpt_relayed_t, list));
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&cx->pt_relayed_proven_owner)) {
 		lws_qpt_relayed_destroy(cx, lws_container_of(d,
 						lws_qpt_relayed_t, list));
 	} lws_end_foreach_dll_safe(d, d1);
@@ -1382,7 +1425,7 @@ lws_qpt_release_local(lws_qpt_pending_t *pd)
 		if (lw)
 			lws_rops_func_fidx(lw->role_ops, LWS_ROPS_rx_dgram).
 				rx_dgram(lw, (uint8_t *)&dg[1], dg->len,
-					 &dg->peer, dg->ecn);
+					 &dg->peer, dg->ecn, NULL);
 		lws_free(dg);
 	} lws_end_foreach_dll_safe(d, d1);
 }
@@ -1725,15 +1768,54 @@ lws_qpt_trusted(struct lws *listener, const lws_sockaddr46 *peer)
 	return 0;
 }
 
+/* the entry for a client a relay carries to the listener on port lport */
+static lws_qpt_relayed_t *
+lws_qpt_relayed_find(struct lws_context *cx, const lws_sockaddr46 *client,
+		     uint16_t lport)
+{
+	lws_qpt_addr_key_t k;
+
+	lws_qpt_key(client, &k);
+	k.lport = lport;
+
+	return (lws_qpt_relayed_t *)lws_qpt_lookup(cx->pt_relayed, &k,
+						   sizeof(k));
+}
+
+/*
+ * Room for one more hearsay entry: the oldest hearsay one goes if there is
+ * none.  Proven entries are never made room for.  Returns nonzero if there
+ * is no room.
+ */
+static int
+lws_qpt_relayed_room(struct lws_context *cx)
+{
+	if (lws_dll2_count(&cx->pt_relayed_owner) < LWS_QPT_MAX_HEARSAY &&
+	    lws_dll2_count(&cx->pt_relayed_owner) +
+	    lws_dll2_count(&cx->pt_relayed_proven_owner) < LWS_QPT_MAX_RELAYED)
+		return 0;
+
+	if (!lws_dll2_count(&cx->pt_relayed_owner))
+		return 1;
+
+	lws_qpt_relayed_destroy(cx, lws_container_of(
+				lws_dll2_get_head(&cx->pt_relayed_owner),
+				lws_qpt_relayed_t, list));
+
+	return 0;
+}
+
 int
 lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
-		     lws_sockaddr46 *peer)
+		     lws_sockaddr46 *peer, lws_peer_entry_t *via)
 {
 	struct lws_context *cx = listener->a.context;
 	lws_qpt_relayed_t *r;
 	lws_qpt_addr_key_t k;
 	lws_proxy_v2_t pv;
 	int hl;
+
+	via[0].cred = LWS_PEER_CRED_NONE;
 
 	if (!listener->a.vhost || !lws_qpt_trusted(listener, peer))
 		return 0;
@@ -1767,33 +1849,64 @@ lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
 	lws_qpt_key(&pv.src, &k);
 	k.lport = (uint16_t)listener->a.vhost->listen_port;
 	r = (lws_qpt_relayed_t *)lws_qpt_lookup(cx->pt_relayed, &k, sizeof(k));
-	if (!r) {
-		if (lws_dll2_count(&cx->pt_relayed_owner) >=
-							LWS_QPT_MAX_RELAYED)
-			lws_qpt_relayed_destroy(cx, lws_container_of(
-				lws_dll2_get_head(&cx->pt_relayed_owner),
-				lws_qpt_relayed_t, list));
 
-		r = lws_zalloc(sizeof(*r), __func__);
-		if (!r)
-			return 1;
-		r->key = k;
-		if (!lws_map_item_create(cx->pt_relayed,
-					 (const lws_map_key_t)&k, sizeof(k),
-					 (const lws_map_value_t)&r,
-					 sizeof(r))) {
-			lws_free(r);
-			return 1;
+	if (r && r->proven && !lws_qpt_same_addr(&r->relay, peer)) {
+		lws_usec_t now = lws_now_usecs();
+
+		/*
+		 * Somebody else claims to relay a client whose relay its
+		 * connection proved: nothing about the entry changes.  The
+		 * datagram may still be the client's, eg, from a front that
+		 * moved its socket, so quic judges it under the claim: it
+		 * is dropped unless it decrypts.
+		 */
+		cx->pt_relayed_refused++;
+		if (now - cx->pt_relayed_refused_log > LWS_QPT_REFUSED_LOG_US) {
+			lwsl_wsi_notice(listener, "%u relayed datagrams for "
+					"clients proven to be on another relay",
+					(unsigned int)cx->pt_relayed_refused);
+			cx->pt_relayed_refused_log = now;
+			cx->pt_relayed_refused = 0;
 		}
-	} else
-		lws_dll2_remove(&r->list);
+	} else {
+		if (!r) {
+			if (lws_qpt_relayed_room(cx))
+				/* every entry is proven: no room for hearsay */
+				return 1;
 
-	/* most recently used last, so the head is what goes first */
-	lws_dll2_add_tail(&r->list, &cx->pt_relayed_owner);
-	r->relay = *peer;
-	r->front = pv.dst;
-	r->last = lws_now_usecs();
-	lws_qpt_sweep_arm(cx);
+			r = lws_zalloc(sizeof(*r), __func__);
+			if (!r)
+				return 1;
+			r->key = k;
+			if (!lws_map_item_create(cx->pt_relayed,
+						 (const lws_map_key_t)&k,
+						 sizeof(k),
+						 (const lws_map_value_t)&r,
+						 sizeof(r))) {
+				lws_free(r);
+				return 1;
+			}
+			lws_dll2_add_tail(&r->list, &cx->pt_relayed_owner);
+		} else if (!r->proven) {
+			/* most recently used last, so the head goes first */
+			lws_dll2_remove(&r->list);
+			lws_dll2_add_tail(&r->list, &cx->pt_relayed_owner);
+		}
+
+		/* a hearsay entry may move: nothing proved where it was */
+		r->relay = *peer;
+		r->front = pv.dst;
+		r->last = lws_now_usecs();
+		lws_qpt_sweep_arm(cx);
+	}
+
+	/* how it came: the relay, and above it, the client it claims */
+	via[0].sa46 = *peer;
+	via[0].kind = LWS_PEER_KIND_SOCKET;
+	via[0].cred = LWS_PEER_CRED_HEARSAY;
+	via[1].sa46 = pv.src;
+	via[1].kind = LWS_PEER_KIND_RELAY;
+	via[1].cred = LWS_PEER_CRED_HEARSAY;
 
 	*peer = pv.src;
 	*buf += hl;
@@ -1802,27 +1915,166 @@ lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
 	return 0;
 }
 
+/* the claim on a relayed server connection's stack, or NULL if it has none */
+static const lws_peer_entry_t *
+lws_qpt_conn_claim(struct lws *cw)
+{
+	if (cw->io->pstack_count != 2 ||
+	    cw->io->pstack[1].kind != LWS_PEER_KIND_RELAY)
+		return NULL;
+
+	return &cw->io->pstack[1];
+}
+
+/*
+ * LWS_IOPATH_RELAYED: connection cw was just born, committed to the client a
+ * relay at relay claims.  It is reached through the relay: the relay is the
+ * transport's peer, the client a claim above it, both hearsay.
+ */
 int
-lws_relayed_dgram_tx(struct lws *nwsi, lws_sockfd_type fd, const uint8_t *buf,
-		     size_t len, const lws_sockaddr46 *dest, int *sent)
+lws_qpt_conn_relayed(struct lws *cw, const lws_sockaddr46 *relay)
+{
+	lws_sockaddr46 claim;
+
+	if (!cw->a.vhost || cw->io->pstack_count != 1 ||
+	    cw->io->pstack[0].kind != LWS_PEER_KIND_SOCKET)
+		return 1;
+
+	claim = cw->io->pstack[0].sa46;
+	/* the listener it came in on is the vhost's it was born on */
+	cw->io->relay_lport = (uint16_t)cw->a.vhost->listen_port;
+	cw->io->relay_proven = 0;
+	lws_io_set_peer(cw, relay);
+
+	return lws_io_peer_claim(cw, &claim, LWS_PEER_KIND_RELAY,
+				 LWS_PEER_CRED_HEARSAY);
+}
+
+/*
+ * The connection no longer stands for its relay entry being proven: it is
+ * going, or its client moved.  An entry nothing proves any more goes with
+ * the last connection that did.
+ */
+void
+lws_qpt_conn_release(struct lws *cw)
+{
+	const lws_peer_entry_t *c = lws_qpt_conn_claim(cw);
+	lws_qpt_relayed_t *r;
+
+	if (!cw->io->relay_proven)
+		return;
+	cw->io->relay_proven = 0;
+
+	if (!c)
+		return;
+
+	r = lws_qpt_relayed_find(cw->a.context, &c->sa46, cw->io->relay_lport);
+	if (r && r->proven && !--r->proven)
+		lws_qpt_relayed_destroy(cw->a.context, r);
+}
+
+/*
+ * LWS_IOPATH_COMMIT on a relayed connection: QUIC validated its client at
+ * peer, a new address the relay carries it from.  It is a new claim, reached
+ * through whichever relay carries that one, and both are hearsay again until
+ * the validation proves them.  Returns 0 if cw is not relayed, and the commit
+ * is the usual one.
+ */
+int
+lws_qpt_conn_commit(struct lws *cw, const lws_sockaddr46 *peer)
+{
+	lws_sockaddr46 relay;
+	lws_qpt_relayed_t *r;
+
+	if (!lws_qpt_conn_claim(cw))
+		return 0;
+
+	lws_qpt_conn_release(cw);
+
+	relay = cw->io->pstack[0].sa46;
+	r = lws_qpt_relayed_find(cw->a.context, peer, cw->io->relay_lport);
+	if (r)
+		relay = r->relay;
+
+	lws_io_set_peer(cw, &relay);
+	lws_io_peer_claim(cw, peer, LWS_PEER_KIND_RELAY, LWS_PEER_CRED_HEARSAY);
+
+	return 1;
+}
+
+/*
+ * LWS_IOPATH_PROVEN: QUIC validated the path to seen.  If that is cw's relayed
+ * client, our packets reached it through its relay, so the relay is proven
+ * too: but only if it is still the relay cw was reached through, since
+ * hearsay may have moved the entry meanwhile, and then nothing says which of
+ * the two is real.
+ */
+void
+lws_qpt_conn_proven(struct lws *cw, const lws_sockaddr46 *seen)
+{
+	struct lws_context *cx = cw->a.context;
+	const lws_peer_entry_t *c = lws_qpt_conn_claim(cw);
+	lws_qpt_relayed_t *r;
+
+	if (!c || cw->io->relay_proven || !lws_qpt_same_addr(&c->sa46, seen))
+		return;
+
+	r = lws_qpt_relayed_find(cx, &c->sa46, cw->io->relay_lport);
+	if (!r || !lws_qpt_same_addr(&r->relay, &cw->io->pstack[0].sa46))
+		return;
+
+	if (!r->proven++) {
+		lws_dll2_remove(&r->list);
+		lws_dll2_add_tail(&r->list, &cx->pt_relayed_proven_owner);
+	}
+	cw->io->relay_proven = 1;
+	lws_peer_raise(cw, &cw->io->pstack[0].sa46, LWS_PEER_CRED_ROUTABLE);
+}
+
+/*
+ * A datagram wsi sends to dest, on server socket nwsi (a QUIC listener).  A
+ * relayed connection's go back through the relay for dest, or nowhere: its
+ * client is not reachable directly.  A direct connection's never go through
+ * one, whatever a relay claims.  What the listener sends for no connection
+ * (a Retry, a Version Negotiation) goes through the relay for dest if there
+ * is one, as the datagram it answers most likely came that way.
+ *
+ * Returns 0 if the datagram is to be sent as usual, else 1 with *sent set.
+ */
+int
+lws_relayed_dgram_tx(struct lws *wsi, struct lws *nwsi, lws_sockfd_type fd,
+		     const uint8_t *buf, size_t len,
+		     const lws_sockaddr46 *dest, int *sent)
 {
 	uint8_t b[LWS_PROXY_V2_MAX + LWS_QPT_MAX_DGRAM];
 	struct lws_context *cx = nwsi->a.context;
+	struct lws *cw = lws_io_peer_conn(wsi);
 	lws_qpt_relayed_t *r;
-	lws_qpt_addr_key_t k;
 	lws_proxy_v2_t pv;
+	uint16_t lport;
 	int n;
 
-	if (!cx->pt_relayed || !lws_dll2_count(&cx->pt_relayed_owner))
-		return 0;
+	if (cw && cw != nwsi) {
+		/* a connection of its own */
+		if (!lws_qpt_conn_claim(cw))
+			return 0;
+		lport = cw->io->relay_lport;
+	} else {
+		if (!nwsi->a.vhost)
+			return 0;
+		lport = (uint16_t)nwsi->a.vhost->listen_port;
+	}
 
-	if (!nwsi->a.vhost)
+	r = lws_qpt_relayed_find(cx, dest, lport);
+	if (!r) {
+		if (cw && cw != nwsi) {
+			/* lost on the way, as if sent */
+			*sent = (int)len;
+			return 1;
+		}
+
 		return 0;
-	lws_qpt_key(dest, &k);
-	k.lport = (uint16_t)nwsi->a.vhost->listen_port;
-	r = (lws_qpt_relayed_t *)lws_qpt_lookup(cx->pt_relayed, &k, sizeof(k));
-	if (!r)
-		return 0;
+	}
 
 	*sent = LWS_SSL_CAPABLE_ERROR;
 	if (len > LWS_QPT_MAX_DGRAM)
