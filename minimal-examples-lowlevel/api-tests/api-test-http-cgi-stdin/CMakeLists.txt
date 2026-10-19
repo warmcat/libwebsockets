@@ -163,9 +163,10 @@ if (requirements)
 					     TIMEOUT 60)
 		endif()
 
-		# a POST saying Content-Length: 0, and an h1 POST that waits
-		# for the 100 Continue its Expect: 100-continue asks for
-		foreach(CGI_CASE post-cl0 expect-continue)
+		# a POST saying Content-Length: 0, an h1 POST that waits
+		# for the 100 Continue its Expect: 100-continue asks for, and
+		# a script answer with no Content-Length
+		foreach(CGI_CASE post-cl0 expect-continue nolen)
 			lws_get_free_port(PORT_HTTP_CGI_${CGI_CASE})
 
 			add_test(NAME api-test-http-cgi-${CGI_CASE}
@@ -176,6 +177,28 @@ if (requirements)
 					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 					     TIMEOUT 60)
 		endforeach()
+
+		# the same over h3, with the server on a test cert
+		set(has_h3 1)
+		require_lws_config(LWS_ROLE_H3 1 has_h3)
+		if (has_h3)
+			set(CGI_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
+
+			foreach(CGI_CASE h3-post h3-nolen)
+				lws_get_free_port(PORT_HTTP_CGI_${CGI_CASE})
+
+				add_test(NAME api-test-http-cgi-${CGI_CASE}
+					 COMMAND lws-api-test-http-cgi-stdin
+						 --${CGI_CASE}
+						 -p ${PORT_HTTP_CGI_${CGI_CASE}}
+						 --cert ${CGI_CERTS}/localhost-100y.cert
+						 --key ${CGI_CERTS}/localhost-100y.key)
+				set_tests_properties(api-test-http-cgi-${CGI_CASE}
+						     PROPERTIES
+						     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+						     TIMEOUT 60)
+			endforeach()
+		endif()
 
 		lws_get_free_port(PORT_HTTP_CGI_ABANDON)
 

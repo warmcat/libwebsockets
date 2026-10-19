@@ -683,10 +683,11 @@ lws_cgi_stdout_want_more(struct lws *wsi)
 int
 lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
-	int n, m, cmd;
+	int n, m, cmd, h3;
 	unsigned char buf[LWS_PRE + 4096], *start = &buf[LWS_PRE], *p = start,
 			*end = &buf[sizeof(buf) - 1], *name,
-			*value = NULL;
+			*value = NULL, *raw = NULL, *raw_end = NULL,
+			**pp, *pend;
 	char c, hrs;
 
 	if (!wsi->http.cgi)
@@ -710,46 +711,77 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		case LHCS_RESPONSE:
 			lwsl_wsi_debug(wsi, "LHCS_RESPONSE: iss response %d",
 					    wsi->http.cgi->response_code);
+
+			/*
+			 * We have a bunch of http/1 style ascii headers from
+			 * the script, from headers_start up to headers_pos.
+			 * They are OK for http/1 connections, but no good for
+			 * a mux stream: there they are recoded below, into the
+			 * stream's encoding at headers_pos onwards, and it is
+			 * that block LHCS_DUMP_HEADERS sends.
+			 */
+			if (wsi->mux_substream) {
+				raw = (unsigned char *)wsi->http.cgi->headers_start;
+				raw_end = (unsigned char *)wsi->http.cgi->headers_pos;
+				wsi->http.cgi->headers_start =
+						wsi->http.cgi->headers_pos;
+				wsi->http.cgi->headers_dumped =
+						wsi->http.cgi->headers_start;
+			}
+
+			/*
+			 * h3 has no CONTINUATION: the whole field section,
+			 * :status included, must be one QPACK block (whose
+			 * prefix the status reserves and the finalize fills
+			 * in) in one HEADERS frame.  So on h3 the status leads
+			 * the recoded block, instead of going out ahead of it.
+			 */
+			h3 = lws_wsi_is_h3(wsi);
+			if (h3) {
+				pp = (unsigned char **)&wsi->http.cgi->headers_pos;
+				pend = (unsigned char *)wsi->http.cgi->headers_end;
+			} else {
+				pp = &p;
+				pend = end;
+			}
+
 			if (lws_add_http_header_status(wsi,
-						   (unsigned int)wsi->http.cgi->response_code,
-						       &p, end))
-				return 1;
-			if (!wsi->http.cgi->explicitly_chunked &&
+					(unsigned int)wsi->http.cgi->response_code,
+						       pp, pend))
+				goto bail_recode;
+			/*
+			 * A mux stream frames its own body, and must not say
+			 * transfer-encoding at all (RFC 9113 8.2.2, RFC 9114
+			 * 4.2): the body is not chunked there either
+			 */
+			if (!wsi->mux_substream &&
+			    !wsi->http.cgi->explicitly_chunked &&
 			    !wsi->http.cgi->content_length &&
 				lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
-					(unsigned char *)"chunked", 7, &p, end))
-				return 1;
+					(unsigned char *)"chunked", 7, pp, pend))
+				goto bail_recode;
 			if (!(wsi->mux_substream))
 				if (lws_add_http_header_by_token(wsi,
 						WSI_TOKEN_CONNECTION,
 						(unsigned char *)"close", 5,
-						&p, end))
-					return 1;
-			n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-				      LWS_WRITE_HTTP_HEADERS | LWS_WRITE_NO_FIN);
+						pp, pend))
+					goto bail_recode;
 
-			/*
-			 * so we have a bunch of http/1 style ascii headers
-			 * starting from wsi->http.cgi->headers_buf through
-			 * wsi->http.cgi->headers_pos.  These are OK for http/1
-			 * connections, but they're no good for http/2 conns.
-			 *
-			 * Let's redo them at headers_pos forward using the
-			 * correct coding for http/1 or http/2
-			 */
+			if (!h3 && lws_write(wsi, start,
+					     lws_ptr_diff_size_t(p, start),
+					     LWS_WRITE_HTTP_HEADERS |
+					     LWS_WRITE_NO_FIN) < 0)
+				return -1;
+
 			if (!wsi->mux_substream)
 				goto post_hpack_recode;
 
-			p = wsi->http.cgi->headers_start;
-			wsi->http.cgi->headers_start =
-					wsi->http.cgi->headers_pos;
-			wsi->http.cgi->headers_dumped =
-					wsi->http.cgi->headers_start;
+			p = raw;
 			hrs = HR_NAME;
 			name = buf;
 
-			while (p < wsi->http.cgi->headers_start) {
+			while (p < raw_end) {
 				switch (hrs) {
 				case HR_NAME:
 					/*
@@ -758,7 +790,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					 * case.
 					 */
 					if (name - buf > 64)
-						return -1;
+						goto bail_recode;
 					if (*p != ':') {
 						if (*p >= 'A' && *p <= 'Z')
 							*name++ = (unsigned char)((*p++) +
@@ -781,7 +813,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					/* fallthru */
 				case HR_ARG:
 					if (name > end - 64)
-						return -1;
+						goto bail_recode;
 
 					if (*p != '\x0a' && *p != '\x0d') {
 						*name++ = *p++;
@@ -791,7 +823,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					/* fallthru */
 				case HR_CRLF:
 					if ((*p != '\x0a' && *p != '\x0d') ||
-					    p + 1 == wsi->http.cgi->headers_start) {
+					    p + 1 == raw_end) {
 						*name = '\0';
 						if ((strcmp((const char *)buf,
 							    "transfer-encoding")
@@ -803,7 +835,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					(unsigned char *)value, lws_ptr_diff(name, value),
 					(unsigned char **)&wsi->http.cgi->headers_pos,
 					(unsigned char *)wsi->http.cgi->headers_end))
-								return 1;
+								goto bail_recode;
 							hrs = HR_NAME;
 							name = buf;
 							break;
@@ -839,7 +871,12 @@ post_hpack_recode:
 			lwsl_wsi_debug(wsi, "LHCS_DUMP_HEADERS: %d", n);
 
 			cmd = LWS_WRITE_HTTP_HEADERS_CONTINUATION;
-			if (wsi->http.cgi->headers_dumped + n !=
+			if (lws_wsi_is_h3(wsi)) {
+				/* the one HEADERS frame, see LHCS_RESPONSE */
+				n = (int)(wsi->http.cgi->headers_pos -
+					  wsi->http.cgi->headers_dumped);
+				cmd = LWS_WRITE_HTTP_HEADERS;
+			} else if (wsi->http.cgi->headers_dumped + n !=
 						wsi->http.cgi->headers_pos) {
 				lwsl_notice("adding no fin flag\n");
 				cmd |= LWS_WRITE_NO_FIN;
@@ -1178,6 +1215,14 @@ post_hpack_recode:
 		lws_cgi_stdout_want_more(wsi);
 	}
 	return 0;
+
+bail_recode:
+#if defined(LWS_ROLE_H3)
+	/* the QPACK prefix it reserved is in the block we are abandoning */
+	wsi->http.h3_prefix_ptr = NULL;
+#endif
+
+	return -1;
 }
 
 int

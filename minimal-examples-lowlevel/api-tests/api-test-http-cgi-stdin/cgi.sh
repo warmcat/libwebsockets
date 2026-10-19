@@ -20,6 +20,7 @@
 #  /nohdr: exits without writing anything, not even its headers
 #  /big:   answers with 32KB of 'x', and is gone before much of that can
 #          have been sent on
+#  /nolen: answers with no content-length, so its end is the script's exit
 #  /linger: sends its headers and then takes its time, longer than its
 #          client is going to wait for it
 #  /linger-stubborn: the same, but ignoring SIGTERM, as the sleep it runs
@@ -36,6 +37,11 @@ linger|linger-stubborn)
 	printf '\r\n'
 	printf 'lingering\n'
 	sleep 30
+	exit 0 ;;
+nolen)
+	printf 'content-type: text/plain\r\n'
+	printf '\r\n'
+	printf 'no content-length here\n'
 	exit 0 ;;
 big)
 	printf 'content-type: text/plain\r\n'

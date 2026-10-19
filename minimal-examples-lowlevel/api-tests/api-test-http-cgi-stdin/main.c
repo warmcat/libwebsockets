@@ -89,6 +89,13 @@
  * ignoring SIGTERM killed, so that within ABANDON_DRAIN_S of the last one
  * the process has no children left at all, neither running nor zombies.
  *
+ * With --nolen, the script answers a GET with no Content-Length: the answer
+ * must arrive whole, with the script's own content-type.  --h3-nolen is the
+ * same over h3, where lws must send the status, its own headers and the
+ * script's as one QPACK block in one HEADERS frame (there is no
+ * CONTINUATION), and with no transfer-encoding; --h3-post is --post over
+ * h3.  The h3 cases need --cert and --key for the server.
+ *
  * With JOSE in the build, the CGI mount is also gated by a tiny mount
  * interceptor that lets every request through but stamps an onward header
  * on it, the way lws-login stamps its login state; the client sends its
@@ -101,6 +108,7 @@
  *  - the client connection or transaction errors out (except where it is
  *    what is expected),
  *  - the response status is not the one expected,
+ *  - (--nolen, h3) the answer lacks the script's content-type or its body,
  *  - the CGI does not report receiving every byte of the POST body,
  *  - (--pipelined) the first answer does not arrive whole, or a cgi is
  *    spawned on the connection while its earlier one is still running,
@@ -182,6 +190,8 @@ enum expect {
 				 * 100-continue: 200, and the script counted
 				 * the body, sent after the 100 or after
 				 * CONTINUE_WAIT_MS without one */
+	EXPECT_NOLEN,		/* 200 and the script's answer that had no
+				 * content-length, whole */
 };
 
 struct tcase {
@@ -192,42 +202,58 @@ struct tcase {
 	enum expect	expect;
 	int		h2;		/* h2 with prior knowledge */
 	int		starve;		/* hold the h2 stream window shut */
+	int		h3;		/* over h3, tls with --cert / --key */
 };
 
 static const struct tcase cases[] = {
-	{ "post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 0, 0 },
-	{ "chunked", "POST", "/", BODY_CHUNKED, EXPECT_BODY_COUNT, 0, 0 },
+	{ "post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT,
+	  0, 0, 0 },
+	{ "chunked", "POST", "/", BODY_CHUNKED, EXPECT_BODY_COUNT, 0, 0, 0 },
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-	{ "put", "PUT", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 0, 0 },
+	{ "put", "PUT", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT,
+	  0, 0, 0 },
 #endif
-	{ "fd-budget", "GET", "/", BODY_NONE, EXPECT_FD_BUDGET, 0, 0 },
-	{ "no-headers", "GET", "/nohdr", BODY_NONE, EXPECT_NO_ANSWER, 0, 0 },
-	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY, 0, 0 },
-	{ "pipelined", "GET", "/", BODY_NONE, EXPECT_PIPELINED, 0, 0 },
-	{ "abandon", "GET", "/linger", BODY_NONE, EXPECT_ABANDON, 0, 0 },
-	{ "post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 0, 0 },
+	{ "fd-budget", "GET", "/", BODY_NONE, EXPECT_FD_BUDGET, 0, 0, 0 },
+	{ "no-headers", "GET", "/nohdr", BODY_NONE, EXPECT_NO_ANSWER, 0, 0, 0 },
+	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY,
+	  0, 0, 0 },
+	{ "pipelined", "GET", "/", BODY_NONE, EXPECT_PIPELINED, 0, 0, 0 },
+	{ "abandon", "GET", "/linger", BODY_NONE, EXPECT_ABANDON, 0, 0, 0 },
+	{ "post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 0, 0, 0 },
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-	{ "put-cl0", "PUT", "/", BODY_CL0, EXPECT_BODY_COUNT, 0, 0 },
+	{ "put-cl0", "PUT", "/", BODY_CL0, EXPECT_BODY_COUNT, 0, 0, 0 },
 #endif
 	{ "expect-continue", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_CONTINUE,
-	  0, 0 },
+	  0, 0, 0 },
+	{ "nolen", "GET", "/nolen", BODY_NONE, EXPECT_NOLEN, 0, 0, 0 },
 #if defined(LWS_ROLE_H2)
-	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
-	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 1, 0 },
-	{ "h2-post-stream", "POST", "/", BODY_STREAM, EXPECT_BODY_COUNT, 1, 0 },
+	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1, 0 },
+	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT,
+	  1, 0, 0 },
+	{ "h2-post-stream", "POST", "/", BODY_STREAM, EXPECT_BODY_COUNT,
+	  1, 0, 0 },
 	{ "h2-post-stream-end", "POST", "/", BODY_STREAM_END, EXPECT_BODY_COUNT,
-	  1, 0 },
-	{ "h2-post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0 },
+	  1, 0, 0 },
+	{ "h2-post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0, 0 },
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-	{ "h2-put-cl0", "PUT", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0 },
+	{ "h2-put-cl0", "PUT", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0, 0 },
 #endif
+#endif
+#if defined(LWS_ROLE_H3)
+	{ "h3-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT,
+	  0, 0, 1 },
+	{ "h3-nolen", "GET", "/nolen", BODY_NONE, EXPECT_NOLEN, 0, 0, 1 },
 #endif
 };
+
+/* what the script answers /nolen with */
+#define NOLEN_BODY	"no content-length here\n"
 
 /* what one client transaction came to */
 
 struct run {
 	char		rx[128];
+	char		ctype[32];	/* the answer's content-type */
 	size_t		rx_len;
 	size_t		rx_total;
 	uint8_t		raw[1024];	/* --pipelined: the raw client's rx */
@@ -252,6 +278,7 @@ static struct lws_context *context;
 static struct run run;
 static int port_tcp = 7681;
 static const char *server = "127.0.0.1";
+static const char *cert, *key;
 static lws_sorted_usec_list_t sul_timeout, sul_grant, sul_children;
 
 static uint8_t body[LWS_PRE + CHUNK];
@@ -405,6 +432,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		run.status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("%s: client established, response status %d\n",
 			  __func__, run.status);
+		if (lws_hdr_copy(wsi, run.ctype, sizeof(run.ctype),
+				 WSI_TOKEN_HTTP_CONTENT_TYPE) < 0)
+			run.ctype[0] = '\0';
 		if (tc->expect == EXPECT_ABANDON)
 			/* walk away from the script while it still runs */
 			return -1;
@@ -1039,6 +1069,12 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 	info->vhost_name = "srv";
 	info->protocols = protocols_srv;
 	info->mounts = &mount;
+	if (tc->h3) {
+		/* an alpn naming h3 brings up a quic listener on the port */
+		info->ssl_cert_filepath = cert;
+		info->ssl_private_key_filepath = key;
+		info->alpn = "h2,http/1.1,h3";
+	}
 #if defined(LWS_ROLE_H2)
 	if (tc->h2)
 		info->options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
@@ -1048,6 +1084,9 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 #if defined(LWS_ROLE_H2)
 	info->options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 #endif
+	info->ssl_cert_filepath = NULL;
+	info->ssl_private_key_filepath = NULL;
+	info->alpn = NULL;
 	if (!vh) {
 		lwsl_err("Failed to create server vhost\n");
 		goto bail;
@@ -1092,6 +1131,13 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 		i.manual_initial_tx_credit = STARVE_WINDOW;
 	}
 #endif
+	if (tc->h3) {
+		i.alpn = "h3";
+		i.ssl_connection |= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
+				    LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		/* it must be decided on h3, not by a fallback to tcp */
+		i.disable_h3_fallback = 1;
+	}
 
 	if (tc->expect == EXPECT_ABANDON) {
 		ret = abandon_and_drain(&i);
@@ -1143,6 +1189,8 @@ int main(int argc, const char **argv)
 		port_tcp = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server = p;
+	cert = lws_cmdline_option(argc, argv, "--cert");
+	key = lws_cmdline_option(argc, argv, "--key");
 
 	/* the case is named by a --<name> switch, the whole of it */
 
@@ -1157,6 +1205,11 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS API selftest: CGI (%s)\n", tc->name);
 
+	if (tc->h3 && (!cert || !key)) {
+		lwsl_err("--%s needs --cert and --key\n", tc->name);
+		return 1;
+	}
+
 	/* deterministic body content */
 	for (n = 0; n < CHUNK; n++)
 		body[LWS_PRE + n] = (uint8_t)('A' + (n % 26));
@@ -1167,6 +1220,8 @@ int main(int argc, const char **argv)
 	 */
 	info.pt_serv_buf_size = SERV_BUF_SIZE;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	if (tc->h3)
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 	switch (tc->expect) {
 	case EXPECT_BODY_COUNT:
@@ -1174,11 +1229,20 @@ int main(int argc, const char **argv)
 	case EXPECT_BIG_BODY:
 	case EXPECT_QUERY:
 	case EXPECT_PIPELINED:
+	case EXPECT_NOLEN:
 		if (run_one(&info, info.fd_limit_per_thread) || !run.completed)
 			goto done;
 
 		if (run.status != 200) {
 			lwsl_err("--- response status %d ---\n", run.status);
+			goto done;
+		}
+
+		/* the script's own header came through, recoded or not */
+		if ((tc->h3 || tc->expect == EXPECT_NOLEN) &&
+		    strcmp(run.ctype, "text/plain")) {
+			lwsl_err("--- content-type '%s', not the script's ---\n",
+				 run.ctype);
 			goto done;
 		}
 
@@ -1202,6 +1266,13 @@ int main(int argc, const char **argv)
 					 "expected %u ---\n",
 					 (unsigned int)run.rx_total, run.not_x,
 					 (unsigned int)BIG_BODY);
+				goto done;
+			}
+			break;
+		case EXPECT_NOLEN:
+			if (strcmp(run.rx, NOLEN_BODY)) {
+				lwsl_err("--- rx '%s', not the script's ---\n",
+					 run.rx);
 				goto done;
 			}
 			break;
