@@ -489,6 +489,12 @@ lws_peer_describe(struct lws *wsi, char *buf, size_t len, int flags);
  * socket's last datagram source) is not raised by an answer from the old
  * one.
  *
+ * The raise covers only what the entry stands for now.  On a UDP socket
+ * each datagram is a new observation of its source, which anyone can write,
+ * so the next datagram, even from the same address and port, is hearsay
+ * again; and a client connection dialling again (eg, after a redirect)
+ * starts over.
+ *
  * Returns 0 if an entry matched, or nonzero if none did (or \p cred is not
  * a level).
  */

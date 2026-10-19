@@ -264,6 +264,12 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 		return lws_client_connect_transport(wsi);
 
 	/*
+	 * A wsi reused by lws_client_reset() still has the stack of the
+	 * connection it had: that peer is not the one we are looking for now
+	 */
+	lws_io_peer_forget(wsi);
+
+	/*
 	 * clients who will create their own fresh connection keep a copy of
 	 * the hostname they originally connected to, in case other connections
 	 * want to use it too

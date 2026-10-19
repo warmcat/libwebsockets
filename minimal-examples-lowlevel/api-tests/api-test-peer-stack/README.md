@@ -29,7 +29,16 @@ hearsay, vouched, routable, crypto).
    is given), never lowers it, and after a datagram from another socket has
    replaced the entry, evidence about the old source raises nothing.  The
    receiver answers the first sender, a connected socket, which keeps its
-   own peer, a SOCKET entry, when the answer arrives.
+   own peer, a SOCKET entry, when the answer arrives.  A raise covers only
+   the datagram it was for: the sender raises its entry and sends again,
+   and both the receiver's entry for that second datagram (same address and
+   port as the first, which it raised) and the sender's for the next answer
+   are HEARSAY again.
+
+ - **redirect**: an http client asks for a path the server redirects to
+   another on the same server, so `lws_client_reset()` dials again with the
+   same wsi.  When it dials, its entry is HEARSAY, not the ROUTABLE its
+   last connection proved, and ROUTABLE again once connected.
 
 ## Commandline
 

@@ -25,8 +25,11 @@
  * layer tagged with how far it can be believed.  pstack[0] in the io adjunct
  * is the transport's own peer, and a claim about the client (a trusted
  * front's PROXY v2 header) is pushed above it.  Entries change only through
- * the helpers here: a new address starts at the cred its writer gives it,
- * and nothing lowers the cred of an address in place.
+ * the helpers here.  Setting an entry is a new observation, which starts at
+ * the cred its writer gives it, even for the address that was there: what
+ * proved the old observation (a handshake on the last connection, a
+ * protocol's evidence about the last datagram) says nothing about this one.
+ * Within one observation, nothing lowers the cred.
  */
 
 #include "private-lib-core.h"
@@ -110,19 +113,14 @@ lws_io_peer_conn(struct lws *wsi)
 }
 
 /*
- * The transport's own peer, pstack[0].  The same address and port keep the
- * better of their cred and the one given; a different one starts at the one
- * given.  Any claim above it stays.
+ * The transport's own peer, pstack[0], as just observed: it is at the cred
+ * given, whatever was there before.  Any claim above it stays.
  */
 void
 lws_io_peer_set(struct lws *wsi, const lws_sockaddr46 *sa46,
 		lws_peer_kind_t kind, lws_peer_cred_t cred)
 {
 	lws_peer_entry_t *e = &wsi->io->pstack[0];
-
-	if (wsi->io->pstack_count && lws_peer_same(&e->sa46, sa46, 1) &&
-	    e->kind == (uint8_t)kind && e->cred > (uint8_t)cred)
-		cred = (lws_peer_cred_t)e->cred;
 
 	if (&e->sa46 != sa46)
 		e->sa46 = *sa46;
@@ -140,13 +138,19 @@ lws_io_peer_set(struct lws *wsi, const lws_sockaddr46 *sa46,
  * to.  On one without (bound, or an unconnected descriptor the user
  * adopted), the source is all there is, so it stands as the peer, but as a
  * DATAGRAM entry, which nothing takes for a peer the socket is fixed to.
+ *
+ * Either way the datagram is a new observation, and anyone can write the
+ * source address of one: whatever raised the entry for the last datagram
+ * does not cover this one, which is hearsay again.
  */
 void
 lws_io_peer_datagram(struct lws *wsi, const lws_sockaddr46 *src)
 {
 	if (wsi->io->pstack_count &&
-	    wsi->io->pstack[0].kind == LWS_PEER_KIND_SOCKET)
+	    wsi->io->pstack[0].kind == LWS_PEER_KIND_SOCKET) {
+		wsi->io->pstack[0].cred = LWS_PEER_CRED_HEARSAY;
 		return;
+	}
 
 	lws_io_peer_set(wsi, src, LWS_PEER_KIND_DATAGRAM,
 			LWS_PEER_CRED_HEARSAY);
@@ -173,6 +177,18 @@ lws_io_peer_route_dest(struct lws *wsi)
 		return &e->sa46;
 
 	return NULL;
+}
+
+/*
+ * The connection is setting out to find a peer (again, after a redirect or
+ * a fallback): until it connects to one, it has none, and nothing of the
+ * last connection's stack may stand for the new one's.
+ */
+void
+lws_io_peer_forget(struct lws *wsi)
+{
+	memset(wsi->io->pstack, 0, sizeof(wsi->io->pstack));
+	wsi->io->pstack_count = 0;
 }
 
 /*

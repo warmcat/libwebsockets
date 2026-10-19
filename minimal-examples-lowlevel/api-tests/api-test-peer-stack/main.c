@@ -27,7 +27,13 @@
  *    raises it only for its own address (and port, if given), never lowers
  *    it, and once a datagram from somewhere else has moved the entry on,
  *    evidence about the old source raises nothing.  A connected sender
- *    answered by the receiver keeps its own peer, a SOCKET entry.
+ *    answered by the receiver keeps its own peer, a SOCKET entry.  A raise
+ *    covers only the datagram it was for: the next one, even from the same
+ *    address and port, is hearsay again, on both sockets;
+ *
+ *  - an http client redirected to the same server dials again with the
+ *    same wsi: while it dials, the new connection is hearsay, not what the
+ *    last one proved, and routable again once connected.
  */
 
 #include <libwebsockets.h>
@@ -43,16 +49,20 @@ enum {
 	PS_PHASE_TCP,
 	PS_PHASE_PROXY_V2,
 	PS_PHASE_UDP,
+	PS_PHASE_REDIRECT,
 	PS_PHASE_COUNT
 };
 
-static const char * const phase_names[] = { "tcp", "proxy-v2", "udp" };
+static const char * const phase_names[] = {
+	"tcp", "proxy-v2", "udp", "redirect"
+};
 
 static struct lws_context *cx;
 static struct lws_vhost *vh_cli, *vh_srv, *vh_pv2;
 static lws_sorted_usec_list_t sul_phase;
 static const char *server = "localhost";
-static int phase = -1, fails, finished, phase_done, srv_checked, udp_port;
+static int phase = -1, fails, finished, phase_done, srv_checked, udp_port,
+	   redirected, redial_seen;
 #if defined(LWS_WITH_UDP)
 static lws_peer_entry_t udp_first;	/* the first datagram's source */
 static struct lws *udp_tx1;		/* the first sender */
@@ -360,7 +370,18 @@ ps_srv_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		*end = &hb[sizeof(hb) - 1];
 
 	if (reason == LWS_CALLBACK_HTTP) {
-		ps_srv_check(wsi);
+		if (phase == PS_PHASE_REDIRECT) {
+			if (!strcmp((const char *)in, "/redir")) {
+				redirected = 1;
+				if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
+						(const unsigned char *)"/", 1,
+						&p, end) < 0)
+					return -1;
+				return lws_http_transaction_completed(wsi) ?
+									-1 : 0;
+			}
+		} else
+			ps_srv_check(wsi);
 		srv_checked = 1;
 
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
@@ -453,6 +474,71 @@ ps_cli_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return 0;
 }
 
+/*
+ * An http client sent a redirect to the same server: the reused wsi dials
+ * again, and while it does, what the last connection proved is not taken
+ * for the new one
+ */
+
+static void
+ps_http_dialling(struct lws *wsi)
+{
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+
+	check(lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
+	      e[0].kind == LWS_PEER_KIND_SOCKET &&
+	      e[0].cred == LWS_PEER_CRED_HEARSAY &&
+	      is_loopback(&e[0].sa46) &&
+	      (int)port_of(&e[0].sa46) == lws_get_vhost_listen_port(vh_srv),
+	      redirected ? "redirect: dialling again is hearsay again" :
+			   "redirect: dialling is hearsay");
+	if (redirected)
+		redial_seen = 1;
+}
+
+static int
+ps_http_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	   void *in, size_t len)
+{
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+
+	if (lws_get_opaque_user_data(wsi) != (void *)(intptr_t)(phase + 1))
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	switch (reason) {
+	case LWS_CALLBACK_CONNECTING:
+		ps_http_dialling(wsi);
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (!redirected || !redial_seen) {
+			ps_phase_end("redirect: answered without redialling");
+			return -1;
+		}
+		check(lws_http_client_http_response(wsi) == HTTP_STATUS_OK,
+		      "redirect: the redirected request is answered");
+		check(lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
+		      e[0].kind == LWS_PEER_KIND_SOCKET &&
+		      e[0].cred == LWS_PEER_CRED_ROUTABLE,
+		      "redirect: connected again, it is routable again");
+		ps_phase_end(NULL);
+		return -1;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		ps_phase_end(in ? (const char *)in : "connection error");
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		ps_phase_end("redirect: closed unanswered");
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 #if defined(LWS_WITH_UDP)
 
 /* UDP: a bound receiver, and two senders on sockets of their own */
@@ -539,6 +625,22 @@ ps_udp_rx_first(struct lws *wsi)
 	lws_callback_on_writable(wsi);
 }
 
+/* the first sender again, after a protocol raised its first datagram */
+static void
+ps_udp_rx_again(struct lws *wsi)
+{
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+
+	check(lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
+	      e[0].kind == LWS_PEER_KIND_DATAGRAM &&
+	      e[0].cred == LWS_PEER_CRED_HEARSAY &&
+	      !lws_sa46_compare_ads(&e[0].sa46, &udp_first.sa46) &&
+	      port_of(&e[0].sa46) == port_of(&udp_first.sa46),
+	      "udp: the next datagram from the same source is hearsay again");
+
+	lws_callback_on_writable(wsi);
+}
+
 static void
 ps_udp_rx_second(struct lws *wsi)
 {
@@ -585,6 +687,9 @@ ps_udp_rx_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		ps_udp_rx_first(wsi);
 		break;
 	case 1:
+		ps_udp_rx_again(wsi);
+		break;
+	case 2:
 		ps_udp_rx_second(wsi);
 		break;
 	default:
@@ -594,21 +699,36 @@ ps_udp_rx_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return 0;
 }
 
-/* the first sender hears the receiver's answer */
+/* the first sender hears the receiver's answers */
 static void
 ps_udp_tx1_rx(struct lws *wsi)
 {
 	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+	int ok;
 
-	check(lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
-	      e[0].kind == LWS_PEER_KIND_SOCKET &&
-	      e[0].cred == LWS_PEER_CRED_HEARSAY &&
-	      is_loopback(&e[0].sa46) &&
-	      (int)port_of(&e[0].sa46) == udp_port,
-	      "udp sender: an answer leaves it its own peer, a socket entry");
+	ok = lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) == 1 &&
+	     e[0].kind == LWS_PEER_KIND_SOCKET &&
+	     e[0].cred == LWS_PEER_CRED_HEARSAY &&
+	     is_loopback(&e[0].sa46) &&
+	     (int)port_of(&e[0].sa46) == udp_port;
 
-	/* now a datagram from somewhere else */
-	ps_udp_sender("ps-udp-tx2");
+	if (udp_tx1_rxed++) {
+		check(ok, "udp sender: a raise does not cover the next answer");
+
+		/* now a datagram from somewhere else */
+		ps_udp_sender("ps-udp-tx2");
+		return;
+	}
+
+	check(ok, "udp sender: an answer leaves it its own peer, a socket entry");
+
+	check(!lws_peer_raise(wsi, &e[0].sa46, LWS_PEER_CRED_ROUTABLE) &&
+	      lws_peer_walk(wsi, e, 1) == 1 &&
+	      e[0].cred == LWS_PEER_CRED_ROUTABLE,
+	      "udp sender: evidence about the answer raises it");
+
+	/* and send again: the receiver's raise must not cover it either */
+	lws_callback_on_writable(wsi);
 }
 
 static int
@@ -640,7 +760,7 @@ ps_udp_tx_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
-		if (wsi == udp_tx1 && !udp_tx1_rxed++)
+		if (wsi == udp_tx1 && udp_tx1_rxed < 2)
 			ps_udp_tx1_rx(wsi);
 		break;
 
@@ -664,6 +784,7 @@ static const struct lws_protocols ps_srv_protocols[] = {
 
 static const struct lws_protocols ps_cli_protocols[] = {
 	{ "ps-cli", ps_cli_cb, 0, 0, 0, NULL, 0 },
+	{ "ps-http", ps_http_cb, 0, 0, 0, NULL, 0 },
 #if defined(LWS_WITH_UDP)
 	{ "ps-udp-rx", ps_udp_rx_cb, 0, 0, 0, NULL, 0 },
 	{ "ps-udp-tx", ps_udp_tx_cb, 0, 0, 0, NULL, 0 },
@@ -721,9 +842,15 @@ ps_next(lws_sorted_usec_list_t *sul)
 	i.address		= server;
 	i.host			= server;
 	i.port			= lws_get_vhost_listen_port(vh);
-	i.method		= "RAW";
-	i.protocol		= ps_cli_protocols[0].name;
-	i.local_protocol_name	= ps_cli_protocols[0].name;
+	if (phase == PS_PHASE_REDIRECT) {
+		i.method		= "GET";
+		i.path			= "/redir";
+		i.local_protocol_name	= ps_cli_protocols[1].name;
+	} else {
+		i.method		= "RAW";
+		i.protocol		= ps_cli_protocols[0].name;
+		i.local_protocol_name	= ps_cli_protocols[0].name;
+	}
 	i.opaque_user_data	= (void *)(intptr_t)(phase + 1);
 
 	if (!lws_client_connect_via_info(&i))
