@@ -50,26 +50,7 @@
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 
-/* RFC 4034, 5702, 6605, etc DNSSEC Algorithm Numbers */
-typedef enum {
-	LWS_ADNS_DSA_RSA_MD5			= 1,  /* RFC 2537 */
-	LWS_ADNS_DSA_DH				= 2,  /* RFC 2539 */
-	LWS_ADNS_DSA_DSA			= 3,  /* RFC 2536 */
-	LWS_ADNS_DSA_ECC			= 4,  /* RFC 2536 */
-	LWS_ADNS_DSA_RSA_SHA1			= 5,  /* RFC 3110 */
-	LWS_ADNS_DSA_DSA_NSEC3_SHA1		= 6,  /* RFC 5155 */
-	LWS_ADNS_DSA_RSA_SHA1_NSEC3_SHA1	= 7,  /* RFC 5155 */
-	LWS_ADNS_DSA_RSA_SHA256			= 8,  /* RFC 5702 */
-	LWS_ADNS_DSA_RSA_SHA512			= 10, /* RFC 5702 */
-	LWS_ADNS_DSA_ECC_GOST			= 12, /* RFC 5933 */
-	LWS_ADNS_DSA_ECDSAP256SHA256		= 13, /* RFC 6605 */
-	LWS_ADNS_DSA_ECDSAP384SHA384		= 14, /* RFC 6605 */
-	LWS_ADNS_DSA_ED25519			= 15, /* RFC 8080 */
-	LWS_ADNS_DSA_ED448			= 16, /* RFC 8080 */
-} lws_dnssec_algo_t;
-
-/* RFC 4034 DNSKEY Protocol Field */
-#define LWS_ADNS_DNSKEY_PROTOCOL_DNSSEC	3
+#include "private-lib-system-dnssec-crypto.h"
 
 /*
  * ... when we completed a query then the query object is destroyed and a

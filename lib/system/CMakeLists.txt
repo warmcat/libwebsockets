@@ -30,6 +30,7 @@
 # and keep everything else private
 
 include_directories(./async-dns)
+include_directories(./dnssec-crypto)
 
 if (NOT LWS_PLAT_FREERTOS AND NOT LWS_PLAT_BAREMETAL AND NOT LWS_PLAT_ANDROID AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES system/stdin.c)
@@ -59,6 +60,12 @@ if (LWS_WITH_NETWORK)
 		list(APPEND SOURCES
 			system/auth-dns/auth-dns.c
 			system/auth-dns/sign.c)
+	endif()
+
+	if ((LWS_WITH_SYS_ASYNC_DNS AND LWS_WITH_SYS_ASYNC_DNS_DNSSEC) OR
+	    LWS_WITH_AUTHORITATIVE_DNS)
+		list(APPEND SOURCES
+			system/dnssec-crypto/dnssec-crypto.c)
 	endif()
 
 	if (LWS_WITH_SYS_NTPCLIENT)
