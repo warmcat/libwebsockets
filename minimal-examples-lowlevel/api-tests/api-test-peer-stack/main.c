@@ -50,9 +50,11 @@ static struct lws_context *cx;
 static struct lws_vhost *vh_cli, *vh_srv, *vh_pv2;
 static lws_sorted_usec_list_t sul_phase;
 static const char *server = "localhost";
-static int phase = -1, fails, finished, phase_done, srv_checked, udp_rxed,
-	   udp_port;
+static int phase = -1, fails, finished, phase_done, srv_checked, udp_port;
+#if defined(LWS_WITH_UDP)
 static lws_peer_entry_t udp_first;	/* the first datagram's source */
+static int udp_rxed;
+#endif
 
 static void
 ps_next(lws_sorted_usec_list_t *sul);
