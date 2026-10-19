@@ -204,7 +204,14 @@ lws_adjust_protocol_psds(struct lws *wsi, size_t new_size);
  * \param context:	lws context
  *
  * This is called after the end of the vhost protocol initializations, but
- * you may choose to call it earlier
+ * you may choose to call it earlier.  It only acts on a context created with
+ * LWS_SERVER_OPTION_EXPLICIT_VHOSTS (without it, the privileges are dropped
+ * at the end of lws_create_context()), and only the first time.
+ *
+ * Returns 0 if the process now runs as the configured uid / gid (or none was
+ * configured).  If the drop fails, the process may be left with its
+ * credentials part changed: on unix platforms it logs the failure and exits
+ * the process with status 1 rather than return.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_finalize_startup(struct lws_context *context, const char *where);

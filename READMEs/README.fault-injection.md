@@ -285,6 +285,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |context||`ctx_createfail_evlib_sel`|Fail context creation due to unable to select event lib|
 |context||`ctx_createfail_oom_ctx`|Fail context creation due to OOM on context object|
 |context||`ctx_createfail_privdrop`|Fail context creation due to failure dropping privileges|
+|context||`ctx_privdrop_finalize`|With `LWS_SERVER_OPTION_EXPLICIT_VHOSTS`, act as if the deferred privilege drop in `lws_finalize_startup()` failed (on unix the process exits with status 1)|
 |context||`ctx_createfail_maxfds`|Fail context creation due to unable to determine process fd limit|
 |context||`ctx_createfail_oom_fds`|Fail context creation due to OOM on fds table|
 |context||`ctx_createfail_plat_init`|Fail context creation due to platform init failed|

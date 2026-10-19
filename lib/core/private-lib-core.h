@@ -978,6 +978,7 @@ struct lws_context {
 	unsigned int being_destroyed2:1;
 	unsigned int requested_stop_internal_loops:1;
 	unsigned int protocol_init_done:1;
+	unsigned int privs_dropped:1;
 	unsigned int doing_protocol_init:1;
 	unsigned int done_protocol_destroy_cb:1;
 	unsigned int evlib_finalize_destroy_after_int_loops_stop:1;

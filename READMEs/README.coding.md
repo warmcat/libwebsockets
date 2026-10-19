@@ -1332,6 +1332,35 @@ create the binding of the wsi to your protocol including any
 allocations, and to destroy the binding, at which point you should
 destroy any related allocations.
 
+@section privdrop Dropping root privileges
+
+A server started as root, eg to listen on ports below 1024, can have lws
+switch it to an unprivileged user and group once it is set up.  Give the
+target in the context creation info as `.uid` / `.gid`, or by name as
+`.username` / `.groupname`; 0 or -1 in `.uid` / `.gid` means "not given".  If
+a user is given without a group, the group is the user's primary group.
+
+ - `lws_create_context()` resolves the names and confirms the user and group
+   exist (numeric ids too) before anything listens: if they don't, context
+   creation fails.
+
+ - The drop replaces the supplementary groups (`initgroups()` for the user, or
+   none for a group alone), then sets the gid, then the uid, and afterwards
+   confirms the real and effective ids are the requested ones and that
+   `setuid(0)` no longer works (unless `CAP_SETUID` was asked for in
+   `.caps`).  A process already running as exactly the requested user and
+   group, eg started that way by a service manager, is left as it is.
+
+ - Without `LWS_SERVER_OPTION_EXPLICIT_VHOSTS`, the drop happens at the end of
+   `lws_create_context()`, and if it fails, so does context creation.
+
+ - With `LWS_SERVER_OPTION_EXPLICIT_VHOSTS` (lwsws, Secure Streams apps, and
+   anything using `lws_context_info_defaults()`), it happens in
+   `lws_finalize_startup()` once the vhosts' protocols are initialized, after
+   context creation has returned.  If it fails there, the process may be left
+   part dropped, so on unix lws logs the error and exits the process with
+   status 1 rather than let it serve.
+
 @section BINDTODEV SO_BIND_TO_DEVICE
 
 The .bind_iface flag in the context / vhost creation struct lets you

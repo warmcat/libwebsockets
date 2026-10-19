@@ -512,8 +512,13 @@ next:
 	if (!context->protocol_init_done) {
 
 		context->protocol_init_done = 1;
-		if (!spd)
-			lws_io_finalize_startup(context, __func__);
+
+		/*
+		 * Failing to drop privileges is fatal: on unix the process
+		 * exits from inside, elsewhere the failure is still reported
+		 */
+		if (!spd && lws_io_finalize_startup(context, __func__))
+			return -1;
 
 		return 0;
 	}

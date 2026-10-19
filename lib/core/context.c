@@ -3358,8 +3358,25 @@ lws_finalize_startup(struct lws_context *context, const char *where)
 		lws_state_transition(&context->mgr_system, LWS_SYSTATE_PRE_PRIV_DROP);
 #endif
 
-		if (lws_plat_drop_app_privileges(context, 1))
+		if (lws_plat_drop_app_privileges(context, 1) ||
+		    lws_fi(&context->fic, "ctx_privdrop_finalize")) {
+			/*
+			 * The context exists and is about to serve, so there
+			 * is no creation left to fail.  But the process may
+			 * now be part dropped (eg, the target group set, but
+			 * still uid 0), or still root, when it was configured
+			 * to run unprivileged: it must not carry on with
+			 * either.  Nor should anything of the app's, like its
+			 * atexit() handlers, run in that state.
+			 */
+			lwsl_cx_err(context, "unable to drop privileges (%s): "
+					     "exiting", where);
+#if defined(LWS_PLAT_UNIX)
+			_exit(1);
+#else
 			return 1;
+#endif
+		}
 	}
 
 	return 0;

@@ -48,10 +48,145 @@ _lws_plat_apply_caps(unsigned int mode, const cap_value_t *cv, int count)
 }
 #endif
 
+/*
+ * The reentrant passwd / group lookups take a caller buffer for the entry's
+ * strings.  A fixed one is not enough: a group with a long member list (big
+ * /etc/group lines, LDAP / SSSD) easily overflows 1KiB, and the lookup then
+ * fails with ERANGE for an entry that exists.  Start from the size the
+ * platform suggests and grow on ERANGE, up to a sane limit.
+ */
+
+#define LWS_PLAT_ID_BUF_DEFAULT		1024
+#define LWS_PLAT_ID_BUF_LIMIT		(1024 * 1024)
+
+typedef enum {
+	LWS_PLAT_ID_USER_BY_NAME,
+	LWS_PLAT_ID_USER_BY_UID,
+	LWS_PLAT_ID_GROUP_BY_NAME,
+	LWS_PLAT_ID_GROUP_BY_GID,
+} lws_plat_id_kind_t;
+
+typedef struct lws_plat_id_lookup {
+	struct passwd		pw;
+	struct group		gr;
+	struct passwd		*p;	/* the user entry, if a user lookup */
+	struct group		*g;	/* the group entry, if a group lookup */
+	char			*buf;	/* backs the entry's strings */
+} lws_plat_id_lookup_t;
+
+static size_t
+lws_plat_id_buf_hint(lws_plat_id_kind_t kind)
+{
+	long n = -1;
+
+#if defined(_SC_GETPW_R_SIZE_MAX)
+	if (kind == LWS_PLAT_ID_USER_BY_NAME || kind == LWS_PLAT_ID_USER_BY_UID)
+		n = sysconf(_SC_GETPW_R_SIZE_MAX);
+#endif
+#if defined(_SC_GETGR_R_SIZE_MAX)
+	if (kind == LWS_PLAT_ID_GROUP_BY_NAME || kind == LWS_PLAT_ID_GROUP_BY_GID)
+		n = sysconf(_SC_GETGR_R_SIZE_MAX);
+#endif
+	(void)kind;
+
+	/* -1 means the platform has no suggestion */
+
+	if (n < LWS_PLAT_ID_BUF_DEFAULT || n > LWS_PLAT_ID_BUF_LIMIT)
+		return LWS_PLAT_ID_BUF_DEFAULT;
+
+	return (size_t)n;
+}
+
+static void
+lws_plat_id_lookup_destroy(lws_plat_id_lookup_t *lk)
+{
+	lws_free_set_NULL(lk->buf);
+	lk->p = NULL;
+	lk->g = NULL;
+}
+
+/*
+ * Find a user or group entry by name (name) or by id (id).  Returns 0 with
+ * lk->p or lk->g set to the entry, which stays valid until
+ * lws_plat_id_lookup_destroy(lk); otherwise ENOENT if there is no such
+ * entry, or the errno of the failed lookup.  Either way, the caller must
+ * lws_plat_id_lookup_destroy(lk) afterwards.
+ */
+
+static int
+lws_plat_id_lookup(lws_plat_id_lookup_t *lk, lws_plat_id_kind_t kind,
+		   const char *name, unsigned int id)
+{
+	size_t len = lws_plat_id_buf_hint(kind);
+	int r;
+
+	memset(lk, 0, sizeof(*lk));
+
+	do {
+		lk->buf = lws_malloc(len, __func__);
+		if (!lk->buf)
+			return ENOMEM;
+
+		errno = 0;
+
+		switch (kind) {
+		case LWS_PLAT_ID_USER_BY_NAME:
+#if defined(LWS_HAVE_GETPWNAM_R)
+			r = getpwnam_r(name, &lk->pw, lk->buf, len, &lk->p);
+#else
+			lk->p = getpwnam(name);
+			r = lk->p ? 0 : errno;
+#endif
+			break;
+		case LWS_PLAT_ID_USER_BY_UID:
+#if defined(LWS_HAVE_GETPWUID_R)
+			r = getpwuid_r((uid_t)id, &lk->pw, lk->buf, len, &lk->p);
+#else
+			lk->p = getpwuid((uid_t)id);
+			r = lk->p ? 0 : errno;
+#endif
+			break;
+		case LWS_PLAT_ID_GROUP_BY_NAME:
+#if defined(LWS_HAVE_GETGRNAM_R)
+			r = getgrnam_r(name, &lk->gr, lk->buf, len, &lk->g);
+#else
+			lk->g = getgrnam(name);
+			r = lk->g ? 0 : errno;
+#endif
+			break;
+		default: /* LWS_PLAT_ID_GROUP_BY_GID */
+#if defined(LWS_HAVE_GETGRGID_R)
+			r = getgrgid_r((gid_t)id, &lk->gr, lk->buf, len, &lk->g);
+#else
+			lk->g = getgrgid((gid_t)id);
+			r = lk->g ? 0 : errno;
+#endif
+			break;
+		}
+
+		if (r != ERANGE)
+			break;
+
+		/* the entry is bigger than the buffer: try again bigger */
+
+		lws_free_set_NULL(lk->buf);
+		len *= 2;
+	} while (len <= LWS_PLAT_ID_BUF_LIMIT);
+
+	if (r)
+		return r;
+
+	if (!lk->p && !lk->g)
+		return ENOENT;
+
+	return 0;
+}
+
 int
 lws_plat_user_to_uid(const char *username, uid_t *puid)
 {
-	struct passwd *p = NULL;
+	lws_plat_id_lookup_t lk;
+	int n;
 
 	if (!username || !username[0])
 		return 1;
@@ -84,31 +219,22 @@ lws_plat_user_to_uid(const char *username, uid_t *puid)
 		return 0;
 	}
 
-#if defined(LWS_HAVE_GETPWNAM_R)
-	{
-		struct passwd pr;
-		char strs[1024];
+	n = lws_plat_id_lookup(&lk, LWS_PLAT_ID_USER_BY_NAME, username, 0);
+	if (!n)
+		*puid = lk.p->pw_uid;
+	else
+		lwsl_err("%s: unknown user '%s' (%d)\n", __func__, username, n);
 
-		if (getpwnam_r(username, &pr, strs, sizeof(strs), &p) || !p) {
-#else
-	{
-		p = getpwnam(username);
-		if (!p) {
-#endif
-			lwsl_err("%s: unknown user '%s'\n", __func__, username);
+	lws_plat_id_lookup_destroy(&lk);
 
-			return 1;
-		}
-		*puid = p->pw_uid;
-	}
-
-	return 0;
+	return !!n;
 }
 
 int
 lws_plat_group_to_gid(const char *groupname, gid_t *pgid)
 {
-	struct group *g = NULL;
+	lws_plat_id_lookup_t lk;
+	int n;
 
 	if (!groupname || !groupname[0])
 		return 1;
@@ -137,25 +263,16 @@ lws_plat_group_to_gid(const char *groupname, gid_t *pgid)
 		return 0;
 	}
 
-#if defined(LWS_HAVE_GETGRNAM_R)
-	{
-		struct group gr;
-		char strs[1024];
+	n = lws_plat_id_lookup(&lk, LWS_PLAT_ID_GROUP_BY_NAME, groupname, 0);
+	if (!n)
+		*pgid = lk.g->gr_gid;
+	else
+		lwsl_err("%s: unknown group '%s' (%d)\n", __func__, groupname,
+			 n);
 
-		if (getgrnam_r(groupname, &gr, strs, sizeof(strs), &g) || !g) {
-#else
-	{
-		g = getgrnam(groupname);
-		if (!g) {
-#endif
-			lwsl_err("%s: unknown group '%s'\n", __func__, groupname);
+	lws_plat_id_lookup_destroy(&lk);
 
-			return 1;
-		}
-		*pgid = g->gr_gid;
-	}
-
-	return 0;
+	return !!n;
 }
 
 int
@@ -215,135 +332,217 @@ lws_plat_unix_peer_ids(lws_sockfd_type fd, uid_t *puid, gid_t *pgid)
 }
 #endif
 
+/*
+ * After a drop, confirm the process really has the credentials we asked for,
+ * and cannot simply take root back, eg, through a saved set-user-id of 0.
+ */
+
+static int
+lws_plat_drop_verify(struct lws_context *context, int have_user, uid_t uid,
+		     int have_group, gid_t gid)
+{
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	int n;
+#endif
+
+	if (have_group && (getgid() != gid || getegid() != gid)) {
+		lwsl_cx_err(context, "gid %u, egid %u after drop to %u",
+			    (unsigned int)getgid(), (unsigned int)getegid(),
+			    (unsigned int)gid);
+
+		return 1;
+	}
+
+	if (!have_user)
+		return 0;
+
+	if (getuid() != uid || geteuid() != uid) {
+		lwsl_cx_err(context, "uid %u, euid %u after drop to %u",
+			    (unsigned int)getuid(), (unsigned int)geteuid(),
+			    (unsigned int)uid);
+
+		return 1;
+	}
+
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	/* if he chose to keep the power to change uid, he can get root back */
+	for (n = 0; n < context->count_caps; n++)
+		if (context->caps[n] == CAP_SETUID)
+			return 0;
+#endif
+
+	if (!setuid(0)) {
+		lwsl_cx_err(context, "still able to become root after drop");
+
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * actually_drop = 0: called while the context is created, to resolve any user
+ * and group names to ids, and confirm the user and group we will become
+ * exist, before anything listens.
+ *
+ * actually_drop = 1: become them.  If this returns nonzero, the process may
+ * be left with some of its credentials changed and others not: the callers
+ * must not let it carry on serving (see lws_finalize_startup()).
+ */
+
 int
 lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 {
-	struct passwd *p = NULL;
-	struct group *g = NULL;
-#if defined(LWS_HAVE_GETPWUID_R)
-	struct passwd pr;
-	char pstrs[1024];
-#endif
-#if defined(LWS_HAVE_GETGRGID_R)
-	struct group gr;
-	char gstrs[1024];
-#endif
+	lws_plat_id_lookup_t lu, lg;
+	int have_user, have_group, ret = 1, n;
+	gid_t gid;
+
+	/* eg, the app called lws_finalize_startup() itself earlier */
+	if (actually_drop && context->privs_dropped)
+		return 0;
+
+	memset(&lu, 0, sizeof(lu));
+	memset(&lg, 0, sizeof(lg));
 
 	/* if he gave us the groupname, align gid to match it */
 
 	if (context->groupname) {
-		gid_t gid;
-		if (!lws_plat_group_to_gid(context->groupname, &gid)) {
-			lwsl_cx_info(context, "group %s -> gid %u",
-				  context->groupname, (unsigned int)gid);
-			context->gid = gid;
-		} else {
+		if (lws_plat_group_to_gid(context->groupname, &gid)) {
 			lwsl_cx_err(context, "unknown groupname '%s'",
-				 context->groupname);
+				    context->groupname);
 			return 1;
 		}
+
+		lwsl_cx_info(context, "group %s -> gid %u",
+			     context->groupname, (unsigned int)gid);
+		context->gid = gid;
 	}
 
 	/* if he gave us the username, align uid to match it */
 
 	if (context->username) {
 		uid_t uid;
-		if (!lws_plat_user_to_uid(context->username, &uid)) {
-			context->uid = uid;
-			lwsl_cx_info(context, "username %s -> uid %u",
-				  context->username, (unsigned int)uid);
-		} else {
-			lwsl_cx_err(context, "unknown username %s",
-				 context->username);
+
+		if (lws_plat_user_to_uid(context->username, &uid)) {
+			lwsl_cx_err(context, "unknown username '%s'",
+				    context->username);
 			return 1;
 		}
+
+		context->uid = uid;
+		lwsl_cx_info(context, "username %s -> uid %u",
+			     context->username, (unsigned int)uid);
 	}
 
-	if (!actually_drop)
-		return 0;
-
 	/*
-	 * Find the target user first: we need his primary group before we can
-	 * decide what group credentials to end up with, and every group-side
-	 * step has to complete while we still have the privileges to do it, ie,
-	 * before the setuid().
+	 * "Not given" is 0 (a memset info struct) or -1.  A numeric uid or gid
+	 * must exist as much as a named one: find the target user first, we
+	 * need his name for initgroups() and his primary group.
 	 */
 
-	if (context->uid && context->uid != (uid_t)-1l) {
-#if defined(LWS_HAVE_GETPWUID_R)
-		if (getpwuid_r(context->uid, &pr, pstrs, sizeof(pstrs), &p) || !p) {
-#else
-		p = getpwuid(context->uid);
-		if (!p) {
-#endif
-			lwsl_cx_err(context, "getpwuid: unable to find uid %d",
-				 context->uid);
-			return 1;
+	have_user = context->uid && context->uid != (uid_t)-1;
+	if (have_user) {
+		n = lws_plat_id_lookup(&lu, LWS_PLAT_ID_USER_BY_UID, NULL,
+				       (unsigned int)context->uid);
+		if (n) {
+			lwsl_cx_err(context, "no user with uid %u (%d)",
+				    (unsigned int)context->uid, n);
+			goto bail;
 		}
 	}
 
 	/*
-	 * "Not given" is 0 for a memset info struct... if he named a user but
-	 * no group, his own primary group is the right answer.  Otherwise we
-	 * would leave the supposedly unprivileged process in root's group.
+	 * If he named a user but no group, the user's own primary group is the
+	 * right answer.  Otherwise we would leave the supposedly unprivileged
+	 * process in root's group.
 	 */
 
-	if (p && (!context->gid || context->gid == (gid_t)-1l))
-		context->gid = p->pw_gid;
+	gid = context->gid;
+	if (have_user && (!gid || gid == (gid_t)-1))
+		gid = lu.p->pw_gid;
 
-	if ((p || context->gid) && context->gid != (gid_t)-1l) {
-#if defined(LWS_HAVE_GETGRGID_R)
-		if (getgrgid_r(context->gid, &gr, gstrs, sizeof(gstrs), &g) || !g) {
-#else
-		g = getgrgid(context->gid);
-		if (!g) {
-#endif
-			lwsl_cx_err(context, "cannot find name for gid %d",
-					context->gid);
-
-			return 1;
+	have_group = (have_user || gid) && gid != (gid_t)-1;
+	if (have_group) {
+		n = lws_plat_id_lookup(&lg, LWS_PLAT_ID_GROUP_BY_GID, NULL,
+				       (unsigned int)gid);
+		if (n) {
+			lwsl_cx_err(context, "no group with gid %u (%d)",
+				    (unsigned int)gid, n);
+			goto bail;
 		}
+	}
+
+	if (!actually_drop) {
+		ret = 0;
+		goto bail;
+	}
+
+	if (!have_user && !have_group) {
+		lwsl_cx_info(context, "not changing user or group");
+		ret = 0;
+		goto bail;
+	}
+
+	/*
+	 * Started unprivileged as exactly the user and group we were told to
+	 * become, eg, by a service manager: there is nothing to drop
+	 */
+
+	if (geteuid() &&
+	    (!have_user || (getuid() == context->uid &&
+			    geteuid() == context->uid)) &&
+	    (!have_group || (getgid() == gid && getegid() == gid))) {
+		lwsl_cx_notice(context, "already running as uid %u, gid %u",
+			       (unsigned int)geteuid(),
+			       (unsigned int)getegid());
+		goto verify;
+	}
+
+	/*
+	 * Every group-side step has to complete while we still have the
+	 * privileges to do it, ie, before the setuid().
+	 */
+
+	if (have_group) {
 
 		/*
 		 * Replace the supplementary group list wholesale, so none of
 		 * the privileged process's groups (in particular group 0)
-		 * survive the drop.  initgroups() is given the target gid, so
-		 * it must not be called before we know what that is.
+		 * survive the drop.
 		 */
 
-		if (p) {
-			if (initgroups(p->pw_name,
+		if (have_user) {
+			if (initgroups(lu.p->pw_name,
 #if defined(__APPLE__)
 					(int)
 #endif
-					context->gid)) {
+					gid)) {
 				lwsl_cx_err(context, "initgroups: %s failed",
 					    strerror(LWS_ERRNO));
-
-				return 1;
+				goto bail;
 			}
 		} else
 			if (setgroups(0, NULL)) {
 				lwsl_cx_err(context, "setgroups: %s failed",
 					    strerror(LWS_ERRNO));
-
-				return 1;
+				goto bail;
 			}
 
-		if (setgid(context->gid)) {
+		if (setgid(gid)) {
 			lwsl_cx_err(context, "setgid: %s failed",
 				    strerror(LWS_ERRNO));
-
-			return 1;
+			goto bail;
 		}
 
-		lwsl_cx_notice(context, "effective group '%s'", g->gr_name);
+		context->gid = gid;
+		lwsl_cx_notice(context, "effective group '%s'",
+			       lg.g->gr_name);
 	} else
 		lwsl_cx_info(context, "not changing group");
 
 	/* and only now, the uid... this is what ends our privileges */
 
-	if (p) {
+	if (have_user) {
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 		_lws_plat_apply_caps(CAP_PERMITTED, context->caps,
 				     context->count_caps);
@@ -352,25 +551,33 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 		if (setuid(context->uid)) {
 			lwsl_cx_err(context, "setuid: %s failed",
 				    strerror(LWS_ERRNO));
+			goto bail;
+		}
 
-			return 1;
-		} else
-			lwsl_cx_notice(context, "effective user '%s'",
-					p->pw_name);
+		lwsl_cx_notice(context, "effective user '%s'", lu.p->pw_name);
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 		_lws_plat_apply_caps(CAP_EFFECTIVE, context->caps,
 				     context->count_caps);
 
-		if (context->count_caps) {
-			int n;
-			for (n = 0; n < context->count_caps; n++)
-				lwsl_cx_notice(context, "   RETAINING CAP %d",
-					    (int)context->caps[n]);
-		}
+		for (n = 0; n < context->count_caps; n++)
+			lwsl_cx_notice(context, "   RETAINING CAP %d",
+				       (int)context->caps[n]);
 #endif
 	} else
 		lwsl_cx_info(context, "not changing user");
 
-	return 0;
+verify:
+	if (lws_plat_drop_verify(context, have_user, context->uid,
+				 have_group, gid))
+		goto bail;
+
+	context->privs_dropped = 1;
+	ret = 0;
+
+bail:
+	lws_plat_id_lookup_destroy(&lu);
+	lws_plat_id_lookup_destroy(&lg);
+
+	return ret;
 }
