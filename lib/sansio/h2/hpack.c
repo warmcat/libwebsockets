@@ -2466,6 +2466,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 	 */
 	if (!value)
 		lwsl_err("%s: %s: NULL value (len %d)\n", __func__, name, length);
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
 	else {
 		char lv[128];
 
@@ -2476,6 +2477,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 					(const char *)value, (size_t)length),
 			    length);
 	}
+#endif
 #endif
 
 	len = (int)strlen((char *)name);
