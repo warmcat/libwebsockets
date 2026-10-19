@@ -39,6 +39,7 @@ include_directories(.)
 list(APPEND SOURCES
 	io/output.c
 	io/network.c
+	io/peer-stack.c
 	io/vhost.c
 	io/pollfd.c
 	io/service.c

@@ -313,10 +313,6 @@ struct client_info_stash {
 #define LWS_PEER_STACK_MAX 1
 #endif
 
-typedef struct lws_peer_entry {
-	lws_sockaddr46			sa46;
-} lws_peer_entry_t;
-
 #if defined(LWS_WITH_CLIENT)
 #define LWS_MAX_PARALLEL_CONNS 3
 struct lws_client_parallel_conn {
@@ -1085,9 +1081,12 @@ struct lws_io_adjunct {
 	/* the connection's addresses, family and route */
 	lws_sockaddr46			sa46_local;
 	/*
-	 * Who the peer is, as a stack: pstack[0] is the transport's own peer,
-	 * and a claim about the client, eg a trusted proxy's PROXY v2 header,
-	 * is pushed above it.  pstack_count is 2 while a claim is pushed.
+	 * Who the peer is, as a stack (lws_peer_walk()): pstack[0] is the
+	 * transport's own peer, and a claim about the client, eg a trusted
+	 * proxy's PROXY v2 header, is pushed above it.  pstack_count is the
+	 * number of entries in use.  Written only by lws_io_peer_set(),
+	 * lws_io_peer_push() and lws_peer_raise(), except that the client
+	 * connect machine aims its attempts with pstack[0].sa46.
 	 */
 	lws_peer_entry_t		pstack[LWS_PEER_STACK_MAX];
 	uint8_t				pstack_count;

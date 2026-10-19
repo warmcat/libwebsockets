@@ -320,6 +320,199 @@ lws_sa46_host_key(const lws_sockaddr46 *sa46, char *key, size_t len);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_host_key(struct lws *wsi, char *key, size_t len);
 
+/*
+ * The peer address stack
+ *
+ * Who a connection's peer is may be known at several layers, each believed
+ * to a different degree: the transport's own peer (the address a TCP
+ * handshake completed with, or a datagram's source), and above it a claim
+ * about the real client (eg, the PROXY v2 header of a trusted front).  lws
+ * keeps these as a stack per connection, top (the most specific claim)
+ * first, each entry tagged with how far it can be believed.
+ */
+
+/**
+ * enum lws_peer_cred - how far a peer address entry can be believed
+ *
+ * The levels are ordered, so they compare with >= : what we saw ourselves
+ * (ROUTABLE) ranks above what an intermediary we trust tells us (VOUCHED).
+ */
+typedef enum lws_peer_cred {
+	LWS_PEER_CRED_NONE,	/**< empty slot */
+	LWS_PEER_CRED_HEARSAY,	/**< nothing proves it: a datagram's source, a
+				 *   claim carried in one, an untrusted header */
+	LWS_PEER_CRED_VOUCHED,	/**< an intermediary we trust says so, over a
+				 *   link that is itself >= ROUTABLE: PROXY v2
+				 *   from a trusted front on TCP */
+	LWS_PEER_CRED_ROUTABLE,	/**< we saw it ourselves: a round trip carrying a
+				 *   value it could not guess (a TCP handshake,
+				 *   or a protocol's evidence via
+				 *   lws_peer_raise()) */
+	LWS_PEER_CRED_CRYPTO,	/**< bound to a key the peer proved */
+} lws_peer_cred_t;
+
+/**
+ * enum lws_peer_kind - where a peer address entry came from
+ */
+typedef enum lws_peer_kind {
+	LWS_PEER_KIND_SOCKET,	/**< the transport's own peer */
+	LWS_PEER_KIND_LOCAL,	/**< AF_UNIX, attested by the kernel: no address */
+	LWS_PEER_KIND_PROXY_V2,	/**< PROXY v2 source from a trusted TCP front */
+	LWS_PEER_KIND_RELAY,	/**< PROXY v2 source in a relayed datagram */
+	LWS_PEER_KIND_XFF,	/**< X-Forwarded-For or similar on a stream */
+} lws_peer_kind_t;
+
+/**
+ * struct lws_peer_entry - one layer of who the peer is
+ */
+typedef struct lws_peer_entry {
+	lws_sockaddr46		sa46;	/**< the address, port 0 if unknown */
+	uint8_t			cred;	/**< lws_peer_cred_t */
+	uint8_t			kind;	/**< lws_peer_kind_t */
+} lws_peer_entry_t;
+
+/*
+ * The most entries lws_peer_walk() can give: a stream's own claim, a claim
+ * about the client on the connection, and the transport's peer
+ */
+#define LWS_PEER_WALK_MAX	3
+
+/**
+ * lws_peer_walk() - copy out the peer address stack of a connection
+ *
+ * \param wsi: the connection, or a stream on it
+ * \param dest: array to take the entries
+ * \param max: number of entries \p dest has room for
+ *
+ * Copies the stack top first, so dest[0] is the most specific claim and the
+ * last entry is the transport's own peer.  Given a stream (an h1
+ * transaction, an h2 / h3 stream), the stack is its connection's.
+ *
+ * Returns the number of entries copied, at most \p max and at most
+ * LWS_PEER_WALK_MAX, 0 if the connection has no peer (yet).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_peer_walk(struct lws *wsi, lws_peer_entry_t *dest, int max);
+
+/**
+ * lws_peer_effective() - the entry that stands for who the peer is
+ *
+ * \param wsi: the connection, or a stream on it
+ * \param dest: the entry to fill
+ *
+ * The effective entry is the first one, walking from the top, that is at
+ * least LWS_PEER_CRED_VOUCHED.  If none is, it is the top entry, which is
+ * then only hearsay: a caller making per-client decisions must look at its
+ * cred and not let it stand for a proven peer.  So a hearsay claim above a
+ * believable entry is never taken as the peer's identity, and cannot move a
+ * client into another client's accounting.
+ *
+ * lws_get_peer_simple() gives the effective entry's address for a
+ * connection carrying a claim.
+ *
+ * Returns 0 with \p dest filled, or nonzero if there is no peer.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_peer_effective(struct lws *wsi, lws_peer_entry_t *dest);
+
+/* lws_peer_describe() flags */
+#define LWS_PEER_DESC_TOKEN	(1 << 0) /* one token, no spaces, see below */
+
+/**
+ * lws_peer_entries_describe() - format peer address entries as text
+ *
+ * \param e: the entries, top first, as lws_peer_walk() gives them
+ * \param count: the number of entries in \p e
+ * \param buf: the buffer for the text
+ * \param len: the size of \p buf
+ * \param flags: 0 or LWS_PEER_DESC_TOKEN
+ *
+ * By default, for logs, each entry is "<address>[:<port>] <kind>/<cred>",
+ * joined top first with " < ", eg
+ *
+ *   "203.0.113.9:51234 proxy-v2/vouched < 10.0.0.2:40122 socket/routable"
+ *
+ * With LWS_PEER_DESC_TOKEN, for a single field of a log line, there are no
+ * spaces: each entry is "<address>[:<port>]~<h|v|r|c>" (the cred's initial),
+ * joined with "<", except that a single routable socket entry is just its
+ * bare address, without the port, which is what an access log has always
+ * shown, eg
+ *
+ *   "203.0.113.9:51234~v<10.0.0.2:40122~r", or "10.0.0.2"
+ *
+ * An IPv6 address with a port is bracketed, eg "[2001:db8::1]:443".  An
+ * AF_UNIX (LWS_PEER_KIND_LOCAL) entry's address is "unix".
+ *
+ * The result is always NUL-terminated if \p len is nonzero, and ends with
+ * "..." if it was cut short.
+ *
+ * Returns \p buf.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_peer_entries_describe(const lws_peer_entry_t *e, int count, char *buf,
+			  size_t len, int flags);
+
+/**
+ * lws_peer_describe() - format the peer address stack of a connection
+ *
+ * \param wsi: the connection, or a stream on it
+ * \param buf: the buffer for the text
+ * \param len: the size of \p buf
+ * \param flags: 0 or LWS_PEER_DESC_TOKEN
+ *
+ * lws_peer_entries_describe() of what lws_peer_walk() gives for \p wsi; a
+ * connection with no peer gives "unknown".
+ *
+ * Returns \p buf.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_peer_describe(struct lws *wsi, char *buf, size_t len, int flags);
+
+/**
+ * lws_peer_raise() - raise the cred of an entry a protocol has evidence for
+ *
+ * \param wsi: the connection, or a stream on it
+ * \param seen: the address the evidence came from
+ * \param cred: the level the evidence supports
+ *
+ * A protocol can prove an address as it goes, eg an answer that echoes a
+ * value we only sent to that address shows the address is really there.
+ * This raises every entry on the connection's stack whose address equals
+ * \p seen's (and whose port does too, unless \p seen's port is 0) to
+ * \p cred.  A cred is never lowered.
+ *
+ * The address is the evidence, so it must be the one the evidence was seen
+ * from: an entry that has since moved on to another address (eg, a raw UDP
+ * socket's last datagram source) is not raised by an answer from the old
+ * one.
+ *
+ * Returns 0 if an entry matched, or nonzero if none did (or \p cred is not
+ * a level).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_peer_raise(struct lws *wsi, const lws_sockaddr46 *seen,
+	       lws_peer_cred_t cred);
+
+/**
+ * lws_peer_cred_name() - the name of a cred level, eg "routable"
+ *
+ * \param cred: the level
+ *
+ * Returns a constant string, "?" for an unknown level.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_peer_cred_name(lws_peer_cred_t cred);
+
+/**
+ * lws_peer_kind_name() - the name of an entry kind, eg "proxy-v2"
+ *
+ * \param kind: the kind
+ *
+ * Returns a constant string, "?" for an unknown kind.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_peer_kind_name(lws_peer_kind_t kind);
+
 /**
  * lws_write_numeric_address() - convert network byte order ads to text
  *

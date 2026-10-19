@@ -367,6 +367,8 @@ _lws_route_check_wsi(struct lws *wsi)
 	char buf[72];
 
 	if (!wsi->io->pstack[0].sa46.sa4.sin_family ||
+	    /* a bound datagram socket's peer is only its last sender */
+	    wsi->io->do_bind ||
 #if defined(LWS_WITH_UNIX_SOCK)
 	     wsi->io->unix_skt ||
 	     wsi->io->pstack[0].sa46.sa4.sin_family == AF_UNIX ||
@@ -457,6 +459,7 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 			continue;
 
 		if (wsi->io->desc.sockfd != LWS_SOCK_INVALID &&
+		    !wsi->io->do_bind &&
 #if defined(LWS_WITH_UNIX_SOCK)
 		    !wsi->io->unix_skt &&
 		    wsi->io->pstack[0].sa46.sa4.sin_family != AF_UNIX &&

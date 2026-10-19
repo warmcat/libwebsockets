@@ -535,10 +535,27 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 	lws_usec_t _peer_start = lws_now_usecs();
 #endif
 
-	if (info->type & LWS_ADOPT_SOCKET &&
-	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->io->pstack[0].sa46,
-								    &slen) < 0)
-		lwsl_info("%s: getpeername failed\n", __func__);
+	if (info->type & LWS_ADOPT_SOCKET) {
+		if (getpeername(info->fd.sockfd,
+				(struct sockaddr *)&new_wsi->io->pstack[0].sa46,
+				&slen) < 0)
+			lwsl_info("%s: getpeername failed\n", __func__);
+		else
+			/*
+			 * A connected stream's peer completed a handshake with
+			 * us, an AF_UNIX one is attested by the kernel, but a
+			 * datagram socket's peer is only who it says it is
+			 */
+			lws_io_peer_set(new_wsi, &new_wsi->io->pstack[0].sa46,
+#if defined(LWS_WITH_UNIX_SOCK)
+				new_wsi->io->pstack[0].sa46.sa4.sin_family ==
+					AF_UNIX ? LWS_PEER_KIND_LOCAL :
+#endif
+					LWS_PEER_KIND_SOCKET,
+				info->type & LWS_ADOPT_FLAG_UDP ?
+					LWS_PEER_CRED_HEARSAY :
+					LWS_PEER_CRED_ROUTABLE);
+	}
 
 #if defined(LWS_WITH_LATENCY)
 	{
@@ -932,7 +949,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * route of that family.
 		 */
 		if (!wsi->io->do_bind)
-			wsi->io->pstack[0].sa46 = s->dest;
+			lws_io_peer_set(wsi, &s->dest, LWS_PEER_KIND_SOCKET,
+					LWS_PEER_CRED_HEARSAY);
 
 		/* we connected: complete the udp socket adoption flow */
 
@@ -1131,7 +1149,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (wsi->io->udp)
 		wsi->io->udp->sa46 = dest;
 	if (!wsi->io->do_bind)
-		wsi->io->pstack[0].sa46 = dest;
+		lws_io_peer_set(wsi, &dest, LWS_PEER_KIND_SOCKET,
+				LWS_PEER_CRED_HEARSAY);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	{

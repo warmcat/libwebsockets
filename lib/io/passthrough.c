@@ -423,8 +423,13 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 				      peer);
 			return -1;
 		}
-		wsi->io->pstack[1].sa46 = pv.src;
-		wsi->io->pstack_count = 2;
+		/* our own trusted front says so, over a TCP connection */
+		if (lws_io_peer_push(wsi, &pv.src, LWS_PEER_KIND_PROXY_V2,
+				     LWS_PEER_CRED_VOUCHED)) {
+			lwsl_wsi_warn(wsi, "no room for the client trusted "
+				      "proxy %s named: dropped", peer);
+			return -1;
+		}
 	}
 
 	client[0] = '\0';
@@ -784,6 +789,7 @@ lws_passthrough_start(struct lws *wsi, struct lws_vhost *vh, const char *sni)
 
 	if (vh->passthrough_proxy_v2) {
 		uint8_t hdr[LWS_PROXY_V2_MAX];
+		lws_peer_entry_t pe;
 		lws_proxy_v2_t pv;
 		socklen_t sl;
 		int n;
@@ -791,8 +797,8 @@ lws_passthrough_start(struct lws *wsi, struct lws_vhost *vh, const char *sni)
 		memset(&pv, 0, sizeof(pv));
 
 		/* the client, as we know it, which a proxy before us may say */
-		if (wsi->io->pstack_count > 1)
-			pv.src = wsi->io->pstack[1].sa46;
+		if (wsi->io->pstack_count > 1 && !lws_peer_effective(wsi, &pe))
+			pv.src = pe.sa46;
 		else {
 			sl = sizeof(pv.src);
 			if (getpeername(wsi->io->desc.sockfd,

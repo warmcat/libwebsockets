@@ -425,6 +425,15 @@ void
 lws_addrinfo_clean(struct lws *wsi);
 void
 lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46);
+/* the peer address stack (lib/io/peer-stack.c) */
+struct lws *
+lws_io_peer_conn(struct lws *wsi);
+void
+lws_io_peer_set(struct lws *wsi, const lws_sockaddr46 *sa46,
+		lws_peer_kind_t kind, lws_peer_cred_t cred);
+int
+lws_io_peer_push(struct lws *wsi, const lws_sockaddr46 *sa46,
+		 lws_peer_kind_t kind, lws_peer_cred_t cred);
 lws_sockaddr46 *
 lws_io_peer(struct lws *wsi);
 int

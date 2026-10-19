@@ -1271,6 +1271,9 @@ ads_known:
 #endif
 	{
 		memmove(&wsi->io->pstack[0].sa46, psa, (unsigned int)n);
+		/* nothing has answered from it yet */
+		lws_io_peer_set(wsi, &wsi->io->pstack[0].sa46,
+				LWS_PEER_KIND_SOCKET, LWS_PEER_CRED_HEARSAY);
 
 		/*
 		 * ... and one that stays with this attempt's socket, since a
@@ -1660,10 +1663,22 @@ conn_good:
 	 */
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (!wsi->io->unix_skt)
+	if (wsi->io->unix_skt)
+		lws_io_peer_set(wsi, &wsi->io->pstack[0].sa46,
+				LWS_PEER_KIND_LOCAL, LWS_PEER_CRED_ROUTABLE);
+	else
 #endif
 	{
-		wsi->io->pstack[0].sa46 = wsi->io->sa46_primary;
+		/*
+		 * A stream's handshake completed with it; a datagram socket's
+		 * connect() asked nothing of the peer
+		 */
+		lws_io_peer_set(wsi, &wsi->io->sa46_primary,
+				LWS_PEER_KIND_SOCKET,
+#if defined(LWS_WITH_UDP)
+				wsi->io->udp ? LWS_PEER_CRED_HEARSAY :
+#endif
+					LWS_PEER_CRED_ROUTABLE);
 #if defined(LWS_WITH_ROUTING)
 		wsi->io->peer_route_uidx = wsi->io->primary_route_uidx;
 #endif

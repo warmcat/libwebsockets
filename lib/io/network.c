@@ -236,25 +236,25 @@ lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen)
 const char *
 lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 {
-#if defined(LWS_WITH_UDP) && defined(LWS_ROLE_QUIC)
 	/*
 	 * On QUIC, the mux parent chain continues past the connection's
 	 * network wsi up to the shared UDP listener wsi, whose udp->sa46
 	 * holds the listener's *bind* address (eg, "::" or "0.0.0.0") and
-	 * not any peer address.  The connection's peer is tracked in
-	 * udp->sa46 on the wsi that owns the QUIC netconn, so stop the
-	 * walk there
+	 * not any peer address: the connection's peer is on the wsi that
+	 * owns the QUIC netconn, where lws_io_peer_conn() stops
 	 */
-	while (wsi && !wsi->quic.qn && wsi->mux.parent_wsi)
-		wsi = wsi->mux.parent_wsi;
-
+	wsi = lws_io_peer_conn(wsi);
+#if defined(LWS_WITH_UDP) && defined(LWS_ROLE_QUIC)
 	if (wsi && wsi->quic.qn) {
+		lws_peer_entry_t e;
+
 		/* the netconn told IO its committed path's peer */
-		lws_sa46_write_numeric_address(&wsi->io->pstack[0].sa46, name, namelen);
+		if (lws_peer_effective(wsi, &e))
+			e.sa46 = wsi->io->pstack[0].sa46;
+		lws_sa46_write_numeric_address(&e.sa46, name, namelen);
 		return name;
 	}
 #endif
-	wsi = lws_get_network_wsi(wsi);
 #if defined(LWS_WITH_UDP)
 	if (wsi->io->udp) {
 		lws_sa46_write_numeric_address(&wsi->io->udp->sa46, name, namelen);
@@ -263,10 +263,16 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 #endif
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
 	if (wsi->io->pstack_count > 1) {
-		/* the client a trusted proxy named in its PROXY v2 header */
-		lws_sa46_write_numeric_address(&wsi->io->pstack[1].sa46, name,
-					       namelen);
-		return name;
+		lws_peer_entry_t e;
+
+		/*
+		 * A claim above the transport, eg the client a trusted proxy
+		 * named in its PROXY v2 header: the effective entry
+		 */
+		if (!lws_peer_effective(wsi, &e)) {
+			lws_sa46_write_numeric_address(&e.sa46, name, namelen);
+			return name;
+		}
 	}
 #endif
 	return lws_get_peer_simple_fd(wsi->io->desc.sockfd, name, namelen);
@@ -316,10 +322,17 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		name[0] = '\0';
 
 #if defined(LWS_WITH_TLS_PASSTHROUGH)
-	if (wsi->io->pstack_count > 1 && fd == wsi->io->desc.sockfd)
-		/* the client a trusted proxy named in its PROXY v2 header */
-		return lws_get_addresses(wsi->a.vhost, &wsi->io->pstack[1].sa46,
-					 name, name_len, rip, rip_len);
+	if (wsi->io->pstack_count > 1 && fd == wsi->io->desc.sockfd) {
+		lws_peer_entry_t e;
+
+		/*
+		 * A claim above the transport, eg the client a trusted proxy
+		 * named in its PROXY v2 header: the effective entry
+		 */
+		if (!lws_peer_effective(wsi, &e))
+			return lws_get_addresses(wsi->a.vhost, &e.sa46,
+						 name, name_len, rip, rip_len);
+	}
 #endif
 
 #ifdef LWS_WITH_IPV6
@@ -1061,7 +1074,8 @@ lws_set_transport(struct lws *wsi, const lws_transport_ops_t *ops,
 void
 lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46)
 {
-	wsi->io->pstack[0].sa46 = *sa46;
+	/* a datagram peer: nothing proves it is there until its protocol does */
+	lws_io_peer_set(wsi, sa46, LWS_PEER_KIND_SOCKET, LWS_PEER_CRED_HEARSAY);
 #if defined(LWS_WITH_ROUTING)
 	{
 		struct lws_context_per_thread *pt =
@@ -1285,7 +1299,8 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 #endif
 #endif
 	nwsi->io->desc = wsi->io->desc;
-	nwsi->io->pstack[0].sa46 = wsi->io->pstack[0].sa46;
+	memcpy(nwsi->io->pstack, wsi->io->pstack, sizeof(nwsi->io->pstack));
+	nwsi->io->pstack_count = wsi->io->pstack_count;
 #if defined(LWS_WITH_UDP)
 	nwsi->io->udp = wsi->io->udp;
 	wsi->io->udp = NULL;
