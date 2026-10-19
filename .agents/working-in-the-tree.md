@@ -115,3 +115,9 @@ sessions.
  - Building a temp index can race another agent's commit ("cannot lock
    ref HEAD"): redo `read-tree HEAD` on the temp index, re-apply, then
    reset the real index entries for your paths.
+ - `git commit -- <paths>` commits the whole current file, including
+   another agent's hunks that landed since you last looked: when other
+   agents edit the same files, always commit from a temp index with only
+   your hunks (B51 swept a concurrent agent's README and header hunks
+   into a commit and had to rebuild it, 2026-10-19).  Never move the
+   branch with update-ref unless you are the only one committing.
