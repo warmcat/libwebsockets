@@ -157,6 +157,7 @@ struct lws_auth_dns_sign_info {
 	const char			*ipv6;              /* for subst_cb's ${EXTIP4} / ${EXTIP6} */
 	struct lws_context		*cx;                /* For logging/alloc */
 	const char			*domain;            /* NULL, or the only zone the input may be, see lws_auth_dns_zone_check_origin() */
+	time_t				verify_time;        /* verify only: when the RRSIGs must be valid, 0 = now */
 
 	const char			*curr_line;
 	size_t				curr_line_len;
@@ -176,9 +177,45 @@ LWS_VISIBLE LWS_EXTERN int
 lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info);
 
 /**
- * lws_auth_dns_verify_zone() - read, parse and verify RRSIGs from an authoritative DNS zone
+ * lws_auth_dns_verify_zone() - verify a signed zone is signed by the given keys
  *
  * \param info: the params for configuring the verify operation
+ *
+ * Reads the signed zone text at \p info->input_filepath and checks that it is
+ * completely and validly signed by the keys the caller trusts for it:
+ *
+ *  - the zone must pass lws_auth_dns_zone_check_origin() against
+ *    \p info->domain (or, with that NULL, against itself)
+ *  - the apex DNSKEY RRset must contain the KSK in the JWK at
+ *    \p info->ksk_jwk_filepath (required, as a DNSKEY with flags 257), and if
+ *    \p info->zsk_jwk_filepath is given, that ZSK (flags 256)
+ *  - the DNSKEY RRset must carry a valid RRSIG made by that KSK
+ *  - every authoritative RRset other than RRSIG, including the NSEC3 chain
+ *    and NSEC3PARAM, must carry at least one valid RRSIG made by a zone key
+ *    in that DNSKEY RRset.  Per RFC 4035 2.2, the NS RRset at a delegation
+ *    point and the glue at or below it need not be signed; the DS and NSEC
+ *    RRsets at a delegation point must be.
+ *  - every RRSIG in the zone must be valid: over an RRset its owner has,
+ *    signed by the zone apex, with the owner's label count and the RRset's
+ *    TTL as its original TTL, inside its inception / expiration period at
+ *    \p info->verify_time (0 means now), of an algorithm the signer uses
+ *    (RSASHA256 (8), ECDSAP256SHA256 (13), ECDSAP384SHA384 (14), and also
+ *    RSASHA512 (10)), and verifying with a DNSKEY of the matching algorithm
+ *    and key tag that has the Zone Key flag and is not revoked
+ *  - every record must be one the parser could put in wire form
+ *
+ * What is not checked is whether the NSEC3 chain is complete and agrees with
+ * the zone's names and types: its records are signed like any others, so
+ * they cannot be forged, but a chain with a gap only fails to prove some
+ * denials.
+ *
+ * Only the public parts of the JWKs are used, so they may be public-only.
+ * \p info->jws_filepath is not used: the JWS over the zone text that
+ * lws_auth_dns_sign_zone() also produces is checked separately, eg, with
+ * lws_jws_sig_confirm_compact_b64() and the KSK.
+ *
+ * Returns 0 if the zone verified, otherwise nonzero, with the reason logged
+ * at error level.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info);

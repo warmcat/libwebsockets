@@ -1242,8 +1242,7 @@ lws_auth_dns_key_records(struct lws_jwk *jwk, const char *origin, int flags,
 	uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE], owner[256], hash[48];
 	enum lws_genhash_types ht;
 	struct lws_genhash_ctx hctx;
-	size_t wl, ol = sizeof(owner), hl, n;
-	uint32_t ac = 0;
+	size_t wl, ol = sizeof(owner), hl;
 	char *p;
 	int m;
 
@@ -1257,11 +1256,7 @@ lws_auth_dns_key_records(struct lws_jwk *jwk, const char *origin, int flags,
 	if (!wl)
 		return 1;
 
-	/* RFC 4034 Appendix B */
-	for (n = 0; n < wl; n++)
-		ac += (n & 1) ? (uint32_t)wire[n] : (uint32_t)wire[n] << 8;
-	ac += (ac >> 16) & 0xffff;
-	r->keytag = (uint16_t)(ac & 0xffff);
+	r->keytag = lws_dnssec_key_tag(wire, wl);
 
 	/* DNSKEY presentation RDATA */
 
@@ -1309,37 +1304,33 @@ lws_auth_dns_key_records(struct lws_jwk *jwk, const char *origin, int flags,
 	return 0;
 }
 
+/*
+ * Import the JWK at \p path, whose text usually holds a private key, without
+ * leaving that text anywhere in memory.  Returns 0 on success, when \p jwk
+ * must later be destroyed.
+ */
+
 static int
-lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags)
+auth_dns_jwk_load(const char *path, struct lws_jwk *jwk)
 {
-	struct lws_jwk jwk;
-	struct auth_dns_rrset *rrset = NULL;
-	struct auth_dns_rr *rr;
-	char *buf;
 	struct stat st;
-	ssize_t n;
 	int fd, ret = 1;
-	uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE];
-	char b64[(LWS_AUTH_DNS_DNSKEY_WIRE * 4) / 3 + 16];
-	char rdata_buf[sizeof(b64) + 32];
-	size_t wl;
+	ssize_t n;
+	char *buf;
 
-	if (!jwk_path)
-		return 0;
-
-	fd = open(jwk_path, LWS_O_RDONLY);
+	fd = open(path, LWS_O_RDONLY);
 	if (fd < 0) {
-		lwsl_err("%s: Failed to open JWK file at '%s'\n", __func__, jwk_path);
+		lwsl_err("%s: Failed to open JWK file at '%s'\n", __func__, path);
 		return 1;
 	}
 
-	if (fstat(fd, &st) < 0) {
+	if (fstat(fd, &st) < 0 || st.st_size <= 0 || st.st_size > 65536) {
 		close(fd);
-		lwsl_err("%s: Failed fstat on %s\n", __func__, jwk_path);
+		lwsl_err("%s: Unusable JWK file %s\n", __func__, path);
 		return 1;
 	}
 
-	buf = lws_malloc((size_t)st.st_size + 1, "add_dnskey");
+	buf = lws_malloc((size_t)st.st_size + 1, "auth_dns_jwk");
 	if (!buf) {
 		close(fd);
 		return 1;
@@ -1348,24 +1339,46 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 	n = read(fd, buf, (unsigned int)st.st_size);
 	close(fd);
 
-	if (n != st.st_size) {
-		lwsl_err("%s: Read size mismatch on %s\n", __func__, jwk_path);
-		goto bail;
+	if (n != st.st_size)
+		lwsl_err("%s: Read size mismatch on %s\n", __func__, path);
+	else {
+		buf[st.st_size] = '\0';
+		ret = lws_jwk_import(jwk, NULL, NULL, buf, (size_t)st.st_size);
+		if (ret) /* which leaves nothing to destroy */
+			lwsl_err("%s: Failed to import JWK from %s\n",
+				 __func__, path);
 	}
-	buf[st.st_size] = '\0';
 
-	if (lws_jwk_import(&jwk, NULL, NULL, buf, (size_t)st.st_size)) {
-		lwsl_err("%s: Failed to import JWK from %s\n", __func__, jwk_path);
-		goto bail;
-	}
+	/* this held the JWK JSON, ie, the private key in the clear */
+	lws_explicit_bzero(buf, (size_t)st.st_size);
+	lws_free(buf);
 
-	int dnssec_alg = lws_auth_dns_jwk_alg(&jwk);
+	return ret;
+}
 
+static int
+lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags)
+{
+	struct auth_dns_rrset *rrset = NULL;
+	uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE];
+	char b64[(LWS_AUTH_DNS_DNSKEY_WIRE * 4) / 3 + 16];
+	char rdata_buf[sizeof(b64) + 32];
+	struct auth_dns_rr *rr;
+	struct lws_jwk jwk;
+	int dnssec_alg, ret = 1;
+	size_t wl;
+
+	if (!jwk_path)
+		return 0;
+
+	if (auth_dns_jwk_load(jwk_path, &jwk))
+		return 1;
+
+	dnssec_alg = lws_auth_dns_jwk_alg(&jwk);
 	if (!dnssec_alg) {
 		lwsl_err("%s: %s: key has no DNSSEC algorithm\n", __func__,
 			 jwk_path);
-		lws_jwk_destroy(&jwk);
-		goto bail;
+		goto bail_jwk;
 	}
 
 	wl = lws_auth_dns_dnskey_wire(&jwk, flags, dnssec_alg, wire, sizeof(wire));
@@ -1426,10 +1439,6 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 
 bail_jwk:
 	lws_jwk_destroy(&jwk);
-bail:
-	/* this held the JWK JSON, ie, the private key in the clear */
-	lws_explicit_bzero(buf, (size_t)st.st_size);
-	lws_free(buf);
 
 	return ret;
 }
@@ -1726,6 +1735,124 @@ lws_auth_dns_sort_zone(struct lws_auth_dns_sign_info *info, struct auth_dns_zone
 	} lws_end_foreach_dll(d);
 }
 
+/*
+ * The RRSIG Labels field for an owner name (RFC 4034 3.1.3): its labels, not
+ * counting the root, nor the leftmost "*" of a wildcard
+ */
+
+static int
+auth_dns_rrsig_labels(const char *name)
+{
+	const char *p = name;
+	int labels;
+
+	if (!name[0] || !strcmp(name, "."))
+		return 0;
+
+	labels = 1;
+	while (*p) {
+		if (*p == '.' && p[1])
+			labels++;
+		p++;
+	}
+
+	if (name[0] == '*' && name[1] == '.')
+		labels--;
+
+	return labels;
+}
+
+/*
+ * The length of the uncompressed wire name at \p p, including its root label,
+ * or -1 if it does not end inside \p len or is longer than a name can be
+ */
+
+static int
+auth_dns_wire_name_len(const uint8_t *p, size_t len)
+{
+	size_t n = 0;
+
+	while (n < len && n < 255) {
+		if (!p[n])
+			return (int)n + 1;
+		if (p[n] > 63)
+			return -1; /* compression is not allowed in RRSIG */
+		n += 1u + p[n];
+	}
+
+	return -1;
+}
+
+/*
+ * RFC 4034 3.1.8.1: hash what an RRSIG over \p rs signs, that is
+ *
+ *    RRSIG RDATA up to the signature (with the signer name canonical) |
+ *    each RR of the set in canonical form and order (RFC 4034 6.2, 6.3),
+ *    with the RRSIG's Original TTL in place of the RR's own
+ *
+ * \p sig_rdata / \p sig_rdata_len is the RRSIG RDATA up to and including the
+ * signer name.  The RRs of \p rs must already be in canonical order, as
+ * lws_auth_dns_sort_zone() leaves them.  The signer and the verifier both
+ * hash with this, so they cannot disagree about what was signed.
+ *
+ * Returns 0 and the digest in \p hash, or nonzero.
+ */
+
+static int
+auth_dns_rrset_hash(struct auth_dns_zone *z, const struct auth_dns_rrset *rs,
+		    const uint8_t *sig_rdata, size_t sig_rdata_len,
+		    enum lws_genhash_types ht, uint8_t *hash)
+{
+	const struct auth_dns_rr *prev = NULL;
+	struct lws_genhash_ctx hctx;
+	uint8_t owner[256], hdr[10];
+	size_t ol = sizeof(owner);
+
+	if (sig_rdata_len < 19 || name_to_wire(rs->name, z->origin, owner, &ol))
+		return 1;
+
+	/* type | class | original TTL | (rdlength filled per RR) */
+	lws_ser_wu16be(hdr, rs->type);
+	lws_ser_wu16be(hdr + 2, rs->class_);
+	memcpy(hdr + 4, sig_rdata + 4, 4);
+
+	if (lws_genhash_init(&hctx, ht))
+		return 1;
+
+	if (lws_genhash_update(&hctx, sig_rdata, sig_rdata_len))
+		goto bail;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&rs->rr_list)) {
+		const struct auth_dns_rr *rr = lws_container_of(d,
+						struct auth_dns_rr, list);
+
+		if (!rr->wire_rdata || rr->wire_rdata_len > 0xffff)
+			goto bail;
+
+		/* RFC 4034 6.3: an RRset never holds the same RR twice */
+		if (prev && prev->wire_rdata_len == rr->wire_rdata_len &&
+		    !memcmp(prev->wire_rdata, rr->wire_rdata,
+			    rr->wire_rdata_len))
+			continue;
+		prev = rr;
+
+		lws_ser_wu16be(hdr + 8, (uint16_t)rr->wire_rdata_len);
+		if (lws_genhash_update(&hctx, owner, ol) ||
+		    lws_genhash_update(&hctx, hdr, sizeof(hdr)) ||
+		    lws_genhash_update(&hctx, rr->wire_rdata,
+				       rr->wire_rdata_len))
+			goto bail;
+	} lws_end_foreach_dll(d);
+
+	return lws_genhash_destroy(&hctx, hash);
+
+bail:
+	lws_genhash_destroy(&hctx, NULL);
+
+	return 1;
+}
+
 void
 lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 {
@@ -1864,16 +1991,15 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 									goto zsk_done;
 								}
 
-								uint32_t ac_zsk = 0;
-								for (size_t i = 0; i < wl_zsk; ++i) ac_zsk += (i & 1) ? (uint32_t)wire_zsk[i] : (uint32_t)wire_zsk[i] << 8;
-								ac_zsk += (ac_zsk >> 16) & 0xffff;
-								keytag_zsk = (uint16_t)(ac_zsk & 0xffff);
+								keytag_zsk = lws_dnssec_key_tag(wire_zsk, wl_zsk);
 
 										/* For each RRset, compute signature over canonical form */
 										lws_start_foreach_dll_safe(struct lws_dll2 *, d4, d6, lws_dll2_get_head(&z->rrset_list)) {
 											struct auth_dns_rrset *rs = lws_container_of(d4, struct auth_dns_rrset, list);
-											uint8_t pre[512];
-											size_t pl = 0;
+											uint8_t pre[18 + 256], hash[64];
+											size_t pl, al;
+											enum lws_genhash_types hash_type;
+											int active_alg, labels;
 
 											/* Don't sign RRSIGs */
 											if (rs->type == 46)
@@ -1883,26 +2009,13 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 											if (rs->type == 48 && !has_ksk)
 												goto next_rrset;
 
-											pre[pl++] = (uint8_t)(rs->type >> 8);
-											pre[pl++] = (uint8_t)(rs->type & 0xff);
-											pre[pl++] = (uint8_t)((rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg); /* Algorithm */
+											active_alg = (rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg;
+											labels = auth_dns_rrsig_labels(rs->name);
 
-											int labels = 0;
-											if (rs->name[0] && strcmp(rs->name, ".")) {
-												labels = 1;
-												const char *p = rs->name;
-												while (*p) {
-													if (*p == '.' && *(p + 1) != '\0')
-														labels++;
-													p++;
-												}
-												if (rs->name[0] == '*' && rs->name[1] == '.')
-													labels--;
+											if (lws_dnssec_alg_hash((uint8_t)active_alg, &hash_type)) {
+												lwsl_err("%s: no hash for alg %d\n", __func__, active_alg);
+												goto next_rrset;
 											}
-											pre[pl++] = (uint8_t)labels;
-
-											pre[pl++] = (uint8_t)(rs->ttl >> 24); pre[pl++] = (uint8_t)(rs->ttl >> 16);
-											pre[pl++] = (uint8_t)(rs->ttl >> 8); pre[pl++] = (uint8_t)(rs->ttl & 0xff);
 
 											time_t now;
 											if (info->sign_validity_start_time)
@@ -1912,62 +2025,38 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 											uint32_t dur = info->sign_validity_duration ? info->sign_validity_duration : (30 * 24 * 3600);
 											uint64_t exp = (uint64_t)now + dur;
-											pre[pl++] = (uint8_t)(exp >> 24); pre[pl++] = (uint8_t)(exp >> 16);
-											pre[pl++] = (uint8_t)(exp >> 8); pre[pl++] = (uint8_t)(exp & 0xff);
-
 											uint64_t inc = (uint64_t)now - 3600; /* Start valid one hour before current time to account for clock skew */
-											pre[pl++] = (uint8_t)(inc >> 24); pre[pl++] = (uint8_t)(inc >> 16);
-											pre[pl++] = (uint8_t)(inc >> 8); pre[pl++] = (uint8_t)(inc & 0xff);
 
 											/* We must match the keytag of the key we are using! */
 											uint16_t keytag;
 											if (rs->type == 48 && has_ksk) keytag = keytag_ksk;
 											else keytag = keytag_zsk;
 
-											pre[pl++] = (uint8_t)(keytag >> 8); pre[pl++] = (uint8_t)(keytag & 0xff);
+											/* the RRSIG RDATA up to the signature, RFC 4034 3.1 */
+											lws_ser_wu16be(pre, rs->type);
+											pre[2] = (uint8_t)active_alg;
+											pre[3] = (uint8_t)labels;
+											lws_ser_wu32be(pre + 4, rs->ttl);
+											lws_ser_wu32be(pre + 8, (uint32_t)exp);
+											lws_ser_wu32be(pre + 12, (uint32_t)inc);
+											lws_ser_wu16be(pre + 16, keytag);
+											al = sizeof(pre) - 18;
+											if (name_to_wire(z->origin, "", pre + 18, &al))
+												goto next_rrset;
+											pl = 18 + al;
 
-											size_t al = sizeof(pre) - pl;
-											name_to_wire(z->origin, "", pre + pl, &al); pl += al;
-
-											struct lws_genhash_ctx hctx;
-											uint8_t hash[64];
-											enum lws_genhash_types hash_type = ((rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg) == 13 ? LWS_GENHASH_TYPE_SHA256 : LWS_GENHASH_TYPE_SHA384;
-											// int hash_len = (hash_type == LWS_GENHASH_TYPE_SHA256) ? 32 : 48;
-
-											if (lws_genhash_init(&hctx, hash_type) || lws_genhash_update(&hctx, pre, pl)) {
-												lws_genhash_destroy(&hctx, NULL); goto next_rrset;
+											if (auth_dns_rrset_hash(z, rs, pre, pl, hash_type, hash)) {
+												lwsl_err("%s: unable to hash %s type %d\n", __func__,
+													 rs->name, rs->type);
+												goto next_rrset;
 											}
 
-											lws_start_foreach_dll(struct lws_dll2 *, d5, lws_dll2_get_head(&rs->rr_list)) {
-												struct auth_dns_rr *rr = lws_container_of(d5, struct auth_dns_rr, list);
-												uint8_t rpre[512]; size_t rpl = 0;
-												al = sizeof(rpre) - rpl; name_to_wire(rs->name, z->origin, rpre + rpl, &al); rpl += al;
-												rpre[rpl++] = (uint8_t)(rs->type >> 8); rpre[rpl++] = (uint8_t)(rs->type & 0xff);
-												rpre[rpl++] = (uint8_t)(rs->class_ >> 8); rpre[rpl++] = (uint8_t)(rs->class_ & 0xff);
-												rpre[rpl++] = (uint8_t)(rs->ttl >> 24); rpre[rpl++] = (uint8_t)(rs->ttl >> 16);
-												rpre[rpl++] = (uint8_t)(rs->ttl >> 8); rpre[rpl++] = (uint8_t)(rs->ttl & 0xff);
-												rpre[rpl++] = (uint8_t)(rr->wire_rdata_len >> 8); rpre[rpl++] = (uint8_t)(rr->wire_rdata_len & 0xff);
-												if (lws_genhash_update(&hctx, rpre, rpl) || lws_genhash_update(&hctx, rr->wire_rdata, rr->wire_rdata_len)) break;
-											} lws_end_foreach_dll(d5);
-
-											if (lws_genhash_destroy(&hctx, hash)) goto next_rrset;
-#if 0
-											if (rs->type == 48) {
-												char hex[256];
-												lws_hex_from_byte_array(hash, (size_t)hash_len, hex, sizeof(hex));
-												lwsl_user("SIGN HASH DNSKEY %s => %s\n", rs->name, hex);
-											}
-#endif
-											int active_alg = (rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg;
-											int keybits = 256;
-
-											if (active_alg == 14) keybits = 384;
-											else if (active_alg == 15) keybits = 521;
+											int keybits = active_alg == 14 ? 384 : 256;
 
 											/* lws_genecdsa_hash_sign_jws expects the exact signature size based on the keybits, which is (keybits rounded to bytes) * 2 */
 											int exp_sig_len = lws_gencrypto_bits_to_bytes(keybits) * 2;
-											if (active_alg == 8) exp_sig_len = 256; /* 2048-bit RSA */
 
+											/* RSA signatures are as long as the modulus, up to 8192 bits */
 											/* Compute signature based on algorithm */
 											uint8_t sig[1024];
 											int sig_ret = -1;
@@ -1975,13 +2064,13 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 											if (rs->type == 48 && has_ksk) {
 												if (active_alg == 8) {
-													sig_ret = lws_genrsa_hash_sign(&genrsa_ksk, hash, hash_type, sig, (size_t)exp_sig_len);
+													sig_ret = lws_genrsa_hash_sign(&genrsa_ksk, hash, hash_type, sig, sizeof(sig));
 												} else {
 													sig_ret = lws_genecdsa_hash_sign_jws(&genec_ksk, hash, hash_type, keybits, sig, (size_t)exp_sig_len);
 												}
 											} else {
 												if (active_alg == 8) {
-													sig_ret = lws_genrsa_hash_sign(&genrsa_zsk, hash, hash_type, sig, (size_t)exp_sig_len);
+													sig_ret = lws_genrsa_hash_sign(&genrsa_zsk, hash, hash_type, sig, sizeof(sig));
 												} else {
 													sig_ret = lws_genecdsa_hash_sign_jws(&genec_zsk, hash, hash_type, keybits, sig, (size_t)exp_sig_len);
 												}
@@ -1991,9 +2080,9 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 												rr = lws_zalloc(sizeof(*rr), "rrsig");
 												if (rr) {
 													int sig_len = (active_alg == 8) ? sig_ret : exp_sig_len;
-													char b64[1024]; /* Ensure large enough for 2048-bit RSA sigs */
+													char b64[((sizeof(sig) + 2) / 3) * 4 + 1];
 													lws_b64_encode_string((const char *)sig, sig_len, b64, sizeof(b64));
-													char tb[2048], exp_str[32], inc_str[32];
+													char tb[sizeof(b64) + 512], exp_str[32], inc_str[32];
 													time_t exp_t = (time_t)exp, inc_t = (time_t)inc;
 #if defined(LWS_HAVE_GMTIME_R)
 													struct tm tm_info_s;
@@ -2069,26 +2158,384 @@ zsk_done:
 	}
 }
 
-#endif
+/*
+ * Zone verification, against the keys the caller says the zone is signed by
+ */
+
+struct auth_dns_verify {
+	struct lws_context		*cx;
+	struct auth_dns_zone		*z;
+	const struct auth_dns_rrset	*keyset; /* the apex DNSKEY RRset */
+	const struct auth_dns_rr	*ksk;	 /* the given KSK, in keyset */
+	const char			**cuts;	 /* delegation points */
+	uint8_t				apex[256];
+	size_t				apex_len;
+	int				num_cuts;
+	uint32_t			now;
+	int				passes;
+};
+
+/* is \p name strictly below \p anc?  Both are fully-qualified */
+
+static int
+auth_dns_name_below(const char *name, const char *anc)
+{
+	size_t nl = strlen(name), al = strlen(anc);
+
+	return nl > al && name[nl - al - 1] == '.' &&
+	       !strcasecmp(name + nl - al, anc);
+}
+
+/*
+ * RFC 4035 2.2: everything in the zone is signed, except the NS RRset at a
+ * delegation point and the glue (or anything else occluded) at or below it.
+ * The DS and NSEC RRsets at a delegation point belong to this zone and are
+ * signed.
+ */
+
+static int
+auth_dns_rrset_authoritative(const struct auth_dns_verify *v,
+			     const struct auth_dns_rrset *rs)
+{
+	int n;
+
+	for (n = 0; n < v->num_cuts; n++) {
+		if (auth_dns_name_below(rs->name, v->cuts[n]))
+			return 0;
+		if (!strcasecmp(rs->name, v->cuts[n]) &&
+		    rs->type != 43 /* DS */ && rs->type != 47 /* NSEC */)
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * Check one RRSIG RR, \p w / \p len, over \p rs, the way RFC 4035 5.3.1
+ * has a validator check it: it has to be from this zone, for this owner's
+ * labels and TTL, inside its validity period, and its signature has to verify
+ * with a zone key of a supported algorithm in the zone's own DNSKEY RRset.
+ *
+ * Returns 0 if so, setting *key to the DNSKEY RR that verified it.
+ */
+
+static int
+auth_dns_verify_rrsig(struct auth_dns_verify *v, const struct auth_dns_rrset *rs,
+		      const uint8_t *w, size_t len,
+		      const struct auth_dns_rr **key)
+{
+	enum lws_genhash_types ht;
+	uint32_t sexp, sinc;
+	uint8_t hash[64];
+	int n;
+
+	if (lws_dnssec_alg_hash(w[2], &ht)) {
+		lwsl_err("%s: %s type %d: unsupported RRSIG algorithm %d\n",
+			 __func__, rs->name, rs->type, w[2]);
+		return 1;
+	}
+
+	if (w[3] != auth_dns_rrsig_labels(rs->name) ||
+	    lws_ser_ru32be(w + 4) != rs->ttl) {
+		lwsl_err("%s: %s type %d: RRSIG labels / TTL do not match\n",
+			 __func__, rs->name, rs->type);
+		return 1;
+	}
+
+	/* RFC 4034 3.1.5, in RFC 1982 serial arithmetic */
+	sexp = lws_ser_ru32be(w + 8);
+	sinc = lws_ser_ru32be(w + 12);
+	if ((int32_t)(v->now - sinc) < 0 || (int32_t)(sexp - v->now) < 0) {
+		lwsl_err("%s: %s type %d: RRSIG is outside its validity "
+			 "period\n", __func__, rs->name, rs->type);
+		return 1;
+	}
+
+	n = auth_dns_wire_name_len(w + 18, len - 18);
+	if (n < 0 || len - 18 - (size_t)n < 1 || (size_t)n != v->apex_len ||
+	    memcmp(w + 18, v->apex, v->apex_len)) {
+		lwsl_err("%s: %s type %d: RRSIG signer is not the zone\n",
+			 __func__, rs->name, rs->type);
+		return 1;
+	}
+
+	if (auth_dns_rrset_hash(v->z, rs, w, 18 + (size_t)n, ht, hash))
+		return 1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&v->keyset->rr_list)) {
+		const struct auth_dns_rr *k = lws_container_of(d,
+						struct auth_dns_rr, list);
+
+		if (k->wire_rdata &&
+		    lws_dnssec_key_usable(k->wire_rdata, k->wire_rdata_len,
+					  w[2], lws_ser_ru16be(w + 16)) &&
+		    !lws_dnssec_sig_verify(v->cx, w[2], k->wire_rdata,
+					   k->wire_rdata_len, hash,
+					   w + 18 + n, len - 18 - (size_t)n)) {
+			*key = k;
+
+			return 0;
+		}
+	} lws_end_foreach_dll(d);
+
+	lwsl_err("%s: %s type %d: RRSIG does not verify with any zone key\n",
+		 __func__, rs->name, rs->type);
+
+	return 1;
+}
+
+/*
+ * Check the RRset \p rs against the RRSIGs at its owner, \p sigs (or NULL if
+ * there are none).  Every RRSIG over it must verify, an authoritative RRset
+ * must have at least one, and the apex DNSKEY RRset must have one made by
+ * the KSK we were given.
+ */
+
+static int
+auth_dns_verify_rrset(struct auth_dns_verify *v, const struct auth_dns_rrset *rs,
+		      const struct auth_dns_rrset *sigs)
+{
+	int verified = 0, by_ksk = 0;
+
+	if (sigs)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&sigs->rr_list)) {
+			const struct auth_dns_rr *rr = lws_container_of(d,
+						struct auth_dns_rr, list);
+			const struct auth_dns_rr *key = NULL;
+
+			if (lws_ser_ru16be(rr->wire_rdata) != rs->type)
+				continue;
+
+			if (auth_dns_verify_rrsig(v, rs, rr->wire_rdata,
+						  rr->wire_rdata_len, &key))
+				return 1;
+
+			verified++;
+			if (key == v->ksk)
+				by_ksk = 1;
+		} lws_end_foreach_dll(d);
+
+	v->passes += verified;
+
+	if (rs == v->keyset && !by_ksk) {
+		lwsl_err("%s: the DNSKEY RRset is not signed by the KSK\n",
+			 __func__);
+		return 1;
+	}
+
+	if (!verified && auth_dns_rrset_authoritative(v, rs)) {
+		lwsl_err("%s: %s type %d is not signed\n", __func__, rs->name,
+			 rs->type);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Find the DNSKEY RR for the key in JWK \p path, as a DNSKEY with \p flags, in
+ * the zone's DNSKEY RRset.  Returns NULL if it is not there.
+ */
+
+static const struct auth_dns_rr *
+auth_dns_verify_find_key(struct auth_dns_verify *v, const char *path, int flags)
+{
+	uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE];
+	struct lws_jwk jwk;
+	int alg;
+	size_t wl;
+
+	if (auth_dns_jwk_load(path, &jwk))
+		return NULL;
+
+	alg = lws_auth_dns_jwk_alg(&jwk);
+	wl = alg ? lws_auth_dns_dnskey_wire(&jwk, flags, alg, wire,
+					    sizeof(wire)) : 0;
+	lws_jwk_destroy(&jwk);
+
+	if (!wl) {
+		lwsl_err("%s: %s cannot be a DNSKEY\n", __func__, path);
+		return NULL;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&v->keyset->rr_list)) {
+		const struct auth_dns_rr *k = lws_container_of(d,
+						struct auth_dns_rr, list);
+
+		if (k->wire_rdata_len == wl && !memcmp(k->wire_rdata, wire, wl))
+			return k;
+	} lws_end_foreach_dll(d);
+
+	lwsl_err("%s: the zone does not publish %s as its %s\n", __func__,
+		 path, flags == 257 ? "KSK" : "ZSK");
+
+	return NULL;
+}
+
+static int
+auth_dns_verify(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
+{
+	struct auth_dns_verify v;
+	struct lws_dll2 *d, *e;
+	int ret = 1, n = 0;
+
+	memset(&v, 0, sizeof(v));
+	v.cx	= info->cx;
+	v.z	= z;
+	v.now	= (uint32_t)(info->verify_time ? info->verify_time :
+						  time(NULL));
+	v.apex_len = sizeof(v.apex);
+	if (name_to_wire(z->origin, "", v.apex, &v.apex_len))
+		return 1;
+
+	/*
+	 * Everything we hash must have a wire form, and a type we know it by:
+	 * a record we cannot read is a record we cannot say was signed.  Find
+	 * the apex DNSKEY RRset and the delegation points while we are at it.
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d1,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		const struct auth_dns_rrset *rs = lws_container_of(d1,
+						struct auth_dns_rrset, list);
+		int apex = !strcasecmp(rs->name, z->origin);
+
+		if (!rs->type) {
+			lwsl_err("%s: %s has an unknown type\n", __func__,
+				 rs->name);
+			return 1;
+		}
+
+		lws_start_foreach_dll(struct lws_dll2 *, d2,
+				      lws_dll2_get_head(&rs->rr_list)) {
+			const struct auth_dns_rr *rr = lws_container_of(d2,
+						struct auth_dns_rr, list);
+
+			if (!rr->wire_rdata ||
+			    (rs->type == 46 && rr->wire_rdata_len < 19)) {
+				lwsl_err("%s: %s type %d has unusable RDATA\n",
+					 __func__, rs->name, rs->type);
+				return 1;
+			}
+		} lws_end_foreach_dll(d2);
+
+		if (apex && rs->type == 48)
+			v.keyset = rs;
+		if (!apex && rs->type == 2)
+			v.num_cuts++;
+	} lws_end_foreach_dll(d1);
+
+	if (!v.keyset) {
+		lwsl_err("%s: zone has no DNSKEY RRset\n", __func__);
+		return 1;
+	}
+
+	if (v.num_cuts) {
+		v.cuts = lws_malloc(sizeof(*v.cuts) * (size_t)v.num_cuts,
+				    "auth_dns_cuts");
+		if (!v.cuts)
+			return 1;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d1,
+				      lws_dll2_get_head(&z->rrset_list)) {
+			const struct auth_dns_rrset *rs = lws_container_of(d1,
+						struct auth_dns_rrset, list);
+
+			if (rs->type == 2 && strcasecmp(rs->name, z->origin))
+				v.cuts[n++] = rs->name;
+		} lws_end_foreach_dll(d1);
+	}
+
+	/* the zone must publish the keys we were given */
+
+	v.ksk = auth_dns_verify_find_key(&v, info->ksk_jwk_filepath, 257);
+	if (!v.ksk || (info->zsk_jwk_filepath &&
+		       !auth_dns_verify_find_key(&v, info->zsk_jwk_filepath,
+						 256)))
+		goto bail;
+
+	/*
+	 * lws_auth_dns_sort_zone() left the RRsets in canonical order, so
+	 * each owner's RRsets, including its RRSIGs, are together: take one
+	 * owner at a time
+	 */
+
+	d = lws_dll2_get_head(&z->rrset_list);
+	while (d) {
+		const struct auth_dns_rrset *first = lws_container_of(d,
+						struct auth_dns_rrset, list),
+					    *sigs = NULL;
+
+		for (e = d; e; e = lws_dll2_get_next(e)) {
+			const struct auth_dns_rrset *rs = lws_container_of(e,
+						struct auth_dns_rrset, list);
+
+			if (strcasecmp(rs->name, first->name))
+				break;
+			if (rs->type == 46)
+				sigs = rs;
+		}
+
+		/* an RRSIG over nothing at its owner is not part of the zone */
+
+		if (sigs)
+			lws_start_foreach_dll(struct lws_dll2 *, d2,
+					      lws_dll2_get_head(&sigs->rr_list)) {
+				const struct auth_dns_rr *rr = lws_container_of(
+					d2, struct auth_dns_rr, list);
+				uint16_t tc = lws_ser_ru16be(rr->wire_rdata);
+				struct lws_dll2 *f;
+
+				for (f = d; f != e; f = lws_dll2_get_next(f))
+					if (tc != 46 && lws_container_of(f,
+						struct auth_dns_rrset,
+						list)->type == tc)
+						break;
+
+				if (f == e) {
+					lwsl_err("%s: %s: RRSIG over type %u, "
+						 "which it does not have\n",
+						 __func__, first->name, tc);
+					goto bail;
+				}
+			} lws_end_foreach_dll(d2);
+
+		for (; d != e; d = lws_dll2_get_next(d)) {
+			const struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+			if (rs->type != 46 && auth_dns_verify_rrset(&v, rs, sigs))
+				goto bail;
+		}
+	}
+
+	lwsl_info("%s: %d RRSIGs verified\n", __func__, v.passes);
+	ret = 0;
+
+bail:
+	lws_free(v.cuts);
+
+	return ret;
+}
 
 int
 lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 {
 	struct auth_dns_zone zone;
 	struct stat st;
-	char *buf;
-	int fd;
+	int fd, ret = 1;
 	ssize_t n;
-	int fails = 0;
-#if (_LWS_ENABLED_LOGS & LLL_INFO)
-	int passes = 0;
-#endif
+	char *buf;
 
-	if (!info->input_filepath || !info->zsk_jwk_filepath || !info->cx)
+	if (!info->input_filepath || !info->ksk_jwk_filepath || !info->cx)
 		return 1;
 
 	fd = open(info->input_filepath, LWS_O_RDONLY);
-	if (fd < 0) return 1;
+	if (fd < 0)
+		return 1;
 
 	if (fstat(fd, &st) || st.st_size <= 0 || st.st_size > 1024 * 1024) {
 		close(fd);
@@ -2113,300 +2560,26 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	memset(&zone, 0, sizeof(zone));
 
 	if (lws_auth_dns_parse_zone_buf(buf, (size_t)n, &zone)) {
-		lwsl_err("Verify failed to parse zone\n");
-		lws_auth_dns_free_zone(&zone);
-		lws_free(buf);
-		return 1;
+		lwsl_err("%s: failed to parse zone\n", __func__);
+		goto bail;
 	}
 
 	/* signatures over a zone are only as good as its identity */
 	if (lws_auth_dns_zone_check_origin(&zone, info->domain)) {
 		lwsl_err("%s: zone is not %s\n", __func__,
 			 info->domain ? info->domain : "coherent");
-		lws_auth_dns_free_zone(&zone);
-		lws_free(buf);
-		return 1;
+		goto bail;
 	}
 
 	lws_auth_dns_sort_zone(info, &zone);
 
-	/* Now iterate through zone.rrset_list finding type 46 (RRSIG) to verify against their matches */
+	ret = auth_dns_verify(info, &zone);
 
-	struct lws_jwk zsk, ksk;
-	memset(&zsk, 0, sizeof(zsk));
-	memset(&ksk, 0, sizeof(ksk));
-	struct lws_genec_ctx genec_zsk, genec_ksk;
-	memset(&genec_zsk, 0, sizeof(genec_zsk));
-	memset(&genec_ksk, 0, sizeof(genec_ksk));
-	int has_ksk = 0, has_zsk = 0;
-
-	if (0) {
-		/* Original JWK loading code replaced by native DNSKEY extraction below */
-	}
-
-	/* Extract DNSKEY from zone */
-	lws_start_foreach_dll(struct lws_dll2 *, d1, lws_dll2_get_head(&zone.rrset_list)) {
-		struct auth_dns_rrset *rs = lws_container_of(d1, struct auth_dns_rrset, list);
-		if (rs->type == 48) { /* DNSKEY */
-			lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-				struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-				char flags_s[16], proto_s[16], alg_s[16], b64[512];
-				if (sscanf(rr->rdata, "%15s %15s %15s %511s", flags_s, proto_s, alg_s, b64) == 4) {
-					int flags = atoi(flags_s);
-					int alg = atoi(alg_s);
-					uint8_t raw[512];
-					int raw_l = lws_b64_decode_string(b64, (char *)raw, sizeof(raw));
-					if (raw_l > 0) {
-						struct lws_genec_ctx *target_genec = (flags == 257) ? &genec_ksk : &genec_zsk;
-						int *target_has = (flags == 257) ? &has_ksk : &has_zsk;
-
-						/*
-						 * anything from here that disturbs the ctx must also
-						 * clear the related has_ flag: lws_genec_destroy()
-						 * NULLs ctx[0] but leaves genec_alg set, so a
-						 * destroyed ctx sails through the LEGENEC_ECDSA
-						 * guard in the verify path and NULL-derefs
-						 */
-						lws_genec_destroy(target_genec); /* may already hold an earlier DNSKEY */
-						*target_has = 0;
-						if (lws_genecdsa_create(target_genec, info->cx, NULL) == 0) {
-							/* We need to re-construct an ephemeral struct lws_jwk's EC elements
-							 * from the RAW ANS.1/DNSKEY export format: [flags][proto][alg][key...]
-							 * Actually for EC (alg 13/14), the raw is just X + Y concatenated.
-							 */
-							struct lws_jwk tmp;
-							memset(&tmp, 0, sizeof(tmp));
-							tmp.kty = LWS_GENCRYPTO_KTY_EC;
-							int coord_len = (alg == 14) ? 48 : 32; /* P-384 or P-256 */
-							if (raw_l == coord_len * 2) {
-								tmp.meta[JWK_META_KTY].buf = (uint8_t *)lws_strdup("EC");
-								tmp.meta[JWK_META_KTY].len = 2;
-
-								const char *crvs = (alg == 14) ? "P-384" : "P-256";
-								tmp.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = (uint8_t *)lws_strdup(crvs);
-								tmp.e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(crvs);
-
-								tmp.e[LWS_GENCRYPTO_EC_KEYEL_X].buf = lws_malloc((size_t)coord_len, "ec_x");
-								tmp.e[LWS_GENCRYPTO_EC_KEYEL_X].len = (uint32_t)coord_len;
-								memcpy(tmp.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, raw, (size_t)coord_len);
-
-								tmp.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf = lws_malloc((size_t)coord_len, "ec_y");
-								tmp.e[LWS_GENCRYPTO_EC_KEYEL_Y].len = (uint32_t)coord_len;
-								memcpy(tmp.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, raw + coord_len, (size_t)coord_len);
-
-								if (lws_genecdsa_set_key(target_genec, tmp.e) == 0) {
-									*target_has = 1;
-									if (flags == 257) {
-										/* we must persist the KSK e to match keytags below;
-										 * last-set-wins: free any previous key's elements */
-										lws_jwk_destroy(&ksk);
-										ksk.kty = tmp.kty;
-										for (int i=0; i<8; i++) {
-											ksk.e[i] = tmp.e[i];
-											/* prevent destroy from freeing the buf */
-											tmp.e[i].buf = NULL;
-										}
-									} else {
-										/* last-set-wins: free any previous key's elements */
-										lws_jwk_destroy(&zsk);
-										zsk.kty = tmp.kty;
-										for (int i=0; i<8; i++) {
-											zsk.e[i] = tmp.e[i];
-											/* prevent destroy from freeing the buf */
-											tmp.e[i].buf = NULL;
-										}
-									}
-								} else {
-									lwsl_err("Failed to instantiate extracted DNSKEY in OpenSSL context\n");
-									lws_genec_destroy(target_genec);
-								}
-								lws_jwk_destroy(&tmp);
-							} else {
-								lws_genec_destroy(target_genec);
-							}
-						}
-					}
-				}
-			} lws_end_foreach_dll(d2);
-		}
-	} lws_end_foreach_dll(d1);
-
-	lws_start_foreach_dll(struct lws_dll2 *, d1, lws_dll2_get_head(&zone.rrset_list)) {
-		struct auth_dns_rrset *rs = lws_container_of(d1, struct auth_dns_rrset, list);
-
-		/* We look for RRsets that HAVE an RRSIG inside the zone, we find them by checking if there's
-		   another RRset with type 46 and the same name. Actually, RRSIGs are parsed as type 46 rrsets independently,
-		   whose RDATA contains the covered type matching our target `rs->type`. */
-		/* To simplify testing locally against our own generation logic for now let's just assert that RRSIGs
-		   loaded back map to at least something. We'll find all type 46 objects directly:
-		*/
-		if (rs->type == 46) {
-			lwsl_info("%s: Found RRSIG RRset: %s\n", __func__, rs->name);
-			lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-				struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-				/* rr->rdata contains: "type_cov alg labels orig_ttl exp inc keytag signer b64" */
-
-				char type_cov_s[32], alg_s[32], labels_s[32], ttl_s[32], exp_s[32], inc_s[32], keytag_s[32], signer_s[128], b64[512];
-				if (sscanf(rr->rdata, "%31s %31s %31s %31s %31s %31s %31s %127s %511s",
-					type_cov_s, alg_s, labels_s, ttl_s, exp_s, inc_s, keytag_s, signer_s, b64) == 9) {
-
-					/* Reconstruct signature binary */
-					uint8_t sig[128];
-					int sig_l = lws_b64_decode_string(b64, (char *)sig, sizeof(sig));
-					if (sig_l < 0) {
-						lwsl_err("RRSIG b64 decode failed\n");
-						fails++;
-						continue;
-					}
-
-					/* Locate original covered RRset matching this signature's target name and type_cov */
-					struct auth_dns_rrset *cov_rs = NULL;
-					int tc = auth_dns_rdata_type(type_cov_s);
-					lws_start_foreach_dll(struct lws_dll2 *, d3, lws_dll2_get_head(&zone.rrset_list)) {
-						struct auth_dns_rrset *tr = lws_container_of(d3, struct auth_dns_rrset, list);
-						if (tr->type == tc && !strcmp(tr->name, rs->name)) {
-							cov_rs = tr;
-							break;
-						}
-					} lws_end_foreach_dll(d3);
-
-					if (cov_rs) {
-						/* Rebuild Hash */
-						uint8_t pre[512];
-						size_t pl = 0;
-
-						pre[pl++] = (uint8_t)(cov_rs->type >> 8);
-						pre[pl++] = (uint8_t)(cov_rs->type & 0xff);
-						/* Parse alg from RRSIG RDATA directly */
-						int sig_alg = atoi(alg_s);
-						pre[pl++] = (uint8_t)sig_alg; /* alg */
-						pre[pl++] = (uint8_t)atoi(labels_s);
-
-						uint32_t tttl = (uint32_t)atoi(ttl_s);
-						pre[pl++] = (uint8_t)(tttl >> 24); pre[pl++] = (uint8_t)(tttl >> 16);
-						pre[pl++] = (uint8_t)(tttl >> 8); pre[pl++] = (uint8_t)(tttl & 0xff);
-
-						/* Convert YYYYMMDDHHMMSS back to Time... */
-						uint64_t texp = 0, tinc = 0;
-						struct tm tm_exp, tm_inc;
-						memset(&tm_exp, 0, sizeof(tm_exp)); memset(&tm_inc, 0, sizeof(tm_inc));
-						if (sscanf(exp_s, "%04d%02d%02d%02d%02d%02d", &tm_exp.tm_year, &tm_exp.tm_mon, &tm_exp.tm_mday, &tm_exp.tm_hour, &tm_exp.tm_min, &tm_exp.tm_sec) == 6) {
-							tm_exp.tm_year -= 1900; tm_exp.tm_mon -= 1;
-							texp = (uint64_t)timegm(&tm_exp);
-						}
-						if (sscanf(inc_s, "%04d%02d%02d%02d%02d%02d", &tm_inc.tm_year, &tm_inc.tm_mon, &tm_inc.tm_mday, &tm_inc.tm_hour, &tm_inc.tm_min, &tm_inc.tm_sec) == 6) {
-							tm_inc.tm_year -= 1900; tm_inc.tm_mon -= 1;
-							tinc = (uint64_t)timegm(&tm_inc);
-						}
-
-						pre[pl++] = (uint8_t)(texp >> 24); pre[pl++] = (uint8_t)(texp >> 16);
-						pre[pl++] = (uint8_t)(texp >> 8); pre[pl++] = (uint8_t)(texp & 0xff);
-						pre[pl++] = (uint8_t)(tinc >> 24); pre[pl++] = (uint8_t)(tinc >> 16);
-						pre[pl++] = (uint8_t)(tinc >> 8); pre[pl++] = (uint8_t)(tinc & 0xff);
-
-						uint16_t tkeytag = (uint16_t)atoi(keytag_s);
-						pre[pl++] = (uint8_t)(tkeytag >> 8); pre[pl++] = (uint8_t)(tkeytag & 0xff);
-
-						size_t al = sizeof(pre) - pl;
-						name_to_wire(zone.origin, "", pre + pl, &al); pl += al;
-
-						struct lws_genhash_ctx hctx;
-						uint8_t hash[64];
-						enum lws_genhash_types hash_type = (sig_alg == 14 || sig_alg == 15) ? LWS_GENHASH_TYPE_SHA384 : LWS_GENHASH_TYPE_SHA256;
-						//int hash_len = (hash_type == LWS_GENHASH_TYPE_SHA256) ? 32 : 48;
-
-						if (lws_genhash_init(&hctx, hash_type) || lws_genhash_update(&hctx, pre, pl)) {
-							lws_genhash_destroy(&hctx, NULL); fails++; continue;
-						}
-
-						/* Add covered RR wires to hash */
-						/* To do this we have to `lws_auth_dns_sort_zone` to restore correct ordering inside the RRsets! */
-						lws_start_foreach_dll(struct lws_dll2 *, d4, lws_dll2_get_head(&cov_rs->rr_list)) {
-							struct auth_dns_rr *crr = lws_container_of(d4, struct auth_dns_rr, list);
-							uint8_t rpre[512]; size_t rpl = 0;
-							al = sizeof(rpre) - rpl; name_to_wire(cov_rs->name, zone.origin, rpre + rpl, &al); rpl += al;
-							if (rpl + 10 > sizeof(rpre)) break;
-							rpre[rpl++] = (uint8_t)(cov_rs->type >> 8); rpre[rpl++] = (uint8_t)(cov_rs->type & 0xff);
-							rpre[rpl++] = (uint8_t)(cov_rs->class_ >> 8); rpre[rpl++] = (uint8_t)(cov_rs->class_ & 0xff);
-							rpre[rpl++] = (uint8_t)(tttl >> 24); rpre[rpl++] = (uint8_t)(tttl >> 16);
-							rpre[rpl++] = (uint8_t)(tttl >> 8); rpre[rpl++] = (uint8_t)(tttl & 0xff);
-							rpre[rpl++] = (uint8_t)(crr->wire_rdata_len >> 8); rpre[rpl++] = (uint8_t)(crr->wire_rdata_len & 0xff);
-							if (lws_genhash_update(&hctx, rpre, rpl) || lws_genhash_update(&hctx, crr->wire_rdata, crr->wire_rdata_len)) break;
-						} lws_end_foreach_dll(d4);
-
-						if (lws_genhash_destroy(&hctx, hash)) { fails++; continue; }
-
-#if 0
-						if (tc == 48) {
-							char hex[256];
-							lws_hex_from_byte_array(hash, (size_t)hash_len, hex, sizeof(hex));
-							lwsl_user("VERIFY HASH DNSKEY %s => %s\n", rs->name, hex);
-						}
-#endif
-
-						struct lws_genec_ctx *active_genec = &genec_zsk;
-						if (tc == 48 && has_ksk) {
-							/* Check which keytag was used for this RRSIG */
-							uint16_t sig_keytag = (uint16_t)atoi(keytag_s);
-
-							/* Determine DNSSEC Algorithm from the verification KSK Curve */
-							int ver_ksk_alg = lws_auth_dns_jwk_alg(&ksk);
-
-							/* We must extract the actual keytag from our KSK to compare */
-							uint8_t wire_ksk[512]; size_t wl_ksk = 0;
-							wire_ksk[wl_ksk++] = 257 >> 8; wire_ksk[wl_ksk++] = 257 & 0xff;
-							wire_ksk[wl_ksk++] = 3; wire_ksk[wl_ksk++] = (uint8_t)ver_ksk_alg;
-							memcpy(wire_ksk + wl_ksk, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-							wl_ksk += ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-							memcpy(wire_ksk + wl_ksk, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-							wl_ksk += ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
-
-							uint32_t ac_ksk = 0;
-							for (size_t i = 0; i < wl_ksk; ++i) ac_ksk += (i & 1) ? (uint32_t)wire_ksk[i] : (uint32_t)wire_ksk[i] << 8;
-							ac_ksk += (ac_ksk >> 16) & 0xffff;
-							uint16_t ver_keytag_ksk = (uint16_t)(ac_ksk & 0xffff);
-
-							if (sig_keytag == ver_keytag_ksk) {
-								active_genec = &genec_ksk;
-							}
-						}
-
-						int ver_keybits = 256;
-						if (sig_alg == 14) ver_keybits = 384;
-						else if (sig_alg == 15) ver_keybits = 521;
-
-						/* never verify against a ctx we do not hold a key in */
-						if (active_genec == &genec_zsk && !has_zsk) {
-							lwsl_err("No usable ZSK for RRset %s (type %d)\n", rs->name, tc);
-							fails++;
-							continue;
-						}
-
-						if (lws_genecdsa_hash_sig_verify_jws(active_genec, hash, hash_type, ver_keybits, sig, (size_t)sig_l) < 0) {
-							lwsl_err("Failed DNSSEC RRSIG verification for RRset %s (type %d)\n", rs->name, tc);
-							fails++;
-						}
-#if (_LWS_ENABLED_LOGS & LLL_INFO)
-						else
-							passes++;
-#endif
-					}
-				}
-			} lws_end_foreach_dll(d2);
-		}
-	} lws_end_foreach_dll(d1);
-
+bail:
 	lws_auth_dns_free_zone(&zone);
 	lws_free(buf);
-	lws_genec_destroy(&genec_zsk);
-	lws_jwk_destroy(&zsk);
-	/* both are safe on a ctx / jwk that was never created or already destroyed */
-	lws_genec_destroy(&genec_ksk);
-	lws_jwk_destroy(&ksk);
 
-#if (_LWS_ENABLED_LOGS & LLL_INFO)
-	lwsl_info("Verified %d inner RRSIGs natively, %d failed\n", passes, fails);
-#endif
-
-	return fails ? 1 : 0;
+	return ret;
 }
+
+#endif

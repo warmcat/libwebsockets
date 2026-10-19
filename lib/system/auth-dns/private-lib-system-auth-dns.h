@@ -26,6 +26,7 @@
 #define _PRIVATE_LIB_SYSTEM_AUTH_DNS_H_
 
 #include "private-lib-core.h"
+#include "private-lib-system-dnssec-crypto.h"
 
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type);

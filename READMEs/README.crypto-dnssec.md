@@ -122,3 +122,18 @@ lws-crypto-dnssec signzone \
 **Outputs:**
 - `mydomain.zone.signed`: The standard, DNSSEC-signed authoritative zone text ready for a traditional nameserver.
 - `mydomain.zone.signed.jws`: The JWS-signed JSON document containing the entire zone, mathematically verifiable using your zone keys.
+
+### Verifying a signed zone
+
+In code, `lws_auth_dns_verify_zone()` checks signed zone text against the
+keys you trust for it, given as the same JWK paths (only their public parts
+are used).  It passes the zone only if the apex `DNSKEY` RRset publishes the
+given KSK (and ZSK, if given) and is signed by that KSK, and every other
+authoritative RRset, including the `NSEC3` chain, has an `RRSIG` from a key
+in that `DNSKEY` RRset.  Every `RRSIG` in the zone must verify, be from the
+zone apex and be inside its validity period (at `verify_time`, or now).  As
+RFC 4035 has it, a delegation's `NS` RRset and its glue need not be signed.
+So records spliced into the zone after it was signed, a zone re-signed with
+other keys, and expired signatures all fail.  RSASHA256 (8),
+ECDSAP256SHA256 (13) and ECDSAP384SHA384 (14), the algorithms the signer
+uses, are verified.  The outer JWS is checked separately, with the KSK.

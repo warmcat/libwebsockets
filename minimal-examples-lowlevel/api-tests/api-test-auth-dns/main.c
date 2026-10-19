@@ -952,6 +952,322 @@ test_key_records(void)
 	return 0;
 }
 
+/*
+ * lws_auth_dns_verify_zone() must only pass a zone that is completely and
+ * validly signed by the keys it is given: not one with records spliced in
+ * or changed after signing, not one re-signed with keys of somebody else's,
+ * and not one whose signatures have expired.  And it must still pass the
+ * good zones, signed with every algorithm the signer supports.
+ */
+
+#define T_SIGN_START	((time_t)1767225600)	/* 2026-01-01 */
+#define T_IN_WINDOW	(T_SIGN_START + 86400)
+
+static int
+sign_zone_keys(struct lws_context *cx, const char *in, const char *out,
+	       const char *ksk, const char *zsk)
+{
+	struct lws_auth_dns_sign_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.cx			= cx;
+	info.input_filepath	= in;
+	info.output_filepath	= out;
+	info.jws_filepath	= "./test-verify.zone.signed.jws";
+	info.ksk_jwk_filepath	= ksk;
+	info.zsk_jwk_filepath	= zsk;
+	info.sign_validity_start_time = T_SIGN_START;
+	info.sign_validity_duration = 30 * 24 * 3600;
+
+	return lws_auth_dns_sign_zone(&info);
+}
+
+static int
+verify_zone(struct lws_context *cx, const char *path, const char *ksk,
+	    const char *zsk, time_t when)
+{
+	struct lws_auth_dns_sign_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.cx			= cx;
+	info.input_filepath	= path;
+	info.ksk_jwk_filepath	= ksk;
+	info.zsk_jwk_filepath	= zsk;
+	info.verify_time	= when;
+
+	return lws_auth_dns_verify_zone(&info);
+}
+
+/*
+ * Copy the zone text at \p in to \p out, leaving out every line holding
+ * \p drop (if given) and replacing the first \p from with \p to (if given),
+ * then appending \p add (if given)
+ */
+
+static int
+edit_zone(const char *in, const char *out, const char *drop, const char *from,
+	  const char *to, const char *add)
+{
+	char *buf = NULL, *p, *end, *nl, *hit;
+	int fd = open(in, LWS_O_RDONLY), ofd = -1, r = 1, replaced = 0;
+	struct stat st;
+	size_t l;
+
+	if (fd < 0)
+		return 1;
+
+	if (fstat(fd, &st) || st.st_size <= 0)
+		goto bail;
+
+	buf = malloc((size_t)st.st_size + 1);
+	if (!buf || read(fd, buf, (size_t)st.st_size) != st.st_size)
+		goto bail;
+	buf[st.st_size] = '\0';
+
+	ofd = open(out, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
+	if (ofd < 0)
+		goto bail;
+
+	p = buf;
+	end = buf + st.st_size;
+	while (p < end) {
+		nl = strchr(p, '\n');
+		nl = nl ? nl + 1 : end;
+		l = (size_t)(nl - p);
+
+		hit = NULL;
+		if (drop) {
+			char c = *nl;
+
+			*nl = '\0';
+			hit = strstr(p, drop);
+			*nl = c;
+		}
+
+		if (!hit) {
+			char line[4096];
+
+			if (l >= sizeof(line))
+				goto bail;
+			memcpy(line, p, l);
+			line[l] = '\0';
+
+			if (from && !replaced && (hit = strstr(line, from))) {
+				char o[4096];
+
+				lws_snprintf(o, sizeof(o), "%.*s%s%s",
+					     (int)(hit - line), line, to,
+					     hit + strlen(from));
+				lws_strncpy(line, o, sizeof(line));
+				replaced = 1;
+			}
+
+			l = strlen(line);
+			if (write(ofd, line, l) != (ssize_t)l)
+				goto bail;
+		}
+
+		p = nl;
+	}
+
+	if (from && !replaced)
+		goto bail;
+
+	if (add && write(ofd, add, strlen(add)) != (ssize_t)strlen(add))
+		goto bail;
+
+	r = 0;
+
+bail:
+	if (ofd >= 0)
+		close(ofd);
+	free(buf);
+	close(fd);
+
+	return r;
+}
+
+/* a zone with a delegation, whose NS RRset and glue need not be signed */
+
+static const char *zone_deleg =
+	"sub			IN	NS	ns.sub.example.com.\n"
+	"ns.sub			IN	A	127.0.0.53\n";
+
+static int
+test_verify(struct lws_context *cx)
+{
+	static const struct {
+		const char	*what;
+		const char	*zone; /* signed with ksk.jwk / zsk.jwk */
+	} good[] = {
+		{ "dotted origin",	"./test-dotted.zone.signed" },
+		{ "dotless origin",	"./test-dotless.zone.signed" },
+		{ "LOC",		"./test-loc.zone.signed" },
+		{ "origin identity",	"./test-origin.zone.signed" },
+	};
+	static const struct {
+		const char	*what, *ksk, *zsk;
+	} algs[] = {
+		{ "ECDSAP256SHA256",	"./ksk.jwk",		"./zsk.jwk" },
+		{ "ECDSAP384SHA384",	"./p384-ksk.jwk",	"./p384-zsk.jwk" },
+		{ "RSASHA256",		"./rsa-ksk.jwk",	"./rsa-zsk.jwk" },
+		{ "RSASHA256 KSK, ECDSAP256SHA256 ZSK",
+					"./rsa-ksk.jwk",	"./zsk.jwk" },
+	};
+	const char *zin = "./test-verify.zone.in",
+		   *zs = "./test-verify.zone.signed",
+		   *ze = "./test-verify.zone.edited";
+	char body[2048];
+	int fd, fails = 0;
+	size_t n;
+
+	/* the zones the other tests signed */
+
+	for (n = 0; n < LWS_ARRAY_SIZE(good); n++)
+		if (verify_zone(cx, good[n].zone, "./ksk.jwk", "./zsk.jwk",
+				T_IN_WINDOW)) {
+			lwsl_err("%s: good zone (%s) failed\n", __func__,
+				 good[n].what);
+			fails++;
+		}
+
+	/* a zone with a delegation, signed by each algorithm */
+
+	n = (size_t)lws_snprintf(body, sizeof(body), "$ORIGIN example.com.\n%s%s",
+				 zone_body, zone_deleg);
+	fd = open(zin, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
+	if (fd < 0 || write(fd, body, n) != (ssize_t)n) {
+		if (fd >= 0)
+			close(fd);
+		lwsl_err("%s: unable to write zone\n", __func__);
+		return 1;
+	}
+	close(fd);
+
+	for (n = 0; n < LWS_ARRAY_SIZE(algs); n++) {
+		if (sign_zone_keys(cx, zin, zs, algs[n].ksk, algs[n].zsk)) {
+			lwsl_err("%s: %s: unable to sign\n", __func__,
+				 algs[n].what);
+			return 1;
+		}
+		if (verify_zone(cx, zs, algs[n].ksk, algs[n].zsk, T_IN_WINDOW) ||
+		    verify_zone(cx, zs, algs[n].ksk, NULL, T_IN_WINDOW)) {
+			lwsl_err("%s: %s: good zone failed\n", __func__,
+				 algs[n].what);
+			fails++;
+		}
+		/* any change to a signed record breaks its signature */
+		if (edit_zone(zs, ze, NULL, "127.0.0.2", "127.0.0.9", NULL) ||
+		    !verify_zone(cx, ze, algs[n].ksk, algs[n].zsk, T_IN_WINDOW)) {
+			lwsl_err("%s: %s: changed record passed\n", __func__,
+				 algs[n].what);
+			fails++;
+		}
+	}
+
+	/* the rest is about the ECDSAP256SHA256 zone */
+
+	if (sign_zone_keys(cx, zin, zs, "./ksk.jwk", "./zsk.jwk")) {
+		lwsl_err("%s: unable to sign\n", __func__);
+		return 1;
+	}
+
+	/* an unsigned A record spliced in, at a new owner or a signed one */
+
+	if (edit_zone(zs, ze, NULL, NULL, NULL,
+		      "spliced\t1200\tIN\tA\t10.6.6.6\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: spliced A at a new owner passed\n", __func__);
+		fails++;
+	}
+	if (edit_zone(zs, ze, NULL, NULL, NULL, "www\t1200\tIN\tA\t10.6.6.6\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: spliced A in a signed RRset passed\n", __func__);
+		fails++;
+	}
+
+	/* a signed RRset with its RRSIG taken away */
+
+	if (edit_zone(zs, ze, "RRSIG\t16 ", NULL, NULL, NULL) ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: TXT without RRSIG passed\n", __func__);
+		fails++;
+	}
+
+	/* ...or the DNSKEY RRset's, the one the KSK made */
+
+	if (edit_zone(zs, ze, "RRSIG\t48 ", NULL, NULL, NULL) ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: DNSKEY without RRSIG passed\n", __func__);
+		fails++;
+	}
+
+	/* an RRSIG over nothing */
+
+	if (edit_zone(zs, ze, NULL, NULL, NULL, "ghost\t1200\tIN\tRRSIG\t1 13 3 "
+		      "1200 20260131000000 20251231230000 1 example.com. "
+		      "AAAA\n") ||
+	    !verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: orphan RRSIG passed\n", __func__);
+		fails++;
+	}
+
+	/*
+	 * RFC 4035 2.2: the delegation NS RRset and the glue need not be
+	 * signed, so taking their RRSIGs away, or adding glue, is still a
+	 * good zone
+	 */
+
+	if (edit_zone(zs, ze, "sub.example.com.", NULL, NULL,
+		      "sub\t1200\tIN\tNS\tns.sub.example.com.\n"
+		      "ns.sub\t1200\tIN\tA\t127.0.0.53\n"
+		      "ns2.sub\t1200\tIN\tA\t127.0.0.54\n") ||
+	    verify_zone(cx, ze, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: unsigned delegation failed\n", __func__);
+		fails++;
+	}
+
+	/* outside the RRSIGs' validity period */
+
+	if (!verify_zone(cx, zs, "./ksk.jwk", "./zsk.jwk",
+			 T_SIGN_START + 31 * 86400)) {
+		lwsl_err("%s: expired RRSIGs passed\n", __func__);
+		fails++;
+	}
+	if (!verify_zone(cx, zs, "./ksk.jwk", "./zsk.jwk", T_SIGN_START - 7200)) {
+		lwsl_err("%s: not yet valid RRSIGs passed\n", __func__);
+		fails++;
+	}
+
+	/* re-signed with a fresh ZSK, under our KSK, is not the zone we know */
+
+	if (sign_zone_keys(cx, zin, zs, "./ksk.jwk", "./other-zsk.jwk") ||
+	    verify_zone(cx, zs, "./ksk.jwk", "./other-zsk.jwk", T_IN_WINDOW) ||
+	    !verify_zone(cx, zs, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW)) {
+		lwsl_err("%s: zone re-signed with a fresh ZSK passed\n",
+			 __func__);
+		fails++;
+	}
+
+	/* ...and a zone made up with somebody else's keys is not ours at all */
+
+	if (sign_zone_keys(cx, zin, zs, "./other-ksk.jwk", "./other-zsk.jwk") ||
+	    !verify_zone(cx, zs, "./ksk.jwk", "./zsk.jwk", T_IN_WINDOW) ||
+	    !verify_zone(cx, zs, "./ksk.jwk", NULL, T_IN_WINDOW)) {
+		lwsl_err("%s: zone signed with other keys passed\n", __func__);
+		fails++;
+	}
+
+	if (fails) {
+		lwsl_err("%s: %d failures\n", __func__, fails);
+		return 1;
+	}
+
+	lwsl_user("%s: ok\n", __func__);
+
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info cx_info;
@@ -1067,6 +1383,9 @@ int main(int argc, const char **argv)
 		goto bail;
 
 	if (test_key_records())
+		goto bail;
+
+	if (test_verify(cx))
 		goto bail;
 
 	res = 0;
