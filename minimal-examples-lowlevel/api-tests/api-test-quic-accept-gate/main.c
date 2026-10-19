@@ -10,7 +10,8 @@
  * QUIC connections, and new QUIC connections honour the tls restriction
  * (simultaneous_ssl_[handshake_]restriction), but only once their address
  * is validated.  And G-366: a listener made while accepts are paused starts
- * paused.
+ * paused.  And G-367: a listener's back-off after accept() ran out of fds
+ * ends in the same decision, not by simply listening again.
  *
  * A server QUIC connection has no socket of its own: every datagram of every
  * connection on a vhost arrives through its udp listener.  Accepts are
@@ -64,6 +65,21 @@
  *    nothing is accepted.  Then the first connects go, and the new vhost's
  *    connect must be accepted: lifting the pause reopens its listener too.
  *
+ *  --case emfile: simultaneous_ssl_handshake_restriction is 1, and a second
+ *    tls vhost listens on the --relay-port.  The process' fd limit is lowered
+ *    to CGA_NOFILE.  A tcp connect is made to the server, then every fd left
+ *    is taken: the server's accept() fails with EMFILE, and the listener
+ *    backs off for 100ms.  Inside that, the fds are given back and a tcp
+ *    connect made to the second vhost, which is accepted and takes the one
+ *    tls slot: the restriction is reached, the server's listener is already
+ *    off.  When the back-off ends, the listener must stay paused: readable,
+ *    with its connect declined at accept, it spins the service loop.  So over
+ *    CGA_LATE_HOLD_MS, the cpu time the process uses must stay under
+ *    CGA_EMFILE_MAX_CPU_US (with an event library the loop's turns can't be
+ *    timed from here), and the server accepts nothing.  Then the second
+ *    vhost's connect goes, and the server's must be accepted.  ctest runs
+ *    it on the default poll loop, and with --uv, on libuv.
+ *
  * (The client's tls connections count in the same context's restriction as
  * the server's, which is why the handshake limit is 2: one QUIC handshake
  * holds a slot at each end.  For the same reason a new connection can't be
@@ -80,6 +96,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/resource.h>
 
 #define CGA_TIMEOUT_S		20
 #define CGA_HS			2
@@ -98,17 +117,20 @@
 #define CGA_INITIAL_MAX		1500
 #define CGA_LATE_HOLD_MS	500
 #define CGA_LATE_MAX_SPIN_US	(50 * LWS_US_PER_MS)
+#define CGA_NOFILE		256
+#define CGA_EMFILE_MAX_CPU_US	(100 * LWS_US_PER_MS)
 
 enum {
 	CGA_HANDSHAKES,
 	CGA_SESSIONS,
 	CGA_FDS,
 	CGA_FLOOD_CASE,
-	CGA_LATE
+	CGA_LATE,
+	CGA_EMFILE
 };
 
 static const char * const case_names[] = {
-	"handshakes", "sessions", "fds", "flood", "late"
+	"handshakes", "sessions", "fds", "flood", "late", "emfile"
 };
 
 /* the client connections, told apart by their opaque user data */
@@ -136,6 +158,12 @@ enum {
 	CGA_ST_LATE_FILL,	/* late: tcp connects fill the restriction */
 	CGA_ST_LATE_HOLD,	/* late: the new listener must not spin us */
 	CGA_ST_LATE_ACCEPT,	/* late: its connect must now be accepted */
+	CGA_ST_EMFILE_SETTLE,	/* emfile: the context's first pass is done */
+	CGA_ST_EMFILE_FILL,	/* emfile: connect, then use up the fds */
+	CGA_ST_EMFILE_RELEASE,	/* emfile: fds back, connect the second vhost */
+	CGA_ST_EMFILE_GATE,	/* emfile: which takes the one tls slot */
+	CGA_ST_EMFILE_HOLD,	/* emfile: the listener must not spin us */
+	CGA_ST_EMFILE_ACCEPT,	/* emfile: its connect must now be accepted */
 	CGA_ST_DONE
 };
 
@@ -146,7 +174,9 @@ static lws_sorted_usec_list_t sul_watchdog, sul_tick;
 static struct lws *srv_slow, *relay_in, *relay_out, *flood_wsi,
 		  *accepted_wsi[CGA_FDS_CONNECTS];
 /* time spent in service turns shorter than 1ms, see --case late */
-static lws_usec_t deadline, spin_us, spin_us_base;
+static lws_usec_t deadline, spin_us, spin_us_base, cpu_us_base;
+/* emfile: the fds taken to make the server's accept() fail */
+static int fill[CGA_NOFILE], fill_count;
 static uint8_t initials[CGA_FLOOD][CGA_INITIAL_MAX];
 static size_t initial_len[CGA_FLOOD], body_len[CGA_CONN_COUNT];
 static int port = 7700, port_relay, tcase = -1, state, accepted,
@@ -474,9 +504,9 @@ tcp_close_all(void)
 		close(tcp[--tcp_count]);
 }
 
-/* late: a second tls vhost, made while the restriction is reached */
+/* late, emfile: a second tls vhost, listening on the --relay-port */
 static int
-start_late(void)
+make_vh_late(void)
 {
 	struct lws_context_creation_info info;
 
@@ -489,11 +519,17 @@ start_late(void)
 	info.vhost_name			= "late";
 	vh_late = lws_create_vhost(context, &info);
 	if (!vh_late) {
-		fail("the late vhost could not be made");
+		fail("the second vhost could not be made");
 		return 1;
 	}
 
-	/* kept apart: it must outlast the ones holding the restriction */
+	return 0;
+}
+
+/* a tcp connect to the second vhost, kept apart from the others */
+static int
+tcp_connect_late(void)
+{
 	if (tcp_connect(port_relay)) {
 		fail("tcp connect to the late vhost");
 		return 1;
@@ -501,6 +537,55 @@ start_late(void)
 	tcp_late = tcp[--tcp_count];
 
 	return 0;
+}
+
+/* late: the second vhost is made while the restriction is reached */
+static int
+start_late(void)
+{
+	if (make_vh_late())
+		return 1;
+
+	/* it must outlast the ones holding the restriction */
+	return tcp_connect_late();
+}
+
+/* emfile: take every fd the process has left */
+static int
+fill_fds(void)
+{
+	int fd;
+
+	while (fill_count < (int)LWS_ARRAY_SIZE(fill)) {
+		fd = open("/dev/null", O_RDONLY | O_CLOEXEC);
+		if (fd < 0)
+			return errno != EMFILE;
+		fill[fill_count++] = fd;
+	}
+
+	/* the limit is CGA_NOFILE: the fds lws and stdio hold leave fewer */
+	return 1;
+}
+
+static void
+fill_release(void)
+{
+	while (fill_count)
+		close(fill[--fill_count]);
+}
+
+/* the cpu time this process used so far, user and system */
+static lws_usec_t
+cpu_us(void)
+{
+	struct rusage ru;
+
+	if (getrusage(RUSAGE_SELF, &ru))
+		return 0;
+
+	return ((lws_usec_t)ru.ru_utime.tv_sec + ru.ru_stime.tv_sec) *
+							LWS_US_PER_SEC +
+	       ru.ru_utime.tv_usec + ru.ru_stime.tv_usec;
 }
 
 static void
@@ -777,6 +862,101 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		lws_default_loop_exit(context);
 		return;
 
+	case CGA_ST_EMFILE_SETTLE:
+		/*
+		 * The first service pass is behind us: the async dns' first
+		 * nameserver reload, which reads resolv.conf, and can close a
+		 * socket, is not going to happen while the fds are used up
+		 */
+		state = CGA_ST_EMFILE_FILL;
+		break;
+
+	case CGA_ST_EMFILE_FILL:
+		/*
+		 * The connect completes in the kernel, then there is no fd
+		 * for the server to accept it on
+		 */
+		if (tcp_connect(port)) {
+			fail("tcp connect");
+			return;
+		}
+		if (fill_fds()) {
+			fill_release();
+			fail("could not use up the fds");
+			return;
+		}
+		lwsl_user("%d fds taken, the server's accept() must fail\n",
+			  fill_count);
+		state = CGA_ST_EMFILE_RELEASE;
+		break;
+
+	case CGA_ST_EMFILE_RELEASE:
+		/* well inside the server listener's 100ms back-off */
+		fill_release();
+		if (accepted) {
+			fail("the server accepted with no fds left");
+			return;
+		}
+		/* accepted by the second vhost, it takes the one tls slot */
+		if (tcp_connect_late())
+			return;
+		set_deadline(CGA_ACCEPT_MS);
+		state = CGA_ST_EMFILE_GATE;
+		break;
+
+	case CGA_ST_EMFILE_GATE:
+		if (!accepted_late) {
+			if (lws_now_usecs() > deadline) {
+				fail("the second vhost did not accept");
+				return;
+			}
+			break;
+		}
+		lwsl_user("the restriction is reached, the server's listener "
+			  "must stay paused\n");
+		cpu_us_base = cpu_us();
+		set_deadline(CGA_LATE_HOLD_MS);
+		state = CGA_ST_EMFILE_HOLD;
+		break;
+
+	case CGA_ST_EMFILE_HOLD:
+		if (cpu_us() - cpu_us_base > CGA_EMFILE_MAX_CPU_US) {
+			lwsl_err("%dms cpu\n",
+				 (int)((cpu_us() - cpu_us_base) / LWS_US_PER_MS));
+			fail("the service loop spun on the server's listener "
+			     "after its EMFILE back-off");
+			return;
+		}
+		if (lws_now_usecs() < deadline)
+			break;
+		if (accepted != accepted_late) {
+			fail("the server accepted with the restriction "
+			     "reached");
+			return;
+		}
+		lwsl_user("listener quiet, %dus cpu over %dms; the second "
+			  "vhost's connect goes\n",
+			  (int)(cpu_us() - cpu_us_base), CGA_LATE_HOLD_MS);
+		close(tcp_late);
+		tcp_late = -1;
+		set_deadline(CGA_FLOW_MS);
+		state = CGA_ST_EMFILE_ACCEPT;
+		break;
+
+	case CGA_ST_EMFILE_ACCEPT:
+		if (accepted == accepted_late) {
+			if (lws_now_usecs() > deadline) {
+				fail("the server never accepted once the "
+				     "restriction lifted");
+				return;
+			}
+			break;
+		}
+		lwsl_user("the server accepted once the restriction lifted\n");
+		state = CGA_ST_DONE;
+		lws_default_loop_exit(context);
+		return;
+
 	case CGA_ST_ACCEPT:
 		if (accepted == accepted_last) {
 			if (lws_now_usecs() > deadline) {
@@ -817,6 +997,7 @@ int main(int argc, const char **argv)
 	const char *p, *mode = NULL;
 	struct lws_context_creation_info info;
 	int n, result = 1;
+	struct rlimit rl;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -836,15 +1017,21 @@ int main(int argc, const char **argv)
 
 	if (!cert || !key || tcase < 0) {
 		lwsl_err("--cert, --key and --case handshakes|sessions|fds|"
-			 "flood|late are required\n");
+			 "flood|late|emfile are required\n");
 		return 1;
 	}
 
 	signal(SIGINT, sigint_handler);
 	lwsl_user("LWS API selftest: QUIC and paused accepts, %s\n", mode);
 
-	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	/*
+	 * |=, keeping an event library chosen on the commandline, eg --uv.
+	 * No captive portal detection: its tls client would take a slot of
+	 * the restriction, and its sockets fds, while the test counts them
+	 */
+	info.options |= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+			LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+			LWS_SERVER_OPTION_CPD_BYPASS;
 	/* the idle tcp connects must outlast the test */
 	info.timeout_secs = CGA_TIMEOUT_S * 2;
 
@@ -854,6 +1041,22 @@ int main(int argc, const char **argv)
 	case CGA_FLOOD_CASE:
 	case CGA_LATE:
 		info.simultaneous_ssl_handshake_restriction = CGA_HS;
+		break;
+	case CGA_EMFILE:
+		/* the second vhost's connect alone reaches it */
+		info.simultaneous_ssl_handshake_restriction = 1;
+		/* few enough fds to use them all up */
+		if (getrlimit(RLIMIT_NOFILE, &rl)) {
+			lwsl_err("getrlimit failed\n");
+			return 1;
+		}
+		if (rl.rlim_cur > CGA_NOFILE) {
+			rl.rlim_cur = CGA_NOFILE;
+			if (setrlimit(RLIMIT_NOFILE, &rl)) {
+				lwsl_err("setrlimit failed\n");
+				return 1;
+			}
+		}
 		break;
 	case CGA_SESSIONS:
 		info.simultaneous_ssl_restriction = CGA_SESS;
@@ -916,6 +1119,11 @@ int main(int argc, const char **argv)
 		state = CGA_ST_CAPTURE;
 	} else if (tcase == CGA_LATE)
 		state = CGA_ST_LATE_FILL;
+	else if (tcase == CGA_EMFILE) {
+		if (make_vh_late())
+			goto bail;
+		state = CGA_ST_EMFILE_SETTLE;
+	}
 	else if (!connect_h3(CGA_CONN_SLOW)) {
 		lwsl_err("The connection could not be started\n");
 		goto bail;
@@ -941,6 +1149,7 @@ int main(int argc, const char **argv)
 bail:
 	lws_sul_cancel(&sul_tick);
 	lws_sul_cancel(&sul_watchdog);
+	fill_release();
 	tcp_close_all();
 	if (tcp_late >= 0)
 		close(tcp_late);

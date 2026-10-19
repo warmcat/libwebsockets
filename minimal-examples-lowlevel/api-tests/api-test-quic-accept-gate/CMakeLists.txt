@@ -12,8 +12,10 @@ set(SRCS main.c)
 # An h3 server and client in one process: pausing the server's tcp accepts,
 # for the tls restriction or a full fds table, must not stop its established
 # QUIC connections, and new QUIC connections honour the tls restriction
-# once their address is validated, not before; and a tls listener made while
-# accepts are paused starts paused (the late case)
+# once their address is validated, not before; a tls listener made while
+# accepts are paused starts paused (the late case), and one whose accept()
+# ran out of fds stays paused after its back-off if accepts were paused
+# meanwhile (the emfile case, also run on libuv when it is built in)
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H3 1 requirements)
@@ -27,7 +29,14 @@ if (requirements AND NOT WIN32)
 
 	set(CGA_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
-	foreach(CGA_CASE handshakes sessions fds flood late)
+	#
+	# While the emfile case has used up the fds, the async dns' poll of
+	# the platform's nameservers would find none it can read, and close
+	# its socket, giving the server's accept() an fd: not during a test
+	#
+	set(CGA_ENV "LWS_ASYNCDNS_WATCH_MS=3600000")
+
+	foreach(CGA_CASE handshakes sessions fds flood late emfile)
 		# the server, and the flood case's udp relay or the late case's
 		# second vhost
 		lws_get_free_ports(PORT_CGA_${CGA_CASE} 2)
@@ -41,8 +50,30 @@ if (requirements AND NOT WIN32)
 				 --cert ${CGA_CERTS}/localhost-100y.cert
 				 --key ${CGA_CERTS}/localhost-100y.key)
 		set_tests_properties(api-test-quic-accept-gate-${CGA_CASE}
-				     PROPERTIES TIMEOUT 40)
+				     PROPERTIES
+				     ENVIRONMENT "${CGA_ENV}"
+				     TIMEOUT 40)
 	endforeach()
+
+	set(uv_requirements 1)
+	require_lws_config(LWS_WITH_LIBUV 1 uv_requirements)
+
+	if (uv_requirements)
+		lws_get_free_ports(PORT_CGA_emfile_uv 2)
+		math(EXPR PORT_CGA_RELAY_emfile_uv "${PORT_CGA_emfile_uv} + 1")
+
+		add_test(NAME api-test-quic-accept-gate-emfile-libuv
+			 COMMAND lws-api-test-quic-accept-gate --uv
+				 --case emfile
+				 -p ${PORT_CGA_emfile_uv}
+				 --relay-port ${PORT_CGA_RELAY_emfile_uv}
+				 --cert ${CGA_CERTS}/localhost-100y.cert
+				 --key ${CGA_CERTS}/localhost-100y.key)
+		set_tests_properties(api-test-quic-accept-gate-emfile-libuv
+				     PROPERTIES
+				     ENVIRONMENT "${CGA_ENV};LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+				     TIMEOUT 40)
+	endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

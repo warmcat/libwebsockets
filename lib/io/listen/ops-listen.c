@@ -30,13 +30,24 @@
 
 #include <private-lib-core.h>
 
+/*
+ * The back-off after an accept() failed for want of fds is over.  The
+ * listener must not simply listen again: the tls restriction or the fds table
+ * pause may have closed meanwhile, finding its POLLIN already off.  Readable
+ * while every accept is declined, it would spin the loop until that pause
+ * next changes.  So it takes the pausers' decision; if it stays paused now,
+ * lifting the pause reopens it with the rest.
+ */
 static void
 lws_accept_pause_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_validity);
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-	if (lws_io_want_read(wsi, 1))
+	lws_pt_lock(pt, __func__);
+	if (__lws_accept_listener_arm(wsi))
 		lwsl_wsi_info(wsi, "fail");
+	lws_pt_unlock(pt);
 }
 
 static lws_handling_result_t
@@ -79,13 +90,18 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * listener this round and used it up already
 		 */
 		if (wsi->a.vhost->tls.use_ssl &&
-		    lws_tls_restrict_reached(context))
+		    lws_tls_restrict_reached(context)) {
 			/*
-			 * no... ignore it, he won't come again until
-			 * we are below the simultaneous_ssl_restriction
-			 * limit and POLLIN is enabled on him again
+			 * no... leave it in the backlog.  He must not stay
+			 * readable meanwhile, or the loop spins on him: take
+			 * the pausers' decision, which has him back when we
+			 * are below the restriction again
 			 */
+			lws_pt_lock(pt, __func__);
+			__lws_accept_listener_arm(wsi);
+			lws_pt_unlock(pt);
 			break;
+		}
 #endif
 		/* listen socket got an unencrypted connection... */
 
