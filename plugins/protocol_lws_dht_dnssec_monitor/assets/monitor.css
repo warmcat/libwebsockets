@@ -1217,3 +1217,44 @@ body.is-disconnected .app-container {
   font-size: 0.8em;
   color: var(--text-secondary);
 }
+
+/* DHT propagation of the domain's zone, on the domain page */
+
+.dht-serials {
+  flex: 0 0 auto;
+  margin-top: 1.5rem;
+}
+
+.dht-serials-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.dht-serials-header h3 {
+  margin-bottom: 0;
+}
+
+.dht-serials-table {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.dht-node-self {
+  font-style: italic;
+}
+
+.dht-dubious {
+  color: var(--text-secondary);
+}
+
+.dht-badge-none {
+  color: var(--text-secondary);
+  border: 1px solid var(--text-secondary);
+}
+
+.dht-badge-err {
+  color: #f87171;
+  border: 1px solid #f87171;
+}

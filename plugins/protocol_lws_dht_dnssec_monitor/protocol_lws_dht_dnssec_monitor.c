@@ -140,8 +140,9 @@ smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t
 		monitor_ctl_forward_ext_ips(vhd);
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ui_clients)) {
 			struct pss *pss = lws_container_of(d, struct pss, list);
-			pss->send_ext_ips = 1;
-			lws_callback_on_writable(pss->wsi);
+
+			monitor_ui_push(pss, "{\"req\":\"extip_update\",\"data\":%s}\n",
+					vhd->ext_ips);
 		} lws_end_foreach_dll_safe(d, d1);
 	}
 	return 0;
@@ -3865,6 +3866,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			struct pss *pss1 = lws_container_of(d, struct pss, list);
 
 			lws_sul_cancel(&pss1->sul);
+			monitor_serials_stop(pss1);
+			pss1->vhd = NULL;
 			lws_dll2_remove(d);
 		} lws_end_foreach_dll_safe(d, d1);
 
@@ -3946,12 +3949,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			 * Establish onward Raw UDS connection */
 			pss->magic = PSS_MAGIC;
 			pss->wsi = wsi;
+			pss->vhd = vhd;
 			pss->retry_count = 0;
 			lws_dll2_add_tail(&pss->list, &vhd->ui_clients);
-			if (vhd->ext_ips[0]) {
-				pss->send_ext_ips = 1;
-				lws_callback_on_writable(wsi);
-			}
+			if (vhd->ext_ips[0])
+				monitor_ui_push(pss, "{\"req\":\"extip_update\",\"data\":%s}\n",
+						vhd->ext_ips);
 			connect_retry_cb(&pss->sul);
 		}
 		break;
@@ -3968,6 +3971,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss && pss->magic == PSS_MAGIC) {
 			lws_dll2_remove(&pss->list);
 			lws_sul_cancel(&pss->sul);
+			monitor_serials_stop(pss);
+			pss->vhd = NULL;
 			if (pss->cwsi) {
 				lws_set_opaque_user_data(pss->cwsi, NULL);
 				lws_wsi_close(pss->cwsi, LWS_TO_KILL_ASYNC);
@@ -3984,15 +3989,18 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_err("%s: WS UI request too large\n", __func__);
 				return -1;
 			}
+			/* watching the DHT is for us, not the root process */
+			if (!monitor_serials_ui_req(pss, in, len))
+				break;
 			{
 				int r = monitor_ui_local_req(lws_get_context(wsi),
 						in, len,
-						(char *)&pss->rx[LWS_PRE + pss->rx_len],
-						sizeof(pss->rx) - LWS_PRE - pss->rx_len);
+						(char *)&pss->ui_tx[LWS_PRE + pss->ui_tx_len],
+						sizeof(pss->ui_tx) - LWS_PRE - pss->ui_tx_len);
 
 				if (r >= 0) {
 					/* answered here, not by the root process */
-					pss->rx_len += (size_t)r;
+					pss->ui_tx_len += (size_t)r;
 					if (r)
 						lws_callback_on_writable(wsi);
 					break;
@@ -4056,16 +4064,26 @@ fallback:
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (vhd && vhd->root_process_active) {
-			if (pss->send_ext_ips) {
-				pss->send_ext_ips = 0;
-				uint8_t buf[LWS_PRE + 512];
-				int n = lws_snprintf((char *)buf + LWS_PRE, 512, "{\"req\":\"extip_update\",\"data\":%s}\n", vhd->ext_ips);
-				if (lws_write(wsi, buf + LWS_PRE, (size_t)n, LWS_WRITE_TEXT) < 0) {
+			/*
+			 * The browser takes what we send as one stream of
+			 * lines, whatever the messages: so the proxy's own
+			 * lines can only go when what we sent from rx, the
+			 * root's lines, didn't stop partway through one
+			 */
+			if (pss->ui_tx_len && !pss->rx_mid_line) {
+				int m = lws_write(wsi, &pss->ui_tx[LWS_PRE], pss->ui_tx_len, LWS_WRITE_TEXT);
+				if (m < 0) {
+					lwsl_err("%s: Failed writing to WS UI\n", __func__);
 					return -1;
 				}
-				if (pss->rx_len)
+				if (m < (int)pss->ui_tx_len) {
+					memmove(&pss->ui_tx[LWS_PRE], &pss->ui_tx[LWS_PRE + m], pss->ui_tx_len - (size_t)m);
+					pss->ui_tx_len -= (size_t)m;
+				} else
+					pss->ui_tx_len = 0;
+				if (pss->ui_tx_len || pss->rx_len)
 					lws_callback_on_writable(wsi);
-				return 0;
+				break;
 			}
 			if (pss->rx_len) {
 				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
@@ -4074,12 +4092,16 @@ fallback:
 					lwsl_err("%s: Failed writing to WS UI\n", __func__);
 					return -1;
 				}
+				if (m)
+					pss->rx_mid_line = pss->rx[LWS_PRE + m - 1] != '\n';
 				if (m < (int)pss->rx_len) {
 					memmove(&pss->rx[LWS_PRE], &pss->rx[LWS_PRE + m], pss->rx_len - (size_t)m);
 					pss->rx_len -= (size_t)m;
 					lws_callback_on_writable(wsi);
 				} else {
 					pss->rx_len = 0;
+					if (pss->ui_tx_len && !pss->rx_mid_line)
+						lws_callback_on_writable(wsi);
 				}
 			}
 		}
@@ -4446,6 +4468,19 @@ fallback:
 			} else if (magic && *magic == PSS_MAGIC) {
 				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
+				/*
+				 * A line the root didn't finish never will be:
+				 * end it, so the browser drops it, rather than
+				 * the next line it gets being glued onto it
+				 */
+				if (wpss->rx_len ? wpss->rx[LWS_PRE + wpss->rx_len - 1] != '\n' :
+						   wpss->rx_mid_line) {
+					/* if rx is full, the line was lost anyway */
+					if (wpss->rx_len == sizeof(wpss->rx) - LWS_PRE)
+						wpss->rx_len--;
+					wpss->rx[LWS_PRE + wpss->rx_len++] = '\n';
+					lws_callback_on_writable(wpss->wsi);
+				}
 			} else if (!magic) {
 				struct pss *root_pss = (struct pss *)user;
 

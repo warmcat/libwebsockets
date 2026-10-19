@@ -2,6 +2,7 @@ let ws;
 let currentDomain = '';
 let currentDomainObj = null;
 let currentZone = null;
+let currentZoneDomain = '';	/* the domain currentZone is for */
 let certCheckQueue = [];
 let certCheckTimers = {};
 let concurrentChecks = 0;
@@ -389,11 +390,22 @@ function handleResponse(data) {
             window.ipInventory = [];
             window.ipInventoryMore = false;
         }
+        if (data.req === 'dht_serials') {
+            if (data.domain && data.domain !== dhtSerials.domain)
+                return; /* about a domain we left */
+            const tb = document.querySelector('#table-dht-serials tbody');
+            if (tb) tb.innerHTML = `<tr><td colspan="6" class="loading">${escapeHtml(data.msg || 'DHT unavailable')}</td></tr>`;
+        }
         showToast(data.msg || 'An error occurred', true);
         return;
     }
 
     switch(data.req) {
+        case 'dht_serials':
+        case 'dht_serial':
+        case 'dht_serials_done':
+            dhtSerialsResponse(data);
+            break;
         case 'get_ipv6_suffix':
             window.ipv6_suffix = data.suffix || '';
             const inSuf = document.getElementById('input-ipv6-suffix');
@@ -466,6 +478,8 @@ function handleResponse(data) {
                 }
             } else {
                 console.log('[DEBUG] currentDomain is already set:', currentDomain);
+                /* a new connection: the proxy forgot what we watched */
+                sendReq({ req: 'dht_serials', domain: currentDomain });
             }
 
             if (currentDomain) {
@@ -535,9 +549,12 @@ function handleResponse(data) {
              */
             const isNewZone = !(data.zone || '').trim();
             currentZone = new ZoneFile(isNewZone ? starterZone(currentDomain) : data.zone);
+            currentZoneDomain = currentDomain;
             console.log('[DEBUG] Parsed ZoneFile records:', currentZone.records.length);
             renderZoneTable();
             updateRawEditor();
+            /* compared with the editor's serial until the signed one is known */
+            renderDhtSerials();
             document.getElementById('record-editor')?.classList.add('hidden-panel');
             // Sequence getting TLS after getting Zone to avoid UDS packet drops
             console.log('[DEBUG] Dispatching get_tls for domain:', currentDomain);
@@ -550,6 +567,8 @@ function handleResponse(data) {
         case 'update_zone':
             showToast('Zonefile updated successfully');
             document.getElementById('btn-save-zonefile').disabled = true;
+            /* ask the DHT often again, to see it spread once it's signed */
+            sendReq({ req: 'dht_serials', domain: currentDomain });
             /* the inventory is rolled up from the zonefiles, so refresh it
              * now this zone's contents have changed */
             setTimeout(() => fetchIpInventory(0), 150);
@@ -1595,6 +1614,7 @@ function selectDomain(domain) {
     });
 
     renderWhoisHeader();
+    watchDhtSerials(domain);
     sendReq({ req: 'get_tls', domain: domain });
     setTimeout(() => {
         console.log('[DEBUG] dispatching get_zone from selectDomain');
@@ -1949,10 +1969,161 @@ function updateDistClientsTable() {
 function closeDetail() {
     currentDomain = '';
     localStorage.removeItem('lws-dnssec-monitor-selected-domain');
+    watchDhtSerials('');
     document.getElementById('detail-panel').classList.add('hidden-panel');
     document.getElementById('domain-panel').classList.remove('hidden-panel');
     document.getElementById('ip-inventory-panel')?.classList.remove('hidden-panel');
     document.getElementById('geo-panel')?.classList.remove('hidden-panel');
+}
+
+/*
+ * DHT propagation: which serial of the domain's zone each node in the DHT
+ * routing table holds.  While we watch a domain, the proxy asks them all in
+ * rounds and passes on each answer as it comes, ending each round with
+ * dht_serials_done.  It also tells us the serial of the signed zone, the one
+ * they should all reach: signing gives the zone a later serial than the one
+ * the editor saved.
+ */
+let dhtSerials = { domain: '', signed: null, reloadedFor: null, rows: new Map(), round: 0 };
+
+/* RFC 1982 serial arithmetic: is a later than b? */
+function serialNewer(a, b) {
+    const d = (a - b) >>> 0;
+    return d !== 0 && d < 0x80000000;
+}
+
+function editorSerial() {
+    if (!currentZone || currentZoneDomain !== dhtSerials.domain)
+        return null; /* not loaded yet */
+
+    const soa = currentZone.records.find(r => r.type === 'SOA');
+    const s = soa && soa.parsed ? String(soa.parsed.serial) : '';
+    return /^\d+$/.test(s) ? Number(s) >>> 0 : null;
+}
+
+function watchDhtSerials(domain) {
+    dhtSerials = { domain, signed: null, reloadedFor: null, rows: new Map(), round: 0 };
+    renderDhtSerials();
+    if (domain)
+        sendReq({ req: 'dht_serials', domain });
+    else if (ws && ws.readyState === WebSocket.OPEN)
+        sendReq({ req: 'dht_serials_stop' });
+}
+
+function formatSince(ms) {
+    if (!ms) return '';
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 120) return s + 's ago';
+    if (s < 7200) return Math.round(s / 60) + 'm ago';
+    return Math.round(s / 3600) + 'h ago';
+}
+
+function renderDhtSerials() {
+    const tb = document.querySelector('#table-dht-serials tbody');
+    const sum = document.getElementById('dht-serials-summary');
+    if (!tb || !sum) return;
+
+    /* the editor's serial until we hear of the signed zone's */
+    const ref = dhtSerials.signed !== null ? dhtSerials.signed : editorSerial();
+    /* this node first, then the others in address order */
+    const rows = [...dhtSerials.rows.values()].sort((a, b) =>
+        (a.peer ? 1 : 0) - (b.peer ? 1 : 0) || a.peer.localeCompare(b.peer));
+
+    sum.textContent = '';
+    if (!rows.length) {
+        tb.innerHTML = `<tr><td colspan="6" class="loading">${dhtSerials.domain ? 'Asking the DHT nodes...' : ''}</td></tr>`;
+        return;
+    }
+
+    let current = 0;
+    tb.innerHTML = rows.map(r => {
+        let st, cls;
+
+        if (r.state === 'held') {
+            if (ref === null) {
+                st = 'holds it';
+                cls = 'inv-badge-ok';
+            } else if (r.serial === ref) {
+                st = 'current';
+                cls = 'inv-badge-ok';
+                current++;
+            } else if (serialNewer(ref, r.serial)) {
+                st = 'behind';
+                cls = 'inv-badge-warn';
+            } else {
+                st = 'ahead of signed';
+                cls = 'inv-badge-warn';
+            }
+        } else if (r.state === 'none') {
+            st = 'doesn\'t hold it';
+            cls = 'dht-badge-none';
+        } else {
+            st = 'no answer';
+            cls = 'dht-badge-err';
+        }
+
+        const node = r.peer ? escapeHtml(r.peer) : '<span class="dht-node-self">this node</span>';
+        const routing = r.peer ? (r.good ? 'good' : '<span class="dht-dubious">dubious</span>') : '';
+
+        return `<tr><td>${node}</td><td class="ext-mono">${escapeHtml(r.id)}</td><td>${routing}</td>` +
+               `<td class="ext-mono">${r.state === 'held' ? r.serial : ''}</td>` +
+               `<td><span class="inv-badge ${cls}">${st}</span></td><td>${formatSince(r.since)}</td></tr>`;
+    }).join('');
+
+    if (ref !== null)
+        sum.textContent = `${current} of ${rows.length} at serial ${ref}` +
+                          (dhtSerials.signed !== null ? ' (signed)' : ' (editor)');
+}
+
+function dhtSerialsResponse(data) {
+    if (data.domain !== dhtSerials.domain)
+        return; /* a round for a domain we left */
+
+    switch (data.req) {
+    case 'dht_serials':
+        if (typeof data.signed === 'number') {
+            dhtSerials.signed = data.signed >>> 0;
+
+            /*
+             * Signing bumped the serial past the editor's: show it what
+             * was really signed, unless it has changes it hasn't saved
+             */
+            const es = editorSerial();
+            if (es !== null && serialNewer(dhtSerials.signed, es) &&
+                dhtSerials.reloadedFor !== dhtSerials.signed &&
+                data.domain === currentDomain &&
+                document.getElementById('btn-save-zonefile').disabled &&
+                document.getElementById('record-editor').classList.contains('hidden-panel')) {
+                dhtSerials.reloadedFor = dhtSerials.signed;
+                sendReq({ req: 'get_zone', domain: currentDomain });
+            }
+        }
+        break;
+    case 'dht_serial': {
+        const key = data.peer || '';
+        const serial = (data.serial || 0) >>> 0;
+        const old = dhtSerials.rows.get(key);
+        const same = old && old.state === data.state && old.serial === serial;
+
+        dhtSerials.rows.set(key, {
+            peer: key, id: data.id || '', good: !!data.good,
+            state: data.state, serial, round: dhtSerials.round,
+            /* when we saw it change to this: unknown for what we found */
+            since: same ? old.since : (old ? Date.now() : 0)
+        });
+        break;
+    }
+    case 'dht_serials_done':
+        /* forget nodes that have left the routing table */
+        dhtSerials.rows.forEach((r, k) => {
+            if (r.round !== dhtSerials.round)
+                dhtSerials.rows.delete(k);
+        });
+        dhtSerials.round++;
+        break;
+    }
+
+    renderDhtSerials();
 }
 
 /*

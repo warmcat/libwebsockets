@@ -62,6 +62,27 @@ again within an hour, whatever the result.  The results go to the root process
 over the UDS IPC as canonical JSON in an authenticated `update_whois` request,
 and the root process validates them again before writing `whois.json`.
 
+#### DHT propagation
+
+The bottom of the domain page has a table of every node in the DHT routing
+table, with the serial of the domain's zone it holds, so you can watch a saved
+zone spread, and see which nodes don't get it.  The DHT runs in the lwsws
+process, so the proxy answers this itself rather than the root process: while
+the page is open it asks every node with the dht-dnssec plugin's
+`query_serials` (see its README), in rounds every 2s for a minute after the
+page opens, the zone is saved or the zone is signed again, and every 15s
+otherwise, and passes each answer on as it comes.  The first row is this
+node's own copy in its DHT store.
+
+The nodes are compared with the serial of the domain's signed zone,
+`<domain>.zone.signed`: signing gives the zone a later serial than the one the
+editor saved, so the proxy tells the page that one, and the editor reloads the
+zone to show it, unless it has changes that aren't saved.  A node is
+"current" at that serial, "behind" on an older one, "doesn't hold it", or "no
+answer" if it didn't answer within 5s, which includes a node too old to know
+the query.  "Since" is how long ago the page saw the node change to what it
+shows.
+
 #### Server IP Inventory
 
 The Domains tab also carries a Server IP Inventory table below the domain list. It lists unique network interfaces rather than DNS names: a name binding both an A and an AAAA record is evidence that those two addresses live on the same interface of one server, so addresses are grouped into interfaces by the names that bind them together, and every name pointing at any of an interface's addresses is listed once as evidence on that row instead of once per name. Each name links into the zonefile editor for the zonefile(s) it was found in, and carries any LOC record written for it.

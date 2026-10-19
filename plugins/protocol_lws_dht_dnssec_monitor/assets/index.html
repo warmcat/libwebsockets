@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DNSSEC Monitor</title>
     <!-- Strict CSP prevents inline styles, and using external font CDNs without explicit whitelist, so we use system fonts -->
-    <link rel="stylesheet" href="monitor.css?v=7">
+    <link rel="stylesheet" href="monitor.css?v=8">
     <script src="lws-login.js"></script>
 </head>
 <body>
@@ -151,6 +151,30 @@
                     <div class="ext-actions">
                         <button id="btn-cancel-edit" class="btn hollow">Discard</button>
                         <button id="btn-apply-record" class="btn primary">Apply Changes</button>
+                    </div>
+                </div>
+
+                <div class="dht-serials">
+                    <div class="dht-serials-header">
+                        <h3 class="ext-title">DHT Propagation</h3>
+                        <span id="dht-serials-summary" class="inv-count"></span>
+                    </div>
+                    <div class="dht-serials-table table-responsive">
+                        <table id="table-dht-serials" class="table-striped table-nowrap">
+                            <thead>
+                                <tr>
+                                    <th>DHT Node</th>
+                                    <th>Node ID</th>
+                                    <th>Routing</th>
+                                    <th>Serial</th>
+                                    <th>State</th>
+                                    <th>Since</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="6" class="loading">Asking the DHT nodes...</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>
@@ -324,6 +348,6 @@
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js?v=24"></script>
+    <script src="monitor.js?v=25"></script>
 </body>
 </html>

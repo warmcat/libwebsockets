@@ -37,6 +37,9 @@
  */
 #define MONITOR_TX_MIN_ROOM 1024
 
+/* room for the proxy's own lines to the browser, eg, a round of DHT serials */
+#define MONITOR_UI_TX_SIZE 16384
+
 struct pss {
 	uint32_t magic;
 	struct lws *wsi;
@@ -60,7 +63,29 @@ struct pss {
 	size_t rx_len;
 
 	lws_dll2_t list;
-	int send_ext_ips;
+
+	/*
+	 * Proxy: lines the proxy itself has for the browser, see
+	 * monitor_ui_push().  They can only go between the root's lines, so
+	 * they wait while what went out from rx ended partway through one
+	 */
+	uint8_t ui_tx[LWS_PRE + MONITOR_UI_TX_SIZE];
+	size_t ui_tx_len;
+	char rx_mid_line;
+
+	/*
+	 * Proxy: the domain whose propagation over the DHT this browser is
+	 * watching, see monitor-serials.c
+	 */
+	struct vhd *vhd;
+	lws_sorted_usec_list_t sul_serials;
+	char serials_domain[128];
+	lws_usec_t serials_fast_until;	/* poll quickly until then */
+	lws_usec_t serials_last;	/* when the last round started */
+	time_t serials_signed_mtime;	/* of the signed zone we last read */
+	uint32_t serials_signed;	/* its serial */
+	char serials_signed_known;	/* the browser was told it */
+	char serials_refused;		/* the browser was told */
 };
 
 struct pub_state {
@@ -379,5 +404,25 @@ inv_geo_dl_fail(struct inv_geo_dl *g);
 int
 monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 		     char *reply, size_t reply_len);
+
+/* monitor-serials.c */
+
+/*
+ * Queue one whole line for the browser, from the proxy itself.  Returns
+ * nonzero if there was no room for it, and then nothing was queued.
+ */
+int
+monitor_ui_push(struct pss *pss, const char *format, ...) LWS_FORMAT(2);
+
+/*
+ * If the browser's request is about watching a domain's serials across the
+ * DHT, act on it and return 0, else return -1: it is not ours
+ */
+int
+monitor_serials_ui_req(struct pss *pss, const void *in, size_t len);
+
+/* stop watching, eg, as the browser goes */
+void
+monitor_serials_stop(struct pss *pss);
 
 #endif
