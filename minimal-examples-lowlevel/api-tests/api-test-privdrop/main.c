@@ -16,9 +16,13 @@
  *  - asking to run as the uid / gid we already run as, unprivileged, is not
  *    a failure, and lws_finalize_startup() may be called more than once
  *
- *  - if the deferred drop of an EXPLICIT_VHOSTS context fails while it is
- *    being serviced, the process exits rather than carry on (forced with
- *    fault injection, so only in LWS_WITH_SYS_FAULT_INJECTION builds)
+ *  - unprivileged, asking to become another user really fails: context
+ *    creation fails, or with EXPLICIT_VHOSTS, the deferred drop fails while
+ *    the context is being serviced and the process exits rather than carry
+ *    on as the wrong user
+ *
+ *  - the same deferred failure forced with fault injection (only in
+ *    LWS_WITH_SYS_FAULT_INJECTION builds), which also covers running as root
  *
  * Run as root, it also has a child really drop to "nobody" through the loop,
  * and confirm it has that user's credentials and cannot get root back.
@@ -241,6 +245,97 @@ wait_child(pid_t pid, int *status)
 	return 0;
 }
 
+/*
+ * An existing user that is not us: "nobody" if it is there and not us,
+ * otherwise the lowest other nonzero uid with an entry
+ */
+
+static uid_t
+other_uid(uid_t us)
+{
+	struct passwd *pw = getpwnam("nobody");
+	uid_t u;
+
+	if (pw && pw->pw_uid && pw->pw_uid != us)
+		return pw->pw_uid;
+
+	for (u = 1; u < 65536; u++)
+		if (u != us && getpwuid(u))
+			return u;
+
+	return 0;
+}
+
+/*
+ * Unprivileged, asked to become another user: the drop must fail for real,
+ * without any fault injection.  Without EXPLICIT_VHOSTS that fails context
+ * creation, and with it, the deferred drop from the loop must end the process
+ * with status 1 rather than leave it serving as the wrong user.
+ */
+
+static int
+test_unprivileged_other_user(void)
+{
+	struct lws_context_creation_info info;
+	uid_t u, us = getuid();
+	int status;
+	pid_t pid;
+
+	if (!geteuid() || !us) {
+		lwsl_user("%s: running as root, skipping\n", __func__);
+
+		return 0;
+	}
+
+	u = other_uid(us);
+	if (!u) {
+		lwsl_user("%s: no other user to ask for, skipping\n",
+			  __func__);
+
+		return 0;
+	}
+
+	lwsl_user("%s: asking for uid %u as uid %u\n", __func__,
+		  (unsigned int)u, (unsigned int)us);
+
+	init_info(&info, 0);
+	info.uid = u;
+	if (expect_create_fails("other uid, unprivileged", &info))
+		return 1;
+
+	pid = fork();
+	if (pid < 0)
+		return 1;
+
+	if (!pid) {
+		init_info(&info, 1);
+		info.uid = u;
+
+		if (child_service(&info))
+			/* the target exists, so creation must not fail */
+			_exit(2);
+
+		/* we should never get here */
+		lwsl_err("%s: child survived failed drop as uid %u\n",
+			 __func__, (unsigned int)geteuid());
+		_exit(0);
+	}
+
+	if (wait_child(pid, &status))
+		return 1;
+
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 1) {
+		lwsl_err("%s: child status 0x%x, expected exit 1\n", __func__,
+			 status);
+
+		return 1;
+	}
+
+	lwsl_user("%s: child exited on failed drop as expected\n", __func__);
+
+	return 0;
+}
+
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 
 /*
@@ -391,6 +486,7 @@ main(int argc, const char **argv)
 
 	e += test_missing_targets();
 	e += test_already_target();
+	e += test_unprivileged_other_user();
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	e += test_deferred_failure_exits();
 #else
