@@ -54,19 +54,29 @@
  * the prefix has to identify the uploader unambiguously: it is the
  * authenticated username encoded so it can never contain '_' (nor '/'),
  * which makes the first '_' in an on-disk name always the end of the owner.
- * Bytes outside [A-Za-z0-9.@+-] become "=xx" (lowercase hex), so the encoding
+ * Bytes outside [a-z0-9.@+-] become "=xx" (lowercase hex), so the encoding
  * is one-to-one, and "bob" and "bob_smith" ("bob=5fsmith") can never claim
- * each other's files.
+ * each other's files.  Upper-case letters are encoded too, so the prefix is
+ * also unique on a case-insensitive filesystem: "Bob" ("=42ob") and "bob"
+ * are different accounts and must not name the same files there.
  *
- * Usernames made only of those characters encode to themselves, so files
- * stored by the earlier "<purified user>_<name>" scheme keep their owner.
- * Files stored earlier by a user whose name contained anything else are
- * attributed to whatever precedes their first '_', and should be renamed to
- * the new encoding (or deleted) by the administrator.
+ * And the whole username is the owner: one that does not fit pss->user is no
+ * user at all, never a truncated one that would be shared with others.  The
+ * buffer holds the longest a JWT "sub" can be (lws_jwt_auth keeps 127 bytes)
+ * and any basic auth name lws accepts.
+ *
+ * Usernames made only of [a-z0-9.@+-] encode to themselves, so files stored
+ * by the earlier "<purified user>_<name>" scheme keep their owner.  Files
+ * stored earlier by a user whose name contained anything else, including an
+ * upper-case letter, are attributed to whatever precedes their first '_', and
+ * should be renamed to the new encoding (or deleted) by the administrator,
+ * eg "Bob_notes.txt" -> "=42ob_notes.txt".
  */
 
-#define DEADDROP_USER_MAX	64
+#define DEADDROP_USER_MAX	128
 #define DEADDROP_OWNER_MAX	(((DEADDROP_USER_MAX - 1) * 3) + 1)
+/* a user name JSON-escaped, worst case: every byte \u00xx, and purify's slack */
+#define DEADDROP_USER_ESC_MAX	(((DEADDROP_USER_MAX - 1) * 6) + 7)
 
 struct dir_entry {
 	lws_list_ptr next; /* sorted by mtime */
@@ -249,8 +259,8 @@ deaddrop_parse_user_agent(const char *ua, char *platform, size_t plat_len,
 static int
 deaddrop_owner_char_ok(char c)
 {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-	       (c >= '0' && c <= '9') ||
+	/* no upper case: see the comment at the top */
+	return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
 	       c == '.' || c == '@' || c == '+' || c == '-';
 }
 
@@ -396,6 +406,13 @@ deaddrop_get_auth_identity_user(struct vhd_deaddrop *vhd,
 	}
 
 	sub = lws_jwt_auth_get_sub(ja);
+	if (sub && strlen(sub) >= sizeof(pss->user)) {
+		/* a name that does not fit is no user, never a shorter one */
+		lwsl_wsi_notice(wsi, "%s: JWT sub too long", __func__);
+		lws_jwt_auth_destroy(&ja);
+
+		return;
+	}
 	if (sub)
 		lws_strncpy(pss->user, sub, sizeof(pss->user));
 
@@ -484,10 +501,10 @@ deaddrop_json_esc(char *dst, size_t dst_len, const char *src)
  * file object below.  Every writeable has room for the header plus at least
  * one entry, so each one makes progress.
  */
-#define DEADDROP_HEADER_MAX	384
-#define DEADDROP_USER_ENTRY_MAX	384
-#define DEADDROP_FILE_ENTRY_MAX	768
-#define DEADDROP_SEND_BUF	LWS_RECOMMENDED_MIN_HEADER_SPACE
+#define DEADDROP_HEADER_MAX	(DEADDROP_USER_ESC_MAX + 256)
+#define DEADDROP_USER_ENTRY_MAX	(DEADDROP_USER_ESC_MAX + 256)
+#define DEADDROP_FILE_ENTRY_MAX	(DEADDROP_USER_ESC_MAX + 512 + 256)
+#define DEADDROP_SEND_BUF	4096
 
 #if DEADDROP_SEND_BUF < DEADDROP_HEADER_MAX + DEADDROP_FILE_ENTRY_MAX + 16
 #error "deaddrop send buffer can't hold the header and one file entry"
@@ -509,7 +526,7 @@ deaddrop_users_snapshot_free(struct pss_deaddrop *pss)
 static void
 deaddrop_users_snapshot(struct pss_deaddrop *pss)
 {
-	char esc_user[128], line[DEADDROP_USER_ENTRY_MAX];
+	char esc_user[DEADDROP_USER_ESC_MAX], line[DEADDROP_USER_ENTRY_MAX];
 	struct deaddrop_user_snap *us;
 	int n;
 
@@ -1601,7 +1618,8 @@ static uint8_t *
 deaddrop_render_file(struct pss_deaddrop *pss, uint8_t *p, uint8_t *end,
 		     const struct dir_entry *dire)
 {
-	char esc_fname[512], esc_up[128], up[DEADDROP_USER_MAX];
+	char esc_fname[512], esc_up[DEADDROP_USER_ESC_MAX],
+	     up[DEADDROP_USER_MAX];
 	const char *fname = (const char *)&dire[1], *p_fn = fname;
 	int is_yours, is_text = 0, in_used = 0, n;
 
@@ -1661,7 +1679,7 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd,
 {
 	uint8_t buf[LWS_PRE + DEADDROP_SEND_BUF], *start = &buf[LWS_PRE],
 		*p = start, *end = &buf[sizeof(buf) - 1], *np;
-	char esc_user[128], esc_cookie[64];
+	char esc_user[DEADDROP_USER_ESC_MAX], esc_cookie[64];
 	struct deaddrop_user_snap *us;
 	int som, n;
 

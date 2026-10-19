@@ -18,6 +18,7 @@ must resolve itself.
 |`bob_smith` fetches a name that does not exist|404|
 |`bob_smith` fetches `bob_escape.txt`, a symlink in the upload dir to `<upload dir>x` beside it|404|
 |on `/open/upload/` and `/open/get/`, plugin mounts with no basic auth of their own, an upload sent with a bare `Authorization: bob` and a download with `Authorization: bob_smith`|both 403, nothing stored: only a user lws itself authenticated is believed, despite the `basic-auth` pvo|
+|on `/open/upload/`, users from JWT session cookies: `a`x63 + `x` and `a`x63 + `y` both upload `long.txt`, a 127-byte user uploads `max.txt`, and `Bob` uploads `case.txt`|all 200, stored under each whole name (two separate `long.txt`), and `Bob`'s as `=42ob_case.txt`|
 
 ## running it
 

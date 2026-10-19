@@ -58,9 +58,13 @@ the drop without closing an attack, so it is left to the deployment: set
 Uploads are stored directly in `upload-dir` as `<owner>_<name>`, and the
 `<owner>` prefix is the only record of who uploaded a file: it decides who may
 delete it, and who it is listed as "yours" to.  So that the prefix can never
-be ambiguous, it is the authenticated username encoded so it contains no `_`:
-characters other than `A-Z a-z 0-9 . @ + -` are written as `=xx` (lowercase
-hex of the byte).  The owner prefix of a stored name always ends at its first
+be ambiguous, it is the whole authenticated username encoded so it contains
+no `_`: characters other than `a-z 0-9 . @ + -` are written as `=xx`
+(lowercase hex of the byte).  Upper-case letters are encoded too, so that the
+prefix stays unique on a case-insensitive filesystem, where user `Bob`
+(`=42ob`) and user `bob` must not share files.  A username longer than 127
+bytes is not accepted as a user at all, rather than being shortened into one
+that other accounts could share.  The owner prefix of a stored name always ends at its first
 `_`, whatever the uploaded file was called, and only that exact user (or a
 user with the `*` grant) may delete the file.  Eg, user `bob` uploading
 `smith_notes.txt` stores `bob_smith_notes.txt`, while user `bob_smith`
@@ -71,7 +75,10 @@ stored by earlier versions keep their owner.  Earlier versions stored the
 username with only `$ % : \` and `..` replaced by `_`: a file uploaded that
 way by a user whose name contained any other character is now attributed to
 whatever precedes its first `_`.  Rename such files to the new encoding (or
-delete them) when upgrading.
+delete them) when upgrading.  The same goes for files of users with upper-case
+letters in their name stored before those were encoded, eg rename
+`Bob_notes.txt` to `=42ob_notes.txt`; and for files of users with names longer
+than 63 bytes, which were stored under the first 63 bytes of the name.
 
 ## Downloads
 

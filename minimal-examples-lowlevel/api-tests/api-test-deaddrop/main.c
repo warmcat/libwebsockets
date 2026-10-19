@@ -40,6 +40,11 @@
  *    "Authorization: bob" and a download claiming "Authorization: bob_smith"
  *    are just unauthenticated, ie 403, although the vhost gave the plugin the
  *    "basic-auth" pvo (G-309)
+ *
+ *  - users from JWT session cookies: two 64-byte names that differ only in
+ *    the last byte are two owners, a 127-byte name is a user (G-307); and
+ *    "Bob" stores as "=42ob", so on a case-insensitive filesystem it can't
+ *    share files with "bob" (G-307)
  */
 
 #include <libwebsockets.h>
@@ -54,7 +59,7 @@
 
 #define NUM_WS		31	/* [0] is bob, the rest are bob_smith */
 #define RX_MAX		16384
-#define MAX_FILES	8
+#define MAX_FILES	16
 #define MAX_TX		8
 
 #define SMITH_CONTENT	"bob_smith's notes\n"
@@ -88,7 +93,10 @@ struct upload {
 	const char		*path;		/* NULL: "/upload/" */
 	const char		*forge;		/* raw Authorization: instead */
 	const char		*stored;	/* NULL, or name it is stored as */
+	const char		*sub;		/* JWT session as sub instead */
 	int			expect_status;	/* 0: 200 */
+
+	char			cookie[1024];
 
 	int			status;
 	int			part;
@@ -152,6 +160,10 @@ struct ws_client {
 			"<script>alert(1)</script></svg>\n"
 #define JS_CONTENT	"alert(1);\n"
 
+/* 63 bytes, so A63 "x" is as long as an auth server username may be */
+#define A63		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+#define C63		"ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
 static struct upload uploads[] = {
 	{ .user = "bob_smith", .pass = "smith-password",
 	  .filename = "notes.txt", .content = SMITH_CONTENT },
@@ -168,6 +180,19 @@ static struct upload uploads[] = {
 	{ .filename = "forged.txt", .content = "forged\n",
 	  .path = "/open/upload/", .forge = "bob", .stored = "bob_forged.txt",
 	  .expect_status = 403 },
+	/*
+	 * JWT session users, who need no basic auth mount: two names that
+	 * only differ in their 64th byte, and the longest a sub can be
+	 */
+	{ .filename = "long.txt", .content = "x\n", .path = "/open/upload/",
+	  .sub = A63 "x", .stored = A63 "x_long.txt" },
+	{ .filename = "long.txt", .content = "y\n", .path = "/open/upload/",
+	  .sub = A63 "y", .stored = A63 "y_long.txt" },
+	{ .filename = "max.txt", .content = "c\n", .path = "/open/upload/",
+	  .sub = C63 C63 "c", .stored = C63 C63 "c_max.txt" },
+	/* upper case is encoded, so "Bob" never shares names with "bob" */
+	{ .filename = "case.txt", .content = "Bob\n", .path = "/open/upload/",
+	  .sub = "Bob", .stored = "=42ob_case.txt" },
 };
 
 static struct download downloads[] = {
@@ -355,7 +380,13 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		int ws = is_ws(c), d = is_dl(dl);
 		const char *forge = ws ? NULL : (d ? dl->forge : u->forge);
 
-		if (forge) {
+		if (!ws && !d && u->sub) {
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_COOKIE,
+					(unsigned char *)u->cookie,
+					(int)strlen(u->cookie), pp, e))
+				return -1;
+		} else if (forge) {
 			/* a bare name, as if something had validated it */
 			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_AUTHORIZATION,
@@ -463,7 +494,8 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (u && !is_ws(u) && !u->done) {
 			u->done = 1;
 			lwsl_user("upload '%s' as %s: %d\n", u->filename,
-				  u->forge ? u->forge : u->user, u->status);
+				  u->sub ? u->sub : (u->forge ? u->forge :
+				  u->user), u->status);
 		}
 		break;
 
@@ -592,8 +624,14 @@ static struct lws_http_mount mount_upload = {
 	.mountpoint_len		= 7,
 };
 
-static struct lws_protocol_vhost_options pvo_ba = {
-	NULL, NULL, "basic-auth", NULL /* set from --passwords */
+/* a throwaway HS256 key, that the session tokens here are signed with */
+static const char dd_jwk[] =
+	"{\"kty\":\"oct\",\"k\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}";
+
+static struct lws_protocol_vhost_options pvo_jwk = {
+	NULL, NULL, "jwt-jwk", dd_jwk
+}, pvo_ba = {
+	&pvo_jwk, NULL, "basic-auth", NULL /* set from --passwords */
 }, pvo_dir = {
 	&pvo_ba, NULL, "upload-dir", "./" UPLOAD_LINK "/"
 }, pvo = {
@@ -609,10 +647,41 @@ queue_tx(struct ws_client *c, const char *msg)
 		lws_callback_on_writable(c->wsi);
 }
 
+/* the session cookie for u->sub, as the auth server mints them */
+
+static int
+mint_cookie(struct upload *u)
+{
+	unsigned long long now = (unsigned long long)lws_now_secs();
+	char tok[768], temp[2048];
+	size_t tok_len = sizeof(tok);
+	struct lws_jwk jwk;
+	int r;
+
+	if (lws_jwk_import(&jwk, NULL, NULL, dd_jwk, strlen(dd_jwk)))
+		return 1;
+
+	r = lws_jwt_sign_compact(context, &jwk, "HS256", tok, &tok_len, temp,
+				 (int)sizeof(temp),
+				 "{\"iss\":\"apitest\",\"pur\":\""
+				 LWS_JWT_AUTH_PURPOSE_SSO "\",\"sub\":\"%s\","
+				 "\"uid\":1,\"iat\":%llu,\"exp\":%llu}",
+				 u->sub, now, now + 600);
+	lws_jwk_destroy(&jwk);
+	if (r)
+		return 1;
+
+	return lws_snprintf(u->cookie, sizeof(u->cookie), "auth_session=%s",
+			    tok) >= (int)sizeof(u->cookie);
+}
+
 static int
 start_upload(struct upload *u)
 {
 	struct lws_client_connect_info i;
+
+	if (u->sub && mint_cookie(u))
+		return 1;
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
