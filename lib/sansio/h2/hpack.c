@@ -2461,17 +2461,19 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 	int len;
 
 #if defined(_DEBUG)
-	/* value does not have to be NUL-terminated... %.*s not available on
-	 * all platforms */
-	if (value) {
-		lws_strnncpy((char *)*p, (const char *)value, length,
-				lws_ptr_diff(end, (*p)));
-
-		lwsl_header("%s: %p  %s:%s (len %d)\n", __func__, *p, name,
-				(const char *)*p, length);
-	} else {
-		lwsl_err("%s: %p dummy copy %s (len %d)\n", __func__, *p, name, length);
-	}
+	/*
+	 * value does not have to be NUL-terminated.  Values of headers that
+	 * may carry a credential (authorization, cookie, set-cookie, unknown
+	 * names like x-api-key) are never logged, only their length.
+	 */
+	if (!value)
+		lwsl_err("%s: %s: NULL value (len %d)\n", __func__, name, length);
+	else if (lws_http_header_name_may_be_credential((const char *)name))
+		lwsl_header("%s: %s <redacted> (len %d)\n", __func__, name,
+			    length);
+	else
+		lwsl_header("%s: %s %.*s (len %d)\n", __func__, name, length,
+			    (const char *)value, length);
 #endif
 
 	len = (int)strlen((char *)name);
