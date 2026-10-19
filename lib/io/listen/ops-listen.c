@@ -895,12 +895,20 @@ check_quic:
 		    alpn &&
 		    (strstr(alpn, "h3") || strstr(alpn, "lws-quic")) &&
 		    !lws_vhost_foreach_listen_wsi(vhost->context, &a, check_extant_quic)) {
-			
+			/*
+			 * The udp listener binds to the iface's address like
+			 * the tcp one does, and, also like it, only to the
+			 * device itself when .bind_iface asks for that (it
+			 * needs CAP_NET_RAW, and on platforms without
+			 * SO_BINDTODEVICE fails whatever the name)
+			 */
+			const char *dev = vhost->bind_iface ? vhost->iface : NULL;
+
 #if defined(LWS_WITH_IPV6)
 			if (LWS_IPV6_ENABLED(vhost)) {
 				const char *ads6 = vhost->iface ? vhost->iface : "::";
 				if (!lws_create_adopt_udp(vhost, ads6, vhost->listen_port,
-							  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
+							  LWS_CAUDP_BIND, "quic", dev, NULL,
 							  NULL, NULL, "quic_listen")) {
 					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv6 UDP listener");
 				}
@@ -912,7 +920,7 @@ check_quic:
 			    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 				const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
 				if (!lws_create_adopt_udp(vhost, ads4, vhost->listen_port,
-							  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
+							  LWS_CAUDP_BIND, "quic", dev, NULL,
 							  NULL, NULL, "quic_listen")) {
 					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
 				}
