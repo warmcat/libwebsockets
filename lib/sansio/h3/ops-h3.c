@@ -3205,10 +3205,11 @@ rops_check_upgrades_h3(struct lws *wsi)
 					      wsi->user_space,
 					      (void *)prot->name, 0)) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
-			char name[64];
+			char name[LWS_PEER_DESC_LEN];
 			lwsl_warn("User code denied wt connection: protocol=%s, peer=%s\n",
 				  prot->name,
-				  lws_io_peer_address(wsi, name, sizeof(name)));
+				  lws_io_peer_describe(wsi, name, sizeof(name),
+						LWS_PEER_DESC_BARE_SINGLE));
 #endif
 			if (lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL))
 				return LWS_UPG_RET_BAIL;

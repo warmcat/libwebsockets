@@ -326,7 +326,15 @@ lws_peer_desc_address(lws_peer_desc_t *d, const lws_peer_entry_t *e,
 		return;
 	}
 
-	if (lws_sa46_write_numeric_address(&sa46, ads, sizeof(ads)) < 0) {
+	/*
+	 * Only IP addresses are written out: the address writer's text for
+	 * other families, eg "(unix skt)", has spaces a token must not
+	 */
+	if ((sa46.sa4.sin_family != AF_INET
+#if defined(LWS_WITH_IPV6)
+	     && sa46.sa4.sin_family != AF_INET6
+#endif
+	    ) || lws_sa46_write_numeric_address(&sa46, ads, sizeof(ads)) < 0) {
 		lws_peer_desc_add(d, "unknown");
 		return;
 	}
@@ -368,9 +376,8 @@ lws_peer_entries_describe(const lws_peer_entry_t *e, int count, char *buf,
 		goto done;
 	}
 
-	/* the common access log case looks as it always has */
-	if (token && count == 1 && e[0].kind == LWS_PEER_KIND_SOCKET &&
-	    e[0].cred == LWS_PEER_CRED_ROUTABLE) {
+	/* the usual case, just the transport's peer, looks as it always has */
+	if (count == 1 && (flags & LWS_PEER_DESC_BARE_SINGLE)) {
 		lws_peer_desc_address(&d, &e[0], 0);
 		goto done;
 	}
@@ -409,8 +416,22 @@ const char *
 lws_peer_describe(struct lws *wsi, char *buf, size_t len, int flags)
 {
 	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+	int count = lws_peer_walk(wsi, e, LWS_ARRAY_SIZE(e));
 
-	return lws_peer_entries_describe(e,
-				lws_peer_walk(wsi, e, LWS_ARRAY_SIZE(e)),
-				buf, len, flags);
+#if !defined(LWS_PLAT_OPTEE)
+	/*
+	 * Where there is nothing more to say than the transport's peer, say
+	 * what logs and access logs always did, exactly, so the usual line
+	 * stays as it was for whoever parses it
+	 */
+	if (wsi && count <= 1 && (flags & LWS_PEER_DESC_BARE_SINGLE)) {
+		if (!len)
+			return buf;
+		*buf = '\0';
+
+		return lws_get_peer_simple(wsi, buf, len);
+	}
+#endif
+
+	return lws_peer_entries_describe(e, count, buf, len, flags);
 }

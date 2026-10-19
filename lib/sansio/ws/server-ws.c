@@ -398,9 +398,11 @@ lws_process_ws_upgrade2(struct lws *wsi)
 			wsi->user_space,
 		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
-		char name[64];
+		char name[LWS_PEER_DESC_LEN];
 		lwsl_warn("User code denied connection: protocol=%s, peer=%s\n",
-			  wsi->a.protocol->name, lws_io_peer_address(wsi, name, sizeof(name)));
+			  wsi->a.protocol->name,
+			  lws_io_peer_describe(wsi, name, sizeof(name),
+					       LWS_PEER_DESC_BARE_SINGLE));
 #endif
 		return 1;
 	}
@@ -449,10 +451,11 @@ lws_process_ws_upgrade2(struct lws *wsi)
 
 	if (lws_server_init_wsi_for_ws(wsi)) {
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-		char peer[64];
+		char peer[LWS_PEER_DESC_LEN];
 		lwsl_wsi_notice(wsi, "user ESTABLISHED failed connection: protocol=%s, peer=%s",
 				wsi->a.protocol->name,
-				lws_io_peer_address(wsi, peer, sizeof(peer)));
+				lws_io_peer_describe(wsi, peer, sizeof(peer),
+						     LWS_PEER_DESC_BARE_SINGLE));
 #endif
 		return 1;
 	}

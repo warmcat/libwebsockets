@@ -10,7 +10,8 @@
  * peer is, layer by layer, each tagged with how far it can be believed.
  *
  *  - the formatter, on entries made up here: both formats, IPv6 brackets,
- *    AF_UNIX, the names, and cutting short;
+ *    AF_UNIX, the names, cutting short, and a single entry given bare, as
+ *    lws's own logs give the usual peer;
  *
  *  - the effective entry rule, on entries made up here: a hearsay entry
  *    above a believable one is never the effective entry;
@@ -209,13 +210,33 @@ ps_formatter(void)
 		  "10.0.0.2:40122 socket/routable", "a socket, for logs");
 	check_str(lws_peer_entries_describe(&e[1], 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN),
-		  "10.0.0.2", "a routable socket as a token is its address");
+		  "10.0.0.2:40122~r", "a socket, as a token");
+
+	/* the usual case in logs and access logs: just the address */
+	check_str(lws_peer_entries_describe(&e[1], 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "10.0.0.2", "a single entry, bare, for logs");
+	check_str(lws_peer_entries_describe(&e[1], 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "10.0.0.2", "a single entry, bare, as a token");
+	check_str(lws_peer_entries_describe(e, 2, buf, sizeof(buf),
+					    LWS_PEER_DESC_BARE_SINGLE), full,
+		  "bare single: a claim over a socket is still in full");
+	check_str(lws_peer_entries_describe(e, 2, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "192.0.2.10:40000~v<10.0.0.2:40122~r",
+		  "bare single: and in full as one token");
 
 	entry(&e[0], "10.0.0.2", 0, LWS_PEER_KIND_SOCKET,
 	      LWS_PEER_CRED_HEARSAY);
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN),
 		  "10.0.0.2~h", "hearsay, no port, as a token");
+	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "10.0.0.2", "a single entry is bare whatever its cred");
 
 #if defined(LWS_WITH_IPV6)
 	entry(&e[0], "2001:db8::1", 443, LWS_PEER_KIND_RELAY,
@@ -235,6 +256,15 @@ ps_formatter(void)
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN),
 		  "unix~r", "AF_UNIX, as a token");
+	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_BARE_SINGLE),
+		  "unix", "AF_UNIX, bare");
+
+	/* no address family lws can write: no spaces in a token either */
+	entry(&e[0], NULL, 0, LWS_PEER_KIND_SOCKET, LWS_PEER_CRED_HEARSAY);
+	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN),
+		  "unknown~h", "an unset address, as a token");
 
 	check_str(lws_peer_entries_describe(e, 0, buf, sizeof(buf), 0),
 		  "unknown", "no entries");
@@ -357,9 +387,19 @@ ps_srv_check(struct lws *wsi)
 		expect_entry(exp, sizeof(exp), &e[0], 0);
 		check_str(lws_peer_describe(wsi, buf, sizeof(buf), 0), exp,
 			  "server: described for logs");
+		expect_entry(exp, sizeof(exp), &e[0], 1);
 		check_str(lws_peer_describe(wsi, buf, sizeof(buf),
-					    LWS_PEER_DESC_TOKEN), ads,
-			  "server: as a token, just the address");
+					    LWS_PEER_DESC_TOKEN), exp,
+			  "server: as a token");
+
+		/* how lws's own logs and access log describe him */
+		check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+					    LWS_PEER_DESC_BARE_SINGLE), t,
+			  "server: bare, what lws_get_peer_simple() gives");
+		check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+					    LWS_PEER_DESC_TOKEN |
+					    LWS_PEER_DESC_BARE_SINGLE), t,
+			  "server: bare as a token, the same");
 		return;
 	}
 
@@ -398,6 +438,16 @@ ps_srv_check(struct lws *wsi)
 	check_str(lws_peer_describe(wsi, buf, sizeof(buf),
 				    LWS_PEER_DESC_TOKEN), exp,
 		  "server: both as one token");
+	check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+				    LWS_PEER_DESC_TOKEN |
+				    LWS_PEER_DESC_BARE_SINGLE), exp,
+		  "server: bare single, both as one token still");
+	expect_entry(t, sizeof(t), &e[1], 0);
+	lws_snprintf(exp, sizeof(exp), PS_CLIENT ":%u proxy-v2/vouched < %s",
+		     PS_CLIENT_PORT, t);
+	check_str(lws_peer_describe(wsi, buf, sizeof(buf),
+				    LWS_PEER_DESC_BARE_SINGLE), exp,
+		  "server: bare single, both described for logs still");
 
 	if (lws_sa46_parse_numeric_address(PS_STRANGER, &sa46))
 		return;

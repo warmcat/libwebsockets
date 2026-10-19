@@ -1173,13 +1173,43 @@ auth_account_record_strike(struct per_vhost_data__auth_server *vhd,
 			    strike->strikes);
 }
 
-static void
-auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
+/*
+ * The client a log line names: the address the request is keyed on and,
+ * where the connection's peer address stack has more than the transport's
+ * own peer in it (eg, the client a trusted front named in a PROXY v2
+ * header), every layer of that too, with how far each can be believed.
+ * Usually it is just the address.  Returns ip, or buf with the layers.
+ */
+#if (_LWS_ENABLED_LOGS & (LLL_NOTICE | LLL_WARN))
+static const char *
+auth_peer_log(struct lws *wsi, const char *ip, char *buf, size_t len)
 {
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+	char desc[LWS_PEER_DESC_LEN];
+
+	if (!wsi || lws_peer_walk(wsi, e, LWS_PEER_WALK_MAX) <= 1)
+		return ip;
+
+	lws_snprintf(buf, len, "%s via %s", ip,
+		     lws_peer_describe(wsi, desc, sizeof(desc), 0));
+
+	return buf;
+}
+#endif
+
+static void
+auth_record_strike(struct per_vhost_data__auth_server *vhd, struct lws *wsi,
+		   const char *ip)
+{
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	char plog[LWS_PEER_DESC_LEN + 64];
+#endif
 	char key[AUTH_HOST_KEY_LEN];
 	auth_server_strike_t *strike;
 	uint64_t now = (uint64_t)time(NULL);
 	int strikes;
+
+	(void)wsi; /* only for the log */
 
 	/*
 	 * Never accrue strikes against this server's own addresses: the
@@ -1201,8 +1231,8 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 		return;
 	strikes = strike->strikes;
 
-	lwsl_notice("%s: %s (%s) recorded strike %d\n", __func__, ip, key,
-		    strikes);
+	lwsl_notice("%s: %s (%s) recorded strike %d\n", __func__,
+		    auth_peer_log(wsi, ip, plog, sizeof(plog)), key, strikes);
 
 	if (strikes >= 5) {
 		auth_server_ban_t *ban = NULL;
@@ -2043,7 +2073,7 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 				csrf_ck[0] ? "present" : "MISSING",
 				csrf_form ? (int)strlen(csrf_form) : 0,
 				(int)strlen(csrf_ck));
-		auth_record_strike(vhd, pss->client_addr);
+		auth_record_strike(vhd, wsi, pss->client_addr);
 		return -1;
 	}
 	return 0;
@@ -2787,7 +2817,7 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 	email = lws_spa_get_string(pss->spa, EP_EMAIL);
 
 	if (!email || !email[0]) {
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Missing email parameter\"}");
 		goto send;
@@ -2902,7 +2932,7 @@ lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server 
 	new_password = lws_spa_get_string(pss->spa, EP_NEW_PASS);
 
 	if (!token || !token[0] || !new_password || strlen(new_password) < 8) {
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid token or password too short (min 8 chars)\"}");
 		goto send;
@@ -2918,7 +2948,7 @@ lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server 
 	}
 
 	if (!uid) {
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid or expired reset token\"}");
 		goto send;
@@ -3081,7 +3111,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	if (users_empty) {
 		lwsl_info("login rejected (database completely empty)\n");
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
                 len = lws_snprintf(
                     pl + LWS_PRE, sizeof(pl) - LWS_PRE,
@@ -3092,7 +3122,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	if (!user || !pass) {
 		lwsl_err("%s: Missing user or pass parameter\n", __func__);
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Missing parameter\"}");
 		goto send;
@@ -3112,9 +3142,13 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	 * is a larger change than this fix.)
 	 */
 	if (auth_peer_strikes(vhd, peer) >= 3) {
-		lwsl_wsi_notice(wsi, "%s: %s rate limited before KDF",
-				__func__, peer);
-		auth_record_strike(vhd, peer);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+		char plog[LWS_PEER_DESC_LEN + 64];
+
+		lwsl_wsi_notice(wsi, "%s: %s rate limited before KDF", __func__,
+				auth_peer_log(wsi, peer, plog, sizeof(plog)));
+#endif
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Too many attempts, try again shortly\"}");
 		goto send;
@@ -3128,7 +3162,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	if (auth_account_strikes(vhd, user) >= 8) {
 		lwsl_wsi_notice(wsi, "%s: account rate limited before KDF",
 				__func__);
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Too many attempts, try again shortly\"}");
 		goto send;
@@ -3438,7 +3472,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 send:
 	if (kdf_spent && !logged_in) {
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		if (totp_asked)
 			auth_2fa_pending_add(vhd, peer, user);
 	}
@@ -3768,7 +3802,7 @@ lws_auth_api_verify(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	lws_strncpy(hbuf, h, sizeof(hbuf));
 
 	if (auth_registration_lookup(vhd, hbuf, &r)) {
-		auth_record_strike(vhd, pss->client_addr);
+		auth_record_strike(vhd, wsi, pss->client_addr);
 
 		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
 
@@ -3797,7 +3831,7 @@ lws_auth_api_verify(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	if (!ins_ok) {
 		lwsl_notice("verify: registration already "
 			    "consumed or user exists\n");
-		auth_record_strike(vhd, pss->client_addr);
+		auth_record_strike(vhd, wsi, pss->client_addr);
 		lws_return_http_status(wsi,
 			HTTP_STATUS_BAD_REQUEST,
 			"Invalid or Expired Link");
@@ -4021,7 +4055,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	if (exists) {
 		lwsl_info("reg: email already fully registered, answering as "
 			  "if sent\n");
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"If the address is free, a verification email has been sent\"}");
 		goto send;
@@ -4036,13 +4070,13 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	if (exists) {
 		lwsl_info("reg: pending verification already circulating, "
 			  "answering as if sent\n");
-		auth_record_strike(vhd, peer);
+		auth_record_strike(vhd, wsi, peer);
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"If the address is free, a verification email has been sent\"}");
 		goto send;
 	}
 
-	auth_record_strike(vhd, peer); /* Throttle IP naturally to maximally 4 gen / 120s universally */
+	auth_record_strike(vhd, wsi, peer); /* Throttle IP naturally to maximally 4 gen / 120s universally */
 
 	if (auth_kdf_budget_take(vhd)) {
 		lwsl_wsi_notice(wsi, "%s: KDF budget exhausted", __func__);
@@ -4079,7 +4113,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
                 if (sr != SQLITE_DONE) {
                         lwsl_err("DB insert failed: %s\n", sqlite3_errmsg(vhd->db));
-                        auth_record_strike(vhd, peer);
+                        auth_record_strike(vhd, wsi, peer);
                         pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
                         len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"User creation failed\"}");
                         goto send;
@@ -4117,7 +4151,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 fail:
 	lwsl_info("reg hash generation or DB query failed\n");
-	auth_record_strike(vhd, peer);
+	auth_record_strike(vhd, wsi, peer);
 	pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
 
@@ -5269,7 +5303,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (auth_registration_lookup(vhd, hbuf, &r)) {
-				auth_record_strike(vhd, pss->client_addr);
+				auth_record_strike(vhd, wsi, pss->client_addr);
 
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
 
@@ -6344,12 +6378,15 @@ callback_auth_feed(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		}
 		if (!auth_feed_authorized(wsi, vhd)) {
-			char peer[64];
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+			char peer[64], plog[LWS_PEER_DESC_LEN + 64];
 
 			/* refused either way: this only names it in the log */
 			(void)auth_client_address(wsi, vhd, peer, sizeof(peer));
 			lwsl_wsi_warn(wsi, "auth feed subscription from %s "
-				      "without the feed secret refused", peer);
+				      "without the feed secret refused",
+				      auth_peer_log(wsi, peer, plog, sizeof(plog)));
+#endif
 			return 1;
 		}
 		break;

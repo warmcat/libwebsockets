@@ -2615,9 +2615,10 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 
 	if (g->meth >= (int)LWS_ARRAY_SIZE(method_names)) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
-		char name[48];
+		char name[LWS_PEER_DESC_LEN];
 		lwsl_wsi_warn(wsi, "invalid method %d: %s", g->meth,
-			      lws_io_peer_address(wsi, name, sizeof(name)));
+			      lws_io_peer_describe(wsi, name, sizeof(name),
+						   LWS_PEER_DESC_BARE_SINGLE));
 #endif
 		return lws_http_gate_bail(wsi, g);
 	}
@@ -2674,11 +2675,12 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 
 	if (!g->uri_ptr || g->uri_ptr[0] != '/') {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
-		char name[48];
+		char name[LWS_PEER_DESC_LEN];
 		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr (meth=%d, "
 			      "uri_len=%d, uri_ptr=%p): peer %s", g->meth,
 			      (int)g->uri_len, (void *)g->uri_ptr,
-			      lws_io_peer_address(wsi, name, sizeof(name)));
+			      lws_io_peer_describe(wsi, name, sizeof(name),
+						   LWS_PEER_DESC_BARE_SINGLE));
 #endif
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
@@ -2726,11 +2728,12 @@ lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 				(unsigned int)g->uri_len);
 	if (n) {
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-		char name[64];
+		char name[LWS_PEER_DESC_LEN];
 
 		lwsl_notice("User code denied HTTP connection: protocol=%s, "
 			    "peer=%s, uri=%s\n", wsi->a.protocol->name,
-			    lws_io_peer_address(wsi, name, sizeof(name)),
+			    lws_io_peer_describe(wsi, name, sizeof(name),
+						 LWS_PEER_DESC_BARE_SINGLE),
 			    g->uri_ptr);
 #endif
 		g->verdict = 1;
@@ -3564,7 +3567,7 @@ lws_http_to_raw(struct lws *wsi, const struct lws_protocols *connect_pr,
 	const struct lws_role_ops *role = &role_ops_raw_skt;
 	const struct lws_protocols *p1, *protocol =
 			 &wsi->a.vhost->protocols[wsi->a.vhost->raw_protocol_index];
-	char ipbuf[64];
+	char ipbuf[LWS_PEER_DESC_LEN];
 	int n;
 
 	if (wsi->a.vhost->listen_accept_role &&
@@ -3600,7 +3603,8 @@ lws_http_to_raw(struct lws *wsi, const struct lws_protocols *connect_pr,
 
 	ipbuf[0] = '\0';
 #if !defined(LWS_PLAT_OPTEE)
-	lws_io_peer_address(wsi, ipbuf, sizeof(ipbuf));
+	lws_io_peer_describe(wsi, ipbuf, sizeof(ipbuf),
+			     LWS_PEER_DESC_BARE_SINGLE);
 #endif
 
 	lwsl_notice("%s: vh %s, peer: %s, role %s, "
@@ -4355,14 +4359,14 @@ lws_http_transaction_completed(struct lws *wsi)
 			&& !wsi->http.cgi
 #endif
 	) {
-		char peer[64];
+		char peer[LWS_PEER_DESC_LEN];
 
 #if !defined(LWS_PLAT_OPTEE)
-		lws_io_peer_address(wsi, peer, sizeof(peer) - 1);
+		lws_io_peer_describe(wsi, peer, sizeof(peer),
+				     LWS_PEER_DESC_BARE_SINGLE);
 #else
 		peer[0] = '\0';
 #endif
-		peer[sizeof(peer) - 1] = '\0';
 		lwsl_info("%s: (from %s) ignoring, ah parsing incomplete\n",
 				__func__, peer);
 		return 0;

@@ -7,8 +7,11 @@ each entry tagged with how far it can be believed (`lws_peer_cred_t`:
 hearsay, vouched, routable, crypto).
 
  - **formatter**: `lws_peer_entries_describe()` on entries made up in the
-   test, in the log format and as one token, with IPv6 brackets, AF_UNIX, the
-   cred and kind names, and buffers too small for the result.
+   test, in the log format and as one token, with IPv6 brackets, AF_UNIX, an
+   address of no family lws can write, the cred and kind names, and buffers
+   too small for the result.  With `LWS_PEER_DESC_BARE_SINGLE`, which is how
+   lws's own logs describe the peer, a single entry is just its address,
+   while a deeper stack is still described in full.
 
  - **effective**: `lws_peer_entries_effective()` on stacks made up in the
    test, including ones lws does not build yet: a hearsay entry above a
@@ -17,15 +20,16 @@ hearsay, vouched, routable, crypto).
 
  - **tcp**: a raw client sends a GET to an http vhost.  The server sees one
    entry, the socket's peer, ROUTABLE and effective, which is what
-   `lws_get_peer_simple()` gives; the client sees the server it connected to
-   the same way.
+   `lws_get_peer_simple()` gives, and what `lws_peer_describe()` gives with
+   `LWS_PEER_DESC_BARE_SINGLE`, so logs show it as they always did; the
+   client sees the server it connected to the same way.
 
  - **proxy-v2** (with `LWS_WITH_TLS_PASSTHROUGH`): the client sends a PROXY v2
    header first, to a vhost trusting loopback for one.  The client it names
    is on top, VOUCHED, over the front's own socket, ROUTABLE.  The claim is
    the effective entry and what `lws_get_peer_simple()` and
    `lws_get_peer_host_key()` give, and `lws_peer_raise()` for some other
-   address raises nothing.
+   address raises nothing.  Logs describe both layers, with their creds.
 
  - **udp** (with `LWS_WITH_UDP`): a bound UDP socket's peer is the last
    datagram's source, HEARSAY, as a DATAGRAM entry: the socket has no peer of

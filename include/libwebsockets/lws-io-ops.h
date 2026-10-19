@@ -190,6 +190,13 @@ typedef struct lws_io_ops {
 	 * (a mux stream's is its network connection's), returning buf.  IO's
 	 * is lws_get_peer_simple().  May be NULL: sansIO then says
 	 * "unknown". */
+	const char *(*peer_describe)(struct lws *wsi, char *buf, size_t len,
+				     int flags);
+	/**< who wsi's peer is, layer by layer with each layer's credibility,
+	 * as text into buf of len, returning buf: IO's is lws_peer_describe(),
+	 * and flags are its LWS_PEER_DESC_... flags.  A stream's layers are
+	 * those of its connection.  May be NULL: sansIO then says
+	 * "unknown". */
 
 	/*
 	 * the tls session, which is IO's: what sansIO asks of it.  NULL in a

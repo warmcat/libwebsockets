@@ -1451,10 +1451,19 @@ deaddrop_handler_server_ws_established(struct vhd_deaddrop *vhd,
 }
 
 static void
-deaddrop_handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss)
+deaddrop_handler_server_ws_closed(struct vhd_deaddrop *vhd,
+				  struct pss_deaddrop *pss, struct lws *wsi)
 {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	char desc[LWS_PEER_DESC_LEN];
+
+	/* every layer of who he was, where there is more than his address */
 	lwsl_notice("%s: WS connection closed (user: '%s', ip: %s)\n",
-		    __func__, pss->user, pss->ip);
+		    __func__, pss->user, lws_peer_describe(wsi, desc,
+				sizeof(desc), LWS_PEER_DESC_BARE_SINGLE));
+#else
+	(void)wsi;
+#endif
 
 	deaddrop_release_filelist(pss);
 	deaddrop_users_snapshot_free(pss);
@@ -1892,7 +1901,7 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_CLOSED:
-		deaddrop_handler_server_ws_closed(vhd, pss);
+		deaddrop_handler_server_ws_closed(vhd, pss, wsi);
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE:

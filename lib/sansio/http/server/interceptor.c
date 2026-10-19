@@ -356,10 +356,18 @@ lws_interceptor_issue_cookie(struct lws *wsi, const char *redirect_uri)
 
 	lws_io_peer_address(wsi, ip, sizeof(ip));
 
-	lwsl_vhost_notice(vhd->vhost, "%s: %s minting cookie '%s' for peer %s",
-			  __func__,
-			  wsi->role_ops ? wsi->role_ops->name : "?",
-			  vhd->cookie_name, ip);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	{
+		char desc[LWS_PEER_DESC_LEN];
+
+		lwsl_vhost_notice(vhd->vhost, "%s: %s minting cookie '%s' for "
+				  "peer %s", __func__,
+				  wsi->role_ops ? wsi->role_ops->name : "?",
+				  vhd->cookie_name,
+				  lws_io_peer_describe(wsi, desc, sizeof(desc),
+						LWS_PEER_DESC_BARE_SINGLE));
+	}
+#endif
 
 	lws_interceptor_init_jwt_cookie(&ck, vhd, ip, vhd->cookie_name,
 					LWS_INTERCEPTOR_PUR_PASS);
@@ -492,10 +500,17 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 		}
 
 		if (!allow) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+			char desc[LWS_PEER_DESC_LEN];
+
 			lwsl_vhost_notice(vhd->vhost, "%s: %s IP mismatch %s vs %s",
 					  __func__,
 					  wsi->role_ops ? wsi->role_ops->name : "?",
-					  sub_claim, ip);
+					  sub_claim,
+					  lws_io_peer_describe(wsi, desc,
+						sizeof(desc),
+						LWS_PEER_DESC_BARE_SINGLE));
+#endif
 			lws_interceptor_inject_header(wsi, vhd, NULL);
 			return vhd->always_pass ? 0 : 1;
 		}

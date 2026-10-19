@@ -230,7 +230,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 	struct pss_oauth_preauth *pss = (struct pss_oauth_preauth *)user;
 	struct vhd_oauth_preauth *vhd = (struct vhd_oauth_preauth *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
-	char peerip[64];
+	char peerip[LWS_PEER_DESC_LEN];
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -313,7 +313,9 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		peerip[0] = '\0';
-		lws_get_peer_simple(wsi, peerip, sizeof(peerip));
+		/* for the logs: who he is, with every layer if more than one */
+		lws_peer_describe(wsi, peerip, sizeof(peerip),
+				  LWS_PEER_DESC_BARE_SINGLE);
 
 		if (pss->is_listener) {
 			lwsl_wsi_notice(wsi, "new oauth listener device_joined, peer: %s", peerip);

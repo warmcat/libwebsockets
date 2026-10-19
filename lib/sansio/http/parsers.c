@@ -1360,12 +1360,12 @@ lws_parse_fail_diag(struct lws *wsi, const unsigned char *buf, int consumed,
 {
 	int level = lwsi_role_client(wsi) ? LLL_NOTICE : LLL_INFO;
 	const char *tok = NULL;
-	char peer[72];
+	char peer[LWS_PEER_DESC_LEN];
 	int s, e, state = -1;
 
 	peer[0] = '\0';
 #if !defined(LWS_PLAT_OPTEE)
-	lws_io_peer_address(wsi, peer, sizeof(peer));
+	lws_io_peer_describe(wsi, peer, sizeof(peer), LWS_PEER_DESC_BARE_SINGLE);
 #endif
 
 	if (consumed < 1)

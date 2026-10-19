@@ -1061,9 +1061,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 					goto notls_accepted;
 				}
 
-				char ipbuf[64];
+				char ipbuf[LWS_PEER_DESC_LEN];
 
-				lws_get_peer_simple(wsi, ipbuf, sizeof(ipbuf));
+				lws_peer_describe(wsi, ipbuf, sizeof(ipbuf),
+						  LWS_PEER_DESC_BARE_SINGLE);
 				lwsl_notice("%s: client did not send a valid "
 					    "tls hello (default vhost %s) from %s\n",
 					    __func__, wsi->a.vhost->name, ipbuf);

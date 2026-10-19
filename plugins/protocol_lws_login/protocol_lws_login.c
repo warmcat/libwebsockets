@@ -3181,7 +3181,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (!match) {
-				lwsl_info("%s: peer %s failed whitelist\n", __func__, ip);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+				char desc[LWS_PEER_DESC_LEN];
+
+				lwsl_info("%s: peer %s failed whitelist\n",
+					  __func__, lws_peer_describe(wsi, desc,
+						sizeof(desc),
+						LWS_PEER_DESC_BARE_SINGLE));
+#endif
 				return 1; /* Request intercept to serve 403 */
 			}
 		}

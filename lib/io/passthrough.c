@@ -379,7 +379,10 @@ static int
 lws_pre_accept_proxy_v2(struct lws *wsi)
 {
 	uint8_t hdr[LWS_PROXY_V2_MAX];
-	char peer[64], client[64];
+	char peer[64];
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	char desc[LWS_PEER_DESC_LEN];
+#endif
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *pl;
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -432,11 +435,13 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 		}
 	}
 
-	client[0] = '\0';
-	if (!pv.local)
-		lws_sa46_write_numeric_address(&pv.src, client, sizeof(client));
-	lwsl_wsi_info(wsi, "proxy %s forwards %s", peer,
-		      pv.local ? "its own connection" : client);
+	/* the client it named over the proxy's own connection, or just him */
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	lwsl_wsi_info(wsi, "proxy forwards %s%s",
+		      lws_peer_describe(wsi, desc, sizeof(desc),
+					LWS_PEER_DESC_BARE_SINGLE),
+		      pv.local ? " (its own connection)" : "");
+#endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	/*
@@ -451,9 +456,12 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 					 &wsi->io->pstack[0].sa46 : &pv.src);
 	if (lws_peer_wsi_limit_reached(wsi->a.context, pl,
 				       wsi->io->desc.sockfd)) {
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		lwsl_wsi_info(wsi, "%s %s at its connection limit: dropped",
 			      pv.local ? "proxy" : "client",
-			      pv.local ? peer : client);
+			      lws_peer_describe(wsi, desc, sizeof(desc),
+						LWS_PEER_DESC_BARE_SINGLE));
+#endif
 		return -1;
 	}
 
@@ -751,7 +759,9 @@ lws_passthrough_start(struct lws *wsi, struct lws_vhost *vh, const char *sni)
 	const struct lws_protocols *p;
 	struct lws_client_connect_info i;
 	lws_passthrough_conn_t *c;
-	char peer[64];
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	char peer[LWS_PEER_DESC_LEN];
+#endif
 
 	p = lws_vhost_name_to_protocol(vh, lws_passthrough_protocol.name);
 	if (!p)
@@ -784,8 +794,6 @@ lws_passthrough_start(struct lws *wsi, struct lws_vhost *vh, const char *sni)
 	lws_rx_flow_control(wsi, 0);
 	lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 			(int)wsi->a.context->timeout_secs);
-
-	lws_get_peer_simple(wsi, peer, sizeof(peer));
 
 	if (vh->passthrough_proxy_v2) {
 		uint8_t hdr[LWS_PROXY_V2_MAX];
@@ -841,8 +849,12 @@ lws_passthrough_start(struct lws *wsi, struct lws_vhost *vh, const char *sni)
 	i.opaque_user_data	= c;
 	i.pwsi			= &c->wsi[PT_ONW];
 
-	lwsl_wsi_notice(wsi, "%s for %s passed through to %s:%u", peer, sni,
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	lwsl_wsi_notice(wsi, "%s for %s passed through to %s:%u",
+			lws_peer_describe(wsi, peer, sizeof(peer),
+					  LWS_PEER_DESC_BARE_SINGLE), sni,
 			vh->passthrough_host, vh->passthrough_port);
+#endif
 
 	if (!lws_client_connect_via_info(&i) && !c->closed[PT_ONW]) {
 		/* it failed before it could tell us */

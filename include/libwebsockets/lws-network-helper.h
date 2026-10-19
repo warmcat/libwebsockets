@@ -436,6 +436,13 @@ lws_peer_entries_effective(const lws_peer_entry_t *e, int count);
 
 /* lws_peer_describe() flags */
 #define LWS_PEER_DESC_TOKEN	(1 << 0) /* one token, no spaces, see below */
+#define LWS_PEER_DESC_BARE_SINGLE (1 << 1) /* one entry: just its address */
+
+/*
+ * Room for any description of what lws_peer_walk() can give, including the
+ * terminating NUL
+ */
+#define LWS_PEER_DESC_LEN	224
 
 /**
  * lws_peer_entries_describe() - format peer address entries as text
@@ -444,7 +451,7 @@ lws_peer_entries_effective(const lws_peer_entry_t *e, int count);
  * \param count: the number of entries in \p e
  * \param buf: the buffer for the text
  * \param len: the size of \p buf
- * \param flags: 0 or LWS_PEER_DESC_TOKEN
+ * \param flags: 0, or LWS_PEER_DESC_TOKEN and / or LWS_PEER_DESC_BARE_SINGLE
  *
  * By default, for logs, each entry is "<address>[:<port>] <kind>/<cred>",
  * joined top first with " < ", eg
@@ -453,17 +460,24 @@ lws_peer_entries_effective(const lws_peer_entry_t *e, int count);
  *
  * With LWS_PEER_DESC_TOKEN, for a single field of a log line, there are no
  * spaces: each entry is "<address>[:<port>]~<h|v|r|c>" (the cred's initial),
- * joined with "<", except that a single routable socket entry is just its
- * bare address, without the port, which is what an access log has always
- * shown, eg
+ * joined with "<", eg
  *
- *   "203.0.113.9:51234~v<10.0.0.2:40122~r", or "10.0.0.2"
+ *   "203.0.113.9:51234~v<10.0.0.2:40122~r"
+ *
+ * With LWS_PEER_DESC_BARE_SINGLE, a single entry is just its bare address,
+ * without port, kind or cred, eg "10.0.0.2": the peer is usually only the
+ * transport's, and that is what logs have always shown for it.  Deeper
+ * stacks are described in full either way, since then the other layers are
+ * exactly what a log needs to show.
  *
  * An IPv6 address with a port is bracketed, eg "[2001:db8::1]:443".  An
- * AF_UNIX (LWS_PEER_KIND_LOCAL) entry's address is "unix".
+ * AF_UNIX (LWS_PEER_KIND_LOCAL) entry's address is "unix", and an address of
+ * any other family that is not IPv4 or IPv6 is "unknown", so that a token
+ * never contains spaces.
  *
  * The result is always NUL-terminated if \p len is nonzero, and ends with
- * "..." if it was cut short.
+ * "..." if it was cut short.  A buffer of LWS_PEER_DESC_LEN is never cut
+ * short.
  *
  * Returns \p buf.
  */
@@ -477,10 +491,16 @@ lws_peer_entries_describe(const lws_peer_entry_t *e, int count, char *buf,
  * \param wsi: the connection, or a stream on it
  * \param buf: the buffer for the text
  * \param len: the size of \p buf
- * \param flags: 0 or LWS_PEER_DESC_TOKEN
+ * \param flags: 0, or LWS_PEER_DESC_TOKEN and / or LWS_PEER_DESC_BARE_SINGLE
  *
  * lws_peer_entries_describe() of what lws_peer_walk() gives for \p wsi; a
  * connection with no peer gives "unknown".
+ *
+ * With LWS_PEER_DESC_BARE_SINGLE, a connection with no more than one entry
+ * is described by exactly the text lws_get_peer_simple() gives for it, so
+ * that a log or access log line is the same as it always was in the usual
+ * case, and only grows the other layers when there are some.  This is how
+ * lws describes the peer in its own logs and access log.
  *
  * Returns \p buf.
  */

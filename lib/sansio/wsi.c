@@ -2760,9 +2760,10 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	/* one of either the ping or hangup validity threshold was crossed */
 
 	if (wsi->validity_hup) {
-		char buf[128];
+		char buf[LWS_PEER_DESC_LEN];
 		buf[0] = '\0';
-		lws_io_peer_address(wsi, buf, sizeof(buf));
+		lws_io_peer_describe(wsi, buf, sizeof(buf),
+				     LWS_PEER_DESC_BARE_SINGLE);
 
 		lwsl_wsi_notice(wsi, "VALIDITY TIMEOUT EXPIRED ON (protocol %s, peer %s)! Server is closing connection. (ping=%d, hangup=%d)\n",
 			    wsi->a.protocol ? wsi->a.protocol->name : "none", buf,

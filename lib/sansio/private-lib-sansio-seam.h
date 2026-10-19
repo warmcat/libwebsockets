@@ -112,7 +112,8 @@ lws_io_tx_file(struct lws *wsi)
 
 /*
  * the transport (lws_io_ops_t transport_start, transport_connected,
- * transport_established, transport_failed, client_connect, peer_address;
+ * transport_established, transport_failed, client_connect, peer_address,
+ * peer_describe;
  * IO's plumbing's transport_rebind)
  */
 
@@ -219,6 +220,24 @@ lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
 	}
 
 	return wsi->a.context->io_ops->peer_address(wsi, buf, len);
+}
+
+/*
+ * who the connection's peer is, as text into buf for a log: each layer of
+ * its peer address stack with its credibility, top first, or with
+ * LWS_PEER_DESC_BARE_SINGLE, just the address when there is only the
+ * transport's (lws_io_ops_t.peer_describe, IO's lws_peer_describe()).
+ * Returns buf.
+ */
+static LWS_INLINE const char *
+lws_io_peer_describe(struct lws *wsi, char *buf, size_t len, int flags)
+{
+	if (!wsi->a.context->io_ops->peer_describe) {
+		lws_strncpy(buf, "unknown", len);
+		return buf;
+	}
+
+	return wsi->a.context->io_ops->peer_describe(wsi, buf, len, flags);
 }
 
 #if defined(LWS_WITH_TLS)

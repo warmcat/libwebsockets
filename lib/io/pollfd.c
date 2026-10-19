@@ -996,6 +996,7 @@ const lws_io_ops_t lws_io_ops_default = {
 #if !defined(LWS_PLAT_OPTEE)
 	.peer_address		= lws_get_peer_simple,
 #endif
+	.peer_describe		= lws_peer_describe,
 
 #if defined(LWS_WITH_TLS)
 	.tls_session		= lws_tls_session_ptr,
