@@ -785,6 +785,24 @@ enum lws_login_state {
 	 * whole system.  Any "*" level >= 1 qualifies. */
 	LWS_LOGIN_STATE_GLOBAL_ADMIN = 4,
 };
+
+/**
+ * LWS_LOGIN_CALLBACK_SESSION_LIVE - ask lws-login if a request has a session
+ *
+ * Another protocol on the same vhost (eg, an interceptor that wants to wave
+ * logged-in users through) calls the vhost's "lws-login" protocol callback
+ * with this reason, user and in NULL and len 0, on the wsi of the request it
+ * is handling.  It returns 0 only if the request carries an authentic,
+ * unexpired lws-login session, still backed by the auth server's records,
+ * holding at least the vhost's minimum grant level for the service the
+ * request's mount names; nonzero otherwise.
+ *
+ * Unlike LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK, which returns 0 for anything it
+ * lets through, an anonymous request lws-login would let through on an
+ * unauth-allow vhost or mount is not a session, and gets nonzero.  It has no
+ * side effects on the request: nothing is stamped or snipped.
+ */
+#define LWS_LOGIN_CALLBACK_SESSION_LIVE	(LWS_CALLBACK_USER + 1)
 ///@}
 
 /*! \defgroup HTTP-headers-create HTTP headers: create

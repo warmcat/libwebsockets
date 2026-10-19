@@ -46,16 +46,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+ * A visitor with a live lws-login session for the service is let through
+ * without the delays; everybody else waits them out.
+ *
+ * It must be asked as a session question: lws-login's interceptor check
+ * also says "let it through" for an anonymous visitor on an unauth-allow
+ * vhost or mount, which is exactly who the delays are for.
+ */
 static lws_interceptor_result_t
 ratelimit_verify(struct lws *wsi, const void *in, size_t len)
 {
-	const struct lws_protocols *pt = lws_vhost_name_to_protocol(lws_get_vhost(wsi), "lws-login");
+	const struct lws_protocols *pt = lws_vhost_name_to_protocol(
+					lws_get_vhost(wsi), "lws-login");
 
 	(void)in;
 	(void)len;
 
-	if (pt && !pt->callback(wsi, LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK, NULL, (void *)pt, 0))
+	if (pt && !pt->callback(wsi, (enum lws_callback_reasons)
+					LWS_LOGIN_CALLBACK_SESSION_LIVE,
+				NULL, NULL, 0)) {
+		lwsl_info("%s: live lws-login session, no delay\n", __func__);
 		return LWS_INTERCEPTOR_RET_PASS;
+	}
 
 	return LWS_INTERCEPTOR_RET_DELAYED;
 }

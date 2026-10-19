@@ -155,6 +155,21 @@ The `lws_login_state` values are ordered by privilege:
 
 Because the values are ordered, a backend can write `state >= LWS_LOGIN_STATE_APP_ADMIN` for "any kind of admin" and `state == LWS_LOGIN_STATE_GLOBAL_ADMIN` for "system-wide only". **Do not conflate `APP_ADMIN` with `GLOBAL_ADMIN`**: an app admin can administer only the app behind this mount, whereas a global admin can administer every user and account on the system (including from the central auth-server Admin Console at `/api/admin`, which itself gates on the literal `*` grant).
 
+## Asking lws-login whether a request has a session
+
+Another protocol on the same vhost can ask whether the request it is handling
+carries a live session, by calling the vhost's `lws-login` protocol callback
+with reason `LWS_LOGIN_CALLBACK_SESSION_LIVE` (`include/libwebsockets/lws-http.h`).
+It returns 0 only for an authentic, unexpired session, not stale against the
+auth feed, holding at least `min-grant-level` for the service the request's
+mount names, and has no side effects on the request.  `captcha_ratelimit` uses
+it to let logged-in users skip its delays.
+
+Don't use `LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK` for that question: it returns
+0 for whatever lws-login lets through, which includes anonymous visitors on an
+`unauth-allow` vhost or mount (stamped `LWS_LOGIN_STATE_ANON`), and it stamps
+and snips the request's `x-lws-login-*` headers as it goes.
+
 ## Example JSON Configuration (`lwsws`)
 
 You can enable this bouncing natively via a standard JSON layout without compiling custom C code. This example protects a local dashboard physically sitting at `/var/www/dashboard`, demanding that connecting users hold at least a `level 2` clearance for `dashboard-service` before `lws-login` lets traffic pass.
@@ -329,7 +344,7 @@ is the one request a not-logged-in widget always makes and scanners never do.
 already expired, leaving "what an expired token means" to the caller; only its
 signature is being asserted, not that the session is live.  Every gate here
 therefore checks `exp` itself (`lws_login_jwt_expired()`) -- the interceptor
-verdict, the `LWS_CALLBACK_USER + 1` bypass API, and the `LWS_CALLBACK_HTTP`
+verdict, the `LWS_LOGIN_CALLBACK_SESSION_LIVE` query, and the `LWS_CALLBACK_HTTP`
 path alike.  A gate that only tests the handle for NULL turns any once-valid
 `auth_session` value into a session that never ends.
 

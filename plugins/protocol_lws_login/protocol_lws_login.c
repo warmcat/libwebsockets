@@ -2987,7 +2987,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
-	case LWS_CALLBACK_USER + 1:
+	case LWS_LOGIN_CALLBACK_SESSION_LIVE:
 	{
 		int level = -1;
 		struct lws_jwt_auth *ja;
@@ -3053,7 +3053,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		int level = -1, unauth_proto = 0;
 		struct lws_jwt_auth *ja;
-		/* see the LWS_CALLBACK_USER + 1 note on this size */
+		/* see the LWS_LOGIN_CALLBACK_SESSION_LIVE note on this size */
 		char uri[LWS_LOGIN_MAX_URI];
 		const char *service_name;
 		const struct lws_http_mount *mount = NULL;

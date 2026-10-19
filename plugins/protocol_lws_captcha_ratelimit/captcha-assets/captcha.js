@@ -79,7 +79,8 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch(lws_interceptor_path + '/.lws-login-status')
             .then(function(r) { return r.json(); })
             .then(function(d) {
-                if (d.logged_in && form) {
+                // the server only waves through a session with the grant
+                if (d.logged_in && d.has_grant && form) {
                     if (msg) msg.innerText = 'Authenticated via login... bypassing...';
                     setStatus('pressed');
                     btn.disabled = true;
