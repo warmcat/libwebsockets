@@ -352,3 +352,10 @@ a log is evidence that something was or was not emitted.
  - lwsws-oauth-limits and lwsws-oauth-login-h3 occasionally time out at
    -j6 under ASan and pass on rerun (seen by several agents 2026-10-19):
    rerun the group alone before treating it as a regression.
+ - `unshare -rn` with a veth pair works unprivileged on the dev host, so
+   a scratch program can provoke real netlink route events (eg `ip addr
+   del`) without root (V34, route checks for G-316).  CI hosts may not
+   allow user namespaces, so don't make a ctest depend on it.
+ - A build tree's `include/` holds header copies made at cmake time:
+   when compiling against a different checkout or worktree, put that
+   tree's source `include/` first on the include path.
