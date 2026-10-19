@@ -142,6 +142,21 @@ enum {
 };
 
 static const struct leg legs[] = {
+	/*
+	 * The stall legs come first: their stall window measures the cpu the
+	 * whole process uses, and the mux connections other legs leave idle
+	 * (h2, QUIC) are closed by their idle timeouts some 5s later, costing
+	 * several ms of cpu each under ASan.  Run after those legs, that
+	 * teardown landed in the window and failed it, though nothing spun.
+	 * Run first, there is nothing else to tear down: their own h1
+	 * connections are closed by the time each leg ends.
+	 */
+	{ "h1, pmd, server sends to a client not reading", "cli-pmd", "http/1.1",
+							0, 1, 0, 0, STALL_TX_DRAIN, 0, 0, 0 },
+	{ "h1, server closes with tx buffered, client not reading", "cli",
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH, 0, 0, 0 },
+	{ "h1, server closes on a full socket, client not reading", "cli",
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL, 0, 0, 0 },
 	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0, 0, 0, 0, 0 },
 	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0, 0, 0, 0, 0 },
 	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0, 0, 0, 0, 0 },
@@ -173,12 +188,6 @@ static const struct leg legs[] = {
 	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0, 0, 0, 0, 0 },
 	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0, 0, 0, 0, 0 },
 	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0, 0, 0, 0 },
-	{ "h1, pmd, server sends to a client not reading", "cli-pmd", "http/1.1",
-							0, 1, 0, 0, STALL_TX_DRAIN, 0, 0, 0 },
-	{ "h1, server closes with tx buffered, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH, 0, 0, 0 },
-	{ "h1, server closes on a full socket, client not reading", "cli",
-					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL, 0, 0, 0 },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
