@@ -31,10 +31,13 @@
  * Each step is one request from a fresh client connection:
  *
  *  - "visit": GET the page with no cookies: the captcha page is served,
- *    with its visit cookie, which the later steps send back
+ *    with its visit cookie, which the later steps send back, and
+ *    cache-control: no-store
  *
  *  - "<who>-config": GET the page's interceptor-config.js with the session
- *    (if any): lws_interceptor_session_live must be 1 only for "live"
+ *    (if any): lws_interceptor_session_live must be 1 only for "live".  The
+ *    config js is about the visitor, so it must be cache-control: no-store
+ *    and cross-origin-resource-policy: same-origin (G-344)
  *
  *  - "<who>-submit": submit the challenge at once, with the visit cookie and
  *    the session (if any): the pass cookie must come at once only for
@@ -234,6 +237,37 @@ append_headers(struct lws *wsi, unsigned char **p, unsigned char *end)
 }
 
 /*
+ * The challenge page and the config js are about this visitor: no cache may
+ * keep them, and no other origin may include the config js as a script
+ */
+static int
+judge_private(struct lws *wsi)
+{
+	char v[64];
+
+	if (lws_hdr_copy(wsi, v, sizeof(v), WSI_TOKEN_HTTP_CACHE_CONTROL) <= 0 ||
+	    strcmp(v, "no-store")) {
+		lwsl_err("%s: step %d: cache-control must be no-store\n",
+			 __func__, step);
+		return 1;
+	}
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	if (steps[step].live >= 0 &&
+	    (lws_hdr_custom_copy(wsi, v, sizeof(v),
+				 "cross-origin-resource-policy:", 29) <= 0 ||
+	     strcmp(v, "same-origin"))) {
+		lwsl_err("%s: step %d: config js needs "
+			 "cross-origin-resource-policy: same-origin\n",
+			 __func__, step);
+		return 1;
+	}
+#endif
+
+	return 0;
+}
+
+/*
  * Judge the response headers of the step: its status, and which of the
  * captcha's cookies it set
  */
@@ -287,6 +321,9 @@ judge(struct lws *wsi)
 				    "a live session did not skip the delays");
 		return 1;
 	}
+
+	if ((steps[step].visit || steps[step].live >= 0) && judge_private(wsi))
+		return 1;
 
 	return 0;
 }

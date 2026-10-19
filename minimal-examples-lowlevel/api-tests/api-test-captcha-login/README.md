@@ -14,6 +14,9 @@ the same answer the server gives the submission, or the page loops through
 challenges (G-340, G-341): so the vhost's lws-login `min-grant-level` is 2,
 and the page's mount names its own `service-name`, `public-svc`.
 
+Both answers are about the visitor, so neither may be kept by a cache, and
+the config js may not be included as a script by another origin (G-344).
+
 | Visitor | Session |
 |---|---|
 | anon | none |
@@ -24,8 +27,8 @@ and the page's mount names its own `service-name`, `public-svc`.
 
 | Step | Request | Expected |
 |---|---|---|
-| visit | GET the page, no cookies | 200, the captcha page and its visit cookie |
-| *who*-config | GET the page's `interceptor-config.js` with the session | `lws_interceptor_session_live` 1 only for live |
+| visit | GET the page, no cookies | 200, the captcha page and its visit cookie, `cache-control: no-store` |
+| *who*-config | GET the page's `interceptor-config.js` with the session | `lws_interceptor_session_live` 1 only for live, `cache-control: no-store`, `cross-origin-resource-policy: same-origin` |
 | *who*-submit | submit the challenge at once, visit cookie and session | 303, the pass cookie only for live |
 
 ```

@@ -645,6 +645,22 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 				if (lws_add_http_header_content_length(wsi, (lws_filepos_t)js_len, (unsigned char **)&p,
 									(unsigned char *)end))
 					return 1;
+				/*
+				 * The body is about this visitor (lws_auth_user,
+				 * the plugin's session state): no cache may keep
+				 * it for anybody else, and no other origin may
+				 * include it as a script to read the globals
+				 * (CORS does not cover <script src>)
+				 */
+				if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
+								 (unsigned char *)"no-store", 8,
+								 (unsigned char **)&p, (unsigned char *)end))
+					return 1;
+				if (lws_add_http_header_by_name(wsi,
+						(unsigned char *)"cross-origin-resource-policy:",
+						(unsigned char *)"same-origin", 11,
+						(unsigned char **)&p, (unsigned char *)end))
+					return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 					return 1;
 
@@ -729,10 +745,14 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 		 * The cookie goes to lws_serve_http_file() as "other_headers",
 		 * which are always ascii "name: value\r\n" lines... building it
 		 * with the wsi header apis here would produce hpack when the
-		 * wsi is h2, which cannot be mixed into the response headers
+		 * wsi is h2, which cannot be mixed into the response headers.
+		 *
+		 * The page carries this visitor's fresh visit cookie: no cache
+		 * may keep it, whatever the gated mount's cache policy is.
 		 */
-		if (!lws_jwt_sign_token_set_cookie_ascii(wsi, &vck, vbuf,
-							sizeof(vbuf)))
+		n = lws_snprintf(vbuf, sizeof(vbuf), "cache-control: no-store\x0d\x0a");
+		if (!lws_jwt_sign_token_set_cookie_ascii(wsi, &vck, vbuf + n,
+							sizeof(vbuf) - (size_t)n))
 			return lws_serve_http_file(wsi, argbuf, ctype, vbuf,
 						    (int)strlen(vbuf));
 
