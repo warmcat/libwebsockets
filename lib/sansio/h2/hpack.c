@@ -582,23 +582,15 @@ static void lws_dump_header(struct lws *wsi, int hdr)
 		int len;
 
 		p = lws_token_to_string((enum lws_token_indexes)hdr);
+		len = lws_hdr_copy(wsi, s, sizeof(s), (enum lws_token_indexes)hdr);
 
-		if (lws_hdr_token_is_credential((enum lws_token_indexes)hdr)) {
-			/* keep the diagnostic, lose the credential */
-			lwsl_header("  hdr tok %d (%s) = '<redacted>' (len %d)\n",
-				    hdr, p ? (char *)p : (char *)"null",
-				    lws_hdr_total_length(wsi,
-						(enum lws_token_indexes)hdr));
-			return;
-		}
-
-		len = lws_hdr_copy(wsi, s, sizeof(s) - 1, (enum lws_token_indexes)hdr);
-		if (len < 0)
-			strcpy(s, "(too big to show)");
-		else
-			s[len] = '\0';
 		lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
-			   p ? (char *)p : (char *)"null", s, len);
+			    p ? (char *)p : (char *)"null",
+			    len < 0 ? "(too big to show)" :
+				lws_http_hdr_log_value(s, sizeof(s), hdr, NULL,
+						       0, s, (size_t)len),
+			    lws_hdr_total_length(wsi,
+						 (enum lws_token_indexes)hdr));
 	}
 #endif
 }
@@ -871,19 +863,20 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	dyn->virtual_payload_usage = (uint32_t)(dyn->virtual_payload_usage +
 					(unsigned int)hdr_len + len);
 
-	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY &&
-	    lws_hdr_index != LWS_HPACK_LOST_ENTRY &&
-	    lws_hdr_token_is_credential((enum lws_token_indexes)lws_hdr_index))
-		/* keep the diagnostic, lose the credential */
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	{
+		char lv[128];
+
 		lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, "
-			  "'<redacted>' len %d\n",
-			  __func__, (long)LWS_ARRAY_SIZE(static_token),
-			  lws_hdr_index, hdr_len, (int)len);
-	else
-		lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, '%s' len %d\n",
-			  __func__, (long)LWS_ARRAY_SIZE(static_token),
-			  lws_hdr_index, hdr_len, dyn->entries[new_index].value ?
-					dyn->entries[new_index].value : "null", (int)len);
+			  "'%s' len %d\n", __func__,
+			  (long)LWS_ARRAY_SIZE(static_token), lws_hdr_index,
+			  hdr_len, dyn->entries[new_index].value ?
+				lws_http_hdr_log_value(lv, sizeof(lv),
+					lws_hdr_index, NULL, 0,
+					dyn->entries[new_index].value, len) :
+				"null", (int)len);
+	}
+#endif
 
 	dyn->pos = (uint16_t)lws_safe_modulo(dyn->pos + 1, dyn->num_entries);
 
@@ -1310,11 +1303,16 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx)
 		return 1;
 	}
 
-	if (arg)
-		/* dynamic result */
-		lwsl_header("%s: dyn: idx %d '%s' tok %d\n", __func__, idx, arg,
-			   tok);
-	else
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+	if (arg) {
+		/* table entry with a value */
+		char lv[128];
+
+		lwsl_header("%s: dyn: idx %d '%s' tok %d\n", __func__, idx,
+			    lws_http_hdr_log_value(lv, sizeof(lv), tok, NULL, 0,
+						   arg, (size_t)len), tok);
+	} else
+#endif
 		lwsl_header("writing indexed hdr %d (tok %d '%s')\n", idx, tok,
 				lws_token_to_string((enum lws_token_indexes)tok));
 
@@ -2468,12 +2466,16 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 	 */
 	if (!value)
 		lwsl_err("%s: %s: NULL value (len %d)\n", __func__, name, length);
-	else if (lws_http_header_name_may_be_credential((const char *)name))
-		lwsl_header("%s: %s <redacted> (len %d)\n", __func__, name,
+	else {
+		char lv[128];
+
+		lwsl_header("%s: %s %s (len %d)\n", __func__, name,
+			    lws_http_hdr_log_value(lv, sizeof(lv), -1,
+					(const char *)name,
+					strlen((const char *)name),
+					(const char *)value, (size_t)length),
 			    length);
-	else
-		lwsl_header("%s: %s %.*s (len %d)\n", __func__, name, length,
-			    (const char *)value, length);
+	}
 #endif
 
 	len = (int)strlen((char *)name);

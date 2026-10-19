@@ -174,6 +174,65 @@ lws_http_log_path(char *buf, size_t len, const char *path)
 	return lws_http_log_copy(buf, len, path, strlen(path), 1);
 }
 
+/*
+ * Every log line that shows an http header value, h1, h2 or h3, sent or
+ * received, takes what it shows from here, so there is one policy:
+ *
+ *  - a header that may carry a credential shows only its length: the
+ *    lws_hdr_token_is_credential() tokens, and any name lws has no token for
+ *    (x-api-key, x-amz-security-token...), since we can't know what it holds
+ *  - the urlargs (WSI_TOKEN_HTTP_URI_ARGS) are treated the same way, and a
+ *    request path (:path, the method URI tokens) is shown as
+ *    lws_http_log_path() shows it, without its query string
+ *  - anything else is shown, truncated to fit buf, with control and
+ *    non-ASCII bytes shown as '.' so a value can't forge log lines
+ *
+ * tok is the lws token index when the caller has one, else -1 and the header
+ * is named by name / name_len (name may then be NULL, meaning unknown).
+ * value may be buf itself, in which case it is masked in place.
+ *
+ * Returns buf, always NUL-terminated.
+ */
+const char *
+lws_http_hdr_log_value(char *buf, size_t len, int tok, const char *name,
+		       size_t name_len, const char *value, size_t value_len)
+{
+	if (!len)
+		return "";
+
+	if (tok < 0 && name) {
+		if (name_len && name[name_len - 1] == ':')
+			name_len--;
+		tok = lws_http_string_to_known_header(name, name_len);
+		/* spelled like a token that is no field name: not that token */
+		if (tok >= 0 && tok < WSI_TOKEN_COUNT &&
+		    !lws_http_token_is_field_name(tok))
+			tok = -1;
+	}
+
+	if (tok < 0 || tok >= WSI_TOKEN_COUNT ||
+	    tok == WSI_TOKEN_HTTP_URI_ARGS ||
+	    lws_hdr_token_is_credential((enum lws_token_indexes)tok)) {
+		lws_snprintf(buf, len, "<%llu bytes, redacted>",
+			     (unsigned long long)value_len);
+
+		return buf;
+	}
+
+	if (!value) {
+		lws_strncpy(buf, "(null)", len);
+
+		return buf;
+	}
+
+	return lws_http_log_copy(buf, len, value, value_len,
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || \
+    defined(LWS_HTTP_HEADERS_ALL)
+				 tok == WSI_TOKEN_HTTP_COLON_PATH ||
+#endif
+				 !lws_http_token_is_field_name(tok));
+}
+
 #ifdef LWS_WITH_HTTP2
 int
 lws_wsi_is_h2(struct lws *wsi)
@@ -1173,6 +1232,40 @@ lws_http_headers_detach(struct lws *wsi)
 
 #if defined(LWS_WITH_SERVER)
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+/* every header the stuck ah holds, with any credential redacted */
+static void
+lws_ah_lifecheck_dump(struct lws *wsi)
+{
+	const unsigned char *c;
+	int len, n, m = 0;
+	char buf[256];
+
+	do {
+		c = lws_token_to_string((enum lws_token_indexes)m);
+		if (!c)
+			break;
+		if (!(*c))
+			break;
+
+		len = lws_hdr_total_length(wsi, (enum lws_token_indexes)m);
+		if (!len) {
+			m++;
+			continue;
+		}
+
+		n = lws_hdr_copy(wsi, buf, sizeof buf,
+				 (enum lws_token_indexes)m);
+		/* keep the diagnostic, lose any credential */
+		lwsl_notice("   %s = %s (len %d)\n", (const char *)c,
+			    n < 0 ? "(too big to show)" :
+			    lws_http_hdr_log_value(buf, sizeof(buf), m,
+					NULL, 0, buf, (size_t)n), len);
+		m++;
+	} while (1);
+}
+#endif
+
 void
 lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 {
@@ -1181,7 +1274,6 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 			struct lws_context_per_thread, sul_ah_lifecheck);
 	struct lws *wsi;
 	time_t now;
-	int m;
 
 	now = lws_pt_now_wall(pt);
 
@@ -1189,9 +1281,7 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 
 	ah = lws_pt_first_ah(&pt->http.ah_owner);
 	while (ah) {
-		int len;
 		char buf[256];
-		const unsigned char *c;
 
 		/*
 		 * The ah is held for the whole transaction, not just while
@@ -1228,42 +1318,9 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 			    "  peer address: %s\n"
 			    "  ah pos %lu\n", __func__, lws_wsi_tag(wsi),
 			    buf, (unsigned long)ah->pos);
-		buf[0] = '\0';
-		m = 0;
-		do {
-			c = lws_token_to_string((enum lws_token_indexes)m);
-			if (!c)
-				break;
-			if (!(*c))
-				break;
-
-			len = lws_hdr_total_length(wsi, (enum lws_token_indexes)m);
-			if (!len) {
-				m++;
-				continue;
-			}
-
-			if (lws_hdr_token_is_credential((enum lws_token_indexes)m)) {
-				/* keep the diagnostic, lose the credential */
-				lwsl_notice("   %s = <%d bytes, redacted>\n",
-					    (const char *)c, len);
-				m++;
-				continue;
-			}
-
-			if (len > (int)sizeof(buf) - 1) {
-				m++;
-				continue;
-			}
-
-			if (lws_hdr_copy(wsi, buf, sizeof buf, (enum lws_token_indexes)m) > 0) {
-				buf[sizeof(buf) - 1] = '\0';
-
-				lwsl_notice("   %s = %s\n",
-					    (const char *)c, buf);
-			}
-			m++;
-		} while (1);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+		lws_ah_lifecheck_dump(wsi);
+#endif
 
 		/* explicitly detach the ah */
 		lws_header_table_detach(wsi, 0);

@@ -2774,8 +2774,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				  (long long)h2n->swsi->http.rx_content_length);
 		}
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		{
-			int n = 0, len;
+			int n = 0, len, m;
 			char buf[256];
 			const unsigned char *c;
 
@@ -2792,32 +2793,18 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					continue;
 				}
 
-				if (lws_hdr_token_is_credential((enum lws_token_indexes)n)) {
-					/* keep the diagnostic, lose the credential */
-					lwsl_info("    %s = <%d bytes, redacted>\n",
-						  (char *)c, len);
-					n++;
-					continue;
-				}
-
-				if (len > (int)sizeof(buf) - 1) {
-					n++;
-					continue;
-				}
-
-				if (lws_hdr_copy(h2n->swsi, buf, sizeof buf,
-						(enum lws_token_indexes)n) < 0) {
-					lwsl_info("    %s !oversize!\n",
-						  (char *)c);
-				} else {
-					buf[sizeof(buf) - 1] = '\0';
-
-					lwsl_info("    %s = %s\n",
-						  (char *)c, buf);
-				}
+				m = lws_hdr_copy(h2n->swsi, buf, sizeof buf,
+						 (enum lws_token_indexes)n);
+				/* keep the diagnostic, lose any credential */
+				lwsl_info("    %s = %s (len %d)\n", (char *)c,
+					  m < 0 ? "!oversize!" :
+					  lws_http_hdr_log_value(buf,
+						sizeof(buf), n, NULL, 0, buf,
+						(size_t)m), len);
 				n++;
 			} while (c);
 		}
+#endif
 
 		if (h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE ||
 		    h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED) {

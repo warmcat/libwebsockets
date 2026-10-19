@@ -32,27 +32,6 @@ static int
 rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp);
 
-#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
-/*
- * F-016: :path is not itself a credential token, but its value can carry app
- * session / auth tokens in the urlargs.  For the debug dumps, show the path
- * part only.
- */
-static size_t
-lws_h3_dbg_value_len(int tok, const char *value, size_t value_len)
-{
-	const char *q;
-
-	if (tok == WSI_TOKEN_HTTP_COLON_PATH) {
-		q = memchr(value, '?', value_len);
-		if (q)
-			return (size_t)(q - value);
-	}
-
-	return value_len;
-}
-#endif
-
 
 #if defined(LWS_WITH_CLIENT)
 #if defined(LWS_ROLE_WT)
@@ -1114,28 +1093,33 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		}
 		if (name_len > 0 && name[0] == ':')
 			is_pseudo = 1;
-		if (tok >= 0 && tok < WSI_TOKEN_COUNT &&
-		    lws_hdr_token_is_credential((enum lws_token_indexes)tok))
-			/* keep the diagnostic, lose the credential */
-			lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, value=<%u bytes, redacted>",
-				       (int)name_len, name, (unsigned int)value_len);
-		else
-			lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, value=%.*s",
-				       (int)name_len, name,
-				       (int)lws_h3_dbg_value_len(tok, value, value_len),
-				       value);
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+		{
+			char lv[128];
+
+			/* keep the diagnostic, lose any credential */
+			lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, "
+				       "value=%s", (int)name_len, name,
+				       lws_http_hdr_log_value(lv, sizeof(lv),
+						tok, NULL, 0, value,
+						value_len));
+		}
+#endif
 	} else {
-		if (tok >= 0 && tok < WSI_TOKEN_COUNT &&
-		    lws_hdr_token_is_credential((enum lws_token_indexes)tok))
-			/* keep the diagnostic, lose the credential */
-			lwsl_wsi_debug(wsi, "QPACK decoded header: tok=%d (%s), value=<%u bytes, redacted>",
-				       tok, (const char *)lws_token_to_string((enum lws_token_indexes)tok),
-				       (unsigned int)value_len);
-		else
-			lwsl_wsi_debug(wsi, "QPACK decoded header: tok=%d (%s), value=%.*s",
-				       tok, (const char *)lws_token_to_string((enum lws_token_indexes)tok),
-				       (int)lws_h3_dbg_value_len(tok, value, value_len),
-				       value);
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+		{
+			char lv[128];
+
+			/* keep the diagnostic, lose any credential */
+			lwsl_wsi_debug(wsi, "QPACK decoded header: tok=%d (%s), "
+				       "value=%s", tok, (const char *)
+				       lws_token_to_string(
+						(enum lws_token_indexes)tok),
+				       lws_http_hdr_log_value(lv, sizeof(lv),
+						tok, NULL, 0, value,
+						value_len));
+		}
+#endif
 		if (tok == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
 		    tok == WSI_TOKEN_HTTP_COLON_METHOD ||
 		    tok == WSI_TOKEN_HTTP_COLON_PATH ||
