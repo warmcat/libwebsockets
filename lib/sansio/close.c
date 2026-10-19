@@ -475,7 +475,13 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 
 	lws_wsi_event(wsi, LWS_WSIEV_CONN_FAILED);
 
-	if (!wsi->a.protocol || (wsi->a.context && wsi->a.context->being_destroyed))
+	/*
+	 * This is his last word on the wsi, so it is said during a context
+	 * destroy too: a protocol holding the wsi pointer (eg, via i.pwsi)
+	 * must learn it is gone before its PROTOCOL_DESTROY (G-298).  Should
+	 * it try to connect again from here, the destroy refuses it.
+	 */
+	if (!wsi->a.protocol)
 		return;
 
 	if (!wsi->client_suppress_CONNECTION_ERROR)
