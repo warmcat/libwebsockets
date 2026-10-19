@@ -93,8 +93,11 @@
  *    it.  A repeat of Q's chunk is still acked at Q's offset, not at B's
  *    send progress (G-140).  Q restarts with a new tid from offset 0: B
  *    challenges it, refuses a wrong answer, and takes the right one as a new
- *    session from 0, after which the old tid is a stranger's (G-133).  B
- *    delivers each of Q's chunks exactly once and none of the others
+ *    session from 0, after which the old tid is a stranger's (G-133).  A
+ *    chunk Q sends past a gap in that session is delivered, and B's ack
+ *    reports it as a SACK block, closing the block, the list and both
+ *    dicts once each, so the ack is still one whole message.  B delivers
+ *    each of Q's chunks exactly once and none of the others
  *
  * The UDP ports (six to listen on, one left unused) are allocated uniquely
  * at build time and passed in on the command line, so parallel ctest
@@ -261,6 +264,7 @@ enum {
 	KRPC_QS_RESTART,	/* Q restarted: a new tid U, from offset 0 */
 	KRPC_QS_BAD_CH,		/* ...with the wrong answer to B's challenge */
 	KRPC_QS_PROVEN,		/* ...with the right one */
+	KRPC_QS_GAP,		/* a chunk of U's past a gap: acked with a SACK */
 	KRPC_QS_OLD,		/* Q's old session's tid T again */
 	KRPC_QS_DONE
 };
@@ -270,10 +274,12 @@ enum {
 #define KRPC_Q_TID_U		"sqUUUUUUUU"
 #define KRPC_Q_CH_LEN		8
 #define KRPC_Q_CH_TO_B		"QCHALNGE"
+#define KRPC_Q_GAP		7	/* bytes U's chunk past the gap skips */
 
 /*
- * What Q sends B, in order: Q's three messages and one sent on the old
- * session after the restart (which must never arrive), and the forged one,
+ * What Q sends B, in order: Q's three messages, one sent on the old session
+ * after the restart (which must never arrive), one sent on the new session
+ * past a gap, and the forged one,
  * at least as long as T1's message so that taking it would cover T1's
  * bytes.  B's message to Q is longer than everything Q sends B on T.
  */
@@ -282,6 +288,7 @@ static const char * const q_msg[] = {
 	"Q session T chunk 1.",
 	"Q session U chunk 0.",
 	"Q session T, too late",
+	"Q session U, past a gap",
 };
 static const char *q_forged = "forged by a spoofer!!",
 		  *q_b_msg = "B to Q: longer than all Q sent B on T so far";
@@ -1082,6 +1089,28 @@ q_answers(const uint8_t *in, size_t len, const char *tid)
 	return krpc_find(in, len, t) >= 0;
 }
 
+/*
+ * B's ack to Q's chunk past the gap ends exactly "4:sackld1:li<len>e1:oi<start>
+ * eee1:t10:<tid>1:y1:re": the block, the list and the reply dict closed once
+ * each, then the rest of the message, then its own end
+ */
+
+static int
+q_is_sack(const uint8_t *in, size_t len, size_t blen, uint64_t start,
+	  const char *tid)
+{
+	ssize_t at = krpc_find(in, len, "4:sackl");
+	char exp[96];
+	int n;
+
+	n = lws_snprintf(exp, sizeof(exp),
+			 "4:sackld1:li%ue1:oi%llueee" "e1:t10:%s1:y1:re",
+			 (unsigned int)blen, (unsigned long long)start, tid);
+
+	return at >= 0 && len - (size_t)at == (size_t)n &&
+	       !memcmp(in + at, exp, (size_t)n);
+}
+
 static int
 q_is_challenge(const uint8_t *in, size_t len)
 {
@@ -1099,7 +1128,8 @@ q_is_challenge(const uint8_t *in, size_t len)
 static void
 q_rx(const uint8_t *in, size_t len)
 {
-	size_t l0 = strlen(q_msg[0]), l1 = strlen(q_msg[1]);
+	size_t l0 = strlen(q_msg[0]), l1 = strlen(q_msg[1]),
+	       l2 = strlen(q_msg[2]), l4 = strlen(q_msg[4]);
 	uint8_t tid[16], ch[KRPC_Q_CH_LEN];
 	size_t tid_len;
 	int64_t off;
@@ -1199,8 +1229,20 @@ q_rx(const uint8_t *in, size_t len)
 
 	case KRPC_QS_PROVEN:
 		q_expect(q_answers(in, len, KRPC_Q_TID_U) &&
-			 off == (int64_t)strlen(q_msg[2]),
+			 off == (int64_t)l2,
 			 "Q's proven new session not acked from 0");
+		/* leave a gap: B acks what it holds, and SACKs the chunk */
+		q_queue_chunk(KRPC_Q_TID_U, l2 + KRPC_Q_GAP, q_msg[4], NULL);
+		q_state = KRPC_QS_GAP;
+		break;
+
+	case KRPC_QS_GAP:
+		q_expect(q_answers(in, len, KRPC_Q_TID_U) &&
+			 off == (int64_t)l2 &&
+			 q_is_sack(in, len, l4, l2 + KRPC_Q_GAP, KRPC_Q_TID_U),
+			 "chunk past a gap not acked with a well-formed SACK");
+		if (sv.q_bad)
+			lwsl_hexdump_err(in, len);
 		/* the old session is over: its tid is a stranger's now */
 		q_queue_chunk(KRPC_Q_TID_T, l0 + l1, q_msg[3], NULL);
 		q_state = KRPC_QS_OLD;
@@ -1211,7 +1253,7 @@ q_rx(const uint8_t *in, size_t len)
 			 q_is_challenge(in, len),
 			 "B took a chunk of Q's replaced session");
 		q_expect(q_seen[0] == 1 && q_seen[1] == 1 && q_seen[2] == 1 &&
-			 !q_seen[3] && !q_forged_seen,
+			 !q_seen[3] && q_seen[4] == 1 && !q_forged_seen,
 			 "B did not deliver exactly Q's own chunks once each");
 		q_state = KRPC_QS_DONE;
 		if (!sv.q_bad)

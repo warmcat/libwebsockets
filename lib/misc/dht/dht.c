@@ -434,12 +434,12 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 			if (dht_tx_lit(&t, "4:sackl"))
 				goto fail;
 			for (j = 0; j < num_blocks; j++) {
-				/* d1:li<len>e1:o<start>ee */
+				/* d1:li<len>e1:oi<start>ee */
 				if (dht_tx_lit(&t, "d1:l") ||
 				    dht_tx_int(&t, blocks[j].len) ||
 				    dht_tx_lit(&t, "1:o") ||
 				    dht_tx_int(&t, blocks[j].start) ||
-				    dht_tx_lit(&t, "ee"))
+				    dht_tx_lit(&t, "e"))
 					goto fail;
 			}
 			if (dht_tx_lit(&t, "e"))
