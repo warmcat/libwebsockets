@@ -918,7 +918,11 @@ check_quic:
 			 * needs CAP_NET_RAW, and on platforms without
 			 * SO_BINDTODEVICE fails whatever the name)
 			 */
+#if !defined(LWS_PLAT_FREERTOS) && !defined(OPTEE_TA) && !defined(WIN32)
 			const char *dev = vhost->bind_iface ? vhost->iface : NULL;
+#else
+			const char *dev = NULL;
+#endif
 
 #if defined(LWS_WITH_IPV6)
 			if (LWS_IPV6_ENABLED(vhost)) {
