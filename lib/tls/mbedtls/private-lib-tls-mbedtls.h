@@ -150,6 +150,7 @@ int
 lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 
 void mbedtls_quic_bio_free(struct lws *wsi);
+uint32_t lws_mbedtls_verify_result(struct lws *wsi);
 void lws_mbedtls_conn_destroy(struct lws *wsi);
 void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma);
 

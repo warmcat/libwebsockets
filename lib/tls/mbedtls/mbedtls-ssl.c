@@ -362,6 +362,24 @@ lws_tls_ctx_from_wsi(struct lws *wsi)
 	return wsi->io->tls.ssl->ctx;
 }
 
+/*
+ * The peer cert verification result as lws judges it.  A client sends its
+ * SNI name even when it was told not to check the server's cert against
+ * it, and mbedtls checks the cert against the same name: that mismatch is
+ * not a failure he asked us to care about.
+ */
+
+uint32_t
+lws_mbedtls_verify_result(struct lws *wsi)
+{
+	uint32_t flags = mbedtls_ssl_get_verify_result(&wsi->io->tls.ssl->ssl);
+
+	if (wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
+		flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_CN_MISMATCH;
+
+	return flags;
+}
+
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi)
 {

@@ -455,7 +455,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VERIFIED:
-		buf->verified = mbedtls_ssl_get_verify_result(&wsi->io->tls.ssl->ssl) == 0;
+		buf->verified = lws_mbedtls_verify_result(wsi) == 0;
 		return 0;
 	default:
 		return lws_tls_mbedtls_cert_info(x509, type, buf, len);

@@ -1033,6 +1033,12 @@ wrap_start_chain(const br_x509_class **ctx, const char *server_name)
 	lws_tls_conn *conn = lws_container_of((br_x509_minimal_context *)ctx, lws_tls_conn, x509_ctx);
 	conn->capturing_peer_cert = 1;
 	if (conn->peer_cert) lws_x509_destroy(&conn->peer_cert);
+	/*
+	 * The client sends its SNI even when it was told not to check the
+	 * cert's name against it: then a NULL name has the check skipped
+	 */
+	if (conn->tls_use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
+		server_name = NULL;
 	br_x509_minimal_vtable.start_chain(ctx, server_name);
 }
 

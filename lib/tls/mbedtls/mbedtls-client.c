@@ -197,7 +197,18 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lws_tls_reuse_session(wsi);
 #endif
 
-	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+	/*
+	 * mbedtls_ssl_set_hostname() gives both the SNI and the name the
+	 * server's cert is checked against.  The SNI tells the server which
+	 * of its vhosts we want, so it is sent whether or not the name is
+	 * checked, as the other backends do; when it isn't, the cert's name
+	 * mismatch is excused afterwards (lws_mbedtls_verify_result()).
+	 * RFC 6066 3 forbids a literal address in the SNI, so with nothing to
+	 * check, a literal isn't given at all.
+	 */
+
+	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK) ||
+	    !lws_tls_client_host_is_literal(hostname)) {
 		lwsl_info("%s: setting hostname %s\n", __func__, hostname);
 		if (mbedtls_ssl_set_hostname(&conn->ssl, hostname))
 			return -1;
@@ -251,12 +262,9 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	if (!wsi->io->tls.ssl)
 		return -1;
 
-	flags = mbedtls_ssl_get_verify_result(&wsi->io->tls.ssl->ssl);
+	flags = lws_mbedtls_verify_result(wsi);
 	if (flags == 0)
 		return 0;
-
-	if (wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
-		flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_CN_MISMATCH;
 
 	/*
 	 * "self-signed is OK" is only about chain trust... it must not also

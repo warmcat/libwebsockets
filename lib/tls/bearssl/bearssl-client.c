@@ -161,6 +161,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 			resume = lws_tls_reuse_session(wsi);
 #endif
 		int skip = (wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK);
+		const char *sni;
 
 		/*
 		 * BearSSL takes a NULL server_name as "do not check the name
@@ -176,7 +177,22 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 
-		br_ssl_client_reset(&conn->u.client, skip ? NULL : conn->client_hostname, resume);
+		/*
+		 * The server_name is both the SNI and the name the cert is
+		 * checked against.  The SNI tells the server which of its
+		 * vhosts we want, so it is sent whether or not the name is
+		 * checked, as the other backends do; when it isn't, the
+		 * x509 wrapper doesn't pass it on to the check
+		 * (wrap_start_chain()).  RFC 6066 3 forbids a literal address
+		 * in the SNI, so with nothing to check, a literal isn't
+		 * given at all.
+		 */
+
+		sni = conn->client_hostname;
+		if (skip && sni && lws_tls_client_host_is_literal(sni))
+			sni = NULL;
+
+		br_ssl_client_reset(&conn->u.client, sni, resume);
 		conn->initialized = 1;
 	}
 

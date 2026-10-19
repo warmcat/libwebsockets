@@ -254,7 +254,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 	 * gets from only caching in its new_session_cb.
 	 */
 
-	if (mbedtls_ssl_get_verify_result(msc)) {
+	if (lws_mbedtls_verify_result(wsi)) {
 		lwsl_tlssess("%s: %s: not caching unverified session\n",
 			     __func__, buf);
 
