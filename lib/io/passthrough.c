@@ -909,9 +909,14 @@ bail:
  * after a PROXY v2 header naming the client, and every datagram from the
  * server must start with one naming the client it is for.  So the server's
  * quic sees each client's real address, and runs its own path validation when
- * a client moves: we only send where it says.  The server's connection IDs
- * are learned from the long headers it sends, since a client goes on to use
- * them; a server that issues more with NEW_CONNECTION_ID, which lws does
+ * a client moves: we only send where it says.  Our socket to the server is
+ * connected to it, so the kernel drops datagrams from anywhere else, and
+ * forging one means guessing our port.  The server's connection IDs are
+ * learned from the long headers it sends, since a client goes on to use
+ * them, but only from a header addressed to the connection ID the client
+ * chose for itself, which only the server was told; with every slot taken,
+ * a new one replaces the oldest learned, so nothing can lock the real one
+ * out.  A server that issues more with NEW_CONNECTION_ID, which lws does
  * not, would need them encoded so we could route them.
  *
  * On a server, a datagram from an address in .proxy_v2_trusted must start
@@ -977,7 +982,12 @@ typedef struct lws_qpt_flow {
 	lws_sockaddr46		client;		/* where it is now */
 	lws_sockaddr46		prev_client;	/* where it was before */
 	lws_usec_t		last;
-	struct lws_quic_cid	cid[LWS_QPT_MAX_CIDS];
+	struct lws_quic_cid	client_scid;	/* the CID the client chose,
+						 * the server's long headers'
+						 * DCID */
+	struct lws_quic_cid	cid[LWS_QPT_MAX_CIDS]; /* [0] the client's
+						 * first DCID, then those
+						 * learned, oldest first */
 	int			count_cids;
 } lws_qpt_flow_t;
 
@@ -1129,6 +1139,13 @@ lws_qpt_flow_destroy(struct lws_context *cx, lws_qpt_flow_t *f)
 	lws_free(f);
 }
 
+/*
+ * A connection ID that routes to flow f.  The first is the DCID of the
+ * client's first Initial, which stays; later ones are learned from the
+ * server, and when every slot is taken, a new one replaces the oldest learned
+ * (one seen again counts as new).  Returns nonzero if it cannot be added, eg,
+ * it is another flow's.
+ */
 static int
 lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 		     const struct lws_quic_cid *cid)
@@ -1141,13 +1158,28 @@ lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 	memcpy(k.id, cid->id, cid->len);
 
 	for (n = 0; n < f->count_cids; n++)
-		if (!memcmp(&f->cid[n], &k, sizeof(k)))
+		if (!memcmp(&f->cid[n], &k, sizeof(k))) {
+			if (n && n != f->count_cids - 1) {
+				/* the newest learned now */
+				memmove(&f->cid[n], &f->cid[n + 1],
+					(size_t)(f->count_cids - n - 1) *
+							sizeof(f->cid[0]));
+				f->cid[f->count_cids - 1] = k;
+			}
 			return 0;
+		}
 
-	if (f->count_cids == LWS_QPT_MAX_CIDS ||
-	    lws_qpt_lookup(cx->pt_qflows, &k, sizeof(k)))
-		/* full, or somebody else's */
+	if (lws_qpt_lookup(cx->pt_qflows, &k, sizeof(k)))
+		/* somebody else's */
 		return 1;
+
+	if (f->count_cids == LWS_QPT_MAX_CIDS) {
+		/* the oldest learned goes, never the client's own first */
+		lws_qpt_unmap(cx->pt_qflows, &f->cid[1], sizeof(f->cid[1]));
+		memmove(&f->cid[1], &f->cid[2],
+			(size_t)(f->count_cids - 2) * sizeof(f->cid[0]));
+		f->count_cids--;
+	}
 
 	if (!lws_map_item_create(cx->pt_qflows, (const lws_map_key_t)&k,
 				 sizeof(k), (const lws_map_value_t)&f,
@@ -1157,6 +1189,12 @@ lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 	f->cid[f->count_cids++] = k;
 
 	return 0;
+}
+
+static int
+lws_qpt_cid_same(const struct lws_quic_cid *a, const struct lws_quic_cid *b)
+{
+	return a->len == b->len && !memcmp(a->id, b->id, a->len);
 }
 
 static void
@@ -1295,6 +1333,8 @@ lws_qpt_vhost_gone(struct lws_vhost *vh)
 static struct lws *
 lws_qpt_server_wsi(struct lws_vhost *vh)
 {
+	struct lws *w;
+
 	if (vh->passthrough_qwsi)
 		return vh->passthrough_qwsi;
 
@@ -1302,7 +1342,7 @@ lws_qpt_server_wsi(struct lws_vhost *vh)
 	 * In the server's own family: our udp sockets are v6-only, so a v6
 	 * one can't reach a v4 server even as a v4-mapped address
 	 */
-	vh->passthrough_qwsi = lws_create_adopt_udp(vh,
+	w = lws_create_adopt_udp(vh,
 #if defined(LWS_WITH_IPV6)
 				vh->passthrough_sa46.sa4.sin_family ==
 						AF_INET6 ? "::" :
@@ -1310,8 +1350,24 @@ lws_qpt_server_wsi(struct lws_vhost *vh)
 				"0.0.0.0", 0, LWS_CAUDP_BIND,
 				lws_quic_passthrough_protocol.name, NULL, NULL,
 				vh, NULL, NULL);
+	if (!w)
+		return NULL;
 
-	return vh->passthrough_qwsi;
+	/*
+	 * Connected to the server, so the kernel passes us only what comes
+	 * from its address and port: anyone else speaking for the server's
+	 * clients has to guess our port as well.  It is the socket's peer.
+	 */
+	if (lws_io_udp_connect_peer(w, &vh->passthrough_sa46)) {
+		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+				   "quic passthrough connect");
+		return NULL;
+	}
+	lws_io_peer_set(w, &vh->passthrough_sa46, LWS_PEER_KIND_SOCKET,
+			LWS_PEER_CRED_HEARSAY);
+	vh->passthrough_qwsi = w;
+
+	return w;
 }
 
 /* a client's datagram, after a PROXY v2 header naming it, to the server */
@@ -1321,7 +1377,6 @@ lws_qpt_to_server(lws_qpt_flow_t *f, const uint8_t *buf, size_t len,
 {
 	uint8_t b[LWS_PROXY_V2_MAX + LWS_QPT_MAX_DGRAM];
 	struct lws *sw = lws_qpt_server_wsi(f->vh), *lw;
-	lws_sockaddr46 dest = f->vh->passthrough_sa46;
 	lws_proxy_v2_t pv;
 	int n;
 
@@ -1355,7 +1410,8 @@ lws_qpt_to_server(lws_qpt_flow_t *f, const uint8_t *buf, size_t len,
 		return;
 	memcpy(b + n, buf, len);
 
-	lws_io_send_dgram(sw, b, (size_t)n + len, &dest);
+	/* connected to the server: no destination (EISCONN on BSDs) */
+	lws_io_send_dgram(sw, b, (size_t)n + len, NULL);
 }
 
 /* the CRYPTO frames of an Initial, into the pending ClientHello */
@@ -1482,9 +1538,10 @@ lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
 {
 	struct lws_context *cx = listener->a.context;
 	struct lws_vhost *vh = NULL;
+	struct lws_quic_cid dcid;
 	lws_qpt_flow_t *f;
+	int n, initial;
 	char name[256];
-	int n;
 
 	n = lws_tls_client_hello_msg_sni(pd->crypto, lws_qpt_contiguous(pd),
 					 name, sizeof(name));
@@ -1515,6 +1572,11 @@ lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
 	f = lws_zalloc(sizeof(*f), __func__);
 	if (!f)
 		goto local;
+	/* this Initial's SCID is the one the client chose for itself */
+	if (lws_quic_dgram_cids(buf, len, &dcid, &f->client_scid, &initial)) {
+		lws_free(f);
+		goto local;
+	}
 	f->vh = vh;
 	f->client = *peer;
 	f->last = lws_now_usecs();
@@ -1703,9 +1765,13 @@ lws_qpt_from_server(struct lws *wsi, const uint8_t *buf, size_t len)
 	if (!f)
 		return;
 
-	/* the server's connection IDs, which the client goes on to use */
+	/*
+	 * The server's connection IDs, which the client goes on to use: from
+	 * a long header to the CID the client chose, which was only ever
+	 * sent to the server, so not from somebody guessing at the flow
+	 */
 	if (!lws_quic_dgram_cids(buf, len, &dcid, &scid, &initial) &&
-	    scid.len)
+	    scid.len && lws_qpt_cid_same(&dcid, &f->client_scid))
 		lws_qpt_flow_add_cid(cx, f, &scid);
 
 	/* to that address as we know it */

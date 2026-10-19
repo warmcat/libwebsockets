@@ -1216,8 +1216,11 @@ lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 }
 
 
-/* reconnect a connected UDP socket to a peer that moved (path migration) */
-static int
+/*
+ * (Re)connect a UDP socket to a peer: one that moved (path migration), or
+ * the only one a bound socket is to talk to
+ */
+int
 lws_io_udp_connect_peer(struct lws *nwsi, const lws_sockaddr46 *sa46)
 {
 	if (connect(nwsi->io->desc.sockfd, sa46_sockaddr((lws_sockaddr46 *)sa46),
