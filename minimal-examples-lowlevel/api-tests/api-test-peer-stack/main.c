@@ -37,7 +37,11 @@
  *
  *  - an http client redirected to the same server dials again with the
  *    same wsi: while it dials, the new connection is hearsay, not what the
- *    last one proved, and routable again once connected.
+ *    last one proved, and routable again once connected;
+ *
+ *  - with LWS_WITH_ACCESS_LOG, the access log line of the plain connection
+ *    starts with just the client's address, as access logs always did, and
+ *    that of the PROXY v2 one with both layers, as one field.
  */
 
 #include <libwebsockets.h>
@@ -65,6 +69,10 @@ static struct lws_context *cx;
 static struct lws_vhost *vh_cli, *vh_srv, *vh_pv2;
 static lws_sorted_usec_list_t sul_phase;
 static const char *server = "localhost";
+#if defined(LWS_WITH_ACCESS_LOG)
+static const char *alog;		/* the servers' access log file */
+static char alog_host[2][LWS_PEER_DESC_LEN];	/* host field per phase */
+#endif
 static int phase = -1, fails, finished, phase_done, srv_checked, udp_port,
 	   redirected, redial_seen;
 #if defined(LWS_WITH_UDP)
@@ -400,6 +408,11 @@ ps_srv_check(struct lws *wsi)
 					    LWS_PEER_DESC_TOKEN |
 					    LWS_PEER_DESC_BARE_SINGLE), t,
 			  "server: bare as a token, the same");
+#if defined(LWS_WITH_ACCESS_LOG)
+		/* what an access log line has always started with */
+		lws_strncpy(alog_host[PS_PHASE_TCP], t,
+			    sizeof(alog_host[PS_PHASE_TCP]));
+#endif
 		return;
 	}
 
@@ -442,6 +455,10 @@ ps_srv_check(struct lws *wsi)
 				    LWS_PEER_DESC_TOKEN |
 				    LWS_PEER_DESC_BARE_SINGLE), exp,
 		  "server: bare single, both as one token still");
+#if defined(LWS_WITH_ACCESS_LOG)
+	lws_strncpy(alog_host[PS_PHASE_PROXY_V2], exp,
+		    sizeof(alog_host[PS_PHASE_PROXY_V2]));
+#endif
 	expect_entry(t, sizeof(t), &e[1], 0);
 	lws_snprintf(exp, sizeof(exp), PS_CLIENT ":%u proxy-v2/vouched < %s",
 		     PS_CLIENT_PORT, t);
@@ -953,6 +970,73 @@ ps_next(lws_sorted_usec_list_t *sul)
 		ps_phase_end("connect failed");
 }
 
+#if defined(LWS_WITH_ACCESS_LOG)
+
+/*
+ * The servers' access log, once the context has closed it: a line for the
+ * plain connection's GET whose host field is just the address, as it always
+ * was, and one for the PROXY v2 connection's with both layers as one field
+ */
+
+static void
+ps_access_log_line(char *log, int phase_idx, const char *what)
+{
+	static const char get_ok[] = "] \"GET / HTTP/1.1\" 200 ";
+	char want[LWS_PEER_DESC_LEN + 8];
+	const char *p = log, *eol;
+	size_t wl;
+
+	lws_snprintf(want, sizeof(want), "%s - - [", alog_host[phase_idx]);
+	wl = strlen(want);
+
+	while (*p) {
+		eol = strchr(p, '\n');
+		if (!eol)
+			break;
+		if (!strncmp(p, want, wl) &&
+		    lws_nstrstr(p, lws_ptr_diff_size_t(eol, p),
+				get_ok, sizeof(get_ok) - 1)) {
+			check(1, what);
+			return;
+		}
+		p = eol + 1;
+	}
+
+	check(0, what);
+	lwsl_err("        no line starting '%s' in:\n%s\n", want, log);
+}
+
+static void
+ps_access_log(void)
+{
+	char log[4096];
+	int n;
+
+	lwsl_user("access log:\n");
+
+	n = lws_plat_read_file(alog, log, sizeof(log) - 1);
+	if (n <= 0) {
+		check(0, "the access log was written");
+		return;
+	}
+	log[n] = '\0';
+
+	check(!!alog_host[PS_PHASE_TCP][0], "the plain connection was seen");
+	if (alog_host[PS_PHASE_TCP][0])
+		ps_access_log_line(log, PS_PHASE_TCP,
+				   "a plain connection's line starts with "
+				   "just its address");
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+	check(!!alog_host[PS_PHASE_PROXY_V2][0],
+	      "the PROXY v2 connection was seen");
+	if (alog_host[PS_PHASE_PROXY_V2][0])
+		ps_access_log_line(log, PS_PHASE_PROXY_V2,
+				   "a PROXY v2 connection's line starts with "
+				   "both layers");
+#endif
+}
+#endif
+
 int
 main(int argc, const char **argv)
 {
@@ -968,6 +1052,14 @@ main(int argc, const char **argv)
 		udp_port = atoi(p);
 	else
 		udp_port = 7691;
+#if defined(LWS_WITH_ACCESS_LOG)
+	alog = lws_cmdline_option(argc, argv, "--access-log");
+	/* only this run's lines in it */
+	if (alog && lws_plat_write_file(alog, (void *)"", 0)) {
+		lwsl_err("can't truncate %s\n", alog);
+		return 1;
+	}
+#endif
 
 	lwsl_user("LWS API selftest: peer address stack\n");
 
@@ -987,6 +1079,9 @@ main(int argc, const char **argv)
 	info.port		= 0;
 	info.protocols		= ps_srv_protocols;
 	info.vhost_name		= "ps-srv";
+#if defined(LWS_WITH_ACCESS_LOG)
+	info.log_filepath	= alog;
+#endif
 	vh_srv = lws_create_vhost(cx, &info);
 	if (!vh_srv)
 		goto bail;
@@ -1005,6 +1100,9 @@ main(int argc, const char **argv)
 	info.proxy_v2_trusted	= NULL;
 #endif
 
+#if defined(LWS_WITH_ACCESS_LOG)
+	info.log_filepath	= NULL;
+#endif
 	info.port		= CONTEXT_PORT_NO_LISTEN;
 	info.protocols		= ps_cli_protocols;
 	info.vhost_name		= "ps-cli";
@@ -1024,6 +1122,12 @@ main(int argc, const char **argv)
 
 	lws_sul_cancel(&sul_phase);
 	lws_context_destroy(cx);
+
+#if defined(LWS_WITH_ACCESS_LOG)
+	/* the vhosts flushed and closed it */
+	if (alog)
+		ps_access_log();
+#endif
 
 	lwsl_user("Completed: %s\n", fails ? "FAIL" : "PASS");
 

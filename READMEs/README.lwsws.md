@@ -379,6 +379,25 @@ and auth-server plugins do that for their pages.
 
  - "`access-log`": "filepath"   sets where apache-compatible access logs will be written
 
+   The first field of each line is the client's address, eg `192.0.2.10`,
+   exactly as it always was, when that is all lws knows of who the peer is.
+   When the connection has more layers than its own peer's address, eg the
+   client a trusted front named in a PROXY v2 header (see
+   `proxy-v2-trusted`), the field is every layer instead, still as one field
+   with no spaces: top (the most specific claim) first, joined by `<`, each
+   `address[:port]~cred`, where cred is the initial of how far the layer can
+   be believed, `h`earsay, `v`ouched, `r`outable or `c`rypto, and an IPv6
+   address with a port is in brackets, eg
+
+   `192.0.2.10:40000~v<10.0.0.2:40122~r - - [19/Oct/2026:12:00:00 +0000] "GET / HTTP/1.1" 200 0 "" ""`
+
+   is a client 192.0.2.10 that the front at 10.0.0.2, whose own connection
+   to us completed its TCP handshake, vouched for.  A parser that wants a
+   single address can take the field up to the first `~`: that is the most
+   specific claim of who the client is, believable as far as its cred says.
+   See `lws_peer_entries_describe()` in `lws-network-helper.h` for the
+   format.
+
  - `"enable-client-ssl"`: `"1"` enables the vhost's client SSL context, you will need this if you plan to create client conections on the vhost that will use SSL.  You don't need it if you only want http / ws client connections.
 
  - "`ciphers`": "<cipher list>"  sets the allowed list of TLS <= 1.2 ciphers and key exchange protocols for the serving SSL_CTX on the vhost.  With OPENSSL, the default list is restricted to only those providing PFS (Perfect Forward Secrecy) on the author's Fedora system.

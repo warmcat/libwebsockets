@@ -483,7 +483,12 @@ struct lws_context_creation_info {
 	 * options made accessible to protocols */
 	const char *log_filepath;
 	/**< VHOST: filepath to append logs to... this is opened before
-	 *		any dropping of initial privileges */
+	 *		any dropping of initial privileges.  These are
+	 *		apache-compatible access logs; where a connection's peer
+	 *		has more layers than its own address (eg, a trusted
+	 *		front's PROXY v2 header), the host field is all of them,
+	 *		as lws_peer_describe() gives with LWS_PEER_DESC_TOKEN |
+	 *		LWS_PEER_DESC_BARE_SINGLE (see README.lwsws.md) */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	const struct lws_http_mount *mounts;
 	/**< VHOST: optional linked list of mounts for this vhost */

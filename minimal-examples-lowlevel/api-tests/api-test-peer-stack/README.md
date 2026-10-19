@@ -49,12 +49,19 @@ hearsay, vouched, routable, crypto).
    same wsi.  When it dials, its entry is HEARSAY, not the ROUTABLE its
    last connection proved, and ROUTABLE again once connected.
 
+ - **access log** (with `LWS_WITH_ACCESS_LOG`): the servers write an access
+   log.  The line for the tcp phase's GET starts with just the client's
+   address, exactly what `lws_get_peer_simple()` gives, as access logs always
+   did; the line for the proxy-v2 phase's starts with both layers as one
+   field, `192.0.2.10:40000~v<127.0.0.1:<port>~r`.
+
 ## Commandline
 
 | option | meaning |
 |--------|---------|
 | `--server ADDRESS` | where the tcp servers are reached, default `localhost` |
 | `-p PORT` | loopback UDP port the receiver binds (from `lws_get_free_port()`) |
+| `--access-log FILE` | the servers' access log, emptied first, checked at the end |
 
 ## Run
 

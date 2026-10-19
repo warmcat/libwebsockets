@@ -63,14 +63,14 @@ lws_access_log_sanitize(char *s, int len)
 void
 lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
-	char da[64], uri[256], ta[64];
+	char da[64], uri[256], ta[LWS_PEER_DESC_LEN];
 	time_t t = lws_wsi_now_wall(wsi);
-	struct lws *nwsi;
 	const char *me;
 #if defined(LWS_ROLE_H2)
 	char me_buf[16];
 #endif
-	int l = 256, m;
+	int l, m;
+	size_t tl;
 	struct tm *ptm = NULL;
 #if defined(LWS_HAVE_LOCALTIME_R)
 	struct tm tm;
@@ -85,6 +85,21 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 
 	if (wsi->access_log_pending)
 		lws_access_log(wsi);
+
+	/*
+	 * The host field: the client's address, as it always was, unless the
+	 * connection's peer address stack has more layers than the transport's
+	 * own peer (eg, a trusted front's PROXY v2 header), when it is all of
+	 * them, top first, each with its cred, as one token, eg
+	 * "192.0.2.10:40000~v<10.0.0.2:40122~r".  A stream on a connection has
+	 * the connection's.
+	 */
+	lws_io_peer_describe(wsi, ta, sizeof(ta),
+			     LWS_PEER_DESC_TOKEN | LWS_PEER_DESC_BARE_SINGLE);
+
+	/* room as there always was, and what a longer host field needs */
+	tl = strlen(ta);
+	l = 256 + (tl > 63 ? (int)tl - 63 : 0);
 
 	wsi->stream.access_log.header_log = lws_malloc((unsigned int)l, "access log");
 	if (!wsi->stream.access_log.header_log)
@@ -126,10 +141,6 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	strncpy(uri, uri_ptr, (unsigned int)m);
 	uri[m] = '\0';
 	lws_access_log_sanitize(uri, m);
-
-	nwsi = lws_get_network_wsi(wsi);
-
-	lws_io_peer_address(nwsi, ta, sizeof(ta));
 
 	lws_snprintf(wsi->stream.access_log.header_log, (size_t)l,
 		     "%s - - [%s] \"%s %s %s\"",

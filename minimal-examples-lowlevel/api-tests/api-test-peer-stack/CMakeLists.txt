@@ -24,7 +24,8 @@ if (requirements)
 	add_test(NAME api-test-peer-stack
 		 COMMAND lws-api-test-peer-stack
 			 --server ${LWS_CTEST_SERVER_RESOLVE}
-			 -p ${PORT_PEER_STACK_UDP})
+			 -p ${PORT_PEER_STACK_UDP}
+			 --access-log ${CMAKE_CURRENT_BINARY_DIR}/api-test-peer-stack-access.log)
 	set_tests_properties(api-test-peer-stack PROPERTIES TIMEOUT 30)
 
 	if (websockets_shared)
