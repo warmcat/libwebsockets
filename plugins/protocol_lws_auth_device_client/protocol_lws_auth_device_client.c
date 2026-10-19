@@ -217,7 +217,9 @@ device_auth_reply(struct lws *wsi, struct per_vhost_data *vhd,
 	const char *p;
 	size_t al = 0;
 
-	lwsl_debug("%s: %.*s\n", __func__, (int)action->body_len, action->body);
+	/* not the body: its device_code is what we poll for the token with */
+	lwsl_debug("%s: %u byte reply\n", __func__,
+		   (unsigned int)action->body_len);
 
 	p = lws_json_simple_find(action->body, action->body_len,
 				 "\"device_code\":", &al);
@@ -281,7 +283,9 @@ device_token_reply(struct per_vhost_data *vhd,
 	const char *p;
 	size_t al = 0;
 
-	lwsl_debug("%s: %.*s\n", __func__, (int)action->body_len, action->body);
+	/* not the body: it carries the issued access_token */
+	lwsl_debug("%s: %u byte reply\n", __func__,
+		   (unsigned int)action->body_len);
 
 	p = lws_json_simple_find(action->body, action->body_len,
 				 "\"access_token\":", &al);
