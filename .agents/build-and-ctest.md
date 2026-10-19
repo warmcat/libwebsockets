@@ -47,12 +47,13 @@
  - **The auth-server plugin needs `LWS_WITH_STRUCT_JSON=1`.**  Without
    it the lwsws-oauth tests still configure but the plugin is silently
    missing.
- - **NO_LOGS with lwsws or the DHT does not build on gcc 14** until G-142
-   is fixed (pre-existing unused-variable warnings).  To check changed
-   code in such a build, add `-Wno-error=unused-but-set-variable
-   -Wno-error=unused-variable` and grep the warnings for your files.
-   In such a tree `api-test-lws_dsh` also fails to link (undefined
-   `lws_dsh_describe`).
+ - **NO_LOGS builds clean with plugins, lwsws, DHT, SS and h3** since
+   G-142 / G-273 (75d5c5d22..02fce2bb9); the webrtc mixer and rtc_camera
+   were not checked (gstreamer / opus headers missing here).  A local
+   used only by a log goes inside the log call or under
+   `#if (_LWS_ENABLED_LOGS & LLL_x)` at that log's level, not a (void)
+   cast.  `-DDISABLE_WERROR=ON` with `make -k` collects every warning in
+   one pass.
  - **`LWS_WITH_DHT=1` with JOSE off fails `api-test-plugins`** until G-178
    is fixed: the dht_object_store plugin needs JOSE and fails to dlopen.
  - **minimal-crypto-dnssec does not build with PLUGINS_BUILTIN** (PLUGINS
@@ -345,3 +346,6 @@ a log is evidence that something was or was not emitted.
    curve25519 + chacha20-poly1305 key exchange: a new pre-auth scenario
    must start from that exchange, or expect to be closed if it sends
    anything but transport messages first.
+ - A raw UDP wsi receives at most the protocol's `rx_buffer_size`; a
+   longer datagram is silently truncated.  Sends are one datagram, never
+   split (G-279, see READMEs/README.udp.md).
