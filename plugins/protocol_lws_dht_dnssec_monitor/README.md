@@ -82,8 +82,10 @@ editor saved, so the proxy tells the page that one, and the editor reloads the
 zone to show it, unless it has changes that aren't saved.  A node is
 "current" at that serial, "behind" on an older one, "doesn't hold it", or "no
 answer" if it didn't answer within 5s, which includes a node too old to know
-the query.  Under each node's address is the start of its node id, and
-"dubious" if our routing table hasn't heard from it lately.  "Since" is how long ago the page saw the node change to what it
+the query.  A node has a route in the routing table for each address
+family it is reachable on, under the same node id: its routes are shown as one
+entry, listing each address, with an answer per route only where they differ.
+An address is dimmed if our routing table hasn't heard from it lately.  "Since" is how long ago the page saw the node change to what it
 shows.
 
 #### Server IP Inventory

@@ -1269,12 +1269,6 @@ body.is-disconnected .app-container {
   font-size: 0.8rem;
 }
 
-.dht-node-id {
-  font-family: monospace;
-  font-size: 0.9em;
-  color: var(--text-secondary);
-}
-
 .dht-node-self {
   font-style: italic;
 }

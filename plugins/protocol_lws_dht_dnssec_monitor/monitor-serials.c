@@ -96,7 +96,7 @@ serials_report_cb(void *opaque, const char *domain,
 		  const struct lws_dht_dnssec_serial_report *r)
 {
 	struct pss *pss = (struct pss *)opaque;
-	char ads[64], peer[80], id[16];
+	char ads[64], peer[80], id[LWS_GENHASH_LARGEST * 2 + 1];
 	unsigned int port;
 
 	if (!r) {
@@ -123,8 +123,8 @@ serials_report_cb(void *opaque, const char *domain,
 		else
 			lws_snprintf(peer, sizeof(peer), "%s:%u", ads, port);
 		if (r->id)
-			lws_hex_from_byte_array(r->id->id, r->id->len < 6 ?
-						(size_t)r->id->len : 6, id,
+			/* the browser shows one entry per node, whatever route */
+			lws_hex_from_byte_array(r->id->id, r->id->len, id,
 						sizeof(id));
 	}
 

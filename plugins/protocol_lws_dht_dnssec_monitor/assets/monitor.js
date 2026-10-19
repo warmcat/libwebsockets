@@ -2019,6 +2019,38 @@ function formatSince(ms) {
     return Math.round(s / 3600) + 'h ago';
 }
 
+/* how one route to a node answered, against the serial they should reach */
+function dhtRouteState(r, ref) {
+    if (r.state === 'held') {
+        if (ref === null)
+            return { st: 'holds it', cls: 'inv-badge-ok' };
+        if (r.serial === ref)
+            return { st: 'current', cls: 'inv-badge-ok', current: true };
+        if (serialNewer(ref, r.serial))
+            return { st: 'behind', cls: 'inv-badge-warn' };
+        return { st: 'ahead of signed', cls: 'inv-badge-warn' };
+    }
+    if (r.state === 'none')
+        return { st: 'doesn\'t hold it', cls: 'dht-badge-none' };
+
+    return { st: 'no answer', cls: 'dht-badge-err',
+             tip: 'Nothing came back in 5s: the node is unreachable, or ' +
+                  'runs a version that doesn\'t answer serial queries' };
+}
+
+function dhtStateHtml(r, rs) {
+    return {
+        serial: r.state === 'held' ? String(r.serial) : '',
+        badge: `<span class="inv-badge ${rs.cls}"` +
+               `${rs.tip ? ` title="${escapeHtml(rs.tip)}"` : ''}>${rs.st}</span>`
+    };
+}
+
+/*
+ * The routing table has a route per address family, but a node uses one id
+ * on both: the routes with the same id are one node, shown as one entry, with
+ * an answer for each route only where they differ
+ */
 function renderDhtSerials() {
     const tb = document.querySelector('#table-dht-serials tbody');
     const sum = document.getElementById('dht-serials-summary');
@@ -2026,59 +2058,54 @@ function renderDhtSerials() {
 
     /* the editor's serial until we hear of the signed zone's */
     const ref = dhtSerials.signed !== null ? dhtSerials.signed : editorSerial();
-    /* this node first, then the others in address order */
-    const rows = [...dhtSerials.rows.values()].sort((a, b) =>
-        (a.peer ? 1 : 0) - (b.peer ? 1 : 0) || a.peer.localeCompare(b.peer));
+    const nodes = new Map();
+
+    dhtSerials.rows.forEach(r => {
+        const key = r.peer ? (r.id ? 'id:' + r.id : 'ads:' + r.peer) : '';
+        if (!nodes.has(key))
+            nodes.set(key, []);
+        nodes.get(key).push(r);
+    });
+
+    /* IPv4 routes ahead of IPv6, then this node first, others by address */
+    nodes.forEach(routes => routes.sort((a, b) =>
+        (a.peer.startsWith('[') ? 1 : 0) - (b.peer.startsWith('[') ? 1 : 0) ||
+        a.peer.localeCompare(b.peer)));
+    const list = [...nodes.values()].sort((a, b) =>
+        (a[0].peer ? 1 : 0) - (b[0].peer ? 1 : 0) ||
+        a[0].peer.localeCompare(b[0].peer));
 
     sum.textContent = '';
-    if (!rows.length) {
+    if (!list.length) {
         tb.innerHTML = `<tr><td colspan="4" class="loading">${dhtSerials.domain ? 'Asking the DHT nodes...' : ''}</td></tr>`;
         return;
     }
 
     let current = 0;
-    tb.innerHTML = rows.map(r => {
-        let st, cls, tip = '';
+    tb.innerHTML = list.map(routes => {
+        const sts = routes.map(r => dhtRouteState(r, ref));
+        const html = routes.map((r, n) => dhtStateHtml(r, sts[n]));
+        const same = html.every(h => h.serial === html[0].serial &&
+                                     h.badge === html[0].badge);
+        /* when we last saw any route to it change */
+        const since = Math.max(...routes.map(r => r.since));
 
-        if (r.state === 'held') {
-            if (ref === null) {
-                st = 'holds it';
-                cls = 'inv-badge-ok';
-            } else if (r.serial === ref) {
-                st = 'current';
-                cls = 'inv-badge-ok';
-                current++;
-            } else if (serialNewer(ref, r.serial)) {
-                st = 'behind';
-                cls = 'inv-badge-warn';
-            } else {
-                st = 'ahead of signed';
-                cls = 'inv-badge-warn';
-            }
-        } else if (r.state === 'none') {
-            st = 'doesn\'t hold it';
-            cls = 'dht-badge-none';
-        } else {
-            st = 'no answer';
-            cls = 'dht-badge-err';
-            tip = 'Nothing came back in 5s: the node is unreachable, or ' +
-                  'runs a version that doesn\'t answer serial queries';
-        }
+        if (sts.some(rs => rs.current))
+            current++;
 
-        /* the node's id, and if our routing table doubts it, under it */
-        const node = r.peer ?
-            `${escapeHtml(r.peer)}<div class="dht-node-id">${escapeHtml(r.id)}` +
-            `${r.good ? '' : ' <span class="dht-dubious">dubious</span>'}</div>` :
+        const node = routes[0].peer ?
+            routes.map(r => `<div${r.good ? '' : ' class="dht-dubious" title="our routing table hasn\'t heard from it lately"'}>` +
+                            `${escapeHtml(r.peer)}</div>`).join('') :
             '<span class="dht-node-self">this node</span>';
+        const col = f => same ? html[0][f] :
+                         html.map(h => `<div>${h[f] || '&nbsp;'}</div>`).join('');
 
-        return `<tr><td>${node}</td>` +
-               `<td class="ext-mono">${r.state === 'held' ? r.serial : ''}</td>` +
-               `<td><span class="inv-badge ${cls}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${st}</span></td>` +
-               `<td>${formatSince(r.since)}</td></tr>`;
+        return `<tr><td>${node}</td><td class="ext-mono">${col('serial')}</td>` +
+               `<td>${col('badge')}</td><td>${formatSince(since)}</td></tr>`;
     }).join('');
 
     if (ref !== null)
-        sum.textContent = `${current} of ${rows.length} at serial ${ref}` +
+        sum.textContent = `${current} of ${list.length} at serial ${ref}` +
                           (dhtSerials.signed !== null ? ' (signed)' : ' (editor)');
 }
 
