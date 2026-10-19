@@ -55,6 +55,34 @@
 #define LWS_AUTH_DNS_MAX_NSEC3_PROOF		3
 
 /*
+ * G-289: the most a UDP answer may be, whatever EDNS0 payload size the
+ * querier advertises.  1232 keeps the datagram inside the IPv6 minimum MTU,
+ * so it is never fragmented (DNS Flag Day 2020, RFC 9715): fragments are
+ * what makes off-path spoofing of answers possible, and the cap also bounds
+ * what a spoofed query can reflect.  Without EDNS0 the limit is RFC 1035's
+ * 512, and an advertised size below 512 means 512 (RFC 6891 6.2.5).  Our
+ * own OPT advertises the same 1232.
+ */
+#define LWS_AUTH_DNS_UDP_MAX			1232
+#define LWS_AUTH_DNS_UDP_MIN			512
+#define LWS_AUTH_DNS_OPT_LEN			11
+
+/*
+ * G-289: UDP response rate limiting defaults, see the "rrl-*" pvos in
+ * protocol_lws_auth_dns.md
+ */
+#define LWS_AUTH_DNS_RRL_DEF_RATE		50
+#define LWS_AUTH_DNS_RRL_DEF_SLIP		2
+#define LWS_AUTH_DNS_RRL_DEF_V4_PREFIX		24
+#define LWS_AUTH_DNS_RRL_DEF_V6_PREFIX		56
+#define LWS_AUTH_DNS_RRL_DEF_TABLE		4096
+#define LWS_AUTH_DNS_RRL_MAX_RATE		100000
+#define LWS_AUTH_DNS_RRL_MAX_TABLE		(1024 * 1024)
+#define LWS_AUTH_DNS_RRL_LOG_US			(60 * LWS_US_PER_SEC)
+/* family byte, then up to a /128 */
+#define LWS_AUTH_DNS_RRL_KEY_LEN		17
+
+/*
  * The NSEC3 owner hash is recomputed per query, so the zone's iteration
  * count is a CPU cost an (untrusted, eg DHT-published) zone gets to choose:
  * LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS from lws-auth-dns.h bounds it.
@@ -481,6 +509,60 @@ auth_dns_nsec3_proof(struct auth_dns_zone *z, const char *qname,
 }
 
 /*
+ * Our OPT pseudo-RR (RFC 6891), answering EDNS0 with EDNS0 and echoing DO
+ */
+
+static uint8_t *
+auth_dns_opt(uint8_t *rp, int do_bit)
+{
+	*rp++ = 0;				/* root name */
+	*rp++ = 0; *rp++ = 41;			/* type OPT */
+	*rp++ = (uint8_t)(LWS_AUTH_DNS_UDP_MAX >> 8);
+	*rp++ = (uint8_t)(LWS_AUTH_DNS_UDP_MAX & 0xff); /* our UDP size */
+	*rp++ = 0; *rp++ = 0;			/* ext rcode, version */
+	*rp++ = do_bit ? 0x80 : 0; *rp++ = 0;	/* DO */
+	*rp++ = 0; *rp++ = 0;			/* rdlen */
+
+	return rp;
+}
+
+/*
+ * G-289 / G-280: compose a truncated response at \p hdr, whose ID is already
+ * written: \p rflags with TC added, the question echoed and nothing else but,
+ * for an EDNS0 querier, our OPT.  A response that does not fit is sent like
+ * this, never with whatever part of it did fit: no partial RRset or proof
+ * for a resolver to use, no bytes outside what the section counts cover,
+ * and the querier retries over TCP (RFC 2181 9, RFC 7766).
+ *
+ * Returns where the response ends, or NULL if even that does not fit.
+ */
+
+static uint8_t *
+auth_dns_truncated(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
+		   uint16_t rflags, const uint8_t *qsec, size_t qlen,
+		   int edns, int do_bit)
+{
+	uint8_t *rp = hdr + 12;
+
+	if (lws_ptr_diff_size_t(rp, dbuf) + qlen +
+				(edns ? LWS_AUTH_DNS_OPT_LEN : 0) > max_buf)
+		return NULL;
+
+	lws_ser_wu16be(hdr + 2, (uint16_t)(rflags | 0x0200)); /* TC */
+	memset(hdr + 4, 0, 8);
+	hdr[5] = 1;				/* QDCOUNT */
+	memmove(rp, qsec, qlen);
+	rp += qlen;
+
+	if (edns) {
+		rp = auth_dns_opt(rp, do_bit);
+		hdr[11] = 1;			/* ARCOUNT */
+	}
+
+	return rp;
+}
+
+/*
  * Emit every RR of \p rs, or with \p sigs, the RRSIGs at its owner covering
  * it instead.  Returns how many were emitted, or -1 if they did not all fit.
  */
@@ -546,7 +628,8 @@ auth_dns_emit_rrset(uint8_t **rp, uint8_t *dbuf, size_t max_buf,
  *
  * The response header is at \p hdr, whose ID is already written; \p qsec /
  * \p qlen is the question section to echo.  Returns where the response
- * ends, or NULL if not even the header and question fit.
+ * ends, or NULL if not even the header and question fit.  A referral that
+ * does not fit whole is sent truncated, with only the question.
  */
 
 static uint8_t *
@@ -559,16 +642,21 @@ auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
 	struct auth_dns_rrset *ds = NULL;
 	int nsc = 0, arc = 0, n, trunc = 0;
 	uint8_t *rp = hdr + 12;
+	size_t lim;
 
-	if (lws_ptr_diff_size_t(rp, dbuf) + qlen > max_buf)
+	if (lws_ptr_diff_size_t(rp, dbuf) + qlen +
+			(edns ? LWS_AUTH_DNS_OPT_LEN : 0) > max_buf)
 		return NULL;
+
+	/* the RRsets leave room for the OPT */
+	lim = max_buf - (edns ? LWS_AUTH_DNS_OPT_LEN : 0);
 
 	memset(hdr + 2, 0, 10);
 	hdr[5] = 1; /* QDCOUNT */
 	memcpy(rp, qsec, qlen);
 	rp += qlen;
 
-	n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z, cut, 0);
+	n = auth_dns_emit_rrset(&rp, dbuf, lim, z, cut, 0);
 	if (n < 0)
 		trunc = 1;
 	else
@@ -600,10 +688,10 @@ auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
 		}
 
 		if (proof) {
-			n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z, proof, 0);
+			n = auth_dns_emit_rrset(&rp, dbuf, lim, z, proof, 0);
 			if (n >= 0) {
 				nsc += n;
-				n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z,
+				n = auth_dns_emit_rrset(&rp, dbuf, lim, z,
 							proof, 1);
 			}
 			if (n < 0)
@@ -634,7 +722,7 @@ auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
 				    memcmp(ns->wire_rdata, w, wl))
 					continue;
 
-				n = auth_dns_emit_rrset(&rp, dbuf, max_buf, z,
+				n = auth_dns_emit_rrset(&rp, dbuf, lim, z,
 							rs, 0);
 				if (n < 0)
 					trunc = 1;
@@ -643,21 +731,17 @@ auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
 			} lws_end_foreach_dll(d2);
 		} lws_end_foreach_dll(d);
 
-	/* answer EDNS with EDNS, echoing DO */
-
-	if (edns && !trunc && lws_ptr_diff_size_t(rp, dbuf) + 11 <= max_buf) {
-		*rp++ = 0; /* root name */
-		*rp++ = 0; *rp++ = 41; /* Type OPT */
-		*rp++ = 16; *rp++ = 0; /* UDP payload size 4096 */
-		*rp++ = 0; *rp++ = 0; /* Ext rcode + version */
-		*rp++ = do_bit ? 0x80 : 0; *rp++ = 0; /* DO bit */
-		*rp++ = 0; *rp++ = 0; /* rdlen 0 */
-		arc++;
-	}
-
 	/* an incomplete referral is not one: have the querier use TCP */
 	if (trunc)
-		rflags |= 0x0200; /* TC */
+		return auth_dns_truncated(hdr, dbuf, max_buf, rflags, qsec,
+					  qlen, edns, do_bit);
+
+	/* answer EDNS with EDNS, echoing DO; room was left for it */
+
+	if (edns) {
+		rp = auth_dns_opt(rp, do_bit);
+		arc++;
+	}
 
 	lws_ser_wu16be(hdr + 2, rflags);
 	lws_ser_wu16be(hdr + 8, (uint16_t)nsc);
@@ -665,6 +749,27 @@ auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
 
 	return rp;
 }
+
+/*
+ * G-289: one network prefix's response budget, a token bucket refilled at
+ * rrl-responses-per-second up to rrl-burst
+ */
+
+struct auth_dns_rrl_entry {
+	lws_dll2_t	hash_list;	/* in its vhd->rrl_hash bucket */
+	lws_dll2_t	lru_list;	/* in vhd->rrl_lru, latest first */
+	lws_usec_t	last;		/* when tokens was last refilled */
+	uint64_t	tokens;		/* in thousandths of a response */
+	uint32_t	over;		/* queries over budget in a row */
+	uint8_t		key[LWS_AUTH_DNS_RRL_KEY_LEN];
+	uint8_t		key_len;
+};
+
+enum {
+	AUTH_DNS_RRL_ANSWER,
+	AUTH_DNS_RRL_SLIP,
+	AUTH_DNS_RRL_DROP,
+};
 
 struct auth_dns_cache_entry {
 	lws_dll2_t list;
@@ -706,6 +811,26 @@ struct per_vhost_data__auth_dns {
 	 * strcmp() on the event loop thread driven by unauthenticated UDP.
 	 */
 	uint32_t pending_unique_domains;
+
+	/*
+	 * G-289: UDP response rate limiting, per source network prefix.
+	 * rrl_rate 0 means it is off.
+	 */
+	lws_dll2_owner_t	*rrl_hash;	/* rrl_buckets of them */
+	lws_dll2_owner_t	rrl_lru;	/* every entry, latest first */
+	lws_sorted_usec_list_t	sul_rrl_log;
+	uint32_t		rrl_rate;	/* responses / s */
+	uint32_t		rrl_burst;	/* responses */
+	uint32_t		rrl_slip;	/* every Nth limited one is TC */
+	uint32_t		rrl_table;	/* max prefixes tracked */
+	uint32_t		rrl_buckets;	/* power of two */
+	uint32_t		rrl_seed;
+	uint32_t		rrl_v4_prefix;
+	uint32_t		rrl_v6_prefix;
+	/* since the last aggregate log line */
+	uint32_t		rrl_dropped;
+	uint32_t		rrl_slipped;
+	uint32_t		rrl_newly_limited;
 
 	/* DNSBL tracking */
 	int has_dnsbl;                     /* 1 if we have any DNSBLs configured */
@@ -810,8 +935,199 @@ extract_base_domain(const char *qname, char *base, size_t max)
 #endif
 }
 
+/*
+ * G-289: the response rate limiting key for a UDP source, its network
+ * prefix: by default /24 for IPv4 (including v4-mapped IPv6 sources) and
+ * /56 for IPv6, the sizes of allocation one party usually controls, so one
+ * querier, or the victim whose address a reflection attack spoofs, has one
+ * budget however it varies its address inside that.
+ *
+ * A datagram's source address is only hearsay, anyone can write it.  This
+ * is the one place that decides what a source is, so it is where the peer
+ * stack's credibility levels can be consulted when they reach the plugin.
+ *
+ * Fills \p key (LWS_AUTH_DNS_RRL_KEY_LEN) and returns its used length.
+ */
+
+static size_t
+auth_dns_rrl_key(const struct per_vhost_data__auth_dns *vhd,
+		 const lws_sockaddr46 *sa46, uint8_t *key)
+{
+	const uint8_t *a = (const uint8_t *)&sa46->sa4.sin_addr;
+	unsigned int bits = vhd->rrl_v4_prefix, n, len;
+
+	key[0] = 4;
+
+#if defined(LWS_WITH_IPV6)
+	if (sa46->sa4.sin_family == AF_INET6) {
+		static const uint8_t v4mapped[] = {
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff
+		};
+
+		a = sa46->sa6.sin6_addr.s6_addr;
+		if (!memcmp(a, v4mapped, sizeof(v4mapped)))
+			a += sizeof(v4mapped);
+		else {
+			key[0] = 6;
+			bits = vhd->rrl_v6_prefix;
+		}
+	}
+#endif
+
+	len = (bits + 7) / 8;
+	for (n = 0; n < len; n++)
+		key[1 + n] = a[n];
+	if (bits & 7)
+		key[len] = (uint8_t)(key[len] & (0xff00 >> (bits & 7)));
+
+	return 1 + len;
+}
+
+static void
+auth_dns_rrl_log_cb(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__auth_dns *vhd = lws_container_of(sul,
+				struct per_vhost_data__auth_dns, sul_rrl_log);
+
+	lwsl_vhost_notice(vhd->vhost, "rate limiting: in the last %ds, %u "
+			  "source prefixes went over %u answers/s, %u answers "
+			  "dropped, %u sent truncated",
+			  (int)(LWS_AUTH_DNS_RRL_LOG_US / LWS_US_PER_SEC),
+			  (unsigned int)vhd->rrl_newly_limited,
+			  (unsigned int)vhd->rrl_rate,
+			  (unsigned int)vhd->rrl_dropped,
+			  (unsigned int)vhd->rrl_slipped);
+
+	vhd->rrl_newly_limited = vhd->rrl_dropped = vhd->rrl_slipped = 0;
+}
+
+static void
+auth_dns_rrl_destroy(struct per_vhost_data__auth_dns *vhd)
+{
+	lws_sul_cancel(&vhd->sul_rrl_log);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->rrl_lru)) {
+		struct auth_dns_rrl_entry *e = lws_container_of(d,
+					struct auth_dns_rrl_entry, lru_list);
+
+		lws_dll2_remove(&e->hash_list);
+		lws_dll2_remove(&e->lru_list);
+		free(e);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	free(vhd->rrl_hash);
+	vhd->rrl_hash = NULL;
+}
+
+/*
+ * G-289: decide whether a UDP query from \p sa46 is answered.  Each source
+ * prefix has a token bucket; while it has a token the query is answered.
+ * Over budget, every rrl-slip'th query is answered with an empty TC=1
+ * response, so a real resolver sharing the prefix retries over TCP (which
+ * is not limited, its source is not spoofable), and the rest are dropped.
+ * A spoofed flood towards a victim therefore reflects at most the budget,
+ * plus header-and-question-sized truncated answers.
+ *
+ * The tracked prefixes are bounded by rrl-table-size, recycling the least
+ * recently seen one.  What was limited is logged in aggregate, never per
+ * packet.
+ */
+
+static int
+auth_dns_rrl(struct per_vhost_data__auth_dns *vhd, const lws_sockaddr46 *sa46)
+{
+	struct auth_dns_rrl_entry *e = NULL;
+	uint8_t key[LWS_AUTH_DNS_RRL_KEY_LEN];
+	lws_usec_t now = lws_now_usecs();
+	uint64_t cap;
+	uint32_t h = 2166136261u ^ vhd->rrl_seed; /* FNV-1a, seeded */
+	size_t kl, n;
+
+	if (!vhd->rrl_rate || !vhd->rrl_hash)
+		return AUTH_DNS_RRL_ANSWER;
+
+	kl = auth_dns_rrl_key(vhd, sa46, key);
+	for (n = 0; n < kl; n++)
+		h = (h ^ key[n]) * 16777619u;
+	h &= vhd->rrl_buckets - 1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->rrl_hash[h])) {
+		struct auth_dns_rrl_entry *f = lws_container_of(d,
+					struct auth_dns_rrl_entry, hash_list);
+
+		if (f->key_len == kl && !memcmp(f->key, key, kl)) {
+			e = f;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	cap = (uint64_t)vhd->rrl_burst * 1000;
+
+	if (!e) {
+		if (vhd->rrl_lru.count >= vhd->rrl_table) {
+			/* forget the prefix we heard from least recently */
+			e = lws_container_of(lws_dll2_get_tail(&vhd->rrl_lru),
+					     struct auth_dns_rrl_entry,
+					     lru_list);
+			lws_dll2_remove(&e->hash_list);
+			lws_dll2_remove(&e->lru_list);
+		} else {
+			e = malloc(sizeof(*e));
+			if (!e)
+				/* no state to judge it by: not answered */
+				return AUTH_DNS_RRL_DROP;
+		}
+
+		memset(e, 0, sizeof(*e));
+		memcpy(e->key, key, kl);
+		e->key_len = (uint8_t)kl;
+		e->tokens = cap;
+		e->last = now;
+		lws_dll2_add_head(&e->hash_list, &vhd->rrl_hash[h]);
+	} else
+		lws_dll2_remove(&e->lru_list);
+
+	lws_dll2_add_head(&e->lru_list, &vhd->rrl_lru);
+
+	if (now > e->last) {
+		/* rrl_rate tokens / s is rrl_rate thousandths / ms */
+		uint64_t add = ((uint64_t)(now - e->last) * vhd->rrl_rate) /
+								LWS_US_PER_MS;
+
+		e->tokens = e->tokens + add > cap ? cap : e->tokens + add;
+		e->last = now;
+	}
+
+	if (e->tokens >= 1000) {
+		e->tokens -= 1000;
+		e->over = 0;
+
+		return AUTH_DNS_RRL_ANSWER;
+	}
+
+	if (!e->over++)
+		vhd->rrl_newly_limited++;
+
+	if (!lws_dll2_owner(&vhd->sul_rrl_log.list))
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_rrl_log,
+				 auth_dns_rrl_log_cb, LWS_AUTH_DNS_RRL_LOG_US);
+
+	if (vhd->rrl_slip && !(e->over % vhd->rrl_slip)) {
+		vhd->rrl_slipped++;
+
+		return AUTH_DNS_RRL_SLIP;
+	}
+
+	vhd->rrl_dropped++;
+
+	return AUTH_DNS_RRL_DROP;
+}
+
 static void
 auth_dns_sul_subscribe_cb(lws_sorted_usec_list_t *sul)
+
 {
 	struct auth_dns_cache_entry *ce = lws_container_of(sul, struct auth_dns_cache_entry, sul_subscribe);
 
@@ -1619,6 +1935,11 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->dht_max_pending = 128;
 		vhd->cache_max_zones = 1000;
+		vhd->rrl_rate = LWS_AUTH_DNS_RRL_DEF_RATE;
+		vhd->rrl_slip = LWS_AUTH_DNS_RRL_DEF_SLIP;
+		vhd->rrl_table = LWS_AUTH_DNS_RRL_DEF_TABLE;
+		vhd->rrl_v4_prefix = LWS_AUTH_DNS_RRL_DEF_V4_PREFIX;
+		vhd->rrl_v6_prefix = LWS_AUTH_DNS_RRL_DEF_V6_PREFIX;
 
 		{
 			const struct lws_protocol_vhost_options *pvo =
@@ -1634,6 +1955,18 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					vhd->dht_max_pending = (uint32_t)atoi(pvo->value);
 				} else if (!strcmp(pvo->name, "cache-max-zones")) {
 					vhd->cache_max_zones = (uint32_t)atoi(pvo->value);
+				} else if (!strcmp(pvo->name, "rrl-responses-per-second")) {
+					vhd->rrl_rate = (uint32_t)atoi(pvo->value);
+				} else if (!strcmp(pvo->name, "rrl-burst")) {
+					vhd->rrl_burst = (uint32_t)atoi(pvo->value);
+				} else if (!strcmp(pvo->name, "rrl-slip")) {
+					vhd->rrl_slip = (uint32_t)atoi(pvo->value);
+				} else if (!strcmp(pvo->name, "rrl-table-size")) {
+					vhd->rrl_table = (uint32_t)atoi(pvo->value);
+				} else if (!strcmp(pvo->name, "rrl-ipv4-prefix")) {
+					vhd->rrl_v4_prefix = (uint32_t)atoi(pvo->value);
+				} else if (!strcmp(pvo->name, "rrl-ipv6-prefix")) {
+					vhd->rrl_v6_prefix = (uint32_t)atoi(pvo->value);
 				} else if (!strcmp(pvo->name, "dnsbl")) {
 					lws_strncpy(vhd->dnsbl_list, pvo->value, sizeof(vhd->dnsbl_list));
 					char *p = vhd->dnsbl_list;
@@ -1703,6 +2036,47 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				}
 				close(dfd);
 			}
+
+			/*
+			 * G-289: the rate limiting settings must make sense,
+			 * an operator typo must not quietly turn it off
+			 */
+			if (vhd->rrl_rate > LWS_AUTH_DNS_RRL_MAX_RATE ||
+			    vhd->rrl_burst > LWS_AUTH_DNS_RRL_MAX_RATE ||
+			    vhd->rrl_slip > 100 ||
+			    vhd->rrl_table < 1 ||
+			    vhd->rrl_table > LWS_AUTH_DNS_RRL_MAX_TABLE ||
+			    vhd->rrl_v4_prefix < 8 || vhd->rrl_v4_prefix > 32 ||
+			    vhd->rrl_v6_prefix < 16 || vhd->rrl_v6_prefix > 128) {
+				lwsl_vhost_err(vhd->vhost, "%s: an rrl-* pvo is out "
+						"of range, refusing to start",
+						__func__);
+				return -1;
+			}
+
+			if (vhd->rrl_rate) {
+				if (!vhd->rrl_burst)
+					vhd->rrl_burst = 2 * vhd->rrl_rate;
+
+				vhd->rrl_buckets = 16;
+				while (vhd->rrl_buckets < vhd->rrl_table / 4)
+					vhd->rrl_buckets <<= 1;
+
+				vhd->rrl_hash = calloc(vhd->rrl_buckets,
+						       sizeof(*vhd->rrl_hash));
+				if (!vhd->rrl_hash) {
+					lwsl_vhost_err(vhd->vhost, "%s: OOM",
+						       __func__);
+					return -1;
+				}
+
+				/* best-effort: the seed only spreads buckets */
+				lws_get_random(vhd->context, &vhd->rrl_seed,
+					       sizeof(vhd->rrl_seed));
+			} else
+				lwsl_vhost_warn(vhd->vhost, "%s: UDP response "
+						"rate limiting is disabled",
+						__func__);
 		}
 
 		{
@@ -1776,6 +2150,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		{
 			lws_sul_cancel(&vhd->sul_evict);
+		auth_dns_rrl_destroy(vhd);
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 				struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
@@ -1991,8 +2366,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			  qtype, qclass);
 #endif
 
-		int do_bit = 0;
-		uint16_t udp_payload_size = 512;
+		int do_bit = 0, edns = 0;
+		uint16_t udp_payload_size = 0;
 		if (ancount == 0 && nscount == 0 && arcount > 0) {
 			uint8_t *arq = q;
 			int ar_c = arcount;
@@ -2010,6 +2385,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if (arq + 10 <= end) {
 					uint16_t type = (uint16_t)((arq[0] << 8) | arq[1]);
 					if (type == 41) { /* OPT */
+						edns = 1;
 						udp_payload_size = (uint16_t)((arq[2] << 8) | arq[3]);
 						if (arq[6] & 0x80)
 							do_bit = 1;
@@ -2026,11 +2402,47 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		uint8_t *dbuf = pss->buf + LWS_PRE;
 		uint8_t *rp = dbuf;
-		size_t max_buf = is_tcp ? (sizeof(pss->buf) - LWS_PRE) : (udp_payload_size < sizeof(pss->buf) - LWS_PRE ? udp_payload_size : sizeof(pss->buf) - LWS_PRE);
+		size_t qsec_len = lws_ptr_diff_size_t(q, p + 12);
+		size_t max_buf = sizeof(pss->buf) - LWS_PRE;
+
+		/*
+		 * G-289: UDP answers fit in what the querier can take, and
+		 * never more than LWS_AUTH_DNS_UDP_MAX
+		 */
+		if (!is_tcp) {
+			max_buf = LWS_AUTH_DNS_UDP_MIN;
+			if (edns && udp_payload_size > max_buf)
+				max_buf = udp_payload_size > LWS_AUTH_DNS_UDP_MAX ?
+					LWS_AUTH_DNS_UDP_MAX : udp_payload_size;
+		}
 		if (is_tcp) rp += 2;
 
 		rp[0] = (uint8_t)(id >> 8); rp[1] = (uint8_t)(id & 0xff);
 		uint16_t rflags = 0x8400 | (flags & 0x0100);
+
+		/*
+		 * G-289: a UDP source is held to its prefix's response budget
+		 * before anything is looked up for it.  A query replayed after
+		 * a DHT fetch or DNSBL lookups was charged when it arrived.
+		 */
+		if (!is_tcp && reason == LWS_CALLBACK_RAW_RX) {
+			const struct lws_udp *udp = lws_get_udp(wsi);
+
+			switch (udp ? auth_dns_rrl(vhd, &udp->sa46) :
+				      AUTH_DNS_RRL_DROP) {
+			case AUTH_DNS_RRL_DROP:
+				goto done;
+			case AUTH_DNS_RRL_SLIP:
+				rp = auth_dns_truncated(rp, dbuf, max_buf, rflags,
+							p + 12, qsec_len, edns,
+							do_bit);
+				if (!rp)
+					goto done;
+				goto send_reply;
+			default:
+				break;
+			}
+		}
 
 		struct auth_dns_cache_entry *matched_ce = NULL;
 		struct auth_dns_rrset *found_rs = NULL, *cut = NULL;
@@ -2103,7 +2515,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			rp = auth_dns_referral(rp, dbuf, max_buf, flags, p + 12,
 					       lws_ptr_diff_size_t(q, p + 12),
 					       &matched_ce->zone, cut, do_bit,
-					       arcount > 0);
+					       edns);
+
 			if (!rp) {
 				lwsl_notice("DNS: response too large for buffer\n");
 				goto done;
@@ -2284,10 +2697,12 @@ send_nxdomain:
 				rp[6] = 0; rp[7] = 0; /* ANCOUNT = 0 */
 
 				/* Write standard DNS Question */
-				uint8_t *rp_flags = rp + 2; /* Save pointer to flags */
+				uint8_t *rp_hdr = rp;
 				uint8_t *rp_auth_count = rp + 8; /* Save pointer to NSCOUNT */
 				uint8_t *rp_ar_count = rp + 10; /* Save pointer to ARCOUNT */
 				int trunc = 0;
+				/* the authority section leaves room for the OPT */
+				size_t lim = max_buf - (edns ? LWS_AUTH_DNS_OPT_LEN : 0);
 				rp[8] = 0; rp[9] = 0; /* NSCOUNT */
 				rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
 				rp += 12;
@@ -2304,7 +2719,9 @@ send_nxdomain:
 				if (soa_rs && lws_dll2_get_head(&soa_rs->rr_list)) {
 					struct auth_dns_rr *soa_rr = lws_container_of(lws_dll2_get_head(
 						&soa_rs->rr_list), struct auth_dns_rr, list);
-					if ((size_t)(rp - dbuf) + 16 + soa_rr->wire_rdata_len <= max_buf) {
+					if ((size_t)(rp - dbuf) + 16 + soa_rr->wire_rdata_len > lim)
+					trunc = 1;
+				else {
 						int ql = (int)strlen(qname);
 						int ol = (int)strlen(matched_ce->zone.origin);
 						if (ol > 0 && matched_ce->zone.origin[ol - 1] == '.') ol--;
@@ -2340,7 +2757,7 @@ send_nxdomain:
 							    ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) != 6)
 								continue;
 
-							if (auth_dns_emit_rr(&rp, dbuf, max_buf, sg, rr,
+							if (auth_dns_emit_rr(&rp, dbuf, lim, sg, rr,
 									     matched_ce->zone.origin)) {
 								trunc = 1;
 								break;
@@ -2371,7 +2788,7 @@ send_nxdomain:
 						lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&n3->rr_list)) {
 							struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
 
-							if (auth_dns_emit_rr(&rp, dbuf, max_buf, n3, rr,
+							if (auth_dns_emit_rr(&rp, dbuf, lim, n3, rr,
 									     matched_ce->zone.origin)) {
 								trunc = 1;
 								break;
@@ -2394,7 +2811,7 @@ send_nxdomain:
 								    ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) != 50)
 									continue;
 
-								if (auth_dns_emit_rr(&rp, dbuf, max_buf, sg, rr,
+								if (auth_dns_emit_rr(&rp, dbuf, lim, sg, rr,
 										     matched_ce->zone.origin)) {
 									trunc = 1;
 									break;
@@ -2411,9 +2828,13 @@ send_nxdomain:
 					 * an incomplete proof is not a proof;
 					 * say so rather than emit a partial one
 					 */
-					rflags |= 0x0200; /* TC */
-					rp_flags[0] = (uint8_t)(rflags >> 8);
-					rp_flags[1] = (uint8_t)(rflags & 0xff);
+					rp = auth_dns_truncated(rp_hdr, dbuf, max_buf,
+								rflags, p + 12,
+								qsec_len, edns,
+								do_bit);
+					if (!rp)
+						goto done;
+					goto after_refused;
 				}
 
 				/* Update Authority Count dynamically */
@@ -2426,16 +2847,11 @@ send_nxdomain:
 				 * resolver cannot tell this responder speaks
 				 * DNSSEC at all
 				 */
-				if (arcount > 0 && !trunc &&
-				    lws_ptr_diff_size_t(rp, dbuf) + 11 <= max_buf) {
-					*rp++ = 0; /* root name */
-					*rp++ = 0; *rp++ = 41; /* Type OPT */
-					*rp++ = 16; *rp++ = 0; /* UDP payload size 4096 */
-					*rp++ = 0; *rp++ = 0; /* Ext rcode + version */
-					*rp++ = do_bit ? 0x80 : 0; *rp++ = 0; /* DO bit */
-					*rp++ = 0; *rp++ = 0; /* rdlen 0 */
+				if (edns) {
+					rp = auth_dns_opt(rp, do_bit);
 					rp_ar_count[1] = 1;
 				}
+
 
 				goto after_refused;
 			}
@@ -2458,12 +2874,14 @@ send_out:
 after_refused:
 			;
 		} else {
-			int anc = 0;
+			/* the answer section leaves room for the OPT */
+			size_t lim = max_buf - (edns ? LWS_AUTH_DNS_OPT_LEN : 0);
+			int anc = 0, trunc = 0;
 			size_t total_size = lws_ptr_diff_size_t(rp, dbuf) + 12 + (size_t)(q - (p + 12));
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&found_rs->rr_list)) {
 				struct auth_dns_rr *rr = lws_container_of(d, struct auth_dns_rr, list);
-				if (total_size + 12 + (size_t)rr->wire_rdata_len > max_buf) {
-					rflags |= 0x0200; /* Truncated TC bit */
+				if (total_size + 12 + (size_t)rr->wire_rdata_len > lim) {
+					trunc = 1;
 					break;
 				}
 				total_size += 12 + (size_t)rr->wire_rdata_len;
@@ -2471,15 +2889,15 @@ after_refused:
 			} lws_end_foreach_dll(d);
 
 			int added_rrsig = 0;
-			if (do_bit && matched_ce) {
+			if (do_bit && matched_ce && !trunc) {
 				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
 					struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
 					if (rs->type == 46 && !strcmp(rs->name, found_rs->name) && rs->class_ == qclass) {
 						lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
 							struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
 							if (rr->wire_rdata_len >= 2 && ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) == found_rs->type) {
-								if (total_size + 12 + (size_t)rr->wire_rdata_len > max_buf) {
-									rflags |= 0x0200;
+								if (total_size + 12 + (size_t)rr->wire_rdata_len > lim) {
+									trunc = 1;
 									break;
 								}
 								total_size += 12 + (size_t)rr->wire_rdata_len;
@@ -2490,15 +2908,22 @@ after_refused:
 				} lws_end_foreach_dll(d);
 			}
 
-			int added_opt = 0;
-			if (arcount > 0) {
-				if (total_size + 11 > max_buf) {
-					rflags |= 0x0200;
-				} else {
-					total_size += 11;
-					added_opt++;
-				}
+			/*
+			 * G-289 / G-280: an RRset that does not fit whole is not
+			 * sent in part: the querier gets the question with TC
+			 * and asks again over TCP.  That reveals nothing, so the
+			 * DNSBL checks on the answer are for the TCP retry.
+			 */
+			if (trunc) {
+				rp = auth_dns_truncated(rp, dbuf, max_buf, rflags,
+							p + 12, qsec_len, edns,
+							do_bit);
+				if (!rp)
+					goto done;
+				goto send_reply;
 			}
+
+			int added_opt = edns;
 
 			rp[2] = (uint8_t)(rflags >> 8); rp[3] = (uint8_t)(rflags & 0xff);
 			rp[4] = 0; rp[5] = 1;
@@ -2697,17 +3122,13 @@ after_refused:
 				} lws_end_foreach_dll(d);
 			}
 
-			if (added_opt) {
-				*rp++ = 0; /* root name */
-				*rp++ = 0; *rp++ = 41; /* Type OPT */
-				*rp++ = 16; *rp++ = 0; /* UDP payload size 4096 */
-				*rp++ = 0; *rp++ = 0; /* Ext rcode + version */
-				*rp++ = do_bit ? 0x80 : 0; *rp++ = 0; /* DO bit */
-				*rp++ = 0; *rp++ = 0; /* rdlen 0 */
-			}
+			if (added_opt)
+				rp = auth_dns_opt(rp, do_bit);
 		}
 
+send_reply:
 		pss->len = (int)(rp - dbuf);
+
 		if (is_tcp) {
 			int plen = pss->len - 2;
 			dbuf[0] = (uint8_t)(plen >> 8);

@@ -80,9 +80,8 @@ zones whose iteration count exceeds 150 (RFC 5155 §A.1's useful maximum; RFC
 9276 deprecates anything above 0) are not proved at all rather than allowed to
 spend the event loop thread's time.  Zones signed with a hash algorithm other
 than SHA-1, or with no NSEC3 records, likewise get an `SOA`-only authority
-section.  If the proof does not fit in the querier's advertised EDNS0 buffer
-the `TC` bit is set rather than a partial (and therefore useless) proof
-emitted.
+section.  If the proof does not fit in the answer size (see below), the answer
+is sent truncated rather than with a partial (and therefore useless) proof.
 
 ## Delegations
 
@@ -101,10 +100,46 @@ When several served zones enclose a query name, the closest one answers it,
 so a parent zone served alongside a child it delegates to does not answer
 for the child's names.
 
-Note there is no response rate limiting (RRL/SLIP) or DNS cookie (RFC 7873)
-support in the plugin yet, so a DNSSEC negative answer remains a usable UDP
-amplification vector towards a spoofed source; front the service with a
-rate limiter if it is exposed.
+## UDP Answer Size and Rate Limiting
+
+A UDP query's source address is whatever the sender wrote in it, so an
+authoritative server is a candidate reflector: a small spoofed query draws a
+larger, DNSSEC-signed answer towards the victim whose address was forged.
+The plugin bounds both how big and how many such answers can be.
+
+**Answer size.**  A UDP answer is at most as large as the querier's EDNS0
+payload size, but never more than 1232 bytes however large a size it
+advertises, so it is never fragmented (DNS Flag Day 2020, RFC 9715).
+Without EDNS0, the limit is 512 bytes, as it also is for an advertised size
+below 512 (RFC 6891 6.2.5).  The plugin's own OPT advertises 1232.  An
+answer that does not fit whole is sent as just the header and question with
+`TC` set (and the OPT, to an EDNS0 querier): never a partial RRset, proof or
+referral.  The querier retries over TCP, where the answer is sent whole (up
+to the plugin's 4096-byte TCP buffer).
+
+**Rate limiting.**  Each source network prefix, by default the /24 for IPv4
+(including v4-mapped IPv6 sources) and the /56 for IPv6, has a budget of
+UDP answers: a token bucket holding up to `rrl-burst` answers, refilled at
+`rrl-responses-per-second`.  The budget is checked when the query arrives,
+before anything is looked up for it.  While the prefix has budget, its
+queries are answered as usual.  Over budget, every `rrl-slip`th query gets
+an empty `TC` answer (header and question only), so a real resolver sharing
+the prefix still gets through by retrying over TCP, and the rest get no
+answer at all.  TCP is not limited this way, since its peer address is not
+spoofable.  A spoofed flood towards one victim therefore reflects at most
+that budget, plus header-and-question-sized truncated answers.
+
+Up to `rrl-table-size` prefixes are tracked at a time; when the table is
+full, the one heard from least recently is forgotten (and starts with a full
+budget if it is heard from again).  What was limited is logged once a
+minute in aggregate at `notice` level, never per packet, eg
+
+```
+rate limiting: in the last 60s, 3 source prefixes went over 50 answers/s, 1840 answers dropped, 920 sent truncated
+```
+
+There is no DNS cookie (RFC 7873) support yet, which would let a validated
+source be exempted.
 
 ## Per-vhost Options (PVO)
 
@@ -118,6 +153,16 @@ no UDP sockets are bound and nothing is logged.
 | ---------- | ----------- |
 | `zone-dir` | **Required.** Absolute path of the directory holding locally-served zone files.  It is scanned once at vhost initialization; only files matching the trust policy below are loaded.  The directory must exist and pass the ownership / mode checks below even if all zones will come from the DHT.  If this PVO is missing the protocol refuses to start (there is no default: an earlier default of shared `/tmp/lws-auth-dns` allowed any local user to inject authoritative zones and was removed). |
 | `cache-max-zones` | Optional. Maximum number of DHT-fetched zones held in the in-memory LRU cache. Defaults to 1000. When reached, the least recently queried of them are evicted. Zones from `zone-dir` are always held and are not counted. |
+| `rrl-responses-per-second` | Optional. UDP answers per second each source network prefix may receive, see "UDP Answer Size and Rate Limiting".  Defaults to 50, at most 100000.  `0` disables the rate limiting (logged at `warn` level at init). |
+| `rrl-burst` | Optional. How many UDP answers a source prefix may receive at once, ie, the size of its token bucket.  Defaults to twice `rrl-responses-per-second`, at most 100000. |
+| `rrl-slip` | Optional. Over budget, every this many queries one gets an empty `TC` answer instead of none, so real resolvers retry over TCP.  Defaults to 2, at most 100; `0` drops them all, `1` answers every one with `TC`. |
+| `rrl-ipv4-prefix` | Optional. The IPv4 prefix length that is one source, 8 - 32.  Defaults to 24. |
+| `rrl-ipv6-prefix` | Optional. The IPv6 prefix length that is one source, 16 - 128.  Defaults to 56. |
+| `rrl-table-size` | Optional. How many source prefixes are tracked at once, 1 - 1048576.  Defaults to 4096. |
+
+An `rrl-*` value out of range makes the protocol refuse to start, rather than
+quietly run without the limiting the operator asked for.
+
 | `dht-max-pending` | Optional. Maximum number of *distinct domains* per vhost whose queries may be suspended awaiting a DHT fetch. Defaults to 128. There are additional fixed limits of 16 distinct domains and 64 queries per source address, and 1024 pending queries in total. When any limit is reached, new queries needing a DHT fetch are answered `REFUSED` immediately rather than queued. |
 | `dnsbl` | Optional. Comma-separated list of DNSBL zones (eg, `zen.spamhaus.org,test.local`). When set, the queried name and the IPs in the answer are checked asynchronously against every listed DNSBL before the response is sent; a positive (listed) result suppresses the answer and is cached for 5 minutes. |
 
