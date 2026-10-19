@@ -19,9 +19,10 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	# the front, the backend, the ClientHello capture listener, and the udp
-	# "NAT"s the h3 migration and spoofing steps go through
-	lws_get_free_ports(PORT_TLSPT 5)
+	# the front, the backend, the ClientHello capture listener, the udp
+	# "NAT"s the h3 migration and spoofing steps go through, and the "tap"
+	# between the front and the backend for the forged connection ID step
+	lws_get_free_ports(PORT_TLSPT 6)
 
 	add_test(NAME api-test-tls-passthrough
 		 COMMAND lws-api-test-tls-passthrough -p ${PORT_TLSPT}
@@ -38,7 +39,7 @@ if (requirements)
 	set(has_fault_injection 1)
 	require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 	if (has_fault_injection)
-		lws_get_free_ports(PORT_TLSPT_IDLE 5)
+		lws_get_free_ports(PORT_TLSPT_IDLE 6)
 		add_test(NAME api-test-tls-passthrough-relay-idle
 			 COMMAND lws-api-test-tls-passthrough -p ${PORT_TLSPT_IDLE}
 				 --certs ${CMAKE_CURRENT_SOURCE_DIR}

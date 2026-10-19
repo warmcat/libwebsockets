@@ -75,6 +75,15 @@
  *    reach the spoofer.  The backend sees the client as a relayed claim,
  *    and the front's socket below it, both proven.
  *
+ *  - an h3 client naming pass2.test, which the front passes through to a
+ *    "tap" in the test that relays both ways between the front and the
+ *    backend, as an attacker on that path could.  Once the client is getting
+ *    its slow response, the tap sends the front forged long headers that
+ *    look like the backend's, to the connection ID its client chose and
+ *    each with a new one of the backend's: the front must not let them push
+ *    the backend's connection ID the client is using out of the flow, so the
+ *    client's packets must still reach the backend afterwards.
+ *
  * Each NAT only passes back what comes from the front, so an answer the
  * backend sends anywhere else is lost, as it would be in real life.
  *
@@ -101,6 +110,7 @@ enum {
 	ST_H3_PASSTHROUGH,
 	ST_H3_MIGRATE,
 	ST_H3_SPOOF,
+	ST_H3_CID_SPOOF,
 	ST_DONE
 };
 
@@ -121,6 +131,8 @@ static const char * const step_names[] = {
 	"an h3 flow through a NAT that rebinds midway is followed to the end",
 	"spoofed relay datagrams from a trusted address neither move nor "
 		"evict a proven relayed h3 client",
+	"forged server long headers do not push the connection ID a client "
+		"uses out of the front's flow",
 };
 
 /* the slow response, in two halves either side of the NAT rebinding */
@@ -130,8 +142,8 @@ static const char * const step_names[] = {
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_step, sul_send;
-static int port_front, port_back, port_capture, port_nat, port_nat2, step,
-	   tests, fail, done;
+static int port_front, port_back, port_capture, port_nat, port_nat2,
+	   port_tap, step, tests, fail, done;
 static int backend_accepts, accepts_at_step;
 
 /* who the backend's last slow request said its peer was, top first */
@@ -431,6 +443,111 @@ slow_hold(void)
 	return step == ST_H3_SPOOF && flood_sent < TPT_FLOOD_TOTAL;
 }
 
+/*
+ * The tap: pass2.test's server as far as the front knows, a udp socket that
+ * relays what the front sends to the backend, and the backend's answers back
+ * to the front's socket, as an attacker on that path could.  It notes the
+ * connection ID the client chose, which the backend's long headers are
+ * addressed to, and the client they are for.
+ */
+static struct lws *tap;
+static lws_sockaddr46 tap_front, tap_client;
+static uint8_t tap_dcid[20];
+static size_t tap_dcid_len;
+static lws_usec_t tap_forged_at;
+static int tap_short_after;
+
+/* client datagrams that pass through the front this long after the forgery */
+#define TAP_SETTLE_US		(100 * LWS_US_PER_MS)
+/* how long the step waits after the response for the client's last acks */
+#define TAP_LINGER_US		(300 * LWS_US_PER_MS)
+#define TAP_FORGED		8
+
+static void
+tap_rx(struct lws *wsi, const uint8_t *in, size_t len)
+{
+	const lws_sockaddr46 *src = &lws_get_udp(wsi)->sa46;
+	lws_sockaddr46 back;
+	lws_proxy_v2_t pv;
+	const uint8_t *q;
+	int hl;
+
+	hl = lws_proxy_v2_header_len(in, len);
+	if (hl <= 0 || (size_t)hl >= len ||
+	    lws_proxy_v2_parse(in, (size_t)hl, &pv))
+		return;
+	q = in + hl;
+
+	if (port_of(src) == port_back) {
+		/* the backend's answer: its long headers' DCID is the client's */
+		if ((q[0] & 0x80) && len - (size_t)hl >= 6 &&
+		    q[5] <= sizeof(tap_dcid) &&
+		    len - (size_t)hl >= 6 + (size_t)q[5]) {
+			tap_dcid_len = q[5];
+			memcpy(tap_dcid, q + 6, tap_dcid_len);
+			tap_client = pv.dst;
+		}
+		nat_sendto(tap, in, len, &tap_front);
+		return;
+	}
+
+	/* the front's, for the backend */
+	tap_front = *src;
+	if (tap_forged_at && !(q[0] & 0x80) &&
+	    lws_now_usecs() - tap_forged_at > TAP_SETTLE_US)
+		/* the client's 1-RTT packet, still routed by the front */
+		tap_short_after++;
+
+	if (!loopback_port(&back, port_back))
+		nat_sendto(tap, in, len, &back);
+}
+
+/*
+ * Long headers to the front as if from the backend, to the client's
+ * connection ID, each offering the client a new connection ID of the
+ * backend's: more of them than the front has room for
+ */
+static void
+tap_forge(void)
+{
+	uint8_t b[LWS_PROXY_V2_MAX + 64], *q;
+	lws_proxy_v2_t pv;
+	int n, m;
+
+	if (!tap_dcid_len || !tap_client.sa4.sin_family)
+		return;
+
+	memset(&pv, 0, sizeof(pv));
+	pv.dgram = 1;
+	pv.dst = tap_client;
+	pv.src.sa4.sin_family = tap_client.sa4.sin_family;
+	n = lws_proxy_v2_render(&pv, b, sizeof(b));
+	if (n < 0 || (size_t)n + 7 + tap_dcid_len + 8 + 22 > sizeof(b))
+		return;
+
+	for (m = 0; m < TAP_FORGED; m++) {
+		q = b + n;
+		*q++ = 0xe0;		/* long header, Handshake */
+		*q++ = 0;
+		*q++ = 0;
+		*q++ = 0;
+		*q++ = 1;		/* QUIC v1 */
+		*q++ = (uint8_t)tap_dcid_len;
+		memcpy(q, tap_dcid, tap_dcid_len);
+		q += tap_dcid_len;
+		*q++ = 8;
+		lws_get_random(context, q, 8);	/* "our" new connection ID */
+		q += 8;
+		*q++ = 0x40;		/* the packet's length, and junk */
+		*q++ = 20;
+		lws_get_random(context, q, 20);
+		q += 20;
+		nat_sendto(tap, b, lws_ptr_diff_size_t(q, b), &tap_front);
+	}
+
+	tap_forged_at = lws_now_usecs();
+}
+
 static int
 callback_nat(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -443,6 +560,11 @@ callback_nat(struct lws *wsi, enum lws_callback_reasons reason,
 	if (wsi == spoofer) {
 		/* the backend answered the spoofer: it believed it */
 		spoofer_rx++;
+		return 0;
+	}
+
+	if (wsi == tap) {
+		tap_rx(wsi, (const uint8_t *)in, len);
 		return 0;
 	}
 
@@ -612,6 +734,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_user("  spoofing\n");
 			spoof_cb(&sul_spoof);
 		}
+		if (step == ST_H3_CID_SPOOF && !tap_forged_at) {
+			lwsl_user("  forging the backend's long headers\n");
+			tap_forge();
+		}
 #endif
 		if (body_len + len < sizeof(body)) {
 			memcpy(body + body_len, in, len);
@@ -625,7 +751,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!step_closed) {
 			step_closed = 1;
 			lws_sul_schedule(context, 0, &sul_step,
-					 (sul_cb_t)step_next, 1);
+					 (sul_cb_t)step_next,
+#if defined(TPT_QUIC)
+					 /* time for the client to ack the end */
+					 step == ST_H3_CID_SPOOF ?
+						TAP_LINGER_US :
+#endif
+					 1);
 		}
 		break;
 
@@ -913,6 +1045,14 @@ step_start(void)
 		if (https_get("127.0.0.1", port_nat2, "pass.test", "/slow", "h3"))
 			goto fail;
 		break;
+
+	case ST_H3_CID_SPOOF:
+		lws_sul_schedule(context, 0, &sul_guard, guard_cb,
+				 TPT_GUARD_US);
+		if (https_get("127.0.0.1", port_front, "pass2.test", "/slow",
+			      "h3"))
+			goto fail;
+		break;
 	}
 
 	return;
@@ -994,6 +1134,13 @@ step_next(void)
 		ok = spoof_stack_ok() && !strcmp(body, SLOW_1 SLOW_2) &&
 		     spoof_sent && flood_sent == TPT_FLOOD_TOTAL &&
 		     !spoofer_rx && !nat2.strays;
+		break;
+	case ST_H3_CID_SPOOF:
+		lws_sul_cancel(&sul_guard);
+		lwsl_user("  '%s', %d client packets reached the backend after "
+			  "the forgery\n", body, tap_short_after);
+		ok = !strcmp(body, SLOW_1 SLOW_2) && tap_forged_at &&
+		     tap_short_after;
 		break;
 #endif
 	default:
@@ -1083,7 +1230,7 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	char cert[256], key[256], target[64];
+	char cert[256], key[256], target[64], target_tap[64];
 	const char *p;
 	int n = 0;
 
@@ -1099,6 +1246,7 @@ main(int argc, const char **argv)
 	port_capture = port_front + 2;
 	port_nat = port_front + 3;
 	port_nat2 = port_front + 4;
+	port_tap = port_front + 5;
 	if ((p = lws_cmdline_option(argc, argv, "--certs")))
 		certs = p;
 
@@ -1107,6 +1255,7 @@ main(int argc, const char **argv)
 	lws_snprintf(cert, sizeof(cert), "%s/localhost-100y.cert", certs);
 	lws_snprintf(key, sizeof(key), "%s/localhost-100y.key", certs);
 	lws_snprintf(target, sizeof(target), "127.0.0.1:%d", port_back);
+	lws_snprintf(target_tap, sizeof(target_tap), "127.0.0.1:%d", port_tap);
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -1146,6 +1295,12 @@ main(int argc, const char **argv)
 	info.ssl_private_key_filepath	= NULL;
 	info.tls_passthrough		= target;
 	info.tls_passthrough_proxy_v2	= 1;
+	if (!lws_create_vhost(context, &info))
+		goto bail;
+
+	/* another, whose server is the tap in front of the backend */
+	info.vhost_name			= "pass2.test";
+	info.tls_passthrough		= target_tap;
 	if (!lws_create_vhost(context, &info))
 		goto bail;
 	info.tls_passthrough		= NULL;
@@ -1189,9 +1344,12 @@ main(int argc, const char **argv)
 	}
 	spoofer = lws_create_adopt_udp(vh_cli, "127.0.0.1", 0, LWS_CAUDP_BIND,
 				       "nat", NULL, NULL, NULL, NULL, NULL);
+	tap = lws_create_adopt_udp(vh_cli, "127.0.0.1", port_tap,
+				   LWS_CAUDP_BIND, "nat", NULL, NULL, NULL,
+				   NULL, NULL);
 	n = 0;
 	if (!nat.in || !nat.out[0] || !nat.out[1] || !nat2.in ||
-	    !nat2.out[0] || !nat2.out[1] || !spoofer)
+	    !nat2.out[0] || !nat2.out[1] || !spoofer || !tap)
 		goto bail;
 #endif
 

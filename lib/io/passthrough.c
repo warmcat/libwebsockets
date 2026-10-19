@@ -914,9 +914,11 @@ bail:
  * forging one means guessing our port.  The server's connection IDs are
  * learned from the long headers it sends, since a client goes on to use
  * them, but only from a header addressed to the connection ID the client
- * chose for itself, which only the server was told; with every slot taken,
- * a new one replaces the oldest learned, so nothing can lock the real one
- * out.  A server that issues more with NEW_CONNECTION_ID, which lws does
+ * chose for itself.  That is no secret from anyone who sees the client's
+ * packets, and none at all if the client chose a zero-length one, so with
+ * every slot taken, a new one replaces the oldest learned that the client
+ * has not used: nothing can lock the real one out before the client uses it,
+ * or push it out once the client has.  A server that issues more with NEW_CONNECTION_ID, which lws does
  * not, would need them encoded so we could route them.
  *
  * On a server, a datagram from an address in .proxy_v2_trusted must start
@@ -989,6 +991,8 @@ typedef struct lws_qpt_flow {
 	struct lws_quic_cid	cid[LWS_QPT_MAX_CIDS]; /* [0] the client's
 						 * first DCID, then those
 						 * learned, oldest first */
+	uint8_t			routed[LWS_QPT_MAX_CIDS]; /* the client's
+						 * packets came to it */
 	int			count_cids;
 } lws_qpt_flow_t;
 
@@ -1140,18 +1144,39 @@ lws_qpt_flow_destroy(struct lws_context *cx, lws_qpt_flow_t *f)
 	lws_free(f);
 }
 
+/* flow f's slot n goes, the later ones moving down into its place */
+static void
+lws_qpt_flow_cid_remove(lws_qpt_flow_t *f, int n)
+{
+	memmove(&f->cid[n], &f->cid[n + 1],
+		(size_t)(f->count_cids - n - 1) * sizeof(f->cid[0]));
+	memmove(&f->routed[n], &f->routed[n + 1],
+		(size_t)(f->count_cids - n - 1) * sizeof(f->routed[0]));
+	f->count_cids--;
+}
+
 /*
  * A connection ID that routes to flow f.  The first is the DCID of the
  * client's first Initial, which stays; later ones are learned from the
- * server, and when every slot is taken, a new one replaces the oldest learned
- * (one seen again counts as new).  Returns nonzero if it cannot be added, eg,
- * it is another flow's.
+ * server.  When every slot is taken, a new one replaces the oldest learned
+ * that no packet of the client's was addressed to yet (one seen again counts
+ * as new), and if the client used them all, it is not added.
+ *
+ * What we learn from cannot be told from a forgery by anyone who knows our
+ * port and the client's SCID, which crosses the client's leg in clear, and
+ * if the client chose a zero-length one, by anyone who knows our port.  But
+ * a CID the client went on to use is the server's for sure: nothing that
+ * comes after may push it out, or the client's packets stop reaching the
+ * server.  Forgeries can only take the slots the client has no use for.
+ *
+ * Returns nonzero if it cannot be added, eg, it is another flow's.
  */
 static int
 lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 		     const struct lws_quic_cid *cid)
 {
 	struct lws_quic_cid k;
+	uint8_t routed;
 	int n;
 
 	memset(&k, 0, sizeof(k));
@@ -1162,10 +1187,10 @@ lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 		if (!memcmp(&f->cid[n], &k, sizeof(k))) {
 			if (n && n != f->count_cids - 1) {
 				/* the newest learned now */
-				memmove(&f->cid[n], &f->cid[n + 1],
-					(size_t)(f->count_cids - n - 1) *
-							sizeof(f->cid[0]));
-				f->cid[f->count_cids - 1] = k;
+				routed = f->routed[n];
+				lws_qpt_flow_cid_remove(f, n);
+				f->cid[f->count_cids] = k;
+				f->routed[f->count_cids++] = routed;
 			}
 			return 0;
 		}
@@ -1175,11 +1200,18 @@ lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 		return 1;
 
 	if (f->count_cids == LWS_QPT_MAX_CIDS) {
-		/* the oldest learned goes, never the client's own first */
-		lws_qpt_unmap(cx->pt_qflows, &f->cid[1], sizeof(f->cid[1]));
-		memmove(&f->cid[1], &f->cid[2],
-			(size_t)(f->count_cids - 2) * sizeof(f->cid[0]));
-		f->count_cids--;
+		/*
+		 * The oldest learned the client has not used goes, never the
+		 * client's own first
+		 */
+		for (n = 1; n < f->count_cids; n++)
+			if (!f->routed[n])
+				break;
+		if (n == f->count_cids)
+			return 1;
+
+		lws_qpt_unmap(cx->pt_qflows, &f->cid[n], sizeof(f->cid[n]));
+		lws_qpt_flow_cid_remove(f, n);
 	}
 
 	if (!lws_map_item_create(cx->pt_qflows, (const lws_map_key_t)&k,
@@ -1187,9 +1219,23 @@ lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 				 sizeof(f)))
 		return 1;
 
-	f->cid[f->count_cids++] = k;
+	f->cid[f->count_cids] = k;
+	f->routed[f->count_cids++] = 0;
 
 	return 0;
+}
+
+/* a packet of the client's came to flow f addressed to k */
+static void
+lws_qpt_flow_routed(lws_qpt_flow_t *f, const struct lws_quic_cid *k)
+{
+	int n;
+
+	for (n = 0; n < f->count_cids; n++)
+		if (!memcmp(&f->cid[n], k, sizeof(*k))) {
+			f->routed[n] = 1;
+			return;
+		}
 }
 
 static int
@@ -1689,6 +1735,7 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 			lwsl_vhost_info(f->vh, "quic flow seen from %s", pa);
 		}
 		f->last = lws_now_usecs();
+		lws_qpt_flow_routed(f, &k);
 		lws_qpt_to_server(f, buf, len, peer);
 
 		return 1;
@@ -1797,8 +1844,10 @@ lws_qpt_from_server(struct lws *wsi, const uint8_t *buf, size_t len)
 
 	/*
 	 * The server's connection IDs, which the client goes on to use: from
-	 * a long header to the CID the client chose, which was only ever
-	 * sent to the server, so not from somebody guessing at the flow
+	 * a long header to the CID the client chose, so not from somebody
+	 * guessing at the flow blind.  Somebody who knows it, or a client's
+	 * empty one, can still offer us CIDs, but never take the place of
+	 * one the client used (lws_qpt_flow_add_cid())
 	 */
 	if (!lws_quic_dgram_cids(buf, len, &dcid, &scid, &initial) &&
 	    scid.len && lws_qpt_cid_same(&dcid, &f->client_scid))
