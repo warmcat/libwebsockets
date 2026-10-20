@@ -903,6 +903,10 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 		 */
 		lwsl_wsi_info(wsi, "dgram socket error %d",
 			      wsi->io->pending_sock_err);
+#if defined(LWS_WITH_CLIENT)
+		/* a client's peer may not be at this address at all */
+		lws_io_dgram_refused(wsi, wsi->io->pending_sock_err);
+#endif
 		wsi->io->pending_sock_err = 0;
 		*nothing = 1;
 
@@ -958,12 +962,23 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 
 	if (n <= 0) {
-		lwsl_wsi_info(wsi, "dgram recv returned %d (errno %d)", n,
-			      LWS_ERRNO);
+		int en = LWS_ERRNO;
+
+		lwsl_wsi_info(wsi, "dgram recv returned %d (errno %d)", n, en);
+#if defined(LWS_WITH_CLIENT)
+		/* the recv can be what reports an ICMP error */
+		if (n < 0)
+			lws_io_dgram_refused(wsi, en);
+#endif
 		*nothing = 1;
 
 		return LWS_HPI_RET_HANDLED;
 	}
+
+#if defined(LWS_WITH_CLIENT)
+	/* a client's connected socket only takes what its peer sent */
+	lws_io_dgram_heard(wsi);
+#endif
 
 #if defined(LWS_WITH_IPV6)
 	if (wsi->io->udp && wsi->io->udp->sa46.sa4.sin_family == AF_INET6 &&

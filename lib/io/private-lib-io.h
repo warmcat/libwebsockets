@@ -502,6 +502,17 @@ void
 lws_io_udp_enable_ecn(struct lws *wsi);
 int
 lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi);
+#if defined(LWS_WITH_CLIENT)
+/* a client datagram connection's other addresses for its peer (network.c) */
+int
+lws_io_dgram_alt_set(struct lws *wsi, uint16_t port);
+void
+lws_io_dgram_alt_release(struct lws *wsi);
+void
+lws_io_dgram_heard(struct lws *wsi);
+int
+lws_io_dgram_refused(struct lws *wsi, int err);
+#endif
 #endif
 void
 lws_pipe_wsi_release_fds(struct lws *wsi);

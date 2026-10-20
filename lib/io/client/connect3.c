@@ -790,6 +790,17 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				if (pidx != -1) {
 					lws_remove_parallel_fd_safely(wsi, pidx);
 					return wsi; /* keep waiting for others */
+				} else if (is_quic_race && wsi->io->udp) {
+					/*
+					 * Not a connect failing: the quic
+					 * socket was connected already, this
+					 * is an ICMP error for what it sent.
+					 * It moves on to its next address,
+					 * or carries on inside its grace.
+					 */
+					lws_io_dgram_refused(wsi, real_errno);
+
+					return wsi;
 				} else {
 					/* primary failed */
 					lws_pt_lock(pt, __func__);
@@ -945,6 +956,15 @@ next_dns_result_seq:
 	if (wsi->io->udp && !lws_socket_is_valid(wsi->io->desc.sockfd)) {
 		wsi->io->udp->sa46 = curr->dest;
 		sa46_sockport(&wsi->io->udp->sa46, htons(port));
+#if defined(LWS_ROLE_QUIC)
+		/*
+		 * The rest are where quic goes next, if this one refuses it
+		 * before it answered: the tcp racers take them from the list
+		 */
+		if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") &&
+		    lws_io_dgram_alt_set(wsi, port))
+			lwsl_wsi_warn(wsi, "OOM keeping the other addresses");
+#endif
 	}
 #endif
 #if defined(LWS_WITH_ROUTING)

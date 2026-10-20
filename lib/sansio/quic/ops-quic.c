@@ -6706,10 +6706,32 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 	 * "migrated" mid-handshake: cc, rtt and pmtud reset, the path
 	 * unvalidated and a PATH_CHALLENGE sent
 	 */
-	if (wsi->quic.qn) {
-		wsi->quic.qn->path_sa46 = *peer;
+	struct lws_quic_netconn *qn = wsi->quic.qn;
+
+	if (qn && wsi->quic.initialized &&
+	    (lws_sa46_compare_ads(&qn->initial_sa46, peer) ||
+	     qn->initial_sa46.sa4.sin_port != peer->sa4.sin_port)) {
+		/*
+		 * Up again, to another peer: the one before refused us before
+		 * it answered, and IO aimed the connection at the next of its
+		 * addresses.  Nothing came back, so nothing we sent got
+		 * anywhere and nothing of the peer was learned: start the
+		 * handshake there, sending what is in flight again now rather
+		 * than at the probe timeout.
+		 */
+		qn->path_sa46 = *peer;
+		qn->initial_sa46 = *peer;
+		qn->pto_count = 0;
+		lws_sul_schedule(wsi->a.context, 0, &qn->pto_sul,
+				 lws_quic_pto_cb, 1);
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	if (qn) {
+		qn->path_sa46 = *peer;
 		/* ...and where our Initial goes */
-		wsi->quic.qn->initial_sa46 = *peer;
+		qn->initial_sa46 = *peer;
 	}
 
 	/* quic drives its own tls handshake, inside its packets */

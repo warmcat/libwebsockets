@@ -992,6 +992,11 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 	}
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+	/* the send can be what reports an ICMP error for an earlier one */
+	lws_io_dgram_refused(nwsi, e);
+#endif
+
 	if (e == LWS_EAGAIN || e == LWS_EWOULDBLOCK || e == LWS_EINTR
 #if defined(EPIPE)
 	    || e == EPIPE
@@ -1052,6 +1057,9 @@ lws_io_udp_release(struct lws *wsi)
 	if (!wsi->io->udp)
 		return;
 
+#if defined(LWS_WITH_CLIENT)
+	lws_io_dgram_alt_release(wsi);
+#endif
 	/* confirm no sul left scheduled in wsi->io->udp itself */
 	lws_sul_debug_zombies(wsi->a.context, wsi->io->udp,
 			      sizeof(*wsi->io->udp), "close udp wsi");
@@ -1216,6 +1224,172 @@ lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 }
 
 
+#if defined(LWS_WITH_CLIENT)
+/*
+ * A client's datagram connection is aimed at one of the dns results for its
+ * peer.  If that address refuses it, with an ICMP port or host unreachable,
+ * before anything ever came back from it, the peer is not there: the
+ * connection moves on to the next result, on a fresh socket, the way a tcp
+ * connect that is refused does, rather than retransmitting into nothing
+ * until its handshake times out or, on h3, its grace gives up on quic.
+ *
+ * The tcp racers of an h3 attempt take the same dns results for themselves,
+ * so the datagram attempt keeps its own copy of them.  Once anything arrived
+ * on the socket, the peer has answered and the copy goes: an ICMP error after
+ * that is only what the path or an off-path attacker says, and changes
+ * nothing.  The move happens from a sul, outside the socket's service.
+ */
+
+#define LWS_IO_DGRAM_ALT_MAX 4
+
+struct lws_io_dgram_alt {
+	lws_sorted_usec_list_t	sul;	/* the move, outside the fd's service */
+	struct lws		*wsi;	/* whose socket it is */
+	lws_sockaddr46		sa46[LWS_IO_DGRAM_ALT_MAX];
+	uint8_t			count;
+	uint8_t			next;
+};
+
+void
+lws_io_dgram_alt_release(struct lws *wsi)
+{
+	struct lws_io_dgram_alt *alt = wsi->io->dgram_alt;
+
+	if (!alt)
+		return;
+
+	lws_sul_cancel(&alt->sul);
+	lws_free_set_NULL(wsi->io->dgram_alt);
+}
+
+/*
+ * The connection's datagram socket was just aimed at its first choice of the
+ * dns results: what is left of them are its other addresses, on port.
+ * Returns 0, or 1 on OOM, when it goes on without them.
+ */
+int
+lws_io_dgram_alt_set(struct lws *wsi, uint16_t port)
+{
+	struct lws_io_dgram_alt *alt;
+
+	lws_io_dgram_alt_release(wsi);
+
+	if (!lws_dll2_count(&wsi->io->dns_sorted_list))
+		return 0;
+
+	alt = lws_zalloc(sizeof(*alt), "dgram alt");
+	if (!alt)
+		return 1;
+
+	alt->wsi = wsi;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&wsi->io->dns_sorted_list)) {
+		lws_dns_sort_t *s = lws_container_of(d, lws_dns_sort_t, list);
+
+		if (alt->count == LWS_ARRAY_SIZE(alt->sa46))
+			break;
+
+		/* a macro that names its argument more than once */
+		alt->sa46[alt->count] = s->dest;
+		sa46_sockport(&alt->sa46[alt->count], htons(port));
+		alt->count++;
+	} lws_end_foreach_dll(d);
+
+	wsi->io->dgram_alt = alt;
+
+	return 0;
+}
+
+/* something arrived on the socket: the peer answered, it stays aimed there */
+void
+lws_io_dgram_heard(struct lws *wsi)
+{
+	lws_io_dgram_alt_release(wsi);
+}
+
+static void
+lws_io_dgram_alt_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_io_dgram_alt *alt = lws_container_of(sul,
+					struct lws_io_dgram_alt, sul);
+	struct lws *wsi = alt->wsi;
+	lws_sockaddr46 sa46 = alt->sa46[alt->next++];
+	char was[64], now[64];
+
+	lws_sa46_write_numeric_address(&wsi->io->udp->sa46, was, sizeof(was));
+	lws_sa46_write_numeric_address(&sa46, now, sizeof(now));
+	lwsl_wsi_notice(wsi, "%s refused us before answering, trying %s",
+			was, now);
+
+	if (alt->next == alt->count)
+		/* the last one: nothing left to move on to after it */
+		lws_io_dgram_alt_release(wsi);
+
+	if (lws_io_udp_swap_socket(wsi, &sa46)) {
+		if (!lws_socket_is_valid(wsi->io->desc.sockfd))
+			/* the old socket went with the attempt */
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "dgram alt socket");
+
+		return;
+	}
+
+#if defined(LWS_ROLE_QUIC)
+	/* the new socket is a quic one, as the connect made the first */
+	if (lws_plat_set_socket_dontfrag(wsi->io->desc.sockfd,
+					 sa46.sa4.sin_family))
+		lwsl_wsi_info(wsi, "unable to set Don't Fragment");
+#endif
+	lws_io_udp_enable_ecn(wsi);
+	lws_io_set_peer(wsi, &sa46);
+
+	/* the transport is up again, to the new peer */
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_client_transport_up) &&
+	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_client_transport_up).
+				client_transport_up(wsi, &sa46) ==
+						LWS_HPI_RET_PLEASE_CLOSE_ME)
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "dgram alt up");
+}
+
+/*
+ * The connection's socket reported err, from an ICMP error for what it sent.
+ * Returns 1 when it moves on to its next address, 0 when it stays.
+ */
+int
+lws_io_dgram_refused(struct lws *wsi, int err)
+{
+	struct lws_io_dgram_alt *alt = wsi->io->dgram_alt;
+
+	if (!alt || alt->next == alt->count || wsi->io->transport ||
+	    !(0
+#if defined(WIN32)
+	      /* how winsock tells a datagram socket of a port unreachable */
+	      || err == WSAECONNRESET || err == WSAECONNREFUSED ||
+	      err == WSAEHOSTUNREACH || err == WSAENETUNREACH
+#else
+	      || err == ECONNREFUSED
+#if defined(EHOSTUNREACH)
+	      || err == EHOSTUNREACH
+#endif
+#if defined(ENETUNREACH)
+	      || err == ENETUNREACH
+#endif
+#endif
+	    ))
+		return 0;
+
+	if (!lws_dll2_is_detached(&alt->sul.list))
+		return 1; /* moving already */
+
+	lws_sul_schedule(wsi->a.context, wsi->tsi, &alt->sul,
+			 lws_io_dgram_alt_cb, 1);
+
+	return 1;
+}
+#endif
+
 /*
  * (Re)connect a UDP socket to a peer: one that moved (path migration), or
  * the only one a bound socket is to talk to
@@ -1347,6 +1521,13 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 #if defined(LWS_WITH_UDP)
 	nwsi->io->udp = wsi->io->udp;
 	wsi->io->udp = NULL;
+#if defined(LWS_WITH_CLIENT)
+	/* and so do its other addresses, if it still has them */
+	nwsi->io->dgram_alt = wsi->io->dgram_alt;
+	wsi->io->dgram_alt = NULL;
+	if (nwsi->io->dgram_alt)
+		nwsi->io->dgram_alt->wsi = nwsi;
+#endif
 #endif
 	if (lws_socket_is_valid(wsi->io->desc.sockfd)) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];

@@ -1127,6 +1127,13 @@ struct lws_io_adjunct {
 
 #if defined(LWS_WITH_UDP)
 	struct lws_udp			*udp; /* the datagram socket's peer state */
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * a client datagram connection's other addresses for its peer, kept
+	 * while it has heard nothing on the one it is aimed at (network.c)
+	 */
+	struct lws_io_dgram_alt		*dgram_alt;
+#endif
 	/*
 	 * The icmp error a bare POLLERR reported, taken from the socket by
 	 * the service loop so poll() stops reporting it, and failing the next
