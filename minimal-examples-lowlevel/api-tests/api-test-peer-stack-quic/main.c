@@ -185,11 +185,15 @@ port_of(const lws_sockaddr46 *sa46)
 static unsigned int
 local_port(struct lws *wsi)
 {
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
 	lws_sockaddr46 sa46;
 	socklen_t sl = sizeof(sa46);
 
+	if (fd == LWS_SOCK_INVALID)
+		return 0;
+
 	memset(&sa46, 0, sizeof(sa46));
-	if (getsockname(lws_get_socket_fd(wsi), (struct sockaddr *)&sa46, &sl))
+	if (getsockname(fd, (struct sockaddr *)&sa46, &sl))
 		return 0;
 
 	return port_of(&sa46);
