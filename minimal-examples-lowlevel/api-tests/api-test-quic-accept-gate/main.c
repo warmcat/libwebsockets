@@ -53,7 +53,10 @@
  *    answers, but nothing more.  They must not take the server's handshake
  *    slots: a tcp connect after them must still be accepted.  Otherwise
  *    anyone able to send Initials, from any source address they like, could
- *    pause the server's tls accepts.
+ *    pause the server's tls accepts.  Each answer costs the server a
+ *    private key op for its CertificateVerify, one after another on its
+ *    thread, so the answers get CGA_FLOOD_ANSWER_MS each: with the RSA-4096
+ *    test key, an mbedtls 4 one takes ~1s on a loaded small arm board.
  *
  *  --case late: simultaneous_ssl_handshake_restriction is CGA_HS, and CGA_HS
  *    idle tcp connects fill it.  Then a second tls vhost is made, listening
@@ -115,6 +118,7 @@
 #define CGA_STABLE_TICKS	6	/* fds case: accepts stopped coming */
 #define CGA_FLOW_MS		5000
 #define CGA_ACCEPT_MS		2000
+#define CGA_FLOOD_ANSWER_MS	2000
 #define CGA_FIRST		"first chunk|"
 #define CGA_BULK		(256 * 1024)
 #define CGA_CHUNK		4096
@@ -795,7 +799,7 @@ tick_cb(lws_sorted_usec_list_t *sul)
 				     sa46_sockaddr(&srv), sa46_socklen(&srv));
 		lwsl_user("%d unvalidated Initials sent to the server\n",
 			  CGA_FLOOD);
-		set_deadline(CGA_FLOW_MS);
+		set_deadline(CGA_FLOOD * CGA_FLOOD_ANSWER_MS);
 		state = CGA_ST_FLOOD;
 		break;
 
