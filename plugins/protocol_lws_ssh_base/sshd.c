@@ -1138,6 +1138,9 @@ again:
 		case SSH_KEX_NL_CASTC_ALGS:
 		case SSH_KEX_NL_LCTS_ALGS:
 		case SSH_KEX_NL_LSTC_ALGS:
+			/* an empty list skipped this state in its _LEN state */
+			if (!pss->len)
+				goto bail;
 			if (*p != ',') {
 				if (pss->npos < sizeof(pss->name) - 1)
 					pss->name[pss->npos++] = (char)*p;
