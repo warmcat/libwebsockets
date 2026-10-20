@@ -262,6 +262,21 @@ side must have sent big packets into the black hole, or nothing was tested.
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --blackhole
 ```
 
+## a socket that refuses datagrams
+
+A UDP socket can refuse a datagram for a while, as if it were full: macOS
+gives ENOBUFS for a burst of them.  Nothing was sent, so lws must send it again
+when the socket takes it, the ACK in it as well as its frames: an ACK left
+waiting for the next packet the peer sends may wait for ever, while the peer,
+hearing nothing, takes what it sent for lost.  With a build with
+`LWS_WITH_SYS_FAULT_INJECTION`, the fault `udp_tx_full` refuses the datagrams
+the pattern says, here two of every three on each side, and the transfer must
+still complete:
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --fault-injection "wsi/udp_tx_full(XX.)"
+```
+
 ## congestion controller
 
 lws uses NewReno (`lws_cc_ops_newreno`) unless `lws_context_creation_info`

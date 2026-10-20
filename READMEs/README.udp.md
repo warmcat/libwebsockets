@@ -69,3 +69,8 @@ You can simulate udp packetloss at tx and rx by using the Fault Injection apis
 with the well-known fault names "udp_tx_loss" and "udp_rx_loss", typically
 with the probabilistic setting, in commandline format something like
 `--fault-injection "wsi/udp_tx_loss(10%)"`
+
+A role whose datagrams IO pulls, eg QUIC, can also have its sends refused as a
+full socket refuses them, eg with ENOBUFS, which macOS gives for a burst of
+datagrams, with "udp_tx_full": nothing is sent, and the role must send it
+again when the socket can take it.

@@ -423,9 +423,12 @@ struct lws_quic_tx_pkt {
 	lws_sockaddr46	dest;		/* where it goes, if has_dest */
 	uint64_t	pn;
 	size_t		len;		/* bytes in the buffer, tag included */
+	/* an App space ACK in it: held what it acks since then, or 0 */
+	lws_usec_t	ack_since_us;
 	int		level;
 	uint8_t		has_dest;
 	uint8_t		to_probe_path;
+	uint8_t		has_ack;	/* it carries an ACK for level's space */
 };
 
 /*

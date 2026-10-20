@@ -4111,6 +4111,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			uint8_t * const _ack_start = p;
 			uint64_t ack_delay_enc = 0;
 
+			tp->ack_since_us = 0;
+
 			if (pn_space == LWS_QUIC_LEVEL_APP &&
 			    qn->rx_ack_eliciting_since_us) {
 				lws_usec_t held = lws_wsi_now(wsi) -
@@ -4149,6 +4151,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			 * packet we receive.
 			 */
 			if (pn_space == LWS_QUIC_LEVEL_APP) {
+				/* to owe it again if the socket refuses it */
+				tp->ack_since_us = qn->rx_ack_eliciting_since_us;
 				lws_sul_cancel(&qn->ack_delay_sul);
 				qn->ack_delay_armed = 0;
 				qn->rx_ack_eliciting_count = 0;
@@ -4554,6 +4558,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		tp->pn = my_pn;
 		tp->len = send_len;
 		tp->to_probe_path = (uint8_t)to_probe_path;
+		tp->has_ack = (uint8_t)has_ack;
 
 		return (int)send_len;
 	}
@@ -4606,6 +4611,24 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 			
 			/* Revert PN */
 			qn->keys[tp->level]->pn_tx--;
+
+			/*
+			 * The ACK in it wasn't sent either.  It's no frame to go
+			 * back to pending, but it is still owed: built, it was
+			 * taken for sent, and waiting for the next thing the
+			 * peer elicits one with, the peer may meanwhile take
+			 * what it sent for lost
+			 */
+			if (tp->has_ack) {
+				int space = tp->level == LWS_QUIC_LEVEL_EARLY ?
+						LWS_QUIC_LEVEL_APP : tp->level;
+
+				qn->needs_ack[space] = 1;
+				if (space == LWS_QUIC_LEVEL_APP &&
+				    !qn->rx_ack_eliciting_since_us)
+					qn->rx_ack_eliciting_since_us =
+							tp->ack_since_us;
+			}
 			
 			/* the caller keeps POLLOUT: the transport wakes us */
 			return 1;
@@ -5203,9 +5226,10 @@ end_children:
 		 * The poll flag is IO's: the answer says whether to keep it.
 		 * Frames of ours are waiting: keep POLLOUT, unless quic's own
 		 * limits blocked the send (not the socket) and no child wants
-		 * a turn, when the ACK that lifts them re-arms us.
+		 * a turn, when the ACK that lifts them re-arms us.  So does an
+		 * ACK the socket refused: it's no frame, but it's still owed.
 		 */
-		if (have_pending_tx)
+		if (have_pending_tx || (eagain_blocked && qn->tx_pkt.has_ack))
 			return (blocked && !eagain_blocked &&
 				!children_need_POLLOUT) ?
 				LWS_HP_RET_DROP_POLLOUT : LWS_HP_RET_BAIL_OK;

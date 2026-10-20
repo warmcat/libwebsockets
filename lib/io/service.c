@@ -1063,8 +1063,15 @@ lws_tx_pump(struct lws *wsi)
 
 #if defined(LWS_WITH_UDP)
 		if (dgram) {
-			/* a fault dropping it looks like it was sent */
-			if (!lws_fi(&wsi->fic, "udp_tx_loss"))
+			/*
+			 * A fault dropping it looks like it was sent.  One
+			 * refusing it looks like a full socket, eg ENOBUFS,
+			 * which macOS gives for a burst of datagrams: it isn't
+			 * sent, and the role has to send it again later.
+			 */
+			if (lws_fi(&wsi->fic, "udp_tx_full"))
+				n = LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+			else if (!lws_fi(&wsi->fic, "udp_tx_loss"))
 				n = lws_io_send_dgram(wsi, pt->serv_buf,
 						(size_t)n, dest.sa4.sin_family ?
 							&dest : NULL);

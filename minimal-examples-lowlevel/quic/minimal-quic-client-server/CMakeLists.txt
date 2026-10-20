@@ -12,6 +12,7 @@ set(requirements 1)
 require_lws_config(LWS_ROLE_QUIC 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
@@ -274,6 +275,25 @@ if (requirements)
 		set_tests_properties(${SAMP}-pmtu-stall PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)
+
+		#
+		# Through the relay, with each side's socket refusing two of
+		# every three datagrams, as a full one does, eg with ENOBUFS on
+		# macOS: what was refused must still go when the socket takes
+		# it, an ACK as well as frames, or the peer takes what it sent
+		# for lost and the transfer stalls
+		#
+		if (has_fault_injection)
+			lws_get_free_port(PORT_QCS_TX_FULL)
+			lws_get_free_port(PORT_QCS_TX_FULL_RELAY)
+			add_test(NAME ${SAMP}-tx-full COMMAND ${SAMP}
+					--server ${QCS_RELAY_ADS} -p ${PORT_QCS_TX_FULL}
+					--relay ${PORT_QCS_TX_FULL_RELAY}
+					--fault-injection "wsi/udp_tx_full(XX.)")
+			set_tests_properties(${SAMP}-tx-full PROPERTIES
+						     WORKING_DIRECTORY .
+						     TIMEOUT 60)
+		endif()
 
 		#
 		# Through the relay losing, in each direction, every datagram
