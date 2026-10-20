@@ -363,11 +363,20 @@ if (requirements)
 			list(APPEND mytests lwsws-oauth-uninit-h2)
 		endif()
 
+		#
+		# The scenarios share the one lwsws, whose auth server runs each
+		# password hash (100000 rounds of PBKDF2-SHA512) on its event
+		# loop thread, within one KDF budget for every client: run
+		# alongside each other, they only stall each other and spend
+		# each other's budget.  So they take turns, with time for a
+		# slow builder, where one login is a second or two of hashing.
+		#
 		foreach(t ${mytests})
 			set_tests_properties(${t} PROPERTIES
 					     WORKING_DIRECTORY ${OAUTH_DIR}
 					     FIXTURES_REQUIRED "lwsws_oauth"
-					     TIMEOUT 60)
+					     RESOURCE_LOCK lwsws_oauth_kdf
+					     TIMEOUT 180)
 		endforeach()
 
 	endif()

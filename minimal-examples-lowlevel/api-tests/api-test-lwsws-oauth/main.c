@@ -473,6 +473,20 @@ static struct req_args cur;
 static char	hostport_cur[128];
 
 /*
+ * Each request's client wsi carries its own number as its opaque user data.
+ * An earlier request's wsi can still be finishing while the next one runs, eg,
+ * the rest of its body arriving or its h3 connection closing: what it says is
+ * not about this request, and must not end it or stand in for its answer.
+ */
+static uintptr_t	req_seq;
+
+static int
+req_is_current(struct lws *wsi)
+{
+	return (uintptr_t)lws_get_opaque_user_data(wsi) == req_seq;
+}
+
+/*
  * The Origin the next request presents.  NULL leaves it to the client, which
  * sends https://<host> on h1 and nothing on h2 / h3; "" sends none on any
  * transport; anything else is sent as it is, on every transport, the way a
@@ -504,6 +518,23 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
 	uint8_t buf[LWS_PRE + 4096], *start = &buf[LWS_PRE], *p = start;
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (!req_is_current(wsi))
+			/* a finished request's wsi still winding down */
+			return lws_callback_http_dummy(wsi, reason, user, in,
+						       len);
+		break;
+	default:
+		break;
+	}
 
 	switch (reason) {
 
@@ -708,6 +739,7 @@ req_issue(int which_jar, int port, const char *path, const char *req_body)
 
 	cur.jar		= which_jar;
 	cur.body	= req_body;
+	req_seq++;
 	cur.body_len	= req_body ? strlen(req_body) : 0;
 
 	i.context		= context;
@@ -719,6 +751,7 @@ req_issue(int which_jar, int port, const char *path, const char *req_body)
 	i.origin		= req_origin ? NULL : hostport;
 	i.method		= req_body ? "POST" : "GET";
 	i.protocol		= protocols[0].name;
+	i.opaque_user_data	= (void *)req_seq;
 	i.alpn			= alpn;
 	/*
 	 * The fixture serves the build tree's test cert, which is not for this
