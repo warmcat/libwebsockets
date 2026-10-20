@@ -2503,7 +2503,7 @@ auth_dns_verify_cut(struct auth_dns_verify *v, const char *cut)
 	uint8_t w[256], h[LWS_AUTH_DNS_NSEC3_HASH_LEN];
 	char b32[40], owner[sizeof(b32) + sizeof(v->z->origin)];
 	unsigned int iterations;
-	size_t wl = sizeof(w), salt_len;
+	size_t wl = sizeof(w), salt_len, pw_len = 0;
 	int found = 0;
 
 	/* the apex NSEC3PARAM says how the zone hashes its owner names */
@@ -2528,6 +2528,7 @@ auth_dns_verify_cut(struct auth_dns_verify *v, const char *cut)
 			    !rr->wire_rdata[1] &&
 			    rr->wire_rdata_len == 5u + rr->wire_rdata[4]) {
 				pw = rr->wire_rdata;
+				pw_len = rr->wire_rdata_len;
 				break;
 			}
 		} lws_end_foreach_dll(d);
@@ -2541,6 +2542,8 @@ auth_dns_verify_cut(struct auth_dns_verify *v, const char *cut)
 	iterations = lws_ser_ru16be(pw + 2);
 	salt_len = pw[4];
 	salt = pw + 5;
+	if (salt_len > pw_len - 5) /* the selection above ensured it */
+		return 1;
 
 	/* each cut costs a hash of this many rounds, the zone chooses it */
 	if (iterations > LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS) {
