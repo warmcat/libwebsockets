@@ -232,7 +232,8 @@ mixer_av1_obu_to_frame(struct mixer_depkt *d, const uint8_t *data, size_t len)
 	    mixer_vbuf_append(&d->frame, leb, leb_len))
 		return;
 
-	mixer_vbuf_append(&d->frame, data + off, payload_len);
+	if (mixer_vbuf_append(&d->frame, data + off, payload_len))
+		lwsl_info("%s: OBU dropped the access unit\n", __func__);
 }
 
 void
@@ -294,8 +295,10 @@ mixer_depkt_av1(struct mixer_depkt *d, const uint8_t *in, size_t len)
 		} else if (last && y) {
 			/* an OBU starting here and continuing in the next */
 			d->obu.len = 0;
-			if (obu_size)
-				mixer_vbuf_append(&d->obu, in + off, obu_size);
+			if (obu_size &&
+			    mixer_vbuf_append(&d->obu, in + off, obu_size))
+				lwsl_info("%s: OBU fragment dropped\n",
+					  __func__);
 		} else
 			/* an OBU wholly in this packet */
 			mixer_av1_obu_to_frame(d, in + off, obu_size);
