@@ -66,6 +66,22 @@
 #define PS_CLIENT	"192.0.2.10"	/* who the PROXY v2 header names */
 #define PS_CLIENT_PORT	40000
 #define PS_STRANGER	"198.51.100.1"	/* nobody on any stack */
+
+/*
+ * How the formatter writes the made-up entries' addresses: a build without
+ * IPv4 holds an IPv4 literal as an IPv4-mapped IPv6 address
+ */
+#if defined(LWS_WITH_IPV4)
+#define PS_T_CLI	"192.0.2.10"
+#define PS_T_CLI_P	PS_T_CLI
+#define PS_T_SKT	"10.0.0.2"
+#define PS_T_SKT_P	PS_T_SKT
+#else
+#define PS_T_CLI	"::ffff:192.0.2.10"
+#define PS_T_CLI_P	"[" PS_T_CLI "]"
+#define PS_T_SKT	"::ffff:10.0.0.2"
+#define PS_T_SKT_P	"[" PS_T_SKT "]"
+#endif
 #define PS_PHASE_US	(3 * LWS_US_PER_SEC)
 
 /* AF_UNIX connections are adopted from a socketpair */
@@ -251,8 +267,8 @@ entry(lws_peer_entry_t *e, const char *ads, unsigned int port,
 static void
 ps_formatter(void)
 {
-	static const char full[] = "192.0.2.10:40000 proxy-v2/vouched < "
-				   "10.0.0.2:40122 socket/routable";
+	static const char full[] = PS_T_CLI_P ":40000 proxy-v2/vouched < "
+				   PS_T_SKT_P ":40122 socket/routable";
 	lws_peer_entry_t e[2];
 	char buf[128];
 
@@ -267,64 +283,64 @@ ps_formatter(void)
 		  "a claim over a socket, for logs");
 	check_str(lws_peer_entries_describe(e, 2, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN),
-		  "192.0.2.10:40000~v<10.0.0.2:40122~r",
+		  PS_T_CLI_P ":40000~v<" PS_T_SKT_P ":40122~r",
 		  "a claim over a socket, as one token");
 	check_str(lws_peer_entries_describe(&e[1], 1, buf, sizeof(buf), 0),
-		  "10.0.0.2:40122 socket/routable", "a socket, for logs");
+		  PS_T_SKT_P ":40122 socket/routable", "a socket, for logs");
 	check_str(lws_peer_entries_describe(&e[1], 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN),
-		  "10.0.0.2:40122~r", "a socket, as a token");
+		  PS_T_SKT_P ":40122~r", "a socket, as a token");
 
 	/* the usual case in logs and access logs: just the address */
 	check_str(lws_peer_entries_describe(&e[1], 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "10.0.0.2", "a single entry, bare, for logs");
+		  PS_T_SKT, "a single entry, bare, for logs");
 	check_str(lws_peer_entries_describe(&e[1], 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN |
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "10.0.0.2", "a single entry, bare, as a token");
+		  PS_T_SKT, "a single entry, bare, as a token");
 	check_str(lws_peer_entries_describe(e, 2, buf, sizeof(buf),
 					    LWS_PEER_DESC_BARE_SINGLE), full,
 		  "bare single: a claim over a socket is still in full");
 	check_str(lws_peer_entries_describe(e, 2, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN |
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "192.0.2.10:40000~v<10.0.0.2:40122~r",
+		  PS_T_CLI_P ":40000~v<" PS_T_SKT_P ":40122~r",
 		  "bare single: and in full as one token");
 
 	entry(&e[0], "10.0.0.2", 0, LWS_PEER_KIND_SOCKET,
 	      LWS_PEER_CRED_HEARSAY);
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN),
-		  "10.0.0.2~h", "hearsay, no port, as a token");
+		  PS_T_SKT "~h", "hearsay, no port, as a token");
 
 	/* a lone entry is bare only if it is proven */
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "10.0.0.2 socket/hearsay",
+		  PS_T_SKT " socket/hearsay",
 		  "bare single: lone hearsay keeps its cred, for logs");
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN |
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "10.0.0.2~h", "bare single: and as a token");
+		  PS_T_SKT "~h", "bare single: and as a token");
 	entry(&e[0], "10.0.0.2", 53, LWS_PEER_KIND_DATAGRAM,
 	      LWS_PEER_CRED_HEARSAY);
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN |
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "10.0.0.2:53~h", "bare single: a datagram's source too");
+		  PS_T_SKT_P ":53~h", "bare single: a datagram's source too");
 	entry(&e[0], "192.0.2.10", 40000, LWS_PEER_KIND_PROXY_V2,
 	      LWS_PEER_CRED_VOUCHED);
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN |
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "192.0.2.10:40000~v", "bare single: lone vouched too");
+		  PS_T_CLI_P ":40000~v", "bare single: lone vouched too");
 	entry(&e[0], "10.0.0.2", 443, LWS_PEER_KIND_SOCKET,
 	      LWS_PEER_CRED_CRYPTO);
 	check_str(lws_peer_entries_describe(e, 1, buf, sizeof(buf),
 					    LWS_PEER_DESC_TOKEN |
 					    LWS_PEER_DESC_BARE_SINGLE),
-		  "10.0.0.2", "bare single: lone crypto is bare");
+		  PS_T_SKT, "bare single: lone crypto is bare");
 
 #if defined(LWS_WITH_IPV6)
 	entry(&e[0], "2001:db8::1", 443, LWS_PEER_KIND_RELAY,
@@ -378,7 +394,8 @@ ps_formatter(void)
 	      !strcmp(buf + 16, "..."), "a small buffer ends with ...");
 
 	lws_peer_entries_describe(e, 2, buf, 3, 0);
-	check_str(buf, "19", "no room for ..., still terminated");
+	check(strlen(buf) == 2 && !strncmp(buf, full, 2),
+	      "no room for ..., still terminated");
 
 	buf[0] = 'x';
 	lws_peer_entries_describe(e, 2, buf, 1, 0);
