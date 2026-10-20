@@ -127,8 +127,6 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	static const char * dynamic_pdirs[3];
-
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 #if defined(LWS_WITH_NETWORK)
@@ -171,11 +169,16 @@ int main(int argc, const char **argv)
 
 	info.pvo = &pvo_wrapper;
 
+#if defined(LWS_WITH_PLUGINS)
+	/* builtin plugins have no dirs to look in */
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw))) {
+		static const char *dynamic_pdirs[2];
+
 		dynamic_pdirs[0] = p;
 		dynamic_pdirs[1] = NULL;
 		info.plugin_dirs = dynamic_pdirs;
 	}
+#endif
 
 	info.argc = (int)argc;
 	info.argv = argv;
