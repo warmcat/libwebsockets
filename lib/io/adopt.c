@@ -696,6 +696,37 @@ bail:
  */
 
 #if defined(LWS_WITH_CLIENT)
+
+#if defined(LWS_WITH_IPV4) && defined(LWS_WITH_IPV6)
+/*
+ * Move the results of family af ahead of the others, keeping the order
+ * within each family
+ */
+static void
+lws_adopt_udp_family_first(struct lws *wsi, int af)
+{
+	lws_dll2_owner_t first;
+	struct lws_dll2 *d;
+
+	memset(&first, 0, sizeof(first));
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+			lws_dll2_get_head(&wsi->io->dns_sorted_list)) {
+		lws_dns_sort_t *s = lws_container_of(p, lws_dns_sort_t, list);
+
+		if (s->dest.sa4.sin_family == af) {
+			lws_dll2_remove(&s->list);
+			lws_dll2_add_tail(&s->list, &first);
+		}
+	} lws_end_foreach_dll_safe(p, p1);
+
+	while ((d = lws_dll2_get_tail(&first))) {
+		lws_dll2_remove(d);
+		lws_dll2_add_head(d, &wsi->io->dns_sorted_list);
+	}
+}
+#endif
+
 static struct lws *
 lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		      const struct addrinfo *r, int n, void *opaque)
@@ -741,6 +772,22 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 				}
 			} lws_end_foreach_dll(d);
 		}
+
+#if defined(LWS_WITH_IPV4) && defined(LWS_WITH_IPV6)
+		if (ads && !m && wsi->io->do_bind && wsi->io->ipv4)
+			/*
+			 * A name to bind takes its A record first, as the libc
+			 * path asks getaddrinfo() for only those.  Async dns
+			 * answers both families for an A query, in the
+			 * nameserver's or the hosts file's order, and a bind is
+			 * not sorted by route: eg, FreeBSD's /etc/hosts lists
+			 * ::1 for localhost before 127.0.0.1, and a socket bound
+			 * there never hears from a peer aiming at 127.0.0.1.
+			 * The AAAA results stay after, if the bind fails.
+			 */
+			lws_adopt_udp_family_first(wsi, AF_INET);
+#endif
+
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lws_async_dns_freeaddrinfo(&r);
 #else
@@ -1305,7 +1352,11 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		 * kind to ask for until we get the dns back).  But it is bound
 		 * to a vhost and can be cleaned up from that at vhost destroy.
 		 */
-		/* the family the libc lookup above asks for, too */
+		/*
+		 * An A query is answered with both families unless the vhost
+		 * disables one; lws_create_adopt_udp2() puts the A records
+		 * first for a bind, as the libc lookup above has only those
+		 */
 		n = lws_async_dns_query(vhost->context, 0, ads,
 #if defined(LWS_WITH_IPV4)
 					wsi->io->ipv4 ? LWS_ADNS_RECORD_A :
