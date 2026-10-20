@@ -183,7 +183,7 @@ exists(const char *path)
 static int
 grow_to(char *p, size_t cap, size_t target, char c, int *pdfd)
 {
-	size_t l = strlen(p), n;
+	size_t l = strlen(p), n, rest;
 	int dfd, fd;
 
 	if (target + 1 > cap)
@@ -194,11 +194,15 @@ grow_to(char *p, size_t cap, size_t target, char c, int *pdfd)
 		return 1;
 
 	while (l < target) {
-		n = target - l - 1;
-		if (n > 200)
-			n = 200;
-		if (target - l - 1 - n == 1)
-			n--; /* the next component can't be empty */
+		/*
+		 * Up to 200 chars a component after its '/', but never leaving
+		 * just 1, since the next component can't be empty
+		 */
+		rest = target - l - 1;
+		if (rest == 201)
+			n = 199;
+		else
+			n = rest > 200 ? 200 : rest;
 		p[l] = '/';
 		memset(p + l + 1, c, n);
 		p[l + 1 + n] = '\0';
