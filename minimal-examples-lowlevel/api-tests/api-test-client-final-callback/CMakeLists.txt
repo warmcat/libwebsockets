@@ -28,6 +28,8 @@ if (requirements)
 
 	lws_get_free_port(PORT_FCB_SILENT)
 	lws_get_free_port(PORT_FCB_WS)
+	# the silent nameserver, the only one lws's async dns may ask
+	lws_get_free_port(PORT_FCB_DNS)
 
 	add_test(NAME api-test-client-final-callback
 		 COMMAND lws-api-test-client-final-callback
@@ -37,6 +39,7 @@ if (requirements)
 	set_tests_properties(api-test-client-final-callback
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			     ENVIRONMENT "LWS_ASYNCDNS_PORT=${PORT_FCB_DNS}"
 			     TIMEOUT 30)
 
 	#
@@ -49,6 +52,7 @@ if (requirements)
 	if (uv_requirements)
 		lws_get_free_port(PORT_FCB_SILENT_UV)
 		lws_get_free_port(PORT_FCB_WS_UV)
+		lws_get_free_port(PORT_FCB_DNS_UV)
 
 		add_test(NAME api-test-client-final-callback-libuv
 			 COMMAND lws-api-test-client-final-callback --uv
@@ -58,7 +62,7 @@ if (requirements)
 		set_tests_properties(api-test-client-final-callback-libuv
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-				     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+				     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib;LWS_ASYNCDNS_PORT=${PORT_FCB_DNS_UV}"
 				     TIMEOUT 30)
 	endif()
 endif()

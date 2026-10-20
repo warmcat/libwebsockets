@@ -9,9 +9,10 @@ learns from it that the wsi is gone, so it cannot touch the freed wsi later,
 in its `LWS_CALLBACK_PROTOCOL_DESTROY` say.
 
 In one context, a "silent" raw server takes connections and never answers,
-and a ws server accepts ws connections.  The client protocol, which is not
-its vhost's `protocols[0]`, starts these clients, and once they are all in
-these states, the context is destroyed:
+and a ws server accepts ws connections.  With async dns, a silent udp
+"nameserver" is made the only one lws may ask, and it never answers either.
+The client protocol, which is not its vhost's `protocols[0]`, starts these
+clients, and once they are all in these states, the context is destroyed:
 
 |client|state at the destroy|final callback|
 |---|---|---|
@@ -20,12 +21,19 @@ these states, the context is destroyed:
 |tls-handshake|in its tls handshake with the silent server|CLIENT_CONNECTION_ERROR|
 |ws-established|established with the ws server|CLIENT_CLOSED|
 |unroutable|connecting to 192.0.2.1 (TEST-NET-1), or already refused where that has no route|CLIENT_CONNECTION_ERROR|
+|dns-pending|waiting on the silent nameserver for its name's address, with no socket yet|CLIENT_CONNECTION_ERROR|
 |late|as ws-unanswered, from a protocol on a vhost of its own|CLIENT_CONNECTION_ERROR|
 
 None of the clients may still be held by the client protocol at its
 `LWS_CALLBACK_PROTOCOL_DESTROY`.  The first final callback during the destroy
 also tries to connect again, as a naive retry would: lws must refuse it, since
 a connection made there could keep the destroy's close loop going forever.
+
+The dns-pending client isn't in the fds the destroy closes, since it has no
+socket yet.  It must still be closed while its vhost exists: on libuv, which
+only frees the pts after the vhosts, it was otherwise freed then and unbound
+from its freed vhost.  It runs when `LWS_ASYNCDNS_PORT` names a free udp port
+for the silent nameserver, as ctest sets it; without it the client is skipped.
 
 The late client is the only wsi bound to its vhost, so that vhost's
 `LWS_CALLBACK_PROTOCOL_DESTROY` runs inside the client's free.  The late

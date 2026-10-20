@@ -27,6 +27,11 @@
  *  - unroutable:      a client of 192.0.2.1 (TEST-NET-1): still connecting
  *                     at the destroy where that address is routed, else
  *                     refused before it
+ *  - dns-pending:     a client of a name only a "nameserver" that never
+ *                     answers is asked about: still waiting on its dns,
+ *                     with no socket yet, so it is not in the fds the
+ *                     destroy closes (needs async dns, and
+ *                     LWS_ASYNCDNS_PORT set to a free udp port)
  *  - late:            a ws client of the silent server, from a protocol
  *                     that is protocols[0] of a vhost of its own
  *
@@ -79,7 +84,17 @@ enum fcb_target {
 	FCB_TGT_SILENT,
 	FCB_TGT_WS,
 	FCB_TGT_UNROUTABLE,
+	FCB_TGT_DNS,
 };
+
+/* only our silent nameserver is asked about it, and it never answers */
+#define FCB_DNS_NAME		"fcb-dns-pending.example"
+#define FCB_DNS_LABEL		"fcb-dns-pending"
+#if defined(LWS_WITH_IPV4)
+#define FCB_DNS_ADS		"127.0.0.1"
+#else
+#define FCB_DNS_ADS		"::1"
+#endif
 
 typedef struct fcb_client {
 	const char		*name;
@@ -108,6 +123,10 @@ static fcb_client_t clients[] = {
 	  .expect = FCB_FINAL_CLOSED },
 	{ .name = "unroutable", .target = FCB_TGT_UNROUTABLE,
 	  .expect = FCB_FINAL_CCE },
+#if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_UDP)
+	{ .name = "dns-pending", .target = FCB_TGT_DNS,
+	  .expect = FCB_FINAL_CCE },
+#endif
 	/* connected last, so the destroy closes it early */
 	{ .name = "late", .target = FCB_TGT_SILENT, .ws = 1,
 	  .expect = FCB_FINAL_CCE, .late = 1 },
@@ -118,9 +137,9 @@ static struct lws_vhost *vh_cli, *vh_late;
 static struct lws *late_dying;
 static lws_sorted_usec_list_t sul_start, sul_check;
 static const char *server_ads = "localhost";
-static int port_silent = 7681, port_ws = 7682;
+static int port_silent = 7681, port_ws = 7682, port_dns;
 static int failed, silent_heard, ws_established, retry_tried, retry_refused,
-	   protocol_destroyed, late_armed;
+	   protocol_destroyed, late_armed, dns_heard;
 static lws_usec_t deadline;
 
 /*
@@ -152,6 +171,36 @@ callback_silent(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_UDP)
+
+/*
+ * The silent nameserver: the only one lws may ask, it takes the queries and
+ * never answers.  It notes when it was asked about our name, so we know the
+ * client is waiting on it.
+ */
+
+static int
+callback_dns_silent(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len)
+{
+	const char *p = (const char *)in;
+	size_t n, ll = sizeof(FCB_DNS_LABEL) - 1;
+
+	if (reason != LWS_CALLBACK_RAW_RX || !in)
+		return 0;
+
+	/* a query's name is length-prefixed labels: look for ours */
+	for (n = 0; n + ll + 1 <= len; n++)
+		if (p[n] == (char)ll && !memcmp(p + n + 1, FCB_DNS_LABEL, ll)) {
+			dns_heard = 1;
+			break;
+		}
+
+	return 0;
+}
+
+#endif
+
 static int
 callback_ws_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		void *user, void *in, size_t len)
@@ -175,6 +224,8 @@ fcb_connect(fcb_client_t *c)
 		i.address	= "192.0.2.1";
 		i.port		= 7;
 	}
+	if (c->target == FCB_TGT_DNS)
+		i.address	= FCB_DNS_NAME;
 	i.host			= i.address;
 	i.origin		= i.address;
 	i.path			= "/";
@@ -333,6 +384,9 @@ callback_late(struct lws *wsi, enum lws_callback_reasons reason,
 
 static const struct lws_protocols protocols_silent[] = {
 	{ "fcb-silent", callback_silent, sizeof(struct pss_silent), 0, 0, NULL, 0 },
+#if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_UDP)
+	{ "fcb-dns-silent", callback_dns_silent, 0, 0, 0, NULL, 0 },
+#endif
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -364,7 +418,8 @@ check_cb(lws_sorted_usec_list_t *sul)
 		if (clients[n].target == FCB_TGT_SILENT)
 			silent++;
 
-	if (silent_heard == silent && ws_established) {
+	if (silent_heard == silent && ws_established &&
+	    (!port_dns || dns_heard)) {
 		lwsl_user("%s: all clients in place, destroying the context\n",
 			  __func__);
 		lws_default_loop_exit(cx);
@@ -373,8 +428,9 @@ check_cb(lws_sorted_usec_list_t *sul)
 
 	if (lws_now_usecs() > deadline) {
 		lwsl_err("%s: clients not in place: silent server heard %d of "
-			 "%d, ws %sestablished\n", __func__, silent_heard,
-			 silent, ws_established ? "" : "not ");
+			 "%d, ws %sestablished, dns %sasked\n", __func__,
+			 silent_heard, silent, ws_established ? "" : "not ",
+			 !port_dns || dns_heard ? "" : "not ");
 		failed = 1;
 		lws_default_loop_exit(cx);
 		return;
@@ -383,13 +439,22 @@ check_cb(lws_sorted_usec_list_t *sul)
 	lws_sul_schedule(cx, 0, &sul_check, check_cb, 50 * LWS_US_PER_MS);
 }
 
+/* without a port for the silent nameserver, the dns client can't run */
+
+static int
+fcb_skipped(const fcb_client_t *c)
+{
+	return c->target == FCB_TGT_DNS && !port_dns;
+}
+
 static void
 start_cb(lws_sorted_usec_list_t *sul)
 {
 	size_t n;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(clients); n++)
-		if (fcb_connect(&clients[n]) && !clients[n].cce) {
+		if (!fcb_skipped(&clients[n]) &&
+		    fcb_connect(&clients[n]) && !clients[n].cce) {
 			lwsl_err("%s: %s: connect failed\n", __func__,
 				 clients[n].name);
 			failed = 1;
@@ -431,6 +496,14 @@ main(int argc, const char **argv)
 		port_ws = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, switches[FCB_SW_SERVER].sw)))
 		server_ads = p;
+#if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_UDP)
+	/* lws's async dns asks its nameservers on this port */
+	if ((p = getenv("LWS_ASYNCDNS_PORT"))) {
+		port_dns = atoi(p);
+		if (port_dns <= 0 || port_dns > 65535)
+			port_dns = 0;
+	}
+#endif
 
 	signal(SIGINT, sigint_handler);
 
@@ -466,6 +539,31 @@ main(int argc, const char **argv)
 	info.listen_accept_protocol	= "fcb-silent";
 	if (!lws_create_vhost(cx, &info))
 		goto bail;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_UDP)
+	if (port_dns) {
+		/* the silent nameserver is the only one lws may ask */
+		lws_sockaddr46 sa46;
+		int ns = 0;
+
+		while (!lws_plat_asyncdns_get_server(cx, ns++, &sa46))
+			lws_async_dns_server_remove(cx, &sa46);
+		memset(&sa46, 0, sizeof(sa46));
+		if (lws_sa46_parse_numeric_address(FCB_DNS_ADS, &sa46) ||
+		    !lws_async_dns_server_add(cx, &sa46) ||
+		    !lws_create_adopt_udp(lws_get_vhost_by_name(cx, "silent"),
+					  FCB_DNS_ADS, port_dns,
+					  LWS_CAUDP_BIND, "fcb-dns-silent",
+					  NULL, NULL, NULL, NULL,
+					  "fcb-dns-silent")) {
+			lwsl_err("%s: can't make the silent nameserver\n",
+				 __func__);
+			goto bail;
+		}
+	} else
+		lwsl_notice("%s: no LWS_ASYNCDNS_PORT, skipping dns-pending\n",
+			    __func__);
+#endif
 
 	/* the ws server */
 
@@ -504,6 +602,9 @@ main(int argc, const char **argv)
 		fcb_client_t *c = &clients[n];
 		int ok = c->cce + c->closed == 1 &&
 			 (c->expect == FCB_FINAL_CCE) == !!c->cce;
+
+		if (fcb_skipped(c))
+			continue;
 
 		lwsl_user("%s: %s: CLIENT_CONNECTION_ERROR %d, CLOSED %d: %s\n",
 			  __func__, c->name, c->cce, c->closed,

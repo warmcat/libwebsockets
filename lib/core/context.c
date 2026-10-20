@@ -2786,6 +2786,29 @@ lws_context_destroy(struct lws_context *context)
 				}
 			}
 
+			/*
+			 * A wsi with no socket yet, eg, a client waiting on
+			 * its dns, isn't in the fds.  Close those now too,
+			 * while the vhosts they are bound to still exist: an
+			 * evlib with async close only destroys the pt, which
+			 * would otherwise free them, after the vhosts are
+			 * gone.  A close may free others on the list, so start
+			 * again after each; ones already closing are skipped.
+			 */
+again:
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&pt->pre_natal_wsi_owner)) {
+				struct lws *wsi = lws_container_of(d,
+							struct lws, pre_natal);
+
+				if (lwsi_close(wsi) < LCS_DEAD_SOCKET) {
+					lws_close_free_wsi(wsi,
+						LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
+						"ctx destroy");
+					goto again;
+				}
+			} lws_end_foreach_dll(d);
+
 #if defined(LWS_WITH_CGI)
 			(lws_rops_func_fidx(&role_ops_cgi,
 					    LWS_ROPS_pt_init_destroy)).
