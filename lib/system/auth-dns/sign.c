@@ -1102,11 +1102,22 @@ cmp_rrset(const void *a, const void *b)
 	const struct auth_dns_rrset *rb = *(const struct auth_dns_rrset **)b;
 	uint8_t w1[256] = {0}, w2[256] = {0};
 	size_t l1 = sizeof(w1), l2 = sizeof(w2);
+	int e1, e2, c;
 
-	name_to_wire(ra->name, _sort_ctx.origin, w1, &l1);
-	name_to_wire(rb->name, _sort_ctx.origin, w2, &l2);
-
-	int c = cmp_wire_name(w1, l1, w2, l2);
+	/*
+	 * A name with no wire form still needs a stable place for qsort():
+	 * after every name that has one, in text order among themselves
+	 */
+	e1 = name_to_wire(ra->name, _sort_ctx.origin, w1, &l1);
+	e2 = name_to_wire(rb->name, _sort_ctx.origin, w2, &l2);
+	if (e1 || e2) {
+		if (!e1)
+			return -1;
+		if (!e2)
+			return 1;
+		c = strcmp(ra->name, rb->name);
+	} else
+		c = cmp_wire_name(w1, l1, w2, l2);
 	if (c)
 		return c;
 
