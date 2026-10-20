@@ -2660,6 +2660,21 @@ lws_http_authority_check(const char *a, size_t len)
 	return 0;
 }
 
+const char *
+lws_http_client_authority(const char *host, char *buf, size_t len)
+{
+	const char *c = strchr(host, ':');
+
+	/* more than one ':', and no brackets, is a bare IPv6 literal */
+	if (*host == '[' || !c || !strchr(c + 1, ':') ||
+	    strlen(host) + 3 > len)
+		return host;
+
+	lws_snprintf(buf, len, "[%s]", host);
+
+	return buf;
+}
+
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
 int

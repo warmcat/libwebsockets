@@ -832,6 +832,15 @@ lws_http_te_is_chunked(struct lws *wsi);
 int
 lws_http_authority_check(const char *a, size_t len);
 
+/*
+ * The authority a client sends for host, the host a caller gave it: a bare
+ * IPv6 literal, eg "::1", which callers may give, is bracketed in buf, since
+ * on the wire it can't be told from host:port (RFC 3986 3.2.2).  Anything
+ * else is returned as it is.
+ */
+const char *
+lws_http_client_authority(const char *host, char *buf, size_t len);
+
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 /*
  * Nonzero if an h2 / h3 request carries both :authority and Host and they

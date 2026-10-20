@@ -53,7 +53,7 @@ if (requirements AND NOT WIN32)
 
 	foreach(H3A_ALPN ${H3A_ALPNS})
 		foreach(H3A_CASE host-same host-default-port host-case
-				 host-name host-port)
+				 host-v6 host-name host-port)
 			set(H3A_T ${H3A_CASE}-${H3A_ALPN})
 			lws_get_free_port(PORT_H3A_${H3A_T})
 

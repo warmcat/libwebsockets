@@ -49,8 +49,8 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *buf, *start, *p, *end;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
-	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI), *simp;
-	const char *path = "/";
+	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI), v6[64];
+	const char *path = "/", *simp;
 	int m, n;
 
 	lwsl_wsi_debug(wsi, "%s", __func__);
@@ -120,6 +120,10 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 	if (!n && wsi->stash && wsi->stash->cis[CIS_ADDRESS]) {
 		n = (int)strlen(wsi->stash->cis[CIS_ADDRESS]);
 		simp = wsi->stash->cis[CIS_ADDRESS];
+	}
+	if (n && simp) {
+		simp = lws_http_client_authority(simp, v6, sizeof(v6));
+		n = (int)strlen(simp);
 	}
 	if (n && simp && lws_add_http3_header_by_token(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY,
 			(unsigned char *)simp, n, &p, end))

@@ -4032,9 +4032,9 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *buf, *start, *p, *p1, *end;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
-	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI), *simp;
+	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI), v6[64];
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	const char *path = "/", *scheme;
+	const char *path = "/", *scheme, *simp;
 	int n, m;
 	/*
 	 * The identifier of a newly established stream MUST be numerically
@@ -4170,6 +4170,10 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 	 * path used to) makes strict servers such as Google's GFE reject the
 	 * stream with PROTOCOL_ERROR; :authority is accepted by all h2 servers.
 	 */
+	if (n && simp) {
+		simp = lws_http_client_authority(simp, v6, sizeof(v6));
+		n = (int)strlen(simp);
+	}
 	if (n && simp && lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_AUTHORITY,
 				(unsigned char *)simp, n, &p, end))

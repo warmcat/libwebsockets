@@ -42,6 +42,9 @@
  *  --case host-case:	      :authority "localhost", which is also the SNI,
  *			      and so the second vhost's name, and Host
  *			      "LocalHost", the same but for case: served
+ *  --case host-v6:	      :authority given to lws as the bare IPv6
+ *			      literal "::1", Host "[::1]": lws must send the
+ *			      :authority bracketed, the same: served
  *  --case host-name:	      Host names another host: refused
  *  --case host-port:	      Host has a port that is not the default and
  *			      :authority none: refused
@@ -78,6 +81,8 @@ static const struct h3a_case {
 	  "pub-a",	0, 0, 0 },
 	{ "host-case",		"localhost", "localhost", "LocalHost",
 	  "localhost",	0, 0, 0 },
+	{ "host-v6",		"pub-b", "::1",		"[::1]",
+	  "pub-a",	0, 0, 0 },
 	{ "host-name",		"pub-b", H3A_NAME,	"evil.example",
 	  NULL,		0, 0, 0 },
 	{ "host-port",		"pub-b", H3A_NAME,	H3A_NAME,

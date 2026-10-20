@@ -2677,9 +2677,14 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 				  "Cache-Control: no-cache\x0d\x0a");
 
 	const char *host = lws_wsi_client_stash_item(wsi, CIS_HOST, _WSI_TOKEN_CLIENT_HOST);
-	if (host)
+	if (host) {
+		char v6[64];
+
 		p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
-				  "Host: %s\x0d\x0a", host);
+				  "Host: %s\x0d\x0a",
+				  lws_http_client_authority(host, v6,
+							    sizeof(v6)));
+	}
 
 	const char *origin = lws_wsi_client_stash_item(wsi, CIS_ORIGIN, _WSI_TOKEN_CLIENT_ORIGIN);
 	if (origin) {
