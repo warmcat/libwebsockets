@@ -118,7 +118,8 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
  * \param namelen:	Length of client address name buffer
  *
  * This provides a 123.123.123.123 type IP address in name from the
- * peer that has connected to wsi
+ * peer that has connected to wsi.  Returns name, or NULL with name empty if
+ * wsi has no connection.
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen);

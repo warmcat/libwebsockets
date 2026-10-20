@@ -244,8 +244,13 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 	 * owns the QUIC netconn, where lws_io_peer_conn() stops
 	 */
 	wsi = lws_io_peer_conn(wsi);
+	if (!wsi) {
+		if (namelen)
+			name[0] = '\0';
+		return NULL;
+	}
 #if defined(LWS_WITH_UDP) && defined(LWS_ROLE_QUIC)
-	if (wsi && wsi->quic.qn) {
+	if (wsi->quic.qn) {
 		lws_peer_entry_t e;
 
 		/* the netconn told IO its committed path's peer */
