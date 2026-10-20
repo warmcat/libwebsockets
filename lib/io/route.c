@@ -274,12 +274,28 @@ _lws_route_table_known_empty(struct lws_context *cx)
 	return !lws_dll2_count(&cx->routing_table);
 }
 
+/*
+ * A gateway of the dest's own family beats one it can only reach promoted,
+ * a v4 dest through a v6 gateway, whatever their priorities: the promotion
+ * is only for hosts whose egress is v6 alone.  On a dual-stack host, the v4
+ * and v6 default routes often have the same priority, and the first one in
+ * the table would win: if netlink told us about the v6 one first, eg, as a
+ * host boots and its RA arrives before its DHCP lease, every v4-only name
+ * would be dropped for having no v6 source to go with it.
+ */
+
+static int
+lws_route_gw_rank(const lws_sockaddr46 *dest, const lws_sockaddr46 *gw)
+{
+	return dest->sa4.sin_family == gw->sa4.sin_family ? 0 : 1;
+}
+
 lws_route_t *
 _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 		        const lws_sockaddr46 *dest)
 {
 	lws_route_t *best_gw = NULL;
-	int best_gw_priority = INT_MAX;
+	int best_gw_priority = INT_MAX, best_gw_rank = 2, rank;
 
 	if (!dest->sa4.sin_family) {
 		lwsl_cx_notice(pt->context, "dest has 0 AF");
@@ -313,10 +329,15 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 			      dest->sa4.sin_family, rou->gateway.sa4.sin_family,
 			      rou->priority);
 
-		if (rou->gateway.sa4.sin_family &&
-		    lws_route_gw_usable(dest, &rou->gateway) &&
-		    rou->priority < best_gw_priority) {
+		if (!rou->gateway.sa4.sin_family ||
+		    !lws_route_gw_usable(dest, &rou->gateway))
+			continue;
+
+		rank = lws_route_gw_rank(dest, &rou->gateway);
+		if (rank < best_gw_rank ||
+		    (rank == best_gw_rank && rou->priority < best_gw_priority)) {
 			lwsl_cx_info(pt->context, "gw hit");
+			best_gw_rank = rank;
 			best_gw_priority = rou->priority;
 			best_gw = rou;
 		}

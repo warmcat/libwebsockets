@@ -794,6 +794,8 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		if (!bestsrc) {
 			/* drop it, no usable source route */
 			lws_free(ds);
+			lwsl_wsi_notice(wsi, "%s has no source address to "
+					     "go out with", afip);
 			goto next;
 		}
 
