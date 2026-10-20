@@ -250,8 +250,21 @@ next_case(lws_sorted_usec_list_t *sul)
 	/* fully verified: only such sessions are cached under the plain tag */
 	i.ssl_connection	= LCCSCF_USE_SSL;
 
-	if (!lws_client_connect_via_info(&i))
-		case_finish("the connection could not be started");
+	if (!lws_client_connect_via_info(&i)) {
+		if (!cases[cur].refused) {
+			case_finish("the connection could not be started");
+			return;
+		}
+		/*
+		 * Refused inside the call: its loopback connect can complete
+		 * at once, eg on FreeBSD, and the tls refusal then comes
+		 * before the call returns.  A connection failing inside the
+		 * call is told by the NULL alone, not CONNECTION_ERROR too.
+		 * Nothing may have been cached either.
+		 */
+		completed = 1;
+		case_finish(NULL);
+	}
 }
 
 static const struct lws_protocols protocols_srv[] = {
