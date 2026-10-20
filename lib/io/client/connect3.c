@@ -54,6 +54,23 @@ lws_client_win32_conn_async_check(lws_sorted_usec_list_t *sul)
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
 
+/*
+ * WSAPoll() doesn't reliably tell us of a connect that failed, so while any
+ * attempt is still in flight, its fate has to be checked for again later.  A
+ * check that finds one attempt failed with another still going, eg a racer
+ * promoted when the primary failed, must arrange this too, or nothing ever
+ * looks at the one still going.
+ */
+
+static void
+lws_client_win32_conn_check_again(struct lws *wsi)
+{
+	lws_sul_schedule(wsi->a.context, wsi->tsi,
+			 &wsi->io->win32_sul_connect_async_check,
+			 lws_client_win32_conn_async_check,
+			 wsi->a.context->win32_connect_check_interval_usec);
+}
+
 #endif
 
 void
@@ -764,9 +781,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				goto conn_good;
 			case LCCCR_CONTINUE:
 #if defined(WIN32)
-				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->io->win32_sul_connect_async_check,
-					lws_client_win32_conn_async_check,
-					wsi->a.context->win32_connect_check_interval_usec);
+				lws_client_win32_conn_check_again(wsi);
 #endif
 				/*
 				 * The connect() on this fd is still in
@@ -789,6 +804,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 				if (pidx != -1) {
 					lws_remove_parallel_fd_safely(wsi, pidx);
+#if defined(WIN32)
+					lws_client_win32_conn_check_again(wsi);
+#endif
 					return wsi; /* keep waiting for others */
 #if defined(LWS_WITH_UDP)
 				} else if (is_quic_race && wsi->io->udp) {
@@ -835,6 +853,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 							if (wsi->a.context->event_loop_ops->promote_parallel)
 								wsi->a.context->event_loop_ops->promote_parallel(wsi, m);
 							promote_parallel_fd(wsi, m);
+#if defined(WIN32)
+							lws_client_win32_conn_check_again(wsi);
+#endif
 							return wsi;
 						}
 					}
@@ -884,9 +905,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				 * intervals until one completes, fails, or the
 				 * connect timeout fires.
 				 */
-				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->io->win32_sul_connect_async_check,
-					lws_client_win32_conn_async_check,
-					wsi->a.context->win32_connect_check_interval_usec);
+				lws_client_win32_conn_check_again(wsi);
 #endif
 				return wsi;
 			}
@@ -1520,10 +1539,7 @@ ads_known:
 		 * callback to poll checking its status
 		 */
 
-		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->io->win32_sul_connect_async_check,
-				 lws_client_win32_conn_async_check,
-				 wsi->a.context->win32_connect_check_interval_usec
-		);
+		lws_client_win32_conn_check_again(wsi);
 #endif
 
 		return wsi;
