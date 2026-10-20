@@ -122,8 +122,9 @@ mixer_depkt_h264(struct mixer_depkt *d, const uint8_t *in, size_t len)
 
 	if (type >= 1 && type <= 23) {
 		/* Single NAL Unit */
-		if (!mixer_vbuf_append(&d->frame, annexb_start, 4))
-			mixer_vbuf_append(&d->frame, in, len);
+		if (mixer_vbuf_append(&d->frame, annexb_start, 4) ||
+		    mixer_vbuf_append(&d->frame, in, len))
+			lwsl_info("%s: NAL dropped the access unit\n", __func__);
 
 		return;
 	}
