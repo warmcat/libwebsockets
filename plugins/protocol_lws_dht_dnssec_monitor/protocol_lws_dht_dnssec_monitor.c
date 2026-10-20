@@ -1595,6 +1595,28 @@ bad:
 	return NULL;
 }
 
+/*
+ * A save we could not make is logged here, and the requester gets the path
+ * and the errno too, since it's the requester's log the admin is likely to
+ * be looking at.  Returns the length added at \p tx.
+ */
+static int
+monitor_reply_save_err(char *tx, char *tx_end, const char *req,
+		       const char *what, const char *path, int en)
+{
+	char esc[1024 + 64];
+
+	lwsl_err("%s: %s: %s %s: %s (errno %d)\n", __func__, req, what, path,
+		 strerror(en), en);
+
+	lws_json_purify(esc, path, (int)sizeof(esc), NULL);
+
+	return lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
+			    "{\"req\":\"%s\",\"status\":\"error\",\"msg\":"
+			    "\"%s %s: %s (errno %d)\"}\n", req, what, esc,
+			    strerror(en), en);
+}
+
 static void
 handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
@@ -1603,9 +1625,13 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	char d_path[1024];
 	char *zbuf = NULL;
 	size_t zlen = 0;
+	ssize_t w;
 	int fd;
 
-	if (!a->zone_buf || a->zone_len < 0) goto fail;
+	if (!a->zone_buf || a->zone_len < 0) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing zone\"}\n", a->req);
+		goto done;
+	}
 
 	zbuf = zone_normalise_origin(a->zone_buf, (size_t)a->zone_len, &zlen);
 	if (!zbuf) {
@@ -1616,7 +1642,8 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
 	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd >= 0) {
-		if (write(fd, zbuf, zlen) == (ssize_t)zlen) {
+		w = write(fd, zbuf, zlen);
+		if (w == (ssize_t)zlen) {
 			/*
 			 * Not unlinked: the signing bumps the serial on from
 			 * the signed zone's, since the editor may have sent
@@ -1633,14 +1660,15 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 100 * LWS_US_PER_MS);
 
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
-		} else {
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
-		}
+		} else
+			/* a short write to a regular file sets no errno */
+			tx += monitor_reply_save_err(tx, tx_end, a->req,
+					"Unable to write", d_path,
+					w < 0 ? errno : EIO);
 		close(fd);
-	} else {
-fail:
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not open zone for writing\"}\n", a->req);
-	}
+	} else
+		tx += monitor_reply_save_err(tx, tx_end, a->req,
+				"Unable to open for writing", d_path, errno);
 
 	free(zbuf);
 
@@ -1895,8 +1923,24 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		if (fchmod(fd, mode) < 0)
 			lwsl_notice("%s: fchmod %s failed: %d\n", __func__, t_path, errno);
 
-		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len &&
-		    !fsync(fd) && !rename(t_path, d_path)) {
+		const char *what = NULL;
+		ssize_t w;
+		int en = 0;
+
+		w = write(fd, a->zone_buf, (size_t)a->zone_len);
+		if (w != (ssize_t)a->zone_len) {
+			what = "Unable to write";
+			/* a short write to a regular file sets no errno */
+			en = w < 0 ? errno : EIO;
+		} else if (fsync(fd)) {
+			what = "Unable to fsync";
+			en = errno;
+		} else if (rename(t_path, d_path)) {
+			what = "Unable to rename into place";
+			en = errno;
+		}
+
+		if (!what) {
 			int link_err = 0;
 
 			if ((char *)strstr(a->subdomain, ".crt") || (char *)strstr(a->subdomain, ".key")) {
@@ -1947,12 +1991,13 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 		} else {
 			unlink(t_path);
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
+			tx += monitor_reply_save_err(tx, tx_end, a->req, what,
+						     t_path, en);
 		}
 		close(fd);
-	} else {
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not open file for writing\"}\n", a->req);
-	}
+	} else
+		tx += monitor_reply_save_err(tx, tx_end, a->req,
+				"Unable to open for writing", t_path, errno);
 done:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
@@ -2078,11 +2123,15 @@ handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct moni
 
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 	if (fd >= 0) {
-		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
+		ssize_t w = write(fd, a->zone_buf, (size_t)a->zone_len);
+
+		if (w == (ssize_t)a->zone_len)
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
-		} else {
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
-		}
+		else
+			/* a short write to a regular file sets no errno */
+			tx += monitor_reply_save_err(tx, tx_end, a->req,
+					"Unable to write", d_path,
+					w < 0 ? errno : EIO);
 		close(fd);
 
 		/* re-sign with the .acme challenge TXT merged in */
@@ -2094,9 +2143,9 @@ handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct moni
 		if (t_fd >= 0) close(t_fd);
 		unlink(trigger_path);
 
-	} else {
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not open file for writing\"}\n", a->req);
-	}
+	} else
+		tx += monitor_reply_save_err(tx, tx_end, a->req,
+				"Unable to open for writing", d_path, errno);
 done:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
