@@ -965,6 +965,54 @@ static const enum cli_state scenario_first_state[] = {
 	[SC_USERAUTH_WRONG_SVC]	= ST_CLI_KEX_KEXINIT,
 };
 
+/*
+ * What each scenario sends once the server's id string arrived.  It is held
+ * until then because the server may close on it: sent with our id string, it
+ * may reach the server before it wrote its own id string, which is then never
+ * sent, and the close would come in ST_CLI_VERSION, looking early.
+ */
+static int
+cli_first_msgs(void)
+{
+	switch (scenario) {
+	case SC_USERAUTH:
+	case SC_DISCONNECT_EMPTY:
+	case SC_USERAUTH_WRONG_SVC:
+		/* these scenarios start once the key exchange completes */
+		return msg_kexinit();
+
+	case SC_KEXINIT_REPEAT:
+		/*
+		 * A second KEXINIT while the first one's exchange is in
+		 * progress.  That one KEXINIT is accepted is shown by the
+		 * scenarios that complete a key exchange.
+		 */
+		return msg_kexinit() || msg_kexinit();
+
+	case SC_DISCONNECT_LONG:
+		/* the server must not act on the packet after DISCONNECT */
+		return msg_disconnect(SSH_DISCONNECT_BY_APPLICATION,
+				      DISC_DESC_LONG, "en") ||
+		       msg_ignore();
+
+	case SC_PREKEX_SERVICE:
+		/* the userauth service, before any key exchange */
+		return msg_service_request("ssh-userauth");
+
+	case SC_PREKEX_USERAUTH:
+		/*
+		 * a USERAUTH_REQUEST in plaintext before any key exchange,
+		 * which used to be judged (and signed over an all-zero
+		 * session id), even with no service requested
+		 */
+		return msg_userauth(keyblob, keyblob_len, dummysig,
+				    (uint32_t)sizeof(dummysig));
+
+	default:
+		return 1;
+	}
+}
+
 static int
 cli_rx(const void *in, size_t len)
 {
@@ -998,6 +1046,10 @@ cli_rx(const void *in, size_t len)
 					memmove(rxbuf, rxbuf + n, rxlen);
 			}
 			cli_state = scenario_first_state[scenario];
+			if (cli_first_msgs())
+				return test_fail("tx prep");
+			if (cli_send_next())
+				return 1;
 			continue;
 		}
 
@@ -1049,51 +1101,13 @@ cli_rx(const void *in, size_t len)
 	}
 }
 
-/* what each scenario sends straight after our id string */
-static int
+/* we connected: our id string goes first */
+static void
 cli_connected(void)
 {
 	memcpy(txbuf + LWS_PRE, CLI_ID_STRING "\r\n",
 	       sizeof(CLI_ID_STRING) + 1);
 	txlen = sizeof(CLI_ID_STRING) + 1;
-
-	switch (scenario) {
-	case SC_USERAUTH:
-	case SC_DISCONNECT_EMPTY:
-	case SC_USERAUTH_WRONG_SVC:
-		/* these scenarios start once the key exchange completes */
-		return msg_kexinit();
-
-	case SC_KEXINIT_REPEAT:
-		/*
-		 * A second KEXINIT while the first one's exchange is in
-		 * progress.  That one KEXINIT is accepted is shown by the
-		 * scenarios that complete a key exchange.
-		 */
-		return msg_kexinit() || msg_kexinit();
-
-	case SC_DISCONNECT_LONG:
-		/* the server must not act on the packet after DISCONNECT */
-		return msg_disconnect(SSH_DISCONNECT_BY_APPLICATION,
-				      DISC_DESC_LONG, "en") ||
-		       msg_ignore();
-
-	case SC_PREKEX_SERVICE:
-		/* the userauth service, before any key exchange */
-		return msg_service_request("ssh-userauth");
-
-	case SC_PREKEX_USERAUTH:
-		/*
-		 * a USERAUTH_REQUEST in plaintext before any key exchange,
-		 * which used to be judged (and signed over an all-zero
-		 * session id), even with no service requested
-		 */
-		return msg_userauth(keyblob, keyblob_len, dummysig,
-				    (uint32_t)sizeof(dummysig));
-
-	default:
-		return 1;
-	}
 }
 
 static void
@@ -1211,8 +1225,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_RAW_CONNECTED:
 		cli_wsi = wsi;
-		if (cli_connected())
-			return -1;
+		cli_connected();
 		lws_callback_on_writable(wsi);
 		break;
 
