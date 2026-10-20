@@ -790,6 +790,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				if (pidx != -1) {
 					lws_remove_parallel_fd_safely(wsi, pidx);
 					return wsi; /* keep waiting for others */
+#if defined(LWS_WITH_UDP)
 				} else if (is_quic_race && wsi->io->udp) {
 					/*
 					 * Not a connect failing: the quic
@@ -801,6 +802,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					lws_io_dgram_refused(wsi, real_errno);
 
 					return wsi;
+#endif
 				} else {
 					/* primary failed */
 					lws_pt_lock(pt, __func__);
