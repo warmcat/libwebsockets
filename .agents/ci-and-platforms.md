@@ -165,6 +165,24 @@ where its lines landed.
    shows them.  Clamp the receiver's `SO_RCVBUF` in tests to see them on
    Linux.
 
+## FreeBSD and macOS sockets
+
+ - **A sockaddr length must be exactly the family's.**  `sendto()` /
+   `connect()` with eg `sizeof(struct sockaddr_storage)` for an AF_INET
+   address is EINVAL there; Linux and Winsock accept it.  Pass
+   `sizeof(struct sockaddr_in)` / `sizeof(struct sockaddr_in6)`.
+ - **`connect()` of a udp socket to 255.255.255.255 succeeds** without
+   SO_BROADCAST (it becomes the primary interface's broadcast address);
+   only the send is refused.  On Linux the connect fails (EACCES).
+ - **FreeBSD's `/etc/hosts` lists `::1 localhost` before `127.0.0.1`.**  An
+   lws async dns `LWS_ADNS_RECORD_A` query answers both families, and the
+   hosts file scan returns AAAA lines for it in file order, so "localhost"
+   comes back `::1` first there.  BSD has no netlink, so no route sort
+   reorders it.
+ - Both socket behaviours can be reproduced on Linux with an LD_PRELOAD
+   shim on `sendto()` / `connect()`; a hosts file can be swapped without
+   root by `unshare -rm sh -c 'mount --bind <hosts> /etc/hosts && <cmd>'`.
+
 ## libc printf
 
  - glibc prints an invalid conversion like `%"` literally; Apple libc and
