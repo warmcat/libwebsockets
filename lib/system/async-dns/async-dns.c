@@ -2294,7 +2294,13 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 					LWS_ADNS_HOSTS_MAX_MATCHES, qtype & 0xff);
 #endif
 
-		/* "localhost" and any name under it (RFC 6761 6.3) */
+		/*
+		 * "localhost" and any name under it (RFC 6761 6.3).  Like the
+		 * hosts file scan and a nameserver, an A query is answered
+		 * with both families: a hosts file without localhost, as
+		 * Windows' is by default, must not leave a client asking for
+		 * it unable to reach a server only on ::1
+		 */
 		if (!matches && lws_host_is_localhost(name)) {
 #if defined(LWS_WITH_IPV4)
 			if ((qtype & 0xff) == LWS_ADNS_RECORD_A) {
@@ -2304,16 +2310,11 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			}
 #endif
 #if defined(LWS_WITH_IPV6)
-			if (!matches &&
-#if defined(LWS_WITH_IPV4)
-			    (qtype & 0xff) == LWS_ADNS_RECORD_AAAA
-#else
-			    1
-#endif
-			) {
-				memset(ads, 0, 15); ads[15] = 1;
-				ads_lens[0] = 16;
-				matches = 1;
+			if ((qtype & 0xff) == LWS_ADNS_RECORD_A ||
+			    (qtype & 0xff) == LWS_ADNS_RECORD_AAAA) {
+				memset(ads + (size_t)matches * 16, 0, 15);
+				ads[(size_t)matches * 16 + 15] = 1;
+				ads_lens[matches++] = 16;
 			}
 #endif
 		}

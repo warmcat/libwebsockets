@@ -135,6 +135,20 @@ static struct async_dns_tests {
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "localhost", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	/*
+	 * Names under localhost no hosts file lists, so lws answers them
+	 * itself: an A query is answered with both loopbacks, as the hosts
+	 * file and a nameserver answer one, or a server only on ::1 can't be
+	 * reached by a name on a platform whose hosts file has no localhost
+	 */
+#if defined(LWS_WITH_IPV4)
+	{ "adns-a.localhost", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
+		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+#endif
+#if defined(LWS_WITH_IPV6)
+	{ "adns-a6.localhost", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 16,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, } },
+#endif
 	{ "ipv4only.warmcat.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 212, 83, 179, 61, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "onevalid.bogus.warmcat.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,

@@ -62,6 +62,7 @@ a pointer to the results and iterate through them.
 
 "localhost" and any name under it, eg "other.localhost", are loopback
 (RFC 6761 6.3).  lws answers A and AAAA for them itself, after the hosts file,
+an A query with both 127.0.0.1 and ::1 as the hosts file would answer it,
 and never asks a nameserver about them, whichever resolver is in use: with
 libc `getaddrinfo()` they are looked up as "localhost", the one such name every
 platform knows.  `lws_host_is_localhost()` tells if a host is one of them.
