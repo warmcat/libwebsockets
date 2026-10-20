@@ -260,9 +260,10 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 static int
 lrd_h2_cookie_indexed(unsigned char **p, unsigned char *end)
 {
-	size_t vl = strlen(lrd_cookie);
+	/* well under the 127 a one-byte HPACK string length can say */
+	size_t vl = sizeof(lrd_cookie) - 1;
 
-	if (vl > 126 || lws_ptr_diff_size_t(end, *p) < 3 + 6 + vl)
+	if (lws_ptr_diff_size_t(end, *p) < 3 + 6 + vl)
 		return 1;
 
 	*(*p)++ = 0x40;
