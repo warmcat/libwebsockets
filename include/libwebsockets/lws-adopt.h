@@ -323,7 +323,10 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  * lws_create_adopt_udp() - create, bind and adopt a UDP socket
  *
  * \param vhost:	 lws vhost
- * \param ads:		 NULL or address to do dns lookup on
+ * \param ads:		 NULL, an address, or a name to do dns lookup on: a
+ *			 name is looked up for its A record (AAAA in a build
+ *			 without ipv4), with libc or async dns alike, and the
+ *			 first result is used
  * \param port:		 UDP port to bind to, -1 means unbound
  * \param flags:	 0 or LWS_CAUDP_NO_BIND
  * \param protocol_name: Name of protocol on vhost to bind wsi to

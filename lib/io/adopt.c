@@ -1228,10 +1228,24 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 	{
 		struct addrinfo *r, h;
+		uint8_t na[16];
 		char buf[16];
 
 		memset(&h, 0, sizeof(h));
 		h.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+		/*
+		 * Only the first result is used.  A name is asked for its A
+		 * records (AAAA without ipv4), as async dns asks for it below,
+		 * so a socket for eg, "localhost" binds or connects to the same
+		 * address whichever resolver lws has: libc's AF_UNSPEC answer
+		 * puts ::1 first.  An address, or none, is taken as it is.
+		 */
+		if (ads && lws_parse_numeric_address(ads, na, sizeof(na)) < 0)
+#if defined(LWS_WITH_IPV4)
+			h.ai_family = wsi->io->ipv4 ? AF_INET : AF_INET6;
+#else
+			h.ai_family = AF_INET6;
+#endif
 		h.ai_socktype = SOCK_DGRAM;
 		h.ai_protocol = IPPROTO_UDP;
 #if defined(AI_PASSIVE)
@@ -1291,8 +1305,14 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		 * kind to ask for until we get the dns back).  But it is bound
 		 * to a vhost and can be cleaned up from that at vhost destroy.
 		 */
+		/* the family the libc lookup above asks for, too */
 		n = lws_async_dns_query(vhost->context, 0, ads,
-					LWS_ADNS_RECORD_A,
+#if defined(LWS_WITH_IPV4)
+					wsi->io->ipv4 ? LWS_ADNS_RECORD_A :
+							LWS_ADNS_RECORD_AAAA,
+#else
+					LWS_ADNS_RECORD_AAAA,
+#endif
 					lws_create_adopt_udp2, wsi,
 					(void *)ifname, NULL);
 		// lwsl_notice("%s: dns query returned %d\n", __func__, n);

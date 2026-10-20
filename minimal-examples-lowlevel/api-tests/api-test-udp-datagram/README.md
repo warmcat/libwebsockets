@@ -17,6 +17,11 @@ writes a 3000-byte datagram, then a 1500-byte one; the receiver must see
 exactly those two datagrams, each whole and with its contents intact, in that
 order, and nothing after them.
 
+The receiver binds by name, `localhost`, while the sender aims at the address,
+`127.0.0.1` (`::1` on a build without ipv4).  A name that is bound gets its
+A record, whichever resolver lws was built with: libc's `getaddrinfo()` lists
+`::1` first for `localhost`, and a receiver bound there would get nothing.
+
 ## Commandline
 
 | option | meaning |

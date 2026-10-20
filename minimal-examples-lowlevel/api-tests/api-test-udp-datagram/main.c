@@ -17,6 +17,11 @@
  * datagram several times the sender protocol's rx_buffer_size, then a smaller
  * one still over it.  The receiver must see exactly those two datagrams, each
  * whole and intact, in that order.
+ *
+ * The receiver binds by name, "localhost", and the sender aims at the address,
+ * 127.0.0.1 (::1 on a build without ipv4): a name bound with libc's resolver
+ * must get the address async dns would give it, not whichever family libc
+ * lists first, or nothing arrives.
  */
 
 #include <libwebsockets.h>
@@ -182,7 +187,7 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_vhost *vh;
-	const char *p, *ads;
+	const char *p, *ads, *name = "localhost";
 	int port = 7690;
 
 	lws_context_info_defaults(&info, NULL);
@@ -214,11 +219,11 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
-	if (!lws_create_adopt_udp(vh, ads, port, LWS_CAUDP_BIND,
+	if (!lws_create_adopt_udp(vh, name, port, LWS_CAUDP_BIND,
 				  protocols[0].name, NULL, NULL, NULL, NULL,
 				  "udpd-rx")) {
 		lwsl_err("%s: binding the receiver to %s port %d failed\n",
-			 __func__, ads, port);
+			 __func__, name, port);
 		goto bail;
 	}
 
