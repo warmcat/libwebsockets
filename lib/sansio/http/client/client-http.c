@@ -2688,16 +2688,20 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 
 	const char *origin = lws_wsi_client_stash_item(wsi, CIS_ORIGIN, _WSI_TOKEN_CLIENT_ORIGIN);
 	if (origin) {
+		char v6[64];
+
 		if (lws_check_opt(wsi->a.context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
 			p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
 					  "Origin: %s\x0d\x0a", origin);
 		else
+			/* the origin's host is an authority, like Host's */
 			p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
 					  "Origin: %s://%s\x0d\x0a",
 					  wsi->flags & LCCSCF_USE_SSL ?
 							 "https" : "http",
-					  origin);
+					  lws_http_client_authority(origin, v6,
+								    sizeof(v6)));
 	}
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {

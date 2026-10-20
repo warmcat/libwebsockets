@@ -47,4 +47,26 @@ if (requirements AND UNIX AND LWS_HAVE_PTHREAD_H)
 	set_tests_properties(api-test-deaddrop PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 			     TIMEOUT 60)
+
+	#
+	# Given the server as a bare IPv6 literal, the client must send it
+	# bracketed in Origin as well as Host, or the plugin's Origin check
+	# refuses it.  A build without IPv4 already runs it that way above.
+	# It has a working dir of its own, since the test makes its upload
+	# dir's link in the one it runs in.
+	#
+	if (LWS_IPV4 AND LWS_IPV6)
+		lws_get_free_port(PORT_DEADDROP_V6)
+		file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/v6)
+
+		add_test(NAME api-test-deaddrop-v6
+			 COMMAND lws-api-test-deaddrop
+				 --server ::1
+				 -p ${PORT_DEADDROP_V6}
+				 --upload-dir ${CMAKE_CURRENT_BINARY_DIR}/v6/upload
+				 --passwords ${CMAKE_CURRENT_SOURCE_DIR}/ba-passwords)
+		set_tests_properties(api-test-deaddrop-v6 PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/v6
+				     TIMEOUT 60)
+	endif()
 endif()
