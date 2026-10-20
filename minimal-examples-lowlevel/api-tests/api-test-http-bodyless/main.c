@@ -659,11 +659,14 @@ callback_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 	char buf[LWS_PRE + 1024], *px = buf + LWS_PRE;
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
+	if (!wsi)
+		return 0;
+
 	/*
 	 * Only the current step's stream counts: the last one's close may
 	 * come after the next one started
 	 */
-	if (reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR && wsi &&
+	if (reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR &&
 	    (intptr_t)lws_get_opaque_user_data(wsi) != h2c.step + 1)
 		return lws_callback_http_dummy(wsi, reason, user, in, len);
 
