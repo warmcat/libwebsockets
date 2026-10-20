@@ -210,6 +210,25 @@ make_tid_random(struct lws_dht_ctx *ctx, uint8_t *tid_return,
 }
 
 /*
+ * The length of the sockaddr the family says is at sa, or 0 for a family we
+ * don't send to.  Callers holding the peer in a sockaddr_storage may pass its
+ * whole size as salen (G-128).
+ */
+
+static size_t
+dht_sa_len(const struct sockaddr *sa)
+{
+	switch (sa->sa_family) {
+	case AF_INET:
+		return sizeof(struct sockaddr_in);
+	case AF_INET6:
+		return sizeof(struct sockaddr_in6);
+	default:
+		return 0;
+	}
+}
+
+/*
  * Remember a request we sent, so its reply can be told apart from anything
  * else claiming to be one.  An expired entry is reused first; a full table
  * gives up the oldest, whose reply is the most overdue.
@@ -226,18 +245,10 @@ dht_req_pending_add(struct lws_dht_ctx *ctx, const uint8_t *tid,
 {
 	time_t now = (time_t)lws_now_secs();
 	int n, slot = 0;
-	size_t cl;
+	size_t cl = dht_sa_len(sa);
 
-	switch (sa->sa_family) {
-	case AF_INET:
-		cl = sizeof(struct sockaddr_in);
-		break;
-	case AF_INET6:
-		cl = sizeof(struct sockaddr_in6);
-		break;
-	default:
+	if (!cl)
 		return;
-	}
 
 	if (salen < cl || cl > sizeof(ctx->req_pending[0].sa46) ||
 	    tid_len > sizeof(ctx->req_pending[0].tid)) {
@@ -378,6 +389,17 @@ dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len,
 		errno = EAFNOSUPPORT;
 		return -1;
 	}
+
+	/*
+	 * salen may be a sockaddr_storage's size (G-128).  Linux sends to
+	 * that, but BSD and macOS refuse any length but the family's own with
+	 * EINVAL, so send exactly the family's.
+	 */
+	if (salen < dht_sa_len(sa)) {
+		errno = EINVAL;
+		return -1;
+	}
+	salen = dht_sa_len(sa);
 
 	if (len > LWS_DHT_PACKET_SANITY_LIMIT) {
 		lwsl_dht_warn("%s: excessively long packet\n", __func__);

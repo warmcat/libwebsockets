@@ -56,7 +56,8 @@
  *  - A pings R, passing R's address in a sockaddr_storage with that
  *    struct's size as its length, as the announce in a search does.  The
  *    request must still be recorded, so R's pong is taken as the answer to
- *    it and R enters A's table (G-128)
+ *    it and R enters A's table (G-128).  It must also go out at all: BSD and
+ *    macOS refuse to send to an address whose length isn't its family's.
  *  - A probes its good nodes, B and R, for its external address again, and
  *    R answers that A is at a multicast address.  That must not be counted:
  *    no vote may decide we are somewhere unroutable (G-095)
@@ -1324,6 +1325,7 @@ cb_q(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 /*
  * After R's unasked-for replies, A pings R with R's address in a
  * sockaddr_storage, passing the storage's size: that request has to be
+ * sent with its family's length, or BSD and macOS refuse it (EINVAL), and
  * recorded like any other, or R's pong to it is dropped as unasked-for.
  */
 
