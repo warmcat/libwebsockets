@@ -902,8 +902,8 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	return 0;
 
 bail:
-	if (pem)
-		lws_explicit_bzero(pem, (size_t)olen);
+	/* pem is the file or the output buffer by now, never NULL */
+	lws_explicit_bzero(pem, (size_t)olen);
 	lws_free((uint8_t *)pem);
 
 	return 4;
