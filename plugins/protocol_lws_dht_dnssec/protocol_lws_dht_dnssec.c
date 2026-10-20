@@ -3879,10 +3879,8 @@ dht_dnssec_serial_query_finish(struct dht_dnssec_serial_query *q)
 }
 
 static void
-dht_dnssec_serial_query_timeout_cb(lws_sorted_usec_list_t *sul)
+dht_dnssec_serial_query_give_up(struct dht_dnssec_serial_query *q)
 {
-	struct dht_dnssec_serial_query *q = lws_container_of(sul,
-				struct dht_dnssec_serial_query, sul);
 	int n;
 
 	for (n = 0; n < q->count; n++)
@@ -3891,6 +3889,13 @@ dht_dnssec_serial_query_timeout_cb(lws_sorted_usec_list_t *sul)
 					LWS_DHT_DNSSEC_SERIAL_NO_ANSWER, 0);
 
 	dht_dnssec_serial_query_finish(q);
+}
+
+static void
+dht_dnssec_serial_query_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	dht_dnssec_serial_query_give_up(lws_container_of(sul,
+				struct dht_dnssec_serial_query, sul));
 }
 
 /* lws_dht_foreach_node() callback: note each node to ask */
@@ -4016,7 +4021,7 @@ do_query_serials(struct lws_context *cx,
 			     q->hex, 0, 0);
 	if (hl < 0 || (size_t)hl >= sizeof(buf) - sizeof(q->nonce)) {
 		/* cb has been called, so it ends as the contract says */
-		dht_dnssec_serial_query_timeout_cb(&q->sul);
+		dht_dnssec_serial_query_give_up(q);
 		return 0;
 	}
 	memcpy(buf + hl, q->nonce, sizeof(q->nonce));
