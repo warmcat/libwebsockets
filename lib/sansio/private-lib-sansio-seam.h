@@ -264,12 +264,13 @@ static LWS_INLINE int
 lws_io_peer_effective(struct lws *wsi, lws_peer_entry_t *dest)
 {
 	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
-	int count = lws_io_peer_walk(wsi, e, LWS_ARRAY_SIZE(e));
+	int count = lws_io_peer_walk(wsi, e, LWS_ARRAY_SIZE(e)), n;
 
-	if (!count)
+	n = lws_peer_entries_effective(e, count);
+	if (n < 0)
 		return 1;
 
-	*dest = e[lws_peer_entries_effective(e, count)];
+	*dest = e[n];
 
 	return 0;
 }
