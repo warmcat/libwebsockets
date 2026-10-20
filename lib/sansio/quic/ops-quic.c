@@ -1872,7 +1872,7 @@ lws_quic_server_admit_established(struct lws *nwsi)
  *    refused instead (an embedder whose IO carries no peer stack has no
  *    peer to key anything on either way)
  *
- * lws_peer_raise() raises only an entry with seen's address and port, so
+ * lws_io_peer_raise() raises only an entry with seen's address and port, so
  * evidence arriving from somewhere else, eg, the new address of a path
  * migration that is not committed yet, raises nothing; a path that is
  * committed (RFC 9000 9) starts again at hearsay, until its validation
@@ -1891,7 +1891,7 @@ lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
 
 	if (cred != LWS_PEER_CRED_CRYPTO) {
 		if (seen)
-			lws_peer_raise(nwsi, seen, cred);
+			lws_io_peer_raise(nwsi, seen, cred);
 		/*
 		 * QUIC validated the path to it (RFC 9000 8): if a relay
 		 * carries it, the relay is proven too, as long as it is still
@@ -1901,14 +1901,14 @@ lws_quic_peer_proven(struct lws *nwsi, const lws_sockaddr46 *seen,
 		if (seen && nwsi->quic.qn && nwsi->quic.qn->address_validated)
 			lws_io_path(nwsi, LWS_IOPATH_PROVEN, seen);
 	} else {
-		n = lws_peer_walk(nwsi, e, (int)LWS_ARRAY_SIZE(e));
+		n = lws_io_peer_walk(nwsi, e, (int)LWS_ARRAY_SIZE(e));
 		while (n-- > 0)
 			if (e[n].cred >= LWS_PEER_CRED_ROUTABLE)
-				lws_peer_raise(nwsi, &e[n].sa46,
+				lws_io_peer_raise(nwsi, &e[n].sa46,
 					       LWS_PEER_CRED_CRYPTO);
 
 		if (nwsi->quic.qn && nwsi->quic.qn->is_server &&
-		    !lws_peer_effective(nwsi, &e[0]) &&
+		    !lws_io_peer_effective(nwsi, &e[0]) &&
 		    e[0].cred < LWS_PEER_CRED_VOUCHED) {
 			lwsl_wsi_err(nwsi, "handshake done, peer unproven");
 

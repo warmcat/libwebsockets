@@ -542,6 +542,61 @@ lws_get_vhost_listen_port(struct lws_vhost *vhost)
 
 #if defined(LWS_WITH_NETWORK)
 
+/*
+ * returns nonzero if v1 and v2 can share listen sockets
+ *
+ * Only vhosts that make their own listen sockets from their iface and port
+ * share them.  A vhost with no listen port makes none: any listener it has
+ * was bound for it by the user (eg, a quic-only vhost's udp listener from
+ * lws_create_adopt_udp()), on a port its listen_port knows nothing about,
+ * and it is nobody else's.
+ */
+int
+lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2)
+{
+	if (v1->listen_port == CONTEXT_PORT_NO_LISTEN ||
+	    v1->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER ||
+	    v2->listen_port == CONTEXT_PORT_NO_LISTEN ||
+	    v2->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER)
+		return 0;
+
+	return ((!v1->iface && !v2->iface) ||
+		 (v1->iface && v2->iface && !strcmp(v1->iface, v2->iface))) &&
+		v1->listen_port == v2->listen_port;
+}
+
+/*
+ * returns nonzero if a connection that arrived on vhost lv may be moved onto
+ * vhost v by a name he sent: TLS SNI, Host:, :authority, or the SNI a
+ * passthrough is chosen by.
+ *
+ * Only if v is served by the listener he arrived on, ie, it shares lv's
+ * listen socket: the same port *and* interface.  Vhosts on one port but on
+ * different interfaces have separate listen sockets, and the interface a
+ * vhost listens on is often the only thing restricting who can reach it (eg,
+ * an admin vhost on lo:443 beside a public one on eth0:443): a peer on one
+ * interface must not be able to name his way onto the other's vhost.
+ *
+ * Vhosts that listen on nothing have their connections adopted onto them by
+ * the application, which keeps them in groups by the same listen_port value
+ * and iface, as it always has: a connection adopted onto one of them can
+ * still be moved by name onto another of its group.
+ */
+int
+lws_vhost_shares_listener(struct lws_vhost *lv, struct lws_vhost *v)
+{
+	if (v == lv)
+		return 1;
+
+	if (lv->listen_port != CONTEXT_PORT_NO_LISTEN &&
+	    lv->listen_port != CONTEXT_PORT_NO_LISTEN_SERVER)
+		return lws_vhost_compare_listen(lv, v);
+
+	return v->listen_port == lv->listen_port &&
+	       ((!v->iface && !lv->iface) ||
+		(v->iface && lv->iface && !strcmp(v->iface, lv->iface)));
+}
+
 struct lws_vhost *
 lws_get_vhost_by_name(struct lws_context *context, const char *name)
 {

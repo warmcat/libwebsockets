@@ -113,7 +113,7 @@ lws_io_tx_file(struct lws *wsi)
 /*
  * the transport (lws_io_ops_t transport_start, transport_connected,
  * transport_established, transport_failed, client_connect, peer_address,
- * peer_describe;
+ * peer_describe, peer_walk, peer_raise;
  * IO's plumbing's transport_rebind)
  */
 
@@ -239,6 +239,54 @@ lws_io_peer_describe(struct lws *wsi, char *buf, size_t len, int flags)
 	}
 
 	return wsi->a.context->io_ops->peer_describe(wsi, buf, len, flags);
+}
+
+/*
+ * the connection's peer address stack, top first, into dest
+ * (lws_io_ops_t.peer_walk, IO's lws_peer_walk()).  Returns the number of
+ * entries, 0 when the transport keeps no stack.
+ */
+static LWS_INLINE int
+lws_io_peer_walk(struct lws *wsi, lws_peer_entry_t *dest, int max)
+{
+	if (!wsi->a.context->io_ops->peer_walk)
+		return 0;
+
+	return wsi->a.context->io_ops->peer_walk(wsi, dest, max);
+}
+
+/*
+ * the entry standing for who the peer is, by the rule of
+ * lws_peer_effective(), on the stack as IO has it now.  Returns 0 with dest
+ * filled, nonzero if there is no peer.
+ */
+static LWS_INLINE int
+lws_io_peer_effective(struct lws *wsi, lws_peer_entry_t *dest)
+{
+	lws_peer_entry_t e[LWS_PEER_WALK_MAX];
+	int count = lws_io_peer_walk(wsi, e, LWS_ARRAY_SIZE(e));
+
+	if (!count)
+		return 1;
+
+	*dest = e[lws_peer_entries_effective(e, count)];
+
+	return 0;
+}
+
+/*
+ * the protocol has evidence for the stack's entries with seen's address:
+ * raise their cred (lws_io_ops_t.peer_raise, IO's lws_peer_raise()).
+ * Returns 0 if an entry matched.
+ */
+static LWS_INLINE int
+lws_io_peer_raise(struct lws *wsi, const lws_sockaddr46 *seen,
+		  lws_peer_cred_t cred)
+{
+	if (!wsi->a.context->io_ops->peer_raise)
+		return 1;
+
+	return wsi->a.context->io_ops->peer_raise(wsi, seen, cred);
 }
 
 #if defined(LWS_WITH_TLS)

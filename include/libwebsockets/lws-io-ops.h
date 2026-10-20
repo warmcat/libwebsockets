@@ -55,7 +55,7 @@
  * The version of lws_io_ops_t: its members, their order and what they
  * mean.  Any change to them changes it.
  */
-#define LWS_IO_OPS_ABI_VERSION 4
+#define LWS_IO_OPS_ABI_VERSION 5
 
 /*
  * The close request reaches the transport in phases, in this order over a
@@ -209,6 +209,20 @@ typedef struct lws_io_ops {
 	 * and flags are its LWS_PEER_DESC_... flags.  A stream's layers are
 	 * those of its connection.  May be NULL: sansIO then says
 	 * "unknown". */
+	int (*peer_walk)(struct lws *wsi, lws_peer_entry_t *dest, int max);
+	/**< (since ABI version 5) copy wsi's peer address stack into dest,
+	 * top first, at most max entries, returning how many: IO's is
+	 * lws_peer_walk().  A stream's stack is its connection's.  May be
+	 * NULL: no connection has a stack, and quic then refuses a server
+	 * connection at the end of its handshake, since it has no proven
+	 * peer to key its limits on. */
+	int (*peer_raise)(struct lws *wsi, const lws_sockaddr46 *seen,
+			  lws_peer_cred_t cred);
+	/**< (since ABI version 5) the protocol has evidence for the entries
+	 * of wsi's stack with seen's address (and port, if seen has one):
+	 * raise their cred to at least cred, as quic's address validation
+	 * and handshake do.  IO's is lws_peer_raise().  0 if an entry
+	 * matched.  May be NULL: there is nothing to raise. */
 
 	/*
 	 * the tls session, which is IO's: what sansIO asks of it.  NULL in a

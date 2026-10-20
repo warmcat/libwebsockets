@@ -928,6 +928,28 @@ lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 	return 0;
 }
 
+/*
+ * The rule of lws_peer_effective() on entries in hand: it decides from their
+ * creds alone, so it is neither half's, and sansIO applies it to the stack
+ * the peer_walk op copied out
+ */
+
+int
+lws_peer_entries_effective(const lws_peer_entry_t *e, int count)
+{
+	int n;
+
+	if (count <= 0)
+		return -1;
+
+	for (n = 0; n < count; n++)
+		if (e[n].cred >= LWS_PEER_CRED_VOUCHED)
+			return n;
+
+	/* nothing believable: the top entry, which is only hearsay */
+	return 0;
+}
+
 int
 lws_is_local_address(const char *ads)
 {

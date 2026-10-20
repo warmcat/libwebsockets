@@ -209,6 +209,9 @@ embedder carries nothing that needs it.
 | transport | `transport_failed` (optional) | quic's transport failed: retarget if possible | `lws_client_transport_failed()` |
 | transport | `client_connect` (optional) | a new client connection, a proxied transaction's onward leg | `lws_client_connect_via_info()` |
 | transport | `peer_address` (optional) | the peer's address as text | `lws_get_peer_simple()` |
+| transport | `peer_describe` (optional) | who the peer is, each layer of its address stack with its credibility, as text | `lws_peer_describe()` |
+| transport | `peer_walk` (optional) | the peer address stack's entries, top first | `lws_peer_walk()` |
+| transport | `peer_raise` (optional) | the protocol has evidence for an address of the stack: raise its credibility | `lws_peer_raise()` |
 | tls | `tls_session` (optional) | the library's session object | `lws_tls_session_ptr()` |
 | tls | `tls_hs_ca_id` (optional) | which CA verified the peer | `lws_tls_wsi_hs_ca_id()` |
 | tls | `tls_peer_cert_info` (optional) | the peer certificate's information | `lws_tls_peer_cert_info()` |
