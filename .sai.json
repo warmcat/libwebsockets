@@ -338,6 +338,11 @@
 		"nonetlink":	{
 			"cmake":	"-DLWS_WITH_NETLINK=0"
 		},
+		# libc getaddrinfo() instead of async dns, with tls and so quic
+		# and h3: the other config without async dns has no tls at all
+		"async-dns-off": {
+			"cmake":	"-DLWS_WITH_SYS_ASYNC_DNS=0"
+		},
 		"nossl": {
 			"cmake":	"-DLWS_WITH_SSL=OFF"
 		},
