@@ -54,6 +54,7 @@
 
 #include <signal.h>
 #include <limits.h>
+#include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -1112,7 +1113,11 @@ prepare_upload_dir(const char *dir)
 	char path[PATH_MAX + 260];
 	int fd;
 
-	mkdir(dir, 0700);
+	/* it may be left over from an earlier run */
+	if (mkdir(dir, 0700) && errno != EEXIST) {
+		lwsl_err("%s: can't create %s\n", __func__, dir);
+		return 1;
+	}
 	if (!realpath(dir, upload_dir)) {
 		lwsl_err("%s: no upload dir %s\n", __func__, dir);
 		return 1;
