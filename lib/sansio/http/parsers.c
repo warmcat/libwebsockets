@@ -2675,8 +2675,18 @@ lws_http_host_authority_disagree(struct lws *wsi)
 		return 0;
 
 	if (lws_hdr_single(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY, &auth, &al) ||
-	    lws_hdr_single(wsi, WSI_TOKEN_HOST, &host, &hl) ||
-	    lws_http_authority_split(auth, al, &ahl, &ap) ||
+	    lws_hdr_single(wsi, WSI_TOKEN_HOST, &host, &hl))
+		return 1;
+
+	/*
+	 * The same bytes can't name two authorities, whatever their shape.
+	 * That's also a Host aliased to :authority, and the bare IPv6
+	 * literal, eg "::1", that older lws clients send for both.
+	 */
+	if (al == hl && !memcmp(auth, host, al))
+		return 0;
+
+	if (lws_http_authority_split(auth, al, &ahl, &ap) ||
 	    lws_http_authority_split(host, hl, &hhl, &hp))
 		return 1;
 

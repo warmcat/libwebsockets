@@ -91,6 +91,7 @@ h2, raw frames:
 |WINDOW_UPDATE past 2^31 - 1|GOAWAY FLOW_CONTROL_ERROR|
 |a `get ` field smuggling a path, an uppercase field name, a pseudo-header name running on past one lws knows (`:methodx`)|GOAWAY PROTOCOL_ERROR|
 |a `uri-args` field adding urlargs, a `put` field giving an unaliased `:method` a URI|served, from `:path` alone|
+|an unbracketed IPv6 literal `:authority` (`::1`, as older lws clients send) and no `Host`|served|
 |a pseudo-header repeated with a literal name, or after one added to the dynamic table|GOAWAY PROTOCOL_ERROR|
 |CR LF in a value, no or two `:path`, pseudo-header after a regular one, `connection`, `transfer-encoding`, 1500 fields|nothing served|
 |a POST whose trailers refer to a dynamic table entry lws could not keep|served|

@@ -1941,6 +1941,28 @@ b_put_field(struct txb *t)
 }
 
 /*
+ * Older lws clients send an IPv6 literal :authority unbracketed, and with
+ * no Host the server aliases Host to it.  The two are the same bytes, so
+ * they can't disagree (G-148), even though "::1" is no authority's shape.
+ */
+
+static uint32_t
+b_authority_bare_v6(struct txb *t)
+{
+	uint8_t hb[512], *p = hb;
+
+	*p++ = HP_METHOD_GET;
+	*p++ = HP_SCHEME_HTTP;
+	p = hp_lit(p, HP_IDX_AUTHORITY, "::1", 3);
+	p = hp_lit(p, HP_IDX_PATH, "/alive", 6);
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 1;
+}
+
+/*
  * A pseudo-header's name matches on its last byte, so one going on past it
  * once had the rest of its name become the start of that pseudo-header's
  * value.  It's a pseudo-header lws doesn't know, which is malformed.
@@ -2252,6 +2274,8 @@ static const struct h2_attack h2_attacks[] = {
 	{ "\"uri-args\" field adding urlargs", b_uri_args_field, V_ECHO,
 	  200, 0 },
 	{ "\"put\" field smuggling a URI", b_put_field, V_ECHO, 200, 0 },
+	{ "bare IPv6 literal :authority, no Host", b_authority_bare_v6,
+	  V_ECHO, 200, 0 },
 	{ "pseudo-header name running on past one lws knows",
 	  b_pseudo_name_runs_on, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
 	{ "uppercase field name", b_uppercase_name, V_GOAWAY,

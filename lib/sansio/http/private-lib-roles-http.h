@@ -837,7 +837,8 @@ lws_http_authority_check(const char *a, size_t len);
  * Nonzero if an h2 / h3 request carries both :authority and Host and they
  * do not name the same authority (RFC 9113 8.3.1, RFC 9114 4.3.1): the hosts
  * compared case-insensitively, a missing port taken as the :scheme's default.
- * Either one repeated, or not of the form host [ ":" port ], disagrees.
+ * Either one repeated, or not of the form host [ ":" port ], disagrees,
+ * unless the two are the same bytes.
  */
 int
 lws_http_host_authority_disagree(struct lws *wsi);
