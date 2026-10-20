@@ -67,6 +67,18 @@ acme_state_name(lws_acme_state s)
 }
 #endif
 
+/*
+ * The zone whose domains/<zone> directory the cert's config was found in.
+ * Everything about the cert is kept there, whether the cert is for the zone
+ * itself or for a name in it.
+ */
+static const char *
+acme_cert_zone(const struct lws_acme_cert_config *cfg)
+{
+	return cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
+			cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
+			cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+}
 
 static void
 acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd);
@@ -261,9 +273,7 @@ static int
 acme_ipc_get_auth_key(struct per_vhost_data__lws_acme_client *vhd)
 {
 	const char *fp = vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH],
-		   *domain = vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
-			vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
-			vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+		   *domain = acme_cert_zone(vhd->active_cert),
 		   *fn;
 	char req[3072], jwt[2048], esc_domain[512], esc_fn[512];
 	int n;
@@ -994,9 +1004,7 @@ acme_auth_key_create(struct per_vhost_data__lws_acme_client *vhd)
 
 			if (n > 0)
 				r = acme_ipc_save_payload(vhd, "save_auth_key",
-					vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
-					vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
-					vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+					acme_cert_zone(vhd->active_cert),
 					fn ? fn + 1 : fp, buf, (size_t)n);
 
 			lws_explicit_bzero(buf, 4096);
@@ -1216,6 +1224,44 @@ acme_valid_hostname(const char *p)
 	return 1;
 }
 
+/*
+ * <base>/domains/<zone>/certs/<env_dir>/{crt,key}/<cn>-latest.{crt,key},
+ * which the root daemon names the same way when it saves them or tells us
+ * their validity.  Returns 1 if they couldn't be set.
+ */
+static int
+acme_cert_set_paths(struct per_vhost_data__lws_acme_client *vhd,
+		    struct lws_acme_cert_config *cfg, const char *env_dir)
+{
+	static const int pv[] = { LWS_TLS_SET_CERT_PATH, LWS_TLS_SET_KEY_PATH };
+	static const char * const kind[] = { "crt", "key" };
+	const char *zone = acme_cert_zone(cfg),
+		   *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+	char path[512];
+	size_t n;
+
+	if (!zone || !cn)
+		return 1;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(pv); n++) {
+		if ((size_t)lws_snprintf(path, sizeof(path),
+				"%s/domains/%s/certs/%s/%s/%s-latest.%s",
+				vhd->dns_base_dir, zone, env_dir, kind[n], cn,
+				kind[n]) >= sizeof(path) - 1)
+			return 1;
+
+		if (cfg->pvop[pv[n]] && !strcmp(cfg->pvop[pv[n]], path))
+			continue;
+
+		free((void *)cfg->pvop[pv[n]]);
+		cfg->pvop[pv[n]] = strdup(path);
+		if (!cfg->pvop[pv[n]])
+			return 1;
+	}
+
+	return 0;
+}
+
 static int
 lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -1319,23 +1365,20 @@ lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 			len = strlen(vhd->dns_base_dir) + strlen(scan_ctx->domain) + strlen(common_name_s) + 128;
 
-			char *cert_path = (char *)malloc(len);
-			char *key_path = (char *)malloc(len);
 			char *auth_path = (char *)malloc(len);
 			char *root_domain = strdup(scan_ctx->domain);
 
-			if (cert_path && key_path && auth_path && root_domain) {
-				lws_snprintf(cert_path, len, "%s/domains/%s/certs/%s/crt/%s-latest.crt", vhd->dns_base_dir, scan_ctx->domain, env_dir, common_name_s);
-				lws_snprintf(key_path, len, "%s/domains/%s/certs/%s/key/%s-latest.key", vhd->dns_base_dir, scan_ctx->domain, env_dir, common_name_s);
+			if (auth_path && root_domain) {
 				lws_snprintf(auth_path, len, "%s/domains/%s/%s-auth.jwk", vhd->dns_base_dir, scan_ctx->domain, common_name_s);
 
-				cfg->pvop[LWS_TLS_SET_CERT_PATH] = cert_path;
-				cfg->pvop[LWS_TLS_SET_KEY_PATH] = key_path;
 				cfg->pvop[LWS_TLS_SET_AUTH_PATH] = auth_path;
 				cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] = root_domain;
+
+				/* aging sets them again when it knows the env */
+				if (acme_cert_set_paths(vhd, cfg, env_dir))
+					lwsl_vhost_err(vhd->vhost, "acme: %s: "
+						"unable to set cert paths", path);
 			} else {
-				if (cert_path) free(cert_path);
-				if (key_path) free(key_path);
 				if (auth_path) free(auth_path);
 				if (root_domain) free(root_domain);
 			}
@@ -1488,9 +1531,7 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		struct lws_acme_cert_config *cfg = lws_container_of(d,
 					struct lws_acme_cert_config, list);
 		/* the same notion of a cert's domain that aging uses */
-		const char *domain = cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
-				cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
-				cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+		const char *domain = acme_cert_zone(cfg);
 		const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
 
 		if (domain && cn && !strcmp(domain, r.domain) &&
@@ -2352,9 +2393,26 @@ pkt_add_hdrs:
 					goto failed;
 				}
 
+				const char *zone = acme_cert_zone(vhd->active_cert),
+					   *cn = vhd->active_cert->pvop[
+						LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+				char chall_name[256];
+
+				/* the TXT goes in the zone, so it must be about a name in it */
+				if (!zone || !cn ||
+				    acme_dns01_name(zone, cn, chall_name,
+						    sizeof(chall_name))) {
+					lws_snprintf(buf, sizeof(buf),
+						"dns-01: %s is not in the zone %s",
+						cn ? cn : "?", zone ? zone : "?");
+					failreason = buf;
+					lwsl_vhost_err(vhd->vhost, "%s", buf);
+					goto failed;
+				}
+
 				n = vhd->ops->challenge_start(vhd->vhost, vhd->challenge_priv,
-					ac->chall_token, ac->key_auth,
-				    vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
+					ac->chall_token, ac->key_auth, zone,
+					chall_name);
 
 				if (n) {
 					lwsl_vhost_err(vhd->vhost, "dns-01 challenge start failed");
@@ -2642,7 +2700,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", cert_ts);
 					const char *fn = strrchr(cert_ts, '/');
 					if (fn) fn++; else fn = cert_ts;
-					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->crx.pem, leaf_len);
+					int r = acme_ipc_save_payload(vhd, "save_cert", acme_cert_zone(vhd->active_cert), fn, ac->crx.pem, leaf_len);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create cert file %s", cert_ts);
 						goto failed;
@@ -2665,7 +2723,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", key_ts);
 					const char *fn = strrchr(key_ts, '/');
 					if (fn) fn++; else fn = key_ts;
-					int r = acme_ipc_save_payload(vhd, "save_key", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
+					int r = acme_ipc_save_payload(vhd, "save_key", acme_cert_zone(vhd->active_cert), fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create key file %s", key_ts);
 						goto failed;
@@ -2688,7 +2746,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", full_ts);
 					const char *fn = strrchr(full_ts, '/');
 					if (fn) fn++; else fn = full_ts;
-					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->crx.pem, ac->crx.len);
+					int r = acme_ipc_save_payload(vhd, "save_cert", acme_cert_zone(vhd->active_cert), fn, ac->crx.pem, ac->crx.len);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create fullchain file %s", full_ts);
 					}
@@ -2875,26 +2933,13 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 		lwsl_vhost_notice(vhd->vhost, "acme_aging: checking cert CN: %s\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] ? cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] : "unknown");
 
 		const char *env_dir = vhd->aging_is_production ? "production" : "staging";
-		char cert_path[512], key_path[512];
-		const char *domain = cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
-				cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
-				cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+		const char *domain = acme_cert_zone(cfg);
 		const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
 
 		if (domain && cn) {
-			lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/%s/crt/%s-latest.crt",
-				vhd->dns_base_dir, domain, env_dir, cn);
-			lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/certs/%s/key/%s-latest.key",
-				vhd->dns_base_dir, domain, env_dir, cn);
-
-			if (cfg->pvop[LWS_TLS_SET_CERT_PATH] && strcmp(cfg->pvop[LWS_TLS_SET_CERT_PATH], cert_path) != 0) {
-				free((void *)cfg->pvop[LWS_TLS_SET_CERT_PATH]);
-				cfg->pvop[LWS_TLS_SET_CERT_PATH] = strdup(cert_path);
-			}
-			if (cfg->pvop[LWS_TLS_SET_KEY_PATH] && strcmp(cfg->pvop[LWS_TLS_SET_KEY_PATH], key_path) != 0) {
-				free((void *)cfg->pvop[LWS_TLS_SET_KEY_PATH]);
-				cfg->pvop[LWS_TLS_SET_KEY_PATH] = strdup(key_path);
-			}
+			if (acme_cert_set_paths(vhd, cfg, env_dir))
+				lwsl_vhost_err(vhd->vhost, "acme_aging: %s: "
+					       "unable to set cert paths", cn);
 
 			if (vhd->aging_is_production)
 				cfg->pvop[LWS_TLS_SET_DIR_URL] = "https://acme-v02.api.letsencrypt.org/directory";

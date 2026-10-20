@@ -128,7 +128,7 @@ static const struct lws_protocols chall_http01_protocols[] = {
 
 static int
 challenge_start_http(struct lws_vhost *vh, void *priv, const char *token,
-		     const char *key_auth, const char *domain)
+		     const char *key_auth, const char *zone, const char *name)
 {
 	struct vhd_acme_http *ah = (struct vhd_acme_http *)priv;
 

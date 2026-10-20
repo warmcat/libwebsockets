@@ -52,6 +52,17 @@
  *  - the leaf is the first cert in it, up to and including its END line
  *  - a body with no complete cert has no leaf
  *  - a body over ACME_CERT_CHAIN_MAX is refused, keeping what came before
+ *
+ * And which name a dns-01 challenge is about, given the zone whose directory
+ * holds the cert (see acme-dns-name.c):
+ *
+ *  - a cert for a name in the zone is about that name, and its TXT goes in
+ *    the zone... the challenge for dist.example.com once looked for a zone
+ *    and directory of its own, and its save was refused
+ *  - a wildcard's challenge is about the name under it
+ *  - names given absolute, or in another case, are still in the zone
+ *  - a name outside the zone, a name that only ends with the zone's text,
+ *    an empty label, or a name too long for the buffer, are refused
  */
 
 #include <libwebsockets.h>
@@ -679,6 +690,58 @@ ajt_cert(int bw)
 	return bad;
 }
 
+static const struct {
+	const char	*zone;
+	const char	*cn;
+	const char	*want;	/* NULL: refused */
+} ajt_dns01_names[] = {
+	{ "example.com",	"example.com",		"example.com" },
+	{ "example.com",	"dist.example.com",	"dist.example.com" },
+	{ "example.com",	"a.b.example.com",	"a.b.example.com" },
+	{ "example.com",	"*.example.com",	"example.com" },
+	{ "example.com",	"*.dist.example.com",	"dist.example.com" },
+	{ "example.com.",	"dist.example.com.",	"dist.example.com" },
+	{ "Example.COM",	"dist.example.com",	"dist.example.com" },
+	{ "example.com",	"example.org",		NULL },
+	{ "example.com",	"badexample.com",	NULL },
+	{ "example.com",	".example.com",		NULL },
+	{ "example.com",	"com",			NULL },
+	{ "",			"example.com",		NULL },
+	{ "example.com",	"",			NULL },
+};
+
+static int
+ajt_dns01_name(void)
+{
+	char name[64];
+	int bad = 0;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(ajt_dns01_names); n++) {
+		const char *want = ajt_dns01_names[n].want;
+		int r = acme_dns01_name(ajt_dns01_names[n].zone,
+					ajt_dns01_names[n].cn, name,
+					sizeof(name));
+
+		if (want ? (r || strcmp(name, want)) : !r) {
+			lwsl_err("dns-01 name: '%s' in '%s': %d '%s', want "
+				 "'%s'\n", ajt_dns01_names[n].cn,
+				 ajt_dns01_names[n].zone, r, r ? "" : name,
+				 want ? want : "(refused)");
+			bad = 1;
+		}
+	}
+
+	/* the name and its NUL must fit */
+	if (!acme_dns01_name("example.com", "dist.example.com", name, 16) ||
+	    acme_dns01_name("example.com", "dist.example.com", name, 17)) {
+		lwsl_err("dns-01 name: buffer size not respected\n");
+		bad = 1;
+	}
+
+	return bad;
+}
+
 static void
 ajt_result(const char *name, int bad)
 {
@@ -712,6 +775,7 @@ main(int argc, const char **argv)
 		ajt_result("cert", ajt_cert(bw));
 	}
 	ajt_result("auth key", ajt_auth_key());
+	ajt_result("dns-01 name", ajt_dns01_name());
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);
 

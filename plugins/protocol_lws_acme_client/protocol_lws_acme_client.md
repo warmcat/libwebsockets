@@ -39,15 +39,17 @@ For example, config for `example.com` and its subdomains goes in `$dns_base_dir/
 | `organization` | CSR Subject: Organization name. |
 | `directory-url` | The initial ACME CA directory URL (e.g., Let's Encrypt staging or production URL). |
 
-*Note: The plugin automatically writes the Let's Encrypt `_acme-challenge` TXT record into `$dns_base_dir/domains/<domain-name>/dns/<domain-name>.zone.acme`. The `lws-dht-dnssec-monitor` automatically detects this drop-in file, securely merges it, and signs the updated payload.*
+*Note: For dns-01, the plugin has the root daemon write the `_acme-challenge.<common-name>` TXT record into `$dns_base_dir/domains/<domain-name>/<domain-name>.zone.acme`, where `<domain-name>` is the directory the cert's config was found in. A cert for a name in the zone, eg `dist.example.com` configured in `domains/example.com/conf.d/`, has its challenge in the `example.com` zone; a wildcard `*.example.com` has it at `_acme-challenge.example.com`. A `common-name` that is not in the zone is refused. The `lws-dht-dnssec-monitor` merges the drop-in file into the zone and signs it.*
 
 ### Dynamic Path Generation
 
 The plugin dynamically generates paths for your authentication keys, certificates, and private keys within the domain's standardized directory structure based on the `dns_base_dir`. You do **not** specify `auth-path`, `cert-path`, or `key-path` in the JSON.
 
-* **Format:** `$dns_base_dir/domains/<domain-name>/certs/{crt,key}/<common-name>-[latest|date].[crt|key]`
+* **Format:** `$dns_base_dir/domains/<domain-name>/certs/<production|staging>/{crt,key}/<common-name>-[latest|date].[crt|key]`
 
-The plugin creates versioned files with timestamps and maintains a `-latest` symlink pointing to the most recently generated file for easy references by the web server (e.g., `$dns_base_dir/domains/<domain-name>/certs/crt/<common-name>-latest.crt`).
+`<domain-name>` is the directory the cert's config was found in, so a cert for a name in the zone, eg `dist.example.com`, lives with the zone's other certs as `domains/example.com/certs/production/crt/dist.example.com-latest.crt`.
+
+The plugin creates versioned files with timestamps and maintains a `-latest` symlink pointing to the most recently generated file for easy references by the web server (e.g., `$dns_base_dir/domains/<domain-name>/certs/production/crt/<common-name>-latest.crt`).
 
 ### The account key
 
@@ -147,7 +149,7 @@ backoff applies.
 
 Once it is signed, the plugin asks the zone's name servers (its apex `NS`
 records, at the addresses the zone gives them or that they resolve to)
-directly, every 2s, for `_acme-challenge.<domain>` TXT, and only asks the ACME
+directly, every 2s, for `_acme-challenge.<common-name>` TXT, and only asks the ACME
 server to validate when every one of them serves the challenge: a resolver
 asking too soon could cache that there is no such record.  A name server
 counts when one of its addresses answers with the challenge and none answers

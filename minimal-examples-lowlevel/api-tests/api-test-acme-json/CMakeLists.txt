@@ -7,7 +7,8 @@ include(LwsCheckRequirements)
 
 set(SAMP lws-api-test-acme-json)
 set(SRCS main.c
-	 ../../../plugins/protocol_lws_acme_client/acme-json.c)
+	 ../../../plugins/protocol_lws_acme_client/acme-json.c
+	 ../../../plugins/protocol_lws_acme_client/acme-dns-name.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_ACME 1 requirements)

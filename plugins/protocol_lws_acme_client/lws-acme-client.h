@@ -70,9 +70,13 @@ struct lws_acme_cert_config {
 };
 
 struct lws_acme_challenge_ops {
+	/*
+	 * zone is the domain whose directory holds the cert, name is what the
+	 * challenge is about: the cert's name, without any wildcard, in zone
+	 */
 	int (*challenge_start)(struct lws_vhost *vhost, void *challenge_priv,
 			       const char *token, const char *key_auth,
-			       const char *domain);
+			       const char *zone, const char *name);
 	int (*challenge_poll)(struct lws_vhost *vhost, void *challenge_priv);
 	void (*challenge_cleanup)(struct lws_vhost *vhost, void *challenge_priv);
 };

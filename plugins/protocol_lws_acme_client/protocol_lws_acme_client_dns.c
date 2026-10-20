@@ -49,7 +49,8 @@ struct vhd_acme_dns {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
 	char *base_dir;
-	char active_domain[256];
+	char zone[256];		/* whose directory, and zone, the TXT goes in */
+	char name[256];		/* the cert name the challenge is about */
 	lws_sorted_usec_list_t sul_delay;
 	time_t saved;		/* when we handed over the challenge TXT */
 	lws_usec_t deadline;	/* for the zone with it to be signed */
@@ -115,7 +116,7 @@ acme_dns_served_cb(void *opaque, int ok, const char *why)
 
 	if (ok) {
 		lwsl_vhost_notice(ad->vhost, "dns-01: every name server of %s "
-				  "serves the challenge", ad->active_domain);
+				  "serves the challenge", ad->zone);
 		acme_dns_ready(ad);
 		return;
 	}
@@ -134,7 +135,7 @@ acme_dns_ask_servers(struct vhd_acme_dns *ad)
 	char qname[300];
 
 	lws_snprintf(qname, sizeof(qname), "_acme-challenge.%s",
-		     ad->active_domain);
+		     ad->name);
 
 	if (ad->nservers)
 		ad->wait = acme_dns_wait_start(ad->context, qname, ad->txt,
@@ -150,7 +151,7 @@ acme_dns_ask_servers(struct vhd_acme_dns *ad)
 	}
 
 	lwsl_vhost_warn(ad->vhost, "dns-01: can't ask the name servers of "
-			"%s, allowing %ds instead", ad->active_domain,
+			"%s, allowing %ds instead", ad->zone,
 			(int)(ACME_DNS_SPREAD_US / LWS_US_PER_SEC));
 	lws_sul_schedule(ad->context, 0, &ad->sul_delay, sul_dns_ready_cb,
 			 ACME_DNS_SPREAD_US);
@@ -197,7 +198,7 @@ acme_dns_ns_resolved_cb(struct lws *wsi, const char *ads,
 
 	if (!result)
 		lwsl_vhost_warn(ad->vhost, "dns-01: can't look up a name "
-				"server of %s", ad->active_domain);
+				"server of %s", ad->zone);
 	else
 		lws_async_dns_freeaddrinfo(&result);
 
@@ -219,7 +220,7 @@ acme_dns_find_servers(struct vhd_acme_dns *ad)
 	ad->nns = ad->nservers = 0;
 
 	lws_snprintf(path, sizeof(path), "%s/domains/%s/%s.zone.signed",
-		     ad->base_dir, ad->active_domain, ad->active_domain);
+		     ad->base_dir, ad->zone, ad->zone);
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
 		if (!fstat(fd, &st) && st.st_size > 0 &&
@@ -237,7 +238,7 @@ acme_dns_find_servers(struct vhd_acme_dns *ad)
 	if (buf) {
 		buf[st.st_size] = '\0';
 		ad->nns = acme_dns_zone_ns(buf, (size_t)st.st_size,
-					   ad->active_domain, ad->ns,
+					   ad->zone, ad->ns,
 					   (int)LWS_ARRAY_SIZE(ad->ns));
 		free(buf);
 	}
@@ -282,7 +283,7 @@ sul_dns_signed_cb(lws_sorted_usec_list_t *sul)
 	struct stat st;
 
 	lws_snprintf(path, sizeof(path), "%s/domains/%s/%s.zone.signed.jws",
-		     ad->base_dir, ad->active_domain, ad->active_domain);
+		     ad->base_dir, ad->zone, ad->zone);
 
 	if (!stat(path, &st) && st.st_mtime >= ad->saved) {
 #if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_AUTHORITATIVE_DNS)
@@ -306,7 +307,7 @@ sul_dns_signed_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	lwsl_vhost_err(ad->vhost, "dns-01: %s was not signed with the "
-		       "challenge in %ds", ad->active_domain,
+		       "challenge in %ds", ad->zone,
 		       (int)(ACME_DNS_SIGN_US / LWS_US_PER_SEC));
 
 	if (ad->core_ops && ad->core_ops->challenge_failed && ad->core_vhd)
@@ -316,7 +317,7 @@ sul_dns_signed_cb(lws_sorted_usec_list_t *sul)
 
 static int
 challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
-		     const char *key_auth, const char *domain)
+		     const char *key_auth, const char *zone, const char *name)
 {
 	struct vhd_acme_dns *ad = (struct vhd_acme_dns *)priv;
 	uint8_t digest[32];
@@ -330,7 +331,8 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 		return 1;
 	}
 
-	lws_strncpy(ad->active_domain, domain, sizeof(ad->active_domain));
+	lws_strncpy(ad->zone, zone, sizeof(ad->zone));
+	lws_strncpy(ad->name, name, sizeof(ad->name));
 
 	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256) ||
 	    lws_genhash_update(&hash_ctx, (const uint8_t *)key_auth, strlen(key_auth)) ||
@@ -346,13 +348,18 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 	}
 	lws_strncpy(ad->txt, b64, sizeof(ad->txt));
 
-	char line[512];
+	/*
+	 * Appended to the zone file when it's signed, so the owners are given
+	 * absolute, rather than relying on whichever $ORIGIN the zone ends in
+	 */
+	char line[1024];
 	n = (size_t)lws_snprintf(line, sizeof(line),
-		"_acme-challenge\t1\tIN\tTXT\t\"%s\"\n"
-		"%s.\t1\tIN\tCAA\t0 issue \"letsencrypt.org\"\n", b64, domain);
+		"_acme-challenge.%s.\t1\tIN\tTXT\t\"%s\"\n"
+		"%s.\t1\tIN\tCAA\t0 issue \"letsencrypt.org\"\n",
+		ad->name, b64, ad->name);
 
 	if (ad->core_ops && ad->core_ops->acme_ipc_save_payload) {
-		int r = ad->core_ops->acme_ipc_save_payload(ad->core_vhd, "save_dns_challenge", domain, "none", line, n);
+		int r = ad->core_ops->acme_ipc_save_payload(ad->core_vhd, "save_dns_challenge", ad->zone, "none", line, n);
 		if (r) {
 			lwsl_vhost_err(vh, "failed writing to acme zone file via footprint IPC");
 			return 1;
@@ -370,7 +377,8 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 	ad->deadline = lws_now_usecs() + ACME_DNS_SIGN_US;
 
 	lwsl_vhost_notice(vh, "dns-01: challenge for %s handed over, waiting "
-			  "for the zone with it to be signed", domain);
+			  "for the zone %s with it to be signed", ad->name,
+			  ad->zone);
 	lws_sul_schedule(ad->context, 0, &ad->sul_delay, sul_dns_signed_cb,
 			 ACME_DNS_POLL_US);
 
@@ -390,12 +398,12 @@ challenge_cleanup_dns(struct lws_vhost *vh, void *priv)
 	ad->resolving = 0;
 #endif
 
-	if (ad->base_dir && ad->active_domain[0]) {
+	if (ad->base_dir && ad->zone[0]) {
 		if (ad->core_ops && ad->core_ops->acme_ipc_save_payload) {
-			ad->core_ops->acme_ipc_save_payload(ad->core_vhd, "cleanup_dns_challenge", ad->active_domain, "none", "", 0);
+			ad->core_ops->acme_ipc_save_payload(ad->core_vhd, "cleanup_dns_challenge", ad->zone, "none", "", 0);
 		}
 		lwsl_vhost_info(vh, "Cleaned up dns-01 local acme temp zone addon via IPC");
-		ad->active_domain[0] = '\0';
+		ad->zone[0] = '\0';
 	}
 }
 

@@ -319,6 +319,15 @@ acme_renew_failed(struct lws_acme_cert_config *cfg, lws_usec_t now);
 void
 acme_renew_succeeded(struct lws_acme_cert_config *cfg);
 
+/*
+ * dns-01: the name the challenge for a cert called cn is about, into name,
+ * see acme-dns-name.c.  That's cn without any leading "*." or trailing ".",
+ * and it must be zone, the zone whose directory holds the cert, or in it.
+ * Returns 0 if so and it fitted in len.
+ */
+int
+acme_dns01_name(const char *zone, const char *cn, char *name, size_t len);
+
 #if defined(LWS_WITH_SYS_ASYNC_DNS) && defined(LWS_WITH_AUTHORITATIVE_DNS)
 
 /*
