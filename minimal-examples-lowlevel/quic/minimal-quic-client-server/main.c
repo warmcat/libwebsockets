@@ -52,7 +52,8 @@
 static struct lws_context *context;
 static int result = 1; /* 1 means failed/timeout, 0 means success */
 static int server_only = 0;
-static size_t write_size = 1024;
+#define WRITE_SIZE_MAX 1024
+static size_t write_size = WRITE_SIZE_MAX;
 /* --spread: the client spreads its writes over this long, from established */
 static lws_usec_t spread_us, spread_start;
 
@@ -1093,7 +1094,10 @@ pmtu_failed(void)
 			if (n && !d->outage_lost) {
 				lwsl_err("pmtu: the outage lost none of the "
 					 "server's datagrams, nothing was "
-					 "tested\n");
+					 "tested (it %s, after %u of %u big)\n",
+					 relay.pmtu_outage_until ? "started" :
+							"never started",
+					 d->big, RELAY_PMTU_OUTAGE_AFTER);
 				e = 1;
 			}
 		}
@@ -1277,7 +1281,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 	{
-		uint8_t buf[LWS_PRE + 1024];
+		uint8_t buf[LWS_PRE + WRITE_SIZE_MAX];
 
 		if (client_sent >= TOTAL_DATA ||
 		    quiet == QCS_QUIET_CONN ||
@@ -1288,6 +1292,8 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		size_t to_send = TOTAL_DATA - client_sent;
 		if (to_send > write_size)
 			to_send = write_size;
+		if (to_send > sizeof(buf) - LWS_PRE)
+			to_send = sizeof(buf) - LWS_PRE;
 		pattern_fill(client_sent, &buf[LWS_PRE], to_send);
                 lwsl_wsi_info(wsi, "CLIENT WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
@@ -1312,7 +1318,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 	{
-		uint8_t buf[LWS_PRE + 1024];
+		uint8_t buf[LWS_PRE + WRITE_SIZE_MAX];
 
 		if (server_only || quiet)
 			break;
@@ -1322,6 +1328,8 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		size_t to_send = TOTAL_DATA - server_sent;
 		if (to_send > write_size)
 			to_send = write_size;
+		if (to_send > sizeof(buf) - LWS_PRE)
+			to_send = sizeof(buf) - LWS_PRE;
 		pattern_fill(server_sent, &buf[LWS_PRE], to_send);
                 lwsl_wsi_info(wsi, "SERVER WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
@@ -1512,7 +1520,7 @@ int main(int argc, const char **argv)
 	if (p) {
 		int ws = atoi(p);
 
-		if (ws < 1 || ws > 1024) {
+		if (ws < 1 || ws > WRITE_SIZE_MAX) {
 			lwsl_err("--write-size must be 1 to 1024\n");
 			return 1;
 		}
