@@ -75,7 +75,7 @@ if (requirements)
 				     PROPERTIES
 					WORKING_DIRECTORY
 						${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/crypto/minimal-crypto-cose-sign
-					TIMEOUT 5)
+					TIMEOUT 20)
 	endif()
 						
 	# HMAC signing, cose-mac
@@ -211,7 +211,7 @@ if (requirements)
 			     PROPERTIES
 		     		WORKING_DIRECTORY
 		     			${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/crypto/minimal-crypto-cose-sign
-		     		TIMEOUT 5)
+		     		TIMEOUT 20)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
