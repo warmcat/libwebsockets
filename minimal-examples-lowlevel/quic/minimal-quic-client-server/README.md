@@ -204,8 +204,8 @@ The same checks as `--pmtu` apply.
 ```
 
 With `--pmtu-outage` as well, the path is down for a moment: once the server
-has sent 40 datagrams bigger than an IP MTU of 1280 carries, the relay loses
-everything in both directions for 100ms.  Each side loses big packets with
+has sent 40 datagrams since its search found the size the path carries, the
+relay loses everything in both directions for 100ms.  Each side loses big packets with
 none sent after them getting through, so it goes back to 1280, as it does for
 a black hole (see `--blackhole` below).  When its probe of 1232 bytes gets
 through after the outage, that only says the path is up again: nothing big

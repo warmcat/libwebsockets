@@ -318,11 +318,14 @@ static const char * const test_key =
 #define RELAY_STALL_BEHIND	3
 
 /*
- * With --pmtu-outage as well, once the server has sent
- * RELAY_PMTU_OUTAGE_AFTER datagrams bigger than RELAY_BH_BASE, the relay loses
+ * With --pmtu-outage as well, once the server has sent RELAY_PMTU_OUTAGE_AFTER
+ * datagrams since its search found the size the path carries, the relay loses
  * everything in both directions for RELAY_PMTU_OUTAGE_US, as a path that is
- * down for a moment would.  Each side loses big packets with none after them
- * getting through, and goes back to the base, but it's not a black hole:
+ * down for a moment would.  Datagrams of any size count: how many come out
+ * bigger than the base depends on what was coalesced, and on a loaded builder
+ * too few did for the outage ever to start.  Each side loses big packets with
+ * none after them getting through, and goes back to the base, but it's not a
+ * black hole:
  * once the base gets through, a probe of the size it had must be acked, and
  * it goes back to that size.  The same checks as --pmtu apply, the datagrams
  * the outage lost aside: a probe on its way when it suspected the black hole
@@ -448,8 +451,9 @@ struct relay_dir {
 	unsigned int		dropped;
 
 	size_t			largest;	/* --pmtu: passed on */
-	unsigned int		big;		/* --blackhole, --pmtu-outage:
-						 * passed on */
+	unsigned int		big;		/* --blackhole: big ones passed
+						 * on; --pmtu-outage: any, once
+						 * the size was found */
 	unsigned int		outage_lost;	/* --pmtu-outage */
 	unsigned int		big_run;	/* --stall: passed on since the
 						 * last one lost too big */
@@ -640,6 +644,27 @@ relay_hold_start(struct lws *wsi, struct relay_dir *d, lws_usec_t us)
  * With --stall, from the first too big one, everything is.
  */
 
+/* --pmtu: the biggest datagram the search can find on this path */
+
+static size_t
+pmtu_found_size(void)
+{
+	size_t want = 0;
+	int mtu;
+
+	for (mtu = RELAY_PMTU_FIRST; ; mtu += RELAY_PMTU_STEP) {
+		if (mtu > RELAY_PMTU_CEILING)
+			mtu = RELAY_PMTU_CEILING;
+		if ((size_t)(mtu - RELAY_PMTU_OVERHEAD) > relay.pmtu)
+			break;
+		want = (size_t)(mtu - RELAY_PMTU_OVERHEAD);
+		if (mtu == RELAY_PMTU_CEILING)
+			break;
+	}
+
+	return want;
+}
+
 static void
 relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 {
@@ -674,7 +699,7 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 		d->big_run++;
 
 	if (relay.pmtu_outage && !relay.pmtu_outage_until &&
-	    d == &relay.dir[1] && len > RELAY_BH_BASE &&
+	    d == &relay.dir[1] && d->largest == pmtu_found_size() &&
 	    ++d->big == RELAY_PMTU_OUTAGE_AFTER)
 		relay.pmtu_outage_until = lws_now_usecs() + RELAY_PMTU_OUTAGE_US;
 
@@ -1051,22 +1076,11 @@ forwarder_failed(void)
 static int
 pmtu_failed(void)
 {
-	size_t want = 0;
-	int mtu, n, e = 0;
+	size_t want = pmtu_found_size();
+	int n, e = 0;
 
 	if (!relay.pmtu)
 		return 0;
-
-	/* the biggest datagram the search can find on this path */
-	for (mtu = RELAY_PMTU_FIRST; ; mtu += RELAY_PMTU_STEP) {
-		if (mtu > RELAY_PMTU_CEILING)
-			mtu = RELAY_PMTU_CEILING;
-		if ((size_t)(mtu - RELAY_PMTU_OVERHEAD) > relay.pmtu)
-			break;
-		want = (size_t)(mtu - RELAY_PMTU_OVERHEAD);
-		if (mtu == RELAY_PMTU_CEILING)
-			break;
-	}
 
 	for (n = 0; n < 2; n++) {
 		const struct relay_dir *d = &relay.dir[n];
@@ -1094,7 +1108,7 @@ pmtu_failed(void)
 			if (n && !d->outage_lost) {
 				lwsl_err("pmtu: the outage lost none of the "
 					 "server's datagrams, nothing was "
-					 "tested (it %s, after %u of %u big)\n",
+					 "tested (it %s, after %u of %u)\n",
 					 relay.pmtu_outage_until ? "started" :
 							"never started",
 					 d->big, RELAY_PMTU_OUTAGE_AFTER);
