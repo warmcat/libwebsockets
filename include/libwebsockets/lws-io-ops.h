@@ -209,6 +209,8 @@ typedef struct lws_io_ops {
 	 * and flags are its LWS_PEER_DESC_... flags.  A stream's layers are
 	 * those of its connection.  May be NULL: sansIO then says
 	 * "unknown". */
+#if defined(LWS_WITH_NETWORK)
+	/* the peer stack's types only exist with networking */
 	int (*peer_walk)(struct lws *wsi, lws_peer_entry_t *dest, int max);
 	/**< (since ABI version 5) copy wsi's peer address stack into dest,
 	 * top first, at most max entries, returning how many: IO's is
@@ -223,6 +225,7 @@ typedef struct lws_io_ops {
 	 * raise their cred to at least cred, as quic's address validation
 	 * and handshake do.  IO's is lws_peer_raise().  0 if an entry
 	 * matched.  May be NULL: there is nothing to raise. */
+#endif
 
 	/*
 	 * the tls session, which is IO's: what sansIO asks of it.  NULL in a
