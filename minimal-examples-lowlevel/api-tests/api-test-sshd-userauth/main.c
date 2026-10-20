@@ -1336,7 +1336,8 @@ sign_userauth(void)
 	struct lws_genhash_ctx gh;
 	int n;
 
-	if (4 + LWS_SIZE_SHA256 + 1 + 4 + 5 + 4 + 14 + 4 + 9 + 1 + 4 + 12 +
+	if (keyblob_len > sizeof(keyblob) ||
+	    4 + LWS_SIZE_SHA256 + 1 + 4 + 5 + 4 + 14 + 4 + 9 + 1 + 4 + 12 +
 	    4 + keyblob_len > sizeof(pt))
 		return 1;
 
