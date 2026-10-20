@@ -361,14 +361,18 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
  * The user code may choose to delay calling it to consume the data, for example
  * waiting until an onward connection is writeable.
  *
- * For non-chunked connections, up to len bytes of buf are filled with the
- * received content.  len is set to the actual amount filled before return.
+ * The supplied buffer length controls fresh transport reads, which are also
+ * capped at lws_context_creation_info.pt_serv_buf_size minus LWS_PRE.
+ * lws_protocols.rx_buffer_size does not configure HTTP client receive buffers.
+ * Already buffered data may be delivered from internal storage instead, and
+ * *buf may be updated to point to it; the supplied length is not a general
+ * limit on the size of receive callbacks.
  *
- * For chunked connections, the linear buffer content contains the chunking
- * headers and it cannot be passed in one lump.  Instead, this function will
- * call back LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ with in pointing to the
- * chunk start and len set to the chunk length.  There will be as many calls
- * as there are chunks or partial chunks in the buffer.
+ * Received payload is delivered through
+ * LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ.  For chunked connections, framing is
+ * removed and there may be several callbacks for chunks or partial chunks in
+ * the buffer.  On return, *buf and *len describe any unconsumed data, not the
+ * total payload delivered through the callbacks.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_client_read(struct lws *wsi, char **buf, int *len);
