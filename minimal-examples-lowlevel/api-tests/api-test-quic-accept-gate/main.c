@@ -69,8 +69,10 @@
  *    tls vhost listens on the --relay-port.  The process' fd limit is lowered
  *    to CGA_NOFILE.  A tcp connect is made to the server, then every fd left
  *    is taken: the server's accept() fails with EMFILE, and the listener
- *    backs off for 100ms.  Inside that, the fds are given back and a tcp
- *    connect made to the second vhost, which is accepted and takes the one
+ *    backs off for 100ms.  Inside that, the fds are given back, another tcp
+ *    connect made to the server (OSX drops a connection whose accept()
+ *    found no fd for it, rather than leaving it queued as Linux and the BSDs
+ *    do), and one to the second vhost, which is accepted and takes the one
  *    tls slot: the restriction is reached, the server's listener is already
  *    off.  (If the loop ran us too late, or too soon, for that, the server's
  *    listener was not backing off when the fds came back, and it accepted
@@ -906,6 +908,15 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		fill_release();
 		if (accepted != emfile_acc) {
 			fail("the server accepted with no fds left");
+			return;
+		}
+		/*
+		 * OSX aborted the connect whose accept() failed, it isn't
+		 * waiting in the server's queue for the restriction to lift
+		 * like it is elsewhere: queue one there that is
+		 */
+		if (tcp_connect(port)) {
+			fail("tcp connect");
 			return;
 		}
 		/* accepted by the second vhost, it takes the one tls slot */
