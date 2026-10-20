@@ -848,14 +848,15 @@ ps_cli_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			ps_phase_end(srv_checked ? NULL :
 					"answered without the server's checks");
 		if (phase == PS_PHASE_TCP) {
+			lws_sockfd_type fd = lws_get_socket_fd(wsi);
 			struct linger lin;
 
 			/* a raw socket is closed at once: this resets it */
 			lin.l_onoff	= 1;
 			lin.l_linger	= 0;
-			if (setsockopt(lws_get_socket_fd(wsi), SOL_SOCKET,
-				       SO_LINGER, (const char *)&lin,
-				       sizeof(lin)))
+			if (fd == LWS_SOCK_INVALID ||
+			    setsockopt(fd, SOL_SOCKET, SO_LINGER,
+				       (const char *)&lin, sizeof(lin)))
 				check(0, "client: set to reset on close");
 		}
 		return -1;
