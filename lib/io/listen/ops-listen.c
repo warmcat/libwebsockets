@@ -31,6 +31,12 @@
 #include <private-lib-core.h>
 
 /*
+ * A vhost asked for any free port starts again with another this many times,
+ * when the port its first af's bind chose isn't free in a later af
+ */
+#define LWS_VHOST_ANY_PORT_TRIES	8
+
+/*
  * The back-off after an accept() failed for want of fds is over.  The
  * listener must not simply listen again: the tls restriction or the fds table
  * pause may have closed meanwhile, finding its POLLIN already off.  Readable
@@ -643,9 +649,14 @@ done_list:
 #endif
 
 		if (!a->info || !a->info->vh_listen_sockfd) {
-			is = lws_socket_bind(a->vhost, NULL, sockfd,
-					     a->vhost->listen_port,
-					     a->vhost->iface, a->af);
+			if (a->vhost->listen_port &&
+			    lws_fi(&a->vhost->fic, "listen_port_taken"))
+				/* as if something has the port in this af */
+				is = LWS_ITOSA_BUSY;
+			else
+				is = lws_socket_bind(a->vhost, NULL, sockfd,
+						     a->vhost->listen_port,
+						     a->vhost->iface, a->af);
 
 			if (is == LWS_ITOSA_BUSY) {
 				/* treat as fatal */
@@ -786,12 +797,28 @@ bail:
 }
 
 
+/*
+ * Close the listen sockets a vhost has so far, during its server init
+ */
+
+static void
+lws_vhost_init_server_unlisten(struct lws_vhost *vhost)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhost->listen_wsi)) {
+		struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+
+		lws_dll2_remove(&wsi->listen_list);
+		lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 int
 _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		       struct lws_vhost *vhost)
 {
 	struct vh_sock_args a;
-	int n;
+	int n, tries = 0;
 
 	a.info = info;
 	a.vhost = vhost;
@@ -870,6 +897,8 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	 * AF_INET6 unless one or the other is forbidden
 	 */
 
+again:
+	n = 0;
 #if defined(LWS_WITH_IPV6)
 	if (!(LWS_IPV6_ENABLED(vhost) &&
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) &&
@@ -879,21 +908,34 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		if (LWS_IPV4_ENABLED(vhost)) {
 			a.af = AF_INET;
 			n = _lws_vhost_init_server_af(&a);
-			if (n)
-				return n;
 		}
 #endif
 
 #if defined(LWS_WITH_IPV6)
 	}
 
-	if (LWS_IPV6_ENABLED(vhost)) {
+	if (!n && LWS_IPV6_ENABLED(vhost)) {
 		a.af = AF_INET6;
 		n = _lws_vhost_init_server_af(&a);
-		if (n)
-			return n;
 	}
 #endif
+
+	if (n && info && !info->port && lws_dll2_count(&vhost->listen_wsi) &&
+	    ++tries < LWS_VHOST_ANY_PORT_TRIES) {
+		/*
+		 * Asked for any free port, the first af's bind chose one, and
+		 * a later af has to bind the same port number, which something
+		 * may have in that af already.  Give up that port and start
+		 * again with another.
+		 */
+		lwsl_vhost_notice(vhost, "port %d not free in every af, "
+				  "trying another", vhost->listen_port);
+		lws_vhost_init_server_unlisten(vhost);
+		vhost->listen_port = 0;
+		goto again;
+	}
+	if (n)
+		return n;
 
 	goto check_quic;
 

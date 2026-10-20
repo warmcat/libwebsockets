@@ -312,6 +312,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |vhost|`vh`|`vh_create_srv_init`|Fail server init|
 |vhost|`vh`|`vh_create_protocol_init`|Fail late protocol init (for late vhost creation)|
 |srv vhost|`vh`|`h3_settings_no_wt`|h3 server SETTINGS do not enable WebTransport or HTTP Datagrams (LWS_ROLE_WT)|
+|srv vhost|`vh`|`listen_port_taken`|A listen socket's bind to the port the vhost already has, eg the one its first address family's bind chose for a vhost asking for any port, finds it taken (EADDRINUSE)|
 |srv vhost|`vh=xxx/wsi`|`listenskt`|Causes `socket()` allocation for vhost listen socket to fail|
 |cli wsi|`wsi`|`dnsfail`|Sync: `getaddrinfo()` is not called and a EAI_FAIL return synthesized, Async: request not started and immediate fail synthesized|
 |cli wsi|`wsi`|`sendfail`|Attempts to send data on the wsi socket fail|
@@ -326,6 +327,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`quic_stream_replay`|A QUIC stream's first STREAM frame is sent once more 100ms after the stream closed, as a retransmission whose ack was lost would be, after the peer finished with the stream (LWS_ROLE_QUIC)|
 |udp wsi|`wsi`|`udp_rx_loss`|Drop UDP RX that was actually received, useful with probabalistic mode|
 |udp wsi|`wsi`|`udp_tx_loss`|Drop UDP TX so that it's not actually sent, useful with probabalistic mode|
+|udp wsi|`wsi`|`udp_tx_full`|Refuse UDP TX as a full socket would, eg ENOBUFS, so the role must send it again later, useful with probabalistic mode (roles whose datagrams IO pulls, eg QUIC)|
 |srv ss|`ss`|`ss_srv_vh_fail`|Secure Streams Server vhost creation forced to fail|
 |cli ss|`ss`|`ss_no_streamtype_policy`|The policy for the streamtype is made to seem as if it is missing|
 |sspc|`ss`|`sspc_fail_on_linkup`|Reject the connection to the proxy when we hear it has succeeded, it will provoke endless retries|
