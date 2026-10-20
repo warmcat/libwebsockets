@@ -466,16 +466,15 @@ race_swapper(int ctl, int ack)
 static void
 race_clear(const char *path)
 {
-	struct stat st;
-
-	if (lstat(path, &st))
+	/*
+	 * Whatever is at path goes, without asking first what it is: a file
+	 * or a symlink unlinks, only a directory refuses and is emptied
+	 */
+	if (!unlink(path))
 		return;
 
-	if (S_ISDIR(st.st_mode)) {
-		lws_dir(path, NULL, lws_dir_rm_rf_cb);
-		rmdir(path);
-	} else
-		unlink(path);
+	lws_dir(path, NULL, lws_dir_rm_rf_cb);
+	rmdir(path);
 }
 
 /*
