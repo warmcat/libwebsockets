@@ -179,7 +179,11 @@ cb_sr_verbs(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		char rsp[64 + SR_BIG_PAYLOAD];
 		int n;
 
-		if (args->from && args->from->sa_family == AF_INET &&
+		/* nowhere to send the reply */
+		if (!args->from)
+			return 0;
+
+		if (args->from->sa_family == AF_INET &&
 		    ((const struct sockaddr_in *)args->from)->sin_port ==
 								sa_v.sin_port)
 			sr.v_big++;
