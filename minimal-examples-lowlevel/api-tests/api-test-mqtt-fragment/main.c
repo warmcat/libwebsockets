@@ -287,11 +287,9 @@ broker_rx_pkt(struct broker_pss *pss, const uint8_t *pkt, size_t pkt_len,
 
 	case FBS_PUBACK_QOS1:
 	case FBS_PUBACK_LONG:
+		id = pss->step == FBS_PUBACK_QOS1 ? FRAG_ID_QOS1 : FRAG_ID_LONG;
 		if (pkt_len != 4 || pkt[0] != 0x40 || pkt[1] != 2 ||
-		    pkt[2] != (pss->step == FBS_PUBACK_QOS1 ?
-				FRAG_ID_QOS1 : FRAG_ID_LONG) >> 8 ||
-		    pkt[3] != ((pss->step == FBS_PUBACK_QOS1 ?
-				FRAG_ID_QOS1 : FRAG_ID_LONG) & 0xff))
+		    lws_ser_ru16be(pkt + 2) != id)
 			return 1;
 		if (pss->step == FBS_PUBACK_LONG) {
 			/* now the client publishes at QoS2 */
