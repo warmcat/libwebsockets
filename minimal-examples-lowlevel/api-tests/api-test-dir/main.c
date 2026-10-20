@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <signal.h>
+#include <poll.h>
 #include <sys/wait.h>
 #if defined(__linux__)
 #include <sys/syscall.h>
@@ -413,17 +414,50 @@ race_swap(void)
 }
 #endif
 
+/*
+ * The parent parks the swapper by writing a byte on ctl, and the swapper
+ * answers on ack once it is between two swaps, then waits for another byte
+ * on ctl before it goes on.  Stopping it with SIGSTOP instead doesn't tell
+ * us where it stopped: on OSX, kill() and waitpid() can return while a
+ * rename() it was in the middle of has still to finish, and that rename
+ * then lands in the middle of race_reset().
+ */
+
 static void
-race_swapper(pid_t parent)
+race_swapper(int ctl, int ack)
 {
-	/* runs until killed, or until the parent is gone */
-	while (getppid() == parent)
+	struct pollfd pfd;
+	char c;
+
+	pfd.fd = ctl;
+	pfd.events = POLLIN;
+
+	/* ctl is nonblocking: swap until asked to park */
+	while (1) {
 		race_swap();
 
-	_exit(0);
+		switch (read(ctl, &c, 1)) {
+		case 1:
+			break;
+		case 0:
+			_exit(0); /* the parent is gone */
+		default:
+			if (errno == EAGAIN || errno == EINTR)
+				continue;
+			_exit(1);
+		}
+
+		if (write(ack, &c, 1) != 1)
+			_exit(1);
+
+		/* parked, until the parent's next byte (or it is gone) */
+		pfd.revents = 0;
+		if (poll(&pfd, 1, -1) < 0 || read(ctl, &c, 1) != 1)
+			_exit(0);
+	}
 }
 
-/* whatever the swapper left at path, get rid of it (swapper is stopped) */
+/* whatever the swapper left at path, get rid of it (swapper is parked) */
 
 static void
 race_clear(const char *path)
@@ -443,7 +477,7 @@ race_clear(const char *path)
 /*
  * Put the swapped names back to a directory full of files at RACE_D and a
  * symlink to the outside at RACE_LNK, and count (and replace) any sentinel
- * that went missing.  The swapper is stopped while this runs.
+ * that went missing.  The swapper is parked while this runs.
  */
 
 static int
@@ -482,9 +516,9 @@ fail:
 static int
 test_rm_rf_swap_race(void)
 {
-	int r = 1, n, pass, lost = 0;
-	pid_t parent = getpid(), child;
-	char p[64];
+	int r = 1, n, pass, lost = 0, ctl[2] = { -1, -1 }, ack[2] = { -1, -1 };
+	pid_t child = -1;
+	char p[64], c = 0;
 
 	lwsl_user("%s\n", __func__);
 
@@ -514,11 +548,26 @@ test_rm_rf_swap_race(void)
 		goto bail0;
 	}
 
+	/* a swapper that died is EPIPE for us below, not a SIGPIPE */
+	signal(SIGPIPE, SIG_IGN);
+	if (pipe(ctl) || pipe(ack))
+		goto setup;
+
 	child = fork();
 	if (child < 0)
 		goto setup;
-	if (!child)
-		race_swapper(parent);
+	if (!child) {
+		close(ctl[1]);
+		close(ack[0]);
+		if (fcntl(ctl[0], F_SETFL, O_NONBLOCK))
+			_exit(1);
+		race_swapper(ctl[0], ack[1]);
+	}
+
+	close(ctl[0]);
+	ctl[0] = -1;
+	close(ack[1]);
+	ack[1] = -1;
 
 	/* the walk warns about every swap it meets, keep it quiet */
 	lws_set_log_level(LLL_ERR | LLL_USER, NULL);
@@ -526,10 +575,9 @@ test_rm_rf_swap_race(void)
 	for (pass = 0; pass < RACE_PASSES; pass++) {
 		lws_dir(RACE_ROOT, NULL, lws_dir_rm_rf_cb);
 
-		/* stop the swapper while we set up the next pass */
-		if (kill(child, SIGSTOP) ||
-		    waitpid(child, &n, WUNTRACED) != child) {
-			lwsl_err("%s: stopping the swapper failed %d\n",
+		/* park the swapper while we set up the next pass */
+		if (write(ctl[1], &c, 1) != 1 || read(ack[0], &c, 1) != 1) {
+			lwsl_err("%s: parking the swapper failed %d\n",
 				 __func__, errno);
 			goto bail;
 		}
@@ -541,7 +589,7 @@ test_rm_rf_swap_race(void)
 		}
 		lost += n;
 
-		if (kill(child, SIGCONT)) {
+		if (write(ctl[1], &c, 1) != 1) {
 			lwsl_err("%s: resuming the swapper failed %d\n",
 				 __func__, errno);
 			goto bail;
@@ -566,6 +614,12 @@ bail:
 setup:
 	lwsl_err("%s: making the test tree failed %d\n", __func__, errno);
 bail0:
+	for (n = 0; n < 2; n++) {
+		if (ctl[n] >= 0)
+			close(ctl[n]);
+		if (ack[n] >= 0)
+			close(ack[n]);
+	}
 	race_clear(RACE_D);
 	race_clear(RACE_LNK);
 	race_clear(RACE_TMP);
