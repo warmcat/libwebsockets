@@ -72,7 +72,11 @@
  *    backs off for 100ms.  Inside that, the fds are given back and a tcp
  *    connect made to the second vhost, which is accepted and takes the one
  *    tls slot: the restriction is reached, the server's listener is already
- *    off.  When the back-off ends, the listener must stay paused: readable,
+ *    off.  (If the loop ran us too late, or too soon, for that, the server's
+ *    listener was not backing off when the fds came back, and it accepted
+ *    its connect and took the slot itself.  Nothing is wrong, but the case
+ *    wasn't set up: everything is closed, and it is tried again, up to
+ *    CGA_EMFILE_TRIES times.)  When the back-off ends, the listener must stay paused: readable,
  *    with its connect declined at accept, it spins the service loop.  So over
  *    CGA_LATE_HOLD_MS, the cpu time the process uses must stay under
  *    CGA_EMFILE_MAX_CPU_US (with an event library the loop's turns can't be
@@ -119,6 +123,7 @@
 #define CGA_LATE_MAX_SPIN_US	(50 * LWS_US_PER_MS)
 #define CGA_NOFILE		256
 #define CGA_EMFILE_MAX_CPU_US	(100 * LWS_US_PER_MS)
+#define CGA_EMFILE_TRIES	3
 
 enum {
 	CGA_HANDSHAKES,
@@ -162,6 +167,7 @@ enum {
 	CGA_ST_EMFILE_FILL,	/* emfile: connect, then use up the fds */
 	CGA_ST_EMFILE_RELEASE,	/* emfile: fds back, connect the second vhost */
 	CGA_ST_EMFILE_GATE,	/* emfile: which takes the one tls slot */
+	CGA_ST_EMFILE_RESET,	/* emfile: the server took it, try again */
 	CGA_ST_EMFILE_HOLD,	/* emfile: the listener must not spin us */
 	CGA_ST_EMFILE_ACCEPT,	/* emfile: its connect must now be accepted */
 	CGA_ST_DONE
@@ -177,6 +183,8 @@ static struct lws *srv_slow, *relay_in, *relay_out, *flood_wsi,
 static lws_usec_t deadline, spin_us, spin_us_base, cpu_us_base;
 /* emfile: the fds taken to make the server's accept() fail */
 static int fill[CGA_NOFILE], fill_count;
+/* emfile: the tries, and the accept counts when this one started */
+static int emfile_tries, emfile_acc, emfile_acc_late;
 static uint8_t initials[CGA_FLOOD][CGA_INITIAL_MAX];
 static size_t initial_len[CGA_FLOOD], body_len[CGA_CONN_COUNT];
 static int port = 7700, port_relay, tcase = -1, state, accepted,
@@ -876,6 +884,9 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		 * The connect completes in the kernel, then there is no fd
 		 * for the server to accept it on
 		 */
+		emfile_acc = accepted;
+		emfile_acc_late = accepted_late;
+		emfile_tries++;
 		if (tcp_connect(port)) {
 			fail("tcp connect");
 			return;
@@ -893,7 +904,7 @@ tick_cb(lws_sorted_usec_list_t *sul)
 	case CGA_ST_EMFILE_RELEASE:
 		/* well inside the server listener's 100ms back-off */
 		fill_release();
-		if (accepted) {
+		if (accepted != emfile_acc) {
 			fail("the server accepted with no fds left");
 			return;
 		}
@@ -905,7 +916,28 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		break;
 
 	case CGA_ST_EMFILE_GATE:
-		if (!accepted_late) {
+		if (accepted_late == emfile_acc_late) {
+			if (accepted - accepted_late !=
+					emfile_acc - emfile_acc_late) {
+				/* the server's listener got there first */
+				if (emfile_tries == CGA_EMFILE_TRIES) {
+					fail("the server's listener was never "
+					     "still backing off when the fds "
+					     "came back");
+					return;
+				}
+				lwsl_user("the server's listener wasn't backing "
+					  "off when the fds came back, it took "
+					  "the slot: again\n");
+				close(tcp_late);
+				tcp_late = -1;
+				tcp_close_all();
+				stable = 0;
+				accepted_last = accepted;
+				set_deadline(CGA_FLOW_MS);
+				state = CGA_ST_EMFILE_RESET;
+				break;
+			}
 			if (lws_now_usecs() > deadline) {
 				fail("the second vhost did not accept");
 				return;
@@ -919,6 +951,27 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		state = CGA_ST_EMFILE_HOLD;
 		break;
 
+	case CGA_ST_EMFILE_RESET:
+		/*
+		 * Each end closed its connect: the server closes what it
+		 * accepted of them, giving the slot back, then the second
+		 * vhost may accept its own, and close that too
+		 */
+		if (accepted != tcp_gone || accepted != accepted_last) {
+			if (lws_now_usecs() > deadline) {
+				fail("the connects of the last try were not "
+				     "all closed");
+				return;
+			}
+			accepted_last = accepted;
+			stable = 0;
+			break;
+		}
+		if (++stable < CGA_STABLE_TICKS)
+			break;
+		state = CGA_ST_EMFILE_FILL;
+		break;
+
 	case CGA_ST_EMFILE_HOLD:
 		if (cpu_us() - cpu_us_base > CGA_EMFILE_MAX_CPU_US) {
 			lwsl_err("%dms cpu\n",
@@ -929,7 +982,7 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		}
 		if (lws_now_usecs() < deadline)
 			break;
-		if (accepted != accepted_late) {
+		if (accepted - accepted_late != emfile_acc - emfile_acc_late) {
 			fail("the server accepted with the restriction "
 			     "reached");
 			return;
@@ -944,7 +997,7 @@ tick_cb(lws_sorted_usec_list_t *sul)
 		break;
 
 	case CGA_ST_EMFILE_ACCEPT:
-		if (accepted == accepted_late) {
+		if (accepted - accepted_late == emfile_acc - emfile_acc_late) {
 			if (lws_now_usecs() > deadline) {
 				fail("the server never accepted once the "
 				     "restriction lifted");
