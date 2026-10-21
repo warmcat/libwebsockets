@@ -681,6 +681,19 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 	struct sockaddr_storage peer;
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	if (state != 0) {
+		char ads[64] = "unknown";
+
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)&dts->sa, ads,
+					       sizeof(ads));
+		lwsl_notice("%s: session with %s:%u failed (status %d)\n",
+			    __func__, ads,
+			    ntohs(dht_sa_port((struct sockaddr *)&dts->sa)),
+			    status);
+	}
+#endif
+
 	/*
 	 * The callback may send, and so recycle sequencers, but not this one,
 	 * which we still have to destroy if the session failed (G-181)
@@ -1520,59 +1533,97 @@ lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen)
 }
 
 
+/*
+ * The consumers can't do anything about a refused send but lose the message,
+ * so say who it was for and why
+ */
+
+static void
+dht_send_dropped(const struct sockaddr *dest, size_t len, const char *why)
+{
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+	char ads[64] = "unknown";
+
+	lws_sa46_write_numeric_address((lws_sockaddr46 *)dest, ads, sizeof(ads));
+	lwsl_dht_warn("dht: dropping %u-byte message to %s:%u: %s\n",
+		      (unsigned int)len, ads, ntohs(dht_sa_port(dest)), why);
+#else
+	(void)dest;
+	(void)len;
+	(void)why;
+#endif
+}
+
+static struct lws_transport_sequencer *
+dht_ts_for_send(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
+		size_t len)
+{
+	struct lws_transport_sequencer *ts;
+	size_t salen;
+
+	switch (dest->sa_family) {
+	case AF_INET:
+		salen = sizeof(struct sockaddr_in);
+		break;
+	case AF_INET6:
+		salen = sizeof(struct sockaddr_in6);
+		break;
+	default:
+		return NULL;
+	}
+
+	/*
+	 * Nothing would ever reach it, so don't queue it to be retransmitted
+	 * until the session fails
+	 */
+	if (node_blacklisted(ctx, dest, salen)) {
+		dht_send_dropped(dest, len, "peer is blacklisted");
+		return NULL;
+	}
+
+	ts = lws_dht_get_ts(ctx, dest, salen, 1);
+	if (!ts)
+		dht_send_dropped(dest, len, "no sequencer available");
+
+	return ts;
+}
+
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const void *data, size_t len)
 {
 	struct lws_transport_sequencer *ts;
-	size_t salen;
 
 	if (len >= 4 && !memcmp(data, "PUT ", 4))
 		ctx->stats_current.tx_put++;
 	else if (len >= 4 && !memcmp(data, "GET ", 4))
 		ctx->stats_current.tx_get++;
 
-	switch (dest->sa_family) {
-	case AF_INET:
-		salen = sizeof(struct sockaddr_in);
-		break;
-	case AF_INET6:
-		salen = sizeof(struct sockaddr_in6);
-		break;
-	default:
-		return 1;
-	}
-
-	ts = lws_dht_get_ts(ctx, dest, salen, 1);
-
+	ts = dht_ts_for_send(ctx, dest, len);
 	if (!ts)
 		return 1;
 
-	return lws_transport_sequencer_write(ts, data, len);
+	if (lws_transport_sequencer_write(ts, data, len)) {
+		dht_send_dropped(dest, len, "sequencer refused it");
+		return 1;
+	}
+
+	return 0;
 }
 
 int
 lws_dht_send_data_at(struct lws_dht_ctx *ctx, const struct sockaddr *dest, uint64_t offset, const void *data, size_t len)
 {
-	size_t salen;
-	struct lws_transport_sequencer *ts;
-
-	switch (dest->sa_family) {
-	case AF_INET:
-		salen = sizeof(struct sockaddr_in);
-		break;
-	case AF_INET6:
-		salen = sizeof(struct sockaddr_in6);
-		break;
-	default:
-		return 1;
-	}
-
-	ts = lws_dht_get_ts(ctx, dest, salen, 1);
+	struct lws_transport_sequencer *ts = dht_ts_for_send(ctx, dest, len);
 
 	if (!ts)
 		return 1;
 
-	return lws_transport_sequencer_write_at(ts, offset, data, len);
+	if (lws_transport_sequencer_write_at(ts, offset, data, len)) {
+		dht_send_dropped(dest, len, "sequencer refused it");
+		return 1;
+	}
+
+	return 0;
 }
 
 struct lws_dll2_owner *

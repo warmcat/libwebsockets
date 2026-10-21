@@ -368,7 +368,15 @@ dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len,
 		abort();
 
 	if (node_blacklisted(ctx, sa, salen)) {
-		lwsl_dht_warn("Attempting to send to blacklisted node.\n");
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+		char ads[64] = "unknown";
+
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa, ads,
+					       sizeof(ads));
+		lwsl_dht_warn("%s: not sending %u bytes to blacklisted %s:%u\n",
+			      __func__, (unsigned int)len, ads,
+			      ntohs(dht_sa_port(sa)));
+#endif
 		errno = EPERM;
 
 		return -1;
