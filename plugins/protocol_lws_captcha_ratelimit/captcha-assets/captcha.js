@@ -92,10 +92,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function autoSubmitAllowed() {
         try {
-            var last = parseInt(window.sessionStorage.getItem(autoKey) || '0', 10);
+            var last = Number.parseInt(window.sessionStorage.getItem(autoKey) || '0', 10);
 
             window.sessionStorage.removeItem(autoKey);
-            if (!isNaN(last) && last && Date.now() - last < 60000)
+            if (!Number.isNaN(last) && last && Date.now() - last < 60000)
                 return false;
             window.sessionStorage.setItem(autoKey, String(Date.now()));
 
