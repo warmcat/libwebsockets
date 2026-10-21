@@ -19,6 +19,15 @@ multihash one; it is off by default and needs a sha1 hash.  `"allow-private"`
 admits peers at private, loopback or link-local addresses, for a LAN
 deployment; by default only public addresses are kept, as BEP42 expects.
 
+## Looking at the nodes' logs together
+
+A DHT's problems are usually between nodes, and their logs are on each node.
+A node's lwsws can ship its log lines to a log ingestor when one asks, with
+`"lws-log-ship"` in its vhost's `"ws-protocols"`, so the logs of all the nodes,
+and the server, can be looked at together in UTC; see
+[README.log-ship.md](README.log-ship.md).  `LWS_WITH_DHT` builds include it,
+and it does nothing unless the config asks for it.
+
 ## Node ids and BEP42
 
 A node that is not given an id starts with a random one and, once a quorum of

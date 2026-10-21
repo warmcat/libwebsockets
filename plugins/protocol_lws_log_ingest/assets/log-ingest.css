@@ -1,0 +1,825 @@
+/*
+ * lws-log-ingest web page, see log-ingest.js and log-ingest-sync.js
+ *
+ * The page is the sessions and shippers over the logs of the session chosen,
+ * which take the rest of the window.  The logs themselves are always light
+ * on dark, the rest follows the browser's light or dark preference.
+ */
+
+:root {
+	--bg: #ffffff;
+	--fg: #1e293b;
+	--muted: #64748b;
+	--faint: #94a3b8;
+	--panel: #f1f5f9;
+	--panel2: #e2e8f0;
+	--line: #cbd5e1;
+	--accent: #1d4ed8;
+	--accent-soft: #dbeafe;
+	--sel: #fef3c7;
+	--err: #b91c1c;
+	--ok: #15803d;
+
+	/* the logs */
+	--log-bg: #0f172a;
+	--log-fg: #e2e8f0;
+	--log-head: #1e293b;
+	--log-head-fg: #cbd5e1;
+	--log-line: #334155;
+	--log-t: #64748b;
+	--log-now: rgba(250, 204, 21, 0.28);
+	--log-cursor: rgba(96, 165, 250, 0.7);
+
+	--l-err: #f87171;
+	--l-warn: #fbbf24;
+	--l-notice: #93c5fd;
+	--l-info: #cbd5e1;
+	--l-debug: #94a3b8;
+	--l-user: #c4b5fd;
+	--l-other: #64748b;
+
+	--mono: "Iosevka", "DejaVu Sans Mono", "Menlo", "Consolas", monospace;
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #0b1120;
+		--fg: #e2e8f0;
+		--muted: #94a3b8;
+		--faint: #64748b;
+		--panel: #111827;
+		--panel2: #1e293b;
+		--line: #334155;
+		--accent: #60a5fa;
+		--accent-soft: #1e3a8a;
+		--sel: #422006;
+		--err: #f87171;
+		--ok: #4ade80;
+
+		--log-bg: #020617;
+		--log-head: #1e293b;
+		color-scheme: dark;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html, body {
+	height: 100%;
+	margin: 0;
+}
+
+body {
+	display: flex;
+	flex-direction: column;
+	background: var(--bg);
+	color: var(--fg);
+	font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+	font-size: 10pt;
+	overflow: hidden;
+}
+
+.hidden {
+	display: none !important;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+h2 {
+	font-size: 10pt;
+	margin: 6px 0 4px;
+	color: var(--muted);
+}
+
+button {
+	font: inherit;
+	padding: 2px 10px;
+	border: 1px solid var(--line);
+	border-radius: 3px;
+	background: var(--panel);
+	color: var(--fg);
+	cursor: pointer;
+}
+
+button:hover {
+	border-color: var(--accent);
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+input, select {
+	font: inherit;
+	padding: 1px 4px;
+	border: 1px solid var(--line);
+	border-radius: 3px;
+	background: var(--bg);
+	color: var(--fg);
+}
+
+input:invalid {
+	border-color: var(--err);
+}
+
+a {
+	color: var(--accent);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+.li-mono {
+	font-family: var(--mono);
+	font-size: 9pt;
+}
+
+.li-error {
+	color: var(--err);
+	min-height: 1em;
+}
+
+.li-none {
+	color: var(--muted);
+	font-style: italic;
+}
+
+/* ---- the header ---- */
+
+.li-head {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+	padding: 4px 8px;
+	background: var(--panel2);
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.li-title {
+	font-weight: bold;
+}
+
+.li-status {
+	color: var(--muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* ---- sessions and shippers ---- */
+
+.li-top {
+	flex: 0 1 auto;
+	max-height: 50vh;
+	overflow: auto;
+	border-bottom: 1px solid var(--line);
+	background: var(--bg);
+}
+
+/* with no session's logs to show, it can have the page */
+body:has(.li-view.hidden) .li-top {
+	max-height: none;
+}
+
+.li-top > summary {
+	padding: 3px 8px;
+	cursor: pointer;
+	color: var(--muted);
+	background: var(--panel);
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.li-top-body {
+	display: flex;
+	gap: 16px;
+	padding: 0 8px 8px;
+}
+
+.li-sessions {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.li-side {
+	flex: 0 0 22em;
+	min-width: 0;
+}
+
+.li-table-wrap {
+	overflow-x: auto;
+}
+
+.li-table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+.li-table th {
+	text-align: left;
+	font-weight: normal;
+	color: var(--muted);
+	border-bottom: 1px solid var(--line);
+	padding: 2px 6px;
+	white-space: nowrap;
+}
+
+.li-table td {
+	padding: 2px 6px;
+	border-bottom: 1px solid var(--panel2);
+	white-space: nowrap;
+	vertical-align: baseline;
+}
+
+.li-table td.li-note {
+	white-space: normal;
+	overflow-wrap: anywhere;
+	min-width: 8em;
+}
+
+tr.li-srow {
+	cursor: pointer;
+}
+
+tr.li-srow:hover {
+	background: var(--panel);
+}
+
+tr.li-srow.li-selected {
+	background: var(--accent-soft);
+}
+
+.li-badge {
+	margin-left: 6px;
+	padding: 0 5px;
+	border-radius: 7px;
+	font-family: system-ui, sans-serif;
+	font-size: 8pt;
+	background: var(--ok);
+	color: #fff;
+}
+
+.li-start {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 10px;
+}
+
+.li-start h2 {
+	flex: 1 0 100%;
+}
+
+.li-start input[type="number"] {
+	width: 5.5em;
+}
+
+.li-start .li-wide {
+	flex: 1 0 100%;
+	display: flex;
+	gap: 6px;
+	align-items: center;
+}
+
+.li-start .li-wide input {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.li-start .li-error {
+	flex: 1 0 100%;
+}
+
+.li-connected {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.li-shipper {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 1px 2px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.li-shipper:hover {
+	background: var(--panel);
+}
+
+.li-dot {
+	flex: 0 0 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--faint);
+}
+
+.li-sending .li-dot {
+	background: var(--ok);
+}
+
+.li-kind {
+	color: var(--muted);
+}
+
+.li-host {
+	font-weight: bold;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.li-inst {
+	font-family: var(--mono);
+	font-size: 8pt;
+	color: var(--faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.li-window {
+	margin-left: auto;
+	color: var(--muted);
+}
+
+.li-sending .li-window {
+	color: var(--ok);
+}
+
+.li-recent {
+	margin-top: 8px;
+}
+
+.li-recent > summary {
+	cursor: pointer;
+	color: var(--muted);
+}
+
+/* ---- the session's logs ---- */
+
+.li-empty {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--muted);
+	font-style: italic;
+}
+
+.li-view {
+	flex: 1 1 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.li-view-bar {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 8px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--line);
+	white-space: nowrap;
+}
+
+.li-view-session {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-family: var(--mono);
+	font-size: 9pt;
+	white-space: pre;
+}
+
+.li-tabs {
+	display: flex;
+}
+
+.li-tab {
+	border-radius: 0;
+}
+
+.li-tab:first-child {
+	border-radius: 3px 0 0 3px;
+}
+
+.li-tab:last-child {
+	border-radius: 0 3px 3px 0;
+	border-left: none;
+}
+
+.li-tab.active {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: #fff;
+}
+
+.li-close {
+	padding: 2px 7px;
+}
+
+/* a line's level: a letter, coloured */
+
+.li-lvl {
+	display: inline-block;
+	width: 1.4em;
+	text-align: center;
+	font-weight: bold;
+	color: var(--l-other);
+}
+
+.li-lvl-err { color: var(--l-err); }
+.li-lvl-warn { color: var(--l-warn); }
+.li-lvl-notice { color: var(--l-notice); }
+.li-lvl-info { color: var(--l-info); }
+.li-lvl-debug { color: var(--l-debug); }
+.li-lvl-user { color: var(--l-user); }
+
+.li-l-err { color: var(--l-err); }
+.li-l-warn { color: var(--l-warn); }
+.li-l-debug { color: var(--l-debug); }
+
+/* the merged view */
+
+.li-merged {
+	flex: 1 1 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.li-merged-bar {
+	flex: 0 0 auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 10px;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--line);
+}
+
+.li-merged-bar input[type="search"], .li-merged-bar input[type="text"] {
+	width: 12em;
+}
+
+.li-merged-count {
+	color: var(--muted);
+	font-size: 9pt;
+}
+
+.li-merged-lines {
+	flex: 1 1 0;
+	min-height: 0;
+	overflow: auto;
+	background: var(--log-bg);
+	color: var(--log-fg);
+	font-family: var(--mono);
+	font-size: 11px;
+	line-height: 14px;
+	padding: 2px 0;
+}
+
+.li-mrow {
+	display: flex;
+	gap: 6px;
+	padding: 0 4px;
+	cursor: pointer;
+}
+
+.li-mrow:hover {
+	background: var(--log-head);
+}
+
+.li-mt {
+	flex: 0 0 auto;
+	color: var(--log-t);
+}
+
+.li-mrow .li-lvl {
+	flex: 0 0 auto;
+}
+
+.li-msrc {
+	flex: 0 0 14em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--l-notice);
+}
+
+.li-mx {
+	flex: 1 1 auto;
+	min-width: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.li-merged-foot {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 3px 8px;
+	border-top: 1px solid var(--line);
+	min-height: 1.8em;
+}
+
+.li-merged-state {
+	color: var(--muted);
+	font-style: italic;
+}
+
+/*
+ * The synchronised view, see log-ingest-sync.js: panes side by side, one per
+ * source host, all at the same instant, and the time bar on the right
+ */
+
+.sync {
+	flex: 1 1 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	font-size: 9pt;
+}
+
+.sync-bar {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 2px 8px;
+	white-space: nowrap;
+	overflow: hidden;
+	border-bottom: 1px solid var(--line);
+}
+
+.sync-jump {
+	padding: 0 6px;
+}
+
+.sync-instant {
+	font-family: var(--mono);
+	color: var(--accent);
+	-webkit-user-select: all;
+	user-select: all;
+}
+
+.sync-hint {
+	color: var(--muted);
+	font-style: italic;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.sync-body {
+	flex: 1 1 0;
+	min-height: 0;
+	display: flex;
+	background: var(--log-bg);
+}
+
+.sync-panes {
+	flex: 1 1 0;
+	min-width: 0;
+	display: flex;
+	overflow-x: auto;
+	overflow-y: hidden;
+}
+
+.sync-pane {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	background: var(--log-bg);
+	color: var(--log-fg);
+}
+
+.sync-pane.drop-before {
+	box-shadow: inset 3px 0 0 #3b82f6;
+}
+
+.sync-pane.drop-after {
+	box-shadow: inset -3px 0 0 #3b82f6;
+}
+
+.sync-pane-head {
+	flex: 0 0 auto;
+	display: flex;
+	gap: 6px;
+	padding: 2px 4px;
+	background: var(--log-head);
+	color: var(--log-head-fg);
+	border-bottom: 1px solid var(--log-line);
+	cursor: grab;
+	white-space: nowrap;
+	overflow: hidden;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.sync-pane-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-weight: bold;
+}
+
+.sync-pane-kind {
+	font-weight: normal;
+	color: var(--log-t);
+}
+
+.sync-pane-delta {
+	margin-left: auto;
+	font-family: var(--mono);
+	color: var(--log-t);
+}
+
+/* folded out of the way: a strip with its name down it */
+.sync-pane.folded .sync-pane-head {
+	flex: 1 1 auto;
+	writing-mode: vertical-rl;
+	padding: 4px 0;
+}
+
+.sync-pane.folded .sync-pane-view, .sync-pane.folded .sync-pane-delta {
+	display: none;
+}
+
+.sync-pane-view {
+	position: relative;
+	flex: 1 1 0;
+	min-height: 0;
+	outline: none;
+	touch-action: pan-x;
+}
+
+.sync-pane-view:focus-visible {
+	box-shadow: inset 0 0 0 1px #60a5fa;
+}
+
+.sync-pane-scroll {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+}
+
+.sync-pane-text {
+	font-family: var(--mono);
+	font-size: 11px;
+	line-height: 14px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	padding-left: 3px;
+	padding-right: 3px;
+}
+
+/* the instant: the line across the middle */
+.sync-pane-cursor {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 50%;
+	border-top: 1px solid var(--log-cursor);
+	pointer-events: none;
+}
+
+.sync-pane-state {
+	position: absolute;
+	top: 4px;
+	right: 6px;
+	color: var(--log-t);
+	font-style: italic;
+	pointer-events: none;
+}
+
+.sync-t {
+	color: var(--log-t);
+}
+
+.sync-inst {
+	color: var(--log-t);
+	font-style: italic;
+	border-top: 1px dashed var(--log-line);
+	margin: 2px 0;
+}
+
+/* what was logged at the instant, in every pane */
+.sync-row.sync-now {
+	background: var(--log-now);
+}
+
+.sync-split {
+	flex: 0 0 7px;
+	cursor: ew-resize;
+	background: linear-gradient(to right, transparent 2px, var(--log-line) 2px,
+				    var(--log-line) 5px, transparent 5px);
+	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.sync-split.dragging {
+	background: #3b82f6;
+}
+
+/* the session's window, top to bottom, and where the instant is in it */
+.sync-time {
+	position: relative;
+	flex: 0 0 16px;
+	background: var(--log-head);
+	border-left: 1px solid var(--log-line);
+	cursor: ns-resize;
+	touch-action: none;
+}
+
+.sync-time-run {
+	position: absolute;
+	left: 3px;
+	right: 3px;
+	background: #3b82f6;
+	border-radius: 2px;
+}
+
+.sync-time-run.running {
+	background: #22c55e;
+}
+
+.sync-time-thumb {
+	position: absolute;
+	left: 0;
+	right: 0;
+	height: 3px;
+	background: #f8fafc;
+	pointer-events: none;
+}
+
+.sync-time.dragging .sync-time-thumb {
+	background: #f59e0b;
+}
+
+@media (pointer: coarse) {
+	.sync-split {
+		flex-basis: 15px;
+		background: linear-gradient(to right, transparent 5px,
+				var(--log-line) 5px, var(--log-line) 10px,
+				transparent 10px);
+	}
+
+	.sync-time {
+		flex-basis: 24px;
+	}
+}
+
+/* a narrow window: one column, and less said */
+@media (max-width: 760px) {
+	.li-top-body {
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.li-side {
+		flex: 0 0 auto;
+	}
+
+	.li-opt {
+		display: none;
+	}
+
+	.li-msrc {
+		flex-basis: 8em;
+	}
+
+	/* the line's text under its time, level and source */
+	.li-mrow {
+		flex-wrap: wrap;
+		gap: 0 6px;
+	}
+
+	.li-mx {
+		flex-basis: 100%;
+		padding-left: 1em;
+	}
+
+	.sync-hint {
+		display: none;
+	}
+}

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lws log ingest</title>
+  <link rel="stylesheet" type="text/css" href="log-ingest.css">
+  <script src="log-ingest-sync.js" defer></script>
+  <script src="log-ingest.js" defer></script>
+ </head>
+ <body>
+  <header class="li-head">
+   <span class="li-title">lws log ingest</span>
+   <span id="li_status" class="li-status"></span>
+  </header>
+
+  <details id="li_top" class="li-top" open>
+   <summary>Sessions and shippers</summary>
+   <div class="li-top-body">
+    <section class="li-sessions">
+     <h2>Sessions</h2>
+     <div class="li-table-wrap">
+      <table id="li_sessions" class="li-table">
+       <thead>
+        <tr>
+         <th scope="col">Session</th>
+         <th scope="col" class="li-opt">Created</th>
+         <th scope="col">From</th>
+         <th scope="col">For</th>
+         <th scope="col" class="li-opt">Level</th>
+         <th scope="col">Sources</th>
+         <th scope="col" class="li-opt">By</th>
+         <th scope="col">Note</th>
+         <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+       </thead>
+       <tbody id="li_sessions_body"></tbody>
+      </table>
+     </div>
+     <div id="li_sessions_err" class="li-error"></div>
+    </section>
+
+    <section class="li-side">
+     <form id="li_start" class="li-start" autocomplete="off">
+      <h2>Start a session</h2>
+      <label>From <input id="li_start_from" type="number" min="0" step="1"
+        value="60" required> s ago</label>
+      <label>For <input id="li_start_duration" type="number" min="1"
+        step="1" value="600" required> s</label>
+      <label>Level <select id="li_start_lvl">
+        <option value="" selected>as configured</option>
+        <option value="err">err</option>
+        <option value="warn">warn</option>
+        <option value="notice">notice</option>
+        <option value="info">info</option>
+        <option value="debug">debug</option>
+       </select></label>
+      <label class="li-wide">Sources <input id="li_start_src" type="text"
+        maxlength="200" pattern="[A-Za-z0-9._*,\-]*"
+        placeholder="all, or eg dht-*,host1"
+        title="Comma-separated kinds or hosts, each with up to three *"></label>
+      <label class="li-wide">Note <input id="li_start_note" type="text"
+        maxlength="200" placeholder="what it's for"></label>
+      <button type="submit" id="li_start_go">Start</button>
+      <div id="li_start_err" class="li-error"></div>
+     </form>
+
+     <h2>Connected shippers</h2>
+     <ul id="li_connected" class="li-connected"></ul>
+     <details class="li-recent">
+      <summary id="li_recent_sum">Sources seen in the last day</summary>
+      <div class="li-table-wrap">
+       <table class="li-table">
+        <thead>
+         <tr>
+          <th scope="col">Source</th>
+          <th scope="col">Last line</th>
+          <th scope="col">Lag</th>
+         </tr>
+        </thead>
+        <tbody id="li_recent_body"></tbody>
+       </table>
+      </div>
+     </details>
+    </section>
+   </div>
+  </details>
+
+  <main id="li_view" class="li-view hidden">
+   <div class="li-view-bar">
+    <span id="li_view_session" class="li-view-session"></span>
+    <div class="li-tabs" role="tablist">
+     <button type="button" id="li_tab_sync" class="li-tab" role="tab"
+       title="Each source host side by side, at one instant">Synchronised</button>
+     <button type="button" id="li_tab_merged" class="li-tab" role="tab"
+       title="Every line in the window, in UTC order">Merged</button>
+    </div>
+    <button type="button" id="li_view_stop" class="li-stop hidden">Stop</button>
+    <button type="button" id="li_view_close" class="li-close"
+      title="Close the session's logs">&#x2715;</button>
+   </div>
+
+   <div id="li_sync" class="sync"></div>
+
+   <div id="li_merged" class="li-merged hidden">
+    <form id="li_merged_form" class="li-merged-bar" autocomplete="off">
+     <label>Level <select id="li_merged_lvl">
+       <option value="" selected>all</option>
+       <option value="err">err</option>
+       <option value="warn">warn</option>
+       <option value="notice">notice</option>
+       <option value="info">info</option>
+       <option value="debug">debug</option>
+      </select></label>
+     <label>Sources <input id="li_merged_src" type="text" maxlength="200"
+       pattern="[A-Za-z0-9._*,\-]*" placeholder="the session's"></label>
+     <label>Grep <input id="li_merged_grep" type="search" maxlength="128"
+       placeholder="text in the line"></label>
+     <button type="submit">Apply</button>
+     <span id="li_merged_count" class="li-merged-count"></span>
+    </form>
+    <div id="li_merged_lines" class="li-merged-lines"></div>
+    <div class="li-merged-foot">
+     <button type="button" id="li_merged_more" class="hidden">More</button>
+     <span id="li_merged_state" class="li-merged-state"></span>
+    </div>
+   </div>
+  </main>
+
+  <div id="li_empty" class="li-empty">Choose a session to see its logs</div>
+ </body>
+</html>
