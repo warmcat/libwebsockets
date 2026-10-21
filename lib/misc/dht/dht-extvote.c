@@ -75,8 +75,8 @@ extvote_same(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
 #if defined(LWS_WITH_IPV6)
 	case AF_INET6:
 		return a->sa6.sin6_port == b->sa6.sin6_port &&
-		       !memcmp(&a->sa6.sin6_addr, &b->sa6.sin6_addr,
-			       sizeof(a->sa6.sin6_addr));
+		       !memcmp(a->sa6.sin6_addr.s6_addr,
+			       b->sa6.sin6_addr.s6_addr, 16);
 #endif
 	default:
 		return 0;
