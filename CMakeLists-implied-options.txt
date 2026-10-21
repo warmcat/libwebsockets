@@ -154,6 +154,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_SECURE_STREAMS_PROXY_API 1)	# selfcontained
 	set(LWS_WITH_DIR 1)				# selfcontained
 	set(LWS_WITH_SELFDNS 1)				# selfcontained
+	set(LWS_WITH_LOG_SHIP 1)			# selfcontained
 endif()
 
 if (LWS_WITH_SELFDNS)
@@ -201,6 +202,9 @@ endif()
 
 if (LWS_WITH_DHT)
 	set(LWS_WITH_TRANSPORT_SEQUENCER 1)
+	# so the DHT nodes' logs can be looked at together; a node only ships
+	# them if its config says where to
+	set(LWS_WITH_LOG_SHIP 1)
 endif()
 
 if (LWS_WITH_TRANSPORT_SEQUENCER)
@@ -330,6 +334,13 @@ endif()
 
 if (NOT LWS_ROLE_WS)
 	set(LWS_WITHOUT_EXTENSIONS 1)
+	# the log shipper's link to its ingestor is ws
+	set(LWS_WITH_LOG_SHIP 0)
+endif()
+
+if (LWS_WITH_LOG_SHIP)
+	# the ingestor's control messages
+	set(LWS_WITH_LEJP 1)
 endif()
 
 unset(LWS_WITH_LIBUV_INTERNAL)
@@ -514,9 +525,12 @@ if (LWS_WITHOUT_CLIENT)
 	set(LWS_WITH_LHP 0)
 	# the smtp client connects to its relay
 	set(LWS_WITH_EMAIL 0)
+	# the log shipper connects to its ingestor
+	set(LWS_WITH_LOG_SHIP 0)
 endif()
 if (NOT LWS_WITH_NETWORK)
 	set(LWS_WITH_EMAIL 0)
+	set(LWS_WITH_LOG_SHIP 0)
 endif()
 set(LWS_WITH_SERVER 1)
 if (LWS_WITHOUT_SERVER)

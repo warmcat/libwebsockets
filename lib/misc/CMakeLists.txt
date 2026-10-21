@@ -97,6 +97,11 @@ if (LWS_WITH_DHT)
 		misc/dht/dht-tx.c)
 endif()
 
+if (LWS_WITH_LOG_SHIP)
+	list(APPEND SOURCES
+		misc/log-ship/log-ship.c)
+endif()
+
 if (LWS_WITH_DHT_BACKEND)
 	list(APPEND SOURCES
 		misc/dht/dht-backend.c

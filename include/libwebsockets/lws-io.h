@@ -168,6 +168,10 @@
 #include <libwebsockets/lws-smtp-client.h>
 #endif
 
+#if defined(LWS_WITH_LOG_SHIP)
+#include <libwebsockets/lws-log-ship.h>
+#endif
+
 #if defined(LWS_WITH_DIR)
 #include <libwebsockets/lws-dir-notify.h>
 #endif

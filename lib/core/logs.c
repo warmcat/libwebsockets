@@ -405,22 +405,6 @@ lws_log_use_cx_file(struct lws_log_cx *cx, int _new)
 
 #if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
 
-/*
- * More than one thread may log, not only with SMP or the threadpool: the
- * async queue's workers and the txpacer thread log from inside lws, and
- * applications log from their own threads.  So wherever there are pthreads,
- * except on the small embedded platforms where lws runs no threads of its
- * own, we must assume it.
- */
-
-#if defined(LWS_HAVE_PTHREAD_H) && \
-    (LWS_MAX_SMP > 1 || defined(LWS_WITH_THREADPOOL) || \
-     defined(LWS_WITH_ASYNC_QUEUE) || \
-     (!defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL) && \
-      !defined(LWS_PLAT_FREERTOS)))
-#define LWS_LOG_THREADED
-#endif
-
 #if defined(LWS_LOG_THREADED)
 #define LWS_LOG_LINE_MAX	1024
 #else
@@ -1058,6 +1042,16 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 				 &replay);
 
 	log_lock_release();
+
+#if defined(LWS_WITH_LOG_SHIP)
+	/*
+	 * Whatever cx it went through, the shipper sees it, even if the spew
+	 * handling keeps it from being emitted here: the shipper's backlog is
+	 * bounded by itself, and its lines are only sent when they're asked
+	 * for, which may be exactly when there's a lot of them
+	 */
+	lws_log_ship_tap(filter, buf, lws_ptr_diff_size_t(p, buf));
+#endif
 
 	switch (act) {
 	case SPEW_ENTERED:

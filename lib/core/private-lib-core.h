@@ -239,6 +239,35 @@ lws_lc_tag(lws_lifecycle_t *lc);
 extern lws_log_cx_t log_cx;
 
 /*
+ * More than one thread may log, not only with SMP or the threadpool: the
+ * async queue's workers and the txpacer thread log from inside lws, and
+ * applications log from their own threads.  So wherever there are pthreads,
+ * except on the small embedded platforms where lws runs no threads of its
+ * own, we must assume it.
+ */
+
+#if defined(LWS_HAVE_PTHREAD_H) && \
+    (LWS_MAX_SMP > 1 || defined(LWS_WITH_THREADPOOL) || \
+     defined(LWS_WITH_ASYNC_QUEUE) || \
+     (!defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL) && \
+      !defined(LWS_PLAT_FREERTOS)))
+#define LWS_LOG_THREADED
+#endif
+
+#if defined(LWS_WITH_LOG_SHIP)
+/*
+ * Every log line that passes its cx's filter is shown to the log shipper, if
+ * there is one, see lib/misc/log-ship.  It may be called on any thread that
+ * logs, and never logs itself.
+ */
+void
+lws_log_ship_tap(int level, const char *line, size_t len);
+struct lws_vhost;
+void
+lws_log_ship_destroy_on_vhost(struct lws_vhost *vh);
+#endif
+
+/*
  * Generic bidi tx credit management
  */
 
