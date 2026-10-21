@@ -193,6 +193,14 @@ struct lws_dht_dnssec_subscribed_domain {
 	uint64_t last_notify_soa;
 };
 
+/*
+ * A notifier whose NOTIFYs led us to fetches that timed out this many times,
+ * each strike forgotten an hour after the last one, is blacklisted in the DHT
+ * core until then
+ */
+#define LWS_DHT_DNSSEC_NOTIFY_STRIKES_BLACKLIST		5
+#define LWS_DHT_DNSSEC_NOTIFY_STRIKE_LIFE_SECS		3600
+
 struct notify_strike {
 	lws_dll2_t list;
 	lws_sockaddr46 sa;
@@ -310,7 +318,8 @@ notify_strike_expire_cb(lws_sorted_usec_list_t *sul)
 }
 
 static void
-add_peer_strike(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa)
+add_peer_strike(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa,
+		const char *domain)
 {
 	struct notify_strike *ns = NULL, *oldest = NULL;
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->notify_strikes)) {
@@ -327,10 +336,12 @@ add_peer_strike(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa)
 
 	if (ns) {
 		ns->count++;
-		lwsl_notice("%s: IP strike count increased to %d\n", __func__, ns->count);
 		lws_dll2_remove(&ns->list);
 		lws_dll2_add_tail(&ns->list, &vhd->notify_strikes);
-		lws_sul_schedule(vhd->context, 0, &ns->sul_expire, notify_strike_expire_cb, 3600 * LWS_US_PER_SEC);
+		lws_sul_schedule(vhd->context, 0, &ns->sul_expire,
+				 notify_strike_expire_cb,
+				 LWS_DHT_DNSSEC_NOTIFY_STRIKE_LIFE_SECS *
+							LWS_US_PER_SEC);
 	} else {
 		if (lws_dll2_count(&vhd->notify_strikes) > 64 && oldest) {
 			lws_dll2_remove(&oldest->list);
@@ -343,9 +354,36 @@ add_peer_strike(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa)
 			ns->sa = *sa;
 			ns->count = 1;
 			lws_dll2_add_tail(&ns->list, &vhd->notify_strikes);
-			lws_sul_schedule(vhd->context, 0, &ns->sul_expire, notify_strike_expire_cb, 3600 * LWS_US_PER_SEC);
+			lws_sul_schedule(vhd->context, 0, &ns->sul_expire,
+					 notify_strike_expire_cb,
+					 LWS_DHT_DNSSEC_NOTIFY_STRIKE_LIFE_SECS *
+							LWS_US_PER_SEC);
 		}
 	}
+
+	if (!ns)
+		return;
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	{
+		char ads[64] = "unknown";
+
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa, ads,
+					       sizeof(ads));
+		if (ns->count == LWS_DHT_DNSSEC_NOTIFY_STRIKES_BLACKLIST)
+			lwsl_notice("%s: %s blacklisted for %ds: %d of its "
+				    "NOTIFYs led to fetches that timed out, "
+				    "latest %s\n", __func__, ads,
+				    LWS_DHT_DNSSEC_NOTIFY_STRIKE_LIFE_SECS,
+				    ns->count, domain);
+		else
+			lwsl_notice("%s: %s strike %d/%d: fetch for its "
+				    "NOTIFY of %s timed out\n", __func__, ads,
+				    ns->count,
+				    LWS_DHT_DNSSEC_NOTIFY_STRIKES_BLACKLIST,
+				    domain);
+	}
+#endif
 }
 
 static int
@@ -360,10 +398,10 @@ dht_dnssec_blacklist_cb(const struct sockaddr *saddr, size_t salen)
 		struct notify_strike *n = lws_container_of(d, struct notify_strike, list);
 		if (n->sa.sa4.sin_family == sa->sa4.sin_family) {
 			if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &sa->sa4.sin_addr, 4)) {
-				if (n->count >= 5) return 1;
+				if (n->count >= LWS_DHT_DNSSEC_NOTIFY_STRIKES_BLACKLIST) return 1;
 				return 0;
 			} else if (n->sa.sa4.sin_family == AF_INET6 && !lws_sa46_compare_sin6_addr(&n->sa.sa6.sin6_addr, &sa->sa6.sin6_addr)) {
-				if (n->count >= 5) return 1;
+				if (n->count >= LWS_DHT_DNSSEC_NOTIFY_STRIKES_BLACKLIST) return 1;
 				return 0;
 			}
 		}
@@ -377,8 +415,7 @@ notify_fetch_completion_cb(void *opaque, const char *domain, int status)
 {
 	struct notify_strike_tracking *trk = (struct notify_strike_tracking *)opaque;
 	if (status == LWS_DHT_DNSSEC_FETCH_TIMEOUT) {
-		add_peer_strike(trk->vhd, &trk->sa);
-		lwsl_notice("%s: Added strike to peer due to fetch network timeout for %s\n", __func__, domain);
+		add_peer_strike(trk->vhd, &trk->sa, domain);
 	} else if (status == LWS_DHT_DNSSEC_FETCH_INVALID) {
 		lwsl_notice("%s: Fetch for %s failed DNSSEC validation, skipping strike penalty for peer\n", __func__, domain);
 	} else if (status == LWS_DHT_DNSSEC_FETCH_OK) {
@@ -4243,7 +4280,7 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 			}
 		} lws_end_foreach_dll(d);
 
-		if (strikes >= 5) {
+		if (strikes >= LWS_DHT_DNSSEC_NOTIFY_STRIKES_BLACKLIST) {
 			lwsl_notice("%s: NOTIFY from blacklisted IP dropped (strikes: %d)\n", __func__, strikes);
 			return 0;
 		}
