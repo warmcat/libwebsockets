@@ -2720,8 +2720,8 @@ send_nxdomain:
 					struct auth_dns_rr *soa_rr = lws_container_of(lws_dll2_get_head(
 						&soa_rs->rr_list), struct auth_dns_rr, list);
 					if ((size_t)(rp - dbuf) + 16 + soa_rr->wire_rdata_len > lim)
-					trunc = 1;
-				else {
+						trunc = 1;
+					else {
 						int ql = (int)strlen(qname);
 						int ol = (int)strlen(matched_ce->zone.origin);
 						if (ol > 0 && matched_ce->zone.origin[ol - 1] == '.') ol--;
