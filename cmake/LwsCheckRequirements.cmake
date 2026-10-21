@@ -1,4 +1,5 @@
-# If we are being built as part of lws, confirm current build config supports
+# If we are being built as part of lws, eg, a plugin, or a minimal example
+# with LWS_WITH_MINIMAL_EXAMPLES, confirm current build config supports
 # reqconfig, else skip building ourselves.
 #
 # If we are being built externally, confirm installed lws was configured to
@@ -27,19 +28,26 @@ MACRO(require_lws_config reqconfig _val result)
 
 	string(COMPARE EQUAL "${result}" requirements _cmp)
 
+	if (DEFINED SAMP)
+		set(_rq_name ${SAMP})
+	else()
+		get_filename_component(_rq_name ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+	endif()
+
 	# we go in the first clause if in-tree
-	if (LWS_WITH_MINIMAL_EXAMPLES AND NOT ${SAME})
-               if (${result} EQUAL "requirements")
-                       if (${_val})
-                               message("${SAMP}: skipping as lws being built without ${reqconfig} (${_val} / ${rq})")
-                       else()
-                               message("${SAMP}: skipping as lws built with ${reqconfig} (${_val} / ${rq})")
-                       endif()
+	if (LWS_BUILDING_IN_TREE AND NOT ${SAME})
+		# just the first unmet requirement, the rest are moot
+		if (_cmp AND ${result})
+			if (${_val})
+				message("${_rq_name}: skipping as lws being built without ${reqconfig} (${_val} / ${rq})")
+			else()
+				message("${_rq_name}: skipping as lws built with ${reqconfig} (${_val} / ${rq})")
+			endif()
 		endif()
 		set(${result} 0)
 		set(MET 0)
 	else()
-		if (LWS_WITH_MINIMAL_EXAMPLES)
+		if (LWS_BUILDING_IN_TREE)
 			set(MET ${SAME})
 		else()
 			CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(${reqconfig})\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" HAS_${reqconfig})
@@ -76,7 +84,7 @@ ENDMACRO()
 MACRO(require_pthreads result)
 	CHECK_INCLUDE_FILE(pthread.h LWS_HAVE_PTHREAD_H)
 	if (NOT LWS_HAVE_PTHREAD_H)
-		if (LWS_WITH_MINIMAL_EXAMPLES)
+		if (LWS_BUILDING_IN_TREE)
 			set(${result} 0)
 			message("${SAMP}: skipping as no pthreads")
 		else()

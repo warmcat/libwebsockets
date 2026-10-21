@@ -62,6 +62,11 @@ endif()
 
 # it's at this point any toolchain file is brought in
 project(libwebsockets C)
+
+# Tells require_lws_config() in plugins and minimal examples that they are
+# being built as part of lws, so a requirement the build config doesn't meet
+# just skips them, rather than being an error as it is building them alone.
+set(LWS_BUILDING_IN_TREE 1)
 if (LWS_WITH_SECURE_STREAMS_CPP)
 	enable_language(CXX)
 endif()
