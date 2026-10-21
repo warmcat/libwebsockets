@@ -598,9 +598,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_ss_handle_t *hh = NULL;
 	char hh_unannounced = 0;
-#if defined(LWS_WITH_SERVER)
-	char hh_accepted = 0;
-#endif
+	char hh_accepted = 0; /* only set with LWS_WITH_SERVER */
 #endif
 	struct lws_context *context;
 	struct lws *wsi2;
@@ -1213,8 +1211,7 @@ async_close:
 	 * makes us return below, and its later final free knows nothing of
 	 * the handle (G-299).
 	 */
-#if defined(LWS_WITH_SERVER)
-	if (hh && hh_accepted)
+	if (hh && hh_accepted) {
 		/*
 		 * Whatever state it reached, the accepted stream goes with its
 		 * connection.  The role's close handling can't be relied on to
@@ -1225,9 +1222,7 @@ async_close:
 		 * if it did get CONNECTED.
 		 */
 		lws_ss_destroy(&hh);
-	else
-#endif
-	if (hh && hh->ss_dangling_connected &&
+	} else if (hh && hh->ss_dangling_connected &&
 	    lws_ss_event_helper(hh, LWSSSCS_DISCONNECTED) == LWSSSSRET_DESTROY_ME)
 		lws_ss_destroy(&hh);
 	else if (hh && hh_unannounced) {
