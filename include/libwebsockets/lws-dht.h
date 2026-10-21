@@ -358,6 +358,10 @@ typedef enum {
 	LWS_DHT_EVENT_ERROR,		/**< A peer answered a query of ours with
 					  * a BEP 5 error reply; `data` is a
 					  * struct lws_dht_error_info */
+	LWS_DHT_EVENT_WRITEABLE,	/**< lws_dht_send_data() to the peer at
+					  * `from` returned LWS_DHT_SEND_BUSY,
+					  * and it has since acknowledged enough
+					  * that there is room: send again */
 } lws_dht_event_t;
 
 /**
@@ -517,9 +521,56 @@ lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen);
 LWS_VISIBLE LWS_EXTERN void
 lws_dht_test_external_ips(struct lws_dht_ctx *ctx);
 
+/**
+ * enum lws_dht_send_result - what became of a message given to
+ *			      lws_dht_send_data()
+ */
+enum lws_dht_send_result {
+	LWS_DHT_SEND_QUEUED	= 0,
+	/**< taken: it is sent reliably, and the session ends with
+	 * LWS_DHT_EVENT_WRITE_COMPLETED or _FAILED */
+	LWS_DHT_SEND_REFUSED	= 1,
+	/**< it can't be sent to that peer: it is blacklisted, the address
+	 * family is unusable, or no sequencer can be had for it */
+	LWS_DHT_SEND_BUSY	= 2,
+	/**< not taken for now: the peer has not acknowledged enough of what
+	 * we already sent it to leave room.  LWS_DHT_EVENT_WRITEABLE for that
+	 * peer comes when there is, or LWS_DHT_EVENT_WRITE_FAILED if the
+	 * session fails first */
+};
+
+/**
+ * lws_dht_send_data() - send a message to a peer reliably
+ *
+ * \param ctx: the dht context
+ * \param dest: the peer's address
+ * \param data: the message
+ * \param len: its length
+ *
+ * The message is given to the reliable transport for the peer, which keeps it
+ * until the peer acknowledges it.  How much it keeps for one peer is bounded,
+ * so a peer that doesn't acknowledge, or a sender that outruns it, gets
+ * LWS_DHT_SEND_BUSY: the caller must keep the message, and send it again on
+ * LWS_DHT_EVENT_WRITEABLE for that peer.  A caller that sends only replies to
+ * the peer's requests may instead drop it, if the peer asks again when its
+ * request goes unanswered.
+ *
+ * Returns an enum lws_dht_send_result.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const void *data, size_t len);
 
+/**
+ * lws_dht_send_data_at() - send a message at a stream offset to a peer
+ *
+ * \param ctx: the dht context
+ * \param dest: the peer's address
+ * \param offset: the offset in the stream to the peer to send it at
+ * \param data: the message
+ * \param len: its length
+ *
+ * As lws_dht_send_data(), at a given offset.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_data_at(struct lws_dht_ctx *ctx, const struct sockaddr *dest, uint64_t offset, const void *data, size_t len);
 

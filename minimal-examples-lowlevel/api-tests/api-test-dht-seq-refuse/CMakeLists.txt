@@ -10,7 +10,6 @@ set(SRCS main.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_DHT 1 requirements)
-require_lws_config(LWS_WITH_DHT_BACKEND 1 requirements)
 
 if (requirements)
 
@@ -31,11 +30,13 @@ if (requirements)
 		#
 		lws_get_free_port(PORT_DHT_SF_DHT)
 		lws_get_free_port(PORT_DHT_SF_FAN)
+		lws_get_free_port(PORT_DHT_SF_P)
 
 		add_test(NAME api-test-dht-seq-refuse COMMAND
 			 $<TARGET_FILE:${SAMP}>
 			 --port-dht ${PORT_DHT_SF_DHT}
-			 --port-fan ${PORT_DHT_SF_FAN})
+			 --port-fan ${PORT_DHT_SF_FAN}
+			 --port-p ${PORT_DHT_SF_P})
 		set_tests_properties(api-test-dht-seq-refuse PROPERTIES
 			TIMEOUT 30
 			WORKING_DIRECTORY .

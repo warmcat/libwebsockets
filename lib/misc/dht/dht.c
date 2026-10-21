@@ -713,12 +713,32 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 		lws_dht_ts_destroy(dts);
 }
 
+/* the peer has made room for what lws_dht_send_data() refused it */
+
+static void
+dht_on_writeable(struct lws_transport_sequencer *ts)
+{
+	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+	struct sockaddr_storage peer;
+
+	if (!dts->ctx->cb)
+		return;
+
+	/* the consumer will send, and may recycle sequencers, not this one */
+	memcpy(&peer, &dts->sa, sizeof(peer));
+	dts->in_cb++;
+	dts->ctx->cb(dts->ctx->closure, LWS_DHT_EVENT_WRITEABLE, NULL, NULL, 0,
+		     (struct sockaddr *)&peer, dts->salen);
+	dts->in_cb--;
+}
+
 static const lws_transport_sequencer_ops_t dht_seq_ops = {
 	.name			= "dht-seq",
 	.tx_chunk		= dht_tx_chunk,
 	.tx_ack			= dht_tx_ack,
 	.on_rx_data		= dht_on_rx_data,
 	.on_state_change	= dht_on_state_change,
+	.on_writeable		= dht_on_writeable,
 };
 
 static const lws_retry_bo_t dht_retry_policy = {
@@ -1534,8 +1554,7 @@ lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen)
 
 
 /*
- * The consumers can't do anything about a refused send but lose the message,
- * so say who it was for and why
+ * Say who a refused message was for and why: the consumer may well lose it
  */
 
 static void
@@ -1569,6 +1588,8 @@ dht_ts_for_send(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 		salen = sizeof(struct sockaddr_in6);
 		break;
 	default:
+		lwsl_dht_warn("%s: dropping %u-byte message to family %d\n",
+			      __func__, (unsigned int)len, dest->sa_family);
 		return NULL;
 	}
 
@@ -1588,6 +1609,25 @@ dht_ts_for_send(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	return ts;
 }
 
+/*
+ * A busy peer is the consumer's to handle, it hears when to send again: the
+ * sequencer has already said why it's busy
+ */
+
+static int
+dht_send_result(const struct sockaddr *dest, size_t len, int tsw)
+{
+	switch (tsw) {
+	case LWS_TSW_QUEUED:
+		return LWS_DHT_SEND_QUEUED;
+	case LWS_TSW_BUSY:
+		return LWS_DHT_SEND_BUSY;
+	default:
+		dht_send_dropped(dest, len, "the sequencer can't take it");
+		return LWS_DHT_SEND_REFUSED;
+	}
+}
+
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const void *data, size_t len)
 {
@@ -1600,14 +1640,10 @@ lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const vo
 
 	ts = dht_ts_for_send(ctx, dest, len);
 	if (!ts)
-		return 1;
+		return LWS_DHT_SEND_REFUSED;
 
-	if (lws_transport_sequencer_write(ts, data, len)) {
-		dht_send_dropped(dest, len, "sequencer refused it");
-		return 1;
-	}
-
-	return 0;
+	return dht_send_result(dest, len,
+			       lws_transport_sequencer_write(ts, data, len));
 }
 
 int
@@ -1616,14 +1652,11 @@ lws_dht_send_data_at(struct lws_dht_ctx *ctx, const struct sockaddr *dest, uint6
 	struct lws_transport_sequencer *ts = dht_ts_for_send(ctx, dest, len);
 
 	if (!ts)
-		return 1;
+		return LWS_DHT_SEND_REFUSED;
 
-	if (lws_transport_sequencer_write_at(ts, offset, data, len)) {
-		dht_send_dropped(dest, len, "sequencer refused it");
-		return 1;
-	}
-
-	return 0;
+	return dht_send_result(dest, len,
+			       lws_transport_sequencer_write_at(ts, offset,
+								data, len));
 }
 
 struct lws_dll2_owner *
