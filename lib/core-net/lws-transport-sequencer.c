@@ -124,8 +124,11 @@ sul_retry_cb(lws_sorted_usec_list_t *sul)
 	 * a dead peer never failed the session.)
 	 */
 	if (ts->retry_count > ts->info.retry_policy->conceal_count) {
-		lwsl_notice("%s: Retry limit reached (%d), failing session\n",
-			    __func__, ts->retry_count);
+		lwsl_notice("%s: %s: no ack after %d retries, failing session "
+			    "and freeing %llu unacked bytes\n", __func__,
+			    ts->info.ops->name, ts->retry_count,
+			    (unsigned long long)(ts->next_tx_offset -
+						 ts->ack_offset));
 		ts->completed = 1;
 		if (ts->info.ops->on_state_change)
 			ts->info.ops->on_state_change(ts, 1 /* FAILED */, 0);
@@ -242,12 +245,35 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 	/* Windowing is now heap-limited by DSH, not range-based */
 
 	r = lws_zalloc(sizeof(*r), __func__);
-	if (!r)
+	if (!r) {
+		lwsl_err("%s: %s: OOM, refusing %u-byte write\n", __func__,
+			 ts->info.ops->name, (unsigned int)len);
 		return 1;
+	}
 
-	/* Buffer in DSH with offset prefix */
+	/*
+	 * Buffer in DSH with offset prefix.  The dsh is this sequencer's own
+	 * fixed buffer, allocated at create: failing here is not heap OOM, it
+	 * is the peer not having acked enough of what is already queued to
+	 * it to leave room for this.  We refuse this write and keep the rest
+	 * queued: it drains as the peer acks, or the session fails, and
+	 * frees it all, when the retransmits of the oldest chunk run out.
+	 */
 	if (lws_dsh_alloc_tail(ts->dsh, 0, &offset, sizeof(offset), buf, len)) {
-		lwsl_notice("%s: DSH alloc failed\n", __func__);
+		lwsl_warn("%s: %s: tx buffer full (%u of %u used, %u ranges, "
+			  "%u held, %llu unacked, peer %sproven, retry %u/%u),"
+			  " refusing %u-byte write at %llu\n", __func__,
+			  ts->info.ops->name,
+			  (unsigned int)ts->dsh->locally_in_use,
+			  (unsigned int)ts->dsh->buffer_size,
+			  (unsigned int)lws_dll2_count(&ts->scoreboard),
+			  (unsigned int)ts->held,
+			  (unsigned long long)(ts->next_tx_offset -
+					       ts->ack_offset),
+			  ts->peer_proven ? "" : "un",
+			  (unsigned int)ts->retry_count,
+			  (unsigned int)ts->info.retry_policy->conceal_count,
+			  (unsigned int)len, (unsigned long long)offset);
 		lws_free(r);
 		return 1;
 	}
