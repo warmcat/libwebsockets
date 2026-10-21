@@ -59,9 +59,26 @@ typedef struct lws_log_ship_line {
 	uint64_t		seq;	/**< per-shipper sequence, from 1 */
 	uint64_t		t_us;	/**< UTC us when it was logged */
 	const char		*text;	/**< printable ASCII, NUL terminated */
+	const char		*tag;	/**< NULL, or its tag, see
+					 * lws_log_ship_set_tagger() */
 	size_t			len;	/**< strlen(text) */
 	int			level;	/**< its single LLL_ bit */
 } lws_log_ship_line_t;
+
+/**
+ * lws_log_ship_tagger_t - find a line's tag
+ *
+ * \param line: the line, printable ASCII
+ * \param len: its length
+ * \param tag: where to put the tag, NUL terminated
+ * \param tag_len: the room at tag, 33
+ *
+ * Returns 0 if the line has a tag, else nonzero.  A tag is 1 to 32 of
+ * [A-Za-z0-9._/-], anything else is ignored.  It's called with the backlog
+ * locked, so it must be quick, and mustn't log.
+ */
+typedef int (*lws_log_ship_tagger_t)(const char *line, size_t len, char *tag,
+				     size_t tag_len);
 
 /**
  * lws_log_ship_store_cb_t - a local store takes some lines
@@ -92,7 +109,9 @@ struct lws_log_ship_info {
 	 * lws_log_ship_destroy() wasn't called before. */
 	const char			*url;
 	/**< the ingestor, "wss://host[:port]/path"; ws:// is only allowed to
-	 * a loopback address.  NULL with .store set for a local store. */
+	 * a loopback address.  NULL with .store set for a local store, or
+	 * NULL with no .store to only keep lines until lws_log_ship_link()
+	 * says where they go, eg, when that's only known later. */
 	const char			*secret;
 	/**< shared with the ingestor, it's sent inside the tls tunnel */
 	const char			*kind;
@@ -110,6 +129,10 @@ struct lws_log_ship_info {
 	int				client_ssl_flags;
 	/**< extra LCCSCF_ flags for the connection, eg, to allow a selfsigned
 	 * ingestor in a test */
+	char				no_sysinfo;
+	/**< the first window starts with lines describing the system, see
+	 * lws_sysinfo_create(), unless this is set, eg, because the
+	 * application logs them itself */
 };
 
 /**
@@ -123,6 +146,44 @@ struct lws_log_ship_info {
  */
 LWS_VISIBLE LWS_EXTERN struct lws_log_ship *
 lws_log_ship_create(const struct lws_log_ship_info *info);
+
+/**
+ * lws_log_ship_link() - say where the lines of a shipper made without a url go
+ *
+ * \param ls: the shipper
+ * \param url: the ingestor, as for lws_log_ship_info .url
+ * \param secret: shared with the ingestor
+ *
+ * Returns 0 if it's connecting, or nonzero if it already has somewhere to
+ * go, or the url or secret can't be used.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_log_ship_link(struct lws_log_ship *ls, const char *url,
+		  const char *secret);
+
+/**
+ * lws_log_ship_set_host() - ship as a different host name from now on
+ *
+ * \param ls: the shipper
+ * \param host: the new name, up to 64 of [A-Za-z0-9._-]
+ *
+ * Eg, a process that only learns its name some time after it started.  The
+ * ingestor renames the source, with what it already has from it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_log_ship_set_host(struct lws_log_ship *ls, const char *host);
+
+/**
+ * lws_log_ship_set_tagger() - tag lines as they're sent
+ *
+ * \param tagger: NULL, or the tagger
+ *
+ * An application can tag lines with something they're about, eg, a job, by
+ * what's in them, so the ingestor can find them by it.  It's processwide,
+ * and can be set before the shipper is made.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_log_ship_set_tagger(lws_log_ship_tagger_t tagger);
 
 /**
  * lws_log_ship_destroy() - stop keeping and shipping our log lines

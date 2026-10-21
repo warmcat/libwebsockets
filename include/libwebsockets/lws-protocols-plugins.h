@@ -483,6 +483,7 @@ extern const struct lws_protocols lws_openmetrics_export_protocols[
 #endif
 	];
 extern const struct lws_protocols lws_dht_object_store_protocols[];
+extern const struct lws_protocols lws_log_ingest_protocols[1];
 
 #define LWSOMPROIDX_DIRECT_HTTP_SERVER		0
 #define LWSOMPROIDX_PROX_HTTP_SERVER		1

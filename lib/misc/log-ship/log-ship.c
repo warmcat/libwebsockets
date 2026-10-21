@@ -63,6 +63,7 @@
 #define LS_HOST_MAX		64
 #define LS_SECRET_MAX		256
 #define LS_SESSION_MAX		32
+#define LS_TAG_MAX		32
 /* the longest a window may stay open, whoever asks */
 #define LS_WINDOW_MAX_US	(24ll * 3600 * LWS_US_PER_SEC)
 
@@ -144,6 +145,7 @@ static pthread_mutex_t ls_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 static struct lws_log_ship *ls_one;
+static lws_log_ship_tagger_t ls_tagger;
 
 static const uint32_t ls_backoff_ms[] = { 1000, 2000, 5000, 15000, 30000,
 					  60000 };
@@ -205,6 +207,35 @@ ls_valid_name(const char *s, size_t max)
 
 	for (n = 0; s[n]; n++)
 		if (n == max || !ls_name_char(s[n]))
+			return 0;
+
+	return n > 0;
+}
+
+void
+lws_log_ship_set_tagger(lws_log_ship_tagger_t tagger)
+{
+	ls_lock_take();
+	ls_tagger = tagger;
+	ls_lock_release();
+}
+
+/*
+ * Lock held.  The line's tag, if the application's tagger gives it one we can
+ * use: 1 to 32 of [A-Za-z0-9._/-]
+ */
+
+static int
+ls_tag(const ls_line_t *l, char *tag)
+{
+	size_t n;
+
+	if (!ls_tagger || ls_tagger((const char *)(l + 1), l->len, tag,
+				    LS_TAG_MAX + 1))
+		return 0;
+
+	for (n = 0; tag[n]; n++)
+		if (n == LS_TAG_MAX || (!ls_name_char(tag[n]) && tag[n] != '/'))
 			return 0;
 
 	return n > 0;
@@ -361,8 +392,8 @@ ls_until_cb(lws_sorted_usec_list_t *sul)
 
 	/* what was logged in the window still goes, but no more is raised */
 	ls_level(ls, 0);
-	lwsl_cx_notice(ls->cx, "log window for session %s closed",
-		       ls->session[0] ? ls->session : "-");
+	lwsl_cx_notice(ls->cx, "log window%s%s closed",
+		       ls->session[0] ? " for session " : "", ls->session);
 }
 
 static void
@@ -419,8 +450,9 @@ lws_log_ship_window(struct lws_log_ship *ls, uint64_t from_us,
 	lws_sul_schedule(ls->cx, 0, &ls->sul_until, ls_until_cb,
 			 (lws_usec_t)(until_us - now));
 
-	lwsl_cx_notice(ls->cx, "log window for session %s: from %llu, %llus "
-		       "more, level +0x%x", ls->session[0] ? ls->session : "-",
+	lwsl_cx_notice(ls->cx, "log window%s%s: from %llu, %llus more, level "
+		       "+0x%x", ls->session[0] ? " for session " : "",
+		       ls->session,
 		       (unsigned long long)from_us,
 		       (unsigned long long)((until_us - now) / LWS_US_PER_SEC),
 		       (unsigned int)(lvl & LS_LVL_MASK));
@@ -488,6 +520,7 @@ static void
 ls_pump_local(struct lws_log_ship *ls)
 {
 	lws_log_ship_line_t lines[64];
+	char tags[64][LS_TAG_MAX + 1];
 	ls_line_t *took[64], *l;
 	size_t n, m;
 
@@ -503,6 +536,7 @@ ls_pump_local(struct lws_log_ship *ls)
 				ls->hint = NULL;
 			lws_dll2_remove(&l->list);
 			ls->held -= l->cost;
+			lines[n].tag = ls_tag(l, tags[n]) ? tags[n] : NULL;
 			took[n++] = l;
 			l = nx;
 		}
@@ -538,6 +572,7 @@ ls_pump(lws_sorted_usec_list_t *sul)
 		goto again;
 	}
 
+	/* not linked yet, or not connected: the lines wait in the backlog */
 	if (!ls->wsi || !ls->connected || !ls->sent_hello)
 		goto again;
 
@@ -630,9 +665,9 @@ ls_write_hello(struct lws_log_ship *ls)
 static int
 ls_write_batch(struct lws_log_ship *ls)
 {
-	size_t worst = 96 + (6 * LWS_LOG_SHIP_LINE_MAX), n;
+	size_t worst = 160 + (6 * LWS_LOG_SHIP_LINE_MAX), n;
+	char *p, *end, tag[LS_TAG_MAX + 1];
 	uint8_t *buf, *start;
-	char *p, *end;
 	ls_line_t *l;
 	int count = 0, r;
 
@@ -655,7 +690,11 @@ ls_write_batch(struct lws_log_ship *ls)
 				  count++ ? "," : "",
 				  (unsigned long long)l->seq,
 				  (unsigned long long)l->t, l->level);
-		p = ls_json_str(p, end - 8, (const char *)(l + 1));
+		p = ls_json_str(p, end - 64, (const char *)(l + 1));
+		if (ls_tag(l, tag))
+			/* we checked it's only name chars and / */
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  ",\"g\":\"%s\"", tag);
 		*p++ = '}';
 		l->inflight = 1;
 		ls->hint = l;
@@ -746,7 +785,8 @@ ls_ctl_cb(struct lejp_ctx *ctx, char reason)
 		lws_strncpy(c->schema, ctx->buf, sizeof(c->schema));
 		break;
 	case LSC_SESSION:
-		if (!ls_valid_name(ctx->buf, LS_SESSION_MAX))
+		/* it's only for saying which, it may be empty */
+		if (ctx->buf[0] && !ls_valid_name(ctx->buf, LS_SESSION_MAX))
 			return -1;
 		lws_strncpy(c->session, ctx->buf, sizeof(c->session));
 		break;
@@ -1068,6 +1108,51 @@ ls_set_name(char *dest, size_t max, const char *src, const char *what)
 	return 0;
 }
 
+static void
+ls_link_free(struct lws_log_ship *ls)
+{
+	if (ls->secret) {
+		lws_explicit_bzero(ls->secret, strlen(ls->secret));
+		lws_free(ls->secret);
+		ls->secret = NULL;
+	}
+	lws_free(ls->path);
+	ls->path = NULL;
+	if (ls->uri)
+		lws_parse_uri_destroy(&ls->uri);
+}
+
+/* where the lines go, and the secret that lets them in */
+
+static int
+ls_link_parse(struct lws_log_ship *ls, const char *url, const char *secret)
+{
+	size_t n;
+
+	if (!secret || !secret[0] || strlen(secret) > LS_SECRET_MAX) {
+		lwsl_cx_err(ls->cx, "needs a secret, up to %u chars",
+			    LS_SECRET_MAX);
+		return 1;
+	}
+
+	ls->uri = lws_parse_uri_create(url);
+	if (!ls->uri || !ls->uri->host[0] || !ls_ws_ok(ls->uri)) {
+		lwsl_cx_err(ls->cx, "url must be wss://, or ws:// to this "
+			    "machine");
+		return 1;
+	}
+
+	n = strlen(ls->uri->path) + 2;
+	ls->path = lws_malloc(n, __func__);
+	ls->secret = lws_strdup(secret);
+	if (!ls->path || !ls->secret)
+		return 1;
+	lws_snprintf(ls->path, n, "%s%s", ls->uri->path[0] == '/' ? "" : "/",
+		     ls->uri->path);
+
+	return 0;
+}
+
 struct lws_log_ship *
 lws_log_ship_create(const struct lws_log_ship_info *info)
 {
@@ -1076,8 +1161,9 @@ lws_log_ship_create(const struct lws_log_ship_info *info)
 	uint8_t r[8];
 	size_t n;
 
-	if (!info->vhost || (!info->url && !info->store)) {
-		lwsl_err("%s: needs a vhost, and a url or a store\n", __func__);
+	if (!info->vhost || (info->url && info->store)) {
+		lwsl_err("%s: needs a vhost, and at most one of a url or a "
+			 "store\n", __func__);
 		return NULL;
 	}
 
@@ -1090,6 +1176,7 @@ lws_log_ship_create(const struct lws_log_ship_info *info)
 	ls->store = info->store;
 	ls->opaque = info->opaque;
 	ls->ssl_flags = info->client_ssl_flags;
+	ls->said_sysinfo = info->no_sysinfo;
 	ls->backlog_max = info->backlog_max ? info->backlog_max :
 					      LS_BACKLOG_DEF;
 
@@ -1115,30 +1202,8 @@ lws_log_ship_create(const struct lws_log_ship_info *info)
 		goto bail;
 	lws_hex_from_byte_array(r, sizeof(r), ls->inst, sizeof(ls->inst));
 
-	if (!ls->store) {
-		if (!info->secret || !info->secret[0] ||
-		    strlen(info->secret) > LS_SECRET_MAX) {
-			lwsl_err("%s: needs a secret, up to %u chars\n",
-				 __func__, LS_SECRET_MAX);
-			goto bail;
-		}
-
-		ls->uri = lws_parse_uri_create(info->url);
-		if (!ls->uri || !ls->uri->host[0] || !ls_ws_ok(ls->uri)) {
-			lwsl_err("%s: url must be wss://, or ws:// to this "
-				 "machine\n", __func__);
-			goto bail;
-		}
-
-		n = strlen(ls->uri->path) + 2;
-		ls->path = lws_malloc(n, __func__);
-		ls->secret = lws_strdup(info->secret);
-		if (!ls->path || !ls->secret)
-			goto bail;
-		lws_snprintf(ls->path, n, "%s%s",
-			     ls->uri->path[0] == '/' ? "" : "/",
-			     ls->uri->path);
-	}
+	if (info->url && ls_link_parse(ls, info->url, info->secret))
+		goto bail;
 
 	ls_lock_take();
 	if (ls_one) {
@@ -1150,28 +1215,76 @@ lws_log_ship_create(const struct lws_log_ship_info *info)
 	ls_lock_release();
 
 	lws_sul_schedule(ls->cx, 0, &ls->sul_pump, ls_pump, LS_PUMP_US);
-	if (!ls->store)
+	if (ls->uri)
 		/* not from inside whatever is creating us, eg, the vhost */
 		lws_sul_schedule(ls->cx, 0, &ls->sul_connect, ls_connect_cb,
 				 LWS_US_PER_MS);
 
 	lwsl_cx_notice(ls->cx, "keeping our logs for %s as %s %s, inst %s",
-		       ls->store ? "a local store" : info->url, ls->kind,
-		       ls->host, ls->inst);
+		       ls->store ? "a local store" :
+				(info->url ? info->url : "a link later"),
+		       ls->kind, ls->host, ls->inst);
 
 	return ls;
 
 bail:
-	if (ls->secret) {
-		lws_explicit_bzero(ls->secret, strlen(ls->secret));
-		lws_free(ls->secret);
-	}
-	lws_free(ls->path);
-	if (ls->uri)
-		lws_parse_uri_destroy(&ls->uri);
+	ls_link_free(ls);
 	lws_free(ls);
 
 	return NULL;
+}
+
+int
+lws_log_ship_link(struct lws_log_ship *ls, const char *url,
+		  const char *secret)
+{
+	if (ls->store || ls->uri) {
+		lwsl_cx_err(ls->cx, "already has somewhere to go");
+		return 1;
+	}
+
+	if (ls_link_parse(ls, url, secret)) {
+		ls_link_free(ls);
+		return 1;
+	}
+
+	lwsl_cx_notice(ls->cx, "shipping our logs to %s", url);
+	lws_sul_schedule(ls->cx, 0, &ls->sul_connect, ls_connect_cb,
+			 LWS_US_PER_MS);
+
+	return 0;
+}
+
+int
+lws_log_ship_set_host(struct lws_log_ship *ls, const char *host)
+{
+	char h[LS_HOST_MAX + 1];
+
+	if (ls_set_name(h, LS_HOST_MAX, host, "host"))
+		return 1;
+	if (!strcmp(h, ls->host))
+		return 0;
+
+	lwsl_cx_notice(ls->cx, "our logs now ship as %s, were %s", h,
+		       ls->host);
+	lws_strncpy(ls->host, h, sizeof(ls->host));
+
+	/*
+	 * The ingestor knows us by the name we said hello with: say hello
+	 * again, on a new connection, and it renames us, with everything it
+	 * already has from us
+	 */
+	if (ls->wsi) {
+		lws_set_opaque_user_data(ls->wsi, NULL);
+		lws_set_timeout(ls->wsi, PENDING_TIMEOUT_KILLED_BY_PARENT,
+				LWS_TO_KILL_ASYNC);
+		ls_disconnected(ls);
+		ls->retry_count = 0;
+		lws_sul_schedule(ls->cx, 0, &ls->sul_connect, ls_connect_cb,
+				 LWS_US_PER_MS);
+	}
+
+	return 0;
 }
 
 void
@@ -1202,13 +1315,7 @@ lws_log_ship_destroy(struct lws_log_ship **pls)
 	} lws_end_foreach_dll_safe(d, d1);
 	ls_lock_release();
 
-	if (ls->secret) {
-		lws_explicit_bzero(ls->secret, strlen(ls->secret));
-		lws_free(ls->secret);
-	}
-	lws_free(ls->path);
-	if (ls->uri)
-		lws_parse_uri_destroy(&ls->uri);
+	ls_link_free(ls);
 	lws_free(ls);
 
 	*pls = NULL;

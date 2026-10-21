@@ -110,6 +110,12 @@ if (LWS_FOR_SAI)
 	set(LWS_WITH_EMAIL 1)		# sai-server's mail notifications
 	set(LWS_WITH_SYS_INFO 1)	# the system each daemon's logs came from
 	set(LWS_WITH_SYS_NTPCLIENT 1)	# sai-builder waits for the right time
+	set(LWS_WITH_LOG_SHIP 1)	# every daemon's logs go to sai-server
+	if (NOT WIN32)
+		# sai-server keeps them with lws-log-ingest; builders, the
+		# only part of sai on windows, don't need it
+		set(LWS_WITH_PLUGINS 1)
+	endif()
 endif()
 
 if(LWS_WITH_DISTRO_RECOMMENDED)
