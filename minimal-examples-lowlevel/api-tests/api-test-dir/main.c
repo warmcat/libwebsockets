@@ -431,6 +431,7 @@ static void
 race_swapper(int ctl, int ack)
 {
 	struct pollfd pfd;
+	ssize_t r;
 	char c;
 
 	pfd.fd = ctl;
@@ -440,7 +441,8 @@ race_swapper(int ctl, int ack)
 	while (1) {
 		race_swap();
 
-		switch (read(ctl, &c, 1)) {
+		r = read(ctl, &c, 1);
+		switch (r) {
 		case 1:
 			break;
 		case 0:
