@@ -417,6 +417,11 @@ struct lws_dht_error_info {
  *	are already stored take anybody's announce or subscription; this
  *	stops one host filling the DHT_MAX_HASHES table so no new hash can be
  *	stored for anyone else.
+ * \param blacklist_secs: 0 for the default, 600, or how many seconds an
+ *	endpoint the DHT blacklists itself stays blacklisted.  It does that to
+ *	a peer that proved it receives from us and then broke the protocol,
+ *	eg, acknowledged data we never sent.  This does not affect what
+ *	blacklist_cb decides.
  */
 typedef struct lws_dht_info {
 	struct lws_vhost		*vhost;
@@ -436,6 +441,7 @@ typedef struct lws_dht_info {
 	lws_dht_hash_cb_t		*hash_cb;
 	lws_dht_capture_announce_cb_t	*capture_announce_cb;
 	unsigned int			max_hashes_per_source;
+	unsigned int			blacklist_secs;
 } lws_dht_info_t;
 
 /**

@@ -44,10 +44,11 @@
  *    may enter A's routing table: only an answer to a request A sent to
  *    that endpoint may change it (G-119)
  *  - A sends R reliable data, and R answers its chunk with acks that claim
- *    it all: one with the fixed tid acks used to carry, one with the wrong
- *    nonce, one echoing the chunk's tid but acking bytes A never sent.
- *    None of them may complete the transfer, so A keeps retransmitting; only
- *    an ack echoing the chunk's tid for what was sent completes it (G-096)
+ *    it all: one with the fixed tid acks used to carry, and one with the
+ *    wrong nonce.  Neither may complete the transfer, so A keeps
+ *    retransmitting; only an ack echoing the chunk's tid for what was sent
+ *    completes it (G-096).  (One echoing the tid but acking bytes A never
+ *    sent gets R blacklisted: api-test-dht-seq-refuse checks that.)
  *  - R asks B for its capabilities, as a stranger B must not repeat itself
  *    to (answering B's challenge to its first chunk, see Q below), and acks
  *    B's answer with the fixed tid, as a spoofer naming R could.  That must
@@ -231,7 +232,6 @@ enum {
 	KRPC_SEQ_A_SENT,	/* A sent R data, waiting for its chunk */
 	KRPC_SEQ_ACKED_SQNC,	/* R acked it with the old fixed tid */
 	KRPC_SEQ_ACKED_NONCE,	/* ... with the wrong nonce */
-	KRPC_SEQ_ACKED_BEYOND,	/* ... for bytes A never sent */
 	KRPC_SEQ_ACKED_REAL,	/* ... properly: now it may complete */
 	KRPC_SEQ_CAP1,		/* R asked B for its capabilities */
 	KRPC_SEQ_CAP1_ACKED,	/* R acked B's answer with the fixed tid */
@@ -698,11 +698,6 @@ seq_rx(const struct sockaddr_in *from, const uint8_t *in, size_t len)
 		seq_state = KRPC_SEQ_ACKED_NONCE;
 		break;
 	case KRPC_SEQ_ACKED_NONCE:
-		krpc_queue_ack(&peer_r, tid, tid_len, strlen(seq_msg) + 1,
-			       &sa_a);
-		seq_state = KRPC_SEQ_ACKED_BEYOND;
-		break;
-	case KRPC_SEQ_ACKED_BEYOND:
 		krpc_queue_ack(&peer_r, tid, tid_len, strlen(seq_msg), &sa_a);
 		seq_state = KRPC_SEQ_ACKED_REAL;
 		break;

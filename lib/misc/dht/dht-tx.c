@@ -333,6 +333,7 @@ tid_match(const uint8_t *tid, const char *prefix,
 int
 node_blacklisted(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen)
 {
+	lws_usec_t now = lws_now_usecs();
 	int i;
 
 	if (salen > sizeof(struct sockaddr_storage))
@@ -342,10 +343,70 @@ node_blacklisted(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 		return 1;
 
 	for (i = 0; i < DHT_MAX_BLACKLISTED; i++)
-		if (memcmp(&ctx->blacklist[i], sa, (size_t)salen) == 0)
+		if (ctx->blacklist[i].until > now &&
+		    dht_sa_same_peer((const struct sockaddr *)
+						&ctx->blacklist[i].ss, sa))
 			return 1;
 
 	return 0;
+}
+
+/*
+ * Refuse to talk to the endpoint for ctx->blacklist_secs.  Only for one that
+ * proved it is there (eg, by echoing a nonce only it could have received
+ * from us) and then broke the protocol: a datagram's source address can be
+ * forged, and blacklisting on an unproven one would let anybody have us
+ * refuse whoever they name.
+ */
+
+void
+dht_blacklist_endpoint(struct lws_dht_ctx *ctx, const struct sockaddr *sa,
+		       size_t salen, const char *reason)
+{
+	lws_usec_t now = lws_now_usecs();
+	struct dht_blacklisted *b = NULL;
+	int i;
+
+	if (sa->sa_family != AF_INET && sa->sa_family != AF_INET6)
+		return;
+
+	if (salen > sizeof(b->ss))
+		salen = sizeof(b->ss);
+
+	/* the same endpoint's entry, else an unused or expired one... */
+
+	for (i = 0; i < DHT_MAX_BLACKLISTED; i++)
+		if (ctx->blacklist[i].until > now &&
+		    dht_sa_same_peer((const struct sockaddr *)
+						&ctx->blacklist[i].ss, sa)) {
+			b = &ctx->blacklist[i];
+			break;
+		}
+
+	/* ...else the one closest to expiring anyway */
+
+	if (!b)
+		for (i = 0; i < DHT_MAX_BLACKLISTED; i++)
+			if (!b || ctx->blacklist[i].until < b->until)
+				b = &ctx->blacklist[i];
+
+	memset(&b->ss, 0, sizeof(b->ss));
+	memcpy(&b->ss, sa, salen);
+	b->until = now + (lws_usec_t)ctx->blacklist_secs * LWS_US_PER_SEC;
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+	{
+		char ads[64] = "unknown";
+
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa, ads,
+					       sizeof(ads));
+		lwsl_dht_warn("%s: %s:%u blacklisted for %us: %s\n", __func__,
+			      ads, ntohs(dht_sa_port(sa)), ctx->blacklist_secs,
+			      reason);
+	}
+#else
+	(void)reason;
+#endif
 }
 
 int

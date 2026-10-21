@@ -964,12 +964,27 @@ dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 	}
 
 	/* an ack lacking the offset leaves it at ~0, refused below */
-	if (mp->offset > (uint64_t)-1 - mp->len)
+	if (mp->offset > (uint64_t)-1 - mp->len ||
+	    lws_transport_sequencer_acknowledge_sack(dts->ts,
+						     mp->offset + mp->len,
+						     mp->sack, mp->num_sack,
+						     mp->status) >= 0)
 		return;
 
-	lws_transport_sequencer_acknowledge_sack(dts->ts, mp->offset + mp->len,
-						 mp->sack, mp->num_sack,
-						 mp->status);
+	/*
+	 * It echoed our nonce, so it received our chunks at that address, and
+	 * then acked data we never sent it: it's broken or hostile, nothing
+	 * we send it can be trusted to be delivered.  A refused ack touched
+	 * nothing, dts is still there.
+	 */
+#if defined(LWS_WITH_DHT_BACKEND)
+	blacklist_node(ctx, mp->id, from, dts->salen,
+		       "acked data we never sent it");
+#else
+	dht_blacklist_endpoint(ctx, from, dts->salen,
+			       "acked data we never sent it");
+#endif
+	lws_dht_ts_fail(dts);
 }
 
 /*
@@ -1081,7 +1096,15 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		return 0;
 
 	if (node_blacklisted(ctx, from, fromlen)) {
-		lwsl_dht_rx("%s: Received packet from blacklisted node\n", __func__);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+		char ads[64] = "unknown";
+
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)from, ads,
+					       sizeof(ads));
+		lwsl_dht_rx("%s: dropping %u bytes from blacklisted %s:%u\n",
+			    __func__, (unsigned int)buflen, ads,
+			    ntohs(dht_sa_port(from)));
+#endif
 		return 0;
 	}
 

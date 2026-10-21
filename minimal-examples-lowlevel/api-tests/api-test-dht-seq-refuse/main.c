@@ -19,6 +19,11 @@
  *    then acks everything, gets B LWS_DHT_EVENT_WRITEABLE for P, after which
  *    B's next message to P is taken, and completes when P acks it
  *
+ *  - P then acks, with B's nonce, data B never sent it.  Only P can have
+ *    seen the nonce, so B blacklists P itself: P's session fails at once,
+ *    and messages to P are refused until the blacklisting expires, after
+ *    the one second we configure it for here
+ *
  * Nothing listens on the fan port, at 127.0.0.2 (silent) or 127.0.0.3
  * (blacklisted).  The UDP ports are allocated uniquely at build time and
  * passed in on the command line, so parallel ctest instances do not collide.
@@ -45,7 +50,14 @@ enum {
 	SF_P_ACK,	/* P acks all it was sent, once it knows B's tid */
 	SF_WRITEABLE,	/* B hears P has room: send P one more */
 	SF_DONE,	/* P acks that, and silent's session fails */
+	SF_LIE,		/* P acks what it was never sent */
+	SF_EXPIRE,	/* P is let back in when its blacklisting expires */
 };
+
+/* B's own blacklisting, and how long we wait for it to be over */
+#define SF_BLACKLIST_SECS	1
+#define SF_EXPIRE_US		((SF_BLACKLIST_SECS * LWS_US_PER_SEC) + \
+				 (200 * LWS_US_PER_MS))
 
 static struct lws_context *cx;
 static struct lws_dht_ctx *dht;
@@ -53,6 +65,7 @@ static struct lws *wsi_p;
 static struct sockaddr_in sa_dht, sa_silent, sa_black, sa_p;
 static lws_sorted_usec_list_t sul_poll, sul_deadline;
 static int state, retcode = 1;
+static lws_usec_t lie_time;
 static uint8_t msg[SF_MSG_LEN];
 
 static struct {
@@ -295,6 +308,34 @@ step(void)
 			return -1;
 		}
 
+		sf_p_send_ack((uint64_t)(sf.accepted_p + 2) * SF_MSG_LEN);
+		lie_time = lws_now_usecs();
+		state++;
+		return 0;
+
+	case SF_LIE:
+		if (!sf.p_failed)
+			return 0;
+		if (has_ts(&sa_p)) {
+			lwsl_err("blacklisted P's sequencer survived\n");
+			return -1;
+		}
+		if (lws_dht_send_data(dht, (struct sockaddr *)&sa_p, msg,
+				      sizeof(msg)) != LWS_DHT_SEND_REFUSED) {
+			lwsl_err("message to P not refused after its lie\n");
+			return -1;
+		}
+		state++;
+		return 0;
+
+	case SF_EXPIRE:
+		if (lws_now_usecs() - lie_time < SF_EXPIRE_US)
+			return 0;
+		if (lws_dht_send_data(dht, (struct sockaddr *)&sa_p, msg,
+				      sizeof(msg)) != LWS_DHT_SEND_QUEUED) {
+			lwsl_err("P still refused after blacklisting expired\n");
+			return -1;
+		}
 		return 1;
 	}
 
@@ -400,6 +441,7 @@ int main(int argc, const char **argv)
 	di.vhost		= vh;
 	di.cb			= cb_dht;
 	di.blacklist_cb		= blacklist_cb;
+	di.blacklist_secs	= SF_BLACKLIST_SECS;
 	di.name			= "sf";
 	di.port			= port_dht;
 	{

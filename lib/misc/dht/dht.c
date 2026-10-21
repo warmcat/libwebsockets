@@ -732,6 +732,20 @@ dht_on_writeable(struct lws_transport_sequencer *ts)
 	dts->in_cb--;
 }
 
+/*
+ * End the session with the peer now, eg, because we blacklisted it, rather
+ * than retransmit to it until the retries run out.  Not one that is calling
+ * back into the consumer: that has its caller on the stack (G-181), and will
+ * fail on time anyway.
+ */
+
+void
+lws_dht_ts_fail(lws_dht_ts_t *dts)
+{
+	if (!dts->in_cb)
+		dht_on_state_change(dts->ts, 1 /* FAILED */, 0);
+}
+
 static const lws_transport_sequencer_ops_t dht_seq_ops = {
 	.name			= "dht-seq",
 	.tx_chunk		= dht_tx_chunk,
@@ -1333,7 +1347,9 @@ lws_dht_create(const lws_dht_info_t *info)
 	ctx->search_time		= 0;
 #endif
 
-	ctx->next_blacklisted		= 0;
+	ctx->blacklist_secs		= info->blacklist_secs ?
+					  info->blacklist_secs :
+					  DHT_BLACKLIST_SECS;
 
 	ctx->rl_known.time		= ctx->now;
 	ctx->rl_known.tokens		= LWS_DHT_RL_POOL_BURST;

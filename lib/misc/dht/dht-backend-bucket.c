@@ -199,8 +199,8 @@ node_good(struct lws_dht_ctx *ctx, struct node *node)
 }
 
 /*
- * The internal blacklist is an LRU cache of endpoints that have sent
- * incorrect messages.
+ * The internal blacklist holds endpoints that broke the protocol, for a time
+ * (see dht_blacklist_endpoint()).
  *
  * It is the endpoint that is punished.  The id is only what the sender
  * claimed, so the routing table entry and search nodes holding that id are
@@ -211,11 +211,10 @@ node_good(struct lws_dht_ctx *ctx, struct node *node)
  * unsolicited datagram is to be dropped, not blacklisted.
  */
 void
-blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen)
+blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
+	       const struct sockaddr *sa, size_t salen, const char *reason)
 {
 	int i;
-
-	lwsl_dht_warn("Blacklisting broken node.\n");
 
 	if (id) {
 		struct node *n;
@@ -239,15 +238,8 @@ blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct s
 		} lws_end_foreach_dll(d);
 	}
 
-	/* And make sure we don't hear from it again. */
-	if (ctx->next_blacklisted >= DHT_MAX_BLACKLISTED)
-		ctx->next_blacklisted = 0;
-
-	if (salen > sizeof(ctx->blacklist[0]))
-		salen = sizeof(ctx->blacklist[0]);
-
-	memcpy(&ctx->blacklist[ctx->next_blacklisted], sa, salen);
-	ctx->next_blacklisted++;
+	/* And make sure we don't hear from it for a while */
+	dht_blacklist_endpoint(ctx, sa, salen, reason);
 }
 
 /* Split a bucket into two equal parts. */

@@ -41,10 +41,15 @@
 #define lwsl_hexdump_dht		lwsl_hexdump_notice
 
 /*
- * The maximum number of nodes that we snub.  There is probably little
- * reason to increase this value.
+ * The maximum number of endpoints that we snub at once, and for how long by
+ * default.  Only an endpoint that proved it is there and then broke the
+ * protocol is blacklisted, so few are expected; when the table is full, the
+ * entry nearest its expiry makes way.  The time is long enough to stop a
+ * broken peer churning, and short enough that a peer that was only buggy, or
+ * an interop problem between versions, doesn't cost us the peer for long.
  */
 #define DHT_MAX_BLACKLISTED		10
+#define DHT_BLACKLIST_SECS		600
 #define TOKEN_SIZE			8
 
 /*
@@ -339,8 +344,11 @@ struct lws_dht_ctx {
 	unsigned short		search_id;
 #endif
 
-	struct sockaddr_storage blacklist[DHT_MAX_BLACKLISTED];
-	int			next_blacklisted;
+	struct dht_blacklisted {
+		struct sockaddr_storage	ss;
+		lws_usec_t		until; /* 0 = unused */
+	}			blacklist[DHT_MAX_BLACKLISTED];
+	unsigned int		blacklist_secs;
 
 	/* the vote on our external address: [0] IPv4, [1] IPv6 */
 	lws_dht_extvote_t	extvote[2];
@@ -551,7 +559,7 @@ struct bucket * find_bucket(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, i
 struct bucket * previous_bucket(struct bucket *b);
 struct node * find_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int af);
 int node_good(struct lws_dht_ctx *ctx, struct node *node);
-void blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen);
+void blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, const char *reason);
 struct node * maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, int confirm);
 int dht_endpoint_refused(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen);
 int expire_buckets(struct lws_dht_ctx *ctx, lws_dll2_owner_t *bo);
@@ -641,6 +649,7 @@ int dht_req_pending_take(struct lws_dht_ctx *ctx, const uint8_t *tid,
 			 size_t tid_len, const struct sockaddr *from);
 int tid_match(const uint8_t *tid, const char *prefix, unsigned short *seqno_return);
 int node_blacklisted(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen);
+void dht_blacklist_endpoint(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const char *reason);
 int dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len, const struct sockaddr *sa, size_t salen);
 int send_ping(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len);
 int send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len);
@@ -668,6 +677,7 @@ void lws_dht_ip_vote(struct lws_dht_ctx *ctx, const struct sockaddr *from, size_
 struct lws_transport_sequencer * lws_dht_ts_rx(struct lws_dht_ctx *ctx, const struct sockaddr *from, size_t fromlen, const lws_dht_hash_t *id);
 lws_dht_ts_t * lws_dht_ts_find(struct lws_dht_ctx *ctx, const struct sockaddr *sa);
 void lws_dht_ts_touch(lws_dht_ts_t *dts);
+void lws_dht_ts_fail(lws_dht_ts_t *dts);
 int dht_tx_challenge(lws_dht_ts_t *dts, const uint8_t *tid, size_t tid_len);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);
