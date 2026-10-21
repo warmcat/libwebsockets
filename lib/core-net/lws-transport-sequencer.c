@@ -77,6 +77,7 @@ struct lws_transport_sequencer {
 	lws_transport_sequencer_info_t	info;
 
 	lws_sorted_usec_list_t		sul_retry;
+	lws_sorted_usec_list_t		sul_writeable;
 	lws_dsh_t			*dsh;
 
 	lws_dll2_owner_t		scoreboard; /* sender side ranges */
@@ -94,6 +95,7 @@ struct lws_transport_sequencer {
 
 	uint8_t				completed:1;
 	uint8_t				peer_proven:1; /* acked our data */
+	uint8_t				busy:1; /* refused a write, owes on_writeable */
 	lws_transport_sequencer_stats_t	stats;
 };
 
@@ -158,6 +160,26 @@ sul_retry_cb(lws_sorted_usec_list_t *sul)
 					NULL) * LWS_US_PER_MS);
 }
 
+static void
+sul_writeable_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_transport_sequencer *ts = lws_container_of(sul,
+			struct lws_transport_sequencer, sul_writeable);
+
+	if (ts->completed || !ts->busy)
+		return;
+
+	lwsl_info("%s: %s: tx buffer has room again (%u of %u used)\n",
+		  __func__, ts->info.ops->name,
+		  (unsigned int)ts->dsh->locally_in_use,
+		  (unsigned int)ts->dsh->buffer_size);
+
+	ts->busy = 0;
+	/* the last thing we do: it may write, or destroy ts */
+	if (ts->info.ops->on_writeable)
+		ts->info.ops->on_writeable(ts);
+}
+
 struct lws_transport_sequencer *
 lws_transport_sequencer_create(const lws_transport_sequencer_info_t *i)
 {
@@ -191,6 +213,7 @@ lws_transport_sequencer_destroy(struct lws_transport_sequencer **pts)
 		return;
 
 	lws_sul_cancel(&ts->sul_retry);
+	lws_sul_cancel(&ts->sul_writeable);
 	if (ts->dsh)
 		lws_dsh_destroy(&ts->dsh);
 
@@ -240,7 +263,7 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 	struct lws_transport_sequencer_range *r;
 
 	if (ts->completed)
-		return 1;
+		return LWS_TSW_FAILED;
 
 	/* Windowing is now heap-limited by DSH, not range-based */
 
@@ -248,7 +271,7 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 	if (!r) {
 		lwsl_err("%s: %s: OOM, refusing %u-byte write\n", __func__,
 			 ts->info.ops->name, (unsigned int)len);
-		return 1;
+		return LWS_TSW_FAILED;
 	}
 
 	/*
@@ -256,26 +279,46 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 	 * fixed buffer, allocated at create: failing here is not heap OOM, it
 	 * is the peer not having acked enough of what is already queued to
 	 * it to leave room for this.  We refuse this write and keep the rest
-	 * queued: it drains as the peer acks, or the session fails, and
-	 * frees it all, when the retransmits of the oldest chunk run out.
+	 * queued: it drains as the peer acks, and the caller hears from
+	 * on_writeable() when there's room... or the session fails, and frees
+	 * it all, when the retransmits of the oldest chunk run out.
+	 *
+	 * Said in full once per episode, the caller may well try again first.
 	 */
 	if (lws_dsh_alloc_tail(ts->dsh, 0, &offset, sizeof(offset), buf, len)) {
-		lwsl_warn("%s: %s: tx buffer full (%u of %u used, %u ranges, "
-			  "%u held, %llu unacked, peer %sproven, retry %u/%u),"
-			  " refusing %u-byte write at %llu\n", __func__,
-			  ts->info.ops->name,
-			  (unsigned int)ts->dsh->locally_in_use,
-			  (unsigned int)ts->dsh->buffer_size,
-			  (unsigned int)lws_dll2_count(&ts->scoreboard),
-			  (unsigned int)ts->held,
-			  (unsigned long long)(ts->next_tx_offset -
-					       ts->ack_offset),
-			  ts->peer_proven ? "" : "un",
-			  (unsigned int)ts->retry_count,
-			  (unsigned int)ts->info.retry_policy->conceal_count,
-			  (unsigned int)len, (unsigned long long)offset);
+		if (!lws_dll2_get_head(&ts->scoreboard)) {
+			/* nothing to drain: it will never fit */
+			lwsl_err("%s: %s: %u-byte write can't fit tx buffer "
+				 "(%u)\n", __func__, ts->info.ops->name,
+				 (unsigned int)len,
+				 (unsigned int)ts->dsh->buffer_size);
+			lws_free(r);
+			return LWS_TSW_FAILED;
+		}
+		if (!ts->busy)
+			lwsl_warn("%s: %s: tx buffer full (%u of %u used, "
+				  "%u ranges, %u held, %llu unacked, peer "
+				  "%sproven, retry %u/%u), refusing %u-byte "
+				  "write at %llu\n", __func__,
+				  ts->info.ops->name,
+				  (unsigned int)ts->dsh->locally_in_use,
+				  (unsigned int)ts->dsh->buffer_size,
+				  (unsigned int)lws_dll2_count(&ts->scoreboard),
+				  (unsigned int)ts->held,
+				  (unsigned long long)(ts->next_tx_offset -
+						       ts->ack_offset),
+				  ts->peer_proven ? "" : "un",
+				  (unsigned int)ts->retry_count,
+				  (unsigned int)
+					ts->info.retry_policy->conceal_count,
+				  (unsigned int)len, (unsigned long long)offset);
+		else
+			lwsl_info("%s: %s: tx buffer still full, refusing "
+				  "%u-byte write\n", __func__,
+				  ts->info.ops->name, (unsigned int)len);
+		ts->busy = 1;
 		lws_free(r);
-		return 1;
+		return LWS_TSW_BUSY;
 	}
 
 	r->offset = offset;
@@ -322,7 +365,7 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 					 &ts->retry_count);
 	}
 
-	return 0;
+	return LWS_TSW_QUEUED;
 }
 
 int
@@ -340,11 +383,12 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 {
 	struct lws_transport_sequencer_range *r;
 	size_t i, obj_len;
+	int freed = 0;
 	void *obj;
 	uint64_t *p_off;
 
 	if (ts->completed)
-		return -1;
+		return 1;
 
 	/*
 	 * The transport has bound this ack to our session, but its contents
@@ -389,8 +433,10 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 			 */
 			ts->peer_proven = 1;
 			r->acked = 1;
-			if (r->dsh_obj)
+			if (r->dsh_obj) {
 				lws_dsh_free(&r->dsh_obj);
+				freed = 1;
+			}
 		}
 	} lws_end_foreach_dll_safe(d, d1);
 
@@ -402,8 +448,10 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 			    r->offset + r->len <= blocks[i].start + blocks[i].len) {
 				ts->peer_proven = 1;
 				r->acked = 1;
-				if (r->dsh_obj)
+				if (r->dsh_obj) {
 					lws_dsh_free(&r->dsh_obj);
+					freed = 1;
+				}
 			}
 		} lws_end_foreach_dll(d);
 	}
@@ -430,6 +478,14 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	/* the ack proved the peer: what we held back from it can go */
 	lws_ts_send_held(ts);
 
+	/*
+	 * A writer we refused can try again now there's room... from the
+	 * event loop, so it doesn't write or destroy ts from inside here
+	 */
+	if (freed && ts->busy)
+		lws_sul_schedule(ts->info.cx, 0, &ts->sul_writeable,
+				 sul_writeable_cb, 1);
+
 	/* Schedule next retransmission from head of DSH if window not empty */
 	if (ts->next_tx_offset > ts->ack_offset) {
 		if (!lws_dsh_get_head(ts->dsh, 0, &obj, &obj_len)) {
@@ -450,7 +506,9 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	return 0;
 
 bad_ack:
-	lwsl_notice("%s: ack beyond what was sent (%llu), refused\n", __func__,
+	lwsl_notice("%s: %s: ack to %llu beyond the %llu sent, refused\n",
+		    __func__, ts->info.ops->name,
+		    (unsigned long long)cumulative_offset,
 		    (unsigned long long)ts->next_tx_offset);
 
 	return -1;

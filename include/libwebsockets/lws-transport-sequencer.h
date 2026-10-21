@@ -86,6 +86,14 @@ typedef struct lws_transport_sequencer_ops {
 	 * status is protocol-specific error code (e.g., DHT_STATUS_OUT_OF_STORAGE).
 	 * This is the last thing the sequencer does: it may destroy it. */
 
+	void (*on_writeable)(struct lws_transport_sequencer *ts);
+	/**< Optional.  A write was refused with LWS_TSW_BUSY, and the peer
+	 * has since acknowledged enough to make room: write again.  Called
+	 * once per refusal episode, from the event loop and not from inside
+	 * any sequencer api, so it may write, or destroy the sequencer.  If
+	 * the session fails before there is room, on_state_change() reports
+	 * that instead. */
+
 } lws_transport_sequencer_ops_t;
 
 typedef struct lws_transport_sequencer_stats {
@@ -141,11 +149,32 @@ LWS_VISIBLE LWS_EXTERN void
 lws_transport_sequencer_destroy(struct lws_transport_sequencer **pts);
 
 /**
+ * enum lws_transport_sequencer_write_result - what became of a write
+ */
+enum lws_transport_sequencer_write_result {
+	LWS_TSW_QUEUED		= 0,
+	/**< taken, it is sent and kept until it is acknowledged */
+	LWS_TSW_FAILED		= 1,
+	/**< refused, it never can be: the session is over, or OOM */
+	LWS_TSW_BUSY		= 2,
+	/**< refused for now: the tx buffer is full of data the peer has not
+	 * acknowledged.  ops->on_writeable() is called when there is room,
+	 * unless the session fails first */
+};
+
+/**
  * lws_transport_sequencer_write() - Queue data for reliable transmission
  *
  * \param ts: sequencer instance
  * \param buf: data to send
  * \param len: length of data
+ *
+ * The sequencer keeps what it sends until the peer acknowledges it, in a
+ * fixed buffer of about twice the window size.  When that is full, the write
+ * is refused with LWS_TSW_BUSY, and the caller must keep it and write it
+ * again from ops->on_writeable().
+ *
+ * Returns an enum lws_transport_sequencer_write_result.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_write(struct lws_transport_sequencer *ts,
@@ -160,6 +189,8 @@ lws_transport_sequencer_write(struct lws_transport_sequencer *ts,
  * \param len: length of data
  *
  * The offset must be within [ack_offset, ack_offset + window_size].
+ *
+ * Returns as lws_transport_sequencer_write().
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
@@ -196,7 +227,11 @@ lws_transport_sequencer_acknowledge(struct lws_transport_sequencer *ts,
  *
  * An ack covering bytes that were never sent (the cumulative offset or any
  * SACK block beyond the highest offset sent) is refused whole and returns -1:
- * nothing is retired and the peer is not proven by it.
+ * nothing is retired and the peer is not proven by it.  Since the transport
+ * bound the ack to the session, the peer is broken or hostile.
+ *
+ * Returns 0 if the ack was taken, 1 if the session is already over, or -1 if
+ * it was refused.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
