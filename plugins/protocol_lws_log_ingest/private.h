@@ -45,6 +45,7 @@
 #define LI_SRC_MAX		200	/* a session's src= */
 #define LI_NOTE_MAX		200
 #define LI_WHO_MAX		128
+#define LI_TAG_MAX		32
 /* a line's time may be this far from ours */
 #define LI_SKEW_MAX_US		(24ll * 3600 * LWS_US_PER_SEC)
 
@@ -84,6 +85,7 @@ struct vhd {
 	struct lws_vhost	*vh;
 	sqlite3			*pdb;
 	sqlite3_stmt		*sm_line;	/* in a transaction */
+	sqlite3_stmt		*sm_tag;
 	struct lws_log_ship	*own;		/* our own lines, if we may */
 
 	lws_dll2_owner_t	shippers;	/* struct pss, authenticated */
@@ -99,6 +101,7 @@ struct vhd {
 
 	const char		*secret;
 	const char		*service;	/* the lws-login grant */
+	const char		*always;	/* sources always in a window */
 	uint64_t		retention_us;
 	unsigned int		rate_lines;	/* per source per minute */
 	unsigned int		max_session_secs;
@@ -112,8 +115,10 @@ typedef struct li_line {
 	uint64_t		seq;
 	uint64_t		t;
 	size_t			xlen;
+	size_t			glen;
 	int			l;
 	char			x[LWS_LOG_SHIP_LINE_MAX + 1];
+	char			g[LI_TAG_MAX + 1];	/* its tag, or "" */
 	char			have;		/* which members we saw */
 	char			bad;
 } li_line_t;
@@ -167,7 +172,12 @@ int
 li_store_begin(struct vhd *vhd);
 int
 li_store_line(struct vhd *vhd, li_src_t *src, uint64_t seq, uint64_t t,
-	      uint64_t now, int lvl, const char *x, size_t xlen);
+	      uint64_t now, int lvl, const char *x, size_t xlen,
+	      const char *tag);
+int
+li_valid_tag(const char *s);
+int
+li_valid_src(const char *s);
 void
 li_store_say(struct vhd *vhd, li_src_t *src, uint64_t now, const char *line);
 void

@@ -81,6 +81,25 @@ ingestor, and in any case at most 24h after it was given.
 Sessions overlap at no cost: a line is stored once, and a session is just a
 window of time and the sources it named.
 
+### Always
+
+Some fleets want every line all the time, eg, sai's daemons.  The ingestor's
+`always` pvo names sources, as patterns like a session's `src`, that are
+always given a window from the start of their backlog until a while ahead,
+which moves on every half hour.  So they send everything they've kept when
+they connect, and every line after, as they did before.  Sessions still
+apply to them too, eg, to raise their level for a while.
+
+## Tags
+
+A line may have a tag: up to 32 of `[A-Za-z0-9._/-]` saying what it's about,
+eg, a job.  An application gives the shipper a tagger with
+`lws_log_ship_set_tagger()`, a function that looks at a line as it's sent and
+says its tag, if it has one.  The ingestor keeps it with the line, and when
+each tag was first and last seen, so the lines about something can be found
+by it, and when to look for them.  A tag `a` also finds the lines tagged under
+it, `a/b`.
+
 ## A shipper's connection
 
 The shipper keeps a websocket connection to the ingestor, subprotocol
@@ -99,7 +118,7 @@ What's said on it, each a ws text message:
 <- {"schema":"lws-log-ship-start","session":"<id>","from":<us>,
     "until":<us>,"lvl":<LLL_ bits>}
 -> {"schema":"lws-log-ship-lines","lines":[{"seq":1041,"t":<us>,"l":4,
-    "x":"..."}, ...]}
+    "x":"...","g":"<tag, if any>"}, ...]}
 <- {"schema":"lws-log-ship-ack","seq":1041}
 <- {"schema":"lws-log-ship-stop"}
 ```
@@ -143,9 +162,11 @@ pvo|default|what it is
 `backlog-kb`|`4096`|how much of its lines it keeps, 1 to 1048576
 
 The config file holds the secret, so keep it readable only by root.  There can
-only be one shipper in a process, so only one vhost may have these pvos.  An
-application not using lwsws can give them in its vhost's `info.pvo` the same
-way.
+only be one shipper in a process, so only one vhost may have these pvos.  A
+process that also runs the ingestor needs none: its lines are kept by the
+ingestor itself (`own-logs`), and these pvos there just say so and do nothing.
+An application not using lwsws can give them in its vhost's `info.pvo` the
+same way.
 
 ### In an application
 
@@ -163,6 +184,15 @@ ls = lws_log_ship_create(&i);
 
 It's destroyed with its vhost, or by `lws_log_ship_destroy()`.  See
 `include/libwebsockets/lws-log-ship.h`.
+
+A process that wants its lines from when it started, but only knows where they
+go later, eg, once its config is read and its network is up, makes the shipper
+early without a url, and gives it one with `lws_log_ship_link()` when it
+can.  Until then, its lines wait in the backlog.
+
+A process that only learns its name later calls `lws_log_ship_set_host()`: it
+says hello again with the new name, and the ingestor renames the source, with
+what it already has from it, since it's the same `inst`.
 
 ## The ingestor
 
@@ -211,14 +241,16 @@ pvo|default|what it is
 `rate-lines`|`12000`|the most lines a shipper may store a minute; past it they're dropped and a line says how many
 `max-session-secs`|`3600`|the longest a session may last
 `max-past-secs`|`3600`|the furthest in the past a session may start
-`own-logs`|`1`|keep this process' own lines too, as kind `lws-log-ingest`, unless it already has a shipper
+`own-logs`|`1`|keep this process' own lines too, unless it already has a shipper; they're listed as connected, marked local
+`own-kind`|`lws-log-ingest`|the kind this process' own lines are kept as
+`always`||sources always in a window, see "Always"
 `trust-login-headers`|`0`|see "Who can use the api"
 
 Whatever a shipper sends is checked as if it came from anywhere: the secret
 only says it's one of ours, not that what it says is sane.  A message may be at
 most 256KiB; a line must have a single real `LLL_` bit, be printable ASCII of
 up to 1024 chars, and be within a day of the ingestor's clock; a shipper whose
-`inst` was seen before as a different kind or host is refused.
+`inst` was seen before as a different kind is refused.
 
 ### Storage
 
@@ -229,7 +261,9 @@ CREATE TABLE sources (src_id INTEGER PRIMARY KEY, kind TEXT, host TEXT,
 		      inst TEXT UNIQUE, first_us INTEGER, last_us INTEGER,
 		      lag_us INTEGER);
 CREATE TABLE lines (id INTEGER PRIMARY KEY, src_id INTEGER, seq INTEGER,
-		    t_us INTEGER, rx_us INTEGER, lvl INTEGER, line TEXT);
+		    t_us INTEGER, rx_us INTEGER, lvl INTEGER, line TEXT,
+		    tag TEXT);
+CREATE TABLE tags (tag TEXT PRIMARY KEY, first_us INTEGER, last_us INTEGER);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, created_us INTEGER,
 		       from_us INTEGER, until_us INTEGER, stopped_us INTEGER,
 		       lvl INTEGER, src TEXT, who TEXT, note TEXT);
@@ -279,6 +313,9 @@ send one without asking first, which the ingestor never agrees to.
 
 `GET sources` says which shippers are connected, by their source `id`, and
 until when each is in a window, and the sources heard from in the last day.
+The ingestor's own process, when it keeps its own lines, is listed first among
+the connected with `"local":true`, and an `id` of `null` until it has stored
+some.
 
 A refusal says why as `{"error":"..."}`.
 
@@ -293,6 +330,7 @@ arg|what it is
 `src`|comma-separated kinds or hosts, up to 8, `*` matches anything
 `lvl`|the least important level wanted: `err`, `warn`, `notice`, `info` or `debug`; `notice` and below include user lines
 `grep`|a substring (not a regex) the line must contain
+`tag`|the tag the line must have, or be under
 `limit`|the most lines to answer with, 2000 by default, at most 10000
 `after`|the `next` of the last answer, to get the lines after it
 
@@ -300,14 +338,23 @@ arg|what it is
 {"session":"5e0c2f79a1b4d388","from":"...","to":"...",
  "sources":[{"id":3,"kind":"lwsws","host":"node1","inst":"...","lag_ms":12}],
  "lines":[{"i":41,"t":"2026-10-14T11:58:02.123456Z",
-           "t_us":1791979082123456,"src":3,"seq":991,"l":4,"x":"..."}],
+           "t_us":1791979082123456,"src":3,"seq":991,"l":4,"g":null,
+           "x":"..."}],
  "truncated":true,"next":"1791979082123456:41"}
 ```
 
-Lines come in UTC order; `i` tells lines of the same time apart.  `l` is the line's `LLL_` bit: 1 err, 2 warn, 4
-notice, 8 info, 16 debug, 1024 user.  An answer stops at `limit` lines or
+Lines come in UTC order; `i` tells lines of the same time apart.  `l` is the
+line's `LLL_` bit: 1 err, 2 warn, 4 notice, 8 info, 16 debug, 1024 user.  `g`
+is its tag, or null.  An answer stops at `limit` lines or
 8MiB, with `truncated` true.  `next` is after the last line given, to ask for
 the rest with, or, for a window still open, for what came since.
+
+`GET tags/<tag>` says when the lines with the tag, or under it, were first and
+last seen:
+
+```
+{"tag":"4d4fedab","first":"...","last":"...","first_us":...,"last_us":...}
+```
 
 ### Around an instant
 
@@ -333,7 +380,7 @@ lines either side of the instant, up to `before` at or before it and `after`
 after it, 150 each by default and at most 500:
 
 ```
-{"at_us":...,"before":[{"i":581,"t":...,"s":4,"l":4,"x":"..."}],
+{"at_us":...,"before":[{"i":581,"t":...,"s":4,"l":4,"g":null,"x":"..."}],
  "after":[...],"more_before":true,"more_after":false}
 ```
 

@@ -43,6 +43,11 @@
 #define LI_MAX_PAST_SECS_DEF		3600
 #define LI_SERVICE_DEF			"lws-logs"
 #define LI_US_PER_DAY			(86400ull * 1000000ull)
+/*
+ * A source that's always in a window is given one that ends between one and
+ * two of these from now, so it's only given a new one each time one passes
+ */
+#define LI_ALWAYS_US			(1800ull * 1000000ull)
 
 static int
 li_name_char(char c)
@@ -95,9 +100,15 @@ li_src_matches(const char *src, const char *kind, const char *host)
 
 static void
 li_window_for(struct vhd *vhd, const char *kind, const char *host,
-	      li_window_t *w)
+	      uint64_t now, li_window_t *w)
 {
 	memset(w, 0, sizeof(*w));
+
+	/* everything it has, and keeps having */
+	if (vhd->always && li_src_matches(vhd->always, kind, host)) {
+		w->until_us = ((now / LI_ALWAYS_US) + 2) * LI_ALWAYS_US;
+		lws_strncpy(w->session, "always", sizeof(w->session));
+	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
 		li_session_t *s = lws_container_of(d, li_session_t, list);
@@ -105,7 +116,9 @@ li_window_for(struct vhd *vhd, const char *kind, const char *host,
 		if (!li_src_matches(s->src, kind, host))
 			continue;
 
-		if (!w->until_us || s->from_us < w->from_us)
+		if (!w->until_us)
+			w->from_us = s->from_us;
+		else if (s->from_us < w->from_us)
 			w->from_us = s->from_us;
 		if (s->until_us > w->until_us) {
 			w->until_us = s->until_us;
@@ -159,7 +172,7 @@ li_windows_update(struct vhd *vhd)
 	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->shippers.head) {
 		struct pss *pss = lws_container_of(d, struct pss, list);
 
-		li_window_for(vhd, pss->src->kind, pss->src->host, &w);
+		li_window_for(vhd, pss->src->kind, pss->src->host, now, &w);
 		/* a window that ended by itself needs no word from us */
 		if (!w.until_us && pss->sent.until_us <= now)
 			pss->sent = w;
@@ -173,7 +186,7 @@ li_windows_update(struct vhd *vhd)
 
 	/* our own lines are a source like any other */
 	if (vhd->own) {
-		li_window_for(vhd, vhd->own_kind, vhd->own_host, &w);
+		li_window_for(vhd, vhd->own_kind, vhd->own_host, now, &w);
 		if (!w.until_us && vhd->own_window.until_us <= now)
 			vhd->own_window = w;
 		if (!li_window_same(&w, &vhd->own_window)) {
@@ -182,6 +195,11 @@ li_windows_update(struct vhd *vhd)
 					    w.lvl);
 		}
 	}
+
+	/* the always-on windows move on when the next period starts */
+	if (vhd->always &&
+	    (!next || ((now / LI_ALWAYS_US) + 1) * LI_ALWAYS_US < next))
+		next = ((now / LI_ALWAYS_US) + 1) * LI_ALWAYS_US;
 
 	lws_sul_cancel(&vhd->sul_sessions);
 	if (next)
@@ -206,7 +224,8 @@ li_own_store(void *opaque, const char *kind, const char *host,
 
 	for (n = 0; n < count; n++)
 		li_store_line(vhd, src, lines[n].seq, lines[n].t_us, now,
-			      lines[n].level, lines[n].text, lines[n].len);
+			      lines[n].level, lines[n].text, lines[n].len,
+			      lines[n].tag);
 
 	li_store_commit(vhd, src, now, 0);
 }
@@ -225,6 +244,7 @@ static const char * const li_paths[] = {
 	"lines[].t",
 	"lines[].l",
 	"lines[].x",
+	"lines[].g",
 	"lines[]",
 };
 
@@ -238,6 +258,7 @@ enum {
 	LIP_T,
 	LIP_L,
 	LIP_X,
+	LIP_G,
 	LIP_LINE,
 };
 
@@ -298,7 +319,7 @@ li_take_line(struct pss *pss)
 
 	now = lws_log_ship_utc_us();
 	r = li_store_line(vhd, pss->src, l->seq, l->t, now, l->l, l->x,
-			  l->xlen);
+			  l->xlen, l->g[0] ? l->g : NULL);
 	if (r == 1)
 		pss->bad++;
 	if (!r && (int64_t)(now - l->t) < pss->lag)
@@ -351,6 +372,12 @@ li_cb(struct lejp_ctx *ctx, char reason)
 				pss->line.bad = 1;
 			else if (reason == LEJPCB_VAL_STR_END)
 				pss->line.have |= LIL_X;
+			return 0;
+		case LIP_G:
+			/* optional, checked when it's stored */
+			if (li_str(ctx, reason, pss->line.g,
+				   sizeof(pss->line.g) - 1, &pss->line.glen))
+				pss->line.bad = 1;
 			return 0;
 		default:
 			pss->line.bad = 1;
@@ -599,6 +626,11 @@ li_init(struct lws *wsi, const struct lws_protocol_vhost_options *pvo)
 	}
 
 	lws_pvo_get_str((void *)pvo, "service", &vhd->service);
+	if (!lws_pvo_get_str((void *)pvo, "always", &vhd->always) &&
+	    !li_valid_src(vhd->always)) {
+		lwsl_vhost_err(vhd->vh, "bad pvo always '%s'", vhd->always);
+		return -1;
+	}
 	if (!lws_pvo_get_str((void *)pvo, "trust-login-headers", &p))
 		vhd->trust_login_headers = !!atoi(p);
 
@@ -621,12 +653,17 @@ li_init(struct lws *wsi, const struct lws_protocol_vhost_options *pvo)
 	 * Our own lines are a source too, unless this process already ships
 	 * its lines somewhere
 	 */
-	if (lws_pvo_get_str((void *)pvo, "own-logs", &p) || atoi(p)) {
+	if (lws_log_ship_get())
+		lwsl_vhost_notice(vhd->vh, "this process' lines already go to "
+				  "its shipper, as %s, not kept here as well",
+				  lws_log_ship_host(lws_log_ship_get()));
+	else if (lws_pvo_get_str((void *)pvo, "own-logs", &p) || atoi(p)) {
 		struct lws_log_ship_info i;
 
 		memset(&i, 0, sizeof(i));
 		i.vhost		= vhd->vh;
 		i.kind		= "lws-log-ingest";
+		lws_pvo_get_str((void *)pvo, "own-kind", &i.kind);
 		i.store		= li_own_store;
 		i.opaque	= vhd;
 		vhd->own = lws_log_ship_create(&i);

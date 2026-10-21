@@ -11,6 +11,9 @@
  * over ws on loopback, and we use the ingestor's http api as an agent would,
  * the lws-login result stamped in the headers a trusted front end would send.
  *
+ * The shipper is made by the vhost, from its "lws-log-ship" pvos, as lwsws
+ * makes one from its config:
+ *
  *  - the api refuses a request with no login state (403), and a session
  *    started with a body that isn't JSON (415)
  *
@@ -28,7 +31,19 @@
  *
  *  - the sync view lists the shipper's pane, and the pane has its lines
  *
+ *  - lines our tagger tags are found by their tag, and by the tag above it,
+ *    and the tag's window is known
+ *
  *  - a session can be stopped early
+ *
+ * With --always, the ingestor keeps our kind always in a window instead, and
+ * the shipper is made with lws_log_ship_create():
+ *
+ *  - a shipper made with nowhere to go yet keeps what's logged, and once it's
+ *    told where to go, sends it, without any session
+ *
+ *  - a shipper that changes its host name is renamed at the ingestor, with
+ *    what it had sent under the old name
  */
 
 #include <libwebsockets.h>
@@ -77,9 +92,18 @@ enum {
 	ST_SYNC,		/* GET sync: our pane */
 	ST_PANE,		/* GET pane: our lines */
 	ST_WAIT_END,		/* until the session's end */
+	ST_ENDED,		/* the level is back */
 	ST_AFTER,		/* GET logs: the line after the end isn't */
 	ST_START2,		/* POST sessions, a long one */
 	ST_STOP2,		/* POST sessions/<id>/stop */
+	ST_TAG,			/* GET logs?tag=: the tagged lines */
+	ST_TAG_WINDOW,		/* GET tags/<tag> */
+
+	/* --always */
+	ST_A_LINK,		/* say where our lines go */
+	ST_A_LOGS,		/* GET logs until the early line arrives */
+	ST_A_RENAME,		/* GET sources until we're renamed */
+
 	ST_DONE
 };
 
@@ -93,6 +117,11 @@ static char rx[RX_MAX], body[512], session[LI_SESSION_LEN + 1],
 	    session2[LI_SESSION_LEN + 1], path[256], host[65];
 static size_t rx_len;
 static uint64_t session_until, marker_us;
+static struct lws_log_ship *ls;
+static char url[128], always;
+
+#define RENAMED		"renamed-host"
+#define SHIP_HOST	"api-test-host"
 
 /* the request for this step */
 
@@ -204,7 +233,7 @@ answered(void)
 			if (!strstr(rx, "\"kind\":\"api-test\""))
 				fail("wrong shipper connected");
 			else
-				next(ST_NO_LOGIN, 1);
+				next(always ? ST_A_LOGS : ST_NO_LOGIN, 1);
 			return;
 		}
 		if (++tries == POLL_TRIES)
@@ -284,8 +313,9 @@ answered(void)
 		return;
 
 	case ST_PANE:
-		if (status != 200 || !strstr(rx, "log-ship-marker-before"))
-			fail("pane has no lines");
+		if (status != 200 || !strstr(rx, "log-ship-marker-before") ||
+		    !strstr(rx, "\"g\":\"marker/x\""))
+			fail("pane has no tagged lines");
 		else
 			next(ST_WAIT_END, 1);
 		return;
@@ -310,7 +340,51 @@ answered(void)
 		if (status != 200 || !strstr(rx, "\"open\":false"))
 			fail("session stop");
 		else
+			next(ST_TAG, 1);
+		return;
+
+	case ST_TAG:
+		/* only the tagged lines, the markers */
+		if (status != 200 || !strstr(rx, "log-ship-marker-before") ||
+		    strstr(rx, "\"g\":null"))
+			fail("lines by tag");
+		else
+			next(ST_TAG_WINDOW, 1);
+		return;
+
+	case ST_TAG_WINDOW:
+		if (status != 200 || !strstr(rx, "\"first_us\":"))
+			fail("tag window");
+		else
 			next(ST_DONE, 1);
+		return;
+
+	case ST_A_LOGS:
+		if (status == 200 && strstr(rx, "log-ship-marker-early")) {
+			if (lws_log_ship_set_host(ls, RENAMED))
+				fail("rename");
+			else
+				next(ST_A_RENAME, POLL_US);
+			return;
+		}
+		if (++tries == POLL_TRIES)
+			fail("the early line never arrived without a session");
+		else
+			lws_sul_schedule(context, 0, &sul_step, step, POLL_US);
+		return;
+
+	case ST_A_RENAME:
+		lws_snprintf(t, sizeof(t), "\"host\":\"%s\"", host);
+		if (status == 200 &&
+		    strstr(rx, "\"connected\":[{") &&
+		    strstr(rx, "\"host\":\"" RENAMED "\"") && !strstr(rx, t)) {
+			next(ST_DONE, 1);
+			return;
+		}
+		if (++tries == POLL_TRIES)
+			fail("never renamed");
+		else
+			lws_sul_schedule(context, 0, &sul_step, step, POLL_US);
 		return;
 	}
 }
@@ -395,6 +469,14 @@ step(lws_sorted_usec_list_t *sul)
 			lws_sul_schedule(context, 0, &sul_step, step, POLL_US);
 			break;
 		}
+		/*
+		 * If the loop was held up past the end, eg, on a loaded
+		 * machine, the shipper's timer for it may be due but not run
+		 * yet: one scheduled from now runs after it
+		 */
+		next(ST_ENDED, 1);
+		break;
+	case ST_ENDED:
 		if (raise_lvl && lwsl_visible(raise_lvl)) {
 			fail("level still raised after the session");
 			break;
@@ -413,6 +495,25 @@ step(lws_sorted_usec_list_t *sul)
 	case ST_STOP2:
 		lws_snprintf(p, sizeof(p), "/api/sessions/%s/stop", session2);
 		post(p, "application/json", "{}");
+		break;
+	case ST_TAG:
+		get("/api/logs?from=-120&tag=marker", 1);
+		break;
+	case ST_TAG_WINDOW:
+		get("/api/tags/marker/x", 1);
+		break;
+	case ST_A_LINK:
+		if (lws_log_ship_link(ls, url, SECRET)) {
+			fail("link");
+			break;
+		}
+		next(ST_WAIT_CONNECTED, POLL_US);
+		break;
+	case ST_A_LOGS:
+		get("/api/logs?from=-120&grep=log-ship-marker-early", 1);
+		break;
+	case ST_A_RENAME:
+		get("/api/sources", 1);
 		break;
 	case ST_DONE:
 		done = 1;
@@ -551,6 +652,40 @@ static const struct lws_http_mount mount_api = {
 	.mountpoint_len		= 4,
 };
 
+/* our lines about the markers are tagged "marker/x" */
+
+static int
+tagger(const char *line, size_t len, char *tag, size_t tag_len)
+{
+	if (!lws_nstrstr(line, len, "log-ship-marker", 15))
+		return 1;
+
+	lws_strncpy(tag, "marker/x", tag_len);
+
+	return 0;
+}
+
+/*
+ * A site's own headers go on every answer, the api's too: like a real one's,
+ * ours together are longer than a small header buffer would take
+ */
+
+static const struct lws_protocol_vhost_options hdr_hsts = {
+	NULL, NULL, "strict-transport-security",
+	"max-age=15768000; includeSubDomains"
+}, hdr_ref = {
+	&hdr_hsts, NULL, "referrer-policy", "no-referrer"
+}, hdr_nosniff = {
+	&hdr_ref, NULL, "x-content-type-options", "nosniff"
+}, hdr_csp = {
+	&hdr_nosniff, NULL, "content-security-policy",
+	"default-src 'none'; img-src 'self' data:; script-src 'self'; "
+	"font-src 'self'; style-src 'self'; connect-src 'self' "
+	"wss://logs.example.com https://auth.example.com; "
+	"frame-ancestors 'none'; base-uri 'none'; "
+	"form-action 'self' https://auth.example.com"
+};
+
 static struct lws_protocol_vhost_options pvo_trust = {
 	NULL, NULL, "trust-login-headers", "1"
 }, pvo_own = {
@@ -559,8 +694,24 @@ static struct lws_protocol_vhost_options pvo_trust = {
 	&pvo_own, NULL, "secret", SECRET
 }, pvo_db = {
 	&pvo_secret, NULL, "database", "api-test-log-ship.sqlite3"
+}, pvo_always = {
+	&pvo_db, NULL, "always", "api-test"
 }, pvo = {
 	NULL, &pvo_db, LWS_LOG_SHIP_WS_PROTOCOL, ""
+};
+
+/* the vhost's shipper, as lwsws's "ws-protocols" config would give it */
+
+static struct lws_protocol_vhost_options pvo_ship_kind = {
+	NULL, NULL, "kind", "api-test"
+}, pvo_ship_host = {
+	&pvo_ship_kind, NULL, "host", SHIP_HOST
+}, pvo_ship_secret = {
+	&pvo_ship_host, NULL, "secret", SECRET
+}, pvo_ship_url = {
+	&pvo_ship_secret, NULL, "url", url
+}, pvo_ship = {
+	NULL, &pvo_ship_url, "lws-log-ship", ""
 };
 
 static void
@@ -574,8 +725,6 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_log_ship_info si;
-	struct lws_log_ship *ls;
-	char url[128];
 	const char *p;
 
 	signal(SIGINT, sigint_handler);
@@ -593,6 +742,17 @@ main(int argc, const char **argv)
 		port = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server = p;
+	if (lws_cmdline_option(argc, argv, "--always")) {
+		always = 1;
+		pvo.options = &pvo_always;
+	} else
+		pvo.next = &pvo_ship;
+
+	lws_snprintf(url, sizeof(url), "ws://%s%s%s:%d/ship",
+		     strchr(server, ':') ? "[" : "", server,
+		     strchr(server, ':') ? "]" : "", port);
+
+	lws_log_ship_set_tagger(tagger);
 
 	/* each run starts with nothing stored */
 	unlink("api-test-log-ship.sqlite3");
@@ -604,6 +764,7 @@ main(int argc, const char **argv)
 	info.protocols = protocols;
 	info.pvo = &pvo;
 	info.mounts = &mount_api;
+	info.headers = &hdr_csp;
 	info.vhost_name = "localhost";
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
@@ -619,23 +780,26 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
-	lws_snprintf(url, sizeof(url), "ws://%s%s%s:%d/ship",
-		     strchr(server, ':') ? "[" : "", server,
-		     strchr(server, ':') ? "]" : "", port);
+	if (always) {
+		/* a shipper with nowhere to go yet */
+		memset(&si, 0, sizeof(si));
+		si.vhost	= vh;
+		si.kind		= "api-test";
+		ls = lws_log_ship_create(&si);
+		if (!ls) {
+			lwsl_err("log shipper creation failed\n");
+			goto bail;
+		}
+		lws_strncpy(host, lws_log_ship_host(ls), sizeof(host));
 
-	memset(&si, 0, sizeof(si));
-	si.vhost	= vh;
-	si.url		= url;
-	si.secret	= SECRET;
-	si.kind		= "api-test";
-	ls = lws_log_ship_create(&si);
-	if (!ls) {
-		lwsl_err("log shipper creation failed\n");
-		goto bail;
+		/* kept until we say where it goes */
+		lwsl_user("log-ship-marker-early\n");
+		next(ST_A_LINK, LWS_US_PER_SEC);
+	} else {
+		/* the vhost made it, it goes with the vhost */
+		lws_strncpy(host, SHIP_HOST, sizeof(host));
+		next(ST_WAIT_CONNECTED, LWS_US_PER_SEC);
 	}
-	lws_strncpy(host, lws_log_ship_host(ls), sizeof(host));
-
-	next(ST_WAIT_CONNECTED, LWS_US_PER_SEC);
 
 	while (!done && lws_service(context, 0) >= 0)
 		;

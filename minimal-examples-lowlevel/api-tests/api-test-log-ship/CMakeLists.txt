@@ -47,4 +47,20 @@ if (requirements)
 	set_tests_properties(api-test-log-ship PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 			     TIMEOUT 60)
+
+	#
+	# The ingestor keeping our kind always in a window, a shipper only told
+	# where to go after it was made, and one changing its name.  It has a
+	# working dir of its own, since each run starts its db afresh.
+	#
+	lws_get_free_port(PORT_LOG_SHIP_ALWAYS)
+	file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/always)
+
+	add_test(NAME api-test-log-ship-always
+		 COMMAND lws-api-test-log-ship --always
+			 --server ${LWS_CTEST_SERVER_RESOLVE}
+			 -p ${PORT_LOG_SHIP_ALWAYS})
+	set_tests_properties(api-test-log-ship-always PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/always
+			     TIMEOUT 60)
 endif()

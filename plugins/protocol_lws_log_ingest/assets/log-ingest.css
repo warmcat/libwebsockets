@@ -344,6 +344,14 @@ tr.li-srow.li-selected {
 	text-overflow: ellipsis;
 }
 
+.li-local {
+	font-size: 8pt;
+	color: var(--muted);
+	border: 1px solid var(--faint);
+	border-radius: 3px;
+	padding: 0 3px;
+}
+
 .li-inst {
 	font-family: var(--mono);
 	font-size: 8pt;

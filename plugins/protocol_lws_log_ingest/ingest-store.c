@@ -55,10 +55,16 @@ static const char * const li_schema[] = {
 		"t_us INTEGER NOT NULL, "
 		"rx_us INTEGER NOT NULL, "
 		"lvl INTEGER NOT NULL, "
-		"line TEXT NOT NULL)",
+		"line TEXT NOT NULL, "
+		"tag TEXT)",
 	"CREATE UNIQUE INDEX IF NOT EXISTS lines_src_seq ON lines (src_id, seq)",
 	"CREATE INDEX IF NOT EXISTS lines_t ON lines (t_us)",
 	"CREATE INDEX IF NOT EXISTS lines_src_t ON lines (src_id, t_us)",
+	/* when each tag was seen first and last, the window to look in */
+	"CREATE TABLE IF NOT EXISTS tags ("
+		"tag TEXT PRIMARY KEY, "
+		"first_us INTEGER NOT NULL, "
+		"last_us INTEGER NOT NULL)",
 	"CREATE TABLE IF NOT EXISTS sessions ("
 		"id TEXT PRIMARY KEY, "
 		"created_us INTEGER NOT NULL, "
@@ -86,6 +92,43 @@ li_exec(struct vhd *vhd, const char *sql)
 	return 1;
 }
 
+static int
+li_has_column(struct vhd *vhd, const char *table, const char *col)
+{
+	char sql[64];
+	sqlite3_stmt *sm;
+	int r = 0;
+
+	lws_snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+	if (sqlite3_prepare_v2(vhd->pdb, sql, -1, &sm, NULL) != SQLITE_OK)
+		return 0;
+	while (!r && sqlite3_step(sm) == SQLITE_ROW) {
+		const char *c = (const char *)sqlite3_column_text(sm, 1);
+
+		r = c && !strcmp(c, col);
+	}
+	sqlite3_finalize(sm);
+
+	return r;
+}
+
+/* 1 to 32 of [A-Za-z0-9._/-] */
+
+int
+li_valid_tag(const char *s)
+{
+	size_t n;
+
+	for (n = 0; s[n]; n++)
+		if (n == LI_TAG_MAX ||
+		    !((s[n] >= 'a' && s[n] <= 'z') || (s[n] >= 'A' && s[n] <= 'Z') ||
+		      (s[n] >= '0' && s[n] <= '9') || s[n] == '.' ||
+		      s[n] == '_' || s[n] == '-' || s[n] == '/'))
+			return 0;
+
+	return n > 0;
+}
+
 int
 li_store_open(struct vhd *vhd, const char *path)
 {
@@ -99,12 +142,23 @@ li_store_open(struct vhd *vhd, const char *path)
 	sqlite3_busy_timeout(vhd->pdb, LI_BUSY_TIMEOUT_MS);
 
 	for (n = 0; n < LWS_ARRAY_SIZE(li_schema); n++)
-		if (li_exec(vhd, li_schema[n])) {
-			lws_struct_sq3_close(&vhd->pdb);
-			return 1;
-		}
+		if (li_exec(vhd, li_schema[n]))
+			goto bail;
+
+	/* a db from before lines had tags */
+	if (!li_has_column(vhd, "lines", "tag") &&
+	    li_exec(vhd, "ALTER TABLE lines ADD COLUMN tag TEXT"))
+		goto bail;
+	if (li_exec(vhd, "CREATE INDEX IF NOT EXISTS lines_tag ON lines "
+			 "(tag, t_us) WHERE tag IS NOT NULL"))
+		goto bail;
 
 	return 0;
+
+bail:
+	lws_struct_sq3_close(&vhd->pdb);
+
+	return 1;
 }
 
 void
@@ -122,24 +176,58 @@ li_store_close(struct vhd *vhd)
 }
 
 /*
+ * A source goes by a new name, eg, a process that learned its name after it
+ * started.  It's the same instance, so its lines so far are the new name's too.
+ */
+
+static int
+li_store_rename(struct vhd *vhd, int64_t src_id, const char *was,
+		const char *now_host)
+{
+	sqlite3_stmt *sm;
+	int r;
+
+	if (sqlite3_prepare_v2(vhd->pdb, "UPDATE sources SET host = ? WHERE "
+			"src_id = ?", -1, &sm, NULL) != SQLITE_OK)
+		return 1;
+	sqlite3_bind_text(sm, 1, now_host, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int64(sm, 2, (sqlite3_int64)src_id);
+	r = sqlite3_step(sm) != SQLITE_DONE;
+	sqlite3_finalize(sm);
+
+	if (!r)
+		lwsl_vhost_notice(vhd->vh, "source %s is now %s", was,
+				  now_host);
+
+	return r;
+}
+
+/*
  * The source a shipper is, by its instance: found, or added.  An instance
- * that comes back claiming to be another kind or host is refused.
+ * that comes back claiming to be another kind is refused; one going by
+ * another host name is renamed.
  */
 
 li_src_t *
 li_store_src(struct vhd *vhd, const char *kind, const char *host,
 	     const char *inst, uint64_t now)
 {
+	char oldhost[LI_HOST_MAX + 1];
 	int64_t src_id = -1;
 	sqlite3_stmt *sm;
+	int renamed = 0;
 	li_src_t *src;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->srcs.head) {
 		src = lws_container_of(d, li_src_t, list);
 
 		if (!strcmp(src->inst, inst)) {
-			if (strcmp(src->kind, kind) || strcmp(src->host, host))
+			if (strcmp(src->kind, kind))
 				return NULL;
+			if (strcmp(src->host, host) &&
+			    li_store_rename(vhd, src->src_id, src->host, host))
+				return NULL;
+			lws_strncpy(src->host, host, sizeof(src->host));
 
 			/* most recently used goes to the head */
 			lws_dll2_remove(&src->list);
@@ -171,12 +259,18 @@ li_store_src(struct vhd *vhd, const char *kind, const char *host,
 		const char *k = (const char *)sqlite3_column_text(sm, 1),
 			   *h = (const char *)sqlite3_column_text(sm, 2);
 
-		if (k && h && !strcmp(k, kind) && !strcmp(h, host))
+		if (k && h && !strcmp(k, kind)) {
 			src_id = sqlite3_column_int64(sm, 0);
+			if (strcmp(h, host)) {
+				lws_strncpy(oldhost, h, sizeof(oldhost));
+				renamed = 1;
+			}
+		}
 	}
 	sqlite3_finalize(sm);
 
-	if (src_id < 0)
+	if (src_id < 0 ||
+	    (renamed && li_store_rename(vhd, src_id, oldhost, host)))
 		return NULL;
 
 	if (vhd->srcs.count >= LI_SRCS_MAX) {
@@ -235,11 +329,18 @@ li_store_begin(struct vhd *vhd)
 		return 1;
 
 	if (sqlite3_prepare_v2(vhd->pdb, "INSERT OR IGNORE INTO lines (src_id, "
-			"seq, t_us, rx_us, lvl, line) VALUES (?, ?, ?, ?, ?, ?)",
-			-1, &vhd->sm_line, NULL) != SQLITE_OK) {
+			"seq, t_us, rx_us, lvl, line, tag) VALUES "
+			"(?, ?, ?, ?, ?, ?, ?)", -1, &vhd->sm_line, NULL) !=
+								SQLITE_OK ||
+	    sqlite3_prepare_v2(vhd->pdb, "INSERT INTO tags (tag, first_us, "
+			"last_us) VALUES (?1, ?2, ?2) ON CONFLICT(tag) DO UPDATE "
+			"SET first_us = min(first_us, excluded.first_us), "
+			"last_us = max(last_us, excluded.last_us)", -1,
+			&vhd->sm_tag, NULL) != SQLITE_OK) {
 		lwsl_vhost_err(vhd->vh, "prepare: %s", sqlite3_errmsg(vhd->pdb));
-		li_exec(vhd, "ROLLBACK");
+		sqlite3_finalize(vhd->sm_line);
 		vhd->sm_line = NULL;
+		li_exec(vhd, "ROLLBACK");
 		return 1;
 	}
 
@@ -255,7 +356,8 @@ li_store_begin(struct vhd *vhd)
 
 int
 li_store_line(struct vhd *vhd, li_src_t *src, uint64_t seq, uint64_t t,
-	      uint64_t now, int lvl, const char *x, size_t xlen)
+	      uint64_t now, int lvl, const char *x, size_t xlen,
+	      const char *tag)
 {
 	sqlite3_stmt *sm = vhd->sm_line;
 	size_t n;
@@ -264,7 +366,8 @@ li_store_line(struct vhd *vhd, li_src_t *src, uint64_t seq, uint64_t t,
 	if (!seq || lvl <= 0 || lvl >= (1 << LLL_COUNT) || (lvl & (lvl - 1)) ||
 	    !xlen || xlen > LWS_LOG_SHIP_LINE_MAX ||
 	    (t > now && t - now > (uint64_t)LI_SKEW_MAX_US) ||
-	    (t <= now && now - t > (uint64_t)LI_SKEW_MAX_US))
+	    (t <= now && now - t > (uint64_t)LI_SKEW_MAX_US) ||
+	    (tag && !li_valid_tag(tag)))
 		return 1;
 
 	for (n = 0; n < xlen; n++)
@@ -300,9 +403,20 @@ li_store_line(struct vhd *vhd, li_src_t *src, uint64_t seq, uint64_t t,
 	sqlite3_bind_int64(sm, 4, (sqlite3_int64)now);
 	sqlite3_bind_int(sm, 5, lvl);
 	sqlite3_bind_text(sm, 6, x, (int)xlen, SQLITE_TRANSIENT);
+	if (tag)
+		sqlite3_bind_text(sm, 7, tag, -1, SQLITE_TRANSIENT);
+	else
+		sqlite3_bind_null(sm, 7);
 	r = sqlite3_step(sm) != SQLITE_DONE;
 	sqlite3_reset(sm);
 	sqlite3_clear_bindings(sm);
+
+	if (!r && tag) {
+		sqlite3_bind_text(vhd->sm_tag, 1, tag, -1, SQLITE_TRANSIENT);
+		sqlite3_bind_int64(vhd->sm_tag, 2, (sqlite3_int64)t);
+		sqlite3_step(vhd->sm_tag);
+		sqlite3_reset(vhd->sm_tag);
+	}
 
 	return r;
 }
@@ -314,7 +428,9 @@ li_store_commit(struct vhd *vhd, li_src_t *src, uint64_t now, int64_t lag)
 
 	if (vhd->sm_line) {
 		sqlite3_finalize(vhd->sm_line);
+		sqlite3_finalize(vhd->sm_tag);
 		vhd->sm_line = NULL;
+		vhd->sm_tag = NULL;
 	}
 
 	if (src && sqlite3_prepare_v2(vhd->pdb, "UPDATE sources SET last_us = ?, "
@@ -355,6 +471,12 @@ li_store_expire_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	if (next == LI_EXPIRE_US) {
+		if (sqlite3_prepare_v2(vhd->pdb, "DELETE FROM tags WHERE "
+				"last_us < ?", -1, &sm, NULL) == SQLITE_OK) {
+			sqlite3_bind_int64(sm, 1, (sqlite3_int64)before);
+			sqlite3_step(sm);
+			sqlite3_finalize(sm);
+		}
 		if (sqlite3_prepare_v2(vhd->pdb, "DELETE FROM sessions WHERE "
 				"until_us < ?", -1, &sm, NULL) == SQLITE_OK) {
 			sqlite3_bind_int64(sm, 1, (sqlite3_int64)before);

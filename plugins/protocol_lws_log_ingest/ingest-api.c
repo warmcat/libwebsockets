@@ -327,8 +327,8 @@ parse_lvl(const char *s)
 
 /* a comma-separated list of patterns of [A-Za-z0-9._-*], up to 3 * each */
 
-static int
-valid_src(const char *s)
+int
+li_valid_src(const char *s)
 {
 	int stars = 0, n = 0;
 
@@ -580,7 +580,53 @@ li_sessions_list(struct vhd *vhd, struct pss *pss, struct lws *wsi,
 	return li_answer(pss, wsi, o, HTTP_STATUS_OK);
 }
 
-/* GET /sources: the shippers connected now, and the sources seen lately */
+/* GET /tags/<tag>: when lines with the tag, or under it, were seen */
+
+static int
+li_tag_window(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o,
+	      const char *tag)
+{
+	char sub[LI_TAG_MAX + 3];
+	sqlite3_stmt *sm;
+	int r = 1;
+
+	if (!li_valid_tag(tag))
+		return li_error(pss, wsi, o, HTTP_STATUS_BAD_REQUEST,
+				"bad tag");
+
+	lws_snprintf(sub, sizeof(sub), "%s/*", tag);
+	if (sqlite3_prepare_v2(vhd->pdb, "SELECT min(first_us), max(last_us), "
+			"count(*) FROM tags WHERE tag = ? OR tag GLOB ?", -1,
+			&sm, NULL) != SQLITE_OK)
+		return HTTP_STATUS_INTERNAL_SERVER_ERROR;
+
+	sqlite3_bind_text(sm, 1, tag, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(sm, 2, sub, -1, SQLITE_TRANSIENT);
+	if (sqlite3_step(sm) == SQLITE_ROW && sqlite3_column_int(sm, 2)) {
+		out_printf(o, "{\"tag\":");
+		out_str(o, tag);
+		out_printf(o, ",\"first\":");
+		out_time(o, (uint64_t)sqlite3_column_int64(sm, 0));
+		out_printf(o, ",\"last\":");
+		out_time(o, (uint64_t)sqlite3_column_int64(sm, 1));
+		out_printf(o, ",\"first_us\":%lld,\"last_us\":%lld}",
+			   (long long)sqlite3_column_int64(sm, 0),
+			   (long long)sqlite3_column_int64(sm, 1));
+		r = 0;
+	}
+	sqlite3_finalize(sm);
+
+	if (r)
+		return li_error(pss, wsi, o, HTTP_STATUS_NOT_FOUND,
+				"no lines with that tag");
+
+	return li_answer(pss, wsi, o, HTTP_STATUS_OK);
+}
+
+/*
+ * GET /sources: the shippers connected now, and the sources seen lately.  Our
+ * own process' lines are a source too, always there, listed first as "local".
+ */
 
 static int
 li_sources(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o)
@@ -590,6 +636,32 @@ li_sources(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o)
 	int n = 0;
 
 	out_printf(o, "{\"connected\":[");
+	if (vhd->own) {
+		const char *inst = lws_log_ship_inst(vhd->own);
+		long long id = -1;
+
+		/* its id, if it has stored lines yet */
+		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->srcs.head) {
+			li_src_t *s = lws_container_of(d, li_src_t, list);
+
+			if (!strcmp(s->inst, inst))
+				id = (long long)s->src_id;
+		} lws_end_foreach_dll(d);
+
+		if (id < 0)
+			out_printf(o, "{\"id\":null");
+		else
+			out_printf(o, "{\"id\":%lld", id);
+		out_printf(o, ",\"kind\":\"%s\",\"host\":\"%s\",\"inst\":\"%s\","
+			   "\"local\":true,\"window_until\":", vhd->own_kind,
+			   vhd->own_host, inst);
+		if (vhd->own_window.until_us > now)
+			out_time(o, vhd->own_window.until_us);
+		else
+			out_printf(o, "null");
+		out_printf(o, "}");
+		n++;
+	}
 	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->shippers.head) {
 		struct pss *sp = lws_container_of(d, struct pss, list);
 
@@ -796,7 +868,7 @@ li_session_start(struct vhd *vhd, struct pss *pss, struct lws *wsi,
 	}
 	s->lvl = lvl;
 
-	if (!valid_src(a.src) || !li_note_ok(a.note)) {
+	if (!li_valid_src(a.src) || !li_note_ok(a.note)) {
 		free(s);
 		return li_error(pss, wsi, o, HTTP_STATUS_BAD_REQUEST,
 				"bad src or note");
@@ -866,7 +938,7 @@ li_src_arg(struct lws *wsi, char srcs[][LI_HOST_MAX + 1], int *nsrc,
 	else
 		s = def;
 
-	if (!valid_src(s))
+	if (!li_valid_src(s))
 		return 1;
 
 	while (*s) {
@@ -945,6 +1017,7 @@ static int
 li_logs(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o)
 {
 	char a_lvl[12], a_grep[132], a_limit[12], a_after[48], sess[24],
+	     a_tag[LI_TAG_MAX + 1], tag_sub[LI_TAG_MAX + 3],
 	     ssrc[LI_SRC_MAX + 1], srcs[LI_SRC_PATTERNS_MAX][LI_HOST_MAX + 1];
 	int nsrc = 0, limit = LI_LIMIT_DEF, lvlmask = 0, n, lines = 0,
 	    truncated = 0, has_after;
@@ -977,6 +1050,15 @@ li_logs(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o)
 	if (lws_get_urlarg_by_name_safe(wsi, "grep=", a_grep,
 					sizeof(a_grep)) < 0)
 		a_grep[0] = '\0';
+
+	a_tag[0] = '\0';
+	if (lws_get_urlarg_by_name_safe(wsi, "tag=", a_tag,
+					sizeof(a_tag)) > 0) {
+		if (!li_valid_tag(a_tag))
+			return HTTP_STATUS_BAD_REQUEST;
+		/* "a" also finds lines tagged "a/b" */
+		lws_snprintf(tag_sub, sizeof(tag_sub), "%s/*", a_tag);
+	}
 
 	has_after = lws_get_urlarg_by_name_safe(wsi, "after=", a_after,
 						sizeof(a_after)) > 0;
@@ -1026,12 +1108,18 @@ li_logs(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o)
 
 	memset(&q, 0, sizeof(q));
 	q.p = q.sql;
-	q_add(&q, "SELECT l.id, l.t_us, l.src_id, l.seq, l.lvl, l.line FROM "
-		  "lines l JOIN sources s ON s.src_id = l.src_id WHERE "
+	q_add(&q, "SELECT l.id, l.t_us, l.src_id, l.seq, l.lvl, l.line, l.tag "
+		  "FROM lines l JOIN sources s ON s.src_id = l.src_id WHERE "
 		  "l.t_us >= ? AND l.t_us <= ?");
 	q_bind_int(&q, (int64_t)from);
 	q_bind_int(&q, (int64_t)to);
 	q_src(&q, srcs, nsrc);
+
+	if (a_tag[0]) {
+		q_add(&q, " AND (l.tag = ? OR l.tag GLOB ?)");
+		q_bind_text(&q, a_tag);
+		q_bind_text(&q, tag_sub);
+	}
 
 	if (lvlmask) {
 		q_add(&q, " AND (l.lvl & ?) != 0");
@@ -1076,7 +1164,9 @@ li_logs(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o)
 		else
 			out_printf(o, "%lld", (long long)
 				   sqlite3_column_int64(sm, 3));
-		out_printf(o, ",\"l\":%d,\"x\":", sqlite3_column_int(sm, 4));
+		out_printf(o, ",\"l\":%d,\"g\":", sqlite3_column_int(sm, 4));
+		out_str(o, (const char *)sqlite3_column_text(sm, 6));
+		out_printf(o, ",\"x\":");
 		out_str(o, (const char *)sqlite3_column_text(sm, 5));
 		out_printf(o, "}");
 	}
@@ -1222,6 +1312,7 @@ typedef struct {
 	uint64_t	t;
 	int64_t		src;
 	const char	*x;
+	const char	*g;
 	int		l;
 } li_row_t;
 
@@ -1303,9 +1394,10 @@ li_side(struct vhd *vhd, const char *kind, const char *host, uint64_t at,
 		return 1;
 
 	if (sqlite3_prepare_v2(vhd->pdb, sd->later ?
-			"SELECT id, t_us, lvl, line FROM lines WHERE src_id = ? "
-			"AND t_us > ? ORDER BY t_us, id LIMIT ?" :
-			"SELECT id, t_us, lvl, line FROM lines WHERE src_id = ? "
+			"SELECT id, t_us, lvl, line, tag FROM lines WHERE "
+			"src_id = ? AND t_us > ? ORDER BY t_us, id LIMIT ?" :
+			"SELECT id, t_us, lvl, line, tag FROM lines WHERE "
+			"src_id = ? "
 			"AND t_us <= ? ORDER BY t_us DESC, id DESC LIMIT ?", -1,
 			&sl, NULL) != SQLITE_OK) {
 		sqlite3_finalize(ss);
@@ -1339,6 +1431,8 @@ li_side(struct vhd *vhd, const char *kind, const char *host, uint64_t at,
 			row->l = sqlite3_column_int(sl, 2);
 			row->x = li_strdup(sd->ac,
 				   (const char *)sqlite3_column_text(sl, 3));
+			row->g = li_strdup(sd->ac,
+				   (const char *)sqlite3_column_text(sl, 4));
 			if (!row->x) {
 				sd->count--;
 				ret = 1;
@@ -1369,9 +1463,11 @@ li_side_out(li_out_t *o, const li_side_t *sd)
 		const li_row_t *row = &sd->rows[sd->later ? i : c - 1 - i];
 
 		out_printf(o, "%s{\"i\":%lld,\"t\":%llu,\"s\":%lld,\"l\":%d,"
-			   "\"x\":", i ? "," : "", (long long)row->id,
+			   "\"g\":", i ? "," : "", (long long)row->id,
 			   (unsigned long long)row->t, (long long)row->src,
 			   row->l);
+		out_str(o, row->g);
+		out_printf(o, ",\"x\":");
 		out_str(o, row->x);
 		out_printf(o, "}");
 	}
@@ -1507,6 +1603,8 @@ li_api_route(struct vhd *vhd, struct pss *pss, struct lws *wsi,
 		return li_sessions_list(vhd, pss, wsi, o, path + 9);
 	if (!strcmp(path, "sources"))
 		return li_sources(vhd, pss, wsi, o);
+	if (!strncmp(path, "tags/", 5))
+		return li_tag_window(vhd, pss, wsi, o, path + 5);
 	if (!strcmp(path, "logs"))
 		return li_logs(vhd, pss, wsi, o);
 	if (!strcmp(path, "sync"))

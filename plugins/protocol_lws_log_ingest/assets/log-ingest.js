@@ -348,12 +348,17 @@
 			li.classList.toggle("li-sending", w !== null);
 			li.append(mk("span", "li-dot"),
 				  mk("span", "li-kind", c.kind),
-				  mk("span", "li-host", c.host),
-				  mk("span", "li-inst", c.inst),
+				  mk("span", "li-host", c.host));
+			if (c.local)
+				li.append(mk("span", "li-local", "local"));
+			li.append(mk("span", "li-inst", c.inst),
 				  mk("span", "li-window", w === null ? "idle" :
-				     "sending for " + secs(Math.max(0,
+				     (c.local ? "keeping for " : "sending for ") +
+				     secs(Math.max(0,
 					w / 1000 - now) / 1000)));
-			li.title = (w === null ? "Not in a window" :
+			li.title = (c.local ? "The ingestor's own process, " +
+				    "kept here without a connection\n" : "") +
+				   (w === null ? "Not in a window" :
 				    "In a window until " + c.window_until) +
 				   "\nclick to add its host to the sources " +
 				   "of a session to start";
