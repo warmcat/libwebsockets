@@ -277,6 +277,7 @@ cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
      size_t fromlen)
 {
+	/* B's part is in its verb handler, its other dht events don't matter */
 }
 
 static ssize_t

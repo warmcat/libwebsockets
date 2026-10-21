@@ -462,11 +462,13 @@ link_write(lws_transport_priv_t priv, uint8_t *buf, size_t *len)
 static void
 link_onward_bind(lws_transport_priv_t priv, struct lws_ss_handle *h)
 {
+	/* the link is a direct call to the client, there's nothing to bind */
 }
 
 static void
 link_client_up(lws_transport_priv_t priv)
 {
+	/* the link is up as soon as it exists, there's nothing to track */
 }
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)

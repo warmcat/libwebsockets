@@ -65,6 +65,64 @@ init_info(struct lws_context_creation_info *info, int explicit_vhosts)
 	info->port = CONTEXT_PORT_NO_LISTEN;
 }
 
+/*
+ * Whether there is a passwd / group entry for an id, looked up reentrantly
+ * where we can.  An entry too big for our buffer is still an entry.
+ */
+
+static int
+have_uid(uid_t u)
+{
+#if defined(LWS_HAVE_GETPWUID_R)
+	struct passwd pwd, *pw = NULL;
+	char strs[1024];
+	int r = getpwuid_r(u, &pwd, strs, sizeof(strs), &pw);
+
+	return r == ERANGE || (!r && pw);
+#else
+	return !!getpwuid(u);
+#endif
+}
+
+static int
+have_gid(gid_t g)
+{
+#if defined(LWS_HAVE_GETGRGID_R)
+	struct group grp, *gr = NULL;
+	char strs[1024];
+	int r = getgrgid_r(g, &grp, strs, sizeof(strs), &gr);
+
+	return r == ERANGE || (!r && gr);
+#else
+	return !!getgrgid(g);
+#endif
+}
+
+/* the uid and gid of "nobody", if it exists and isn't root */
+
+static int
+nobody_ids(uid_t *u, gid_t *g)
+{
+	struct passwd *pw = NULL;
+#if defined(LWS_HAVE_GETPWNAM_R)
+	struct passwd pwd;
+	char strs[1024];
+
+	if (getpwnam_r("nobody", &pwd, strs, sizeof(strs), &pw))
+		return 1;
+#else
+	pw = getpwnam("nobody");
+#endif
+
+	if (!pw || !pw->pw_uid)
+		return 1;
+
+	*u = pw->pw_uid;
+	*g = pw->pw_gid;
+
+	return 0;
+}
+
 /* a uid / gid nothing on this system is using */
 
 static uid_t
@@ -72,7 +130,7 @@ missing_uid(void)
 {
 	uid_t u = (uid_t)3999999999u;
 
-	while (getpwuid(u))
+	while (have_uid(u))
 		u--;
 
 	return u;
@@ -83,7 +141,7 @@ missing_gid(void)
 {
 	gid_t g = (gid_t)3999999999u;
 
-	while (getgrgid(g))
+	while (have_gid(g))
 		g--;
 
 	return g;
@@ -160,7 +218,7 @@ test_already_target(void)
 		return 0;
 	}
 
-	if (!getpwuid(u) || !getgrgid(g)) {
+	if (!have_uid(u) || !have_gid(g)) {
 		/* eg, a container run with an arbitrary numeric uid */
 		lwsl_user("%s: our uid / gid has no entry, skipping\n",
 			  __func__);
@@ -253,14 +311,14 @@ wait_child(pid_t pid, int *status)
 static uid_t
 other_uid(uid_t us)
 {
-	struct passwd *pw = getpwnam("nobody");
 	uid_t u;
+	gid_t g;
 
-	if (pw && pw->pw_uid && pw->pw_uid != us)
-		return pw->pw_uid;
+	if (!nobody_ids(&u, &g) && u != us)
+		return u;
 
 	for (u = 1; u < 65536; u++)
-		if (u != us && getpwuid(u))
+		if (u != us && have_uid(u))
 			return u;
 
 	return 0;
@@ -393,9 +451,10 @@ static int
 test_real_drop(void)
 {
 	struct lws_context_creation_info info;
-	struct passwd *pw;
 	int status;
 	pid_t pid;
+	uid_t u;
+	gid_t g;
 
 	if (geteuid()) {
 		lwsl_user("%s: not root, skipping\n", __func__);
@@ -403,8 +462,7 @@ test_real_drop(void)
 		return 0;
 	}
 
-	pw = getpwnam("nobody");
-	if (!pw || !pw->pw_uid) {
+	if (nobody_ids(&u, &g)) {
 		lwsl_user("%s: no user 'nobody', skipping\n", __func__);
 
 		return 0;
@@ -415,8 +473,7 @@ test_real_drop(void)
 		return 1;
 
 	if (!pid) {
-		uid_t u = pw->pw_uid;
-		gid_t g = pw->pw_gid, groups[64];
+		gid_t groups[64];
 		int n, ng;
 
 		init_info(&info, 1);

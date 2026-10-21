@@ -61,7 +61,7 @@
 
 static const char lrd_auth[]	= "Bearer " LRD_M_AUTH "-0123456789",
 		  lrd_cookie[]	= "sid=" LRD_M_COOKIE "-0123456789abcdef",
-		  lrd_apikey[]	= LRD_M_APIKEY "-0123456789",
+		  lrd_apikey[]	= LRD_M_APIKEY "-0123456789", /* NOSONAR: dummy */
 		  lrd_landing[]	= "/landing?code=" LRD_M_QUERY "&state=1",
 		  /* short enough for the 64-byte limit lws applies on h2 */
 		  lrd_ws_offer[] = "base64url.bearer.authorization.k8s.io."

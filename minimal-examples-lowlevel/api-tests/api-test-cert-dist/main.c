@@ -774,7 +774,7 @@ static int
 write_config(const char *certs_dir, const char *server, int port)
 {
 	char ew[sizeof(work) * 6], ec[256 * 6], url[128], path[256];
-	struct passwd *pw;
+	struct passwd *pw = NULL;
 	char *conf;
 	size_t len = 8192;
 	int r;

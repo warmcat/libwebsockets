@@ -473,7 +473,7 @@ write_zone(void)
 			"0123456789abcdef0123456789abcdef0123456789abcdef"
 			"0123456789abcdef0123456789abcdef0123456789abcdef");
 
-	if (mkdir(BASE_DIR, 0755) && errno != EEXIST)
+	if (mkdir(BASE_DIR, 0700) && errno != EEXIST)
 		return 1;
 	if (mkdir(run_dir, 0700) && errno != EEXIST)
 		return 1;
