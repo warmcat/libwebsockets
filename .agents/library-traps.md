@@ -8,6 +8,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Bug classes worth hunting for
 
+ - **`lws_b64_encode_string()` returns -1 on overflow and leaves the output
+   unterminated**: a caller that ignores the return and uses the buffer as
+   a string over-reads (G-656).
+
  - **SMP (`LWS_MAX_SMP > 1`) is lightly exercised and has had live
    races** (G-522, G-526, G-527, G-536..G-539, G-638).  Since a3dfdb9b3
    every change to a pt's sul list happens under that pt's lock:
