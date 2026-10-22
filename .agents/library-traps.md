@@ -379,6 +379,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    lws-quic), only what `lws_io_udp_transfer_socket()` copies explicitly
    moves: any new per-connection io state (peer stack, relay port, relay
    proof...) must be added there too (G-359, 7e91787ff).
+ - An event lib without `migrate_wsi` gets its per-wsi data `memcpy`d to
+   the new wsi.  Any evlib whose per-wsi data names its wsi, or is
+   registered with the loop by address, must implement it (uloop does
+   not: G-471).
 
 ## Accept gating
 
