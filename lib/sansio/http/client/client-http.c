@@ -2375,11 +2375,14 @@ lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_
 		return NULL;
 	phms->cb = cb;
 	phms->cx = lws_get_context(wsi);
+	phms->fd = -1;
 
 	for (n = 0; n < 24; n++)
 		phms->boundary[n] = '-';
-	lws_hex_random(phms->cx, phms->boundary + 24, 16);
-	phms->boundary[24 + 16] = '\0';
+	/* 16 hex chars and the NUL */
+	if (lws_hex_random(phms->cx, phms->boundary + 24,
+			   sizeof(phms->boundary) - 24))
+		goto bail;
 
 	n = lws_snprintf(cla, sizeof(cla), "multipart/form-data; boundary=%s", phms->boundary);
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
@@ -2454,7 +2457,7 @@ lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_
 	return phms;
 
 bail:
-	free(phms);
+	lws_free(phms);
 
 	return NULL;
 }
@@ -2463,6 +2466,9 @@ void
 lws_http_mp_sm_destroy(struct lws_http_mp_sm **pphms)
 {
 	if (*pphms) {
+		/* abandoned while sending a file */
+		if ((*pphms)->fd != -1)
+			close((*pphms)->fd);
 		lws_free(*pphms);
 		*pphms = NULL;
 	}
@@ -2514,6 +2520,8 @@ lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
 				}
 				if (fstat(phms->fd, &s)) {
 					lwsl_warn("%s: failed to stat %s\n", __func__, phms->eq + 1);
+					close(phms->fd);
+					phms->fd = -1;
 					return -1; /* failed */
 				}
 				phms->pos = 0;
@@ -2530,16 +2538,32 @@ lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
 			break;
 
 		case LWS_POST_STATE__FILE: {
-			size_t chunk = lws_ptr_diff_size_t(end, *p) - 2;
+			size_t chunk;
 			ssize_t r;
 
 			if (lws_ptr_diff(end, *p) < 100)
                                 return 1;
 
-			r = read(phms->fd, *p, LWS_POSIX_LENGTH_CAST(chunk));
-			if (r < 0) {
+			/*
+			 * Never read past the size we sent the headers for,
+			 * even if the file grew since
+			 */
+			chunk = lws_ptr_diff_size_t(end, *p) - 2;
+			if (chunk > phms->total - phms->pos)
+				chunk = (size_t)(phms->total - phms->pos);
+
+			r = chunk ? read(phms->fd, *p,
+					 LWS_POSIX_LENGTH_CAST(chunk)) : 0;
+			if (r < 0 || (chunk && !r)) {
+				/*
+				 * A file that ends early, eg, truncated since
+				 * we sized it, can't make up the length we
+				 * declared
+				 */
+				lwsl_warn("%s: %s\n", __func__, r ? "unable to read" :
+						"file ended early");
 				close(phms->fd);
-				lwsl_warn("%s: unable to read\n", __func__);
+				phms->fd = -1;
 				return -1; /* failed */
 			}
 
@@ -2551,6 +2575,7 @@ lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
 				**p = '\x0a';
 				*p += 1;
 				close(phms->fd);
+				phms->fd = -1;
 				phms->ps = LWS_POST_STATE__NEXT;
 			}
 			break;
