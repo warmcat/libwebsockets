@@ -92,6 +92,12 @@ struct lws_spa {
 	int *param_length;
 	char finalized;
 	char **params;
+	/*
+	 * lwsac mode with NULL param_names slots: the names this spa gave
+	 * those slots, kept here and never in the caller's array, which is
+	 * const and usually shared by every spa the app creates
+	 */
+	char **dyn_names;
 	char *storage;
 	char *end;
 	size_t ac_stored; /* what the values kept in the lwsac take */
@@ -588,39 +594,60 @@ lws_urldecode_s_destroy(struct lws_spa *spa, struct lws_urldecode_stateful *s)
 	return ret;
 }
 
+/* the name the app gave param slot n, or NULL if it left the slot open */
+
+static const char *
+lws_spa_app_name(const struct lws_spa *spa, int n)
+{
+	size_t stride = spa->i.param_names_stride ? spa->i.param_names_stride :
+						    sizeof(const char *);
+
+	if (!spa->i.param_names)
+		return NULL;
+
+	return *(const char * const *)(const void *)
+			((const char *)spa->i.param_names + (size_t)n * stride);
+}
+
 static int
 lws_urldecode_spa_lookup(struct lws_spa *spa, const char *name)
 {
-	const char * const *pp = spa->i.param_names;
+	const char *pn;
+	size_t len;
 	int n;
 
 	for (n = 0; n < spa->i.count_params; n++) {
-		if (!*pp && !spa->i.param_names_stride && spa->i.ac) {
-			unsigned int len = (unsigned int)strlen(name);
-			char **ptr = (char**)spa->i.param_names;
-
-			/* Use NULLs at end of list to dynamically create
-			 * unknown entries */
-
-			ptr[n] = lwsac_use(spa->i.ac, len + 1, spa->i.ac_chunk_size);
-			if (!ptr[n])
-				return -1;
-
-			memcpy(ptr[n], name, len);
-			ptr[n][len] = '\0';
-
+		pn = lws_spa_app_name(spa, n);
+		if (!pn && spa->dyn_names)
+			pn = spa->dyn_names[n];
+		if (pn && !strcmp(pn, name))
 			return n;
-		}
-		if (*pp && !strcmp(*pp, name))
-			return n;
-
-		if (spa->i.param_names_stride)
-			pp = (const char * const *)(((char *)pp) + spa->i.param_names_stride);
-		else
-			pp++;
 	}
 
-	return -1;
+	if (!spa->dyn_names)
+		return -1;
+
+	/*
+	 * An unknown name takes the first slot the app left open, for the
+	 * life of this spa only
+	 */
+
+	for (n = 0; n < spa->i.count_params; n++) {
+		if (lws_spa_app_name(spa, n) || spa->dyn_names[n])
+			continue;
+
+		len = strlen(name);
+		spa->dyn_names[n] = lwsac_use(spa->i.ac, (unsigned int)len + 1,
+					      spa->i.ac_chunk_size);
+		if (!spa->dyn_names[n])
+			return -1;
+
+		memcpy(spa->dyn_names[n], name, len + 1);
+
+		return n;
+	}
+
+	return -1; /* no open slot left */
 }
 
 static int
@@ -744,6 +771,15 @@ lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *i)
 					 "spa params");
 		if (!spa->params)
 			goto bail3;
+
+		/* open (NULL) param_names slots take unknown names */
+		if (i->ac && !i->param_names_stride) {
+			spa->dyn_names = lwsac_use_zero(i->ac,
+				sizeof(char *) * (unsigned int)i->count_params,
+				i->ac_chunk_size);
+			if (!spa->dyn_names)
+				goto bail3;
+		}
 	}
 
 	spa->s = lws_urldecode_s_create(spa, wsi, spa->storage, spa->i.max_storage,
@@ -831,6 +867,21 @@ lws_spa_get_string(struct lws_spa *spa, int n)
 		return NULL;
 
 	return spa->params[n];
+}
+
+const char *
+lws_spa_get_name(struct lws_spa *spa, int n)
+{
+	const char *pn;
+
+	if (n < 0 || n >= spa->i.count_params)
+		return NULL;
+
+	pn = lws_spa_app_name(spa, n);
+	if (!pn && spa->dyn_names)
+		pn = spa->dyn_names[n];
+
+	return pn;
 }
 
 int

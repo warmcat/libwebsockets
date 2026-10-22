@@ -2,12 +2,16 @@
 
 Checks what `lws_spa` makes of POSTed forms, in one process.
 
-An h1 server has two callback mounts that parse every POSTed form with
-`lws_spa` and answer with what it made of it: each parameter it was asked for
+An h1 server has three callback mounts that parse every POSTed form with
+`lws_spa` and answer with what it made of it: each parameter it was asked for,
+by the name `lws_spa_get_name()` gives it (`-` for an open slot nothing took),
 as `name=NULL` when the form did not have it, else `name='value'/length`, and
 what its file upload callback saw (opens, ends, bytes, and whether they
 came in order).  `/form` keeps the values in the spa's own
-storage, `/form-ac` in an lwsac.  A GET to either is answered `get`.
+storage, `/form-ac` in an lwsac.  `/form-open` uses an lwsac too, with one
+static parameter list shared by every spa that leaves two slots open (NULL)
+for names the form brings; the answer says `WRITTEN` if a spa ever wrote into
+that list.  A GET to any of them is answered `get`.
 
 A raw client sends each case's request bytes on a connection of its own and
 checks the answers.  A case can hold back the end of its body and send it,
@@ -27,6 +31,9 @@ in two reads.
 |multipart, a part header the spa does not know, with dashes in it|skipped, the form goes on|
 |multipart with an epilogue after the close delimiter, then a pipelined GET, the epilogue in the same read or held back, with a Content-Length or chunked|the form, then the GET answered as itself|
 |multipart with neither a Content-Length nor chunked|the close delimiter ends the body|
+|`/form-open`, urlencoded `zzz1=1&a=A`|`zzz1` takes the first open slot, the shared list is not written|
+|`/form-open`, a later form `zzz2=two`|`zzz2` takes the first open slot: nothing of the earlier spa's names, whose lwsac is freed, is seen|
+|`/form-open`, `p=1&q=2&r=3`|`p` and `q` take the two open slots, `r` is dropped|
 
 The urlencoded cases run against both kinds of storage.
 

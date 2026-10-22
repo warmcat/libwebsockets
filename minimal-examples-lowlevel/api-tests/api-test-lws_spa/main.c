@@ -13,12 +13,17 @@
  *
  * /form keeps the parameter values in the spa's own storage, /form-ac keeps
  * them in an lwsac: the cases that are about the values run against both.
+ * /form-open also uses an lwsac, with a parameter list that leaves slots
+ * open (NULL) for names the form brings: every spa there shares the one
+ * static list, and must neither write it nor see another spa's names.
  *
- * The answer to a form lists every parameter the spa was asked for, as
+ * The answer to a form lists every parameter the spa was asked for, by the
+ * name lws_spa_get_name() gives it ('-' for an open slot nothing took), as
  * name=NULL when the form did not have it, else name='value'/length, and
  * then what the file upload callback saw as up=opens/finals/bytes, with
  * MISORDERED added if it was told of a file opening while one was open, or
- * of content with none open.  A GET to either mount is answered "get", so a
+ * of content with none open, and WRITTEN if the spa wrote into the shared
+ * parameter list.  A GET to either mount is answered "get", so a
  * case can follow its form with a pipelined request and see that request
  * answered as itself.
  *
@@ -198,6 +203,23 @@ static const struct spa_case cases[] = {
 	  .body = MP_TEXT_HELLO,
 	  .expect = "a=NULL b=NULL c=NULL text=NULL up=0/0/0|status 400",
 	  .framing = FR_NONE },
+
+	/*
+	 * Names the form brings that the app did not list take its open
+	 * slots, for that spa alone: the next spa, with the same shared list,
+	 * starts with the slots open again.  Before G-555 the names were
+	 * written into the shared list, from an lwsac freed with the spa
+	 */
+
+	{ .name = "unknown names take the open slots, lwsac",
+	  .path = "/form-open", .ctype = URLENC, .body = "zzz1=1&a=A",
+	  .expect = "a='A'/1 zzz1='1'/1 -=NULL up=0/0/0" },
+	{ .name = "a later form's unknown names, lwsac", .path = "/form-open",
+	  .ctype = URLENC, .body = "zzz2=two",
+	  .expect = "a=NULL zzz2='two'/3 -=NULL up=0/0/0" },
+	{ .name = "more unknown names than open slots, lwsac",
+	  .path = "/form-open", .ctype = URLENC, .body = "p=1&q=2&r=3",
+	  .expect = "a=NULL p='1'/1 q='2'/1 up=0/0/0" },
 };
 
 static struct lws_context *context;
@@ -211,10 +233,13 @@ static int port = 7681, fails, case_idx = -1;
  */
 
 static const char * const param_names[] = { "a", "b", "c", "text" };
+/* shared by every /form-open spa, as an app's static list would be */
+static const char * const open_param_names[] = { "a", NULL, NULL };
 
 struct pss_srv {
 	struct lws_spa		*spa;
 	struct lwsac		*ac;
+	int			count_params;
 	char			resp[SPA_RESP_MAX];
 	int			resp_len;
 
@@ -277,23 +302,31 @@ static void
 srv_describe(struct pss_srv *pss)
 {
 	char *p = pss->resp, *end = pss->resp + sizeof(pss->resp);
-	const char *v;
-	int n;
+	const char *v, *name;
+	int n, written = 0;
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
+	for (n = 0; n < pss->count_params; n++) {
+		name = lws_spa_get_name(pss->spa, n);
+		if (!name)
+			name = "-";
 		v = lws_spa_get_string(pss->spa, n);
 		if (!v)
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-					  "%s=NULL ", param_names[n]);
+					  "%s=NULL ", name);
 		else
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-					  "%s='%s'/%d ", param_names[n], v,
+					  "%s='%s'/%d ", name, v,
 					  lws_spa_get_length(pss->spa, n));
 	}
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "up=%d/%d/%d%s",
+	for (n = 1; n < (int)LWS_ARRAY_SIZE(open_param_names); n++)
+		if (open_param_names[n])
+			written = 1;
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "up=%d/%d/%d%s%s",
 			  pss->opens, pss->finals, pss->bytes,
-			  pss->misordered ? " MISORDERED" : "");
+			  pss->misordered ? " MISORDERED" : "",
+			  written ? " WRITTEN" : "");
 
 	pss->resp_len = lws_ptr_diff(p, pss->resp);
 }
@@ -327,6 +360,12 @@ callback_spa(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		i.opt_data		= pss;
 		if (!strcmp(uri, "/form-ac"))
 			i.ac		= &pss->ac;
+		if (!strcmp(uri, "/form-open")) {
+			i.param_names	= open_param_names;
+			i.count_params	= (int)LWS_ARRAY_SIZE(open_param_names);
+			i.ac		= &pss->ac;
+		}
+		pss->count_params	= i.count_params;
 
 		pss->spa = lws_spa_create_via_info(wsi, &i);
 
@@ -379,7 +418,15 @@ static const struct lws_protocols protocols_srv[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+static const struct lws_http_mount mount_form_open = {
+	.mountpoint		= "/form-open",
+	.origin			= "http",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 10,
+};
+
 static const struct lws_http_mount mount_form_ac = {
+	.mount_next		= &mount_form_open,
 	.mountpoint		= "/form-ac",
 	.origin			= "http",
 	.origin_protocol	= LWSMPRO_CALLBACK,

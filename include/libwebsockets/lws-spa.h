@@ -109,7 +109,13 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 
 typedef struct lws_spa_create_info {
 	const char * const *param_names; /**< array of form parameter names, like "username"
-			These may be NULL, to make space for arbitrary POST items */
+			These may be NULL, to make space for arbitrary POST
+			items: with \p ac set and \p param_names_stride 0,
+			each unknown name the form brings takes the first
+			NULL slot left, for the life of this spa only.  Get
+			the name a slot ended up with from lws_spa_get_name().
+			The array is only ever read, so it can be one const
+			array shared by every spa. */
 	int count_params; /* count of param_names */
 	int max_storage; /* total amount of form parameter values we can store */
 	lws_spa_fileupload_cb opt_cb; /* NULL, or callback to receive file upload data. */
@@ -176,6 +182,20 @@ lws_spa_get_length(struct lws_spa *spa, int n);
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_spa_get_string(struct lws_spa *spa, int n);
+
+/**
+ * lws_spa_get_name() - return the name of a parameter
+ * \param spa: the parser object previously created
+ * \param n: parameter ordinal to return the name of
+ *
+ * Returns the name from param_names for ordinal \p n, or if that slot was
+ * NULL, the name the form brought that this spa gave the slot (see
+ * lws_spa_create_info_t.param_names).  Returns NULL for a NULL slot no name
+ * took, or if \p n is out of range.  A name given to a NULL slot lives as
+ * long as the spa.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_spa_get_name(struct lws_spa *spa, int n);
 
 /**
  * lws_spa_destroy() - destroy parser object
