@@ -167,6 +167,12 @@
    private functions (eg `lws_ss_policy_set()`).  For readable UBSan
    reports, compile just the suspect .c files without
    `-fsanitize-undefined-trap-on-error` and link them ahead of the archive.
+ - **Linux loopback lets a test send from any 127/8 address**, so tests can
+   use many source hosts (eg 127.0.0.2).  macOS lacks them: skip there.
+ - **api-test-auth-dns-zonedir's clock starts before the context is
+   created** and a phase allows only 2s for replies, so a slow zone-dir
+   read at init fails it under load (G-509): start the reply window when
+   the queries are sent.
  - **Tests that count PROTOCOL_INIT need
    `LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS`** in plugins builds
    (G-572), or a vhost only inits protocols it has pvos for.
