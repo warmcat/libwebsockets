@@ -204,6 +204,13 @@ made on the vhost the connection would have without JIT Trust.  That's also
 what keeps a server the app trusts by its own CA on its default vhost
 reachable, if a JIT Trust entry was ever made for it.
 
+JIT Trust only applies to connections that leave the choice of vhost to lws,
+ie, made without `i.vhost`.  A connection the app put on a vhost of its own
+choosing, eg, one trusting a private CA, or a Secure Streams policy trust
+store's vhost, keeps that vhost's trust for its whole life, including after a
+redirect or other restart takes it to another endpoint.  Its failures to
+validate a server are also not used to learn JIT Trust cache entries.
+
 ## Efficiency considerations
 
 From cold, the JIT Trust flow is 

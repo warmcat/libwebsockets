@@ -1444,6 +1444,9 @@ struct lws {
 	unsigned int			client_mux_substream:1;
 	unsigned int			client_subsequent_mime_part:1;
 	unsigned int                    client_no_follow_redirect:1;
+	unsigned int			client_vhost_given:1;
+	/**< the app chose our vhost (i->vhost, eg an SS policy trust store
+	 * vhost): JIT Trust may neither move us nor learn from our verify */
 	unsigned int                    client_suppress_CONNECTION_ERROR:1;
 	/**< because the client connection creation api is still the parent of
 	 * this activity, and will report the failure */

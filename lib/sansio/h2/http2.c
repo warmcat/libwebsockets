@@ -2359,6 +2359,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 */
 			h2n->swsi->client_no_follow_redirect =
 					wsi->client_no_follow_redirect;
+			/* ... as does whose choice his vhost was */
+			h2n->swsi->client_vhost_given =
+					wsi->client_vhost_given;
 			/*
 			 * ... and so does where the request started, if it
 			 * has been redirected, which judges where it may take

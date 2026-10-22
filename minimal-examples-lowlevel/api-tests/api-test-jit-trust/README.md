@@ -4,8 +4,10 @@ End to end test of the real JIT Trust flow (see `READMEs/README.jit-trust.md`),
 locally, with no internet and without any `LCCSCF_ALLOW_SELFSIGNED` or similar
 relaxation of the client's validation.
 
-One process has a client vhost that trusts only the app's own test CA, three
-tls server vhosts, and a `jit_trust_query()` system op answering from a small
+One process has a client vhost that trusts only the app's own test CA, a second
+client vhost `pinned` that trusts the same CA and is given explicitly by the
+pinned steps' connections, three tls server vhosts (the app CA one also
+redirects `/redir` to the trusted one), and a `jit_trust_query()` system op answering from a small
 trust blob that holds only the test root CA.  The blob is built at startup from
 the root's DER and SKID, and the client vhost is given the app CA's DER, all
 compiled into `main.c`.
@@ -15,8 +17,10 @@ compiled into `main.c`.
 |Step|Server|Expected|
 |---|---|---|
 |untrusted|untrusted|Every attempt fails; each asks about the untrusted root, which the blob doesn't have|
+|pinned, cold|app CA, `/redir`|The connection is made on the `pinned` client vhost the app gives as `i.vhost` (trusting only the app CA), and the server redirects it to trusted.  Every attempt fails, with no queries: JIT Trust neither moves a connection off a vhost the app chose, nor learns from its failures|
 |cold|trusted|The first attempt fails, JIT Trust asks about each of the four AKIDs in the chain, finds the root and makes a vhost trusting it; the retry completes on it|
 |warm|trusted|The first attempt completes on the JIT Trust vhost, no queries|
+|pinned, warm|app CA, `/redir`|As pinned, cold, while the trust cache knows the CA trusted needs and its JIT Trust vhost exists: every attempt still fails, with no queries|
 |cached|trusted|After the JIT Trust vhost idles out, the first attempt completes on a vhost regenerated from the trust cache, asking only for the root|
 |other port|app CA|Same address as trusted, another port: the first attempt completes on the client's own vhost, with no queries.  The trust cache entry for trusted is not for this server|
 |rotated|trusted|Trusted now serves the app CA leaf (`lws_tls_cert_updated()`).  The first attempt is bound to the JIT Trust vhost by the cache and fails, which forgets the cache entry, so the retry completes on the client's own vhost|

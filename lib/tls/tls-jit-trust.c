@@ -252,6 +252,17 @@ __lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 
 	lwsl_info("%s\n", __func__);
 
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * A connection on a vhost the app chose is never moved to a JIT Trust
+	 * vhost, so what his vhost refused is not ours to learn trust for:
+	 * the cache entry would only teach connections lws does choose for,
+	 * and other restarts, to trust what the app's own trust turned down
+	 */
+	if (wsi->client_vhost_given)
+		return 1;
+#endif
+
 	/*
 	 * The trust cache entry we are going to write below is read back by
 	 * lws_tls_jit_trust_vhost_bind() using the endpoint the connection

@@ -296,6 +296,10 @@ lws_client_transport_failed(struct lws *wsi)
 /*
  * A restarted client may belong on another vhost now: the one jit trust
  * keeps for its new endpoint, whose trust store knows that peer.
+ *
+ * Only if lws chose his vhost at connect, as it does for a restart: a vhost
+ * the app gave (i->vhost, eg, a pinned CA or SS policy trust store) is his
+ * trust whichever endpoint a redirect or fallback takes him to.
  */
 void
 lws_client_transport_rebind(struct lws *wsi)
@@ -303,7 +307,8 @@ lws_client_transport_rebind(struct lws *wsi)
 	const struct lws_protocols *pr = NULL;
 	struct lws_vhost *vh = NULL;
 
-	if (!wsi->stash || !wsi->stash->cis[CIS_ADDRESS])
+	if (wsi->client_vhost_given || !wsi->stash ||
+	    !wsi->stash->cis[CIS_ADDRESS])
 		return;
 
 	lws_tls_jit_trust_vhost_bind(wsi->a.context,

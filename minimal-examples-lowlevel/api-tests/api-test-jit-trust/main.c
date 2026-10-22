@@ -32,12 +32,21 @@
  *  - untrusted: every attempt fails.  JIT Trust asks about the root the leaf
  *    names, the blob doesn't have it, and nothing is made to trust it
  *
+ *  - pinned, cold: a connection the app put on a vhost of its own, "pinned",
+ *    trusting only the app CA, is redirected by the "app CA" server to
+ *    "trusted".  Every attempt fails: JIT Trust does not move a connection
+ *    off a vhost the app chose, and doesn't learn from its failures either
+ *
  *  - cold: the first attempt fails, JIT Trust asks about each of the four
  *    AKIDs in the chain, gets the root from the blob and makes a vhost
  *    trusting it, the retry binds to that and completes
  *
  *  - warm: the JIT Trust vhost is still there, the first attempt binds to it
  *    and completes, with no queries
+ *
+ *  - pinned, warm: the same redirected pinned connection still fails every
+ *    attempt, although the trust cache knows the CA "trusted" needs and the
+ *    JIT Trust vhost trusting it is there
  *
  *  - cached: the JIT Trust vhost has idled out, but the trust cache still
  *    knows which CA the endpoint needs: the first attempt regenerates the
@@ -99,21 +108,28 @@ static const struct step {
 	int		found;		/* ...that the trust blob answered */
 	char		vh_gone_first;	/* wait for the jitt vhost to idle out */
 	char		rotate_first;	/* "trusted" serves the app CA leaf */
+	char		pinned;		/* i.vhost = "pinned", get /redir */
 } steps[] = {
 	{ "untrusted root: never trusted",	SRV_UNTRUSTED,	0, ON_JITT,
-	  MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0, 0 },
+	  MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0, 0, 0 },
+	{ "pinned, cold: redirected to trusted, nothing learned or trusted",
+				SRV_APPCA,	0, ON_JITT,
+	  MAX_ATTEMPTS, 0, 0, 0, 0, 1 },
 	{ "cold: sacrificial attempt, then JIT Trust vhost",
-				SRV_TRUSTED,	1, ON_JITT,	1, 4, 1, 0, 0 },
+				SRV_TRUSTED,	1, ON_JITT,	1, 4, 1, 0, 0, 0 },
 	{ "warm: JIT Trust vhost still there",
-				SRV_TRUSTED,	1, ON_JITT,	0, 0, 0, 0, 0 },
+				SRV_TRUSTED,	1, ON_JITT,	0, 0, 0, 0, 0, 0 },
+	{ "pinned, warm: redirected to trusted, not moved to JIT Trust vhost",
+				SRV_APPCA,	0, ON_JITT,
+	  MAX_ATTEMPTS, 0, 0, 0, 0, 1 },
 	{ "cached: JIT Trust vhost regenerated from the trust cache",
-				SRV_TRUSTED,	1, ON_JITT,	0, 1, 1, 1, 0 },
+				SRV_TRUSTED,	1, ON_JITT,	0, 1, 1, 1, 0, 0 },
 	{ "other port: app CA server on the same address keeps its own trust",
-				SRV_APPCA,	1, ON_DEFAULT,	0, 0, 0, 0, 0 },
+				SRV_APPCA,	1, ON_DEFAULT,	0, 0, 0, 0, 0, 0 },
 	{ "rotated: JIT Trust vhost fails once, its cache entry is forgotten",
-				SRV_TRUSTED,	1, ON_DEFAULT,	1, ANY, ANY, 0, 1 },
+				SRV_TRUSTED,	1, ON_DEFAULT,	1, ANY, ANY, 0, 1, 0 },
 	{ "rotated, later: nothing left to regenerate a JIT Trust vhost from",
-				SRV_TRUSTED,	1, ON_DEFAULT,	0, 0, 0, 1, 0 },
+				SRV_TRUSTED,	1, ON_DEFAULT,	0, 0, 0, 1, 0, 0 },
 };
 
 /*
@@ -224,6 +240,7 @@ static const char * const srv_certs[SRV_COUNT][2] = {
 };
 
 static struct lws_context *context;
+static struct lws_vhost *vh_pinned;
 static lws_sorted_usec_list_t sul_step, sul_watchdog;
 static uint8_t *blob;
 static size_t blob_len;
@@ -393,7 +410,15 @@ try_connect(lws_sorted_usec_list_t *sul)
 	 * No i.vhost: that is what lets lws bind the connection to the JIT
 	 * Trust vhost for the address, when there is one.  Validation is
 	 * wholly normal, there is no ALLOW_SELFSIGNED or the like.
+	 *
+	 * Except for the pinned steps, where the app chose the vhost, and
+	 * the server redirects the connection to an endpoint the app's vhost
+	 * does not trust, but a JIT Trust vhost would.
 	 */
+	if (steps[cur].pinned) {
+		i.vhost		= vh_pinned;
+		i.path		= "/redir";
+	}
 	i.ssl_connection	= LCCSCF_USE_SSL;
 
 	if (!lws_client_connect_via_info(&i)) {
@@ -545,6 +570,24 @@ callback_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+		if (in && !strcmp((const char *)in, "/redir")) {
+			char loc[96];
+			int n;
+
+			/* to "trusted", whose chain only the trust blob knows */
+			n = lws_snprintf(loc, sizeof(loc),
+					 strchr(server_addr, ':') ?
+						"https://[%s]:%d/" :
+						"https://%s:%d/",
+					 server_addr, ports[SRV_TRUSTED]);
+			if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
+					      (const unsigned char *)loc, n,
+					      &p, end) < 0 ||
+			    lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
+
 		pss->resp_len = (size_t)lws_snprintf(
 					(char *)&pss->resp[LWS_PRE],
 					sizeof(pss->resp) - LWS_PRE, "ok\n");
@@ -639,6 +682,19 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
+		goto bail;
+	}
+
+	/*
+	 * The vhost the pinned steps' app chooses for its connections itself:
+	 * it trusts the app's own CA, like the default one, but the app gives
+	 * it as i.vhost.  JIT Trust must not override that choice
+	 */
+
+	info.vhost_name = "pinned";
+	vh_pinned = lws_create_vhost(context, &info);
+	if (!vh_pinned) {
+		lwsl_err("Failed to create pinned client vhost\n");
 		goto bail;
 	}
 

@@ -288,6 +288,12 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
     wsi->io->disable_h3_fallback = !!i->disable_h3_fallback;
 	wsi->client_no_follow_redirect = !!(i->ssl_connection &
 					    LCCSCF_HTTP_NO_FOLLOW_REDIRECT);
+	/*
+	 * A vhost the app chose is his trust decision, eg, a private CA or an
+	 * SS policy trust store: restarts must keep him on it too, JIT Trust
+	 * only chooses for connections that left it to lws
+	 */
+	wsi->client_vhost_given = !!i->vhost;
 
 	/*
 	 * PHASE 5: handle external user_space now, generic alloc is done in
