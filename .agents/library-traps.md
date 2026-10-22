@@ -402,10 +402,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    the new wsi.  Any evlib whose per-wsi data names its wsi, or is
    registered with the loop by address, must implement it (uloop does
    not: G-471).
- - **QUIC passthrough relay state (`cx->pt_qflows`, `pt_qpending`,
-   `pt_relayed`, `vh->passthrough_qwsi`) is context-wide and unlocked**:
-   listener threads, the relay wsi's tsi and the pt-0 sweep all touch it,
-   so it is only safe with one service thread until G-482 is fixed.
+ - **QUIC passthrough relay state is under the context lock** since
+   G-482 (161039597): entry points take `lws_context_lock()`, helpers
+   assert it, and a pending Initial is driven only by the listener it
+   arrived on.  Keep the cx -> pt -> vhost lock order when adding paths.
 
 ## Accept gating
 
