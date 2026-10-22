@@ -25,6 +25,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    only safe because every such path holds the context lock first, and
    nothing asserts that.  A sul scheduled onto pt 0 from another thread
    does not wake pt 0, so it can fire late.
+   A server's listeners each go on the least busy thread, so a vhost's
+   IPv4 and IPv6 QUIC listeners can be on different threads; a DCID miss
+   on one searches the other and touches that connection from the wrong
+   thread (G-544).  `lws_vhost_active_conns()` (pipelining / mux reuse)
+   doesn't compare threads (G-545).
    `lws_protocol_init()` races between threads servicing first (G-542):
    start extra service threads after PROTOCOL_INIT until it's fixed.
    `lws_client_connect_via_info()` asserts in SMP when called
