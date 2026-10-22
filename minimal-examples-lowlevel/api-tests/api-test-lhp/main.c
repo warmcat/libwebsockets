@@ -1945,6 +1945,198 @@ bail:
 }
 
 /*
+ * A step must be a bounded amount of work for short values too.  A scan was
+ * charged a step per 64 bytes rounded down, so a value under 64 bytes was
+ * scanned for free; '~=' ran lws_tokenize() once per word, ~30x a byte
+ * compare each; '*=' ran a memcmp() per position, and the first attribute
+ * name a lookup compared was free.  256 '[b~=q] *' over 40 nested
+ * <div b="x x x ..."> (63 bytes, 24KB) took 15s (release) inside the
+ * document's css budget.  Now the work is counted in units, a byte of a
+ * name or value or an index probe each, and every LHP_SEL_STEP_WORK (32) of
+ * them, carried from one simple selector to the next, costs a step.
+ *
+ * So with selectors that scan a value or compare a long name at every
+ * ancestor of every element, the work matching does must stay within what
+ * the steps really counted stand for (as test_selector_names), and the rule
+ * using each kind of compare must still match.  Each page's allowance is
+ * near what its steps really cost (~1.25x): with any one of the charges for
+ * its kind of work taken out, or the work charged a step per 32 units
+ * rounded down in each call instead of carried, it goes over.
+ */
+
+#define LHPT_SV_SELS		256
+#define LHPT_SV_NEST		40
+#define LHPT_SV_LEAVES		40
+
+#define LHPT_SV_N10		"aaaaaaaaaa"
+/* a 118-char attribute name */
+#define LHPT_SV_LONG		LHPT_SV_N10 LHPT_SV_N10 LHPT_SV_N10 \
+				LHPT_SV_N10 LHPT_SV_N10 LHPT_SV_N10 \
+				LHPT_SV_N10 LHPT_SV_N10 LHPT_SV_N10 \
+				LHPT_SV_N10 LHPT_SV_N10 "aaaaaaaa"
+#define LHPT_SV_W10		"x x x x x "
+/* 31 bytes, 16 words: a scan shorter than LHP_SEL_STEP_WORK */
+#define LHPT_SV_WORDS		LHPT_SV_W10 LHPT_SV_W10 LHPT_SV_W10 "x"
+#define LHPT_SV_X10		"xxxxxxxxxx"
+/* 63 bytes, one word */
+#define LHPT_SV_X63		LHPT_SV_X10 LHPT_SV_X10 LHPT_SV_X10 \
+				LHPT_SV_X10 LHPT_SV_X10 LHPT_SV_X10 "xxx"
+
+static const struct {
+	const char	*name;
+	const char	*sel;	/* each of the expensive selectors */
+	const char	*atr;	/* the attribute of the nested divs */
+	const char	*rule;	/* the rule that must match the <p> */
+	const char	*p;	/* attributes of the <p> */
+	int		work_step; /* work allowed per step counted */
+} sv_pages[] = {
+	{ "~=", "[b~=q]", "b=\"" LHPT_SV_WORDS "\"",
+	  "p[b~=ok]", "b=\"x\tok y\"", 20 },
+	{ ".class", ".q", "class=\"" LHPT_SV_WORDS "\"",
+	  "p.ok", "class=\"x ok y\"", 20 },
+	{ "*=", "[b*=q]", "b=\"" LHPT_SV_X63 "\"",
+	  "p[b*=ok]", "b=\"xxokxx\"", 30 },
+	{ "long name", "[" LHPT_SV_LONG "=q]",
+	  LHPT_SV_LONG "=\"" LHPT_SV_X63 "\"",
+	  "p[" LHPT_SV_LONG "=ok]", LHPT_SV_LONG "=\"ok\"", 30 },
+};
+
+static int sv_page;
+static int sv_elems, sv_ok, sv_over, sv_leaf_hit;
+
+static lws_stateful_ret_t
+sv_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *ml;
+	const lhp_atr_t *ta;
+	const char *x;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->sel_work > (uint64_t)sv_pages[sv_page].work_step *
+						ctx->cascade_ops) {
+		sv_over = 1;
+		return LWS_SRET_FATAL;
+	}
+	sv_elems++;
+
+	ml = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+	x = lws_html_get_atr(ps, "x", 1);
+	if (x && !strcmp(x, "ok") && ml && ml->unit == LCSP_UNIT_LENGTH_PX &&
+	    ml->u.i.whole == 2)
+		sv_ok = 1;
+
+	/* nothing has the value the expensive selectors look for */
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len == 1 && *(const char *)&ta[1] == 'i' && ml &&
+	    ml->unit == LCSP_UNIT_LENGTH_PX && ml->u.i.whole == 1)
+		sv_leaf_hit = 1;
+
+	return 0;
+}
+
+static int
+test_selector_values(int page)
+{
+	size_t alloc = (size_t)LHPT_SV_SELS * 160 +
+		       (size_t)LHPT_SV_NEST * 200 +
+		       (size_t)LHPT_SV_LEAVES * 16 + 1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	sv_elems = sv_ok = sv_over = sv_leaf_hit = 0;
+	sv_page = page;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>%s{margin-left:2px}\n",
+			  sv_pages[page].rule);
+	for (i = 0; i < LHPT_SV_SELS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "%s *{margin-left:1px}\n", sv_pages[page].sel);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body><p %s x=ok>x</p>",
+			  sv_pages[page].p);
+	for (i = 0; i < LHPT_SV_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<div %s>", sv_pages[page].atr);
+	for (i = 0; i < LHPT_SV_LEAVES; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<i>x</i>");
+	for (i = 0; i < LHPT_SV_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</div>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, sv_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %s: %d elements, %llu cascade steps, %llu work, "
+		  "r 0x%x\n", __func__, sv_pages[page].name, sv_elems,
+		  (unsigned long long)ctx->cascade_ops,
+		  (unsigned long long)ctx->sel_work, (unsigned int)r);
+
+	if (sv_over) {
+		lwsl_err("%s: %s: over %d work per step at element %d\n",
+			 __func__, sv_pages[page].name,
+			 sv_pages[page].work_step, sv_elems + 1);
+		goto bail_destruct;
+	}
+	/* html, head, style, body, p, the divs, the leaves */
+	if (r & LWS_SRET_FATAL ||
+	    sv_elems != LHPT_SV_NEST + LHPT_SV_LEAVES + 5) {
+		lwsl_err("%s: %s: parse failed, %d elements\n", __func__,
+			 sv_pages[page].name, sv_elems);
+		goto bail_destruct;
+	}
+	if (!sv_ok || sv_leaf_hit) {
+		lwsl_err("%s: %s: the rule matched %d, a leaf %d\n", __func__,
+			 sv_pages[page].name, sv_ok, sv_leaf_hit);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Property lookups must cost a bounded amount however long the declarations
  * they find.  Every lookup listed all the values of the winning declaration
  * in ctx->active_atr, which had no limit, and an inherited property is
@@ -2785,6 +2977,10 @@ main(int argc, const char **argv)
 
 	if (test_selector_names(0) || test_selector_names(1))
 		goto bail;
+
+	for (sc = 0; sc < (int)LWS_ARRAY_SIZE(sv_pages); sc++)
+		if (test_selector_values(sc))
+			goto bail;
 
 	if (test_decl_values())
 		goto bail;

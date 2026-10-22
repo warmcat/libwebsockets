@@ -784,6 +784,8 @@ typedef struct lcsp_names {
 	lws_dll2_t		list;
 	uint32_t		specificity;	/* (layer << 18) | (ids << 12) |
 						 * (classes << 6) | tags */
+	uint32_t		key_h;		/* the selector index hash of
+						 * the key, computed once */
 	uint16_t		name_len;
 	uint16_t		key_ofs;	/* rightmost compound's most
 						 * selective simple selector,
@@ -792,6 +794,8 @@ typedef struct lcsp_names {
 	uint16_t		prog_len;	/* the selector compiled for
 						 * matching, private to lhp.c */
 	uint8_t			key_kind;	/* LHP_SELKEY_ */
+	uint8_t			pseudo_elem;	/* LHP_PSEUDO_ELEM_: a trailing
+						 * :before or :after */
 
 	/* name + NUL, then prog_len bytes of compiled selector follow */
 } lcsp_names_t;
@@ -883,6 +887,12 @@ enum {
 	LHP_SELKEY_TAG,
 	LHP_SELKEY_CLASS,
 	LHP_SELKEY_ID
+};
+
+enum {
+	LHP_PSEUDO_ELEM_NONE,
+	LHP_PSEUDO_ELEM_BEFORE,
+	LHP_PSEUDO_ELEM_AFTER
 };
 
 /* layer indexes are 1-based, this is the unlayered ("strongest") value */

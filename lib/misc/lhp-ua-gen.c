@@ -397,15 +397,19 @@ main(void)
 
 			printf("\t{ { .list = ");
 			emit_dll2(&nm->list, nm_expr, ownbuf);
-			printf(",\n\t    .specificity = 0x%xu, .name_len = %u, "
-			       ".key_ofs = %u,\n\t    .key_len = %u, "
-			       ".prog_len = %u, .key_kind = %u }, ",
+			printf(",\n\t    .specificity = 0x%xu, "
+			       ".key_h = 0x%08xu,\n\t    .name_len = %u, "
+			       ".key_ofs = %u, .key_len = %u,\n\t    "
+			       ".prog_len = %u, .key_kind = %u, "
+			       ".pseudo_elem = %u }, ",
 			       (unsigned int)nm->specificity,
+			       (unsigned int)nm->key_h,
 			       (unsigned int)nm->name_len,
 			       (unsigned int)nm->key_ofs,
 			       (unsigned int)nm->key_len,
 			       (unsigned int)nm->prog_len,
-			       (unsigned int)nm->key_kind);
+			       (unsigned int)nm->key_kind,
+			       (unsigned int)nm->pseudo_elem);
 			emit_c_string((const char *)&nm[1], m - 1);
 			printf(" }");
 		}

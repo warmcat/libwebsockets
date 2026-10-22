@@ -2357,38 +2357,67 @@ lhp_sc_rd32(const uint8_t *p)
 
 /*
  * The state of one selector match: the steps it has left (see
- * LHP_SEL_MATCH_BUDGET), the text of the selector its program refers to, and
+ * LHP_SEL_MATCH_BUDGET), the work done since the last step charged for work
+ * (see lhp_sel_work()), the text of the selector its program refers to, and
  * the ctx whose sel_work counts the work it does
  */
 
 typedef struct lhp_selm {
 	lhp_ctx_t		*ctx;
 	const char		*text;
+	size_t			work;
 	int			budget;
 } lhp_selm_t;
+
+/*
+ * Selector matching counts its work in ctx->sel_work where it is done: a unit
+ * for each compound and simple selector visited and each attribute index
+ * entry probed, and one for each byte of a name compared or of an attribute
+ * value scanned.  The work also draws on the match's budget: each
+ * LHP_SEL_STEP_WORK units cost a step, carried from one call to the next, so
+ * that short scans are not free however many of them a match makes, and a
+ * step stands for a bounded amount of work whatever kind of work it is
+ */
+
+#define LHP_SEL_STEP_WORK		32
+
+static void
+lhp_sel_work(lhp_selm_t *m, size_t units)
+{
+	m->ctx->sel_work += units;
+	m->work += units;
+	if (m->work >= LHP_SEL_STEP_WORK) {
+		m->budget -= (int)(m->work / LHP_SEL_STEP_WORK);
+		m->work %= LHP_SEL_STEP_WORK;
+	}
+}
 
 /*
  * The value of the first of an element's attributes named [n, n + nl)
  * ignoring case, whose lhp_name_hash() is h, found in the element's
  * attribute index.  The binary search compares only hashes and lengths, so a
  * lookup compares at most one name, unless different names of the same
- * length share the hash.  A page can choose its names so that they do: each
- * name compared after the first costs a step of *budget, if given (a
- * selector match's), so a step still compares at most one name
+ * length share the hash.  A page can choose its names so that they do: in a
+ * selector match (m not NULL), each name compared after the first costs a
+ * step, so a step still compares at most one name, and the work, the first
+ * name's bytes included, is charged by lhp_sel_work().  Otherwise the work
+ * only counts in ctx->sel_work
  */
 
 static const char *
-lhp_atr_find(lhp_ctx_t *ctx, int *budget, const lhp_atr_idx_t *ai,
+lhp_atr_find(lhp_ctx_t *ctx, lhp_selm_t *m, const lhp_atr_idx_t *ai,
 	     const char *n, size_t nl, uint32_t h)
 {
 	unsigned int lo = 0, hi = ai->count;
+	const char *v = NULL;
+	uint64_t work = 0;
 	int first = 1;
 
 	while (lo < hi) {
 		unsigned int mid = lo + (hi - lo) / 2;
 		const lhp_atr_ent_t *e = &ai->a[mid];
 
-		ctx->sel_work++;
+		work++;
 		if (e->h < h || (e->h == h && e->a->name_len < nl))
 			lo = mid + 1;
 		else
@@ -2402,20 +2431,27 @@ lhp_atr_find(lhp_ctx_t *ctx, int *budget, const lhp_atr_idx_t *ai,
 		const lhp_atr_t *at = ai->a[lo].a;
 		int r;
 
-		if (!first && budget && --(*budget) < 0)
+		if (!first && m && --m->budget < 0)
 			/* out of steps: the match won't be believed */
-			return NULL;
+			break;
 		first = 0;
 
-		ctx->sel_work++;
-		r = lhp_name_cmp(n, (const char *)&at[1], nl, &ctx->sel_work);
-		if (!r)
-			return (const char *)&at[1] + at->name_len + 1;
+		work++;
+		r = lhp_name_cmp(n, (const char *)&at[1], nl, &work);
+		if (!r) {
+			v = (const char *)&at[1] + at->name_len + 1;
+			break;
+		}
 		if (r < 0)
 			break;
 	}
 
-	return NULL;
+	if (m)
+		lhp_sel_work(m, (size_t)work);
+	else
+		ctx->sel_work += work;
+
+	return v;
 }
 
 /* the value of the element's attribute with the fixed name n, if any */
@@ -2424,8 +2460,7 @@ static const char *
 lhp_atr_get_fixed(lhp_selm_t *m, const lhp_atr_idx_t *el, const char *n,
 		  size_t nl)
 {
-	return lhp_atr_find(m->ctx, &m->budget, el, n, nl,
-			    lhp_name_hash(n, nl));
+	return lhp_atr_find(m->ctx, m, el, n, nl, lhp_name_hash(n, nl));
 }
 
 static int
@@ -2443,39 +2478,25 @@ lhp_ws(char c)
 }
 
 /*
- * A simple selector that scans an attribute value costs the selector match
- * budget (see LHP_SEL_MATCH_BUDGET) a step for every LHP_SEL_SCAN_BYTES bytes
- * it may compare, on top of its own step
+ * Is [name, name + name_len) one of the whitespace-separated words of the
+ * attribute value v?  It is how both .class and [attr~=word] match: a class
+ * token is bounded by whitespace (a tailwind class like md:flex or
+ * w-[1312px] is one token, matched by an escaped selector .md\:flex), and so
+ * is a ~= word, so an empty name, or one containing whitespace, never
+ * matches.  This is the hottest comparison in the cascade (every class
+ * selector that survives the key prefilter, for every element), so no
+ * tokenizer: one pass over the value, charged a unit per byte.
+ *
+ * The name is decoded selector text and may hold a NUL (an escaped one), so
+ * compare by length and never index past the word
  */
 
-#define LHP_SEL_SCAN_BYTES		64
-
-static void
-lhp_sel_scan_cost(lhp_selm_t *m, size_t bytes)
-{
-	m->budget -= (int)(bytes / LHP_SEL_SCAN_BYTES);
-}
-
 static int
-lhp_has_class(lhp_selm_t *m, const lhp_atr_idx_t *el, const char *name,
-	      size_t name_len)
+lhp_sel_has_word(lhp_selm_t *m, const char *v, const char *name,
+		 size_t name_len)
 {
-	const char *c = lhp_atr_get_fixed(m, el, "class", 5), *t, *start = c;
+	const char *c = v, *t;
 	int hit = 0;
-
-	if (!c)
-		return 0;
-
-	/*
-	 * A class token is bounded by whitespace (a tailwind class like
-	 * md:flex or w-[1312px] is one token, matched by an escaped selector
-	 * .md\:flex).  This is the hottest comparison in the cascade (every
-	 * class selector that survives the key prefilter, for every element),
-	 * so no tokenizer.
-	 *
-	 * The name is decoded selector text and may hold a NUL (an escaped
-	 * one), so compare by length and never index past the token
-	 */
 
 	while (*c && !hit) {
 		while (lhp_ws(*c))
@@ -2483,12 +2504,12 @@ lhp_has_class(lhp_selm_t *m, const lhp_atr_idx_t *el, const char *name,
 		t = c;
 		while (*c && !lhp_ws(*c))
 			c++;
+		/* a word has at least one byte: compare it before memcmp() */
 		hit = c != t && (size_t)(c - t) == name_len &&
-		      !memcmp(t, name, name_len);
+		      *t == *name && !memcmp(t, name, name_len);
 	}
 
-	m->ctx->sel_work += (size_t)(c - start);
-	lhp_sel_scan_cost(m, (size_t)(c - start));
+	lhp_sel_work(m, (size_t)(c - v) + (hit ? name_len : 0));
 
 	return hit;
 }
@@ -2520,8 +2541,11 @@ lhp_sel_match(lhp_selm_t *m, const lhp_atr_idx_t *el, lhp_pstack_t *parent,
  *    [a] or sixty .c, G-529),
  *  - each further attribute name a lookup compares, past the first (only
  *    names sharing a hash and length, G-540), and
- *  - each LHP_SEL_SCAN_BYTES bytes of attribute value a simple selector may
- *    compare (lhp_sel_scan_cost(), G-523).
+ *  - each LHP_SEL_STEP_WORK units of the work itself, counted where it is
+ *    done (lhp_sel_work()): each compound and simple selector visited, index
+ *    entry probed, byte of a name compared and byte of an attribute value
+ *    scanned or compared, carried over from one simple selector to the next
+ *    so that scans shorter than that are not free (G-523, G-547).
  *
  * The selector itself is compiled once (see above), so a step never looks at
  * its text.  A simple selector looks its attribute, class or id up in the
@@ -2529,15 +2553,17 @@ lhp_sel_match(lhp_selm_t *m, const lhp_atr_idx_t *el, lhp_pstack_t *parent,
  * hashes, 7 probes, then at most one name compare of its own, < 128 bytes
  * (the selector text is shorter); :checked looks up two names.  A combinator
  * reaches the next ancestor or sibling in O(1): a resolved element keeps its
- * parent element (lhp_parent_elem()).  So a step is a few dozen operations
- * plus at most one name compare of < 128 bytes and LHP_SEL_SCAN_BYTES of
- * value, besides the < LHP_SEL_SCAN_BYTES left over from a scan's charge.
+ * parent element (lhp_parent_elem()).  Values are scanned in one pass, a
+ * byte at a time ('~=' and .class split on whitespace, no tokenizer), and
+ * '*=' compares each position only up to the first byte that differs.  So a
+ * step is a few operations plus at most LHP_SEL_STEP_WORK units of work,
+ * besides the < LHP_SEL_STEP_WORK carried at the end of a match and the
+ * bytes of a value scan that the step running out interrupts (a strlen() or
+ * word scan of <= LHP_STRING_CHUNK, or one '*=' position of < 128 bytes).
  *
  * Every step taken also counts in the document's ctx->cascade_ops, and the
- * work itself, where it is done, in ctx->sel_work (each compound and simple
- * selector visited, index entry probed, name and value byte compared), so
- * tests can check that a step stays a bounded amount of work rather than only
- * counting steps.
+ * work in ctx->sel_work, so tests can check that a step stays a bounded
+ * amount of work rather than only counting steps.
  */
 #define LHP_SEL_MATCH_BUDGET		4096
 #define LHP_SEL_CASCADE_BUDGET		32768
@@ -2674,29 +2700,37 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 		if (!first)
 			m->budget--;
 		first = 0;
+		lhp_sel_work(m, 1);
 		if (m->budget < 0)
 			/* out of steps: the match won't be believed anyway */
 			return -1;
-		m->ctx->sel_work++;
 
 		switch (op) {
 		case LHP_SC_ANY:
 			break;
 
 		case LHP_SC_TAG:
+		{
+			uint64_t w = 0;
+			int r;
+
 			l = c[0];
 			if (l != el->tag->name_len ||
-			    lhp_sc_rd32(c + 2) != el->tag_h ||
-			    lhp_name_cmp(m->text + c[1],
-					 (const char *)&el->tag[1], l,
-					 &m->ctx->sel_work))
+			    lhp_sc_rd32(c + 2) != el->tag_h)
+				return -1;
+			r = lhp_name_cmp(m->text + c[1],
+					 (const char *)&el->tag[1], l, &w);
+			lhp_sel_work(m, (size_t)w);
+			if (r)
 				return -1;
 			c += 6;
 			break;
+		}
 
 		case LHP_SC_CLASS:
 			l = c[0];
-			if (!lhp_has_class(m, el, (const char *)c + 1, l))
+			v = lhp_atr_get_fixed(m, el, "class", 5);
+			if (!v || !lhp_sel_has_word(m, v, (const char *)c + 1, l))
 				return -1;
 			c += 1 + l;
 			break;
@@ -2707,8 +2741,7 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 			if (!v)
 				return -1;
 			vl = strlen(v);
-			m->ctx->sel_work += vl;
-			lhp_sel_scan_cost(m, vl);
+			lhp_sel_work(m, vl + (vl == l ? l : 0));
 			if (vl != l || memcmp(v, c + 1, l))
 				return -1;
 			c += 1 + l;
@@ -2720,8 +2753,7 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 			size_t avl = c[7];
 			char aop = (char)c[0];
 
-			v = lhp_atr_find(m->ctx, &m->budget, el,
-					 m->text + c[2], c[1],
+			v = lhp_atr_find(m->ctx, m, el, m->text + c[2], c[1],
 					 lhp_sc_rd32(c + 3));
 			c += 9;
 			if (!v)
@@ -2729,61 +2761,65 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 			if (!aop)
 				break;
 
-			vl = strlen(v);
-			m->ctx->sel_work += vl;
-			lhp_sel_scan_cost(m, vl);
-			switch (aop) {
-			case '=':
-				if (vl != avl || memcmp(v, av, avl))
-					return -1;
-				break;
-			case '^':
-				if (!avl || vl < avl || memcmp(v, av, avl))
-					return -1;
-				break;
-			case '$':
-				if (!avl || vl < avl ||
-				    memcmp(v + vl - avl, av, avl))
-					return -1;
-				break;
-			case '|':
-				if (vl < avl || memcmp(v, av, avl) ||
-				    (v[avl] && v[avl] != '-'))
-					return -1;
-				break;
-			case '~':
-			{
-				struct lws_tokenize ts;
-				int hit = 0;
-
-				memset(&ts, 0, sizeof(ts));
-				ts.start = v;
-				ts.len = vl;
-				ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM |
-					   LWS_TOKENIZE_F_DOT_NONTERM;
-				do {
-					m->ctx->sel_work++;
-					ts.e = (int8_t)lws_tokenize(&ts);
-					if (ts.e == LWS_TOKZE_TOKEN &&
-					    ts.token_len == avl &&
-					    !memcmp(ts.token, av, avl))
-						hit = 1;
-				} while (ts.e > 0 && !hit);
-				if (!hit)
+			if (aop == '~') {
+				/* no strlen(): the word scan finds the end */
+				if (!lhp_sel_has_word(m, v, av, avl))
 					return -1;
 				break;
 			}
+
+			vl = strlen(v);
+			lhp_sel_work(m, vl);
+			switch (aop) {
+			case '=':
+				if (vl != avl)
+					return -1;
+				lhp_sel_work(m, avl);
+				if (memcmp(v, av, avl))
+					return -1;
+				break;
+			case '^':
+				if (!avl || vl < avl)
+					return -1;
+				lhp_sel_work(m, avl);
+				if (memcmp(v, av, avl))
+					return -1;
+				break;
+			case '$':
+				if (!avl || vl < avl)
+					return -1;
+				lhp_sel_work(m, avl);
+				if (memcmp(v + vl - avl, av, avl))
+					return -1;
+				break;
+			case '|':
+				if (vl < avl)
+					return -1;
+				lhp_sel_work(m, avl);
+				if (memcmp(v, av, avl) ||
+				    (v[avl] && v[avl] != '-'))
+					return -1;
+				break;
 			case '*':
 				if (!avl || vl < avl)
 					return -1;
-				/* each position may compare all of av */
-				lhp_sel_scan_cost(m, (vl - avl + 1) * avl);
-				if (m->budget < 0)
-					return -1;
+				/*
+				 * Each position compares until the first
+				 * byte that differs, and is charged the bytes
+				 * it compared: the positions times the needle
+				 * can be ~2048 x 127 bytes, so the budget is
+				 * checked at each one
+				 */
 				for (s = v; s + avl <= v + vl; s++) {
-					m->ctx->sel_work += avl;
-					if (!memcmp(s, av, avl))
+					size_t k = 0;
+
+					while (k < avl && s[k] == av[k])
+						k++;
+					lhp_sel_work(m, k < avl ? k + 1 : k);
+					if (k == avl)
 						break;
+					if (m->budget < 0)
+						return -1;
 				}
 				if (s + avl > v + vl)
 					return -1;
@@ -2827,15 +2863,25 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 
 /*
  * If the selector ends with a :before / :after (or ::before / ::after)
- * pseudo-element, the length of that suffix, else 0
+ * pseudo-element, the length of that suffix, and which it is in *kind
+ * (LHP_PSEUDO_ELEM_), else 0
  */
 
 static size_t
-lhp_pseudo_elem_suffix(const char *sel, size_t len)
+lhp_pseudo_elem_suffix(const char *sel, size_t len, uint8_t *kind)
 {
-	static const char *const suf[] = { "::after", "::before",
-					   ":after",  ":before"  };
+	static const struct {
+		const char	*s;
+		uint8_t		kind;
+	} suf[] = {
+		{ "::after",	LHP_PSEUDO_ELEM_AFTER },
+		{ "::before",	LHP_PSEUDO_ELEM_BEFORE },
+		{ ":after",	LHP_PSEUDO_ELEM_AFTER },
+		{ ":before",	LHP_PSEUDO_ELEM_BEFORE },
+	};
 	size_t n;
+
+	*kind = LHP_PSEUDO_ELEM_NONE;
 
 	/* the selector text can trail with spaces before the '{' */
 	while (len && (sel[len - 1] == ' ' || sel[len - 1] == '\t' ||
@@ -2843,10 +2889,12 @@ lhp_pseudo_elem_suffix(const char *sel, size_t len)
 		len--;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(suf); n++) {
-		size_t sl = strlen(suf[n]);
+		size_t sl = strlen(suf[n].s);
 
-		if (len > sl && !strncmp(sel + len - sl, suf[n], sl))
+		if (len > sl && !strncmp(sel + len - sl, suf[n].s, sl)) {
+			*kind = suf[n].kind;
 			return sl;
+		}
 	}
 
 	return 0;
@@ -2864,9 +2912,10 @@ lhp_sel_match(lhp_selm_t *m, const lhp_atr_idx_t *el, lhp_pstack_t *parent,
 {
 	int comb;
 
-	if (--m->budget < 0)
+	m->budget--;
+	lhp_sel_work(m, 1);
+	if (m->budget < 0)
 		return 0;
-	m->ctx->sel_work++;
 
 	comb = lhp_sel_match_compound(m, el, parent, &c);
 
@@ -3421,6 +3470,23 @@ lhp_css_layer_statement(lhp_ctx_t *ctx, const char *p, const char *end)
 	}
 }
 
+static uint32_t
+lhp_selidx_hash(uint8_t kind, const char *k, size_t len)
+{
+	uint32_t h = 2166136261u ^ kind;
+
+	while (len--) {
+		char c = *k++;
+
+		/* tags match case-insensitively */
+		if (kind == LHP_SELKEY_TAG && c >= 'A' && c <= 'Z')
+			c = (char)(c + 32);
+		h = (h ^ (uint8_t)c) * 16777619u;
+	}
+
+	return h;
+}
+
 /*
  * Pick the most selective simple selector (id, else class, else tag) of the
  * rightmost compound of the normalized selector [sel, end), so the cascade
@@ -3539,23 +3605,7 @@ lhp_sel_key(const char *sel, const char *end, lcsp_names_t *na)
 		return;
 
 	na->key_ofs = (uint16_t)(s - sel);
-}
-
-static uint32_t
-lhp_selidx_hash(uint8_t kind, const char *k, size_t len)
-{
-	uint32_t h = 2166136261u ^ kind;
-
-	while (len--) {
-		char c = *k++;
-
-		/* tags match case-insensitively */
-		if (kind == LHP_SELKEY_TAG && c >= 'A' && c <= 'Z')
-			c = (char)(c + 32);
-		h = (h ^ (uint8_t)c) * 16777619u;
-	}
-
-	return h;
+	na->key_h = lhp_selidx_hash(na->key_kind, s, na->key_len);
 }
 
 /*
@@ -3596,17 +3646,18 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
  *    <= LHP_MAX_ATR_PER_ELEM entries, so a selector finds one without
  *    walking them or comparing their names (G-529, G-540)
  *  - per element: each indexed selector keyed by its tag, id, classes or
- *    none is visited at most once, a step each; class tokens (<= 2048 bytes
- *    of attribute) are sorted once.  Matching runs the compiled selector,
- *    never its text, and costs a step per compound, per further simple
- *    selector in it, per further attribute name compared in a lookup and per
- *    LHP_SEL_SCAN_BYTES of attribute value scanned, so a step is O(1) work:
- *    <= 7 index probes, one name compare of < 128 bytes and
- *    LHP_SEL_SCAN_BYTES of value (see LHP_SEL_MATCH_BUDGET).  At most
- *    LHP_SEL_MATCH_BUDGET per selector and, for the document's, at most
- *    LHP_SEL_CASCADE_BUDGET per element, all counted (G-090, G-523, G-529,
- *    G-540).  A selector that runs out may finish
- *    the class, id or attribute value it is scanning, <= LHP_STRING_CHUNK.
+ *    none is visited at most once, a step each, its key hash computed when
+ *    it was compiled, so a key is only compared when the hashes agree; class
+ *    tokens (<= 2048 bytes of attribute) are hashed and sorted once.
+ *    Matching runs the compiled selector, never its text, and costs a step
+ *    per compound, per further simple selector in it, per further attribute
+ *    name compared in a lookup and per LHP_SEL_STEP_WORK units of the work
+ *    itself (index probes, name and value bytes), so a step is O(1) work
+ *    (see LHP_SEL_MATCH_BUDGET).  At most LHP_SEL_MATCH_BUDGET per selector
+ *    and, for the document's, at most LHP_SEL_CASCADE_BUDGET per element, all
+ *    counted (G-090, G-523, G-529, G-540, G-547).  A selector that runs out
+ *    may finish the class, id or attribute value it is scanning,
+ *    <= LHP_STRING_CHUNK.
  *    Combinators visit <= LHP_MAX_ELEMS_NEST ancestors or
  *    LHP_SIBLING_HISTORY siblings, a budget step each
  *  - matched stanzas: a hash probe each, sorted once, counted; the
@@ -3720,10 +3771,8 @@ lhp_selidx_add(lhp_ctx_t *ctx)
 			if (nm->key_kind == LHP_SELKEY_NONE)
 				head = &ctx->selidx_nokey;
 			else
-				head = &ctx->selidx[lhp_selidx_hash(
-					nm->key_kind,
-					(const char *)&nm[1] + nm->key_ofs,
-					nm->key_len) % LHP_SELIDX_BUCKETS];
+				head = &ctx->selidx[nm->key_h %
+						    LHP_SELIDX_BUCKETS];
 
 			/*
 			 * Prepend, walking the list later gives reverse
@@ -3757,6 +3806,7 @@ lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm)
 
 	m.ctx = ctx;
 	m.text = (const char *)&nm[1];
+	m.work = 0;
 	m.budget = LHP_SEL_MATCH_BUDGET;
 	if (doc && ctx->sel_budget < m.budget)
 		m.budget = (int)ctx->sel_budget;
@@ -3864,26 +3914,21 @@ static int
 lhp_selidx_try_one(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lhp_selidx_t *e)
 {
 	lcsp_names_t *nm = e->nm;
-	const char *n = (const char *)&nm[1];
 	lcsp_stanza_t *stz = e->stz;
 	uint32_t sl = 0, hn = ctx->hits_count;
-	size_t pl;
 
-	pl = lhp_pseudo_elem_suffix(n, nm->name_len);
-
-	if (pl) {
+	if (nm->pseudo_elem != LHP_PSEUDO_ELEM_NONE) {
 		/*
 		 * A :before / :after pseudo-element selector: the element
-		 * matches the subject part, and the stanza generates a pseudo
-		 * box instead of styling the element itself.  The last one in
-		 * source order wins, so one that cannot win needn't be matched
+		 * matches the subject part (compiled without the suffix), and
+		 * the stanza generates a pseudo box instead of styling the
+		 * element itself.  The last one in source order wins, so one
+		 * that cannot win needn't be matched
 		 */
-		lcsp_stanza_t **pse = n[nm->name_len - 1] == 'r' ?
+		lcsp_stanza_t **pse = nm->pseudo_elem == LHP_PSEUDO_ELEM_AFTER ?
 				&ps->pseudo_after : &ps->pseudo_before;
 
-		/* the name ends 'r' for after, 'e' for before */
-		if (nm->name_len > pl &&
-		    (!*pse || (*pse)->seq < stz->seq) &&
+		if ((!*pse || (*pse)->seq < stz->seq) &&
 		    lhp_selidx_match(ctx, ps, nm))
 			*pse = stz;
 
@@ -3941,15 +3986,27 @@ lhp_selidx_try_one(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lhp_selidx_t *e)
 }
 
 /*
- * Run the matcher for every indexed selector in the bucket list e whose
- * key is exactly k (or all of them for the keyless list), recording stanza
- * hits for this cascade pass
+ * Run the matcher for every indexed selector whose key is exactly k, of
+ * selector index hash h, recording stanza hits for this cascade pass.  Each
+ * selector's key hash was computed when it was compiled, so a key is only
+ * compared when the hash and length agree.  LHP_SELKEY_NONE tries all of the
+ * keyless list
  */
 
 static int
-lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
-	       uint8_t kind, const char *k, size_t klen)
+lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, uint8_t kind, const char *k,
+	       size_t klen)
 {
+	uint32_t h = 0;
+	lhp_selidx_t *e;
+
+	if (kind == LHP_SELKEY_NONE)
+		e = ctx->selidx_nokey;
+	else {
+		h = lhp_selidx_hash(kind, k, klen);
+		e = ctx->selidx[h % LHP_SELIDX_BUCKETS];
+	}
+
 	for (; e; e = e->next) {
 		const lcsp_names_t *nm = e->nm;
 		const char *n = (const char *)&nm[1];
@@ -3957,7 +4014,8 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 		ctx->cascade_ops++;
 
 		if (kind != LHP_SELKEY_NONE &&
-		    (nm->key_kind != kind || nm->key_len != klen ||
+		    (nm->key_kind != kind || nm->key_h != h ||
+		     nm->key_len != klen ||
 		     (kind == LHP_SELKEY_TAG ?
 			     strncasecmp(n + nm->key_ofs, k, klen) :
 			     strncmp(n + nm->key_ofs, k, klen))))
@@ -4069,8 +4127,7 @@ lhp_selidx_try_classes(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *c)
 
 			key.s = (const char *)&nm[1] + nm->key_ofs;
 			key.len = nm->key_len;
-			key.h = lhp_selidx_hash(LHP_SELKEY_CLASS, key.s,
-						key.len);
+			key.h = nm->key_h;
 
 			/* is the selector's class one of the tokens? */
 
@@ -4119,6 +4176,7 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		size_t n = 0, pl;
 		lhp_sc_t sc;
 		int inb = 0;
+		uint8_t pk;
 
 		/* a comma inside :where(...) / :is(...) / :not(...) is part
 		 * of that selector, not a list separator */
@@ -4194,7 +4252,7 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		 * compile it into the allocation after the text
 		 */
 
-		pl = lhp_pseudo_elem_suffix(norm, n);
+		pl = lhp_pseudo_elem_suffix(norm, n, &pk);
 		memset(&sc, 0, sizeof(sc));
 		sc.text = norm;
 		if (n > pl)
@@ -4210,6 +4268,7 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 
 		na->name_len = (uint16_t)n;
 		na->prog_len = (uint16_t)sc.len;
+		na->pseudo_elem = pk;
 		sc.b = (uint8_t *)&na[1] + n + 1;
 		sc.alloc = sc.len;
 		sc.len = 0;
@@ -5596,19 +5655,12 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		lhp_hits_new_pass(ctx);
 		ctx->sel_budget = LHP_SEL_CASCADE_BUDGET;
 
-		if (lhp_selidx_try(ctx, ps, ctx->selidx_nokey, LHP_SELKEY_NONE,
-				   NULL, 0) ||
-		    lhp_selidx_try(ctx, ps, ctx->selidx[lhp_selidx_hash(
-					LHP_SELKEY_TAG, etag, ta->name_len) %
-						LHP_SELIDX_BUCKETS],
-				   LHP_SELKEY_TAG, etag, ta->name_len))
+		if (lhp_selidx_try(ctx, ps, LHP_SELKEY_NONE, NULL, 0) ||
+		    lhp_selidx_try(ctx, ps, LHP_SELKEY_TAG, etag, ta->name_len))
 			return 1;
 
 		if (eid && *eid &&
-		    lhp_selidx_try(ctx, ps, ctx->selidx[lhp_selidx_hash(
-					LHP_SELKEY_ID, eid, strlen(eid)) %
-						LHP_SELIDX_BUCKETS],
-				   LHP_SELKEY_ID, eid, strlen(eid)))
+		    lhp_selidx_try(ctx, ps, LHP_SELKEY_ID, eid, strlen(eid)))
 			return 1;
 
 		if (ecls && lhp_selidx_try_classes(ctx, ps, ecls))
