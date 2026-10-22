@@ -37,3 +37,12 @@ signalling all lws service threads to send new entries to all the browser window
 This demonstrates how to safely manage asynchronously generated content
 and hook it up to the lws service threads.
 
+With more than one service thread, each connection belongs to one of them,
+and only that thread may call lws apis on it (the only lws api that is safe
+to call from another thread is `lws_cancel_service()`).  So each service
+thread keeps its own list of its connections, and when the spam threads wake
+every service thread, each asks for writeable callbacks on its own
+connections only.  The lock protects the ringbuffer and the lists, and lws
+apis are never called while holding it, since lws calls some callbacks, like
+`LWS_CALLBACK_CLOSED`, with its own locks held, and those then take ours.
+
