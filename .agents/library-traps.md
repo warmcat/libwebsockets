@@ -348,6 +348,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    (ops-ws.c).  A protocol that stores or relays each RECEIVE as a whole
    message must reassemble (`lws_is_final_fragment()`) or validate it
    itself with `lws_check_utf8()` before echoing it as TEXT (G-379).
+ - A server's ws RECEIVE is capped by one read, `pt_serv_buf_size -
+   LWS_PRE` (4096 by default, 8192 in lwsws), not by the protocol's
+   `rx_buffer_size`: anything bigger always arrives in pieces
+   (io/service.c).  A protocol that refuses pieces caps its messages there.
 
 ## Logging secrets
 
