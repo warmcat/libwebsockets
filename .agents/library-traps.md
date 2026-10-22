@@ -325,6 +325,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    server wsi's inherited `retry_policy` to the new vhost's and re-arms a
    running validity timer (G-222).
 
+## WebSocket rx
+
+ - **A RECEIVE is not a message, and its UTF-8 may be partial.**  ws rx
+   UTF-8 validation (default for TEXT) only insists on a complete
+   sequence at the end of the final fragment: a non-final fragment, or a
+   chunk of a frame bigger than the rx buffer, can end mid-character
+   (ops-ws.c).  A protocol that stores or relays each RECEIVE as a whole
+   message must reassemble (`lws_is_final_fragment()`) or validate it
+   itself with `lws_check_utf8()` before echoing it as TEXT (G-379).
+
 ## Logging secrets
 
  - Header values go through `lws_http_hdr_log_value()` (credential
