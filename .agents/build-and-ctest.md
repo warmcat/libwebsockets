@@ -183,6 +183,9 @@
  - To check a zone-parser change for regressions, sign zones with the
    `rsa-*.jwk` api-test keys and a fixed `sign_validity_start_time`: the
    output is identical on every run, so before/after can be diffed.
+ - **gcc -O3 RELEASE trees catch `maybe-uninitialized` in api-tests that
+   DEBUG and ASan trees don't** (G-517): build new tests in a release tree
+   too, or at least `gcc -O3 -Wall -Wextra -Werror -c` the test's main.c.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
