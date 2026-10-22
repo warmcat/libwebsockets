@@ -46,3 +46,8 @@ connections only.  The lock protects the ringbuffer and the lists, and lws
 apis are never called while holding it, since lws calls some callbacks, like
 `LWS_CALLBACK_CLOSED`, with its own locks held, and those then take ours.
 
+The ringbuffer only frees a message once every connection has been sent it,
+and drops new messages while it is full.  So that one client that stops
+reading can't get every new message dropped for everybody else, a client
+that has had messages waiting for it for 5s without catching up is closed.
+

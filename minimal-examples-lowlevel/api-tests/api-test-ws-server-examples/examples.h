@@ -20,3 +20,4 @@ extern const size_t wse_max_message_pmd;
 extern const size_t wse_max_message_ring;
 extern const size_t wse_max_message_broker;
 extern const int wse_lag_secs_ring;
+extern const int wse_lag_secs_broker;

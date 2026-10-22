@@ -29,5 +29,5 @@ if (requirements)
 	set_tests_properties(api-test-ws-server-examples
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-			     TIMEOUT 60)
+			     TIMEOUT 150)
 endif()

@@ -37,3 +37,12 @@ signalling all lws service threads to send new entries to all the browser window
 This demonstrates how to safely manage asynchronously generated content
 and hook it up to the lws service threads.
 
+As in the -threads-smp example, each service thread only calls lws apis on
+its own connections, keeping its own list of them, and lws apis are never
+called while holding the lock that protects the ringbuffer and the lists.
+
+The ringbuffer only frees a message once every connection has been sent it,
+and drops new messages while it is full.  So that one client that stops
+reading can't get every new message dropped for everybody else, a client
+that has had messages waiting for it for 5s without catching up is closed.
+

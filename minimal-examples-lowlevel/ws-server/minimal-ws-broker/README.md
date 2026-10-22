@@ -30,3 +30,8 @@ however it was fragmented on the way.  Messages up to 4096 bytes are passed
 on: a client sending a bigger one is closed with 1009 (Message Too Big), and
 a client sending a TEXT message that isn't valid UTF-8 is closed with 1007,
 and nothing of either is passed on.
+
+The ringbuffer only frees a message once every subscriber has been sent it,
+and drops new messages while it is full.  So that one subscriber that stops
+reading can't get every new message dropped for everybody else, a subscriber
+that has had messages waiting for it for 5s without catching up is closed.

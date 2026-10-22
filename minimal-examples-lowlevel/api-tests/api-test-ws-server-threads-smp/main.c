@@ -108,7 +108,7 @@ callback_smp_client(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
 	struct churner *ch = (struct churner *)lws_get_opaque_user_data(wsi);
-	static const char prefix[] = "svc, test: tid: ";
+	static const char prefix[] = "svc, test: spam tid: ";
 
 	if (!ch)
 		return lws_callback_http_dummy(wsi, reason, user, in, len);

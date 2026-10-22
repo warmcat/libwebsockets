@@ -21,3 +21,6 @@ const struct lws_protocols wse_protocol_broker =
 
 /* the largest message the example passes on */
 const size_t wse_max_message_broker = MINIMAL_MAX_MESSAGE;
+
+/* how long the example lets a subscriber lag before closing it */
+const int wse_lag_secs_broker = MINIMAL_LAG_SECS;

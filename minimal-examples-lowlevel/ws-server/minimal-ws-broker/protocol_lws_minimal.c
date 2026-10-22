@@ -24,6 +24,12 @@
  * connection was made to.  ws connections to "/publisher" URL are understood to be
  * publishing data and to any other URL, subscribing.
  *
+ * The ringbuffer only frees a message once every subscriber has been sent it,
+ * and drops new messages while it is full, so one subscriber that stops
+ * reading would get every new message dropped for everybody, for as long as
+ * it stays connected.  So a subscriber that has had messages waiting for it
+ * for MINIMAL_LAG_SECS without catching up is closed.
+ *
  * A RECEIVE callback is not a message: a message may arrive in several
  * fragments, and a fragment bigger than the rx buffer arrives in several
  * pieces, any of which may end partway through a UTF-8 character.  So we
@@ -45,6 +51,10 @@
  */
 #define MINIMAL_MAX_MESSAGE 4096
 
+/* a subscriber that has had messages waiting this long without catching up
+ * is closed */
+#define MINIMAL_LAG_SECS 5
+
 /* one of these created for each message */
 
 struct msg {
@@ -56,12 +66,13 @@ struct msg {
 /* one of these is created for each client connecting to us */
 
 struct per_session_data__minimal {
-	struct per_session_data__minimal *pss_list;
+	lws_dll2_t list; /* subscribers: in vhd->pss_list */
 	struct lws *wsi;
 	uint8_t *rx; /* LWS_PRE + message being collected, or NULL */
 	size_t rx_len; /* bytes of message in rx after LWS_PRE */
 	uint32_t tail;
 	char publishing; /* nonzero: peer is publishing to us */
+	char behind; /* messages are waiting for us: the lag timer runs */
 };
 
 /* one of these is created for each vhost our protocol is used with */
@@ -71,7 +82,7 @@ struct per_vhost_data__minimal {
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
 
-	struct per_session_data__minimal *pss_list; /* linked-list of live pss*/
+	lws_dll2_owner_t pss_list; /* live subscriber pss */
 
 	struct lws_ring *ring; /* ringbuffer holding unsent messages */
 };
@@ -154,6 +165,59 @@ minimal_rx_check(struct lws *wsi, struct per_session_data__minimal *pss)
 	return 0;
 }
 
+/*
+ * Messages before the oldest tail of any subscriber have been sent to
+ * everybody and can be freed.
+ */
+
+static void
+minimal_update_oldest_tail(struct per_vhost_data__minimal *vhd)
+{
+	struct per_session_data__minimal *oldest = NULL;
+	uint32_t most = 0, w;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pss_list)) {
+		struct per_session_data__minimal *pss = lws_container_of(d,
+					struct per_session_data__minimal, list);
+
+		w = (uint32_t)lws_ring_get_count_waiting_elements(vhd->ring,
+								  &pss->tail);
+		if (!oldest || w > most) {
+			most = w;
+			oldest = pss;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (oldest)
+		lws_ring_update_oldest_tail(vhd->ring, oldest->tail);
+}
+
+/*
+ * A subscriber with messages waiting for it must catch up, ie, be sent all of
+ * them, within MINIMAL_LAG_SECS, or it is closed.  The timer runs from when it
+ * falls behind, and only stops when it has caught up, so it measures the
+ * subscriber's own lag, however fast or slow the publishers are.  (Its PONGs
+ * or anything else it sends us don't count: it has to read.)
+ */
+
+static void
+minimal_lag_update(struct per_vhost_data__minimal *vhd,
+		   struct per_session_data__minimal *pss)
+{
+	char behind = !!lws_ring_get_element(vhd->ring, &pss->tail);
+
+	if (behind == pss->behind)
+		return;
+
+	pss->behind = behind;
+	if (behind)
+		lws_set_timeout(pss->wsi, PENDING_TIMEOUT_LAGGING,
+				MINIMAL_LAG_SECS);
+	else
+		lws_set_timeout(pss->wsi, NO_PENDING_TIMEOUT, 0);
+}
+
 static int
 callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
@@ -187,7 +251,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		lws_ring_destroy(vhd->ring);
+		if (vhd)
+			lws_ring_destroy(vhd->ring);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
@@ -195,17 +260,27 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->wsi = wsi;
 		if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI) > 0)
 			pss->publishing = !strcmp(buf, "/publisher");
-		if (!pss->publishing)
+		if (!pss->publishing) {
 			/* add subscribers to the list of live pss held in the vhd */
-			lws_ll_fwd_insert(pss, pss_list, vhd->pss_list);
+			lws_dll2_add_tail(&pss->list, &vhd->pss_list);
+			/* we get what's in the ring already */
+			if (lws_ring_get_element(vhd->ring, &pss->tail)) {
+				lws_callback_on_writable(wsi);
+				minimal_lag_update(vhd, pss);
+			}
+		}
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		/* remove our closing pss from the list of live pss */
-		lws_ll_fwd_remove(struct per_session_data__minimal, pss_list,
-				  pss, vhd->pss_list);
 		/* drop any partial message we were collecting */
 		minimal_rx_discard(pss);
+		if (lws_dll2_is_detached(&pss->list))
+			/* publishers aren't on the list */
+			break;
+		/* remove our closing pss from the list of live pss */
+		lws_dll2_remove(&pss->list);
+		/* we may have been the one holding the oldest tail */
+		minimal_update_oldest_tail(vhd);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -226,18 +301,15 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		lws_ring_consume_and_update_oldest_tail(
-			vhd->ring,	/* lws_ring object */
-			struct per_session_data__minimal, /* type of objects with tails */
-			&pss->tail,	/* tail of guy doing the consuming */
-			1,		/* number of payload objects being consumed */
-			vhd->pss_list,	/* head of list of objects with tails */
-			tail,		/* member name of tail in objects with tails */
-			pss_list	/* member name of next object in objects with tails */
-		);
+		/* we are done with that one... */
+		lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
+		/* ...if it was the last one waiting for anybody, free it */
+		minimal_update_oldest_tail(vhd);
+		/* if we caught up, we are not lagging any more */
+		minimal_lag_update(vhd, pss);
 
 		/* more to do? */
-		if (lws_ring_get_element(vhd->ring, &pss->tail))
+		if (pss->behind)
 			/* come back as soon as we can write more */
 			lws_callback_on_writable(pss->wsi);
 		break;
@@ -261,7 +333,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		 * For test, our policy is ignore publishing when there are
 		 * no subscribers connected.
 		 */
-		if (!vhd->pss_list) {
+		if (!lws_dll2_get_head(&vhd->pss_list)) {
 			minimal_rx_discard(pss);
 			break;
 		}
@@ -288,13 +360,17 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/*
 		 * let every subscriber know we want to write something
-		 * on them as soon as they are ready
+		 * on them as soon as they are ready, and they are behind until
+		 * they have been sent it
 		 */
-		lws_start_foreach_llp(struct per_session_data__minimal **,
-				      ppss, vhd->pss_list) {
-			if (!(*ppss)->publishing)
-				lws_callback_on_writable((*ppss)->wsi);
-		} lws_end_foreach_llp(ppss, pss_list);
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vhd->pss_list)) {
+			struct per_session_data__minimal *p = lws_container_of(
+				d, struct per_session_data__minimal, list);
+
+			lws_callback_on_writable(p->wsi);
+			minimal_lag_update(vhd, p);
+		} lws_end_foreach_dll(d);
 		break;
 
 	default:

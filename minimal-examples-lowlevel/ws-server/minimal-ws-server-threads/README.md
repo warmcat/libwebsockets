@@ -23,3 +23,8 @@ signalling lws to send new entries to all the browser windows.
 
 This demonstrates how to safely manage asynchronously generated content
 and hook it up to the lws service thread.
+
+The ringbuffer only frees a message once every connection has been sent it,
+and drops new messages while it is full.  So that one client that stops
+reading can't get every new message dropped for everybody else, a client
+that has had messages waiting for it for 5s without catching up is closed.

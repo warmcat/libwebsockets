@@ -23,6 +23,12 @@
  *  - nothing calls into lws while holding the lock.  Some callbacks, like
  *    LWS_CALLBACK_CLOSED, come with lws' own locks held and then take ours,
  *    so taking any lws lock while holding ours could deadlock.
+ *
+ * The ringbuffer only frees a message once every connection has been sent
+ * it, so one client that stops reading would stop it freeing anything, and
+ * every new message would be dropped for everybody, for as long as that
+ * client stays connected.  So a client that has had messages waiting for it
+ * for MINIMAL_LAG_SECS without catching up is closed.
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
@@ -32,6 +38,10 @@
 #endif
 
 #include <string.h>
+
+/* a client that has had messages waiting this long without catching up is
+ * closed */
+#define MINIMAL_LAG_SECS 5
 
 /* one of these created for each message in the ringbuffer */
 
@@ -51,6 +61,7 @@ struct per_session_data__minimal {
 	lws_dll2_t list; /* {lock_ring} in vhd->pss_list[our tsi] */
 	struct lws *wsi;
 	uint32_t tail; /* {lock_ring} */
+	char behind; /* messages are waiting for us: the lag timer runs */
 };
 
 /*
@@ -128,6 +139,44 @@ __minimal_update_oldest_tail(struct per_vhost_data__minimal *vhd)
 		lws_ring_update_oldest_tail(vhd->ring, oldest->tail);
 }
 
+/* is anything waiting to be sent to this connection? */
+
+static int
+minimal_behind(struct per_vhost_data__minimal *vhd,
+	       struct per_session_data__minimal *pss)
+{
+	int behind;
+
+	pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+	behind = !!lws_ring_get_element(vhd->ring, &pss->tail);
+	pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+
+	return behind;
+}
+
+/*
+ * Only from the connection's own service thread, without the lock held.
+ *
+ * A client with messages waiting for it must catch up, ie, be sent all of
+ * them, within MINIMAL_LAG_SECS, or it is closed.  The timer runs from when it
+ * falls behind, and only stops when it has caught up, so it measures the
+ * client's own lag, however fast or slow the messages come.
+ */
+
+static void
+minimal_lag_update(struct per_session_data__minimal *pss, int behind)
+{
+	if (behind == pss->behind)
+		return;
+
+	pss->behind = (char)behind;
+	if (behind)
+		lws_set_timeout(pss->wsi, PENDING_TIMEOUT_LAGGING,
+				MINIMAL_LAG_SECS);
+	else
+		lws_set_timeout(pss->wsi, NO_PENDING_TIMEOUT, 0);
+}
+
 /*
  * This runs under the "spam thread" thread context only.
  *
@@ -169,7 +218,7 @@ thread_spam(void *d)
 			goto wait_unlock;
 		}
 		n = lws_snprintf((char *)amsg.payload + LWS_PRE, (unsigned int)len,
-			         "%s: tid: %d, msg: %d", vhd->config,
+			         "%s: spam tid: %d, msg: %d", vhd->config,
 			         whoami, index++);
 		amsg.len = (unsigned int)n;
 		n = (int)lws_ring_insert(vhd->ring, &amsg, 1);
@@ -317,7 +366,14 @@ init_fail:
 		lws_dll2_add_tail(&pss->list, &vhd->pss_list[lws_wsi_tsi(wsi)]);
 		vhd->count_pss++;
 		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
+		more = !!lws_ring_get_element(vhd->ring, &pss->tail);
 		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+
+		/* we get what's in the ring already */
+		if (more) {
+			lws_callback_on_writable(wsi);
+			minimal_lag_update(pss, 1);
+		}
 		break;
 
 	case LWS_CALLBACK_CLOSED:
@@ -365,6 +421,9 @@ init_fail:
 			return -1;
 		}
 
+		/* if we caught up, we are not lagging any more */
+		minimal_lag_update(pss, more);
+
 		if (more)
 			/* come back as soon as we can write more */
 			lws_callback_on_writable(wsi);
@@ -382,8 +441,10 @@ init_fail:
 		 * using lws_cancel_service().
 		 *
 		 * We respond by scheduling a writable callback for all of
-		 * this service thread's connected clients; the other service
-		 * threads get this event too and do the same for theirs.
+		 * this service thread's connected clients with something
+		 * waiting for them, who are behind until they have been sent
+		 * it; the other service threads get this event too and do the
+		 * same for theirs.
 		 *
 		 * Only this thread changes its list, and we are on it, so we
 		 * can walk it without the lock, and without holding the lock
@@ -394,7 +455,10 @@ init_fail:
 			struct per_session_data__minimal *p = lws_container_of(
 				d, struct per_session_data__minimal, list);
 
-			lws_callback_on_writable(p->wsi);
+			if (minimal_behind(vhd, p)) {
+				lws_callback_on_writable(p->wsi);
+				minimal_lag_update(p, 1);
+			}
 		} lws_end_foreach_dll(d);
 		break;
 
