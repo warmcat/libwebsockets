@@ -4,9 +4,11 @@
  * The DHT's reliable transport calls back into its consumer, and what the
  * consumer does there can make the DHT want more sequencers than it keeps:
  * at most 64 (LWS_DHT_MAX_TS), recycling only ones nothing is using (G-496).
- * This checks the sequencer calling back counts as in use, so it is never
- * the one destroyed, and nothing uses it after the callback if it could have
- * been (G-181):
+ * This checks the sequencer calling back is never the one destroyed, and
+ * nothing uses it after the callback if it could have been (G-181).  In both
+ * callbacks here the sequencer is also in use for another reason (a proven
+ * session, unacked data): api-test-dht-seq-flood has the WRITE_COMPLETED
+ * case, where only being in a callback protects it (G-519).
  *
  *  - a plain UDP socket Q sends DHT B a chunk with the verb "FAN".  B's
  *    handler for it sends to 64 endpoints B has no sequencer for.  B makes

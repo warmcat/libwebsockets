@@ -12,12 +12,20 @@
  *    they make room for each other, but P's survives: when P then acks, B's
  *    message to P completes
  *
- *  - B queues one message to each of 64 addresses where nothing listens.
- *    Each takes a sequencer that nothing is using any more, until all 64 hold
- *    a message no one has acked: then a message to a 65th peer is refused,
- *    rather than one of them being destroyed for it.  Each of the 64 later
- *    fails visibly, with LWS_DHT_EVENT_WRITE_FAILED, and once they are gone,
- *    a message to P is taken again
+ *  - B queues a second message to P, and one message to each of 63
+ *    addresses where nothing listens.  Each takes a sequencer that nothing
+ *    is using any more, until all 64 hold a message no one has acked: then
+ *    a message to a 65th peer is refused, rather than one of them being
+ *    destroyed for it
+ *
+ *  - P acks its second message.  B's handler for its WRITE_COMPLETED sends
+ *    to a new peer: P's sequencer is the only one with nothing outstanding,
+ *    but it is the one calling back, so it must not be recycled under its
+ *    own callback (G-181), and the send is refused.  This is the case where
+ *    only `in_cb` keeps the sequencer from being recycled (G-519)
+ *
+ *  - each of the 63 later fails visibly, with LWS_DHT_EVENT_WRITE_FAILED,
+ *    and once they are gone, a message to P is taken again
  *
  * Nothing listens on the fan port, at 127.0.1.1 and up.  The UDP ports are
  * allocated uniquely at build time and passed in on the command line, so
@@ -43,6 +51,7 @@ enum {
 	FL_FLOOD,	/* when P has had its chunk, the forged chunks come */
 	FL_SETTLE,	/* B has taken them: P's sequencer must be there */
 	FL_COMPLETE,	/* P acked: B's message to it must complete */
+	FL_FENCE,	/* P acks a second, and B sends from its handler */
 	FL_FAIL_ALL,	/* the silent peers' sessions all fail, visibly */
 };
 
@@ -59,9 +68,13 @@ static struct {
 	uint8_t		tid[16];	/* B's tid for its chunks to P */
 	size_t		tid_len;
 	int		silent_failed;
-	unsigned int	p_completed:1;
+	int		p_completed;	/* B's messages to P that completed */
+	int		fence_r;	/* B's send from P's WRITE_COMPLETED */
+	unsigned int	fence_done:1;
 	unsigned int	p_failed:1;
 } fl;
+
+static void fl_silent(int i, struct sockaddr_in *sin);
 
 static int
 fl_is(const struct sockaddr *sa, const struct sockaddr_in *sin)
@@ -97,8 +110,19 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			fl.silent_failed++;
 		break;
 	case LWS_DHT_EVENT_WRITE_COMPLETED:
-		if (fl_is(from, &sa_p))
-			fl.p_completed = 1;
+		if (!fl_is(from, &sa_p))
+			break;
+		fl.p_completed++;
+		if (state == FL_FENCE && !fl.fence_done) {
+			struct sockaddr_in sin;
+
+			/* every other sequencer holds an unacked message */
+			fl_silent(FL_MAX_TS - 1, &sin);
+			fl.fence_r = lws_dht_send_data(dht,
+					(struct sockaddr *)&sin, msg,
+					sizeof(msg));
+			fl.fence_done = 1;
+		}
 		break;
 	}
 }
@@ -299,9 +323,15 @@ step(void)
 		/*
 		 * Every sequencer is now one nothing is using: the forged
 		 * sources never answered their challenges, and P's is done.
-		 * Each of these takes one of them...
+		 * P's takes a second message, and each of these takes one of
+		 * the others...
 		 */
-		for (n = 0; n < FL_MAX_TS; n++) {
+		if (lws_dht_send_data(dht, (struct sockaddr *)&sa_p, msg,
+				      sizeof(msg)) != LWS_DHT_SEND_QUEUED) {
+			lwsl_err("second message to P not taken\n");
+			return -1;
+		}
+		for (n = 0; n < FL_MAX_TS - 1; n++) {
 			fl_silent(n, &sin);
 			if (lws_dht_send_data(dht, (struct sockaddr *)&sin,
 					      msg, sizeof(msg)) !=
@@ -318,26 +348,46 @@ step(void)
 			lwsl_err("65th peer not refused\n");
 			return -1;
 		}
-		for (n = 0; n < FL_MAX_TS; n++) {
+		for (n = 0; n < FL_MAX_TS - 1; n++) {
 			fl_silent(n, &sin);
 			if (!has_ts(&sin)) {
 				lwsl_err("silent peer %d lost its message\n", n);
 				return -1;
 			}
 		}
+		if (fl_p_send_ack(2 * sizeof(msg)))
+			return -1;
+		state++;
+		return 0;
+
+	case FL_FENCE:
+		if (fl.p_failed) {
+			lwsl_err("P's session failed\n");
+			return -1;
+		}
+		if (!fl.fence_done)
+			return 0;
+		if (fl.p_completed != 2 || fl.fence_r != LWS_DHT_SEND_REFUSED) {
+			lwsl_err("send from P's WRITE_COMPLETED: %d, P's "
+				 "sequencer recycled under its callback\n",
+				 fl.fence_r);
+			return -1;
+		}
+		lwsl_user("send from P's WRITE_COMPLETED refused, P's "
+			  "sequencer kept\n");
 		state++;
 		return 0;
 
 	case FL_FAIL_ALL:
-		if (fl.silent_failed < FL_MAX_TS)
+		if (fl.silent_failed < FL_MAX_TS - 1)
 			return 0;
-		if (fl.silent_failed != FL_MAX_TS) {
+		if (fl.silent_failed != FL_MAX_TS - 1) {
 			lwsl_err("%d failures for %d sessions\n",
-				 fl.silent_failed, FL_MAX_TS);
+				 fl.silent_failed, FL_MAX_TS - 1);
 			return -1;
 		}
 		lwsl_user("all %d silent peers' messages reported failed\n",
-			  FL_MAX_TS);
+			  FL_MAX_TS - 1);
 		if (lws_dht_send_data(dht, (struct sockaddr *)&sa_p, msg,
 				      sizeof(msg)) != LWS_DHT_SEND_QUEUED) {
 			lwsl_err("P refused once the table emptied\n");
