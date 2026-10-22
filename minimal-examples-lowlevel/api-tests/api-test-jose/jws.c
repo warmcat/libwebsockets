@@ -321,29 +321,34 @@ bail:
 }
 
 
+/*
+ * the key from worked example in RFC7515 A-2, as a JWK, up to its optional
+ * precomputed CRT members
+ */
+#define RFC7515_RSA_KEY_NO_CRT \
+	"{\"kty\":\"RSA\"," \
+	" \"n\":\"ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddx" \
+		 "HmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMs" \
+		 "D1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSH" \
+		 "SXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdV" \
+		 "MTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8" \
+		 "NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ\"," \
+	"\"e\":\"AQAB\"," \
+	"\"d\":\"Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97I" \
+		"jlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0" \
+		"BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn" \
+		"439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYT" \
+		"CBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLh" \
+		"BOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ\"," \
+	"\"p\":\"4BzEEOtIpmVdVEZNCqS7baC4crd0pqnRH_5IB3jw3bcxGn6QLvnEtfdUdi" \
+		"YrqBdss1l58BQ3KhooKeQTa9AB0Hw_Py5PJdTJNPY8cQn7ouZ2KKDcmnPG" \
+		"BY5t7yLc1QlQ5xHdwW1VhvKn-nXqhJTBgIPgtldC-KDV5z-y2XDwGUc\"," \
+	"\"q\":\"uQPEfgmVtjL0Uyyx88GZFF1fOunH3-7cepKmtH4pxhtCoHqpWmT8YAmZxa" \
+		"ewHgHAjLYsp1ZSe7zFYHj7C6ul7TjeLQeZD_YwD66t62wDmpe_HlB-TnBA" \
+		"-njbglfIsRLtXlnDzQkv5dTltRJ11BKBBypeeF6689rjcJIDEz9RWdc\""
+
 static const char
-	/* the key from worked example in RFC7515 A-2, as a JWK */
-	*rfc7515_rsa_key =
-	"{\"kty\":\"RSA\","
-	" \"n\":\"ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddx"
-		 "HmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMs"
-		 "D1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSH"
-		 "SXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdV"
-		 "MTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8"
-		 "NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ\","
-	"\"e\":\"AQAB\","
-	"\"d\":\"Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97I"
-		"jlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0"
-		"BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn"
-		"439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYT"
-		"CBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLh"
-		"BOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ\","
-	"\"p\":\"4BzEEOtIpmVdVEZNCqS7baC4crd0pqnRH_5IB3jw3bcxGn6QLvnEtfdUdi"
-		"YrqBdss1l58BQ3KhooKeQTa9AB0Hw_Py5PJdTJNPY8cQn7ouZ2KKDcmnPG"
-		"BY5t7yLc1QlQ5xHdwW1VhvKn-nXqhJTBgIPgtldC-KDV5z-y2XDwGUc\","
-	"\"q\":\"uQPEfgmVtjL0Uyyx88GZFF1fOunH3-7cepKmtH4pxhtCoHqpWmT8YAmZxa"
-		"ewHgHAjLYsp1ZSe7zFYHj7C6ul7TjeLQeZD_YwD66t62wDmpe_HlB-TnBA"
-		"-njbglfIsRLtXlnDzQkv5dTltRJ11BKBBypeeF6689rjcJIDEz9RWdc\","
+	*rfc7515_rsa_key = RFC7515_RSA_KEY_NO_CRT ","
 	"\"dp\":\"BwKfV3Akq5_MFZDFZCnW-wzl-CCo83WoZvnLQwCTeDv8uzluRSnm71I3Q"
 		"CLdhrqE2e9YkxvuxdBfpT_PI7Yz-FOKnu1R6HsJeDCjn12Sk3vmAktV2zb"
 		"34MCdy7cpdTh_YVr7tss2u6vneTwrA86rZtu5Mbr1C1XsmvkxHQAdYo0\","
@@ -354,6 +359,8 @@ static const char
 		"y26F0EmpScGLq2MowX7fhd_QJQ3ydy5cY7YIBi87w93IKLEdfnbJtoOPLU"
 		"W0ITrJReOgo1cq9SbsxYawBgfp_gh6A5603k2-ZQwVK0JKSHuLFkuQ3U\""
 	"}",
+	/* as lws built with OpenSSL saved RSA keys, without DP, DQ and QI */
+	*rfc7515_rsa_key_no_crt = RFC7515_RSA_KEY_NO_CRT "}",
 	*rfc7515_rsa_a1 = /* the signed worked example in RFC7515 A-1 */
 	"eyJhbGciOiJSUzI1NiJ9"
 	".eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFt"
@@ -462,6 +469,79 @@ bail2:
 	lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);
 
 	return 1;
+}
+
+/*
+ * A private RSA JWK need not carry DP, DQ and QI, and lws built with OpenSSL
+ * saved keys without them: signing with one must still work whatever the
+ * crypto backend, eg, for an ACME account key made long ago.  RS256 is
+ * deterministic, so the signature must be the RFC7515 A-1 one.
+ */
+
+int
+test_jws_RS256_no_crt(struct lws_context *context)
+{
+	char temp[2048], sig[512];
+	struct lws_jws_map map;
+	struct lws_jose jose;
+	struct lws_jwk jwk;
+	struct lws_jws jws;
+	int n, l, ret = 1;
+
+	lws_jose_init(&jose);
+	lws_jws_init(&jws, &jwk, context);
+
+	if (lws_gencrypto_jws_alg_to_definition("RS256", &jose.alg) ||
+	    lws_jwk_import(&jwk, NULL, NULL, rfc7515_rsa_key_no_crt,
+			   strlen(rfc7515_rsa_key_no_crt))) {
+		lwsl_err("%s: unable to import the key\n", __func__);
+		goto bail2;
+	}
+
+	if (!jwk.private_key ||
+	    jwk.e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf ||
+	    jwk.e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf) {
+		lwsl_err("%s: not a private key without CRT terms\n",
+			 __func__);
+		goto bail;
+	}
+
+	l = (int)strlen(rfc7515_rsa_a1);
+	memcpy(temp, rfc7515_rsa_a1, (unsigned int)l + 1);
+	if (lws_jws_b64_compact_map(temp, l, &jws.map_b64) != 3) {
+		lwsl_err("%s: lws_jws_b64_compact_map failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_jws_sign_from_b64(&jose, &jws, sig, sizeof(sig));
+	if (n < 0) {
+		lwsl_err("%s: failed signing\n", __func__);
+		goto bail;
+	}
+
+	if ((unsigned int)n != jws.map_b64.len[LJWS_SIG] ||
+	    memcmp(sig, jws.map_b64.buf[LJWS_SIG], (unsigned int)n)) {
+		lwsl_err("%s: signature differs from RFC7515 A-1\n", __func__);
+		goto bail;
+	}
+
+	l = sizeof(temp);
+	if (lws_jws_sig_confirm_compact_b64(rfc7515_rsa_a1,
+					    strlen(rfc7515_rsa_a1), &map,
+					    &jwk, context, temp, &l) < 0) {
+		lwsl_err("%s: confirm rsa sig failed\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lws_jwk_destroy(&jwk);
+bail2:
+	lws_jws_destroy(&jws);
+	lwsl_notice("%s: selftest %s\n", __func__, ret ? "FAIL" : "OK");
+
+	return ret;
 }
 
 static const char
@@ -1272,6 +1352,7 @@ test_jws(struct lws_context *context)
 	n |= test_jws_HS256(context);
 	n |= test_jws_b64_map(context);
 	n |= test_jws_RS256(context);
+	n |= test_jws_RS256_no_crt(context);
 	n |= test_jws_ES256(context);
 	n |= test_jws_ES512(context);
 	n |= test_jws_EdDSA(context);

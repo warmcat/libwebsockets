@@ -62,15 +62,30 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	u.size = el[LWS_GENCRYPTO_RSA_KEYEL_QI].len;
 
 	if (d.data) {
-		if (!p.data || !q.data || !e1.data || !e2.data || !u.data) {
-			lwsl_notice("GnuTLS requires all private key params, skipping\n");
+		int n;
+
+		if (!p.data || !q.data) {
+			lwsl_notice("%s: GnuTLS needs the private key's P and Q\n",
+				    __func__);
 			return -2;
 		}
 
 		if (gnutls_privkey_init(&ctx->priv) < 0)
 			return 1;
 
-		if (gnutls_privkey_import_rsa_raw(ctx->priv, &m, &e, &d, &p, &q, &u, &e1, &e2) < 0) {
+		/*
+		 * DP, DQ and QI are optional in a JWK, and keys saved by lws
+		 * built with OpenSSL don't have them: GnuTLS computes them
+		 * on import when we don't give them
+		 */
+
+		n = gnutls_privkey_import_rsa_raw(ctx->priv, &m, &e, &d, &p, &q,
+						  u.data ? &u : NULL,
+						  e1.data ? &e1 : NULL,
+						  e2.data ? &e2 : NULL);
+		if (n < 0) {
+			lwsl_notice("%s: RSA key import failed: %s\n", __func__,
+				    gnutls_strerror(n));
 			gnutls_privkey_deinit(ctx->priv);
 			ctx->priv = NULL;
 			return 1;
