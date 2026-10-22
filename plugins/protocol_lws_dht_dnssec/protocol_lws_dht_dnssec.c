@@ -520,11 +520,17 @@ struct lws_dht_dnssec_fetch_req {
 	uint8_t				asked_next; /* oldest, once full */
 };
 
+enum {
+	DHT_DNSSEC_SWEEP_OLDER = 1,	/* we hold a newer serial */
+	DHT_DNSSEC_SWEEP_SAME,		/* we hold this serial, at held */
+};
+
 struct lws_dir_args {
 	const char *prefix;
 	const char *dirpath;
 	uint64_t new_serial;
 	int is_outdated;
+	char held[256];
 };
 
 /*
@@ -566,11 +572,13 @@ dht_dnssec_sweep_old_payload_cb(const char *dirpath, void *user, struct lws_dir_
 			uint64_t old_serial = strtoull(p, NULL, 10);
 			if ((int32_t)((uint32_t)a->new_serial - (uint32_t)old_serial) < 0) {
 				lwsl_notice("%s: Replay detected (new %u < old %u)\n", __func__, (uint32_t)a->new_serial, (uint32_t)old_serial);
-				a->is_outdated = 1;
+				a->is_outdated = DHT_DNSSEC_SWEEP_OLDER;
 				return 0;
 			} else if (a->new_serial == old_serial) {
 				lwsl_notice("%s: Valid zone already cached (new %u == old %u)\n", __func__, (uint32_t)a->new_serial, (uint32_t)old_serial);
-				a->is_outdated = 2;
+				a->is_outdated = DHT_DNSSEC_SWEEP_SAME;
+				lws_snprintf(a->held, sizeof(a->held), "%s/%s",
+					     dirpath, lde->name);
 				return 0;
 			}
 		}
@@ -1509,6 +1517,272 @@ bail:
 	return ret;
 }
 
+/*
+ * Our fetches of safe_hash are done: the zone is in storage, its payload at
+ * payload_path
+ */
+
+static void
+dht_dnssec_fetches_ok(struct vhd_dht_dnssec *vhd, const char *safe_hash,
+		      const char *payload_path)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(req->target_hash, safe_hash)) {
+			if (req->cache_dir[0]) {
+				char cpath[1024];
+				lws_snprintf(cpath, sizeof(cpath), "%s/%s.zone", req->cache_dir, req->domain);
+				int fpin = open(payload_path, O_RDONLY);
+				if (fpin >= 0) {
+					if (mkdir(req->cache_dir, 0770) < 0 && errno != EEXIST)
+						lwsl_err("%s: Failed to create cache directory %s\n", __func__, req->cache_dir);
+					int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0640);
+					if (fpout >= 0) {
+						char cbuf[4096];
+						ssize_t cn;
+						while ((cn = read(fpin, cbuf, sizeof(cbuf))) > 0)
+							if (write(fpout, cbuf, (size_t)cn) < 0) break;
+						close(fpout);
+						lwsl_user("%s: Copied fetched zone to cache %s\n", __func__, cpath);
+					} else {
+						lwsl_err("%s: Failed to open %s for caching\n", __func__, cpath);
+					}
+					close(fpin);
+				}
+			}
+
+			if (req->cb)
+				req->cb(req->opaque, req->domain,
+					LWS_DHT_DNSSEC_FETCH_OK);
+
+			lws_sul_cancel(&req->sul_timeout);
+			lws_dll2_remove(d);
+			free(req);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/* what became of a zone whose signature was confirmed */
+
+enum dht_dnssec_taken {
+	DHT_DNSSEC_REFUSED,	/* not taken: the sender gets an ERR */
+	DHT_DNSSEC_STORED,	/* a new version, stored and announced */
+	DHT_DNSSEC_HELD,	/* the version we hold already */
+};
+
+/*
+ * frag's payload, in its temp files, has had its signature confirmed for
+ * frag->domain: take it if it is exactly that domain's zone, in date, and no
+ * older than what we hold.  Unless it is refused, the sender has had its ACK.
+ */
+
+static enum dht_dnssec_taken
+dht_dnssec_frag_take(struct vhd_dht_dnssec *vhd, struct dht_fragment *frag)
+{
+	char tmp_path[256], dir1[256], dir2[256], final_path[256];
+	char tmp_ppath[256], final_ppath[256];
+	lws_snprintf(tmp_path, sizeof(tmp_path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
+	lws_snprintf(tmp_ppath, sizeof(tmp_ppath), "%s/tmp/%s.%08X.payload", vhd->storage_path, frag->safe_hash, frag->temp_token);
+
+	lws_snprintf(dir1, sizeof(dir1), "%s/%.2s", vhd->storage_path, frag->safe_hash);
+	lws_snprintf(dir2, sizeof(dir2), "%s/%.2s/%.2s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2);
+	lws_snprintf(final_path, sizeof(final_path), "%s/%.2s/%.2s/%s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash);
+
+	/*
+	 * The payload is what auth-dns will install and serve as
+	 * frag->domain: decide here, with the parser that will serve
+	 * it, that it is exactly that zone, and take its serial (what
+	 * the replay check and the cached filename are built on) and
+	 * expiries from it.  It is refused unless it is signed and in
+	 * date, and unless it is at least as new as the newest version
+	 * of it we ever took
+	 */
+	struct lws_auth_dns_zone_validity zv;
+	struct dht_dnssec_hwm hwm;
+	time_t default_ttl = 3600;
+	uint64_t serial;
+	time_t sig_expiry;
+
+	if (dht_dnssec_payload_check(tmp_ppath, frag->domain, &zv,
+				     &default_ttl))
+		return DHT_DNSSEC_REFUSED;
+
+	serial = zv.serial;
+	sig_expiry = zv.expiration;
+
+	if (dht_dnssec_hwm_refuses(vhd->storage_path, frag->safe_hash,
+				   &zv, &hwm)) {
+		/* not struck, for the reasons a replay is not below */
+		lwsl_notice("%s: Dropping zone %s serial %u signed %llu: "
+			    "older than serial %u signed %llu we took\n",
+			    __func__, frag->domain, zv.serial,
+			    (unsigned long long)zv.soa_inception,
+			    hwm.serial,
+			    (unsigned long long)hwm.inception);
+		return DHT_DNSSEC_REFUSED;
+	}
+
+	time_t ttl_expiry = time(NULL) + default_ttl;
+
+	lws_snprintf(final_ppath, sizeof(final_ppath), "%s/%.2s/%.2s/%s_%llu_%llu_%llu.payload",
+		vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash,
+		(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
+
+	if (mkdir(dir1, 0770) < 0 && errno != EEXIST)
+		lwsl_err("%s: Failed to create %s\n", __func__, dir1);
+	if (mkdir(dir2, 0770) < 0 && errno != EEXIST)
+		lwsl_err("%s: Failed to create %s\n", __func__, dir2);
+
+	/* Sweep old payload files for this hash before moving the new one in */
+	struct lws_dir_args da;
+	memset(&da, 0, sizeof(da));
+	da.prefix = frag->safe_hash;
+	da.dirpath = dir2;
+	da.new_serial = serial;
+	lws_dir(dir2, &da, dht_dnssec_sweep_old_payload_cb);
+
+	if (da.is_outdated) {
+		if (da.is_outdated == DHT_DNSSEC_SWEEP_OLDER) {
+			/*
+			 * A validly signed but older serial is not struck
+			 * either: the source is as unproven as above, and
+			 * a genuine old copy of the zone is public, so
+			 * replaying one under a forged source would cost
+			 * nothing
+			 */
+			lwsl_notice("%s: Dropping imported zone %s (serial %llu is a replay)\n", __func__, frag->domain, (unsigned long long)serial);
+
+			return DHT_DNSSEC_REFUSED;
+		}
+
+		lwsl_notice("%s: zone %s serial %llu is the one we hold\n",
+			    __func__, frag->domain, (unsigned long long)serial);
+		/* a copy from before the marks were kept */
+		dht_dnssec_hwm_update(vhd->storage_path, frag->safe_hash, &zv);
+		/*
+		 * Nothing new, but a fetch of ours that the node answered
+		 * with the zone: it holds it
+		 */
+		if (dht_dnssec_find_fetch_req(vhd, frag->safe_hash))
+			dht_dnssec_frag_subscribe(vhd, frag->safe_hash,
+						  &frag->from_sa,
+						  frag->from_salen);
+
+		/*
+		 * Not a failure: a publisher putting the version we hold, or
+		 * a node answering our fetch with it, wants us to hold just
+		 * what we hold.  An ERR made the publisher count it a failed
+		 * publication and try it again, and again, for as long as it
+		 * ran.  So it gets the ACK a new version gets, and our fetches
+		 * of it are done.  There is nothing to store or announce.
+		 */
+		{
+			char ack[128];
+
+			lws_dht_msg_gen(ack, sizeof(ack), "ACK", frag->safe_hash,
+					frag->last_offset, frag->last_len);
+			lws_dht_send_data(frag->dht_ctx,
+					  (struct sockaddr *)&frag->from_sa,
+					  ack, strlen(ack));
+		}
+
+		if (frag->fd >= 0) {
+			close(frag->fd);
+			frag->fd = -1;
+		}
+		unlink(tmp_path);
+		unlink(tmp_ppath);
+
+		dht_dnssec_fetches_ok(vhd, frag->safe_hash, da.held);
+
+		return DHT_DNSSEC_HELD;
+	}
+
+	/*
+	 * Only now, with the signature confirmed and the serial known
+	 * not to be a replay, does the sender get its ACK, do we
+	 * subscribe to the object, and do our own subscribers hear of
+	 * it: before, a replayed object was acknowledged and announced
+	 * to them before being dropped.
+	 */
+	{
+		char ack[128];
+		lws_dht_msg_gen(ack, sizeof(ack), "ACK", frag->safe_hash, frag->last_offset, frag->last_len);
+		lws_dht_send_data(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, ack, strlen(ack));
+	}
+
+	/* Store it officially / replace older version */
+	lwsl_user("%s: Successfully validated %s\n", __func__, frag->safe_hash);
+
+	if (frag->fd >= 0) {
+		close(frag->fd);
+		frag->fd = -1;
+	}
+
+	/* a zone we fetched: hear of its next version from its holder */
+	if (dht_dnssec_find_fetch_req(vhd, frag->safe_hash))
+		dht_dnssec_frag_subscribe(vhd, frag->safe_hash,
+					  &frag->from_sa,
+					  frag->from_salen);
+
+	/*
+	 * Notify anyone subscribed to this hash BEFORE we rename the
+	 * tmp payload, with the new serial and the domain, as our
+	 * broadcast NOTIFY does, so they can tell it is news
+	 */
+	{
+		uint8_t raw_hash[32], pl[8 + 256];
+		size_t dl = strlen(frag->domain) + 1;
+		int k;
+
+		if (dl > sizeof(pl) - 8)
+			dl = 0;
+		for (k = 0; k < 8; k++)
+			pl[k] = (uint8_t)(serial >> (56 - (8 * k)));
+		if (dl)
+			memcpy(pl + 8, frag->domain, dl);
+
+		/* returns the count of bytes decoded, or -1; 0 never means OK */
+		if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
+					  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
+			lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
+			if (id) {
+				lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash, pl, 8 + dl);
+				lws_dht_hash_destroy(&id);
+			}
+		}
+	}
+
+
+	if (rename(tmp_path, final_path) < 0) {
+		lwsl_err("%s: Failed to rename %s to %s (errno %d)\n", __func__, tmp_path, final_path, errno);
+		unlink(tmp_path);
+		unlink(tmp_ppath);
+	} else {
+		lwsl_user("%s: Atomically moved validated zone to %s\n", __func__, final_path);
+		if (rename(tmp_ppath, final_ppath) < 0) {
+			lwsl_err("%s: Failed to rename %s to %s (errno %d)\n", __func__, tmp_ppath, final_ppath, errno);
+			unlink(tmp_ppath);
+		} else {
+			lwsl_user("%s: Atomically moved decoded payload to %s\n", __func__, final_ppath);
+
+			dht_dnssec_hwm_update(vhd->storage_path,
+					      frag->safe_hash, &zv);
+
+			if (vhd->auth_cb) {
+				vhd->auth_cb(vhd->auth_cb_opaque, frag->domain, final_ppath);
+			}
+
+			/* Broadcast the newly accepted zone's SOA over the DHT to force peers to update instantly */
+			lwsl_user("%s: Broadcasting fresh SOA serial %llu for %s to DHT nodes\n", __func__, (unsigned long long)serial, frag->domain);
+			dht_dnssec_broadcast_notify(vhd, frag->domain, serial);
+
+			dht_dnssec_fetches_ok(vhd, frag->safe_hash, final_ppath);
+		}
+	}
+	return DHT_DNSSEC_STORED;
+}
+
 static struct lws *
 dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *data, int m, void *opaque)
 {
@@ -1899,212 +2173,8 @@ ds_test_done:
 
 	lwsl_user("%s: DS record successfully validated simulated JWS for %s\n", __func__, frag->domain);
 
-	{
-		char tmp_path[256], dir1[256], dir2[256], final_path[256];
-		char tmp_ppath[256], final_ppath[256];
-		lws_snprintf(tmp_path, sizeof(tmp_path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
-		lws_snprintf(tmp_ppath, sizeof(tmp_ppath), "%s/tmp/%s.%08X.payload", vhd->storage_path, frag->safe_hash, frag->temp_token);
-
-		lws_snprintf(dir1, sizeof(dir1), "%s/%.2s", vhd->storage_path, frag->safe_hash);
-		lws_snprintf(dir2, sizeof(dir2), "%s/%.2s/%.2s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2);
-		lws_snprintf(final_path, sizeof(final_path), "%s/%.2s/%.2s/%s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash);
-
-		/*
-		 * The payload is what auth-dns will install and serve as
-		 * frag->domain: decide here, with the parser that will serve
-		 * it, that it is exactly that zone, and take its serial (what
-		 * the replay check and the cached filename are built on) and
-		 * expiries from it.  It is refused unless it is signed and in
-		 * date, and unless it is at least as new as the newest version
-		 * of it we ever took
-		 */
-		struct lws_auth_dns_zone_validity zv;
-		struct dht_dnssec_hwm hwm;
-		time_t default_ttl = 3600;
-		uint64_t serial;
-		time_t sig_expiry;
-
-		if (dht_dnssec_payload_check(tmp_ppath, frag->domain, &zv,
-					     &default_ttl))
-			goto drop;
-
-		serial = zv.serial;
-		sig_expiry = zv.expiration;
-
-		if (dht_dnssec_hwm_refuses(vhd->storage_path, frag->safe_hash,
-					   &zv, &hwm)) {
-			/* not struck, for the reasons a replay is not below */
-			lwsl_notice("%s: Dropping zone %s serial %u signed %llu: "
-				    "older than serial %u signed %llu we took\n",
-				    __func__, frag->domain, zv.serial,
-				    (unsigned long long)zv.soa_inception,
-				    hwm.serial,
-				    (unsigned long long)hwm.inception);
-			goto drop;
-		}
-
-		time_t ttl_expiry = time(NULL) + default_ttl;
-
-		lws_snprintf(final_ppath, sizeof(final_ppath), "%s/%.2s/%.2s/%s_%llu_%llu_%llu.payload",
-			vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash,
-			(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
-
-		if (mkdir(dir1, 0770) < 0 && errno != EEXIST)
-			lwsl_err("%s: Failed to create %s\n", __func__, dir1);
-		if (mkdir(dir2, 0770) < 0 && errno != EEXIST)
-			lwsl_err("%s: Failed to create %s\n", __func__, dir2);
-
-		/* Sweep old payload files for this hash before moving the new one in */
-		struct lws_dir_args da;
-		memset(&da, 0, sizeof(da));
-		da.prefix = frag->safe_hash;
-		da.dirpath = dir2;
-		da.new_serial = serial;
-		lws_dir(dir2, &da, dht_dnssec_sweep_old_payload_cb);
-
-		if (da.is_outdated) {
-			if (da.is_outdated == 1) {
-				/*
-				 * A validly signed but older serial is not struck
-				 * either: the source is as unproven as above, and
-				 * a genuine old copy of the zone is public, so
-				 * replaying one under a forged source would cost
-				 * nothing
-				 */
-				lwsl_notice("%s: Dropping imported zone %s (serial %llu is a replay)\n", __func__, frag->domain, (unsigned long long)serial);
-			} else {
-				lwsl_notice("%s: Dropping identically cached zone %s (serial %llu is already active!)\n", __func__, frag->domain, (unsigned long long)serial);
-				/* a copy from before the marks were kept */
-				dht_dnssec_hwm_update(vhd->storage_path,
-						      frag->safe_hash, &zv);
-				/*
-				 * Nothing new, but a fetch of ours that the
-				 * node answered with the zone: it holds it
-				 */
-				if (dht_dnssec_find_fetch_req(vhd, frag->safe_hash))
-					dht_dnssec_frag_subscribe(vhd,
-						frag->safe_hash, &frag->from_sa,
-						frag->from_salen);
-			}
-			goto drop;
-		}
-
-		/*
-		 * Only now, with the signature confirmed and the serial known
-		 * not to be a replay, does the sender get its ACK, do we
-		 * subscribe to the object, and do our own subscribers hear of
-		 * it: before, a replayed object was acknowledged and announced
-		 * to them before being dropped.
-		 */
-		{
-			char ack[128];
-			lws_dht_msg_gen(ack, sizeof(ack), "ACK", frag->safe_hash, frag->last_offset, frag->last_len);
-			lws_dht_send_data(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, ack, strlen(ack));
-		}
-
-		/* Store it officially / replace older version */
-		lwsl_user("%s: Successfully validated %s\n", __func__, frag->safe_hash);
-
-		if (frag->fd >= 0) {
-			close(frag->fd);
-			frag->fd = -1;
-		}
-
-		/* a zone we fetched: hear of its next version from its holder */
-		if (dht_dnssec_find_fetch_req(vhd, frag->safe_hash))
-			dht_dnssec_frag_subscribe(vhd, frag->safe_hash,
-						  &frag->from_sa,
-						  frag->from_salen);
-
-		/*
-		 * Notify anyone subscribed to this hash BEFORE we rename the
-		 * tmp payload, with the new serial and the domain, as our
-		 * broadcast NOTIFY does, so they can tell it is news
-		 */
-		{
-			uint8_t raw_hash[32], pl[8 + 256];
-			size_t dl = strlen(frag->domain) + 1;
-			int k;
-
-			if (dl > sizeof(pl) - 8)
-				dl = 0;
-			for (k = 0; k < 8; k++)
-				pl[k] = (uint8_t)(serial >> (56 - (8 * k)));
-			if (dl)
-				memcpy(pl + 8, frag->domain, dl);
-
-			/* returns the count of bytes decoded, or -1; 0 never means OK */
-			if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
-						  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
-				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
-				if (id) {
-					lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash, pl, 8 + dl);
-					lws_dht_hash_destroy(&id);
-				}
-			}
-		}
-
-
-		if (rename(tmp_path, final_path) < 0) {
-			lwsl_err("%s: Failed to rename %s to %s (errno %d)\n", __func__, tmp_path, final_path, errno);
-			unlink(tmp_path);
-			unlink(tmp_ppath);
-		} else {
-			lwsl_user("%s: Atomically moved validated zone to %s\n", __func__, final_path);
-			if (rename(tmp_ppath, final_ppath) < 0) {
-				lwsl_err("%s: Failed to rename %s to %s (errno %d)\n", __func__, tmp_ppath, final_ppath, errno);
-				unlink(tmp_ppath);
-			} else {
-				lwsl_user("%s: Atomically moved decoded payload to %s\n", __func__, final_ppath);
-
-				dht_dnssec_hwm_update(vhd->storage_path,
-						      frag->safe_hash, &zv);
-
-				if (vhd->auth_cb) {
-					vhd->auth_cb(vhd->auth_cb_opaque, frag->domain, final_ppath);
-				}
-
-				/* Broadcast the newly accepted zone's SOA over the DHT to force peers to update instantly */
-				lwsl_user("%s: Broadcasting fresh SOA serial %llu for %s to DHT nodes\n", __func__, (unsigned long long)serial, frag->domain);
-				dht_dnssec_broadcast_notify(vhd, frag->domain, serial);
-
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
-					struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
-					if (!strcmp(req->target_hash, frag->safe_hash)) {
-						if (req->cache_dir[0]) {
-							char cpath[1024];
-							lws_snprintf(cpath, sizeof(cpath), "%s/%s.zone", req->cache_dir, req->domain);
-							int fpin = open(final_ppath, O_RDONLY);
-							if (fpin >= 0) {
-								if (mkdir(req->cache_dir, 0770) < 0 && errno != EEXIST)
-									lwsl_err("%s: Failed to create cache directory %s\n", __func__, req->cache_dir);
-								int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0640);
-								if (fpout >= 0) {
-									char cbuf[4096];
-									ssize_t cn;
-									while ((cn = read(fpin, cbuf, sizeof(cbuf))) > 0)
-										if (write(fpout, cbuf, (size_t)cn) < 0) break;
-									close(fpout);
-									lwsl_user("%s: Copied fetched zone to cache %s\n", __func__, cpath);
-								} else {
-									lwsl_err("%s: Failed to open %s for caching\n", __func__, cpath);
-								}
-								close(fpin);
-							}
-						}
-
-						if (req->cb)
-							req->cb(req->opaque, req->domain,
-								LWS_DHT_DNSSEC_FETCH_OK);
-
-						lws_sul_cancel(&req->sul_timeout);
-						lws_dll2_remove(d);
-						free(req);
-					}
-				} lws_end_foreach_dll_safe(d, d1);
-			}
-		}
-	}
+	if (dht_dnssec_frag_take(vhd, frag) == DHT_DNSSEC_REFUSED)
+		goto drop;
 
 	if (vhd->cb_completion && !vhd->cli_put_file)
 		vhd->cb_completion(vhd->cb_closure, 0);

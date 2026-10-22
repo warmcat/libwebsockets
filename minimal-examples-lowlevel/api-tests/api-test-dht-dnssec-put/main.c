@@ -24,6 +24,14 @@
  *    not (G-153)
  *  - however long a sender keeps a reassembly making progress, it is reaped
  *    at a fixed time after it started
+ *
+ * and, once a zone's signature is confirmed, what is done with it:
+ *
+ *  - a PUT of the version we already hold is taken as held, not refused, so
+ *    the publisher is not sent an ERR and does not retry it for ever, and
+ *    our fetch of it completes OK; nothing new is stored
+ *  - an older version is refused
+ *  - a newer one is stored in place of what we held
  */
 
 #include <libwebsockets.h>
@@ -31,6 +39,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <errno.h>
 
@@ -42,10 +52,13 @@
 /* a JWS starts "ey...": the plugin only takes PUTs that look like one */
 #define PUTT_CHUNK	"eyJhbGciOi"
 
+#define PUTT_HELD_DOMAIN	"held.example"
+#define PUTT_HELD_SERIAL	2026102201u
+
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_wait;
 static lws_usec_t t_start;
-static int fails;
+static int fails, fetch_status = 99;
 
 static int
 putt_expect(int cond, const char *what)
@@ -147,6 +160,167 @@ putt_count(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *from)
 	} lws_end_foreach_dll(d);
 
 	return n;
+}
+
+/* RRSIG validity as zone text, YYYYMMDDHHMMSS */
+
+static void
+putt_time(char *buf, size_t len, time_t t)
+{
+	struct tm tm;
+
+	gmtime_r(&t, &tm);
+	lws_snprintf(buf, len, "%04d%02d%02d%02d%02d%02d", tm.tm_year + 1900,
+		     tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min,
+		     tm.tm_sec);
+}
+
+/* PUTT_HELD_DOMAIN's zone at serial, signed and in date, written to path */
+
+static int
+putt_zone(const char *path, uint32_t serial)
+{
+	char z[512], exp[16], inc[16];
+	time_t now = time(NULL);
+	int fd, n;
+
+	putt_time(exp, sizeof(exp), now + 30 * 86400);
+	putt_time(inc, sizeof(inc), now - 3600);
+	n = lws_snprintf(z, sizeof(z), "$ORIGIN " PUTT_HELD_DOMAIN ".\n"
+		"@ IN SOA ns1." PUTT_HELD_DOMAIN ". host." PUTT_HELD_DOMAIN
+		". ( %u 3600 1800 604800 60 )\n"
+		"@ IN RRSIG SOA 8 2 60 %s %s 12345 " PUTT_HELD_DOMAIN ". AAAA\n"
+		"www IN A 127.0.0.1\n", serial, exp, inc);
+
+	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd < 0)
+		return 1;
+	if (write(fd, z, (size_t)n) != n) {
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	return 0;
+}
+
+static void
+putt_fetch_cb(void *opaque, const char *domain, int status)
+{
+	fetch_status = status;
+}
+
+/*
+ * A PUT of hash from h whose signature was confirmed, carrying the zone at
+ * serial: what dht_dnssec_frag_take() makes of it
+ */
+
+static enum dht_dnssec_taken
+putt_take(struct vhd_dht_dnssec *vhd, const char *hash,
+	  const lws_sockaddr46 *h, uint32_t serial, int *tmp_left)
+{
+	enum dht_dnssec_taken r = DHT_DNSSEC_REFUSED;
+	char path[256], ppath[256];
+	struct dht_fragment *frag;
+
+	frag = calloc(1, sizeof(*frag));
+	if (!frag)
+		return r;
+
+	frag->vhd		= vhd;
+	frag->dht_ctx		= vhd->dht;
+	frag->inbound		= 1;
+	frag->fd		= -1;
+	frag->temp_token	= serial;
+	frag->last_len		= strlen(PUTT_CHUNK);
+	memcpy(&frag->from_sa, h, sizeof(h->sa4));
+	frag->from_salen	= sizeof(h->sa4);
+	lws_strncpy(frag->safe_hash, hash, sizeof(frag->safe_hash));
+	lws_strncpy(frag->domain, PUTT_HELD_DOMAIN, sizeof(frag->domain));
+
+	/* the JWS, which is not looked at again, and its payload */
+	lws_snprintf(path, sizeof(path), PUTT_STORE "/tmp/%s.%08X", hash,
+		     frag->temp_token);
+	lws_snprintf(ppath, sizeof(ppath), "%s.payload", path);
+	if (!putt_zone(path, serial) && !putt_zone(ppath, serial))
+		r = dht_dnssec_frag_take(vhd, frag);
+
+	*tmp_left = !access(path, F_OK) || !access(ppath, F_OK);
+	unlink(path);
+	unlink(ppath);
+	free(frag);
+
+	return r;
+}
+
+/* the newest serial stored for hash, or 0 if none */
+
+static uint32_t
+putt_stored_serial(const char *hash)
+{
+	struct lws_dir_args da;
+
+	memset(&da, 0, sizeof(da));
+	da.prefix = hash;
+	lws_dir(PUTT_STORE "/cc/cc", &da, dht_dnssec_find_highest_serial_cb);
+
+	return da.is_outdated ? (uint32_t)da.new_serial : 0;
+}
+
+static void
+putt_take_cases(struct vhd_dht_dnssec *vhd)
+{
+	struct lws_dht_dnssec_fetch_req *req;
+	char hash[65], held[512];
+	lws_sockaddr46 pub;
+	int tmp_left;
+
+	putt_hash(hash, 0xa0);
+	putt_v4(&pub, 7, 1000);
+
+	/* the version we hold, as stored by an earlier PUT */
+	lws_snprintf(held, sizeof(held), PUTT_STORE "/cc/cc/%s_%llu_%llu_%u"
+		     ".payload", hash, (unsigned long long)time(NULL) + 3600,
+		     (unsigned long long)time(NULL) + 30 * 86400,
+		     PUTT_HELD_SERIAL);
+	if (putt_expect((mkdir(PUTT_STORE "/cc", 0700) == 0 ||
+			 errno == EEXIST) &&
+			(mkdir(PUTT_STORE "/cc/cc", 0700) == 0 ||
+			 errno == EEXIST) &&
+			(mkdir(PUTT_STORE "/tmp", 0700) == 0 ||
+			 errno == EEXIST) &&
+			!putt_zone(held, PUTT_HELD_SERIAL), "a held zone"))
+		return;
+
+	/* and a fetch of ours for it, that a holder answers */
+	req = calloc(1, sizeof(*req));
+	if (putt_expect(!!req, "fetch request"))
+		return;
+	lws_strncpy(req->domain, PUTT_HELD_DOMAIN, sizeof(req->domain));
+	lws_strncpy(req->target_hash, hash, sizeof(req->target_hash));
+	req->cb = putt_fetch_cb;
+	req->vhd = vhd;
+	lws_dll2_add_tail(&req->list, &vhd->fetch_reqs);
+
+	putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL, &tmp_left) ==
+						DHT_DNSSEC_HELD && !tmp_left &&
+		    !access(held, F_OK) &&
+		    putt_stored_serial(hash) == PUTT_HELD_SERIAL,
+		    "the version we hold is taken as held, not refused");
+	putt_expect(fetch_status == LWS_DHT_DNSSEC_FETCH_OK &&
+		    !dht_dnssec_find_fetch_req(vhd, hash),
+		    "and our fetch of it completes OK");
+
+	putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL - 1,
+			      &tmp_left) == DHT_DNSSEC_REFUSED &&
+		    putt_stored_serial(hash) == PUTT_HELD_SERIAL,
+		    "an older version is refused");
+
+	putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL + 1,
+			      &tmp_left) == DHT_DNSSEC_STORED && !tmp_left &&
+		    access(held, F_OK) &&
+		    putt_stored_serial(hash) == PUTT_HELD_SERIAL + 1,
+		    "a newer version is stored in place of the held one");
 }
 
 static void
@@ -265,6 +439,8 @@ putt_run(struct vhd_dht_dnssec *vhd)
 	putt_expect(f && f->received_len == 2 * strlen(PUTT_CHUNK) &&
 		    left > 0 && left <= 5 * LWS_US_PER_SEC,
 		    "progress does not extend a reassembly past its lifetime");
+
+	putt_take_cases(vhd);
 }
 
 /* the plugin makes its DHT once the system is up: wait for that */
