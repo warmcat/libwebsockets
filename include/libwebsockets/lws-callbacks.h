@@ -491,7 +491,13 @@ enum lws_callback_reasons {
 	 * so eg, lws_hdr_copy() of WSI_TOKEN_HTTP_COLON_PATH or
 	 * lws_get_urlarg_by_name() can be used to inspect the path and
 	 * urlargs.  Returning nonzero answers the CONNECT with 403 instead
-	 * of upgrading the stream. */
+	 * of upgrading the stream.
+	 *
+	 * For a ws upgrade to a reverse proxy mount, which is relayed to the
+	 * backend and binds no local ws protocol, this is issued on the
+	 * protocol the request is bound to (the vhost's protocols[0]) before
+	 * the onward connection is made.  Returning nonzero answers the
+	 * upgrade with 403. */
 
 	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY			= 25,
 	/**< When the server handshake code

@@ -24,6 +24,23 @@
  * lws_http_basic_auth_user() reports: it must be the user the credentials
  * were for, without the headers.
  *
+ * A ws upgrade meets the same gates as an http request to its path (G-489),
+ * over h1, h2 over tls and h3:
+ *
+ *  - /private/ws lands in the /private mount, and binds a local ws protocol:
+ *    "ba-ws-open", which nothing else protects, or "ba-ws", which also has
+ *    the same login file as its "basic-auth" pvo.  The upgrade must be
+ *    refused 401, with the challenge, without credentials, and with them must
+ *    pass every check, the mount's and the pvo's, and be told the user
+ *    lws_http_basic_auth_user() reports
+ *
+ *  - /proxied is a reverse proxy mount, behind the login file, onto a backend
+ *    vhost serving "ba-ws" with no auth of its own: without credentials the
+ *    upgrade must be refused 401 and never reach the backend, with them it
+ *    is proxied there.  /proxied/refuse has credentials, but the app's
+ *    FILTER_PROTOCOL_CONNECTION refuses it, which it must be asked for a
+ *    proxied upgrade as for one it serves.
+ *
  * lws is both ends here.  The login file is ./basic-auth.txt and the files
  * are in ./docroot, so run it with the test directory as the cwd.
  */
@@ -55,49 +72,93 @@ enum expect {
 	EX_PUBLIC,	/* 200, the public file */
 	EX_NOT_PRIVATE,	/* anything but the private file */
 	EX_WHO,		/* 200, naming the authenticated user */
+	EX_WS_CHALLENGE,/* ws upgrade refused 401 with a Basic challenge */
+	EX_WS_REFUSED,	/* ws upgrade refused */
+	EX_WS_FRONT,	/* ws upgrade to the local protocol, as the user */
+	EX_WS_BACKEND,	/* ws upgrade proxied to the backend */
 };
+
+#define is_ws(c)	((c)->expect >= EX_WS_CHALLENGE)
 
 struct xcase {
 	uint8_t		xport;
 	uint8_t		creds;
 	uint8_t		expect;
 	const char	*path;
+	const char	*ws_pcol;	/* the ws protocol a ws case offers */
 };
 
 #define PRIVATE_MARK	"lws-basic-auth-private"
 #define PUBLIC_MARK	"lws-basic-auth-public"
 #define WHO_MARK	"who=test-user"
+#define WS_FRONT_MARK	"front user=test-user"
+#define WS_BACKEND_MARK	"backend user=(nobody)"
 
 #define XP_CASES(x) \
-	{ x, CR_NONE,  EX_CHALLENGE,   "/private/index.html" }, \
-	{ x, CR_WRONG, EX_CHALLENGE,   "/private/index.html" }, \
-	{ x, CR_RIGHT, EX_PRIVATE,     "/private/index.html" }, \
-	{ x, CR_NONE,  EX_PUBLIC,      "/index.html" }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/PRIVATE/index.html" }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/Private/index.html" }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private./index.html" }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private%20/index.html" }, \
-	{ x, CR_NONE,  EX_CHALLENGE,   "/who" }, \
-	{ x, CR_RIGHT, EX_WHO,         "/who" }
+	{ x, CR_NONE,  EX_CHALLENGE,   "/private/index.html", NULL }, \
+	{ x, CR_WRONG, EX_CHALLENGE,   "/private/index.html", NULL }, \
+	{ x, CR_RIGHT, EX_PRIVATE,     "/private/index.html", NULL }, \
+	{ x, CR_NONE,  EX_PUBLIC,      "/index.html", NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/PRIVATE/index.html", NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/Private/index.html", NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private./index.html", NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private%20/index.html", NULL }, \
+	{ x, CR_NONE,  EX_CHALLENGE,   "/who", NULL }, \
+	{ x, CR_RIGHT, EX_WHO,         "/who", NULL }
+
+#if defined(LWS_ROLE_WS)
+/*
+ * "ba-ws" has the login file as its pvo too, "ba-ws-open" has nothing but
+ * the mount's basic auth in front of it
+ */
+#define WS_LOCAL_CASES(x) \
+	{ x, CR_NONE,  EX_WS_CHALLENGE, "/private/ws", "ba-ws-open" }, \
+	{ x, CR_WRONG, EX_WS_CHALLENGE, "/private/ws", "ba-ws-open" }, \
+	{ x, CR_RIGHT, EX_WS_FRONT,     "/private/ws", "ba-ws-open" }, \
+	{ x, CR_NONE,  EX_WS_CHALLENGE, "/private/ws", "ba-ws" }, \
+	{ x, CR_RIGHT, EX_WS_FRONT,     "/private/ws", "ba-ws" },
+#else
+#define WS_LOCAL_CASES(x)
+#endif
+
+#if defined(LWS_ROLE_WS) && defined(LWS_WITH_HTTP_PROXY)
+#define BA_WS_PROXY
+#define WS_PROXY_CASES(x) \
+	{ x, CR_NONE,  EX_WS_CHALLENGE, "/proxied/ws", "ba-ws" }, \
+	{ x, CR_WRONG, EX_WS_CHALLENGE, "/proxied/ws", "ba-ws" }, \
+	{ x, CR_RIGHT, EX_WS_REFUSED,   "/proxied/refuse", "ba-ws" }, \
+	{ x, CR_RIGHT, EX_WS_BACKEND,   "/proxied/ws", "ba-ws" },
+#else
+#define WS_PROXY_CASES(x)
+#endif
 
 static const struct xcase cases[] = {
 	XP_CASES(XP_H1),
+	WS_LOCAL_CASES(XP_H1)
+	WS_PROXY_CASES(XP_H1)
 #if defined(LWS_WITH_HTTP2)
 	XP_CASES(XP_H2C),
 #if defined(LWS_WITH_TLS)
 	XP_CASES(XP_H2_TLS),
+	WS_LOCAL_CASES(XP_H2_TLS)
+	WS_PROXY_CASES(XP_H2_TLS)
 #endif
 #endif
 #if defined(LWS_ROLE_H3)
 	XP_CASES(XP_H3),
+	WS_LOCAL_CASES(XP_H3)
+	WS_PROXY_CASES(XP_H3)
 #endif
 };
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
+#if defined(LWS_ROLE_WS)
+static struct lws_vhost *vh_backend;
+#endif
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static int result = 1, cur = -1, port_h1 = 7681, port_h2c = 7682,
-	   port_tls = 7683, port_h3 = 7684;
+	   port_tls = 7683, port_h3 = 7684, port_backend = 7685;
 static const char *server_addr = "127.0.0.1";
 
 /* what the client heard for the current case */
@@ -107,6 +168,7 @@ static struct {
 	size_t		body_len;
 	int		status;
 	int		done;
+	int		ws_established;
 } cli;
 
 #if defined(LWS_WITH_TLS)
@@ -209,7 +271,26 @@ static const char * const test_key =
  * has goes to the mount's protocol, the dummy callback, which answers 404.
  */
 
+#if defined(BA_WS_PROXY)
+/*
+ * /proxied: a reverse proxy onto the backend vhost, behind the login file.
+ * Its origin names the backend's port, so it is filled in at runtime.
+ */
+static char origin_backend[128];
+
+static const struct lws_http_mount mount_proxied = {
+	.mountpoint		= "/proxied",
+	.origin			= origin_backend,
+	.origin_protocol	= LWSMPRO_HTTP,
+	.mountpoint_len		= 8,
+	.basic_auth_login_file	= "./basic-auth.txt",
+};
+#endif
+
 static const struct lws_http_mount mount_who = {
+#if defined(BA_WS_PROXY)
+	.mount_next		= &mount_proxied,
+#endif
 	.mountpoint		= "/who",
 	.origin			= "who",
 	.protocol		= "who",
@@ -248,15 +329,18 @@ case_done(const char *why)
 	const struct xcase *c = &cases[cur];
 
 	if (why) {
-		lwsl_err("--- %s, %s, %s credentials: FAIL: %s ---\n",
-			 xport_names[c->xport], c->path, creds_names[c->creds],
+		lwsl_err("--- %s, %s%s%s, %s credentials: FAIL: %s ---\n",
+			 xport_names[c->xport], c->path,
+			 c->ws_pcol ? " ws " : "",
+			 c->ws_pcol ? c->ws_pcol : "", creds_names[c->creds],
 			 why);
 		lws_default_loop_exit(context);
 		return;
 	}
 
-	lwsl_user("--- %s, %s, %s credentials: %d: PASS ---\n",
-		  xport_names[c->xport], c->path, creds_names[c->creds],
+	lwsl_user("--- %s, %s%s%s, %s credentials: %d: PASS ---\n",
+		  xport_names[c->xport], c->path, c->ws_pcol ? " ws " : "",
+		  c->ws_pcol ? c->ws_pcol : "", creds_names[c->creds],
 		  cli.status);
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
 }
@@ -299,6 +383,41 @@ case_evaluate(void)
 			case_done(NULL);
 		return;
 
+	case EX_WS_CHALLENGE:
+		if (cli.ws_established)
+			case_done("ws upgrade let through without credentials");
+		else if (cli.status != HTTP_STATUS_UNAUTHORIZED)
+			case_done("ws upgrade not answered 401");
+		else if (strncmp(cli.challenge, "Basic realm=", 12))
+			case_done("ws upgrade's 401 has no basic auth challenge");
+		else
+			case_done(NULL);
+		return;
+
+	case EX_WS_REFUSED:
+		if (cli.ws_established)
+			case_done("ws upgrade let through");
+		else if (cli.status != HTTP_STATUS_FORBIDDEN)
+			case_done("ws upgrade not answered 403");
+		else
+			case_done(NULL);
+		return;
+
+	case EX_WS_FRONT:
+		if (!strstr(cli.body, WS_FRONT_MARK))
+			case_done("ws not established with the local protocol "
+				  "as the authenticated user");
+		else
+			case_done(NULL);
+		return;
+
+	case EX_WS_BACKEND:
+		if (!strstr(cli.body, WS_BACKEND_MARK))
+			case_done("ws not proxied to the backend");
+		else
+			case_done(NULL);
+		return;
+
 	default:
 		if (cli.status == HTTP_STATUS_OK || priv)
 			case_done("served the private file without credentials");
@@ -323,6 +442,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+	case LWS_CALLBACK_CLIENT_CLOSED:
 		/*
 		 * An earlier case's connection finishing its close is not
 		 * news.  The request carries its case, onto the h2 / h3
@@ -363,7 +485,49 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_hdr_copy(wsi, cli.challenge, sizeof(cli.challenge),
 				 WSI_TOKEN_HTTP_WWW_AUTHENTICATE) < 0)
 			cli.challenge[0] = '\0';
+		if (is_ws(&cases[cur]) && cli.status != 101 &&
+		    cli.status != HTTP_STATUS_OK) {
+			/*
+			 * The upgrade was answered with something else than
+			 * accepting it: 101 on h1, 200 on h2 / h3 (RFC 8441)
+			 */
+			if (!cli.done) {
+				cli.done = 1;
+				case_evaluate();
+			}
+			return -1;
+		}
 		break;
+
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		/* the ws server, local or the backend, sends what it is */
+		cli.ws_established = 1;
+		if (cases[cur].expect < EX_WS_FRONT) {
+			if (!cli.done) {
+				cli.done = 1;
+				case_evaluate();
+			}
+			return -1;
+		}
+		return 0;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		if (len >= sizeof(cli.body))
+			len = sizeof(cli.body) - 1;
+		memcpy(cli.body, in, len);
+		cli.body[len] = '\0';
+		if (!cli.done) {
+			cli.done = 1;
+			case_evaluate();
+		}
+		return -1;
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		if (!cli.done) {
+			cli.done = 1;
+			case_done("ws closed before the server said anything");
+		}
+		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		if (lws_http_client_read(wsi, &px, &lenx) < 0)
@@ -388,7 +552,16 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		if (!cli.done) {
 			cli.done = 1;
-			case_done(in ? (const char *)in : "connection error");
+			if (is_ws(&cases[cur])) {
+				/*
+				 * A refused ws upgrade may be reported this
+				 * way, with what the server answered
+				 */
+				cli.status = (int)lws_http_client_http_response(wsi);
+				case_evaluate();
+			} else
+				case_done(in ? (const char *)in :
+					       "connection error");
 		}
 		break;
 
@@ -433,11 +606,104 @@ callback_who(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return 0;
 }
 
+/*
+ * protocols[0] on the server vhosts: the dummy callback, which also does the
+ * proxying, except that it refuses a ws upgrade to /proxied/refuse.  There is
+ * no local ws protocol for a proxied upgrade, so it is the protocol asked.
+ */
+static int
+callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	      void *in, size_t len)
+{
+	char *uri;
+	int ul;
+
+	if (reason == LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION &&
+	    lws_http_get_uri_and_method(wsi, &uri, &ul) >= 0 &&
+	    strstr(uri, "/refuse")) {
+		lwsl_user("%s: refusing ws upgrade to %s\n", __func__, uri);
+		return 1;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+#if defined(LWS_ROLE_WS)
+
+struct pss_ba_ws {
+	char		msg[64];
+	char		sent;
+};
+
+/*
+ * The ws protocol, on the server vhosts and on the backend: once established,
+ * says which it is and the user basic auth accepted for the upgrade
+ */
+static int
+callback_ba_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	       void *in, size_t len)
+{
+	struct pss_ba_ws *pss = (struct pss_ba_ws *)user;
+	uint8_t buf[LWS_PRE + sizeof(pss->msg)];
+	const char *u;
+	size_t n;
+
+	switch (reason) {
+	case LWS_CALLBACK_ESTABLISHED:
+		u = lws_http_basic_auth_user(wsi);
+		lws_snprintf(pss->msg, sizeof(pss->msg), "%s user=%s",
+			     lws_get_vhost(wsi) == vh_backend ? "backend" :
+								"front",
+			     u ? u : "(nobody)");
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		if (pss->sent)
+			break;
+		pss->sent = 1;
+		n = strlen(pss->msg);
+		memcpy(buf + LWS_PRE, pss->msg, n);
+		if (lws_write(wsi, buf + LWS_PRE, n, LWS_WRITE_TEXT) < (int)n)
+			return -1;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/* the ws protocol needs the login file too, for the front vhosts only */
+
+static const struct lws_protocol_vhost_options pvo_ba_ws_auth = {
+	NULL, NULL, "basic-auth", "./basic-auth.txt"
+}, pvo_ba_ws = {
+	NULL, &pvo_ba_ws_auth, "ba-ws", ""
+};
+
+#define BA_WS_PROTOCOL \
+	{ "ba-ws", callback_ba_ws, sizeof(struct pss_ba_ws), 0, 0, NULL, 0 }, \
+	{ "ba-ws-open", callback_ba_ws, sizeof(struct pss_ba_ws), 0, 0, NULL, 0 },
+#else
+#define BA_WS_PROTOCOL
+#endif
+
 static const struct lws_protocols protocols_srv[] = {
-	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "http", callback_http, 0, 0, 0, NULL, 0 },
 	{ "who", callback_who, 0, 0, 0, NULL, 0 },
+	BA_WS_PROTOCOL
 	LWS_PROTOCOL_LIST_TERM
 };
+
+#if defined(BA_WS_PROXY)
+static const struct lws_protocols protocols_backend[] = {
+	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	BA_WS_PROTOCOL
+	LWS_PROTOCOL_LIST_TERM
+};
+#endif
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "cli", callback_cli, 0, 0, 0, NULL, 0 },
@@ -466,8 +732,13 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.host			= server_addr;
 	i.origin		= server_addr;
 	i.path			= c->path;
-	i.method		= "GET";
-	i.protocol		= "cli";
+	if (is_ws(c))
+		/* a ws upgrade, offering the case's protocol */
+		i.protocol	= c->ws_pcol;
+	else {
+		i.method	= "GET";
+		i.protocol	= "cli";
+	}
 	i.local_protocol_name	= "cli";
 
 	switch (c->xport) {
@@ -540,6 +811,8 @@ main(int argc, const char **argv)
 		port_h3 = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
+	if ((p = lws_cmdline_option(argc, argv, "--backend-port")))
+		port_backend = atoi(p);
 
 	signal(SIGINT, sigint_handler);
 	lwsl_user("LWS API selftest: http basic auth\n");
@@ -555,8 +828,28 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
+#if defined(BA_WS_PROXY)
+	/*
+	 * The backend /proxied proxies to: a ws protocol and no auth of its
+	 * own, so only the proxy's gates stand in front of it.  The proxy
+	 * takes no ipv6 literal for its origin host.
+	 */
+	info.port = port_backend;
+	info.vhost_name = "backend";
+	info.protocols = protocols_backend;
+	vh_backend = lws_create_vhost(context, &info);
+	if (!vh_backend)
+		goto bail;
+	lws_snprintf(origin_backend, sizeof(origin_backend), "%s:%d/",
+		     strchr(server_addr, ':') ? "localhost" : server_addr,
+		     port_backend);
+#endif
+
 	info.protocols = protocols_srv;
 	info.mounts = &mount;
+#if defined(LWS_ROLE_WS)
+	info.pvo = &pvo_ba_ws;
+#endif
 
 	info.port = port_h1;
 	info.vhost_name = "srv-h1";
@@ -614,6 +907,7 @@ main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.vhost_name = "cli";
 	info.mounts = NULL;
+	info.pvo = NULL;
 	info.protocols = protocols_cli;
 	vh_cli = lws_create_vhost(context, &info);
 	if (!vh_cli)
@@ -621,7 +915,7 @@ main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
 	lws_sul_schedule(context, 0, &sul_watchdog, sul_watchdog_cb,
-			 30 * LWS_US_PER_SEC);
+			 50 * LWS_US_PER_SEC);
 
 	while (n >= 0)
 		n = lws_service(context, 0);

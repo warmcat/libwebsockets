@@ -621,6 +621,9 @@ enum lws_check_basic_auth_results {
 enum lws_check_basic_auth_results
 lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigned int auth_mode);
 
+void
+lws_http_basic_auth_rewrite(struct lws *wsi);
+
 int
 lws_unauthorised_basic_auth(struct lws *wsi);
 

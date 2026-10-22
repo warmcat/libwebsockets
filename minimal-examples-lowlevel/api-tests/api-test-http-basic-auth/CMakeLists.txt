@@ -29,12 +29,14 @@ if (requirements)
 	lws_get_free_port(PORT_BA_H2C)
 	lws_get_free_port(PORT_BA_TLS)
 	lws_get_free_port(PORT_BA_H3)
+	lws_get_free_port(PORT_BA_BACKEND)
 
 	add_test(NAME api-test-http-basic-auth
 		 COMMAND lws-api-test-http-basic-auth
 			 --server ${LWS_CTEST_SERVER_RESOLVE}
 			 -p ${PORT_BA_H1} --h2c-port ${PORT_BA_H2C}
-			 --tls-port ${PORT_BA_TLS} --h3-port ${PORT_BA_H3})
+			 --tls-port ${PORT_BA_TLS} --h3-port ${PORT_BA_H3}
+			 --backend-port ${PORT_BA_BACKEND})
 	set_tests_properties(api-test-http-basic-auth PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 60)

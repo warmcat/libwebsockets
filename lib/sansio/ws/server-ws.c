@@ -335,6 +335,9 @@ lws_process_ws_upgrade2(struct lws *wsi)
 			return lws_http_transaction_completed(wsi);
 		}
 	}
+
+	/* the upgrade has met every basic auth check it is going to */
+	lws_http_basic_auth_rewrite(wsi);
 #endif
 
 	/*
@@ -601,19 +604,43 @@ lws_process_ws_upgrade(struct lws *wsi)
 			    meth == LWSHUMETH_CONNECT ||
 			    meth == LWSHUMETH_COLON_PATH) &&
 		    (hit->origin_protocol == LWSMPRO_HTTPS ||
-		     hit->origin_protocol == LWSMPRO_HTTP))
+		     hit->origin_protocol == LWSMPRO_HTTP)) {
 			/*
-			 * We are an h1 ws upgrade on a urlpath that corresponds
+			 * We are a ws upgrade on a urlpath that corresponds
 			 * to a proxying mount.  Don't try to deal with it
 			 * locally, eg, we won't even have the right protocol
 			 * handler since we're not the guy handling it, just a
 			 * conduit.
 			 *
-			 * Instead open the related ongoing h1 connection
-			 * according to the mount configuration and proxy
-			 * whatever that has to say from now on.
+			 * The mount's gates, its interceptors and basic auth,
+			 * already passed it (lws_http_upgrade_gates()).  The
+			 * app still gets the say on it that it has on an
+			 * upgrade it serves itself: there is no ws protocol
+			 * here to ask, so the protocol the request is bound
+			 * to is asked instead.
+			 */
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+			lws_http_basic_auth_rewrite(wsi);
+#endif
+			if (lws_ensure_user_space(wsi))
+				return 1;
+
+			if (wsi->a.protocol && wsi->a.protocol->callback(wsi,
+					LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
+					wsi->user_space,
+					lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL),
+					0))
+				return ws_upgrade_refuse(wsi,
+						HTTP_STATUS_FORBIDDEN,
+						"app refused proxied upgrade");
+
+			/*
+			 * Open the related onward connection according to the
+			 * mount configuration and proxy whatever that has to
+			 * say from now on.
 			 */
 			return lws_http_proxy_start(wsi, hit, uri_ptr, 1);
+		}
 	}
 #endif
 

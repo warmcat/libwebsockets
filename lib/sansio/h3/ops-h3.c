@@ -3043,21 +3043,15 @@ rops_check_upgrades_h3(struct lws *wsi)
 		lwsl_info("Upgrade h3 to wt\n");
 
 		/*
-		 * The mount the :path lands in is checked first, as for any
-		 * other request to it: its interceptor chain already ran
-		 * before check_upgrades, its basic auth applies here.
+		 * The mount the :path lands in already gated the CONNECT,
+		 * as for any other request to it, with its interceptors and
+		 * basic auth (lws_http_upgrade_gates(), before
+		 * check_upgrades).  It may also decide the protocol.
 		 */
 		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 		if (uri_ptr && uri_len > 0)
 			hit = lws_find_mount(wsi, uri_ptr, uri_len);
-
-#if defined(LWS_WITH_HTTP_BASIC_AUTH)
-		if (hit && lws_h3_wt_basic_auth(wsi, hit->basic_auth_login_file,
-						hit->auth_mask & AUTH_MODE_MASK,
-						&r))
-			return (int)r;
-#endif
 
 		if (hit && (hit->protocol ||
 			    hit->origin_protocol == LWSMPRO_CALLBACK)) {
@@ -3139,6 +3133,9 @@ rops_check_upgrades_h3(struct lws *wsi)
 		    lws_h3_wt_basic_auth(wsi, prot_basic_auth,
 					 LWSAUTHM_DEFAULT, &r))
 			return (int)r;
+
+		/* the CONNECT has met every basic auth check it is going to */
+		lws_http_basic_auth_rewrite(wsi);
 #endif
 
 		if (lws_bind_protocol(wsi, prot, __func__))

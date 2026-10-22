@@ -1137,27 +1137,34 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
-#if defined(LWS_WITH_FILE_OPS)
-/* only the file-backed check below uses it */
-static int
-lws_authorization_rewrite(struct lws *wsi, const char *name, size_t len)
+/*
+ * For compatibility, once a request's credentials have passed every basic auth
+ * check it meets, WSI_TOKEN_HTTP_AUTHORIZATION is rewritten so it is just the
+ * authorized user name.  Not by lws_check_basic_auth() itself: a ws upgrade
+ * can meet two checks, its mount's and its protocol's "basic-auth" pvo, and
+ * the second must see the credentials as they were sent.
+ */
+void
+lws_http_basic_auth_rewrite(struct lws *wsi)
 {
 	char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
+	size_t len;
 	int fi;
 
 	/* a non-NULL p proves the ah is attached and the header is there */
-	if (!p)
-		return 1;
+	if (!p || !wsi->http.basic_auth_user)
+		return;
 
 	fi = wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
-	wsi->stream.ah->frags[fi].len = (uint16_t)len;
-	strncpy(p, name, (unsigned int)len);
+	len = strlen(wsi->http.basic_auth_user);
+	/* the name was decoded from this header, so it always fits in it */
+	if (len > wsi->stream.ah->frags[fi].len)
+		return;
+
+	memcpy(p, wsi->http.basic_auth_user, len);
 	p[len] = '\0';
-
-	return 0;
+	wsi->stream.ah->frags[fi].len = (uint16_t)len;
 }
-
-#endif
 
 enum lws_check_basic_auth_results
 lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
@@ -1233,8 +1240,9 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 
 	/*
 	 * Keep the authorized user name on the wsi, where it outlives the
-	 * request headers, and for compatibility rewrite
-	 * WSI_TOKEN_HTTP_AUTHORIZATION so it is just that name too
+	 * request headers.  The caller publishes it in the request headers
+	 * too, with lws_http_basic_auth_rewrite(), once the request has met
+	 * every check it is going to.
 	 */
 
 	le = lws_ptr_diff_size_t(pcolon, plain);
@@ -1245,8 +1253,6 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 	lws_explicit_bzero(plain, sizeof(plain));
 	if (!wsi->http.basic_auth_user)
 		return LCBA_END_TRANSACTION;
-
-	lws_authorization_rewrite(wsi, wsi->http.basic_auth_user, le);
 
 	lwsl_wsi_info(wsi, "%s: basic auth accepted for '%s'\n", __func__,
 		      wsi->http.basic_auth_user);
@@ -2099,11 +2105,13 @@ bail_nuke_ah:
  * chance to take the request away from the mount it was aimed at.
  *
  * This is the single place the decision is made, for every role and every
- * method: h1 and h3 arrive here from lws_http_action() below, and h2 from
- * lws_h2_bind_for_post_before_action(), which dispatches POSTs itself and
- * would otherwise be a way in that no interceptor ever sees.  It must be
- * called before the mount's protocol is bound and before LWS_CALLBACK_HTTP is
- * delivered, ie, before any user code for the protected mount can run.
+ * method, through lws_http_mount_gates(): http requests arrive there from
+ * lws_http_action() below, and h2 POSTs from
+ * lws_h2_bind_for_post_before_action(), which dispatches them itself and
+ * would otherwise be a way in that no interceptor ever sees; upgrades on any
+ * role from lws_http_upgrade_gates().  It must be called before the mount's
+ * protocol is bound and before LWS_CALLBACK_HTTP is delivered, ie, before any
+ * user code for the protected mount can run.
  *
  * Returns
  *
@@ -2120,12 +2128,11 @@ bail_nuke_ah:
  *    protocol does not exist).  This fails CLOSED: the caller must refuse
  *    the request rather than serve the mount
  *
- * The chain is asked once per transaction.  An h1 request is evaluated early,
- * in case it's an upgrade the interceptor refuses, and again when it's acted
- * on.  Asking the interceptors twice had each of them do whatever it does for
- * a request twice: lws-login stamped its x-lws-login-* headers twice, and a
- * backend rightly refuses duplicates as a possible spoof.  Later calls for the
- * same mount get the first answer.
+ * The chain is asked once per transaction, whatever path the request takes
+ * through the gates.  Asking the interceptors twice had each of them do
+ * whatever it does for a request twice: lws-login stamped its x-lws-login-*
+ * headers twice, and a backend rightly refuses duplicates as a possible
+ * spoof.  Later calls for the same mount get the first answer.
  */
 
 const struct lws_http_mount *
@@ -2825,14 +2832,16 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
  * The mount's own gates, for a request that landed in it: its redirect, its
  * interceptor chain and its basic auth, in that order.  g->uri_ptr / uri_len
  * are the request path, and are repointed at the interceptor's mountpoint if
- * an interceptor takes the request.  Returns 0 with g->hit set to the mount to
- * act on, or 1 having decided the request, with g->verdict set.
+ * an interceptor takes the request.  For an upgrade, an interceptor that would
+ * take the request refuses it with 401 instead.  Returns 0 with g->hit set to
+ * the mount to act on, or 1 having decided the request, with g->verdict set.
  */
 static int
 lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
-		     const struct lws_http_mount *hit)
+		     const struct lws_http_mount *hit, int upgrade)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const struct lws_http_mount *ihit;
 	int ha, n;
 
 	n = lws_http_redirect_hit(pt, wsi, hit, g->uri_ptr, g->uri_len, &ha);
@@ -2847,9 +2856,19 @@ lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
 	 * it says we are not authorized, divert the connection to the interceptor
 	 * mount
 	 */
-	hit = lws_http_evaluate_interceptors(wsi, hit, &g->uri_ptr, &g->uri_len);
-	if (!hit) {
+	ihit = lws_http_evaluate_interceptors(wsi, hit, &g->uri_ptr, &g->uri_len);
+	if (!ihit) {
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+		return lws_http_gate_bail(wsi, g);
+	}
+
+	if (upgrade && ihit != hit) {
+		/*
+		 * An interceptor would not let the upgrade through.  A login
+		 * page is no answer to an upgrade, so refuse it instead of
+		 * diverting it
+		 */
+		lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
 		return lws_http_gate_bail(wsi, g);
 	}
 
@@ -2857,8 +2876,8 @@ lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
 
 	/* basic auth? */
 
-	switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
-				     hit->auth_mask & AUTH_MODE_MASK)) {
+	switch (lws_check_basic_auth(wsi, ihit->basic_auth_login_file,
+				     ihit->auth_mask & AUTH_MODE_MASK)) {
 	case LCBA_CONTINUE:
 	case LCBA_AUTH_RETRY_KEEPALIVE:
 		break;
@@ -2870,11 +2889,51 @@ lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
 		g->verdict = lws_http_transaction_completed(wsi);
 		return 1;
 	}
+
+	/*
+	 * An http request meets no other basic auth check after this one.  An
+	 * upgrade may still meet its protocol's "basic-auth" pvo, which has to
+	 * see the credentials as sent: that publishes the user instead.
+	 */
+	if (!upgrade)
+		lws_http_basic_auth_rewrite(wsi);
 #endif
 
-	g->hit = hit;
+	g->hit = ihit;
 
 	return 0;
+}
+
+/*
+ * The gates for an upgrade: a ws upgrade on any role (h1, or an h2 / h3
+ * extended CONNECT), and a WebTransport CONNECT.  Before anything binds a
+ * protocol for it or proxies it onward, it passes the gates of the mount its
+ * path lands in, as an http request to the same path would, the mount's basic
+ * auth included.  A ws upgrade to a proxying mount used to go straight to the
+ * backend, unauthenticated (G-489).
+ *
+ * g->uri_ptr / uri_len are the request path.  Returns 0 to let the upgrade
+ * on, or 1 having decided the request, with g->verdict set.
+ */
+static int
+lws_http_upgrade_gates(struct lws *wsi, struct lws_http_gate *g)
+{
+	const struct lws_http_mount *hit;
+
+	g->hit = NULL;
+	g->mount_rel = NULL;
+
+	hit = lws_find_mount(wsi, g->uri_ptr, g->uri_len);
+	if (!hit)
+		return 0;
+
+	/* the basic auth callback, and the interceptors, are given it */
+	if (lws_ensure_user_space(wsi))
+		return lws_http_gate_bail(wsi, g);
+
+	g->mount_rel = g->uri_ptr + hit->mountpoint_len;
+
+	return lws_http_mount_gates(wsi, g, hit, 1);
 }
 
 int
@@ -2980,7 +3039,7 @@ lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 	 */
 	g->mount_rel = g->uri_ptr + hit->mountpoint_len;
 
-	return lws_http_mount_gates(wsi, g, hit);
+	return lws_http_mount_gates(wsi, g, hit, 0);
 }
 
 int
@@ -3071,27 +3130,18 @@ lws_http_action(struct lws *wsi)
 	uri_ptr = g.uri_ptr;
 	uri_len = g.uri_len;
 
-#if defined(LWS_WITH_JOSE) && \
-    ((defined(LWS_ROLE_WS) && (defined(LWS_ROLE_H2) || \
-			       defined(LWS_ROLE_H3))) || defined(LWS_ROLE_WT))
+#if (defined(LWS_ROLE_WS) && (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))) || \
+    defined(LWS_ROLE_WT)
 	/*
-	 * A ws upgrade carried as an h2 / h3 extended CONNECT (RFC 8441) is
-	 * taken by check_upgrades below, before the mount lookup and the
-	 * interceptor chain further down ever run: it went straight to the ws
-	 * protocol, or for a proxied mount straight to lws_http_proxy_start(),
-	 * so a mount gated by an interceptor like lws-login was open to any
-	 * ws-over-h2 / h3 peer, and the backend got no injected auth state.
-	 * The h1 upgrade path in lws_handshake_server() already gates it, and
-	 * refuses with 401 rather than diverting, since a login page is no
-	 * answer to an upgrade; do the same here.  Only for the upgrades
-	 * check_upgrades will actually take, so a request that falls through
-	 * to the http path below is not evaluated (and injected into) twice.
-	 *
-	 * A WebTransport CONNECT on h3 is taken by check_upgrades the same
-	 * way and must be gated the same way.
+	 * A ws upgrade carried as an h2 / h3 extended CONNECT (RFC 8441 /
+	 * 9220), or a WebTransport CONNECT on h3, is taken by check_upgrades
+	 * below, before lws_http_action_gates() ever runs: it passes the
+	 * upgrade gates here instead, as an h1 upgrade does in
+	 * lws_handshake_server().  Only for the upgrades check_upgrades will
+	 * actually take, so a request that falls through to the http path
+	 * below is not gated (and injected into by interceptors) twice.
 	 */
 	{
-		const struct lws_http_mount *uh;
 		const char *cp;
 
 		if (wsi->mux_substream &&
@@ -3106,15 +3156,8 @@ lws_http_action(struct lws *wsi)
 #if defined(LWS_ROLE_WT)
 		     || (lwsi_role_h3(wsi) && !strcmp(cp, "webtransport"))
 #endif
-		    )) {
-			uh = lws_find_mount(wsi, uri_ptr, uri_len);
-			if (uh && lws_http_evaluate_interceptors(wsi, uh,
-						&uri_ptr, &uri_len) != uh) {
-				lws_return_http_status(wsi,
-						HTTP_STATUS_UNAUTHORIZED, NULL);
-				goto bail_nuke_ah;
-			}
-		}
+		    ) && lws_http_upgrade_gates(wsi, &g))
+			return g.verdict;
 	}
 #endif
 
@@ -3998,51 +4041,29 @@ raw_transition:
 #endif
 
 		/*
-		 * So he may have come to us requesting one or another kind
-		 * of upgrade from http... but we may want to redirect him at
-		 * http level.  In that case, we need to check the redirect
-		 * situation even though he's not actually wanting http and
-		 * prioritize returning that if there is one.
+		 * A new request: whatever the interceptors decided for an
+		 * earlier one on this connection is nothing to do with it,
+		 * however that one ended
 		 */
+		wsi->http.interceptors_evaluated = 0;
+		wsi->http.interceptor_hit = NULL;
+		wsi->http.interceptor_result = NULL;
 
-		{
-			const struct lws_http_mount *hit = NULL;
-			int uri_len = 0, ha, n;
-			char *uri_ptr = NULL;
+		/*
+		 * So he may have come to us requesting one or another kind
+		 * of upgrade from http... but the mount his path lands in
+		 * gates it first, as it would gate the same request as http:
+		 * its redirect, its interceptors and its basic auth.  A plain
+		 * http request meets the same gates in lws_http_action().
+		 */
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
+			struct lws_http_gate g;
 
-			/*
-			 * A new request: whatever the interceptors decided
-			 * for an earlier one on this connection is nothing
-			 * to do with it, however that one ended
-			 */
-			wsi->http.interceptors_evaluated = 0;
-			wsi->http.interceptor_hit = NULL;
-			wsi->http.interceptor_result = NULL;
-
-			n = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
-			if (n >= 0) {
-				hit = lws_find_mount(wsi, uri_ptr, uri_len);
-				if (hit) {
-					n = lws_http_redirect_hit(pt, wsi, hit, uri_ptr,
-								  uri_len, &ha);
-					if (ha)
-						return n;
-
-					const struct lws_http_mount *post_intercept =
-						lws_http_evaluate_interceptors(wsi, hit, &uri_ptr, &uri_len);
-
-					if (post_intercept != hit && lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
-						/*
-						 * It's an upgrade request but the interceptor rejected it.
-						 * We can't redirect a WSS upgrade to an HTML login page,
-						 * so we must immediately reject it with 401 Unauthorized.
-						 */
-						// lwsl_notice("WS Upgrade rejected by interceptor\n");
-						lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
-						goto bail_nuke_ah;
-					}
-				}
-			}
+			memset(&g, 0, sizeof(g));
+			if (lws_http_get_uri_and_method(wsi, &g.uri_ptr,
+							&g.uri_len) >= 0 &&
+			    lws_http_upgrade_gates(wsi, &g))
+				return g.verdict;
 		}
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {

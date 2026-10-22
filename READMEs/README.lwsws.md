@@ -664,6 +664,12 @@ authenticated username until the transaction completes, whether or not the
 request headers are still around.  `WSI_TOKEN_HTTP_AUTHORIZATION` is also
 rewritten to contain it, while the headers last.
 
+The mount's basic auth, like its interceptors, also gates a ws upgrade (on h1,
+or ws over h2 / h3) whose path lands in the mount, before it is bound to a ws
+protocol or, on a reverse proxy mount, relayed to the backend.  Without valid
+credentials it is refused with 401 and the `WWW-Authenticate` challenge, as an
+http request to the mount would be.
+
 8) You can also control the exact path matching and redirect behavior per-mount.
 
 ```json
