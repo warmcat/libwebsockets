@@ -7497,22 +7497,14 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 			nsub->vhd = vhd;
 			lws_strncpy(nsub->domain, clean_domain, sizeof(nsub->domain));
 			memcpy(nsub->hash, hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH));
-
-			char hex[65];
-			lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hex, sizeof(hex));
-			struct dht_dnssec_fetch_dir_args fda;
-			memset(&fda, 0, sizeof(fda));
-			fda.prefix = hex;
-			char dir_path[256];
-			lws_snprintf(dir_path, sizeof(dir_path), "%s/%.2s/%.2s", vhd->storage_path, hex, hex + 2);
-			lws_dir(dir_path, &fda, dht_dnssec_fetch_payload_cb);
-
-			if (fda.found) {
-				nsub->needs_initial_fetch = 0;
-				nsub->last_notify_fetch = time(NULL);
-			} else {
-				nsub->needs_initial_fetch = 1;
-			}
+			/*
+			 * Even with a copy in storage, eg, from before a
+			 * restart: it may be older than the network's, and
+			 * only a completed fetch subscribes us with a holder
+			 * to hear of the next version.  Fetching the version
+			 * we hold completes like any other.
+			 */
+			nsub->needs_initial_fetch = 1;
 
 			lws_dll2_add_tail(&nsub->list, &vhd->subscribed_domains);
 		}
@@ -7539,19 +7531,39 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
 			if (!strcmp(sub->domain, clean_domain)) {
-				if (sub->needs_initial_fetch || now - sub->last_notify_fetch >= 60) {
+				if (sub->needs_initial_fetch ||
+				    now - sub->last_notify_fetch >=
+						DHT_DNSSEC_NOTIFY_FETCH_SECS) {
 					sub->needs_initial_fetch = 0;
 					sub->last_notify_fetch = now;
+					/* this fetch covers any we deferred */
+					lws_sul_cancel(&sub->sul_refetch);
 					do_fetch = 1;
+					break;
 				}
+				/*
+				 * Deferred, not dropped, as a rate-limited
+				 * NOTIFY is: the copy we have may be older
+				 * than the network's, eg, when it is what we
+				 * stored before a restart, and nothing else
+				 * fetches it until a NOTIFY or its expiry.
+				 */
+				if (lws_dll2_is_detached(&sub->sul_refetch.list))
+					lws_sul_schedule(vhd->context, 0,
+						&sub->sul_refetch,
+						dht_dnssec_sul_sub_refetch_cb,
+						(lws_usec_t)(sub->last_notify_fetch +
+						DHT_DNSSEC_NOTIFY_FETCH_SECS - now) *
+						LWS_US_PER_SEC);
+				lwsl_notice("%s: Deferring subscribe fetch for %s "
+					    "until the rate limit ends\n",
+					    __func__, domain);
 				break;
 			}
 		} lws_end_foreach_dll(d);
 
 		if (do_fetch)
 			do_fetch_zone(vhd->context, &args);
-		else
-			lwsl_notice("%s: Rate-limiting subscribe fetch for %s\n", __func__, domain);
 	}
 
 	return 0;

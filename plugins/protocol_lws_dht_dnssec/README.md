@@ -13,10 +13,11 @@ It works by intercepting DHT `PUT` requests, requiring client-side JSON Web Sign
 ## Active Change Notifications
 The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` DHT verbs to monitor the zone files it serves for changes:
 - Whenever a fetch of a zone it serves completes, whether the zone was new or one it already had, the plugin issues a `SUBSCRIBE` to the DHT node that answered it, which holds the zone.
+- So each zone it serves is fetched once the DHT is up, even when a copy is in its storage from before a restart: the copy is served meanwhile, and may be older than the network's.
 - That node answers with a token, which the plugin returns in a `SUBSCRIBE_CONFIRM` for that zone's hash.  A token for any other hash is not confirmed.
 - The holder forgets a subscriber after an hour, so subscriptions are renewed every 20 minutes.
 - When the holder accepts a new version of the zone, it sends a `NOTIFY` carrying the new serial and the domain to its subscribers, retrying until they acknowledge it.  The plugin acknowledges it and fetches the zone.
-- A zone is fetched for `NOTIFY`s at most once a minute, except that a newer serial from the holder it subscribed with (or from a `NOTIFY` sender that passed the cookie exchange) is fetched at once, at most every 5 seconds.  A `NOTIFY` inside that minute is not dropped: one fetch when the minute ends covers it.
+- A zone is fetched for `NOTIFY`s at most once a minute, except that a newer serial from the holder it subscribed with (or from a `NOTIFY` sender that passed the cookie exchange) is fetched at once, at most every 5 seconds.  A `NOTIFY` inside that minute is not dropped: one fetch when the minute ends covers it.  Subscribing to the zone again inside the minute is deferred the same way.
 
 ## Zone Serial Queries
 To see a new version of a zone spread across the DHT, eg, in the dnssec monitor's domain page, the `query_serials` op asks every node in the routing table which serial of a zone it holds:

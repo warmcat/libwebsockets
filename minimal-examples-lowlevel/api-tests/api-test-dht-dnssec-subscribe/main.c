@@ -22,6 +22,8 @@
  *    defers it to a fetch when the limit ends
  *  - a newer serial from S once the minimum interval has passed is fetched
  *    at once, which also covers the deferred one
+ *  - subscribing to the zone again inside the rate limit, as auth-dns does,
+ *    is deferred to a fetch when the limit ends too, not dropped
  *  - P's routing table, with S in it, can be logged as a broadcast does
  *  - S then sends P the NOTIFY verb over the reliable transport, is
  *    challenged with a NOTC cookie, and returns it with a newer serial: P
@@ -222,6 +224,15 @@ subt_step_cb(lws_sorted_usec_list_t *sul)
 			subt_expect(lws_dll2_is_detached(&sub->sul_refetch.list),
 				    "a newer serial from the holder is fetched "
 				    "at once, covering the deferred one");
+			/*
+			 * the first may still be the zone's initial fetch,
+			 * if P's bootstrap has not got to it yet
+			 */
+			subt_expect(!do_subscribe_zone(vh_p, SUBT_DOMAIN) &&
+				    !do_subscribe_zone(vh_p, SUBT_DOMAIN) &&
+				    !lws_dll2_is_detached(&sub->sul_refetch.list),
+				    "a rate-limited subscribe fetch is deferred, "
+				    "not dropped");
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			/* what a broadcast logs about the nodes it tells */
 			subt_expect(lws_dht_foreach_node(vhd->dht, AF_INET,
