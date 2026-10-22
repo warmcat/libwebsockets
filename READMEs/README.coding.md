@@ -124,22 +124,31 @@ similar to change the available number of file descriptors, and when restarted
 
 @section peer_limits optional LWS_WITH_PEER_LIMITS
 
-If you select `LWS_WITH_PEER_LIMITS` at cmake, then lws will track peer IPs
+If you select `LWS_WITH_PEER_LIMITS` at cmake, then lws will track peer hosts
 and monitor how many connections and ah resources they are trying to use
 at one time.  You can choose to limit these at context creation time, using
 `info.ip_limit_ah` and `info.ip_limit_wsi`.
 
+A host is counted the way `lws_sa46_host_key()` keys it: an IPv4 address,
+whether it arrives as IPv4 or as IPv4-mapped IPv6 on a dual-stack listener, or
+an IPv6 /64.  One IPv6 host is routed a whole /64, 2^64 source addresses, and
+can use a new one for each connection, so counting each IPv6 address on its
+own would not limit it at all.  Clients sharing a /64 share its budget, as
+clients behind one IPv4 NAT do.  `info.pl_notify_cb`, told of each connection
+dropped for the limit, is given the host in the same form: the IPv4 address,
+or the /64 with the low 64 bits zero.
+
 Note that although the ah limit is 'soft', ie, the connection will just wait
-until the IP is under the ah limit again before attaching a new ah, the
+until the host is under the ah limit again before attaching a new ah, the
 wsi limit is 'hard', lws will drop any additional connections from the
-IP until it's under the limit again.
+host until it's under the limit again.
 
 If you use these limits, you should consider multiple clients may simultaneously
 try to access the site through NAT, etc.  So the limits should err on the side
-of being generous, while still making it impossible for one IP to exhaust
+of being generous, while still making it impossible for one host to exhaust
 all the server resources.
 
-A connection is only counted against its peer's IP if that address has been
+A connection is only counted against its peer's host if its address has been
 proven, eg, by a TCP handshake, or vouched for by a trusted PROXY v2 front.  A
 peer address that is only hearsay, eg, the source address of the Initial that
 starts a QUIC connection, might be anything the sender wrote: counting it per

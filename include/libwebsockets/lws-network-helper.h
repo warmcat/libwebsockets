@@ -323,6 +323,8 @@ lws_sa46_is_ipv4_mapped(const lws_sockaddr46 *sa46);
  *    not at all
  *
  * Keys compare equal with strcmp() exactly when the hosts are the same.
+ * LWS_WITH_PEER_LIMITS (.ip_limit_wsi, .ip_limit_ah) counts hosts the same
+ * way.
  *
  * Returns 0 if the key is a host's, or 1 if it is LWS_HOST_KEY_UNKNOWN.
  */

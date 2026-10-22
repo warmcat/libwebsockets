@@ -1762,8 +1762,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	/*
 	 * ... but with a small fd budget that division gives 0, and
-	 * lws_get_or_create_peer() then bails on !pl_hash_elements, ie, the
-	 * per-ip limits the app asked for would be silently not enforced
+	 * lws_get_or_create_peer_sa46() then bails on !pl_hash_elements, ie,
+	 * the per-host limits the app asked for would be silently not enforced
 	 */
 
 	if (!context->pl_hash_elements)
@@ -1847,6 +1847,22 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_plat_init(context, info) ||
 	    lws_fi(&context->fic, "ctx_createfail_plat_init"))
 		goto bail_libuv_aware;
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	/*
+	 * This keys the peer limits bucket hash, so that nobody can predict
+	 * which addresses share a bucket (see lws_pl_hash()).  It needs the
+	 * platform's random source, and must be set before any listener can
+	 * accept a connection to hash.
+	 */
+
+	if (lws_get_random(context, context->pl_hash_key,
+			   sizeof(context->pl_hash_key)) !=
+					sizeof(context->pl_hash_key)) {
+		lwsl_cx_err(context, "unable to get random for peer hash");
+		goto bail_libuv_aware;
+	}
+#endif
 
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_PROTOCOL_PLUGINS)
 	lws_plugins_drop_composed(context);

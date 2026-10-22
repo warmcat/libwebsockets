@@ -70,43 +70,107 @@ __lws_peer_add_to_peer_wait_list(struct lws_context *context,
 }
 
 
+#define LWS_PL_ROTL(x, b) (uint64_t)(((x) << (b)) | ((x) >> (64 - (b))))
+#define LWS_PL_SIPROUND(v) do { \
+		v[0] += v[1]; v[1] = LWS_PL_ROTL(v[1], 13); v[1] ^= v[0]; \
+		v[0] = LWS_PL_ROTL(v[0], 32); \
+		v[2] += v[3]; v[3] = LWS_PL_ROTL(v[3], 16); v[3] ^= v[2]; \
+		v[0] += v[3]; v[3] = LWS_PL_ROTL(v[3], 21); v[3] ^= v[0]; \
+		v[2] += v[1]; v[1] = LWS_PL_ROTL(v[1], 17); v[1] ^= v[2]; \
+		v[2] = LWS_PL_ROTL(v[2], 32); \
+	} while (0)
+
+static uint64_t
+lws_pl_le64(const uint8_t *p)
+{
+	return (uint64_t)p[0] | ((uint64_t)p[1] << 8) |
+	       ((uint64_t)p[2] << 16) | ((uint64_t)p[3] << 24) |
+	       ((uint64_t)p[4] << 32) | ((uint64_t)p[5] << 40) |
+	       ((uint64_t)p[6] << 48) | ((uint64_t)p[7] << 56);
+}
+
 /*
- * The peer for the address in sa46 (its port is not part of it), created if
- * this is the first we heard of it.  For connections that have no socket of
- * their own to ask, such as QUIC ones, which share their listener's.
+ * SipHash-2-4 (Aumasson and Bernstein) of in, keyed by the context's random
+ * pl_hash_key.  The bucket a host's peer goes in must not be predictable:
+ * with a fixed function, anyone free to choose the address bits that are
+ * hashed (an IPv6 site is routed 2^16 or more /64s) could put all its hosts
+ * in one bucket, and have every peer lookup, done under the context lock,
+ * walk a chain as long as it likes.
+ */
+static uint32_t
+lws_pl_hash(const struct lws_context *context, const uint8_t *in, size_t len)
+{
+	uint64_t k0 = lws_pl_le64(context->pl_hash_key),
+		 k1 = lws_pl_le64(context->pl_hash_key + 8), m, v[4];
+	uint8_t last[8];
+	size_t n;
+
+	v[0] = k0 ^ 0x736f6d6570736575ull;
+	v[1] = k1 ^ 0x646f72616e646f6dull;
+	v[2] = k0 ^ 0x6c7967656e657261ull;
+	v[3] = k1 ^ 0x7465646279746573ull;
+
+	for (n = 0; n + 8 <= len; n += 8) {
+		m = lws_pl_le64(in + n);
+		v[3] ^= m;
+		LWS_PL_SIPROUND(v);
+		LWS_PL_SIPROUND(v);
+		v[0] ^= m;
+	}
+
+	/* the last block: what is left of in, and its length in the top byte */
+	memset(last, 0, sizeof(last));
+	memcpy(last, in + n, len - n);
+	last[7] = (uint8_t)len;
+	m = lws_pl_le64(last);
+
+	v[3] ^= m;
+	LWS_PL_SIPROUND(v);
+	LWS_PL_SIPROUND(v);
+	v[0] ^= m;
+
+	v[2] ^= 0xff;
+	for (n = 0; n < 4; n++)
+		LWS_PL_SIPROUND(v);
+
+	m = v[0] ^ v[1] ^ v[2] ^ v[3];
+
+	return (uint32_t)(m ^ (m >> 32));
+}
+
+/*
+ * The peer for the host of the address in sa46, created if this is the first
+ * we heard of it.  A peer is a host, as lws_sa46_host_key() and
+ * lws_get_peer_host_key() key it: an IPv4 address, whether it came as one or
+ * IPv4-mapped in IPv6, or an IPv6 /64, which one host commands the whole of
+ * (2^64 source addresses), so counting each address of it separately would
+ * not limit it at all.  The peer's sa46 is that host, eg, with the lower 64
+ * bits of an IPv6 address zero, and no port.
+ *
+ * For connections that have no socket of their own to ask, such as QUIC
+ * ones, which share their listener's, or clients named by a trusted PROXY v2
+ * sender, as well as for those that do.
  */
 struct lws_peer *
 lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
 			    const lws_sockaddr46 *sa46in)
 {
 	struct lws_context *context = vhost->context;
-	lws_sockaddr46 sa46 = *sa46in;
+	lws_sockaddr46 host;
+	const uint8_t *hb;
 	struct lws_peer *peer;
-	socklen_t rlen = 0;
-	uint32_t hash = 0;
-	uint8_t *q8;
-	void *q;
-	int n;
-
-#ifdef LWS_WITH_IPV6
-	if (sa46.sa4.sin_family == AF_INET6) {
-		q = &sa46.sa6.sin6_addr;
-		rlen = sizeof(sa46.sa6.sin6_addr);
-	} else
-#endif
-	{
-		q = &sa46.sa4.sin_addr;
-		rlen = sizeof(sa46.sa4.sin_addr);
-	}
-
-	q8 = q;
-	for (n = 0; n < (int)rlen; n++)
-		hash = (uint32_t)((((hash << 4) | (hash >> 28)) * (uint32_t)n) ^ q8[n]);
+	uint32_t hash;
+	size_t hlen;
 
 	if (!context->pl_hash_elements)
 		return NULL;
 
-	hash = hash % context->pl_hash_elements;
+	hlen = lws_sa46_host(sa46in, &host, &hb);
+	if (!hlen)
+		/* neither IPv4 nor IPv6: nothing to count it against */
+		return NULL;
+
+	hash = lws_pl_hash(context, hb, hlen) % context->pl_hash_elements;
 
 	lws_context_lock(context, "peer search"); /* <======================= */
 
@@ -114,36 +178,28 @@ lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
 			      context->pl_hash_table[hash].head) {
 		struct lws_peer *peerx = lws_container_of(d, struct lws_peer,
 							 hash_list);
-		if (peerx->sa46.sa4.sin_family == sa46.sa4.sin_family) {
-			int hit = 0;
-#if defined(LWS_WITH_IPV6)
-			if (sa46.sa4.sin_family == AF_INET6 &&
-			    !memcmp(q, &peerx->sa46.sa6.sin6_addr, rlen))
-				hit = 1;
-#endif
-			if (sa46.sa4.sin_family == AF_INET &&
-			    !memcmp(q, &peerx->sa46.sa4.sin_addr, rlen))
-				hit = 1;
+		/*
+		 * Both are lws_sa46_host() results, zeroed apart from the
+		 * family and the host's address bytes, so they are the same
+		 * host exactly when they are the same bytes
+		 */
+		if (!memcmp(&peerx->sa46, &host, sizeof(host))) {
+			/*
+			 * We are handing out a peer that may be sitting on the
+			 * wait list with an old time_closed_all, and the
+			 * caller uses it after we drop the lock and before
+			 * lws_peer_add_wsi() takes it off the list.  Refresh
+			 * the timestamp so the cull (which runs from pt[0] and
+			 * needs the peer to have been idle > 10s) cannot free
+			 * it in that window.  If the caller then rejects the
+			 * connection it stays on the wait list and is culled
+			 * normally later.
+			 */
+			time(&peerx->time_closed_all);
 
-			if (hit) {
-				/*
-				 * We are handing out a peer that may be sitting
-				 * on the wait list with an old time_closed_all,
-				 * and the caller uses it after we drop the lock
-				 * and before lws_peer_add_wsi() takes it off
-				 * the list.  Refresh the timestamp so the cull
-				 * (which runs from pt[0] and needs the peer to
-				 * have been idle > 10s) cannot free it in that
-				 * window.  If the caller then rejects the
-				 * connection it stays on the wait list and is
-				 * culled normally later.
-				 */
-				time(&peerx->time_closed_all);
+			lws_context_unlock(context); /* === */
 
-				lws_context_unlock(context); /* === */
-
-				return peerx;
-			}
+			return peerx;
 		}
 	} lws_end_foreach_dll(d);
 
@@ -158,7 +214,7 @@ lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
 
 	context->count_peers++;
 	peer->hash = hash;
-	peer->sa46 = sa46;
+	peer->sa46 = host;
 	lws_dll2_add_head(&peer->hash_list, &context->pl_hash_table[hash]);
 	time(&peer->time_created);
 	/*
@@ -171,23 +227,6 @@ lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
 	lws_context_unlock(context); /* ====================================> */
 
 	return peer;
-}
-
-struct lws_peer *
-lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
-{
-	lws_sockaddr46 sa46;
-	socklen_t rlen;
-
-	if (vhost->options & LWS_SERVER_OPTION_UNIX_SOCK)
-		return NULL;
-
-	rlen = sizeof(sa46);
-	if (getpeername(sockfd, (struct sockaddr*)&sa46, &rlen))
-		/* eg, udp doesn't have to have a peer */
-		return NULL;
-
-	return lws_get_or_create_peer_sa46(vhost, &sa46);
 }
 
 /*

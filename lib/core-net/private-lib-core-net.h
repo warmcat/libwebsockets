@@ -1771,6 +1771,17 @@ void
 lws_4to6(uint8_t *v6addr, const uint8_t *v4addr);
 void
 lws_sa46_4to6(lws_sockaddr46 *sa46, const uint8_t *v4addr, uint16_t port);
+/*
+ * The host sa46 belongs to, as an address, the one lws_sa46_host_key() names
+ * and peer limits count against: an IPv4 address (also for IPv4-mapped IPv6)
+ * as AF_INET, or an IPv6 address's /64, with the rest of it zero, and no port.
+ * Returns how many bytes of the address identify the host, 4 or 8 (so the
+ * family is implied), with *bytes pointing to them in *host; or 0 with *host
+ * zeroed if sa46 is neither IPv4 nor IPv6.
+ */
+size_t
+lws_sa46_host(const lws_sockaddr46 *sa46, lws_sockaddr46 *host,
+	      const uint8_t **bytes);
 
 /* lws_set_timeout(), for callers holding the service thread lock */
 void
@@ -2334,8 +2345,6 @@ void
 lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer);
 void
 lws_peer_cull_peer_wait_list(struct lws_context *context);
-struct lws_peer *
-lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd);
 struct lws_peer *
 lws_get_or_create_peer_wsi(struct lws *wsi);
 int

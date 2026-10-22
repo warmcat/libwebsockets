@@ -481,23 +481,37 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 	struct lws_peer *peer = NULL;
 
 	if (info->type & LWS_ADOPT_SOCKET) {
-		peer = lws_get_or_create_peer(info->vh, info->fd.sockfd);
+		socklen_t plen = sizeof(lws_sockaddr46);
+		lws_sockaddr46 psa46;
 
-#if defined(LWS_WITH_TLS_PASSTHROUGH)
 		/*
-		 * A connection from a proxy we trust for a PROXY v2 header is
-		 * held in the pre-accept stage until the header says who the
-		 * client is, and is only counted then, against that client
-		 * (lws_pre_accept_proxy_v2()): counting it against the proxy
-		 * would make every client behind it share one budget.  Until
-		 * then it is counted against nobody: it is the operator's own
-		 * proxy, the header comes first on its connections, and the
-		 * stage is bounded by the accept timeout and the fd limit.
+		 * A unix socket has no peer to count, nor, eg, a udp socket
+		 * that has no peer of its own
 		 */
-		if (peer && !(info->type & LWS_ADOPT_FLAG_UDP) &&
-		    lws_proxy_v2_trusts(info->vh, &peer->sa46))
-			peer = NULL;
+		if (!(info->vh->options & LWS_SERVER_OPTION_UNIX_SOCK) &&
+		    !getpeername(info->fd.sockfd, (struct sockaddr *)&psa46,
+				 &plen)) {
+#if defined(LWS_WITH_TLS_PASSTHROUGH)
+			/*
+			 * A connection from a proxy we trust for a PROXY v2
+			 * header is held in the pre-accept stage until the
+			 * header says who the client is, and is only counted
+			 * then, against that client
+			 * (lws_pre_accept_proxy_v2()): counting it against the
+			 * proxy would make every client behind it share one
+			 * budget.  Until then it is counted against nobody: it
+			 * is the operator's own proxy, the header comes first
+			 * on its connections, and the stage is bounded by the
+			 * accept timeout and the fd limit.  Trust is decided
+			 * on the connection's own address: a peer stands for a
+			 * whole host, eg, an IPv6 /64.
+			 */
+			if ((info->type & LWS_ADOPT_FLAG_UDP) ||
+			    !lws_proxy_v2_trusts(info->vh, &psa46))
 #endif
+				peer = lws_get_or_create_peer_sa46(info->vh,
+								   &psa46);
+		}
 
 		if (lws_peer_wsi_limit_reached(info->vh->context, peer,
 					       info->fd.sockfd)) {

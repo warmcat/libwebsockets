@@ -405,42 +405,67 @@ lws_sa46_is_ipv4_mapped(const lws_sockaddr46 *sa46)
 	return 0;
 }
 
-int
-lws_sa46_host_key(const lws_sockaddr46 *sa46, char *key, size_t len)
+size_t
+lws_sa46_host(const lws_sockaddr46 *sa46, lws_sockaddr46 *host,
+	      const uint8_t **bytes)
 {
-	const uint8_t *a;
+	memset(host, 0, sizeof(*host));
 
 	if (sa46->sa4.sin_family == AF_INET) {
-		a = (const uint8_t *)&sa46->sa4.sin_addr;
+		host->sa4.sin_family = AF_INET;
+		host->sa4.sin_addr = sa46->sa4.sin_addr;
 		goto v4;
 	}
 
 #if defined(LWS_WITH_IPV6)
 	if (sa46->sa4.sin_family == AF_INET6) {
-		a = sa46->sa6.sin6_addr.s6_addr;
-
 		if (lws_sa46_is_ipv4_mapped(sa46)) {
-			a += 12;
+			host->sa4.sin_family = AF_INET;
+			memcpy(&host->sa4.sin_addr,
+			       &sa46->sa6.sin6_addr.s6_addr[12], 4);
 			goto v4;
 		}
 
 		/* the host is its /64 */
+		host->sa6.sin6_family = AF_INET6;
+		memcpy(host->sa6.sin6_addr.s6_addr,
+		       sa46->sa6.sin6_addr.s6_addr, 8);
+		*bytes = host->sa6.sin6_addr.s6_addr;
+
+		return 8;
+	}
+#endif
+
+	*bytes = NULL;
+
+	return 0;
+
+v4:
+	*bytes = (const uint8_t *)&host->sa4.sin_addr;
+
+	return 4;
+}
+
+int
+lws_sa46_host_key(const lws_sockaddr46 *sa46, char *key, size_t len)
+{
+	lws_sockaddr46 host;
+	const uint8_t *a;
+
+	switch (lws_sa46_host(sa46, &host, &a)) {
+	case 4:
+		lws_snprintf(key, len, "%u.%u.%u.%u", a[0], a[1], a[2], a[3]);
+		return 0;
+	case 8:
 		lws_snprintf(key, len, "%x:%x:%x:%x::/64",
 			     (a[0] << 8) | a[1], (a[2] << 8) | a[3],
 			     (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
-
 		return 0;
 	}
-#endif
 
 	lws_strncpy(key, LWS_HOST_KEY_UNKNOWN, len);
 
 	return 1;
-
-v4:
-	lws_snprintf(key, len, "%u.%u.%u.%u", a[0], a[1], a[2], a[3]);
-
-	return 0;
 }
 
 int

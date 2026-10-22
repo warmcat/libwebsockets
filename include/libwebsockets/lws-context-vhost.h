@@ -1098,27 +1098,35 @@ struct lws_context_creation_info {
 	 * connection is being dropped because of peer limits.
 	 *
 	 * The callback provides the context, and an lws_sockaddr46 with the
-	 * peer address and port.  The sockfd is LWS_SOCK_INVALID for a QUIC
-	 * connection, which has no socket of its own.  For a connection from
-	 * a .proxy_v2_trusted proxy, the address is the client its PROXY v2
-	 * header named.  For a connection refused because the unproven budget
-	 * (.unproven_limit_wsi) is spent, the sa46 is empty (family 0): its
-	 * address is only hearsay, and must not be acted on, eg, blocked.
+	 * host at its limit, as the limits count it (see .ip_limit_wsi): an
+	 * IPv4 address as AF_INET, also for an IPv4-mapped IPv6 peer, or an
+	 * IPv6 /64 with the low 64 bits zero; the port is 0.  The sockfd is
+	 * LWS_SOCK_INVALID for a QUIC connection, which has no socket of its
+	 * own.  For a connection from a .proxy_v2_trusted proxy, it is the
+	 * host of the client its PROXY v2 header named.  For a connection
+	 * refused because the unproven budget (.unproven_limit_wsi) is spent,
+	 * the sa46 is empty (family 0): its address is only hearsay, and must
+	 * not be acted on, eg, blocked.
 	 */
 	unsigned short ip_limit_ah;
-	/**< CONTEXT: max number of ah a single IP may use simultaneously
-	 *	      0 is no limit. This is a soft limit: if the limit is
-	 *	      reached, connections from that IP will wait in the ah
-	 *	      waiting list and not be able to acquire an ah until
-	 *	      a connection belonging to the IP relinquishes one it
-	 *	      already has.
+	/**< CONTEXT: max number of ah a single host may use simultaneously
+	 *	      0 is no limit.  A host is as for .ip_limit_wsi.  This
+	 *	      is a soft limit: if the limit is reached, connections
+	 *	      from that host will wait in the ah waiting list and not
+	 *	      be able to acquire an ah until a connection belonging
+	 *	      to the host relinquishes one it already has.
 	 */
 	unsigned short ip_limit_wsi;
-	/**< CONTEXT: max number of wsi a single IP may use simultaneously.
-	 *	      0 is no limit.  This is a hard limit, connections from
-	 *	      the same IP will simply be dropped once it acquires the
-	 *	      amount of simultaneous wsi / accepted connections
-	 *	      given here.  A QUIC server connection counts against
+	/**< CONTEXT: max number of wsi a single host may use
+	 *	      simultaneously.  0 is no limit.  This is a hard limit,
+	 *	      connections from the same host will simply be dropped
+	 *	      once it acquires the amount of simultaneous wsi /
+	 *	      accepted connections given here.  A host is keyed as
+	 *	      lws_sa46_host_key() keys it: an IPv4 address, whether it
+	 *	      arrives as IPv4 or IPv4-mapped IPv6, or an IPv6 /64,
+	 *	      since one IPv6 host commands its whole /64 and could
+	 *	      otherwise use a fresh address, and budget, for every
+	 *	      connection.  A QUIC server connection counts against
 	 *	      .unproven_limit_wsi from its first Initial, and as one of
 	 *	      its peer's from when QUIC has validated its address; one
 	 *	      validated beyond the limit is closed with

@@ -31,6 +31,19 @@
  *
  *  - a second naming B is served, a third dropped.
  *
+ * Again with ip_limit_wsi 2, clients are counted by host, as
+ * lws_sa46_host_key() keys them (G-389), so for IPv6, by /64:
+ *
+ *  - connections naming 2001:db8::20 and ::21 are served, but ones naming
+ *    ::22 and ::23, the same /64, are dropped, and pl_notify_cb is told the
+ *    /64, 2001:db8::;
+ *
+ *  - one naming 2001:db8:0:1::20, another /64, is served;
+ *
+ *  - a client named once as IPv4-mapped IPv6, ::ffff:192.0.2.30, and once as
+ *    IPv4, 192.0.2.30, is one host: a third connection naming it is dropped,
+ *    and pl_notify_cb is told 192.0.2.30.
+ *
  * With ip_limit_ah 1, and nothing else limited:
  *
  *  - a connection naming A sends only the start of its GET, so it holds its
@@ -75,34 +88,57 @@ enum pvl_outcome {
 struct pvl_step {
 	const char		*name;
 	const char		*client;	/* who the header names */
+	const char		*host;		/* told pl_notify_cb, if not
+						 * client */
 	enum pvl_outcome	expect;
 	char			partial;	/* only the start of a GET */
 };
 
 static const struct pvl_step pvl_steps_wsi[] = {
 	{ "first connection naming A is served",	PVL_CLIENT_A,
-	  PVL_SERVED, 0 },
+	  NULL, PVL_SERVED, 0 },
 	{ "second connection naming A is served",	PVL_CLIENT_A,
-	  PVL_SERVED, 0 },
+	  NULL, PVL_SERVED, 0 },
 	{ "B is served although A is at its limit",	PVL_CLIENT_B,
-	  PVL_SERVED, 0 },
+	  NULL, PVL_SERVED, 0 },
 	{ "third connection naming A is dropped",	PVL_CLIENT_A,
-	  PVL_DROPPED, 0 },
+	  NULL, PVL_DROPPED, 0 },
 	{ "the proxy's own LOCAL connection is served",	PVL_LOCAL,
-	  PVL_SERVED, 0 },
+	  NULL, PVL_SERVED, 0 },
 	{ "second connection naming B is served",	PVL_CLIENT_B,
-	  PVL_SERVED, 0 },
+	  NULL, PVL_SERVED, 0 },
 	{ "third connection naming B is dropped",	PVL_CLIENT_B,
-	  PVL_DROPPED, 0 },
+	  NULL, PVL_DROPPED, 0 },
 };
+
+#if defined(LWS_WITH_IPV6)
+static const struct pvl_step pvl_steps_host[] = {
+	{ "first connection naming 2001:db8::20 is served",
+	  "2001:db8::20", NULL,			PVL_SERVED, 0 },
+	{ "one naming 2001:db8::21 is served",
+	  "2001:db8::21", NULL,			PVL_SERVED, 0 },
+	{ "one naming 2001:db8::22, the same /64, is dropped",
+	  "2001:db8::22", "2001:db8::",		PVL_DROPPED, 0 },
+	{ "one naming 2001:db8::23, the same /64, is dropped",
+	  "2001:db8::23", "2001:db8::",		PVL_DROPPED, 0 },
+	{ "one naming 2001:db8:0:1::20, another /64, is served",
+	  "2001:db8:0:1::20", NULL,		PVL_SERVED, 0 },
+	{ "C named as IPv4-mapped IPv6 is served",
+	  "::ffff:192.0.2.30", NULL,		PVL_SERVED, 0 },
+	{ "C named as IPv4 is served",
+	  "192.0.2.30", NULL,			PVL_SERVED, 0 },
+	{ "C named as IPv4-mapped again is dropped",
+	  "::ffff:192.0.2.30", "192.0.2.30",	PVL_DROPPED, 0 },
+};
+#endif
 
 static const struct pvl_step pvl_steps_ah[] = {
 	{ "A holding an ah with a partial request",	PVL_CLIENT_A,
-	  PVL_HELD, 1 },
+	  NULL, PVL_HELD, 1 },
 	{ "A's second request waits for an ah",		PVL_CLIENT_A,
-	  PVL_HELD, 0 },
+	  NULL, PVL_HELD, 0 },
 	{ "B is served although A holds its ah",	PVL_CLIENT_B,
-	  PVL_SERVED, 0 },
+	  NULL, PVL_SERVED, 0 },
 };
 
 static const char * const outcome_names[] = { "served", "dropped", "held" };
@@ -227,10 +263,16 @@ pvl_cli_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		memset(&pv, 0, sizeof(pv));
 		if (s->client) {
+			/*
+			 * An IPv6 client, IPv4-mapped or not, goes in an
+			 * AF_INET6 header, to an IPv6 destination
+			 */
 			if (lws_sa46_parse_numeric_address(s->client,
 							   &pv.src) ||
-			    lws_sa46_parse_numeric_address("192.0.2.1",
-							   &pv.dst))
+			    lws_sa46_parse_numeric_address(
+					pv.src.sa4.sin_family == AF_INET ?
+						"192.0.2.1" : "2001:db8::1",
+					&pv.dst))
 				return -1;
 			sa46_sockport(&pv.src, htons(40000));
 			sa46_sockport(&pv.dst, htons(443));
@@ -289,9 +331,12 @@ pvl_next(lws_sorted_usec_list_t *sul)
 
 	if (check_notify && step >= 0 && steps[step].expect == PVL_DROPPED) {
 		/* the connection dropped must be reported as its client's */
-		if (strcmp(notified, steps[step].client)) {
+		const char *want = steps[step].host ? steps[step].host :
+						      steps[step].client;
+
+		if (strcmp(notified, want)) {
 			lwsl_err("  FAIL: pl_notify_cb was told '%s', not "
-				 "'%s'\n", notified, steps[step].client);
+				 "'%s'\n", notified, want);
 			fails++;
 		} else
 			lwsl_user("  PASS: pl_notify_cb was told it was %s\n",
@@ -429,6 +474,10 @@ main(int argc, const char **argv)
 
 	if (pvl_phase("ip_limit_wsi 2:", pvl_steps_wsi,
 		      (int)LWS_ARRAY_SIZE(pvl_steps_wsi), 2, 0) ||
+#if defined(LWS_WITH_IPV6)
+	    pvl_phase("ip_limit_wsi 2, by host:", pvl_steps_host,
+		      (int)LWS_ARRAY_SIZE(pvl_steps_host), 2, 0) ||
+#endif
 	    pvl_phase("ip_limit_ah 1:", pvl_steps_ah,
 		      (int)LWS_ARRAY_SIZE(pvl_steps_ah), 0, 1))
 		fails++;

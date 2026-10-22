@@ -988,6 +988,7 @@ struct lws_context {
 	int		vh_idle_grace_ms;
 #endif
 #if defined(LWS_WITH_PEER_LIMITS)
+	uint8_t pl_hash_key[16];	/* random key of the peer bucket hash */
 	uint32_t pl_hash_elements;	/* protected by context->lock */
 	uint32_t count_peers;		/* protected by context->lock */
 	unsigned short ip_limit_ah;
