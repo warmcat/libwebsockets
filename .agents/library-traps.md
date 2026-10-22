@@ -311,6 +311,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - Running vhosts pick up renewed certs without restart: vhosts watch
    their cert files and swap the TLS ctx (old one retired by refcount).
    Grace period is `info->tls_cert_grace_secs`.
+ - A backend refuses an unsafe mTLS vhost config in
+   `lws_tls_server_client_cert_verify_config()`, called from
+   `lws_tls_server_vhost_ctx_setup()` at creation and at cert rotation,
+   not in `certs_load`: look there before filing a missing refusal.
 
 ## Raw connections
 
