@@ -26,7 +26,8 @@ windows, android and freertos.
 Other features
 
  - lws-style paranoid response parsing
- - random unique tid generation to increase difficulty of poisoning
+ - random unique tid per question, and a random source port per query,
+   to increase difficulty of poisoning (see "Spoofing" below)
  - it's really integrated with the lws event loop, it does not spawn
    threads or use the libc resolver, and of course no blocking at all
  - platform-specific server address capturing (from /etc/resolv.conf
@@ -102,9 +103,8 @@ To square the circle, for ipv4 only systems (`LWS_IPV6=0`) the resolver
 requests only A records.  For ipv6-capable systems, it always requests
 first A and then immediately afterwards AAAA records.
 
-To simplify the implementation, the tid b0 is used to differentiate
-between A (b0 = 0) and AAAA (b0 = 1) requests and responses using the
-same query body.
+The A and AAAA questions are asked with their own tids, each a full
+16 random bits, and a response is matched to the question by its tid.
 
 The first response to come back is parsed, and a cache entry made...
 it leaves a note in the query about the address of the last `struct addrinfo`
@@ -114,6 +114,30 @@ first cache entry and the `struct addrinfo` linked-list from the
 first cache entry is extended into the second one.  At the time the
 second result arrives, the query is destroyed and the cached results
 provided on the result callback.
+
+## Spoofing
+
+An off-path attacker who wants to poison the cache has to get its forged
+response accepted before the real one arrives, so everything about the query
+it can't see has to be guessed (RFC 5452):
+
+ - each question has a tid of 16 random bits, unique among the queries in
+   flight, and a response must repeat the question exactly
+
+ - each query asks from a UDP socket of its own, bound to a source port picked
+   at random in 32768 - 65535 (`LWS_CAUDP_RANDOM_PORT`), rather than the OS'
+   choice, which may be predictable on some platforms.  A response is only
+   taken on the socket its query asked from, and the socket is closed when the
+   query is done.
+
+The number of sockets is bounded, so a flood of lookups can't use up the fds:
+up to the fds table size / 16 (at least 2, at most 32) are opened before
+queries start sharing the least used socket to their nameserver, and no socket
+is shared by more than 16 queries in its life.  A context sized for a small
+client (`lws_context_info_defaults()`) gets the 2 its fds table reserves for
+the resolver (`LWS_FD_LIMIT_INTERNAL_ADNS`), a server sized to the process fd
+limit gets 32.  When no new socket can be opened, eg, the process is out of
+fds, a query shares one if there is one, or fails.
 
 ## Recursion
 

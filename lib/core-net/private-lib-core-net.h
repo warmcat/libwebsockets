@@ -344,10 +344,7 @@ typedef struct lws_async_dns_server {
 
 	int			refcount;
 
-	struct lws		*wsi;
 	time_t			time_set_server;
-	uint8_t			dns_server_set:1;
-	uint8_t			dns_server_connected:1;
 	uint8_t			seen:1;
 	uint8_t			pinned:1;
 } lws_async_dns_server_t;
@@ -356,6 +353,11 @@ typedef struct lws_async_dns {
 	lws_dll2_owner_t	nameservers; /* lws_async_dns_server_t */
 	lws_dll2_owner_t	cached;
 	lws_dll2_owner_t	waiting; /* queries waiting for a server */
+	/*
+	 * lws_adns_sock_t: the UDP sockets the queries ask the nameservers
+	 * from, while they can still be used
+	 */
+	lws_dll2_owner_t	socks;
 
 	struct lws_context	*cx;
 
@@ -1074,6 +1076,7 @@ struct lws_io_adjunct {
 	unsigned int			pf_packet:1;
 	unsigned int			do_broadcast:1;
 	unsigned int			do_bind:1;
+	unsigned int			random_port:1; /* LWS_CAUDP_RANDOM_PORT */
 	unsigned int			unix_skt:1;
 #ifdef _WIN32
 	unsigned int			sock_send_blocking:1;

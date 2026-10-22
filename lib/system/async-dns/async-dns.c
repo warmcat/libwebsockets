@@ -40,6 +40,305 @@ static const lws_retry_bo_t retry_policy = {
 	 */
 	LWS_ARRAY_SIZE(botable), 0, 0, 20 };
 
+extern struct lws_protocols lws_async_dns_protocol;
+
+/* the port we ask the nameservers on: 53, unless a test says otherwise */
+
+static uint16_t
+lws_adns_ns_port(void)
+{
+	const char *env_port = getenv("LWS_ASYNCDNS_PORT");
+
+	if (env_port)
+		return (uint16_t)atoi(env_port);
+
+	return 53;
+}
+
+/*
+ * How many sockets we open before queries share them (see lws_adns_sock_t):
+ * a small fds table, as a client's is, holds the LWS_FD_LIMIT_INTERNAL_ADNS
+ * it reserves for us, a bigger one more, up to LWS_ADNS_SOCKS_MAX
+ */
+
+static unsigned int
+lws_adns_socks_max(struct lws_context *cx)
+{
+	unsigned int n = cx->fd_limit_per_thread / 16;
+
+	if (n < LWS_FD_LIMIT_INTERNAL_ADNS)
+		n = LWS_FD_LIMIT_INTERNAL_ADNS;
+	if (n > LWS_ADNS_SOCKS_MAX)
+		n = LWS_ADNS_SOCKS_MAX;
+
+	return n;
+}
+
+static lws_adns_sock_t *
+lws_adns_sock_from_opaque(lws_async_dns_t *dns, const void *opaque)
+{
+	if (!opaque)
+		return NULL;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&dns->socks)) {
+		if (opaque == lws_container_of(d, lws_adns_sock_t, list))
+			return lws_container_of(d, lws_adns_sock_t, list);
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * The socket can't be used any more: new queries don't find it, nothing more
+ * is sent on it, and anything still arriving on it is ignored.  The queries
+ * still holding it take another at their next retry.
+ */
+
+static void
+lws_adns_sock_retire(lws_adns_sock_t *s)
+{
+	lws_dll2_remove(&s->list);
+	s->dsrv = NULL;
+
+	if (s->wsi) {
+		lws_set_opaque_user_data(s->wsi, NULL);
+		lws_set_timeout(s->wsi, 1, LWS_TO_KILL_ASYNC);
+		s->wsi = NULL;
+	}
+}
+
+/* its wsi is closing by itself, eg, the route to the nameserver went away */
+
+static void
+lws_adns_sock_lost_wsi(lws_adns_sock_t *s)
+{
+	lws_set_opaque_user_data(s->wsi, NULL);
+	s->wsi = NULL;
+	lws_adns_sock_retire(s);
+
+	if (!s->users)
+		lws_free(s);
+}
+
+static void
+lws_adns_sock_unuse(lws_adns_sock_t *s)
+{
+	assert(s->users);
+	if (s->users && --s->users)
+		return;
+
+	lws_adns_sock_retire(s);
+	lws_free(s);
+}
+
+void
+lws_async_dns_wsi_closing(struct lws *wsi)
+{
+	lws_adns_sock_t *s = lws_adns_sock_from_opaque(
+				&wsi->a.context->async_dns,
+				wsi->a.opaque_user_data);
+
+	if (!s)
+		return;
+
+	if (s->adopting) {
+		/* lws_adns_sock_create() deals with it */
+		s->closed_adopting = 1;
+		return;
+	}
+
+	if (s->wsi == wsi)
+		lws_adns_sock_lost_wsi(s);
+}
+
+/* a new socket to dsrv, on a port of our own random choosing */
+
+static lws_adns_sock_t *
+lws_adns_sock_create(struct lws_context *cx, lws_async_dns_server_t *dsrv)
+{
+	uint16_t port = lws_adns_ns_port();
+	lws_adns_sock_t *s;
+	struct lws *wsi;
+	char ads[48];
+
+	if (!lws_vhost_first(cx)) { /* coverity... system vhost always present */
+		lwsl_cx_err(cx, "no system vhost");
+		return NULL;
+	}
+
+	s = lws_zalloc(sizeof(*s), __func__);
+	if (!s)
+		return NULL;
+
+	s->dsrv = dsrv;
+	sa46_sockport(&dsrv->sa46, htons(port));
+	lws_sa46_write_numeric_address(&dsrv->sa46, ads, sizeof(ads));
+
+	/*
+	 * Listed before the wsi exists, so its first callbacks find us.  The
+	 * numeric address means the adoption completes, or fails, inside the
+	 * call: until it returns, callbacks only note a close.
+	 */
+	lws_dll2_add_tail(&s->list, &cx->async_dns.socks);
+	s->adopting = 1;
+
+	wsi = lws_create_adopt_udp(lws_vhost_first(cx), ads, port,
+				   LWS_CAUDP_RANDOM_PORT,
+				   lws_async_dns_protocol.name, NULL, NULL, s,
+				   &retry_policy, "asyncdns");
+	s->adopting = 0;
+
+	/*
+	 * lws_create_adopt_udp() only allocates wsi->io->udp once the raw-skt
+	 * adoption actually completes.  If it did not (eg, the nameserver
+	 * address produced no usable route), the wsi is closing by itself.
+	 */
+	if (s->closed_adopting || !wsi || !wsi->io->udp) {
+		lwsl_cx_notice(cx, "no socket to nameserver %s", ads);
+		if (wsi && !s->closed_adopting)
+			lws_set_opaque_user_data(wsi, NULL);
+		lws_dll2_remove(&s->list);
+		lws_free(s);
+
+		return NULL;
+	}
+
+	s->wsi = wsi;
+	wsi->io->udp->sa46 = dsrv->sa46;
+
+	return s;
+}
+
+/*
+ * A socket to ask dsrv from: a new one if we may open another, else the
+ * least used one to dsrv that may take another query
+ */
+
+static lws_adns_sock_t *
+lws_adns_sock_get(struct lws_context *cx, lws_async_dns_server_t *dsrv)
+{
+	lws_async_dns_t *dns = &cx->async_dns;
+	lws_adns_sock_t *s, *share = NULL;
+	int any = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&dns->socks)) {
+		s = lws_container_of(d, lws_adns_sock_t, list);
+
+		if (s->dsrv == dsrv && !s->adopting) {
+			any = 1;
+			if (s->uses < LWS_ADNS_SOCK_MAX_USES &&
+			    (!share || s->users < share->users))
+				share = s;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!any || lws_dll2_count(&dns->socks) < lws_adns_socks_max(cx)) {
+		s = lws_adns_sock_create(cx, dsrv);
+		if (s)
+			return s;
+		/* eg, we are out of fds: one we already have will do */
+	}
+
+	return share;
+}
+
+static int
+lws_adns_q_sock_add(lws_adns_q_t *q, lws_async_dns_server_t *dsrv)
+{
+	lws_adns_sock_t *s = lws_adns_sock_get(q->context, dsrv);
+	lws_adns_qsock_t *qs;
+
+	if (!s)
+		return 1;
+
+	s->users++;
+	s->uses++;
+
+	qs = lws_zalloc(sizeof(*qs), __func__);
+	if (!qs) {
+		lws_adns_sock_unuse(s);
+		return 1;
+	}
+
+	qs->sock = s;
+	lws_dll2_add_tail(&qs->list, &q->socks);
+
+	return 0;
+}
+
+static void
+lws_adns_q_socks_release(lws_adns_q_t *q)
+{
+	struct lws_dll2 *d;
+
+	while ((d = lws_dll2_get_head(&q->socks))) {
+		lws_adns_qsock_t *qs = lws_container_of(d, lws_adns_qsock_t,
+							list);
+
+		lws_dll2_remove(d);
+		lws_adns_sock_unuse(qs->sock);
+		lws_free(qs);
+	}
+}
+
+int
+lws_adns_q_socks_bind(lws_adns_q_t *q)
+{
+	lws_adns_q_socks_release(q);
+
+	/* the first is to q->dsrv: the one we are writeable on */
+
+	if (!q->dsrv || lws_adns_q_sock_add(q, q->dsrv))
+		return 1;
+
+	if (q->broadsiding)
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&q->dns->nameservers)) {
+			lws_async_dns_server_t *dsrv = lws_container_of(d,
+						lws_async_dns_server_t, list);
+
+			/* we just won't race the ones we can't ask */
+			if (dsrv != q->dsrv)
+				lws_adns_q_sock_add(q, dsrv);
+		} lws_end_foreach_dll_safe(d, d1);
+
+	return 0;
+}
+
+static lws_adns_sock_t *
+lws_adns_q_sock(lws_adns_q_t *q)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(&q->socks);
+
+	return d ? lws_container_of(d, lws_adns_qsock_t, list)->sock : NULL;
+}
+
+struct lws *
+lws_adns_q_wsi(lws_adns_q_t *q)
+{
+	lws_adns_sock_t *s = lws_adns_q_sock(q);
+
+	return s ? s->wsi : NULL;
+}
+
+int
+lws_adns_q_uses_wsi(lws_adns_q_t *q, const struct lws *wsi)
+{
+	if (wsi == q->wsi_tcp)
+		return 1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&q->socks)) {
+		if (lws_container_of(d, lws_adns_qsock_t, list)->sock->wsi ==
+									wsi)
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 void
 lws_adns_q_destroy(lws_adns_q_t *q)
 {
@@ -53,6 +352,8 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 	lws_sul_cancel(&q->write_sul);
 	lws_sul_cancel(&q->deadline_sul);
 	lws_dll2_remove(&q->list);
+
+	lws_adns_q_socks_release(q);
 
 	if (q->wsi_tcp) {
 		q->wsi_tcp->a.opaque_user_data = NULL;
@@ -128,19 +429,6 @@ lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
 	} lws_end_foreach_dll_safe(d, d1);
 
 	return NULL;
-}
-
-void
-lws_async_dns_drop_server(lws_async_dns_server_t *dsrv)
-{
-	if (!dsrv->wsi)
-		return;
-
-	dsrv->dns_server_set = 0;
-	lws_set_timeout(dsrv->wsi, 1, LWS_TO_KILL_ASYNC);
-	dsrv->wsi->a.opaque_user_data = NULL;
-	dsrv->wsi = NULL;
-	dsrv->dns_server_connected = 0;
 }
 
 lws_async_dns_retcode_t
@@ -261,18 +549,34 @@ static void
 lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 {
 	lws_adns_q_t *q = lws_container_of(sul, lws_adns_q_t, sul);
+	struct lws *wsi = lws_adns_q_wsi(q);
 
-	lwsl_wsi_info(q->dsrv ? q->dsrv->wsi : NULL, "in");
+	lwsl_wsi_info(wsi, "in");
 	lws_adns_dump(q->dns);
 
-	if (q->dsrv && !q->dsrv->wsi)
-		/* a failed send dropped its socket: it gets a new one */
-		lws_async_dns_create_server_wsi(q->context);
+	if (!wsi && !q->is_tcp) {
+		/*
+		 * Its socket went away, eg, a send on it failed: it asks from
+		 * a new one
+		 */
+		if (lws_adns_q_socks_bind(q)) {
+			lwsl_cx_notice(q->context, "%s: no socket to ask from",
+				       (const char *)&q[1]);
+			if (q->firstcache) {
+				lws_adns_cache_destroy(q->firstcache);
+				q->firstcache = NULL;
+			}
+			lws_async_dns_complete(q, NULL);
+			lws_adns_q_destroy(q);
 
-	if (q->dsrv && q->dsrv->wsi) {
-		q->is_retry = 1;
-		lws_callback_on_writable(q->dsrv->wsi);
+			return;
+		}
+		wsi = lws_adns_q_wsi(q);
 	}
+
+	q->is_retry = 1;
+	if (wsi)
+		lws_callback_on_writable(wsi);
 }
 
 static void
@@ -337,15 +641,12 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	if (lws_dll2_is_detached(&q->sul.list) &&
 	    lws_retry_sul_schedule_retry_wsi(wsi, &q->sul,
 				       lws_async_dns_sul_cb_retry, &q->retry)) {
-		/* we have reached the end of our concealed retries */
-		lwsl_wsi_info(wsi, "failing query");
 		/*
-		 * our policy is to force reloading the dns server info
-		 * if our connection ever timed out, in case it or the
-		 * routing state changed
+		 * We have reached the end of our concealed retries.  The
+		 * socket goes with the query, so the next query asks from a
+		 * new one, in case the routing changed.
 		 */
-
-		lws_async_dns_drop_server(q->dsrv);
+		lwsl_wsi_info(wsi, "failing query");
 		goto qfail;
 	}
 
@@ -479,25 +780,24 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	assert(p < pkt + sizeof(pkt) - LWS_PRE);
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
 
-	if (q->broadsiding) {
-		m = wsi->io->udp ? n : n + 2; /* assume success unless primary fails */
+	if (q->broadsiding && wsi->io->udp) {
+		/* we race the question to every nameserver we have a socket to */
+		m = -1;
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&q->dns->nameservers)) {
-			lws_async_dns_server_t *s = lws_container_of(d, lws_async_dns_server_t, list);
-			if (s->wsi) {
-				int m2;
-				if (!s->wsi->io->udp) {
-					lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
-					m2 = lws_write(s->wsi, pkt + LWS_PRE - 2, (unsigned int)n + 2, 0);
-				} else
-					m2 = lws_write(s->wsi, pkt + LWS_PRE, (unsigned int)n, 0);
+				   lws_dll2_get_head(&q->socks)) {
+			lws_adns_sock_t *s = lws_container_of(d,
+					lws_adns_qsock_t, list)->sock;
+			int m2;
 
-				if (s->wsi == wsi)
-					m = m2;
-				else if (m2 != (s->wsi->io->udp ? n : n + 2))
-					/* its socket is unusable now, see below */
-					lws_async_dns_drop_server(s);
-			}
+			if (!s->wsi)
+				continue;
+
+			m2 = lws_write(s->wsi, pkt + LWS_PRE, (unsigned int)n, 0);
+			if (s->wsi == wsi)
+				m = m2;
+			else if (m2 != n)
+				/* its socket is unusable now, see below */
+				lws_adns_sock_retire(s);
 		} lws_end_foreach_dll_safe(d, d1);
 	} else {
 		if (!wsi->io->udp) {
@@ -511,15 +811,15 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		lwsl_wsi_notice(wsi, "dns write failed %d %d errno %d",
 			    m, n, errno);
 		/*
-		 * The failed send left the server's socket unusable
-		 * (lws_io_tx_push()), eg, it took the icmp error for a datagram
-		 * sent while the nameserver was not listening.  Nothing else
-		 * closes it, and later queries would wait on it for a
-		 * writeable that never comes: drop the server, so the next
-		 * query makes it a new socket, as after a timeout
+		 * The failed send left the socket unusable (lws_io_tx_push()),
+		 * eg, it took the icmp error for a datagram sent while the
+		 * nameserver was not listening.  Nothing else closes it, and
+		 * any other query using it would wait on it for a writeable
+		 * that never comes: retire it, so they ask from a new one at
+		 * their next retry
 		 */
-		if (q->dsrv && q->dsrv->wsi == wsi)
-			lws_async_dns_drop_server(q->dsrv);
+		if (lws_adns_q_sock(q) && lws_adns_q_sock(q)->wsi == wsi)
+			lws_adns_sock_retire(lws_adns_q_sock(q));
 		goto qfail;
 	}
 
@@ -551,11 +851,102 @@ qfail:
 	lws_adns_q_destroy(q);
 }
 
+/* the callbacks on one of the queries' UDP sockets */
+
+static void
+lws_adns_sock_callback(struct lws *wsi, lws_adns_sock_t *s,
+		       enum lws_callback_reasons reason, void *in, size_t len)
+{
+	struct lws_async_dns *dns = &(lws_get_context(wsi)->async_dns);
+	lws_async_dns_server_t *dsrv = s->dsrv;
+	lws_sockaddr46 src;
+
+	if (s->adopting) {
+		/* lws_adns_sock_create() deals with it */
+		if (reason == LWS_CALLBACK_RAW_CLOSE)
+			s->closed_adopting = 1;
+
+		return;
+	}
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_CLOSE:
+		/* its queries ask from another at their next retry */
+		if (s->wsi == wsi)
+			lws_adns_sock_lost_wsi(s);
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		if (!wsi->io->udp || !in)
+			break;
+
+		/*
+		 * recvfrom() left the datagram's source in wsi->io->udp->sa46,
+		 * which is also where we send to... put the nameserver we
+		 * chose back first, so a foreign datagram cannot redirect our
+		 * queries to whoever sent it.
+		 */
+
+		src = wsi->io->udp->sa46;
+		wsi->io->udp->sa46 = dsrv->sa46;
+
+		/*
+		 * An answer only means anything if it came from the server we
+		 * asked.  The socket is connect()ed to the nameserver, so the
+		 * kernel already dropped everything else, but we don't rely on
+		 * it: without this, an off-path attacker who can reach our
+		 * port would only have to guess the tid to poison any name.
+		 */
+
+		if (src.sa4.sin_port != dsrv->sa46.sa4.sin_port ||
+		    lws_sa46_compare_ads(&src, &dsrv->sa46)) {
+			char a1[48], a2[48];
+
+			lws_sa46_write_numeric_address(&src, a1, sizeof(a1));
+			lws_sa46_write_numeric_address(&dsrv->sa46, a2,
+						       sizeof(a2));
+			lwsl_wsi_notice(wsi, "dns answer from unexpected source "
+					"%s port %u (AF %d), we asked %s port %u",
+					a1, ntohs(src.sa4.sin_port),
+					(int)src.sa4.sin_family, a2,
+					ntohs(dsrv->sa46.sa4.sin_port));
+			break;
+		}
+
+		/* only taken by a query that asked on this socket... */
+		lws_adns_parse_via(dns, in, len, dsrv, wsi);
+		/* ... which may have finished with it, and s with it */
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		/*
+		 * The queries whose own socket this is: a broadsiding one
+		 * writes on its sockets to the other nameservers along with it
+		 */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&dns->waiting)) {
+			lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t,
+							   list);
+
+			/* a failed send retires the socket: wsi no longer matches */
+			if (lws_adns_q_wsi(q) == wsi && !q->is_synthetic &&
+			    (!q->asked || q->responded != q->asked) &&
+			    !q->is_tcp)
+				lws_async_dns_writeable(wsi, q);
+		} lws_end_foreach_dll_safe(d, d1);
+		break;
+
+	default:
+		break;
+	}
+}
+
 static int
 callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		   void *user, void *in, size_t len)
 {
 	struct lws_async_dns *dns = &(lws_get_context(wsi)->async_dns);
+	lws_adns_sock_t *s;
 
 	/*
 	 * Only the reasons about one of our own connections, the nameserver's
@@ -577,9 +968,18 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 	}
 
-	/* a direct query's own socket: its opaque is not a dsrv or a q */
+	/* a direct query's own socket: its opaque is not a sock or a q */
 	if (lws_adns_direct_callback(wsi, reason, in, len))
 		return 0;
+
+	/* one of the queries' UDP sockets */
+	s = lws_adns_sock_from_opaque(dns, wsi->a.opaque_user_data);
+	if (s) {
+		lws_adns_sock_callback(wsi, s, reason, in, len);
+		return 0;
+	}
+
+	/* otherwise it's a query's TCP connection, or a socket we let go of */
 
 	if (!wsi->io->udp) {
 		lws_adns_q_t *q = (lws_adns_q_t *)wsi->a.opaque_user_data;
@@ -647,7 +1047,9 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 
 				if (q->tcp_rx_pos == q->tcp_rx_len) {
 					/* we have the whole message */
-					lws_adns_parse_udp(dns, q->tcp_rx_buf, q->tcp_rx_len, q->dsrv);
+					lws_adns_parse_via(dns, q->tcp_rx_buf,
+							   q->tcp_rx_len,
+							   q->dsrv, wsi);
 					/* TCP connection is done */
 					return -1;
 				}
@@ -668,113 +1070,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 	}
 
-	lws_async_dns_server_t *dsrv =
-			(lws_async_dns_server_t *)wsi->a.opaque_user_data;
-
-	if (!dsrv)
-		return 0;
-
-	switch (reason) {
-
-	/* callbacks related to raw socket descriptor */
-
-        case LWS_CALLBACK_RAW_ADOPT:
-		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_ADOPT");
-                break;
-
-	case LWS_CALLBACK_RAW_CLOSE:
-		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_CLOSE");
-		break;
-
-	case LWS_CALLBACK_RAW_RX:
-		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_RX (%d)", (int)len);
-		// lwsl_hexdump_wsi_notice(wsi, in, len);
-	{
-		/*
-		 * recvfrom() left the datagram's source in wsi->io->udp->sa46,
-		 * which is also where we send to... put the nameserver we
-		 * chose back first, so a foreign datagram cannot redirect our
-		 * queries to whoever sent it.
-		 */
-
-		lws_sockaddr46 src = wsi->io->udp->sa46;
-
-		wsi->io->udp->sa46 = dsrv->sa46;
-
-		/*
-		 * An answer only means anything if it came from the server we
-		 * asked.  The socket is connect()ed to the nameserver on most
-		 * platforms, so the kernel already dropped everything else...
-		 * but that is compiled out on Apple platforms, where without
-		 * this an off-path attacker who can reach our ephemeral port
-		 * only has to guess the tid to poison any name.
-		 */
-
-		if (src.sa4.sin_port != dsrv->sa46.sa4.sin_port ||
-		    lws_sa46_compare_ads(&src, &dsrv->sa46)) {
-			char a1[48], a2[48];
-
-			lws_sa46_write_numeric_address(&src, a1, sizeof(a1));
-			lws_sa46_write_numeric_address(&dsrv->sa46, a2,
-						       sizeof(a2));
-			lwsl_wsi_notice(wsi, "dns answer from unexpected source "
-					"%s port %u (AF %d), we asked %s port %u",
-					a1, ntohs(src.sa4.sin_port),
-					(int)src.sa4.sin_family, a2,
-					ntohs(dsrv->sa46.sa4.sin_port));
-			break;
-		}
-
-		lws_adns_parse_udp(dns, in, len, dsrv);
-		break;
-	}
-
-	case LWS_CALLBACK_RAW_WRITEABLE:
-		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_WRITEABLE");
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					   lws_dll2_get_head(&dns->waiting)) {
-			lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t,
-							   list);
-
-			if (//lws_dll2_is_detached(&q->sul.list) &&
-			    !q->is_synthetic && q->dsrv == dsrv &&
-			    (!q->asked || q->responded != q->asked) && !q->is_tcp) {
-				lws_async_dns_writeable(wsi, q);
-				if (dsrv->wsi != wsi)
-					/* a failed send dropped the server */
-					break;
-			}
-		} lws_end_foreach_dll_safe(d, d1);
-
-		if (dsrv->wsi != wsi) {
-			/* the queries still to send go on a new socket */
-			lws_async_dns_create_server_wsi(lws_get_context(wsi));
-			if (dsrv->wsi)
-				lws_callback_on_writable(dsrv->wsi);
-		}
-		break;
-
-	default:
-		break;
-	}
-
 	return 0;
-}
-
-/* require: context lock */
-
-lws_async_dns_server_t *
-__lws_async_dns_server_find_wsi(lws_async_dns_t *dns, struct lws *wsi)
-{
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dns->nameservers)) {
-		lws_async_dns_server_t *s = lws_container_of(d,
-						lws_async_dns_server_t, list);
-
-		if (s->wsi == wsi)
-			return s;
-	} lws_end_foreach_dll(d);
-
-	return NULL;
 }
 
 lws_async_dns_server_t *
@@ -847,12 +1143,25 @@ __lws_async_dns_server_destroy(lws_async_dns_server_t *dsrv)
 		} lws_end_foreach_dll_safe(d, d1);
 	}
 
+	if (dns)
+		/*
+		 * Any sockets to it still held are a broadsiding query's, whose
+		 * own nameserver is another: they are no use any more
+		 */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&dns->socks)) {
+			lws_adns_sock_t *s = lws_container_of(d,
+						lws_adns_sock_t, list);
+
+			if (s->dsrv == dsrv)
+				lws_adns_sock_retire(s);
+		} lws_end_foreach_dll_safe(d, d1);
+
 	lws_dll2_remove(&dsrv->list);
 
 	if (dsrv->adapt)
 		lws_adapt_destroy(&dsrv->adapt);
 
-	lws_async_dns_drop_server(dsrv);
 	lws_free(dsrv);
 }
 
@@ -894,66 +1203,6 @@ lws_async_dns_server_remove(struct lws_context *cx, const lws_sockaddr46 *sa46)
 struct lws_protocols lws_async_dns_protocol = {
 	"lws-async-dns", callback_async_dns, 0, 0, 0, NULL, 0
 };
-
-/*
- * Ensure every logical DNS server has a wsi ready
- */
-
-int
-lws_async_dns_create_server_wsi(struct lws_context *context)
-{
-	lws_async_dns_t *dns = &context->async_dns;
-	char ads[48];
-
-	if(lws_dll2_is_empty(&context->vhost_list_owner)) { /* coverity... system vhost always present */
-		lwsl_cx_err(context, "no system vhost");
-		return 1;
-	}
-
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&dns->nameservers)) {
-		lws_async_dns_server_t *dsrv = lws_container_of(d,
-						lws_async_dns_server_t, list);
-
-		if (!dsrv->wsi) {
-			uint16_t port = 53;
-			const char *env_port = getenv("LWS_ASYNCDNS_PORT");
-			if (env_port)
-				port = (uint16_t)atoi(env_port);
-
-			dsrv->sa46.sa4.sin_port = htons(port);
-			lws_sa46_write_numeric_address(&dsrv->sa46,
-						       ads, sizeof(ads));
-
-			/* wsi opaque is the dsrv */
-			dsrv->wsi = lws_create_adopt_udp(
-					lws_vhost_first(context), ads, port, 0,
-					lws_async_dns_protocol.name, NULL,
-					NULL, dsrv, &retry_policy, "asyncdns");
-			if (!dsrv->wsi) {
-				lwsl_cx_err(context, "adns wsi adopt fail");
-				return 1;
-			}
-
-			/*
-			 * lws_create_adopt_udp() only allocates wsi->io->udp once
-			 * the raw-skt adoption actually completes.  If adoption
-			 * did not complete (eg, the resolved nameserver address
-			 * produced no usable route and the wsi is pending close),
-			 * wsi->io->udp may still be NULL -- don't deref it blindly.
-			 */
-			if (!dsrv->wsi->io->udp) {
-				lwsl_cx_err(context, "adns wsi has no udp");
-				return 1;
-			}
-
-			dsrv->wsi->io->udp->sa46 = dsrv->sa46;
-		}
-
-	} lws_end_foreach_dll_safe(d, d1);
-
-	return 0;
-}
 
 lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
@@ -1017,7 +1266,6 @@ int
 lws_async_dns_init(struct lws_context *context)
 {
 	lws_async_dns_t *dns = &context->async_dns;
-	int n;
 
 	/*
 	 * The lws_system_ops mode is only the default, taken the first time
@@ -1051,7 +1299,8 @@ lws_async_dns_init(struct lws_context *context)
 						 lws_adns_smd_cb);
 #endif
 
-	n = lws_plat_asyncdns_init(context, dns);
+	/* the queries open their sockets to the servers as they need them */
+	lws_plat_asyncdns_init(context, dns);
 
 #if defined(LWS_WITH_SYS_SMD)
 	lws_adns_watch_start(context);
@@ -1062,11 +1311,6 @@ lws_async_dns_init(struct lws_context *context)
 
 		return 1;
 	}
-
-	if (n != LADNS_CONF_SERVER_CHANGED)
-		return 0;
-
-	lws_async_dns_create_server_wsi(context);
 
 	return 0;
 }
@@ -1530,7 +1774,8 @@ lws_adns_server_dump(lws_async_dns_server_t *dsrv)
 				   lws_dll2_get_head(&dns->waiting)) {
 		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
 		if (q->dsrv == dsrv || q->broadsiding)
-			lwsl_wsi_info(dsrv->wsi, "q: '%s', sent %d, resp %d%s",
+			lwsl_wsi_info(lws_adns_q_wsi(q),
+				      "q: '%s', sent %d, resp %d%s",
 				      (const char *)&q[1], q->sent[0], q->responded,
 				      q->broadsiding ? " (broadsiding)" : "");
 	} lws_end_foreach_dll(d);
@@ -1547,8 +1792,9 @@ lws_adns_dump(lws_async_dns_t *dns)
 	if (!dns)
 		return;
 
-	lwsl_cx_info(dns->cx, "ADNS cache %u entries",
-			(unsigned int)lws_dll2_count(&dns->cached));
+	lwsl_cx_info(dns->cx, "ADNS cache %u entries, %u sockets",
+			(unsigned int)lws_dll2_count(&dns->cached),
+			(unsigned int)lws_dll2_count(&dns->socks));
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&dns->cached)) {
@@ -1637,7 +1883,7 @@ sul_cb_write(struct lws_sorted_usec_list *sul)
 	 * the query and everyone riding on it...
 	 */
 
-	lwsl_wsi_info(q->dsrv ? q->dsrv->wsi : NULL, "failing");
+	lwsl_wsi_info(lws_adns_q_wsi(q), "failing");
 	lws_adns_dump(q->dns);
 
 	if (q->dsrv) {
@@ -2413,12 +2659,6 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		goto failed;
 	}
 
-	/* make sure we have the remote server UDP enabled, it's cheap if we
-	 * already do.  This is for the case we came up before the network and
-	 * couldn't succeed to open the socket / wsi initially */
-
-	lws_async_dns_create_server_wsi(context);
-
 	/*
 	 * There's an ongoing query we can share the result of?
 	 *
@@ -2523,14 +2763,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		    !dns->in_parse) {
 			if (lws_now_usecs() - dns->time_last_reload > 5000000) {
 				lwsl_cx_notice(context, "Async DNS fallback reload triggered");
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-						   lws_dll2_get_head(&dns->nameservers)) {
-					lws_async_dns_server_t *s = lws_container_of(d, lws_async_dns_server_t, list);
-					lws_async_dns_drop_server(s);
-				} lws_end_foreach_dll_safe(d, d1);
 				lws_async_dns_server_reload(context);
-				/* also ensure any new servers have a wsi */
-				lws_async_dns_create_server_wsi(context);
 				dns->time_last_reload = lws_now_usecs();
 			}
 		}
@@ -2551,15 +2784,15 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	/*
-	 * If the chosen DNS server has no wsi (eg, its UDP listener could not
-	 * be created / bound, as happens in an IPv6-only build where the only
+	 * If we can't get a socket to the chosen DNS server (eg, it could not
+	 * be created, as happens in an IPv6-only build where the only
 	 * nameserver was discovered as an IPv4 literal that maps to an
-	 * unreachable ::ffff: address), we cannot actually issue the query.
-	 * Fail it cleanly rather than dereferencing the NULL wsi in the retry
-	 * scheduler / writable callback below.
+	 * unreachable ::ffff: address, or we are out of fds and have no socket
+	 * to it we can share), we cannot actually issue the query.  Fail it
+	 * cleanly.
 	 */
-	if (!dsrv || !dsrv->wsi) {
-		lwsl_cx_notice(context, "no usable async dns server wsi");
+	if (!dsrv || lws_adns_q_socks_bind(q)) {
+		lwsl_cx_notice(context, "no socket to ask a nameserver from");
 		goto failed_unpublished_q;
 	}
 
@@ -2577,7 +2810,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		q->standalone_cb = cb;
 
 	/* schedule a retry according to the retry policy on the wsi */
-	if (lws_retry_sul_schedule_retry_wsi(dsrv->wsi, &q->sul,
+	if (lws_retry_sul_schedule_retry_wsi(lws_adns_q_wsi(q), &q->sul,
 					 lws_async_dns_sul_cb_retry, &q->retry))
 		goto failed_unpublished_q;
 
@@ -2606,8 +2839,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	/* ... which may make the working copy the first search candidate */
 	lws_adns_q_search_start(q);
 
-	lws_callback_on_writable(dsrv->wsi);
-
+	lws_callback_on_writable(lws_adns_q_wsi(q));
 
 	lws_dll2_add_head(&q->list, &dns->waiting);
 
@@ -2635,6 +2867,7 @@ failed_unpublished_q:
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
 	lws_sul_cancel(&q->deadline_sul);
+	lws_adns_q_socks_release(q);
 	if (pq)
 		*pq = NULL;
 	lws_free(q);
@@ -2661,14 +2894,9 @@ lws_async_dns_create_tcp_wsi(lws_adns_q_t *q)
 	i.context = q->context;
 	i.vhost = q->context->vhost_system;
 
-	uint16_t port = 53;
-	const char *env_port = getenv("LWS_ASYNCDNS_PORT");
-	if (env_port)
-		port = (uint16_t)atoi(env_port);
-
 	lws_sa46_write_numeric_address(&q->dsrv->sa46, ads, sizeof(ads));
 	i.address = ads;
-	i.port = port;
+	i.port = lws_adns_ns_port();
 	i.ssl_connection = 0;
 	i.method = "RAW";
 	i.local_protocol_name = lws_async_dns_protocol.name;

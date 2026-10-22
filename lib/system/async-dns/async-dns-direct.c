@@ -395,8 +395,10 @@ lws_async_dns_query_direct(struct lws_context *cx,
 	ad->adopting = 1;
 
 	lws_sa46_write_numeric_address(&ad->server, ads, sizeof(ads));
+	/* from a source port of our random choosing, as the resolver's are */
 	wsi = lws_create_adopt_udp(lws_vhost_first(cx), ads,
-				   ntohs(direct_port(&ad->server)), 0,
+				   ntohs(direct_port(&ad->server)),
+				   LWS_CAUDP_RANDOM_PORT,
 				   "lws-async-dns", NULL, NULL, ad, NULL,
 				   "adns-direct");
 	ad->adopting = 0;

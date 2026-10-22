@@ -941,7 +941,9 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			s->dest.sa6.sin6_port = htons(wsi->c_port);
 #endif
 
-		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
+		/* a port of our own choosing is ours alone */
+		if (!wsi->io->random_port &&
+		    setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
 			       (const char *)&bc, sizeof(bc)) < 0)
 			lwsl_err("%s: failed to set reuse\n", __func__);
 
@@ -958,6 +960,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			sock.sockfd = LWS_SOCK_INVALID;
 			goto resume;
 		}
+
+		if (wsi->io->random_port && !wsi->io->do_bind &&
+		    !wsi->io->pf_packet &&
+		    lws_socket_bind_random_port(wsi->a.context, sock.sockfd,
+						s->dest.sa4.sin_family))
+			lwsl_wsi_notice(wsi, "no random port, OS chooses");
 
 		if (wsi->io->do_bind &&
 		    bind(sock.sockfd, sa46_sockaddr(&s->dest),
@@ -1001,16 +1009,6 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 		/* we connected: complete the udp socket adoption flow */
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-		{
-			lws_async_dns_server_t *asds =
-					__lws_async_dns_server_find_wsi(
-						&wsi->a.context->async_dns, wsi);
-			if (asds)
-				asds->dns_server_connected = 1;
-		}
-#endif
-
 		lws_free(s);
 		lws_addrinfo_clean(wsi);
 		return lws_adopt_descriptor_vhost2(wsi,
@@ -1022,15 +1020,6 @@ resume:
 
 	lwsl_err("%s: unable to create INET socket %d\n", __func__, LWS_ERRNO);
 	lws_addrinfo_clean(wsi);
-
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	{
-		lws_async_dns_server_t *asds = __lws_async_dns_server_find_wsi(
-					&wsi->a.context->async_dns, wsi);
-		if (asds)
-			lws_async_dns_drop_server(asds);
-	}
-#endif
 
 bail:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt udp2 fail");
@@ -1142,7 +1131,9 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		dest.sa6.sin6_port = htons(wsi->c_port);
 #endif
 
-	if (setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
+	/* a port of our own choosing is ours alone */
+	if (!wsi->io->random_port &&
+	    setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
 		       (const char *)&bc, sizeof(bc)) < 0)
 		lwsl_err("%s: failed to set reuse\n", __func__);
 
@@ -1153,6 +1144,11 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 	if (opaque && lws_plat_BINDTODEVICE(sock.sockfd, (const char *)opaque))
 		goto resume;
+
+	if (wsi->io->random_port && !wsi->io->do_bind && !wsi->io->pf_packet &&
+	    lws_socket_bind_random_port(wsi->a.context, sock.sockfd,
+					dest.sa4.sin_family))
+		lwsl_wsi_notice(wsi, "no random port, OS chooses");
 
 	if (wsi->io->do_bind &&
 	    bind(sock.sockfd, sa46_sockaddr(&dest),
@@ -1199,16 +1195,6 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		lws_io_peer_set(wsi, &dest, LWS_PEER_KIND_SOCKET,
 				LWS_PEER_CRED_HEARSAY);
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	{
-		lws_async_dns_server_t *asds =
-				__lws_async_dns_server_find_wsi(
-					&wsi->a.context->async_dns, wsi);
-		if (asds)
-			asds->dns_server_connected = 1;
-	}
-#endif
-
 	return lws_adopt_descriptor_vhost2(wsi, LWS_ADOPT_RAW_SOCKET_UDP, sock);
 
 resume:
@@ -1252,6 +1238,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	wsi->io->do_bind = !!(flags & LWS_CAUDP_BIND);
 	wsi->io->do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
 	wsi->io->pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
+	wsi->io->random_port = !!(flags & LWS_CAUDP_RANDOM_PORT);
 	wsi->c_port = (uint16_t)(unsigned int)port;
 	if (retry_policy)
 		wsi->retry_policy = retry_policy;

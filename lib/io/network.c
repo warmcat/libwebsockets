@@ -651,6 +651,63 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 	return port;
 }
 
+#if defined(LWS_WITH_UDP)
+
+#define LWS_RANDOM_PORT_TRIES	8
+
+/*
+ * Bind \p sockfd, of family \p af, to the wildcard address and a port from
+ * lws_get_random() in 32768 - 65535, before it is connect()ed: what it sends
+ * then comes from a port nobody can predict, which the OS' own choice may not
+ * be (eg, sequential).  A port in use, or one the platform reserves, is tried
+ * again with another.
+ *
+ * Returns 0 if bound, else nonzero with the socket still unbound, so that
+ * connect() binds it to a port the OS picks.
+ */
+
+int
+lws_socket_bind_random_port(struct lws_context *cx, lws_sockfd_type sockfd,
+			    int af)
+{
+	lws_sockaddr46 sa46;
+	uint16_t port;
+	int n;
+
+	memset(&sa46, 0, sizeof(sa46));
+
+	switch (af) {
+#if defined(LWS_WITH_IPV4)
+	case AF_INET:
+		sa46.sa4.sin_family = AF_INET;
+		break;
+#endif
+#if defined(LWS_WITH_IPV6)
+	case AF_INET6:
+		sa46.sa6.sin6_family = AF_INET6;
+		break;
+#endif
+	default:
+		return 1;
+	}
+
+	for (n = 0; n < LWS_RANDOM_PORT_TRIES; n++) {
+		if (lws_get_random(cx, &port, sizeof(port)) != sizeof(port))
+			return 1;
+
+		sa46_sockport(&sa46, htons((uint16_t)(0x8000u | port)));
+
+		if (!bind(sockfd, sa46_sockaddr(&sa46),
+#if defined(_WIN32)
+			  (int)
+#endif
+			  sa46_socklen(&sa46)))
+			return 0;
+	}
+
+	return 1;
+}
+#endif
 
 unsigned int
 lws_retry_get_delay_ms(struct lws_context *context,

@@ -410,7 +410,7 @@ typedef uint64_t (*lws_quic_tx_credit_cb_t)(struct lws *wsi, uint64_t current_wi
 #define LWS_FD_LIMIT_INTERNAL_NETLINK	0
 #endif
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-#define LWS_FD_LIMIT_INTERNAL_ADNS	2 /* a v4 and a v6 resolver */
+#define LWS_FD_LIMIT_INTERNAL_ADNS	2 /* the resolver's query sockets */
 #else
 #define LWS_FD_LIMIT_INTERNAL_ADNS	0
 #endif

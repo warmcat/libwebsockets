@@ -687,8 +687,14 @@ lws_adns_q_restart(lws_adns_q_t *q)
 	q->dnssec_chk_cname = 0;
 #endif
 
-	if (q->dsrv && q->dsrv->wsi)
-		lws_callback_on_writable(q->dsrv->wsi);
+	/*
+	 * A new question, asked from new sockets: the old ones' ports were
+	 * on the wire with the old question
+	 */
+	if (lws_adns_q_socks_bind(q))
+		return -1;
+
+	lws_callback_on_writable(lws_adns_q_wsi(q));
 
 	return 0;
 }
@@ -935,11 +941,11 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 
 static void
 lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
-			 lws_async_dns_server_t *dsrv);
+			 lws_async_dns_server_t *dsrv, const struct lws *via);
 
 void
-lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
-		   lws_async_dns_server_t *dsrv)
+lws_adns_parse_via(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
+		   lws_async_dns_server_t *dsrv, const struct lws *via)
 {
 	/*
 	 * A validation started from inside the parse issues sub-queries,
@@ -949,13 +955,22 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 * the stack.
 	 */
 	dns->in_parse++;
-	lws_adns_parse_udp_inner(dns, pkt, len, dsrv);
+	lws_adns_parse_udp_inner(dns, pkt, len, dsrv, via);
 	dns->in_parse--;
+}
+
+/* a response from somewhere other than one of our sockets, eg, a test's */
+
+void
+lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
+		   lws_async_dns_server_t *dsrv)
+{
+	lws_adns_parse_via(dns, pkt, len, dsrv, NULL);
 }
 
 static void
 lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
-			 lws_async_dns_server_t *dsrv)
+			 lws_async_dns_server_t *dsrv, const struct lws *via)
 {
 	const char *nm, *nmcname;
 	lws_adns_cache_t *c;
@@ -983,6 +998,18 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	if (!q) {
 		lwsl_info("%s: dropping unknown query tid 0x%x\n",
 			    __func__, lws_ser_ru16be(pkt + DHO_TID));
+
+		return;
+	}
+
+	/*
+	 * The port it arrived on is the other half of the secret: it must
+	 * be one the query asked from, not another query's (RFC 5452 9.2)
+	 */
+
+	if (via && !lws_adns_q_uses_wsi(q, via)) {
+		lwsl_info("%s: tid 0x%x: answer on another query's socket\n",
+			  __func__, lws_ser_ru16be(pkt + DHO_TID));
 
 		return;
 	}

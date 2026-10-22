@@ -317,6 +317,14 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
 #define LWS_CAUDP_BIND (1 << 0)
 #define LWS_CAUDP_BROADCAST (1 << 1)
 #define LWS_CAUDP_PF_PACKET (1 << 2)
+/*
+ * A socket connect()ed to its peer (no LWS_CAUDP_BIND) asks from a local port
+ * we pick from lws_get_random() in 32768 - 65535, rather than one the OS
+ * picks, which may be guessable, eg, sequential (RFC 5452, RFC 6056).  The
+ * port is not shared with another socket (no SO_REUSEADDR).  If no port we
+ * try can be bound, the OS picks one.
+ */
+#define LWS_CAUDP_RANDOM_PORT (1 << 3)
 
 #if defined(LWS_WITH_UDP)
 /**
@@ -328,7 +336,9 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  *			 without ipv4), with libc or async dns alike, and the
  *			 first result is used
  * \param port:		 UDP port to bind to, -1 means unbound
- * \param flags:	 0 or LWS_CAUDP_NO_BIND
+ * \param flags:	 0, or LWS_CAUDP_ flags: _BIND to bind to \p ads and
+ *			 \p port instead of connecting to them, _BROADCAST,
+ *			 _PF_PACKET, _RANDOM_PORT
  * \param protocol_name: Name of protocol on vhost to bind wsi to
  * \param ifname:	 NULL, for network interface name to bind socket to
  * \param parent_wsi:	 NULL or parent wsi new wsi will be a child of

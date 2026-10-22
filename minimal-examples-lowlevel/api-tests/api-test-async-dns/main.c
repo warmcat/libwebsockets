@@ -617,6 +617,15 @@ bail:
  * all 16 bits, and the A and AAAA questions of a pair must not share all but
  * one bit of them, as they used to (b0 picked A or AAAA).
  *
+ * The source port leg (G-068) asks several address lookups at once from a
+ * context whose fds table has room for a resolver socket per query, and
+ * looks at the ports they reach the fake nameserver from: each lookup must
+ * come from a port of its own, where they all used to share the one socket
+ * the nameserver had for its whole life.  Then each lookup is answered,
+ * with its own tid and question, but to another lookup's port: an answer is
+ * only taken on the socket its query asked from, so none of these may be
+ * believed, and the real answers that follow must all be.
+ *
  * This is a unit test of our own filtering against sockets we own on
  * loopback; nothing leaves the machine.
  */
@@ -628,6 +637,7 @@ bail:
 #define SC_DEADLINE_TICKS	120	/* ~6s */
 #define SC_TTL0_TICKS		4	/* < the 300ms first async-dns retry */
 #define SC_TID_NAMES		16	/* address lookups in the tid leg */
+#define SC_PORT_NAMES		8	/* address lookups in the port leg */
 #define SC_MAX_QUERIES		(SC_TID_NAMES * 2 + 8)
 
 /* the fake nameserver's answer, and the one the foreign socket tries */
@@ -653,11 +663,12 @@ enum {
 	SC_MODE_TTL0,
 	SC_MODE_WRONGQ,
 	SC_MODE_TIDS,
+	SC_MODE_PORTS,
 };
 
 static int sc_fail, sc_mode, sc_done;
 static int sc_qs, sc_ticks, sc_quiet, sc_phase, sc_phase_ticks;
-static int sc_resolved, sc_bad_ads, sc_redirected;
+static int sc_resolved, sc_bad_ads, sc_redirected, sc_completions;
 
 /* a nonblocking UDP socket on an ephemeral loopback port */
 
@@ -731,7 +742,8 @@ sc_qtype(const struct sc_query *q)
  */
 
 static void
-sc_answer(struct sc_query *q, int fd, const uint8_t *ads, uint8_t ttl)
+sc_answer_to(struct sc_query *q, int fd, const uint8_t *ads, uint8_t ttl,
+	     const struct sockaddr_storage *peer, socklen_t peer_len)
 {
 	uint8_t resp[sizeof(q->pkt) + 16];
 	size_t qo = sc_qtype_ofs(q->pkt, q->len), o;
@@ -764,9 +776,15 @@ sc_answer(struct sc_query *q, int fd, const uint8_t *ads, uint8_t ttl)
 		o += 4;
 	}
 
-	if (sendto(fd, (const char *)resp, o, 0, (struct sockaddr *)&q->peer,
-		   q->peer_len) < 0)
+	if (sendto(fd, (const char *)resp, o, 0, (const struct sockaddr *)peer,
+		   peer_len) < 0)
 		lwsl_err("%s: sendto failed, errno %d\n", __func__, errno);
+}
+
+static void
+sc_answer(struct sc_query *q, int fd, const uint8_t *ads, uint8_t ttl)
+{
+	sc_answer_to(q, fd, ads, ttl, &q->peer, q->peer_len);
 }
 
 /* answer what's not been answered, only queries for qtype if it's nonzero */
@@ -900,6 +918,115 @@ sc_check_tids(void)
 	return 0;
 }
 
+/* the source port a captured query came from, 0 if it's not inet */
+
+static uint16_t
+sc_peer_port(const struct sc_query *q)
+{
+	if (q->peer.ss_family == AF_INET)
+		return ntohs(((const struct sockaddr_in *)&q->peer)->sin_port);
+#if defined(LWS_WITH_IPV6)
+	if (q->peer.ss_family == AF_INET6)
+		return ntohs(((const struct sockaddr_in6 *)&q->peer)->sin6_port);
+#endif
+
+	return 0;
+}
+
+/* two captured queries ask about the same name */
+
+static int
+sc_same_qname(const struct sc_query *a, const struct sc_query *b)
+{
+	size_t qa = sc_qtype_ofs(a->pkt, a->len),
+	       qb = sc_qtype_ofs(b->pkt, b->len);
+
+	return qa && qa == qb && !memcmp(a->pkt + 12, b->pkt + 12, qa - 12);
+}
+
+/*
+ * The port leg's lookups each asked about their own name: each must have
+ * asked from a port of its own, which no other lookup asked from
+ */
+
+static int
+sc_check_ports(void)
+{
+	int n, m, names = 0, shared = 0;
+	uint16_t lo = 0xffff, hi = 0;
+
+	for (n = 0; n < sc_qs; n++) {
+		uint16_t pn = sc_peer_port(&sc_q[n]);
+
+		if (!pn) {
+			lwsl_err("%s: query from no inet port\n", __func__);
+			return 1;
+		}
+
+		if (pn < lo)
+			lo = pn;
+		if (pn > hi)
+			hi = pn;
+
+		/* count each name once, at its first query */
+
+		for (m = 0; m < n; m++)
+			if (sc_same_qname(&sc_q[m], &sc_q[n]))
+				break;
+		if (m == n)
+			names++;
+
+		for (m = 0; m < sc_qs; m++)
+			if (!sc_same_qname(&sc_q[m], &sc_q[n]) &&
+			    sc_peer_port(&sc_q[m]) == pn) {
+				shared++;
+				break;
+			}
+	}
+
+	lwsl_user("%s: %d queries about %d names from ports %u - %u, %d from "
+		  "a port another name's query used\n", __func__, sc_qs, names,
+		  lo, hi, shared);
+
+	if (names < SC_PORT_NAMES) {
+		lwsl_err("%s: only %d of %d lookups seen\n", __func__, names,
+			 SC_PORT_NAMES);
+		return 1;
+	}
+
+	if (shared) {
+		lwsl_err("%s: lookups share source ports\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Answer each captured query as it should be, its own tid and question, but
+ * to the port of a query about another name, ie, on another query's socket
+ */
+
+static int
+sc_answer_cross_port(void)
+{
+	int n, m;
+
+	for (n = 0; n < sc_qs; n++) {
+		for (m = (n + 1) % sc_qs; m != n; m = (m + 1) % sc_qs)
+			if (!sc_same_qname(&sc_q[m], &sc_q[n]))
+				break;
+
+		if (m == n)
+			return 1;
+
+		sc_answer_to(&sc_q[n], sc_fd, sc_ads_foreign, 60,
+			     &sc_q[m].peer, sc_q[m].peer_len);
+	}
+
+	return 0;
+}
+
 /* collect whatever the resolver sent our fake nameserver since last time */
 
 static void
@@ -953,6 +1080,7 @@ sc_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 	(void)opaque;
 
 	sc_resolved = 1;
+	sc_completions++;
 	sc_bad_ads = 1;
 
 	while (ac) {
@@ -990,6 +1118,28 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 				sc_fail++;
 			sc_done = 1;
 			lws_default_loop_exit(sc_cx);
+			break;
+		}
+
+		if (sc_mode == SC_MODE_PORTS) {
+			if (sc_qs < SC_PORT_NAMES)
+				break;
+			if (sc_check_ports()) {
+				sc_fail++;
+				sc_done = 1;
+				lws_default_loop_exit(sc_cx);
+				break;
+			}
+			lwsl_user("%s: answering on other lookups' ports\n",
+					__func__);
+			if (sc_answer_cross_port()) {
+				lwsl_err("%s: nothing to cross\n", __func__);
+				sc_fail++;
+				sc_done = 1;
+				lws_default_loop_exit(sc_cx);
+				break;
+			}
+			sc_phase = 1;
 			break;
 		}
 
@@ -1038,7 +1188,8 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 
 	case 2: /* the nameserver we actually asked answers */
 		sc_answer_all(sc_fd, sc_ads_good, 0, 60, 1);
-		if (sc_resolved) {
+		if (sc_resolved && (sc_mode != SC_MODE_PORTS ||
+				    sc_completions == SC_PORT_NAMES)) {
 			sc_done = 1;
 			lws_default_loop_exit(sc_cx);
 		}
@@ -1063,7 +1214,8 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 }
 
 static const char * const sc_mode_names[] = {
-	"plain", "foreign answer", "ttl 0 expiry", "wrong question", "tids"
+	"plain", "foreign answer", "ttl 0 expiry", "wrong question", "tids",
+	"source ports"
 };
 
 static void
@@ -1079,6 +1231,7 @@ sc_run(int mode)
 	memset(sc_q, 0, sizeof(sc_q));
 	sc_qs = sc_ticks = sc_quiet = sc_phase = sc_phase_ticks = 0;
 	sc_resolved = sc_bad_ads = sc_redirected = sc_done = 0;
+	sc_completions = 0;
 	sc_mode = mode;
 
 	lwsl_user("*** resolver source-check leg (%s)\n", sc_mode_names[mode]);
@@ -1104,6 +1257,13 @@ sc_run(int mode)
 	ci.port			= CONTEXT_PORT_NO_LISTEN;
 	ci.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	ci.async_dns_servers	= sc_servers;
+	if (mode == SC_MODE_PORTS)
+		/*
+		 * A small fds table, as a client has, holds only a couple of
+		 * resolver sockets, which the lookups then share: size it to
+		 * the process' fd limit, as a server does
+		 */
+		ci.fd_limit_per_thread = 0;
 
 	sc_cx = lws_create_context(&ci);
 	if (!sc_cx) {
@@ -1123,13 +1283,15 @@ sc_run(int mode)
 	}
 
 	{
-		int n, nq = mode == SC_MODE_TIDS ? SC_TID_NAMES : 1;
+		int n, nq = mode == SC_MODE_TIDS ? SC_TID_NAMES :
+			    (mode == SC_MODE_PORTS ? SC_PORT_NAMES : 1);
 		char name[64];
 
 		for (n = 0; n < nq; n++) {
-			if (mode == SC_MODE_TIDS)
-				lws_snprintf(name, sizeof(name), "t%d.%s", n,
-					     SC_NAME);
+			if (mode == SC_MODE_TIDS || mode == SC_MODE_PORTS)
+				lws_snprintf(name, sizeof(name), "%c%d.%s",
+					     mode == SC_MODE_TIDS ? 't' : 'p',
+					     n, SC_NAME);
 			else
 				lws_strncpy(name, SC_NAME, sizeof(name));
 
@@ -1180,6 +1342,10 @@ bail:
 
 	if (!sc_resolved) {
 		lwsl_err("%s: query never completed\n", __func__);
+		sc_fail++;
+	} else if (mode == SC_MODE_PORTS && sc_completions != SC_PORT_NAMES) {
+		lwsl_err("%s: %d of %d lookups completed\n", __func__,
+			 sc_completions, SC_PORT_NAMES);
 		sc_fail++;
 	} else if (sc_bad_ads) {
 		lwsl_err("%s: query completed without the nameserver's "
@@ -1529,12 +1695,15 @@ bail:
  * kept the dead socket, so its later queries could not be sent at all.
  *
  * Two queries go out together to a loopback port nothing is listening on.
- * On Linux the first send's icmp port unreachable is back before the second
- * send, which fails with it.  The failed query must fail promptly, then our
- * fake nameserver comes up on that port, and the other query must be
- * answered through the resolver's new socket.  Elsewhere the second send
- * may not fail, and both queries are answered once the nameserver is up.
- * Either way, the leg must not burn the cpu.  That is measured as cpu time
+ * Each asks from its own socket, which takes the icmp port unreachable for
+ * its first question: depending on the platform and the timing, the socket
+ * is closed when the error is read, or the next send on it fails.  A query
+ * whose send failed must fail promptly; one whose socket was closed asks
+ * again from a new one at its retry.  Our fake nameserver comes up on the
+ * port after a moment, or once a query failed, and answers what is left.
+ * When both queries have finished, a third must be answered: the resolver
+ * must not have kept a dead socket for it.  Either way, the leg must not
+ * burn the cpu.  That is measured as cpu time
  * rather than by counting service passes: the poll loop also returns many
  * times, polling with no wait, through the last fraction of a millisecond
  * before each timer is due.
@@ -1546,7 +1715,9 @@ bail:
 #define SF_DEADLINE_US		(5 * LWS_US_PER_SEC)
 #define SF_MAX_CPU_US		(100 * LWS_US_PER_MS) /* a spin uses ~all */
 
-static const char * const sf_names[] = { "sf1.invalid", "sf2.invalid" };
+static const char * const sf_names[] = { "sf1.invalid", "sf2.invalid",
+					 "sf3.invalid" };
+#define SF_LATER		2 /* sf_names[] from here go after the rest */
 static const uint8_t sf_ads[] = { 127, 0, 0, 9 };
 
 static struct sc_query sf_q;
@@ -1555,6 +1726,28 @@ static lws_sorted_usec_list_t sul_sf, sul_sf_deadline;
 static lws_usec_t sf_issued;
 static uint16_t sf_port;
 static int sf_fd = -1, sf_fail, sf_failed, sf_resolved, sf_completed;
+static int sf_later_issued, sf_later_resolved;
+
+static struct lws *
+sf_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
+      void *opaque);
+
+static int
+sf_query(int n)
+{
+	if (lws_async_dns_query(sf_cx, 0, sf_names[n],
+				(adns_query_type_t)(LWS_ADNS_RECORD_A |
+						    LWS_ADNS_NOCACHE |
+						    LWS_ADNS_IGNORE_HOSTS_FILE |
+						    LWS_ADNS_INDICATE_LACKS_DNSSEC),
+				sf_cb, NULL, (void *)(intptr_t)n, NULL) ==
+							LADNS_RET_CONTINUING)
+		return 0;
+
+	lwsl_err("%s: %s did not start\n", __func__, sf_names[n]);
+
+	return 1;
+}
 
 static void
 sf_finish(int failed)
@@ -1603,10 +1796,10 @@ sf_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 {
 	lws_usec_t took = lws_now_usecs() - sf_issued;
 	const struct addrinfo *ac = a;
+	int idx = (int)(intptr_t)opaque;
 
 	(void)wsi_unused;
 	(void)n;
-	(void)opaque;
 
 	sf_completed++;
 
@@ -1614,7 +1807,11 @@ sf_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 		lwsl_user("%s: %s failed after %dms\n", __func__, ads,
 			  (int)(took / LWS_US_PER_MS));
 		sf_failed++;
-		if (took > SF_PROMPT_US) {
+		if (idx >= SF_LATER) {
+			lwsl_err("%s: %s, asked after, failed\n", __func__,
+				 ads);
+			sf_fail++;
+		} else if (took > SF_PROMPT_US) {
 			lwsl_err("%s: %s was slow to fail\n", __func__, ads);
 			sf_fail++;
 		}
@@ -1625,8 +1822,12 @@ sf_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 		while (ac) {
 			if (ac->ai_family == AF_INET &&
 			    !memcmp(&((struct sockaddr_in *)ac->ai_addr)->sin_addr,
-				    sf_ads, sizeof(sf_ads)))
+				    sf_ads, sizeof(sf_ads))) {
 				sf_resolved++;
+				if (idx >= SF_LATER)
+					sf_later_resolved++;
+				break;
+			}
 			ac = ac->ai_next;
 		}
 		lws_async_dns_freeaddrinfo(&a);
@@ -1647,6 +1848,18 @@ sul_sf_cb(lws_sorted_usec_list_t *s)
 
 	if (lws_now_usecs() - sf_issued >= SF_UP_US)
 		sf_nameserver_up();
+
+	if (sf_completed == SF_LATER && !sf_later_issued) {
+		int n;
+
+		/* the first ones are done: the nameserver is up by now */
+		sf_later_issued = 1;
+		for (n = SF_LATER; n < (int)LWS_ARRAY_SIZE(sf_names); n++)
+			if (sf_query(n)) {
+				sf_finish(1);
+				return;
+			}
+	}
 
 	while (sf_fd >= 0) {
 		ssize_t r;
@@ -1701,6 +1914,7 @@ sf_run(void)
 	lwsl_user("*** resolver send-failure leg\n");
 
 	sf_fail = sf_failed = sf_resolved = sf_completed = 0;
+	sf_later_issued = sf_later_resolved = 0;
 
 	/* a loopback port that refuses, until the nameserver comes up on it */
 
@@ -1742,19 +1956,11 @@ sf_run(void)
 			lws_async_dns_server_remove(sf_cx, &sa46);
 	}
 
-	/* both queries are sent on the same writeable */
+	/* the first ones go out together */
 
 	sf_issued = lws_now_usecs();
-	for (n = 0; n < LWS_ARRAY_SIZE(sf_names); n++)
-		if (lws_async_dns_query(sf_cx, 0, sf_names[n],
-				(adns_query_type_t)(LWS_ADNS_RECORD_A |
-						LWS_ADNS_NOCACHE |
-						LWS_ADNS_IGNORE_HOSTS_FILE |
-						LWS_ADNS_INDICATE_LACKS_DNSSEC),
-				sf_cb, NULL, NULL, NULL) !=
-						LADNS_RET_CONTINUING) {
-			lwsl_err("%s: %s did not start\n", __func__,
-				 sf_names[n]);
+	for (n = 0; n < SF_LATER; n++)
+		if (sf_query((int)n)) {
 			sf_fail++;
 			goto destroy;
 		}
@@ -1794,7 +2000,7 @@ restore:
 		return;
 
 	if (sf_failed + sf_resolved != (int)LWS_ARRAY_SIZE(sf_names) ||
-	    !sf_resolved) {
+	    sf_later_resolved != (int)LWS_ARRAY_SIZE(sf_names) - SF_LATER) {
 		lwsl_err("%s: %d failed and %d resolved\n", __func__,
 			 sf_failed, sf_resolved);
 		sf_fail++;
@@ -2416,6 +2622,13 @@ main(int argc, const char **argv)
 
 		sc_run(SC_MODE_WRONGQ);
 		sc_run(SC_MODE_TIDS);
+
+		/*
+		 * G-068: each query asks from a source port of its own, and
+		 * its answer is only taken on that port
+		 */
+
+		sc_run(SC_MODE_PORTS);
 
 		/*
 		 * A cache entry whose TTL runs out while its query still

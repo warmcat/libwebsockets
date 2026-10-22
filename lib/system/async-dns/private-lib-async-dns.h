@@ -119,6 +119,46 @@ typedef struct lws_adns_cache {
  * these objects are used while a query is ongoing...
  */
 
+/*
+ * The resolver's UDP sockets
+ *
+ * A query asks its questions from a UDP socket connect()ed to the nameserver
+ * and bound to a port picked from lws_get_random(), so the port is a second
+ * secret an off-path spoofer has to guess along with the tid (RFC 5452 9.2),
+ * and the socket closes when the last query using it is done.
+ *
+ * Each query gets a socket of its own while fewer than lws_adns_socks_max()
+ * are open, which is sized from the fds table, so we can't be made to use up
+ * the fds.  Past that, a query shares the least used socket to its
+ * nameserver, but no socket takes more than LWS_ADNS_SOCK_MAX_USES queries in
+ * its life, so a port doesn't stay in use for long even under load.  A
+ * nameserver with no socket at all may always have one, so there are never
+ * more than lws_adns_socks_max() plus one per nameserver.
+ *
+ * An answer is only taken on the socket its query asked from: it must match
+ * the port, the tid and the question.
+ */
+
+#define LWS_ADNS_SOCKS_MAX	32
+#define LWS_ADNS_SOCK_MAX_USES	16
+
+typedef struct lws_adns_sock {
+	lws_dll2_t		list;	/* dns->socks, while it can be used */
+	struct lws		*wsi;	/* NULL once it can't be used */
+	lws_async_dns_server_t	*dsrv;	/* NULL once it can't be used */
+	uint16_t		users;	/* queries using it now */
+	uint16_t		uses;	/* queries that ever used it */
+	uint8_t			adopting:1; /* in lws_create_adopt_udp() */
+	uint8_t			closed_adopting:1;
+} lws_adns_sock_t;
+
+/* a query's use of one socket, to one nameserver */
+
+typedef struct lws_adns_qsock {
+	lws_dll2_t		list;	/* q->socks */
+	lws_adns_sock_t		*sock;
+} lws_adns_qsock_t;
+
 typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
 		uint32_t ttl, adns_query_type_t type, uint16_t rrpaylen,
 		const uint8_t *payload);
@@ -132,6 +172,11 @@ typedef struct lws_adns_q {
 	lws_metrics_caliper_compose(metcal)
 
 	lws_dll2_owner_t	wsi_adns;
+	/*
+	 * lws_adns_qsock_t: the sockets we ask from, the first one to q->dsrv;
+	 * broadsiding, there is one to each nameserver we could get one to
+	 */
+	lws_dll2_owner_t	socks;
 	lws_async_dns_cb_t	standalone_cb;	/* if not associated to wsi */
 	struct lws_context	*context;
 	void			*opaque;
@@ -299,8 +344,17 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q);
 int
 lws_async_dns_create_tcp_wsi(lws_adns_q_t *q);
 
+/* (re)take q's sockets for the nameservers it asks; nonzero if it has none */
 int
-lws_async_dns_create_server_wsi(struct lws_context *context);
+lws_adns_q_socks_bind(lws_adns_q_t *q);
+
+/* the socket q asks q->dsrv from, or NULL if it has none that is usable */
+struct lws *
+lws_adns_q_wsi(lws_adns_q_t *q);
+
+/* q asked on wsi: it's its TCP connection, or one of its sockets */
+int
+lws_adns_q_uses_wsi(lws_adns_q_t *q, const struct lws *wsi);
 
 
 
@@ -308,8 +362,6 @@ lws_async_dns_create_server_wsi(struct lws_context *context);
 
 lws_async_dns_server_t *
 __lws_async_dns_server_find(lws_async_dns_t *dns, const lws_sockaddr46 *sa46);
-lws_async_dns_server_t *
-__lws_async_dns_server_find_wsi(lws_async_dns_t *dns, struct lws *wsi);
 lws_async_dns_server_t *
 __lws_async_dns_server_add(lws_async_dns_t *dns, const lws_sockaddr46 *sa46);
 void
@@ -405,6 +457,14 @@ lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 void
 lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		   lws_async_dns_server_t *dsrv);
+
+/*
+ * As lws_adns_parse_udp(), for a response that arrived on \p via, one of our
+ * sockets: it is only taken as the answer to a query that asked on \p via
+ */
+void
+lws_adns_parse_via(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
+		   lws_async_dns_server_t *dsrv, const struct lws *via);
 
 int
 lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,

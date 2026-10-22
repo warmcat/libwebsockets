@@ -776,14 +776,7 @@ lws_io_quiesce_pollfd(struct lws *wsi)
 		lws_pipe_wsi_release_fds(wsi);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	{
-		/* a dns server's socket: the server forgets it */
-		lws_async_dns_server_t *dsrv = __lws_async_dns_server_find_wsi(
-					&wsi->a.context->async_dns, wsi);
-
-		if (dsrv)
-			dsrv->wsi = NULL;
-	}
+	lws_async_dns_wsi_closing(wsi);
 #endif
 }
 

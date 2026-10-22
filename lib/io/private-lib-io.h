@@ -57,8 +57,9 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int num_own, lws_usec_t usnow);
 void
 lws_async_dns_cancel(struct lws *wsi);
 
+/* the wsi is closing: if it's one of the resolver's sockets, forget it */
 void
-lws_async_dns_drop_server(lws_async_dns_server_t *dsrv);
+lws_async_dns_wsi_closing(struct lws *wsi);
 
 #if (defined(LWS_WITH_ASYNC_QUEUE))
 
@@ -80,6 +81,10 @@ int
 lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		lws_sockfd_type sockfd, int port, const char *iface,
 		int ipv6_allowed);
+
+int
+lws_socket_bind_random_port(struct lws_context *cx, lws_sockfd_type sockfd,
+			    int af);
 
 #if (defined(LWS_WITH_IPV6))
 unsigned long
