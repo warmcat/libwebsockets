@@ -29,12 +29,13 @@
  * is freed again as soon as the frame completed.
  *
  * Interlaced rows arrive in interlace order, not top-down order, and a
- * linewise renderer without a framebuffer cannot reorder them without
- * retaining the whole frame.  Instead, each sweep line re-decodes the
- * retained payload from the start, discarding rows of other passes until
- * the one for that line.  That is O(height) re-decodes of the compressed
- * data over the whole image, so it is only used for interlaced images,
- * which are rare in the wild.
+ * linewise renderer cannot reorder them without retaining the whole frame.
+ * Re-decoding the payload from the start for each sweep line would cost
+ * O(height) decodes of the whole image, so instead interlaced images are
+ * decoded once into a frame of palette indices, as far as the line being
+ * rendered needs, and lines are painted from that.  The frame is bounded by
+ * GIF_FRAME_MAX_BYTES; bigger interlaced images are not rendered.  They are
+ * rare in the wild.
  */
 
 #include <private-lib-core.h>
@@ -43,6 +44,10 @@
 /* ceiling on the retained asset payload for one gif */
 
 #define GIF_WHOLE_MAX_BYTES	(16 * 1024 * 1024)
+
+/* ceiling on the decoded frame kept for an interlaced gif (2048 x 2048) */
+
+#define GIF_FRAME_MAX_BYTES	(4 * 1024 * 1024)
 
 void
 lws_display_dlo_gif_destroy(struct lws_dlo *dlo)
@@ -60,6 +65,9 @@ lws_display_dlo_gif_destroy(struct lws_dlo *dlo)
 
 	lws_free(dlo_gif->whole);
 	dlo_gif->whole = NULL;
+	lws_free(dlo_gif->frame);
+	dlo_gif->frame = NULL;
+	dlo_gif->frame_have = NULL;
 }
 
 int
@@ -147,10 +155,10 @@ gif_paint_row(struct lws_display_render_state *rs, lws_dlo_gif_t *dlo_gif,
 
 /*
  * Re-decode the retained payload from the start, discarding rows until the
- * one for the wanted line.  Used for interlaced rows, and to re-target the
- * streaming cursor when it overshoots lines the image rectangle does not
- * cover.  Returns LWS_SRET_WANT_OUTPUT with the row at *ppix, LWS_SRET_OK
- * if no such row exists, else LWS_SRET_WANT_INPUT or FATAL.
+ * one for the wanted line.  Used to re-target the streaming cursor of a
+ * progressive image when it is past the line wanted, eg, the render started
+ * again from the top.  Returns LWS_SRET_WANT_OUTPUT with the row at *ppix,
+ * LWS_SRET_OK if no such row exists, else LWS_SRET_WANT_INPUT or FATAL.
  */
 
 static lws_stateful_ret_t
@@ -183,6 +191,101 @@ gif_retarget_row(lws_dlo_gif_t *dlo_gif, int ty, const uint8_t **ppix)
 
 		return r;	/* LWS_SRET_OK (no more rows) or WANT_INPUT */
 	}
+}
+
+/*
+ * Interlaced: decode the payload into the frame until row ty is in it, or the
+ * frame or the payload so far ends.  The decode is only ever done once: the
+ * frame keeps every row it reached.  Returns LWS_SRET_WANT_OUTPUT with the
+ * row at *ppix, LWS_SRET_OK if the row will never exist, else
+ * LWS_SRET_WANT_INPUT or FATAL.
+ */
+
+static lws_stateful_ret_t
+gif_frame_row(lws_dlo_gif_t *dlo_gif, int ty, const uint8_t **ppix)
+{
+	size_t sw = lws_gif_get_width(dlo_gif->gif),
+	       sh = lws_gif_get_height(dlo_gif->gif);
+	lws_stateful_ret_t r;
+
+	if (ty < 0 || (size_t)ty >= sh)
+		return LWS_SRET_OK;
+
+	if (!dlo_gif->frame) {
+		if (dlo_gif->whole_done)
+			/* the payload is gone, eg we gave up on it */
+			return LWS_SRET_OK;
+
+		if (sw * sh > GIF_FRAME_MAX_BYTES) {
+			lwsl_notice("%s: %s: interlaced %ux%u too large\n",
+				    __func__, dlo_gif->name, (unsigned int)sw,
+				    (unsigned int)sh);
+
+			return LWS_SRET_FATAL;
+		}
+
+		dlo_gif->frame = (uint8_t *)lws_zalloc(sw * sh + (sh + 7) / 8,
+						       __func__);
+		if (!dlo_gif->frame)
+			return LWS_SRET_FATAL;
+
+		dlo_gif->frame_have = dlo_gif->frame + sw * sh;
+
+		/*
+		 * Rows we already issued from a streaming decode, before we
+		 * knew it was interlaced, are not in the frame: start again
+		 */
+
+		lws_gif_restart(dlo_gif->gif);
+		dlo_gif->pos = 0;
+	}
+
+	while (!(dlo_gif->frame_have[ty >> 3] & (1 << (ty & 7)))) {
+		const uint8_t *p, *pix = NULL;
+		size_t pl;
+		int py = -1;
+
+		if (dlo_gif->whole_done)
+			/* the frame is complete and the row isn't in it */
+			return LWS_SRET_OK;
+
+		p = dlo_gif->whole + dlo_gif->pos;
+		pl = dlo_gif->whole_len - dlo_gif->pos;
+
+		r = lws_gif_emit_next_line(dlo_gif->gif, &pix, &py, &p, &pl, 0);
+		dlo_gif->pos = (size_t)(p - dlo_gif->whole);
+
+		if (r & LWS_SRET_FATAL)
+			return r;
+
+		if (r == LWS_SRET_WANT_OUTPUT) {
+			/*
+			 * The logical screen dimensions parse again on the
+			 * restart: they are the same input
+			 */
+			if (pix && py >= 0 && (size_t)py < sh &&
+			    lws_gif_get_width(dlo_gif->gif) == sw) {
+				memcpy(dlo_gif->frame + (size_t)py * sw, pix,
+				       sw);
+				dlo_gif->frame_have[py >> 3] |=
+						(uint8_t)(1 << (py & 7));
+			}
+			continue;
+		}
+
+		if (r == LWS_SRET_OK) {
+			/* the frame is complete: the payload is not needed */
+
+			gif_payload_release(dlo_gif);
+			continue;
+		}
+
+		return r; /* LWS_SRET_WANT_INPUT */
+	}
+
+	*ppix = dlo_gif->frame + (size_t)ty * sw;
+
+	return LWS_SRET_WANT_OUTPUT;
 }
 
 lws_stateful_ret_t
@@ -220,9 +323,9 @@ lws_display_render_gif(struct lws_display_render_state *rs)
 	if (rs->curr < lws_fx_roundup(&ay))
 		return LWS_SRET_OK;	/* the sweep is above us */
 
-	if (rs->curr - lws_fx_roundup(&ay) >
+	if (rs->curr - lws_fx_roundup(&ay) >=
 			(int)lws_gif_get_height(dlo_gif->gif))
-		return LWS_SRET_OK;
+		return LWS_SRET_OK;	/* rows are 0 .. height - 1 */
 
 	if (s < 0)
 		s = 0;
@@ -237,15 +340,9 @@ lws_display_render_gif(struct lws_display_render_state *rs)
 
 	ty = rs->curr - lws_fx_roundup(&ay);
 
-	if (lws_gif_get_interlaced(dlo_gif->gif)) {
-		/*
-		 * Rows only exist in interlace order; re-decode the retained
-		 * payload from the start discarding rows of other passes
-		 * until the one wanted on this line
-		 */
-
-		goto retarget;
-	}
+	if (dlo_gif->frame || lws_gif_get_interlaced(dlo_gif->gif))
+		/* rows only exist in interlace order */
+		goto interlaced;
 
 	/* progressive: continue the persistent decode cursor */
 
@@ -263,6 +360,9 @@ lws_display_render_gif(struct lws_display_render_state *rs)
 			goto fatal;
 
 		if (r == LWS_SRET_WANT_OUTPUT) {
+			if (lws_gif_get_interlaced(dlo_gif->gif))
+				/* we only learned it now */
+				goto interlaced;
 			if (py == ty)
 				return gif_paint_row(rs, dlo_gif, &ax, &t,
 						     s, e, pix);
@@ -304,6 +404,20 @@ lws_display_render_gif(struct lws_display_render_state *rs)
 
 retarget:
 	r = gif_retarget_row(dlo_gif, ty, &pix);
+	if (r & LWS_SRET_FATAL)
+		goto fatal;
+
+	if (r == LWS_SRET_WANT_OUTPUT)
+		return gif_paint_row(rs, dlo_gif, &ax, &t, s, e, pix);
+
+	if (r == LWS_SRET_WANT_INPUT &&
+	    dlo_gif->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED)
+		return LWS_SRET_WANT_INPUT;
+
+	return LWS_SRET_OK;
+
+interlaced:
+	r = gif_frame_row(dlo_gif, ty, &pix);
 	if (r & LWS_SRET_FATAL)
 		goto fatal;
 

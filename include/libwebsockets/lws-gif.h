@@ -34,8 +34,8 @@
  * screen clipped.  For interlaced images, rows are issued in gif interlace
  * order with their true y available at \p py, bookended by the background
  * rows above and below the image rectangle; linearizing interlaced rows
- * needs a whole framebuffer, so consumers that need strict top-down order
- * must re-decode from retained input, as the dlo integration does.
+ * needs a whole framebuffer, which consumers that need strict top-down order
+ * must keep themselves, as the dlo integration does.
  *
  * Only the first image is decoded; any further images are walked structurally
  * to the trailer and their pixel data discarded.
@@ -69,8 +69,8 @@ lws_gif_free(lws_gif_t **gif);
  * \param gif: the decode object
  *
  * Resets the parse, LZW and row state so the object expects a gif header
- * again, for re-decoding retained input (eg, to reach a different row of an
- * interlaced image).  Allocations and the shared pool claim are kept.
+ * again, for re-decoding retained input (eg, to render the image again from
+ * the top).  Allocations and the shared pool claim are kept.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_gif_restart(lws_gif_t *gif);
@@ -147,6 +147,21 @@ lws_gif_get_height(const lws_gif_t *gif);
  */
 LWS_VISIBLE LWS_EXTERN char
 lws_gif_get_interlaced(const lws_gif_t *gif);
+
+/**
+ * lws_gif_get_work() - decode work done so far
+ *
+ * \param gif: the decode object
+ *
+ * Returns the number of LZW string chain steps the decoder has taken since it
+ * was created or restarted, roughly one per decoded pixel.  The work to
+ * decode the first frame is bounded by its rectangle (a gif whose logical
+ * screen or first image is over 16384 px either way is refused), and decoding
+ * stops once no further row can be inside the logical screen; callers can use
+ * this to apply their own tighter budget.
+ */
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_gif_get_work(const lws_gif_t *gif);
 
 /**
  * lws_gif_get_palette() - get the active colour table

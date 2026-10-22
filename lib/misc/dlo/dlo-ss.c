@@ -527,9 +527,8 @@ dlo_assets_kick(struct lws_context *cx)
 
 /*
  * Stash rx payload for the asset type.  Raster images take it on the flow
- * buflist; gifs keep the whole payload retained separately, since an
- * interlaced gif must be re-decodeable from the start.  Returns nonzero on
- * failure.
+ * buflist; gifs keep the whole payload retained separately, so the decode
+ * can start again from the top.  Returns nonzero on failure.
  *
  * When the asset cache is active, also mirror the payload chunks as they
  * arrive: the decoders consume the flow buflist incrementally, so by the time

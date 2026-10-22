@@ -182,6 +182,20 @@ if (requirements)
 				"-DFLAGS_B=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--reclaim-lines;7"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
+		# interlaced gifs come out exactly as the same pixels gif'd
+		# progressively: each row once, in the right place, from one
+		# decode however the sweep asks for rows (G-462)
+		if (LWS_WITH_GIF)
+		add_test(NAME api-test-lhp-dlo-gif-interlaced-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/gif-interlaced.html
+				-DHTML_B=${CMAKE_CURRENT_SOURCE_DIR}/gif-interlaced-twin.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/gif-interlaced
+				-DW=100 -DH=80
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+		endif()
+
 		# captured real-world pages, with their network assets made
 		# unreachable so the layout is the same every run; slashdot's
 		# golden includes its svg and gif assets

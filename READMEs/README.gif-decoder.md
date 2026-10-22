@@ -8,9 +8,18 @@ width (one row).
 
 Everything except the shared row buffer is bounded by the format itself:
 the LZW code tables are bounded by the 12-bit code ceiling and the colour
-tables by the 256-entry palette, so the same allocations serve any GIF up
-to the format's 65535 x 65535 limit.  Nothing an attacker controls sizes
-an allocation except the logical screen width.
+tables by the 256-entry palette.  Nothing an attacker controls sizes an
+allocation except the logical screen width.
+
+The logical screen and the first image's rectangle are each refused if over
+16384 px either way, as upng bounds its dimensions.  Decoding costs about
+one LZW string chain step per pixel whether the pixel is shown or not, so
+it also stops as soon as no row still to come can lie inside the logical
+screen (the rest of the image data is then skipped without decoding it):
+work is bounded by the rectangle, and for progressive images by the rows of
+it the screen shows, not by how much data the file carries.
+`lws_gif_get_work()` reports the work done so far for callers that want a
+tighter budget of their own.
 
 ## Memory requirements
 
@@ -64,11 +73,11 @@ needs frame composition state and is a possible later phase.
 Interlaced rows arrive in gif interlace order (rows 0, 8, 16..., then 4,
 12..., then 2, 6, 10..., then 1, 3, 5...) with their true y at `*py`.
 Linearizing them into strict top-down order requires a whole framebuffer,
-which this decoder does not have.  The dlo integration instead re-decodes
-its retained copy of the compressed asset once per sweep line, discarding
-rows of other passes until the wanted one; that costs O(height)
-re-decodes of the compressed data over a whole image, so it is only used
-for interlaced images, which are rare in the wild.
+which this decoder does not have.  The dlo integration decodes interlaced
+images once into a frame of palette indices, as far as the line being
+rendered needs, and paints lines from that; the frame is limited to 4MB
+(eg, 2048 x 2048), larger interlaced images are not rendered.  Interlaced
+gifs are rare in the wild.
 
 ## Performing the decode
 
@@ -100,11 +109,11 @@ dimensions, unknown block introducers).  Truncated input is not an error:
 whatever complete rows decoded are issued and the state stays renderable.
 
 `lws_gif_restart()` resets the parse, LZW and row state while keeping the
-allocations, so retained input can be re-decoded (this is how the dlo
-integration reaches individual rows of interlaced images).
+allocations, so retained input can be re-decoded (eg, when the dlo
+integration renders the image again from the top).
 
 Getters: `lws_gif_get_width()` / `lws_gif_get_height()` (logical screen),
-`lws_gif_get_interlaced()`, `lws_gif_get_palette()` /
+`lws_gif_get_interlaced()`, `lws_gif_get_work()`, `lws_gif_get_palette()` /
 `lws_gif_get_palette_count()`, `lws_gif_get_transparent_index()`, and the
 usual `lws_gif_get_bpp()` / `lws_gif_get_bitdepth()` /
 `lws_gif_get_components()` / `lws_gif_get_pixelsize()` (8 / 8 / 1 / 8 for
@@ -121,9 +130,9 @@ expansion and transparency at set_px time.  Building with
 
 Unlike the png and jpeg dlos, the gif dlo retains the asset payload in
 one buffer (16MB ceiling) rather than consuming it from the flow buflist,
-since interlaced gifs must be re-decodeable from the start; progressive
-gifs free it again as soon as the frame completed.  This is the same
-order of retention the svg dlo applies to its document.
+so the decode can start again from the top; it is freed again as soon as
+the frame completed.  This is the same order of retention the svg dlo
+applies to its document.
 
 The png/jpeg content-type fixups are not extended to gif, since the
 retained-payload state lives past the decoder pointer those fixups swap.
@@ -138,8 +147,10 @@ equivalence and arrival-order checks), frame offsets and clipping against
 the logical screen, background fill, forced dictionary clears, the KwKwK
 code case, table saturation with deferred clears, sub-block framing at
 the extremes, narrow images whose strings straddle many rows, multi-frame
-documents where only the first frame renders, and byte-exact agreement
-between one-shot and arbitrarily-chunked streaming decodes.  A hand-
+documents where only the first frame renders, byte-exact agreement
+between one-shot and arbitrarily-chunked streaming decodes, and bounded
+decode work for hostile geometry (rectangles far larger than the screen,
+or off it, followed by far more pixel data than they hold).  A hand-
 computed golden vector covers the LZW core independently of the encoder,
 and robustness sweeps cover every truncation and deterministic single-
 byte mutations.

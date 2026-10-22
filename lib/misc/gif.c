@@ -136,6 +136,8 @@ struct lws_gif {
 	int			last_row_y;	/* y of the last issued row */
 	int			trans_index;	/* -1 = none */
 
+	uint64_t		work;		/* string chain steps so far */
+
 	uint8_t			state;
 	uint8_t			sub;		/* header matcher step */
 
@@ -292,19 +294,57 @@ gif_row_advance(lws_gif_t *g)
 	uint32_t sy = (uint32_t)g->itop + g->ycur;
 	int ret = sy < g->sh ? (int)sy : -1;
 
+	/*
+	 * ih is at most LWS_GIF_MAX_DIM, so the next row fits the uint16_t,
+	 * but compare it before it is stored anyway
+	 */
+
 	if (g->interlaced) {
-		g->ycur = (uint16_t)(g->ycur + g->ystep);
-		while (g->ypass < 4 && g->ycur >= g->ih) {
+		uint32_t ny = (uint32_t)g->ycur + g->ystep;
+
+		while (g->ypass < 4 && ny >= g->ih) {
 			g->ypass++;
 			if (g->ypass < 4) {
-				g->ycur  = gif_ipass[g->ypass][0];
+				ny	 = gif_ipass[g->ypass][0];
 				g->ystep = gif_ipass[g->ypass][1];
 			}
 		}
+		g->ycur = (uint16_t)(ny < g->ih ? ny : g->ih);
 	} else
 		g->ycur = (uint16_t)(g->ycur + 1);
 
 	return ret;
+}
+
+/*
+ * Can any row still to be filled in this frame be issued, ie, lie inside the
+ * logical screen?  Within one pass rows come in ascending order, so once the
+ * current row is below the screen the rest of its pass is too, but a later
+ * interlace pass starts again near the top.
+ *
+ * Once nothing more can be issued there is no point decoding the rest of the
+ * frame's data: LZW strings cost a chain walk per pixel whether the pixel is
+ * shown or not.
+ */
+
+static int
+gif_rows_to_issue(const lws_gif_t *g)
+{
+	unsigned int p;
+
+	if (g->ycur >= g->ih)
+		return 0;
+
+	if ((uint32_t)g->itop + g->ycur < g->sh)
+		return 1;
+
+	if (g->interlaced)
+		for (p = (unsigned int)g->ypass + 1; p < 4; p++)
+			if (gif_ipass[p][0] < g->ih &&
+			    (uint32_t)g->itop + gif_ipass[p][0] < g->sh)
+				return 1;
+
+	return 0;
 }
 
 /*
@@ -327,14 +367,18 @@ gif_emit_string(lws_gif_t *g, int32_t code, int32_t j, int32_t L)
 	while (j < L) {
 		uint32_t space = (uint32_t)g->iw - g->fx;
 		uint32_t seg = (uint32_t)(L - j);
-		uint32_t n, col;
+		uint32_t n, col, x, vseg = 0;
 		int32_t node, skip;
 		int sy;
-		char vis = g->rowvis;
 
-		if (g->ycur >= g->ih) {
-			/* every row already issued: broken trailing data */
+		if (!gif_rows_to_issue(g)) {
+			/*
+			 * Every row the screen can show was issued (or the
+			 * image has no more rows: broken trailing data).  End
+			 * the frame here, the rest of its data is skipped.
+			 */
 
+			g->lzw_ended = 1;
 			break;
 		}
 
@@ -348,29 +392,42 @@ gif_emit_string(lws_gif_t *g, int32_t code, int32_t j, int32_t L)
 		}
 
 		/*
-		 * Locate the node holding byte j + seg - 1 by skipping the
-		 * L - j - seg chain nodes above it
+		 * Only the start of the segment can be inside the screen: its
+		 * columns ascend from ileft + fx.  Nothing of a row that isn't
+		 * issued, or of columns right of the screen, needs the chain
+		 * walked for it.
 		 */
 
-		node = code;
-		for (skip = L - j - (int32_t)seg; skip > 0; skip--)
-			node = g->prefix[node];
+		x = (uint32_t)g->ileft + g->fx;
+		if (g->rowvis && x < g->sw) {
+			vseg = g->sw - x;
+			if (vseg > seg)
+				vseg = seg;
+		}
 
-		/* write the segment bytes at descending screen columns */
+		if (vseg) {
+			/*
+			 * Locate the node holding byte j + vseg - 1 by
+			 * skipping the L - j - vseg chain nodes above it
+			 */
 
-		col = (uint32_t)g->ileft + g->fx + seg - 1;
-		n = seg;
+			node = code;
+			for (skip = L - j - (int32_t)vseg; skip > 0; skip--)
+				node = g->prefix[node];
+			g->work += (uint64_t)(L - j);
 
-		while (n--) {
-			uint8_t b = node < g->clear_code ?
+			/* write those bytes at descending screen columns */
+
+			col = x + vseg - 1;
+			n = vseg;
+
+			while (n--) {
+				gif_scratch.row[col--] = node < g->clear_code ?
 					(uint8_t)node : g->suffix[node];
 
-			if (vis && col < g->sw)
-				gif_scratch.row[col] = b;
-
-			if (n)
-				node = g->prefix[node];
-			col--;
+				if (n)
+					node = g->prefix[node];
+			}
 		}
 
 		g->fx = (uint16_t)(g->fx + seg);
@@ -472,6 +529,7 @@ gif_lzw_code(lws_gif_t *g, uint32_t code)
 			node = g->prefix[node];
 			L++;
 		}
+		g->work += (uint64_t)L;
 		k = (uint16_t)node;
 
 		if (!kw && g->next_code < GIF_MAX_CODES) {
@@ -523,6 +581,19 @@ gif_state_lzw(lws_gif_t *g, const uint8_t **buf, size_t *len)
 	for (;;) {
 		uint32_t code;
 
+		if (g->lzw_ended) {
+			/* skip the rest of the image data */
+
+			g->image1_done = 1;
+			if (g->postrows) {
+				g->post_then_skip = 1;
+				g->state = GIFS_POSTROW;
+			} else
+				g->state = GIFS_SKIPDATA;
+
+			return LWS_SRET_WANT_INPUT;
+		}
+
 		/*
 		 * Feed a byte only when no complete code is waiting: a code
 		 * whose string suspends across rows returns with the
@@ -560,19 +631,6 @@ gif_state_lzw(lws_gif_t *g, const uint8_t **buf, size_t *len)
 			return (lws_stateful_ret_t)(-r);
 		if (r)
 			return LWS_SRET_WANT_OUTPUT;
-
-		if (g->lzw_ended) {
-			/* skip the rest of the image data */
-
-			g->image1_done = 1;
-			if (g->postrows) {
-				g->post_then_skip = 1;
-				g->state = GIFS_POSTROW;
-			} else
-				g->state = GIFS_SKIPDATA;
-
-			return LWS_SRET_WANT_INPUT;
-		}
 	}
 }
 
@@ -647,6 +705,15 @@ gif_got_id(lws_gif_t *g)
 
 	if (!g->iw || !g->ih)
 		return LWS_SRET_FATAL + 21;
+
+	/*
+	 * The rectangle may hang off the logical screen (we clip it), but
+	 * decoding it costs per pixel whether shown or not: bound it as the
+	 * screen is bounded.  This also keeps the row cursor arithmetic far
+	 * from the uint16_t limit.
+	 */
+	if (g->iw > LWS_GIF_MAX_DIM || g->ih > LWS_GIF_MAX_DIM)
+		return LWS_SRET_FATAL + 22;
 
 	g->interlaced = !!(g->buf[8] & 0x40);
 	g->ycur = 0;
@@ -1056,8 +1123,8 @@ lws_gif_restart(lws_gif_t *g)
 
 	/*
 	 * Everything goes back to expecting a header, but allocations stay:
-	 * this exists so retained input can be re-decoded (eg, to reach a
-	 * different row of an interlaced image) without churning the heap.
+	 * this exists so retained input can be re-decoded (eg, to render the
+	 * image again from the top) without churning the heap.
 	 * The shared pool claim stays live too; it will be re-sized when the
 	 * logical screen descriptor reparses.
 	 */
@@ -1086,6 +1153,7 @@ lws_gif_restart(lws_gif_t *g)
 	g->post_then_skip = 0;
 	g->last_row_y = -1;
 	g->trans_index = -1;
+	g->work = 0;
 
 	g->has_gct = 0;
 	g->has_lct = 0;
@@ -1116,6 +1184,12 @@ char
 lws_gif_get_interlaced(const lws_gif_t *gif)
 {
 	return gif->interlaced;
+}
+
+uint64_t
+lws_gif_get_work(const lws_gif_t *gif)
+{
+	return gif->work;
 }
 
 const uint8_t *

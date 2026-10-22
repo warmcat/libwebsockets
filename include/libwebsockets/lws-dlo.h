@@ -357,10 +357,10 @@ typedef struct lws_dlo_svg {
 
 /*
  * Unlike the png and jpeg dlos, the gif dlo keeps the whole asset payload
- * retained in one buffer: interlaced gifs must be re-decoded to reach rows
- * out of stream order, and a linewise renderer without a framebuffer can
- * only get interlaced rows that way.  Progressive gifs free it again once
- * the frame has decoded.
+ * retained in one buffer, so the decode can start again from the top when the
+ * render does.  It is freed once the frame has decoded.  Interlaced rows
+ * arrive out of screen order, so those images are decoded once into a frame
+ * of palette indices (bounded in size) that the render reads lines from.
  */
 
 typedef struct lws_dlo_gif {
@@ -372,6 +372,8 @@ typedef struct lws_dlo_gif {
 	size_t				whole_len;
 	size_t				whole_size;
 	size_t				pos;	/* decode feed cursor in whole */
+	uint8_t				*frame;	/* interlaced: decoded rows */
+	uint8_t				*frame_have; /* bitmap of rows in frame */
 	char				whole_done; /* whole fully decoded */
 } lws_dlo_gif_t;
 

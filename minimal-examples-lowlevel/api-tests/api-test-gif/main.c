@@ -13,7 +13,8 @@
  * transparency getters, byte-exact agreement between one-shot and
  * arbitrarily-chunked streaming decodes, restart equivalence, a hand-
  * computed golden vector, and robustness sweeps over truncations and
- * single-byte mutations.
+ * single-byte mutations, and that decode work on hostile frame geometry is
+ * bounded by what the screen can show.
  *
  * --dump <dir> additionally writes each corpus document and its decoded
  * raster as .gif / .ppm pairs for eyeballing.
@@ -1843,6 +1844,237 @@ bail1:
 }
 
 /* ------------------------------------------------------------------ */
+/* decode work bounds on hostile frame geometry (G-462, G-262)         */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+	uint8_t		*p, *end;
+	uint32_t	acc;
+	int		nbits;
+	int		sbstart;	/* offset of the open sub-block's len */
+	uint8_t		*base;
+} hwr_t;
+
+static void
+hw_byte(hwr_t *w, uint8_t c)
+{
+	if (w->p < w->end)
+		*w->p++ = c;
+}
+
+/* lzw payload bytes go into 255-byte sub-blocks */
+
+static void
+hw_data(hwr_t *w, uint8_t c)
+{
+	if (w->sbstart < 0 || w->base[w->sbstart] == 255) {
+		w->sbstart = (int)(w->p - w->base);
+		hw_byte(w, 0);
+	}
+	if (w->p < w->end) {
+		hw_byte(w, c);
+		w->base[w->sbstart]++;
+	}
+}
+
+static void
+hw_code(hwr_t *w, unsigned int code, int width)
+{
+	w->acc |= (uint32_t)code << w->nbits;
+	w->nbits += width;
+	while (w->nbits >= 8) {
+		hw_data(w, (uint8_t)w->acc);
+		w->acc >>= 8;
+		w->nbits -= 8;
+	}
+}
+
+/*
+ * A 2-colour gif whose first image is iw x ih at (ileft, itop) on a sw x sh
+ * screen, with pixel data built to cost the most decode work per byte: a run
+ * of one colour as LZW codes 0, 6, 7 ... 4095, whose strings grow by one
+ * pixel each, then code 4095 (4091 pixels each) another reps times.  That is
+ * far more pixels than any rectangle here holds, so a decoder that keeps
+ * going after the frame can show nothing more burns work per byte of junk.
+ */
+
+static size_t
+hostile_gif(uint8_t *buf, size_t size, unsigned int sw, unsigned int sh,
+	    unsigned int ileft, unsigned int itop, unsigned int iw,
+	    unsigned int ih, char interlaced, unsigned int reps)
+{
+	static const uint8_t gct[6] = { 0, 0, 0, 255, 255, 255 };
+	unsigned int c, next = 6, i;
+	int width = 3;
+	hwr_t w;
+
+	memset(&w, 0, sizeof(w));
+	w.base = w.p = buf;
+	w.end = buf + size;
+	w.sbstart = -1;
+
+	for (i = 0; i < 6; i++)
+		hw_byte(&w, (uint8_t)"GIF89a"[i]);
+	hw_byte(&w, (uint8_t)sw);
+	hw_byte(&w, (uint8_t)(sw >> 8));
+	hw_byte(&w, (uint8_t)sh);
+	hw_byte(&w, (uint8_t)(sh >> 8));
+	hw_byte(&w, 0x80);	/* 2-entry gct */
+	hw_byte(&w, 0);
+	hw_byte(&w, 0);
+	for (i = 0; i < sizeof(gct); i++)
+		hw_byte(&w, gct[i]);
+
+	hw_byte(&w, 0x2c);
+	hw_byte(&w, (uint8_t)ileft);
+	hw_byte(&w, (uint8_t)(ileft >> 8));
+	hw_byte(&w, (uint8_t)itop);
+	hw_byte(&w, (uint8_t)(itop >> 8));
+	hw_byte(&w, (uint8_t)iw);
+	hw_byte(&w, (uint8_t)(iw >> 8));
+	hw_byte(&w, (uint8_t)ih);
+	hw_byte(&w, (uint8_t)(ih >> 8));
+	hw_byte(&w, interlaced ? 0x40 : 0);
+	hw_byte(&w, 2);		/* lzw minimum code size */
+
+	hw_code(&w, 4, width);	/* clear */
+	hw_code(&w, 0, width);
+	for (c = 6; c < 4096; c++) {
+		/* each one is the entry being defined: KwKwK */
+		hw_code(&w, c, width);
+		next++;
+		if (next == (1u << width) && width < 12)
+			width++;
+	}
+	for (i = 0; i < reps; i++)
+		hw_code(&w, 4095, 12);
+	hw_code(&w, 5, 12);	/* eoi */
+	if (w.nbits)
+		hw_data(&w, (uint8_t)w.acc);
+
+	hw_byte(&w, 0);		/* sub-block terminator */
+	hw_byte(&w, 0x3b);	/* trailer */
+
+	if (w.p >= w.end)
+		return 0;	/* didn't fit */
+
+	return (size_t)(w.p - buf);
+}
+
+/*
+ * Decode the whole document in one go, counting the rows issued for each
+ * screen y.  Returns the final return code.
+ */
+
+static lws_stateful_ret_t
+decode_count(const uint8_t *doc, size_t len, unsigned int *rows_at,
+	     unsigned int max_y, uint64_t *work)
+{
+	lws_gif_t *gif = lws_gif_new();
+	lws_stateful_ret_t r = LWS_SRET_FATAL;
+
+	if (!gif)
+		return r;
+
+	for (;;) {
+		const uint8_t *pix = NULL;
+		int py = -1;
+
+		r = lws_gif_emit_next_line(gif, &pix, &py, &doc, &len, 0);
+		if (r != LWS_SRET_WANT_OUTPUT)
+			break;
+		if (py >= 0 && (unsigned int)py < max_y)
+			rows_at[py]++;
+		else
+			rows_at[max_y]++; /* out of range */
+	}
+
+	*work = lws_gif_get_work(gif);
+	lws_gif_free(&gif);
+
+	return r;
+}
+
+static void
+test_work_bounds(void)
+{
+	static const struct {
+		const char	*name;
+		unsigned int	sw, sh, ileft, itop, iw, ih;
+		char		interlaced, refused;
+		unsigned int	rows;	/* screen rows issued, each once */
+		uint64_t	max_work;
+	} hc[] = {
+		/* rectangles too big to decode at all */
+		{ "65535x65535", 8, 8, 0, 0, 65535, 65535, 0, 1, 0, 0 },
+		{ "16385 wide", 8, 8, 0, 0, 16385, 8, 0, 1, 0, 0 },
+		/* G-262: the interlace row cursor must not wrap */
+		{ "65535 tall interlaced", 8, 8, 0, 0, 1, 65535, 1, 1, 0, 0 },
+
+		/*
+		 * Decoding ends once no row left can be on the screen: only
+		 * the rows the screen shows cost work, not the junk after
+		 */
+		{ "16384x16384 on 8x8", 8, 8, 0, 0, 16384, 16384, 0, 0,
+		  8, 4ull * 8 * 16384 },
+		{ "interlaced 64x64 on 8x8", 8, 8, 0, 0, 64, 64, 1, 0,
+		  8, 4ull * 64 * 64 },
+		{ "interlaced 16384x16 on 8x8", 8, 8, 0, 0, 16384, 16, 1, 0,
+		  8, 4ull * 16384 * 16 },
+		{ "below the screen", 8, 8, 0, 100, 16384, 16384, 1, 0,
+		  8, 4096 },
+		{ "right of the screen", 8, 8, 100, 0, 16384, 16, 0, 0,
+		  8, 4ull * 16384 * 8 },
+	};
+	unsigned int rows_at[9];
+	size_t size = 64 * 1024, len, i;
+	uint8_t *doc = (uint8_t *)malloc(size);
+	unsigned int y;
+	uint64_t work;
+
+	if (!doc) {
+		CHK(0, "work: OOM");
+		return;
+	}
+
+	for (i = 0; i < LWS_ARRAY_SIZE(hc); i++) {
+		lws_stateful_ret_t r;
+
+		/* 20000 x 4091 = ~82M px of junk */
+		len = hostile_gif(doc, size, hc[i].sw, hc[i].sh, hc[i].ileft,
+				  hc[i].itop, hc[i].iw, hc[i].ih,
+				  hc[i].interlaced, 20000);
+		CHK(len, "%s: doc too big", hc[i].name);
+		if (!len)
+			continue;
+
+		memset(rows_at, 0, sizeof(rows_at));
+		r = decode_count(doc, len, rows_at, hc[i].sh, &work);
+
+		lwsl_user("work: %s: r 0x%x, work %llu\n", hc[i].name,
+			  (unsigned int)r, (unsigned long long)work);
+
+		if (hc[i].refused) {
+			CHK(r & LWS_SRET_FATAL, "%s: not refused", hc[i].name);
+			continue;
+		}
+
+		CHK(r == LWS_SRET_OK, "%s: r 0x%x", hc[i].name,
+		    (unsigned int)r);
+		CHK(work <= hc[i].max_work, "%s: work %llu > %llu", hc[i].name,
+		    (unsigned long long)work,
+		    (unsigned long long)hc[i].max_work);
+		for (y = 0; y < hc[i].sh; y++)
+			CHK(rows_at[y] == (y < hc[i].rows),
+			    "%s: row %u issued %u times", hc[i].name, y,
+			    rows_at[y]);
+		CHK(!rows_at[hc[i].sh], "%s: rows off the screen", hc[i].name);
+	}
+
+	free(doc);
+}
+
+/* ------------------------------------------------------------------ */
 
 int
 main(int argc, const char **argv)
@@ -1907,6 +2139,7 @@ main(int argc, const char **argv)
 	test_interlace_equivalence();
 	test_malformed();
 	test_shared_row_pool();
+	test_work_bounds();
 
 	result = fails ? 1 : 0;
 
