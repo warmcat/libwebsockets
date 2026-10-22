@@ -332,7 +332,6 @@ static int json_control_cb(void *user, const struct lws_v4l2_control *c)
 {
 	struct json_dump_ctx *j = (struct json_dump_ctx *)user;
 	char safe_name[256];
-	int len;
 
 	lwsl_notice("%s: Found control '%s' (id %u)\n", __func__, c->name, c->id);
 
@@ -344,7 +343,7 @@ static int json_control_cb(void *user, const struct lws_v4l2_control *c)
 
 	j->first = 0;
 
-	lws_json_purify(safe_name, c->name, sizeof(safe_name), &len);
+	lws_json_purify(safe_name, c->name, sizeof(safe_name), NULL);
 
 	j->p += lws_snprintf(
 			j->p, lws_ptr_diff_size_t(j->end, j->p),
