@@ -570,7 +570,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    (G-090, G-488, G-520..G-524).  A new loop needs a count and an entry
    in the per-loop bounds comment block in lhp.c, or it becomes the next
    bypass.  Still open: the css kept before the cut-off is bounded only by
-   input size (G-089).
+   input size (G-089).  One budget step must be O(1) work: a step
+   that hides a walk (eg each simple selector scanning all 64 attributes)
+   makes the budget meaningless (G-529).  A test bounding `cascade_ops`
+   only fences work the fix itself counts: red it by removing the charge,
+   not only by reverting to the old library (G-530).  api-test-lhp-dlo
+   nesting tops out near 125 user levels (html/body count).
 
 ## lejp
 
