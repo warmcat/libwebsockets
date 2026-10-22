@@ -29,6 +29,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <ifaddrs.h>
+#include <sys/statvfs.h>
 #endif
 #include <sys/stat.h>
 #include <errno.h>
@@ -154,8 +155,8 @@ struct vhd_dht_dnssec {
 	uint8_t				notify_secret[16];
 	/*
 	 * set while a NOTIFY that passed the NOTC cookie exchange is being
-	 * handled: only such a source may create a subscription or be
-	 * struck for a fetch that then times out; the bencode NOTIFY verb
+	 * handled: only such a source may be struck for a fetch that then
+	 * times out, or jump a zone's NOTIFY rate limit; the bencode NOTIFY
 	 * arrives with an unverified source
 	 */
 	uint8_t				notify_verified;
@@ -168,6 +169,14 @@ struct vhd_dht_dnssec {
 	lws_sorted_usec_list_t		sul_notify_deferred;
 	lws_dht_hash_t			*myid;
 	int				sweep_prefix_idx;
+
+	/* the sponge, see LWS_DHT_DNSSEC_SPONGE_MAX_KB_DEF */
+	uint64_t			sponge_max_bytes; /* 0: no sponge */
+	uint64_t			sponge_bytes;	/* at the last sweep */
+	lws_usec_t			sponge_last_intake;
+	lws_sorted_usec_list_t		sul_sponge;
+	uint8_t				sponge_min_free_pct;
+	uint8_t				sponge_full;	/* no room at the last sweep */
 };
 
 static struct vhd_dht_dnssec *global_dnssec_vhd = NULL;
@@ -189,6 +198,11 @@ struct lws_dht_dnssec_subscribed_domain {
 	char domain[256];
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	uint8_t needs_initial_fetch;
+	/* a copy we keep for the DHT, not one auth-dns serves */
+	uint8_t sponge;
+	/* the last sponge sweep found a copy of it in storage */
+	uint8_t held;
+	time_t created;
 	time_t last_notify_fetch;
 	uint64_t last_notify_soa;
 };
@@ -492,11 +506,41 @@ struct dht_fragment {
 #define LWS_DHT_DNSSEC_FRAGMENT_MAX_SECS	180
 
 /*
- * An unauthenticated NOTIFY carrying a new domain name auto-subscribes an
- * authoritative node, and a subscription is never freed until the vhost goes
- * away: cap how many can accumulate.
+ * The zones auth-dns serves, that it subscribes to through our ops: a
+ * subscription is never freed until the vhost goes away, so cap how many can
+ * accumulate.
  */
 #define LWS_DHT_DNSSEC_MAX_SUBSCRIBED	256
+
+/*
+ * The sponge.  A node also keeps copies of zones it does not serve, that it
+ * hears of from a NOTIFY, while it has room: up to "dht-sponge-max-kb" of them
+ * (0 for none), and only while the filesystem the store is on has more than
+ * "dht-sponge-min-free-pct" free.  A copy is served to GETs and announced to
+ * our routing table like any other, so a node can bridge a zone to parts of
+ * the DHT that would not otherwise find a copy of it.  A copy is kept fresh by
+ * the NOTIFYs of the holder we fetched it from, as a subscription is, and when
+ * the sponge is over either limit, the copies stored longest ago are evicted
+ * first.  The zones auth-dns serves are not counted, nor ever evicted.
+ *
+ * A NOTIFY's source is not verified, so a sponge fetch only asks the node
+ * that sent it, which says it just took the zone: a forged NOTIFY costs one
+ * GET to the address it claims, and only that host may answer it.  What it
+ * sends is validated like any other zone.
+ */
+#define LWS_DHT_DNSSEC_SPONGE_MAX_KB_DEF	(64 * 1024)
+#define LWS_DHT_DNSSEC_SPONGE_MIN_FREE_PCT_DEF	10
+/* zones the sponge tracks for NOTIFYs; more may be held in storage */
+#define LWS_DHT_DNSSEC_MAX_SPONGE		256
+/* a new zone is taken in no more often than this */
+#define LWS_DHT_DNSSEC_SPONGE_INTAKE_US		LWS_US_PER_SEC
+#define LWS_DHT_DNSSEC_SPONGE_SWEEP_US		(600 * LWS_US_PER_SEC)
+/* the first sweep waits for auth-dns to say what it serves */
+#define LWS_DHT_DNSSEC_SPONGE_FIRST_SWEEP_US	(120 * LWS_US_PER_SEC)
+/* a sweep evicts at most this many, and comes back soon if it must */
+#define LWS_DHT_DNSSEC_SPONGE_EVICT_MAX		16
+/* a zone tracked with no copy taken this long is forgotten */
+#define LWS_DHT_DNSSEC_SPONGE_ORPHAN_SECS	600
 
 /*
  * Every host a fetch's GET goes to takes one of the DHT's 64 transport
@@ -539,6 +583,11 @@ struct lws_dht_dnssec_fetch_req {
 	uint8_t				early_rounds;
 	/* routing table nodes the full round and its early ones may yet ask */
 	uint8_t				round_left;
+	/* a sponge fetch asks only this node, the one that notified us */
+	lws_sockaddr46			only;
+	uint8_t				only_set;
+	/* ours, not one asked for through the ops by eg, auth-dns */
+	uint8_t				internal;
 };
 
 enum {
@@ -854,6 +903,11 @@ static int
 do_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *args);
 
 static int
+dht_dnssec_fetch_zone(struct lws_context *context,
+		      struct lws_dht_dnssec_fetch_zone_args *args,
+		      const lws_sockaddr46 *only, int internal);
+
+static int
 do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain, const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial);
 
 static int
@@ -1012,6 +1066,10 @@ dht_dnssec_sul_sub_refetch_cb(lws_sorted_usec_list_t *sul)
 	struct vhd_dht_dnssec *vhd = sub->vhd;
 	struct lws_dht_dnssec_fetch_zone_args args;
 
+	/* a sponge copy is only fetched from its holder */
+	if (sub->sponge && !sub->holder.sa4.sin_family)
+		return;
+
 	lwsl_notice("%s: fetching %s, notified while rate-limited\n",
 		    __func__, sub->domain);
 
@@ -1022,7 +1080,8 @@ dht_dnssec_sul_sub_refetch_cb(lws_sorted_usec_list_t *sul)
 	args.domain = sub->domain;
 	args.force_network = 1;
 
-	do_fetch_zone(vhd->context, &args);
+	dht_dnssec_fetch_zone(vhd->context, &args,
+			      sub->sponge ? &sub->holder : NULL, 1);
 }
 
 /*
@@ -1692,6 +1751,40 @@ enum dht_dnssec_taken {
  * older than what we hold.  Unless it is refused, the sender has had its ACK.
  */
 
+/*
+ * Is a zone we took one for auth-dns: one it subscribed to, as it serves it,
+ * or one it asked us to fetch?  A sponge copy is not, until it does.
+ */
+
+static int
+dht_dnssec_for_auth(struct vhd_dht_dnssec *vhd, const char *safe_hash)
+{
+	struct lws_dht_dnssec_subscribed_domain *sub;
+	uint8_t raw[LWS_GENHASH_LARGEST];
+	int n;
+
+	n = lws_hex_to_byte_array(safe_hash, raw, sizeof(raw));
+	if (n > 0) {
+		sub = dht_dnssec_find_sub(vhd, raw, (size_t)n);
+		if (sub && !sub->sponge)
+			return 1;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->fetch_reqs)) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d,
+				struct lws_dht_dnssec_fetch_req, list);
+
+		if (!req->internal && !strcmp(req->target_hash, safe_hash))
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
+static void
+dht_dnssec_sponge_sweep_cb(lws_sorted_usec_list_t *sul);
+
 static enum dht_dnssec_taken
 dht_dnssec_frag_take(struct vhd_dht_dnssec *vhd, struct dht_fragment *frag)
 {
@@ -1885,9 +1978,17 @@ dht_dnssec_frag_take(struct vhd_dht_dnssec *vhd, struct dht_fragment *frag)
 			dht_dnssec_hwm_update(vhd->storage_path,
 					      frag->safe_hash, &zv);
 
-			if (vhd->auth_cb) {
-				vhd->auth_cb(vhd->auth_cb_opaque, frag->domain, final_ppath);
-			}
+			if (vhd->auth_cb &&
+			    dht_dnssec_for_auth(vhd, frag->safe_hash))
+				vhd->auth_cb(vhd->auth_cb_opaque, frag->domain,
+					     final_ppath);
+
+			/* it may be the sponge's, and use up its room */
+			if (vhd->sponge_max_bytes)
+				lws_sul_schedule(vhd->context, 0,
+						 &vhd->sul_sponge,
+						 dht_dnssec_sponge_sweep_cb,
+						 LWS_US_PER_SEC);
 
 			/* Broadcast the newly accepted zone's SOA over the DHT to force peers to update instantly */
 			lwsl_user("%s: Broadcasting fresh SOA serial %llu for %s to DHT nodes\n", __func__, (unsigned long long)serial, frag->domain);
@@ -3618,7 +3719,7 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 				args.force_network = 1;
 
 				lwsl_notice("Deferred fetch triggered for subscribed domain %s\n", sub->domain);
-				do_fetch_zone(vhd->context, &args);
+				dht_dnssec_fetch_zone(vhd->context, &args, NULL, 1);
 			}
 		} lws_end_foreach_dll(d);
 	}
@@ -3646,6 +3747,49 @@ dht_dnssec_find_highest_serial_cb(const char *dirpath, void *user, struct lws_di
 		}
 	}
 	return 0;
+}
+
+/* the subscriptions for zones auth-dns serves, or the sponge's */
+
+static int
+dht_dnssec_count_subs(struct vhd_dht_dnssec *vhd, int sponge)
+{
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->subscribed_domains)) {
+		struct lws_dht_dnssec_subscribed_domain *sub =
+			lws_container_of(d,
+				struct lws_dht_dnssec_subscribed_domain, list);
+
+		if (sub->sponge == !!sponge)
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
+/*
+ * May the sponge take in a zone new to us, that a NOTIFY named?  Only while it
+ * is on and had room at its last sweep, one new zone at a time, and only if
+ * hex is the domain's hash: the domain is what what we fetch is validated as.
+ */
+
+static int
+dht_dnssec_sponge_intake_ok(struct vhd_dht_dnssec *vhd, const char *hex,
+			    const char *domain)
+{
+	lws_usec_t now = lws_now_usecs();
+
+	if (!vhd->sponge_max_bytes || vhd->sponge_full || !domain[0] ||
+	    now - vhd->sponge_last_intake < LWS_DHT_DNSSEC_SPONGE_INTAKE_US ||
+	    dht_dnssec_count_subs(vhd, 1) >= LWS_DHT_DNSSEC_MAX_SPONGE ||
+	    !dht_dnssec_hash_binds_domain(hex, domain))
+		return 0;
+
+	vhd->sponge_last_intake = now;
+
+	return 1;
 }
 
 static void
@@ -3800,10 +3944,14 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			} lws_end_foreach_dll(d);
 		}
 
-		/* If we're not actively tracking the subscription but we have it hot in our local cache,
-		 * or we are an authoritative server and we just discovered the domain name,
-		 * we should honor the NOTIFY. */
-		if (!found) {
+		/*
+		 * A zone we don't serve: keep it fresh if we hold a copy, or
+		 * take one into the sponge if it has room.  Either is a sponge
+		 * copy, fetched only from the node that notified us, and only
+		 * handed to auth-dns if it comes to serve it.
+		 */
+		if (!found &&
+		    (size_t)info_hash->len == lws_genhash_size(LWS_DHT_STORE_GENHASH)) {
 			char hex_hash[LWS_GENHASH_LARGEST * 2 + 1];
 			lws_hex_from_byte_array(info_hash->id, info_hash->len, hex_hash, sizeof(hex_hash));
 			char dir_path[256];
@@ -3814,58 +3962,38 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			da.prefix = hex_hash;
 			lws_dir(dir_path, &da, dht_dnssec_find_highest_serial_cb);
 
-			/*
-			 * A domain we only learn of from this datagram is
-			 * subscribed to, on an authoritative node, only when
-			 * the sender passed the NOTC cookie exchange: the
-			 * bencode NOTIFY verb's source is unverified, and a
-			 * forged one would subscribe us to anything and fan
-			 * out a fetch for it.  A hash we already hold in the
-			 * cache is honoured either way, rate-limited below.
-			 */
 			if (da.is_outdated ||
-			    (vhd->auth_cb && newer_domain[0] && vhd->notify_verified)) {
+			    dht_dnssec_sponge_intake_ok(vhd, hex_hash, newer_domain)) {
 				if (newer_domain[0]) {
 					lws_strncpy(target_domain, newer_domain, sizeof(target_domain));
 					if (da.is_outdated)
 						lwsl_user("%s: Discovered domain name '%s' for cached hash %s. Upgrading!\n", __func__, newer_domain, hex_hash);
 					else
-						lwsl_user("%s: Auto-subscribing to discovered authoritative domain: %s\n", __func__, newer_domain);
+						lwsl_user("%s: taking %s into the sponge\n", __func__, newer_domain);
 				} else {
 					lws_snprintf(target_domain, sizeof(target_domain), "dht-hash-%s", hex_hash);
 					lwsl_notice("%s: Hash %s is not actively subscribed but exists in cache. Honoring NOTIFY to keep hot!\n", __func__, hex_hash);
 				}
 
-				/* Implicitly create or upgrade a subscription so subsequent NOTIFYs are tracked via `found_sub` rate limiters */
-				if (vhd->auth_cb && newer_domain[0]) {
-					do_subscribe_zone(vhd->vhost, newer_domain);
-				} else if (lws_dll2_count(&vhd->subscribed_domains) >=
-						LWS_DHT_DNSSEC_MAX_SUBSCRIBED) {
-					lwsl_warn("%s: subscription cap reached, "
+				/* tracked, so later NOTIFYs are rate-limited as found_sub */
+				if (dht_dnssec_count_subs(vhd, 1) >=
+						LWS_DHT_DNSSEC_MAX_SPONGE) {
+					lwsl_warn("%s: sponge tracks as many zones as it can, "
 						  "not tracking %s\n", __func__,
 						  target_domain);
 				} else {
-					struct lws_dht_dnssec_subscribed_domain *nsub = malloc(sizeof(*nsub));
-					if (nsub) {
-						memset(nsub, 0, sizeof(*nsub));
-						nsub->vhd = vhd;
-						lws_strncpy(nsub->domain, target_domain, sizeof(nsub->domain));
-						memcpy(nsub->hash, info_hash->id, info_hash->len);
-						nsub->needs_initial_fetch = 0;
-						lws_dll2_add_tail(&nsub->list, &vhd->subscribed_domains);
+					found_sub = malloc(sizeof(*found_sub));
+					if (found_sub) {
+						memset(found_sub, 0, sizeof(*found_sub));
+						found_sub->vhd = vhd;
+						found_sub->sponge = 1;
+						found_sub->created = time(NULL);
+						lws_strncpy(found_sub->domain, target_domain, sizeof(found_sub->domain));
+						memcpy(found_sub->hash, info_hash->id, info_hash->len);
+						lws_dll2_add_tail(&found_sub->list, &vhd->subscribed_domains);
+						found = 1;
 					}
 				}
-
-				/* Re-find the sub we just created or were already looking for */
-				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
-					struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
-					if ((size_t)info_hash->len == lws_genhash_size(LWS_DHT_STORE_GENHASH) &&
-					    !memcmp(sub->hash, info_hash->id, info_hash->len)) {
-						found_sub = sub;
-						found = 1;
-						break;
-					}
-				} lws_end_foreach_dll(d);
 			}
 		}
 
@@ -4010,7 +4138,17 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 				}
 			}
 
-			do_fetch_zone(vhd->context, &args);
+			if (found_sub && found_sub->sponge) {
+				lws_sockaddr46 notifier;
+
+				memset(&notifier, 0, sizeof(notifier));
+				memcpy(&notifier, from, fromlen > sizeof(notifier) ?
+						sizeof(notifier) : fromlen);
+				dht_dnssec_fetch_zone(vhd->context, &args,
+						      &notifier, 1);
+			} else
+				dht_dnssec_fetch_zone(vhd->context, &args,
+						      NULL, 1);
 		}
 
 		/*
@@ -5393,6 +5531,237 @@ dht_dnssec_sul_dump_cb(lws_sorted_usec_list_t *sul)
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_dump, dht_dnssec_sul_dump_cb, 60 * LWS_US_PER_SEC);
 }
 
+/*
+ * The sponge's sweep, see LWS_DHT_DNSSEC_SPONGE_MAX_KB_DEF.  The store is
+ * <storage>/<h0h1>/<h2h3>/, with a zone's JWS as <hash> and its payload as
+ * <hash>_<ttl>_<sig>_<serial>.payload: those are a sponge copy's, unless
+ * auth-dns serves the zone.  Its <hash>.hwm stays, to keep refusing older
+ * versions of it.
+ */
+
+struct dht_dnssec_sponge_walk {
+	struct vhd_dht_dnssec	*vhd;
+	uint64_t		bytes;		/* of the sponge's copies */
+	time_t			oldest_mtime;
+	char			oldest[65];	/* the copy stored longest ago */
+};
+
+/* the hash a stored zone's file is for, or nonzero if it isn't one */
+
+static int
+dht_dnssec_sponge_file_hash(const char *name, char *hash65)
+{
+	int n;
+
+	for (n = 0; n < 64; n++)
+		if (!name[n] || !strchr("0123456789abcdef", name[n]))
+			return 1;
+
+	if (name[64] && name[64] != '_')
+		return 1;
+
+	memcpy(hash65, name, 64);
+	hash65[64] = '\0';
+
+	return 0;
+}
+
+static int
+dht_dnssec_sponge_walk_file_cb(const char *dirpath, void *user,
+			       struct lws_dir_entry *lde)
+{
+	struct dht_dnssec_sponge_walk *w = (struct dht_dnssec_sponge_walk *)user;
+	struct lws_dht_dnssec_subscribed_domain *sub;
+	uint8_t raw[32];
+	char hash[65], fp[1024];
+	struct stat st;
+
+	if (lde->type != LDOT_FILE ||
+	    dht_dnssec_sponge_file_hash(lde->name, hash) ||
+	    lws_hex_to_byte_array(hash, raw, sizeof(raw)) != (int)sizeof(raw))
+		return 0;
+
+	sub = dht_dnssec_find_sub(w->vhd, raw, sizeof(raw));
+	if (sub && !sub->sponge)
+		return 0; /* auth-dns serves it */
+	if (sub)
+		sub->held = 1;
+
+	if (lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath, lde->name) >=
+								(int)sizeof(fp) ||
+	    stat(fp, &st))
+		return 0;
+
+	w->bytes += (uint64_t)st.st_size;
+
+	/* not one we are taking in now */
+	if ((!w->oldest[0] || st.st_mtime < w->oldest_mtime) &&
+	    !dht_dnssec_find_fragment(w->vhd, hash) &&
+	    !dht_dnssec_find_fetch_req(w->vhd, hash)) {
+		w->oldest_mtime = st.st_mtime;
+		lws_strncpy(w->oldest, hash, sizeof(w->oldest));
+	}
+
+	return 0;
+}
+
+/* the path of a <h0h1> or <h2h3> directory below dirpath, or nonzero */
+
+static int
+dht_dnssec_sponge_hex_dir(const char *dirpath, struct lws_dir_entry *lde,
+			  char *next, size_t len)
+{
+	if (lde->type != LDOT_DIR || strlen(lde->name) != 2 ||
+	    !strchr("0123456789abcdef", lde->name[0]) ||
+	    !strchr("0123456789abcdef", lde->name[1]))
+		return 1;
+
+	return lws_snprintf(next, len, "%s/%s", dirpath, lde->name) >= (int)len;
+}
+
+static int
+dht_dnssec_sponge_walk_h2h3_cb(const char *dirpath, void *user,
+			       struct lws_dir_entry *lde)
+{
+	char next[1024];
+
+	if (!dht_dnssec_sponge_hex_dir(dirpath, lde, next, sizeof(next)))
+		lws_dir(next, user, dht_dnssec_sponge_walk_file_cb);
+
+	return 0;
+}
+
+static int
+dht_dnssec_sponge_walk_h0h1_cb(const char *dirpath, void *user,
+			       struct lws_dir_entry *lde)
+{
+	char next[1024];
+
+	if (!dht_dnssec_sponge_hex_dir(dirpath, lde, next, sizeof(next)))
+		lws_dir(next, user, dht_dnssec_sponge_walk_h2h3_cb);
+
+	return 0;
+}
+
+static int
+dht_dnssec_sponge_evict_cb(const char *dirpath, void *user,
+			   struct lws_dir_entry *lde)
+{
+	char hash[65], fp[1024];
+
+	if (lde->type == LDOT_FILE &&
+	    !dht_dnssec_sponge_file_hash(lde->name, hash) &&
+	    !strcmp(hash, (const char *)user) &&
+	    lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath, lde->name) <
+							(int)sizeof(fp))
+		unlink(fp);
+
+	return 0;
+}
+
+static void
+dht_dnssec_sub_free(struct lws_dht_dnssec_subscribed_domain *sub)
+{
+	lws_sul_cancel(&sub->sul_refetch);
+	lws_dll2_remove(&sub->list);
+	free(sub);
+}
+
+static void
+dht_dnssec_sponge_evict(struct vhd_dht_dnssec *vhd, const char *hash)
+{
+	struct lws_dht_dnssec_subscribed_domain *sub;
+	char dir[512];
+	uint8_t raw[32];
+
+	if (lws_snprintf(dir, sizeof(dir), "%s/%.2s/%.2s", vhd->storage_path,
+			 hash, hash + 2) >= (int)sizeof(dir))
+		return;
+
+	lws_dir(dir, (void *)hash, dht_dnssec_sponge_evict_cb);
+
+	if (lws_hex_to_byte_array(hash, raw, sizeof(raw)) == (int)sizeof(raw)) {
+		sub = dht_dnssec_find_sub(vhd, raw, sizeof(raw));
+		if (sub && sub->sponge)
+			dht_dnssec_sub_free(sub);
+	}
+}
+
+/* is the filesystem the store is on fuller than the sponge may make it? */
+
+static int
+dht_dnssec_sponge_space_low(struct vhd_dht_dnssec *vhd)
+{
+#if !defined(_WIN32)
+	struct statvfs sv;
+
+	if (!vhd->sponge_min_free_pct || statvfs(vhd->storage_path, &sv) ||
+	    !sv.f_blocks)
+		return 0;
+
+	return (uint64_t)sv.f_bavail * 100 <
+	       (uint64_t)sv.f_blocks * vhd->sponge_min_free_pct;
+#else
+	return 0;
+#endif
+}
+
+static void
+dht_dnssec_sponge_sweep_cb(lws_sorted_usec_list_t *sul)
+{
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul,
+				struct vhd_dht_dnssec, sul_sponge);
+	struct dht_dnssec_sponge_walk w;
+	time_t now = time(NULL);
+	int evicted = 0, over;
+	char hex[65];
+
+	while (1) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&vhd->subscribed_domains)) {
+			lws_container_of(d, struct lws_dht_dnssec_subscribed_domain,
+					 list)->held = 0;
+		} lws_end_foreach_dll(d);
+
+		memset(&w, 0, sizeof(w));
+		w.vhd = vhd;
+		lws_dir(vhd->storage_path, &w, dht_dnssec_sponge_walk_h0h1_cb);
+
+		over = w.bytes > vhd->sponge_max_bytes ||
+		       dht_dnssec_sponge_space_low(vhd);
+		if (!over || !w.oldest[0] ||
+		    evicted == LWS_DHT_DNSSEC_SPONGE_EVICT_MAX)
+			break;
+
+		lwsl_notice("%s: sponge holds %llu bytes of %llu, evicting %s\n",
+			    __func__, (unsigned long long)w.bytes,
+			    (unsigned long long)vhd->sponge_max_bytes, w.oldest);
+		dht_dnssec_sponge_evict(vhd, w.oldest);
+		evicted++;
+	}
+
+	vhd->sponge_bytes = w.bytes;
+	vhd->sponge_full = (uint8_t)(over || w.bytes >= vhd->sponge_max_bytes);
+
+	/* zones taken in that never came, or whose copy expired or went */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&vhd->subscribed_domains)) {
+		struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d,
+				struct lws_dht_dnssec_subscribed_domain, list);
+
+		lws_hex_from_byte_array(sub->hash, 32, hex, sizeof(hex));
+		if (sub->sponge && !sub->held &&
+		    now - sub->created > LWS_DHT_DNSSEC_SPONGE_ORPHAN_SECS &&
+		    !dht_dnssec_find_fetch_req(vhd, hex))
+			dht_dnssec_sub_free(sub);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_sponge,
+			 dht_dnssec_sponge_sweep_cb,
+			 over && evicted == LWS_DHT_DNSSEC_SPONGE_EVICT_MAX ?
+				LWS_US_PER_SEC : LWS_DHT_DNSSEC_SPONGE_SWEEP_US);
+}
+
 static int
 callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 	void* user, void* in, size_t len)
@@ -5541,6 +5910,22 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			vhd->allow_private = 1;
 		if (lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface))
 			lwsl_info("no pvo for dht-iface\n");
+
+		vhd->sponge_max_bytes = (uint64_t)LWS_DHT_DNSSEC_SPONGE_MAX_KB_DEF * 1024;
+		vhd->sponge_min_free_pct = LWS_DHT_DNSSEC_SPONGE_MIN_FREE_PCT_DEF;
+		if (!lws_pvo_get_str(in, "dht-sponge-max-kb", &p) && p) {
+			unsigned long long kb = strtoull(p, NULL, 10);
+
+			/* up to 1TiB */
+			vhd->sponge_max_bytes = (kb > (1ull << 30) ?
+						 (1ull << 30) : kb) * 1024;
+		}
+		if (!lws_pvo_get_str(in, "dht-sponge-min-free-pct", &p) && p) {
+			int pct = atoi(p);
+
+			vhd->sponge_min_free_pct = (uint8_t)(pct < 0 ? 0 :
+							     (pct > 99 ? 99 : pct));
+		}
 		if (lws_pvo_get_str(in, "dht-fallback-nodes", &fallback_nodes_path))
 			lwsl_info("no pvo for dht-fallback-nodes\n");
 		if (!lws_pvo_get_str(in, "target-ip", &p) && p && p[0])
@@ -5665,6 +6050,10 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 
 		lws_sul_schedule(vhd->context, 0, &vhd->sul_stats, sul_stats_cb, 100 * LWS_US_PER_MS);
 		lws_sul_schedule(vhd->context, 0, &vhd->sul_dump, dht_dnssec_sul_dump_cb, 30 * LWS_US_PER_SEC);
+		if (vhd->sponge_max_bytes)
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_sponge,
+					 dht_dnssec_sponge_sweep_cb,
+					 LWS_DHT_DNSSEC_SPONGE_FIRST_SWEEP_US);
 
 		lwsl_notice("test_handshake=%d, cli_put_file='%s', cli_bulk=%d, cli_receiver=%d\n",
 			vhd->test_handshake, vhd->cli_put_file ? vhd->cli_put_file : "NULL",
@@ -5725,6 +6114,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_upload_retry);
 		lws_sul_cancel(&vhd->sul_resubscribe);
 		lws_sul_cancel(&vhd->sul_dump);
+		lws_sul_cancel(&vhd->sul_sponge);
 		lws_sul_cancel(&vhd->sul_notify_rotate);
 		lws_sul_cancel(&vhd->sul_notify_deferred);
 		lws_dll2_foreach_safe(&vhd->notify_deferred, NULL,
@@ -7155,6 +7545,20 @@ dht_dnssec_fetch_round(struct vhd_dht_dnssec *v,
 
 	lws_dht_msg_gen(buf, sizeof(buf), "GET", req->target_hash, 0, 1024);
 
+	/* a sponge fetch asks the node that notified us, once a full round */
+	if (req->only_set) {
+		if (req->target_due) {
+			if (dht_dnssec_fetch_req_send(v, req,
+					sa46_sockaddr(&req->only), buf) ==
+							LWS_DHT_SEND_QUEUED)
+				req->target_due = 0;
+			else
+				r.refused++;
+		}
+
+		return r.refused;
+	}
+
 	/* for clients and unbootstrapped nodes, outside the routing budget */
 	if (req->target_due && !dht_dnssec_fetch_target(v, &sa46)) {
 		if (dht_dnssec_fetch_req_send(v, req, (struct sockaddr *)&sa46,
@@ -7287,7 +7691,8 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 static int
 dht_dnssec_fetch_zone_start(struct lws_context *context,
 			    struct vhd_dht_dnssec *v,
-			    struct lws_dht_dnssec_fetch_zone_args *args)
+			    struct lws_dht_dnssec_fetch_zone_args *args,
+			    const lws_sockaddr46 *only, int internal)
 {
 	char clean_domain[256];
 	lws_strncpy(clean_domain, args->domain, sizeof(clean_domain));
@@ -7342,9 +7747,10 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 
 		/*
 		 * auth-dns installs the zone only as the domain it is handed,
-		 * so a fetch known only by its hash has no domain to give it
+		 * so a fetch known only by its hash has no domain to give it.
+		 * Our own fetches always go to the network.
 		 */
-		if (v->auth_cb && strncmp(clean_domain, "dht-hash-", 9))
+		if (!internal && v->auth_cb && strncmp(clean_domain, "dht-hash-", 9))
 			v->auth_cb(v->auth_cb_opaque, args->domain, fda.found_path);
 
 		if (args->cb)
@@ -7358,7 +7764,8 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&v->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *r = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(r->domain, args->domain) && r->cb == args->cb &&
-		    r->opaque == args->opaque) {
+		    r->opaque == args->opaque && r->internal == !!internal &&
+		    r->only_set == !!only) {
 			req = r;
 			break;
 		}
@@ -7380,6 +7787,11 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 	req->cb = args->cb;
 	req->opaque = args->opaque;
 	req->vhd = v;
+	req->internal = (uint8_t)!!internal;
+	if (only) {
+		req->only = *only;
+		req->only_set = 1;
+	}
 	lws_strncpy(req->target_hash, hex, sizeof(req->target_hash));
 	lws_dll2_add_tail(&req->list, &v->fetch_reqs);
 
@@ -7398,8 +7810,17 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
  * since it is the only thing that knows how to release opaque.
  */
 
+/*
+ * A fetch of ours is internal: what it takes is handed to auth-dns only if
+ * auth-dns serves the zone (dht_dnssec_for_auth()).  One for a sponge copy
+ * asks only the node that notified us.  do_fetch_zone(), the ops' entry, is
+ * a fetch for the caller, eg, auth-dns.
+ */
+
 static int
-do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args)
+dht_dnssec_fetch_zone(struct lws_context *context,
+		      struct lws_dht_dnssec_fetch_zone_args *args,
+		      const lws_sockaddr46 *only, int internal)
 {
 	struct vhd_dht_dnssec *v = get_dnssec_vhd(context, args->vhost);
 
@@ -7463,7 +7884,8 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 		return 0;
 	}
 
-	if (v && args->domain && !dht_dnssec_fetch_zone_start(context, v, args))
+	if (v && args->domain &&
+	    !dht_dnssec_fetch_zone_start(context, v, args, only, internal))
 		return 0;
 
 	if (args->cb)
@@ -7471,6 +7893,12 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 			 LWS_DHT_DNSSEC_FETCH_ABORTED);
 
 	return 1;
+}
+
+static int
+do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args)
+{
+	return dht_dnssec_fetch_zone(context, args, NULL, 0);
 }
 
 static int
@@ -7753,19 +8181,23 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 	int exists = 0;
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 		struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
-		if (!strcmp(sub->domain, clean_domain)) {
+		if (!memcmp(sub->hash, hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH))) {
+			/* auth-dns serves a zone the sponge holds now */
+			if (sub->sponge) {
+				lwsl_notice("%s: %s is served here, not a "
+					    "sponge copy now\n", __func__,
+					    clean_domain);
+				lws_strncpy(sub->domain, clean_domain,
+					    sizeof(sub->domain));
+				sub->sponge = 0;
+			}
 			exists = 1;
 			break;
 		}
 	} lws_end_foreach_dll(d);
 
-	if (!exists && lws_dll2_count(&vhd->subscribed_domains) >=
+	if (!exists && dht_dnssec_count_subs(vhd, 0) >=
 					LWS_DHT_DNSSEC_MAX_SUBSCRIBED) {
-		/*
-		 * Reached from an unauthenticated NOTIFY's auto-discovery on
-		 * an authoritative node, so this cannot be allowed to grow
-		 * without limit.
-		 */
 		lwsl_warn("%s: subscription cap reached, refusing %s\n",
 			  __func__, clean_domain);
 		return 1;
@@ -7844,7 +8276,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 		} lws_end_foreach_dll(d);
 
 		if (do_fetch)
-			do_fetch_zone(vhd->context, &args);
+			dht_dnssec_fetch_zone(vhd->context, &args, NULL, 1);
 	}
 
 	return 0;
@@ -7892,7 +8324,7 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
 	payload[6] = (uint8_t)(newer_soa_serial >> 8);
 	payload[7] = (uint8_t)(newer_soa_serial & 0xff);
 
-	/* Append the domain name to the payload to allow auto-discovery on authoritative nodes */
+	/* and the domain, so a node not serving it can take it into its sponge */
 	size_t payload_len = 8;
 	lws_strncpy((char *)payload + 8, clean_domain, sizeof(payload) - 8);
 	/*

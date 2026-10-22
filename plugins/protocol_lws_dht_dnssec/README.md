@@ -27,6 +27,14 @@ When a node needs a zone it does not hold (auth-dns asked for it, or a `NOTIFY` 
 - A fetch of a zone with the same completion and opaque as one in progress joins it, and sends nothing more.
 - auth-dns starts a fetch for a DNS query only if its zone is not already being fetched, and at most 4 at once, then one per 2s, for each source host, and 32 at once, then one per 250ms, in all; a query over that is answered `REFUSED`, since DNS queries can come from forged sources.
 
+## The Sponge
+A node also keeps copies of zones it does not serve, while it has room for them, so it can bridge them to parts of the DHT that would not otherwise find a copy:
+- A `NOTIFY` naming a zone the node neither serves nor holds takes it into the sponge, if the zone's hash is the named domain's, at most one new zone a second.  A `NOTIFY`'s source is not verified, so the zone is fetched only from the node that sent it, which just took the zone and announced it: a forged one costs one `GET` to the address it claims, and only that host may answer it.  What it sends is validated like any other zone.
+- A sponge copy is served to `GET`s and announced to the routing table like any other, and kept fresh by its holder's `NOTIFY`s, which are also only fetched from that holder.
+- It is handed to auth-dns only if auth-dns serves the zone: it subscribed to it, or asked us to fetch it for a query, which then finds the copy at once.  auth-dns subscribing to a zone the sponge holds makes it one served here.
+- The sponge holds at most `dht-sponge-max-kb` of copies (64MiB by default, `0` for no sponge), and takes nothing in while the filesystem the store is on has less than `dht-sponge-min-free-pct` free (10% by default).  It is swept every 10 minutes, after each zone it stores, and first 2 minutes after start, once auth-dns has said what it serves: while over either limit, the copies stored longest ago are evicted, up to 16 a sweep.  The zones auth-dns serves are not counted, nor ever evicted, and an evicted zone's high-water mark stays, to keep refusing older versions of it.
+- It tracks at most 256 zones for `NOTIFY`s, and forgets one whose copy never came, or went, after 10 minutes.
+
 ## Zone Serial Queries
 To see a new version of a zone spread across the DHT, eg, in the dnssec monitor's domain page, the `query_serials` op asks every node in the routing table which serial of a zone it holds:
 - The plugin sends each node `SOA_REQ <zone hash> 0 0` followed by an 8-byte nonce, random per query.
@@ -74,6 +82,8 @@ the one running instance.
 | `cli_receiver`   | Boolean flag (`1` or `0`) intended for the `minimal-raw-dht-zone-client` CLI application to tell the plugin context it is acting as an active receiver.  | `0`                     |
 | `dht-iface` | The network interface the DHT node should bind to. | `NULL` |
 | `dht-port` | The port the DHT node should bind to. | `NULL` |
+| `dht-sponge-max-kb` | How much the sponge may hold of copies of zones the node does not serve, see "The Sponge"; `0` for no sponge. | `65536` |
+| `dht-sponge-min-free-pct` | The sponge takes nothing in, and evicts, while the store's filesystem has less than this percentage free. | `10` |
 | `dht-allow-private` | `"1"` admits peers on private, loopback or link-local addresses (a LAN deployment, or local testing); by default only public addresses are kept. | `"0"` |
 | `dht-fallback-nodes` | Comma-separated list of fallback bootstrapping nodes (e.g. `1.2.3.4:443,5.6.7.8:443`). | `NULL` |
 | `dht-jwk` | Path to the JSON Web Key (JWK) used specifically for DHT participation authentication. | `NULL` |

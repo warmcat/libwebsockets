@@ -31,7 +31,8 @@
  *    the publisher is not sent an ERR and does not retry it for ever, and
  *    our fetch of it completes OK; nothing new is stored
  *  - an older version is refused
- *  - a newer one is stored in place of what we held
+ *  - a newer one is stored in place of what we held, and handed to auth-dns
+ *    only once auth-dns serves the zone: until then it is a sponge copy
  *  - once that one's payload is gone, its high-water mark still refuses the
  *    older version; a mark that can't be read refuses any version and is
  *    left as it is, and only with no mark at all is a version taken (G-533)
@@ -292,6 +293,7 @@ putt_stored_serial(const char *hash)
 static void
 putt_take_cases(struct vhd_dht_dnssec *vhd)
 {
+	struct lws_dht_dnssec_subscribed_domain *sub;
 	struct lws_dht_dnssec_fetch_req *req;
 	char hash[65], held[512], mark[512];
 	lws_sockaddr46 pub;
@@ -359,9 +361,28 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 		    access(held, F_OK) &&
 		    putt_stored_serial(hash) == PUTT_HELD_SERIAL + 1,
 		    "a newer version is stored in place of the held one");
-	putt_expect(auth_calls == 1 && strstr(auth_path, hash) &&
+	putt_expect(!auth_calls, "auth-dns, which doesn't serve the zone, "
+				 "is not told of it");
+
+	/*
+	 * auth-dns subscribes to the zones it serves, by name: the zone's key
+	 * here is made up, so give it the subscription that would be
+	 */
+	sub = calloc(1, sizeof(*sub));
+	if (putt_expect(sub && lws_hex_to_byte_array(hash, sub->hash, 32) == 32,
+			"a subscription")) {
+		free(sub);
+		return;
+	}
+	sub->vhd = vhd;
+	lws_strncpy(sub->domain, PUTT_HELD_DOMAIN, sizeof(sub->domain));
+	lws_dll2_add_tail(&sub->list, &vhd->subscribed_domains);
+
+	putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL + 2,
+			      &tmp_left) == DHT_DNSSEC_STORED &&
+		    auth_calls == 1 && strstr(auth_path, hash) &&
 		    !access(auth_path, F_OK),
-		    "and auth-dns is told of it");
+		    "once it subscribes to the zone, it is told of the next");
 
 	/*
 	 * Once the newer version's payload is gone (expired, swept), only its
