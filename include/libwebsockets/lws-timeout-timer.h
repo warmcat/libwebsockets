@@ -221,8 +221,12 @@ lws_sul2_schedule(struct lws_context *context, int tsi, int flags,
  * If it's scheduled, remove the sul from its owning sorted list.
  * If not scheduled, it's a NOP.
  *
- * It takes no lock: with LWS_MAX_SMP > 1, only the service thread whose pt
- * list the sul is on may use it.  Any other thread uses lws_sul_cancel_tsi().
+ * With LWS_MAX_SMP > 1 it takes the lock of the service thread whose list the
+ * sul is on while it unlinks it, so it may be used from any thread.  As for
+ * any lws lock, a thread holding one service thread's lock must also hold the
+ * context lock to cancel a sul on another's list.  The sul must have been
+ * scheduled by the lws_sul_schedule() family: a sul you put on a list of your
+ * own with __lws_sul_insert() is removed with lws_dll2_remove() instead.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_sul_cancel(lws_sorted_usec_list_t *sul);
@@ -234,16 +238,11 @@ lws_sul_cancel(lws_sorted_usec_list_t *sul);
  * \param tsi: the service thread index the sul was scheduled on
  * \param sul: pointer to the sul element
  *
- * As lws_sul_cancel(), but holding the lock of the pt \p tsi while it
- * unlinks the sul from that pt's list.  With LWS_MAX_SMP > 1, a thread
- * cancelling a sul that may be on another service thread's list must use
- * this: that thread adds and removes its own suls holding only its pt lock.
- * lws_sul_schedule() already takes the lock of the pt it schedules on, so
- * scheduling onto another service thread's pt is safe as it is, although
- * that thread only sees the new deadline when it next wakes.
- *
- * As for any lws lock, a thread holding a pt lock must also hold the context
- * lock before taking another pt's lock this way.
+ * The same as lws_sul_cancel(), which finds and locks the service thread the
+ * sul is on itself; \p ctx and \p tsi are no longer needed.  lws_sul_schedule()
+ * likewise takes the lock of the pt it schedules on, so scheduling onto
+ * another service thread's pt is safe, although that thread only sees the new
+ * deadline when it next wakes.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_sul_cancel_tsi(struct lws_context *ctx, int tsi,

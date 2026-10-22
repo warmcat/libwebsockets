@@ -39,8 +39,8 @@ lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
 
 	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us) {
 		/*
 		 * libev requires the watcher to be stopped before ev_timer_set,
@@ -77,8 +77,8 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 
 	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us) {
 		/* the hrtimer may still be armed from a previous round */
 		ev_timer_stop(ptpr->io_loop, &ptpr->hrtimer);

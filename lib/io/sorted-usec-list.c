@@ -31,7 +31,8 @@
  */
 
 /*
- * own points to the first in an array of length own_len
+ * own points to the first of a pt's sul lists, &pt->pt_sul_owner[0].owner, and
+ * own_len is how many of them there are
  *
  * While any sul list owner has a "ripe", ie, ready to handle sul we do them
  * strictly in order of sul time.  When nobody has a ripe sul we return 0, if
@@ -42,9 +43,8 @@
 lws_usec_t
 __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 {
-	struct lws_context_per_thread *pt = (struct lws_context_per_thread *)
-			lws_container_of(own, struct lws_context_per_thread,
-					 pt_sul_owner);
+	struct lws_context_per_thread *pt = lws_container_of(own,
+					struct lws_pt_sul_owner, owner)->pt;
 
 	if (lws_dll2_count(&pt->attach_owner))
 		lws_system_do_attach(pt);
@@ -78,10 +78,10 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 
 		for (n = 0; n < own_len; n++) {
 			lws_sorted_usec_list_t *sul;
-			if (!own[n].count)
+			if (!pt->pt_sul_owner[n].owner.count)
 				continue;
 			sul = (lws_sorted_usec_list_t *)
-					lws_dll2_get_head(&own[n]);
+				lws_dll2_get_head(&pt->pt_sul_owner[n].owner);
 
 			if (!hit || sul->us <= lowest) {
 				hit = sul;
@@ -171,14 +171,14 @@ lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us)
 
 		for (n = 0; n < LWS_COUNT_PT_SUL_OWNERS; n++) {
 
-			if (!pt->pt_sul_owner[n].count)
+			if (!pt->pt_sul_owner[n].owner.count)
 				continue;
 
 			/* ... and for every existing sul on a list... */
 
 			lws_start_foreach_dll(struct lws_dll2 *, p,
 					      lws_dll2_get_head(
-							&pt->pt_sul_owner[n])) {
+						&pt->pt_sul_owner[n].owner)) {
 				lws_sorted_usec_list_t *sul = lws_container_of(
 					       p, lws_sorted_usec_list_t, list);
 
@@ -217,10 +217,10 @@ lws_sul_earliest_wakeable_event(struct lws_context *ctx, lws_usec_t *pearliest)
 
 		lws_pt_lock(pt, __func__);
 
-		if (pt->pt_sul_owner[LWSSULLI_WAKE_IF_SUSPENDED].count) {
+		if (pt->pt_sul_owner[LWSSULLI_WAKE_IF_SUSPENDED].owner.count) {
 			lws_sorted_usec_list_t *sul = (lws_sorted_usec_list_t *)
 					lws_dll2_get_head(&pt->pt_sul_owner[
-					           LWSSULLI_WAKE_IF_SUSPENDED]);
+					    LWSSULLI_WAKE_IF_SUSPENDED].owner);
 
 			if (hit == -1 || sul->us < lowest) {
 				hit = n;

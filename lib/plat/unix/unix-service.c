@@ -132,7 +132,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * service ripe scheduled events, and limit wait to next expected one
 	 */
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS, us);
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, us);
 	if (us && us < timeout_us)
 		/*
 		 * If something wants zero wait, that's OK, but if the next sul

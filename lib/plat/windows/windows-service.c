@@ -149,7 +149,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		lws_context_lock(pt->context, __func__); /* cx then pt */
 		lws_pt_lock(pt, __func__);
 		/* don't stay in poll wait longer than next hr timeout */
-		us = __lws_sul_service_ripe(pt->pt_sul_owner,
+		us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
 					    LWS_COUNT_PT_SUL_OWNERS,
 					    lws_now_usecs());
 		if (us && us < timeout_us)

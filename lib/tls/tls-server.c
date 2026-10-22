@@ -632,10 +632,8 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 
 	/* check certs in a few seconds (after protocol init) and then once a day */
 
-	context->pt[0].sul_tls.cb = lws_sul_tls_cb;
-	__lws_sul_insert_us(&context->pt[0], LWSSULLI_MISS_IF_SUSPENDED,
-			    &context->pt[0].sul_tls,
-			    (lws_usec_t)5 * LWS_US_PER_SEC);
+	lws_sul_schedule(context, 0, &context->pt[0].sul_tls, lws_sul_tls_cb,
+			 (lws_usec_t)5 * LWS_US_PER_SEC);
 
 	return 0;
 }

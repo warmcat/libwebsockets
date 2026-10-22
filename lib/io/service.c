@@ -398,8 +398,8 @@ lws_service_set_now(struct lws_context *context, int tsi, lws_usec_t now_us,
 	pt->now_wall = now_wall;
 	pt->now_external = 1;
 
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    now_us);
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, now_us);
 	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
 
@@ -434,7 +434,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		lws_context_lock(pt->context, __func__); /* cx then pt */
 		lws_pt_lock(pt, __func__); /* -------------- pt { */
 
-		u = __lws_sul_service_ripe(pt->pt_sul_owner,
+		u = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
 				      LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 		/*
 		 * We will come back with 0 if nothing to do at the moment, or

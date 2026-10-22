@@ -1717,14 +1717,12 @@ rops_pt_init_destroy_h1(struct lws_context *context,
 	 * the default build neither ran and the watchdog never existed.
 	 */
 #if defined(LWS_WITH_SERVER)
-	if (!destroy) {
-
-		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;
-
-		__lws_sul_insert_us(pt, LWSSULLI_MISS_IF_SUSPENDED,
-				 &pt->sul_ah_lifecheck, 30 * LWS_US_PER_SEC);
-	} else
-		lws_dll2_remove(&pt->sul_ah_lifecheck.list);
+	if (!destroy)
+		lws_sul_schedule(context, (int)pt->tid, &pt->sul_ah_lifecheck,
+				 lws_sul_http_ah_lifecheck,
+				 30 * LWS_US_PER_SEC);
+	else
+		lws_sul_cancel(&pt->sul_ah_lifecheck);
 #endif
 
 	return 0;

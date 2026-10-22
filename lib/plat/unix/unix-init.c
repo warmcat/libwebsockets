@@ -269,10 +269,8 @@ lws_plat_init(struct lws_context *context,
 #if defined(LWS_WITH_NETWORK)
 	/* we only need to do this on pt[0] */
 
-	context->pt[0].sul_plat.cb = lws_sul_plat_unix;
-	__lws_sul_insert_us(&context->pt[0], LWSSULLI_MISS_IF_SUSPENDED,
-			    &context->pt[0].sul_plat,
-			    lws_plat_unix_periodic_us(context));
+	lws_sul_schedule(context, 0, &context->pt[0].sul_plat,
+			 lws_sul_plat_unix, lws_plat_unix_periodic_us(context));
 #endif
 
 	return 0;

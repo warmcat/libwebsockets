@@ -45,8 +45,8 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 
 	lws_context_lock(pt->context, __func__);
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
 			       (uint64_t)lws_us_to_ms_ceil(us), 0);
@@ -79,8 +79,8 @@ lws_uv_idle(uv_idle_t *handle
 
 	/* account for sultimer */
 
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
 			       (uint64_t)lws_us_to_ms_ceil(us), 0);

@@ -38,8 +38,8 @@ lws_event_hrtimer_cb(evutil_socket_t fd, short event, void *p)
 
 	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us) {
 #if defined(__APPLE__)
 		tv.tv_sec = (int)(us / LWS_US_PER_SEC);
@@ -89,8 +89,8 @@ lws_event_idle_timer_cb(evutil_socket_t fd, short event, void *p)
 
 	lws_context_lock(pt->context, __func__); /* cx then pt */
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us) {
 		tv.tv_sec = (suseconds_t)(us / LWS_US_PER_SEC);
 		tv.tv_usec = (suseconds_t)(us - (tv.tv_sec * LWS_US_PER_SEC));

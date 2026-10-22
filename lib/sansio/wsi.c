@@ -2893,11 +2893,13 @@ _lws_validity_confirmed_role(struct lws *wsi)
 					    rbo->secs_since_valid_ping,
 			   wsi->validity_hup);
 
+	lws_pt_lock(pt, __func__);
 	__lws_sul_insert_us(pt, !!wsi->conn_validity_wakesuspend,
 			    &wsi->sul_validity,
 			    ((uint64_t)(wsi->validity_hup ?
 				rbo->secs_since_valid_hangup :
 				rbo->secs_since_valid_ping)) * LWS_US_PER_SEC);
+	lws_pt_unlock(pt);
 }
 
 /*

@@ -666,7 +666,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 	size_t size = sizeof(struct lws_context);
 #if !defined(LWS_PLAT_BAREMETAL) && defined(LWS_WITH_NETWORK)
-	int n;
+	int n, m;
 #endif
 	unsigned int lpf = info->fd_limit_per_thread;
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
@@ -1701,6 +1701,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 		context->pt[n].context = context;
 		context->pt[n].tid = (uint8_t)n;
+		for (m = 0; m < LWS_COUNT_PT_SUL_OWNERS; m++)
+			context->pt[n].pt_sul_owner[m].pt = &context->pt[n];
 
 		/*
 		 * The cancel-pipe fds are valid kernel fds (which may legitimately
@@ -3327,7 +3329,10 @@ next_l:
 		 * their dll2 doesn't point into freed heap, which would make a
 		 * later lws_sul_cancel() from the app a write-after-free.
 		 * Detaching leaves lws_sul_cancel() on them a NOP.  Their
-		 * callbacks are not, and must not be, called from here.
+		 * callbacks are not, and must not be, called from here.  The
+		 * pt locks are already gone, and no service thread is left,
+		 * so they are unlinked directly, not with lws_sul_cancel(),
+		 * which would take them.
 		 */
 
 		for (n = 0; n < context->count_threads; n++) {
@@ -3336,17 +3341,18 @@ next_l:
 			pt = &context->pt[n];
 
 			for (m = 0; m < LWS_COUNT_PT_SUL_OWNERS; m++)
-				while (lws_dll2_get_head(&pt->pt_sul_owner[m])) {
+				while (lws_dll2_get_head(&pt->pt_sul_owner[m].owner)) {
 					lws_sorted_usec_list_t *sul =
 					   lws_container_of(lws_dll2_get_head(
-							 &pt->pt_sul_owner[m]),
+						       &pt->pt_sul_owner[m].owner),
 						lws_sorted_usec_list_t, list);
 
 					lwsl_cx_info(context, "pt %d: detaching "
 						     "sul (list %d) cb %p",
 						     n, m, sul->cb);
 
-					lws_sul_cancel(sul);
+					lws_dll2_remove(&sul->list);
+					sul->us = 0;
 				}
 		}
 #endif

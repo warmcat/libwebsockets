@@ -175,8 +175,8 @@ lws_glib_hrtimer_cb(void *p)
 
 	lws_gs_destroy(pt_to_priv_glib(pt)->hrtimer);
 
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us) {
 		/* not due yet: sleep until it is, not short of it */
 		ms = (unsigned int)lws_us_to_ms_ceil(us);

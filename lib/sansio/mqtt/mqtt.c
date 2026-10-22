@@ -2725,16 +2725,20 @@ do_write:
 		 * we must RETRY the publish
 		 */
 		wsi->mqtt->sul_qos_puback_pubrec_wait.cb = lws_mqtt_publish_resend;
+		lws_pt_lock(pt, __func__);
 		__lws_sul_insert_us(pt, wsi->conn_validity_wakesuspend,
 				    &wsi->mqtt->sul_qos_puback_pubrec_wait,
 				    3 * LWS_USEC_PER_SEC);
+		lws_pt_unlock(pt);
 	}
 
 	if (wsi->mqtt->inside_shadow) {
 		wsi->mqtt->sul_shadow_wait.cb = lws_mqtt_shadow_timeout;
+		lws_pt_lock(pt, __func__);
 		__lws_sul_insert_us(pt, wsi->conn_validity_wakesuspend,
 				    &wsi->mqtt->sul_shadow_wait,
 				    60 * LWS_USEC_PER_SEC);
+		lws_pt_unlock(pt);
 	}
 
 	return 0;
@@ -3154,9 +3158,11 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 	wsi->mqtt->inside_unsubscribe = 1;
 
 	wsi->mqtt->sul_unsuback_wait.cb = lws_mqtt_unsuback_timeout;
+	lws_pt_lock(pt, __func__);
 	__lws_sul_insert_us(pt, wsi->conn_validity_wakesuspend,
 			    &wsi->mqtt->sul_unsuback_wait,
 			    3 * LWS_USEC_PER_SEC);
+	lws_pt_unlock(pt);
 
 	return 0;
 }

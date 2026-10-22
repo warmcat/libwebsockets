@@ -70,10 +70,50 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul)
 	return 0;
 }
 
+#if LWS_MAX_SMP > 1
+/*
+ * The pt whose sul list this is.  Every list a sul is scheduled on is one of a
+ * pt's pt_sul_owner[] (__lws_sul_insert_pt() is the only way on to one)
+ */
+
+static struct lws_context_per_thread *
+lws_sul_owner_pt(lws_dll2_owner_t *own)
+{
+	return lws_container_of(own, struct lws_pt_sul_owner, owner)->pt;
+}
+#endif
+
 void
 lws_sul_cancel(lws_sorted_usec_list_t *sul)
 {
+#if LWS_MAX_SMP > 1
+	struct lws_context_per_thread *pt;
+	lws_dll2_owner_t *own;
+
+	/*
+	 * A pt's sul list is only changed holding that pt's lock, by its own
+	 * thread too, since other threads schedule on to it (see the lock
+	 * order comment in private-lib-core.h).  We are only given the sul, so
+	 * find the pt from the list it is on.  Which list that is was read
+	 * before we held anything: if the sul moved meanwhile, look again.
+	 */
+
+	while ((own = lws_dll2_owner(&sul->list))) {
+		pt = lws_sul_owner_pt(own);
+
+		lws_pt_lock(pt, __func__);
+		if (lws_dll2_owner(&sul->list) == own) {
+			lws_dll2_remove(&sul->list);
+			sul->us = 0;
+			lws_pt_unlock(pt);
+
+			return;
+		}
+		lws_pt_unlock(pt);
+	}
+#else
 	lws_dll2_remove(&sul->list);
+#endif
 
 	/* we are clearing the timeout and leaving ourselves detached */
 	sul->us = 0;
@@ -83,16 +123,15 @@ void
 lws_sul_cancel_tsi(struct lws_context *ctx, int tsi,
 		   lws_sorted_usec_list_t *sul)
 {
-	struct lws_context_per_thread *pt = &ctx->pt[tsi];
-
 	/*
-	 * The pt's own thread inserts into its list under only its pt lock, so
-	 * a thread that is not that pt's must hold it too to unlink from it
+	 * lws_sul_cancel() takes the lock of the pt the sul is on itself now,
+	 * from whichever thread
 	 */
 
-	lws_pt_lock(pt, __func__);
+	(void)ctx;
+	(void)tsi;
+
 	lws_sul_cancel(sul);
-	lws_pt_unlock(pt);
 }
 
 void
@@ -101,7 +140,21 @@ __lws_sul_insert_pt(struct lws_context_per_thread *pt, int idx,
 {
 	struct lws_context *cx = pt->context;
 
-	__lws_sul_insert(&pt->pt_sul_owner[idx], sul);
+	/*
+	 * The caller holds this pt's lock, as anything changing a pt's sul list
+	 * must (see the lock order comment in private-lib-core.h).  If the sul
+	 * is moving here from another pt's list, it comes off that one under
+	 * that pt's lock
+	 */
+
+	lws_pt_assert_lock_held(pt);
+#if LWS_MAX_SMP > 1
+	if (lws_dll2_owner(&sul->list) &&
+	    lws_sul_owner_pt(lws_dll2_owner(&sul->list)) != pt)
+		lws_sul_cancel(sul);
+#endif
+
+	__lws_sul_insert(&pt->pt_sul_owner[idx].owner, sul);
 
 	/*
 	 * If this became the earliest deadline on the pt, an IO that wants
@@ -109,7 +162,7 @@ __lws_sul_insert_pt(struct lws_context_per_thread *pt, int idx,
 	 * what is due each time round instead
 	 */
 	if (cx->io_ops && cx->io_ops->deadline &&
-	    lws_dll2_get_head(&pt->pt_sul_owner[idx]) == &sul->list)
+	    lws_dll2_get_head(&pt->pt_sul_owner[idx].owner) == &sul->list)
 		cx->io_ops->deadline(cx, (int)pt->tid, sul->us);
 }
 
@@ -193,7 +246,7 @@ lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
 		for (m = 0; m < LWS_COUNT_PT_SUL_OWNERS; m++) {
 
 			lws_start_foreach_dll(struct lws_dll2 *, p,
-				      lws_dll2_get_head(&pt->pt_sul_owner[m])) {
+				      lws_dll2_get_head(&pt->pt_sul_owner[m].owner)) {
 				lws_sorted_usec_list_t *sul =
 					lws_container_of(p,
 						lws_sorted_usec_list_t, list);

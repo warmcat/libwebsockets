@@ -1347,11 +1347,16 @@ void lwsl_emit_stderr(int level, const char *line);
  * context lock, taking them in ascending order (vhost destroy does this).
  * Every event loop services its pt's sul list under the context lock and
  * then the pt lock, so a sul callback that closes a wsi or destroys a vhost
- * (both context, then pt) is in order.  A pt's own thread adds and removes
- * its suls under only its pt lock, so the context lock does not keep it out:
- * a sul on another pt's list (eg, the vhost idle grace, kept on pt 0) is
- * scheduled with lws_sul_schedule() and cancelled with lws_sul_cancel_tsi(),
- * which take that pt's lock, never with a bare lws_sul_cancel().  The mutexes
+ * (both context, then pt) is in order.
+ *
+ * A pt's sul lists are only ever changed holding that pt's lock, by every
+ * thread, the pt's own included: other threads schedule on to them (async dns
+ * finishing a query for its pt, the vhost idle grace kept on pt 0, ...), and
+ * the context lock does not keep the pt's own thread out.  lws_sul_schedule()
+ * and lws_sul_cancel() take the lock themselves (lws_sul_cancel() finds the
+ * pt from the list the sul is on), so they are safe from any thread; code
+ * using __lws_sul_insert_pt() / __lws_sul_insert_us() or lws_sul2_schedule()
+ * must hold it already, which debug SMP builds assert (G-638).  The mutexes
  * are recursive, so taking one already held, in order, is fine (C-131).
  */
 #if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1

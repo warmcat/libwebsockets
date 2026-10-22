@@ -34,8 +34,8 @@ sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata)
 	lws_context_lock(pt->context, __func__);
 	lws_pt_lock(pt, __func__);
 
-	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				    lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				    LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 	if (us) {
 		uint64_t at;
 
@@ -73,8 +73,8 @@ idle_handler(sd_event_source *s, uint64_t usec, void *userdata)
 
 	 /* account for sultimer */
 
-	 us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
-				     lws_now_usecs());
+	 us = __lws_sul_service_ripe(&pt->pt_sul_owner[0].owner,
+				     LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 
 	 if (us) {
 		 uint64_t at;

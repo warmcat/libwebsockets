@@ -58,10 +58,16 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 void
 lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 {
-	if ((int64_t)usecs == (int64_t)LWS_SET_TIMER_USEC_CANCEL)
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	if ((int64_t)usecs == (int64_t)LWS_SET_TIMER_USEC_CANCEL) {
 		lws_sul_cancel(&wsi->sul_hrtimer);
-	else
-		__lws_set_timer_usecs(wsi, usecs);
+		return;
+	}
+
+	lws_pt_lock(pt, __func__);
+	__lws_set_timer_usecs(wsi, usecs);
+	lws_pt_unlock(pt);
 }
 
 /*

@@ -447,6 +447,17 @@ lws_aysnc_dns_completed(struct lws *wsi, void *sa, size_t salen,
  * these things need to be isolated per-thread.
  */
 
+/*
+ * One of a pt's sul lists.  Knowing the pt from the list a sul is on lets
+ * lws_sul_cancel(), which is only given the sul, find the pt whose lock
+ * covers that list
+ */
+
+struct lws_pt_sul_owner {
+	lws_dll2_owner_t		owner;
+	struct lws_context_per_thread	*pt;
+};
+
 struct lws_context_per_thread {
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock_stats;
@@ -465,7 +476,7 @@ struct lws_context_per_thread {
 	lws_dll2_owner_t ss_client_owner;
 #endif
 
-	struct lws_dll2_owner pt_sul_owner[LWS_COUNT_PT_SUL_OWNERS];
+	struct lws_pt_sul_owner pt_sul_owner[LWS_COUNT_PT_SUL_OWNERS];
 
 	lws_dll2_owner_t pre_natal_wsi_owner; /* allocated wsi not yet bound to vh
 						 are kept on here until bound, so
