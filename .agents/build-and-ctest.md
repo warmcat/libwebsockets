@@ -175,6 +175,12 @@
    the queries are sent.
  - **`lws_cmdline_option()` prefix-matches**: a switch that is a prefix of
    another (`-i` vs `-ip`) silently collides.
+ - **qir (WebTransport interop shim) runs end to end on loopback**: use
+   `--www` / `--downloads`, run the server where localhost-100y.cert/.key
+   are, set TESTCASE and PORT; client REQUESTS=`https://localhost:PORT/<ep>/<file>`
+   (for -send: client TESTCASE=transfer with a bare-endpoint REQUESTS, server
+   REQUESTS_SERVER=`<ep>/<file>`).  Background servers with `exec` inside a
+   subshell, or killing the subshell leaves the server holding the port.
  - **Tests that count PROTOCOL_INIT need
    `LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS`** in plugins builds
    (G-572), or a vhost only inits protocols it has pvos for.

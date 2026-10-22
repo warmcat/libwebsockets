@@ -183,6 +183,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **`lws_filename_purify_inplace()` yields one safe path component** since
    G-553 (78819fef0); the caller must still refuse an empty name, bound
    the length and create with O_EXCL | O_NOFOLLOW (G-552).
+ - **An lwsac-mode spa never writes into the caller's `param_names`** since
+   G-555 (06fdd8cad): names for NULL (open) slots come from
+   `lws_spa_get_name()`.
  - **On h1, `lws_return_http_status()` doesn't set `sent_response_headers`**
    for a POST on protocols[0] (it writes with LWS_WRITE_HTTP): falling
    through to `lws_callback_http_dummy` at BODY_COMPLETION sends a second
