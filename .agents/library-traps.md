@@ -39,6 +39,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    start extra service threads after PROTOCOL_INIT until it's fixed.
    `lws_client_connect_via_info()` asserts in SMP when called
    from a non-service thread.
+ - **libdbus aborts the process on an invalid-UTF-8 string argument**
+   (`dbus_message_append_args()` / `_iter_append_basic()` checks are fatal
+   by default): validate or send outside bytes as a byte array (G-627).
  - **FreeRTOS builds force `LWS_MAX_SMP 1`, so `lws_pt_lock()` and
    `lws_context_lock()` compile to nothing there.**  esp-idf event
    handlers, the timer daemon and ISRs run outside the lws thread and
