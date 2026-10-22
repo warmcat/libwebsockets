@@ -76,6 +76,11 @@
    A context loads every `libprotocol_*.so` in the build tree's `lib/`, so
    a test that passed before a full `make` can fail this way after it;
    "dir_cb: ... was not loaded" lines from stale plugins are harmless.
+ - **bearssl can be built and ctested here** from upstream BearSSL
+   source (plain `make`), with its inc/ and build/ outside the lws tree
+   (CMake rejects interface include dirs inside it):
+   `-DLWS_WITH_BEARSSL=1 -DLWS_BEARSSL_INCLUDE_DIRS=... -DLWS_BEARSSL_LIBRARIES=.../libbearssl.so`
+   and `LD_LIBRARY_PATH` for ctest (B80: 284/284).
  - **The webrtc mixer can be syntax-checked without GStreamer**: stub gst
    and `opus/opus.h` (OpusDecoder / OpusEncoder typedefs) headers plus a
    copy of the build's include dir with `LWS_WITH_DTLS` and
