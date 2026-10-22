@@ -1562,19 +1562,23 @@ bail:
  * index must find attributes as the walk did: by name ignoring case, and the
  * first of a repeated name.
  *
- * These steps scan no long values, so the allowance is near what one really
- * costs, not LHPT_WORK_STEP: a simple selector with its index probes, one
- * short name compared and < 64 class bytes scanned.  Without the step for
- * each further simple selector, matching then does ~3x what this allows,
- * where LHPT_WORK_STEP left a 2.5% margin (G-541).
+ * These steps scan no values to speak of (test_selector_values fences
+ * that), so the allowance is near what one really costs, not LHPT_WORK_STEP:
+ * a simple selector with its index probes and one short name compared,
+ * ~8 units of work.  The work is also charged, a step per LHP_SEL_STEP_WORK
+ * units, so taking away the step for every other simple selector only
+ * raises the work per step ~1.5x, not 2x: the allowance is ~1.25x what it
+ * costs, so that is red as well as taking the step away altogether (~3x).
+ * An allowance of 96, or one sized for compounds that scan long class
+ * values, left a step per two simple selectors green (G-541).
  */
 
 #define LHPT_SC_SELS		128	/* of each kind */
 #define LHPT_SC_ATRS		40	/* [z] in a compound */
 #define LHPT_SC_CLASSES		58	/* .a in a compound */
 #define LHPT_SC_NEST		60
-#define LHPT_SC_JUNK		60	/* class bytes before the a */
-#define LHPT_SC_WORK_STEP	96
+#define LHPT_SC_JUNK		2	/* class bytes before the a */
+#define LHPT_SC_WORK_STEP	10
 #define LHPT_SC_WORK_ELEM	((uint64_t)LHPT_SEL_STEPS_ELEM * \
 				 LHPT_SC_WORK_STEP)
 
