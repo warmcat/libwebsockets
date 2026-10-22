@@ -12,11 +12,12 @@
  * to its ringbuffer and wake every service thread with lws_cancel_service().
  *
  * Clients in the same process keep connecting and closing, some as soon as
- * they are established, some after their first message, on both service
- * threads, for a few seconds, while another thread calls
- * lws_cancel_service() all the time as well, so each service thread is
- * walking its connections often while the other is opening and closing its
- * own.
+ * they are established, some after their first message, for a few seconds,
+ * so the server's connections on both service threads keep coming and going,
+ * while another thread calls lws_cancel_service() all the time as well, so
+ * each service thread is walking its connections often while the other is
+ * opening and closing its own.  The clients are in a context of their own,
+ * with one service thread, so only the example's server side is SMP.
  *
  * The test fails if anything crashes (run it under ASan), any client fails
  * to connect, any message is not one the example sends, or not enough
@@ -42,20 +43,20 @@
 struct churner {
 	lws_sorted_usec_list_t	sul;
 	struct lws		*wsi;
-	int			tsi;
 	int			idx;
 	int			round;
 };
 
 struct svc {
 	pthread_t		thread;
+	struct lws_context	*cx;
 	int			tsi;
 };
 
-static struct lws_context *context;
+static struct lws_context *context, *cx_cli;
 static struct lws_vhost *vh_cli;
 static struct churner churners[CHURNERS];
-static struct svc svc[THREADS_MAX];
+static struct svc svc[THREADS_MAX + 1];
 static lws_sorted_usec_list_t sul_stop;
 static const char *server_address = "localhost";
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -82,7 +83,7 @@ churner_connect_cb(lws_sorted_usec_list_t *sul)
 		return;
 
 	memset(&i, 0, sizeof(i));
-	i.context		= context;
+	i.context		= cx_cli;
 	i.vhost			= vh_cli;
 	i.address		= server_address;
 	i.port			= port;
@@ -97,7 +98,7 @@ churner_connect_cb(lws_sorted_usec_list_t *sul)
 	if (!lws_client_connect_via_info(&i)) {
 		count(&conn_errors);
 		/* try again in a moment */
-		lws_sul_schedule(context, ch->tsi, &ch->sul,
+		lws_sul_schedule(cx_cli, 0, &ch->sul,
 				 churner_connect_cb, 10 * LWS_US_PER_MS);
 	}
 }
@@ -139,9 +140,9 @@ callback_smp_client(struct lws *wsi, enum lws_callback_reasons reason,
 		/* fallthru */
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		ch->wsi = NULL;
-		/* go again, from our own service thread */
+		/* go again, from the client service thread */
 		if (!stopping)
-			lws_sul_schedule(context, ch->tsi, &ch->sul,
+			lws_sul_schedule(cx_cli, 0, &ch->sul,
 					 churner_connect_cb, 1);
 		break;
 
@@ -177,6 +178,7 @@ stop_cb(lws_sorted_usec_list_t *sul)
 	stopping = 1;
 	interrupted = 1;
 	lws_cancel_service(context);
+	lws_cancel_service(cx_cli);
 }
 
 static void *
@@ -184,7 +186,7 @@ service_thread(void *d)
 {
 	struct svc *s = (struct svc *)d;
 
-	while (!interrupted && lws_service_tsi(context, 0, s->tsi) >= 0)
+	while (!interrupted && lws_service_tsi(s->cx, 0, s->tsi) >= 0)
 		;
 
 	return NULL;
@@ -242,6 +244,15 @@ main(int argc, const char **argv)
 	}
 	threads = lws_get_count_threads(context);
 
+	/* the clients' own context, with one service thread */
+	info.count_threads = 1;
+	cx_cli = lws_create_context(&info);
+	if (!cx_cli) {
+		lwsl_err("lws client context init failed\n");
+		lws_context_destroy(context);
+		return 1;
+	}
+
 	/* the example's protocol, on a random port */
 	info.port = 0;
 	info.vhost_name = "smp";
@@ -258,17 +269,15 @@ main(int argc, const char **argv)
 	info.vhost_name = "cli";
 	info.protocols = protocols_cli;
 	info.pvo = NULL;
-	vh_cli = lws_create_vhost(context, &info);
+	vh_cli = lws_create_vhost(cx_cli, &info);
 	if (!vh_cli) {
 		lwsl_err("Failed to create client vhost\n");
 		goto bail;
 	}
 
-	/* the churners start on every service thread */
 	for (n = 0; n < CHURNERS; n++) {
 		churners[n].idx = n;
-		churners[n].tsi = n % threads;
-		lws_sul_schedule(context, churners[n].tsi, &churners[n].sul,
+		lws_sul_schedule(cx_cli, 0, &churners[n].sul,
 				 churner_connect_cb, 1 + n);
 	}
 	lws_sul_schedule(context, 0, &sul_stop, stop_cb, RUN_US);
@@ -276,13 +285,16 @@ main(int argc, const char **argv)
 	if (!pthread_create(&poker, NULL, poke_thread, NULL))
 		poking = 1;
 
-	for (n = 0; n < threads; n++) {
-		svc[n].tsi = n;
+	/* the server's service threads, then the client one */
+	for (n = 0; n <= threads; n++) {
+		svc[n].cx = n < threads ? context : cx_cli;
+		svc[n].tsi = n < threads ? n : 0;
 		if (pthread_create(&svc[n].thread, NULL, service_thread,
 				   &svc[n])) {
 			lwsl_err("%s: can't start service thread\n", __func__);
 			interrupted = 1;
 			lws_cancel_service(context);
+			lws_cancel_service(cx_cli);
 			break;
 		}
 	}
@@ -305,6 +317,7 @@ bail:
 	for (n = 0; n < CHURNERS; n++)
 		lws_sul_cancel(&churners[n].sul);
 
+	lws_context_destroy(cx_cli);
 	lws_context_destroy(context);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
