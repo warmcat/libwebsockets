@@ -26,5 +26,15 @@ and nothing of either is passed on.
 
 A ringbuffer holds up to 8 lines of text.
 
-This also demonstrates how the ringbuffer can take action against lagging or
-disconnected clients that cause the ringbuffer to fill.
+A message is freed from the ringbuffer once it has been sent to everybody.
+This also demonstrates what to do about clients that send faster than the
+others can be sent to, and clients that stop reading:
+
+ - when the ringbuffer is full, the server stops reading from every client
+   (`lws_rx_flow_control()`) until it is half empty again, so senders are
+   slowed to the pace of the receivers and no message is lost
+
+ - a client that has had messages waiting for it for 5s without catching up
+   is closed, so it can't hold everybody else up for long.  This is decided
+   by that client's own progress, not by how fast anybody sends, so nobody
+   can get other clients closed by sending a lot

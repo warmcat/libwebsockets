@@ -21,3 +21,6 @@ const struct lws_protocols wse_protocol_ring =
 
 /* the largest message the example passes on */
 const size_t wse_max_message_ring = MINIMAL_MAX_MESSAGE;
+
+/* how long the example lets a client lag before closing it */
+const int wse_lag_secs_ring = MINIMAL_LAG_SECS;

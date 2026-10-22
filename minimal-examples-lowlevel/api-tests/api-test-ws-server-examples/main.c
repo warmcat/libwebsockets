@@ -29,6 +29,15 @@
  *    invalid UTF-8 TEXT message is refused (close 1007), with nothing passed
  *    on from either
  *
+ * minimal-ws-server-ring passes on every message to every client, through
+ * a ringbuffer that frees a message once everybody has been sent it
+ *
+ *  - a client sending 20 messages at once, more than the ring holds, gets
+ *    them all to two readers, in order, with nobody closed
+ *  - a client that stops reading is closed after the example's lag limit,
+ *    so it can't hold up the others: while it is stuck, 3000 messages of
+ *    4000 bytes get through to a reader, in order, and nothing is lost
+ *
  * The test fails if any of that doesn't happen, or it doesn't all complete
  * in time.
  */
@@ -77,6 +86,33 @@ enum {
 	WSE_C_COUNT = WSE_C_RELAY + (LWS_ARRAY_SIZE(relays) * WSE_R_COUNT)
 };
 
+/*
+ * The examples that fan out every message to many clients through a ring,
+ * where one client that stops reading could hold up all the others
+ */
+static const struct wse_fanout {
+	const char		*vhost_name;
+	const char		*protocol_name;
+	const char		*tx_path;	/* where the sender connects */
+	const int		*lag_secs;	/* stuck client is closed after */
+} fanouts[] = {
+	{ "ring",	"lws-minimal",		"/",	&wse_lag_secs_ring },
+};
+
+/* each fan-out case's connections, in fconns[] */
+enum {
+	WSE_F_R1,		/* readers */
+	WSE_F_R2,
+	WSE_F_S,		/* sends */
+	WSE_F_K,		/* stops reading */
+
+	WSE_F_COUNT
+};
+
+#define WSE_F_BURST		20	/* messages sent at once */
+#define WSE_F_LAG_MSGS		3000	/* messages sent while K is stuck */
+#define WSE_F_LAG_LEN		4000	/* ...each this big */
+
 enum {
 	WSE_P_CORNER,
 	WSE_P_CORNER_CHECK,
@@ -84,6 +120,11 @@ enum {
 	WSE_P_RELAY_BIG,
 	WSE_P_RELAY_BAD,
 	WSE_P_RELAY_CHECK,
+	WSE_P_FANOUT,		/* for each fanouts[] in turn */
+	WSE_P_FANOUT_BURST,
+	WSE_P_FANOUT_LAG,
+	WSE_P_FANOUT_RELEASE,
+	WSE_P_FANOUT_CHECK,
 
 	WSE_P_DONE
 };
@@ -105,12 +146,26 @@ struct wse_conn {
 	char			msg_overflow;
 };
 
+struct wse_fconn {
+	struct lws		*wsi;
+	char			msg[WSE_F_LAG_LEN + 1];	/* reassembly */
+	size_t			msg_len;
+	int			burst;		/* burst messages received */
+	int			lag;		/* lag messages received */
+	int			tx;		/* lag messages sent */
+	char			est;
+	char			closed;
+	char			tx_burst;	/* burst sent */
+	char			killed;		/* we closed it */
+};
+
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_phase, sul_timeout;
 static struct wse_conn conns[WSE_C_COUNT];
+static struct wse_fconn fconns[WSE_F_COUNT];
 static const char *server_address = "localhost";
-static int port = 7681, phase, relay, result = 1, failed, interrupted;
+static int port = 7681, phase, relay, fanout, result = 1, failed, interrupted;
 static uint8_t txbuf[LWS_PRE + WSE_MSG_MAX];
 
 /*
@@ -180,6 +235,33 @@ wse_relay_connect(int r)
 
 	return wse_connect(WSE_C_RELAY + (relay * WSE_R_COUNT) + r,
 			   rl->vhost_name, rl->protocol_name, path);
+}
+
+static int
+wse_fanout_connect(int r)
+{
+	const struct wse_fanout *fo = &fanouts[fanout];
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_cli;
+	i.address		= server_address;
+	i.port			= port;
+	i.path			= r == WSE_F_S ? fo->tx_path : "/";
+	i.host			= fo->vhost_name;
+	i.origin		= fo->vhost_name;
+	i.protocol		= fo->protocol_name;
+	i.local_protocol_name	= "wse-fanout-client";
+	i.opaque_user_data	= &fconns[r];
+	i.pwsi			= &fconns[r].wsi;
+
+	if (!lws_client_connect_via_info(&i)) {
+		wse_fail("connect failed");
+		return 1;
+	}
+
+	return 0;
 }
 
 static struct wse_conn *
@@ -314,6 +396,61 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 		else
 			phase++;
 		wse_schedule(1);
+		break;
+
+	case WSE_P_FANOUT:
+		lwsl_user("fan-out case %s\n", fanouts[fanout].vhost_name);
+		memset(fconns, 0, sizeof(fconns));
+		/* the readers first, S joins when they are established */
+		if (wse_fanout_connect(WSE_F_R1) ||
+		    wse_fanout_connect(WSE_F_R2))
+			return;
+		phase++;
+		break;
+
+	case WSE_P_FANOUT_BURST:
+		/* S's burst went to both readers, and K joins */
+		if (wse_fanout_connect(WSE_F_K))
+			return;
+		/* K stops reading when established, then S sends */
+		phase++;
+		break;
+
+	case WSE_P_FANOUT_RELEASE:
+		/* let K read again, so it sees it was closed */
+		if (fconns[WSE_F_K].wsi)
+			lws_rx_flow_control(fconns[WSE_F_K].wsi, 1);
+		phase++;
+		wse_schedule(LWS_US_PER_SEC);
+		break;
+
+	case WSE_P_FANOUT_CHECK:
+		lwsl_user("fan-out %s: R1 %d / %d, R2 %d / %d, K closed %d\n",
+			  fanouts[fanout].vhost_name, fconns[WSE_F_R1].burst,
+			  fconns[WSE_F_R1].lag, fconns[WSE_F_R2].burst,
+			  fconns[WSE_F_R2].lag, fconns[WSE_F_K].closed);
+		if (!fconns[WSE_F_K].closed) {
+			wse_fail("stuck client was not closed");
+			return;
+		}
+		if (fconns[WSE_F_R1].closed || fconns[WSE_F_R2].closed ||
+		    fconns[WSE_F_S].closed) {
+			wse_fail("a client that kept up was closed");
+			return;
+		}
+		for (n = 0; n < (size_t)WSE_F_COUNT; n++)
+			if (fconns[n].wsi) {
+				fconns[n].killed = 1;
+				lws_set_timeout(fconns[n].wsi,
+						PENDING_TIMEOUT_USER_OK,
+						LWS_TO_KILL_ASYNC);
+			}
+		if (++fanout < (int)LWS_ARRAY_SIZE(fanouts))
+			phase = WSE_P_FANOUT;
+		else
+			phase++;
+		/* let them close before the next case reuses fconns[] */
+		wse_schedule(200 * LWS_US_PER_MS);
 		break;
 
 	case WSE_P_DONE:
@@ -577,8 +714,146 @@ callback_wse_client(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+static int
+wse_fanout_rx(struct wse_fconn *c, int r, const char *in, size_t len)
+{
+	int n;
+
+	if (len == 3 && in[0] == 'b') {
+		n = ((in[1] - '0') * 10) + (in[2] - '0');
+		if (n != c->burst) {
+			lwsl_err("burst msg %d, expected %d\n", n, c->burst);
+			return 1;
+		}
+		c->burst++;
+		if (r == WSE_F_R2 && c->burst == WSE_F_BURST &&
+		    fconns[WSE_F_R1].burst == WSE_F_BURST)
+			wse_schedule(1);
+		return 0;
+	}
+
+	if (len == WSE_F_LAG_LEN) {
+		n = atoi(in);
+		if (n != c->lag) {
+			lwsl_err("lag msg %d, expected %d\n", n, c->lag);
+			return 1;
+		}
+		c->lag++;
+		if (r == WSE_F_R1 && c->lag == WSE_F_LAG_MSGS) {
+			/* everything got past the stuck client */
+			phase = WSE_P_FANOUT_RELEASE;
+			wse_schedule(1);
+		}
+		return 0;
+	}
+
+	lwsl_err("unexpected message len %d\n", (int)len);
+
+	return 1;
+}
+
+static int
+callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len)
+{
+	struct wse_fconn *c = (struct wse_fconn *)lws_get_opaque_user_data(wsi);
+	int r, n;
+
+	if (!c)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	r = (int)(c - fconns);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		c->est = 1;
+		switch (r) {
+		case WSE_F_R1:
+		case WSE_F_R2:
+			/* S joins when both readers are there */
+			if (fconns[WSE_F_R1].est && fconns[WSE_F_R2].est)
+				wse_fanout_connect(WSE_F_S);
+			break;
+		case WSE_F_S:
+			lws_callback_on_writable(wsi);
+			break;
+		case WSE_F_K:
+			/* K never reads again, until we release it */
+			lws_rx_flow_control(wsi, 0);
+			lws_callback_on_writable(fconns[WSE_F_S].wsi);
+			break;
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (r != WSE_F_S)
+			break;
+
+		if (!c->tx_burst) {
+			/*
+			 * All the burst at once: the server is serviced by
+			 * this same thread, so they all arrive before it
+			 * gets to read any of them
+			 */
+			c->tx_burst = 1;
+			for (n = 0; n < WSE_F_BURST; n++) {
+				lws_snprintf((char *)txbuf + LWS_PRE, 4,
+					     "b%02d", n);
+				if (lws_write(wsi, txbuf + LWS_PRE, 3,
+					      LWS_WRITE_TEXT) < 3)
+					return -1;
+			}
+			break;
+		}
+
+		if (phase != WSE_P_FANOUT_LAG || !fconns[WSE_F_K].est ||
+		    c->tx == WSE_F_LAG_MSGS)
+			break;
+
+		memset(txbuf + LWS_PRE, 'x', WSE_F_LAG_LEN);
+		n = lws_snprintf((char *)txbuf + LWS_PRE, 8, "%06d", c->tx);
+		txbuf[LWS_PRE + n] = 'x';
+		if (lws_write(wsi, txbuf + LWS_PRE, WSE_F_LAG_LEN,
+			      LWS_WRITE_TEXT) < WSE_F_LAG_LEN)
+			return -1;
+		c->tx++;
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		if (lws_is_first_fragment(wsi))
+			c->msg_len = 0;
+		if (len > sizeof(c->msg) - 1 - c->msg_len) {
+			wse_fail("fan-out message too big");
+			break;
+		}
+		memcpy(c->msg + c->msg_len, in, len);
+		c->msg_len += len;
+		if (!lws_is_final_fragment(wsi))
+			break;
+		c->msg[c->msg_len] = '\0';
+		if (r != WSE_F_K && wse_fanout_rx(c, r, c->msg, c->msg_len))
+			wse_fail("fan-out messages lost or out of order");
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		c->closed = 1;
+		c->wsi = NULL;
+		if (r != WSE_F_K && !c->killed)
+			wse_fail("a client that kept up was closed");
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 static const struct lws_protocols protocols_cli[] = {
 	{ "wse-client", callback_wse_client, 0, 0, 0, NULL, 0 },
+	{ "wse-fanout-client", callback_wse_fanout, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -671,7 +946,7 @@ main(int argc, const char **argv)
 
 	wse_schedule(1);
 	lws_sul_schedule(context, 0, &sul_timeout, wse_timeout_cb,
-			 30 * LWS_US_PER_SEC);
+			 60 * LWS_US_PER_SEC);
 
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
