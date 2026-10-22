@@ -154,6 +154,13 @@
    turns are < 1ms): to catch a spin, add up the duration of the turns
    shorter than 1ms instead (489ms spinning vs 0-2ms idle over 500ms in
    api-test-proxy-v2-peer-limits).
+ - **`LWS_WITH_SECURE_STREAMS_AUTH_SIGV4=1` breaks the sspc ctests** when
+   `~/.aws/credentials` is missing: the proxy example returns -1 at
+   OPERATIONAL, so all 12 sspc tests fail with ECONNREFUSED or time out.
+ - Fuzz harnesses can link `lib/libwebsockets.a` and `extern`-declare
+   private functions (eg `lws_ss_policy_set()`).  For readable UBSan
+   reports, compile just the suspect .c files without
+   `-fsanitize-undefined-trap-on-error` and link them ahead of the archive.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
