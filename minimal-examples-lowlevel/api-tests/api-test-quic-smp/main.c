@@ -565,8 +565,13 @@ main(int argc, const char **argv)
 		  LWS_MAX_SMP < QSMP_THREADS_MAX ? LWS_MAX_SMP :
 						   QSMP_THREADS_MAX);
 
+	/*
+	 * The vhosts count PROTOCOL_INIT: in a plugins build a vhost only
+	 * inits protocols it has pvos for, unless told to init all of them
+	 */
 	info.options		= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-				  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+				  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+				  LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
 	/* a server, and both ends of every connection */
 	info.fd_limit_per_thread = 0;
 	info.count_threads	= LWS_MAX_SMP < QSMP_THREADS_MAX ? LWS_MAX_SMP :
