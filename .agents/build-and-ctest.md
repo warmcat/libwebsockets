@@ -173,6 +173,8 @@
    created** and a phase allows only 2s for replies, so a slow zone-dir
    read at init fails it under load (G-509): start the reply window when
    the queries are sent.
+ - **`lws_cmdline_option()` prefix-matches**: a switch that is a prefix of
+   another (`-i` vs `-ip`) silently collides.
  - **Tests that count PROTOCOL_INIT need
    `LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS`** in plugins builds
    (G-572), or a vhost only inits protocols it has pvos for.

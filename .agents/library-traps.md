@@ -383,6 +383,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Raw connections
 
+ - **Raw-skt connections get no timeout at all**: accepted or reached by
+   http fallback, they have `NO_PENDING_TIMEOUT` set before the adoption
+   callback (ops-raw-skt.c, server.c `lws_http_to_raw()`), so a raw
+   protocol must set its own idle timeout (the raw-proxy plugin does,
+   G-295) and flow-control its rx (G-586, G-587).
  - **CONNECT needs a CONNECT mount** (`LWSMPRO_CONNECT`,
    `"origin": "connect://<protocol>"`, mountpoint = `host:port`) since
    G-002; anything else gets 405.  A raw connection has a validity timer
