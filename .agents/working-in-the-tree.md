@@ -109,6 +109,9 @@ sessions.
  - **Generate large probe/fuzz inputs under your build tree on /home, not
    in the scratchpad**: the scratchpad is on the small root fs (it has run out several times), and one
    173MB generated page filled it.
+ - **Example servers use SO_REUSEPORT**: a stale server on the same port
+   silently shares it with a new one.  Check the port is free (`ss -ltn`)
+   before probing, and kill by PID: `pkill -f` can match your own shell.
  - **Copying `git diff --name-only` output from the shared tree into a
    worktree pulls in other agents' half-done edits.**  Copy explicit
    paths of your own files only.

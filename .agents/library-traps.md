@@ -396,6 +396,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## WebSocket rx
 
+ - **An unsolicited ws PONG calls `lws_validity_confirmed()`** (ops-ws.c):
+   a peer that never reads but sends PONGs is never hung up by the
+   validity timer, so tx-stall protection has to be the protocol's own
+   (G-576).
  - **A RECEIVE is not a message, and its UTF-8 may be partial.**  ws rx
    UTF-8 validation (default for TEXT) only insists on a complete
    sequence at the end of the final fragment: a non-final fragment, or a
