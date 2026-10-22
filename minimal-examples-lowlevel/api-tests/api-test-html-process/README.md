@@ -32,6 +32,13 @@ with prior knowledge:
 |---|---|
 |`page.html`, a unit with two variables 150 times|200, every unit with its variables replaced|
 |`empty.html`, empty|200, an empty body (on h1 not announced as chunked, since no last-chunk would follow)|
+|`hm/page.html`, through `/hm`|200, every unit with its variables replaced, and the mount protocol's headers added|
+
+`/hm` is a file mount that interprets `.html` the same way, but also names a
+protocol of its own, with its own per-session data, which adds headers to
+what the mount serves.  The interpreter must still be given its own
+per-session data: it used to run with the mount protocol's, since binding the
+mount protocol for its headers freed the interpreter's.
 
 Last, a raw client sends two requests on one h1 keep-alive connection:
 `page.html`, then a `POST` to `/raw`, a callback mount whose protocol has no

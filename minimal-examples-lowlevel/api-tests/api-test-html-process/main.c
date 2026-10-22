@@ -24,6 +24,12 @@
  * knowledge), in lumps a small serv_buf cuts wherever it falls, and an
  * empty page, which on h1 must still be a whole chunked body.
  *
+ * /hm is a file mount that interprets the same way, but also names a
+ * protocol of its own, with its own per-session data, that adds headers.
+ * The interpreter must still run with its own per-session data: it used to
+ * be given the mount protocol's, which binding that protocol had swapped in
+ * for the interpreter's after it was allocated (G-513).
+ *
  * Last, on one h1 keep-alive connection, an interpreted page and then a POST
  * to /raw, a callback mount whose protocol has no per-session data, which
  * answers with the same file through lws_serve_http_file().  That file is
@@ -219,21 +225,25 @@ struct xcase {
 	int		xport;
 	const char	*path;
 	int		empty;
+	int		hm;	/* the mount protocol must add its headers */
 };
 
 static const struct xcase cases[] = {
-	{ XP_H1, "/page.html", 0 },
-	{ XP_H1, "/empty.html", 1 },
+	{ XP_H1, "/page.html", 0, 0 },
+	{ XP_H1, "/empty.html", 1, 0 },
+	{ XP_H1, "/hm/page.html", 0, 1 },
 #if defined(LWS_WITH_HTTP2)
-	{ XP_H2C, "/page.html", 0 },
-	{ XP_H2C, "/empty.html", 1 },
+	{ XP_H2C, "/page.html", 0, 0 },
+	{ XP_H2C, "/empty.html", 1, 0 },
+	{ XP_H2C, "/hm/page.html", 0, 1 },
 #endif
 };
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
-static int result = 1, cur = -1, port_h1 = 7681, port_h2c = 7682;
+static int result = 1, cur = -1, port_h1 = 7681, port_h2c = 7682,
+	   hm_add_headers, hm_add_headers_before;
 static const char *server_addr = "127.0.0.1";
 
 static struct {
@@ -243,25 +253,53 @@ static struct {
 	int		done;
 } cli;
 
-/* the interpreter: the state is the interpreted request's own */
+/*
+ * The interpreter: the state is the interpreted request's own.  It is
+ * marked as the interpreter's the first time it is used, so being handed
+ * per-session data of another protocol shows
+ */
+
+#define PSS_INTERP_MAGIC	0x1a7e5c01u
+#define PSS_HM_MAGIC		0x4d0c4a11u
+
+struct pss_interp {
+	uint32_t			magic;
+	struct lws_process_html_state	s;
+};
+
+struct pss_hm {
+	uint32_t			magic;
+};
 
 static int
 callback_interp(struct lws *wsi, enum lws_callback_reasons reason,
 		void *user, void *in, size_t len)
 {
-	struct lws_process_html_state *s =
-				(struct lws_process_html_state *)user;
+	struct pss_interp *pss = (struct pss_interp *)user;
 
 	switch (reason) {
 	case LWS_CALLBACK_PROCESS_HTML:
-		if (!s->vars) {
-			s->vars = vars;
-			s->count_vars = (int)LWS_ARRAY_SIZE(vars);
-			s->replace = replace;
+		if (!pss) {
+			lwsl_err("%s: interpreting with no state\n", __func__);
+			return -1;
+		}
+		if (!pss->magic)
+			pss->magic = PSS_INTERP_MAGIC;
+		if (pss->magic != PSS_INTERP_MAGIC) {
+			lwsl_err("%s: interpreting with another protocol's "
+				 "state (0x%x)\n", __func__,
+				 (unsigned int)pss->magic);
+			return -1;
+		}
+		if (!pss->s.vars) {
+			pss->s.vars = vars;
+			pss->s.count_vars = (int)LWS_ARRAY_SIZE(vars);
+			pss->s.replace = replace;
 		}
 
 		return lws_chunked_html_process(
-				(struct lws_process_html_args *)in, s) ? -1 : 0;
+				(struct lws_process_html_args *)in, &pss->s) ?
+									-1 : 0;
 
 	default:
 		break;
@@ -273,6 +311,37 @@ callback_interp(struct lws *wsi, enum lws_callback_reasons reason,
 static const struct lws_protocol_vhost_options interpret = {
 	NULL, NULL, ".html", "interp"
 };
+
+/*
+ * /hm's own protocol: it adds a header to the files the mount serves, and
+ * has per-session data of its own
+ */
+
+static int
+callback_hm(struct lws *wsi, enum lws_callback_reasons reason,
+	    void *user, void *in, size_t len)
+{
+	struct lws_process_html_args *args = (struct lws_process_html_args *)in;
+	struct pss_hm *pss = (struct pss_hm *)user;
+	unsigned char *p, *end;
+
+	if (reason != LWS_CALLBACK_ADD_HEADERS)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	if (!pss)
+		return -1;
+	pss->magic = PSS_HM_MAGIC;
+
+	p = (unsigned char *)args->p;
+	end = p + args->max_len;
+	if (lws_add_http_header_by_name(wsi, (const unsigned char *)"x-hm:",
+					(const unsigned char *)"1", 1, &p, end))
+		return -1;
+	args->p = (char *)p;
+	hm_add_headers++;
+
+	return 0;
+}
 
 /*
  * /raw: answers with ./docroot/page.html as it is, from its callback.  It
@@ -306,8 +375,19 @@ static const struct lws_http_mount mount_raw = {
 /* the pages may be cached, the file /raw sends is nothing to do with that */
 #define PAGE_MAX_AGE	"max-age=600"
 
-static const struct lws_http_mount mount = {
+static const struct lws_http_mount mount_hm = {
 	.mount_next		= &mount_raw,
+	.mountpoint		= "/hm",
+	.origin			= "./docroot",
+	.def			= "page.html",
+	.protocol		= "hdrmount",
+	.origin_protocol	= LWSMPRO_FILE,
+	.mountpoint_len		= 3,
+	.interpret		= &interpret,
+};
+
+static const struct lws_http_mount mount = {
+	.mount_next		= &mount_hm,
 	.mountpoint		= "/",
 	.origin			= "./docroot",
 	.def			= "page.html",
@@ -345,6 +425,11 @@ case_evaluate(void)
 
 	if (cli.status != HTTP_STATUS_OK) {
 		case_done("not served");
+		return;
+	}
+
+	if (c->hm && hm_add_headers == hm_add_headers_before) {
+		case_done("the mount protocol added no headers");
 		return;
 	}
 
@@ -725,8 +810,9 @@ ka_start(void)
 
 static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
-	{ "interp", callback_interp, sizeof(struct lws_process_html_state),
+	{ "interp", callback_interp, sizeof(struct pss_interp),
 	  0, 0, NULL, 0 },
+	{ "hdrmount", callback_hm, sizeof(struct pss_hm), 0, 0, NULL, 0 },
 	{ "rawfile", callback_raw_file, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
@@ -750,6 +836,7 @@ next_case(lws_sorted_usec_list_t *sul)
 	}
 	c = &cases[cur];
 	memset(&cli, 0, sizeof(cli));
+	hm_add_headers_before = hm_add_headers;
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;

@@ -447,6 +447,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	       const struct lws_http_mount *m)
 {
 	const struct lws_protocol_vhost_options *pvo = m->interpret;
+	const struct lws_protocols *ipp;
 	struct lws_process_html_args args;
 	const char *mimetype;
 #if !defined(_WIN32_WCE)
@@ -750,6 +751,28 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	wsi->interpreting = 0;
 
 	/*
+	 * The mount's own protocol adds its headers first, bound with its own
+	 * per-session data.  An interpreter, if the file has one, is bound
+	 * after, so that it makes the response with its own per-session data:
+	 * binding a protocol frees the previous one's, so binding the mount
+	 * protocol after the interpreter left the interpreter's callback
+	 * running with the mount protocol's per-session data as its state
+	 */
+	if (m->protocol) {
+		const struct lws_protocols *pp = lws_vhost_name_to_protocol(
+						       wsi->a.vhost, m->protocol);
+
+		if (!pp || lws_bind_protocol(wsi, pp, __func__))
+			return -1;
+		args.p = (char *)p;
+		args.max_len = lws_ptr_diff(end, p);
+		if (pp->callback(wsi, LWS_CALLBACK_ADD_HEADERS,
+					  wsi->user_space, &args, 0))
+			return -1;
+		p = (unsigned char *)args.p;
+	}
+
+	/*
 	 * check if this is in the list of file suffixes to be interpreted by
 	 * a protocol
 	 */
@@ -776,17 +799,19 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		lws_ranges_destroy(&wsi->http.range);
 #endif
 
-		wsi->protocol_interpret_idx = (char)(
-			lws_vhost_name_to_protocol(wsi->a.vhost,
-						   pvo->value) -
-			&lws_get_vhost(wsi)->protocols[0]);
+		ipp = lws_vhost_name_to_protocol(wsi->a.vhost, pvo->value);
+		if (!ipp || ipp - wsi->a.vhost->protocols > 127) {
+			lwsl_err("%s: no usable interpreter protocol %s\n",
+				 __func__, pvo->value);
+			return -1;
+		}
+		wsi->protocol_interpret_idx = (char)(ipp -
+						     wsi->a.vhost->protocols);
 
 		lwsl_debug("want %s interpreted by %s (pcol is %s)\n", path,
-			    wsi->a.vhost->protocols[
-			             (int)wsi->protocol_interpret_idx].name,
-			             wsi->a.protocol->name);
-		if (lws_bind_protocol(wsi, &wsi->a.vhost->protocols[
-		          (int)wsi->protocol_interpret_idx], __func__))
+			    ipp->name, wsi->a.protocol ?
+					wsi->a.protocol->name : "none");
+		if (lws_bind_protocol(wsi, ipp, __func__))
 			return -1;
 
 		if (lws_ensure_user_space(wsi))
@@ -799,20 +824,6 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 				(unsigned char *)"chunked", 7,
 				&p, end))
 			return -1;
-	}
-
-	if (m->protocol) {
-		const struct lws_protocols *pp = lws_vhost_name_to_protocol(
-						       wsi->a.vhost, m->protocol);
-
-		if (!pp || lws_bind_protocol(wsi, pp, __func__))
-			return -1;
-		args.p = (char *)p;
-		args.max_len = lws_ptr_diff(end, p);
-		if (pp->callback(wsi, LWS_CALLBACK_ADD_HEADERS,
-					  wsi->user_space, &args, 0))
-			return -1;
-		p = (unsigned char *)args.p;
 	}
 
 	*p = '\0';
