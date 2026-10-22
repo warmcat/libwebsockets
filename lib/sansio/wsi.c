@@ -559,17 +559,13 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	if (!vh->count_bound_wsi && vh->grace_after_unref) {
-		struct lws_context_per_thread *pt = &vh->context->pt[0];
-
 		lwsl_wsi_info(wsi, "in use");
 		/*
 		 * vh->sul_unref always lives on pt[0]'s sul list (see
 		 * lws_tls_jit_trust_vh_start_grace()) but we may be called
-		 * from any pt... take pt[0]'s lock before splicing it out
+		 * from any pt
 		 */
-		lws_pt_lock(pt, __func__);
-		lws_sul_cancel(&vh->sul_unref);
-		lws_pt_unlock(pt);
+		lws_sul_cancel_tsi(vh->context, 0, &vh->sul_unref);
 	}
 #endif
 

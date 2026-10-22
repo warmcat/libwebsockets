@@ -80,6 +80,22 @@ lws_sul_cancel(lws_sorted_usec_list_t *sul)
 }
 
 void
+lws_sul_cancel_tsi(struct lws_context *ctx, int tsi,
+		   lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = &ctx->pt[tsi];
+
+	/*
+	 * The pt's own thread inserts into its list under only its pt lock, so
+	 * a thread that is not that pt's must hold it too to unlink from it
+	 */
+
+	lws_pt_lock(pt, __func__);
+	lws_sul_cancel(sul);
+	lws_pt_unlock(pt);
+}
+
+void
 __lws_sul_insert_pt(struct lws_context_per_thread *pt, int idx,
 		    lws_sorted_usec_list_t *sul)
 {

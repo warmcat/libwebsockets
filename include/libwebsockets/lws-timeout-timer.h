@@ -220,9 +220,34 @@ lws_sul2_schedule(struct lws_context *context, int tsi, int flags,
  *
  * If it's scheduled, remove the sul from its owning sorted list.
  * If not scheduled, it's a NOP.
+ *
+ * It takes no lock: with LWS_MAX_SMP > 1, only the service thread whose pt
+ * list the sul is on may use it.  Any other thread uses lws_sul_cancel_tsi().
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_sul_cancel(lws_sorted_usec_list_t *sul);
+
+/*
+ * lws_sul_cancel_tsi() - cancel a scheduled callback from any thread
+ *
+ * \param ctx: the lws_context
+ * \param tsi: the service thread index the sul was scheduled on
+ * \param sul: pointer to the sul element
+ *
+ * As lws_sul_cancel(), but holding the lock of the pt \p tsi while it
+ * unlinks the sul from that pt's list.  With LWS_MAX_SMP > 1, a thread
+ * cancelling a sul that may be on another service thread's list must use
+ * this: that thread adds and removes its own suls holding only its pt lock.
+ * lws_sul_schedule() already takes the lock of the pt it schedules on, so
+ * scheduling onto another service thread's pt is safe as it is, although
+ * that thread only sees the new deadline when it next wakes.
+ *
+ * As for any lws lock, a thread holding a pt lock must also hold the context
+ * lock before taking another pt's lock this way.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_sul_cancel_tsi(struct lws_context *ctx, int tsi,
+		   lws_sorted_usec_list_t *sul);
 
 /*
  * lws_sul_earliest_wakeable_event() - get earliest wake-from-suspend event
