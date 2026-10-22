@@ -586,6 +586,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## DHT transport sequencer
 
+ - **Two paths destroy a sequencer without `on_state_change`**: the
+   oldest-used eviction in `dht_ts_create()` and the idle-out.  Consumers
+   get no WRITE_FAILED for queued data there (G-496), so any promise to
+   consumers about sequencer lifetime has to cover them.
+
  - **Session model (G-133 / G-141):** a receive half binds to the tid of
    the first chunk it takes; only that tid feeds it and our acks echo it.
    A chunk with another tid gets a `"ch"` challenge, and only a chunk
