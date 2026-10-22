@@ -494,6 +494,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Client connect
 
+ - **Headers user code adds in `CLIENT_APPEND_HANDSHAKE_HEADER` are re-sent
+   to any redirect target**: only the cookie jar and digest credentials go
+   through `lws_client_redirect_creds_ok()` (G-614).  Use the
+   CLIENT_HTTP_REDIRECT callback / `lws_client_redirect_info()` to judge.
+   `lws_http_rel_to_url()` passes absolute `file://` references through.
  - **A restart is a second connect for vhost choice.**  Redirects, auth
    retries, QUIC->TCP and address fallback go through
    `lws_client_transport_rebind()` (close.c), not connect.c: a rule like
