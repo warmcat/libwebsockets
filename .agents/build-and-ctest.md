@@ -192,6 +192,11 @@
  - **lhp-dlo golden cases run with `OUTPUT_QUIET ERROR_QUIET`**: debug
    prints never reach ctest output.  Run `bin/lws-api-test-lhp-dlo` on the
    case html (or its `<case>.dlo-<name>.html` copy in the build dir).
+ - **minimal-crypto-dnssec's signzone waits for DHT IP consensus from the
+   public bootstrap node**, so it hangs offline: call
+   `lws_auth_dns_sign_zone()` directly in tests and harnesses.
+ - **api-test-x509-jwk-privkey-pem fails under ASan in openssl trees**
+   (BIGNUM leak) until G-405 is fixed; default trees here use gnutls.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
