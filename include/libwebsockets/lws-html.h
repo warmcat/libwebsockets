@@ -80,13 +80,15 @@
 #endif
 
 /*
- * Most steps of cascade work (ctx->cascade_ops) a document may cost.  The
+ * Most steps of css work (ctx->cascade_ops) a document may cost: parsing
+ * its css, indexing the selectors and cascading its elements all count.  The
  * limits above bound what one element can cost, but not the document: css
  * whose selectors all match every element costs that much again for every
  * element.  Once a document has used this much, its own css (stylesheets
  * and style="" attributes) is ignored for the rest of its elements, with a
- * warning, and they get only the user-agent and filter css.  A large real
- * page (slashdot's front page) costs about 0.5M.
+ * warning, and they get only the user-agent and filter css; any more of it
+ * is not kept either.  A large real page (slashdot's front page) costs about
+ * 0.5M.
  */
 #if !defined(LHP_MAX_CSS_CASCADE_OPS)
 #if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
@@ -901,11 +903,14 @@ typedef struct lhp_ctx {
 	uint64_t		layout_ops; /* steps of table layout work
 					     * done for the document so far,
 					     * for tests to bound */
-	uint64_t		cascade_ops; /* steps of cascade work done
-					      * for the document so far:
-					      * selector index entries visited,
-					      * declarations indexed, lookup
-					      * steps... for tests to bound */
+	uint64_t		cascade_ops; /* steps of css work done for
+					      * the document so far: bytes of
+					      * its css parsed, stanzas and
+					      * selectors indexed, index
+					      * entries visited, declarations
+					      * indexed, lookup steps... what
+					      * LHP_MAX_CSS_CASCADE_OPS bounds,
+					      * and for tests to bound */
 	uint32_t		css_doc_selectors; /* the document's selectors */
 	uint32_t		css_doc_vars; /* and custom properties */
 	uint8_t			css_doc_spent; /* LHP_MAX_CSS_CASCADE_OPS was
@@ -917,7 +922,8 @@ typedef struct lhp_ctx {
 	int32_t			sel_budget; /* selector match steps left
 					     * for the element being
 					     * cascaded */
-	uint32_t		selidx_count; /* stanzas indexed */
+	struct lws_dll2		*selidx_last; /* the last stanza in css
+					       * indexed, or NULL */
 	uint32_t		stz_seq;
 
 	/* ad / junk filtering, see lws_lhp_set_filter() */

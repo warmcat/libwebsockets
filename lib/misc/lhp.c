@@ -2972,28 +2972,66 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
 }
 
 /*
- * (Re)build the selector index over every stanza in ctx->css.  Stylesheets
- * and <style> blocks keep arriving during the parse, so it is rebuilt
- * whenever the cascade finds the stanza count has changed.  Once the
- * document has spent its cascade budget, its own selectors are left out, so
- * the cascade of later elements doesn't so much as visit them
+ * Has the document spent its css budget, LHP_MAX_CSS_CASCADE_OPS steps of
+ * ctx->cascade_ops?  Parsing its css, indexing it and cascading its elements
+ * all count, so this bounds the css work of the whole document, however its
+ * css and elements are interleaved.  The first time it finds the budget spent,
+ * it drops the selector index, so that the next cascade makes it again
+ * without the document's own selectors: the elements after that get only the
+ * user-agent and filter css, at the cost of an ordinary element, and the
+ * parser keeps no more of the document's css.  The overshoot is at most one
+ * element's cascade, which is bounded by itself, or one css byte.
  */
 
 static int
-lhp_selidx_build(lhp_ctx_t *ctx)
+lhp_css_doc_spent(lhp_ctx_t *ctx)
 {
+	if (ctx->css_doc_spent)
+		return 1;
+
+	if (ctx->cascade_ops < LHP_MAX_CSS_CASCADE_OPS)
+		return 0;
+
+	lwsl_warn("%s: document css took %llu steps, ignoring it for the "
+		  "rest of the document\n", __func__,
+		  (unsigned long long)ctx->cascade_ops);
+	ctx->css_doc_spent = 1;
+
 	lwsac_free(&ctx->idxac);
 	lhp_selidx_reset(ctx);
+	ctx->selidx_last = NULL;
 
-	lws_start_foreach_dll(struct lws_dll2 *, q,
-			      lws_dll2_get_head(&ctx->css)) {
+	return 1;
+}
+
+/*
+ * Index the selectors of the stanzas listed on ctx->css since the last time.
+ * Stylesheets and <style> blocks keep arriving during the parse, so the
+ * cascade calls this whenever ctx->css has stanzas after ctx->selidx_last:
+ * each stanza is indexed once, however the <style> blocks are interleaved
+ * with the elements, and the work counts against the document's css budget.
+ * Once the document has spent it, its own selectors are left out, so the
+ * cascade of later elements doesn't so much as visit them
+ */
+
+static int
+lhp_selidx_add(lhp_ctx_t *ctx)
+{
+	lws_dll2_t *q = ctx->selidx_last ? lws_dll2_get_next(ctx->selidx_last) :
+					   lws_dll2_get_head(&ctx->css);
+
+	for (; q; q = lws_dll2_get_next(q)) {
 		lcsp_stanza_t *stz = lws_container_of(q, lcsp_stanza_t, list);
+
+		ctx->cascade_ops++;
 
 		lws_start_foreach_dll(struct lws_dll2 *, z,
 				      lws_dll2_get_head(&stz->names)) {
 			lcsp_names_t *nm = lws_container_of(z, lcsp_names_t,
 							    list);
 			lhp_selidx_t *e, **head;
+
+			ctx->cascade_ops++;
 
 			if (ctx->css_doc_spent && lhp_nm_is_doc(nm))
 				continue;
@@ -3022,9 +3060,9 @@ lhp_selidx_build(lhp_ctx_t *ctx)
 			e->next = *head;
 			*head = e;
 		} lws_end_foreach_dll(z);
-	} lws_end_foreach_dll(q);
 
-	ctx->selidx_count = ctx->css.count;
+		ctx->selidx_last = q;
+	}
 
 	return 0;
 }
@@ -3378,7 +3416,12 @@ lhp_selidx_try_classes(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *c)
 
 /*
  * Split the comma-separated selector list in [buf, buf + len) into
- * normalized lcsp_names_t on the current stanza
+ * normalized lcsp_names_t on the current stanza.  The stanza is only made,
+ * and listed on ctx->css, along with the first selector that is kept: if
+ * ctx->stz is still NULL afterwards, none was (the list was empty, the
+ * document is past its selector limit, or has spent its css budget) and the
+ * caller skips the stanza's block, so css that can't be applied costs no
+ * stanza and no index work
  */
 
 static int
@@ -3419,7 +3462,8 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 
 		if (!ctx->u.f.default_css) {
 			/* the document's own selectors are limited */
-			if (ctx->css_doc_selectors >= LHP_MAX_CSS_SELECTORS)
+			if (ctx->css_doc_selectors >= LHP_MAX_CSS_SELECTORS ||
+			    lhp_css_doc_spent(ctx))
 				return 0;
 			if (++ctx->css_doc_selectors == LHP_MAX_CSS_SELECTORS)
 				lwsl_warn("%s: document css reached %d "
@@ -3449,6 +3493,16 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 			norm[n++] = c;
 		}
 
+		if (!ctx->stz) {
+			ctx->stz = lwsac_use_zero(&ctx->cssac,
+						  sizeof(*ctx->stz),
+						  LHP_AC_GRANULE);
+			if (!ctx->stz)
+				return 1;
+			ctx->stz->seq = ctx->stz_seq++;
+			lws_dll2_add_tail(&ctx->stz->list, &ctx->css);
+		}
+
 		na = lwsac_use_zero(&ctx->cssac, sizeof(*na) + n + 1,
 				    LHP_AC_GRANULE);
 		if (!na)
@@ -3472,6 +3526,24 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 	}
 
 	return 0;
+}
+
+/*
+ * The stanza being parsed ended up with no declarations: it can't style
+ * anything, so take it back off ctx->css before it is indexed and every
+ * element's cascade visits its selectors.  It is the tail of ctx->css, since
+ * stanzas are only listed at the tail, and no element is cascaded while one
+ * is being parsed, so it can't have been indexed; if it was, it is left
+ * alone.  A style="" stanza is never listed.
+ */
+
+static void
+lhp_css_drop_empty(lhp_ctx_t *ctx)
+{
+	if (ctx->stz && !lws_dll2_get_head(&ctx->stz->defs) &&
+	    lws_dll2_owner(&ctx->stz->list) == &ctx->css &&
+	    &ctx->stz->list != ctx->selidx_last)
+		lws_dll2_remove(&ctx->stz->list);
 }
 
 /*
@@ -4755,31 +4827,22 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		 * The limits on the document's selectors bound what one
 		 * element can cost, but css whose selectors match every
 		 * element costs that again for each one.  So the document
-		 * has a budget of cascade work too: once it is spent, its
-		 * own css is dropped from the index and is not applied to
-		 * the rest of its elements.  An element costs at most a
-		 * bounded amount, so the overshoot is at most one element's
+		 * has a budget of css work too: once it is spent, its own
+		 * css is dropped from the index and is not applied to the
+		 * rest of its elements, see lhp_css_doc_spent()
 		 */
 
-		if (!ctx->css_doc_spent &&
-		    ctx->cascade_ops >= LHP_MAX_CSS_CASCADE_OPS) {
-			lwsl_warn("%s: document css took %llu cascade steps, "
-				  "ignoring it for the rest of the document\n",
-				  __func__,
-				  (unsigned long long)ctx->cascade_ops);
-			ctx->css_doc_spent = 1;
-			if (lhp_selidx_build(ctx))
-				return 1;
-		}
+		lhp_css_doc_spent(ctx);
 
 		/*
 		 * Which stanzas have a selector matching this element?  Only
 		 * the indexed selectors keyed by this element's tag, id and
-		 * classes can, plus the keyless ones
+		 * classes can, plus the keyless ones.  Index any stanzas that
+		 * arrived since the last element first
 		 */
 
-		if (ctx->selidx_count != ctx->css.count &&
-		    lhp_selidx_build(ctx))
+		if (lws_dll2_get_tail(&ctx->css) != ctx->selidx_last &&
+		    lhp_selidx_add(ctx))
 			return 1;
 
 		lhp_hits_new_pass(ctx);
@@ -4984,7 +5047,7 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 	lws_free_set_NULL(ctx->ctok);
 	ctx->ctok_alloc = 0;
 	ctx->hits_count = 0;
-	ctx->selidx_count = 0;
+	ctx->selidx_last = NULL;
 }
 
 void
@@ -5236,6 +5299,15 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 
 		c = *(*buf)++;
 		(*len)--;
+
+		/*
+		 * Each byte of the document's css parsed counts against its
+		 * css budget, see lhp_css_doc_spent()
+		 */
+		if (ctx->state >= LCSPS_CSS_OUTER &&
+		    ctx->state <= LCSPS_CSS_SKIP_BLOCK &&
+		    !ctx->u.f.default_css)
+			ctx->cascade_ops++;
 
 		if (ctx->state == LHPS_DO_START_ELEM) {
 			/* we are retrying the inner callback */
@@ -6629,13 +6701,13 @@ amphash_end:
 				}
 
 				if (ctx->css_lhs_partial) {
-					/* the stanza exists already with the
-					 * selectors that were flushed */
+					/* the stanza may exist already with
+					 * the selectors that were flushed */
 					ctx->css_lhs_partial = 0;
 					if (lhp_css_add_names(ctx, ctx->buf,
 							(size_t)ctx->npos))
 						goto oom;
-					goto stanza_body;
+					goto stanza_open;
 				}
 
 				if (ctx->npos && ctx->buf[0] == '@') {
@@ -6689,9 +6761,19 @@ amphash_end:
 					break;
 				}
 
-				if (!ctx->u.f.default_css &&
-				    ctx->css_doc_selectors >=
-						LHP_MAX_CSS_SELECTORS) {
+				/*
+				 * The stanza object is created, and listed in
+				 * our lhp context css, with the first of its
+				 * selectors that is kept
+				 */
+
+				ctx->stz = NULL;
+				if (lhp_css_add_names(ctx, ctx->buf,
+						      (size_t)ctx->npos))
+					goto oom;
+
+stanza_open:
+				if (!ctx->stz) {
 					/* no selector of it could be kept */
 					ctx->css_skip_depth = 1;
 					ctx->state = LCSPS_CSS_SKIP_BLOCK;
@@ -6699,26 +6781,6 @@ amphash_end:
 					break;
 				}
 
-				/* create the stanza object */
-
-				ctx->stz = lwsac_use_zero(&ctx->cssac,
-							  sizeof(*ctx->stz),
-							  LHP_AC_GRANULE);
-				if (!ctx->stz)
-					goto oom;
-				ctx->stz->seq = ctx->stz_seq++;
-
-				/* attach the selectors to it */
-
-				if (lhp_css_add_names(ctx, ctx->buf,
-						      (size_t)ctx->npos))
-					goto oom;
-
-				/* list this stanza in our lhp context CSS */
-
-				lws_dll2_add_tail(&ctx->stz->list, &ctx->css);
-
-stanza_body:
 				ctx->npos = 0;
 				ctx->state = LCSPS_CSS_STANZA;
 				ctx->cssval_state = 0;
@@ -6777,6 +6839,10 @@ stanza_body:
 				if (!k) {
 					lwsl_warn("%s: css selector too long\n",
 						  __func__);
+					/* the stanza is lost, with any
+					 * selectors flushed to it already */
+					if (ctx->css_lhs_partial)
+						lhp_css_drop_empty(ctx);
 					ctx->css_lhs_skip = 1;
 					ctx->css_lhs_partial = 0;
 					ctx->npos = 0;
@@ -6784,14 +6850,8 @@ stanza_body:
 				}
 
 				if (!ctx->css_lhs_partial) {
-					ctx->stz = lwsac_use_zero(&ctx->cssac,
-							  sizeof(*ctx->stz),
-							  LHP_AC_GRANULE);
-					if (!ctx->stz)
-						goto oom;
-					ctx->stz->seq = ctx->stz_seq++;
-					lws_dll2_add_tail(&ctx->stz->list,
-							  &ctx->css);
+					/* made with its first kept selector */
+					ctx->stz = NULL;
 					ctx->css_lhs_partial = 1;
 				}
 
@@ -6825,6 +6885,7 @@ stanza_body:
 			ctx->state_css_comm = LCSPS_CSS_STANZA;
 			if (c == '}') {
 				ctx->state = LCSPS_CSS_OUTER;
+				lhp_css_drop_empty(ctx);
 
 				if (ctx->u.f.infunc) {
 					ctx->u.f.infunc = 0;
@@ -7233,10 +7294,12 @@ issue_post:
 				if (!ctx->u.f.default_css) {
 					/*
 					 * the document's own are limited: past
-					 * that, skip it like an unknown prop
+					 * that, or once its css budget is
+					 * spent, skip it like an unknown prop
 					 */
 					if (ctx->css_doc_vars >=
-							LHP_MAX_CSS_VARS) {
+							LHP_MAX_CSS_VARS ||
+					    lhp_css_doc_spent(ctx)) {
 						ctx->css_state = (int16_t)-1;
 						ctx->npos = 0;
 						break;
@@ -7303,6 +7366,17 @@ issue_post:
 					break;
 				/* fallthru */
 			case LWS_MINILEX_MATCH:
+				if (!ctx->u.f.default_css &&
+				    lhp_css_doc_spent(ctx)) {
+					/*
+					 * the document's css is no longer
+					 * applied, don't keep any more of it:
+					 * skip it like an unknown prop
+					 */
+					ctx->css_state = (int16_t)-1;
+					ctx->npos = 0;
+					break;
+				}
 				/* we have an unambiguous match, now we are
 				 * doing the property args */
 				ctx->def = lwsac_use_zero(&ctx->cssac,

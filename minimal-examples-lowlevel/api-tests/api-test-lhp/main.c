@@ -988,6 +988,184 @@ bail:
 }
 
 /*
+ * The document's css work must be bounded however its <style> blocks are
+ * interleaved with its elements.  The selector index used to be made again
+ * from every stanza whenever an element found the stanza count changed, and
+ * that work wasn't counted against the document's budget, so a page
+ * alternating an element with a tiny <style> block was quadratic: 64000 of
+ * them (830KB) took 21s.  Each stanza is now indexed once, the indexing and
+ * the css parsing count against the budget, and stanzas that can't style
+ * anything aren't kept at all: a nameless one, one with no declarations, or
+ * one past the selector limit.
+ *
+ * So a document of elements each followed by such a <style> block must cost
+ * at most what its elements cost with only the user-agent css, plus a few
+ * steps per byte of its css, it must keep only the stanzas with selectors
+ * and declarations, and a rule must still apply to the elements after it,
+ * until the selector limit is reached.
+ */
+
+#define LHPT_IS_REPS		(LHP_MAX_CSS_SELECTORS / 2 + 4000)
+#define LHPT_IS_REP		"<p>x</p><style>.q{}{}.r{margin-left:1px}</style>"
+#define LHPT_IS_EARLY		"<style>p.a{margin-left:2px}</style>"
+#define LHPT_IS_MID		"<style>p.b{margin-left:3px}</style>"
+#define LHPT_IS_LATE		"<style>p.c{margin-left:4px}</style>"
+/* the most steps each byte of css may cost to parse and index */
+#define LHPT_IS_OPS_BYTE	4
+#define LHPT_IS_OPS_MAX(_e)	((uint64_t)(_e) * (LHPT_DB_OPS_UA + \
+				 LHPT_IS_OPS_BYTE * sizeof(LHPT_IS_REP)) + \
+				 4 * LHP_MAX_CSS_SELECTORS)
+
+static int is_elems, is_over, is_a, is_b, is_c, is_ua_stz;
+
+static lws_stateful_ret_t
+is_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *ml;
+	const lhp_atr_t *ta;
+	const char *cls;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	if (!is_ua_stz)
+		/* the first element: only the user-agent css is listed */
+		is_ua_stz = (int)ctx->css.count + 1;
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 1 || *(const char *)&ta[1] != 'p')
+		return 0;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->cascade_ops > LHPT_IS_OPS_MAX(is_elems + 1)) {
+		is_over = 1;
+		return LWS_SRET_FATAL;
+	}
+
+	is_elems++;
+	cls = lws_html_get_atr(ps, "class", 5);
+	if (!cls)
+		return 0;
+
+	ml = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+	if (!ml || ml->unit != LCSP_UNIT_LENGTH_PX)
+		return 0;
+
+	switch (*cls) {
+	case 'a':
+		is_a = ml->u.i.whole == 2;
+		break;
+	case 'b':
+		is_b = ml->u.i.whole == 3;
+		break;
+	case 'c':
+		is_c = ml->u.i.whole == 4;
+		break;
+	}
+
+	return 0;
+}
+
+static int
+test_interleaved_style(void)
+{
+	size_t alloc = (size_t)LHPT_IS_REPS * sizeof(LHPT_IS_REP) + 1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	unsigned int kept;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	is_elems = is_over = is_a = is_b = is_c = is_ua_stz = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><body>" LHPT_IS_EARLY);
+	for (i = 0; i < LHPT_IS_REPS; i++) {
+		if (i == LHP_MAX_CSS_SELECTORS / 4)
+			p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+					  LHPT_IS_MID);
+		if (i == LHPT_IS_REPS - 1)
+			/* past the selector limit by now */
+			p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+					  LHPT_IS_LATE);
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  LHPT_IS_REP);
+	}
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<p class=a>x</p><p class=b>x</p><p class=c>x</p>"
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, is_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	kept = (unsigned int)ctx->css.count - (unsigned int)(is_ua_stz - 1);
+	lwsl_user("%s: %d elements, %llu cascade steps, %u selectors, %u "
+		  "stanzas kept, r 0x%x\n", __func__, is_elems,
+		  (unsigned long long)ctx->cascade_ops,
+		  (unsigned int)ctx->css_doc_selectors, kept, (unsigned int)r);
+
+	if (is_over) {
+		lwsl_err("%s: the document's css took over %llu steps at "
+			 "element %d\n", __func__,
+			 (unsigned long long)LHPT_IS_OPS_MAX(is_elems + 1),
+			 is_elems + 1);
+		goto bail_destruct;
+	}
+	if (r & LWS_SRET_FATAL || is_elems != LHPT_IS_REPS + 3) {
+		lwsl_err("%s: parse failed, %d elements\n", __func__,
+			 is_elems);
+		goto bail_destruct;
+	}
+	/* each .r{} with a declaration is kept, each .q{} and {} isn't */
+	if (kept > ctx->css_doc_selectors / 2 + 2) {
+		lwsl_err("%s: %u stanzas kept for %u selectors\n", __func__,
+			 kept, (unsigned int)ctx->css_doc_selectors);
+		goto bail_destruct;
+	}
+	if (!is_a || !is_b || is_c) {
+		lwsl_err("%s: rules applied: early %d, mid %d, past the "
+			 "limit %d\n", __func__, is_a, is_b, is_c);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Table layout work must be linear in the cells, however they are arranged:
  * one row of very many cells used to find each cell's column by walking the
  * column list from its head, when the cell opened and again at table close,
@@ -1577,6 +1755,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_cascade_doc_budget())
+		goto bail;
+
+	if (test_interleaved_style())
 		goto bail;
 
 	if (test_table_wide())
