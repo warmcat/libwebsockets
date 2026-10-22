@@ -410,10 +410,18 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 #endif
 
 	if (getifaddrs(&ifr)) {
+		/*
+		 * Eg, EMFILE or ENOMEM.  We can't tell if ifname is an
+		 * interface, and must not claim it is usable when we wrote
+		 * nothing to addr: callers prefill addr with the wildcard.  A
+		 * numeric address doesn't need the interface list, so still
+		 * try that below; otherwise it reads as NOT_EXIST, which the
+		 * deferred iface retry tries again later.
+		 */
 		lwsl_err("%s: unable to getifaddrs: errno %d\n", __func__, errno);
-
-		return LWS_ITOSA_USABLE;
+		ifr = NULL;
 	}
+
 	for (ifc = ifr; ifc != NULL; ifc = ifc->ifa_next) {
 		if (!ifc->ifa_addr || !ifc->ifa_name)
 			continue;
@@ -513,7 +521,8 @@ unrepresentable:
 		}
 	}
 
-	freeifaddrs(ifr);
+	if (ifr)
+		freeifaddrs(ifr);
 
 	/*
 	 * ifname may be a numeric address literal rather than an interface

@@ -152,7 +152,11 @@ lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen);
  * LWS_ITOSA_NOT_USABLE.
  *
  * If the network interface exists and is usable, it will return
- * LWS_ITOSA_USABLE.
+ * LWS_ITOSA_USABLE, and only then has \p addr been written.
+ *
+ * If the interfaces can't be listed (eg, the process is out of fds), a
+ * numeric address is still converted, but an interface name reads as
+ * LWS_ITOSA_NOT_EXIST, since it may be there when asked again later.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,

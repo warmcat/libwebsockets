@@ -36,6 +36,27 @@
 #include <dirent.h>
 
 #if defined(LWS_WITH_NETWORK)
+/*
+ * How long until the periodic checks below run again, including vhosts
+ * waiting for their iface trying to listen again.  Tests can make it shorter
+ * with a fault injection range, eg "plat_periodic_ms(100..101)"
+ */
+
+static lws_usec_t
+lws_plat_unix_periodic_us(struct lws_context *cx)
+{
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	uint64_t ms;
+
+	if (!lws_fi_range(&cx->fic, "plat_periodic_ms", &ms))
+		return (lws_usec_t)ms * LWS_US_PER_MS;
+#else
+	(void)cx;
+#endif
+
+	return 30 * LWS_US_PER_SEC;
+}
+
 static void
 lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 {
@@ -78,7 +99,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 #endif
 
 	__lws_sul_insert_us(pt, LWSSULLI_MISS_IF_SUSPENDED,
-			    &pt->sul_plat, 30 * LWS_US_PER_SEC);
+			    &pt->sul_plat, lws_plat_unix_periodic_us(context));
 }
 #endif
 
@@ -238,7 +259,8 @@ lws_plat_init(struct lws_context *context,
 
 	context->pt[0].sul_plat.cb = lws_sul_plat_unix;
 	__lws_sul_insert_us(&context->pt[0], LWSSULLI_MISS_IF_SUSPENDED,
-			    &context->pt[0].sul_plat, 30 * LWS_US_PER_SEC);
+			    &context->pt[0].sul_plat,
+			    lws_plat_unix_periodic_us(context));
 #endif
 
 	return 0;

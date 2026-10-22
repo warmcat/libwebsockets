@@ -301,6 +301,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |context||`qpt_sweep_ms`|Not a failure: with a range, eg `qpt_sweep_ms(50..51)`, the QUIC passthrough tables are swept every that many ms instead of 10s (`LWS_WITH_TLS_PASSTHROUGH` + QUIC)|
 |context||`qpt_relayed_idle_ms`|Not a failure: with a range, eg `qpt_relayed_idle_ms(700..701)`, a QUIC server forgets a relayed client its connection has not proven after that many ms quiet instead of 120s (`LWS_WITH_TLS_PASSTHROUGH` + QUIC)|
 |context||`cache_lookup_oom`|Fail `lws_cache` lookup due to OOM|
+|context||`plat_periodic_ms`|Not a failure: with a range, eg `plat_periodic_ms(100..101)`, the unix platform's periodic checks, including vhosts waiting for their `iface` trying to listen again, run every that many ms instead of 30s|
 |context||`netlink_lost`|Lose a read from netlink, as if the kernel had dropped route messages (ENOBUFS): lws gets all the routes again|
 |context||`async_queue_full`|The async worker queue seems saturated, so tls accepts and file reads are done inline on the service thread (LWS_WITH_ASYNC_QUEUE)|
 |vhost|`vh`|`vh_create_oom`|Fail vh creation on vh object alloc OOM|

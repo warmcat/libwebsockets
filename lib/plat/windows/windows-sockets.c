@@ -252,6 +252,9 @@ lws_interface_to_sa(int ipv6,
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
 
 	if (ipv6) {
+		if (addrlen < sizeof(*addr6))
+			return LWS_ITOSA_NOT_USABLE;
+
 		if (lws_plat_inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1) {
 			return LWS_ITOSA_USABLE;
 		}
@@ -286,6 +289,15 @@ lws_interface_to_sa(int ipv6,
 
 	if (address == INADDR_NONE)
 		return LWS_ITOSA_NOT_EXIST;
+
+	if (ipv6 || addrlen < sizeof(*addr))
+		/*
+		 * We only have an IPv4 address for it.  Written as a struct
+		 * sockaddr_in into the caller's struct sockaddr_in6, it would
+		 * land in sin6_flowinfo and leave sin6_addr the wildcard the
+		 * caller prefilled... it exists, but not for this family
+		 */
+		return LWS_ITOSA_NOT_USABLE;
 
 	addr->sin_addr.s_addr = (unsigned long)(lws_intptr_t)address;
 

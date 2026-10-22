@@ -402,6 +402,22 @@ check_extant_quic(struct lws_dll2 *d, void *user)
 #endif
 
 /*
+ * Put a vhost that can't listen on its iface yet on the context's list of
+ * them, which the platform's periodic check tries to listen again for
+ */
+
+static void
+lws_vhost_listen_defer(struct lws_vhost *vh)
+{
+	if (!lws_dll2_is_detached(&vh->no_listener_vlist))
+		return;
+
+	lwsl_debug("deferred iface: adding vh %s\n", vh->name);
+	lws_dll2_add_head(&vh->no_listener_vlist,
+			  &vh->context->no_listener_vhost_owner);
+}
+
+/*
  * Creates a single listen socket of a specific AF
  */
 
@@ -460,31 +476,15 @@ deal:
 			/* treat as fatal */
 			return -1;
 
-		if (!lws_dll2_is_detached(&a->vhost->no_listener_vlist)) {
-			/* on the list */
-			if (is >= LWS_ITOSA_USABLE) {
-				/* ... and shouldn't be: remove it */
-				lwsl_debug("deferred iface: removing vh %s\n",
-						a->vhost->name);
-				lws_dll2_remove(&a->vhost->no_listener_vlist);
-				goto done_list;
-			}
-			goto done_list;
-		}
+		/*
+		 * A usable-looking iface doesn't take us off the deferred
+		 * list: socket() or bind() can still fail.  We only come off
+		 * it once we really listen, when the periodic retry sees
+		 * _lws_vhost_init_server() succeed, or the vhost goes away.
+		 */
 
-		/* not on the list... */
-
-		if (is < LWS_ITOSA_USABLE) {
-
-			/* ... but needs to be: so add it */
-
-			lwsl_debug("deferred iface: adding vh %s\n",
-					a->vhost->name);
-			lws_dll2_add_head(&a->vhost->no_listener_vlist,
-					  &cx->no_listener_vhost_owner);
-		}
-
-done_list:
+		if (is < LWS_ITOSA_USABLE)
+			lws_vhost_listen_defer(a->vhost);
 
 		switch (is) {
 		default:
@@ -569,6 +569,14 @@ done_list:
 		if (sockfd == LWS_SOCK_INVALID) {
 			lwsl_err("%s: ERROR opening socket: af %d, errno %d\n",
 				 __func__, (int)a->af, LWS_ERRNO);
+			/*
+			 * Eg, EMFILE: transient, so a vhost restricted to an
+			 * iface gets another go later, like one whose iface
+			 * wasn't up yet
+			 */
+			if (a->vhost->iface && (!a->info ||
+						!a->info->vh_listen_sockfd))
+				lws_vhost_listen_defer(a->vhost);
 			return 1;
 		}
 
