@@ -9,15 +9,20 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 ## Bug classes worth hunting for
 
  - **SMP (`LWS_MAX_SMP > 1`) is lightly exercised and has had live
-   races** (G-522, G-526, G-527, G-536..G-539).  Rules since 6f6141240:
-   a sul on another pt is scheduled with `lws_sul_schedule()` and
-   cancelled with `lws_sul_cancel_tsi()` (`lws_sul_cancel()` is for the
-   owning thread only); a thread holding a pt lock never takes the
-   context lock.  Debug SMP builds assert the lock order as locks are
-   taken (33de499b8), so any inversion a test reaches aborts
-   deterministically: run SMP work in a DEBUG `LWS_MAX_SMP=2` tree.  Hand
-   work to another pt's thread with `lws_pthread_self_to_tsi()` plus
-   `lws_plat_pipe_signal()`; api-test-async-dns-smp is the red/green
+   races** (G-522, G-526, G-527, G-536..G-539, G-638).  Since a3dfdb9b3
+   every change to a pt's sul list happens under that pt's lock:
+   `lws_sul_cancel()` finds the sul's pt and locks it itself (so
+   `lws_sul_cancel_tsi()` is equivalent), and debug SMP builds assert pt
+   sul inserts hold the pt lock.  A sul on a user's own list (inserted with
+   `__lws_sul_insert()`) must not be cancelled with `lws_sul_cancel()`.  A
+   thread holding a pt lock never takes the context lock.  Debug SMP builds
+   assert the lock order as locks are taken (33de499b8), so any inversion a
+   test reaches aborts deterministically: run SMP work in a DEBUG
+   `LWS_MAX_SMP=2` tree.  To survey a class of unlocked list changes across
+   the whole suite, log them with `dladdr` offsets and resolve with
+   `addr2line` (B109).  Hand work to another pt's thread with
+   `lws_pthread_self_to_tsi()` plus `lws_plat_pipe_signal()`;
+   api-test-async-dns-smp is the red/green
    pattern.  For a deterministic red on an SMP timer bug, assert in the
    timer callback (debug only) that `lws_pthread_self_to_tsi(cx)` is the
    owning wsi's tsi: 3/3 aborts where ASan alone saw nothing (G-536).
@@ -25,11 +30,8 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    only safe because every such path holds the context lock first, and
    nothing asserts that.  A sul scheduled onto pt 0 from another thread
    does not wake pt 0, so it can fire late.
-   A server's listeners each go on the least busy thread, so a vhost's
-   IPv4 and IPv6 QUIC listeners can be on different threads; a DCID miss
-   on one searches the other and touches that connection from the wrong
-   thread (G-544).  `lws_vhost_active_conns()` (pipelining / mux reuse)
-   doesn't compare threads (G-545).
+   A vhost's QUIC listeners are kept on one thread (G-544), and
+   connection reuse only matches the asking thread (G-545).
    Lifecycle tags take the context lock since G-549 (142330c70).  Sul
    callbacks run under the cx lock, so an SMP race test must create wsi
    from service-thread callbacks (eg CONNECTED), not suls, or the locked
@@ -38,12 +40,7 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    api-test-async-dns-smp-fd-limit covers it (keep fd_limit x threads under
    the process fd limit, or lws silently uses the fd-indexed table).  The
    Windows fd hash table still has the same race (G-641).
-   A pt's own thread must change its sul list under its pt lock too:
-   connect3's bare `lws_sul_cancel(&wsi->io->sul_connect_timeout)` races
-   async-dns inserting on that pt from another thread (G-638), and nothing
-   checks it yet; api-test-async-dns-smp fails ~1/20 under ASan until fixed.
-   `lws_protocol_init()` races between threads servicing first (G-542):
-   start extra service threads after PROTOCOL_INIT until it's fixed.
+   `lws_protocol_init()` is serialised under the context lock (G-542).
    `lws_client_connect_via_info()` asserts in SMP when called
    from a non-service thread.
  - **libdbus aborts the process on an invalid-UTF-8 string argument**
