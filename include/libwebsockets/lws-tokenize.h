@@ -301,7 +301,7 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 /**
  * lws_strcmp_wildcard() - strcmp but the first arg can have wildcards
  *
- * \p wildcard: a string that may contain zero to three *, and may lack a NUL
+ * \p wildcard: a string that may contain any number of *, and may lack a NUL
  * \p wlen: length of the wildcard string
  * \p check: string to test to see if it matches wildcard
  * \p clen: length of check string
@@ -309,6 +309,12 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
  * Like strcmp, but supports patterns like "a*", "a*b", "a*b*" etc
  * where a and b are arbitrary substrings.  Both the wc and check strings need
  * not be NUL terminated, but are specified by lengths.
+ *
+ * '*' matches any run of bytes, including none; every other byte, including
+ * '?', matches only itself.  The whole of \p check must be matched.
+ *
+ * Returns 0 if \p check matches \p wildcard, else nonzero.  The cost is at
+ * worst proportional to wlen * clen, whatever the pattern.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_strcmp_wildcard(const char *wildcard, size_t wlen, const char *check,

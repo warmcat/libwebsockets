@@ -1540,6 +1540,59 @@ int main(int argc, const char **argv)
 	}
 
 	/*
+	 * After a literal mismatch following a '*', matching must restart
+	 * from just after that '*', and a '*' must be retried at every later
+	 * position, not only the first one that looked promising.  Any number
+	 * of '*' is allowed.
+	 */
+
+	{
+		static const struct {
+			const char	*wc;
+			const char	*check;
+			char		match;
+		} wct[] = {
+			{ "*bc",		"bxc",			0 },
+			{ "a*bc",		"abxc",			0 },
+			{ "*abc",		"abxbc",		0 },
+			{ "*ab",		"abab",			1 },
+			{ "*.log",		"a.log.log",		1 },
+			{ "*-prod",		"x-prod-y-prod",	1 },
+			{ "*-prod",		"web-prod-eu-prod",	1 },
+			{ "*-prod",		"web-prod-eu",		0 },
+			{ "*",			"",			1 },
+			{ "**",			"",			1 },
+			{ "**",			"abc",			1 },
+			{ "a**b",		"ab",			1 },
+			{ "a**b",		"axxb",			1 },
+			{ "a**b",		"axxbc",		0 },
+			{ "*a*b*c*d*e*",	"xaybzcwdve",		1 },
+			{ "*a*b*c*d*e*",	"xaybzcwdv",		0 },
+			{ "a*b*c*d*e",		"abcde",		1 },
+			{ "a*a*a*a*b",		"aaaaaaaaaaaaaaaaaaaa",	0 },
+			{ "*aab",		"aaab",			1 },
+			{ "*ab*ab",		"abxabyab",		1 },
+			{ "*x",			"xxxxy",		0 },
+			{ "abc",		"abcd",			0 },
+			{ "abcd",		"abc",			0 },
+			{ "abc*",		"ab",			0 },
+			{ "*abc",		"bc",			0 },
+		};
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(wct); n++)
+			if (!lws_strcmp_wildcard(wct[n].wc, strlen(wct[n].wc),
+						 wct[n].check,
+						 strlen(wct[n].check)) !=
+							!!wct[n].match) {
+				lwsl_user("%s: wct %d ('%s' vs '%s') fail\n",
+					  __func__, (int)n, wct[n].wc,
+					  wct[n].check);
+				fail++;
+			}
+	}
+
+	/*
 	 * lws_hex_len_to_byte_array() must reject input needing more than
 	 * \p max bytes, rather than silently truncating a length-checked field
 	 */

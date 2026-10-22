@@ -1812,96 +1812,45 @@ int
 lws_strcmp_wildcard(const char *wildcard, size_t wlen, const char *check,
 		    size_t clen)
 {
-	const char *match[3], *wc[3], *wc_end = wildcard + wlen,
-		   *cend = check + clen;
-	int sp = 0;
-
-	if (!clen) {
-		/*
-		 * There is nothing to dereference at \p check... the loop
-		 * below is do {} while and would read check[0] before testing
-		 * check < cend.  Only a wildcard that is empty or entirely
-		 * '*' can match an empty string.
-		 */
-
-		while (wildcard < wc_end)
-			if (*wildcard++ != '*')
-				return 1;
-
-		return 0;
-	}
-
-	do {
-
-		if (wildcard == wc_end) {
-			/*
-			 * We reached the end of wildcard, but not of check,
-			 * and the last thing in wildcard was not a * or we
-			 * would have completed already... if we can rewind,
-			 * let's try that...
-			 */
-			if (sp) {
-				wildcard = wc[sp - 1];
-				check = match[--sp];
-
-				continue;
-			}
-
-			/* otherwise it's the end of the road for this one */
-
-			return 1;
-		}
-
-		if (*wildcard == '*') {
-
-			if (++wildcard == wc_end)
-				 /*
-				  * Wildcard ended on a *, so we know we will
-				  * match unconditionally
-				  */
-				return 0;
-
-			/*
-			 * Now we need to stick wildcard here and see if there
-			 * is any remaining match exists, for eg b of "a*b"
-			 */
-
-			if (sp == LWS_ARRAY_SIZE(match)) {
-				lwsl_err("%s: exceeds * stack\n", __func__);
-				return 1; /* we can't deal with it */
-			}
-
-			wc[sp] = wildcard;
-			/* if we ever pop and come back here, pick up from +1 */
-			match[sp++] = check + 1;
-			continue;
-		}
-
-		if (*(check++) == *wildcard) {
-
-			if (wildcard == wc_end)
-				return 0;
-			/*
-			 * We're still compatible with wildcard... keep going
-			 */
-			wildcard++;
-
-			continue;
-		}
-
-		if (!sp)
-			/*
-			 * We're just trying to match literals, and failed...
-			 */
-			return 1;
-
-		/* we're looking for a post-* match... keep looking... */
-
-	} while (check < cend);
+	const char *wc_end = wildcard + wlen, *cend = check + clen,
+		   *star_wc = NULL, *star_check = NULL;
 
 	/*
-	 * We reached the end of check, if also at end of wildcard we're OK
+	 * Single-star backtracking: remember where we were in both strings
+	 * when we met the most recent '*'.  On a mismatch, let that '*'
+	 * swallow one more byte of check and retry the rest of the wildcard
+	 * from just after it.  Retrying from an earlier '*' can never help,
+	 * since whatever an earlier '*' could absorb, the latest one can
+	 * absorb instead, so there is no stack and no exponential
+	 * backtracking: the worst case is O(wlen * clen).
 	 */
+
+	while (check < cend) {
+		if (wildcard < wc_end && *wildcard == '*') {
+			/* first try the '*' matching nothing */
+			star_wc = ++wildcard;
+			star_check = check;
+			continue;
+		}
+
+		if (wildcard < wc_end && *wildcard == *check) {
+			wildcard++;
+			check++;
+			continue;
+		}
+
+		if (!star_wc)
+			/* a literal mismatch with no '*' to fall back on */
+			return 1;
+
+		wildcard = star_wc;
+		check = ++star_check;
+	}
+
+	/* check is used up: what is left of wildcard must all be '*' */
+
+	while (wildcard < wc_end && *wildcard == '*')
+		wildcard++;
 
 	return wildcard != wc_end;
 }
