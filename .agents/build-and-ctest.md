@@ -174,7 +174,10 @@
    read at init fails it under load (G-509): start the reply window when
    the queries are sent.
  - **`lws_cmdline_option()` prefix-matches**: a switch that is a prefix of
-   another (`-i` vs `-ip`) silently collides.
+   another (`-i` vs `-ip`) silently collides.  Builtins in
+   `lws_cmdline_option_handle_builtin()` therefore also fire on longer
+   arguments (`--event` selects libev), and the builtin `-h` prints help
+   and exits before an example sees its own `-h` (G-622).
  - **qir (WebTransport interop shim) runs end to end on loopback**: use
    `--www` / `--downloads`, run the server where localhost-100y.cert/.key
    are, set TESTCASE and PORT; client REQUESTS=`https://localhost:PORT/<ep>/<file>`

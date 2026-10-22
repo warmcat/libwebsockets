@@ -408,6 +408,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## WebSocket rx
 
+ - **ws RECEIVE data is never NUL-terminated**, and the client rx buffer is
+   malloc'd once and reused: `%s` on it prints stale bytes or reads past
+   the end (G-621).  Log with `%.*s` and the length.
  - **An unsolicited ws PONG calls `lws_validity_confirmed()`** (ops-ws.c):
    a peer that never reads but sends PONGs is never hung up by the
    validity timer, so tx-stall protection has to be the protocol's own
