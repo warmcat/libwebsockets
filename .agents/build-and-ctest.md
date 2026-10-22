@@ -48,7 +48,8 @@
    it the lwsws-oauth tests still configure but the plugin is silently
    missing.
  - **NO_LOGS builds clean with plugins, lwsws, DHT, SS and h3** since
-   G-142 / G-273 (75d5c5d22..02fce2bb9); the webrtc mixer and rtc_camera
+   G-142 / G-273 (75d5c5d22..02fce2bb9), also with LOG_SHIP and the
+   log_ingest plugin (a008020ea); the webrtc mixer and rtc_camera
    were not checked (gstreamer / opus headers missing here).  A local
    used only by a log goes inside the log call or under
    `#if (_LWS_ENABLED_LOGS & LLL_x)` at that log's level, not a (void)
@@ -75,6 +76,12 @@
    A context loads every `libprotocol_*.so` in the build tree's `lib/`, so
    a test that passed before a full `make` can fail this way after it;
    "dir_cb: ... was not loaded" lines from stale plugins are harmless.
+ - **The webrtc mixer can be syntax-checked without GStreamer**: stub gst
+   headers plus a copy of the build's include dir with `LWS_WITH_DTLS` and
+   `LWS_WITH_ALSA` defined in lws_config.h covers everything but
+   mixer-media.c (`-fsyntax-only` with the build's warning flags).  Its
+   pure helpers are tested by api-test-webrtc-mixer-signal / -depkt; the
+   rest needs Sai.  clang -Werror fails layout-speaker.c until G-375.
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
