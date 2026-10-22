@@ -217,6 +217,25 @@
    stream, `lws_write(..., LWS_WRITE_BINARY)` goes out raw with no DATA
    framing (`rops_write_role_protocol_h3()`), so a test can frame the
    stream itself (see the h3 case in api-test-http-attack).
+ - **QPACK dynamic table references in an h3 test:** lws' own encoder never
+   inserts entries.  The `h3_qpack_enc_big_entry` client fault puts one 4KiB
+   cookie at absolute index 0 in the server's table; a later request on the
+   same connection (`LCCSCF_PIPELINE`, Host = address) calls
+   `lws_qpack_set_wsi_base_and_ric(wsi, 0, 1)` in APPEND_HANDSHAKE_HEADER
+   and adds post-base references (api-test-h3-header-amplification).  A
+   reference in the connection's first request can beat the insert there:
+   the server then fails the connection as a blocked stream.
+ - **Several h3 server vhosts in one context share a "listener" for SNI**
+   when made with `CONTEXT_PORT_NO_LISTEN_SERVER` plus
+   `lws_create_adopt_udp()`, even on different udp ports
+   (`lws_vhost_shares_listener()` compares the -2 listen ports).  An SNI
+   name matching no vhost is then refused (alert 112) instead of falling
+   back to the only vhost; ctest dials `localhost`, so it fails there but
+   passes by hand with `127.0.0.1` (no SNI).  Name a vhost `localhost`, or
+   send the vhost's own name as the Host.
+ - **h3 does not work in `-DLWS_WITH_HTTP2=0` builds** (seen at 28e9e89af):
+   the h3 client fails responses with "HS: :status missing", so the h3
+   parts of api-test-oversized-headers and others fail there.
  - **In-process SS proxy tests:** a mux proxy can run on a link transport
    of your own under `lws_transport_mux_proxy_ops`
    (api-test-ss-proxy-mux; deliver client->proxy bytes from a sul, never
