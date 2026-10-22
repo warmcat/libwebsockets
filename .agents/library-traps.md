@@ -602,13 +602,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    only fences work the fix itself counts: red it by removing the charge,
    not only by reverting to the old library (G-530).  api-test-lhp-dlo
    nesting tops out near 125 user levels (html/body count).
- - **`lhp-ua-css.h` carries compiled selector programs** (G-540,
-   88199ef7a): regenerate it with lhp-ua-gen from a build with
-   `LWS_WITH_LHP_UA_FLASH` off whenever the program format or the default
-   css changes.  The decoder trusts the program bytes, so a stale header
-   means out-of-bounds reads, not just failed matches (G-548).  To test
-   private lhp functions against old/new lhp.c, a harness can `#include`
-   lhp.c and link ahead of the static library.
+ - **`lhp-ua-css.h` carries compiled selector programs** (G-540): regenerate
+   it with lhp-ua-gen from a build with `LWS_WITH_LHP_UA_FLASH` off whenever
+   the program format, `LHP_SEL_PROG_FORMAT` or the default css changes.
+   Since G-548 a stale header fails the build (`#error`) and the decoder
+   bounds-checks and fails closed.  A selector step is at most
+   `LHP_SEL_STEP_WORK` (32) units of `sel_work` by construction, so test
+   allowances must be tighter than that, with short-value pages, to catch
+   anything (G-541, G-547).  To test private lhp functions against old/new
+   lhp.c, a harness can `#include` lhp.c and link ahead of the static
+   library.
 
 ## lejp
 
