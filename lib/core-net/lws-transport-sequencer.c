@@ -93,11 +93,38 @@ struct lws_transport_sequencer {
 	uint16_t			retry_count;
 	uint16_t			active_len;
 
+	/*
+	 * DIAGNOSTIC (temporary): what the logs need to show a stream that is
+	 * stuck, see ts_diag_due()
+	 */
+	uint64_t			diag_resend_offset; /* chunk being resent */
+	uint32_t			diag_resends; /* times in a row */
+	uint32_t			diag_dups; /* duplicates since new data */
+	uint32_t			diag_drops_window;
+	uint32_t			diag_drops_full;
+
 	uint8_t				completed:1;
 	uint8_t				peer_proven:1; /* acked our data */
 	uint8_t				busy:1; /* refused a write, owes on_writeable */
+	uint8_t				diag_rx_started:1; /* rx'd since reset */
+	uint8_t				diag_sacked_past:1; /* acks for data past
+								 * the head arrive */
 	lws_transport_sequencer_stats_t	stats;
 };
+
+#define ts_peer(_ts) ((_ts)->info.peer ? (_ts)->info.peer : "?")
+
+/*
+ * DIAGNOSTIC (temporary): a condition seen n times is logged the first
+ * time, and then at 16, 32, 64... times, so a stream stuck for hours still
+ * says so now and then without flooding the log
+ */
+
+static int
+ts_diag_due(uint32_t n)
+{
+	return n == 1 || (n >= 16 && !(n & (n - 1)));
+}
 
 static void
 sul_retry_cb(lws_sorted_usec_list_t *sul)
@@ -142,6 +169,32 @@ sul_retry_cb(lws_sorted_usec_list_t *sul)
 	 * the retry still counts, so the session fails on schedule, but the
 	 * copy only goes out once the peer has shown it receives from us.
 	 */
+	/* DIAGNOSTIC (temporary) */
+	if (*p_off == ts->diag_resend_offset)
+		ts->diag_resends++;
+	else {
+		ts->diag_resend_offset = *p_off;
+		ts->diag_resends = 1;
+	}
+	if (ts->diag_resends >= 16 && ts_diag_due(ts->diag_resends))
+		lwsl_warn("%s: %s to %s: STUCK SENDING: the chunk at %llu (%u "
+			  "bytes) has gone %u times without an ack.  %s\n",
+			  __func__, ts->info.ops->name, ts_peer(ts),
+			  (unsigned long long)*p_off,
+			  (unsigned int)(len - sizeof(uint64_t)),
+			  ts->diag_resends,
+			  !ts->peer_proven ? "The peer has never acked "
+			  "anything: it does not get our chunks, or its acks "
+			  "do not get back to us." :
+			  ts->diag_sacked_past ? "Its acks keep arriving for "
+			  "data after this chunk, so it is up and gets our "
+			  "chunks, but it does not take this one: look at its "
+			  "log for STUCK RECEIVING from us, eg, it restarted "
+			  "and waits for data before this chunk that we will "
+			  "not send again." :
+			  "Acks for it stopped arriving: it does not get this "
+			  "chunk, or its acks do not get back to us.");
+
 	if (ts->peer_proven) {
 		ts->stats.tx_retries++;
 
@@ -440,6 +493,9 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 		}
 	} lws_end_foreach_dll_safe(d, d1);
 
+	/* DIAGNOSTIC (temporary): the peer takes data past what we resend */
+	ts->diag_sacked_past = !!num_blocks;
+
 	/* Mark SACK blocks */
 	for (i = 0; i < num_blocks; i++) {
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ts->scoreboard)) {
@@ -541,9 +597,40 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	uint64_t ack_offset = offset;
 	size_t ack_len = len;
 
+	/*
+	 * DIAGNOSTIC (temporary): a stream should start where we expect it,
+	 * at 0 after we were made or reset
+	 */
+	if (!ts->diag_rx_started) {
+		ts->diag_rx_started = 1;
+		if (offset > ts->next_rx_offset)
+			lwsl_warn("%s: %s from %s: the peer's stream starts at "
+				  "%llu, we expect %llu.  If the peer kept its "
+				  "stream while we restarted, the data before "
+				  "it is never sent again, and we hold what "
+				  "follows as out of order until we fill up "
+				  "and stop taking any\n", __func__,
+				  ts->info.ops->name, ts_peer(ts),
+				  (unsigned long long)offset,
+				  (unsigned long long)ts->next_rx_offset);
+	}
+
 	/* Check if we already have this OOO range or part of it, OR cumulative */
 	if (offset + len <= ts->next_rx_offset) {
 		ts->stats.rx_duplicates++;
+		/* DIAGNOSTIC (temporary) */
+		if (++ts->diag_dups >= 16 && ts_diag_due(ts->diag_dups))
+			lwsl_warn("%s: %s from %s: STUCK RECEIVING: the peer "
+				  "has sent data we already have %u times "
+				  "since anything new (this time %llu, we have "
+				  "all up to %llu).  We ack every one, so our "
+				  "acks are not getting back to it, or it "
+				  "refuses them: look at its log for STUCK "
+				  "SENDING to us, and at the path from us to "
+				  "it\n", __func__, ts->info.ops->name,
+				  ts_peer(ts), ts->diag_dups,
+				  (unsigned long long)offset,
+				  (unsigned long long)ts->next_rx_offset);
 		ts->info.ops->tx_ack(ts, offset, len);
 		return 0;
 	}
@@ -555,8 +642,21 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	 */
 
 	if (ts->info.window_size &&
-	    offset > ts->next_rx_offset + ts->info.window_size)
+	    offset > ts->next_rx_offset + ts->info.window_size) {
+		/* DIAGNOSTIC (temporary) */
+		if (ts_diag_due(++ts->diag_drops_window))
+			lwsl_warn("%s: %s from %s: STUCK RECEIVING: dropped "
+				  "unacked, %u times, a chunk at %llu, past our "
+				  "%u window from %llu, where we wait for data "
+				  "the peer is not sending.  Eg, it kept its "
+				  "stream while we restarted\n", __func__,
+				  ts->info.ops->name, ts_peer(ts),
+				  ts->diag_drops_window,
+				  (unsigned long long)offset,
+				  (unsigned int)ts->info.window_size,
+				  (unsigned long long)ts->next_rx_offset);
 		return 0;
+	}
 
 	/*
 	 * If it straddles our cumulative point, we already delivered the part
@@ -596,8 +696,23 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	 */
 
 	if (offset != ts->next_rx_offset &&
-	    lws_dll2_count(&ts->rx_scoreboard) >= LWS_TS_MAX_RX_RANGES)
+	    lws_dll2_count(&ts->rx_scoreboard) >= LWS_TS_MAX_RX_RANGES) {
+		/* DIAGNOSTIC (temporary) */
+		if (ts_diag_due(++ts->diag_drops_full))
+			lwsl_warn("%s: %s from %s: STUCK RECEIVING: dropped "
+				  "unacked, %u times, a chunk at %llu: we hold "
+				  "%d pieces after a gap from %llu that the "
+				  "peer is not filling, and take no more out "
+				  "of order.  Eg, it kept its stream while we "
+				  "restarted\n", __func__, ts->info.ops->name,
+				  ts_peer(ts), ts->diag_drops_full,
+				  (unsigned long long)offset,
+				  LWS_TS_MAX_RX_RANGES,
+				  (unsigned long long)ts->next_rx_offset);
 		return 0;
+	}
+
+	ts->diag_dups = 0; /* DIAGNOSTIC (temporary): something new */
 
 	/*
 	 * Everything the sequencer does with this chunk is done before it is
@@ -666,6 +781,8 @@ lws_transport_sequencer_rx_reset(struct lws_transport_sequencer *ts)
 	lws_dll2_foreach_safe(&ts->rx_scoreboard, NULL, lws_dll2_remove_it);
 	ts->next_rx_offset = 0;
 	ts->stats.rx_offset = 0;
+	ts->diag_rx_started = 0; /* DIAGNOSTIC (temporary) */
+	ts->diag_dups = 0;
 }
 
 int

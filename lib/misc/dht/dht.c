@@ -506,9 +506,14 @@ dht_deliver(struct lws_dht_ctx *ctx, const struct sockaddr *from,
 	int parse_ret = lws_dht_msg_parse((const char *)buf, len, &msg);
 	if (!parse_ret) {
 		if (!strcmp(msg.verb, "CAP_REQ")) {
-			char ack[512], json[384];
+			char ack[512], json[384], peer[64];
 			int n, first = 1;
 			const char *last_proto = NULL;
+
+			/* DIAGNOSTIC (temporary) */
+			lws_dht_describe_peer(from, peer, sizeof(peer));
+			lwsl_notice("%s: CAP_REQ from %s, answering it with "
+				    "CAP_RSP\n", __func__, peer);
 
 			/*
 			 * Anyone can send this, from any source address, and
@@ -528,7 +533,7 @@ dht_deliver(struct lws_dht_ctx *ctx, const struct sockaddr *from,
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->verb_owner)) {
 				struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
 
-				lwsl_notice("CAP_REQ Generator Iteration: verb=%s, protocol=%s\n",
+				lwsl_debug("CAP_REQ Generator Iteration: verb=%s, protocol=%s\n",
 					vl->v.name ? vl->v.name : "null",
 					(vl->v.protocol && vl->v.protocol->name) ? vl->v.protocol->name : "null");
 
@@ -835,6 +840,10 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	dts->salen = salen;
 	memcpy(&dts->sa, dest, salen);
 
+	/* DIAGNOSTIC (temporary): who the sequencer's logs are about */
+	lws_dht_describe_peer(dest, dts->peer, sizeof(dts->peer));
+	tsi.peer = dts->peer;
+
 	/*
 	 * The nonce binds the peer's acks to this sequencer: without it, an
 	 * ack is believed from anyone who can put the peer's address on a
@@ -863,6 +872,25 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	lws_sul_schedule(ctx->vhost->context, 0, &dts->sul_idle, lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
 
 	return dts->ts;
+}
+
+/*
+ * DIAGNOSTIC (temporary): "1.2.3.4:49100" or "[2001:db8::1]:49100", for
+ * the logs
+ */
+
+void
+lws_dht_describe_peer(const struct sockaddr *sa, char *buf, size_t len)
+{
+	char ip[48];
+
+	if (lws_sa46_write_numeric_address((lws_sockaddr46 *)sa, ip,
+					   sizeof(ip)) < 0)
+		lws_strncpy(ip, "?", sizeof(ip));
+
+	lws_snprintf(buf, len, sa->sa_family == AF_INET6 ? "[%s]:%u" :
+							   "%s:%u", ip,
+		     (unsigned int)ntohs(dht_sa_port(sa)));
 }
 
 /* the sequencer for the peer at sa, without counting this as its traffic */

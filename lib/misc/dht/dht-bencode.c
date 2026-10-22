@@ -938,8 +938,11 @@ dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 	}
 
 	if (lws_timingsafe_bcmp(dts->tx_tid, mp->tid, LWS_DHT_SEQ_TID_LEN)) {
-		lwsl_dht_rx_warn("%s: ack without our sequencer's nonce, "
-				 "dropped\n", __func__);
+		/* DIAGNOSTIC (temporary): who, it may be why we're stuck */
+		lwsl_dht_rx_warn("%s: ack from %s without our sequencer's "
+				 "nonce, dropped: if it repeats, the peer acks "
+				 "an old session of ours\n", __func__,
+				 dts->peer);
 		return;
 	}
 
@@ -1064,8 +1067,10 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 			return;
 		}
 
-		lwsl_dht_rx("%s: peer proved a %s session\n", __func__,
-			    dts->rx_tid_len ? "new" : "first");
+		lwsl_dht_rx_warn("%s: %s proved a %s session, its chunk at "
+				 "%llu\n", __func__, dts->peer,
+				 dts->rx_tid_len ? "new" : "first",
+				 (unsigned long long)mp->offset);
 		if (dts->rx_tid_len)
 			lws_transport_sequencer_rx_reset(ts);
 		memcpy(dts->rx_tid, mp->tid, mp->tid_len);
@@ -1465,8 +1470,12 @@ skip_ip_tracking:
 
 	case DHT_DATA:
 		if (mp.data) {
-			lwsl_dht_rx("%s: Received reliable data payload (%d bytes, offset %llu)\n",
-				    __func__, (int)mp.data_len, (unsigned long long)mp.offset);
+			char peer[64]; /* DIAGNOSTIC (temporary) */
+
+			lws_dht_describe_peer(from, peer, sizeof(peer));
+			lwsl_dht_rx("%s: Received reliable data payload (%d bytes, offset %llu) from %s\n",
+				    __func__, (int)mp.data_len,
+				    (unsigned long long)mp.offset, peer);
 			dht_seq_data(ctx, &mp, from, fromlen);
 		}
 		break;

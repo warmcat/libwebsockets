@@ -120,6 +120,10 @@ typedef struct lws_transport_sequencer_info {
 	uint32_t window_size;
 	/**< Maximum unacknowledged data in flight (bytes). */
 
+	const char *peer;
+	/**< NULL, or what to call the peer in logs, eg, its address.  It's
+	 * kept by pointer, so it must last as long as the sequencer. */
+
 	uint8_t unproven_peer:1;
 	/**< The peer's address is not known to be genuine: it spoke to us
 	 * first, over a transport where the source address can be forged.

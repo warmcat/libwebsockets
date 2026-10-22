@@ -498,7 +498,13 @@ typedef struct lws_dht_ts {
 	 */
 	uint8_t				in_cb;
 	uint8_t				tx_ch_set:1;
+	/* DIAGNOSTIC (temporary): the peer's address, for the logs */
+	char				peer[64];
 } lws_dht_ts_t;
+
+/* DIAGNOSTIC (temporary) */
+void
+lws_dht_describe_peer(const struct sockaddr *sa, char *buf, size_t len);
 
 struct lws_dht_mparams {
 	uint8_t			tid[16];

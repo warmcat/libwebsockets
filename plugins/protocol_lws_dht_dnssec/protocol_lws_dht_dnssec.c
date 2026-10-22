@@ -4395,7 +4395,11 @@ dht_dnssec_sul_upload_timeout_cb(struct lws_sorted_usec_list *sul)
 					struct vhd_dht_dnssec, sul_upload);
 
 	if (vhd->upload_retries >= 3) {
-		lwsl_err("%s: no answer from %s:%d for %s, giving up\n",
+		/* DIAGNOSTIC (temporary): what to look at next */
+		lwsl_err("%s: no answer from %s:%d for %s, giving up.  Its log "
+			 "says if our CAP_REQ arrived (\"CAP_REQ from\"), and "
+			 "ours or its say STUCK SENDING / STUCK RECEIVING if "
+			 "the answer is stuck between us\n",
 			 __func__, vhd->target_ip, vhd->target_port,
 			 vhd->cli_put_file);
 		dht_dnssec_upload_finish(vhd, 1);
