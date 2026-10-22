@@ -149,7 +149,10 @@ emit_c_string(const char *p, size_t len)
 {
 	printf("\"");
 	while (len--) {
-		if (*p == '"' || *p == '\\')
+		if (*p == '?')
+			/* no trigraphs from compiled selector bytes */
+			printf("\\077");
+		else if (*p == '"' || *p == '\\')
 			printf("\\%c", *p);
 		else
 			if (*p >= 32 && *p < 127)
@@ -250,9 +253,15 @@ main(void)
 	 * each array element is the size it needs and no more
 	 */
 
+	/*
+	 * A selector's text is its name, NUL, then its compiled program, which
+	 * is bytes only, so it can be emitted as part of the string
+	 */
+
 	for (n = 0; n < nm_c; n++)
 		nm_len[n] = (unsigned int)
-			    ((const lcsp_names_t *)nm_p[n])->name_len + 1;
+			    ((const lcsp_names_t *)nm_p[n])->name_len + 1 +
+			    ((const lcsp_names_t *)nm_p[n])->prog_len + 1;
 	for (n = 0; n < atr_c; n++)
 		atr_len[n] = (unsigned int)
 			     ((const lcsp_atr_t *)atr_p[n])->value_len + 1;
@@ -354,7 +363,12 @@ main(void)
 		printf("\n};\n\n");
 	}
 
-	for (m = 1; m <= 256; m++) {
+	mx = 0;
+	for (n = 0; n < nm_c; n++)
+		if (nm_len[n] > mx)
+			mx = nm_len[n];
+
+	for (m = 1; m <= mx; m++) {
 		unsigned int cnt = 0, first = 1;
 
 		for (n = 0; n < nm_c; n++)
@@ -385,11 +399,12 @@ main(void)
 			emit_dll2(&nm->list, nm_expr, ownbuf);
 			printf(",\n\t    .specificity = 0x%xu, .name_len = %u, "
 			       ".key_ofs = %u,\n\t    .key_len = %u, "
-			       ".key_kind = %u }, ",
+			       ".prog_len = %u, .key_kind = %u }, ",
 			       (unsigned int)nm->specificity,
 			       (unsigned int)nm->name_len,
 			       (unsigned int)nm->key_ofs,
 			       (unsigned int)nm->key_len,
+			       (unsigned int)nm->prog_len,
 			       (unsigned int)nm->key_kind);
 			emit_c_string((const char *)&nm[1], m - 1);
 			printf(" }");

@@ -1720,6 +1720,222 @@ bail:
 }
 
 /*
+ * A step must also be bounded in bytes, however long the selector text and
+ * the attribute names.  The matcher rescanned the selector text for the
+ * rightmost compound (<= 127 chars) for every ancestor it tried, parsed each
+ * simple selector's text again, and compared up to six attribute names of
+ * ~120 chars in each lookup, ~1000 bytes for a step: 256 '[a{120}zz] *'
+ * over 30 nested <div> with 15 attributes a{120}00.. (110KB) took 16.6s
+ * (release) before the document's css budget ended it.  Selectors are now
+ * compiled once, and the attribute index is ordered by a hash of the name,
+ * so a lookup compares hashes, and a name only when the hash matches.
+ *
+ * So with long selectors and names that share all but their last chars, the
+ * work matching does must stay within what a step that compares no names at
+ * all stands for, a compound or simple selector visited and its index
+ * probes, for every step counted so far.  These pages don't spend an
+ * element's whole budget, so this bounds the work by the steps really
+ * counted (ctx->cascade_ops, which also counts some other css work), not by
+ * the most an element may take.
+ *
+ * Names can be chosen to share a hash, so different names of the same length
+ * and hash are compared in turn, and each one compared after the first costs
+ * a step.  The second page has 62 attributes with a name sharing the hash of
+ * the one the selectors look for (and found by searching for a pair), so
+ * every lookup walks past all of them: there a step may compare one name.
+ */
+
+#define LHPT_SN_SELS		128
+#define LHPT_SN_NEST		40
+#define LHPT_SN_LEAVES		40
+#define LHPT_SN_ATRS		15	/* long names on each div */
+#define LHPT_SN_COLL		62	/* colliding names on each div */
+/* a step with its index probes, but no name compared */
+#define LHPT_SN_WORK_STEP	16
+/* a step that may compare one name of < 128 bytes */
+#define LHPT_SN_WORK_STEP_COLL	160
+
+/* lhp_name_hash() of these two 120-char names is the same */
+#define LHPT_SN_A10		"aaaaaaaaaa"
+#define LHPT_SN_PFX		LHPT_SN_A10 LHPT_SN_A10 LHPT_SN_A10 \
+				LHPT_SN_A10 LHPT_SN_A10 LHPT_SN_A10 \
+				LHPT_SN_A10 LHPT_SN_A10 LHPT_SN_A10 \
+				LHPT_SN_A10 LHPT_SN_A10
+#define LHPT_SN_COLL_HAS	LHPT_SN_PFX "puehwejmjh"
+#define LHPT_SN_COLL_FIND	LHPT_SN_PFX "quwvmxrkeg"
+
+static uint64_t sn_work_step;
+static int sn_elems, sn_ok, sn_over, sn_leaf_hit;
+
+static lws_stateful_ret_t
+sn_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *ml;
+	const lhp_atr_t *ta;
+	const char *x;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->sel_work > sn_work_step * ctx->cascade_ops) {
+		sn_over = 1;
+		return LWS_SRET_FATAL;
+	}
+	sn_elems++;
+
+	ml = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+	x = lws_html_get_atr(ps, "x", 1);
+	if (x && !strcmp(x, "ok") && ml && ml->unit == LCSP_UNIT_LENGTH_PX &&
+	    ml->u.i.whole == 2)
+		sn_ok = 1;
+
+	/* nothing has the attribute the hostile selectors look for */
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len == 1 && *(const char *)&ta[1] == 'i' && ml &&
+	    ml->unit == LCSP_UNIT_LENGTH_PX && ml->u.i.whole == 1)
+		sn_leaf_hit = 1;
+
+	return 0;
+}
+
+static int
+test_selector_names(int collide)
+{
+	size_t alloc = (size_t)LHPT_SN_SELS * 160 +
+		       (size_t)LHPT_SN_NEST * (LHPT_SN_COLL * 126 + 16) +
+		       (size_t)LHPT_SN_LEAVES * 16 + 1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i, j;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	sn_elems = sn_ok = sn_over = sn_leaf_hit = 0;
+	sn_work_step = collide ? LHPT_SN_WORK_STEP_COLL : LHPT_SN_WORK_STEP;
+
+	/*
+	 * The rule that matches: attribute names ignore case, and a name is
+	 * found past others sharing its hash
+	 */
+	p = doc;
+	if (collide)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<html><head><style>p[" LHPT_SN_COLL_FIND
+				  "]{margin-left:2px}\n");
+	else
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<html><head><style>[A" LHPT_SN_PFX
+				  "aaaaaaa07]{margin-left:2px}\n");
+	for (i = 0; i < LHPT_SN_SELS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "[%s] *{margin-left:1px}\n", collide ?
+				  LHPT_SN_COLL_FIND :
+				  LHPT_SN_PFX "aaaaaaaazz");
+	if (collide)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</style></head><body><p "
+				  LHPT_SN_COLL_HAS "=1 " LHPT_SN_COLL_FIND
+				  "=2 x=ok>x</p>");
+	else
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</style></head><body><p " LHPT_SN_PFX
+				  "aaaaaaaa07=1 x=ok>x</p>");
+	for (i = 0; i < LHPT_SN_NEST; i++) {
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<div");
+		for (j = 0; j < (collide ? LHPT_SN_COLL : LHPT_SN_ATRS); j++)
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc),
+					  collide ? " " LHPT_SN_COLL_HAS "=1" :
+					  " " LHPT_SN_PFX "aaaaaaaa%02d=1", j);
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  ">");
+		if (!i)
+			/* a leaf decided well within its budget */
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc),
+					  "<i>x</i>");
+	}
+	for (i = 0; i < LHPT_SN_LEAVES; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<b>x</b>");
+	for (i = 0; i < LHPT_SN_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</div>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, sn_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: collide %d: %d elements, %llu cascade steps, %llu "
+		  "work, r 0x%x\n", __func__, collide, sn_elems,
+		  (unsigned long long)ctx->cascade_ops,
+		  (unsigned long long)ctx->sel_work, (unsigned int)r);
+
+	if (sn_over) {
+		lwsl_err("%s: over %llu work per step at element %d\n",
+			 __func__, (unsigned long long)sn_work_step,
+			 sn_elems + 1);
+		goto bail_destruct;
+	}
+	/* html, head, style, body, p, the divs, the leaves */
+	if (r & LWS_SRET_FATAL ||
+	    sn_elems != LHPT_SN_NEST + LHPT_SN_LEAVES + 6) {
+		lwsl_err("%s: parse failed, %d elements\n", __func__,
+			 sn_elems);
+		goto bail_destruct;
+	}
+	/* the colliding names really are compared, and charged for */
+	if (collide &&
+	    ctx->cascade_ops < (uint64_t)LHPT_SN_NEST / 2 * 32768) {
+		lwsl_err("%s: only %llu steps\n", __func__,
+			 (unsigned long long)ctx->cascade_ops);
+		goto bail_destruct;
+	}
+	if (!sn_ok || sn_leaf_hit) {
+		lwsl_err("%s: the attribute rule matched %d, a leaf %d\n",
+			 __func__, sn_ok, sn_leaf_hit);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Property lookups must cost a bounded amount however long the declarations
  * they find.  Every lookup listed all the values of the winning declaration
  * in ctx->active_atr, which had no limit, and an inherited property is
@@ -2556,6 +2772,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_selector_compound())
+		goto bail;
+
+	if (test_selector_names(0) || test_selector_names(1))
 		goto bail;
 
 	if (test_decl_values())

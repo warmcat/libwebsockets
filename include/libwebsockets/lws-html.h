@@ -488,14 +488,21 @@ typedef struct lhp_atr {
 
 /*
  * An element's attributes as its selectors see them: its tag, and the rest
- * sorted by name ignoring case, the first of a repeated name first, so a
- * selector finds one by binary search rather than by walking them all.
- * Kept along with the element's attribute list, private to lhp.c
+ * sorted by the hash of their name ignoring case, then by length and name,
+ * the first of a repeated name first, so a selector finds one by comparing
+ * hashes and then usually a single name.  Kept along with the element's
+ * attribute list, private to lhp.c
  */
+
+typedef struct lhp_atr_ent {
+	const lhp_atr_t		*a;
+	uint32_t		h;	/* hash of its name ignoring case */
+} lhp_atr_ent_t;
 
 typedef struct lhp_atr_idx {
 	const lhp_atr_t		*tag;	/* NULL until the tag is parsed */
-	const lhp_atr_t		**a;	/* the attributes, sorted */
+	lhp_atr_ent_t		*a;	/* the attributes, sorted */
+	uint32_t		tag_h;	/* hash of the tag ignoring case */
 	uint8_t			count;
 	uint8_t			alloc;
 } lhp_atr_idx_t;
@@ -782,9 +789,11 @@ typedef struct lcsp_names {
 						 * selective simple selector,
 						 * for the cascade prefilter */
 	uint16_t		key_len;
+	uint16_t		prog_len;	/* the selector compiled for
+						 * matching, private to lhp.c */
 	uint8_t			key_kind;	/* LHP_SELKEY_ */
 
-	/* name + NUL follow */
+	/* name + NUL, then prog_len bytes of compiled selector follow */
 } lcsp_names_t;
 
 typedef struct lcsp_stanza { /* css stanza, with names and defs */
@@ -963,13 +972,14 @@ typedef struct lhp_ctx {
 					      * LHP_MAX_CSS_CASCADE_OPS bounds,
 					      * and for tests to bound */
 	uint64_t		sel_work; /* work selector matching really
-					   * did: attribute names compared,
-					   * attribute value bytes scanned,
-					   * simple selectors and ancestors
-					   * visited.  Counted where it is
-					   * done, apart from what is charged
-					   * to cascade_ops, so that tests can
-					   * bound the work itself */
+					   * did: compounds and simple
+					   * selectors visited, attribute
+					   * index entries probed, bytes of
+					   * names compared and of attribute
+					   * values scanned.  Counted where it
+					   * is done, apart from what is
+					   * charged to cascade_ops, so that
+					   * tests can bound the work itself */
 	uint32_t		css_doc_selectors; /* the document's selectors */
 	uint32_t		css_doc_vars; /* and custom properties */
 	uint8_t			css_doc_spent; /* LHP_MAX_CSS_CASCADE_OPS or
