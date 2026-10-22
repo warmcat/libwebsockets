@@ -28,6 +28,34 @@
 #include <sqlite3.h>
 
 /*
+ * Store an integer column's value into a member at the member's real width
+ * (map->aux is sizeof(member)).  The narrowing conversion to the unsigned
+ * type of that width keeps the low bits, which is the value for a signed
+ * member too, and restores an unsigned 64-bit value that sqlite holds as the
+ * negative integer with the same bits.  An unrecognized width is a hard
+ * fail, never a store wider than the member.
+ */
+
+static int
+ls_sq3_store_int(void *memb, size_t width, long long li)
+{
+	if (width == sizeof(unsigned char))
+		*(unsigned char *)memb = (unsigned char)li;
+	else if (width == sizeof(unsigned short))
+		*(unsigned short *)memb = (unsigned short)li;
+	else if (width == sizeof(unsigned int))
+		*(unsigned int *)memb = (unsigned int)li;
+	else if (width == sizeof(unsigned long))
+		*(unsigned long *)memb = (unsigned long)li;
+	else if (width == sizeof(unsigned long long))
+		*(unsigned long long *)memb = (unsigned long long)li;
+	else
+		return 1;
+
+	return 0;
+}
+
+/*
  * we get one of these per matching result from the query
  */
 
@@ -59,88 +87,21 @@ lws_struct_sq3_deser_cb(void *priv, int cols, char **cv, char **cn)
 
 			switch (map->type) {
 			case LSMT_SIGNED:
-				if (map->aux == sizeof(signed char)) {
-					signed char *pc;
-					pc = (signed char *)(u + map->ofs);
-					*pc = (signed char)atoi(cv[n]);
-					break;
-				}
-				if (map->aux == sizeof(short)) {
-					short *ps;
-					ps = (short *)(u + map->ofs);
-					*ps = (short)atoi(cv[n]);
-					break;
-				}
-				if (map->aux == sizeof(int)) {
-					int *pi;
-					pi = (int *)(u + map->ofs);
-					*pi = (int)atoll(cv[n]); /* 32-bit OS */
-					break;
-				}
-				if (map->aux == sizeof(long)) {
-					long *pl;
-					pl = (long *)(u + map->ofs);
-					*pl = (long)atoll(cv[n]); /* 32-bit OS */
-					break;
-				}
-				{
-					long long *pll;
-					pll = (long long *)(u + map->ofs);
-					*pll = atoll(cv[n]);
-				}
-				break;
-
 			case LSMT_UNSIGNED:
-				if (map->aux == sizeof(unsigned char)) {
-					unsigned char *pc;
-					pc = (unsigned char *)(u + map->ofs);
-					*pc = (unsigned char)(unsigned int)atoi(cv[n]);
-					break;
-				}
-				if (map->aux == sizeof(unsigned short)) {
-					unsigned short *ps;
-					ps = (unsigned short *)(u + map->ofs);
-					*ps = (unsigned short)atoi(cv[n]);
-					break;
-				}
-				if (map->aux == sizeof(unsigned int)) {
-					unsigned int *pi;
-					pi = (unsigned int *)(u + map->ofs);
-					*pi = (unsigned int)atoi(cv[n]);
-					break;
-				}
-				if (map->aux == sizeof(unsigned long)) {
-					unsigned long *pl;
-					pl = (unsigned long *)(u + map->ofs);
-					*pl = (unsigned long)atol(cv[n]);
-					break;
-				}
-				{
-					unsigned long long *pll;
-					pll = (unsigned long long *)(u + map->ofs);
-					*pll = (unsigned long long)atoll(cv[n]);
-				}
-				break;
-
 			case LSMT_BOOLEAN:
-				li = 0;
-				if (!strcmp(cv[n], "true") ||
-				    !strcmp(cv[n], "TRUE") || cv[n][0] == '1')
-					li = 1;
-				if (map->aux == sizeof(char)) {
-					char *pc;
-					pc = (char *)(u + map->ofs);
-					*pc = (char)li;
-					break;
-				}
-				if (map->aux == sizeof(int)) {
-					int *pi;
-					pi = (int *)(u + map->ofs);
-					*pi = (int)li;
-				} else {
-					uint64_t *p64;
-					p64 = (uint64_t *)(u + map->ofs);
-					*p64 = (uint64_t)li;
+				if (map->type == LSMT_BOOLEAN)
+					li = !strcmp(cv[n], "true") ||
+					     !strcmp(cv[n], "TRUE") ||
+					     cv[n][0] == '1';
+				else
+					li = atoll(cv[n]);
+
+				if (ls_sq3_store_int(u + map->ofs, map->aux, li)) {
+					lwsl_err("%s: '%s': bad member width %d\n",
+						 __func__, map->colname,
+						 (int)map->aux);
+
+					return 1;
 				}
 				break;
 
@@ -257,7 +218,14 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 	if (sqlite3_exec(pdb, s, lws_struct_sq3_deser_cb, &a, NULL) != SQLITE_OK) {
 		lwsl_err("%s: %s: fail %s\n", __func__, sqlite3_errmsg(pdb), s);
 		free(s);
+		/*
+		 * The rows already listed on o live in the ac we free, which
+		 * also holds anything the caller's *ac held: leave neither
+		 * pointing at it
+		 */
+		lws_dll2_owner_clear(o);
 		lwsac_free(&a.ac);
+		*ac = NULL;
 		return -1;
 	}
 

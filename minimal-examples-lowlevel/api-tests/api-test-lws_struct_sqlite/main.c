@@ -73,6 +73,9 @@ typedef struct rowtest {
 	int16_t			s16;
 	uint64_t		u64;
 	int64_t			s64;
+	uint32_t		u32;
+	int16_t			b16;	/* a 2-byte boolean... */
+	int16_t			after16; /* ...and what follows it */
 } rowtest_t;
 
 static const lws_struct_map_t lsm_rowtest[] = {
@@ -83,6 +86,10 @@ static const lws_struct_map_t lsm_rowtest[] = {
 	LSM_SIGNED	(rowtest_t, s16,		"s16"),
 	LSM_UNSIGNED	(rowtest_t, u64,		"u64"),
 	LSM_SIGNED	(rowtest_t, s64,		"s64"),
+	LSM_UNSIGNED	(rowtest_t, u32,		"u32"),
+	/* read back before b16, so a store wider than b16 would clobber it */
+	LSM_SIGNED	(rowtest_t, after16,		"after16"),
+	LSM_BOOLEAN	(rowtest_t, b16,		"b16"),
 };
 
 static const lws_struct_map_t lsm_schema_rowtest[] = {
@@ -151,10 +158,12 @@ rowtest_check(sqlite3 *db, const rowtest_t *w, const char *what)
 	}
 
 	if (r->s8 != w->s8 || r->s16 != w->s16 || r->u64 != w->u64 ||
-	    r->s64 != w->s64) {
-		lwsl_err("%s: %s: %d %d 0x%llx %lld\n", __func__, what,
-			 r->s8, r->s16, (unsigned long long)r->u64,
-			 (long long)r->s64);
+	    r->s64 != w->s64 || r->u32 != w->u32 || r->b16 != w->b16 ||
+	    r->after16 != w->after16) {
+		lwsl_err("%s: %s: %d %d 0x%llx %lld 0x%x %d %d\n", __func__,
+			 what, r->s8, r->s16, (unsigned long long)r->u64,
+			 (long long)r->s64, (unsigned int)r->u32, r->b16,
+			 r->after16);
 		goto bail;
 	}
 
@@ -169,7 +178,8 @@ bail:
 /*
  * lws_struct_sq3_upsert() and _update() bind the member values: a NULL string
  * member is SQL NULL, a long string is stored whole, quotes in it are just
- * data, and integers keep their sign and all 64 bits.
+ * data, and integers keep their sign and all 64 bits.  Reading them back
+ * stores each member at its own width.
  */
 
 static int
@@ -197,6 +207,9 @@ rowtest(sqlite3 *db)
 	w.s16	= -300;
 	w.u64	= 0xfedcba9876543210ull;
 	w.s64	= -0x123456789abll;
+	w.u32	= 0xfedcba98;
+	w.b16	= 1;
+	w.after16 = 7;
 
 	/* 1: upsert inserts a row with a NULL string member */
 
