@@ -18,7 +18,7 @@
  * | 3 | world-writable zone dir with planted zone | planted zone served | protocol init refused, no listener |
  * | 4 | zone-dir that is a symlink to a valid dir | followed, zone served | protocol init refused, no listener |
  * | 5 | good dir, but undecorated / short-suffix / group-writable / symlinked zone files | all loaded and served | only the properly shaped file loads, the rest answer REFUSED |
- * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them |
+ * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them, and signed and in date (G-505) |
  * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
  * | 8 | a zone with a delegation (G-246) | names at / below the cut answered authoritatively from the zone text | referred: no AA, the cut's NS in authority; only the DS at the cut answered |
  * | 9 | more zone files than cache-max-zones (G-290) | the surplus evicted at startup and its files unlinked | all served, every file still there |
@@ -106,7 +106,7 @@ struct qexp {
 	int		got_nsc;
 };
 
-#define MAX_Q		5
+#define MAX_Q		8
 
 struct phase {
 	const char	*name;
@@ -248,6 +248,15 @@ static struct lws_dht_dnssec_ops zd_dht_fetch_ops = {
 
 /* what is handed over, and the domain it was verified for */
 
+/*
+ * lws-dht-dnssec only hands over zones that are signed and in date, and
+ * auth-dns refuses any other (G-505).  The RRSIG's times are what is looked
+ * at, not its signature, which the JWS over the zone stands for: a period
+ * from 2020 to 2035 is valid while the test runs.
+ */
+#define ZD_SOA_RRSIG(_z) "@ IN RRSIG SOA 8 2 86400 20350101000000 " \
+			 "20200101000000 12345 " _z ".example. AAAA\n"
+
 static const struct {
 	const char	*file;
 	const char	*domain;
@@ -259,6 +268,7 @@ static const struct {
 		"$TTL 86400\n"
 		"@ IN SOA ns1.ok3.example. hostmaster.ok3.example. "
 			"( 2026090101 3600 1800 604800 86400 )\n"
+		ZD_SOA_RRSIG("ok3")
 		"www IN A 127.0.0.77\n"
 	}, {	/* signed for a.example, with victim.example's records after */
 		"handed-trailing.zone", "a.example",
@@ -284,7 +294,24 @@ static const struct {
 		"$TTL 86400\n"
 		"@ IN SOA ns1.ok4.example. hostmaster.ok4.example. "
 			"( 2026090101 3600 1800 604800 86400 )\n"
+		ZD_SOA_RRSIG("ok4")
 		"www IN A 127.0.0.78\n"
+	}, {	/* its domain's, but not signed (G-505) */
+		"handed-unsigned.zone", "ok5.example",
+		"$ORIGIN ok5.example.\n"
+		"$TTL 86400\n"
+		"@ IN SOA ns1.ok5.example. hostmaster.ok5.example. "
+			"( 2026090101 3600 1800 604800 86400 )\n"
+		"www IN A 127.0.0.79\n"
+	}, {	/* its domain's, but its signatures expired (G-505) */
+		"handed-expired.zone", "ok6.example",
+		"$ORIGIN ok6.example.\n"
+		"$TTL 86400\n"
+		"@ IN SOA ns1.ok6.example. hostmaster.ok6.example. "
+			"( 2026090101 3600 1800 604800 86400 )\n"
+		"@ IN RRSIG SOA 8 2 86400 20210101000000 "
+			"20200101000000 12345 ok6.example. AAAA\n"
+		"www IN A 127.0.0.80\n"
 	},
 };
 
@@ -1056,6 +1083,9 @@ main(int argc, const char **argv)
 				{ "www.a.example", 0x4108, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 				/* while a zone that is its domain's is */
 				{ "www.ok3.example", 0x5108, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				/* unless it is unsigned or out of date */
+				{ "www.ok5.example", 0x6108, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.ok6.example", 0x7108, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "zone fetch given up with its query",

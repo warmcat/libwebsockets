@@ -1665,6 +1665,7 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 			if (buf && read(fpin, buf, (size_t)st.st_size) == st.st_size) {
 				buf[st.st_size] = '\0';
 
+				struct lws_auth_dns_zone_validity zv;
 				struct auth_dns_zone z;
 				memset(&z, 0, sizeof(z));
 				uint64_t serial = 0;
@@ -1692,47 +1693,28 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 
 					if (z.default_ttl[0]) default_ttl = (time_t)atoi(z.default_ttl);
 
-					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
-						struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-						if (rs->type == 6) { /* SOA */
-							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-								struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-								/* extremely basic wire parse to get serial, which is 5th 32bit int after names */
-								int p2 = 0;
-								while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) {
-									p2 += rr->wire_rdata[p2] + 1;
-								}
-								p2++;
-								while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) {
-									p2 += rr->wire_rdata[p2] + 1;
-								}
-								p2++;
-								if (p2 + 4 <= (int)rr->wire_rdata_len) {
-									serial = ((uint64_t)rr->wire_rdata[p2] << 24) |
-											 ((uint64_t)rr->wire_rdata[p2+1] << 16) |
-											 ((uint64_t)rr->wire_rdata[p2+2] << 8) |
-											 (uint64_t)rr->wire_rdata[p2+3];
-								}
-								break;
-							} lws_end_foreach_dll(d2);
-						} else if (rs->type == 46) { /* RRSIG */
-							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-								struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-								if (rr->wire_rdata_len >= 13) {
-									/* Expiry is 4 bytes at offset 8 */
-									time_t e = ((time_t)rr->wire_rdata[8] << 24) |
-											   ((time_t)rr->wire_rdata[9] << 16) |
-											   ((time_t)rr->wire_rdata[10] << 8) |
-											   (time_t)rr->wire_rdata[11];
-									if (sig_expiry == 0 || e < sig_expiry)
-										sig_expiry = e;
-								}
-							} lws_end_foreach_dll(d2);
-						}
-					} lws_end_foreach_dll(d);
+					/*
+					 * G-505: it is served for as long as
+					 * its RRSIGs are valid, so it must have
+					 * them, and be in date now: a zone with
+					 * none used to be given a made-up life
+					 */
+					if (lws_auth_dns_zone_validity(&z, time(NULL),
+							LWS_AUTH_DNS_RRSIG_SKEW_SECS,
+							&zv)) {
+						lwsl_notice("%s: refusing zone handed "
+							    "over as %s: unsigned or "
+							    "out of date\n", __func__,
+							    domain);
+						lws_auth_dns_free_zone(&z);
+						free(buf);
+						close(fpin);
+						return;
+					}
+					serial = zv.serial;
+					sig_expiry = zv.expiration;
 
 					time_t ttl_expiry = time(NULL) + default_ttl;
-					if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
 
 					char clean_origin[256];
 					lws_strncpy(clean_origin, z.origin, sizeof(clean_origin));

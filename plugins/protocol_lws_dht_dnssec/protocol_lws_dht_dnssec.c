@@ -527,6 +527,31 @@ struct lws_dir_args {
 	int is_outdated;
 };
 
+/*
+ * A stored zone payload is named <hash>_<ttl expiry>_<sig expiry>_<serial>
+ * .payload.  Returns 0 with its RRSIG expiry, or nonzero for a name without
+ * those fields.
+ */
+
+static int
+dht_dnssec_payload_sig_expiry(const char *name, uint64_t *sig_expiry)
+{
+	size_t nl = strlen(name);
+	const char *p;
+	int uscore = 0;
+
+	*sig_expiry = 0;
+
+	if (nl <= 9 || strcmp(name + nl - 8, ".payload"))
+		return 1;
+
+	for (p = name + nl - 9; p > name; p--)
+		if (*p == '_' && ++uscore == 2)
+			*sig_expiry = strtoull(p + 1, NULL, 10);
+
+	return uscore < 3;
+}
+
 static int
 dht_dnssec_sweep_old_payload_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -557,6 +582,156 @@ dht_dnssec_sweep_old_payload_cb(const char *dirpath, void *user, struct lws_dir_
 		unlink(upath);
 		lwsl_notice("%s: unlinked old payload %s\n", __func__, upath);
 	}
+	return 0;
+}
+
+/* RFC1982 serial number arithmetic: is a later than b? */
+
+static int
+dht_dnssec_serial_gt(uint32_t a, uint32_t b)
+{
+	return a != b && (int32_t)(a - b) > 0;
+}
+
+/*
+ * The newest version of a zone we ever accepted, its high-water mark (G-505).
+ *
+ * The check against our own copy on disk only stops a replay while we still
+ * have one: a node that never had the zone, or whose copy was swept, took
+ * whichever validly signed version reached it first.  So the serial and
+ * signing time (the latest inception of an RRSIG over the SOA) of the newest
+ * version we accepted are kept in their own file next to the zone,
+ * <hash>.hwm, which outlives the zone's payload, and no version older than it
+ * in either is taken again.  It is kept until a week after that version's
+ * RRSIGs expired: by then any older version, signed for no longer a period,
+ * has expired too and is refused for that.
+ *
+ * The file is ours, but it is read like anything else from disk: exactly
+ * DHT_DNSSEC_HWM_LEN bytes, or it is not there.
+ */
+
+struct dht_dnssec_hwm {
+	uint32_t		serial;
+	uint64_t		inception;
+	uint64_t		expiry;
+};
+
+#define DHT_DNSSEC_HWM_LEN		(4 + 8 + 8)
+#define DHT_DNSSEC_HWM_KEEP_SECS	(7 * 24 * 3600)
+
+static int
+dht_dnssec_hwm_path(const char *storage_path, const char *hash, char *path,
+		    size_t len)
+{
+	return lws_snprintf(path, len, "%s/%.2s/%.2s/%s.hwm", storage_path,
+			    hash, hash + 2, hash) >= (int)len;
+}
+
+static int
+dht_dnssec_hwm_read_path(const char *path, struct dht_dnssec_hwm *hwm)
+{
+	uint8_t b[DHT_DNSSEC_HWM_LEN + 1];
+	ssize_t n;
+	int fd;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return 1;
+	n = read(fd, b, sizeof(b));
+	close(fd);
+	if (n != DHT_DNSSEC_HWM_LEN)
+		return 1;
+
+	hwm->serial	= lws_ser_ru32be(b);
+	hwm->inception	= lws_ser_ru64be(b + 4);
+	hwm->expiry	= lws_ser_ru64be(b + 12);
+
+	return 0;
+}
+
+/* 0 and the zone's high-water mark, or nonzero if we never took it */
+
+static int
+dht_dnssec_hwm_read(const char *storage_path, const char *hash,
+		    struct dht_dnssec_hwm *hwm)
+{
+	char path[512];
+
+	if (dht_dnssec_hwm_path(storage_path, hash, path, sizeof(path)))
+		return 1;
+
+	return dht_dnssec_hwm_read_path(path, hwm);
+}
+
+/*
+ * May a version with this serial and signing time be taken, after the
+ * newest one we took?  The same version again may (eg, after its payload was
+ * swept), but nothing older in serial, or signed before it.
+ */
+
+static int
+dht_dnssec_hwm_admits(const struct dht_dnssec_hwm *seen, uint32_t serial,
+		      uint64_t inception)
+{
+	if (inception < seen->inception)
+		return 0;
+
+	return serial == seen->serial || dht_dnssec_serial_gt(serial,
+							      seen->serial);
+}
+
+/* is the version zv of the zone stored under hash older than one we took? */
+
+static int
+dht_dnssec_hwm_refuses(const char *storage_path, const char *hash,
+		       const struct lws_auth_dns_zone_validity *zv,
+		       struct dht_dnssec_hwm *seen)
+{
+	return !dht_dnssec_hwm_read(storage_path, hash, seen) &&
+	       !dht_dnssec_hwm_admits(seen, zv->serial,
+				      (uint64_t)zv->soa_inception);
+}
+
+/* raise the zone's high-water mark to this version, if it is newer */
+
+static int
+dht_dnssec_hwm_update(const char *storage_path, const char *hash,
+		      const struct lws_auth_dns_zone_validity *zv)
+{
+	struct dht_dnssec_hwm seen, nv;
+	char path[512], tmp[520];
+	uint8_t b[DHT_DNSSEC_HWM_LEN];
+	int fd, ok;
+
+	nv.serial	= zv->serial;
+	nv.inception	= (uint64_t)zv->soa_inception;
+	nv.expiry	= (uint64_t)zv->expiration;
+
+	if (!dht_dnssec_hwm_read(storage_path, hash, &seen) &&
+	    !dht_dnssec_serial_gt(nv.serial, seen.serial) &&
+	    nv.inception <= seen.inception)
+		return 0;
+
+	if (dht_dnssec_hwm_path(storage_path, hash, path, sizeof(path)) ||
+	    lws_snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
+		return 1;
+
+	lws_ser_wu32be(b, nv.serial);
+	lws_ser_wu64be(b + 4, nv.inception);
+	lws_ser_wu64be(b + 12, nv.expiry);
+
+	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0640);
+	if (fd < 0)
+		return 1;
+	ok = write(fd, b, sizeof(b)) == (ssize_t)sizeof(b);
+	close(fd);
+
+	if (!ok || rename(tmp, path)) {
+		lwsl_err("%s: unable to record %s\n", __func__, path);
+		unlink(tmp);
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -1251,21 +1426,28 @@ jose_jwk_object(const char *h, size_t len, size_t *jwk_len)
  * $ORIGIN, that one, and nothing outside it.  Otherwise a zone signed by the
  * owner of one domain is installed as another (G-117).
  *
- * Returns 0 with the zone's SOA serial, its earliest RRSIG expiry (0 if none)
- * and its default TTL, or nonzero if the payload is refused.
+ * It also has to be in date.  Nothing else bounds a zone object in time: the
+ * JWS has no time in it, and the key it is signed with (the KSK the DS names)
+ * lives for years, so every version the owner ever published would verify
+ * forever.  The zone's own RRSIGs do carry the signing time and a validity
+ * period, under the JWS signature, so a zone is only taken while every RRSIG
+ * in it is inside its period, and it must have an RRSIG over its SOA, whose
+ * inception says when it was signed (G-505).
+ *
+ * Returns 0 with the zone's serial and signing times in \p zv and its default
+ * TTL, or nonzero if the payload is refused.
  */
 static int
 dht_dnssec_payload_check(const char *path, const char *domain,
-			 uint64_t *serial, time_t *sig_expiry,
+			 struct lws_auth_dns_zone_validity *zv,
 			 time_t *default_ttl)
 {
 	struct auth_dns_zone z;
 	struct stat st;
 	char *buf = NULL;
-	int fd, ret = 1;
+	int fd, ret = 1, r;
 
-	*serial = 0;
-	*sig_expiry = 0;
+	memset(zv, 0, sizeof(*zv));
 	*default_ttl = 3600;
 	memset(&z, 0, sizeof(z));
 
@@ -1295,44 +1477,23 @@ dht_dnssec_payload_check(const char *path, const char *domain,
 	if (z.default_ttl[0])
 		*default_ttl = (time_t)atoi(z.default_ttl);
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
-		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-		if (rs->type == 6) { /* SOA */
-			lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-				struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-				int p2 = 0;
-				while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
-				p2++;
-				while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
-				p2++;
-				if (p2 + 4 <= (int)rr->wire_rdata_len) {
-					*serial = ((uint64_t)rr->wire_rdata[p2] << 24) |
-						  ((uint64_t)rr->wire_rdata[p2+1] << 16) |
-						  ((uint64_t)rr->wire_rdata[p2+2] << 8) |
-						  (uint64_t)rr->wire_rdata[p2+3];
-				}
-				break;
-			} lws_end_foreach_dll(d2);
-		} else if (rs->type == 46) { /* RRSIG */
-			lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-				struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-				if (rr->wire_rdata_len >= 13) {
-					time_t e = ((time_t)rr->wire_rdata[8] << 24) |
-						   ((time_t)rr->wire_rdata[9] << 16) |
-						   ((time_t)rr->wire_rdata[10] << 8) |
-						   (time_t)rr->wire_rdata[11];
-					if (*sig_expiry == 0 || e < *sig_expiry)
-						*sig_expiry = e;
-				}
-			} lws_end_foreach_dll(d2);
-		}
-	} lws_end_foreach_dll(d);
+	r = lws_auth_dns_zone_validity(&z, time(NULL),
+				       LWS_AUTH_DNS_RRSIG_SKEW_SECS, zv);
+	if (r) {
+		lwsl_warn("%s: refusing zone for %s: %s\n", __func__, domain,
+			  r == LWS_AUTH_DNS_ZV_NO_SOA ? "no SOA serial" :
+			  r == LWS_AUTH_DNS_ZV_UNSIGNED ? "SOA not signed" :
+			  r == LWS_AUTH_DNS_ZV_NOT_YET_VALID ?
+					"RRSIG not yet valid" :
+					"RRSIG expired");
+		goto bail;
+	}
 
 	/*
 	 * The serial is what the replay check and the cached filename are
 	 * built on: a signed zone without one is refused
 	 */
-	if (!*serial) {
+	if (!zv->serial) {
 		lwsl_err("%s: %s: missing or invalid SOA serial\n", __func__,
 			 domain);
 		goto bail;
@@ -1753,18 +1914,36 @@ ds_test_done:
 		 * frag->domain: decide here, with the parser that will serve
 		 * it, that it is exactly that zone, and take its serial (what
 		 * the replay check and the cached filename are built on) and
-		 * expiries from it
+		 * expiries from it.  It is refused unless it is signed and in
+		 * date, and unless it is at least as new as the newest version
+		 * of it we ever took
 		 */
-		uint64_t serial = 0;
-		time_t sig_expiry = 0;
+		struct lws_auth_dns_zone_validity zv;
+		struct dht_dnssec_hwm hwm;
 		time_t default_ttl = 3600;
+		uint64_t serial;
+		time_t sig_expiry;
 
-		if (dht_dnssec_payload_check(tmp_ppath, frag->domain, &serial,
-					     &sig_expiry, &default_ttl))
+		if (dht_dnssec_payload_check(tmp_ppath, frag->domain, &zv,
+					     &default_ttl))
 			goto drop;
 
+		serial = zv.serial;
+		sig_expiry = zv.expiration;
+
+		if (dht_dnssec_hwm_refuses(vhd->storage_path, frag->safe_hash,
+					   &zv, &hwm)) {
+			/* not struck, for the reasons a replay is not below */
+			lwsl_notice("%s: Dropping zone %s serial %u signed %llu: "
+				    "older than serial %u signed %llu we took\n",
+				    __func__, frag->domain, zv.serial,
+				    (unsigned long long)zv.soa_inception,
+				    hwm.serial,
+				    (unsigned long long)hwm.inception);
+			goto drop;
+		}
+
 		time_t ttl_expiry = time(NULL) + default_ttl;
-		if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
 
 		lws_snprintf(final_ppath, sizeof(final_ppath), "%s/%.2s/%.2s/%s_%llu_%llu_%llu.payload",
 			vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash,
@@ -1795,6 +1974,9 @@ ds_test_done:
 				lwsl_notice("%s: Dropping imported zone %s (serial %llu is a replay)\n", __func__, frag->domain, (unsigned long long)serial);
 			} else {
 				lwsl_notice("%s: Dropping identically cached zone %s (serial %llu is already active!)\n", __func__, frag->domain, (unsigned long long)serial);
+				/* a copy from before the marks were kept */
+				dht_dnssec_hwm_update(vhd->storage_path,
+						      frag->safe_hash, &zv);
 				/*
 				 * Nothing new, but a fetch of ours that the
 				 * node answered with the zone: it holds it
@@ -1874,6 +2056,9 @@ ds_test_done:
 				unlink(tmp_ppath);
 			} else {
 				lwsl_user("%s: Atomically moved decoded payload to %s\n", __func__, final_ppath);
+
+				dht_dnssec_hwm_update(vhd->storage_path,
+						      frag->safe_hash, &zv);
 
 				if (vhd->auth_cb) {
 					vhd->auth_cb(vhd->auth_cb_opaque, frag->domain, final_ppath);
@@ -4894,24 +5079,38 @@ dht_dnssec_sweep_level2_cb(const char *dirpath, void *user, struct lws_dir_entry
 {
 	if (lde->type == LDOT_FILE) {
 		size_t nl = strlen(lde->name);
-		if (nl > 8 && !strcmp(lde->name + nl - 8, ".payload")) {
-			char *p = (char *)lde->name + nl - 9;
-			int uscore = 0;
-			uint64_t sig_expiry = 0;
-			while (p > lde->name) {
-				if (*p == '_') {
-					uscore++;
-					if (uscore == 2 && sig_expiry == 0) {
-						sig_expiry = strtoull(p + 1, NULL, 10);
-					}
-				}
-				p--;
+		uint64_t now = (uint64_t)lws_now_secs();
+
+		if (nl > 4 && !strcmp(lde->name + nl - 4, ".hwm")) {
+			struct dht_dnssec_hwm hwm;
+			char fp[1024];
+
+			/* never unlink a truncated path */
+			if (lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath,
+					 lde->name) >= (int)sizeof(fp))
+				return 0;
+
+			/*
+			 * The mark of a zone whose newest version we took
+			 * expired long enough ago that anything older than it
+			 * has too, or a mark we can't read
+			 */
+			if (dht_dnssec_hwm_read_path(fp, &hwm) ||
+			    hwm.expiry + DHT_DNSSEC_HWM_KEEP_SECS < now) {
+				lwsl_notice("Expunging high-water mark %s\n", fp);
+				unlink(fp);
 			}
 
-			int is_legacy = (uscore < 3);
+			return 0;
+		}
 
-			if (is_legacy || (sig_expiry > 0 && sig_expiry < (uint64_t)lws_now_secs())) {
-				char fp[1024];
+		if (nl > 8 && !strcmp(lde->name + nl - 8, ".payload")) {
+			uint64_t sig_expiry = 0;
+			int is_legacy = dht_dnssec_payload_sig_expiry(lde->name,
+								&sig_expiry);
+
+			if (is_legacy || (sig_expiry > 0 && sig_expiry < now)) {
+				char fp[1024], *p;
 				/* never unlink a truncated path */
 				if (lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath,
 						 lde->name) >= (int)sizeof(fp))
@@ -6026,14 +6225,6 @@ dht_dnssec_zone_file_serial(const char *filepath, uint32_t *serial)
 	return n;
 }
 
-/* RFC1982 serial number arithmetic: is a later than b? */
-
-static int
-dht_dnssec_serial_gt(uint32_t a, uint32_t b)
-{
-	return a != b && (int32_t)(a - b) > 0;
-}
-
 /*
  * Before each signing, give the zone file a serial later than the one it
  * was last signed with, in the form YYYYMMDDnn while the count allows.
@@ -6545,7 +6736,17 @@ dht_dnssec_fetch_payload_cb(const char *dirpath, void *user, struct lws_dir_entr
 	struct dht_dnssec_fetch_dir_args *a = (struct dht_dnssec_fetch_dir_args *)user;
 	size_t pl = strlen(a->prefix);
 	size_t nl = strlen(lde->name);
+	uint64_t sig_expiry;
+
 	if (nl > pl && !strncmp(lde->name, a->prefix, pl) && lde->name[pl] == '_' && nl > 8 && !strcmp(&lde->name[nl-8], ".payload")) {
+		/*
+		 * a copy whose RRSIGs expired is not served: the sweep
+		 * removes it, and a fetch from the network replaces it
+		 */
+		if (dht_dnssec_payload_sig_expiry(lde->name, &sig_expiry) ||
+		    sig_expiry <= (uint64_t)time(NULL))
+			return 0;
+
 		a->found = 1;
 		lws_snprintf(a->found_path, sizeof(a->found_path), "%s/%s", dirpath, lde->name);
 		return 1; // stop searching

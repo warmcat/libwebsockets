@@ -76,6 +76,65 @@ LWS_VISIBLE LWS_EXTERN int
 lws_auth_dns_zone_check_origin(const struct auth_dns_zone *z,
 			       const char *domain);
 
+/*
+ * The clock skew allowed either side of an RRSIG's validity period when
+ * deciding whether a zone is valid now.  lws_auth_dns_sign_zone() starts the
+ * period an hour before signing, so this is only for clocks that are wrong.
+ */
+#define LWS_AUTH_DNS_RRSIG_SKEW_SECS	300
+
+enum lws_auth_dns_zone_validity_result {
+	LWS_AUTH_DNS_ZV_OK,		/**< signed, and every RRSIG valid now */
+	LWS_AUTH_DNS_ZV_NO_SOA,		/**< no apex SOA with a serial */
+	LWS_AUTH_DNS_ZV_UNSIGNED,	/**< no RRSIG over the apex SOA */
+	LWS_AUTH_DNS_ZV_NOT_YET_VALID,	/**< an RRSIG's inception is ahead */
+	LWS_AUTH_DNS_ZV_EXPIRED,	/**< an RRSIG has expired */
+};
+
+/**
+ * struct lws_auth_dns_zone_validity - a zone's serial and signing times
+ *
+ * The times are absolute: RRSIG times are 32-bit serial numbers (RFC 4034
+ * 3.1.5), taken here as the instant nearest the time they were compared with.
+ */
+struct lws_auth_dns_zone_validity {
+	uint32_t	serial;		/**< the apex SOA's serial */
+	time_t		soa_inception;	/**< latest inception of an RRSIG over
+					  * the apex SOA, ie, when the zone was
+					  * last signed */
+	time_t		inception;	/**< latest inception of any RRSIG */
+	time_t		expiration;	/**< earliest expiration of any RRSIG */
+	unsigned int	rrsigs;		/**< count of RRSIG RRs */
+	uint8_t		soa_signed;	/**< an RRSIG covers the apex SOA */
+};
+
+/**
+ * lws_auth_dns_zone_validity() - is a parsed zone signed and in date
+ *
+ * \param z: the zone as lws_auth_dns_parse_zone_buf() parsed it
+ * \param now: the time to check the RRSIGs' validity periods at
+ * \param skew: seconds of clock skew to allow either side of each period,
+ *		eg, LWS_AUTH_DNS_RRSIG_SKEW_SECS
+ * \param v: filled with what was found, as far as it got
+ *
+ * A signed zone is only good for the validity periods of its RRSIGs, and a
+ * copy of it can be replayed by anyone who ever saw it.  Anything taking a
+ * signed zone from somewhere else needs to know that it is in date, and how
+ * new it is.  This looks at the RRSIG times and the SOA serial only: it does
+ * not verify any signature, so it is for zones whose integrity is already
+ * established some other way (eg, a JWS over the zone text checked against
+ * the domain's DS), or for use with lws_auth_dns_verify_zone().
+ *
+ * Returns LWS_AUTH_DNS_ZV_OK if the zone has an apex SOA with a serial, an
+ * RRSIG over that SOA, and every RRSIG in the zone is inside its validity
+ * period at \p now (give or take \p skew), otherwise the first reason it is
+ * not, from enum lws_auth_dns_zone_validity_result.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_auth_dns_zone_validity(const struct auth_dns_zone *z, time_t now,
+			   unsigned int skew,
+			   struct lws_auth_dns_zone_validity *v);
+
 LWS_VISIBLE LWS_EXTERN void
 lws_auth_dns_free_zone(struct auth_dns_zone *z);
 

@@ -330,6 +330,101 @@ lws_auth_dns_zone_check_origin(const struct auth_dns_zone *z,
 	return 0;
 }
 
+/* the length of the uncompressed wire name at w, or -1 */
+
+static int
+auth_dns_wire_name_skip(const uint8_t *w, size_t len)
+{
+	size_t p = 0;
+
+	while (p < len && w[p]) {
+		if (w[p] & 0xc0) /* compression has no place in zone RDATA */
+			return -1;
+		p += 1u + w[p];
+	}
+
+	return p < len ? (int)p + 1 : -1;
+}
+
+/* an RRSIG time, RFC 1982 serial number, as the instant nearest now */
+
+static time_t
+auth_dns_rrsig_time(uint32_t t, time_t now)
+{
+	return now + (time_t)(int32_t)(t - (uint32_t)now);
+}
+
+int
+lws_auth_dns_zone_validity(const struct auth_dns_zone *z, time_t now,
+			   unsigned int skew,
+			   struct lws_auth_dns_zone_validity *v)
+{
+	int have_serial = 0, apex, ret = LWS_AUTH_DNS_ZV_OK;
+
+	memset(v, 0, sizeof(*v));
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		const struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+
+		apex = rs->name && !strcasecmp(rs->name, z->origin);
+
+		lws_start_foreach_dll(struct lws_dll2 *, d2,
+				      lws_dll2_get_head(&rs->rr_list)) {
+			const struct auth_dns_rr *rr = lws_container_of(d2,
+						struct auth_dns_rr, list);
+			const uint8_t *w = rr->wire_rdata;
+			size_t l = rr->wire_rdata_len;
+			time_t inc, exp;
+			int n, m;
+
+			if (!w)
+				continue;
+
+			if (rs->type == 6 && apex && !have_serial) { /* SOA */
+				n = auth_dns_wire_name_skip(w, l);
+				m = n < 0 ? -1 : auth_dns_wire_name_skip(w + n,
+							l - (size_t)n);
+				if (m >= 0 && (size_t)(n + m) + 4 <= l) {
+					v->serial = lws_ser_ru32be(w + n + m);
+					have_serial = 1;
+				}
+				continue;
+			}
+
+			/* RRSIG: covered(2) alg labels ttl(4) exp(4) inc(4) */
+			if (rs->type != 46 || l < 18)
+				continue;
+
+			exp = auth_dns_rrsig_time(lws_ser_ru32be(w + 8), now);
+			inc = auth_dns_rrsig_time(lws_ser_ru32be(w + 12), now);
+
+			if (!v->rrsigs++ || exp < v->expiration)
+				v->expiration = exp;
+			if (v->rrsigs == 1 || inc > v->inception)
+				v->inception = inc;
+
+			if (apex && lws_ser_ru16be(w) == 6) {
+				if (!v->soa_signed || inc > v->soa_inception)
+					v->soa_inception = inc;
+				v->soa_signed = 1;
+			}
+		} lws_end_foreach_dll(d2);
+	} lws_end_foreach_dll(d);
+
+	if (!have_serial)
+		ret = LWS_AUTH_DNS_ZV_NO_SOA;
+	else if (!v->soa_signed)
+		ret = LWS_AUTH_DNS_ZV_UNSIGNED;
+	else if (v->inception > now + (time_t)skew)
+		ret = LWS_AUTH_DNS_ZV_NOT_YET_VALID;
+	else if (v->expiration <= now - (time_t)skew)
+		ret = LWS_AUTH_DNS_ZV_EXPIRED;
+
+	return ret;
+}
+
 struct auth_dns_rrset *
 lws_auth_dns_zone_cut(struct auth_dns_zone *z, const char *name)
 {
