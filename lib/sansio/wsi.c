@@ -931,7 +931,8 @@ int lws_rx_flow_control(struct lws *wsi, int _enable) {
 			lwsi_role_h2_ENCAPSULATION(wsi))
 		return 0;
 
-	lwsl_wsi_info(wsi, "0x%x", _enable);
+	/* rx is paused and resumed per buffer on a busy link: debug, not info */
+	lwsl_wsi_debug(wsi, "0x%x", _enable);
 
 	if (!(_enable & LWS_RXFLOW_REASON_APPLIES)) {
 		/*
@@ -959,7 +960,7 @@ int lws_rx_flow_control(struct lws *wsi, int _enable) {
 
 	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE | (!wsi->rxflow_bitmap);
 
-	lwsl_wsi_info(wsi, "bitmap 0x%x: en 0x%x, ch 0x%x", wsi->rxflow_bitmap, en,
+	lwsl_wsi_debug(wsi, "bitmap 0x%x: en 0x%x, ch 0x%x", wsi->rxflow_bitmap, en,
 			wsi->rxflow_change_to);
 
 	if (_enable & LWS_RXFLOW_REASON_FLAG_PROCESS_NOW ||
@@ -1021,13 +1022,13 @@ int __lws_rx_flow_control(struct lws *wsi) {
 
 	wsi->rxflow_change_to &= (~LWS_RXFLOW_PENDING_CHANGE) & 3;
 
-	lwsl_wsi_info(wsi, "rxflow: change_to %d",
+	lwsl_wsi_debug(wsi, "rxflow: change_to %d",
 			wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
 
 	/* adjust the pollfd for this wsi */
 
 	if (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW) {
-		lwsl_wsi_info(wsi, "reenable rx");
+		lwsl_wsi_debug(wsi, "reenable rx");
 
 		if (__lws_io_want_read(wsi, 1)) {
 			lwsl_wsi_info(wsi, "fail");
