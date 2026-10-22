@@ -965,7 +965,9 @@ void
 lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		   lws_async_dns_server_t *dsrv)
 {
+	lws_context_lock(dns->cx, __func__); /* -------------------- cx { */
 	lws_adns_parse_via(dns, pkt, len, dsrv, NULL);
+	lws_context_unlock(dns->cx); /* } cx */
 }
 
 static void
@@ -994,7 +996,8 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 	/* match both A and AAAA queries if any */
 
-	q = lws_adns_get_query(dns, 0, lws_ser_ru16be(pkt + DHO_TID), NULL);
+	q = lws_adns_get_query(dns, 0, lws_ser_ru16be(pkt + DHO_TID), NULL,
+			       0);
 	if (!q) {
 		lwsl_info("%s: dropping unknown query tid 0x%x\n",
 			    __func__, lws_ser_ru16be(pkt + DHO_TID));
@@ -1198,6 +1201,7 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		goto fail_out;
 	}
 	memset(c, 0, sizeof(*c));
+	c->cx = dns->cx;
 	c->nxdomain = (uint8_t)nxdomain;
 
 	/* place it at end, no need to care about alignment padding */
@@ -1363,22 +1367,21 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	c->incomplete = 0;
 	if (q->firstcache)
 		q->firstcache->incomplete = 0;
-	lws_async_dns_complete(q, q->firstcache);
-
 	q->go_nogo = METRES_GO;
 
 	/*
 	 * the query is completely finished with
 	 */
 
+	lws_adns_q_finish(q, q->firstcache);
+
+	return;
+
 fail_out:
-	if (q->go_nogo != METRES_GO) {
-		lws_async_dns_complete(q, NULL);
-		if (q->firstcache) {
-			lws_adns_cache_destroy(q->firstcache);
-			q->firstcache = NULL;
-		}
+	if (q->firstcache) {
+		lws_adns_cache_destroy(q->firstcache);
+		q->firstcache = NULL;
 	}
-	lws_adns_q_destroy(q);
+	lws_adns_q_finish(q, NULL);
 }
 

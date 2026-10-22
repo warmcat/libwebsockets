@@ -349,10 +349,21 @@ typedef struct lws_async_dns_server {
 	uint8_t			pinned:1;
 } lws_async_dns_server_t;
 
+/*
+ * Everything in here, and the queries, cache entries and sockets hanging off
+ * it, is guarded by the context lock; see private-lib-async-dns.h for how a
+ * query belongs to one service thread.
+ */
+
 typedef struct lws_async_dns {
 	lws_dll2_owner_t	nameservers; /* lws_async_dns_server_t */
 	lws_dll2_owner_t	cached;
 	lws_dll2_owner_t	waiting; /* queries waiting for a server */
+	/*
+	 * queries that are over, waiting for their own service thread to tell
+	 * their requesters (lws_adns_q_finish())
+	 */
+	lws_dll2_owner_t	finishing;
 	/*
 	 * lws_adns_sock_t: the UDP sockets the queries ask the nameservers
 	 * from, while they can still be used

@@ -962,7 +962,8 @@ lws_dnssec_rrs_verify(struct lws_context *cx, const char *owner, uint16_t type,
 static void
 lws_dnssec_zone_destroy(lws_dnssec_zone_t *z)
 {
-	lws_sul_cancel(&z->sul);
+	/* the zones' suls are on pt 0, and we may be serving another */
+	lws_sul_cancel_tsi(z->dns->cx, 0, &z->sul);
 	/* the fetch we may have in flight must not call back into us */
 	lws_async_dns_cancel_by_opaque(z->dns->cx, z);
 	lws_dll2_remove(&z->pw.list);
@@ -1057,8 +1058,8 @@ static void
 lws_dnssec_zone_kick(lws_dnssec_zone_t *z)
 {
 	if (z->state == LDZ_IDLE)
-		lws_sul_schedule(z->dns->cx, 0, &z->sul,
-				 lws_dnssec_zone_sul_cb, 1);
+		lws_adns_sul_schedule(z->dns->cx, 0, &z->sul,
+				      lws_dnssec_zone_sul_cb, 1);
 }
 
 static void
@@ -1125,7 +1126,8 @@ lws_dnssec_zone_fetch_cb(struct lws *wsi, const char *name,
 							   LWS_ADNS_RECORD_DNSKEY,
 				&z->mat);
 
-	lws_sul_schedule(z->dns->cx, 0, &z->sul, lws_dnssec_zone_sul_cb, 1);
+	lws_adns_sul_schedule(z->dns->cx, 0, &z->sul, lws_dnssec_zone_sul_cb,
+			      1);
 
 	return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
 }
@@ -1155,8 +1157,8 @@ lws_dnssec_zone_fetch(lws_dnssec_zone_t *z, uint16_t type)
 		 * It's over already, and if the callback got called, it
 		 * scheduled us: this is only for the case it didn't
 		 */
-		lws_sul_schedule(z->dns->cx, 0, &z->sul,
-				 lws_dnssec_zone_sul_cb, 1);
+		lws_adns_sul_schedule(z->dns->cx, 0, &z->sul,
+				      lws_dnssec_zone_sul_cb, 1);
 }
 
 /* the zone that signed our DS RRset has been authenticated, or failed to be */
@@ -1181,7 +1183,8 @@ lws_dnssec_zone_parent_settled(lws_dnssec_zone_waiter_t *w,
 		lwsl_notice("%s: DS RRset of '%s' not signed by a key of '%s'\n",
 			    __func__, z->name, *p->name ? p->name : ".");
 
-	lws_sul_schedule(z->dns->cx, 0, &z->sul, lws_dnssec_zone_sul_cb, 1);
+	lws_adns_sul_schedule(z->dns->cx, 0, &z->sul, lws_dnssec_zone_sul_cb,
+			      1);
 }
 
 /*
@@ -1415,9 +1418,8 @@ lws_dnssec_vctx_settled(lws_dnssec_zone_waiter_t *w, lws_dnssec_zone_t *z)
 			/* validated: the cache entry may be found now */
 			if (q->firstcache)
 				q->firstcache->incomplete = 0;
-			lws_async_dns_complete(q, q->firstcache);
 			q->go_nogo = METRES_GO;
-			lws_adns_q_destroy(q);
+			lws_adns_q_finish(q, q->firstcache);
 
 			return;
 		}
@@ -1427,12 +1429,11 @@ lws_dnssec_vctx_settled(lws_dnssec_zone_waiter_t *w, lws_dnssec_zone_t *z)
 
 fail:
 	q->go_nogo = METRES_NOGO;
-	lws_async_dns_complete(q, NULL);
 	if (q->firstcache) {
 		lws_adns_cache_destroy(q->firstcache);
 		q->firstcache = NULL;
 	}
-	lws_adns_q_destroy(q);
+	lws_adns_q_finish(q, NULL);
 }
 
 /*
@@ -1739,7 +1740,7 @@ lws_adns_dnssec_cname(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 		 * old name's answers are ignored, so stop retrying it.
 		 */
 		q->dnssec_chk_cname = 1;
-		lws_sul_cancel(&q->sul);
+		lws_adns_q_sul_cancel(q, &q->sul);
 
 		return 0;
 	}

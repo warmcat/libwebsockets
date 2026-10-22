@@ -108,7 +108,7 @@ struct lws_async_dns_server;
  * lws_async_dns_query() - perform a dns lookup using async dns
  *
  * \param context: the lws_context
- * \param tsi: thread service index (usually 0)
+ * \param tsi: thread service index (usually 0) the callback is made on
  * \param name: DNS name to look up
  * \param qtype: type of query (A, AAAA etc)
  * \param cb: query completion callback
@@ -117,6 +117,12 @@ struct lws_async_dns_server;
  *
  * Starts an asynchronous DNS lookup, on completion the \p cb callback will
  * be called.
+ *
+ * With LWS_MAX_SMP > 1 and several service threads, \p cb is called on the
+ * service thread \p tsi, or for a query related to a wsi, on the wsi's own
+ * service thread, whichever thread the answer arrived on.  A result already
+ * in the cache, or a failure to start the lookup, is told from inside this
+ * call, on the calling thread.
  *
  * The reference count on the cached object is incremented for every callback
  * that was called with the cached addrinfo results.

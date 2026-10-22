@@ -90,7 +90,8 @@ direct_is_ours(lws_async_dns_t *dns, const void *opaque)
 static void
 direct_destroy(struct lws_adns_direct *ad)
 {
-	lws_sul_cancel(&ad->sul);
+	/* its sul is on pt 0, and we may be serving another */
+	lws_sul_cancel_tsi(ad->cx, 0, &ad->sul);
 	lws_dll2_remove(&ad->list);
 
 	if (ad->wsi) {
@@ -334,11 +335,11 @@ direct_compose(struct lws_adns_direct *ad)
 	return 0;
 }
 
-struct lws_adns_direct *
-lws_async_dns_query_direct(struct lws_context *cx,
-			   const lws_sockaddr46 *server, const char *name,
-			   adns_query_type_t qtype,
-			   lws_async_dns_direct_cb_t cb, void *opaque)
+static struct lws_adns_direct *
+__lws_async_dns_query_direct(struct lws_context *cx,
+			     const lws_sockaddr46 *server, const char *name,
+			     adns_query_type_t qtype,
+			     lws_async_dns_direct_cb_t cb, void *opaque)
 {
 	struct lws_adns_direct *ad;
 	struct lws *wsi;
@@ -422,13 +423,37 @@ lws_async_dns_query_direct(struct lws_context *cx,
 	return ad;
 }
 
+struct lws_adns_direct *
+lws_async_dns_query_direct(struct lws_context *cx,
+			   const lws_sockaddr46 *server, const char *name,
+			   adns_query_type_t qtype,
+			   lws_async_dns_direct_cb_t cb, void *opaque)
+{
+	struct lws_adns_direct *ad;
+
+	if (!cx)
+		return NULL;
+
+	/* the resolver's state is guarded by the context lock */
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+	ad = __lws_async_dns_query_direct(cx, server, name, qtype, cb, opaque);
+	lws_context_unlock(cx); /* } cx */
+
+	return ad;
+}
+
 void
 lws_async_dns_query_direct_cancel(struct lws_adns_direct **pd)
 {
+	struct lws_context *cx;
+
 	if (!pd || !*pd)
 		return;
 
+	cx = (*pd)->cx;
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
 	direct_destroy(*pd);
+	lws_context_unlock(cx); /* } cx */
 	*pd = NULL;
 }
 

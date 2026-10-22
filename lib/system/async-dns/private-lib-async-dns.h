@@ -80,8 +80,10 @@ typedef struct lws_adns_est {
 } lws_adns_est_t;
 
 typedef struct lws_adns_cache {
-	lws_sorted_usec_list_t	sul;	/* for cache TTL management */
+	lws_sorted_usec_list_t	sul;	/* for cache TTL management, on pt 0 */
 	lws_dll2_t		list;
+
+	struct lws_context	*cx;
 
 	struct lws_adns_cache	*firstcache;
 	struct lws_adns_cache	*chain;
@@ -165,6 +167,25 @@ typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
 		uint32_t ttl, adns_query_type_t type, uint16_t rrpaylen,
 		const uint8_t *payload);
 
+/*
+ * Threads (LWS_MAX_SMP > 1)
+ *
+ * The resolver's state is context-wide, and guarded by the context lock:
+ * every way in, the api, the sockets' callbacks and the sul callbacks (which
+ * the event loops call holding it), holds it.
+ *
+ * Each query belongs to the service thread q->tsi it was asked for, the
+ * requester wsi's own thread for a connection's lookup: its suls are on that
+ * thread's pt, and only requesters on that thread ride on it.  Its sockets
+ * may be on any pt, so its answer may be taken on another thread, as may a
+ * DNSSEC zone it waits on settle there.  Either way it finishes through
+ * lws_adns_q_finish(), which hands it to its own thread to tell the
+ * requesters, so they are only ever called back on the thread they live on.
+ *
+ * A thread touching a sul that may be on another pt's list does it with that
+ * pt's lock: lws_sul_schedule() takes it, lws_sul_cancel_tsi() for cancels.
+ */
+
 typedef struct lws_adns_q {
 	lws_sorted_usec_list_t	sul;	/* per-query write retry timer */
 	lws_sorted_usec_list_t	write_sul;	/* fail if unable to write by this time */
@@ -221,6 +242,7 @@ typedef struct lws_adns_q {
 	uint8_t			ipv4_only:1;
 	uint8_t			ipv6_only:1;
 	uint8_t			completing:1; /* in lws_async_dns_complete() */
+	uint8_t			finish_found:1; /* finishing with firstcache */
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	/*
 	 * A pending RRSIG validation is a validation context waiting on the
@@ -313,6 +335,16 @@ void
 lws_adns_q_destroy(lws_adns_q_t *q);
 
 void
+lws_adns_q_finish(lws_adns_q_t *q, lws_adns_cache_t *c);
+
+void
+lws_adns_q_sul_cancel(lws_adns_q_t *q, lws_sorted_usec_list_t *sul);
+
+void
+lws_adns_sul_schedule(struct lws_context *cx, int tsi,
+		      lws_sorted_usec_list_t *sul, sul_cb_t cb, lws_usec_t us);
+
+void
 sul_cb_expire(struct lws_sorted_usec_list *sul);
 
 void
@@ -333,9 +365,13 @@ lws_adns_cache_t *
 lws_adns_get_cache(lws_async_dns_t *dns, const char *name, uint16_t qtype,
 		   int need_valid);
 
+/*
+ * The query waiting for an answer with tid, or with name NULL, one asking
+ * about name that a requester on service thread tsi may ride on
+ */
 lws_adns_q_t *
 lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
-		   uint16_t tid, const char *name);
+		   uint16_t tid, const char *name, int tsi);
 
 void
 lws_async_dns_trim_cache(lws_async_dns_t *dns);
