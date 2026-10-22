@@ -8,6 +8,8 @@
 
 /* 55 stanzas, 178 selectors, 78 declarations, 87 values */
 
+#define LHP_UA_SEL_PROG_FORMAT 1
+
 static const lcsp_stanza_t lhp_ua_stz[55];
 static const lcsp_defs_t lhp_ua_def[78];
 

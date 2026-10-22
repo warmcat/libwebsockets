@@ -431,6 +431,15 @@ static const struct {
 
 #include "lhp-ua-css.h"
 
+/*
+ * The header holds compiled selector programs: it must come from this
+ * program format, see "CSS selectors" below
+ */
+#if !defined(LHP_UA_SEL_PROG_FORMAT) || \
+    LHP_UA_SEL_PROG_FORMAT != LHP_SEL_PROG_FORMAT
+#error "lhp-ua-css.h is stale: regenerate it with lhp-ua-gen"
+#endif
+
 #else
 
 static const char *const default_css =
@@ -2315,6 +2324,14 @@ lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len);
  * where a list is its complex selectors, each len[2] then the selector.  The
  * hashes are lhp_name_hash() of the names, compared with the ones the
  * element's attribute index keeps before any name is compared.
+ *
+ * The user-agent sheet's programs are committed in lhp-ua-css.h, so any
+ * change to this format, or to the lcsp_names_t members compiled with it,
+ * must bump LHP_SEL_PROG_FORMAT (lws-html.h) and regenerate that header: a
+ * header from another format fails the build.  The decoder still checks
+ * each read against the program's length and each offset against the
+ * selector text, so a program it doesn't understand fails to match rather
+ * than read past its end.
  */
 
 enum {
@@ -2358,16 +2375,48 @@ lhp_sc_rd32(const uint8_t *p)
 /*
  * The state of one selector match: the steps it has left (see
  * LHP_SEL_MATCH_BUDGET), the work done since the last step charged for work
- * (see lhp_sel_work()), the text of the selector its program refers to, and
- * the ctx whose sel_work counts the work it does
+ * (see lhp_sel_work()), the text of the selector its program refers to and
+ * the end of both, whether the program turned out malformed, and the ctx
+ * whose sel_work counts the work it does
  */
 
 typedef struct lhp_selm {
 	lhp_ctx_t		*ctx;
 	const char		*text;
+	const uint8_t		*end;		/* of the program */
+	size_t			text_len;
 	size_t			work;
 	int			budget;
+	uint8_t			bad;
 } lhp_selm_t;
+
+/*
+ * Does the program have n more bytes at c?  If not, it is malformed, and the
+ * whole selector must not match: a failure inside :not() would otherwise
+ * invert into a match
+ */
+
+static int
+lhp_sc_has(lhp_selm_t *m, const uint8_t *c, size_t n)
+{
+	if (c <= m->end && (size_t)(m->end - c) >= n)
+		return 1;
+	m->bad = 1;
+
+	return 0;
+}
+
+/* is [ofs, ofs + len) inside the selector text?  If not, likewise */
+
+static int
+lhp_sc_in_text(lhp_selm_t *m, size_t ofs, size_t len)
+{
+	if (ofs <= m->text_len && len <= m->text_len - ofs)
+		return 1;
+	m->bad = 1;
+
+	return 0;
+}
 
 /*
  * Selector matching counts its work in ctx->sel_work where it is done: a unit
@@ -2614,7 +2663,17 @@ lhp_sel_list_match(lhp_selm_t *m, const lhp_atr_idx_t *el,
 		   lhp_pstack_t *parent, const uint8_t *c, const uint8_t *end)
 {
 	while (c < end) {
-		size_t l = lhp_sc_rd16(c);
+		size_t l;
+
+		if (end - c < 2) {
+			m->bad = 1;
+			return 0;
+		}
+		l = lhp_sc_rd16(c);
+		if (l > (size_t)(end - c) - 2) {
+			m->bad = 1;
+			return 0;
+		}
 
 		if (lhp_sel_match(m, el, parent, c + 2))
 			return 1;
@@ -2682,9 +2741,16 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 		return -1;
 
 	for (;;) {
-		uint8_t op = *c++;
+		uint8_t op;
+
+		/* a program ends in LHP_SC_END, comb or LHP_SC_NEVER */
+		if (!lhp_sc_has(m, c, 1))
+			return -1;
+		op = *c++;
 
 		if (op == LHP_SC_END) {
+			if (!lhp_sc_has(m, c, 1))
+				return -1;
 			*pc = c + 1;
 
 			return *c;
@@ -2714,6 +2780,9 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 			uint64_t w = 0;
 			int r;
 
+			if (!lhp_sc_has(m, c, 6) ||
+			    !lhp_sc_in_text(m, c[1], c[0]))
+				return -1;
 			l = c[0];
 			if (l != el->tag->name_len ||
 			    lhp_sc_rd32(c + 2) != el->tag_h)
@@ -2728,6 +2797,8 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 		}
 
 		case LHP_SC_CLASS:
+			if (!lhp_sc_has(m, c, 1) || !lhp_sc_has(m, c, 1u + c[0]))
+				return -1;
 			l = c[0];
 			v = lhp_atr_get_fixed(m, el, "class", 5);
 			if (!v || !lhp_sel_has_word(m, v, (const char *)c + 1, l))
@@ -2736,6 +2807,8 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 			break;
 
 		case LHP_SC_ID:
+			if (!lhp_sc_has(m, c, 1) || !lhp_sc_has(m, c, 1u + c[0]))
+				return -1;
 			l = c[0];
 			v = lhp_atr_get_fixed(m, el, "id", 2);
 			if (!v)
@@ -2749,9 +2822,17 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 
 		case LHP_SC_ATTR:
 		{
-			const char *av = m->text + c[8];
-			size_t avl = c[7];
-			char aop = (char)c[0];
+			const char *av;
+			size_t avl;
+			char aop;
+
+			if (!lhp_sc_has(m, c, 9) ||
+			    !lhp_sc_in_text(m, c[2], c[1]) ||
+			    !lhp_sc_in_text(m, c[8], c[7]))
+				return -1;
+			av = m->text + c[8];
+			avl = c[7];
+			aop = (char)c[0];
 
 			v = lhp_atr_find(m->ctx, m, el, m->text + c[2], c[1],
 					 lhp_sc_rd32(c + 3));
@@ -2831,11 +2912,15 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 		}
 
 		case LHP_SC_PSEUDO:
-			if (!lhp_sel_pseudo(m, el, parent, *c++))
+			if (!lhp_sc_has(m, c, 1) ||
+			    !lhp_sel_pseudo(m, el, parent, *c++))
 				return -1;
 			break;
 
 		case LHP_SC_IS:
+			if (!lhp_sc_has(m, c, 2) ||
+			    !lhp_sc_has(m, c, 2 + lhp_sc_rd16(c)))
+				return -1;
 			l = lhp_sc_rd16(c);
 			if (!lhp_sel_list_match(m, el, parent, c + 2,
 						c + 2 + l))
@@ -2848,14 +2933,21 @@ lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
 			 * An argument that ran out of budget did not really
 			 * fail to match: it must not invert into a match
 			 */
+			if (!lhp_sc_has(m, c, 2) ||
+			    !lhp_sc_has(m, c, 2 + lhp_sc_rd16(c)))
+				return -1;
 			l = lhp_sc_rd16(c);
 			if (lhp_sel_list_match(m, el, parent, c + 2,
-					       c + 2 + l) || m->budget < 0)
+					       c + 2 + l) || m->budget < 0 ||
+			    m->bad)
 				return -1;
 			c += 2 + l;
 			break;
 
-		default: /* LHP_SC_NEVER */
+		default:
+			if (op != LHP_SC_NEVER)
+				/* not an opcode of this format */
+				m->bad = 1;
 			return -1;
 		}
 	}
@@ -2958,7 +3050,12 @@ lhp_sel_match(lhp_selm_t *m, const lhp_atr_idx_t *el, lhp_pstack_t *parent,
 				lws_dll2_get_tail(&parent->sibs),
 				lhp_sib_t, list)->atr_idx, parent, c);
 
-	default: /* -1, the compound didn't match, or LHP_SC_COMB_FAIL */
+	case -1: /* the compound didn't match */
+	case LHP_SC_COMB_FAIL:
+		return 0;
+
+	default: /* not a combinator of this format */
+		m->bad = 1;
 		return 0;
 	}
 }
@@ -3806,7 +3903,10 @@ lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm)
 
 	m.ctx = ctx;
 	m.text = (const char *)&nm[1];
+	m.text_len = nm->name_len;
+	m.end = (const uint8_t *)m.text + nm->name_len + 1 + nm->prog_len;
 	m.work = 0;
+	m.bad = 0;
 	m.budget = LHP_SEL_MATCH_BUDGET;
 	if (doc && ctx->sel_budget < m.budget)
 		m.budget = (int)ctx->sel_budget;
@@ -3822,9 +3922,12 @@ lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm)
 	if (doc)
 		ctx->sel_budget -= spent;
 
-	/* a match is only believed if it was decided within the budget */
+	/*
+	 * A match is only believed if it was decided within the budget, from
+	 * a program that made sense
+	 */
 
-	return r && m.budget >= 0;
+	return r && m.budget >= 0 && !m.bad;
 }
 
 /*

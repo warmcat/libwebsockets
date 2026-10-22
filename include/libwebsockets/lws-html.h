@@ -778,7 +778,14 @@ typedef struct lcsp_defs {
  * One selector of a stanza's selector list, eg, "div.x > p" from
  * "div.x > p, .y { ... }".  Stored normalized: a single space is the
  * descendant combinator, no spaces around '>', '+', '~' or inside [...].
+ *
+ * The program it is compiled into, and the members compiled with it, are
+ * private to lhp.c, but the user-agent sheet's are generated into
+ * lhp-ua-css.h by lhp-ua-gen: bump this with any change to them, and
+ * regenerate that header.
  */
+
+#define LHP_SEL_PROG_FORMAT	1
 
 typedef struct lcsp_names {
 	lws_dll2_t		list;

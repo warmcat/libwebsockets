@@ -8,7 +8,9 @@
  * Turns the built-in default (user-agent) stylesheet in lhp.c into const
  * tables, so it lives in flash instead of being lexed into the cascade
  * arenas on every page.  Its output is checked in as lhp-ua-css.h; rerun it
- * when default_css changes.
+ * when default_css changes, and when LHP_SEL_PROG_FORMAT does (the tables
+ * carry compiled selector programs, and lhp.c won't build with a header of
+ * another format).
  *
  * Usage: build lws with -DLWS_WITH_LHP=1, then
  *
@@ -273,6 +275,13 @@ main(void)
 
 	printf("/* %u stanzas, %u selectors, %u declarations, %u values */\n\n",
 	       stz_c, nm_c, def_c, atr_c);
+
+	/*
+	 * The selector programs below are in the format of the lws this was
+	 * built against: lhp.c refuses to build with a header from another
+	 */
+
+	printf("#define LHP_UA_SEL_PROG_FORMAT %d\n\n", LHP_SEL_PROG_FORMAT);
 
 	/* forward declarations: the arrays reference each other */
 
