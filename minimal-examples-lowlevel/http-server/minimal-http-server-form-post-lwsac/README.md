@@ -21,3 +21,10 @@ Shows how to parse the form using an lwsac to hold the form data
 Visit http://localhost:7681, submit the form.
 
 The form parameters are dumped to the log and you are redirected to a different page.
+
+Besides `text1` and `send`, the example's parameter list leaves three slots
+open (NULL): up to three parameters with names it does not know are kept too,
+and logged by the name `lws_spa_get_name()` gives them.  Those names belong to
+that one form's spa, never to the shared parameter list.  The spa, with the
+lwsac holding everything it parsed, is freed when the form has been handled,
+or when the connection goes before the body completed.

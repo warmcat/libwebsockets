@@ -42,8 +42,13 @@ struct pss {
 
 static struct lws_context *context;
 
-/* get 2 parameters at predefined pos and up to 3 unknown parameters */
-static const char * param_names[] = {
+/*
+ * get 2 parameters at predefined pos and up to 3 unknown parameters: the
+ * NULL slots are taken by names the form brings, per spa, and the spa never
+ * writes this array, so one const array serves every connection.
+ * lws_spa_get_name() tells us the name a slot ended up with.
+ */
+static const char * const param_names[] = {
 	"text1",
 	"send",
 	NULL,
@@ -112,20 +117,37 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* inform the spa no more payload data coming */
 
 		lwsl_user("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
-		lws_spa_finalize(pss->spa);
 
-		/* we just dump the decoded things to the log */
+		if (pss->spa) {
+			const char *name;
 
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
-			if (!param_names[n])
-				break;
-			if (!lws_spa_get_string(pss->spa, n))
-				lwsl_user("%s: undefined\n", param_names[n]);
-			else
-				lwsl_user("%s: (len %d) '%s'\n",
-				    param_names[n],
-				    lws_spa_get_length(pss->spa, n),
-				    lws_spa_get_string(pss->spa, n));
+			lws_spa_finalize(pss->spa);
+
+			/* we just dump the decoded things to the log */
+
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
+				name = lws_spa_get_name(pss->spa, n);
+				if (!name)
+					/* an unknown-name slot nothing took */
+					continue;
+				if (!lws_spa_get_string(pss->spa, n))
+					lwsl_user("%s: undefined\n", name);
+				else
+					lwsl_user("%s: (len %d) '%s'\n", name,
+					    lws_spa_get_length(pss->spa, n),
+					    lws_spa_get_string(pss->spa, n));
+			}
+
+			/*
+			 * We are done with the spa: free it now, and with it
+			 * the lwsac holding the values and the names.  Our pss
+			 * is freed when this transaction completes, and we get
+			 * no callback about that
+			 * (LWS_CALLBACK_HTTP_DROP_PROTOCOL only comes after a
+			 * protocol was bound to a mount).
+			 */
+			lws_spa_destroy(pss->spa); /* frees pss->ac too */
+			pss->spa = NULL;
 		}
 
 		/*
@@ -139,10 +161,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 		break;
 
-	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
-		/* called when our wsi user_space is going to be destroyed */
-		if (pss->spa) {
-			lws_spa_destroy(pss->spa); /* lwsac_free called this */
+	case LWS_CALLBACK_CLOSED_HTTP:
+		/* the connection went before the body completed */
+		if (pss && pss->spa) {
+			lws_spa_destroy(pss->spa); /* frees pss->ac too */
 			pss->spa = NULL;
 		}
 		break;
