@@ -141,6 +141,7 @@
    turns are < 1ms): to catch a spin, add up the duration of the turns
    shorter than 1ms instead (489ms spinning vs 0-2ms idle over 500ms in
    api-test-proxy-v2-peer-limits).
+ - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-proxy-v2-peer-limits needs `LWS_WITH_TLS_PASSTHROUGH`**:
    without it every connection is dropped, which looks like a broken tree.
  - **Red-testing proxied clients:** api-test-client-proxy-redirect's
