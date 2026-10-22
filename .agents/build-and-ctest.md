@@ -178,6 +178,11 @@
    pasted raw into a C string (quotes must be escaped), and every context
    reaching OPERATIONAL tries to create an "ota" stream.  Run the full
    suite in a non-OTA tree, and only api-test-ota in an OTA tree.
+ - **`-DLWS_WITH_WEBRTC=1` trees fail `make` on rtc_camera** here (no
+   opus headers): use `make -k`.  api-test-srtp only builds with WEBRTC.
+ - To check a zone-parser change for regressions, sign zones with the
+   `rsa-*.jwk` api-test keys and a fixed `sign_validity_start_time`: the
+   output is identical on every run, so before/after can be diffed.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
