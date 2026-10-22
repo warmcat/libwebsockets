@@ -263,6 +263,19 @@ json_escape(char *esc, size_t esc_len, const char *s)
 #define MON_ESC_DOMAIN_SZ	(6 * 256 + 8)
 #define MON_ESC_FIELD_SZ	(6 * 128 + 8)
 
+/*
+ * How long the zones we sign are valid for, see monitor_sign_validity_load().
+ * Every version of a zone we ever signed verifies until its RRSIGs expire, and
+ * a DHT node that never held the zone may take any of them (G-532), so the
+ * default is short, LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS (6 days), and a
+ * zone is re-signed when half of it has passed.  The expiry scan runs every 4
+ * hours, so a day is the least that leaves it time to.
+ */
+#define MON_SIGN_VALIDITY_DEFAULT_DAYS	(LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS / \
+					 (24 * 3600))
+#define MON_SIGN_VALIDITY_MIN_SECS	(24 * 3600)
+#define MON_SIGN_VALIDITY_MAX_DAYS	365
+
 /* monitor-ipc-auth.c */
 
 /*

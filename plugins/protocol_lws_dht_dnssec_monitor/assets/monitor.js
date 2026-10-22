@@ -583,7 +583,7 @@ function handleResponse(data) {
                 document.getElementById('acme-state').value = data.config.state || '';
                 document.getElementById('acme-locality').value = data.config.locality || '';
                 if (document.getElementById('acme-sign-validity')) {
-                    document.getElementById('acme-sign-validity').value = data.config.sign_validity_days || 21;
+                    document.getElementById('acme-sign-validity').value = data.config.sign_validity_days || 6;
                 }
                 if (document.getElementById('acme-profile')) {
                     document.getElementById('acme-profile').value = data.config.profile || '';
@@ -2783,7 +2783,7 @@ function initApp() {
                 state: document.getElementById('acme-state').value.trim(),
                 locality: document.getElementById('acme-locality').value.trim(),
                 profile: document.getElementById('acme-profile') ? document.getElementById('acme-profile').value : '',
-                sign_validity_days: document.getElementById('acme-sign-validity') ? Number.parseInt(document.getElementById('acme-sign-validity').value, 10) || 21 : 21
+                sign_validity_days: document.getElementById('acme-sign-validity') ? Number.parseInt(document.getElementById('acme-sign-validity').value, 10) || 6 : 6
             });
         };
     }

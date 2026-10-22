@@ -45,7 +45,7 @@ struct lws_dht_dnssec_signzone_args {
 	const char *domain;
 	const char *workdir;
 	const char *certs_dir;
-	uint32_t sign_validity_duration;
+	uint32_t sign_validity_duration; /* secs, 0 = LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS */
 	char ipv4[64];
 	char ipv6[64];
 };

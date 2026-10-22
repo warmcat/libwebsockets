@@ -7,7 +7,7 @@ The `lws-dht-dnssec-monitor` plugin automates the tracking, signing, and uploadi
 2. Checks for missing ZSK or KSK DNSSEC keys and automatically generates them if they don't exist.
 3. Compares the modification timestamps of unsigned zone files against their signed counterparts to detect upstream zone edits.
 4. Securely merges any active temporary ACME zones (via `dns-01`) into the main zone payload before authoritative signing.
-5. Automatically signs (or re-signs) the zone if the upstream `.zone` file is newer than the `.signed` file, or if the DHT-detected external addresses its `${EXTIP4}` / `${EXTIP6}` records resolve to have changed (see below).
+5. Automatically signs (or re-signs) the zone if the upstream `.zone` file is newer than the `.signed` file, or if the DHT-detected external addresses its `${EXTIP4}` / `${EXTIP6}` records resolve to have changed (see below), and re-signs it when half of its signatures' validity has passed.  The signatures are valid for 6 days by default (`signature-duration`, or the UI's Signature Validity): every version of a zone ever signed verifies until its signatures expire, and a DHT node that never held the zone may be offered any of them, so the validity is kept short.
 6. Automatically publishes the resulting JWS payloads directly into the libwebsockets DHT for propagation: each one when it is (re)signed, and every one it finds at startup, since it can't know they were published before.  The DHT ignores a zone it already has, since it only takes a validly signed one with a later serial.  A publication the DHT peer does not answer is tried again after 30s, doubling up to every 10 minutes, until it gets through or the zone is signed again.
 
 This monitor is designed specifically to work in tandem with the [lws-acme-client](../acme-client/protocol_lws_acme_client.md) using the centralized multi-certificate management flow, allowing your LAN servers to handle thousands of domains securely.
@@ -114,7 +114,7 @@ To enable the plugin, attach it to your configuration and provide the following 
 | `exe-path` | Path to the Libwebsockets host application (e.g. `lwsws`) used to spawn the root process variant. | `/usr/local/bin/lwsws` |
 | `uid` | User ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
 | `gid` | Group ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
-| `signature-duration` | The duration in seconds for which the newly generated DNSSEC signatures should remain valid. | 31536000 (1 year) |
+| `signature-duration` | The duration in seconds for which the newly generated DNSSEC signatures should remain valid, from 86400 (1 day) to 31536000 (365 days); a zone is re-signed when half of it has passed.  The Signature Validity set in the UI's global settings, kept in `<base-dir>/acme_config.json`, takes precedence. | 518400 (6 days) |
 | `jwk_path` | Absolute path to the JSON Web Key (JWK) for JWT verification in the web UI. | `NULL` |
 | `cookie-name` | Name of the HTTP cookie that the monitor should check for JWT sessions. | `auth_session` |
 | `origin-allow` | Comma-separated list of further complete origins (eg `https://admin.example.com`) whose pages may open the UI WebSocket, for a UI served from somewhere other than the host the ws is on. | none |
@@ -165,7 +165,7 @@ Here is an example configuring `lwsws` to enable the monitor alongside the DHT i
             "uds-path": "/var/lib/lws-certs/dnssec.sock",
             "uid": "1000",
             "gid": "1000",
-            "signature-duration": "2592000"
+            "signature-duration": "518400"
           }
         }
       ],

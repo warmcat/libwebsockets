@@ -83,6 +83,15 @@ lws_auth_dns_zone_check_origin(const struct auth_dns_zone *z,
  */
 #define LWS_AUTH_DNS_RRSIG_SKEW_SECS	300
 
+/*
+ * How long lws_auth_dns_sign_zone() makes the RRSIGs valid for when it is not
+ * told.  Every version of a zone a publisher ever signed verifies for as long
+ * as its RRSIGs are in date, and a node that never held the zone can be
+ * handed any of them, so this is kept short: a publisher re-signs well before
+ * it runs out, as the dnssec-monitor does at half of it.
+ */
+#define LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS	(6 * 24 * 3600)
+
 enum lws_auth_dns_zone_validity_result {
 	LWS_AUTH_DNS_ZV_OK,		/**< signed, and every RRSIG valid now */
 	LWS_AUTH_DNS_ZV_NO_SOA,		/**< no apex SOA with a serial */
@@ -236,7 +245,7 @@ struct lws_auth_dns_sign_info {
 	const char			**subst_names;      /* For lws_strexp fallback */
 	const char			**subst_values;
 	time_t				sign_validity_start_time; /* 0 = now */
-	uint32_t			sign_validity_duration;   /* 0 = 30 days */
+	uint32_t			sign_validity_duration;   /* 0 = LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS */
 	int				num_substs;
 	const char			*ipv4;              /* detected external addresses, */
 	const char			*ipv6;              /* for subst_cb's ${EXTIP4} / ${EXTIP6} */

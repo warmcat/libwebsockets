@@ -61,3 +61,4 @@ Usage: `lws-crypto-dnssec signzone [--duration <hours>] <domain>`
 - Locates `<domain>.ksk.private.jwk` and `<domain>.zsk.private.jwk`.
 - Emits `<domain>.zone.signed` containing all initial `A`, `NS`, `SOA` records and appending the newly compiled `DNSKEY` and `RRSIG` combinations.
 - Outputs `<domain>.zone.signed.jws` representing the completed JSON Web Signature payload securely ingestible into the DHT network.
+- The signatures are valid for 144 hours (6 days) unless `--duration` gives another time, from 1 hour to 366 days.  Every version of the zone you ever signed verifies until its signatures expire, and a DHT node that never held the zone may be offered any of them, so keep the period short and re-sign well before it runs out (the dnssec-monitor plugin re-signs at half of it on its own).

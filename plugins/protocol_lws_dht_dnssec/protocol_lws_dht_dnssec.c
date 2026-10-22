@@ -466,6 +466,13 @@ struct dht_fragment {
 	 * are kept apart, so a PUT can never take over or fail a fetch
 	 */
 	uint8_t				inbound;
+	/*
+	 * Our fetch's version of a zone we never took, its signature
+	 * confirmed, waiting to be compared with other responders' (G-532)
+	 */
+	uint8_t				candidate;
+	/* the newest of them: take it */
+	uint8_t				collected;
 	lws_usec_t			created;
 
 	/* DNSSEC and Validation State */
@@ -475,8 +482,9 @@ struct dht_fragment {
 	struct vhd_dht_dnssec		*vhd;
 
 	char				domain[256];
-	uint32_t			soa_serial;
+	uint32_t			soa_serial;	/* a candidate's */
 	uint32_t			temp_token;
+	uint64_t			soa_inception;	/* a candidate's */
 	uint64_t			last_offset;
 	size_t				last_len;
 
@@ -557,7 +565,21 @@ struct dht_fragment {
  * LWS_DHT_DNSSEC_FETCH_MAX_ASKED has room for (G-534).
  *
  * The hosts a fetch asked are the only ones whose RSP may open its transfer.
+ *
+ * A node that never took a zone has no high-water mark to refuse an old
+ * version with, and it used to take the version of whichever asked host
+ * answered first, any version still in date (G-532).  So up to
+ * LWS_DHT_DNSSEC_FETCH_CANDIDATES of the hosts asked may each transfer the
+ * zone at once, and while there is no mark, a version whose signature is
+ * confirmed is held until that many are, or LWS_DHT_DNSSEC_FETCH_COLLECT_US
+ * after the first was, and then the newest of them is taken, by serial (RFC
+ * 1982), then signing time.  When the zone's SOA could be had from the DNS,
+ * validated, nothing older than the serial published there is taken either.
  */
+#define LWS_DHT_DNSSEC_FETCH_CANDIDATES		3
+#if !defined(LWS_DHT_DNSSEC_FETCH_COLLECT_US)
+#define LWS_DHT_DNSSEC_FETCH_COLLECT_US		(3 * LWS_US_PER_SEC)
+#endif
 #define LWS_DHT_DNSSEC_FETCH_FANOUT		8
 #define LWS_DHT_DNSSEC_FETCH_RETRIES		3
 #define LWS_DHT_DNSSEC_FETCH_RETRY_US		(15 * LWS_US_PER_SEC)
@@ -583,6 +605,9 @@ struct lws_dht_dnssec_fetch_req {
 	uint8_t				early_rounds;
 	/* routing table nodes the full round and its early ones may yet ask */
 	uint8_t				round_left;
+	/* the zone's SOA serial in the DNS, DNSSEC-validated, if it was had */
+	uint32_t			dns_serial;
+	uint8_t				dns_serial_valid;
 	/* a sponge fetch asks only this node, the one that notified us */
 	lws_sockaddr46			only;
 	uint8_t				only_set;
@@ -1211,7 +1236,10 @@ typedef enum {
 
 #define LWS_ADNS_DNSKEY_PROTOCOL_DNSSEC	3
 
-/* our own fetch of hash in progress, or NULL; any fetch if hash is NULL */
+/*
+ * A reassembly of our own fetch of hash, from any of its responders,
+ * transferring or a candidate, or NULL; of any fetch if hash is NULL
+ */
 
 static struct dht_fragment *
 dht_dnssec_find_fragment(struct vhd_dht_dnssec *vhd, const char *hash)
@@ -1223,6 +1251,41 @@ dht_dnssec_find_fragment(struct vhd_dht_dnssec *vhd, const char *hash)
 	} lws_end_foreach_dll(d);
 
 	return NULL;
+}
+
+/* our fetch's reassembly of hash from the address of from, or NULL */
+
+static struct dht_fragment *
+dht_dnssec_find_fetch_fragment(struct vhd_dht_dnssec *vhd, const char *hash,
+			       const struct sockaddr *from)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->fragments)) {
+		struct dht_fragment *frag = lws_container_of(d, struct dht_fragment, list);
+		if (!frag->inbound && !strcmp(frag->safe_hash, hash) &&
+		    !lws_sa46_compare_ads((const lws_sockaddr46 *)&frag->from_sa,
+					  (const lws_sockaddr46 *)from))
+			return frag;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/* how many reassemblies of our fetch of hash there are, besides but */
+
+static int
+dht_dnssec_count_fetch_fragments(struct vhd_dht_dnssec *vhd, const char *hash,
+				 const struct dht_fragment *but)
+{
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->fragments)) {
+		struct dht_fragment *frag = lws_container_of(d, struct dht_fragment, list);
+		if (frag != but && !frag->inbound &&
+		    !strcmp(frag->safe_hash, hash))
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
 }
 
 /*
@@ -1249,13 +1312,16 @@ dht_dnssec_find_put_fragment(struct vhd_dht_dnssec *vhd, const char *hash,
 
 /*
  * A reassembly failed: our fetches waiting on the same hash fail with it if
- * it was our fetch.  An inbound PUT failing says nothing about them.
+ * it was our fetch, and no other responder's transfer of the zone, or version
+ * of it waiting to be compared, is left to bring it.  An inbound PUT failing
+ * says nothing about them.
  */
 
 static void
 dht_dnssec_fragment_fail_fetches(struct dht_fragment *frag)
 {
-	if (frag->inbound)
+	if (frag->inbound ||
+	    dht_dnssec_count_fetch_fragments(frag->vhd, frag->safe_hash, frag))
 		return;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1292,6 +1358,54 @@ dht_dnssec_fragment_free(struct dht_fragment *frag)
 	lws_sul_cancel(&frag->sul_stale);
 	lws_dll2_remove(&frag->list);
 	free(frag);
+}
+
+/* drop a reassembly and its temp files, whatever state it is in */
+
+static void
+dht_dnssec_fragment_discard(struct dht_fragment *frag)
+{
+	char path[256];
+
+	if (frag->fd >= 0) {
+		close(frag->fd);
+		frag->fd = -1;
+	}
+	if (frag->hash_init_done) {
+		lws_genhash_destroy(&frag->ctx, NULL);
+		frag->hash_init_done = 0;
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/tmp/%s.%08X",
+		     frag->vhd->storage_path, frag->safe_hash, frag->temp_token);
+	unlink(path);
+	lws_snprintf(path, sizeof(path), "%s/tmp/%s.%08X.payload",
+		     frag->vhd->storage_path, frag->safe_hash, frag->temp_token);
+	unlink(path);
+
+	dht_dnssec_fragment_free(frag);
+}
+
+/*
+ * Start a fresh fetch of hash: drop our fetch's transfers of it still under
+ * way, but not versions of it waiting to be compared, which are complete
+ */
+
+static void
+dht_dnssec_fetch_fragments_reset(struct vhd_dht_dnssec *vhd, const char *hash)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->fragments)) {
+		struct dht_fragment *frag = lws_container_of(d,
+					struct dht_fragment, list);
+
+		if (!frag->inbound && !frag->candidate &&
+		    !strcmp(frag->safe_hash, hash)) {
+			lwsl_notice("%s: dropping fetch transfer of %s\n",
+				    __func__, hash);
+			dht_dnssec_fragment_discard(frag);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
 }
 
 /*
@@ -1743,12 +1857,47 @@ enum dht_dnssec_taken {
 	DHT_DNSSEC_REFUSED,	/* not taken: the sender gets an ERR */
 	DHT_DNSSEC_STORED,	/* a new version, stored and announced */
 	DHT_DNSSEC_HELD,	/* the version we hold already */
+	DHT_DNSSEC_CANDIDATE,	/* kept, to compare with others' (G-532) */
 };
+
+static void
+dht_dnssec_collect_cb(lws_sorted_usec_list_t *sul);
+
+/*
+ * The newest SOA serial the DNS publishes for the zone our fetches of hash
+ * are for, if one of them could get it validated (dht_dnssec_soa_cb())
+ */
+
+static int
+dht_dnssec_dns_serial(struct vhd_dht_dnssec *vhd, const char *hash,
+		      uint32_t *serial)
+{
+	int found = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->fetch_reqs)) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d,
+				struct lws_dht_dnssec_fetch_req, list);
+
+		if (!strcmp(req->target_hash, hash) && req->dns_serial_valid &&
+		    (!found || dht_dnssec_serial_gt(req->dns_serial, *serial))) {
+			*serial = req->dns_serial;
+			found = 1;
+		}
+	} lws_end_foreach_dll(d);
+
+	return found;
+}
 
 /*
  * frag's payload, in its temp files, has had its signature confirmed for
  * frag->domain: take it if it is exactly that domain's zone, in date, and no
  * older than what we hold.  Unless it is refused, the sender has had its ACK.
+ *
+ * Our fetch's version of a zone we never took is not taken yet, but kept, as
+ * a candidate, until the newest of those our fetch's responders sent can be
+ * chosen (dht_dnssec_collect_decide()).  Nor is a version our fetch brought
+ * that is older than the zone's serial in the DNS.
  */
 
 /*
@@ -1829,6 +1978,39 @@ dht_dnssec_frag_take(struct vhd_dht_dnssec *vhd, struct dht_fragment *frag)
 			    hwm.serial,
 			    (unsigned long long)hwm.inception);
 		return DHT_DNSSEC_REFUSED;
+	}
+
+	if (!frag->inbound) {
+		uint32_t published;
+
+		if (dht_dnssec_dns_serial(vhd, frag->safe_hash, &published) &&
+		    dht_dnssec_serial_gt(published, zv.serial)) {
+			lwsl_notice("%s: Dropping zone %s serial %u: the DNS "
+				    "publishes serial %u\n", __func__,
+				    frag->domain, zv.serial, published);
+			return DHT_DNSSEC_REFUSED;
+		}
+
+		if (!frag->collected &&
+		    dht_dnssec_hwm_read(vhd->storage_path, frag->safe_hash,
+					&hwm) == DHT_DNSSEC_HWM_NONE) {
+			/* a zone we never took: compare it with the others */
+			frag->candidate		= 1;
+			frag->soa_serial	= zv.serial;
+			frag->soa_inception	= (uint64_t)zv.soa_inception;
+			if (frag->fd >= 0) {
+				close(frag->fd);
+				frag->fd = -1;
+			}
+			lws_sul_schedule(vhd->context, 0, &frag->sul_stale,
+					 dht_dnssec_collect_cb,
+					 LWS_DHT_DNSSEC_FETCH_COLLECT_US);
+			lwsl_notice("%s: zone %s serial %u from a host we asked:"
+				    " held to compare\n", __func__,
+				    frag->domain, zv.serial);
+
+			return DHT_DNSSEC_CANDIDATE;
+		}
 	}
 
 	time_t ttl_expiry = time(NULL) + default_ttl;
@@ -1998,6 +2180,146 @@ dht_dnssec_frag_take(struct vhd_dht_dnssec *vhd, struct dht_fragment *frag)
 		}
 	}
 	return DHT_DNSSEC_STORED;
+}
+
+/*
+ * frag can't be taken: the sender gets an ERR, and our fetches of the zone
+ * fail with it unless another responder may yet bring it
+ */
+
+static void
+dht_dnssec_frag_reject(struct vhd_dht_dnssec *vhd, struct dht_fragment *frag)
+{
+	char err[256];
+
+	lwsl_user("%s: dropping invalid or refused %s from its sender\n",
+		  __func__, frag->safe_hash);
+
+	lws_dht_msg_gen(err, sizeof(err), "ERR", frag->safe_hash,
+			frag->last_offset, 0);
+	lws_dht_send_data(frag->dht_ctx, (struct sockaddr *)&frag->from_sa,
+			  err, strlen(err));
+
+	if (vhd->cb_completion && !vhd->cli_put_file) {
+		lwsl_user("%s: Cancelling stalled context via completion cb\n",
+			  __func__);
+		vhd->cb_completion(vhd->cb_closure, 1);
+	}
+
+	dht_dnssec_fragment_fail_fetches(frag);
+	dht_dnssec_fragment_discard(frag);
+}
+
+static void
+dht_dnssec_collect_decide(struct vhd_dht_dnssec *vhd, const char *hash,
+			  int force);
+
+/* frag's signature was confirmed: take it, keep it to compare, or drop it */
+
+static void
+dht_dnssec_frag_confirmed(struct vhd_dht_dnssec *vhd, struct dht_fragment *frag)
+{
+	char hash[sizeof(frag->safe_hash)];
+
+	switch (dht_dnssec_frag_take(vhd, frag)) {
+	case DHT_DNSSEC_REFUSED:
+		dht_dnssec_frag_reject(vhd, frag);
+		return;
+
+	case DHT_DNSSEC_CANDIDATE:
+		/* its transfer is complete: no chunk of it to ask again for */
+		lws_sul_cancel(&vhd->sul_timeout);
+		/* it may be the last the comparison was waiting for */
+		lws_strncpy(hash, frag->safe_hash, sizeof(hash));
+		dht_dnssec_collect_decide(vhd, hash, 0);
+		return;
+
+	default:
+		break;
+	}
+
+	if (vhd->cb_completion && !vhd->cli_put_file)
+		vhd->cb_completion(vhd->cb_closure, 0);
+
+	/* The PUT or GET transaction is complete, cancel any pending timeout */
+	lws_sul_cancel(&vhd->sul_timeout);
+
+	dht_dnssec_fragment_free(frag);
+}
+
+/* is candidate a newer version of the zone than b: its serial, then signing */
+
+static int
+dht_dnssec_candidate_newer(const struct dht_fragment *a,
+			   const struct dht_fragment *b)
+{
+	if (a->soa_serial != b->soa_serial)
+		return dht_dnssec_serial_gt(a->soa_serial, b->soa_serial);
+
+	return a->soa_inception > b->soa_inception;
+}
+
+/*
+ * Our fetch's responders' versions of hash, a zone we never took, that are
+ * waiting to be compared (G-532): once LWS_DHT_DNSSEC_FETCH_CANDIDATES of
+ * them are, or with force, when the wait is over, the newest is taken and
+ * the others dropped.  Responders still sending may yet bring a newer one:
+ * the mark the newest leaves lets it in, and keeps an older one out.
+ */
+
+static void
+dht_dnssec_collect_decide(struct vhd_dht_dnssec *vhd, const char *hash,
+			  int force)
+{
+	struct dht_fragment *best = NULL;
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->fragments)) {
+		struct dht_fragment *f = lws_container_of(d,
+					struct dht_fragment, list);
+
+		if (f->candidate && !strcmp(f->safe_hash, hash)) {
+			n++;
+			if (!best || dht_dnssec_candidate_newer(f, best))
+				best = f;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!best || (!force && n < LWS_DHT_DNSSEC_FETCH_CANDIDATES))
+		return;
+
+	lwsl_notice("%s: taking %s serial %u, the newest of %d versions sent\n",
+		    __func__, best->domain, best->soa_serial, n);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->fragments)) {
+		struct dht_fragment *f = lws_container_of(d,
+					struct dht_fragment, list);
+
+		if (f != best && f->candidate && !strcmp(f->safe_hash, hash))
+			dht_dnssec_fragment_discard(f);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	best->candidate = 0;
+	best->collected = 1;
+	lws_sul_cancel(&best->sul_stale);
+
+	dht_dnssec_frag_confirmed(vhd, best);
+}
+
+/* the wait for other responders' versions is over */
+
+static void
+dht_dnssec_collect_cb(lws_sorted_usec_list_t *sul)
+{
+	struct dht_fragment *frag = lws_container_of(sul, struct dht_fragment,
+						     sul_stale);
+	char hash[sizeof(frag->safe_hash)];
+
+	/* frag may be dropped deciding */
+	lws_strncpy(hash, frag->safe_hash, sizeof(hash));
+	dht_dnssec_collect_decide(frag->vhd, hash, 1);
 }
 
 static struct lws *
@@ -2390,48 +2712,13 @@ ds_test_done:
 
 	lwsl_user("%s: DS record successfully validated simulated JWS for %s\n", __func__, frag->domain);
 
-	if (dht_dnssec_frag_take(vhd, frag) == DHT_DNSSEC_REFUSED)
-		goto drop;
-
-	if (vhd->cb_completion && !vhd->cli_put_file)
-		vhd->cb_completion(vhd->cb_closure, 0);
-
-	/* The PUT or GET transaction is complete, cancel any pending timeout */
-	lws_sul_cancel(&vhd->sul_timeout);
-
-	dht_dnssec_fragment_free(frag);
+	dht_dnssec_frag_confirmed(vhd, frag);
 
 	return wsi;
 
 drop:
-	if (frag->fd >= 0) {
-		close(frag->fd);
-		frag->fd = -1;
-	}
-	{
-		char tmp_path[256];
-		char tmp_ppath[256];
-		lws_snprintf(tmp_path, sizeof(tmp_path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
-		lws_snprintf(tmp_ppath, sizeof(tmp_ppath), "%s/tmp/%s.%08X.payload", vhd->storage_path, frag->safe_hash, frag->temp_token);
-		unlink(tmp_path);
-		unlink(tmp_ppath);
-		lwsl_user("%s: Unlinked invalid/rejected temp payload %s\n", __func__, tmp_path);
-	}
-	{
-		char err[256];
-		lws_dht_msg_gen(err, sizeof(err), "ERR", frag->safe_hash, frag->last_offset, 0);
-		lwsl_user("%s: Sending ERR packet to client: %s\n", __func__, err);
-		lws_dht_send_data(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, err, strlen(err));
-	}
+	dht_dnssec_frag_reject(vhd, frag);
 
-	if (vhd->cb_completion && !vhd->cli_put_file) {
-		lwsl_user("%s: Cancelling stalled context via completion cb\n", __func__);
-		vhd->cb_completion(vhd->cb_closure, 1);
-	}
-
-	dht_dnssec_fragment_fail_fetches(frag);
-
-	dht_dnssec_fragment_free(frag);
 	return wsi;
 }
 
@@ -3240,8 +3527,15 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		return -1;
 	}
 
+	/*
+	 * Each responder's transfer is its own, keyed on its address.  One
+	 * under way goes on even once our fetch is done: another responder's
+	 * version, taken first, may be the older
+	 */
+	frag = from ? dht_dnssec_find_fetch_fragment(vhd, msg->hash, from) :
+		      NULL;
 	req = dht_dnssec_find_fetch_req(vhd, msg->hash);
-	if (!req) {
+	if (!frag && !req) {
 		/* Not for us, pass it on */
 		args->out_precedence = LWS_DHT_VERB_RESULT_PASS;
 		return 0;
@@ -3254,7 +3548,10 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		return -1;
 	}
 
-	frag = dht_dnssec_find_fragment(vhd, msg->hash);
+	/* a version waiting to be compared: it has all of it already */
+	if (frag && frag->candidate)
+		return 0;
+
 	if (!frag) {
 		if (msg->offset != 0) {
 			lwsl_notice("%s: Rejecting initial chunk for %s with non-zero offset %llu (likely trailing packets from failed transfer)\n",
@@ -3266,6 +3563,14 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		if (!from || !dht_dnssec_fetch_asked(vhd, msg->hash, from)) {
 			lwsl_warn("%s: refusing RSP for %s from a host our GET "
 				  "did not go to\n", __func__, msg->hash);
+			return 0;
+		}
+
+		/* ...and only a few of them at once (G-532) */
+		if (dht_dnssec_count_fetch_fragments(vhd, msg->hash, NULL) >=
+					LWS_DHT_DNSSEC_FETCH_CANDIDATES) {
+			lwsl_info("%s: enough hosts are sending %s already\n",
+				  __func__, msg->hash);
 			return 0;
 		}
 
@@ -3295,18 +3600,6 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		if (frag->fd < 0) return -1;
 		if (lws_genhash_init(&frag->ctx, LWS_DHT_STORE_GENHASH)) return -1;
 		frag->hash_init_done = 1;
-	} else if (frag->from_salen &&
-		   lws_sa46_compare_ads((const lws_sockaddr46 *)&frag->from_sa,
-					(const lws_sockaddr46 *)from)) {
-		/*
-		 * Fragments are keyed on the (public) hash alone, so without
-		 * this a third party that races the real responder gets its
-		 * bytes accepted into our in-flight transfer.
-		 */
-		lwsl_warn("%s: refusing RSP chunk for %s from an address other "
-			  "than the responder we are transferring from\n",
-			  __func__, frag->safe_hash);
-		return 0;
 	}
 
 	dht_dnssec_fragment_touch(frag);
@@ -4003,13 +4296,9 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			lws_sul_cancel(&vhd->sul_timeout);
 			vhd->put_retries = 0;
 
-			if (vhd->cli_get_hash) {
-				struct dht_fragment *frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
-				if (frag) {
-					if (frag->fd >= 0) close(frag->fd);
-					dht_dnssec_fragment_free(frag);
-				}
-			}
+			if (vhd->cli_get_hash)
+				dht_dnssec_fetch_fragments_reset(vhd,
+							vhd->cli_get_hash);
 			dht_dnssec_sul_get_cb(&vhd->sul_bulk);
 		} else if (found) {
 			if (newer_soa) {
@@ -4096,16 +4385,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			{
 				char hex_hash[LWS_GENHASH_LARGEST * 2 + 1];
 				lws_hex_from_byte_array(info_hash->id, (size_t)info_hash->len, hex_hash, sizeof(hex_hash));
-				struct dht_fragment *frag = dht_dnssec_find_fragment(vhd, hex_hash);
-				if (frag) {
-					lwsl_notice("%s: Resetting stale fragment tracking for %s on fresh fetch\n", __func__, hex_hash);
-					if (frag->fd >= 0) close(frag->fd);
-					char path[256];
-					lws_snprintf(path, sizeof(path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
-					unlink(path);
-					if (frag->hash_init_done) lws_genhash_destroy(&frag->ctx, NULL);
-					dht_dnssec_fragment_free(frag);
-				}
+				/* a fresh fetch */
+				dht_dnssec_fetch_fragments_reset(vhd, hex_hash);
 			}
 
 			struct lws_dht_dnssec_fetch_zone_args args;
@@ -7659,17 +7940,8 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 			req->cb(req->opaque, req->domain,
 				LWS_DHT_DNSSEC_FETCH_TIMEOUT);
 
-		/* We must ALSO clean up any stale fragment state associated with this hash so future fetches start clean */
-		struct dht_fragment *frag = dht_dnssec_find_fragment(vhd, req->target_hash);
-		if (frag) {
-			lwsl_notice("%s: Cleaning up stale fragment metadata for %s\n", __func__, req->target_hash);
-			if (frag->fd >= 0) close(frag->fd);
-			char path[256];
-			lws_snprintf(path, sizeof(path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
-			unlink(path);
-			if (frag->hash_init_done) lws_genhash_destroy(&frag->ctx, NULL);
-			dht_dnssec_fragment_free(frag);
-		}
+		/* so future fetches start clean */
+		dht_dnssec_fetch_fragments_reset(vhd, req->target_hash);
 
 		lws_dll2_remove(&req->list);
 		free(req);
@@ -7682,6 +7954,111 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 
 	dht_dnssec_fetch_full_round(vhd, req);
 }
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+
+/*
+ * The serial in a SOA RR's RDATA.  It follows MNAME and RNAME, which are only
+ * skipped, since either may end in a compression pointer.
+ */
+
+static int
+dht_dnssec_soa_rdata_serial(const uint8_t *rd, uint16_t len, uint32_t *serial)
+{
+	size_t pos = 0;
+	int names;
+
+	for (names = 0; names < 2; names++)
+		while (1) {
+			if (pos >= len)
+				return 1;
+			if ((rd[pos] & 0xc0) == 0xc0) {
+				pos += 2;
+				break;
+			}
+			if (rd[pos] & 0xc0)
+				return 1;
+			if (!rd[pos]) {
+				pos++;
+				break;
+			}
+			pos += (size_t)rd[pos] + 1;
+		}
+
+	if (pos + 4 > len)
+		return 1;
+
+	*serial = lws_ser_ru32be(rd + pos);
+
+	return 0;
+}
+
+/* are a and b the same DNS name, whatever their case or a trailing dot */
+
+static int
+dht_dnssec_same_name(const char *a, const char *b)
+{
+	size_t la = strlen(a), lb = strlen(b);
+
+	if (la && a[la - 1] == '.')
+		la--;
+	if (lb && b[lb - 1] == '.')
+		lb--;
+
+	return la == lb && !strncasecmp(a, b, la);
+}
+
+/*
+ * The zone's SOA, from the DNS, for our fetches of it: a version older than
+ * the serial published there is not taken (G-532).  Only an answer that
+ * DNSSEC-validated counts, through the same chain of DS the zone's JWS is
+ * checked against, or anyone able to answer our resolver's question could
+ * have us refuse every version of the zone.  No answer, or one that did not
+ * validate, leaves the fetch as it was.
+ */
+
+static struct lws *
+dht_dnssec_soa_cb(struct lws *wsi, const char *ads,
+		  const struct addrinfo *result, int n, void *opaque)
+{
+	struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)opaque;
+	const uint8_t *rd = NULL;
+	uint16_t rdlen = 0;
+	uint32_t serial;
+
+	if (n >= 0 && (n & LWS_ADNS_DNSSEC_VALID) &&
+	    (n & ~LWS_ADNS_DNSSEC_VALID) == LADNS_RET_FOUND && ads)
+		rd = lws_async_dns_get_rr_cache(vhd->context, ads,
+						LWS_ADNS_RECORD_SOA, &rdlen);
+
+	if (!rd || dht_dnssec_soa_rdata_serial(rd, rdlen, &serial)) {
+		lwsl_info("%s: no validated SOA for %s from the DNS (%d)\n",
+			  __func__, ads ? ads : "?", n);
+		goto bail;
+	}
+
+	lwsl_notice("%s: the DNS publishes %s serial %u\n", __func__, ads,
+		    serial);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->fetch_reqs)) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d,
+				struct lws_dht_dnssec_fetch_req, list);
+
+		if (dht_dnssec_same_name(req->domain, ads)) {
+			req->dns_serial = serial;
+			req->dns_serial_valid = 1;
+		}
+	} lws_end_foreach_dll(d);
+
+bail:
+	if (result)
+		lws_async_dns_freeaddrinfo(&result);
+
+	return wsi;
+}
+
+#endif
 
 /*
  * Returns nonzero if the fetch was refused, having neither completed it nor
@@ -7761,8 +8138,11 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 	}
 
 	struct lws_dht_dnssec_fetch_req *req = NULL;
+	int zone_fetched = 0;
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&v->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *r = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(r->target_hash, hex))
+			zone_fetched = 1;
 		if (!strcmp(r->domain, args->domain) && r->cb == args->cb &&
 		    r->opaque == args->opaque && r->internal == !!internal &&
 		    r->only_set == !!only) {
@@ -7794,6 +8174,30 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 	}
 	lws_strncpy(req->target_hash, hex, sizeof(req->target_hash));
 	lws_dll2_add_tail(&req->list, &v->fetch_reqs);
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	{
+		struct dht_dnssec_hwm hwm;
+
+		/*
+		 * A zone we never took: what does the DNS say its serial is?
+		 * Once for the zone, while any fetch of it is pending: the
+		 * answer goes to every one of them
+		 */
+		if (!zone_fetched && strncmp(clean_domain, "dht-hash-", 9) &&
+		    dht_dnssec_hwm_read(v->storage_path, hex, &hwm) ==
+							DHT_DNSSEC_HWM_NONE &&
+		    lws_async_dns_query(context, 0, clean_domain,
+					(adns_query_type_t)(LWS_ADNS_RECORD_SOA |
+							LWS_ADNS_WANT_DNSSEC),
+					dht_dnssec_soa_cb, NULL, v, NULL) ==
+							LADNS_RET_FAILED)
+			lwsl_info("%s: unable to ask the DNS for %s's SOA\n",
+				  __func__, clean_domain);
+	}
+#else
+	(void)zone_fetched;
+#endif
 
 	/*
 	 * With nobody to ask yet, the request stays, and its retries ask

@@ -2350,7 +2350,7 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 											else
 												time(&now);
 
-											uint32_t dur = info->sign_validity_duration ? info->sign_validity_duration : (30 * 24 * 3600);
+											uint32_t dur = info->sign_validity_duration ? info->sign_validity_duration : LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS;
 											uint64_t exp = (uint64_t)now + dur;
 											uint64_t inc = (uint64_t)now - 3600; /* Start valid one hour before current time to account for clock skew */
 

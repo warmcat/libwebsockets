@@ -22,6 +22,8 @@
  *  - but only a host our fetch's GET went to can start it: an RSP from any
  *    other host is refused, one from another port of the host we asked is
  *    not (G-153)
+ *  - up to three hosts we asked may each send it at once, so their versions
+ *    can be compared, but not a fourth (G-532)
  *  - however long a sender keeps a reassembly making progress, it is reaped
  *    at a fixed time after it started
  *
@@ -36,6 +38,26 @@
  *  - once that one's payload is gone, its high-water mark still refuses the
  *    older version; a mark that can't be read refuses any version and is
  *    left as it is, and only with no mark at all is a version taken (G-533)
+ *
+ * and what our fetch does with a zone we never took, so have no mark for
+ * (G-532):
+ *
+ *  - the version the first host we asked sends, though signed and in date,
+ *    is only held, and so is a newer one another host sends; when the wait
+ *    for more is over, the newer is stored, the older dropped, and our fetch
+ *    completes OK
+ *  - once three hosts' versions are held, the newest is stored without
+ *    waiting any longer
+ *  - once a version was taken, a newer one from a host still sending is
+ *    stored at once, its mark being there
+ *  - a version older than the serial the DNS publishes for the zone is
+ *    refused, and with nothing else coming, the fetch fails; one at that
+ *    serial is taken
+ *  - the serial is found in a SOA's RDATA after names that are compressed
+ *    or not, and RDATA too short for it is refused
+ *
+ * The DNS lookup itself needs a validating resolver for a signed zone, so it
+ * is not exercised here, only what is done with its answer.
  *
  * and the plugin runs once per context: lwsws conf giving its DHT pvos to a
  * second vhost does not start another instance on the same DHT port, which
@@ -422,6 +444,197 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 	vhd->auth_cb = NULL;
 }
 
+/*
+ * Our fetch's transfer of hash from the host ending in resp, carrying the
+ * zone at serial, has had its signature confirmed: what the plugin does with
+ * it.  Returns the reassembly if it is held, waiting to be compared.
+ */
+
+static struct dht_fragment *
+putt_fetched(struct vhd_dht_dnssec *vhd, const char *hash, uint8_t resp,
+	     uint32_t serial)
+{
+	char path[256], ppath[256];
+	struct dht_fragment *frag;
+	lws_sockaddr46 h;
+
+	putt_v4(&h, resp, 1000);
+
+	frag = calloc(1, sizeof(*frag));
+	if (!frag)
+		return NULL;
+
+	frag->vhd		= vhd;
+	frag->dht_ctx		= vhd->dht;
+	frag->fd		= -1;
+	frag->temp_token	= serial ^ ((uint32_t)resp << 24);
+	frag->last_len		= strlen(PUTT_CHUNK);
+	memcpy(&frag->from_sa, &h, sizeof(h.sa4));
+	frag->from_salen	= sizeof(h.sa4);
+	lws_strncpy(frag->safe_hash, hash, sizeof(frag->safe_hash));
+	lws_strncpy(frag->domain, PUTT_HELD_DOMAIN, sizeof(frag->domain));
+	lws_dll2_add_tail(&frag->list, &vhd->fragments);
+
+	lws_snprintf(path, sizeof(path), PUTT_STORE "/tmp/%s.%08X", hash,
+		     frag->temp_token);
+	lws_snprintf(ppath, sizeof(ppath), "%s.payload", path);
+	if (putt_zone(path, serial) || putt_zone(ppath, serial)) {
+		dht_dnssec_fragment_discard(frag);
+		return NULL;
+	}
+
+	dht_dnssec_frag_confirmed(vhd, frag);
+
+	return putt_frag(vhd, hash, &h, 0);
+}
+
+/* are the temp files of the version from resp at serial still there */
+
+static int
+putt_tmp_left(const char *hash, uint8_t resp, uint32_t serial)
+{
+	char path[256];
+
+	lws_snprintf(path, sizeof(path), PUTT_STORE "/tmp/%s.%08X", hash,
+		     serial ^ ((uint32_t)resp << 24));
+
+	return !access(path, F_OK);
+}
+
+static struct lws_dht_dnssec_fetch_req *
+putt_fetch(struct vhd_dht_dnssec *vhd, const char *hash)
+{
+	struct lws_dht_dnssec_fetch_req *req = calloc(1, sizeof(*req));
+
+	if (!req)
+		return NULL;
+
+	lws_strncpy(req->domain, PUTT_HELD_DOMAIN, sizeof(req->domain));
+	lws_strncpy(req->target_hash, hash, sizeof(req->target_hash));
+	req->cb = putt_fetch_cb;
+	req->vhd = vhd;
+	lws_dll2_add_tail(&req->list, &vhd->fetch_reqs);
+	fetch_status = 99;
+
+	return req;
+}
+
+static void
+putt_soa_rdata_cases(void)
+{
+	/* ns1.a. host.a. (pointer) serial, then the four timers */
+	static const uint8_t full[] = {
+		3, 'n', 's', '1', 1, 'a', 0,
+		4, 'h', 'o', 's', 't', 0xc0, 0x0c,
+		0x78, 0xc4, 0x0b, 0x79,
+		0, 0, 0x0e, 0x10, 0, 0, 0x07, 0x08,
+		0, 0x09, 0x3a, 0x80, 0, 0, 0, 0x3c
+	};
+	static const uint8_t ptrs[] = { 0xc0, 0x0c, 0xc0, 0x20, 0, 0, 0, 7 };
+	uint32_t serial = 0;
+
+	putt_expect(!dht_dnssec_soa_rdata_serial(full, sizeof(full), &serial) &&
+		    serial == 0x78c40b79u,
+		    "the serial after an uncompressed and a compressed name");
+	putt_expect(!dht_dnssec_soa_rdata_serial(ptrs, sizeof(ptrs), &serial) &&
+		    serial == 7, "the serial after two pointers");
+	putt_expect(dht_dnssec_soa_rdata_serial(full, 16, &serial) &&
+		    dht_dnssec_soa_rdata_serial(ptrs, 3, &serial),
+		    "RDATA too short for the serial is refused");
+	putt_expect(dht_dnssec_same_name("Held.Example.", PUTT_HELD_DOMAIN) &&
+		    !dht_dnssec_same_name("held.example.org", PUTT_HELD_DOMAIN),
+		    "the SOA answer is matched to the fetch by its name");
+}
+
+static void
+putt_collect_cases(struct vhd_dht_dnssec *vhd)
+{
+	struct lws_dht_dnssec_fetch_req *req;
+	struct dht_fragment *older, *newer;
+	char hash[65];
+
+	vhd->auth_cb = putt_auth_cb;
+	auth_calls = 0;
+
+	/* the first host we asked answers with an old version, then another */
+
+	putt_hash(hash, 0xb0);
+	if (putt_expect(!!putt_fetch(vhd, hash), "fetch request"))
+		return;
+
+	older = putt_fetched(vhd, hash, 20, PUTT_HELD_SERIAL);
+	putt_expect(older && older->candidate &&
+		    older->sul_stale.cb == dht_dnssec_collect_cb &&
+		    !putt_stored_serial(hash) && fetch_status == 99 &&
+		    dht_dnssec_find_fetch_req(vhd, hash),
+		    "a zone we never took is held, not taken from the first "
+		    "host to send it");
+	newer = putt_fetched(vhd, hash, 21, PUTT_HELD_SERIAL + 5);
+	putt_expect(older && newer && newer->candidate &&
+		    !putt_stored_serial(hash) && !auth_calls,
+		    "and so is another host's newer version");
+	if (older)
+		/* the wait for more is over */
+		dht_dnssec_collect_cb(&older->sul_stale);
+	putt_expect(putt_stored_serial(hash) == PUTT_HELD_SERIAL + 5 &&
+		    auth_calls == 1 && fetch_status == LWS_DHT_DNSSEC_FETCH_OK &&
+		    !dht_dnssec_find_fetch_req(vhd, hash) &&
+		    !dht_dnssec_find_fragment(vhd, hash) &&
+		    !putt_tmp_left(hash, 20, PUTT_HELD_SERIAL) &&
+		    !putt_tmp_left(hash, 21, PUTT_HELD_SERIAL + 5),
+		    "then the newer is taken, the older dropped, and the fetch "
+		    "completes");
+
+	/* the mark is there now: a newer version is taken as it comes */
+	putt_expect(!putt_fetched(vhd, hash, 22, PUTT_HELD_SERIAL + 6) &&
+		    putt_stored_serial(hash) == PUTT_HELD_SERIAL + 6,
+		    "once a version was taken, a newer one is stored at once");
+
+	/* three hosts' versions are enough to choose from */
+
+	putt_hash(hash, 0xb1);
+	if (putt_expect(!!putt_fetch(vhd, hash), "fetch request"))
+		return;
+	putt_fetched(vhd, hash, 30, PUTT_HELD_SERIAL + 1);
+	putt_fetched(vhd, hash, 31, PUTT_HELD_SERIAL + 3);
+	putt_expect(!putt_stored_serial(hash), "two versions held");
+	putt_fetched(vhd, hash, 32, PUTT_HELD_SERIAL + 2);
+	putt_expect(putt_stored_serial(hash) == PUTT_HELD_SERIAL + 3 &&
+		    fetch_status == LWS_DHT_DNSSEC_FETCH_OK &&
+		    !dht_dnssec_find_fragment(vhd, hash),
+		    "with a third, the newest is taken without waiting");
+
+	/* the DNS publishes a later serial than one host sends */
+
+	putt_hash(hash, 0xb2);
+	req = putt_fetch(vhd, hash);
+	if (putt_expect(!!req, "fetch request"))
+		return;
+	req->dns_serial		= PUTT_HELD_SERIAL + 10;
+	req->dns_serial_valid	= 1;
+	putt_expect(!putt_fetched(vhd, hash, 40, PUTT_HELD_SERIAL + 9) &&
+		    !putt_stored_serial(hash) &&
+		    !putt_tmp_left(hash, 40, PUTT_HELD_SERIAL + 9) &&
+		    fetch_status == LWS_DHT_DNSSEC_FETCH_INVALID &&
+		    !dht_dnssec_find_fetch_req(vhd, hash),
+		    "a version older than the serial in the DNS is refused, and "
+		    "with nothing else coming, the fetch fails");
+
+	req = putt_fetch(vhd, hash);
+	if (putt_expect(!!req, "fetch request"))
+		return;
+	req->dns_serial		= PUTT_HELD_SERIAL + 10;
+	req->dns_serial_valid	= 1;
+	older = putt_fetched(vhd, hash, 41, PUTT_HELD_SERIAL + 10);
+	if (older)
+		dht_dnssec_collect_cb(&older->sul_stale);
+	putt_expect(older && putt_stored_serial(hash) == PUTT_HELD_SERIAL + 10 &&
+		    fetch_status == LWS_DHT_DNSSEC_FETCH_OK,
+		    "one at the serial in the DNS is taken");
+
+	vhd->auth_cb = NULL;
+}
+
 static void
 putt_run(struct vhd_dht_dnssec *vhd)
 {
@@ -518,6 +731,22 @@ putt_run(struct vhd_dht_dnssec *vhd)
 	putt_expect(!!putt_frag(vhd, victim, &resp, 0),
 		    "an inbound PUT of a key does not block our fetch of it");
 
+	/*
+	 * Other hosts we asked may send it too, a few at once, so that their
+	 * versions can be compared (G-532)
+	 */
+	for (n = 0; n < 3; n++) {
+		lws_sockaddr46 other;
+
+		putt_v4(&other, (uint8_t)(8 + n), 1000);
+		dht_dnssec_fetch_req_send(vhd, req,
+					  (const struct sockaddr *)&other, get);
+		putt_chunk(vhd, 1, victim, 0, &other);
+		putt_expect(!putt_frag(vhd, victim, &other, 0) == (n == 2),
+			    n == 2 ? "a fourth host's transfer is refused" :
+				     "another host we asked transfers it too");
+	}
+
 	lws_dll2_remove(&req->list);
 	free(req);
 
@@ -540,6 +769,8 @@ putt_run(struct vhd_dht_dnssec *vhd)
 		    "progress does not extend a reassembly past its lifetime");
 
 	putt_take_cases(vhd);
+	putt_collect_cases(vhd);
+	putt_soa_rdata_cases();
 }
 
 /* the plugin makes its DHT once the system is up: wait for that */

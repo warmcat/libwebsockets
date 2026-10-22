@@ -33,7 +33,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_CURVE]	= { "--curve",         "Set crypto curve for EC keygen (e.g. P-256)" },
 	[LWS_SW_TYPE]	= { "--type",          "Set key type (EC or RSA, default EC)" },
 	[LWS_SW_BITS]	= { "--bits",          "Set key size for RSA keygen (e.g. 2048)" },
-	[LWS_SW_DURATION]	= { "--duration",      "Set signature validity duration in hours" },
+	[LWS_SW_DURATION]	= { "--duration",      "Set signature validity duration in hours (1 - 8784, default 144)" },
 	[LWS_SW_HASH]	= { "--hash",          "Set hash type for DS record (e.g. SHA256)" },
 	[LWS_SW_WORKDIR]	= { "--workdir",       "Working directory for keys/zones" },
 	[LWS_SW_TARGET_IP]	= { "--target-ip",	   "IP to bootstrap from (e.g., local lwsws)" },
@@ -114,6 +114,7 @@ int main(int argc, const char **argv)
 		lwsl_user("  dsfromkey [--hash <hash>] <domain>\n");
 		lwsl_user("            Inputs : <domain>.ksk.key  Outputs: Base64 DS Record to stdout\n");
 		lwsl_user("  signzone  [--duration <hours>] <domain>\n");
+		lwsl_user("            Signatures are valid for 144 hours (6 days) unless --duration is given\n");
 		lwsl_user("            Inputs : <domain>.zone, <domain>.ksk.private.jwk, <domain>.zsk.private.jwk\n");
 		lwsl_user("            Outputs: <domain>.zone.signed and <domain>.zone.signed.jws (auto-bumps SOA serial)\n\n");
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
@@ -253,8 +254,18 @@ int main(int argc, const char **argv)
 		struct lws_dht_dnssec_signzone_args sz_args;
 		memset(&sz_args, 0, sizeof(sz_args));
 
-		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DURATION].sw)))
-			sz_args.sign_validity_duration = (uint32_t)atoi(p) * 3600;
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DURATION].sw))) {
+			int hours = atoi(p);
+
+			/* a year at most: an old version is good as long */
+			if (hours < 1 || hours > 366 * 24) {
+				lwsl_err("--duration must be 1 - %d hours\n",
+					 366 * 24);
+				result = 1;
+				goto done;
+			}
+			sz_args.sign_validity_duration = (uint32_t)hours * 3600;
+		}
 
 		sz_args.domain = argv[n];
 		sz_args.workdir = lws_cmdline_option(argc, argv, switches[LWS_SW_WORKDIR].sw);

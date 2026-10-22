@@ -17,7 +17,7 @@ You can enable these individually, or if your build script enables them recursiv
 
 Start by creating a standard, unsigned text DNS zone file for your domain. You do not need to manually add `DNSKEY`, `NSEC3`, `NSEC3PARAM`, or `RRSIG` records—the signing utility will automatically generate and inject these for you.
 
-Create a file named `mydomain.zone`:
+Create a file named `mydomain.com.zone`:
 
 ```zone
 $ORIGIN mydomain.com.
@@ -105,12 +105,15 @@ You will provide the Keytag (`5167`), Algorithm (`13`), Digest Type (`2` for SHA
 Now, you will take the unsigned zone file, process it with your keys, and generate both the DNSSEC-signed `.zone` file and an outer JWS wrapper.
 
 ```bash
-lws-crypto-dnssec signzone \
-    --ksk mydomain.com.ksk.private.jwk \
-    --zsk mydomain.com.zsk.private.jwk \
-    --duration 2592000 \
-    mydomain.zone mydomain.zone.signed mydomain.zone.signed.jws
+lws-crypto-dnssec signzone --duration 144 mydomain.com
 ```
+
+It reads `mydomain.com.zone` and the keys `mydomain.com.ksk.private.jwk` and
+`mydomain.com.zsk.private.jwk`.  `--duration` is how many hours the
+signatures are valid for, 144 (6 days) if it is not given.  Every version of
+the zone you sign verifies until its signatures expire, and a DHT node that
+never held the zone may be offered any of them, so keep it short and sign
+again well before it runs out.
 
 **What happens during this step:**
 1. **Canonicalization**: The tool normalizes the input records.
@@ -120,8 +123,8 @@ lws-crypto-dnssec signzone \
 5. **Outer JWS Signature**: Finally, the completely assembled, canonical text zone is wrapped inside a JSON Web Signature (JWS) to ensure transport integrity when deploying it to external sources like the libwebsockets DHT framework.
 
 **Outputs:**
-- `mydomain.zone.signed`: The standard, DNSSEC-signed authoritative zone text ready for a traditional nameserver.
-- `mydomain.zone.signed.jws`: The JWS-signed JSON document containing the entire zone, mathematically verifiable using your zone keys.
+- `mydomain.com.zone.signed`: The standard, DNSSEC-signed authoritative zone text ready for a traditional nameserver.
+- `mydomain.com.zone.signed.jws`: The JWS-signed JSON document containing the entire zone, mathematically verifiable using your zone keys.
 
 ### Verifying a signed zone
 

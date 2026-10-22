@@ -484,8 +484,9 @@ scan_dir_cb_expiry(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			struct stat st_out;
 			if (fstat(fd, &st_out) == 0) {
 				time_t now = time(NULL);
-				if (now > st_out.st_mtime && (uint32_t)(now - st_out.st_mtime) >= (vhd->signature_duration * 3 / 4)) {
-					lwsl_user("dnssec-monitor: signed zone %s is older than 75%% of signature lifetime, triggering resign by unlinking!\n", output_path);
+				/* well before it runs out: a failed re-sign has days to be retried */
+				if (now > st_out.st_mtime && (uint32_t)(now - st_out.st_mtime) >= vhd->signature_duration / 2) {
+					lwsl_user("dnssec-monitor: signed zone %s is older than half its signature lifetime, triggering resign by unlinking!\n", output_path);
 					unlink(output_path);
 				}
 			}
@@ -952,6 +953,70 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	return 0;
+}
+
+/*
+ * How long the zones we sign are valid for: the sign_validity_days the UI
+ * keeps in <base-dir>/acme_config.json, else the signature-duration pvo
+ * (seconds), else LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS.  The root process,
+ * which signs and re-signs, and the proxy both work it out this way, so a
+ * root process started afresh doesn't sign for some other period until the
+ * UI next saves its settings.  A value out of range is ignored: too short
+ * and the 4-hourly expiry scan can't re-sign in time, too long and old
+ * versions of the zone stay acceptable for that long (G-532).
+ */
+
+static void
+monitor_sign_validity_load(struct vhd *vhd,
+			   const struct lws_protocol_vhost_options *pvos)
+{
+	const struct lws_protocol_vhost_options *pvo;
+	struct monitor_req_args a;
+	struct lejp_ctx jctx;
+	char d_path[1024], buf[4096];
+	ssize_t n;
+	int fd;
+
+	vhd->signature_duration = LWS_AUTH_DNS_SIGN_VALIDITY_DEFAULT_SECS;
+
+	pvo = lws_pvo_search(pvos, "signature-duration");
+	if (pvo) {
+		long secs = atol(pvo->value);
+
+		if (secs >= MON_SIGN_VALIDITY_MIN_SECS &&
+		    secs <= MON_SIGN_VALIDITY_MAX_DAYS * 24 * 3600)
+			vhd->signature_duration = (uint32_t)secs;
+		else
+			lwsl_warn("%s: ignoring signature-duration %s, not %d - "
+				  "%d s\n", __func__, pvo->value,
+				  MON_SIGN_VALIDITY_MIN_SECS,
+				  MON_SIGN_VALIDITY_MAX_DAYS * 24 * 3600);
+	}
+
+	if (!vhd->base_dir)
+		return;
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json",
+		     vhd->base_dir);
+	fd = open(d_path, O_RDONLY);
+	if (fd < 0)
+		return;
+	n = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	if (n <= 0)
+		return;
+
+	memset(&a, 0, sizeof(a));
+	lejp_construct(&jctx, monitor_req_cb, &a, monitor_req_paths,
+		       LWS_ARRAY_SIZE(monitor_req_paths));
+	lejp_parse(&jctx, (uint8_t *)buf, (int)n);
+	lejp_destruct(&jctx);
+	free(a.zone_buf);
+
+	if (a.sign_validity_days >= 1 &&
+	    a.sign_validity_days <= MON_SIGN_VALIDITY_MAX_DAYS)
+		vhd->signature_duration =
+				(uint32_t)a.sign_validity_days * 24 * 3600;
 }
 
 
@@ -2321,6 +2386,11 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 	char esc_locality[MON_ESC_FIELD_SZ], esc_profile[MON_ESC_FIELD_SZ];
 	int n, fd;
 
+	/* not given, or out of range: the default, see monitor_sign_validity_load() */
+	if (a->sign_validity_days < 1 ||
+	    a->sign_validity_days > MON_SIGN_VALIDITY_MAX_DAYS)
+		a->sign_validity_days = MON_SIGN_VALIDITY_DEFAULT_DAYS;
+
 	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
 	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 	if (fd >= 0) {
@@ -2337,11 +2407,10 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 			json_escape(esc_state, sizeof(esc_state), a->state),
 			json_escape(esc_locality, sizeof(esc_locality), a->locality),
 			json_escape(esc_profile, sizeof(esc_profile), a->profile),
-			a->sign_validity_days ? a->sign_validity_days : 21);
+			a->sign_validity_days);
 
 		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
-			if (a->sign_validity_days > 0)
-				vhd->signature_duration = (uint32_t)(a->sign_validity_days * 24 * 3600);
+			vhd->signature_duration = (uint32_t)a->sign_validity_days * 24 * 3600;
 			/* keep our env choice in step with what we just wrote */
 			vhd->acme_production = a->production ? 1 : 0;
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"ok\"}\n");
@@ -3519,7 +3588,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 								}
 
 								vhd->uds_path = uds_path;
-								vhd->signature_duration = 31536000;
+								monitor_sign_validity_load(vhd, (const struct lws_protocol_vhost_options *)in);
 
 								/*
 								 * --uds-perms is "<our uid>:<lwsws gid>",
@@ -3615,8 +3684,6 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 			vhd->context = lws_get_context(wsi);
 			vhd->vhost = vhost;
-			vhd->signature_duration = 31536000; /* 1 year default fallback */
-
 			/* Load standard PVOs */
 			const char *uid = "0", *gid = "0";
 
@@ -3627,8 +3694,6 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if ((pvo = lws_pvo_search(in, "uds-path")))
 				vhd->uds_path = pvo->value;
-			if ((pvo = lws_pvo_search(in, "signature-duration")))
-				vhd->signature_duration = (uint32_t)atoi(pvo->value);
 			if ((pvo = lws_pvo_search(in, "uid")))
 				uid = pvo->value;
 			if ((pvo = lws_pvo_search(in, "gid")))
@@ -3657,26 +3722,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!vhd->uds_path)
 				vhd->uds_path = "/var/run/lws-dnssec-monitor.sock";
 
-			{
-				char d_path[1024];
-				lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
-				int fd = open(d_path, O_RDONLY);
-				if (fd >= 0) {
-					char buf[4096];
-					ssize_t n = read(fd, buf, sizeof(buf) - 1);
-					if (n > 0) {
-						struct monitor_req_args a;
-						memset(&a, 0, sizeof(a));
-						struct lejp_ctx jctx;
-						lejp_construct(&jctx, monitor_req_cb, &a, monitor_req_paths, LWS_ARRAY_SIZE(monitor_req_paths));
-						lejp_parse(&jctx, (uint8_t *)buf, (int)n);
-						lejp_destruct(&jctx);
-						if (a.sign_validity_days > 0)
-							vhd->signature_duration = (uint32_t)(a.sign_validity_days * 24 * 3600);
-					}
-					close(fd);
-				}
-			}
+			monitor_sign_validity_load(vhd, in);
 
 			/* Locate the operational ops struct off the prerequisite plugin */
 			const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec");
