@@ -58,6 +58,37 @@ static const lws_struct_map_t lsm_schema_apitest[] = {
 	LSM_SCHEMA_DLL2	(teststruct_t, list, NULL, lsm_teststruct, "apitest")
 };
 
+/*
+ * A row written by lws_struct_sq3_upsert() / _update(), selected by its
+ * unique name column.  The first member is the primary key.
+ */
+
+typedef struct rowtest {
+	lws_dll2_t		list; /* not directly serialized */
+
+	uint32_t		idx;
+	const char		*name;
+	const char		*note;
+	int8_t			s8;
+	int16_t			s16;
+	uint64_t		u64;
+	int64_t			s64;
+} rowtest_t;
+
+static const lws_struct_map_t lsm_rowtest[] = {
+	LSM_UNSIGNED	(rowtest_t, idx,		"idx"),
+	LSM_STRING_PTR	(rowtest_t, name,		"name"),
+	LSM_STRING_PTR	(rowtest_t, note,		"note"),
+	LSM_SIGNED	(rowtest_t, s8,			"s8"),
+	LSM_SIGNED	(rowtest_t, s16,		"s16"),
+	LSM_UNSIGNED	(rowtest_t, u64,		"u64"),
+	LSM_SIGNED	(rowtest_t, s64,		"s64"),
+};
+
+static const lws_struct_map_t lsm_schema_rowtest[] = {
+	LSM_SCHEMA_DLL2	(rowtest_t, list, NULL, lsm_rowtest, "rowtest")
+};
+
 static const char *test_string =
 	"No one would have believed in the last years of the nineteenth "
 	"century that this world was being watched keenly and closely by "
@@ -79,6 +110,141 @@ static const char *test_string =
 	"intellects vast and cool and unsympathetic, regarded this earth with "
 	"envious eyes, and slowly and surely drew their plans against us.  And "
 	"early in the twentieth century came the great disillusionment. ";
+
+/*
+ * Read back the only row named "alpha" and compare it with what we wrote
+ */
+
+static int
+rowtest_check(sqlite3 *db, const rowtest_t *w, const char *what)
+{
+	lws_dll2_owner_t resown;
+	struct lwsac *ac = NULL;
+	const rowtest_t *r;
+	int ret = 1;
+
+	if (lws_struct_sq3_deserialize(db, " and name='alpha'", NULL,
+				       lsm_schema_rowtest, &resown, &ac, 0, 10)) {
+		lwsl_err("%s: %s: deserialize failed\n", __func__, what);
+		goto bail;
+	}
+
+	if (resown.count != 1) {
+		lwsl_err("%s: %s: %d rows\n", __func__, what, resown.count);
+		goto bail;
+	}
+
+	r = lws_container_of(lws_dll2_get_head(&resown), rowtest_t, list);
+
+	if (!r->name || strcmp(r->name, w->name)) {
+		lwsl_err("%s: %s: bad name\n", __func__, what);
+		goto bail;
+	}
+
+	/* a NULL string member is stored as SQL NULL and comes back NULL */
+
+	if (!w->note != !r->note || (w->note && strcmp(r->note, w->note))) {
+		lwsl_err("%s: %s: note %s, len %d\n", __func__, what,
+			 r->note ? "differs" : "NULL",
+			 r->note ? (int)strlen(r->note) : 0);
+		goto bail;
+	}
+
+	if (r->s8 != w->s8 || r->s16 != w->s16 || r->u64 != w->u64 ||
+	    r->s64 != w->s64) {
+		lwsl_err("%s: %s: %d %d 0x%llx %lld\n", __func__, what,
+			 r->s8, r->s16, (unsigned long long)r->u64,
+			 (long long)r->s64);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lwsac_free(&ac);
+
+	return ret;
+}
+
+/*
+ * lws_struct_sq3_upsert() and _update() bind the member values: a NULL string
+ * member is SQL NULL, a long string is stored whole, quotes in it are just
+ * data, and integers keep their sign and all 64 bits.
+ */
+
+static int
+rowtest(sqlite3 *db)
+{
+	char long_note[2500];
+	rowtest_t w;
+	size_t n;
+
+	if (lws_struct_sq3_create_table(db, lsm_schema_rowtest)) {
+		lwsl_err("%s: create table failed\n", __func__);
+		return 1;
+	}
+
+	/* longer than any fixed-size escaping buffer, with quotes to escape */
+
+	for (n = 0; n < sizeof(long_note) - 1; n++)
+		long_note[n] = (n % 7) ? (char)('a' + (n % 26)) : '\'';
+	long_note[sizeof(long_note) - 1] = '\0';
+
+	memset(&w, 0, sizeof(w));
+	w.name	= "alpha";
+	w.note	= NULL;
+	w.s8	= -5;
+	w.s16	= -300;
+	w.u64	= 0xfedcba9876543210ull;
+	w.s64	= -0x123456789abll;
+
+	/* 1: upsert inserts a row with a NULL string member */
+
+	if (lws_struct_sq3_upsert(db, "rowtest", lsm_rowtest,
+				  LWS_ARRAY_SIZE(lsm_rowtest), &w, "name")) {
+		lwsl_err("%s: upsert insert failed\n", __func__);
+		return 1;
+	}
+	if (rowtest_check(db, &w, "upsert insert"))
+		return 1;
+
+	/* 2: update the row with a long string, selected by its name */
+
+	w.note	= long_note;
+	w.s8	= 100;
+	if (lws_struct_sq3_update(db, "rowtest", lsm_rowtest,
+				  LWS_ARRAY_SIZE(lsm_rowtest), &w, "name")) {
+		lwsl_err("%s: update failed\n", __func__);
+		return 1;
+	}
+	if (rowtest_check(db, &w, "update"))
+		return 1;
+
+	/* 3: upsert of the same name updates it, back to a NULL member */
+
+	w.note	= NULL;
+	w.s16	= 32767;
+	if (lws_struct_sq3_upsert(db, "rowtest", lsm_rowtest,
+				  LWS_ARRAY_SIZE(lsm_rowtest), &w, "name")) {
+		lwsl_err("%s: upsert update failed\n", __func__);
+		return 1;
+	}
+	if (rowtest_check(db, &w, "upsert update"))
+		return 1;
+
+	/* 4: update of a row that isn't there changes nothing, and says so */
+
+	w.name	= "nosuch";
+	if (lws_struct_sq3_update(db, "rowtest", lsm_rowtest,
+				  LWS_ARRAY_SIZE(lsm_rowtest), &w, "name") != 1) {
+		lwsl_err("%s: update of missing row didn't report it\n",
+			 __func__);
+		return 1;
+	}
+	w.name	= "alpha";
+
+	return rowtest_check(db, &w, "update missing");
+}
 
 int main(int argc, const char **argv)
 {
@@ -228,6 +394,13 @@ int main(int argc, const char **argv)
 			e++;
 			goto done;
 		}
+	}
+
+	/* 3. single-row update / upsert */
+
+	if (rowtest(db)) {
+		e++;
+		goto done;
 	}
 
 done:
