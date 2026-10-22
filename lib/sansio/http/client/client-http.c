@@ -890,7 +890,8 @@ lws_h1_client_rx_done(struct lws *wsi)
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_context *cx = wsi->a.context;
+	struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
 	int n;
 
 	lwsl_info("%s: %s (%s)\n", __func__, lws_wsi_tag(wsi),
@@ -924,11 +925,14 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	/*
 	 * For h1, wsi may pass some assets on to a queued child and be
-	 * destroyed during this.
+	 * destroyed during this.  It sets timeouts, which take the context
+	 * lock: that must come before the pt lock, as for a close.
 	 */
-	lws_pt_lock(pt, __func__);
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+	lws_pt_lock(pt, __func__); /* ---------------------------- pt { */
 	n = _lws_generic_transaction_completed_active_conn(&wsi, 1);
-	lws_pt_unlock(pt);
+	lws_pt_unlock(pt); /* } pt */
+	lws_context_unlock(cx); /* } cx */
 
 	if (n < 0) {
 		/*
