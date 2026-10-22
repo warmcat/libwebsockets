@@ -21,3 +21,6 @@ extern const size_t wse_max_message_ring;
 extern const size_t wse_max_message_broker;
 extern const int wse_lag_secs_ring;
 extern const int wse_lag_secs_broker;
+extern const struct lws_protocols wse_protocols_raw_proxy[];
+void
+wse_raw_proxy_backend(const char *address, int port);

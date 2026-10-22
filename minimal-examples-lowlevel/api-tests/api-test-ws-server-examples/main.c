@@ -48,6 +48,19 @@
  *    forever: after 3000 messages of 4000 bytes, and the lag limit, a last
  *    message gets through to a subscriber
  *
+ * minimal-ws-raw-proxy passes bytes both ways between a ws client and an
+ * onward raw connection to a backend
+ *
+ *  - what the backend sends reaches the ws client as BINARY messages, a
+ *    UTF-8 character split between two of them
+ *  - while the backend doesn't read, the ws client can't send without limit
+ *    into the proxy's memory: it is held back once buffers fill.  When the
+ *    backend reads again, all 64MiB the client sends get to it intact
+ *  - when the ws client goes, the proxy closes the backend connection
+ *  - when the backend can't be reached, the proxy closes the ws client
+ *    instead of keeping it open with nothing behind it, and frees what it
+ *    queued (run under ASan to see leaks)
+ *
  * The test fails if any of that doesn't happen, or it doesn't all complete
  * in time.
  */
@@ -112,7 +125,7 @@ static const struct wse_fanout {
 						&wse_lag_secs_broker, 0 },
 };
 
-/* each fan-out case's connections, in fconns[] */
+/* each fan-out case's connections, in fanout_conns[case][] */
 enum {
 	WSE_F_R1,		/* readers */
 	WSE_F_R2,
@@ -125,6 +138,33 @@ enum {
 #define WSE_F_BURST		20	/* messages sent at once */
 #define WSE_F_LAG_MSGS		3000	/* messages sent while K is stuck */
 #define WSE_F_LAG_LEN		4000	/* ...each this big */
+
+#define WSE_PX_TOTAL		(64 * 1024 * 1024) /* client sends this */
+#define WSE_PX_FRAME		WSE_MSG_MAX	   /* ...in frames this big */
+#define WSE_PX_HELD		(16 * 1024 * 1024) /* must be held back by */
+
+/* sent by the backend in two pieces, split inside the "€" */
+static const char px_hello1[] = "hello \xe2\x82", px_hello2[] = "\xac!",
+		  px_hello[] = "hello \xe2\x82\xac!";
+
+struct wse_proxy {
+	struct lws		*wsi_ws;	/* our ws client to the proxy */
+	struct lws		*wsi_be;	/* the backend's raw connection */
+	struct lws_vhost	*vh_be;
+	int			be_port;
+	size_t			sent;		/* by the ws client */
+	size_t			be_rx;		/* by the backend */
+	uint8_t			hello[16];	/* what the ws client got */
+	size_t			hello_len;
+	int			be_tx;		/* hello pieces sent */
+	char			ws_est;
+	char			ws_closed;
+	char			be_closed;
+	char			not_binary;
+	char			corrupt;
+};
+
+static struct wse_proxy px;
 
 enum {
 	WSE_P_CORNER,
@@ -139,6 +179,12 @@ enum {
 	WSE_P_FANOUT_END,	/* lossy: a last message after the lag limit */
 	WSE_P_FANOUT_RELEASE,
 	WSE_P_FANOUT_CHECK,
+	WSE_P_PROXY,
+	WSE_P_PROXY_HELD,	/* backend not reading for a while */
+	WSE_P_PROXY_DRAIN,	/* backend reading again */
+	WSE_P_PROXY_CLOSE,	/* ws client goes: so must the backend conn */
+	WSE_P_PROXY_NO_BACKEND,
+	WSE_P_PROXY_NO_BACKEND_CHECK,
 
 	WSE_P_DONE
 };
@@ -173,13 +219,14 @@ struct wse_fconn {
 	char			tx_end;		/* last message sent */
 	char			rx_end;		/* last message received */
 	char			killed;		/* we closed it */
+	int			fo;		/* index in fanouts[] */
 };
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_phase, sul_timeout;
 static struct wse_conn conns[WSE_C_COUNT];
-static struct wse_fconn fconns[WSE_F_COUNT];
+static struct wse_fconn fanout_conns[LWS_ARRAY_SIZE(fanouts)][WSE_F_COUNT];
 static const char *server_address = "localhost";
 static int port = 7681, phase, relay, fanout, result = 1, failed, interrupted;
 static uint8_t txbuf[LWS_PRE + WSE_MSG_MAX];
@@ -257,7 +304,10 @@ static int
 wse_fanout_connect(int r)
 {
 	const struct wse_fanout *fo = &fanouts[fanout];
+	struct wse_fconn *fconns = fanout_conns[fanout];
 	struct lws_client_connect_info i;
+
+	fconns[r].fo = fanout;
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
@@ -278,6 +328,40 @@ wse_fanout_connect(int r)
 	}
 
 	return 0;
+}
+
+static int
+wse_proxy_connect(void)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_cli;
+	i.address		= server_address;
+	i.port			= port;
+	i.path			= "/";
+	i.host			= "proxy";
+	i.origin		= "proxy";
+	i.protocol		= "lws-ws-raw-ws";
+	i.local_protocol_name	= "wse-proxy-client";
+	i.opaque_user_data	= &px;
+	i.pwsi			= &px.wsi_ws;
+
+	px.ws_est = px.ws_closed = 0;
+
+	if (!lws_client_connect_via_info(&i)) {
+		wse_fail("connect failed");
+		return 1;
+	}
+
+	return 0;
+}
+
+static uint8_t
+wse_proxy_byte(size_t o)
+{
+	return (uint8_t)(o ^ (o >> 8) ^ (o >> 16) ^ (o >> 24));
 }
 
 static struct wse_conn *
@@ -316,6 +400,8 @@ wse_schedule(lws_usec_t us)
 static void
 wse_phase_cb(lws_sorted_usec_list_t *sul)
 {
+	struct wse_fconn *fconns = fanout < (int)LWS_ARRAY_SIZE(fanouts) ?
+					fanout_conns[fanout] : NULL;
 	struct wse_conn *c;
 	size_t n;
 
@@ -416,7 +502,6 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 
 	case WSE_P_FANOUT:
 		lwsl_user("fan-out case %s\n", fanouts[fanout].vhost_name);
-		memset(fconns, 0, sizeof(fconns));
 		/* the readers first, S joins when they are established */
 		if (wse_fanout_connect(WSE_F_R1) ||
 		    wse_fanout_connect(WSE_F_R2))
@@ -474,9 +559,59 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 		if (++fanout < (int)LWS_ARRAY_SIZE(fanouts))
 			phase = WSE_P_FANOUT;
 		else
-			phase++;
-		/* let them close before the next case reuses fconns[] */
+			phase = WSE_P_PROXY;
 		wse_schedule(200 * LWS_US_PER_MS);
+		break;
+
+	case WSE_P_PROXY:
+		lwsl_user("raw proxy\n");
+		wse_raw_proxy_backend(server_address, px.be_port);
+		/* the backend says hello when both sides are up */
+		if (wse_proxy_connect())
+			return;
+		break;
+
+	case WSE_P_PROXY_HELD:
+		lwsl_user("raw proxy: client sent %llu while backend not "
+			  "reading\n", (unsigned long long)px.sent);
+		if (px.sent >= WSE_PX_HELD) {
+			wse_fail("proxy took the client's data without limit");
+			return;
+		}
+		/* the backend reads again: everything must get through */
+		phase++;
+		lws_rx_flow_control(px.wsi_be, 1);
+		break;
+
+	case WSE_P_PROXY_CLOSE:
+		if (!px.be_closed) {
+			wse_fail("backend conn not closed after ws client");
+			return;
+		}
+		/*
+		 * Now nothing listens on the backend port: the next ws client
+		 * finds no backend
+		 */
+		lws_vhost_destroy(px.vh_be);
+		px.vh_be = NULL;
+		phase++;
+		wse_schedule(500 * LWS_US_PER_MS);
+		break;
+
+	case WSE_P_PROXY_NO_BACKEND:
+		if (wse_proxy_connect())
+			return;
+		phase++;
+		wse_schedule(3 * LWS_US_PER_SEC);
+		break;
+
+	case WSE_P_PROXY_NO_BACKEND_CHECK:
+		if (!px.ws_est || !px.ws_closed) {
+			wse_fail("ws client left open with no backend");
+			return;
+		}
+		phase++;
+		wse_schedule(1);
 		break;
 
 	case WSE_P_DONE:
@@ -760,6 +895,8 @@ wse_fanout_seq(int *next, int n)
 static int
 wse_fanout_rx(struct wse_fconn *c, int r, const char *in, size_t len)
 {
+	struct wse_fconn *fconns = fanout_conns[c->fo];
+
 	if (len == 3 && in[0] == 'b') {
 		if (wse_fanout_seq(&c->burst,
 				   ((in[1] - '0') * 10) + (in[2] - '0')))
@@ -802,13 +939,25 @@ static int
 callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
-	struct wse_fconn *c = (struct wse_fconn *)lws_get_opaque_user_data(wsi);
+	struct wse_fconn *c = (struct wse_fconn *)lws_get_opaque_user_data(wsi),
+			*fconns;
 	int r, n;
 
 	if (!c)
 		return lws_callback_http_dummy(wsi, reason, user, in, len);
 
+	fconns = fanout_conns[c->fo];
 	r = (int)(c - fconns);
+
+	if (c->fo != fanout) {
+		/* a connection from a case that is over, being closed */
+		if (reason == LWS_CALLBACK_CLIENT_CLOSED ||
+		    reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
+			c->closed = 1;
+			c->wsi = NULL;
+		}
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+	}
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -924,9 +1073,165 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+static int
+callback_wse_proxy_client(struct lws *wsi, enum lws_callback_reasons reason,
+			  void *user, void *in, size_t len)
+{
+	size_t n;
+
+	if (!lws_get_opaque_user_data(wsi))
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		px.ws_est = 1;
+		if (phase == WSE_P_PROXY_NO_BACKEND_CHECK) {
+			/* something for the proxy to queue for nobody */
+			lws_callback_on_writable(wsi);
+			break;
+		}
+		if (px.wsi_be)
+			lws_callback_on_writable(px.wsi_be);
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		if (!lws_frame_is_binary(wsi))
+			px.not_binary = 1;
+		if (len > sizeof(px.hello) - px.hello_len) {
+			wse_fail("proxy client got too much");
+			break;
+		}
+		memcpy(px.hello + px.hello_len, in, len);
+		px.hello_len += len;
+		if (px.hello_len < sizeof(px_hello) - 1)
+			break;
+		if (px.not_binary || memcmp(px.hello, px_hello,
+					    sizeof(px_hello) - 1)) {
+			wse_fail("backend's data didn't arrive as sent, BINARY");
+			break;
+		}
+		/* now we flood it, while the backend isn't reading */
+		phase = WSE_P_PROXY_HELD;
+		lws_callback_on_writable(wsi);
+		wse_schedule(2 * LWS_US_PER_SEC);
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (phase == WSE_P_PROXY_NO_BACKEND_CHECK) {
+			memset(txbuf + LWS_PRE, 'x', 100);
+			if (lws_write(wsi, txbuf + LWS_PRE, 100,
+				      LWS_WRITE_BINARY) < 100)
+				return -1;
+			break;
+		}
+		if ((phase != WSE_P_PROXY_HELD && phase != WSE_P_PROXY_DRAIN) ||
+		    px.sent == WSE_PX_TOTAL)
+			break;
+		/* the client masks in place: refill txbuf every time */
+		for (n = 0; n < WSE_PX_FRAME; n++)
+			txbuf[LWS_PRE + n] = wse_proxy_byte(px.sent + n);
+		if (lws_write(wsi, txbuf + LWS_PRE, WSE_PX_FRAME,
+			      LWS_WRITE_BINARY) < WSE_PX_FRAME)
+			return -1;
+		px.sent += WSE_PX_FRAME;
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		px.ws_closed = 1;
+		px.wsi_ws = NULL;
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+/* the raw server the proxy connects on to */
+
+static int
+callback_wse_backend(struct lws *wsi, enum lws_callback_reasons reason,
+		     void *user, void *in, size_t len)
+{
+	const uint8_t *p = (const uint8_t *)in;
+	size_t n;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		if (px.wsi_be) {
+			wse_fail("unexpected second backend connection");
+			return -1;
+		}
+		px.wsi_be = wsi;
+		px.be_closed = 0;
+		/* we don't read until the flood has been held back */
+		lws_rx_flow_control(wsi, 0);
+		if (px.ws_est)
+			lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		/* say hello in two pieces, split inside a character */
+		if (px.be_tx == 2)
+			break;
+		if (!px.be_tx++) {
+			memcpy(txbuf + LWS_PRE, px_hello1, sizeof(px_hello1) - 1);
+			n = sizeof(px_hello1) - 1;
+		} else {
+			memcpy(txbuf + LWS_PRE, px_hello2, sizeof(px_hello2) - 1);
+			n = sizeof(px_hello2) - 1;
+		}
+		if (lws_write(wsi, txbuf + LWS_PRE, n, LWS_WRITE_RAW) < (int)n)
+			return -1;
+		if (px.be_tx < 2)
+			lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		for (n = 0; n < len; n++)
+			if (p[n] != wse_proxy_byte(px.be_rx + n)) {
+				px.corrupt = 1;
+				wse_fail("backend got corrupted data");
+				return -1;
+			}
+		px.be_rx += len;
+		if (px.be_rx == WSE_PX_TOTAL) {
+			lwsl_user("raw proxy: backend got all %llu\n",
+				  (unsigned long long)px.be_rx);
+			/* the ws client goes, and so should we */
+			phase = WSE_P_PROXY_CLOSE;
+			if (px.wsi_ws)
+				lws_set_timeout(px.wsi_ws,
+						PENDING_TIMEOUT_USER_OK,
+						LWS_TO_KILL_ASYNC);
+			wse_schedule(LWS_US_PER_SEC);
+		}
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		px.be_closed = 1;
+		px.wsi_be = NULL;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static const struct lws_protocols protocols_backend[] = {
+	{ "wse-backend", callback_wse_backend, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
 static const struct lws_protocols protocols_cli[] = {
 	{ "wse-client", callback_wse_client, 0, 0, 0, NULL, 0 },
 	{ "wse-fanout-client", callback_wse_fanout, 0, 0, 0, NULL, 0 },
+	{ "wse-proxy-client", callback_wse_proxy_client, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -1006,6 +1311,30 @@ main(int argc, const char **argv)
 			goto bail;
 		}
 	}
+
+	/* the raw proxy example has two protocols */
+	info.vhost_name = "proxy";
+	info.protocols = wse_protocols_raw_proxy;
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create proxy vhost\n");
+		goto bail;
+	}
+
+	/* the raw server it proxies to, on a port of its own */
+	info.options = opts | LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
+	info.port = 0;
+	info.vhost_name = "backend";
+	info.protocols = protocols_backend;
+	info.listen_accept_role = "raw-skt";
+	info.listen_accept_protocol = "wse-backend";
+	px.vh_be = lws_create_vhost(context, &info);
+	if (!px.vh_be) {
+		lwsl_err("Failed to create backend vhost\n");
+		goto bail;
+	}
+	px.be_port = lws_get_vhost_listen_port(px.vh_be);
+	info.listen_accept_role = NULL;
+	info.listen_accept_protocol = NULL;
 
 	info.options = opts;
 	info.port = CONTEXT_PORT_NO_LISTEN;

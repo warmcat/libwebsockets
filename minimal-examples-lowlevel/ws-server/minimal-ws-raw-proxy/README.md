@@ -54,6 +54,15 @@ browser as BINARY ws messages, and the page decodes them as one UTF-8 stream.
 (A browser must fail its ws connection on a TEXT message that isn't valid
 UTF-8.)
 
+Each side can only be sent to as fast as it reads.  When more than 64KiB is
+waiting to be sent to one side, the proxy stops reading from the other side
+(`lws_rx_flow_control()`) until less than 16KiB is waiting, so a fast sender
+is slowed to the pace of the receiver instead of using up the proxy's memory.
+
+If the onward raw connection fails, or either side closes, the proxy closes
+the other side too, after letting it send what is already waiting for it (for
+up to 3s).
+
 The proxy can handle many ws connections each with their individual onward
 raw client connections, so you could open multiple browser windows.  But you
 will need a better "raw server" than netcat, which is restricted to just the

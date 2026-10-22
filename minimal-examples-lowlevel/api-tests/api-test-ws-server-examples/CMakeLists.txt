@@ -6,12 +6,14 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-api-test-ws-server-examples)
-set(SRCS main.c ex-pmd-corner.c ex-chat.c ex-pmd.c ex-ring.c ex-broker.c)
+set(SRCS main.c ex-pmd-corner.c ex-chat.c ex-pmd.c ex-ring.c ex-broker.c
+	 ex-raw-proxy.c)
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_ROLE_RAW 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
