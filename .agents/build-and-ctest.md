@@ -150,6 +150,8 @@
    shorter than 1ms instead (489ms spinning vs 0-2ms idle over 500ms in
    api-test-proxy-v2-peer-limits).
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
+ - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
+   a default ASan tree silently has no async-dns ctest.
  - **api-test-vhost-listener-scope by hand needs `--cert` / `--key`** (the
    api-test-ws-close certs): without them it exits 0 having tested
    nothing.
