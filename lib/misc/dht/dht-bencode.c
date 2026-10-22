@@ -1473,7 +1473,8 @@ skip_ip_tracking:
 			char peer[64]; /* DIAGNOSTIC (temporary) */
 
 			lws_dht_describe_peer(from, peer, sizeof(peer));
-			lwsl_dht_rx("%s: Received reliable data payload (%d bytes, offset %llu) from %s\n",
+			/* one per chunk: debug, the sequencer says if one is stuck */
+			lwsl_debug("%s: Received reliable data payload (%d bytes, offset %llu) from %s\n",
 				    __func__, (int)mp.data_len,
 				    (unsigned long long)mp.offset, peer);
 			dht_seq_data(ctx, &mp, from, fromlen);
