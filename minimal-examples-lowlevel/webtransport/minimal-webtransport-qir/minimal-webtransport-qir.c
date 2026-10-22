@@ -7,6 +7,21 @@
  * Universal Public Domain Dedication.
  *
  * WebTransport Interop Runner shim implementation.
+ *
+ *   lws-minimal-webtransport-qir [server] [-d <loglevel>]
+ *				  [--www <dir>] [--downloads <dir>]
+ *
+ * The role, testcase, port and requests come from the runner's environment
+ * (TESTCASE, PORT, REQUESTS...).  Files are served from <www>/<endpoint>/
+ * and downloads stored in <downloads>/<endpoint>/, by default /www and
+ * /downloads as the runner mounts them.
+ *
+ * File names come from the peer (GET / PUSH on streams, the datagram
+ * exchange headers): each must be one plain path component, which
+ * lws_filename_purify_inplace() would leave unchanged, or it is refused.
+ * Files are only served if they are regular files, opened without
+ * following a symlink; downloads are assembled in a new .part file created
+ * exclusively, only for names we asked for, and limited to QIR_MAX_FILE.
  */
 
 #include <libwebsockets.h>
@@ -28,6 +43,27 @@ static void usleep(unsigned long l) { Sleep(l / 1000); }
 #endif
 #include <sys/stat.h>
 #include <errno.h>
+
+#if !defined(O_NOFOLLOW)
+/* eg, windows: O_CREAT | O_EXCL alone refuses any existing name */
+#define O_NOFOLLOW 0
+#endif
+#if !defined(O_BINARY)
+#define O_BINARY 0
+#endif
+
+/*
+ * The largest file we serve or accept, by stream or by datagram: a peer
+ * cannot make us store more than this per file
+ */
+#define QIR_MAX_FILE		0x8000000u	/* 128MB */
+
+/*
+ * The runner mounts the files to serve at /www and collects what we
+ * download from /downloads, each with a subdirectory per endpoint.  Every
+ * file name we join to them must pass qir_name_ok().
+ */
+static const char *www_root = "/www", *downloads_root = "/downloads";
 
 
 
@@ -118,7 +154,7 @@ static int server_requests_count;
  * can carry, so every composed datagram is kept under this.
  */
 #define DGR_MAX_DGRAM		1180
-#define DGR_NAME_LEN		128	/* max filename on the wire */
+#define DGR_NAME_LEN		128	/* max filename, on the wire or disk */
 #define DGR_RETRY_MS		400	/* GET / MISS retry tick */
 #define DGR_DONE_COPIES		3	/* DONE copies so one survives */
 #define DGR_HARDCAP_MS		20000	/* give up inside the runner timeout */
@@ -267,22 +303,127 @@ static int dgr_bm_get(const uint8_t *bm, uint32_t idx)
 }
 
 /*
- * Wire filenames are constrained so they can never carry a path
- * component or break the header parsing.
+ * A file name, whether the peer sent it (stream GET / PUSH, datagram
+ * headers) or it came from our request lists, is only ever used as one
+ * path component under www_root or downloads_root.  It must be a name
+ * lws_filename_purify_inplace() leaves alone, so it has no '/' or '\',
+ * no "..", no leading '.', no control or Windows-reserved characters and
+ * is no device name.  A name it would change is refused, not renamed: we
+ * must never serve or store a different file than the one named.  A space
+ * would break the datagram header parsing, so it is refused too.
  */
-static int dgr_name_ok(const char *name)
+static int qir_name_ok(const char *name)
 {
-	size_t n = strlen(name), i;
+	char safe[DGR_NAME_LEN];
+	size_t n = strlen(name);
 
-	if (!n || n >= DGR_NAME_LEN)
+	if (!n || n >= sizeof(safe) || strchr(name, ' '))
 		return 0;
 
-	for (i = 0; i < n; i++)
-		if (name[i] == '/' || name[i] == ' ' || name[i] == '\n' ||
-		    name[i] == '\r')
-			return 0;
+	memcpy(safe, name, n + 1);
+	lws_filename_purify_inplace(safe);
 
-	return 1;
+	return !strcmp(safe, name);
+}
+
+/*
+ * <root><endpoint>/<name>, or <root><endpoint>/.<name>.part if part.
+ * Returns 0, or -1 if the name is unacceptable or the path does not fit.
+ */
+static int
+qir_path(char *out, size_t len, const char *root, const char *endpoint,
+	 const char *name, int part)
+{
+	if (!qir_name_ok(name)) {
+		lwsl_warn("Refusing unusable file name\n");
+		return -1;
+	}
+
+	return lws_snprintf(out, len, part ? "%s%s/.%s.part" : "%s%s/%s",
+			    root, endpoint ? endpoint : "", name) >=
+							(int)len - 1 ? -1 : 0;
+}
+
+/*
+ * Open a file we serve: only a regular file, never through a symlink at
+ * the name, and no bigger than we will send.  Returns the fd or -1.
+ */
+static int
+qir_open_src(const char *path, size_t *len)
+{
+	struct stat st;
+	int fd;
+
+	fd = lws_open(path, O_RDONLY | O_NOFOLLOW | O_BINARY);
+	if (fd < 0)
+		return -1;
+
+	if (fstat(fd, &st) || (S_IFMT & st.st_mode) != S_IFREG ||
+	    st.st_size < 0 || (uint64_t)st.st_size > QIR_MAX_FILE) {
+		close(fd);
+		return -1;
+	}
+
+	if (len)
+		*len = (size_t)st.st_size;
+
+	return fd;
+}
+
+/*
+ * Create the .part file a download of name is assembled in, under
+ * <downloads_root><endpoint>/, and set the path it is published at when it
+ * completes.  It is only ever a new file: an existing one, or a symlink at
+ * the name, is refused, not followed or truncated.  Returns the fd or -1.
+ */
+static int
+qir_create_part(const char *endpoint, const char *name, char *part,
+		size_t part_len, char *final, size_t final_len)
+{
+	char dirpath[512];
+	int fd;
+
+	if (lws_snprintf(dirpath, sizeof(dirpath), "%s%s", downloads_root,
+			 endpoint ? endpoint : "") >= (int)sizeof(dirpath) - 1 ||
+	    qir_path(final, final_len, downloads_root, endpoint, name, 0) ||
+	    qir_path(part, part_len, downloads_root, endpoint, name, 1))
+		return -1;
+
+	if (mkdir(dirpath, 0755) < 0 && errno != EEXIST) {
+		lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
+		return -1;
+	}
+
+	fd = lws_open(part, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW |
+			    O_BINARY, 0644);
+	if (fd < 0)
+		lwsl_err("Failed to create %s: %d\n", part, errno);
+
+	return fd;
+}
+
+/* the runner checks the negotiated protocol from this file */
+static void
+qir_save_negotiated(const char *proto)
+{
+	char path[512];
+	int fd;
+
+	if (mkdir(downloads_root, 0755) < 0 && errno != EEXIST) {
+		lwsl_err("Failed to create %s: %d\n", downloads_root, errno);
+		return;
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/negotiated_protocol.txt",
+		     downloads_root);
+	fd = lws_open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW |
+			    O_BINARY, 0644);
+	if (fd < 0)
+		return;
+
+	if (write(fd, proto, LWS_POSIX_LENGTH_CAST(strlen(proto))) < 0)
+		lwsl_err("Failed to write negotiated protocol\n");
+	close(fd);
 }
 
 /* bounded decimal parse of a NUL-terminated token, no libc locale edges */
@@ -382,6 +523,7 @@ struct pss_qir {
 	int fd_out;
 	char out_part[512];		/* .part path being assembled */
 	char out_final[512];		/* path published on completion */
+	size_t rx_len;			/* bytes stored so far */
 	char push_hdr[512];
 	size_t push_hdr_len;
 	size_t push_hdr_read;
@@ -399,6 +541,46 @@ static void init_pss(struct pss_qir *pss)
 		pss->write_completed = 0;
 		pss->initialized = 1;
 	}
+}
+
+/* drop a stream download we will not finish: its .part file goes too */
+static void qir_rx_abandon(struct pss_qir *pss)
+{
+	if (pss->fd_out < 0)
+		return;
+
+	close(pss->fd_out);
+	pss->fd_out = -1;
+	qir_unlink(pss->out_part);
+}
+
+/*
+ * Store stream data for a download.  One that would grow past
+ * QIR_MAX_FILE, or a failed write, abandons it and returns -1, so the
+ * caller closes the stream.
+ */
+static int qir_rx_write(struct pss_qir *pss, const void *data, size_t len)
+{
+	long w;
+
+	if (pss->fd_out < 0 || !len)
+		return 0;
+
+	if (len > QIR_MAX_FILE - pss->rx_len) {
+		lwsl_err("Download %s is over the size limit\n", pss->out_final);
+		qir_rx_abandon(pss);
+		return -1;
+	}
+
+	w = (long)write(pss->fd_out, data, LWS_POSIX_LENGTH_CAST(len));
+	if (w < 0 || (size_t)w != len) {
+		lwsl_err("Failed to write %s: %d\n", pss->out_final, errno);
+		qir_rx_abandon(pss);
+		return -1;
+	}
+	pss->rx_len += len;
+
+	return 0;
 }
 
 static int pss_is_file_sender(struct pss_qir *pss)
@@ -770,7 +952,7 @@ start_datagram_recovery(void)
  * out params on success.
  */
 static int
-dgr_lookup_request(const char *name, int *idx, const char **endpoint,
+qir_lookup_request(const char *name, int *idx, const char **endpoint,
 		   int *completed, struct dgr_rx **prx)
 {
 	int i;
@@ -821,27 +1003,20 @@ dgr_tx_create(const char *name)
 {
 	struct dgr_tx *tf, *found;
 	char srcpath[512];
-	struct stat st;
+	size_t len;
 	int fd;
-
-	if (!dgr_name_ok(name))
-		return NULL;
 
 	found = dgr_tx_find(name);
 	if (found)
 		return found;
 
-	lws_snprintf(srcpath, sizeof(srcpath), "/www%s/%s",
-		     global_endpoint[0] ? global_endpoint : "", name);
+	if (qir_path(srcpath, sizeof(srcpath), www_root, global_endpoint,
+		     name, 0))
+		return NULL;
 
-	fd = open(srcpath, O_RDONLY);
+	fd = qir_open_src(srcpath, &len);
 	if (fd < 0) {
 		lwsl_info("Datagram sender cannot open %s\n", srcpath);
-		return NULL;
-	}
-	if (fstat(fd, &st) || st.st_size < 0 ||
-	    (uint64_t)st.st_size > 0x8000000ULL /* 128MB sanity cap */) {
-		close(fd);
 		return NULL;
 	}
 
@@ -854,7 +1029,7 @@ dgr_tx_create(const char *name)
 	lws_strncpy(tf->name, name, sizeof(tf->name));
 	lws_strncpy(tf->srcpath, srcpath, sizeof(tf->srcpath));
 	tf->fd = fd;
-	tf->len = (size_t)st.st_size;
+	tf->len = len;
 	tf->chunks = (uint32_t)((tf->len + DGR_CHUNK - 1) / DGR_CHUNK);
 
 	lws_dll2_add_tail(&tf->list, &dg_tx_owner);
@@ -873,7 +1048,7 @@ dgr_tx_reset(struct dgr_tx *tf)
 	tf->cursor = 0;
 
 	if (tf->fd < 0)
-		tf->fd = open(tf->srcpath, O_RDONLY);
+		tf->fd = qir_open_src(tf->srcpath, NULL);
 
 	dgr_ctl_enqueue(DGR_CTL_HDR, tf->name, (uint32_t)tf->len, 0);
 }
@@ -887,12 +1062,9 @@ static struct dgr_rx *
 dgr_rx_create(const char *name, size_t len, const char *endpoint, int req_index)
 {
 	struct dgr_rx *rx;
-	char dirpath[512];
 
-	lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s",
-		     endpoint[0] ? endpoint : "");
-	if (mkdir(dirpath, 0755) < 0 && errno != EEXIST) {
-		lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
+	if (len > QIR_MAX_FILE) {
+		lwsl_err("Datagram file is over the size limit\n");
 		return NULL;
 	}
 
@@ -901,10 +1073,6 @@ dgr_rx_create(const char *name, size_t len, const char *endpoint, int req_index)
 		return NULL;
 
 	lws_strncpy(rx->name, name, sizeof(rx->name));
-	lws_snprintf(rx->finalpath, sizeof(rx->finalpath), "%s/%s",
-		     dirpath, name);
-	lws_snprintf(rx->partpath, sizeof(rx->partpath), "%s/.%s.part",
-		     dirpath, name);
 	rx->len = len;
 	rx->chunks = (uint32_t)((len + DGR_CHUNK - 1) / DGR_CHUNK);
 	rx->req_index = req_index;
@@ -923,9 +1091,10 @@ dgr_rx_create(const char *name, size_t len, const char *endpoint, int req_index)
 		return NULL;
 	}
 
-	rx->fd = open(rx->partpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	rx->fd = qir_create_part(endpoint, name, rx->partpath,
+				 sizeof(rx->partpath), rx->finalpath,
+				 sizeof(rx->finalpath));
 	if (rx->fd < 0) {
-		lwsl_err("Failed to open %s: %d\n", rx->partpath, errno);
 		free(rx->bm);
 		free(rx);
 		return NULL;
@@ -1540,7 +1709,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			dg_session_wsi = wsi;
 			start_datagram_recovery();
 
-			/* Save negotiated protocol to /downloads/negotiated_protocol.txt */
+			/* Save negotiated protocol to <downloads>/negotiated_protocol.txt */
 			{
 				char client_protos[256];
 				char negotiated[64] = "";
@@ -1596,18 +1765,8 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				}
 
-				if (negotiated[0]) {
-					if (mkdir("/downloads", 0755) < 0 && errno != EEXIST) {
-						lwsl_err("Failed to create /downloads: %d\n", errno);
-					}
-					int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-					if (nfd >= 0) {
-						if (write(nfd, negotiated, LWS_POSIX_LENGTH_CAST(strlen(negotiated))) < 0) {
-							lwsl_err("Failed to write negotiated protocol\n");
-						}
-						close(nfd);
-					}
-				}
+				if (negotiated[0])
+					qir_save_negotiated(negotiated);
 			}
 
 			/* If server needs to request files, trigger them now */
@@ -1669,7 +1828,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_hdr_custom_name_foreach(wsi, print_custom_header_cb, wsi);
 #endif
 
-			/* Parse and save negotiated protocol to /downloads/negotiated_protocol.txt */
+			/* Parse and save negotiated protocol to <downloads>/negotiated_protocol.txt */
 			char negotiated[64];
 			int nl = lws_hdr_custom_copy(wsi, negotiated, sizeof(negotiated) - 1, "wt-protocol:", 12);
 			lwsl_user("wt-protocol header lookup result: %d\n", nl);
@@ -1683,16 +1842,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					ne[-1] = '\0';
 					ne--;
 				}
-				if (mkdir("/downloads", 0755) < 0 && errno != EEXIST) {
-					lwsl_err("Failed to create /downloads: %d\n", errno);
-				}
-				int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-				if (nfd >= 0) {
-					if (write(nfd, n_ptr, LWS_POSIX_LENGTH_CAST(strlen(n_ptr))) < 0) {
-						lwsl_err("Failed to write negotiated protocol\n");
-					}
-					close(nfd);
-				}
+				qir_save_negotiated(n_ptr);
 			}
 
 			/* If client needs to request files, trigger them now */
@@ -1723,13 +1873,12 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pss->fd_in < 0) {
 				char filepath[512];
 				const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
-				lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, pss->filename);
-				pss->fd_in = open(filepath, O_RDONLY);
+
+				if (qir_path(filepath, sizeof(filepath), www_root,
+					     endpoint, pss->filename, 0))
+					return -1;
+				pss->fd_in = qir_open_src(filepath, &pss->file_len);
 				if (pss->fd_in >= 0) {
-					struct stat st;
-					if (fstat(pss->fd_in, &st) == 0) {
-						pss->file_len = (size_t)st.st_size;
-					}
 					pss->sent_len = 0;
 					pss->header_sent = 0;
 					lwsl_user("Sender opened file %s (%zu bytes) for transmission\n", filepath, pss->file_len);
@@ -1884,7 +2033,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					const char *name = hdr + 4;
 					struct dgr_tx *tf;
 
-					if (!dgr_name_ok(name))
+					if (!qir_name_ok(name))
 						break;
 
 					tf = dgr_tx_find(name);
@@ -1922,11 +2071,11 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					memcpy(name, cp, (size_t)(sp - cp));
 					name[sp - cp] = '\0';
 					cp = sp + 1;
-					if (!dgr_name_ok(name) ||
+					if (!qir_name_ok(name) ||
 					    !dgr_parse_u32(&cp, &flen) || *cp)
 						break;
 
-					if (!dgr_lookup_request(name, &ridx,
+					if (!qir_lookup_request(name, &ridx,
 								&endpoint, &completed, &rx))
 						break;
 
@@ -1977,11 +2126,11 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					memcpy(name, cp, (size_t)(sp - cp));
 					name[sp - cp] = '\0';
 					cp = sp + 1;
-					if (!dgr_name_ok(name) ||
+					if (!qir_name_ok(name) ||
 					    !dgr_parse_u32(&cp, &idx) || *cp)
 						break;
 
-					if (!dgr_lookup_request(name, &ridx,
+					if (!qir_lookup_request(name, &ridx,
 								&endpoint, &completed, &rx) ||
 					    completed || !rx)
 						break;
@@ -2001,7 +2150,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					memcpy(name, cp, (size_t)(sp - cp));
 					name[sp - cp] = '\0';
 					cp = sp + 1;
-					if (!dgr_name_ok(name))
+					if (!qir_name_ok(name))
 						break;
 
 					tf = dgr_tx_find(name);
@@ -2013,8 +2162,8 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						/* our OK was lost */
 						tf->done = 0;
 						if (tf->fd < 0)
-							tf->fd = open(tf->srcpath,
-								      O_RDONLY);
+							tf->fd = qir_open_src(
+								tf->srcpath, NULL);
 					}
 
 					for (;;) {
@@ -2051,7 +2200,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					const char *name = hdr + 3;
 					struct dgr_tx *tf;
 
-					if (!dgr_name_ok(name))
+					if (!qir_name_ok(name))
 						break;
 
 					tf = dgr_tx_find(name);
@@ -2080,113 +2229,127 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (is_file_rec) {
 				/* Receiver of file */
-				if (pss->is_unidi) {
-					/* Unidirectional: parse PUSH <filename>\n first */
-					if (!pss->push_hdr_done) {
-						size_t i;
-						for (i = 0; i < data_len; i++) {
-							if (pss->push_hdr_len < sizeof(pss->push_hdr) - 1) {
-								pss->push_hdr[pss->push_hdr_len++] = data[i];
-								if (data[i] == '\n') {
-									pss->push_hdr[pss->push_hdr_len] = '\0';
-									pss->push_hdr_done = 1;
-									/* Parse filename */
-									if (strncmp(pss->push_hdr, "PUSH ", 5) == 0) {
-										char *nl = strchr(pss->push_hdr, '\n');
-										if (nl) *nl = '\0';
-										lws_strncpy(pss->filename, pss->push_hdr + 5, sizeof(pss->filename));
-										lwsl_user("RECEIVE: Parsed filename '%s'\n", pss->filename);
-									}
-								/* Open file regardless of rem.  Streams
-								 * are reliable, but the file only
-								 * appears at its final name when the
-								 * stream completes, so a connection
-								 * death leaves it missing rather than
-								 * truncated. */
-								char dirpath[512];
-								const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
-								lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
-								if (mkdir(dirpath, 0755) < 0 && errno != EEXIST) {
-									lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
-								}
-								lws_snprintf(pss->out_final, sizeof(pss->out_final),
-									     "%s/%s", dirpath, pss->filename);
-								lws_snprintf(pss->out_part, sizeof(pss->out_part),
-									     "%s/.%s.part", dirpath, pss->filename);
-								pss->fd_out = open(pss->out_part,
-										  O_WRONLY | O_CREAT | O_TRUNC, 0644);
+				const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 
-								size_t rem = data_len - i - 1;
-								lwsl_user("RECEIVE: Opened file '%s' -> fd %d (rem=%zu bytes written)\n",
-									  pss->out_final, pss->fd_out, rem);
-									if (pss->fd_out >= 0 && rem > 0) {
-										if (write(pss->fd_out, data + i + 1, LWS_POSIX_LENGTH_CAST(rem)) < 0) {
-											lwsl_err("Failed to write stream chunk\n");
-										}
-									}
-									break;
-								}
-							}
-						}
-					} else {
-						if (pss->fd_out >= 0) {
-							if (write(pss->fd_out, data, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
-								lwsl_err("Failed to write stream data\n");
-							}
-						} else {
-							lwsl_user("RECEIVE: fd_out is closed/invalid (%d) while trying to write %zu bytes\n", pss->fd_out, data_len);
-						}
+				if (pss->is_unidi && !pss->push_hdr_done) {
+					/* Unidirectional: parse PUSH <filename>\n first */
+					const char *ep;
+					int ridx, completed;
+					struct dgr_rx *rx;
+					size_t i;
+
+					for (i = 0; i < data_len && data[i] != '\n'; i++)
+						;
+					if (pss->push_hdr_len + i >= sizeof(pss->push_hdr)) {
+						lwsl_err("RECEIVE: PUSH header too long\n");
+						return -1;
 					}
-				} else {
-					/* Bidirectional: no header, just raw file contents */
-					if (pss->fd_out < 0) {
-						char dirpath[512];
-						const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
-						lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
-						if (mkdir(dirpath, 0755) < 0 && errno != EEXIST) {
-							lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
-						}
-						lws_snprintf(pss->out_final, sizeof(pss->out_final),
-							     "%s/%s", dirpath, pss->filename);
-						lws_snprintf(pss->out_part, sizeof(pss->out_part),
-							     "%s/.%s.part", dirpath, pss->filename);
-						pss->fd_out = open(pss->out_part,
-								   O_WRONLY | O_CREAT | O_TRUNC, 0644);
-						lwsl_user("RECEIVE (bidi): Opened file '%s' -> fd %d\n",
-							  pss->out_final, pss->fd_out);
+					memcpy(pss->push_hdr + pss->push_hdr_len, data, i);
+					pss->push_hdr_len += i;
+					pss->push_hdr[pss->push_hdr_len] = '\0';
+					if (i == data_len)
+						break; /* the rest of the header is to come */
+
+					pss->push_hdr_done = 1;
+					trim_trailing_whitespace(pss->push_hdr);
+
+					/*
+					 * The peer chooses this name: we only
+					 * take a file we asked for and do not
+					 * have yet
+					 */
+					if (strncmp(pss->push_hdr, "PUSH ", 5) ||
+					    !qir_name_ok(pss->push_hdr + 5) ||
+					    !qir_lookup_request(pss->push_hdr + 5, &ridx,
+								&ep, &completed, &rx) ||
+					    completed) {
+						lwsl_warn("RECEIVE: refusing PUSH of a file we did not ask for\n");
+						return -1;
 					}
-					if (pss->fd_out >= 0) {
-						if (write(pss->fd_out, data, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
-							lwsl_err("Failed to write stream data\n");
-						}
-					}
+					lws_strncpy(pss->filename, pss->push_hdr + 5,
+						    sizeof(pss->filename));
+					lwsl_user("RECEIVE: Parsed filename '%s'\n", pss->filename);
+
+					/*
+					 * Streams are reliable, but the file
+					 * only appears at its final name when
+					 * the stream completes, so a connection
+					 * death leaves it missing rather than
+					 * truncated.
+					 */
+					pss->fd_out = qir_create_part(endpoint,
+							pss->filename, pss->out_part,
+							sizeof(pss->out_part),
+							pss->out_final,
+							sizeof(pss->out_final));
+					if (pss->fd_out < 0)
+						return -1;
+					pss->rx_len = 0;
+
+					data += i + 1;
+					data_len -= i + 1;
+					lwsl_user("RECEIVE: Opened file '%s' -> fd %d (rem=%zu bytes written)\n",
+						  pss->out_final, pss->fd_out, data_len);
+				} else if (!pss->is_unidi && pss->fd_out < 0) {
+					/*
+					 * Bidirectional: no header, just the
+					 * raw contents of the file we asked for
+					 * on it
+					 */
+					pss->fd_out = qir_create_part(endpoint,
+							pss->filename, pss->out_part,
+							sizeof(pss->out_part),
+							pss->out_final,
+							sizeof(pss->out_final));
+					if (pss->fd_out < 0)
+						return -1;
+					pss->rx_len = 0;
+					lwsl_user("RECEIVE (bidi): Opened file '%s' -> fd %d\n",
+						  pss->out_final, pss->fd_out);
 				}
+
+				if (pss->fd_out < 0) {
+					lwsl_user("RECEIVE: fd_out is closed/invalid (%d) while trying to write %zu bytes\n", pss->fd_out, data_len);
+					break;
+				}
+				if (qir_rx_write(pss, data, data_len))
+					return -1;
 			} else {
 				/* Sender (received GET <filename>) */
 				if (data_len > 4 && strncmp(data, "GET ", 4) == 0) {
-					char filename[256];
+					const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
+					char filename[DGR_NAME_LEN], filepath[512];
 					size_t fn_len = data_len - 4;
+
 					/* Remove trailing spaces or newlines if any */
 					while (fn_len > 0 && (data[4 + fn_len - 1] == ' ' || data[4 + fn_len - 1] == '\r' || data[4 + fn_len - 1] == '\n'))
 						fn_len--;
-					if (fn_len >= sizeof(filename)) fn_len = sizeof(filename) - 1;
+					if (fn_len >= sizeof(filename)) {
+						lwsl_warn("Sender refusing GET of an overlong file name\n");
+						return -1;
+					}
 					memcpy(filename, data + 4, fn_len);
 					filename[fn_len] = '\0';
+
+					/*
+					 * The peer chooses this name: refuse
+					 * anything but one plain file name
+					 */
+					if (qir_path(filepath, sizeof(filepath), www_root,
+						     endpoint, filename, 0))
+						return -1;
 
 					lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 					lwsl_user("Sender WSI received GET %s\n", pss->filename);
 
-					/* Open local file from /www/<endpoint>/<filename> */
-					char filepath[512];
-					const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
-					lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, pss->filename);
-					pss->fd_in = open(filepath, O_RDONLY);
 					if (pss->fd_in >= 0) {
-						struct stat st;
-						if (fstat(pss->fd_in, &st) == 0) {
-							pss->file_len = (size_t)st.st_size;
-						}
-						
+						lwsl_warn("Sender refusing a second GET on one stream\n");
+						return -1;
+					}
+
+					/* Open local file from <www_root><endpoint>/<filename> */
+					pss->fd_in = qir_open_src(filepath, &pss->file_len);
+					if (pss->fd_in >= 0) {
 						if (lws_wt_is_unidi(wsi)) {
 							struct lws *cwsi = lws_wt_create_stream_from_child(wsi, 1);
 							if (cwsi) {
@@ -2486,6 +2649,10 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--www")))
+		www_root = p;
+	if ((p = lws_cmdline_option(argc, argv, "--downloads")))
+		downloads_root = p;
 
 	lws_set_log_level(logs, NULL);
 
@@ -2649,7 +2816,7 @@ int main(int argc, const char **argv)
 			/* Handshake testcase does not download files, just wait a bit and exit */
 			if (strcmp(testcase, "handshake") == 0) {
 				char client_proto_path[512];
-				lws_snprintf(client_proto_path, sizeof(client_proto_path), "/downloads/negotiated_protocol.txt");
+				lws_snprintf(client_proto_path, sizeof(client_proto_path), "%s/negotiated_protocol.txt", downloads_root);
 				int fd = open(client_proto_path, O_RDONLY);
 				if (fd >= 0) {
 					close(fd);

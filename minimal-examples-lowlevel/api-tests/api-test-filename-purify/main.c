@@ -86,6 +86,18 @@ static const struct {
 	{ "COM1",			"_OM1" },
 	{ "lpt9.log",			"_pt9.log" },
 	{ "CON .txt",			"_ON .txt" },
+
+	/*
+	 * Names a WebTransport peer sends minimal-webtransport-qir in a GET,
+	 * PUSH or datagram header (G-609): it refuses any name this changes,
+	 * so the interop runner's names must come through as they are
+	 */
+	{ "5kR2mX9qAb",			"5kR2mX9qAb" },
+	{ "file_1.bin",			"file_1.bin" },
+	{ "/../../tmp/x",		"_______tmp_x" },
+	{ "..\\x",			"___x" },
+	{ ".x.part",			"_x.part" },
+	{ "x\r\nPUSH y",		"x__PUSH y" },
 };
 
 static int
