@@ -85,6 +85,11 @@ static const char * const rejected[] = {
 
 	"{\"certs\": [{\"t_abc\": \"AAAA\"}],"
 	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"\"]}]}",
+
+	/* a cert with no DER, or whose value is not a string */
+
+	"{\"certs\": [{\"t_a\": \"AAAA\"}, {\"t_b\": \"\"}]}",
+	"{\"certs\": [{\"t_a\": \"AAAA\"}, {\"t_b\": {}}]}",
 };
 
 /*
@@ -138,7 +143,7 @@ static const char * const malformed[] = {
 
 /*
  * A valid document with shapes near those: a cert and a metadata name may
- * contain '.', an unknown streamtype member (with members of the same names
+ * contain '.', a certs[] element can hold more than one cert, an unknown streamtype member (with members of the same names
  * as real ones inside it) is ignored, and each streamtype has its own options
  * and response map
  */
@@ -148,8 +153,9 @@ static const char valid_shapes[] =
 				"\"conceal\": 3}}],"
 	 "\"auth\": [{\"name\": \"t_auth\", \"type\": \"sigv4\","
 		    "\"streamtype\": \"t_two\", \"blob\": 1}],"
-	 "\"certs\": [{\"t.a\": \"AAAA\"}],"
-	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t.a\"]}],"
+	 "\"certs\": [{\"t.a\": \"AAAA\", \"t_b\": \"AAAB\"}],"
+	 "\"trust_stores\": [{\"name\": \"t_ts\","
+			    "\"stack\": [\"t.a\", \"t_b\"]}],"
 	 "\"s\": [{\"t_one\": {\"endpoint\": \"one\","
 				"\"t_unknown\": {\"port\": 2},"
 				"\"port\": 1, \"tls_trust_store\": \"t_ts\","
@@ -330,6 +336,11 @@ valid_shapes_parsed(const lws_ss_policy_t *pol, const lws_ss_auth_t *auth)
 
 	if (strcmp(one->endpoint, "one") || one->port != 1 ||
 	    !one->trust.store || strcmp(one->trust.store->name, "t_ts") ||
+	    one->trust.store->count != 2 ||
+	    !one->trust.store->ssx509[0]->ca_der ||
+	    one->trust.store->ssx509[0]->ca_der_len != 3 ||
+	    !one->trust.store->ssx509[1]->ca_der ||
+	    one->trust.store->ssx509[1]->ca_der_len != 3 ||
 	    !one->metadata || strcmp(one->metadata->name, "t.md") ||
 	    one->u.http.count_respmap != 1 || !one->retry_bo ||
 	    one->retry_bo->retry_ms_table_count != 2 ||

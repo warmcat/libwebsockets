@@ -460,6 +460,19 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	 * an earlier object, eg, a streamtype an overlay may not touch
 	 */
 
+	/*
+	 * A cert's DER is the string value of its key: while one is waiting
+	 * for it, anything but that string is the policy being wrong
+	 */
+
+	if (a->p && reason != LEJPCB_VAL_STR_START &&
+	    reason != LEJPCB_VAL_STR_CHUNK && reason != LEJPCB_VAL_STR_END &&
+	    (reason == LEJPCB_PAIR_NAME || (reason & LEJP_FLAG_CB_IS_VALUE) ||
+	     (reason >= LEJPCB_ARRAY_START && reason <= LEJPCB_OBJECT_END))) {
+		lwsl_err("%s: cert value is not a string\n", __func__);
+		goto oom;
+	}
+
 	t = lws_ss_policy_member_type(ctx->path_match - 1);
 	if (t >= 0 && !a->curr[t].b &&
 	    (reason == LEJPCB_PAIR_NAME || reason == LEJPCB_ARRAY_START ||
@@ -569,32 +582,6 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		}
 	}
 
-	if (reason == LEJPCB_OBJECT_END && a->p) {
-		/*
-		 * Allocate a just-the-right-size buf for the cert DER now
-		 * we decoded it into the a->p temp buffer and know the exact
-		 * size.
-		 *
-		 * The struct *x is in the lwsac... the ca_der it points to
-		 * is individually allocated from the heap
-		 */
-
-		a->curr[LTY_X509].x->ca_der = lws_malloc((unsigned int)a->count, "ssx509");
-		if (!a->curr[LTY_X509].x->ca_der)
-			goto oom;
-		memcpy((uint8_t *)a->curr[LTY_X509].x->ca_der, a->p, (unsigned int)a->count);
-		a->curr[LTY_X509].x->ca_der_len = (unsigned int)a->count;
-		a->curr[LTY_X509].x = NULL;
-		a->count = 0;
-
-		/*
-		 * ... and then we can free the temp buffer
-		 */
-		lws_free_set_NULL(a->p);
-
-		return 0;
-	}
-
 	if (reason == LEJPCB_PAIR_NAME) {
 		e = lws_ss_policy_elem_key(ctx);
 		if (e < 0) {
@@ -675,11 +662,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 		if (n == LTY_X509) {
 			/*
-			 * PAIR_NAME comes once per key in the certs[] object,
-			 * but OBJECT_END only frees one temp buffer... don't
-			 * leak MAX_CERT_TEMP per extra key
+			 * Each key in a certs[] element is a cert of its own,
+			 * decoded into this temp buffer until its string ends
+			 * (any earlier key's string has ended, see above)
 			 */
-			lws_free_set_NULL(a->p);
 			a->p = lws_malloc(MAX_CERT_TEMP, "cert temp");
 			if (!a->p)
 				goto oom;
@@ -796,6 +782,40 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			lwsl_err("%s: b64 decode fail\n", __func__);
 			goto oom;
 		}
+		if (reason == LEJPCB_VAL_STR_CHUNK)
+			break;
+
+		/*
+		 * We have the whole cert... a trust store or server naming
+		 * it can't do anything useful with no DER
+		 */
+		if (!a->count) {
+			lwsl_err("%s: cert %s is empty\n", __func__,
+				 a->curr[LTY_X509].x->vhost_name);
+			goto oom;
+		}
+
+		/*
+		 * Allocate a just-the-right-size buf for the cert DER now
+		 * we decoded it into the a->p temp buffer and know the exact
+		 * size.
+		 *
+		 * The struct *x is in the lwsac... the ca_der it points to
+		 * is individually allocated from the heap
+		 */
+
+		a->curr[LTY_X509].x->ca_der = lws_malloc((unsigned int)a->count,
+							 "ssx509");
+		if (!a->curr[LTY_X509].x->ca_der)
+			goto oom;
+		memcpy((uint8_t *)a->curr[LTY_X509].x->ca_der, a->p,
+		       (unsigned int)a->count);
+		a->curr[LTY_X509].x->ca_der_len = (unsigned int)a->count;
+		a->curr[LTY_X509].x = NULL;
+		a->count = 0;
+
+		/* ... and then we can free the temp buffer */
+		lws_free_set_NULL(a->p);
 		break;
 
 	case LSSPPT_TRUST_STORES_NAME:

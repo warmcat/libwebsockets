@@ -351,6 +351,21 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 		goto accepted;
 	}
 
+	/*
+	 * Every cert in the store must have its DER: creating the vhost with
+	 * no CA would have the tls library fall back to whatever it trusts by
+	 * default, not what the store pins
+	 */
+	for (n = 0; n < pol->trust.store->count; n++)
+		if (!pol->trust.store->ssx509[n]->ca_der ||
+		    !pol->trust.store->ssx509[n]->ca_der_len) {
+			lwsl_err("%s: trust store %s: %s has no DER\n",
+				 __func__, pol->trust.store->name,
+				 pol->trust.store->ssx509[n]->vhost_name);
+
+			return NULL;
+		}
+
 	i.options = context->options;
 	i.vhost_name = pol->trust.store->name;
 	lwsl_debug("%s: %s\n", __func__, i.vhost_name);
@@ -384,6 +399,12 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 				pol->trust.store->ssx509[n]->ca_der_len)) {
 			lwsl_err("%s: add extra cert failed\n",
 					__func__);
+			/*
+			 * Don't leave a vhost with only part of the store
+			 * around to be found by name and used later
+			 */
+			lws_vhost_destroy(v);
+
 			return NULL;
 		}
 #endif
