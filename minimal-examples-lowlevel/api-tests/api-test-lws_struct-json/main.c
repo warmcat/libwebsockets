@@ -1342,6 +1342,92 @@ done:
 	}
 
 	{
+		/*
+		 * A long colname can leave too little room after it for the
+		 * string's escaping to make any progress.  That chunk must
+		 * then fail, never resume by emitting the colname a second
+		 * time.  Every fragment size must give either an error or the
+		 * exact JSON.
+		 */
+
+#define LSJT_LONGCOL "c123456789012345678901234567890123456789" \
+		     "0123456789012345678901234567890123456789" \
+		     "012345678901234567890123"
+
+		typedef struct sai_longcol {
+			char			s[16];
+		} sai_longcol_t;
+
+		const lws_struct_map_t lsm_longcol[] = {
+			LSM_CARRAY	(sai_longcol_t, s,	LSJT_LONGCOL),
+		};
+		const lws_struct_map_t lsm_schema_longcol[] = {
+			LSM_SCHEMA	(sai_longcol_t, NULL, lsm_longcol, "x"),
+		};
+		static const char lc_exp[] = "{\"schema\":\"x\",\""
+					     LSJT_LONGCOL "\":\"\xe2\x82\xac"
+					     "hello\"}";
+		lws_struct_serialize_t *jser;
+		uint8_t ubuf[256], re[512];
+		size_t w, ttot, fs;
+		sai_longcol_t lc;
+		int bn, chunks, errs = 0, oks = 0;
+
+		memset(&lc, 0, sizeof(lc));
+		lws_strncpy(lc.s, "\xe2\x82\xachello", sizeof(lc.s));
+
+		for (fs = 96; fs <= sizeof(ubuf); fs++) {
+			jser = lws_struct_json_serialize_create(
+					lsm_schema_longcol,
+					LWS_ARRAY_SIZE(lsm_schema_longcol),
+					0, &lc);
+			if (!jser) {
+				lwsl_err("%s: longcol: no serializer\n",
+					 __func__);
+				goto bail;
+			}
+
+			ttot = 0;
+			chunks = 0;
+			do {
+				bn = (int)lws_struct_json_serialize(jser, ubuf,
+								    fs, &w);
+				if (bn == LSJS_RESULT_ERROR ||
+				    ttot + w > sizeof(re) - 1)
+					break;
+				memcpy(re + ttot, ubuf, w);
+				ttot += w;
+			} while (bn == LSJS_RESULT_CONTINUE && ++chunks < 8);
+
+			lws_struct_json_serialize_destroy(&jser);
+
+			if (bn == LSJS_RESULT_ERROR) {
+				errs++;
+				continue;
+			}
+
+			re[ttot] = '\0';
+			if (bn != LSJS_RESULT_FINISH ||
+			    strcmp((char *)re, lc_exp)) {
+				lwsl_err("%s: longcol: fragment %d gave bad "
+					 "JSON\n", __func__, (int)fs);
+				lwsl_hexdump_notice(re, ttot);
+				goto bail;
+			}
+			oks++;
+		}
+
+		if (!oks) {
+			lwsl_err("%s: longcol: no fragment size worked\n",
+				 __func__);
+			goto bail;
+		}
+
+		lwsl_notice("%s: longcol: %d sizes exact, %d refused\n",
+			    __func__, oks, errs);
+	}
+
+	{
 		const char *msg = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}]}";
 		const char *msg1 = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}],\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\"}";
 

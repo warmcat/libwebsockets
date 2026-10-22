@@ -942,6 +942,15 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			if (len < 3)
 				return LSJS_RESULT_ERROR;
 			lws_json_purify((char *)buf, q, (int)len - 1, &used);
+			/*
+			 * No progress on a nonempty string: the room left
+			 * after a long colname did not fit even its first
+			 * character's escaping.  We cannot resume from here,
+			 * since with js->offset still 0 the next chunk would
+			 * emit the colname again, so fail closed.
+			 */
+			if (!used && budget)
+				return LSJS_RESULT_ERROR;
 			m = strlen((const char *)buf);
 			buf += m;
 			len -= m;
