@@ -15,10 +15,12 @@ key come from the policy.
 |overlay own|overlays defining a new streamtype, a cert, a trust store, a backoff scheme or an auth of their own|each is rejected: an overlay may only override existing streamtypes|
 |malformed|documents with a member outside the object it belongs to: a key with a '.' making a streamtype or backoff member path with nothing open, or naming one from earlier in the document, a top-level key making a member path, a streamtype name with a '.', a cert whose value is not a string, a trust store element with no name after one with a name; each fed as fetched and as an overlay|each is rejected (not a write through NULL or into the earlier object) and the original policy is still in force|
 |shapes|a valid document with a backoff scheme, an auth, a certs[] element holding two certs, one named with a '.' (each must keep its own DER), a metadata name containing '.', an unknown streamtype member holding a member of the same name as a real one, and two streamtypes each with options|it parses to exactly its two streamtypes, the unknown member ignored, each with only its own options and response map, and the backoff and auth members in place|
+|overlay truncated|an overlay that ends partway through|it is rejected, not left pending as if more might come|
 |overlay ok|a valid override of `polt_cli`, twice|both complete: a completed overlay leaves no parse behind (no leak under ASan)|
 |server|creating `polt_srv`, after all the rejected documents above, some of which kept server certs of their own before failing|it comes up with the original policy's cert and key|
 |metadata|a streamtype with 256 metadata, and a metadata value of 256 bytes|both are rejected (a policy streamtype counts its metadata in a `uint8_t`, and the value length is a `uint8_t`), and one with 255 metadata is accepted with all 255|
 |valid|a valid document whose one metadata value is 255 bytes, longer than one lejp string chunk, then abandoned|it parses to one metadata item holding the whole value, and abandoning it puts the original policy back|
+|incomplete|a second context given a policy that ends partway through a streamtype (before what would follow its port, eg `"tls": true`), as JSON and as a file|neither context is created: a policy that did not end is never installed|
 |pending|a valid document left parsed but not set, as a fetched policy waiting to be applied is, when the context is destroyed|the context destroy frees it (no leak under ASan)|
 
 Build lws with `-DLWS_WITH_ASAN=1` to see the teardown of the rejected
@@ -29,6 +31,7 @@ documents is clean.
 |Option|Meaning|
 |---|---|
 |-c <path>|The JSON policy to start with|
+|-t <path>|A JSON policy file that ends partway through (ctest generates one)|
 |--help|Show the options|
 
 ## Run

@@ -34,6 +34,7 @@ typedef struct ss_fetch_policy {
 	lws_sorted_usec_list_t	sul;
 
 	uint8_t			partway;
+	uint8_t			complete; /* the policy JSON ended */
 } ss_fetch_policy_t;
 
 /* secure streams payload interface */
@@ -50,7 +51,12 @@ ss_fetch_policy_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		/* this policy JSON is coming from the network */
 		lws_ss_policy_parse_untrusted(context);
 		m->partway = 1;
+		m->complete = 0;
 	}
+
+	/* only feed, and finish, a parse this response began */
+	if (m->partway != 1)
+		return LWSSSSRET_OK;
 
 	if (len) {
 		int n = lws_ss_policy_parse(context, buf, len);
@@ -66,10 +72,26 @@ ss_fetch_policy_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 			return LWSSSSRET_DISCONNECT_ME;
 		}
+		if (n >= 0)
+			m->complete = 1;
 	}
 
-	if (flags & LWSSS_FLAG_EOM)
+	if (flags & LWSSS_FLAG_EOM) {
+		if (!m->complete) {
+			/*
+			 * The response ended before the policy JSON did, eg,
+			 * a connection that was closed on us partway through
+			 * a body with no length.  Installing what we parsed
+			 * so far would apply a partial policy.
+			 */
+			lwsl_err("%s: policy truncated\n", __func__);
+			lws_ss_policy_parse_abandon(context);
+			m->partway = 0;
+
+			return LWSSSSRET_DISCONNECT_ME;
+		}
 		m->partway = 2;
+	}
 
 	return LWSSSSRET_OK;
 }

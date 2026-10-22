@@ -467,6 +467,18 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	if (!args)
 		return 1;
 
+	if (!args->complete) {
+		/*
+		 * The JSON never ended, eg, a fetch cut short: what we have is
+		 * the policy up to wherever it stopped, perhaps a streamtype
+		 * without its "tls" or trust store.  Keep the policy in force.
+		 */
+		lwsl_err("%s: %s: policy is incomplete\n", __func__, name);
+		lws_ss_policy_parse_abandon(context);
+
+		return 1;
+	}
+
 	lejp_destruct(&args->jctx);
 
 	/*

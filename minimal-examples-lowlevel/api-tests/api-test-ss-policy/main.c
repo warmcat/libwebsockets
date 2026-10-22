@@ -22,9 +22,11 @@
  * it making a member path with no streamtype open).  A
  * valid document must still parse, and its metadata value that is longer
  * than one lejp string chunk must still become one metadata item.  An
- * overlay may only override streamtypes that exist, and a completed one
- * leaves no parse behind.  A parse
- * still pending when the context is destroyed must be cleaned up by it.
+ * overlay may only override streamtypes that exist, a completed one leaves
+ * no parse behind, and a truncated one is refused.  A policy that ends
+ * partway through, as JSON or in the file given by -t, is never installed.
+ * A parse still pending when the context is destroyed must be cleaned up by
+ * it.
  *
  * Build with ASan to see the teardown is clean.
  */
@@ -34,12 +36,14 @@
 
 enum {
 	LWS_SW_POLICY,
+	LWS_SW_TRUNCATED,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_POLICY]	= { "-c",	"Path to the JSON policy to start with" },
-	[LWS_SW_HELP]	= { "--help",	"Show this help information" },
+	[LWS_SW_POLICY]		= { "-c",	"Path to the JSON policy to start with" },
+	[LWS_SW_TRUNCATED]	= { "-t",	"Path to a JSON policy that ends partway through" },
+	[LWS_SW_HELP]		= { "--help",	"Show this help information" },
 };
 
 /*
@@ -189,6 +193,18 @@ static const char overlay_ok[] =
 
 static const char truncated[] =
 	"{\"certs\": [{\"t_a\": \"AAAA\"}, {\"t_b\": \"AAAA";
+
+/*
+ * A policy that ends partway through a streamtype, after its endpoint and port
+ * but before whatever was to follow, eg "tls": true
+ */
+
+static const char truncated_st[] =
+	"{\"s\": [{\"t_cli\": {\"endpoint\": \"localhost\", \"port\": 443";
+
+/* an overlay that ends partway through */
+
+static const char overlay_truncated[] = "{\"s\": [{\"polt_cli\": {";
 
 /*
  * A valid document, whose one metadata value is given at run time, so it can
@@ -367,6 +383,30 @@ valid_shapes_parsed(const lws_ss_policy_t *pol, const lws_ss_auth_t *auth)
 }
 
 /*
+ * A context whose policy ends partway through must not be created with
+ * whatever part of the policy there was
+ */
+
+static int
+incomplete_policy_refused(const struct lws_context_creation_info *ref,
+			  const char *policy, const char *what)
+{
+	struct lws_context_creation_info info = *ref;
+	struct lws_context *cx;
+
+	info.pss_policies_json = policy;
+
+	cx = lws_create_context(&info);
+	if (!cx)
+		return 1;
+
+	lwsl_err("%s: context created with an incomplete policy\n", what);
+	lws_context_destroy(cx);
+
+	return 0;
+}
+
+/*
  * Feed a whole document the way the fetch_policy system stream feeds the
  * policy it fetched, as a replacement for the policy in force
  */
@@ -386,7 +426,7 @@ main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	const lws_ss_policy_t *pol;
 	struct lws_context *cx;
-	const char *policy;
+	const char *policy, *policy_truncated;
 	int result = 1, n, m;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -396,8 +436,11 @@ main(int argc, const char **argv)
 	}
 
 	policy = lws_cmdline_option(argc, argv, switches[LWS_SW_POLICY].sw);
-	if (!policy) {
-		lwsl_err("-c <policy JSON path> is required\n");
+	policy_truncated = lws_cmdline_option(argc, argv,
+					      switches[LWS_SW_TRUNCATED].sw);
+	if (!policy || !policy_truncated) {
+		lwsl_err("-c <policy JSON path> and -t <truncated policy JSON "
+			 "path> are required\n");
 		return 1;
 	}
 
@@ -520,6 +563,19 @@ main(int argc, const char **argv)
 		goto bail;
 
 	/*
+	 * An overlay that ends partway through is refused, rather than left
+	 * pending as if more might come (the overlays below could then not
+	 * begin)
+	 */
+
+	m = lws_ss_policy_overlay(cx, overlay_truncated);
+	if (m == LEJP_CONTINUE || m >= 0) {
+		lwsl_err("overlay_truncated: not rejected (%d)\n", m);
+		lws_ss_policy_parse_abandon(cx);
+		goto bail;
+	}
+
+	/*
 	 * A valid override completes, and a second one after it does too: a
 	 * completed overlay leaves no parse behind to block the next (or to
 	 * leak, under ASan)
@@ -617,6 +673,16 @@ main(int argc, const char **argv)
 
 	if (lws_ss_policy_parse_abandon(cx) ||
 	    !original_in_force(cx, "valid abandoned"))
+		goto bail;
+
+	/*
+	 * A policy that ends partway through, given as JSON or in a file, must
+	 * not be installed: a context whose policy it is fails to create
+	 */
+
+	if (!incomplete_policy_refused(&info, truncated_st, "truncated json") ||
+	    !incomplete_policy_refused(&info, policy_truncated,
+				       "truncated file"))
 		goto bail;
 
 	/*

@@ -600,6 +600,12 @@ struct policy_cb_args {
 	 * "a buffer that doesn't start with { is a filename", are then refused.
 	 */
 	uint8_t untrusted:1;
+	/*
+	 * Set when lejp saw the whole document.  Until then the policy is
+	 * whatever came before the end of the input, eg, a fetch cut short,
+	 * and must not be installed.
+	 */
+	uint8_t complete:1;
 };
 
 /*

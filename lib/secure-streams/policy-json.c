@@ -1706,10 +1706,19 @@ lws_ss_policy_parse_file(struct lws_context *cx, const char *filepath)
 		return LEJP_REJECT_UNKNOWN;
 	}
 
+	/*
+	 * Failures return a lejp error, not -1, which is LEJP_CONTINUE and
+	 * would look to the caller like a parse still waiting for more
+	 */
+
 	do {
 		n = (int)read(fd, buf, sizeof(buf));
-		if (n < 0) {
-			m = -1;
+		if (n <= 0) {
+			/* an error, or the file ended before the JSON did */
+			lwsl_cx_err(cx, "policy '%s' %s", filepath,
+				    n ? "read failed" : "is truncated");
+			lws_ss_policy_parse_abandon(cx);
+			m = LEJP_REJECT_UNKNOWN;
 			goto bail;
 		}
 
@@ -1719,15 +1728,11 @@ lws_ss_policy_parse_file(struct lws_context *cx, const char *filepath)
 				 (unsigned int)args->jctx.line, m,
 				 lejp_error_to_string(m));
 			lws_ss_policy_parse_abandon(cx);
-
-			m = -1;
 			goto bail;
 		}
+	} while (m == LEJP_CONTINUE);
 
-		if (m != LEJP_CONTINUE)
-			break;
-	} while (n);
-
+	args->complete = 1;
 	m = 0;
 bail:
 	close(fd);
@@ -1794,6 +1799,9 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 		return m;
 	}
 
+	/* lejp has seen the end of the document */
+	args->complete = 1;
+
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 completed:
 #endif
@@ -1815,11 +1823,26 @@ lws_ss_policy_parse_untrusted(struct lws_context *context)
 int
 lws_ss_policy_overlay(struct lws_context *context, const char *overlay)
 {
+	int m;
+
 	if (lws_ss_policy_parse_begin(context, 1))
 		return -1;
 
-	return lws_ss_policy_parse(context, (const uint8_t *)overlay,
-				   strlen(overlay));
+	m = lws_ss_policy_parse(context, (const uint8_t *)overlay,
+				strlen(overlay));
+	if (m == LEJP_CONTINUE) {
+		/*
+		 * The overlay is all there is, so a document that hasn't
+		 * ended is truncated... don't leave its parse pending, and
+		 * don't report it as waiting for more
+		 */
+		lwsl_err("%s: overlay is truncated\n", __func__);
+		lws_ss_policy_parse_abandon(context);
+
+		return LEJP_REJECT_UNKNOWN;
+	}
+
+	return m;
 }
 
 const lws_ss_policy_t *

@@ -31,9 +31,15 @@ if (requirements)
 	# the policy names the server port, so it's generated per-build
 	configure_file(policy.json.in policy.json @ONLY)
 
+	# a policy file that ends partway through a streamtype, before its
+	# "tls": true... the context given it must refuse it
+	file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/policy-truncated.json
+	     "{ \"s\": [ { \"t_cli\": { \"endpoint\": \"localhost\", \"port\": 443,\n")
+
 	add_test(NAME api-test-ss-policy
 		 COMMAND lws-api-test-ss-policy
-			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy.json)
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy.json
+			 -t ${CMAKE_CURRENT_BINARY_DIR}/policy-truncated.json)
 	set_tests_properties(api-test-ss-policy
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
