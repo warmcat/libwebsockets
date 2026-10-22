@@ -542,7 +542,9 @@ struct lws_context_creation_info {
 	/**< VHOST:  if http2_settings[0] is nonzero, the values given in
 	 *	      http2_settings[1]..[6] are used instead of the lws
 	 *	      platform default values, except a 0 for
-	 *	      H2SET_MAX_HEADER_LIST_SIZE keeps the default.
+	 *	      H2SET_MAX_HEADER_LIST_SIZE keeps the default.  That one
+	 *	      is also the SETTINGS_MAX_FIELD_SECTION_SIZE an h3 vhost
+	 *	      advertises and enforces.
 	 *	      Just leave all at 0 if you don't care.
 	 */
 

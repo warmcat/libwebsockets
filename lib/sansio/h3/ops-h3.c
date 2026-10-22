@@ -894,6 +894,20 @@ lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 }
 
 /*
+ * The most field section, as RFC 9114 4.2.2 sizes it, we take on this vhost.
+ * It is the same limit as h2's SETTINGS_MAX_HEADER_LIST_SIZE, which is sized
+ * the same way, so one setting covers both.  A build without h2 never
+ * initialises the vhost's h2 settings, so has the stock value.
+ */
+static uint32_t
+lws_h3_max_field_section(const struct lws_vhost *vh)
+{
+	return vh->h2.set.s[H2SET_MAX_HEADER_LIST_SIZE] ?
+		vh->h2.set.s[H2SET_MAX_HEADER_LIST_SIZE] :
+		LWS_H3_DEF_MAX_FIELD_SECTION;
+}
+
+/*
  * Is there room in the ah for another field of need bytes (a fragment, the
  * bytes and a NUL)?  Checked before anything is stored, so a field is kept
  * whole or not at all.
@@ -1013,6 +1027,34 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	/* a field qpack could not keep for us, name and value */
 	if (name_idx == LWS_QPACK_FIELD_TOO_LARGE)
 		return lws_h3_hdrs_oversize(wsi);
+
+	/*
+	 * RFC 9114 4.2.2: the section is sized by its decoded names and values
+	 * plus 32 for each field line, however few bytes they took on the
+	 * wire, eg as references to one big dynamic table entry.  Past the
+	 * size we advertised, the request is refused with 431 like one that
+	 * does not fit its ah, and anything else fails.
+	 */
+	if (name)
+		k = name_len;
+	else {
+		const char *ts = (const char *)lws_token_to_string(
+					(enum lws_token_indexes)tok);
+
+		/* regular header tokens are kept as "name:" */
+		k = ts ? strlen(ts) : 0;
+		if (k && ts[k - 1] == ':')
+			k--;
+	}
+	wsi->h3.rx_section_size += (uint32_t)(k + value_len + 32);
+	if (wsi->h3.rx_section_size > lws_h3_max_field_section(nwsi->a.vhost)) {
+		if (!wsi->h3.hdrs_oversized)
+			lwsl_wsi_notice(wsi, "field section over %u",
+				(unsigned int)lws_h3_max_field_section(
+							nwsi->a.vhost));
+		if (lws_h3_hdrs_oversize(wsi))
+			return -1;
+	}
 
 	/*
 	 * RFC 9114 4.2 (via RFC 9113 8.2.1): CR, LF and NUL are malformed in
@@ -1376,7 +1418,7 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 	cwsi->h3.h3n = nwsi->h3.h3n;
 
 	{
-		uint8_t pre[LWS_PRE + 16];
+		uint8_t pre[LWS_PRE + 32];
 		size_t send_len = 1;
 		pre[LWS_PRE] = type;
 		if (type == 0x00) {
@@ -1399,6 +1441,18 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 			pre[LWS_PRE + 4] = LWS_QPACK_CAP_VARINT;
 			pre[LWS_PRE + 5] = 0x00;
 			send_len = 6;
+
+			/*
+			 * The field section size we will take, RFC 9114 4.2.2,
+			 * enforced by lws_h3_qpack_header_cb().  Advisory for
+			 * the peer, but a conformant one then doesn't send what
+			 * we would only refuse.
+			 */
+			pre[LWS_PRE + send_len++] =
+				LWS_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;
+			send_len += lws_quic_write_varint(&pre[LWS_PRE + send_len],
+					sizeof(pre) - LWS_PRE - send_len,
+					lws_h3_max_field_section(nwsi->a.vhost));
 
 			if (nwsi->a.vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL]) {
 				pre[LWS_PRE + send_len++] = 0x08; /* SETTINGS_ENABLE_CONNECT_PROTOCOL */
@@ -1903,6 +1957,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				wsi->h3.rx_frame_payload_read = 0;
 				wsi->h3.rx_setting_count = 0; /* Q-2: per-frame */
 				wsi->h3.rx_field_count = 0;
+				wsi->h3.rx_section_size = 0;
 				if (wsi->h3.rx_frame_type == 0x01) {
 					/*
 					 * The pseudo-header rules are per
@@ -2646,6 +2701,46 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 		     lws_fi(&nwsi->fic, "h3_second_qpack_enc")) &&
 		    !lws_h3_create_unidi_stream(nwsi, 0x02))
 			return 1;
+
+		/*
+		 * The h3_qpack_enc_big_entry fault has the peer keep one big
+		 * entry in its dynamic table, for a test's request headers to
+		 * refer to many times over in a few bytes: lws' own encoder
+		 * never inserts anything.  It takes the whole 4096 capacity a
+		 * peer may well have advertised, as a cookie of
+		 * LWS_H3_FI_BIG_ENTRY_LEN 'a's, absolute index 0.
+		 */
+		if (lws_fi(&wsi->fic, "h3_qpack_enc_big_entry") ||
+		    lws_fi(&nwsi->fic, "h3_qpack_enc_big_entry")) {
+			uint8_t *ins = lws_malloc(LWS_H3_FI_BIG_ENTRY_LEN + 16,
+						  "h3 fi entry");
+			char *val = lws_malloc(LWS_H3_FI_BIG_ENTRY_LEN,
+					       "h3 fi value");
+			int n = -1, m;
+
+			if (ins && val) {
+				memset(val, 'a', LWS_H3_FI_BIG_ENTRY_LEN);
+				n = lws_qpack_tx_encode_set_capacity(ins,
+						LWS_H3_FI_BIG_ENTRY_LEN + 16, 4096);
+				m = n < 0 ? -1 :
+					lws_qpack_tx_encode_insert_name_ref(
+						ins + n,
+						(size_t)(LWS_H3_FI_BIG_ENTRY_LEN +
+							 16 - n), 1,
+						5 /* cookie */, val,
+						LWS_H3_FI_BIG_ENTRY_LEN);
+				n = m < 0 ? -1 : n + m;
+			}
+			if (n > 0 && lws_buflist_append_segment(
+					&h3n->qpack_tx_encoder.tx_bl, ins,
+					(size_t)n) < 0)
+				n = -1;
+			lws_free(ins);
+			lws_free(val);
+			if (n < 0)
+				return 1;
+			lws_callback_on_writable(h3n->cwsi_qpack_enc);
+		}
 #endif
 			
 		h3n->qpack_tx_encoder.wsi_qpack_enc = h3n->cwsi_qpack_enc;

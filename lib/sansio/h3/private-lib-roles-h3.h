@@ -43,6 +43,7 @@
 #define LWS_H3_MESSAGE_ERROR			0x010e
 #define LWS_H3_VERSION_FALLBACK			0x010f
 
+#define LWS_H3_SETTINGS_MAX_FIELD_SECTION_SIZE 0x06
 #define LWS_H3_SETTINGS_ENABLE_WEBTRANSPORT 0x2b603742
 #define LWS_H3_SETTINGS_H3_DATAGRAM         0x33
 
@@ -57,6 +58,18 @@
  * field, but it stops a 64KiB section of one-byte field lines
  */
 #define LWS_H3_MAX_FIELD_LINES		1024
+
+/*
+ * SETTINGS_MAX_FIELD_SECTION_SIZE when the vhost has no h2 settings to take
+ * it from, see lws_h3_max_field_section(): h2's stock header list size
+ */
+#define LWS_H3_DEF_MAX_FIELD_SECTION	65536
+
+/*
+ * the value length of the h3_qpack_enc_big_entry fault's dynamic table
+ * entry, a cookie: with the name and the 32 of overhead it fills 4096
+ */
+#define LWS_H3_FI_BIG_ENTRY_LEN		4058
 
 /* the peer's unidi streams there may be only one of (RFC 9114 6.2.1, 9204 4.2) */
 #define LWS_H3_PEER_UNI_CONTROL		(1 << 0)
@@ -193,6 +206,12 @@ struct _lws_h3_related {
 	 * but a field line can be a single byte
 	 */
 	uint16_t rx_field_count;
+	/*
+	 * this HEADERS frame's field section size as RFC 9114 4.2.2 counts it,
+	 * the decoded names and values plus 32 for each field line, against
+	 * the SETTINGS_MAX_FIELD_SECTION_SIZE we advertise
+	 */
+	uint32_t rx_section_size;
 
 	uint8_t rx_dec_instr_buf[16];
 	uint8_t rx_dec_instr_len;
