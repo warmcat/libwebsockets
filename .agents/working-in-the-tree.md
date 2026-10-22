@@ -106,6 +106,9 @@ sessions.
    commit alone in a worktree.  Shared lists several fixers append to
    (eg the api-tests README.md) always need this: `git add` of the working
    file once dropped another fixer's row.
+ - **Copying `git diff --name-only` output from the shared tree into a
+   worktree pulls in other agents' half-done edits.**  Copy explicit
+   paths of your own files only.
  - **Another fixer's hunks can appear mid-phase in a file that was not on
    their list.**  Diff each file against what you tested just before
    committing, and if a make fails partway, rebuild before trusting the
