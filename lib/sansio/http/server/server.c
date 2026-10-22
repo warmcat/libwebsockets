@@ -528,6 +528,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #if !defined(_WIN32_WCE)
 
 	fflags |= lws_vfs_prepare_flags(wsi);
+	memset(&st, 0, sizeof(st));
 
 	do {
 		spin++;
@@ -600,8 +601,23 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	} while ((S_IFMT & st.st_mode) != S_IFREG && spin < 5);
 
-	if (spin == 5)
-		lwsl_err("symlink loop %s \n", path);
+	/*
+	 * Still not a regular file: a device, a fifo, a socket, or a chain of
+	 * directories named like the default document.  None of them is ours
+	 * to serve, and reading a device or fifo can block the event loop
+	 */
+#if !defined(LWS_PLAT_FREERTOS)
+	if (!(fflags & LWS_FOP_FLAG_VIRTUAL) &&
+	    (S_IFMT & st.st_mode) != S_IFREG) {
+		lwsl_wsi_notice(wsi, "refusing to serve a non-regular file");
+		lws_vfs_file_close(&wsi->http.fop_fd);
+		if (lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL) ||
+		    lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+	}
+#endif
 
 #if defined(LWS_PLAT_FS_FOLDS_NAMES)
 	if (!(fflags & LWS_FOP_FLAG_VIRTUAL) &&

@@ -206,6 +206,26 @@ static const struct path_case path_cases[] = {
 	ATK_NOT_SERVED("/f/%252e%252e/secret.txt"),
 	ATK_NOT_SERVED("/f/%c0%ae%c0%ae/secret.txt"),
 
+	/*
+	 * Not a regular file: ./docroot/loop/index.html is a directory, so the
+	 * default document is never found however often it is appended
+	 */
+
+	{ "/f/loop", V_STATUS, 403, NULL },
+	{ "/f/loop/", V_STATUS, 403, NULL },
+
+	/* DOS device names, which windows opens as the device in any dir */
+
+	ATK_NOT_SERVED("/f/con"),
+	ATK_NOT_SERVED("/f/CON.html"),
+	ATK_NOT_SERVED("/f/nul"),
+	ATK_NOT_SERVED("/f/aux.txt"),
+	ATK_NOT_SERVED("/f/prn.html"),
+	ATK_NOT_SERVED("/f/com1.html"),
+	ATK_NOT_SERVED("/f/lpt1.txt"),
+	ATK_NOT_SERVED("/f/conin$"),
+	ATK_NOT_SERVED("/f/loop/com1%20.html"),
+
 	/* bad percent-encoding, and control bytes smuggled in by it */
 
 	ATK_REFUSED("/a%"),

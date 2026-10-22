@@ -70,6 +70,58 @@ lws_plat_path_ok(const char *filename)
 	return 1;
 }
 
+/*
+ * Win32 maps a final path component naming a DOS device (CON, PRN, AUX, NUL,
+ * COM0-9, LPT0-9, CONIN$, CONOUT$, with superscript 1 - 3 too for COM and
+ * LPT) to the device, in any directory, case-insensitively, and ignoring
+ * trailing spaces before an extension, which on Windows 10 and Server 2016 -
+ * 2022 may be anything (eg, "com1.html").  Opening one opens the device:
+ * a console or serial port then blocks the reader, and even the open can do
+ * things to the hardware.  Refuse them before the open; the file type check
+ * after it is the backstop for any other way to name a device.
+ */
+
+static int
+lws_plat_path_is_device(const char *filename)
+{
+	static const char * const devs[] = {
+		"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"
+	};
+	const char *p = filename, *base = filename;
+	char b[8];
+	size_t n = 0, m;
+
+	for (; *p; p++)
+		if (*p == '/' || *p == '\\')
+			base = p + 1;
+
+	/* the name up to any extension, uppercased */
+	for (p = base; *p && *p != '.' && *p != ':'; p++) {
+		if (n == sizeof(b) - 1) {
+			if (*p != ' ')
+				return 0; /* longer than any device name */
+			continue; /* trailing spaces go anyway */
+		}
+		b[n++] = (char)toupper((unsigned char)*p);
+	}
+	while (n && b[n - 1] == ' ')
+		n--;
+	b[n] = '\0';
+
+	for (m = 0; m < LWS_ARRAY_SIZE(devs); m++)
+		if (!strcmp(b, devs[m]))
+			return 1;
+
+	if (n < 4 || (strncmp(b, "COM", 3) && strncmp(b, "LPT", 3)))
+		return 0;
+
+	/* COMn / LPTn, or COM / LPT and a superscript 1, 2 or 3 in UTF-8 */
+	return (n == 4 && b[3] >= '0' && b[3] <= '9') ||
+	       (n == 5 && (unsigned char)b[3] == 0xc2 &&
+		((unsigned char)b[4] == 0xb9 || (unsigned char)b[4] == 0xb2 ||
+		 (unsigned char)b[4] == 0xb3));
+}
+
 int
 lws_plat_path_canonical(const char *path, char *buf, size_t len)
 {
@@ -109,7 +161,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 	lws_fop_fd_t fop_fd;
 	LARGE_INTEGER llFileSize = {0};
 
-	if (!lws_plat_path_ok(filename)) {
+	if (!lws_plat_path_ok(filename) || lws_plat_path_is_device(filename)) {
 		lwsl_err("%s: refusing path '%s'\n", __func__, filename);
 
 		return NULL;
@@ -139,9 +191,20 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 	if (ret == INVALID_HANDLE_VALUE)
 		goto bail;
 
+	/*
+	 * Only a file on a disk: not a device, a pipe or a socket however it
+	 * was named, nor anything whose size we can't know
+	 */
+	if (GetFileType(ret) != FILE_TYPE_DISK ||
+	    !GetFileSizeEx(ret, &llFileSize)) {
+		lwsl_err("%s: refusing '%s': not a disk file\n", __func__,
+			 filename);
+		goto bail_close;
+	}
+
 	fop_fd = malloc(sizeof(*fop_fd));
 	if (!fop_fd)
-		goto bail;
+		goto bail_close;
 
 	fop_fd->fops = fops;
 #if defined(__MINGW32__)
@@ -152,14 +215,13 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 #endif
 	fop_fd->filesystem_priv = ret;
 	fop_fd->flags = *flags;
-	fop_fd->len = GetFileSize(ret, NULL);
-	if(GetFileSizeEx(ret, &llFileSize))
-		fop_fd->len = llFileSize.QuadPart;
-
+	fop_fd->len = llFileSize.QuadPart;
 	fop_fd->pos = 0;
 
 	return fop_fd;
 
+bail_close:
+	CloseHandle(ret);
 bail:
 	return NULL;
 }
