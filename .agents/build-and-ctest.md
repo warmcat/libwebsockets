@@ -178,6 +178,11 @@
    so they don't exercise `lws_http_mp_sm`: api-test-http-client-multipart
    does.  The example only takes `--form=name=value`; with a space the value
    is taken as the URL.
+ - **EADDRINUSE on a fixed api-test port is likely the configure-time port
+   counter wrapping** (G-644): `lws_get_free_port()` hands out ports from a
+   per-user counter in /tmp (15000-30000, ~355 per configure), so trees
+   configured ~42 configures apart share ports.  Reconfigure, or don't run
+   two such trees' ctests at once.
  - **Linux loopback lets a test send from any 127/8 address**, so tests can
    use many source hosts (eg 127.0.0.2).  macOS lacks them: skip there.
  - **api-test-auth-dns-zonedir's clock starts before the context is
