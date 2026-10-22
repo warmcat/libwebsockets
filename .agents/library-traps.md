@@ -188,6 +188,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
+ - **`lws_h2_rst_stream()` and `lws_h2_goaway()` use the parser's per-frame
+   `h2n->type` as their latch**: called from outside the parse loop (close
+   paths, timers, POLLOUT) they make the half-received frame of another
+   stream be dropped, and they are skipped after an ignored frame (G-645).
  - **`LWS_CALLBACK_HTTP_DROP_PROTOCOL` only follows a BIND** (mount-bound
    protocols).  Per-transaction state on protocols[0] (spa, fds, lwsacs)
    gets no callback when its user_space is freed at a keepalive
