@@ -2180,13 +2180,20 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		 * connection migrating to the server's IPv4 preferred
 		 * address).  If the receiving listener doesn't know the DCID,
 		 * search the sibling QUIC listeners before giving up.
+		 *
+		 * We go on to drive the connection on this thread, so only a
+		 * sibling on our own service thread will do.  A vhost's QUIC
+		 * listeners are created on one thread for this (G-544): one
+		 * on another, which shouldn't exist, is skipped rather than
+		 * let a peer choose which thread drives its connection.
 		 */
 		if (!nwsi && wsi->a.vhost) {
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					lws_dll2_get_head(&wsi->a.vhost->listen_wsi)) {
 				struct lws *lw = lws_container_of(d, struct lws,
 								listen_list);
-				if (lw == wsi || lw->role_ops != &role_ops_quic)
+				if (lw == wsi || lw->role_ops != &role_ops_quic ||
+				    lw->tsi != wsi->tsi)
 					continue;
 				nwsi = lws_quic_find_child_by_dcid(lw, &dcid);
 				if (nwsi)
@@ -2194,6 +2201,11 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			} lws_end_foreach_dll_safe(d, d1);
 		}
 #endif
+	}
+
+	/* only the connection's own service thread ever drives it */
+	if (nwsi && nwsi->quic.qn) {
+		lws_quic_sul_assert_thread(nwsi->quic.qn);
 	}
 
 

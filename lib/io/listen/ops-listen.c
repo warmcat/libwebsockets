@@ -973,15 +973,28 @@ check_quic:
 #else
 			const char *dev = NULL;
 #endif
-
+			/*
+			 * Both of a vhost's QUIC listeners, IPv6 and IPv4 (with
+			 * V6ONLY), go on the same service thread, and so do
+			 * their connections.  A client migrating to the other
+			 * family arrives on the other listener, which finds its
+			 * connection among its sibling's and processes it
+			 * there: on any other thread, that is two threads
+			 * driving one connection (G-544).
+			 */
+			int qtsi = -1;
 #if defined(LWS_WITH_IPV6)
 			if (LWS_IPV6_ENABLED(vhost)) {
 				const char *ads6 = vhost->iface ? vhost->iface : "::";
-				if (!lws_create_adopt_udp(vhost, ads6, vhost->listen_port,
-							  LWS_CAUDP_BIND, "quic", dev, NULL,
-							  NULL, NULL, "quic_listen")) {
+				struct lws *q = lws_create_adopt_udp_tsi(vhost, ads6,
+						vhost->listen_port, LWS_CAUDP_BIND,
+						"quic", dev, NULL, qtsi, NULL,
+						NULL, "quic_listen");
+
+				if (q)
+					qtsi = q->tsi;
+				else
 					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv6 UDP listener");
-				}
 			}
 #endif
 #if defined(LWS_WITH_IPV4)
@@ -989,9 +1002,10 @@ check_quic:
 			    (!vhost->iface || !LWS_IPV6_ENABLED(vhost) ||
 			    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 				const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
-				if (!lws_create_adopt_udp(vhost, ads4, vhost->listen_port,
-							  LWS_CAUDP_BIND, "quic", dev, NULL,
-							  NULL, NULL, "quic_listen")) {
+				if (!lws_create_adopt_udp_tsi(vhost, ads4,
+						vhost->listen_port, LWS_CAUDP_BIND,
+						"quic", dev, NULL, qtsi, NULL,
+						NULL, "quic_listen")) {
 					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
 				}
 			}

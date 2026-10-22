@@ -30,12 +30,15 @@
 
 /* if not a socket, it's a raw, non-ssl file descriptor
  * req cx lock, acq pt lock, acq vh lock
+ *
+ * The new wsi goes on its parent's tsi, else on tsi if it's not -1, else on
+ * the least busy one
  */
 
 static struct lws *
 __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 			    const char *vh_prot_name, struct lws *parent,
-			    void *opaque, const char *fi_wsi_name)
+			    int tsi, void *opaque, const char *fi_wsi_name)
 {
 	struct lws_context *context;
 	struct lws_context_per_thread *pt;
@@ -55,9 +58,7 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 
 	lws_context_assert_lock_held(vh->context);
 
-	n = -1;
-	if (parent)
-		n = parent->tsi;
+	n = parent ? parent->tsi : tsi;
 	new_wsi = lws_create_new_server_wsi(vh, n, LWSLCG_WSI_SERVER, fi_wsi_name);
 	if (!new_wsi)
 		return NULL;
@@ -529,7 +530,8 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 
 	new_wsi = __lws_adopt_descriptor_vhost1(info->vh, info->type,
 					      info->vh_prot_name, info->parent,
-					      info->opaque, info->fi_wsi_name);
+					      -1, info->opaque,
+					      info->fi_wsi_name);
 
 #if defined(LWS_WITH_LATENCY)
 	{
@@ -1221,10 +1223,11 @@ bail:
 #endif
 
 struct lws *
-lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
-		     int flags, const char *protocol_name, const char *ifname,
-		     struct lws *parent_wsi, void *opaque,
-		     const lws_retry_bo_t *retry_policy, const char *fi_wsi_name)
+lws_create_adopt_udp_tsi(struct lws_vhost *vhost, const char *ads, int port,
+			 int flags, const char *protocol_name,
+			 const char *ifname, struct lws *parent_wsi, int tsi,
+			 void *opaque, const lws_retry_bo_t *retry_policy,
+			 const char *fi_wsi_name)
 {
 #if !defined(LWS_PLAT_OPTEE)
 	struct lws *wsi;
@@ -1238,8 +1241,8 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	wsi = __lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_SOCKET |
 						 LWS_ADOPT_RAW_SOCKET_UDP,
-					  protocol_name, parent_wsi, opaque,
-					  fi_wsi_name);
+					  protocol_name, parent_wsi, tsi,
+					  opaque, fi_wsi_name);
 
 	lws_context_unlock(vhost->context);
 	if (!wsi) {
@@ -1404,6 +1407,17 @@ bail:
 #else
 	return NULL;
 #endif
+}
+
+struct lws *
+lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
+		     int flags, const char *protocol_name, const char *ifname,
+		     struct lws *parent_wsi, void *opaque,
+		     const lws_retry_bo_t *retry_policy, const char *fi_wsi_name)
+{
+	return lws_create_adopt_udp_tsi(vhost, ads, port, flags, protocol_name,
+					ifname, parent_wsi, -1, opaque,
+					retry_policy, fi_wsi_name);
 }
 #endif
 

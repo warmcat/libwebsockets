@@ -10,7 +10,8 @@ set(SRCS main.c)
 
 #
 # h3 clients on two service threads (LWS_MAX_SMP > 1) fetching from an h3
-# server vhost in the same process
+# server vhost in the same process, and, with IPv6, from a dual stack one
+# telling them to migrate to IPv4
 #
 set(requirements 1)
 require_pthreads(requirements)
@@ -24,10 +25,12 @@ if (requirements AND NOT WIN32)
 
 	set(QSMP_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 	lws_get_free_port(PORT_QSMP)
+	lws_get_free_port(PORT_QSMP_DUAL)
 
 	add_test(NAME api-test-quic-smp
 		 COMMAND lws-api-test-quic-smp
 			 -p ${PORT_QSMP}
+			 --port-dual ${PORT_QSMP_DUAL}
 			 --cert ${QSMP_CERTS}/localhost-100y.cert
 			 --key ${QSMP_CERTS}/localhost-100y.key)
 	set_tests_properties(api-test-quic-smp PROPERTIES

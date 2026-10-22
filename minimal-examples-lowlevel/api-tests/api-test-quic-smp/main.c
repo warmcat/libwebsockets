@@ -30,12 +30,23 @@
  * about a connection before it.  The first PROTOCOL_INIT takes its time, so
  * a thread not waiting for it makes its first connections meanwhile.
  *
+ * A server vhost listening on both families with IPV6_V6ONLY has an IPv6
+ * and an IPv4 QUIC listener.  A client that connects over IPv6 and migrates
+ * to the server's IPv4 preferred address arrives on the IPv4 listener, which
+ * finds the connection among the IPv6 listener's and drives it.  Before
+ * G-544 the two listeners went on whichever threads were least busy, so the
+ * IPv4 listener's thread could drive a connection belonging to the other
+ * one's thread while that thread did too.
+ *
  * Each service thread, at once and in rounds, opens h3 client connections
  * of its own (no pipelining, so each is a QUIC connection of its own) to an
  * h3 server vhost in the same process, and fetches a body big enough to
- * keep data in flight across several round trips.  Every fetch must
- * complete with the whole body, and every client callback must come on the
- * service thread that asked for the connection.
+ * keep data in flight across several round trips.  With IPv6, each also
+ * opens one to the dual stack vhost over IPv6, whose body is only sent once
+ * the client has moved to IPv4.  Every fetch must complete with the whole
+ * body, every client callback must come on the service thread that asked
+ * for the connection, and every server callback on the thread of its
+ * connection.
  *
  * With LWS_MAX_SMP 1 there is only one service thread, and it only checks
  * the fetches complete.  Under ASan, the SMP builds also check nothing is
@@ -52,12 +63,35 @@
 #define QSMP_THREADS_MAX	2
 #define QSMP_ROUNDS		4
 #define QSMP_ROUND_US		(30 * LWS_US_PER_MS)
-#define QSMP_PER_ROUND		4	/* connections per thread per round */
+#define QSMP_PER_ROUND_PLAIN	4	/* connections per thread per round */
+#if defined(LWS_WITH_IPV6)
+#define QSMP_PER_ROUND_MIG	1	/* ... of them migrating to IPv4 */
+#else
+#define QSMP_PER_ROUND_MIG	0
+#endif
+#define QSMP_PER_ROUND		(QSMP_PER_ROUND_PLAIN + QSMP_PER_ROUND_MIG)
+#define QSMP_MIG_WAIT_US	(20 * LWS_US_PER_MS)
+#define QSMP_MIG_WAITS		250	/* at most 5s for a client to move */
 #define QSMP_CHUNK		4096
 #define QSMP_CHUNKS		24	/* the body is QSMP_CHUNKS * QSMP_CHUNK */
 #define QSMP_DEADLINE_US	(40 * LWS_US_PER_SEC)
 #define QSMP_HOST		"localhost"
-#define QSMP_VHOSTS		2	/* each with one protocol to init */
+#if defined(LWS_WITH_IPV6)
+#define QSMP_VHOSTS		3	/* each with one protocol to init */
+#else
+#define QSMP_VHOSTS		2
+#endif
+
+enum qsmp_mode {
+	QSMP_MODE_PLAIN,
+	QSMP_MODE_MIGRATE,	/* to the dual stack server, over IPv6 */
+};
+
+/* a client's opaque user data: the tsi it asked on, and its mode */
+#define QSMP_OPAQUE(tsi, mode)	((void *)((intptr_t)(tsi) | \
+					  ((intptr_t)(mode) << 8)))
+#define QSMP_TSI(o)		((int)((intptr_t)(o) & 0xff))
+#define QSMP_MODE(o)		((int)((intptr_t)(o) >> 8))
 
 struct qsmp_svc {
 	lws_sorted_usec_list_t	sul_round;
@@ -70,24 +104,26 @@ struct qsmp_svc {
 
 struct qsmp_pss_srv {
 	int			sent;	/* chunks */
+	int			waits;	/* for the client to migrate */
 };
 
 struct qsmp_pss_cli {
 	size_t			rx;
+	int			established;
 	int			done;
 };
 
 static struct qsmp_svc svc[QSMP_THREADS_MAX];
 static struct lws_context *context;
-static struct lws_vhost *vh_cli;
+static struct lws_vhost *vh_cli, *vh_dual;
 static lws_sorted_usec_list_t sul_deadline;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static int threads, port = 7710;
+static int threads, port = 7710, port_dual = 7711;
 static volatile int interrupted;
 
 /* guarded by lock */
 static int asked, completed, failed, short_body, wrong_thread, served,
-	   inits;
+	   inits, migrated, not_migrated;
 
 /* guarded by lock: the client protocol is initialised, callbacks before it */
 static int cli_inited, cli_early;
@@ -205,8 +241,10 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
+		qsmp_on_thread(lws_get_tsi(wsi));
 		qsmp_count(&served, 1);
 		pss->sent = 0;
+		pss->waits = 0;
 
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
 				"application/octet-stream",
@@ -218,9 +256,39 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_callback_on_writable(wsi);
 		return 0;
 
+	case LWS_CALLBACK_TIMER:
+		qsmp_on_thread(lws_get_tsi(wsi));
+		lws_callback_on_writable(wsi);
+		return 0;
+
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		if (!pss || pss->sent >= QSMP_CHUNKS)
 			break;
+
+		qsmp_on_thread(lws_get_tsi(wsi));
+
+		if (lws_get_vhost(wsi) == vh_dual && !pss->sent) {
+			char peer[64];
+
+			/*
+			 * The client came over IPv6 and is told to move to
+			 * our IPv4 preferred address: the body waits for it
+			 * to have moved, so it is sent, and acked, through
+			 * the IPv4 listener
+			 */
+			lws_get_peer_simple(wsi, peer, sizeof(peer));
+			if (strcmp(peer, "127.0.0.1")) {
+				if (++pss->waits < QSMP_MIG_WAITS) {
+					lws_set_timer_usecs(wsi,
+							    QSMP_MIG_WAIT_US);
+					return 0;
+				}
+				lwsl_err("%s: client stayed on %s\n",
+					 __func__, peer);
+				qsmp_count(&not_migrated, 1);
+			} else
+				qsmp_count(&migrated, 1);
+		}
 
 		memset(start, 'a' + (pss->sent % 26), QSMP_CHUNK);
 		n = ++pss->sent == QSMP_CHUNKS ? LWS_WRITE_HTTP_FINAL :
@@ -252,7 +320,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
 	struct qsmp_pss_cli *pss = (struct qsmp_pss_cli *)user;
-	int tsi = (int)(intptr_t)lws_get_opaque_user_data(wsi);
+	void *o = lws_get_opaque_user_data(wsi);
+	int tsi = QSMP_TSI(o);
 	char buf[LWS_PRE + 1024], *px = buf + LWS_PRE;
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
@@ -271,9 +340,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		qsmp_cli_check_inited();
 		qsmp_on_thread(tsi);
+		if (pss)
+			pss->established = 1;
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		qsmp_on_thread(tsi);
 		if (lws_http_client_read(wsi, &px, &lenx) < 0)
 			return -1;
 		return 0;
@@ -298,8 +370,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_err("%s: connection error: %s\n", __func__,
-			 in ? (const char *)in : "(null)");
+		lwsl_err("%s: mode %d: connection error: %s\n", __func__,
+			 QSMP_MODE(o), in ? (const char *)in : "(null)");
 		qsmp_cli_check_inited();
 		qsmp_on_thread(tsi);
 		if (pss) {
@@ -312,9 +384,15 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		if (!pss || pss->done)
+		/*
+		 * Only one of our requests: the h3 connection's control and
+		 * qpack streams close on this protocol too, when it closes
+		 * after its kept-warm time
+		 */
+		if (!pss || !pss->established || pss->done)
 			break;
-		lwsl_err("%s: closed before completing\n", __func__);
+		lwsl_err("%s: mode %d: closed before completing\n", __func__,
+			 QSMP_MODE(o));
 		pss->done = 1;
 		qsmp_count(&failed, 1);
 		qsmp_finish_if_done();
@@ -338,23 +416,24 @@ static const struct lws_protocols protocols_cli[] = {
 };
 
 static void
-qsmp_connect(int tsi)
+qsmp_connect(int tsi, enum qsmp_mode mode)
 {
+	int dual = mode == QSMP_MODE_MIGRATE;
 	struct lws_client_connect_info i;
 	struct lws *wsi;
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
 	i.vhost			= vh_cli;
-	i.address		= "127.0.0.1";
+	i.address		= dual ? "::1" : "127.0.0.1";
 	i.host			= QSMP_HOST;
 	i.origin		= QSMP_HOST;
-	i.port			= port;
+	i.port			= dual ? port_dual : port;
 	i.path			= "/";
 	i.method		= "GET";
 	i.protocol		= "qsmp";
 	i.alpn			= "h3";
-	i.opaque_user_data	= (void *)(intptr_t)tsi;
+	i.opaque_user_data	= QSMP_OPAQUE(tsi, mode);
 	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	/* it is the QUIC connection we are testing, not a fallback to tcp */
@@ -380,7 +459,8 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 	int n;
 
 	for (n = 0; n < QSMP_PER_ROUND; n++)
-		qsmp_connect(s->tsi);
+		qsmp_connect(s->tsi, n < QSMP_PER_ROUND_PLAIN ?
+					QSMP_MODE_PLAIN : QSMP_MODE_MIGRATE);
 
 	if (++s->round < QSMP_ROUNDS)
 		lws_sul_schedule(context, s->tsi, &s->sul_round, sul_round_cb,
@@ -416,6 +496,9 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p, *cert, *key;
+#if defined(LWS_WITH_IPV6)
+	char pref[32];
+#endif
 	int n, result = 1;
 	void *retval;
 
@@ -425,6 +508,8 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-dual")))
+		port_dual = atoi(p);
 	cert = lws_cmdline_option(argc, argv, "--cert");
 	key = lws_cmdline_option(argc, argv, "--key");
 	if (!cert || !key) {
@@ -464,6 +549,29 @@ main(int argc, const char **argv)
 		lwsl_err("%s: server vhost creation failed\n", __func__);
 		goto bail;
 	}
+
+#if defined(LWS_WITH_IPV6)
+	/*
+	 * The dual stack h3 server: on both families, with IPV6_V6ONLY so each
+	 * has a QUIC listener of its own, telling clients to move to IPv4
+	 */
+
+	lws_snprintf(pref, sizeof(pref), "127.0.0.1:%d", port_dual);
+	info.port			= port_dual;
+	info.iface			= NULL;
+	info.options			|= LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+					   LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE;
+	info.quic_preferred_addresses	= pref;
+	vh_dual = lws_create_vhost(context, &info);
+	if (!vh_dual) {
+		lwsl_err("%s: dual stack vhost creation failed\n", __func__);
+		goto bail;
+	}
+	info.options			&= ~(uint64_t)
+					(LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+					 LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
+	info.quic_preferred_addresses	= NULL;
+#endif
 
 	/* the client vhost, whose tls session cache both threads share */
 
@@ -508,13 +616,15 @@ main(int argc, const char **argv)
 
 	lwsl_user("%d threads: %d connections, %d completed, %d failed, %d "
 		  "short; %d served; %d callbacks on the wrong thread; %d "
-		  "protocol inits, %d client callbacks before its init\n",
-		  threads, asked, completed, failed, short_body, served,
-		  wrong_thread, inits, cli_early);
+		  "protocol inits, %d client callbacks before its init; %d "
+		  "migrated, %d did not\n", threads, asked, completed, failed,
+		  short_body, served, wrong_thread, inits, cli_early, migrated,
+		  not_migrated);
 
 	if (asked == threads * QSMP_ROUNDS * QSMP_PER_ROUND &&
 	    completed == asked && !failed && !short_body && !wrong_thread &&
-	    inits == QSMP_VHOSTS && !cli_early)
+	    inits == QSMP_VHOSTS && !cli_early && !not_migrated &&
+	    migrated == threads * QSMP_ROUNDS * QSMP_PER_ROUND_MIG)
 		result = 0;
 
 bail:

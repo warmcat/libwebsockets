@@ -1921,6 +1921,18 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len);
 struct lws * LWS_WARN_UNUSED_RESULT
 lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi,
 				int group, const char *desc);
+#if defined(LWS_WITH_UDP)
+/*
+ * lws_create_adopt_udp() with the service thread chosen: tsi -1 is the least
+ * busy one, as lws_create_adopt_udp() does, unless parent_wsi gives its own
+ */
+struct lws *
+lws_create_adopt_udp_tsi(struct lws_vhost *vhost, const char *ads, int port,
+			 int flags, const char *protocol_name,
+			 const char *ifname, struct lws *parent_wsi, int tsi,
+			 void *opaque, const lws_retry_bo_t *retry_policy,
+			 const char *fi_wsi_name);
+#endif
 int
 lws_client_stash_create(struct lws *wsi, const char **cisin);
 void
