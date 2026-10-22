@@ -651,10 +651,15 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	/* each node on a port of its own, which it learns from the kernel */
+	/*
+	 * each node on a port of its own, which it learns from the kernel:
+	 * without LWS_CAUDP_RANDOM_PORT the socket sets SO_REUSEADDR, and two
+	 * of them can be given the same port (G-626)
+	 */
 	for (n = 0; n < sl_count; n++) {
 		peer[n].wsi = lws_create_adopt_udp(vh, "127.0.0.1", 0,
-						   LWS_CAUDP_BIND,
+						   LWS_CAUDP_BIND |
+						   LWS_CAUDP_RANDOM_PORT,
 						   protocols[1].name, NULL,
 						   NULL, NULL, NULL, "sl-peer");
 		slen = sizeof(sin);

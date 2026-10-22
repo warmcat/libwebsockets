@@ -49,7 +49,9 @@
  *    and B can still send to a new peer (G-525)
  *
  * Loopback addresses count as separate hosts, so the 4 sessions per host
- * limit doesn't apply here.  Nothing listens on the fan port, at 127.0.1.1
+ * limit doesn't apply here.  The raw sockets bind with
+ * LWS_CAUDP_RANDOM_PORT: without it they set SO_REUSEADDR, and two of them
+ * can be given the same port (G-626).  Nothing listens on the fan port, at 127.0.1.1
  * and up.  The UDP ports are allocated uniquely at build time and passed in
  * on the command line, so parallel ctest instances do not collide.
  *
@@ -665,7 +667,7 @@ step(void)
 
 	case FL_NEWCOMER:
 		if (!fl.p[FL_NC0].proven) {
-			if (lws_now_usecs() - phase_time < LWS_US_PER_SEC)
+			if (lws_now_usecs() - phase_time < 2 * LWS_US_PER_SEC)
 				return 0;
 			lwsl_err("sessions only resending still hold every "
 				 "slot\n");
@@ -787,7 +789,8 @@ fl_socket(struct lws_vhost *vh, const char *ads, const char *name,
 	socklen_t slen;
 #endif
 
-	w = lws_create_adopt_udp(vh, ads, 0, LWS_CAUDP_BIND, "fl-peer", NULL,
+	w = lws_create_adopt_udp(vh, ads, 0, LWS_CAUDP_BIND |
+				 LWS_CAUDP_RANDOM_PORT, "fl-peer", NULL,
 				 NULL, NULL, NULL, name);
 	slen = sizeof(*sin);
 	if (!w || getsockname(lws_get_socket_fd(w), (struct sockaddr *)sin,
