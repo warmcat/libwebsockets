@@ -1561,6 +1561,12 @@ bail:
  * does for an element must stay within what its steps stand for.  And the
  * index must find attributes as the walk did: by name ignoring case, and the
  * first of a repeated name.
+ *
+ * These steps scan no long values, so the allowance is near what one really
+ * costs, not LHPT_WORK_STEP: a simple selector with its index probes, one
+ * short name compared and < 64 class bytes scanned.  Without the step for
+ * each further simple selector, matching then does ~3x what this allows,
+ * where LHPT_WORK_STEP left a 2.5% margin (G-541).
  */
 
 #define LHPT_SC_SELS		128	/* of each kind */
@@ -1568,6 +1574,9 @@ bail:
 #define LHPT_SC_CLASSES		58	/* .a in a compound */
 #define LHPT_SC_NEST		60
 #define LHPT_SC_JUNK		60	/* class bytes before the a */
+#define LHPT_SC_WORK_STEP	96
+#define LHPT_SC_WORK_ELEM	((uint64_t)LHPT_SEL_STEPS_ELEM * \
+				 LHPT_SC_WORK_STEP)
 
 static int sc_elems, sc_ok, sc_over;
 
@@ -1584,7 +1593,7 @@ sc_cb(lhp_ctx_t *ctx, char reason)
 
 	/* fail at the first element that is over, don't wait for all */
 
-	if (ctx->sel_work > (uint64_t)(sc_elems + 1) * LHPT_SEL_WORK_ELEM) {
+	if (ctx->sel_work > (uint64_t)(sc_elems + 1) * LHPT_SC_WORK_ELEM) {
 		sc_over = 1;
 		return LWS_SRET_FATAL;
 	}
@@ -1687,7 +1696,7 @@ test_selector_compound(void)
 
 	if (sc_over) {
 		lwsl_err("%s: over %llu work per element at element %d\n",
-			 __func__, (unsigned long long)LHPT_SEL_WORK_ELEM,
+			 __func__, (unsigned long long)LHPT_SC_WORK_ELEM,
 			 sc_elems + 1);
 		goto bail_destruct;
 	}
