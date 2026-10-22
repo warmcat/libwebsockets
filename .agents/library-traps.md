@@ -151,6 +151,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    and h3 it only gets the interceptor chain, and a proxied upgrade
    leaves from `lws_process_ws_upgrade()` before any auth or filter
    callback (G-489).  Any new mount gate needs a ws twin.
+ - **`lws_hdr_simple_create()` deletes the header when given an empty
+   value** (parsers.c).  h3 feeds it peer data, so an empty `:authority`
+   or `Host` reads as absent there (G-511); any new peer-data path
+   through it inherits that.
  - **An h1 wsi carries per-request state across keep-alive
    transactions**: anything set per request must be cleared in
    `lws_http_transaction_completed()` (`interpreting`, `cache_*` were not:
