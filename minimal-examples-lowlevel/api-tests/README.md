@@ -15,6 +15,7 @@ api-test-sul-wait|A loop with nothing to do but wait for its next timer sleeps u
 api-test-evlib-custom|An app's own event lib (`info->event_lib_custom`) is bound with the app's own loop object and gets every fd back at destroy; run again with `LWS_EVLIB=uv` in the environment, which must not displace it
 api-test-fts|LWS Full-text Search api
 api-test-gencrypto|LWS Generic Crypto apis
+api-test-srtp|SRTP / SRTCP (`-DLWS_WITH_WEBRTC=1`): session key derivation matches the RFC 3711 B.3 vectors and AES-CM the B.2 keystream on the TLS library in use; RTP and SRTCP round trip for SSRCs with the top bit set, the E bit is set on the SRTCP index, and tampered or replayed packets are refused (G-456)
 api-test-jose|LWS JOSE apis
 api-test-dnssec-monitor-reissue|dnssec-monitor proxy's per-cert "Force reissue": answered locally, reaches LWSSMDCL_CERTS as the documented message, non-DNS names and fqdns outside the domain refused
 api-test-dht-msg-parse|DHT RPC wire message parser, incl. hash token charset and NOTIFY domain-name gates

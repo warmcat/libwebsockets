@@ -766,7 +766,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 		a = (unsigned int)((buf[0] << 8) | buf[1]);
 		if (!a || a >= H2SET_COUNT)
 			goto skip;
-		b = (unsigned int)(buf[2] << 24 | buf[3] << 16 | buf[4] << 8 | buf[5]);
+		b = lws_ser_ru32be(buf + 2);
 
 		switch (a) {
 		case H2SET_HEADER_TABLE_SIZE:

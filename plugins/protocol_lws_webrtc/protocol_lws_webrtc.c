@@ -2651,7 +2651,7 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 		size_t rtp_len = len;
 		int ret = lws_srtp_unprotect_rtp(&pss->media->srtp_ctx_rx, (uint8_t *)in, &rtp_len);
 		if (ret == 0 && vhd->on_media) {
-			uint32_t ssrc = (uint32_t)((p[8] << 24) | (p[9] << 16) | (p[10] << 8) | p[11]);
+			uint32_t ssrc = lws_ser_ru32be(p + 8);
 			uint8_t pkt_pt = pt_raw & 0x7f;
 #if 0
 			/* Log incoming packet types intermittently */
@@ -2748,7 +2748,7 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 					lwsl_notice("%s: Forwarding RTP to on_media: PT %u, len %zu, ssrc %u\n", __func__, pkt_pt, rtp_len - offset, ssrc);
 #endif
 				/* Forward RTP packet to mixer to reassemble and push to GStreamer */
-				vhd->on_media(pss->wsi_ws, pkt_pt, (uint8_t *)in + offset, rtp_len - offset, !!(p[1] & 0x80), (uint32_t)((p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7]));
+				vhd->on_media(pss->wsi_ws, pkt_pt, (uint8_t *)in + offset, rtp_len - offset, !!(p[1] & 0x80), lws_ser_ru32be(p + 4));
 			}
 		}
 	}

@@ -192,7 +192,7 @@ lws_srtp_protect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len, size_t
 		return -1;
 
 	seq = (uint16_t)((pkt[2] << 8) | pkt[3]);
-	ssrc = (uint32_t)((pkt[8] << 24) | (pkt[9] << 16) | (pkt[10] << 8) | pkt[11]);
+	ssrc = lws_ser_ru32be(pkt + 8);
 
 	sctx = lws_srtp_get_src_ctx(ctx, ssrc, 1);
 	if (!sctx)
@@ -295,7 +295,7 @@ lws_srtp_protect_rtcp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len, size_
 	if (ctx->srtcp_index > 0x7ffffffful)
 		return -1;
 
-	ssrc = (uint32_t)((pkt[4] << 24) | (pkt[5] << 16) | (pkt[6] << 8) | pkt[7]);
+	ssrc = lws_ser_ru32be(pkt + 4);
 
 	index = ctx->srtcp_index++;
 
@@ -371,7 +371,7 @@ lws_srtp_unprotect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len)
 		return -1;
 
 	seq = (uint16_t)((pkt[2] << 8) | pkt[3]);
-	ssrc = (uint32_t)((pkt[8] << 24) | (pkt[9] << 16) | (pkt[10] << 8) | pkt[11]);
+	ssrc = lws_ser_ru32be(pkt + 8);
 
 	/*
 	 * Don't take a per-SSRC slot for an SSRC we haven't authenticated
@@ -525,12 +525,12 @@ lws_srtp_unprotect_rtcp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len)
 	if (!ctx->keys_derived || *len < 8 + 4 + tag_len)
 		return -1;
 
-	ssrc = (uint32_t)((pkt[4] << 24) | (pkt[5] << 16) | (pkt[6] << 8) | pkt[7]);
+	ssrc = lws_ser_ru32be(pkt + 4);
 
 	/* 1. Extract Index and Tag */
 	rtcp_len = *len - tag_len - 4;
 	p_index = pkt + rtcp_len;
-	srtcp_index_v = (uint32_t)((p_index[0] << 24) | (p_index[1] << 16) | (p_index[2] << 8) | p_index[3]);
+	srtcp_index_v = lws_ser_ru32be(p_index);
 	/* The E bit is the MSB of the index word */
 	int encrypted = !!(srtcp_index_v & 0x80000000);
 	srtcp_index_v &= 0x7FFFFFFF;

@@ -92,7 +92,7 @@ lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len, size
 	/* Long Header (Form = 1) */
 	type = (buf[0] & 0x30) >> 4;
 
-	uint32_t version = (uint32_t)((buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4]);
+	uint32_t version = lws_ser_ru32be(buf + 1);
 	if (version == LWS_QUIC_VERSION_2) {
 		if (type == 1) type = 0;
 		else if (type == 0) type = 3;
