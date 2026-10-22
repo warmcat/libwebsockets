@@ -27,6 +27,12 @@
  *  - with one peer's UA invalid UTF-8 and another's 200 '"' (escaping to
  *    1200 chars), every status message is valid UTF-8 and parses as JSON
  *
+ * dumb-increment sends each connection a number every 50ms
+ *
+ *  - with connections whose timers are spread over the period, each one
+ *    gets about 20 numbers a second, not 20 times the number of
+ *    connections
+ *
  * The test fails if any of that doesn't happen, or it doesn't all complete
  * in time.
  */
@@ -38,10 +44,16 @@
 #define LWS_PLUGIN_STATIC
 #include "../../../plugins/protocol_lws_mirror/protocol_lws_mirror.c"
 #include "../../../plugins/protocol_lws_status/protocol_lws_status.c"
+#include "../../../plugins/protocol_dumb_increment/protocol_dumb_increment.c"
 
 /* every named instance there may be, plus one more that is refused */
 #define DPT_NAMED		(MIRROR_MAX_NAMED_INSTANCES + 1)
 #define DPT_STATUS		3
+#define DPT_DUMB		10
+/* dumb-increment sends one number per 50ms: 20 a second */
+#define DPT_DUMB_STAGGER_US	(5 * LWS_US_PER_MS)
+#define DPT_DUMB_MIN		5
+#define DPT_DUMB_MAX		35
 #define DPT_BIG_LEN		(MIRROR_MAX_MESSAGE + 1000)
 
 /* the connections, by index in conns[] */
@@ -52,8 +64,9 @@ enum {
 	DPT_C_DEFAULT,			/* mirror: default instance, idle */
 	DPT_C_NAMED,			/* mirror: named instances, idle */
 	DPT_C_STATUS = DPT_C_NAMED + DPT_NAMED,
+	DPT_C_DUMB = DPT_C_STATUS + DPT_STATUS,
 
-	DPT_C_COUNT = DPT_C_STATUS + DPT_STATUS
+	DPT_C_COUNT = DPT_C_DUMB + DPT_DUMB
 };
 
 enum {
@@ -64,6 +77,9 @@ enum {
 	DPT_P_MIRROR_CHECK,
 	DPT_P_STATUS,
 	DPT_P_STATUS_CHECK,
+	DPT_P_DUMB,
+	DPT_P_DUMB_COUNT,
+	DPT_P_DUMB_CHECK,
 
 	DPT_P_DONE
 };
@@ -86,7 +102,7 @@ struct dpt_conn {
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
-static lws_sorted_usec_list_t sul_phase, sul_timeout;
+static lws_sorted_usec_list_t sul_phase, sul_timeout, sul_dumb[DPT_DUMB];
 static struct dpt_conn conns[DPT_C_COUNT];
 static const char *server_address = "localhost";
 static int port = 7681, phase, result = 1, failed, interrupted;
@@ -176,6 +192,14 @@ static void
 dpt_schedule(lws_usec_t us)
 {
 	lws_sul_schedule(context, 0, &sul_phase, dpt_phase_cb, us);
+}
+
+static void
+dpt_dumb_connect_cb(lws_sorted_usec_list_t *sul)
+{
+	int n = (int)(sul - sul_dumb);
+
+	dpt_connect(DPT_C_DUMB + n, "dumb-increment-protocol", "/");
 }
 
 /*
@@ -289,6 +313,40 @@ dpt_phase_cb(lws_sorted_usec_list_t *sul)
 		dpt_schedule(1);
 		break;
 
+	case DPT_P_DUMB:
+		/*
+		 * Open the connections one at a time across the 50ms
+		 * period, so their timers are spread over it
+		 */
+		for (n = 0; n < DPT_DUMB; n++)
+			lws_sul_schedule(context, 0, &sul_dumb[n],
+					 dpt_dumb_connect_cb,
+					 n * DPT_DUMB_STAGGER_US);
+		/* the last to connect moves us on */
+		break;
+
+	case DPT_P_DUMB_COUNT:
+		/* they have all been connected a while: count for 1s */
+		for (n = 0; n < DPT_DUMB; n++)
+			conns[DPT_C_DUMB + n].msgs = 0;
+		phase++;
+		dpt_schedule(LWS_US_PER_SEC);
+		break;
+
+	case DPT_P_DUMB_CHECK:
+		for (n = 0; n < DPT_DUMB; n++) {
+			lwsl_user("dumb-increment conn %d: %d numbers in 1s\n",
+				  n, conns[DPT_C_DUMB + n].msgs);
+			if (conns[DPT_C_DUMB + n].msgs < DPT_DUMB_MIN ||
+			    conns[DPT_C_DUMB + n].msgs > DPT_DUMB_MAX) {
+				dpt_fail("dumb-increment sent the wrong amount");
+				return;
+			}
+		}
+		phase++;
+		dpt_schedule(1);
+		break;
+
 	case DPT_P_DONE:
 		result = 0;
 		interrupted = 1;
@@ -390,6 +448,11 @@ callback_dpt_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		if (idx == DPT_C_RX && conns[DPT_C_TX].est)
 			lws_callback_on_writable(conns[DPT_C_TX].wsi);
+		if (idx == DPT_C_DUMB + DPT_DUMB - 1) {
+			/* let the last one's timer get going too */
+			phase++;
+			dpt_schedule(200 * LWS_US_PER_MS);
+		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
@@ -510,6 +573,7 @@ static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	LWS_PLUGIN_PROTOCOL_MIRROR,
 	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
+	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
 	LWS_PROTOCOL_LIST_TERM
 };
 

@@ -69,6 +69,9 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
+		if (!vhd)
+			/* we never got inited on this vhost... refuse him */
+			return -1;
 		pss->number = 0;
 		if (!vhd->options || !((*vhd->options) & 1))
 			lws_set_timer_usecs(wsi, DUMB_PERIOD_US);
@@ -98,9 +101,14 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_TIMER:
-		if (!vhd->options || !((*vhd->options) & 1)) {
-			lws_callback_on_writable_all_protocol_vhost(
-				lws_get_vhost(wsi), lws_get_protocol(wsi));
+		/*
+		 * Each connection has its own timer, so it only asks for its
+		 * own WRITEABLE: one number per connection per period.  (Asking
+		 * for every connection on the vhost from every connection's
+		 * timer would send each one N numbers per period, for N^2 work)
+		 */
+		if (vhd && (!vhd->options || !((*vhd->options) & 1))) {
+			lws_callback_on_writable(wsi);
 			lws_set_timer_usecs(wsi, DUMB_PERIOD_US);
 		}
 		break;
