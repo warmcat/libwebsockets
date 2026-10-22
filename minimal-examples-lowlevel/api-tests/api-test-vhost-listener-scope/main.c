@@ -74,6 +74,11 @@
  *  --case redir-badhost:   a Host: that would make the Location point
  *                          somewhere else is refused with a 400
  *
+ * Fences G-393: in the plain-tls and redir cases, the heap lws allocated must
+ * be back where it started once the context is destroyed, where lws can count
+ * it (glibc): the tls session made at accept for a connection that turns out
+ * to be plaintext must be freed with it, by every tls backend.
+ *
  * Where 127.0.0.2 can't be listened on (it is not a loopback address on
  * every platform), the cases needing it are skipped.
  */
@@ -475,7 +480,7 @@ int main(int argc, const char **argv)
 	struct lws_vhost *vh_cli;
 	char want[64], target[64];
 	int result = 1, tls, cli_tls;
-	size_t n;
+	size_t n, heap_base;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -513,6 +518,7 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
+	heap_base = lws_get_allocated_heap();
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
@@ -707,6 +713,21 @@ bail:
 	lws_sul_cancel(&sul_watchdog);
 	lws_sul_cancel(&sul_step);
 	lws_context_destroy(context);
+
+	/*
+	 * Where lws can count its heap, everything it allocated for a
+	 * plaintext connection to a tls listener must be gone with the
+	 * context, including the tls session made for it at accept, which it
+	 * never used (G-393)
+	 */
+	if (tc->kind == VLS_K_PLAIN && lws_get_allocated_heap() != heap_base) {
+		lwsl_err("FAIL: lws heap %llu after context destroy, "
+			 "was %llu\n",
+			 (unsigned long long)lws_get_allocated_heap(),
+			 (unsigned long long)heap_base);
+		if (result != VLS_SKIP)
+			result = 1;
+	}
 
 	lwsl_user("Completed: %s\n", result == VLS_SKIP ? "SKIP" :
 					(result ? "FAIL" : "PASS"));

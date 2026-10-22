@@ -377,8 +377,18 @@ lws_tls_server_accept(struct lws *wsi)
 }
 
 
+/*
+ * The connection is not tls after all: tls-server.c found plaintext on the
+ * tls listener, and goes on with it in the clear (or closes it).  The conn
+ * made for it at accept must go now, since nothing else frees it once the
+ * caller has let go of wsi->io->tls.ssl.  No close_notify: no handshake was
+ * had, and anything written now would be the first thing the plaintext peer
+ * reads.  The caller hands back the vhost ctx ref itself.
+ */
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {
-	return LWS_SSL_CAPABLE_ERROR;
+	lws_bearssl_conn_destroy(wsi);
+
+	return LWS_SSL_CAPABLE_DONE;
 }

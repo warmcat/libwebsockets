@@ -337,12 +337,13 @@ lws_tls_conn_set_wsi(struct lws *wsi)
 #endif
 }
 
-int lws_ssl_close(struct lws *wsi)
+void
+lws_bearssl_conn_destroy(struct lws *wsi)
 {
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io->tls.ssl;
 
 	if (!conn)
-		return 0;
+		return;
 
 	if (conn->client_hostname)
 		lws_free(conn->client_hostname);
@@ -370,6 +371,14 @@ int lws_ssl_close(struct lws *wsi)
 	lws_explicit_bzero(&conn->u, sizeof(conn->u));
 	lws_free(conn);
 	wsi->io->tls.ssl = NULL;
+}
+
+int lws_ssl_close(struct lws *wsi)
+{
+	if (!wsi->io->tls.ssl)
+		return 0;
+
+	lws_bearssl_conn_destroy(wsi);
 
 	if (wsi->io->tls.ctx_ref) {
 		lws_tls_ctx_ref_unref(wsi->io->tls.ctx_ref);

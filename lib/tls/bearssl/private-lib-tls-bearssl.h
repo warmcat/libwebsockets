@@ -118,6 +118,11 @@ struct lws_x509_cert {
 typedef struct lws_x509_cert lws_tls_x509;
 
 int lws_bearssl_pump(struct lws *wsi);
+/*
+ * Free wsi's conn and everything hung off it, and NULL wsi->io->tls.ssl.  The
+ * vhost ctx ref (wsi->io->tls.ctx_ref) is left to the caller.
+ */
+void lws_bearssl_conn_destroy(struct lws *wsi);
 void lws_bearssl_x509_wrap_conn(lws_tls_conn *conn);
 int lws_tls_session_new_bearssl(struct lws *wsi);
 int lws_bearssl_set_alpn(struct lws_tls_conn *conn, const uint8_t *alpn, size_t alpn_len);
