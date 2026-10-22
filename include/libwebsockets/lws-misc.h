@@ -675,6 +675,42 @@ lws_strnncpy_size(size_t size1, size_t destsize)
 						 (size_t)(destsize)))
 
 /**
+ * lws_check_utf8(): validate a chunk of a UTF-8 byte stream
+ *
+ * \param state: decode state, start it at 0 and keep it between chunks
+ * \param buf: the chunk of bytes to check
+ * \param len: the number of bytes in \p buf
+ *
+ * Checks \p buf is valid UTF-8 (RFC 3629: no overlong forms, surrogates or
+ * code points past U+10FFFF), carrying a sequence split across chunks in
+ * \p state.  Returns 0 if everything seen so far is valid, or nonzero at the
+ * first invalid byte.
+ *
+ * A complete string is valid only if this returns 0 *and* \p state is 0
+ * afterwards: a nonzero state means it ended partway through a sequence.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_check_utf8(unsigned char *state, const unsigned char *buf, size_t len);
+
+/**
+ * lws_utf8_trim_partial(): drop an incomplete UTF-8 sequence from the end
+ *
+ * \param s: the string, which may be shortened in place
+ * \param len: the length of \p s
+ *
+ * Bounded copies and formatters like lws_strncpy() and lws_snprintf()
+ * truncate on a byte boundary, which can leave just the start of a multibyte
+ * UTF-8 sequence at the end of a valid UTF-8 string.  That is invalid UTF-8,
+ * and, eg, a browser fails a websocket TEXT frame containing it.  If \p s
+ * ends with an incomplete sequence, this removes it and NUL-terminates \p s
+ * at the new length.  It does not otherwise validate \p s.
+ *
+ * Returns the new length of \p s, which is \p len if nothing was removed.
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_utf8_trim_partial(char *s, size_t len);
+
+/**
  * lws_nstrstr(): like strstr for length-based strings without terminating NUL
  *
  * \param buf: the string to search

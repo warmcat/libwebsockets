@@ -73,7 +73,11 @@ lws_sql_purify_len(const char *p);
  * input bytes that were actually processed.
  *
  * Escaped output is always truncated on an escape boundary, so the output is
- * always syntactically valid however small \p len is.
+ * always syntactically valid however small \p len is.  When it is truncated
+ * because \p len is full, it is also truncated on a UTF-8 sequence boundary,
+ * so a valid UTF-8 input never gives invalid UTF-8 output (\p in_used then
+ * points at the start of the sequence that did not fit).  A cut made by the
+ * caller's input cap is left where the caller put it.
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_json_purify(char *escaped, const char *string, int len, int *in_used);

@@ -1493,8 +1493,6 @@ lws_plat_vhost_tls_client_ctx_init(struct lws_vhost *vhost);
 
 int
 lws_check_byte_utf8(unsigned char state, unsigned char c);
-int LWS_WARN_UNUSED_RESULT
-lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 int alloc_file(struct lws_context *context, const char *filename,
 			  uint8_t **buf, lws_filepos_t *amount);
 

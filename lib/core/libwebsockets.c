@@ -498,7 +498,7 @@ lws_check_byte_utf8(unsigned char state, unsigned char c)
 }
 
 int
-lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
+lws_check_utf8(unsigned char *state, const unsigned char *buf, size_t len)
 {
 	unsigned char s = *state;
 
@@ -525,6 +525,37 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 	*state = s;
 
 	return 0;
+}
+
+size_t
+lws_utf8_trim_partial(char *s, size_t len)
+{
+	size_t n = len, cont = 0, need;
+	unsigned char c;
+
+	/* step back over up to 3 continuation bytes to the last lead byte */
+
+	while (n && cont < 3 && ((unsigned char)s[n - 1] & 0xc0) == 0x80) {
+		n--;
+		cont++;
+	}
+
+	if (!n)
+		return len;
+
+	c = (unsigned char)s[n - 1];
+	if (c < 0xc0)
+		/* ends in ASCII, or it is not ours to judge */
+		return len;
+
+	need = c >= 0xf0 ? 4 : (c >= 0xe0 ? 3 : 2);
+	if (cont + 1 >= need)
+		/* the last sequence is complete */
+		return len;
+
+	s[n - 1] = '\0';
+
+	return n - 1;
 }
 
 
@@ -780,6 +811,31 @@ lws_json_purify_flags(char *escaped, const char *string, int len, int *in_used,
 		} else
 			*q++ = *p++;
 	}
+
+	/*
+	 * If we stopped because the output is full, rather than at the end of
+	 * the input or the caller's input cap, we may have copied only the
+	 * start of a multibyte UTF-8 sequence.  A browser fails a ws TEXT
+	 * frame holding that, so back off to the start of the sequence: every
+	 * byte >= 0x80 was copied 1:1, so the output backs off in step.
+	 */
+	if (*p && (int)(p - op) < inlim) {
+		int back = 0;
+
+		while (back < 3 && p > op &&
+		       ((unsigned char)*p & 0xc0) == 0x80) {
+			p--;
+			q--;
+			back++;
+		}
+		/* *p is now the lead byte, or the input was not UTF-8 */
+		if (((unsigned char)*p & 0xc0) != 0xc0) {
+			/* not a sequence we cut: keep what we had */
+			p += back;
+			q += back;
+		}
+	}
+
 	*q = '\0';
 
 	if (in_used)
