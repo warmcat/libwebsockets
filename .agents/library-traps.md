@@ -545,6 +545,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    opened (SS policy, lejp-conf: G-395, G-399).  lwsws can't set the
    flag (it needs keys like `".zip"`), so callbacks that write to a
    "current object" must check it exists (and is the right depth).
+   At PAIR_NAME `ctx->sp` is the depth of the object holding the key
+   (document 0, array 1, element 2); a string value adds one.  A middle
+   `*` in a match pattern stops at `.` or `[`.  `path_match` is not
+   cleared when nothing matches, so a stale match can survive into the
+   next key (policy-json.c checks depth for this, G-395).
 
 ## DHT transport sequencer
 
