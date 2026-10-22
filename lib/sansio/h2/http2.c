@@ -670,15 +670,20 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
 
-	if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
+	/*
+	 * The connection is already dead, and its GOAWAY queued.  This is the
+	 * latch, not the parser's h2n->type: that is the type of the frame
+	 * being parsed, which an ignored frame leaves at COUNT afterwards for
+	 * reasons that have nothing to do with us.
+	 */
+	if (h2n->goaway_queued)
 		return 0;
 
 	/*
 	 * A GOAWAY is only ever issued for a connection error, and the pps
 	 * handler closes the connection as soon as it has written it.  But
-	 * that's at the next POLLOUT: we are in the middle of parsing an rx
-	 * buffer that may contain many more frames, and type = COUNT only
-	 * causes the rest of the *current* frame to be ignored.
+	 * that's at the next POLLOUT: we may be in the middle of parsing an rx
+	 * buffer that may contain many more frames.
 	 *
 	 * Until the GOAWAY actually goes out, we must not keep acting on the
 	 * peer's frames.  Otherwise a peer can, eg, have us reject a broken
@@ -689,11 +694,17 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	 * Latch "this connection is dead, stop acting on the peer's frames"
 	 * before anything that can fail.  If we can't even allocate the pps to
 	 * tell him why, that is all the more reason not to carry on parsing
-	 * what he sends us.
+	 * what he sends us.  The frames that follow are ignored at their
+	 * headers for goaway_queued (lws_h2_parse_frame_header()); the rest of
+	 * a frame whose payload is coming in is ignored here, whichever stream
+	 * it is for, and whether we are called from the parser about it or
+	 * from outside the parser, eg, at POLLOUT: the connection is dead
+	 * either way.
 	 */
 
-	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 	h2n->goaway_queued = 1;
+	if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH)
+		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 
 	pps = lws_h2_new_pps(LWS_H2_PPS_GOAWAY);
 	if (!pps)
@@ -720,7 +731,12 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	if (!h2n)
 		return 0;
 
-	if (!wsi->h23_stream_carries_ws && h2n->type == LWS_H2_FRAME_TYPE_COUNT)
+	/*
+	 * The stream's own latch: one we reset already gets no other.  (Not
+	 * the parser's h2n->type, the type of the frame being parsed, which
+	 * an ignored frame leaves at COUNT afterwards.)
+	 */
+	if (wsi->h2.rst_queued)
 		return 0;
 
 	/*
@@ -729,9 +745,18 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	 * reject the peer's further HEADERS / CONTINUATION / DATA for it in
 	 * the window before the RST_STREAM is actually written -- if we can't
 	 * even queue the RST_STREAM, we need that rejection more, not less.
+	 *
+	 * The parser's frame is left alone.  Callers in the parser reset
+	 * streams at the end of a frame, when none of it is left, and a
+	 * stream closing outside the parser, eg, at POLLOUT, may do it while
+	 * a frame for another stream, or for the connection, is half
+	 * received: the rest of that frame is still to be parsed as usual.
+	 * If it is this stream's, its close deals with it (the rest of a
+	 * header block goes to the hpack sink, DATA for a stream that is gone
+	 * is consumed).
 	 */
 
-	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
+	wsi->h2.rst_queued = 1;
 	lws_h2_state(wsi, LWS_H2_STATE_CLOSED);
 
 	pps = lws_h2_new_pps(LWS_H2_PPS_RST_STREAM);

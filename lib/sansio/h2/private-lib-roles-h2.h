@@ -396,6 +396,8 @@ struct _lws_h2_related {
 	uint8_t			hdrs_oversized:1;
 	/* we said a write came after the stream ended, don't repeat it */
 	uint8_t			told_write_after_end:1;
+	/* our RST_STREAM for it is queued or sent: it gets no other */
+	uint8_t			rst_queued:1;
 	/*
 	 * Transmit-side duplicate-pseudoheader detection.  Reset to 0 at the
 	 * start of each HEADERS block build; each pseudo-header add sets its
