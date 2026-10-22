@@ -93,12 +93,14 @@
  */
 #define LWS_DHT_TS_RX_GRACE_US		(3 * LWS_US_PER_SEC)
 /*
- * Strangers, peers that spoke to us first and are not a good routing table
- * node at that endpoint, may hold at most this many of the LWS_DHT_MAX_TS
- * sequencers, so the rest are always there for peers we know and for our own
- * sends (G-525).  When the strangers' share is full and every one of them is
- * in use, the stranger whose sequencer was made longest ago is recycled for a
- * newcomer, once it is at least LWS_DHT_TS_STRANGER_MIN_AGE_US old.
+ * Strangers, peers that are not a good routing table node at that endpoint
+ * and spoke to us first, or proved a receive session with us, may hold at
+ * most this many of the LWS_DHT_MAX_TS sequencers, so the rest are always
+ * there for peers we know and for our own sends (G-525).  When the strangers'
+ * share is full and every one of them is in use, the stranger holding its
+ * slot longest is recycled for a newcomer, once that is at least
+ * LWS_DHT_TS_STRANGER_MIN_AGE_US; for our own send or a known peer, so is
+ * any receive session that old.
  */
 #define LWS_DHT_TS_STRANGERS_MAX	(LWS_DHT_MAX_TS / 2)
 #define LWS_DHT_TS_STRANGER_MIN_AGE_US	(10 * LWS_US_PER_SEC)
@@ -517,12 +519,17 @@ typedef struct lws_dht_ts {
 	uint8_t				in_cb;
 	/* when the peer's session last brought new data, see dht_ts_in_use() */
 	lws_usec_t			rx_progress;
-	/* when the sequencer was made, see dht_ts_victim() */
+	/*
+	 * since when it holds its slot for the age rule, see dht_ts_victim():
+	 * when a stranger's was made, or a peer bound a receive session on one
+	 * of ours, else 0
+	 */
 	lws_usec_t			born;
 	uint8_t				tx_ch_set:1;
 	/*
-	 * the peer spoke first, and was not a node we know at that endpoint:
-	 * it counts against LWS_DHT_TS_STRANGERS_MAX (G-525)
+	 * the peer spoke first, or proved a receive session, and was not a
+	 * node we know at that endpoint: it counts against
+	 * LWS_DHT_TS_STRANGERS_MAX (G-525)
 	 */
 	uint8_t				stranger:1;
 	/* DIAGNOSTIC (temporary): the peer's address, for the logs */
@@ -712,6 +719,7 @@ lws_dht_ts_t * lws_dht_ts_find(struct lws_dht_ctx *ctx, const struct sockaddr *s
 void lws_dht_ts_touch(lws_dht_ts_t *dts);
 void lws_dht_ts_fail(lws_dht_ts_t *dts);
 int lws_dht_ts_host_may_prove(lws_dht_ts_t *dts);
+int lws_dht_ts_session_admit(lws_dht_ts_t *dts, const lws_dht_hash_t *id);
 int dht_tx_challenge(lws_dht_ts_t *dts, const uint8_t *tid, size_t tid_len);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);

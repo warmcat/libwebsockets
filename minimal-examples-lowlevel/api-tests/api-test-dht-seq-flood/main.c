@@ -48,6 +48,14 @@
  *    more than their share, the first newcomer, younger, keeps its session,
  *    and B can still send to a new peer (G-525)
  *
+ *  - when those have gone quiet, B sends a message to each of 40 more raw
+ *    peers on 127.0.0.20 - .24, which ack it and then prove a session of
+ *    their own on the sequencer B made, and trickle new bytes.  B sent to
+ *    them first, which anyone can make it do, but they are no nodes it
+ *    knows: their sessions count against the strangers' share, so only 32
+ *    are taken, and ten seconds later the oldest gives way to a newcomer
+ *    (G-525)
+ *
  * Loopback addresses count as separate hosts, so the 4 sessions per host
  * limit doesn't apply here.  The raw sockets bind with
  * LWS_CAUDP_RANDOM_PORT: without it they set SO_REUSEADDR, and two of them
@@ -64,7 +72,7 @@
 #include <signal.h>
 
 #define FL_POLL_US	(50 * LWS_US_PER_MS)
-#define FL_DEADLINE_US	(30 * LWS_US_PER_SEC)
+#define FL_DEADLINE_US	(55 * LWS_US_PER_SEC)
 
 #define FL_MAX_TS	64	/* LWS_DHT_MAX_TS */
 #define FL_STRANGERS	32	/* LWS_DHT_TS_STRANGERS_MAX */
@@ -77,7 +85,12 @@
 #define FL_LATE		FL_HOLDERS
 #define FL_NC0		(FL_HOLDERS * 2)
 #define FL_NC1		(FL_NC0 + 1)
-#define FL_PEERS	(FL_NC1 + 1)
+/* peers B sends to first, and the newcomer that comes after them */
+#define FL_KT0		(FL_NC1 + 1)
+#define FL_KT		40
+#define FL_NC2		(FL_KT0 + FL_KT)
+#define FL_PEERS	(FL_NC2 + 1)
+#define FL_KT_MSG	16	/* B's message to each of them */
 #define FL_DUP_US	(250 * LWS_US_PER_MS)	/* how often they send */
 #define FL_PROTECT_US	(400 * LWS_US_PER_MS)
 /* LWS_DHT_TS_RX_GRACE_US, and some */
@@ -99,6 +112,10 @@ enum {
 	FL_TRICKLE,	/* the sessions bring data, then newcomer 1 comes... */
 	FL_YOUNG,	/* ... and is refused while they are young */
 	FL_AGE,		/* until the oldest is old enough: it must give way */
+	FL_KT_QUIET,	/* they all go quiet, so idle */
+	FL_KT_SEND,	/* B sends to more peers, who then prove sessions */
+	FL_KT_SHARE,	/* only the strangers' share of them are taken */
+	FL_KT_AGE,	/* and the oldest gives way after ten seconds */
 };
 
 static struct lws_context *cx;
@@ -108,7 +125,7 @@ static struct sockaddr_in sa_dht, sa_p, sa_fan, sa_spoof[FL_SPOOFERS],
 			  sa_peer[FL_PEERS];
 static lws_sorted_usec_list_t sul_poll, sul_deadline, sul_dup;
 static int state, retcode = 1, port_fan;
-static lws_usec_t flood_time, hold_time, phase_time;
+static lws_usec_t flood_time, hold_time, phase_time, kt_time;
 static uint8_t msg[512];
 
 static struct {
@@ -123,6 +140,7 @@ static struct {
 	unsigned int	p_failed:1;
 	unsigned int	sending:1;	/* the proven peers send */
 	unsigned int	trickle:1;	/* ...a new byte each time */
+	unsigned int	kt_sending:1;	/* the peers B sent to first send */
 	int		held;		/* peers proven */
 	struct {
 		uint64_t	off;	/* where the peer's next byte goes */
@@ -130,6 +148,9 @@ static struct {
 		uint8_t		proven;	/* B acked its first chunk */
 		uint8_t		gone;	/* B lost its session: quiet */
 		uint8_t		ch;	/* B challenged it */
+		uint8_t		started; /* it began a session */
+		uint8_t		tid[16]; /* B's tid for its chunks to it */
+		size_t		tid_len;
 	} p[FL_PEERS];
 } fl;
 
@@ -210,24 +231,32 @@ fl_find(const uint8_t *buf, size_t len, const char *needle)
  * which P's ack has to echo.
  */
 
-static void
-fl_p_rx(const uint8_t *buf, size_t len)
+static int
+fl_chunk_tid(const uint8_t *buf, size_t len, uint8_t *tid, size_t *tid_len)
 {
 	ssize_t at = fl_find(buf, len, "1:q4:data1:t");
 	size_t n, l = 0;
 
-	if (at < 0 || fl.tid_len)
-		return;
+	if (at < 0)
+		return 1;
 
 	for (n = (size_t)at + 12; n < len && buf[n] >= '0' && buf[n] <= '9'; n++)
 		l = (l * 10) + (size_t)(buf[n] - '0');
 
-	if (n >= len || buf[n] != ':' || !l || l > sizeof(fl.tid) ||
-	    n + 1 + l > len)
-		return;
+	if (n >= len || buf[n] != ':' || !l || l > 16 || n + 1 + l > len)
+		return 1;
 
-	memcpy(fl.tid, buf + n + 1, l);
-	fl.tid_len = l;
+	memcpy(tid, buf + n + 1, l);
+	*tid_len = l;
+
+	return 0;
+}
+
+static void
+fl_p_rx(const uint8_t *buf, size_t len)
+{
+	if (!fl.tid_len)
+		fl_chunk_tid(buf, len, fl.tid, &fl.tid_len);
 }
 
 static int
@@ -256,24 +285,33 @@ fl_sendto(struct lws *wsi, const char *q, size_t l)
 	return 0;
 }
 
-/* P's ack of B's chunks below offset: d1:rd2:id..3:len..6:offset..e1:t..e */
+/* an ack of B's chunks below offset: d1:rd2:id..3:len..6:offset..e1:t..e */
 
 static int
-fl_p_send_ack(uint64_t offset)
+fl_send_ack(struct lws *wsi, const uint8_t *tid, size_t tid_len,
+	    uint64_t offset)
 {
 	char q[160];
 	int n;
 
 	n = lws_snprintf(q, sizeof(q), "d1:rd2:id20:66666666666666666666"
 			 "3:leni0e6:offseti%llue" "e1:t%u:",
-			 (unsigned long long)offset, (unsigned int)fl.tid_len);
-	if (n <= 0 || (size_t)n + fl.tid_len + 7 > sizeof(q))
+			 (unsigned long long)offset, (unsigned int)tid_len);
+	if (n <= 0 || (size_t)n + tid_len + 7 > sizeof(q))
 		return 1;
 
-	memcpy(q + n, fl.tid, fl.tid_len);
-	memcpy(q + (size_t)n + fl.tid_len, "1:y1:re", 7);
+	memcpy(q + n, tid, tid_len);
+	memcpy(q + (size_t)n + tid_len, "1:y1:re", 7);
 
-	return fl_sendto(wsi_p, q, (size_t)n + fl.tid_len + 7);
+	return fl_sendto(wsi, q, (size_t)n + tid_len + 7);
+}
+
+/* P's ack of B's chunks below offset */
+
+static int
+fl_p_send_ack(uint64_t offset)
+{
+	return fl_send_ack(wsi_p, fl.tid, fl.tid_len, offset);
 }
 
 /*
@@ -346,6 +384,20 @@ fl_peer_rx(int i, const uint8_t *buf, size_t len)
 	ssize_t at;
 	size_t n;
 
+	/*
+	 * B's message to one of the peers it sends to first: ack it, then
+	 * open a session of its own
+	 */
+	if (!fl_chunk_tid(buf, len, fl.p[i].tid, &fl.p[i].tid_len)) {
+		fl_send_ack(wsi_peer[i], fl.p[i].tid, fl.p[i].tid_len,
+			    FL_KT_MSG);
+		if (!fl.p[i].started) {
+			fl.p[i].started = 1;
+			fl_chunk(i, NULL, 0);
+		}
+		return;
+	}
+
 	if (fl_find(buf, len, "d1:rd2:ch8:") == 0 &&
 	    len >= 11 + FL_CH_LEN) {
 		fl.p[i].ch = 1;
@@ -381,7 +433,8 @@ dup_cb(lws_sorted_usec_list_t *sul)
 	int i;
 
 	for (i = 0; i < FL_PEERS; i++)
-		if (fl.sending && fl.p[i].proven && !fl.p[i].gone)
+		if ((i >= FL_KT0 ? fl.kt_sending : fl.sending) &&
+		    fl.p[i].proven && !fl.p[i].gone)
 			fl_chunk(i, NULL, fl.trickle);
 
 	lws_sul_schedule(cx, 0, &sul_dup, dup_cb, FL_DUP_US);
@@ -469,7 +522,11 @@ step(void)
 
 	/* whatever else happens, strangers never hold more than their share */
 	if (state >= FL_HOLD) {
-		count = peers_ts(0, FL_PEERS);
+		count = peers_ts(0, FL_KT0) + has_ts(&sa_peer[FL_NC2]);
+		/* B's own sequencers count once their peer has a session */
+		for (n = FL_KT0; n < FL_NC2; n++)
+			count += fl.p[n].proven && !fl.p[n].gone &&
+				 has_ts(&sa_peer[n]);
 		if (count > FL_STRANGERS) {
 			lwsl_err("%d strangers hold sequencers\n", count);
 			return -1;
@@ -743,6 +800,79 @@ step(void)
 		if (fl_send_new(FL_MAX_TS + 1))
 			return -1;
 
+		/* the strangers so far go quiet */
+		fl.sending = 0;
+		phase_time = lws_now_usecs();
+		state++;
+		return 0;
+
+	case FL_KT_QUIET:
+		if (lws_now_usecs() - phase_time < FL_GRACE_US)
+			return 0;
+		state++;
+		return 0;
+
+	case FL_KT_SEND:
+		/* peers B sends to first, as a NOTIFY makes dht-dnssec do */
+		for (n = FL_KT0; n < FL_NC2; n++)
+			if (lws_dht_send_data(dht, (struct sockaddr *)&sa_peer[n],
+					      msg, FL_KT_MSG) !=
+							LWS_DHT_SEND_QUEUED) {
+				lwsl_err("message to peer %d refused\n", n);
+				return -1;
+			}
+		fl.kt_sending = 1;
+		kt_time = lws_now_usecs();
+		state++;
+		return 0;
+
+	case FL_KT_SHARE:
+		if (lws_now_usecs() - kt_time < 2 * LWS_US_PER_SEC)
+			return 0;
+		count = 0;
+		for (n = FL_KT0; n < FL_NC2; n++) {
+			if (!fl.p[n].started) {
+				lwsl_err("peer %d never had B's message\n", n);
+				return -1;
+			}
+			count += fl.p[n].proven;
+		}
+		lwsl_user("%d of the %d peers B sent to first have sessions\n",
+			  count, FL_KT);
+		if (count != FL_STRANGERS) {
+			lwsl_err("their sessions did not fill exactly the "
+				 "strangers' share\n");
+			return -1;
+		}
+		if (fl_send_new(FL_MAX_TS + 2))
+			return -1;
+		state++;
+		return 0;
+
+	case FL_KT_AGE:
+		if (!fl.p[FL_NC2].ch) {
+			if (lws_now_usecs() - kt_time < FL_MIN_AGE_US)
+				return 0;
+			if (lws_now_usecs() - kt_time >
+					FL_MIN_AGE_US + 2 * LWS_US_PER_SEC) {
+				lwsl_err("sessions on B's own sequencers hold "
+					 "the strangers' share for ever\n");
+				return -1;
+			}
+			return fl_chunk(FL_NC2, NULL, 0) ? -1 : 0;
+		}
+		if (!fl.p[FL_NC2].proven)
+			return 0;
+		count = 0;
+		for (n = FL_KT0; n < FL_NC2; n++)
+			count += fl.p[n].proven && !fl.p[n].gone &&
+				 has_ts(&sa_peer[n]);
+		if (count >= FL_STRANGERS) {
+			lwsl_err("no session on B's own sequencers gave way\n");
+			return -1;
+		}
+		lwsl_user("the oldest of them gave way to a newcomer\n");
+
 		return 1;
 	}
 
@@ -904,14 +1034,16 @@ int main(int argc, const char **argv)
 	}
 
 	/*
-	 * the holders, 8 to a loopback address, the late ones after them, and
-	 * the newcomers
+	 * the holders, 8 to a loopback address, the late ones after them, the
+	 * newcomers, and the peers B sends to first
 	 */
 	for (n = 0; n < FL_PEERS; n++) {
 		char ads[16];
 
 		lws_snprintf(ads, sizeof(ads), "127.0.0.%d",
-			     n < FL_NC0 ? 4 + (n / 8) : 12 + n - FL_NC0);
+			     n < FL_NC0 ? 4 + (n / 8) :
+			     n < FL_KT0 ? 12 + n - FL_NC0 :
+			     n < FL_NC2 ? 20 + (n - FL_KT0) / 8 : 30);
 		wsi_peer[n] = fl_socket(vh, ads, "fl-hold", &sa_peer[n]);
 		if (!wsi_peer[n])
 			goto bail;

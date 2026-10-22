@@ -838,21 +838,24 @@ static const lws_retry_bo_t dht_retry_policy = {
  * (dht_ts_in_use()), and one host can only hold a few proven sessions
  * (lws_dht_ts_host_may_prove()).
  *
- * But a stranger, a peer that spoke first and is not a node we know at that
- * endpoint, can keep its session bringing new data for as long as it likes,
- * a byte at a time, and enough hosts doing that held every slot, so that no
- * transfer could start in either direction (G-525).  So strangers together
- * may only hold LWS_DHT_TS_STRANGERS_MAX of the table, and a stranger can
- * only make room in that share, never in the rest, which is for peers we
- * know and for our own sends.  When there is nothing idle to recycle, the
- * stranger whose sequencer was made longest ago gives way to the newcomer,
- * in use or not, once it is LWS_DHT_TS_STRANGER_MIN_AGE_US old: a trickle
- * holds a slot for a while, not for ever, and a real transfer from a
- * stranger has that long to complete before it can be made to start again.
- * Ending one that holds data of ours goes through dht_ts_retire(), so the
- * consumer hears WRITE_FAILED for it.  Only when there is no victim is the
- * newcomer refused: an inbound chunk is dropped unanswered, and
- * lws_dht_send_data() returns LWS_DHT_SEND_REFUSED.
+ * But a peer can keep its receive session bringing new data for as long as
+ * it likes, a byte at a time, and enough hosts doing that held every slot,
+ * so that no transfer could start in either direction (G-525).  So a
+ * stranger, a peer that is not a node we know at that endpoint and spoke
+ * first or proved a receive session (lws_dht_ts_session_admit()), whoever
+ * made the sequencer, may only hold a slot in the strangers' share,
+ * LWS_DHT_TS_STRANGERS_MAX of the table, and can only make room there; the
+ * rest is for peers we know and our own sends.  When there is nothing idle
+ * to recycle, the stranger holding its slot longest gives way to the
+ * newcomer, in use or not, once that is LWS_DHT_TS_STRANGER_MIN_AGE_US; for
+ * our own send or a known peer, so does any peer's receive session that old,
+ * so a peer that keeps itself a good node can't keep slots for ever either.
+ * A trickle holds a slot for a while, not for ever, and a real transfer has
+ * that long to complete before it can be made to start again.  Ending one
+ * that holds data of ours goes through dht_ts_retire(), so the consumer
+ * hears WRITE_FAILED for it.  Only when there is no victim is the newcomer
+ * refused: an inbound chunk is dropped unanswered, and lws_dht_send_data()
+ * returns LWS_DHT_SEND_REFUSED.
  *
  * `unproven` is set when the peer spoke first and is not a node we know at
  * that endpoint, ie, for a stranger: then the sequencer also sends it each
@@ -876,18 +879,22 @@ dht_ts_count_strangers(struct lws_dht_ctx *ctx)
 }
 
 /*
- * The sequencer to recycle for a newcomer, from strangers' only if
- * `strangers`, or NULL if none may be.  The least recently used one that is
- * not in use, unproven before proven, else the oldest stranger old enough.
- * A sequencer calling back into the consumer is never one, even when it is
- * the stalest: the callback may be what is creating this one, and the
- * sequencer still has its caller on the stack (G-181).
+ * The sequencer to recycle for a newcomer, or NULL if none may be, never
+ * `but`.  The least recently used one that is not in use, unproven before
+ * proven, from strangers' only if `strangers`; else the stranger holding its
+ * slot longest, once that is LWS_DHT_TS_STRANGER_MIN_AGE_US; else, if
+ * `sessions`, any peer's receive session that old.  A sequencer calling back
+ * into the consumer is never one, even when it is the stalest: the callback
+ * may be what is creating this one, and the sequencer still has its caller
+ * on the stack (G-181).
  */
 
 static lws_dht_ts_t *
-dht_ts_victim(struct lws_dht_ctx *ctx, int strangers)
+dht_ts_victim(struct lws_dht_ctx *ctx, int strangers, int sessions,
+	      const lws_dht_ts_t *but)
 {
-	lws_dht_ts_t *oldest = NULL;
+	lws_dht_ts_t *oldest = NULL, *oldest_s = NULL;
+	lws_usec_t now = lws_now_usecs();
 	int pass;
 
 	for (pass = 0; pass < 2; pass++)
@@ -896,28 +903,93 @@ dht_ts_victim(struct lws_dht_ctx *ctx, int strangers)
 			lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t,
 							   list);
 
-			if ((!strangers || c->stranger) &&
+			if (c != but && (!strangers || c->stranger) &&
 			    (pass || !c->rx_tid_len) && !dht_ts_in_use(c))
 				return c;
 		} lws_end_foreach_dll(d);
 
+	/* born is set for strangers, and for any peer's receive session */
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&ctx->ts_owner)) {
 		lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t, list);
 
-		if (c->stranger && !c->in_cb &&
-		    (!oldest || c->born < oldest->born))
-			oldest = c;
+		if (c == but || c->in_cb || !c->born)
+			continue;
+
+		if (c->stranger) {
+			if (!oldest || c->born < oldest->born)
+				oldest = c;
+		} else
+			if (c->rx_tid_len && (!oldest_s ||
+					      c->born < oldest_s->born))
+				oldest_s = c;
 	} lws_end_foreach_dll(d);
 
-	if (oldest &&
-	    lws_now_usecs() - oldest->born >= LWS_DHT_TS_STRANGER_MIN_AGE_US) {
+	if (oldest && now - oldest->born >= LWS_DHT_TS_STRANGER_MIN_AGE_US) {
 		lwsl_notice("%s: recycling the oldest stranger's sequencer,"
 			    " %s\n", __func__, oldest->peer);
 		return oldest;
 	}
 
+	if (sessions && oldest_s &&
+	    now - oldest_s->born >= LWS_DHT_TS_STRANGER_MIN_AGE_US) {
+		lwsl_notice("%s: recycling the oldest receive session's "
+			    "sequencer, %s\n", __func__, oldest_s->peer);
+		return oldest_s;
+	}
+
 	return NULL;
+}
+
+/*
+ * The peer is proving a receive session on dts: may it?  Whoever made the
+ * sequencer, a session the peer opens toward us is a stranger's unless the
+ * peer is a good routing table node at that endpoint, and needs room in the
+ * strangers' share, or it is refused (G-525).  Otherwise a peer we once sent
+ * to, which anyone can make us do (eg, a NOTIFY makes dht-dnssec fetch from
+ * the notifier), kept its slot for as long as it trickled data.  From now,
+ * the session also counts for the age rule.  Returns nonzero to refuse it.
+ */
+
+int
+lws_dht_ts_session_admit(lws_dht_ts_t *dts, const lws_dht_hash_t *id)
+{
+	struct lws_dht_ctx *ctx = dts->ctx;
+	int r = 0;
+
+	if (dts->stranger ||
+	    lws_dht_peer_known(ctx, id, (const struct sockaddr *)&dts->sa)) {
+		if (!dts->born)
+			dts->born = lws_now_usecs();
+
+		return 0;
+	}
+
+	/* what retiring calls back may send, but must not take dts */
+	dts->in_cb++;
+	while (dht_ts_count_strangers(ctx) >= LWS_DHT_TS_STRANGERS_MAX) {
+		lws_dht_ts_t *victim = dht_ts_victim(ctx, 1, 0, dts);
+
+		if (!victim) {
+			r = 1;
+			break;
+		}
+
+		dht_ts_retire(victim);
+	}
+	dts->in_cb--;
+
+	if (r) {
+		lwsl_dht_warn("%s: strangers' share of the sequencer table full"
+			      " of sessions in use, refusing %s's\n", __func__,
+			      dts->peer);
+		return 1;
+	}
+
+	dts->stranger = 1;
+	dts->born = lws_now_usecs();
+
+	return 0;
 }
 
 static struct lws_transport_sequencer *
@@ -940,7 +1012,7 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	 */
 	while (unproven &&
 	       dht_ts_count_strangers(ctx) >= LWS_DHT_TS_STRANGERS_MAX) {
-		lws_dht_ts_t *victim = dht_ts_victim(ctx, 1);
+		lws_dht_ts_t *victim = dht_ts_victim(ctx, 1, 0, NULL);
 
 		if (!victim) {
 			lwsl_dht_warn("%s: strangers' share of the sequencer "
@@ -952,8 +1024,12 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 		dht_ts_retire(victim);
 	}
 
+	/*
+	 * A stranger may not push out a known peer's session, but our own send
+	 * or a known peer may push out any session that is old enough
+	 */
 	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
-		lws_dht_ts_t *victim = dht_ts_victim(ctx, 0);
+		lws_dht_ts_t *victim = dht_ts_victim(ctx, 0, !unproven, NULL);
 
 		if (!victim) {
 			lwsl_dht_warn("%s: sequencer table full of sessions in "
@@ -981,7 +1057,8 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 
 	dts->ctx = ctx;
 	dts->salen = salen;
-	dts->born = lws_now_usecs();
+	/* a sequencer of ours is only held from when the peer binds a session */
+	dts->born = unproven ? lws_now_usecs() : 0;
 	dts->stranger = !!unproven;
 	memcpy(&dts->sa, dest, salen);
 

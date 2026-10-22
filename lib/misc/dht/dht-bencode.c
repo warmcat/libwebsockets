@@ -1089,6 +1089,12 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 			return;
 		}
 
+		/* ...nor take more than strangers may (G-525) */
+		if (lws_dht_ts_session_admit(dts, mp->id)) {
+			ctx->stats_current.rx_drops++;
+			return;
+		}
+
 		lwsl_dht_rx_warn("%s: %s proved a %s session, its chunk at "
 				 "%llu\n", __func__, dts->peer,
 				 dts->rx_tid_len ? "new" : "first",
