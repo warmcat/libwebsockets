@@ -22,8 +22,18 @@
  * in ./docroot with a protocol using lws_chunked_html_process(), and the
  * lws client gets a page of variables over h1 (chunked) and h2 (prior
  * knowledge), in lumps a small serv_buf cuts wherever it falls, and an
- * empty page, which on h1 must still be a whole chunked body.  Run it with
- * the test directory as the cwd.
+ * empty page, which on h1 must still be a whole chunked body.
+ *
+ * Last, on one h1 keep-alive connection, an interpreted page and then a POST
+ * to /raw, a callback mount whose protocol has no per-session data, which
+ * answers with the same file through lws_serve_http_file().  That file is
+ * nothing to do with the interpreter: it must come back untransformed, with
+ * the Content-Length of the file, and without the page mount's caching
+ * policy.  The interpreter, and the caching, of the first transaction used
+ * to carry over to the second, which had the interpreter's callback run with
+ * the other protocol's (NULL) user_space (G-493).
+ *
+ * Run it with the test directory as the cwd.
  */
 
 #include <libwebsockets.h>
@@ -264,13 +274,48 @@ static const struct lws_protocol_vhost_options interpret = {
 	NULL, NULL, ".html", "interp"
 };
 
+/*
+ * /raw: answers with ./docroot/page.html as it is, from its callback.  It
+ * has no per-session data, so its user_space is NULL.
+ */
+static int
+callback_raw_file(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	int n;
+
+	if (reason != LWS_CALLBACK_HTTP)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	n = lws_serve_http_file(wsi, "./docroot/page.html", "text/html",
+				NULL, 0);
+	if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
+		return -1;
+
+	return 0;
+}
+
+static const struct lws_http_mount mount_raw = {
+	.mountpoint		= "/raw",
+	.origin			= "rawfile",
+	.protocol		= "rawfile",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 4,
+};
+
+/* the pages may be cached, the file /raw sends is nothing to do with that */
+#define PAGE_MAX_AGE	"max-age=600"
+
 static const struct lws_http_mount mount = {
+	.mount_next		= &mount_raw,
 	.mountpoint		= "/",
 	.origin			= "./docroot",
 	.def			= "page.html",
 	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 1,
 	.interpret		= &interpret,
+	.cache_max_age		= 600,
+	.cache_reusable		= 1,
 };
 
 static void
@@ -397,15 +442,298 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/*
+ * The keep-alive sequence, by a raw client so it is two transactions on one
+ * connection, whose answers it frames itself from the bytes it receives
+ */
+
+static struct {
+	char		rx[2 * PAGE_UNITS * sizeof(PAGE_UNIT) + 2048];
+	char		body[PAGE_UNITS * sizeof(PAGE_UNIT)];
+	size_t		rx_len;
+	size_t		body_len;
+	int		step;
+	int		done;
+} ka;
+
+static void
+ka_finish(const char *why)
+{
+	if (ka.done)
+		return;
+	ka.done = 1;
+
+	if (why) {
+		lwsl_err("--- h1 keep-alive, interpreted page then /raw: "
+			 "FAIL: %s ---\n", why);
+		lws_default_loop_exit(context);
+		return;
+	}
+
+	lwsl_user("--- h1 keep-alive, interpreted page then /raw: PASS ---\n");
+	result = 0;
+	lws_default_loop_exit(context);
+}
+
+/* a header name or token, ignoring case, portably */
+static int
+ka_caseeq(const char *a, const char *b, size_t n)
+{
+	while (n--) {
+		char x = *a++, y = *b++;
+
+		if (x >= 'A' && x <= 'Z')
+			x = (char)(x + ('a' - 'A'));
+		if (y >= 'A' && y <= 'Z')
+			y = (char)(y + ('a' - 'A'));
+		if (x != y)
+			return 0;
+	}
+
+	return 1;
+}
+
+/* the value of a header in a response head, or NULL */
+static const char *
+ka_hdr(const char *head, size_t head_len, const char *name, size_t *vlen)
+{
+	size_t nl = strlen(name), n;
+
+	for (n = 0; n + 2 + nl < head_len; n++)
+		if (head[n] == '\n' && ka_caseeq(head + n + 1, name, nl)) {
+			const char *v = head + n + 1 + nl, *e;
+
+			while (*v == ' ')
+				v++;
+			e = v;
+			while (e < head + head_len && *e != '\r')
+				e++;
+			*vlen = (size_t)(e - v);
+
+			return v;
+		}
+
+	return NULL;
+}
+
+/*
+ * Is there a whole response at the start of ka.rx?  0 if not yet, -1 if it
+ * is broken, else the length of it, with its body in ka.body and its head
+ * left at the start of ka.rx
+ */
+static int
+ka_response(size_t *head_len, int *status)
+{
+	const char *p = ka.rx, *end = ka.rx + ka.rx_len, *hd, *v;
+	size_t vlen, cl = 0;
+
+	hd = NULL;
+	for (v = p; v + 4 <= end; v++)
+		if (!memcmp(v, "\r\n\r\n", 4)) {
+			hd = v + 4;
+			break;
+		}
+	if (!hd)
+		return 0;
+
+	*head_len = (size_t)(hd - p);
+	if (*head_len < 12 || strncmp(p, "HTTP/1.1 ", 9))
+		return -1;
+	*status = atoi(p + 9);
+	ka.body_len = 0;
+
+	v = ka_hdr(p, *head_len, "transfer-encoding:", &vlen);
+	if (v && vlen == 7 && ka_caseeq(v, "chunked", 7)) {
+		p = hd;
+		while (1) {
+			char *ep;
+			long sz = strtol(p, &ep, 16);
+
+			if (ep == p || sz < 0)
+				return p < end ? -1 : 0;
+			if (ep + 2 > end)
+				return 0;
+			if (memcmp(ep, "\r\n", 2))
+				return -1;
+			p = ep + 2;
+			if ((size_t)(end - p) < (size_t)sz + 2)
+				return 0;
+			if (ka.body_len + (size_t)sz > sizeof(ka.body))
+				return -1;
+			memcpy(ka.body + ka.body_len, p, (size_t)sz);
+			ka.body_len += (size_t)sz;
+			p += sz;
+			if (memcmp(p, "\r\n", 2))
+				return -1;
+			p += 2;
+			if (!sz)
+				return (int)(p - ka.rx);
+		}
+	}
+
+	v = ka_hdr(p, *head_len, "content-length:", &vlen);
+	if (!v)
+		return -1;
+	cl = (size_t)atol(v);
+	if (cl > sizeof(ka.body))
+		return -1;
+	if ((size_t)(end - hd) < cl)
+		return 0;
+	memcpy(ka.body, hd, cl);
+	ka.body_len = cl;
+
+	return (int)(hd + cl - ka.rx);
+}
+
+static int
+ka_send(struct lws *wsi)
+{
+	uint8_t buf[LWS_PRE + 256];
+	int n;
+
+	n = lws_snprintf((char *)&buf[LWS_PRE], sizeof(buf) - LWS_PRE,
+			 ka.step ? "POST /raw HTTP/1.1\r\nHost: ka\r\n"
+				   "Content-Length: 0\r\n"
+				   "Connection: close\r\n\r\n" :
+				   "GET /page.html HTTP/1.1\r\nHost: ka\r\n\r\n");
+
+	return lws_write(wsi, &buf[LWS_PRE], (size_t)n, LWS_WRITE_RAW) != n;
+}
+
+/* the whole answer to the current step is at the start of ka.rx */
+static const char *
+ka_check(size_t head_len, int status)
+{
+	const char *cc;
+	char ccv[64];
+	size_t n, vlen;
+
+	if (status != HTTP_STATUS_OK)
+		return "not served";
+
+	if (!ka.step) {
+		/* the page, interpreted */
+		if (ka.body_len != PAGE_UNITS * (sizeof(PAGE_OUT) - 1))
+			return "the page came out the wrong length";
+		for (n = 0; n < PAGE_UNITS; n++)
+			if (memcmp(ka.body + n * (sizeof(PAGE_OUT) - 1),
+				   PAGE_OUT, sizeof(PAGE_OUT) - 1))
+				return "the page came out wrong";
+
+		return NULL;
+	}
+
+	/* the file /raw sent, as it is */
+	if (ka.body_len != PAGE_UNITS * (sizeof(PAGE_UNIT) - 1))
+		return "/raw's file came out the wrong length";
+	for (n = 0; n < PAGE_UNITS; n++)
+		if (memcmp(ka.body + n * (sizeof(PAGE_UNIT) - 1), PAGE_UNIT,
+			   sizeof(PAGE_UNIT) - 1))
+			return "/raw's file was interpreted";
+
+	cc = ka_hdr(ka.rx, head_len, "cache-control:", &vlen);
+	if (cc) {
+		lws_strnncpy(ccv, cc, vlen, sizeof(ccv));
+		if (strstr(ccv, PAGE_MAX_AGE))
+			return "/raw's file went with the page mount's caching";
+	}
+
+	return NULL;
+}
+
+static int
+callback_ka(struct lws *wsi, enum lws_callback_reasons reason,
+	    void *user, void *in, size_t len)
+{
+	const char *why;
+	size_t head_len;
+	int status, n;
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		ka_finish(in ? (const char *)in : "raw connection error");
+		break;
+
+	case LWS_CALLBACK_RAW_CONNECTED:
+		return ka_send(wsi) ? -1 : 0;
+
+	case LWS_CALLBACK_RAW_RX:
+		if (ka.rx_len + len >= sizeof(ka.rx)) {
+			ka_finish("too much came back");
+			return -1;
+		}
+		memcpy(ka.rx + ka.rx_len, in, len);
+		ka.rx_len += len;
+		ka.rx[ka.rx_len] = '\0';
+
+		n = ka_response(&head_len, &status);
+		if (!n)
+			return 0;
+		if (n < 0) {
+			ka_finish("broken response");
+			return -1;
+		}
+
+		why = ka_check(head_len, status);
+		if (why) {
+			ka_finish(why);
+			return -1;
+		}
+		if (ka.step++) {
+			ka_finish(NULL);
+			return -1;
+		}
+
+		/* the next request goes on the same connection */
+		if ((size_t)n != ka.rx_len) {
+			ka_finish("more came back than the answer");
+			return -1;
+		}
+		ka.rx_len = 0;
+
+		return ka_send(wsi) ? -1 : 0;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		ka_finish("connection closed before both were answered");
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static void
+ka_start(void)
+{
+	struct lws_client_connect_info i;
+
+	memset(&ka, 0, sizeof(ka));
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_cli;
+	i.address		= server_addr;
+	i.host			= server_addr;
+	i.port			= port_h1;
+	i.method		= "RAW";
+	i.local_protocol_name	= "ka";
+
+	if (!lws_client_connect_via_info(&i))
+		ka_finish("connect failed");
+}
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	{ "interp", callback_interp, sizeof(struct lws_process_html_state),
 	  0, 0, NULL, 0 },
+	{ "rawfile", callback_raw_file, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "cli", callback_cli, 0, 0, 0, NULL, 0 },
+	{ "ka", callback_ka, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -416,8 +744,8 @@ next_case(lws_sorted_usec_list_t *sul)
 	const struct xcase *c;
 
 	if (++cur == (int)LWS_ARRAY_SIZE(cases)) {
-		result = 0;
-		lws_default_loop_exit(context);
+		/* the keep-alive sequence decides the result */
+		ka_start();
 		return;
 	}
 	c = &cases[cur];

@@ -33,6 +33,18 @@ with prior knowledge:
 |`page.html`, a unit with two variables 150 times|200, every unit with its variables replaced|
 |`empty.html`, empty|200, an empty body (on h1 not announced as chunked, since no last-chunk would follow)|
 
+Last, a raw client sends two requests on one h1 keep-alive connection:
+`page.html`, then a `POST` to `/raw`, a callback mount whose protocol has no
+per-session data and answers with the same file by `lws_serve_http_file()`.
+The interpreter, and the caching policy, of the first transaction used to
+carry over to the second, and the interpreter's callback ran with the other
+protocol's NULL user_space.
+
+|request|expected|
+|---|---|
+|`GET /page.html`|200, chunked, every unit with its variables replaced|
+|then `POST /raw`|200, the file as it is with its `Content-Length`, and no `max-age` from the page mount|
+
 ## running it
 
 Run it with the test directory as the cwd, it serves `./docroot`.

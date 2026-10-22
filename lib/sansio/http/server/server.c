@@ -4557,6 +4557,30 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->http.did_stream_close = 0;
 	/* serving the 404 document was this transaction's, not the next's */
 	wsi->handling_404 = 0;
+	/*
+	 * So was the interpreter of the file it served, if any: a file the
+	 * next request has served from a callback, with lws_serve_http_file(),
+	 * was given to this one's interpreter protocol's callback with the
+	 * user_space of whatever protocol is bound then (G-493)
+	 */
+	wsi->interpreting = 0;
+	wsi->protocol_interpret_idx = 0;
+	/*
+	 * ... and the caching policy of the mount it was served from, which
+	 * only some requests' dispatch sets: a file the next request has
+	 * served from a callback went out with this one's Cache-Control
+	 */
+	wsi->cache_secs = 0;
+	wsi->cache_reuse = 0;
+	wsi->cache_revalidate = 0;
+	wsi->cache_no = 0;
+	wsi->cache_intermediaries = 0;
+	/*
+	 * ... and the mount's own response headers, which only the http gates
+	 * set: an h1 upgrade, or a request refused before the gates, was
+	 * answered with this one's mount's
+	 */
+	wsi->http.mount_specific_headers = NULL;
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->stream.access_log.sent = 0;
 #endif
