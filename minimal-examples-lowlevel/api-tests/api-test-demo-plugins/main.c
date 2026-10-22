@@ -22,6 +22,11 @@
  *  - idle connections holding every named instance there may be can't keep
  *    anyone out of the default instance
  *
+ * lws-status shows every connection's User-Agent to every viewer
+ *
+ *  - with one peer's UA invalid UTF-8 and another's 200 '"' (escaping to
+ *    1200 chars), every status message is valid UTF-8 and parses as JSON
+ *
  * The test fails if any of that doesn't happen, or it doesn't all complete
  * in time.
  */
@@ -32,9 +37,11 @@
 
 #define LWS_PLUGIN_STATIC
 #include "../../../plugins/protocol_lws_mirror/protocol_lws_mirror.c"
+#include "../../../plugins/protocol_lws_status/protocol_lws_status.c"
 
 /* every named instance there may be, plus one more that is refused */
 #define DPT_NAMED		(MIRROR_MAX_NAMED_INSTANCES + 1)
+#define DPT_STATUS		3
 #define DPT_BIG_LEN		(MIRROR_MAX_MESSAGE + 1000)
 
 /* the connections, by index in conns[] */
@@ -44,8 +51,9 @@ enum {
 	DPT_C_BIG,			/* mirror: sends a too-large message */
 	DPT_C_DEFAULT,			/* mirror: default instance, idle */
 	DPT_C_NAMED,			/* mirror: named instances, idle */
+	DPT_C_STATUS = DPT_C_NAMED + DPT_NAMED,
 
-	DPT_C_COUNT = DPT_C_NAMED + DPT_NAMED
+	DPT_C_COUNT = DPT_C_STATUS + DPT_STATUS
 };
 
 enum {
@@ -54,12 +62,15 @@ enum {
 	DPT_P_MIRROR_SPLIT,
 	DPT_P_MIRROR_BIG,
 	DPT_P_MIRROR_CHECK,
+	DPT_P_STATUS,
+	DPT_P_STATUS_CHECK,
 
 	DPT_P_DONE
 };
 
 struct dpt_conn {
 	struct lws		*wsi;
+	const char		*ua;
 	char			path[48];
 	uint8_t			msg[8192];	/* message being reassembled */
 	size_t			msg_len;
@@ -79,6 +90,7 @@ static lws_sorted_usec_list_t sul_phase, sul_timeout;
 static struct dpt_conn conns[DPT_C_COUNT];
 static const char *server_address = "localhost";
 static int port = 7681, phase, result = 1, failed, interrupted;
+static char ua_quotes[201];
 
 /* sent as two fragments, split inside the "€" (e2 82 ac) */
 static const char split1[] = "d #000 1 2 3 4;\xe2\x82",
@@ -251,6 +263,32 @@ dpt_phase_cb(lws_sorted_usec_list_t *sul)
 		dpt_schedule(1);
 		break;
 
+	case DPT_P_STATUS:
+		conns[DPT_C_STATUS].ua = "\xff\xfe";
+		conns[DPT_C_STATUS + 1].ua = ua_quotes;
+		/* DPT_C_STATUS + 2 sends no UA */
+		for (n = 0; n < DPT_STATUS; n++)
+			if (dpt_connect(DPT_C_STATUS + n, "lws-status", "/"))
+				return;
+		/* the last viewer moves us on when it sees all three */
+		break;
+
+	case DPT_P_STATUS_CHECK:
+		for (n = 0; n < DPT_STATUS; n++)
+			if (conns[DPT_C_STATUS + n].bad ||
+			    conns[DPT_C_STATUS + n].closed) {
+				lwsl_err("status conn %d: msgs %d, bad %d, "
+					 "closed %d\n", n,
+					 conns[DPT_C_STATUS + n].msgs,
+					 conns[DPT_C_STATUS + n].bad,
+					 conns[DPT_C_STATUS + n].closed);
+				dpt_fail("invalid status message");
+				return;
+			}
+		phase++;
+		dpt_schedule(1);
+		break;
+
 	case DPT_P_DONE:
 		result = 0;
 		interrupted = 1;
@@ -265,23 +303,54 @@ dpt_timeout_cb(lws_sorted_usec_list_t *sul)
 	dpt_fail("timed out");
 }
 
+#if defined(LWS_WITH_LEJP)
+static signed char
+dpt_lejp_cb(struct lejp_ctx *ctx, char reason)
+{
+	return 0;
+}
+#endif
+
 /* is a complete message received on c acceptable? */
 
 static int
 dpt_msg_bad(struct dpt_conn *c)
 {
+	int idx = (int)(c - conns);
 	unsigned char st = 0;
 
 	if (c->msg_overflow)
 		return 1;
 
 	if (c->msg_binary)
-		/* BINARY may hold anything */
-		return 0;
+		/* BINARY may hold anything, but no status message is BINARY */
+		return idx >= DPT_C_STATUS && idx < DPT_C_STATUS + DPT_STATUS;
 
 	if (lws_check_utf8(&st, c->msg, c->msg_len) || st) {
 		lwsl_err("%s: invalid UTF-8\n", __func__);
 		return 1;
+	}
+
+	if (idx >= DPT_C_STATUS && idx < DPT_C_STATUS + DPT_STATUS) {
+#if defined(LWS_WITH_LEJP)
+		struct lejp_ctx ctx;
+		int m;
+
+		lejp_construct(&ctx, dpt_lejp_cb, NULL, NULL, 0);
+		m = lejp_parse(&ctx, c->msg, (int)c->msg_len);
+		lejp_destruct(&ctx);
+		if (m < 0) {
+			lwsl_err("%s: status JSON doesn't parse: %d\n",
+				 __func__, m);
+			return 1;
+		}
+#else
+		if (memchr(c->msg, '\0', c->msg_len) || c->msg_len < 2 ||
+		    memcmp(c->msg + c->msg_len - 2, "]}", 2)) {
+			lwsl_err("%s: status JSON not closed\n", __func__);
+			return 1;
+		}
+#endif
 	}
 
 	return 0;
@@ -300,6 +369,18 @@ callback_dpt_client(struct lws *wsi, enum lws_callback_reasons reason,
 	idx = (int)(c - conns);
 
 	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		if (c->ua) {
+			unsigned char **p = (unsigned char **)in;
+
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_USER_AGENT,
+					(const unsigned char *)c->ua,
+					(int)strlen(c->ua), p, (*p) + len))
+				return -1;
+		}
+		break;
+
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		c->est = 1;
 		if (idx == DPT_C_TX || idx == DPT_C_BIG) {
@@ -387,6 +468,17 @@ callback_dpt_client(struct lws *wsi, enum lws_callback_reasons reason,
 			phase++;
 			dpt_schedule(300 * LWS_US_PER_MS);
 		}
+
+		if (idx == DPT_C_STATUS + DPT_STATUS - 1 &&
+		    phase == DPT_P_STATUS &&
+		    c->msg_len < sizeof(c->msg) - 1) {
+			c->msg[c->msg_len] = '\0';
+			if (strstr((const char *)c->msg, "\"wsi\":\"3\"")) {
+				/* let the others finish theirs too */
+				phase++;
+				dpt_schedule(300 * LWS_US_PER_MS);
+			}
+		}
 		break;
 
 	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
@@ -417,6 +509,7 @@ callback_dpt_client(struct lws *wsi, enum lws_callback_reasons reason,
 static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	LWS_PLUGIN_PROTOCOL_MIRROR,
+	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -450,6 +543,8 @@ main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS API selftest: demo protocol plugins\n");
+
+	memset(ua_quotes, '\"', sizeof(ua_quotes) - 1);
 
 	context = lws_create_context(&info);
 	if (!context) {

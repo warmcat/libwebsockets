@@ -36,6 +36,23 @@
 #endif
 
 
+/*
+ * The peer's User-Agent is untrusted: it's sent JSON-escaped, and truncated at
+ * a character boundary if its escaped form doesn't fit in STATUS_ESC_UA_LEN.
+ */
+#define STATUS_ESC_IP_LEN	96
+#define STATUS_ESC_UA_LEN	384
+
+/*
+ * One "conns" entry: the leading ',', the JSON text around the fields, the
+ * time as a decimal number, and the escaped strings, which purify always
+ * leaves NUL-terminated within their buffer.  The entry buffer is sized for
+ * that worst case, so an entry is never cut short partway through.
+ */
+#define STATUS_ENTRY_LEN	(1 + sizeof("{\"peer\":\"\",\"time\":\"\"," \
+					    "\"ua\":\"\"}") + 20 + \
+				 STATUS_ESC_IP_LEN + STATUS_ESC_UA_LEN)
+
 typedef enum {
 	WALK_NONE,
 	WALK_INITIAL,
@@ -83,9 +100,27 @@ trigger_resend(struct per_vhost_data__lws_status *vhd)
 	lws_callback_on_writable_all_protocol(vhd->context, vhd->protocol);
 }
 
+/*
+ * Header values may contain any bytes >= 0x80, but we send the UA to other
+ * people's browsers inside a ws TEXT message, which they must reject if it is
+ * not valid UTF-8.  If it isn't valid UTF-8, replace every non-ASCII byte.
+ */
+static void
+sanitize_utf8(char *s)
+{
+	unsigned char st = 0;
+
+	if (!lws_check_utf8(&st, (const unsigned char *)s, strlen(s)) && !st)
+		return;
+
+	for (; *s; s++)
+		if ((unsigned char)*s >= 0x80)
+			*s = '?';
+}
+
 /* lws-status protocol */
 
-int
+static int
 callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
@@ -95,7 +130,8 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			(struct per_vhost_data__lws_status *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
-	char buf[LWS_PRE + 384], ip[24], *start = buf + LWS_PRE, *p = start,
+	char buf[LWS_PRE + STATUS_ENTRY_LEN], ip[24], *start = buf + LWS_PRE,
+	     *p = start,
 	     *end = buf + sizeof(buf) - 1;
 	int n, m;
 
@@ -148,6 +184,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			     WSI_TOKEN_HTTP_USER_AGENT) < 0) /* too big */
 #endif
 			strcpy(pss->user_agent, "unknown");
+		sanitize_utf8(pss->user_agent);
 		trigger_resend(vhd);
 		break;
 
@@ -198,8 +235,8 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_container_of(pss->walk_next,
 							 struct per_session_data__lws_status,
 							 list);
-				char esc_ip[96];
-				char esc_ua[384];
+				char esc_ip[STATUS_ESC_IP_LEN];
+				char esc_ua[STATUS_ESC_UA_LEN];
 
 				strcpy(ip, "unknown");
 				lws_get_peer_simple(walk_pss->wsi, ip, sizeof(ip));
@@ -208,7 +245,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 						sizeof(esc_ua), NULL);
 
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-						"{\"peer\":\"%s\",\"time\":\"%ld\","
+						"{\"peer\":\"%s\",\"time\":\"%lu\","
 						"\"ua\":\"%s\"}",
 						esc_ip, (unsigned long)walk_pss->time_est,
 						esc_ua);

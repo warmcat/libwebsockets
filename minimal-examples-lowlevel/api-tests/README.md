@@ -5,7 +5,7 @@ These are buildable test apps that run in CI to confirm correct api operation.
 api-test-lwsac|LWS Allocated Chunks api
 api-test-lws_struct-json|Selftests for lws_struct JSON serialization and deserialization
 api-test-lws_tokenize|Generic secure string tokenizer api
-api-test-demo-plugins|The demo plugins served by lwsws and the test server keep what they send to other people's browsers valid: lws-mirror relays a TEXT message split mid-character as one whole message and BINARY as BINARY, refuses a too-large message without relaying any of it, and idle connections on every named instance can't lock anyone out of the default one
+api-test-demo-plugins|The demo plugins served by lwsws and the test server keep what they send to other people's browsers valid: lws-mirror relays a TEXT message split mid-character as one whole message and BINARY as BINARY, refuses a too-large message without relaying any of it, and idle connections on every named instance can't lock anyone out of the default one; lws-status sends valid UTF-8 JSON with hostile User-Agents
 api-test-wsmsg|`lws_wsmsg_append()` queues whole messages on an upstream buflist2, holding a fragmented one on its source's private buflist2 until its EOM, while other sources' messages carry on past it; the upstream limit holds, 20000 queued segments come out intact, and `lws_wsmsg_destroy()` frees what's held
 api-test-stdin-cmdline|stdin folded into the commandline by `lws_system_adopt_stdin(cx, LWS_SAS_FLAG__APPEND_COMMANDLINE)`: a last token with no trailing newline resolves as a complete string, as a --switch=value, a bare --switch, a spaced value or a non-switch arg
 api-test-region|Scratch buffer region ownership tracking: claims, overlaps, trims, hand-overs and stale handles
