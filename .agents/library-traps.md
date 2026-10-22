@@ -173,6 +173,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
+ - **`LWS_CALLBACK_HTTP_DROP_PROTOCOL` only follows a BIND** (mount-bound
+   protocols).  Per-transaction state on protocols[0] (spa, fds, lwsacs)
+   gets no callback when its user_space is freed at a keepalive
+   transaction's end: release it at BODY_COMPLETION / transaction
+   completion and in `CLOSED_HTTP` (G-554, G-556).
+ - **`lws_filename_purify_inplace()` does not remove `/`** (and its WIN32
+   test is inverted) until G-553 is fixed: never use a client-supplied
+   filename as a path (G-552).
  - **A ws upgrade never passes `lws_http_action_gates()`.**  On h1, h2
    and h3 it only gets the interceptor chain, and a proxied upgrade
    leaves from `lws_process_ws_upgrade()` before any auth or filter
