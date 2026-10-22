@@ -311,6 +311,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		 uint8_t *stream_block_16, size_t *nc_or_iv_off, int taglen)
 {
 	uint8_t iv[LWS_JWE_AES_IV_BYTES], sb[16];
+	size_t nc;
 	int n = 0;
 
 	switch (ctx->mode) {
@@ -385,12 +386,33 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		break;
 
 	case LWS_GAESM_CTR:
+		/*
+		 * The stream block and its offset nc are optional (see
+		 * lws-genaes.h): without them, the call starts on a fresh
+		 * keystream block and the rest of its last one is dropped.  A
+		 * nonzero nc points into a stream block, so it needs one.
+		 */
+		if (!iv_or_nonce_ctr_or_data_unit_16 ||
+		    (!stream_block_16 && nc_or_iv_off && *nc_or_iv_off)) {
+			lwsl_err("%s: bad CTR args\n", __func__);
+
+			return -1;
+		}
+
 		memcpy(iv, iv_or_nonce_ctr_or_data_unit_16, 16);
-		memcpy(sb, stream_block_16, 16);
-		n = mbedtls_aes_crypt_ctr(&ctx->u.ctx, len, nc_or_iv_off,
+		if (stream_block_16)
+			memcpy(sb, stream_block_16, 16);
+		else
+			memset(sb, 0, sizeof(sb));
+		nc = nc_or_iv_off ? *nc_or_iv_off : 0;
+		n = mbedtls_aes_crypt_ctr(&ctx->u.ctx, len, &nc,
 					  iv, sb, in, out);
 		memcpy(iv_or_nonce_ctr_or_data_unit_16, iv, 16);
-		memcpy(stream_block_16, sb, 16);
+		if (stream_block_16)
+			memcpy(stream_block_16, sb, 16);
+		if (nc_or_iv_off)
+			*nc_or_iv_off = nc;
+		lws_explicit_bzero(sb, sizeof(sb));
 		break;
 
 	case LWS_GAESM_ECB:
@@ -432,9 +454,24 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				return -1;
 			}
 
+			/*
+			 * On decrypt, stream_block_16 is the tag the peer
+			 * sent, that lws_genaes_destroy() verifies against:
+			 * it can't be missing.  On encrypt the tag comes out
+			 * of lws_genaes_destroy() and it may be NULL.
+			 */
+			if (!iv_or_nonce_ctr_or_data_unit_16 || !nc_or_iv_off ||
+			    (ctx->op == MBEDTLS_AES_DECRYPT && !stream_block_16)) {
+				lwsl_err("%s: bad GCM args\n", __func__);
+
+				return -1;
+			}
+
 			ctx->underway = 1;
 
-			memcpy(ctx->tag, stream_block_16, (unsigned int)taglen);
+			if (stream_block_16)
+				memcpy(ctx->tag, stream_block_16,
+				       (unsigned int)taglen);
 			ctx->taglen = taglen;
 
 			/*

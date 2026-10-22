@@ -195,6 +195,17 @@ lws_openhitls_aes_crypt_gcm(struct lws_genaes_ctx *ctx,
 			return -1;
 		}
 
+		/*
+		 * On decrypt, stream_block_16 is the tag the peer sent, that
+		 * lws_genaes_destroy() verifies against: it can't be missing.
+		 * On encrypt the tag comes out of lws_genaes_destroy() and it
+		 * may be NULL (see lws-genaes.h)
+		 */
+		if (ctx->op == LWS_GAESO_DEC && !stream_block_16) {
+			lwsl_err("%s: GCM decrypt needs the tag\n", __func__);
+			return -1;
+		}
+
 		/* same 4..16 bound as the mbedtls / openssl backends (C-362):
 		 * a 0-3 byte GCM tag is not authentication */
 

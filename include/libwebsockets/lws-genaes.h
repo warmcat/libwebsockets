@@ -177,7 +177,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen);
  * \param len: length of input (which is always length of output)
  * \param out: output plaintext or ciphertext
  * \param iv_or_nonce_ctr_or_data_unit_16: NULL, iv, nonce_ctr16, or data_unit16
- * \param stream_block_16: pointer to 16-byte stream block for CTR mode only
+ * \param stream_block_16: NULL, or 16-byte stream block (CTR), or tag (GCM)
  * \param nc_or_iv_off: NULL or pointer to nc, or iv_off
  * \param taglen: length of tag
  *
@@ -189,10 +189,21 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen);
  * stream_block_16	    : NULL NULL NULL   NULL stream NULL NULL   NULL
  * nc_or_iv_off		    : NULL NULL iv_off NULL nc_off NULL iv_off NULL
  *
+ * For CTR, stream_block_16 and nc_or_iv_off may each be NULL.  Then the call
+ * starts on a fresh keystream block from the counter in
+ * iv_or_nonce_ctr_or_data_unit_16, and the rest of its last keystream block
+ * is dropped.  A nonzero *nc_or_iv_off is an offset into stream_block_16, and
+ * is refused without it.  One crypt call per CTR ctx is the use that behaves
+ * the same on every backend: some carry the keystream on in the ctx between
+ * calls, others only through these arguments.
+ *
  * For GCM:
  *
  * iv_or_nonce_ctr_or_data_unit_16 : iv
- * stream_block_16		   : pointer to tag
+ * stream_block_16		   : decrypt: the tag the peer sent, required
+ *				   :   on the first call (taglen bytes);
+ *				   :   encrypt: unused, may be NULL, the tag
+ *				   :   comes out of lws_genaes_destroy()
  * nc_or_iv_off			   : set pointed-to size_t to iv length
  * in				   : first call: additional data, subsequently
  *				   :   input data

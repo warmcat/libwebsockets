@@ -342,6 +342,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		EVP_CIPHER_CTX_set_key_length(ctx->ctx, SSL_UINT_CAST(ctx->k->len));
 
 		if (ctx->mode == LWS_GAESM_GCM) {
+			if (!iv_or_nonce_ctr_or_data_unit_16 || !nc_or_iv_off) {
+				lwsl_err("%s: GCM needs the iv and its length\n",
+					 __func__);
+
+				return -1;
+			}
 			n = EVP_CIPHER_CTX_ctrl(ctx->ctx, EVP_CTRL_GCM_SET_IVLEN,
 					   (int)*nc_or_iv_off, NULL);
 			if (n != 1) {
@@ -363,14 +369,22 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 				return -1;
 			}
 
-			if (!stream_block_16) {
-				lwsl_err("%s: GCM needs the tag buffer\n",
+			/*
+			 * On decrypt, stream_block_16 is the tag the peer
+			 * sent, that lws_genaes_destroy() verifies against.
+			 * On encrypt, the tag comes out of lws_genaes_destroy()
+			 * and it may be NULL (see lws-genaes.h)
+			 */
+			if (ctx->op == LWS_GAESO_DEC && !stream_block_16) {
+				lwsl_err("%s: GCM decrypt needs the tag\n",
 					 __func__);
 
 				return -1;
 			}
 
-			memcpy(ctx->tag, stream_block_16, (unsigned int)taglen);
+			if (stream_block_16)
+				memcpy(ctx->tag, stream_block_16,
+				       (unsigned int)taglen);
 			ctx->taglen = taglen;
 		}
 

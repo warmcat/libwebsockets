@@ -260,6 +260,20 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		return n;
 	}
 
+	/*
+	 * On decrypt, the first GCM call's stream_block_16 is the tag the
+	 * peer sent, that lws_genaes_destroy() verifies against: it can't be
+	 * missing.  On encrypt the tag comes out of lws_genaes_destroy() and
+	 * it may be NULL (see lws-genaes.h)
+	 */
+	if (ctx->mode == LWS_GAESM_GCM && !ctx->gnutls_gcm_initialized &&
+	    (!iv_or_nonce_ctr_or_data_unit_16 ||
+	     (ctx->op == LWS_GAESO_DEC && !stream_block_16))) {
+		lwsl_err("%s: bad GCM args\n", __func__);
+
+		return -1;
+	}
+
 	if (ctx->mode == LWS_GAESM_GCM && ctx->op == LWS_GAESO_DEC &&
 	    stream_block_16 && taglen > 0) {
 		/*

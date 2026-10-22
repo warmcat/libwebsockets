@@ -823,6 +823,157 @@ bail:
 }
 //#endif
 
+/*
+ * The optional arguments, as lws-genaes.h documents them: CTR without a
+ * stream block or nc (what lws-srtp.c passes), and GCM encrypt without a tag
+ * on the first call, must work on every backend; GCM decrypt without the tag
+ * to verify against must be refused at once.
+ */
+
+#if defined(LWS_WITH_GNUTLS) || defined(LWS_WITH_BEARSSL) || \
+    defined(LWS_WITH_OPENHITLS) || \
+    (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CTR))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr))
+#define LWS_TEST_GENAES_CTR_OPTIONAL_ARGS
+static const uint8_t
+	/* NIST SP 800-38A F.5.1 CTR-AES128.Encrypt, blocks 1 and 2 */
+	ctro_key[] = {
+		0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+		0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c
+	}, ctro_ctr[] = {
+		0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
+		0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff
+	}, ctro_pt[] = {
+		0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96,
+		0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+		0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c,
+		0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51
+	}, ctro_ct[] = {
+		0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26,
+		0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce,
+		0x98, 0x06, 0xf6, 0x6b, 0x79, 0x70, 0xfd, 0xff,
+		0x86, 0x17, 0x18, 0x7b, 0xb9, 0xff, 0xfd, 0xff
+	};
+
+/* one CTR call on a fresh ctx, with no stream block, and nc or not */
+
+static int
+ctr_no_stream_block(enum enum_aes_operation op, const uint8_t *in,
+		    const uint8_t *expect, size_t len, int with_nc)
+{
+	struct lws_genaes_ctx ctx;
+	struct lws_gencrypto_keyelem e;
+	uint8_t ctr[16], res[sizeof(ctro_pt)];
+	size_t nc = 0;
+
+	e.buf = (uint8_t *)ctro_key;
+	e.len = sizeof(ctro_key);
+	memcpy(ctr, ctro_ctr, sizeof(ctr));
+
+	if (lws_genaes_create(&ctx, op, LWS_GAESM_CTR, &e, LWS_GAESP_NO_PADDING,
+			      NULL)) {
+		lwsl_err("%s: create failed\n", __func__);
+		return -1;
+	}
+
+	if (lws_genaes_crypt(&ctx, in, len, res, ctr, NULL,
+			     with_nc ? &nc : NULL, 0)) {
+		lwsl_err("%s: op %d, len %d, nc %d: crypt failed\n", __func__,
+			 (int)op, (int)len, with_nc);
+		lws_genaes_destroy(&ctx, NULL, 0);
+		return -1;
+	}
+
+	if (lws_genaes_destroy(&ctx, NULL, 0)) {
+		lwsl_err("%s: destroy failed\n", __func__);
+		return -1;
+	}
+
+	if (lws_timingsafe_bcmp(expect, res, (unsigned int)len)) {
+		lwsl_err("%s: op %d, len %d, nc %d: mismatch\n", __func__,
+			 (int)op, (int)len, with_nc);
+		lwsl_hexdump_notice(res, len);
+		return -1;
+	}
+
+	return 0;
+}
+#endif
+
+static int
+test_genaes_optional_args(void)
+{
+	uint8_t res[sizeof(gcm_ct)], tag[sizeof(gcm_tag)];
+	struct lws_genaes_ctx ctx;
+	struct lws_gencrypto_keyelem e;
+	size_t iv_off;
+	int n;
+
+#if defined(LWS_TEST_GENAES_CTR_OPTIONAL_ARGS)
+	/* whole blocks, the way lws-srtp.c calls it (nc, no stream block) */
+	if (ctr_no_stream_block(LWS_GAESO_ENC, ctro_pt, ctro_ct,
+				sizeof(ctro_pt), 1) ||
+	    ctr_no_stream_block(LWS_GAESO_DEC, ctro_ct, ctro_pt,
+				sizeof(ctro_ct), 1) ||
+	    /* ending partway through a block, with neither */
+	    ctr_no_stream_block(LWS_GAESO_ENC, ctro_pt, ctro_ct, 20, 0) ||
+	    ctr_no_stream_block(LWS_GAESO_DEC, ctro_ct, ctro_pt, 20, 0))
+		return -1;
+#endif
+
+	e.buf = (uint8_t *)gcm_key;
+	e.len = sizeof(gcm_key);
+
+	/* GCM encrypt: no tag on the first call, it comes from destroy */
+
+	n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_GCM, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: GCM unsupported\n", __func__);
+			return 0;
+		}
+		lwsl_err("%s: GCM enc create failed\n", __func__);
+		return -1;
+	}
+
+	iv_off = sizeof(gcm_iv);
+	if (lws_genaes_crypt(&ctx, gcm_aad, sizeof(gcm_aad), NULL,
+			     (uint8_t *)gcm_iv, NULL, &iv_off,
+			     sizeof(gcm_tag)) ||
+	    lws_genaes_crypt(&ctx, gcm_pt, sizeof(gcm_pt), res,
+			     NULL, NULL, NULL, 0)) {
+		lwsl_err("%s: GCM enc without tag failed\n", __func__);
+		lws_genaes_destroy(&ctx, NULL, 0);
+		return -1;
+	}
+
+	if (lws_genaes_destroy(&ctx, tag, sizeof(tag)) ||
+	    lws_timingsafe_bcmp(gcm_ct, res, sizeof(gcm_ct)) ||
+	    lws_timingsafe_bcmp(gcm_tag, tag, sizeof(gcm_tag))) {
+		lwsl_err("%s: GCM enc without tag: wrong result\n", __func__);
+		return -1;
+	}
+
+	/* GCM decrypt: no tag to verify against is refused at once */
+
+	if (lws_genaes_create(&ctx, LWS_GAESO_DEC, LWS_GAESM_GCM, &e, 0, NULL)) {
+		lwsl_err("%s: GCM dec create failed\n", __func__);
+		return -1;
+	}
+
+	iv_off = sizeof(gcm_iv);
+	n = lws_genaes_crypt(&ctx, gcm_aad, sizeof(gcm_aad), NULL,
+			     (uint8_t *)gcm_iv, NULL, &iv_off, sizeof(gcm_tag));
+	lws_genaes_destroy(&ctx, NULL, 0);
+	if (!n) {
+		lwsl_err("%s: GCM dec without the tag was accepted\n",
+			 __func__);
+		return -1;
+	}
+
+	return 0;
+}
+
 struct lws_genaes_hex_case {
 	const char *name;
 	enum enum_aes_modes mode;
@@ -1316,6 +1467,8 @@ test_genaes(struct lws_context *context)
 
 //#if !defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_gcm())
+		goto bail;
+	if (test_genaes_optional_args())
 		goto bail;
 	if (test_genaes_branch_matrix())
 		goto bail;

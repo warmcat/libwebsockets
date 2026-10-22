@@ -1058,45 +1058,57 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len, uint
 		}
 
 	case LWS_GAESM_CTR: {
-			size_t o = 0;
+			uint8_t sb_local[16], *sb = stream_block_16;
+			size_t o = 0, nc = nc_or_iv_off ? *nc_or_iv_off : 0;
 
+			/*
+			 * The stream block and its offset nc are optional
+			 * (see lws-genaes.h): without them, the call starts on
+			 * a fresh keystream block and the rest of its last one
+			 * is dropped.  A nonzero nc points into a stream
+			 * block, so it needs one.
+			 */
 			if (!out || !iv_or_nonce_ctr_or_data_unit_16 ||
-			    !stream_block_16 || !nc_or_iv_off)
+			    nc > 15 || (!sb && nc))
 				return -1;
-			if (*nc_or_iv_off > 15)
-				return -1;
+			if (!sb)
+				sb = sb_local;
 
 			memcpy(out, in, len);
 
 			/*
-			 * stream_block_16 holds the keystream for the
-			 * current counter block, *nc_or_iv_off is the offset
-			 * into it; a fresh keystream block is generated (and
-			 * the 128-bit counter incremented) when it wraps
+			 * sb holds the keystream for the current counter
+			 * block, nc is the offset into it; a fresh keystream
+			 * block is generated (and the 128-bit counter
+			 * incremented) when it wraps
 			 */
 			while (len) {
 				size_t chunk, i;
 
-				if (*nc_or_iv_off == 0) {
-					memset(stream_block_16, 0, 16);
+				if (nc == 0) {
+					memset(sb, 0, 16);
 					br_aes_ct_ctrcbc_ctr(&ctx->u.ctrcbc,
 						iv_or_nonce_ctr_or_data_unit_16,
-						stream_block_16, 16);
+						sb, 16);
 				}
 
-				chunk = 16 - *nc_or_iv_off;
+				chunk = 16 - nc;
 				if (chunk > len)
 					chunk = len;
 
 				for (i = 0; i < chunk; i++)
-					out[o + i] ^=
-						stream_block_16[*nc_or_iv_off + i];
+					out[o + i] ^= sb[nc + i];
 				o += chunk;
-				*nc_or_iv_off += chunk;
-				if (*nc_or_iv_off == 16)
-					*nc_or_iv_off = 0;
+				nc += chunk;
+				if (nc == 16)
+					nc = 0;
 				len -= chunk;
 			}
+
+			if (nc_or_iv_off)
+				*nc_or_iv_off = nc;
+			if (sb == sb_local)
+				lws_explicit_bzero(sb_local, sizeof(sb_local));
 			break;
 		}
 
@@ -1107,7 +1119,14 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len, uint
 			 * for later decryption checking, the expected tag
 			 * arrive with it, like the other backends
 			 */
-			if (!iv_or_nonce_ctr_or_data_unit_16 || !nc_or_iv_off)
+			/*
+			 * On decrypt, stream_block_16 is the tag the peer
+			 * sent, that lws_genaes_destroy() verifies against:
+			 * it can't be missing.  On encrypt the tag comes out
+			 * of lws_genaes_destroy() and it may be NULL.
+			 */
+			if (!iv_or_nonce_ctr_or_data_unit_16 || !nc_or_iv_off ||
+			    (ctx->op == LWS_GAESO_DEC && !stream_block_16))
 				return -1;
 			br_gcm_reset(&ctx->gcm,
 				     iv_or_nonce_ctr_or_data_unit_16,

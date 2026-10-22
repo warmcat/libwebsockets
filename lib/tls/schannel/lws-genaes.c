@@ -162,6 +162,19 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *authInfo;
 
 		if (!ctx->underway) {
+			/*
+			 * On decrypt, stream_block_16 is the tag the peer
+			 * sent, that the decrypt verifies against: it can't be
+			 * missing.  On encrypt the tag comes out of
+			 * lws_genaes_destroy() and it may be NULL (see
+			 * lws-genaes.h)
+			 */
+			if (ctx->op == LWS_GAESO_DEC && !stream_block_16) {
+				lwsl_err("%s: GCM decrypt needs the tag\n",
+					 __func__);
+				return -1;
+			}
+
 			/* First call: Initialize context and process AAD */
 			ctx->underway = 1;
 
