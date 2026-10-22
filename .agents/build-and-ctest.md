@@ -77,7 +77,8 @@
    a test that passed before a full `make` can fail this way after it;
    "dir_cb: ... was not loaded" lines from stale plugins are harmless.
  - **The webrtc mixer can be syntax-checked without GStreamer**: stub gst
-   headers plus a copy of the build's include dir with `LWS_WITH_DTLS` and
+   and `opus/opus.h` (OpusDecoder / OpusEncoder typedefs) headers plus a
+   copy of the build's include dir with `LWS_WITH_DTLS` and
    `LWS_WITH_ALSA` defined in lws_config.h covers everything but
    mixer-media.c (`-fsyntax-only` with the build's warning flags).  Its
    pure helpers are tested by api-test-webrtc-mixer-signal / -depkt; the
