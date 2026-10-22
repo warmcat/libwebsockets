@@ -382,6 +382,144 @@ bail:
 	return 1;
 }
 
+/*
+ * An RSA JWK member is an integer without leading zero octets (RFC7518 6.3),
+ * but GnuTLS used to give lws one ahead of any value with its top bit set, eg,
+ * every modulus, and a 4096-bit key's 513-byte n then failed the element cap
+ * on import.  Any we are sent are dropped on import, before the cap, and none
+ * go out on export, so the RFC7638 thumbprint is the one everybody else gets.
+ */
+
+static int
+rsa_n_json(char *json, size_t len, const uint8_t *n, size_t nl)
+{
+	char b64[1024];
+
+	if (lws_b64_encode_string_url((const char *)n, (int)nl, b64,
+				      sizeof(b64)) < 0)
+		return 1;
+
+	return (size_t)lws_snprintf(json, len, "{\"kty\":\"RSA\",\"n\":\"%s\","
+				    "\"e\":\"AQAB\"}", b64) >= len - 1;
+}
+
+static int
+test_jwk_rsa_leading_zeros(struct lws_context *context)
+{
+	uint8_t n[513], digest[32];
+	struct lws_jwk jwk, j2;
+	char json[1024], *ex;
+	int l, ret = 1;
+
+	memset(&j2, 0, sizeof(j2));
+
+	if (lws_jwk_import(&jwk, NULL, NULL, rfc7638_ex_jwk,
+			   strlen(rfc7638_ex_jwk))) {
+		lwsl_err("%s: RFC7638 example import failed\n", __func__);
+		return 1;
+	}
+
+	/* the RFC7638 key's n, sent with a leading zero */
+
+	n[0] = 0;
+	memcpy(n + 1, jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf,
+	       jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+	l = (int)jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len + 1;
+	lws_jwk_destroy(&jwk);
+
+	if (rsa_n_json(json, sizeof(json), n, (size_t)l) ||
+	    lws_jwk_import(&jwk, NULL, NULL, json, strlen(json))) {
+		lwsl_err("%s: zero-led n not imported\n", __func__);
+		return 1;
+	}
+	if (jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len != (uint32_t)l - 1 ||
+	    lws_jwk_rfc7638_fingerprint(&jwk, (char *)digest) ||
+	    memcmp(digest, rfc7638_ex_thumbprint, sizeof(digest))) {
+		lwsl_err("%s: zero-led n kept its zero on import\n", __func__);
+		goto bail;
+	}
+	lws_jwk_destroy(&jwk);
+
+	/*
+	 * a key that has one in memory doesn't export it: import n led by a
+	 * 1 octet, then make that a zero
+	 */
+
+	n[0] = 1;
+	if (rsa_n_json(json, sizeof(json), n, (size_t)l) ||
+	    lws_jwk_import(&jwk, NULL, NULL, json, strlen(json)) ||
+	    jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len != (uint32_t)l) {
+		lwsl_err("%s: one-led n not imported\n", __func__);
+		goto bail;
+	}
+	jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf[0] = 0;
+
+	if (lws_jwk_rfc7638_fingerprint(&jwk, (char *)digest) ||
+	    memcmp(digest, rfc7638_ex_thumbprint, sizeof(digest))) {
+		lwsl_err("%s: zero-led n changed the thumbprint\n", __func__);
+		goto bail;
+	}
+	lws_jwk_destroy(&jwk);
+
+	/* a 4096-bit n with a leading zero is in the cap, a 513-byte n isn't */
+
+	memset(n, 0xc5, sizeof(n));
+	n[0] = 0;
+	if (rsa_n_json(json, sizeof(json), n, sizeof(n)) ||
+	    lws_jwk_import(&jwk, NULL, NULL, json, strlen(json)) ||
+	    jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len != sizeof(n) - 1) {
+		lwsl_err("%s: zero-led 4096-bit n refused\n", __func__);
+		goto bail;
+	}
+	lws_jwk_destroy(&jwk);
+
+	n[0] = 1;
+	if (rsa_n_json(json, sizeof(json), n, sizeof(n)) ||
+	    !lws_jwk_import(&jwk, NULL, NULL, json, strlen(json))) {
+		lwsl_err("%s: 4104-bit n accepted\n", __func__);
+		goto bail;
+	}
+
+	/* a key we make goes out and comes back */
+
+	if (lws_jwk_generate(context, &jwk, LWS_GENCRYPTO_KTY_RSA, 2048, NULL)) {
+		lwsl_err("%s: unable to make an RSA key\n", __func__);
+		goto bail;
+	}
+	if (jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len != 256) {
+		lwsl_err("%s: made a %u-byte 2048-bit n\n", __func__,
+			 jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+		goto bail;
+	}
+
+	ex = malloc(4096);
+	if (!ex)
+		goto bail;
+	l = 4096;
+	if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_PRIVATE | LWSJWKF_EXPORT_NOCRLF,
+			   ex, &l) < 0 ||
+	    lws_jwk_import(&j2, NULL, NULL, ex, strlen(ex)) ||
+	    !j2.private_key ||
+	    j2.e[LWS_GENCRYPTO_RSA_KEYEL_N].len != 256 ||
+	    memcmp(j2.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf,
+		   jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, 256)) {
+		lwsl_err("%s: made RSA key doesn't round-trip\n", __func__);
+		lws_explicit_bzero(ex, 4096);
+		free(ex);
+		goto bail;
+	}
+	lws_explicit_bzero(ex, 4096);
+	free(ex);
+
+	ret = 0;
+
+bail:
+	lws_jwk_destroy(&jwk);
+	lws_jwk_destroy(&j2);
+
+	return ret;
+}
+
 static int
 key_import_callback(struct lws_jwk *s, void *user)
 {
@@ -557,6 +695,9 @@ test_jwk(struct lws_context *context)
 	}
 
 	if (test_jwk_oct_public_and_thumbprint())
+		goto bail1;
+
+	if (test_jwk_rsa_leading_zeros(context))
 		goto bail1;
 
 	/*

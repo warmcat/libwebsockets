@@ -294,7 +294,8 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 			goto bail1;
 		}
 
-		if (gnutls_pubkey_export_rsa_raw(pubkey, &pk_m, &pk_e) < 0)
+		if (gnutls_pubkey_export_rsa_raw2(pubkey, &pk_m, &pk_e,
+						  GNUTLS_EXPORT_FLAG_NO_LZ) < 0)
 			goto bail1;
 
 		n = lws_gnutls_datum_to_keyelem(&pk_m,
@@ -408,7 +409,9 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		if (jwk->kty != LWS_GENCRYPTO_KTY_RSA)
 			goto bail;
 
-		if (gnutls_privkey_export_rsa_raw(pkey, &m, &e, &d, &p, &q, &u, &exp1, &exp2) < 0)
+		if (gnutls_privkey_export_rsa_raw2(pkey, &m, &e, &d, &p, &q, &u,
+						   &exp1, &exp2,
+						   GNUTLS_EXPORT_FLAG_NO_LZ) < 0)
 			goto bail;
 
 		if (m.size != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len ||

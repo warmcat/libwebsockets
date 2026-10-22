@@ -152,7 +152,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		goto bail;
 	}
 
-	if (gnutls_privkey_export_rsa_raw(ctx->priv, &m, &e, &d, &p, &q, &u, &e1, &e2) < 0) {
+	if (gnutls_privkey_export_rsa_raw2(ctx->priv, &m, &e, &d, &p, &q, &u, &e1, &e2,
+					   GNUTLS_EXPORT_FLAG_NO_LZ) < 0) {
 		lwsl_err("%s: export failed\n", __func__);
 		goto bail;
 	}

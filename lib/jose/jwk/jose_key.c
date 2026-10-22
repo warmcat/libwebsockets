@@ -188,6 +188,29 @@ struct lexico {
  * must also be gone, not merely reported.
  */
 
+/*
+ * RFC7518 6.3 RSA members are unsigned big-endian integers without leading
+ * zero octets, but some producers, eg, GnuTLS raw exports, prepend one when
+ * the top bit is set.  Drop them, keeping at least one octet, and wipe the
+ * vacated tail, since destroy only wipes up to ->len.
+ */
+
+static void
+_lws_jwk_strip_lz(struct lws_gencrypto_keyelem *e)
+{
+	uint32_t n = 0;
+
+	while (n + 1 < e->len && !e->buf[n])
+		n++;
+
+	if (!n)
+		return;
+
+	memmove(e->buf, e->buf + n, e->len - n);
+	e->len -= n;
+	lws_explicit_bzero(e->buf + e->len, n);
+}
+
 static int
 _lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len,
 			size_t max_len)
@@ -203,12 +226,25 @@ _lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len,
 		return -1;
 
 	n = lws_b64_decode_string_len(in, len, (char *)e->buf, (int)dec_size - 1);
-	if (n < 0 || (max_len && (size_t)n > max_len)) {
+	if (n < 0) {
 		lws_jwk_destroy_elements(e, 1);
 
 		return -1;
 	}
 	e->len = (uint32_t)n;
+
+	/*
+	 * We may not know the kty yet, but only an RSA integer can be this
+	 * big: leading zeros it was sent with don't count against the cap
+	 */
+	if (max_len && e->len > max_len)
+		_lws_jwk_strip_lz(e);
+
+	if (max_len && e->len > max_len) {
+		lws_jwk_destroy_elements(e, 1);
+
+		return -1;
+	}
 
 	return 0;
 }
@@ -352,6 +388,11 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		     jwk->kty == LWS_GENCRYPTO_KTY_OKP) &&
 		    jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf)
 			jwk->private_key = 1;
+
+		if (jwk->kty == LWS_GENCRYPTO_KTY_RSA)
+			for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
+				if (jwk->e[n].buf)
+					_lws_jwk_strip_lz(&jwk->e[n]);
 	}
 
 	if (reason == LEJPCB_OBJECT_END && ctx->path_match == 0 + 1) {
@@ -802,15 +843,27 @@ _lws_jwk_export(struct lws_jwk *jwk, int flags, int thumb, char *p, int *len)
 						 jwk->e[l->idx].len))
 					goto trunc;
 			} else {
+				const uint8_t *eb = jwk->e[l->idx].buf;
+				uint32_t el = jwk->e[l->idx].len;
+
+				/*
+				 * an RSA integer goes without leading zero
+				 * octets (RFC7518 6.3), else eg, its RFC7638
+				 * thumbprint is not the one anybody else gets
+				 */
+				if (jwk->kty == LWS_GENCRYPTO_KTY_RSA)
+					while (el > 1 && !*eb) {
+						eb++;
+						el--;
+					}
+
 				/*
 				 * keep the - 4 reserve from wrapping when
 				 * the buffer is nearly exhausted
 				 */
 				if (lws_ptr_diff(end, p) < 5)
 					goto trunc;
-				m = lws_jws_base64_enc(
-					(const char *)jwk->e[l->idx].buf,
-					jwk->e[l->idx].len, p,
+				m = lws_jws_base64_enc((const char *)eb, el, p,
 					lws_ptr_diff_size_t(end, p) - 4);
 				if (m < 0) {
 					lwsl_notice("%s: enc failed\n", __func__);
