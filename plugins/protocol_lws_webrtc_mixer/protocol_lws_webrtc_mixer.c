@@ -97,6 +97,9 @@ get_or_create_room(struct vhd_mixer *vhd, const char *name)
 	r->master_w = LWS_RTP_VIDEO_WIDTH_720P;
 	r->master_h = LWS_RTP_VIDEO_HEIGHT_720P;
 
+	r->gate_client_list.interval = MIXER_CLIENT_LIST_MIN_INTERVAL_US;
+	r->gate_keyframe.interval = MIXER_KEYFRAME_MIN_INTERVAL_US;
+
 	/* Initialize Performance Tracker (2 levels: 0=High Quality, 1=Fallback) */
 	/* 5s short-term EWMA for quick drops, 60s long-term EWMA for sustained recovery */
 	r->adapt_h264 = lws_adapt_create(2, 5 * LWS_US_PER_SEC, 60 * LWS_US_PER_SEC);
@@ -124,6 +127,7 @@ struct broadcast_ctx {
 
 static int broadcast_text_iter(struct lws_dll2 *d, void *user);
 static void broadcast_client_list(struct mixer_room *r, struct participant *exclude);
+static void room_client_list_changed(struct mixer_room *r);
 static void broadcast_layout(struct mixer_room *r);
 static void mixer_send_text(struct participant *p, const char *buf, size_t len);
 
@@ -319,7 +323,79 @@ broadcast_client_list(struct mixer_room *r, struct participant *exclude)
 	bctx.require_joined = 0;
 	bctx.exclude = exclude;
 
+	/* this is the room's update, whatever was waiting to send one */
+	lws_sul_cancel(&r->sul_client_list);
+	mixer_gate_mark(&r->gate_client_list, lws_now_usecs());
+
 	lws_dll2_foreach_safe(&r->participants, &bctx, broadcast_text_iter);
+}
+
+static void
+sul_client_list_cb(lws_sorted_usec_list_t *sul)
+{
+	struct mixer_room *r = lws_container_of(sul, struct mixer_room,
+						sul_client_list);
+
+	broadcast_client_list(r, NULL);
+}
+
+/*
+ * Something in the room's client_list changed.  It goes to every participant,
+ * so peers' messages must not be able to drive it at their own rate: send it
+ * now if we have not for a while, else once when the interval is up, however
+ * many changes come meanwhile.  sul_stats_cb also sends it every second.
+ */
+static void
+room_client_list_changed(struct mixer_room *r)
+{
+	lws_usec_t wait;
+
+	if (!lws_dll2_is_detached(&r->sul_client_list.list))
+		return; /* one is already coming */
+
+	wait = mixer_gate_wait(&r->gate_client_list, lws_now_usecs());
+	if (!wait) {
+		broadcast_client_list(r, NULL);
+		return;
+	}
+
+	lws_sul_schedule(we_ops->get_context(r->vhd->vhd), 0,
+			 &r->sul_client_list, sul_client_list_cb, wait);
+}
+
+static void
+sul_keyframe_cb(lws_sorted_usec_list_t *sul)
+{
+	struct mixer_room *r = lws_container_of(sul, struct mixer_room,
+						sul_keyframe);
+
+	mixer_gate_mark(&r->gate_keyframe, lws_now_usecs());
+	mixer_force_keyframe(r);
+}
+
+/*
+ * Somebody needs a keyframe from the room's encoder: a joiner, or a peer's
+ * RTCP PLI.  Everybody in the room gets it, and each is big, so space them
+ * out the same way: one now if there has not been one for the interval,
+ * else one when it is up, for however many asked meanwhile.
+ */
+static void
+room_keyframe(struct mixer_room *r)
+{
+	lws_usec_t now = lws_now_usecs(), wait;
+
+	if (!lws_dll2_is_detached(&r->sul_keyframe.list))
+		return; /* one is already coming */
+
+	wait = mixer_gate_wait(&r->gate_keyframe, now);
+	if (wait) {
+		lws_sul_schedule(we_ops->get_context(r->vhd->vhd), 0,
+				 &r->sul_keyframe, sul_keyframe_cb, wait);
+		return;
+	}
+
+	mixer_gate_mark(&r->gate_keyframe, now);
+	mixer_force_keyframe(r);
 }
 
 static void
@@ -482,8 +558,8 @@ mixer_on_media(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int 
 	if (tid == 206 && marker == 1) {
 		/* Received proxy PLI from webrtc plugin. Force a keyframe. */
 		if (pss_p->room) {
-			lwsl_notice("%s: Received PLI proxy from '%s', forcing keyframe\n", __func__, pss_p->name);
-			mixer_force_keyframe(pss_p->room);
+			lwsl_info("%s: PLI from '%s'\n", __func__, pss_p->id);
+			room_keyframe(pss_p->room);
 		}
 		return;
 	}
@@ -704,6 +780,8 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 							struct mixer_room, list);
 
 					lws_sul_cancel(&r->sul_presence);
+					lws_sul_cancel(&r->sul_client_list);
+					lws_sul_cancel(&r->sul_keyframe);
 					lws_dll2_remove(&r->list);
 					if (!lws_dll2_is_detached(&r->w_list))
 						lws_dll2_remove(&r->w_list);
@@ -762,6 +840,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 				p->pss = pss;
 				p->wsi = wsi;
+				p->gate_chat.interval = MIXER_CHAT_MIN_INTERVAL_US;
 
 				/* Initialize underlying WebRTC PSS */
 				/* Shared callback handles PSS init and list addition now */
@@ -820,7 +899,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 				p->session->joined = 0;
 
 				/* Notify others */
-				broadcast_client_list(rm, NULL);
+				room_client_list_changed(rm);
 				break;
 
 est_fail:
@@ -895,8 +974,8 @@ est_fail:
 							lwsl_notice("[INSTRUMENT] %s: Stored %s capabilities for '%s' (%zu bytes)\n",
 									__func__, is_audio ? "audio" : "video", p->id, len);
 
-							/* Notify all clients about this update immediately */
-							broadcast_client_list(p->room, NULL);
+							/* Notify all clients about this update */
+							room_client_list_changed(p->room);
 
 							/*
 							 * Only the room controller is entitled to
@@ -918,8 +997,13 @@ est_fail:
 					/* Filter out frequent messages from debug log */
 					v = lws_json_simple_find((const char *)in, len, "\"type\":", &al);
 					int is_spam = 0;
+					int is_stats = v && al == 5 && !strncmp(v, "stats", 5);
+					/* the browser names itself in its offer and join */
+					int has_name = v && ((al == 4 && !strncmp(v, "join", 4)) ||
+							     (al == 5 && !strncmp(v, "offer", 5)));
+
 					if (v && ((al >= 15 && !strncmp(v, "presence_report", 15)) ||
-								(al >= 5 && !strncmp(v, "stats", 5)))) {
+								is_stats)) {
 						is_spam = 1;
 					}
 
@@ -930,7 +1014,11 @@ est_fail:
 					 * routed by it any more, peers are addressed by
 					 * the server-assigned p->id.
 					 */
-					v = lws_json_simple_find((const char *)in, len, "\"name\":", &al);
+					/*
+					 * Take the name and stats only from the messages
+					 * that define them, not from any message at all
+					 */
+					v = has_name ? lws_json_simple_find((const char *)in, len, "\"name\":", &al) : NULL;
 					if (v && !mixer_json_str(p->name, sizeof(p->name), v, al)) {
 						lwsl_notice("%s: Name update: '%s'\n", __func__, p->name);
 						if (p->session)
@@ -938,14 +1026,14 @@ est_fail:
 									p->name, NULL);
 					}
 
-					v = lws_json_simple_find((const char *)in, len, "\"stats\":", &al);
+					v = is_stats ? lws_json_simple_find((const char *)in, len, "\"stats\":", &al) : NULL;
 					if (v && !mixer_json_str(p->client_stats,
 								 sizeof(p->client_stats), v, al)) {
 						participant_compose_stats(p, "");
 						if (p->session)
 							mixer_media_session_set_ident(p->session,
 									NULL, p->stats);
-						broadcast_client_list(p->room, NULL);
+						room_client_list_changed(p->room);
 					}
 
 					v = lws_json_simple_find((const char *)in, len, "\"out_only\":", &al);
@@ -987,7 +1075,7 @@ est_fail:
 						if (m && p->session) {
 							p->session->video_muted = (al == 4 && !strncmp(m, "true", 4));
 							lwsl_notice("[INSTRUMENT] %s: Participant '%s' video_muted=%d\n", __func__, p->id, p->session->video_muted);
-							broadcast_client_list(p->room, NULL);
+							room_client_list_changed(p->room);
 						}
 					}
 
@@ -1119,66 +1207,79 @@ est_fail:
 								we_ops->media_ref(p->session->media);
 						}
 
-						p->joined = 1;
-						if (p->session) p->session->joined = 1;
 						p->presence_missed = 0;
-						lwsl_notice("%s: Participant '%s' JOINED\n", __func__, p->name);
+						if (p->joined) {
+							/*
+							 * A join while joined changes nothing the
+							 * room has to hear about at once.  It used
+							 * to cost a room-wide keyframe, join sound
+							 * and client_list, and a replay of the chat
+							 * history, each time.
+							 */
+							lwsl_info("%s: '%s' joined again\n", __func__, p->id);
+							if (p->session)
+								p->session->joined = 1;
+							if (p->room)
+								room_client_list_changed(p->room);
+						} else {
+							p->joined = 1;
+							if (p->session) p->session->joined = 1;
+							lwsl_notice("%s: Participant '%s' JOINED\n", __func__, p->name);
 
-						/* Play Join Sound */
-						if (p->room) {
-							play_sound(p->room, &p->room->vhd->sfx_join, p);
-							mixer_force_keyframe(p->room);
-						}
+							/* Play Join Sound */
+							if (p->room) {
+								play_sound(p->room, &p->room->vhd->sfx_join, p);
+								room_keyframe(p->room);
+								room_client_list_changed(p->room);
+							}
 
-						if (p->room)
-							broadcast_client_list(p->room, NULL);
-
-						/* Send Peer IP to client so it can use it for STUN candidates */
-						{
-							char peer_ip[64];
-							char json_buf[LWS_PRE + 256];
-							const char *ip = lws_get_peer_simple(wsi, peer_ip, sizeof(peer_ip));
-							if (ip) {
-								int n = lws_snprintf(json_buf, sizeof(json_buf), "{\"type\":\"peer_ip\",\"ip\":\"%s\"}", ip);
-								if (p->pss) {
-									mixer_send_text(p, json_buf, (size_t)n);
-									lwsl_notice("%s: Sent peer_ip '%s' to '%s'\n", __func__, ip, p->name);
+							/* Send Peer IP to client so it can use it for STUN candidates */
+							{
+								char peer_ip[64];
+								char json_buf[LWS_PRE + 256];
+								const char *ip = lws_get_peer_simple(wsi, peer_ip, sizeof(peer_ip));
+								if (ip) {
+									int n = lws_snprintf(json_buf, sizeof(json_buf), "{\"type\":\"peer_ip\",\"ip\":\"%s\"}", ip);
+									if (p->pss) {
+										mixer_send_text(p, json_buf, (size_t)n);
+										lwsl_notice("%s: Sent peer_ip '%s' to '%s'\n", __func__, ip, p->name);
+									}
 								}
 							}
-						}
 
-						if (p->room) {
-							/* Send Chat History */
-							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->chat_history)) {
-								struct chat_message *cm = lws_container_of(d, struct chat_message, list);
-								char json_buf[LWS_PRE + 2048];
-								char esc_sender[384], esc_text[1024];
+							if (p->room) {
+								/* Send Chat History */
+								lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->chat_history)) {
+									struct chat_message *cm = lws_container_of(d, struct chat_message, list);
+									char json_buf[LWS_PRE + 2048];
+									char esc_sender[384], esc_text[1024];
 
-								lws_json_purify(esc_sender, cm->sender, sizeof(esc_sender), NULL);
-								lws_json_purify(esc_text, cm->text, sizeof(esc_text), NULL);
+									lws_json_purify(esc_sender, cm->sender, sizeof(esc_sender), NULL);
+									lws_json_purify(esc_text, cm->text, sizeof(esc_text), NULL);
 
-								lws_snprintf(json_buf, sizeof(json_buf),
-										"{\"type\":\"chat\",\"sender\":\"%s\",\"text\":\"%s\"}",
-										esc_sender, esc_text);
-								if (p->pss)
-									mixer_send_text(p, json_buf, strlen(json_buf));
-							} lws_end_foreach_dll(d);
+									lws_snprintf(json_buf, sizeof(json_buf),
+											"{\"type\":\"chat\",\"sender\":\"%s\",\"text\":\"%s\"}",
+											esc_sender, esc_text);
+									if (p->pss)
+										mixer_send_text(p, json_buf, strlen(json_buf));
+								} lws_end_foreach_dll(d);
 
-							/*
-							 * Send cached capabilities from other
-							 * participants --- but only to the room
-							 * controller, which is the only peer
-							 * entitled to them.
-							 */
-							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
-								struct participant *other = lws_container_of(d, struct participant, list);
+								/*
+								 * Send cached capabilities from other
+								 * participants --- but only to the room
+								 * controller, which is the only peer
+								 * entitled to them.
+								 */
+								lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
+									struct participant *other = lws_container_of(d, struct participant, list);
 
-								if (other == p || !mixer_may_control(p, other))
-									continue;
+									if (other == p || !mixer_may_control(p, other))
+										continue;
 
-								send_remote_caps(p, other, other->capabilities_video);
-								send_remote_caps(p, other, other->capabilities_audio);
-							} lws_end_foreach_dll(d);
+									send_remote_caps(p, other, other->capabilities_video);
+									send_remote_caps(p, other, other->capabilities_audio);
+								} lws_end_foreach_dll(d);
+							}
 						}
 					} else if (tal == 5 && !strncmp(v, "leave", 5)) {
 						/* Handle explicit leave without closing WS */
@@ -1200,7 +1301,7 @@ est_fail:
 								if (as->exclude_p == p) as->exclude_p = NULL;
 							} lws_end_foreach_dll_safe(d, d1);
 
-							broadcast_client_list(p->room, NULL);
+							room_client_list_changed(p->room);
 						}
 					} else if (tal == 15 && !strncmp(v, "presence_report", 15)) {
 						/* {"type":"presence_report","joined":true} */
@@ -1222,7 +1323,7 @@ est_fail:
 									/* Play Leave Sound (maybe? yes if they were joined) */
 									play_sound(p->room, &p->room->vhd->sfx_leave, NULL);
 
-									broadcast_client_list(p->room, NULL);
+									room_client_list_changed(p->room);
 								}
 							}
 						}
@@ -1285,6 +1386,18 @@ est_fail:
 							lwsl_warn("%s: chat from '%s' which has not joined\n",
 									__func__, p->id);
 							break;
+						}
+
+						/* it goes to everybody: no faster than people type */
+						{
+							lws_usec_t now = lws_now_usecs();
+
+							if (mixer_gate_wait(&p->gate_chat, now)) {
+								lwsl_info("%s: chat from '%s' rate limited\n",
+									  __func__, p->id);
+								break;
+							}
+							mixer_gate_mark(&p->gate_chat, now);
 						}
 
 						/*
@@ -1409,7 +1522,7 @@ est_fail:
 										 list)->controller = 1;
 						}
 
-						broadcast_client_list(p->room, NULL);
+						room_client_list_changed(p->room);
 					}
 
 					if (p->capabilities_video) free(p->capabilities_video);

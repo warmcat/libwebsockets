@@ -309,3 +309,12 @@ mixer_json_list_add(char **p, const char *end, size_t reserve, int *count,
 
 	return 0;
 }
+
+lws_usec_t
+mixer_gate_wait(const struct mixer_gate *g, lws_usec_t now)
+{
+	if (!g->last || now < g->last || now - g->last >= g->interval)
+		return 0;
+
+	return g->interval - (now - g->last);
+}

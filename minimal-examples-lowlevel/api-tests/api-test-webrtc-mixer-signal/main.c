@@ -33,6 +33,15 @@
  *  - a list composed with mixer_json_list_add() from names full of multibyte
  *    characters, into every buffer size, is always complete JSON and valid
  *    UTF-8, holding as many whole entries as fit
+ *
+ * and the gate spacing out what the mixer does room-wide for peers:
+ *
+ *  - mixer_gate_wait() allows the first time, then nothing until the
+ *    interval is up, saying how long is left
+ *  - used as the mixer uses it (act now, else once when the interval is up
+ *    however many asked meanwhile), a peer asking every millisecond for a
+ *    second gets about 1s / interval actions, and a lone request still gets
+ *    one promptly
  */
 
 #include <libwebsockets.h>
@@ -400,6 +409,93 @@ test_list(void)
 	return 0;
 }
 
+/*
+ * The mixer's room_client_list_changed() / room_keyframe(): a request does
+ * it at once if the gate allows, else arms a timer for when it will, unless
+ * one is armed already.  Model the timer here, and count what gets done.
+ */
+struct gate_model {
+	struct mixer_gate	g;
+	lws_usec_t		armed;	/* when the timer fires, 0: not armed */
+	int			done;
+};
+
+static void
+gate_model_service(struct gate_model *m, lws_usec_t now)
+{
+	if (m->armed && now >= m->armed) {
+		m->armed = 0;
+		mixer_gate_mark(&m->g, now);
+		m->done++;
+	}
+}
+
+static void
+gate_model_request(struct gate_model *m, lws_usec_t now)
+{
+	lws_usec_t wait;
+
+	gate_model_service(m, now);
+	if (m->armed)
+		return;
+
+	wait = mixer_gate_wait(&m->g, now);
+	if (wait) {
+		m->armed = now + wait;
+		return;
+	}
+
+	mixer_gate_mark(&m->g, now);
+	m->done++;
+}
+
+static int
+test_gate(void)
+{
+	struct mixer_gate g = { 0, 250000 };
+	struct gate_model m;
+	lws_usec_t t, t0 = 1000000;
+
+	/* never done: allowed at once */
+	if (mixer_gate_wait(&g, t0)) {
+		lwsl_err("%s: first refused\n", __func__);
+		return 1;
+	}
+	mixer_gate_mark(&g, t0);
+
+	if (mixer_gate_wait(&g, t0) != 250000 ||
+	    mixer_gate_wait(&g, t0 + 100000) != 150000 ||
+	    mixer_gate_wait(&g, t0 + 249999) != 1 ||
+	    mixer_gate_wait(&g, t0 + 250000) ||
+	    mixer_gate_wait(&g, t0 + 5000000)) {
+		lwsl_err("%s: spacing\n", __func__);
+		return 1;
+	}
+
+	/* a peer asking every ms for 1s */
+	memset(&m, 0, sizeof(m));
+	m.g.interval = 250000;
+	for (t = t0; t < t0 + 1000000; t += 1000)
+		gate_model_request(&m, t);
+	gate_model_service(&m, t0 + 2000000); /* the last one still comes */
+
+	/* at 0, 250, 500, 750 and 1000ms, the last when its timer fires */
+	if (m.done != 5) {
+		lwsl_err("%s: 1000 requests did %d\n", __func__, m.done);
+		return 1;
+	}
+
+	/* a lone request after a quiet spell is done at once */
+	t = t0 + 10000000;
+	gate_model_request(&m, t);
+	if (m.done != 6 || m.armed) {
+		lwsl_err("%s: lone request was delayed\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
 static void
 result(const char *name, int bad)
 {
@@ -427,6 +523,7 @@ main(int argc, const char **argv)
 	result("limits", test_limits());
 	result("text", test_text());
 	result("list", test_list());
+	result("gate", test_gate());
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);
 

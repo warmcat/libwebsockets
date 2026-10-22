@@ -29,6 +29,7 @@
 #if !defined(__LWS_MIXER_SIGNAL_H__)
 #define __LWS_MIXER_SIGNAL_H__
 
+#include <libwebsockets.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -108,5 +109,30 @@ mixer_json_str(char *dest, size_t dest_len, const char *v, size_t al);
 int
 mixer_json_list_add(char **p, const char *end, size_t reserve, int *count,
 		    const char *ent, size_t ent_len);
+
+/*
+ * Spacing for something we do on behalf of peers that we must not do more
+ * often than every `interval` however often they ask for it: rebroadcasting
+ * the client_list to the room, forcing a keyframe from the room's encoder,
+ * relaying a participant's chat.  Each of those used to be done once per
+ * tiny message from any peer, multiplying its traffic by the room size.
+ */
+struct mixer_gate {
+	lws_usec_t			last;	/* when we last did it, 0: never */
+	lws_usec_t			interval;
+};
+
+/*
+ * Returns 0 if it may be done at `now`, else how many us until it may be.
+ * It doesn't record anything: call mixer_gate_mark() when you do it.
+ */
+lws_usec_t
+mixer_gate_wait(const struct mixer_gate *g, lws_usec_t now);
+
+static LWS_INLINE void
+mixer_gate_mark(struct mixer_gate *g, lws_usec_t now)
+{
+	g->last = now;
+}
 
 #endif

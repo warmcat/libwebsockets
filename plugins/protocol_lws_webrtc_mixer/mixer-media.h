@@ -241,6 +241,7 @@ struct participant {
 	char                    id[MIXER_SIGNAL_ID_MAX];
 	int                     controller;
 	lws_usec_t              last_caps_req;
+	struct mixer_gate       gate_chat;
 
 	struct mixer_room       *room;
 	struct pss_webrtc       *pss;
@@ -321,6 +322,17 @@ struct mixer_room {
 	/* Room-specific timers */
 	lws_sorted_usec_list_t  sul_presence;
 
+	/*
+	 * [lws] Peers' messages only mark the client_list changed, and
+	 * forcing a keyframe is spaced out: either comes at once if it has
+	 * not happened for its interval, else these suls deliver it when the
+	 * interval is up, once, however many asked meanwhile.
+	 */
+	lws_sorted_usec_list_t  sul_client_list;
+	struct mixer_gate       gate_client_list;
+	lws_sorted_usec_list_t  sul_keyframe;
+	struct mixer_gate       gate_keyframe;
+
 	/* Audio Mixing */
 	int32_t                 mixed_pcm[AUDIO_SAMPLES_PER_FRAME];
 
@@ -396,6 +408,11 @@ LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct layout_manager_ops lm_speaker_ops;
 
 /* minimum interval between request_caps from one participant */
 #define MIXER_CAPS_REQ_MIN_INTERVAL_US (1 * LWS_US_PER_SEC)
+
+/* least spacing of room-wide client_list updates, forced keyframes and chat */
+#define MIXER_CLIENT_LIST_MIN_INTERVAL_US (250 * LWS_US_PER_MS)
+#define MIXER_KEYFRAME_MIN_INTERVAL_US (1 * LWS_US_PER_SEC)
+#define MIXER_CHAT_MIN_INTERVAL_US (200 * LWS_US_PER_MS)
 
 /* don't add to a peer's tx backlog past this */
 #define MIXER_MAX_TX_BACKLOG 262144

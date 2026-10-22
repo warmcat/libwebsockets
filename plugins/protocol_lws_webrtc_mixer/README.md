@@ -82,6 +82,25 @@ Within a room, the plugin does enforce the following:
    stored capability blob is capped at 2KB, and no more text is queued to a
    peer whose tx backlog is already over 256KB.
 
+ - What peers do that costs the whole room is spaced out, so one peer's
+   stream of small messages cannot multiply into room-wide traffic: a
+   `client_list` update goes out at most every 250ms however many `stats`,
+   `video_mute`, `capabilities`, `join` or `leave` messages asked for one
+   (it is also sent every second regardless), the room's encoder is forced
+   to a keyframe at most once a second for joins and RTCP PLIs together, a
+   `join` from a participant already joined changes nothing but its entry,
+   and `chat` is taken at most every 200ms from each participant.  A request
+   arriving inside the interval is delivered when it is up, except `chat`,
+   which is dropped.
+
+ - A participant's display name is only taken from its `offer` or `join`,
+   and its stats only from `stats`.  Those and `chat` text must be valid
+   UTF-8, since they are echoed to every browser in ws TEXT frames, where
+   invalid UTF-8 makes the browser drop the connection; and when they are
+   escaped or composed into bounded messages, they are cut only between
+   UTF-8 characters, and the `client_list` and `layout` lists only between
+   whole entries.
+
 Nothing a peer sends is relayed to another peer as received.  The plugin picks
 a message's type from the first `"type"` in it, but a browser's `JSON.parse()`
 keeps the last of duplicate keys, so a relayed message could be one thing to
@@ -122,14 +141,6 @@ a JSON array of `RTCIceServer` dictionaries:
 An empty or unparseable value means no ICE servers.
 
 ## Known gaps
-
- - The server does not rate limit `chat`.  A joined participant is bounded
-   only by `al <= 1024` per message and by the 20-entry room history, so N
-   messages in still means N broadcasts out to every joined peer.  The client
-   now caps what it keeps in the DOM, but the broadcast amplification is a
-   server-side concern: `chat` should carry a per-participant token bucket
-   (say a handful per second, with a small burst) beside the existing length
-   check, in the same place `request_caps` is already rate limited.
 
  - The `layout` message is one shared broadcast string whose regions are
    identified only by the participant's cosmetic display name.  A client
