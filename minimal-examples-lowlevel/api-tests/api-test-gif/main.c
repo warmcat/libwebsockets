@@ -1973,6 +1973,7 @@ decode_count(const uint8_t *doc, size_t len, unsigned int *rows_at,
 	lws_gif_t *gif = lws_gif_new();
 	lws_stateful_ret_t r = LWS_SRET_FATAL;
 
+	*work = 0;
 	if (!gif)
 		return r;
 
