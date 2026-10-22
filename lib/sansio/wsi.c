@@ -3017,24 +3017,28 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
 		return NULL;
 	}
 
-	lws_context_lock(vhost->context, __func__);
+	lws_context_lock(vhost->context, __func__); /* ------- context { */
 	new_wsi = __lws_wsi_create_with_role(vhost->context, n, NULL,
 					     vhost->lc.log_cx);
-	lws_context_unlock(vhost->context);
+	if (new_wsi)
+		/*
+		 * The tag takes the context lock itself, but we have it
+		 * already for the create, so tag him while we hold it.
+		 *
+		 * Adoption passes its optional fi_wsi_name as desc, usually
+		 * NULL... glibc prints a NULL %s as "(null)", but eg, QNX libc
+		 * faults on it
+		 */
+		__lws_lc_tag(vhost->context, &vhost->context->lcg[group],
+			     &new_wsi->lc, "%s|%s", vhost->name,
+			     desc ? desc : "adopted");
+	lws_context_unlock(vhost->context); /* --------------- } context */
 	if (new_wsi == NULL) {
 		lwsl_vhost_err(vhost, "OOM");
 		return NULL;
 	}
 
 	lws_wsi_fault_timedclose(new_wsi);
-
-	/*
-	 * Adoption passes its optional fi_wsi_name as desc, usually NULL...
-	 * glibc prints a NULL %s as "(null)", but eg, QNX libc faults on it
-	 */
-	__lws_lc_tag(vhost->context, &vhost->context->lcg[group],
-			&new_wsi->lc, "%s|%s", vhost->name,
-			desc ? desc : "adopted");
 
 	lws_wsi_event(new_wsi, LWS_WSIEV_SERVER_SIDE);
 	new_wsi->tsi = (char)n;

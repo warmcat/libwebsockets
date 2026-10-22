@@ -17,6 +17,13 @@
  * unlinking its timers from the other pt's list without that pt's lock while
  * the other thread was using the list.
  *
+ * Every wsi, client or accepted, is tagged into a lifecycle group list of the
+ * context's when it is created and untagged from it when it is freed.  Before
+ * G-549 a client connection was tagged without the context lock, on the
+ * service thread asking for it, while the other thread could be tagging, or
+ * untagging a wsi it had just closed, on the same list.  So both threads also
+ * make and close connections at volume, at once, from their callbacks.
+ *
  * Each service thread, at once and in rounds, asks:
  *
  *  - standalone lookups of names of its own,
@@ -27,8 +34,11 @@
  *    raw listener on 127.0.0.1,
  *
  * of a fake nameserver on loopback, run by a thread of our own, that answers
- * every A question with 127.0.0.1 as soon as it arrives.  Every lookup must
- * be answered with that address, and every callback, the lookups' and the
+ * every A question with 127.0.0.1 as soon as it arrives.  Each round, each
+ * also starts chains of raw client connections straight to 127.0.0.1, each
+ * closed as soon as it connects, and its CONNECTED callback asking for the
+ * next of its chain.  Every lookup must be answered with that address, every
+ * connection must connect, and every callback, the lookups' and the
  * connections', must come on the service thread that asked.
  *
  * With LWS_MAX_SMP 1 there is only one service thread, and it only checks
@@ -55,6 +65,17 @@
 #define PER_ROUND_OWN		12	/* standalone lookups of our own names */
 #define PER_ROUND_SHARED	4	/* names both threads ask about */
 #define PER_ROUND_CONNS		4	/* raw client connections */
+#define PER_ROUND_CHAINS	4	/* ... chains of them to 127.0.0.1 */
+#define CHAIN_LEN		8	/* connections in a chain */
+#define CONNS_PER_THREAD	(ROUNDS * (PER_ROUND_CONNS + \
+					   PER_ROUND_CHAINS * CHAIN_LEN))
+
+/* a connection's opaque user data: the tsi it asked on, and how many more of
+ * its chain to ask for when it connects */
+#define CONN_OPAQUE(tsi, more)	((void *)((intptr_t)(tsi) | \
+					  ((intptr_t)(more) << 8)))
+#define CONN_TSI(o)		((int)((intptr_t)(o) & 0xff))
+#define CONN_MORE(o)		((int)((intptr_t)(o) >> 8))
 #define DEADLINE_US		(20 * LWS_US_PER_SEC)
 #define DOMAIN			"adns-smp.invalid"
 
@@ -97,7 +118,7 @@ done(void)
 	pthread_mutex_lock(&lock);
 	r = answered + failed == asked && conns_done + conns_failed ==
 						conns_asked &&
-	    conns_asked == threads * ROUNDS * PER_ROUND_CONNS;
+	    conns_asked == threads * CONNS_PER_THREAD;
 	pthread_mutex_unlock(&lock);
 
 	return r;
@@ -183,7 +204,7 @@ ask(int tsi, const char *name)
 }
 
 static void
-connect_to(int tsi, const char *name)
+connect_to(int tsi, const char *name, int more)
 {
 	struct lws_client_connect_info i;
 
@@ -195,7 +216,7 @@ connect_to(int tsi, const char *name)
 	i.port			= raw_port;
 	i.method		= "RAW";
 	i.protocol		= "adns-smp-raw";
-	i.opaque_user_data	= (void *)(intptr_t)tsi;
+	i.opaque_user_data	= CONN_OPAQUE(tsi, more);
 
 	count(&conns_asked, 1);
 
@@ -231,8 +252,11 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 	for (n = 0; n < PER_ROUND_CONNS; n++) {
 		lws_snprintf(name, sizeof(name), "c%d-r%d-%d." DOMAIN,
 			     s->tsi, s->round, n);
-		connect_to(s->tsi, name);
+		connect_to(s->tsi, name, 0);
 	}
+
+	for (n = 0; n < PER_ROUND_CHAINS; n++)
+		connect_to(s->tsi, "127.0.0.1", CHAIN_LEN - 1);
 
 	if (++s->round < ROUNDS)
 		lws_sul_schedule(context, s->tsi, &s->sul_round, sul_round_cb,
@@ -251,6 +275,8 @@ static int
 callback_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
+	void *o;
+
 	switch (reason) {
 	case LWS_CALLBACK_RAW_ADOPT:
 		/* the server side of one of our connections */
@@ -258,11 +284,18 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
-		if (on_thread((int)(intptr_t)lws_get_opaque_user_data(wsi)) &&
-		    lws_get_tsi(wsi) !=
-				(int)(intptr_t)lws_get_opaque_user_data(wsi))
+		o = lws_get_opaque_user_data(wsi);
+		if (on_thread(CONN_TSI(o)) && lws_get_tsi(wsi) != CONN_TSI(o))
 			count(&wrong_thread, 1);
 		count(&conns_done, 1);
+
+		/*
+		 * The next of a chain is asked for from here, in a service
+		 * thread's callback, like a protocol making a connection in
+		 * reaction to another
+		 */
+		if (CONN_MORE(o))
+			connect_to(CONN_TSI(o), "127.0.0.1", CONN_MORE(o) - 1);
 		finish_if_done();
 
 		/* that's all we wanted */
@@ -272,7 +305,7 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("%s: connection failed: %s\n", __func__,
 			 in ? (const char *)in : "?");
-		on_thread((int)(intptr_t)lws_get_opaque_user_data(wsi));
+		on_thread(CONN_TSI(lws_get_opaque_user_data(wsi)));
 		count(&conns_failed, 1);
 		finish_if_done();
 		break;
@@ -434,8 +467,14 @@ main(int argc, const char **argv)
 	info.port		= CONTEXT_PORT_NO_LISTEN;
 	info.options		|= LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 	info.async_dns_servers	= servers;
-	/* room for every connection, both ends, and the resolver's sockets */
-	info.fd_limit_per_thread = 1024;
+	/*
+	 * Room for every connection, both ends, and the resolver's sockets:
+	 * size everything to the process fd limit.  A nonzero limit selects
+	 * the small lookup scheme, whose fd -> wsi lookups walk a table all the
+	 * threads share, and that is not yet safe with two service threads
+	 * making and closing connections at this rate
+	 */
+	info.fd_limit_per_thread = 0;
 	info.count_threads	= LWS_MAX_SMP < THREADS_MAX ? LWS_MAX_SMP :
 								THREADS_MAX;
 
@@ -498,7 +537,7 @@ main(int argc, const char **argv)
 
 	if (asked == threads * ROUNDS * (PER_ROUND_OWN + PER_ROUND_SHARED) &&
 	    answered == asked && !failed && !wrong_ads &&
-	    conns_asked == threads * ROUNDS * PER_ROUND_CONNS &&
+	    conns_asked == threads * CONNS_PER_THREAD &&
 	    conns_done == conns_asked && !conns_failed && !wrong_thread)
 		result = 0;
 

@@ -54,6 +54,14 @@ static const char * log_level_names ="EWNIDPHXCLUT??";
 
 /*
  * Name an instance tag and attach to a group
+ *
+ * The groups' lists and ordinals are the context's, shared by every service
+ * thread: objects are tagged and untagged on whichever thread creates or
+ * frees them, so with LWS_MAX_SMP > 1 the lists are only touched under the
+ * context lock (G-549).  It's recursive, so callers already holding it are
+ * fine; a caller must not be holding a pt or vhost lock without it (debug
+ * SMP builds assert on a pt one).  Appending to an existing tag only changes
+ * the object's own gutag, which is the business of whoever owns the object.
  */
 
 void
@@ -98,8 +106,11 @@ __lws_lc_tag(struct lws_context *context, lws_lifecycle_group_t *grp,
 		return;
 	}
 
+	assert(context);
 	assert(grp);
 	assert(grp->tag_prefix); /* lc group must have a tag prefix string */
+
+	lws_context_lock(context, __func__); /* ------------- context { */
 
 	lc->gutag[0] = '[';
 
@@ -128,11 +139,13 @@ __lws_lc_tag(struct lws_context *context, lws_lifecycle_group_t *grp,
 	lc->us_creation = (uint64_t)lws_now_usecs();
 	lws_dll2_add_tail(&lc->list, &grp->owner);
 
-	lwsl_refcount_cx(lc->log_cx, 1);
-
 #if defined(LWS_LOG_TAG_LIFECYCLE)
 	lwsl_cx_info(context, " ++ %s (%d)", lc->gutag, (int)lws_dll2_count(&grp->owner));
 #endif
+
+	lws_context_unlock(context); /* ----------------------- } context */
+
+	lwsl_refcount_cx(lc->log_cx, 1);
 }
 
 /*
@@ -180,14 +193,15 @@ __lws_lc_tag_append(lws_lifecycle_t *lc, const char *app)
 }
 
 /*
- * Remove instance from group
+ * Remove instance from group, under the context lock like the tag
  */
 
 void
 __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 {
-	//lws_lifecycle_group_t *grp;
+#if defined(LWS_LOG_TAG_LIFECYCLE)
 	char buf[24];
+#endif
 
 	if (!lc->gutag[0]) { /* we never tagged this object... */
 		lwsl_cx_err(context, "%s never tagged", lc->gutag);
@@ -195,13 +209,15 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 		return;
 	}
 
+	assert(context);
+	lws_context_lock(context, __func__); /* ------------- context { */
+
 	if (!lws_dll2_owner(&lc->list)) { /* we already untagged this object... */
+		lws_context_unlock(context);
 		lwsl_cx_err(context, "%s untagged twice", lc->gutag);
 		assert(0);
 		return;
 	}
-
-	//grp = lws_container_of(lc->list.owner, lws_lifecycle_group_t, owner);
 
 #if defined(LWS_LOG_TAG_LIFECYCLE)
 	if (lws_humanize(buf, sizeof(buf),
@@ -213,6 +229,8 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 #endif
 
 	lws_dll2_remove(&lc->list);
+
+	lws_context_unlock(context); /* ----------------------- } context */
 
 	lwsl_refcount_cx(lc->log_cx, -1);
 }
