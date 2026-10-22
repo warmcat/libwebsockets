@@ -8,6 +8,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Bug classes worth hunting for
 
+ - **A fix to one backend's helper rarely reaches its siblings.**  The
+   C-314 `lws_x509_create_cert()` double-free fix went into mbedtls only
+   and stayed open on openssl and gnutls for months (G-403).  When fixing
+   or verifying a TLS / gencrypto backend function, grep the same
+   function in every backend under lib/tls/.
+
  - **Staged failures.**  A fatal condition detected synchronously but
    enforced asynchronously, with success returned meanwhile.  The h2
    parser's GOAWAY used to queue the frame and return 0 ("carry on"), so
