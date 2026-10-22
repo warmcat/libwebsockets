@@ -689,6 +689,12 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name, stru
 	if (!ctx->pub.qlen)
 		goto bail;
 
+	/*
+	 * ctx->priv is the generated private key, in ctx->kbuf_priv: the ctx
+	 * can sign and do ECDH with it (bail clears this again)
+	 */
+	ctx->has_private = 1;
+
 	/* copy to el */
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = lws_malloc(strlen(curve_name) + 1, "eccrv");
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name);

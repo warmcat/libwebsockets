@@ -650,6 +650,69 @@ bail:
 	return 1;
 }
 
+/*
+ * ECDH with keys the ctx generated itself: each side keeps its new_keypair()
+ * ctx, takes the other's public part and both derive the same secret.  This
+ * is how an ephemeral key is used (ECDH-ES); bearssl once refused a
+ * generated key as having no private part, for ECDH and ECDSA signing.
+ */
+static int
+test_genec6(struct lws_context *context)
+{
+	struct lws_gencrypto_keyelem el[2][LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	struct lws_genec_ctx side[2];
+	uint8_t ss[2][32];
+	int n, ss_len[2];
+
+	memset(el, 0, sizeof(el));
+	memset(side, 0, sizeof(side));
+
+	for (n = 0; n < 2; n++)
+		if (lws_genecdh_create(&side[n], context, NULL) ||
+		    lws_genecdh_new_keypair(&side[n], LDHS_OURS, "P-256",
+					    el[n])) {
+			lwsl_err("%s: keygen %d failed\n", __func__, n);
+			goto bail;
+		}
+
+	for (n = 0; n < 2; n++) {
+		memset(pub, 0, sizeof(pub));
+		pub[LWS_GENCRYPTO_EC_KEYEL_CRV] = el[!n][LWS_GENCRYPTO_EC_KEYEL_CRV];
+		pub[LWS_GENCRYPTO_EC_KEYEL_X]   = el[!n][LWS_GENCRYPTO_EC_KEYEL_X];
+		pub[LWS_GENCRYPTO_EC_KEYEL_Y]   = el[!n][LWS_GENCRYPTO_EC_KEYEL_Y];
+
+		ss_len[n] = (int)sizeof(ss[n]);
+		if (lws_genecdh_set_key(&side[n], pub, LDHS_THEIRS) ||
+		    lws_genecdh_compute_shared_secret(&side[n], ss[n],
+						      &ss_len[n]) ||
+		    ss_len[n] != (int)sizeof(ss[n])) {
+			lwsl_err("%s: side %d derive failed\n", __func__, n);
+			goto bail;
+		}
+	}
+
+	if (lws_timingsafe_bcmp(ss[0], ss[1], sizeof(ss[0]))) {
+		lwsl_err("%s: the sides derived different secrets\n", __func__);
+		goto bail;
+	}
+
+	for (n = 0; n < 2; n++) {
+		lws_genec_destroy(&side[n]);
+		lws_genec_destroy_elements(el[n]);
+	}
+
+	return 0;
+
+bail:
+	for (n = 0; n < 2; n++) {
+		lws_genec_destroy(&side[n]);
+		lws_genec_destroy_elements(el[n]);
+	}
+
+	return 1;
+}
+
 int
 test_genec(struct lws_context *context)
 {
@@ -666,6 +729,9 @@ test_genec(struct lws_context *context)
 		goto bail;
 
 	if (test_genec5(context))
+		goto bail;
+
+	if (test_genec6(context))
 		goto bail;
 
 	/* end */
