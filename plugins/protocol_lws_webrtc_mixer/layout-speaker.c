@@ -336,7 +336,7 @@ lm_speaker_get_json(void *vctx)
 	char buf[LWS_PRE + 4096];
 	char *p = buf + LWS_PRE;
 	char *end = buf + sizeof(buf);
-	int i, emitted = 0;
+	int i, count = 0;
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"type\":\"layout\",\"regions\":[");
 
@@ -354,11 +354,8 @@ lm_speaker_get_json(void *vctx)
 		int w_pct = (reg->w * 100) / (int)ctx->room->master_w;
 		int h_pct = (reg->h * 100) / (int)ctx->room->master_h;
 
-		if (emitted++)
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",");
-
-		char name_esc[64] = {0};
-		char stats_esc[128] = {0};
+		char name_esc[64], stats_esc[128], ent[384];
+		int n;
 
 		/*
 		 * The participant that owns this session belongs to the lws
@@ -370,12 +367,18 @@ lm_speaker_get_json(void *vctx)
 		lws_strncpy(stats, s->stats, sizeof(stats));
 		lws_mutex_unlock(s->mutex);
 
+		/* these truncate, if they must, on a UTF-8 boundary */
 		lws_json_purify(name_esc, name, sizeof(name_esc), NULL);
 		lws_json_purify(stats_esc, stats, sizeof(stats_esc), NULL);
 
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+		n = lws_snprintf(ent, sizeof(ent),
 			"{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"px_w\":%d,\"px_h\":%d,\"text\":\"%s\\n%s\"}",
 			x_pct, y_pct, w_pct, h_pct, reg->w, reg->h, name_esc, stats_esc);
+
+		/* only whole regions, so it always closes as valid JSON */
+		if ((size_t)n >= sizeof(ent) - 1 ||
+		    mixer_json_list_add(&p, end, 3, &count, ent, (size_t)n))
+			break;
 	}
 
 	(void)lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");

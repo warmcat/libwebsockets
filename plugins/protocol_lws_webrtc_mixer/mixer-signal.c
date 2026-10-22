@@ -263,3 +263,49 @@ mixer_set_control_compose(char *buf, size_t len, const char *from,
 
 	return n;
 }
+
+int
+mixer_text_ok(const char *s, size_t len)
+{
+	unsigned char st = 0;
+
+	return !memchr(s, '\0', len) &&
+	       !lws_check_utf8(&st, (const unsigned char *)s, len) && !st;
+}
+
+int
+mixer_json_str(char *dest, size_t dest_len, const char *v, size_t al)
+{
+	/*
+	 * lws_json_simple_find() already strips the quotes and hands back the
+	 * exact length, so there is nothing to fix up afterwards.  The old
+	 * `if (*v == '"') { v++; nl -= 2; }` idiom fired precisely on an empty
+	 * value ("", where the returned pointer is the closing quote and alen
+	 * is 0) and underflowed the length to SIZE_MAX.
+	 */
+	if (!v || !al || al >= dest_len || !mixer_text_ok(v, al))
+		return -1;
+
+	memcpy(dest, v, al);
+	dest[al] = '\0';
+
+	return 0;
+}
+
+int
+mixer_json_list_add(char **p, const char *end, size_t reserve, int *count,
+		    const char *ent, size_t ent_len)
+{
+	size_t need = ent_len + (*count ? 1u : 0u) + reserve;
+
+	if (*p > end || need > lws_ptr_diff_size_t(end, *p))
+		return -1;
+
+	if (*count)
+		*(*p)++ = ',';
+	memcpy(*p, ent, ent_len);
+	*p += ent_len;
+	(*count)++;
+
+	return 0;
+}

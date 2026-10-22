@@ -21,7 +21,8 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * Peer signalling messages the mixer relays to another participant.  These
+ * Peer signalling messages the mixer relays to another participant, and the
+ * checks and composition helpers for peer text it echoes to the room.  These
  * do not depend on GStreamer, so api-test-webrtc-mixer-signal can run them.
  */
 
@@ -78,5 +79,34 @@ mixer_set_control_parse(const char *in, size_t len,
 int
 mixer_set_control_compose(char *buf, size_t len, const char *from,
 			  const struct mixer_set_control *sc);
+
+/*
+ * Is this peer-supplied text fit to store and send on to browsers?  It must
+ * be valid, complete UTF-8 with no NUL: the mixer echoes it in ws TEXT
+ * frames, and a browser fails the connection on invalid UTF-8 in one.
+ */
+int
+mixer_text_ok(const char *s, size_t len);
+
+/*
+ * Copy a JSON string value that lws_json_simple_find() returned into a
+ * bounded destination.  Returns 0 only if a non-empty value that fits and
+ * passes mixer_text_ok() was copied and NUL-terminated.
+ */
+int
+mixer_json_str(char *dest, size_t dest_len, const char *v, size_t al);
+
+/*
+ * Add one complete element `ent` of `ent_len` bytes to a JSON array being
+ * composed at *p, preceded by a comma if *count is nonzero, but only if it
+ * fits leaving `reserve` bytes free before `end` for closing the message.
+ * Returns 0 and advances *p and *count if it was added, or -1 having written
+ * nothing; it does not NUL-terminate.  So a message that runs out of room
+ * ends after its last whole element and can still be closed, instead of
+ * being cut partway through one (possibly inside a UTF-8 sequence).
+ */
+int
+mixer_json_list_add(char **p, const char *end, size_t reserve, int *count,
+		    const char *ent, size_t ent_len);
 
 #endif

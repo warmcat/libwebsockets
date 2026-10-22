@@ -127,6 +127,27 @@ static void broadcast_client_list(struct mixer_room *r, struct participant *excl
 static void broadcast_layout(struct mixer_room *r);
 static void mixer_send_text(struct participant *p, const char *buf, size_t len);
 
+/*
+ * Compose the stats line shown for a participant from the part the peer
+ * sent us and our own measurements.  It's bounded, and lws_snprintf() cuts
+ * on a byte boundary, so drop any partial UTF-8 sequence the cut left at the
+ * end: it's echoed to every browser in the room in ws TEXT frames.
+ */
+static void
+participant_compose_stats(struct participant *p, const char *tel)
+{
+	int fps = p->session ? p->session->current_fps : 0;
+
+	if (p->client_stats[0])
+		lws_snprintf(p->stats, sizeof(p->stats), "%s | Rx: %dfps%s",
+			     p->client_stats, fps, tel);
+	else
+		lws_snprintf(p->stats, sizeof(p->stats), "Rx: %dfps%s",
+			     fps, tel);
+
+	lws_utf8_trim_partial(p->stats, strlen(p->stats));
+}
+
 static void
 sul_stats_cb(lws_sorted_usec_list_t *sul)
 {
@@ -221,13 +242,7 @@ sul_stats_cb(lws_sorted_usec_list_t *sul)
 							p->pss && p->pss->media ? p->pss->media->telemetry.txpacer_drops : 0, tx_drop_sec,
 							p->session->gst_qos_drops, qos_drop_sec);
 
-						if (p->client_stats[0]) {
-							lws_snprintf(p->stats, sizeof(p->stats), "%s | Rx: %dfps%s",
-									p->client_stats, p->session->current_fps, tel_str);
-						} else {
-							lws_snprintf(p->stats, sizeof(p->stats), "Rx: %dfps%s",
-									p->session->current_fps, tel_str);
-						}
+						participant_compose_stats(p, tel_str);
 
 						/* keep the worker's snapshot in step */
 						mixer_media_session_set_ident(p->session,
@@ -269,25 +284,31 @@ broadcast_client_list(struct mixer_room *r, struct participant *exclude)
 {
 	struct broadcast_ctx bctx;
 	char buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *end = buf + sizeof(buf);
+	int count = 0;
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"type\":\"client_list\",\"clients\":[");
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&r->participants)) {
 		struct participant *part = lws_container_of(d, struct participant, list);
-		if (part != lws_container_of(lws_dll2_get_head(&r->participants), struct participant, list))
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",");
+		char stats_esc[128], name_esc[192], id_esc[64], ent[512];
+		int n;
 
-		char stats_esc[128] = {0};
-		char name_esc[192] = {0};
+		/* these truncate, if they must, on a UTF-8 boundary */
 		lws_json_purify(stats_esc, part->stats, sizeof(stats_esc), NULL);
 		lws_json_purify(name_esc, part->name, sizeof(name_esc), NULL);
-
-		char id_esc[64] = {0};
 		lws_json_purify(id_esc, part->id, sizeof(id_esc), NULL);
 
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+		n = lws_snprintf(ent, sizeof(ent),
 				"{\"id\":\"%s\",\"name\":\"%s\",\"joined\":%s,\"stats\":\"%s\"}",
 				id_esc, name_esc, part->joined ? "true" : "false", stats_esc);
+
+		/*
+		 * Only ever whole entries, so a list that runs out of room
+		 * still closes, and is never cut inside a peer's UTF-8
+		 */
+		if ((size_t)n >= sizeof(ent) - 1 ||
+		    mixer_json_list_add(&p, end, 3, &count, ent, (size_t)n))
+			break;
 	} lws_end_foreach_dll(d);
 
 	(void)lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
@@ -351,29 +372,6 @@ mixer_send_text(struct participant *p, const char *buf, size_t len)
 	}
 
 	we_ops->send_text(p->pss, buf, len);
-}
-
-/*
- * Copy a JSON string value that lws_json_simple_find() returned into a
- * bounded destination.
- *
- * lws_json_simple_find() already strips the quotes and hands back the exact
- * length, so there is nothing to fix up afterwards.  The old
- * `if (*v == '"') { v++; nl -= 2; }` idiom fired precisely on an empty value
- * ("", where the returned pointer is the closing quote and alen is 0) and
- * underflowed the length to SIZE_MAX, over-reading past the end of the ws rx
- * buffer.  Returns 0 only if a non-empty value that fits was copied.
- */
-static int
-mixer_json_str(char *dest, size_t dest_len, const char *v, size_t al)
-{
-	if (!v || !al || al >= dest_len)
-		return -1;
-
-	memcpy(dest, v, al);
-	dest[al] = '\0';
-
-	return 0;
 }
 
 static struct participant *
@@ -943,8 +941,7 @@ est_fail:
 					v = lws_json_simple_find((const char *)in, len, "\"stats\":", &al);
 					if (v && !mixer_json_str(p->client_stats,
 								 sizeof(p->client_stats), v, al)) {
-						lws_snprintf(p->stats, sizeof(p->stats), "%s | Rx: %dfps",
-								p->client_stats, p->session ? p->session->current_fps : 0);
+						participant_compose_stats(p, "");
 						if (p->session)
 							mixer_media_session_set_ident(p->session,
 									NULL, p->stats);
@@ -1290,7 +1287,14 @@ est_fail:
 							break;
 						}
 
-						if (txt && al > 0 && al <= 1024) {
+						/*
+						 * It is kept and replayed to every later
+						 * joiner in ws TEXT frames, so it must be
+						 * valid UTF-8 whatever the vhost's rx
+						 * validation options are.
+						 */
+						if (txt && al > 0 && al <= 1024 &&
+						    mixer_text_ok(txt, al)) {
 							struct chat_message *cm;
 							size_t txt_len = al;
 							char *txt_dup;

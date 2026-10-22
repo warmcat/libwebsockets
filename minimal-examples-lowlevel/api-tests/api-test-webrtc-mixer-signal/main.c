@@ -24,6 +24,15 @@
  *    object are refused
  *  - a missing member, or one of the wrong kind or out of range, is refused
  *  - a too-small buffer for the composed message fails cleanly
+ *
+ * and the helpers for peer text the mixer echoes to the whole room in ws TEXT
+ * frames, where a browser fails the connection on invalid UTF-8:
+ *
+ *  - mixer_json_str() takes valid UTF-8 values and refuses invalid, partial
+ *    or NUL-holding ones, empty ones and ones that do not fit
+ *  - a list composed with mixer_json_list_add() from names full of multibyte
+ *    characters, into every buffer size, is always complete JSON and valid
+ *    UTF-8, holding as many whole entries as fit
  */
 
 #include <libwebsockets.h>
@@ -257,6 +266,140 @@ test_limits(void)
 	return 0;
 }
 
+static const char * const text_ok[] = {
+	"plain",
+	"caf\xc3\xa9",
+	"\xe2\x82\xac\xe2\x82\xac",
+	"\xf0\x9f\x98\x80 1280x720 -> 640x360 @ 25fps (Good)",
+};
+
+static const char * const text_bad[] = {
+	"\xe2\x82",			/* ends partway through a sequence */
+	"a\x80",			/* stray continuation */
+	"\xc0\xaf",			/* overlong '/' */
+	"\xed\xa0\x80",			/* surrogate */
+	"\xf4\x90\x80\x80",		/* past U+10FFFF */
+	"\xff",
+};
+
+static int
+test_text(void)
+{
+	char dest[16];
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(text_ok); n++) {
+		size_t l = strlen(text_ok[n]);
+		char big[64];
+
+		if (mixer_json_str(big, sizeof(big), text_ok[n], l) ||
+		    strcmp(big, text_ok[n])) {
+			lwsl_err("%s: refused ok %d\n", __func__, (int)n);
+			return 1;
+		}
+	}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(text_bad); n++)
+		if (!mixer_json_str(dest, sizeof(dest), text_bad[n],
+				    strlen(text_bad[n]))) {
+			lwsl_err("%s: accepted bad %d\n", __func__, (int)n);
+			return 1;
+		}
+
+	/* NUL inside, empty, NULL, and exactly too long for dest */
+	if (!mixer_json_str(dest, sizeof(dest), "a\0b", 3) ||
+	    !mixer_json_str(dest, sizeof(dest), "", 0) ||
+	    !mixer_json_str(dest, sizeof(dest), NULL, 3) ||
+	    !mixer_json_str(dest, sizeof(dest), "0123456789abcdef", 16) ||
+	    mixer_json_str(dest, sizeof(dest), "0123456789abcde", 15)) {
+		lwsl_err("%s: limits\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
+static signed char
+list_cb(struct lejp_ctx *ctx, char reason)
+{
+	(void)ctx;
+	(void)reason;
+
+	return 0;
+}
+
+/*
+ * Compose a client_list as the mixer does, for three participants whose
+ * names are 21 x U+20AC, 63 bytes that do not fit the 64-byte escape buffer,
+ * into every size of message buffer
+ */
+static int
+test_list(void)
+{
+	char name[64], name_esc[64], ent[256], buf[600], *p, *end;
+	struct lejp_ctx ctx;
+	int i, n, m, ents, size, last = 0;
+	unsigned char st;
+
+	for (i = 0; i < 21; i++)
+		memcpy(name + (i * 3), "\xe2\x82\xac", 3);
+	name[63] = '\0';
+
+	lws_json_purify(name_esc, name, sizeof(name_esc), NULL);
+
+	for (size = 40; size <= (int)sizeof(buf); size++) {
+		p = buf;
+		end = buf + size;
+		ents = 0;
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "{\"type\":\"client_list\",\"clients\":[");
+
+		for (i = 0; i < 3; i++) {
+			n = lws_snprintf(ent, sizeof(ent),
+					 "{\"id\":\"u%d\",\"name\":\"%s\"}",
+					 i + 1, name_esc);
+			if (mixer_json_list_add(&p, end, 3, &ents, ent,
+						(size_t)n))
+				break;
+		}
+
+		lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
+		n = (int)strlen(buf);
+
+		st = 0;
+		if (lws_check_utf8(&st, (const unsigned char *)buf,
+				   (size_t)n) || st) {
+			lwsl_err("%s: size %d: invalid UTF-8\n", __func__, size);
+			return 1;
+		}
+
+		lejp_construct(&ctx, list_cb, NULL, NULL, 0);
+		m = lejp_parse(&ctx, (const unsigned char *)buf, n);
+		lejp_destruct(&ctx);
+		if (m) {
+			lwsl_err("%s: size %d: not complete JSON: %s\n",
+				 __func__, size, buf);
+			return 1;
+		}
+
+		/* it holds whole entries, never fewer as there is more room */
+		if (ents < last || count(buf, "\"id\"") != ents) {
+			lwsl_err("%s: size %d: %d entries\n", __func__, size,
+				 ents);
+			return 1;
+		}
+		last = ents;
+	}
+
+	if (last != 3) {
+		lwsl_err("%s: never fitted all three\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
 static void
 result(const char *name, int bad)
 {
@@ -282,6 +425,8 @@ main(int argc, const char **argv)
 		result("bad", test_bad(bad[n]));
 
 	result("limits", test_limits());
+	result("text", test_text());
+	result("list", test_list());
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);
 
