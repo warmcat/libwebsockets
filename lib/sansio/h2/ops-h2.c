@@ -711,8 +711,16 @@ rops_init_vhost_h2(struct lws_vhost *vh,
 	if (info->http2_settings[0]) {
 		int n;
 
-		for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
-			vh->h2.set.s[n] = info->http2_settings[n];
+		/*
+		 * Every setting the info has room for: LWS_H2_SETTINGS_LEN is
+		 * the wire size of one, and as the bound it left out
+		 * MAX_HEADER_LIST_SIZE.  Since that went unused, a 0 there
+		 * keeps the default rather than refusing every header.
+		 */
+		for (n = 1; n < (int)LWS_ARRAY_SIZE(info->http2_settings); n++)
+			if (n != H2SET_MAX_HEADER_LIST_SIZE ||
+			    info->http2_settings[n])
+				vh->h2.set.s[n] = info->http2_settings[n];
 	}
 
 	return 0;

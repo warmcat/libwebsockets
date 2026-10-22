@@ -541,7 +541,8 @@ struct lws_context_creation_info {
 	uint32_t	http2_settings[7];
 	/**< VHOST:  if http2_settings[0] is nonzero, the values given in
 	 *	      http2_settings[1]..[6] are used instead of the lws
-	 *	      platform default values.
+	 *	      platform default values, except a 0 for
+	 *	      H2SET_MAX_HEADER_LIST_SIZE keeps the default.
 	 *	      Just leave all at 0 if you don't care.
 	 */
 
