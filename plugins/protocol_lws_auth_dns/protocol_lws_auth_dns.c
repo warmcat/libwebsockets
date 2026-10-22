@@ -49,11 +49,20 @@
 /*
  * G-508: a query for a zone we don't hold starts a zone fetch from the DHT,
  * and queries come over UDP from any (spoofable) source: new fetches are
- * rate-limited, a burst of this many, refilled at one per this interval.
- * A query for a zone already being fetched waits on that fetch.
+ * rate-limited by token buckets, a burst of so many, refilled at one per
+ * an interval.  A query for a zone already being fetched waits on that fetch.
+ *
+ * G-535: each source host (lws_sa46_host_key(): an IPv4 address, or an IPv6
+ * /64) has its own small bucket, so one source, or one forged address,
+ * can't take every fetch there is; the bucket of the vhost as a whole is a
+ * larger cap over them all, bounding the DHT traffic queries can cause.  The
+ * hosts tracked are bounded, the least recently seen recycled.
  */
-#define LWS_AUTH_DNS_DHT_FETCH_BURST		8
-#define LWS_AUTH_DNS_DHT_FETCH_REFILL_US	(500 * LWS_US_PER_MS)
+#define LWS_AUTH_DNS_DHT_FETCH_BURST		32
+#define LWS_AUTH_DNS_DHT_FETCH_REFILL_US	(250 * LWS_US_PER_MS)
+#define LWS_AUTH_DNS_DHT_FETCH_HOST_BURST	4
+#define LWS_AUTH_DNS_DHT_FETCH_HOST_REFILL_US	(2 * LWS_US_PER_SEC)
+#define LWS_AUTH_DNS_DHT_FETCH_HOSTS		256
 #define LWS_AUTH_DNS_MAX_PENDING_DNSBL		256
 
 /*
@@ -995,6 +1004,22 @@ struct auth_dns_cache_entry {
 	struct auth_dns_zone_index idx;
 };
 
+/* G-508 / G-535: a token bucket for starting DHT zone fetches */
+
+struct auth_dns_fetch_bucket {
+	lws_usec_t	refilled;	/* when tokens was last refilled */
+	unsigned int	tokens;
+};
+
+/* G-535: one source host's fetch bucket */
+
+struct auth_dns_fetch_host {
+	lws_dll2_t			list;	/* in vhd->dht_fetch_hosts,
+						 * latest first */
+	struct auth_dns_fetch_bucket	b;
+	char				key[LWS_HOST_KEY_LEN];
+};
+
 struct per_vhost_data__auth_dns {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -1019,9 +1044,10 @@ struct per_vhost_data__auth_dns {
 	 */
 	uint32_t pending_unique_domains;
 
-	/* G-508: token bucket for starting DHT zone fetches */
-	lws_usec_t dht_fetch_refilled;
-	unsigned int dht_fetch_tokens;
+	/* G-508: token bucket for starting DHT zone fetches, all sources */
+	struct auth_dns_fetch_bucket dht_fetch;
+	/* G-535: and each source host's, struct auth_dns_fetch_host */
+	lws_dll2_owner_t dht_fetch_hosts;
 
 	/*
 	 * G-289: UDP response rate limiting, per source network prefix.
@@ -1924,37 +1950,140 @@ pending_query_detach(struct pending_dns_query *q)
 	return others;
 }
 
+/* add the tokens due since the bucket was last refilled, up to burst */
+
+static void
+auth_dns_fetch_bucket_refill(struct auth_dns_fetch_bucket *b, lws_usec_t now,
+			     unsigned int burst, lws_usec_t interval)
+{
+	lws_usec_t n;
+
+	if (!b->refilled) {
+		b->tokens = burst;
+		b->refilled = now;
+
+		return;
+	}
+
+	n = (now - b->refilled) / interval;
+	if (n <= 0)
+		return;
+
+	if (n >= burst || b->tokens + (unsigned int)n >= burst)
+		b->tokens = burst;
+	else
+		b->tokens += (unsigned int)n;
+	b->refilled += n * interval;
+}
+
 /*
- * May a query start another DHT zone fetch now?  Takes a token if so.
+ * The fetch bucket of the source host keyed key, created if we don't track
+ * it yet, recycling the least recently seen one when the table is full.
+ * NULL if there is no memory for it.
+ */
+
+static struct auth_dns_fetch_host *
+auth_dns_fetch_host(struct per_vhost_data__auth_dns *vhd, const char *key)
+{
+	struct auth_dns_fetch_host *h = NULL;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->dht_fetch_hosts)) {
+		struct auth_dns_fetch_host *f = lws_container_of(d,
+					struct auth_dns_fetch_host, list);
+
+		if (!strcmp(f->key, key)) {
+			h = f;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (h) {
+		lws_dll2_remove(&h->list);
+		lws_dll2_add_head(&h->list, &vhd->dht_fetch_hosts);
+
+		return h;
+	}
+
+	if (vhd->dht_fetch_hosts.count >= LWS_AUTH_DNS_DHT_FETCH_HOSTS) {
+		h = lws_container_of(lws_dll2_get_tail(&vhd->dht_fetch_hosts),
+				     struct auth_dns_fetch_host, list);
+		lws_dll2_remove(&h->list);
+	} else {
+		h = malloc(sizeof(*h));
+		if (!h)
+			return NULL;
+	}
+
+	memset(h, 0, sizeof(*h));
+	lws_strncpy(h->key, key, sizeof(h->key));
+	lws_dll2_add_head(&h->list, &vhd->dht_fetch_hosts);
+
+	return h;
+}
+
+static void
+auth_dns_fetch_hosts_destroy(struct per_vhost_data__auth_dns *vhd)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->dht_fetch_hosts)) {
+		struct auth_dns_fetch_host *h = lws_container_of(d,
+					struct auth_dns_fetch_host, list);
+
+		lws_dll2_remove(&h->list);
+		free(h);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/*
+ * May a query from wsi start another DHT zone fetch now?  It needs a token
+ * from its source host's bucket and from the vhost's, and takes both if so.
  * Nonzero if it may.
+ *
+ * A datagram's source is only what it claims, so a forger can spend the
+ * budget of the address it forges, or spread itself over many: the vhost's
+ * bucket is what bounds the latter.  But from one address it only takes that
+ * address' share, and other sources' queries still start their fetches.  A
+ * TCP source is keyed by lws_get_peer_host_key(), since its address is
+ * proven.
  */
 
 static int
-auth_dns_dht_fetch_token(struct per_vhost_data__auth_dns *vhd)
+auth_dns_dht_fetch_token(struct per_vhost_data__auth_dns *vhd, struct lws *wsi,
+			 int is_tcp)
 {
 	lws_usec_t now = lws_now_usecs();
-	lws_usec_t n;
+	struct auth_dns_fetch_host *h;
+	char key[LWS_HOST_KEY_LEN];
 
-	if (!vhd->dht_fetch_refilled) {
-		vhd->dht_fetch_tokens = LWS_AUTH_DNS_DHT_FETCH_BURST;
-		vhd->dht_fetch_refilled = now;
+	if (is_tcp)
+		lws_get_peer_host_key(wsi, key, sizeof(key));
+	else {
+		const struct lws_udp *udp = lws_get_udp(wsi);
+
+		if (!udp)
+			return 0;
+		lws_sa46_host_key(&udp->sa46, key, sizeof(key));
 	}
 
-	n = (now - vhd->dht_fetch_refilled) / LWS_AUTH_DNS_DHT_FETCH_REFILL_US;
-	if (n > 0) {
-		if (n >= LWS_AUTH_DNS_DHT_FETCH_BURST ||
-		    vhd->dht_fetch_tokens + (unsigned int)n >=
-						LWS_AUTH_DNS_DHT_FETCH_BURST)
-			vhd->dht_fetch_tokens = LWS_AUTH_DNS_DHT_FETCH_BURST;
-		else
-			vhd->dht_fetch_tokens += (unsigned int)n;
-		vhd->dht_fetch_refilled += n * LWS_AUTH_DNS_DHT_FETCH_REFILL_US;
-	}
-
-	if (!vhd->dht_fetch_tokens)
+	auth_dns_fetch_bucket_refill(&vhd->dht_fetch, now,
+				     LWS_AUTH_DNS_DHT_FETCH_BURST,
+				     LWS_AUTH_DNS_DHT_FETCH_REFILL_US);
+	if (!vhd->dht_fetch.tokens)
 		return 0;
 
-	vhd->dht_fetch_tokens--;
+	h = auth_dns_fetch_host(vhd, key);
+	if (!h)
+		return 0;
+
+	auth_dns_fetch_bucket_refill(&h->b, now,
+				     LWS_AUTH_DNS_DHT_FETCH_HOST_BURST,
+				     LWS_AUTH_DNS_DHT_FETCH_HOST_REFILL_US);
+	if (!h->b.tokens)
+		return 0;
+
+	h->b.tokens--;
+	vhd->dht_fetch.tokens--;
 
 	return 1;
 }
@@ -2444,6 +2573,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_sul_cancel(&vhd->sul_evict);
 			lws_sul_cancel(&vhd->sul_dht_reg);
 		auth_dns_rrl_destroy(vhd);
+		auth_dns_fetch_hosts_destroy(vhd);
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 				struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
@@ -2866,17 +2996,11 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					}
 				} lws_end_foreach_dll(d);
 
-				if (!is_already_fetching_globally) {
-					if (vhd->pending_unique_domains >= vhd->dht_max_pending) {
-						lwsl_notice("dht pending queries maxed out (globally %u unique) from %s\n",
-							    (unsigned int)vhd->pending_unique_domains, peer_ip);
-						goto send_refused;
-					}
-					if (!auth_dns_dht_fetch_token(vhd)) {
-						lwsl_info("dht zone fetches rate limited, from %s\n",
-							  peer_ip);
-						goto send_refused;
-					}
+				if (!is_already_fetching_globally &&
+				    vhd->pending_unique_domains >= vhd->dht_max_pending) {
+					lwsl_notice("dht pending queries maxed out (globally %u unique) from %s\n",
+						    (unsigned int)vhd->pending_unique_domains, peer_ip);
+					goto send_refused;
 				}
 
 				if (!is_already_fetching_ip) {
@@ -2894,6 +3018,17 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if ((uint32_t)lws_dll2_count(&vhd->pending_queries) >=
 						LWS_AUTH_DNS_MAX_PENDING_QUERIES) {
 					lwsl_notice("dht pending queries absolute queue limit reached from %s\n", peer_ip);
+					goto send_refused;
+				}
+
+				/*
+				 * G-535: last, so a query something else
+				 * refuses spends no fetch token
+				 */
+				if (!is_already_fetching_globally &&
+				    !auth_dns_dht_fetch_token(vhd, wsi, is_tcp)) {
+					lwsl_info("dht zone fetches rate limited, from %s\n",
+						  peer_ip);
 					goto send_refused;
 				}
 

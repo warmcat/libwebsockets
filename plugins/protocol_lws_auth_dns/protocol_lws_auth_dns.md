@@ -30,9 +30,13 @@ Zones come from two sources:
    is only installed if it has an `RRSIG` over its SOA and all its `RRSIG`s
    are in their validity period, and it is held until the earliest expires.
    Since queries arrive over UDP from any, possibly forged, source, a query
-   only starts a fetch if its zone is not already being fetched, and at most
-   8 fetches are started at once, then one per 500ms; a query over that is
-   answered `REFUSED` at once.
+   only starts a fetch if its zone is not already being fetched, and only
+   once every other limit on suspended queries (below) let it through.  Each
+   source host (an IPv4 address, or an IPv6 /64) may start 4 fetches at once,
+   then one per 2s, and the vhost as a whole 32 at once, then one per 250ms,
+   tracking the 256 hosts seen most recently; a query over that is answered
+   `REFUSED` at once.  So one source, or one forged source address, can't
+   use up the fetches other sources' queries need.
 
 Incoming queries are matched by `QNAME`, `QTYPE` and `QCLASS` against the loaded
 zones and answered `NOERROR` with the authoritative RRsets (and their `RRSIG`s

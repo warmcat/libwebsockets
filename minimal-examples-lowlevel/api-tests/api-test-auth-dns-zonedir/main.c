@@ -20,7 +20,7 @@
  * | 5 | good dir, but undecorated / short-suffix / group-writable / symlinked zone files | all loaded and served | only the properly shaped file loads, the rest answer REFUSED |
  * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them, and signed and in date (G-505) |
  * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
- * | 7b | queries for 10 zones nobody serves, and another for the first (G-508) | a fetch started for each query | a fetch for each of the first 8 zones, the rest REFUSED, the other query waits on the first fetch |
+ * | 7b | from one source, queries for 10 zones nobody serves and another for the first; then one from another source (G-508, G-535) | a fetch started for each query; with one bucket for all sources, the first source's queries leave none for the other's | a fetch for each of the first source's first 4 zones, the rest REFUSED, the other query waits on the first fetch; the other source's query starts a fetch |
  * | 8 | a zone with a delegation (G-246) | names at / below the cut answered authoritatively from the zone text | referred: no AA, the cut's NS in authority; only the DS at the cut answered |
  * | 9 | more zone files than cache-max-zones (G-290) | the surplus evicted at startup and its files unlinked | all served, every file still there |
  * | 10 | cache-max-zones 1, an operator zone and DHT-handed zones (G-290) | the operator zone evicted for a DHT zone and its file unlinked | the operator zone served and its file kept, the DHT zones evicting each other |
@@ -86,6 +86,8 @@ static struct lws_context *context;
 
 static int ports[2];
 static int cli_fd = -1;
+/* another source host, 127.0.0.2, where the platform has it on loopback */
+static int cli2_fd = -1;
 static struct sockaddr_in auth_sa;
 
 static int test_ok = 1;
@@ -118,6 +120,8 @@ struct phase {
 					 * 1: one, given up with its query
 					 * 2: many, rate limited (G-508) */
 	const char	*cache_max;	/* "cache-max-zones" pvo, if any */
+	int		src2_from;	/* if nonzero, q[] from this index on
+					 * are sent from cli2_fd */
 	const char	*keep[4];	/* zdir files that must survive */
 	struct qexp	q[MAX_Q];
 };
@@ -175,18 +179,21 @@ static struct {
 
 static int zd_fetch_starts, zd_fetch_completions, zd_fetch_status,
 	   zd_fetch_calls;
+/* the zone the last fetch was asked for */
+static char zd_fetch_last[256];
 
 /*
- * auth-dns starts at most a burst of this many zone fetches at once
- * (LWS_AUTH_DNS_DHT_FETCH_BURST), then one per 500ms
+ * auth-dns starts at most a burst of this many zone fetches at once for one
+ * source host (LWS_AUTH_DNS_DHT_FETCH_HOST_BURST), then one per 2s
  */
-#define ZD_FETCH_BURST		8
+#define ZD_FETCH_HOST_BURST	4
 
 static void
 zd_fetch_reset(void)
 {
 	memset(&zd_fetch, 0, sizeof(zd_fetch));
 	zd_fetch_starts = zd_fetch_completions = zd_fetch_calls = 0;
+	zd_fetch_last[0] = '\0';
 	zd_fetch_status = -100;
 }
 
@@ -225,6 +232,8 @@ zd_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *a)
 
 	if (!a->domain)
 		goto refuse;
+
+	lws_strncpy(zd_fetch_last, a->domain, sizeof(zd_fetch_last));
 
 	if (zd_fetch.pending) {
 		if (!strcmp(a->domain, zd_fetch.domain) &&
@@ -719,11 +728,11 @@ drive_cb(lws_sorted_usec_list_t *sul)
 
 	/* harvest any responses */
 
-	do {
+	for (n = 0; n < 2; n++) do {
 		struct qexp *q = NULL;
 		int i;
 
-		r = recv(cli_fd, buf, sizeof(buf), 0);
+		r = recv(n ? cli2_fd : cli_fd, buf, sizeof(buf), 0);
 		if (r < 12)
 			break;
 
@@ -787,13 +796,23 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		}
 
 		for (n = 0; n < MAX_Q && cur->q[n].name; n++) {
+			int from2 = cur->src2_from && n >= cur->src2_from;
 			size_t ql = mk_query(buf, sizeof(buf), cur->q[n].id,
 					     cur->q[n].name,
 					     cur->q[n].qtype ? cur->q[n].qtype :
 							LWS_ADNS_RECORD_A);
 
+			if (from2 && cli2_fd < 0) {
+				/* no other source here: nothing to wait for */
+				lwsl_notice("%s: no 127.0.0.2, %s not sent\n",
+					    __func__, cur->q[n].name);
+				cur->q[n].sent = 1;
+				cur->q[n].got_rcode = cur->q[n].expect_rcode;
+				continue;
+			}
+
 			if (!ql ||
-			    sendto(cli_fd, buf, ql, 0,
+			    sendto(from2 ? cli2_fd : cli_fd, buf, ql, 0,
 				   (struct sockaddr *)&auth_sa,
 				   sizeof(auth_sa)) < 0) {
 				lwsl_err("%s: query %d sendto failed errno %d\n",
@@ -886,15 +905,21 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		 */
 		if (cur->fetch == 2) {
 			/*
-			 * each zone asked for once, the first queries' up to
-			 * the burst, the rest refused; a query for a zone
-			 * already being fetched waits on that fetch
+			 * each zone asked for once, the first source's first
+			 * queries' up to its burst, the rest refused; a query
+			 * for a zone already being fetched waits on that
+			 * fetch.  The other source still has its own (G-535),
+			 * so its query starts a fetch.
 			 */
-			if (zd_fetch_calls < ZD_FETCH_BURST ||
-			    zd_fetch_calls > ZD_FETCH_BURST + 1) {
+			int want = ZD_FETCH_HOST_BURST + (cli2_fd >= 0);
+
+			if (zd_fetch_calls != want ||
+			    (cli2_fd >= 0 &&
+			     strcmp(zd_fetch_last, "rlb.example"))) {
 				lwsl_err("phase '%s': FAIL %d fetches started, "
-					 "wanted %d\n", cur->name,
-					 zd_fetch_calls, ZD_FETCH_BURST);
+					 "the last for '%s', wanted %d, the "
+					 "last for rlb.example\n", cur->name,
+					 zd_fetch_calls, zd_fetch_last, want);
 				phase_failed = 1;
 			} else
 				lwsl_user("phase '%s': %d fetches started\n",
@@ -985,6 +1010,9 @@ run_phase(struct phase *p, int idx)
 		uint8_t dbuf[2048];
 
 		while (recv(cli_fd, dbuf, sizeof(dbuf), 0) >= 0)
+			;
+		while (cli2_fd >= 0 &&
+		       recv(cli2_fd, dbuf, sizeof(dbuf), 0) >= 0)
 			;
 	}
 
@@ -1127,11 +1155,14 @@ main(int argc, const char **argv)
 			 * G-508: a spoofed query stream for zones nobody
 			 * serves must not start a DHT fetch each.  All are
 			 * REFUSED: those past the burst at once, the rest
-			 * when their wait for the zone ends.
+			 * when their wait for the zone ends.  G-535: the
+			 * burst is the source's own, so another source's
+			 * query, the last, still starts a fetch.
 			 */
 			.name		= "query-driven zone fetches rate limited",
 			.zdir		= "good",
 			.fetch		= 2,
+			.src2_from	= 11,
 			.q		= {
 				{ "www.rl1.example", 0x110d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 				{ "www.rl2.example", 0x120d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
@@ -1145,6 +1176,8 @@ main(int argc, const char **argv)
 				{ "www.rl10.example", 0x1a0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 				/* waits on the fetch the first one started */
 				{ "ftp.rl1.example", 0x1b0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				/* from another source */
+				{ "www.rlb.example", 0x1c0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "names at or below a zone cut referred",
@@ -1263,6 +1296,26 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
+	/*
+	 * Another source host, where the platform routes all of 127/8 to
+	 * loopback (not eg, macOS by default): the phases using it go
+	 * without it otherwise
+	 */
+	cli2_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (cli2_fd >= 0) {
+		struct sockaddr_in sa2;
+
+		memset(&sa2, 0, sizeof(sa2));
+		sa2.sin_family = AF_INET;
+		sa2.sin_addr.s_addr = htonl(0x7f000002);
+		if (bind(cli2_fd, (struct sockaddr *)&sa2, sizeof(sa2)) ||
+		    fcntl(cli2_fd, F_SETFL, O_NONBLOCK) < 0) {
+			lwsl_notice("no 127.0.0.2 to send from\n");
+			close(cli2_fd);
+			cli2_fd = -1;
+		}
+	}
+
 	lwsl_user("LWS API selftest: auth dns zone dir trust (F-055)\n");
 
 	for (i = 0; i < nph; i++) {
@@ -1284,6 +1337,8 @@ main(int argc, const char **argv)
 	lwsl_user("Completed: %s\n", test_ok && !ret ? "PASS" : "FAIL");
 
 	close(cli_fd);
+	if (cli2_fd >= 0)
+		close(cli2_fd);
 	unplant_fixtures();
 
 	return !test_ok || ret;
