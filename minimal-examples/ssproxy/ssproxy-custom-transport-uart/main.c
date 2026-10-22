@@ -109,7 +109,7 @@ static const char * const default_ss_policy =
 			"\"opportunistic\":"	"true,"
 			"\"retry\":"		"\"default\","
 			"\"tls_trust_store\":"	"\"le_via_isrg\""
-		"}}"
+		"}}]"
 	"}"
 ;
 
