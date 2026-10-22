@@ -590,12 +590,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## DHT transport sequencer
 
- - **Two paths destroy a sequencer without `on_state_change`**: the
-   oldest-used eviction in `dht_ts_create()` and the idle-out.  Consumers
-   get no WRITE_FAILED for queued data there (G-496), so any promise to
-   consumers about sequencer lifetime has to cover them.  A dht-dnssec
-   zone fetch fans out to up to 65 sequencers against the 64-entry table,
-   so it evicts every other transfer (G-508).
+ - **Since G-496 (77f521905) a sequencer in use is never recycled**:
+   `dht_ts_in_use()` (in a callback, a proven rx session, or unacked tx)
+   protects it, and when every slot is in use a newcomer is refused (first
+   chunk dropped, send gets `LWS_DHT_SEND_REFUSED`).  Recycling and
+   idle-out of a sequencer with unacked data end through
+   `dht_on_state_change()` (WRITE_FAILED).  A consumer that fans out
+   (eg a dht-dnssec zone fetch, up to 65 hosts) must handle REFUSED
+   (G-508).
 
  - **Session model (G-133 / G-141):** a receive half binds to the tid of
    the first chunk it takes; only that tid feeds it and our acks echo it.

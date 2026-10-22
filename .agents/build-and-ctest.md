@@ -285,6 +285,7 @@
    sul until `vhd->dht` is set (see api-test-dht-dnssec-put).
  - **To make a DHT node create many sequencers** in a test, send to
    127.0.0.2 and up on one never-listened port (api-test-dht-seq-reentry).
+   Only free or idle slots are taken: beyond 64 in use, sends are REFUSED.
  - **Red-test in a detached worktree** at the previous commit with the new
    test copied in: an ASan red without disturbing the shared tree.
  - **Many raw UDP sockets in one test context** need
