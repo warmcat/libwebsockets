@@ -551,6 +551,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    cleared when nothing matches, so a stale match can survive into the
    next key (policy-json.c checks depth for this, G-395).
 
+## lws_struct
+
+ - **A struct parsed from peer JSON is not validated.**  String members
+   the peer omits stay NULL, integers go through atoi() with no range or
+   sign check, and malformed nesting can build a different tree from the
+   document (G-437, G-440, G-441, G-442).  Consumers NULL-check every
+   string member and range-check integers themselves.
+
 ## DHT transport sequencer
 
  - **Session model (G-133 / G-141):** a receive half binds to the tid of
