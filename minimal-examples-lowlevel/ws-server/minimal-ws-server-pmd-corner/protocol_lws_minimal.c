@@ -31,7 +31,7 @@
  * which is 1024 by default.
  */
 
-unsigned char uncompressible[] = {
+static const unsigned char uncompressible[] = {
 	0xfe, 0xcc, 0x47, 0xcb, 0x10, 0xf4, 0x3c, 0x85,
 	0x8e, 0xd4, 0xe2, 0xf6, 0xd1, 0xd1, 0xdb, 0x64,
 	0x94, 0x50, 0xf6, 0x14, 0x25, 0x03, 0x09, 0x3a,
@@ -194,7 +194,7 @@ unsigned char uncompressible[] = {
 };
 
 /* generates ciphertext:        1022  1023  1023 + 3 1023 + 3 */
-static int corner_lengths[] = {
+static const unsigned int corner_lengths[] = {
 /* bytes plaintext,	ciphertext */
 	1012,	/*	1019 */
 	1013,	/*	1020 */
@@ -202,6 +202,41 @@ static int corner_lengths[] = {
 	1019,	/*	1021 */
 	1024,	/*	1021*/
 };
+
+/* the largest corner case we will send, it must fit in our tx buffer */
+#define CORNER_MAX_LEN 2048
+
+/*
+ * The page opens one ws connection per test, to "/1" .. "/5", choosing the
+ * entry in corner_lengths[] to send.  The URL comes from the peer, so anything
+ * that isn't exactly one of those selects no test (0).
+ */
+
+static int
+corner_test_from_uri(const char *uri, size_t len)
+{
+	unsigned int n = 0;
+	size_t m;
+
+	if (len < 2 || len > 3 || uri[0] != '/')
+		return 0;
+
+	for (m = 1; m < len; m++) {
+		if (uri[m] < '0' || uri[m] > '9')
+			return 0;
+		n = (n * 10) + (unsigned int)(uri[m] - '0');
+	}
+
+	if (n < 1 || n > LWS_ARRAY_SIZE(corner_lengths))
+		return 0;
+
+	/* the table must never ask for more than we have to send */
+	if (corner_lengths[n - 1] > sizeof(uncompressible) ||
+	    corner_lengths[n - 1] > CORNER_MAX_LEN)
+		return 0;
+
+	return (int)n;
+}
 
 
 /* one of these is created for each client connecting to us */
@@ -217,19 +252,18 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct per_session_data__minimal *pss =
 			(struct per_session_data__minimal *)user;
-	unsigned char buf[LWS_PRE + 2048];
+	unsigned char buf[LWS_PRE + CORNER_MAX_LEN];
+	unsigned int clen;
 	int m;
 
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED:
-		if (lws_hdr_copy(wsi, (char *)buf, sizeof(buf),
-				 WSI_TOKEN_GET_URI) < 0)
+		m = lws_hdr_copy(wsi, (char *)buf, sizeof(buf),
+				 WSI_TOKEN_GET_URI);
+		if (m < 0)
 			return -1;
 
-		pss->last = atoi((char *)buf + 1);
-
-		if (pss->last > (int)LWS_ARRAY_SIZE(corner_lengths))
-			pss->last = 0;
+		pss->last = corner_test_from_uri((const char *)buf, (size_t)m);
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -237,16 +271,14 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->last)
 			break;
 
-		lwsl_err("%s: writable %d, %d\n", __func__, pss->last,
-				corner_lengths[pss->last - 1]);
+		clen = corner_lengths[pss->last - 1];
+		lwsl_info("%s: writable %d, %u\n", __func__, pss->last, clen);
 
-		memcpy(buf + LWS_PRE, uncompressible,
-		       (unsigned int)corner_lengths[pss->last - 1]);
+		memcpy(buf + LWS_PRE, uncompressible, clen);
 
 		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, buf + LWS_PRE, (unsigned int)corner_lengths[pss->last - 1],
-				LWS_WRITE_BINARY);
-		if (m < corner_lengths[pss->last - 1]) {
+		m = lws_write(wsi, buf + LWS_PRE, clen, LWS_WRITE_BINARY);
+		if (m < (int)clen) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;
 		}
