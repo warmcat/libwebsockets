@@ -552,6 +552,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Secure Streams
 
+ - **The SS proxy's peer-credential check covers only abstract (`@`)
+   sockets**: a filesystem-path proxy socket with no `ss_proxy_perms` is
+   protected only by the umask (G-599).  An SS tx callback's returned
+   `*len` is not checked against the length offered (G-598).
  - **`__default`'s endpoint is `${endpoint}`, and an app setting it to a
    `file://` url is a designed use** (lhp/dlo, 39 api-test-lhp-dlo tests).
    A rule treating any substituted endpoint as untrusted breaks it; trust
