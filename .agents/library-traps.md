@@ -35,6 +35,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    from service-thread callbacks (eg CONNECTED), not suls, or the locked
    path hides the race.  The small fd lookup table (`fd_limit_per_thread`
    below the process limit) is not SMP-safe (G-635): SMP tests leave it 0.
+   A pt's own thread must change its sul list under its pt lock too:
+   connect3's bare `lws_sul_cancel(&wsi->io->sul_connect_timeout)` races
+   async-dns inserting on that pt from another thread (G-638), and nothing
+   checks it yet; api-test-async-dns-smp fails ~1/20 under ASan until fixed.
    `lws_protocol_init()` races between threads servicing first (G-542):
    start extra service threads after PROTOCOL_INIT until it's fixed.
    `lws_client_connect_via_info()` asserts in SMP when called
