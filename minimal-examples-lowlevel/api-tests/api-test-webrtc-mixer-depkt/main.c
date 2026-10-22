@@ -28,6 +28,13 @@
  *    expected Annex-B access unit
  *  - the growable buffer takes up to the cap, and refuses lengths over it
  *    and lengths that would wrap when added, dropping what it held
+ *  - sizes exactly fitting what is left of the packet are taken, and sizes
+ *    one or two bytes over it are not, for an AV1 element after its leb128
+ *    and an H.264 STAP-A NAL after its 2-byte size
+ *
+ * Each packet is fed from a heap copy of exactly its length, so with ASan a
+ * size check off by a byte or two shows as an overread as well as a wrong
+ * access unit.
  */
 
 #include <libwebsockets.h>
@@ -74,6 +81,16 @@ static const struct dpt_case cases[] = {
 	  P(0x12, 0x00, 0xff, 0xff, 0x01, SEQ) },
 	{ "av1 leb over packet", 1, { P(0x00, 0x81, 0x80, 0x80, 0x09, SEQ, 0x11) },
 	  P(0x12, 0x00, 0x83, 0x05, 0x80, 0x80, 0x09, SEQ, 0x11) },
+	/*
+	 * the size of the element after its leb128 exactly fits what is
+	 * left, and then is one over it, so it is not usable and the element
+	 * is the rest of the packet, starting with the leb128 byte (08: a
+	 * sequence header OBU with no size field)
+	 */
+	{ "av1 leb exactly fits", 1, { P(0x00, 0x07, SEQ, 1, 2, 3, 4, 5, 6) },
+	  P(0x12, 0x00, SEQ | 2, 0x06, 1, 2, 3, 4, 5, 6) },
+	{ "av1 leb one over", 1, { P(0x00, 0x08, 1, 2, 3, 4, 5, 6, 7) },
+	  P(0x12, 0x00, SEQ | 2, 0x07, 1, 2, 3, 4, 5, 6, 7) },
 	{ "av1 leb unterminated", 1, { P(0x00, 0x80, 0x80, 0x80, 0x80, 0x80,
 					 0x80, 0x80, 0x80, 0x80, 0x01) },
 	  P(0x12, 0x00, 0x82, 0x09, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
@@ -106,6 +123,15 @@ static const struct dpt_case cases[] = {
 	{ "h264 stap-a size over packet", 0, { P(0x18, 0x00, 0x02, 0x67, 0xaa,
 						 0xff, 0xff, 0x68) },
 	  P(0, 0, 0, 1, 0x67, 0xaa) },
+	{ "h264 stap-a exactly fits", 0, { P(0x18, 0x00, 0x01, 0x67,
+					     0x00, 0x02, 0x68, 0xbb) },
+	  P(0, 0, 0, 1, 0x67, 0, 0, 0, 1, 0x68, 0xbb) },
+	{ "h264 stap-a size one over", 0, { P(0x18, 0x00, 0x01, 0x67,
+					      0x00, 0x02, 0x68) },
+	  P(0, 0, 0, 1, 0x67) },
+	{ "h264 stap-a size two over", 0, { P(0x18, 0x00, 0x01, 0x67,
+					      0x00, 0x03, 0x68) },
+	  P(0, 0, 0, 1, 0x67) },
 	{ "h264 stap-a truncated size", 0, { P(0x18, 0x00, 0x01, 0x67, 0x00) },
 	  P(0, 0, 0, 1, 0x67) },
 	{ "h264 fu-a", 0, { P(0x7c, 0x85, 0xaa), P(0x7c, 0x45, 0xbb) },
@@ -122,11 +148,23 @@ test_case(const struct dpt_case *c)
 
 	memset(&d, 0, sizeof(d));
 
-	for (n = 0; n < 2 && c->pkt[n].p; n++)
+	for (n = 0; n < 2 && c->pkt[n].p; n++) {
+		/* exactly the packet, so ASan sees any read past its end */
+		uint8_t *pkt = malloc(c->pkt[n].len);
+
+		if (!pkt) {
+			mixer_depkt_destroy(&d);
+			return 1;
+		}
+		memcpy(pkt, c->pkt[n].p, c->pkt[n].len);
+
 		if (c->av1)
-			mixer_depkt_av1(&d, c->pkt[n].p, c->pkt[n].len);
+			mixer_depkt_av1(&d, pkt, c->pkt[n].len);
 		else
-			mixer_depkt_h264(&d, c->pkt[n].p, c->pkt[n].len);
+			mixer_depkt_h264(&d, pkt, c->pkt[n].len);
+
+		free(pkt);
+	}
 
 	if (d.frame.len != c->exp.len ||
 	    (c->exp.len && memcmp(d.frame.buf, c->exp.p, c->exp.len))) {
