@@ -38,7 +38,7 @@ if (requirements)
 			 --port-fan ${PORT_DHT_FL_FAN}
 			 --port-p ${PORT_DHT_FL_P})
 		set_tests_properties(api-test-dht-seq-flood PROPERTIES
-			TIMEOUT 30
+			TIMEOUT 45
 			WORKING_DIRECTORY .
 			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 	endif()

@@ -8,15 +8,16 @@
  *
  *  - B queues a message to a raw UDP peer P.  Before P acks it, 70 first
  *    chunks arrive at B from 70 sources at 127.0.0.2 and 127.0.0.3, as a
- *    spoofer would send them.  B's table fills with their sequencers, and
- *    they make room for each other, but P's survives: when P then acks, B's
- *    message to P completes
+ *    spoofer would send them.  None of them is a node B knows, so they only
+ *    get the strangers' share of B's table, half of it, and make room for
+ *    each other there (G-525), and P's sequencer survives: when P then acks,
+ *    B's message to P completes
  *
  *  - B queues a second message to P, and one message to each of 63
- *    addresses where nothing listens.  Each takes a sequencer that nothing
- *    is using any more, until all 64 hold a message no one has acked: then
- *    a message to a 65th peer is refused, rather than one of them being
- *    destroyed for it
+ *    addresses where nothing listens.  Each takes a free sequencer or one
+ *    that nothing is using any more, until all 64 hold a message no one has
+ *    acked: then a message to a 65th peer is refused, rather than one of
+ *    them being destroyed for it
  *
  *  - P acks its second message.  B's handler for its WRITE_COMPLETED sends
  *    to a new peer: P's sequencer is the only one with nothing outstanding,
@@ -29,19 +30,28 @@
  *    resends the first failed message: it is taken, on a new session, not
  *    lost in the one that failed, and fails in its turn
  *
- *  - 64 raw peers on 127.0.0.4 - .7 each prove a session with B, answering
- *    its challenge, and then keep resending that chunk.  A newcomer's first
- *    chunk right after is dropped unanswered: the sessions have just brought
- *    data.  But the duplicates are not progress: a few seconds later, a
- *    second newcomer's first chunk takes the slot of one of the idle
- *    sessions and is challenged, and B's message to a new peer is taken
- *    (G-518)
+ *  - 32 raw peers on 127.0.0.4 - .7 each prove a session with B, answering
+ *    its challenge, and then keep resending that chunk.  They fill the
+ *    strangers' share, so 32 more on 127.0.0.8 - .11 then get no slot: their
+ *    first chunks are dropped unanswered, while the sessions have just
+ *    brought data.  But B's message to a new peer is taken: the rest of the
+ *    table is not theirs to fill (G-525)
+ *
+ *  - duplicates are not progress: a few seconds later, the peers stop
+ *    resending, and a newcomer's first chunk takes the slot of one of the
+ *    idle sessions and is challenged (G-518)
+ *
+ *  - the sessions then each bring a new byte four times a second, which is
+ *    progress, and keeps them in use.  A second newcomer's first chunk is
+ *    dropped while they are young, but once the oldest is ten seconds old it
+ *    gives way to the newcomer, whatever it brings; the strangers never hold
+ *    more than their share, the first newcomer, younger, keeps its session,
+ *    and B can still send to a new peer (G-525)
  *
  * Loopback addresses count as separate hosts, so the 4 sessions per host
  * limit doesn't apply here.  Nothing listens on the fan port, at 127.0.1.1
- * and up.  The UDP ports are
- * allocated uniquely at build time and passed in on the command line, so
- * parallel ctest instances do not collide.
+ * and up.  The UDP ports are allocated uniquely at build time and passed in
+ * on the command line, so parallel ctest instances do not collide.
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -52,13 +62,21 @@
 #include <signal.h>
 
 #define FL_POLL_US	(50 * LWS_US_PER_MS)
-#define FL_DEADLINE_US	(20 * LWS_US_PER_SEC)
+#define FL_DEADLINE_US	(30 * LWS_US_PER_SEC)
 
 #define FL_MAX_TS	64	/* LWS_DHT_MAX_TS */
+#define FL_STRANGERS	32	/* LWS_DHT_TS_STRANGERS_MAX */
+/* LWS_DHT_TS_STRANGER_MIN_AGE_US, and some */
+#define FL_MIN_AGE_US	(10500 * LWS_US_PER_MS)
 #define FL_SPOOFERS	70	/* first chunks, from two hosts */
 #define FL_SETTLE_US	(150 * LWS_US_PER_MS)
-#define FL_HOLDERS	64	/* peers holding proven sessions */
-#define FL_DUP_US	(250 * LWS_US_PER_MS)	/* how often they resend */
+#define FL_HOLDERS	FL_STRANGERS	/* peers holding proven sessions */
+/* the holders, as many again who come late, and two newcomers */
+#define FL_LATE		FL_HOLDERS
+#define FL_NC0		(FL_HOLDERS * 2)
+#define FL_NC1		(FL_NC0 + 1)
+#define FL_PEERS	(FL_NC1 + 1)
+#define FL_DUP_US	(250 * LWS_US_PER_MS)	/* how often they send */
 #define FL_PROTECT_US	(400 * LWS_US_PER_MS)
 /* LWS_DHT_TS_RX_GRACE_US, and some */
 #define FL_GRACE_US	(3500 * LWS_US_PER_MS)
@@ -72,20 +90,23 @@ enum {
 	FL_FENCE,	/* P acks a second, and B sends from its handler */
 	FL_FAIL_ALL,	/* the silent peers' sessions all fail, visibly */
 	FL_P_DONE,	/* P has acked a third message: nothing outstanding */
-	FL_HOLD,	/* the holders prove their sessions */
-	FL_PROTECT,	/* a newcomer is refused: the sessions just had data */
-	FL_GRACE,	/* the holders only resend, then another newcomer... */
+	FL_HOLD,	/* the holders prove their sessions, then the late come */
+	FL_SHARE,	/* the late get nothing, but B's send is taken */
+	FL_GRACE,	/* the holders only resend, then stop, and newcomer 0... */
 	FL_NEWCOMER,	/* ... must be challenged */
+	FL_TRICKLE,	/* the sessions bring data, then newcomer 1 comes... */
+	FL_YOUNG,	/* ... and is refused while they are young */
+	FL_AGE,		/* until the oldest is old enough: it must give way */
 };
 
 static struct lws_context *cx;
 static struct lws_dht_ctx *dht;
-static struct lws *wsi_p, *wsi_spoof[FL_SPOOFERS], *wsi_hold[FL_HOLDERS],
-		  *wsi_new[2];
-static struct sockaddr_in sa_dht, sa_p, sa_fan, sa_spoof[FL_SPOOFERS];
+static struct lws *wsi_p, *wsi_spoof[FL_SPOOFERS], *wsi_peer[FL_PEERS];
+static struct sockaddr_in sa_dht, sa_p, sa_fan, sa_spoof[FL_SPOOFERS],
+			  sa_peer[FL_PEERS];
 static lws_sorted_usec_list_t sul_poll, sul_deadline, sul_dup;
 static int state, retcode = 1, port_fan;
-static lws_usec_t flood_time, hold_time;
+static lws_usec_t flood_time, hold_time, phase_time;
 static uint8_t msg[512];
 
 static struct {
@@ -98,9 +119,15 @@ static struct {
 	unsigned int	resent:1;
 	unsigned int	fence_done:1;
 	unsigned int	p_failed:1;
-	uint8_t		proven[FL_HOLDERS];	/* B acked its chunk */
-	int		held;			/* holders proven */
-	uint8_t		new_ch[2];		/* B challenged newcomer */
+	unsigned int	sending:1;	/* the proven peers send */
+	unsigned int	trickle:1;	/* ...a new byte each time */
+	int		held;		/* peers proven */
+	struct {
+		uint64_t	off;	/* where the peer's next byte goes */
+		uint8_t		proven;	/* B acked its first chunk */
+		uint8_t		gone;	/* B lost its session: quiet */
+		uint8_t		ch;	/* B challenged it */
+	} p[FL_PEERS];
 } fl;
 
 static void fl_silent(int i, struct sockaddr_in *sin);
@@ -269,12 +296,13 @@ fl_spoof(int i)
 }
 
 /*
- * The first chunk of holder or newcomer i's session, carrying B's challenge
- * ch when it has one to answer
+ * A chunk of peer i's session: its first, four bytes at offset 0, carrying
+ * B's challenge ch when it has one to answer, or once it is trickling, one
+ * new byte at the next offset
  */
 
 static int
-fl_chunk(struct lws *wsi, int i, const uint8_t *ch)
+fl_chunk(int i, const uint8_t *ch, int more)
 {
 	char q[192];
 	size_t l;
@@ -287,58 +315,57 @@ fl_chunk(struct lws *wsi, int i, const uint8_t *ch)
 		memcpy(q + l + 6, ch, FL_CH_LEN);
 		l += 6 + FL_CH_LEN;
 	}
-	n = lws_snprintf(q + l, sizeof(q) - l, "4:data4:hold2:id20:"
-			 "holder-%013d3:leni4e6:offseti0ee"
-			 "1:q4:data1:t10:sq%08d1:y1:qe", i, i);
+	if (more)
+		n = lws_snprintf(q + l, sizeof(q) - l, "4:data1:x2:id20:"
+				 "holder-%013d3:leni1e6:offseti%llue"
+				 "e1:q4:data1:t10:sq%08d1:y1:qe", i,
+				 (unsigned long long)fl.p[i].off++, i);
+	else
+		n = lws_snprintf(q + l, sizeof(q) - l, "4:data4:hold2:id20:"
+				 "holder-%013d3:leni4e6:offseti0ee"
+				 "1:q4:data1:t10:sq%08d1:y1:qe", i, i);
 	if (n <= 0 || (size_t)n >= sizeof(q) - l)
 		return 1;
 
-	return fl_sendto(wsi, q, l + (size_t)n);
+	return fl_sendto(wsi_peer[i], q, l + (size_t)n);
 }
 
-/* B's reply to a holder or newcomer: a challenge, or an ack */
+/*
+ * B's reply to peer i: a challenge, which it answers if it never had a
+ * session, or an ack.  A challenge to a peer that had a session means B
+ * gave the session up: the peer goes quiet.
+ */
 
 static void
-fl_hold_rx(struct lws *wsi, const uint8_t *buf, size_t len)
+fl_peer_rx(int i, const uint8_t *buf, size_t len)
 {
-	int i;
-
-	for (i = 0; i < 2; i++)
-		if (wsi == wsi_new[i]) {
-			if (fl_find(buf, len, "d1:rd2:ch8:") == 0)
-				fl.new_ch[i] = 1;
-			return;
-		}
-
-	for (i = 0; i < FL_HOLDERS; i++)
-		if (wsi == wsi_hold[i])
-			break;
-	if (i == FL_HOLDERS)
-		return;
-
 	if (fl_find(buf, len, "d1:rd2:ch8:") == 0 &&
 	    len >= 11 + FL_CH_LEN) {
-		if (!fl.proven[i])
-			fl_chunk(wsi, i, buf + 11);
+		fl.p[i].ch = 1;
+		if (fl.p[i].proven)
+			fl.p[i].gone = 1;
+		else if (i < FL_LATE || i >= FL_NC0)
+			fl_chunk(i, buf + 11, 0);
 		return;
 	}
 
-	if (fl_find(buf, len, "6:offseti4e") >= 0 && !fl.proven[i]) {
-		fl.proven[i] = 1;
+	if (fl_find(buf, len, "6:offseti4e") >= 0 && !fl.p[i].proven) {
+		fl.p[i].proven = 1;
+		fl.p[i].off = 4;
 		fl.held++;
 	}
 }
 
-/* the holders resend the chunk B has already taken from each */
+/* the proven peers resend the chunk B has already taken, or bring more */
 
 static void
 dup_cb(lws_sorted_usec_list_t *sul)
 {
 	int i;
 
-	for (i = 0; i < FL_HOLDERS; i++)
-		if (fl.proven[i])
-			fl_chunk(wsi_hold[i], i, NULL);
+	for (i = 0; i < FL_PEERS; i++)
+		if (fl.sending && fl.p[i].proven && !fl.p[i].gone)
+			fl_chunk(i, NULL, fl.trickle);
 
 	lws_sul_schedule(cx, 0, &sul_dup, dup_cb, FL_DUP_US);
 }
@@ -348,6 +375,7 @@ cb_peer(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	void *in, size_t len)
 {
 	const struct lws_udp *udp;
+	int i;
 
 	if (reason != LWS_CALLBACK_RAW_RX)
 		return 0;
@@ -357,10 +385,16 @@ cb_peer(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	    udp->sa46.sa4.sin_port != sa_dht.sin_port)
 		return 0;
 
-	if (wsi == wsi_p)
+	if (wsi == wsi_p) {
 		fl_p_rx(in, len);
-	else
-		fl_hold_rx(wsi, in, len);
+		return 0;
+	}
+
+	for (i = 0; i < FL_PEERS; i++)
+		if (wsi == wsi_peer[i]) {
+			fl_peer_rx(i, in, len);
+			break;
+		}
 
 	return 0;
 }
@@ -371,11 +405,41 @@ has_ts(struct sockaddr_in *sin)
 	return !!lws_dht_get_ts(dht, (struct sockaddr *)sin, sizeof(*sin), 0);
 }
 
+/* how many of peers from .. to - 1 B has a sequencer for */
+
+static int
+peers_ts(int from, int to)
+{
+	int n = 0;
+
+	while (from < to)
+		n += has_ts(&sa_peer[from++]);
+
+	return n;
+}
+
 static void
 fl_silent(int i, struct sockaddr_in *sin)
 {
 	*sin = sa_fan;
 	sin->sin_addr.s_addr = htonl(0x7f000101u + (uint32_t)i);
+}
+
+/* B's message to a new silent peer must be taken */
+
+static int
+fl_send_new(int i)
+{
+	struct sockaddr_in sin;
+
+	fl_silent(i, &sin);
+	if (lws_dht_send_data(dht, (struct sockaddr *)&sin, msg, sizeof(msg)) !=
+							LWS_DHT_SEND_QUEUED) {
+		lwsl_err("send to a new peer refused\n");
+		return 1;
+	}
+
+	return 0;
 }
 
 /* 0 = keep polling, 1 = passed, -1 = failed */
@@ -385,6 +449,15 @@ step(void)
 {
 	struct sockaddr_in sin;
 	int n, count;
+
+	/* whatever else happens, strangers never hold more than their share */
+	if (state >= FL_HOLD) {
+		count = peers_ts(0, FL_PEERS);
+		if (count > FL_STRANGERS) {
+			lwsl_err("%d strangers hold sequencers\n", count);
+			return -1;
+		}
+	}
 
 	switch (state) {
 	case FL_SEND:
@@ -410,12 +483,13 @@ step(void)
 	case FL_SETTLE:
 		if (lws_now_usecs() - flood_time < FL_SETTLE_US)
 			return 0;
-		count = has_ts(&sa_p);
+		count = 0;
 		for (n = 0; n < FL_SPOOFERS; n++)
 			count += has_ts(&sa_spoof[n]);
-		lwsl_user("%d sequencers after the flood\n", count);
-		if (count < FL_MAX_TS) {
-			lwsl_err("the flood did not fill the table\n");
+		lwsl_user("%d forged sources have sequencers\n", count);
+		if (count != FL_STRANGERS) {
+			lwsl_err("the forged sources did not fill exactly the "
+				 "strangers' share\n");
 			return -1;
 		}
 		if (fl.p_failed || !has_ts(&sa_p)) {
@@ -439,8 +513,8 @@ step(void)
 		/*
 		 * Every sequencer is now one nothing is using: the forged
 		 * sources never answered their challenges, and P's is done.
-		 * P's takes a second message, and each of these takes one of
-		 * the others...
+		 * P's takes a second message, and each of these takes a free
+		 * one or one of the others...
 		 */
 		if (lws_dht_send_data(dht, (struct sockaddr *)&sa_p, msg,
 				      sizeof(msg)) != LWS_DHT_SEND_QUEUED) {
@@ -528,8 +602,9 @@ step(void)
 		if (fl.p_completed != 3)
 			return 0;
 		for (n = 0; n < FL_HOLDERS; n++)
-			if (fl_chunk(wsi_hold[n], n, NULL))
+			if (fl_chunk(n, NULL, 0))
 				return -1;
+		fl.sending = 1;
 		lws_sul_schedule(cx, 0, &sul_dup, dup_cb, FL_DUP_US);
 		state++;
 		return 0;
@@ -539,48 +614,111 @@ step(void)
 			return 0;
 		lwsl_user("%d peers hold proven sessions\n", fl.held);
 		hold_time = lws_now_usecs();
-		if (fl_chunk(wsi_new[0], FL_HOLDERS, NULL))
-			return -1;
+		for (n = FL_LATE; n < FL_LATE + FL_HOLDERS; n++)
+			if (fl_chunk(n, NULL, 0))
+				return -1;
 		state++;
 		return 0;
 
-	case FL_PROTECT:
+	case FL_SHARE:
 		if (lws_now_usecs() - hold_time < FL_PROTECT_US)
 			return 0;
-		if (fl.new_ch[0]) {
-			lwsl_err("a newcomer took the slot of a session that "
-				 "just had data\n");
+		for (n = FL_LATE; n < FL_LATE + FL_HOLDERS; n++)
+			if (fl.p[n].ch || has_ts(&sa_peer[n])) {
+				lwsl_err("a late peer got a slot beyond the "
+					 "strangers' share\n");
+				return -1;
+			}
+		lwsl_user("late peers refused while the sessions had data\n");
+		/* the rest of the table is for us */
+		if (fl_send_new(FL_MAX_TS))
 			return -1;
-		}
-		lwsl_user("newcomer refused while the sessions had data\n");
+		lwsl_user("B's message to a new peer is taken\n");
 		state++;
 		return 0;
 
 	case FL_GRACE:
 		if (lws_now_usecs() - hold_time < FL_GRACE_US)
 			return 0;
-		if (fl_chunk(wsi_new[1], FL_HOLDERS + 1, NULL))
+		/* duplicates were never progress: now they stop */
+		fl.sending = 0;
+		if (fl_chunk(FL_NC0, NULL, 0))
 			return -1;
-		flood_time = lws_now_usecs();
+		phase_time = lws_now_usecs();
 		state++;
 		return 0;
 
 	case FL_NEWCOMER:
-		if (!fl.new_ch[1]) {
-			if (lws_now_usecs() - flood_time < LWS_US_PER_SEC)
+		if (!fl.p[FL_NC0].proven) {
+			if (lws_now_usecs() - phase_time < LWS_US_PER_SEC)
 				return 0;
 			lwsl_err("sessions only resending still hold every "
 				 "slot\n");
 			return -1;
 		}
-		lwsl_user("newcomer challenged after the sessions went "
-			  "idle\n");
-		fl_silent(FL_MAX_TS, &sin);
-		if (lws_dht_send_data(dht, (struct sockaddr *)&sin, msg,
-				      sizeof(msg)) != LWS_DHT_SEND_QUEUED) {
-			lwsl_err("send to a new peer refused\n");
+		lwsl_user("newcomer took the place of a session that only "
+			  "resent\n");
+		/* the one it replaced is quiet from now */
+		for (n = 0; n < FL_HOLDERS; n++)
+			if (!has_ts(&sa_peer[n]))
+				fl.p[n].gone = 1;
+		fl.sending = 1;
+		fl.trickle = 1;
+		phase_time = lws_now_usecs();
+		state++;
+		return 0;
+
+	case FL_TRICKLE:
+		/* every session has brought something new */
+		if (lws_now_usecs() - phase_time < 2 * FL_DUP_US)
+			return 0;
+		if (fl_chunk(FL_NC1, NULL, 0))
+			return -1;
+		phase_time = lws_now_usecs();
+		state++;
+		return 0;
+
+	case FL_YOUNG:
+		if (lws_now_usecs() - phase_time < FL_PROTECT_US)
+			return 0;
+		if (fl.p[FL_NC1].ch) {
+			lwsl_err("a newcomer took the slot of a young session "
+				 "bringing data\n");
 			return -1;
 		}
+		lwsl_user("newcomer refused while the sessions are young\n");
+		state++;
+		return 0;
+
+	case FL_AGE:
+		if (!fl.p[FL_NC1].ch) {
+			if (lws_now_usecs() - hold_time < FL_MIN_AGE_US)
+				return 0;
+			if (lws_now_usecs() - hold_time >
+					FL_MIN_AGE_US + LWS_US_PER_SEC) {
+				lwsl_err("sessions bringing data hold the "
+					 "strangers' share for ever\n");
+				return -1;
+			}
+			/* it tries again, as a sender would */
+			return fl_chunk(FL_NC1, NULL, 0) ? -1 : 0;
+		}
+		if (!fl.p[FL_NC1].proven)
+			return 0;
+		lwsl_user("the oldest session gave way to a newcomer\n");
+		if (!has_ts(&sa_peer[FL_NC0]) || fl.p[FL_NC0].gone) {
+			lwsl_err("the younger newcomer lost its session\n");
+			return -1;
+		}
+		count = peers_ts(0, FL_HOLDERS);
+		if (count >= FL_HOLDERS - 1) {
+			lwsl_err("no holder gave way (%d have sessions)\n",
+				 count);
+			return -1;
+		}
+		if (fl_send_new(FL_MAX_TS + 1))
+			return -1;
+
 		return 1;
 	}
 
@@ -614,6 +752,32 @@ sigint_handler(int sig)
 	lws_default_loop_exit(cx);
 }
 
+/* a raw UDP socket bound to ads, and the address it got */
+
+static struct lws *
+fl_socket(struct lws_vhost *vh, const char *ads, const char *name,
+	  struct sockaddr_in *sin)
+{
+	struct lws *w;
+#if defined(WIN32)
+	int slen;
+#else
+	socklen_t slen;
+#endif
+
+	w = lws_create_adopt_udp(vh, ads, 0, LWS_CAUDP_BIND, "fl-peer", NULL,
+				 NULL, NULL, NULL, name);
+	slen = sizeof(*sin);
+	if (!w || getsockname(lws_get_socket_fd(w), (struct sockaddr *)sin,
+			      &slen) || sin->sin_family != AF_INET ||
+	    !sin->sin_port) {
+		lwsl_err("raw udp socket on %s creation failed\n", ads);
+		return NULL;
+	}
+
+	return w;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -623,18 +787,13 @@ int main(int argc, const char **argv)
 		LWS_PROTOCOL_LIST_TERM
 	};
 	int port_dht = 0, port_p = 0, n = 0;
-#if defined(WIN32)
-	int slen;
-#else
-	socklen_t slen;
-#endif
 	struct lws_vhost *vh;
 	lws_dht_info_t di;
 	uint8_t idb[20];
 	const char *p;
 
 	lws_context_info_defaults(&info, NULL);
-	/* the 70 forging sockets need more fds than a client's default */
+	/* the forging and holding sockets need more fds than a client's */
 	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
@@ -713,41 +872,24 @@ int main(int argc, const char **argv)
 
 	/* each forged chunk comes from its own address, on two hosts */
 	for (n = 0; n < FL_SPOOFERS; n++) {
-		wsi_spoof[n] = lws_create_adopt_udp(vh, n & 1 ? "127.0.0.3" :
-							       "127.0.0.2", 0,
-						    LWS_CAUDP_BIND,
-						    protocols[1].name, NULL,
-						    NULL, NULL, NULL,
-						    "fl-spoof");
-		slen = sizeof(sa_spoof[n]);
-		if (!wsi_spoof[n] ||
-		    getsockname(lws_get_socket_fd(wsi_spoof[n]),
-				(struct sockaddr *)&sa_spoof[n], &slen) ||
-		    sa_spoof[n].sin_family != AF_INET ||
-		    !sa_spoof[n].sin_port) {
-			lwsl_err("raw udp socket %d creation failed\n", n);
+		wsi_spoof[n] = fl_socket(vh, n & 1 ? "127.0.0.3" : "127.0.0.2",
+					 "fl-spoof", &sa_spoof[n]);
+		if (!wsi_spoof[n])
 			goto bail;
-		}
 	}
 
-	/* the holders, 16 to a loopback address, and the newcomers */
-	for (n = 0; n < FL_HOLDERS + 2; n++) {
+	/*
+	 * the holders, 8 to a loopback address, the late ones after them, and
+	 * the newcomers
+	 */
+	for (n = 0; n < FL_PEERS; n++) {
 		char ads[16];
-		struct lws *w;
 
 		lws_snprintf(ads, sizeof(ads), "127.0.0.%d",
-			     n < FL_HOLDERS ? 4 + (n & 3) : 8 + n - FL_HOLDERS);
-		w = lws_create_adopt_udp(vh, ads, 0, LWS_CAUDP_BIND,
-					 protocols[1].name, NULL, NULL, NULL,
-					 NULL, "fl-hold");
-		if (!w) {
-			lwsl_err("raw udp socket creation failed\n");
+			     n < FL_NC0 ? 4 + (n / 8) : 12 + n - FL_NC0);
+		wsi_peer[n] = fl_socket(vh, ads, "fl-hold", &sa_peer[n]);
+		if (!wsi_peer[n])
 			goto bail;
-		}
-		if (n < FL_HOLDERS)
-			wsi_hold[n] = w;
-		else
-			wsi_new[n - FL_HOLDERS] = w;
 	}
 	n = 0;
 

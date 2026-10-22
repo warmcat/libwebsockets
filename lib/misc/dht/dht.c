@@ -828,24 +828,97 @@ static const lws_retry_bo_t dht_retry_policy = {
  * churns a fixed-size table instead of growing the heap without limit; it
  * also bounds the cost of the linear lookup in lws_dht_get_ts().
  *
- * Only sequencers with nothing at stake are recycled: never one holding data
- * the peer hasn't acked, or the peer's proven session while it is receiving
- * (G-496).  Otherwise anyone able to forge 64 first chunks could destroy
- * every transfer in flight, and the consumer would never hear what became
- * of its messages.  Ones without a proven session go first, so forged
- * sources churn among themselves before a proven peer has to prove itself
- * again.  When all are in use, the newcomer is refused instead: an inbound
- * chunk is dropped unanswered, and lws_dht_send_data() returns
- * LWS_DHT_SEND_REFUSED.  Sequencers in use stop being so when their data is
- * acked or fails, or a few seconds after their session last brought new
- * data (dht_ts_in_use()), and one host can only hold a few proven sessions
+ * Only sequencers with nothing at stake are recycled first: never one
+ * holding data the peer hasn't acked, or the peer's proven session while it
+ * is receiving (G-496).  Otherwise anyone able to forge 64 first chunks could
+ * destroy every transfer in flight.  Ones without a proven session go first,
+ * so forged sources churn among themselves before a proven peer has to prove
+ * itself again.  Sequencers in use stop being so when their data is acked or
+ * fails, or a few seconds after their session last brought new data
+ * (dht_ts_in_use()), and one host can only hold a few proven sessions
  * (lws_dht_ts_host_may_prove()).
  *
+ * But a stranger, a peer that spoke first and is not a node we know at that
+ * endpoint, can keep its session bringing new data for as long as it likes,
+ * a byte at a time, and enough hosts doing that held every slot, so that no
+ * transfer could start in either direction (G-525).  So strangers together
+ * may only hold LWS_DHT_TS_STRANGERS_MAX of the table, and a stranger can
+ * only make room in that share, never in the rest, which is for peers we
+ * know and for our own sends.  When there is nothing idle to recycle, the
+ * stranger whose sequencer was made longest ago gives way to the newcomer,
+ * in use or not, once it is LWS_DHT_TS_STRANGER_MIN_AGE_US old: a trickle
+ * holds a slot for a while, not for ever, and a real transfer from a
+ * stranger has that long to complete before it can be made to start again.
+ * Ending one that holds data of ours goes through dht_ts_retire(), so the
+ * consumer hears WRITE_FAILED for it.  Only when there is no victim is the
+ * newcomer refused: an inbound chunk is dropped unanswered, and
+ * lws_dht_send_data() returns LWS_DHT_SEND_REFUSED.
+ *
  * `unproven` is set when the peer spoke first and is not a node we know at
- * that endpoint: then the sequencer sends it each chunk once and repeats
- * nothing until it has acknowledged something, so a forged source address
- * cannot turn a small request into a stream of retransmitted replies.
+ * that endpoint, ie, for a stranger: then the sequencer also sends it each
+ * chunk once and repeats nothing until it has acknowledged something, so a
+ * forged source address cannot turn a small request into a stream of
+ * retransmitted replies.
  */
+
+static int
+dht_ts_count_strangers(struct lws_dht_ctx *ctx)
+{
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->ts_owner)) {
+		if (lws_container_of(d, lws_dht_ts_t, list)->stranger)
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
+/*
+ * The sequencer to recycle for a newcomer, from strangers' only if
+ * `strangers`, or NULL if none may be.  The least recently used one that is
+ * not in use, unproven before proven, else the oldest stranger old enough.
+ * A sequencer calling back into the consumer is never one, even when it is
+ * the stalest: the callback may be what is creating this one, and the
+ * sequencer still has its caller on the stack (G-181).
+ */
+
+static lws_dht_ts_t *
+dht_ts_victim(struct lws_dht_ctx *ctx, int strangers)
+{
+	lws_dht_ts_t *oldest = NULL;
+	int pass;
+
+	for (pass = 0; pass < 2; pass++)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ctx->ts_owner)) {
+			lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t,
+							   list);
+
+			if ((!strangers || c->stranger) &&
+			    (pass || !c->rx_tid_len) && !dht_ts_in_use(c))
+				return c;
+		} lws_end_foreach_dll(d);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->ts_owner)) {
+		lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t, list);
+
+		if (c->stranger && !c->in_cb &&
+		    (!oldest || c->born < oldest->born))
+			oldest = c;
+	} lws_end_foreach_dll(d);
+
+	if (oldest &&
+	    lws_now_usecs() - oldest->born >= LWS_DHT_TS_STRANGER_MIN_AGE_US) {
+		lwsl_notice("%s: recycling the oldest stranger's sequencer,"
+			    " %s\n", __func__, oldest->peer);
+		return oldest;
+	}
+
+	return NULL;
+}
 
 static struct lws_transport_sequencer *
 dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
@@ -861,27 +934,26 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 		return NULL;
 
 	/*
-	 * A sequencer calling back into the consumer is in use too, even when
-	 * it is the stalest: the callback may be what is creating this one,
-	 * and the sequencer still has its caller on the stack (G-181).
+	 * A stranger only gets room in the strangers' share.  Retiring one
+	 * may call back into a consumer that sends, and so makes sequencers,
+	 * so count again each time round
 	 */
+	while (unproven &&
+	       dht_ts_count_strangers(ctx) >= LWS_DHT_TS_STRANGERS_MAX) {
+		lws_dht_ts_t *victim = dht_ts_victim(ctx, 1);
+
+		if (!victim) {
+			lwsl_dht_warn("%s: strangers' share of the sequencer "
+				      "table full of sessions in use, refusing "
+				      "one more\n", __func__);
+			return NULL;
+		}
+
+		dht_ts_retire(victim);
+	}
+
 	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
-		lws_dht_ts_t *victim = NULL;
-		int pass;
-
-		/* least recently used first, unproven before proven */
-		for (pass = 0; pass < 2 && !victim; pass++)
-			lws_start_foreach_dll(struct lws_dll2 *, d,
-					lws_dll2_get_head(&ctx->ts_owner)) {
-				lws_dht_ts_t *c = lws_container_of(d,
-							lws_dht_ts_t, list);
-
-				if ((pass || !c->rx_tid_len) &&
-				    !dht_ts_in_use(c)) {
-					victim = c;
-					break;
-				}
-			} lws_end_foreach_dll(d);
+		lws_dht_ts_t *victim = dht_ts_victim(ctx, 0);
 
 		if (!victim) {
 			lwsl_dht_warn("%s: sequencer table full of sessions in "
@@ -889,8 +961,8 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 			return NULL;
 		}
 
-		lwsl_dht_info("%s: sequencer table full, recycling an idle "
-			      "one\n", __func__);
+		lwsl_dht_info("%s: sequencer table full, recycling one\n",
+			      __func__);
 		dht_ts_retire(victim);
 	}
 
@@ -909,6 +981,8 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 
 	dts->ctx = ctx;
 	dts->salen = salen;
+	dts->born = lws_now_usecs();
+	dts->stranger = !!unproven;
 	memcpy(&dts->sa, dest, salen);
 
 	/* DIAGNOSTIC (temporary): who the sequencer's logs are about */

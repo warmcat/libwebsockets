@@ -93,6 +93,16 @@
  */
 #define LWS_DHT_TS_RX_GRACE_US		(3 * LWS_US_PER_SEC)
 /*
+ * Strangers, peers that spoke to us first and are not a good routing table
+ * node at that endpoint, may hold at most this many of the LWS_DHT_MAX_TS
+ * sequencers, so the rest are always there for peers we know and for our own
+ * sends (G-525).  When the strangers' share is full and every one of them is
+ * in use, the stranger whose sequencer was made longest ago is recycled for a
+ * newcomer, once it is at least LWS_DHT_TS_STRANGER_MIN_AGE_US old.
+ */
+#define LWS_DHT_TS_STRANGERS_MAX	(LWS_DHT_MAX_TS / 2)
+#define LWS_DHT_TS_STRANGER_MIN_AGE_US	(10 * LWS_US_PER_SEC)
+/*
  * per storage object: cap subscribers, the subscribers from one source (see
  * dht_source_key()), and peers announced by one source ip
  */
@@ -507,7 +517,14 @@ typedef struct lws_dht_ts {
 	uint8_t				in_cb;
 	/* when the peer's session last brought new data, see dht_ts_in_use() */
 	lws_usec_t			rx_progress;
+	/* when the sequencer was made, see dht_ts_victim() */
+	lws_usec_t			born;
 	uint8_t				tx_ch_set:1;
+	/*
+	 * the peer spoke first, and was not a node we know at that endpoint:
+	 * it counts against LWS_DHT_TS_STRANGERS_MAX (G-525)
+	 */
+	uint8_t				stranger:1;
 	/* DIAGNOSTIC (temporary): the peer's address, for the logs */
 	char				peer[64];
 } lws_dht_ts_t;
