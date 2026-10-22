@@ -749,12 +749,41 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
                 const uint8_t *der, size_t der_len)
 {
 	X509_STORE *st;
-#if defined(USE_WOLFSSL)
-	X509 *x  = d2i_X509(NULL, &der, (int)der_len);
-#else
-	X509 *x  = d2i_X509(NULL, &der, (long)der_len);
-#endif
+	X509 *x;
 	int n;
+
+	if (!vh->tls.ssl_client_ctx) {
+		lwsl_err("%s: vh %s has no client tls ctx\n", __func__,
+			 vh->name);
+		return 1;
+	}
+
+	/*
+	 * The X509_STORE belongs to the SSL_CTX, which may be shared by every
+	 * vhost created with the same client tls configuration.  CAs loaded
+	 * while the ctx is created from that configuration are part of what
+	 * the sharing was decided on.  But trust added afterwards is this
+	 * vhost's own: it must not reach a vhost already sharing the ctx, and
+	 * no vhost created later may join it (G-392).
+	 */
+
+	if (!vh->tls.client_ctx_creating && vh->tls.tcr) {
+		if (vh->tls.tcr->refcount > 1) {
+			lwsl_err("%s: vh %s shares its client tls ctx with %d "
+				 "other vhost(s), refusing to add trust to "
+				 "them all: create it with "
+				 ".client_ssl_ctx_unshared\n", __func__,
+				 vh->name, vh->tls.tcr->refcount - 1);
+			return 1;
+		}
+		vh->tls.tcr->unshared = 1;
+	}
+
+#if defined(USE_WOLFSSL)
+	x = d2i_X509(NULL, &der, (int)der_len);
+#else
+	x = d2i_X509(NULL, &der, (long)der_len);
+#endif
 
 	if (!x) {
 		lwsl_err("%s: Failed to load DER\n", __func__);
@@ -780,6 +809,55 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
 	X509_free(x);
 
 	return n != 1;
+}
+
+/*
+ * Each element of the client ctx fingerprint goes in tagged and with its
+ * length, so two different configurations cannot digest the same: bare
+ * concatenation made, eg, ca path "ab" + cert path "c" the same as ca path
+ * "a" + cert path "bc", or a 1.2 cipher list the same as a 1.3 one
+ */
+
+enum {
+	LWS_OSFP_OPTS_SET = 1,
+	LWS_OSFP_OPTS_CLEAR,
+	LWS_OSFP_CIPHERS_IANA,
+	LWS_OSFP_CIPHERS,
+	LWS_OSFP_CIPHERS_TLS13,
+	LWS_OSFP_GROUPS,
+	LWS_OSFP_OS_CAS,
+	LWS_OSFP_PROTOCOL0,
+	LWS_OSFP_CA_PATH,
+	LWS_OSFP_CERT_PATH,
+	LWS_OSFP_KEY_PATH,
+	LWS_OSFP_CA_MEM,
+	LWS_OSFP_CERT_MEM,
+	LWS_OSFP_KEY_MEM,
+	LWS_OSFP_KEY_PASSWORD,
+};
+
+static int
+lws_tls_openssl_fp_add(EVP_MD_CTX *mdctx, uint8_t tag, const void *p,
+		       size_t len)
+{
+	uint8_t hdr[5];
+
+	hdr[0] = tag;
+	lws_ser_wu32be(&hdr[1], (uint32_t)len);
+
+	if (EVP_DigestUpdate(mdctx, hdr, sizeof(hdr)) != 1)
+		return 1;
+
+	return len && EVP_DigestUpdate(mdctx, p, len) != 1;
+}
+
+static int
+lws_tls_openssl_fp_add_str(EVP_MD_CTX *mdctx, uint8_t tag, const char *s)
+{
+	if (!s)
+		return 0;
+
+	return lws_tls_openssl_fp_add(mdctx, tag, s, strlen(s));
 }
 
 int
@@ -812,7 +890,6 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	EVP_MD_CTX *mdctx;
 	unsigned int len;
 	uint8_t hash[32];
-	char c;
 	int n;
 
 	/* basic openssl init already happened in context init */
@@ -849,50 +926,51 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	 * possible.
 	 */
 
-	 mdctx = EVP_MD_CTX_create();
-	 if (!mdctx)
-		 return 1;
-
-	if (EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL) != 1) {
-		EVP_MD_CTX_destroy(mdctx);
-
+	mdctx = EVP_MD_CTX_create();
+	if (!mdctx)
 		return 1;
-	}
 
-	if (info->ssl_client_options_set)
-		EVP_DigestUpdate(mdctx, &info->ssl_client_options_set,
-				 sizeof(info->ssl_client_options_set));
+	if (EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL) != 1)
+		goto bail_hash;
 
+	if ((info->ssl_client_options_set &&
+	     lws_tls_openssl_fp_add(mdctx, LWS_OSFP_OPTS_SET,
+				    &info->ssl_client_options_set,
+				    sizeof(info->ssl_client_options_set)))
 #if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
-	if (info->ssl_client_options_clear)
-		EVP_DigestUpdate(mdctx, &info->ssl_client_options_clear,
-				 sizeof(info->ssl_client_options_clear));
+	    || (info->ssl_client_options_clear &&
+		lws_tls_openssl_fp_add(mdctx, LWS_OSFP_OPTS_CLEAR,
+				       &info->ssl_client_options_clear,
+				       sizeof(info->ssl_client_options_clear)))
 #endif
+	   )
+		goto bail_hash;
 
-	if (info->client_tls_ciphers_iana)
-		EVP_DigestUpdate(mdctx, info->client_tls_ciphers_iana,
-				 strlen(info->client_tls_ciphers_iana));
-	else {
-		if (cipher_list)
-			EVP_DigestUpdate(mdctx, cipher_list, strlen(cipher_list));
+	if (info->client_tls_ciphers_iana) {
+		if (lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_CIPHERS_IANA,
+					       info->client_tls_ciphers_iana))
+			goto bail_hash;
+	} else {
+		if (lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_CIPHERS,
+					       cipher_list))
+			goto bail_hash;
 
 #if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
-		if (info->client_tls_1_3_plus_cipher_list)
-			EVP_DigestUpdate(mdctx, info->client_tls_1_3_plus_cipher_list,
-					 strlen(info->client_tls_1_3_plus_cipher_list));
+		if (lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_CIPHERS_TLS13,
+				info->client_tls_1_3_plus_cipher_list))
+			goto bail_hash;
 #endif
 	}
 
 #if defined(LWS_HAVE_SSL_CTX_set1_groups_list)
 	/* the group list also affects the identity of the client context */
-	if (group_list)
-		EVP_DigestUpdate(mdctx, group_list, strlen(group_list));
+	if (lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_GROUPS, group_list))
+		goto bail_hash;
 #endif
 
-	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS)) {
-		c = 1;
-		EVP_DigestUpdate(mdctx, &c, 1);
-	}
+	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS) &&
+	    lws_tls_openssl_fp_add(mdctx, LWS_OSFP_OS_CAS, NULL, 0))
+		goto bail_hash;
 
 	/*
 	 * protocols[0] is part of the context's identity, because it is what
@@ -905,24 +983,27 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	 * different handlers apart.
 	 */
 
-	if (vh->protocols)
-		EVP_DigestUpdate(mdctx, &vh->protocols[0].callback,
-				 sizeof(vh->protocols[0].callback));
+	if (vh->protocols &&
+	    lws_tls_openssl_fp_add(mdctx, LWS_OSFP_PROTOCOL0,
+				   &vh->protocols[0].callback,
+				   sizeof(vh->protocols[0].callback)))
+		goto bail_hash;
 
-	if (ca_filepath)
-		EVP_DigestUpdate(mdctx, ca_filepath, strlen(ca_filepath));
+	if (lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_CA_PATH, ca_filepath) ||
+	    lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_CERT_PATH,
+				       cert_filepath) ||
+	    lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_KEY_PATH,
+				       private_key_filepath))
+		goto bail_hash;
 
-	if (cert_filepath)
-		EVP_DigestUpdate(mdctx, cert_filepath, strlen(cert_filepath));
+	if (ca_mem && ca_mem_len &&
+	    lws_tls_openssl_fp_add(mdctx, LWS_OSFP_CA_MEM, ca_mem, ca_mem_len))
+		goto bail_hash;
 
-	if (private_key_filepath)
-		EVP_DigestUpdate(mdctx, private_key_filepath,
-				 strlen(private_key_filepath));
-	if (ca_mem && ca_mem_len)
-		EVP_DigestUpdate(mdctx, ca_mem, ca_mem_len);
-
-	if (cert_mem && cert_mem_len)
-		EVP_DigestUpdate(mdctx, cert_mem, cert_mem_len);
+	if (cert_mem && cert_mem_len &&
+	    lws_tls_openssl_fp_add(mdctx, LWS_OSFP_CERT_MEM, cert_mem,
+				   cert_mem_len))
+		goto bail_hash;
 
 	/*
 	 * The in-memory client key is part of the identity the context will
@@ -931,38 +1012,47 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	 * silently gets the first one's key
 	 */
 
-	if (key_mem && key_mem_len)
-		EVP_DigestUpdate(mdctx, key_mem, key_mem_len);
+	if (key_mem && key_mem_len &&
+	    lws_tls_openssl_fp_add(mdctx, LWS_OSFP_KEY_MEM, key_mem,
+				   key_mem_len))
+		goto bail_hash;
 
-	if (info->client_ssl_private_key_password)
-		EVP_DigestUpdate(mdctx, info->client_ssl_private_key_password,
-				 strlen(info->client_ssl_private_key_password));
+	if (lws_tls_openssl_fp_add_str(mdctx, LWS_OSFP_KEY_PASSWORD,
+				       info->client_ssl_private_key_password))
+		goto bail_hash;
 
 	len = sizeof(hash);
-	EVP_DigestFinal_ex(mdctx, hash, &len);
+	if (EVP_DigestFinal_ex(mdctx, hash, &len) != 1)
+		goto bail_hash;
 	EVP_MD_CTX_destroy(mdctx);
 
-	/* look for existing client context with same config already */
+	/*
+	 * Look for an existing client context with the same config... unless
+	 * this vhost is going to have trust of its own.  A ctx whose trust is
+	 * one vhost's own is never handed to another.
+	 */
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-			 lws_dll2_get_head(&vh->context->tls.cc_owner)) {
-		tcr = lws_container_of(p, struct lws_tls_client_reuse, cc_list);
+	if (!info->client_ssl_ctx_unshared)
+		lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				lws_dll2_get_head(&vh->context->tls.cc_owner)) {
+			tcr = lws_container_of(p, struct lws_tls_client_reuse,
+					       cc_list);
 
-		if (!memcmp(hash, tcr->hash, len)) {
+			if (!tcr->unshared && !memcmp(hash, tcr->hash, len)) {
 
-			/* it's a match */
+				/* it's a match */
 
-			tcr->refcount++;
-			vh->tls.ssl_client_ctx = tcr->ssl_client_ctx;
-			vh->tls.tcr = tcr;
+				tcr->refcount++;
+				vh->tls.ssl_client_ctx = tcr->ssl_client_ctx;
+				vh->tls.tcr = tcr;
 
-			lwsl_info("%s: vh %s: reusing client ctx %d: use %d\n",
-				   __func__, vh->name, tcr->index,
-				   tcr->refcount);
+				lwsl_info("%s: vh %s: reusing client ctx %d: "
+					  "use %d\n", __func__, vh->name,
+					  tcr->index, tcr->refcount);
 
-			return 0;
-		}
-	} lws_end_foreach_dll_safe(p, tp);
+				return 0;
+			}
+		} lws_end_foreach_dll_safe(p, tp);
 
 	/* no existing one the same... create new client SSL_CTX */
 
@@ -994,6 +1084,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	tcr->ssl_client_ctx = vh->tls.ssl_client_ctx;
 	tcr->refcount = 1;
+	tcr->unshared = !!info->client_ssl_ctx_unshared;
 	memcpy(tcr->hash, hash, len);
 	tcr->index = vh->context->tls.count_client_contexts++;
 	lws_dll2_add_head(&tcr->cc_list, &vh->context->tls.cc_owner);
@@ -1278,6 +1369,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #endif
 
 	return 0;
+bail_hash:
+	EVP_MD_CTX_destroy(mdctx);
+
+	return 1;
 }
 
 

@@ -187,6 +187,7 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	const char *cert_filepath = info->ssl_cert_filepath;
 	const char *ca_filepath = info->ssl_ca_filepath;
 	const char *cipher_list = info->ssl_cipher_list;
+	int n;
 	lws_fakewsi_def_plwsa(&vhost->context->pt[0]);
 
 	lws_fakewsi_prep_plwsa_ctx(vhost->context);
@@ -287,7 +288,8 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return 0;
 
-	if (lws_tls_client_create_vhost_context(vhost, info, cipher_list,
+	vhost->tls.client_ctx_creating = 1;
+	n = lws_tls_client_create_vhost_context(vhost, info, cipher_list,
 						ca_filepath,
 						info->client_ssl_ca_mem,
 						info->client_ssl_ca_mem_len,
@@ -297,7 +299,9 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 						private_key_filepath,
 						info->client_ssl_key_mem,
 						info->client_ssl_key_mem_len
-						))
+						);
+	vhost->tls.client_ctx_creating = 0;
+	if (n)
 		return 1;
 
 	lwsl_notice("created client ssl context for %s\n", vhost->name);

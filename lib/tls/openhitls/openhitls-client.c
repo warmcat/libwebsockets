@@ -953,6 +953,32 @@ int lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
 	int ret;
 
 	ctx = (lws_tls_ctx *)vh->tls.ssl_client_ctx;
+	if (!ctx) {
+		lwsl_err("%s: vh %s has no client tls ctx\n", __func__,
+			 vh->name);
+		return 1;
+	}
+
+	/*
+	 * The trust store belongs to the HITLS_Config, which may be shared by
+	 * every vhost created with the same client tls configuration.  CAs
+	 * loaded while the config is created from that configuration are part
+	 * of what the sharing was decided on.  But trust added afterwards is
+	 * this vhost's own: it must not reach a vhost already sharing the
+	 * config, and no vhost created later may join it (G-392).
+	 */
+
+	if (!vh->tls.client_ctx_creating && vh->tls.tcr) {
+		if (vh->tls.tcr->refcount > 1) {
+			lwsl_err("%s: vh %s shares its client tls ctx with %d "
+				 "other vhost(s), refusing to add trust to "
+				 "them all: create it with "
+				 ".client_ssl_ctx_unshared\n", __func__,
+				 vh->name, vh->tls.tcr->refcount - 1);
+			return 1;
+		}
+		vh->tls.tcr->unshared = 1;
+	}
 
 	ret = HITLS_CFG_LoadVerifyBuffer(ctx, der, (uint32_t)der_len,
 					 TLS_PARSE_FORMAT_ASN1);
@@ -996,23 +1022,32 @@ int lws_tls_client_create_vhost_context(
 		return -1;
 	}
 
-	lws_start_foreach_dll_safe(
-	    struct lws_dll2 *, p, tp,
-	    lws_dll2_get_head(&vh->context->tls.cc_owner))
-	{
-		tcr = lws_container_of(p, struct lws_tls_client_reuse, cc_list);
+	/*
+	 * A config whose trust is one vhost's own (G-392) is never handed to
+	 * another, and a vhost that will have trust of its own takes none
+	 */
 
-		if (!memcmp(hash, tcr->hash, sizeof(hash))) {
-			tcr->refcount++;
-			vh->tls.ssl_client_ctx = tcr->ssl_client_ctx;
-			vh->tls.tcr = tcr;
+	if (!info->client_ssl_ctx_unshared)
+		lws_start_foreach_dll_safe(
+		    struct lws_dll2 *, p, tp,
+		    lws_dll2_get_head(&vh->context->tls.cc_owner))
+		{
+			tcr = lws_container_of(p, struct lws_tls_client_reuse,
+					       cc_list);
 
-			lwsl_info("%s: vh %s: reusing client ctx %d: use %d\n",
-				  __func__, vh->name, tcr->index, tcr->refcount);
+			if (!tcr->unshared &&
+			    !memcmp(hash, tcr->hash, sizeof(hash))) {
+				tcr->refcount++;
+				vh->tls.ssl_client_ctx = tcr->ssl_client_ctx;
+				vh->tls.tcr = tcr;
 
-			return 0;
-		}
-	}lws_end_foreach_dll_safe(p, tp);
+				lwsl_info("%s: vh %s: reusing client ctx %d: "
+					  "use %d\n", __func__, vh->name,
+					  tcr->index, tcr->refcount);
+
+				return 0;
+			}
+		} lws_end_foreach_dll_safe(p, tp);
 
 	config = HITLS_CFG_NewTLSConfig();
 	if (!config) {
@@ -1041,6 +1076,7 @@ int lws_tls_client_create_vhost_context(
 
 	tcr->ssl_client_ctx = ctx;
 	tcr->refcount = 1;
+	tcr->unshared = !!info->client_ssl_ctx_unshared;
 	memcpy(tcr->hash, hash, sizeof(hash));
 	tcr->index = vh->context->tls.count_client_contexts++;
 	lws_dll2_add_head(&tcr->cc_list, &vh->context->tls.cc_owner);

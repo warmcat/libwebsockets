@@ -229,6 +229,12 @@ struct lws_vhost_tls {
 
 	unsigned int user_supplied_ssl_ctx:1;
 	unsigned int skipped_certs:1;
+	/*
+	 * The client ctx is being created from the vhost's creation info: CAs
+	 * it loads now are part of the configuration its sharing was decided
+	 * on, see lws_tls_client_vhost_extra_cert_mem()
+	 */
+	unsigned int client_ctx_creating:1;
 };
 
 struct lws_lws_tls {

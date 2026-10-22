@@ -84,6 +84,12 @@ struct lws_tls_client_reuse {
 	struct lws_dll2 cc_list;
 	int refcount;
 	int index;
+	/*
+	 * No other vhost may take this ctx, because its owner's trust is its
+	 * own: it was created with .client_ssl_ctx_unshared, or a CA was
+	 * added to it after creation
+	 */
+	uint8_t unshared;
 };
 
 typedef int (*next_proto_cb)(SSL *, const unsigned char **out,

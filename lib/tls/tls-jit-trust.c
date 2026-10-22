@@ -934,6 +934,14 @@ __lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 				    info.client_ssl_ca_mem_len);
 #endif
 
+	/*
+	 * The rest of the DERs are added after creation: that trust must be
+	 * this vhost's alone, not shared with every JIT vhost created with
+	 * the same first DER (G-392)
+	 */
+	info.client_ssl_ctx_unshared = n < inf->ders &&
+				       n < (int)LWS_ARRAY_SIZE(inf->der);
+
 	info.protocols = cx->protocols_copy;
 
 	v = lws_create_vhost(cx, &info);

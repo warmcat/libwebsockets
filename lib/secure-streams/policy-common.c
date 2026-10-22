@@ -373,6 +373,12 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 	i.client_ssl_ca_mem = pol->trust.store->ssx509[0]->ca_der;
 	i.client_ssl_ca_mem_len = (unsigned int)
 			pol->trust.store->ssx509[0]->ca_der_len;
+	/*
+	 * The rest of the store is added after creation: that trust must be
+	 * this vhost's alone, not shared with every store that starts with
+	 * the same cert (G-392)
+	 */
+	i.client_ssl_ctx_unshared = pol->trust.store->count > 1;
 #endif
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	lwsl_debug("%s: ctx ext %p\n", __func__, context->extensions);

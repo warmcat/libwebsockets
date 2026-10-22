@@ -1291,6 +1291,16 @@ struct lws_context_creation_info {
 	 *   is enabled. */
 #endif
 
+	uint8_t			client_ssl_ctx_unshared;
+	/**< VHOST: 0 (default) lets this vhost's client tls ctx be shared with
+	 * other vhosts whose client tls configuration is identical (the
+	 * OpenSSL and OpenHiTLS backends do this, to save the memory of a
+	 * copy of the OS trust store per vhost).  Nonzero gives the vhost a
+	 * client tls ctx of its own.  Set it if you will add trust to the
+	 * vhost after creating it with lws_tls_client_vhost_extra_cert_mem(),
+	 * which refuses to add to a ctx that another vhost is sharing: the
+	 * other vhost would trust the cert too. */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

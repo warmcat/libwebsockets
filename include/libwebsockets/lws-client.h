@@ -448,6 +448,15 @@ lws_client_redirect_info(struct lws *wsi, lws_client_redirect_info_t *info);
  * After the vhost is created with one cert for client verification, you
  * can add additional, eg, intermediate, certs to the client tls context
  * of the vhost, for use with validating the incoming server cert(s).
+ *
+ * The cert is trusted by this vhost only.  Some tls backends (OpenSSL,
+ * OpenHiTLS) share one client tls ctx between vhosts created with identical
+ * client tls configuration; adding trust to a ctx that another vhost shares
+ * would make that vhost trust the cert too, so this fails instead.  Create
+ * vhosts you will add trust to with \p info.client_ssl_ctx_unshared set.
+ * Once trust was added, no vhost created later shares the vhost's ctx.
+ *
+ * Returns 0 if the cert was added, else nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
