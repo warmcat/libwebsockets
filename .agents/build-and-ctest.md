@@ -295,6 +295,11 @@
  - **To make a DHT node create many sequencers** in a test, send to
    127.0.0.2 and up on one never-listened port (api-test-dht-seq-reentry).
    Only free or idle slots are taken: beyond 64 in use, sends are REFUSED.
+   A send to a host that already has a sequencer is still queued when the
+   table is full, so a REFUSED test must use hosts with none yet.
+   `lws_dht_insert_node()` adds nodes as dubious: `lws_dht_get_nodes()`
+   skips them, `lws_dht_foreach_node()` visits them, and 64 random IDs
+   leave only ~16 in the table (only the eager first bucket split).
  - **Red-test in a detached worktree** at the previous commit with the new
    test copied in: an ASan red without disturbing the shared tree.
  - **Many raw UDP sockets in one test context** need
