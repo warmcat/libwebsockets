@@ -30,8 +30,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    on one searches the other and touches that connection from the wrong
    thread (G-544).  `lws_vhost_active_conns()` (pipelining / mux reuse)
    doesn't compare threads (G-545).
-   `__lws_lc_tag()` adds wsi to context-wide lists with no lock (G-549):
-   creating wsi on two threads at once corrupts them until fixed.
+   Lifecycle tags take the context lock since G-549 (142330c70).  Sul
+   callbacks run under the cx lock, so an SMP race test must create wsi
+   from service-thread callbacks (eg CONNECTED), not suls, or the locked
+   path hides the race.  The small fd lookup table (`fd_limit_per_thread`
+   below the process limit) is not SMP-safe (G-635): SMP tests leave it 0.
    `lws_protocol_init()` races between threads servicing first (G-542):
    start extra service threads after PROTOCOL_INIT until it's fixed.
    `lws_client_connect_via_info()` asserts in SMP when called
