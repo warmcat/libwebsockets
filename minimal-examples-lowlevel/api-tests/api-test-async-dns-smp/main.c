@@ -52,6 +52,15 @@
  * table was shared by all the threads, and searching it dereferenced every
  * wsi in it, including other threads' as they were freed, while two threads
  * inserting at once could take the same slot.  ctest runs it both ways.
+ *
+ * A lookup finished on the other thread is handed back by scheduling its
+ * timer on the asking thread's pt, holding that pt's lock.  Before G-638 the
+ * asking thread changed its own timer list without it, eg, a client
+ * connection cancelling its connect timeout as it connects, so the two could
+ * corrupt the list, which ASan saw here about 1 run in 20.  lws_sul_cancel()
+ * takes the pt lock itself now, and debug SMP builds assert that anything
+ * inserting into a pt's timer list holds it, so a path breaking the rule
+ * aborts here every run.
  */
 
 #include <libwebsockets.h>
