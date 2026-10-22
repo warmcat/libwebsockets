@@ -103,7 +103,9 @@ sessions.
    hunks, commit from it), then `git reset -q -- <paths>` on the real
    index only.  Don't use `-U0` patches with `--unidiff-zero`: one applied
    a hunk on the wrong line without error.  Build and test the resulting
-   commit alone in a worktree.
+   commit alone in a worktree.  Shared lists several fixers append to
+   (eg the api-tests README.md) always need this: `git add` of the working
+   file once dropped another fixer's row.
  - **Another fixer's hunks can appear mid-phase in a file that was not on
    their list.**  Diff each file against what you tested just before
    committing, and if a make fails partway, rebuild before trusting the
