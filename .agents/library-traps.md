@@ -458,6 +458,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Secure Streams
 
+ - **`__default`'s endpoint is `${endpoint}`, and an app setting it to a
+   `file://` url is a designed use** (lhp/dlo, 39 api-test-lhp-dlo tests).
+   A rule treating any substituted endpoint as untrusted breaks it; trust
+   has to follow where the metadata came from (G-372).
+ - An SS rx callback can get `len == 0` with a NULL `buf` at EOM; a
+   `memcpy` from it is a bare SIGTRAP under UBSan (nonnull).
  - An SS handle sees `LWSSSCS_CREATING` exactly once; user code does
    one-time init there.  In sspc, a `DISCONNECT_ME` from any proxied state
    drops the whole proxy link, unlike direct SS.
