@@ -401,7 +401,12 @@ static lws_displaylist_t displaylist;
  * there, and the descendant chain around them backtracks over the ancestors
  * the same way, so a matcher that renews its step budget inside :is() pays
  * the whole inner budget for every outer step, ~1e7 steps per element.  The
- * elements also repeat a class token that keys more of the same.
+ * elements also repeat a class token that keys more of the same.  The work
+ * matching really does for each element is bounded, not the time it takes
+ * or the steps counted for it.  These selectors scan no attribute values, so
+ * a step is at most a compound or simple selector visited with its attribute
+ * lookup, a binary search: a matcher renewing its budget inside :is() does
+ * ~60 times the work this allows.
  *
  * And :not() of an argument that ran out of budget must not turn into a
  * match: unbudgeted, the argument below simply fails to match (there's no
@@ -413,13 +418,14 @@ static lws_displaylist_t displaylist;
 #define LHPT_BUDGET_SIBS	8
 #define LHPT_BUDGET_COPIES	128
 #define LHPT_BUDGET_CLASSES	500
-#define LHPT_BUDGET_DEADLINE_US	(10 * LWS_US_PER_SEC)
+#define LHPT_BUDGET_WORK_STEP	16
+#define LHPT_BUDGET_WORK_ELEM	((uint64_t)LHPT_SEL_STEPS_ELEM * \
+				 LHPT_BUDGET_WORK_STEP)
 
 #define LHPT_SIB8		"b~a~a~a~a~a~a~a~a"
 #define LHPT_IS			":is(" LHPT_SIB8 ",a)"
 
-static lws_usec_t budget_start;
-static int budget_a, budget_late, budget_not_matched;
+static int budget_elems, budget_a, budget_over, budget_not_matched;
 
 static lws_stateful_ret_t
 budget_cb(lhp_ctx_t *ctx, char reason)
@@ -431,12 +437,14 @@ budget_cb(lhp_ctx_t *ctx, char reason)
 	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
 		return 0;
 
-	/* fail at the first element that finishes late, don't wait for all */
+	/* fail at the first element that is over, don't wait for all */
 
-	if (lws_now_usecs() - budget_start > LHPT_BUDGET_DEADLINE_US) {
-		budget_late = 1;
+	if (ctx->sel_work > (uint64_t)(budget_elems + 1) *
+						LHPT_BUDGET_WORK_ELEM) {
+		budget_over = 1;
 		return LWS_SRET_FATAL;
 	}
+	budget_elems++;
 
 	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
 	if (ta->name_len != 1 || *(const char *)&ta[1] != 'a')
@@ -468,7 +476,7 @@ test_selector_budget(int copies, int classes)
 	if (!doc || !ctx)
 		goto bail;
 	memset(ctx, 0, sizeof(*ctx));
-	budget_a = budget_late = budget_not_matched = 0;
+	budget_elems = budget_a = budget_over = budget_not_matched = 0;
 
 	p = doc;
 	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
@@ -517,18 +525,20 @@ test_selector_budget(int copies, int classes)
 	ctx->flags = LHP_FLAG_DOCUMENT_END;
 	ctx->base_url = strdup("");
 
-	budget_start = lws_now_usecs();
 	data = (const uint8_t *)doc;
 	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: copies %d: %d <a>, %llu work, r 0x%x, :not() matched "
+		  "%d\n", __func__, copies, budget_a,
+		  (unsigned long long)ctx->sel_work, (unsigned int)r,
+		  budget_not_matched);
+
 	lws_lhp_destruct(ctx);
 
-	lwsl_user("%s: copies %d: %d <a> in %dms, r 0x%x, :not() matched %d\n",
-		  __func__, copies, budget_a,
-		  (int)((lws_now_usecs() - budget_start) / LWS_US_PER_MS),
-		  (unsigned int)r, budget_not_matched);
-
-	if (budget_late) {
-		lwsl_err("%s: selector matching took too long\n", __func__);
+	if (budget_over) {
+		lwsl_err("%s: over %llu work per element at element %d\n",
+			 __func__, (unsigned long long)LHPT_BUDGET_WORK_ELEM,
+			 budget_elems + 1);
 		goto bail;
 	}
 	if (r & LWS_SRET_FATAL ||
@@ -1397,21 +1407,19 @@ bail:
  * now costs a step per 64 bytes it may compare as well, and every selector
  * step counts in ctx->cascade_ops.
  *
- * So with selectors like that matching every element, each element must
- * cost at most its selector budget plus what it costs with only the
- * user-agent css plus a step per selector visited, and a short value must
- * still match.
+ * So with selectors like that matching every element, the bytes each
+ * element's matching really compares (ctx->sel_work) must stay within what
+ * its selector budget stands for, and a short value must still match.
+ * Bounding the steps alone proves nothing here: with the scans not charged,
+ * the steps counted stay small while the work is back (G-530).
  */
 
 #define LHPT_SS_SELS		1000
 #define LHPT_SS_PAT		100
 #define LHPT_SS_ELEMS		300
 #define LHPT_SS_VAL		2000
-/* the selector steps an element may cost, plus a cascade without them */
-#define LHPT_SS_OPS_ELEM	(32768 + 4096 + LHPT_SS_SELS + LHPT_DB_OPS_UA)
 
 static int ss_elems, ss_short_ok, ss_over;
-static size_t ss_css_len;
 
 static lws_stateful_ret_t
 ss_cb(lhp_ctx_t *ctx, char reason)
@@ -1431,8 +1439,7 @@ ss_cb(lhp_ctx_t *ctx, char reason)
 
 	/* fail at the first element that is over, don't wait for all */
 
-	if (ctx->cascade_ops > (uint64_t)(ss_elems + 1) * LHPT_SS_OPS_ELEM +
-			       (uint64_t)ss_css_len * LHPT_OPS_CSS_BYTE) {
+	if (ctx->sel_work > (uint64_t)(ss_elems + 1) * LHPT_SEL_WORK_ELEM) {
 		ss_over = 1;
 		return LWS_SRET_FATAL;
 	}
@@ -1477,7 +1484,6 @@ test_selector_scan(void)
 		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
 				  "b%d\"]{margin-left:1px}", i);
 	}
-	ss_css_len = lws_ptr_diff_size_t(p, doc);
 	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
 			  "</style></head><body><p x=\"zzq\">x</p>");
 	for (i = 0; i < LHPT_SS_ELEMS; i++) {
@@ -1509,13 +1515,14 @@ test_selector_scan(void)
 	data = (const uint8_t *)doc;
 	r = lws_lhp_parse(ctx, &data, &len);
 
-	lwsl_user("%s: %d elements, %llu cascade steps, r 0x%x\n", __func__,
-		  ss_elems, (unsigned long long)ctx->cascade_ops,
-		  (unsigned int)r);
+	lwsl_user("%s: %d elements, %llu cascade steps, %llu work, r 0x%x\n",
+		  __func__, ss_elems, (unsigned long long)ctx->cascade_ops,
+		  (unsigned long long)ctx->sel_work, (unsigned int)r);
 
 	if (ss_over) {
-		lwsl_err("%s: over %d steps per element at element %d\n",
-			 __func__, LHPT_SS_OPS_ELEM, ss_elems + 1);
+		lwsl_err("%s: over %llu work per element at element %d\n",
+			 __func__, (unsigned long long)LHPT_SEL_WORK_ELEM,
+			 ss_elems + 1);
 		goto bail_destruct;
 	}
 	if (r & LWS_SRET_FATAL || ss_elems != LHPT_SS_ELEMS + 1) {
