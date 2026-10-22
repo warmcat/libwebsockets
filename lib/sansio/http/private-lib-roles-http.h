@@ -762,6 +762,30 @@ lws_http_mux_body_ended_by_peer(struct lws *wsi);
  */
 int
 lws_mux_ah_cap_reached(struct lws *wsi);
+
+/*
+ * The streams of one h2 or h3 server connection that ended before we were
+ * done answering them, the peer resetting them (h2 RST_STREAM, h3
+ * RESET_STREAM / STOP_SENDING) or us having to (G-646, G-647: "rapid
+ * reset").  The concurrent stream limit counts only live streams, so a peer
+ * that resets each request once it has been dispatched gets fresh ones
+ * dispatched, and their work started, for as long as it likes.
+ *
+ * A leaky bucket: each reset adds one, and it drains at the vhost's
+ * .mux_reset_limit per .mux_reset_window_secs.  Overflowing it means the
+ * connection is to be ended (GOAWAY ENHANCE_YOUR_CALM, H3_EXCESSIVE_LOAD).
+ */
+typedef struct lws_mux_reset_budget {
+	lws_usec_t		last;	/* when level was last drained */
+	uint64_t		level;	/* resets, in us of the window each */
+} lws_mux_reset_budget_t;
+
+/*
+ * Spend one reset of nwsi's (the network connection's) budget: nonzero if
+ * that overflowed it, and the connection must be ended
+ */
+int
+lws_mux_reset_budget_spend(struct lws *nwsi, lws_mux_reset_budget_t *b);
 #endif
 
 typedef enum lws_ah_attach_result {

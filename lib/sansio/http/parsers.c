@@ -305,6 +305,44 @@ lws_mux_ah_cap_reached(struct lws *wsi)
 
 	return 1;
 }
+
+int
+lws_mux_reset_budget_spend(struct lws *nwsi, lws_mux_reset_budget_t *b)
+{
+	struct lws_vhost *vh = nwsi->a.vhost;
+	uint64_t win, drain;
+	lws_usec_t now;
+
+	if (!vh || vh->mux_reset_limit == LWS_MUX_RESET_LIMIT_NONE)
+		return 0;
+
+	/*
+	 * In units of us: a reset is worth the whole window, and the bucket
+	 * drains .mux_reset_limit of them per window, ie, limit units per us.
+	 * The largest level, limit + 1 windows of 65535s, fits easily.
+	 */
+	win = (uint64_t)vh->mux_reset_window_secs * LWS_US_PER_SEC;
+	now = lws_wsi_now(nwsi);
+
+	if (b->last && now > b->last) {
+		drain = (uint64_t)(now - b->last);
+		if (drain > win) /* it drains empty in a window anyway */
+			drain = win;
+		drain *= vh->mux_reset_limit;
+		b->level = b->level > drain ? b->level - drain : 0;
+	}
+	b->last = now;
+	b->level += win;
+
+	if (b->level <= (uint64_t)vh->mux_reset_limit * win)
+		return 0;
+
+	lwsl_wsi_notice(nwsi, "more than %u streams reset in %us",
+			(unsigned int)vh->mux_reset_limit,
+			(unsigned int)vh->mux_reset_window_secs);
+
+	return 1;
+}
 #endif
 
 lws_ah_attach_result_t LWS_WARN_UNUSED_RESULT

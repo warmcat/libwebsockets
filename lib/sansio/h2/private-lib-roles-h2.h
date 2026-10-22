@@ -259,6 +259,8 @@ struct lws_h2_netconn {
 	struct lws *swsi;
 	lws_dll2_owner_t pps_owner; /* protocol sends to issue, oldest at tail */
 	struct lws_h2_protocol_send *pps_tx; /* the one IO is writing */
+	/* streams ended before they were answered, see G-646 */
+	lws_mux_reset_budget_t reset_budget;
 	uint8_t pps_tx_budget; /* left to send this tx pass */
 	uint8_t pps_tx_pass:1; /* the tx pass sent protocol packets */
 

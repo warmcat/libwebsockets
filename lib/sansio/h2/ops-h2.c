@@ -1755,6 +1755,15 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			int verdict = 0;
 
 			/*
+			 * The connection is dead, its GOAWAY waiting to go:
+			 * start no more work for it, eg, for streams that
+			 * came in the same read as the resets that made us
+			 * end it (G-646)
+			 */
+			if (wsi->h2.h2n && wsi->h2.h2n->goaway_queued)
+				continue;
+
+			/*
 			 * we had to defer the http_action to the POLLOUT
 			 * handler, because we know it will send something and
 			 * only in the POLLOUT handler do we know for sure

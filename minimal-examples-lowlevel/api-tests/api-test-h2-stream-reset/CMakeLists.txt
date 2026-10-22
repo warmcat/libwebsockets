@@ -25,7 +25,7 @@ if (requirements)
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 
-	foreach(case ping hpack ignored)
+	foreach(case ping hpack ignored reset)
 		lws_get_free_port(PORT_H2_STREAM_RESET_${case})
 
 		add_test(NAME api-test-h2-stream-reset-${case}

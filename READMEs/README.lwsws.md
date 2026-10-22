@@ -369,6 +369,16 @@ reading the body, eg, while a cgi or a proxy mount's onward connection is slow
 to take it, counts as well.  "none" leaves only the timeout between pieces of
 body (`timeout-secs`).
 
+ - "`mux-reset-limit`": "200" is the most streams of one h2 connection
+that may end before they are answered, on average per
+"`mux-reset-window-secs`": "10".  The client resetting a stream it had not
+had its answer for counts, and so does the server resetting one for any reason
+but having answered it (eg, its body coming too slowly), other than refusing it
+for want of a header table.  Going over it ends the connection with GOAWAY
+`ENHANCE_YOUR_CALM`, so a client cannot have requests started for it as fast
+as it can send them by resetting each one after it went out ("rapid reset").
+Those are the defaults; "none" means no limit.
+
  - "`sni-fallback`": "1" makes this vhost the one that serves tls connections
 arriving on its listen port with an SNI name that matches no vhost there.  At
 most one vhost per port needs it; if none has it, such connections are refused

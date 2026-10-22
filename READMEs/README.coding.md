@@ -500,6 +500,16 @@ coming within `timeout_secs` per piece: a body falling behind is given up on
 as for a timeout.  A vhost whose clients may legitimately stream request
 bodies more slowly than that can set `LWS_HTTP_BODY_MIN_RATE_NONE`.
 
+The streams of one h2 connection that end before they are answered are
+limited too, to `info.mux_reset_limit` (default 200) on average per
+`info.mux_reset_window_secs` (default 10s): the client resetting a stream it
+had no answer for yet, and the server resetting one for any reason other than
+having answered it, or refusing it for want of an ah.  The concurrent stream
+limit only counts live streams, so without this a client resetting each request
+as soon as it went out would have requests dispatched, and their work started,
+as fast as it could send them ("rapid reset").  Going over it ends the connection with GOAWAY
+`ENHANCE_YOUR_CALM`.
+
 Anything important must be copied into your `pss` inside the window.  The
 accessors (`lws_hdr_copy()`, `lws_hdr_total_length()`,
 `lws_get_urlarg_by_name_safe()`, `lws_http_cookie_get()`, ...) do not fail

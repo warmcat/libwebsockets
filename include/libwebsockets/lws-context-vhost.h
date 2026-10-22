@@ -435,6 +435,8 @@ typedef uint64_t (*lws_quic_tx_credit_cb_t)(struct lws *wsi, uint64_t current_wi
 
 /* for .http_body_min_rate: a request body may arrive as slowly as it likes */
 #define LWS_HTTP_BODY_MIN_RATE_NONE	0xffffffffu
+/* for .mux_reset_limit: a connection's streams may be reset without limit */
+#define LWS_MUX_RESET_LIMIT_NONE	0xffffu
 
 struct lws_context_creation_info {
 #if defined(LWS_WITH_NETWORK)
@@ -1488,6 +1490,30 @@ struct lws_context_creation_info {
 	uint16_t			http_body_grace_secs;
 	/**< VHOST: 0 for default (20), or the seconds a request body has
 	 * before .http_body_min_rate starts to count against it */
+
+	uint16_t			mux_reset_limit;
+	/**< VHOST: 0 for default (200), the most streams of one h2 server
+	 * connection that may end before they are answered, on average per
+	 * .mux_reset_window_secs, or LWS_MUX_RESET_LIMIT_NONE for no limit.
+	 * What counts is the peer resetting a stream we had not finished
+	 * answering (RST_STREAM), and us resetting one for any reason but
+	 * having answered it (eg, a protocol error on it, its body coming
+	 * too slowly, the app abandoning it), other than refusing it for
+	 * want of a header table (see .max_http_header_pool_per_mux).  A
+	 * burst of up to the limit is allowed, and room for more comes back
+	 * at the limit per window.  Going over it
+	 * ends the connection with GOAWAY ENHANCE_YOUR_CALM.
+	 *
+	 * The concurrent stream limit counts only live streams, so without
+	 * this a peer that resets each request as soon as it is dispatched,
+	 * and sends the next, has requests dispatched, and their work
+	 * started, as fast as the server can read them ("rapid reset",
+	 * CVE-2023-44487).  Browsers reset streams too, eg, the requests of
+	 * a page left before it finished loading, but nothing like 200 every
+	 * 10s on one connection. */
+
+	uint16_t			mux_reset_window_secs;
+	/**< VHOST: 0 for default (10), the seconds .mux_reset_limit is per */
 
 	uint8_t				ss_proxy_tcp_allow_remote;
 	/**< CONTEXT: 0 (the default), or 1 to let an SS proxy listening on

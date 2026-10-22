@@ -192,6 +192,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].proxy-v2-trusted",
 	"vhosts[].http-body-min-rate",
 	"vhosts[].http-body-grace-secs",
+	"vhosts[].mux-reset-limit",
+	"vhosts[].mux-reset-window-secs",
 };
 
 enum lejp_vhost_paths {
@@ -301,6 +303,8 @@ enum lejp_vhost_paths {
 	LEJPVP_PROXY_V2_TRUSTED,
 	LEJPVP_HTTP_BODY_MIN_RATE,
 	LEJPVP_HTTP_BODY_GRACE_SECS,
+	LEJPVP_MUX_RESET_LIMIT,
+	LEJPVP_MUX_RESET_WINDOW_SECS,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -1515,6 +1519,24 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_HTTP_BODY_GRACE_SECS:
 		n = atoi(ctx->buf);
 		a->info->http_body_grace_secs = n > 0 && n <= 65535 ?
+							(uint16_t)n : 0;
+		return 0;
+
+	case LEJPVP_MUX_RESET_LIMIT:
+		if (!strcmp(ctx->buf, "none")) {
+			a->info->mux_reset_limit = LWS_MUX_RESET_LIMIT_NONE;
+			return 0;
+		}
+		n = atoi(ctx->buf);
+		/* "none" is the only way to say no limit */
+		a->info->mux_reset_limit = n > 0 &&
+				n < (int)LWS_MUX_RESET_LIMIT_NONE ?
+							(uint16_t)n : 0;
+		return 0;
+
+	case LEJPVP_MUX_RESET_WINDOW_SECS:
+		n = atoi(ctx->buf);
+		a->info->mux_reset_window_secs = n > 0 && n <= 65535 ?
 							(uint16_t)n : 0;
 		return 0;
 

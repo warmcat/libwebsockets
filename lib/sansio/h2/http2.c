@@ -721,6 +721,27 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	return 0;
 }
 
+/*
+ * A stream of a server connection ended before we were done answering it,
+ * reset by the peer or by us: spend one of the connection's reset budget,
+ * and if that is the last straw, end the connection.  The concurrent stream
+ * limit counts only live streams, so it is this that stops a peer resetting
+ * each request once it is dispatched and sending the next one, for as long
+ * as it likes (G-646, CVE-2023-44487).
+ */
+static int
+lws_h2_reset_budget_spend(struct lws *nwsi)
+{
+	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
+
+	if (!h2n || lwsi_role_client(nwsi) ||
+	    !lws_mux_reset_budget_spend(nwsi, &h2n->reset_budget))
+		return 0;
+
+	return lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
+			     "too many streams reset");
+}
+
 int
 lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 {
@@ -770,6 +791,14 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	pps->u.rs.err = err;
 
 	lws_pps_schedule(wsi, pps);
+
+	/*
+	 * Only an answered stream is reset with NO_ERROR, eg, one the peer
+	 * had not finished sending on: anything else counts against the
+	 * connection
+	 */
+	if (err != H2_ERR_NO_ERROR && lwsi_role_server(wsi))
+		return lws_h2_reset_budget_spend(nwsi);
 
 	return 0;
 }
@@ -1533,6 +1562,12 @@ lws_h2_refuse_stream(struct lws *nwsi)
 	h2n->cont_exp_headers = 1;
 
 	lws_pps_schedule(nwsi, pps);
+
+	/*
+	 * Not counted against the connection's reset budget: nothing was
+	 * started for the stream, and the connection is meant to go on
+	 * (G-028)
+	 */
 
 	return 0;
 }
@@ -3236,6 +3271,15 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			  (unsigned int)h2n->hpack_e_dep);
 		if (h2n->swsi) {
 			/*
+			 * Did he reset it before we were done answering it?
+			 * Then it counts against his connection (G-646).
+			 * Afterwards, eg, an lws client telling us it is done
+			 * with a stream it never ended, it doesn't.
+			 */
+			int spend = lwsi_role_server(h2n->swsi) &&
+				    !h2n->swsi->h2.send_END_STREAM;
+
+			/*
 			 * Stash the peer's error code on the stream before
 			 * closing it, so user code can retrieve it from the
 			 * close callbacks via lws_h2_get_peer_rst_status().
@@ -3251,6 +3295,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			lws_close_free_wsi(h2n->swsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "peer RST_STREAM");
 			h2n->swsi = NULL;
+
+			if (spend && lws_h2_reset_budget_spend(wsi))
+				return 1;
 		}
 		break;
 

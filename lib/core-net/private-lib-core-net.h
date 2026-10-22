@@ -935,6 +935,9 @@ struct lws_vhost {
 	uint64_t max_http_body_size;
 	uint32_t http_body_min_rate; /* bytes/s, or LWS_HTTP_BODY_MIN_RATE_NONE */
 	uint16_t http_body_grace_secs;
+	/* h2 / h3 streams reset per connection, see lws_mux_reset_budget_t */
+	uint16_t mux_reset_limit; /* or LWS_MUX_RESET_LIMIT_NONE */
+	uint16_t mux_reset_window_secs;
 };
 
 #if defined(LWS_WITH_DHT)

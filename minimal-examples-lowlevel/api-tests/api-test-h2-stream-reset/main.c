@@ -29,6 +29,17 @@
  * --case ignored: stream 1's HEADERS is followed by a frame of an unknown
  *   type, which the server ignores.  When stream 1 is answered, its
  *   RST_STREAM must still be sent.
+ *
+ * --case reset: "rapid reset" (CVE-2023-44487 class).  The concurrent stream
+ * limit only counts live streams, so a peer resetting each request once it
+ * has been dispatched could have new ones dispatched for as long as it
+ * liked.  The server's vhost allows RR_LIMIT resets per connection per 10s.
+ * Connection A sends batches of GETs, whose answers the server starts and
+ * never finishes; once it has the response headers of a whole batch, it
+ * resets them all, in the same write as the next batch.  The server must
+ * end A's connection with GOAWAY ENHANCE_YOUR_CALM, having dispatched not
+ * many more than RR_LIMIT requests.  Then connection B, which resets
+ * nothing, has three times RR_LIMIT GETs answered on its connection.
  */
 
 #include <libwebsockets.h>
@@ -46,6 +57,8 @@
 #define RR_PING			6
 #define RR_GOAWAY		7
 #define RR_UNKNOWN_TYPE		0x77
+#define RR_ERR_CANCEL		8
+#define RR_ERR_ENHANCE_YOUR_CALM	0xb
 #define RR_FL_END_STREAM	0x01
 #define RR_FL_ACK		0x01
 #define RR_FL_END_HEADERS	0x04
@@ -54,6 +67,15 @@
 
 #define RR_MAX_SID		1024
 
+/* --case reset: resets the server allows per connection per 10s */
+#define RR_LIMIT		20
+/* GETs A sends at once */
+#define RR_BATCH		8
+/* A gives up, the server never having stopped it */
+#define RR_MAX_BATCHES		((RR_MAX_SID / 2 - 1) / RR_BATCH)
+/* GETs B has answered */
+#define RR_GOOD			(3 * RR_LIMIT)
+
 /* user-agent the hpack case puts in the dynamic table */
 #define RR_UA			"rr-ua"
 
@@ -61,6 +83,7 @@ enum rr_case {
 	RR_CASE_PING,
 	RR_CASE_HPACK,
 	RR_CASE_IGNORED,
+	RR_CASE_RESET,
 };
 
 struct pss_srv {
@@ -80,7 +103,11 @@ struct rr_conn {
 	char			ended[RR_MAX_SID];
 	char			rst[RR_MAX_SID];
 	int			step;
+	/* --case reset: the batch in flight, from first_sid */
+	uint32_t		first_sid;
+	int			batches;
 	char			started;
+	char			goaway;
 };
 
 static struct lws_context *context;
@@ -89,10 +116,13 @@ static lws_sorted_usec_list_t sul_deadline;
 static const char *server_addr = "127.0.0.1";
 static int port = 7681, fails, done;
 static enum rr_case rr_case = RR_CASE_PING;
-static struct rr_conn conn;
+/* A, the only one but for --case reset, then B */
+static struct rr_conn conns[2];
 
 /* what the server saw: /dyn requests carrying RR_UA */
 static int srv_dyn_ua;
+/* --case reset: /slow requests dispatched */
+static int srv_slow;
 
 /* ---- server ---- */
 
@@ -115,6 +145,19 @@ srv_respond(struct lws *wsi)
 }
 
 static int
+srv_respond_start(struct lws *wsi)
+{
+	uint8_t hbuf[LWS_PRE + 256], *start = &hbuf[LWS_PRE], *p = start,
+		*end = &hbuf[sizeof(hbuf) - 1];
+
+	if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end) ||
+	    lws_finalize_write_http_header(wsi, start, &p, end))
+		return 1;
+
+	return 0;
+}
+
+static int
 callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
@@ -126,6 +169,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(pss->path, in ? (const char *)in : "",
 			    sizeof(pss->path));
 		lwsl_info("%s: server: %s\n", __func__, pss->path);
+
+		if (!strcmp(pss->path, "/slow"))
+			srv_slow++;
 
 		if (!strcmp(pss->path, "/dyn") &&
 		    lws_hdr_copy(wsi, ua, sizeof(ua),
@@ -141,6 +187,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->respond)
 			return 0;
 		pss->respond = 0;
+		if (!strcmp(pss->path, "/slow"))
+			/* the work goes on: its answer is started, not ended */
+			return srv_respond_start(wsi);
 		return srv_respond(wsi);
 
 	default:
@@ -267,6 +316,71 @@ static const uint8_t ping1[] = { 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h' },
 /* the user-agent field, literal with incremental indexing, indexed name */
 static const uint8_t ua_incr[] = { 0x40 | 58, 5, 'r', 'r', '-', 'u', 'a' };
 
+static int rr_connect(struct rr_conn *c);
+
+/* --case reset: the next batch of GETs, from c->first_sid */
+static void
+rr_batch(struct rr_conn *c)
+{
+	uint32_t n;
+
+	for (n = 0; n < RR_BATCH; n++)
+		rr_get(c, c->first_sid + (2 * n), c == &conns[0] ? "/slow" :
+								    "/ok", 1);
+	c->batches++;
+}
+
+/* --case reset: has the whole batch had its answer started / ended? */
+static int
+rr_batch_done(struct rr_conn *c, const char *what)
+{
+	uint32_t n;
+
+	for (n = 0; n < RR_BATCH; n++)
+		if (!what[c->first_sid + (2 * n)])
+			return 0;
+
+	return 1;
+}
+
+static void
+rr_reset_progress(struct rr_conn *c)
+{
+	static const uint8_t cancel[] = { 0, 0, 0, RR_ERR_CANCEL };
+	uint32_t n;
+
+	if (c == &conns[1]) {
+		/* B: batches of GETs answered, and nothing else */
+		if (!rr_batch_done(c, c->ended))
+			return;
+		if (c->batches * RR_BATCH >= RR_GOOD) {
+			rr_finish("A stopped by GOAWAY ENHANCE_YOUR_CALM, B "
+				  "served", 0);
+			return;
+		}
+		c->first_sid += 2 * RR_BATCH;
+		rr_batch(c);
+		return;
+	}
+
+	/* A: reset the batch once it has all been dispatched, send the next */
+	if (c->goaway || !rr_batch_done(c, c->answered))
+		return;
+
+	if (c->batches >= RR_MAX_BATCHES) {
+		lwsl_err("%s: server dispatched %d resets' worth\n", __func__,
+			 srv_slow);
+		rr_finish("A's resets never stopped it", 1);
+		return;
+	}
+
+	for (n = 0; n < RR_BATCH; n++)
+		rr_frame(c, RR_RST_STREAM, 0, c->first_sid + (2 * n), cancel,
+			 sizeof(cancel));
+	c->first_sid += 2 * RR_BATCH;
+	rr_batch(c);
+}
+
 /*
  * After the server's SETTINGS, which we ACK first: nothing else we send may
  * land in the middle of a frame we leave half sent
@@ -298,6 +412,11 @@ rr_start(struct rr_conn *c)
 		rr_get(c, 1, "/early", 0);
 		/* a frame the server must ignore, read last before the reset */
 		rr_frame(c, RR_UNKNOWN_TYPE, 0, 0, NULL, 0);
+		break;
+
+	case RR_CASE_RESET:
+		c->first_sid = 1;
+		rr_batch(c);
 		break;
 	}
 }
@@ -358,6 +477,10 @@ rr_progress(struct rr_conn *c, uint8_t type, uint32_t sid,
 				rr_finish("split header block decoded across "
 					  "a stream reset", 0);
 		}
+		break;
+
+	case RR_CASE_RESET:
+		rr_reset_progress(c);
 		break;
 
 	case RR_CASE_IGNORED:
@@ -476,8 +599,21 @@ rr_rx_frame(struct rr_conn *c, const uint8_t *f, size_t len)
 		err = len >= 8 ? ((uint32_t)pl[4] << 24) |
 				 ((uint32_t)pl[5] << 16) |
 				 ((uint32_t)pl[6] << 8) | pl[7] : 0;
-		lwsl_err("%s: GOAWAY err 0x%x\n", __func__, (unsigned int)err);
-		return 1;
+		if (rr_case != RR_CASE_RESET || c != &conns[0] ||
+		    err != RR_ERR_ENHANCE_YOUR_CALM) {
+			lwsl_err("%s: GOAWAY err 0x%x\n", __func__,
+				 (unsigned int)err);
+			return 1;
+		}
+		lwsl_user("%s: A: GOAWAY ENHANCE_YOUR_CALM, after %d of its "
+			  "requests were dispatched\n", __func__, srv_slow);
+		/* the requests that came after the resets were not started */
+		if (srv_slow > RR_LIMIT + 2 * RR_BATCH) {
+			rr_finish("too many of A's requests were dispatched", 1);
+			return 1;
+		}
+		c->goaway = 1;
+		return 0;
 
 	default:
 		return 0;
@@ -560,6 +696,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (c)
 			c->wsi = NULL;
+		if (c == &conns[0] && c->goaway) {
+			/* A's connection ended as it should: B's turn */
+			if (rr_connect(&conns[1]))
+				rr_finish("B could not connect", 1);
+			break;
+		}
 		rr_finish("the server closed the connection", 1);
 		break;
 
@@ -608,7 +750,9 @@ sigint_handler(int sig)
 int
 main(int argc, const char **argv)
 {
-	static const char * const case_names[] = { "ping", "hpack", "ignored" };
+	static const char * const case_names[] = {
+		"ping", "hpack", "ignored", "reset"
+	};
 	struct lws_context_creation_info info;
 	const char *p;
 	int n = 0;
@@ -627,7 +771,8 @@ main(int argc, const char **argv)
 			if (!strcmp(p, case_names[n]))
 				break;
 		if (n == (int)LWS_ARRAY_SIZE(case_names)) {
-			lwsl_err("--case ping (default) | hpack | ignored\n");
+			lwsl_err("--case ping (default) | hpack | ignored | "
+				 "reset\n");
 			return 1;
 		}
 		rr_case = (enum rr_case)n;
@@ -650,6 +795,8 @@ main(int argc, const char **argv)
 
 	info.port = port;
 	info.vhost_name = "srv-h2";
+	info.mux_reset_limit = RR_LIMIT;
+	info.mux_reset_window_secs = 10;
 	info.protocols = protocols_srv;
 	info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 	if (!lws_create_vhost(context, &info)) {
@@ -670,7 +817,7 @@ main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_deadline, rr_deadline_cb,
 			 RR_DEADLINE_S * LWS_US_PER_SEC);
 
-	if (rr_connect(&conn))
+	if (rr_connect(&conns[0]))
 		rr_finish("connect failed", 1);
 
 	while (!done && n >= 0)
