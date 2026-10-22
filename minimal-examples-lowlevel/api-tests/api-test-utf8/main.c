@@ -21,11 +21,13 @@
  *    longest valid prefix, and leaves complete strings alone
  *  - lws_json_purify() truncated into every output size gives valid UTF-8
  *    that is a prefix of the untruncated escaping, with in_used consistent
- *    with what was output; a cut made by the caller's input cap stays put
+ *    with what was output; a cut made by the caller's input cap stays put,
+ *    and a capped, non-NUL-terminated input is never read past its cap
  */
 
 #include <libwebsockets.h>
 
+#include <stdlib.h>
 #include <string.h>
 
 static int fails, oks;
@@ -186,6 +188,45 @@ test_purify(void)
 	lws_json_purify(out, "\xe2\x82\xac", sizeof(out), &used);
 	CHECK(used == 2 && !strcmp(out, "\xe2\x82"), "%s: input cap moved\n",
 	      __func__);
+
+	/*
+	 * A capped input is not NUL-terminated: purifying a heap copy of
+	 * exactly its length, consumed whole, must not look at the byte past
+	 * the cap (ASan reports a heap-buffer-overflow if it does)
+	 */
+	{
+		static const char hello[] = "hello";
+		char *h = malloc(sizeof(hello) - 1);
+
+		if (h) {
+			memcpy(h, hello, sizeof(hello) - 1);
+			used = (int)sizeof(hello) - 1;
+			lws_json_purify(out, h, sizeof(out), &used);
+			CHECK(used == (int)sizeof(hello) - 1 &&
+			      !strcmp(out, hello), "%s: exact cap\n", __func__);
+			free(h);
+		} else
+			CHECK(0, "%s: OOM\n", __func__);
+	}
+
+	/*
+	 * Under a cap, the output filling partway through a sequence still
+	 * backs off to its start: "a" + U+20AC capped at its 4 bytes, into 9
+	 * bytes of output (room for three input bytes), gives just "a"
+	 */
+	{
+		char *h = malloc(4);
+
+		if (h) {
+			memcpy(h, "a\xe2\x82\xac", 4);
+			used = 4;
+			lws_json_purify(out, h, 9, &used);
+			CHECK(used == 1 && !strcmp(out, "a"),
+			      "%s: capped back-off gave %d\n", __func__, used);
+			free(h);
+		} else
+			CHECK(0, "%s: OOM\n", __func__);
+	}
 
 	/*
 	 * 21 x U+20AC (63 bytes) into 64 bytes: this used to stop one byte

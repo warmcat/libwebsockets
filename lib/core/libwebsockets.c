@@ -818,8 +818,11 @@ lws_json_purify_flags(char *escaped, const char *string, int len, int *in_used,
 	 * start of a multibyte UTF-8 sequence.  A browser fails a ws TEXT
 	 * frame holding that, so back off to the start of the sequence: every
 	 * byte >= 0x80 was copied 1:1, so the output backs off in step.
+	 *
+	 * Test the cap before looking at *p: a capped input need not be
+	 * NUL-terminated, so at the cap *p is past the caller's data.
 	 */
-	if (*p && (int)(p - op) < inlim) {
+	if ((int)(p - op) < inlim && *p) {
 		int back = 0;
 
 		while (back < 3 && p > op &&
