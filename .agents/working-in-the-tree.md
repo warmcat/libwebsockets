@@ -106,6 +106,9 @@ sessions.
    commit alone in a worktree.  Shared lists several fixers append to
    (eg the api-tests README.md) always need this: `git add` of the working
    file once dropped another fixer's row.
+ - **Generate large probe/fuzz inputs under your build tree on /home, not
+   in the scratchpad**: the scratchpad is on root (~150MB free), and one
+   173MB generated page filled it.
  - **Copying `git diff --name-only` output from the shared tree into a
    worktree pulls in other agents' half-done edits.**  Copy explicit
    paths of your own files only.
