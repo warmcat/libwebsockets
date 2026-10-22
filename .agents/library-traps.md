@@ -592,6 +592,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    only fences work the fix itself counts: red it by removing the charge,
    not only by reverting to the old library (G-530).  api-test-lhp-dlo
    nesting tops out near 125 user levels (html/body count).
+ - **`lhp-ua-css.h` carries compiled selector programs** (G-540,
+   88199ef7a): regenerate it with lhp-ua-gen from a build with
+   `LWS_WITH_LHP_UA_FLASH` off whenever the program format or the default
+   css changes, or user-agent selectors silently stop matching.
 
 ## lejp
 
