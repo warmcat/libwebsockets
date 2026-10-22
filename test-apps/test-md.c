@@ -15,6 +15,8 @@
  *    resuming produces the same html
  *  - structural validation: balanced tags, no raw markup from the input
  *  - hostile garbage rounds through the stock html sink
+ *  - inline cost: lines full of link openers cost lookahead work linear in
+ *    their length, also through a sink deferring like a server write side
  *  - the lws-hl bridge for fenced code with a known info string
  */
 
@@ -806,6 +808,165 @@ test_hostile(void)
 }
 
 /*
+ * Inline cost bound: lines full of link openers must render in work linear
+ * in their length, even through a sink that defers like a server's write
+ * side (it takes a window of output, then wants a writeable callback),
+ * where each deferral re-runs the line's transaction from its start.  The
+ * bound is on the bytes walked by the inline lookahead scans, which the
+ * renderer counts in the context, so it is independent of machine speed.
+ */
+
+#define COST_WINDOW			  4096
+#define COST_LINES			  4
+#define COST_PER_BYTE			  64	/* per pass over a line */
+
+struct costcap {
+	struct htmlcap	*h;
+	size_t		room;	/* output window left before a deferral */
+	int		defer;
+};
+
+static lws_stateful_ret_t
+cost_write(void *user, const uint8_t *buf, size_t len)
+{
+	struct costcap *cc = (struct costcap *)user;
+
+	if (cc->defer) {
+		if (len > cc->room)
+			return LWS_SRET_WANT_OUTPUT;
+		cc->room -= len;
+	}
+
+	return html_write(cc->h, buf, len);
+}
+
+static int
+run_md_cost(const uint8_t *in, size_t in_len, int defer, uint32_t *scan,
+	    unsigned int *deferrals)
+{
+	struct costcap cc;
+	const uint8_t *p = in;
+	size_t l = in_len;
+
+	capture_reset(&cap_static);
+	cc.h		= &cap_static;
+	cc.room		= COST_WINDOW;
+	cc.defer	= defer;
+	*deferrals	= 0;
+
+	if (lws_md_html_construct(&html_static, cost_write, &cc, NULL, NULL) ||
+	    lws_md_construct(&ctx_static, lws_md_html_event, &html_static))
+		return 1;
+
+	while (l) {
+		lws_stateful_ret_t ret = lws_md_parse(&ctx_static, &p, &l);
+
+		if (ret == LWS_SRET_WANT_OUTPUT) {
+			if (++(*deferrals) > 100000)
+				return 2;
+			cc.room = COST_WINDOW; /* the output side drained */
+			continue;
+		}
+		if (ret)
+			return 3;
+	}
+
+	/* the context is reset by a successful finish */
+
+	*scan = ctx_static.scan;
+
+	while (lws_md_finish(&ctx_static) == LWS_SRET_WANT_OUTPUT) {
+		if (++(*deferrals) > 100000)
+			return 4;
+		cc.room = COST_WINDOW;
+	}
+
+	while (lws_md_html_close(&html_static) == LWS_SRET_WANT_OUTPUT) {
+		if (++(*deferrals) > 100000)
+			return 5;
+		cc.room = COST_WINDOW;
+	}
+
+	return 0;
+}
+
+static int
+test_inline_cost(void)
+{
+	static const char * const pats[] = {
+		"[", "[&", "![", "[[]", "[a](<", "[a](b(", "[x](((", "*[",
+		"`[", "[*", "**[", "[]](",
+	};
+	static uint8_t in[COST_LINES * LMD_LINE_MAX];
+	static char whole[MAX_STREAM];
+	size_t n, m, len, plen, line;
+	unsigned int defers, d0, ratio, worst = 0;
+	uint32_t scan, s0, bound;
+	int bad = 0, ret;
+
+	for (n = 0; n <= LWS_ARRAY_SIZE(pats); n++) {
+		len = 0;
+
+		for (line = 0; line < COST_LINES; line++) {
+			for (m = 0; m < LMD_LINE_MAX - 2; m++) {
+				if (n == LWS_ARRAY_SIZE(pats))
+					/* last: nested "[[[...x]]]..." */
+					in[len++] = m < (LMD_LINE_MAX - 2) / 2 ?
+						'[' : ']';
+				else {
+					plen = strlen(pats[n]);
+					in[len++] = (uint8_t)pats[n][m % plen];
+				}
+			}
+			in[len++] = '\n';
+		}
+
+		ret = run_md_cost(in, len, 0, &s0, &d0);
+		if (ret || html_check("inline-cost", cap_static.buf)) {
+			fprintf(stderr, "FAIL(inline-cost %zu): run %d\n", n,
+					ret);
+			bad++;
+			continue;
+		}
+		lws_strncpy(whole, cap_static.buf, sizeof(whole));
+
+		ret = run_md_cost(in, len, 1, &scan, &defers);
+		if (ret || strcmp(cap_static.buf, whole)) {
+			fprintf(stderr, "FAIL(inline-cost %zu): deferred "
+					"differs (%d)\n", n, ret);
+			bad++;
+			continue;
+		}
+
+		/* every deferral costs at most one more pass over a line */
+
+		bound = (uint32_t)((COST_LINES + defers) * LMD_LINE_MAX *
+				   COST_PER_BYTE);
+		if (s0 > (uint32_t)(COST_LINES * LMD_LINE_MAX *
+				    COST_PER_BYTE) || scan > bound) {
+			fprintf(stderr, "FAIL(inline-cost %zu): scanned %u, "
+					"%u with %u deferrals (bound %u)\n", n,
+					(unsigned int)s0, (unsigned int)scan,
+					defers, (unsigned int)bound);
+			bad++;
+			continue;
+		}
+
+		/* worst scan bytes per input byte per pass, for the log */
+
+		ratio = scan / ((COST_LINES + defers) * LMD_LINE_MAX);
+		if (ratio > worst)
+			worst = ratio;
+	}
+
+	if (!bad)
+		fprintf(stderr, "test-md: inline cost bound (worst %u scan "
+				"bytes per byte per pass): PASS\n", worst);
+
+	return bad;
+}
+
+/*
  * Self-feed: render this file's own source through the renderer; the
  * result must be structurally valid and contain the fence from this
  * file's own test as highlighted code.
@@ -863,6 +1024,7 @@ main(int argc, char *argv[])
 	bad += test_overlong();
 	bad += test_hl_bridge();
 	bad += test_hostile();
+	bad += test_inline_cost();
 	bad += test_selffeed();
 
 	if (bad) {

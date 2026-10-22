@@ -34,8 +34,14 @@ Design points:
    the decision is given up and the line is reclassified as paragraph text;
    giving up reclassifies, it never drops content.
  - **Degradation is fail-safe**: inputs beyond the documented caps (line
-   length, quote and inline nesting depth, url length) render as escaped
-   plain text or literal markers rather than failing or truncating.
+   length, quote and inline nesting depth, link bracket and paren nesting,
+   url length) render as escaped plain text or literal markers rather than
+   failing or truncating.
+ - **Linear inline cost**: the lookahead for a link's closing `]` or `)`
+   gives up past 16 levels of nesting, and a `<wrapped>` destination ends
+   at the next `<` or `>`, so a hostile line full of openers costs work
+   linear in its length, also when a deferring sink makes the line's
+   transaction re-run.
 
 ## Api overview
 
@@ -95,5 +101,9 @@ anything else renders as escaped text.
  - degradation paths: deep quote nesting past the cap, and over-cap lines,
    preserve all content as escaped text
  - hostile pseudo-random garbage rounds through the stock html sink
+ - inline cost: lines full of link openers (`[[[[`, `[&[&`, `[a](<`, ...)
+   render identically through a sink that defers like a server write side,
+   and the bytes walked by the inline lookahead, counted in the context,
+   stay within a fixed multiple of the input per pass over each line
  - the `lws-hl` bridge for fenced code with a known info string
 

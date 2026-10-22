@@ -158,6 +158,10 @@ typedef struct lws_md_ctx {
 	uint8_t			fin_n;	/* finish: closers remaining */
 	uint8_t			fin_list[3 + 2 * LMD_NEST_MAX];
 
+	uint32_t		scan;	/* bytes walked by inline lookahead
+					 * scans, saturating: lets tests
+					 * bound the inline cost */
+
 	uint32_t		llen;	/* staged line length */
 	uint32_t		hlen;	/* held line length */
 

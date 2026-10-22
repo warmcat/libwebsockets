@@ -201,6 +201,29 @@ md_el(lws_md_ctx_t *c, int begin, lws_md_el_t el, unsigned int aux)
 
 /* inline stage */
 
+/*
+ * Link syntax nesting cap: link text with brackets nested deeper than this,
+ * or a bare destination with parentheses nested deeper, is not a link and
+ * renders literally.  It bounds the lookahead: the scan for the ']' or ')'
+ * closing one opener gives up past this depth, so any byte is walked by at
+ * most LMD_LINK_NEST + 1 scans and a line full of openers costs
+ * O(len x LMD_LINK_NEST) rather than O(len^2).  That matters twice over,
+ * since a sink deferral re-runs the line's transaction from its start.
+ */
+
+#define LMD_LINK_NEST				  16
+
+/* account bytes walked by inline lookahead scans, saturating */
+
+static void
+md_scanned(lws_md_ctx_t *c, size_t n)
+{
+	if (n >= (size_t)(UINT32_MAX - c->scan))
+		c->scan = UINT32_MAX;
+	else
+		c->scan += (uint32_t)n;
+}
+
 static int
 md_autolink_len(const char *s, size_t len)
 {
@@ -225,10 +248,15 @@ md_autolink_len(const char *s, size_t len)
 /*
  * Find the end of a markdown link destination that may be <wrapped> or bare,
  * honoring balanced parens.  Returns end pointer or NULL.
+ *
+ * A <wrapped> destination cannot contain '<' (as in CommonMark), and a bare
+ * one cannot nest parens past LMD_LINK_NEST: either way the scan from one
+ * opener stops before any later opener's scan could cover the same bytes
+ * again, keeping a line of "[a](<" or "[a](b(" linear.
  */
 
 static const char *
-md_link_dest(const char *s, size_t len, size_t *out_len)
+md_link_dest(lws_md_ctx_t *c, const char *s, size_t len, size_t *out_len)
 {
 	const char *p = s, *end = s + len;
 	int depth = 0;
@@ -239,15 +267,15 @@ md_link_dest(const char *s, size_t len, size_t *out_len)
 		return NULL;
 
 	if (*p == '<') {
-		const char *e2;
-
 		p++;
-		e2 = memchr(p, '>', (size_t)(end - p));
-		if (!e2)
+		while (p < end && *p != '>' && *p != '<')
+			p++;
+		md_scanned(c, (size_t)(p - s));
+		if (p == end || *p != '>')
 			return NULL;
-		*out_len = (size_t)(e2 - p);
+		*out_len = (size_t)(p - (s + 1));
 
-		return e2 + 1 <= end ? e2 + 1 : NULL;
+		return p + 1;
 	}
 
 	while (p < end) {
@@ -255,8 +283,10 @@ md_link_dest(const char *s, size_t len, size_t *out_len)
 
 		if (ch == ' ' || ch == '\t' || ch == '\n')
 			break;
-		if (ch == '(')
-			depth++;
+		if (ch == '(' && ++depth > LMD_LINK_NEST) {
+			md_scanned(c, (size_t)(p - s));
+			return NULL;
+		}
 		if (ch == ')') {
 			if (!depth)
 				break;
@@ -265,6 +295,7 @@ md_link_dest(const char *s, size_t len, size_t *out_len)
 		p++;
 	}
 
+	md_scanned(c, (size_t)(p - s));
 	*out_len = (size_t)(p - s);
 
 	return p;
@@ -292,9 +323,18 @@ md_try_linkish(lws_md_ctx_t *c, const char *s, size_t len, int is_image,
 	*consumed = 0;
 
 	/*
+	 * A link inside link text would nest <a> elements; inner links render
+	 * literally, inner images are fine.
+	 */
+
+	if (!is_image && c->in_link)
+		return LWS_SRET_OK;
+
+	/*
 	 * Find the matching unescaped ']', skipping nested bracket pairs so
 	 * linked images like [![alt](img)](url) resolve to the outer link
-	 * with the image inside its text.
+	 * with the image inside its text.  Nesting past LMD_LINK_NEST is not
+	 * link text: giving up there bounds the scan.
 	 */
 
 	{
@@ -306,7 +346,8 @@ md_try_linkish(lws_md_ctx_t *c, const char *s, size_t len, int is_image,
 				continue;
 			}
 			if (s[n] == '[') {
-				bdepth++;
+				if (++bdepth > LMD_LINK_NEST)
+					break;
 				continue;
 			}
 			if (s[n] == ']') {
@@ -317,6 +358,8 @@ md_try_linkish(lws_md_ctx_t *c, const char *s, size_t len, int is_image,
 				bdepth--;
 			}
 		}
+
+		md_scanned(c, n);
 	}
 
 	if (!close)
@@ -330,7 +373,7 @@ md_try_linkish(lws_md_ctx_t *c, const char *s, size_t len, int is_image,
 	u = close + 2;
 	remain = len - (size_t)(u - s);
 
-	uend = md_link_dest(u, remain, &ulen);
+	uend = md_link_dest(c, u, remain, &ulen);
 	if (!uend || uend == u + remain || *uend != ')')
 		return LWS_SRET_OK;
 
@@ -341,14 +384,6 @@ md_try_linkish(lws_md_ctx_t *c, const char *s, size_t len, int is_image,
 		    (r = md_el(c, 0, LMD_EL_IMG, 0)))
 			return r;
 	} else {
-		/*
-		 * A link inside link text would nest <a> elements; inner
-		 * links render literally, inner images are fine.
-		 */
-
-		if (c->in_link)
-			return LWS_SRET_OK;
-
 		if ((r = md_el(c, 1, LMD_EL_A, 0)) ||
 		    (r = md_data(c, LMD_EV_URL, u, ulen)))
 			return r;
@@ -388,6 +423,8 @@ md_inline(lws_md_ctx_t *c, const char *s, size_t len, int depth)
 
 		if (ch == '`') {
 			const char *f = memchr(s + n + 1, '`', len - n - 1);
+
+			md_scanned(c, f ? (size_t)(f - (s + n)) : len - n);
 
 			if (f) {
 				if ((r = md_el(c, 1, LMD_EL_CS, 0)) ||
@@ -443,6 +480,7 @@ md_inline(lws_md_ctx_t *c, const char *s, size_t len, int depth)
 			for (k = n + 2; k + 1 < len; k++)
 				if (s[k] == '*' && s[k + 1] == '*')
 					break;
+			md_scanned(c, k - n);
 
 			if (k + 1 < len && k > n + 2) {
 				if ((r = md_el(c, 1, LMD_EL_STRONG, 0)))
@@ -462,6 +500,7 @@ md_inline(lws_md_ctx_t *c, const char *s, size_t len, int depth)
 			for (k = n + 1; k < len; k++)
 				if (s[k] == '*')
 					break;
+			md_scanned(c, k - n);
 
 			if (k < len && k > n + 1) {
 				if ((r = md_el(c, 1, LMD_EL_EM, 0)))
