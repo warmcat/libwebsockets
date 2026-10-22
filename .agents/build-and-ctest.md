@@ -174,6 +174,10 @@
  - **fuzz-lhp's callback is a stub, so dlo layout is not fuzzed.**  A
    layout harness needs a context in `ctx->user1` plus registered fonts,
    or `lws_font_choose()` dereferences a NULL context.
+ - **`-DLWS_WITH_OTA=1` trees:** the `LWS_OTA_PUBLIC_JWK_FILE` content is
+   pasted raw into a C string (quotes must be escaped), and every context
+   reaching OPERATIONAL tries to create an "ota" stream.  Run the full
+   suite in a non-OTA tree, and only api-test-ota in an OTA tree.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
