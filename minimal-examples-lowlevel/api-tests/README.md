@@ -19,6 +19,7 @@ api-test-dnssec-monitor-reissue|dnssec-monitor proxy's per-cert "Force reissue":
 api-test-dht-msg-parse|DHT RPC wire message parser, incl. hash token charset and NOTIFY domain-name gates
 api-test-auth-dns-dnsbl|auth-dns plugin DNSBL pending-query lifetimes (F-054): late resolver replies and client disconnects vs the 5s dnsbl timeout
 api-test-auth-dns-zonedir|auth-dns plugin local zone-dir trust policy (F-055): missing pvo / world-writable / symlinked dirs and foreign-uid or wrong-shape zone files refused
+api-test-auth-dns-glue|auth-dns plugin zone lookups by owner name (G-288): a referral to a 100-NS cut in a zone of 4000+ RRsets carries all its glue for a few compares per NS RR, and owner lookups are a few compares each
 api-test-dht-object-store|dht-object-store plugin transfer slots (G-257): one host only gets a few of them, so another can still PUT; a transfer trickling behind the minimum rate is dropped, and its declared length counts against the quota while in flight
 api-test-sshd-userauth|sshd plugin USERAUTH pubkey/sig blob walks (F-056): malformed blobs must be rejected bounded, genuine signatures still authenticate
 api-test-sspc-streamtype|serialized client streamtype length cap (F-057): over-long streamtypes refused at sspc create, boundary-length still accepted

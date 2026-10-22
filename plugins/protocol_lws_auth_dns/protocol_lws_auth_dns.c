@@ -88,6 +88,27 @@
  * LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS from lws-auth-dns.h bounds it.
  */
 
+/*
+ * G-288: an api-test building this file in can count owner name compares by
+ * defining this before it does, to check lookups stay bounded
+ */
+#if !defined(AUTH_DNS_TEST_OP)
+#define AUTH_DNS_TEST_OP()
+#endif
+
+struct auth_dns_owner {
+	struct auth_dns_rrset	*rs;
+	size_t			nl;	/* owner name length, less a final dot */
+	unsigned int		ord;	/* where the RRset is in the zone */
+};
+
+/* the RRsets of a zone sorted by owner name, ignoring case */
+
+struct auth_dns_zone_index {
+	struct auth_dns_owner	*o;
+	size_t			count;
+};
+
 #if !defined(O_NOFOLLOW)
 #define O_NOFOLLOW 0
 #endif
@@ -401,27 +422,173 @@ auth_dns_nsec3_find(struct auth_dns_zone *z, const char *h, int cover)
 	return NULL;
 }
 
-/* does any rrset in the zone own this (trailing-dot-insensitive) name? */
+/*
+ * G-288: the zone's RRsets by owner name, built once when the zone is
+ * installed (the zone is not changed while it is served).  A zone can be
+ * DHT-published, ie attacker-shaped, with tens of thousands of RRsets, so
+ * per-query lookups by name must not walk the whole zone, let alone once per
+ * NS RR of a cut, or once per label of a qname.
+ */
 
 static int
-auth_dns_name_exists(struct auth_dns_zone *z, const char *name)
+auth_dns_owner_name_cmp(const char *a, size_t al, const char *b, size_t bl)
+{
+	size_t n;
+
+	AUTH_DNS_TEST_OP();
+
+	for (n = 0; n < al && n < bl; n++) {
+		int ca = tolower((unsigned char)a[n]),
+		    cb = tolower((unsigned char)b[n]);
+
+		if (ca != cb)
+			return ca - cb;
+	}
+
+	return al == bl ? 0 : (al < bl ? -1 : 1);
+}
+
+/* owner name length, less any trailing dot */
+
+static size_t
+auth_dns_owner_len(const char *name)
 {
 	size_t nl = strlen(name);
+
+	if (nl && name[nl - 1] == '.')
+		nl--;
+
+	return nl;
+}
+
+static int
+auth_dns_owner_sort_cmp(const void *a, const void *b)
+{
+	const struct auth_dns_owner *oa = (const struct auth_dns_owner *)a,
+				    *ob = (const struct auth_dns_owner *)b;
+	int n = auth_dns_owner_name_cmp(oa->rs->name, oa->nl,
+					ob->rs->name, ob->nl);
+
+	if (n)
+		return n;
+
+	/* RRsets at one owner keep their order in the zone */
+
+	return oa->ord < ob->ord ? -1 : (oa->ord > ob->ord ? 1 : 0);
+}
+
+static void
+auth_dns_zone_index_destroy(struct auth_dns_zone_index *idx)
+{
+	free(idx->o);
+	idx->o = NULL;
+	idx->count = 0;
+}
+
+static int
+auth_dns_zone_index_build(struct auth_dns_zone_index *idx,
+			  struct auth_dns_zone *z)
+{
+	size_t n = 0;
+
+	idx->o = NULL;
+	idx->count = (size_t)lws_dll2_count(&z->rrset_list);
+	if (!idx->count)
+		return 0;
+
+	idx->o = malloc(idx->count * sizeof(*idx->o));
+	if (!idx->o) {
+		idx->count = 0;
+
+		return 1;
+	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&z->rrset_list)) {
 		struct auth_dns_rrset *rs = lws_container_of(d,
 						struct auth_dns_rrset, list);
-		size_t rnl = strlen(rs->name);
 
-		if (rnl && rs->name[rnl - 1] == '.')
-			rnl--;
-
-		if (rnl == nl && !strncmp(rs->name, name, nl))
-			return 1;
+		idx->o[n].rs	= rs;
+		idx->o[n].nl	= auth_dns_owner_len(rs->name);
+		idx->o[n].ord	= (unsigned int)n;
+		n++;
 	} lws_end_foreach_dll(d);
 
+	qsort(idx->o, idx->count, sizeof(*idx->o), auth_dns_owner_sort_cmp);
+
 	return 0;
+}
+
+/*
+ * The index of the first RRset owned by name (nl chars, no trailing dot),
+ * or idx->count if no RRset is.  The RRsets it owns follow it in the index.
+ */
+
+static size_t
+auth_dns_zone_index_find(const struct auth_dns_zone_index *idx,
+			 const char *name, size_t nl)
+{
+	size_t lo = 0, hi = idx->count, mid;
+
+	while (lo < hi) {
+		mid = lo + (hi - lo) / 2;
+		if (auth_dns_owner_name_cmp(idx->o[mid].rs->name,
+					    idx->o[mid].nl, name, nl) < 0)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+
+	if (lo < idx->count &&
+	    !auth_dns_owner_name_cmp(idx->o[lo].rs->name, idx->o[lo].nl,
+				     name, nl))
+		return lo;
+
+	return idx->count;
+}
+
+/* does any rrset in the zone own this (trailing-dot-insensitive) name? */
+
+static int
+auth_dns_name_exists(const struct auth_dns_zone_index *idx, const char *name)
+{
+	return auth_dns_zone_index_find(idx, name, auth_dns_owner_len(name)) !=
+								idx->count;
+}
+
+/*
+ * An uncompressed wire name (eg, an NS RR's rdata) in presentation form,
+ * without the trailing dot, for looking up in the index.  Returns its length,
+ * or -1 if it is malformed or has a label the presentation form could not
+ * represent unambiguously.
+ */
+
+static int
+auth_dns_wire_to_name(const uint8_t *w, size_t wl, char *out, size_t olen)
+{
+	size_t pos = 0, o = 0;
+
+	while (pos < wl) {
+		size_t l = w[pos++], n;
+
+		if (!l)
+			return pos == wl ? (int)o : -1;
+
+		if (l > 63 || pos + l > wl || o + l + 2 > olen)
+			return -1;
+
+		if (o)
+			out[o++] = '.';
+
+		for (n = 0; n < l; n++) {
+			if (w[pos + n] == '.' || !w[pos + n])
+				return -1;
+			out[o++] = (char)w[pos + n];
+		}
+		pos += l;
+	}
+
+	return -1;
 }
 
 /*
@@ -436,7 +603,8 @@ auth_dns_name_exists(struct auth_dns_zone *z, const char *name)
  */
 
 static int
-auth_dns_nsec3_proof(struct auth_dns_zone *z, const char *qname,
+auth_dns_nsec3_proof(struct auth_dns_zone *z,
+		     const struct auth_dns_zone_index *idx, const char *qname,
 		     struct auth_dns_rrset **sel, int max)
 {
 	char ce[256], nc[256], wc[260], h[64];
@@ -456,7 +624,7 @@ auth_dns_nsec3_proof(struct auth_dns_zone *z, const char *qname,
 	lws_strncpy(ce, qname, sizeof(ce));
 	nc[0] = '\0';
 
-	while (ce[0] && !auth_dns_name_exists(z, ce)) {
+	while (ce[0] && !auth_dns_name_exists(idx, ce)) {
 		const char *dot = strchr(ce, '.');
 
 		lws_strncpy(nc, ce, sizeof(nc));
@@ -635,8 +803,9 @@ auth_dns_emit_rrset(uint8_t **rp, uint8_t *dbuf, size_t max_buf,
 static uint8_t *
 auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
 		  uint16_t qflags, const uint8_t *qsec, size_t qlen,
-		  struct auth_dns_zone *z, struct auth_dns_rrset *cut,
-		  int do_bit, int edns)
+		  struct auth_dns_zone *z,
+		  const struct auth_dns_zone_index *idx,
+		  struct auth_dns_rrset *cut, int do_bit, int edns)
 {
 	uint16_t rflags = (uint16_t)(0x8000 | (qflags & 0x0100)); /* RD */
 	struct auth_dns_rrset *ds = NULL;
@@ -701,35 +870,49 @@ auth_dns_referral(uint8_t *hdr, uint8_t *dbuf, size_t max_buf,
 		}
 	}
 
-	/* the addresses the zone has for the name servers it refers to */
+	/*
+	 * The addresses the zone has for the name servers it refers to: each
+	 * NS target is looked up by name in the zone's index, so this costs
+	 * a few compares per NS RR, however many RRsets the zone has.  The NS
+	 * RRs themselves all fitted in the response, which bounds their count.
+	 */
 
-	if (!trunc)
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      lws_dll2_get_head(&cut->rr_list)) {
-			struct auth_dns_rr *ns = lws_container_of(d,
-						struct auth_dns_rr, list);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cut->rr_list)) {
+		struct auth_dns_rr *ns = lws_container_of(d,
+					struct auth_dns_rr, list);
+		char target[256];
+		size_t i;
+		int tl;
 
-			lws_start_foreach_dll(struct lws_dll2 *, d2,
-					      lws_dll2_get_head(&z->rrset_list)) {
-				struct auth_dns_rrset *rs = lws_container_of(d2,
-						struct auth_dns_rrset, list);
-				uint8_t w[256];
-				size_t wl = sizeof(w);
+		if (trunc)
+			break;
 
-				if (trunc || (rs->type != 1 && rs->type != 28) ||
-				    name_to_wire(rs->name, z->origin, w, &wl) ||
-				    !ns->wire_rdata || ns->wire_rdata_len != wl ||
-				    memcmp(ns->wire_rdata, w, wl))
-					continue;
+		if (!ns->wire_rdata)
+			continue;
 
-				n = auth_dns_emit_rrset(&rp, dbuf, lim, z,
-							rs, 0);
-				if (n < 0)
-					trunc = 1;
-				else
-					arc += n;
-			} lws_end_foreach_dll(d2);
-		} lws_end_foreach_dll(d);
+		tl = auth_dns_wire_to_name(ns->wire_rdata, ns->wire_rdata_len,
+					   target, sizeof(target));
+		if (tl < 0)
+			continue;
+
+		for (i = auth_dns_zone_index_find(idx, target, (size_t)tl);
+		     i < idx->count && !trunc &&
+		     !auth_dns_owner_name_cmp(idx->o[i].rs->name,
+					      idx->o[i].nl, target,
+					      (size_t)tl); i++) {
+			struct auth_dns_rrset *rs = idx->o[i].rs;
+
+			if (rs->type != 1 && rs->type != 28)
+				continue;
+
+			n = auth_dns_emit_rrset(&rp, dbuf, lim, z, rs, 0);
+			if (n < 0)
+				trunc = 1;
+			else
+				arc += n;
+		}
+	} lws_end_foreach_dll(d);
 
 	/* an incomplete referral is not one: have the querier use TCP */
 	if (trunc)
@@ -789,6 +972,9 @@ struct auth_dns_cache_entry {
 	 * zones, and does not count against cache-max-zones.
 	 */
 	uint8_t is_local;
+
+	/* G-288: the zone's RRsets by owner name */
+	struct auth_dns_zone_index idx;
 };
 
 struct per_vhost_data__auth_dns {
@@ -1154,14 +1340,28 @@ auth_dns_sul_subscribe_cb(lws_sorted_usec_list_t *sul)
  * in-memory copy.
  */
 
-static void
+/*
+ * Start serving ce's zone.  Returns nonzero, having taken nothing, if its
+ * index could not be built: the caller still owns ce and its zone.
+ */
+
+static int
 auth_dns_ce_add(struct per_vhost_data__auth_dns *vhd,
 		struct auth_dns_cache_entry *ce)
 {
+	if (auth_dns_zone_index_build(&ce->idx, &ce->zone)) {
+		lwsl_err("%s: OOM indexing zone %s\n", __func__,
+			 ce->zone.origin);
+
+		return 1;
+	}
+
 	ce->vhd = vhd;
 	lws_dll2_add_head(&ce->list, &vhd->zones);
 	if (!ce->is_local)
 		vhd->cached_zones++;
+
+	return 0;
 }
 
 static void
@@ -1171,6 +1371,7 @@ auth_dns_ce_destroy(struct auth_dns_cache_entry *ce)
 		ce->vhd->cached_zones--;
 
 	lws_sul_cancel(&ce->sul_subscribe);
+	auth_dns_zone_index_destroy(&ce->idx);
 	lws_auth_dns_free_zone(&ce->zone);
 	lws_dll2_remove(&ce->list);
 	free(ce);
@@ -1418,7 +1619,11 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	 * bounds how many DHT-fetched zones are held alongside them
 	 */
 	ce->is_local = 1;
-	auth_dns_ce_add(vhd, ce);
+	if (auth_dns_ce_add(vhd, ce)) {
+		lws_auth_dns_free_zone(&ce->zone);
+		free(ce);
+		return 0;
+	}
 
 	lwsl_info("Parsed zone %s from %s (serial %llu, ttl_exp %llu, sig_exp %llu)\n",
 		ce->zone.origin, filepath, (unsigned long long)ce->serial,
@@ -1607,7 +1812,14 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 						} lws_end_foreach_dll(d);
 
 						ce->is_local = replaces_local;
-						auth_dns_ce_add(vhd, ce);
+						if (auth_dns_ce_add(vhd, ce)) {
+							lws_auth_dns_free_zone(&ce->zone);
+							free(ce);
+							if (buf)
+								free(buf);
+							close(fpin);
+							return;
+						}
 
 						lwsl_info("Loaded DHT payload %s from %s natively (serial %llu, ttl_exp %llu, sig_exp %llu)\n",
 							ce->zone.origin, payload_path, (unsigned long long)ce->serial,
@@ -2556,7 +2768,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (cut) {
 			rp = auth_dns_referral(rp, dbuf, max_buf, flags, p + 12,
 					       lws_ptr_diff_size_t(q, p + 12),
-					       &matched_ce->zone, cut, do_bit,
+					       &matched_ce->zone,
+					       &matched_ce->idx, cut, do_bit,
 					       edns);
 
 			if (!rp) {
@@ -2821,7 +3034,8 @@ send_nxdomain:
 					int sn, sel_count;
 
 					sel_count = auth_dns_nsec3_proof(
-						&matched_ce->zone, qname, sel,
+						&matched_ce->zone,
+						&matched_ce->idx, qname, sel,
 						LWS_ARRAY_SIZE(sel));
 
 					for (sn = 0; sn < sel_count && !trunc; sn++) {
