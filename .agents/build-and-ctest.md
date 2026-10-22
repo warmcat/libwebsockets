@@ -197,6 +197,9 @@
    `lws_auth_dns_sign_zone()` directly in tests and harnesses.
  - **api-test-x509-jwk-privkey-pem fails under ASan in openssl trees**
    (BIGNUM leak) until G-405 is fixed; default trees here use gnutls.
+ - **An h3 client only offers a connection for reuse / pipelining when its
+   Host is its address**: a test wanting pipelined h3 requests to join
+   must set `i.host = i.address`.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
