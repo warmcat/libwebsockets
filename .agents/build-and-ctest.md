@@ -82,7 +82,7 @@
  - A fetched mbedtls clone is 57MB; deleting its `tests/`, `docs/`,
    `visualc/` and `.git` leaves 20MB and it still builds with testing
    and programs off.
- - Root has ~100MB free: keep fetched TLS library sources in your
+ - The root fs is small (8.8GB, shared with other sessions): keep fetched TLS library sources in your
    scratchpad and their build output under the checkout (BearSSL:
    `make BUILD=<dir under checkout>`; mbedtls can use its source
    `include/` directly, no install).  Use BearSSL git master: the 0.6
