@@ -261,6 +261,28 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 LWS_VISIBLE LWS_EXTERN int
 lws_transport_sequencer_resend(struct lws_transport_sequencer *ts);
 
+/**
+ * lws_transport_sequencer_tx_rebase() - Restart our stream at 0 for a peer
+ *					  that lost it
+ *
+ * \param ts: sequencer instance
+ *
+ * For a peer that, through an exchange the transport has bound to this
+ * session, says it doesn't know our session, eg, because it restarted: it
+ * receives from 0 again, and the data it acked is gone with its old session.
+ * What it hasn't acked is renumbered from 0, in the order it was written, and
+ * the rest is forgotten.  Call lws_transport_sequencer_resend() after, to
+ * send it again.  Data the peer took but whose ack was lost may be delivered
+ * to it twice.
+ *
+ * Without this, our stream carries on from where it was, the peer waits for
+ * data below that which we will never send again, and the stream is stuck.
+ *
+ * Returns 0, or -1 if the session is over.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_transport_sequencer_tx_rebase(struct lws_transport_sequencer *ts);
+
 LWS_VISIBLE LWS_EXTERN const lws_transport_sequencer_stats_t *
 lws_transport_sequencer_get_stats(struct lws_transport_sequencer *ts);
 

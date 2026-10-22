@@ -961,6 +961,14 @@ dht_seq_ack(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 
 		memcpy(dts->tx_ch, mp->ch, sizeof(dts->tx_ch));
 		dts->tx_ch_set = 1;
+
+		/*
+		 * It receives from 0 in the session it is starting: if it
+		 * restarted, what it acked is gone, and carrying on where our
+		 * stream was would leave it waiting for data below that, that
+		 * we will not send again
+		 */
+		lws_transport_sequencer_tx_rebase(dts->ts);
 		lws_transport_sequencer_resend(dts->ts);
 
 		return;

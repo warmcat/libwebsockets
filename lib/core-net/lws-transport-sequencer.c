@@ -546,13 +546,26 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	if (ts->next_tx_offset > ts->ack_offset) {
 		if (!lws_dsh_get_head(ts->dsh, 0, &obj, &obj_len)) {
 			p_off = (uint64_t *)obj;
-			ts->retry_count = 0;
-			ts->active_offset = *p_off;
-			ts->active_len = (uint16_t)(obj_len - sizeof(uint64_t));
 
-			lws_retry_sul_schedule(ts->info.cx, 0, &ts->sul_retry,
-							 ts->info.retry_policy, sul_retry_cb,
-							 &ts->retry_count);
+			/*
+			 * Only progress on the chunk we resend starts its
+			 * retries again.  Acks for other data, eg, while the
+			 * peer will not take this one, used to restart them
+			 * too, so a stuck stream was resent forever and never
+			 * failed.
+			 */
+			if (*p_off != ts->active_offset ||
+			    lws_dll2_is_detached(&ts->sul_retry.list)) {
+				ts->retry_count = 0;
+				ts->active_offset = *p_off;
+				ts->active_len = (uint16_t)(obj_len -
+							    sizeof(uint64_t));
+
+				lws_retry_sul_schedule(ts->info.cx, 0,
+						&ts->sul_retry,
+						ts->info.retry_policy,
+						sul_retry_cb, &ts->retry_count);
+			}
 		}
 	} else {
 		if (ts->info.ops->on_state_change && ts->next_tx_offset == ts->ack_offset)
@@ -825,6 +838,52 @@ lws_transport_sequencer_resend(struct lws_transport_sequencer *ts)
 	lws_ts_send_held(ts);
 
 	return n < 0 ? -1 : 0;
+}
+
+int
+lws_transport_sequencer_tx_rebase(struct lws_transport_sequencer *ts)
+{
+	struct lws_transport_sequencer_range *r;
+	uint64_t o = 0;
+
+	if (ts->completed)
+		return -1;
+
+	/*
+	 * The scoreboard is in offset order, the order the data was written:
+	 * renumbering it, and the offset each dsh object starts with, keeps
+	 * that order with no gaps.  What was acked, even only selectively,
+	 * is no longer in the dsh, and the peer has lost it.
+	 */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&ts->scoreboard)) {
+		r = lws_container_of(d, struct lws_transport_sequencer_range,
+				     list);
+
+		if (r->acked || !r->dsh_obj) {
+			if (!r->sent)
+				ts->held--;
+			lws_dll2_remove(&r->list);
+			lws_free(r);
+			continue;
+		}
+
+		*(uint64_t *)r->dsh_obj = o;
+		r->offset = o;
+		o += r->len;
+	} lws_end_foreach_dll_safe(d, d1);
+
+	ts->next_tx_offset = o;
+	ts->ack_offset = 0;
+	ts->stats.ack_offset = 0;
+
+	/*
+	 * The retry timer, if it is running, goes on with what is now the
+	 * head, so a peer that never acks still fails on time
+	 */
+	ts->active_offset = 0;
+
+	return 0;
 }
 
 LWS_VISIBLE const lws_transport_sequencer_info_t *
