@@ -17,7 +17,9 @@
  * still be there and nothing from the rejected document may be.  The
  * original tls server streamtype must still come up with its cert and key
  * after all that.  A streamtype with more metadata than the policy can count,
- * or a metadata value longer than the policy can hold, must be refused.  A
+ * or a metadata value longer than the policy can hold, must be refused, as
+ * must members outside the object they belong to (eg, a key with a '.' in
+ * it making a member path with no streamtype open).  A
  * valid document must still parse, and its metadata value that is longer
  * than one lejp string chunk must still become one metadata item.  An
  * overlay may only override streamtypes that exist, and a completed one
@@ -84,6 +86,79 @@ static const char * const rejected[] = {
 	"{\"certs\": [{\"t_abc\": \"AAAA\"}],"
 	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"\"]}]}",
 };
+
+/*
+ * Documents whose members are not inside the object they belong to.  lejp
+ * joins keys with '.' into the path it matches, so a key with a '.' in it can
+ * make a member path without its streamtype, backoff scheme or auth ever
+ * being opened, or name one opened earlier.  Each must be refused, not write
+ * through NULL or into the earlier object.
+ */
+
+static const char * const malformed[] = {
+
+	/* streamtype / backoff member keys with nothing open */
+
+	"{\"s\": [{\"t_cli.port\": 1}]}",
+	"{\"s\": [{\"polt_cli.endpoint\": \"t_evil\"}]}",
+	"{\"retry\": [{\"t_retry.conceal\": 1}]}",
+
+	/* ... naming a streamtype / backoff from earlier in the document */
+
+	"{\"s\": [{\"t_cli\": {\"endpoint\": \"localhost\"}},"
+		"{\"t_cli.endpoint\": \"t_evil\"}]}",
+	"{\"s\": [{\"t_cli\": {\"endpoint\": \"localhost\"},"
+		"\"t_cli.endpoint\": \"t_evil\"}]}",
+	"{\"retry\": [{\"t_retry\": {\"backoff\": [1000]}},"
+		"{\"t_retry.conceal\": 1}]}",
+
+	/* member paths made by a top-level key */
+
+	"{\"s\": [{\"t_cli\": {\"endpoint\": \"localhost\"}}],"
+		"\"s[].t_cli.port\": 1}",
+	"{\"s[].t_cli.http_resp_map[].200\": 1}",
+	"{\"auth[].name\": \"t_auth\"}",
+
+	/* a streamtype name its members' paths would not match */
+
+	"{\"s\": [{\"t.cli\": {\"endpoint\": \"localhost\"}}]}",
+
+	/* a cert whose value is not a string */
+
+	"{\"certs\": [{\"t_a\": [{\"t_b\": \"AAAA\"}, \"AAAA\"]}]}",
+	"{\"certs\": [{\"t_a\": {\"t_b\": \"AAAA\"}}]}",
+	"{\"certs\": [{\"t_a\": 1}]}",
+
+	/* a trust store element with no name, after one with a name */
+
+	"{\"certs\": [{\"t_a\": \"AAAA\"}],"
+	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t_a\"]},"
+			   "{\"stack\": [\"t_a\"]}]}",
+};
+
+/*
+ * A valid document with shapes near those: a cert and a metadata name may
+ * contain '.', an unknown streamtype member (with members of the same names
+ * as real ones inside it) is ignored, and each streamtype has its own options
+ * and response map
+ */
+
+static const char valid_shapes[] =
+	"{\"retry\": [{\"t_retry\": {\"backoff\": [1000, 2000],"
+				"\"conceal\": 3}}],"
+	 "\"auth\": [{\"name\": \"t_auth\", \"type\": \"sigv4\","
+		    "\"streamtype\": \"t_two\", \"blob\": 1}],"
+	 "\"certs\": [{\"t.a\": \"AAAA\"}],"
+	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t.a\"]}],"
+	 "\"s\": [{\"t_one\": {\"endpoint\": \"one\","
+				"\"t_unknown\": {\"port\": 2},"
+				"\"port\": 1, \"tls_trust_store\": \"t_ts\","
+				"\"retry\": \"t_retry\","
+				"\"metadata\": [{\"t.md\": \"\"}],"
+				"\"http_resp_map\": [{\"530\": 1}],"
+				"\"options\": [{\"t_o1\": \"1\"}]}},"
+		 "{\"t_two\": {\"endpoint\": \"two\","
+				"\"options\": [{\"t_o2\": \"2\"}]}}]}";
 
 /*
  * Overlays that define something of their own instead of overriding an
@@ -234,6 +309,52 @@ original_in_force(struct lws_context *cx, const char *what)
 	return 1;
 }
 
+/* the parsed valid_shapes document has exactly what it says */
+
+static int
+valid_shapes_parsed(const lws_ss_policy_t *pol, const lws_ss_auth_t *auth)
+{
+	const lws_ss_policy_t *one = NULL, *two = NULL;
+	int count = 0;
+
+	for (; pol; pol = pol->next, count++)
+		if (!strcmp(pol->streamtype, "t_one"))
+			one = pol;
+		else if (!strcmp(pol->streamtype, "t_two"))
+			two = pol;
+
+	if (count != 2 || !one || !two) {
+		lwsl_err("shapes: %d streamtypes\n", count);
+		return 0;
+	}
+
+	if (strcmp(one->endpoint, "one") || one->port != 1 ||
+	    !one->trust.store || strcmp(one->trust.store->name, "t_ts") ||
+	    !one->metadata || strcmp(one->metadata->name, "t.md") ||
+	    one->u.http.count_respmap != 1 || !one->retry_bo ||
+	    one->retry_bo->retry_ms_table_count != 2 ||
+	    one->retry_bo->conceal_count != 3 ||
+	    !one->pvo || strcmp(one->pvo->name, "t_o1") || one->pvo->next) {
+		lwsl_err("shapes: t_one members wrong\n");
+		return 0;
+	}
+
+	if (strcmp(two->endpoint, "two") || !two->pvo ||
+	    strcmp(two->pvo->name, "t_o2") || two->pvo->next) {
+		lwsl_err("shapes: t_two members wrong\n");
+		return 0;
+	}
+
+	if (!auth || auth->next || strcmp(auth->name, "t_auth") ||
+	    strcmp(auth->type, "sigv4") || strcmp(auth->streamtype, "t_two") ||
+	    auth->blob_index != 1) {
+		lwsl_err("shapes: auth wrong\n");
+		return 0;
+	}
+
+	return 1;
+}
+
 /*
  * Feed a whole document the way the fetch_policy system stream feeds the
  * policy it fetched, as a replacement for the policy in force
@@ -347,6 +468,45 @@ main(int argc, const char **argv)
 		if (!original_in_force(cx, "overlay_rejected"))
 			goto bail;
 	}
+
+	/*
+	 * Members outside the object they belong to are refused, fetched or
+	 * as overlays, and the policy in force is left alone
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(malformed); n++) {
+		m = fetched(cx, malformed[n]);
+		if (m == LEJP_CONTINUE || m >= 0) {
+			lwsl_err("malformed %d: not rejected (%d)\n", n, m);
+			lws_ss_policy_parse_abandon(cx);
+			goto bail;
+		}
+		if (!original_in_force(cx, "malformed"))
+			goto bail;
+
+		m = lws_ss_policy_overlay(cx, malformed[n]);
+		if (m == LEJP_CONTINUE || m >= 0) {
+			lwsl_err("malformed overlay %d: not rejected (%d)\n",
+				 n, m);
+			lws_ss_policy_parse_abandon(cx);
+			goto bail;
+		}
+		if (!original_in_force(cx, "malformed overlay"))
+			goto bail;
+	}
+
+	/* ... while the valid shapes near them parse to what they say */
+
+	m = fetched(cx, valid_shapes);
+	if (m == LEJP_CONTINUE || m < 0) {
+		lwsl_err("shapes: not accepted (%d)\n", m);
+		lws_ss_policy_parse_abandon(cx);
+		goto bail;
+	}
+	n = valid_shapes_parsed(lws_ss_policy_get(cx), lws_ss_auth_get(cx));
+	lws_ss_policy_parse_abandon(cx);
+	if (!n || !original_in_force(cx, "shapes"))
+		goto bail;
 
 	/*
 	 * A valid override completes, and a second one after it does too: a

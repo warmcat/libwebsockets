@@ -336,6 +336,74 @@ lws_ss_policy_alloc_helper(struct policy_cb_args *a, int type)
 }
 
 /*
+ * The policy objects the parser builds one at a time, and fills in from the
+ * members it sees afterwards: a backoff scheme, a cert or a streamtype is
+ * named by the one key of an element of a top-level array, eg
+ *
+ *   "s": [{ "<streamtype name>": { "<member>": ... } }]
+ *
+ * lejp only shows us the joined path, eg "s[].<name>.<member>", and a key
+ * containing '.' or '[' can synthesize such a path from a different shape,
+ * eg { "s": [{ "<name>.port": 1 }] }.  So the object is only opened at a
+ * key that really is the key of a top-level array element (depth 2, and
+ * the key starts straight after the array's "<array>[]." prefix), and it is
+ * closed again where the element key's value ends.  Members are only taken
+ * while it is open (see lws_ss_policy_member_type()).
+ */
+
+static const struct {
+	const char	*prefix;
+	uint8_t		len;
+	uint8_t		type;
+	uint8_t		token;
+} elem_arrays[] = {
+	{ "retry[].",	8,	LTY_BACKOFF,	LSSPPT_RETRY },
+	{ "certs[].",	8,	LTY_X509,	LSSPPT_CERTS },
+	{ "s[].",	4,	LTY_POLICY,	LSSPPT_STREAMTYPES },
+};
+
+static int
+lws_ss_policy_elem_key(struct lejp_ctx *ctx)
+{
+	int n;
+
+	/*
+	 * At PAIR_NAME, ctx->sp is the level of the object the key is in, the
+	 * document's object is at 0, the array at 1, its element object at 2,
+	 * and ctx->st[ctx->sp].p is where the key starts in ctx->path
+	 */
+
+	if (ctx->sp != 2)
+		return -1;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(elem_arrays); n++)
+		if (ctx->st[ctx->sp].p == elem_arrays[n].len &&
+		    !strncmp(ctx->path, elem_arrays[n].prefix,
+			     elem_arrays[n].len))
+			return n;
+
+	return -1;
+}
+
+/*
+ * Which object a token is a member of, so we can insist that object is open
+ * before writing into it
+ */
+
+static int
+lws_ss_policy_member_type(int token)
+{
+	if (token >= LSSPPT_BACKOFF && token <= LSSPPT_VALIDHUP_S)
+		return LTY_BACKOFF;
+	if (token >= LSSPPT_ENDPOINT && token <= LSSPPT_DIRECT_PROTO_STR)
+		return LTY_POLICY;
+	if (token >= LSSPPT_AUTH_NAME && token <= LSSPPT_AUTH_BLOB)
+		return LTY_AUTH;
+
+	return -1;
+}
+
+/*
  * Is any live ss handle bound to this policy object?  Used to refuse overlay
  * changes that would invalidate what the handle was created with.
  */
@@ -379,10 +447,27 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	size_t inl, outl;
 	uint8_t *extant;
 	backoff_t *bot;
-	int n = -1;
+	int n = -1, e, t;
 
 	// lwsl_notice("%s: %d %d %s %s\n", __func__, reason, ctx->path_match - 1,
 	//	   ctx->path, ctx->buf);
+
+	/*
+	 * Writing into a member of a streamtype, backoff scheme or auth object
+	 * needs that object to be the one open now: a member path seen while
+	 * it isn't (because the key that synthesized it has a '.' in it, or
+	 * the member is outside its object) would write through NULL, or into
+	 * an earlier object, eg, a streamtype an overlay may not touch
+	 */
+
+	t = lws_ss_policy_member_type(ctx->path_match - 1);
+	if (t >= 0 && !a->curr[t].b &&
+	    (reason == LEJPCB_PAIR_NAME || reason == LEJPCB_ARRAY_START ||
+	     (reason & LEJP_FLAG_CB_IS_VALUE))) {
+		lwsl_err("%s: %s is not in an open object\n", __func__,
+			 ctx->path);
+		goto oom;
+	}
 
 	switch (ctx->path_match - 1) {
 	case LSSPPT_RETRY:
@@ -424,7 +509,9 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	     ctx->path_match - 1 == LSSPPT_HTTPRESPMAP))
 		a->count = 0;
 
-	if (reason == LEJPCB_OBJECT_START && n == LTY_AUTH) {
+	/* an auth object is an element of the top-level auth[] array */
+
+	if (reason == LEJPCB_OBJECT_START && n == LTY_AUTH && ctx->sp == 1) {
 		if (lws_ss_policy_alloc_helper(a, LTY_AUTH))
 			goto oom;
 		return 0;
@@ -440,6 +527,12 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_ARRAY_END && a->count && a->pending_respmap) {
 
 		// lwsl_notice("%s: allocating respmap %d\n", __func__, a->count);
+
+		if (!a->curr[LTY_POLICY].p) {
+			lwsl_err("%s: http_resp_map outside a streamtype\n",
+				 __func__);
+			goto oom;
+		}
 
 		a->curr[LTY_POLICY].p->u.http.respmap = lwsac_use_zero(&a->ac,
 			sizeof(lws_ss_http_respmap_t) * (unsigned int)a->count, POL_AC_GRAIN);
@@ -461,6 +554,21 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	    a->pvosp)
 		a->pvosp--;
 
+	if (reason == LEJPCB_OBJECT_END && ctx->sp <= 2) {
+		/*
+		 * The value of an element key of a top-level array ended (at
+		 * depth 2), or the element itself (at depth 1 or less): what
+		 * comes after it can't be a member of the object it opened
+		 */
+		a->curr[LTY_BACKOFF].b = NULL;
+		a->curr[LTY_POLICY].b = NULL;
+		if (ctx->sp <= 1) {
+			a->curr[LTY_TRUSTSTORE].b = NULL;
+			a->curr[LTY_AUTH].b = NULL;
+			a->curr[LTY_METRICS].b = NULL;
+		}
+	}
+
 	if (reason == LEJPCB_OBJECT_END && a->p) {
 		/*
 		 * Allocate a just-the-right-size buf for the cert DER now
@@ -476,6 +584,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			goto oom;
 		memcpy((uint8_t *)a->curr[LTY_X509].x->ca_der, a->p, (unsigned int)a->count);
 		a->curr[LTY_X509].x->ca_der_len = (unsigned int)a->count;
+		a->curr[LTY_X509].x = NULL;
+		a->count = 0;
 
 		/*
 		 * ... and then we can free the temp buffer
@@ -483,6 +593,38 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		lws_free_set_NULL(a->p);
 
 		return 0;
+	}
+
+	if (reason == LEJPCB_PAIR_NAME) {
+		e = lws_ss_policy_elem_key(ctx);
+		if (e < 0) {
+			/*
+			 * Anything else matching only a streamtype, backoff or
+			 * cert name pattern is a key we don't know deeper in
+			 * one of those, eg, "s[].<name>.<unknown>"... it must
+			 * not be taken as the name of a new object
+			 */
+			if (n == LTY_POLICY || n == LTY_BACKOFF || n == LTY_X509)
+				return 0;
+		} else {
+			/* the previous element key's object is over */
+			a->curr[elem_arrays[e].type].b = NULL;
+
+			q = ctx->path + ctx->st[ctx->sp].p;
+			if (ctx->path_match - 1 != elem_arrays[e].token ||
+			    (n != LTY_X509 && strpbrk(q, ".[]"))) {
+				/*
+				 * Streamtype and backoff names can't contain
+				 * the chars lejp uses to show the document
+				 * structure, or their members' paths would
+				 * not match.  (A cert has no members, so its
+				 * name can be anything.)
+				 */
+				lwsl_err("%s: bad name %s\n", __func__,
+					 ctx->path);
+				goto oom;
+			}
+		}
 	}
 
 	if (reason == LEJPCB_PAIR_NAME && n != -1 &&
@@ -545,6 +687,15 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		a->count = 0;
+		if (n == LTY_POLICY) {
+			/*
+			 * The options list and response map being collected
+			 * belong to the streamtype they were in, not this one
+			 */
+			memset(a->pvostack, 0, sizeof(a->pvostack));
+			a->pvosp = 0;
+			a->pending_respmap = 0;
+		}
 		if (!p2) {
 			a->curr[n].b->next = a->heads[n].b;
 			a->heads[n].b = a->curr[n].b;
@@ -619,6 +770,17 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		break;
 
 	case LSSPPT_CERTS:
+		/*
+		 * Only the string value of the cert's own key, the one that
+		 * opened it (at depth 2, so its string is at 3), is the DER
+		 */
+		if (!a->p || !a->curr[LTY_X509].x || ctx->sp != 3 ||
+		    (reason != LEJPCB_VAL_STR_CHUNK &&
+		     reason != LEJPCB_VAL_STR_END)) {
+			lwsl_err("%s: cert %s is not a string\n", __func__,
+				 ctx->path);
+			goto oom;
+		}
 		if (a->count + ctx->npos >= MAX_CERT_TEMP) {
 			lwsl_err("%s: cert too big\n", __func__);
 			goto oom;
