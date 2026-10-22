@@ -326,7 +326,8 @@ in 20ms were lost in one test), so pass `--log-spew-tail 20000` whenever
 a log is evidence that something was or was not emitted.
 
  - Apps using `lws_cmdline_option_handle_builtin()` (lwsws, examples)
-   take `--log-spew-tail <lines>`.
+   take `--log-spew-tail <lines>`.  api-test-lws_struct-json does not
+   honour it: run it with `-d 3` to see why it failed.
  - For ctest fixtures:
    `LWS_CTEST_BG_DEBUG="-d1039 --log-spew-tail 20000" ctest -R ...`;
    the log lands in `<build>/Testing/fixtures/`.  The default level for
