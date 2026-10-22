@@ -838,6 +838,9 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 #if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
 	/* a relay it proved is proven by one connection less */
 	lws_qpt_conn_release(wsi);
+	/* a quic listener's pending Initials can't be given to it any more */
+	if (wsi->io->listener && wsi->role_ops == &role_ops_quic)
+		lws_qpt_listener_gone(wsi);
 #endif
 
 	if (!wsi->io->shadow) {

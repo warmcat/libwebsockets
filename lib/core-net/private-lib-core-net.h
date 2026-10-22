@@ -1983,6 +1983,8 @@ lws_qpt_conn_proven(struct lws *cw, const lws_sockaddr46 *seen);
 void
 lws_qpt_conn_release(struct lws *cw);
 void
+lws_qpt_listener_gone(struct lws *lw);
+void
 lws_quic_passthrough_context_destroy(struct lws_context *cx);
 #endif
 #endif

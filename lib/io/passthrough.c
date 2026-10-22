@@ -952,6 +952,30 @@ bail:
  *    LWS_QPT_RELAYED_IDLE_US of quiet), and a relayed
  *    connection is only ever answered through a relay for it, never
  *    directly, while a direct connection is never answered through one.
+ *
+ * Threads
+ * -------
+ *
+ * All of this state is the context's: the flows, the pending Initials, the
+ * relayed clients, their maps and lists, and each vhost's socket to its
+ * server (.passthrough_qwsi).  With LWS_MAX_SMP > 1 it is reached from
+ * every QUIC listener's service thread (a dual stack vhost has two
+ * listeners, spread over the threads like any other socket), from the
+ * thread of each vhost's socket to its server, from the server's relayed
+ * connections' threads, and from the sweep on pt 0.  So every access is
+ * under the context lock, taken by each entry point here; the helpers that
+ * touch the state assert it is held.
+ *
+ * The entry points are all reached with no pt lock held (datagram rx and tx,
+ * a connection's path events), or with the context lock already held (sul
+ * callbacks, close, vhost and context destroy), so taking it keeps the lock
+ * order, context then pt then vhost.  What is done under it is the state's
+ * own bookkeeping and sendto() on sockets whose wsi it keeps alive: a
+ * datagram that goes to the quic role after all is given to it only once
+ * the lock is dropped, on the thread of the listener it came in on, which is
+ * the only thread that may drive that listener's quic.  A pending Initial is
+ * tied to that listener for the same reason, and goes when the listener
+ * does (lws_qpt_listener_gone()).
  */
 
 #define LWS_QPT_FLOW_IDLE_US		(60 * LWS_US_PER_SEC)
@@ -1013,6 +1037,9 @@ typedef struct lws_qpt_pending {
 	lws_sorted_usec_list_t	sul;
 	struct lws_context	*cx;
 	struct lws_vhost	*lv;		/* the listener's, it came to */
+	struct lws		*lw;		/* the listener it came in on: only
+						 * its thread may drive it, and it
+						 * is dropped when lw goes */
 	struct lws_quic_cid	dcid;
 	lws_dll2_owner_t	held;		/* lws_qpt_dgram_t */
 	uint8_t			crypto[LWS_TLS_CH_MAX];
@@ -1063,6 +1090,8 @@ static int
 lws_qpt_maps(struct lws_context *cx)
 {
 	lws_map_info_t mi;
+
+	lws_context_assert_lock_held(cx);
 
 	memset(&mi, 0, sizeof(mi));
 	mi.modulo = 64;
@@ -1140,6 +1169,8 @@ lws_qpt_flow_destroy(struct lws_context *cx, lws_qpt_flow_t *f)
 {
 	int n;
 
+	lws_context_assert_lock_held(cx);
+
 	for (n = 0; n < f->count_cids; n++)
 		lws_qpt_unmap(cx->pt_qflows, &f->cid[n], sizeof(f->cid[n]));
 	lws_dll2_remove(&f->list);
@@ -1180,6 +1211,8 @@ lws_qpt_flow_add_cid(struct lws_context *cx, lws_qpt_flow_t *f,
 	struct lws_quic_cid k;
 	uint8_t routed;
 	int n;
+
+	lws_context_assert_lock_held(cx);
 
 	memset(&k, 0, sizeof(k));
 	k.len = cid->len;
@@ -1249,6 +1282,8 @@ lws_qpt_cid_same(const struct lws_quic_cid *a, const struct lws_quic_cid *b)
 static void
 lws_qpt_pending_destroy(lws_qpt_pending_t *pd)
 {
+	lws_context_assert_lock_held(pd->cx);
+
 	lws_sul_cancel(&pd->sul);
 	lws_qpt_unmap(pd->cx->pt_qpending, &pd->dcid, sizeof(pd->dcid));
 	lws_dll2_remove(&pd->list);
@@ -1263,6 +1298,8 @@ lws_qpt_pending_destroy(lws_qpt_pending_t *pd)
 static void
 lws_qpt_relayed_destroy(struct lws_context *cx, lws_qpt_relayed_t *r)
 {
+	lws_context_assert_lock_held(cx);
+
 	lws_qpt_unmap(cx->pt_relayed, &r->key, sizeof(r->key));
 	lws_dll2_remove(&r->list);
 	lws_free(r);
@@ -1319,6 +1356,8 @@ lws_qpt_sweep_cb(lws_sorted_usec_list_t *sul)
 						  sul_pt_sweep);
 	lws_usec_t now = lws_now_usecs();
 
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&cx->pt_qflow_owner)) {
 		lws_qpt_flow_t *f = lws_container_of(d, lws_qpt_flow_t, list);
@@ -1334,11 +1373,16 @@ lws_qpt_sweep_cb(lws_sorted_usec_list_t *sul)
 		lws_sul_schedule(cx, 0, &cx->sul_pt_sweep, lws_qpt_sweep_cb,
 				 lws_qpt_us(cx, "qpt_sweep_ms",
 					    LWS_QPT_SWEEP_US));
+
+	lws_context_unlock(cx); /* } cx */
 }
 
+/* pt 0's sul, from any thread: only under the context lock */
 static void
 lws_qpt_sweep_arm(struct lws_context *cx)
 {
+	lws_context_assert_lock_held(cx);
+
 	if (!lws_dll2_is_detached(&cx->sul_pt_sweep.list))
 		return;
 
@@ -1349,6 +1393,8 @@ lws_qpt_sweep_arm(struct lws_context *cx)
 void
 lws_quic_passthrough_context_destroy(struct lws_context *cx)
 {
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+
 	lws_sul_cancel(&cx->sul_pt_sweep);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1375,6 +1421,8 @@ lws_quic_passthrough_context_destroy(struct lws_context *cx)
 	lws_map_destroy(&cx->pt_qflows);
 	lws_map_destroy(&cx->pt_qpending);
 	lws_map_destroy(&cx->pt_relayed);
+
+	lws_context_unlock(cx); /* } cx */
 }
 
 /* a vhost is going: nothing may still lead to it */
@@ -1382,6 +1430,8 @@ static void
 lws_qpt_vhost_gone(struct lws_vhost *vh)
 {
 	struct lws_context *cx = vh->context;
+
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&cx->pt_qflow_owner)) {
@@ -1400,6 +1450,31 @@ lws_qpt_vhost_gone(struct lws_vhost *vh)
 		if (pd->lv == vh)
 			lws_qpt_pending_destroy(pd);
 	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_context_unlock(cx); /* } cx */
+}
+
+/*
+ * A quic listener is going: Initials pending on it go too, since what they
+ * hold could only ever be given to it
+ */
+void
+lws_qpt_listener_gone(struct lws *lw)
+{
+	struct lws_context *cx = lw->a.context;
+
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->pt_qpending_owner)) {
+		lws_qpt_pending_t *pd = lws_container_of(d, lws_qpt_pending_t,
+							 list);
+
+		if (pd->lw == lw)
+			lws_qpt_pending_destroy(pd);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_context_unlock(cx); /* } cx */
 }
 
 /* ---- front */
@@ -1412,6 +1487,8 @@ static struct lws *
 lws_qpt_server_wsi(struct lws_vhost *vh)
 {
 	struct lws *w;
+
+	lws_context_assert_lock_held(vh->context);
 
 	if (vh->passthrough_qwsi)
 		return vh->passthrough_qwsi;
@@ -1544,34 +1621,62 @@ lws_qpt_hold(lws_qpt_pending_t *pd, const uint8_t *buf, size_t len,
 	return 0;
 }
 
-/* the held datagrams go to the quic role after all, as if just received */
+/*
+ * The held datagrams go to the quic role after all: they move to local, for
+ * lws_qpt_deliver_local() once the context lock is dropped
+ */
 static void
-lws_qpt_release_local(lws_qpt_pending_t *pd)
+lws_qpt_release_local(lws_qpt_pending_t *pd, lws_dll2_owner_t *local)
 {
-	struct lws *lw = lws_qpt_listener(pd->lv);
+	lws_context_assert_lock_held(pd->cx);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&pd->held)) {
+		lws_dll2_remove(d);
+		lws_dll2_add_tail(d, local);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/*
+ * ... to the quic role of listener lw, the one they came in on, on its own
+ * thread and without the context lock, as if just received
+ */
+static void
+lws_qpt_deliver_local(struct lws *lw, lws_dll2_owner_t *local)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(local)) {
 		lws_qpt_dgram_t *dg = lws_container_of(d, lws_qpt_dgram_t,
 						       list);
 
 		lws_dll2_remove(d);
-		if (lw)
-			lws_rops_func_fidx(lw->role_ops, LWS_ROPS_rx_dgram).
-				rx_dgram(lw, (uint8_t *)&dg[1], dg->len,
-					 &dg->peer, dg->ecn, NULL);
+		lws_rops_func_fidx(lw->role_ops, LWS_ROPS_rx_dgram).
+			rx_dgram(lw, (uint8_t *)&dg[1], dg->len, &dg->peer,
+				 dg->ecn, NULL);
 		lws_free(dg);
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
+/* on the thread of pd's listener, which it was scheduled on */
 static void
 lws_qpt_pending_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_qpt_pending_t *pd = lws_container_of(sul, lws_qpt_pending_t, sul);
+	struct lws_context *cx = pd->cx;
+	struct lws *lw = pd->lw;
+	lws_dll2_owner_t local;
+
+	lws_dll2_owner_clear(&local);
+
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
 
 	/* the rest of it never came: the quic role can make what it can of it */
-	lws_qpt_release_local(pd);
+	lws_qpt_release_local(pd, &local);
 	lws_qpt_pending_destroy(pd);
+
+	lws_context_unlock(cx); /* } cx */
+
+	lws_qpt_deliver_local(lw, &local);
 }
 
 /*
@@ -1612,7 +1717,7 @@ lws_qpt_listener_has_passthrough(struct lws_vhost *lv)
 static int
 lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
 	       const uint8_t *buf, size_t len, const lws_sockaddr46 *peer,
-	       uint8_t ecn)
+	       uint8_t ecn, lws_dll2_owner_t *local)
 {
 	struct lws_context *cx = listener->a.context;
 	struct lws_vhost *vh = NULL;
@@ -1641,7 +1746,7 @@ lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
 	if (!vh ||
 	    lws_dll2_count(&cx->pt_qflow_owner) >= LWS_QPT_MAX_FLOWS) {
 		/* not ours: the quic role gets them all, this one last */
-		lws_qpt_release_local(pd);
+		lws_qpt_release_local(pd, local);
 		lws_qpt_pending_destroy(pd);
 
 		return 0;
@@ -1688,7 +1793,7 @@ lws_qpt_decide(struct lws *listener, lws_qpt_pending_t *pd,
 	return 1;
 
 local:
-	lws_qpt_release_local(pd);
+	lws_qpt_release_local(pd, local);
 	lws_qpt_pending_destroy(pd);
 
 	return 0;
@@ -1700,9 +1805,10 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 {
 	struct lws_context *cx = listener->a.context;
 	struct lws_quic_cid dcid, scid, k;
+	lws_dll2_owner_t local;
 	lws_qpt_pending_t *pd;
 	lws_qpt_flow_t *f;
-	int initial;
+	int initial, ret = 0;
 
 	if (!cx->count_quic_passthrough || !listener->a.vhost ||
 	    lws_quic_dgram_cids(buf, len, &dcid, &scid, &initial))
@@ -1711,6 +1817,9 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 	memset(&k, 0, sizeof(k));
 	k.len = dcid.len;
 	memcpy(k.id, dcid.id, dcid.len);
+	lws_dll2_owner_clear(&local);
+
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
 
 	/*
 	 * Only on the listener the flow came in on: a process can be a server
@@ -1720,7 +1829,7 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 	 */
 	f = (lws_qpt_flow_t *)lws_qpt_lookup(cx->pt_qflows, &k, sizeof(k));
 	if (f && !lws_vhost_shares_listener(listener->a.vhost, f->vh))
-		return 0;
+		goto bail;
 	if (f) {
 		if (!lws_qpt_same_addr(&f->client, peer)) {
 			char pa[64];
@@ -1739,14 +1848,19 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 		f->last = lws_now_usecs();
 		lws_qpt_flow_routed(f, &k);
 		lws_qpt_to_server(f, buf, len, peer);
+		ret = 1;
 
-		return 1;
+		goto bail;
 	}
 
+	/*
+	 * A pending Initial only takes more from the listener it came in on,
+	 * whose thread alone may give what it holds to that listener's quic
+	 */
 	pd = (lws_qpt_pending_t *)lws_qpt_lookup(cx->pt_qpending, &k,
 						 sizeof(k));
-	if (pd && !lws_vhost_shares_listener(listener->a.vhost, pd->lv))
-		return 0;
+	if (pd && pd->lw != listener)
+		goto bail;
 	if (!pd) {
 		/*
 		 * Not for a connection the quic role already has: eg, the
@@ -1758,20 +1872,21 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 		    lws_dll2_count(&cx->pt_qpending_owner) >=
 							LWS_QPT_MAX_PENDING ||
 		    lws_qpt_maps(cx))
-			return 0;
+			goto bail;
 
 		pd = lws_zalloc(sizeof(*pd), __func__);
 		if (!pd)
-			return 0;
+			goto bail;
 		pd->cx = cx;
 		pd->lv = listener->a.vhost;
+		pd->lw = listener;
 		pd->dcid = k;
 		if (!lws_map_item_create(cx->pt_qpending,
 					 (const lws_map_key_t)&k, sizeof(k),
 					 (const lws_map_value_t)&pd,
 					 sizeof(pd))) {
 			lws_free(pd);
-			return 0;
+			goto bail;
 		}
 		lws_dll2_add_tail(&pd->list, &cx->pt_qpending_owner);
 	}
@@ -1782,10 +1897,18 @@ lws_quic_passthrough_rx(struct lws *listener, uint8_t *buf, size_t len,
 		/* nothing we can read: it is the quic role's to judge */
 		lws_qpt_pending_destroy(pd);
 
-		return 0;
+		goto bail;
 	}
 
-	return lws_qpt_decide(listener, pd, buf, len, peer, ecn);
+	ret = lws_qpt_decide(listener, pd, buf, len, peer, ecn, &local);
+
+bail:
+	lws_context_unlock(cx); /* } cx */
+
+	/* any held datagrams the quic role gets after all, before this one */
+	lws_qpt_deliver_local(listener, &local);
+
+	return ret;
 }
 
 /*
@@ -1817,6 +1940,8 @@ lws_qpt_from_server(struct lws *wsi, const uint8_t *buf, size_t len)
 	buf += hl;
 	len -= (size_t)hl;
 
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+
 	/*
 	 * Only to an address one of our flows to this server has seen its
 	 * client at: where it is now, or where it was before it moved, since
@@ -1842,7 +1967,7 @@ lws_qpt_from_server(struct lws *wsi, const uint8_t *buf, size_t len)
 		}
 	} lws_end_foreach_dll(d);
 	if (!f)
-		return;
+		goto bail;
 
 	/*
 	 * The server's connection IDs, which the client goes on to use: from
@@ -1855,10 +1980,16 @@ lws_qpt_from_server(struct lws *wsi, const uint8_t *buf, size_t len)
 	    scid.len && lws_qpt_cid_same(&dcid, &f->client_scid))
 		lws_qpt_flow_add_cid(cx, f, &scid);
 
-	/* to that address as we know it */
+	/*
+	 * To that address as we know it, from the listener the client
+	 * reaches: only a sendto() on its socket, from this thread
+	 */
 	lw = lws_qpt_listener(f->vh);
 	if (lw)
 		lws_io_send_dgram(lw, buf, len, to);
+
+bail:
+	lws_context_unlock(cx); /* } cx */
 }
 
 static int
@@ -1871,8 +2002,11 @@ lws_quic_passthrough_callback(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
+		/* the close holds it already: cx is taken before the pt */
+		lws_context_lock(wsi->a.context, __func__); /* --------- cx { */
 		if (wsi->a.vhost && wsi->a.vhost->passthrough_qwsi == wsi)
 			wsi->a.vhost->passthrough_qwsi = NULL;
+		lws_context_unlock(wsi->a.context); /* } cx */
 		break;
 
 	default:
@@ -1921,6 +2055,8 @@ lws_qpt_relayed_find(struct lws_context *cx, const lws_sockaddr46 *client,
 		     uint16_t lport)
 {
 	lws_qpt_addr_key_t k;
+
+	lws_context_assert_lock_held(cx);
 
 	lws_qpt_key(client, &k);
 	k.lport = lport;
@@ -1990,8 +2126,10 @@ lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
 	}
 #endif
 
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+
 	if (lws_qpt_maps(cx))
-		return 1;
+		goto drop;
 
 	lws_qpt_key(&pv.src, &k);
 	k.lport = (uint16_t)listener->a.vhost->listen_port;
@@ -2019,11 +2157,11 @@ lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
 		if (!r) {
 			if (lws_qpt_relayed_room(cx))
 				/* every entry is proven: no room for hearsay */
-				return 1;
+				goto drop;
 
 			r = lws_zalloc(sizeof(*r), __func__);
 			if (!r)
-				return 1;
+				goto drop;
 			r->key = k;
 			if (!lws_map_item_create(cx->pt_relayed,
 						 (const lws_map_key_t)&k,
@@ -2031,7 +2169,7 @@ lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
 						 (const lws_map_value_t)&r,
 						 sizeof(r))) {
 				lws_free(r);
-				return 1;
+				goto drop;
 			}
 			lws_dll2_add_tail(&r->list, &cx->pt_relayed_owner);
 		} else if (!r->proven) {
@@ -2047,6 +2185,8 @@ lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
 		lws_qpt_sweep_arm(cx);
 	}
 
+	lws_context_unlock(cx); /* } cx */
+
 	/* how it came: the relay, and above it, the client it claims */
 	via[0].sa46 = *peer;
 	via[0].kind = LWS_PEER_KIND_SOCKET;
@@ -2060,6 +2200,11 @@ lws_relayed_dgram_rx(struct lws *listener, uint8_t **buf, size_t *len,
 	*len -= (size_t)hl;
 
 	return 0;
+
+drop:
+	lws_context_unlock(cx); /* } cx */
+
+	return 1;
 }
 
 /* the claim on a relayed server connection's stack, or NULL if it has none */
@@ -2106,6 +2251,7 @@ void
 lws_qpt_conn_release(struct lws *cw)
 {
 	const lws_peer_entry_t *c = lws_qpt_conn_claim(cw);
+	struct lws_context *cx = cw->a.context;
 	lws_qpt_relayed_t *r;
 
 	if (!cw->io->relay_proven)
@@ -2115,9 +2261,11 @@ lws_qpt_conn_release(struct lws *cw)
 	if (!c)
 		return;
 
-	r = lws_qpt_relayed_find(cw->a.context, &c->sa46, cw->io->relay_lport);
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
+	r = lws_qpt_relayed_find(cx, &c->sa46, cw->io->relay_lport);
 	if (r && r->proven && !--r->proven)
-		lws_qpt_relayed_destroy(cw->a.context, r);
+		lws_qpt_relayed_destroy(cx, r);
+	lws_context_unlock(cx); /* } cx */
 }
 
 /*
@@ -2139,9 +2287,11 @@ lws_qpt_conn_commit(struct lws *cw, const lws_sockaddr46 *peer)
 	lws_qpt_conn_release(cw);
 
 	relay = cw->io->pstack[0].sa46;
+	lws_context_lock(cw->a.context, __func__); /* ------------- cx { */
 	r = lws_qpt_relayed_find(cw->a.context, peer, cw->io->relay_lport);
 	if (r)
 		relay = r->relay;
+	lws_context_unlock(cw->a.context); /* } cx */
 
 	lws_io_set_peer(cw, &relay);
 	lws_io_peer_claim(cw, peer, LWS_PEER_KIND_RELAY, LWS_PEER_CRED_HEARSAY);
@@ -2166,14 +2316,19 @@ lws_qpt_conn_proven(struct lws *cw, const lws_sockaddr46 *seen)
 	if (!c || cw->io->relay_proven || !lws_qpt_same_addr(&c->sa46, seen))
 		return;
 
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
 	r = lws_qpt_relayed_find(cx, &c->sa46, cw->io->relay_lport);
-	if (!r || !lws_qpt_same_addr(&r->relay, &cw->io->pstack[0].sa46))
+	if (!r || !lws_qpt_same_addr(&r->relay, &cw->io->pstack[0].sa46)) {
+		lws_context_unlock(cx); /* } cx */
 		return;
+	}
 
 	if (!r->proven++) {
 		lws_dll2_remove(&r->list);
 		lws_dll2_add_tail(&r->list, &cx->pt_relayed_proven_owner);
 	}
+	lws_context_unlock(cx); /* } cx */
+
 	cw->io->relay_proven = 1;
 	lws_peer_raise(cw, &cw->io->pstack[0].sa46, LWS_PEER_CRED_ROUTABLE);
 }
@@ -2196,10 +2351,11 @@ lws_relayed_dgram_tx(struct lws *wsi, struct lws *nwsi, lws_sockfd_type fd,
 	uint8_t b[LWS_PROXY_V2_MAX + LWS_QPT_MAX_DGRAM];
 	struct lws_context *cx = nwsi->a.context;
 	struct lws *cw = lws_io_peer_conn(wsi);
+	lws_sockaddr46 relay, front;
 	lws_qpt_relayed_t *r;
 	lws_proxy_v2_t pv;
 	uint16_t lport;
-	int n;
+	int n, found;
 
 	if (cw && cw != nwsi) {
 		/* a connection of its own */
@@ -2212,8 +2368,20 @@ lws_relayed_dgram_tx(struct lws *wsi, struct lws *nwsi, lws_sockfd_type fd,
 		lport = (uint16_t)nwsi->a.vhost->listen_port;
 	}
 
+	/* what we need of the entry, while it can't go */
+	lws_context_lock(cx, __func__); /* ------------------------ cx { */
 	r = lws_qpt_relayed_find(cx, dest, lport);
-	if (!r) {
+	found = !!r;
+	if (r) {
+		relay = r->relay;
+		front = r->front;
+	} else {
+		memset(&relay, 0, sizeof(relay));
+		memset(&front, 0, sizeof(front));
+	}
+	lws_context_unlock(cx); /* } cx */
+
+	if (!found) {
 		if (cw && cw != nwsi) {
 			/* lost on the way, as if sent */
 			*sent = (int)len;
@@ -2230,8 +2398,8 @@ lws_relayed_dgram_tx(struct lws *wsi, struct lws *nwsi, lws_sockfd_type fd,
 	memset(&pv, 0, sizeof(pv));
 	pv.dgram = 1;
 	pv.dst = *dest;
-	if (r->front.sa4.sin_family == dest->sa4.sin_family)
-		pv.src = r->front;
+	if (front.sa4.sin_family == dest->sa4.sin_family)
+		pv.src = front;
 	else
 		pv.src.sa4.sin_family = dest->sa4.sin_family;
 
@@ -2251,7 +2419,7 @@ lws_relayed_dgram_tx(struct lws *wsi, struct lws *nwsi, lws_sockfd_type fd,
 							  listen_list);
 
 			if (lw->io->udp && lw->io->udp->sa46.sa4.sin_family ==
-						r->relay.sa4.sin_family &&
+						relay.sa4.sin_family &&
 			    lws_socket_is_valid(lw->io->desc.sockfd)) {
 				fd = lw->io->desc.sockfd;
 				break;
@@ -2260,7 +2428,7 @@ lws_relayed_dgram_tx(struct lws *wsi, struct lws *nwsi, lws_sockfd_type fd,
 	}
 
 	n = (int)sendto(fd, (const char *)b, LWS_POSIX_LENGTH_CAST((size_t)n + len),
-			0, sa46_sockaddr(&r->relay), sa46_socklen(&r->relay));
+			0, sa46_sockaddr(&relay), sa46_socklen(&relay));
 	if (n >= 0)
 		*sent = (int)len;
 	else if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK ||
