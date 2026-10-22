@@ -32,6 +32,9 @@
  *    our fetch of it completes OK; nothing new is stored
  *  - an older version is refused
  *  - a newer one is stored in place of what we held
+ *  - once that one's payload is gone, its high-water mark still refuses the
+ *    older version; a mark that can't be read refuses any version and is
+ *    left as it is, and only with no mark at all is a version taken (G-533)
  *
  * and the plugin runs once per context: lwsws conf giving its DHT pvos to a
  * second vhost does not start another instance on the same DHT port, which
@@ -290,9 +293,10 @@ static void
 putt_take_cases(struct vhd_dht_dnssec *vhd)
 {
 	struct lws_dht_dnssec_fetch_req *req;
-	char hash[65], held[512];
+	char hash[65], held[512], mark[512];
 	lws_sockaddr46 pub;
-	int tmp_left;
+	int tmp_left, fd;
+	struct stat st;
 
 	putt_hash(hash, 0xa0);
 	putt_v4(&pub, 7, 1000);
@@ -358,6 +362,41 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 	putt_expect(auth_calls == 1 && strstr(auth_path, hash) &&
 		    !access(auth_path, F_OK),
 		    "and auth-dns is told of it");
+
+	/*
+	 * Once the newer version's payload is gone (expired, swept), only its
+	 * high-water mark stands between an older one and the store (G-505)
+	 */
+	unlink(auth_path);
+	putt_expect(!putt_stored_serial(hash) &&
+		    putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL, &tmp_left) ==
+						DHT_DNSSEC_REFUSED &&
+		    !putt_stored_serial(hash) && auth_calls == 1,
+		    "an older version is refused by the mark of a newer one "
+		    "no longer held");
+
+	/*
+	 * A mark that can't be read fails closed, and is not replaced by the
+	 * version offered (G-533); only one that is not there admits it
+	 */
+	lws_snprintf(mark, sizeof(mark), PUTT_STORE "/cc/cc/%s.hwm", hash);
+	fd = open(mark, O_WRONLY | O_TRUNC);
+	if (!putt_expect(fd >= 0 && write(fd, "x", 1) == 1, "garble the mark")) {
+		putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL + 2,
+				      &tmp_left) == DHT_DNSSEC_REFUSED &&
+			    !putt_stored_serial(hash) && auth_calls == 1 &&
+			    !stat(mark, &st) && st.st_size == 1,
+			    "a garbled mark refuses even a newer version, and "
+			    "is left as it is");
+		unlink(mark);
+		putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL + 2,
+				      &tmp_left) == DHT_DNSSEC_STORED &&
+			    putt_stored_serial(hash) == PUTT_HELD_SERIAL + 2 &&
+			    auth_calls == 2,
+			    "with no mark, the version is stored");
+	}
+	if (fd >= 0)
+		close(fd);
 
 	vhd->auth_cb = NULL;
 }

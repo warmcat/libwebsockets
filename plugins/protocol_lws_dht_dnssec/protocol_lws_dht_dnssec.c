@@ -632,7 +632,13 @@ dht_dnssec_serial_gt(uint32_t a, uint32_t b)
  * has expired too and is refused for that.
  *
  * The file is ours, but it is read like anything else from disk: exactly
- * DHT_DNSSEC_HWM_LEN bytes, or it is not there.
+ * DHT_DNSSEC_HWM_LEN bytes.  Only a mark that is not there (ENOENT) means we
+ * never took the zone: one we can't open or read, or of the wrong size,
+ * might be holding back a replay, so it fails closed (G-533).  It refuses
+ * every version of the zone, is not overwritten, and is not swept, until
+ * the operator removes it.  It is written to <hash>.hwm.tmp, synced, and
+ * renamed over the mark, so a crash leaves the old mark or the new one,
+ * never a short one.
  */
 
 struct dht_dnssec_hwm {
@@ -643,6 +649,8 @@ struct dht_dnssec_hwm {
 
 #define DHT_DNSSEC_HWM_LEN		(4 + 8 + 8)
 #define DHT_DNSSEC_HWM_KEEP_SECS	(7 * 24 * 3600)
+/* a <hash>.hwm.tmp older than this was left by a crash */
+#define DHT_DNSSEC_HWM_TMP_STALE_SECS	60
 
 static int
 dht_dnssec_hwm_path(const char *storage_path, const char *hash, char *path,
@@ -652,6 +660,12 @@ dht_dnssec_hwm_path(const char *storage_path, const char *hash, char *path,
 			    hash, hash + 2, hash) >= (int)len;
 }
 
+enum {
+	DHT_DNSSEC_HWM_UNREADABLE	= -1,
+	DHT_DNSSEC_HWM_OK		= 0,
+	DHT_DNSSEC_HWM_NONE		= 1,	/* never took the zone */
+};
+
 static int
 dht_dnssec_hwm_read_path(const char *path, struct dht_dnssec_hwm *hwm)
 {
@@ -660,21 +674,36 @@ dht_dnssec_hwm_read_path(const char *path, struct dht_dnssec_hwm *hwm)
 	int fd;
 
 	fd = open(path, O_RDONLY);
-	if (fd < 0)
-		return 1;
+	if (fd < 0) {
+		if (errno == ENOENT)
+			return DHT_DNSSEC_HWM_NONE;
+
+		lwsl_err("%s: unable to open high-water mark %s, errno %d\n",
+			 __func__, path, errno);
+
+		return DHT_DNSSEC_HWM_UNREADABLE;
+	}
 	n = read(fd, b, sizeof(b));
 	close(fd);
-	if (n != DHT_DNSSEC_HWM_LEN)
-		return 1;
+	if (n != DHT_DNSSEC_HWM_LEN) {
+		lwsl_err("%s: high-water mark %s unreadable (%d bytes): the "
+			 "zone is refused until it is removed\n", __func__,
+			 path, (int)n);
+
+		return DHT_DNSSEC_HWM_UNREADABLE;
+	}
 
 	hwm->serial	= lws_ser_ru32be(b);
 	hwm->inception	= lws_ser_ru64be(b + 4);
 	hwm->expiry	= lws_ser_ru64be(b + 12);
 
-	return 0;
+	return DHT_DNSSEC_HWM_OK;
 }
 
-/* 0 and the zone's high-water mark, or nonzero if we never took it */
+/*
+ * DHT_DNSSEC_HWM_OK and the zone's high-water mark, DHT_DNSSEC_HWM_NONE if we
+ * never took it, or DHT_DNSSEC_HWM_UNREADABLE
+ */
 
 static int
 dht_dnssec_hwm_read(const char *storage_path, const char *hash,
@@ -683,7 +712,7 @@ dht_dnssec_hwm_read(const char *storage_path, const char *hash,
 	char path[512];
 
 	if (dht_dnssec_hwm_path(storage_path, hash, path, sizeof(path)))
-		return 1;
+		return DHT_DNSSEC_HWM_UNREADABLE;
 
 	return dht_dnssec_hwm_read_path(path, hwm);
 }
@@ -705,16 +734,39 @@ dht_dnssec_hwm_admits(const struct dht_dnssec_hwm *seen, uint32_t serial,
 							      seen->serial);
 }
 
-/* is the version zv of the zone stored under hash older than one we took? */
+/*
+ * Is the version zv of the zone stored under hash older than one we took, or
+ * can't we tell?  seen is zeroed unless the mark was read.
+ */
 
 static int
 dht_dnssec_hwm_refuses(const char *storage_path, const char *hash,
 		       const struct lws_auth_dns_zone_validity *zv,
 		       struct dht_dnssec_hwm *seen)
 {
-	return !dht_dnssec_hwm_read(storage_path, hash, seen) &&
-	       !dht_dnssec_hwm_admits(seen, zv->serial,
-				      (uint64_t)zv->soa_inception);
+	memset(seen, 0, sizeof(*seen));
+
+	switch (dht_dnssec_hwm_read(storage_path, hash, seen)) {
+	case DHT_DNSSEC_HWM_NONE:
+		return 0;
+	case DHT_DNSSEC_HWM_OK:
+		return !dht_dnssec_hwm_admits(seen, zv->serial,
+					      (uint64_t)zv->soa_inception);
+	default:
+		return 1;
+	}
+}
+
+/* push what was written to fd to the storage */
+
+static int
+dht_dnssec_fsync(int fd)
+{
+#if defined(WIN32) || defined(_WIN32)
+	return _commit(fd);
+#else
+	return fsync(fd);
+#endif
 }
 
 /* raise the zone's high-water mark to this version, if it is newer */
@@ -732,10 +784,18 @@ dht_dnssec_hwm_update(const char *storage_path, const char *hash,
 	nv.inception	= (uint64_t)zv->soa_inception;
 	nv.expiry	= (uint64_t)zv->expiration;
 
-	if (!dht_dnssec_hwm_read(storage_path, hash, &seen) &&
-	    !dht_dnssec_serial_gt(nv.serial, seen.serial) &&
-	    nv.inception <= seen.inception)
-		return 0;
+	switch (dht_dnssec_hwm_read(storage_path, hash, &seen)) {
+	case DHT_DNSSEC_HWM_NONE:
+		break;
+	case DHT_DNSSEC_HWM_OK:
+		if (!dht_dnssec_serial_gt(nv.serial, seen.serial) &&
+		    nv.inception <= seen.inception)
+			return 0;
+		break;
+	default:
+		/* a mark we can't read is never replaced by a guess */
+		return 1;
+	}
 
 	if (dht_dnssec_hwm_path(storage_path, hash, path, sizeof(path)) ||
 	    lws_snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
@@ -746,9 +806,14 @@ dht_dnssec_hwm_update(const char *storage_path, const char *hash,
 	lws_ser_wu64be(b + 12, nv.expiry);
 
 	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0640);
-	if (fd < 0)
+	if (fd < 0) {
+		lwsl_err("%s: unable to create %s, errno %d\n", __func__, tmp,
+			 errno);
 		return 1;
-	ok = write(fd, b, sizeof(b)) == (ssize_t)sizeof(b);
+	}
+	/* on the storage before it replaces the old mark */
+	ok = write(fd, b, sizeof(b)) == (ssize_t)sizeof(b) &&
+	     !dht_dnssec_fsync(fd);
 	close(fd);
 
 	if (!ok || rename(tmp, path)) {
@@ -756,6 +821,27 @@ dht_dnssec_hwm_update(const char *storage_path, const char *hash,
 		unlink(tmp);
 		return 1;
 	}
+
+#if !defined(WIN32) && !defined(_WIN32)
+	{
+		char dir[512], *sl;
+
+		/* ...and the rename too */
+		lws_strncpy(dir, path, sizeof(dir));
+		sl = strrchr(dir, '/');
+		if (sl) {
+			*sl = '\0';
+			fd = open(dir, O_RDONLY);
+			if (fd >= 0) {
+				if (fsync(fd))
+					lwsl_warn("%s: unable to sync %s, "
+						  "errno %d\n", __func__, dir,
+						  errno);
+				close(fd);
+			}
+		}
+	}
+#endif
 
 	return 0;
 }
@@ -5185,11 +5271,37 @@ dht_dnssec_sweep_level2_cb(const char *dirpath, void *user, struct lws_dir_entry
 			/*
 			 * The mark of a zone whose newest version we took
 			 * expired long enough ago that anything older than it
-			 * has too, or a mark we can't read
+			 * has too.  One we can't read is kept: it still
+			 * refuses the zone, and it is logged by the read.
 			 */
-			if (dht_dnssec_hwm_read_path(fp, &hwm) ||
+			if (dht_dnssec_hwm_read_path(fp, &hwm) ==
+							DHT_DNSSEC_HWM_OK &&
 			    hwm.expiry + DHT_DNSSEC_HWM_KEEP_SECS < now) {
 				lwsl_notice("Expunging high-water mark %s\n", fp);
+				unlink(fp);
+			}
+
+			return 0;
+		}
+
+		if (nl > 8 && !strcmp(lde->name + nl - 8, ".hwm.tmp")) {
+			struct stat st;
+			char fp[1024];
+
+			/* never unlink a truncated path */
+			if (lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath,
+					 lde->name) >= (int)sizeof(fp))
+				return 0;
+
+			/*
+			 * A mark being written is renamed into place in the
+			 * same call that created it: one still here a while
+			 * later was left by a crash, or a failed write
+			 */
+			if (!stat(fp, &st) &&
+			    (uint64_t)st.st_mtime + DHT_DNSSEC_HWM_TMP_STALE_SECS
+									< now) {
+				lwsl_notice("Expunging stale %s\n", fp);
 				unlink(fp);
 			}
 

@@ -29,8 +29,11 @@
  *  - once a version of a zone was taken, its high-water mark refuses an
  *    older serial (in RFC 1982 order) or an earlier signing, even when the
  *    zone's payload has gone from storage, but takes the same version again
- *  - the mark outlives the payload, is swept once the version it records
- *    has long expired, and an unreadable mark is swept
+ *  - the mark outlives the payload, and is swept once the version it records
+ *    has long expired
+ *  - a mark that can't be read refuses every version, is neither replaced
+ *    nor swept, and only a mark that is not there admits anything (G-533);
+ *    a <hash>.hwm.tmp a crash left is swept
  */
 
 #include <libwebsockets.h>
@@ -40,6 +43,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <utime.h>
 
 #define LWS_PLUGIN_STATIC
 #include "../../../plugins/protocol_lws_dht_dnssec/protocol_lws_dht_dnssec.c"
@@ -253,18 +257,64 @@ hwm_cases(time_t now)
 	dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &lde);
 	ort_expect(access(path, F_OK), "the sweep expunges a long-expired mark");
 
-	/* an unreadable mark refuses nothing, and is swept */
+	/*
+	 * an unreadable mark fails closed (G-533): it refuses every version,
+	 * is not replaced by the next one taken, and is not swept
+	 */
 	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (fd >= 0) {
 		if (write(fd, "x", 1) != 1)
 			ort_expect(0, "write a short mark");
 		close(fd);
 	}
-	ort_zv(&zv, 1, now - 30, now + 86400);
-	ort_expect(!dht_dnssec_hwm_refuses(ORT_STORE, ORT_HASH, &zv, &seen),
-		   "a short mark refuses nothing");
+	ort_zv(&zv, 7, now - 30, now + 86400);
+	ort_expect(dht_dnssec_hwm_refuses(ORT_STORE, ORT_HASH, &zv, &seen),
+		   "a short mark refuses the zone");
+	ort_expect(dht_dnssec_hwm_update(ORT_STORE, ORT_HASH, &zv) &&
+		   dht_dnssec_hwm_read(ORT_STORE, ORT_HASH, &seen) ==
+						DHT_DNSSEC_HWM_UNREADABLE,
+		   "a short mark is not overwritten");
 	dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &lde);
-	ort_expect(access(path, F_OK), "the sweep expunges a short mark");
+	ort_expect(!access(path, F_OK), "the sweep keeps a short mark");
+
+	/* only a mark that is not there admits anything */
+	unlink(path);
+	ort_expect(!dht_dnssec_hwm_refuses(ORT_STORE, ORT_HASH, &zv, &seen) &&
+		   !dht_dnssec_hwm_update(ORT_STORE, ORT_HASH, &zv) &&
+		   dht_dnssec_hwm_read(ORT_STORE, ORT_HASH, &seen) ==
+							DHT_DNSSEC_HWM_OK &&
+		   seen.serial == 7,
+		   "with the mark removed, the zone is taken and marked again");
+
+	/*
+	 * a mark being written left by a crash is swept once stale, one being
+	 * written now is not
+	 */
+	{
+		static const char *tmpname = ORT_HASH ".hwm.tmp";
+		struct lws_dir_entry tde;
+		char tpath[600];
+		struct utimbuf ut;
+
+		lws_snprintf(tpath, sizeof(tpath), "%s.tmp", path);
+		fd = open(tpath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+		if (fd >= 0)
+			close(fd);
+		memset(&tde, 0, sizeof(tde));
+		tde.type = LDOT_FILE;
+		tde.name = tmpname;
+		dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &tde);
+		ort_expect(!access(tpath, F_OK),
+			   "the sweep keeps a mark being written");
+
+		ut.actime = ut.modtime = now - DHT_DNSSEC_HWM_TMP_STALE_SECS -
+									60;
+		ort_expect(!utime(tpath, &ut), "age the mark being written");
+		dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &tde);
+		ort_expect(access(tpath, F_OK),
+			   "the sweep expunges a stale mark being written");
+		unlink(tpath);
+	}
 
 	unlink(path);
 	rmdir(ORT_STORE "/ab/cd");
