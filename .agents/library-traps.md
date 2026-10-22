@@ -524,6 +524,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    errors: positive returns at value end abort the parse.
  - Scheme / keyword tables indexed by position drift from their enums; use
    `{prefix, ENUM}` pairs.
+ - **Without `LEJP_FLAG_FEAT_STRICT_KEY_CHARS` a key containing '.' can
+   match a deeper member pattern** while the enclosing object was never
+   opened (SS policy, lejp-conf: G-395, G-399).  lwsws can't set the
+   flag (it needs keys like `".zip"`), so callbacks that write to a
+   "current object" must check it exists (and is the right depth).
 
 ## DHT transport sequencer
 
