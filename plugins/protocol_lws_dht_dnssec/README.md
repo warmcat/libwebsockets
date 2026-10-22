@@ -19,6 +19,14 @@ The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` D
 - When the holder accepts a new version of the zone, it sends a `NOTIFY` carrying the new serial and the domain to its subscribers, retrying until they acknowledge it.  The plugin acknowledges it and fetches the zone.
 - A zone is fetched for `NOTIFY`s at most once a minute, except that a newer serial from the holder it subscribed with (or from a `NOTIFY` sender that passed the cookie exchange) is fetched at once, at most every 5 seconds.  A `NOTIFY` inside that minute is not dropped: one fetch when the minute ends covers it.  Subscribing to the zone again inside the minute is deferred the same way.
 
+## Zone Fetches
+When a node needs a zone it does not hold (auth-dns asked for it, or a `NOTIFY` said there is a newer one), it sends `GET <zone hash>` and takes the zone from the first asked node whose `RSP` arrives; `RSP`s from any node that was not asked are refused.
+- Every node asked takes one of the DHT's 64 transport sequencers until it acknowledges, and uploads, other fetches and serial queries need them too, so a fetch asks at most 8 routing table nodes at a time (`LWS_DHT_DNSSEC_FETCH_FANOUT`), good ones and half from each address family first, plus the bootstrap target if one is configured.
+- If nobody has answered, each of its 3 retries, 15s apart, asks the next 8 nodes it has not asked yet, and the target again.  Once a node answers, nobody more is asked.
+- A node the DHT has no sequencer for at the moment (`LWS_DHT_SEND_REFUSED` or `LWS_DHT_SEND_BUSY`) is not counted as asked: it is asked again in an early round 4s later, at most 4 times per fetch.
+- A fetch of a zone with the same completion and opaque as one in progress joins it, and sends nothing more.
+- auth-dns starts a fetch for a DNS query only if its zone is not already being fetched, and at most 8 at once, then one per 500ms; a query over that is answered `REFUSED`, since DNS queries can come from forged sources.
+
 ## Zone Serial Queries
 To see a new version of a zone spread across the DHT, eg, in the dnssec monitor's domain page, the `query_serials` op asks every node in the routing table which serial of a zone it holds:
 - The plugin sends each node `SOA_REQ <zone hash> 0 0` followed by an 8-byte nonce, random per query.

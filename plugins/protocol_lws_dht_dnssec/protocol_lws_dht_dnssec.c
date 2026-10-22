@@ -499,11 +499,25 @@ struct dht_fragment {
 #define LWS_DHT_DNSSEC_MAX_SUBSCRIBED	256
 
 /*
- * A fetch's GET goes to at most 32 IPv4 and 32 IPv6 routing table nodes and
- * the bootstrap target each round: the hosts it went to, the only ones whose
- * RSP may open the transfer
+ * Every host a fetch's GET goes to takes one of the DHT's 64 transport
+ * sequencers until it acknowledges, and zone transfers, uploads and serial
+ * queries need them too: a fetch asking the whole routing table at once took
+ * them all (G-508).  So a fetch asks a few routing table nodes a round, ones
+ * no fetch of the zone asked yet, half from each address family first, plus
+ * the bootstrap target, and asks the next few only on its retries.  A host
+ * the DHT has no sequencer for now (LWS_DHT_SEND_REFUSED, or BUSY) was not
+ * asked: it is asked again in an early round, after the DHT's grace for idle
+ * sessions has had a chance to free some, a few times at most.
+ *
+ * The hosts a fetch asked are the only ones whose RSP may open its transfer.
  */
-#define LWS_DHT_DNSSEC_FETCH_MAX_ASKED		65
+#define LWS_DHT_DNSSEC_FETCH_FANOUT		8
+#define LWS_DHT_DNSSEC_FETCH_RETRIES		3
+#define LWS_DHT_DNSSEC_FETCH_RETRY_US		(15 * LWS_US_PER_SEC)
+#define LWS_DHT_DNSSEC_FETCH_REFUSED_US		(4 * LWS_US_PER_SEC)
+#define LWS_DHT_DNSSEC_FETCH_EARLY_MAX		4
+#define LWS_DHT_DNSSEC_FETCH_MAX_ASKED		((LWS_DHT_DNSSEC_FETCH_RETRIES + 1) * \
+						 (LWS_DHT_DNSSEC_FETCH_FANOUT + 1))
 
 struct lws_dht_dnssec_fetch_req {
 	lws_dll2_t			list;
@@ -515,9 +529,12 @@ struct lws_dht_dnssec_fetch_req {
 	struct vhd_dht_dnssec		*vhd;
 	int				retries;
 	lws_sorted_usec_list_t		sul_timeout;
+	lws_usec_t			next_retry; /* after any early rounds */
 	lws_sockaddr46			asked[LWS_DHT_DNSSEC_FETCH_MAX_ASKED];
 	uint8_t				asked_count;
 	uint8_t				asked_next; /* oldest, once full */
+	uint8_t				target_due; /* ask the target this round */
+	uint8_t				early_rounds;
 };
 
 enum {
@@ -1200,15 +1217,18 @@ dht_dnssec_find_fetch_req(struct vhd_dht_dnssec *vhd, const char *hash)
  * otherwise whoever got an RSP for it to us first, from anywhere, opened
  * (and so owned) our transfer of it ahead of the nodes we asked.  A host,
  * as the DHT counts them (lws_dht_same_host()), not an exact endpoint.
+ *
+ * Returns what lws_dht_send_data() did with it: unless it was queued, the
+ * host was not asked, and is not noted.
  */
 
-static void
+static int
 dht_dnssec_fetch_req_send(struct vhd_dht_dnssec *vhd,
 			  struct lws_dht_dnssec_fetch_req *req,
 			  const struct sockaddr *sa, const char *buf)
 {
 	size_t salen;
-	int n;
+	int n, r;
 
 	switch (sa->sa_family) {
 	case AF_INET:
@@ -1220,28 +1240,30 @@ dht_dnssec_fetch_req_send(struct vhd_dht_dnssec *vhd,
 		break;
 #endif
 	default:
-		return;
+		return LWS_DHT_SEND_REFUSED;
 	}
+
+	r = lws_dht_send_data(vhd->dht, sa, buf, strlen(buf));
+	if (r != LWS_DHT_SEND_QUEUED)
+		return r;
 
 	for (n = 0; n < req->asked_count; n++)
 		if (lws_dht_same_host((const struct sockaddr *)&req->asked[n],
 				      sa))
-			break;
+			return r;
 
-	if (n == req->asked_count) {
-		/* a new host: once full, it replaces the oldest */
-		if (req->asked_count < LWS_ARRAY_SIZE(req->asked))
-			n = req->asked_count++;
-		else {
-			n = req->asked_next;
-			req->asked_next = (uint8_t)((req->asked_next + 1) %
-						LWS_ARRAY_SIZE(req->asked));
-		}
-		memset(&req->asked[n], 0, sizeof(req->asked[n]));
-		memcpy(&req->asked[n], sa, salen);
+	/* a new host: once full, it replaces the oldest */
+	if (req->asked_count < LWS_ARRAY_SIZE(req->asked))
+		n = req->asked_count++;
+	else {
+		n = req->asked_next;
+		req->asked_next = (uint8_t)((req->asked_next + 1) %
+					LWS_ARRAY_SIZE(req->asked));
 	}
+	memset(&req->asked[n], 0, sizeof(req->asked[n]));
+	memcpy(&req->asked[n], sa, salen);
 
-	lws_dht_send_data(vhd->dht, sa, buf, strlen(buf));
+	return r;
 }
 
 /* did a GET from any fetch of ours for hash go to the host from is? */
@@ -6896,6 +6918,151 @@ do_publish_jws(struct lws_vhost *vhost, const char *jws_filepath)
 	return 0;
 }
 
+/* the bootstrap target, if one is configured and can be resolved */
+
+static int
+dht_dnssec_fetch_target(struct vhd_dht_dnssec *v, lws_sockaddr46 *sa46)
+{
+	struct addrinfo hints, *result;
+
+	if (!v->target_ip || !v->target_ip[0] || v->target_port <= 0)
+		return 1;
+
+	if (lws_sa46_parse_numeric_address(v->target_ip, sa46)) {
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = AF_INET;
+		if (getaddrinfo(v->target_ip, NULL, &hints, &result) || !result)
+			return 1;
+		memset(sa46, 0, sizeof(*sa46));
+		sa46->sa4 = *(struct sockaddr_in *)result->ai_addr;
+		freeaddrinfo(result);
+	}
+
+	sa46_sockport(sa46, htons((uint16_t)v->target_port));
+
+	return 0;
+}
+
+struct dht_dnssec_fetch_round {
+	struct vhd_dht_dnssec			*v;
+	struct lws_dht_dnssec_fetch_req		*req;
+	const char				*get;
+	int					asked;
+	int					refused;
+	int					budget;
+	uint8_t					good;
+};
+
+/*
+ * lws_dht_foreach_node() callback: ask this node in this round, if the round
+ * has room and no fetch of ours for the zone asked it yet
+ */
+
+static int
+dht_dnssec_fetch_round_node_cb(void *user, const lws_dht_node_info_t *ni)
+{
+	struct dht_dnssec_fetch_round *r = (struct dht_dnssec_fetch_round *)user;
+
+	if (r->asked >= r->budget)
+		return 1; /* stop */
+
+	/* good nodes in the first pass, the others in the second */
+	if (r->good != !!ni->good ||
+	    dht_dnssec_fetch_asked(r->v, r->req->target_hash, ni->sa))
+		return 0;
+
+	if (dht_dnssec_fetch_req_send(r->v, r->req, ni->sa, r->get) ==
+							LWS_DHT_SEND_QUEUED)
+		r->asked++;
+	else
+		r->refused++;
+
+	return 0;
+}
+
+/*
+ * One round of a fetch: the bootstrap target if it is due, and the next
+ * LWS_DHT_DNSSEC_FETCH_FANOUT routing table nodes no fetch of the zone asked
+ * yet, good ones first, half from each address family first.  Once a node
+ * answered, the transfer is under way and nobody more is asked.  Returns how
+ * many could not be asked for now.
+ */
+
+static int
+dht_dnssec_fetch_round(struct vhd_dht_dnssec *v,
+		       struct lws_dht_dnssec_fetch_req *req)
+{
+	struct dht_dnssec_fetch_round r;
+	lws_sockaddr46 sa46;
+	char buf[256];
+	int pass;
+
+	if (!v->dht || dht_dnssec_find_fragment(v, req->target_hash))
+		return 0;
+
+	memset(&r, 0, sizeof(r));
+	r.v	= v;
+	r.req	= req;
+	r.get	= buf;
+
+	lws_dht_msg_gen(buf, sizeof(buf), "GET", req->target_hash, 0, 1024);
+
+	/* for clients and unbootstrapped nodes, outside the routing budget */
+	if (req->target_due && !dht_dnssec_fetch_target(v, &sa46)) {
+		if (dht_dnssec_fetch_req_send(v, req, (struct sockaddr *)&sa46,
+					      buf) == LWS_DHT_SEND_QUEUED)
+			req->target_due = 0;
+		else
+			r.refused++;
+	}
+
+	for (pass = 0; pass < 2; pass++) {
+		r.good = !pass;
+
+		r.budget = LWS_DHT_DNSSEC_FETCH_FANOUT / 2;
+		lws_dht_foreach_node(v->dht, AF_INET,
+				     dht_dnssec_fetch_round_node_cb, &r);
+		r.budget = LWS_DHT_DNSSEC_FETCH_FANOUT;
+#if defined(LWS_WITH_IPV6)
+		lws_dht_foreach_node(v->dht, AF_INET6,
+				     dht_dnssec_fetch_round_node_cb, &r);
+#endif
+		lws_dht_foreach_node(v->dht, AF_INET,
+				     dht_dnssec_fetch_round_node_cb, &r);
+	}
+
+	if (!r.asked && !r.refused && req->target_due)
+		lwsl_notice("%s: no routing targets for GET %s\n", __func__,
+			    req->domain);
+
+	return r.refused;
+}
+
+static void
+dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul);
+
+/*
+ * Arm the fetch's timer for its next full round (req->next_retry), or for an
+ * early one if a host could not be asked this round
+ */
+
+static void
+dht_dnssec_fetch_req_schedule(struct lws_dht_dnssec_fetch_req *req,
+			      int refused)
+{
+	lws_usec_t now = lws_now_usecs(), at = req->next_retry;
+
+	if (refused && req->early_rounds < LWS_DHT_DNSSEC_FETCH_EARLY_MAX &&
+	    now + LWS_DHT_DNSSEC_FETCH_REFUSED_US < at) {
+		req->early_rounds++;
+		at = now + LWS_DHT_DNSSEC_FETCH_REFUSED_US;
+	}
+
+	lws_sul_schedule(req->vhd->context, 0, &req->sul_timeout,
+			 dht_dnssec_sul_fetch_req_timeout,
+			 at > now ? at - now : 0);
+}
+
 static void
 dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 {
@@ -6905,8 +7072,16 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 	if (!vhd)
 		return;
 
-	if (req->retries >= 3) {
-		lwsl_err("%s: Fetch req for %s fully timed out after 3 retries\n", __func__, req->domain);
+	if (lws_now_usecs() < req->next_retry) {
+		/* an early round, for the hosts that could not be asked */
+		dht_dnssec_fetch_req_schedule(req,
+					      dht_dnssec_fetch_round(vhd, req));
+		return;
+	}
+
+	if (req->retries >= LWS_DHT_DNSSEC_FETCH_RETRIES) {
+		lwsl_err("%s: Fetch req for %s fully timed out after %d retries\n",
+			 __func__, req->domain, LWS_DHT_DNSSEC_FETCH_RETRIES);
 		if (req->cb)
 			req->cb(req->opaque, req->domain,
 				LWS_DHT_DNSSEC_FETCH_TIMEOUT);
@@ -6929,20 +7104,12 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 	}
 
 	req->retries++;
-	lwsl_user("%s: Fetch req for %s timed out, retry %d/3\n", __func__, req->domain, req->retries);
+	lwsl_user("%s: Fetch req for %s timed out, retry %d/%d\n", __func__,
+		  req->domain, req->retries, LWS_DHT_DNSSEC_FETCH_RETRIES);
 
-	if (vhd && vhd->dht) {
-		lws_sockaddr46 sa46;
-		char buf[256];
-		if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) == 0) {
-			sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
-			lws_dht_msg_gen(buf, sizeof(buf), "GET", req->target_hash, 0, 1024);
-			dht_dnssec_fetch_req_send(vhd, req,
-					(struct sockaddr *)&sa46, buf);
-		}
-	}
-
-	lws_sul_schedule(vhd->context, 0, &req->sul_timeout, dht_dnssec_sul_fetch_req_timeout, 15 * LWS_US_PER_SEC);
+	req->target_due = 1;
+	req->next_retry = lws_now_usecs() + LWS_DHT_DNSSEC_FETCH_RETRY_US;
+	dht_dnssec_fetch_req_schedule(req, dht_dnssec_fetch_round(vhd, req));
 }
 
 /*
@@ -7020,7 +7187,6 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 		return 0;
 	}
 
-	/* the pending request's one completion covers this call too */
 	struct lws_dht_dnssec_fetch_req *req = NULL;
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&v->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *r = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
@@ -7031,76 +7197,32 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 		}
 	} lws_end_foreach_dll(d);
 
-	if (!req) {
-		req = calloc(1, sizeof(*req));
-		if (!req) return 1;
-		lws_strncpy(req->domain, args->domain, sizeof(req->domain));
-		if (args->cache_dir)
-			lws_strncpy(req->cache_dir, args->cache_dir, sizeof(req->cache_dir));
-		req->cb = args->cb;
-		req->opaque = args->opaque;
-		req->vhd = v;
-		lws_strncpy(req->target_hash, hex, sizeof(req->target_hash));
-		lws_dll2_add_tail(&req->list, &v->fetch_reqs);
+	/*
+	 * the pending request's one completion covers this call too, and its
+	 * rounds are already asking for the zone
+	 */
+	if (req)
+		return 0;
 
-		lws_sul_schedule(context, 0, &req->sul_timeout, dht_dnssec_sul_fetch_req_timeout, 15 * LWS_US_PER_SEC);
-	}
+	req = calloc(1, sizeof(*req));
+	if (!req)
+		return 1;
+	lws_strncpy(req->domain, args->domain, sizeof(req->domain));
+	if (args->cache_dir)
+		lws_strncpy(req->cache_dir, args->cache_dir, sizeof(req->cache_dir));
+	req->cb = args->cb;
+	req->opaque = args->opaque;
+	req->vhd = v;
+	lws_strncpy(req->target_hash, hex, sizeof(req->target_hash));
+	lws_dll2_add_tail(&req->list, &v->fetch_reqs);
 
-	char buf[256];
-	int sent = 0;
-	lws_dht_msg_gen(buf, sizeof(buf), "GET", hex, 0, 1024);
-
-	/* 1. Try known DHT peers from routing table (true DHT behavior) */
-	if (v->dht) {
-		struct sockaddr_in sin[32];
-		struct sockaddr_in6 sin6[32];
-		int num_v4 = 32, num_v6 = 32, i;
-
-		lws_dht_get_nodes(v->dht, sin, &num_v4, sin6, &num_v6);
-
-		for (i = 0; i < num_v4; i++) {
-			dht_dnssec_fetch_req_send(v, req,
-					(struct sockaddr *)&sin[i], buf);
-			sent++;
-		}
-#if defined(LWS_WITH_IPV6)
-		for (i = 0; i < num_v6; i++) {
-			dht_dnssec_fetch_req_send(v, req,
-					(struct sockaddr *)&sin6[i], buf);
-			sent++;
-		}
-#endif
-	}
-
-	/* 2. Fallback to bootstrap target_ip if configured (for clients/unbootstrapped nodes) */
-	if (v->dht && v->target_ip && v->target_ip[0] && v->target_port > 0) {
-		lws_sockaddr46 sa46;
-		if (lws_sa46_parse_numeric_address(v->target_ip, &sa46) == 0) {
-			sa46_sockport(&sa46, htons((uint16_t)v->target_port));
-			dht_dnssec_fetch_req_send(v, req,
-					(struct sockaddr *)&sa46, buf);
-			sent++;
-		} else {
-			struct addrinfo hints, *result;
-			memset(&hints, 0, sizeof(hints));
-			hints.ai_family = AF_INET;
-			if (getaddrinfo(v->target_ip, NULL, &hints, &result) == 0 && result) {
-				sa46.sa4 = *(struct sockaddr_in *)result->ai_addr;
-				sa46_sockport(&sa46, htons((uint16_t)v->target_port));
-				freeaddrinfo(result);
-
-				dht_dnssec_fetch_req_send(v, req,
-						(struct sockaddr *)&sa46, buf);
-				sent++;
-			}
-		}
-	}
-
-	if (!sent) {
-		lwsl_notice("%s: Couldn't completely find routing targets for GET %s\n", __func__, args->domain);
-		/* Note: The fetch request remains active and will retry or execute when nodes appear.
-		   Returning 0 here keeps the timeout active instead of instantly failing auth-dns! */
-	}
+	/*
+	 * With nobody to ask yet, the request stays, and its retries ask
+	 * whoever has appeared by then, rather than failing auth-dns at once
+	 */
+	req->target_due = 1;
+	req->next_retry = lws_now_usecs() + LWS_DHT_DNSSEC_FETCH_RETRY_US;
+	dht_dnssec_fetch_req_schedule(req, dht_dnssec_fetch_round(v, req));
 
 	return 0;
 }

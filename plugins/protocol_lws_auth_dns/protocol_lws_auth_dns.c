@@ -45,6 +45,15 @@
 
 /* absolute length caps on the two suspended-query queues */
 #define LWS_AUTH_DNS_MAX_PENDING_QUERIES	1024
+
+/*
+ * G-508: a query for a zone we don't hold starts a zone fetch from the DHT,
+ * and queries come over UDP from any (spoofable) source: new fetches are
+ * rate-limited, a burst of this many, refilled at one per this interval.
+ * A query for a zone already being fetched waits on that fetch.
+ */
+#define LWS_AUTH_DNS_DHT_FETCH_BURST		8
+#define LWS_AUTH_DNS_DHT_FETCH_REFILL_US	(500 * LWS_US_PER_MS)
 #define LWS_AUTH_DNS_MAX_PENDING_DNSBL		256
 
 /*
@@ -1010,6 +1019,10 @@ struct per_vhost_data__auth_dns {
 	 */
 	uint32_t pending_unique_domains;
 
+	/* G-508: token bucket for starting DHT zone fetches */
+	lws_usec_t dht_fetch_refilled;
+	unsigned int dht_fetch_tokens;
+
 	/*
 	 * G-289: UDP response rate limiting, per source network prefix.
 	 * rrl_rate 0 means it is off.
@@ -1909,6 +1922,41 @@ pending_query_detach(struct pending_dns_query *q)
 		vhd->pending_unique_domains--;
 
 	return others;
+}
+
+/*
+ * May a query start another DHT zone fetch now?  Takes a token if so.
+ * Nonzero if it may.
+ */
+
+static int
+auth_dns_dht_fetch_token(struct per_vhost_data__auth_dns *vhd)
+{
+	lws_usec_t now = lws_now_usecs();
+	lws_usec_t n;
+
+	if (!vhd->dht_fetch_refilled) {
+		vhd->dht_fetch_tokens = LWS_AUTH_DNS_DHT_FETCH_BURST;
+		vhd->dht_fetch_refilled = now;
+	}
+
+	n = (now - vhd->dht_fetch_refilled) / LWS_AUTH_DNS_DHT_FETCH_REFILL_US;
+	if (n > 0) {
+		if (n >= LWS_AUTH_DNS_DHT_FETCH_BURST ||
+		    vhd->dht_fetch_tokens + (unsigned int)n >=
+						LWS_AUTH_DNS_DHT_FETCH_BURST)
+			vhd->dht_fetch_tokens = LWS_AUTH_DNS_DHT_FETCH_BURST;
+		else
+			vhd->dht_fetch_tokens += (unsigned int)n;
+		vhd->dht_fetch_refilled += n * LWS_AUTH_DNS_DHT_FETCH_REFILL_US;
+	}
+
+	if (!vhd->dht_fetch_tokens)
+		return 0;
+
+	vhd->dht_fetch_tokens--;
+
+	return 1;
 }
 
 static void
@@ -2824,6 +2872,11 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 							    (unsigned int)vhd->pending_unique_domains, peer_ip);
 						goto send_refused;
 					}
+					if (!auth_dns_dht_fetch_token(vhd)) {
+						lwsl_info("dht zone fetches rate limited, from %s\n",
+							  peer_ip);
+						goto send_refused;
+					}
 				}
 
 				if (!is_already_fetching_ip) {
@@ -2874,6 +2927,10 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 				lws_dll2_add_tail(&pq->list, &vhd->pending_queries);
 				lws_sul_schedule(vhd->context, 0, &pq->sul_timeout, pending_query_timeout_cb, 5 * LWS_US_PER_SEC);
+
+				/* a query for a zone being fetched waits on that */
+				if (is_already_fetching_globally)
+					goto done;
 
 				struct lws_dht_dnssec_fetch_zone_args fza;
 				memset(&fza, 0, sizeof(fza));

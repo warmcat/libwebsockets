@@ -26,7 +26,13 @@ Zones come from two sources:
    vhost, queries for zones not currently in memory are suspended while the
    zone is fetched from the DHT and verified against the DNSSEC chain, then
    answered from the fetched zone.  DHT-fetched zones live in memory only;
-   they are never written into `zone-dir`.
+   they are never written into `zone-dir`.  A zone handed over from the DHT
+   is only installed if it has an `RRSIG` over its SOA and all its `RRSIG`s
+   are in their validity period, and it is held until the earliest expires.
+   Since queries arrive over UDP from any, possibly forged, source, a query
+   only starts a fetch if its zone is not already being fetched, and at most
+   8 fetches are started at once, then one per 500ms; a query over that is
+   answered `REFUSED` at once.
 
 Incoming queries are matched by `QNAME`, `QTYPE` and `QCLASS` against the loaded
 zones and answered `NOERROR` with the authoritative RRsets (and their `RRSIG`s

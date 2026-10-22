@@ -20,6 +20,7 @@
  * | 5 | good dir, but undecorated / short-suffix / group-writable / symlinked zone files | all loaded and served | only the properly shaped file loads, the rest answer REFUSED |
  * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them, and signed and in date (G-505) |
  * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
+ * | 7b | queries for 10 zones nobody serves, and another for the first (G-508) | a fetch started for each query | a fetch for each of the first 8 zones, the rest REFUSED, the other query waits on the first fetch |
  * | 8 | a zone with a delegation (G-246) | names at / below the cut answered authoritatively from the zone text | referred: no AA, the cut's NS in authority; only the DS at the cut answered |
  * | 9 | more zone files than cache-max-zones (G-290) | the surplus evicted at startup and its files unlinked | all served, every file still there |
  * | 10 | cache-max-zones 1, an operator zone and DHT-handed zones (G-290) | the operator zone evicted for a DHT zone and its file unlinked | the operator zone served and its file kept, the DHT zones evicting each other |
@@ -106,14 +107,16 @@ struct qexp {
 	int		got_nsc;
 };
 
-#define MAX_Q		8
+#define MAX_Q		12
 
 struct phase {
 	const char	*name;
 	const char	*zdir;		/* NULL: no zone-dir pvo */
 	int		check_port_free;
 	int		dht;		/* hand zones over as lws-dht-dnssec */
-	int		fetch;		/* take zone fetches as lws-dht-dnssec */
+	int		fetch;		/* take zone fetches as lws-dht-dnssec:
+					 * 1: one, given up with its query
+					 * 2: many, rate limited (G-508) */
 	const char	*cache_max;	/* "cache-max-zones" pvo, if any */
 	const char	*keep[4];	/* zdir files that must survive */
 	struct qexp	q[MAX_Q];
@@ -170,13 +173,20 @@ static struct {
 	int				pending;
 } zd_fetch;
 
-static int zd_fetch_starts, zd_fetch_completions, zd_fetch_status;
+static int zd_fetch_starts, zd_fetch_completions, zd_fetch_status,
+	   zd_fetch_calls;
+
+/*
+ * auth-dns starts at most a burst of this many zone fetches at once
+ * (LWS_AUTH_DNS_DHT_FETCH_BURST), then one per 500ms
+ */
+#define ZD_FETCH_BURST		8
 
 static void
 zd_fetch_reset(void)
 {
 	memset(&zd_fetch, 0, sizeof(zd_fetch));
-	zd_fetch_starts = zd_fetch_completions = 0;
+	zd_fetch_starts = zd_fetch_completions = zd_fetch_calls = 0;
 	zd_fetch_status = -100;
 }
 
@@ -210,6 +220,8 @@ zd_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *a)
 
 		return 0;
 	}
+
+	zd_fetch_calls++;
 
 	if (!a->domain)
 		goto refuse;
@@ -872,7 +884,22 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		 * the query was answered after its timeout: nothing waits for
 		 * the zone, so its fetch must be over, completed once
 		 */
-		if (cur->fetch) {
+		if (cur->fetch == 2) {
+			/*
+			 * each zone asked for once, the first queries' up to
+			 * the burst, the rest refused; a query for a zone
+			 * already being fetched waits on that fetch
+			 */
+			if (zd_fetch_calls < ZD_FETCH_BURST ||
+			    zd_fetch_calls > ZD_FETCH_BURST + 1) {
+				lwsl_err("phase '%s': FAIL %d fetches started, "
+					 "wanted %d\n", cur->name,
+					 zd_fetch_calls, ZD_FETCH_BURST);
+				phase_failed = 1;
+			} else
+				lwsl_user("phase '%s': %d fetches started\n",
+					  cur->name, zd_fetch_calls);
+		} else if (cur->fetch) {
 			if (zd_fetch_starts != 1 || zd_fetch.pending ||
 			    zd_fetch_completions != 1 ||
 			    zd_fetch_status != LWS_DHT_DNSSEC_FETCH_TIMEOUT) {
@@ -1094,6 +1121,30 @@ main(int argc, const char **argv)
 			.q		= {
 				/* REFUSED once its 5s wait for the zone ends */
 				{ "www.unserved.example", 0x1109, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+			}
+		}, {
+			/*
+			 * G-508: a spoofed query stream for zones nobody
+			 * serves must not start a DHT fetch each.  All are
+			 * REFUSED: those past the burst at once, the rest
+			 * when their wait for the zone ends.
+			 */
+			.name		= "query-driven zone fetches rate limited",
+			.zdir		= "good",
+			.fetch		= 2,
+			.q		= {
+				{ "www.rl1.example", 0x110d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl2.example", 0x120d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl3.example", 0x130d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl4.example", 0x140d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl5.example", 0x150d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl6.example", 0x160d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl7.example", 0x170d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl8.example", 0x180d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl9.example", 0x190d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl10.example", 0x1a0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				/* waits on the fetch the first one started */
+				{ "ftp.rl1.example", 0x1b0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "names at or below a zone cut referred",
