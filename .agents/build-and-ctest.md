@@ -166,6 +166,11 @@
    `LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS` on its vhost** (or
    give pvos): otherwise PROTOCOL_INIT never runs for them and plugins
    needing their per-vhost struct refuse every connection.
+ - **SS scratch programs hang at COLLECTING_STDIN** unless run with
+   `< /dev/null`.
+ - **fuzz-lhp's callback is a stub, so dlo layout is not fuzzed.**  A
+   layout harness needs a context in `ctx->user1` plus registered fonts,
+   or `lws_font_choose()` dereferences a NULL context.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
