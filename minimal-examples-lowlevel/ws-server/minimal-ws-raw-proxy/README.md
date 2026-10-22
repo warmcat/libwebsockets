@@ -48,6 +48,12 @@ raw client connection to 127.0.0.1:1234, and forward anything you type in the
 browser to the raw server, and anything typed in the raw server (you must
 press enter on netcat to get it sent) is proxied back to the browser.
 
+What the raw server sends is a byte stream, cut wherever the proxy's reads
+happened to end, and it need not be text at all, so the proxy passes it to the
+browser as BINARY ws messages, and the page decodes them as one UTF-8 stream.
+(A browser must fail its ws connection on a TEXT message that isn't valid
+UTF-8.)
+
 The proxy can handle many ws connections each with their individual onward
 raw client connections, so you could open multiple browser windows.  But you
 will need a better "raw server" than netcat, which is restricted to just the

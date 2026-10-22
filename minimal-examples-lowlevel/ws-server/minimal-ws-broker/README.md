@@ -24,3 +24,9 @@ The textarea shows the data from the subscription connection.
 If you type text is in the text box and press send, the text
 is passed to the broker on the publisher ws connection and
 sent to all subscribers.
+
+Each message is passed on whole, as the type (TEXT or BINARY) it was sent as,
+however it was fragmented on the way.  Messages up to 4096 bytes are passed
+on: a client sending a bigger one is closed with 1009 (Message Too Big), and
+a client sending a TEXT message that isn't valid UTF-8 is closed with 1007,
+and nothing of either is passed on.

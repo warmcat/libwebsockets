@@ -11,3 +11,11 @@
  */
 
 extern const struct lws_protocols wse_protocol_pmd_corner;
+extern const struct lws_protocols wse_protocol_chat;
+extern const struct lws_protocols wse_protocol_pmd;
+extern const struct lws_protocols wse_protocol_ring;
+extern const struct lws_protocols wse_protocol_broker;
+extern const size_t wse_max_message_chat;
+extern const size_t wse_max_message_pmd;
+extern const size_t wse_max_message_ring;
+extern const size_t wse_max_message_broker;

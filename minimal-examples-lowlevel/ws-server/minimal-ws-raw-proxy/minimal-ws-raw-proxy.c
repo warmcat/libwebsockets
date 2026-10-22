@@ -194,8 +194,17 @@ callback_proxy_ws_server(struct lws *wsi, enum lws_callback_reasons reason,
 				       proxy_msg_t, list);
 		data = (uint8_t *)&msg[1] + LWS_PRE;
 
-		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, data, msg->len, LWS_WRITE_TEXT);
+		/*
+		 * What the raw side sent us is a byte stream, cut wherever its
+		 * reads happened to end, so it is no kind of text message: it
+		 * may not be UTF-8 at all, or end partway through a character.
+		 * A browser must fail its connection on a TEXT message that is
+		 * not valid UTF-8, so pass it on as BINARY; the page decodes
+		 * the stream as UTF-8 itself.
+		 *
+		 * Notice we allowed for LWS_PRE in the payload already
+		 */
+		m = lws_write(wsi, data, msg->len, LWS_WRITE_BINARY);
 		a = (int)msg->len;
 		lws_dll2_remove(&msg->list);
 		free(msg);

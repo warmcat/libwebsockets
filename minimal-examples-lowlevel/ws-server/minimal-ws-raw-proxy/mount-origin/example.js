@@ -33,6 +33,13 @@ function new_ws(urlpath, protocol)
 document.addEventListener("DOMContentLoaded", function() {
 	
 	var ws = new_ws(get_appropriate_ws_url(""), "lws-ws-raw-ws");
+	/*
+	 * The proxy passes on what the raw server sends as BINARY messages,
+	 * cut wherever its reads ended, so decode them as one UTF-8 stream
+	 */
+	var decoder = new TextDecoder("utf-8");
+
+	ws.binaryType = "arraybuffer";
 	try {
 		ws.onopen = function() {
 			document.getElementById("m").disabled = 0;
@@ -41,7 +48,9 @@ document.addEventListener("DOMContentLoaded", function() {
 	
 		ws.onmessage =function got_packet(msg) {
 			document.getElementById("r").value =
-				document.getElementById("r").value + msg.data + "\n";
+				document.getElementById("r").value +
+				decoder.decode(new Uint8Array(msg.data),
+					       { stream: true });
 			document.getElementById("r").scrollTop =
 				document.getElementById("r").scrollHeight;
 		};

@@ -27,4 +27,10 @@ Visit http://localhost:7681 on multiple browser windows
 
 Text you type in any browser window is sent to all of them.
 
+Each message is passed on whole, as the type (TEXT or BINARY) it was sent as,
+however it was fragmented on the way.  Messages up to 4096 bytes are passed
+on: a client sending a bigger one is closed with 1009 (Message Too Big), and
+a client sending a TEXT message that isn't valid UTF-8 is closed with 1007,
+and nothing of either is passed on.
+
 For simplicity of this example, only one line of text is cached at the server.

@@ -6,7 +6,7 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-api-test-ws-server-examples)
-set(SRCS main.c ex-pmd-corner.c)
+set(SRCS main.c ex-pmd-corner.c ex-chat.c ex-pmd.c ex-ring.c ex-broker.c)
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_WS 1 requirements)

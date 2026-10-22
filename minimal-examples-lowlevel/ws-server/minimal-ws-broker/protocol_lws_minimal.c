@@ -23,6 +23,12 @@
  * connections as being in publisher or subscriber mode according to the URL the ws
  * connection was made to.  ws connections to "/publisher" URL are understood to be
  * publishing data and to any other URL, subscribing.
+ *
+ * A RECEIVE callback is not a message: a message may arrive in several
+ * fragments, and a fragment bigger than the rx buffer arrives in several
+ * pieces, any of which may end partway through a UTF-8 character.  So we
+ * collect the pieces of each message for each connection, and only pass on
+ * whole messages, as the type (TEXT or BINARY) they were sent as.
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
@@ -33,11 +39,18 @@
 
 #include <string.h>
 
+/*
+ * The largest message we will collect and pass on.  A client sending anything
+ * bigger is closed with 1009 (Message Too Big), and none of it is passed on.
+ */
+#define MINIMAL_MAX_MESSAGE 4096
+
 /* one of these created for each message */
 
 struct msg {
 	void *payload; /* is malloc'd */
 	size_t len;
+	char binary; /* pass it on as a BINARY message, else TEXT */
 };
 
 /* one of these is created for each client connecting to us */
@@ -45,6 +58,8 @@ struct msg {
 struct per_session_data__minimal {
 	struct per_session_data__minimal *pss_list;
 	struct lws *wsi;
+	uint8_t *rx; /* LWS_PRE + message being collected, or NULL */
+	size_t rx_len; /* bytes of message in rx after LWS_PRE */
 	uint32_t tail;
 	char publishing; /* nonzero: peer is publishing to us */
 };
@@ -71,6 +86,72 @@ __minimal_destroy_message(void *_msg)
 	free(msg->payload);
 	msg->payload = NULL;
 	msg->len = 0;
+}
+
+static void
+minimal_rx_discard(struct per_session_data__minimal *pss)
+{
+	free(pss->rx);
+	pss->rx = NULL;
+	pss->rx_len = 0;
+}
+
+/*
+ * Add this piece to the message the connection is sending us.  Returns 0 if
+ * it was taken (lws_is_final_fragment() says if the message is complete now),
+ * or -1 if the connection must be closed, with the close reason already set.
+ */
+
+static int
+minimal_rx_collect(struct lws *wsi, struct per_session_data__minimal *pss,
+		   const void *in, size_t len)
+{
+	uint8_t *p;
+
+	if (len > MINIMAL_MAX_MESSAGE - pss->rx_len) {
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE,
+				 (uint8_t *)"too large", 9);
+		return -1;
+	}
+
+	/* notice we over-allocate by LWS_PRE */
+	p = realloc(pss->rx, LWS_PRE + pss->rx_len + len);
+	if (!p) {
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_UNEXPECTED_CONDITION,
+				 (uint8_t *)"oom", 3);
+		return -1;
+	}
+	pss->rx = p;
+	if (len)
+		memcpy(pss->rx + LWS_PRE + pss->rx_len, in, len);
+	pss->rx_len += len;
+
+	return 0;
+}
+
+/*
+ * The whole message is here.  We are about to send it on to other people's
+ * browsers, which must fail their connection on a TEXT message that is not
+ * valid UTF-8.  lws checks TEXT only if the vhost asked it to, so make sure.
+ * Returns 0 if it can be passed on, or -1 if the connection must be closed,
+ * with the close reason already set.
+ */
+
+static int
+minimal_rx_check(struct lws *wsi, struct per_session_data__minimal *pss)
+{
+	unsigned char st = 0;
+
+	if (lws_frame_is_binary(wsi))
+		return 0;
+
+	if (lws_check_utf8(&st, pss->rx + LWS_PRE, pss->rx_len) || st) {
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+				 (uint8_t *)"bad utf8", 8);
+		return -1;
+	}
+
+	return 0;
 }
 
 static int
@@ -123,6 +204,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		/* remove our closing pss from the list of live pss */
 		lws_ll_fwd_remove(struct per_session_data__minimal, pss_list,
 				  pss, vhd->pss_list);
+		/* drop any partial message we were collecting */
+		minimal_rx_discard(pss);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -136,7 +219,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* notice we allowed for LWS_PRE in the payload already */
 		m = lws_write(wsi, ((unsigned char *)pmsg->payload) + LWS_PRE,
-			      pmsg->len, LWS_WRITE_TEXT);
+			      pmsg->len, pmsg->binary ?
+					LWS_WRITE_BINARY : LWS_WRITE_TEXT);
 		if (m < (int)pmsg->len) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;
@@ -163,28 +247,39 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->publishing)
 			break;
 
+		if (minimal_rx_collect(wsi, pss, in, len))
+			return -1;
+
+		if (!lws_is_final_fragment(wsi))
+			/* wait for the rest of the message */
+			break;
+
+		if (minimal_rx_check(wsi, pss))
+			return -1;
+
 		/*
 		 * For test, our policy is ignore publishing when there are
 		 * no subscribers connected.
 		 */
-		if (!vhd->pss_list)
+		if (!vhd->pss_list) {
+			minimal_rx_discard(pss);
 			break;
+		}
 
 		n = (int)lws_ring_get_count_free_elements(vhd->ring);
 		if (!n) {
+			minimal_rx_discard(pss);
 			lwsl_user("dropping!\n");
 			break;
 		}
 
-		amsg.len = len;
-		/* notice we over-allocate by LWS_PRE */
-		amsg.payload = malloc(LWS_PRE + len);
-		if (!amsg.payload) {
-			lwsl_user("OOM: dropping\n");
-			break;
-		}
+		/* the collected message becomes the ring element payload */
+		amsg.payload = pss->rx;
+		amsg.len = pss->rx_len;
+		amsg.binary = (char)lws_frame_is_binary(wsi);
+		pss->rx = NULL;
+		pss->rx_len = 0;
 
-		memcpy((char *)amsg.payload + LWS_PRE, in, len);
 		if (!lws_ring_insert(vhd->ring, &amsg, 1)) {
 			__minimal_destroy_message(&amsg);
 			lwsl_user("dropping 2!\n");
