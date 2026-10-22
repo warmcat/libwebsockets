@@ -8,6 +8,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Bug classes worth hunting for
 
+ - **SMP (`LWS_MAX_SMP > 1`) is lightly exercised and has live races.**
+   `lws_sul_cancel()` takes no lock, and the owning thread schedules under
+   only its pt lock, so "another pt's timer is touched under the context
+   lock" doesn't exclude the owner (G-526: async DNS answer handled on
+   another thread unlinks pt 0's timers).  Rule: a thread holding a pt
+   lock never takes the context lock; G-522 and G-527 break it.  A scratch
+   lock-order checker (per-thread held counters, flags a cx take under a
+   pt lock) found G-527 at once and is worth re-creating for SMP work.
+   `lws_client_connect_via_info()` asserts in SMP when called from a
+   non-service thread.
  - **FreeRTOS builds force `LWS_MAX_SMP 1`, so `lws_pt_lock()` and
    `lws_context_lock()` compile to nothing there.**  esp-idf event
    handlers, the timer daemon and ISRs run outside the lws thread and
