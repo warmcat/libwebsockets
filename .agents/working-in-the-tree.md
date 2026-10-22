@@ -115,6 +115,9 @@ sessions.
  - **Copying `git diff --name-only` output from the shared tree into a
    worktree pulls in other agents' half-done edits.**  Copy explicit
    paths of your own files only.
+ - **If someone commits to a file you are about to commit from, mid-phase**,
+   check their hunks are still present in your commit (eg grep counts at
+   both commits) before trusting the temp-index commit.
  - **Another fixer's hunks can appear mid-phase in a file that was not on
    their list.**  Diff each file against what you tested just before
    committing, and if a make fails partway, rebuild before trusting the

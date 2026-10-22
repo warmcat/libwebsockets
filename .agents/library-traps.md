@@ -682,6 +682,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    a resend from the handler is QUEUED.  A consumer that fans out
    (eg a dht-dnssec zone fetch, up to 65 hosts) must handle REFUSED
    (G-508).
+ - **Strangers (peer spoke first, not a good routing node at that
+   endpoint) may hold at most `LWS_DHT_TS_STRANGERS_MAX` (32 of 64)
+   sequencers**, and the oldest stranger gives way after 10s even in use
+   (G-525, f2d0358bd).
 
  - **Session model (G-133 / G-141):** a receive half binds to the tid of
    the first chunk it takes; only that tid feeds it and our acks echo it.
