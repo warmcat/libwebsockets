@@ -1977,6 +1977,21 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 		case LWS_CALLBACK_CLIENT_RECEIVE:
 		case LWS_CALLBACK_RECEIVE:
 			lwsl_debug("%s: LWS_CALLBACK_RECEIVE: len %d\n", __func__, (int)len);
+			/*
+			 * The offer / answer handling parses one RECEIVE as one
+			 * whole message.  It is not one when the peer fragments
+			 * it or it is bigger than the rx buffer: then each piece
+			 * may begin or end inside a JSON member or a UTF-8
+			 * sequence.  Browsers send each signalling message as
+			 * one frame well inside the rx buffer, so ignore any
+			 * message that arrives in pieces, all of them.
+			 */
+			if (!lws_is_first_fragment(wsi) ||
+			    !lws_is_final_fragment(wsi)) {
+				lwsl_info("%s: ignoring piece of a fragmented message\n",
+					  __func__);
+				break;
+			}
 			if (len > 0) {
 				char dump[64];
 				size_t l = len > 63 ? 63 : len;

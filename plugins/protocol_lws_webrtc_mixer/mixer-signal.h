@@ -90,6 +90,17 @@ int
 mixer_text_ok(const char *s, size_t len);
 
 /*
+ * Is a peer's capabilities message fit to keep?  The mixer stores the
+ * message verbatim and relays it to the room controller in ws TEXT frames,
+ * then again each time a controller joins, so it must be one whole message
+ * (the caller drops the pieces of a fragmented one), no bigger than `max`,
+ * hold a "controls" member and pass mixer_text_ok().  Returns 0 and sets
+ * *is_audio from its "kind" member, or -1 if it may not be kept.
+ */
+int
+mixer_caps_ok(const char *in, size_t len, size_t max, int *is_audio);
+
+/*
  * Copy a JSON string value that lws_json_simple_find() returned into a
  * bounded destination.  Returns 0 only if a non-empty value that fits and
  * passes mixer_text_ok() was copied and NUL-terminated.

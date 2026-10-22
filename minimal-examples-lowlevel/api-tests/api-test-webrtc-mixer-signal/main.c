@@ -30,6 +30,10 @@
  *
  *  - mixer_json_str() takes valid UTF-8 values and refuses invalid, partial
  *    or NUL-holding ones, empty ones and ones that do not fit
+ *  - mixer_caps_ok() keeps a capabilities message whole, of either kind, but
+ *    refuses one cut mid-character at either end (as a piece of a fragmented
+ *    message may be), holding a NUL or invalid UTF-8, without "controls",
+ *    empty, or bigger than the limit
  *  - a list composed with mixer_json_list_add() from names full of multibyte
  *    characters, into every buffer size, is always complete JSON and valid
  *    UTF-8, holding as many whole entries as fit
@@ -328,6 +332,81 @@ test_text(void)
 	return 0;
 }
 
+/*
+ * A capabilities message as the browser sends it, with U+20AC (e2 82 ac) in
+ * a label before "controls" and in a control name after it, so a piece cut
+ * inside either still holds "controls"
+ */
+static const char caps[] =
+	"{\"type\":\"capabilities\",\"kind\":\"video\","
+	"\"label\":\"Cam \xe2\x82\xac\",\"controls\":"
+	"[{\"id\":\"9963776\",\"name\":\"Brightness \xe2\x82\xac\","
+	"\"min\":0,\"max\":255}]}";
+
+static int
+test_caps(void)
+{
+	static const char audio[] =
+		"{\"type\":\"capabilities\",\"kind\":\"audio\","
+		"\"controls\":[]}";
+	static const char nocontrols[] =
+		"{\"type\":\"capabilities\",\"kind\":\"video\"}";
+	const char *euro1 = strchr(caps, '\xe2'), *euro2;
+	size_t l = sizeof(caps) - 1, cut;
+	char buf[sizeof(caps)];
+	int is_audio = 2;
+
+	if (!euro1 || !(euro2 = strchr(euro1 + 1, '\xe2')))
+		return 1;
+
+	if (mixer_caps_ok(caps, l, l, &is_audio) || is_audio ||
+	    mixer_caps_ok(audio, sizeof(audio) - 1, 2048, &is_audio) ||
+	    !is_audio) {
+		lwsl_err("%s: refused whole message\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * Pieces of the message cut inside a euro sign, as a fragmented
+	 * message may be delivered: ending after its first or second byte,
+	 * or starting at its second or third
+	 */
+	for (cut = 1; cut <= 2; cut++) {
+		size_t end = (size_t)(euro2 - caps) + cut,
+		       start = (size_t)(euro1 - caps) + cut;
+
+		if (!mixer_caps_ok(caps, end, l, &is_audio) ||
+		    !mixer_caps_ok(caps + start, l - start, l, &is_audio)) {
+			lwsl_err("%s: accepted a piece cut at %d\n", __func__,
+				 (int)cut);
+			return 1;
+		}
+	}
+
+	/* a NUL, then invalid UTF-8, in place of the euro sign's last byte */
+	memcpy(buf, caps, sizeof(caps));
+	buf[euro2 - caps + 2] = '\0';
+	if (!mixer_caps_ok(buf, l, l, &is_audio)) {
+		lwsl_err("%s: accepted a NUL\n", __func__);
+		return 1;
+	}
+	buf[euro2 - caps + 2] = 'x';
+	if (!mixer_caps_ok(buf, l, l, &is_audio)) {
+		lwsl_err("%s: accepted invalid UTF-8\n", __func__);
+		return 1;
+	}
+
+	if (!mixer_caps_ok(nocontrols, sizeof(nocontrols) - 1, 2048,
+			   &is_audio) ||
+	    !mixer_caps_ok(caps, 0, l, &is_audio) ||
+	    !mixer_caps_ok(caps, l, l - 1, &is_audio)) {
+		lwsl_err("%s: limits\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
 static signed char
 list_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -522,6 +601,7 @@ main(int argc, const char **argv)
 
 	result("limits", test_limits());
 	result("text", test_text());
+	result("caps", test_caps());
 	result("list", test_list());
 	result("gate", test_gate());
 

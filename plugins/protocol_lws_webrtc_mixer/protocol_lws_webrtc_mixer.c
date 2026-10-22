@@ -927,6 +927,24 @@ est_fail:
 
 				// lwsl_notice("%s: RECEIVE (len %zu)\n", __func__, len);
 
+				/*
+				 * Everything below, and lws-webrtc's own
+				 * signalling, parses one RECEIVE as one whole
+				 * message.  It is not one when the peer
+				 * fragments it or it is bigger than the rx
+				 * buffer: then each piece may begin or end
+				 * inside a JSON member or a UTF-8 sequence.
+				 * Browsers send each signalling message as one
+				 * frame well inside the rx buffer, so drop any
+				 * message that arrives in pieces, all of them.
+				 */
+				if (!lws_is_first_fragment(wsi) ||
+				    !lws_is_final_fragment(wsi)) {
+					lwsl_info("%s: dropping piece of a fragmented message\n",
+						  __func__);
+					break;
+				}
+
 				n = we_ops->shared_callback(wsi, reason, user, in, len, vhd->vhd);
 
 				if (p && p->session && we_ops && we_ops->get_video_pt) {
@@ -947,22 +965,20 @@ est_fail:
 					is_capabilities = 1;
 
 				if (is_capabilities) {
-					/* Store the raw JSON blob of capabilities for this participant */
-					v = lws_json_simple_find((const char *)in, len, "\"controls\":", &al);
-					if (!v) {
-						lwsl_err("%s: 'controls' key not found in capabilities message\n", __func__);
-					} else if (len > MIXER_MAX_CAPS_LEN) {
-						/*
-						 * We keep one of these per participant per kind
-						 * and relay it, so it has to be bounded well
-						 * below the 32KB rx_buffer_size.
-						 */
-						lwsl_warn("%s: capabilities blob of %zu too big, dropped\n",
-								__func__, len);
+					int is_audio;
+
+					/*
+					 * Store the raw JSON blob of capabilities for
+					 * this participant.  We keep one per kind and
+					 * relay it, so it has to be bounded well below
+					 * the 32KB rx_buffer_size, and fit to go out in
+					 * a TEXT frame as it is.
+					 */
+					if (mixer_caps_ok((const char *)in, len,
+							  MIXER_MAX_CAPS_LEN, &is_audio)) {
+						lwsl_warn("%s: unusable capabilities message (%zu) from '%s'\n",
+								__func__, len, p->id);
 					} else {
-						size_t kl;
-						const char *kind = lws_json_simple_find((const char *)in, len, "\"kind\":", &kl);
-						int is_audio = (kind && kl == 5 && !strncmp(kind, "audio", 5));
 						char **target_cap = is_audio ? &p->capabilities_audio : &p->capabilities_video;
 
 						if (*target_cap) free(*target_cap);

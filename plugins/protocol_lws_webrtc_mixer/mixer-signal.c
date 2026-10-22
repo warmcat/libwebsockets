@@ -274,6 +274,22 @@ mixer_text_ok(const char *s, size_t len)
 }
 
 int
+mixer_caps_ok(const char *in, size_t len, size_t max, int *is_audio)
+{
+	const char *kind;
+	size_t al;
+
+	if (!in || !len || len > max || !mixer_text_ok(in, len) ||
+	    !lws_json_simple_find(in, len, "\"controls\":", &al))
+		return -1;
+
+	kind = lws_json_simple_find(in, len, "\"kind\":", &al);
+	*is_audio = kind && al == 5 && !strncmp(kind, "audio", 5);
+
+	return 0;
+}
+
+int
 mixer_json_str(char *dest, size_t dest_len, const char *v, size_t al)
 {
 	/*
