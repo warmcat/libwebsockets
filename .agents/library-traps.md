@@ -563,6 +563,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - A body-carrying SS method with a tx callback but no known length is
    sent chunked on h1.
 
+## lhp (html / css)
+
+ - **Every loop over document css data counts in `ctx->cascade_ops`**,
+   and the work and heap limits all end through `lhp_css_doc_spent()`
+   (G-090, G-488, G-520..G-524).  A new loop needs a count and an entry
+   in the per-loop bounds comment block in lhp.c, or it becomes the next
+   bypass.  Still open: the css kept before the cut-off is bounded only by
+   input size (G-089).
+
 ## lejp
 
  - Since 2021, element paths of a scalar array `x` are `x[]`, which never

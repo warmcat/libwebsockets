@@ -2,6 +2,9 @@
 
 ## The build tree is not what you think
 
+ - **`<build>/include/libwebsockets/` is a copy made at configure time**:
+   new header fields never reach it.  Hand-compiling a test with only
+   `-I <build>/include` fails on them; put `-I include` first.
  - **Stale in-source `include/lws_config.h`.**  An in-source `cmake .`
    leaves `CMakeCache.txt` in the source root and generates
    `include/lws_config.h` there.  `-I<src>/include` comes before
