@@ -25,9 +25,21 @@
  *    only `in_cb` keeps the sequencer from being recycled (G-519)
  *
  *  - each of the 63 later fails visibly, with LWS_DHT_EVENT_WRITE_FAILED,
- *    and once they are gone, a message to P is taken again
+ *    and once they are gone, a message to P is taken again.  B's handler
+ *    resends the first failed message: it is taken, on a new session, not
+ *    lost in the one that failed, and fails in its turn
  *
- * Nothing listens on the fan port, at 127.0.1.1 and up.  The UDP ports are
+ *  - 64 raw peers on 127.0.0.4 - .7 each prove a session with B, answering
+ *    its challenge, and then keep resending that chunk.  A newcomer's first
+ *    chunk right after is dropped unanswered: the sessions have just brought
+ *    data.  But the duplicates are not progress: a few seconds later, a
+ *    second newcomer's first chunk takes the slot of one of the idle
+ *    sessions and is challenged, and B's message to a new peer is taken
+ *    (G-518)
+ *
+ * Loopback addresses count as separate hosts, so the 4 sessions per host
+ * limit doesn't apply here.  Nothing listens on the fan port, at 127.0.1.1
+ * and up.  The UDP ports are
  * allocated uniquely at build time and passed in on the command line, so
  * parallel ctest instances do not collide.
  *
@@ -40,11 +52,17 @@
 #include <signal.h>
 
 #define FL_POLL_US	(50 * LWS_US_PER_MS)
-#define FL_DEADLINE_US	(15 * LWS_US_PER_SEC)
+#define FL_DEADLINE_US	(20 * LWS_US_PER_SEC)
 
 #define FL_MAX_TS	64	/* LWS_DHT_MAX_TS */
 #define FL_SPOOFERS	70	/* first chunks, from two hosts */
 #define FL_SETTLE_US	(150 * LWS_US_PER_MS)
+#define FL_HOLDERS	64	/* peers holding proven sessions */
+#define FL_DUP_US	(250 * LWS_US_PER_MS)	/* how often they resend */
+#define FL_PROTECT_US	(400 * LWS_US_PER_MS)
+/* LWS_DHT_TS_RX_GRACE_US, and some */
+#define FL_GRACE_US	(3500 * LWS_US_PER_MS)
+#define FL_CH_LEN	8	/* B's session challenge */
 
 enum {
 	FL_SEND,	/* B queues a message to P */
@@ -53,15 +71,21 @@ enum {
 	FL_COMPLETE,	/* P acked: B's message to it must complete */
 	FL_FENCE,	/* P acks a second, and B sends from its handler */
 	FL_FAIL_ALL,	/* the silent peers' sessions all fail, visibly */
+	FL_P_DONE,	/* P has acked a third message: nothing outstanding */
+	FL_HOLD,	/* the holders prove their sessions */
+	FL_PROTECT,	/* a newcomer is refused: the sessions just had data */
+	FL_GRACE,	/* the holders only resend, then another newcomer... */
+	FL_NEWCOMER,	/* ... must be challenged */
 };
 
 static struct lws_context *cx;
 static struct lws_dht_ctx *dht;
-static struct lws *wsi_p, *wsi_spoof[FL_SPOOFERS];
+static struct lws *wsi_p, *wsi_spoof[FL_SPOOFERS], *wsi_hold[FL_HOLDERS],
+		  *wsi_new[2];
 static struct sockaddr_in sa_dht, sa_p, sa_fan, sa_spoof[FL_SPOOFERS];
-static lws_sorted_usec_list_t sul_poll, sul_deadline;
+static lws_sorted_usec_list_t sul_poll, sul_deadline, sul_dup;
 static int state, retcode = 1, port_fan;
-static lws_usec_t flood_time;
+static lws_usec_t flood_time, hold_time;
 static uint8_t msg[512];
 
 static struct {
@@ -70,8 +94,13 @@ static struct {
 	int		silent_failed;
 	int		p_completed;	/* B's messages to P that completed */
 	int		fence_r;	/* B's send from P's WRITE_COMPLETED */
+	int		resend_r;	/* ...and from a WRITE_FAILED */
+	unsigned int	resent:1;
 	unsigned int	fence_done:1;
 	unsigned int	p_failed:1;
+	uint8_t		proven[FL_HOLDERS];	/* B acked its chunk */
+	int		held;			/* holders proven */
+	uint8_t		new_ch[2];		/* B challenged newcomer */
 } fl;
 
 static void fl_silent(int i, struct sockaddr_in *sin);
@@ -106,8 +135,15 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 	case LWS_DHT_EVENT_WRITE_FAILED:
 		if (fl_is(from, &sa_p))
 			fl.p_failed = 1;
-		if (fl_is_silent(from))
-			fl.silent_failed++;
+		if (!fl_is_silent(from))
+			break;
+		fl.silent_failed++;
+		if (!fl.resent) {
+			/* the consumer tries its failed message again */
+			fl.resent = 1;
+			fl.resend_r = lws_dht_send_data(dht, from, msg,
+							sizeof(msg));
+		}
 		break;
 	case LWS_DHT_EVENT_WRITE_COMPLETED:
 		if (!fl_is(from, &sa_p))
@@ -232,19 +268,99 @@ fl_spoof(int i)
 	return fl_sendto(wsi_spoof[i], q, (size_t)n);
 }
 
+/*
+ * The first chunk of holder or newcomer i's session, carrying B's challenge
+ * ch when it has one to answer
+ */
+
+static int
+fl_chunk(struct lws *wsi, int i, const uint8_t *ch)
+{
+	char q[192];
+	size_t l;
+	int n;
+
+	memcpy(q, "d1:ad", 5);
+	l = 5;
+	if (ch) {
+		memcpy(q + l, "2:ch8:", 6);
+		memcpy(q + l + 6, ch, FL_CH_LEN);
+		l += 6 + FL_CH_LEN;
+	}
+	n = lws_snprintf(q + l, sizeof(q) - l, "4:data4:hold2:id20:"
+			 "holder-%013d3:leni4e6:offseti0ee"
+			 "1:q4:data1:t10:sq%08d1:y1:qe", i, i);
+	if (n <= 0 || (size_t)n >= sizeof(q) - l)
+		return 1;
+
+	return fl_sendto(wsi, q, l + (size_t)n);
+}
+
+/* B's reply to a holder or newcomer: a challenge, or an ack */
+
+static void
+fl_hold_rx(struct lws *wsi, const uint8_t *buf, size_t len)
+{
+	int i;
+
+	for (i = 0; i < 2; i++)
+		if (wsi == wsi_new[i]) {
+			if (fl_find(buf, len, "d1:rd2:ch8:") == 0)
+				fl.new_ch[i] = 1;
+			return;
+		}
+
+	for (i = 0; i < FL_HOLDERS; i++)
+		if (wsi == wsi_hold[i])
+			break;
+	if (i == FL_HOLDERS)
+		return;
+
+	if (fl_find(buf, len, "d1:rd2:ch8:") == 0 &&
+	    len >= 11 + FL_CH_LEN) {
+		if (!fl.proven[i])
+			fl_chunk(wsi, i, buf + 11);
+		return;
+	}
+
+	if (fl_find(buf, len, "6:offseti4e") >= 0 && !fl.proven[i]) {
+		fl.proven[i] = 1;
+		fl.held++;
+	}
+}
+
+/* the holders resend the chunk B has already taken from each */
+
+static void
+dup_cb(lws_sorted_usec_list_t *sul)
+{
+	int i;
+
+	for (i = 0; i < FL_HOLDERS; i++)
+		if (fl.proven[i])
+			fl_chunk(wsi_hold[i], i, NULL);
+
+	lws_sul_schedule(cx, 0, &sul_dup, dup_cb, FL_DUP_US);
+}
+
 static int
 cb_peer(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	void *in, size_t len)
 {
 	const struct lws_udp *udp;
 
-	if (reason != LWS_CALLBACK_RAW_RX || wsi != wsi_p)
+	if (reason != LWS_CALLBACK_RAW_RX)
 		return 0;
 
 	udp = lws_get_udp(wsi);
-	if (udp && udp->sa46.sa4.sin_family == AF_INET &&
-	    udp->sa46.sa4.sin_port == sa_dht.sin_port)
+	if (!udp || udp->sa46.sa4.sin_family != AF_INET ||
+	    udp->sa46.sa4.sin_port != sa_dht.sin_port)
+		return 0;
+
+	if (wsi == wsi_p)
 		fl_p_rx(in, len);
+	else
+		fl_hold_rx(wsi, in, len);
 
 	return 0;
 }
@@ -379,18 +495,90 @@ step(void)
 		return 0;
 
 	case FL_FAIL_ALL:
-		if (fl.silent_failed < FL_MAX_TS - 1)
-			return 0;
-		if (fl.silent_failed != FL_MAX_TS - 1) {
-			lwsl_err("%d failures for %d sessions\n",
-				 fl.silent_failed, FL_MAX_TS - 1);
+		if (fl.resent && fl.resend_r != LWS_DHT_SEND_QUEUED) {
+			lwsl_err("message resent from WRITE_FAILED: %d\n",
+				 fl.resend_r);
 			return -1;
 		}
-		lwsl_user("all %d silent peers' messages reported failed\n",
-			  FL_MAX_TS - 1);
+		/* the 63, and the one resent */
+		if (fl.silent_failed < FL_MAX_TS)
+			return 0;
+		if (fl.silent_failed != FL_MAX_TS) {
+			lwsl_err("%d failures for %d sessions\n",
+				 fl.silent_failed, FL_MAX_TS);
+			return -1;
+		}
+		lwsl_user("all %d silent peers' messages, and the one resent, "
+			  "reported failed\n", FL_MAX_TS - 1);
 		if (lws_dht_send_data(dht, (struct sockaddr *)&sa_p, msg,
 				      sizeof(msg)) != LWS_DHT_SEND_QUEUED) {
 			lwsl_err("P refused once the table emptied\n");
+			return -1;
+		}
+		if (fl_p_send_ack(3 * sizeof(msg)))
+			return -1;
+		state++;
+		return 0;
+
+	case FL_P_DONE:
+		if (fl.p_failed) {
+			lwsl_err("P's session failed\n");
+			return -1;
+		}
+		if (fl.p_completed != 3)
+			return 0;
+		for (n = 0; n < FL_HOLDERS; n++)
+			if (fl_chunk(wsi_hold[n], n, NULL))
+				return -1;
+		lws_sul_schedule(cx, 0, &sul_dup, dup_cb, FL_DUP_US);
+		state++;
+		return 0;
+
+	case FL_HOLD:
+		if (fl.held != FL_HOLDERS)
+			return 0;
+		lwsl_user("%d peers hold proven sessions\n", fl.held);
+		hold_time = lws_now_usecs();
+		if (fl_chunk(wsi_new[0], FL_HOLDERS, NULL))
+			return -1;
+		state++;
+		return 0;
+
+	case FL_PROTECT:
+		if (lws_now_usecs() - hold_time < FL_PROTECT_US)
+			return 0;
+		if (fl.new_ch[0]) {
+			lwsl_err("a newcomer took the slot of a session that "
+				 "just had data\n");
+			return -1;
+		}
+		lwsl_user("newcomer refused while the sessions had data\n");
+		state++;
+		return 0;
+
+	case FL_GRACE:
+		if (lws_now_usecs() - hold_time < FL_GRACE_US)
+			return 0;
+		if (fl_chunk(wsi_new[1], FL_HOLDERS + 1, NULL))
+			return -1;
+		flood_time = lws_now_usecs();
+		state++;
+		return 0;
+
+	case FL_NEWCOMER:
+		if (!fl.new_ch[1]) {
+			if (lws_now_usecs() - flood_time < LWS_US_PER_SEC)
+				return 0;
+			lwsl_err("sessions only resending still hold every "
+				 "slot\n");
+			return -1;
+		}
+		lwsl_user("newcomer challenged after the sessions went "
+			  "idle\n");
+		fl_silent(FL_MAX_TS, &sin);
+		if (lws_dht_send_data(dht, (struct sockaddr *)&sin, msg,
+				      sizeof(msg)) != LWS_DHT_SEND_QUEUED) {
+			lwsl_err("send to a new peer refused\n");
 			return -1;
 		}
 		return 1;
@@ -541,6 +729,26 @@ int main(int argc, const char **argv)
 			goto bail;
 		}
 	}
+
+	/* the holders, 16 to a loopback address, and the newcomers */
+	for (n = 0; n < FL_HOLDERS + 2; n++) {
+		char ads[16];
+		struct lws *w;
+
+		lws_snprintf(ads, sizeof(ads), "127.0.0.%d",
+			     n < FL_HOLDERS ? 4 + (n & 3) : 8 + n - FL_HOLDERS);
+		w = lws_create_adopt_udp(vh, ads, 0, LWS_CAUDP_BIND,
+					 protocols[1].name, NULL, NULL, NULL,
+					 NULL, "fl-hold");
+		if (!w) {
+			lwsl_err("raw udp socket creation failed\n");
+			goto bail;
+		}
+		if (n < FL_HOLDERS)
+			wsi_hold[n] = w;
+		else
+			wsi_new[n - FL_HOLDERS] = w;
+	}
 	n = 0;
 
 	lws_sul_schedule(cx, 0, &sul_deadline, deadline_cb, FL_DEADLINE_US);
@@ -554,6 +762,7 @@ int main(int argc, const char **argv)
 bail:
 	lws_sul_cancel(&sul_poll);
 	lws_sul_cancel(&sul_deadline);
+	lws_sul_cancel(&sul_dup);
 	lws_context_destroy(cx);
 
 	return retcode;

@@ -87,6 +87,12 @@
 /* proven receive sessions one source host may hold in that table (G-496) */
 #define LWS_DHT_TS_SESSIONS_PER_HOST	4
 /*
+ * a proven receive session is in use for this long after it last brought new
+ * data, then it can be recycled if the table is full (G-518).  A sender gives
+ * up after ~1s without an ack, so a live transfer progresses well within it.
+ */
+#define LWS_DHT_TS_RX_GRACE_US		(3 * LWS_US_PER_SEC)
+/*
  * per storage object: cap subscribers, the subscribers from one source (see
  * dht_source_key()), and peers announced by one source ip
  */
@@ -499,6 +505,8 @@ typedef struct lws_dht_ts {
 	 * call (G-181), see dht_ts_create()
 	 */
 	uint8_t				in_cb;
+	/* when the peer's session last brought new data, see dht_ts_in_use() */
+	lws_usec_t			rx_progress;
 	uint8_t				tx_ch_set:1;
 	/* DIAGNOSTIC (temporary): the peer's address, for the logs */
 	char				peer[64];

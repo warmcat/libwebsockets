@@ -18,9 +18,11 @@
  *
  *  - none of those 63 endpoints answer, so B's sends to them fail.  When
  *    the last one is reported failed, B's event callback sends to 64 more
- *    new endpoints.  B makes 62: the other two are Q's, whose proven session
- *    is in use, and the one reporting its failure, which must survive the
- *    callback, to be destroyed once, by the DHT, after it
+ *    new endpoints.  The one reporting its failure has left the table, so
+ *    that a resend to its peer would start a new session, but it must
+ *    survive the callback, to be destroyed once, by the DHT, after it.  B
+ *    makes 63, or 64 if Q's session has been idle long enough by then to be
+ *    recycled (G-518)
  *
  * Run under ASan, the old behaviour shows as a heap use-after-free (or a
  * double free) inside the DHT.
@@ -819,7 +821,7 @@ int main(int argc, const char **argv)
 		lwsl_err("B did not ack Q's FAN chunk properly\n");
 		retcode = 1;
 	}
-	if (sr.fanned2 != SR_FANOUT - 2) {
+	if (sr.fanned2 < SR_FANOUT - 1) {
 		lwsl_err("B's WRITE_FAILED handler sent to %d of %d\n",
 			 sr.fanned2, SR_FANOUT);
 		retcode = 1;

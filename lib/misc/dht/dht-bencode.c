@@ -1041,6 +1041,7 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 	     const struct sockaddr *from, size_t fromlen)
 {
 	struct lws_transport_sequencer *ts;
+	const lws_transport_sequencer_stats_t *st;
 	lws_dht_ts_t *dts;
 
 	if (mp->tid_len != LWS_DHT_SEQ_TID_LEN ||
@@ -1102,7 +1103,19 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 			return;
 	}
 
-	lws_dht_ts_touch(dts);
+	/*
+	 * Only new data in order is progress: it keeps the sequencer alive and
+	 * in use (dht_ts_in_use()).  A duplicate, eg, resent because our ack
+	 * was lost, is still acked, but a peer can't hold the sequencer by
+	 * resending what we have (G-518).
+	 */
+	st = lws_transport_sequencer_get_stats(ts);
+	if (mp->offset <= st->rx_offset &&
+	    mp->data_len > st->rx_offset - mp->offset) {
+		dts->rx_progress = lws_now_usecs();
+		lws_dht_ts_touch(dts);
+	}
+
 	lws_transport_sequencer_rx(ts, mp->offset, mp->data, mp->data_len);
 }
 

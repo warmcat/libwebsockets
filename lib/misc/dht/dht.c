@@ -694,6 +694,14 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 #endif
 
 	/*
+	 * A failed sequencer leaves the table now, so if the consumer sends to
+	 * the peer again from its callback, the message goes to a new session,
+	 * not into this one that is about to be destroyed
+	 */
+	if (state != 0)
+		lws_dll2_remove(&dts->list);
+
+	/*
 	 * The callback may send, and so recycle sequencers, but not this one,
 	 * which we still have to destroy if the session failed (G-181)
 	 */
@@ -715,8 +723,14 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 /*
  * Is the peer still owed something by this sequencer: data of ours it hasn't
  * acked, which a consumer is waiting to hear the fate of, or the peer's
- * proven receive session, which a blind spoofer can't make?  Then it is not
- * ours to recycle for a newcomer, see dht_ts_create().
+ * proven receive session while it is bringing new data?  Then it is not ours
+ * to recycle for a newcomer, see dht_ts_create().
+ *
+ * A proven session that has brought nothing new for LWS_DHT_TS_RX_GRACE_US
+ * is not: the peer has finished sending, or given up, and if it sends again
+ * after it is recycled, it proves a new session in one round trip.  Otherwise
+ * a few hosts could keep every slot by resending a chunk now and then
+ * (G-518).
  */
 
 static int
@@ -725,7 +739,9 @@ dht_ts_in_use(lws_dht_ts_t *dts)
 	const lws_transport_sequencer_stats_t *st =
 				lws_transport_sequencer_get_stats(dts->ts);
 
-	return dts->in_cb || dts->rx_tid_len || st->tx_offset > st->ack_offset;
+	return dts->in_cb || st->tx_offset > st->ack_offset ||
+	       (dts->rx_tid_len &&
+		lws_now_usecs() - dts->rx_progress < LWS_DHT_TS_RX_GRACE_US);
 }
 
 /*
@@ -813,14 +829,17 @@ static const lws_retry_bo_t dht_retry_policy = {
  * also bounds the cost of the linear lookup in lws_dht_get_ts().
  *
  * Only sequencers with nothing at stake are recycled: never one holding data
- * the peer hasn't acked, or the peer's proven session (G-496).  Otherwise
- * anyone able to forge 64 first chunks could destroy every transfer in
- * flight, and the consumer would never hear what became of its messages.
- * When all are in use, the newcomer is refused instead: an inbound chunk is
- * dropped unanswered, and lws_dht_send_data() returns LWS_DHT_SEND_REFUSED.
- * Sequencers in use end on their own, when the session fails or completes,
- * or when it has seen no traffic for 30s, and one host can only hold a few
- * proven sessions (lws_dht_ts_host_may_prove()), so it can't keep the table.
+ * the peer hasn't acked, or the peer's proven session while it is receiving
+ * (G-496).  Otherwise anyone able to forge 64 first chunks could destroy
+ * every transfer in flight, and the consumer would never hear what became
+ * of its messages.  Ones without a proven session go first, so forged
+ * sources churn among themselves before a proven peer has to prove itself
+ * again.  When all are in use, the newcomer is refused instead: an inbound
+ * chunk is dropped unanswered, and lws_dht_send_data() returns
+ * LWS_DHT_SEND_REFUSED.  Sequencers in use stop being so when their data is
+ * acked or fails, or a few seconds after their session last brought new
+ * data (dht_ts_in_use()), and one host can only hold a few proven sessions
+ * (lws_dht_ts_host_may_prove()).
  *
  * `unproven` is set when the peer spoke first and is not a node we know at
  * that endpoint: then the sequencer sends it each chunk once and repeats
@@ -848,16 +867,21 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 	 */
 	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
 		lws_dht_ts_t *victim = NULL;
+		int pass;
 
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      lws_dll2_get_head(&ctx->ts_owner)) {
-			lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t, list);
+		/* least recently used first, unproven before proven */
+		for (pass = 0; pass < 2 && !victim; pass++)
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					lws_dll2_get_head(&ctx->ts_owner)) {
+				lws_dht_ts_t *c = lws_container_of(d,
+							lws_dht_ts_t, list);
 
-			if (!dht_ts_in_use(c)) {
-				victim = c;
-				break;
-			}
-		} lws_end_foreach_dll(d);
+				if ((pass || !c->rx_tid_len) &&
+				    !dht_ts_in_use(c)) {
+					victim = c;
+					break;
+				}
+			} lws_end_foreach_dll(d);
 
 		if (!victim) {
 			lwsl_dht_warn("%s: sequencer table full of sessions in "
