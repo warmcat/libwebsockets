@@ -21,6 +21,10 @@
  * element buffer, an element with no '=', a file that is truncated or grows
  * between the Content-Length being computed and the file being sent.
  *
+ * Part names and file names that would change the part headers (quotes,
+ * backslashes, CR / LF) are refused by both helpers, and a file part's
+ * filename is only the file's own name, not its local path.
+ *
  * The test fails if a case does not complete inside the watchdog period.
  */
 
@@ -28,6 +32,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <signal.h>
 #if defined(WIN32)
@@ -44,6 +49,7 @@ enum {
 	EXP_SENT,		/* the whole body goes, exactly as declared */
 	EXP_REFUSED,		/* lws_http_mp_sm_init() refuses the form */
 	EXP_FILL_FAILS,		/* lws_http_mp_sm_fill() fails partway */
+	EXP_LEGACY,		/* lws_client_http_multipart() refuses names */
 };
 
 enum {
@@ -61,38 +67,58 @@ struct mcase {
 	const char	*elems[MAX_ELEMS]; /* form elements, NULL terminated */
 	int		mutate;
 	int		expect;
+	int		basename;	/* check the leaf file's filename= */
 };
 
 /* runtime strings the cases refer to */
 
 static char v300[2 + 300 + 1], v4092[2 + 4092 + 1], v5000[2 + 5000 + 1],
-	    el_file[512], el_file_mut[512], path_file[480], path_file_mut[480];
+	    el_file[512], el_file_mut[512], path_file[480], path_file_mut[480],
+	    el_file_q[512], path_file_q[480], el_dir[512];
 
 #define V300		((const char *)1)
 #define V4092		((const char *)2)
 #define V5000		((const char *)3)
 #define EL_FILE		((const char *)4)
 #define EL_FILE_MUT	((const char *)5)
+#define EL_FILE_Q	((const char *)6)
+#define EL_DIR		((const char *)7)
 
 static const struct mcase cases[] = {
 	{ "short fields and a file",
-		{ "a=1", "b=two", EL_FILE, NULL },		MUT_NONE, EXP_SENT },
+		{ "a=1", "b=two", EL_FILE, NULL },	MUT_NONE, EXP_SENT, 1 },
 	{ "file truncated while it is being sent",
-		{ "a=1", EL_FILE_MUT, NULL },	MUT_TRUNCATE_LATE, EXP_FILL_FAILS },
+		{ "a=1", EL_FILE_MUT, NULL },	MUT_TRUNCATE_LATE, EXP_FILL_FAILS, 0 },
 	{ "file grown while it is being sent",
-		{ "a=1", EL_FILE_MUT, NULL },	MUT_GROW_LATE, EXP_SENT },
+		{ "a=1", EL_FILE_MUT, NULL },	MUT_GROW_LATE, EXP_SENT, 0 },
 	{ "values longer than the write buffer, the longest element that fits",
-		{ "s=x", V300, V4092, EL_FILE, "e=", NULL },	MUT_NONE, EXP_SENT },
+		{ "s=x", V300, V4092, EL_FILE, "e=", NULL },
+						MUT_NONE, EXP_SENT, 1 },
 	{ "element too long for the element buffer",
-		{ "a=1", V5000, NULL },			MUT_NONE, EXP_REFUSED },
+		{ "a=1", V5000, NULL },			MUT_NONE, EXP_REFUSED, 0 },
 	{ "element without '='",
-		{ "a=1", "noeq", NULL },		MUT_NONE, EXP_REFUSED },
+		{ "a=1", "noeq", NULL },		MUT_NONE, EXP_REFUSED, 0 },
 	{ "file truncated after it was sized, before it is opened",
 		{ "a=1", EL_FILE_MUT, "b=2", NULL },
-						MUT_TRUNCATE_EARLY, EXP_FILL_FAILS },
+						MUT_TRUNCATE_EARLY, EXP_FILL_FAILS, 0 },
 	{ "file grown after it was sized, before it is opened",
 		{ "a=1", EL_FILE_MUT, "b=2", NULL },
-						MUT_GROW_EARLY, EXP_FILL_FAILS },
+						MUT_GROW_EARLY, EXP_FILL_FAILS, 0 },
+	{ "quote in a name",
+		{ "a=1", "b\"; x=\"y=1", NULL },	MUT_NONE, EXP_REFUSED, 0 },
+	{ "CRLF in a name",
+		{ "a=1", "b\r\nX-Injected: 1\r\nc=1", NULL },
+						MUT_NONE, EXP_REFUSED, 0 },
+	{ "backslash ending a name",
+		{ "a=1", "b\\=1", NULL },		MUT_NONE, EXP_REFUSED, 0 },
+#if !defined(WIN32)
+	{ "quote in a file name",
+		{ "a=1", EL_FILE_Q, NULL },		MUT_NONE, EXP_REFUSED, 0 },
+#endif
+	{ "file path with no file name",
+		{ "a=1", EL_DIR, NULL },		MUT_NONE, EXP_REFUSED, 0 },
+	{ "lws_client_http_multipart() refuses unusable names",
+		{ NULL },				MUT_NONE, EXP_LEGACY, 0 },
 };
 
 static const char *
@@ -104,6 +130,8 @@ resolve(const char *e)
 	case 3: return v5000;
 	case 4: return el_file;
 	case 5: return el_file_mut;
+	case 6: return el_file_q;
+	case 7: return el_dir;
 	}
 
 	return e;
@@ -120,6 +148,7 @@ static struct {
 	int		pass;		/* times the form cb was restarted */
 	int		elem;		/* next element for the form cb */
 	int		fills;		/* lws_http_mp_sm_fill() calls */
+	int		legacy_ok;	/* lws_client_http_multipart() checks */
 } cli;
 
 struct pss_cli {
@@ -216,6 +245,21 @@ case_finish(int pass, const char *why)
 			 100 * LWS_US_PER_MS);
 }
 
+/* is the line at p the header name, given in lower case, in any case? */
+
+static int
+hdr_is(const char *p, const char *eol, const char *name)
+{
+	while (*name) {
+		if (p == eol || tolower((unsigned char)*p) != *name)
+			return 0;
+		p++;
+		name++;
+	}
+
+	return 1;
+}
+
 /*
  * The request head is up to the first CRLFCRLF: find where the body starts
  * and what Content-Length the head declared
@@ -238,8 +282,7 @@ parse_head(size_t *body_ofs, uint64_t *cl)
 		eol = strstr(p, "\r\n");
 		if (!eol)
 			break;
-		if (lws_ptr_diff_size_t(eol, p) > sizeof(cl_name) - 1 &&
-		    !strncasecmp(p, cl_name, sizeof(cl_name) - 1)) {
+		if (hdr_is(p, eol, cl_name)) {
 			p += sizeof(cl_name) - 1;
 			while (*p == ' ')
 				p++;
@@ -268,6 +311,14 @@ settle_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	switch (c->expect) {
+	case EXP_LEGACY:
+		if (!cli.legacy_ok) {
+			case_finish(0, "lws_client_http_multipart() took an "
+				       "unusable name");
+			return;
+		}
+		break;
+
 	case EXP_REFUSED:
 		if (!cli.refused) {
 			case_finish(0, "the form was not refused");
@@ -317,6 +368,13 @@ settle_cb(lws_sorted_usec_list_t *sul)
 		}
 		if (body_rx != cl || cli.body_sent != cl) {
 			case_finish(0, "body length is not Content-Length");
+			return;
+		}
+		/* the server is told the file's own name, not where it is */
+		if (c->basename &&
+		    (!strstr(srv.rx, "filename=\"lws-mp-leaf.txt\"\r\n") ||
+		     strstr(srv.rx, path_file))) {
+			case_finish(0, "filename= is not the file's own name");
 			return;
 		}
 		break;
@@ -410,6 +468,41 @@ form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 	return 0;
 }
 
+/*
+ * The older lws_client_http_multipart() refuses each of these, writing
+ * nothing, and takes the last one
+ */
+
+static int
+legacy_checks(struct lws *wsi, char *start, char *end)
+{
+	static const struct {
+		const char *name, *filename, *type;
+	} refuse[] = {
+		{ "a\"b",	NULL,		NULL },
+		{ "a\r\nb",	NULL,		NULL },
+		{ "a\\",	NULL,		NULL },
+		{ "a",		"x\"y.txt",	NULL },
+		{ "a",		"x\r\nX: y",	NULL },
+		{ "a",		"x.txt",	"text/plain\r\nX: y" },
+	};
+	char *p = start;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(refuse); n++)
+		if (!lws_client_http_multipart(wsi, refuse[n].name,
+					       refuse[n].filename,
+					       refuse[n].type, &p, end) ||
+		    p != start) {
+			lwsl_err("%s: case %d not refused\n", __func__, (int)n);
+			return 0;
+		}
+
+	return !lws_client_http_multipart(wsi, "a", "x.txt",
+				"text/plain; charset=\"utf-8\"", &p, end) &&
+	       p > start;
+}
+
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -442,6 +535,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		uint8_t **pin = (uint8_t **)in, *endin = (*pin) + len;
 
 		pss->case_idx = cur;
+		if (cases[cur].expect == EXP_LEGACY) {
+			lws_client_http_body_pending(wsi, 1);
+			lws_callback_on_writable(wsi);
+			break;
+		}
+
 		pss->hmp = lws_http_mp_sm_init(wsi, form_cb, pin, endin);
 		if (!pss->hmp) {
 			cli.refused = 1;
@@ -455,7 +554,17 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		if (!pss->hmp || pss->case_idx != cur)
+		if (pss->case_idx != cur)
+			return 0;
+
+		if (cases[cur].expect == EXP_LEGACY) {
+			cli.legacy_ok = legacy_checks(wsi, (char *)start,
+						      (char *)end);
+			settle();
+			return -1;
+		}
+
+		if (!pss->hmp)
 			return 0;
 
 		/*
@@ -543,6 +652,8 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.method		= "POST";
 	i.protocol		= "mp-cli";
 	i.pwsi			= &cli.wsi;
+	if (c->expect == EXP_LEGACY)
+		i.ssl_connection = LCCSCF_HTTP_MULTIPART_MIME;
 
 	if (!lws_client_connect_via_info(&i))
 		case_finish(0, "could not start connection");
@@ -595,8 +706,19 @@ int main(int argc, const char **argv)
 		     "%s/lws-mp-mutable.txt", tmpdir);
 	lws_snprintf(el_file_mut, sizeof(el_file_mut), "f=@%s", path_file_mut);
 
+	/* a directory: the path ends with no file name */
+	lws_snprintf(el_dir, sizeof(el_dir), "f=@%s/", tmpdir);
+
 	if (write_file(path_file, 2000, 0))
 		return 1;
+
+#if !defined(WIN32)
+	lws_snprintf(path_file_q, sizeof(path_file_q), "%s/lws-mp-q\"x.txt",
+		     tmpdir);
+	lws_snprintf(el_file_q, sizeof(el_file_q), "f=@%s", path_file_q);
+	if (write_file(path_file_q, 100, 0))
+		return 1;
+#endif
 
 	info.port = port;
 	info.protocols = protocols;
@@ -617,6 +739,9 @@ int main(int argc, const char **argv)
 
 	unlink(path_file);
 	unlink(path_file_mut);
+#if !defined(WIN32)
+	unlink(path_file_q);
+#endif
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 

@@ -1345,7 +1345,7 @@ malformed_l:
 				h->rideshare->u.http.multipart_filename,
 				h->rideshare->u.http.multipart_content_type,
 				(char **)&p, (char *)end)) {
-			lwsl_ss_err(h, "multipart preamble too big");
+			lwsl_ss_err(h, "multipart preamble unusable or too big");
 			return -1;
 		}
 

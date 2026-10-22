@@ -2262,6 +2262,36 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p, uint8_t *end)
 	return p;
 }
 
+/*
+ * A part's name and filename go in quoted-strings in its Content-Disposition
+ * (RFC 7578 4.2).  Rather than escape or percent-encode characters that would
+ * end the quoted-string, escape inside it or end the header line, which
+ * servers decode differently, we refuse them.
+ */
+
+static int
+lws_http_mp_quotable(const char *s)
+{
+	for (; *s; s++)
+		if (*s == '"' || *s == '\\' || (unsigned char)*s < 0x20 ||
+		    *s == 0x7f)
+			return 0;
+
+	return 1;
+}
+
+/* a part's Content-Type value can't have control chars that end the line */
+
+static int
+lws_http_mp_hdr_value_ok(const char *s)
+{
+	for (; *s; s++)
+		if (((unsigned char)*s < 0x20 && *s != '\t') || *s == 0x7f)
+			return 0;
+
+	return 1;
+}
+
 int
 lws_client_http_multipart(struct lws *wsi, const char *name,
 			  const char *filename, const char *content_type,
@@ -2272,6 +2302,14 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 	 * flag to use this api
 	 */
 	assert(wsi->http.multipart);
+
+	if ((name && !lws_http_mp_quotable(name)) ||
+	    (filename && !lws_http_mp_quotable(filename)) ||
+	    (content_type && !lws_http_mp_hdr_value_ok(content_type))) {
+		lwsl_wsi_warn(wsi, "unusable part name, filename or type");
+
+		return 1;
+	}
 
 	if (!name) {
 		*p += lws_snprintf((char *)(*p), lws_ptr_diff_size_t(end, *p),
@@ -2435,15 +2473,42 @@ lws_http_mp_sm_element(struct lws_http_mp_sm *phms, const char **path)
 	}
 	*eq++ = '\0'; /* ft is the name, eq the value */
 
+	if (!lws_http_mp_quotable(phms->ft)) {
+		lwsl_warn("%s: unusable form element name\n", __func__);
+
+		return -1;
+	}
+
 	if (*eq == '@') { /* form file contents */
+		const char *fn = eq + 1, *q;
+
 		*path = eq + 1;
+
+		/*
+		 * The server gets only the file's own name, not where it
+		 * is on our side
+		 */
+		for (q = fn; *q; q++)
+			if (*q == '/'
+#if defined(WIN32)
+			    || *q == '\\' || *q == ':'
+#endif
+			)
+				fn = q + 1;
+
+		if (!*fn || !lws_http_mp_quotable(fn)) {
+			lwsl_warn("%s: unusable form file name\n", __func__);
+
+			return -1;
+		}
+
 		n = lws_snprintf(phms->stage, sizeof(phms->stage),
 				 "--%s\x0d\x0a"
 				 "Content-Disposition: form-data; name=\"%s\"; "
 							"filename=\"%s\"\x0d\x0a"
 				 "Content-Type: application/octet-stream"
 							"\x0d\x0a\x0d\x0a",
-				 phms->boundary, phms->ft, *path);
+				 phms->boundary, phms->ft, fn);
 	} else
 		n = lws_snprintf(phms->stage, sizeof(phms->stage),
 				 "--%s\x0d\x0a"

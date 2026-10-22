@@ -506,7 +506,15 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);
  *
  * This issues a multipart mime boundary, or terminator if name = NULL.
  *
- * Returns 0 if OK or nonzero if couldn't fit in buffer
+ * \p name and \p filename go in quoted-strings in the part's
+ * Content-Disposition, so they must not contain '"', '\\' or control
+ * characters, and \p content_type must not contain control characters other
+ * than tab: such a part is refused rather than escaped.  \p filename should
+ * be only the name of the file, without any local path.
+ *
+ * Returns 0 if OK or nonzero if couldn't fit in buffer, or the name,
+ * filename or content type can't be used.  When they can't be used, nothing
+ * is written at \p p.
  *
  * This is deprecated in favour of the below lws_http_mp apis
  */
@@ -526,8 +534,13 @@ struct lws_http_mp_sm;
  *	     element, and otherwise whatever the cb set it to last time
  *
  * The element is "name=value" for a form field, or "name=@path" to send the
- * contents of the file at path.  The callback returns 0 with the element in
- * \p ft, 1 when there are no more elements, or -1 on error.
+ * contents of the file at path.  The file part's filename is only the last
+ * component of path.  Neither the name nor that filename may contain '"',
+ * '\\' or control characters, since they go in quoted-strings in the part
+ * headers: a form with such an element is refused.
+ *
+ * The callback returns 0 with the element in \p ft, 1 when there are no more
+ * elements, or -1 on error.
  *
  * It's called to go through the whole form twice: first at
  * lws_http_mp_sm_init() to compute the Content-Length, and then again from
