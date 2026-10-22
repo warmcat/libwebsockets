@@ -42,7 +42,21 @@
 /* queue free space above this, rx flow is enabled */
 #define RXFLOW_MAX ((2 * QUEUELEN) / 3)
 
-#define MAX_MIRROR_INSTANCES 3
+/*
+ * Named mirror instances are created on demand by whoever asks for a new name,
+ * and live as long as somebody is connected to them, so idle connections on
+ * fresh names could otherwise use up every instance.  The default instance
+ * (no ?mirror= in the URL, the one the test page uses) doesn't count against
+ * this limit, so it can always be joined however many named ones exist.
+ */
+#define MIRROR_MAX_NAMED_INSTANCES 8
+
+/*
+ * The mirror relays whole ws messages; this is the largest one it will
+ * reassemble from fragments (and pieces of frames bigger than one read) and
+ * relay.  The test page sends drawing commands of a few hundred bytes.
+ */
+#define MIRROR_MAX_MESSAGE 4096
 
 /*
  * Max strlen of a mirror instance name.  The name is the only thing separating
@@ -59,6 +73,8 @@ struct per_session_data__lws_mirror {
 	struct lws *wsi;
 	struct mirror_instance *mi;
 	lws_dll2_t same_mi_list;	/* membership of mi->same_mi_pss_list */
+	uint8_t *rx;		/* LWS_PRE + message being reassembled, or NULL */
+	size_t rx_len;		/* bytes of message in rx after LWS_PRE */
 	uint32_t tail;
 };
 
@@ -66,6 +82,7 @@ struct per_session_data__lws_mirror {
 struct a_message {
 	void *payload;
 	size_t len;
+	char binary;	/* relay as a BINARY message, else TEXT */
 };
 
 struct mirror_instance {
@@ -216,6 +233,68 @@ __mirror_destroy_message(void *_msg)
 }
 
 static int
+__mirror_count_named_instances(struct per_vhost_data__lws_mirror *v)
+{
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&v->mi_list)) {
+		struct mirror_instance *mi = lws_container_of(d,
+						struct mirror_instance, list);
+
+		if (mi->name[0])
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
+static void
+mirror_rx_discard(struct per_session_data__lws_mirror *pss)
+{
+	free(pss->rx);
+	pss->rx = NULL;
+	pss->rx_len = 0;
+}
+
+/*
+ * A RECEIVE is not a message: a message may come in several fragments, and a
+ * frame bigger than one read comes in several pieces, any of which may end
+ * partway through a UTF-8 sequence.  Collect the pieces until the message is
+ * complete, so we only ever relay whole messages, as the type they were sent
+ * as.
+ *
+ * Returns 0 if the piece was taken (lws_is_final_fragment() says if the
+ * message is complete now), or -1 if the connection must be closed, with the
+ * close reason already set.
+ */
+static int
+mirror_rx_reassemble(struct lws *wsi, struct per_session_data__lws_mirror *pss,
+		     const void *in, size_t len)
+{
+	uint8_t *p;
+
+	if (len > MIRROR_MAX_MESSAGE - pss->rx_len) {
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE,
+				 (uint8_t *)"too large", 9);
+		return -1;
+	}
+
+	p = realloc(pss->rx, LWS_PRE + pss->rx_len + len);
+	if (!p) {
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_UNEXPECTED_CONDITION,
+				 (uint8_t *)"oom", 3);
+		return -1;
+	}
+	pss->rx = p;
+	if (len)
+		memcpy(pss->rx + LWS_PRE + pss->rx_len, in, len);
+	pss->rx_len += len;
+
+	return 0;
+}
+
+static int
 callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
@@ -298,8 +377,11 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	if (!mi) {
 
 		/* no existing mirror instance for name */
-		if (lws_dll2_count(&v->mi_list) == MAX_MIRROR_INSTANCES) {
+		if (pn[0] && __mirror_count_named_instances(v) >=
+						MIRROR_MAX_NAMED_INSTANCES) {
 			lws_pthread_mutex_unlock(&v->lock); /* } vh lock */
+			lwsl_notice("%s: too many named mirror instances\n",
+				    __func__);
 			return -1;
 		}
 
@@ -340,6 +422,9 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
+		/* drop any partial message we were reassembling */
+		mirror_rx_discard(pss);
+
 		/* detach our pss from the mirror instance */
 		mi = pss->mi;
 		if (!mi)
@@ -401,6 +486,10 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
+		if (!pss->mi)
+			/* we refused him at ESTABLISHED, he's closing */
+			break;
+
 		lws_pthread_mutex_lock(&pss->mi->lock); /* instance lock { */
 		oldest_tail = lws_ring_get_oldest_tail(pss->mi->ring);
 		update_worst = oldest_tail == pss->tail;
@@ -422,7 +511,8 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			n = lws_write(wsi, (unsigned char *)msg->payload +
-				      LWS_PRE, msg->len, LWS_WRITE_TEXT);
+				      LWS_PRE, msg->len, msg->binary ?
+						LWS_WRITE_BINARY : LWS_WRITE_TEXT);
 			if (n < 0) {
 				lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
 
@@ -464,24 +554,43 @@ bail2:
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:
+		if (!pss->mi || mirror_rx_reassemble(wsi, pss, in, len))
+			return -1;
+
+		if (!lws_is_final_fragment(wsi))
+			/* wait for the rest of the message */
+			break;
+
+		/*
+		 * The whole message is here.  BINARY is relayed as it is.
+		 * lws validates TEXT as UTF-8 unless the vhost disabled it,
+		 * but we are about to send this on to other people's browsers
+		 * as TEXT, which they must fail their connection on if it is
+		 * not valid UTF-8, so make sure.
+		 */
+		amsg.binary = (char)lws_frame_is_binary(wsi);
+		if (!amsg.binary) {
+			unsigned char st = 0;
+
+			if (lws_check_utf8(&st, pss->rx + LWS_PRE,
+					   pss->rx_len) || st) {
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					(uint8_t *)"bad utf8", 8);
+				return -1;
+			}
+		}
+
+		/* the reassembly buffer becomes the ring element payload */
+
+		amsg.payload = pss->rx;
+		amsg.len = pss->rx_len;
+		pss->rx = NULL;
+		pss->rx_len = 0;
+
 		lws_pthread_mutex_lock(&pss->mi->lock); /* mi lock { */
-		n = (int)lws_ring_get_count_free_elements(pss->mi->ring);
-		if (!n) {
-			lwsl_notice("dropping!\n");
-			if (pss->mi->rx_enabled)
-				__mirror_rxflow_instance(pss->mi, 0);
-			goto req_writable;
-		}
-
-		amsg.payload = malloc(LWS_PRE + len);
-		amsg.len = len;
-		if (!amsg.payload) {
-			lwsl_notice("OOM: dropping\n");
-			goto done2;
-		}
-
-		memcpy((char *)amsg.payload + LWS_PRE, in, len);
 		if (!lws_ring_insert(pss->mi->ring, &amsg, 1)) {
+			/* the ring is full: drop the message */
 			__mirror_destroy_message(&amsg);
 			lwsl_notice("dropping!\n");
 			if (pss->mi->rx_enabled)
@@ -497,7 +606,6 @@ bail2:
 req_writable:
 		__mirror_callback_all_in_mi_on_writable(pss->mi);
 
-done2:
 		lws_pthread_mutex_unlock(&pss->mi->lock); /* } mi lock */
 		break;
 
