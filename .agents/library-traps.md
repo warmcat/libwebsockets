@@ -315,6 +315,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_tls_server_client_cert_verify_config()`, called from
    `lws_tls_server_vhost_ctx_setup()` at creation and at cert rotation,
    not in `certs_load`: look there before filing a missing refusal.
+ - **openssl client SSL_CTXs are shared** between client vhosts whose
+   creation parameters hash the same, so a per-vhost trust change after
+   creation (`lws_tls_client_vhost_extra_cert_mem()`) reaches every vhost
+   sharing it (G-392).
 
 ## Raw connections
 
