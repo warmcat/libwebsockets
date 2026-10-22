@@ -186,6 +186,9 @@
  - **gcc -O3 RELEASE trees catch `maybe-uninitialized` in api-tests that
    DEBUG and ASan trees don't** (G-517): build new tests in a release tree
    too, or at least `gcc -O3 -Wall -Wextra -Werror -c` the test's main.c.
+ - **lhp-dlo golden cases run with `OUTPUT_QUIET ERROR_QUIET`**: debug
+   prints never reach ctest output.  Run `bin/lws-api-test-lhp-dlo` on the
+   case html (or its `<case>.dlo-<name>.html` copy in the build dir).
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
