@@ -81,6 +81,14 @@
    (CMake rejects interface include dirs inside it):
    `-DLWS_WITH_BEARSSL=1 -DLWS_BEARSSL_INCLUDE_DIRS=... -DLWS_BEARSSL_LIBRARIES=.../libbearssl.so`
    and `LD_LIBRARY_PATH` for ctest (B80: 284/284).
+ - **mbedtls 3.6.x can be built here** the same way: clone upstream at a
+   tag outside the lws tree (not under ~/projects either; use your
+   scratchpad), `git submodule update --init` (its framework is
+   required), build shared with `-DMBEDTLS_FATAL_WARNINGS=OFF` (this gcc
+   trips -Warray-bounds in common.h), install to a prefix (lib64/), then
+   `-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0 -DLWS_MBEDTLS_INCLUDE_DIRS=<p>/include`
+   `"-DLWS_MBEDTLS_LIBRARIES=<p>/lib64/libmbedtls.so;<p>/lib64/libmbedx509.so;<p>/lib64/libmbedcrypto.so"`
+   and `LD_LIBRARY_PATH` for ctest (B82).
  - **The webrtc mixer can be syntax-checked without GStreamer**: stub gst
    and `opus/opus.h` (OpusDecoder / OpusEncoder typedefs) headers plus a
    copy of the build's include dir with `LWS_WITH_DTLS` and
