@@ -8,6 +8,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Bug classes worth hunting for
 
+ - **FreeRTOS builds force `LWS_MAX_SMP 1`, so `lws_pt_lock()` and
+   `lws_context_lock()` compile to nothing there.**  esp-idf event
+   handlers, the timer daemon and ISRs run outside the lws thread and
+   must hand work to it (SMD, `lws_cancel_service()`), never touch lws
+   state directly (G-475, G-478).
+
  - **A fix to one backend's helper rarely reaches its siblings.**  The
    C-314 `lws_x509_create_cert()` double-free fix went into mbedtls only
    and stayed open on openssl and gnutls for months (G-403).  When fixing
