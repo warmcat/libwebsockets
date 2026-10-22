@@ -76,6 +76,11 @@
    A context loads every `libprotocol_*.so` in the build tree's `lib/`, so
    a test that passed before a full `make` can fail this way after it;
    "dir_cb: ... was not loaded" lines from stale plugins are harmless.
+ - Root has ~100MB free: keep fetched TLS library sources in your
+   scratchpad and their build output under the checkout (BearSSL:
+   `make BUILD=<dir under checkout>`; mbedtls can use its source
+   `include/` directly, no install).  Use BearSSL git master: the 0.6
+   release headers fail lws -Werror.
  - **bearssl can be built and ctested here** from upstream BearSSL
    source (plain `make`), with its inc/ and build/ outside the lws tree
    (CMake rejects interface include dirs inside it):
