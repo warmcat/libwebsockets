@@ -737,6 +737,31 @@ lws_quic_path_probe_queue_challenge(struct lws *nwsi)
 }
 
 /*
+ * A connection's timers all live on the pt of its network wsi (G-536), so
+ * that they run on the service thread that services the connection, and
+ * that thread, which is the one that cancels them, owns the list they are
+ * on.  The network wsi changes at ALPN negotiation, but to a new wsi on the
+ * same tsi, so timers already scheduled stay on the right list.
+ *
+ * Debug SMP builds check, as each timer fires, that it fires on that thread.
+ */
+static void
+lws_quic_sul_schedule(struct lws_quic_netconn *qn, lws_sorted_usec_list_t *sul,
+		      sul_cb_t cb, lws_usec_t us)
+{
+	lws_sul_schedule(qn->nwsi->a.context, qn->nwsi->tsi, sul, cb, us);
+}
+
+#if defined(_DEBUG) && defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+#define lws_quic_sul_assert_thread(qn) \
+	assert(lws_pthread_self_to_tsi((qn)->nwsi->a.context) < 0 || \
+	       lws_pthread_self_to_tsi((qn)->nwsi->a.context) == \
+						(int)(qn)->nwsi->tsi)
+#else
+#define lws_quic_sul_assert_thread(qn)
+#endif
+
+/*
  * Each PTO while the server's probe of a peer address is unanswered: send the
  * PATH_CHALLENGE again, in case it was lost, until the probe's deadline, when
  * it is abandoned (RFC 9000 8.2.1, 8.2.4).  It's the same challenge each
@@ -751,6 +776,8 @@ lws_quic_path_probe_sul_cb(lws_sorted_usec_list_t *sul)
 
 	if (!qn->nwsi || !qn->probing_sa46_valid)
 		return;
+
+	lws_quic_sul_assert_thread(qn);
 
 	now = lws_wsi_now(qn->nwsi);
 	if (now >= qn->probe_deadline) {
@@ -767,8 +794,8 @@ lws_quic_path_probe_sul_cb(lws_sorted_usec_list_t *sul)
 	next = qn->probe_deadline - now;
 	if (next > qn->probe_pto)
 		next = qn->probe_pto;
-	lws_sul_schedule(qn->nwsi->a.context, qn->nwsi->tsi,
-			 &qn->path_probe_sul, lws_quic_path_probe_sul_cb, next);
+	lws_quic_sul_schedule(qn, &qn->path_probe_sul,
+			      lws_quic_path_probe_sul_cb, next);
 }
 
 /*
@@ -792,6 +819,8 @@ lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
 
 	if (!nwsi)
 		return;
+
+	lws_quic_sul_assert_thread(qn);
 
 	lwsl_wsi_notice(nwsi, "QUIC: preferred_address path validation timed out, "
 			   "reverting to original server path");
@@ -874,8 +903,8 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 
 	lws_quic_queue_path_challenge(nwsi);
 
-	lws_sul_schedule(nwsi->a.context, nwsi->tsi, &qn->prefaddr_sul,
-			 lws_quic_prefaddr_sul_cb, LWS_QUIC_PREFADDR_DEADLINE_US);
+	lws_quic_sul_schedule(qn, &qn->prefaddr_sul, lws_quic_prefaddr_sul_cb,
+			      LWS_QUIC_PREFADDR_DEADLINE_US);
 
 	return 0;
 }
@@ -923,8 +952,10 @@ static void
 lws_quic_pacer_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_quic_netconn *qn = lws_container_of(sul, struct lws_quic_netconn, pacer_sul);
-	if (qn && qn->nwsi)
+	if (qn && qn->nwsi) {
+		lws_quic_sul_assert_thread(qn);
 		lws_callback_on_writable(qn->nwsi);
+	}
 }
 
 /*
@@ -940,8 +971,10 @@ lws_quic_ack_delay_cb(lws_sorted_usec_list_t *sul)
 							ack_delay_sul);
 	if (qn) {
 		qn->ack_delay_armed = 0;
-		if (qn->nwsi)
+		if (qn->nwsi) {
+			lws_quic_sul_assert_thread(qn);
 			lws_callback_on_writable(qn->nwsi);
+		}
 	}
 }
 
@@ -995,6 +1028,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_quic_netconn *qn = lws_container_of(sul, struct lws_quic_netconn, pto_sul);
 	if (qn && qn->nwsi) {
+		lws_quic_sul_assert_thread(qn);
 		qn->pto_count++;
 		/*
 		 * Pre-handshake_done, leave the death of a silent peer to the
@@ -1087,7 +1121,8 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 
 		if (any_in_flight || !qn->handshake_done) {
 			lws_usec_t pto_delay = lws_quic_pto_delay_us(qn, qn->pto_count);
-			lws_sul_schedule(qn->nwsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
+			lws_quic_sul_schedule(qn, &qn->pto_sul, lws_quic_pto_cb,
+					      pto_delay);
 		}
 	}
 }
@@ -1425,8 +1460,8 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
 			 * PTO callback is replaced by a fresh base-rate timer.
 			 */
 			lws_usec_t pto_base2 = lws_quic_pto_base_us(qn);
-			lws_sul_schedule(nwsi->a.context, 0, &qn->pto_sul,
-					 lws_quic_pto_cb, pto_base2);
+			lws_quic_sul_schedule(qn, &qn->pto_sul,
+					      lws_quic_pto_cb, pto_base2);
 		}
 	}
 }
@@ -1503,8 +1538,8 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 			lws_usec_t pto_base = lws_quic_pto_base_us(qn);
 
 			/* reschedule the PTO at the fresh, unbacked-off delay */
-			lws_sul_schedule(nwsi->a.context, 0, &qn->pto_sul,
-					 lws_quic_pto_cb, pto_base);
+			lws_quic_sul_schedule(qn, &qn->pto_sul,
+					      lws_quic_pto_cb, pto_base);
 		}
 	}
 }
@@ -3298,7 +3333,7 @@ tp_ok:
 						qn->probe_pto = pto;
 						qn->probe_deadline = lws_wsi_now(nwsi) +
 								     3 * pto;
-						lws_sul_schedule(nwsi->a.context, nwsi->tsi,
+						lws_quic_sul_schedule(qn,
 							&qn->path_probe_sul,
 							lws_quic_path_probe_sul_cb, pto);
 					}
@@ -3574,10 +3609,9 @@ tp_ok:
 						qn->rx_ack_eliciting_since_us =
 							lws_wsi_now(nwsi);
 						qn->ack_delay_armed = 1;
-						lws_sul_schedule(nwsi->a.context,
-								 0, &qn->ack_delay_sul,
-								 lws_quic_ack_delay_cb,
-								 delay);
+						lws_quic_sul_schedule(qn,
+							&qn->ack_delay_sul,
+							lws_quic_ack_delay_cb, delay);
 					}
 				}
 			}
@@ -3899,7 +3933,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		if (!qn->pto_probe_needed && !(qn->needs_ack[pn_space] && is_ack_allowed) && qn->cc_ops && qn->cc_ops->get_pacing_delay) {
 			lws_usec_t delay = qn->cc_ops->get_pacing_delay(wsi, mtu);
 			if (delay > 0) {
-				lws_sul_schedule(wsi->a.context, 0, &qn->pacer_sul, lws_quic_pacer_cb, delay);
+				lws_quic_sul_schedule(qn, &qn->pacer_sul,
+						      lws_quic_pacer_cb, delay);
 				return LWS_TX_WAIT;
 			}
 		}
@@ -4355,7 +4390,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				f->data += send_len;
 
 				/* Schedule PTO timer since we have data in-flight */
-				lws_sul_schedule(wsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
+				lws_quic_sul_schedule(qn, &qn->pto_sul,
+						      lws_quic_pto_cb, pto_delay);
 
 				break; /* We filled the MTU */
 			} else {
@@ -4367,7 +4403,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				lws_dll2_add_tail(&f->list, &qn->in_flight[level]);
 
 				/* Schedule PTO timer since we have data in-flight */
-				lws_sul_schedule(wsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
+				lws_quic_sul_schedule(qn, &qn->pto_sul,
+						      lws_quic_pto_cb, pto_delay);
 
 				if (f->pmtud_probe) {
 					/* nothing else joins it */
@@ -5650,6 +5687,8 @@ lws_quic_fi_replay_cb(lws_sorted_usec_list_t *sul)
 	struct lws_quic_netconn *qn = lws_container_of(sul,
 				struct lws_quic_netconn, fi_replay_sul);
 
+	lws_quic_sul_assert_thread(qn);
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&qn->fi_replays)) {
 		lws_dll2_remove(d);
@@ -5940,10 +5979,10 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		if (qn && nwsi) {
 			lws_dll2_add_tail(&wsi->quic.qs->fi_replay->list,
 					  &qn->fi_replays);
-			lws_sul_schedule(nwsi->a.context, 0, &qn->fi_replay_sul,
-					 lws_quic_fi_replay_cb,
-					 LWS_QUIC_FI_REPLAY_DELAY_MS *
-							LWS_US_PER_MS);
+			lws_quic_sul_schedule(qn, &qn->fi_replay_sul,
+					      lws_quic_fi_replay_cb,
+					      LWS_QUIC_FI_REPLAY_DELAY_MS *
+					      LWS_US_PER_MS);
 		} else
 			lws_free(wsi->quic.qs->fi_replay);
 		wsi->quic.qs->fi_replay = NULL;
@@ -6054,12 +6093,14 @@ lws_quic_idle_cb(lws_sorted_usec_list_t *sul)
 	if (!nwsi || qn->is_closing)
 		return;
 
+	lws_quic_sul_assert_thread(qn);
+
 	now = lws_wsi_now(nwsi);
 	due = qn->idle_restart_us + lws_quic_idle_timeout_us(qn);
 	if (now < due) {
 		/* it restarted since we were scheduled */
-		lws_sul_schedule(nwsi->a.context, nwsi->tsi, &qn->idle_sul,
-				 lws_quic_idle_cb, due - now);
+		lws_quic_sul_schedule(qn, &qn->idle_sul, lws_quic_idle_cb,
+				      due - now);
 		return;
 	}
 
@@ -6078,8 +6119,8 @@ lws_quic_idle_start(struct lws_quic_netconn *qn)
 
 	qn->idle_restart_us = lws_wsi_now(qn->nwsi);
 	qn->idle_tx_since_rx = 0;
-	lws_sul_schedule(qn->nwsi->a.context, qn->nwsi->tsi, &qn->idle_sul,
-			 lws_quic_idle_cb, lws_quic_idle_timeout_us(qn));
+	lws_quic_sul_schedule(qn, &qn->idle_sul, lws_quic_idle_cb,
+			      lws_quic_idle_timeout_us(qn));
 }
 
 void
@@ -6746,8 +6787,7 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 		qn->path_sa46 = *peer;
 		qn->initial_sa46 = *peer;
 		qn->pto_count = 0;
-		lws_sul_schedule(wsi->a.context, 0, &qn->pto_sul,
-				 lws_quic_pto_cb, 1);
+		lws_quic_sul_schedule(qn, &qn->pto_sul, lws_quic_pto_cb, 1);
 
 		return LWS_HPI_RET_HANDLED;
 	}
