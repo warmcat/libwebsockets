@@ -2146,10 +2146,25 @@ lhp_ws(char c)
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f';
 }
 
-static int
-lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
+/*
+ * A selector compound that scans an attribute value costs the selector match
+ * budget (see LHP_SEL_MATCH_BUDGET) a step for every LHP_SEL_SCAN_BYTES bytes
+ * it may compare, on top of the step for the compound
+ */
+
+#define LHP_SEL_SCAN_BYTES		64
+
+static void
+lhp_sel_scan_cost(int *budget, size_t bytes)
 {
-	const char *c = lhp_atr_get(atr, "class", 5, 1), *t;
+	*budget -= (int)(bytes / LHP_SEL_SCAN_BYTES);
+}
+
+static int
+lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len,
+	      int *budget)
+{
+	const char *c = lhp_atr_get(atr, "class", 5, 1), *t, *start = c;
 
 	if (!c)
 		return 0;
@@ -2172,9 +2187,13 @@ lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
 		while (*c && !lhp_ws(*c))
 			c++;
 		if (c != t && (size_t)(c - t) == name_len &&
-		    !memcmp(t, name, name_len))
+		    !memcmp(t, name, name_len)) {
+			lhp_sel_scan_cost(budget, (size_t)(c - start));
 			return 1;
+		}
 	}
+
+	lhp_sel_scan_cost(budget, (size_t)(c - start));
 
 	return 0;
 }
@@ -2246,6 +2265,12 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
  * element, so however many expensive selectors a page carries, cascading
  * one of its elements costs a bounded amount.  The user-agent and filter
  * selectors are trusted and don't draw on it, so a page cannot starve them.
+ *
+ * A step must be a bounded amount of work for that to hold: a compound that
+ * scans an attribute value (a class, an id, [attr~=x], [attr*=x]) can
+ * compare thousands of bytes, so it also costs a step for every
+ * LHP_SEL_SCAN_BYTES bytes it may compare (lhp_sel_scan_cost()).  Every step
+ * taken also counts in the document's ctx->cascade_ops.
  */
 #define LHP_SEL_MATCH_BUDGET		4096
 #define LHP_SEL_CASCADE_BUDGET		32768
@@ -2386,6 +2411,10 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 		return 0;
 
 	while (p < end) {
+		if (*budget < 0)
+			/* out of steps: the match won't be believed anyway */
+			return 0;
+
 		switch (*p) {
 		case '*':
 			p++;
@@ -2397,7 +2426,7 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			size_t nl;
 
 			p += 1 + lhp_sel_ident(p + 1, end, nm, sizeof(nm), &nl);
-			if (!nl || !lhp_has_class(atr, nm, nl))
+			if (!nl || !lhp_has_class(atr, nm, nl, budget))
 				return 0;
 			break;
 		}
@@ -2405,11 +2434,15 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 		case '#':
 		{
 			char nm[128];
-			size_t nl;
+			size_t nl, il;
 
 			p += 1 + lhp_sel_ident(p + 1, end, nm, sizeof(nm), &nl);
 			v = lhp_atr_get(atr, "id", 2, 1);
-			if (!nl || !v || strlen(v) != nl || memcmp(v, nm, nl))
+			if (!nl || !v)
+				return 0;
+			il = strlen(v);
+			lhp_sel_scan_cost(budget, il);
+			if (il != nl || memcmp(v, nm, nl))
 				return 0;
 			break;
 		}
@@ -2459,6 +2492,7 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 				break;
 
 			vl = strlen(v);
+			lhp_sel_scan_cost(budget, vl);
 			switch (op) {
 			case '=':
 				if (vl != avl || memcmp(v, av, avl))
@@ -2502,6 +2536,8 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			case '*':
 				if (!avl || vl < avl)
 					return 0;
+				/* each position may compare all of av */
+				lhp_sel_scan_cost(budget, (vl - avl + 1) * avl);
 				for (s = v; s + avl <= v + vl; s++)
 					if (!memcmp(s, av, avl))
 						break;
@@ -3099,6 +3135,7 @@ lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm,
 	start = budget;
 
 	r = lhp_sel_match(&ps->atr, lhp_parent_elem(ps), sel, end, &budget);
+	ctx->cascade_ops += (uint64_t)(start - (budget < 0 ? 0 : budget));
 	if (doc)
 		ctx->sel_budget -= start - (budget < 0 ? 0 : budget);
 

@@ -1368,6 +1368,157 @@ bail:
 }
 
 /*
+ * Selector matching steps must be bounded amounts of work too.  A compound
+ * like [x*="aaa...ab"] compares up to the attribute value's length times the
+ * pattern's, thousands of bytes, but counted as one step of the element's
+ * selector budget and none of the document's: 1000 such selectors over 1000
+ * elements with a long x="aaa..." (1.6MB) took 210s under ASan.  A compound
+ * now costs a step per 64 bytes it may compare as well, and every selector
+ * step counts in ctx->cascade_ops.
+ *
+ * So with selectors like that matching every element, each element must
+ * cost at most its selector budget plus what it costs with only the
+ * user-agent css plus a step per selector visited, and a short value must
+ * still match.
+ */
+
+#define LHPT_SS_SELS		1000
+#define LHPT_SS_PAT		100
+#define LHPT_SS_ELEMS		300
+#define LHPT_SS_VAL		2000
+/* the selector steps an element may cost, plus a cascade without them */
+#define LHPT_SS_OPS_ELEM	(32768 + 4096 + LHPT_SS_SELS + LHPT_DB_OPS_UA)
+
+static int ss_elems, ss_short_ok, ss_over;
+static size_t ss_css_len;
+
+static lws_stateful_ret_t
+ss_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *ml;
+	const lhp_atr_t *ta;
+	const char *x;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 1 || *(const char *)&ta[1] != 'p')
+		return 0;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->cascade_ops > (uint64_t)(ss_elems + 1) * LHPT_SS_OPS_ELEM +
+			       (uint64_t)ss_css_len * LHPT_OPS_CSS_BYTE) {
+		ss_over = 1;
+		return LWS_SRET_FATAL;
+	}
+	ss_elems++;
+
+	x = lws_html_get_atr(ps, "x", 1);
+	ml = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+	if (x && !strcmp(x, "zzq") && ml && ml->unit == LCSP_UNIT_LENGTH_PX &&
+	    ml->u.i.whole == 2)
+		ss_short_ok = 1;
+
+	return 0;
+}
+
+static int
+test_selector_scan(void)
+{
+	size_t alloc = (size_t)LHPT_SS_SELS * (LHPT_SS_PAT + 48) +
+		       (size_t)LHPT_SS_ELEMS * (LHPT_SS_VAL + 16) + 512, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	ss_elems = ss_short_ok = ss_over = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>p[x*=\"q\"]{margin-left:2px}");
+	for (i = 0; i < LHPT_SS_SELS; i++) {
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "*[x*=\"");
+		memset(p, 'a', LHPT_SS_PAT);
+		p += LHPT_SS_PAT;
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "b%d\"]{margin-left:1px}", i);
+	}
+	ss_css_len = lws_ptr_diff_size_t(p, doc);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body><p x=\"zzq\">x</p>");
+	for (i = 0; i < LHPT_SS_ELEMS; i++) {
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<p x=\"");
+		memset(p, 'a', LHPT_SS_VAL);
+		p += LHPT_SS_VAL;
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "\">x</p>");
+	}
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, ss_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d elements, %llu cascade steps, r 0x%x\n", __func__,
+		  ss_elems, (unsigned long long)ctx->cascade_ops,
+		  (unsigned int)r);
+
+	if (ss_over) {
+		lwsl_err("%s: over %d steps per element at element %d\n",
+			 __func__, LHPT_SS_OPS_ELEM, ss_elems + 1);
+		goto bail_destruct;
+	}
+	if (r & LWS_SRET_FATAL || ss_elems != LHPT_SS_ELEMS + 1) {
+		lwsl_err("%s: parse failed, %d elements\n", __func__,
+			 ss_elems);
+		goto bail_destruct;
+	}
+	if (!ss_short_ok) {
+		lwsl_err("%s: the short value didn't match\n", __func__);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Table layout work must be linear in the cells, however they are arranged:
  * one row of very many cells used to find each cell's column by walking the
  * column list from its head, when the cell opened and again at table close,
@@ -1963,6 +2114,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_cascade_level_heap())
+		goto bail;
+
+	if (test_selector_scan())
 		goto bail;
 
 	if (test_table_wide())
