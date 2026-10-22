@@ -5358,6 +5358,25 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
+		/*
+		 * One instance per context: a second one on another vhost
+		 * would share the same DHT port, so the kernel splits what
+		 * arrives between them, and zones stored by the one that has
+		 * no auth-dns registered never get served.  Leave the first
+		 * running and refuse this one loudly, so the config is fixed;
+		 * the ops find the running instance from any vhost.
+		 */
+		if (global_dnssec_vhd &&
+		    global_dnssec_vhd->context == lws_get_context(wsi)) {
+			lwsl_vhost_err(vhost, "lws-dht-dnssec already runs on "
+				       "vhost %s: not starting a second "
+				       "instance, remove its pvos from this "
+				       "vhost",
+				       lws_get_vhost_name(
+						global_dnssec_vhd->vhost));
+			return 0;
+		}
+
 		// lwsl_vhost_user(vhost, "LWS_CALLBACK_PROTOCOL_INIT: protocol %s", protocol->name);
 
 		vhd = lws_protocol_vh_priv_zalloc(vhost, protocol, sizeof(struct vhd_dht_dnssec));
@@ -6424,9 +6443,15 @@ get_dnssec_vhd(struct lws_context *context, struct lws_vhost *preferred_vh)
 
 	if (vh) {
 		pcol = lws_vhost_name_to_protocol(vh, "lws-dht-dnssec");
-		if (pcol) return (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vh, pcol);
+		if (pcol) {
+			struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)
+					lws_protocol_vh_priv_get(vh, pcol);
+			if (vhd)
+				return vhd;
+		}
 	}
 
+	/* the one instance in the context lives on another vhost */
 	return global_dnssec_vhd;
 }
 
@@ -7529,17 +7554,14 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 
 static int dht_dnssec_register_auth_cb(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque)
 {
-	if (vh) {
-		const struct lws_protocols *prot = lws_vhost_name_to_protocol(vh, "lws-dht-dnssec");
-		if (prot) {
-			struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vh, prot);
-			if (vhd) {
-				vhd->auth_cb = cb;
-				vhd->auth_cb_opaque = opaque;
-				lwsl_notice("%s: Registered local zone auth cb\n", __func__);
-				return 0;
-			}
-		}
+	struct vhd_dht_dnssec *vhd = get_dnssec_vhd(NULL, vh);
+
+	if (vhd) {
+		vhd->auth_cb = cb;
+		vhd->auth_cb_opaque = opaque;
+		lwsl_notice("%s: Registered local zone auth cb on vhost %s\n",
+			    __func__, lws_get_vhost_name(vhd->vhost));
+		return 0;
 	}
 
 	/* not started on vh, or not yet: the caller tries again */
@@ -7550,14 +7572,11 @@ static int
 do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 {
 	struct vhd_dht_dnssec *vhd;
-	const struct lws_protocols *prot;
 	char domain_str[256];
 	struct lws_genhash_ctx ctx;
 	uint8_t hash[LWS_GENHASH_LARGEST];
 
-	prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
-	if (!prot) return 1;
-	vhd = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vhost, prot);
+	vhd = get_dnssec_vhd(NULL, vhost);
 	if (!vhd || !vhd->dht) return 1;
 
 	char clean_domain[256];
@@ -7696,7 +7715,6 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
 			const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial)
 {
 	struct vhd_dht_dnssec *vhd;
-	const struct lws_protocols *prot;
 	char domain_str[256];
 	struct lws_genhash_ctx ctx;
 	uint8_t hash[LWS_GENHASH_LARGEST];
@@ -7708,9 +7726,7 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
 	 */
 	uint8_t payload[8 + 256];
 
-	prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
-	if (!prot) return 1;
-	vhd = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vhost, prot);
+	vhd = get_dnssec_vhd(NULL, vhost);
 	if (!vhd || !vhd->dht) return 1;
 
 	char clean_domain[256];

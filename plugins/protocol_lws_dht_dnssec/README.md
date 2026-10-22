@@ -57,6 +57,14 @@ To enable the underlying requirements so out-of-the-box DHT plugins and the `lws
 ## Per-vhost Options
 The plugin operates under the standard `lws` plugin model using per-vhost options (pvos) to configure its behaviors. The available options include:
 
+The plugin runs once per process: give the `dht-*` pvos to one vhost only,
+normally the one serving auth-dns.  If another vhost has a `dht-port` too, no
+second instance is started there, since both would share the DHT port and the
+kernel would split the PUTs between them; an error names the vhost already
+running it.  auth-dns or other users of the plugin's ops on any vhost reach
+the one running instance.
+
+
 | Option Name      | Description                                                                                                                                              | Default Value           |
 |------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------|
 | `storage`        | The directory on the filesystem where validated DHT fragments (zone files) should be written to and served from.                                         | `/tmp/lws-dht-store`    |

@@ -32,6 +32,12 @@
  *    our fetch of it completes OK; nothing new is stored
  *  - an older version is refused
  *  - a newer one is stored in place of what we held
+ *
+ * and the plugin runs once per context: lwsws conf giving its DHT pvos to a
+ * second vhost does not start another instance on the same DHT port, which
+ * would have the kernel split the PUTs between them.  auth-dns on that vhost
+ * registers with the instance that is running, and so hears of each zone a
+ * PUT stores.
  */
 
 #include <libwebsockets.h>
@@ -56,6 +62,9 @@
 #define PUTT_HELD_SERIAL	2026102201u
 
 static struct lws_context *context;
+static struct lws_vhost *vh_second;
+static char auth_path[512];
+static int auth_calls;
 static lws_sorted_usec_list_t sul_wait;
 static lws_usec_t t_start;
 static int fails, fetch_status = 99;
@@ -204,6 +213,16 @@ putt_zone(const char *path, uint32_t serial)
 	return 0;
 }
 
+/* what auth-dns is told of each zone the plugin stores */
+
+static void
+putt_auth_cb(void *opaque, const char *domain, const char *payload_path)
+{
+	if (!strcmp(domain, PUTT_HELD_DOMAIN))
+		lws_strncpy(auth_path, payload_path, sizeof(auth_path));
+	auth_calls++;
+}
+
 static void
 putt_fetch_cb(void *opaque, const char *domain, int status)
 {
@@ -292,6 +311,19 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 			!putt_zone(held, PUTT_HELD_SERIAL), "a held zone"))
 		return;
 
+	/*
+	 * auth-dns lives on the vhost that was refused its own instance, as on
+	 * a node whose conf gave the DHT pvos to two vhosts
+	 */
+	putt_expect(vh_second && !lws_protocol_vh_priv_get(vh_second,
+				lws_vhost_name_to_protocol(vh_second,
+							   "lws-dht-dnssec")),
+		    "a second vhost with a dht-port gets no instance of its own");
+	putt_expect(!dht_dnssec_register_auth_cb(vh_second, putt_auth_cb,
+						 NULL) &&
+		    vhd->auth_cb == putt_auth_cb,
+		    "auth-dns on it registers with the running instance");
+
 	/* and a fetch of ours for it, that a holder answers */
 	req = calloc(1, sizeof(*req));
 	if (putt_expect(!!req, "fetch request"))
@@ -310,6 +342,8 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 	putt_expect(fetch_status == LWS_DHT_DNSSEC_FETCH_OK &&
 		    !dht_dnssec_find_fetch_req(vhd, hash),
 		    "and our fetch of it completes OK");
+	putt_expect(!auth_calls, "auth-dns is not told of the held version "
+				 "again");
 
 	putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL - 1,
 			      &tmp_left) == DHT_DNSSEC_REFUSED &&
@@ -321,6 +355,11 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 		    access(held, F_OK) &&
 		    putt_stored_serial(hash) == PUTT_HELD_SERIAL + 1,
 		    "a newer version is stored in place of the held one");
+	putt_expect(auth_calls == 1 && strstr(auth_path, hash) &&
+		    !access(auth_path, F_OK),
+		    "and auth-dns is told of it");
+
+	vhd->auth_cb = NULL;
 }
 
 static void
@@ -519,6 +558,10 @@ main(int argc, const char **argv)
 
 		return 1;
 	}
+
+	/* the same DHT pvos on a second vhost, as a misconfigured node has */
+	info.vhost_name = "second";
+	vh_second = lws_create_vhost(context, &info);
 
 	t_start = lws_now_usecs();
 	lws_sul_schedule(context, 0, &sul_wait, putt_wait_cb,
