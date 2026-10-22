@@ -172,6 +172,8 @@
    (G-626).
  - **The dnssec-monitor plugin needs `-DLWS_WITH_SPAWN=1
    -DLWS_WITH_SYS_WHOIS=1`**, or it silently isn't built.
+ - **`LWS_WITH_SS_RIDESHARE` is never defined by CMake**, so the SS h1
+   multipart send path (ss-h1.c) is compiled out of every build.
  - **The `http-client-post-form*` ctests post an empty form** (no `--form`),
    so they don't exercise `lws_http_mp_sm`: api-test-http-client-multipart
    does.  The example only takes `--form=name=value`; with a space the value

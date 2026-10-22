@@ -37,7 +37,7 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    below the process limit) is per thread since G-635 (db0599864);
    api-test-async-dns-smp-fd-limit covers it (keep fd_limit x threads under
    the process fd limit, or lws silently uses the fd-indexed table).  The
-   Windows fd hash table still has the same race.
+   Windows fd hash table still has the same race (G-641).
    A pt's own thread must change its sul list under its pt lock too:
    connect3's bare `lws_sul_cancel(&wsi->io->sul_connect_timeout)` races
    async-dns inserting on that pt from another thread (G-638), and nothing
