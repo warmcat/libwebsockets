@@ -52,6 +52,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    builds: only hand-off paths (SMD, `lws_cancel_service()`) are (G-661).
    A thread-ownership fix needs an inventory of every public entry point,
    setters included.
+   `lws_set_timeout()` takes the context lock and `LWS_CALLBACK_CLOSED`
+   runs with the cx and pt locks held: a protocol mutex that CLOSED takes
+   must never be held while calling `lws_set_timeout()` (or any lws api),
+   or the order inverts.
  - **libdbus aborts the process on an invalid-UTF-8 string argument**
    (`dbus_message_append_args()` / `_iter_append_basic()` checks are fatal
    by default): validate or send outside bytes as a byte array (G-627).
