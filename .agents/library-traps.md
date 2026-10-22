@@ -595,7 +595,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **`lhp-ua-css.h` carries compiled selector programs** (G-540,
    88199ef7a): regenerate it with lhp-ua-gen from a build with
    `LWS_WITH_LHP_UA_FLASH` off whenever the program format or the default
-   css changes, or user-agent selectors silently stop matching.
+   css changes.  The decoder trusts the program bytes, so a stale header
+   means out-of-bounds reads, not just failed matches (G-548).  To test
+   private lhp functions against old/new lhp.c, a harness can `#include`
+   lhp.c and link ahead of the static library.
 
 ## lejp
 
