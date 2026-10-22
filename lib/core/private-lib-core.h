@@ -1006,6 +1006,15 @@ struct lws_context {
 
 	char		tls_gate_accepts;
 
+	/*
+	 * Set under the context lock by lws_protocol_init(); bytes of their
+	 * own, so the unlocked "is it done yet" read on every service thread
+	 * never shares a word with flags other threads set, and setting them
+	 * can't lose another thread's write to a neighbouring bitfield
+	 */
+	uint8_t		protocol_init_done;
+	uint8_t		doing_protocol_init;
+
 	unsigned int deprecated:1;
 	unsigned int interrupted:1;
 	unsigned int inside_context_destroy:1;
@@ -1013,9 +1022,7 @@ struct lws_context {
 	unsigned int service_no_longer_possible:1;
 	unsigned int being_destroyed2:1;
 	unsigned int requested_stop_internal_loops:1;
-	unsigned int protocol_init_done:1;
 	unsigned int privs_dropped:1;
-	unsigned int doing_protocol_init:1;
 	unsigned int done_protocol_destroy_cb:1;
 	unsigned int evlib_finalize_destroy_after_int_loops_stop:1;
 	unsigned int max_fds_unrelated_to_ulimit:1;

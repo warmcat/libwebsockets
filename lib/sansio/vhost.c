@@ -473,17 +473,31 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 /*
  * inform every vhost that hasn't already done it, that
  * his protocols are initializing
+ *
+ * With LWS_MAX_SMP > 1 every service thread calls this as it services, until
+ * it sees protocol_init_done, and a vhost may be created on another thread
+ * meanwhile.  It is serialised by the context lock: exactly one thread
+ * initialises each vhost, and a thread arriving while another is at it waits
+ * for it to finish, so it doesn't service the vhosts before their protocols
+ * are initialised.  Only a PROTOCOL_INIT handler on the initialising thread
+ * re-entering (eg, by creating a vhost) finds doing_protocol_init set, and
+ * leaves the new vhost to the walk in progress.
  */
 int
 lws_protocol_init(struct lws_context *context)
 {
-	struct lws_vhost *vh = lws_vhost_first(context);
+	struct lws_vhost *vh;
 	int any = 0, r = 0, spd = 0;
 
-	if (context->doing_protocol_init)
+	lws_context_lock(context, __func__); /* ------------------- cx { */
+
+	if (context->doing_protocol_init) {
+		lws_context_unlock(context);
 		return 0;
+	}
 
 	context->doing_protocol_init = 1;
+	vh = lws_vhost_first(context);
 
 	lwsl_cx_info(context, "\n");
 
@@ -509,6 +523,7 @@ next:
 	if (r)
 		lwsl_cx_warn(context, "some protocols did not init");
 
+	r = 0;
 	if (!context->protocol_init_done) {
 
 		context->protocol_init_done = 1;
@@ -518,12 +533,12 @@ next:
 		 * exits from inside, elsewhere the failure is still reported
 		 */
 		if (!spd && lws_io_finalize_startup(context, __func__))
-			return -1;
-
-		return 0;
+			r = -1;
 	}
 
-	return 0;
+	lws_context_unlock(context); /* ----------------------------- } cx */
+
+	return r;
 }
 
 

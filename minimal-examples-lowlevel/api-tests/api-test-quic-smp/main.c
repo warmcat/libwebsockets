@@ -22,6 +22,14 @@
  * whichever connection last offered it, moving it between pt lists, and
  * cancelled without any pt lock.
  *
+ * Both service threads start at once, so they both find the vhosts'
+ * protocols not yet initialised.  Before G-542 nothing serialised that: both
+ * could initialise the same vhosts, or one went on servicing, and making
+ * connections, while the other was still initialising.  Every protocol must
+ * see PROTOCOL_INIT exactly once per vhost, and the client protocol nothing
+ * about a connection before it.  The first PROTOCOL_INIT takes its time, so
+ * a thread not waiting for it makes its first connections meanwhile.
+ *
  * Each service thread, at once and in rounds, opens h3 client connections
  * of its own (no pipelining, so each is a QUIC connection of its own) to an
  * h3 server vhost in the same process, and fetches a body big enough to
@@ -39,7 +47,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <time.h>
+#include <unistd.h>
 
 #define QSMP_THREADS_MAX	2
 #define QSMP_ROUNDS		4
@@ -49,14 +57,15 @@
 #define QSMP_CHUNKS		24	/* the body is QSMP_CHUNKS * QSMP_CHUNK */
 #define QSMP_DEADLINE_US	(40 * LWS_US_PER_SEC)
 #define QSMP_HOST		"localhost"
+#define QSMP_VHOSTS		2	/* each with one protocol to init */
 
 struct qsmp_svc {
 	lws_sorted_usec_list_t	sul_round;
-	pthread_t		self;	/* written and read on this thread */
+	pthread_t		self;	/* guarded by lock */
 	pthread_t		thread;
 	int			tsi;
 	int			round;
-	int			self_set;
+	int			self_set; /* guarded by lock */
 };
 
 struct qsmp_pss_srv {
@@ -73,7 +82,6 @@ static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_deadline;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t cond_init = PTHREAD_COND_INITIALIZER;
 static int threads, port = 7710;
 static volatile int interrupted;
 
@@ -81,22 +89,14 @@ static volatile int interrupted;
 static int asked, completed, failed, short_body, wrong_thread, served,
 	   inits;
 
+/* guarded by lock: the client protocol is initialised, callbacks before it */
+static int cli_inited, cli_early;
+
 static void
 qsmp_count(int *what, int n)
 {
 	pthread_mutex_lock(&lock);
 	*what += n;
-	pthread_mutex_unlock(&lock);
-}
-
-/* our two vhosts' protocols have been initialised */
-
-static void
-qsmp_init_seen(void)
-{
-	pthread_mutex_lock(&lock);
-	inits++;
-	pthread_cond_broadcast(&cond_init);
 	pthread_mutex_unlock(&lock);
 }
 
@@ -122,8 +122,14 @@ qsmp_finish_if_done(void)
 static int
 qsmp_on_thread(int tsi)
 {
-	if (tsi < 0 || tsi >= threads || !svc[tsi].self_set ||
-	    !pthread_equal(pthread_self(), svc[tsi].self)) {
+	int r;
+
+	pthread_mutex_lock(&lock);
+	r = tsi >= 0 && tsi < threads && svc[tsi].self_set &&
+	    pthread_equal(pthread_self(), svc[tsi].self);
+	pthread_mutex_unlock(&lock);
+
+	if (!r) {
 		qsmp_count(&wrong_thread, 1);
 		lwsl_err("%s: called back on the wrong thread for tsi %d\n",
 			 __func__, tsi);
@@ -132,6 +138,53 @@ qsmp_on_thread(int tsi)
 	}
 
 	return 1;
+}
+
+/*
+ * The first PROTOCOL_INIT, if it is on a service thread, holds on until every
+ * service thread is running, then for longer than it takes them to start
+ * their first round of connections, had they not waited for it
+ */
+
+static void
+qsmp_slow_init(void)
+{
+	static int once;
+	int n, on_svc = 0, started = 0, waits = 0;
+
+	pthread_mutex_lock(&lock);
+	if (!once++)
+		for (n = 0; n < threads; n++)
+			if (svc[n].self_set &&
+			    pthread_equal(pthread_self(), svc[n].self))
+				on_svc = 1;
+	pthread_mutex_unlock(&lock);
+
+	if (!on_svc)
+		return;
+
+	while (!started && waits++ < 2000) {
+		pthread_mutex_lock(&lock);
+		for (started = 1, n = 0; n < threads; n++)
+			if (!svc[n].self_set)
+				started = 0;
+		pthread_mutex_unlock(&lock);
+		if (!started)
+			usleep(1000);
+	}
+
+	usleep(3 * QSMP_ROUND_US);
+}
+
+/* the client protocol hears of a connection: it must be initialised */
+
+static void
+qsmp_cli_check_inited(void)
+{
+	pthread_mutex_lock(&lock);
+	if (!cli_inited)
+		cli_early++;
+	pthread_mutex_unlock(&lock);
 }
 
 /* the server: a body of QSMP_CHUNKS chunks */
@@ -147,7 +200,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		qsmp_init_seen();
+		qsmp_count(&inits, 1);
+		qsmp_slow_init();
 		break;
 
 	case LWS_CALLBACK_HTTP:
@@ -204,10 +258,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		qsmp_init_seen();
+		pthread_mutex_lock(&lock);
+		inits++;
+		cli_inited = 1;
+		pthread_mutex_unlock(&lock);
+		break;
+
+	case LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL:
+		qsmp_cli_check_inited();
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		qsmp_cli_check_inited();
 		qsmp_on_thread(tsi);
 		break;
 
@@ -238,6 +300,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("%s: connection error: %s\n", __func__,
 			 in ? (const char *)in : "(null)");
+		qsmp_cli_check_inited();
 		qsmp_on_thread(tsi);
 		if (pss) {
 			if (pss->done)
@@ -316,11 +379,6 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 	struct qsmp_svc *s = lws_container_of(sul, struct qsmp_svc, sul_round);
 	int n;
 
-	if (!s->self_set) {
-		s->self = pthread_self();
-		s->self_set = 1;
-	}
-
 	for (n = 0; n < QSMP_PER_ROUND; n++)
 		qsmp_connect(s->tsi);
 
@@ -337,28 +395,15 @@ sul_deadline_cb(lws_sorted_usec_list_t *sul)
 	lws_cancel_service(context);
 }
 
-static int
-qsmp_wait_init(void)
-{
-	struct timespec ts;
-	int r = 0;
-
-	clock_gettime(CLOCK_REALTIME, &ts);
-	ts.tv_sec += 10;
-
-	pthread_mutex_lock(&lock);
-	while (inits < 2 && !r)
-		r = pthread_cond_timedwait(&cond_init, &lock, &ts);
-	r = inits < 2;
-	pthread_mutex_unlock(&lock);
-
-	return r;
-}
-
 static void *
 service_thread(void *d)
 {
 	struct qsmp_svc *s = (struct qsmp_svc *)d;
+
+	pthread_mutex_lock(&lock);
+	s->self = pthread_self();
+	s->self_set = 1;
+	pthread_mutex_unlock(&lock);
 
 	while (!interrupted && lws_service_tsi(context, 0, s->tsi) >= 0)
 		;
@@ -443,13 +488,9 @@ main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_deadline, sul_deadline_cb,
 			 QSMP_DEADLINE_US);
 
-	/*
-	 * The vhosts' protocols are initialised by whichever service thread
-	 * services first, and that is not serialised between threads: start
-	 * the others once the first has done it
-	 */
+	/* the vhosts' protocols are initialised by the service threads */
 
-	for (n = 0; n < threads; n++) {
+	for (n = 0; n < threads; n++)
 		if (pthread_create(&svc[n].thread, NULL, service_thread,
 				   &svc[n])) {
 			lwsl_err("%s: can't start service thread\n", __func__);
@@ -457,15 +498,6 @@ main(int argc, const char **argv)
 			lws_cancel_service(context);
 			break;
 		}
-
-		if (!n && qsmp_wait_init()) {
-			lwsl_err("%s: protocols not initialised\n", __func__);
-			interrupted = 1;
-			lws_cancel_service(context);
-			n++;
-			break;
-		}
-	}
 
 	while (--n >= 0)
 		pthread_join(svc[n].thread, &retval);
@@ -475,12 +507,14 @@ main(int argc, const char **argv)
 		lws_sul_cancel(&svc[n].sul_round);
 
 	lwsl_user("%d threads: %d connections, %d completed, %d failed, %d "
-		  "short; %d served; %d callbacks on the wrong thread\n",
+		  "short; %d served; %d callbacks on the wrong thread; %d "
+		  "protocol inits, %d client callbacks before its init\n",
 		  threads, asked, completed, failed, short_body, served,
-		  wrong_thread);
+		  wrong_thread, inits, cli_early);
 
 	if (asked == threads * QSMP_ROUNDS * QSMP_PER_ROUND &&
-	    completed == asked && !failed && !short_body && !wrong_thread)
+	    completed == asked && !failed && !short_body && !wrong_thread &&
+	    inits == QSMP_VHOSTS && !cli_early)
 		result = 0;
 
 bail:

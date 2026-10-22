@@ -766,11 +766,17 @@ lws_create_vhost(struct lws_context *context,
 	}
 #endif
 
+	/*
+	 * Under the context lock: with LWS_MAX_SMP > 1, service threads walk
+	 * the vhost list in lws_protocol_init() under it
+	 */
+	lws_context_lock(context, __func__);
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	n = !!lws_dll2_get_head(&context->vhost_list_owner);
 #endif
 
 	lws_dll2_add_tail(&vh->vhost_list, &context->vhost_list_owner);
+	lws_context_unlock(context);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if (!n)
