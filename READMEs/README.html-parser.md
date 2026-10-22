@@ -92,6 +92,14 @@ JPEG and PNG images and express all UI in html/css.
    Cascading an element costs a share of the selectors and an index of the
    declarations that apply to it, so these bound what a page's css can make
    each element cost.  Both can be overridden at build time.
+ - A document's cascade work as a whole is limited to
+   `LHP_MAX_CSS_CASCADE_OPS` steps (16M, 2M on FreeRTOS / baremetal; a large
+   real page such as slashdot's front page takes about 0.5M).  Without it,
+   css whose selectors all match every element costs the per-element limit
+   again for every element.  Once a document reaches it, its own css,
+   stylesheets and `style=""` attributes alike, is ignored with a warning
+   for the rest of its elements, which get only the user-agent and any
+   filter css.  It can be overridden at build time.
 
 Heap Costs during active decode (while rendering line that includes image)
 

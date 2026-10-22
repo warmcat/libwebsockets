@@ -844,6 +844,150 @@ bail:
 }
 
 /*
+ * The cascade's work per document must be bounded too, not only per element.
+ * A sheet of as many selectors as a document may have, every one a
+ * non-empty *{} so that each matches every element, made each element cost
+ * matching all of them and sorting all of them and their declarations: a
+ * ~600KB page of it with a couple of thousand cheap elements held the event
+ * loop for most of a minute, linear in the elements.  The document's
+ * cascade work is now limited to LHP_MAX_CSS_CASCADE_OPS steps; after that,
+ * its own css is ignored with a warning and elements get only the user-agent
+ * (and any filter) css.
+ *
+ * So whatever the element count, the document's cascade steps stay within
+ * the limit, plus what one element can cost with the document's css, plus
+ * what each element costs with only the user-agent css.  The early elements
+ * get the document's css, the later ones still parse and get the
+ * user-agent's.
+ */
+
+#define LHPT_DB_ELEMS		3000
+/* most steps one element can cost with the document's css */
+#define LHPT_DB_OPS_ELEM	(8 * LHP_MAX_CSS_SELECTORS)
+/* ... and with only the user-agent's */
+#define LHPT_DB_OPS_UA		2048
+#define LHPT_DB_OPS_MAX(_e)	((uint64_t)LHP_MAX_CSS_CASCADE_OPS + \
+				 LHPT_DB_OPS_ELEM + \
+				 (uint64_t)(_e) * LHPT_DB_OPS_UA)
+
+static int db_elems, db_styled, db_unstyled, db_over;
+
+static lws_stateful_ret_t
+db_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *ml;
+	const lhp_atr_t *ta;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->cascade_ops > LHPT_DB_OPS_MAX(db_elems + 1)) {
+		db_over = 1;
+		return LWS_SRET_FATAL;
+	}
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 1 || *(const char *)&ta[1] != 'p')
+		return 0;
+
+	db_elems++;
+	ml = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+	if (ml && ml->unit == LCSP_UNIT_LENGTH_PX && ml->u.i.whole == 1)
+		db_styled++;
+	else
+		db_unstyled++;
+
+	return 0;
+}
+
+static int
+test_cascade_doc_budget(void)
+{
+	size_t alloc = (size_t)LHP_MAX_CSS_SELECTORS * 20 +
+		       LHPT_DB_ELEMS * 8 + 256, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	db_elems = db_styled = db_unstyled = db_over = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>");
+	for (i = 0; i < LHP_MAX_CSS_SELECTORS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "*{margin-left:1px}");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body>");
+	for (i = 0; i < LHPT_DB_ELEMS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<p>x</p>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, db_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d elements (%d with the document's css), %llu cascade "
+		  "steps, r 0x%x\n", __func__, db_elems, db_styled,
+		  (unsigned long long)ctx->cascade_ops, (unsigned int)r);
+
+	if (db_over) {
+		lwsl_err("%s: the document's cascade took over %llu steps\n",
+			 __func__,
+			 (unsigned long long)LHPT_DB_OPS_MAX(db_elems + 1));
+		goto bail_destruct;
+	}
+	if (r & LWS_SRET_FATAL || db_elems != LHPT_DB_ELEMS) {
+		lwsl_err("%s: parse failed, %d elements\n", __func__,
+			 db_elems);
+		goto bail_destruct;
+	}
+	if (!db_styled || !db_unstyled) {
+		lwsl_err("%s: expected the document's css on the first "
+			 "elements and not on the last\n", __func__);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Table layout work must be linear in the cells, however they are arranged:
  * one row of very many cells used to find each cell's column by walking the
  * column list from its head, when the cell opened and again at table close,
@@ -1430,6 +1574,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_cascade_work())
+		goto bail;
+
+	if (test_cascade_doc_budget())
 		goto bail;
 
 	if (test_table_wide())

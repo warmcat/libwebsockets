@@ -79,6 +79,23 @@
 #endif
 #endif
 
+/*
+ * Most steps of cascade work (ctx->cascade_ops) a document may cost.  The
+ * limits above bound what one element can cost, but not the document: css
+ * whose selectors all match every element costs that much again for every
+ * element.  Once a document has used this much, its own css (stylesheets
+ * and style="" attributes) is ignored for the rest of its elements, with a
+ * warning, and they get only the user-agent and filter css.  A large real
+ * page (slashdot's front page) costs about 0.5M.
+ */
+#if !defined(LHP_MAX_CSS_CASCADE_OPS)
+#if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
+#define LHP_MAX_CSS_CASCADE_OPS		2000000
+#else
+#define LHP_MAX_CSS_CASCADE_OPS		16000000
+#endif
+#endif
+
 enum lhp_callbacks {
 
 	LHPCB_ERR_ATTRIB_SYNTAX		= -5,
@@ -891,6 +908,9 @@ typedef struct lhp_ctx {
 					      * steps... for tests to bound */
 	uint32_t		css_doc_selectors; /* the document's selectors */
 	uint32_t		css_doc_vars; /* and custom properties */
+	uint8_t			css_doc_spent; /* LHP_MAX_CSS_CASCADE_OPS was
+						* reached: the document's own
+						* css is no longer applied */
 	struct lhp_cls_tok	*ctok; /* the class tokens of the element
 					* being cascaded, private to lhp.c */
 	uint32_t		ctok_alloc;

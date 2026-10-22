@@ -2959,9 +2959,24 @@ lhp_selidx_hash(uint8_t kind, const char *k, size_t len)
 }
 
 /*
+ * Is nm one of the document's own selectors?  The user-agent sheet is layer
+ * 0 and the filter css is flagged in its specificity (see
+ * lhp_css_add_names())
+ */
+
+static int
+lhp_nm_is_doc(const lcsp_names_t *nm)
+{
+	return ((nm->specificity >> 18) & LHP_CSS_LAYER_NONE) &&
+	       !(nm->specificity & (1u << 25));
+}
+
+/*
  * (Re)build the selector index over every stanza in ctx->css.  Stylesheets
  * and <style> blocks keep arriving during the parse, so it is rebuilt
- * whenever the cascade finds the stanza count has changed
+ * whenever the cascade finds the stanza count has changed.  Once the
+ * document has spent its cascade budget, its own selectors are left out, so
+ * the cascade of later elements doesn't so much as visit them
  */
 
 static int
@@ -2978,11 +2993,13 @@ lhp_selidx_build(lhp_ctx_t *ctx)
 				      lws_dll2_get_head(&stz->names)) {
 			lcsp_names_t *nm = lws_container_of(z, lcsp_names_t,
 							    list);
-			lhp_selidx_t *e = lwsac_use_zero(&ctx->idxac,
-							 sizeof(*e),
-							 LHP_AC_GRANULE);
-			lhp_selidx_t **head;
+			lhp_selidx_t *e, **head;
 
+			if (ctx->css_doc_spent && lhp_nm_is_doc(nm))
+				continue;
+
+			e = lwsac_use_zero(&ctx->idxac, sizeof(*e),
+					   LHP_AC_GRANULE);
 			if (!e)
 				return 1;
 
@@ -3015,17 +3032,14 @@ lhp_selidx_build(lhp_ctx_t *ctx)
 /*
  * Match the selector [sel, end) of nm against the element being cascaded.  A
  * document selector draws its steps from what is left of the element's
- * cascade budget.  The user-agent sheet is layer 0 and the filter css is
- * flagged in its specificity (see lhp_css_add_names())
+ * cascade budget
  */
 
 static int
 lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm,
 		 const char *sel, const char *end)
 {
-	int doc = (nm->specificity >> 18) & LHP_CSS_LAYER_NONE &&
-		  !(nm->specificity & (1u << 25)),
-	    budget = LHP_SEL_MATCH_BUDGET, start, r;
+	int doc = lhp_nm_is_doc(nm), budget = LHP_SEL_MATCH_BUDGET, start, r;
 
 	if (doc && ctx->sel_budget < budget)
 		budget = (int)ctx->sel_budget;
@@ -4738,6 +4752,27 @@ lws_css_cascade(lhp_ctx_t *ctx)
 			ps->in_body = 1;
 
 		/*
+		 * The limits on the document's selectors bound what one
+		 * element can cost, but css whose selectors match every
+		 * element costs that again for each one.  So the document
+		 * has a budget of cascade work too: once it is spent, its
+		 * own css is dropped from the index and is not applied to
+		 * the rest of its elements.  An element costs at most a
+		 * bounded amount, so the overshoot is at most one element's
+		 */
+
+		if (!ctx->css_doc_spent &&
+		    ctx->cascade_ops >= LHP_MAX_CSS_CASCADE_OPS) {
+			lwsl_warn("%s: document css took %llu cascade steps, "
+				  "ignoring it for the rest of the document\n",
+				  __func__,
+				  (unsigned long long)ctx->cascade_ops);
+			ctx->css_doc_spent = 1;
+			if (lhp_selidx_build(ctx))
+				return 1;
+		}
+
+		/*
 		 * Which stanzas have a selector matching this element?  Only
 		 * the indexed selectors keyed by this element's tag, id and
 		 * classes can, plus the keyless ones
@@ -4775,6 +4810,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 
 		st = lws_html_get_atr(ps, "style", 5);
 		if (st && *st && !ctx->await_css_done &&
+		    !ctx->css_doc_spent &&
 		    lhp_parse_style_attr(ctx, ps, st))
 			return 1;
 	}
