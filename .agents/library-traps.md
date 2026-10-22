@@ -595,7 +595,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    protects it, and when every slot is in use a newcomer is refused (first
    chunk dropped, send gets `LWS_DHT_SEND_REFUSED`).  Recycling and
    idle-out of a sequencer with unacked data end through
-   `dht_on_state_change()` (WRITE_FAILED).  A consumer that fans out
+   `dht_on_state_change()` (WRITE_FAILED).  Since G-518 (cece1fe81) a
+   proven rx session counts as in use only within 3s of in-order new
+   data (duplicates don't refresh it), unproven sequencers are recycled
+   first, and a failed sequencer leaves the table before WRITE_FAILED so
+   a resend from the handler is QUEUED.  A consumer that fans out
    (eg a dht-dnssec zone fetch, up to 65 hosts) must handle REFUSED
    (G-508).
 
