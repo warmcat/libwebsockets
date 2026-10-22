@@ -167,6 +167,11 @@
    private functions (eg `lws_ss_policy_set()`).  For readable UBSan
    reports, compile just the suspect .c files without
    `-fsanitize-undefined-trap-on-error` and link them ahead of the archive.
+ - **Raw UDP test peers bound with `LWS_CAUDP_BIND` and port 0 can share a
+   port** (SO_REUSEADDR, G-302): use `LWS_CAUDP_BIND | LWS_CAUDP_RANDOM_PORT`
+   (G-626).
+ - **The dnssec-monitor plugin needs `-DLWS_WITH_SPAWN=1
+   -DLWS_WITH_SYS_WHOIS=1`**, or it silently isn't built.
  - **Linux loopback lets a test send from any 127/8 address**, so tests can
    use many source hosts (eg 127.0.0.2).  macOS lacks them: skip there.
  - **api-test-auth-dns-zonedir's clock starts before the context is
