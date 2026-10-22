@@ -67,10 +67,18 @@ static const adns_query_type_t qtypes[] = {
 	LWS_ADNS_RECORD_DNSKEY, LWS_ADNS_RECORD_TXT
 };
 
+/*
+ * lws_service() ignores its timeout: the sul only gets the pass going, and
+ * the cancel ends it, or it waits in poll() until the next real timer, which
+ * since the queries own their sockets may be seconds away (G-406)
+ */
+
 static void
 sul_cb(lws_sorted_usec_list_t *s)
 {
 	(void)s;
+
+	lws_cancel_service(cx);
 }
 
 static struct lws *
