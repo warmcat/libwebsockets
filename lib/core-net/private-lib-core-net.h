@@ -1682,7 +1682,11 @@ lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
 	lws_mutex_refcount_destroy(&pt->mr);
 }
 
+#if defined(_DEBUG)
+#define lws_pt_lock(pt, reason) lws_pt_lock_checked(pt, reason)
+#else
 #define lws_pt_lock(pt, reason) lws_mutex_refcount_lock(&(pt)->mr, reason)
+#endif
 #define lws_pt_unlock(pt) lws_mutex_refcount_unlock(&(pt)->mr)
 #define lws_pt_assert_lock_held(pt) lws_mutex_refcount_assert_held(&(pt)->mr)
 

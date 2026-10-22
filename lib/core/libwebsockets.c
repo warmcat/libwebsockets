@@ -1944,6 +1944,68 @@ lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 #endif
 }
 
+/*
+ * Lock order checking, for debug builds: see the lock order comment above
+ * lws_context_lock() in private-lib-core.h.  Only whether the calling thread
+ * owns a lock is looked at, which only the calling thread can change, so
+ * nothing races here.
+ */
+
+static int
+lws_mutex_refcount_held_by_me(const struct lws_mutex_refcount *mr)
+{
+	return mr->lock_depth && pthread_equal(mr->lock_owner, pthread_self());
+}
+
+/*
+ * The context lock is taken first: a thread holding a pt lock may only take it
+ * if it holds it already
+ */
+
+void
+lws_context_lock_checked(struct lws_context *cx, const char *reason)
+{
+	int n;
+
+	if (!lws_mutex_refcount_held_by_me(&cx->mr))
+		for (n = 0; n < cx->count_threads; n++)
+			if (lws_mutex_refcount_held_by_me(&cx->pt[n].mr)) {
+				lwsl_cx_err(cx, "lock order: %s takes the "
+					    "context lock holding pt %d's (%s)",
+					    reason, n,
+					    cx->pt[n].mr.last_lock_reason);
+				assert(0);
+			}
+
+	lws_mutex_refcount_lock(&cx->mr, reason);
+}
+
+/*
+ * A thread holds the locks of two pts only while it also holds the context
+ * lock
+ */
+
+void
+lws_pt_lock_checked(struct lws_context_per_thread *pt, const char *reason)
+{
+	struct lws_context *cx = pt->context;
+	int n;
+
+	if (cx && !lws_mutex_refcount_held_by_me(&pt->mr) &&
+	    !lws_mutex_refcount_held_by_me(&cx->mr))
+		for (n = 0; n < cx->count_threads; n++)
+			if (&cx->pt[n] != pt &&
+			    lws_mutex_refcount_held_by_me(&cx->pt[n].mr)) {
+				lwsl_cx_err(cx, "lock order: %s takes a second "
+					    "pt lock holding pt %d's (%s) "
+					    "without the context lock", reason,
+					    n, cx->pt[n].mr.last_lock_reason);
+				assert(0);
+			}
+
+	lws_mutex_refcount_lock(&pt->mr, reason);
+}
+
 #endif /* SMP */
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)

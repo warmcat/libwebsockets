@@ -363,7 +363,7 @@
 			"cmake":	"-DLWS_WITH_TLS_JIT_TRUST=1"
 		},
 		"smp": {
-			"cmake":	"-DLWS_MAX_SMP=32 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_MAX_SMP=32 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG"
 		},
 		"nows": {
 			"cmake":	"-DLWS_ROLE_WS=0"

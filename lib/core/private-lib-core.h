@@ -1344,7 +1344,21 @@ void lwsl_emit_stderr(int level, const char *line);
  * are recursive, so taking one already held, in order, is fine (C-131).
  */
 #if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+/*
+ * Debug builds check the order as the locks are taken, and assert on a
+ * thread taking the context lock while holding a pt lock (but not the context
+ * lock), or a second pt lock without the context lock
+ */
+struct lws_context_per_thread;
+LWS_VISIBLE LWS_EXTERN void
+lws_context_lock_checked(struct lws_context *cx, const char *reason);
+LWS_VISIBLE LWS_EXTERN void
+lws_pt_lock_checked(struct lws_context_per_thread *pt, const char *reason);
+#if defined(_DEBUG)
+#define lws_context_lock(c, reason) lws_context_lock_checked(c, reason)
+#else
 #define lws_context_lock(c, reason) lws_mutex_refcount_lock(&c->mr, reason)
+#endif
 #define lws_context_unlock(c) lws_mutex_refcount_unlock(&c->mr)
 #define lws_context_assert_lock_held(c) lws_mutex_refcount_assert_held(&c->mr)
 #define lws_vhost_assert_lock_held(v) lws_mutex_refcount_assert_held(&v->mr)
