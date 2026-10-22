@@ -51,10 +51,13 @@ typedef struct lws_tls_session_cache_openhitls {
 static void
 __lws_tls_session_destroy(lws_tls_sco_t *ts)
 {
+	struct lws_vhost *vh = lws_dll2_owner_container(&ts->list,
+					struct lws_vhost, tls_sessions);
+
 	lwsl_tlssess("%s: %s (%u)\n", __func__, (const char *)&ts[1],
 						lws_dll2_count(lws_dll2_owner(&ts->list)) - 1);
 
-	lws_sul_cancel(&ts->sul_ttl);
+	__lws_tls_session_ttl_cancel(vh, &ts->sul_ttl);
 	HITLS_SESS_Free(ts->session);
 	lws_dll2_remove(&ts->list);		/* vh lock */
 
@@ -92,8 +95,7 @@ lws_tls_reuse_session(struct lws *wsi)
 		wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
 		return 0;
 
-	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
-	lws_vhost_lock(wsi->a.vhost); /* -------------- vh { */
+	lws_tls_session_cache_lock(wsi->a.vhost); /* ------- cache { */
 
 	if (lws_tls_session_tag_from_wsi(wsi, tag, sizeof(tag)))
 		goto bail;
@@ -118,8 +120,7 @@ lws_tls_reuse_session(struct lws *wsi)
 	lws_dll2_add_tail(&ts->list, &wsi->a.vhost->tls_sessions);
 
 bail:
-	lws_vhost_unlock(wsi->a.vhost); /* } vh --------------  */
-	lws_context_unlock(wsi->a.context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(wsi->a.vhost); /* } cache ------- */
 	return reused;
 }
 
@@ -166,11 +167,9 @@ lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
 	struct lws_vhost *vh = lws_dll2_owner_container(&ts->list,
 						struct lws_vhost, tls_sessions);
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 	__lws_tls_session_destroy(ts);
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 }
 
 static lws_tls_sco_t *
@@ -250,8 +249,7 @@ lws_tls_session_new_cb(HITLS_Ctx *ssl, HITLS_Session *sess)
 	if (ttl <= 0 || ttl > (long)LWS_TLS_SESSION_TTL_MAX)
 		ttl = (long)LWS_TLS_SESSION_TTL_DEFAULT;
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 
 	ts = __lws_tls_session_lookup_by_name(vh, tag);
 
@@ -261,9 +259,9 @@ lws_tls_session_new_cb(HITLS_Ctx *ssl, HITLS_Session *sess)
 		if (!ts)
 			goto bail;
 
-		lws_sul_schedule(wsi->a.context, wsi->tsi, &ts->sul_ttl,
-					lws_tls_session_expiry_cb,
-					ttl * LWS_US_PER_SEC);
+		__lws_tls_session_ttl_schedule(vh, &ts->sul_ttl,
+					       lws_tls_session_expiry_cb,
+					       ttl * LWS_US_PER_SEC);
 
 #if (_LWS_ENABLED_LOGS & tlssess_loglevel)
 		disposition = "new";
@@ -289,8 +287,7 @@ lws_tls_session_new_cb(HITLS_Ctx *ssl, HITLS_Session *sess)
 
 	ts->session = sess;
 
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	lwsl_tlssess("%s: %p: %s: %s %s, ttl %lds (%s:%u)\n", __func__,
 				sess, wsi->lc.gutag, disposition, tag, ttl, vh->name,
@@ -304,8 +301,7 @@ lws_tls_session_new_cb(HITLS_Ctx *ssl, HITLS_Session *sess)
 	return 1;
 
 bail:
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	return 0;
 }
@@ -411,8 +407,7 @@ lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
 				     sizeof(d.tag)))
 		return 1; /* there is no such tag */
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 
 	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
 	if (!ts)
@@ -447,8 +442,7 @@ lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
 	lws_free(d.blob);
 
 bail:
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	return ret;
 }
@@ -473,8 +467,7 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 				     sizeof(d.tag)))
 		return 1; /* there is no such tag */
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 
 	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
 
@@ -533,9 +526,9 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 		if (ttl <= 0 || ttl > (long)LWS_TLS_SESSION_TTL_MAX)
 			ttl = (long)LWS_TLS_SESSION_TTL_DEFAULT;
 
-		lws_sul_schedule(vh->context, 0, &ts->sul_ttl,
-				 lws_tls_session_expiry_cb,
-				 ttl * LWS_US_PER_SEC);
+		__lws_tls_session_ttl_schedule(vh, &ts->sul_ttl,
+					       lws_tls_session_expiry_cb,
+					       ttl * LWS_US_PER_SEC);
 	}
 
 	sess = NULL;
@@ -550,8 +543,7 @@ bail:
 	free(v); /* user code will have used malloc() */
 bail1:
 
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	return ret;
 }

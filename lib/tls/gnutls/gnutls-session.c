@@ -69,6 +69,8 @@ lws_tls_session_ser_data_clear(lws_ser_sess_t *sd)
 static void
 __lws_tls_session_destroy(lws_tls_scm_t *ts)
 {
+	struct lws_vhost *vh = lws_dll2_owner_container(&ts->list,
+					struct lws_vhost, tls_sessions);
 	unsigned int count = lws_dll2_count(lws_dll2_owner(&ts->list));
 
 	(void)count; /* logs-off builds drop the only use */
@@ -76,7 +78,7 @@ __lws_tls_session_destroy(lws_tls_scm_t *ts)
 	lwsl_tlssess("%s: %s (%u)\n", __func__, (const char *)&ts[1],
 		     count ? count - 1 : 0);
 
-	lws_sul_cancel(&ts->sul_ttl);
+	__lws_tls_session_ttl_cancel(vh, &ts->sul_ttl);
 	lws_dll2_remove(&ts->list);		/* vh lock */
 	if (ts->ser_data) {
 		lws_tls_session_ser_data_clear(ts->ser_data);
@@ -116,8 +118,7 @@ lws_tls_reuse_session(struct lws *wsi)
 	    wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
 		return 0;
 
-	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
-	lws_vhost_lock(wsi->a.vhost); /* -------------- vh { */
+	lws_tls_session_cache_lock(wsi->a.vhost); /* ------- cache { */
 
 	if (lws_tls_session_tag_from_wsi(wsi, buf, sizeof(buf)))
 		goto bail;
@@ -149,14 +150,12 @@ lws_tls_reuse_session(struct lws *wsi)
 	lws_dll2_remove(&ts->list);
 	lws_dll2_add_tail(&ts->list, &wsi->a.vhost->tls_sessions);
 
-	lws_vhost_unlock(wsi->a.vhost); /* } vh --------------  */
-	lws_context_unlock(wsi->a.context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(wsi->a.vhost); /* } cache ------- */
 
 	return 1;
 
 bail:
-	lws_vhost_unlock(wsi->a.vhost); /* } vh --------------  */
-	lws_context_unlock(wsi->a.context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(wsi->a.vhost); /* } cache ------- */
 	return 0;
 }
 
@@ -192,15 +191,13 @@ lws_tls_session_forget_gnutls(struct lws *wsi)
 	if (!wsi->a.vhost || lws_tls_session_tag_from_wsi(wsi, buf, sizeof(buf)))
 		return;
 
-	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
-	lws_vhost_lock(wsi->a.vhost); /* -------------- vh { */
+	lws_tls_session_cache_lock(wsi->a.vhost); /* ------- cache { */
 
 	ts = __lws_tls_session_lookup_by_name(wsi->a.vhost, buf);
 	if (ts)
 		__lws_tls_session_destroy(ts);
 
-	lws_vhost_unlock(wsi->a.vhost); /* } vh --------------  */
-	lws_context_unlock(wsi->a.context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(wsi->a.vhost); /* } cache ------- */
 }
 
 static void
@@ -210,11 +207,9 @@ lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
 	struct lws_vhost *vh = lws_dll2_owner_container(&ts->list,
 						struct lws_vhost, tls_sessions);
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 	__lws_tls_session_destroy(ts);
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 }
 
 /*
@@ -303,8 +298,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 		return 0;
 	}
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 
 	ts = __lws_tls_session_lookup_by_name(vh, buf);
 
@@ -365,10 +359,10 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
 
-		lws_sul_schedule(wsi->a.context, wsi->tsi, &ts->sul_ttl,
-				 lws_tls_session_expiry_cb,
-				 (int64_t)vh->tls.tls_session_cache_ttl *
-							 LWS_US_PER_SEC);
+		__lws_tls_session_ttl_schedule(vh, &ts->sul_ttl,
+				lws_tls_session_expiry_cb,
+				(int64_t)vh->tls.tls_session_cache_ttl *
+								LWS_US_PER_SEC);
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 		disposition = "new";
@@ -401,8 +395,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 	lws_gnutls_free_secret(&gd);
 
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	wsi->io->tls.sess_cached = 1;
 
@@ -418,8 +411,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 bail:
 	lws_gnutls_free_secret(&gd);
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	return 0;
 }
@@ -482,8 +474,7 @@ lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
 				     sizeof(d.tag)))
 		return 1; /* there is no such tag */
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 
 	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
 	if (!ts || !ts->ser_data || !ts->ser_data->data)
@@ -506,8 +497,7 @@ lws_tls_session_dump_save_flags(struct lws_vhost *vh, const char *host,
 	lws_free(v);
 
 bail:
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	return ret;
 }
@@ -530,8 +520,7 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 		return 1; /* there is no such tag */
 	lwsl_notice("%s: looking for tag %s\n", __func__, d.tag);
 
-	lws_context_lock(vh->context, __func__); /* -------------- cx { */
-	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_cache_lock(vh); /* ------- cache { */
 
 	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
 	if (ts) {
@@ -583,21 +572,19 @@ lws_tls_session_dump_load_flags(struct lws_vhost *vh, const char *host,
 	 * the vhost's own session ttl.
 	 */
 
-	lws_sul_schedule(vh->context, 0, &ts->sul_ttl,
-			 lws_tls_session_expiry_cb,
-			 (int64_t)vh->tls.tls_session_cache_ttl *
+	__lws_tls_session_ttl_schedule(vh, &ts->sul_ttl,
+			lws_tls_session_expiry_cb,
+			(int64_t)vh->tls.tls_session_cache_ttl *
 							LWS_US_PER_SEC);
 
 	lwsl_tlssess("%s: session loaded OK\n", __func__);
 
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	return 0;
 
 bail1:
-	lws_vhost_unlock(vh); /* } vh --------------  */
-	lws_context_unlock(vh->context); /* } cx --------------  */
+	lws_tls_session_cache_unlock(vh); /* } cache ------- */
 
 	return 1;
 }

@@ -202,3 +202,44 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 }
 
 
+
+/*
+ * A vhost's session cache is used by the connections of every service thread,
+ * so it is kept under the context lock and the vhost's.  The expiry timers of
+ * its entries are all kept on pt 0 (G-537), whatever thread made the entry:
+ * pt 0's own thread adds to and removes from its timer list holding only its
+ * pt lock, so changing the cache, which schedules and cancels those timers,
+ * holds pt 0's lock too, in the context -> pt -> vhost lock order.  The
+ * expiry callback runs on pt 0, already holding the context and pt 0 locks.
+ */
+
+void
+lws_tls_session_cache_lock(struct lws_vhost *vh)
+{
+	lws_context_lock(vh->context, __func__); /* -------------- cx { */
+	lws_pt_lock(&vh->context->pt[0], __func__); /* ------- pt0 { */
+	lws_vhost_lock(vh); /* -------------- vh { */
+}
+
+void
+lws_tls_session_cache_unlock(struct lws_vhost *vh)
+{
+	lws_vhost_unlock(vh); /* } vh --------------  */
+	lws_pt_unlock(&vh->context->pt[0]); /* } pt0 -------  */
+	lws_context_unlock(vh->context); /* } cx --------------  */
+}
+
+void
+__lws_tls_session_ttl_schedule(struct lws_vhost *vh,
+			       lws_sorted_usec_list_t *sul, sul_cb_t cb,
+			       lws_usec_t us)
+{
+	lws_pt_assert_lock_held(&vh->context->pt[0]);
+	lws_sul_schedule(vh->context, 0, sul, cb, us);
+}
+
+void
+__lws_tls_session_ttl_cancel(struct lws_vhost *vh, lws_sorted_usec_list_t *sul)
+{
+	lws_sul_cancel_tsi(vh->context, 0, sul);
+}

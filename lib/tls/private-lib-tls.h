@@ -401,6 +401,18 @@ lws_tls_session_forget_gnutls(struct lws *wsi);
 int
 lws_tls_reuse_session(struct lws *wsi);
 
+/* the session cache's locking and entry expiry, common to the backends */
+void
+lws_tls_session_cache_lock(struct lws_vhost *vh);
+void
+lws_tls_session_cache_unlock(struct lws_vhost *vh);
+void
+__lws_tls_session_ttl_schedule(struct lws_vhost *vh,
+			       lws_sorted_usec_list_t *sul, sul_cb_t cb,
+			       lws_usec_t us);
+void
+__lws_tls_session_ttl_cancel(struct lws_vhost *vh, lws_sorted_usec_list_t *sul);
+
 void
 lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl);
 
