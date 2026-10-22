@@ -803,6 +803,9 @@ struct per_vhost_data__auth_dns {
 	lws_dll2_owner_t zones;
 	lws_dll2_owner_t pending_queries;
 	lws_sorted_usec_list_t sul_evict;
+	/* registering for verified zones, until lws-dht-dnssec takes it */
+	lws_sorted_usec_list_t sul_dht_reg;
+	unsigned int dht_reg_tries;
 
 	/*
 	 * C-239: count of distinct domains in pending_queries, maintained
@@ -1632,6 +1635,44 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 }
 
 /*
+ * lws-dht-dnssec tells us of each zone it verifies and stores, so we serve
+ * it.  The protocols on a vhost start in no fixed order, and if it isn't
+ * started when we are, we must register when it is: before, the
+ * registration was just lost, and we went on serving what we loaded at
+ * startup, eg, never the challenge zones ACME was waiting for.
+ */
+
+#define AUTH_DNS_DHT_REG_US	(100 * LWS_US_PER_MS)
+#define AUTH_DNS_DHT_REG_TRIES	100
+
+static void
+auth_dns_dht_reg_cb(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__auth_dns *vhd = lws_container_of(sul,
+			struct per_vhost_data__auth_dns, sul_dht_reg);
+
+	if (!vhd->dht_ops->register_auth_cb(vhd->vhost, auth_dns_local_zone_cb,
+					    vhd)) {
+		if (vhd->dht_reg_tries)
+			lwsl_vhost_notice(vhd->vhost, "registered for zones "
+					  "from lws-dht-dnssec, once it "
+					  "started");
+		return;
+	}
+
+	if (++vhd->dht_reg_tries == AUTH_DNS_DHT_REG_TRIES) {
+		lwsl_vhost_err(vhd->vhost, "lws-dht-dnssec never started on "
+			       "this vhost: zones verified from the DHT won't "
+			       "be served here, give it its pvos on the same "
+			       "vhost as us");
+		return;
+	}
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_dht_reg,
+			 auth_dns_dht_reg_cb, AUTH_DNS_DHT_REG_US);
+}
+
+/*
  * Take one pending query off the vhd queue, cancelling its timeout and
  * keeping vhd->pending_unique_domains in step.  Every free of a
  * struct pending_dns_query goes through here.  Returns nonzero if other
@@ -2086,7 +2127,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				vhd->dht_ops = (const struct lws_dht_dnssec_ops *)prot->user;
 				lwsl_notice("%s: Successfully linked with lws-dht-dnssec operations at %p\n", __func__, vhd->dht_ops);
 				if (vhd->dht_ops->register_auth_cb)
-					vhd->dht_ops->register_auth_cb(vhd->vhost, auth_dns_local_zone_cb, vhd);
+					auth_dns_dht_reg_cb(&vhd->sul_dht_reg);
 			} else {
 				lwsl_notice("%s: lws-dht-dnssec not found or ops missing (prot=%p, user=%p)\n", __func__, prot, prot ? prot->user : NULL);
 			}
@@ -2150,6 +2191,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		{
 			lws_sul_cancel(&vhd->sul_evict);
+			lws_sul_cancel(&vhd->sul_dht_reg);
 		auth_dns_rrl_destroy(vhd);
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {

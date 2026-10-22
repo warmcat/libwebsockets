@@ -30,7 +30,9 @@
  * test then hands it payloads as the plugin does after checking their
  * signature against a domain's keys: one carrying a second $ORIGIN for a
  * zone the dir serves, and one that is wholly another zone, must both be
- * refused, leaving the served zone as it was.
+ * refused, leaving the served zone as it was.  Its stand-in refuses the
+ * first registrations, as lws-dht-dnssec does when it isn't started on the
+ * vhost yet: auth-dns must register again later, not lose it.
  *
  * Phase 7's stand-in also takes zone fetches, keeping their completion and
  * opaque as the plugin does, and never answers them.  When auth-dns' query
@@ -129,13 +131,25 @@ typedef void (*zd_auth_cb_t)(void *opaque, const char *domain,
 
 static zd_auth_cb_t dht_auth_cb;
 static void *dht_auth_opaque;
+/*
+ * The protocols on a vhost start in no fixed order: like a lws-dht-dnssec
+ * that isn't started yet, refuse the first registrations, so auth-dns has to
+ * try again, and the zones are still handed over
+ */
+#define ZD_REG_REFUSALS		2
+static int zd_reg_refused, zd_reg_waits;
 
-static void
+static int
 zd_register_auth_cb(struct lws_vhost *vh, zd_auth_cb_t cb, void *opaque)
 {
 	(void)vh;
+	if (zd_reg_refused++ < ZD_REG_REFUSALS)
+		return 1;
+
 	dht_auth_cb = cb;
 	dht_auth_opaque = opaque;
+
+	return 0;
 }
 
 static struct lws_dht_dnssec_ops zd_dht_ops = {
@@ -710,6 +724,9 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		if (cur->dht) {
 			size_t i;
 
+			/* it registers again a little later, after refusals */
+			if (!dht_auth_cb && ++zd_reg_waits < 40)
+				goto again;
 			if (!dht_auth_cb) {
 				lwsl_err("%s: auth-dns registered no callback "
 					 "for verified zones\n", __func__);
@@ -858,6 +875,7 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
+again:
 	lws_sul_schedule(context, 0, &sul_drive, drive_cb, TICK_US);
 }
 
@@ -926,6 +944,7 @@ run_phase(struct phase *p, int idx)
 	info.protocols = p->fetch ? my_protocols_fetch :
 			 (p->dht ? my_protocols_dht : my_protocols);
 	dht_auth_cb = NULL;
+	zd_reg_refused = zd_reg_waits = 0;
 	zd_fetch_reset();
 
 	if (p->zdir) {

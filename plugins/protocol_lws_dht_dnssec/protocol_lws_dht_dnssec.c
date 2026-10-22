@@ -7134,7 +7134,7 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 	return 0;
 }
 
-static void dht_dnssec_register_auth_cb(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque)
+static int dht_dnssec_register_auth_cb(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque)
 {
 	if (vh) {
 		const struct lws_protocols *prot = lws_vhost_name_to_protocol(vh, "lws-dht-dnssec");
@@ -7144,9 +7144,13 @@ static void dht_dnssec_register_auth_cb(struct lws_vhost *vh, void (*cb)(void *o
 				vhd->auth_cb = cb;
 				vhd->auth_cb_opaque = opaque;
 				lwsl_notice("%s: Registered local zone auth cb\n", __func__);
+				return 0;
 			}
 		}
 	}
+
+	/* not started on vh, or not yet: the caller tries again */
+	return 1;
 }
 
 static int

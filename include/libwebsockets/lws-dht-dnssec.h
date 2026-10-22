@@ -190,7 +190,14 @@ struct lws_dht_dnssec_ops {
 	int (*notify_peer_outdated)(struct lws_vhost *vhost, const char *domain,
 				    const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial);
 
-	void (*register_auth_cb)(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque);
+	/*
+	 * Have cb told of each zone verified and stored here, with the path
+	 * of its payload, eg, so the authoritative dns on vh serves it.
+	 * Returns 0 if it is registered, or nonzero if lws-dht-dnssec isn't
+	 * started on vh (yet): the protocols on a vhost start in no fixed
+	 * order, so try again later.
+	 */
+	int (*register_auth_cb)(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque);
 
 	/*
 	 * See struct lws_dht_dnssec_query_serials_args
