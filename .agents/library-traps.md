@@ -589,7 +589,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **Two paths destroy a sequencer without `on_state_change`**: the
    oldest-used eviction in `dht_ts_create()` and the idle-out.  Consumers
    get no WRITE_FAILED for queued data there (G-496), so any promise to
-   consumers about sequencer lifetime has to cover them.
+   consumers about sequencer lifetime has to cover them.  A dht-dnssec
+   zone fetch fans out to up to 65 sequencers against the 64-entry table,
+   so it evicts every other transfer (G-508).
 
  - **Session model (G-133 / G-141):** a receive half binds to the tid of
    the first chunk it takes; only that tid feeds it and our acks echo it.
