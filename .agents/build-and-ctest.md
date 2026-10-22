@@ -161,6 +161,11 @@
    private functions (eg `lws_ss_policy_set()`).  For readable UBSan
    reports, compile just the suspect .c files without
    `-fsanitize-undefined-trap-on-error` and link them ahead of the archive.
+ - **A test compiling protocol plugins in statically, in a
+   `LWS_WITH_PLUGINS` build, must set
+   `LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS` on its vhost** (or
+   give pvos): otherwise PROTOCOL_INIT never runs for them and plugins
+   needing their per-vhost struct refuse every connection.
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
