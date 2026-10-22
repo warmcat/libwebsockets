@@ -709,7 +709,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **Strangers (peer spoke first, not a good routing node at that
    endpoint) may hold at most `LWS_DHT_TS_STRANGERS_MAX` (32 of 64)
    sequencers**, and the oldest stranger gives way after 10s even in use
-   (G-525, f2d0358bd).
+   (G-525).  Since aefb7f447 stranger status is decided when a receive
+   session is proven (`lws_dht_ts_session_admit()`), not at creation, so a
+   peer proving a session on one of our sequencers counts too; `born` is
+   when the slot was taken.
 
  - **Session model (G-133 / G-141):** a receive half binds to the tid of
    the first chunk it takes; only that tid feeds it and our acks echo it.
