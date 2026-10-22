@@ -681,6 +681,169 @@ bail:
 }
 
 /*
+ * The cascade's work per element must be bounded however much css a page
+ * has, measured in steps (ctx->cascade_ops), not time.  A sheet of more
+ * selectors matching every element than a document may have (most of them
+ * an empty *{}), declaring more custom properties than it may have, is
+ * applied to a document nested nearly as deep as lhp allows with leaf
+ * elements under it.  Unbounded, each element walked every stanza hit so far for every
+ * selector it tried (quadratic in the selectors), and every inherited
+ * property and var() lookup walked every declaration of every matched stanza
+ * at every ancestor level.
+ *
+ * The leaves must still get the values the cascade gives them: a var()
+ * declared on every element, and one declared twice, where the later wins.
+ * And the document must have been held to its limits on selectors and
+ * custom properties.
+ */
+
+#define LHPT_CW_DECLS		(LHP_MAX_CSS_VARS + 100)
+#define LHPT_CW_EMPTY		40000
+#define LHPT_CW_NEST		120
+#define LHPT_CW_LEAVES		40
+/* steps of cascade work allowed per element */
+#define LHPT_CW_OPS_PER_ELEM	(3 * LHP_MAX_CSS_SELECTORS)
+
+static int cw_elems, cw_leaves, cw_leaves_ok, cw_over;
+
+static lws_stateful_ret_t
+cw_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lhp_atr_t *ta;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	cw_elems++;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->cascade_ops > (uint64_t)cw_elems * LHPT_CW_OPS_PER_ELEM) {
+		cw_over = 1;
+		return LWS_SRET_FATAL;
+	}
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 1 || *(const char *)&ta[1] != 'p')
+		return 0;
+
+	cw_leaves++;
+	if (ps->css_width && ps->css_width->u.i.whole == 7 &&
+	    ps->css_height && ps->css_height->u.i.whole == 2)
+		cw_leaves_ok++;
+
+	return 0;
+}
+
+static int
+test_cascade_work(void)
+{
+	size_t alloc = 512 * 1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	cw_elems = cw_leaves = cw_leaves_ok = cw_over = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>*{--vdup:1px}\n*{--vdup:2px}\n"
+			  "p{width:var(--v7)}\np{height:var(--vdup)}\n");
+	for (i = 0; i < LHPT_CW_DECLS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "*{--v%d:%dpx;margin-left:1px}\n", i, i);
+	for (i = 0; i < LHPT_CW_EMPTY; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "*{}");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body>");
+	for (i = 0; i < LHPT_CW_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<div>");
+	for (i = 0; i < LHPT_CW_LEAVES; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<p>x</p>");
+	for (i = 0; i < LHPT_CW_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</div>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, cw_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d elements, %llu cascade steps (%llu per element), "
+		  "%u selectors, %u custom properties kept, r 0x%x\n",
+		  __func__, cw_elems, (unsigned long long)ctx->cascade_ops,
+		  (unsigned long long)(cw_elems ?
+				ctx->cascade_ops / (unsigned int)cw_elems : 0),
+		  (unsigned int)ctx->css_doc_selectors,
+		  (unsigned int)ctx->css_doc_vars, (unsigned int)r);
+
+	if (cw_over) {
+		lwsl_err("%s: cascade took over %d steps per element\n",
+			 __func__, LHPT_CW_OPS_PER_ELEM);
+		goto bail_destruct;
+	}
+	if (r & LWS_SRET_FATAL || cw_leaves != LHPT_CW_LEAVES) {
+		lwsl_err("%s: parse failed, %d leaves\n", __func__, cw_leaves);
+		goto bail_destruct;
+	}
+	if (ctx->css_doc_selectors != LHP_MAX_CSS_SELECTORS) {
+		lwsl_err("%s: %u selectors kept, expected the limit %d\n",
+			 __func__, (unsigned int)ctx->css_doc_selectors,
+			 LHP_MAX_CSS_SELECTORS);
+		goto bail_destruct;
+	}
+	if (ctx->css_doc_vars != LHP_MAX_CSS_VARS) {
+		lwsl_err("%s: %u custom properties kept, expected the limit "
+			 "%d\n", __func__, (unsigned int)ctx->css_doc_vars,
+			 LHP_MAX_CSS_VARS);
+		goto bail_destruct;
+	}
+	if (cw_leaves_ok != LHPT_CW_LEAVES) {
+		lwsl_err("%s: only %d of %d leaves got their css\n", __func__,
+			 cw_leaves_ok, LHPT_CW_LEAVES);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * A class-keyed cosmetic filter rule must apply to an element with that
  * class however many other classes, distinct or repeated, come before it.
  * Only the element with id "ad" has the filtered class.
@@ -1169,6 +1332,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_calc_budget())
+		goto bail;
+
+	if (test_cascade_work())
 		goto bail;
 
 	if (test_filter_classes(0) ||

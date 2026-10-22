@@ -56,6 +56,29 @@
 #endif
 #endif
 
+/*
+ * Most selectors (each selector of a selector list counts) and custom
+ * properties the document's own css may declare; the user-agent and filter
+ * sheets don't count.  Past either, the rest are dropped with a warning.
+ * Cascading each element visits a share of the selectors, and keeps an index
+ * of the declarations that apply to it including custom properties, so these
+ * bound the work and heap a page's css can make each element cost.
+ */
+#if !defined(LHP_MAX_CSS_SELECTORS)
+#if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
+#define LHP_MAX_CSS_SELECTORS		4096
+#else
+#define LHP_MAX_CSS_SELECTORS		32768
+#endif
+#endif
+#if !defined(LHP_MAX_CSS_VARS)
+#if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
+#define LHP_MAX_CSS_VARS		512
+#else
+#define LHP_MAX_CSS_VARS		4096
+#endif
+#endif
+
 enum lhp_callbacks {
 
 	LHPCB_ERR_ATTRIB_SYNTAX		= -5,
@@ -448,6 +471,7 @@ typedef struct {
 
 struct lcsp_atr;
 struct lcsp_match;
+struct lhp_decl;
 
 #define CCPAS_TOP 0
 #define CCPAS_RIGHT 1
@@ -534,6 +558,13 @@ typedef struct lhp_pstack {
 	 */
 	struct lcsp_match		*matched;
 	struct lwsac			*styleac;
+	/*
+	 * The declaration that wins for each property (and custom property)
+	 * among the matched stanzas, sorted for lookup, made when first
+	 * needed after the matched stanzas change; private to lhp.c
+	 */
+	struct lhp_decl			*decl;
+	uint32_t			ndecl;
 	lws_fx_t			font_size; /* computed font-size, px */
 	uint16_t			nmatched;
 
@@ -566,6 +597,7 @@ typedef struct lhp_pstack {
 							    * offset, sized when
 							    * the ancestor closes */
 	uint8_t				css_resolved:1;
+	uint8_t				decl_valid:1; /* decl reflects matched */
 	uint8_t				in_body:1;
 	uint8_t				hidden:1; /* display: none on us or an ancestor */
 	uint8_t				suspicious:1; /* our class or id could not
@@ -788,6 +820,7 @@ typedef struct lhp_block_rule {
 } lhp_block_rule_t;
 
 struct lhp_cls_tok;
+struct lhp_hits_slot;
 
 typedef struct lhp_ctx {
 	lws_dll2_owner_t	stack; /* lhp_pstack_t */
@@ -839,6 +872,17 @@ typedef struct lhp_ctx {
 					* selectors of theirs that matched */
 	uint32_t		hits_alloc;
 	uint32_t		hits_count;
+	struct lhp_hits_slot	*hits_hash; /* stanza -> hits index for the
+					     * current pass, private */
+	uint32_t		hits_hash_size; /* slots, a power of 2 */
+	uint32_t		hits_gen; /* current pass, for hits_hash */
+	uint64_t		cascade_ops; /* steps of cascade work done
+					      * for the document so far:
+					      * selector index entries visited,
+					      * declarations indexed, lookup
+					      * steps... for tests to bound */
+	uint32_t		css_doc_selectors; /* the document's selectors */
+	uint32_t		css_doc_vars; /* and custom properties */
 	struct lhp_cls_tok	*ctok; /* the class tokens of the element
 					* being cascaded, private to lhp.c */
 	uint32_t		ctok_alloc;

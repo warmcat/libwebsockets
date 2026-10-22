@@ -86,6 +86,12 @@ JPEG and PNG images and express all UI in html/css.
  - CSS is parsed and kept for the whole HTML parse, since it doesn't know which
    pieces will be needed until it has parsed the html.  So giant CSS alone will
    overflow available memory on constrained targets
+ - A document's own css may have at most `LHP_MAX_CSS_SELECTORS` selectors
+   (32768, 4096 on FreeRTOS / baremetal) and `LHP_MAX_CSS_VARS` custom
+   properties (4096, 512); past either, the rest are ignored with a warning.
+   Cascading an element costs a share of the selectors and an index of the
+   declarations that apply to it, so these bound what a page's css can make
+   each element cost.  Both can be overridden at build time.
 
 Heap Costs during active decode (while rendering line that includes image)
 

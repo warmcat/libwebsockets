@@ -582,6 +582,7 @@ lhp_clean_level(lhp_pstack_t *ps)
 
 	if (ps->matched)
 		lws_free(ps->matched);
+	lws_free(ps->decl);
 	lwsac_free(&ps->styleac);
 
 	lws_free(ps);
@@ -3042,6 +3043,169 @@ lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm,
 }
 
 /*
+ * The stanzas hit in a cascade pass are found again by a small open-addressed
+ * table from the stanza to its index in ctx->hits, so that a stanza hit by
+ * many selectors costs a probe per selector rather than a walk of every hit
+ * so far.  A slot belongs to the current pass only if it carries the pass's
+ * generation, so the table needn't be cleared between passes.
+ */
+
+struct lhp_hits_slot {
+	uint32_t		gen;
+	uint32_t		idx;	/* into ctx->hits */
+};
+
+static uint32_t
+lhp_hits_slot(lhp_ctx_t *ctx, const lcsp_stanza_t *stz)
+{
+	uint32_t m = ctx->hits_hash_size - 1,
+		 h = ((uint32_t)((uintptr_t)stz >> 3) * 2654435761u) & m;
+
+	while (ctx->hits_hash[h].gen == ctx->hits_gen &&
+	       ctx->hits[ctx->hits_hash[h].idx].stz != stz) {
+		ctx->cascade_ops++;
+		h = (h + 1) & m;
+	}
+
+	return h;
+}
+
+/* make room for one more hit, keeping the table at most half full */
+
+static int
+lhp_hits_grow(lhp_ctx_t *ctx)
+{
+	uint32_t na = ctx->hits_alloc ? ctx->hits_alloc * 2 : 16, n;
+	struct lhp_hits_slot *hh;
+	lcsp_match_t *h;
+
+	hh = lws_zalloc(2 * na * sizeof(*hh), __func__);
+	if (!hh)
+		return 1;
+
+	h = lws_realloc(ctx->hits, na * sizeof(*h), __func__);
+	if (!h) {
+		lws_free(hh);
+		return 1;
+	}
+	ctx->hits = h;
+	ctx->hits_alloc = na;
+
+	lws_free(ctx->hits_hash);
+	ctx->hits_hash = hh;
+	ctx->hits_hash_size = 2 * na;
+
+	/* the slots were all zeroed: gen 0 is never a pass's generation */
+
+	for (n = 0; n < ctx->hits_count; n++) {
+		uint32_t sl = lhp_hits_slot(ctx, ctx->hits[n].stz);
+
+		ctx->hits_hash[sl].gen = ctx->hits_gen;
+		ctx->hits_hash[sl].idx = n;
+	}
+
+	return 0;
+}
+
+static void
+lhp_hits_new_pass(lhp_ctx_t *ctx)
+{
+	ctx->hits_count = 0;
+	if (!++ctx->hits_gen) {
+		/* wrapped: forget every slot, and skip gen 0 */
+		if (ctx->hits_hash)
+			memset(ctx->hits_hash, 0, ctx->hits_hash_size *
+						  sizeof(*ctx->hits_hash));
+		ctx->hits_gen = 1;
+	}
+}
+
+/*
+ * Run the matcher for the indexed selector e, recording a stanza hit for
+ * this cascade pass if it matches
+ */
+
+static int
+lhp_selidx_try_one(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lhp_selidx_t *e)
+{
+	lcsp_names_t *nm = e->nm;
+	const char *n = (const char *)&nm[1];
+	lcsp_stanza_t *stz = e->stz;
+	uint32_t sl = 0, hn = ctx->hits_count;
+	size_t pl;
+
+	pl = lhp_pseudo_elem_suffix(n, nm->name_len);
+
+	if (pl) {
+		/*
+		 * A :before / :after pseudo-element selector: the element
+		 * matches the subject part, and the stanza generates a pseudo
+		 * box instead of styling the element itself.  The last one in
+		 * source order wins, so one that cannot win needn't be matched
+		 */
+		lcsp_stanza_t **pse = n[nm->name_len - 1] == 'r' ?
+				&ps->pseudo_after : &ps->pseudo_before;
+
+		/* the name ends 'r' for after, 'e' for before */
+		if (nm->name_len > pl &&
+		    (!*pse || (*pse)->seq < stz->seq) &&
+		    lhp_selidx_match(ctx, ps, nm, n, n + nm->name_len - pl))
+			*pse = stz;
+
+		return 0;
+	}
+
+	/*
+	 * A stanza with no declarations can't style anything: matching its
+	 * selector would only spend the element's budget
+	 */
+
+	if (!lws_dll2_get_head(&stz->defs))
+		return 0;
+
+	/*
+	 * Have we taken this stanza already in this pass, at what specificity?
+	 * The hits array is the pass, so the stanza itself is left untouched.
+	 * Looking before matching saves matching a selector that could not
+	 * change anything
+	 */
+
+	if (ctx->hits_hash) {
+		sl = lhp_hits_slot(ctx, stz);
+		if (ctx->hits_hash[sl].gen == ctx->hits_gen)
+			hn = ctx->hits_hash[sl].idx;
+	}
+
+	if (hn != ctx->hits_count &&
+	    nm->specificity <= ctx->hits[hn].specificity)
+		return 0;
+
+	if (!lhp_selidx_match(ctx, ps, nm, n, n + nm->name_len))
+		return 0;
+
+	if (hn != ctx->hits_count) {
+		ctx->hits[hn].specificity = nm->specificity;
+		return 0;
+	}
+
+	/* first hit on this stanza this pass */
+
+	if (ctx->hits_count == ctx->hits_alloc) {
+		if (lhp_hits_grow(ctx))
+			return 1;
+		/* the slot moved with the table */
+		sl = lhp_hits_slot(ctx, stz);
+	}
+
+	ctx->hits_hash[sl].gen = ctx->hits_gen;
+	ctx->hits_hash[sl].idx = ctx->hits_count;
+	ctx->hits[ctx->hits_count].stz = stz;
+	ctx->hits[ctx->hits_count++].specificity = nm->specificity;
+
+	return 0;
+}
+
+/*
  * Run the matcher for every indexed selector in the bucket list e whose
  * key is exactly k (or all of them for the keyless list), recording stanza
  * hits for this cascade pass
@@ -3051,13 +3215,11 @@ static int
 lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 	       uint8_t kind, const char *k, size_t klen)
 {
-	uint32_t hn;
-
 	for (; e; e = e->next) {
-		lcsp_names_t *nm = e->nm;
+		const lcsp_names_t *nm = e->nm;
 		const char *n = (const char *)&nm[1];
-		lcsp_stanza_t *stz = e->stz;
-		size_t pl;
+
+		ctx->cascade_ops++;
 
 		if (kind != LHP_SELKEY_NONE &&
 		    (nm->key_kind != kind || nm->key_len != klen ||
@@ -3066,83 +3228,14 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 			     strncmp(n + nm->key_ofs, k, klen))))
 			continue;
 
-		pl = lhp_pseudo_elem_suffix(n, nm->name_len);
-
-		if (pl) {
-			/*
-			 * A :before / :after pseudo-element selector: the
-			 * element matches the subject part, and the stanza
-			 * generates a pseudo box instead of styling the
-			 * element itself.  The last one in source order wins,
-			 * so one that cannot win needn't be matched
-			 */
-			lcsp_stanza_t **pse = n[nm->name_len - 1] == 'r' ?
-					&ps->pseudo_after : &ps->pseudo_before;
-
-			/* the name ends 'r' for after, 'e' for before */
-			if (nm->name_len > pl &&
-			    (!*pse || (*pse)->seq < stz->seq) &&
-			    lhp_selidx_match(ctx, ps, nm, n,
-					     n + nm->name_len - pl))
-				*pse = stz;
-			continue;
-		}
-
-		/*
-		 * Have we taken this stanza already in this pass?  The hits
-		 * array is the pass, and it holds the handful of stanzas
-		 * that matched one element, so walking it costs less than it
-		 * looks... and unlike the per-stanza serial it replaces, it
-		 * leaves the stanza itself untouched.  Looking before
-		 * matching saves matching a selector that could not change
-		 * anything
-		 */
-
-		for (hn = 0; hn < ctx->hits_count; hn++)
-			if (ctx->hits[hn].stz == stz)
-				break;
-
-		if (hn != ctx->hits_count &&
-		    nm->specificity <= ctx->hits[hn].specificity)
-			continue;
-
-		if (!lhp_selidx_match(ctx, ps, nm, n, n + nm->name_len))
-			continue;
-
-		if (hn != ctx->hits_count) {
-			ctx->hits[hn].specificity = nm->specificity;
-			continue;
-		}
-
-		/* first hit on this stanza this pass */
-
-		if (ctx->hits_count == ctx->hits_alloc) {
-			uint32_t na = ctx->hits_alloc ? ctx->hits_alloc * 2 : 16;
-			lcsp_match_t *h = lws_realloc(ctx->hits,
-						      na * sizeof(*h),
-						      __func__);
-
-			if (!h)
-				return 1;
-			ctx->hits = h;
-			ctx->hits_alloc = na;
-		}
-
-		ctx->hits[ctx->hits_count].stz = stz;
-		ctx->hits[ctx->hits_count++].specificity = nm->specificity;
+		if (lhp_selidx_try_one(ctx, ps, e))
+			return 1;
 	}
 
 	return 0;
 }
 
-static int
-lhp_hits_cmp(const void *a, const void *b)
-{
-	const lcsp_stanza_t *sa = ((const lcsp_match_t *)a)->stz,
-			    *sb = ((const lcsp_match_t *)b)->stz;
-
-	return sa->seq < sb->seq ? -1 : sa->seq > sb->seq;
-}
+/* class tokens sort by index bucket first, so a bucket's tokens are adjacent */
 
 static int
 lhp_cls_tok_cmp(const void *a, const void *b)
@@ -3150,6 +3243,9 @@ lhp_cls_tok_cmp(const void *a, const void *b)
 	const lhp_cls_tok_t *ta = (const lhp_cls_tok_t *)a,
 			    *tb = (const lhp_cls_tok_t *)b;
 
+	if (ta->h % LHP_SELIDX_BUCKETS != tb->h % LHP_SELIDX_BUCKETS)
+		return ta->h % LHP_SELIDX_BUCKETS <
+		       tb->h % LHP_SELIDX_BUCKETS ? -1 : 1;
 	if (ta->h != tb->h)
 		return ta->h < tb->h ? -1 : 1;
 	if (ta->len != tb->len)
@@ -3169,9 +3265,13 @@ lhp_cls_tok_cmp(const void *a, const void *b)
  * again, so the tokens are sorted and each distinct one is looked up once.
  * That bounds the work: each indexed selector has exactly one key, so it is
  * matched at most once per element, with document selectors also drawing on
- * the element's cascade budget.  What is left per distinct token is a walk of
- * its bucket comparing keys, and the number of tokens is bounded by the
- * length of the attribute.
+ * the element's cascade budget.
+ *
+ * Many distinct tokens can share a bucket, and a page can choose its class
+ * names so that they do, so each bucket is walked once for all of its
+ * tokens, each selector's key looked up among them, rather than once per
+ * token: walking the class buckets costs at most one visit per indexed
+ * selector, however many classes the element has.
  */
 
 static int
@@ -3213,16 +3313,50 @@ lhp_selidx_try_classes(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *c)
 	if (nt > 1)
 		qsort(ctx->ctok, nt, sizeof(*ctx->ctok), lhp_cls_tok_cmp);
 
-	for (t = 0; t < nt; t++) {
-		const lhp_cls_tok_t *ct = &ctx->ctok[t];
+	t = 0;
+	while (t < nt) {
+		uint32_t b = ctx->ctok[t].h % LHP_SELIDX_BUCKETS, g = t + 1;
+		const lhp_selidx_t *e;
 
-		if (t && !lhp_cls_tok_cmp(ct - 1, ct))
-			continue; /* a repeat of the token just looked up */
+		/* the tokens [t, g) are the ones in bucket b */
+		while (g < nt && ctx->ctok[g].h % LHP_SELIDX_BUCKETS == b)
+			g++;
 
-		if (lhp_selidx_try(ctx, ps,
-				   ctx->selidx[ct->h % LHP_SELIDX_BUCKETS],
-				   LHP_SELKEY_CLASS, ct->s, ct->len))
-			return 1;
+		for (e = ctx->selidx[b]; e; e = e->next) {
+			const lcsp_names_t *nm = e->nm;
+			lhp_cls_tok_t key;
+			uint32_t lo = t, hi = g;
+
+			ctx->cascade_ops++;
+
+			if (nm->key_kind != LHP_SELKEY_CLASS)
+				continue;
+
+			key.s = (const char *)&nm[1] + nm->key_ofs;
+			key.len = nm->key_len;
+			key.h = lhp_selidx_hash(LHP_SELKEY_CLASS, key.s,
+						key.len);
+
+			/* is the selector's class one of the tokens? */
+
+			while (lo < hi) {
+				uint32_t mid = lo + (hi - lo) / 2;
+				int r = lhp_cls_tok_cmp(&key, &ctx->ctok[mid]);
+
+				ctx->cascade_ops++;
+				if (!r)
+					break;
+				if (r < 0)
+					hi = mid;
+				else
+					lo = mid + 1;
+			}
+
+			if (lo < hi && lhp_selidx_try_one(ctx, ps, e))
+				return 1;
+		}
+
+		t = g;
 	}
 
 	return 0;
@@ -3268,6 +3402,16 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 			e--;
 		if (s == e)
 			continue;
+
+		if (!ctx->u.f.default_css) {
+			/* the document's own selectors are limited */
+			if (ctx->css_doc_selectors >= LHP_MAX_CSS_SELECTORS)
+				return 0;
+			if (++ctx->css_doc_selectors == LHP_MAX_CSS_SELECTORS)
+				lwsl_warn("%s: document css reached %d "
+					  "selectors, ignoring any more\n",
+					  __func__, LHP_MAX_CSS_SELECTORS);
+		}
 
 		while (s < e && n < sizeof(norm) - 1) {
 			char c = *s++;
@@ -3667,6 +3811,181 @@ static const lcsp_atr_t *
 lhp_resolve_var_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_atr_t *a);
 
 /*
+ * Each element keeps an index of the declarations that win among its matched
+ * stanzas: for each property, and each custom property by name, the one with
+ * the highest rank, sorted by property for binary search.  It is made once,
+ * when the element is first looked up after its matched stanzas change, so a
+ * lookup costs a binary search instead of a walk of every declaration of
+ * every matched stanza... and an inherited property costs that at each
+ * ancestor level, rather than the walk at each.
+ *
+ * rank is the cascade's precedence: !important declarations above the rest,
+ * then the matched stanzas' order, then the declaration's position in its
+ * stanza.  A custom property is taken by the same order ignoring !important,
+ * and only if it has a value, as lhp_find_var() always did.
+ */
+
+typedef struct lhp_decl {
+	const lcsp_defs_t	*def;
+	uint32_t		rank;
+} lhp_decl_t;
+
+/* the ctx the element is open in, NULL if it isn't on a stack */
+
+static lhp_ctx_t *
+lhp_ps_ctx(lhp_pstack_t *ps)
+{
+	return lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
+}
+
+static void
+lhp_ps_ops(lhp_pstack_t *ps, uint32_t n)
+{
+	lhp_ctx_t *ctx = lhp_ps_ctx(ps);
+
+	if (ctx)
+		ctx->cascade_ops += n;
+}
+
+/* property, then for custom properties the name, by length then bytes */
+
+static int
+lhp_decl_key_cmp(int prop, const char *name, size_t len,
+		 const lcsp_defs_t *def)
+{
+	if (prop != (int)def->prop)
+		return prop < (int)def->prop ? -1 : 1;
+	if (prop != LCSP_PROP__COUNT)
+		return 0;
+	if (len != def->var->name_len)
+		return len < def->var->name_len ? -1 : 1;
+
+	return memcmp(name, &def->var[1], len);
+}
+
+static int
+lhp_decl_cmp(const void *a, const void *b)
+{
+	const lhp_decl_t *da = (const lhp_decl_t *)a,
+			 *db = (const lhp_decl_t *)b;
+	const lcsp_defs_t *d = da->def;
+	int r = lhp_decl_key_cmp((int)d->prop,
+				 d->var ? (const char *)&d->var[1] : NULL,
+				 d->var ? d->var->name_len : 0, db->def);
+
+	if (r)
+		return r;
+
+	return da->rank < db->rank ? -1 : da->rank > db->rank;
+}
+
+static void
+lhp_decl_invalidate(lhp_pstack_t *ps)
+{
+	lws_free_set_NULL(ps->decl);
+	ps->ndecl = 0;
+	ps->decl_valid = 0;
+}
+
+static void
+lhp_decl_index(lhp_pstack_t *ps)
+{
+	uint32_t n, total = 0, i = 0, k = 0, w = 0;
+	lhp_decl_t *d, *dr;
+
+	if (ps->decl_valid)
+		return;
+
+	lhp_decl_invalidate(ps);
+	/* if we can't make it, the element has no declarations */
+	ps->decl_valid = 1;
+
+	for (n = 0; n < ps->nmatched; n++)
+		total += lws_dll2_count(&ps->matched[n].stz->defs);
+	if (!total)
+		return;
+
+	d = lws_malloc(total * sizeof(*d), __func__);
+	if (!d) {
+		lwsl_warn("%s: OOM indexing %u declarations\n", __func__,
+			  (unsigned int)total);
+		return;
+	}
+
+	for (n = 0; n < ps->nmatched; n++)
+		lws_start_foreach_dll(struct lws_dll2 *, q,
+			lws_dll2_get_head(&ps->matched[n].stz->defs)) {
+			const lcsp_defs_t *def = lws_container_of(q,
+							lcsp_defs_t, list);
+
+			if (def->prop == LCSP_PROP__COUNT) {
+				if (def->var && lws_dll2_get_tail(&def->atrs)) {
+					d[k].def = def;
+					d[k++].rank = i;
+				}
+			} else {
+				d[k].def = def;
+				d[k++].rank = def->important ? total + i : i;
+			}
+			i++;
+		} lws_end_foreach_dll(q);
+
+	lhp_ps_ops(ps, total + k);
+	qsort(d, k, sizeof(*d), lhp_decl_cmp);
+
+	/* keep the last of each run of the same key: the winner */
+
+	for (n = 0; n < k; n++) {
+		const lcsp_defs_t *def = d[n].def;
+
+		if (n + 1 < k && !lhp_decl_key_cmp((int)def->prop,
+				def->var ? (const char *)&def->var[1] : NULL,
+				def->var ? def->var->name_len : 0,
+				d[n + 1].def))
+			continue;
+		d[w++] = d[n];
+	}
+
+	if (!w) {
+		lws_free(d);
+		return;
+	}
+
+	dr = lws_realloc(d, w * sizeof(*d), __func__);
+	ps->decl = dr ? dr : d;
+	ps->ndecl = w;
+}
+
+/*
+ * The winning declaration on ps for prop, or for prop LCSP_PROP__COUNT the
+ * custom property --name (len chars, without the --), or NULL
+ */
+
+static const lhp_decl_t *
+lhp_decl_find(lhp_pstack_t *ps, int prop, const char *name, size_t len)
+{
+	uint32_t lo = 0, hi;
+
+	lhp_decl_index(ps);
+	hi = ps->ndecl;
+
+	while (lo < hi) {
+		uint32_t mid = lo + (hi - lo) / 2;
+		int r = lhp_decl_key_cmp(prop, name, len, ps->decl[mid].def);
+
+		lhp_ps_ops(ps, 1);
+		if (!r)
+			return &ps->decl[mid];
+		if (r < 0)
+			hi = mid;
+		else
+			lo = mid + 1;
+	}
+
+	return NULL;
+}
+
+/*
  * The declaration in effect on ps for any of the props[] (a longhand and
  * the shorthands that can set it), by specificity then source order
  */
@@ -3674,27 +3993,17 @@ lhp_resolve_var_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_atr_t *a);
 static const lcsp_defs_t *
 lhp_find_defn(lhp_pstack_t *ps, const int *props, int nprops)
 {
-	int n, pass, i;
+	const lhp_decl_t *best = NULL;
+	int i;
 
-	/* pass 0: !important declarations, pass 1: the rest */
+	for (i = 0; i < nprops; i++) {
+		const lhp_decl_t *dc = lhp_decl_find(ps, props[i], NULL, 0);
 
-	for (pass = 0; pass < 2; pass++)
-		for (n = (int)ps->nmatched - 1; n >= 0; n--) {
-			lws_start_foreach_dll_back(lws_dll2_t *, d,
-				lws_dll2_get_tail(&ps->matched[n].stz->defs)) {
-				lcsp_defs_t *def = lws_container_of(d,
-							lcsp_defs_t, list);
+		if (dc && (!best || dc->rank > best->rank))
+			best = dc;
+	}
 
-				if (!!def->important != !pass)
-					continue;
-
-				for (i = 0; i < nprops; i++)
-					if ((int)def->prop == props[i])
-						return def;
-			} lws_end_foreach_dll_back(d);
-		}
-
-	return NULL;
+	return best ? best->def : NULL;
 }
 
 static const lcsp_defs_t *
@@ -3934,6 +4243,8 @@ lhp_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop)
 		const lcsp_defs_t *def = lhp_find_def(ps, (int)prop);
 		const lcsp_atr_t *a;
 
+		ctx->cascade_ops++;
+
 		if (!def) {
 			if (!inh)
 				return NULL;
@@ -3975,6 +4286,11 @@ parent:
 	return NULL;
 }
 
+/*
+ * Add one more stanza to an element's matched stanzas, in precedence order:
+ * the style="" attribute's stanza, after the cascade set the rest
+ */
+
 static int
 lhp_add_match(lhp_pstack_t *ps, lcsp_stanza_t *stz, uint32_t spec)
 {
@@ -4000,6 +4316,58 @@ lhp_add_match(lhp_pstack_t *ps, lcsp_stanza_t *stz, uint32_t spec)
 	m[n].stz = stz;
 	m[n].specificity = spec;
 	ps->nmatched++;
+	lhp_decl_invalidate(ps);
+
+	return 0;
+}
+
+/* hits in cascade order: by specificity, then source order */
+
+static int
+lhp_hits_cascade_cmp(const void *a, const void *b)
+{
+	const lcsp_match_t *ma = (const lcsp_match_t *)a,
+			   *mb = (const lcsp_match_t *)b;
+
+	if (ma->specificity != mb->specificity)
+		return ma->specificity < mb->specificity ? -1 : 1;
+
+	return ma->stz->seq < mb->stz->seq ? -1 : ma->stz->seq > mb->stz->seq;
+}
+
+/*
+ * Make the stanzas hit in this cascade pass (only ever ones with
+ * declarations) the element's matched stanzas, lowest precedence first, in
+ * one go.  If there are too many, the lowest precedence ones are left out,
+ * keeping a slot for the style="" stanza.
+ */
+
+static int
+lhp_set_matches(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	uint32_t k = ctx->hits_count, skip = 0;
+	lcsp_match_t *m;
+
+	ps->nmatched = 0;
+	lhp_decl_invalidate(ps);
+
+	if (!k)
+		return 0;
+
+	qsort(ctx->hits, k, sizeof(*ctx->hits), lhp_hits_cascade_cmp);
+	ctx->cascade_ops += k;
+
+	if (k > 0xfffe) {
+		skip = k - 0xfffe;
+		k = 0xfffe;
+	}
+
+	m = lws_realloc(ps->matched, k * sizeof(*m), __func__);
+	if (!m)
+		return 1;
+	ps->matched = m;
+	memcpy(m, ctx->hits + skip, k * sizeof(*m));
+	ps->nmatched = (uint16_t)k;
 
 	return 0;
 }
@@ -4238,33 +4606,14 @@ static const lcsp_atr_t *
 lhp_find_var(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *name, size_t len)
 {
 	while (ps) {
-		int n;
+		const lhp_decl_t *dc = lhp_decl_find(ps, LCSP_PROP__COUNT,
+						     name, len);
 
-		for (n = (int)ps->nmatched - 1; n >= 0; n--) {
-			lws_start_foreach_dll_back(lws_dll2_t *, d,
-				lws_dll2_get_tail(&ps->matched[n].stz->defs)) {
-				lcsp_defs_t *def = lws_container_of(d,
-							lcsp_defs_t, list);
-
-				/*
-				 * A var definition carries its name: this is
-				 * hit for every var() in every matched stanza
-				 * of every element, so it must not go looking
-				 * through the document-wide variable list
-				 * (space.com declares 1855 of them)
-				 */
-				if (def->prop != LCSP_PROP__COUNT ||
-				    !lws_dll2_get_tail(&def->atrs) ||
-				    !def->var || def->var->name_len != len ||
-				    strncmp((const char *)&def->var[1], name,
-					    len))
-					continue;
-
-				return lws_container_of(
-						lws_dll2_get_tail(&def->atrs),
-						lcsp_atr_t, list);
-			} lws_end_foreach_dll_back(d);
-		}
+		ctx->cascade_ops++;
+		if (dc)
+			return lws_container_of(
+					lws_dll2_get_tail(&dc->def->atrs),
+					lcsp_atr_t, list);
 
 		if (!lws_dll2_get_prev(&ps->list))
 			break;
@@ -4398,7 +4747,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		    lhp_selidx_build(ctx))
 			return 1;
 
-		ctx->hits_count = 0;
+		lhp_hits_new_pass(ctx);
 		ctx->sel_budget = LHP_SEL_CASCADE_BUDGET;
 
 		if (lhp_selidx_try(ctx, ps, ctx->selidx_nokey, LHP_SELKEY_NONE,
@@ -4421,17 +4770,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 
 		/* the matched stanzas, in source order for cascade ties */
 
-		if (ctx->hits_count) {
-			uint32_t n;
-
-			qsort(ctx->hits, ctx->hits_count, sizeof(*ctx->hits),
-			      lhp_hits_cmp);
-
-			for (n = 0; n < ctx->hits_count; n++)
-				if (lhp_add_match(ps, ctx->hits[n].stz,
-						  ctx->hits[n].specificity))
-					return 1;
-		}
+		if (lhp_set_matches(ctx, ps))
+			return 1;
 
 		st = lws_html_get_atr(ps, "style", 5);
 		if (st && *st && !ctx->await_css_done &&
@@ -4603,6 +4943,8 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 	lwsac_free(&ctx->idxac);
 	lws_free_set_NULL(ctx->hits);
 	ctx->hits_alloc = 0;
+	lws_free_set_NULL(ctx->hits_hash);
+	ctx->hits_hash_size = 0;
 	lws_free_set_NULL(ctx->ctok);
 	ctx->ctok_alloc = 0;
 	ctx->hits_count = 0;
@@ -5198,6 +5540,7 @@ elem_start:
 						lws_dll2_remove(&ps->list);
 						ph->css_resolved = 0;
 						ph->nmatched = 0;
+						lhp_decl_invalidate(ph);
 						lws_css_cascade(ctx);
 						lws_dll2_add_tail(&ps->list,
 								  &ctx->stack);
@@ -6310,6 +6653,16 @@ amphash_end:
 					break;
 				}
 
+				if (!ctx->u.f.default_css &&
+				    ctx->css_doc_selectors >=
+						LHP_MAX_CSS_SELECTORS) {
+					/* no selector of it could be kept */
+					ctx->css_skip_depth = 1;
+					ctx->state = LCSPS_CSS_SKIP_BLOCK;
+					ctx->npos = 0;
+					break;
+				}
+
 				/* create the stanza object */
 
 				ctx->stz = lwsac_use_zero(&ctx->cssac,
@@ -6840,6 +7193,26 @@ issue_post:
 				}
 
 				/* it is a var definition */
+
+				if (!ctx->u.f.default_css) {
+					/*
+					 * the document's own are limited: past
+					 * that, skip it like an unknown prop
+					 */
+					if (ctx->css_doc_vars >=
+							LHP_MAX_CSS_VARS) {
+						ctx->css_state = (int16_t)-1;
+						ctx->npos = 0;
+						break;
+					}
+					if (++ctx->css_doc_vars ==
+							LHP_MAX_CSS_VARS)
+						lwsl_warn("%s: document css "
+							  "reached %d custom "
+							  "properties, ignoring "
+							  "any more\n", __func__,
+							  LHP_MAX_CSS_VARS);
+				}
 
 				ctx->def = lwsac_use_zero(&ctx->cssac,
 						  sizeof(*ctx->def),
