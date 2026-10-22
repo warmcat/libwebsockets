@@ -1363,7 +1363,12 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 
 	lws_dll2_owner_clear(&pass);
 
-	lws_pt_lock(pt, __func__);
+	/*
+	 * What we service may close wsis, set timeouts or connect, which take
+	 * the context lock: it comes first, as for the sul service
+	 */
+	lws_context_lock(pt->context, __func__); /* --------------- cx { */
+	lws_pt_lock(pt, __func__); /* ---------------------------- pt { */
 
 	while ((d = lws_dll2_get_head(&pt->dll_buflist_owner))) {
 		lws_dll2_remove(d);
@@ -1417,7 +1422,8 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 		}
 	}
 
-	lws_pt_unlock(pt);
+	lws_pt_unlock(pt); /* } pt */
+	lws_context_unlock(pt->context); /* } cx */
 }
 
 /*
