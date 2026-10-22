@@ -711,6 +711,14 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 
 		if (w != wsi &&
 		    /*
+		     * Only a connection of our own service thread: with
+		     * LWS_MAX_SMP > 1, one of another thread's would have
+		     * that thread service us, run our callbacks and timers,
+		     * and close us, while our own thread may still be at it
+		     * too.  Each thread keeps its own connections to share.
+		     */
+		    w->tsi == wsi->tsi &&
+		    /*
 		     * "same internet protocol"... this is a bit tricky,
 		     * since h2 start out as h1, and may stay at h1.
 		     *

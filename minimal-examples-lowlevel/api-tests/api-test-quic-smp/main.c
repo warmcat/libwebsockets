@@ -38,15 +38,22 @@
  * IPv4 listener's thread could drive a connection belonging to the other
  * one's thread while that thread did too.
  *
+ * A client connection asking to pipeline (LCCSCF_PIPELINE) joins an
+ * existing connection to the same place as another stream on it.  Before
+ * G-545 that could be a connection of the other service thread, which then
+ * serviced the joining stream and called it back.  Each thread must keep
+ * its own connections to share.
+ *
  * Each service thread, at once and in rounds, opens h3 client connections
  * of its own (no pipelining, so each is a QUIC connection of its own) to an
  * h3 server vhost in the same process, and fetches a body big enough to
  * keep data in flight across several round trips.  With IPv6, each also
  * opens one to the dual stack vhost over IPv6, whose body is only sent once
- * the client has moved to IPv4.  Every fetch must complete with the whole
- * body, every client callback must come on the service thread that asked
- * for the connection, and every server callback on the thread of its
- * connection.
+ * the client has moved to IPv4.  And each makes pipelined requests to the
+ * first server, which must join connections, but only of their own thread.
+ * Every fetch must complete with the whole body, every client callback must
+ * come on the service thread that asked for the connection, and every
+ * server callback on the thread of its connection.
  *
  * With LWS_MAX_SMP 1 there is only one service thread, and it only checks
  * the fetches complete.  Under ASan, the SMP builds also check nothing is
@@ -69,7 +76,11 @@
 #else
 #define QSMP_PER_ROUND_MIG	0
 #endif
-#define QSMP_PER_ROUND		(QSMP_PER_ROUND_PLAIN + QSMP_PER_ROUND_MIG)
+#define QSMP_PER_ROUND_PIPE	2	/* ... of them pipelined */
+#define QSMP_PER_ROUND		(QSMP_PER_ROUND_PLAIN + QSMP_PER_ROUND_MIG + \
+				 QSMP_PER_ROUND_PIPE)
+#define QSMP_PIPED		(QSMP_THREADS_MAX * QSMP_ROUNDS * \
+				 QSMP_PER_ROUND_PIPE)
 #define QSMP_MIG_WAIT_US	(20 * LWS_US_PER_MS)
 #define QSMP_MIG_WAITS		250	/* at most 5s for a client to move */
 #define QSMP_CHUNK		4096
@@ -85,6 +96,7 @@
 enum qsmp_mode {
 	QSMP_MODE_PLAIN,
 	QSMP_MODE_MIGRATE,	/* to the dual stack server, over IPv6 */
+	QSMP_MODE_PIPELINE,
 };
 
 /* a client's opaque user data: the tsi it asked on, and its mode */
@@ -123,7 +135,9 @@ static volatile int interrupted;
 
 /* guarded by lock */
 static int asked, completed, failed, short_body, wrong_thread, served,
-	   inits, migrated, not_migrated;
+	   inits, migrated, not_migrated, piped, piped_conns;
+/* the connections pipelined requests went on, only compared */
+static const struct lws *piped_nwsi[QSMP_PIPED];
 
 /* guarded by lock: the client protocol is initialised, callbacks before it */
 static int cli_inited, cli_early;
@@ -174,6 +188,23 @@ qsmp_on_thread(int tsi)
 	}
 
 	return 1;
+}
+
+/* note which connection a pipelined request went on */
+
+static void
+qsmp_piped_on(const struct lws *nwsi)
+{
+	int n;
+
+	pthread_mutex_lock(&lock);
+	for (n = 0; n < piped_conns; n++)
+		if (piped_nwsi[n] == nwsi)
+			break;
+	if (n == piped_conns && piped_conns < QSMP_PIPED)
+		piped_nwsi[piped_conns++] = nwsi;
+	piped++;
+	pthread_mutex_unlock(&lock);
 }
 
 /*
@@ -342,6 +373,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		qsmp_on_thread(tsi);
 		if (pss)
 			pss->established = 1;
+		if (QSMP_MODE(o) == QSMP_MODE_PIPELINE)
+			qsmp_piped_on(lws_get_network_wsi(wsi));
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -436,6 +469,14 @@ qsmp_connect(int tsi, enum qsmp_mode mode)
 	i.opaque_user_data	= QSMP_OPAQUE(tsi, mode);
 	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	if (mode == QSMP_MODE_PIPELINE) {
+		/*
+		 * A connection is only offered to share when its Host: is its
+		 * address, so it really identifies the endpoint
+		 */
+		i.host			= i.address;
+		i.ssl_connection	|= LCCSCF_PIPELINE;
+	}
 	/* it is the QUIC connection we are testing, not a fallback to tcp */
 	i.disable_h3_fallback	= 1;
 
@@ -460,7 +501,10 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 
 	for (n = 0; n < QSMP_PER_ROUND; n++)
 		qsmp_connect(s->tsi, n < QSMP_PER_ROUND_PLAIN ?
-					QSMP_MODE_PLAIN : QSMP_MODE_MIGRATE);
+					QSMP_MODE_PLAIN :
+				     n < QSMP_PER_ROUND_PLAIN +
+					QSMP_PER_ROUND_MIG ?
+					QSMP_MODE_MIGRATE : QSMP_MODE_PIPELINE);
 
 	if (++s->round < QSMP_ROUNDS)
 		lws_sul_schedule(context, s->tsi, &s->sul_round, sul_round_cb,
@@ -617,14 +661,18 @@ main(int argc, const char **argv)
 	lwsl_user("%d threads: %d connections, %d completed, %d failed, %d "
 		  "short; %d served; %d callbacks on the wrong thread; %d "
 		  "protocol inits, %d client callbacks before its init; %d "
-		  "migrated, %d did not\n", threads, asked, completed, failed,
-		  short_body, served, wrong_thread, inits, cli_early, migrated,
-		  not_migrated);
+		  "migrated, %d did not; %d pipelined on %d connections\n",
+		  threads, asked, completed, failed, short_body, served,
+		  wrong_thread, inits, cli_early, migrated, not_migrated,
+		  piped, piped_conns);
 
 	if (asked == threads * QSMP_ROUNDS * QSMP_PER_ROUND &&
 	    completed == asked && !failed && !short_body && !wrong_thread &&
 	    inits == QSMP_VHOSTS && !cli_early && !not_migrated &&
-	    migrated == threads * QSMP_ROUNDS * QSMP_PER_ROUND_MIG)
+	    migrated == threads * QSMP_ROUNDS * QSMP_PER_ROUND_MIG &&
+	    /* some of them really did share a connection */
+	    piped == threads * QSMP_ROUNDS * QSMP_PER_ROUND_PIPE &&
+	    piped_conns < piped)
 		result = 0;
 
 bail:
