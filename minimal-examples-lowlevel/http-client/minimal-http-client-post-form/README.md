@@ -32,3 +32,7 @@ your lws was built with `-DLWS_WITH_HTTP2=1`.
 $ echo "https://libwebsockets.org/testserver/formtest --form text=mytext --form file=@libwebsockets.pc" | ./bin/lws-minimal-http-client-post-form
 ```
 
+Each `--form` element must be shorter than the 4095 characters
+lws_http_mp_sm has room for: a longer one, or a file that changes size
+between the Content-Length being computed and its contents being sent,
+fails the request rather than sending a body of a different length.

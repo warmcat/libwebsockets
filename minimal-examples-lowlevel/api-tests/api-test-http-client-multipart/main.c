@@ -81,6 +81,18 @@ static const struct mcase cases[] = {
 		{ "a=1", EL_FILE_MUT, NULL },	MUT_TRUNCATE_LATE, EXP_FILL_FAILS },
 	{ "file grown while it is being sent",
 		{ "a=1", EL_FILE_MUT, NULL },	MUT_GROW_LATE, EXP_SENT },
+	{ "values longer than the write buffer, the longest element that fits",
+		{ "s=x", V300, V4092, EL_FILE, "e=", NULL },	MUT_NONE, EXP_SENT },
+	{ "element too long for the element buffer",
+		{ "a=1", V5000, NULL },			MUT_NONE, EXP_REFUSED },
+	{ "element without '='",
+		{ "a=1", "noeq", NULL },		MUT_NONE, EXP_REFUSED },
+	{ "file truncated after it was sized, before it is opened",
+		{ "a=1", EL_FILE_MUT, "b=2", NULL },
+						MUT_TRUNCATE_EARLY, EXP_FILL_FAILS },
+	{ "file grown after it was sized, before it is opened",
+		{ "a=1", EL_FILE_MUT, "b=2", NULL },
+						MUT_GROW_EARLY, EXP_FILL_FAILS },
 };
 
 static const char *

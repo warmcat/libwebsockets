@@ -64,6 +64,24 @@ sanitize_ft(char *ft)
 		memmove(eq, p, strlen(p) + 1);
 }
 
+static int
+copy_ft(char *ft, size_t ft_len, const char *p)
+{
+	/*
+	 * An element that doesn't fit is an error: sending it truncated would
+	 * send something else than what we were asked to
+	 */
+	if (strlen(p) >= ft_len - 1) {
+		lwsl_err("%s: form element too long\n", __func__);
+		return -1;
+	}
+
+	lws_strncpy(ft, p, ft_len);
+	sanitize_ft(ft);
+
+	return 0;
+}
+
 int
 form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 {
@@ -78,9 +96,7 @@ form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 			if (p) {
 				if (!(char *)strchr(p, '@')) {
 					*last = p;
-					lws_strnncpy(ft, p, strlen(p), ft_len);
-					sanitize_ft(ft);
-					return 0;
+					return copy_ft(ft, ft_len, p);
 				}
 				continue;
 			}
@@ -93,9 +109,7 @@ form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 			if (p) {
 				if ((char *)strchr(p, '@')) {
 					*last = p;
-					lws_strnncpy(ft, p, strlen(p), ft_len);
-					sanitize_ft(ft);
-					return 0;
+					return copy_ft(ft, ft_len, p);
 				}
 				continue;
 			}
@@ -208,8 +222,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 		n = lws_http_mp_sm_fill(pss->hmp, &p, end);
 		if (n < 0) {
+			/* the body can't be completed, give up on the request */
 			lwsl_err("%s: lws_http_mp_sm_fill failed (%d)\n", __func__, n);
-			return 0;
+			return -1;
 		}
 
 		size_t blen = (size_t)lws_ptr_diff(p, start);

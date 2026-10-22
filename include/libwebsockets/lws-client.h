@@ -516,6 +516,26 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 			  char **p, char *end);
 
 struct lws_http_mp_sm;
+/**
+ * lws_http_mp_sm_cb_t() - gets the next form element for lws_http_mp_sm
+ *
+ * \p cx: the lws_context
+ * \p ft: buffer to copy the next form element into, as a NUL-terminated string
+ * \p ft_len: size of \p ft
+ * \p last: the app's iterator: NULL when the form starts from its first
+ *	     element, and otherwise whatever the cb set it to last time
+ *
+ * The element is "name=value" for a form field, or "name=@path" to send the
+ * contents of the file at path.  The callback returns 0 with the element in
+ * \p ft, 1 when there are no more elements, or -1 on error.
+ *
+ * It's called to go through the whole form twice: first at
+ * lws_http_mp_sm_init() to compute the Content-Length, and then again from
+ * the start to send it from lws_http_mp_sm_fill().  It must give the same
+ * elements both times.  An element must be shorter than \p ft_len - 1: the
+ * callback should return -1 for one that does not fit rather than truncate
+ * it, and one that fills \p ft completely is refused as possibly truncated.
+ */
 typedef int (*lws_http_mp_sm_cb_t)(struct lws_context *cx, char *ft, size_t ft_len, const char **last);
 
 /**
@@ -526,8 +546,12 @@ typedef int (*lws_http_mp_sm_cb_t)(struct lws_context *cx, char *ft, size_t ft_l
  * \p p: pointer to pointer to next header byte
  * \p end: pointer to last possible header byte
  *
+ * Goes through the form with \p cb, adding the Content-Type and the exact
+ * Content-Length of the multipart body to the request headers.
+ *
  * Returns a new and initialized multipart post state machine object,
- * or NULL if OOM or other problems.
+ * or NULL if OOM, a form element is unusable (too long, no '=', a file that
+ * can't be stat()ed) or other problems.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_http_mp_sm *
 lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_t *end);
@@ -547,13 +571,21 @@ lws_http_mp_sm_destroy(struct lws_http_mp_sm **pphms);
  *
  * \p phms: pointer to http_mp_sm
  * \p p: cursor into buffer - moved on by call
- * \p end: last byte of buffer
+ * \p end: one past the last byte that may be written
  *
  * Fills \p *p potentially to \p end with form data, and moves
  * *p on by the amount used.
  *
- * Returns 0 if successful (and *p has been moved on to show the extent
- * of the written amount) or nonzero for failure
+ * The body never exceeds the Content-Length lws_http_mp_sm_init() declared.
+ * If the form no longer matches it, eg, a cb element changed or a file was
+ * truncated or grew since, the fill fails rather than send a body of a
+ * different length.
+ *
+ * Returns 1 if there is more to send (call again on the next WRITEABLE),
+ * 0 if this was the end of the body, or -1 for failure, in which case
+ * nothing from this call should be sent and the connection should be
+ * closed, since the body can't be completed.  *p has been moved on to show
+ * the extent of the written amount for 0 and 1.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end);
