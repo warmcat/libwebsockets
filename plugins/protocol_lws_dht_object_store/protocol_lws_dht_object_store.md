@@ -66,9 +66,14 @@ input:
 
  - **PUT / RSP.**  The declared object length must be at most
    `dht-max-object-size`, and the store will not commit more than
-   `dht-store-quota` bytes in total.  At most 16 transfers may be in flight at
-   once, and each is discarded after 30s without progress, releasing its fd,
-   digest context and partial file.  Chunks must arrive strictly in order, so a
+   `dht-store-quota` bytes in total, counting what the transfers in flight
+   declared.  At most 16 transfers may be in flight at once, and at most 4 of
+   them from one source host (an IPv4 address or an IPv6 /64, as the DHT
+   counts hosts).  A transfer is discarded after 30s without progress, or
+   once it falls more than 30s behind an average of 1KiB/s, however it keeps
+   sending, releasing its fd, digest context and partial file: so a peer
+   trickling a few bytes at a time cannot hold a slot for long.  Chunks must
+   arrive strictly in order, so a
    peer cannot seek to an arbitrary 64-bit offset.  Content is written to a
    `.<key>.part` file created with `O_EXCL | O_NOFOLLOW` in a `0700` store
    directory, and is `rename()`d onto `<key>` only once its SHA-256 equals the
@@ -84,8 +89,11 @@ input:
    spoofed.
 
 There is still no peer authentication: `dht-jwk` currently only establishes the
-node's own identity, and PUT is not signature-checked.  The caps above are
-per-node rather than per-peer, since a UDP source address is spoofable and
-per-source accounting would itself be an unbounded table; so one peer can
-consume the in-flight budget or the GET response budget that another wanted.
+node's own identity, and PUT is not signature-checked.  The DHT transport only
+delivers a PUT or RSP from a source address that answered its challenge, so the
+in-flight slots are accounted per source host; but the GET response budget is
+per-node, since a GET needs no reply from its claimed source, and one peer can
+consume what another wanted.  A peer with many hosts (eg, many IPv6 /64s) can
+still occupy the in-flight slots, if it keeps each of them moving at the
+minimum rate.
 Do not expose a node storing anything sensitive to an untrusted network.

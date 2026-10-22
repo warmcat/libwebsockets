@@ -52,8 +52,15 @@
 	/**< total bytes we will commit to the store while we are up */
 #define LWS_DHT_STORE_MAX_INFLIGHT	16
 	/**< concurrent incomplete transfers, ie, open fds + genhash contexts */
+#define LWS_DHT_STORE_MAX_INFLIGHT_PER_SRC 4
+	/**< how many of those one source host (lws_dht_same_host()) may hold */
 #define LWS_DHT_STORE_XFER_TIMEOUT_US	(30 * LWS_US_PER_SEC)
 	/**< an in-flight transfer that stalls this long is discarded */
+#define LWS_DHT_STORE_XFER_GRACE_US	(30 * LWS_US_PER_SEC)
+	/**< a transfer may be this far behind LWS_DHT_STORE_XFER_MIN_RATE */
+#define LWS_DHT_STORE_XFER_MIN_RATE	1024
+	/**< bytes/s a transfer must average after the grace time.  The PUT
+	 * client sends one 1KiB chunk per ACK, so this allows ~1s rtt */
 #define LWS_DHT_STORE_REQ_TIMEOUT_US	(30 * LWS_US_PER_SEC)
 	/**< how long a GET we sent stays outstanding for a RSP to match */
 #define LWS_DHT_STORE_GET_BURST		32
@@ -79,6 +86,7 @@ struct vhd_dht_store {
 	uint64_t			max_object;
 	uint64_t			quota;
 	uint64_t			store_bytes;
+	uint64_t			inflight_bytes; /* declared, not yet in */
 	uint32_t			get_tokens;
 
 	char				current_fragment_hash[LWS_GENHASH_LARGEST * 2 + 1];
@@ -136,6 +144,7 @@ struct dht_fragment {
 	char				safe_hash[LWS_GENHASH_LARGEST * 2 + 1];
 	uint64_t			total_len;
 	uint64_t			received_len;
+	lws_usec_t			created;
 	int				fd;
 	int				hash_init_done;
 	int				retries;
@@ -218,6 +227,13 @@ dht_obj_store_fragment_destroy(struct dht_fragment **pfrag)
 				sizeof(path)))
 		unlink(path);
 
+	/* every listed transfer reserved its declared length at open */
+
+	if (frag->vhd->inflight_bytes >= frag->total_len)
+		frag->vhd->inflight_bytes -= frag->total_len;
+	else
+		frag->vhd->inflight_bytes = 0;
+
 	lws_dll2_remove(&frag->list);
 	free(frag);
 }
@@ -232,6 +248,38 @@ dht_obj_store_frag_timeout_cb(lws_sorted_usec_list_t *sul)
 		    frag->safe_hash);
 
 	dht_obj_store_fragment_destroy(&frag);
+}
+
+/*
+ * The transfer made progress: it may now go LWS_DHT_STORE_XFER_TIMEOUT_US
+ * without any more, but whatever it sends, never past the time by which it
+ * should have received what it has at LWS_DHT_STORE_XFER_MIN_RATE, after
+ * LWS_DHT_STORE_XFER_GRACE_US.  So a sender keeping a transfer alive with a
+ * trickle loses it, and no transfer outlives the time its declared length
+ * takes at that rate.
+ *
+ * Returns nonzero if the transfer is already behind that, and must be dropped.
+ */
+
+static int
+dht_obj_store_frag_progressed(struct dht_fragment *frag)
+{
+	lws_usec_t now = lws_now_usecs(),
+		   until = now + LWS_DHT_STORE_XFER_TIMEOUT_US,
+		   due = frag->created + LWS_DHT_STORE_XFER_GRACE_US +
+			 (lws_usec_t)((frag->received_len * LWS_US_PER_SEC) /
+				      LWS_DHT_STORE_XFER_MIN_RATE);
+
+	if (due < until)
+		until = due;
+
+	if (until <= now)
+		return 1;
+
+	lws_sul_schedule(frag->vhd->context, 0, &frag->sul_timeout,
+			 dht_obj_store_frag_timeout_cb, until - now);
+
+	return 0;
 }
 
 static struct dht_request *
@@ -400,8 +448,11 @@ dht_obj_store_jwk_load_or_gen(struct vhd_dht_store *vhd)
  *    only rename()d onto the key's name once its SHA-256 matches the key it
  *    was offered under, so we never serve content that does not hash to the
  *    content-address it is filed at, and never write through a planted symlink
- *  - a stalled transfer is discarded by a per-transfer timeout, releasing the
- *    fd, the digest context and the partial file
+ *  - a transfer that stalls, or falls behind a minimum average rate, is
+ *    discarded, releasing the fd, the digest context and the partial file;
+ *    progress does not keep a trickling transfer alive
+ *  - one source host may only hold a few of the transfer slots, and what
+ *    transfers in flight declared counts against the quota
  *  - a transfer belongs to the address that opened it, since the key is public
  *    and transfers are otherwise found by key alone
  *
@@ -432,6 +483,17 @@ dht_obj_store_ingest(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd,
 
 	frag = dht_obj_store_find_fragment(vhd, msg->hash);
 	if (!frag) {
+		unsigned int from_src = 0;
+
+		/* only the first chunk can open a transfer */
+
+		if (msg->offset) {
+			lwsl_info("%s: %s: no transfer for chunk at %llu\n",
+				  __func__, msg->hash, msg->offset);
+
+			return -1;
+		}
+
 		if (msg->len < (unsigned long long)msg->payload_len ||
 		    msg->len > vhd->max_object) {
 			lwsl_notice("%s: %s: object len %llu out of range\n",
@@ -440,14 +502,38 @@ dht_obj_store_ingest(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd,
 			return -1;
 		}
 
-		if (lws_dll2_count(&vhd->fragments) >= LWS_DHT_STORE_MAX_INFLIGHT) {
-			lwsl_notice("%s: %u transfers already in flight\n",
-				    __func__, lws_dll2_count(&vhd->fragments));
+		/*
+		 * The slots are shared by every peer: one source host may only
+		 * hold a few of them, so it cannot lock everyone else out
+		 */
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vhd->fragments)) {
+			struct dht_fragment *f = lws_container_of(d,
+						struct dht_fragment, list);
+
+			if (from && f->from_salen && lws_dht_same_host(
+					(const struct sockaddr *)&f->from_sa,
+					from))
+				from_src++;
+		} lws_end_foreach_dll(d);
+
+		if (from_src >= LWS_DHT_STORE_MAX_INFLIGHT_PER_SRC ||
+		    lws_dll2_count(&vhd->fragments) >= LWS_DHT_STORE_MAX_INFLIGHT) {
+			lwsl_notice("%s: %u transfers in flight, %u from this "
+				    "host\n", __func__,
+				    lws_dll2_count(&vhd->fragments), from_src);
 
 			return -1;
 		}
 
-		if (vhd->store_bytes + msg->len > vhd->quota) {
+		/*
+		 * Transfers in flight have the room for what they declared
+		 * reserved, so partials can't take the store past its quota
+		 */
+
+		if (vhd->store_bytes + vhd->inflight_bytes + msg->len >
+								vhd->quota) {
 			lwsl_notice("%s: store quota %llu exhausted\n", __func__,
 				    (unsigned long long)vhd->quota);
 
@@ -471,6 +557,7 @@ dht_obj_store_ingest(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd,
 		frag->vhd = vhd;
 		frag->fd = -1;
 		frag->total_len = msg->len;
+		frag->created = lws_now_usecs();
 		lws_strncpy(frag->safe_hash, msg->hash, sizeof(frag->safe_hash));
 
 		if (from && fromlen && fromlen <= sizeof(frag->from_sa)) {
@@ -479,6 +566,7 @@ dht_obj_store_ingest(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd,
 		}
 
 		lws_dll2_add_tail(&frag->list, &vhd->fragments);
+		vhd->inflight_bytes += frag->total_len;
 
 		/*
 		 * Drop any leftover partial from an earlier, interrupted
@@ -541,9 +629,13 @@ dht_obj_store_ingest(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd,
 	frag->received_len += msg->payload_len;
 
 	if (frag->received_len < frag->total_len) {
-		lws_sul_schedule(vhd->context, 0, &frag->sul_timeout,
-				 dht_obj_store_frag_timeout_cb,
-				 LWS_DHT_STORE_XFER_TIMEOUT_US);
+		if (dht_obj_store_frag_progressed(frag)) {
+			lwsl_notice("%s: %s: transfer too slow, %llu of %llu "
+				    "bytes\n", __func__, frag->safe_hash,
+				    (unsigned long long)frag->received_len,
+				    (unsigned long long)frag->total_len);
+			goto drop;
+		}
 
 		return 0;
 	}

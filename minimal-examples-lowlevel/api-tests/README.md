@@ -19,6 +19,7 @@ api-test-dnssec-monitor-reissue|dnssec-monitor proxy's per-cert "Force reissue":
 api-test-dht-msg-parse|DHT RPC wire message parser, incl. hash token charset and NOTIFY domain-name gates
 api-test-auth-dns-dnsbl|auth-dns plugin DNSBL pending-query lifetimes (F-054): late resolver replies and client disconnects vs the 5s dnsbl timeout
 api-test-auth-dns-zonedir|auth-dns plugin local zone-dir trust policy (F-055): missing pvo / world-writable / symlinked dirs and foreign-uid or wrong-shape zone files refused
+api-test-dht-object-store|dht-object-store plugin transfer slots (G-257): one host only gets a few of them, so another can still PUT; a transfer trickling behind the minimum rate is dropped, and its declared length counts against the quota while in flight
 api-test-sshd-userauth|sshd plugin USERAUTH pubkey/sig blob walks (F-056): malformed blobs must be rejected bounded, genuine signatures still authenticate
 api-test-sspc-streamtype|serialized client streamtype length cap (F-057): over-long streamtypes refused at sspc create, boundary-length still accepted
 api-test-mqtt-unsub|mqtt subscribe/unsubscribe topic count cap (F-058): over-wide or zero topic lists loudly refused at the established-state tx paths, boundary-width unsubscribe still works end-to-end; a two-topic (wildcard and short) unsubscribe with one UNSUBACK leaves the connection holding nothing at close (C-061)
