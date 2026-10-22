@@ -2994,17 +2994,21 @@ lhp_elem_start(lhp_ctx_t *ctx, lhp_pstack_t *ps, struct lws_context *cx,
 }
 
 /*
- * The winning declaration's value for prop, scoped to one stanza only
+ * The winning declaration's value for prop, scoped to one stanza only.  The
+ * stanza may have any number of declarations, so the walk counts in the
+ * document's css work budget (ctx->cascade_ops)
  */
 
 static const lcsp_atr_t *
-lhp_stanza_atr(lcsp_stanza_t *stz, int prop)
+lhp_stanza_atr(lhp_ctx_t *ctx, lcsp_stanza_t *stz, int prop)
 {
 	const lcsp_defs_t *def;
 
 	lws_start_foreach_dll_back(struct lws_dll2 *, d,
 				   lws_dll2_get_tail(&stz->defs)) {
 		def = lws_container_of(d, lcsp_defs_t, list);
+
+		ctx->cascade_ops++;
 
 		if ((int)def->prop == prop && !lws_dll2_is_empty(&def->atrs))
 			return lws_container_of(
@@ -3020,7 +3024,8 @@ lhp_stanza_atr(lcsp_stanza_t *stz, int prop)
  */
 
 static const lcsp_atr_t *
-lhp_stanza_side_atr(lcsp_stanza_t *stz, int longhand, int shorthand, int idx)
+lhp_stanza_side_atr(lhp_ctx_t *ctx, lcsp_stanza_t *stz, int longhand,
+		    int shorthand, int idx)
 {
 	const lcsp_defs_t *def = NULL;
 	int c, use = 0;
@@ -3028,6 +3033,8 @@ lhp_stanza_side_atr(lcsp_stanza_t *stz, int longhand, int shorthand, int idx)
 	lws_start_foreach_dll_back(struct lws_dll2 *, d,
 				   lws_dll2_get_tail(&stz->defs)) {
 		const lcsp_defs_t *d2 = lws_container_of(d, lcsp_defs_t, list);
+
+		ctx->cascade_ops++;
 
 		if ((int)d2->prop == longhand || (int)d2->prop == shorthand) {
 			def = d2;
@@ -3087,10 +3094,12 @@ lhp_pseudo_box(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt,
 	int n, vis[4], nvis = 0, side = -1, tri = 0;
 
 	for (n = 0; n < 4; n++) {
-		a = lhp_stanza_side_atr(stz, LCSP_PROP_BORDER_TOP_WIDTH + n,
+		a = lhp_stanza_side_atr(ctx, stz,
+					LCSP_PROP_BORDER_TOP_WIDTH + n,
 					LCSP_PROP_BORDER_WIDTH, n);
 		bw[n] = lhp_len(ps, a, &ps->cw);
-		a = lhp_stanza_side_atr(stz, LCSP_PROP_BORDER_TOP_COLOR + n,
+		a = lhp_stanza_side_atr(ctx, stz,
+					LCSP_PROP_BORDER_TOP_COLOR + n,
 					LCSP_PROP_BORDER_COLOR, n);
 		bc[n] = lhp_colour(a, 0);
 		vis[n] = (bw[n].whole || bw[n].frac) && LWSDC_ALPHA(bc[n]);
@@ -3139,11 +3148,11 @@ lhp_pseudo_box(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt,
 
 	/* position: absolute against our padding box */
 
-	t = lhp_len(ps, lhp_stanza_atr(stz, LCSP_PROP_LEFT), &ps->cw);
+	t = lhp_len(ps, lhp_stanza_atr(ctx, stz, LCSP_PROP_LEFT), &ps->cw);
 	lws_fx_set(box.x, 0, 0);
 	lws_fx_add(&box.x, &ps->ox, &t);
 
-	a = lhp_stanza_atr(stz, LCSP_PROP_TOP);
+	a = lhp_stanza_atr(ctx, stz, LCSP_PROP_TOP);
 	if (a && a->unit != LCSP_UNIT_NONE) {
 		t = lhp_len(ps, a, &ps->cw);
 		lws_fx_set(box.y, 0, 0);
@@ -3154,7 +3163,7 @@ lhp_pseudo_box(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt,
 		 * our bottom edge is the padding-box bottom, minus the
 		 * offset, and the box hangs down from it by its height
 		 */
-		t = lhp_len(ps, lhp_stanza_atr(stz, LCSP_PROP_BOTTOM), &ps->cw);
+		t = lhp_len(ps, lhp_stanza_atr(ctx, stz, LCSP_PROP_BOTTOM), &ps->cw);
 		lws_fx_set(box.y, 0, 0);
 		lws_fx_sub(&box.y, &ps->dlo->box.h, &t);
 		lws_fx_sub(&box.y, &box.y, &ps->dlo->padding[CCPAS_BOTTOM]);

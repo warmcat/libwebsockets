@@ -115,6 +115,18 @@
 #endif
 #endif
 
+/*
+ * Most values one css declaration keeps, eg the terms of a shorthand or the
+ * fonts of a font-family list; past it, the rest are ignored with a warning.
+ * Every lookup of a property lists all the values of the declaration that
+ * wins (ctx->active_atr), and inherited properties are looked up from every
+ * element, so this bounds what a lookup costs.  Real css needs a few dozen
+ * at most.
+ */
+#if !defined(LHP_MAX_CSS_DECL_VALUES)
+#define LHP_MAX_CSS_DECL_VALUES		64
+#endif
+
 enum lhp_callbacks {
 
 	LHPCB_ERR_ATTRIB_SYNTAX		= -5,
@@ -941,6 +953,10 @@ typedef struct lhp_ctx {
 						 * hold for their css: their
 						 * matched stanzas and
 						 * declaration indexes */
+	uint8_t			css_values_capped; /* a declaration had more
+						    * than
+						    * LHP_MAX_CSS_DECL_VALUES
+						    * values: warned */
 	struct lhp_cls_tok	*ctok; /* the class tokens of the element
 					* being cascaded, private to lhp.c */
 	uint32_t		ctok_alloc;

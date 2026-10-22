@@ -1653,12 +1653,50 @@ a:
 	ctx->buf[ctx->npos++] = (char)(0x80 | ((uint8_t)(ctx->temp) & 0x3f));
 }
 
+/*
+ * A new value, with extra bytes after it, added to the declaration being
+ * parsed.  Every lookup of a property lists all the values of the winning
+ * declaration (ctx->active_atr), and an inherited one is looked up from every
+ * element, so a declaration keeps at most LHP_MAX_CSS_DECL_VALUES: past that,
+ * NULL with *drop set, and the caller ignores the value.  NULL without *drop
+ * is OOM.
+ */
+
+static lcsp_atr_t *
+lcsp_atr_new(lhp_ctx_t *ctx, size_t extra, int *drop)
+{
+	lcsp_atr_t *atr;
+
+	*drop = 0;
+	if (!ctx->def ||
+	    lws_dll2_count(&ctx->def->atrs) >= LHP_MAX_CSS_DECL_VALUES) {
+		if (ctx->def && !ctx->css_values_capped) {
+			ctx->css_values_capped = 1;
+			lwsl_warn("%s: css declaration with over %d values, "
+				  "ignoring the rest of them\n", __func__,
+				  LHP_MAX_CSS_DECL_VALUES);
+		}
+		*drop = 1;
+
+		return NULL;
+	}
+
+	atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) + extra,
+			     LHP_AC_GRANULE);
+	if (atr)
+		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+
+	return atr;
+}
+
 static int
 lcsp_append_cssval_int(lhp_ctx_t *ctx)
 {
-	lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr), LHP_AC_GRANULE);
+	int drop;
+	lcsp_atr_t *atr = lcsp_atr_new(ctx, 0, &drop);
+
 	if (!atr)
-		return 1;
+		return !drop;
 
 	/* add this prop value atr to the def */
 
@@ -1674,21 +1712,22 @@ lcsp_append_cssval_int(lhp_ctx_t *ctx)
 	/* a bare number: keep it distinct from keyword atrs (unit NONE) */
 	atr->unit = (uint8_t)(ctx->unit ? ctx->unit : LCSP_UNIT_NUM);
 
-	lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
-
 	return 0;
 }
 
 static int
 lcsp_append_cssval_color(lhp_ctx_t *ctx)
 {
-	lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr), LHP_AC_GRANULE);
 	unsigned int r, g, b, a = 0xff;
+	lcsp_atr_t *atr;
+	int drop;
 
-	if (!atr)
-		return 1;
-
-	/* add this prop value atr to the def */
+	atr = lcsp_atr_new(ctx, 0, &drop);
+	if (!atr) {
+		if (!drop)
+			return 1;
+		goto done;
+	}
 
 	switch (ctx->temp_count) {
 	case 3:
@@ -1725,8 +1764,7 @@ lcsp_append_cssval_color(lhp_ctx_t *ctx)
 
 	atr->unit = LCSP_UNIT_RGBA;
 
-	lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
-
+done:
 	ctx->u.f.color = 0;
 	ctx->temp = 0;
 	ctx->temp_count = 0;
@@ -1806,15 +1844,14 @@ static const struct {
 static int
 lcsp_append_rgba(lhp_ctx_t *ctx, uint32_t rgba)
 {
-	lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr),
-					 LHP_AC_GRANULE);
+	int drop;
+	lcsp_atr_t *atr = lcsp_atr_new(ctx, 0, &drop);
 
 	if (!atr)
-		return 1;
+		return !drop;
 
 	atr->unit = LCSP_UNIT_RGBA;
 	atr->u.rgba = rgba;
-	lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
 	return 0;
 }
@@ -1898,6 +1935,7 @@ lcsp_func_value(lhp_ctx_t *ctx)
 {
 	const char *b = ctx->buf, *p = strchr(b, '('), *end;
 	size_t nl;
+	int drop;
 
 	if (!p || !ctx->def)
 		return 0;
@@ -1907,16 +1945,15 @@ lcsp_func_value(lhp_ctx_t *ctx)
 	end = ctx->buf + ctx->npos - 1; /* the closing paren */
 
 	if (nl == 4 && !strncasecmp(b, "calc", 4)) {
-		lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) +
-					(size_t)(end - p) + 1, LHP_AC_GRANULE);
+		lcsp_atr_t *atr = lcsp_atr_new(ctx, (size_t)(end - p) + 1,
+					       &drop);
 		if (!atr)
-			return 1;
+			return !drop;
 
 		atr->unit = LCSP_UNIT_CALC;
 		atr->value_len = (uint16_t)(end - p);
 		memcpy(&atr[1], p, atr->value_len);
 		((char *)&atr[1])[atr->value_len] = '\0';
-		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
 		return 0;
 	}
@@ -1929,16 +1966,15 @@ lcsp_func_value(lhp_ctx_t *ctx)
 	    (nl == 3 && !strncasecmp(b, "max", 3)) ||
 	    (nl == 5 && !strncasecmp(b, "clamp", 5))) {
 		size_t fl = (size_t)(end - b) + 1;
-		lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) +
-						 fl + 1, LHP_AC_GRANULE);
+		lcsp_atr_t *atr = lcsp_atr_new(ctx, fl + 1, &drop);
+
 		if (!atr)
-			return 1;
+			return !drop;
 
 		atr->unit = LCSP_UNIT_CALC;
 		atr->value_len = (uint16_t)fl;
 		memcpy(&atr[1], b, fl);
 		((char *)&atr[1])[fl] = '\0';
-		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
 		return 0;
 	}
@@ -1999,16 +2035,14 @@ lcsp_func_value(lhp_ctx_t *ctx)
 			end--;
 		vl = (size_t)(end - p);
 
-		atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) + vl + 1,
-				     LHP_AC_GRANULE);
+		atr = lcsp_atr_new(ctx, vl + 1, &drop);
 		if (!atr)
-			return 1;
+			return !drop;
 
 		atr->unit = LCSP_UNIT_URL;
 		atr->value_len = (uint16_t)vl;
 		memcpy(&atr[1], p, vl);
 		((char *)&atr[1])[vl] = '\0';
-		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
 		return 0;
 	}
@@ -2037,13 +2071,13 @@ lcsp_finish_cssval_keyword(lhp_ctx_t *ctx)
 	if (ctx->cssval_state > 0 &&
 	    lws_minilex_parse(css_propconst_lextable, &ctx->cssval_state, 0,
 			      &ctx->propval) == LWS_MINILEX_MATCH) {
-		lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr),
-						 LHP_AC_GRANULE);
-		if (!atr)
-			return 1;
+		int drop;
+		lcsp_atr_t *atr = lcsp_atr_new(ctx, 0, &drop);
 
-		atr->propval = (uint16_t)ctx->propval;
-		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+		if (atr)
+			atr->propval = (uint16_t)ctx->propval;
+		else if (!drop)
+			return 1;
 	} else if (ctx->npos)
 		r = lcsp_append_cssval_string(ctx);
 
@@ -2056,8 +2090,9 @@ lcsp_finish_cssval_keyword(lhp_ctx_t *ctx)
 static int
 lcsp_append_cssval_string(lhp_ctx_t *ctx)
 {
-	lcsp_atr_t *atr;
 	char *v, *c = &ctx->buf[0];
+	lcsp_atr_t *atr;
+	int drop;
 
 	if (c[0] == '\"' || c[0] == '\'') {
 		c++;
@@ -2091,10 +2126,9 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 			}
 	}
 
-	atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) + (size_t)ctx->npos + 1u,
-			     LHP_AC_GRANULE);
+	atr = lcsp_atr_new(ctx, (size_t)ctx->npos + 1u, &drop);
 	if (!atr)
-		return 1;
+		return !drop;
 
 	v = (char *)&atr[1];
 	atr->value_len = (uint16_t)ctx->npos;
@@ -2103,8 +2137,6 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 	atr->unit = LCSP_UNIT_STRING;
 
 	//lwsl_notice("%s: %s\n", __func__, v);
-
-	lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
 	return 0;
 }
@@ -3014,6 +3046,57 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
 	return ((nm->specificity >> 18) & LHP_CSS_LAYER_NONE) &&
 	       !(nm->specificity & (1u << 25));
 }
+
+/*
+ * What bounds a document's css work and heap.  Untrusted pages have found a
+ * new unbounded layer each time one stage was bounded, so this lists every
+ * loop in the css / cascade / layout path with its bound; a new loop over
+ * css or document data needs an entry here, and its work counted in
+ * ctx->cascade_ops (or ctx->layout_ops).
+ *
+ *  - parsing: O(1) per byte, a step per byte of the document's css.  A long
+ *    selector list is flushed per LHP_STRING_CHUNK.  @media / @supports /
+ *    @layer headers are scanned once (<= LHP_STRING_CHUNK), layers <= 62
+ *  - selectors: each split and normalized once (<= 127 chars, key and
+ *    specificity linear in that), at most LHP_MAX_CSS_SELECTORS kept; past
+ *    that, or once spent, a stanza costs only its bytes
+ *  - values: at most LHP_MAX_CSS_DECL_VALUES per declaration (G-524);
+ *    custom properties at most LHP_MAX_CSS_VARS.  The number of declarations
+ *    is only bounded by the css size (G-089), but each costs its bytes
+ *  - selector index: each stanza and selector indexed once, plus once more
+ *    when the budget is spent, a step each (G-520)
+ *  - per element: each indexed selector keyed by its tag, id, classes or
+ *    none is visited at most once, a step each; class tokens (<= 2048 bytes
+ *    of attribute) are sorted once.  Matching costs a step per compound
+ *    and per LHP_SEL_SCAN_BYTES of attribute value scanned, at most
+ *    LHP_SEL_MATCH_BUDGET per selector and, for the document's, at most
+ *    LHP_SEL_CASCADE_BUDGET per element, all counted (G-090, G-523).
+ *    Combinators walk <= LHP_MAX_ELEMS_NEST ancestors or
+ *    LHP_SIBLING_HISTORY siblings, a budget step each
+ *  - matched stanzas: a hash probe each, sorted once, counted; the
+ *    declaration index walks their declarations once and sorts the winners,
+ *    counted.  Only the winners are kept while the element is open, and
+ *    what the open elements keep is at most LHP_MAX_CSS_LEVEL_HEAP (G-521)
+ *  - lookups: a binary search per ancestor (<= LHP_MAX_ELEMS_NEST), plus
+ *    copying <= LHP_MAX_CSS_DECL_VALUES values to ctx->active_atr, counted;
+ *    var() follows <= 8 indirections; calc() has its own budget per
+ *    expression (G-082) and % lengths resolve <= LHP_MAX_CB_RESOLVE_DEPTH
+ *    containing blocks
+ *  - style="": parsed once per element, <= LHP_STRING_CHUNK, not once spent
+ *  - layout: an element's close walks its own children (rows, cells, block
+ *    children, bottom-anchored boxes), so linear overall; table columns are
+ *    found without walking (G-461, ctx->layout_ops); a line's end walks its
+ *    items; positioned boxes are raised once per document; a ::before /
+ *    ::after stanza's declarations are walked a fixed number of times when
+ *    its box is laid out, counted (G-524)
+ *  - the document: all of the above that the document's css drives counts
+ *    in ctx->cascade_ops, and LHP_MAX_CSS_CASCADE_OPS / LHP_MAX_CSS_LEVEL_HEAP
+ *    end it (lhp_css_doc_spent() below), overshooting by at most one
+ *    element.  After that each element costs a user-agent and filter css
+ *    cascade (the filter css is trusted), and the document's css is no
+ *    longer kept.  What remains unbounded except by input size is the heap
+ *    of the css kept before that (G-089)
+ */
 
 /*
  * Has the document spent its css budget, LHP_MAX_CSS_CASCADE_OPS steps of
@@ -4420,12 +4503,15 @@ lhp_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop)
 		    a->propval == LCSP_PROPVAL_INHERIT)
 			goto parent;
 
+		/* at most LHP_MAX_CSS_DECL_VALUES of these */
 		lws_start_foreach_dll(struct lws_dll2 *, z,
 				      lws_dll2_get_head(&def->atrs)) {
 			lcsp_atr_ptr_t *patr = lwsac_use_zero(&ctx->propatrac,
 						sizeof(*patr), LHP_AC_GRANULE);
 			if (!patr)
 				return NULL;
+
+			ctx->cascade_ops++;
 
 			patr->atr = lws_container_of(z, lcsp_atr_t, list);
 			lws_dll2_add_tail(&patr->list, &ctx->active_atr);
@@ -7319,18 +7405,15 @@ issue_post:
 					 * property value match */
 					//lwsl_notice("propval %d\n", ctx->propval);
 					{
-						lcsp_atr_t *atr = lwsac_use_zero(
-							  &ctx->cssac,
-							  sizeof(*atr),
-							  LHP_AC_GRANULE);
-						if (!atr)
+						int drop;
+						lcsp_atr_t *atr = lcsp_atr_new(
+								ctx, 0, &drop);
+
+						if (!atr && !drop)
 							goto oom;
-						/* add this prop value atr to the def */
-
-						atr->propval = (uint16_t)ctx->propval;
-
-						lws_dll2_add_tail(&atr->list,
-								&ctx->def->atrs);
+						if (atr)
+							atr->propval = (uint16_t)
+								ctx->propval;
 
 						ctx->npos = 0;
 					}

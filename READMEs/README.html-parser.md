@@ -92,6 +92,10 @@ JPEG and PNG images and express all UI in html/css.
    Cascading an element costs a share of the selectors and an index of the
    declarations that apply to it, so these bound what a page's css can make
    each element cost.  Both can be overridden at build time.
+ - A declaration keeps at most `LHP_MAX_CSS_DECL_VALUES` values (64), eg the
+   terms of a shorthand or the fonts of a `font-family` list; the rest are
+   ignored with a warning.  Every lookup of a property lists the values of
+   the declaration that wins, so this bounds what a lookup costs.
  - A document's css work as a whole, parsing its css, indexing its selectors
    and cascading its elements, is limited to `LHP_MAX_CSS_CASCADE_OPS` steps
    (16M, 2M on FreeRTOS / baremetal; a large real page such as slashdot's

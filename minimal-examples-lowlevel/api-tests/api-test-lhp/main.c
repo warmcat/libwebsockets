@@ -1519,6 +1519,241 @@ bail:
 }
 
 /*
+ * Property lookups must cost a bounded amount however long the declarations
+ * they find.  Every lookup listed all the values of the winning declaration
+ * in ctx->active_atr, which had no limit, and an inherited property is
+ * looked up from every element, from the ancestor whose declaration wins,
+ * however long ago its css was spent: body{color: red x 50000} over 2000
+ * <p> took 31s under ASan.  A declaration now keeps at most
+ * LHP_MAX_CSS_DECL_VALUES values, and the copies count in ctx->cascade_ops,
+ * as do the walks of a ::before / ::after stanza's declarations when its box
+ * is laid out.
+ *
+ * So each <p> under that <body> must cost at most what it costs with only
+ * the user-agent css plus the values it may list, while a shorthand of a few
+ * values still works.  And with a ::before stanza of 20000 declarations on
+ * every <p>, laid out for real, the document's css must be cut off by its
+ * budget, so the later <p> get no pseudo box.
+ */
+
+#define LHPT_DV_VALUES		50000
+#define LHPT_DV_ELEMS		2000
+/* lookups that list values, per element: generous */
+#define LHPT_DV_OPS_ELEM	(LHPT_DB_OPS_UA + 64 * LHP_MAX_CSS_DECL_VALUES)
+#define LHPT_DV_PS_DECLS	20000
+#define LHPT_DV_PS_ELEMS	3000
+
+static int dv_elems, dv_over, dv_margin_ok, dv_values_ok, dv_pseudo,
+	   dv_no_pseudo;
+static size_t dv_css_len;
+
+static lws_stateful_ret_t
+dv_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *a;
+	const lhp_atr_t *ta;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 1 || *(const char *)&ta[1] != 'p')
+		return 0;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->cascade_ops > (uint64_t)(dv_elems + 1) * LHPT_DV_OPS_ELEM +
+			       (uint64_t)dv_css_len * LHPT_OPS_CSS_BYTE) {
+		dv_over = 1;
+		return LWS_SRET_FATAL;
+	}
+	dv_elems++;
+
+	a = ps->css_margin[CCPAS_LEFT];
+	if (a && a->unit == LCSP_UNIT_LENGTH_PX && a->u.i.whole == 4)
+		dv_margin_ok++;
+
+	/* inherited from <body> */
+	if (lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_COLOR) &&
+	    ctx->active_atr.count == LHP_MAX_CSS_DECL_VALUES)
+		dv_values_ok++;
+
+	return 0;
+}
+
+static lws_stateful_ret_t
+dv_ps_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lhp_atr_t *ta;
+
+	if (reason == LHPCB_ELEMENT_START && !lws_dll2_is_empty(&ps->atr)) {
+		ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t,
+				      list);
+		if (ta->name_len == 1 && *(const char *)&ta[1] == 'p') {
+			if (ps->pseudo_before)
+				dv_pseudo++;
+			else
+				dv_no_pseudo++;
+		}
+	}
+
+	/* and lay it out for real */
+
+	return lhp_displaylist_layout(ctx, reason);
+}
+
+static int
+test_decl_values(void)
+{
+	size_t alloc = (size_t)LHPT_DV_VALUES * 4 +
+		       (size_t)LHPT_DV_PS_DECLS * 12 +
+		       (size_t)LHPT_DV_PS_ELEMS * 8 + 1024, len;
+	struct lws_context_creation_info info;
+	struct lws_context *cx = NULL;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_displaylist_t dl;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	dv_elems = dv_over = dv_margin_ok = dv_values_ok = 0;
+	dv_pseudo = dv_no_pseudo = 0;
+
+	/* the long inherited declaration */
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>p{margin:1px 2px 3px 4px}"
+			  "body{color:");
+	for (i = 0; i < LHPT_DV_VALUES; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  " red");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc), "}");
+	dv_css_len = lws_ptr_diff_size_t(p, doc);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body>");
+	for (i = 0; i < LHPT_DV_ELEMS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<p>x</p>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, dv_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d elements, %llu cascade steps, r 0x%x\n", __func__,
+		  dv_elems, (unsigned long long)ctx->cascade_ops,
+		  (unsigned int)r);
+	lws_lhp_destruct(ctx);
+
+	if (dv_over) {
+		lwsl_err("%s: over %d steps per element at element %d\n",
+			 __func__, LHPT_DV_OPS_ELEM, dv_elems + 1);
+		goto bail;
+	}
+	if (r & LWS_SRET_FATAL || dv_elems != LHPT_DV_ELEMS ||
+	    dv_margin_ok != LHPT_DV_ELEMS || dv_values_ok != LHPT_DV_ELEMS) {
+		lwsl_err("%s: %d elements, margin ok %d, values ok %d\n",
+			 __func__, dv_elems, dv_margin_ok, dv_values_ok);
+		goto bail;
+	}
+
+	/* the long ::before stanza, laid out for real */
+
+	memset(ctx, 0, sizeof(*ctx));
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>p::before{content:\"\";");
+	for (i = 0; i < LHPT_DV_PS_DECLS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "color:red;");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "}</style></head><body>");
+	for (i = 0; i < LHPT_DV_PS_ELEMS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<p></p>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	/* the layout chooses fonts from a context, this one has none */
+	lws_context_info_defaults(&info, NULL);
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	cx = lws_create_context(&info);
+	if (!cx)
+		goto bail;
+
+	lws_display_dl_init(&dl, NULL);
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &dl;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, dv_ps_cb, &drt, &ic))
+		goto bail;
+	ctx->user1 = cx;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: ::before on %d elements, not on %d, %llu cascade "
+		  "steps, r 0x%x\n", __func__, dv_pseudo, dv_no_pseudo,
+		  (unsigned long long)ctx->cascade_ops, (unsigned int)r);
+
+	if (r & LWS_SRET_FATAL ||
+	    dv_pseudo + dv_no_pseudo != LHPT_DV_PS_ELEMS)
+		lwsl_err("%s: parse failed\n", __func__);
+	else if (!dv_pseudo || !dv_no_pseudo)
+		lwsl_err("%s: expected ::before on the first elements and "
+			 "not on the last\n", __func__);
+	else
+		e = 0;
+
+	lws_lhp_destruct(ctx);
+	lws_display_list_destroy(cx, &dl);
+
+bail:
+	if (cx)
+		lws_context_destroy(cx);
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Table layout work must be linear in the cells, however they are arranged:
  * one row of very many cells used to find each cell's column by walking the
  * column list from its head, when the cell opened and again at table close,
@@ -2117,6 +2352,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_selector_scan())
+		goto bail;
+
+	if (test_decl_values())
 		goto bail;
 
 	if (test_table_wide())
