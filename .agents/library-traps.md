@@ -18,7 +18,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    deterministically: run SMP work in a DEBUG `LWS_MAX_SMP=2` tree.  Hand
    work to another pt's thread with `lws_pthread_self_to_tsi()` plus
    `lws_plat_pipe_signal()`; api-test-async-dns-smp is the red/green
-   pattern.  `lws_client_connect_via_info()` asserts in SMP when called
+   pattern.  For a deterministic red on an SMP timer bug, assert in the
+   timer callback (debug only) that `lws_pthread_self_to_tsi(cx)` is the
+   owning wsi's tsi: 3/3 aborts where ASan alone saw nothing (G-536).
+   `lws_protocol_init()` races between threads servicing first (G-542):
+   start extra service threads after PROTOCOL_INIT until it's fixed.
+   `lws_client_connect_via_info()` asserts in SMP when called
    from a non-service thread.
  - **FreeRTOS builds force `LWS_MAX_SMP 1`, so `lws_pt_lock()` and
    `lws_context_lock()` compile to nothing there.**  esp-idf event
