@@ -371,6 +371,9 @@ also swallows lines from a burst at default log levels (35 of 64 lines
 in 20ms were lost in one test), so pass `--log-spew-tail 20000` whenever
 a log is evidence that something was or was not emitted.
 
+ - A test that captures log lines in an emit callback as evidence should
+   pass `LLLF_LOG_SPEW_OFF`: the spew limiter tripped at default levels
+   with only ~64 error lines (api-test-auth-dns-names).
  - Apps using `lws_cmdline_option_handle_builtin()` (lwsws, examples)
    take `--log-spew-tail <lines>`.  api-test-lws_struct-json does not
    honour it: run it with `-d 3` to see why it failed.
