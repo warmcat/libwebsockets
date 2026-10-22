@@ -873,26 +873,73 @@ lws_json_purify_len(const char *string)
 	return len;
 }
 
+/*
+ * Names that open a device instead of a file on Windows, whatever extension
+ * follows them.  They are neutralised on every platform, so a name comes out
+ * the same wherever it was purified.
+ */
+
+static const char * const win_device_names[] = {
+	"CON", "PRN", "AUX", "NUL",
+	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+};
+
 void
 lws_filename_purify_inplace(char *filename)
 {
-	while (*filename) {
+	char *start = filename;
+	size_t stem, n;
 
-		if (*filename == '.' && filename[1] == '.') {
+	if (!*filename)
+		return;
+
+	while (*filename) {
+		unsigned char c = (unsigned char)*filename;
+
+		if (c == '.' && filename[1] == '.') {
 			*filename = '_';
 			filename[1] = '_';
 		}
 
-		if (*filename == ':' ||
-#if !defined(WIN32)
-		    *filename == '\\' ||
-#endif
-		    *filename == '$' ||
-		    *filename == '%')
+		/*
+		 * Both separators on every platform: '\\' is a separator on
+		 * Windows, and the name may be used there, or come from there.
+		 * ':' names a drive or an NTFS stream, the others are refused
+		 * by Windows filesystems or are shell / format metacharacters
+		 */
+
+		if (c < 0x20 || c == 0x7f ||
+		    c == '/' || c == '\\' || c == ':' ||
+		    c == '*' || c == '?' || c == '"' ||
+		    c == '<' || c == '>' || c == '|' ||
+		    c == '$' || c == '%')
 			*filename = '_';
 
 		filename++;
 	}
+
+	/*
+	 * With ".." gone, a leading '.' goes too, so the result is never ".",
+	 * ".." or a hidden file
+	 */
+
+	if (*start == '.')
+		*start = '_';
+
+	/* the stem is what comes before the first '.', less trailing spaces */
+
+	for (stem = 0; start[stem] && start[stem] != '.'; stem++)
+		;
+	while (stem && start[stem - 1] == ' ')
+		stem--;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(win_device_names); n++)
+		if (strlen(win_device_names[n]) == stem &&
+		    !strncasecmp(start, win_device_names[n], stem)) {
+			*start = '_';
+			break;
+		}
 }
 
 const char *

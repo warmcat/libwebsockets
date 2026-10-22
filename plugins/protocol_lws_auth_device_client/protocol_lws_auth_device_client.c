@@ -290,7 +290,7 @@ device_token_reply(struct per_vhost_data *vhd,
 	p = lws_json_simple_find(action->body, action->body_len,
 				 "\"access_token\":", &al);
 	if (p) {
-		char filename[128], safe[64], *slash_p = safe;
+		char filename[128], safe[64];
 		int fd;
 
 		lws_strnncpy(session->access_token, p, al,
@@ -300,8 +300,6 @@ device_token_reply(struct per_vhost_data *vhd,
 
 		lws_strncpy(safe, session->logical_name, sizeof(safe));
 		lws_filename_purify_inplace(safe);
-		while ((slash_p = strchr(slash_p, '/')))
-			*slash_p++ = '_';
 		lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s",
 			     safe);
 		fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -750,9 +748,6 @@ start_auth_flow(struct lws_vhost *vh, const char *mixer_url, const char *logical
 	char filename[128], safe[64];
 	lws_strncpy(safe, logical_name, sizeof(safe));
 	lws_filename_purify_inplace(safe);
-	char *slash_p = safe;
-	while ((slash_p = strchr(slash_p, '/')))
-		*slash_p++ = '_';
 	lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s", safe);
 	int fd = open(filename, O_RDONLY);
 	if (fd >= 0) {

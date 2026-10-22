@@ -761,7 +761,7 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 		  state, ((struct pss_deaddrop *)data)->user);
 
 	struct pss_deaddrop *pss = (struct pss_deaddrop *)data;
-	char filename2[256], *q;
+	char filename2[256];
 	size_t len = (size_t)_len;
 	int n;
 
@@ -808,11 +808,8 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 
 			return -1;
 		}
-		lws_filename_purify_inplace(filename2);
 		/* it is one path component in the upload dir */
-		for (q = filename2; *q; q++)
-			if (*q == '/')
-				*q = '_';
+		lws_filename_purify_inplace(filename2);
 
 		if (!filename2[0] || !pss->owner[0]) {
 			pss->response_code = HTTP_STATUS_BAD_REQUEST;

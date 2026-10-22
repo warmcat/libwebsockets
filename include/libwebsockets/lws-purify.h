@@ -120,12 +120,29 @@ LWS_VISIBLE LWS_EXTERN int
 lws_json_purify_len(const char *string);
 
 /**
- * lws_filename_purify_inplace() - replace scary filename chars with underscore
+ * lws_filename_purify_inplace() - make a name usable as one path component
  *
- * \param filename: filename to be purified
+ * \param filename: NUL-terminated filename to be purified in place
  *
- * Replace scary characters in the filename (it should not be a path)
- * with underscore, so it's safe to use.
+ * Turns an untrusted name, eg, a filename a peer sent, into a single path
+ * component that names a file inside whatever directory it is used in, on
+ * every platform, by replacing characters with '_'.  The length does not
+ * change.  The result is identical whichever platform it is done on.
+ *
+ * Afterwards, the name has no
+ *
+ *  - path separator, neither '/' nor '\\' (so it is not absolute and has no
+ *    subdirectory part)
+ *  - control characters (< 0x20, 0x7f)
+ *  - ':' (drive or NTFS stream), '*', '?', '"', '<', '>', '|', '$', '%'
+ *  - ".." anywhere, or leading '.' (so it is never ".", ".." or a hidden file)
+ *
+ * and is not a Windows device name (CON, NUL, COM1, LPT1, ... with or without
+ * an extension).
+ *
+ * An empty name stays empty: the caller must refuse it.  The caller must also
+ * still bound its length, and must not follow an existing symlink of that
+ * name, eg, by creating it with O_CREAT | O_EXCL.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_filename_purify_inplace(char *filename);
