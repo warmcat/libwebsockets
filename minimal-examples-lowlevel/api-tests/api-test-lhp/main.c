@@ -692,9 +692,13 @@ bail:
  * at every ancestor level.
  *
  * The leaves must still get the values the cascade gives them: a var()
- * declared on every element, and one declared twice, where the later wins.
- * And the document must have been held to its limits on selectors and
- * custom properties.
+ * declared on <html> and looked up from the leaves through every level, and
+ * one declared on every element twice, where the later wins.  And the
+ * document must have been held to its limits on selectors and custom
+ * properties.  (The custom properties are declared on <html>, not on every
+ * element: thousands of them on every element of 120 levels are more than
+ * the document's open elements may hold for their css, LHP_MAX_CSS_LEVEL_HEAP,
+ * see test_cascade_level_heap.)
  */
 
 #define LHPT_CW_DECLS		(LHP_MAX_CSS_VARS + 100)
@@ -703,8 +707,11 @@ bail:
 #define LHPT_CW_LEAVES		40
 /* steps of cascade work allowed per element */
 #define LHPT_CW_OPS_PER_ELEM	(3 * LHP_MAX_CSS_SELECTORS)
+/* the most steps each byte of css may cost to parse and index */
+#define LHPT_OPS_CSS_BYTE	4
 
 static int cw_elems, cw_leaves, cw_leaves_ok, cw_over;
+static size_t cw_css_len;
 
 static lws_stateful_ret_t
 cw_cb(lhp_ctx_t *ctx, char reason)
@@ -720,7 +727,8 @@ cw_cb(lhp_ctx_t *ctx, char reason)
 
 	/* fail at the first element that is over, don't wait for all */
 
-	if (ctx->cascade_ops > (uint64_t)cw_elems * LHPT_CW_OPS_PER_ELEM) {
+	if (ctx->cascade_ops > (uint64_t)cw_elems * LHPT_CW_OPS_PER_ELEM +
+			       (uint64_t)cw_css_len * LHPT_OPS_CSS_BYTE) {
 		cw_over = 1;
 		return LWS_SRET_FATAL;
 	}
@@ -761,10 +769,13 @@ test_cascade_work(void)
 			  "p{width:var(--v7)}\np{height:var(--vdup)}\n");
 	for (i = 0; i < LHPT_CW_DECLS; i++)
 		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
-				  "*{--v%d:%dpx;margin-left:1px}\n", i, i);
+				  "html{--v%d:%dpx}\n*{margin-left:1px}\n",
+				  i, i);
 	for (i = 0; i < LHPT_CW_EMPTY; i++)
 		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
 				  "*{}");
+	/* the css counts too, as it is parsed and indexed */
+	cw_css_len = lws_ptr_diff_size_t(p, doc);
 	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
 			  "</style></head><body>");
 	for (i = 0; i < LHPT_CW_NEST; i++)
@@ -988,6 +999,199 @@ bail:
 }
 
 /*
+ * The heap the cascade holds for the open elements must be bounded per
+ * document, not only per element.  Each open level kept every stanza it
+ * matched and an index of the declarations that win for it, so css whose
+ * selectors all match every element, under deep nesting, cost that again at
+ * every level: 32768 *{} (590KB) under 127 nested <div> held 80MB.  Now a
+ * level keeps only its declaration index once it is cascaded, and when the
+ * open levels hold LHP_MAX_CSS_LEVEL_HEAP, the document's css is ignored for
+ * the rest of it, as when its css work budget is spent.
+ *
+ * So with a sheet at the selector limit that matches every element and
+ * declares as many custom properties as a document may have, under nesting
+ * as deep as lhp allows, what the open levels hold must stay within the
+ * limit plus what one element can hold, counted by lhp, summed from the
+ * levels, and measured as lws heap; the first levels must get the document's
+ * css and the deepest must still parse, without it.
+ */
+
+#define LHPT_LH_NEST		(LHP_MAX_ELEMS_NEST - 4)
+/* lhp.c's lhp_decl_t, a pointer and a uint32_t, at least */
+#define LHPT_LH_DECL_MIN	(sizeof(void *) + sizeof(uint32_t))
+#define LHPT_LH_DECL_MAX	(2 * sizeof(void *))
+/* the most one element can hold: its matched stanzas and declarations */
+#define LHPT_LH_ELEM		(0xffffu * sizeof(lcsp_match_t) + \
+				 (LHP_MAX_CSS_VARS + LCSP_PROP__COUNT) * \
+						 LHPT_LH_DECL_MAX)
+#define LHPT_LH_MAX		(LHP_MAX_CSS_LEVEL_HEAP + LHPT_LH_ELEM)
+/* lws heap of a level besides its css: the level, its attributes... */
+#define LHPT_LH_LEVEL		1024
+
+static size_t lh_peak_lhp, lh_peak_sum, lh_peak_heap, lh_heap_base;
+static int lh_elems, lh_styled, lh_unstyled, lh_over;
+
+static lws_stateful_ret_t
+lh_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *ml;
+	const lhp_atr_t *ta;
+	size_t sum = 0, heap;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len == 4 && !strncmp((const char *)&ta[1], "body", 4)) {
+		/* the stylesheet and anything kept for the whole document
+		 * are allocated by now: count from here */
+		lh_heap_base = lws_get_allocated_heap();
+		return 0;
+	}
+	if (ta->name_len != 3 || strncmp((const char *)&ta[1], "div", 3))
+		return 0;
+
+	lh_elems++;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->stack)) {
+		const lhp_pstack_t *l = lws_container_of(d, lhp_pstack_t,
+							 list);
+
+		sum += l->nmatched * sizeof(lcsp_match_t) +
+		       l->ndecl * LHPT_LH_DECL_MIN;
+	} lws_end_foreach_dll(d);
+
+	heap = lws_get_allocated_heap();
+	heap = heap > lh_heap_base ? heap - lh_heap_base : 0;
+
+	if (ctx->css_level_heap > lh_peak_lhp)
+		lh_peak_lhp = ctx->css_level_heap;
+	if (sum > lh_peak_sum)
+		lh_peak_sum = sum;
+	if (heap > lh_peak_heap)
+		lh_peak_heap = heap;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->css_level_heap > LHPT_LH_MAX || sum > LHPT_LH_MAX ||
+	    heap > LHPT_LH_MAX + (size_t)lh_elems * LHPT_LH_LEVEL) {
+		lh_over = 1;
+		return LWS_SRET_FATAL;
+	}
+
+	ml = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+	if (ml && ml->unit == LCSP_UNIT_LENGTH_PX && ml->u.i.whole == 1)
+		lh_styled++;
+	else
+		lh_unstyled++;
+
+	return 0;
+}
+
+static int
+test_cascade_level_heap(void)
+{
+	size_t alloc = (size_t)LHP_MAX_CSS_SELECTORS * 32 +
+		       LHPT_LH_NEST * 16 + 256, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	lh_peak_lhp = lh_peak_sum = lh_peak_heap = lh_heap_base = 0;
+	lh_elems = lh_styled = lh_unstyled = lh_over = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>");
+	for (i = 0; i < LHP_MAX_CSS_SELECTORS; i++)
+		if (i < LHP_MAX_CSS_VARS)
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc),
+					  "*{--v%d:1px;margin-left:1px}", i);
+		else
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc),
+					  "*{margin-left:1px}");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body>");
+	for (i = 0; i < LHPT_LH_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<div>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc), "x");
+	for (i = 0; i < LHPT_LH_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</div>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, lh_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d levels (%d with the document's css), held at most "
+		  "%llu (lhp) %llu (levels) %llu (lws heap), r 0x%x\n",
+		  __func__, lh_elems, lh_styled,
+		  (unsigned long long)lh_peak_lhp,
+		  (unsigned long long)lh_peak_sum,
+		  (unsigned long long)lh_peak_heap, (unsigned int)r);
+
+	if (lh_over) {
+		lwsl_err("%s: the open levels held over %llu at level %d\n",
+			 __func__, (unsigned long long)LHPT_LH_MAX, lh_elems);
+		goto bail_destruct;
+	}
+	if (r & LWS_SRET_FATAL || lh_elems != LHPT_LH_NEST) {
+		lwsl_err("%s: parse failed, %d levels\n", __func__, lh_elems);
+		goto bail_destruct;
+	}
+	if (!lh_styled || !lh_unstyled) {
+		lwsl_err("%s: expected the document's css on the first levels "
+			 "and not on the deepest\n", __func__);
+		goto bail_destruct;
+	}
+	if (ctx->css_level_heap) {
+		lwsl_err("%s: %llu still counted with every level closed\n",
+			 __func__, (unsigned long long)ctx->css_level_heap);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * The document's css work must be bounded however its <style> blocks are
  * interleaved with its elements.  The selector index used to be made again
  * from every stanza whenever an element found the stanza count changed, and
@@ -1010,10 +1214,8 @@ bail:
 #define LHPT_IS_EARLY		"<style>p.a{margin-left:2px}</style>"
 #define LHPT_IS_MID		"<style>p.b{margin-left:3px}</style>"
 #define LHPT_IS_LATE		"<style>p.c{margin-left:4px}</style>"
-/* the most steps each byte of css may cost to parse and index */
-#define LHPT_IS_OPS_BYTE	4
 #define LHPT_IS_OPS_MAX(_e)	((uint64_t)(_e) * (LHPT_DB_OPS_UA + \
-				 LHPT_IS_OPS_BYTE * sizeof(LHPT_IS_REP)) + \
+				 LHPT_OPS_CSS_BYTE * sizeof(LHPT_IS_REP)) + \
 				 4 * LHP_MAX_CSS_SELECTORS)
 
 static int is_elems, is_over, is_a, is_b, is_c, is_ua_stz;
@@ -1758,6 +1960,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_interleaved_style())
+		goto bail;
+
+	if (test_cascade_level_heap())
 		goto bail;
 
 	if (test_table_wide())

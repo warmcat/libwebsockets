@@ -103,6 +103,13 @@ JPEG and PNG images and express all UI in html/css.
    be overridden at build time.
  - Stanzas that can't style anything, because none of their selectors could
    be kept or they have no declarations, are not kept.
+ - Each open element holds an index of the declarations that win for it, so
+   css giving every element many declarations (eg, custom properties on `*`)
+   costs that again for every level of nesting.  What a document's open
+   elements hold for their css at once is limited to `LHP_MAX_CSS_LEVEL_HEAP`
+   (1MB, 64KB on FreeRTOS / baremetal; slashdot's front page holds under
+   3KB): reaching it spends the document's css budget as above.  It can be
+   overridden at build time.
 
 Heap Costs during active decode (while rendering line that includes image)
 

@@ -98,6 +98,23 @@
 #endif
 #endif
 
+/*
+ * Most heap the open elements of a document may hold for their css at once
+ * (ctx->css_level_heap): each keeps an index of the declarations that win for
+ * it, so css that gives every element many declarations, such as custom
+ * properties on *, costs that again for every level of nesting.  Once a
+ * document's open elements hold this much, its own css is ignored for the
+ * rest of the document as for LHP_MAX_CSS_CASCADE_OPS.  A large real page
+ * (slashdot's front page) holds under 3KB at most.
+ */
+#if !defined(LHP_MAX_CSS_LEVEL_HEAP)
+#if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
+#define LHP_MAX_CSS_LEVEL_HEAP		(64 * 1024)
+#else
+#define LHP_MAX_CSS_LEVEL_HEAP		(1024 * 1024)
+#endif
+#endif
+
 enum lhp_callbacks {
 
 	LHPCB_ERR_ATTRIB_SYNTAX		= -5,
@@ -589,6 +606,9 @@ typedef struct lhp_pstack {
 	 */
 	struct lhp_decl			*decl;
 	uint32_t			ndecl;
+	uint32_t			css_heap; /* bytes of matched and decl
+						   * counted in the ctx's
+						   * css_level_heap, private */
 	lws_fx_t			font_size; /* computed font-size, px */
 	uint16_t			nmatched;
 
@@ -913,9 +933,14 @@ typedef struct lhp_ctx {
 					      * and for tests to bound */
 	uint32_t		css_doc_selectors; /* the document's selectors */
 	uint32_t		css_doc_vars; /* and custom properties */
-	uint8_t			css_doc_spent; /* LHP_MAX_CSS_CASCADE_OPS was
+	uint8_t			css_doc_spent; /* LHP_MAX_CSS_CASCADE_OPS or
+						* LHP_MAX_CSS_LEVEL_HEAP was
 						* reached: the document's own
 						* css is no longer applied */
+	size_t			css_level_heap; /* bytes the open elements
+						 * hold for their css: their
+						 * matched stanzas and
+						 * declaration indexes */
 	struct lhp_cls_tok	*ctok; /* the class tokens of the element
 					* being cascaded, private to lhp.c */
 	uint32_t		ctok_alloc;

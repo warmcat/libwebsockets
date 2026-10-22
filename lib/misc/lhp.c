@@ -578,6 +578,14 @@ lhp_clean_level(lhp_pstack_t *ps)
 
 	lws_dll2_foreach_safe(&ps->sibs, NULL, lhp_clean_sib);
 	lws_dll2_foreach_safe(&ps->atr, NULL, lhp_clean_atr);
+
+	{
+		lhp_ctx_t *ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t,
+							  stack);
+
+		if (ctx)
+			ctx->css_level_heap -= ps->css_heap;
+	}
 	lws_dll2_remove(&ps->list);
 
 	if (ps->matched)
@@ -2973,9 +2981,12 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
 
 /*
  * Has the document spent its css budget, LHP_MAX_CSS_CASCADE_OPS steps of
- * ctx->cascade_ops?  Parsing its css, indexing it and cascading its elements
- * all count, so this bounds the css work of the whole document, however its
- * css and elements are interleaved.  The first time it finds the budget spent,
+ * ctx->cascade_ops, or LHP_MAX_CSS_LEVEL_HEAP bytes held by its open elements
+ * for their css?  Parsing its css, indexing it and cascading its elements
+ * all count, so this bounds the css work and the cascade's heap of the whole
+ * document, however its css and elements are interleaved and nested.  The
+ * heap held by the open elements falls again as they close, but once spent,
+ * the budget stays spent.  The first time it finds the budget spent,
  * it drops the selector index, so that the next cascade makes it again
  * without the document's own selectors: the elements after that get only the
  * user-agent and filter css, at the cost of an ordinary element, and the
@@ -2989,12 +3000,14 @@ lhp_css_doc_spent(lhp_ctx_t *ctx)
 	if (ctx->css_doc_spent)
 		return 1;
 
-	if (ctx->cascade_ops < LHP_MAX_CSS_CASCADE_OPS)
+	if (ctx->cascade_ops < LHP_MAX_CSS_CASCADE_OPS &&
+	    ctx->css_level_heap < LHP_MAX_CSS_LEVEL_HEAP)
 		return 0;
 
-	lwsl_warn("%s: document css took %llu steps, ignoring it for the "
-		  "rest of the document\n", __func__,
-		  (unsigned long long)ctx->cascade_ops);
+	lwsl_warn("%s: document css took %llu steps, open elements hold %llu "
+		  "bytes for it: ignoring it for the rest of the document\n",
+		  __func__, (unsigned long long)ctx->cascade_ops,
+		  (unsigned long long)ctx->css_level_heap);
 	ctx->css_doc_spent = 1;
 
 	lwsac_free(&ctx->idxac);
@@ -3933,6 +3946,28 @@ lhp_ps_ops(lhp_pstack_t *ps, uint32_t n)
 		ctx->cascade_ops += n;
 }
 
+/*
+ * Account what ps now holds for its css, its matched stanzas and declaration
+ * index, in the document's ctx->css_level_heap: every open level holds its
+ * own, so nesting multiplies it, and LHP_MAX_CSS_LEVEL_HEAP bounds the sum
+ * (see lhp_css_doc_spent()).  ps->css_heap is what was counted for it, so
+ * lhp_clean_level() can take it off again
+ */
+
+static void
+lhp_ps_heap(lhp_pstack_t *ps)
+{
+	lhp_ctx_t *ctx = lhp_ps_ctx(ps);
+	uint32_t now = (uint32_t)(ps->nmatched * sizeof(lcsp_match_t) +
+				  ps->ndecl * sizeof(lhp_decl_t));
+
+	if (!ctx)
+		return;
+
+	ctx->css_level_heap = ctx->css_level_heap - ps->css_heap + now;
+	ps->css_heap = now;
+}
+
 /* property, then for custom properties the name, by length then bytes */
 
 static int
@@ -3971,6 +4006,7 @@ lhp_decl_invalidate(lhp_pstack_t *ps)
 	lws_free_set_NULL(ps->decl);
 	ps->ndecl = 0;
 	ps->decl_valid = 0;
+	lhp_ps_heap(ps);
 }
 
 static void
@@ -4040,6 +4076,7 @@ lhp_decl_index(lhp_pstack_t *ps)
 	dr = lws_realloc(d, w * sizeof(*d), __func__);
 	ps->decl = dr ? dr : d;
 	ps->ndecl = w;
+	lhp_ps_heap(ps);
 }
 
 /*
@@ -4437,8 +4474,10 @@ lhp_set_matches(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	ps->nmatched = 0;
 	lhp_decl_invalidate(ps);
 
-	if (!k)
+	if (!k) {
+		lws_free_set_NULL(ps->matched);
 		return 0;
+	}
 
 	qsort(ctx->hits, k, sizeof(*ctx->hits), lhp_hits_cascade_cmp);
 	ctx->cascade_ops += k;
@@ -4454,6 +4493,7 @@ lhp_set_matches(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	ps->matched = m;
 	memcpy(m, ctx->hits + skip, k * sizeof(*m));
 	ps->nmatched = (uint16_t)k;
+	lhp_ps_heap(ps);
 
 	return 0;
 }
@@ -5017,6 +5057,18 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	ps->css_padding[CCPAS_RIGHT] = lhp_side_atr(ps, LCSP_PROP_PADDING_RIGHT, LCSP_PROP_PADDING, CCPAS_RIGHT, 0);
 	ps->css_padding[CCPAS_BOTTOM] = lhp_side_atr(ps, LCSP_PROP_PADDING_BOTTOM, LCSP_PROP_PADDING, CCPAS_BOTTOM, 0);
 	ps->css_padding[CCPAS_LEFT] = lhp_side_atr(ps, LCSP_PROP_PADDING_LEFT, LCSP_PROP_PADDING, CCPAS_LEFT, 0);
+
+	/*
+	 * From now on, lookups on this element only need its declaration
+	 * index, not the stanzas it was made from: let them go, so that each
+	 * open level holds only the declarations that win for it.  The
+	 * matched stanzas are only needed again if the element is cascaded
+	 * again, which makes them again (<html>, when <body> starts)
+	 */
+	lhp_decl_index(ps);
+	lws_free_set_NULL(ps->matched);
+	ps->nmatched = 0;
+	lhp_ps_heap(ps);
 
 	return 0;
 }
