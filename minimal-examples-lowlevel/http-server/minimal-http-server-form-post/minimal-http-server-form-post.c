@@ -99,11 +99,6 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 		break;
 
-	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		if (pss->spa && lws_spa_destroy(pss->spa))
-			return -1;
-		break;
-
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 
 		/* inform the spa no more payload data coming */
@@ -113,7 +108,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* we just dump the decoded things to the log */
 
-		if (pss->spa)
+		if (pss->spa) {
 			for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
 				if (!lws_spa_get_string(pss->spa, n))
 					lwsl_user("%s: undefined\n", param_names[n]);
@@ -123,6 +118,16 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					    lws_spa_get_length(pss->spa, n),
 					    lws_spa_get_string(pss->spa, n));
 			}
+
+			/*
+			 * We are done with the spa: free it now.  Our pss is
+			 * freed when this transaction completes, and we get no
+			 * callback about that (LWS_CALLBACK_HTTP_DROP_PROTOCOL
+			 * only comes after a protocol was bound to a mount).
+			 */
+			lws_spa_destroy(pss->spa);
+			pss->spa = NULL;
+		}
 
 		/*
 		 * Our response is to redirect to a static page.  We could
@@ -136,9 +141,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 		break;
 
-	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
-		/* called when our wsi user_space is going to be destroyed */
-		if (pss->spa) {
+	case LWS_CALLBACK_CLOSED_HTTP:
+		/* the connection went before the body completed */
+		if (pss && pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
 		}
