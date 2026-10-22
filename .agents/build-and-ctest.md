@@ -76,6 +76,9 @@
    A context loads every `libprotocol_*.so` in the build tree's `lib/`, so
    a test that passed before a full `make` can fail this way after it;
    "dir_cb: ... was not loaded" lines from stale plugins are harmless.
+ - A fetched mbedtls clone is 57MB; deleting its `tests/`, `docs/`,
+   `visualc/` and `.git` leaves 20MB and it still builds with testing
+   and programs off.
  - Root has ~100MB free: keep fetched TLS library sources in your
    scratchpad and their build output under the checkout (BearSSL:
    `make BUILD=<dir under checkout>`; mbedtls can use its source
