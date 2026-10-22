@@ -24,8 +24,13 @@
  * lws_ota platform implementation for esp-idf
  *
  * The whole platform OTA implementation runs in its own task context, which
- * is created in ota_start() and taken down in ota_finalize().  Async
+ * is created in ota_start() and ends after doing ABORT or FINALIZE.  Async
  * completions are passed back to the main code by lws_cancel_service().
+ *
+ * The task uses the lws_ota_t (eg, g->buf while writing it to flash) until it
+ * ends.  lws doesn't free it before taking the ABORT or FINALIZE completion,
+ * except when it is destroyed from outside (eg, context destroy): then it
+ * calls lws_plat_ota_detach(), which waits for the task to end.
  */
 
 #include "private-lib-core.h"
@@ -43,11 +48,24 @@ typedef struct {
 
 	esp_ota_handle_t		ota; /* opaque platform ota handle */
 	TaskHandle_t			th;
-	SemaphoreHandle_t		sem;
+	SemaphoreHandle_t		sem; /* given by the task as it ends */
 	const esp_partition_t		*ep;
+	volatile uint8_t		detached;
 } _lws_ota_process_t;
 
 static _lws_ota_process_t pop;
+
+static void
+ota_task_completed(lws_ota_t *g)
+{
+	if (pop.detached)
+		/* lws is waiting in lws_plat_ota_detach() and wants no
+		 * completions now, the task ending is what it waits for */
+		return;
+
+	g->async_completed = 1;
+	lws_cancel_service(g->cx);
+}
 
 static void
 ota_task(void *_g)
@@ -81,8 +99,7 @@ ota_task(void *_g)
 			} else
 				lwsl_err("%s: no next update part\n", __func__);
 
-			g->async_completed = 1;
-			lws_cancel_service(g->cx);
+			ota_task_completed(g);
 			break;
 
 		case LWS_OTA_ASYNC_WRITE:
@@ -98,8 +115,7 @@ ota_task(void *_g)
 			else
 				lwsl_cx_err(g->cx, "esp_ota_write: %d", (int)e);
 
-			g->async_completed = 1;
-			lws_cancel_service(g->cx);
+			ota_task_completed(g);
 			break;
 
 		case LWS_OTA_ASYNC_ABORT:
@@ -141,20 +157,34 @@ ota_task(void *_g)
 			else
 				lwsl_cx_err(g->cx, "esp_ota_end: %d", (int)e);
 
-			g->async_completed = 1;
-			lws_cancel_service(g->cx);
+			/*
+			 * Once lws sees this completion, it may free g at
+			 * any time: we must not touch g after it
+			 */
+			ota_task_completed(g);
 
-			pop.th = NULL;
-			vTaskDelete(0);
+			/* if lws_plat_ota_detach() is waiting, it can go on */
+			xSemaphoreGive(pop.sem);
+			vTaskDelete(NULL);
 
 			return;
 		}
 	}
 }
 
+/*
+ * lws only queues an op when none is in flight, and nothing after ABORT or
+ * FINALIZE, so the task is alive and waiting whenever this is called
+ */
+
 void
 lws_plat_ota_queue(lws_ota_t *g, lws_ota_async_t a)
 {
+	if (!pop.th || pop.g != g) {
+		lwsl_err("%s: no ota task for %p\n", __func__, (void *)g);
+		return;
+	}
+
 	g->async_last = a;
 	xTaskNotify(pop.th, a, eSetValueWithOverwrite);
 }
@@ -162,15 +192,75 @@ lws_plat_ota_queue(lws_ota_t *g, lws_ota_async_t a)
 int
 lws_plat_ota_start(lws_ota_t *g)
 {
-	g->op = (lws_ota_process_t)&pop;
-
-	xTaskCreate(ota_task, "ota", 3072, g, tskIDLE_PRIORITY, &pop.th);
-	if (!pop.th)
+	/*
+	 * The last task, if any, gives the semaphore as it ends (unless
+	 * lws_plat_ota_detach() already took it)
+	 */
+	if (pop.g && xSemaphoreTake(pop.sem, 0) != pdTRUE) {
+		lwsl_err("%s: ota task still active\n", __func__);
 		return 1;
+	}
+
+	if (pop.sem)
+		vSemaphoreDelete(pop.sem);
+	pop.sem = NULL;
+	pop.g = NULL;
+	pop.th = NULL;
+	pop.detached = 0;
+
+	pop.sem = xSemaphoreCreateBinary();
+	if (!pop.sem)
+		return 1;
+
+	if (xTaskCreate(ota_task, "ota", 3072, g, tskIDLE_PRIORITY,
+			&pop.th) != pdPASS) {
+		pop.th = NULL;
+		return 1;
+	}
+
+	pop.g = g;
+	g->op = (lws_ota_process_t)&pop;
 
 	lws_plat_ota_queue(g, LWS_OTA_ASYNC_START);
 
 	return 0;
+}
+
+/*
+ * lws is about to free g, eg because the context is being destroyed, while
+ * our task may still be using it.  Make the task abort and end, and wait for
+ * that, so g outlives everything the task does with it.
+ */
+
+void
+lws_plat_ota_detach(lws_ota_t *g)
+{
+	if (pop.g != g)
+		return;
+
+	pop.detached = 1;
+
+	/*
+	 * Only lws (on this thread) queues ABORT or FINALIZE, and the task only
+	 * ends after one of those.  If neither was queued, the task is still
+	 * alive (perhaps busy with a write, it sees the notification after)
+	 * and needs telling.  If one was, the task is ending or has ended and
+	 * given the semaphore, and must not be notified.
+	 */
+
+	if (g->async_last != LWS_OTA_ASYNC_ABORT &&
+	    g->async_last != LWS_OTA_ASYNC_FINALIZE)
+		lws_plat_ota_queue(g, LWS_OTA_ASYNC_ABORT);
+
+	/*
+	 * Flash ops can take a while, but we must not let g be freed under
+	 * the task, so wait however long it takes
+	 */
+	xSemaphoreTake(pop.sem, portMAX_DELAY);
+
+	pop.th = NULL;
+	pop.g = NULL;
+	g->op = NULL;
 }
 
 int

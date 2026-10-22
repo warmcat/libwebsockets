@@ -1619,7 +1619,19 @@ typedef struct lws_ota {
 	uint8_t				last_pc;
 	uint8_t				ota_start_done;
 	uint8_t				hash_inited;
-
+	uint8_t				modal;
+	/**< we moved the system towards MODAL_UPDATING and suspended the
+	 * periodic checks: both must be undone however we end */
+	uint8_t				plat_active;
+	/**< the platform holds this object: from a successful ota_start()
+	 * until we take its ABORT or FINALIZE completion */
+	uint8_t				abort_wanted;
+	/**< we gave up while the platform held us, ABORT is queued as soon
+	 * as no other op is in flight */
+	uint8_t				final_queued;
+	/**< ABORT or FINALIZE was queued, the platform takes no more ops */
+	uint8_t				net_done;
+	/**< the image connection is gone, no more compressed data will come */
 
 	uint8_t				async_completed;
 } lws_ota_t;

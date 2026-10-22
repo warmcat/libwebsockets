@@ -184,6 +184,7 @@ static lws_system_ops_t system_ops = {
 	.ota_ops			   = {
 		.ota_start		   = lws_plat_ota_start,
 		.ota_queue		   = lws_plat_ota_queue,
+		.ota_detach		   = lws_plat_ota_detach,
 		.ota_report_current	   = lws_plat_ota_report_current,
 		.ota_get_last_fw_unixtime  = lws_plat_ota_get_last_fw_unixtime,
 		.ota_progress		   = ota_progress,

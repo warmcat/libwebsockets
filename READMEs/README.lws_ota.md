@@ -210,6 +210,10 @@ typedef struct {
 
 	int ota_periodic_check_secs;
 	/**< Check after this many seconds for a new update */
+
+	void (*ota_detach)(struct lws_ota *g);
+	/**< Synchronous: abort, and return once the platform will not touch
+	 * g again (see below) */
 } lws_ota_ops_t;
 ```
 
@@ -220,8 +224,9 @@ esp-idf, lws may provide platform implementations for
  - `lws_plat_ota_queue()`
  - `lws_plat_ota_report_current()`
  - `lws_plat_ota_get_last_fw_unixtime()`
+ - `lws_plat_ota_detach()`
  
-that are suitable for use in the first four `lws_opta_ops_t` callbacks, either
+that are suitable for use in the corresponding `lws_opta_ops_t` callbacks, either
 directly or by being called through to by user implementations.
 
 This means platform implementations for the flashing and OTA management part
@@ -238,6 +243,22 @@ synchronize the result back with the generic lws_ota code in the lws event loop
 thread.  So there is a clean separation between generic OTA check, download and
 validation flow, and platform-specific OTA actual flashing and slot selection
 etc.
+
+The platform holds the `struct lws_ota` from a successful `ota_start()` until
+lws has taken the completion of `ABORT` or `FINALIZE`, and lws only queues an
+op when no other is in flight.  However the update ends (completion, a failed
+check of the image, a cut or stalled download, a refused update mode), lws puts
+the system state back to OPERATIONAL if it moved it towards
+`LWS_SYSTATE_MODAL_UPDATING`, resumes the periodic checks, and, if the platform
+still holds the object, queues `ABORT` and keeps the object alive until that
+completes.
+
+The one case where lws cannot wait is when the object is destroyed from
+outside, eg, by the lws_context being destroyed during an update.  Then lws
+calls `(*ota_detach)()`, which must abort whatever the platform is doing and
+return only once the platform will not touch the object again, including any
+flash write still in flight.  Platforms whose ops are asynchronous must provide
+it; for esp-idf, `lws_plat_ota_detach()` does this.
 
 ## Storing firmware state
 

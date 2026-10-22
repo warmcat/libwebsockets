@@ -93,6 +93,18 @@ typedef struct {
 
 	int ota_periodic_check_secs;
 	/**< Check after this many seconds for a new update */
+
+	void (*ota_detach)(struct lws_ota *g);
+	/**< Synchronous.  lws is about to free \p g while the platform may
+	 * still hold it, ie, after a successful ota_start() and before lws
+	 * took the completion of ABORT or FINALIZE (eg, because the
+	 * lws_context is being destroyed).  Abort whatever the platform is
+	 * doing for \p g, and return only once the platform will not touch
+	 * \p g again, including any write still in flight.  Platforms whose
+	 * ops run asynchronously must provide this, otherwise such a destroy
+	 * leaves the platform using freed memory.  Normally lws never frees
+	 * \p g while the platform holds it: when giving up it queues ABORT and
+	 * waits for its completion. */
 } lws_ota_ops_t;
 
 /**
@@ -114,6 +126,9 @@ lws_plat_ota_start(struct lws_ota *g);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_plat_ota_queue(struct lws_ota *g, lws_ota_async_t a);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_plat_ota_detach(struct lws_ota *g);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_ota_report_current(struct lws_ota *g, int bad);

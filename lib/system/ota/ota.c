@@ -36,6 +36,128 @@ static const char * const ota_pub_jwk = LWS_OTA_PUBLIC_JWK;
  * it to make sure that we are updating to the same kind of build... */
 const char *lws_ota_variant = LWS_OTA_VARIANT;
 
+/*
+ * Lifecycle
+ *
+ * An lws_ota_t lives for one check, and if it finds an update it likes, for
+ * one download, flash and finalize.  Two things outside it must be put back
+ * however it ends:
+ *
+ *  - the system state, once we started to negotiate MODAL_UPDATING, and the
+ *    periodic check we suspend meanwhile (g->modal), and
+ *
+ *  - the platform OTA op, which holds g from a successful ota_start() until
+ *    we have taken its ABORT or FINALIZE completion (g->plat_active).  Only
+ *    one op may be in flight on the platform at a time.
+ *
+ * Every way of giving up goes through ota_give_up().  While the platform
+ * holds g, it queues ABORT (when nothing else is in flight) and g must stay
+ * alive until the ABORT completion: only then is the stream destroyed.  The
+ * only destroy we can't defer is a forced one, eg the context going down; for
+ * that, DESTROYING has the platform let go of g synchronously via
+ * ota_detach().
+ */
+
+static void
+ota_queue(lws_ota_t *g, lws_ota_async_t a)
+{
+	if (a == LWS_OTA_ASYNC_ABORT || a == LWS_OTA_ASYNC_FINALIZE)
+		g->final_queued = 1;
+
+	/* we use this to know an op is in flight, so don't rely on the
+	 * platform to set it */
+	*((volatile lws_ota_async_t *)&g->async_last) = a;
+	g->cx->system_ops->ota_ops.ota_queue(g, a);
+}
+
+static void
+ota_queue_abort_if_idle(lws_ota_t *g)
+{
+	if (!g->abort_wanted || g->final_queued ||
+	    *((volatile lws_ota_async_t *)&g->async_last))
+		/* not wanted, too late, or the completion of the op in flight
+		 * will come back here */
+		return;
+
+	lwsl_ss_notice(g->ss, "aborting platform ota");
+	ota_queue(g, LWS_OTA_ASYNC_ABORT);
+}
+
+/*
+ * Put the system back how we found it, if we changed it: leave the update
+ * mode, and resume the periodic checks.  Idempotent.
+ */
+
+static void
+ota_release_system(lws_ota_t *g)
+{
+	struct lws_context *cx = g->cx;
+	int secs = 0;
+
+	if (!g->modal)
+		return;
+
+	g->modal = 0;
+
+	if (cx->being_destroyed)
+		/* nothing to come back to */
+		return;
+
+	if (cx->mgr_system.state == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
+	    cx->mgr_system.state == LWS_SYSTATE_MODAL_UPDATING)
+		lws_state_transition(&cx->mgr_system, LWS_SYSTATE_OPERATIONAL);
+
+	/*
+	 * Reaching OPERATIONAL schedules a check after a short jitter (see
+	 * context.c), but we just did one: come back after the full period
+	 */
+
+	if (cx->system_ops && cx->system_ops->ota_ops.ota_periodic_check_secs)
+		secs = cx->system_ops->ota_ops.ota_periodic_check_secs;
+
+	lws_sul_schedule(cx, 0, &cx->sul_ota_periodic, lws_ota_periodic_cb,
+			 secs ? secs * LWS_US_PER_SEC : 24 * 3600 * LWS_US_PER_SEC);
+}
+
+/*
+ * Give up on this check or update, whatever stage it reached.
+ *
+ * Returns 0 if the platform no longer holds g, so it may be destroyed now, or
+ * 1 if it does: then ABORT has been queued (or will be, when the op in flight
+ * completes) and g must live until its completion, which finishes the job.
+ */
+
+static int
+ota_give_up(lws_ota_t *g)
+{
+	g->state = LWSOS_FAILED;
+	g->flow.state = LWSDLOFLOW_STATE_READ_FAILED;
+	lws_sul_cancel(&g->sul_drain);
+
+	if (g->plat_active) {
+		g->abort_wanted = 1;
+		ota_queue_abort_if_idle(g);
+
+		return 1;
+	}
+
+	ota_release_system(g);
+
+	return 0;
+}
+
+/*
+ * For failures outside of a stream callback: give up, and destroy the stream
+ * from its timeout as soon as the platform has let go of g
+ */
+
+static void
+ota_fail(lws_ota_t *g)
+{
+	if (!ota_give_up(g))
+		lws_ss_start_timeout(g->ss, 1);
+}
+
 static void
 ota_write_sul_cb(lws_sorted_usec_list_t *sul)
 {
@@ -45,6 +167,16 @@ ota_write_sul_cb(lws_sorted_usec_list_t *sul)
 
 	if (g->state == LWSOS_AWAITING_MODAL) {
 		const lws_ota_ops_t *ota_ops = &g->cx->system_ops->ota_ops;
+
+		if (!g->modal) {
+			/*
+			 * From here, however we end, we must put the system
+			 * state back, and resume the periodic checks that we
+			 * don't want to create a dupe of ourselves meanwhile
+			 */
+			g->modal = 1;
+			lws_sul_cancel(&g->cx->sul_ota_periodic);
+		}
 
 		/*
 		 * Ask the user code to move to AWAITING_MODAL_UPDATING which it
@@ -99,22 +231,23 @@ ota_write_sul_cb(lws_sorted_usec_list_t *sul)
 		g->state = LWSOS_FETCHING_INITED_GZ_HASH;
 		g->hash_inited = 1;
 
-		/* we don't want to create a dupe of ourselves while
-		 * we're busy doing the OTA */
-		lws_sul_cancel(&g->cx->sul_ota_periodic);
-
 		lwsl_warn("%s: platform ota start\n", __func__);
 		/* continues asynchronously */
+		*((volatile lws_ota_async_t *)&g->async_last) =
+							LWS_OTA_ASYNC_START;
 		if (ota_ops->ota_start(g)) {
+			/* the platform did not take g */
+			*((volatile lws_ota_async_t *)&g->async_last) = 0;
 			lwsl_err("%s: ota_start failed\n", __func__);
 			goto update_impossible;
 		}
 
+		g->plat_active = 1;
+
 		return;
 
 update_impossible:
-		g->state = LWSOS_FAILED;
-		lws_ss_start_timeout(g->ss, 1);
+		ota_fail(g);
 
 		return;
 	}
@@ -213,10 +346,23 @@ update_impossible:
 
 	} /* while try to fill the staging buffer */
 
-	if (!g->buf_len)
+	if (!g->buf_len) {
+		if (g->net_done && g->seen < g->expected_size) {
+			/*
+			 * The image connection is gone and everything it
+			 * brought is used up: the rest is never coming
+			 */
+			lwsl_ss_err(g->ss, "image ended short, %llu / %llu",
+				    (unsigned long long)g->seen,
+				    (unsigned long long)g->expected_size);
+
+			goto fail;
+		}
+
 		/* no ammo to work with... we will come back next time we
 		 * get some rx */
 		return;
+	}
 
 	g->seen += g->buf_len;
 	if (g->seen > g->expected_size) {
@@ -259,14 +405,12 @@ update_impossible:
 		goto fail;
 	}
 
-	g->cx->system_ops->ota_ops.ota_queue(g, LWS_OTA_ASYNC_WRITE);
+	ota_queue(g, LWS_OTA_ASYNC_WRITE);
 
 	return;
 
 fail:
-	g->flow.state = LWSDLOFLOW_STATE_READ_FAILED;
-	lws_ss_cx_from_user(g)->system_ops->ota_ops.ota_queue(g,
-							LWS_OTA_ASYNC_ABORT);
+	ota_fail(g);
 }
 
 static void
@@ -274,10 +418,8 @@ ota_completion_start(lws_ota_t *g)
 {
 	if (g->async_r != LWSOTARET_OK) {
 		lwsl_ss_err(g->ss, "OTA START FAILED r %d", g->async_r);
+		ota_fail(g);
 
-		g->flow.state = LWSDLOFLOW_STATE_READ_FAILED;
-		lws_ss_cx_from_user(g)->system_ops->ota_ops.ota_queue(g,
-							LWS_OTA_ASYNC_ABORT);
 		return;
 	}
 
@@ -285,8 +427,12 @@ ota_completion_start(lws_ota_t *g)
 	g->ota_start_done = 1;
 	g->state = LWSOS_STARTED;
 
-	if (lws_ss_client_connect(lws_ss_from_user(g)))
-		lwsl_ss_warn(g->ss, "reconn failed");
+	if (lws_ss_client_connect(lws_ss_from_user(g))) {
+		lwsl_ss_warn(g->ss, "image connect failed");
+		ota_fail(g);
+
+		return;
+	}
 
 	lws_sul_schedule(g->cx, 0, &g->sul_drain, ota_write_sul_cb, 1);
 }
@@ -299,10 +445,8 @@ ota_completion_write(lws_ota_t *g)
 
 	if (g->async_r != LWSOTARET_OK) {
 		lwsl_ss_err(g->ss, "r %d", g->async_r);
+		ota_fail(g);
 
-		g->flow.state = LWSDLOFLOW_STATE_READ_FAILED;
-		lws_ss_cx_from_user(g)->system_ops->ota_ops.ota_queue(g,
-							LWS_OTA_ASYNC_ABORT);
 		return;
 	}
 
@@ -325,8 +469,9 @@ ota_completion_write(lws_ota_t *g)
 	/* We have completed writing the last part */
 
 	lwsl_warn("%s: finalizing good ota\n", __func__);
+	g->state = LWSOS_FINALIZING;
 
-	g->cx->system_ops->ota_ops.ota_queue(g, LWS_OTA_ASYNC_FINALIZE);
+	ota_queue(g, LWS_OTA_ASYNC_FINALIZE);
 }
 
 static void
@@ -334,28 +479,21 @@ ota_completion_finalize(lws_ota_t *g)
 {
 	lwsl_notice("%s: %d\n", __func__, g->async_r);
 
-	if (g->async_r)
+	if (g->async_r) {
+		ota_fail(g);
+
 		return;
+	}
 
-	g->cx->system_ops->reboot();
-}
+	/*
+	 * If we are still around after a while, the reboot didn't happen:
+	 * the timeout puts the system back and destroys us then
+	 */
+	g->state = LWSOS_REPORTED;
+	lws_ss_start_timeout(g->ss, 5000);
 
-static void
-ota_completion_abort(lws_ota_t *g)
-{
-	int secs = 0;
-
-	if (g->cx->system_ops && g->cx->system_ops->ota_ops.ota_periodic_check_secs)
-		secs = g->cx->system_ops->ota_ops.ota_periodic_check_secs;
-
-	/* return from modal update state */
-	lws_state_transition(&g->cx->mgr_system, LWS_SYSTATE_OPERATIONAL);
-
-	/* we've had it */
-	lws_ss_start_timeout(g->ss, 1);
-
-	lws_sul_schedule(g->cx, 0, &g->cx->sul_ota_periodic, lws_ota_periodic_cb,
-			 secs ? secs * LWS_US_PER_SEC : 24 * 3600 * LWS_US_PER_SEC);
+	if (g->cx->system_ops->reboot)
+		g->cx->system_ops->reboot();
 }
 
 
@@ -382,7 +520,11 @@ ota_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 	 * resuming with a NULL inflator or an uninitialized hash context.
 	 */
 
-	if (g->state >= LWSOS_FETCHING && g->state != LWSOS_FAILED) {
+	if (g->state == LWSOS_FAILED)
+		/* we gave up, nothing more is wanted from this connection */
+		return LWSSSSRET_DISCONNECT_ME;
+
+	if (g->state >= LWSOS_FETCHING) {
 
 		lwsl_info("%s: fetching %u, fl 0x%02X\n", __func__, (unsigned int)len, flags);
 
@@ -405,6 +547,16 @@ ota_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 		 */
 
 		if (flags & LWSSS_FLAG_SOM) {
+			if (g->state == LWSOS_WRITING) {
+				/*
+				 * The image started again from the beginning
+				 * (eg, a retry): it can't be spliced onto
+				 * what we already decompressed and flashed
+				 */
+				lwsl_ss_err(g->ss, "image restarted");
+
+				goto fetch_fail;
+			}
 			g->state = LWSOS_WRITING;
 			g->flow.state = LWSDLOFLOW_STATE_READ;
 			g->flow.h = g->ss;
@@ -432,7 +584,7 @@ ota_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 		return LWSSSSRET_OK;
 
 fetch_fail:
-		g->flow.state = LWSDLOFLOW_STATE_READ_FAILED;
+		ota_fail(g);
 
 		return LWSSSSRET_DISCONNECT_ME;
 	}
@@ -442,7 +594,8 @@ fetch_fail:
 	if (g->pos + len > sizeof(g->buf))
 		return LWSSSSRET_DISCONNECT_ME;
 
-	memcpy(g->buf + g->pos, in, len);
+	if (len) /* the EOM may come alone, with in NULL */
+		memcpy(g->buf + g->pos, in, len);
 	g->pos += len;
 
 	if ((flags & LWSSS_FLAG_EOM) != LWSSS_FLAG_EOM)
@@ -670,14 +823,27 @@ ota_state(void *userobj, void *h_src, lws_ss_constate_t state,
 		case LWSOS_WRITING:
 			/*
 			 * The network part of fetching the update image is
-			 * over.  If it didn't fail, we need to stick around and
-			 * let it either finish / writing and finalizing, or
-			 * timeout.
+			 * over.  We need to stick around and let it either
+			 * finish writing and finalizing, or, if the transfer
+			 * was cut short, find that it has run out of data and
+			 * give up.  The drain may be stalled waiting for rx
+			 * that won't come now, so kick it.
 			 */
 			lwsl_notice("%s: draining\n", __func__);
 
+			g->net_done = 1;
 			lws_ss_start_timeout(g->ss, 45000);
+			lws_sul_schedule(g->cx, 0, &g->sul_drain,
+					 ota_write_sul_cb, 1);
 
+			return LWSSSSRET_OK;
+
+		case LWSOS_FINALIZING:
+		case LWSOS_REPORTED:
+			/*
+			 * We have the whole image already, the FINALIZE
+			 * completion, or the timeout after it, ends us
+			 */
 			return LWSSSSRET_OK;
 
 		case LWSOS_AWAITING_MODAL:
@@ -689,6 +855,10 @@ ota_state(void *userobj, void *h_src, lws_ss_constate_t state,
 			return LWSSSSRET_OK;
 
 		default:
+			if (ota_give_up(g))
+				/* the ABORT completion destroys us */
+				return LWSSSSRET_OK;
+
 			lwsl_notice("%s: state %d, DESTROYING\n", __func__, g->state);
 
 			return LWSSSSRET_DESTROY_ME;
@@ -698,8 +868,34 @@ ota_state(void *userobj, void *h_src, lws_ss_constate_t state,
 
 		/* we only live for one ota check / fetch */
 		lws_ss_cx_from_user(g)->ota_ss = NULL;
-		lws_buflist_destroy_all_segments(&g->flow.bl);
 		lws_sul_cancel(&g->sul_drain);
+
+		if (g->plat_active) {
+			const lws_ota_ops_t *ota_ops =
+				&lws_ss_cx_from_user(g)->system_ops->ota_ops;
+
+			/*
+			 * We are being destroyed from outside (eg, the context
+			 * is going down) while the platform still holds g, and
+			 * maybe is using g->buf right now.  It must let go of
+			 * g before we return and it is freed.
+			 */
+
+			lwsl_ss_warn(g->ss, "destroyed while platform active");
+
+			if (ota_ops->ota_detach)
+				ota_ops->ota_detach(g);
+			else {
+				lwsl_ss_err(g->ss, "platform has no ota_detach");
+				/* the best we can do for a synchronous one */
+				g->abort_wanted = 1;
+				ota_queue_abort_if_idle(g);
+			}
+			g->plat_active = 0;
+		}
+
+		ota_release_system(g);
+		lws_buflist_destroy_all_segments(&g->flow.bl);
 
 		/*
 		 * Free whatever we still own, judged by ownership rather than
@@ -717,8 +913,18 @@ ota_state(void *userobj, void *h_src, lws_ss_constate_t state,
 
 		return LWSSSSRET_OK;
 
+	case LWSSSCS_ALL_RETRIES_FAILED:
 	case LWSSSCS_TIMEOUT:
-		lwsl_err("%s: timeout\n", __func__);
+		/*
+		 * This is also how we destroy ourselves after giving up
+		 * elsewhere, once the platform let go of g
+		 */
+		lwsl_ss_notice(g->ss, "%s, state %d", lws_ss_state_name(state),
+			       g->state);
+
+		if (ota_give_up(g))
+			/* the ABORT completion destroys us */
+			return LWSSSSRET_OK;
 
 		return LWSSSSRET_DESTROY_ME;
 
@@ -729,24 +935,31 @@ ota_state(void *userobj, void *h_src, lws_ss_constate_t state,
 			n = g->async_last;
 			*((volatile lws_ota_async_t *)&g->async_last) = 0;
 
-			switch (n) {
-			case LWS_OTA_ASYNC_START:
-				ota_completion_start(g);
-				break;
-			case LWS_OTA_ASYNC_WRITE:
-				ota_completion_write(g);
-				break;
-
 			/* EVENT_WAIT_CANCELLED doesn't deal with returns */
 
+			switch (n) {
+			case LWS_OTA_ASYNC_START:
+			case LWS_OTA_ASYNC_WRITE:
+				if (g->abort_wanted) {
+					/* we gave up while it was in flight */
+					ota_queue_abort_if_idle(g);
+					break;
+				}
+				if (n == LWS_OTA_ASYNC_START)
+					ota_completion_start(g);
+				else
+					ota_completion_write(g);
+				break;
+
 			case LWS_OTA_ASYNC_ABORT:
-				/* let's forget about it then */
-				lws_ss_start_timeout(g->ss, 1);
-				ota_completion_abort(g);
+				/* the platform let go of g, we've had it */
+				g->plat_active = 0;
+				ota_fail(g);
 				break;
 
 			case LWS_OTA_ASYNC_FINALIZE:
-				lws_ss_start_timeout(g->ss, 5000);
+				/* the platform let go of g */
+				g->plat_active = 0;
 				ota_completion_finalize(g);
 				break;
 			}
@@ -779,8 +992,12 @@ lws_ota_periodic_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_notice("%s\n", __func__);
 
-	if (lws_ss_create(cx, 0, &ssi_lws_ota_t, NULL, NULL, NULL, NULL))
-		lwsl_cx_warn(cx, "failed to create ota SS");
+	if (cx->ota_ss)
+		/* the last one is still finishing up */
+		lwsl_cx_notice(cx, "previous ota check still active");
+	else
+		if (lws_ss_create(cx, 0, &ssi_lws_ota_t, NULL, NULL, NULL, NULL))
+			lwsl_cx_warn(cx, "failed to create ota SS");
 
 	/* set up coming back again at (usually long) periods */
 
