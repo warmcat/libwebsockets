@@ -412,6 +412,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Client connect
 
+ - **A restart is a second connect for vhost choice.**  Redirects, auth
+   retries, QUIC->TCP and address fallback go through
+   `lws_client_transport_rebind()` (close.c), not connect.c: a rule like
+   "JIT trust only when the app gave no `i.vhost`" enforced only at
+   connect is bypassed by a 302 (G-407).
+
  - **`i.pwsi` is not cleared when the client wsi closes**: it is written
    at connect and NULLed only on a connect failure.  Track closure by
    the wsi's final callback on its own protocol, not by watching `*pwsi`:
