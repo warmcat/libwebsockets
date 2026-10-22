@@ -30,6 +30,8 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    on one searches the other and touches that connection from the wrong
    thread (G-544).  `lws_vhost_active_conns()` (pipelining / mux reuse)
    doesn't compare threads (G-545).
+   `__lws_lc_tag()` adds wsi to context-wide lists with no lock (G-549):
+   creating wsi on two threads at once corrupts them until fixed.
    `lws_protocol_init()` races between threads servicing first (G-542):
    start extra service threads after PROTOCOL_INIT until it's fixed.
    `lws_client_connect_via_info()` asserts in SMP when called

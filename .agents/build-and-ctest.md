@@ -167,6 +167,9 @@
    private functions (eg `lws_ss_policy_set()`).  For readable UBSan
    reports, compile just the suspect .c files without
    `-fsanitize-undefined-trap-on-error` and link them ahead of the archive.
+ - **Tests that count PROTOCOL_INIT need
+   `LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS`** in plugins builds
+   (G-572), or a vhost only inits protocols it has pvos for.
  - **A test compiling protocol plugins in statically, in a
    `LWS_WITH_PLUGINS` build, must set
    `LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS` on its vhost** (or
