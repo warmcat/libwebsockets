@@ -47,6 +47,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_protocol_init()` is serialised under the context lock (G-542).
    `lws_client_connect_via_info()` asserts in SMP when called
    from a non-service thread.
+   With `LWS_MAX_SMP` 1, `lws_context_lock()` is a no-op, so "takes the
+   cx lock" makes no API safe to call from a foreign thread in default
+   builds: only hand-off paths (SMD, `lws_cancel_service()`) are (G-661).
+   A thread-ownership fix needs an inventory of every public entry point,
+   setters included.
  - **libdbus aborts the process on an invalid-UTF-8 string argument**
    (`dbus_message_append_args()` / `_iter_append_basic()` checks are fatal
    by default): validate or send outside bytes as a byte array (G-627).
