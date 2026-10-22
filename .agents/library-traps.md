@@ -147,6 +147,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
+ - **A ws upgrade never passes `lws_http_action_gates()`.**  On h1, h2
+   and h3 it only gets the interceptor chain, and a proxied upgrade
+   leaves from `lws_process_ws_upgrade()` before any auth or filter
+   callback (G-489).  Any new mount gate needs a ws twin.
+ - **An h1 wsi carries per-request state across keep-alive
+   transactions**: anything set per request must be cleared in
+   `lws_http_transaction_completed()` (`interpreting`, `cache_*` were not:
+   G-493).  h2/h3 streams get fresh wsis, so a fix tested only there
+   misses this.
  - **qpack decoder:** the only bound on a peer-chosen dynamic index is the
    late `insert_count` / `used_entries` check; Required Insert Count and
    Base are not validated (G-191).  Any new path resolving a dynamic
