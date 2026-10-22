@@ -69,10 +69,11 @@ static const char * const case_names[] = {
 };
 
 #define IMG_LEN		20000
+#define GZ_STORED_BLOCK	8192	/* the image is gzipped as stored blocks */
 #define CASE_DEADLINE	(20 * LWS_US_PER_SEC)
 
 static uint8_t img[IMG_LEN], img_hash[64];
-static uint8_t gz[(IMG_LEN * 9) / 8 + 32];
+static uint8_t gz[IMG_LEN + 5 * (IMG_LEN / GZ_STORED_BLOCK + 1) + 18];
 static size_t gz_len;
 static char manifest[2048];
 static size_t manifest_len;
@@ -578,35 +579,11 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 };
 
 /*
- * The update image: IMG_LEN bytes of noise, gzipped as one deflate block of
- * literals using the fixed huffman codes, and a manifest describing it, signed
- * by the test key
+ * The update image: IMG_LEN bytes of noise, and a manifest describing it,
+ * signed by the test key.  Noise does not compress, so the gzip of it is what
+ * gzip itself makes of an already-compressed image: stored deflate blocks, the
+ * last with BFINAL set, then the CRC32 / ISIZE trailer.
  */
-
-typedef struct {
-	uint8_t		*p;
-	uint32_t	acc;
-	int		nbits;
-} bitw_t;
-
-static void
-bw_put(bitw_t *bw, uint32_t v, int n) /* lsb-first */
-{
-	bw->acc |= v << bw->nbits;
-	bw->nbits += n;
-	while (bw->nbits >= 8) {
-		*bw->p++ = (uint8_t)bw->acc;
-		bw->acc >>= 8;
-		bw->nbits -= 8;
-	}
-}
-
-static void
-bw_put_huff(bitw_t *bw, uint32_t code, int n) /* huffman codes are msb-first */
-{
-	while (n--)
-		bw_put(bw, (code >> n) & 1, 1);
-}
 
 static int
 make_update(void)
@@ -615,8 +592,7 @@ make_update(void)
 	struct lws_genhash_ctx hc;
 	struct lws_jwk jwk;
 	uint32_t crc, x = 0x12345678;
-	bitw_t bw;
-	size_t n;
+	size_t n, b;
 	uint8_t *p = gz;
 
 	for (n = 0; n < IMG_LEN; n++) {
@@ -636,20 +612,19 @@ make_update(void)
 	*p++ = 0; *p++ = 0; *p++ = 0; *p++ = 0;
 	*p++ = 0; *p++ = 0xff;
 
-	/* one final block, fixed huffman codes, all literals */
-	memset(&bw, 0, sizeof(bw));
-	bw.p = p;
-	bw_put(&bw, 1, 1);	/* BFINAL */
-	bw_put(&bw, 1, 2);	/* BTYPE 01 */
-	for (n = 0; n < IMG_LEN; n++)
-		if (img[n] < 144)
-			bw_put_huff(&bw, 0x30u + img[n], 8);
-		else
-			bw_put_huff(&bw, 0x190u + img[n] - 144u, 9);
-	bw_put_huff(&bw, 0, 7);	/* end of block */
-	if (bw.nbits)
-		bw_put(&bw, 0, 8 - bw.nbits);
-	p = bw.p;
+	for (n = 0; n < IMG_LEN; n += b) {
+		b = IMG_LEN - n < GZ_STORED_BLOCK ? IMG_LEN - n :
+						    GZ_STORED_BLOCK;
+
+		/* BFINAL on the last, BTYPE 00, so the header is one byte */
+		*p++ = (uint8_t)(n + b == IMG_LEN);
+		*p++ = (uint8_t)b;
+		*p++ = (uint8_t)(b >> 8);
+		*p++ = (uint8_t)~b;
+		*p++ = (uint8_t)(~b >> 8);
+		memcpy(p, img + n, b);
+		p += b;
+	}
 
 	crc = lws_crc32(0, img, IMG_LEN);
 	for (n = 0; n < 4; n++)

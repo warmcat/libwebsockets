@@ -1214,6 +1214,9 @@ typedef enum {
 	UPNS_ID_BL_GB_GZIP_SKIP_COMMENT,
 	UPNS_ID_BL_GB_GZIP_SKIP_CRC,
 
+	UPNS_ID_BL_GB_GZIP_TRAILER,	/* CRC32 and ISIZE after final block */
+	UPNS_ID_BL_GB_END,		/* the stream is complete */
+
 } upng_inflate_states_t;
 
 typedef struct htree {
@@ -1278,11 +1281,15 @@ typedef struct inflator_ctx {
 
 	unsigned int		info_size;
 
+	uint32_t		crc32;	/* of the output so far, gzip only */
+
 	uint16_t		ctr;
+	uint8_t			trailer[8];
 	uint8_t			subsequent;
 	uint8_t			btype;
 	uint8_t			done;
 	uint8_t			gz_flags;
+	uint8_t			gzip;	/* gzip member, else PNG's zlib */
 
 	char			read_bits_ongoing;
 } inflator_ctx_t;

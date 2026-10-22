@@ -14,6 +14,7 @@ api-test-random-prng|Fault injection's seeded PRNG in place of the platform rand
 api-test-sul-wait|A loop with nothing to do but wait for its next timer sleeps until the timer is due: timers at intervals with sub-ms parts take a turn or two each, not a run of zero-wait turns through the last ms before each, on the default loop and on libuv
 api-test-evlib-custom|An app's own event lib (`info->event_lib_custom`) is bound with the app's own loop object and gets every fd back at destroy; run again with `LWS_EVLIB=uv` in the environment, which must not displace it
 api-test-fts|LWS Full-text Search api
+api-test-gunzip|`lws_upng_inflate_data()`: gzips from the system gzip and stored, fixed huffman and empty blocks in any order inflate whole however the input is split; a final stored block ends the stream, every truncation wants more input, a bad trailer CRC32 or ISIZE is fatal (G-504)
 api-test-gencrypto|LWS Generic Crypto apis
 api-test-srtp|SRTP / SRTCP (`-DLWS_WITH_WEBRTC=1`): session key derivation matches the RFC 3711 B.3 vectors and AES-CM the B.2 keystream on the TLS library in use; RTP and SRTCP round trip for SSRCs with the top bit set, the E bit is set on the SRTCP index, and tampered or replayed packets are refused (G-456)
 api-test-jose|LWS JOSE apis

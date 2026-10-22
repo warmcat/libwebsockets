@@ -330,6 +330,56 @@ huffman_decode_symbol(inflator_ctx_t *inf, const htree_t *ct, unsigned int *uct)
 	} while (1);
 }
 
+/*
+ * Every decoded byte goes through here, into the sliding window ringbuffer,
+ * which is also our output buffer.  A gzip member's trailer carries the CRC32
+ * of its decoded data, so we track it as we go.
+ */
+
+static void
+inflate_emit(inflator_ctx_t *inf, uint8_t b)
+{
+	inf->out[inf->outpos++] = b;
+	if (inf->outpos >= inf->outlen)
+		inf->outpos = 0;
+	inf->outpos_linear++;
+
+	if (inf->gzip)
+		inf->crc32 = lws_crc32(inf->crc32, &b, 1);
+}
+
+/*
+ * A block of any type has ended.  RFC1951 3.2.3: if its BFINAL bit was set,
+ * it was the last block of the deflate stream, and what follows belongs to
+ * the container: for gzip, its trailer; for PNG's zlib, the Adler-32 that
+ * upng does not check.  Otherwise, the next block header follows.
+ *
+ * Returns nonzero if inflation is complete and we should stop.
+ */
+
+static int
+inflate_block_ended(inflator_ctx_t *inf)
+{
+	inf->treepos = 0;
+
+	if (!inf->done) {
+		inf->state = UPNS_ID_BL_GB_DONE;
+
+		return 0;
+	}
+
+	if (inf->gzip) {
+		inf->state = UPNS_ID_BL_GB_GZIP_TRAILER;
+		inf->ctr = 0;
+
+		return 0;
+	}
+
+	inf->state = UPNS_ID_BL_GB_END;
+
+	return 1;
+}
+
 lws_stateful_ret_t
 _lws_upng_inflate_data(inflator_ctx_t *inf)
 {
@@ -434,10 +484,7 @@ _lws_upng_inflate_data(inflator_ctx_t *inf)
 				if (r)
 					return r;
 
-				inf->out[inf->outpos++] = t;
-				if (inf->outpos >= inf->outlen)
-					inf->outpos = 0;
-				inf->outpos_linear++;
+				inflate_emit(inf, t);
 				inf->n++;
 
 				if (inf->outpos_linear - inf->consumed_linear >=
@@ -448,8 +495,7 @@ _lws_upng_inflate_data(inflator_ctx_t *inf)
 				continue;
 			}
 
-			inf->treepos = 0;
-			inf->state = UPNS_ID_BL_GB_DONE;
+			done = (uint8_t)inflate_block_ended(inf);
 			continue;
 
 		case UPNS_ID_BL_GB_BTYPE_1: /* fixed trees */
@@ -665,12 +711,8 @@ fill_l:
 				inf->length = 0;
 
 			if (inf->code == 256) {
-				/*
-				 * We're finished with this huffman block, we
-				 * need to go back up a level
-				 */
-				done = inf->done;
-				inf->state = UPNS_ID_BL_GB_DONE;
+				/* We're finished with this huffman block */
+				done = (uint8_t)inflate_block_ended(inf);
 				continue;
 			}
 
@@ -778,11 +820,7 @@ fill_l:
 			if (virt >= inf->info_size)
 				lwsl_err("virt %d\n", (int)virt);
 
-			inf->out[inf->outpos++] = inf->out[virt];
-			if (inf->outpos >= inf->outlen)
-				inf->outpos = 0;
-
-			inf->outpos_linear++;
+			inflate_emit(inf, inf->out[virt]);
 			inf->backward--;
 
 			if (!inf->backward)
@@ -798,11 +836,7 @@ fill_l:
 
 		case UPNS_ID_BL_GB_SPINa:
 
-			inf->out[inf->outpos++] = (uint8_t)inf->code;
-			if (inf->outpos >= inf->outlen)
-				inf->outpos = 0;
-
-			inf->outpos_linear++;
+			inflate_emit(inf, (uint8_t)inf->code);
 			inf->treepos = 0;
 			inf->state = UPNS_ID_BL_GB_SPIN;
 
@@ -857,11 +891,13 @@ fill_l:
 
 		case UPNS_ID_BL_GB_GZIP_EOH:
 			/* we want skip 6 bytes */
-			if (inf->ctr--) {
+			if (inf->ctr) {
 				r = read_byte(inf, &t);
 				if (r)
 					return r;
 
+				/* count it once read: input may run out first */
+				inf->ctr--;
 				continue;
 			}
 
@@ -902,11 +938,13 @@ fill_l:
 			/* fallthru */
 
 		case UPNS_ID_BL_GB_GZIP_SKIP_EXTRA:
-			if (inf->ctr--) {
+			if (inf->ctr) {
 				r = read_byte(inf, &t);
 				if (r)
 					return r;
 
+				/* count it once read: input may run out first */
+				inf->ctr--;
 				continue;
 			}
 
@@ -958,15 +996,72 @@ fill_l:
 			continue;
 
 		case UPNS_ID_BL_GB_GZIP_SKIP_CRC:
-			if (inf->ctr--) {
+			if (inf->ctr) {
 				r = read_byte(inf, &t);
 				if (r)
 					return r;
 
+				/* count it once read: input may run out first */
+				inf->ctr--;
 				continue;
 			}
 			inf->state = UPNS_ID_BL_GB_DONE;
 			continue;
+
+		case UPNS_ID_BL_GB_GZIP_TRAILER:
+			/*
+			 * RFC1952 2.3.1: the CRC32 of the uncompressed data,
+			 * then its length modulo 2^32, both little-endian, on
+			 * the byte boundary after the final block
+			 */
+			while (inf->ctr < sizeof(inf->trailer)) {
+				r = read_byte(inf, &t);
+				if (r)
+					return r;
+
+				inf->trailer[inf->ctr++] = t;
+			}
+
+			if (inf->crc32 != ((uint32_t)inf->trailer[0] |
+					   ((uint32_t)inf->trailer[1] << 8) |
+					   ((uint32_t)inf->trailer[2] << 16) |
+					   ((uint32_t)inf->trailer[3] << 24))) {
+				lwsl_notice("%s: gzip CRC32 mismatch\n", __func__);
+
+				return LWS_SRET_FATAL + 36;
+			}
+
+			if ((uint32_t)inf->outpos_linear !=
+					((uint32_t)inf->trailer[4] |
+					 ((uint32_t)inf->trailer[5] << 8) |
+					 ((uint32_t)inf->trailer[6] << 16) |
+					 ((uint32_t)inf->trailer[7] << 24))) {
+				lwsl_notice("%s: gzip ISIZE mismatch\n", __func__);
+
+				return LWS_SRET_FATAL + 37;
+			}
+
+			inf->state = UPNS_ID_BL_GB_END;
+			done = 1;
+			continue;
+
+		case UPNS_ID_BL_GB_END:
+			if (inf->gzip)
+				/*
+				 * The member is complete and checked.  We
+				 * don't support further members, so input
+				 * after it is left unconsumed.
+				 */
+				return LWS_SRET_OK;
+
+			/*
+			 * PNG's zlib stream: the IDAT may still hold the
+			 * Adler-32 we don't check.  Take it so upng moves on
+			 * to the next chunk, and never read it as a block.
+			 */
+			inf->bp = (inf->inlen - inf->inpos) << 3;
+
+			return LWS_SRET_WANT_INPUT;
 		}
 	}
 
@@ -991,6 +1086,7 @@ lws_upng_inflator_create(const uint8_t **outring, size_t *outringlen,
 	inf->outlen	= inf->info_size;
 	inf->outpos	= 0;
 	inf->state	= UPNS_ID_BL_GB_GZIP_ID1;
+	inf->gzip	= 1;
 
 	inf->out = (uint8_t *)lws_malloc(inf->info_size, __func__);
 	if (!inf->out) {

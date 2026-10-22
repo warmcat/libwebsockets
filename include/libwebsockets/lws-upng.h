@@ -149,6 +149,14 @@ lws_upng_inflator_create(const uint8_t **outring, size_t *outringlen,
  * Output is into a ringfuffer, typically sized at 32KB.  \p opl and \p cl
  * are "linear", that is extend beyond the ringbuffer.  They should be modulo
  * outringlen (given when the inflator was created) when accessing outring.
+ *
+ * Returns LWS_SRET_WANT_INPUT when all the input so far was used and more is
+ * needed, LWS_SRET_WANT_OUTPUT when the output should be consumed before
+ * calling again with \p buf NULL, LWS_SRET_OK once the gzip member is complete
+ * and its trailer CRC32 and length matched what was inflated, or a value with
+ * LWS_SRET_FATAL set if the gzip is broken, including a trailer mismatch.
+ * Input after the end of the member is left unconsumed.  Data whose input
+ * ran out before LWS_SRET_OK was returned is incomplete.
  */
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_upng_inflate_data(struct inflator_ctx *inf, const void *buf, size_t len);

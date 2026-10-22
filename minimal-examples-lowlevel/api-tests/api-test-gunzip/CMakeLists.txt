@@ -18,4 +18,6 @@ if (requirements)
 	else()
 		target_link_libraries(${PROJECT_NAME} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+	add_test(NAME api-test-gunzip COMMAND lws-api-test-gunzip --selftest)
 endif()
