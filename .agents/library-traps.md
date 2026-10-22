@@ -626,7 +626,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    bounds-checks and fails closed.  A selector step is at most
    `LHP_SEL_STEP_WORK` (32) units of `sel_work` by construction, so test
    allowances must be tighter than that, with short-value pages, to catch
-   anything (G-541, G-547).  To test private lhp functions against old/new
+   anything (G-541, G-547).  Red-check a charge by turning it into a bare
+   `ctx->sel_work += n`: deleting the call also deletes the count, so the
+   test can't see it.  The `#id`, tag and `=`-family charges have no
+   fencing test yet (G-606).  To test private lhp functions against old/new
    lhp.c, a harness can `#include` lhp.c and link ahead of the static
    library.
 
