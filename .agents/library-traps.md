@@ -21,6 +21,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    pattern.  For a deterministic red on an SMP timer bug, assert in the
    timer callback (debug only) that `lws_pthread_self_to_tsi(cx)` is the
    owning wsi's tsi: 3/3 aborts where ASan alone saw nothing (G-536).
+   Vhost locks are not checked (G-543): a vhost lock then a pt lock is
+   only safe because every such path holds the context lock first, and
+   nothing asserts that.  A sul scheduled onto pt 0 from another thread
+   does not wake pt 0, so it can fire late.
    `lws_protocol_init()` races between threads servicing first (G-542):
    start extra service threads after PROTOCOL_INIT until it's fixed.
    `lws_client_connect_via_info()` asserts in SMP when called
