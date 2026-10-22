@@ -117,30 +117,150 @@ auth_dns_origin_normalise(char *origin, size_t len)
  * that already ends in a dot is left alone, and anything else gets the
  * (already normalised) origin appended.  Without an origin there is nothing
  * to qualify against, so the name is left as it was.
+ *
+ * Fails if the qualified name would not fit: cut down, it is another name.
  */
 
-static void
+static int
 auth_dns_name_qualify(char *name, size_t len, const char *origin)
 {
-	size_t l = strlen(name);
+	size_t l = strlen(name), ol = strlen(origin);
 	char t[256];
 
 	if (!strcmp(name, "@")) {
-		if (origin[0])
+		if (ol >= len)
+			return 1;
+		if (ol)
 			lws_strncpy(name, origin, len);
 
-		return;
+		return 0;
 	}
 
-	if (!l || name[l - 1] == '.' || !origin[0])
-		return;
+	if (!l || name[l - 1] == '.' || !ol)
+		return 0;
 
-	if (!strcmp(origin, "."))
+	if (!strcmp(origin, ".")) {
+		if (l + 2 > sizeof(t) || l + 2 > len)
+			return 1;
 		lws_snprintf(t, sizeof(t), "%s.", name);
-	else
+	} else {
+		if (l + 1 + ol + 1 > sizeof(t) || l + 1 + ol + 1 > len)
+			return 1;
 		lws_snprintf(t, sizeof(t), "%s.%s", name, origin);
+	}
 
 	lws_strncpy(name, t, len);
+
+	return 0;
+}
+
+/*
+ * Read one domain name field of a master file (RFC 1035 5.1), \p len bytes
+ * at \p in, into the plain form auth-dns keeps names in, at \p out: labels
+ * joined by '.', with every escape (\X, \DDD) resolved, and a trailing '.' if
+ * the name is absolute.  "@" and "." are returned as they are.
+ *
+ * Everything downstream (owner lookups, zone cuts, RRSIG label counts, the
+ * NSEC3 closest encloser walk, the signed zone the signer writes out and
+ * parses back) takes every '.' in that form as a label boundary and the
+ * text as what the master file said, so a label is refused if it would need
+ * an escape to be written: a '.' (eg, from "\." or "\046"), '\', '"', '(',
+ * ')', ';', whitespace or a byte that is not printable ASCII.  So is an
+ * empty label anywhere but the root, which would encode as the root label in
+ * the middle of the name, a label over 63 bytes or a name over 255 on the
+ * wire, a '*' anywhere but as the whole leftmost label (RFC 4592 2.1.1), and
+ * a name starting with '$', which would read back as a directive.
+ *
+ * Returns NULL if the name is good, else what is wrong with it.
+ */
+
+const char *
+lws_auth_dns_name_canon(const char *in, size_t len, char *out, size_t olen)
+{
+	size_t i = 0, o = 0, ll = 0, wl = 1;
+	int leftmost = 1, star = 0;
+
+	if (!len || olen < 2)
+		return "empty name";
+
+	if (len == 1 && (in[0] == '@' || in[0] == '.')) {
+		out[0] = in[0];
+		out[1] = '\0';
+
+		return NULL;
+	}
+
+	while (i < len) {
+		unsigned int c = (unsigned char)in[i++];
+		int esc = 0;
+
+		if (c == '.') {
+			if (!ll)
+				return "empty label";
+
+			wl += 1 + ll;
+			if (o + 2 > olen)
+				return "name too long";
+			out[o++] = '.';
+			ll = 0;
+			leftmost = 0;
+			star = 0;
+			continue;
+		}
+
+		if (c == '\\') {
+			if (i == len)
+				return "'\\' at the end of the name";
+
+			esc = 1;
+			c = (unsigned char)in[i++];
+			if (c >= '0' && c <= '9') {
+				if (i + 2 > len ||
+				    in[i] < '0' || in[i] > '9' ||
+				    in[i + 1] < '0' || in[i + 1] > '9')
+					return "\\DDD needs three decimal digits";
+
+				c = (c - '0') * 100 +
+				    (unsigned int)(in[i] - '0') * 10 +
+				    (unsigned int)(in[i + 1] - '0');
+				i += 2;
+				if (c > 255)
+					return "\\DDD is more than 255";
+			}
+		}
+
+		if (c == '*') {
+			if (!leftmost || ll)
+				return "'*' is only allowed as the whole "
+				       "leftmost label";
+			star = 1;
+		} else if (star)
+			return "'*' is only allowed as the whole leftmost label";
+
+		if (c <= ' ' || c >= 0x7f || strchr(".\\\"();", (int)c))
+			return esc && c == '.' ?
+				"a '.' inside a label is not supported" :
+				"a label holds a byte that needs escaping, "
+				"which is not supported";
+
+		if (!o && c == '$')
+			return "a name can't start with '$'";
+
+		if (++ll > 63)
+			return "label longer than 63 bytes";
+		if (o + 2 > olen)
+			return "name too long";
+		out[o++] = (char)c;
+	}
+
+	if (ll)
+		wl += 1 + ll;
+	if (wl > 255)
+		return "name longer than 255 bytes on the wire";
+
+	out[o] = '\0';
+
+	return NULL;
 }
 
 /* is name (with or without its trailing dot) the origin, or below it? */
@@ -246,242 +366,371 @@ lws_auth_dns_zone_cut(struct auth_dns_zone *z, const char *name)
 	return cut;
 }
 
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+/*
+ * The zone text can come from anyone publishing a zone over the DHT: what
+ * is quoted from it in a log is made printable first
+ */
+
+static const char *
+auth_dns_log_text(char *out, size_t olen, const char *in, size_t len)
+{
+	char t[256];
+
+	lws_strnncpy(t, in, len, sizeof(t));
+	lws_json_purify(out, t, (int)olen, NULL);
+
+	return out;
+}
+#endif
+
+/*
+ * One logical line of a master file (comments, quotes, escapes and the
+ * parentheses that continue it over physical lines already dealt with):
+ * a $ORIGIN or $TTL directive, or one RR.  \p last_name is the owner of
+ * the RR before, which a line starting with whitespace takes for its own.
+ *
+ * Returns nonzero if the zone is to be refused.
+ */
+
+static int
+auth_dns_zone_line(struct auth_dns_zone *zone, const char *line, size_t len,
+		   char *last_name, size_t last_len, unsigned int line_no)
+{
+	const char *s = line, *e = line + len, *f, *rd, *why;
+	struct auth_dns_rrset *rrset = NULL;
+	int have_ttl = 0, have_class = 0, r;
+	struct auth_dns_rr *rr;
+	char cur_name[256], tok[32];
+	uint16_t class_ = 1, type = 0;
+	lws_tokenize_elem te;
+	lws_tokenize_t ts;
+	uint32_t ttl = 0;
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+	char pt[128];
+#endif
+
+	while (s < e && (*s == ' ' || *s == '\t'))
+		s++;
+	if (s == e)
+		return 0; /* nothing but whitespace */
+
+	if (*line == '$') {
+		/* the directive is the first field, its value the second */
+
+		f = line;
+		while (f < e && *f != ' ' && *f != '\t')
+			f++;
+		s = f;
+		while (s < e && (*s == ' ' || *s == '\t'))
+			s++;
+		rd = s;
+		while (rd < e && *rd != ' ' && *rd != '\t')
+			rd++;
+
+		if (lws_ptr_diff_size_t(f, line) == 7 &&
+		    !strncmp(line, "$ORIGIN", 7)) {
+			/*
+			 * each one changes the origin for the records after
+			 * it: count them, so a zone's identity can be checked
+			 * by lws_auth_dns_zone_check_origin()
+			 */
+			zone->origin_lines++;
+			why = lws_auth_dns_name_canon(s, lws_ptr_diff_size_t(rd, s),
+						      zone->origin,
+						      sizeof(zone->origin));
+			if (!why && (zone->origin[0] == '@' ||
+				     zone->origin[0] == '*'))
+				why = "not a domain";
+			if (why) {
+				zone->origin[0] = '\0';
+				lwsl_err("%s: line %u: $ORIGIN '%s': %s\n",
+					 __func__, line_no,
+					 auth_dns_log_text(pt, sizeof(pt), s,
+						lws_ptr_diff_size_t(rd, s)), why);
+
+				return 1;
+			}
+			auth_dns_origin_normalise(zone->origin,
+						  sizeof(zone->origin));
+
+			return 0;
+		}
+
+		if (lws_ptr_diff_size_t(f, line) == 4 &&
+		    !strncmp(line, "$TTL", 4)) {
+			lws_strnncpy(zone->default_ttl, s,
+				     lws_ptr_diff_size_t(rd, s),
+				     sizeof(zone->default_ttl));
+
+			return 0;
+		}
+
+		lwsl_err("%s: line %u: unsupported directive '%s'\n",
+			 __func__, line_no,
+			 auth_dns_log_text(pt, sizeof(pt), line,
+					   lws_ptr_diff_size_t(f, line)));
+
+		return 1;
+	}
+
+	if (*line != ' ' && *line != '\t') {
+		/* the owner is the first field, up to unescaped whitespace */
+
+		f = s = line;
+		while (s < e && *s != ' ' && *s != '\t') {
+			if (*s == '\\' && s + 1 < e)
+				s++;
+			s++;
+		}
+
+		why = lws_auth_dns_name_canon(f, lws_ptr_diff_size_t(s, f),
+					      cur_name, sizeof(cur_name));
+		if (!why && auth_dns_name_qualify(cur_name, sizeof(cur_name),
+						  zone->origin))
+			why = "name too long with the origin";
+		if (why) {
+			lwsl_err("%s: line %u: owner '%s': %s\n", __func__,
+				 line_no, auth_dns_log_text(pt, sizeof(pt), f,
+						lws_ptr_diff_size_t(s, f)), why);
+
+			return 1;
+		}
+
+		/* canonicalize name: fully qualified, then lowercase */
+		for (char *c = cur_name; *c; c++)
+			*c = (char)tolower((unsigned char)*c);
+
+		lws_strncpy(last_name, cur_name, last_len);
+	} else {
+		if (!last_name[0]) {
+			lwsl_err("%s: line %u: no owner to carry on from\n",
+				 __func__, line_no);
+
+			return 1;
+		}
+		lws_strncpy(cur_name, last_name, sizeof(cur_name));
+	}
+
+	/*
+	 * Then the TTL and class, either way around and both optional, and
+	 * the type.  Anything else there is refused: dropping it would read
+	 * the fields after it as different ones.
+	 */
+
+	lws_tokenize_init(&ts, s, LWS_TOKENIZE_F_NO_INTEGERS |
+				  LWS_TOKENIZE_F_NO_FLOATS);
+	ts.len = lws_ptr_diff_size_t(e, s);
+
+	do {
+		te = lws_tokenize(&ts);
+		if (te != LWS_TOKZE_TOKEN || ts.token_len >= sizeof(tok)) {
+			lwsl_err("%s: line %u: %s: %s\n", __func__, line_no,
+				 cur_name, te == LWS_TOKZE_ENDED ? "no type" :
+				 "malformed TTL, class or type");
+
+			return 1;
+		}
+		lws_strnncpy(tok, ts.token, ts.token_len, sizeof(tok));
+
+		if (!have_ttl && tok[0] >= '0' && tok[0] <= '9') {
+			uint64_t v = 0;
+			const char *cp = tok;
+
+			while (*cp >= '0' && *cp <= '9' && v <= 0x7fffffff)
+				v = (v * 10) + (uint64_t)(*cp++ - '0');
+			if (*cp || v > 0x7fffffff) { /* RFC 2181 8 */
+				lwsl_err("%s: line %u: bad TTL '%s'\n",
+					 __func__, line_no, tok);
+
+				return 1;
+			}
+			ttl = (uint32_t)v;
+			have_ttl = 1;
+			continue;
+		}
+
+		if (!have_class && !strcasecmp(tok, "IN")) {
+			class_ = 1;
+			have_class = 1;
+			continue;
+		}
+
+		/* 0 if it is not a type we can read */
+		type = lws_auth_dns_type_from_str(tok);
+		break;
+	} while (1);
+
+	if (!have_ttl && zone->default_ttl[0])
+		ttl = (uint32_t)atoi(zone->default_ttl);
+
+	/* find existing rrset */
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&zone->rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d,
+					struct auth_dns_rrset, list);
+
+		if (rs->type == type && rs->class_ == class_ &&
+		    !strcmp(rs->name, cur_name)) {
+			rrset = rs;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!rrset) {
+		rrset = lws_zalloc(sizeof(*rrset), "auth_dns_rrset");
+		if (!rrset)
+			return 1;
+		rrset->type = type;
+		rrset->class_ = class_;
+		rrset->ttl = ttl;
+		lws_dll2_add_tail(&rrset->list, &zone->rrset_list);
+		rrset->name = lws_strdup(cur_name);
+		if (!rrset->name)
+			return 1;
+	}
+
+	rr = lws_zalloc(sizeof(*rr), "auth_dns_rr");
+	if (!rr)
+		return 1;
+	lws_dll2_add_tail(&rr->list, &rrset->rr_list);
+
+	/* The remainder of the line is rdata. */
+
+	rd = ts.start;
+	while (rd < e && (*rd == ' ' || *rd == '\t'))
+		rd++;
+
+	{
+		size_t rdlen = lws_ptr_diff_size_t(e, rd);
+
+		/* Strip surrounding quotes if present (TXT records) */
+		if (rdlen >= 2 && rd[0] == '"' && rd[rdlen - 1] == '"') {
+			rd++;
+			rdlen -= 2;
+		}
+
+		rr->rdata = lws_malloc(rdlen + 1, "auth_dns_rdata");
+		if (!rr->rdata)
+			return 1;
+		memcpy(rr->rdata, rd, rdlen);
+		rr->rdata[rdlen] = '\0';
+		rr->rdata_len = rdlen;
+	}
+
+	/*
+	 * The signer expands ${...} substitutions before it parses, so rdata
+	 * still holding one comes from a reader of the raw zonefile (eg, the
+	 * monitor's inventory), which only wants the text: keep it as that,
+	 * there is no wire form to fail at
+	 */
+	if (strstr(rr->rdata, "${")) {
+		lwsl_info("%s: %s: unexpanded '%s' kept as text\n",
+			  __func__, rrset->name, rr->rdata);
+
+		return 0;
+	}
+
+	r = lws_auth_dns_rdata_to_wire(zone, rr, rrset->type);
+	if (r == LWS_AUTH_DNS_RDATA_MALFORMED) {
+		lwsl_err("%s: line %u: %s: malformed rdata '%s'\n", __func__,
+			 line_no, rrset->name,
+			 auth_dns_log_text(pt, sizeof(pt), rr->rdata,
+					   rr->rdata_len));
+
+		return 1;
+	}
+	if (r)
+		lwsl_err("Failed to wire-encode rdata for %s\n", rrset->name);
+
+	lwsl_info("Parsed RR: name=%s type=%d ttl=%u rdata=%s\n", rrset->name,
+		  rrset->type, rrset->ttl, rr->rdata);
+
+	return 0;
+}
+
 int
 lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone)
 {
+	unsigned int line = 1, line_start = 1;
 	const char *p = buf, *end = buf + len;
+	int in_parens = 0, in_comment = 0, in_quote = 0, esc = 0;
 	char last_name[256] = "";
-	int in_parens = 0;
-	int in_comment = 0;
-
-	char line_accum[16384] = {0};
+	char line_accum[16384];
 	size_t lptr = 0;
-	int loop_cycles = 0;
 
 	lwsl_notice("%s: Parsing zone buffer of length %zu\n", __func__, len);
 
-	while (p <= end) {
-		if (++loop_cycles > 5000000) {
-			lwsl_err("auth-dns: parsing exceeded maximum length\n");
-			break;
+	/*
+	 * Gather each logical line (RFC 1035 5.1): ';' starts a comment and
+	 * parentheses continue a line over newlines, except inside a quoted
+	 * string or escaped with '\'.  The parentheses themselves separate
+	 * fields the same as whitespace.  Quotes and escapes are kept for the
+	 * fields to be read with.
+	 */
+
+	for (p = buf; p <= end; p++) {
+		char c = p < end ? *p : '\n';
+
+		if (!c) {
+			lwsl_err("%s: line %u: NUL in zone text\n", __func__,
+				 line);
+
+			return 1;
 		}
 
-		if (p < end && *p == '(' && !in_comment)
-			in_parens = 1;
-		else if (p < end && *p == ')' && !in_comment)
-			in_parens = 0;
-		else if (p < end && *p == ';')
-			in_comment = 1;
-
-		/* if newline and we're not inside parenthesis, we have a logical line */
-		if (p < end && *p == '\n')
-			in_comment = 0;
-
-		if (p == end || (*p == '\n' && !in_parens)) {
-			in_comment = 0;
+		if (c == '\n' && (p == end || !in_parens)) {
 			line_accum[lptr] = '\0';
 
-			if (lptr > 0) {
-				lws_tokenize_t ts;
-				lws_tokenize_elem e;
-				lws_tokenize_init(&ts, line_accum, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
-				ts.len = lptr;
-
-				char toks[32][256];
-				const char *tok_ptr[32];
-				int num_toks = 0, name_inherited = 0, n;
-
-				if (line_accum[0] == ' ' || line_accum[0] == '\t')
-					name_inherited = 1;
-
-				int max_tokens = 0;
-				do {
-					e = lws_tokenize(&ts);
-					if (e == LWS_TOKZE_ENDED)
-						break;
-					max_tokens++;
-					if (max_tokens > 256)
-						break;
-
-					if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
-						if (num_toks < 32) {
-							n = (int)ts.token_len;
-							if (n > (int)sizeof(toks[0]) - 1)
-								n = sizeof(toks[0]) - 1;
-							memcpy(toks[num_toks], ts.token, (size_t)n);
-							toks[num_toks][n] = '\0';
-							tok_ptr[num_toks] = ts.start;
-							num_toks++;
-						}
-					}
-
-				} while (e > 0);
-
-				if (!strncmp(line_accum, "$ORIGIN", 7)) {
-					const char *v = line_accum + 7;
-
-					/*
-					 * each one changes the origin for the
-					 * records after it: count them, so a
-					 * zone's identity can be checked by
-					 * lws_auth_dns_zone_check_origin()
-					 */
-					zone->origin_lines++;
-					while (*v == ' ' || *v == '\t') v++;
-					lws_strncpy(zone->origin, v, sizeof(zone->origin));
-					char *sp = (char *)strchr(zone->origin, ' ');
-					if (!sp) sp = (char *)strchr(zone->origin, '\t');
-					if (sp) *sp = '\0';
-					auth_dns_origin_normalise(zone->origin,
-							  sizeof(zone->origin));
-				} else if (!strncmp(line_accum, "$TTL", 4)) {
-					const char *v = line_accum + 4;
-					while (*v == ' ' || *v == '\t') v++;
-					lws_strncpy(zone->default_ttl, v, sizeof(zone->default_ttl));
-					char *sp = (char *)strchr(zone->default_ttl, ' ');
-					if (!sp) sp = (char *)strchr(zone->default_ttl, '\t');
-					if (sp) *sp = '\0';
-				} else if (num_toks > 0) {
-					{
-						/* RR parsing */
-						int type_idx = 0;
-						struct auth_dns_rrset *rrset = NULL;
-						struct auth_dns_rr *rr;
-						char cur_name[256];
-						uint32_t ttl = 0;
-						uint16_t class_ = 1;
-						uint16_t type = 0;
-
-						/* Fix: check if the line started with @ as a delimiter since lws_tokenize skips it */
-						int started_with_at = 0;
-						for (int i = 0; line_accum[i]; i++) {
-							if (line_accum[i] == ' ' || line_accum[i] == '\t') continue;
-							if (line_accum[i] == '@') started_with_at = 1;
-							break;
-						}
-
-						if (name_inherited) {
-							lws_strncpy(cur_name, last_name, sizeof(cur_name));
-						} else if (started_with_at) {
-							lws_strncpy(cur_name, "@", sizeof(cur_name));
-							lws_strncpy(last_name, "@", sizeof(last_name));
-							/* we didn't consume it as a token, so type_idx is 0 */
-						} else {
-							lws_strncpy(cur_name, toks[0], sizeof(cur_name));
-							lws_strncpy(last_name, toks[0], sizeof(last_name));
-							type_idx++;
-						}
-
-						/* canonicalize name: fully qualify it, then lowercase */
-						auth_dns_name_qualify(cur_name, sizeof(cur_name),
-								      zone->origin);
-						for (char *c = cur_name; *c; c++)
-							*c = (char)tolower((unsigned char)*c);
-
-						if (type_idx < num_toks) {
-							/* check for TTL (numeric) */
-							const char *cp = toks[type_idx];
-							while (*cp && *cp >= '0' && *cp <= '9') cp++;
-							if (!*cp && toks[type_idx][0]) {
-								ttl = (uint32_t)atoi(toks[type_idx]);
-								type_idx++;
-							} else {
-								if (zone->default_ttl[0])
-									ttl = (uint32_t)atoi(zone->default_ttl);
-							}
-						}
-
-						if (type_idx < num_toks && !strcasecmp(toks[type_idx], "IN")) {
-							class_ = 1;
-							type_idx++;
-						}
-
-						if (type_idx < num_toks) {
-							// lwsl_notice("  Attempting type match at type_idx=%d: '%s'\n", type_idx, toks[type_idx]);
-							/* 0 if it is not a type we can read */
-							type = lws_auth_dns_type_from_str(toks[type_idx]);
-							type_idx++;
-						}
-
-						// lwsl_notice("%s: Record: name=%s, type=%u, class=%u, tokens=%d, final_type_idx=%d\n", __func__, cur_name, type, class_, num_toks, type_idx);
-
-						/* find existing rrset */
-						lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zone->rrset_list)) {
-							struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-							if (rs->type == type && rs->class_ == class_ && !strcmp(rs->name, cur_name)) {
-								rrset = rs;
-								break;
-							}
-						} lws_end_foreach_dll(d);
-
-						if (!rrset) {
-							rrset = lws_zalloc(sizeof(*rrset), "auth_dns_rrset");
-							if (!rrset)
-								return 1;
-							rrset->name = lws_strdup(cur_name);
-							rrset->type = type;
-							rrset->class_ = class_;
-							rrset->ttl = ttl;
-							lws_dll2_add_tail(&rrset->list, &zone->rrset_list);
-						}
-
-						rr = lws_zalloc(sizeof(*rr), "auth_dns_rr");
-						if (!rr)
-							return 1;
-
-						/* The remainder of the line is rdata. */
-						{
-							const char *rd = tok_ptr[type_idx - 1];
-							if (rd) {
-								while (*rd == ' ' || *rd == '\t') rd++;
-
-								/* Strip surrounding quotes if present (TXT records) */
-								size_t rdlen = strlen(rd);
-								if (rdlen >= 2 && rd[0] == '"' && rd[rdlen - 1] == '"') {
-									char *qrd = lws_strdup(rd);
-									if (qrd) {
-										rdlen = strlen(qrd);
-										qrd[rdlen - 1] = '\0';
-										rr->rdata = lws_strdup(qrd + 1);
-										rr->rdata_len = rdlen - 2;
-										lws_free(qrd);
-									}
-								} else {
-									rr->rdata = lws_strdup(rd);
-									if (rr->rdata)
-										rr->rdata_len = rdlen;
-								}
-							}
-						}
-
-						lws_dll2_add_tail(&rr->list, &rrset->rr_list);
-
-						/*
-						 * The signer expands ${...} substitutions
-						 * before it parses, so rdata still holding
-						 * one comes from a reader of the raw
-						 * zonefile (eg, the monitor's inventory),
-						 * which only wants the text: keep it as
-						 * that, there is no wire form to fail at
-						 */
-						if (rr->rdata && strstr(rr->rdata, "${"))
-							lwsl_info("%s: %s: unexpanded '%s' kept as text\n",
-								  __func__, rrset->name, rr->rdata);
-						else if (lws_auth_dns_rdata_to_wire(zone, rr, rrset->type))
-							lwsl_err("Failed to wire-encode rdata for %s\n", rrset->name);
-
-						lwsl_info("Parsed RR: name=%s type=%d ttl=%u rdata=%s\n", rrset->name, rrset->type, rrset->ttl, rr->rdata ? rr->rdata : "");
-					}
-				}
-			}
+			if (lptr && auth_dns_zone_line(zone, line_accum, lptr,
+						       last_name,
+						       sizeof(last_name),
+						       line_start))
+				return 1;
 
 			lptr = 0;
-		} else {
-			if (!in_comment && *p != '(' && *p != ')' && *p != '\n' && *p != '\r' && lptr < sizeof(line_accum) - 1)
-				line_accum[lptr++] = *p;
+			in_comment = in_quote = esc = in_parens = 0;
+			line_start = ++line;
+			continue;
 		}
-		p++;
+
+		if (c == '\n') {
+			/* inside parentheses: the line goes on */
+			line++;
+			in_comment = esc = 0;
+			c = ' ';
+		}
+
+		if (in_comment || c == '\r')
+			continue;
+
+		if (esc)
+			esc = 0;
+		else if (c == '\\')
+			esc = 1;
+		else if (c == '"')
+			in_quote = !in_quote;
+		else if (!in_quote) {
+			if (c == ';') {
+				in_comment = 1;
+				continue;
+			}
+			if (c == '(' || c == ')') {
+				in_parens = c == '(';
+				c = ' ';
+			}
+		}
+
+		if (lptr == sizeof(line_accum) - 1) {
+			lwsl_err("%s: line %u: logical line too long\n",
+				 __func__, line_start);
+
+			return 1;
+		}
+
+		line_accum[lptr++] = c;
 	}
+
 	return 0;
 }
 

@@ -41,10 +41,17 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 	if (!strcmp(name, "@") && origin[0]) {
 		lws_strncpy(f, origin, sizeof(f));
 	} else if (name[0] && name[strlen(name) - 1] != '.' && origin && origin[0]) {
+		/* cut down by the snprintf, it would be another name */
+		if (strlen(name) + 1 + strlen(origin) >= sizeof(f))
+			return 1;
 		lws_snprintf(f, sizeof(f), "%s.%s", name, origin);
 	} else {
 		lws_strncpy(f, name, sizeof(f));
 	}
+
+	/* the root on its own */
+	if (!strcmp(f, "."))
+		f[0] = '\0';
 
 	int cycles = 0;
 	p = f;
@@ -57,29 +64,30 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 		else
 			l = lws_ptr_diff_size_t(dot, p);
 
-		if (l > 63 || wl + 1 + l >= *wire_len)
+		/*
+		 * Only the root label is empty: one anywhere else (a leading
+		 * dot, or "a..b") would end the name there on the wire, and
+		 * the rest be read as whatever follows it
+		 */
+		if (!l || l > 63 || wl + 1 + l >= *wire_len)
 			return 1;
 
 		wire[wl++] = (uint8_t)l;
-		if (l) {
-			memcpy(&wire[wl], p, l);
-			/* Canonical names in DNSSEC RDATA are lowercased for SOA, NS, MX, etc. */
-			for (size_t n = 0; n < l; n++)
-				wire[wl + n] = (uint8_t)tolower(wire[wl + n]);
-			wl += l;
-		}
+		memcpy(&wire[wl], p, l);
+		/* Canonical names in DNSSEC RDATA are lowercased for SOA, NS, MX, etc. */
+		for (size_t n = 0; n < l; n++)
+			wire[wl + n] = (uint8_t)tolower(wire[wl + n]);
+		wl += l;
 
 		if (!dot)
 			break;
 		p = dot + 1;
 	}
 
-	/* terminating root label */
-	if (wl == 0 || wire[wl - 1] != 0) {
-		if (wl >= *wire_len)
-			return 1;
-		wire[wl++] = 0;
-	}
+	/* terminating root label, and no more than 255 in all */
+	if (wl >= *wire_len || wl + 1 > 255)
+		return 1;
+	wire[wl++] = 0;
 
 	*wire_len = wl;
 	return 0;
@@ -383,6 +391,30 @@ loc_put_u32(uint8_t *w, uint32_t v)
 }
 
 
+/*
+ * A domain name field of rdata, as a token, held to the same rules as an
+ * owner name (lws_auth_dns_name_canon()) before it is encoded
+ */
+
+static int
+rdata_name_to_wire(const char *tok, const char *origin, uint8_t *w,
+		   size_t *wl)
+{
+	const char *why;
+	char n[256];
+
+	why = lws_auth_dns_name_canon(tok, strlen(tok), n, sizeof(n));
+	if (!why && name_to_wire(n, origin, w, wl))
+		why = "too long";
+	if (why) {
+		lwsl_err("%s: '%s': %s\n", __func__, tok, why);
+
+		return 1;
+	}
+
+	return 0;
+}
+
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type)
 {
@@ -406,10 +438,16 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	int num_toks = 0, n;
 
 	memset(sc->toks, 0, sizeof(sc->toks));
-	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_CHUNK);
+	/*
+	 * '*' is part of a token, so a wildcard name ("*.x") stays one.  An
+	 * escape (RFC 1035 5.1) is not understood here except as the start of
+	 * the RFC 3597 generic form: dropped as a delimiter, it would split
+	 * its field and shift the rest along, so it refuses the zone
+	 */
+	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_ASTERISK_NONTERM | LWS_TOKENIZE_F_CHUNK);
 	ts.len = strlen(rr->rdata);
 
-	int max_tokens = 0;
+	int max_tokens = 0, escapes = 0;
 	int tok_ofs = 0;
 	do {
 		e = lws_tokenize(&ts);
@@ -418,6 +456,9 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		max_tokens++;
 		if (max_tokens > 2048)
 			break;
+
+		if (e == LWS_TOKZE_DELIMITER && *ts.token == '\\')
+			escapes++;
 
 		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER ||
 		    e == LWS_TOKZE_TOKEN_CHUNK || e == LWS_TOKZE_QUOTED_STRING_CHUNK) {
@@ -443,6 +484,12 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	/* Check for generic RFC 3597 representation: starts with \# */
 	const char *rd_start = rr->rdata;
 	while (*rd_start == ' ' || *rd_start == '\t') rd_start++;
+	if (rd_start[0] == '\\' && rd_start[1] == '#')
+		escapes--;
+	if (escapes) {
+		lwsl_err("%s: escapes in rdata are not supported\n", __func__);
+		goto fail_malformed;
+	}
 	if (rd_start[0] == '\\' && rd_start[1] == '#') {
 		if (num_toks < 2) goto fail;
 		int gen_len = atoi(toks[0]);
@@ -480,7 +527,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		wl = 16;
 	} else if (type == 2 && num_toks >= 1) { // NS
 		size_t av = sizeof(sc->w);
-		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;
+		if (rdata_name_to_wire(toks[0], z->origin, w, &av)) goto fail_malformed;
 		wl = av;
 	} else if (type == 29 && num_toks >= 4) { // LOC, RFC 1876
 		static const double mas_bias = 2147483648.0;  /* 2^31 mas  */
@@ -535,7 +582,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		wl = 16;
 	} else if (type == 5 && num_toks >= 1) { // CNAME
 		size_t av = sizeof(sc->w);
-		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;
+		if (rdata_name_to_wire(toks[0], z->origin, w, &av)) goto fail_malformed;
 		wl = av;
 	} else if (type == 15 && num_toks >= 2) { // MX
 		uint16_t p = (uint16_t)atoi(toks[0]);
@@ -543,7 +590,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		w[0] = (uint8_t)(p >> 8); w[1] = (uint8_t)(p & 0xff);
 		wl = 2;
 		size_t av = sizeof(sc->w) - wl;
-		if (name_to_wire(toks[1], z->origin, w + 2, &av)) goto fail;
+		if (rdata_name_to_wire(toks[1], z->origin, w + 2, &av)) goto fail_malformed;
 		wl += av;
 	} else if (type == 6 && num_toks >= 7) { // SOA
 		/*
@@ -551,10 +598,10 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		 * it about, so it must be told what is actually left
 		 */
 		size_t av1 = sizeof(sc->w), av2;
-		if (name_to_wire(toks[0], z->origin, w, &av1)) { lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
+		if (rdata_name_to_wire(toks[0], z->origin, w, &av1)) goto fail_malformed;
 		wl += av1;
 		av2 = sizeof(sc->w) - wl;
-		if (name_to_wire(toks[1], z->origin, w + wl, &av2)) { lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
+		if (rdata_name_to_wire(toks[1], z->origin, w + wl, &av2)) goto fail_malformed;
 		wl += av2;
 		WCHK(5 * 4);
 		for (int i = 0; i < 5; i++) {
@@ -780,7 +827,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		w[wl++] = (uint8_t)(kt >> 8); w[wl++] = (uint8_t)(kt & 0xff);
 
 		size_t av = sizeof(sc->w) - wl;
-		if (name_to_wire(toks[7], z->origin, w + wl, &av)) goto fail;
+		if (rdata_name_to_wire(toks[7], z->origin, w + wl, &av)) goto fail_malformed;
 		wl += av;
 
 		sc->accum[0] = '\0';
@@ -824,7 +871,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		w[wl++] = (uint8_t)(priority & 0xff);
 
 		size_t av = sizeof(sc->w) - wl;
-		if (name_to_wire(toks[1], z->origin, w + wl, &av)) goto fail;
+		if (rdata_name_to_wire(toks[1], z->origin, w + wl, &av)) goto fail_malformed;
 		wl += av;
 
 		for (int i = 2; i < num_toks; i++) {
@@ -1030,6 +1077,11 @@ fail:
 	lws_free(sc);
 
 	return 1;
+
+fail_malformed:
+	lws_free(sc);
+
+	return LWS_AUTH_DNS_RDATA_MALFORMED;
 }
 
 #undef WCHK

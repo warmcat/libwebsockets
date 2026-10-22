@@ -128,10 +128,17 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 	if (!strcmp(name, "@") && origin[0]) {
 		lws_strncpy(f, origin, sizeof(f));
 	} else if (name[0] && name[strlen(name) - 1] != '.' && origin && origin[0]) {
+		/* cut down by the snprintf, it would be another name */
+		if (strlen(name) + 1 + strlen(origin) >= sizeof(f))
+			return 1;
 		lws_snprintf(f, sizeof(f), "%s.%s", name, origin);
 	} else {
 		lws_strncpy(f, name, sizeof(f));
 	}
+
+	/* the root on its own */
+	if (!strcmp(f, "."))
+		f[0] = '\0';
 
 	int cycles = 0;
 	p = f;
@@ -144,27 +151,29 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 		else
 			l = lws_ptr_diff_size_t(dot, p);
 
-		if (l > 63 || wl + 1 + l >= *wire_len)
+		/*
+		 * Only the root label is empty: one anywhere else (a leading
+		 * dot, or "a..b") would end the name there on the wire, and
+		 * the rest be read as whatever follows it
+		 */
+		if (!l || l > 63 || wl + 1 + l >= *wire_len)
 			return 1;
 
 		wire[wl++] = (uint8_t)l;
-		if (l) {
-			memcpy(&wire[wl], p, l);
-			for (size_t n = 0; n < l; n++)
-				wire[wl + n] = (uint8_t)tolower(wire[wl + n]);
-			wl += l;
-		}
+		memcpy(&wire[wl], p, l);
+		for (size_t n = 0; n < l; n++)
+			wire[wl + n] = (uint8_t)tolower(wire[wl + n]);
+		wl += l;
 
 		if (!dot)
 			break;
 		p = dot + 1;
 	}
 
-	if (wl == 0 || wire[wl - 1] != 0) {
-		if (wl >= *wire_len)
-			return 1;
-		wire[wl++] = 0;
-	}
+	/* terminating root label, and no more than 255 in all */
+	if (wl >= *wire_len || wl + 1 > 255)
+		return 1;
+	wire[wl++] = 0;
 
 	*wire_len = wl;
 	return 0;

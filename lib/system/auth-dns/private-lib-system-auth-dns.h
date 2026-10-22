@@ -28,8 +28,19 @@
 #include "private-lib-core.h"
 #include "private-lib-system-dnssec-crypto.h"
 
+/*
+ * lws_auth_dns_rdata_to_wire() returns 0 if it encoded the rdata, 1 if it
+ * could not (the RR is kept, unserved), or this if the rdata is malformed in
+ * a way that has to refuse the whole zone: a domain name in it that is not
+ * one, or an escape (other than the RFC 3597 "\#")
+ */
+#define LWS_AUTH_DNS_RDATA_MALFORMED 2
+
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type);
+
+const char *
+lws_auth_dns_name_canon(const char *in, size_t len, char *out, size_t olen);
 
 uint16_t
 lws_auth_dns_type_from_str(const char *s);

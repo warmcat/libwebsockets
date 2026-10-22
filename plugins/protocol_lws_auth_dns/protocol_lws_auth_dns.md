@@ -34,6 +34,20 @@ when `DO` is set).  A name in a zone we hold but with no data for that type is a
 `NODATA` answer; a name in no zone we hold, and that the DHT cannot supply, is
 answered `REFUSED` per authoritative-server convention.
 
+Zone files are RFC 1035 master files, with `$ORIGIN` and `$TTL` directives
+(any other directive refuses the zone).  Owner names may use the RFC 1035
+5.1 escapes `\X` and `\DDD` (rdata may not, except for the RFC 3597 `\#`
+form), and
+names may have `*` as the whole leftmost label, eg, a wildcard owner or an NS
+target.  A zone is refused, with an error naming the line,
+if a name in it has an empty label anywhere but the root (eg, `.x` or `a..b`),
+a `*` anywhere else, a label over 63 bytes, is over 255 bytes in all, or has a
+label that could only be written with an escape (a `.` inside a label,
+whitespace, quotes, parentheses, `;`, `\` or a non-printable byte), which
+auth-dns does not carry.  RRsets at a wildcard owner are served for queries of
+that owner name itself; answers are not synthesized from them for the names
+the wildcard would match (RFC 4592).
+
 ## Scalability and Caching
 
 To serve high query volumes without unbounded memory use, the plugin keeps a
@@ -308,6 +322,10 @@ journalctl -u lwsws -b | grep -iE 'zone.dir|failed init|foreign name|bound to ip
 **Zone loaded from disk but not served / "ignoring zone file with foreign
 name".**  The filename is not in the decorated shape, or the file is not owned
 by the init-time uid, or is group/world-writable.
+
+**Zone not loaded, "line N: ..." in the log.**  The zone text has a name or
+field auth-dns refuses (see the zone file syntax above); the message names
+the logical line and what is wrong with it.
 
 **Zone file present but "has expired, not loading it" at startup.**  The
 `<ttl-expiry>` or `<sig-expiry>` field in the filename is in the past; regenerate
