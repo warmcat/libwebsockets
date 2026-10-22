@@ -109,6 +109,9 @@ typedef struct lws_transport_sequencer_stats {
 	uint64_t	rx_offset;
 	/**< receive half: we have received everything the peer sent below
 	 * this offset, the cumulative point our acks report */
+	uint64_t	tx_offset;
+	/**< send half: the end of what was written to us to send, so while
+	 * it is above ack_offset, the peer has data of ours it hasn't acked */
 } lws_transport_sequencer_stats_t;
 
 typedef struct lws_transport_sequencer_info {

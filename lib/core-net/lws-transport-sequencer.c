@@ -383,8 +383,10 @@ lws_transport_sequencer_write_at(struct lws_transport_sequencer *ts,
 	}
 	lws_dll2_add_tail(&r->list, &ts->scoreboard);
 
-	if (offset + len > ts->next_tx_offset)
+	if (offset + len > ts->next_tx_offset) {
 		ts->next_tx_offset = offset + len;
+		ts->stats.tx_offset = ts->next_tx_offset;
+	}
 
 	/*
 	 * Send the packet immediately (Broadsiding)... unless the peer is
@@ -874,6 +876,7 @@ lws_transport_sequencer_tx_rebase(struct lws_transport_sequencer *ts)
 	} lws_end_foreach_dll_safe(d, d1);
 
 	ts->next_tx_offset = o;
+	ts->stats.tx_offset = o;
 	ts->ack_offset = 0;
 	ts->stats.ack_offset = 0;
 

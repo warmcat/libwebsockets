@@ -674,12 +674,6 @@ lws_dht_ts_destroy(lws_dht_ts_t *dts)
 	lws_free(dts);
 }
 
-static void
-lws_dht_ts_idle_cb(lws_sorted_usec_list_t *sul)
-{
-	lws_dht_ts_destroy(lws_container_of(sul, lws_dht_ts_t, sul_idle));
-}
-
 void
 dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 {
@@ -716,6 +710,50 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 
 	if (state != 0)
 		lws_dht_ts_destroy(dts);
+}
+
+/*
+ * Is the peer still owed something by this sequencer: data of ours it hasn't
+ * acked, which a consumer is waiting to hear the fate of, or the peer's
+ * proven receive session, which a blind spoofer can't make?  Then it is not
+ * ours to recycle for a newcomer, see dht_ts_create().
+ */
+
+static int
+dht_ts_in_use(lws_dht_ts_t *dts)
+{
+	const lws_transport_sequencer_stats_t *st =
+				lws_transport_sequencer_get_stats(dts->ts);
+
+	return dts->in_cb || dts->rx_tid_len || st->tx_offset > st->ack_offset;
+}
+
+/*
+ * Every way a sequencer ends, other than the context going away, comes here
+ * or through dht_on_state_change(): if it still held data of ours the peer
+ * never acked, the consumer hears WRITE_FAILED for it, as lws-dht.h promises
+ * for anything QUEUED, and a consumer waiting for WRITEABLE after BUSY isn't
+ * left waiting forever.
+ */
+
+static void
+dht_ts_retire(lws_dht_ts_t *dts)
+{
+	const lws_transport_sequencer_stats_t *st =
+				lws_transport_sequencer_get_stats(dts->ts);
+
+	if (st->tx_offset > st->ack_offset) {
+		dht_on_state_change(dts->ts, 1 /* FAILED */, 0); /* destroys */
+		return;
+	}
+
+	lws_dht_ts_destroy(dts);
+}
+
+static void
+lws_dht_ts_idle_cb(lws_sorted_usec_list_t *sul)
+{
+	dht_ts_retire(lws_container_of(sul, lws_dht_ts_t, sul_idle));
 }
 
 /* the peer has made room for what lws_dht_send_data() refused it */
@@ -770,9 +808,19 @@ static const lws_retry_bo_t dht_retry_policy = {
  * A sequencer costs ~160KB of dsh up front, and a single unsolicited (and
  * trivially spoofable) inbound 'data' datagram is enough to make one for a
  * source address we have never spoken to.  Bound how many can exist at once,
- * recycling the least-recently-used, so that a flood churns a fixed-size
- * table instead of growing the heap without limit; it also bounds the cost
- * of the linear lookup in lws_dht_get_ts().
+ * recycling the least-recently-used one that is not in use, so that a flood
+ * churns a fixed-size table instead of growing the heap without limit; it
+ * also bounds the cost of the linear lookup in lws_dht_get_ts().
+ *
+ * Only sequencers with nothing at stake are recycled: never one holding data
+ * the peer hasn't acked, or the peer's proven session (G-496).  Otherwise
+ * anyone able to forge 64 first chunks could destroy every transfer in
+ * flight, and the consumer would never hear what became of its messages.
+ * When all are in use, the newcomer is refused instead: an inbound chunk is
+ * dropped unanswered, and lws_dht_send_data() returns LWS_DHT_SEND_REFUSED.
+ * Sequencers in use end on their own, when the session fails or completes,
+ * or when it has seen no traffic for 30s, and one host can only hold a few
+ * proven sessions (lws_dht_ts_host_may_prove()), so it can't keep the table.
  *
  * `unproven` is set when the peer spoke first and is not a node we know at
  * that endpoint: then the sequencer sends it each chunk once and repeats
@@ -794,10 +842,9 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 		return NULL;
 
 	/*
-	 * A sequencer calling back into the consumer is never recycled, even
-	 * when it is the stalest: the callback may be what is creating this
-	 * one, and the sequencer still has its caller on the stack (G-181).
-	 * If every one is busy that way, there is no room.
+	 * A sequencer calling back into the consumer is in use too, even when
+	 * it is the stalest: the callback may be what is creating this one,
+	 * and the sequencer still has its caller on the stack (G-181).
 	 */
 	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
 		lws_dht_ts_t *victim = NULL;
@@ -806,21 +853,21 @@ dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
 				      lws_dll2_get_head(&ctx->ts_owner)) {
 			lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t, list);
 
-			if (!c->in_cb) {
+			if (!dht_ts_in_use(c)) {
 				victim = c;
 				break;
 			}
 		} lws_end_foreach_dll(d);
 
 		if (!victim) {
-			lwsl_dht_warn("%s: sequencer table full and busy\n",
-				      __func__);
+			lwsl_dht_warn("%s: sequencer table full of sessions in "
+				      "use, refusing one more\n", __func__);
 			return NULL;
 		}
 
-		lwsl_dht_warn("%s: sequencer table full, evicting LRU\n",
-			      __func__);
-		lws_dht_ts_destroy(victim);
+		lwsl_dht_info("%s: sequencer table full, recycling an idle "
+			      "one\n", __func__);
+		dht_ts_retire(victim);
 	}
 
 	dts = lws_zalloc(sizeof(*dts), "dht ts");
@@ -907,6 +954,36 @@ lws_dht_ts_find(struct lws_dht_ctx *ctx, const struct sockaddr *sa)
 	} lws_end_foreach_dll(d);
 
 	return NULL;
+}
+
+/*
+ * May the chunk proving a session for the sequencer `dts` bind it, or does
+ * its source host hold its share of proven sessions already?  A host is what
+ * lws_dht_same_host() says, ie, an IPv4 address or an IPv6 /64 whatever the
+ * port, as the DHT shares out everything else it limits.  Private addresses
+ * are only themselves, as for search introducers: a LAN or loopback DHT has
+ * many nodes behind one address.
+ */
+
+int
+lws_dht_ts_host_may_prove(lws_dht_ts_t *dts)
+{
+	const struct sockaddr *sa = (const struct sockaddr *)&dts->sa;
+	int n = 0;
+
+	if (lws_dht_ads_is_private(sa))
+		return 1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&dts->ctx->ts_owner)) {
+		lws_dht_ts_t *c = lws_container_of(d, lws_dht_ts_t, list);
+
+		if (c != dts && c->rx_tid_len &&
+		    lws_dht_same_host((const struct sockaddr *)&c->sa, sa))
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n < LWS_DHT_TS_SESSIONS_PER_HOST;
 }
 
 /*

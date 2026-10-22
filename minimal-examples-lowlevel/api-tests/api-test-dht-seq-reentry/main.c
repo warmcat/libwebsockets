@@ -2,21 +2,23 @@
  * lws-api-test-dht-seq-reentry
  *
  * The DHT's reliable transport calls back into its consumer, and what the
- * consumer does there can make the DHT recycle sequencers: it keeps at most
- * 64 (LWS_DHT_MAX_TS), and making one more destroys the least recently used.
- * This checks the sequencer calling back is never the one destroyed, and
- * nothing uses it after the callback if it could have been (G-181):
+ * consumer does there can make the DHT want more sequencers than it keeps:
+ * at most 64 (LWS_DHT_MAX_TS), recycling only ones nothing is using (G-496).
+ * This checks the sequencer calling back counts as in use, so it is never
+ * the one destroyed, and nothing uses it after the callback if it could have
+ * been (G-181):
  *
  *  - a plain UDP socket Q sends DHT B a chunk with the verb "FAN".  B's
- *    handler for it sends to 64 endpoints B has no sequencer for, so B
- *    makes 64, which is enough to recycle every sequencer it had, including
- *    the one delivering Q's chunk.  B must not free that one under its own
- *    delivery: Q's chunk is acked with Q's tid and its full length
+ *    handler for it sends to 64 endpoints B has no sequencer for.  B makes
+ *    63, and refuses the last: the 64th sequencer is the one delivering Q's
+ *    chunk, which B must not free under its own delivery.  Q's chunk is
+ *    acked with Q's tid and its full length
  *
- *  - none of those 64 endpoints answer, so B's sends to them fail.  When
- *    the first one is reported failed, B's event callback sends to 64 more
- *    new endpoints.  The sequencer reporting its failure must survive that,
- *    to be destroyed once, by the DHT, after the callback
+ *  - none of those 63 endpoints answer, so B's sends to them fail.  When
+ *    the last one is reported failed, B's event callback sends to 64 more
+ *    new endpoints.  B makes 62: the other two are Q's, whose proven session
+ *    is in use, and the one reporting its failure, which must survive the
+ *    callback, to be destroyed once, by the DHT, after it
  *
  * Run under ASan, the old behaviour shows as a heap use-after-free (or a
  * double free) inside the DHT.
@@ -62,7 +64,7 @@
 #define SR_POLL_US	(50 * LWS_US_PER_MS)
 #define SR_DEADLINE_US	(15 * LWS_US_PER_SEC)
 
-/* LWS_DHT_MAX_TS: enough new sequencers to recycle every one B has */
+/* LWS_DHT_MAX_TS: more new sequencers than B has room for */
 #define SR_FANOUT	64
 /* polls to let the second fan-out's sequencers fail and be destroyed */
 #define SR_SETTLE_POLLS	40
@@ -103,7 +105,7 @@ static struct {
 	unsigned int	q_bad:1;	/* ...or acked something else */
 	unsigned int	q_ch_set:1;	/* B challenged Q's chunk */
 	uint8_t		q_ch[SR_CH_LEN];
-	unsigned int	failed:1;	/* a fan-out send was reported failed */
+	int		failed;		/* first fan-out sends reported failed */
 
 	int		r_state;
 	lws_usec_t	r_t;
@@ -207,6 +209,8 @@ cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
      const void *data, size_t data_len, const struct sockaddr *from,
      size_t fromlen)
 {
+	const struct sockaddr_in *sin;
+
 	if (event == LWS_DHT_EVENT_WRITE_COMPLETED && from &&
 	    from->sa_family == AF_INET &&
 	    ((const struct sockaddr_in *)from)->sin_port == sa_r.sin_port) {
@@ -214,11 +218,15 @@ cb_b(void *closure, int event, const lws_dht_hash_t *info_hash,
 		return;
 	}
 
-	if (event != LWS_DHT_EVENT_WRITE_FAILED || sr.failed)
+	sin = (const struct sockaddr_in *)from;
+	if (event != LWS_DHT_EVENT_WRITE_FAILED || !from ||
+	    from->sa_family != AF_INET ||
+	    sin->sin_port != htons((uint16_t)port_fan) ||
+	    (ntohl(sin->sin_addr.s_addr) & 0xffffff00) != 0x7f000000 ||
+	    ++sr.failed != sr.fanned)
 		return;
 
-	/* the first fan-out send has failed: fan out again from here */
-	sr.failed = 1;
+	/* the last of the first fan-out has failed: fan out again from here */
 	sr.fanned2 = sr_fanout(dht_b, 1);
 }
 
@@ -800,7 +808,7 @@ int main(int argc, const char **argv)
 	while (n >= 0)
 		n = lws_service(cx, 0);
 
-	if (sr.fanned != SR_FANOUT) {
+	if (sr.fanned != SR_FANOUT - 1) {
 		lwsl_err("B's FAN handler sent to %d of %d\n", sr.fanned,
 			 SR_FANOUT);
 		retcode = 1;
@@ -809,7 +817,7 @@ int main(int argc, const char **argv)
 		lwsl_err("B did not ack Q's FAN chunk properly\n");
 		retcode = 1;
 	}
-	if (sr.fanned2 != SR_FANOUT) {
+	if (sr.fanned2 != SR_FANOUT - 2) {
 		lwsl_err("B's WRITE_FAILED handler sent to %d of %d\n",
 			 sr.fanned2, SR_FANOUT);
 		retcode = 1;

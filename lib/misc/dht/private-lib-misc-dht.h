@@ -84,6 +84,8 @@
  * can create one, so this is what bounds that memory.
  */
 #define LWS_DHT_MAX_TS			64
+/* proven receive sessions one source host may hold in that table (G-496) */
+#define LWS_DHT_TS_SESSIONS_PER_HOST	4
 /*
  * per storage object: cap subscribers, the subscribers from one source (see
  * dht_source_key()), and peers announced by one source ip
@@ -684,6 +686,7 @@ struct lws_transport_sequencer * lws_dht_ts_rx(struct lws_dht_ctx *ctx, const st
 lws_dht_ts_t * lws_dht_ts_find(struct lws_dht_ctx *ctx, const struct sockaddr *sa);
 void lws_dht_ts_touch(lws_dht_ts_t *dts);
 void lws_dht_ts_fail(lws_dht_ts_t *dts);
+int lws_dht_ts_host_may_prove(lws_dht_ts_t *dts);
 int dht_tx_challenge(lws_dht_ts_t *dts, const uint8_t *tid, size_t tid_len);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);

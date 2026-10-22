@@ -20,6 +20,7 @@ api-test-srtp|SRTP / SRTCP (`-DLWS_WITH_WEBRTC=1`): session key derivation match
 api-test-jose|LWS JOSE apis
 api-test-dnssec-monitor-reissue|dnssec-monitor proxy's per-cert "Force reissue": answered locally, reaches LWSSMDCL_CERTS as the documented message, non-DNS names and fqdns outside the domain refused
 api-test-dht-msg-parse|DHT RPC wire message parser, incl. hash token charset and NOTIFY domain-name gates
+api-test-dht-seq-flood|A flood of forged first data chunks fills the DHT's 64 sequencers but never destroys one in use: a queued message to a peer survives it and completes; when all 64 hold unacked messages a 65th peer is refused, and each of the 64 reports WRITE_FAILED (G-496)
 api-test-auth-dns-dnsbl|auth-dns plugin DNSBL pending-query lifetimes (F-054): late resolver replies and client disconnects vs the 5s dnsbl timeout
 api-test-auth-dns-zonedir|auth-dns plugin local zone-dir trust policy (F-055): missing pvo / world-writable / symlinked dirs and foreign-uid or wrong-shape zone files refused
 api-test-auth-dns-glue|auth-dns plugin zone lookups by owner name (G-288): a referral to a 100-NS cut in a zone of 4000+ RRsets carries all its glue for a few compares per NS RR, and owner lookups are a few compares each

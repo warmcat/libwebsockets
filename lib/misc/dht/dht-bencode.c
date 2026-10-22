@@ -1075,6 +1075,19 @@ dht_seq_data(struct lws_dht_ctx *ctx, const struct lws_dht_mparams *mp,
 			return;
 		}
 
+		/*
+		 * A new session from a host that has its share already: a
+		 * replacement for one it has is fine, but a host can't prove
+		 * sessions on any number of ports to keep the table (G-496)
+		 */
+		if (!dts->rx_tid_len && !lws_dht_ts_host_may_prove(dts)) {
+			lwsl_dht_rx_warn("%s: its host has %d sessions "
+					 "already, refused\n", __func__,
+					 LWS_DHT_TS_SESSIONS_PER_HOST);
+			ctx->stats_current.rx_drops++;
+			return;
+		}
+
 		lwsl_dht_rx_warn("%s: %s proved a %s session, its chunk at "
 				 "%llu\n", __func__, dts->peer,
 				 dts->rx_tid_len ? "new" : "first",
