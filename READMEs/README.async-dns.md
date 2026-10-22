@@ -132,8 +132,10 @@ it can't see has to be guessed (RFC 5452):
 
 The number of sockets is bounded, so a flood of lookups can't use up the fds:
 up to the fds table size / 16 (at least 2, at most 32) are opened before
-queries start sharing the least used socket to their nameserver, and no socket
-is shared by more than 16 queries in its life.  A context sized for a small
+queries start sharing the least used socket to their nameserver.  A socket
+that has taken 16 queries in its life is passed over while there is another,
+so the ports keep turning over, but a lookup is never refused because every
+socket has: it shares the least used one.  A context sized for a small
 client (`lws_context_info_defaults()`) gets the 2 its fds table reserves for
 the resolver (`LWS_FD_LIMIT_INTERNAL_ADNS`), a server sized to the process fd
 limit gets 32.  When no new socket can be opened, eg, the process is out of

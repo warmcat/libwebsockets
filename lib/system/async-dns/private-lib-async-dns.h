@@ -130,10 +130,12 @@ typedef struct lws_adns_cache {
  * Each query gets a socket of its own while fewer than lws_adns_socks_max()
  * are open, which is sized from the fds table, so we can't be made to use up
  * the fds.  Past that, a query shares the least used socket to its
- * nameserver, but no socket takes more than LWS_ADNS_SOCK_MAX_USES queries in
- * its life, so a port doesn't stay in use for long even under load.  A
- * nameserver with no socket at all may always have one, so there are never
- * more than lws_adns_socks_max() plus one per nameserver.
+ * nameserver that has taken fewer than LWS_ADNS_SOCK_MAX_USES queries in its
+ * life, so ports keep turning over under load; when every socket has, the
+ * least used one regardless, since a query is never failed for want of a
+ * socket we already have.  A nameserver with no socket at all may always
+ * have one, so there are never more than lws_adns_socks_max() plus one per
+ * nameserver.
  *
  * An answer is only taken on the socket its query asked from: it must match
  * the port, the tid and the question.

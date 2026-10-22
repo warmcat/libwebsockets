@@ -626,6 +626,12 @@ bail:
  * only taken on the socket its query asked from, so none of these may be
  * believed, and the real answers that follow must all be.
  *
+ * The burst leg (G-404) asks many more distinct lookups at once than a
+ * client's small fds table has resolver sockets for, times the queries a
+ * socket takes before we would rather it closed: all of them must be asked
+ * and answered, sharing the sockets, where the ones past that used to fail
+ * at once.
+ *
  * This is a unit test of our own filtering against sockets we own on
  * loopback; nothing leaves the machine.
  */
@@ -638,7 +644,8 @@ bail:
 #define SC_TTL0_TICKS		4	/* < the 300ms first async-dns retry */
 #define SC_TID_NAMES		16	/* address lookups in the tid leg */
 #define SC_PORT_NAMES		8	/* address lookups in the port leg */
-#define SC_MAX_QUERIES		(SC_TID_NAMES * 2 + 8)
+#define SC_BURST_NAMES		64	/* address lookups in the burst leg */
+#define SC_MAX_QUERIES		(SC_BURST_NAMES * 4)
 
 /* the fake nameserver's answer, and the one the foreign socket tries */
 
@@ -664,6 +671,7 @@ enum {
 	SC_MODE_WRONGQ,
 	SC_MODE_TIDS,
 	SC_MODE_PORTS,
+	SC_MODE_BURST,
 };
 
 static int sc_fail, sc_mode, sc_done;
@@ -1161,6 +1169,9 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 			break;
 		}
 
+		if (sc_mode == SC_MODE_BURST && sc_qs < SC_BURST_NAMES)
+			break;
+
 		if (sc_mode != SC_MODE_FOREIGN) {
 			sc_phase = 2;
 			break;
@@ -1189,7 +1200,9 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 	case 2: /* the nameserver we actually asked answers */
 		sc_answer_all(sc_fd, sc_ads_good, 0, 60, 1);
 		if (sc_resolved && (sc_mode != SC_MODE_PORTS ||
-				    sc_completions == SC_PORT_NAMES)) {
+				    sc_completions == SC_PORT_NAMES) &&
+		    (sc_mode != SC_MODE_BURST ||
+		     sc_completions == SC_BURST_NAMES)) {
 			sc_done = 1;
 			lws_default_loop_exit(sc_cx);
 		}
@@ -1215,7 +1228,7 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 
 static const char * const sc_mode_names[] = {
 	"plain", "foreign answer", "ttl 0 expiry", "wrong question", "tids",
-	"source ports"
+	"source ports", "burst"
 };
 
 static void
@@ -1284,13 +1297,16 @@ sc_run(int mode)
 
 	{
 		int n, nq = mode == SC_MODE_TIDS ? SC_TID_NAMES :
-			    (mode == SC_MODE_PORTS ? SC_PORT_NAMES : 1);
+			    (mode == SC_MODE_PORTS ? SC_PORT_NAMES :
+			     (mode == SC_MODE_BURST ? SC_BURST_NAMES : 1));
 		char name[64];
 
 		for (n = 0; n < nq; n++) {
-			if (mode == SC_MODE_TIDS || mode == SC_MODE_PORTS)
+			if (mode == SC_MODE_TIDS || mode == SC_MODE_PORTS ||
+			    mode == SC_MODE_BURST)
 				lws_snprintf(name, sizeof(name), "%c%d.%s",
-					     mode == SC_MODE_TIDS ? 't' : 'p',
+					     mode == SC_MODE_TIDS ? 't' :
+					     (mode == SC_MODE_PORTS ? 'p' : 'b'),
 					     n, SC_NAME);
 			else
 				lws_strncpy(name, SC_NAME, sizeof(name));
@@ -1346,6 +1362,10 @@ bail:
 	} else if (mode == SC_MODE_PORTS && sc_completions != SC_PORT_NAMES) {
 		lwsl_err("%s: %d of %d lookups completed\n", __func__,
 			 sc_completions, SC_PORT_NAMES);
+		sc_fail++;
+	} else if (mode == SC_MODE_BURST && sc_completions != SC_BURST_NAMES) {
+		lwsl_err("%s: %d of %d lookups completed\n", __func__,
+			 sc_completions, SC_BURST_NAMES);
 		sc_fail++;
 	} else if (sc_bad_ads) {
 		lwsl_err("%s: query completed without the nameserver's "
@@ -2629,6 +2649,13 @@ main(int argc, const char **argv)
 		 */
 
 		sc_run(SC_MODE_PORTS);
+
+		/*
+		 * G-404: a burst of lookups past what the sockets would
+		 * rather take shares them, instead of failing
+		 */
+
+		sc_run(SC_MODE_BURST);
 
 		/*
 		 * A cache entry whose TTL runs out while its query still

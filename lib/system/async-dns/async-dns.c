@@ -212,36 +212,41 @@ lws_adns_sock_create(struct lws_context *cx, lws_async_dns_server_t *dsrv)
 
 /*
  * A socket to ask dsrv from: a new one if we may open another, else the
- * least used one to dsrv that may take another query
+ * least used one to dsrv that may still take queries, else, rather than fail
+ * the query, the least used one to dsrv at all.  The use cap only rotates the
+ * ports while we can: it's no reason to refuse a lookup, which would let
+ * whoever can make us do lookups, eg, by spoofing sources for the DNSBL
+ * checks, fail everybody else's.  Only when there is no socket to dsrv and
+ * none can be opened, eg, we are out of fds, is there nothing to ask from.
  */
 
 static lws_adns_sock_t *
 lws_adns_sock_get(struct lws_context *cx, lws_async_dns_server_t *dsrv)
 {
 	lws_async_dns_t *dns = &cx->async_dns;
-	lws_adns_sock_t *s, *share = NULL;
-	int any = 0;
+	lws_adns_sock_t *s, *fresh = NULL, *least = NULL;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&dns->socks)) {
 		s = lws_container_of(d, lws_adns_sock_t, list);
 
 		if (s->dsrv == dsrv && !s->adopting) {
-			any = 1;
+			if (!least || s->users < least->users)
+				least = s;
 			if (s->uses < LWS_ADNS_SOCK_MAX_USES &&
-			    (!share || s->users < share->users))
-				share = s;
+			    (!fresh || s->users < fresh->users))
+				fresh = s;
 		}
 	} lws_end_foreach_dll(d);
 
-	if (!any || lws_dll2_count(&dns->socks) < lws_adns_socks_max(cx)) {
+	if (!least || lws_dll2_count(&dns->socks) < lws_adns_socks_max(cx)) {
 		s = lws_adns_sock_create(cx, dsrv);
 		if (s)
 			return s;
 		/* eg, we are out of fds: one we already have will do */
 	}
 
-	return share;
+	return fresh ? fresh : least;
 }
 
 static int
