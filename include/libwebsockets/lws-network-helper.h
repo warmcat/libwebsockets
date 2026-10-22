@@ -133,7 +133,6 @@ lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen);
 #define LWS_ITOSA_BUSY		-3 /* only returned by lws_socket_bind() on
 					EADDRINUSE */
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 /**
  * lws_interface_to_sa() - Convert interface name or IP to sockaddr struct
  *
@@ -157,11 +156,14 @@ lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen);
  * If the interfaces can't be listed (eg, the process is out of fds), a
  * numeric address is still converted, but an interface name reads as
  * LWS_ITOSA_NOT_EXIST, since it may be there when asked again later.
+ *
+ * On FreeRTOS, interface names are lwIP's, eg "st1" or "ap2" (as
+ * netif_find() takes them).  OP-TEE has no interfaces to look up, so it
+ * always returns LWS_ITOSA_NOT_EXIST, and a vhost iface there fails.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen);
-#endif
 
 /**
  * lws_sa46_compare_ads() - checks if two sa46 have the same address

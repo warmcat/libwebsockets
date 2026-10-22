@@ -24,6 +24,7 @@
 
 #include "private-lib-core.h"
 #include <errno.h>
+#include <lwip/netif.h>
 #if defined(LWS_WITH_MBEDTLS)
 #if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS) || defined(LWS_HAVE_MBEDTLS_V4)
 /* net_sockets.h carries mbedtls_net_context + MBEDTLS_ERR_NET_* even when
@@ -221,83 +222,123 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 	return ret;
 }
 
-/* cast a struct sockaddr_in6 * into addr for ipv6 */
+/*
+ * cast a struct sockaddr_in6 * into addr for ipv6
+ *
+ * ifname is an lwIP interface name like "st1" or "ap2" (two letters and the
+ * netif number), or a numeric address.  We only write addr and return
+ * LWS_ITOSA_USABLE when we found an address to write: callers prefill addr
+ * with the wildcard, and a vhost restricted to an iface must never listen
+ * on every interface because we couldn't resolve it.
+ */
 
 int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen)
 {
-#if 0
 	int rc = LWS_ITOSA_NOT_EXIST;
+	lws_sockaddr46 sa46;
+	struct netif *nif;
+	size_t n;
 
-	struct ifaddrs *ifr;
-	struct ifaddrs *ifc;
-#ifdef LWS_WITH_IPV6
-	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
+	/*
+	 * Like freertos-sysinfo.c and lws_get_addr_scope(), we read lwIP's
+	 * interface list from outside the tcpip thread; an interface coming
+	 * or going during the walk is a race of lwIP's own design here
+	 */
+
+	nif = netif_find(ifname);
+	if (nif) {
+		/* the interface exists, but may have no address we can use */
+		rc = LWS_ITOSA_NOT_USABLE;
+
+#if defined(LWS_WITH_IPV6) && LWIP_IPV6
+		if (ipv6 && addrlen >= sizeof(struct sockaddr_in6)) {
+			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
+			int i;
+
+			/* as on unix, its first IPv6 address is preferred */
+
+			for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++)
+				if (ip6_addr_isvalid(netif_ip6_addr_state(nif, i))) {
+					memcpy(&addr6->sin6_addr,
+					       netif_ip6_addr(nif, i)->addr, 16);
+
+					return LWS_ITOSA_USABLE;
+				}
+		}
 #endif
-
-	getifaddrs(&ifr);
-	for (ifc = ifr; ifc != NULL && rc; ifc = ifc->ifa_next) {
-		if (!ifc->ifa_addr)
-			continue;
-
-		lwsl_info(" interface %s vs %s\n", ifc->ifa_name, ifname);
-
-		if (strcmp(ifc->ifa_name, ifname))
-			continue;
-
-		switch (ifc->ifa_addr->sa_family) {
 #if defined(LWS_WITH_IPV4)
-		case AF_INET:
-#ifdef LWS_WITH_IPV6
+		if (!ip4_addr_isany(netif_ip4_addr(nif))) {
+			uint32_t a4 = ip4_addr_get_u32(netif_ip4_addr(nif));
+
+#if defined(LWS_WITH_IPV6)
 			if (ipv6) {
+				struct sockaddr_in6 *addr6 =
+						(struct sockaddr_in6 *)addr;
+
+				if (addrlen < sizeof(struct sockaddr_in6))
+					return rc;
+
 				/* map IPv4 to IPv6 */
-				memset((char *)&addr6->sin6_addr, 0,
-						sizeof(struct in6_addr));
+				memset(&addr6->sin6_addr, 0,
+				       sizeof(addr6->sin6_addr));
 				addr6->sin6_addr.s6_addr[10] = 0xff;
 				addr6->sin6_addr.s6_addr[11] = 0xff;
-				memcpy(&addr6->sin6_addr.s6_addr[12],
-					&((struct sockaddr_in *)ifc->ifa_addr)->sin_addr,
-							sizeof(struct in_addr));
-			} else
+				memcpy(&addr6->sin6_addr.s6_addr[12], &a4, 4);
+
+				return LWS_ITOSA_USABLE;
+			}
 #endif
-				memcpy(addr,
-					(struct sockaddr_in *)ifc->ifa_addr,
-						    sizeof(struct sockaddr_in));
-			break;
-#endif
-#ifdef LWS_WITH_IPV6
-		case AF_INET6:
-			memcpy(&addr6->sin6_addr,
-			  &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
-						       sizeof(struct in6_addr));
-			break;
-#endif
-		default:
-			continue;
+			if (addrlen < sizeof(struct sockaddr_in))
+				return rc;
+
+			addr->sin_family = AF_INET;
+			addr->sin_addr.s_addr = a4;
+
+			return LWS_ITOSA_USABLE;
 		}
-		rc = LWS_ITOSA_USABLE;
+#endif
+
+		return rc;
 	}
 
-	freeifaddrs(ifr);
+	/*
+	 * Not an interface name, it may be a numeric address
+	 */
 
-	if (rc == LWS_ITOSA_NOT_EXIST) {
-		/* check if bind to IP address */
-#ifdef LWS_WITH_IPV6
-		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
-			rc = LWS_ITOSA_USABLE;
-		else
-#endif
-#if defined(LWS_WITH_IPV4)
-		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
-			rc = LWS_ITOSA_USABLE;
-#endif
+	if (lws_sa46_parse_numeric_address(ifname, &sa46))
+		return LWS_ITOSA_NOT_EXIST;
+
+#if defined(LWS_WITH_IPV6) && defined(LWS_WITH_IPV4)
+	if (ipv6 && sa46.sa4.sin_family == AF_INET) {
+		struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
+
+		if (addrlen < sizeof(struct sockaddr_in6))
+			return LWS_ITOSA_NOT_USABLE;
+
+		/* map IPv4 to IPv6 */
+		memset(&addr6->sin6_addr, 0, sizeof(addr6->sin6_addr));
+		addr6->sin6_addr.s6_addr[10] = 0xff;
+		addr6->sin6_addr.s6_addr[11] = 0xff;
+		memcpy(&addr6->sin6_addr.s6_addr[12], &sa46.sa4.sin_addr, 4);
+
+		return LWS_ITOSA_USABLE;
 	}
-
-	return rc;
 #endif
 
-	return LWS_ITOSA_NOT_EXIST;
+	/*
+	 * The caller's buffer may be a 16-byte struct sockaddr_in, and an IPv6
+	 * address can't be bound by the IPv4 listener
+	 */
+
+	n = (size_t)sa46_socklen(&sa46);
+	if (n > addrlen || (!ipv6 && sa46.sa4.sin_family != AF_INET))
+		return LWS_ITOSA_NOT_USABLE;
+
+	memcpy(addr, &sa46, n);
+
+	return LWS_ITOSA_USABLE;
 }
 
 const char *

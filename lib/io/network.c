@@ -106,7 +106,6 @@ lws_errno_describe(int en, char *result, size_t len)
 #endif
 }
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 static int
 interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen, int allow_ipv6)
@@ -120,7 +119,6 @@ interface_to_sa(struct lws_vhost *vh, const char *ifname,
 
 	return lws_interface_to_sa(ipv6, ifname, addr, addrlen);
 }
-#endif
 
 #ifndef LWS_PLAT_OPTEE
 static int
@@ -412,10 +410,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #ifndef LWS_PLAT_OPTEE
 	socklen_t len = sizeof(struct sockaddr_storage);
 #endif
-	int n = 0;
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
-	int m;
-#endif
+	int n = 0, m;
 	struct sockaddr_storage sin, *psin = &sin;
 	struct sockaddr *v;
 
@@ -453,17 +448,6 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		break;
 #endif
 #if defined(LWS_WITH_IPV6)
-#if defined(LWS_PLAT_FREERTOS)
-	case AF_INET6:
-		v = (struct sockaddr *)&serv_addr6;
-		n = sizeof(struct sockaddr_in6);
-		memset(&serv_addr6, 0, sizeof(serv_addr6));
-		serv_addr6.sin6_family = AF_INET6;
-		serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
-		if (iface)
-			serv_addr6.sin6_scope_id = (uint32_t)lws_get_addr_scope(wsi, iface);
-		break;
-#else
 	case AF_INET6:
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
@@ -483,13 +467,17 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 						   iface);
 				return m;
 			}
+#if defined(LWS_PLAT_FREERTOS)
+			serv_addr6.sin6_scope_id = (uint32_t)
+					lws_get_addr_scope(wsi, iface);
+#else
 			serv_addr6.sin6_scope_id = (unsigned int)htonl((uint32_t)
 					lws_get_addr_scope(wsi, iface));
+#endif
 		}
 
 		serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
 		break;
-#endif
 #endif
 
 #if defined(LWS_WITH_IPV4)
@@ -500,9 +488,13 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 		if (iface) {
-		    m = interface_to_sa(vhost, iface,
+			/*
+			 * Every platform must apply iface or fail: binding the
+			 * wildcard would listen on all the interfaces the
+			 * vhost was restricted away from
+			 */
+			m = interface_to_sa(vhost, iface,
 				    (struct sockaddr_in *)v, (unsigned int)n, 0);
 			if (m == LWS_ITOSA_NOT_USABLE) {
 				lwsl_wsi_info(wsi, "netif %s: Not usable",
@@ -515,7 +507,6 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 				return m;
 			}
 		}
-#endif
 		serv_addr4.sin_port = htons((uint16_t)(unsigned int)port);
 		break;
 #endif
