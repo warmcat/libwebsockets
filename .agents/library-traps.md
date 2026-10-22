@@ -466,6 +466,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## QUIC io state
 
+ - **Resource bounds must be per connection, not per pass or per frame**:
+   h2 and QUIC both let a peer reset streams and get new ones dispatched
+   indefinitely (G-646, G-647: QUIC raises `max_streams_bidi_local` at
+   close and checks against that, not the advertised limit), and QUIC ACK
+   processing is O(ranges x in_flight) per datagram (G-648).  A packet
+   whose first frame has its own destination leaves `needs_ack` set and
+   bypasses congestion control (G-649).
  - When a QUIC connection moves to a new wsi on ALPN negotiation (h3,
    lws-quic), only what `lws_io_udp_transfer_socket()` copies explicitly
    moves: any new per-connection io state (peer stack, relay port, relay
