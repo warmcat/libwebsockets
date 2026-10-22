@@ -124,6 +124,7 @@ static struct {
 	int		held;		/* peers proven */
 	struct {
 		uint64_t	off;	/* where the peer's next byte goes */
+		uint64_t	acked;	/* what B acked of its session */
 		uint8_t		proven;	/* B acked its first chunk */
 		uint8_t		gone;	/* B lost its session: quiet */
 		uint8_t		ch;	/* B challenged it */
@@ -339,6 +340,10 @@ fl_chunk(int i, const uint8_t *ch, int more)
 static void
 fl_peer_rx(int i, const uint8_t *buf, size_t len)
 {
+	uint64_t v = 0;
+	ssize_t at;
+	size_t n;
+
 	if (fl_find(buf, len, "d1:rd2:ch8:") == 0 &&
 	    len >= 11 + FL_CH_LEN) {
 		fl.p[i].ch = 1;
@@ -349,7 +354,17 @@ fl_peer_rx(int i, const uint8_t *buf, size_t len)
 		return;
 	}
 
-	if (fl_find(buf, len, "6:offseti4e") >= 0 && !fl.p[i].proven) {
+	at = fl_find(buf, len, "6:offseti");
+	if (at < 0)
+		return;
+	for (n = (size_t)at + 9; n < len && buf[n] >= '0' && buf[n] <= '9'; n++)
+		v = (v * 10) + (uint64_t)(buf[n] - '0');
+	if (n == len || buf[n] != 'e')
+		return;
+	if (v > fl.p[i].acked)
+		fl.p[i].acked = v;
+
+	if (v == 4 && !fl.p[i].proven) {
 		fl.p[i].proven = 1;
 		fl.p[i].off = 4;
 		fl.held++;
@@ -670,8 +685,15 @@ step(void)
 
 	case FL_TRICKLE:
 		/* every session has brought something new */
-		if (lws_now_usecs() - phase_time < 2 * FL_DUP_US)
-			return 0;
+		for (n = 0; n < FL_PEERS; n++)
+			if (fl.p[n].proven && !fl.p[n].gone &&
+			    fl.p[n].acked < 5) {
+				if (lws_now_usecs() - phase_time <
+							2 * LWS_US_PER_SEC)
+					return 0;
+				lwsl_err("peer %d's new data not acked\n", n);
+				return -1;
+			}
 		if (fl_chunk(FL_NC1, NULL, 0))
 			return -1;
 		phase_time = lws_now_usecs();
