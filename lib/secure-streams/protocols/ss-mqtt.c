@@ -546,7 +546,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	size_t buflen = sizeof(buf) - LWS_PRE;
 	lws_ss_metadata_t *omd = NULL;
 	const char *mdname = NULL;
-	char *sub_topic = NULL;
+	char *sub_topic = NULL, sub_from_outside = 0;
 	lws_strexp_t exp;
 	int f = 0;
 
@@ -751,6 +751,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			mdname = omd->name;
 			topic_len = omd->length;
+			sub_from_outside = (char)omd->value_from_outside;
 			sub_topic = NULL;
 
 			if (omd->value__may_own_heap && topic_len) {
@@ -768,6 +769,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					lws_free(sub_topic);
 					return -1;
 				}
+				/* the broker chose it */
+				omd->value_from_outside = 1;
 			} else
 				_lws_ss_set_metadata(omd, mdname, NULL, 0);
 		}
@@ -781,6 +784,9 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			    _lws_ss_alloc_set_metadata(omd, mdname, sub_topic,
 						       topic_len))
 				_lws_ss_set_metadata(omd, mdname, NULL, 0);
+			else if (sub_from_outside)
+				/* ...and that it came from outside */
+				omd->value_from_outside = 1;
 			lws_free(sub_topic);
 			sub_topic = NULL;
 		}

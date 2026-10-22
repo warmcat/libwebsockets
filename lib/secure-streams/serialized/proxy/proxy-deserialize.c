@@ -877,6 +877,8 @@ payload_ff_l:
 			_lws_ss_set_metadata(pm, pm->name, par->mdstage,
 					     (size_t)par->ctr);
 			pm->value_on_lws_heap = 1;
+			/* the proxy client chose it, not our own app */
+			pm->value_from_outside = 1;
 			par->mdstage = NULL;
 
 			/* metadata may be a credential: never log the value */

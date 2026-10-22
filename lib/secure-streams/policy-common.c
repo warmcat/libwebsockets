@@ -75,6 +75,8 @@ _lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
 	omd->name = name;
 	omd->value__may_own_heap = (void *)value;
 	omd->length = len;
+	/* a caller setting a value from outside the process marks it after */
+	omd->value_from_outside = 0;
 
 	return 0;
 }

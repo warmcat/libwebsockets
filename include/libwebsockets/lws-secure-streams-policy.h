@@ -185,6 +185,11 @@ typedef struct lws_ss_metadata {
 	uint8_t			name_on_lws_heap:1;  /* proxy metatadata does this */
 #endif
 	uint8_t			value_on_lws_heap:1; /* proxy + rx metadata does this */
+	uint8_t			value_from_outside:1;
+	/**< the value came from outside the process: an ss proxy client set
+	 * it, or it was captured from a response header.  It is used as
+	 * normal, except it may not make a ${} endpoint a file:// url or a
+	 * '+' unix socket address.  Setting it from the app clears it. */
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	uint8_t			pending_onward:1;
 #endif

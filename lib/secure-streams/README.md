@@ -278,6 +278,14 @@ define the endpoint as, eg, `${region}.mysite.com`, and before
 attempting the connection setting the stream's metadata item
 "region" to the desired value, eg, "uk".
 
+A metadata value that came from outside the process, ie, one an SS
+proxy client set, or one captured from a server's response header,
+fills in the endpoint like any other, but it can't make it a
+`file://` url or a `+` Unix Domain Socket address (below): such a
+connection attempt fails, unless the policy endpoint has the
+`file://` or `+` literally, before the first `${`.  Values the app
+set itself with `lws_ss_set_metadata()` are not restricted.
+
 If the endpoint string begins with `+`, then it's understood to
 mean a connection to a Unix Domain Socket, for Linux `+@` means
 the following Unix Domain Socket is in the Linux Abstract

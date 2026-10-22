@@ -834,6 +834,54 @@ disconn:
 }
 #endif
 
+/*
+ * Expanding ${metadata} into the endpoint, we also note if any value that
+ * went into it came from outside the process (an ss proxy client set it, or
+ * it was captured from a response header), rather than from our own app
+ */
+
+typedef struct lws_ss_ep_exp {
+	lws_ss_handle_t		*h;
+	char			from_outside;
+} lws_ss_ep_exp_t;
+
+static int
+lws_ss_exp_cb_endpoint(void *priv, const char *name, char *out, size_t *pos,
+		       size_t olen, size_t *exp_ofs)
+{
+	lws_ss_ep_exp_t *ee = (lws_ss_ep_exp_t *)priv;
+	lws_ss_metadata_t *hmd = lws_ss_get_handle_metadata(ee->h, name);
+
+	if (hmd && hmd->value_from_outside && hmd->length)
+		ee->from_outside = 1;
+
+	return lws_ss_exp_cb_metadata(ee->h, name, out, pos, olen, exp_ofs);
+}
+
+/*
+ * The offset in the expanded endpoint \p ep where the address we connect to
+ * starts: after the scheme's "://" (and an IPv6 literal's '[') when
+ * lws_parse_uri_create() split it up (\p parsed), else ep is used whole
+ */
+
+static size_t
+lws_ss_endpoint_host_ofs(const char *ep, int parsed)
+{
+	const char *p;
+	size_t ofs = 0;
+
+	if (!parsed)
+		return 0;
+
+	p = strstr(ep, "://");
+	if (p)
+		ofs = lws_ptr_diff_size_t(p, ep) + 3;
+	if (ep[ofs] == '[')
+		ofs++;
+
+	return ofs;
+}
+
 lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 {
@@ -846,6 +894,9 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	lws_ss_state_return_t r;
 	int port, tls, subst, n;
 	char *path, ep[LHP_URL_LEN];
+	lws_ss_ep_exp_t ee;
+	const char *dollar;
+	size_t lit = 0;
 	lws_strexp_t exp;
 	char inside_connect_prev;
 	struct lws *wsi;
@@ -905,10 +956,20 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	 * time, so this can be set dynamically...
 	 */
 
-	subst = h->policy->endpoint &&
-		strstr(h->policy->endpoint, "${") != NULL;
+	dollar = h->policy->endpoint ? strstr(h->policy->endpoint, "${") : NULL;
+	subst = !!dollar;
+	if (dollar)
+		/*
+		 * The expansion copies the policy's literal text before the
+		 * first ${ verbatim, so ep[0 .. lit) is what the policy author
+		 * wrote; anything at or after lit may have come from metadata
+		 */
+		lit = lws_ptr_diff_size_t(dollar, h->policy->endpoint);
 
-	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, ep, sizeof(ep));
+	ee.h = h;
+	ee.from_outside = 0;
+	lws_strexp_init(&exp, (void *)&ee, lws_ss_exp_cb_endpoint, ep,
+			sizeof(ep));
 
 	n = lws_strexp_expand(&exp, h->policy->endpoint,
 			      strlen(h->policy->endpoint),
@@ -962,6 +1023,28 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 			goto fail_out;
 		}
+	}
+
+	/*
+	 * A value from outside the process may fill in where in the network
+	 * the stream goes, but it may not take the stream out of the network:
+	 * the endpoint can't become a file:// url, or have a host starting
+	 * with '+' (a unix domain socket path, or with "+@" an abstract one),
+	 * unless the policy author wrote that literally, before the first ${.
+	 * It's the rule lws_client_retarget_allowed() applies to redirects.
+	 * Values our own app set are its business, eg, lhp setting the
+	 * __default streamtype's ${endpoint} to a file:// url.
+	 */
+
+	if (ee.from_outside && !strncmp(ep, "file://", 7) && lit < 7) {
+		lwsl_ss_warn(h, "refusing file:// from outside metadata");
+
+		/* UNREACHABLE is only legal after CONNECTING, as above */
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+		if (r)
+			return r;
+
+		goto fail_out;
 	}
 
 	/*
@@ -1031,6 +1114,20 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 			port = puri->port;
 			ipath = puri->path;
 		}
+	}
+
+	if (ee.from_outside && ads[0] == '+' &&
+	    lws_ss_endpoint_host_ofs(ep, !!puri) >= lit) {
+		lwsl_ss_warn(h, "refusing unix socket from outside metadata");
+		if (puri)
+			lws_parse_uri_destroy(&puri);
+
+		/* UNREACHABLE is only legal after CONNECTING, as above */
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+		if (r)
+			return r;
+
+		goto fail_out;
 	}
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
