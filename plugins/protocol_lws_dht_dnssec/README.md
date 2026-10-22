@@ -23,7 +23,7 @@ The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` D
 When a node needs a zone it does not hold (auth-dns asked for it, or a `NOTIFY` said there is a newer one), it sends `GET <zone hash>` and takes the zone from the first asked node whose `RSP` arrives; `RSP`s from any node that was not asked are refused.
 - Every node asked takes one of the DHT's 64 transport sequencers until it acknowledges, and uploads, other fetches and serial queries need them too, so a fetch asks at most 8 routing table nodes at a time (`LWS_DHT_DNSSEC_FETCH_FANOUT`), good ones and half from each address family first, plus the bootstrap target if one is configured.
 - If nobody has answered, each of its 3 retries, 15s apart, asks the next 8 nodes it has not asked yet, and the target again.  Once a node answers, nobody more is asked.
-- A node the DHT has no sequencer for at the moment (`LWS_DHT_SEND_REFUSED` or `LWS_DHT_SEND_BUSY`) is not counted as asked: it is asked again in an early round 4s later, at most 4 times per fetch.
+- A node the DHT has no sequencer for at the moment (`LWS_DHT_SEND_REFUSED` or `LWS_DHT_SEND_BUSY`) is not counted as asked: it is asked again in an early round 4s later, at most 4 times per fetch.  An early round only asks as many nodes as its full round could not, so a fetch asks at most 8 nodes and the target per 15s, and never more hosts than it can remember having asked.
 - A fetch of a zone with the same completion and opaque as one in progress joins it, and sends nothing more.
 - auth-dns starts a fetch for a DNS query only if its zone is not already being fetched, and at most 8 at once, then one per 500ms; a query over that is answered `REFUSED`, since DNS queries can come from forged sources.
 

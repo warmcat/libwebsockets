@@ -507,7 +507,10 @@ struct dht_fragment {
  * the bootstrap target, and asks the next few only on its retries.  A host
  * the DHT has no sequencer for now (LWS_DHT_SEND_REFUSED, or BUSY) was not
  * asked: it is asked again in an early round, after the DHT's grace for idle
- * sessions has had a chance to free some, a few times at most.
+ * sessions has had a chance to free some, a few times at most.  An early
+ * round only asks what is left of its full round's budget, so however many
+ * sends are refused, the full rounds together ask no more nodes than
+ * LWS_DHT_DNSSEC_FETCH_MAX_ASKED has room for (G-534).
  *
  * The hosts a fetch asked are the only ones whose RSP may open its transfer.
  */
@@ -532,9 +535,10 @@ struct lws_dht_dnssec_fetch_req {
 	lws_usec_t			next_retry; /* after any early rounds */
 	lws_sockaddr46			asked[LWS_DHT_DNSSEC_FETCH_MAX_ASKED];
 	uint8_t				asked_count;
-	uint8_t				asked_next; /* oldest, once full */
 	uint8_t				target_due; /* ask the target this round */
 	uint8_t				early_rounds;
+	/* routing table nodes the full round and its early ones may yet ask */
+	uint8_t				round_left;
 };
 
 enum {
@@ -1305,7 +1309,9 @@ dht_dnssec_find_fetch_req(struct vhd_dht_dnssec *vhd, const char *hash)
  * as the DHT counts them (lws_dht_same_host()), not an exact endpoint.
  *
  * Returns what lws_dht_send_data() did with it: unless it was queued, the
- * host was not asked, and is not noted.
+ * host was not asked, and is not noted.  A new host is not sent to at all
+ * once the list of hosts asked is full: a host taken off it could no longer
+ * answer (G-534).
  */
 
 static int
@@ -1329,25 +1335,27 @@ dht_dnssec_fetch_req_send(struct vhd_dht_dnssec *vhd,
 		return LWS_DHT_SEND_REFUSED;
 	}
 
-	r = lws_dht_send_data(vhd->dht, sa, buf, strlen(buf));
-	if (r != LWS_DHT_SEND_QUEUED)
-		return r;
-
 	for (n = 0; n < req->asked_count; n++)
 		if (lws_dht_same_host((const struct sockaddr *)&req->asked[n],
 				      sa))
-			return r;
+			break;
 
-	/* a new host: once full, it replaces the oldest */
-	if (req->asked_count < LWS_ARRAY_SIZE(req->asked))
-		n = req->asked_count++;
-	else {
-		n = req->asked_next;
-		req->asked_next = (uint8_t)((req->asked_next + 1) %
-					LWS_ARRAY_SIZE(req->asked));
+	if (n == req->asked_count &&
+	    req->asked_count >= LWS_ARRAY_SIZE(req->asked)) {
+		lwsl_warn("%s: fetch of %s asked as many hosts as it can\n",
+			  __func__, req->domain);
+
+		return LWS_DHT_SEND_REFUSED;
 	}
+
+	r = lws_dht_send_data(vhd->dht, sa, buf, strlen(buf));
+	if (r != LWS_DHT_SEND_QUEUED || n < req->asked_count)
+		return r;
+
+	/* a new host */
 	memset(&req->asked[n], 0, sizeof(req->asked[n]));
 	memcpy(&req->asked[n], sa, salen);
+	req->asked_count++;
 
 	return r;
 }
@@ -7100,7 +7108,8 @@ dht_dnssec_fetch_round_node_cb(void *user, const lws_dht_node_info_t *ni)
 {
 	struct dht_dnssec_fetch_round *r = (struct dht_dnssec_fetch_round *)user;
 
-	if (r->asked >= r->budget)
+	if (r->asked >= r->budget ||
+	    r->req->asked_count >= LWS_ARRAY_SIZE(r->req->asked))
 		return 1; /* stop */
 
 	/* good nodes in the first pass, the others in the second */
@@ -7119,10 +7128,12 @@ dht_dnssec_fetch_round_node_cb(void *user, const lws_dht_node_info_t *ni)
 
 /*
  * One round of a fetch: the bootstrap target if it is due, and the next
- * LWS_DHT_DNSSEC_FETCH_FANOUT routing table nodes no fetch of the zone asked
- * yet, good ones first, half from each address family first.  Once a node
- * answered, the transfer is under way and nobody more is asked.  Returns how
- * many could not be asked for now.
+ * routing table nodes no fetch of the zone asked yet, as many as are left of
+ * the full round's LWS_DHT_DNSSEC_FETCH_FANOUT (all of them in the full
+ * round, what refused sends left over in its early ones), good ones first,
+ * half from each address family first.  Once a node answered, the transfer
+ * is under way and nobody more is asked.  Returns how many could not be
+ * asked for now.
  */
 
 static int
@@ -7156,10 +7167,10 @@ dht_dnssec_fetch_round(struct vhd_dht_dnssec *v,
 	for (pass = 0; pass < 2; pass++) {
 		r.good = !pass;
 
-		r.budget = LWS_DHT_DNSSEC_FETCH_FANOUT / 2;
+		r.budget = req->round_left / 2;
 		lws_dht_foreach_node(v->dht, AF_INET,
 				     dht_dnssec_fetch_round_node_cb, &r);
-		r.budget = LWS_DHT_DNSSEC_FETCH_FANOUT;
+		r.budget = req->round_left;
 #if defined(LWS_WITH_IPV6)
 		lws_dht_foreach_node(v->dht, AF_INET6,
 				     dht_dnssec_fetch_round_node_cb, &r);
@@ -7167,6 +7178,8 @@ dht_dnssec_fetch_round(struct vhd_dht_dnssec *v,
 		lws_dht_foreach_node(v->dht, AF_INET,
 				     dht_dnssec_fetch_round_node_cb, &r);
 	}
+
+	req->round_left = (uint8_t)(req->round_left - r.asked);
 
 	if (!r.asked && !r.refused && req->target_due)
 		lwsl_notice("%s: no routing targets for GET %s\n", __func__,
@@ -7177,6 +7190,25 @@ dht_dnssec_fetch_round(struct vhd_dht_dnssec *v,
 
 static void
 dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul);
+
+static void
+dht_dnssec_fetch_req_schedule(struct lws_dht_dnssec_fetch_req *req,
+			      int refused);
+
+/*
+ * A full round of the fetch, its first or a retry: the target is due again,
+ * and LWS_DHT_DNSSEC_FETCH_FANOUT more routing table nodes, until the next
+ */
+
+static void
+dht_dnssec_fetch_full_round(struct vhd_dht_dnssec *v,
+			    struct lws_dht_dnssec_fetch_req *req)
+{
+	req->target_due = 1;
+	req->round_left = LWS_DHT_DNSSEC_FETCH_FANOUT;
+	req->next_retry = lws_now_usecs() + LWS_DHT_DNSSEC_FETCH_RETRY_US;
+	dht_dnssec_fetch_req_schedule(req, dht_dnssec_fetch_round(v, req));
+}
 
 /*
  * Arm the fetch's timer for its next full round (req->next_retry), or for an
@@ -7244,9 +7276,7 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 	lwsl_user("%s: Fetch req for %s timed out, retry %d/%d\n", __func__,
 		  req->domain, req->retries, LWS_DHT_DNSSEC_FETCH_RETRIES);
 
-	req->target_due = 1;
-	req->next_retry = lws_now_usecs() + LWS_DHT_DNSSEC_FETCH_RETRY_US;
-	dht_dnssec_fetch_req_schedule(req, dht_dnssec_fetch_round(vhd, req));
+	dht_dnssec_fetch_full_round(vhd, req);
 }
 
 /*
@@ -7357,9 +7387,7 @@ dht_dnssec_fetch_zone_start(struct lws_context *context,
 	 * With nobody to ask yet, the request stays, and its retries ask
 	 * whoever has appeared by then, rather than failing auth-dns at once
 	 */
-	req->target_due = 1;
-	req->next_retry = lws_now_usecs() + LWS_DHT_DNSSEC_FETCH_RETRY_US;
-	dht_dnssec_fetch_req_schedule(req, dht_dnssec_fetch_round(v, req));
+	dht_dnssec_fetch_full_round(v, req);
 
 	return 0;
 }

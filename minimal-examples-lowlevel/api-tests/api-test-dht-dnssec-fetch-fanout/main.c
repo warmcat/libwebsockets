@@ -22,6 +22,10 @@
  *  - another fetch also asks only LWS_DHT_DNSSEC_FETCH_FANOUT routing table
  *    nodes and the bootstrap target at first
  *  - its retries ask the next ones, never one it asked already
+ *  - an early round only asks what its full round has left to ask, so the
+ *    hosts a fetch asks over its life fit the list it keeps of them (G-534)
+ *  - and once that list is full, no new host is asked, rather than one asked
+ *    before being forgotten, and so refused when it answers
  */
 
 #include <libwebsockets.h>
@@ -317,6 +321,17 @@ main(int argc, const char **argv)
 		   "first round asks the fan-out's worth of nodes and the "
 		   "target");
 
+	/*
+	 * an early round before its retry is due asks nobody new: the round
+	 * already asked its fan-out's worth (G-534)
+	 */
+	n = req->asked_count;
+	dht_dnssec_sul_fetch_req_timeout(&req->sul_timeout);
+	lwsl_user("%s: after an early round, %d hosts asked\n", __func__,
+		  req->asked_count);
+	ffo_expect(!req->retries && req->asked_count == n,
+		   "an early round asks no more than its full round left");
+
 	/* its retry asks the next ones */
 
 	req->next_retry = 0;
@@ -335,6 +350,40 @@ main(int argc, const char **argv)
 		   req->asked_count == (nodes > 2 * LWS_DHT_DNSSEC_FETCH_FANOUT ?
 				3 * LWS_DHT_DNSSEC_FETCH_FANOUT : nodes) + 1,
 		   "a node asked before is not asked again");
+
+	/*
+	 * Fill the first fetch's list of hosts asked to the brim with others:
+	 * its next round must not ask anyone new, so every host it asked
+	 * before stays able to answer (G-534)
+	 */
+	req = dht_dnssec_find_fetch_req(vhd, FFO_HASH_B);
+	if (ffo_expect(req && req->asked_count, "first fetch still pending"))
+		goto bail;
+	{
+		lws_sockaddr46 was[LWS_DHT_DNSSEC_FETCH_MAX_ASKED];
+		int had = req->asked_count, ok = 1;
+
+		memcpy(was, req->asked, sizeof(was));
+		while (req->asked_count < LWS_DHT_DNSSEC_FETCH_MAX_ASKED) {
+			ffo_sa(&req->asked[req->asked_count], 3,
+			       (uint8_t)(1 + req->asked_count), dead);
+			req->asked_count++;
+		}
+
+		req->next_retry = 0;
+		dht_dnssec_sul_fetch_req_timeout(&req->sul_timeout);
+
+		for (n = 0; n < had; n++)
+			if (!dht_dnssec_fetch_asked(vhd, FFO_HASH_B,
+					(const struct sockaddr *)&was[n]))
+				ok = 0;
+		lwsl_user("%s: full list, after the retry: %d hosts asked\n",
+			  __func__, req->asked_count);
+		ffo_expect(req->retries == 1 && ok &&
+			   req->asked_count == LWS_DHT_DNSSEC_FETCH_MAX_ASKED,
+			   "with its list of hosts asked full, a fetch asks no "
+			   "new one, and forgets none it asked");
+	}
 
 bail:
 	lws_sul_cancel(&sul_tick);
