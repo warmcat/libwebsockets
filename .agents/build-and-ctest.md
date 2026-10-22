@@ -135,6 +135,8 @@
    turns are < 1ms): to catch a spin, add up the duration of the turns
    shorter than 1ms instead (489ms spinning vs 0-2ms idle over 500ms in
    api-test-proxy-v2-peer-limits).
+ - **api-test-proxy-v2-peer-limits needs `LWS_WITH_TLS_PASSTHROUGH`**:
+   without it every connection is dropped, which looks like a broken tree.
  - **Red-testing proxied clients:** api-test-client-proxy-redirect's
    proxy-fixture.py resolves with the platform libc, so an inet_aton-form
    host like `2130706433` really reaches the local origin through it.
