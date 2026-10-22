@@ -61,6 +61,9 @@ typedef char lhp_chunk_fits_value_len[LHP_STRING_CHUNK <= 0xffff ? 1 : -1];
  */
 #define LHP_MAX_ATR_PER_ELEM 64
 
+/* lhp_atr_idx_t counts them in a uint8_t */
+typedef char lhp_atr_idx_fits[LHP_MAX_ATR_PER_ELEM <= 0xff ? 1 : -1];
+
 enum {
 	/* html */
 
@@ -530,6 +533,7 @@ static void
 lhp_sib_free(lhp_sib_t *sib)
 {
 	lws_dll2_foreach_safe(&sib->atr, NULL, lhp_clean_atr);
+	lws_free(sib->atr_idx.a);
 	lws_dll2_remove(&sib->list);
 	lws_free(sib);
 }
@@ -567,6 +571,8 @@ lhp_clean_level(lhp_pstack_t *ps)
 				lws_dll2_remove(d);
 				lws_dll2_add_tail(d, &sib->atr);
 			}
+			sib->atr_idx = ps->atr_idx;
+			memset(&ps->atr_idx, 0, sizeof(ps->atr_idx));
 			lws_dll2_add_tail(&sib->list, &parent->sibs);
 			while (lws_dll2_count(&parent->sibs) > LHP_SIBLING_HISTORY)
 				lhp_sib_free(lws_container_of(
@@ -578,6 +584,7 @@ lhp_clean_level(lhp_pstack_t *ps)
 
 	lws_dll2_foreach_safe(&ps->sibs, NULL, lhp_clean_sib);
 	lws_dll2_foreach_safe(&ps->atr, NULL, lhp_clean_atr);
+	lws_free(ps->atr_idx.a);
 
 	{
 		lhp_ctx_t *ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t,
@@ -1512,6 +1519,50 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 	return lws_csp_px_base(a, ps, NULL);
 }
 
+/*
+ * The order of an element's attribute index: by name length, then by name
+ * ignoring case, which is how selectors compare attribute names
+ */
+
+static int
+lhp_atr_name_cmp(const char *n, size_t nl, const lhp_atr_t *at)
+{
+	if (nl != at->name_len)
+		return nl < at->name_len ? -1 : 1;
+
+	return strncasecmp(n, (const char *)&at[1], nl);
+}
+
+/*
+ * Add an attribute to its element's index, after any of the same name so the
+ * first one stays first.  The caller made room for it
+ */
+
+static void
+lhp_atr_idx_add(lhp_atr_idx_t *ai, const lhp_atr_t *a)
+{
+	unsigned int lo = 0, hi = ai->count;
+
+	if (!ai->tag) {
+		ai->tag = a;
+		return;
+	}
+
+	while (lo < hi) {
+		unsigned int mid = lo + (hi - lo) / 2;
+
+		if (lhp_atr_name_cmp((const char *)&a[1], a->name_len,
+				     ai->a[mid]) < 0)
+			hi = mid;
+		else
+			lo = mid + 1;
+	}
+
+	memmove(&ai->a[lo + 1], &ai->a[lo], (ai->count - lo) * sizeof(*ai->a));
+	ai->a[lo] = a;
+	ai->count++;
+}
+
 static lhp_atr_t *
 lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 {
@@ -1528,6 +1579,26 @@ lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 	if (lws_dll2_count(&ps->atr) >= LHP_MAX_ATR_PER_ELEM) {
 		lwsl_err("%s: too many attributes\n", __func__);
 		return NULL;
+	}
+
+	/*
+	 * Make room in the element's attribute index first, so that nothing
+	 * needs undoing after.  Each attribute but the tag has a slot, and
+	 * there are at most LHP_MAX_ATR_PER_ELEM of them
+	 */
+
+	if (ps->atr_idx.tag && ps->atr_idx.count == ps->atr_idx.alloc) {
+		unsigned int na = ps->atr_idx.alloc ?
+				  ps->atr_idx.alloc * 2u : 8u;
+		const lhp_atr_t **ia;
+
+		if (na > LHP_MAX_ATR_PER_ELEM)
+			na = LHP_MAX_ATR_PER_ELEM;
+		ia = lws_realloc(ps->atr_idx.a, na * sizeof(*ia), __func__);
+		if (!ia)
+			return NULL;
+		ps->atr_idx.a = ia;
+		ps->atr_idx.alloc = (uint8_t)na;
 	}
 
 	/* create the element name attribute */
@@ -1555,6 +1626,7 @@ lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 	*(((uint8_t *)&a[1]) + name_len) = '\0';
 	*(((uint8_t *)&a[1]) + name_len + 1 + value_len) = '\0';
 	lws_dll2_add_tail(&a->list, &ps->atr);
+	lhp_atr_idx_add(&ps->atr_idx, a);
 
 	ctx->npos = 0;
 
@@ -2144,24 +2216,46 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 const char *
 lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len);
 
-/* attribute lookup on an element's attribute list; the head is the tag */
+/*
+ * The state of one selector match: the steps it has left (see
+ * LHP_SEL_MATCH_BUDGET), and the ctx whose sel_work counts the work it does
+ */
+
+typedef struct lhp_selm {
+	lhp_ctx_t		*ctx;
+	int			budget;
+} lhp_selm_t;
+
+/*
+ * The value of an element's attribute, found by name ignoring case in the
+ * element's attribute index, a binary search
+ */
 
 static const char *
-lhp_atr_get(lws_dll2_owner_t *atr, const char *aname, size_t aname_len,
-	    int ci)
+lhp_atr_find(lhp_ctx_t *ctx, const lhp_atr_idx_t *ai, const char *aname,
+	     size_t aname_len)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(atr)) {
-		const lhp_atr_t *at = lws_container_of(p, lhp_atr_t, list);
-		const char *ats = (const char *)&at[1];
+	unsigned int lo = 0, hi = ai->count;
+	const lhp_atr_t *at;
 
-		if (p != lws_dll2_get_head(atr) && at->name_len == aname_len &&
-		    (ci ? !strncasecmp(ats, aname, aname_len) :
-			  !memcmp(ats, aname, aname_len)))
-			return ats + aname_len + 1;
+	while (lo < hi) {
+		unsigned int mid = lo + (hi - lo) / 2;
 
-	} lws_end_foreach_dll(p);
+		ctx->sel_work++;
+		if (lhp_atr_name_cmp(aname, aname_len, ai->a[mid]) <= 0)
+			hi = mid;
+		else
+			lo = mid + 1;
+	}
 
-	return NULL;
+	if (lo == ai->count)
+		return NULL;
+
+	at = ai->a[lo];
+	if (lhp_atr_name_cmp(aname, aname_len, at))
+		return NULL;
+
+	return (const char *)&at[1] + at->name_len + 1;
 }
 
 static int
@@ -2179,24 +2273,25 @@ lhp_ws(char c)
 }
 
 /*
- * A selector compound that scans an attribute value costs the selector match
+ * A simple selector that scans an attribute value costs the selector match
  * budget (see LHP_SEL_MATCH_BUDGET) a step for every LHP_SEL_SCAN_BYTES bytes
- * it may compare, on top of the step for the compound
+ * it may compare, on top of its own step
  */
 
 #define LHP_SEL_SCAN_BYTES		64
 
 static void
-lhp_sel_scan_cost(int *budget, size_t bytes)
+lhp_sel_scan_cost(lhp_selm_t *m, size_t bytes)
 {
-	*budget -= (int)(bytes / LHP_SEL_SCAN_BYTES);
+	m->budget -= (int)(bytes / LHP_SEL_SCAN_BYTES);
 }
 
 static int
-lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len,
-	      int *budget)
+lhp_has_class(lhp_selm_t *m, const lhp_atr_idx_t *el, const char *name,
+	      size_t name_len)
 {
-	const char *c = lhp_atr_get(atr, "class", 5, 1), *t, *start = c;
+	const char *c = lhp_atr_find(m->ctx, el, "class", 5), *t, *start = c;
+	int hit = 0;
 
 	if (!c)
 		return 0;
@@ -2212,22 +2307,20 @@ lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len,
 	 * one), so compare by length and never index past the token
 	 */
 
-	while (*c) {
+	while (*c && !hit) {
 		while (lhp_ws(*c))
 			c++;
 		t = c;
 		while (*c && !lhp_ws(*c))
 			c++;
-		if (c != t && (size_t)(c - t) == name_len &&
-		    !memcmp(t, name, name_len)) {
-			lhp_sel_scan_cost(budget, (size_t)(c - start));
-			return 1;
-		}
+		hit = c != t && (size_t)(c - t) == name_len &&
+		      !memcmp(t, name, name_len);
 	}
 
-	lhp_sel_scan_cost(budget, (size_t)(c - start));
+	m->ctx->sel_work += (size_t)(c - start);
+	lhp_sel_scan_cost(m, (size_t)(c - start));
 
-	return 0;
+	return hit;
 }
 
 /*
@@ -2281,8 +2374,8 @@ lhp_sel_ident(const char *p, const char *end, char *buf, size_t bl,
  */
 
 static int
-lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
-	      const char *end, int *budget);
+lhp_sel_match(lhp_selm_t *m, const lhp_atr_idx_t *el, lhp_pstack_t *parent,
+	      const char *sel, const char *end);
 
 /*
  * The descendant combinator makes selector matching backtrack over every
@@ -2298,11 +2391,25 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
  * one of its elements costs a bounded amount.  The user-agent and filter
  * selectors are trusted and don't draw on it, so a page cannot starve them.
  *
- * A step must be a bounded amount of work for that to hold: a compound that
- * scans an attribute value (a class, an id, [attr~=x], [attr*=x]) can
- * compare thousands of bytes, so it also costs a step for every
- * LHP_SEL_SCAN_BYTES bytes it may compare (lhp_sel_scan_cost()).  Every step
- * taken also counts in the document's ctx->cascade_ops.
+ * A step must be a bounded amount of work for that to hold, however long the
+ * selector and however many attributes the element has:
+ *
+ *  - lhp_sel_match() takes a step to find the rightmost compound (<= 127
+ *    chars of normalized selector text) and check its first simple
+ *    selector; each further simple selector of the compound takes a step of
+ *    its own (a compound can hold forty [a] or sixty .c, G-529)
+ *  - a simple selector finds an attribute, class or id by binary search in
+ *    the element's attribute index (lhp_atr_find(), <= 6 name compares for
+ *    LHP_MAX_ATR_PER_ELEM), never by walking the attributes
+ *  - one that scans an attribute value (a class, an id, [attr op x]) can
+ *    compare thousands of bytes, so it also costs a step for every
+ *    LHP_SEL_SCAN_BYTES bytes it may compare (lhp_sel_scan_cost(), G-523)
+ *  - a combinator reaches the next ancestor or sibling in O(1): a resolved
+ *    element keeps its parent element (lhp_parent_elem())
+ *
+ * Every step taken also counts in the document's ctx->cascade_ops, and the
+ * work itself, where it is done, in ctx->sel_work, so tests can check that a
+ * step stays a bounded amount of work rather than only counting steps.
  */
 #define LHP_SEL_MATCH_BUDGET		4096
 #define LHP_SEL_CASCADE_BUDGET		32768
@@ -2318,13 +2425,23 @@ typedef struct lhp_cls_tok {
 	uint32_t		h;
 } lhp_cls_tok_t;
 
-/* the parent element of a level: the nearest level above it with a tag */
+/*
+ * The parent element of a level: the nearest level above it with a tag.
+ * Levels without one (a malformed tag) can nest, so a resolved element keeps
+ * it rather than walking them for every selector step
+ */
 
 static lhp_pstack_t *
 lhp_parent_elem(lhp_pstack_t *ps)
 {
-	lws_dll2_t *d = ps ? lws_dll2_get_prev(&ps->list) : NULL;
+	lws_dll2_t *d;
 
+	if (!ps)
+		return NULL;
+	if (ps->css_resolved)
+		return ps->parent_elem;
+
+	d = lws_dll2_get_prev(&ps->list);
 	while (d) {
 		lhp_pstack_t *p = lws_container_of(d, lhp_pstack_t, list);
 
@@ -2339,8 +2456,8 @@ lhp_parent_elem(lhp_pstack_t *ps)
 /* [p, end) is a comma-separated selector list: does any match? */
 
 static int
-lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
-		   const char *p, const char *end, int *budget)
+lhp_sel_list_match(lhp_selm_t *m, const lhp_atr_idx_t *el,
+		   lhp_pstack_t *parent, const char *p, const char *end)
 {
 	while (p < end) {
 		const char *s = p, *e;
@@ -2360,7 +2477,7 @@ lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			s++;
 		while (e > s && e[-1] == ' ')
 			e--;
-		if (s < e && lhp_sel_match(atr, parent, s, e, budget))
+		if (s < e && lhp_sel_match(m, el, parent, s, e))
 			return 1;
 	}
 
@@ -2374,11 +2491,10 @@ lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
  */
 
 static int
-lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
-	       size_t nl, const char *arg, const char *aend, int *budget)
+lhp_sel_pseudo(lhp_selm_t *m, const lhp_atr_idx_t *el, lhp_pstack_t *parent,
+	       const char *n, size_t nl, const char *arg, const char *aend)
 {
-	const lhp_atr_t *ta = lws_container_of(lws_dll2_get_head(atr),
-					       lhp_atr_t, list);
+	const lhp_atr_t *ta = el->tag;
 	const char *tag = (const char *)&ta[1];
 
 	if (nl == 3 && !strncasecmp(n, "not", 3))
@@ -2386,22 +2502,22 @@ lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
 		 * An argument that ran out of budget did not really fail to
 		 * match: it must not invert into a match
 		 */
-		return arg && !lhp_sel_list_match(atr, parent, arg, aend,
-						  budget) && *budget >= 0;
+		return arg && !lhp_sel_list_match(m, el, parent, arg, aend) &&
+		       m->budget >= 0;
 
 	if ((nl == 2 && !strncasecmp(n, "is", 2)) ||
 	    (nl == 5 && !strncasecmp(n, "where", 5)))
-		return arg && lhp_sel_list_match(atr, parent, arg, aend, budget);
+		return arg && lhp_sel_list_match(m, el, parent, arg, aend);
 
 	if (nl == 7 && !strncasecmp(n, "checked", 7))
-		return lhp_atr_get(atr, "checked", 7, 1) != NULL ||
-		       lhp_atr_get(atr, "selected", 8, 1) != NULL;
+		return lhp_atr_find(m->ctx, el, "checked", 7) != NULL ||
+		       lhp_atr_find(m->ctx, el, "selected", 8) != NULL;
 
 	if (nl == 8 && !strncasecmp(n, "disabled", 8))
-		return lhp_atr_get(atr, "disabled", 8, 1) != NULL;
+		return lhp_atr_find(m->ctx, el, "disabled", 8) != NULL;
 
 	if (nl == 7 && !strncasecmp(n, "enabled", 7))
-		return lhp_atr_get(atr, "disabled", 8, 1) == NULL;
+		return lhp_atr_find(m->ctx, el, "disabled", 8) == NULL;
 
 	if (nl == 11 && !strncasecmp(n, "first-child", 11))
 		/* text between elements doesn't count in CSS either */
@@ -2413,7 +2529,7 @@ lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
 	if ((nl == 4 && !strncasecmp(n, "link", 4)) ||
 	    (nl == 9 && !strncasecmp(n, "any-link", 8)))
 		return ta->name_len == 1 && (*tag == 'a' || *tag == 'A') &&
-		       lhp_atr_get(atr, "href", 4, 1) != NULL;
+		       lhp_atr_find(m->ctx, el, "href", 4) != NULL;
 
 	/* hover, focus, active, visited, empty, nth-*, last-child, has,
 	 * before... none of these are matched */
@@ -2424,28 +2540,36 @@ lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
 /* does the subject match the compound selector [p, end) ? */
 
 static int
-lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
-		       const char *p, const char *end, int *budget)
+lhp_sel_match_compound(lhp_selm_t *m, const lhp_atr_idx_t *el,
+		       lhp_pstack_t *parent, const char *p, const char *end)
 {
-	const lhp_atr_t *ta;
-	const char *tag, *s, *v;
+	const char *tag, *s, *v, *start = p;
 	size_t tag_len;
 
-	if (lws_dll2_is_empty(atr))
+	if (!el->tag)
 		/* the document level: no element here */
 		return 0;
 
-	ta = lws_container_of(lws_dll2_get_head(atr), lhp_atr_t, list);
-	tag = (const char *)&ta[1];
-	tag_len = ta->name_len;
+	tag = (const char *)&el->tag[1];
+	tag_len = el->tag->name_len;
 
 	if (p >= end)
 		return 0;
 
 	while (p < end) {
-		if (*budget < 0)
+		/*
+		 * The step lhp_sel_match() took for the compound covers its
+		 * first simple selector, each one after that takes a step of
+		 * its own: a compound can hold forty [a] or .c, each a lookup
+		 * and maybe a scan, and a step must stay a bounded amount of
+		 * work however long the compound is
+		 */
+		if (p != start)
+			m->budget--;
+		if (m->budget < 0)
 			/* out of steps: the match won't be believed anyway */
 			return 0;
+		m->ctx->sel_work++;
 
 		switch (*p) {
 		case '*':
@@ -2458,7 +2582,7 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			size_t nl;
 
 			p += 1 + lhp_sel_ident(p + 1, end, nm, sizeof(nm), &nl);
-			if (!nl || !lhp_has_class(atr, nm, nl, budget))
+			if (!nl || !lhp_has_class(m, el, nm, nl))
 				return 0;
 			break;
 		}
@@ -2469,11 +2593,12 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			size_t nl, il;
 
 			p += 1 + lhp_sel_ident(p + 1, end, nm, sizeof(nm), &nl);
-			v = lhp_atr_get(atr, "id", 2, 1);
+			v = lhp_atr_find(m->ctx, el, "id", 2);
 			if (!nl || !v)
 				return 0;
 			il = strlen(v);
-			lhp_sel_scan_cost(budget, il);
+			m->ctx->sel_work += il;
+			lhp_sel_scan_cost(m, il);
 			if (il != nl || memcmp(v, nm, nl))
 				return 0;
 			break;
@@ -2517,14 +2642,15 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 				return 0;
 			p++;
 
-			v = lhp_atr_get(atr, an, anl, 1);
+			v = lhp_atr_find(m->ctx, el, an, anl);
 			if (!v)
 				return 0;
 			if (!op)
 				break;
 
 			vl = strlen(v);
-			lhp_sel_scan_cost(budget, vl);
+			m->ctx->sel_work += vl;
+			lhp_sel_scan_cost(m, vl);
 			switch (op) {
 			case '=':
 				if (vl != avl || memcmp(v, av, avl))
@@ -2555,6 +2681,7 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 				ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM |
 					   LWS_TOKENIZE_F_DOT_NONTERM;
 				do {
+					m->ctx->sel_work++;
 					ts.e = (int8_t)lws_tokenize(&ts);
 					if (ts.e == LWS_TOKZE_TOKEN &&
 					    ts.token_len == avl &&
@@ -2569,10 +2696,14 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 				if (!avl || vl < avl)
 					return 0;
 				/* each position may compare all of av */
-				lhp_sel_scan_cost(budget, (vl - avl + 1) * avl);
-				for (s = v; s + avl <= v + vl; s++)
+				lhp_sel_scan_cost(m, (vl - avl + 1) * avl);
+				if (m->budget < 0)
+					return 0;
+				for (s = v; s + avl <= v + vl; s++) {
+					m->ctx->sel_work += avl;
 					if (!memcmp(s, av, avl))
 						break;
+				}
 				if (s + avl > v + vl)
 					return 0;
 				break;
@@ -2612,8 +2743,7 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 					return 0;
 				aend = p - 1;
 			}
-			if (!lhp_sel_pseudo(atr, parent, n, nl, arg, aend,
-					    budget))
+			if (!lhp_sel_pseudo(m, el, parent, n, nl, arg, aend))
 				return 0;
 			break;
 		}
@@ -2667,15 +2797,16 @@ lhp_pseudo_elem_suffix(const char *sel, size_t len)
  */
 
 static int
-lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
-	      const char *end, int *budget)
+lhp_sel_match(lhp_selm_t *m, const lhp_atr_idx_t *el, lhp_pstack_t *parent,
+	      const char *sel, const char *end)
 {
 	const char *p = end;
 	char comb = 0;
 	int depth = 0;
 
-	if (--(*budget) < 0)
+	if (--m->budget < 0)
 		return 0;
+	m->ctx->sel_work++;
 
 	/* find the start of the rightmost compound selector */
 
@@ -2693,7 +2824,7 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 		p--;
 	}
 
-	if (!lhp_sel_match_compound(atr, parent, p, end, budget))
+	if (!lhp_sel_match_compound(m, el, parent, p, end))
 		return 0;
 
 	if (!comb)
@@ -2706,18 +2837,19 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 	switch (comb) {
 	case ' ': /* any ancestor */
 		while (parent) {
-			if (lhp_sel_match(&parent->atr, lhp_parent_elem(parent),
-					  sel, end, budget))
+			lhp_pstack_t *pp = lhp_parent_elem(parent);
+
+			if (lhp_sel_match(m, &parent->atr_idx, pp, sel, end))
 				return 1;
-			parent = lhp_parent_elem(parent);
+			parent = pp;
 		}
 		return 0;
 
 	case '>': /* the parent */
 		if (!parent)
 			return 0;
-		return lhp_sel_match(&parent->atr, lhp_parent_elem(parent),
-				     sel, end, budget);
+		return lhp_sel_match(m, &parent->atr_idx,
+				     lhp_parent_elem(parent), sel, end);
 
 	case '~': /* any earlier sibling we still remember */
 		if (!parent)
@@ -2726,7 +2858,7 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 					   lws_dll2_get_tail(&parent->sibs)) {
 			lhp_sib_t *sib = lws_container_of(d, lhp_sib_t, list);
 
-			if (lhp_sel_match(&sib->atr, parent, sel, end, budget))
+			if (lhp_sel_match(m, &sib->atr_idx, parent, sel, end))
 				return 1;
 		} lws_end_foreach_dll_back(d);
 		return 0;
@@ -2734,9 +2866,9 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 	case '+': /* the immediately preceding sibling */
 		if (!parent || !lws_dll2_get_tail(&parent->sibs))
 			return 0;
-		return lhp_sel_match(&lws_container_of(
+		return lhp_sel_match(m, &lws_container_of(
 				lws_dll2_get_tail(&parent->sibs),
-				lhp_sib_t, list)->atr, parent, sel, end, budget);
+				lhp_sib_t, list)->atr_idx, parent, sel, end);
 
 	default:
 		return 0;
@@ -3065,13 +3197,19 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
  *    is only bounded by the css size (G-089), but each costs its bytes
  *  - selector index: each stanza and selector indexed once, plus once more
  *    when the budget is spent, a step each (G-520)
+ *  - html attributes: each is added to its element's attribute index as it
+ *    is parsed, a binary search and a move of <= LHP_MAX_ATR_PER_ELEM
+ *    pointers, so a selector finds one without walking them (G-529)
  *  - per element: each indexed selector keyed by its tag, id, classes or
  *    none is visited at most once, a step each; class tokens (<= 2048 bytes
- *    of attribute) are sorted once.  Matching costs a step per compound
- *    and per LHP_SEL_SCAN_BYTES of attribute value scanned, at most
- *    LHP_SEL_MATCH_BUDGET per selector and, for the document's, at most
- *    LHP_SEL_CASCADE_BUDGET per element, all counted (G-090, G-523).
- *    Combinators walk <= LHP_MAX_ELEMS_NEST ancestors or
+ *    of attribute) are sorted once.  Matching costs a step per compound,
+ *    per further simple selector in it and per LHP_SEL_SCAN_BYTES of
+ *    attribute value scanned, so a step is O(1) work (see
+ *    LHP_SEL_MATCH_BUDGET): at most LHP_SEL_MATCH_BUDGET per selector and,
+ *    for the document's, at most LHP_SEL_CASCADE_BUDGET per element, all
+ *    counted (G-090, G-523, G-529).  A selector that runs out may finish
+ *    the class, id or attribute value it is scanning, <= LHP_STRING_CHUNK.
+ *    Combinators visit <= LHP_MAX_ELEMS_NEST ancestors or
  *    LHP_SIBLING_HISTORY siblings, a budget step each
  *  - matched stanzas: a hash probe each, sorted once, counted; the
  *    declaration index walks their declarations once and sorts the winners,
@@ -3080,8 +3218,11 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
  *  - lookups: a binary search per ancestor (<= LHP_MAX_ELEMS_NEST), plus
  *    copying <= LHP_MAX_CSS_DECL_VALUES values to ctx->active_atr, counted;
  *    var() follows <= 8 indirections; calc() has its own budget per
- *    expression (G-082) and % lengths resolve <= LHP_MAX_CB_RESOLVE_DEPTH
- *    containing blocks
+ *    expression (G-082).  A % length walks back through the containing
+ *    blocks (<= LHP_MAX_ELEMS_NEST levels) to the first one with an
+ *    absolute length; if that is a calc() with % terms, it resolves the
+ *    next block out the same way, <= LHP_MAX_CB_RESOLVE_DEPTH walks in all.
+ *    Those walks are not counted (G-531)
  *  - style="": parsed once per element, <= LHP_STRING_CHUNK, not once spent
  *  - layout: an element's close walks its own children (rows, cells, block
  *    children, bottom-anchored boxes), so linear overall; table columns are
@@ -3094,8 +3235,10 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
  *    end it (lhp_css_doc_spent() below), overshooting by at most one
  *    element.  After that each element costs a user-agent and filter css
  *    cascade (the filter css is trusted), and the document's css is no
- *    longer kept.  What remains unbounded except by input size is the heap
- *    of the css kept before that (G-089)
+ *    longer kept, but its inherited lookups still walk its ancestors, so an
+ *    element costs O(nesting), not a constant (G-531).  What remains
+ *    unbounded except by input size is the heap of the css kept before
+ *    that (G-089), and the layout work and DLOs of the elements (G-531)
  */
 
 /*
@@ -3209,22 +3352,27 @@ static int
 lhp_selidx_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_names_t *nm,
 		 const char *sel, const char *end)
 {
-	int doc = lhp_nm_is_doc(nm), budget = LHP_SEL_MATCH_BUDGET, start, r;
+	int doc = lhp_nm_is_doc(nm), start, spent, r;
+	lhp_selm_t m;
 
-	if (doc && ctx->sel_budget < budget)
-		budget = (int)ctx->sel_budget;
-	if (budget <= 0)
+	m.ctx = ctx;
+	m.budget = LHP_SEL_MATCH_BUDGET;
+	if (doc && ctx->sel_budget < m.budget)
+		m.budget = (int)ctx->sel_budget;
+	if (m.budget <= 0)
 		return 0;
-	start = budget;
+	start = m.budget;
 
-	r = lhp_sel_match(&ps->atr, lhp_parent_elem(ps), sel, end, &budget);
-	ctx->cascade_ops += (uint64_t)(start - (budget < 0 ? 0 : budget));
+	/* lws_css_cascade() found the parent element before matching */
+	r = lhp_sel_match(&m, &ps->atr_idx, ps->parent_elem, sel, end);
+	spent = start - (m.budget < 0 ? 0 : m.budget);
+	ctx->cascade_ops += (uint64_t)spent;
 	if (doc)
-		ctx->sel_budget -= start - (budget < 0 ? 0 : budget);
+		ctx->sel_budget -= spent;
 
 	/* a match is only believed if it was decided within the budget */
 
-	return r && budget >= 0;
+	return r && m.budget >= 0;
 }
 
 /*
@@ -4839,7 +4987,20 @@ done:
 const char *
 lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len)
 {
-	return lhp_atr_get(&ps->atr, aname, aname_len, 0);
+	/* the head is the tag */
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&ps->atr)) {
+		const lhp_atr_t *at = lws_container_of(p, lhp_atr_t, list);
+		const char *ats = (const char *)&at[1];
+
+		if (p != lws_dll2_get_head(&ps->atr) &&
+		    at->name_len == aname_len && !memcmp(ats, aname, aname_len))
+			return ats + aname_len + 1;
+
+	} lws_end_foreach_dll(p);
+
+	return NULL;
 }
 
 /*
@@ -4944,21 +5105,15 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	lhp_pstack_t *parent = NULL, *ps = lws_container_of(
 			lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
 	const char *st;
-	lws_dll2_t *d;
-
-	/* the parent element is the nearest level above us with a tag */
-	d = lws_dll2_get_prev(&ps->list);
-	while (d) {
-		parent = lws_container_of(d, lhp_pstack_t, list);
-		if (!lws_dll2_is_empty(&parent->atr) || !lws_dll2_get_prev(d))
-			break;
-		d = lws_dll2_get_prev(d);
-	}
 
 	if (ps->css_resolved) {
 		ctx->in_body = ps->in_body;
 		return 0;
 	}
+
+	/* the parent element is the nearest level above us with a tag */
+	parent = lhp_parent_elem(ps);
+	ps->parent_elem = parent;
 
 	ps->in_body = parent ? parent->in_body : 0;
 
@@ -4980,8 +5135,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 						 lhp_atr_t, list);
 
 		const char *etag = (const char *)&ta[1],
-			   *eid = lhp_atr_get(&ps->atr, "id", 2, 1),
-			   *ecls = lhp_atr_get(&ps->atr, "class", 5, 1);
+			   *eid = lhp_atr_find(ctx, &ps->atr_idx, "id", 2),
+			   *ecls = lhp_atr_find(ctx, &ps->atr_idx, "class", 5);
 
 		if (ta->name_len == 4 && !strncasecmp(etag, "body", 4))
 			ps->in_body = 1;

@@ -486,11 +486,26 @@ typedef struct lhp_atr {
 	/* name+NUL then value+NUL follow */
 } lhp_atr_t;
 
+/*
+ * An element's attributes as its selectors see them: its tag, and the rest
+ * sorted by name ignoring case, the first of a repeated name first, so a
+ * selector finds one by binary search rather than by walking them all.
+ * Kept along with the element's attribute list, private to lhp.c
+ */
+
+typedef struct lhp_atr_idx {
+	const lhp_atr_t		*tag;	/* NULL until the tag is parsed */
+	const lhp_atr_t		**a;	/* the attributes, sorted */
+	uint8_t			count;
+	uint8_t			alloc;
+} lhp_atr_idx_t;
+
 /* a closed element remembered on its parent for sibling selectors */
 
 typedef struct lhp_sib {
 	lws_dll2_t		list;	/* parent's sibs, newest last */
 	lws_dll2_owner_t	atr;	/* lhp_atr_t moved from the level */
+	lhp_atr_idx_t		atr_idx; /* and their index, private */
 } lhp_sib_t;
 
 /*
@@ -575,7 +590,11 @@ typedef struct lhp_pstack {
 	lhp_table_col_t			*table_col;
 
 	lws_dll2_owner_t		atr; /* lhp_atr_t */
+	lhp_atr_idx_t			atr_idx; /* atr by name, private */
 	lws_dll2_owner_t		sibs; /* lhp_sib_t: our closed children */
+	struct lhp_pstack		*parent_elem; /* once css_resolved: the
+						       * nearest level above
+						       * with a tag, private */
 
 	const lws_display_font_t	*f;
 
@@ -943,6 +962,14 @@ typedef struct lhp_ctx {
 					      * indexed, lookup steps... what
 					      * LHP_MAX_CSS_CASCADE_OPS bounds,
 					      * and for tests to bound */
+	uint64_t		sel_work; /* work selector matching really
+					   * did: attribute names compared,
+					   * attribute value bytes scanned,
+					   * simple selectors and ancestors
+					   * visited.  Counted where it is
+					   * done, apart from what is charged
+					   * to cascade_ops, so that tests can
+					   * bound the work itself */
 	uint32_t		css_doc_selectors; /* the document's selectors */
 	uint32_t		css_doc_vars; /* and custom properties */
 	uint8_t			css_doc_spent; /* LHP_MAX_CSS_CASCADE_OPS or

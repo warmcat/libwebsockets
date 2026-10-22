@@ -374,6 +374,27 @@ static const lws_surface_info_t ic = {
 static lws_displaylist_t displaylist;
 
 /*
+ * Selector matching is budgeted in steps, and a step must stand for a bounded
+ * amount of work, or the budget bounds nothing.  ctx->sel_work counts that
+ * work where it is done (attribute names compared, value bytes scanned,
+ * simple selectors and ancestors visited), apart from the steps charged for
+ * it, so these tests bound the work itself, not only the steps the library
+ * counts (G-529, G-530).
+ *
+ * A step is at most a compound's first or one further simple selector, with
+ * its attribute lookups (a binary search each), and up to a couple of
+ * LHP_SEL_SCAN_BYTES of value scanned beyond what is charged for
+ */
+#define LHPT_WORK_STEP		320
+/*
+ * The steps cascading one element may take: the document's selectors share
+ * one LHP_SEL_CASCADE_BUDGET, the user-agent css's are a few hundred, and the
+ * selector that runs out may finish the value it is scanning
+ */
+#define LHPT_SEL_STEPS_ELEM	(32768 + 4096)
+#define LHPT_SEL_WORK_ELEM	((uint64_t)LHPT_SEL_STEPS_ELEM * LHPT_WORK_STEP)
+
+/*
  * Selector matching work must be bounded per element, however the selectors
  * nest.  Each :is() below can only match after its first alternative has
  * backtracked over the remembered siblings looking for a <b> that isn't
@@ -1519,6 +1540,179 @@ bail:
 }
 
 /*
+ * A budget step must be a bounded amount of work however long the compound
+ * selector it is for and however many attributes the element has.  Each
+ * simple selector of a compound, [z] or .a, walked the element's attributes
+ * (up to 64) and maybe scanned the class, while the whole compound cost one
+ * step: 256 selectors of forty [z] over 120 nested <div y=1 (x62) z=1> took
+ * 195s (release) before the document's css budget ended them.  Each simple
+ * selector now costs a step, and finds its attribute by a binary search of
+ * the element's attribute index.
+ *
+ * So with compounds of many simple selectors that only fail on their last,
+ * tried against every ancestor of every element, the work selector matching
+ * does for an element must stay within what its steps stand for.  And the
+ * index must find attributes as the walk did: by name ignoring case, and the
+ * first of a repeated name.
+ */
+
+#define LHPT_SC_SELS		128	/* of each kind */
+#define LHPT_SC_ATRS		40	/* [z] in a compound */
+#define LHPT_SC_CLASSES		58	/* .a in a compound */
+#define LHPT_SC_NEST		60
+#define LHPT_SC_JUNK		60	/* class bytes before the a */
+
+static int sc_elems, sc_ok, sc_over;
+
+static lws_stateful_ret_t
+sc_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *ml;
+	const char *x;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	/* fail at the first element that is over, don't wait for all */
+
+	if (ctx->sel_work > (uint64_t)(sc_elems + 1) * LHPT_SEL_WORK_ELEM) {
+		sc_over = 1;
+		return LWS_SRET_FATAL;
+	}
+	sc_elems++;
+
+	x = lws_html_get_atr(ps, "x", 1);
+	ml = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+	if (x && !strcmp(x, "ok") && ml && ml->unit == LCSP_UNIT_LENGTH_PX &&
+	    ml->u.i.whole == 2)
+		sc_ok = 1;
+
+	return 0;
+}
+
+static int
+test_selector_compound(void)
+{
+	size_t alloc = (size_t)LHPT_SC_SELS * 2 *
+			(LHPT_SC_ATRS * 3 + LHPT_SC_CLASSES * 2 + 48) +
+		       (size_t)LHPT_SC_NEST * (64 * 4 + LHPT_SC_JUNK + 32) +
+		       1024, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i, j;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	sc_elems = sc_ok = sc_over = 0;
+
+	/*
+	 * The rule that matches: attribute names ignore case, and the first
+	 * of a repeated attribute is the one that counts
+	 */
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><head><style>"
+			  "p[Y=\"2\"][z][class~=b].a.b{margin-left:2px}\n");
+	for (i = 0; i < LHPT_SC_SELS; i++) {
+		for (j = 0; j < LHPT_SC_ATRS; j++)
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc), "[z]");
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "[q] *{margin-left:1px}\n");
+		for (j = 0; j < LHPT_SC_CLASSES; j++)
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc), ".a");
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  ".q *{margin-left:1px}\n");
+	}
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</style></head><body>"
+			  "<p z=1 y=2 Y=3 class=\"b a\" x=ok>x</p>");
+	for (i = 0; i < LHPT_SC_NEST; i++) {
+		/* the tag and 64 attributes, the most an element keeps */
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<div");
+		for (j = 0; j < 61; j++)
+			p += lws_snprintf(p, alloc -
+					  lws_ptr_diff_size_t(p, doc), " y=1");
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  " z=1 class=\"");
+		memset(p, 'j', LHPT_SC_JUNK);
+		p += LHPT_SC_JUNK;
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  " a\">");
+	}
+	for (i = 0; i < LHPT_SC_NEST; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "</div>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, sc_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d elements, %llu cascade steps, %llu work, r 0x%x\n",
+		  __func__, sc_elems, (unsigned long long)ctx->cascade_ops,
+		  (unsigned long long)ctx->sel_work, (unsigned int)r);
+
+	if (sc_over) {
+		lwsl_err("%s: over %llu work per element at element %d\n",
+			 __func__, (unsigned long long)LHPT_SEL_WORK_ELEM,
+			 sc_elems + 1);
+		goto bail_destruct;
+	}
+	/* html, head, style, body, p, the divs */
+	if (r & LWS_SRET_FATAL || sc_elems != LHPT_SC_NEST + 5) {
+		lwsl_err("%s: parse failed, %d elements\n", __func__,
+			 sc_elems);
+		goto bail_destruct;
+	}
+	/* the deep elements really did spend their budget */
+	if (ctx->cascade_ops < (uint64_t)LHPT_SC_NEST / 2 * 32768) {
+		lwsl_err("%s: only %llu steps\n", __func__,
+			 (unsigned long long)ctx->cascade_ops);
+		goto bail_destruct;
+	}
+	if (!sc_ok) {
+		lwsl_err("%s: the attribute rule didn't match\n", __func__);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Property lookups must cost a bounded amount however long the declarations
  * they find.  Every lookup listed all the values of the winning declaration
  * in ctx->active_atr, which had no limit, and an inherited property is
@@ -2352,6 +2546,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_selector_scan())
+		goto bail;
+
+	if (test_selector_compound())
 		goto bail;
 
 	if (test_decl_values())
