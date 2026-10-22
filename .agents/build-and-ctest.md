@@ -142,6 +142,11 @@
    shorter than 1ms instead (489ms spinning vs 0-2ms idle over 500ms in
    api-test-proxy-v2-peer-limits).
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
+ - **api-test-vhost-listener-scope by hand needs `--cert` / `--key`** (the
+   api-test-ws-close certs): without them it exits 0 having tested
+   nothing.
+ - `openssl mac -macopt hexkey:<k> -macopt size:8 SIPHASH` gives
+   SipHash-2-4 reference values for checking lws's copy.
  - **api-test-proxy-v2-peer-limits needs `LWS_WITH_TLS_PASSTHROUGH`**:
    without it every connection is dropped, which looks like a broken tree.
  - **Red-testing proxied clients:** api-test-client-proxy-redirect's
