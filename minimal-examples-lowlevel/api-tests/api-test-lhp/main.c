@@ -844,6 +844,101 @@ bail:
 }
 
 /*
+ * Table layout work must be linear in the cells, however they are arranged:
+ * one row of very many cells used to find each cell's column by walking the
+ * column list from its head, when the cell opened and again at table close,
+ * so a row of N cells cost N^2 steps.  The cells are laid out for real, by
+ * lhp_displaylist_layout(), counting steps in ctx->layout_ops, followed by
+ * a second, short row.
+ */
+
+#define LHPT_TW_CELLS		16000
+/* steps of table layout work allowed per cell */
+#define LHPT_TW_OPS_PER_CELL	8
+
+static int
+test_table_wide(void)
+{
+	size_t alloc = 256 * 1024, len;
+	struct lws_context_creation_info info;
+	struct lws_context *cx = NULL;
+	lws_displaylist_t dl;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+
+	/* the layout chooses fonts from a context, this one has none */
+	lws_context_info_defaults(&info, NULL);
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	cx = lws_create_context(&info);
+	if (!cx)
+		goto bail;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><body><table><tr>");
+	for (i = 0; i < LHPT_TW_CELLS; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<td></td>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</tr><tr><td></td><td></td></tr></table>"
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	lws_display_dl_init(&dl, NULL);
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &dl;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, lhp_displaylist_layout, &drt, &ic))
+		goto bail;
+	ctx->user1 = cx;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d cells in a row: %llu layout steps, r 0x%x\n",
+		  __func__, LHPT_TW_CELLS,
+		  (unsigned long long)ctx->layout_ops, (unsigned int)r);
+
+	if (r & LWS_SRET_FATAL)
+		lwsl_err("%s: parse failed\n", __func__);
+	else if (ctx->layout_ops >
+			(uint64_t)LHPT_TW_CELLS * LHPT_TW_OPS_PER_CELL)
+		lwsl_err("%s: table layout took over %d steps per cell\n",
+			 __func__, LHPT_TW_OPS_PER_CELL);
+	else
+		e = 0;
+
+	lws_lhp_destruct(ctx);
+	lws_display_list_destroy(cx, &dl);
+
+bail:
+	if (cx)
+		lws_context_destroy(cx);
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * A class-keyed cosmetic filter rule must apply to an element with that
  * class however many other classes, distinct or repeated, come before it.
  * Only the element with id "ad" has the filtered class.
@@ -1335,6 +1430,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_cascade_work())
+		goto bail;
+
+	if (test_table_wide())
 		goto bail;
 
 	if (test_filter_classes(0) ||

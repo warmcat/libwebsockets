@@ -1626,20 +1626,6 @@ lhp_table_of(lhp_pstack_t *ps)
 	return ps;
 }
 
-static lhp_table_col_t *
-lhp_table_col(lws_dlo_t *tdlo, unsigned int idx)
-{
-	lws_dll2_t *d = lws_dll2_get_head(&tdlo->table_cols);
-
-	while (d && idx--)
-		d = lws_dll2_get_next(d);
-
-	if (d)
-		return lws_container_of(d, lhp_table_col_t, list);
-
-	return NULL;
-}
-
 /* border-spacing, or the 2px default */
 
 static lws_fx_t
@@ -1729,12 +1715,17 @@ lhp_table_close(lhp_ctx_t *ctx, lhp_pstack_t *t)
 		lws_fx_add(&tw, &tw, &sp);
 	} lws_end_foreach_dll(d);
 
-	/* place the cells of every row */
+	/*
+	 * place the cells of every row, walking each row's cells and the
+	 * columns in step (n columns were counted above)
+	 */
+
+	ctx->layout_ops += n;
 
 	lws_start_foreach_dll(struct lws_dll2 *, rd,
 			      lws_dll2_get_head(&t->dlo->children)) {
 		lws_dlo_t *row = lws_container_of(rd, lws_dlo_t, list);
-		unsigned int idx = 0;
+		lws_dll2_t *cold = lws_dll2_get_head(&t->dlo->table_cols);
 
 		if (!row->flag_row)
 			continue;
@@ -1747,12 +1738,14 @@ lhp_table_close(lhp_ctx_t *ctx, lhp_pstack_t *t)
 			lws_dlo_t *cell = lws_container_of(cd, lws_dlo_t, list);
 			lhp_table_col_t *col;
 
+			ctx->layout_ops++;
 			if (!cell->flag_cell)
 				continue;
 
-			col = lhp_table_col(t->dlo, idx++);
-			if (!col)
+			if (!cold)
 				break;
+			col = lws_container_of(cold, lhp_table_col_t, list);
+			cold = lws_dll2_get_next(cold);
 
 			cell->box.x = x;
 			cell->box.w = col->width;
@@ -1957,12 +1950,29 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		lws_fx_set(ml, 0, 0);
 		ps->is_cell = 1;
 		ps->idx = c->idx++;
-		if (!lhp_table_col(tbl->dlo, ps->idx)) {
-			lhp_table_col_t *col = lws_zalloc(sizeof(*col),
-							  __func__);
-			if (!col)
-				return LWS_SRET_FATAL;
-			lws_dll2_add_tail(&col->list, &tbl->dlo->table_cols);
+		/*
+		 * The row's cells open in order: this one's column is the one
+		 * after the row's last cell's, or a new one past the end
+		 */
+		{
+			lws_dll2_t *nd = c->table_col ?
+				lws_dll2_get_next(&c->table_col->list) :
+				lws_dll2_get_head(&tbl->dlo->table_cols);
+
+			ctx->layout_ops++;
+			if (nd)
+				ps->table_col = lws_container_of(nd,
+						lhp_table_col_t, list);
+			else {
+				ps->table_col = lws_zalloc(
+						sizeof(*ps->table_col),
+						__func__);
+				if (!ps->table_col)
+					return LWS_SRET_FATAL;
+				lws_dll2_add_tail(&ps->table_col->list,
+						  &tbl->dlo->table_cols);
+			}
+			c->table_col = ps->table_col;
 		}
 		break;
 
@@ -2725,7 +2735,7 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		/* what the column needs, and a provisional place in the row */
 		tbl = lhp_table_of(ps);
 		if (tbl) {
-			lhp_table_col_t *col = lhp_table_col(tbl->dlo, ps->idx);
+			lhp_table_col_t *col = ps->table_col;
 
 			if (col) {
 				lws_fx_add(&t, &ps->minc, &pl);

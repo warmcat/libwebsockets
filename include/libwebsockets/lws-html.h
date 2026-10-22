@@ -520,6 +520,11 @@ typedef struct lhp_pstack {
 	lws_fx_t			pend_mb; /* last block child's bottom margin */
 	int32_t				abs_y;	 /* approx surface y of our box top */
 	uint16_t			idx;	 /* list item / table cell counter */
+	/*
+	 * A table cell: its column.  A table row: the column of its last cell
+	 * so far, so the next cell takes the one after it without a walk
+	 */
+	lhp_table_col_t			*table_col;
 
 	lws_dll2_owner_t		atr; /* lhp_atr_t */
 	lws_dll2_owner_t		sibs; /* lhp_sib_t: our closed children */
@@ -876,6 +881,9 @@ typedef struct lhp_ctx {
 					     * current pass, private */
 	uint32_t		hits_hash_size; /* slots, a power of 2 */
 	uint32_t		hits_gen; /* current pass, for hits_hash */
+	uint64_t		layout_ops; /* steps of table layout work
+					     * done for the document so far,
+					     * for tests to bound */
 	uint64_t		cascade_ops; /* steps of cascade work done
 					      * for the document so far:
 					      * selector index entries visited,
