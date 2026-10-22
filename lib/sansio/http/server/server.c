@@ -2671,6 +2671,10 @@ lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done)
  * skipped the app's FILTER_HTTP_CONNECTION and CHECK_ACCESS_RIGHTS and the
  * body size limits (G-001), as it had skipped the interceptors (C-461).
  *
+ * The part of lws_http_action_gates() that belongs to the mount the request
+ * landed in, its redirect, its interceptor chain and its basic auth, is
+ * lws_http_mount_gates().
+ *
  * Each returns 0 to let the request on, or 1 if it decided the request
  * (answered it, refused it, or the app took it over): g->verdict is then what
  * lws_http_action() returns for it.
@@ -2817,12 +2821,66 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 	return 0;
 }
 
+/*
+ * The mount's own gates, for a request that landed in it: its redirect, its
+ * interceptor chain and its basic auth, in that order.  g->uri_ptr / uri_len
+ * are the request path, and are repointed at the interceptor's mountpoint if
+ * an interceptor takes the request.  Returns 0 with g->hit set to the mount to
+ * act on, or 1 having decided the request, with g->verdict set.
+ */
+static int
+lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
+		     const struct lws_http_mount *hit)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	int ha, n;
+
+	n = lws_http_redirect_hit(pt, wsi, hit, g->uri_ptr, g->uri_len, &ha);
+	if (ha) {
+		g->verdict = n;
+
+		return 1;
+	}
+
+	/*
+	 * If the mount has a interceptor requirement, and the plugin that implements
+	 * it says we are not authorized, divert the connection to the interceptor
+	 * mount
+	 */
+	hit = lws_http_evaluate_interceptors(wsi, hit, &g->uri_ptr, &g->uri_len);
+	if (!hit) {
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+		return lws_http_gate_bail(wsi, g);
+	}
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+
+	/* basic auth? */
+
+	switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
+				     hit->auth_mask & AUTH_MODE_MASK)) {
+	case LCBA_CONTINUE:
+	case LCBA_AUTH_RETRY_KEEPALIVE:
+		break;
+	case LCBA_FAILED_AUTH:
+		g->verdict = lws_unauthorised_basic_auth(wsi);
+		return 1;
+	case LCBA_END_TRANSACTION:
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+		g->verdict = lws_http_transaction_completed(wsi);
+		return 1;
+	}
+#endif
+
+	g->hit = hit;
+
+	return 0;
+}
+
 int
 lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	const struct lws_http_mount *hit;
-	int ha;
 	unsigned int n;
 
 	g->hit = NULL;
@@ -2922,47 +2980,7 @@ lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 	 */
 	g->mount_rel = g->uri_ptr + hit->mountpoint_len;
 
-	n = (unsigned int)lws_http_redirect_hit(pt, wsi, hit, g->uri_ptr,
-						g->uri_len, &ha);
-	if (ha) {
-		g->verdict = (int)n;
-
-		return 1;
-	}
-
-	/*
-	 * If the mount has a interceptor requirement, and the plugin that implements
-	 * it says we are not authorized, divert the connection to the interceptor
-	 * mount
-	 */
-	hit = lws_http_evaluate_interceptors(wsi, hit, &g->uri_ptr, &g->uri_len);
-	if (!hit) {
-		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-		return lws_http_gate_bail(wsi, g);
-	}
-
-#if defined(LWS_WITH_HTTP_BASIC_AUTH)
-
-	/* basic auth? */
-
-	switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
-				     hit->auth_mask & AUTH_MODE_MASK)) {
-	case LCBA_CONTINUE:
-	case LCBA_AUTH_RETRY_KEEPALIVE:
-		break;
-	case LCBA_FAILED_AUTH:
-		g->verdict = lws_unauthorised_basic_auth(wsi);
-		return 1;
-	case LCBA_END_TRANSACTION:
-		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-		g->verdict = lws_http_transaction_completed(wsi);
-		return 1;
-	}
-#endif
-
-	g->hit = hit;
-
-	return 0;
+	return lws_http_mount_gates(wsi, g, hit);
 }
 
 int
