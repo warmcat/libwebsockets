@@ -824,7 +824,11 @@ struct lws_context {
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
 #else
 	struct lws **lws_lookup;
-
+#if defined(LWS_PLAT_UNIX) && defined(LWS_WITH_NETWORK)
+	struct lws_fd_slot *lws_lookup_slots;
+	/* the small lookup scheme's table instead, when
+	 * max_fds_unrelated_to_ulimit: see unix-fds.c */
+#endif
 #endif
 
 #if defined(LWS_WITH_OTA)

@@ -26,6 +26,15 @@ if (requirements AND NOT WIN32)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 			     TIMEOUT 60)
 
+	# the same with the small fd lookup scheme (G-635): it is only used
+	# when the limit times the threads is below the process fd limit, so
+	# keep it well under the usual soft limit of 1024
+	add_test(NAME api-test-async-dns-smp-fd-limit
+		 COMMAND lws-api-test-async-dns-smp --fd-limit-per-thread 256)
+	set_tests_properties(api-test-async-dns-smp-fd-limit PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+			     TIMEOUT 60)
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)

@@ -27,33 +27,47 @@
 #endif
 #include "private-lib-core.h"
 
+/*
+ * The small lookup scheme's slots: all of them, or with tsi >= 0, only
+ * service thread tsi's
+ */
+
+static struct lws_fd_slot *
+lookup_slots(const struct lws_context *cx, int tsi, struct lws_fd_slot **done)
+{
+	struct lws_fd_slot *s = cx->lws_lookup_slots;
+
+	if (tsi < 0) {
+		*done = s + (size_t)cx->count_threads * cx->fd_limit_per_thread;
+
+		return s;
+	}
+
+	s += (size_t)tsi * cx->fd_limit_per_thread;
+	*done = s + cx->fd_limit_per_thread;
+
+	return s;
+}
+
 struct lws *
 wsi_from_fd(const struct lws_context *context, int fd)
 {
-	struct lws **p, **done;
+	struct lws_fd_slot *s, *done;
 
 	if (!context->max_fds_unrelated_to_ulimit)
 		return context->lws_lookup[fd - lws_plat_socket_offset()];
 
-	/* slow fds handling */
+	/*
+	 * slow fds handling: an fd is open in only one thread's table at a
+	 * time, the one its wsi is serviced on, so the first match is it
+	 */
 
-	p = context->lws_lookup;
-	done = &p[context->max_fds];
+	if (fd < 0)
+		return NULL;
 
-	while (p != done) {
-		if (*p) {
-			if ((*p)->io->desc.sockfd == fd)
-				return *p;
-#if defined(LWS_WITH_CLIENT)
-			if ((*p)->io->parallel_conns)
-				for (int j = 0; j < (*p)->io->parallel_count; j++) {
-					if ((*p)->io->parallel_conns[j].is_valid && (*p)->io->parallel_conns[j].desc.sockfd == fd)
-						return *p;
-				}
-#endif
-		}
-		p++;
-	}
+	for (s = lookup_slots(context, -1, &done); s < done; s++)
+		if (s->fd == fd)
+			return s->wsi;
 
 	return NULL;
 }
@@ -62,7 +76,7 @@ wsi_from_fd(const struct lws_context *context, int fd)
 int
 sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
 {
-	struct lws **p, **done;
+	struct lws_fd_slot *s, *done;
 	int occurrences = 0;
 	int expected = 0;
 
@@ -85,18 +99,11 @@ sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
 		/* can't tell */
 		return 0;
 
-	/* slow fds handling */
+	/* slow fds handling: a wsi is only ever in its own thread's slots */
 
-	p = context->lws_lookup;
-	done = &p[context->max_fds];
-
-	/* count occurrences of wsi in lookup table */
-
-	while (p != done) {
-		if (*p == wsi)
+	for (s = lookup_slots(context, wsi->tsi, &done); s < done; s++)
+		if (s->wsi == wsi)
 			occurrences++;
-		p++;
-	}
 
 	if (occurrences <= expected)
 		return 0;
@@ -117,15 +124,20 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 	 */
 	return 0;
 #else
-	struct lws **p, **done;
+	struct lws_fd_slot *s, *done;
 
-	if (sfd == LWS_SOCK_INVALID || !context->lws_lookup)
+	if (sfd == LWS_SOCK_INVALID)
 		return 0;
 
-	if (!context->max_fds_unrelated_to_ulimit &&
-	    context->lws_lookup[sfd - lws_plat_socket_offset()]) {
-		struct lws *w = context->lws_lookup[sfd -
-						    lws_plat_socket_offset()];
+	if (!context->max_fds_unrelated_to_ulimit) {
+		struct lws *w;
+
+		if (!context->lws_lookup)
+			return 0;
+
+		w = context->lws_lookup[sfd - lws_plat_socket_offset()];
+		if (!w)
+			return 0;
 
 		lwsl_err("%s: fd %d still in lws_lookup as %s (wsistate 0x%x, "
 			 "fds pos %d, its sockfd %d)\n", __func__, (int)sfd,
@@ -135,33 +147,23 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 		return 1;
 	}
 
-	/* slow fds handling */
+	/* slow fds handling: confirm the sfd not already in use */
 
-	p = context->lws_lookup;
-	done = &p[context->max_fds];
-
-	/* confirm the sfd not already in use */
-
-	while (p != done) {
-		if (*p && (*p)->io->desc.sockfd == sfd) {
-#if defined(LWS_WITH_CLIENT)
-			if ((*p)->io->parallel_count > 0) {
-				p++;
-				continue;
-			}
-#endif
-			break;
-		}
-		p++;
-	}
-
-	if (p == done)
+	if (!context->lws_lookup_slots)
 		return 0;
 
-	lwsl_err("%s: fd %d still in lws_lookup[%d] as %s (wsistate 0x%x, "
-		 "fds pos %d)\n", __func__, (int)sfd,
-		 (int)(p - context->lws_lookup), lws_wsi_tag(*p),
-		 (unsigned int)(*p)->wsistate, (*p)->io->position_in_fds_table);
+	for (s = lookup_slots(context, -1, &done); s < done; s++)
+		if (s->fd == sfd)
+			break;
+
+	if (s == done)
+		return 0;
+
+	lwsl_err("%s: fd %d still in lws_lookup_slots[%d] as %s (wsistate "
+		 "0x%x, fds pos %d)\n", __func__, (int)sfd,
+		 (int)(s - context->lws_lookup_slots), lws_wsi_tag(s->wsi),
+		 (unsigned int)s->wsi->wsistate,
+		 s->wsi->io->position_in_fds_table);
 	assert(0); /* this fd is still in the tables */
 
 	return 1;
@@ -169,11 +171,16 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 }
 #endif
 
+/*
+ * Enter wsi in the table for its current io->desc.sockfd: a client racing
+ * connects is entered once for each of its racer sockets, with the racer fd
+ * swapped into desc while it is.  The caller holds the wsi's pt lock.
+ */
 
 int
 insert_wsi(const struct lws_context *context, struct lws *wsi)
 {
-	struct lws **p, **done;
+	struct lws_fd_slot *s, *done;
 
 	if (sanity_assert_no_wsi_traces(context, wsi))
 		return 0;
@@ -188,40 +195,34 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 		return 0;
 	}
 
-	/* slow fds handling */
-
-	p = context->lws_lookup;
-	done = &p[context->max_fds];
-
-	/* confirm fd isn't already in use by a wsi */
+	/* slow fds handling: confirm fd isn't already in use by a wsi */
 
 	if (sanity_assert_no_sockfd_traces(context, wsi->io->desc.sockfd))
 		return 0;
 
-	p = context->lws_lookup;
+	/* find an empty slot of the wsi's own thread */
 
-	/* find an empty slot */
+	for (s = lookup_slots(context, wsi->tsi, &done); s < done; s++)
+		if (s->fd == LWS_SOCK_INVALID)
+			break;
 
-	while (p != done && *p)
-		p++;
-
-	if (p == done) {
+	if (s == done) {
 		lwsl_err("%s: reached max fds\n", __func__);
 		return 1;
 	}
 
-	*p = wsi;
+	s->wsi = wsi;
+	s->fd = wsi->io->desc.sockfd;
 
 	return 0;
 }
 
-
+/* the caller holds the pt lock of the wsi the fd was entered for */
 
 void
 delete_from_fd(const struct lws_context *context, int fd)
 {
-
-	struct lws **p, **done;
+	struct lws_fd_slot *s, *done;
 
 	if (!context->max_fds_unrelated_to_ulimit) {
 		if (context->lws_lookup) {
@@ -232,66 +233,53 @@ delete_from_fd(const struct lws_context *context, int fd)
 		return;
 	}
 
-	/* slow fds handling */
+	/*
+	 * slow fds handling: the fd is still open, so it is only in the
+	 * slots of the thread whose wsi it is
+	 */
 
-	p = context->lws_lookup;
-	assert(p);
+	assert(context->lws_lookup_slots);
 
-	done = &p[context->max_fds];
+	if (fd < 0)
+		return;
 
-	/* find the match */
-
-	while (p != done && (!*p || (*p)->io->desc.sockfd != fd))
-		p++;
-
-	if (p != done)
-		*p = NULL;
-
-#if defined(_DEBUG)
-	p = context->lws_lookup;
-	while (p != done) {
-		if (*p && (*p)->io->desc.sockfd == fd) {
-#if defined(LWS_WITH_CLIENT)
-			if ((*p)->io->parallel_count > 0) {
-				p++;
-				continue;
-			}
-#endif
+	for (s = lookup_slots(context, -1, &done); s < done; s++)
+		if (s->fd == fd) {
+			s->fd = LWS_SOCK_INVALID;
+			s->wsi = NULL;
 			break;
 		}
-		p++;
-	}
 
-	if (p != done) {
-		lwsl_err("%s: fd %d in lws_lookup again at %d\n", __func__,
-				fd, (int)(p - context->lws_lookup));
-		assert(0);
+#if defined(_DEBUG)
+	while (s < done) {
+		if (s->fd == fd) {
+			lwsl_err("%s: fd %d in lws_lookup_slots again at %d\n",
+				 __func__, fd,
+				 (int)(s - context->lws_lookup_slots));
+			assert(0);
+		}
+		s++;
 	}
 #endif
 }
 
+/* the caller holds the wsi's pt lock */
+
 void
 delete_from_fdwsi(const struct lws_context *context, struct lws *wsi)
 {
-
-	struct lws **p, **done;
+	struct lws_fd_slot *s, *done;
 
 	if (!context->max_fds_unrelated_to_ulimit)
 		return;
 
+	/* slow fds handling: a wsi is only ever in its own thread's slots */
 
-	/* slow fds handling */
-
-	p = context->lws_lookup;
-	done = &p[context->max_fds];
-
-	/* find the match */
-
-	while (p != done && (!*p || (*p) != wsi))
-		p++;
-
-	if (p != done)
-		*p = NULL;
+	for (s = lookup_slots(context, wsi->tsi, &done); s < done; s++)
+		if (s->wsi == wsi) {
+			s->fd = LWS_SOCK_INVALID;
+			s->wsi = NULL;
+		}
 }
 
 void

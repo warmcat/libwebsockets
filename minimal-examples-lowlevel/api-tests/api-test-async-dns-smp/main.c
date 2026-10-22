@@ -44,6 +44,14 @@
  * With LWS_MAX_SMP 1 there is only one service thread, and it only checks
  * the lookups and connections complete.  Under ASan, the SMP builds also
  * check nothing is used after it was freed.
+ *
+ * By default the fd tables are sized to the process fd limit, so an fd finds
+ * its wsi by indexing a table with it.  --fd-limit-per-thread <n> sets a
+ * smaller info.fd_limit_per_thread, which selects the small lookup scheme
+ * instead, where fds are found by searching a table: before G-635 that
+ * table was shared by all the threads, and searching it dereferenced every
+ * wsi in it, including other threads' as they were freed, while two threads
+ * inserting at once could take the same slot.  ctest runs it both ways.
  */
 
 #include <libwebsockets.h>
@@ -439,6 +447,7 @@ main(int argc, const char **argv)
 	lws_sockaddr46 sa46;
 	uint16_t ns_port;
 	int n, index = 0, result = 1;
+	const char *p;
 	void *retval;
 
 	lws_context_info_defaults(&info, NULL);
@@ -468,13 +477,22 @@ main(int argc, const char **argv)
 	info.options		|= LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 	info.async_dns_servers	= servers;
 	/*
-	 * Room for every connection, both ends, and the resolver's sockets:
-	 * size everything to the process fd limit.  A nonzero limit selects
-	 * the small lookup scheme, whose fd -> wsi lookups walk a table all the
-	 * threads share, and that is not yet safe with two service threads
-	 * making and closing connections at this rate
+	 * By default, size everything to the process fd limit, which has room
+	 * for every connection, both ends, and the resolver's sockets.  A
+	 * nonzero limit below that selects the small lookup scheme
 	 */
 	info.fd_limit_per_thread = 0;
+	p = lws_cmdline_option(argc, argv, "--fd-limit-per-thread");
+	if (p) {
+		n = atoi(p);
+		if (n <= 0) {
+			lwsl_err("%s: bad --fd-limit-per-thread\n", __func__);
+			goto bail_ns;
+		}
+		info.fd_limit_per_thread = (unsigned int)n;
+		lwsl_user("%s: fd_limit_per_thread %u\n", __func__,
+			  info.fd_limit_per_thread);
+	}
 	info.count_threads	= LWS_MAX_SMP < THREADS_MAX ? LWS_MAX_SMP :
 								THREADS_MAX;
 

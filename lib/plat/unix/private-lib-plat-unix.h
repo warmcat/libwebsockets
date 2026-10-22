@@ -164,6 +164,20 @@
 
 struct lws_context;
 
+/*
+ * With info.fd_limit_per_thread below the process fd limit
+ * (max_fds_unrelated_to_ulimit), wsi are not found by indexing a table with
+ * the fd, but by searching context->lws_lookup_slots.  Each service thread
+ * has fd_limit_per_thread slots of its own, changed only for its own wsi and
+ * under its pt lock, so threads never compete for a slot.  A slot keeps the
+ * fd it was entered for, so a search compares fds and never dereferences a
+ * wsi, which may be another thread's and being freed.
+ */
+struct lws_fd_slot {
+	struct lws		*wsi;
+	int			fd;	/* LWS_SOCK_INVALID if unused */
+};
+
 struct lws *
 wsi_from_fd(const struct lws_context *context, int fd);
 

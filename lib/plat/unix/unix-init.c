@@ -129,32 +129,44 @@ lws_plat_init(struct lws_context *context,
 	/*
 	 * context has the process-global fd lookup array.  This can be
 	 * done two different ways now; one or the other is done depending on if
-	 * info->fd_limit_per_thread was snonzero
+	 * info->fd_limit_per_thread was nonzero and below the process limit
 	 *
 	 *  - default: allocate a worst-case lookup array sized for ulimit -n
 	 *             and use the fd directly as an index into it
 	 *
-	 *  - slow:    allocate context->max_fds entries only (which can be
-	 *             forced at context creation time to be
-	 *             info->fd_limit_per_thread * the number of threads)
-	 *             and search the array to lookup fds
+	 *  - slow:    allocate info->fd_limit_per_thread slots for each
+	 *             service thread only, and search them to lookup fds
+	 *             (see struct lws_fd_slot)
 	 *
 	 * the default way is optimized for server, if you only use one or two
 	 * client wsi the slow way may save a lot of memory.
-	 *
-	 * Both ways allocate an array of struct lws *... one allocates it for
-	 * all possible fd indexes the process could produce and uses it as a
-	 * map, the other allocates for an amount of wsi the lws context is
-	 * expected to use and searches through it to manipulate it.
 	 */
 
-	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
-					 context->max_fds, "lws_lookup");
+	if (context->max_fds_unrelated_to_ulimit) {
+		size_t n, slots = (size_t)context->count_threads *
+				  context->fd_limit_per_thread;
 
-	if (!context->lws_lookup) {
-		lwsl_cx_err(context, "OOM on alloc lws_lookup array for %d conn",
-			 context->max_fds);
-		return 1;
+		context->lws_lookup_slots = lws_malloc(sizeof(struct lws_fd_slot) *
+						       slots, "lws_lookup_slots");
+		if (!context->lws_lookup_slots) {
+			lwsl_cx_err(context, "OOM on alloc lws_lookup_slots "
+					     "for %u conn", (unsigned int)slots);
+			return 1;
+		}
+
+		for (n = 0; n < slots; n++) {
+			context->lws_lookup_slots[n].wsi = NULL;
+			context->lws_lookup_slots[n].fd = LWS_SOCK_INVALID;
+		}
+	} else {
+		context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
+						 context->max_fds, "lws_lookup");
+
+		if (!context->lws_lookup) {
+			lwsl_cx_err(context, "OOM on alloc lws_lookup array "
+					     "for %d conn", context->max_fds);
+			return 1;
+		}
 	}
 
 #if defined(LWS_WITH_MBEDTLS)
@@ -292,6 +304,8 @@ lws_plat_context_late_destroy(struct lws_context *context)
 #if defined(LWS_WITH_NETWORK)
 	if (context->lws_lookup)
 		lws_free_set_NULL(context->lws_lookup);
+	if (context->lws_lookup_slots)
+		lws_free_set_NULL(context->lws_lookup_slots);
 #endif
 	if (!context->fd_random)
 		lwsl_err("ZERO RANDOM FD\n");
