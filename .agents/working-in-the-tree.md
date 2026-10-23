@@ -37,6 +37,10 @@ other than your own edits can destroy or corrupt their work.
    line if the pattern appears in it.  Kill by PID, or use the bracket
    trick (`pgrep -f '[p]roxy-fixture\.py'`).
 
+Restoring sources by `mv` or `cp -p` after a red run keeps their old
+mtime, so make doesn't rebuild and the "green" binary is still the red
+one (V103).  Touch restored files, or check make compiled them.
+
 To judge whether a test failure is yours when other sessions have
 half-done edits in the tree, export HEAD (`git archive HEAD | tar -x`)
 into a directory outside the repo, apply only your patch, and build and
