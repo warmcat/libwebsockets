@@ -234,12 +234,11 @@
    `< /dev/null`.
  - **fuzz-lhp's callback is a stub, so dlo layout is not fuzzed.**  A
    layout harness needs a context in `ctx->user1` plus registered fonts,
-   or `lws_font_choose()` dereferences a NULL context.  Working recipe (A81,
-   found G-667 in minutes): a context with `lws_font_register()`,
-   `lhp_displaylist_layout` as the callback, `ctx->user1 = cx`, `base_url`
-   NULL so nothing is fetched; for assets, build `lws-api-test-lhp-dlo`'s
-   main.c against the static lib and run it on `file://` pages.  Grep its
-   output with `grep -a` (it writes a bmp to stdout).
+   or `lws_font_choose()` dereferences a NULL context.  Since G-667 the in-tree
+   fuzz target `fuzz-lhp-layout` lays inputs out with fonts registered; for
+   assets, build `lws-api-test-lhp-dlo`'s main.c against the static lib and
+   run it on `file://` pages (grep its output with `grep -a`: it writes a
+   bmp to stdout).
  - **`-DLWS_WITH_OTA=1` trees:** the `LWS_OTA_PUBLIC_JWK_FILE` content is
    pasted raw into a C string (quotes must be escaped), and every context
    reaching OPERATIONAL tries to create an "ota" stream.  Run the full

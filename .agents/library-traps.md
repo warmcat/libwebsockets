@@ -688,7 +688,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    bounds-checks and fails closed.  A selector step is at most
    `LHP_SEL_STEP_WORK` (32) units of `sel_work` by construction, so test
    allowances must be tighter than that, with short-value pages, to catch
-   anything (G-541, G-547).  Red-check a charge by turning it into a bare
+   anything (G-541, G-547).  `lhp_css_doc_spent()` frees `idxac` the first time it
+   finds the budget spent, so never call it inside a cascade's nested
+   `style=""` parse.  HTML tag and attribute names are compared ignoring
+   case (`lhp_buf_is_tag()`, G-667).  Red-check a charge by turning it into a bare
    `ctx->sel_work += n`: deleting the call also deletes the count, so the
    test can't see it.  The `#id`, tag and `=`-family charges have no
    fencing test yet (G-606).  To test private lhp functions against old/new
