@@ -88,6 +88,14 @@ media_process_video_frame(struct per_vhost_data *vhd, int index, size_t len)
 	if (lws_v4l2_get_buffer(vhd->v4l2_ctx, index, &start, &full_len) < 0)
 		return -1;
 
+	/* any of these may have failed to be created for the current sizes */
+	if (!vhd->yuv_frame || !vhd->avframe || !vhd->tcc_enc)
+		return -1;
+
+	/* the driver's idea of the frame length must fit in the buffer */
+	if (len > full_len)
+		return -1;
+
 	if (vhd->pixelformat == V4L2_PIX_FMT_MJPEG) {
 		/*
 		 * The JPEG decoder is for one image: each MJPEG frame gets a
@@ -101,12 +109,17 @@ media_process_video_frame(struct per_vhost_data *vhd, int index, size_t len)
 		if (lws_transcode_mjpeg_to_yuv420p(vhd->jpeg_dec, start, len, vhd->yuv_frame, vhd->width, vhd->height) < 0)
 			return -1;
 	} else if (vhd->pixelformat == V4L2_PIX_FMT_YUYV) {
+		/* the converter reads a whole w x h YUYV frame */
+		if (len < (size_t)vhd->width * vhd->height * 2)
+			return -1;
 		lws_transcode_yuyv_to_yuv420p(start, vhd->yuv_frame, vhd->width, vhd->height);
 	}
 
 	lws_transcode_frame_import_yuv(vhd->avframe, vhd->yuv_frame);
 
 	if (vhd->width != vhd->target_width || vhd->height != vhd->target_height) {
+		if (!vhd->sws_ctx || !vhd->avframe_scaled)
+			return -1;
 		lws_transcode_scale(vhd->sws_ctx, vhd->avframe, vhd->avframe_scaled);
 		if (lws_transcode_encode(vhd->tcc_enc, vhd->avframe_scaled, &buf, &out_len) >= 0) {
 			struct relay_data rd_v = { buf, out_len, 1 };

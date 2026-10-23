@@ -34,6 +34,7 @@ static const struct lws_switches switches[] = {
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <linux/videodev2.h>
 #include <arpa/inet.h>
 #include <libwebsockets/lws-v4l2.h>
@@ -65,6 +66,92 @@ static void alsa_audio_cb(void *user_data, const uint8_t *payload, size_t len)
 	}
 }
 #endif
+
+/*
+ * The sizes a client may ask us to encode at with request_res.  The camera
+ * itself is opened at whatever it supports nearest, but the scaler, frames and
+ * encoder are sized from what the client asked for, so it must be bounded.
+ */
+#define WEBCAM_MIN_DIM		16
+#define WEBCAM_MAX_WIDTH	1920
+#define WEBCAM_MAX_HEIGHT	1080
+
+/*
+ * The capture fds belong to lws_v4l2 / lws_alsa, which close them in their
+ * own destroy, while lws closes whatever it adopted when that wsi closes.  So
+ * lws gets its own reference, a dup() of the fd: each side closes exactly the
+ * fd it owns, and neither can end up closing an fd number the other already
+ * gave back to the OS and that something else got.
+ */
+
+static struct lws *
+webcam_adopt_fd(struct lws_vhost *vh, int fd)
+{
+	struct lws_adopt_desc ad;
+	struct lws *w;
+	int dfd;
+
+	if (fd < 0)
+		return NULL;
+
+	dfd = dup(fd);
+	if (dfd < 0)
+		return NULL;
+
+	memset(&ad, 0, sizeof(ad));
+	ad.vh = vh;
+	ad.type = LWS_ADOPT_RAW_FILE_DESC;
+	ad.fd.filefd = (lws_filefd_type)(lws_intptr_t)dfd;
+	ad.vh_prot_name = "lws-webrtc-webcam";
+
+	w = lws_adopt_descriptor_vhost_via_info(&ad);
+	if (!w)
+		/* a failed file adopt leaves the fd with the caller */
+		close(dfd);
+
+	return w;
+}
+
+/*
+ * A decimal integer JSON value from a peer, eg as found by
+ * lws_json_simple_find(), which is not NUL-terminated.  Returns 0 and sets
+ * *out if it is all digits (with an optional leading -) and in [min, max].
+ */
+
+static int
+webcam_json_int(const char *v, size_t alen, int64_t min, int64_t max,
+		int64_t *out)
+{
+	int64_t u = 0;
+	size_t n = 0;
+	int neg = 0;
+
+	if (!v || !alen)
+		return 1;
+
+	if (v[0] == '-') {
+		neg = 1;
+		n++;
+	}
+
+	if (n == alen || alen - n > 10)
+		return 1;
+
+	for (; n < alen; n++) {
+		if (v[n] < '0' || v[n] > '9')
+			return 1;
+		u = (u * 10) + (v[n] - '0');
+	}
+
+	if (neg)
+		u = -u;
+	if (u < min || u > max)
+		return 1;
+
+	*out = u;
+
+	return 0;
+}
 
 static int
 v4l2_init(struct per_vhost_data *vhd)
@@ -114,6 +201,11 @@ v4l2_reinit(struct per_vhost_data *vhd)
 	lwsl_notice("%s: Re-initializing V4L2 with %dx%d\n", __func__, vhd->target_width, vhd->target_height);
 
 	if (vhd->wsi_v4l2) {
+		/*
+		 * lws closes the old wsi, and its own dup() of the old capture
+		 * fd, later; until then it is no longer ours, so anything it
+		 * reports is ignored
+		 */
 		lws_set_timeout(vhd->wsi_v4l2, PENDING_TIMEOUT_KILLED_BY_PARENT, LWS_TO_KILL_ASYNC);
 		vhd->wsi_v4l2 = NULL;
 	}
@@ -121,18 +213,15 @@ v4l2_reinit(struct per_vhost_data *vhd)
 	if (vhd->v4l2_ctx)
 		lws_v4l2_destroy(&vhd->v4l2_ctx);
 
+	/* the encoder, frames and scaler for the old sizes go too */
+	media_deinit(vhd);
+
 	vhd->width = vhd->target_width;
 	vhd->height = vhd->target_height;
 
-	if (v4l2_init(vhd) == 0) {
-		struct lws_adopt_desc ad;
-		memset(&ad, 0, sizeof(ad));
-		ad.vh = we_ops->get_vhost(vhd->vhd);
-		ad.type = LWS_ADOPT_RAW_FILE_DESC;
-		ad.fd.filefd = (lws_filefd_type)(long)lws_v4l2_get_fd(vhd->v4l2_ctx);
-		ad.vh_prot_name = "lws-webrtc-webcam";
-		vhd->wsi_v4l2 = lws_adopt_descriptor_vhost_via_info(&ad);
-	}
+	if (v4l2_init(vhd) == 0)
+		vhd->wsi_v4l2 = webcam_adopt_fd(we_ops->get_vhost(vhd->vhd),
+					lws_v4l2_get_fd(vhd->v4l2_ctx));
 }
 
 static struct lws_context *cx;
@@ -298,33 +387,54 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE:
 	{
-		size_t alen;
+		/*
+		 * This comes from any client: everything in it is checked
+		 * before we act on it, and the values are not NUL-terminated
+		 */
+		size_t alen, wlen, hlen, klen, ilen, vlen;
 		const char *val = lws_json_simple_find((const char *)in, len, "\"type\":", &alen);
-		if (val && !strncmp(val, "\"request_res\"", 13)) {
-			const char *w = lws_json_simple_find((const char *)in, len, "\"width\":", &alen);
-			const char *h = lws_json_simple_find((const char *)in, len, "\"height\":", &alen);
-			if (w && h) {
-				vhd->target_width = (uint32_t)atoi(w);
-				vhd->target_height = (uint32_t)atoi(h);
-				lwsl_notice("%s: Requested resolution switch to %dx%d\n", __func__, vhd->target_width, vhd->target_height);
-				v4l2_reinit(vhd);
+		int64_t w64, h64, id64, v64;
+
+		if (!vhd || !val)
+			break;
+
+		if (alen == 11 && !strncmp(val, "request_res", 11)) {
+			const char *w = lws_json_simple_find((const char *)in, len, "\"width\":", &wlen);
+			const char *h = lws_json_simple_find((const char *)in, len, "\"height\":", &hlen);
+
+			if (webcam_json_int(w, wlen, WEBCAM_MIN_DIM,
+					    WEBCAM_MAX_WIDTH, &w64) ||
+			    webcam_json_int(h, hlen, WEBCAM_MIN_DIM,
+					    WEBCAM_MAX_HEIGHT, &h64) ||
+			    (w64 & 1) || (h64 & 1)) {
+				lwsl_notice("%s: ignoring bad request_res\n", __func__);
+				break;
 			}
+
+			vhd->target_width = (uint32_t)w64;
+			vhd->target_height = (uint32_t)h64;
+			lwsl_notice("%s: Requested resolution switch to %dx%d\n", __func__, vhd->target_width, vhd->target_height);
+			v4l2_reinit(vhd);
+			break;
 		}
 
-		if (val && !strncmp(val, "\"set_control\"", 13)) {
-			const char *kind = lws_json_simple_find((const char *)in, len, "\"kind\":", &alen);
-			const char *id = lws_json_simple_find((const char *)in, len, "\"id\":", &alen);
-			const char *v = lws_json_simple_find((const char *)in, len, "\"val\":", &alen);
-			if (kind && id && v) {
-				uint32_t cid = (uint32_t)atoi(id);
-				int32_t cval = (int32_t)atoi(v);
-				if (!strncmp(kind, "\"video\"", 7))
-					lws_v4l2_set_control(vhd->v4l2_ctx, cid, cval);
+		if (alen == 11 && !strncmp(val, "set_control", 11)) {
+			const char *kind = lws_json_simple_find((const char *)in, len, "\"kind\":", &klen);
+			const char *id = lws_json_simple_find((const char *)in, len, "\"id\":", &ilen);
+			const char *v = lws_json_simple_find((const char *)in, len, "\"val\":", &vlen);
+
+			if (!kind ||
+			    webcam_json_int(id, ilen, 0, UINT32_MAX, &id64) ||
+			    webcam_json_int(v, vlen, INT32_MIN, INT32_MAX, &v64))
+				break;
+
+			if (klen == 5 && !strncmp(kind, "video", 5))
+				lws_v4l2_set_control(vhd->v4l2_ctx, (uint32_t)id64, (int32_t)v64);
 #if defined(LWS_WITH_OPUS)
-				else if (vhd->alsa_cap)
-					lws_alsa_opus_set_control(vhd->alsa_cap, cid, (long)cval);
+			else if (klen == 5 && !strncmp(kind, "audio", 5) &&
+				 vhd->alsa_cap)
+				lws_alsa_opus_set_control(vhd->alsa_cap, (uint32_t)id64, (long)v64);
 #endif
-			}
 		}
 	}
 		break;
@@ -370,7 +480,9 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->target_width = LWS_RTP_VIDEO_WIDTH_360P;
 		vhd->target_height = LWS_RTP_VIDEO_HEIGHT_360P;
 
-		v4l2_init(vhd);
+		if (v4l2_init(vhd))
+			/* we carry on without video */
+			media_deinit(vhd);
 
 #if defined(LWS_WITH_OPUS)
 		memset(&ainfo, 0, sizeof(ainfo));
@@ -382,22 +494,14 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->alsa_cap = lws_alsa_opus_capture_create(&ainfo, alsa_audio_cb, vhd);
 #endif
 
-		if (vhd->v4l2_ctx) {
-			struct lws_adopt_desc ad;
-			memset(&ad, 0, sizeof(ad));
-			ad.vh = we_ops->get_vhost(vhd->vhd);
-			ad.type = LWS_ADOPT_RAW_FILE_DESC;
-			ad.fd.filefd = (lws_filefd_type)(long)lws_v4l2_get_fd(vhd->v4l2_ctx);
-			ad.vh_prot_name = "lws-webrtc-webcam";
-			vhd->wsi_v4l2 = lws_adopt_descriptor_vhost_via_info(&ad);
-		}
+		if (vhd->v4l2_ctx)
+			vhd->wsi_v4l2 = webcam_adopt_fd(we_ops->get_vhost(vhd->vhd),
+						lws_v4l2_get_fd(vhd->v4l2_ctx));
 
 #if defined(LWS_WITH_OPUS)
-		if (vhd->alsa_cap) {
-			lws_sock_file_fd_type u;
-			u.filefd = (lws_filefd_type)(long long)lws_alsa_opus_get_fd(vhd->alsa_cap);
-			vhd->wsi_alsa = lws_adopt_descriptor_vhost(we_ops->get_vhost(vhd->vhd), LWS_ADOPT_RAW_FILE_DESC, u, "lws-webrtc-webcam", NULL);
-		}
+		if (vhd->alsa_cap)
+			vhd->wsi_alsa = webcam_adopt_fd(we_ops->get_vhost(vhd->vhd),
+						lws_alsa_opus_get_fd(vhd->alsa_cap));
 #endif
 		break;
 	}
@@ -411,13 +515,16 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_RAW_RX_FILE:
+		if (!vhd)
+			break;
 #if defined(LWS_WITH_OPUS)
 		if (wsi == vhd->wsi_alsa) {
 			if (vhd->alsa_cap)
 				lws_alsa_opus_read(vhd->alsa_cap);
 		} else
 #endif
-		{
+		if (wsi == vhd->wsi_v4l2) {
+			/* (an old capture wsi waiting to be closed is ignored) */
 			struct v4l2_buffer buf_v;
 			void *start;
 			size_t len;
@@ -429,9 +536,11 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 				vhd->frame_count++;
 				if (we_ops && we_ops->send_video) {
 					if (vhd->pixelformat == V4L2_PIX_FMT_H264) {
-						lws_v4l2_get_buffer(vhd->v4l2_ctx, (int)buf_v.index, &start, &len);
-						struct relay_data rd_v = { start, buf_v.bytesused, 1 };
-						we_ops->foreach_session(vhd->vhd, relay_to_session, &rd_v);
+						if (!lws_v4l2_get_buffer(vhd->v4l2_ctx, (int)buf_v.index, &start, &len) &&
+						    buf_v.bytesused <= len) {
+							struct relay_data rd_v = { start, buf_v.bytesused, 1 };
+							we_ops->foreach_session(vhd->vhd, relay_to_session, &rd_v);
+						}
 					} else {
 						media_process_video_frame(vhd, (int)buf_v.index, (size_t)buf_v.bytesused);
 					}
@@ -442,7 +551,21 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_RAW_CLOSE_FILE:
+		/* lws closed one of our capture wsi */
+		if (!vhd)
+			break;
+		if (wsi == vhd->wsi_v4l2)
+			vhd->wsi_v4l2 = NULL;
+#if defined(LWS_WITH_OPUS)
+		if (wsi == vhd->wsi_alsa)
+			vhd->wsi_alsa = NULL;
+#endif
+		break;
+
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (!vhd)
+			break;
 #if defined(LWS_WITH_OPUS)
 		if (vhd->alsa_cap)
 			lws_alsa_opus_capture_destroy(&vhd->alsa_cap);
