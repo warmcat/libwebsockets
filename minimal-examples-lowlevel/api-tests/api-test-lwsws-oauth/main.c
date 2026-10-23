@@ -54,8 +54,9 @@
  *          /64, not one address of it, and wrong authenticator codes count
  *          against the account.  A completed login forgives its account's
  *          strikes but not its host's, and a right password without the
- *          authenticator code still costs the host a strike, which a
- *          completed second step from the same host gives back.
+ *          authenticator code still costs the host a strike, unless a
+ *          second step from the same host completes the login, even when
+ *          several people's two-step logins from one host overlap.
  *
  *  rows:  one logged-in account asks for far more authorization codes and
  *          refresh sessions than the auth server keeps for an account: it
@@ -139,6 +140,14 @@ static int send_host_hdr;
 static const char * const seed_backup_codes[] = {
 	"314159", "271828", "161803", "141421", "173205"
 };
+/*
+ * two more second factor accounts, with the same backup codes, so the limits
+ * scenario can have three people's two-step logins from one host overlap
+ */
+#define SEED_USER_2FA2		"apitest-2fa-user2"
+#define SEED_UID_2FA2		8
+#define SEED_USER_2FA3		"apitest-2fa-user3"
+#define SEED_UID_2FA3		9
 /*
  * a password-only account the rows scenario logs in to and then asks for
  * codes and refresh sessions far beyond what the auth server keeps for one
@@ -1007,9 +1016,12 @@ seed_wait_schema(sqlite3 *db)
 static int
 scenario_seed(void)
 {
+	static const int uids_2fa[] = {
+		SEED_UID_2FA, SEED_UID_2FA2, SEED_UID_2FA3
+	};
 	char sql[1024], hex[LWS_GENHASH_LARGEST * 2 + 1];
 	sqlite3 *db = NULL;
-	int r = 1, n;
+	int r = 1, n, m;
 
 	if (!db_path)
 		return fail("seed", "--db is required for the seed step");
@@ -1106,24 +1118,39 @@ scenario_seed(void)
 	lws_snprintf(sql, sizeof(sql),
 		     "INSERT OR REPLACE INTO users(uid, username, "
 		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (%d, '%s', '%s', '%s', '%s', 0, 0), "
+		     "(%d, '%s', '%s', '%s', '%s', 0, 0)",
+		     SEED_UID_2FA2, SEED_USER_2FA2, hex, SEED_SALT,
+		     SEED_TOTP_SECRET,
+		     SEED_UID_2FA3, SEED_USER_2FA3, hex, SEED_SALT,
+		     SEED_TOTP_SECRET);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
 		     "totp_last) VALUES (%d, '%s', '%s', '%s', '', 0, 0)",
 		     SEED_UID_ROWS, SEED_USER_ROWS, hex, SEED_SALT);
 	if (seed_exec(db, sql))
 		goto bail;
 
-	/* its backup codes, unused again whatever an earlier run spent */
+	/* their backup codes, unused again whatever an earlier run spent */
 
-	lws_snprintf(sql, sizeof(sql), "DELETE FROM backup_codes WHERE "
-		     "uid = %d", SEED_UID_2FA);
-	if (seed_exec(db, sql))
-		goto bail;
-
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(seed_backup_codes); n++) {
-		lws_snprintf(sql, sizeof(sql), "INSERT INTO backup_codes("
-			     "code, uid, used) VALUES ('%s', %d, 0)",
-			     seed_backup_codes[n], SEED_UID_2FA);
+	for (m = 0; m < (int)LWS_ARRAY_SIZE(uids_2fa); m++) {
+		lws_snprintf(sql, sizeof(sql), "DELETE FROM backup_codes WHERE "
+			     "uid = %d", uids_2fa[m]);
 		if (seed_exec(db, sql))
 			goto bail;
+
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(seed_backup_codes); n++) {
+			lws_snprintf(sql, sizeof(sql), "INSERT INTO "
+				     "backup_codes(code, uid, used) "
+				     "VALUES ('%s', %d, 0)",
+				     seed_backup_codes[n], uids_2fa[m]);
+			if (seed_exec(db, sql))
+				goto bail;
+		}
 	}
 
 	/*
@@ -2382,10 +2409,11 @@ scenario_xff(void)
  * every login that spent a password hash without completing costs its host a
  * strike, including a right password without the authenticator code, or one
  * host knowing one password could spend the whole hashing budget and keep
- * everyone else's logins refused (G-138).  But when the second step then
- * completes the login from the same host, that one strike is given back, or a
- * few second factor logins from one host or /64 within the decay time brake
- * and then ban it (G-223).
+ * everyone else's logins refused (G-138).  But a first step waiting for its
+ * second does not count until it has waited too long, and the second step
+ * completing the login from the same host settles it, or a few second factor
+ * logins from one host or /64 within the decay time brake and then ban it
+ * (G-223), even more so when they overlap (G-652).
  */
 static int
 limits_login(const char *from, const char *user, const char *pass,
@@ -2414,8 +2442,11 @@ limits_strikes(const char *from)
 static int
 scenario_limits(void)
 {
+	static const char * const users_2fa[] = {
+		SEED_USER_2FA, SEED_USER_2FA2, SEED_USER_2FA3
+	};
 	char pfx[48], other[48], xff[96], csrf[128], b[512], host[48],
-	     host2[48], host3[48], nobody[48];
+	     host2[48], host3[48], host4[48], nobody[48];
 	uint32_t code, wrong;
 	uint8_t r[4];
 	int n;
@@ -2529,6 +2560,9 @@ scenario_limits(void)
 	/* even where host2 is odd, so never the same host */
 	lws_snprintf(host3, sizeof(host3), "198.19.%u.%u", r[1],
 		     (unsigned int)(r[0] & 0xfe));
+	/* and the other half of the benchmarking range for host4 */
+	lws_snprintf(host4, sizeof(host4), "198.18.%u.%u", r[3],
+		     (unsigned int)(r[2] & 0xfe));
 	lws_snprintf(nobody, sizeof(nobody), "apitest-nobody-%02x%02x%02x%02x",
 		     r[0], r[1], r[2], r[3]);
 
@@ -2639,23 +2673,69 @@ scenario_limits(void)
 		return fail("limits", "after four completed two-step logins, "
 			    "%s has %d strikes, wanted none", host3, n);
 
-	/* a first step not followed by its second still costs the strike */
+	/*
+	 * A first step not followed by its second still costs the strike.
+	 * While it waits for its second step it does not count (G-652), and
+	 * becomes a counted strike if none comes within the window; repeating
+	 * the first step for the same account from the same host while one is
+	 * waiting does both at once: the waiting one counts, and so does the
+	 * repeat.
+	 */
 
-	if (limits_login(host3, SEED_USER_2FA, SEED_PASSWORD, csrf) ||
-	    status != 401 || !strstr(body, "Authenticator Code"))
-		return fail("limits", "a lone first step from %s answered %u, "
-			    "wanted 401 asking for the code: '%s'", host3,
-			    status, body);
+	for (n = 0; n < 2; n++)
+		if (limits_login(host3, SEED_USER_2FA, SEED_PASSWORD, csrf) ||
+		    status != 401 || !strstr(body, "Authenticator Code"))
+			return fail("limits", "lone first step %d from %s "
+				    "answered %u, wanted 401 asking for the "
+				    "code: '%s'", n, host3, status, body);
 
 	n = limits_strikes(host3);
-	if (n != 1)
-		return fail("limits", "after a first step with no second, %s "
-			    "has %d strikes, wanted 1", host3, n);
+	if (n != 2)
+		return fail("limits", "after two first steps with no second, "
+			    "%s has %d strikes, wanted 2", host3, n);
+
+	/*
+	 * (6) three people behind one host each type their password, and
+	 * only then their codes, as an office NAT sees at nine o'clock: the
+	 * waiting first steps must not brake each other's second steps, nor
+	 * leave a strike behind once completed (G-652)
+	 */
+
+	if (limits_strikes(host4))
+		return fail("limits", "%s starts with %d strikes, wanted none",
+			    host4, status_strikes());
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(users_2fa); n++)
+		if (limits_login(host4, users_2fa[n], SEED_PASSWORD, csrf) ||
+		    status != 401 || !strstr(body, "Authenticator Code"))
+			return fail("limits", "%s's first step from %s "
+				    "answered %u, wanted 401 asking for the "
+				    "code: '%s'", users_2fa[n], host4, status,
+				    body);
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(users_2fa); n++) {
+		lws_snprintf(b, sizeof(b), "username=%s&password=%s"
+			     "&csrf_token=%s&totp=%s", users_2fa[n],
+			     SEED_PASSWORD, csrf, seed_backup_codes[4]);
+		req_xff = host4;
+		if (req_full(JAR_AUTH, port_auth, "/api/login", b) ||
+		    status != 200)
+			return fail("limits", "%s's second step from %s "
+				    "answered %u, wanted 200: '%s'",
+				    users_2fa[n], host4, status, body);
+	}
+
+	n = limits_strikes(host4);
+	if (n)
+		return fail("limits", "after three overlapping two-step "
+			    "logins, %s has %d strikes, wanted none", host4,
+			    n);
 
 	lwsl_user("PASS: limits: strikes and the ban land on the /64, wrong "
 		  "authenticator codes brake the account, a completed login "
 		  "forgives only its account, a missing code costs the host "
-		  "and a completed second step gives that back\n");
+		  "unless a second step completes the login, and waiting "
+		  "first steps do not brake each other\n");
 
 	return 0;
 }

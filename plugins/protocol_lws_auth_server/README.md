@@ -341,8 +341,18 @@ second factor login), or one with a redirect that is refused.  A completed
 login forgives the strikes of the account that logged in, but not those of
 its host, which only decay: otherwise a host holding any one account could
 clear its own brake between guesses at others, or spend the whole hashing
-budget below at no cost to itself.  A second factor user therefore leaves one
-strike behind per login, forgiven after 120 s.
+budget below at no cost to itself.
+
+The first step of a second factor login, the right password without the
+code, holds its strike aside instead of on the host: it is dropped when the
+second step completes the login from the same host within 120 s, and lands
+on the host, like any other strike, only if none does.  So people logging in
+with a second factor from one host or /64, even at the same moment, neither
+brake nor ban it among themselves.  A host repeating first steps without
+completing them is struck as before: a repeat for the same account lands the
+held strike and strikes for itself (one completed login gives one of those
+back), and a host holds at most three strikes aside at a time, first steps
+for more accounts striking it at once.
 
 Behind all of that, the password hashing unauthenticated requests can cause
 is budgeted as a whole (`kdf-per-sec`), so however the requests are spread
