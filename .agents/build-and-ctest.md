@@ -207,7 +207,10 @@
    Evlib plugins are only searched in LWS_INSTALL_LIBDIR, so run libuv
    examples from a build tree configured with `-DLWS_WITH_EVLIB_PLUGINS=0`.
    A stalled-reader test against a slow producer takes a long time to see
-   the stall: loopback send buffers autotune up to ~4MB.
+   the stall: loopback send buffers autotune up to ~4MB, and receive
+   buffers to tcp_rmem max (32MB here).  An in-process api-test could not
+   make the pre-G-672 server see a steady slow reader within seconds even
+   with SO_RCVBUF clamped; that needs separate processes or a far longer run.
  - **Linux loopback lets a test send from any 127/8 address**, so tests can
    use many source hosts (eg 127.0.0.2).  macOS lacks them: skip there.
  - **api-test-auth-dns-zonedir's clock starts before the context is
