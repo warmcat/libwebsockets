@@ -207,6 +207,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
+ - **A ws upgrade on h2 / h3 has no `WSI_TOKEN_GET_URI`**: it is an
+   extended CONNECT, and lws copies `:path` into `WSI_TOKEN_CONNECT`.
+   Code that finds the request URI by scanning the method tokens must
+   include `WSI_TOKEN_CONNECT` (and `WSI_TOKEN_HTTP_COLON_PATH`), as
+   `lws_http_get_uri_and_method()` does; lws-login missed it and judged
+   every ws-over-h2 upgrade by the vhost-wide service-name instead of its
+   mount's PMO (api-test-lws-login-ws-h2).
  - **h2 RST_STREAM / GOAWAY latch on their own bits** (`h2.rst_queued`,
    `goaway_queued`) since G-645 (30fa910ab), never the parser's
    `h2n->type`.  The lws h2 client sends RST NO_ERROR "client done" on
