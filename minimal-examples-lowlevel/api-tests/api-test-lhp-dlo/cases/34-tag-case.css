@@ -1,0 +1,6 @@
+/*
+ * Linked from 34-tag-case.html and, as <LINK REL="StyleSheet" HREF=...>,
+ * from 34-tag-case-upper.html, which must lay out the same
+ */
+body { font-size: 12px; margin: 0; padding: 0 }
+.c { color: blue; background-color: yellow }

@@ -69,6 +69,7 @@ endif()
 
 if (LWS_WITH_LHP AND LWS_WITH_DLO)
 	lws_add_fuzz_target(lhp)
+	lws_add_fuzz_target(lhp-layout)
 endif()
 
 if (LWS_WITH_JPEG)

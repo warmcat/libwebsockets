@@ -1237,7 +1237,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	 */
 
 	if (type == LWSDLOSS_TYPE_CSS && (i->lhp->npos != 4 ||
-	    strncmp(i->lhp->buf, "link", 4))) {
+	    strncasecmp(i->lhp->buf, "link", 4))) {
 		lwsl_warn("%s: css asset not for a <link>\n", __func__);
 		return 1;
 	}

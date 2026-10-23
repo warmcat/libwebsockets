@@ -649,7 +649,9 @@ lhp_text_decorate(lws_dl_rend_t *drt, lws_dlo_text_t *txt, int deco,
  * The static position of an out-of-flow box: where a hypothetical box would
  * have gone in the flow, expressed in the coordinate space of psa's dlo (the
  * nearest positioned ancestor, or the body).  Used when none of the css
- * offsets are set, so the box stays where its content had got to.
+ * offsets are set, so the box stays where its content had got to.  With no
+ * container c there is no flow to have got anywhere in: the static position
+ * is psa's origin, or the surface's.
  */
 
 static void
@@ -675,6 +677,12 @@ lhp_static_pos(lhp_pstack_t *psa, lhp_pstack_t *c, lws_fx_t *sx, lws_fx_t *sy)
 			lws_fx_add(&dy, &dy, &p->dlo->box.y);
 		}
 		p = lhp_parent(p);
+	}
+
+	if (!c) {
+		*sx = dx;
+		*sy = dy;
+		return;
 	}
 
 	lws_fx_add(sx, &dx, &c->ox);

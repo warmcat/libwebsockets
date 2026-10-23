@@ -113,6 +113,7 @@ doesn't fail.
 | `fuzz-qpack` | native QPACK decoders (`lib/sansio/h3/qpack.c`) | first byte selects encoder-stream vs header-block decode; needs h3 (`LWS_WITH_HTTP3` + gnutls) |
 | `fuzz-upng` | stateful PNG decoder (`lib/misc/upng.c`) | seeds from `test-apps/*.png` |
 | `fuzz-lhp` | HTML5 + CSS parser (`lib/misc/lhp.c`) | builds a dlo document per input and destroys it; leaks and heap errors in teardown are caught |
+| `fuzz-lhp-layout` | lhp driving the dlo layout (`lib/misc/lhp.c`, `lib/misc/dlo/dlo-lhp.c`) | as `fuzz-lhp`, but laid out by `lhp_displaylist_layout()` on a context with fonts registered, as a renderer does; no assets are fetched |
 | `fuzz-h1` | h1 server header/body parser (`lib/sansio/http/`) | evil-peer target, see below |
 | `fuzz-h2` | h2 framing + hpack (`lib/sansio/h2/`) | evil-peer: the fuzz input is h2 frames after a canned h2c upgrade + connection preface |
 | `fuzz-ws` | ws server frame parser (`lib/sansio/ws/`) | evil-peer: the fuzz input is client frames after a canned upgrade handshake |
@@ -143,8 +144,8 @@ covered in normal CI.
 ## Survey: what to harness next
 
 The wsi-bound h1, h2/hpack and ws parsers are covered via `peer.h`, and
-the standalone decoders (lejp, lecp, qpack, upng, jpeg, lhp, tokenize +
-helpers, JOSE, COSE, async-dns) directly.  The remaining untrusted-input
+the standalone decoders (lejp, lecp, qpack, upng, jpeg, lhp and its
+layout, tokenize + helpers, JOSE, COSE, async-dns) directly.  The remaining untrusted-input
 surfaces, easiest first:
 
  - the parsers that take bytes from a malicious *server*: mqtt rx

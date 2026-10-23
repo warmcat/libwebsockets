@@ -1322,6 +1322,10 @@ lws_css_get_parent_block(lhp_ctx_t *ctx, lhp_pstack_t *ps);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_css_pstack_name(lhp_pstack_t *ps);
 
+/*
+ * The value of element ps's attribute aname, whose name is matched ignoring
+ * (ascii) case as html attribute names are, or NULL if it has none
+ */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len);
 

@@ -82,7 +82,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng jpeg gif lhp hl md tokenize jose cose adns h1 h2 ws ws-pmd"
+	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md tokenize jose cose adns h1 h2 ws ws-pmd"
 fi
 
 START=$(date +%s)

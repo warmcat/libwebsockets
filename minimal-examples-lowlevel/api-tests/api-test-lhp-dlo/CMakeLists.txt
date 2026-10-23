@@ -37,13 +37,15 @@ if (requirements)
 			# 13-adblock gets its own entry below, with the ad filter files
 			# 14-asset-cache gets its own entry below, with the asset cache
 			# 21-image-reclaim is a render comparison below
+			# 34-tag-case-upper is compared with 34-tag-case's golden
 			list(REMOVE_ITEM LHP_CASES
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/21-image-reclaim.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.html
-					${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.html)
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/34-tag-case-upper.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			# a case whose assets need a decoder this build lacks
@@ -92,6 +94,22 @@ if (requirements)
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/13-adblock.dlo
 				-DCSS_FILTER=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.css
 				-DBLOCK_LIST=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.list
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endif()
+
+		# html tag and attribute names ignore case: the same page in
+		# upper and mixed case, including the body and abs / fixed boxes
+		# with no positioned ancestor (which crashed the layout when
+		# <BODY> got no body rect, G-667), an <IMG SRC> and a
+		# <LINK REL=StyleSheet>, must lay out as the lower case one
+		# (svg image)
+		if (LWS_WITH_SVG)
+		add_test(NAME api-test-lhp-dlo-34-tag-case-upper
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/34-tag-case-upper.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/34-tag-case.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/34-tag-case-upper.dlo
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 		endif()
 

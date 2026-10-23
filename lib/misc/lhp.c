@@ -5583,8 +5583,10 @@ lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len)
 		const lhp_atr_t *at = lws_container_of(p, lhp_atr_t, list);
 		const char *ats = (const char *)&at[1];
 
+		/* attribute names are ascii case-insensitive, as for css */
 		if (p != lws_dll2_get_head(&ps->atr) &&
-		    at->name_len == aname_len && !memcmp(ats, aname, aname_len))
+		    at->name_len == aname_len &&
+		    !strncasecmp(ats, aname, aname_len))
 			return ats + aname_len + 1;
 
 	} lws_end_foreach_dll(p);
@@ -6047,6 +6049,19 @@ lhp_head_content(const char *tag, size_t len)
 }
 
 /* the nearest open level above ps (exclusive) for the named tag */
+
+/*
+ * Is the tag being started or ended, as presented in ctx->buf, the named one?
+ * html tag names are ascii case-insensitive, and every decision taken on the
+ * tag name must agree with the cascade's, which ignores case: <BODY> is the
+ * body for the css, so it must get the body's surface rect too
+ */
+
+static int
+lhp_buf_is_tag(const lhp_ctx_t *ctx, const char *name, size_t len)
+{
+	return ctx->npos == (int)len && !strncasecmp(ctx->buf, name, len);
+}
 
 static lhp_pstack_t *
 lhp_parent_tag(lhp_pstack_t *ps, const char *name, size_t len)
@@ -6578,8 +6593,7 @@ elem_start:
 				 * when retrying after waiting for the dims of
 				 * its background image
 				 */
-				if (ctx->npos == 4 && !strncmp(ctx->buf, "body", 4) &&
-				    !ps->dlo) {
+				if (lhp_buf_is_tag(ctx, "body", 4) && !ps->dlo) {
 					lws_display_colour_t col =
 						LWSDC_RGBA(255, 255, 255, 255);
 
@@ -6638,18 +6652,18 @@ elem_start:
 
 				/* it's a link? */
 
-				if (ctx->npos == 4 && !strncmp(ctx->buf, "link", 4)) {
+				if (lhp_buf_is_tag(ctx, "link", 4)) {
 					pname = lws_html_get_atr(ps, "href", 4);
 					rel = lws_html_get_atr(ps, "rel", 3);
 
-					if (!rel || strncmp(rel, "stylesheet", 10))
+					if (!rel || strncasecmp(rel, "stylesheet", 10))
 						goto issue_elem_start;
 					is_css_link = 1;
 				}
 
 				/* it's an img? */
 
-				if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
+				if (lhp_buf_is_tag(ctx, "img", 3))
 					pname = lws_html_get_atr(ps, "src", 3);
 				else {
 					aa = lws_css_cascade_get_prop_atr(ctx,
@@ -6874,7 +6888,7 @@ elem_start:
 						goto issue_elem_start;
 					} else {
 						lwsl_cx_info(cx, "Created SS for %s\n", url);
-						if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
+						if (lhp_buf_is_tag(ctx, "img", 3))
 							ps->dlo = dlo;
 						else if (aa)
 							/* homed into our own dlo
@@ -6885,8 +6899,7 @@ elem_start:
 					// lwsl_cx_warn(cx, "Found in-progress %s\n", url);
 					/* an in-progress asset that isn't an
 					 * image (eg, a stylesheet) has no dlo */
-					if (u.u.dlo_png && ctx->npos == 3 &&
-					    !strncmp(ctx->buf, "img", 3))
+					if (u.u.dlo_png && lhp_buf_is_tag(ctx, "img", 3))
 						ps->dlo = &u.u.dlo_png->dlo;
 
 					/*
@@ -6921,7 +6934,7 @@ elem_start:
 					 */
 					goto issue_elem_start;
 
-				if (ctx->npos == 4 && !strncmp(ctx->buf, "link", 4)) {
+				if (lhp_buf_is_tag(ctx, "link", 4)) {
 					ps->cb(ctx, LHPCB_ELEMENT_START);
 					ctx->npos = 0;
 					ctx->state = LCSPS_CSS_OUTER;
