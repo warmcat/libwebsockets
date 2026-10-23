@@ -91,10 +91,11 @@ mixer_text_ok(const char *s, size_t len);
 
 /*
  * Is a peer's capabilities message fit to keep?  The mixer stores the
- * message verbatim and relays it to the room controller in ws TEXT frames,
- * then again each time a controller joins, so it must be one whole message
- * (the caller drops the pieces of a fragmented one), no bigger than `max`,
- * hold a "controls" member and pass mixer_text_ok().  Returns 0 and sets
+ * message verbatim and relays it in ws TEXT frames to each participant that
+ * may control its sender, then again each time one of those joins, so it
+ * must be one whole message (the caller drops the pieces of a fragmented
+ * one), no bigger than `max`, hold a "controls" member and pass
+ * mixer_text_ok().  Returns 0 and sets
  * *is_audio from its "kind" member, or -1 if it may not be kept.
  */
 int
@@ -120,6 +121,30 @@ mixer_json_str(char *dest, size_t dest_len, const char *v, size_t al);
 int
 mixer_json_list_add(char **p, const char *end, size_t reserve, int *count,
 		    const char *ent, size_t ent_len);
+
+/*
+ * A participant's grant level, when nothing authenticated it, or its
+ * account holds no grant for the mixer's service
+ */
+#define MIXER_GRANT_NONE		(-1)
+
+/*
+ * May a participant with grant level `p_level` drive the camera and
+ * microphone controls of one with `tp_level`, or read its device
+ * capabilities?  `self` is nonzero when they are the same participant.
+ *
+ * Rights in a room come only from the authenticated account's grant level
+ * for the mixer's service, IRC-owner style: a participant holding at least
+ * `control_level` controls the room, but not a participant whose level is
+ * higher than its own.  Nobody else may aim these at anybody but itself.
+ * With no grant level configured (`control_level` MIXER_GRANT_NONE), or no
+ * authenticated participants, a room has no controller at all.
+ *
+ * Returns nonzero if it may.
+ */
+int
+mixer_may_control_levels(int self, int p_level, int tp_level,
+			 int control_level);
 
 /*
  * Spacing for something we do on behalf of peers that we must not do more

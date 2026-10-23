@@ -2,6 +2,8 @@ set(PLUGIN_NAME protocol_lws_webrtc_mixer)
 set(requirements 1)
 require_lws_config(LWS_WITH_WEBRTC_MIXER 1 requirements)
 require_lws_config(LWS_WITH_LEJP 1 requirements)
+# the grant level check on the session cookie needs JOSE
+require_lws_config(LWS_WITH_JOSE 1 requirements)
 
 if (requirements)
 	find_package(PkgConfig QUIET)

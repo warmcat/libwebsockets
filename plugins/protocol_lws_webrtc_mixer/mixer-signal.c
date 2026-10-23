@@ -334,3 +334,18 @@ mixer_gate_wait(const struct mixer_gate *g, lws_usec_t now)
 
 	return g->interval - (now - g->last);
 }
+
+int
+mixer_may_control_levels(int self, int p_level, int tp_level,
+			 int control_level)
+{
+	if (self)
+		return 1;
+
+	if (control_level <= MIXER_GRANT_NONE || p_level < control_level)
+		return 0;
+
+	/* a controller can't take over the devices of one who outranks it */
+
+	return p_level >= tp_level;
+}

@@ -10,6 +10,14 @@ sends a single mixed stream back to every participant.
 |---|---|---|
 |`gstreamer-pipeline`|a 720p `compositor` -> `x264enc` -> `appsink` chain|the room's encode pipeline; it must contain an element named `comp` and an `appsink` named `outsink` or `outsink_h264`|
 |`max-rooms`|8|how many rooms this vhost will create|
+|`service-name`|`webrtc-mixer`|the grant name whose level decides who may control a room, see "Authorization"|
+|`control-grant-level`|2|the grant level for `service-name` an account needs to control rooms; 0 or anything unparseable means nobody controls rooms|
+|`jwt-jwk`|none|the auth server's public JWK (inline JSON, or a path to it), to verify the `auth_session` cookie of the ws upgrade|
+|`origin-allow`|none|comma-separated further origins, beyond the vhost's own, whose pages may open the ws with a grant|
+
+The session caps (`max-sessions`, `max-sessions-per-host`) and the UDP
+media settings are pvos of the underlying `lws-webrtc` protocol, see its
+README.
 
 ## Rooms
 
@@ -52,10 +60,28 @@ change here.  In short:
 
 ## Authorization
 
-**The signalling protocol here is unauthenticated.** Anyone who can open the
+**Taking part in a room is unauthenticated.** Anyone who can open the
 `lws-webrtc-mixer` ws protocol on the vhost can enter a room.  If that is not
-what you want, gate the vhost itself (eg, with `lws-login` / a JWT cookie
-mount) --- nothing in this plugin does it for you.
+what you want, gate the mount itself (eg, with an `lws-login` interceptor) ---
+nothing in this plugin refuses anonymous participants.
+
+**Controlling a room is not.**  What a participant may do to others comes
+only from its authenticated account's grant level for `service-name`,
+IRC-owner style, decided once when its ws connects:
+
+ - the `x-lws-login-grant-level` an in-process `lws-login` bouncer gating the
+   mount stamped on the ws upgrade (its cooked level for the grant it was
+   configured with), or else
+ - with the `jwt-jwk` pvo, the `auth_session` cookie on the upgrade: an `sso`
+   session token that verifies and has not expired, and its grant for
+   `service-name` (or `*`).
+
+Both are ambient credentials, and a ws upgrade is exempt from the same-origin
+policy, so an upgrade whose `Origin` is not the vhost's own (or listed in
+`origin-allow`) gets no grant, whatever it carries.  A participant with no
+grant, or with neither source configured, is anonymous: it takes part, but
+controls nobody else.  So by default a room has no controller at all; being
+first in a room gives nothing.
 
 Within a room, the plugin does enforce the following:
 
@@ -65,9 +91,11 @@ Within a room, the plugin does enforce the following:
    The display name a participant chooses for itself is cosmetic and is not
    used for routing, so copying somebody else's name achieves nothing.
 
- - The **controller** of a room is the first participant to arrive (and, when
-   it leaves, whoever is then at the head of the room).  Only the controller,
-   or a participant addressing itself, may:
+ - A participant whose grant level is at least `control-grant-level`
+   **controls** the room, but not participants whose level is higher than its
+   own; there may be several, and nothing is handed over when one leaves.
+   Only a participant that controls the target, or one addressing itself,
+   may:
 
      - drive a participant's camera/microphone device settings with
        `set_control`

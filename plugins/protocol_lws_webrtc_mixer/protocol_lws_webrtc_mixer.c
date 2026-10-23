@@ -469,15 +469,93 @@ find_participant_by_id(struct mixer_room *r, const char *id)
 /*
  * Who may drive `tp`'s camera controls or read its device capabilities?
  *
- * Only tp itself, or the room's controller (the first participant to arrive
- * in the room).  Signalling here is unauthenticated and peers used to be
- * addressed by the display name they chose for themselves, so any peer could
- * name any other and take over its camera.  See README.md.
+ * Only tp itself, or a participant whose authenticated account holds the
+ * vhost's control grant level and does not rank below tp's.  Arriving first
+ * in a room gives nothing: anybody can arrive first.  See README.md.
  */
 static int
 mixer_may_control(struct participant *p, struct participant *tp)
 {
-	return p == tp || p->controller;
+	return mixer_may_control_levels(p == tp, p->grant_level,
+					tp->grant_level,
+					p->room ? p->room->vhd->control_level :
+						  MIXER_GRANT_NONE);
+}
+
+/*
+ * The grant level for our service-name of the account behind this ws
+ * upgrade, or MIXER_GRANT_NONE.  Called from ESTABLISHED, while the upgrade
+ * request's headers are still attached.
+ *
+ * The level comes from
+ *
+ *  1. the x-lws-login-grant-level an in-process lws-login bouncer gating the
+ *     mount the upgrade came in on stamped on it (its own service-name
+ *     grant, or "*"'s).  Only an interceptor can stamp it, so it needs no
+ *     configuration to be trusted
+ *
+ *  2. with the jwt-jwk pvo (the auth server's public jwk), the auth_session
+ *     cookie itself: an "sso" purpose session token that verifies and has not
+ *     expired, and its grant for our service-name
+ *
+ * Both are ambient credentials the browser sends whatever page opened the
+ * ws, and a ws upgrade is exempt from the same-origin policy, so a request
+ * from a page that is not ours gets no grant at all: it may still take part
+ * in a room, as anyone may, but controls nothing.
+ */
+static int
+mixer_grant_level(struct vhd_mixer *vhd, struct lws *wsi)
+{
+	struct lws_jwt_auth_info ai;
+	struct lws_jwt_auth *ja;
+	uint64_t exp;
+	char st[16];
+	int n;
+
+	if (lws_http_origin_check(wsi, vhd->origin_allow, 0)) {
+		lwsl_wsi_notice(wsi, "Origin is not ours: no grant");
+
+		return MIXER_GRANT_NONE;
+	}
+
+	n = lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL, st,
+				       sizeof(st));
+	if (n > 0) {
+		n = atoi(st);
+
+		return n < 0 ? MIXER_GRANT_NONE : n;
+	}
+
+	if (!vhd->has_jwk)
+		return MIXER_GRANT_NONE;
+
+	/* only the auth server's session tokens, not anything it signed */
+	memset(&ai, 0, sizeof(ai));
+	ai.jwk		= &vhd->jwk;
+	ai.cookie_name	= "auth_session";
+	ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
+	ai.user		= wsi;
+
+	ja = lws_jwt_auth_create_via_info(wsi, &ai, NULL);
+	if (!ja)
+		return MIXER_GRANT_NONE;
+
+	/*
+	 * lws_jwt_auth_create() hands back a token that verified but has
+	 * expired, leaving the decision to us: an expired session grants
+	 * nothing
+	 */
+	exp = lws_jwt_auth_get_exp(ja);
+	n = lws_jwt_auth_query_grant(ja, vhd->service_name);
+	lws_jwt_auth_destroy(&ja);
+
+	if (!exp || exp <= (uint64_t)lws_now_secs()) {
+		lwsl_wsi_notice(wsi, "auth_session expired: no grant");
+
+		return MIXER_GRANT_NONE;
+	}
+
+	return n < 0 ? MIXER_GRANT_NONE : n;
 }
 
 /*
@@ -694,6 +772,55 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 							  __func__, pvo->value);
 				}
 
+				/* who controls a room, see mixer_grant_level() */
+
+				vhd->service_name = MIXER_DEFAULT_SERVICE_NAME;
+				pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in,
+						     "service-name");
+				if (pvo)
+					vhd->service_name = pvo->value;
+
+				vhd->control_level = MIXER_DEFAULT_CONTROL_LEVEL;
+				pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in,
+						     "control-grant-level");
+				if (pvo) {
+					int n = atoi(pvo->value);
+
+					/*
+					 * Never accept a level everybody has:
+					 * a bogus one disables control instead
+					 */
+					if (n > 0)
+						vhd->control_level = n;
+					else {
+						lwsl_warn("%s: bogus control-grant-level '%s': "
+							  "nobody controls rooms\n",
+							  __func__, pvo->value);
+						vhd->control_level = MIXER_GRANT_NONE;
+					}
+				}
+
+				pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in,
+						     "origin-allow");
+				if (pvo)
+					vhd->origin_allow = pvo->value;
+
+				pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in,
+						     "jwt-jwk");
+				if (pvo) {
+					if (pvo->value[0] == '{' ||
+					    lws_jwk_load(&vhd->jwk, pvo->value, NULL, NULL)) {
+						if (lws_jwk_import(&vhd->jwk, NULL, NULL,
+								   pvo->value,
+								   strlen(pvo->value))) {
+							lwsl_err("%s: failed to load/import jwt-jwk\n",
+								 __func__);
+							return -1;
+						}
+					}
+					vhd->has_jwk = 1;
+				}
+
 				pvo = lws_pvo_search(
 					(const struct lws_protocol_vhost_options *)in, "gstreamer-pipeline");
 				if (pvo) {
@@ -769,6 +896,11 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_ring_destroy(vhd->ring_rx);
 				}
 
+				if (vhd->has_jwk) {
+					lws_jwk_destroy(&vhd->jwk);
+					vhd->has_jwk = 0;
+				}
+
 				/*
 				 * The worker is joined and has let go of them,
 				 * so the rooms are ours again and it is safe to
@@ -840,6 +972,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 				p->pss = pss;
 				p->wsi = wsi;
+				p->grant_level = MIXER_GRANT_NONE;
 				p->gate_chat.interval = MIXER_CHAT_MIN_INTERVAL_US;
 
 				/* Initialize underlying WebRTC PSS */
@@ -854,10 +987,12 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				/*
-				 * The first participant in a room is its
-				 * controller, see README.md.
+				 * What the participant may do to others in the
+				 * room comes from its account's grant level, see
+				 * README.md.  The upgrade's headers are only
+				 * still here now.
 				 */
-				p->controller = !lws_dll2_get_head(&rm->participants);
+				p->grant_level = mixer_grant_level(vhd, wsi);
 
 				/* Create Shared Session */
 				p->session = mixer_media_session_create(vhd);
@@ -994,8 +1129,8 @@ est_fail:
 							room_client_list_changed(p->room);
 
 							/*
-							 * Only the room controller is entitled to
-							 * another participant's enumerated device
+							 * Only a participant that may control this
+							 * one is entitled to its enumerated device
 							 * capabilities; this used to go to
 							 * everybody, which was both a disclosure
 							 * and an N-way amplifier.
@@ -1161,8 +1296,8 @@ est_fail:
 						/*
 						 * This drives the target's camera and
 						 * microphone device settings, so a peer
-						 * may only aim it at itself unless it is
-						 * the room's controller.
+						 * may only aim it at itself unless its
+						 * grant level lets it control the target.
 						 */
 						if (!mixer_may_control(p, tp)) {
 							lwsl_warn("%s: '%s' not entitled to control '%s'\n",
@@ -1282,9 +1417,8 @@ est_fail:
 
 								/*
 								 * Send cached capabilities from other
-								 * participants --- but only to the room
-								 * controller, which is the only peer
-								 * entitled to them.
+								 * participants --- but only those this one
+								 * may control, see mixer_may_control().
 								 */
 								lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
 									struct participant *other = lws_container_of(d, struct participant, list);
@@ -1521,22 +1655,11 @@ est_fail:
 							if (as->exclude_p == p) as->exclude_p = NULL;
 						} lws_end_foreach_dll_safe(d, d1);
 
-						lws_dll2_remove(&p->list);
-
 						/*
-						 * If the controller left, hand the role to
-						 * whoever is now at the head of the room, so
-						 * the room does not silently become one where
-						 * nobody may drive remote device controls.
+						 * Nothing is handed over: control is each
+						 * participant's own, from its grant level
 						 */
-						if (p->controller) {
-							struct lws_dll2 *h = lws_dll2_get_head(
-									&p->room->participants);
-
-							if (h)
-								lws_container_of(h, struct participant,
-										 list)->controller = 1;
-						}
+						lws_dll2_remove(&p->list);
 
 						room_client_list_changed(p->room);
 					}

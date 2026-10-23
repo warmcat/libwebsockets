@@ -575,6 +575,58 @@ test_gate(void)
 	return 0;
 }
 
+/*
+ * Room control comes only from grant levels (G-296): never from arriving
+ * first, and never over somebody who outranks you
+ */
+
+struct may_control_case {
+	int		self, p_level, tp_level, control_level, expect;
+};
+
+static const struct may_control_case may_control[] = {
+	/* anybody may drive its own devices, authenticated or not */
+	{ 1, MIXER_GRANT_NONE,	MIXER_GRANT_NONE, 2,			1 },
+	{ 1, MIXER_GRANT_NONE,	MIXER_GRANT_NONE, MIXER_GRANT_NONE,	1 },
+	/* nobody authenticated: no controller, whoever came first */
+	{ 0, MIXER_GRANT_NONE,	MIXER_GRANT_NONE, 2,			0 },
+	/* control not configured: no controller, whatever the grants */
+	{ 0, 5,			MIXER_GRANT_NONE, MIXER_GRANT_NONE,	0 },
+	/* below the control level */
+	{ 0, 1,			MIXER_GRANT_NONE, 2,			0 },
+	{ 0, 0,			MIXER_GRANT_NONE, 1,			0 },
+	/* at or above it, over anonymous and lower peers */
+	{ 0, 2,			MIXER_GRANT_NONE, 2,			1 },
+	{ 0, 3,			1,		  2,			1 },
+	/* over an equal, like IRC ops */
+	{ 0, 2,			2,		  2,			1 },
+	/* not over one who outranks it */
+	{ 0, 2,			3,		  2,			0 },
+};
+
+static int
+test_may_control(void)
+{
+	size_t n;
+	int bad = 0;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(may_control); n++) {
+		const struct may_control_case *c = &may_control[n];
+
+		if (!!mixer_may_control_levels(c->self, c->p_level,
+					       c->tp_level,
+					       c->control_level) !=
+		    c->expect) {
+			lwsl_err("%s: case %d: self %d, %d over %d at %d\n",
+				 __func__, (int)n, c->self, c->p_level,
+				 c->tp_level, c->control_level);
+			bad = 1;
+		}
+	}
+
+	return bad;
+}
+
 static void
 result(const char *name, int bad)
 {
@@ -604,6 +656,7 @@ main(int argc, const char **argv)
 	result("caps", test_caps());
 	result("list", test_list());
 	result("gate", test_gate());
+	result("may-control", test_may_control());
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);
 

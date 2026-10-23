@@ -234,12 +234,14 @@ struct participant {
 	/*
 	 * Authorization state, see README.md.  `id` is the opaque,
 	 * server-assigned handle other peers must use to address this
-	 * participant; `controller` is set on the first participant to join
-	 * the room, and only the controller may drive somebody else's camera
-	 * controls or read their device capabilities.
+	 * participant; `grant_level` is its authenticated account's grant
+	 * level for the mixer's service-name (MIXER_GRANT_NONE if it has
+	 * none), fixed at ESTABLISHED.  It decides whether the participant
+	 * may drive somebody else's camera controls or read their device
+	 * capabilities, see mixer_may_control_levels().
 	 */
 	char                    id[MIXER_SIGNAL_ID_MAX];
-	int                     controller;
+	int                     grant_level;
 	lws_usec_t              last_caps_req;
 	struct mixer_gate       gate_chat;
 
@@ -403,6 +405,14 @@ LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct layout_manager_ops lm_speaker_ops;
  */
 #define MIXER_DEFAULT_MAX_ROOMS 8
 
+/*
+ * The grant level for the "service-name" pvo's service an account needs to
+ * control rooms, overridable with "control-grant-level"; the service name
+ * defaults to MIXER_DEFAULT_SERVICE_NAME
+ */
+#define MIXER_DEFAULT_CONTROL_LEVEL 2
+#define MIXER_DEFAULT_SERVICE_NAME "webrtc-mixer"
+
 /* the largest device-capability blob we will store and relay per participant */
 #define MIXER_MAX_CAPS_LEN 2048
 
@@ -444,6 +454,18 @@ struct vhd_mixer {
 	lws_dll2_owner_t        sessions; /* Worker Side: List of active mixer_media_session */
 
 	char                    pipeline_template[512]; /* PVO pipeline string */
+
+	/*
+	 * Who controls a room, immutable after PROTOCOL_INIT, see README.md.
+	 * The grant level an account needs for `service_name` to control
+	 * rooms, and where the level comes from: an in-process lws-login
+	 * bouncer's stamp, or with `has_jwk`, the session cookie itself.
+	 */
+	const char              *service_name;
+	const char              *origin_allow;
+	int                     control_level;
+	int                     has_jwk;
+	struct lws_jwk          jwk;
 
 	/* Global Sound Assets */
 	struct sound_clip       sfx_join;
