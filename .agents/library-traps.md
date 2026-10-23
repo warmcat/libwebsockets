@@ -462,7 +462,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **An unsolicited ws PONG calls `lws_validity_confirmed()`** (ops-ws.c):
    a peer that never reads but sends PONGs is never hung up by the
    validity timer, so tx-stall protection has to be the protocol's own
-   (G-576).
+   (G-576).  Conversely a ws peer paused with `lws_rx_flow_control()` is
+   hung up by the validity timer (default ping 40s, hangup 50s), on both
+   server and client sides: a test pausing a connection longer sees it
+   closed.  And a paused peer can leave many MB queued in an autotuned
+   loopback buffer that takes seconds to drain once resumed: bound what a
+   test sends into a paused connection (G-681).
  - **A RECEIVE is not a message, and its UTF-8 may be partial.**  ws rx
    UTF-8 validation (default for TEXT) only insists on a complete
    sequence at the end of the final fragment: a non-final fragment, or a
