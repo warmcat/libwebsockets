@@ -61,6 +61,11 @@ extern const struct lws_role_ops role_ops_quic;
  * ack-eliciting packets, or at max_ack_delay, instead of every second one
  */
 #define LWS_QUIC_FI_ACK_LATE		32
+/*
+ * Fault injection quic_path_challenge_flood: each app PN space packet we send
+ * with frames in it has this many PATH_CHALLENGE frames added
+ */
+#define LWS_QUIC_FI_PATH_CHALLENGES	16
 
 /* counts what fault injection quic_stats logs, see fi_stats */
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -470,6 +475,7 @@ struct lws_quic_tx_pkt {
 	uint8_t		has_dest;
 	uint8_t		to_probe_path;
 	uint8_t		has_ack;	/* it carries an ACK for level's space */
+	uint8_t		ack_skipped;	/* an ACK we owe waits for the next */
 };
 
 /*
@@ -839,6 +845,10 @@ struct lws_quic_netconn {
 		uint64_t	cur_ranges;
 		uint64_t	cur_in_flight;
 		uint64_t	excess_max;
+		/* PATH_RESPONSEs waiting and in flight, the most at once */
+		uint32_t	path_responses_peak;
+		/* packets with frames sent while congestion control held */
+		uint64_t	cc_bypassed;
 	} fi_stats;
 	/* quic_ack_ranges: the next ACK we send is a full one */
 	uint8_t			fi_ack_lag;

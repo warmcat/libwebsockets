@@ -4113,8 +4113,6 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		lwsl_debug("QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[pn_space], qn->pto_probe_needed);
 
 		/* Determine if we're allowed to send */
-		int is_congestion_limited = 0;
-		(void)is_congestion_limited;
 		uint32_t mtu = qn->current_mtu ? qn->current_mtu : 1280;
 		/*
 		 * The anti-amplification allowances are datagram (UDP payload)
@@ -4142,26 +4140,32 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		}
 
 		/*
-		 * Check congestion window, and that we don't have too many
-		 * frames in flight already - bypass for PTO probes and ACKs
+		 * Congestion control (RFC 9002 7): the window, pacing and how
+		 * many frames we have in flight already hold back what is
+		 * ack-eliciting, but for PTO probes.  Packets of only ACK
+		 * frames are not congestion controlled: an ACK we owe goes
+		 * anyway, on its own (ack_only), which is all that gets
+		 * through while we are held.
 		 */
-		if (!qn->pto_probe_needed && !ack_due &&
-		    (lws_quic_in_flight_full(qn) ||
-		     (qn->cc_ops && qn->cc_ops->can_send &&
-		      !qn->cc_ops->can_send(wsi, mtu)))) {
-			is_congestion_limited = 1;
-			return LWS_TX_WAIT;
-		}
+		int cc_held = !qn->pto_probe_needed &&
+			      (lws_quic_in_flight_full(qn) ||
+			       (qn->cc_ops && qn->cc_ops->can_send &&
+				!qn->cc_ops->can_send(wsi, mtu)));
 
-		/* Check pacing - bypass for PTO probes, exactly as we bypass CC */
-		if (!qn->pto_probe_needed && !ack_due && qn->cc_ops && qn->cc_ops->get_pacing_delay) {
+		if (!cc_held && !qn->pto_probe_needed && qn->cc_ops &&
+		    qn->cc_ops->get_pacing_delay) {
 			lws_usec_t delay = qn->cc_ops->get_pacing_delay(wsi, mtu);
 			if (delay > 0) {
 				lws_quic_sul_schedule(qn, &qn->pacer_sul,
 						      lws_quic_pacer_cb, delay);
-				return LWS_TX_WAIT;
+				cc_held = 1;
 			}
 		}
+
+		if (cc_held && !ack_due)
+			return LWS_TX_WAIT;
+
+		int ack_only = cc_held;
 
 		/* AEAD Confidentiality Limits Check (RFC 9001 Section 6.6) */
 		uint64_t update_limit = (1ULL << 20);
@@ -4302,7 +4306,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		int to_probe_path = 0, has_path_challenge = 0;
 
 		if (level == LWS_QUIC_LEVEL_APP && qn->is_server) {
-			if (qn->probing_sa46_valid && qn->pending_tx[level].head) {
+			if (!ack_only && qn->probing_sa46_valid &&
+			    qn->pending_tx[level].head) {
 				struct lws_quic_tx_frame *first_f = lws_container_of(
 					qn->pending_tx[level].head,
 					struct lws_quic_tx_frame, list);
@@ -4350,13 +4355,19 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		/* 1.5 Generate ACK frame if needed */
 		int has_ack = 0;
 		int skip_ack_for_dest = 0;
-		if (qn->pending_tx[level].head) {
+		if (!ack_only && qn->pending_tx[level].head) {
 			struct lws_quic_tx_frame *first_f = lws_container_of(qn->pending_tx[level].head, struct lws_quic_tx_frame, list);
 			if (first_f->has_dest) {
-				/* Skip ACK for now, this packet will be dedicated to first_f's destination */
+				/*
+				 * Skip ACK for now, this packet will be
+				 * dedicated to first_f's destination: the ACK
+				 * goes in the next one, see
+				 * lws_quic_packet_sent()
+				 */
 				skip_ack_for_dest = 1;
 			}
 		}
+		tp->ack_skipped = (uint8_t)(ack_due && skip_ack_for_dest);
 		if (ack_due && !skip_ack_for_dest) {
 			/*
 			 * ACK Delay (RFC 9000 §19.3): encoded in microseconds
@@ -4483,11 +4494,15 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			}
 		}
 
-		/* 2. Bundle frames from pending_tx until MTU is reached */
+		/*
+		 * 2. Bundle frames from pending_tx until MTU is reached, unless
+		 * congestion control holds them back and only the ACK goes
+		 */
 		uint8_t * const p_frames = p;
 		int pmtud_probe = 0;
 
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[level].head) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				ack_only ? NULL : qn->pending_tx[level].head) {
 			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 
 			if (has_packet_dest) {
@@ -4712,6 +4727,33 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		} lws_end_foreach_dll_safe(d, d1);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/*
+		 * quic_path_challenge_flood: a packet with frames in it gets a
+		 * run of PATH_CHALLENGEs as well, if there is room, for the
+		 * peer to answer.  Not ACK-only packets, nor ones dedicated to
+		 * the peer's answers: those would elicit more challenges for
+		 * ever
+		 */
+		if (level == LWS_QUIC_LEVEL_APP && qn->handshake_done &&
+		    p != p_frames && !has_packet_dest &&
+		    (size_t)(p - buf) + LWS_QUIC_FI_PATH_CHALLENGES *
+				(1 + LWS_QUIC_PATH_CHALLENGE_LEN) +
+				LWS_QUIC_FIT_SLACK <=
+				(mtu > 48 && mtu - 48 < dgram_cap ?
+						mtu - 48 : dgram_cap) &&
+		    lws_fi(&wsi->fic, "quic_path_challenge_flood"))
+			for (int c = 0; c < LWS_QUIC_FI_PATH_CHALLENGES; c++) {
+				*p++ = LWS_QUIC_FT_PATH_CHALLENGE;
+				if (lws_get_random(wsi->a.context, p,
+					   LWS_QUIC_PATH_CHALLENGE_LEN) !=
+					   LWS_QUIC_PATH_CHALLENGE_LEN)
+					memset(p, c, LWS_QUIC_PATH_CHALLENGE_LEN);
+				p += LWS_QUIC_PATH_CHALLENGE_LEN;
+			}
+
+		/* frames that went although congestion control held them */
+		if (cc_held && p != p_frames)
+			qn->fi_stats.cc_bypassed++;
 		{
 			uint32_t fl = lws_quic_in_flight_count(qn);
 
@@ -5033,9 +5075,11 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 	}
 
 	/*
-	 * If we still have pending frames we couldn't fit, request another POLLOUT
+	 * If we still have pending frames we couldn't fit, or an ACK we owe
+	 * did not go in a packet dedicated to another destination, request
+	 * another POLLOUT
 	 */
-	if (qn->pending_tx[tp->level].count) {
+	if (qn->pending_tx[tp->level].count || tp->ack_skipped) {
 		lws_callback_on_writable(wsi);
 	}
             
@@ -6538,7 +6582,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 	    lws_fi(&qn->nwsi->fic, "quic_stats"))
 		lwsl_wsi_notice(qn->nwsi, "QUIC FI stats: %s, ack frames %llu, "
 				"ignored %llu, ranges %llu, acked %llu, visits %llu, "
-				"in flight peak %u, excess max %llu",
+				"in flight peak %u, excess max %llu, path "
+				"responses peak %u, cc bypassed %llu",
 				qn->is_server ? "server" : "client",
 				(unsigned long long)qn->fi_stats.ack_frames,
 				(unsigned long long)qn->fi_stats.ack_ignored,
@@ -6546,7 +6591,9 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				(unsigned long long)qn->fi_stats.ack_acked,
 				(unsigned long long)qn->fi_stats.ack_visits,
 				(unsigned int)qn->fi_stats.in_flight_peak,
-				(unsigned long long)qn->fi_stats.excess_max);
+				(unsigned long long)qn->fi_stats.excess_max,
+				(unsigned int)qn->fi_stats.path_responses_peak,
+				(unsigned long long)qn->fi_stats.cc_bypassed);
 #endif
 
 	lws_dll2_remove(&qn->pt_list);

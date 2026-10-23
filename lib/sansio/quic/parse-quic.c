@@ -983,6 +983,76 @@ lws_quic_idtr_destroy(struct lws_quic_idtr *t)
 }
 
 /*
+ * Queue our answer to a PATH_CHALLENGE, to go to where it came from.  If an
+ * answer to the same place is still waiting to go, it is given this one's
+ * data instead: the peer only needs the latest.  Answers are added at the
+ * head of pending, and what goes to a destination of its own waits there to
+ * start a packet, so a waiting one is in the run of such frames at the head.
+ */
+static void
+lws_quic_queue_path_response(struct lws *nwsi, const uint8_t *data,
+			     const lws_sockaddr46 *sa46)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_quic_tx_frame *f;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			lws_dll2_get_head(&qn->pending_tx[LWS_QUIC_LEVEL_APP])) {
+		f = lws_container_of(d, struct lws_quic_tx_frame, list);
+
+		if (!f->has_dest && f->type != LWS_QUIC_FT_PATH_RESPONSE)
+			break;
+
+		if (f->type == LWS_QUIC_FT_PATH_RESPONSE &&
+		    (sa46 ? f->has_dest &&
+			    lws_quic_sa46_same_path(&f->dest_sa46, sa46) :
+			    !f->has_dest)) {
+			memcpy(f->data, data, 8);
+			goto queued;
+		}
+	} lws_end_foreach_dll(d);
+
+	f = lws_zalloc(sizeof(*f) + 8, "quic path_resp");
+	if (!f)
+		return;
+
+	f->type = LWS_QUIC_FT_PATH_RESPONSE;
+	f->len = 8;
+	f->data = (uint8_t *)&f[1];
+	memcpy(f->data, data, 8);
+	if (sa46) {
+		f->dest_sa46 = *sa46;
+		f->has_dest = 1;
+	}
+	lws_dll2_add_head(&f->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+
+queued:
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	if (lws_fi(&nwsi->fic, "quic_stats")) {
+		uint32_t n = 0;
+		int l;
+
+		for (l = 0; l < 2; l++) {
+			lws_dll2_owner_t *o = l ?
+				&qn->in_flight[LWS_QUIC_LEVEL_APP] :
+				&qn->pending_tx[LWS_QUIC_LEVEL_APP];
+
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(o)) {
+				f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+				if (f->type == LWS_QUIC_FT_PATH_RESPONSE)
+					n++;
+			} lws_end_foreach_dll(d);
+		}
+		if (n > qn->fi_stats.path_responses_peak)
+			qn->fi_stats.path_responses_peak = n;
+	}
+#endif
+	lws_callback_on_writable(nwsi);
+}
+
+/*
  * An ACK frame at payload[*pos], after its type.  ACK frames describe packet
  * numbers we sent.  Each one is checked in full, but we only act on the first
  * in a packet (act): a peer has no use for more, and each costs a walk of the
@@ -1184,7 +1254,8 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 	size_t pos = 0;
 	uint64_t type, offset, len;
 	size_t consumed;
-	int ack_eliciting = 0, acks = 0;
+	int ack_eliciting = 0, acks = 0, pc_seen = 0;
+	uint8_t pc_data[8];
 
 	while (pos < payload_len) {
 		struct lws_quic_netconn *qn;
@@ -1632,19 +1703,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed PATH_CHALLENGE/RESPONSE!");
 
 			if (type == LWS_QUIC_FT_PATH_CHALLENGE && nwsi->quic.qn) {
-				struct lws_quic_tx_frame *f_pr = lws_zalloc(sizeof(*f_pr) + 8, "quic path_resp");
-				if (f_pr) {
-					f_pr->type = LWS_QUIC_FT_PATH_RESPONSE;
-					f_pr->len = 8;
-					f_pr->data = (uint8_t *)&f_pr[1];
-					memcpy(f_pr->data, path_data, 8);
-					if (sa46) {
-						f_pr->dest_sa46 = *sa46;
-						f_pr->has_dest = 1;
-					}
-					lws_dll2_add_head(&f_pr->list, &nwsi->quic.qn->pending_tx[level]);
-					lws_callback_on_writable(nwsi);
-				}
+				/* answered once the packet is parsed */
+				memcpy(pc_data, path_data, sizeof(pc_data));
+				pc_seen = 1;
 			} else if (type == LWS_QUIC_FT_PATH_RESPONSE && nwsi->quic.qn) {
 				if (nwsi->quic.qn->path_challenge_pending && !memcmp(nwsi->quic.qn->path_challenge, path_data, 8)) {
 					/*
@@ -2213,6 +2274,20 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		if (type != LWS_QUIC_FT_PADDING && type != LWS_QUIC_FT_ACK && type != LWS_QUIC_FT_ACK_ECN && type != 0x1c && type != 0x1d) {
 			ack_eliciting = 1;
 		}
+	}
+
+	/*
+	 * RFC 9000 8.2.2: a PATH_CHALLENGE is answered with a PATH_RESPONSE.
+	 * A packet's challenges all came from the same place, so only its
+	 * last is answered, and that replaces any answer still waiting to go
+	 * there: otherwise each 9-byte challenge has us keep a frame, in
+	 * pending and then in flight, until it is acked or lost
+	 */
+	if (pc_seen) {
+		if (nwsi && !nwsi->quic.qn)
+			nwsi = lws_get_quic_network_wsi(nwsi);
+		if (nwsi && nwsi->quic.qn && !nwsi->quic.qn->is_closing)
+			lws_quic_queue_path_response(nwsi, pc_data, sa46);
 	}
 
 	return ack_eliciting;

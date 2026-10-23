@@ -16,7 +16,17 @@ The transfer must complete, the server must have ignored the copies, and no
 ACK frame may have looked at more in-flight frames than one per range plus
 two per frame in flight when it came, plus a few where the walks stop.
 
+Nothing may go with frames in it while congestion control holds them: an ACK
+we owe goes on its own then (G-649).
+
+With `--path-challenges`, the client and server instead add 16 PATH_CHALLENGEs
+to each packet with frames in it (`wsi/quic_path_challenge_flood`), and
+neither may have more than 12 PATH_RESPONSEs waiting or in flight at once
+(G-649).
+
 ```
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key
+$ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
+	--key ../api-test-ws-close/localhost-100y.key --path-challenges
 ```

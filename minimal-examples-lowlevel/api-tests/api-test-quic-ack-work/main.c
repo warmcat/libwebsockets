@@ -39,6 +39,24 @@
  * where the walks stop.  Before, each range looked at everything still in
  * flight, so an ACK frame that came with frames in flight beyond its Largest
  * Acknowledged cost its 97 ranges times those.
+ *
+ * Whatever the ACKs, nothing may have gone with frames in it while
+ * congestion control held them (G-649): an ACK we owe used to take a full
+ * packet of frames with it past the congestion window and pacing.
+ *
+ * With --path-challenges, the faults are instead
+ *
+ *  - wsi/quic_path_challenge_flood: every packet with frames in it, not
+ *    going to a destination of its own, gets 16 PATH_CHALLENGEs added
+ *
+ *  - wsi/quic_ack_late and wsi/quic_stats as above
+ *
+ * and the transfer must complete with neither end having had more than 12
+ * PATH_RESPONSEs waiting or in flight at once (G-649): each challenge used
+ * to get a frame of its own, kept until acked, so each packet of them put 16
+ * more in flight.  Now a packet's last challenge is answered, replacing an
+ * answer still waiting to go.  Again nothing may have gone past congestion
+ * control.
  */
 
 #include <libwebsockets.h>
@@ -52,6 +70,11 @@
 #define QAW_PAT(_n)		((char)('a' + ((_n) % 26)))
 /* the stopping places of the walks, see the top */
 #define QAW_EXCESS_MAX		4
+/*
+ * one waiting, the rest in flight in packets not acked yet, see the top: less
+ * than one packet's worth of challenges
+ */
+#define QAW_PATH_RESPONSES_MAX	12
 
 struct qaw_stats {
 	uint64_t		ack_frames;
@@ -61,6 +84,8 @@ struct qaw_stats {
 	uint64_t		visits;
 	uint64_t		in_flight_peak;
 	uint64_t		excess_max;
+	uint64_t		path_responses_peak;
+	uint64_t		cc_bypassed;
 };
 
 static struct lws_context *context;
@@ -122,6 +147,8 @@ emit_cb(int level, const char *line)
 	st->visits		= stat_get(p, "visits ", &bad);
 	st->in_flight_peak	= stat_get(p, "in flight peak ", &bad);
 	st->excess_max		= stat_get(p, "excess max ", &bad);
+	st->path_responses_peak	= stat_get(p, "responses peak ", &bad);
+	st->cc_bypassed		= stat_get(p, "cc bypassed ", &bad);
 
 	if (bad)
 		stats_bad = 1;
@@ -156,10 +183,43 @@ stats_check(const char *what, const struct qaw_stats *st, int bulk)
 		return 1;
 	}
 
+	if (st->cc_bypassed) {
+		lwsl_err("FAIL: %s: sent frames beyond congestion control\n",
+			 what);
+		return 1;
+	}
+
 	if (st->excess_max > QAW_EXCESS_MAX) {
 		lwsl_err("FAIL: %s: an ACK frame looked at %llu in-flight "
 			 "frames more than its bound\n", what,
 			 (unsigned long long)st->excess_max);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * --path-challenges: did this end answer the peer's PATH_CHALLENGEs within
+ * the bound, and keep everything it sent within congestion control
+ */
+static int
+challenges_check(const char *what, const struct qaw_stats *st)
+{
+	lwsl_user("%s: PATH_RESPONSEs waiting or in flight at most %llu, "
+		  "packets with frames beyond congestion control %llu\n", what,
+		  (unsigned long long)st->path_responses_peak,
+		  (unsigned long long)st->cc_bypassed);
+
+	if (st->path_responses_peak > QAW_PATH_RESPONSES_MAX) {
+		lwsl_err("FAIL: %s: %llu PATH_RESPONSEs at once\n", what,
+			 (unsigned long long)st->path_responses_peak);
+		return 1;
+	}
+
+	if (st->cc_bypassed) {
+		lwsl_err("FAIL: %s: sent frames beyond congestion control\n",
+			 what);
 		return 1;
 	}
 
@@ -290,8 +350,12 @@ sigint_handler(int sig)
 }
 
 /* the faults this test runs with, on every wsi of both ends */
-static const char * const faults[] = {
+static const char * const faults_ack[] = {
 	"wsi/quic_ack_ranges",
+	"wsi/quic_ack_late",
+	"wsi/quic_stats",
+}, * const faults_pc[] = {
+	"wsi/quic_path_challenge_flood",
 	"wsi/quic_ack_late",
 	"wsi/quic_stats",
 };
@@ -303,7 +367,7 @@ main(int argc, const char **argv)
 	struct lws_client_connect_info i;
 	const char *p, *cert, *key;
 	struct lws_vhost *vh_cli;
-	int result = 1, port = 7711;
+	int result = 1, port = 7711, pc;
 	size_t n;
 
 	lws_context_info_defaults(&info, NULL);
@@ -326,11 +390,13 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS API selftest: QUIC ACK processing work\n");
 
-	for (n = 0; n < LWS_ARRAY_SIZE(faults); n++) {
+	pc = !!lws_cmdline_option(argc, argv, "--path-challenges");
+	for (n = 0; n < (pc ? LWS_ARRAY_SIZE(faults_pc) :
+			      LWS_ARRAY_SIZE(faults_ack)); n++) {
 		lws_fi_t fi;
 
 		memset(&fi, 0, sizeof(fi));
-		fi.name = faults[n];
+		fi.name = pc ? faults_pc[n] : faults_ack[n];
 		fi.type = LWSFI_ALWAYS;
 		if (lws_fi_add(&info.fic, &fi)) {
 			lwsl_err("OOM adding faults\n");
@@ -420,8 +486,10 @@ bail:
 				 stats_bad ? ", unreadable" : "");
 			result = 1;
 		} else
-			result = stats_check("server", &st_srv, 1) |
-				 stats_check("client", &st_cli, 0);
+			result = pc ? challenges_check("server", &st_srv) |
+				      challenges_check("client", &st_cli) :
+				      stats_check("server", &st_srv, 1) |
+				      stats_check("client", &st_cli, 0);
 	}
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
