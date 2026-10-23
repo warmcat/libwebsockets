@@ -32,9 +32,15 @@ others can be sent to, and clients that stop reading:
 
  - when the ringbuffer is full, the server stops reading from every client
    (`lws_rx_flow_control()`) until it is half empty again, so senders are
-   slowed to the pace of the receivers and no message is lost
+   slowed to the pace of the slowest receiver and no message is lost.  (A ws
+   connection carried on an h2 stream can't be paused like that, since h2
+   flow controls it instead: a message from it that finds the ringbuffer full
+   is dropped.)
 
- - a client that has had messages waiting for it for 5s without catching up
-   is closed, so it can't hold everybody else up for long.  This is decided
-   by that client's own progress, not by how fast anybody sends, so nobody
-   can get other clients closed by sending a lot
+ - a client is closed when the oldest message it hasn't been sent yet has
+   been waiting for it for 5s, so one that stops reading can't hold everybody
+   else up for longer than that.  A client that keeps up is always being sent
+   fresh messages and is never closed, however much anybody sends, and a
+   slower one that reads steadily just slows the senders down.  Only a client
+   too slow to take the ringbuffer's 8 messages in 5s while somebody is
+   sending is closed.

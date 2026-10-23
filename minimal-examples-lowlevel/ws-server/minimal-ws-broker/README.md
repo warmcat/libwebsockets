@@ -31,7 +31,22 @@ on: a client sending a bigger one is closed with 1009 (Message Too Big), and
 a client sending a TEXT message that isn't valid UTF-8 is closed with 1007,
 and nothing of either is passed on.
 
-The ringbuffer only frees a message once every subscriber has been sent it,
-and drops new messages while it is full.  So that one subscriber that stops
-reading can't get every new message dropped for everybody else, a subscriber
-that has had messages waiting for it for 5s without catching up is closed.
+A ringbuffer holds up to 8 messages, and only frees a message once every
+subscriber has been sent it.  This also demonstrates what to do about
+publishers that send faster than the subscribers can be sent to, and
+subscribers that can't keep up:
+
+ - when the ringbuffer is full, the broker stops reading from every publisher
+   (`lws_rx_flow_control()`) until it is half empty again, so publishers are
+   slowed to the pace of the slowest subscriber and no message is lost.  (A
+   ws connection carried on an h2 stream can't be paused like that, since h2
+   flow controls it instead: a message from it that finds the ringbuffer full
+   is dropped.)
+
+ - a subscriber is closed when the oldest message it hasn't been sent yet has
+   been waiting for it for 5s, so one that stops reading can't hold everybody
+   up for longer than that.  A subscriber that keeps up is always being sent
+   fresh messages and is never closed, however much the publishers send, and
+   a slower one that reads steadily just slows the publishers down.  Only a
+   subscriber too slow to take the ringbuffer's 8 messages in 5s while the
+   publishers are busy is closed.

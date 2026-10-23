@@ -24,11 +24,19 @@
  * connection was made to.  ws connections to "/publisher" URL are understood to be
  * publishing data and to any other URL, subscribing.
  *
- * The ringbuffer only frees a message once every subscriber has been sent it,
- * and drops new messages while it is full, so one subscriber that stops
- * reading would get every new message dropped for everybody, for as long as
- * it stays connected.  So a subscriber that has had messages waiting for it
- * for MINIMAL_LAG_SECS without catching up is closed.
+ * The ringbuffer only frees a message once every subscriber has been sent it.
+ * This also shows what to do about publishers that send faster than the
+ * subscribers can be sent to, and subscribers that can't keep up:
+ *
+ *  - when the ringbuffer is full, we stop reading from every publisher
+ *    (lws_rx_flow_control()) until it is half empty again, so publishers are
+ *    slowed to the pace of the slowest subscriber, and nothing is lost.
+ *
+ *  - a subscriber is closed when the oldest message it hasn't been sent yet
+ *    has been waiting for it for MINIMAL_LAG_SECS, so one that stops reading,
+ *    or reads too slowly to take a ringbuffer's worth of messages in that
+ *    time, can't hold up everybody else for longer than that.  A subscriber
+ *    that keeps up is never closed, however much the publishers send.
  *
  * A RECEIVE callback is not a message: a message may arrive in several
  * fragments, and a fragment bigger than the rx buffer arrives in several
@@ -51,8 +59,10 @@
  */
 #define MINIMAL_MAX_MESSAGE 4096
 
-/* a subscriber that has had messages waiting this long without catching up
- * is closed */
+/* how many messages the ringbuffer holds */
+#define MINIMAL_RING_DEPTH 8
+
+/* a subscriber with a message that has waited this long for it is closed */
 #define MINIMAL_LAG_SECS 5
 
 /* one of these created for each message */
@@ -60,19 +70,21 @@
 struct msg {
 	void *payload; /* is malloc'd */
 	size_t len;
+	lws_usec_t arrived; /* when it went in the ringbuffer */
 	char binary; /* pass it on as a BINARY message, else TEXT */
 };
 
 /* one of these is created for each client connecting to us */
 
 struct per_session_data__minimal {
-	lws_dll2_t list; /* subscribers: in vhd->pss_list */
+	lws_dll2_t list; /* in vhd->pss_list, or vhd->pub_list if publishing */
 	struct lws *wsi;
 	uint8_t *rx; /* LWS_PRE + message being collected, or NULL */
 	size_t rx_len; /* bytes of message in rx after LWS_PRE */
+	lws_usec_t joined; /* when we subscribed */
+	lws_usec_t lag_from; /* the lag timer runs from here, or 0: caught up */
 	uint32_t tail;
 	char publishing; /* nonzero: peer is publishing to us */
-	char behind; /* messages are waiting for us: the lag timer runs */
 };
 
 /* one of these is created for each vhost our protocol is used with */
@@ -83,8 +95,10 @@ struct per_vhost_data__minimal {
 	const struct lws_protocols *protocol;
 
 	lws_dll2_owner_t pss_list; /* live subscriber pss */
+	lws_dll2_owner_t pub_list; /* live publisher pss */
 
 	struct lws_ring *ring; /* ringbuffer holding unsent messages */
+	char rx_paused; /* we stopped reading from publishers: ring full */
 };
 
 /* destroys the message when everyone has had a copy of it */
@@ -194,28 +208,77 @@ minimal_update_oldest_tail(struct per_vhost_data__minimal *vhd)
 }
 
 /*
- * A subscriber with messages waiting for it must catch up, ie, be sent all of
- * them, within MINIMAL_LAG_SECS, or it is closed.  The timer runs from when it
- * falls behind, and only stops when it has caught up, so it measures the
- * subscriber's own lag, however fast or slow the publishers are.  (Its PONGs
- * or anything else it sends us don't count: it has to read.)
+ * Start or stop reading from every publisher.  We stop when the ring is full,
+ * so no publisher can send us a message we have no room for, and start again
+ * when it is half empty.
+ */
+
+static void
+minimal_rx_flow(struct per_vhost_data__minimal *vhd, int enable)
+{
+	if (vhd->rx_paused == !enable)
+		return;
+
+	vhd->rx_paused = (char)!enable;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pub_list)) {
+		struct per_session_data__minimal *pss = lws_container_of(d,
+					struct per_session_data__minimal, list);
+
+		lws_rx_flow_control(pss->wsi, enable);
+	} lws_end_foreach_dll(d);
+}
+
+/* if we stopped reading from publishers, and there is room again, carry on */
+
+static void
+minimal_rx_resume_if_room(struct per_vhost_data__minimal *vhd)
+{
+	if (vhd->rx_paused && lws_ring_get_count_free_elements(vhd->ring) >=
+						MINIMAL_RING_DEPTH / 2)
+		minimal_rx_flow(vhd, 1);
+}
+
+/*
+ * A subscriber is closed once the oldest message it hasn't been sent yet has
+ * been waiting for it for MINIMAL_LAG_SECS (counting from when it joined, if
+ * that was later).  This judges the subscriber by how stale what it is
+ * missing is, not by whether it ever gets completely caught up, which a busy
+ * publisher could prevent: a subscriber that keeps up is always being sent
+ * fresh messages and is never closed, while one that stopped reading is
+ * closed about MINIMAL_LAG_SECS after the first message it didn't take.
+ * (Its PONGs or anything else it sends us don't count: it has to read.)
+ *
+ * Call it whenever the subscriber's tail, or what is waiting for it, changed.
  */
 
 static void
 minimal_lag_update(struct per_vhost_data__minimal *vhd,
 		   struct per_session_data__minimal *pss)
 {
-	char behind = !!lws_ring_get_element(vhd->ring, &pss->tail);
+	const struct msg *pmsg = lws_ring_get_element(vhd->ring, &pss->tail);
+	lws_usec_t from, left;
 
-	if (behind == pss->behind)
+	if (!pmsg) {
+		/* we have been sent everything: nothing is waiting for us */
+		if (pss->lag_from) {
+			pss->lag_from = 0;
+			lws_set_timeout(pss->wsi, NO_PENDING_TIMEOUT, 0);
+		}
+		return;
+	}
+
+	from = pmsg->arrived > pss->joined ? pmsg->arrived : pss->joined;
+	if (from == pss->lag_from)
+		/* the same message is still the oldest: the timer is right */
 		return;
 
-	pss->behind = behind;
-	if (behind)
-		lws_set_timeout(pss->wsi, PENDING_TIMEOUT_LAGGING,
-				MINIMAL_LAG_SECS);
-	else
-		lws_set_timeout(pss->wsi, NO_PENDING_TIMEOUT, 0);
+	pss->lag_from = from;
+	left = from + (MINIMAL_LAG_SECS * LWS_US_PER_SEC) - lws_now_usecs();
+	lws_set_timeout(pss->wsi, PENDING_TIMEOUT_LAGGING, left <= 0 ?
+			LWS_TO_KILL_ASYNC :
+			(int)((left + LWS_US_PER_SEC - 1) / LWS_US_PER_SEC));
 }
 
 static int
@@ -231,7 +294,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 	const struct msg *pmsg;
 	struct msg amsg;
 	char buf[32];
-	int n, m;
+	int m;
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -244,7 +307,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
 
-		vhd->ring = lws_ring_create(sizeof(struct msg), 8,
+		vhd->ring = lws_ring_create(sizeof(struct msg),
+					    MINIMAL_RING_DEPTH,
 					    __minimal_destroy_message);
 		if (!vhd->ring)
 			return 1;
@@ -260,27 +324,35 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->wsi = wsi;
 		if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI) > 0)
 			pss->publishing = !strcmp(buf, "/publisher");
-		if (!pss->publishing) {
-			/* add subscribers to the list of live pss held in the vhd */
-			lws_dll2_add_tail(&pss->list, &vhd->pss_list);
-			/* we get what's in the ring already */
-			if (lws_ring_get_element(vhd->ring, &pss->tail)) {
-				lws_callback_on_writable(wsi);
-				minimal_lag_update(vhd, pss);
-			}
+		if (pss->publishing) {
+			/* add publishers to the list of them held in the vhd */
+			lws_dll2_add_tail(&pss->list, &vhd->pub_list);
+			if (vhd->rx_paused)
+				/* we're not reading from publishers just now */
+				lws_rx_flow_control(wsi, 0);
+			break;
+		}
+
+		/* add subscribers to the list of live pss held in the vhd */
+		lws_dll2_add_tail(&pss->list, &vhd->pss_list);
+		pss->joined = lws_now_usecs();
+		/* we get what's in the ring already */
+		if (lws_ring_get_element(vhd->ring, &pss->tail)) {
+			lws_callback_on_writable(wsi);
+			minimal_lag_update(vhd, pss);
 		}
 		break;
 
 	case LWS_CALLBACK_CLOSED:
 		/* drop any partial message we were collecting */
 		minimal_rx_discard(pss);
-		if (lws_dll2_is_detached(&pss->list))
-			/* publishers aren't on the list */
-			break;
-		/* remove our closing pss from the list of live pss */
+		/* remove our closing pss from its list */
 		lws_dll2_remove(&pss->list);
+		if (pss->publishing)
+			break;
 		/* we may have been the one holding the oldest tail */
 		minimal_update_oldest_tail(vhd);
+		minimal_rx_resume_if_room(vhd);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -288,30 +360,37 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss->publishing)
 			break;
 
-		pmsg = lws_ring_get_element(vhd->ring, &pss->tail);
-		if (!pmsg)
-			break;
-
-		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, ((unsigned char *)pmsg->payload) + LWS_PRE,
-			      pmsg->len, pmsg->binary ?
+		/*
+		 * Send everything waiting for us that the connection will take
+		 * now: a subscriber that can keep up must be able to catch up
+		 * in one go, not one message each time around the event loop
+		 */
+		while (!lws_send_pipe_choked(wsi) &&
+		       (pmsg = lws_ring_get_element(vhd->ring, &pss->tail))) {
+			/* notice we allowed for LWS_PRE in the payload already */
+			m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
+				      LWS_PRE, pmsg->len, pmsg->binary ?
 					LWS_WRITE_BINARY : LWS_WRITE_TEXT);
-		if (m < (int)pmsg->len) {
-			lwsl_err("ERROR %d writing to ws socket\n", m);
-			return -1;
+			if (m < (int)pmsg->len) {
+				lwsl_err("ERROR %d writing to ws socket\n", m);
+				return -1;
+			}
+
+			/* we are done with that one */
+			lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
 		}
 
-		/* we are done with that one... */
-		lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
-		/* ...if it was the last one waiting for anybody, free it */
+		/* if they were the last ones waiting for anybody, free them */
 		minimal_update_oldest_tail(vhd);
-		/* if we caught up, we are not lagging any more */
+		/* restart our lag timer from what is waiting for us now */
 		minimal_lag_update(vhd, pss);
+		/* if there's room again, let the publishers carry on */
+		minimal_rx_resume_if_room(vhd);
 
 		/* more to do? */
-		if (pss->behind)
+		if (pss->lag_from)
 			/* come back as soon as we can write more */
-			lws_callback_on_writable(pss->wsi);
+			lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -338,8 +417,13 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
-		n = (int)lws_ring_get_count_free_elements(vhd->ring);
-		if (!n) {
+		if (!lws_ring_get_count_free_elements(vhd->ring)) {
+			/*
+			 * We stop reading from publishers when the ring fills,
+			 * so this only happens where lws can't stop reading
+			 * for us, eg, ws over an h2 stream, which h2 flow
+			 * controls instead.  There's nowhere to put it.
+			 */
 			minimal_rx_discard(pss);
 			lwsl_user("dropping!\n");
 			break;
@@ -348,20 +432,21 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		/* the collected message becomes the ring element payload */
 		amsg.payload = pss->rx;
 		amsg.len = pss->rx_len;
+		amsg.arrived = lws_now_usecs();
 		amsg.binary = (char)lws_frame_is_binary(wsi);
 		pss->rx = NULL;
 		pss->rx_len = 0;
 
 		if (!lws_ring_insert(vhd->ring, &amsg, 1)) {
 			__minimal_destroy_message(&amsg);
-			lwsl_user("dropping 2!\n");
+			lwsl_user("dropping!\n");
 			break;
 		}
 
 		/*
 		 * let every subscriber know we want to write something
-		 * on them as soon as they are ready, and they are behind until
-		 * they have been sent it
+		 * on them as soon as they are ready, and a subscriber that was
+		 * caught up starts its lag timer from this message
 		 */
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				      lws_dll2_get_head(&vhd->pss_list)) {
@@ -371,6 +456,10 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(p->wsi);
 			minimal_lag_update(vhd, p);
 		} lws_end_foreach_dll(d);
+
+		if (!lws_ring_get_count_free_elements(vhd->ring))
+			/* no room for another: stop reading from publishers */
+			minimal_rx_flow(vhd, 0);
 		break;
 
 	default:

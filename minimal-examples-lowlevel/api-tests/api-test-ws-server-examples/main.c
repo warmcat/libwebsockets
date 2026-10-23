@@ -29,24 +29,20 @@
  *    invalid UTF-8 TEXT message is refused (close 1007), with nothing passed
  *    on from either
  *
- * minimal-ws-server-ring passes on every message to every client, through
- * a ringbuffer that frees a message once everybody has been sent it
+ * minimal-ws-server-ring passes on every message to every client, and
+ * minimal-ws-broker what publishers send to every subscriber, through a
+ * ringbuffer that frees a message once everybody has been sent it, and slows
+ * senders down while it is full.  For each, nothing may be lost, and
  *
- *  - a client sending 20 messages at once, more than the ring holds, gets
+ *  - a sender sending 20 messages at once, more than the ring holds, gets
  *    them all to two readers, in order, with nobody closed
- *  - a client that stops reading is closed after the example's lag limit,
+ *  - a reader that stops reading is closed after the example's lag limit,
  *    so it can't hold up the others: while it is stuck, 3000 messages of
- *    4000 bytes get through to a reader, in order, and nothing is lost
- *
- * minimal-ws-broker passes on what publishers send to every subscriber,
- * through a ringbuffer that drops new messages while it is full
- *
- *  - a publisher sending 20 messages at once, more than the ring holds, gets
- *    the ones that fit to two subscribers, in order, with nobody closed
- *  - a subscriber that stops reading is closed after the example's lag
- *    limit, so it can't make the broker drop everything for the others
- *    forever: after 3000 messages of 4000 bytes, and the lag limit, a last
- *    message gets through to a subscriber
+ *    4000 bytes get through to a reader, in order
+ *  - a sender flooding 8-byte messages for longer than the lag limit doesn't
+ *    get any of three readers that keep up closed (G-672)
+ *  - a reader that reads steadily, but slower than a sender sending as fast
+ *    as it can, isn't closed either: the sender is slowed down to it
  *
  * minimal-ws-raw-proxy passes bytes both ways between a ws client and an
  * onward raw connection to a backend
@@ -68,6 +64,9 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if !defined(WIN32)
+#include <sys/socket.h>
+#endif
 
 #include "examples.h"
 
@@ -118,11 +117,10 @@ static const struct wse_fanout {
 	const char		*protocol_name;
 	const char		*tx_path;	/* where the sender connects */
 	const int		*lag_secs;	/* stuck client is closed after */
-	char			lossless;	/* slows senders, else drops */
 } fanouts[] = {
-	{ "ring",	"lws-minimal",		"/",	&wse_lag_secs_ring, 1 },
+	{ "ring",	"lws-minimal",		"/",	&wse_lag_secs_ring },
 	{ "broker",	"lws-minimal-broker",	"/publisher",
-						&wse_lag_secs_broker, 0 },
+						&wse_lag_secs_broker },
 };
 
 /* each fan-out case's connections, in fanout_conns[case][] */
@@ -131,6 +129,8 @@ enum {
 	WSE_F_R2,
 	WSE_F_S,		/* sends */
 	WSE_F_K,		/* stops reading */
+	WSE_F_R3,		/* a third reader, for the flood */
+	WSE_F_W,		/* reads steadily, but slower than S sends */
 
 	WSE_F_COUNT
 };
@@ -138,6 +138,15 @@ enum {
 #define WSE_F_BURST		20	/* messages sent at once */
 #define WSE_F_LAG_MSGS		3000	/* messages sent while K is stuck */
 #define WSE_F_LAG_LEN		4000	/* ...each this big */
+#define WSE_F_FLOOD_LEN		8	/* flood messages are this big */
+#define WSE_F_FLOOD_BATCH	64	/* ...and sent up to this many at once */
+#define WSE_F_FLOOD_WINDOW	4096	/* ...and at most this many ahead of R1 */
+#define WSE_F_SLOW_LEN		3000	/* messages S sends while W reads... */
+#define WSE_F_SLOW_US		(2 * LWS_US_PER_MS) /* ...one each this long */
+#define WSE_F_SLOW_WINDOW	4000	/* S is at most this many ahead of W */
+#define WSE_F_SLOW_BEHIND	16	/* W must be at least this far behind */
+#define WSE_F_SLOW_RCVBUF	65536	/* W's socket buffer, so the server sees
+					 * it is slow in good time */
 
 #define WSE_PX_TOTAL		(64 * 1024 * 1024) /* client sends this */
 #define WSE_PX_FRAME		WSE_MSG_MAX	   /* ...in frames this big */
@@ -176,9 +185,13 @@ enum {
 	WSE_P_FANOUT,		/* for each fanouts[] in turn */
 	WSE_P_FANOUT_BURST,
 	WSE_P_FANOUT_LAG,
-	WSE_P_FANOUT_END,	/* lossy: a last message after the lag limit */
 	WSE_P_FANOUT_RELEASE,
 	WSE_P_FANOUT_CHECK,
+	WSE_P_FANOUT_FLOOD,	/* S floods past the lag limit */
+	WSE_P_FANOUT_FLOOD_END,	/* ...stops, and everybody must get it all */
+	WSE_P_FANOUT_SLOW,	/* S sends as fast as it can, W reads slowly */
+	WSE_P_FANOUT_SLOW_END,	/* ...stops, and everybody must get it all */
+	WSE_P_FANOUT_DONE,
 	WSE_P_PROXY,
 	WSE_P_PROXY_HELD,	/* backend not reading for a while */
 	WSE_P_PROXY_DRAIN,	/* backend reading again */
@@ -212,19 +225,21 @@ struct wse_fconn {
 	size_t			msg_len;
 	int			burst;		/* burst messages received */
 	int			lag;		/* lag messages received */
+	int			flood;		/* flood messages received */
+	int			slow;		/* slow messages received */
 	int			tx;		/* lag messages sent */
+	int			tx_flood;	/* flood messages sent */
+	int			tx_slow;	/* slow messages sent */
 	char			est;
 	char			closed;
 	char			tx_burst;	/* burst sent */
-	char			tx_end;		/* last message sent */
-	char			rx_end;		/* last message received */
 	char			killed;		/* we closed it */
 	int			fo;		/* index in fanouts[] */
 };
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
-static lws_sorted_usec_list_t sul_phase, sul_timeout;
+static lws_sorted_usec_list_t sul_phase, sul_timeout, sul_slow;
 static struct wse_conn conns[WSE_C_COUNT];
 static struct wse_fconn fanout_conns[LWS_ARRAY_SIZE(fanouts)][WSE_F_COUNT];
 static const char *server_address = "localhost";
@@ -383,6 +398,35 @@ wse_relay_role(struct wse_conn *c)
 	return idx % WSE_R_COUNT;
 }
 
+/*
+ * Has every connection of the current fan-out case that is still open, other
+ * than the stuck one, received all S sent in this phase?  The ring example
+ * passes on what S sends to S too, so there S is checked like a reader; the
+ * broker doesn't send to publishers.
+ */
+
+static int
+wse_fanout_all_rx(int ph)
+{
+	struct wse_fconn *fconns = fanout_conns[fanout];
+	int r;
+
+	for (r = 0; r < WSE_F_COUNT; r++) {
+		struct wse_fconn *c = &fconns[r];
+
+		if (r == WSE_F_K || !c->wsi ||
+		    (r == WSE_F_S && strcmp(fanouts[fanout].tx_path, "/")))
+			continue;
+
+		if (ph == WSE_P_FANOUT_FLOOD_END ?
+				c->flood != fconns[WSE_F_S].tx_flood :
+				c->slow != fconns[WSE_F_S].tx_slow)
+			return 0;
+	}
+
+	return 1;
+}
+
 static void
 wse_phase_cb(lws_sorted_usec_list_t *sul);
 
@@ -521,12 +565,6 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 		phase++;
 		break;
 
-	case WSE_P_FANOUT_END:
-		/* the stuck client should be gone by now: S sends the last */
-		if (fconns[WSE_F_S].wsi)
-			lws_callback_on_writable(fconns[WSE_F_S].wsi);
-		break;
-
 	case WSE_P_FANOUT_RELEASE:
 		/* let K read again, so it sees it was closed */
 		if (fconns[WSE_F_K].wsi)
@@ -549,6 +587,59 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 			wse_fail("a client that kept up was closed");
 			return;
 		}
+		/* a third reader, then S floods once it is there */
+		phase++;
+		wse_fanout_connect(WSE_F_R3);
+		break;
+
+	case WSE_P_FANOUT_FLOOD:
+		/* the flood has gone on past the lag limit: S stops */
+		phase++;
+		wse_schedule(1);
+		break;
+
+	case WSE_P_FANOUT_FLOOD_END:
+		/* wait for everybody to have the whole flood */
+		if (!wse_fanout_all_rx(WSE_P_FANOUT_FLOOD_END)) {
+			wse_schedule(100 * LWS_US_PER_MS);
+			break;
+		}
+		lwsl_user("fan-out %s: flood of %d reached all the readers\n",
+			  fanouts[fanout].vhost_name,
+			  fconns[WSE_F_S].tx_flood);
+		/* a slow reader, then S sends once it is there */
+		phase++;
+		wse_fanout_connect(WSE_F_W);
+		break;
+
+	case WSE_P_FANOUT_SLOW:
+		/* S has been sending past the lag limit: it stops */
+		lwsl_user("fan-out %s: S sent %d, slow reader had %d\n",
+			  fanouts[fanout].vhost_name, fconns[WSE_F_S].tx_slow,
+			  fconns[WSE_F_W].slow);
+		if (fconns[WSE_F_S].tx_slow - fconns[WSE_F_W].slow <
+							WSE_F_SLOW_BEHIND) {
+			wse_fail("slow reader wasn't slower than the sender");
+			return;
+		}
+		phase++;
+		/* W reads at full speed from now */
+		if (fconns[WSE_F_W].wsi)
+			lws_rx_flow_control(fconns[WSE_F_W].wsi, 1);
+		wse_schedule(1);
+		break;
+
+	case WSE_P_FANOUT_SLOW_END:
+		/* wait for everybody, W too, to have everything S sent */
+		if (!wse_fanout_all_rx(WSE_P_FANOUT_SLOW_END)) {
+			wse_schedule(100 * LWS_US_PER_MS);
+			break;
+		}
+		phase++;
+		wse_schedule(1);
+		break;
+
+	case WSE_P_FANOUT_DONE:
 		for (n = 0; n < (size_t)WSE_F_COUNT; n++)
 			if (fconns[n].wsi) {
 				fconns[n].killed = 1;
@@ -876,20 +967,31 @@ callback_wse_client(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 /*
- * Messages must arrive in order, and, from an example that slows senders down
- * instead of dropping, all of them.  burst and lag are the next we expect.
+ * Messages must arrive in order, and all of them: the examples slow senders
+ * down instead of dropping.  burst, lag, flood and slow are the next we
+ * expect.
  */
 
 static int
 wse_fanout_seq(int *next, int n)
 {
-	if (n < *next || (fanouts[fanout].lossless && n != *next)) {
+	if (n != *next) {
 		lwsl_err("msg %d, expected %d\n", n, *next);
 		return 1;
 	}
 	*next = n + 1;
 
 	return 0;
+}
+
+/* the slow reader reads its next message */
+
+static void
+wse_slow_cb(lws_sorted_usec_list_t *sul)
+{
+	if (fanout < (int)LWS_ARRAY_SIZE(fanouts) &&
+	    fanout_conns[fanout][WSE_F_W].wsi)
+		lws_rx_flow_control(fanout_conns[fanout][WSE_F_W].wsi, 1);
 }
 
 static int
@@ -901,8 +1003,7 @@ wse_fanout_rx(struct wse_fconn *c, int r, const char *in, size_t len)
 		if (wse_fanout_seq(&c->burst,
 				   ((in[1] - '0') * 10) + (in[2] - '0')))
 			return 1;
-		if (fanouts[fanout].lossless && r == WSE_F_R2 &&
-		    c->burst == WSE_F_BURST &&
+		if (r == WSE_F_R2 && c->burst == WSE_F_BURST &&
 		    fconns[WSE_F_R1].burst == WSE_F_BURST)
 			wse_schedule(1);
 		return 0;
@@ -911,8 +1012,7 @@ wse_fanout_rx(struct wse_fconn *c, int r, const char *in, size_t len)
 	if (len == WSE_F_LAG_LEN) {
 		if (wse_fanout_seq(&c->lag, atoi(in)))
 			return 1;
-		if (fanouts[fanout].lossless && r == WSE_F_R1 &&
-		    c->lag == WSE_F_LAG_MSGS) {
+		if (r == WSE_F_R1 && c->lag == WSE_F_LAG_MSGS) {
 			/* everything got past the stuck client */
 			phase = WSE_P_FANOUT_RELEASE;
 			wse_schedule(1);
@@ -920,12 +1020,27 @@ wse_fanout_rx(struct wse_fconn *c, int r, const char *in, size_t len)
 		return 0;
 	}
 
-	if (len == 3 && !memcmp(in, "end", 3)) {
-		c->rx_end = 1;
-		if (r == WSE_F_R1 && phase == WSE_P_FANOUT_END) {
-			/* the last message got past the stuck client */
-			phase = WSE_P_FANOUT_RELEASE;
-			wse_schedule(1);
+	if (len == WSE_F_FLOOD_LEN && in[0] == 'f') {
+		if (wse_fanout_seq(&c->flood, atoi(in + 1)))
+			return 1;
+		if (r == WSE_F_R1 && phase == WSE_P_FANOUT_FLOOD &&
+		    fconns[WSE_F_S].wsi)
+			/* S may be waiting for R1 to catch up */
+			lws_callback_on_writable(fconns[WSE_F_S].wsi);
+		return 0;
+	}
+
+	if (len == WSE_F_SLOW_LEN && in[0] == 's') {
+		if (wse_fanout_seq(&c->slow, atoi(in + 1)))
+			return 1;
+		if (r == WSE_F_W && phase == WSE_P_FANOUT_SLOW) {
+			/* W takes no more until a while later */
+			lws_rx_flow_control(c->wsi, 0);
+			lws_sul_schedule(context, 0, &sul_slow, wse_slow_cb,
+					 WSE_F_SLOW_US);
+			/* S may be waiting for W to read more */
+			if (fconns[WSE_F_S].wsi)
+				lws_callback_on_writable(fconns[WSE_F_S].wsi);
 		}
 		return 0;
 	}
@@ -977,6 +1092,31 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_rx_flow_control(wsi, 0);
 			lws_callback_on_writable(fconns[WSE_F_S].wsi);
 			break;
+		case WSE_F_R3:
+			/* S floods, for longer than the lag limit */
+			wse_schedule((*fanouts[fanout].lag_secs + 2) *
+				     LWS_US_PER_SEC);
+			lws_callback_on_writable(fconns[WSE_F_S].wsi);
+			break;
+		case WSE_F_W: {
+			lws_sockfd_type sfd = lws_get_socket_fd(wsi);
+			int rb = WSE_F_SLOW_RCVBUF;
+
+			/*
+			 * Unless what W hasn't read yet backs up to the
+			 * server soon, the server just sees a fast reader
+			 */
+			if (sfd != LWS_SOCK_INVALID &&
+			    setsockopt(sfd, SOL_SOCKET, SO_RCVBUF,
+				       (const char *)&rb, sizeof(rb)))
+				lwsl_warn("%s: SO_RCVBUF failed\n", __func__);
+
+			/* S sends as fast as it can, past the lag limit */
+			wse_schedule((*fanouts[fanout].lag_secs + 4) *
+				     LWS_US_PER_SEC);
+			lws_callback_on_writable(fconns[WSE_F_S].wsi);
+			break;
+		}
 		}
 		break;
 
@@ -998,39 +1138,62 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 					      LWS_WRITE_TEXT) < 3)
 					return -1;
 			}
-			if (!fanouts[fanout].lossless)
-				/* what fitted has reached them by then */
-				wse_schedule(500 * LWS_US_PER_MS);
 			break;
 		}
 
-		if (phase == WSE_P_FANOUT_END) {
-			if (c->tx_end)
+		if (phase == WSE_P_FANOUT_FLOOD && fconns[WSE_F_R3].est) {
+			/*
+			 * Small messages, as many as will go, but not so far
+			 * ahead of the readers that the test spends its time
+			 * waiting for them to catch up after: the server must
+			 * always have more of them waiting, that's all
+			 */
+			if (c->tx_flood - fconns[WSE_F_R1].flood >=
+							WSE_F_FLOOD_WINDOW)
+				/* R1 asks for us again when it has caught up */
 				break;
-			c->tx_end = 1;
-			memcpy(txbuf + LWS_PRE, "end", 3);
-			if (lws_write(wsi, txbuf + LWS_PRE, 3,
-				      LWS_WRITE_TEXT) < 3)
-				return -1;
-			break;
-		}
-
-		if (phase != WSE_P_FANOUT_LAG || !fconns[WSE_F_K].est)
-			break;
-
-		if (c->tx == WSE_F_LAG_MSGS) {
-			if (!fanouts[fanout].lossless) {
-				/*
-				 * The broker drops while K holds its ring
-				 * full: after the lag limit, K must be gone
-				 * and the last message get through
-				 */
-				phase = WSE_P_FANOUT_END;
-				wse_schedule((*fanouts[fanout].lag_secs + 2) *
-					     LWS_US_PER_SEC);
+			for (n = 0; n < WSE_F_FLOOD_BATCH &&
+				    c->tx_flood < 9999999 &&
+				    !lws_send_pipe_choked(wsi); n++) {
+				lws_snprintf((char *)txbuf + LWS_PRE,
+					     WSE_F_FLOOD_LEN + 1, "f%07d",
+					     c->tx_flood);
+				if (lws_write(wsi, txbuf + LWS_PRE,
+					      WSE_F_FLOOD_LEN, LWS_WRITE_TEXT) <
+							WSE_F_FLOOD_LEN)
+					return -1;
+				c->tx_flood++;
 			}
+			lws_callback_on_writable(wsi);
 			break;
 		}
+
+		if (phase == WSE_P_FANOUT_SLOW && fconns[WSE_F_W].est) {
+			/*
+			 * As fast as the server takes them, but not so far
+			 * ahead of W that the test spends its time waiting for
+			 * W to catch up after: the server must just always have
+			 * more for it, more than fits in the buffers on the way
+			 */
+			if (c->tx_slow - fconns[WSE_F_W].slow >=
+							WSE_F_SLOW_WINDOW)
+				/* W asks for us again when it has read more */
+				break;
+			memset(txbuf + LWS_PRE, 'x', WSE_F_SLOW_LEN);
+			n = lws_snprintf((char *)txbuf + LWS_PRE, 8, "s%06d",
+					 c->tx_slow);
+			txbuf[LWS_PRE + n] = 'x';
+			if (lws_write(wsi, txbuf + LWS_PRE, WSE_F_SLOW_LEN,
+				      LWS_WRITE_TEXT) < WSE_F_SLOW_LEN)
+				return -1;
+			c->tx_slow++;
+			lws_callback_on_writable(wsi);
+			break;
+		}
+
+		if (phase != WSE_P_FANOUT_LAG || !fconns[WSE_F_K].est ||
+		    c->tx == WSE_F_LAG_MSGS)
+			break;
 
 		memset(txbuf + LWS_PRE, 'x', WSE_F_LAG_LEN);
 		n = lws_snprintf((char *)txbuf + LWS_PRE, 8, "%06d", c->tx);
@@ -1348,7 +1511,7 @@ main(int argc, const char **argv)
 
 	wse_schedule(1);
 	lws_sul_schedule(context, 0, &sul_timeout, wse_timeout_cb,
-			 100 * LWS_US_PER_SEC);
+			 180 * LWS_US_PER_SEC);
 
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);

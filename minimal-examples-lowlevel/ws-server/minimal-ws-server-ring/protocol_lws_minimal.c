@@ -17,10 +17,13 @@
  *    until it has room again, so senders are slowed to the pace of the
  *    receivers, and nothing is lost.
  *
- *  - a client that has had messages waiting for it for MINIMAL_LAG_SECS
- *    without catching up is closed, so it can't hold up everybody else for
- *    long.  This is decided from that client's own progress, not from how
- *    fast anybody sends, so a fast sender can't get anybody else closed.
+ *  - a client is closed when the oldest message it hasn't been sent yet has
+ *    been waiting for it for MINIMAL_LAG_SECS, so one that stops reading
+ *    can't hold up everybody else for longer than that.  A client that keeps
+ *    up is never closed, however much anybody sends, and one that reads
+ *    steadily but slower than a sender just slows the sender down; only a
+ *    client too slow to take a ringbuffer's worth of messages in
+ *    MINIMAL_LAG_SECS while somebody is sending is closed.
  *
  * A RECEIVE callback is not a message: a message may arrive in several
  * fragments, and a fragment bigger than the rx buffer arrives in several
@@ -46,8 +49,7 @@
 /* how many messages the ringbuffer holds */
 #define MINIMAL_RING_DEPTH 8
 
-/* a client that has had messages waiting this long without catching up is
- * closed */
+/* a client with a message that has waited this long for it is closed */
 #define MINIMAL_LAG_SECS 5
 
 /* one of these created for each message */
@@ -55,6 +57,7 @@
 struct msg {
 	void *payload; /* is malloc'd */
 	size_t len;
+	lws_usec_t arrived; /* when it went in the ringbuffer */
 	char binary; /* pass it on as a BINARY message, else TEXT */
 };
 
@@ -65,9 +68,9 @@ struct per_session_data__minimal {
 	struct lws *wsi;
 	uint8_t *rx; /* LWS_PRE + message being collected, or NULL */
 	size_t rx_len; /* bytes of message in rx after LWS_PRE */
+	lws_usec_t joined; /* when we connected */
+	lws_usec_t lag_from; /* the lag timer runs from here, or 0: caught up */
 	uint32_t tail;
-
-	char behind; /* messages are waiting for us: the lag timer runs */
 };
 
 /* one of these is created for each vhost our protocol is used with */
@@ -134,30 +137,56 @@ minimal_rx_flow(struct per_vhost_data__minimal *vhd, int enable)
 	} lws_end_foreach_dll(d);
 }
 
+/* if we stopped reading, and there is room again, let the senders carry on */
+
+static void
+minimal_rx_resume_if_room(struct per_vhost_data__minimal *vhd)
+{
+	if (vhd->rx_paused && lws_ring_get_count_free_elements(vhd->ring) >=
+						MINIMAL_RING_DEPTH / 2)
+		minimal_rx_flow(vhd, 1);
+}
+
 /*
- * A client with messages waiting for it must catch up, ie, be sent all of
- * them, within MINIMAL_LAG_SECS, or it is closed: otherwise one client that
- * stopped reading would keep the ring full, and everybody else waiting, for
- * as long as it likes.  The timer runs from when it falls behind, and only
- * stops when it has caught up, so it measures the client's own lag, however
- * fast or slow the senders are.
+ * A client is closed once the oldest message it hasn't been sent yet has been
+ * waiting for it for MINIMAL_LAG_SECS (counting from when it connected, if
+ * that was later): otherwise one client that stopped reading would keep the
+ * ring full, and everybody else waiting, for as long as it likes.  This judges
+ * the client by how stale what it is missing is, not by whether it ever gets
+ * completely caught up, which a busy sender could prevent: a client that keeps
+ * up is always being sent fresh messages and is never closed, while one that
+ * stopped reading is closed about MINIMAL_LAG_SECS after the first message it
+ * didn't take.
+ *
+ * Call it whenever the client's tail, or what is waiting for it, changed.
  */
 
 static void
 minimal_lag_update(struct per_vhost_data__minimal *vhd,
 		   struct per_session_data__minimal *pss)
 {
-	char behind = !!lws_ring_get_element(vhd->ring, &pss->tail);
+	const struct msg *pmsg = lws_ring_get_element(vhd->ring, &pss->tail);
+	lws_usec_t from, left;
 
-	if (behind == pss->behind)
+	if (!pmsg) {
+		/* we have been sent everything: nothing is waiting for us */
+		if (pss->lag_from) {
+			pss->lag_from = 0;
+			lws_set_timeout(pss->wsi, NO_PENDING_TIMEOUT, 0);
+		}
+		return;
+	}
+
+	from = pmsg->arrived > pss->joined ? pmsg->arrived : pss->joined;
+	if (from == pss->lag_from)
+		/* the same message is still the oldest: the timer is right */
 		return;
 
-	pss->behind = behind;
-	if (behind)
-		lws_set_timeout(pss->wsi, PENDING_TIMEOUT_LAGGING,
-				MINIMAL_LAG_SECS);
-	else
-		lws_set_timeout(pss->wsi, NO_PENDING_TIMEOUT, 0);
+	pss->lag_from = from;
+	left = from + (MINIMAL_LAG_SECS * LWS_US_PER_SEC) - lws_now_usecs();
+	lws_set_timeout(pss->wsi, PENDING_TIMEOUT_LAGGING, left <= 0 ?
+			LWS_TO_KILL_ASYNC :
+			(int)((left + LWS_US_PER_SEC - 1) / LWS_US_PER_SEC));
 }
 
 /* destroys the message when everyone has had a copy of it */
@@ -280,6 +309,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_dll2_add_tail(&pss->list, &vhd->pss_list);
 		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
 		pss->wsi = wsi;
+		pss->joined = lws_now_usecs();
 		if (vhd->rx_paused)
 			/* we're not reading from anybody at the moment */
 			lws_rx_flow_control(wsi, 0);
@@ -297,41 +327,41 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		minimal_rx_discard(pss);
 		/* we may have been the one holding the oldest tail */
 		minimal_update_oldest_tail(vhd);
-		if (vhd->rx_paused && lws_ring_get_count_free_elements(
-				vhd->ring) >= MINIMAL_RING_DEPTH / 2)
-			minimal_rx_flow(vhd, 1);
+		minimal_rx_resume_if_room(vhd);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		pmsg = lws_ring_get_element(vhd->ring, &pss->tail);
-		if (!pmsg)
-			break;
-
-		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
-			      LWS_PRE, pmsg->len, pmsg->binary ?
+		/*
+		 * Send everything waiting for us that the connection will take
+		 * now: a client that can keep up must be able to catch up in
+		 * one go, not one message each time around the event loop
+		 */
+		while (!lws_send_pipe_choked(wsi) &&
+		       (pmsg = lws_ring_get_element(vhd->ring, &pss->tail))) {
+			/* notice we allowed for LWS_PRE in the payload already */
+			m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
+				      LWS_PRE, pmsg->len, pmsg->binary ?
 					LWS_WRITE_BINARY : LWS_WRITE_TEXT);
-		if (m < (int)pmsg->len) {
-			lwsl_err("ERROR %d writing to ws socket\n", m);
-			return -1;
+			if (m < (int)pmsg->len) {
+				lwsl_err("ERROR %d writing to ws socket\n", m);
+				return -1;
+			}
+
+			/* we are done with that one */
+			lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
 		}
 
-		/* we are done with that one... */
-		lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
-		/* ...if it was the last one waiting for anybody, free it */
+		/* if they were the last ones waiting for anybody, free them */
 		minimal_update_oldest_tail(vhd);
-		/* if we caught up, we are not lagging any more */
+		/* restart our lag timer from what is waiting for us now */
 		minimal_lag_update(vhd, pss);
-
-		if (vhd->rx_paused && lws_ring_get_count_free_elements(
-				vhd->ring) >= MINIMAL_RING_DEPTH / 2)
-			/* there's room again, let the senders carry on */
-			minimal_rx_flow(vhd, 1);
+		/* if there's room again, let the senders carry on */
+		minimal_rx_resume_if_room(vhd);
 
 		/* more to do for us? */
-		if (pss->behind)
+		if (pss->lag_from)
 			/* come back as soon as we can write more */
-			lws_callback_on_writable(pss->wsi);
+			lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -348,8 +378,9 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!lws_ring_get_count_free_elements(vhd->ring)) {
 			/*
 			 * We stop reading from everybody when the ring fills,
-			 * but a message that was already on its way when we
-			 * did can still complete... there's nowhere to put it
+			 * so this only happens where lws can't stop reading
+			 * for us, eg, ws over an h2 stream, which h2 flow
+			 * controls instead.  There's nowhere to put it.
 			 */
 			minimal_rx_discard(pss);
 			lwsl_user("dropping!\n");
@@ -359,6 +390,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		/* the collected message becomes the ring element payload */
 		amsg.payload = pss->rx;
 		amsg.len = pss->rx_len;
+		amsg.arrived = lws_now_usecs();
 		amsg.binary = (char)lws_frame_is_binary(wsi);
 		pss->rx = NULL;
 		pss->rx_len = 0;
@@ -371,8 +403,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/*
 		 * let everybody know we want to write something on them
-		 * as soon as they are ready, and they are behind until they
-		 * have been sent it
+		 * as soon as they are ready, and anybody who was caught up
+		 * starts their lag timer from this message
 		 */
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				      lws_dll2_get_head(&vhd->pss_list)) {
