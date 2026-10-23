@@ -119,6 +119,15 @@
    mixer-media.c (`-fsyntax-only` with the build's warning flags).  Its
    pure helpers are tested by api-test-webrtc-mixer-signal / -depkt; the
    rest needs Sai.  clang -Werror fails layout-speaker.c until G-375.
+   The gst stub needs only `GstElement` / `GstPad` typedefs in
+   `gst/gst.h`; `gst/app/gstappsrc.h` and `gstappsink.h` just include it.
+ - **WEBRTC trees:** `-DLWS_WITH_DRM=0` keeps rtc_camera out, so `make`
+   passes without opus headers.  WEBRTC_MIXER implies WEBRTC, which
+   implies JOSE with a plain `set` that overrides `-DLWS_WITH_JOSE=0`, so
+   a "JOSE off" check only means anything with WEBRTC off.  WEBRTC with
+   PLUGINS_BUILTIN does not link (`lws_webrtc` is only exported when
+   !PLUGINS_BUILTIN, since c80c865a98), so the lws-login api-tests, which
+   need PLUGINS_BUILTIN, run in a separate tree from the webrtc ones.
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
