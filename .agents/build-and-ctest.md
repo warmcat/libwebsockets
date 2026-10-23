@@ -47,7 +47,10 @@
  - **`LWS_WITH_SYS_DHCP_CLIENT` gates the system state** at
    `LWS_SYSTATE_DHCP` until an interface has a lease: with it on, client
    tests sit forever before OPERATIONAL.  Never put it in a ctest config.
- - **The auth-server plugin needs `LWS_WITH_STRUCT_JSON=1`.**  After any cmake re-run, rebuild the
+ - **The auth-server plugin needs `LWS_WITH_STRUCT_JSON=1`.**  The lwsws-oauth tests are
+   load-sensitive: server stalls inside sqlite commits (G-676) time clients
+   out, and lwsws-oauth-rows can outlast its 60s `jwt-validity-secs` under
+   load (then `/api/authorize` 302s with no code).  After any cmake re-run, rebuild the
    plugins too: lwsws drops stale ones with "build hash mismatch" (info
    level only) and the lwsws-oauth seed then fails "schema did not appear".
    To see per-vhost protocol init in lwsws, add `LLLF_LOG_SPEW_OFF`
