@@ -299,3 +299,13 @@ server's transport parameters repeat the connection IDs of that exchange
 ```
  $ LWS_QUIC_FORCE_RETRY=1 ./lws-minimal-quic-client-server
 ```
+
+RFC 9000 sets no limit on a Retry token's size, but the client keeps at most
+128 bytes of one, and drops a Retry with a longer token as if it never came: it
+must take nothing from it, so it still takes the next Retry.  With a build with
+`LWS_WITH_SYS_FAULT_INJECTION`, the fault `quic_retry_token_pad` makes the
+server's token too long, here in the first of every eight Retries it sends:
+
+```
+ $ LWS_QUIC_FORCE_RETRY=1 ./lws-minimal-quic-client-server --fault-injection "wsi/quic_retry_token_pad(X.......)"
+```

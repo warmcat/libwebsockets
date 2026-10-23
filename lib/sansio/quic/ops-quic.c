@@ -2308,6 +2308,19 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 				size_t tok_out_len = 0;
 				if (!lws_quic_create_retry_token(wsi, dcid.id, dcid.len, retry_scid.id, retry_scid.len, peer_ip, peer_ip_len, rp, &tok_out_len)) {
 					rp += tok_out_len;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+					/*
+					 * A token longer than a client can
+					 * keep: RFC 9000 sets no limit, so a
+					 * server may send one.  It never
+					 * validates, the client must drop
+					 * the Retry and take the next one
+					 */
+					if (lws_fi(&wsi->fic, "quic_retry_token_pad")) {
+						memset(rp, 0, LWS_QUIC_FI_RETRY_TOKEN_PAD);
+						rp += LWS_QUIC_FI_RETRY_TOKEN_PAD;
+					}
+#endif
 					uint8_t tag[16];
 					if (!lws_quic_create_retry_tag(dcid.id, dcid.len, retry_pkt, (size_t)(rp - retry_pkt), tag)) {
 						memcpy(rp, tag, 16); rp += 16;
@@ -2814,8 +2827,6 @@ tp_ok:
 					size_t tok_pos = 7u + pdcid.len + pscid.len;
 					if (n >= 16 && tag_pos >= tok_pos) {
 						if (!lws_quic_validate_retry_tag(nwsi->quic.qn, nwsi->quic.qn->rem_cid.id, nwsi->quic.qn->rem_cid.len, p, tag_pos, &p[tag_pos])) {
-							nwsi->quic.qn->retry_scid = pscid;
-							nwsi->quic.qn->rem_cid = pscid;
 							/*
 							 * Check the token fits before
 							 * committing anything: a
@@ -2823,13 +2834,20 @@ tp_ok:
 							 * retry_token_len would be
 							 * read past retry_token[] on
 							 * to the wire in every
-							 * following Initial
+							 * following Initial, and a
+							 * Retry we drop must leave
+							 * the connection as it was,
+							 * still sending to the
+							 * original DCID and still
+							 * able to take a Retry
 							 */
 							if (tag_pos - tok_pos > sizeof(nwsi->quic.qn->retry_token)) {
 								lwsl_wsi_notice(wsi, "QUIC RX: Retry token too large, dropping packet");
 								n = 0;
 								break;
 							}
+							nwsi->quic.qn->retry_scid = pscid;
+							nwsi->quic.qn->rem_cid = pscid;
 							nwsi->quic.qn->retry_token_len = tag_pos - tok_pos;
 							memcpy(nwsi->quic.qn->retry_token, &p[tok_pos], nwsi->quic.qn->retry_token_len);
 							

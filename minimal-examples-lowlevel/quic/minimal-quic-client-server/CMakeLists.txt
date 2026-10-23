@@ -323,5 +323,22 @@ if (requirements)
 					     ENVIRONMENT "LWS_QUIC_FORCE_RETRY=1"
 					     WORKING_DIRECTORY .
 					     TIMEOUT 20)
+
+		#
+		# The first Retry carries a token too long for the client to
+		# keep: it must drop that Retry without taking anything from
+		# it, so it still takes the next, ordinary, one
+		#
+		if (has_fault_injection)
+			lws_get_free_port(PORT_QCS_RETRY_BIG)
+			add_test(NAME ${SAMP}-retry-big-token COMMAND ${SAMP}
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_QCS_RETRY_BIG}
+					--fault-injection "wsi/quic_retry_token_pad(X.......)")
+			set_tests_properties(${SAMP}-retry-big-token PROPERTIES
+						     ENVIRONMENT "LWS_QUIC_FORCE_RETRY=1"
+						     WORKING_DIRECTORY .
+						     TIMEOUT 20)
+		endif()
 	endif()
 endif()

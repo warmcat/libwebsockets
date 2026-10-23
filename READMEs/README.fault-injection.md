@@ -327,6 +327,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`h3_trailer_field`|An h3 client request with no body ends with a trailers block holding `user-agent: trailer-ua` (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_trailer_pseudo`|An h3 client request with no body ends with a trailers block holding a `:path`, which trailers may not (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`quic_stream_replay`|A QUIC stream's first STREAM frame is sent once more 100ms after the stream closed, as a retransmission whose ack was lost would be, after the peer finished with the stream (LWS_ROLE_QUIC)|
+|srv udp wsi|`wsi`|`quic_retry_token_pad`|A QUIC server's Retry (`LWS_QUIC_FORCE_RETRY`) carries a token 128 bytes longer than usual, too long for an lws client to keep, which must drop that Retry and take a later one (LWS_ROLE_QUIC)|
 |udp wsi|`wsi`|`udp_rx_loss`|Drop UDP RX that was actually received, useful with probabalistic mode|
 |udp wsi|`wsi`|`udp_tx_loss`|Drop UDP TX so that it's not actually sent, useful with probabalistic mode|
 |udp wsi|`wsi`|`udp_tx_full`|Refuse UDP TX as a full socket would, eg ENOBUFS, so the role must send it again later, useful with probabalistic mode (roles whose datagrams IO pulls, eg QUIC)|

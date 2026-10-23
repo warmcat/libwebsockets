@@ -30,6 +30,13 @@ extern const struct lws_role_ops role_ops_quic;
 /* the largest datagram we will assemble, whatever IO's buffer holds */
 #define LWS_QUIC_MAX_DGRAM 2048
 #define LWS_QUIC_MAX_CID_LEN 20
+/*
+ * The longest Retry token a client keeps: a Retry with a longer one is
+ * dropped as if it never came.  Fault injection quic_retry_token_pad has a
+ * server send one that much longer
+ */
+#define LWS_QUIC_RETRY_TOKEN_MAX	128
+#define LWS_QUIC_FI_RETRY_TOKEN_PAD	LWS_QUIC_RETRY_TOKEN_MAX
 
 #define LWS_QUIC_VERSION_1 0x1
 #define LWS_QUIC_VERSION_2 0x6b3343cf
@@ -799,7 +806,7 @@ struct lws_quic_netconn {
 	uint8_t			key_update_pending:1;
 
 	/* QUIC Stateless Retry */
-	uint8_t			retry_token[128];
+	uint8_t			retry_token[LWS_QUIC_RETRY_TOKEN_MAX];
 	size_t			retry_token_len;
 	struct lws_quic_cid	retry_scid;
 
