@@ -25,6 +25,9 @@
  * publishing data and to any other URL, subscribing.
  *
  * The ringbuffer only frees a message once every subscriber has been sent it.
+ * We ignore what is published while there are no subscribers, and when the
+ * last subscriber goes, whatever was still waiting for it is dropped: nothing
+ * is kept for subscribers that may join later.
  * This also shows what to do about publishers that send faster than the
  * subscribers can be sent to, and subscribers that can't keep up:
  *
@@ -181,7 +184,11 @@ minimal_rx_check(struct lws *wsi, struct per_session_data__minimal *pss)
 
 /*
  * Messages before the oldest tail of any subscriber have been sent to
- * everybody and can be freed.
+ * everybody and can be freed.  With no subscribers left, nothing in the ring
+ * is waiting for anybody, so it is all freed: otherwise, if the last one went
+ * while the ring was full, the publishers would stay paused (see
+ * minimal_rx_flow()) with nobody left to make room, and the next subscriber
+ * would be sent stale messages from before it joined.
  */
 
 static void
@@ -203,8 +210,14 @@ minimal_update_oldest_tail(struct per_vhost_data__minimal *vhd)
 		}
 	} lws_end_foreach_dll(d);
 
-	if (oldest)
-		lws_ring_update_oldest_tail(vhd->ring, oldest->tail);
+	if (!oldest) {
+		lws_ring_consume(vhd->ring, NULL, NULL,
+				 lws_ring_get_count_waiting_elements(vhd->ring,
+								     NULL));
+		return;
+	}
+
+	lws_ring_update_oldest_tail(vhd->ring, oldest->tail);
 }
 
 /*
@@ -281,6 +294,24 @@ minimal_lag_update(struct per_vhost_data__minimal *vhd,
 			(int)((left + LWS_US_PER_SEC - 1) / LWS_US_PER_SEC));
 }
 
+/*
+ * Did the peer make its ws connection to "/publisher"?  Over h1 the URL is the
+ * GET's, but a ws connection on an h2 (or h3) stream is an extended CONNECT,
+ * whose path lws keeps under WSI_TOKEN_CONNECT instead.
+ * lws_http_get_uri_and_method() finds it, whichever it is.
+ */
+
+static int
+minimal_is_publisher(struct lws *wsi)
+{
+	static const char pub[] = "/publisher";
+	char *uri;
+	int len;
+
+	return lws_http_get_uri_and_method(wsi, &uri, &len) >= 0 &&
+	       len == (int)sizeof(pub) - 1 && !memcmp(uri, pub, (size_t)len);
+}
+
 static int
 callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
@@ -293,7 +324,6 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_get_protocol(wsi));
 	const struct msg *pmsg;
 	struct msg amsg;
-	char buf[32];
 	int m;
 
 	switch (reason) {
@@ -322,8 +352,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED:
 		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
 		pss->wsi = wsi;
-		if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI) > 0)
-			pss->publishing = !strcmp(buf, "/publisher");
+		pss->publishing = (char)minimal_is_publisher(wsi);
 		if (pss->publishing) {
 			/* add publishers to the list of them held in the vhd */
 			lws_dll2_add_tail(&pss->list, &vhd->pub_list);
@@ -410,7 +439,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/*
 		 * For test, our policy is ignore publishing when there are
-		 * no subscribers connected.
+		 * no subscribers connected (and the ring is empty then: see
+		 * minimal_update_oldest_tail()).
 		 */
 		if (!lws_dll2_get_head(&vhd->pss_list)) {
 			minimal_rx_discard(pss);

@@ -25,6 +25,11 @@ If you type text is in the text box and press send, the text
 is passed to the broker on the publisher ws connection and
 sent to all subscribers.
 
+A ws connection made to the URL `/publisher` is a publisher, and one made to
+any other URL a subscriber.  That works for ws connections carried on an h2
+stream too, if you serve the broker over h2: their URL comes in an extended
+CONNECT, not a GET, which `lws_http_get_uri_and_method()` takes care of.
+
 Each message is passed on whole, as the type (TEXT or BINARY) it was sent as,
 however it was fragmented on the way.  Messages up to 4096 bytes are passed
 on: a client sending a bigger one is closed with 1009 (Message Too Big), and
@@ -50,3 +55,10 @@ subscribers that can't keep up:
    a slower one that reads steadily just slows the publishers down.  Only a
    subscriber too slow to take the ringbuffer's 8 messages in 5s while the
    publishers are busy is closed.
+
+ - what is published while there are no subscribers is ignored, and when the
+   last subscriber goes (eg, closed for not reading), whatever was still
+   waiting for it is dropped.  So publishers the broker stopped reading from
+   because the ringbuffer was full are read from again, rather than waiting
+   for somebody to subscribe, and the next subscriber is only sent what is
+   published after it joined.

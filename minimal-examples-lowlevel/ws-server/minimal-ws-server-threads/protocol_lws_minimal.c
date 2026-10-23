@@ -103,7 +103,10 @@ __minimal_destroy_message(void *_msg)
 
 /*
  * {lock_ring} must be held.  Ringbuffer elements before the oldest tail of
- * any connection have been sent to everybody and can be freed.
+ * any connection have been sent to everybody and can be freed.  With nobody
+ * connected, nothing in the ring is waiting for anybody, so it is all freed:
+ * the spam threads add nothing while nobody is connected, and the next client
+ * mustn't be sent stale messages left over from before it connected.
  */
 
 static void
@@ -125,8 +128,14 @@ __minimal_update_oldest_tail(struct per_vhost_data__minimal *vhd)
 		}
 	} lws_end_foreach_dll(d);
 
-	if (oldest)
-		lws_ring_update_oldest_tail(vhd->ring, oldest->tail);
+	if (!oldest) {
+		lws_ring_consume(vhd->ring, NULL, NULL,
+				 lws_ring_get_count_waiting_elements(vhd->ring,
+								     NULL));
+		return;
+	}
+
+	lws_ring_update_oldest_tail(vhd->ring, oldest->tail);
 }
 
 /*

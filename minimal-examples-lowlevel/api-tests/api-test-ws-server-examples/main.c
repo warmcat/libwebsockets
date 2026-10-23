@@ -44,6 +44,20 @@
  *  - a reader that reads steadily, but slower than a sender sending as fast
  *    as it can, isn't closed either: the sender is slowed down to it
  *
+ * The broker ignores what is published while there are no subscribers, so
+ *
+ *  - when its only subscriber stops reading, so the ring fills and the
+ *    publisher is paused, and is closed after the lag limit, the publisher
+ *    must be read again (its PING answered) with nobody subscribed, and a
+ *    subscriber joining after that must only get what is published after it
+ *    joined, none of what the stuck one was never sent (G-681)
+ *
+ * The broker is also served on a TLS vhost offering h2, where
+ *
+ *  - a publisher whose ws connection is carried on an h2 stream (an extended
+ *    CONNECT, not a GET) is taken for a publisher: what it publishes reaches
+ *    a subscriber (G-681)
+ *
  * minimal-ws-raw-proxy passes bytes both ways between a ws client and an
  * onward raw connection to a backend
  *
@@ -69,6 +83,10 @@
 #endif
 
 #include "examples.h"
+
+#if defined(LWS_WITH_TLS) && defined(LWS_ROLE_H2)
+#define WSE_H2		/* we can test ws over h2 */
+#endif
 
 #define WSE_MSG_MAX		8192
 
@@ -131,6 +149,8 @@ enum {
 	WSE_F_K,		/* stops reading */
 	WSE_F_R3,		/* a third reader, for the flood */
 	WSE_F_W,		/* reads steadily, but slower than S sends */
+	WSE_F_A,		/* the only subscriber left, stops reading */
+	WSE_F_N,		/* subscribes after A was closed */
 
 	WSE_F_COUNT
 };
@@ -175,6 +195,29 @@ struct wse_proxy {
 
 static struct wse_proxy px;
 
+#if defined(WSE_H2)
+/*
+ * The broker on its TLS vhost: SUB subscribes over h1, PUB publishes on a ws
+ * connection carried on an h2 stream
+ */
+enum {
+	WSE_H2_SUB,
+	WSE_H2_PUB,
+
+	WSE_H2_COUNT
+};
+
+struct wse_h2conn {
+	struct lws		*wsi;
+	char			sent;
+	char			killed;		/* we closed it */
+};
+
+static struct wse_h2conn h2conns[WSE_H2_COUNT];
+static int h2_port;
+static const char h2_msg[] = "published over h2";
+#endif
+
 enum {
 	WSE_P_CORNER,
 	WSE_P_CORNER_CHECK,
@@ -191,7 +234,14 @@ enum {
 	WSE_P_FANOUT_FLOOD_END,	/* ...stops, and everybody must get it all */
 	WSE_P_FANOUT_SLOW,	/* S sends as fast as it can, W reads slowly */
 	WSE_P_FANOUT_SLOW_END,	/* ...stops, and everybody must get it all */
+	WSE_P_FANOUT_ALONE,	/* broker: all but S go, then A subscribes */
+	WSE_P_FANOUT_ALONE_FILL, /* S publishes till paused, A closed */
+	WSE_P_FANOUT_ALONE_PING, /* S must be read again: its PING answered */
+	WSE_P_FANOUT_ALONE_NEW,	/* N subscribes, gets only S's marker */
 	WSE_P_FANOUT_DONE,
+	WSE_P_BROKER_H2,	/* the broker, publisher on an h2 stream */
+	WSE_P_BROKER_H2_WAIT,	/* ...what it publishes must reach SUB */
+	WSE_P_BROKER_H2_DONE,
 	WSE_P_PROXY,
 	WSE_P_PROXY_HELD,	/* backend not reading for a while */
 	WSE_P_PROXY_DRAIN,	/* backend reading again */
@@ -230,9 +280,12 @@ struct wse_fconn {
 	int			tx;		/* lag messages sent */
 	int			tx_flood;	/* flood messages sent */
 	int			tx_slow;	/* slow messages sent */
+	int			tx_alone;	/* sent while A is stuck */
 	char			est;
 	char			closed;
 	char			tx_burst;	/* burst sent */
+	char			tx_ping;	/* PING sent */
+	char			tx_marker;	/* marker sent */
 	char			killed;		/* we closed it */
 	int			fo;		/* index in fanouts[] */
 };
@@ -345,6 +398,38 @@ wse_fanout_connect(int r)
 	return 0;
 }
 
+#if defined(WSE_H2)
+static int
+wse_h2_connect(int r)
+{
+	struct wse_h2conn *c = &h2conns[r];
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_cli;
+	i.address		= server_address;
+	i.port			= h2_port;
+	i.path			= r == WSE_H2_PUB ? "/publisher" : "/";
+	i.host			= server_address;
+	i.origin		= server_address;
+	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
+				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	i.alpn			= r == WSE_H2_PUB ? "h2" : "http/1.1";
+	i.protocol		= "lws-minimal-broker";
+	i.local_protocol_name	= "wse-h2-client";
+	i.opaque_user_data	= c;
+	i.pwsi			= &c->wsi;
+
+	if (!lws_client_connect_via_info(&i)) {
+		wse_fail("connect failed");
+		return 1;
+	}
+
+	return 0;
+}
+#endif
+
 static int
 wse_proxy_connect(void)
 {
@@ -399,10 +484,21 @@ wse_relay_role(struct wse_conn *c)
 }
 
 /*
+ * Does the current fan-out case's example have publishers, that aren't sent
+ * anything, separate from its readers?  The ring example passes on what S
+ * sends to S too; the broker doesn't send to publishers.
+ */
+
+static int
+wse_fanout_has_publishers(void)
+{
+	return !!strcmp(fanouts[fanout].tx_path, "/");
+}
+
+/*
  * Has every connection of the current fan-out case that is still open, other
- * than the stuck one, received all S sent in this phase?  The ring example
- * passes on what S sends to S too, so there S is checked like a reader; the
- * broker doesn't send to publishers.
+ * than the stuck one, received all S sent in this phase?  Where S is also a
+ * reader, it is checked like one.
  */
 
 static int
@@ -415,7 +511,7 @@ wse_fanout_all_rx(int ph)
 		struct wse_fconn *c = &fconns[r];
 
 		if (r == WSE_F_K || !c->wsi ||
-		    (r == WSE_F_S && strcmp(fanouts[fanout].tx_path, "/")))
+		    (r == WSE_F_S && wse_fanout_has_publishers()))
 			continue;
 
 		if (ph == WSE_P_FANOUT_FLOOD_END ?
@@ -635,8 +731,54 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 			wse_schedule(100 * LWS_US_PER_MS);
 			break;
 		}
-		phase++;
+		/* only the broker drops what's published to nobody */
+		phase = wse_fanout_has_publishers() ? WSE_P_FANOUT_ALONE :
+						      WSE_P_FANOUT_DONE;
 		wse_schedule(1);
+		break;
+
+	case WSE_P_FANOUT_ALONE:
+		/* every subscriber goes: only S, the publisher, stays */
+		for (n = 0; n < (size_t)WSE_F_COUNT; n++)
+			if (n != WSE_F_S && fconns[n].wsi) {
+				fconns[n].killed = 1;
+				lws_set_timeout(fconns[n].wsi,
+						PENDING_TIMEOUT_USER_OK,
+						LWS_TO_KILL_ASYNC);
+			}
+		/* A subscribes when they are gone, and stops reading */
+		phase++;
+		wse_schedule(200 * LWS_US_PER_MS);
+		break;
+
+	case WSE_P_FANOUT_ALONE_FILL:
+		if (!fconns[WSE_F_A].wsi) {
+			/* the others have gone: A subscribes */
+			if (wse_fanout_connect(WSE_F_A))
+				return;
+			/* when established, S publishes and we come back */
+			break;
+		}
+		/*
+		 * S has been publishing past the lag limit, so the ring has
+		 * been full, S paused, and A closed by the broker a while ago:
+		 * S's PING must be answered, with nobody subscribed
+		 */
+		phase++;
+		lws_callback_on_writable(fconns[WSE_F_S].wsi);
+		wse_schedule(*fanouts[fanout].lag_secs * 3 * LWS_US_PER_SEC);
+		break;
+
+	case WSE_P_FANOUT_ALONE_PING:
+		/* we only get here if the PONG didn't come in time */
+		wse_fail("publisher still paused after the last subscriber "
+			 "left");
+		return;
+
+	case WSE_P_FANOUT_ALONE_NEW:
+		/* N subscribes; when established, S publishes its marker */
+		if (wse_fanout_connect(WSE_F_N))
+			return;
 		break;
 
 	case WSE_P_FANOUT_DONE:
@@ -650,7 +792,41 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 		if (++fanout < (int)LWS_ARRAY_SIZE(fanouts))
 			phase = WSE_P_FANOUT;
 		else
-			phase = WSE_P_PROXY;
+			phase = WSE_P_BROKER_H2;
+		wse_schedule(200 * LWS_US_PER_MS);
+		break;
+
+	case WSE_P_BROKER_H2:
+#if defined(WSE_H2)
+		lwsl_user("broker with a publisher on an h2 stream\n");
+		/* SUB first, PUB joins when SUB is established */
+		if (wse_h2_connect(WSE_H2_SUB))
+			return;
+		phase++;
+		wse_schedule(10 * LWS_US_PER_SEC);
+#else
+		phase = WSE_P_PROXY;
+		wse_schedule(1);
+#endif
+		break;
+
+	case WSE_P_BROKER_H2_WAIT:
+		/* we only get here if what PUB sent didn't reach SUB in time */
+		wse_fail("what the h2 publisher sent didn't reach the "
+			 "subscriber");
+		return;
+
+	case WSE_P_BROKER_H2_DONE:
+#if defined(WSE_H2)
+		for (n = 0; n < LWS_ARRAY_SIZE(h2conns); n++)
+			if (h2conns[n].wsi) {
+				h2conns[n].killed = 1;
+				lws_set_timeout(h2conns[n].wsi,
+						PENDING_TIMEOUT_USER_OK,
+						LWS_TO_KILL_ASYNC);
+			}
+#endif
+		phase = WSE_P_PROXY;
 		wse_schedule(200 * LWS_US_PER_MS);
 		break;
 
@@ -999,6 +1175,18 @@ wse_fanout_rx(struct wse_fconn *c, int r, const char *in, size_t len)
 {
 	struct wse_fconn *fconns = fanout_conns[c->fo];
 
+	if (r == WSE_F_N) {
+		/* N may only get what S published after N subscribed */
+		if (len != 1 || in[0] != 'm') {
+			lwsl_err("N got len %d\n", (int)len);
+			wse_fail("a new subscriber was sent stale messages");
+			return 0;
+		}
+		phase = WSE_P_FANOUT_DONE;
+		wse_schedule(1);
+		return 0;
+	}
+
 	if (len == 3 && in[0] == 'b') {
 		if (wse_fanout_seq(&c->burst,
 				   ((in[1] - '0') * 10) + (in[2] - '0')))
@@ -1117,6 +1305,17 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(fconns[WSE_F_S].wsi);
 			break;
 		}
+		case WSE_F_A:
+			/* A never reads: S publishes past the lag limit */
+			lws_rx_flow_control(wsi, 0);
+			wse_schedule((*fanouts[fanout].lag_secs + 1) *
+				     LWS_US_PER_SEC);
+			lws_callback_on_writable(fconns[WSE_F_S].wsi);
+			break;
+		case WSE_F_N:
+			/* S publishes its marker */
+			lws_callback_on_writable(fconns[WSE_F_S].wsi);
+			break;
 		}
 		break;
 
@@ -1191,6 +1390,46 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
+		if (phase == WSE_P_FANOUT_ALONE_FILL && fconns[WSE_F_A].est &&
+		    c->tx_alone < WSE_F_LAG_MSGS) {
+			/*
+			 * As many as K's case, more than the buffers on the
+			 * way to A hold, so the broker's ring fills and it
+			 * stops reading us.  Not without limit: once A is
+			 * closed, the broker has to read what we queued
+			 * meanwhile before it gets to our PING.
+			 */
+			c->tx_alone++;
+			memset(txbuf + LWS_PRE, 'a', WSE_F_LAG_LEN);
+			if (lws_write(wsi, txbuf + LWS_PRE, WSE_F_LAG_LEN,
+				      LWS_WRITE_TEXT) < WSE_F_LAG_LEN)
+				return -1;
+			lws_callback_on_writable(wsi);
+			break;
+		}
+
+		if (phase == WSE_P_FANOUT_ALONE_PING && !c->tx_ping) {
+			/*
+			 * It goes after everything we published while paused,
+			 * so the PONG also says the broker read all that
+			 */
+			c->tx_ping = 1;
+			if (lws_write(wsi, txbuf + LWS_PRE, 0,
+				      LWS_WRITE_PING) < 0)
+				return -1;
+			break;
+		}
+
+		if (phase == WSE_P_FANOUT_ALONE_NEW && fconns[WSE_F_N].est &&
+		    !c->tx_marker) {
+			c->tx_marker = 1;
+			txbuf[LWS_PRE] = 'm';
+			if (lws_write(wsi, txbuf + LWS_PRE, 1,
+				      LWS_WRITE_TEXT) < 1)
+				return -1;
+			break;
+		}
+
 		if (phase != WSE_P_FANOUT_LAG || !fconns[WSE_F_K].est ||
 		    c->tx == WSE_F_LAG_MSGS)
 			break;
@@ -1217,15 +1456,35 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!lws_is_final_fragment(wsi))
 			break;
 		c->msg[c->msg_len] = '\0';
-		if (r != WSE_F_K && wse_fanout_rx(c, r, c->msg, c->msg_len))
+		if (r != WSE_F_K && r != WSE_F_A &&
+		    wse_fanout_rx(c, r, c->msg, c->msg_len))
 			wse_fail("fan-out messages lost or out of order");
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
+		if (r == WSE_F_S && phase == WSE_P_FANOUT_ALONE_PING) {
+			lwsl_user("fan-out %s: publisher read again after its "
+				  "last subscriber was closed\n",
+				  fanouts[fanout].vhost_name);
+			/* the broker is reading S again: N subscribes */
+			phase++;
+			wse_schedule(1);
+		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		c->closed = 1;
 		c->wsi = NULL;
-		if (r != WSE_F_K && !c->killed)
+		if (r == WSE_F_S && phase == WSE_P_FANOUT_ALONE_PING)
+			/*
+			 * While the broker doesn't read S, neither end's
+			 * validity PINGs get answered, and one hangs up
+			 */
+			wse_fail("publisher still paused after the last "
+				 "subscriber left");
+		else if (r != WSE_F_K && !(r == WSE_F_A && c->est) &&
+			 !c->killed)
 			wse_fail("a client that kept up was closed");
 		break;
 
@@ -1235,6 +1494,73 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
+
+#if defined(WSE_H2)
+static int
+callback_wse_h2(struct lws *wsi, enum lws_callback_reasons reason,
+		void *user, void *in, size_t len)
+{
+	struct wse_h2conn *c =
+			(struct wse_h2conn *)lws_get_opaque_user_data(wsi);
+	int r;
+
+	if (!c)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	r = (int)(c - h2conns);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		/* a test of ws over h2 that fell back to h1 tests nothing */
+		if ((lws_get_network_wsi(wsi) != wsi) != (r == WSE_H2_PUB)) {
+			wse_fail("ws connection not on h2 / h1 as asked");
+			break;
+		}
+		if (r == WSE_H2_SUB)
+			wse_h2_connect(WSE_H2_PUB);
+		else
+			lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (r != WSE_H2_PUB || c->sent)
+			break;
+		c->sent = 1;
+		memcpy(txbuf + LWS_PRE, h2_msg, sizeof(h2_msg) - 1);
+		if (lws_write(wsi, txbuf + LWS_PRE, sizeof(h2_msg) - 1,
+			      LWS_WRITE_TEXT) < (int)sizeof(h2_msg) - 1)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		if (r != WSE_H2_SUB)
+			break;
+		if (!lws_is_first_fragment(wsi) ||
+		    !lws_is_final_fragment(wsi) ||
+		    len != sizeof(h2_msg) - 1 || memcmp(in, h2_msg, len)) {
+			wse_fail("subscriber got something else");
+			break;
+		}
+		if (phase == WSE_P_BROKER_H2_WAIT) {
+			phase++;
+			wse_schedule(1);
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		c->wsi = NULL;
+		if (!c->killed)
+			wse_fail("h2 broker client closed");
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+#endif
 
 static int
 callback_wse_proxy_client(struct lws *wsi, enum lws_callback_reasons reason,
@@ -1395,6 +1721,9 @@ static const struct lws_protocols protocols_cli[] = {
 	{ "wse-client", callback_wse_client, 0, 0, 0, NULL, 0 },
 	{ "wse-fanout-client", callback_wse_fanout, 0, 0, 0, NULL, 0 },
 	{ "wse-proxy-client", callback_wse_proxy_client, 0, 0, 0, NULL, 0 },
+#if defined(WSE_H2)
+	{ "wse-h2-client", callback_wse_h2, 0, 0, 0, NULL, 0 },
+#endif
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -1412,6 +1741,9 @@ static const struct {
 };
 
 static struct lws_protocols protocols_srv[LWS_ARRAY_SIZE(examples)][3];
+#if defined(WSE_H2)
+static struct lws_protocols protocols_broker_h2[3];
+#endif
 
 static void
 sigint_handler(int sig)
@@ -1423,6 +1755,9 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+#if defined(WSE_H2)
+	struct lws_vhost *vh;
+#endif
 	const char *p;
 	uint64_t opts;
 	size_t m;
@@ -1430,6 +1765,9 @@ main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	info.fd_limit_per_thread = 0;
+#if defined(WSE_H2)
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#endif
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
@@ -1498,6 +1836,35 @@ main(int argc, const char **argv)
 	px.be_port = lws_get_vhost_listen_port(px.vh_be);
 	info.listen_accept_role = NULL;
 	info.listen_accept_protocol = NULL;
+
+#if defined(WSE_H2)
+	/* the broker again, on a port of its own, with TLS offering h2 */
+	protocols_broker_h2[0] = (struct lws_protocols){ "http",
+				lws_callback_http_dummy, 0, 0, 0, NULL, 0 };
+	protocols_broker_h2[1] = wse_protocol_broker;
+	protocols_broker_h2[2] = (struct lws_protocols)LWS_PROTOCOL_LIST_TERM;
+
+	info.options = opts | LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
+	info.vhost_name = "broker-h2";
+	info.protocols = protocols_broker_h2;
+	info.alpn = "h2,http/1.1";
+	info.server_ssl_cert_mem = wse_test_cert;
+	info.server_ssl_cert_mem_len = (unsigned int)strlen(wse_test_cert);
+	info.server_ssl_private_key_mem = wse_test_key;
+	info.server_ssl_private_key_mem_len =
+					(unsigned int)strlen(wse_test_key);
+	vh = lws_create_vhost(context, &info);
+	if (!vh) {
+		lwsl_err("Failed to create broker-h2 vhost\n");
+		goto bail;
+	}
+	h2_port = lws_get_vhost_listen_port(vh);
+	info.alpn = NULL;
+	info.server_ssl_cert_mem = NULL;
+	info.server_ssl_cert_mem_len = 0;
+	info.server_ssl_private_key_mem = NULL;
+	info.server_ssl_private_key_mem_len = 0;
+#endif
 
 	info.options = opts;
 	info.port = CONTEXT_PORT_NO_LISTEN;

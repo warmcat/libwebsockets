@@ -24,3 +24,7 @@ extern const int wse_lag_secs_broker;
 extern const struct lws_protocols wse_protocols_raw_proxy[];
 void
 wse_raw_proxy_backend(const char *address, int port);
+
+/* a self-signed cert and key for the TLS vhost */
+extern const char * const wse_test_cert;
+extern const char * const wse_test_key;

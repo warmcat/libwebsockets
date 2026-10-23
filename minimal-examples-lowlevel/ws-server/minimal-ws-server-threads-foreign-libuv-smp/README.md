@@ -49,3 +49,7 @@ waiting for it for 5s.  A client that keeps up is never closed: each time
 it can be written to, it is sent everything waiting for it that the
 connection will take.
 
+While nobody is connected the spam threads add nothing, and whatever was
+still in the ringbuffer when the last client went is dropped, so a client
+that connects later isn't sent stale messages from before it connected.
+
