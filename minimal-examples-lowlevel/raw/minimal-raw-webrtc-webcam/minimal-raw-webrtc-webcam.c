@@ -138,54 +138,125 @@ v4l2_reinit(struct per_vhost_data *vhd)
 static struct lws_context *cx;
 static lws_state_notify_link_t nl, *const app_notifier_list[] = {&nl, NULL};
 
-static int
-append_v4l2_control(void *user, const struct lws_v4l2_control *c)
-{
-	char **p = (char **)user;
-	int n;
+/*
+ * The device_controls message lists every control the camera driver has, and
+ * a driver can have any number of them, with names we only know are short
+ * strings.  So build it with the end of the buffer in view: each entry is
+ * formatted on its own and only added if it fits whole, keeping room for the
+ * closing brackets, and the enumeration stops at the first one that does not,
+ * so the message is always complete JSON however many controls there are.
+ */
 
-	n = lws_snprintf(*p, 256, "{\"id\":%u,\"name\":\"%s\",\"min\":%d,\"max\":%d,\"step\":%d,\"val\":%d},",
-			 c->id, c->name, c->min, c->max, c->step, c->val);
-	if (n > 0)
-		*p += n;
+/* the same as the rtc_camera plugin uses for its control list */
+#define WEBCAM_CONTROLS_BUF	4096
+/* room kept for the "],\"audio\":[" + "]}" that close the message */
+#define WEBCAM_JSON_TAIL	16
+
+struct webcam_json {
+	char		*p;
+	char		*end;
+	int		first;
+	int		truncated;
+};
+
+/* add len bytes of s if they fit with keep bytes still free afterwards */
+
+static int
+webcam_json_add(struct webcam_json *j, const char *s, size_t len, size_t keep)
+{
+	if (len + keep > lws_ptr_diff_size_t(j->end, j->p)) {
+		j->truncated = 1;
+		return 1;
+	}
+
+	memcpy(j->p, s, len);
+	j->p += len;
 
 	return 0;
 }
 
+static int
+append_v4l2_control(void *user, const struct lws_v4l2_control *c)
+{
+	struct webcam_json *j = (struct webcam_json *)user;
+	char safe_name[6 * sizeof(c->name)], entry[384];
+	int n;
+
+	/* the name comes from the driver: escape it for JSON */
+	lws_json_purify(safe_name, c->name, (int)sizeof(safe_name), NULL);
+
+	n = lws_snprintf(entry, sizeof(entry),
+			 "%s{\"id\":%u,\"name\":\"%s\",\"min\":%d,"
+			 "\"max\":%d,\"step\":%d,\"val\":%d}",
+			 j->first ? "" : ",", c->id, safe_name, c->min,
+			 c->max, c->step, c->val);
+	if (n >= (int)sizeof(entry)) {
+		/* can't happen with the sizes above, but don't send a cut one */
+		j->truncated = 1;
+		return 1;
+	}
+
+	if (webcam_json_add(j, entry, (size_t)n, WEBCAM_JSON_TAIL))
+		return 1; /* stop the enumeration, there is no more room */
+
+	j->first = 0;
+
+	return 0;
+}
+
+#define WEBCAM_JSON_LIT(j, s, keep) webcam_json_add(j, s, sizeof(s) - 1, keep)
+
 static void
 send_controls(struct lws *wsi, struct per_vhost_data *vhd)
 {
-	char buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *start = p;
+	char buf[LWS_PRE + WEBCAM_CONTROLS_BUF], *start = buf + LWS_PRE;
+	struct webcam_json j;
 
-	p += lws_snprintf(p, 128, "{\"type\":\"device_controls\",\"video\":[");
-	lws_v4l2_enum_controls(vhd->v4l2_ctx, append_v4l2_control, &p);
-	if (*(p-1) == ',') p--;
+	j.p		= start;
+	j.end		= buf + sizeof(buf);
+	j.first		= 1;
+	j.truncated	= 0;
+
+	WEBCAM_JSON_LIT(&j, "{\"type\":\"device_controls\",\"video\":[",
+			WEBCAM_JSON_TAIL);
+	lws_v4l2_enum_controls(vhd->v4l2_ctx, append_v4l2_control, &j);
 #if defined(LWS_WITH_OPUS)
-	p += lws_snprintf(p, 128, "],\"audio\":[");
+	WEBCAM_JSON_LIT(&j, "],\"audio\":[", 2);
 	if (vhd->alsa_cap) {
-		/* Use a temporary buffer to extract controls array */
+		/*
+		 * Take the array of controls out of the audio capabilities
+		 * message {"type":"capabilities","kind":"audio","controls":[...]}
+		 */
 		char abuf[1024];
-		int n = lws_alsa_opus_send_capabilities(vhd->alsa_cap, abuf, sizeof(abuf));
-		if (n > 0) {
-			/* Parse out the array inside abuf {"type":"capabilities","kind":"audio","controls":[...]} */
-			const char *abuf_start = strstr(abuf, "\"controls\":[");
-			if (abuf_start) {
-				abuf_start += 12; // skip "\"controls\":["
-				const char *abuf_end = strrchr(abuf_start, ']');
-				if (abuf_end) {
-					*abuf_end = '\0';
-					p += lws_snprintf(p, lws_ptr_diff_size_t(buf + LWS_PRE + 2048, p), "%s", abuf_start);
-				}
+		const char *as, *ae;
+		int n = lws_alsa_opus_send_capabilities(vhd->alsa_cap, abuf,
+							sizeof(abuf));
+
+		if (n > 0 && n < (int)sizeof(abuf)) {
+			abuf[n] = '\0';
+			as = strstr(abuf, "\"controls\":[");
+			if (as) {
+				as += 12; /* skip "\"controls\":[" */
+				ae = strrchr(as, ']');
+				if (ae && ae > as && ae[-1] == ',')
+					ae--;
+				if (ae)
+					/* all of it or none of it */
+					webcam_json_add(&j, as,
+						lws_ptr_diff_size_t(ae, as), 2);
 			}
 		}
 	}
-	if (*(p-1) == ',') p--;
-	p += lws_snprintf(p, 64, "]}");
-#else
-	p += lws_snprintf(p, 64, "]}");
 #endif
+	WEBCAM_JSON_LIT(&j, "]}", 0);
 
-	lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start), LWS_WRITE_TEXT);
+	if (j.truncated)
+		lwsl_notice("%s: too many controls, sending the first ones\n",
+			    __func__);
+
+	if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(j.p, start),
+		      LWS_WRITE_TEXT) < 0)
+		lwsl_notice("%s: write failed\n", __func__);
 }
 
 static int

@@ -2,7 +2,6 @@
 #define __WEBCAM_MEDIA_H__
 
 #include <libwebsockets.h>
-#include <opus/opus.h>
 
 #define AUDIO_RATE		48000
 #define AUDIO_CHANNELS		1

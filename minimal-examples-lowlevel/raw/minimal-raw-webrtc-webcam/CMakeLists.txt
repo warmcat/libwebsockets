@@ -13,11 +13,18 @@ require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITH_DTLS 1 requirements)
 require_lws_config(LWS_WITH_TRANSCODE 1 requirements)
 require_lws_config(LWS_WITH_V4L2 1 requirements)
+# it uses the lws-webrtc protocol from the webrtc plugin
+require_lws_config(LWS_WITH_PLUGINS 1 requirements)
+require_lws_config(LWS_WITH_WEBRTC 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
-	target_link_libraries(${SAMP} websockets opus alsa v4l2)
-	if (UNIX)
-		target_link_libraries(${SAMP} asound)
+
+	# the media libraries (v4l2, ffmpeg, opus, alsa) are lws' own deps
+	if (websockets_shared)
+		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
+		add_dependencies(${SAMP} websockets_shared)
+	else()
+		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 endif()
