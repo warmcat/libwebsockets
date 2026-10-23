@@ -96,24 +96,26 @@ JPEG and PNG images and express all UI in html/css.
    terms of a shorthand or the fonts of a `font-family` list; the rest are
    ignored with a warning.  Every lookup of a property lists the values of
    the declaration that wins, so this bounds what a lookup costs.
- - A document's css work as a whole, parsing its css, indexing its selectors
-   and cascading its elements, is limited to `LHP_MAX_CSS_CASCADE_OPS` steps
-   (16M, 2M on FreeRTOS / baremetal; a large real page such as slashdot's
-   front page takes about 0.5M).  Without it, css whose selectors all match
-   every element costs the per-element limit again for every element.  Once
+ - A document's css work as a whole, parsing its css (including its
+   `style=""` attributes), indexing its selectors and cascading its
+   elements, is limited to `LHP_MAX_CSS_CASCADE_OPS` steps (16M, 2M on
+   FreeRTOS / baremetal; a large real page such as slashdot's front page
+   takes about 0.5M).  Without it, css whose selectors all match every
+   element costs the per-element limit again for every element.  Once
    a document reaches it, its own css, stylesheets and `style=""` attributes
    alike, is ignored with a warning for the rest of its elements, which get
    only the user-agent and any filter css, and no more of it is kept.  It can
    be overridden at build time.
  - Stanzas that can't style anything, because none of their selectors could
    be kept or they have no declarations, are not kept.
- - Each open element holds an index of the declarations that win for it, so
-   css giving every element many declarations (eg, custom properties on `*`)
-   costs that again for every level of nesting.  What a document's open
-   elements hold for their css at once is limited to `LHP_MAX_CSS_LEVEL_HEAP`
-   (1MB, 64KB on FreeRTOS / baremetal; slashdot's front page holds under
-   3KB): reaching it spends the document's css budget as above.  It can be
-   overridden at build time.
+ - Each open element holds an index of the declarations that win for it,
+   and its parsed `style=""` attribute (parsed once, even if the element is
+   cascaded again), so css giving every element many declarations (eg,
+   custom properties on `*`) costs that again for every level of nesting.
+   What a document's open elements hold for their css at once is limited to
+   `LHP_MAX_CSS_LEVEL_HEAP` (1MB, 64KB on FreeRTOS / baremetal; slashdot's
+   front page holds under 3KB): reaching it spends the document's css
+   budget as above.  It can be overridden at build time.
 
 Heap Costs during active decode (while rendering line that includes image)
 

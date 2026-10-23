@@ -81,14 +81,14 @@
 
 /*
  * Most steps of css work (ctx->cascade_ops) a document may cost: parsing
- * its css, indexing the selectors and cascading its elements all count.  The
- * limits above bound what one element can cost, but not the document: css
- * whose selectors all match every element costs that much again for every
- * element.  Once a document has used this much, its own css (stylesheets
- * and style="" attributes) is ignored for the rest of its elements, with a
- * warning, and they get only the user-agent and filter css; any more of it
- * is not kept either.  A large real page (slashdot's front page) costs about
- * 0.5M.
+ * its css, style="" attributes included, indexing the selectors and
+ * cascading its elements all count.  The limits above bound what one element
+ * can cost, but not the document: css whose selectors all match every
+ * element costs that much again for every element.  Once a document has used
+ * this much, its own css (stylesheets and style="" attributes) is ignored for
+ * the rest of its elements, with a warning, and they get only the user-agent
+ * and filter css; any more of it is not kept either.  A large real page
+ * (slashdot's front page) costs about 0.5M.
  */
 #if !defined(LHP_MAX_CSS_CASCADE_OPS)
 #if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
@@ -101,11 +101,11 @@
 /*
  * Most heap the open elements of a document may hold for their css at once
  * (ctx->css_level_heap): each keeps an index of the declarations that win for
- * it, so css that gives every element many declarations, such as custom
- * properties on *, costs that again for every level of nesting.  Once a
- * document's open elements hold this much, its own css is ignored for the
- * rest of the document as for LHP_MAX_CSS_CASCADE_OPS.  A large real page
- * (slashdot's front page) holds under 3KB at most.
+ * it, and its parsed style="" attribute, so css that gives every element many
+ * declarations, such as custom properties on *, costs that again for every
+ * level of nesting.  Once a document's open elements hold this much, its own
+ * css is ignored for the rest of the document as for LHP_MAX_CSS_CASCADE_OPS.
+ * A large real page (slashdot's front page) holds under 3KB at most.
  */
 #if !defined(LHP_MAX_CSS_LEVEL_HEAP)
 #if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
@@ -638,15 +638,22 @@ typedef struct lhp_pstack {
 	struct lcsp_match		*matched;
 	struct lwsac			*styleac;
 	/*
+	 * The stanza parsed from our style="" (in styleac), once it has been
+	 * parsed: cascading us again reuses it rather than parsing it again,
+	 * private
+	 */
+	struct lcsp_stanza		*style_stz;
+	/*
 	 * The declaration that wins for each property (and custom property)
 	 * among the matched stanzas, sorted for lookup, made when first
 	 * needed after the matched stanzas change; private to lhp.c
 	 */
 	struct lhp_decl			*decl;
 	uint32_t			ndecl;
-	uint32_t			css_heap; /* bytes of matched and decl
-						   * counted in the ctx's
-						   * css_level_heap, private */
+	uint32_t			css_heap; /* bytes of matched, decl and
+						   * styleac counted in the
+						   * ctx's css_level_heap,
+						   * private */
 	lws_fx_t			font_size; /* computed font-size, px */
 	uint16_t			nmatched;
 

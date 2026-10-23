@@ -3706,6 +3706,22 @@ lhp_sel_key(const char *sel, const char *end, lcsp_names_t *na)
 }
 
 /*
+ * Is the css being parsed the document's own, a stylesheet, <style> or a
+ * style="" attribute, rather than the user-agent or filter css?  style=""
+ * is parsed with default_css set, to skip the document-end processing, but it
+ * is the document's and its bytes count in its budget like the rest.  It is
+ * parsed during its element's cascade, which checks the budget before it
+ * (lhp_css_doc_spent()), so what it adds is seen by the next element's: the
+ * overshoot is at most one style="", <= LHP_STRING_CHUNK
+ */
+
+static int
+lhp_css_is_doc(const lhp_ctx_t *ctx)
+{
+	return !ctx->u.f.default_css || ctx->u.f.style_attr;
+}
+
+/*
  * Is nm one of the document's own selectors?  The user-agent sheet is layer
  * 0 and the filter css is flagged in its specificity (see
  * lhp_css_add_names())
@@ -3760,7 +3776,8 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
  *  - matched stanzas: a hash probe each, sorted once, counted; the
  *    declaration index walks their declarations once and sorts the winners,
  *    counted.  Only the winners are kept while the element is open, and
- *    what the open elements keep is at most LHP_MAX_CSS_LEVEL_HEAP (G-521)
+ *    what the open elements keep, with their parsed style="" attributes, is
+ *    at most LHP_MAX_CSS_LEVEL_HEAP (G-521, G-666)
  *  - lookups: a binary search per ancestor (<= LHP_MAX_ELEMS_NEST), plus
  *    copying <= LHP_MAX_CSS_DECL_VALUES values to ctx->active_atr, counted;
  *    var() follows <= 8 indirections; calc() has its own budget per
@@ -3769,7 +3786,13 @@ lhp_nm_is_doc(const lcsp_names_t *nm)
  *    absolute length; if that is a calc() with % terms, it resolves the
  *    next block out the same way, <= LHP_MAX_CB_RESOLVE_DEPTH walks in all.
  *    Those walks are not counted (G-531)
- *  - style="": parsed once per element, <= LHP_STRING_CHUNK, not once spent
+ *  - style="": parsed once per element, <= LHP_STRING_CHUNK, a step per
+ *    byte like the rest of the document's css, and not at all once spent.
+ *    An element cascaded again (<html>, each time a <body> starts under it)
+ *    matches the stanza it kept from the first time instead of parsing it
+ *    again (G-666).  Its custom properties live with the element, not on
+ *    the document's list, so LHP_MAX_CSS_VARS doesn't apply: their bytes
+ *    and heap count as above
  *  - layout: an element's close walks its own children (rows, cells, block
  *    children, bottom-anchored boxes), so linear overall; table columns are
  *    found without walking (G-461, ctx->layout_ops); a line's end walks its
@@ -4804,11 +4827,12 @@ lhp_ps_ops(lhp_pstack_t *ps, uint32_t n)
 }
 
 /*
- * Account what ps now holds for its css, its matched stanzas and declaration
- * index, in the document's ctx->css_level_heap: every open level holds its
- * own, so nesting multiplies it, and LHP_MAX_CSS_LEVEL_HEAP bounds the sum
- * (see lhp_css_doc_spent()).  ps->css_heap is what was counted for it, so
- * lhp_clean_level() can take it off again
+ * Account what ps now holds for its css, its matched stanzas, declaration
+ * index and parsed style="" attribute, in the document's ctx->css_level_heap:
+ * every open level holds its own, so nesting multiplies it, and
+ * LHP_MAX_CSS_LEVEL_HEAP bounds the sum (see lhp_css_doc_spent()).
+ * ps->css_heap is what was counted for it, so lhp_clean_level() can take it
+ * off again
  */
 
 static void
@@ -4816,7 +4840,8 @@ lhp_ps_heap(lhp_pstack_t *ps)
 {
 	lhp_ctx_t *ctx = lhp_ps_ctx(ps);
 	uint32_t now = (uint32_t)(ps->nmatched * sizeof(lcsp_match_t) +
-				  ps->ndecl * sizeof(lhp_decl_t));
+				  ps->ndecl * sizeof(lhp_decl_t) +
+				  lwsac_total_alloc(ps->styleac));
 
 	if (!ctx)
 		return;
@@ -5361,7 +5386,10 @@ lhp_set_matches(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 /*
  * Parse a style="..." attribute as a stanza that only this element matches,
  * reusing the declaration parser by nesting lws_lhp_parse() on the string.
- * The allocations go in ps->styleac so they die with the element.
+ * The allocations go in ps->styleac so they die with the element, and count
+ * in the document's css_level_heap while it is open.  It is parsed once per
+ * element: ps->style_stz keeps the stanza for any later cascade of the
+ * element to match again (G-666)
  */
 
 static int
@@ -5411,9 +5439,12 @@ lhp_parse_style_attr(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *val)
 	if ((lws_lhp_parse(ctx, &p, &len) & LWS_SRET_FATAL) ||
 	    (lws_lhp_parse(ctx, &pt, &lt) & LWS_SRET_FATAL))
 		r = 1;
-	else if (lws_dll2_get_head(&stz->defs) &&
-		 lhp_add_match(ps, stz, 1u << 24))
-		r = 1;
+	else {
+		ps->style_stz = stz;
+		if (lws_dll2_get_head(&stz->defs) &&
+		    lhp_add_match(ps, stz, 1u << 24))
+			r = 1;
+	}
 
 restore:
 	/*
@@ -5425,6 +5456,7 @@ restore:
 		lws_dll2_remove(lws_dll2_get_tail(&ctx->css_vars));
 
 	ps->styleac = ctx->cssac;
+	lhp_ps_heap(ps);
 	ctx->cssac = oac;
 	ctx->stz = sstz;
 	ctx->def = sdef;
@@ -5776,11 +5808,27 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		if (lhp_set_matches(ctx, ps))
 			return 1;
 
-		st = lws_html_get_atr(ps, "style", 5);
-		if (st && *st && !ctx->await_css_done &&
-		    !ctx->css_doc_spent &&
-		    lhp_parse_style_attr(ctx, ps, st))
-			return 1;
+		/*
+		 * The style="" attribute is parsed into the element's styleac
+		 * the first time it is cascaded.  When it is cascaded again
+		 * (<html>, each time a <body> starts directly under it), its
+		 * stanza is matched again as it is: parsing it again added
+		 * another copy to styleac each time, which only grows while
+		 * the element is open (G-666)
+		 */
+		if (ps->style_stz) {
+			if (!ctx->css_doc_spent &&
+			    lws_dll2_get_head(&ps->style_stz->defs) &&
+			    lhp_add_match(ps, ps->style_stz,
+					  1u << 24))
+				return 1;
+		} else {
+			st = lws_html_get_atr(ps, "style", 5);
+			if (st && *st && !ctx->await_css_done &&
+			    !ctx->css_doc_spent &&
+			    lhp_parse_style_attr(ctx, ps, st))
+				return 1;
+		}
 	}
 
 	ps->css_resolved = 1;
@@ -6231,12 +6279,13 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 		(*len)--;
 
 		/*
-		 * Each byte of the document's css parsed counts against its
-		 * css budget, see lhp_css_doc_spent()
+		 * Each byte of the document's css parsed, its style=""
+		 * attributes' too, counts against its css budget, see
+		 * lhp_css_doc_spent()
 		 */
 		if (ctx->state >= LCSPS_CSS_OUTER &&
 		    ctx->state <= LCSPS_CSS_SKIP_BLOCK &&
-		    !ctx->u.f.default_css)
+		    lhp_css_is_doc(ctx))
 			ctx->cascade_ops++;
 
 		if (ctx->state == LHPS_DO_START_ELEM) {

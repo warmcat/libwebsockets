@@ -1223,6 +1223,252 @@ bail:
 }
 
 /*
+ * <html> is cascaded again each time a <body> starts directly under it, so
+ * that the stylesheets in the head apply to it.  Each of those cascades used
+ * to parse its style="" attribute again into its styleac, which only grows
+ * while <html> is open, ie for the whole document, and wasn't counted in any
+ * budget: a 2KB style="" of custom properties on <html> and 2000
+ * <head></head><body></body> (28KB) held 74MB (G-666).
+ *
+ * So the heap <html> holds for its style="" must be the same at the last
+ * <body> as at the first, it must be counted in the open levels' heap, and
+ * the style must still apply at each <body>.
+ */
+
+#define LHPT_SR_BODIES		2000
+
+static size_t sr_first, sr_peak;
+static int sr_bodies, sr_styled, sr_uncounted, sr_over;
+
+static lws_stateful_ret_t
+sr_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list), *html = NULL;
+	const lcsp_atr_t *col;
+	const lhp_atr_t *ta;
+	size_t sa;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 4 || strncmp((const char *)&ta[1], "body", 4))
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->stack)) {
+		lhp_pstack_t *l = lws_container_of(d, lhp_pstack_t, list);
+
+		if (!lws_dll2_is_empty(&l->atr)) {
+			ta = lws_container_of(lws_dll2_get_head(&l->atr),
+					      lhp_atr_t, list);
+			if (ta->name_len == 4 &&
+			    !strncmp((const char *)&ta[1], "html", 4))
+				html = l;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!html)
+		return LWS_SRET_FATAL;
+
+	sr_bodies++;
+	sa = lwsac_total_alloc(html->styleac);
+	if (!sr_first)
+		sr_first = sa;
+	if (sa > sr_peak)
+		sr_peak = sa;
+	if (ctx->css_level_heap < sa)
+		sr_uncounted = 1;
+
+	/* fail at the first body that is over, don't wait for all */
+
+	if (!sr_first || sa > sr_first) {
+		sr_over = 1;
+		return LWS_SRET_FATAL;
+	}
+
+	col = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_COLOR);
+	if (col && col->unit == LCSP_UNIT_RGBA &&
+	    col->u.rgba == LWSDC_RGBA(0x12, 0x34, 0x56, 0xff))
+		sr_styled++;
+
+	return 0;
+}
+
+static int
+test_style_recascade(void)
+{
+	size_t alloc = LHP_STRING_CHUNK + LHPT_SR_BODIES * 32 + 256, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1, i;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	sr_first = sr_peak = 0;
+	sr_bodies = sr_styled = sr_uncounted = sr_over = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html style=\"");
+	for (i = 0; lws_ptr_diff_size_t(p, doc) < LHP_STRING_CHUNK - 64; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "--v%d:1px;", i);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "color:#123456\">");
+	for (i = 0; i < LHPT_SR_BODIES; i++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<head></head><body></body>");
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc), "</html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, sr_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+
+	lwsl_user("%s: %d bodies (%d styled), <html> styleac %llu at the "
+		  "first, at most %llu, r 0x%x\n", __func__, sr_bodies,
+		  sr_styled, (unsigned long long)sr_first,
+		  (unsigned long long)sr_peak, (unsigned int)r);
+
+	if (sr_over) {
+		lwsl_err("%s: <html>'s styleac grew to %llu by body %d\n",
+			 __func__, (unsigned long long)sr_peak, sr_bodies);
+		goto bail_destruct;
+	}
+	if (r & LWS_SRET_FATAL || sr_bodies != LHPT_SR_BODIES) {
+		lwsl_err("%s: parse failed, %d bodies\n", __func__, sr_bodies);
+		goto bail_destruct;
+	}
+	if (sr_uncounted) {
+		lwsl_err("%s: <html>'s styleac isn't counted in the open "
+			 "levels' heap\n", __func__);
+		goto bail_destruct;
+	}
+	if (sr_styled != LHPT_SR_BODIES) {
+		lwsl_err("%s: <html>'s style applied at %d of %d bodies\n",
+			 __func__, sr_styled, LHPT_SR_BODIES);
+		goto bail_destruct;
+	}
+
+	e = 0;
+
+bail_destruct:
+	lws_lhp_destruct(ctx);
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
+ * The bytes of a style="" attribute are the document's css as much as a
+ * stylesheet's, and count in its css work budget the same way (G-666).  So a
+ * page whose one element has a long style="" must cost at least its bytes
+ * more than the same page without it.  The style is one declaration repeated,
+ * so the declaration index adds little: the difference is in the bytes.
+ */
+
+static lws_stateful_ret_t
+noop_cb(lhp_ctx_t *ctx, char reason)
+{
+	(void)ctx;
+	(void)reason;
+
+	return 0;
+}
+
+static int
+style_attr_ops(const char *style, uint64_t *ops)
+{
+	char doc[LHP_STRING_CHUNK + 128];
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	size_t len;
+
+	ctx = malloc(sizeof(*ctx));
+	if (!ctx)
+		return 1;
+	memset(ctx, 0, sizeof(*ctx));
+
+	len = (size_t)lws_snprintf(doc, sizeof(doc), "<html><body><p%s%s%s>"
+				   "x</p></body></html>", *style ? " style=\"" :
+				   "", style, *style ? "\"" : "");
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, noop_cb, &drt, &ic)) {
+		free(ctx);
+		return 1;
+	}
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+	*ops = ctx->cascade_ops;
+
+	lws_lhp_destruct(ctx);
+	free(ctx);
+
+	return !!(r & LWS_SRET_FATAL);
+}
+
+static int
+test_style_attr_budget(void)
+{
+	char style[LHP_STRING_CHUNK - 64];
+	uint64_t with, without;
+	size_t n = 0;
+
+	while (n + 16 < sizeof(style))
+		n += (size_t)lws_snprintf(style + n, sizeof(style) - n,
+					  "margin-left:1px;");
+
+	if (style_attr_ops("", &without) || style_attr_ops(style, &with)) {
+		lwsl_err("%s: parse failed\n", __func__);
+		return 1;
+	}
+
+	lwsl_user("%s: %llu steps with a %d byte style=\"\", %llu without\n",
+		  __func__, (unsigned long long)with, (int)n,
+		  (unsigned long long)without);
+
+	if (with < without + n) {
+		lwsl_err("%s: the style=\"\" bytes aren't counted\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
  * The document's css work must be bounded however its <style> blocks are
  * interleaved with its elements.  The selector index used to be made again
  * from every stanza whenever an element found the stanza count changed, and
@@ -2971,6 +3217,9 @@ main(int argc, const char **argv)
 		goto bail;
 
 	if (test_cascade_level_heap())
+		goto bail;
+
+	if (test_style_recascade() || test_style_attr_budget())
 		goto bail;
 
 	if (test_selector_scan())
