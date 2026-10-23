@@ -286,6 +286,22 @@ lws_quic_pmtud_reset(struct lws_quic_netconn *qn)
 }
 
 /*
+ * The stream limits a new connection advertises to its peer in its transport
+ * parameters: the peer's streams are held to them until a MAX_STREAMS raises
+ * them (lws_quic_stream_cleanup())
+ */
+static void
+lws_quic_streams_limits_init(struct lws_quic_netconn *qn, uint64_t limit)
+{
+	qn->max_streams_bidi_local	= limit;
+	qn->max_streams_bidi_adv	= limit;
+	qn->max_streams_bidi_window	= limit;
+	qn->max_streams_unidi_local	= limit;
+	qn->max_streams_unidi_adv	= limit;
+	qn->max_streams_unidi_window	= limit;
+}
+
+/*
  * Not before the handshake is confirmed, ie, until both sides have 1-RTT keys
  * and the client knows the server's 1-RTT packets get through, nor to a peer
  * whose address a server hasn't validated
@@ -2333,8 +2349,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->quic.qn->next_stream_id_unidi_local = 3;
 		nwsi->quic.qn->version = pkt_version;
 		nwsi->quic.qn->original_version = pkt_version;
-		nwsi->quic.qn->max_streams_bidi_local = 400;
-		nwsi->quic.qn->max_streams_unidi_local = 400;
+		lws_quic_streams_limits_init(nwsi->quic.qn, 400);
 		nwsi->quic.qn->peer_ack_delay_exponent = 3;
 		/* RFC 9000 §13.2.1 default max_ack_delay cap for delayed ACKs */
 		nwsi->quic.qn->ack_delay_us = 25 * LWS_US_PER_MS;
@@ -4365,6 +4380,16 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			} else if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI || type == LWS_QUIC_FT_MAX_STREAMS_UNIDI ||
 				   type == LWS_QUIC_FT_STREAMS_BLOCKED_BIDI || type == LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI) {
 				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->limit);
+				/*
+				 * Going out: the peer may open streams up to
+				 * it from now, and not before
+				 */
+				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI &&
+				    f->limit > qn->max_streams_bidi_adv)
+					qn->max_streams_bidi_adv = f->limit;
+				if (type == LWS_QUIC_FT_MAX_STREAMS_UNIDI &&
+				    f->limit > qn->max_streams_unidi_adv)
+					qn->max_streams_unidi_adv = f->limit;
 			} else if (type == LWS_QUIC_FT_RETIRE_CONNECTION_ID) {
                                 p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id); /* seq */
 			}
@@ -5522,8 +5547,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		wsi->quic.qn->next_stream_id_unidi_local = 2;
 		wsi->quic.qn->version = LWS_QUIC_VERSION_1;
 		wsi->quic.qn->original_version = LWS_QUIC_VERSION_1;
-		wsi->quic.qn->max_streams_bidi_local = 1000;
-		wsi->quic.qn->max_streams_unidi_local = 1000;
+		lws_quic_streams_limits_init(wsi->quic.qn, 1000);
 		wsi->quic.qn->peer_ack_delay_exponent = 3;
 		/* RFC 9000 §13.2.1 default max_ack_delay cap for delayed ACKs */
 		wsi->quic.qn->ack_delay_us = 25 * LWS_US_PER_MS;
@@ -5712,6 +5736,91 @@ lws_quic_fi_replay_cb(lws_sorted_usec_list_t *sul)
 }
 #endif
 
+/*
+ * Tell the peer the stream limit we will give it now, eg, as its streams end.
+ *
+ * Coalesce: an already-queued MAX_STREAMS frame of the same type has its limit
+ * updated in place, rather than allocating a new frame per closed stream.  With
+ * many concurrent streams (e.g. the multiplexing QIR test with 1999 streams),
+ * the O(N) frame flood would fill the TX queue and trigger PTO/congestion-window
+ * collapse.
+ */
+void
+lws_quic_queue_max_streams(struct lws *nwsi, int unidi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	uint8_t want_type = unidi ? LWS_QUIC_FT_MAX_STREAMS_UNIDI :
+				    LWS_QUIC_FT_MAX_STREAMS_BIDI;
+	uint64_t limit = unidi ? qn->max_streams_unidi_local :
+				 qn->max_streams_bidi_local;
+	struct lws_quic_tx_frame *f_max;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+		lws_dll2_get_head(&qn->pending_tx[LWS_QUIC_LEVEL_APP])) {
+		struct lws_quic_tx_frame *f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+		if (f->type == want_type) {
+			f->limit = limit;
+			lws_callback_on_writable(nwsi);
+			return;
+		}
+	} lws_end_foreach_dll(d);
+
+	f_max = lws_zalloc(sizeof(*f_max), "quic max strm");
+	if (!f_max)
+		return;
+
+	f_max->stream_id = ~0ULL;
+	f_max->type = want_type;
+	f_max->limit = limit;
+	lws_dll2_add_tail(&f_max->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+	lws_callback_on_writable(nwsi);
+}
+
+int
+lws_quic_peer_stream_over_limit(const struct lws_quic_netconn *qn,
+				uint64_t stream_id)
+{
+	/* the stream count it needs is its index + 1 */
+	return (stream_id >> 2) >= ((stream_id & 2) ?
+				qn->max_streams_unidi_adv :
+				qn->max_streams_bidi_adv);
+}
+
+int
+lws_quic_reset_budget_spend(struct lws *nwsi, struct lws *child)
+{
+#if defined(LWS_ROLE_H3) && defined(LWS_WITH_SERVER)
+	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
+	struct lws_quic_stream *qs = child->quic.qs;
+
+	/*
+	 * Only the request streams of an h3 server connection, a bidi stream
+	 * the peer opened, that we had not finished answering; not while the
+	 * connection is going anyway, closing its streams.  Each one once,
+	 * whether the peer ends it (RESET_STREAM, STOP_SENDING) or we do.
+	 */
+	if (!qn || !qs || !qn->is_server || !nwsi->h3.h3n || qn->is_closing ||
+	    lwsi_close_started(nwsi) || (qs->stream_id & 3) ||
+	    qs->sent_fin || qs->reset_counted)
+		return 0;
+
+	qs->reset_counted = 1;
+
+	if (!lws_mux_reset_budget_spend(nwsi, &qn->reset_budget))
+		return 0;
+
+	lws_quic_enter_closing_state(nwsi, LWS_H3_EXCESSIVE_LOAD, 0, 1);
+
+	return 1;
+#else
+	(void)nwsi;
+	(void)child;
+
+	return 0;
+#endif
+}
+
 void
 lws_quic_stream_cleanup(struct lws *wsi)
 {
@@ -5893,55 +6002,45 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		if ((tx_reset || stop_peer) && nwsi)
 			lws_callback_on_writable(nwsi);
 
-		/* If this was a remote-initiated stream, increase our limit and notify peer.
-		 *
-		 * Coalesce: scan the pending_tx queue for an existing MAX_STREAMS frame
-		 * of the same type and update its limit in place, rather than allocating
-		 * a new frame per closed stream.  With many concurrent streams (e.g. the
-		 * multiplexing QIR test with 1999 streams), the O(N) frame flood would
-		 * fill the TX queue and trigger PTO/congestion-window collapse.
+#if defined(LWS_ROLE_H3)
+		/*
+		 * We are abandoning a request stream before we answered it, for
+		 * any reason but refusing it for want of an ah (G-028): it
+		 * counts against the connection, as one the peer reset does.
+		 * One the peer reset was counted already, when it did.
 		 */
+		if (tx_reset && nwsi &&
+		    wsi->quic.qs->close_app_err != LWS_H3_REQUEST_REJECTED)
+			lws_quic_reset_budget_spend(nwsi, wsi);
+#endif
+
+		/* If this was a remote-initiated stream, increase our limit and notify peer */
 		if (is_remote_initiated) {
-			uint8_t want_type = is_unidirectional ?
-				LWS_QUIC_FT_MAX_STREAMS_UNIDI : LWS_QUIC_FT_MAX_STREAMS_BIDI;
-			struct lws_quic_tx_frame *f_exist = NULL;
+			uint64_t *credit = is_unidirectional ?
+					&qn->max_streams_unidi_local :
+					&qn->max_streams_bidi_local,
+				 adv = is_unidirectional ?
+					qn->max_streams_unidi_adv :
+					qn->max_streams_bidi_adv,
+				 batch = (is_unidirectional ?
+					qn->max_streams_unidi_window :
+					qn->max_streams_bidi_window) / 8;
 
-			/* Increment our local limit first */
-			if (!is_unidirectional)
-				qn->max_streams_bidi_local++;
-			else
-				qn->max_streams_unidi_local++;
-
-			/* Look for an already-queued MAX_STREAMS frame to coalesce into */
-			lws_start_foreach_dll(struct lws_dll2 *, d,
-				lws_dll2_get_head(&qn->pending_tx[LWS_QUIC_LEVEL_APP])) {
-				struct lws_quic_tx_frame *f = lws_container_of(d,
-					struct lws_quic_tx_frame, list);
-				if (f->type == want_type) {
-					f_exist = f;
-					break;
-				}
-			} lws_end_foreach_dll(d);
-
-			if (f_exist) {
-				/* Update limit in the existing frame — no new allocation */
-				f_exist->limit = is_unidirectional ?
-					qn->max_streams_unidi_local :
-					qn->max_streams_bidi_local;
-			} else {
-				struct lws_quic_tx_frame *f_max =
-					lws_zalloc(sizeof(*f_max), "quic max strm");
-				if (f_max) {
-					f_max->stream_id = ~0ULL;
-					f_max->type = want_type;
-					f_max->limit = is_unidirectional ?
-						qn->max_streams_unidi_local :
-						qn->max_streams_bidi_local;
-					lws_dll2_add_tail(&f_max->list,
-						&qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-				}
-			}
-			if (nwsi) lws_callback_on_writable(nwsi);
+			/*
+			 * The stream's credit comes back to the peer, but only
+			 * with the MAX_STREAMS saying so: until that goes out,
+			 * the peer is held to the limit it was told (RFC 9000
+			 * 4.6, lws_quic_peer_stream_over_limit()), so ending a
+			 * stream, eg, by resetting it, can't be what lets the
+			 * peer open the next one.  Credit is given back in
+			 * batches of an eighth of the initial limit, so a peer
+			 * opening and ending streams as fast as it can waits
+			 * for our MAX_STREAMS every so many of them, rather
+			 * than us sending one for each.
+			 */
+			(*credit)++;
+			if (*credit - adv >= (batch ? batch : 1))
+				lws_quic_queue_max_streams(nwsi, is_unidirectional);
 		}
 
 		/*

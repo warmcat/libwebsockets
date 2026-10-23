@@ -1273,6 +1273,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 		case LWS_QUIC_FT_RESET_STREAM: {
 			uint64_t stream_id, app_err_code, final_size;
+			int over = 0;
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &stream_id);
 			if (!consumed) return -1;
 			
@@ -1281,8 +1282,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
 			
 			if (is_peer_initiated) {
-				uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
-				if ((stream_id >> 2) >= limit) {
+				if (lws_quic_peer_stream_over_limit(qn, stream_id)) {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
 					return -1;
@@ -1366,10 +1366,19 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						}
 					}
 #endif
+					/*
+					 * A request reset before we answered
+					 * it counts against the connection
+					 * (G-647)
+					 */
+					over = lws_quic_reset_budget_spend(nwsi, child);
 					lws_close_free_wsi(child, LWS_CLOSE_STATUS_ABNORMAL_CLOSE, "quic reset stream");
 					break;
 				}
 			} lws_end_foreach_dll_safe(d, d1);
+			if (over)
+				/* closing with H3_EXCESSIVE_LOAD */
+				return -1;
 			break;
 		}
 
@@ -1419,6 +1428,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 		case LWS_QUIC_FT_STOP_SENDING: {
 			uint64_t stream_id, app_err_code;
+			int over = 0;
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &stream_id);
 			if (!consumed) return -1;
 			
@@ -1427,8 +1437,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
 			
 			if (is_peer_initiated) {
-				uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
-				if ((stream_id >> 2) >= limit) {
+				if (lws_quic_peer_stream_over_limit(qn, stream_id)) {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
 					return -1;
@@ -1477,10 +1486,15 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					 * purges them and sends RESET_STREAM
 					 */
 					lwsi_set_skt_unusable(child, 1);
+					/* as for RESET_STREAM (G-647) */
+					over = lws_quic_reset_budget_spend(nwsi, child);
 					lws_close_free_wsi(child, LWS_CLOSE_STATUS_ABNORMAL_CLOSE, "quic stop sending");
 					break;
 				}
 			} lws_end_foreach_dll_safe(d, d1);
+			if (over)
+				/* closing with H3_EXCESSIVE_LOAD */
+				return -1;
 			break;
 		}
 
@@ -1512,7 +1526,21 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						lws_wsi_mux_apply_queue(nwsi);
 #endif
                                         }
-                                }
+                                } else if (type == LWS_QUIC_FT_STREAMS_BLOCKED_BIDI ||
+					   type == LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI) {
+					int unidi = type == LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI;
+
+					/*
+					 * The peer waits on a limit we have
+					 * credit held back from, returned in
+					 * batches: give it what we have now
+					 */
+					if ((unidi ? qn->max_streams_unidi_local :
+						     qn->max_streams_bidi_local) >
+					    (unidi ? qn->max_streams_unidi_adv :
+						     qn->max_streams_bidi_adv))
+						lws_quic_queue_max_streams(nwsi, unidi);
+				}
 					}
 			break;
 		}
@@ -1792,8 +1820,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				int is_peer_initiated = (stream_id & 1) != (qn->is_server ? 1 : 0);
 				int is_unidirectional = (stream_id & 2);
 				if (is_peer_initiated) {
-					uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
-					if ((stream_id >> 2) >= limit) {
+					if (lws_quic_peer_stream_over_limit(qn, stream_id)) {
 						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
 						return -1;
@@ -1882,8 +1909,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 							is_unidirectional ? 1 : 0];
 
 					/* Enforce MAX_STREAMS limit before creating a new stream */
-					uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
-					if ((stream_id >> 2) >= limit) {
+					if (lws_quic_peer_stream_over_limit(qn, stream_id)) {
 						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
 						return -1;
@@ -2090,8 +2116,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
 
 				if (is_peer_initiated) {
-					uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
-					if ((stream_id >> 2) >= limit) {
+					if (lws_quic_peer_stream_over_limit(qn, stream_id)) {
 						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
 						return -1;

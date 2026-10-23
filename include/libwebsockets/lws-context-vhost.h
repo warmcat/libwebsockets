@@ -1492,17 +1492,18 @@ struct lws_context_creation_info {
 	 * before .http_body_min_rate starts to count against it */
 
 	uint16_t			mux_reset_limit;
-	/**< VHOST: 0 for default (200), the most streams of one h2 server
-	 * connection that may end before they are answered, on average per
-	 * .mux_reset_window_secs, or LWS_MUX_RESET_LIMIT_NONE for no limit.
-	 * What counts is the peer resetting a stream we had not finished
-	 * answering (RST_STREAM), and us resetting one for any reason but
+	/**< VHOST: 0 for default (200), the most streams of one h2 or h3
+	 * server connection that may end before they are answered, on
+	 * average per .mux_reset_window_secs, or LWS_MUX_RESET_LIMIT_NONE for
+	 * no limit.  What counts is the peer resetting a stream we had not
+	 * finished answering (h2 RST_STREAM, h3 RESET_STREAM or STOP_SENDING
+	 * on a request stream), and us resetting one for any reason but
 	 * having answered it (eg, a protocol error on it, its body coming
 	 * too slowly, the app abandoning it), other than refusing it for
 	 * want of a header table (see .max_http_header_pool_per_mux).  A
 	 * burst of up to the limit is allowed, and room for more comes back
-	 * at the limit per window.  Going over it
-	 * ends the connection with GOAWAY ENHANCE_YOUR_CALM.
+	 * at the limit per window.  Going over it ends the connection, with
+	 * GOAWAY ENHANCE_YOUR_CALM on h2 or H3_EXCESSIVE_LOAD on h3.
 	 *
 	 * The concurrent stream limit counts only live streams, so without
 	 * this a peer that resets each request as soon as it is dispatched,

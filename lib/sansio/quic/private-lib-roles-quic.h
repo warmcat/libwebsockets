@@ -406,6 +406,8 @@ struct lws_quic_stream {
 					    * it without waiting for our own
 					    * in-flight frames to be acked */
 	uint8_t			sent_fin:1;
+	/* its end counted against the connection's reset budget already */
+	uint8_t			reset_counted:1;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	/*
@@ -506,10 +508,25 @@ struct lws_quic_netconn {
 	uint64_t		crypto_tx_offset[LWS_QUIC_LEVEL_COUNT];
 	uint64_t		tx_conn_offset;
 
+	/*
+	 * The stream limits we give the peer: _local is what we will tell it
+	 * next, raised as its streams end; _adv is what we told it last, in
+	 * our transport parameters or a MAX_STREAMS that went out, and is the
+	 * limit its streams are held to (RFC 9000 4.6); _window is the
+	 * initial limit, which returned credit is batched against.
+	 */
 	uint64_t		max_streams_bidi_local;
+	uint64_t		max_streams_bidi_adv;
+	uint64_t		max_streams_bidi_window;
 	uint64_t		max_streams_bidi_remote;
 	uint64_t		max_streams_unidi_local;
+	uint64_t		max_streams_unidi_adv;
+	uint64_t		max_streams_unidi_window;
 	uint64_t		max_streams_unidi_remote;
+#if defined(LWS_ROLE_H3)
+	/* h3 request streams ended before we answered them (G-647) */
+	lws_mux_reset_budget_t	reset_budget;
+#endif
 
 	uint64_t		peer_initial_max_data;
 	uint64_t		peer_initial_max_stream_data_bidi_local;
@@ -950,6 +967,24 @@ lws_quic_rx_held_destroy(struct lws_quic_rx_held *h);
 
 void
 lws_quic_stream_cleanup(struct lws *wsi);
+
+/* tell the peer the stream limit _local we will give it now */
+void
+lws_quic_queue_max_streams(struct lws *nwsi, int unidi);
+
+/* nonzero if the peer's stream_id is beyond the limit we advertised it */
+int
+lws_quic_peer_stream_over_limit(const struct lws_quic_netconn *qn,
+				uint64_t stream_id);
+
+/*
+ * An h3 request stream of a server connection is ending before we answered
+ * it: spend one of the connection's reset budget, once per stream.  Nonzero
+ * if that overflowed it, and the connection is now closing with
+ * H3_EXCESSIVE_LOAD.
+ */
+int
+lws_quic_reset_budget_spend(struct lws *nwsi, struct lws *child);
 
 struct lws *
 lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id);
