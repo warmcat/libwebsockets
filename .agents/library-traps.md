@@ -50,6 +50,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_protocol_init()` is serialised under the context lock (G-542).
    `lws_client_connect_via_info()` asserts in SMP when called
    from a non-service thread.
+   Even with SMP=1, two contexts serviced on two threads share the
+   process-wide `log_cx` refcount and the `alloc.c` `allocated` counter,
+   which are unlocked there (G-670).  Context destroy closes the pt event
+   pipes before PROTOCOL_DESTROY, so a producer thread joined in
+   PROTOCOL_DESTROY can still call `lws_cancel_service()` on a closed (or
+   reused) fd (G-674): stop producers before destroy.
    With `LWS_MAX_SMP` 1, `lws_context_lock()` is a no-op, so "takes the
    cx lock" makes no API safe to call from a foreign thread in default
    builds: only hand-off paths (SMD, `lws_cancel_service()`) are (G-661).
