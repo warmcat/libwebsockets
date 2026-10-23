@@ -46,6 +46,8 @@ typedef struct lws_txp_info {
  *
  * Spawns a high-resolution pthread dedicated to calling your `tx_cb`
  * at precise intervals until the accumulated token bucket is empty.
+ * The thread has a 128KB stack, not the platform default, so `tx_cb` must
+ * not need deep recursion or big stack buffers.
  * Returns an opaque control struct.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_txp *

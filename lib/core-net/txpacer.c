@@ -27,6 +27,9 @@
 #if defined(LWS_HAVE_PTHREAD_H)
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_FREERTOS)
 
+/* the pacer thread's stack, see lws_txp_create() */
+#define LWS_TXP_THREAD_STACK	(128 * 1024)
+
 struct lws_txp {
 	lws_txp_info_t		txp_info;
 
@@ -113,6 +116,9 @@ LWS_VISIBLE LWS_EXTERN struct lws_txp *
 lws_txp_create(const lws_txp_info_t *txp_info)
 {
 	struct lws_txp *txp = lws_zalloc(sizeof(*txp), __func__);
+	pthread_attr_t attr;
+	size_t stack;
+	int n;
 
 	if (!txp)
 		return NULL;
@@ -130,14 +136,33 @@ lws_txp_create(const lws_txp_info_t *txp_info)
 	pthread_mutex_init(&txp->lock, NULL);
 	pthread_cond_init(&txp->cond, NULL);
 
-	if (pthread_create(&txp->thread, NULL, lws_txpacer_thread, txp)) {
-		pthread_cond_destroy(&txp->cond);
-		pthread_mutex_destroy(&txp->lock);
-		lws_free(txp);
-		return NULL;
-	}
+	/*
+	 * The thread only moves queued buffers to tx_cb, so it doesn't need
+	 * the platform's default stack, typically 8MB of address space per
+	 * pacer, which adds up with a pacer per peer (and exhausts a 32-bit
+	 * address space after a few hundred)
+	 */
+	if (pthread_attr_init(&attr))
+		goto bail;
+	stack = LWS_TXP_THREAD_STACK;
+#if defined(PTHREAD_STACK_MIN)
+	if (stack < (size_t)PTHREAD_STACK_MIN)
+		stack = (size_t)PTHREAD_STACK_MIN;
+#endif
+	if (pthread_attr_setstacksize(&attr, stack))
+		lwsl_warn("%s: can't size pacer stack\n", __func__);
 
-	return txp;
+	n = pthread_create(&txp->thread, &attr, lws_txpacer_thread, txp);
+	pthread_attr_destroy(&attr);
+	if (!n)
+		return txp;
+
+bail:
+	pthread_cond_destroy(&txp->cond);
+	pthread_mutex_destroy(&txp->lock);
+	lws_free(txp);
+
+	return NULL;
 }
 
 LWS_VISIBLE LWS_EXTERN void
