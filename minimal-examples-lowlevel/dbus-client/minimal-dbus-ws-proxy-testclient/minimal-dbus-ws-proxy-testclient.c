@@ -85,17 +85,42 @@ filter(DBusConnection *conn, DBusMessage *message, void *data)
 {
 	struct lws_dbus_ctx_wsproxy_client *dcwc =
 			(struct lws_dbus_ctx_wsproxy_client *)data;
+	const unsigned char *bin;
 	const char *str;
+	int blen;
+
+	/* received a ws BINARY message, as a byte array */
+
+	if (dbus_message_is_signal(message, THIS_INTERFACE, "ReceiveBinary")) {
+		if (dbus_message_get_args(message, NULL, DBUS_TYPE_ARRAY,
+					  DBUS_TYPE_BYTE, &bin, &blen,
+					  DBUS_TYPE_INVALID)) {
+			lwsl_user("%s: Received binary, %d bytes\n", __func__,
+				  blen);
+			count_rx++;
+		}
+
+		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+	}
 
 	if (!dbus_message_get_args(message, NULL,
 				   DBUS_TYPE_STRING, &str,
 				   DBUS_TYPE_INVALID))
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
-	/* received ws data */
+	/* received a ws TEXT message */
 
 	if (dbus_message_is_signal(message, THIS_INTERFACE, "Receive")) {
-		lwsl_user("%s: Received '%s'\n", __func__, str);
+#if (_LWS_ENABLED_LOGS & LLL_USER)
+		char esc[128];
+
+		/*
+		 * It comes from the remote ws server: show it escaped, so it
+		 * can't put control sequences on our terminal, and bounded
+		 */
+		lwsl_user("%s: Received '%s'\n", __func__,
+			  lws_json_purify(esc, str, (int)sizeof(esc), NULL));
+#endif
 		count_rx++;
 	}
 

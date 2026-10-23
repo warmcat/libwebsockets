@@ -42,6 +42,19 @@
  * things in this ringbuffer.  But the way lws_ring works, when the message
  * allocated in DBUS world is queued on the ringbuffer, the ringbuffer itself
  * takes responsibility for deallocation.  So there is no problem.
+ *
+ * WS PAYLOAD ON DBUS
+ *
+ * A D-Bus STRING must be valid UTF-8 with no NUL, and libdbus aborts the whole
+ * process if it is asked to send one that is not.  Whatever the remote ws
+ * server sends is untrusted, and a ws RECEIVE callback is not a message
+ * anyway: a message may arrive in several fragments, and a fragment bigger
+ * than the rx buffer arrives in several pieces, any of which may end partway
+ * through a UTF-8 character.  So the ws world collects the pieces of each
+ * message in its pss, up to WSPROXY_MAX_MESSAGE bytes, and only passes on
+ * whole messages: a TEXT message as a "Receive" signal with a STRING, only
+ * after checking it is valid UTF-8 without NULs, and a BINARY message as a
+ * "ReceiveBinary" signal with a byte array.
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
@@ -54,6 +67,13 @@
 #include <string.h>
 #include <assert.h>
 #include <signal.h>
+
+/*
+ * The largest ws message we will collect and pass on to DBUS.  If the remote
+ * server sends anything bigger, we close the ws connection with 1009 (Message
+ * Too Big) and none of it is passed on.
+ */
+#define WSPROXY_MAX_MESSAGE 4096
 
 /*
  * dbus accepted connections create these larger context structs that start
@@ -73,6 +93,9 @@ struct msg {
 struct pss_dbus_proxy {
 	struct lws_ring *ring_out;
 	uint32_t ring_out_tail;
+
+	uint8_t *rx; /* ws message being collected + 1 for a NUL, or NULL */
+	size_t rx_len; /* bytes of message collected in rx */
 };
 
 struct lws_dbus_ctx_wsproxy {
@@ -133,9 +156,14 @@ static const char *server_introspection_xml =
 	"      <arg name='payload' type='s' direction='in' />\n"
 	"    </method>\n"
 	"    <signal name='Receive'>\n"
-	"    </signal>"
+	"      <arg name='payload' type='s' />\n"
+	"    </signal>\n"
+	"    <signal name='ReceiveBinary'>\n"
+	"      <arg name='payload' type='ay' />\n"
+	"    </signal>\n"
 	"    <signal name='Status'>\n"
-	"    </signal>"
+	"      <arg name='status' type='s' />\n"
+	"    </signal>\n"
 	"  </interface>\n"
 
 	"</node>\n";
@@ -217,7 +245,7 @@ static DBusHandlerResult
 dmh_connect(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 {
 	struct lws_dbus_ctx_wsproxy *wspctx = (struct lws_dbus_ctx_wsproxy *)d;
-	const char *prot = "", *baduri = "Bad Uri",
+	const char *prot = "", *baduri = "Bad Uri", *busy = "Busy",
 		   *connecting = "Connecting", *failed = "Failed", **pp;
 	struct lws_client_connect_info i;
 	char host[128];
@@ -235,6 +263,17 @@ dmh_connect(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 		dbus_error_free(&err);
 
 		return DBUS_HANDLER_RESULT_HANDLED;
+	}
+
+	/*
+	 * Each DBUS connection drives at most one ws connection at a time: the
+	 * ws side points back at us, and we only track one child to detach
+	 * when we go away.
+	 */
+
+	if (wspctx->cwsi) {
+		pp = &busy;
+		goto send_reply;
 	}
 
 	puri = lws_parse_uri_create(uri);
@@ -290,12 +329,21 @@ send_reply:
 	return DBUS_HANDLER_RESULT_HANDLED;
 }
 
+/*
+ * Send a signal to the DBUS connection that owns this ws connection, if it
+ * still exists.  With binary zero, buf must be a NUL-terminated string that is
+ * valid UTF-8 (libdbus aborts the process if it is not) and is sent as a
+ * STRING; otherwise len bytes of buf are sent as a byte array.
+ */
+
 static int
-issue_dbus_signal(struct lws *wsi, const char *signame, const char *string)
+issue_dbus_signal_buf(struct lws *wsi, const char *signame, const void *buf,
+		      size_t len, int binary)
 {
 	struct lws_dbus_ctx_wsproxy *wspctx =
 			lws_get_opaque_parent_data(wsi);
 	DBusMessage *m;
+	dbus_bool_t ok;
 
 	if (!wspctx)
 		return 1;
@@ -306,15 +354,32 @@ issue_dbus_signal(struct lws *wsi, const char *signame, const char *string)
 		return 1;
 	}
 
-	dbus_message_append_args(m, DBUS_TYPE_STRING, &string,
-				    DBUS_TYPE_INVALID);
+	if (binary)
+		ok = dbus_message_append_args(m, DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE,
+					      &buf, (int)len, DBUS_TYPE_INVALID);
+	else
+		ok = dbus_message_append_args(m, DBUS_TYPE_STRING, &buf,
+					      DBUS_TYPE_INVALID);
+	if (!ok) {
+		lwsl_err("%s: append failed\n", __func__);
+		goto bail;
+	}
 
 	if (!dbus_connection_send(wspctx->ctx.conn, m, NULL))
 		lwsl_err("%s: unable to send\n", __func__);
 
+bail:
 	dbus_message_unref(m);
 
-	return 0;
+	return !ok;
+}
+
+/* our own constant status strings, known to be valid UTF-8 */
+
+static int
+issue_dbus_status(struct lws *wsi, const char *status)
+{
+	return issue_dbus_signal_buf(wsi, "Status", status, 0, 0);
 }
 
 static DBusHandlerResult
@@ -468,6 +533,8 @@ cb_closing(struct lws_dbus_ctx *ctx)
 		lws_set_timeout(wspctx->cwsi,
 				PENDING_TIMEOUT_KILLED_BY_PROXY_CLIENT_CLOSE,
 				LWS_TO_KILL_ASYNC);
+		wspctx->cwsi = NULL;
+		wspctx->pss = NULL;
 	}
 
 	destroy_dbus_server_conn(wspctx);
@@ -619,6 +686,12 @@ destroy_dbus_server_listener(struct vhd_dbus_proxy *vhd)
 			lws_dll2_get_head(&vhd->ctx_listener.owner)) {
 		struct lws_dbus_ctx *r = lws_container_of(rdt,
 						struct lws_dbus_ctx, next);
+		struct lws_dbus_ctx_wsproxy *wspctx =
+					(struct lws_dbus_ctx_wsproxy *)r;
+
+		/* our ws child must not refer to us after we are freed */
+		if (wspctx->cwsi)
+			lws_set_opaque_parent_data(wspctx->cwsi, NULL);
 
 		dbus_connection_close(r->conn);
 		dbus_connection_unref(r->conn);
@@ -633,6 +706,92 @@ destroy_dbus_server_listener(struct vhd_dbus_proxy *vhd)
 /*
  * WS WORLD
  */
+
+/*
+ * The DBUS connection that started this ws connection no longer tracks it, if
+ * it was still tracking this one.
+ */
+
+static void
+wsproxy_detach(struct lws *wsi)
+{
+	struct lws_dbus_ctx_wsproxy *wspctx = lws_get_opaque_parent_data(wsi);
+
+	if (!wspctx || wspctx->cwsi != wsi)
+		return;
+
+	wspctx->cwsi = NULL;
+	wspctx->pss = NULL;
+}
+
+static void
+wsproxy_rx_discard(struct pss_dbus_proxy *pss)
+{
+	free(pss->rx);
+	pss->rx = NULL;
+	pss->rx_len = 0;
+}
+
+enum wsproxy_rx {
+	WSPROXY_RX_MORE,	/* piece taken, message not complete yet */
+	WSPROXY_RX_TEXT,	/* pss->rx is a whole, valid, NUL-terminated
+				 * UTF-8 string of pss->rx_len bytes */
+	WSPROXY_RX_BINARY,	/* pss->rx is a whole BINARY message */
+	WSPROXY_RX_HAS_NUL,	/* whole TEXT message with a NUL in it */
+	WSPROXY_RX_TOO_LARGE,	/* message is over WSPROXY_MAX_MESSAGE */
+	WSPROXY_RX_BAD_UTF8,	/* whole TEXT message is not valid UTF-8 */
+	WSPROXY_RX_OOM,
+};
+
+/*
+ * Add one RECEIVE piece to the message being collected in pss, and when it was
+ * the last piece, say what the whole message can be passed on as.  For every
+ * result except WSPROXY_RX_MORE, the caller is responsible for
+ * wsproxy_rx_discard() after dealing with it.
+ */
+
+static enum wsproxy_rx
+wsproxy_rx_collect(struct pss_dbus_proxy *pss, const void *in, size_t len,
+		   int final, int binary)
+{
+	unsigned char st = 0;
+	uint8_t *p;
+
+	if (len > WSPROXY_MAX_MESSAGE - pss->rx_len)
+		return WSPROXY_RX_TOO_LARGE;
+
+	/* + 1 so a TEXT message can be NUL-terminated */
+	p = realloc(pss->rx, pss->rx_len + len + 1);
+	if (!p)
+		return WSPROXY_RX_OOM;
+	pss->rx = p;
+	if (len)
+		memcpy(pss->rx + pss->rx_len, in, len);
+	pss->rx_len += len;
+
+	if (!final)
+		return WSPROXY_RX_MORE;
+
+	if (binary)
+		return WSPROXY_RX_BINARY;
+
+	/*
+	 * lws only checks TEXT is UTF-8 if the vhost asked it to, and only the
+	 * whole message has to end on a character boundary, so check it all
+	 * here before it can go anywhere near a D-Bus STRING.
+	 */
+
+	if (lws_check_utf8(&st, pss->rx, pss->rx_len) || st)
+		return WSPROXY_RX_BAD_UTF8;
+
+	/* valid in ws TEXT, but a D-Bus STRING cannot hold one */
+	if (memchr(pss->rx, '\0', pss->rx_len))
+		return WSPROXY_RX_HAS_NUL;
+
+	pss->rx[pss->rx_len] = '\0';
+
+	return WSPROXY_RX_TEXT;
+}
 
 static int
 callback_minimal_dbus_wsproxy(struct lws *wsi, enum lws_callback_reasons reason,
@@ -684,10 +843,10 @@ callback_minimal_dbus_wsproxy(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 
 		wspctx = lws_get_opaque_parent_data(wsi);
-		if (!wspctx)
+		if (!wspctx || wspctx->cwsi != wsi)
+			/* our DBUS connection went away, we are being killed */
 			break;
 
-		wspctx->pss = pss;
 		pss->ring_out_tail = 0;
 		pss->ring_out = lws_ring_create(sizeof(struct msg), 8,
 						   destroy_message);
@@ -695,13 +854,16 @@ callback_minimal_dbus_wsproxy(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_err("OOM\n");
 			return -1;
 		}
+		wspctx->pss = pss;
 
-		issue_dbus_signal(wsi, "Status",
-				  "ws client connection established");
+		issue_dbus_status(wsi, "ws client connection established");
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 		lwsl_user("LWS_CALLBACK_CLIENT_WRITEABLE:\n");
+
+		if (!pss->ring_out)
+			break;
 
 		pmsg = lws_ring_get_element(pss->ring_out, &pss->ring_out_tail);
 		if (!pmsg) {
@@ -743,45 +905,80 @@ callback_minimal_dbus_wsproxy(struct lws *wsi, enum lws_callback_reasons reason,
 			  lws_is_final_fragment(wsi),
 			  lws_frame_is_binary(wsi));
 
-		{
-			char strbuf[256];
-			size_t l = len;
+		m = 0;
+		switch (wsproxy_rx_collect(pss, in, len,
+					   lws_is_final_fragment(wsi),
+					   lws_frame_is_binary(wsi))) {
+		case WSPROXY_RX_MORE:
+			/* wait for the rest of the message */
+			return 0;
 
-			if (l > sizeof(strbuf) - 1u)
-				l = sizeof(strbuf) - 1u;
+		case WSPROXY_RX_TEXT:
+			issue_dbus_signal_buf(wsi, "Receive", pss->rx, 0, 0);
+			break;
 
-			memcpy(strbuf, in, l);
-			strbuf[l] = '\0';
+		case WSPROXY_RX_BINARY:
+			issue_dbus_signal_buf(wsi, "ReceiveBinary", pss->rx,
+					      pss->rx_len, 1);
+			break;
 
-			issue_dbus_signal(wsi, "Receive", strbuf);
+		case WSPROXY_RX_HAS_NUL:
+			issue_dbus_status(wsi, "ws message with NUL dropped");
+			break;
+
+		case WSPROXY_RX_TOO_LARGE:
+			issue_dbus_status(wsi, "ws message too large");
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE,
+					 (uint8_t *)"too large", 9);
+			m = -1;
+			break;
+
+		case WSPROXY_RX_BAD_UTF8:
+			issue_dbus_status(wsi, "ws message invalid utf8");
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					 (uint8_t *)"bad utf8", 8);
+			m = -1;
+			break;
+
+		case WSPROXY_RX_OOM:
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_UNEXPECTED_CONDITION,
+					 (uint8_t *)"oom", 3);
+			m = -1;
+			break;
 		}
-		break;
+
+		/* the message has been dealt with, start collecting the next */
+		wsproxy_rx_discard(pss);
+
+		return m;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
-		issue_dbus_signal(wsi, "Status", "ws client connection error");
+		issue_dbus_status(wsi, "ws client connection error");
+		wsproxy_detach(wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_err("LWS_CALLBACK_CLIENT_CLOSED ()\n");
-		issue_dbus_signal(wsi, "Status", "ws client connection closed");
-
-		/* destroy any ringbuffer and pending messages */
-
-		lws_ring_destroy(pss->ring_out);
-
-		wspctx = lws_get_opaque_parent_data(wsi);
-		if (!wspctx)
-			break;
+		issue_dbus_status(wsi, "ws client connection closed");
 
 		/*
 		 * the wspctx cannot refer to its child wsi any longer, it is
 		 * about to go out of scope.
 		 */
 
-		wspctx->cwsi = NULL;
-		wspctx->pss = NULL;
+		wsproxy_detach(wsi);
+
+		/* destroy any ringbuffer and pending messages */
+
+		if (pss->ring_out) {
+			lws_ring_destroy(pss->ring_out);
+			pss->ring_out = NULL;
+		}
+
+		/* drop any partial message we were collecting */
+		wsproxy_rx_discard(pss);
 		break;
 
 	default:

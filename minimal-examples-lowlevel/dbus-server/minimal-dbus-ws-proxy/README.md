@@ -8,11 +8,11 @@ a URI and a ws subprotocol name.
 
 It replies with a string "Connecting" if all is well.
 
-Connection progress (including close) is then provided using type 7 messages
+Connection progress (including close) is then provided using Status signals
 sent back to the dbus client.
 
-Payload from the ws connection is provided using type 6 messages sent back to
-the dbus client.
+Payload from the ws connection is provided using Receive (TEXT) and
+ReceiveBinary (BINARY) signals sent back to the dbus client.
 
 ## build
 
@@ -93,23 +93,38 @@ Object path|/org/libwebsockets/wsclientproxy
 
 Method|Arguments|Returns
 ---|---|---
-Connect|s: ws URI, s: ws subprotocol name|"Bad Uri", "Connecting" or "Failed"
+Connect|s: ws URI, s: ws subprotocol name|"Bad Uri", "Busy", "Connecting" or "Failed"
 Send|s: payload|Empty message if no problem, or error message
 
 When Connecting, the actual connection happens asynchronously if the initial
 connection attempt doesn't fail immediately.  If it's continuing in the
 background, the reply will have been "Connecting".
 
+Each DBUS connection to the proxy can have one ws connection at a time: Connect
+replies "Busy" while the previous one is still connecting or open.
+
 ### Signals
 
 Signal Name|Argument|Meaning
 ---|---|---
-Receive|s: payload|Received data from the ws link
+Receive|s: payload|A whole TEXT message received on the ws link
+ReceiveBinary|ay: payload|A whole BINARY message received on the ws link
 Status|s: status|See table below
+
+The proxy collects the fragments of each ws message and only signals whole
+messages, of up to 4096 bytes.  A D-Bus string must be valid UTF-8 without
+NULs, and libdbus aborts a process that tries to send one that is not, so a
+TEXT message is checked before it is sent as `Receive`: if it is not valid
+UTF-8 the ws connection is closed with 1007, and if it contains a NUL it is
+dropped.  A message bigger than 4096 bytes closes the ws connection with 1009.
+Nothing of a refused message is passed on, and a Status signal says why.
 
 Status String|Meaning
 ---|---
 "ws client connection error"|The ws connection attempt ended with a fatal error
 "ws client connection established"|The ws connection attempt succeeded
 "ws client connection closed"|The ws connection has closed
+"ws message too large"|A ws message was over 4096 bytes, the ws connection is closing
+"ws message invalid utf8"|A ws TEXT message was not valid UTF-8, the ws connection is closing
+"ws message with NUL dropped"|A ws TEXT message contained a NUL and was dropped
 
