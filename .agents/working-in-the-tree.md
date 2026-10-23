@@ -105,7 +105,14 @@ sessions.
    a hunk on the wrong line without error.  Build and test the resulting
    commit alone in a worktree.  Shared lists several fixers append to
    (eg the api-tests README.md) always need this: `git add` of the working
-   file once dropped another fixer's row.
+   file once dropped another fixer's row.  The temp index only protects
+   your commit: until it lands, your row sits uncommitted in the working
+   copy, and another fixer's `git commit -- <list>` sweeps it in, so your
+   commit then adds it twice (272d45380 / 60e1adbbd).  After committing a
+   shared list, check `git show HEAD:<file> | grep -c <row>`.
+ - **ctest in a worktree leaves an untracked cookies.txt** under
+   minimal-examples-lowlevel/http-client/minimal-http-client/, and
+   `git worktree remove` refuses until it is deleted.
  - **Generate large probe/fuzz inputs under your build tree on /home, not
    in the scratchpad**: the scratchpad is on the small root fs (it has run out several times), and one
    173MB generated page filled it.
