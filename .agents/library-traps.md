@@ -201,10 +201,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## HTTP
 
- - **`lws_h2_rst_stream()` and `lws_h2_goaway()` use the parser's per-frame
-   `h2n->type` as their latch**: called from outside the parse loop (close
-   paths, timers, POLLOUT) they make the half-received frame of another
-   stream be dropped, and they are skipped after an ignored frame (G-645).
+ - **h2 RST_STREAM / GOAWAY latch on their own bits** (`h2.rst_queued`,
+   `goaway_queued`) since G-645 (30fa910ab), never the parser's
+   `h2n->type`.  The lws h2 client sends RST NO_ERROR "client done" on
+   streams already CLOSED and keep-warm depends on it, so "skip RST if
+   CLOSED" is not a usable latch.
+ - **`LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP` also fires when an h2/h3 client
+   stream joins a live mux connection**, before any response: check
+   `lws_http_client_http_response(wsi)` before failing there.  A raw h2
+   test client must ACK the server's SETTINGS before sending split frames.
  - **`LWS_CALLBACK_HTTP_DROP_PROTOCOL` only follows a BIND** (mount-bound
    protocols).  Per-transaction state on protocols[0] (spa, fds, lwsacs)
    gets no callback when its user_space is freed at a keepalive
@@ -480,9 +485,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 ## QUIC io state
 
  - **Resource bounds must be per connection, not per pass or per frame**:
-   h2 and QUIC both let a peer reset streams and get new ones dispatched
-   indefinitely (G-646, G-647: QUIC raises `max_streams_bidi_local` at
-   close and checks against that, not the advertised limit), and QUIC ACK
+   h2 and h3 now spend a per-connection reset budget
+   (`lws_mux_reset_budget_spend()`, vhost `mux_reset_limit` /
+   `mux_reset_window_secs`; G-646, G-647), and QUIC holds peers to the
+   advertised stream limit (`max_streams_*_adv`, coalesced MAX_STREAMS).  QUIC ACK
    processing is O(ranges x in_flight) per datagram (G-648).  A packet
    whose first frame has its own destination leaves `needs_ack` set and
    bypasses congestion control (G-649).
