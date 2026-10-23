@@ -13,6 +13,21 @@
  * "./mount-origin" of the directory it was started in.
  *
  * You can change that by changing mount.origin below.
+ *
+ * The per-vhost data below is shared by the lws service thread and the
+ * "spam" threads.  The rules are:
+ *
+ *  - connections are only ever touched by lws apis from the lws service
+ *    thread.  The only lws api that is safe to call from another thread is
+ *    lws_cancel_service().
+ *
+ *  - the lock covers the ringbuffer, the connections' tails in it, and the
+ *    membership of the list of connections, which the spam threads look at.
+ *    Only the service thread changes the list, so it can walk it without the
+ *    lock.
+ *
+ *  - nothing calls into lws while holding the lock, so it can't get mixed
+ *    up with lws' own locks.
  */
 
 #include <libwebsockets.h>
@@ -54,9 +69,9 @@ struct msg {
  * that is unrelated to (shorter than) the lifetime of the network connection.
  */
 struct pss {
-	struct pss *pss_list;
+	lws_dll2_t list; /* {lock_ring} in vhd->pss_list */
 	struct lws *wsi;
-	uint32_t tail;
+	uint32_t tail; /* {lock_ring} */
 };
 
 /* one of these is created for each vhost our protocol is used with */
@@ -66,12 +81,14 @@ struct vhd {
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
 
-	struct pss *pss_list; /* linked-list of live pss*/
+	lws_dll2_owner_t pss_list; /* {lock_ring} live pss */
+
 	pthread_t pthread_spam[2];
+	int count_spam; /* how many spam threads we started */
 
 	pthread_mutex_t lock_ring; /* serialize access to the ring buffer */
-	struct lws_ring *ring; /* ringbuffer holding unsent messages */
-	char finished;
+	struct lws_ring *ring; /* {lock_ring} ringbuffer holding unsent messages */
+	char finished; /* {lock_ring} */
 };
 
 static struct lws_context *context;
@@ -81,7 +98,10 @@ static void usleep(unsigned long l) { Sleep(l / 1000); }
 #endif
 
 
-/* destroys the message when everyone has had a copy of it */
+/*
+ * Destroys the message when everyone has had a copy of it.  This runs under
+ * both lws service and "spam threads" contexts, serialized by vhd->lock_ring.
+ */
 
 static void
 __minimal_destroy_message(void *_msg)
@@ -91,6 +111,47 @@ __minimal_destroy_message(void *_msg)
 	free(msg->payload);
 	msg->payload = NULL;
 	msg->len = 0;
+}
+
+/*
+ * {lock_ring} must be held.  Ringbuffer elements before the oldest tail of
+ * any connection have been sent to everybody and can be freed.
+ */
+
+static void
+__minimal_update_oldest_tail(struct vhd *vhd)
+{
+	struct pss *oldest = NULL;
+	uint32_t most = 0, w;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pss_list)) {
+		struct pss *pss = lws_container_of(d, struct pss, list);
+
+		w = (uint32_t)lws_ring_get_count_waiting_elements(vhd->ring,
+								  &pss->tail);
+		if (!oldest || w > most) {
+			most = w;
+			oldest = pss;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (oldest)
+		lws_ring_update_oldest_tail(vhd->ring, oldest->tail);
+}
+
+/* is anything waiting to be sent to this connection? */
+
+static int
+minimal_behind(struct vhd *vhd, struct pss *pss)
+{
+	int behind;
+
+	pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+	behind = !!lws_ring_get_element(vhd->ring, &pss->tail);
+	pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+
+	return behind;
 }
 
 /*
@@ -105,18 +166,20 @@ thread_spam(void *d)
 {
 	struct vhd *vhd = (struct vhd *)d;
 	struct msg amsg;
-	int len = 128, index = 1, n, whoami = 0;
+	int len = 128, index = 1, n, whoami = 0, finished, added;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
 		if (pthread_equal(pthread_self(), vhd->pthread_spam[n]))
 			whoami = n + 1;
 
 	do {
-		/* don't generate output if nobody connected */
-		if (!vhd->pss_list)
-			goto wait;
+		added = 0;
 
 		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+
+		/* don't generate output if nobody connected */
+		if (!vhd->pss_list.count)
+			goto wait_unlock;
 
 		/* only create if space in ringbuffer */
 		n = (int)lws_ring_get_count_free_elements(vhd->ring);
@@ -138,20 +201,24 @@ thread_spam(void *d)
 			__minimal_destroy_message(&amsg);
 			lwsl_user("dropping!\n");
 		} else
+			added = 1;
+
+wait_unlock:
+		finished = vhd->finished;
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+
+		if (added)
 			/*
 			 * This will cause a LWS_CALLBACK_EVENT_WAIT_CANCELLED
 			 * in the lws service thread context.
 			 */
 			lws_cancel_service(vhd->context);
 
-wait_unlock:
-		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+		if (!finished)
+			/* rand() would make more sense but coverity shrieks */
+			usleep((useconds_t)(100000 + (time(NULL) & 0xffff)));
 
-wait:
-		/* rand() would make more sense but coverity shrieks */
-		usleep((useconds_t)(100000 + (time(NULL) & 0xffff)));
-
-	} while (!vhd->finished);
+	} while (!finished);
 
 	lwsl_notice("thread_spam %d exiting\n", whoami);
 
@@ -160,6 +227,8 @@ wait:
 	return NULL;
 }
 
+
+/* this runs under the lws service thread context only */
 
 static int
 callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
@@ -173,7 +242,7 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		*end = &buf[sizeof(buf) - 1];
 	const struct msg *pmsg;
 	void *retval;
-	int n;
+	int n, more;
 
 	switch (reason) {
 
@@ -188,39 +257,55 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
 
+		pthread_mutex_init(&vhd->lock_ring, NULL);
+
 		vhd->ring = lws_ring_create(sizeof(struct msg), 8,
 					    __minimal_destroy_message);
-		if (!vhd->ring)
-			return 1;
-
-		pthread_mutex_init(&vhd->lock_ring, NULL);
+		if (!vhd->ring) {
+			lwsl_err("%s: failed to create ring\n", __func__);
+			goto init_fail;
+		}
 
 		/* start the content-creating threads */
 
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++) {
 			if (pthread_create(&vhd->pthread_spam[n], NULL,
 					   thread_spam, vhd)) {
 				lwsl_err("thread creation failed\n");
-				vhd->finished = 1;
 				goto init_fail;
 			}
+			vhd->count_spam++;
+		}
 
 		return 0;
 
 init_fail:
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
 		vhd->finished = 1;
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+
+		/* only join the threads we actually started */
+		for (n = 0; n < vhd->count_spam; n++)
 			pthread_join(vhd->pthread_spam[n], &retval);
+		vhd->count_spam = 0;
 
 		if (vhd->ring)
 			lws_ring_destroy(vhd->ring);
+		vhd->ring = NULL;
 
 		pthread_mutex_destroy(&vhd->lock_ring);
 		return 1;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (!vhd || !vhd->ring)
+			/* init failed and cleaned up after itself */
+			return 0;
+
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
 		vhd->finished = 1;
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+
+		for (n = 0; n < vhd->count_spam; n++)
 			pthread_join(vhd->pthread_spam[n], &retval);
 
 		if (vhd->ring)
@@ -240,6 +325,9 @@ init_fail:
 		lwsl_info("%s: LWS_CALLBACK_HTTP: '%s'\n", __func__,
 			  (const char *)in);
 
+		if (!vhd || !vhd->ring)
+			return 1;
+
 		/* SSE requires a http OK response with this content-type */
 
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
@@ -251,11 +339,13 @@ init_fail:
 		if (lws_finalize_write_http_header(wsi, start, &p, end))
 			return 1;
 
-		/* add ourselves to the list of live pss held in the vhd */
-
-		lws_ll_fwd_insert(pss, pss_list, vhd->pss_list);
-		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
 		pss->wsi = wsi;
+
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+		/* add ourselves to the list of live pss held in the vhd */
+		lws_dll2_add_tail(&pss->list, &vhd->pss_list);
+		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
 
 		/*
 		 * This tells lws we are no longer a normal http stream,
@@ -273,9 +363,17 @@ init_fail:
 		return 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:
-		/* remove our closing pss from the list of live pss */
+		if (!vhd || !vhd->ring)
+			return 0;
 
-		lws_ll_fwd_remove(struct pss, pss_list, pss, vhd->pss_list);
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+		/* remove our closing pss from the list of live pss */
+		if (!lws_dll2_is_detached(&pss->list)) {
+			lws_dll2_remove(&pss->list);
+			/* we may have been the one holding the oldest tail */
+			__minimal_update_oldest_tail(vhd);
+		}
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
 		return 0;
 
 	/* --- data transfer --- */
@@ -284,44 +382,63 @@ init_fail:
 
 		lwsl_info("%s: LWS_CALLBACK_HTTP_WRITEABLE\n", __func__);
 
-		pmsg = lws_ring_get_element(vhd->ring, &pss->tail);
-		if (!pmsg)
+		if (!vhd || !vhd->ring || lws_dll2_is_detached(&pss->list))
 			break;
 
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+
+		pmsg = lws_ring_get_element(vhd->ring, &pss->tail);
+		if (!pmsg) {
+			pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock - */
+			break;
+		}
+
+		/* take our copy of it to send, outside the lock */
 		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				  "data: %s\x0d\x0a\x0d\x0a",
-				  (const char *)pmsg->payload);
+				  "data: %.*s\x0d\x0a\x0d\x0a",
+				  (int)pmsg->len, (const char *)pmsg->payload);
+
+		/* we are done with that element... */
+		lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
+		/* ...if it was the last one waiting for anybody, free it */
+		__minimal_update_oldest_tail(vhd);
+
+		more = !!lws_ring_get_element(vhd->ring, &pss->tail);
+
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
 
 		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP) != lws_ptr_diff(p, start))
 			return 1;
 
-		lws_ring_consume_and_update_oldest_tail(
-			vhd->ring,	/* lws_ring object */
-			struct pss,	/* type of objects with tails */
-			&pss->tail,	/* tail of guy doing the consuming */
-			1,	/* number of payload objects being consumed */
-			vhd->pss_list,	/* head of list of objects with tails */
-			tail,	/* member name of tail in objects with tails */
-			pss_list /* member name of next object in objects with tails */
-		);
-
-		if (lws_ring_get_element(vhd->ring, &pss->tail))
+		if (more)
 			/* come back as soon as we can write more */
-			lws_callback_on_writable(pss->wsi);
+			lws_callback_on_writable(wsi);
 
 		return 0;
 
 	case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
-		if (!vhd)
+		if (!vhd || !vhd->ring)
 			break;
 		/*
-		 * let everybody know we want to write something on them
-		 * as soon as they are ready
+		 * When the "spam" threads add a message to the ringbuffer,
+		 * they create this event in the lws service thread context
+		 * using lws_cancel_service().
+		 *
+		 * We respond by scheduling a writable callback for all
+		 * connected clients with something waiting for them.
+		 *
+		 * Only this thread changes the list, and we are on it, so we
+		 * can walk it without the lock, and without holding the lock
+		 * while we call into lws.
 		 */
-		lws_start_foreach_llp(struct pss **, ppss, vhd->pss_list) {
-			lws_callback_on_writable((*ppss)->wsi);
-		} lws_end_foreach_llp(ppss, pss_list);
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vhd->pss_list)) {
+			struct pss *ps = lws_container_of(d, struct pss, list);
+
+			if (minimal_behind(vhd, ps))
+				lws_callback_on_writable(ps->wsi);
+		} lws_end_foreach_dll(d);
 		return 0;
 
 	default:
