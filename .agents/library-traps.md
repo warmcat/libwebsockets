@@ -494,10 +494,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    h2 and h3 now spend a per-connection reset budget
    (`lws_mux_reset_budget_spend()`, vhost `mux_reset_limit` /
    `mux_reset_window_secs`; G-646, G-647), and QUIC holds peers to the
-   advertised stream limit (`max_streams_*_adv`, coalesced MAX_STREAMS).  QUIC ACK
-   processing is O(ranges x in_flight) per datagram (G-648).  A packet
-   whose first frame has its own destination leaves `needs_ack` set and
-   bypasses congestion control (G-649).
+   advertised stream limit (`max_streams_*_adv`, coalesced MAX_STREAMS).
+   Since G-648/G-649 an ACK frame is one walk of the in-flight lists (kept
+   in packet-number order; a Retry puts in-flight Initials back in
+   pending), only a packet's first ACK frame is acted on, in-flight is
+   capped at `LWS_QUIC_IN_FLIGHT_MAX`, only the last PATH_CHALLENGE is
+   answered, and an owed ACK never lets other frames past cwnd/pacing.
  - When a QUIC connection moves to a new wsi on ALPN negotiation (h3,
    lws-quic), only what `lws_io_udp_transfer_socket()` copies explicitly
    moves: any new per-connection io state (peer stack, relay port, relay
