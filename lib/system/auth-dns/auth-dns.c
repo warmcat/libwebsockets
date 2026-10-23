@@ -697,13 +697,12 @@ auth_dns_zone_line(struct auth_dns_zone *zone, const char *line, size_t len,
 		rd++;
 
 	{
+		/*
+		 * Kept as written, quotes and all: they are what delimit TXT
+		 * character-strings for the wire encoder, and the signed zone
+		 * is written back out from this text
+		 */
 		size_t rdlen = lws_ptr_diff_size_t(e, rd);
-
-		/* Strip surrounding quotes if present (TXT records) */
-		if (rdlen >= 2 && rd[0] == '"' && rd[rdlen - 1] == '"') {
-			rd++;
-			rdlen -= 2;
-		}
 
 		rr->rdata = lws_malloc(rdlen + 1, "auth_dns_rdata");
 		if (!rr->rdata)

@@ -21,6 +21,13 @@
  *  - RFC 1035 5.1 escapes (\X, \DDD) in owner names are resolved, and
  *    ';' or parentheses inside a quoted string are not taken as a comment
  *    or a continuation
+ *  - TXT rdata is read as RFC 1035 character-strings: a quoted string is
+ *    one string whatever whitespace is in it ("v=spf1 a -all" is not three
+ *    strings), unquoted whitespace separates strings, \" \\ and \DDD are
+ *    resolved inside them, and the strings may go on over lines in
+ *    parentheses.  A string over 255 bytes, an unclosed quote, a quote
+ *    inside or straight after a string and TXT with no string at all are
+ *    refused rather than cut, split or guessed at
  *  - zones with a name that would encode an empty label (a leading dot,
  *    "a..b"), or that has a '*' anywhere but as the whole leftmost label, a
  *    label that would need an escape to be written (an escaped '.', space),
@@ -89,7 +96,29 @@ static const char *zone_good =
 	"w IN NS *.wild.names.example.\n"
 	"\\065bc IN A 192.0.2.31\n"
 	"x\\-y IN A 192.0.2.32\n"
-	"t IN TXT \"semi;colon (and parens)\"\n";
+	"t IN TXT \"semi;colon (and parens)\"\n"
+	"spf IN TXT \"v=spf1 a ip4:192.0.2.4 -all\"\n"
+	"two IN TXT \"abc\" \"def\"\n"
+	"bare IN TXT abc \"d e\"\tf\n"
+	"esc IN TXT \"q\\\"b\\\\s\\065\" \"\" x\\ y\n"
+	"cont IN TXT ( \"abc\" ; one\n"
+	"		\"d e f\" ) ; two\n";
+
+/* each TXT RR above, and its rdata on the wire */
+#define W(_s) _s, sizeof(_s) - 1
+static const struct {
+	const char	*name;
+	const char	*wire;
+	size_t		len;
+} txt_good[] = {
+	{ "*.wild.names.example.",	W("\x04" "wild") },
+	{ "t.names.example.",		W("\x17" "semi;colon (and parens)") },
+	{ "spf.names.example.",		W("\x1b" "v=spf1 a ip4:192.0.2.4 -all") },
+	{ "two.names.example.",		W("\x03" "abc" "\x03" "def") },
+	{ "bare.names.example.",	W("\x03" "abc" "\x03" "d e" "\x01" "f") },
+	{ "esc.names.example.",		W("\x06" "q\"b\\sA" "\x00" "\x03" "x y") },
+	{ "cont.names.example.",	W("\x03" "abc" "\x05" "d e f") },
+};
 
 /* *.wild.names.example. on the wire */
 static const uint8_t wild_wire[] = {
@@ -114,6 +143,14 @@ static const struct {
 	{ "a\\25 IN A 192.0.2.30\n",		"\\DDD of two digits" },
 	{ "a\\256 IN A 192.0.2.30\n",		"\\DDD over 255" },
 	{ "w IN NS a\\.b.names.example.\n",	"escape in rdata" },
+	{ "t IN TXT\n",				"TXT with no string" },
+	{ "t IN TXT \"abc\n",			"TXT quote not closed" },
+	{ "t IN TXT \"ab\\\"\n",			"TXT quote escaped, not closed" },
+	{ "t IN TXT \"a\"b\n",			"TXT junk after closing quote" },
+	{ "t IN TXT a\"b\"\n",			"TXT quote inside a string" },
+	{ "t IN TXT \"\\256\"\n",			"TXT \\DDD over 255" },
+	{ "t IN TXT \"\\12\"\n",			"TXT \\DDD of two digits" },
+	{ "t IN TXT abc\\\n",			"TXT escape at the end" },
 	{ "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		" IN A 192.0.2.30\n",		"64-byte label" },
 	{ "$INCLUDE other.zone\n",		"unsupported directive" },
@@ -214,10 +251,16 @@ test_good(void)
 	expect(!!find(&ce->zone, "x-y.names.example.", 1),
 	       "x\\-y read as x-y");
 
-	rr = first_rr(find(&ce->zone, "t.names.example.", 16));
-	expect(rr && rr->rdata &&
-	       !strcmp(rr->rdata, "semi;colon (and parens)"),
-	       "';' and parentheses inside quotes are text");
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(txt_good); n++) {
+		char what[96];
+
+		rr = first_rr(find(&ce->zone, txt_good[n].name, 16));
+		lws_snprintf(what, sizeof(what), "TXT %s character-strings",
+			     txt_good[n].name);
+		expect(rr && rr->wire_rdata_len == txt_good[n].len &&
+		       !memcmp(rr->wire_rdata, txt_good[n].wire,
+			       txt_good[n].len), what);
+	}
 
 	rr = first_rr(find(&ce->zone, "w.names.example.", 2));
 	expect(rr && rr->wire_rdata_len == sizeof(wild_wire) &&
@@ -291,6 +334,45 @@ test_bad(void)
 	}
 }
 
+/* the wire holds a TXT string of up to 255 bytes, and there is no more */
+
+static void
+test_txt_long(void)
+{
+	struct auth_dns_zone z;
+	struct auth_dns_rr *rr;
+	char line[600], s[260];
+	int r;
+
+	/* 255 bytes, the first written as the escape \097 for 'a' */
+	memcpy(s, "\\097", 4);
+	memset(s + 4, 'a', 254);
+	s[258] = '\0';
+
+	lws_snprintf(line, sizeof(line), "t IN TXT \"%s\" b\n", s);
+	r = parse(&z, line);
+	rr = r ? NULL : first_rr(find(&z, "t.names.example.", 16));
+	expect(rr && rr->wire_rdata_len == 1 + 255 + 1 + 1 &&
+	       rr->wire_rdata[0] == 255 && rr->wire_rdata[1] == 'a' &&
+	       rr->wire_rdata[256] == 1 && rr->wire_rdata[257] == 'b',
+	       "TXT string of 255 bytes kept whole");
+	lws_auth_dns_free_zone(&z);
+
+	/* and one more byte, quoted or not */
+	s[258] = 'a';
+	s[259] = '\0';
+
+	lws_snprintf(line, sizeof(line), "t IN TXT \"%s\"\n", s);
+	r = parse(&z, line);
+	lws_auth_dns_free_zone(&z);
+	expect(r != 0, "TXT string of 256 bytes refused, not cut");
+
+	lws_snprintf(line, sizeof(line), "t IN TXT %s\n", s);
+	r = parse(&z, line);
+	lws_auth_dns_free_zone(&z);
+	expect(r != 0, "unquoted TXT string of 256 bytes refused, not cut");
+}
+
 static void
 test_name_to_wire(void)
 {
@@ -331,6 +413,7 @@ main(int argc, const char **argv)
 
 	test_good();
 	test_bad();
+	test_txt_long();
 	test_name_to_wire();
 
 	lwsl_user("Completed: %s\n", fails ? "FAIL" : "PASS");

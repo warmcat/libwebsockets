@@ -273,6 +273,105 @@ hex_to_wire(const char *hex, uint8_t *w, size_t len)
 }
 
 /*
+ * Read the <character-string>s (RFC 1035 3.3, 5.1) that make up TXT rdata
+ * into their wire form, each a length byte and then its bytes.
+ *
+ * A string is either a run of characters up to unquoted whitespace, or all
+ * of what is between a pair of '"', whitespace included and the quotes not.
+ * Unquoted whitespace only separates strings, so "v=spf1 a -all" is one
+ * string and "a" "b" two.  In either form \DDD is the byte with that decimal
+ * value and \X is X itself, so \" and \\ are a quote and a backslash.
+ *
+ * A string the wire cannot hold (over 255 bytes) is refused rather than cut
+ * or split, which would change what the record says, as is a quote that is
+ * never closed, a quote inside an unquoted string or a closing quote with
+ * something other than whitespace right after it, and rdata with no string
+ * in it at all: either one is a zone that does not say what its author
+ * meant, and we can't guess.
+ *
+ * The line gatherer has already turned unquoted parentheses into whitespace
+ * and dropped comments, so the strings may have come from several lines.
+ */
+
+static int
+txt_to_wire(const char *p, uint8_t *w, size_t wmax, size_t *wl)
+{
+	size_t l = 0;
+
+	*wl = 0;
+
+	while (1) {
+		uint8_t *lb;
+		int quoted;
+
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (!*p)
+			break;
+
+		if (l + 1 > wmax)
+			return 1;
+		lb = &w[l++];
+		*lb = 0;
+
+		quoted = *p == '"';
+		if (quoted)
+			p++;
+
+		while (*p) {
+			unsigned int c = (unsigned char)*p++;
+
+			if (quoted && c == '"') {
+				quoted = -1; /* closed */
+				break;
+			}
+			if (!quoted && (c == ' ' || c == '\t')) {
+				p--;
+				break;
+			}
+			if (!quoted && c == '"')
+				return 1;
+
+			if (c == '\\') {
+				if (!*p)
+					return 1;
+				if (*p >= '0' && *p <= '9') {
+					if (p[1] < '0' || p[1] > '9' ||
+					    p[2] < '0' || p[2] > '9')
+						return 1;
+					c = (unsigned int)((p[0] - '0') * 100 +
+							   (p[1] - '0') * 10 +
+							   (p[2] - '0'));
+					if (c > 255)
+						return 1;
+					p += 3;
+				} else
+					c = (unsigned char)*p++;
+			}
+
+			if (*lb == 255 || l + 1 > wmax)
+				return 1;
+			w[l++] = (uint8_t)c;
+			(*lb)++;
+		}
+
+		/* still open at the end of the rdata */
+		if (quoted == 1)
+			return 1;
+		/* "a"b is neither one string nor two */
+		if (quoted == -1 && *p && *p != ' ' && *p != '\t')
+			return 1;
+	}
+
+	if (!l)
+		return 1;
+
+	*wl = l;
+
+	return 0;
+}
+
+/*
  * LOC (RFC 1876) helpers
  *
  * The presentation format spells an angle as up to three numeric tokens
@@ -433,6 +532,22 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	w = sc->w;
 	toks = sc->toks;
 
+	/* the generic RFC 3597 representation starts with \# */
+	const char *rd_start = rr->rdata;
+	while (*rd_start == ' ' || *rd_start == '\t') rd_start++;
+	int generic = rd_start[0] == '\\' && rd_start[1] == '#';
+
+	/*
+	 * TXT is character-strings, whose quoting and escapes the tokenizer
+	 * below does not follow: it has its own reader
+	 */
+	if (type == 16 && !generic) {
+		if (txt_to_wire(rd_start, w, sizeof(sc->w), &wl))
+			goto fail_malformed;
+
+		goto done;
+	}
+
 	lws_tokenize_t ts;
 	lws_tokenize_elem e;
 	int num_toks = 0, n;
@@ -481,16 +596,13 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		}
 	} while (e > 0);
 
-	/* Check for generic RFC 3597 representation: starts with \# */
-	const char *rd_start = rr->rdata;
-	while (*rd_start == ' ' || *rd_start == '\t') rd_start++;
-	if (rd_start[0] == '\\' && rd_start[1] == '#')
+	if (generic)
 		escapes--;
 	if (escapes) {
 		lwsl_err("%s: escapes in rdata are not supported\n", __func__);
 		goto fail_malformed;
 	}
-	if (rd_start[0] == '\\' && rd_start[1] == '#') {
+	if (generic) {
 		if (num_toks < 2) goto fail;
 		int gen_len = atoi(toks[0]);
 		if (gen_len < 0 || gen_len > 65535) goto fail;
@@ -610,16 +722,6 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			w[wl++] = (uint8_t)(val >> 16);
 			w[wl++] = (uint8_t)(val >> 8);
 			w[wl++] = (uint8_t)(val & 0xff);
-		}
-	} else if (type == 16) { // TXT
-		/* TXT strings are grouped as 1-byte length prefix + string payload */
-		for (int i = 0; i < num_toks && i < 16; i++) {
-			n = (int)strlen(toks[i]);
-			if (n > 255) n = 255;
-			WCHK(1 + (size_t)n);
-			w[wl++] = (uint8_t)n;
-			memcpy(w + wl, toks[i], (size_t)n);
-			wl += (size_t)n;
 		}
 	} else if (type == 52 && num_toks >= 4) { // TLSA
 		WCHK(3);
