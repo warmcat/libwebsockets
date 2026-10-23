@@ -332,6 +332,18 @@ if (requirements)
 		list(APPEND mytests lwsws-oauth-limits)
 
 		#
+		# (d1d) one logged-in account asking for codes and refresh
+		# sessions without end: the auth server keeps a bounded number
+		# per account and sweeps expired ones, also with no request to
+		# trigger it.  It reads the rows straight out of the db.  Once
+		# only, over h1: it waits for a sweep.
+		#
+		add_test(NAME lwsws-oauth-rows
+			 COMMAND ${SAMP} -t rows --h1 ${ARGS_COMMON}
+				 --db ${OAUTH_AUTH_DB})
+		list(APPEND mytests lwsws-oauth-rows)
+
+		#
 		# (d2) the mailed registration link: a GET only asks for
 		# confirmation, the page's POST creates the account and shows
 		# the second factor once, and the QR image of the seed needs

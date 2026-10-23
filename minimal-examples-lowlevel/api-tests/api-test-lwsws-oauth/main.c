@@ -57,6 +57,11 @@
  *          authenticator code still costs the host a strike, which a
  *          completed second step from the same host gives back.
  *
+ *  rows:  one logged-in account asks for far more authorization codes and
+ *          refresh sessions than the auth server keeps for an account: it
+ *          keeps only the newest of each, reaps the account's expired rows
+ *          as it issues more, and sweeps everyone's expired rows on a timer.
+ *
  *  verify: the mailed registration link.  A GET of it, as a mail scanner
  *          makes, only asks for confirmation; the TOTP seed and backup codes
  *          come from the POST that page makes with the csrf double
@@ -134,6 +139,15 @@ static int send_host_hdr;
 static const char * const seed_backup_codes[] = {
 	"314159", "271828", "161803", "141421", "173205"
 };
+/*
+ * a password-only account the rows scenario logs in to and then asks for
+ * codes and refresh sessions far beyond what the auth server keeps for one
+ * account
+ */
+#define SEED_USER_ROWS		"apitest-rows-user"
+#define SEED_UID_ROWS		7
+/* a uid no account has, whose expired rows only the periodic sweep can reap */
+#define SEED_UID_GHOST		99
 /* holds the '*' grant, for the admin console: only adminws uses it */
 #define SEED_USER_ADMIN		"apitest-admin"
 #define SEED_UID_ADMIN		3
@@ -1086,6 +1100,14 @@ scenario_seed(void)
 		     "totp_last) VALUES (%d, '%s', '%s', '%s', '%s', 0, 0)",
 		     SEED_UID_2FA, SEED_USER_2FA, hex, SEED_SALT,
 		     SEED_TOTP_SECRET);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (%d, '%s', '%s', '%s', '', 0, 0)",
+		     SEED_UID_ROWS, SEED_USER_ROWS, hex, SEED_SALT);
 	if (seed_exec(db, sql))
 		goto bail;
 
@@ -2638,6 +2660,229 @@ scenario_limits(void)
 	return 0;
 }
 
+/*
+ * rows: what one logged-in account can make the auth server store (G-651).
+ *
+ * Every /api/authorize by a session holder issues a code, and every /api/token
+ * mints a refresh session living refresh-validity-secs.  However many it asks
+ * for, the auth server keeps at most a fixed number of either per account,
+ * the oldest giving way to the newest, and it reaps expired rows: an
+ * account's own as it issues more, and everyone's on a timer even when no
+ * request comes.  The limits here are the plugin's AUTH_CODES_PER_UID and
+ * AUTH_SESSIONS_PER_UID.
+ */
+
+#define ROWS_CODES_PER_UID		16
+#define ROWS_SESSIONS_PER_UID		64
+/* the plugin sweeps every 30 s: give it that and a margin */
+#define ROWS_SWEEP_WAIT_S		45
+/* PKCE "plain": the verifier is the challenge */
+#define ROWS_PKCE			"apitest-rows-pkce-verifier-0123456789abcdef"
+
+static int
+rows_count(sqlite3 *db, const char *table, int uid, int expired)
+{
+	sqlite3_stmt *stmt;
+	char sql[160];
+	int n = -1;
+
+	lws_snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM %s WHERE "
+		     "uid = %d%s", table, uid, expired ?
+					" AND expires <= strftime('%s','now')" :
+					"");
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+		lwsl_err("%s: %s\n", __func__, sqlite3_errmsg(db));
+
+		return -1;
+	}
+	if (sqlite3_step(stmt) == SQLITE_ROW)
+		n = sqlite3_column_int(stmt, 0);
+	sqlite3_finalize(stmt);
+
+	return n;
+}
+
+/* expired rows for uid in both tables, as if left by an earlier run */
+static int
+rows_plant_expired(sqlite3 *db, int uid)
+{
+	char sql[512];
+	int n;
+
+	for (n = 0; n < 4; n++) {
+		lws_snprintf(sql, sizeof(sql), "INSERT OR REPLACE INTO "
+			     "oauth_codes(code, client_id, uid, redirect_uri, "
+			     "expires, code_challenge, code_challenge_method) "
+			     "VALUES ('apitest-expired-%d-%d', '%s', %d, '', "
+			     "1, '', '')", uid, n, client_id, uid);
+		if (seed_exec(db, sql))
+			return 1;
+		lws_snprintf(sql, sizeof(sql), "INSERT OR REPLACE INTO "
+			     "auth_sessions(session_id, uid, expires) VALUES "
+			     "('apitest-expired-%d-%d', %d, 1)", uid, n, uid);
+		if (seed_exec(db, sql))
+			return 1;
+	}
+
+	return 0;
+}
+
+/* one /api/authorize as the logged-in account, for the code it issues */
+static int
+rows_authorize(const char *enc_ruri, char *code, size_t code_len)
+{
+	char p[1024];
+
+	lws_snprintf(p, sizeof(p), "/api/authorize?client_id=%s&redirect_uri="
+		     "%s&response_type=code&state=rows&code_challenge=%s"
+		     "&code_challenge_method=plain", client_id, enc_ruri,
+		     ROWS_PKCE);
+
+	if (req_full(JAR_AUTH, port_auth, p, NULL) || status != 302 ||
+	    url_arg(loc, "code", code, code_len) || !code[0])
+		return fail("rows", "/api/authorize answered %u, wanted a 302 "
+			    "carrying a code: '%s'", status, loc);
+
+	return 0;
+}
+
+static int
+scenario_rows(void)
+{
+	char csrf[128], b[1024], ruri[256], enc_ruri[512], code[128];
+	sqlite3 *db = NULL;
+	lws_usec_t deadline;
+	int n, r = 1;
+
+	if (!db_path)
+		return fail("rows", "--db is required");
+
+	if (sqlite3_open_v2(db_path, &db, SQLITE_OPEN_READWRITE, NULL) !=
+								SQLITE_OK) {
+		fail("rows", "unable to open %s: %s", db_path,
+		     sqlite3_errmsg(db));
+		goto bail;
+	}
+	sqlite3_busy_timeout(db, SEED_BUSY_TIMEOUT_MS);
+
+	/* the BFF's registered callback, the one with the app port */
+	lws_snprintf(ruri, sizeof(ruri), "https://%s:%d/oauth/callback",
+		     server, port_app);
+	lws_urlencode(enc_ruri, ruri, (int)sizeof(enc_ruri));
+
+	/* (1) log in on the auth server itself, for its auth_session */
+
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 ||
+	    json_str(body, "csrf_token", csrf, sizeof(csrf)) || !csrf[0]) {
+		fail("rows", "/api/status answered %u with no csrf", status);
+		goto bail;
+	}
+
+	lws_snprintf(b, sizeof(b), "username=%s&password=%s&csrf_token=%s",
+		     SEED_USER_ROWS, SEED_PASSWORD, csrf);
+	if (req_full(JAR_AUTH, port_auth, "/api/login", b) || status != 200 ||
+	    !jar_value(JAR_AUTH, "auth_session")) {
+		fail("rows", "/api/login as %s answered %u: '%s'",
+		     SEED_USER_ROWS, status, body);
+		goto bail;
+	}
+
+	/*
+	 * (2) expired rows for the account, which it reaps as it is issued
+	 * more, and for a uid no request will come for, which only the
+	 * periodic sweep can reap
+	 */
+
+	if (rows_plant_expired(db, SEED_UID_ROWS) ||
+	    rows_plant_expired(db, SEED_UID_GHOST))
+		goto bail;
+
+	/* (3) three times as many codes as are kept: only the newest stay */
+
+	for (n = 0; n < 3 * ROWS_CODES_PER_UID; n++)
+		if (rows_authorize(enc_ruri, code, sizeof(code)))
+			goto bail;
+
+	n = rows_count(db, "oauth_codes", SEED_UID_ROWS, 0);
+	if (n != ROWS_CODES_PER_UID) {
+		fail("rows", "after %d codes the account holds %d, wanted %d",
+		     3 * ROWS_CODES_PER_UID, n, ROWS_CODES_PER_UID);
+		goto bail;
+	}
+	n = rows_count(db, "oauth_codes", SEED_UID_ROWS, 1);
+	if (n) {
+		fail("rows", "the account still holds %d expired codes", n);
+		goto bail;
+	}
+
+	/*
+	 * (4) and every code redeemed for a refresh session, more than are
+	 * kept: the newest code always redeems, and only the newest refresh
+	 * sessions stay
+	 */
+
+	for (n = 0; n < ROWS_SESSIONS_PER_UID + 8; n++) {
+		if (rows_authorize(enc_ruri, code, sizeof(code)))
+			goto bail;
+
+		lws_snprintf(b, sizeof(b), "grant_type=authorization_code"
+			     "&code=%s&client_id=%s&redirect_uri=%s"
+			     "&code_verifier=%s", code, client_id, enc_ruri,
+			     ROWS_PKCE);
+		if (req_full(JAR_DEVICE, port_auth, "/api/token", b) ||
+		    status != 200 || !strstr(body, "\"refresh_token\"")) {
+			fail("rows", "/api/token %d answered %u, wanted 200 "
+			     "with a refresh_token: '%s'", n, status, body);
+			goto bail;
+		}
+	}
+
+	n = rows_count(db, "auth_sessions", SEED_UID_ROWS, 0);
+	if (n != ROWS_SESSIONS_PER_UID) {
+		fail("rows", "after %d refresh sessions the account holds %d, "
+		     "wanted %d", ROWS_SESSIONS_PER_UID + 8, n,
+		     ROWS_SESSIONS_PER_UID);
+		goto bail;
+	}
+	n = rows_count(db, "auth_sessions", SEED_UID_ROWS, 1);
+	if (n) {
+		fail("rows", "the account still holds %d expired refresh "
+		     "sessions", n);
+		goto bail;
+	}
+
+	/* (5) the periodic sweep reaps what no request came for */
+
+	deadline = lws_now_usecs() + (ROWS_SWEEP_WAIT_S * LWS_US_PER_SEC);
+	do {
+		int c = rows_count(db, "oauth_codes", SEED_UID_GHOST, 0),
+		    s = rows_count(db, "auth_sessions", SEED_UID_GHOST, 0);
+
+		n = c < 0 || s < 0 ? -1 : c + s;
+		if (!n)
+			break;
+		sqlite3_sleep(500);
+	} while (lws_now_usecs() < deadline);
+
+	if (n) {
+		fail("rows", "%ds on, %d expired rows of uid %d are still "
+		     "there", ROWS_SWEEP_WAIT_S, n, SEED_UID_GHOST);
+		goto bail;
+	}
+
+	lwsl_user("PASS: rows: one account's codes and refresh sessions stay "
+		  "at %d and %d, and expired rows are swept\n",
+		  ROWS_CODES_PER_UID, ROWS_SESSIONS_PER_UID);
+
+	r = 0;
+
+bail:
+	sqlite3_close(db);
+
+	return r;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -2726,6 +2971,8 @@ main(int argc, const char **argv)
 		bad = scenario_xff();
 	else if (!strcmp(test, "limits"))
 		bad = scenario_limits();
+	else if (!strcmp(test, "rows"))
+		bad = scenario_rows();
 	else if (!strcmp(test, "uninit")) {
 		if (!port_uninit || !port_failinit) {
 			lwsl_err("%s: uninit needs --uninit-port and "

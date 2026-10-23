@@ -233,6 +233,8 @@ struct per_vhost_data__auth_server {
 	char				feed_secret[LWS_AUTH_FEED_SECRET_MAX + 1];
 	struct auth_feed_snap		*feed_snap;
 	lws_sorted_usec_list_t		sul_feed;
+	/* reaps expired rows, see auth_sweep_expired() */
+	lws_sorted_usec_list_t		sul_sweep;
 	int				feed_changes;
 	int				feed_data_version;
 };
@@ -370,11 +372,17 @@ static const char *schema_init =
 	"  code_challenge VARCHAR,"
 	"  code_challenge_method VARCHAR"
 	");"
+	"CREATE INDEX IF NOT EXISTS oauth_codes_uid ON oauth_codes(uid, expires);"
+	"CREATE INDEX IF NOT EXISTS oauth_codes_expires ON oauth_codes(expires);"
 	"CREATE TABLE IF NOT EXISTS auth_sessions ("
 	"  session_id VARCHAR PRIMARY KEY,"
 	"  uid INTEGER REFERENCES users(uid),"
 	"  expires INTEGER"
 	");"
+	"CREATE INDEX IF NOT EXISTS auth_sessions_uid ON "
+						"auth_sessions(uid, expires);"
+	"CREATE INDEX IF NOT EXISTS auth_sessions_expires ON "
+						"auth_sessions(expires);"
 	"CREATE TABLE IF NOT EXISTS auth_log ("
 	"  uid INTEGER REFERENCES users(uid),"
 	"  issue_time INTEGER,"
@@ -3013,6 +3021,240 @@ send:
 }
 
 /*
+ * Rows a logged-in account adds with its requests (G-651).
+ *
+ * Every /api/authorize by a session holder, and every delegate login, issues
+ * an oauth_codes row living AUTH_CODE_VALIDITY_SECS, and every /api/token and
+ * login mints an auth_sessions row living refresh-validity-secs.  Nothing
+ * else limits how many one account can ask for, so it keeps at most
+ * AUTH_CODES_PER_UID codes and AUTH_SESSIONS_PER_UID refresh sessions: its
+ * expired rows go first, and then issuing one more evicts its oldest (the
+ * soonest to expire).  So the newest always works, and what is evicted is
+ * the code of a login abandoned some time ago, or the refresh session of the
+ * device that logged in longest ago.
+ *
+ * Expired rows of every account are also swept every
+ * AUTH_SWEEP_INTERVAL_SECS, which is all that reaps them for an account that
+ * makes no more requests.  No one pass deletes more than AUTH_SWEEP_ROWS rows
+ * from a table, since it runs on the event loop: when one does, the next pass
+ * comes a second later instead.
+ */
+#define AUTH_CODE_VALIDITY_SECS		60
+#define AUTH_CODES_PER_UID		16
+#define AUTH_SESSIONS_PER_UID		64
+#define AUTH_SWEEP_INTERVAL_SECS	30
+#define AUTH_SWEEP_ROWS			256
+
+typedef struct auth_uid_rows {
+	const char			*expired; /* ?1 uid, ?2 now, ?3 limit */
+	const char			*count;   /* ?1 uid */
+	const char			*oldest;  /* ?1 uid, ?2 limit */
+	int				max;
+} auth_uid_rows_t;
+
+static const auth_uid_rows_t auth_codes_rows = {
+	"DELETE FROM oauth_codes WHERE rowid IN (SELECT rowid FROM "
+		"oauth_codes WHERE uid = ?1 AND expires <= ?2 LIMIT ?3)",
+	"SELECT COUNT(*) FROM oauth_codes WHERE uid = ?1",
+	"DELETE FROM oauth_codes WHERE rowid IN (SELECT rowid FROM "
+		"oauth_codes WHERE uid = ?1 ORDER BY expires, rowid LIMIT ?2)",
+	AUTH_CODES_PER_UID
+}, auth_sessions_rows = {
+	"DELETE FROM auth_sessions WHERE rowid IN (SELECT rowid FROM "
+		"auth_sessions WHERE uid = ?1 AND expires <= ?2 LIMIT ?3)",
+	"SELECT COUNT(*) FROM auth_sessions WHERE uid = ?1",
+	"DELETE FROM auth_sessions WHERE rowid IN (SELECT rowid FROM "
+		"auth_sessions WHERE uid = ?1 ORDER BY expires, rowid "
+		"LIMIT ?2)",
+	AUTH_SESSIONS_PER_UID
+};
+
+/* every table whose rows carry an expiry: ?1 now, ?2 limit (-1: none) */
+static const char * const auth_sweep_sql[] = {
+	"DELETE FROM oauth_codes WHERE rowid IN (SELECT rowid FROM "
+		"oauth_codes WHERE expires <= ?1 LIMIT ?2)",
+	"DELETE FROM auth_sessions WHERE rowid IN (SELECT rowid FROM "
+		"auth_sessions WHERE expires <= ?1 LIMIT ?2)",
+	"DELETE FROM device_codes WHERE rowid IN (SELECT rowid FROM "
+		"device_codes WHERE expires <= ?1 LIMIT ?2)",
+	"DELETE FROM password_recovery WHERE rowid IN (SELECT rowid FROM "
+		"password_recovery WHERE expires <= ?1 LIMIT ?2)",
+	"DELETE FROM registrations WHERE rowid IN (SELECT rowid FROM "
+		"registrations WHERE expires <= ?1 LIMIT ?2)",
+};
+
+/*
+ * Run sql with the integers in args bound to its parameters in order.  For a
+ * statement returning a row, returns its first column; otherwise the number
+ * of rows it changed.  -1 on failure.
+ */
+static int
+auth_db_run(sqlite3 *db, const char *sql, int nargs, const sqlite_int64 *args)
+{
+	sqlite3_stmt *stmt;
+	int n, rc;
+
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+		return -1;
+
+	for (n = 0; n < nargs; n++)
+		sqlite3_bind_int64(stmt, n + 1, args[n]);
+
+	rc = sqlite3_step(stmt);
+	if (rc == SQLITE_ROW)
+		n = sqlite3_column_int(stmt, 0);
+	else
+		n = rc == SQLITE_DONE ? sqlite3_changes(db) : -1;
+	sqlite3_finalize(stmt);
+
+	return n;
+}
+
+/*
+ * One write transaction for the reaping and the insert of a request, so it
+ * costs one commit and not one per statement
+ */
+static int
+auth_db_begin(struct per_vhost_data__auth_server *vhd)
+{
+	if (sqlite3_exec(vhd->db, "BEGIN IMMEDIATE", NULL, NULL, NULL) ==
+								SQLITE_OK)
+		return 0;
+
+	lwsl_vhost_err(vhd->vhost, "%s: %s", __func__, sqlite3_errmsg(vhd->db));
+
+	return 1;
+}
+
+static int
+auth_db_end(struct per_vhost_data__auth_server *vhd, int ok)
+{
+	if (ok && sqlite3_exec(vhd->db, "COMMIT", NULL, NULL, NULL) ==
+								SQLITE_OK)
+		return 0;
+
+	if (ok)
+		lwsl_vhost_err(vhd->vhost, "%s: %s", __func__,
+			       sqlite3_errmsg(vhd->db));
+	sqlite3_exec(vhd->db, "ROLLBACK", NULL, NULL, NULL);
+
+	return 1;
+}
+
+/*
+ * Inside a transaction, before uid gets one more row: reap its expired rows,
+ * and if it still holds t->max or more, evict its oldest
+ */
+static int
+auth_uid_make_room(struct per_vhost_data__auth_server *vhd,
+		   const auth_uid_rows_t *t, uint32_t uid)
+{
+	sqlite_int64 a[3] = { (sqlite_int64)uid, (sqlite_int64)time(NULL),
+			      AUTH_SWEEP_ROWS };
+	int held;
+
+	if (auth_db_run(vhd->db, t->expired, 3, a) < 0)
+		return 1;
+
+	held = auth_db_run(vhd->db, t->count, 1, a);
+	if (held < 0)
+		return 1;
+
+	if (held < t->max)
+		return 0;
+
+	/*
+	 * Normally exactly one.  A database grown before there was a limit
+	 * comes down to it a pass at a time
+	 */
+	held = held - t->max + 1;
+	a[1] = held < AUTH_SWEEP_ROWS ? held : AUTH_SWEEP_ROWS;
+
+	return auth_db_run(vhd->db, t->oldest, 2, a) < 0;
+}
+
+/*
+ * Issue an authorization code for uid, as /api/authorize and the delegate
+ * login do, into code_out (>= 65 chars).  Returns 0 if it was stored.
+ */
+static int
+auth_code_issue(struct per_vhost_data__auth_server *vhd, uint32_t uid,
+		const char *client_id, const char *redirect_uri,
+		const char *code_challenge, const char *code_challenge_method,
+		char *code_out)
+{
+	sqlite3_stmt *stmt;
+	uint8_t rnd[32];
+	int ok = 0;
+
+	lws_get_random(vhd->context, rnd, sizeof(rnd));
+	lws_hex_from_byte_array(rnd, sizeof(rnd), code_out, 65);
+
+	if (auth_db_begin(vhd))
+		return 1;
+
+	if (!auth_uid_make_room(vhd, &auth_codes_rows, uid) &&
+	    sqlite3_prepare_v2(vhd->db, "INSERT INTO oauth_codes (code, "
+			       "client_id, uid, redirect_uri, expires, "
+			       "code_challenge, code_challenge_method) "
+			       "VALUES (?, ?, ?, ?, ?, ?, ?)", -1, &stmt,
+			       NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, code_out, -1, SQLITE_STATIC);
+		sqlite3_bind_text(stmt, 2, client_id, -1, SQLITE_STATIC);
+		sqlite3_bind_int(stmt, 3, (int)uid);
+		sqlite3_bind_text(stmt, 4, redirect_uri, -1, SQLITE_STATIC);
+		sqlite3_bind_int64(stmt, 5, (sqlite_int64)time(NULL) +
+					    AUTH_CODE_VALIDITY_SECS);
+		sqlite3_bind_text(stmt, 6, code_challenge ? code_challenge : "",
+				  -1, SQLITE_STATIC);
+		sqlite3_bind_text(stmt, 7, code_challenge_method ?
+					   code_challenge_method : "", -1,
+				  SQLITE_STATIC);
+		ok = sqlite3_step(stmt) == SQLITE_DONE;
+		sqlite3_finalize(stmt);
+	}
+
+	return auth_db_end(vhd, ok);
+}
+
+/*
+ * Reap expired rows from every table that has them, at most limit (-1: all)
+ * from each.  Returns 1 if a table may have more.
+ */
+static int
+auth_sweep_expired(struct per_vhost_data__auth_server *vhd, sqlite_int64 limit)
+{
+	sqlite_int64 a[2] = { (sqlite_int64)time(NULL), limit };
+	int more = 0, n;
+	size_t t;
+
+	if (auth_db_begin(vhd))
+		return 0;
+
+	for (t = 0; t < LWS_ARRAY_SIZE(auth_sweep_sql); t++) {
+		n = auth_db_run(vhd->db, auth_sweep_sql[t], 2, a);
+		if (limit > 0 && n >= limit)
+			more = 1;
+	}
+
+	auth_db_end(vhd, 1);
+
+	return more;
+}
+
+static void
+auth_sweep_cb(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__auth_server *vhd = lws_container_of(sul,
+			struct per_vhost_data__auth_server, sul_sweep);
+	int more = auth_sweep_expired(vhd, AUTH_SWEEP_ROWS);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_sweep, auth_sweep_cb,
+			 more ? LWS_US_PER_SEC :
+				AUTH_SWEEP_INTERVAL_SECS * LWS_US_PER_SEC);
+}
+
+/*
  * Mint a fresh long-term refresh session for `uid`: generate a random code,
  * insert an `auth_sessions` row expiring at now + refresh_token_validity_secs,
  * and return the raw code in refresh_code_out (caller-owned buffer, >=65 chars)
@@ -3021,6 +3263,9 @@ send:
  * into it (used by the native/direct login path, which sets the cookie on the
  * auth server's own host); the delegate path passes NULL and sets the cookie
  * itself on the app host.
+ *
+ * The account keeps at most AUTH_SESSIONS_PER_UID of them: minting one more
+ * ends its oldest.
  *
  * Returns 1 on success (code minted), 0 if refresh is disabled
  * (refresh_token_validity_secs == 0) or the DB insert failed.
@@ -3032,6 +3277,7 @@ lws_auth_mint_refresh(struct per_vhost_data__auth_server *vhd, uint32_t uid,
 	sqlite3_stmt *stmt;
 	uint8_t r_rnd[32];
 	uint64_t r_exp;
+	int ok = 0;
 
 	if (vhd->refresh_token_validity_secs == 0)
 		return 0;
@@ -3040,18 +3286,22 @@ lws_auth_mint_refresh(struct per_vhost_data__auth_server *vhd, uint32_t uid,
 	lws_get_random(vhd->context, r_rnd, 32);
 	lws_hex_from_byte_array(r_rnd, 32, refresh_code_out, 65);
 
-	if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_sessions "
+	if (auth_db_begin(vhd))
+		return 0;
+
+	if (!auth_uid_make_room(vhd, &auth_sessions_rows, uid) &&
+	    sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_sessions "
 			       "(session_id, uid, expires) VALUES (?, ?, ?)",
-			       -1, &stmt, NULL) != SQLITE_OK)
-		return 0;
-	sqlite3_bind_text(stmt, 1, refresh_code_out, -1, SQLITE_STATIC);
-	sqlite3_bind_int(stmt, 2, (int)uid);
-	sqlite3_bind_int64(stmt, 3, (sqlite_int64)r_exp);
-	if (sqlite3_step(stmt) != SQLITE_DONE) {
+			       -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, refresh_code_out, -1, SQLITE_STATIC);
+		sqlite3_bind_int(stmt, 2, (int)uid);
+		sqlite3_bind_int64(stmt, 3, (sqlite_int64)r_exp);
+		ok = sqlite3_step(stmt) == SQLITE_DONE;
 		sqlite3_finalize(stmt);
-		return 0;
 	}
-	sqlite3_finalize(stmt);
+
+	if (auth_db_end(vhd, ok))
+		return 0;
 
 	if (refresh_hdr_out &&
 	    lws_http_cookie_compose(refresh_hdr_out, LWS_SSO_MAX_COOKIE,
@@ -3346,23 +3596,16 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			goto send;
 		}
 
-		uint8_t c_rnd[32];
 		char code[65];
-		uint64_t now = (uint64_t)time(NULL);
-		uint64_t c_expires = now + 60;
-		lws_get_random(vhd->context, c_rnd, 32);
-		lws_hex_from_byte_array(c_rnd, 32, code, 65);
 
-		if (sqlite3_prepare_v2(vhd->db, "INSERT INTO oauth_codes (code, client_id, uid, redirect_uri, expires, code_challenge, code_challenge_method) VALUES (?, ?, ?, ?, ?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
-			sqlite3_bind_text(stmt, 1, code, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 2, client_id, -1, SQLITE_STATIC);
-			sqlite3_bind_int(stmt, 3, (int)uid);
-			sqlite3_bind_text(stmt, 4, redirect_uri, -1, SQLITE_STATIC);
-			sqlite3_bind_int64(stmt, 5, (sqlite_int64)c_expires);
-			sqlite3_bind_text(stmt, 6, code_challenge ? code_challenge : "", -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 7, code_challenge_method ? code_challenge_method : "", -1, SQLITE_STATIC);
-			sqlite3_step(stmt);
-			sqlite3_finalize(stmt);
+		if (auth_code_issue(vhd, uid, client_id, redirect_uri,
+				    code_challenge, code_challenge_method,
+				    code)) {
+			pss->http_response_code =
+					HTTP_STATUS_INTERNAL_SERVER_ERROR;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
+					   "{\"error\":\"Internal Error\"}");
+			goto send;
 		}
 
 		pss->http_response_code = HTTP_STATUS_OK;
@@ -4178,6 +4421,7 @@ static void
 auth_server_vhd_release(struct per_vhost_data__auth_server *vhd)
 {
 	lws_sul_cancel(&vhd->sul_feed);
+	lws_sul_cancel(&vhd->sul_sweep);
 	auth_feed_snap_unref(&vhd->feed_snap);
 	lws_explicit_bzero(vhd->feed_secret, sizeof(vhd->feed_secret));
 
@@ -4549,42 +4793,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_step(stmt);
 				sqlite3_finalize(stmt);
 			}
-			/* Sweeper for expired sessions and codes */
-			if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE expires <= ?", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_int64(stmt, 1, (sqlite_int64)now);
-				sqlite3_step(stmt);
-				sqlite3_finalize(stmt);
-			}
-			if (sqlite3_prepare_v2(vhd->db, "DELETE FROM oauth_codes WHERE expires <= ?", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_int64(stmt, 1, (sqlite_int64)now);
-				sqlite3_step(stmt);
-				sqlite3_finalize(stmt);
-			}
-			/*
-			 * device_codes, password_recovery and registrations
-			 * all carry an `expires` but had no sweeper at all:
-			 * only a *successful* redemption removed a row, so
-			 * everything abandoned accumulated for ever.
-			 */
-			{
-				static const char * const sweep[] = {
-					"DELETE FROM device_codes WHERE expires <= ?",
-					"DELETE FROM password_recovery WHERE expires <= ?",
-					"DELETE FROM registrations WHERE expires <= ?",
-				};
-				size_t sn;
-
-				for (sn = 0; sn < LWS_ARRAY_SIZE(sweep); sn++)
-					if (sqlite3_prepare_v2(vhd->db, sweep[sn],
-							       -1, &stmt,
-							       NULL) == SQLITE_OK) {
-						sqlite3_bind_int64(stmt, 1,
-							  (sqlite_int64)now);
-						sqlite3_step(stmt);
-						sqlite3_finalize(stmt);
-					}
-			}
 		}
+
+		/*
+		 * Everything that expired while we were not running goes now,
+		 * however much; from here the sweep is periodic and bounded
+		 */
+		auth_sweep_expired(vhd, -1);
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_sweep,
+				 auth_sweep_cb,
+				 AUTH_SWEEP_INTERVAL_SECS * LWS_US_PER_SEC);
 
 		/*
 		 * the vhost's smtp client, as its "lws-smtp-client" pvos say:
@@ -5510,23 +5728,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-			uint8_t rnd[32];
 			char code[65];
-			lws_get_random(vhd->context, rnd, 32);
-			lws_hex_from_byte_array(rnd, 32, code, 65);
 
-			uint64_t expires = (uint64_t)time(NULL) + 60;
-
-			if (sqlite3_prepare_v2(vhd->db, "INSERT INTO oauth_codes (code, client_id, uid, redirect_uri, expires, code_challenge, code_challenge_method) VALUES (?, ?, ?, ?, ?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(stmt, 1, code, -1, SQLITE_STATIC);
-				sqlite3_bind_text(stmt, 2, client_id, -1, SQLITE_STATIC);
-				sqlite3_bind_int(stmt, 3, (int)session_uid);
-				sqlite3_bind_text(stmt, 4, redirect_uri, -1, SQLITE_STATIC);
-				sqlite3_bind_int64(stmt, 5, (sqlite_int64)expires);
-				sqlite3_bind_text(stmt, 6, code_challenge, -1, SQLITE_STATIC);
-				sqlite3_bind_text(stmt, 7, code_challenge_method, -1, SQLITE_STATIC);
-				sqlite3_step(stmt);
-				sqlite3_finalize(stmt);
+			if (auth_code_issue(vhd, session_uid, client_id,
+					    redirect_uri, code_challenge,
+					    code_challenge_method, code)) {
+				lws_return_http_status(wsi,
+					HTTP_STATUS_INTERNAL_SERVER_ERROR,
+					NULL);
+				return lws_http_transaction_completed(wsi);
 			}
 
 			char loc[1024];

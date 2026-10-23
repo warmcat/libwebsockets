@@ -276,6 +276,23 @@ admin UI for that yet — do it with `sqlite3` on `db_path`.
 Either reaches the `lws-login` bouncers on other vhosts through the auth feed
 within about a second.
 
+### What one account can make the server store
+
+Every `/api/authorize` by a logged-in user (and every delegate login) issues
+an `oauth_codes` row living 60 s, and every `/api/token` and login mints an
+`auth_sessions` refresh row living `refresh-validity-secs`.  However many an
+account asks for, it keeps at most 16 codes and 64 refresh sessions: its
+expired rows are reaped first, and then issuing one more evicts its oldest
+(the soonest to expire).  So the newest always works; what gives way is the
+code of a login abandoned a while ago, or the refresh session of the device
+that logged in longest ago, which then has to log in again.  The reaping and
+the insert of one request are one transaction, so one commit.
+
+Expired rows of every table that has them (`oauth_codes`, `auth_sessions`,
+`device_codes`, `password_recovery`, `registrations`) are also swept every
+30 s, at most 256 rows per table a pass (a pass that finds more comes back a
+second later), and all of them at startup.
+
 ### Rate limiting is keyed on the client address
 
 Strikes, bans and the `auth_log` rows use the socket peer, unless the peer is
