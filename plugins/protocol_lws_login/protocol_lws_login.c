@@ -1346,7 +1346,10 @@ lws_login_unauth_upgrade(struct lws *wsi, const char *list, const char *offers,
  * Copy this request's URI (path only, args are sealed off at the '?') into
  * uri[], scanning the method tokens the same way the core's
  * lws_http_get_uri_and_method() does, so PUT / PATCH / DELETE / OPTIONS /
- * HEAD are covered too and not just GET and POST.
+ * HEAD are covered too and not just GET and POST, and so is a ws upgrade on
+ * h2 or h3: it is an extended CONNECT, whose :path lws keeps under
+ * WSI_TOKEN_CONNECT.  Missing that judged every ws-over-h2 upgrade by the
+ * vhost-wide service-name, not the one its mount's PMO names.
  *
  * Returns 0 with uri[] filled (possibly "" if the request carries no URI
  * token at all), or 1 if a URI IS present but does not fit.
@@ -1372,7 +1375,12 @@ lws_login_request_uri(struct lws *wsi, char *uri, size_t len)
 		WSI_TOKEN_PATCH_URI,
 		WSI_TOKEN_DELETE_URI,
 #endif
+		/* a ws upgrade on h2 or h3 is an extended CONNECT */
+		WSI_TOKEN_CONNECT,
 		WSI_TOKEN_HEAD_URI,
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+		WSI_TOKEN_HTTP_COLON_PATH,
+#endif
 	};
 	size_t n;
 
