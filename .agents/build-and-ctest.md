@@ -100,6 +100,11 @@
    `-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0 -DLWS_MBEDTLS_INCLUDE_DIRS=<p>/include`
    `"-DLWS_MBEDTLS_LIBRARIES=<p>/lib64/libmbedtls.so;<p>/lib64/libmbedx509.so;<p>/lib64/libmbedcrypto.so"`
    and `LD_LIBRARY_PATH` for ctest (B82).
+ - **Data races in examples or lib can be shown red/green with clang
+   `-fsanitize=thread`** (gcc has no libtsan here): build only
+   `websockets_shared` with SSL off.  The rtc_camera plugin's
+   `webcam-media.h` includes `<opus/opus.h>` unconditionally, so a
+   PLUGINS + V4L2 + TRANSCODE build fails without opus headers.
  - **The webrtc mixer can be syntax-checked without GStreamer**: stub gst
    and `opus/opus.h` (OpusDecoder / OpusEncoder typedefs) headers plus a
    copy of the build's include dir with `LWS_WITH_DTLS` and

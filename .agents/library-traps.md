@@ -8,6 +8,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Bug classes worth hunting for
 
+ - **`lws_json_simple_find()` returns a quoted value without its quotes**:
+   comparing against `"\"value\""` never matches (the webcam example did,
+   G-481).
  - **`lws_b64_encode_string()` returns -1 on overflow and leaves the output
    unterminated**: a caller that ignores the return and uses the buffer as
    a string over-reads (G-656).
