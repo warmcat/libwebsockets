@@ -67,6 +67,16 @@ struct dht_upload_job {
 #define DHT_UPLOAD_RETRY_MAX_US		(10 * 60 * LWS_US_PER_SEC)
 #endif
 
+/*
+ * A token bucket: up to burst at once, then one per refill_us on average,
+ * however long the traffic goes on.  A full one is the same as a new one.
+ */
+
+struct dht_dnssec_bucket {
+	lws_usec_t			last;
+	uint16_t			tokens;
+};
+
 struct vhd_dht_dnssec {
 	struct lws_context		*context;
 	struct lws_vhost		*vhost;
@@ -173,7 +183,7 @@ struct vhd_dht_dnssec {
 	/* the sponge, see LWS_DHT_DNSSEC_SPONGE_MAX_KB_DEF */
 	uint64_t			sponge_max_bytes; /* 0: no sponge */
 	uint64_t			sponge_bytes;	/* at the last sweep */
-	lws_usec_t			sponge_last_intake;
+	struct dht_dnssec_bucket	sponge_intake;
 	lws_sorted_usec_list_t		sul_sponge;
 	uint8_t				sponge_min_free_pct;
 	uint8_t				sponge_full;	/* no room at the last sweep */
@@ -243,24 +253,57 @@ struct notify_deferred {
 	uint8_t			serial[8];
 };
 
-static const uint32_t bo_notify_ms[] = {
-	0, 0, 0, 0, 0, 1000, 2000, 3000, 5000, 9000, 12000, 18000, 30000
-};
+static void
+dht_dnssec_bucket_init(struct dht_dnssec_bucket *b, unsigned int burst)
+{
+	b->last = lws_now_usecs();
+	b->tokens = (uint16_t)burst;
+}
 
-static const lws_retry_bo_t retry_notify = {
-	.retry_ms_table = bo_notify_ms,
-	.retry_ms_table_count = LWS_ARRAY_SIZE(bo_notify_ms),
-	.conceal_count = LWS_RETRY_CONCEAL_ALWAYS,
-	.secs_since_valid_ping = 0,
-	.secs_since_valid_hangup = 0,
-	.jitter_percent = 20,
-};
+/* returns nonzero if a token was taken */
+
+static int
+dht_dnssec_bucket_take(struct dht_dnssec_bucket *b, unsigned int burst,
+		       lws_usec_t refill_us)
+{
+	lws_usec_t now = lws_now_usecs(), n = 0;
+
+	if (now > b->last)
+		n = (now - b->last) / refill_us;
+
+	if (n >= (lws_usec_t)burst - b->tokens) {
+		b->tokens = (uint16_t)burst;
+		b->last = now;
+	} else {
+		b->tokens = (uint16_t)(b->tokens + n);
+		b->last += n * refill_us;
+	}
+
+	if (!b->tokens)
+		return 0;
+
+	b->tokens--;
+
+	return 1;
+}
+
+/*
+ * NOTIFYs about zones we don't track, from one address: what they cost us is
+ * a look in the store and maybe a sponge intake.  A node announces every zone
+ * it takes, often several together, so it may send this many at once, and
+ * then one each ..._REFILL_US.  Zones we track are not limited here: their
+ * fetches are, per zone (DHT_DNSSEC_NOTIFY_FETCH_SECS), deferred not lost.
+ */
+#define LWS_DHT_DNSSEC_NOTIFY_BURST		32
+#define LWS_DHT_DNSSEC_NOTIFY_REFILL_US		(5 * LWS_US_PER_SEC)
+/* how many addresses' buckets we keep, the least recently used goes */
+#define LWS_DHT_DNSSEC_NOTIFY_RATELIMITERS	128
+
 
 struct notify_ratelimit {
 	lws_dll2_t list;
 	lws_sockaddr46 sa;
-	uint16_t ctry;
-	lws_usec_t earliest_next_allowed;
+	struct dht_dnssec_bucket bucket;
 	lws_sorted_usec_list_t sul_decay;
 };
 
@@ -270,7 +313,7 @@ notify_ratelimit_expire_cb(lws_sorted_usec_list_t *sul)
 	struct notify_ratelimit *nrl = lws_container_of(sul, struct notify_ratelimit, sul_decay);
 	char peer_ip[64] = "unknown";
 	lws_sa46_write_numeric_address(&nrl->sa, peer_ip, sizeof(peer_ip));
-	lwsl_notice("%s: DHT NOTIFY ratelimit decayed completely for IP %s\n", __func__, peer_ip);
+	lwsl_info("%s: DHT NOTIFY ratelimit decayed completely for IP %s\n", __func__, peer_ip);
 	lws_dll2_remove(&nrl->list);
 	free(nrl);
 }
@@ -540,7 +583,8 @@ struct dht_fragment {
 #define LWS_DHT_DNSSEC_SPONGE_MIN_FREE_PCT_DEF	10
 /* zones the sponge tracks for NOTIFYs; more may be held in storage */
 #define LWS_DHT_DNSSEC_MAX_SPONGE		256
-/* a new zone is taken in no more often than this */
+/* new zones are taken in this many at once, then one each ..._INTAKE_US */
+#define LWS_DHT_DNSSEC_SPONGE_INTAKE_BURST	16
 #define LWS_DHT_DNSSEC_SPONGE_INTAKE_US		LWS_US_PER_SEC
 #define LWS_DHT_DNSSEC_SPONGE_SWEEP_US		(600 * LWS_US_PER_SEC)
 /* the first sweep waits for auth-dns to say what it serves */
@@ -4072,17 +4116,87 @@ static int
 dht_dnssec_sponge_intake_ok(struct vhd_dht_dnssec *vhd, const char *hex,
 			    const char *domain)
 {
-	lws_usec_t now = lws_now_usecs();
-
 	if (!vhd->sponge_max_bytes || vhd->sponge_full || !domain[0] ||
-	    now - vhd->sponge_last_intake < LWS_DHT_DNSSEC_SPONGE_INTAKE_US ||
 	    dht_dnssec_count_subs(vhd, 1) >= LWS_DHT_DNSSEC_MAX_SPONGE ||
 	    !dht_dnssec_hash_binds_domain(hex, domain))
 		return 0;
 
-	vhd->sponge_last_intake = now;
+	if (!dht_dnssec_bucket_take(&vhd->sponge_intake,
+				    LWS_DHT_DNSSEC_SPONGE_INTAKE_BURST,
+				    LWS_DHT_DNSSEC_SPONGE_INTAKE_US)) {
+		lwsl_notice("%s: taking in new zones too fast, not %s\n",
+			    __func__, domain);
+		return 0;
+	}
 
 	return 1;
+}
+
+/*
+ * May a NOTIFY from this address about a zone we don't track be looked at?
+ * See LWS_DHT_DNSSEC_NOTIFY_BURST
+ */
+
+static int
+dht_dnssec_notify_admit(struct vhd_dht_dnssec *vhd, const struct sockaddr *from)
+{
+	struct notify_ratelimit *nrl = NULL;
+	char ads[64];
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->notify_ratelimiters)) {
+		struct notify_ratelimit *n = lws_container_of(d,
+					struct notify_ratelimit, list);
+
+		if (lws_dht_same_host(sa46_sockaddr(&n->sa), from)) {
+			nrl = n;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (nrl)
+		/* the most recently used at the tail */
+		lws_dll2_remove(&nrl->list);
+	else {
+		if (lws_dll2_count(&vhd->notify_ratelimiters) >=
+					LWS_DHT_DNSSEC_NOTIFY_RATELIMITERS) {
+			struct notify_ratelimit *o = lws_container_of(
+				lws_dll2_get_head(&vhd->notify_ratelimiters),
+				struct notify_ratelimit, list);
+
+			lws_dll2_remove(&o->list);
+			lws_sul_cancel(&o->sul_decay);
+			free(o);
+		}
+
+		nrl = malloc(sizeof(*nrl));
+		if (!nrl)
+			return 0;
+		memset(nrl, 0, sizeof(*nrl));
+		if (from->sa_family == AF_INET)
+			nrl->sa.sa4 = *(const struct sockaddr_in *)from;
+		else
+			nrl->sa.sa6 = *(const struct sockaddr_in6 *)from;
+		dht_dnssec_bucket_init(&nrl->bucket,
+				       LWS_DHT_DNSSEC_NOTIFY_BURST);
+	}
+	lws_dll2_add_tail(&nrl->list, &vhd->notify_ratelimiters);
+
+	/* once its bucket would be full again, it is as good as new */
+	lws_sul_schedule(vhd->context, 0, &nrl->sul_decay,
+			 notify_ratelimit_expire_cb,
+			 LWS_DHT_DNSSEC_NOTIFY_BURST *
+				LWS_DHT_DNSSEC_NOTIFY_REFILL_US);
+
+	if (dht_dnssec_bucket_take(&nrl->bucket, LWS_DHT_DNSSEC_NOTIFY_BURST,
+				   LWS_DHT_DNSSEC_NOTIFY_REFILL_US))
+		return 1;
+
+	lws_sa46_write_numeric_address(&nrl->sa, ads, sizeof(ads));
+	lwsl_notice("%s: NOTIFYs about zones we don't track coming too fast "
+		    "from %s, ignoring one\n", __func__, ads);
+
+	return 0;
 }
 
 static void
@@ -4143,56 +4257,6 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			int peer_port = from->sa_family == AF_INET ? ntohs(((struct sockaddr_in *)from)->sin_port) : ntohs(((struct sockaddr_in6 *)from)->sin6_port);
 			lwsl_notice("%s: Received NOTIFY from %s:%u for domain hash with SOA %llu!\n", __func__, peer_ip, peer_port, (unsigned long long)newer_soa);
 #endif
-
-			struct notify_ratelimit *nrl = NULL, *oldest_nrl = NULL;
-			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->notify_ratelimiters)) {
-				struct notify_ratelimit *n = lws_container_of(d, struct notify_ratelimit, list);
-				if (n->sa.sa4.sin_family == from->sa_family) {
-					if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &((const struct sockaddr_in *)from)->sin_addr, 4)) {
-						nrl = n; break;
-					} else if (n->sa.sa4.sin_family == AF_INET6 && !lws_sa46_compare_sin6_addr(&n->sa.sa6.sin6_addr, &((const struct sockaddr_in6 *)from)->sin6_addr)) {
-						nrl = n; break;
-					}
-				}
-				if (!oldest_nrl) oldest_nrl = n;
-			} lws_end_foreach_dll(d);
-
-			lws_usec_t now_us = lws_now_usecs();
-
-			if (nrl) {
-				if (now_us < nrl->earliest_next_allowed) {
-					lwsl_notice("%s: Rate limiting NOTIFY from IP %s:%u (try %d, backoff). Ignored.\n",
-						__func__, peer_ip, peer_port, nrl->ctry);
-					break;
-				}
-				/* Move to tail for LRU */
-				lws_dll2_remove(&nrl->list);
-				lws_dll2_add_tail(&nrl->list, &vhd->notify_ratelimiters);
-			} else {
-				if (lws_dll2_count(&vhd->notify_ratelimiters) > 128 && oldest_nrl) {
-					lws_dll2_remove(&oldest_nrl->list);
-					lws_sul_cancel(&oldest_nrl->sul_decay);
-					free(oldest_nrl);
-				}
-				nrl = malloc(sizeof(*nrl));
-				if (nrl) {
-					memset(nrl, 0, sizeof(*nrl));
-					if (from->sa_family == AF_INET) {
-						nrl->sa.sa4 = *(const struct sockaddr_in *)from;
-					} else {
-						nrl->sa.sa6 = *(const struct sockaddr_in6 *)from;
-					}
-					lws_dll2_add_tail(&nrl->list, &vhd->notify_ratelimiters);
-				}
-			}
-
-			if (nrl) {
-				char dummy;
-				unsigned int delay_ms = lws_retry_get_delay_ms(vhd->context, &retry_notify, &nrl->ctry, &dummy);
-				nrl->earliest_next_allowed = now_us + (delay_ms * LWS_US_PER_MS);
-				lws_sul_schedule(vhd->context, 0, &nrl->sul_decay, notify_ratelimit_expire_cb, 3600 * LWS_US_PER_SEC);
-				lwsl_notice("%s: NOTIFY accepted from IP %s:%u. Next allowed in %ums\n", __func__, peer_ip, peer_port, delay_ms);
-			}
 		}
 
 		/* Find the domain string from our subscribed_domains or auth_dns owner list.
@@ -4236,6 +4300,9 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 				}
 			} lws_end_foreach_dll(d);
 		}
+
+		if (!found && !dht_dnssec_notify_admit(vhd, from))
+			break;
 
 		/*
 		 * A zone we don't serve: keep it fresh if we hold a copy, or
@@ -6194,6 +6261,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 
 		vhd->sponge_max_bytes = (uint64_t)LWS_DHT_DNSSEC_SPONGE_MAX_KB_DEF * 1024;
 		vhd->sponge_min_free_pct = LWS_DHT_DNSSEC_SPONGE_MIN_FREE_PCT_DEF;
+		dht_dnssec_bucket_init(&vhd->sponge_intake,
+				       LWS_DHT_DNSSEC_SPONGE_INTAKE_BURST);
 		if (!lws_pvo_get_str(in, "dht-sponge-max-kb", &p) && p) {
 			unsigned long long kb = strtoull(p, NULL, 10);
 

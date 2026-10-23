@@ -14,8 +14,10 @@
  *  - a NOTIFY naming a zone we don't serve takes it into the sponge, with a
  *    fetch that asks only the node that sent it, since a NOTIFY's source is
  *    not verified
- *  - only one new zone a second is taken in, none whose hash isn't the
- *    named domain's, and none while the sponge is full
+ *  - new zones are taken in a burst at a time, then one a second, none
+ *    whose hash isn't the named domain's, and none while the sponge is full
+ *  - NOTIFYs about zones we don't track are limited per address, those about
+ *    a zone we track are not: a fetch they ask for is deferred, not lost
  *  - a sponge copy is not handed to auth-dns, unless auth-dns asks us to
  *    fetch the zone, and auth-dns subscribing to a zone the sponge holds
  *    makes it one served here
@@ -80,8 +82,7 @@ spt_hex(const char *domain, char *hex)
 
 /*
  * A NOTIFY as the DHT core hands one up: the zone's hash, the serial, then the
- * domain it names, from a host of its own, so the per-source limit is no part
- * of it
+ * domain it names, from the host numbered from
  */
 
 static void
@@ -209,7 +210,8 @@ spt_run(struct vhd_dht_dnssec *vhd)
 	struct lws_dht_dnssec_fetch_zone_args args;
 	struct lws_dht_dnssec_fetch_req *req;
 	lws_sockaddr46 notifier;
-	char hex[65];
+	char hex[65], name[32];
+	int n;
 
 	/* what this filesystem has free is no part of the test */
 	vhd->sponge_min_free_pct = 0;
@@ -227,25 +229,55 @@ spt_run(struct vhd_dht_dnssec *vhd)
 				     sa46_sockaddr(&notifier)),
 		   "a zone a NOTIFY names is taken in, asking only the notifier");
 
+	for (n = 1; n < LWS_DHT_DNSSEC_SPONGE_INTAKE_BURST; n++) {
+		lws_snprintf(name, sizeof(name), "burst%d.example", n);
+		spt_notify(vhd, name, name, (uint8_t)(10 + n));
+		if (!spt_sub(vhd, name))
+			break;
+	}
 	spt_notify(vhd, "b.example", "b.example", 2);
-	spt_expect(!spt_sub(vhd, "b.example") && !spt_req(vhd, "b.example"),
-		   "only one new zone a second");
+	spt_expect(n == LWS_DHT_DNSSEC_SPONGE_INTAKE_BURST &&
+		   !spt_sub(vhd, "b.example") && !spt_req(vhd, "b.example"),
+		   "new zones are taken in a burst at a time, then no faster "
+		   "than one a second");
 
-	vhd->sponge_last_intake = 0;
+	dht_dnssec_bucket_init(&vhd->sponge_intake,
+			       LWS_DHT_DNSSEC_SPONGE_INTAKE_BURST);
 	spt_notify(vhd, "c.example", "d.example", 3);
 	spt_expect(!spt_sub(vhd, "c.example") && !spt_sub(vhd, "d.example") &&
 		   !spt_req(vhd, "c.example"),
 		   "none whose hash isn't the named domain's");
 
-	vhd->sponge_last_intake = 0;
 	vhd->sponge_full = 1;
 	spt_notify(vhd, "e.example", "e.example", 4);
 	spt_expect(!spt_sub(vhd, "e.example"), "none while the sponge is full");
 	vhd->sponge_full = 0;
 
+	/*
+	 * The limit per address: c.example's NOTIFY, whose hash isn't its
+	 * domain's, is about a zone we don't track
+	 */
+
+	for (n = 0; n < LWS_DHT_DNSSEC_NOTIFY_BURST; n++)
+		spt_notify(vhd, "c.example", "d.example", 100);
+	spt_notify(vhd, "j.example", "j.example", 100);
+	spt_expect(!spt_sub(vhd, "j.example"),
+		   "NOTIFYs about untracked zones are limited per address");
+
+	spt_notify(vhd, "k.example", "k.example", 101);
+	spt_expect(spt_sub(vhd, "k.example") != NULL,
+		   "other addresses aren't held to that address's limit");
+
+	sub = spt_sub(vhd, "k.example");
+	if (sub)
+		sub->last_notify_fetch = time(NULL);
+	spt_notify(vhd, "k.example", "k.example", 100);
+	spt_expect(sub && !lws_dll2_is_detached(&sub->sul_refetch.list),
+		   "a NOTIFY about a zone we track isn't held to it, and the "
+		   "fetch it asks for while that is limited is deferred");
+
 	/* who auth-dns hears of */
 
-	vhd->sponge_last_intake = 0;
 	spt_notify(vhd, "f.example", "f.example", 5);
 	spt_hex("f.example", hex);
 	spt_expect(spt_sub(vhd, "f.example") && !dht_dnssec_for_auth(vhd, hex),
