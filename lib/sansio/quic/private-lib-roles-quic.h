@@ -38,6 +38,38 @@ extern const struct lws_role_ops role_ops_quic;
 #define LWS_QUIC_RETRY_TOKEN_MAX	128
 #define LWS_QUIC_FI_RETRY_TOKEN_PAD	LWS_QUIC_RETRY_TOKEN_MAX
 
+/*
+ * The most frames a connection has in flight, over all levels, before it holds
+ * back new ones as it would for the congestion window.  What it costs is the
+ * frames' memory, and the walks of in_flight per ACK; the congestion window
+ * alone does not bound it, since it grows without limit in slow start and small
+ * frames share packets
+ */
+#define LWS_QUIC_IN_FLIGHT_MAX		4096
+
+/*
+ * Fault injection quic_ack_ranges: each ACK we send in the app PN space has,
+ * past the first range, up to this many more one-PN ranges, of PNs more than
+ * 64 below the Largest Acknowledged, and goes this many times in the packet
+ */
+#define LWS_QUIC_FI_ACK_RANGES		96
+#define LWS_QUIC_FI_ACK_COPIES		3
+/* ... and every other one stops this far below the largest PN we got */
+#define LWS_QUIC_FI_ACK_LAG		16
+/*
+ * Fault injection quic_ack_late: app PN space ACKs go every this many
+ * ack-eliciting packets, or at max_ack_delay, instead of every second one
+ */
+#define LWS_QUIC_FI_ACK_LATE		32
+
+/* counts what fault injection quic_stats logs, see fi_stats */
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+#define lws_quic_fi_stat(_qn, _m, _n)	((_qn)->fi_stats._m += (_n))
+#else
+#define lws_quic_fi_stat(_qn, _m, _n)
+#endif
+
+
 #define LWS_QUIC_VERSION_1 0x1
 #define LWS_QUIC_VERSION_2 0x6b3343cf
 
@@ -558,7 +590,15 @@ struct lws_quic_netconn {
 	/* Frames waiting to be bundled into outgoing packets */
 	lws_dll2_owner_t	pending_tx[LWS_QUIC_LEVEL_COUNT];
 
-	/* Frames that have been sent but are unacknowledged */
+	/*
+	 * Frames that have been sent but are unacknowledged.  Each list is in
+	 * the order the frames were sent, so by packet number and by sent
+	 * time: frames only ever join at the tail, as their packet is built,
+	 * and anything sent again goes in a new packet.  ACK processing, loss
+	 * detection and the PTO sweep rely on it to stop walking early, see
+	 * lws_quic_ack_range().  At most LWS_QUIC_IN_FLIGHT_MAX frames are in
+	 * flight over all the levels, see lws_quic_in_flight_full().
+	 */
 	lws_dll2_owner_t	in_flight[LWS_QUIC_LEVEL_COUNT];
 
 	/* Received frames tracking state */
@@ -776,6 +816,32 @@ struct lws_quic_netconn {
 	/* quic_stream_replay frames of closed streams, waiting to go again */
 	lws_dll2_owner_t	fi_replays;
 	lws_sorted_usec_list_t	fi_replay_sul;
+
+	/*
+	 * quic_stats: what the peer's ACKs cost us, logged when the netconn
+	 * goes (lws_quic_netconn_destroy()), so a test can bound it
+	 */
+	struct {
+		uint64_t	ack_frames;	/* ACK frames acted on */
+		uint64_t	ack_ignored;	/* a packet's second and later */
+		uint64_t	ack_ranges;	/* ranges in them */
+		uint64_t	ack_acked;	/* frames they freed */
+		uint64_t	ack_visits;	/* in-flight frames looked at by
+						 * ACK processing and loss
+						 * detection */
+		uint32_t	in_flight_peak;	/* frames, over all levels */
+		/*
+		 * the ACK frame being processed: what it looked at beyond
+		 * one per range and two per frame in flight when it came,
+		 * the most of that over the connection
+		 */
+		uint64_t	cur_visits;
+		uint64_t	cur_ranges;
+		uint64_t	cur_in_flight;
+		uint64_t	excess_max;
+	} fi_stats;
+	/* quic_ack_ranges: the next ACK we send is a full one */
+	uint8_t			fi_ack_lag;
 #endif
 
 	/* ECN (Explicit Congestion Notification) */
@@ -925,14 +991,51 @@ int
 lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payload_len, const lws_sockaddr46 *sa46);
 
 /*
- * Process one contiguous ACK range [pn_lo, pn_hi] with a single walk of the
- * in-flight list.  is_largest_ack indicates pn_hi is the frame's Largest
- * Acknowledged, which is the only PN an RTT sample is taken from.  ack_delay
- * is in microseconds and must already be clamped to a sane ceiling.
+ * One ACK frame's walk of the in-flight lists.  The frame's ranges come in
+ * descending order, and the lists are in ascending packet number order, so one
+ * cursor per list moves down from the tail over the whole frame: each frame in
+ * flight is looked at once per ACK frame, whatever the number of ranges.
+ *
+ * lws_quic_ack_begin() starts it, lws_quic_ack_range() takes each range
+ * [pn_lo, pn_hi] in the order they are in the frame, the first one being the
+ * one with the Largest Acknowledged, and lws_quic_ack_end() does what is done
+ * once for the frame: the RTT sample, congestion control, the PTO timer.  It
+ * must be called once begin was, even if the frame turned out to be bad, so
+ * what was acked is accounted.  ack_delay is in microseconds, already clamped.
  */
+struct lws_quic_ack_walk {
+	struct lws_dll2		*cur[2];	/* next frame to look at, of the
+						 * level and, for the app PN
+						 * space, the 0-RTT one */
+	lws_usec_t		now;
+	lws_usec_t		rtt;		/* of the newest frame acked */
+	lws_usec_t		rtt_largest;	/* of the Largest Acknowledged,
+						 * if it was newly acked */
+	uint64_t		ack_delay;
+	size_t			bytes_acked;
+	int			level;
+	uint8_t			ranges;		/* any range was taken yet */
+};
+
+/* fi_stats bookkeeping at the start and end of each ACK frame acted on */
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
 void
-lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
-		    uint64_t pn_hi, int is_largest_ack, uint64_t ack_delay);
+lws_quic_fi_stat_ack_start(struct lws_quic_netconn *qn);
+void
+lws_quic_fi_stat_ack_done(struct lws_quic_netconn *qn);
+#else
+#define lws_quic_fi_stat_ack_start(_qn)
+#define lws_quic_fi_stat_ack_done(_qn)
+#endif
+
+void
+lws_quic_ack_begin(struct lws *nwsi, struct lws_quic_ack_walk *aw, int level,
+		   uint64_t ack_delay);
+void
+lws_quic_ack_range(struct lws *nwsi, struct lws_quic_ack_walk *aw,
+		   uint64_t pn_lo, uint64_t pn_hi);
+void
+lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw);
 
 /*
  * Full 4-tuple comparison of two peer addresses (family, address and port),

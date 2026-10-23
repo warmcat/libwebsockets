@@ -328,6 +328,9 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`h3_trailer_pseudo`|An h3 client request with no body ends with a trailers block holding a `:path`, which trailers may not (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`quic_stream_replay`|A QUIC stream's first STREAM frame is sent once more 100ms after the stream closed, as a retransmission whose ack was lost would be, after the peer finished with the stream (LWS_ROLE_QUIC)|
 |srv udp wsi|`wsi`|`quic_retry_token_pad`|A QUIC server's Retry (`LWS_QUIC_FORCE_RETRY`) carries a token 128 bytes longer than usual, too long for an lws client to keep, which must drop that Retry and take a later one (LWS_ROLE_QUIC)|
+|cli / srv wsi|`wsi`|`quic_ack_ranges`|Each QUIC ACK in the application PN space carries up to 96 more one-PN ranges of long settled PNs, goes three times in its packet, and every other one reports PNs only up to 16 below the largest received, so the peer still has frames in flight while it walks the ranges (LWS_ROLE_QUIC)|
+|cli / srv wsi|`wsi`|`quic_ack_late`|QUIC ACKs in the application PN space go every 32 ack-eliciting packets, or at max_ack_delay, instead of every second one and with whatever else is sent, so the peer has more in flight (LWS_ROLE_QUIC)|
+|cli / srv wsi|`wsi`|`quic_stats`|Not a failure: a QUIC connection logs at NOTICE, when it goes, what the peer's ACKs cost it: ACK frames acted on and ignored, ranges, frames acked, in-flight frames looked at, the most in flight, and the most one ACK frame looked at beyond one per range and two per frame in flight (LWS_ROLE_QUIC)|
 |udp wsi|`wsi`|`udp_rx_loss`|Drop UDP RX that was actually received, useful with probabalistic mode|
 |udp wsi|`wsi`|`udp_tx_loss`|Drop UDP TX so that it's not actually sent, useful with probabalistic mode|
 |udp wsi|`wsi`|`udp_tx_full`|Refuse UDP TX as a full socket would, eg ENOBUFS, so the role must send it again later, useful with probabalistic mode (roles whose datagrams IO pulls, eg QUIC)|

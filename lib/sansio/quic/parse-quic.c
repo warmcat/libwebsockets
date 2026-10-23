@@ -983,6 +983,199 @@ lws_quic_idtr_destroy(struct lws_quic_idtr *t)
 }
 
 /*
+ * An ACK frame at payload[*pos], after its type.  ACK frames describe packet
+ * numbers we sent.  Each one is checked in full, but we only act on the first
+ * in a packet (act): a peer has no use for more, and each costs a walk of the
+ * in-flight lists.  That walk, lws_quic_ack_begin() .. lws_quic_ack_end(),
+ * looks at each frame in flight once whatever the number of ranges (up to
+ * 1024, and no more than the frame's length allows) or how wide they are (an
+ * attacker-controlled range of up to 2^62 PNs is the F1/F2 issue #3651
+ * class).
+ */
+static int
+lws_quic_parse_ack(struct lws *nwsi, struct lws_quic_netconn *qn, int level,
+		   uint64_t type, const uint8_t *payload, size_t payload_len,
+		   size_t *ppos, int act)
+{
+	uint64_t largest_ack, ack_delay, ack_range_count, first_ack_range;
+	uint64_t actual_ack_delay_us, ack_delay_cap;
+	unsigned int ade = (unsigned int)qn->peer_ack_delay_exponent;
+	struct lws_quic_ack_walk aw;
+	size_t consumed, pos = *ppos;
+	int begun = 0;
+
+	/* 1. Largest Acknowledged */
+	consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &largest_ack);
+	if (!consumed) goto bail;
+	pos += consumed;
+
+	/* 2. ACK Delay */
+	consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_delay);
+	if (!consumed) goto bail;
+	pos += consumed;
+
+	/*
+	 * RFC 9002 5.3: the peer's ack_delay is scaled by its
+	 * ack_delay_exponent and may not exceed its max_ack_delay
+	 * (25ms if it did not send TP 0x0b).  Unclamped, a hostile
+	 * value shifted by up to 20 bits overflows int64 and, as
+	 * lws_usec_t in the RTT estimator, goes negative: then
+	 * smoothed_rtt goes negative, the PTO never fires and every
+	 * in-flight frame is declared lost on each ACK.  Saturate
+	 * the shift and clamp before it is used anywhere.
+	 */
+	ack_delay_cap = qn->peer_max_ack_delay_us ?
+			(uint64_t)qn->peer_max_ack_delay_us :
+			(uint64_t)(25 * LWS_US_PER_MS);
+	if (ack_delay > ((uint64_t)~0ull >> ade))
+		actual_ack_delay_us = ack_delay_cap;
+	else
+		actual_ack_delay_us = ack_delay << ade;
+	if (actual_ack_delay_us > ack_delay_cap)
+		actual_ack_delay_us = ack_delay_cap;
+
+	/* 3. ACK Range Count */
+	consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range_count);
+	if (!consumed) goto bail;
+	pos += consumed;
+
+	/*
+	 * F2: largest_ack must refer to a packet we actually sent.
+	 * keys[level]->pn_tx is the next PN to be sent, so the highest
+	 * PN ever sent at this level is pn_tx - 1 (when pn_tx == 0 we
+	 * have sent nothing and any ACK is bogus).  Reject ACKs for PNs
+	 * we never transmitted rather than walking in_flight for them.
+	 */
+	if (qn->keys[level]) {
+		uint64_t highest_sent = qn->keys[level]->pn_tx ?
+				qn->keys[level]->pn_tx - 1 : 0;
+		if (qn->keys[level]->pn_tx == 0 ||
+		    largest_ack > highest_sent) {
+			lwsl_wsi_notice(nwsi, "QUIC RX: ACK largest %llu "
+				"exceeds highest sent PN %llu",
+				(unsigned long long)largest_ack,
+				(unsigned long long)highest_sent);
+			lws_quic_enter_closing_state(nwsi,
+				LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+			goto bail;
+		}
+	}
+
+	/* 4. First ACK Range */
+	consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &first_ack_range);
+	if (!consumed) goto bail;
+	pos += consumed;
+
+	lwsl_wsi_info(nwsi, "QUIC RX TELEMETRY: Parsed ACK frame! Largest = %llu, First Range = %llu",
+		(unsigned long long)largest_ack, (unsigned long long)first_ack_range);
+
+	/* Process the First ACK Range */
+	uint64_t pn = largest_ack;
+	if (first_ack_range > pn) {
+		lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+		goto bail;
+	}
+	if (act) {
+		lws_quic_ack_begin(nwsi, &aw, level, actual_ack_delay_us);
+		begun = 1;
+		lws_quic_ack_range(nwsi, &aw, pn - first_ack_range, pn);
+	}
+	/*
+	 * RFC 9000 19.3.1: a further range when this one already
+	 * reaches PN 0 cannot describe any packet (and would
+	 * wrap pn below).
+	 */
+	if (ack_range_count && first_ack_range == pn) {
+		lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+		goto bail;
+	}
+	pn -= (first_ack_range + 1);
+
+	/*
+	 * 5. Additional ACK Ranges.
+	 *
+	 * F3: guard pos > payload_len explicitly before the unsigned
+	 * subtraction payload_len - pos, so a future change that
+	 * advanced pos past the end cannot turn this bound into a
+	 * no-op via wraparound.
+	 */
+	if (ack_range_count > 1024 ||
+	    pos > payload_len ||
+	    ack_range_count > (payload_len - pos) / 2) {
+		lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+		goto bail;
+	}
+
+	for (uint64_t r = 0; r < ack_range_count; r++) {
+		uint64_t gap, ack_range;
+
+		consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &gap);
+		if (!consumed) goto bail;
+		pos += consumed;
+
+		consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range);
+		if (!consumed) goto bail;
+		pos += consumed;
+
+		if (gap + 1 > pn) {
+			lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+			goto bail;
+		}
+		pn -= gap + 1;
+
+		if (ack_range > pn ||
+		    (r + 1 < ack_range_count && ack_range == pn)) {
+			lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+			goto bail;
+		}
+		if (act)
+			lws_quic_ack_range(nwsi, &aw, pn - ack_range, pn);
+		pn -= (ack_range + 1);
+	}
+
+	/* 6. ECN Counts (if type == 0x03) */
+	if (type == LWS_QUIC_FT_ACK_ECN) {
+		uint64_t ect0, ect1, ecn_ce;
+		consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect0);
+		if (!consumed) goto bail;
+		pos += consumed;
+		consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect1);
+		if (!consumed) goto bail;
+		pos += consumed;
+		consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ecn_ce);
+		if (!consumed) goto bail;
+		pos += consumed;
+
+		/* F-61: React to ECN-CE increase as a congestion event */
+		if (act && ecn_ce > qn->ecn_tx_ce) {
+			qn->ecn_tx_ce = ecn_ce;
+			if (qn->cc_ops && qn->cc_ops->on_loss) {
+				/* RFC 9002 §7.3.1: ECN-CE is treated identically to packet loss */
+				qn->cc_ops->on_loss(nwsi, 0); 
+			}
+		}
+	}
+	*ppos = pos;
+	if (!act) {
+		lws_quic_fi_stat(qn, ack_ignored, 1);
+		return 0;
+	}
+
+	lws_quic_ack_end(nwsi, &aw);
+	/* once per packet, since we act on one ACK frame per packet */
+	lws_quic_detect_loss(nwsi, level, largest_ack);
+
+	return 0;
+
+bail:
+	/* what was acked before the frame went bad is still accounted */
+	if (begun)
+		lws_quic_ack_end(nwsi, &aw);
+
+	return -1;
+}
+
+/*
  * Parses QUIC frames from a decrypted payload and routes them.
  */
 int
@@ -991,7 +1184,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 	size_t pos = 0;
 	uint64_t type, offset, len;
 	size_t consumed;
-	int ack_eliciting = 0;
+	int ack_eliciting = 0, acks = 0;
 
 	while (pos < payload_len) {
 		struct lws_quic_netconn *qn;
@@ -1100,172 +1293,11 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			break;
 
 		case LWS_QUIC_FT_ACK:
-		case LWS_QUIC_FT_ACK_ECN: {
-			uint64_t largest_ack, ack_delay, ack_range_count, first_ack_range;
-			uint64_t actual_ack_delay_us, ack_delay_cap;
-			unsigned int ade = (unsigned int)qn->peer_ack_delay_exponent;
-
-			/*
-			 * ACK frames describe packet numbers we sent.  Each ACK
-			 * range is handed to lws_quic_handle_ack() as a [lo, hi]
-			 * pair costing one walk of the in-flight list, so the work
-			 * per frame is O(ranges x in_flight) regardless of how
-			 * wide the ranges are (an attacker-controlled range of up
-			 * to 2^62 PNs is the F1/F2 issue #3651 class), and the
-			 * range count is bounded below by both a fixed cap and the
-			 * frame's own length.
-			 */
-
-			/* 1. Largest Acknowledged */
-			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &largest_ack);
-			if (!consumed) return -1;
-			pos += consumed;
-
-			/* 2. ACK Delay */
-			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_delay);
-			if (!consumed) return -1;
-			pos += consumed;
-
-			/*
-			 * RFC 9002 5.3: the peer's ack_delay is scaled by its
-			 * ack_delay_exponent and may not exceed its max_ack_delay
-			 * (25ms if it did not send TP 0x0b).  Unclamped, a hostile
-			 * value shifted by up to 20 bits overflows int64 and, as
-			 * lws_usec_t in the RTT estimator, goes negative: then
-			 * smoothed_rtt goes negative, the PTO never fires and every
-			 * in-flight frame is declared lost on each ACK.  Saturate
-			 * the shift and clamp before it is used anywhere.
-			 */
-			ack_delay_cap = qn->peer_max_ack_delay_us ?
-					(uint64_t)qn->peer_max_ack_delay_us :
-					(uint64_t)(25 * LWS_US_PER_MS);
-			if (ack_delay > ((uint64_t)~0ull >> ade))
-				actual_ack_delay_us = ack_delay_cap;
-			else
-				actual_ack_delay_us = ack_delay << ade;
-			if (actual_ack_delay_us > ack_delay_cap)
-				actual_ack_delay_us = ack_delay_cap;
-
-			/* 3. ACK Range Count */
-			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range_count);
-			if (!consumed) return -1;
-			pos += consumed;
-
-			/*
-			 * F2: largest_ack must refer to a packet we actually sent.
-			 * keys[level]->pn_tx is the next PN to be sent, so the highest
-			 * PN ever sent at this level is pn_tx - 1 (when pn_tx == 0 we
-			 * have sent nothing and any ACK is bogus).  Reject ACKs for PNs
-			 * we never transmitted rather than walking in_flight for them.
-			 */
-			if (qn && qn->keys[level]) {
-				uint64_t highest_sent = qn->keys[level]->pn_tx ?
-						qn->keys[level]->pn_tx - 1 : 0;
-				if (qn->keys[level]->pn_tx == 0 ||
-				    largest_ack > highest_sent) {
-					lwsl_wsi_notice(nwsi, "QUIC RX: ACK largest %llu "
-						"exceeds highest sent PN %llu",
-						(unsigned long long)largest_ack,
-						(unsigned long long)highest_sent);
-					lws_quic_enter_closing_state(nwsi,
-						LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
-					return -1;
-				}
-			}
-
-			/* 4. First ACK Range */
-			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &first_ack_range);
-			if (!consumed) return -1;
-			pos += consumed;
-
-			lwsl_wsi_info(nwsi, "QUIC RX TELEMETRY: Parsed ACK frame! Largest = %llu, First Range = %llu",
-				(unsigned long long)largest_ack, (unsigned long long)first_ack_range);
-
-			/* Process the First ACK Range */
-			uint64_t pn = largest_ack;
-			if (first_ack_range > pn) {
-				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+		case LWS_QUIC_FT_ACK_ECN:
+			if (lws_quic_parse_ack(nwsi, qn, level, type, payload,
+					       payload_len, &pos, !acks++))
 				return -1;
-			}
-			lws_quic_handle_ack(nwsi, level, pn - first_ack_range, pn, 1,
-					    actual_ack_delay_us);
-			/*
-			 * RFC 9000 19.3.1: a further range when this one already
-			 * reaches PN 0 cannot describe any packet (and would
-			 * wrap pn below).
-			 */
-			if (ack_range_count && first_ack_range == pn) {
-				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
-				return -1;
-			}
-			pn -= (first_ack_range + 1);
-
-			/*
-			 * 5. Additional ACK Ranges.
-			 *
-			 * F3: guard pos > payload_len explicitly before the unsigned
-			 * subtraction payload_len - pos, so a future change that
-			 * advanced pos past the end cannot turn this bound into a
-			 * no-op via wraparound.
-			 */
-			if (ack_range_count > 1024 ||
-			    pos > payload_len ||
-			    ack_range_count > (payload_len - pos) / 2) {
-				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
-				return -1;
-			}
-
-			for (uint64_t r = 0; r < ack_range_count; r++) {
-				uint64_t gap, ack_range;
-
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &gap);
-				if (!consumed) return -1;
-				pos += consumed;
-
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range);
-				if (!consumed) return -1;
-				pos += consumed;
-
-				if (gap + 1 > pn) {
-					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
-					return -1;
-				}
-				pn -= gap + 1;
-
-				if (ack_range > pn ||
-				    (r + 1 < ack_range_count && ack_range == pn)) {
-					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
-					return -1;
-				}
-				lws_quic_handle_ack(nwsi, level, pn - ack_range, pn, 0, 0);
-				pn -= (ack_range + 1);
-			}
-
-			/* 6. ECN Counts (if type == 0x03) */
-			if (type == LWS_QUIC_FT_ACK_ECN) {
-				uint64_t ect0, ect1, ecn_ce;
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect0);
-				if (!consumed) return -1;
-				pos += consumed;
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect1);
-				if (!consumed) return -1;
-				pos += consumed;
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ecn_ce);
-				if (!consumed) return -1;
-				pos += consumed;
-
-				/* F-61: React to ECN-CE increase as a congestion event */
-				if (qn && ecn_ce > qn->ecn_tx_ce) {
-					qn->ecn_tx_ce = ecn_ce;
-					if (qn->cc_ops && qn->cc_ops->on_loss) {
-						/* RFC 9002 §7.3.1: ECN-CE is treated identically to packet loss */
-						qn->cc_ops->on_loss(nwsi, 0); 
-					}
-				}
-			}
-			lws_quic_detect_loss(nwsi, level, largest_ack);
 			break;
-		}
 
 		case LWS_QUIC_FT_PING:
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed PING frame!");
