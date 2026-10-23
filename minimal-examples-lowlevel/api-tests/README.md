@@ -20,6 +20,7 @@ api-test-gunzip|`lws_upng_inflate_data()`: gzips from the system gzip and stored
 api-test-gencrypto|LWS Generic Crypto apis
 api-test-srtp|SRTP / SRTCP (`-DLWS_WITH_WEBRTC=1`): session key derivation matches the RFC 3711 B.3 vectors and AES-CM the B.2 keystream on the TLS library in use; RTP and SRTCP round trip for SSRCs with the top bit set, the E bit is set on the SRTCP index, and tampered or replayed packets are refused (G-456)
 api-test-webrtc-session-caps|lws-webrtc session caps (`-DLWS_WITH_WEBRTC=1`): `max-sessions` and `max-sessions-per-host` refuse the ws upgrade past the cap, a closed session stops counting, and idle sessions hold no tx pacer thread (Linux) (G-242)
+api-test-webrtc-session-caps|lws-webrtc session caps (`-DLWS_WITH_WEBRTC=1`): `max-sessions` and `max-sessions-per-host` refuse the ws upgrade past the cap, a closed session stops counting, and idle sessions hold no tx pacer thread (Linux) (G-242)
 api-test-jose|LWS JOSE apis
 api-test-dnssec-monitor-reissue|dnssec-monitor proxy's per-cert "Force reissue": answered locally, reaches LWSSMDCL_CERTS as the documented message, non-DNS names and fqdns outside the domain refused
 api-test-dht-msg-parse|DHT RPC wire message parser, incl. hash token charset and NOTIFY domain-name gates

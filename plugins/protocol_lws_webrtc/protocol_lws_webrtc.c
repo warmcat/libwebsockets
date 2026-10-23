@@ -80,6 +80,38 @@ webrtc_sdtoi(const char *s, size_t len, int max)
 	return (int)v;
 }
 
+/*
+ * Keep a copy of what we log about a session until its handshake completes,
+ * for the mixer's request_debug_log.  It is only allocated when there is
+ * something to keep, and bounded: vsnprintf() returns what it would have
+ * written, which may be more than fitted.
+ */
+static void
+webrtc_pss_log_keep(struct pss_webrtc *pss, const char *fmt, va_list ap)
+{
+	size_t room;
+	int n;
+
+	if (!pss || pss->connection_log_done ||
+	    pss->connection_log_len >= LWS_WEBRTC_CONN_LOG_MAX - 1)
+		return;
+
+	if (!pss->connection_log) {
+		pss->connection_log = malloc(LWS_WEBRTC_CONN_LOG_MAX);
+		if (!pss->connection_log)
+			return;
+		pss->connection_log[0] = '\0';
+		pss->connection_log_len = 0;
+	}
+
+	room = LWS_WEBRTC_CONN_LOG_MAX - pss->connection_log_len;
+	n = vsnprintf(pss->connection_log + pss->connection_log_len, room,
+		      fmt, ap);
+	if (n > 0)
+		pss->connection_log_len += (size_t)n < room ? (size_t)n :
+							      room - 1;
+}
+
 static void
 webrtc_pss_log(struct pss_webrtc *pss, const char *fmt, ...)
 {
@@ -89,15 +121,9 @@ webrtc_pss_log(struct pss_webrtc *pss, const char *fmt, ...)
 	_lws_logv(LLL_NOTICE, fmt, ap);
 	va_end(ap);
 
-	if (pss && pss->connection_log && pss->connection_log_len < (64 * 1024) - 1) {
-		va_start(ap, fmt);
-		int n = vsnprintf(pss->connection_log + pss->connection_log_len,
-				  (64 * 1024) - pss->connection_log_len,
-				  fmt, ap);
-		va_end(ap);
-		if (n > 0)
-			pss->connection_log_len += (size_t)n;
-	}
+	va_start(ap, fmt);
+	webrtc_pss_log_keep(pss, fmt, ap);
+	va_end(ap);
 }
 
 static void
@@ -109,15 +135,78 @@ webrtc_pss_err(struct pss_webrtc *pss, const char *fmt, ...)
 	_lws_logv(LLL_ERR, fmt, ap);
 	va_end(ap);
 
-	if (pss && pss->connection_log && pss->connection_log_len < (64 * 1024) - 1) {
-		va_start(ap, fmt);
-		int n = vsnprintf(pss->connection_log + pss->connection_log_len,
-				  (64 * 1024) - pss->connection_log_len,
-				  fmt, ap);
-		va_end(ap);
-		if (n > 0)
-			pss->connection_log_len += (size_t)n;
+	va_start(ap, fmt);
+	webrtc_pss_log_keep(pss, fmt, ap);
+	va_end(ap);
+}
+
+/*
+ * A new media object, with the reference its pss holds.  Its tx pacer, and
+ * the pacer's thread, only come when media first flows, see
+ * webrtc_txpacer_ensure().
+ */
+static struct lws_webrtc_peer_media *
+webrtc_media_create(void)
+{
+	struct lws_webrtc_peer_media *media = calloc(1, sizeof(*media));
+
+	if (!media)
+		return NULL;
+
+	media->refcount = 1;
+	pthread_mutex_init(&media->lock_tx, NULL);
+
+	return media;
+}
+
+/*
+ * Is the peer host behind this new server session within the session caps?
+ * Returns 0 if it may have one more, else 1.
+ */
+static int
+webrtc_session_admit(struct vhd_webrtc *vhd, struct lws *wsi, const char *peer)
+{
+	unsigned int all = 0, host = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->sessions)) {
+		struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc,
+							list);
+
+		if (s->peer[0]) {
+			all++;
+			if (!strcmp(s->peer, peer))
+				host++;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (all >= vhd->max_sessions) {
+		lwsl_wsi_warn(wsi, "refusing session: at the %u session limit",
+			      vhd->max_sessions);
+		return 1;
 	}
+
+	if (host >= vhd->max_sessions_per_host) {
+		lwsl_wsi_notice(wsi, "refusing session from %s: at the %u "
+				"per-host limit", peer,
+				vhd->max_sessions_per_host);
+		return 1;
+	}
+
+	return 0;
+}
+
+static uint16_t
+webrtc_pvo_cap(const char *name, const char *value, uint16_t def)
+{
+	int n = atoi(value);
+
+	if (n > 0 && n <= 65535)
+		return (uint16_t)n;
+
+	lwsl_warn("%s: ignoring bogus %s '%s'\n", __func__, name, value);
+
+	return def;
 }
 
 static int
@@ -234,6 +323,37 @@ webrtc_tx_pacer_cb(void *user, const uint8_t *buf, size_t len)
 	return 0;
 }
 
+#if defined(LWS_HAVE_PTHREAD_H)
+/*
+ * The pacer and its thread are made when the first packet for the peer is
+ * sent, not when the ws connects: a session that never gets as far as
+ * media costs no thread.  Callers hold media->lock_tx, which all senders
+ * take, so only one can make it; it goes away with the media object.  If
+ * the thread can't be made, we send directly, as we would without pthreads.
+ */
+static void
+webrtc_txpacer_ensure(struct lws_webrtc_peer_media *media)
+{
+	lws_txp_info_t txp_i;
+
+	if (media->txpacer || media->txpacer_failed)
+		return;
+
+	memset(&txp_i, 0, sizeof(txp_i));
+	txp_i.user = media;
+	txp_i.tx_cb = webrtc_tx_pacer_cb;
+	txp_i.target_rate_bps = 50000000; /* 50 Mbps limit */
+	txp_i.interval_us = 2000;      /* 2ms ticks */
+	txp_i.max_buflist_bytes = 2 * 1024 * 1024; /* 2MB max queue */
+
+	media->txpacer = lws_txp_create(&txp_i);
+	if (!media->txpacer) {
+		lwsl_warn("%s: no tx pacer, sending unpaced\n", __func__);
+		media->txpacer_failed = 1;
+	}
+}
+#endif
+
 static void
 rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 {
@@ -270,6 +390,7 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 	}
 
 #if defined(LWS_HAVE_PTHREAD_H)
+	webrtc_txpacer_ensure(media);
 	if (media->txpacer) {
 		/*
 		 * lws_txp_append() takes ownership and releases this with
@@ -1346,23 +1467,8 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	}
 
 	/* Reset PSS PTs */
-	if (!pss->media) {
-		pss->media = calloc(1, sizeof(struct lws_webrtc_peer_media));
-		if (pss->media) {
-			pss->media->refcount = 1;
-			pthread_mutex_init(&pss->media->lock_tx, NULL);
-#if defined(LWS_HAVE_PTHREAD_H)
-			lws_txp_info_t txp_i;
-			memset(&txp_i, 0, sizeof(txp_i));
-			txp_i.user = pss->media;
-			txp_i.tx_cb = webrtc_tx_pacer_cb;
-			txp_i.target_rate_bps = 50000000; /* 50 Mbps limit */
-			txp_i.interval_us = 2000;      /* 2ms ticks */
-			txp_i.max_buflist_bytes = 2 * 1024 * 1024; /* 2MB max queue */
-			pss->media->txpacer = lws_txp_create(&txp_i);
-#endif
-		}
-	}
+	if (!pss->media)
+		pss->media = webrtc_media_create();
 
 	if (!pss->media) {
 		free(sdp_clean);
@@ -1832,6 +1938,11 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!vhd->context) vhd->context = lws_get_context(wsi);
 			if (!vhd->vhost) vhd->vhost = lws_get_vhost(wsi);
 			if (!vhd->udp_port) vhd->udp_port = 7682;
+			if (!vhd->max_sessions)
+				vhd->max_sessions = LWS_WEBRTC_DEF_MAX_SESSIONS;
+			if (!vhd->max_sessions_per_host)
+				vhd->max_sessions_per_host =
+					LWS_WEBRTC_DEF_MAX_SESSIONS_PER_HOST;
 
 			if (!pvo)
 				return 0;
@@ -1842,6 +1953,13 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_strncpy(vhd->external_ip, pvo->value, sizeof(vhd->external_ip));
 				if (!strcmp(pvo->name, "udp-port"))
 					vhd->udp_port = (uint16_t)atoi(pvo->value);
+				if (!strcmp(pvo->name, "max-sessions"))
+					vhd->max_sessions = webrtc_pvo_cap(pvo->name,
+						pvo->value, LWS_WEBRTC_DEF_MAX_SESSIONS);
+				if (!strcmp(pvo->name, "max-sessions-per-host"))
+					vhd->max_sessions_per_host = webrtc_pvo_cap(
+						pvo->name, pvo->value,
+						LWS_WEBRTC_DEF_MAX_SESSIONS_PER_HOST);
 				if (!strcmp(pvo->name, "lws-webrtc-ops")) {
 					struct lws_webrtc_ops *ops = (struct lws_webrtc_ops *)(uintptr_t)pvo->value;
 					if (ops) {
@@ -1917,31 +2035,39 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("%s: Certificate Fingerprint: %s\n", __func__, vhd->fingerprint);
 			return 0;
 
+		case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+			{
+				char peer[LWS_HOST_KEY_LEN];
+
+				/* refuse the upgrade itself past the caps */
+				lws_get_peer_host_key(wsi, peer, sizeof(peer));
+				if (webrtc_session_admit(vhd, wsi, peer))
+					return 1;
+			}
+			break;
+
 		case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		case LWS_CALLBACK_ESTABLISHED:
 			pss->wsi_ws = wsi;
-			if (!pss->connection_log) {
-				pss->connection_log = malloc(64 * 1024);
-				if (pss->connection_log)
-					pss->connection_log[0] = '\0';
-				pss->connection_log_len = 0;
-			}
-			if (!pss->media) {
-				pss->media = calloc(1, sizeof(struct lws_webrtc_peer_media));
-				if (!pss->media) return -1;
-				pss->media->refcount = 1; /* PSS owns one reference */
-				pthread_mutex_init(&pss->media->lock_tx, NULL);
 
-#if defined(LWS_HAVE_PTHREAD_H)
-				lws_txp_info_t txp_i;
-				memset(&txp_i, 0, sizeof(txp_i));
-				txp_i.user = pss->media;
-				txp_i.tx_cb = webrtc_tx_pacer_cb;
-				txp_i.target_rate_bps = 50000000; /* 50 Mbps limit */
-				txp_i.interval_us = 2000;      /* 2ms ticks */
-				txp_i.max_buflist_bytes = 2 * 1024 * 1024; /* 2MB max queue */
-				pss->media->txpacer = lws_txp_create(&txp_i);
-#endif
+			if (reason == LWS_CALLBACK_ESTABLISHED) {
+				char peer[LWS_HOST_KEY_LEN];
+
+				/*
+				 * Again here, since the filter is only for
+				 * the upgrade: anything that came between them
+				 * is counted now
+				 */
+				lws_get_peer_host_key(wsi, peer, sizeof(peer));
+				if (webrtc_session_admit(vhd, wsi, peer))
+					return -1;
+				lws_strncpy(pss->peer, peer, sizeof(pss->peer));
+			}
+
+			if (!pss->media) {
+				pss->media = webrtc_media_create();
+				if (!pss->media)
+					return -1;
 			}
 			pss->media->wsi_udp = vhd->wsi_udp; /* Critical: Session needs UDP handle */
 			lws_dll2_clear(&pss->list);
@@ -2578,6 +2704,7 @@ webrtc_handle_dtls(struct pss_webrtc *pss, uint8_t *in, size_t len)
 						__func__, pss->media->ssrc_video, pss->media->pt_video, pss->media->ssrc_audio, pss->media->pt_audio);
 
 				/* Successful connection, free the debug log to save heap */
+				pss->connection_log_done = 1;
 				if (pss->connection_log) {
 					free(pss->connection_log);
 					pss->connection_log = NULL;

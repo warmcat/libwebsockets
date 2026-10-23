@@ -21,6 +21,22 @@
  */
 #define LWS_WEBRTC_DTLS_POLL_US (100 * LWS_US_PER_MS)
 
+/*
+ * Each server session holds a media object, a DTLS ctx once it offers, and
+ * a tx pacer thread once media flows, for whoever opened a ws to us, so
+ * how many there may be at once is capped, overall and per peer host
+ * (lws_get_peer_host_key(): an IPv4 address or an IPv6 /64).  The
+ * "max-sessions" and "max-sessions-per-host" pvos override these.
+ */
+#define LWS_WEBRTC_DEF_MAX_SESSIONS		64
+#define LWS_WEBRTC_DEF_MAX_SESSIONS_PER_HOST	16
+
+/*
+ * The most of the connection log we keep per session until its handshake
+ * completes, for the mixer's request_debug_log
+ */
+#define LWS_WEBRTC_CONN_LOG_MAX			(8 * 1024)
+
 struct vhd_webrtc {
 	struct lws_context      *context;
 	struct lws_vhost        *vhost;
@@ -34,6 +50,10 @@ struct vhd_webrtc {
 	char                    fingerprint[128];
 	char                    external_ip[64];
 	uint16_t                udp_port;
+
+	/* immutable after PROTOCOL_INIT, see LWS_WEBRTC_DEF_MAX_SESSIONS */
+	uint16_t                max_sessions;
+	uint16_t                max_sessions_per_host;
 
 	/* Application callbacks */
 	lws_webrtc_on_media_cb  on_media;
@@ -102,7 +122,8 @@ struct lws_webrtc_peer_media {
 	size_t                  pps_len;
 	lws_usec_t              last_sps_pps_ts;
 
-	struct lws_txp          *txpacer;
+	struct lws_txp          *txpacer; /* created when media first flows */
+	uint8_t                 txpacer_failed; /* don't retry: send direct */
 
 	struct lws_webrtc_telemetry telemetry;
 };
@@ -142,8 +163,20 @@ struct pss_webrtc {
 
 	void                    *user_data;
 
+	/*
+	 * Allocated on the first line logged, at most LWS_WEBRTC_CONN_LOG_MAX,
+	 * and dropped for good once the DTLS handshake completes
+	 */
 	char                    *connection_log;
 	size_t                  connection_log_len;
+	uint8_t                 connection_log_done;
+
+	/*
+	 * lws_get_peer_host_key() of a server session's peer, counted against
+	 * the session caps while the session is in vhd->sessions; empty for
+	 * client sessions, which are not counted
+	 */
+	char                    peer[LWS_HOST_KEY_LEN];
 };
 
 void lws_webrtc_media_ref(struct lws_webrtc_peer_media *media);
