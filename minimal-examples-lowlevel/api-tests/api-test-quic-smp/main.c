@@ -267,7 +267,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		qsmp_count(&inits, 1);
+		pthread_mutex_lock(&lock);
+		inits++;
+		pthread_mutex_unlock(&lock);
 		qsmp_slow_init();
 		break;
 
