@@ -301,6 +301,18 @@ static int port = 7681, phase, relay, fanout, result = 1, failed, interrupted;
 static uint8_t txbuf[LWS_PRE + WSE_MSG_MAX];
 
 /*
+ * The fan-out cases keep publishers paused by the ring for long stretches,
+ * and while they are paused, neither end's validity PING is answered: with
+ * the default 40s / 50s, on a slow board, the broker case runs long enough
+ * for that to hang up S.  Nothing here is about the validity timer, so it
+ * is pushed out past any case's own timeout, for the servers and clients.
+ */
+static const lws_retry_bo_t wse_retry = {
+	.secs_since_valid_ping		= 300,
+	.secs_since_valid_hangup	= 310,
+};
+
+/*
  * The messages TX sends, one at a time, and RX must receive, whole and
  * nothing else.  Each is sent as up to two fragments.
  */
@@ -1784,6 +1796,7 @@ main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	info.fd_limit_per_thread = 0;
+	info.retry_and_idle_policy = &wse_retry;
 #if defined(WSE_H2)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
