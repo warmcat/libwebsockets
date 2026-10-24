@@ -199,7 +199,9 @@ dpt_dumb_connect_cb(lws_sorted_usec_list_t *sul)
 {
 	int n = (int)(sul - sul_dumb);
 
-	dpt_connect(DPT_C_DUMB + n, "dumb-increment-protocol", "/");
+	if (dpt_connect(DPT_C_DUMB + n, "dumb-increment-protocol", "/"))
+		/* dpt_fail() has already failed the test */
+		lwsl_info("%s: dumb client %d not started\n", __func__, n);
 }
 
 /*
