@@ -655,8 +655,17 @@ next_case(lws_sorted_usec_list_t *sul)
 	if (c->expect == EXP_LEGACY)
 		i.ssl_connection = LCCSCF_HTTP_MULTIPART_MIME;
 
-	if (!lws_client_connect_via_info(&i))
-		case_finish(0, "could not start connection");
+	if (!lws_client_connect_via_info(&i)) {
+		/*
+		 * If the connect completed at once, inside the call (eg, to
+		 * loopback on FreeBSD), a form refused while the headers were
+		 * made fails the call itself, with no CONNECTION_ERROR later
+		 */
+		if (cli.refused)
+			settle();
+		else
+			case_finish(0, "could not start connection");
+	}
 }
 
 static const struct lws_protocols protocols[] = {
