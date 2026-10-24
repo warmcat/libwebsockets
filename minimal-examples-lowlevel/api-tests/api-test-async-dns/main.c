@@ -1063,17 +1063,34 @@ sc_harvest(void)
 }
 
 /*
- * Nothing may ever arrive at the foreign socket: if the resolver had adopted
- * the foreign source as its send target, its retry would land here.
+ * Nothing from the resolver may ever arrive at the foreign socket: if it had
+ * adopted the foreign source as its send target, its retry would land here.
+ *
+ * It's the resolver's if it came from a port one of its queries reached the
+ * fake nameserver from.  Anything else is not ours: the foreign socket is on
+ * an ephemeral port that a test running alongside may have had a moment ago,
+ * and may still be sending to.
  */
 
 static void
 sc_check_foreign(void)
 {
-	uint8_t dump[512];
+	struct sc_query in;
+	int n;
 
-	while (recv(sc_foreign_fd, (char *)dump, sizeof(dump), 0) >= 0)
-		sc_redirected++;
+	for (;;) {
+		in.peer_len = sizeof(in.peer);
+		if (recvfrom(sc_foreign_fd, (char *)in.pkt, sizeof(in.pkt), 0,
+			     (struct sockaddr *)&in.peer, &in.peer_len) < 0)
+			return;
+
+		for (n = 0; n < sc_qs; n++)
+			if (sc_peer_port(&sc_q[n]) == sc_peer_port(&in))
+				break;
+
+		if (n < sc_qs)
+			sc_redirected++;
+	}
 }
 
 static struct lws *
