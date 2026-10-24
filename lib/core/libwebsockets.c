@@ -2444,6 +2444,12 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 #endif
 	lws_set_log_level(logs, NULL);
 
+#if defined(LWS_WITH_CRASH_BACKTRACE)
+	/* a crash says where, eg, in the ctest output of a test that died */
+	if (lws_crash_backtrace_install())
+		lwsl_warn("%s: no crash backtraces\n", __func__);
+#endif
+
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	if (lws_dll2_count(&info->fic.fi_owner))
 		lwsl_notice("%s: Fault Injection seed %llu\n", __func__,

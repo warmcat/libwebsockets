@@ -1155,10 +1155,34 @@ lws_cmdline_option_cx_argv0(const struct lws_context *cx);
  * LWS_EVLIB is applied at context creation only if the app did not choose an
  * event lib itself (an evlib option, info->event_lib_custom or
  * info->foreign_loops), and is ignored in set-uid / set-gid processes.
+ *
+ * Built with LWS_WITH_CRASH_BACKTRACE, it also calls
+ * lws_crash_backtrace_install(), so an example or test that crashes prints
+ * where.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_cmdline_option_handle_builtin(int argc, const char **argv,
 				  struct lws_context_creation_info *info);
+
+#if defined(LWS_WITH_CRASH_BACKTRACE)
+/**
+ * lws_crash_backtrace_install() - print a backtrace if the process crashes
+ *
+ * On SIGSEGV, SIGBUS, SIGILL, SIGFPE or SIGABRT, eg, a failed assert(), write
+ * the call stack to stderr with backtrace_symbols_fd(), then die of the signal
+ * as the process would have anyway, so whatever waits for it, and the
+ * platform's core files or crash reports, see it the same.
+ *
+ * A signal the process already handles or ignores is left alone.  The
+ * handler runs on an alternate signal stack, if the calling thread doesn't
+ * have one already, so a stack overflow in that thread is reported too.
+ * Other threads' crashes are reported on their own stack.
+ *
+ * Returns 0 if installed, or nonzero if it couldn't be.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_crash_backtrace_install(void);
+#endif
 
 /**
  * lws_parse_iso8601() - strictly parse an ISO8601 / RFC3339-style date string

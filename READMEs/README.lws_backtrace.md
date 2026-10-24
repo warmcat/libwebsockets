@@ -1,16 +1,46 @@
-# lws_backtrace and lws_alloc_metadata
+# lws_backtrace, lws_alloc_metadata and crash backtraces
 
 |Area|Definition|
 |---|---|
-|Cmake|`LWS_WITH_COMPRESSED_BACKTRACES` on by default|
-|API|`./include/libwebsockets/lws-backtrace.h`|
+|Cmake|`LWS_WITH_COMPRESSED_BACKTRACES` off by default; `LWS_WITH_CRASH_BACKTRACE` on by default with `LWS_WITH_MINIMAL_EXAMPLES`|
+|API|`./include/libwebsockets/lws-backtrace.h`, `lws_crash_backtrace_install()` in `./include/libwebsockets/lws-misc.h`|
 |README|./READMEs/README.lws_backtrace.md|
+
+## Crash backtraces
+
+`lws_crash_backtrace_install()` makes a process that crashes, on SIGSEGV,
+SIGBUS, SIGILL, SIGFPE or SIGABRT (eg, a failed `assert()`), write its call
+stack to stderr, between these lines:
+
+```
+*** lws: fatal signal 11, backtrace:
+...
+*** lws: end of backtrace
+```
+
+It then dies of the signal as it would have, so its parent, and the platform's
+core files or crash reports, see the same.  Signals the process already
+handles or ignores are left alone.
+
+`lws_cmdline_option_handle_builtin()` calls it, so all the minimal examples
+and api tests have it, and a test that crashes in ctest says where in its
+output, and so in a CI log.
+
+It needs `backtrace_symbols_fd()` from `<execinfo.h>`: glibc and macOS have it
+in libc, the BSDs in libexecinfo, which is linked if needed.  Where there is
+none, eg musl or Windows, `LWS_WITH_CRASH_BACKTRACE` is turned off.
+
+On macOS the frames come with function names and offsets.  With glibc, a
+function the binary doesn't export shows as an offset into its file, eg,
+`libwebsockets.so.22(+0x3553c)`, which `addr2line -f -e libwebsockets.so.22
+0x3553c` turns into a function and source line.
 
 ## lws_backtrace
 
-The `lws_backtrace` apis provide a way to collect backtrace addresses into a
-struct, and an efficient domain-specific compressor to reduce the number of
-bytes needed to express the backtrace stack.
+This is separate from crash backtraces above.  The `lws_backtrace` apis
+provide a way to collect backtrace addresses into a struct, and an efficient
+domain-specific compressor to reduce the number of bytes needed to express the
+backtrace stack.
 
 This information is particularly useful in RTOS type systems to understand heap
 usage.  The information would typically be sent off the embedded device, in logs

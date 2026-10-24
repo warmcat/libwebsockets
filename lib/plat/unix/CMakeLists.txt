@@ -96,6 +96,10 @@ if (LWS_WITH_NETWORK)
 	endif()
 endif()
 	
+if (LWS_WITH_CRASH_BACKTRACE)
+	list(APPEND SOURCES plat/unix/unix-crash.c)
+endif()
+
 if (LWS_WITH_PLUGINS_API)
 	list(APPEND SOURCES plat/unix/unix-plugins.c)
 endif()

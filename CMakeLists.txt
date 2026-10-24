@@ -534,6 +534,17 @@ set(LWS_COMPRESSED_BACKTRACES_SNIP_POST 1 CACHE STRING "Amount of callstack to s
 option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtraces (requires WITH_COMPRESSED_BACKTRACES)" OFF)
 
 #
+# A backtrace on stderr when the process crashes, see
+# READMEs/README.lws_backtrace.md.  Builds with the minimal examples are for QA,
+# where a test that crashed saying where saves reproducing it.
+#
+set(LWS_WITH_CRASH_BACKTRACE_DEFAULT OFF)
+if (LWS_WITH_MINIMAL_EXAMPLES AND NOT WIN32)
+	set(LWS_WITH_CRASH_BACKTRACE_DEFAULT ON)
+endif()
+option(LWS_WITH_CRASH_BACKTRACE "lws_cmdline_option_handle_builtin() prints a backtrace if the process crashes (needs execinfo.h)" ${LWS_WITH_CRASH_BACKTRACE_DEFAULT})
+
+#
 # Over The Air updates
 #
 option(LWS_WITH_OTA "Build with support for Over The Air update download and validation" OFF)
@@ -969,6 +980,25 @@ if (WIN32 OR MSVC)
 	if (LWS_UNIX_SOCK AND NOT LWS_HAVE_WIN32_AFUNIX_H)
 		message("No afunix.h found. Disabling LWS_UNIX_SOCK.")
 		set(LWS_WITH_UNIX_SOCK OFF)
+	endif()
+endif()
+
+if (LWS_WITH_CRASH_BACKTRACE)
+	# glibc and macOS have backtrace() in libc, the BSDs in libexecinfo
+	CHECK_INCLUDE_FILE(execinfo.h LWS_HAVE_EXECINFO_H)
+	if (LWS_HAVE_EXECINFO_H AND NOT WIN32)
+		CHECK_FUNCTION_EXISTS(backtrace_symbols_fd LWS_HAVE_BACKTRACE_SYMBOLS_FD)
+		if (NOT LWS_HAVE_BACKTRACE_SYMBOLS_FD)
+			find_library(LWS_EXECINFO_LIBRARIES NAMES execinfo)
+			if (LWS_EXECINFO_LIBRARIES)
+				list(APPEND LIB_LIST_AT_END ${LWS_EXECINFO_LIBRARIES})
+				set(LWS_HAVE_BACKTRACE_SYMBOLS_FD 1)
+			endif()
+		endif()
+	endif()
+	if (NOT LWS_HAVE_BACKTRACE_SYMBOLS_FD)
+		message(STATUS "No backtrace_symbols_fd(): disabling LWS_WITH_CRASH_BACKTRACE")
+		set(LWS_WITH_CRASH_BACKTRACE OFF)
 	endif()
 endif()
 
