@@ -112,14 +112,6 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
 
-#if defined(__APPLE__) || \
-    defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || \
-    defined(__NetBSD__) || \
-    defined(__OpenBSD__) || \
-    defined(__HAIKU__)
-	struct protoent *tcp_proto;
-#endif
-
 	(void)fcntl(fd, F_SETFD, FD_CLOEXEC);
 
 	if (!unix_skt && vhost->ka_time) {
@@ -177,23 +169,15 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	}
 #endif
 
-	/* Disable Nagle */
+	/*
+	 * Disable Nagle.  IPPROTO_TCP everywhere: it's what getprotobyname()
+	 * would look up in /etc/protocols, but that needs an fd, and with
+	 * none free it returns NULL
+	 */
 	optval = 1;
-#if defined (__sun) || defined(__QNX__) || defined(__NuttX__)
-	if (!unix_skt && setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
+	if (!unix_skt && setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
+				    (const void *)&optval, optlen) < 0)
 		return 1;
-#elif !defined(__APPLE__) && \
-      !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__) &&        \
-      !defined(__NetBSD__) && \
-      !defined(__OpenBSD__) && \
-      !defined(__HAIKU__)
-	if (!unix_skt && setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
-		return 1;
-#else
-	tcp_proto = getprotobyname("TCP");
-	if (!unix_skt && setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen) < 0)
-		return 1;
-#endif
 
 	return lws_plat_set_nonblocking(fd);
 }
