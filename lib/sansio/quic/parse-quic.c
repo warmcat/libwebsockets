@@ -1255,7 +1255,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 	uint64_t type, offset, len;
 	size_t consumed;
 	int ack_eliciting = 0, acks = 0, pc_seen = 0;
-	uint8_t pc_data[8];
+	uint8_t pc_data[8] = { 0 }; /* only read if pc_seen */
 
 	while (pos < payload_len) {
 		struct lws_quic_netconn *qn;
