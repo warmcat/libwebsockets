@@ -161,6 +161,22 @@ ort_zv(struct lws_auth_dns_zone_validity *zv, uint32_t serial,
 	zv->soa_signed		= 1;
 }
 
+/*
+ * Is there a file at path: asked by opening it, rather than by access(), a
+ * check of the path that what we do with it next can't rely on
+ */
+static int
+ort_present(const char *path)
+{
+	int fd = open(path, O_RDONLY);
+
+	if (fd < 0)
+		return 0;
+	close(fd);
+
+	return 1;
+}
+
 static void
 hwm_cases(time_t now)
 {
@@ -238,7 +254,7 @@ hwm_cases(time_t now)
 	lde.type = LDOT_FILE;
 	lde.name = ORT_HASH ".hwm";
 	dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &lde);
-	ort_expect(!access(path, F_OK), "the sweep keeps a current mark");
+	ort_expect(ort_present(path), "the sweep keeps a current mark");
 
 	/* ...and expunges one whose version expired more than a week ago */
 	ort_zv(&zv, 6, now - 30, now + 86400);
@@ -255,7 +271,7 @@ hwm_cases(time_t now)
 		close(fd);
 	}
 	dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &lde);
-	ort_expect(access(path, F_OK), "the sweep expunges a long-expired mark");
+	ort_expect(!ort_present(path), "the sweep expunges a long-expired mark");
 
 	/*
 	 * an unreadable mark fails closed (G-533): it refuses every version,
@@ -275,7 +291,7 @@ hwm_cases(time_t now)
 						DHT_DNSSEC_HWM_UNREADABLE,
 		   "a short mark is not overwritten");
 	dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &lde);
-	ort_expect(!access(path, F_OK), "the sweep keeps a short mark");
+	ort_expect(ort_present(path), "the sweep keeps a short mark");
 
 	/* only a mark that is not there admits anything */
 	unlink(path);
@@ -304,14 +320,14 @@ hwm_cases(time_t now)
 		tde.type = LDOT_FILE;
 		tde.name = tmpname;
 		dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &tde);
-		ort_expect(!access(tpath, F_OK),
+		ort_expect(ort_present(tpath),
 			   "the sweep keeps a mark being written");
 
 		ut.actime = ut.modtime = now - DHT_DNSSEC_HWM_TMP_STALE_SECS -
 									60;
 		ort_expect(!utime(tpath, &ut), "age the mark being written");
 		dht_dnssec_sweep_level2_cb(ORT_STORE "/ab/cd", NULL, &tde);
-		ort_expect(access(tpath, F_OK),
+		ort_expect(!ort_present(tpath),
 			   "the sweep expunges a stale mark being written");
 		unlink(tpath);
 	}
