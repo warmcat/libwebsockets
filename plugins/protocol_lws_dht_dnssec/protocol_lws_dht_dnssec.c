@@ -7803,7 +7803,9 @@ do_publish_jws(struct lws_vhost *vhost, const char *jws_filepath)
 	return 0;
 }
 
-/* the bootstrap target, if one is configured and can be resolved */
+/*
+ * the bootstrap target, if one is configured, can be resolved and isn't us
+ */
 
 static int
 dht_dnssec_fetch_target(struct vhd_dht_dnssec *v, lws_sockaddr46 *sa46)
@@ -7824,6 +7826,13 @@ dht_dnssec_fetch_target(struct vhd_dht_dnssec *v, lws_sockaddr46 *sa46)
 	}
 
 	sa46_sockport(sa46, htons((uint16_t)v->target_port));
+
+	/*
+	 * On the node the target names, it is us: the DHT drops what we send
+	 * ourselves, so a GET would only hold a sequencer until it gave up
+	 */
+	if (v->target_port == v->dht_port && dht_dnssec_seed_is_self(v, sa46))
+		return 1;
 
 	return 0;
 }

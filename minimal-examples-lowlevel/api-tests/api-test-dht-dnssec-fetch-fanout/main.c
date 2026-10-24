@@ -26,6 +26,8 @@
  *    hosts a fetch asks over its life fit the list it keeps of them (G-534)
  *  - and once that list is full, no new host is asked, rather than one asked
  *    before being forgotten, and so refused when it answers
+ *  - on the node the bootstrap target names, a fetch doesn't ask the target,
+ *    which is itself
  */
 
 #include <libwebsockets.h>
@@ -45,6 +47,7 @@
 /* zone keys to fetch, "dht-hash-" and 64 hex */
 #define FFO_HASH_A	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa01"
 #define FFO_HASH_B	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa02"
+#define FFO_HASH_C	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa03"
 /* how many sends to dead endpoints it may take to fill the sequencer table */
 #define FFO_FILL_MAX	256
 
@@ -385,12 +388,23 @@ main(int argc, const char **argv)
 			   "new one, and forgets none it asked");
 	}
 
+	/* the target names this node, as the policy's seed does on the seed */
+
+	vhd->target_port = vhd->dht_port;
+	n = ffo_fetch(ops, cx, vh, "dht-hash-" FFO_HASH_C);
+	req = dht_dnssec_find_fetch_req(vhd, FFO_HASH_C);
+	ffo_sa(&sa46, 0, 1, vhd->dht_port);
+	ffo_expect(!n && req && req->asked_count &&
+		   !dht_dnssec_fetch_asked(vhd, FFO_HASH_C,
+					   (const struct sockaddr *)&sa46),
+		   "on the node the target names, a fetch doesn't ask itself");
+
 bail:
 	lws_sul_cancel(&sul_tick);
 	lws_context_destroy(cx);
 
-	/* nobody answered: both fetches completed once, at destroy */
-	ffo_expect(completions == 2, "both fetches completed once");
+	/* nobody answered: the fetches completed once each, at destroy */
+	ffo_expect(completions == 3, "the fetches completed once each");
 
 	lws_dir(FFO_STORE, NULL, lws_dir_rm_rf_cb);
 	rmdir(FFO_STORE);
