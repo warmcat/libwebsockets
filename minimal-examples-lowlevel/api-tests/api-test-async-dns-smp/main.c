@@ -94,7 +94,7 @@
 #define CONN_TSI(o)		((int)((intptr_t)(o) & 0xff))
 #define CONN_MORE(o)		((int)((intptr_t)(o) >> 8))
 #define DEADLINE_US		(20 * LWS_US_PER_SEC)
-#define DOMAIN			"adns-smp.invalid"
+#define TEST_DOMAIN		"adns-smp.invalid"
 
 static const uint8_t answer_ads[] = { 127, 0, 0, 1 };
 
@@ -255,19 +255,19 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	for (n = 0; n < PER_ROUND_OWN; n++) {
-		lws_snprintf(name, sizeof(name), "t%d-r%d-%d." DOMAIN,
+		lws_snprintf(name, sizeof(name), "t%d-r%d-%d." TEST_DOMAIN,
 			     s->tsi, s->round, n);
 		ask(s->tsi, name);
 	}
 
 	for (n = 0; n < PER_ROUND_SHARED; n++) {
-		lws_snprintf(name, sizeof(name), "shared-r%d-%d." DOMAIN,
+		lws_snprintf(name, sizeof(name), "shared-r%d-%d." TEST_DOMAIN,
 			     s->round, n);
 		ask(s->tsi, name);
 	}
 
 	for (n = 0; n < PER_ROUND_CONNS; n++) {
-		lws_snprintf(name, sizeof(name), "c%d-r%d-%d." DOMAIN,
+		lws_snprintf(name, sizeof(name), "c%d-r%d-%d." TEST_DOMAIN,
 			     s->tsi, s->round, n);
 		connect_to(s->tsi, name, 0);
 	}
