@@ -40,7 +40,7 @@ On every transport:
 |---|---|
 |the paths and urlargs of attack.sh, and its ~200 mass `.`, `/`, `?`, `%` variations|the normalized path and args exactly, or refused|
 |directory traversal out of the file mount, plain, %-encoded, mixed, with `\`, `;`, double-encoding, overlong utf-8|never the secret: normalized into the echo handler, or 404|
-|a directory named like the default document (`./docroot/loop/index.html/`), so no regular file is ever found|403|
+|a directory named like the default document (`./docroot/loop/index.html/`), so no regular file is ever found|403 (404 on windows, which can't open a directory as a file)|
 |DOS device names (`con`, `nul`, `com1.html`, `lpt1.txt`, ...), which windows opens as the device in any directory|not served|
 |bad %-encoding, and CR, LF, NUL and DEL smuggled in by %-encoding in the path or args|refused|
 

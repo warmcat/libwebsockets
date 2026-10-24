@@ -43,6 +43,12 @@
 /* in docroot/index.html and secret.txt respectively */
 #define ATK_DOCROOT_MARK	"lws-attack-docroot-index"
 #define ATK_SECRET_MARK	"lws-attack-secret"
+/* a directory named like the default document: windows can't open it */
+#if defined(WIN32)
+#define ATK_LOOP_STATUS		404
+#else
+#define ATK_LOOP_STATUS		403
+#endif
 
 /* the path the server counts requests for, see h3_attacks[] */
 #define ATK_REPLAYED_PATH	"/replayed"
@@ -208,11 +214,13 @@ static const struct path_case path_cases[] = {
 
 	/*
 	 * Not a regular file: ./docroot/loop/index.html is a directory, so the
-	 * default document is never found however often it is appended
+	 * default document is never found however often it is appended.  On
+	 * windows, the file open can't open a directory at all, so it is
+	 * simply not found.
 	 */
 
-	{ "/f/loop", V_STATUS, 403, NULL },
-	{ "/f/loop/", V_STATUS, 403, NULL },
+	{ "/f/loop", V_STATUS, ATK_LOOP_STATUS, NULL },
+	{ "/f/loop/", V_STATUS, ATK_LOOP_STATUS, NULL },
 
 	/* DOS device names, which windows opens as the device in any dir */
 
