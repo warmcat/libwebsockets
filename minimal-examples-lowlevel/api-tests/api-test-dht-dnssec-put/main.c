@@ -290,9 +290,10 @@ putt_take(struct vhd_dht_dnssec *vhd, const char *hash,
 	if (!putt_zone(path, serial) && !putt_zone(ppath, serial))
 		r = dht_dnssec_frag_take(vhd, frag);
 
-	*tmp_left = !access(path, F_OK) || !access(ppath, F_OK);
-	unlink(path);
-	unlink(ppath);
+	/* whatever unlinks was left behind */
+	*tmp_left = !unlink(path);
+	if (!unlink(ppath))
+		*tmp_left = 1;
 	free(frag);
 
 	return r;
