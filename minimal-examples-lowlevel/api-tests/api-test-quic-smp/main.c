@@ -375,8 +375,6 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		qsmp_on_thread(tsi);
 		if (pss)
 			pss->established = 1;
-		if (QSMP_MODE(o) == QSMP_MODE_PIPELINE)
-			qsmp_piped_on(lws_get_network_wsi(wsi));
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -394,6 +392,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		pss->done = 1;
 		qsmp_on_thread(tsi);
+		/*
+		 * Not counted at ESTABLISHED: a request joining a connection
+		 * that is already up hears that once on joining, and again
+		 * when its response arrives
+		 */
+		if (QSMP_MODE(o) == QSMP_MODE_PIPELINE)
+			qsmp_piped_on(lws_get_network_wsi(wsi));
 		if (pss->rx != (size_t)QSMP_CHUNKS * QSMP_CHUNK) {
 			lwsl_err("%s: body %u, want %u\n", __func__,
 				 (unsigned int)pss->rx,
