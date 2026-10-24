@@ -65,8 +65,8 @@ struct per_vhost_data__minimal {
 	struct lws *client_wsi;
 
 	int counter;
-	char finished;
-	char established;
+	char finished;		/* shared with the spam threads: lock_ring */
+	char established;	/* shared with the spam threads: lock_ring */
 };
 
 #if defined(WIN32)
@@ -90,17 +90,18 @@ thread_spam(void *d)
 			(struct per_vhost_data__minimal *)d;
 	struct msg amsg;
 	int len = 128, index = 1, n, whoami = 0;
+	char finished;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
 		if (pthread_equal(pthread_self(), vhd->pthread_spam[n]))
 			whoami = n + 1;
 
 	do {
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+
 		/* don't generate output if client not connected */
 		if (!vhd->established)
-			goto wait;
-
-		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+			goto wait_unlock;
 
 		/* only create if space in ringbuffer */
 		n = (int)lws_ring_get_count_free_elements(vhd->ring);
@@ -129,12 +130,12 @@ thread_spam(void *d)
 			lws_cancel_service(vhd->context);
 
 wait_unlock:
+		finished = vhd->finished;
 		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
 
-wait:
 		usleep(100000);
 
-	} while (!vhd->finished);
+	} while (!finished);
 
 	lwsl_notice("thread_spam %d exiting\n", whoami);
 
@@ -204,7 +205,6 @@ callback_minimal_broker(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pthread_create(&vhd->pthread_spam[n], NULL,
 					   thread_spam, vhd)) {
 				lwsl_err("thread creation failed\n");
-				vhd->finished = 1;
 				goto init_fail;
 			}
 
@@ -212,7 +212,9 @@ callback_minimal_broker(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 init_fail:
+		pthread_mutex_lock(&vhd->lock_ring);
 		vhd->finished = 1;
+		pthread_mutex_unlock(&vhd->lock_ring);
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
 			pthread_join(vhd->pthread_spam[n], &retval);
 
@@ -225,7 +227,9 @@ init_fail:
 		return 1;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		pthread_mutex_lock(&vhd->lock_ring);
 		vhd->finished = 1;
+		pthread_mutex_unlock(&vhd->lock_ring);
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
 			pthread_join(vhd->pthread_spam[n], &retval);
 
@@ -249,7 +253,9 @@ init_fail:
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		lwsl_user("%s: established\n", __func__);
+		pthread_mutex_lock(&vhd->lock_ring);
 		vhd->established = 1;
+		pthread_mutex_unlock(&vhd->lock_ring);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
@@ -281,7 +287,9 @@ init_fail:
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		vhd->client_wsi = NULL;
+		pthread_mutex_lock(&vhd->lock_ring);
 		vhd->established = 0;
+		pthread_mutex_unlock(&vhd->lock_ring);
 		lws_sul_schedule(vhd->context, 0, &vhd->sul,
 				 sul_connect_attempt, LWS_US_PER_SEC);
 		break;
@@ -295,7 +303,12 @@ init_fail:
 		 * We respond by scheduling a writable callback for the
 		 * connected client, if any.
 		 */
-		if (vhd && vhd->client_wsi && vhd->established)
+		if (!vhd || !vhd->client_wsi)
+			break;
+		pthread_mutex_lock(&vhd->lock_ring);
+		n = vhd->established;
+		pthread_mutex_unlock(&vhd->lock_ring);
+		if (n)
 			lws_callback_on_writable(vhd->client_wsi);
 		break;
 

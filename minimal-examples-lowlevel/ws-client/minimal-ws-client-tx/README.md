@@ -3,7 +3,9 @@
 This demonstrates a ws "publisher" to go with the minimal-ws-broker example.
 
 Two threads are spawned that produce messages to be sent to the broker,
-via a local ringbuffer.  Locking is provided to make ringbuffer access threadsafe.
+via a local ringbuffer.  Locking is provided to make ringbuffer access threadsafe,
+and the same lock covers the flags the threads share with the lws service thread,
+for whether the connection is up and whether to exit.
 
 When a nailed-up client connection to the broker is established, the
 ringbuffer is sent to the broker, which distributes the events to all
