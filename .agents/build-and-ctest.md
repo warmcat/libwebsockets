@@ -349,7 +349,11 @@
    once the loop runs**: a test calling a plugin's ops straight after
    `lws_create_vhost()` must service until `lws_protocol_vh_priv_get()`
    is non-NULL.  `lws_context_info_defaults()` sets EXPLICIT_VHOSTS, so
-   there is no "default" vhost: create your own.
+   there is no "default" vhost: create your own, or clear the option.
+   An example converted to the defaults that starts up from PROTOCOL_INIT
+   on `info.protocols` silently does nothing if it doesn't (ws-client-tx
+   and the raw examples did).  Plugin protocols, builtin or .so, are only
+   instantiated on a vhost when a pvo names them.
  - **Red-testing an opaque-ownership fix:** free the opaque right after the
    cancel, so a missed cancel shows as an ASan use-after-free at vhost
    destroy.
