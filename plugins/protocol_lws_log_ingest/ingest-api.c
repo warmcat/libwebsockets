@@ -767,6 +767,8 @@ li_start_cb(struct lejp_ctx *ctx, char reason)
 			 reason != LEJPCB_VAL_NUM_INT)
 			a->bad = 1;
 		return 0;
+	default:
+		return 0;
 	}
 
 	/* "from" may also be a number, epoch ms */
