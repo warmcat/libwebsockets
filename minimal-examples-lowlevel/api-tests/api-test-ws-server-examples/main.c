@@ -915,7 +915,29 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 static void
 wse_timeout_cb(lws_sorted_usec_list_t *sul)
 {
+	static const char * const fnames[] = {
+		"R1", "R2", "S", "K", "R3", "W", "A", "N"
+	};
+	int r;
+
 	wse_fail("timed out");
+
+	/* where a fan-out case got to, since the phase alone doesn't say */
+
+	if (phase < WSE_P_FANOUT || phase > WSE_P_FANOUT_DONE ||
+	    fanout >= (int)LWS_ARRAY_SIZE(fanouts))
+		return;
+
+	for (r = 0; r < WSE_F_COUNT; r++) {
+		const struct wse_fconn *c = &fanout_conns[fanout][r];
+
+		lwsl_err("  %s %s: wsi %d, est %d, closed %d, rx burst %d, "
+			 "lag %d, flood %d, slow %d, tx burst %d, lag %d, "
+			 "flood %d, slow %d\n", fanouts[fanout].vhost_name,
+			 fnames[r], !!c->wsi, c->est, c->closed, c->burst,
+			 c->lag, c->flood, c->slow, c->tx_burst, c->tx,
+			 c->tx_flood, c->tx_slow);
+	}
 }
 
 /* the n'th message TX sends, as up to two fragments */
