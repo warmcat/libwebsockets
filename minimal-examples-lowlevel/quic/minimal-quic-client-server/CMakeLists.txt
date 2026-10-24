@@ -233,12 +233,16 @@ if (requirements)
 		# after it gave them up for lost: they must still count, and
 		# each side must still probe its way up to the biggest datagrams
 		#
+		# For now it logs at info, with the whole of any log spew kept,
+		# so the QUIC PMTUD lines of a run that fails on a CI builder
+		# show how each side's search went
+		#
 		lws_get_free_port(PORT_QCS_PMTU_SPIKE)
 		lws_get_free_port(PORT_QCS_PMTU_SPIKE_RELAY)
 		add_test(NAME ${SAMP}-pmtu-spike COMMAND ${SAMP}
 				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_PMTU_SPIKE}
 				--relay ${PORT_QCS_PMTU_SPIKE_RELAY} --pmtu 1500
-				--delay-spike)
+				--delay-spike -d 1039 --log-spew-tail 65536)
 		set_tests_properties(${SAMP}-pmtu-spike PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)
