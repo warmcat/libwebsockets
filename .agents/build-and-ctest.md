@@ -222,8 +222,16 @@
    buffers to tcp_rmem max (32MB here).  An in-process api-test could not
    make the pre-G-672 server see a steady slow reader within seconds even
    with SO_RCVBUF clamped; that needs separate processes or a far longer run.
- - **Linux loopback lets a test send from any 127/8 address**, so tests can
-   use many source hosts (eg 127.0.0.2).  macOS lacks them: skip there.
+ - **Only Linux lets a test bind any 127/8 address**; macOS and the BSDs
+   have only 127.0.0.1 on lo0 unless aliases were added, so binding
+   127.0.0.2 fails with EADDRNOTAVAIL (sending to it works).  Where a test
+   needs just one other local address, use ::1 and require both
+   `LWS_WITH_IPV4` and `LWS_WITH_IPV6` for those cases in its CMakeLists
+   (vhost-listener-scope, auth-dns-zonedir).  Where it needs distinct
+   sources and ports would do, use ports on 127.0.0.1.  But the DHT rate
+   limits new sources per host (`lws_dht_admit_request()`, loopback
+   included), so api-test-dht-seq-flood needs several real source hosts
+   and still skips without them.
  - **api-test-auth-dns-zonedir's clock starts before the context is
    created** and a phase allows only 2s for replies, so a slow zone-dir
    read at init fails it under load (G-509): start the reply window when
