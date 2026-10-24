@@ -37,8 +37,10 @@ if (requirements)
 			 --port-dht ${PORT_DHT_FL_DHT}
 			 --port-fan ${PORT_DHT_FL_FAN}
 			 --port-p ${PORT_DHT_FL_P})
+		# it needs to bind 127.0.0.2 and up: skipped where it can't
 		set_tests_properties(api-test-dht-seq-flood PROPERTIES
 			TIMEOUT 75
+			SKIP_RETURN_CODE 77
 			WORKING_DIRECTORY .
 			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 	endif()

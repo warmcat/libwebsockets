@@ -73,6 +73,7 @@
 
 #define FL_POLL_US	(50 * LWS_US_PER_MS)
 #define FL_DEADLINE_US	(55 * LWS_US_PER_SEC)
+#define FL_SKIP		77	/* ctest SKIP_RETURN_CODE */
 
 #define FL_MAX_TS	64	/* LWS_DHT_MAX_TS */
 #define FL_STRANGERS	32	/* LWS_DHT_TS_STRANGERS_MAX */
@@ -1025,12 +1026,22 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	/* each forged chunk comes from its own address, on two hosts */
+	/*
+	 * each forged chunk comes from its own address, on two hosts.  The
+	 * first on 127.0.0.2 tells us if the platform can bind loopback
+	 * addresses other than 127.0.0.1 at all: macOS can't, unless they
+	 * were added to lo0
+	 */
 	for (n = 0; n < FL_SPOOFERS; n++) {
 		wsi_spoof[n] = fl_socket(vh, n & 1 ? "127.0.0.3" : "127.0.0.2",
 					 "fl-spoof", &sa_spoof[n]);
-		if (!wsi_spoof[n])
+		if (!wsi_spoof[n]) {
+			if (!n) {
+				lwsl_user("SKIP: can't bind 127.0.0.2 here\n");
+				retcode = FL_SKIP;
+			}
 			goto bail;
+		}
 	}
 
 	/*
