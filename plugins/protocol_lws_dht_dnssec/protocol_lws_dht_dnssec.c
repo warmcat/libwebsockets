@@ -5781,6 +5781,7 @@ dht_dnssec_sweep_level2_cb(const char *dirpath, void *user, struct lws_dir_entry
 		if (nl > 8 && !strcmp(lde->name + nl - 8, ".hwm.tmp")) {
 			struct stat st;
 			char fp[1024];
+			int fd;
 
 			/* never unlink a truncated path */
 			if (lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath,
@@ -5790,14 +5791,19 @@ dht_dnssec_sweep_level2_cb(const char *dirpath, void *user, struct lws_dir_entry
 			/*
 			 * A mark being written is renamed into place in the
 			 * same call that created it: one still here a while
-			 * later was left by a crash, or a failed write
+			 * later was left by a crash, or a failed write.  Marks
+			 * are only written from this, the service thread.
 			 */
-			if (!stat(fp, &st) &&
+			fd = open(fp, O_RDONLY);
+			if (fd < 0)
+				return 0;
+			if (!fstat(fd, &st) &&
 			    (uint64_t)st.st_mtime + DHT_DNSSEC_HWM_TMP_STALE_SECS
 									< now) {
 				lwsl_notice("Expunging stale %s\n", fp);
 				unlink(fp);
 			}
+			close(fd);
 
 			return 0;
 		}
