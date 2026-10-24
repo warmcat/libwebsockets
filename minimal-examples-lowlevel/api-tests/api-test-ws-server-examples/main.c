@@ -541,10 +541,20 @@ wse_schedule(lws_usec_t us)
 static void
 wse_phase_cb(lws_sorted_usec_list_t *sul)
 {
-	struct wse_fconn *fconns = fanout < (int)LWS_ARRAY_SIZE(fanouts) ?
-					fanout_conns[fanout] : NULL;
+	const struct wse_fanout *fo = NULL;
+	struct wse_fconn *fconns = NULL;
 	struct wse_conn *c;
 	size_t n;
+
+	/* the fan-out phases are only reached while fanout names a case */
+	if (phase >= WSE_P_FANOUT && phase <= WSE_P_FANOUT_DONE) {
+		if (fanout >= (int)LWS_ARRAY_SIZE(fanouts)) {
+			wse_fail("fan-out phase with no fan-out case");
+			return;
+		}
+		fo = &fanouts[fanout];
+		fconns = fanout_conns[fanout];
+	}
 
 	switch (phase) {
 	case WSE_P_CORNER:
@@ -642,7 +652,7 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 		break;
 
 	case WSE_P_FANOUT:
-		lwsl_user("fan-out case %s\n", fanouts[fanout].vhost_name);
+		lwsl_user("fan-out case %s\n", fo->vhost_name);
 		/* the readers first, S joins when they are established */
 		if (wse_fanout_connect(WSE_F_R1) ||
 		    wse_fanout_connect(WSE_F_R2))
@@ -672,7 +682,7 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 
 	case WSE_P_FANOUT_CHECK:
 		lwsl_user("fan-out %s: R1 %d / %d, R2 %d / %d, K closed %d\n",
-			  fanouts[fanout].vhost_name, fconns[WSE_F_R1].burst,
+			  fo->vhost_name, fconns[WSE_F_R1].burst,
 			  fconns[WSE_F_R1].lag, fconns[WSE_F_R2].burst,
 			  fconns[WSE_F_R2].lag, fconns[WSE_F_K].closed);
 		if (!fconns[WSE_F_K].closed) {
@@ -702,7 +712,7 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 			break;
 		}
 		lwsl_user("fan-out %s: flood of %d reached all the readers\n",
-			  fanouts[fanout].vhost_name,
+			  fo->vhost_name,
 			  fconns[WSE_F_S].tx_flood);
 		/* a slow reader, then S sends once it is there */
 		phase++;
@@ -712,7 +722,7 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 	case WSE_P_FANOUT_SLOW:
 		/* S has been sending past the lag limit: it stops */
 		lwsl_user("fan-out %s: S sent %d, slow reader had %d\n",
-			  fanouts[fanout].vhost_name, fconns[WSE_F_S].tx_slow,
+			  fo->vhost_name, fconns[WSE_F_S].tx_slow,
 			  fconns[WSE_F_W].slow);
 		if (fconns[WSE_F_S].tx_slow - fconns[WSE_F_W].slow <
 							WSE_F_SLOW_BEHIND) {
@@ -767,7 +777,7 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 		 */
 		phase++;
 		lws_callback_on_writable(fconns[WSE_F_S].wsi);
-		wse_schedule(*fanouts[fanout].lag_secs * 3 * LWS_US_PER_SEC);
+		wse_schedule(*fo->lag_secs * 3 * LWS_US_PER_SEC);
 		break;
 
 	case WSE_P_FANOUT_ALONE_PING:
