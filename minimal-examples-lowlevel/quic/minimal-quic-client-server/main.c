@@ -1170,9 +1170,29 @@ blackhole_failed(void)
 	return e;
 }
 
+/*
+ * --pmtu: the search goes on after the transfer, each probe's ack or loss
+ * starting the next, and a slow machine, or the delay spike holding the first
+ * probes, can leave a side a step short when the transfer is done.  Give it
+ * up to TEARDOWN_PMTU_WAITS more goes of TEARDOWN_PMTU_WAIT_US to get there.
+ */
+#define TEARDOWN_PMTU_WAIT_US	(100 * LWS_US_PER_MS)
+#define TEARDOWN_PMTU_WAITS	100
+
+static int teardown_pmtu_waits;
+
 static void
 teardown_cb(lws_sorted_usec_list_t *sul)
 {
+	if (!result && relay.pmtu &&
+	    teardown_pmtu_waits++ < TEARDOWN_PMTU_WAITS &&
+	    (relay.dir[0].largest < pmtu_found_size() ||
+	     relay.dir[1].largest < pmtu_found_size())) {
+		lws_sul_schedule(context, 0, sul, teardown_cb,
+				 TEARDOWN_PMTU_WAIT_US);
+		return;
+	}
+
 	if (!result)
 		result = forwarder_failed() || pmtu_failed() ||
 			 blackhole_failed();
