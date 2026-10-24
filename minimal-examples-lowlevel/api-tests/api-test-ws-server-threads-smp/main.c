@@ -19,6 +19,11 @@
  * opening and closing its own.  The clients are in a context of their own,
  * with one service thread, so only the example's server side is SMP.
  *
+ * If the server only has one service thread (lws built with LWS_MAX_SMP 1),
+ * the clients are served by it too: without SMP lws has no locking, so two
+ * contexts can't be serviced by two threads at once in one process, since
+ * they share process-wide state such as the default log context.
+ *
  * The test fails if anything crashes (run it under ASan), any client fails
  * to connect, any message is not one the example sends, or not enough
  * connections and messages happen.
@@ -244,14 +249,18 @@ main(int argc, const char **argv)
 	}
 	threads = lws_get_count_threads(context);
 
-	/* the clients' own context, with one service thread */
-	info.count_threads = 1;
-	cx_cli = lws_create_context(&info);
-	if (!cx_cli) {
-		lwsl_err("lws client context init failed\n");
-		lws_context_destroy(context);
-		return 1;
-	}
+	if (threads > 1) {
+		/* the clients' own context, with one service thread */
+		info.count_threads = 1;
+		cx_cli = lws_create_context(&info);
+		if (!cx_cli) {
+			lwsl_err("lws client context init failed\n");
+			lws_context_destroy(context);
+			return 1;
+		}
+	} else
+		/* no SMP: only one thread may service lws at all */
+		cx_cli = context;
 
 	/* the example's protocol, on a random port */
 	info.port = 0;
@@ -285,8 +294,8 @@ main(int argc, const char **argv)
 	if (!pthread_create(&poker, NULL, poke_thread, NULL))
 		poking = 1;
 
-	/* the server's service threads, then the client one */
-	for (n = 0; n <= threads; n++) {
+	/* the server's service threads, then the client one if it has its own */
+	for (n = 0; n < threads + (cx_cli != context); n++) {
 		svc[n].cx = n < threads ? context : cx_cli;
 		svc[n].tsi = n < threads ? n : 0;
 		if (pthread_create(&svc[n].thread, NULL, service_thread,
@@ -317,7 +326,8 @@ bail:
 	for (n = 0; n < CHURNERS; n++)
 		lws_sul_cancel(&churners[n].sul);
 
-	lws_context_destroy(cx_cli);
+	if (cx_cli != context)
+		lws_context_destroy(cx_cli);
 	lws_context_destroy(context);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
