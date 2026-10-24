@@ -485,6 +485,14 @@ struct _lws_http_mode_related {
 	/**< ... and all of the request body has arrived */
 	unsigned int proxy_body_ended:1;
 	/**< ... and the onward request's last-chunk has been sent */
+	unsigned int proxy_relaying:1;
+	/**< on the client-facing wsi of an http proxy: an onward response is
+	 * being relayed to it, and it hasn't been ended yet */
+	unsigned int proxy_onward_completed:1;
+	/**< on the onward client wsi of an http proxy: all of its response
+	 * has arrived (COMPLETED_CLIENT_HTTP) */
+	uint64_t proxy_relayed;
+	/**< ... and how many of its response body bytes went to the parent */
 #endif
 	uint8_t pipeline_count;
 #if defined(LWS_ROLE_H3)
@@ -1009,3 +1017,15 @@ lws_h1_client_body_done_check(struct lws *wsi);
 
 int
 lws_http_date_parse_unix(const char *b, size_t len, time_t *t);
+
+/*
+ * A reverse-proxied transaction that timed out, or is being closed before its
+ * response was all relayed: say how far each side of it got.  wsi is either
+ * side, the client-facing one or its onward client.
+ */
+#if defined(LWS_WITH_HTTP_PROXY) && (_LWS_ENABLED_LOGS & LLL_NOTICE)
+void
+lws_http_proxy_dump_stalled(struct lws *wsi, const char *why);
+#else
+#define lws_http_proxy_dump_stalled(_w, _why) do { } while (0)
+#endif

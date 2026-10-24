@@ -1946,6 +1946,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	cwsi->http.mount_specific_keepalive_timeout_secs = (unsigned int)lws_wsi_keepalive_timeout_eff(wsi);
 
 	cwsi->http.proxy_clientside = 1;
+	if (!ws)
+		wsi->http.proxy_relaying = 1;
 
 	/*
 	 * The onward leg used to decide this from the parent's Content-Length
@@ -4582,6 +4584,9 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->http_carries_sse = 0;
 	/* the next response a relay ends needs its own end of stream */
 	wsi->http.did_stream_close = 0;
+#if defined(LWS_WITH_HTTP_PROXY)
+	wsi->http.proxy_relaying = 0;
+#endif
 	/* serving the 404 document was this transaction's, not the next's */
 	wsi->handling_404 = 0;
 	/*

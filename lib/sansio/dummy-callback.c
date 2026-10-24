@@ -246,6 +246,47 @@ bail:
 }
 #endif
 
+#if defined(LWS_WITH_HTTP_PROXY) && (_LWS_ENABLED_LOGS & LLL_NOTICE)
+void
+lws_http_proxy_dump_stalled(struct lws *wsi, const char *why)
+{
+	struct lws *par, *onw;
+
+	if (wsi->http.proxy_clientside) {
+		onw = wsi;
+		par = lws_get_parent(wsi);
+	} else {
+		par = wsi;
+		onw = lws_get_child(wsi);
+		if (!onw || !onw->http.proxy_clientside)
+			return;
+	}
+
+	lwsl_wsi_notice(wsi, "proxy %s: onward %s: state 0x%x, response %s, "
+			"%llu of %llu body left to read, %llu relayed", why,
+			lws_wsi_tag(onw), (unsigned int)lwsi_state(onw),
+			onw->http.proxy_onward_completed ? "complete" :
+							   "incomplete",
+			(unsigned long long)onw->http.rx_content_remain,
+			(unsigned long long)onw->http.rx_content_length,
+			(unsigned long long)onw->http.proxy_relayed);
+
+	if (!par)
+		return;
+
+	lwsl_wsi_notice(wsi, "proxy %s: client-facing %s: state 0x%x, "
+			"%s, pending 0x%x, ended %d, buffered out %d, request "
+			"body complete %d, ended %d, %llu held", why,
+			lws_wsi_tag(par), (unsigned int)lwsi_state(par),
+			par->mux_substream ? "stream" : "h1",
+			(unsigned int)(unsigned char)par->reason_bf,
+			par->http.did_stream_close, lws_has_buffered_out(par),
+			par->http.proxy_body_complete,
+			par->http.proxy_body_ended,
+			(unsigned long long)par->http.buflist_post_body_len);
+}
+#endif
+
 static int
 stream_close(struct lws *wsi)
 {
@@ -255,6 +296,9 @@ stream_close(struct lws *wsi)
 		return 0;
 
 	wsi->http.did_stream_close = 1;
+#if defined(LWS_WITH_HTTP_PROXY)
+	wsi->http.proxy_relaying = 0;
+#endif
 
 	if (wsi->mux_substream) {
 		if (lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
@@ -792,8 +836,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				 * already ended the stream, so the transaction
 				 * end does not end it a second time
 				 */
-				if (wsi->mux_substream)
+				if (wsi->mux_substream) {
 					wsi->http.did_stream_close = 1;
+					wsi->http.proxy_relaying = 0;
+				}
 			}
 
 			lwsl_wsi_debug(wsi, "issuing proxy headers: clen %d",
@@ -906,6 +952,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
 		char *out = buf + LWS_PRE;
+		size_t total = len;
 
 		if (!wsi->http.proxy_clientside || !lws_get_parent(wsi))
 			break;
@@ -976,6 +1023,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 #endif
+
+		wsi->http.proxy_relayed += total - len;
 
 		if (n < 0)
 			return -1;
@@ -1160,6 +1209,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_wsi_info(wsi, "COMPLETED_CLIENT_HTTP: (parent %s)",
 				   lws_wsi_tag(lws_get_parent(wsi)));
+		wsi->http.proxy_onward_completed = 1;
 		if (!lws_get_parent(wsi))
 			break;
 		lws_get_parent(wsi)->reason_bf |=

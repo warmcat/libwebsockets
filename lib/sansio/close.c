@@ -660,6 +660,31 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_http_close_immortal(wsi);
 #endif
 
+#if defined(LWS_WITH_HTTP_PROXY) && (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	/*
+	 * A proxied response being cut off before it was all relayed, or its
+	 * onward side going while it was: say how far each side got
+	 */
+	if (wsi->http.proxy_relaying ||
+	    (wsi->http.proxy_clientside && lws_get_parent(wsi) &&
+	     lws_get_parent(wsi)->http.proxy_relaying &&
+	     !wsi->http.proxy_onward_completed)) {
+		char cause[64], why[80];
+
+		lws_close_cause_render(cause, sizeof(cause), wsi->close_cause,
+				       wsi->close_cause_arg);
+		lws_snprintf(why, sizeof(why), "closing%s%s",
+			     cause[0] ? ", " : "", cause);
+		lws_http_proxy_dump_stalled(wsi, why);
+
+		/* the other side's close is the same story: told once */
+		if (wsi->http.proxy_relaying)
+			wsi->http.proxy_relaying = 0;
+		else
+			lws_get_parent(wsi)->http.proxy_relaying = 0;
+	}
+#endif
+
 	/* if we have children, close them first */
 	while(!lws_dll2_is_empty(&wsi->child_list_owner)) {
 		wsi2 = lws_container_of(lws_dll2_get_head(&wsi->child_list_owner),

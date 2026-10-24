@@ -118,6 +118,15 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 		lws_quic_dump_stalled(wsi);
 #endif
 
+#if defined(LWS_WITH_HTTP_PROXY)
+	/*
+	 * The onward side of a proxied transaction timing out: say how far
+	 * each side got.  The client-facing side says it as it is closed.
+	 */
+	if (wsi->http.proxy_clientside)
+		lws_http_proxy_dump_stalled(wsi, "onward timed out");
+#endif
+
 	/* no need to log normal idle keepalive timeout */
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
 	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE)
