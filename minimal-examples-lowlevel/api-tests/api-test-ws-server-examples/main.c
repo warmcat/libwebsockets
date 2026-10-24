@@ -165,6 +165,7 @@ enum {
 #define WSE_F_SLOW_US		(2 * LWS_US_PER_MS) /* ...one each this long */
 #define WSE_F_SLOW_WINDOW	4000	/* S is at most this many ahead of W */
 #define WSE_F_SLOW_BEHIND	16	/* W must be at least this far behind */
+#define WSE_F_PING		"alone"	/* S's PING payload, the PONG must match */
 #define WSE_F_SLOW_RCVBUF	65536	/* W's socket buffer, so the server sees
 					 * it is slow in good time */
 
@@ -1411,10 +1412,16 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 		if (phase == WSE_P_FANOUT_ALONE_PING && !c->tx_ping) {
 			/*
 			 * It goes after everything we published while paused,
-			 * so the PONG also says the broker read all that
+			 * so the PONG also says the broker read all that.  Our
+			 * own payload, so its PONG can't be confused with one
+			 * for lws' validity PING, which may have been queued
+			 * among what we published, before the broker read it
 			 */
 			c->tx_ping = 1;
-			if (lws_write(wsi, txbuf + LWS_PRE, 0,
+			memcpy(txbuf + LWS_PRE, WSE_F_PING,
+			       sizeof(WSE_F_PING) - 1);
+			if (lws_write(wsi, txbuf + LWS_PRE,
+				      sizeof(WSE_F_PING) - 1,
 				      LWS_WRITE_PING) < 0)
 				return -1;
 			break;
@@ -1462,7 +1469,9 @@ callback_wse_fanout(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
-		if (r == WSE_F_S && phase == WSE_P_FANOUT_ALONE_PING) {
+		if (r == WSE_F_S && phase == WSE_P_FANOUT_ALONE_PING &&
+		    len == sizeof(WSE_F_PING) - 1 &&
+		    !memcmp(in, WSE_F_PING, len)) {
 			lwsl_user("fan-out %s: publisher read again after its "
 				  "last subscriber was closed\n",
 				  fanouts[fanout].vhost_name);
