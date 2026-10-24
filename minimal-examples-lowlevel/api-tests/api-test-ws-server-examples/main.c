@@ -1236,8 +1236,11 @@ wse_fanout_rx(struct wse_fconn *c, int r, const char *in, size_t len)
 		if (wse_fanout_seq(&c->burst,
 				   ((in[1] - '0') * 10) + (in[2] - '0')))
 			return 1;
-		if (r == WSE_F_R2 && c->burst == WSE_F_BURST &&
-		    fconns[WSE_F_R1].burst == WSE_F_BURST)
+		/* whichever reader has the whole burst last moves us on */
+		if ((r == WSE_F_R1 || r == WSE_F_R2) &&
+		    c->burst == WSE_F_BURST &&
+		    fconns[WSE_F_R1].burst == WSE_F_BURST &&
+		    fconns[WSE_F_R2].burst == WSE_F_BURST)
 			wse_schedule(1);
 		return 0;
 	}
