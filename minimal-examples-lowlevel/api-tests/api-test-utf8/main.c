@@ -50,7 +50,7 @@ static const char * const valid[] = {
 
 static const char * const invalid[] = {
 	"\x80",					/* stray continuation */
-	"a\xbf" "b",
+	"a\277b",				/* continuation between ASCII */
 	"\xc0\x80",				/* overlong NUL */
 	"\xc1\xbf",				/* overlong */
 	"\xe0\x80\x80",				/* overlong 3-byte */
