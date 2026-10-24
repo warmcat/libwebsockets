@@ -1178,6 +1178,12 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
  * have one already, so a stack overflow in that thread is reported too.
  * Other threads' crashes are reported on their own stack.
  *
+ * On windows, a fault is a structured exception, so it is caught by an
+ * unhandled exception filter, unless the application set one, and SIGABRT by
+ * a CRT signal handler.  DbgHelp names the frames, with source lines where it
+ * finds the .pdb.  The exception then goes on to Windows Error Reporting, and
+ * abort() exits with code 3, as they would have.
+ *
  * Returns 0 if installed, or nonzero if it couldn't be.
  */
 LWS_VISIBLE LWS_EXTERN int

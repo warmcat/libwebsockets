@@ -26,9 +26,18 @@ handles or ignores are left alone.
 and api tests have it, and a test that crashes in ctest says where in its
 output, and so in a CI log.
 
-It needs `backtrace_symbols_fd()` from `<execinfo.h>`: glibc and macOS have it
-in libc, the BSDs in libexecinfo, which is linked if needed.  Where there is
-none, eg musl or Windows, `LWS_WITH_CRASH_BACKTRACE` is turned off.
+On posix it needs `backtrace_symbols_fd()` from `<execinfo.h>`: glibc and
+macOS have it in libc, the BSDs in libexecinfo, which is linked if needed.
+Where there is none, eg musl, `LWS_WITH_CRASH_BACKTRACE` is turned off.
+
+On Windows a fault, eg, an access violation, is a structured exception, not a
+signal, so it is caught by an unhandled exception filter, unless the
+application set its own, and `abort()` by a SIGABRT handler.  The line before
+the backtrace says `fatal exception 0xc0000005` or `fatal signal 22`.  DbgHelp
+(`dbghelp.lib`, linked when the option is on) names the frames, with the file
+and line where it finds the module's .pdb, eg, in a Debug or RelWithDebInfo
+build.  Afterwards the exception goes on to Windows Error Reporting and the
+process exits with the exception code, or 3 for `abort()`, as it would have.
 
 On macOS the frames come with function names and offsets.  With glibc, a
 function the binary doesn't export shows as an offset into its file, eg,

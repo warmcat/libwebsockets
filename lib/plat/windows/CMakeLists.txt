@@ -52,6 +52,10 @@ if (LWS_WITH_SPAWN)
 	list(APPEND SOURCES plat/windows/windows-spawn.c)
 endif()
 
+if (LWS_WITH_CRASH_BACKTRACE)
+	list(APPEND SOURCES plat/windows/windows-crash.c)
+endif()
+
 if (LWS_WITH_ZLIB AND LWS_WITH_BUNDLED_ZLIB)
        set(WIN32_ZLIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../win32port/zlib")
 	set(ZLIB_SRCS

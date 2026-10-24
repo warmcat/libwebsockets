@@ -539,10 +539,10 @@ option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtrace
 # where a test that crashed saying where saves reproducing it.
 #
 set(LWS_WITH_CRASH_BACKTRACE_DEFAULT OFF)
-if (LWS_WITH_MINIMAL_EXAMPLES AND NOT WIN32)
+if (LWS_WITH_MINIMAL_EXAMPLES)
 	set(LWS_WITH_CRASH_BACKTRACE_DEFAULT ON)
 endif()
-option(LWS_WITH_CRASH_BACKTRACE "lws_cmdline_option_handle_builtin() prints a backtrace if the process crashes (needs execinfo.h)" ${LWS_WITH_CRASH_BACKTRACE_DEFAULT})
+option(LWS_WITH_CRASH_BACKTRACE "lws_cmdline_option_handle_builtin() prints a backtrace if the process crashes (needs execinfo.h, or DbgHelp on windows)" ${LWS_WITH_CRASH_BACKTRACE_DEFAULT})
 
 #
 # Over The Air updates
@@ -984,21 +984,27 @@ if (WIN32 OR MSVC)
 endif()
 
 if (LWS_WITH_CRASH_BACKTRACE)
-	# glibc and macOS have backtrace() in libc, the BSDs in libexecinfo
-	CHECK_INCLUDE_FILE(execinfo.h LWS_HAVE_EXECINFO_H)
-	if (LWS_HAVE_EXECINFO_H AND NOT WIN32)
-		CHECK_FUNCTION_EXISTS(backtrace_symbols_fd LWS_HAVE_BACKTRACE_SYMBOLS_FD)
-		if (NOT LWS_HAVE_BACKTRACE_SYMBOLS_FD)
-			find_library(LWS_EXECINFO_LIBRARIES NAMES execinfo)
-			if (LWS_EXECINFO_LIBRARIES)
-				list(APPEND LIB_LIST_AT_END ${LWS_EXECINFO_LIBRARIES})
-				set(LWS_HAVE_BACKTRACE_SYMBOLS_FD 1)
+	if (WIN32)
+		# DbgHelp names the frames, from the .pdb where there is one
+		list(APPEND LIB_LIST_AT_END dbghelp.lib)
+	else()
+		# glibc and macOS have backtrace() in libc, the BSDs in
+		# libexecinfo
+		CHECK_INCLUDE_FILE(execinfo.h LWS_HAVE_EXECINFO_H)
+		if (LWS_HAVE_EXECINFO_H)
+			CHECK_FUNCTION_EXISTS(backtrace_symbols_fd LWS_HAVE_BACKTRACE_SYMBOLS_FD)
+			if (NOT LWS_HAVE_BACKTRACE_SYMBOLS_FD)
+				find_library(LWS_EXECINFO_LIBRARIES NAMES execinfo)
+				if (LWS_EXECINFO_LIBRARIES)
+					list(APPEND LIB_LIST_AT_END ${LWS_EXECINFO_LIBRARIES})
+					set(LWS_HAVE_BACKTRACE_SYMBOLS_FD 1)
+				endif()
 			endif()
 		endif()
-	endif()
-	if (NOT LWS_HAVE_BACKTRACE_SYMBOLS_FD)
-		message(STATUS "No backtrace_symbols_fd(): disabling LWS_WITH_CRASH_BACKTRACE")
-		set(LWS_WITH_CRASH_BACKTRACE OFF)
+		if (NOT LWS_HAVE_BACKTRACE_SYMBOLS_FD)
+			message(STATUS "No backtrace_symbols_fd(): disabling LWS_WITH_CRASH_BACKTRACE")
+			set(LWS_WITH_CRASH_BACKTRACE OFF)
+		endif()
 	endif()
 endif()
 

@@ -9,14 +9,14 @@ set(SAMP lws-api-test-crash-backtrace)
 set(SRCS main.c)
 
 #
-# Children that crash must print their backtrace and still die of the signal,
-# and a handler the application installed first is left alone.  It forks, so
-# posix only.
+# Children that crash must print their backtrace and still die as they would
+# have, and a handler the application installed first is left alone.  The
+# children are this test again, run with --crash <case>.
 #
 set(requirements 1)
 require_lws_config(LWS_WITH_CRASH_BACKTRACE 1 requirements)
 
-if (requirements AND NOT WIN32)
+if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
 	add_test(NAME api-test-crash-backtrace COMMAND lws-api-test-crash-backtrace)
