@@ -52,11 +52,11 @@ int is_stub = 0;
 /*
  * How long a spawned stub gets to start and accept the parent's connection.
  * A stub is a whole new process making its own context and tls client ctxs:
- * on a loaded Windows builder that has taken more than 4s, and the parent's
- * connect retries back off to 1s apart, so allow well beyond that.  The wait
- * ends as soon as the connection is up.
+ * on a loaded Windows builder that has taken more than 12s.  The parent's
+ * connect retries back off to 1s apart and go on for ~30s, so allow as long.
+ * The wait ends as soon as the connection is up.
  */
-#define STUB_START_BUDGET_S	15
+#define STUB_START_BUDGET_S	30
 
 static char test_stub[64], test_stub_p3[64];
 
