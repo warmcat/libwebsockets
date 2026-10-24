@@ -482,7 +482,10 @@ struct lws_context_creation_info {
 #endif
 	const struct lws_protocol_vhost_options *pvo;
 	/**< VHOST: pointer to optional linked list of per-vhost
-	 * options made accessible to protocols */
+	 * options made accessible to protocols.  A protocol named here is
+	 * instantiated on the vhost.  If this is NULL, so are all of the
+	 * vhost's own protocols, but a plugin protocol always needs to be
+	 * named here (or LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS) */
 	const char *log_filepath;
 	/**< VHOST: filepath to append logs to... this is opened before
 	 *		any dropping of initial privileges.  These are

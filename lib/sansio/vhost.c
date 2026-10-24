@@ -432,20 +432,15 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		 * prepared in case the protocol handler wants to touch them
 		 */
 
-		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
+		/*
+		 * These are not plugins, but the vhost's own protocols, so
+		 * whether or not the build has plugins, not setting the vhost
+		 * pvo list at creation enables all of them, for backwards
+		 * compatibility.  Plugin protocols, above, always need a pvo.
+		 */
 
-#if !defined(LWS_WITH_PROTOCOL_PLUGINS)
-				/*
-				 * with plugins, you have to explicitly
-				 * instantiate them per-vhost with pvos.
-				 *
-				 * Without plugins, not setting the vhost pvo
-				 * list at creation enables all the protocols
-				 * by default, for backwards compatibility
-				 */
-				|| !vh->pvo
-#endif
-		) {
+		if (pvo || !vh->pvo ||
+		    (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)) {
 			lwsl_vhost_info(vh, "init %s.%s", vh->name,
 					vh->protocols[n].name);
 			if (vh->protocols[n].callback((struct lws *)lwsa,
