@@ -92,9 +92,12 @@ thread_spam(void *d)
 	int len = 128, index = 1, n, whoami = 0;
 	char finished;
 
+	/* our pthread_t is stored before our creator lets go of the lock */
+	pthread_mutex_lock(&vhd->lock_ring);
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
 		if (pthread_equal(pthread_self(), vhd->pthread_spam[n]))
 			whoami = n + 1;
+	pthread_mutex_unlock(&vhd->lock_ring);
 
 	do {
 		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
@@ -199,23 +202,28 @@ callback_minimal_broker(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pthread_mutex_init(&vhd->lock_ring, NULL);
 
-		/* start the content-creating threads */
+		/*
+		 * start the content-creating threads, holding the lock so
+		 * they don't look for their pthread_t before it is stored
+		 */
 
+		pthread_mutex_lock(&vhd->lock_ring);
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
 			if (pthread_create(&vhd->pthread_spam[n], NULL,
 					   thread_spam, vhd)) {
 				lwsl_err("thread creation failed\n");
 				goto init_fail;
 			}
+		pthread_mutex_unlock(&vhd->lock_ring);
 
 		sul_connect_attempt(&vhd->sul);
 		break;
 
 init_fail:
-		pthread_mutex_lock(&vhd->lock_ring);
+		/* still locked, and n threads were started */
 		vhd->finished = 1;
 		pthread_mutex_unlock(&vhd->lock_ring);
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+		while (n--)
 			pthread_join(vhd->pthread_spam[n], &retval);
 
 		if (vhd->ring)
