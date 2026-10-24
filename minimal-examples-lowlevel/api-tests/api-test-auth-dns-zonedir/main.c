@@ -808,6 +808,7 @@ drive_cb(lws_sorted_usec_list_t *sul)
 					    __func__, cur->q[n].name);
 				cur->q[n].sent = 1;
 				cur->q[n].got_rcode = cur->q[n].expect_rcode;
+				cur->q[n].got_anc = cur->q[n].expect_anc;
 				continue;
 			}
 
