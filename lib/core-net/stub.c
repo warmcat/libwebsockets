@@ -959,6 +959,14 @@ lws_stub_server_init(const struct lws_stub_config *_config, char *secret_out, vo
  */
 static const uint32_t backoff_ms[] = { 100, 250, 500, 1000, 1000 };
 
+/*
+ * How many of those attempts we make before giving up until the next request
+ * asks us to try again: once at the 1s cap, they cover ~30s.  A loaded
+ * Windows builder has taken over 12s to start a stub, most of it in the
+ * child's TLS init, so this must allow well beyond that.
+ */
+#define LWS_STUB_CONNECT_TRIES	30
+
 static const lws_retry_bo_t stub_retry = {
 	.retry_ms_table			= backoff_ms,
 	.retry_ms_table_count		= LWS_ARRAY_SIZE(backoff_ms),
@@ -1019,7 +1027,7 @@ lws_stub_client_connect(struct lws_stub_manager *mgr)
 	lwsl_vhost_notice(mgr->vh, "%s: stub '%s', protocol %s, addr %s\n", __func__, mgr->config.stub_name, i.protocol, i.address);
 	mgr->wsi_client = lws_client_connect_via_info(&i);
 	if (!mgr->wsi_client) {
-		if (mgr->ctry < 10) {
+		if (mgr->ctry < LWS_STUB_CONNECT_TRIES) {
 			uint32_t ms = stub_retry.retry_ms_table[
 				mgr->ctry < stub_retry.retry_ms_table_count ?
 				mgr->ctry : stub_retry.retry_ms_table_count - 1];
@@ -1315,7 +1323,7 @@ lws_stub_request_h(struct lws_stub_manager *mgr,
 
 	if (!mgr->wsi_client) {
 		if (!lws_dll2_owner(&mgr->sul.list)) {
-			if (mgr->ctry >= 10) {
+			if (mgr->ctry >= LWS_STUB_CONNECT_TRIES) {
 				/* If we hit max retries, reset and try again if new requests come in */
 				mgr->ctry = 0;
 			}
