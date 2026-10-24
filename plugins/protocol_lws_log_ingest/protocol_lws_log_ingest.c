@@ -625,7 +625,8 @@ li_init(struct lws *wsi, const struct lws_protocol_vhost_options *pvo)
 		return -1;
 	}
 
-	lws_pvo_get_str((void *)pvo, "service", &vhd->service);
+	if (!lws_pvo_get_str((void *)pvo, "service", &p))
+		vhd->service = p;
 	if (!lws_pvo_get_str((void *)pvo, "always", &vhd->always) &&
 	    !li_valid_src(vhd->always)) {
 		lwsl_vhost_err(vhd->vh, "bad pvo always '%s'", vhd->always);
@@ -663,7 +664,8 @@ li_init(struct lws *wsi, const struct lws_protocol_vhost_options *pvo)
 		memset(&i, 0, sizeof(i));
 		i.vhost		= vhd->vh;
 		i.kind		= "lws-log-ingest";
-		lws_pvo_get_str((void *)pvo, "own-kind", &i.kind);
+		if (!lws_pvo_get_str((void *)pvo, "own-kind", &p))
+			i.kind	= p;
 		i.store		= li_own_store;
 		i.opaque	= vhd;
 		vhd->own = lws_log_ship_create(&i);
