@@ -351,7 +351,10 @@ auth_dns_wire_name_skip(const uint8_t *w, size_t len)
 static time_t
 auth_dns_rrsig_time(uint32_t t, time_t now)
 {
-	return now + (time_t)(int32_t)(t - (uint32_t)now);
+	/* serial numbers compare the low 32 bits of the time */
+	uint32_t now32 = (uint32_t)((uint64_t)now & 0xffffffffu);
+
+	return now + (time_t)(int32_t)(t - now32);
 }
 
 int
