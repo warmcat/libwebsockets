@@ -969,6 +969,9 @@ static struct {
 					   * answer began to wait... */
 	unsigned int	turns_waited;	/* ... and until it was answered */
 	char		paths[2][48];	/* the first requests, as dispatched */
+	long		tx_body;	/* response payload bytes written, and */
+	int		tx_finals;	/* ... the responses finished, so a stall
+					 * says if the server got that far */
 } srv;
 
 static struct lws_context *context;
@@ -1287,6 +1290,8 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 		if (lws_write(wsi, q, pss->tx_total, LWS_WRITE_HTTP_FINAL) !=
 							(int)pss->tx_total)
 			return -1;
+		srv.tx_body += (long)pss->tx_total;
+		srv.tx_finals++;
 		pss->tx_pos = pss->tx_total;
 		pss->responding = 0;
 
@@ -1338,6 +1343,9 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 #endif
 
 	pss->tx_pos += n;
+	srv.tx_body += (long)n;
+	if (final)
+		srv.tx_finals++;
 
 	if (!final) {
 		lws_callback_on_writable(wsi);
@@ -1822,6 +1830,11 @@ case_evaluate(void)
 		if (!cn->completed || cn->status != c->expect_status) {
 			lwsl_err("conn %d: completed %d status %d, expected %d\n",
 				 n, cn->completed, cn->status, c->expect_status);
+			/* how far the response got, from each end */
+			lwsl_err("conn %d: client got %u payload bytes; the "
+				 "server wrote %ld and finished %d responses\n",
+				 n, (unsigned int)cn->rx_len, srv.tx_body,
+				 srv.tx_finals);
 			case_finish(0, "unexpected status / completion");
 			goto next;
 		}
