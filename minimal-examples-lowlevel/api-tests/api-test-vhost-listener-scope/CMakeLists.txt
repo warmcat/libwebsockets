@@ -9,7 +9,7 @@ set(SAMP lws-api-test-vhost-listener-scope)
 set(SRCS main.c)
 
 #
-# Server vhosts on the same port on 127.0.0.1 and 127.0.0.2, and the client,
+# Server vhosts on the same port on 127.0.0.1 and ::1, and the client,
 # in one process: a name the client sends may only select a vhost on the
 # listener it arrived on (G-329, G-007); a connection moved onto another vhost
 # keeps no protocol of the vhost it left (G-330); plaintext let onto a tls
@@ -30,6 +30,9 @@ set(VLS_H3 1)
 require_lws_config(LWS_ROLE_H3 1 VLS_H3)
 set(VLS_PT 1)
 require_lws_config(LWS_WITH_TLS_PASSTHROUGH 1 VLS_PT)
+# the cases with a vhost on ::1 as well as 127.0.0.1 need both families
+set(VLS_V6 1)
+require_lws_config(LWS_WITH_IPV6 1 VLS_V6)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
@@ -37,9 +40,12 @@ if (requirements)
 	set(VLS_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
 	# each test is "case" or "case/alpn"
-	set(VLS_TESTS host-other host-same)
+	set(VLS_TESTS)
+	if (VLS_V6)
+		list(APPEND VLS_TESTS host-other host-same)
+	endif()
 
-	if (VLS_TLS)
+	if (VLS_TLS AND VLS_V6)
 		set(VLS_ALPNS http/1.1)
 		if (VLS_H2)
 			list(APPEND VLS_ALPNS h2)
@@ -64,7 +70,10 @@ if (requirements)
 				endforeach()
 			endforeach()
 		endif()
+	endif()
 
+	# only on 127.0.0.1
+	if (VLS_TLS)
 		list(APPEND VLS_TESTS proto-moved proto-keepalive
 			plain-tls-same plain-tls-other redir-other
 			redir-upgrade redir-mount redir-badhost)
@@ -96,9 +105,8 @@ if (requirements)
 				 -p ${PORT_VLS_${VLS_NAME}}
 				 --cert ${VLS_CERTS}/localhost-100y.cert
 				 --key ${VLS_CERTS}/localhost-100y.key)
-		# 127.0.0.2 can't be listened on everywhere: skipped there
 		set_tests_properties(api-test-vhost-listener-scope-${VLS_NAME}
-				     PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+				     PROPERTIES TIMEOUT 30)
 	endforeach()
 
 	if (websockets_shared)

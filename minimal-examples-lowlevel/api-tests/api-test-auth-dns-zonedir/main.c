@@ -86,9 +86,13 @@ static struct lws_context *context;
 
 static int ports[2];
 static int cli_fd = -1;
-/* another source host, 127.0.0.2, where the platform has it on loopback */
+/*
+ * another source host, ::1: only linux lets another ipv4 loopback address be
+ * bound without configuring it
+ */
 static int cli2_fd = -1;
 static struct sockaddr_in auth_sa;
+static struct sockaddr_in6 auth_sa6;
 
 static int test_ok = 1;
 static int phase_idx, phase_done, phase_failed;
@@ -177,10 +181,12 @@ static struct {
 	int				pending;
 } zd_fetch;
 
+/* the zone the other source host's query is for */
+#define ZD_SRC2_ZONE		"rlb.example"
+
 static int zd_fetch_starts, zd_fetch_completions, zd_fetch_status,
-	   zd_fetch_calls;
-/* the zone the last fetch was asked for */
-static char zd_fetch_last[256];
+	   zd_fetch_calls,
+	   zd_fetch_src2;	/* a fetch was asked for ZD_SRC2_ZONE */
 
 /*
  * auth-dns starts at most a burst of this many zone fetches at once for one
@@ -193,7 +199,7 @@ zd_fetch_reset(void)
 {
 	memset(&zd_fetch, 0, sizeof(zd_fetch));
 	zd_fetch_starts = zd_fetch_completions = zd_fetch_calls = 0;
-	zd_fetch_last[0] = '\0';
+	zd_fetch_src2 = 0;
 	zd_fetch_status = -100;
 }
 
@@ -233,7 +239,8 @@ zd_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *a)
 	if (!a->domain)
 		goto refuse;
 
-	lws_strncpy(zd_fetch_last, a->domain, sizeof(zd_fetch_last));
+	if (!strcmp(a->domain, ZD_SRC2_ZONE))
+		zd_fetch_src2 = 1;
 
 	if (zd_fetch.pending) {
 		if (!strcmp(a->domain, zd_fetch.domain) &&
@@ -802,20 +809,13 @@ drive_cb(lws_sorted_usec_list_t *sul)
 					     cur->q[n].qtype ? cur->q[n].qtype :
 							LWS_ADNS_RECORD_A);
 
-			if (from2 && cli2_fd < 0) {
-				/* no other source here: nothing to wait for */
-				lwsl_notice("%s: no 127.0.0.2, %s not sent\n",
-					    __func__, cur->q[n].name);
-				cur->q[n].sent = 1;
-				cur->q[n].got_rcode = cur->q[n].expect_rcode;
-				cur->q[n].got_anc = cur->q[n].expect_anc;
-				continue;
-			}
-
 			if (!ql ||
-			    sendto(from2 ? cli2_fd : cli_fd, buf, ql, 0,
-				   (struct sockaddr *)&auth_sa,
-				   sizeof(auth_sa)) < 0) {
+			    (from2 ? sendto(cli2_fd, buf, ql, 0,
+					    (struct sockaddr *)&auth_sa6,
+					    sizeof(auth_sa6)) :
+				     sendto(cli_fd, buf, ql, 0,
+					    (struct sockaddr *)&auth_sa,
+					    sizeof(auth_sa))) < 0) {
 				lwsl_err("%s: query %d sendto failed errno %d\n",
 						__func__, n, errno);
 				phase_failed = 1;
@@ -910,17 +910,18 @@ drive_cb(lws_sorted_usec_list_t *sul)
 			 * queries' up to its burst, the rest refused; a query
 			 * for a zone already being fetched waits on that
 			 * fetch.  The other source still has its own (G-535),
-			 * so its query starts a fetch.
+			 * so its query starts a fetch.  It arrives on the
+			 * server's ipv6 socket, so it may be seen before or
+			 * after the first source's.
 			 */
-			int want = ZD_FETCH_HOST_BURST + (cli2_fd >= 0);
+			int want = ZD_FETCH_HOST_BURST + 1;
 
-			if (zd_fetch_calls != want ||
-			    (cli2_fd >= 0 &&
-			     strcmp(zd_fetch_last, "rlb.example"))) {
+			if (zd_fetch_calls != want || !zd_fetch_src2) {
 				lwsl_err("phase '%s': FAIL %d fetches started, "
-					 "the last for '%s', wanted %d, the "
-					 "last for rlb.example\n", cur->name,
-					 zd_fetch_calls, zd_fetch_last, want);
+					 "%s for %s, wanted %d, one for it\n",
+					 cur->name, zd_fetch_calls,
+					 zd_fetch_src2 ? "one" : "none",
+					 ZD_SRC2_ZONE, want);
 				phase_failed = 1;
 			} else
 				lwsl_user("phase '%s': %d fetches started\n",
@@ -1012,8 +1013,7 @@ run_phase(struct phase *p, int idx)
 
 		while (recv(cli_fd, dbuf, sizeof(dbuf), 0) >= 0)
 			;
-		while (cli2_fd >= 0 &&
-		       recv(cli2_fd, dbuf, sizeof(dbuf), 0) >= 0)
+		while (recv(cli2_fd, dbuf, sizeof(dbuf), 0) >= 0)
 			;
 	}
 
@@ -1297,23 +1297,28 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
-	/*
-	 * Another source host, where the platform routes all of 127/8 to
-	 * loopback (not eg, macOS by default): the phases using it go
-	 * without it otherwise
-	 */
-	cli2_fd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (cli2_fd >= 0) {
-		struct sockaddr_in sa2;
+	/* another source host, ::1 */
+	cli2_fd = socket(AF_INET6, SOCK_DGRAM, 0);
+	if (cli2_fd < 0) {
+		lwsl_err("client ipv6 socket failed\n");
+		close(cli_fd);
+		unplant_fixtures();
+		return 1;
+	}
+
+	{
+		struct sockaddr_in6 sa2;
 
 		memset(&sa2, 0, sizeof(sa2));
-		sa2.sin_family = AF_INET;
-		sa2.sin_addr.s_addr = htonl(0x7f000002);
+		sa2.sin6_family = AF_INET6;
+		sa2.sin6_addr = in6addr_loopback;
 		if (bind(cli2_fd, (struct sockaddr *)&sa2, sizeof(sa2)) ||
 		    fcntl(cli2_fd, F_SETFL, O_NONBLOCK) < 0) {
-			lwsl_notice("no 127.0.0.2 to send from\n");
+			lwsl_err("can't send from ::1\n");
 			close(cli2_fd);
-			cli2_fd = -1;
+			close(cli_fd);
+			unplant_fixtures();
+			return 1;
 		}
 	}
 
@@ -1326,6 +1331,11 @@ main(int argc, const char **argv)
 		auth_sa.sin_family = AF_INET;
 		auth_sa.sin_port = htons((uint16_t)ports[i & 1]);
 		auth_sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+		memset(&auth_sa6, 0, sizeof(auth_sa6));
+		auth_sa6.sin6_family = AF_INET6;
+		auth_sa6.sin6_port = auth_sa.sin_port;
+		auth_sa6.sin6_addr = in6addr_loopback;
 
 		if (run_phase(&tbl[i], i)) {
 			lwsl_err("phase %d (%s) FAILED\n", i + 1, tbl[i].name);

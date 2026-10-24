@@ -15,9 +15,9 @@
  * same port number, on any interface.
  *
  * Both ends are in this process.  The vhosts listen on the same port on
- * 127.0.0.1 and 127.0.0.2, and the client always dials 127.0.0.1.  Every
- * vhost answers with its own name.  "va" and, in some cases, "va2" listen on
- * 127.0.0.1, "vb" on 127.0.0.2:
+ * 127.0.0.1 and ::1, and the client always dials 127.0.0.1.  Every vhost
+ * answers with its own name.  "va" and, in some cases, "va2" listen on
+ * 127.0.0.1, "vb" on ::1:
  *
  *  --case host-other:  plain http, Host: vb, must be served by "va"
  *  --case host-same:   plain http, Host: va2, must be served by "va2"
@@ -29,12 +29,12 @@
  *
  * The tls cases run on the alpn given by --alpn (http/1.1, h2 or h3).
  *
- * With tls passthrough, "pa" on 127.0.0.1 and "pb" on 127.0.0.2 are passed
+ * With tls passthrough, "pa" on 127.0.0.1 and "pb" on ::1 are passed
  * through to "backend", on another port of 127.0.0.1 (where available, over
  * QUIC too):
  *
  *  --case pt-same:     SNI "pa" is passed through, "backend" serves it
- *  --case pt-other:    SNI "pb", passed through only on 127.0.0.2, must not
+ *  --case pt-other:    SNI "pb", passed through only on ::1, must not
  *                      be: it is refused on 127.0.0.1
  *
  * Fences G-330: a connection moved onto another vhost must not keep a
@@ -79,8 +79,9 @@
  * it (glibc): the tls session made at accept for a connection that turns out
  * to be plaintext must be freed with it, by every tls backend.
  *
- * Where 127.0.0.2 can't be listened on (it is not a loopback address on
- * every platform), the cases needing it are skipped.
+ * The second address is ::1 rather than another ipv4 loopback address, since
+ * only linux lets anything but 127.0.0.1 be bound without configuring it, so
+ * the cases with a vhost there are only built with both ipv4 and ipv6.
  */
 
 #include <libwebsockets.h>
@@ -88,15 +89,14 @@
 #include <string.h>
 
 #define VLS_TIMEOUT_S		10
-#define VLS_SKIP		77
 #define VLS_ADS_A		"127.0.0.1"
-#define VLS_ADS_B		"127.0.0.2"
+#define VLS_ADS_B		"::1"
 
 enum {
-	VLS_L_PLAIN,	/* va, va2 plain on .1, vb on .2 */
-	VLS_L_TLS1,	/* va tls on .1, vb on .2 */
-	VLS_L_TLS2,	/* va, va2 tls on .1, vb on .2 */
-	VLS_L_PT,	/* va + passthrough pa on .1, vb + pb on .2, backend */
+	VLS_L_PLAIN,	/* va, va2 plain on .1, vb on ::1 */
+	VLS_L_TLS1,	/* va tls on .1, vb on ::1 */
+	VLS_L_TLS2,	/* va, va2 tls on .1, vb on ::1 */
+	VLS_L_PT,	/* va + passthrough pa on .1, vb + pb on ::1, backend */
 	VLS_L_PROTO,	/* ga, gb tls on .1, protocols named differently */
 	VLS_L_HTTP_ON_TLS, /* va, va2 tls on .1, va allows http on it */
 	VLS_L_REDIR,	/* va, va2 tls on .1, va redirects http to https */
@@ -446,6 +446,11 @@ vls_vhost(struct lws_context_creation_info *info, const char *name,
 
 	info->vhost_name	= name;
 	info->iface		= iface;
+	/* each listens on just its own address, of its own family */
+	if (strchr(iface, ':'))
+		info->options &= ~(uint64_t)LWS_SERVER_OPTION_DISABLE_IPV6;
+	else
+		info->options |= LWS_SERVER_OPTION_DISABLE_IPV6;
 
 	vh = lws_create_vhost(context, info);
 	if (!vh)
@@ -527,13 +532,12 @@ int main(int argc, const char **argv)
 
 	/*
 	 * The server vhosts.  The ones on 127.0.0.1 are made first, so they
-	 * own its listener.  Each is bound to its own address, ipv4 only.
+	 * own its listener.  Each is bound to its own address.
 	 */
 
 	info.port	= port;
 	info.protocols	= protocols_srv;
-	info.options	|= LWS_SERVER_OPTION_DISABLE_IPV6 |
-			   LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND;
+	info.options	|= LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND;
 	if (tls)
 		vls_info_tls(&info, cert, key, "h2,http/1.1,h3");
 
@@ -593,17 +597,8 @@ int main(int argc, const char **argv)
 		    !vls_vhost(&info, "va2", VLS_ADS_A))
 			goto bail;
 
-		/*
-		 * The first vhost on 127.0.0.2 tells us if the platform can
-		 * listen there at all
-		 */
-		info.vhost_name	= "vb";
-		info.iface	= VLS_ADS_B;
-		if (!lws_create_vhost(context, &info)) {
-			lwsl_user("SKIP: can't listen on %s here\n", VLS_ADS_B);
-			result = VLS_SKIP;
+		if (!vls_vhost(&info, "vb", VLS_ADS_B))
 			goto bail;
-		}
 
 		if (tc->layout != VLS_L_PT)
 			break;
@@ -725,12 +720,10 @@ bail:
 			 "was %llu\n",
 			 (unsigned long long)lws_get_allocated_heap(),
 			 (unsigned long long)heap_base);
-		if (result != VLS_SKIP)
-			result = 1;
+		result = 1;
 	}
 
-	lwsl_user("Completed: %s\n", result == VLS_SKIP ? "SKIP" :
-					(result ? "FAIL" : "PASS"));
+	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 
 	return result;
 }

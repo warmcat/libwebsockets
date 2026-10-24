@@ -12,6 +12,9 @@ set(SRCS main.c
 set(requirements 1)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
+# queries come from 127.0.0.1 and, as another source host, ::1
+require_lws_config(LWS_WITH_IPV4 1 requirements)
+require_lws_config(LWS_WITH_IPV6 1 requirements)
 
 if (requirements)
 
