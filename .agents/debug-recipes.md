@@ -128,3 +128,20 @@ worktree.
    console with synthetic data.
  - `lws-minimal-http-server` needs at least one argument or it prints help
    and exits; it takes `--port`, not `-p`.
+
+## A crash on a builder you can't reach
+
+ - Examples and api tests built with `LWS_WITH_CRASH_BACKTRACE` (on with the
+   minimal examples) print their call stack to stderr when they crash, between
+   `*** lws: fatal signal N, backtrace:` and `*** lws: end of backtrace`, so it
+   is in the ctest output of the Sai task log.  macOS frames have function
+   names; glibc ones may be `lib.so(+0xoffset)`, for `addr2line -f -e lib.so
+   0xoffset` in a matching local build.  On windows a fault shows as `fatal
+   exception 0xc0000005` with DbgHelp's names and lines, and it was written
+   without a windows toolchain here, so its first real run was on w11.
+ - The Sai fleet logs only hold the sai daemons' own lws lines, never a test's.
+ - On a Mac, macOS also writes `~/Library/Logs/DiagnosticReports/<exe>-*.ips`
+   in the home of the user that crashed; lldb as the `_sai` user fails ("cannot
+   get permission to debug processes") unless it is in `_developer`.
+ - A test's log at info is mostly swallowed by the log spew limiter: give it
+   `--log-spew-tail 65536` as well as `-d`.
