@@ -328,6 +328,13 @@ static const struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+static const struct lws_protocol_vhost_options pvo = {
+	NULL,			/* "next" pvo linked-list */
+	NULL,			/* "child" pvo linked-list */
+	"lws-minimal-broker",	/* protocol name we belong to on this vhost */
+	""			/* ignored */
+};
+
 static void
 sigint_handler(int sig)
 {
@@ -354,6 +361,12 @@ int main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	/*
+	 * Our protocol starts everything from its init.  We want the default
+	 * vhost, and the protocol instantiated on it, by naming it in a pvo
+	 */
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
+	info.pvo = &pvo;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 	/*
