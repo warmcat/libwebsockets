@@ -318,10 +318,10 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 {
 	struct lws_dht_dnssec_subscribed_domain *sub;
 	struct lws_dht_dnssec_fetch_req *req;
-	char hash[65], held[512], mark[512];
+	char hash[65], held[512], mark[512], b[4];
+	enum dht_dnssec_taken taken;
 	lws_sockaddr46 pub;
 	int tmp_left, fd;
-	struct stat st;
 
 	putt_hash(hash, 0xa0);
 	putt_v4(&pub, 7, 1000);
@@ -401,17 +401,16 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 	lws_strncpy(sub->domain, PUTT_HELD_DOMAIN, sizeof(sub->domain));
 	lws_dll2_add_tail(&sub->list, &vhd->subscribed_domains);
 
-	putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL + 2,
-			      &tmp_left) == DHT_DNSSEC_STORED &&
-		    auth_calls == 1 && strstr(auth_path, hash) &&
-		    !access(auth_path, F_OK),
-		    "once it subscribes to the zone, it is told of the next");
+	taken = putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL + 2, &tmp_left);
 
 	/*
 	 * Once the newer version's payload is gone (expired, swept), only its
-	 * high-water mark stands between an older one and the store (G-505)
+	 * high-water mark stands between an older one and the store (G-505):
+	 * that it unlinks says it was there to be told of
 	 */
-	unlink(auth_path);
+	putt_expect(taken == DHT_DNSSEC_STORED && auth_calls == 1 &&
+		    strstr(auth_path, hash) && !unlink(auth_path),
+		    "once it subscribes to the zone, it is told of the next");
 	putt_expect(!putt_stored_serial(hash) &&
 		    putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL, &tmp_left) ==
 						DHT_DNSSEC_REFUSED &&
@@ -429,7 +428,8 @@ putt_take_cases(struct vhd_dht_dnssec *vhd)
 		putt_expect(putt_take(vhd, hash, &pub, PUTT_HELD_SERIAL + 2,
 				      &tmp_left) == DHT_DNSSEC_REFUSED &&
 			    !putt_stored_serial(hash) && auth_calls == 1 &&
-			    !stat(mark, &st) && st.st_size == 1,
+			    lws_plat_read_file(mark, b, sizeof(b)) == 1 &&
+			    b[0] == 'x',
 			    "a garbled mark refuses even a newer version, and "
 			    "is left as it is");
 		unlink(mark);
