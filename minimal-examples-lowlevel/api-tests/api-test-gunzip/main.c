@@ -71,7 +71,9 @@ noise_fill(uint8_t *p, size_t len)
 	uint32_t x = 0x12345678;
 
 	while (len--) {
-		x = x * 1103515245u + 12345u;
+		/* the LCG is mod 2^32: drop what the multiply carries past it */
+		x = (uint32_t)(((uint64_t)x * 1103515245u + 12345u) &
+			       0xffffffffu);
 		*p++ = (uint8_t)(x >> 16);
 	}
 }
