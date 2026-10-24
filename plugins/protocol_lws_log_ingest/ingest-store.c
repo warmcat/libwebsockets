@@ -92,6 +92,19 @@ li_exec(struct vhd *vhd, const char *sql)
 	return 1;
 }
 
+/*
+ * Steps a statement that has nothing to return, whose failure doesn't change
+ * what the caller does next: it's only logged
+ */
+
+static void
+li_step(struct vhd *vhd, sqlite3_stmt *sm)
+{
+	if (sqlite3_step(sm) != SQLITE_DONE)
+		lwsl_vhost_err(vhd->vh, "%s: %s", sqlite3_sql(sm),
+			       sqlite3_errmsg(vhd->pdb));
+}
+
 static int
 li_has_column(struct vhd *vhd, const char *table, const char *col)
 {
@@ -247,7 +260,7 @@ li_store_src(struct vhd *vhd, const char *kind, const char *host,
 	sqlite3_bind_text(sm, 3, inst, -1, SQLITE_TRANSIENT);
 	sqlite3_bind_int64(sm, 4, (sqlite3_int64)now);
 	sqlite3_bind_int64(sm, 5, (sqlite3_int64)now);
-	sqlite3_step(sm);
+	li_step(vhd, sm);
 	sqlite3_finalize(sm);
 
 	if (sqlite3_prepare_v2(vhd->pdb, "SELECT src_id, kind, host FROM "
@@ -312,7 +325,7 @@ li_store_say(struct vhd *vhd, li_src_t *src, uint64_t now, const char *line)
 	sqlite3_bind_int64(sm, 3, (sqlite3_int64)now);
 	sqlite3_bind_int(sm, 4, LLL_WARN);
 	sqlite3_bind_text(sm, 5, line, -1, SQLITE_TRANSIENT);
-	sqlite3_step(sm);
+	li_step(vhd, sm);
 	sqlite3_finalize(sm);
 }
 
@@ -414,7 +427,7 @@ li_store_line(struct vhd *vhd, li_src_t *src, uint64_t seq, uint64_t t,
 	if (!r && tag) {
 		sqlite3_bind_text(vhd->sm_tag, 1, tag, -1, SQLITE_TRANSIENT);
 		sqlite3_bind_int64(vhd->sm_tag, 2, (sqlite3_int64)t);
-		sqlite3_step(vhd->sm_tag);
+		li_step(vhd, vhd->sm_tag);
 		sqlite3_reset(vhd->sm_tag);
 	}
 
@@ -442,7 +455,7 @@ li_store_commit(struct vhd *vhd, li_src_t *src, uint64_t now, int64_t lag)
 		else
 			sqlite3_bind_null(sm, 2);
 		sqlite3_bind_int64(sm, 3, src->src_id);
-		sqlite3_step(sm);
+		li_step(vhd, sm);
 		sqlite3_finalize(sm);
 	}
 
@@ -474,13 +487,13 @@ li_store_expire_cb(lws_sorted_usec_list_t *sul)
 		if (sqlite3_prepare_v2(vhd->pdb, "DELETE FROM tags WHERE "
 				"last_us < ?", -1, &sm, NULL) == SQLITE_OK) {
 			sqlite3_bind_int64(sm, 1, (sqlite3_int64)before);
-			sqlite3_step(sm);
+			li_step(vhd, sm);
 			sqlite3_finalize(sm);
 		}
 		if (sqlite3_prepare_v2(vhd->pdb, "DELETE FROM sessions WHERE "
 				"until_us < ?", -1, &sm, NULL) == SQLITE_OK) {
 			sqlite3_bind_int64(sm, 1, (sqlite3_int64)before);
-			sqlite3_step(sm);
+			li_step(vhd, sm);
 			sqlite3_finalize(sm);
 		}
 		if (sqlite3_prepare_v2(vhd->pdb, "DELETE FROM sources WHERE "
@@ -488,7 +501,7 @@ li_store_expire_cb(lws_sorted_usec_list_t *sul)
 				"l WHERE l.src_id = sources.src_id)", -1, &sm,
 				NULL) == SQLITE_OK) {
 			sqlite3_bind_int64(sm, 1, (sqlite3_int64)before);
-			sqlite3_step(sm);
+			li_step(vhd, sm);
 			sqlite3_finalize(sm);
 		}
 	}
