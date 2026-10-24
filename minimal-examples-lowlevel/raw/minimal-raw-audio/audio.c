@@ -113,6 +113,8 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct raw_vhd));
+		if (!vhd)
+			return -1;
 
 		if (set_hw_params(lws_get_vhost(wsi), &vhd->pcm_playback,
 				  SND_PCM_STREAM_PLAYBACK))  {
@@ -186,6 +188,13 @@ static struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+static const struct lws_protocol_vhost_options pvo = {
+	NULL,			/* "next" pvo linked-list */
+	NULL,			/* "child" pvo linked-list */
+	"lws-audio-test",	/* protocol name we belong to on this vhost */
+	""			/* ignored */
+};
+
 static struct lws_context *context;
 
 void sigint_handler(int sig)
@@ -199,10 +208,17 @@ int main(int argc, const char **argv)
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
-	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS minimal raw audio\n");
 
+	/*
+	 * Our protocol opens the audio from its init.  We want the default
+	 * vhost, and the protocol instantiated on it, by naming it in a pvo
+	 */
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
+	info.pvo = &pvo;
 	info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
 	info.protocols = protocols;
 
