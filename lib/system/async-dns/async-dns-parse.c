@@ -58,7 +58,12 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 			return -1;
 
 		if (((*ls) & 0xc0) == 0xc0) {
-			if (budget < 2)
+			/*
+			 * a pointer is two bytes, and both must be in the
+			 * packet: budget is from where the name started, so it
+			 * can't tell us that after labels we already walked
+			 */
+			if (budget < 2 || lws_ptr_diff(e, ls) < 2)
 				return -1;
 			/* pointer into message pkt to name to actually use */
 			n = lws_ser_ru16be(ls) & 0x3fff;
