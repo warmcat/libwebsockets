@@ -56,8 +56,14 @@
  *    are taken, and ten seconds later the oldest gives way to a newcomer
  *    (G-525)
  *
- * Loopback addresses count as separate hosts, so the 4 sessions per host
- * limit doesn't apply here.  The raw sockets bind with
+ * The peers are spread over loopback addresses because B rate limits making
+ * a sequencer for a source it never heard from per source host (a small
+ * burst, then 10/s), loopback included: on one host the late and newcomer
+ * peers would be refused by that, not by the strangers' share this tests.
+ * So it needs a platform that can bind loopback addresses besides 127.0.0.1
+ * (linux, or lo0 aliases elsewhere), and is skipped where it can't.  The 4
+ * proven sessions per host limit doesn't apply to private addresses.  The
+ * raw sockets bind with
  * LWS_CAUDP_RANDOM_PORT: without it they set SO_REUSEADDR, and two of them
  * can be given the same port (G-626).  Nothing listens on the fan port, at 127.0.1.1
  * and up.  The UDP ports are allocated uniquely at build time and passed in
