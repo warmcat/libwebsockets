@@ -418,6 +418,20 @@ next_case(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
+		/*
+		 * The server removes an abandoned upload's partial file when
+		 * it sees our close, which can be a little after we closed:
+		 * give it a few goes to be gone before it counts as left behind
+		 */
+		lws_snprintf(path, sizeof(path), "%s/%s", upload_dir,
+			     cur.stored);
+		if ((c->flags & F_ABORT) && path_exists(path) &&
+		    retries++ < 30) {
+			lws_sul_schedule(cx, 0, &sul_next, next_case,
+					 100 * LWS_US_PER_MS);
+			return;
+		}
+
 		retries = 0;
 		check_case();
 	}
