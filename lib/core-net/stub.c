@@ -721,7 +721,10 @@ lws_stub_child_watchdog_init(const struct lws_stub_config *config)
 		sa.sa_handler = lws_stub_child_sigterm_cb;
 		sigemptyset(&sa.sa_mask);
 		sa.sa_flags = SA_RESTART;
-		sigaction(SIGTERM, &sa, NULL);
+		if (sigaction(SIGTERM, &sa, NULL))
+			lwsl_warn("%s: stub '%s': can't take SIGTERM, parent "
+				  "death will kill us without cleanup\n",
+				  __func__, stub_child.stub_name);
 	}
 
 	lws_sul_cancel(&stub_child.sul);
