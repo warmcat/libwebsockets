@@ -21,6 +21,17 @@ Each certificate you want to manage should have its own `.json` file. These file
 
 For example, config for `example.com` and its subdomains goes in `$dns_base_dir/domains/example.com/conf.d/`.
 
+The configs are read at startup, while lwsws is still root, and read again at
+the start of every evaluation, so certificates added, changed or removed while
+lwsws runs, eg, by the `lws-dht-dnssec-monitor` UI, are picked up without a
+restart.  A certificate keeps its backoff and any forced reissue when its file
+is rewritten.  By then lwsws runs as its unprivileged user, so it only sees
+the files it can read: the monitor makes them readable by lwsws's group.  A
+file or directory it can't read is not taken to be gone, whatever was loaded
+from it is kept, but a new one it can't read can't be loaded until lwsws is
+restarted.  A domain with an `acme_disabled` file, and its certificates, are
+left out.
+
 | JSON Key | Description |
 |---|---|
 | `common-name` | CSR Subject: The primary domain being certified (e.g. `example.com`). **Required** to start acquisition. |
@@ -128,12 +139,27 @@ SMD class `LWSSMDCL_CERTS`
 ```
 
 `domain` is the directory under `$dns_base_dir/domains/` the certificate's
-config was loaded from, and `common-name` its config's `common-name`.  That
-certificate is then reissued at its next evaluation however much validity it
-has left, and the evaluation is brought forward to now (or the next one, if an
-evaluation or acquisition is already running).  The backoff after failed
-acquisitions still applies.  The `lws-dht-dnssec-monitor` UI sends this from
-the "Force reissue" button on each row of its TLS certificates table.
+config is in, and `common-name` its config's `common-name`.  The next
+evaluation is brought forward to now (or follows the one or the acquisition
+already running), and since it reads the configs again first, the certificate
+can be one added just before.  It's acquired then, whether it has a
+certificate yet or not, however much validity that has left, and even if it
+is backing off after failed acquisitions: that's one attempt per request.
+
+What came of it is sent back on `LWSSMDCL_CERTS` when the evaluation takes it
+up,
+
+```json
+{"acme":"force-reissue-result","domain":"example.com",
+ "common-name":"www.example.com","status":"ok"}
+```
+
+or `"status":"error"` with a `"msg"` saying why, eg, there is no config for
+that certificate in that domain, or ACME is disabled.  `ok` means the request
+was taken up: the certificate is acquired when the evaluation reaches it, and
+the log says how that went.  The `lws-dht-dnssec-monitor`
+UI sends the request from the "Force reissue" button on each row of its TLS
+certificates table, and shows the result.
 
 ## How a dns-01 challenge is put in place
 

@@ -14,7 +14,8 @@
  *
  *  - a cert with more than a quarter of its life left is not due, and one
  *    with a quarter or less, or one the daemon could not read, is
- *  - a forced reissue is due however much life is left
+ *  - a forced reissue is due however much life is left, and even while the
+ *    cert is backing off after failures
  *  - after a failed acquisition the cert backs off, 2h then doubling up to
  *    24h, and is due again once that has passed
  *  - a success ends the backoff
@@ -137,13 +138,16 @@ ar_backoff(void)
 				 ACME_RENEW_DUE);
 	}
 
-	/* while it backs off, it isn't due even if forced */
+	/* while it backs off, it's still due if forced: that was asked for */
 	acme_renew_failed(&cfg, now);
 	cfg.force_reissue = 1;
 	bad |= ar_expect("forced, backing off",
 			 acme_renew_verdict(&cfg, &r, now + 1),
-			 ACME_RENEW_BACKOFF);
+			 ACME_RENEW_DUE);
 	cfg.force_reissue = 0;
+	bad |= ar_expect("no longer forced, backing off",
+			 acme_renew_verdict(&cfg, &r, now + 1),
+			 ACME_RENEW_BACKOFF);
 
 	acme_renew_succeeded(&cfg);
 	bad |= ar_expect("succeeded", acme_renew_verdict(&cfg, &r, now + 1),

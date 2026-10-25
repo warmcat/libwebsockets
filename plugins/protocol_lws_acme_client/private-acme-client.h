@@ -223,6 +223,8 @@ struct per_vhost_data__lws_acme_client {
 	struct lws_acme_cert_aging_args aging_caa;
 #if defined(LWS_WITH_SYS_SMD)
 	struct lws_smd_peer *smd_peer;
+	/* forced reissues waiting for the next evaluation to start */
+	lws_dll2_owner_t forced;
 #endif
 };
 
@@ -318,6 +320,63 @@ acme_renew_failed(struct lws_acme_cert_config *cfg, lws_usec_t now);
 /* an acquisition for cfg succeeded: its backoff is over */
 void
 acme_renew_succeeded(struct lws_acme_cert_config *cfg);
+
+/*
+ * The certs we manage, from the conf.d files the dnssec monitor keeps, see
+ * acme-configs.c
+ */
+
+/* the zone whose domains/<zone> directory the cert's config was found in */
+const char *
+acme_cert_zone(const struct lws_acme_cert_config *cfg);
+
+/* nonzero if p is a plausible hostname, or a wildcard one */
+int
+acme_valid_hostname(const char *p);
+
+/*
+ * Point the cert and key paths at where the root daemon keeps them for the
+ * env_dir, "production" or "staging".  Returns 1 if they couldn't be set.
+ */
+int
+acme_cert_set_paths(const char *base_dir, struct lws_acme_cert_config *cfg,
+		    const char *env_dir);
+
+struct acme_sync {
+	lws_dll2_owner_t	*owner;		/* of lws_acme_cert_config */
+	const char		*base_dir;	/* has domains/<zone>/conf.d */
+	const char		*zone;		/* only this zone, or NULL: all */
+
+	/*
+	 * Nonzero if nothing is holding a pointer to any of them, so ones
+	 * that went or changed may be freed.  Otherwise new ones are added,
+	 * and the rest wait for a sync that may free them.
+	 */
+	char			may_free;
+
+	/* results */
+	int			added;		/* new or reloaded */
+	int			removed;
+	char			listed;		/* we could see what's there */
+};
+
+/*
+ * Bring the configs in s->owner up to date with the conf.d files.  A config
+ * that is still there keeps its state, even if its file changed.
+ */
+void
+acme_configs_sync(struct acme_sync *s);
+
+/* the config for the cert cn in zone, or NULL */
+struct lws_acme_cert_config *
+acme_configs_find(lws_dll2_owner_t *owner, const char *zone, const char *cn);
+
+/* unlist and free one */
+void
+acme_config_free(struct lws_acme_cert_config *cfg);
+
+void
+acme_configs_free_all(lws_dll2_owner_t *owner);
 
 /*
  * dns-01: the name the challenge for a cert called cn is about, into name,

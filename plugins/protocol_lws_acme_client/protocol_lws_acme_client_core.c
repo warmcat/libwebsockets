@@ -67,19 +67,6 @@ acme_state_name(lws_acme_state s)
 }
 #endif
 
-/*
- * The zone whose domains/<zone> directory the cert's config was found in.
- * Everything about the cert is kept there, whether the cert is for the zone
- * itself or for a name in it.
- */
-static const char *
-acme_cert_zone(const struct lws_acme_cert_config *cfg)
-{
-	return cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
-			cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
-			cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
-}
-
 static void
 acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd);
 static void
@@ -113,29 +100,6 @@ acme_link_rotate(const char *latest, const char *written)
 #endif
 #endif
 }
-
-/*
- * Maps for nested JSON parsing
- */
-static const lws_struct_map_t map_acme_acme_obj[] = {
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, country, "country"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, state, "state"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, locality, "locality"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, organization, "organization"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, directory_url, "directory-url"),
-};
-
-static const lws_struct_map_t map_acme_cert_config[] = {
-	LSM_STRING_PTR(struct lws_acme_cert_config, common_name, "common-name"),
-	LSM_STRING_PTR(struct lws_acme_cert_config, challenge_type_str, "challenge-type"),
-	LSM_STRING_PTR(struct lws_acme_cert_config, email, "email"),
-	LSM_STRING_PTR(struct lws_acme_cert_config, profile, "profile"),
-	LSM_CHILD_PTR(struct lws_acme_cert_config, acme, struct lws_acme_cert_config_acme, NULL, map_acme_acme_obj, "acme"),
-};
-
-static const lws_struct_map_t map_acme_cert_config_root[] = {
-	LSM_SCHEMA(struct lws_acme_cert_config, NULL, map_acme_cert_config, "lws-acme-client-config"),
-};
 
 static void
 acme_ipc_sign_jwt(struct per_vhost_data__lws_acme_client *vhd, char *jwt, size_t jwt_len)
@@ -1192,262 +1156,6 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 	return 0;
 }
 
-struct acme_scan_ctx {
-	struct per_vhost_data__lws_acme_client *vhd;
-	char domain[256];
-};
-
-/*
- * Domain directory names and config common-names end up in the JSON control
- * messages we send to the root-privileged daemon, and (for dns-01) in the zone
- * lines it signs.  Nothing that is not a plausible hostname has any business
- * being there, so refuse it at the point we load it rather than relying on
- * escaping downstream.  '*' is allowed for wildcard certs.
- */
-static int
-acme_valid_hostname(const char *p)
-{
-	size_t n = 0;
-
-	if (!p || !*p)
-		return 0;
-
-	while (*p) {
-		if (!isalnum((unsigned char)*p) && *p != '.' && *p != '-' &&
-		    *p != '_' && *p != '*')
-			return 0;
-		p++;
-		if (++n > 255)
-			return 0;
-	}
-
-	return 1;
-}
-
-/*
- * <base>/domains/<zone>/certs/<env_dir>/{crt,key}/<cn>-latest.{crt,key},
- * which the root daemon names the same way when it saves them or tells us
- * their validity.  Returns 1 if they couldn't be set.
- */
-static int
-acme_cert_set_paths(struct per_vhost_data__lws_acme_client *vhd,
-		    struct lws_acme_cert_config *cfg, const char *env_dir)
-{
-	static const int pv[] = { LWS_TLS_SET_CERT_PATH, LWS_TLS_SET_KEY_PATH };
-	static const char * const kind[] = { "crt", "key" };
-	const char *zone = acme_cert_zone(cfg),
-		   *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
-	char path[512];
-	size_t n;
-
-	if (!zone || !cn)
-		return 1;
-
-	for (n = 0; n < LWS_ARRAY_SIZE(pv); n++) {
-		if ((size_t)lws_snprintf(path, sizeof(path),
-				"%s/domains/%s/certs/%s/%s/%s-latest.%s",
-				vhd->dns_base_dir, zone, env_dir, kind[n], cn,
-				kind[n]) >= sizeof(path) - 1)
-			return 1;
-
-		if (cfg->pvop[pv[n]] && !strcmp(cfg->pvop[pv[n]], path))
-			continue;
-
-		free((void *)cfg->pvop[pv[n]]);
-		cfg->pvop[pv[n]] = strdup(path);
-		if (!cfg->pvop[pv[n]])
-			return 1;
-	}
-
-	return 0;
-}
-
-static int
-lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
-{
-    struct acme_scan_ctx *scan_ctx = (struct acme_scan_ctx *)user;
-    struct per_vhost_data__lws_acme_client *vhd = scan_ctx->vhd;
-    struct lws_struct_args args;
-    char path[256];
-    int fd, n;
-
-    if (lde->type != LDOT_FILE)
-        return 0;
-
-    size_t n_len = strlen(lde->name);
-    if (n_len < 5 || strcmp(&lde->name[n_len - 5], ".json"))
-        return 0;
-
-    lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
-
-    fd = lws_open(path, O_RDONLY);
-    if (fd < 0) {
-        lwsl_vhost_err(vhd->vhost, "acme: couldn't open %s", path);
-        return 0;
-    }
-
-    memset(&args, 0, sizeof(args));
-    args.map_st[0] = map_acme_cert_config_root;
-    args.map_entries_st[0] = LWS_ARRAY_SIZE(map_acme_cert_config_root);
-    args.ac_block_size = 512;
-
-    struct lejp_ctx ctx;
-
-    lws_struct_json_init_parse(&ctx, NULL, &args);
-
-    struct lws_acme_cert_config *cfg = NULL;
-
-    while (1) {
-        char buf[256];
-        n = (int)read(fd, buf, sizeof(buf));
-        if (n <= 0)
-            break;
-
-        int m = lejp_parse(&ctx, (uint8_t *)buf, n);
-        if (m < 0 && m != LEJP_CONTINUE) {
-            lwsl_vhost_err(vhd->vhost, "acme: json parse failed: %s %d", path, m);
-            goto done;
-        }
-    }
-
-    cfg = (struct lws_acme_cert_config *)args.dest;
-    if (cfg && !acme_valid_hostname(cfg->common_name)) {
-        lwsl_vhost_err(vhd->vhost, "acme: %s: refusing invalid common-name", path);
-        goto done;
-    }
-
-    if (cfg) {
-		char common_name_s[128];
-		char dir_path[256];
-		char *q = common_name_s;
-		const char *p;
-		size_t len;
-
-        cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] = cfg->common_name;
-        cfg->pvop[LWS_TLS_REQ_ELEMENT_EMAIL] = cfg->email;
-        if (cfg->acme) {
-            cfg->pvop[LWS_TLS_REQ_ELEMENT_COUNTRY] = cfg->acme->country;
-            cfg->pvop[LWS_TLS_REQ_ELEMENT_STATE] = cfg->acme->state;
-            cfg->pvop[LWS_TLS_REQ_ELEMENT_LOCALITY] = cfg->acme->locality;
-            cfg->pvop[LWS_TLS_REQ_ELEMENT_ORGANIZATION] = cfg->acme->organization;
-            cfg->pvop[LWS_TLS_SET_DIR_URL] = cfg->acme->directory_url;
-        }
-
-		if (cfg->common_name) {
-			p = cfg->common_name;
-			while (*p && q < &common_name_s[sizeof(common_name_s) - 1]) {
-				if (isalnum(*p) || *p == '.' || *p == '-')
-					*q++ = *p;
-				else
-					*q++ = '_';
-				p++;
-			}
-			*q = '\0';
-
-			char *certs_dir = dir_path;
-			const char *env_dir = (cfg->acme && cfg->acme->directory_url && (char *)strstr(cfg->acme->directory_url, "staging")) ? "staging" : "production";
-			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs", vhd->dns_base_dir, scan_ctx->domain);
-#if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0750);
-#endif
-			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s", vhd->dns_base_dir, scan_ctx->domain, env_dir);
-#if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0750);
-#endif
-			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s/crt", vhd->dns_base_dir, scan_ctx->domain, env_dir);
-#if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0750);
-#endif
-			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s/key", vhd->dns_base_dir, scan_ctx->domain, env_dir);
-#if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0700);
-#endif
-
-			len = strlen(vhd->dns_base_dir) + strlen(scan_ctx->domain) + strlen(common_name_s) + 128;
-
-			char *auth_path = (char *)malloc(len);
-			char *root_domain = strdup(scan_ctx->domain);
-
-			if (auth_path && root_domain) {
-				lws_snprintf(auth_path, len, "%s/domains/%s/%s-auth.jwk", vhd->dns_base_dir, scan_ctx->domain, common_name_s);
-
-				cfg->pvop[LWS_TLS_SET_AUTH_PATH] = auth_path;
-				cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] = root_domain;
-
-				/* aging sets them again when it knows the env */
-				if (acme_cert_set_paths(vhd, cfg, env_dir))
-					lwsl_vhost_err(vhd->vhost, "acme: %s: "
-						"unable to set cert paths", path);
-			} else {
-				if (auth_path) free(auth_path);
-				if (root_domain) free(root_domain);
-			}
-		}
-
-        /* Determine challenge type based on challenge-type string */
-        cfg->challenge_type = LWS_ACME_CHALLENGE_TYPE_HTTP_01; /* Default */
-        if (cfg->challenge_type_str && !strcmp(cfg->challenge_type_str, "dns-01"))
-            cfg->challenge_type = LWS_ACME_CHALLENGE_TYPE_DNS_01;
-
-        lws_dll2_clear(&cfg->list);
-        lws_dll2_add_tail(&cfg->list, &vhd->cert_configs);
-        lwsl_vhost_notice(vhd->vhost, "acme: loaded cert %s",
-            cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] ?
-            cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] : "unknown");
-    }
-
-done:
-    close(fd);
-    lejp_destruct(&ctx);
-    return 0;
-}
-
-static int
-lws_acme_scan_domains_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
-{
-	struct per_vhost_data__lws_acme_client *vhd = (struct per_vhost_data__lws_acme_client *)user;
-	struct acme_scan_ctx scan_ctx;
-	struct lws_dir_info info;
-	char path[512];
-
-	if (lde->type != LDOT_DIR)
-		return 0;
-
-	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
-		return 0;
-
-	/* the directory name is used as the domain in the daemon IPC */
-	if (!acme_valid_hostname(lde->name)) {
-		lwsl_vhost_warn(vhd->vhost, "acme: ignoring domain dir '%s': "
-				"not a valid hostname", lde->name);
-		return 0;
-	}
-
-	scan_ctx.vhd = vhd;
-	lws_strncpy(scan_ctx.domain, lde->name, sizeof(scan_ctx.domain));
-
-	char disabled_path[512];
-	lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled", vhd->dns_base_dir, lde->name);
-	int fd = open(disabled_path, O_RDONLY);
-	if (fd >= 0) {
-		close(fd);
-		lwsl_notice("acme: Skipping domain %s (acme_disabled present)\n", lde->name);
-		return 0;
-	}
-
-	lws_snprintf(path, sizeof(path), "%s/domains/%s/conf.d", vhd->dns_base_dir, lde->name);
-
-	lwsl_notice("acme: Scanning domain config dir %s\n", path);
-
-	memset(&info, 0, sizeof(info));
-	info.dirpath = path;
-	info.user = &scan_ctx;
-	info.cb = lws_acme_scan_dir_cb;
-	lws_dir_via_info(&info);
-
-	return 0;
-}
-
 LWS_VISIBLE int
 lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 			 const struct lws_acme_cert_aging_args *caa);
@@ -1458,18 +1166,69 @@ lws_acme_timer_cb(lws_sorted_usec_list_t *sul)
     struct per_vhost_data__lws_acme_client *vhd =
         lws_container_of(sul, struct per_vhost_data__lws_acme_client, sul_aging);
 
-    lws_acme_core_cert_aging(vhd, NULL);
+    /* first, so an evaluation can bring the next one forward */
     lws_sul_schedule(vhd->context, 0, &vhd->sul_aging, lws_acme_timer_cb, 3600 * LWS_US_PER_SEC);
+    lws_acme_core_cert_aging(vhd, NULL);
+}
+
+/*
+ * Bring our certs up to date with the conf.d files, see acme-configs.c.  Ones
+ * that went or changed can only be freed when nothing is using any: no
+ * evaluation is walking them and no acquisition is under way or about to
+ * start.  Then active_cert is left over from the last acquisition, and must
+ * not be left pointing at one that goes.
+ */
+
+static void
+acme_configs_rescan(struct per_vhost_data__lws_acme_client *vhd)
+{
+	struct acme_sync s;
+
+	memset(&s, 0, sizeof(s));
+	s.owner		= &vhd->cert_configs;
+	s.base_dir	= vhd->dns_base_dir;
+	s.may_free	= !vhd->ac && !vhd->aging_current_cert &&
+			  lws_dll2_is_detached(&vhd->sul_acquisition.list);
+
+	if (s.may_free)
+		vhd->active_cert = NULL;
+
+	acme_configs_sync(&s);
+
+	if (s.added || s.removed)
+		lwsl_vhost_notice(vhd->vhost, "acme: %d certs configured (%d "
+				  "new or changed, %d gone)",
+				  (int)lws_dll2_count(&vhd->cert_configs),
+				  s.added, s.removed);
 }
 
 #if defined(LWS_WITH_SYS_SMD)
 
 /*
  * {"acme":"force-reissue","domain":"example.com",
- *  "common-name":"www.example.com"} on LWSSMDCL_CERTS marks the cert we
- * manage for that common-name in that domain to be reissued however much
- * validity it has left, and brings the next evaluation forward to now
+ *  "common-name":"www.example.com"} on LWSSMDCL_CERTS asks for the cert we
+ * manage for that common-name in that domain to be issued now, however much
+ * validity it has left, if any, and even if it is backing off after failures.
+ *
+ * It's taken up when the next evaluation starts, which is brought forward to
+ * now: that's when we look at the conf.d files again, so a cert the monitor
+ * only just added can be asked for straight away.  If an evaluation or an
+ * acquisition is already under way, it waits until that is over.  Either way
+ * the requester is told on LWSSMDCL_CERTS what came of it,
+ *
+ * {"acme":"force-reissue-result","domain":"example.com",
+ *  "common-name":"www.example.com","status":"ok"}
+ *
+ * or "status":"error" with a "msg" saying why.
  */
+
+#define ACME_FORCED_MAX 16
+
+struct acme_forced {
+	lws_dll2_t	list;
+	char		domain[128];
+	char		cn[128];
+};
 
 static const char * const acme_smd_paths[] = {
 	"acme",
@@ -1506,6 +1265,69 @@ acme_smd_req_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+/* domain and cn are plausible hostnames, so they can go in the JSON as-is */
+
+static void
+acme_forced_result(struct per_vhost_data__lws_acme_client *vhd,
+		   const char *domain, const char *cn, const char *err)
+{
+	if (err)
+		lwsl_vhost_warn(vhd->vhost, "acme: reissue of %s (%s) not "
+				"forced: %s", cn, domain, err);
+	else
+		lwsl_vhost_notice(vhd->vhost, "acme: reissue of %s (%s) forced",
+				  cn, domain);
+
+	if (lws_smd_msg_printf(vhd->context, LWSSMDCL_CERTS,
+			       "{\"acme\":\"force-reissue-result\","
+			       "\"domain\":\"%s\",\"common-name\":\"%s\","
+			       "\"status\":\"%s\"%s%s%s}", domain, cn,
+			       err ? "error" : "ok", err ? ",\"msg\":\"" : "",
+			       err ? err : "", err ? "\"" : ""))
+		lwsl_vhost_warn(vhd->vhost, "acme: unable to say how the "
+				"reissue of %s went", cn);
+}
+
+/*
+ * The evaluation is starting with the configs up to date: take up the forced
+ * reissues waiting for it.  err says why none can be done now, if so.
+ */
+
+static void
+acme_forced_take(struct per_vhost_data__lws_acme_client *vhd, const char *err)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->forced)) {
+		struct acme_forced *f = lws_container_of(d, struct acme_forced,
+							 list);
+		struct lws_acme_cert_config *cfg = NULL;
+
+		if (!err) {
+			cfg = acme_configs_find(&vhd->cert_configs, f->domain,
+						f->cn);
+			if (cfg)
+				cfg->force_reissue = 1;
+		}
+
+		acme_forced_result(vhd, f->domain, f->cn, err ? err :
+				   (cfg ? NULL : "the ACME client has no "
+						 "config for this cert"));
+
+		lws_dll2_remove(&f->list);
+		free(f);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+static void
+acme_forced_free_all(struct per_vhost_data__lws_acme_client *vhd)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->forced)) {
+		lws_dll2_remove(d);
+		free(lws_container_of(d, struct acme_forced, list));
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 static int
 acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	    void *buf, size_t len)
@@ -1513,8 +1335,9 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	struct per_vhost_data__lws_acme_client *vhd =
 			(struct per_vhost_data__lws_acme_client *)opaque;
 	struct acme_smd_req r;
+	struct acme_forced *f;
 	struct lejp_ctx ctx;
-	int m, matched = 0;
+	int m;
 
 	memset(&r, 0, sizeof(r));
 	lejp_construct(&ctx, acme_smd_req_cb, &r, acme_smd_paths,
@@ -1522,36 +1345,41 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	m = lejp_parse(&ctx, (const uint8_t *)buf, (int)len);
 	lejp_destruct(&ctx);
 
-	if (m < 0 || strcmp(r.acme, "force-reissue") || !r.domain[0] ||
-	    !r.cn[0])
+	/* our own results come here too */
+	if (m < 0 || strcmp(r.acme, "force-reissue"))
+		return 0;
+
+	/* nothing that isn't a hostname gets as far as being logged */
+	if (!acme_valid_hostname(r.domain) || !acme_valid_hostname(r.cn))
 		return 0;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&vhd->cert_configs)) {
-		struct lws_acme_cert_config *cfg = lws_container_of(d,
-					struct lws_acme_cert_config, list);
-		/* the same notion of a cert's domain that aging uses */
-		const char *domain = acme_cert_zone(cfg);
-		const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
-
-		if (domain && cn && !strcmp(domain, r.domain) &&
-		    !strcmp(cn, r.cn)) {
-			cfg->force_reissue = 1;
-			matched = 1;
-		}
+			      lws_dll2_get_head(&vhd->forced)) {
+		f = lws_container_of(d, struct acme_forced, list);
+		if (!strcmp(f->domain, r.domain) && !strcmp(f->cn, r.cn))
+			return 0; /* it's already waiting */
 	} lws_end_foreach_dll(d);
 
-	if (!matched)
+	if (lws_dll2_count(&vhd->forced) >= ACME_FORCED_MAX) {
+		acme_forced_result(vhd, r.domain, r.cn,
+				   "too many reissues are waiting");
 		return 0;
+	}
 
-	/* it matched one of our certs, so it's fine to log */
-	lwsl_vhost_notice(vhd->vhost, "acme: reissue of %s (%s) forced",
-			  r.cn, r.domain);
+	f = malloc(sizeof(*f));
+	if (!f) {
+		acme_forced_result(vhd, r.domain, r.cn, "OOM");
+		return 0;
+	}
+	memset(f, 0, sizeof(*f));
+	lws_strncpy(f->domain, r.domain, sizeof(f->domain));
+	lws_strncpy(f->cn, r.cn, sizeof(f->cn));
+	lws_dll2_add_tail(&f->list, &vhd->forced);
 
 	/*
 	 * Evaluate now, the timer puts itself back to hourly after.  If an
 	 * evaluation or acquisition is already running this one declines, and
-	 * the flags wait for the next
+	 * the request waits for the next, which follows it soon
 	 */
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_aging, lws_acme_timer_cb, 1);
 
@@ -1875,27 +1703,11 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			acme_ipc_open(vhd);
 		}
 
-        {
-            struct lws_dir_info info;
-            char path[512];
-            int ret;
-
-            memset(&info, 0, sizeof(info));
-            lws_snprintf(path, sizeof(path), "%s/domains", vhd->dns_base_dir);
-            lwsl_notice("acme: ACME PLUGIN INIT! Scanning base domains dir %s\n", path);
-
-            info.dirpath        = path;
-            info.user           = vhd;
-            info.cb             = lws_acme_scan_domains_cb;
-
-            ret = lws_dir_via_info(&info);
-            if (ret != 1)
-                lwsl_err("acme: Failed to scan domains dir %s (err %d)\n", path, ret);
-            else
-
-                lwsl_notice("acme: Found %d cert configs in base dir\n", (int)lws_dll2_count(
-                	&vhd->cert_configs));
-        }
+		/*
+		 * We're still root here, so we can read every config: later
+		 * rescans only see the ones the monitor shared with us
+		 */
+		acme_configs_rescan(vhd);
 
         /* Start polling domain cert lifetimes */
         lws_sul_schedule(vhd->context, 0, &vhd->sul_aging, lws_acme_timer_cb, 5 * LWS_US_PER_SEC);
@@ -2904,7 +2716,6 @@ lws_acme_core_init_vhost(struct lws_context *context, struct lws_vhost *vh,
 LWS_VISIBLE void
 lws_acme_core_destroy_vhost(struct per_vhost_data__lws_acme_client *vhd)
 {
-	/* lws_dll2 list cleanup happens in the overarching protocol destroy loop */
 	if (vhd) {
 		lws_sul_cancel(&vhd->sul_aging);
 		lws_sul_cancel(&vhd->sul_acquisition);
@@ -2914,8 +2725,13 @@ lws_acme_core_destroy_vhost(struct per_vhost_data__lws_acme_client *vhd)
 			lws_smd_unregister(vhd->smd_peer);
 			vhd->smd_peer = NULL;
 		}
+		acme_forced_free_all(vhd);
 #endif
 		lws_acme_finished(vhd);
+
+		vhd->active_cert = NULL;
+		vhd->aging_current_cert = NULL;
+		acme_configs_free_all(&vhd->cert_configs);
 
 		if (vhd->dns_base_dir) {
 			free(vhd->dns_base_dir);
@@ -2937,7 +2753,7 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 		const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
 
 		if (domain && cn) {
-			if (acme_cert_set_paths(vhd, cfg, env_dir))
+			if (acme_cert_set_paths(vhd->dns_base_dir, cfg, env_dir))
 				lwsl_vhost_err(vhd->vhost, "acme_aging: %s: "
 					       "unable to set cert paths", cn);
 
@@ -3009,6 +2825,13 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 	}
 
 	lwsl_vhost_notice(vhd->vhost, "acme_aging: completed evaluation of all certs\n");
+
+#if defined(LWS_WITH_SYS_SMD)
+	/* a forced reissue came while we were busy: don't leave it an hour */
+	if (lws_dll2_get_head(&vhd->forced))
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_aging,
+				 lws_acme_timer_cb, 1);
+#endif
 }
 
 LWS_VISIBLE int
@@ -3022,11 +2845,8 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 	const char *src = caa ? "vhost-cert-aging" : "periodic-scan";
 #endif
 
-	if (!vhd || !lws_dll2_get_head(&vhd->cert_configs)) {
-		if (vhd)
-			lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting (%s), cert_configs.head is empty\n", src);
-		else
-			lwsl_notice("acme_aging: aborting, no vhd\n");
+	if (!vhd) {
+		lwsl_notice("acme_aging: aborting, no vhd\n");
 		return 0;
 	}
 
@@ -3110,8 +2930,23 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 		lwsl_notice("acme_aging: failed to open acme_config.json at %s\n", d_path);
 	}
 
+	/* the monitor may have added or removed certs since we last looked */
+	acme_configs_rescan(vhd);
+
 	if (!global_enabled) {
 		lwsl_notice("acme_aging: global ACME is disabled in acme_config.json\n");
+#if defined(LWS_WITH_SYS_SMD)
+		acme_forced_take(vhd, "ACME is disabled");
+#endif
+		return 0;
+	}
+
+#if defined(LWS_WITH_SYS_SMD)
+	acme_forced_take(vhd, NULL);
+#endif
+
+	if (!lws_dll2_get_head(&vhd->cert_configs)) {
+		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting (%s), no certs are configured\n", src);
 		return 0;
 	}
 

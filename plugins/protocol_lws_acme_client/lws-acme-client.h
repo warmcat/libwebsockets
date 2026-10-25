@@ -67,6 +67,13 @@ struct lws_acme_cert_config {
 	 * failing can't hold back renewing the others: see acme-renew.c */
 	lws_usec_t retry_not_before;
 	int fail_count;
+
+	/* the conf.d file it came from, see acme-configs.c */
+	struct lwsac *ac;	/* the cfg and the strings it points at */
+	const char *conf;	/* the file's name in its zone's conf.d */
+	const char *conf_json;	/* what it said, to see if it changed */
+	size_t conf_json_len;
+	char seen;		/* still there at this sync */
 };
 
 struct lws_acme_challenge_ops {

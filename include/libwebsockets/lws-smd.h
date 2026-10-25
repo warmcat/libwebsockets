@@ -75,6 +75,10 @@ enum {
 	 * one certificate regardless of its remaining validity
 	 * {"acme":"force-reissue","domain":"example.com",
 	 *  "common-name":"www.example.com"}
+	 * and the ACME client's answer when it takes it up
+	 * {"acme":"force-reissue-result","domain":"example.com",
+	 *  "common-name":"www.example.com","status":"ok"}
+	 * or "status":"error" with a "msg"
 	 */
 
 	LWSSMDCL_USER_BASE_BITNUM				= 24

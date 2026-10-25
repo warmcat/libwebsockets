@@ -28,6 +28,9 @@
  * allows 5 duplicate certs / 7 days, so after a failed acquisition the cert
  * backs off exponentially before it is tried again.
  *
+ * Except when the reissue was forced: somebody asked for it to be tried now,
+ * often exactly because it keeps failing, and it is one attempt per request.
+ *
  * The backoff belongs to each cert.  It used to be shared by every cert on
  * the vhost, and since an evaluation stops at the first cert it starts an
  * acquisition for, a cert that kept failing early in the list took the only
@@ -66,8 +69,10 @@ acme_renew_t
 acme_renew_verdict(const struct lws_acme_cert_config *cfg,
 		   const struct acme_ipc_reply *r, lws_usec_t now)
 {
-	if (!cfg->force_reissue && r->ok &&
-	    !(r->total_days && r->days_left <= (r->total_days / 4)))
+	if (cfg->force_reissue)
+		return ACME_RENEW_DUE;
+
+	if (r->ok && !(r->total_days && r->days_left <= (r->total_days / 4)))
 		return ACME_RENEW_NOT_DUE;
 
 	if (now < cfg->retry_not_before)
