@@ -136,7 +136,10 @@
  * And a ws client told "100 Continue" ahead of its 101: it waits on for the
  * 101, and is established by it.  And an h1 client given a response with no
  * body (to a HEAD, or a 304) whose headers speak of one: it completes the
- * transaction at the end of the headers.
+ * transaction at the end of the headers.  And one whose app pulls a response
+ * delimited by the close only after the peer has finished, which OSX reports
+ * as a bare POLLHUP while the client is not reading: the pull still gets the
+ * body, and its end.
  *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
@@ -1186,6 +1189,8 @@ static struct {
 	int		quiet; /* the ws client sends nothing */
 	int		sent;
 	int		error;
+	int		defer; /* the app pulls the body when the test says */
+	int		pull_owed; /* there is body to pull, the app was told */
 } cli;
 
 /* a POST body of this many 16-byte pieces, which go while post_go is set */
@@ -1214,6 +1219,10 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		/* the body is ours to pull, at our pace, into our buffer */
+		if (cli.defer) {
+			cli.pull_owed = 1;
+			break;
+		}
 		px = (char *)buf + LWS_PRE;
 		lenx = (int)sizeof(buf) - LWS_PRE;
 		if (lws_http_client_read(wsi, &px, &lenx) < 0)
@@ -5327,6 +5336,87 @@ h1_client_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
 }
 
 /*
+ * 54: an h1 client whose response is delimited by the close, its app pulling
+ * the body at its own pace, as a proxy's onward connection does at the pace
+ * of its client-facing one.  The body arrives before the app pulls, so the
+ * client is not reading, and then the peer finishes, which OSX reports only
+ * as a bare POLLHUP to a connection asking for nothing.  That is not the end
+ * of the connection: the app's pull still gets the body, and then its end,
+ * which completes the transaction, and the connection goes.
+ */
+static int
+h1_client_fin_before_pull_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char resp[] =
+		"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n";
+	static const char body[] = "sansio ok\n";
+	static struct transport tp;
+	uint8_t buf[LWS_PRE + 64];
+	struct lws *wsi;
+	char *px;
+	int lenx, n;
+
+	tr_begin("h1-client-fin-before-pull", "client", 0);
+	wsi = client_connect(cx, vh, &tp, "/x", "GET", NULL);
+	if (!wsi) {
+		lwsl_err("case 54: connect failed\n");
+		return 1;
+	}
+	cli.defer = 1;
+	pump(cx, &tp);
+	if (feed(cx, &tp, resp, sizeof(resp) - 1) || !cli.established) {
+		lwsl_err("case 54: response headers not taken\n");
+		return 1;
+	}
+
+	/* the body comes, and the app is told, but does not pull yet */
+	feed(cx, &tp, body, sizeof(body) - 1);
+	if (!cli.pull_owed || tp.rx_pos || tp.want_read || tp.want_write ||
+	    tp.closed) {
+		lwsl_err("case 54: owed %d, read %d, reading asked %d, writing "
+			 "asked %d, closed %d\n", cli.pull_owed, (int)tp.rx_pos,
+			 tp.want_read, tp.want_write, tp.closed);
+		return 1;
+	}
+
+	/* the peer finishes, the OSX way */
+	tick(cx);
+	tp.fin = 1;
+	pump(cx, &tp);
+	if (tp.closed) {
+		lwsl_err("case 54: closed on the peer finishing\n");
+		return 1;
+	}
+
+	/* the app pulls, as it would have from its own writeable */
+	tick(cx);
+	for (n = 0; n < 4 && !cli.completed; n++) {
+		px = (char *)buf + LWS_PRE;
+		lenx = (int)sizeof(buf) - LWS_PRE;
+		if (lws_http_client_read(wsi, &px, &lenx) < 0)
+			break;
+	}
+	/*
+	 * the pull asks for POLLIN again itself, in IO, not through the
+	 * io_ops we hear: the poll set has it now
+	 */
+	tp.want_read = 1;
+	pump(cx, &tp);
+	if (cli.error || !cli.completed || !tp.closed ||
+	    cli.rx_len != sizeof(body) - 1 ||
+	    memcmp(cli.rx, body, sizeof(body) - 1)) {
+		lwsl_err("case 54: completed %d, closed %d, rx %d\n",
+			 cli.completed, tp.closed, (int)cli.rx_len);
+		return 1;
+	}
+
+	lwsl_user("case 54: an h1 client pulling its body late after the "
+		  "peer's FIN still gets it all, and its end: PASS\n");
+
+	return tr_end();
+}
+
+/*
  * A ws connection the server sends a frame it must not take: the client
  * fails the connection, with a masked close and nothing of the bad frame
  * given to the app (what came before it, rx, is), and lets it go once the
@@ -6111,6 +6201,12 @@ main(int argc, const char **argv)
 	at(cx, 500000);
 	if (h1_connect_validity_half(cx, vh_rawv, vh_rawn, 500000))
 		goto bail;
+
+#if defined(LWS_WITH_CLIENT)
+	at(cx, 600000);
+	if (h1_client_fin_before_pull_half(cx, vh))
+		goto bail;
+#endif
 
 	result = 0;
 

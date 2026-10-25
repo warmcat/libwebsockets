@@ -1508,6 +1508,43 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	return forced;
 }
 
+/*
+ * A client's response body is pulled by the app at its own pace
+ * (lws_http_client_read()): nothing is read until it asks, and its reading is
+ * held meanwhile.  A hangup reported then may only be the peer's FIN: OSX and
+ * BSD report one as a bare POLLHUP to a wsi asking for neither POLLIN nor
+ * POLLOUT, and WSAPoll as POLLHUP to one not asking for POLLIN.  What the peer
+ * sent before it can still be unread in the kernel, and the end itself has
+ * not been heard: for a response delimited by the close, it is what completes
+ * it, eg, a proxy's onward connection relaying one at the pace of its
+ * client-facing connection.  Both are found by the app's next pull.  Linux
+ * reports a tcp FIN only to the read that comes to it, so that is how it goes
+ * there too.
+ *
+ * So a client's connection is not taken as done here, unless what it reads
+ * from can have nothing more for it: an error (a reset, unless it is a bare
+ * POLLHUP on OSX, which the pull finds out), a state that parks rx, a
+ * transport adapter role, which hears its hangup itself, or a datagram
+ * socket.  A server's is (C-703): the peer is done with it, and one waiting
+ * for a header table must not hold on to its fd.
+ */
+static int
+lws_hangup_may_leave_rx(struct lws *wsi, struct lws_pollfd *pollfd)
+{
+	if (!lwsi_role_client(wsi) ||
+	    (pollfd->events & LWS_POLLIN) ||
+	    (pollfd->revents & LWS_POLL_ERROR) ||
+	    lws_wsi_state_parks_rx(wsi) ||
+	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN))
+		return 0;
+#if defined(LWS_WITH_UDP)
+	if (lws_wsi_is_udp(wsi))
+		return 0;
+#endif
+
+	return 1;
+}
+
 static int
 _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		   int tsi)
@@ -1585,9 +1622,11 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	 * (pollfd.c), and on Linux a unix socket's peer closing is reported
 	 * that way too.  It can neither read nor write to find out any other
 	 * way, and poll() reports it again at once, so it is taken the same
-	 * way.  A transport adapter role (one that keeps a handle_POLLIN) is
-	 * given the revents and hears its hangup itself, eg, a cgi's stdout
-	 * pipe draining what the child wrote before it exited.
+	 * way, unless it is a client's whose reading is held for the app's
+	 * pull (lws_hangup_may_leave_rx()).  A transport adapter role (one
+	 * that keeps a handle_POLLIN) is given the revents and hears its
+	 * hangup itself, eg, a cgi's stdout pipe draining what the child
+	 * wrote before it exited.
 	 */
 
 	bare_hangup = (pollfd->revents & LWS_POLL_HANGUP) &&
@@ -1641,11 +1680,13 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 			/* ... there are no pending rx packets waiting... */
 
-			if (!lws_buflist_total_len(&wsi->buflist)) {
+			if (!lws_buflist_total_len(&wsi->buflist) &&
+			    !lws_hangup_may_leave_rx(wsi, pollfd)) {
 
 				/*
 				 * ... nothing stashed in the buflist either,
-				 * so acknowledge the wsi is done
+				 * nor anything the peer may have left in the
+				 * kernel for the wsi, so acknowledge it is done
 				 */
 
 				lwsl_wsi_debug(wsi, "Session Socket %d dead",
@@ -1655,10 +1696,10 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			}
 
 			/*
-			 * ... in fact we have some unread rx parked.  If the
-			 * wsi's state parks it, it waits on a tx that can never
-			 * go now (the response, the handshake, the flush): the
-			 * wsi is done.
+			 * ... in fact we have some unread rx parked, or may
+			 * have.  If the wsi's state parks it, it waits on a tx
+			 * that can never go now (the response, the handshake,
+			 * the flush): the wsi is done.
 			 */
 
 			if (lws_wsi_state_parks_rx(wsi)) {
@@ -1669,9 +1710,11 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 			/*
 			 * Otherwise only rx flow control or the role's policy
-			 * holds it, and what the peer sent before its hangup
-			 * may still be wanted (eg, the tail of a proxied
-			 * response).  Hold off the closing a bit for it...
+			 * holds it, and what the peer sent before its hangup,
+			 * and the end the role hears when it reads again, may
+			 * still be wanted (eg, the tail of a proxied response,
+			 * and the end of one delimited by the close).
+			 * Hold off the closing a bit for it...
 			 * but the hangup is level-triggered and reported on
 			 * every pass until the close: armed again each time,
 			 * the timeout would be put off forever while poll()
