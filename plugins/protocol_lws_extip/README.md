@@ -16,8 +16,8 @@ This plugin implements a very lightweight UDP-based IP detection mechanism that'
 4. **Client** pings periodically (`P<raw 32-byte cookie>`).
 5. **Server** validates the cookie against the incoming IP address. If it matches, the Server replies with an `O<raw 32-byte cookie>` (OK heartbeat).
 6. If the NAT drops and the Client changes IPs, the ping arrives from a new IP. The HMAC fails to validate against the new IP. The Server instantly replies with `I<New IP>` denoting an IP change.
-7. The Client clears its cookie, emits an `report_external_ip_cb` system state event with `status=1` containing the newly verified IP, and loops back to step 1.
-8. If the Client does not receive an `O` or `I` for 3 consecutive pings (90 seconds) on a specific family socket, it declares that IP route offline and emits `report_external_ip_cb` with `status=2` and an empty `sa46` structure.
+7. The Client clears its cookie, reports the newly verified IP with `lws_extip_report()` and `LWS_EXTIP_STATUS_CHANGED`, and loops back to step 1.
+8. If the Client does not receive an `O` or `I` for 3 consecutive pings (90 seconds) on a specific family socket, it declares that IP route offline and reports it with `LWS_EXTIP_STATUS_OFFLINE`.
 
 ## Per-Vhost Options (PVOs)
 
@@ -35,7 +35,12 @@ To enable the client:
 
 ## Integration
 
-When the client detects an IP change, it invokes the global `lws_system_ops_t` callback `report_external_ip_cb(..., LWS_EXTIP_SRC_EXTIP, ...)` to distribute the event down to your application layers or external modules like DHT routing.
+When the client detects an IP change, or loses sight of its IP, it reports it
+with `lws_extip_report(..., LWS_EXTIP_SRC_EXTIP, ...)`.  The context keeps each
+source's view separately, and the address it broadcasts in the `ext-ips` SMD
+message, and returns from `lws_extip_get_best()`, is the one from the strongest
+source that has one: the router (`protocol_lws_extip_router`), then this
+plugin, then the DHT consensus.
 
 ## lwsws Config Example
 
