@@ -418,6 +418,15 @@ int
 monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 		     char *reply, size_t reply_len);
 
+/*
+ * If the LWSSMDCL_CERTS message is the ACME client's answer to a forced
+ * reissue, put it in line as a whole line for the browsers and return its
+ * length, else return -1
+ */
+int
+monitor_acme_result_ui_line(const void *in, size_t len, char *line,
+			    size_t line_len);
+
 /* monitor-serials.c */
 
 /*

@@ -24,7 +24,9 @@
  * process.  "Force cert reissue" is for the ACME client though, which runs
  * in this unprivileged lwsws process alongside the proxy, not in the root
  * process: the proxy asks it directly over SMD class LWSSMDCL_CERTS and
- * answers the browser itself.
+ * answers the browser itself that it was asked.  The ACME client says what
+ * came of it later, on the same SMD class, and the proxy passes that on to
+ * the browsers too.
  */
 
 #if !defined(LWS_PLUGIN_STATIC)
@@ -172,4 +174,88 @@ monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 		    __func__, r.fqdn, r.domain);
 
 	return n;
+}
+
+static const char * const acme_result_paths[] = {
+	"acme",
+	"domain",
+	"common-name",
+	"status",
+	"msg",
+};
+
+struct acme_result {
+	char acme[32];
+	char domain[128];
+	char cn[128];
+	char status[8];
+	char msg[128];
+};
+
+static signed char
+acme_result_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct acme_result *r = (struct acme_result *)ctx->user;
+
+	if (reason != LEJPCB_VAL_STR_END || !ctx->path_match)
+		return 0;
+
+	switch (ctx->path_match - 1) {
+	case 0:
+		lws_strncpy(r->acme, ctx->buf, sizeof(r->acme));
+		break;
+	case 1:
+		lws_strncpy(r->domain, ctx->buf, sizeof(r->domain));
+		break;
+	case 2:
+		lws_strncpy(r->cn, ctx->buf, sizeof(r->cn));
+		break;
+	case 3:
+		lws_strncpy(r->status, ctx->buf, sizeof(r->status));
+		break;
+	case 4:
+		lws_strncpy(r->msg, ctx->buf, sizeof(r->msg));
+		break;
+	}
+
+	return 0;
+}
+
+int
+monitor_acme_result_ui_line(const void *in, size_t len, char *line,
+			    size_t line_len)
+{
+	char esc[256] = "";
+	struct acme_result r;
+	struct lejp_ctx ctx;
+	int n, ok;
+
+	if (line_len < 2)
+		return -1;
+
+	memset(&r, 0, sizeof(r));
+	lejp_construct(&ctx, acme_result_cb, &r, acme_result_paths,
+		       LWS_ARRAY_SIZE(acme_result_paths));
+	n = lejp_parse(&ctx, (const uint8_t *)in, (int)len);
+	lejp_destruct(&ctx);
+
+	if (n < 0 || strcmp(r.acme, "force-reissue-result"))
+		return -1;
+
+	/* it's only sent by another plugin, but it goes on to the browser */
+	ok = !strcmp(r.status, "ok");
+	if ((!ok && strcmp(r.status, "error")) || !ui_valid_name(r.domain, 0) ||
+	    !ui_valid_name(r.cn, 1))
+		return -1;
+
+	if (!ok)
+		lws_json_purify(esc, r.msg[0] ? r.msg : "unknown",
+				(int)sizeof(esc), NULL);
+
+	n = lws_snprintf(line, line_len, "{\"req\":\"force_cert_reissue_result\","
+			 "\"status\":\"%s\",\"domain\":\"%s\",\"fqdn\":\"%s\""
+			 "%s%s%s}\n", r.status, r.domain, r.cn,
+			 ok ? "" : ",\"msg\":\"", esc, ok ? "" : "\"");
+
+	return (size_t)n >= line_len - 1 ? -1 : n;
 }

@@ -396,6 +396,12 @@ function handleResponse(data) {
             const tb = document.querySelector('#table-dht-serials tbody');
             if (tb) tb.innerHTML = `<tr><td colspan="6" class="loading">${escapeHtml(data.msg || 'DHT unavailable')}</td></tr>`;
         }
+        if (data.req === 'force_cert_reissue_result') {
+            /* the ACME client couldn't take the request up */
+            showToast('Reissue of ' + data.fqdn + ' failed: ' +
+                      (data.msg || 'unknown'), true);
+            return;
+        }
         showToast(data.msg || 'An error occurred', true);
         return;
     }
@@ -626,6 +632,10 @@ function handleResponse(data) {
             else
                 showToast('Certificate reissue failed: ' + data.msg, true);
             break;
+        case 'force_cert_reissue_result':
+            /* the ACME client took the request up (if not, see above) */
+            showToast('The ACME client is reissuing ' + data.fqdn);
+            break;
         case 'get_acme_log':
             if (data.log) {
                 const logEl = document.getElementById('acme-log');
@@ -644,7 +654,7 @@ function handleResponse(data) {
                 // Enqueue background cert checks for all these endpoints
                 data.tls.forEach(t => {
                     let cacheKey = t.fqdn + ':' + t.port;
-                    if (!window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn] && !certCheckQueue.some(q => q.fqdn === t.fqdn && q.port === t.port)) {
+                    if (t.port && !window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn] && !certCheckQueue.some(q => q.fqdn === t.fqdn && q.port === t.port)) {
                         certCheckQueue.push({fqdn: t.fqdn, port: t.port, domain: data.domain});
                     }
                 });
@@ -676,7 +686,7 @@ function handleResponse(data) {
                     if (d.domain === currentDomain) window.activeTls = d.tls;
                     d.tls.forEach(t => {
                         let cacheKey = t.fqdn + ':' + t.port;
-                        if (!window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn] && !certCheckQueue.some(q => q.fqdn === t.fqdn && q.port === t.port)) {
+                        if (t.port && !window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn] && !certCheckQueue.some(q => q.fqdn === t.fqdn && q.port === t.port)) {
                             certCheckQueue.push({fqdn: t.fqdn, port: t.port, domain: d.domain});
                         }
                     });
@@ -1842,9 +1852,10 @@ function updateGlobalTlsTable() {
     allTlsList.forEach(t => {
         const tr = document.createElement('tr');
         let cached = window.certStatusCache[t.fqdn + ':' + t.port];
-        let locExp = 'Checking...';
-        let remExp = 'Checking...';
-        let issuer = 'Checking...';
+        /* with no port, there's nothing to probe */
+        let locExp = t.port ? 'Checking...' : '-';
+        let remExp = t.port ? 'Checking...' : 'No port';
+        let issuer = t.port ? 'Checking...' : '-';
 
         /*
          * issuer / msg come from whatever answered the probe, and
@@ -1864,7 +1875,7 @@ function updateGlobalTlsTable() {
         }
 
         tr.innerHTML = `
-            <td>${escapeHtml(t.fqdn)}:${escapeHtml(t.port)}</td>
+            <td>${escapeHtml(t.fqdn)}${t.port ? ':' + escapeHtml(t.port) : ''}</td>
             <td>${locExp}</td>
             <td>${remExp}</td>
             <td>${issuer}</td>
@@ -1873,10 +1884,15 @@ function updateGlobalTlsTable() {
         const btn = tr.querySelector('.btn-provision');
         if (btn) btn.addEventListener('click', () => document.getElementById('tab-btn-dist').click());
 
-        /* only while ACME is enabled for the cert's toplevel domain */
+        /*
+         * only while ACME is enabled for the cert's toplevel domain, and
+         * for a cert the ACME client has a config for
+         */
         const btnReissue = tr.querySelector('.btn-reissue');
         const domObj = window.domainsCache ? window.domainsCache.find(d => d.name === t.domain) : null;
-        btnReissue.disabled = !(domObj && domObj.acme_enabled === true);
+        btnReissue.disabled = !(domObj && domObj.acme_enabled === true) || t.acme === false;
+        if (t.acme === false)
+            btnReissue.title = 'There is no ACME config for this certificate: set its port again in the zone to make one';
         btnReissue.addEventListener('click', () => {
             if (confirm('Reissue the certificate for ' + t.fqdn +
                         ' now, however long it has left?\n\n' +
@@ -1894,7 +1910,7 @@ function updateGlobalTlsTable() {
         let anyError = false;
 
         allTlsList.forEach(t => {
-            if (t.domain !== currentDomain) return;
+            if (t.domain !== currentDomain || !t.port) return;
             let cached = window.certStatusCache[t.fqdn + ':' + t.port];
             if (!cached) {
                 allChecked = false;
@@ -1958,7 +1974,7 @@ function updateDistClientsTable() {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${escapeHtml(t.domain)}</td>
-            <td>${escapeHtml(t.fqdn)}:${escapeHtml(t.port)}</td>
+            <td>${escapeHtml(t.fqdn)}${t.port ? ':' + escapeHtml(t.port) : ''}</td>
             <td><button class="btn btn-sm primary btn-dist-gen">Generate & Download</button></td>
         `;
         const btn = tr.querySelector('.btn-dist-gen');
@@ -2266,7 +2282,7 @@ function renderZoneTable() {
         if (isTlsCapable && !window.renderedTlsFqdns.has(fqdn)) {
             window.renderedTlsFqdns.add(fqdn);
             let activeConfig = window.activeTls ? window.activeTls.find(t => t.fqdn === fqdn) : null;
-            let portVal = activeConfig ? activeConfig.port : '';
+            let portVal = activeConfig && activeConfig.port ? activeConfig.port : '';
             let cacheKey = fqdn + ':' + portVal;
             let cached = window.certStatusCache[cacheKey];
             let initStatus = '';

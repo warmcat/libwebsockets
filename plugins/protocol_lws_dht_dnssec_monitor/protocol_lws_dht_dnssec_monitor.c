@@ -132,9 +132,26 @@ monitor_ctl_forward_ext_ips(struct vhd *vhd)
 }
 
 static int
-smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
+smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 {
 	struct vhd *vhd = (struct vhd *)opaque;
+
+	if ((c & LWSSMDCL_CERTS) && buf) {
+		char line[512];
+		int n = monitor_acme_result_ui_line(buf, len, line, sizeof(line));
+
+		/* what came of a forced reissue: every browser may be showing it */
+		if (n > 0)
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					lws_dll2_get_head(&vhd->ui_clients)) {
+				struct pss *pss = lws_container_of(d, struct pss, list);
+
+				monitor_ui_push(pss, "%s", line);
+			} lws_end_foreach_dll_safe(d, d1);
+
+		return 0;
+	}
+
 	if ((c & LWSSMDCL_NETWORK) && buf && (char *)strstr((const char *)buf, "\"ext-ips\"")) {
 		lws_strncpy(vhd->ext_ips, (const char *)buf, sizeof(vhd->ext_ips));
 		monitor_ctl_forward_ext_ips(vhd);
@@ -1797,6 +1814,75 @@ get_dane_hash(const char *base_dir, const char *domain, const char *certs_dir, c
 	close(cfd);
 }
 
+/*
+ * The TLS table row for the conf.d entry called name, appended at tx, or
+ * nothing if the entry isn't one.  The rows are the certs the ACME client
+ * manages, a <fqdn>.json each, with the port in <fqdn>.port, or 0 if there's
+ * no port to check it on.  A <fqdn>.port with no <fqdn>.json is listed too,
+ * but as one the ACME client knows nothing about ("acme":false): it once
+ * looked like a cert the ACME client looked after, but its reissue could not
+ * be forced and it was never renewed.
+ */
+
+static char *
+tls_row(struct vhd *vhd, const char *domain, const char *conf_d,
+	const char *name, char *tx, char *tx_end, int *first)
+{
+	char path[1024], fqdn[256], esc_fqdn[MON_ESC_DOMAIN_SZ], buf[16];
+	char dane0[128] = { 0 }, dane1[128] = { 0 };
+	size_t nl = strlen(name), sl;
+	int port = 0, acme = 1, fd;
+	struct stat st;
+	ssize_t n;
+
+	if (nl > 5 && !strcmp(name + nl - 5, ".json"))
+		sl = 5;
+	else if (nl > 5 && !strcmp(name + nl - 5, ".port")) {
+		/* listed with its .json, if it has one */
+		lws_snprintf(path, sizeof(path), "%s/%.*s.json", conf_d,
+			     (int)(nl - 5), name);
+		if (!stat(path, &st))
+			return tx;
+		sl = 5;
+		acme = 0;
+	} else
+		return tx;
+
+	if (nl - sl >= sizeof(fqdn))
+		return tx;
+	memcpy(fqdn, name, nl - sl);
+	fqdn[nl - sl] = '\0';
+
+	lws_snprintf(path, sizeof(path), "%s/%s.port", conf_d, fqdn);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		n = read(fd, buf, sizeof(buf) - 1);
+		close(fd);
+		if (n > 0) {
+			buf[n] = '\0';
+			port = atoi(buf);
+			if (port < 0 || port > 65535)
+				port = 0;
+		}
+	}
+
+	get_dane_hash(vhd->base_dir, domain, vhd->acme_production ?
+		      "production" : "staging", fqdn, 0, dane0, sizeof(dane0));
+	get_dane_hash(vhd->base_dir, domain, vhd->acme_production ?
+		      "production" : "staging", fqdn, 1, dane1, sizeof(dane1));
+
+	if (!*first)
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
+			   "{\"fqdn\":\"%s\",\"port\":%d,\"acme\":%s,"
+			   "\"dane0\":\"%s\",\"dane1\":\"%s\"}",
+			   json_escape(esc_fqdn, sizeof(esc_fqdn), fqdn), port,
+			   acme ? "true" : "false", dane0, dane1);
+	*first = 0;
+
+	return tx;
+}
+
 static void
 handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
@@ -1818,28 +1904,8 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[", a->req, esc_domain);
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
-			if ((char *)strstr(de->d_name, ".port")) {
-				char p_path[1024], sub[256], esc_sub[MON_ESC_DOMAIN_SZ];
-				lws_strncpy(sub, de->d_name, sizeof(sub));
-				char *ext = (char *)strstr(sub, ".port");
-				if (ext) *ext = '\0';
-				lws_snprintf(p_path, sizeof(p_path), "%s/%s", d_path, de->d_name);
-				int fd = open(p_path, O_RDONLY);
-				if (fd >= 0) {
-					char buf[64];
-					ssize_t n = read(fd, buf, sizeof(buf) - 1);
-					if (n > 0) {
-						buf[n] = '\0';
-						char dane0[128] = {0}, dane1[128] = {0};
-						get_dane_hash(vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", sub, 0, dane0, sizeof(dane0));
-						get_dane_hash(vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", sub, 1, dane1, sizeof(dane1));
-						if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", json_escape(esc_sub, sizeof(esc_sub), sub), atoi(buf), dane0, dane1);
-						first = 0;
-					}
-					close(fd);
-				}
-			}
+			tx = tls_row(vhd, a->domain, d_path, de->d_name, tx,
+				     tx_end, &first);
 		}
 		closedir(d);
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}\n");
@@ -2275,28 +2341,9 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				int first_tls = 1;
 				while ((de2 = readdir(d2))) {
 					if (de2->d_name[0] == '.') continue;
-					if ((char *)strstr(de2->d_name, ".port")) {
-						char p_path[1024], sub[256], esc_sub[MON_ESC_DOMAIN_SZ];
-						lws_strncpy(sub, de2->d_name, sizeof(sub));
-						char *ext = (char *)strstr(sub, ".port");
-						if (ext) *ext = '\0';
-						lws_snprintf(p_path, sizeof(p_path), "%s/%s", conf_path, de2->d_name);
-						int fd = open(p_path, O_RDONLY);
-						if (fd >= 0) {
-							char buf[64];
-							ssize_t n = read(fd, buf, sizeof(buf) - 1);
-							if (n > 0) {
-								buf[n] = '\0';
-								char dane0[128] = {0}, dane1[128] = {0};
-								get_dane_hash(vhd->base_dir, de->d_name, vhd->acme_production ? "production" : "staging", sub, 0, dane0, sizeof(dane0));
-								get_dane_hash(vhd->base_dir, de->d_name, vhd->acme_production ? "production" : "staging", sub, 1, dane1, sizeof(dane1));
-								if (!first_tls) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", json_escape(esc_sub, sizeof(esc_sub), sub), atoi(buf), dane0, dane1);
-								first_tls = 0;
-							}
-							close(fd);
-						}
-					}
+					tx = tls_row(vhd, de->d_name, conf_path,
+						     de2->d_name, tx, tx_end,
+						     &first_tls);
 				}
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}");
 				first_dom = 0;
@@ -3737,7 +3784,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
 			}
 
-			vhd->smd_peer = lws_smd_register(vhd->context, vhd, 0, LWSSMDCL_NETWORK, smd_cb_network);
+			vhd->smd_peer = lws_smd_register(vhd->context, vhd, 0,
+					LWSSMDCL_NETWORK | LWSSMDCL_CERTS, smd_cb);
 
 			lwsl_notice("%s: initialized monitor proxy (base-dir: %s, uds-path: %s)\n", __func__, vhd->base_dir, vhd->uds_path);
 

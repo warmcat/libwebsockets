@@ -17,6 +17,9 @@
  *    nothing from the browser can shape the SMD JSON or reach past one cert
  *  - an answer that would not fit whole in the reply space is not sent,
  *    and then the ACME client is not asked either
+ *  - the ACME client's result, when it takes the request up, becomes a line
+ *    for the browsers, ok or with its reason, and anything else on the SMD
+ *    class, or a result with names that aren't DNS names, does not
  */
 
 #include <libwebsockets.h>
@@ -77,6 +80,14 @@ t_wait_smd(int want, lws_usec_t us)
 		if (lws_service(cx, 0) < 0)
 			break;
 	lws_sul_cancel(&sul_timeout);
+}
+
+static int
+t_result(const char *msg, char *line, size_t line_len)
+{
+	line[0] = '\0';
+
+	return monitor_acme_result_ui_line(msg, strlen(msg), line, line_len);
 }
 
 static int
@@ -214,6 +225,42 @@ main(int argc, const char **argv)
 	/* only the three answered valid requests went out */
 	t_wait_smd(4, LWS_US_PER_SEC);
 	fails += t_expect(smd_count == 3, "no SMD for refused requests");
+
+	/* what the ACME client says came of it, for the browsers */
+
+	n = t_result("{\"acme\":\"force-reissue-result\",\"domain\":"
+		     "\"selfdns.org\",\"common-name\":\"www.selfdns.org\","
+		     "\"status\":\"ok\"}", reply, sizeof(reply));
+	fails += t_expect(n > 0 && (size_t)n == strlen(reply) &&
+			  !strcmp(reply, "{\"req\":\"force_cert_reissue_result\","
+				  "\"status\":\"ok\",\"domain\":\"selfdns.org\","
+				  "\"fqdn\":\"www.selfdns.org\"}\n"),
+			  "ok result");
+	n = t_result("{\"acme\":\"force-reissue-result\",\"domain\":"
+		     "\"x.org\",\"common-name\":\"*.x.org\",\"status\":"
+		     "\"error\",\"msg\":\"no \\\"config\\\"\"}",
+		     reply, sizeof(reply));
+	fails += t_expect(n > 0 && !strcmp(reply,
+			  "{\"req\":\"force_cert_reissue_result\","
+			  "\"status\":\"error\",\"domain\":\"x.org\","
+			  "\"fqdn\":\"*.x.org\",\"msg\":\"no \\u0022config"
+			  "\\u0022\"}\n"),
+			  "error result keeps its reason, escaped");
+	n = t_result("{\"acme\":\"force-reissue\",\"domain\":\"x.org\","
+		     "\"common-name\":\"x.org\"}", reply, sizeof(reply));
+	fails += t_expect(n == -1, "the request itself is not a result");
+	n = t_result("{\"acme\":\"force-reissue-result\",\"domain\":"
+		     "\"x.org\",\"common-name\":\"a\\\",\\\"b.x.org\","
+		     "\"status\":\"ok\"}", reply, sizeof(reply));
+	fails += t_expect(n == -1, "result naming a non-DNS name is dropped");
+	n = t_result("{\"acme\":\"force-reissue-result\",\"domain\":"
+		     "\"x.org\",\"common-name\":\"x.org\",\"status\":"
+		     "\"maybe\"}", reply, sizeof(reply));
+	fails += t_expect(n == -1, "result with an unknown status is dropped");
+	n = t_result("{\"acme\":\"force-reissue-result\",\"domain\":"
+		     "\"x.org\",\"common-name\":\"x.org\",\"status\":"
+		     "\"ok\"}", tiny, sizeof(tiny));
+	fails += t_expect(n == -1, "result line that doesn't fit is dropped");
 
 	lws_smd_unregister(peer);
 	lws_context_destroy(cx);

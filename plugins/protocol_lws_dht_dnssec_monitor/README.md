@@ -29,16 +29,28 @@ These UI assets do not contain any inline scripts or styles, ensuring they are s
 #### Force cert reissue
 
 Each row of the TLS tab's "Cross-Domain TLS Certificates" table ends with a
-"Force reissue" button, which has the ACME client reissue that row's
-certificate now, however much validity it has left, for example to move it
-onto a newly chosen certificate profile at once rather than at the next
-renewal.  The buttons are only enabled while the "ACME Enabled" checkbox of the
-certificate's toplevel domain is set.  The ACME client runs in the lwsws
-process rather than the root process, so the proxy answers this request itself,
-checking the row's FQDN lies inside its domain and sending
+"Force reissue" button, which has the ACME client issue that row's
+certificate now, whether it has one yet or not, however much validity it has
+left, for example to move it onto a newly chosen certificate profile at once
+rather than at the next renewal.  The buttons are only enabled while the "ACME
+Enabled" checkbox of the certificate's toplevel domain is set.  The ACME client
+runs in the lwsws process rather than the root process, so the proxy answers
+this request itself, checking the row's FQDN lies inside its domain and sending
 `{"acme":"force-reissue","domain":"...","common-name":"..."}` on SMD class
-`LWSSMDCL_CERTS`.  The certificate's backoff after failed acquisitions still applies,
-and Let's Encrypt allows only 5 identical certificates per week.
+`LWSSMDCL_CERTS`.  The ACME client reads `conf.d` again before it takes the
+request up, so a certificate added just before can be asked for, and it answers
+on the same class with what came of it, which the proxy passes on to the UI:
+either the reissue is starting, or why it can't be done, eg, the ACME client
+has no config for that certificate.  A forced reissue is tried even while the
+certificate is backing off after failed acquisitions, once per press, and Let's
+Encrypt allows only 5 identical certificates per week.
+
+The table lists the certificates the ACME client manages, the
+`conf.d/<fqdn>.json` files, with the port from `conf.d/<fqdn>.port`, if there
+is one, to check what is served there.  A `<fqdn>.port` left without its
+`<fqdn>.json` is listed too, but as nothing the ACME client knows about, with
+its "Force reissue" disabled: setting its port again in the zone table writes
+both files again.
 
 #### Registrar DS record
 
