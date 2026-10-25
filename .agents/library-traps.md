@@ -174,6 +174,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Addresses and PROXY v2
 
+ - **The netlink routing table holds no interface addresses**:
+   `RTM_NEWADDR` is parsed but never added (ops-netlink.c, "nothing to
+   do"), so walking `lws_routing_table_get()` for `source_ads` entries
+   finds none.  Take a host's own addresses from `getifaddrs()`; on Linux
+   the IPv6 temporary / deprecated / tentative flags it lacks are in
+   `/proc/net/if_inet6` (protocol_lws_extip_router does both).
+ - **`lws_b64_encode_string_url()` still pads with `=`**: a token built
+   from random bytes for a url or JSON needs a byte count that is a
+   multiple of 3, or the padding stripped.
  - **Two identities behind PROXY v2:** `lws_get_peer_simple()`,
    `lws_io_peer_address()` and `lws_get_peer_addresses()` return the
    forwarded client (the effective entry of the peer stack,
