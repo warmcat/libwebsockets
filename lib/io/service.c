@@ -1139,8 +1139,15 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
 		return -1;
 
-	if (buffered < 0) {
-		/* the transport failed: the body ends here, however framed */
+	/*
+	 * A read of 0 is a transport's peer closing (lws_transport_ops_t):
+	 * a socket's is reported as the failed read
+	 */
+	if (buffered < 0 || (!buffered && !eb.len)) {
+		/*
+		 * the transport failed or finished: the body ends here,
+		 * however framed
+		 */
 		lwsl_wsi_notice(wsi, "%s: read error, hdrs_pending=%d, "
 				"content_length_given=%d, chunked=%d", __func__,
 				lwsi_hdrs_pending(wsi),
