@@ -11,6 +11,10 @@ to stderr:
 |abort|`abort()`, as a failed `assert()` does|print its backtrace, then die of SIGABRT, or exit with code 3|
 |app|installs its own SIGSEGV handler, or unhandled exception filter, first|run only its own handler|
 
+The segv and abort children put SIGSEGV and SIGABRT back to their default
+actions first, so the test still checks lws's backtrace under a sanitizer,
+whose runtime has its own SIGSEGV handler that lws leaves alone.
+
 The test prints what each child wrote, so the backtrace format on the platform
 can be seen in its output.
 

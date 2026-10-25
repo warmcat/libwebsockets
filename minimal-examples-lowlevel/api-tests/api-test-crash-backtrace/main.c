@@ -94,6 +94,16 @@ cbt_crash(int c)
 #else
 	if (c == CBT_APP)
 		signal(SIGSEGV, cbt_app_handler);
+	else {
+		/*
+		 * Start from the default actions, as a plain process does.
+		 * A sanitizer's runtime has already put its own handler on
+		 * SIGSEGV, which lws must leave alone like the application's
+		 * one in CBT_APP, and the child would die of its report
+		 */
+		signal(SIGSEGV, SIG_DFL);
+		signal(SIGABRT, SIG_DFL);
+	}
 #endif
 
 	if (lws_crash_backtrace_install()) {
