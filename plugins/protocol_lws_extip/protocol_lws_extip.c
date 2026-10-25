@@ -107,10 +107,14 @@ extip_from_server(const lws_sockaddr46 *from, const lws_sockaddr46 *srv)
 	if (lws_sa46_compare_ads(from, srv))
 		return 0;
 
-	pf = from->sa4.sin_family == AF_INET ? from->sa4.sin_port :
-					       from->sa6.sin6_port;
-	ps = srv->sa4.sin_family == AF_INET ? srv->sa4.sin_port :
-					      srv->sa6.sin6_port;
+	pf = from->sa4.sin_port;
+	ps = srv->sa4.sin_port;
+#if defined(LWS_WITH_IPV6)
+	if (from->sa4.sin_family == AF_INET6) {
+		pf = from->sa6.sin6_port;
+		ps = srv->sa6.sin6_port;
+	}
+#endif
 
 	return pf == ps;
 }
@@ -141,7 +145,9 @@ extip_dns_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, in
 			
 			vhd->ip[0].cwsi = lws_create_adopt_udp(vhd->vhost, "0.0.0.0", 0, LWS_CAUDP_BIND,
 				"protocol-lws-extip", NULL, NULL, NULL, NULL, "extip_c4");
-		} else if (ai->ai_family == AF_INET6 && vhd->ip[1].srv_sa46.sa6.sin6_family == 0) {
+		}
+#if defined(LWS_WITH_IPV6)
+		else if (ai->ai_family == AF_INET6 && vhd->ip[1].srv_sa46.sa6.sin6_family == 0) {
 			struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)ai->ai_addr;
 			vhd->ip[1].srv_sa46.sa6.sin6_family = AF_INET6;
 			vhd->ip[1].srv_sa46.sa6.sin6_addr = sa6->sin6_addr;
@@ -150,6 +156,7 @@ extip_dns_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, in
 			vhd->ip[1].cwsi = lws_create_adopt_udp(vhd->vhost, "::", 0, LWS_CAUDP_BIND,
 				"protocol-lws-extip", NULL, NULL, NULL, NULL, "extip_c6");
 		}
+#endif
 
 		ai = ai->ai_next;
 	}
@@ -187,10 +194,8 @@ extip_report_ip_offline(struct vhd_extip *vhd, int i)
 	lws_sockaddr46 zero;
 	memset(&zero, 0, sizeof(zero));
 
-	if (!i)
-		zero.sa4.sin_family = AF_INET;
-	else
-		zero.sa6.sin6_family = AF_INET6;
+	/* the family is at the same place in both */
+	zero.sa4.sin_family = i ? AF_INET6 : AF_INET;
 
 	lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &zero,
 			 !i ? AF_INET : AF_INET6, LWS_EXTIP_STATUS_OFFLINE,
@@ -208,15 +213,17 @@ extip_client_sul_cb(struct lws_sorted_usec_list *sul)
 	if (!vhd->dns_done) {
 		vhd->dns_done = 1;
 		lws_async_dns_query(vhd->context, 0, vhd->server_addr, LWS_ADNS_RECORD_A, extip_dns_cb, NULL, vhd, NULL);
+#if defined(LWS_WITH_IPV6)
 		lws_async_dns_query(vhd->context, 0, vhd->server_addr, LWS_ADNS_RECORD_AAAA, extip_dns_cb, NULL, vhd, NULL);
+#endif
 	}
 
 	lws_usec_t shortest = 30 * LWS_US_PER_SEC;
 
 	for (int i = 0; i < 2; i++) {
 		if (vhd->ip[i].cwsi && (
-		    (i == 0 && vhd->ip[i].srv_sa46.sa4.sin_family == AF_INET) ||
-		    (i == 1 && vhd->ip[i].srv_sa46.sa6.sin6_family == AF_INET6))) {
+		    vhd->ip[i].srv_sa46.sa4.sin_family ==
+					(i ? AF_INET6 : AF_INET))) {
 
 			if (now - vhd->ip[i].last_rx > 90 * LWS_US_PER_SEC && vhd->ip[i].last_rx) {
 				if (!vhd->ip[i].offline)
