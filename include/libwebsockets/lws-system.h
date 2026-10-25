@@ -189,10 +189,32 @@ typedef enum {
 } lws_cpd_result_t;
 
 #if defined(LWS_WITH_NETWORK)
+/*
+ * Where an external address report came from.  Each source's view is kept
+ * separately, and the context's "best" external address for a family is
+ * the one from the highest-ranked source that currently has one, so a
+ * weaker source can't override a stronger one, and when a stronger one
+ * loses sight of its address, the next one takes over.  From strongest:
+ *
+ *  - ROUTER: the router told us, in a reply it signed over our nonce, what
+ *    is configured on its outward interfaces (lws-extip-router plugin)
+ *  - EXTIP:  an extip server we chose saw our requests arriving from it
+ *  - DHT:    a consensus of DHT peers saw us arriving from it
+ */
 typedef enum {
 	LWS_EXTIP_SRC_DHT,
-	LWS_EXTIP_SRC_EXTIP
+	LWS_EXTIP_SRC_EXTIP,
+	LWS_EXTIP_SRC_ROUTER,
+
+	LWS_EXTIP_SRC_COUNT /* always last */
 } lws_extip_src_t;
+
+/* values for lws_extip_report() status */
+typedef enum {
+	LWS_EXTIP_STATUS_DETECTED	= 0, /* source has (first) seen it */
+	LWS_EXTIP_STATUS_CHANGED	= 1, /* source saw it change to this */
+	LWS_EXTIP_STATUS_OFFLINE	= 2, /* source lost sight of any */
+} lws_extip_status_t;
 #endif
 
 typedef void (*lws_attach_cb_t)(struct lws_context *context, int tsi, void *opaque);
@@ -286,12 +308,18 @@ typedef struct lws_system_ops {
  * \param src: source of the internal or external IP event
  * \param sa46: the address associated with the event (can be NULL or zeroed if offline)
  * \param af: the address family
- * \param status: status indication
+ * \param status: a lws_extip_status_t
  * \param peers: optional peers information (for DHT)
  * \param num_peers: optional peer count
  *
  * This API is used by IP tracking plugins like `lws_extip` to formally
  * persist the external IP understanding into the context and broadcast it via SMD.
+ *
+ * The report only replaces what \p src said before for \p af.  The
+ * context's best address for \p af is then the one from the highest-ranked
+ * source that has one (see lws_extip_src_t), and an `ext-ips` SMD message
+ * is broadcast only when that best address changes.  LWS_EXTIP_STATUS_OFFLINE,
+ * or a NULL or zeroed \p sa46, withdraws \p src's address for \p af.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_extip_report(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers);

@@ -4621,7 +4621,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		if (ci) {
 			lws_extip_report(vhd->context, LWS_EXTIP_SRC_DHT, (const lws_sockaddr46 *)&ci->ss,
 						event == LWS_DHT_EVENT_EXTERNAL_ADDR ? AF_INET : AF_INET6,
-						is_shift,
+						is_shift ? LWS_EXTIP_STATUS_CHANGED :
+							   LWS_EXTIP_STATUS_DETECTED,
 						(const lws_sockaddr46 *)ci->peer_ss,
 						ci->num_peers);
 		}

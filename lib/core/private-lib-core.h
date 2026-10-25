@@ -726,8 +726,11 @@ struct lws_context {
 	lws_async_dns_t			async_dns;
 #endif
 
-	lws_sockaddr46			ext_ipv4;
-	lws_sockaddr46			ext_ipv6;
+	lws_sockaddr46			ext_ip_src[LWS_EXTIP_SRC_COUNT][2];
+	/**< each source's view of our external address, [src][0: v4, 1: v6],
+	 * family 0 if that source has none */
+	lws_sockaddr46			ext_ip[2];
+	/**< the best of ext_ip_src for each family, as last broadcast */
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_fi_ctx_t			fic;

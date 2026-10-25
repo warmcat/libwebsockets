@@ -272,113 +272,159 @@ lws_system_do_attach(struct lws_context_per_thread *pt)
 	return 0;
 }
 
-void
-lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
-                 const lws_sockaddr46 *sa46, int af, int status,
-                 const lws_sockaddr46 *peers, int num_peers)
+/*
+ * Stronger sources rank higher; a source can only set the best address
+ * when no source ranked above it has one.  See lws_extip_src_t.
+ */
+static const uint8_t extip_src_rank[LWS_EXTIP_SRC_COUNT] = {
+	[LWS_EXTIP_SRC_DHT]		= 1,
+	[LWS_EXTIP_SRC_EXTIP]		= 2,
+	[LWS_EXTIP_SRC_ROUTER]		= 3,
+};
+
+#if (_LWS_ENABLED_LOGS & (LLL_WARN | LLL_NOTICE | LLL_INFO))
+static const char * const extip_src_name[LWS_EXTIP_SRC_COUNT] = {
+	[LWS_EXTIP_SRC_DHT]		= "dht",
+	[LWS_EXTIP_SRC_EXTIP]		= "extip",
+	[LWS_EXTIP_SRC_ROUTER]		= "router",
+};
+#endif
+
+static int
+extip_af_index(int af)
 {
-	lws_sockaddr46 *target = &cx->ext_ipv4;
+	if (af == AF_INET)
+		return 0;
 #if defined(LWS_WITH_IPV6)
 	if (af == AF_INET6)
-		target = &cx->ext_ipv6;
+		return 1;
 #endif
-	lws_sockaddr46 old = *target;
 
-	if (status == 2 || !sa46 || (af == AF_INET && sa46->sa4.sin_family == 0)
+	return -1;
+}
+
+static int
+extip_sa46_same(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
+{
+	if (a->sa4.sin_family != b->sa4.sin_family)
+		return 0;
+
+	if (a->sa4.sin_family == AF_INET)
+		return a->sa4.sin_port == b->sa4.sin_port &&
+		       !memcmp(&a->sa4.sin_addr, &b->sa4.sin_addr,
+			       sizeof(a->sa4.sin_addr));
 #if defined(LWS_WITH_IPV6)
-        || (af == AF_INET6 && sa46->sa6.sin6_family == 0)
+	if (a->sa4.sin_family == AF_INET6)
+		return a->sa6.sin6_port == b->sa6.sin6_port &&
+		       a->sa6.sin6_scope_id == b->sa6.sin6_scope_id &&
+		       !lws_sa46_compare_sin6_addr(&a->sa6.sin6_addr,
+						   &b->sa6.sin6_addr);
 #endif
-        ) {
-		memset(target, 0, sizeof(*target));
-		lwsl_notice("EXTIP_DEBUG: lws_extip_report called with status %d (OFFLINE)\n", status);
-	} else {
-		*target = *sa46;
-		char buf_dbg[64];
-		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, buf_dbg, sizeof(buf_dbg));
-		lwsl_notice("EXTIP_DEBUG: lws_extip_report called with IP %s\n", buf_dbg);
+
+	return 1; /* both empty */
+}
+
+static void
+extip_broadcast(struct lws_context *cx)
+{
+	char payload[128], buf[64], *p = payload, *end = payload + sizeof(payload);
+	int n, c = 0;
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"ext-ips\": [");
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(cx->ext_ip); n++) {
+		if (!cx->ext_ip[n].sa4.sin_family)
+			continue;
+
+		lws_sa46_write_numeric_address(&cx->ext_ip[n], buf, sizeof(buf));
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s\"%s\"",
+				  c++ ? ", " : "", buf);
 	}
 
-	int changed = 0;
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
 
-	if (old.sa4.sin_family != target->sa4.sin_family)
-		changed = 1;
-	else if (target->sa4.sin_family == AF_INET) {
-		if (old.sa4.sin_port != target->sa4.sin_port ||
-		    memcmp(&old.sa4.sin_addr, &target->sa4.sin_addr,
-			   sizeof(old.sa4.sin_addr)))
-			changed = 1;
-	}
-#if defined(LWS_WITH_IPV6)
-	else if (target->sa6.sin6_family == AF_INET6) {
-		if (old.sa6.sin6_port != target->sa6.sin6_port ||
-		    old.sa6.sin6_scope_id != target->sa6.sin6_scope_id ||
-		    memcmp(old.sa6.sin6_addr.s6_addr, target->sa6.sin6_addr.s6_addr,
-			   sizeof(old.sa6.sin6_addr.s6_addr)))
-			changed = 1;
-	}
-#endif
-
-	if (changed) {
-#if defined(LWS_WITH_IPV6)
-		int c = 0;
-#endif
-		char payload[128], buf4[64];
-		char *p = payload, *end = payload + sizeof(payload);
-
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"ext-ips\": [");
-
-		if (cx->ext_ipv4.sa4.sin_family == AF_INET) {
-			lws_sa46_write_numeric_address(&cx->ext_ipv4, buf4, sizeof(buf4));
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\"", buf4);
-#if defined(LWS_WITH_IPV6)
-			c++;
-#endif
-		}
-
-#if defined(LWS_WITH_IPV6)
-		if (cx->ext_ipv6.sa6.sin6_family == AF_INET6) {
-			char buf6[64];
-			lws_sa46_write_numeric_address(&cx->ext_ipv6, buf6, sizeof(buf6));
-			if (c)
-				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ", ");
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\"", buf6);
-		}
-#endif
-
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
-
+	lwsl_cx_info(cx, "%s", payload);
 #if defined(LWS_WITH_SYS_SMD)
-		lwsl_notice("EXTIP_DEBUG: lws_extip_report emitting SMD: %s\n", payload);
-		lws_smd_msg_printf(cx, LWSSMDCL_NETWORK, "%s", payload);
+	lws_smd_msg_printf(cx, LWSSMDCL_NETWORK, "%s", payload);
 #endif
-	} else {
-		lwsl_notice("EXTIP_DEBUG: lws_extip_report skipped SMD emit (no change)\n");
+}
+
+void
+lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
+		 const lws_sockaddr46 *sa46, int af, int status,
+		 const lws_sockaddr46 *peers, int num_peers)
+{
+	int fi = extip_af_index(af), s, best_src = -1;
+	lws_sockaddr46 *slot, *best = NULL;
+	char buf[64];
+
+	(void)peers;
+	(void)num_peers;
+
+	if ((unsigned int)src >= LWS_EXTIP_SRC_COUNT || fi < 0) {
+		lwsl_cx_warn(cx, "ignoring report src %d af %d", (int)src, af);
+		return;
 	}
+
+	slot = &cx->ext_ip_src[src][fi];
+
+	if (status == LWS_EXTIP_STATUS_OFFLINE || !sa46 ||
+	    !sa46->sa4.sin_family) {
+		lwsl_cx_info(cx, "%s: IPv%c offline", extip_src_name[src],
+			     fi ? '6' : '4');
+		memset(slot, 0, sizeof(*slot));
+	} else {
+		if (sa46->sa4.sin_family != af) {
+			lwsl_cx_warn(cx, "%s: address family mismatch",
+				     extip_src_name[src]);
+			return;
+		}
+		*slot = *sa46;
+		lws_sa46_write_numeric_address(slot, buf, sizeof(buf));
+		lwsl_cx_info(cx, "%s: IPv%c %s", extip_src_name[src],
+			     fi ? '6' : '4', buf);
+	}
+
+	for (s = 0; s < LWS_EXTIP_SRC_COUNT; s++)
+		if (cx->ext_ip_src[s][fi].sa4.sin_family &&
+		    (best_src < 0 ||
+		     extip_src_rank[s] > extip_src_rank[best_src])) {
+			best_src = s;
+			best = &cx->ext_ip_src[s][fi];
+		}
+
+	if (best ? extip_sa46_same(best, &cx->ext_ip[fi]) :
+		   !cx->ext_ip[fi].sa4.sin_family)
+		return; /* the best address for this family didn't change */
+
+	if (best) {
+		cx->ext_ip[fi] = *best;
+		lws_sa46_write_numeric_address(best, buf, sizeof(buf));
+		lwsl_cx_notice(cx, "external IPv%c now %s (from %s)",
+			       fi ? '6' : '4', buf, extip_src_name[best_src]);
+	} else {
+		memset(&cx->ext_ip[fi], 0, sizeof(cx->ext_ip[fi]));
+		lwsl_cx_notice(cx, "external IPv%c unknown", fi ? '6' : '4');
+	}
+
+	extip_broadcast(cx);
 }
 
 int
 lws_extip_get_best(struct lws_context *cx, int af, lws_sockaddr46 *sa46)
 {
-	lws_sockaddr46 *src = &cx->ext_ipv4;
+	int fi = extip_af_index(af);
 
-#if defined(LWS_WITH_IPV6)
-	if (af == AF_INET6)
-		src = &cx->ext_ipv6;
-#endif
-
-	if ((af == AF_INET && src->sa4.sin_family == AF_INET)
-#if defined(LWS_WITH_IPV6)
-	    || (af == AF_INET6 && src->sa6.sin6_family == AF_INET6)
-#endif
-	   ) {
+	if (fi >= 0 && cx->ext_ip[fi].sa4.sin_family) {
 		if (sa46)
-			*sa46 = *src;
+			*sa46 = cx->ext_ip[fi];
 		return 0; /* found */
 	}
-	
+
 	/* Unknown / Offline */
 	if (sa46)
 		memset(sa46, 0, sizeof(*sa46));
+
 	return 1;
 }
 

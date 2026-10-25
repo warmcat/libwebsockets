@@ -174,7 +174,8 @@ extip_report_ip(struct vhd_extip *vhd, int i, const lws_sockaddr46 *sa46)
 
 	vhd->ip[i].reported = *sa46;
 	lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, sa46,
-			 !i ? AF_INET : AF_INET6, 1, NULL, 0);
+			 !i ? AF_INET : AF_INET6, LWS_EXTIP_STATUS_CHANGED,
+			 NULL, 0);
 }
 
 static void
@@ -191,8 +192,9 @@ extip_report_ip_offline(struct vhd_extip *vhd, int i)
 	else
 		zero.sa6.sin6_family = AF_INET6;
 
-	lwsl_notice("EXTIP_DEBUG: extip_report_ip_offline for IPv%c\n", i ? '6' : '4');
-	lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &zero, !i ? AF_INET : AF_INET6, 2, NULL, 0);
+	lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &zero,
+			 !i ? AF_INET : AF_INET6, LWS_EXTIP_STATUS_OFFLINE,
+			 NULL, 0);
 }
 
 static void
