@@ -35,6 +35,13 @@
 
 #define LWS_CRASH_BT_DEPTH	64
 
+/* libexecinfo on the BSDs counts frames in size_t, glibc and macOS in int */
+#if defined(LWS_HAVE_BACKTRACE_SIZE_T)
+typedef size_t lws_bt_count_t;
+#else
+typedef int lws_bt_count_t;
+#endif
+
 static const int crash_sigs[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
 
 /*
@@ -65,6 +72,7 @@ lws_crash_handler(int sig)
 {
 	void *bt[LWS_CRASH_BT_DEPTH];
 	char num[12], *p = num + sizeof(num);
+	lws_bt_count_t depth;
 	int n = sig;
 
 	*--p = '\0';
@@ -77,8 +85,8 @@ lws_crash_handler(int sig)
 	lws_crash_puts(p);
 	lws_crash_puts(", backtrace:\n");
 
-	n = backtrace(bt, (int)LWS_ARRAY_SIZE(bt));
-	backtrace_symbols_fd(bt, n, 2);
+	depth = backtrace(bt, (lws_bt_count_t)LWS_ARRAY_SIZE(bt));
+	backtrace_symbols_fd(bt, depth, 2);
 
 	lws_crash_puts("*** lws: end of backtrace\n");
 
@@ -102,8 +110,7 @@ lws_crash_backtrace_install(void)
 	 * The first backtrace() may load the unwinder, which allocates: get
 	 * that done now, not in the handler
 	 */
-	if (backtrace(&warm, 1) < 0)
-		return 1;
+	(void)backtrace(&warm, 1);
 
 	/* leave the thread's alternate signal stack alone if it has one */
 	if (!sigaltstack(NULL, &oss) && (oss.ss_flags & SS_DISABLE)) {

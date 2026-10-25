@@ -1004,6 +1004,15 @@ if (LWS_WITH_CRASH_BACKTRACE)
 		if (NOT LWS_HAVE_BACKTRACE_SYMBOLS_FD)
 			message(STATUS "No backtrace_symbols_fd(): disabling LWS_WITH_CRASH_BACKTRACE")
 			set(LWS_WITH_CRASH_BACKTRACE OFF)
+		else()
+			# libexecinfo counts frames in size_t, glibc and macOS
+			# in int: a redeclaration only compiles if it matches
+			CHECK_C_SOURCE_COMPILES(
+				"#include <stddef.h>
+				#include <execinfo.h>
+				size_t backtrace(void **, size_t);
+				int main(void) { return 0; }
+				" LWS_HAVE_BACKTRACE_SIZE_T)
 		endif()
 	endif()
 endif()
