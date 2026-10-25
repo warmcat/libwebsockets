@@ -62,8 +62,7 @@ static LONG WINAPI
 cbt_app_filter(EXCEPTION_POINTERS *ep)
 {
 	(void)ep;
-	fprintf(stderr, "app handler\n");
-	fflush(stderr);
+	lwsl_user("app handler\n");
 	_exit(CBT_APP_EXIT);
 }
 #else
@@ -107,7 +106,7 @@ cbt_crash(int c)
 #endif
 
 	if (lws_crash_backtrace_install()) {
-		fprintf(stderr, "install failed\n");
+		lwsl_err("install failed\n");
 		return 1;
 	}
 
