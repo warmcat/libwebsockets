@@ -42,6 +42,9 @@
 #define LWS_CRASH_BT_DEPTH	62
 #define LWS_CRASH_SYM_LEN	255
 
+/* the filter there was before ours, which gets the exception first */
+static LPTOP_LEVEL_EXCEPTION_FILTER lws_crash_prev_filter;
+
 /*
  * Unlike the unix signal handler, a filter runs as ordinary code, so it can
  * use stdio and DbgHelp.  DbgHelp names each frame from the module's .pdb,
@@ -104,6 +107,19 @@ static LONG WINAPI
 lws_crash_filter(EXCEPTION_POINTERS *ep)
 {
 	char what[40];
+	LONG r;
+
+	/*
+	 * Whoever was there before us decides first.  The MSVC startup code
+	 * always is, so we can't tell an application's filter by there being
+	 * one: the CRT's own only takes C++ exceptions, which it terminate()s
+	 * and we see as SIGABRT, and passes the rest on
+	 */
+	if (lws_crash_prev_filter) {
+		r = lws_crash_prev_filter(ep);
+		if (r != EXCEPTION_CONTINUE_SEARCH)
+			return r;
+	}
 
 	lws_snprintf(what, sizeof(what), "exception 0x%08lx",
 		     (unsigned long)ep->ExceptionRecord->ExceptionCode);
@@ -135,10 +151,10 @@ lws_crash_backtrace_install(void)
 	LPTOP_LEVEL_EXCEPTION_FILTER prev;
 	void (__cdecl *old)(int);
 
-	/* the application's own handling comes first */
+	/* lws_crash_filter() calls any filter that was there before it */
 	prev = SetUnhandledExceptionFilter(lws_crash_filter);
-	if (prev && prev != lws_crash_filter)
-		SetUnhandledExceptionFilter(prev);
+	if (prev != lws_crash_filter)
+		lws_crash_prev_filter = prev;
 
 	old = signal(SIGABRT, lws_crash_sigabrt);
 	if (old == SIG_ERR)

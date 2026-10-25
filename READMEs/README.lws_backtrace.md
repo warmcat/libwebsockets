@@ -31,8 +31,9 @@ macOS have it in libc, the BSDs in libexecinfo, which is linked if needed.
 Where there is none, eg musl, `LWS_WITH_CRASH_BACKTRACE` is turned off.
 
 On Windows a fault, eg, an access violation, is a structured exception, not a
-signal, so it is caught by an unhandled exception filter, unless the
-application set its own, and `abort()` by a SIGABRT handler.  The line before
+signal, so it is caught by an unhandled exception filter, and `abort()` by a
+SIGABRT handler.  A filter the application set before is called first, and
+only an exception it passes on gets a backtrace.  The line before
 the backtrace says `fatal exception 0xc0000005` or `fatal signal 22`.  DbgHelp
 (`dbghelp.lib`, linked when the option is on) names the frames, with the file
 and line where it finds the module's .pdb, eg, in a Debug or RelWithDebInfo
