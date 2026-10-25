@@ -521,6 +521,8 @@ if (LWS_WITH_SANSIO_LINK_TEST AND LWS_WITH_NETWORK AND SOURCES_SANSIO)
 			# access: injected dependencies, not requests
 			plat/unix/unix-misc.c
 			plat/unix/unix-file.c
+			# the builtin cmdline handling installs it
+			plat/unix/unix-crash.c
 		)
 		# the generic crypto is neither half's, whichever tls
 		# library provides it
