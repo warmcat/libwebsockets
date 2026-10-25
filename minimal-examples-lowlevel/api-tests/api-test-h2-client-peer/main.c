@@ -77,6 +77,7 @@
 #define H2_PREFACE_LEN		24
 #define H2_ERR_PROTOCOL_ERROR	1
 #define FX_PING_DATA		"fxping01"
+#define FX_RX_SIZE		2048
 
 /* hpack static table indexes the fixture's responses use */
 #define HP_METHOD		2
@@ -129,7 +130,7 @@ struct seen {
 /* one fixture connection */
 struct fx_pss {
 	struct lws	*wsi;
-	uint8_t		rx[2048];
+	uint8_t		rx[FX_RX_SIZE];
 	uint8_t		tx[LWS_PRE + 1024];
 	size_t		rxlen;
 	size_t		txlen;
@@ -329,14 +330,19 @@ fx_read_request(const uint8_t *pl, size_t len, struct seen *s)
 {
 	size_t i = 0, nl, vl;
 
+	/* the block came in one frame, so it can't be bigger than our rx */
+	if (len > FX_RX_SIZE)
+		return 1;
+
 	while (i < len) {
 		if (pl[i] != 0x00 || i + 2 > len)
 			return 1;
+		/* a 7-bit length prefix of 0x7f or more needs continuation */
 		nl = pl[i + 1];
-		if (nl & 0x80 || nl == 0x7f || i + 2 + nl + 1 > len)
+		if (nl >= 0x7f || i + 2 + nl + 1 > len)
 			return 1;
 		vl = pl[i + 2 + nl];
-		if (vl & 0x80 || vl == 0x7f || i + 3 + nl + vl > len)
+		if (vl >= 0x7f || i + 3 + nl + vl > len)
 			return 1;
 
 		if (nl == 7 && !memcmp(pl + i + 2, ":method", 7))
