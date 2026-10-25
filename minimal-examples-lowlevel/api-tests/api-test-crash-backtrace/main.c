@@ -307,9 +307,8 @@ cbt_check_bt(const char *buf, const char *mark)
 
 int main(int argc, const char **argv)
 {
-	struct lws_context_creation_info info;
+	int c, fails = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	cbt_end_t end, want;
-	int c, fails = 0;
 	char buf[16384], mark[64];
 	const char *p;
 
@@ -319,8 +318,13 @@ int main(int argc, const char **argv)
 		return c >= 0 && c < CBT_COUNT ? cbt_crash(c) : 1;
 	}
 
-	lws_context_info_defaults(&info, NULL);
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	/*
+	 * Not lws_cmdline_option_handle_builtin(): it is only in builds with
+	 * networking, and the test is in builds without it too
+	 */
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
+	lws_set_log_level(logs, NULL);
 
 	lwsl_user("LWS API selftest: crash backtraces\n");
 
