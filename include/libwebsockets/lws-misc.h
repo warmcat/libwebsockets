@@ -1613,7 +1613,10 @@ struct lws_dir_info {
  * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
  * since it refuses to support POSIX apis for this).
  *
- * Returns 1 if completed normally or 0 if the recursion ended early.
+ * Returns 1 if completed normally or 0 if the recursion ended early.  A
+ * dirpath that can't be listed at all, eg, it doesn't exist or we may not
+ * read it, also returns 1, like an empty one: see lws_dir_via_info() for how
+ * to tell them apart.
  *
  * This is here for historical reasons, use the below lws_dir_via_info() for
  * new code, it's the same function but using an info struct type args.
@@ -1636,7 +1639,11 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
  * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
  * since it refuses to support POSIX apis for this).
  *
- * Returns 1 if completed normally or 0 if the recursion ended early.
+ * Returns 1 if completed normally or 0 if the recursion ended early.  A
+ * dirpath that can't be listed at all, eg, it doesn't exist or we may not
+ * read it, also returns 1, like an empty one.  The toplevel callback only
+ * comes if dirpath was listed, so a caller that must not take an unreadable
+ * dir to be empty can set \p info.do_toplevel_cb and note that it came.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir_via_info(struct lws_dir_info *info);
