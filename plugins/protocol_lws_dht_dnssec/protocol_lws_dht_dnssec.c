@@ -5432,8 +5432,9 @@ dht_dnssec_upload_finish(struct vhd_dht_dnssec *vhd, int failed)
 
 	delay = DHT_UPLOAD_RETRY_US;
 	for (n = 0; n < job->fails && delay < DHT_UPLOAD_RETRY_MAX_US; n++)
-		delay = delay * 2 > DHT_UPLOAD_RETRY_MAX_US ?
-				DHT_UPLOAD_RETRY_MAX_US : delay * 2;
+		delay *= 2;
+	if (delay > DHT_UPLOAD_RETRY_MAX_US)
+		delay = DHT_UPLOAD_RETRY_MAX_US;
 
 	job->fails++;
 	job->due = lws_now_usecs() + delay;
