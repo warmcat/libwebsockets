@@ -40,6 +40,12 @@
 
 #define BOUNDARY	"lws-apitest-fpf-b0undary"
 #define MAX_FILES	6	/* must match the fixture's --max-files */
+/*
+ * How many times, 100ms apart, a F_RETRY_409 case tries again: it only waits
+ * as long as the name takes to be free, so this is only the bound on a server
+ * that is very slow, or never frees it
+ */
+#define RETRY_409_MAX	100
 
 enum {
 	F_STORED	= (1 << 0),	/* expect it stored under .stored */
@@ -89,13 +95,20 @@ static const struct tcase cases[] = {
 	 */
 	{ "huge.bin", "huge.bin", NULL, 0,
 		0, F_ABSENT | F_DECLARE_HUGE },
-	{ "abort.bin", "abort.bin", NULL, 4000,
-		0, F_ABSENT | F_ABORT },
 	/*
-	 * The server removes the partial file when it sees our close, which
-	 * can be after it took this connection: it takes a few goes while
-	 * the name is still there.  Old code that kept the partial file never
-	 * succeeds here.
+	 * Nothing about when the server is done with an upload we abandoned
+	 * can be seen from here: it may not even have created the partial
+	 * file yet when we look.  So this case checks nothing on disk itself;
+	 * the next one is what shows the partial file went.
+	 */
+	{ "abort.bin", "abort.bin", NULL, 4000,
+		0, F_ABORT },
+	/*
+	 * The server only creates a name that doesn't exist, so while the
+	 * partial file is there, it refuses this with a 409, and we try again
+	 * a little later.  Once the abandoned upload is closed, its file is
+	 * gone and this is stored.  Server code that kept the partial file
+	 * never gets past the 409s.
 	 */
 	{ "abort.bin", "abort.bin", NULL, 100,
 		HTTP_STATUS_SEE_OTHER, F_STORED | F_RETRY_409 },
@@ -402,7 +415,6 @@ next_case(lws_sorted_usec_list_t *sul)
 {
 	struct lws_client_connect_info i;
 	const struct tcase *c;
-	char path[1024];
 
 	if (case_idx >= 0 && cur.done) {
 		c = &cases[case_idx];
@@ -410,23 +422,10 @@ next_case(lws_sorted_usec_list_t *sul)
 		cur.body = NULL;
 
 		if ((c->flags & F_RETRY_409) &&
-		    cur.status == HTTP_STATUS_CONFLICT && retries++ < 30) {
+		    cur.status == HTTP_STATUS_CONFLICT &&
+		    retries++ < RETRY_409_MAX) {
 			/* the same case again, a little later */
 			cur.done = 0;
-			lws_sul_schedule(cx, 0, &sul_next, next_case,
-					 100 * LWS_US_PER_MS);
-			return;
-		}
-
-		/*
-		 * The server removes an abandoned upload's partial file when
-		 * it sees our close, which can be a little after we closed:
-		 * give it a few goes to be gone before it counts as left behind
-		 */
-		lws_snprintf(path, sizeof(path), "%s/%s", upload_dir,
-			     cur.stored);
-		if ((c->flags & F_ABORT) && path_exists(path) &&
-		    retries++ < 30) {
 			lws_sul_schedule(cx, 0, &sul_next, next_case,
 					 100 * LWS_US_PER_MS);
 			return;
@@ -453,6 +452,8 @@ next_case(lws_sorted_usec_list_t *sul)
 
 #if !defined(WIN32)
 	if (c->flags & F_SYMLINK) {
+		char path[1024];
+
 		lws_snprintf(path, sizeof(path), "%s/%s", upload_dir,
 			     cur.stored);
 		if (symlink(cur.escape, path)) {
