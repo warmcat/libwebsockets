@@ -25,6 +25,9 @@
 #          client is going to wait for it
 #  /linger-stubborn: the same, but ignoring SIGTERM, as the sleep it runs
 #          then does too
+#  /slow:  counts its body as below, but then says nothing for SLOW_QUIET_S
+#          seconds before it answers, as git-http-backend does while it
+#          packs a big fetch
 
 case "$PATH_INFO" in
 nohdr)
@@ -54,6 +57,8 @@ big)
 	;;
 esac
 
+SLOW_QUIET_S=4
+
 # A request without a body has nothing on stdin to count.
 
 case "$REQUEST_METHOD" in
@@ -62,6 +67,10 @@ GET|HEAD)
 *)
 	n=$(wc -c | tr -d ' \t\r\n') ;;
 esac
+
+if [ "$PATH_INFO" = slow ]; then
+	sleep $SLOW_QUIET_S
+fi
 b="bytes=$n
 stamp=$HTTP_X_TEST_STAMP
 qs=$QUERY_STRING

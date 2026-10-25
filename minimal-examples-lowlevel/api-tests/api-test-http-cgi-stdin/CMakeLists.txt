@@ -150,6 +150,15 @@ if (requirements)
 						     TIMEOUT 60)
 			endif()
 
+			lws_get_free_port(PORT_HTTP_CGI_H2_SLOW_POST)
+
+			add_test(NAME api-test-http-cgi-h2-slow-post
+				 COMMAND lws-api-test-http-cgi-stdin --h2-slow-post
+					 -p ${PORT_HTTP_CGI_H2_SLOW_POST})
+			set_tests_properties(api-test-http-cgi-h2-slow-post PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
+
 			# the same, ended by an empty DATA after the body
 			lws_get_free_port(PORT_HTTP_CGI_H2_POST_STREAM_END)
 
@@ -164,9 +173,11 @@ if (requirements)
 		endif()
 
 		# a POST saying Content-Length: 0, an h1 POST that waits
-		# for the 100 Continue its Expect: 100-continue asks for, and
-		# a script answer with no Content-Length
-		foreach(CGI_CASE post-cl0 expect-continue nolen)
+		# for the 100 Continue its Expect: 100-continue asks for, a
+		# script answer with no Content-Length, and a script that is
+		# quiet for longer than the context's timeout_secs before it
+		# answers
+		foreach(CGI_CASE post-cl0 expect-continue nolen slow-post)
 			lws_get_free_port(PORT_HTTP_CGI_${CGI_CASE})
 
 			add_test(NAME api-test-http-cgi-${CGI_CASE}

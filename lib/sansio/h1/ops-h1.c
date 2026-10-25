@@ -484,11 +484,10 @@ postbody_completion:
 #ifdef LWS_WITH_CGI
 			/*
 			 * If we're running a cgi, we can't let him off the
-			 * hook just because he sent his POST data
+			 * hook just because he sent his POST data: ending the
+			 * child's stdin puts the cgi's own timeout back
 			 */
 			if (wsi->http.cgi) {
-				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI,
-						(int)wsi->a.context->timeout_secs);
 				/*
 				 * However it was framed, the body is complete:
 				 * end the child's stdin.  A chunked body, or an

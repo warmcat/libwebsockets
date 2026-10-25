@@ -89,6 +89,14 @@
  * ignoring SIGTERM killed, so that within ABANDON_DRAIN_S of the last one
  * the process has no children left at all, neither running nor zombies.
  *
+ * With --slow-post and --h2-slow-post, the script takes the whole body, then
+ * says nothing for longer than the context's timeout_secs, here only
+ * SLOW_CTX_TIMEOUT_S, before it answers, as git-http-backend does while it
+ * packs a big fetch.  The mount's cgi timeout is what the script has to
+ * answer in once the body is all here, not the context's timeout_secs: the
+ * answer must arrive.  That used to be the timeout_secs, which killed every
+ * git fetch that took longer than 15s to start answering.
+ *
  * With --nolen, the script answers a GET with no Content-Length: the answer
  * must arrive whole, with the script's own content-type.  --h3-nolen is the
  * same over h3, where lws must send the status, its own headers and the
@@ -205,6 +213,22 @@ struct tcase {
 	int		h3;		/* over h3, tls with --cert / --key */
 };
 
+/*
+ * The context's timeout_secs for the cases asking for /slow, shorter than the
+ * SLOW_QUIET_S cgi.sh says nothing for there before answering
+ */
+#define SLOW_CTX_TIMEOUT_S	2
+
+/*
+ * ... which the client shares, being in the same context: lws arms its wait
+ * for the answer from it once its body has gone.  A real client, like git,
+ * waits as long as the answer takes, so until the answer comes, the client
+ * gives itself SLOW_CLI_WAIT_S again every second, whenever lws armed it.
+ * On h2 the connection under the stream has a wait of its own for the server
+ * to say something, from timeout_secs too, and gets the same.
+ */
+#define SLOW_CLI_WAIT_S		20
+
 static const struct tcase cases[] = {
 	{ "post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT,
 	  0, 0, 0 },
@@ -226,6 +250,8 @@ static const struct tcase cases[] = {
 	{ "expect-continue", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_CONTINUE,
 	  0, 0, 0 },
 	{ "nolen", "GET", "/nolen", BODY_NONE, EXPECT_NOLEN, 0, 0, 0 },
+	{ "slow-post", "POST", "/slow", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT,
+	  0, 0, 0 },
 #if defined(LWS_ROLE_H2)
 	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1, 0 },
 	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT,
@@ -235,6 +261,8 @@ static const struct tcase cases[] = {
 	{ "h2-post-stream-end", "POST", "/", BODY_STREAM_END, EXPECT_BODY_COUNT,
 	  1, 0, 0 },
 	{ "h2-post-cl0", "POST", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0, 0 },
+	{ "h2-slow-post", "POST", "/slow", BODY_CONTENT_LENGTH,
+	  EXPECT_BODY_COUNT, 1, 0, 0 },
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	{ "h2-put-cl0", "PUT", "/", BODY_CL0, EXPECT_BODY_COUNT, 1, 0, 0 },
 #endif
@@ -279,7 +307,7 @@ static struct run run;
 static int port_tcp = 7681;
 static const char *server = "127.0.0.1";
 static const char *cert, *key;
-static lws_sorted_usec_list_t sul_timeout, sul_grant, sul_children;
+static lws_sorted_usec_list_t sul_timeout, sul_grant, sul_children, sul_wait;
 
 static uint8_t body[LWS_PRE + CHUNK];
 
@@ -336,6 +364,33 @@ run_done(void)
 		run.us_end = lws_now_usecs();
 	run.done = 1;
 	lws_cancel_service(context);
+}
+
+/* /slow: the client waits for its answer longer than timeout_secs */
+
+static void
+sul_wait_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *nwsi = lws_get_network_wsi(run.cli);
+
+	lws_set_timeout(run.cli, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+			SLOW_CLI_WAIT_S);
+	if (nwsi && nwsi != run.cli)
+		lws_set_timeout(nwsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				SLOW_CLI_WAIT_S);
+	lws_sul_schedule(context, 0, &sul_wait, sul_wait_cb, LWS_US_PER_SEC);
+}
+
+/* the client's body has all gone: it waits for the answer from now */
+
+static void
+cli_body_sent(struct lws *wsi)
+{
+	if (strcmp(tc->path, "/slow"))
+		return;
+
+	run.cli = wsi;
+	lws_sul_schedule(context, 0, &sul_wait, sul_wait_cb, LWS_US_PER_SEC);
 }
 
 #if defined(LWS_ROLE_H2)
@@ -425,10 +480,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_user("%s: client: connection error: %s\n", __func__,
 			  in ? (const char *)in : "(null)");
+		lws_sul_cancel(&sul_wait);
 		run_done();
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		/* the answer is here: lws has its own timeouts from now */
+		lws_sul_cancel(&sul_wait);
 		run.status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("%s: client established, response status %d\n",
 			  __func__, run.status);
@@ -512,6 +570,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_write(wsi, &body[LWS_PRE], 0, LWS_WRITE_HTTP_FINAL))
 				return -1;
 			pss->chunks_done++;
+			cli_body_sent(wsi);
 
 			return 0;
 		}
@@ -560,6 +619,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (n != LWS_WRITE_HTTP_FINAL)
 			lws_callback_on_writable(wsi);
+		else
+			cli_body_sent(wsi);
 		break;
 
 	/* ...callbacks related to receiving the result... */
@@ -596,6 +657,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		lws_sul_cancel(&sul_wait);
 		run_done();
 		break;
 
@@ -1168,6 +1230,7 @@ bail:
 	lws_sul_cancel(&sul_timeout);
 	lws_sul_cancel(&sul_grant);
 	lws_sul_cancel(&sul_children);
+	lws_sul_cancel(&sul_wait);
 	lws_context_destroy(context);
 	context = NULL;
 
@@ -1219,6 +1282,8 @@ int main(int argc, const char **argv)
 	 * above stays valid
 	 */
 	info.pt_serv_buf_size = SERV_BUF_SIZE;
+	if (!strcmp(tc->path, "/slow"))
+		info.timeout_secs = SLOW_CTX_TIMEOUT_S;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 	if (tc->h3)
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

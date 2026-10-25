@@ -65,6 +65,7 @@ struct lws_cgi {
 
 	pid_t	pi;
 
+	int timeout_secs; /* how long it has to answer, 0 = no limit */
 	int match[SIGNIFICANT_HDR_COUNT];
 	char l[12];
 	int response_code;

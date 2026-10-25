@@ -226,6 +226,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 
 	cgi = cgiinfo->wsi->http.cgi;
 	cgi->wsi = cgiinfo->wsi; /* set cgi's owning wsi */
+	cgi->timeout_secs = cgiinfo->timeout_secs;
 	sum = cgi->summary;
 	sumend = sum + sizeof(cgi->summary) - 1;
 
@@ -1427,13 +1428,30 @@ lws_cgi_remove_and_kill(struct lws *wsi)
  * A body with a Content-Length ends when post_in_expected is counted down to
  * zero in the CGI_STDIN_DATA relay; a chunked body ends at its last-chunk,
  * which only the body decoder sees, so it calls here.
+ *
+ * While the body came, its own timeout stood in for the cgi's.  Now it is all
+ * here, the cgi has its own timeout again to answer in: the mount's
+ * cgi_timeout, not the context's timeout_secs, which killed a git-http-backend
+ * still packing quietly at 15s.  Unless the answer is already going, under the
+ * response's watchdog that its sending renews.
  */
 void
 lws_cgi_stdin_body_end(struct lws *wsi)
 {
 	struct lws *siwsi;
 
-	if (!wsi->http.cgi || !wsi->http.cgi->lsp)
+	if (!wsi->http.cgi)
+		return;
+
+	if (!wsi->http.sent_response_headers) {
+		if (wsi->http.cgi->timeout_secs)
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI,
+					wsi->http.cgi->timeout_secs);
+		else
+			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	}
+
+	if (!wsi->http.cgi->lsp)
 		return;
 
 	siwsi = wsi->http.cgi->lsp->stdwsi[LWS_STDIN];
