@@ -776,10 +776,14 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 				      lws_dll2_get_head(&pt->context->routing_table)) {
 			lws_route_t *r = lws_container_of(d, lws_route_t, list);
 
-			/* gateway routes are skipped here */
+			/*
+			 * default routes are skipped here: a gateway one has
+			 * no dest, and one on a point-to-point link only has
+			 * the unspecified address as its dest, with no length
+			 */
 
 			if (ds->dest.sa6.sin6_family == AF_INET6 &&
-			    r->dest.sa4.sin_family == AF_INET6 &&
+			    r->dest.sa4.sin_family == AF_INET6 && r->dest_len &&
 			    /* pair v4-mapped sources with v4-mapped dests */
 			    lws_sa46_is_ipv4_mapped(&r->dest) ==
 			    lws_sa46_is_ipv4_mapped(&ds->dest) && (!bestsrc ||

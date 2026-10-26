@@ -212,7 +212,9 @@ _lws_route_table_ifdown(struct lws_context_per_thread *pt, int idx)
 }
 
 /*
- * Is the route's gateway usable for reaching this dest?
+ * Is a default route usable for reaching this dest?  gw is its gateway, or
+ * for one with no gateway on a point-to-point link, the unspecified address
+ * of its family it has as its dest.
  *
  *  dest    gw
  *   4       4     OK
@@ -285,6 +287,12 @@ _lws_route_table_known_empty(struct lws_context *cx)
  */
 
 static int
+lws_route_is_v4(const lws_sockaddr46 *sa46)
+{
+	return sa46->sa4.sin_family == AF_INET || lws_sa46_is_ipv4_mapped(sa46);
+}
+
+static int
 lws_route_gw_rank(const lws_sockaddr46 *dest, const lws_sockaddr46 *gw)
 {
 	return dest->sa4.sin_family == gw->sa4.sin_family ? 0 : 1;
@@ -294,8 +302,9 @@ lws_route_t *
 _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 		        const lws_sockaddr46 *dest)
 {
-	lws_route_t *best_gw = NULL;
-	int best_gw_priority = INT_MAX, best_gw_rank = 2, rank;
+	int best_len = -1, best_rank = 2, best_priority = INT_MAX, len, rank;
+	const lws_sockaddr46 *egress;
+	lws_route_t *best = NULL;
 
 	if (!dest->sa4.sin_family) {
 		lwsl_cx_notice(pt->context, "dest has 0 AF");
@@ -305,54 +314,67 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 
 	/*
 	 * Given the dest address and the current routing table, select the
-	 * route we think it would go out on... if we find a matching network
-	 * route, just return that, otherwise find the "best" gateway by
-	 * looking at the priority of them.
+	 * route we think it would go out on, the way the kernel does: the
+	 * most specific route dest is on wins, so a network route like
+	 * 192.168.0.0/24 when dest is 192.168.0.1 beats any default route,
+	 * and a /24 beats a /16.  Between default routes, one of dest's own
+	 * family wins (see lws_route_gw_rank()), then the better priority.
 	 */
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&pt->context->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
 
-
-
-		if (rou->dest.sa4.sin_family &&
-		    !lws_sa46_on_net(dest, &rou->dest, rou->dest_len))
+		if (rou->dest.sa4.sin_family && rou->dest_len) {
 			/*
-			 * Yes, he has a matching network route, it beats out
-			 * any gateway route.  This is like finding a route for
-			 * 192.168.0.0/24 when dest is 192.168.0.1.
+			 * A network route: dest has to be on it, and of its
+			 * family.  lws_sa46_on_net() compares v4 as v4-mapped,
+			 * so without that, a v6 split tunnel route like
+			 * "::/1 dev wg0" would take in every v4 dest.
 			 */
-			return rou;
+			if (lws_route_is_v4(dest) != lws_route_is_v4(&rou->dest) ||
+			    lws_sa46_on_net(dest, &rou->dest, rou->dest_len))
+				continue;
 
-		lwsl_cx_debug(pt->context, "dest af %d, rou gw af %d, pri %d",
-			      dest->sa4.sin_family, rou->gateway.sa4.sin_family,
-			      rou->priority);
+			len = rou->dest_len;
+			rank = 0;
+		} else {
+			/*
+			 * A default route, either via a gateway, or with none
+			 * on a point-to-point link, eg, "::/0 dev wg0", where
+			 * netlink gave it the unspecified address of its
+			 * family as its dest.  Either says which family it
+			 * can carry.
+			 */
+			egress = rou->gateway.sa4.sin_family ? &rou->gateway :
+							       &rou->dest;
 
-		if (!rou->gateway.sa4.sin_family ||
-		    !lws_route_gw_usable(dest, &rou->gateway))
-			continue;
+			lwsl_cx_debug(pt->context, "dest af %d, rou egress "
+				      "af %d, pri %d", dest->sa4.sin_family,
+				      egress->sa4.sin_family, rou->priority);
 
-		rank = lws_route_gw_rank(dest, &rou->gateway);
-		if (rank < best_gw_rank ||
-		    (rank == best_gw_rank && rou->priority < best_gw_priority)) {
-			lwsl_cx_info(pt->context, "gw hit");
-			best_gw_rank = rank;
-			best_gw_priority = rou->priority;
-			best_gw = rou;
+			if (!egress->sa4.sin_family ||
+			    !lws_route_gw_usable(dest, egress))
+				continue;
+
+			len = 0;
+			rank = lws_route_gw_rank(dest, egress);
+		}
+
+		if (len > best_len ||
+		    (len == best_len && (rank < best_rank ||
+		     (rank == best_rank && rou->priority < best_priority)))) {
+			best_len = len;
+			best_rank = rank;
+			best_priority = rou->priority;
+			best = rou;
 		}
 
 	} lws_end_foreach_dll(d);
 
-	/*
-	 * Either best_gw is the best gw route and we set *best_gw_priority to
-	 * the best one's priority, or we're returning NULL as no network or
-	 * gw route for dest.
-	 */
+	lwsl_cx_info(pt->context, "returning %p", best);
 
-	lwsl_cx_info(pt->context, "returning %p", best_gw);
-
-	return best_gw;
+	return best;
 }
 
 /*

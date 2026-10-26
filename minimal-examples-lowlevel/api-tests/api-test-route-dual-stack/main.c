@@ -18,11 +18,20 @@
  * dropped: a v4-only name, like pool.ntp.org, could never be resolved to
  * anything usable, while names with AAAA records worked.
  *
- * Once netlink has given the context the host's routes, this replaces them
- * with a v6 default route and then a v4 one, both of the same priority, and
- * asks for a udp socket to a v4 address.  It must get one.  Then again with
- * the v4 route's priority worse than the v6 one's, and with the v4 route
- * first.
+ * A default route on a point-to-point link has no gateway, eg, wg-quick's
+ * "::/0 dev wg0".  lws used to see no way out in it at all, so on a host
+ * whose only v6 egress was a tunnel like that, every v6 destination was
+ * dropped for having no route out, though the kernel would route it.
+ *
+ * A v6 network route doesn't take in v4 destinations, though lws compares
+ * them as v4-mapped: a split tunnel's "::/1 dev wg0" holds ::ffff:a.b.c.d.
+ *
+ * And a route to a network via a gateway, eg, "10.0.0.0/8 via 192.0.2.1",
+ * is not a default route: lws used to take any route with a gateway as one.
+ *
+ * Once netlink has given the context the host's routes, for each case this
+ * replaces them with the case's routes and asks for a udp socket to a
+ * destination, which must be made, or must not be, as the case says.
  *
  * Linux only: the context only judges by routes when it has them from
  * netlink.
@@ -52,10 +61,31 @@ routes_clear(lws_dll2_owner_t *rt)
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
-/* a default route, the way netlink makes one: a gateway, no dest */
+/*
+ * A route the way netlink makes one.  A default route has the unspecified
+ * address of its family as its dest, with length 0, and a gateway, unless
+ * it's on a point-to-point link, eg, wg-quick's "::/0 dev wg0".  An address
+ * on an interface is a source route, with the address as its src.
+ */
+
+typedef struct {
+	const char	*dest;
+	uint8_t		dest_len;
+	const char	*gw;
+	const char	*src;
+	int		if_idx;
+	int		priority;
+} route_spec_t;
+
+typedef struct {
+	const char		*what;
+	const char		*ads;	/* where the udp socket is aimed */
+	int			made;	/* 1: it must be made, 0: dropped */
+	const route_spec_t	*routes;
+} case_t;
 
 static int
-route_add_default(lws_dll2_owner_t *rt, const char *gw, int priority)
+route_add(lws_dll2_owner_t *rt, const route_spec_t *rs)
 {
 	lws_route_t *r = lws_realloc(NULL, sizeof(*r), "route");
 
@@ -63,46 +93,111 @@ route_add_default(lws_dll2_owner_t *rt, const char *gw, int priority)
 		return 1;
 
 	memset(r, 0, sizeof(*r));
-	if (lws_sa46_parse_numeric_address(gw, &r->gateway)) {
+	if (lws_sa46_parse_numeric_address(rs->dest, &r->dest) ||
+	    (rs->gw && lws_sa46_parse_numeric_address(rs->gw, &r->gateway)) ||
+	    (rs->src && lws_sa46_parse_numeric_address(rs->src, &r->src))) {
 		lws_realloc(r, 0, "free");
 		return 1;
 	}
-	r->if_idx = 1;
-	r->priority = priority;
+	r->dest_len = rs->dest_len;
+	r->source_ads = !!rs->src;
+	r->if_idx = rs->if_idx;
+	r->priority = rs->priority;
 	r->uidx = (lws_route_uidx_t)(rt->count + 1);
 	lws_dll2_add_tail(&r->list, rt);
 
 	return 0;
 }
 
+static const route_spec_t
+	v6_first_same_pri[] = {
+		{ "::",		0, "fe80::1",	NULL, 1, 100 },
+		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
+		{ NULL }
+	}, v6_first_better_pri[] = {
+		{ "::",		0, "fe80::1",	NULL, 1, 100 },
+		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 1024 },
+		{ NULL }
+	}, v4_first_same_pri[] = {
+		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
+		{ "::",		0, "fe80::1",	NULL, 1, 100 },
+		{ NULL }
+	}, v6_on_link[] = {
+		/* a LAN with only a v4 default route, and a v6 tunnel */
+		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
+		{ "::",		0, NULL,	NULL, 2, 0 },
+		{ "2001:db8::2", 64, NULL,	"2001:db8::2", 2, 0 },
+		{ NULL }
+	}, v6_on_link_first[] = {
+		{ "::",		0, NULL,	NULL, 2, 100 },
+		{ "2001:db8::2", 64, NULL,	"2001:db8::2", 2, 0 },
+		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
+		{ NULL }
+	}, v4_on_link[] = {
+		{ "0.0.0.0",	0, NULL,	NULL, 2, 0 },
+		{ "2001:db8::2", 64, NULL,	"2001:db8::2", 1, 0 },
+		{ NULL }
+	}, v6_split_tunnel[] = {
+		/* "::/1" holds ::ffff:127.0.0.1, but only as a v6 network */
+		{ "::",		1, NULL,	NULL, 2, 0 },
+		{ "8000::",	1, NULL,	NULL, 2, 0 },
+		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
+		{ NULL }
+	}, net_via_gw[] = {
+		{ "10.0.0.0",	8, "192.0.2.1",	NULL, 1, 0 },
+		{ NULL }
+	};
+
+static const case_t cases[] = {
+	{ "v6 default route first, same priority",
+	  "127.0.0.1", 1, v6_first_same_pri },
+	{ "v6 default route has the better priority",
+	  "127.0.0.1", 1, v6_first_better_pri },
+	{ "v4 default route first, same priority",
+	  "127.0.0.1", 1, v4_first_same_pri },
+	{ "v6 dest, v6 default route on a link with no gateway",
+	  "::1", 1, v6_on_link },
+	{ "v4 dest, v6 default route with no gateway first",
+	  "127.0.0.1", 1, v6_on_link_first },
+	{ "v6 dest, only a v4 default route with no gateway",
+	  "::1", 0, v4_on_link },
+	{ "v4 dest, v6 split tunnel routes and a v4 default route",
+	  "127.0.0.1", 1, v6_split_tunnel },
+	{ "v4 dest, only a network route via a gateway",
+	  "127.0.0.1", 0, net_via_gw },
+};
+
 static int
-try_v4(const char *what, int v6_first, int pri4, int pri6)
+try_case(const case_t *c)
 {
 	struct lws_vhost *vh = lws_get_vhost_by_name(context, "route");
 	lws_dll2_owner_t *rt = lws_routing_table_get(context);
+	const route_spec_t *rs;
 	struct lws *wsi;
 
 	routes_clear(rt);
 
-	if (v6_first ? route_add_default(rt, "fe80::1", pri6) ||
-		       route_add_default(rt, "192.0.2.1", pri4) :
-		       route_add_default(rt, "192.0.2.1", pri4) ||
-		       route_add_default(rt, "fe80::1", pri6)) {
-		lwsl_err("%s: %s: making the routes failed\n", __func__, what);
-		return 1;
-	}
+	for (rs = c->routes; rs->dest; rs++)
+		if (route_add(rt, rs)) {
+			lwsl_err("%s: %s: making the routes failed\n",
+				 __func__, c->what);
+			return 1;
+		}
 
 	/* where it's aimed doesn't matter: nothing is sent */
-	wsi = lws_create_adopt_udp(vh, "127.0.0.1", 7681, 0, "route-udp",
+	wsi = lws_create_adopt_udp(vh, c->ads, 7681, 0, "route-udp",
 				   NULL, NULL, NULL, NULL, "route-udp");
-	if (!wsi) {
-		lwsl_err("%s: FAIL: %s: v4 destination dropped\n", __func__,
-			 what);
+	if (!wsi != !c->made) {
+		lwsl_err("%s: FAIL: %s: %s %s\n", __func__, c->what, c->ads,
+			 c->made ? "dropped" : "not dropped");
+		if (wsi)
+			lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
 		return 1;
 	}
 
-	lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
-	lwsl_user("%s: ok: %s\n", __func__, what);
+	if (wsi)
+		lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
+	lwsl_user("%s: ok: %s\n", __func__, c->what);
 
 	return 0;
 }
@@ -111,16 +206,17 @@ static int
 system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		 int current, int target)
 {
+	size_t n;
+
 	if (current != LWS_SYSTATE_OPERATIONAL ||
 	    target != LWS_SYSTATE_OPERATIONAL)
 		return 0;
 
 	/* netlink has delivered the host's routes by now */
 
-	fails = try_v4("v6 default route first, same priority", 1, 100, 100) +
-		try_v4("v6 default route has the better priority", 1, 1024,
-		       100) +
-		try_v4("v4 default route first, same priority", 0, 100, 100);
+	fails = 0;
+	for (n = 0; n < LWS_ARRAY_SIZE(cases); n++)
+		fails += try_case(&cases[n]);
 
 	lws_default_loop_exit(context);
 
@@ -145,7 +241,7 @@ main(int argc, const char **argv)
 	memset(&info, 0, sizeof(info));
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	lwsl_user("LWS API selftest: v4 destinations on a dual-stack host\n");
+	lwsl_user("LWS API selftest: route selection on a dual-stack host\n");
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;

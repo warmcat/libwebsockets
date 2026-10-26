@@ -736,6 +736,23 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 		} /* for */
 
 		/*
+		 * The kernel leaves out RTA_DST for a default route.  One via a
+		 * gateway still says by that which family it is for, but one
+		 * on a point-to-point link has no gateway, eg, wg-quick's
+		 * "::/0 dev wg0", and would say nothing.  Give every default
+		 * route the unspecified address of its family as its dest,
+		 * normalized like any other address it carries.
+		 */
+		if (!robj.dest.sa4.sin_family && !rm->rtm_dst_len &&
+		    lws_netlink_af_alen(rm->rtm_family)) {
+			static const uint8_t unspec[16];
+
+			lws_sa46_copy_address(&robj.dest, unspec,
+					      rm->rtm_family);
+			robj.dest_len = 0;
+		}
+
+		/*
 		 * the second half, once all the attributes were collected
 		 */
 second_half:

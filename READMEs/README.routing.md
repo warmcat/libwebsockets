@@ -39,6 +39,26 @@ removing the highest priority gateway route, all connections to a peer
 without a net route match are invalidated.  However connections with
 an unaffected  matching net route like 127.0.0.0/8 are left alone.
 
+## How lws picks the route a peer is reached by
+
+Like the kernel, lws takes the most specific route the peer address is on,
+eg, 192.168.0.0/24 beats 192.168.0.0/16, and either beats a default route.
+A network route only takes in peers of its own family: a v6 route like
+`::/1` does not hold v4 peers.
+
+A default route is a way out whether it has a gateway, or is on a
+point-to-point link with none, eg, wg-quick's `::/0 dev wg0`.  Between
+default routes, one of the peer's own family wins, then the better
+priority.  A v4 peer may use a v6 default route, as `::ffff:a.b.c.d`, only
+when there is no v4 one.  A route to a network via a gateway, eg,
+`10.0.0.0/8 via 192.0.2.1`, is not a default route.
+
+lws takes the routes from every routing table, it doesn't follow policy
+routing rules.
+
+DNS results with no route out are not tried; the same judgement decides
+whether an existing connection is still routable.
+
 ## Intergration to other subsystems
 
 If SMD is built in, on any route change a NETWORK message
