@@ -69,8 +69,9 @@ def creds(path):
 def totp(secret):
     k = base64.b32decode(secret.upper().replace(" ", "") +
                          "=" * (-len(secret) % 8))
-    h = hmac.new(k, struct.pack(">Q", int(time.time()) // 30),
-                 hashlib.sha1).digest()
+    # TOTP (RFC 6238) is HMAC-SHA1: it's the authenticator's choice, not ours
+    mac = hashlib.sha1  # NOSONAR
+    h = hmac.new(k, struct.pack(">Q", int(time.time()) // 30), mac).digest()
     o = h[-1] & 15
     return "%06d" % ((struct.unpack(">I", h[o:o + 4])[0] & 0x7fffffff) %
                      1000000)
@@ -149,36 +150,35 @@ def session_body(a):
     return json.dumps(b).encode()
 
 
-def main():
-    a = sys.argv[1:]
-    credpath = os.environ.get("LWS_LOGS_CREDS")
-    auth = os.environ.get("LWS_LOGS_AUTH")
-    service = os.environ.get("LWS_LOGS_SERVICE", "lws-logs")
+def parse_args(a):
+    opt = {"--creds": os.environ.get("LWS_LOGS_CREDS"),
+           "--auth": os.environ.get("LWS_LOGS_AUTH"),
+           "--service": os.environ.get("LWS_LOGS_SERVICE", "lws-logs")}
     while a and a[0].startswith("--"):
-        if len(a) < 2 or a[0] not in ("--creds", "--auth", "--service"):
+        if len(a) < 2 or a[0] not in opt:
             usage()
-        if a[0] == "--creds":
-            credpath = a[1]
-        elif a[0] == "--auth":
-            auth = a[1]
-        else:
-            service = a[1]
+        opt[a[0]] = a[1]
         a = a[2:]
     if len(a) < 2:
         usage()
-    api, cmd, a = a[0].rstrip("/"), a[1], a[2:]
+    return opt["--creds"], opt["--auth"], opt["--service"], a
 
-    data = None
+
+def request_for(api, cmd, a):
+    """the url and any body of the request cmd with arguments a makes"""
     if cmd == "get" and len(a) == 1:
-        url = api + "/" + a[0].lstrip("/")
-    elif cmd == "start":
-        url = api + "/sessions"
-        data = session_body(a)
-    elif cmd == "stop" and len(a) == 1:
-        url = api + "/sessions/%s/stop" % urllib.parse.quote(a[0])
-        data = b"{}"
-    else:
-        usage()
+        return api + "/" + a[0].lstrip("/"), None
+    if cmd == "start":
+        return api + "/sessions", session_body(a)
+    if cmd == "stop" and len(a) == 1:
+        return api + "/sessions/%s/stop" % urllib.parse.quote(a[0]), b"{}"
+    usage()
+
+
+def main():
+    credpath, auth, service, a = parse_args(sys.argv[1:])
+    api, cmd, a = a[0].rstrip("/"), a[1], a[2:]
+    url, data = request_for(api, cmd, a)
 
     host = urllib.parse.urlparse(api).netloc
     d = os.path.expanduser("~/.cache/lws-logs")
