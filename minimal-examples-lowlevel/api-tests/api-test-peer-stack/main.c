@@ -82,7 +82,12 @@
 #define PS_T_SKT	"::ffff:10.0.0.2"
 #define PS_T_SKT_P	"[" PS_T_SKT "]"
 #endif
-#define PS_PHASE_US	(3 * LWS_US_PER_SEC)
+/*
+ * A phase ends when it completes; this is only a guard against a stall.
+ * A TLS handshake against the RSA-4096 cert can take over 3s on mbedtls 4
+ * on a loaded board or VM, so leave plenty of room.
+ */
+#define PS_PHASE_US	(10 * LWS_US_PER_SEC)
 
 /* AF_UNIX connections are adopted from a socketpair */
 #if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
