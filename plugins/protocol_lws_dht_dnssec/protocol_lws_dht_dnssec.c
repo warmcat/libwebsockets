@@ -82,6 +82,8 @@ struct vhd_dht_dnssec {
 	struct lws_vhost		*vhost;
 	struct lws_dht_ctx		*dht;
 	lws_sorted_usec_list_t		sul_bulk;
+	/* the routing table check, for the life of the vhost */
+	lws_sorted_usec_list_t		sul_bootstrap;
 	lws_sorted_usec_list_t		sul_speed;
 	lws_sorted_usec_list_t		sul_stats;
 	lws_sorted_usec_list_t		sul_timeout;
@@ -116,6 +118,12 @@ struct vhd_dht_dnssec {
 	uint8_t				bootstrap_resolving:1;
 	/* we said the bootstrap seed is only ourselves, don't keep on */
 	uint8_t				bootstrap_self_said:1;
+	/* a peer has answered us since we started */
+	uint8_t				bootstrap_good_seen:1;
+	/* ... and then every peer stopped answering */
+	uint8_t				bootstrap_lost:1;
+	/* we got peers back: ask them our address at the next check */
+	uint8_t				bootstrap_reprobe:1;
 	lws_dll2_owner_t		owner_domains; /* tracking our lws_dht_dnssec_domain structures */
 	uint8_t				cli_bulk:1;
 	uint8_t				gen_manifest:1;
@@ -3972,29 +3980,55 @@ again:
 		lws_async_dns_freeaddrinfo(&result);
 
 	/* Schedule another check in 5 seconds if we still haven't found nodes */
-	lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_bootstrap,
+			 dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
 
 	return wsi;
 }
 
+/*
+ * How often we look at the routing table once we have bootstrapped.  While
+ * we have nobody, the seed is asked every 5s.
+ */
+#define DHT_DNSSEC_TABLE_CHECK_US	(10 * LWS_US_PER_SEC)
+
 static void
 dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 {
-	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
-	int good4 = 0, dubious4 = 0, good6 = 0, dubious6 = 0;
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul,
+				struct vhd_dht_dnssec, sul_bootstrap);
+	int good4 = 0, dubious4 = 0, good6 = 0, dubious6 = 0, good, dubious;
 
 	if (!vhd->dht)
 		return;
 
-	/* Check if the routing table is still entirely empty */
 	lws_dht_nodes(vhd->dht, AF_INET, &good4, &dubious4, NULL, NULL);
 	lws_dht_nodes(vhd->dht, AF_INET6, &good6, &dubious6, NULL, NULL);
 
-	int good = good4 + good6;
-	int dubious = dubious4 + dubious6;
+	good = good4 + good6;
+	dubious = dubious4 + dubious6;
+	if (good)
+		vhd->bootstrap_good_seen = 1;
 
-	if (good == 0 && dubious == 0) {
-		/* We don't have anyone in our routing table yet */
+	/*
+	 * Until a peer answers us, anybody in the table will do: the seed
+	 * node itself has nobody to ask, and waits for peers to contact it.
+	 *
+	 * After that, somebody must still be answering us.  If nobody does,
+	 * eg, our own link was down for a few minutes, the DHT drops every
+	 * node after a few unanswered requests, and our peers drop us the
+	 * same way: nobody contacts anybody again, least of all us at a new
+	 * external address, until we are restarted.  So we go back to the
+	 * seed for as long as it takes.
+	 */
+
+	if (!good && (!dubious || vhd->bootstrap_good_seen)) {
+		if (vhd->bootstrap_good_seen && !vhd->bootstrap_lost) {
+			vhd->bootstrap_lost = 1;
+			lwsl_notice("%s: no peer is answering, bootstrapping "
+				    "again\n", __func__);
+		}
+
 		if (vhd->target_ip && vhd->target_ip[0] && vhd->target_port > 0) {
 			if (vhd->bootstrap_resolving)
 				/* a resolution is in flight, its cb reschedules us */
@@ -4015,51 +4049,79 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 						vhd, NULL) == LADNS_RET_FAILED) {
 				vhd->bootstrap_resolving = 0;
 				lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
-				lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
+				lws_sul_schedule(vhd->context, 0, &vhd->sul_bootstrap,
+						 dht_dnssec_sul_bootstrap_cb,
+						 5 * LWS_US_PER_SEC);
 			}
 
 			return;
 		}
 
 		/* Schedule another check in 5 seconds if we still haven't found nodes */
-		lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
-	} else {
-		lwsl_notice("%s: DHT bootstrapped successfully, routing table contains %d good nodes\n", __func__, good);
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_bootstrap,
+				 dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
+		return;
+	}
 
-		if (!vhd->initial_search_done) {
-			vhd->initial_search_done = 1;
-			lwsl_notice("%s: Populating routing table with peer discovery...\n", __func__);
-			/* Trigger a self-search to discover up to 8 peers from the seed node(s) */
-			lws_dht_search(vhd->dht, vhd->myid, 0, AF_INET, NULL, NULL);
-			lws_dht_search(vhd->dht, vhd->myid, 0, AF_INET6, NULL, NULL);
-			/* Wait a short moment for responses before starting fetches */
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 2 * LWS_US_PER_SEC);
-			return;
+	if (!vhd->initial_search_done || vhd->bootstrap_lost) {
+		if (!vhd->initial_search_done)
+			lwsl_notice("%s: DHT bootstrapped successfully, routing "
+				    "table contains %d good nodes\n", __func__,
+				    good);
+		else {
+			lwsl_notice("%s: peers are answering again, %d good "
+				    "nodes\n", __func__, good);
+			/*
+			 * Our external address may be what changed while we
+			 * were cut off: once the table is refilled, ask the
+			 * peers now rather than at the next 10 minute round
+			 */
+			vhd->bootstrap_reprobe = 1;
 		}
 
-		/* Kick off fetches for any domains that were subscribed before we had a routing table */
-		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
-			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
-			if (sub->needs_initial_fetch) {
-				sub->needs_initial_fetch = 0;
+		vhd->initial_search_done = 1;
+		vhd->bootstrap_lost = 0;
 
-				char cache_path[1024];
-				lws_snprintf(cache_path, sizeof(cache_path), "%s/%s.zone", vhd->storage_path, sub->domain);
+		/* a self-search finds up to 8 peers from the seed node(s) */
+		lws_dht_search(vhd->dht, vhd->myid, 0, AF_INET, NULL, NULL);
+		lws_dht_search(vhd->dht, vhd->myid, 0, AF_INET6, NULL, NULL);
 
-				struct lws_dht_dnssec_fetch_zone_args args;
-				memset(&args, 0, sizeof(args));
-				args.vhost = vhd->vhost;
-				args.domain = sub->domain;
-				args.cache_dir = cache_path;
-				args.cb = NULL;
-				args.opaque = NULL;
-				args.force_network = 1;
-
-				lwsl_notice("Deferred fetch triggered for subscribed domain %s\n", sub->domain);
-				dht_dnssec_fetch_zone(vhd->context, &args, NULL, 1);
-			}
-		} lws_end_foreach_dll(d);
+		/* wait a short moment for responses before going on */
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_bootstrap,
+				 dht_dnssec_sul_bootstrap_cb, 2 * LWS_US_PER_SEC);
+		return;
 	}
+
+	if (vhd->bootstrap_reprobe) {
+		vhd->bootstrap_reprobe = 0;
+		lws_dht_test_external_ips(vhd->dht);
+	}
+
+	/* Kick off fetches for any domains that were subscribed before we had a routing table */
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
+		struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
+		if (sub->needs_initial_fetch) {
+			sub->needs_initial_fetch = 0;
+
+			char cache_path[1024];
+			lws_snprintf(cache_path, sizeof(cache_path), "%s/%s.zone", vhd->storage_path, sub->domain);
+
+			struct lws_dht_dnssec_fetch_zone_args args;
+			memset(&args, 0, sizeof(args));
+			args.vhost = vhd->vhost;
+			args.domain = sub->domain;
+			args.cache_dir = cache_path;
+			args.cb = NULL;
+			args.opaque = NULL;
+			args.force_network = 1;
+
+			lwsl_notice("Deferred fetch triggered for subscribed domain %s\n", sub->domain);
+			dht_dnssec_fetch_zone(vhd->context, &args, NULL, 1);
+		}
+	} lws_end_foreach_dll(d);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_bootstrap,
+			 dht_dnssec_sul_bootstrap_cb, DHT_DNSSEC_TABLE_CHECK_US);
 }
 
 static int
@@ -6454,7 +6516,9 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		} else {
 			lwsl_notice("%s: Taking BOOTSTRAP branch\n", __func__);
 			/* Always schedule bootstrap checking, either to actively ping target_ip OR passively wait for peers to ping us */
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 10 * LWS_US_PER_MS);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bootstrap,
+					 dht_dnssec_sul_bootstrap_cb,
+					 10 * LWS_US_PER_MS);
 		}
 		break;
 	}
@@ -6466,6 +6530,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_stats);
 		lws_sul_cancel(&vhd->sul_speed);
 		lws_sul_cancel(&vhd->sul_bulk);
+		lws_sul_cancel(&vhd->sul_bootstrap);
 		lws_sul_cancel(&vhd->sul_timeout);
 		lws_sul_cancel(&vhd->sul_upload);
 		lws_sul_cancel(&vhd->sul_upload_tx);

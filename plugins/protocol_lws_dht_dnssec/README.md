@@ -96,6 +96,7 @@ the one running instance.
 | `put-file` | Instructs the CLI to perform a DHT `PUT` operation storing a local file into the network. | `NULL` |
 | `gen-manifest` | Path to generate a manifest file indicating the state of DHT operations. | `NULL` |
 | `bulk` | Boolean flag (`1` or `0`) to enable bulk data transfer modes. | `0` |
+| `target-ip` | The seed node to bootstrap from, by name or address, at `target-port`.  The node goes back to it at startup, and whenever no peer has answered it for a while after that, eg, its link was down for a few minutes: its peers have dropped it by then, and would never contact it again, least of all at a new external address. | `NULL` |
 | `target-port` | The target port to connect to when bootstrapping or joining a node (CLI usage). | `0` |
 | `completion-cb` / `completion-cb-arg` | Callback configurations used by programmatic C API invocations, usually ignored via configuration files. | `NULL` |
 
