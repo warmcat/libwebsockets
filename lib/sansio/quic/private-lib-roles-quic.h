@@ -316,7 +316,17 @@ enum lws_quic_frame_type {
  * still working through a backlog: its ack coming after all says the same,
  * and another is sent, until LWS_QUIC_PMTUD_MAX_PROBES of them are lost.
  * Then the search starts again from the base (RFC 8899 5.2, BASE to
- * SEARCHING), and settles on the size the path carries now.
+ * SEARCHING), and settles on the size the path carries now.  An ack of any
+ * of those lost probes coming before then says it was no black hole.
+ *
+ * A black hole says the path's MTU fell, not that a size bigger than the one
+ * from before got through after all: probes of the size the search was on
+ * that were lost before it started again still count against that size, so
+ * the new search loses no more of them than LWS_QUIC_PMTUD_MAX_PROBES in all,
+ * and settles under it at once if the old one had.  The confirming probes'
+ * acks may only be late too, eg, the process wasn't run for a while, and then
+ * the search starting again costs probes of sizes the path carries, but none
+ * it can't.  Until LWS_QUIC_PMTUD_RAISE_US is up, which tries every size again.
  *
  * A search probe sent before going back is still the search's while the
  * black hole is unconfirmed: its loss counts against its size, and no other
@@ -721,10 +731,12 @@ struct lws_quic_netconn {
 	/* PN of the probe of the size from before, confirming the black hole */
 	uint64_t		pmtud_bh_from_probe_pn;
 	/*
-	 * PN of the last of those given up for lost: if its ack comes after
-	 * all, it was only late, and it was no black hole
+	 * PNs of those given up for lost so far, pmtud_bh_from_fails of them:
+	 * if the ack of any comes after all, it was only late, and it was no
+	 * black hole.  There are never more than LWS_QUIC_PMTUD_MAX_PROBES,
+	 * since that many lost confirms the black hole.
 	 */
-	uint64_t		pmtud_bh_from_late_pn;
+	uint64_t		pmtud_bh_from_late_pn[LWS_QUIC_PMTUD_MAX_PROBES];
 	/*
 	 * PN and size of the last search probe given up for lost: if its ack
 	 * comes after all, it was only late, and the path carries its size
@@ -747,6 +759,8 @@ struct lws_quic_netconn {
 	 * pmtud_bh_from_mtu is 0 otherwise
 	 */
 	uint32_t		pmtud_bh_from_mtu;
+	/* the size pmtud_held_fails is of */
+	uint32_t		pmtud_held_mtu;
 	/* packets bigger than the base lost since one of them got through */
 	uint16_t		consecutive_mtu_losses;
 	uint8_t			pmtud_state; /* 0=BASE, 1=SEARCHING, 2=SEARCH_COMPLETE */
@@ -755,6 +769,12 @@ struct lws_quic_netconn {
 	uint8_t			pmtud_probe_fails;
 	/* probes of pmtud_bh_from_mtu lost so far, confirming a black hole */
 	uint8_t			pmtud_bh_from_fails;
+	/*
+	 * Probes of pmtud_held_mtu the search lost before a black hole
+	 * started it again, which still count against that size when the
+	 * search gets there; 0 if none
+	 */
+	uint8_t			pmtud_held_fails;
 	/* a probe's PING is in pending_tx, not sent yet */
 	uint8_t			pmtud_probe_queued:1;
 	uint8_t			pmtud_bh_probe_queued:1;

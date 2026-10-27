@@ -285,6 +285,23 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# The stall again, then once a side probes the size it had to
+		# confirm the black hole it went back to the base for, the
+		# relay holds everything long enough that it confirms one that
+		# isn't: the probes too big it lost before still count, so it
+		# must still lose no more than three of them
+		#
+		lws_get_free_port(PORT_QCS_PMTU_CONFIRM)
+		lws_get_free_port(PORT_QCS_PMTU_CONFIRM_RELAY)
+		add_test(NAME ${SAMP}-pmtu-stall-confirm COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_PMTU_CONFIRM}
+				--relay ${PORT_QCS_PMTU_CONFIRM_RELAY} --pmtu 1400
+				--stall --stall-confirm)
+		set_tests_properties(${SAMP}-pmtu-stall-confirm PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# Through the relay, with each side's socket refusing two of
 		# every three datagrams, as a full one does, eg with ENOBUFS on
 		# macOS: what was refused must still go when the socket takes

@@ -32,6 +32,7 @@ arrived.
 |--delay-spike|With `--pmtu`, when each side starts probing, the relay holds what it sends for 500ms, see below|
 |--pmtu-outage|With `--pmtu`, partway through the server's transfer, the relay loses everything for 100ms, see below|
 |--stall|With `--pmtu`, once a probe is lost for being too big, the relay holds everything both ways for 600ms, see below|
+|--stall-confirm|With `--stall`, once a side probes the size it had to confirm a black hole, the relay holds everything both ways for 1.5s, see below|
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
@@ -237,6 +238,22 @@ datagrams, or nothing was tested.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400 --stall
+```
+
+With `--stall-confirm` too, after the stall, once a side went back to 1280,
+which the relay sees as three datagrams in a row of just the 1232 bytes that
+carries, the next bigger datagram it sends is its probe of the size it had,
+confirming the black hole.  Then the relay holds everything in both
+directions for 1.5s, so the side gives that probe and the ones after it up for
+lost before their acks come, and confirms a black hole that isn't one.  It
+searches again from 1280, but a black hole says the path's MTU fell, not that
+the size its search was on gets through: the probes of that size it lost
+before still count, so the same checks as `--pmtu` apply, three probes too
+big lost at most.  A side must have probed the size it had after going back,
+or nothing was tested.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400 --stall --stall-confirm
 ```
 
 With `--blackhole` instead, the path's MTU falls under the connection.  The
