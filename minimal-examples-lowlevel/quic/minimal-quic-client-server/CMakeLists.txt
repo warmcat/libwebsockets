@@ -270,12 +270,16 @@ if (requirements)
 		# come, which isn't a black hole, and each side must go on from
 		# where it was, losing no more than three probes too big
 		#
+		# For now it logs at info, with the whole of any log spew kept,
+		# so the QUIC PMTUD lines of a run that fails on a CI builder
+		# show how each side's search went
+		#
 		lws_get_free_port(PORT_QCS_PMTU_STALL)
 		lws_get_free_port(PORT_QCS_PMTU_STALL_RELAY)
 		add_test(NAME ${SAMP}-pmtu-stall COMMAND ${SAMP}
 				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_PMTU_STALL}
 				--relay ${PORT_QCS_PMTU_STALL_RELAY} --pmtu 1400
-				--stall)
+				--stall -d 1039 --log-spew-tail 65536)
 		set_tests_properties(${SAMP}-pmtu-stall PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)
