@@ -88,6 +88,7 @@ include(CheckIncludeFiles)
 include(CheckLibraryExists)
 include(CheckTypeSize)
 include(CheckCSourceCompiles)
+include(CMakePushCheckState)
 include(GNUInstallDirs)
 include(CTest)
 
