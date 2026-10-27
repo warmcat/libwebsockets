@@ -267,8 +267,8 @@ if (requirements)
 		# As a path with an MTU of 1400 again, but the relay, client
 		# and server, all in this process, aren't run for a moment, as
 		# on a busy machine: the PTOs fire before the acks held back
-		# come, which isn't a black hole, and each side must go on from
-		# where it was, losing no more than three probes too big
+		# come, which says nothing was lost, and each side must go on
+		# from where it was, losing no more than three probes too big
 		#
 		# For now it logs at info, with the whole of any log spew kept,
 		# so the QUIC PMTUD lines of a run that fails on a CI builder
@@ -285,11 +285,12 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
-		# The stall again, then once a side probes the size it had to
-		# confirm the black hole it went back to the base for, the
-		# relay holds everything long enough that it confirms one that
-		# isn't: the probes too big it lost before still count, so it
-		# must still lose no more than three of them
+		# The stall again, then the relay holds just the datagrams
+		# bigger than the base for a while, letting smaller ones by, so
+		# a side takes its big packets for lost, goes back to the base,
+		# and confirms a black hole that isn't one: the probes too big
+		# it lost before still count, so it must still lose no more
+		# than three of them
 		#
 		lws_get_free_port(PORT_QCS_PMTU_CONFIRM)
 		lws_get_free_port(PORT_QCS_PMTU_CONFIRM_RELAY)
@@ -332,6 +333,22 @@ if (requirements)
 				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_BH}
 				--relay ${PORT_QCS_BH_RELAY} --blackhole)
 		set_tests_properties(${SAMP}-blackhole PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
+		# Through the relay delaying everything both ways by 500ms,
+		# once the server's transfer is under way, far longer than the
+		# RTT either side measured: the PTOs firing until the acks come
+		# say nothing was lost, and each side must carry on at the new
+		# RTT, not send everything again for as long as it lasts
+		#
+		lws_get_free_port(PORT_QCS_LAG)
+		lws_get_free_port(PORT_QCS_LAG_RELAY)
+		add_test(NAME ${SAMP}-lag COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_LAG}
+				--relay ${PORT_QCS_LAG_RELAY} --lag)
+		set_tests_properties(${SAMP}-lag PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)
 

@@ -1190,7 +1190,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 		qn->pto_probe_needed = 2;
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 		LWS_RATELIMIT_DEFINE_STATIC(rl);
-		lwsl_ratelimit_info(&rl, 1000000, "QUIC PTO Timer Fired! Forcing POLLOUT for retransmission sweep\n");
+		lwsl_ratelimit_info(&rl, 1000000, "QUIC PTO Timer Fired! Sending a probe\n");
 #endif
 		int sent_ping = 0;
 		size_t total_bytes_lost = 0;
@@ -1284,6 +1284,25 @@ lws_quic_decode_packet_number(uint64_t largest_pn, uint64_t truncated_pn, int pn
 	return candidate_pn;
 }
 
+/*
+ * RFC 9002 6.1.2: how long before a packet sent ahead of one acked is taken
+ * for lost.  The larger of the smoothed and latest RTT, so a path whose RTT
+ * just grew isn't judged by the estimate from before, which lags it.
+ */
+static lws_usec_t
+lws_quic_loss_time_us(const struct lws_quic_netconn *qn)
+{
+	lws_usec_t rtt = qn->latest_rtt > qn->smoothed_rtt ?
+				qn->latest_rtt : qn->smoothed_rtt;
+
+	if (!rtt)
+		return 50000;
+
+	rtt = rtt * 9 / 8;
+
+	return rtt < LWS_QUIC_GRANULARITY_US ? LWS_QUIC_GRANULARITY_US : rtt;
+}
+
 void
 lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 {
@@ -1292,7 +1311,7 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 
         size_t total_bytes_lost = 0, bytes_off_path = 0;
         lws_usec_t now = lws_wsi_now(nwsi);
-        lws_usec_t loss_time = qn->smoothed_rtt ? (qn->smoothed_rtt * 9 / 8) : 50000;
+        lws_usec_t loss_time = lws_quic_loss_time_us(qn);
         lws_usec_t oldest_lost = 0, newest_lost = 0;
 	uint64_t last_lost_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 
@@ -1352,8 +1371,7 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 				if (lws_quic_frame_not_retransmitted(f)) {
 					/*
 					 * The lost bytes still count for cc,
-					 * but the frame itself is freed, the
-					 * same as the PTO sweep path.
+					 * but the frame itself is freed
 					 */
 					lws_free(f);
 				} else {
@@ -4172,6 +4190,17 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		/* Determine if we're allowed to send */
 		uint32_t mtu = qn->current_mtu ? qn->current_mtu : 1280;
 		/*
+		 * A PTO's probe is there to get an ack back, so it is no bigger
+		 * than the path surely carries.  Its packets of the current MTU
+		 * may be just what the path stopped carrying (a black hole, RFC
+		 * 9000 14.4): then, sized like them, the probe is lost too, no
+		 * ack comes, and nothing is ever found lost.  Acked, it lets
+		 * loss detection find them lost, which goes back to the base.
+		 */
+		if (pn_space == LWS_QUIC_LEVEL_APP && qn->pto_probe_needed &&
+		    mtu > LWS_QUIC_PMTU_BASE)
+			mtu = LWS_QUIC_PMTU_BASE;
+		/*
 		 * The anti-amplification allowances are datagram (UDP payload)
 		 * bytes, like the bytes received that earn them: they cap the
 		 * datagram, not the path MTU the IP and UDP headers come off.
@@ -5161,88 +5190,6 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 }
 
 /*
- * PTO sweep, at the start of a connection's tx pass: frames in flight longer
- * than the PTO that fired are lost, and go back to pending to be sent again
- */
-static void
-lws_quic_pto_sweep(struct lws *wsi)
-{
-	struct lws_quic_netconn *qn = wsi->quic.qn;
-	int level;
-
-	lws_usec_t now = lws_wsi_now(wsi);
-	size_t total_bytes_lost = 0;
-	uint64_t last_lost_pn = LWS_QUIC_PMTUD_PROBE_NONE;
-	for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
-		if (!qn->in_flight[level].count)
-			continue;
-
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[level].head) {
-			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-
-			lwsl_debug("PTO Sweep: checking packet %llu: now=%llu, sent=%llu, diff=%lld\n",
-				(unsigned long long)f->sent_in_pn, (unsigned long long)now, (unsigned long long)f->sent_time_us,
-				(long long)(now - f->sent_time_us));
-
-			/* Use the PTO delay that triggered this sweep, not the newly doubled one */
-			lws_usec_t sweep_pto_delay = lws_quic_pto_delay_us(qn,
-				qn->pto_count > 0 ? qn->pto_count - 1 : 0);
-
-			/*
-			 * Allow a 5ms epsilon for timer jitter.  The list is in
-			 * the order the frames were sent: once one has not been
-			 * in flight that long, none after it has
-			 */
-			if (now + 5000 < f->sent_time_us + sweep_pto_delay)
-				break;
-
-			// lwsl_notice("PTO Sweep: Packet %llu (type 0x%02x) lost! Retransmitting!\n", (unsigned long long)f->sent_in_pn, f->type);
-
-			if (lws_quic_pmtud_probe_lost(qn, f)) {
-				total_bytes_lost += f->wire_len;
-				lws_dll2_remove(&f->list);
-				lws_free(f);
-				continue;
-			}
-
-			if (lws_quic_frame_probes_another_path(qn, f)) {
-				/* the probe sends it again */
-				total_bytes_lost += f->wire_len;
-				lws_dll2_remove(&f->list);
-				lws_free(f);
-				continue;
-			}
-
-			lws_quic_pmtud_lost_packet(qn, f, &last_lost_pn);
-
-			/* Packet lost! */
-			lws_dll2_remove(&f->list);
-			total_bytes_lost += f->wire_len;
-			if (lws_quic_frame_not_retransmitted(f)) {
-				lws_free(f);
-			} else {
-				int rl = lws_quic_resend_level(qn, level);
-
-				if (rl != level)
-					lws_quic_dbg_1rtt_account(qn, f,
-						"sweep-requeue-early");
-				lws_dll2_add_head(&f->list, &qn->pending_tx[rl]);
-				f->wire_len = 0;
-			}
-		} lws_end_foreach_dll_safe(d, d1);
-	}
-	/*
-	 * RFC 9002 Section 6.2.4: A PTO timer expiry does not indicate packet
-	 * loss and MUST NOT cause the congestion window to be reduced (no on_loss).
-	 * However, bytes_in_flight must be decremented for frames moved back to
-	 * pending_tx, otherwise the CC state diverges from reality.  Use on_discard
-	 * which adjusts bytes_in_flight without touching cwnd or ssthresh.
-	 */
-	if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_discard)
-		qn->cc_ops->on_discard(wsi, total_bytes_lost);
-}
-
-/*
  * One connection's next packet this tx pass (README.sans-io-split.md, "A
  * content source's tx"): one per encryption level per pass, Initial >
  * Handshake > Application, into IO's buffer sized to the path MTU.  first
@@ -5267,9 +5214,6 @@ lws_quic_conn_tx(struct lws *nwsi, uint8_t *buf, size_t max,
 		qn->tx_held = 0;
 		qn->tx_full = 0;
 		qn->tx_failed = 0;
-		/* closing, only the CONNECTION_CLOSE goes: nothing is resent */
-		if (!qn->is_closing)
-			lws_quic_pto_sweep(nwsi);
 	}
 
 	if (qn->tx_failed || qn->tx_level >= LWS_QUIC_LEVEL_COUNT)

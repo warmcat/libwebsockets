@@ -312,9 +312,9 @@ enum lws_quic_frame_type {
  * was sent since going back, so nothing big could be acked.  So then a probe
  * of the size from before confirms it (RFC 8899 4.3): if it is acked, it was
  * an outage, and the connection goes back to that size.  Like a search probe,
- * one given up for lost may only be late, eg, a PTO fired while the peer was
- * still working through a backlog: its ack coming after all says the same,
- * and another is sent, until LWS_QUIC_PMTUD_MAX_PROBES of them are lost.
+ * one given up for lost may only be late, eg, queued behind a slow link while
+ * smaller packets sent after it were acked: its ack coming after all says the
+ * same, and another is sent, until LWS_QUIC_PMTUD_MAX_PROBES of them are lost.
  * Then the search starts again from the base (RFC 8899 5.2, BASE to
  * SEARCHING), and settles on the size the path carries now.  An ack of any
  * of those lost probes coming before then says it was no black hole.
@@ -324,9 +324,8 @@ enum lws_quic_frame_type {
  * that were lost before it started again still count against that size, so
  * the new search loses no more of them than LWS_QUIC_PMTUD_MAX_PROBES in all,
  * and settles under it at once if the old one had.  The confirming probes'
- * acks may only be late too, eg, the process wasn't run for a while, and then
- * the search starting again costs probes of sizes the path carries, but none
- * it can't.  Until LWS_QUIC_PMTUD_RAISE_US is up, which tries every size again.
+ * acks may only be late too, and then the search starting again costs probes
+ * of sizes the path carries, but none it can't.  Until LWS_QUIC_PMTUD_RAISE_US is up, which tries every size again.
  *
  * A search probe sent before going back is still the search's while the
  * black hole is unconfirmed: its loss counts against its size, and no other
@@ -610,8 +609,8 @@ struct lws_quic_netconn {
 	 * Frames that have been sent but are unacknowledged.  Each list is in
 	 * the order the frames were sent, so by packet number and by sent
 	 * time: frames only ever join at the tail, as their packet is built,
-	 * and anything sent again goes in a new packet.  ACK processing, loss
-	 * detection and the PTO sweep rely on it to stop walking early, see
+	 * and anything sent again goes in a new packet.  ACK processing and
+	 * loss detection rely on it to stop walking early, see
 	 * lws_quic_ack_range().  At most LWS_QUIC_IN_FLIGHT_MAX frames are in
 	 * flight over all the levels, see lws_quic_in_flight_full().
 	 */
@@ -1173,6 +1172,8 @@ int
 lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t len);
 
 #define LWS_QUIC_DEFAULT_PTO_US 500000 /* 500ms baseline PTO for early dev */
+/* RFC 9002 6.1.2 kGranularity, the least loss time threshold */
+#define LWS_QUIC_GRANULARITY_US	1000
 /* the wait before probing an address again doubles from this to 64x it */
 #define LWS_QUIC_PROBE_HOLDOFF_US	LWS_US_PER_SEC
 #define LWS_QUIC_PROBE_HOLDOFF_MAX_SHIFT 6

@@ -34,10 +34,12 @@
  * everything in both directions is held for a while, as a process that wasn't
  * scheduled for a moment would see, and each side must still lose no more
  * probes than it would without the stall; with --stall-confirm too, a second
- * hold makes a side confirm a black hole that isn't one, and the probes too
- * big it lost before must still count.  With --blackhole,
- * the path's MTU falls to the base once each side is sending bigger packets,
- * and each must find that out and go back to the base, or its transfer stalls.
+ * hold, of just the big datagrams, makes a side confirm a black hole that
+ * isn't one, and the probes too big it lost before must still count.  With
+ * --blackhole, the path's MTU falls to the base once each side is sending
+ * bigger packets, and each must find that out and go back to the base, or its
+ * transfer stalls.  With --lag, the path's delay jumps to far more than the
+ * RTT each side measured, and each must carry on at the new RTT.
  * --spread <ms> has
  * the client spread its writes over that long, rather than send as fast as it
  * can.  With --quiet conn, neither side sends anything after the handshake,
@@ -310,27 +312,26 @@ static const char * const test_key =
  * everything coming in both directions for RELAY_STALL_US, then sends it all
  * on in order, as a relay, client and server in one process see when it isn't
  * scheduled for a while on a busy machine.  The sender's PTO fires before the
- * acks held back reach it, so it takes the big packets it sent ahead of the
- * probe for lost, and suspects a black hole before it sees the probe was
- * lost too; then the acks say it wasn't a black hole.  Its search must go on
- * from where it was: the probe that was on its way counts, so it must not
- * lose more probes than RELAY_PMTU_MAX_PROBES.
+ * acks held back reach it, which says nothing was lost (RFC 9002 6.2), and
+ * the probes it sends for an ack are held too.  When the acks come, its
+ * search must go on from where it was: the probe that was on its way counts,
+ * so it must not lose more probes than RELAY_PMTU_MAX_PROBES.
  */
 #define RELAY_STALL_US		(600 * LWS_US_PER_MS)
 #define RELAY_STALL_BEHIND	3
 
 /*
- * With --stall-confirm too, once the stall is over and a direction went back
- * to the base for a black hole, which the relay sees as RELAY_STALL_BEHIND
- * datagrams in a row of just the size an IP MTU of 1280 carries, the next
- * bigger datagram in that direction is its probe of the size it had, to
- * confirm the black hole.  Then the relay holds everything in both directions
- * for RELAY_CONFIRM_US, so the sender gives up that probe and the ones after
- * it for lost, and confirms a black hole that isn't one, before their acks
- * come.  A black hole says the path's MTU fell, not that the size the search
- * was on gets through: the probes of it lost before still count, and the
- * search starting again from the base must lose no more of them than
- * RELAY_PMTU_MAX_PROBES in all.
+ * With --stall-confirm too, once the stall is over, from the next datagram
+ * bigger than RELAY_BH_BASE, the relay holds just the datagrams bigger than
+ * that, in both directions, for RELAY_CONFIRM_US, and lets smaller ones by, as
+ * a path queueing big packets behind a slow link would.  The sender sees its
+ * small packets acked and not the big ones sent before them, takes those for
+ * lost, and goes back to the base for a black hole; its probe of the size it
+ * had, confirming it, is held too, so it gives that up for lost, and confirms
+ * a black hole that isn't one, before their acks come.  A black hole says the
+ * path's MTU fell, not that the size the search was on gets through: the
+ * probes of it lost before still count, and the search starting again from
+ * the base must lose no more of them than RELAY_PMTU_MAX_PROBES in all.
  */
 #define RELAY_CONFIRM_US	(1500 * LWS_US_PER_MS)
 
@@ -364,6 +365,22 @@ static const char * const test_key =
  */
 #define RELAY_BH_AFTER		10
 #define RELAY_BH_BASE		(1280 - RELAY_PMTU_OVERHEAD)
+
+/*
+ * With --lag, once it has passed RELAY_LAG_AFTER datagrams from the server,
+ * the relay delays every datagram both ways by RELAY_LAG_US for the rest of
+ * the run, as a path whose route changed to a much longer one would.  The RTT
+ * each side measured before is far shorter, so its PTO fires, and goes on
+ * firing, before the acks of what it sent since can come.  That doesn't say
+ * what it sent was lost (RFC 9002 6.2): when the acks come, each side must
+ * take them for what it sent, and carry on at the new RTT, not send it all
+ * again each time its PTO fires, never seeing any of it acked in time.  So
+ * a side sending more than RELAY_LAG_MAX datagrams through the lag, three
+ * times what all of its data fills, fails the test, even if it got there.
+ */
+#define RELAY_LAG_AFTER		40
+#define RELAY_LAG_US		(500 * LWS_US_PER_MS)
+#define RELAY_LAG_MAX		(3 * TOTAL_DATA / RELAY_BH_BASE)
 
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
@@ -474,8 +491,6 @@ struct relay_dir {
 	unsigned int		outage_lost;	/* --pmtu-outage */
 	unsigned int		big_run;	/* --stall: passed on since the
 						 * last one lost too big */
-	unsigned int		base_run;	/* --stall-confirm: of just the
-						 * base size in a row */
 	unsigned int		confirm_held;	/* --stall-confirm */
 
 	/* --delay-spike, --stall: held back, then sent on in order */
@@ -485,6 +500,12 @@ struct relay_dir {
 	char			spike_on;
 	char			spike_due;
 	char			spike_done;
+
+	/* --lag: each datagram, behind the time it is due to go on */
+	lws_sorted_usec_list_t	sul_lag;
+	struct lws_buflist2_owner lag;
+	unsigned int		lagged;
+	char			lag_due;
 };
 
 static struct {
@@ -521,6 +542,7 @@ static struct {
 	char			stall_confirm;
 	char			confirm_done;
 	char			blackhole;
+	char			lag;
 } relay;
 
 static void
@@ -663,7 +685,8 @@ relay_hold_start(struct lws *wsi, struct relay_dir *d, lws_usec_t us)
 /*
  * --pmtu: datagrams go on as they come, unless they're too big.  With
  * --delay-spike, from the first big one, they are held back for a while.
- * With --stall, from the first too big one, everything is.
+ * With --stall, from the first too big one, everything is, and with
+ * --stall-confirm, after that, just the big ones are.
  */
 
 /* --pmtu: the biggest datagram the search can find on this path */
@@ -720,18 +743,13 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 	if (len > RELAY_BH_BASE)
 		d->big_run++;
 
-	/* counting what the stall holds too, which may be most of the run */
-	if (relay.stall_confirm && relay.stall_done && !relay.confirm_done) {
-		if (len == RELAY_BH_BASE)
-			d->base_run++;
-		else if (len > RELAY_BH_BASE && d->spike_done &&
-			 d->base_run >= RELAY_STALL_BEHIND) {
-			/* its probe of the size it had before the base */
-			relay.confirm_done = 1;
-			relay_hold_start(wsi, &relay.dir[0], RELAY_CONFIRM_US);
-			relay_hold_start(wsi, &relay.dir[1], RELAY_CONFIRM_US);
-		} else if (len > RELAY_BH_BASE)
-			d->base_run = 0;
+	/* the first big one after the stall starts holding just big ones */
+	if (relay.stall_confirm && !relay.confirm_done &&
+	    relay.dir[0].spike_done && relay.dir[1].spike_done &&
+	    len > RELAY_BH_BASE) {
+		relay.confirm_done = 1;
+		relay_hold_start(wsi, &relay.dir[0], RELAY_CONFIRM_US);
+		relay_hold_start(wsi, &relay.dir[1], RELAY_CONFIRM_US);
 	}
 
 	if (relay.pmtu_outage && !relay.pmtu_outage_until &&
@@ -743,7 +761,7 @@ relay_pmtu(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 	    len > RELAY_BH_BASE)
 		relay_hold_start(wsi, d, RELAY_SPIKE_US);
 
-	if (d->spike_on) {
+	if (d->spike_on && (!relay.confirm_done || len > RELAY_BH_BASE)) {
 		/* past the limit, it's lost, which QUIC recovers from */
 		if (lws_buflist2_append_segment(&d->spike, in, len) < 0)
 			d->dropped++;
@@ -784,6 +802,77 @@ relay_blackhole(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
 	d->sent++;
 }
 
+/* --lag: datagrams go on as they come, until each waits RELAY_LAG_US */
+
+static void
+relay_lag_cb(lws_sorted_usec_list_t *sul)
+{
+	struct relay_dir *d = lws_container_of(sul, struct relay_dir, sul_lag);
+
+	d->lag_due = 1;
+	if (relay.wsi)
+		lws_callback_on_writable(relay.wsi);
+}
+
+static void
+relay_lag(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
+{
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
+	uint8_t seg[sizeof(lws_usec_t) + RELAY_DGRAM_MAX];
+	lws_usec_t due;
+	int n;
+
+	if (fd == LWS_SOCK_INVALID)
+		return;
+
+	if (relay.dir[1].sent < RELAY_LAG_AFTER && !d->lagged) {
+		relay_send(fd, in, len, &d->dest);
+		d->sent++;
+		return;
+	}
+
+	/* the time it is due goes ahead of it */
+	due = lws_now_usecs() + RELAY_LAG_US;
+	memcpy(seg, &due, sizeof(due));
+	memcpy(seg + sizeof(due), in, len);
+
+	/* past the limit, it's lost, which QUIC recovers from */
+	d->lag.limit = RELAY_SPIKE_LIMIT;
+	n = lws_buflist2_append_segment(&d->lag, seg, sizeof(due) + len);
+	if (n < 0) {
+		d->dropped++;
+		return;
+	}
+	d->lagged++;
+
+	/* the first one waiting: the ones after it are due after it */
+	if (n == 1)
+		lws_sul_schedule(lws_get_context(wsi), 0, &d->sul_lag,
+				 relay_lag_cb, RELAY_LAG_US);
+}
+
+static void
+relay_lag_send(struct lws *wsi, lws_sockfd_type fd, struct relay_dir *d)
+{
+	lws_usec_t now = lws_now_usecs(), due;
+	uint8_t *b;
+	size_t l;
+
+	d->lag_due = 0;
+
+	while ((l = lws_buflist2_next_segment_len(&d->lag, &b)) > 0) {
+		memcpy(&due, b, sizeof(due));
+		if (due > now) {
+			lws_sul_schedule(lws_get_context(wsi), 0, &d->sul_lag,
+					 relay_lag_cb, due - now);
+			return;
+		}
+		relay_send(fd, b + sizeof(due), l - sizeof(due), &d->dest);
+		d->sent++;
+		lws_buflist2_use_segment(&d->lag, l);
+	}
+}
+
 static void
 relay_hold_cb(lws_sorted_usec_list_t *sul)
 {
@@ -810,6 +899,8 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_sul_cancel(&relay.dir[n].sul);
 			lws_sul_cancel(&relay.dir[n].sul_spike);
 			lws_buflist2_destroy_all_segments(&relay.dir[n].spike);
+			lws_sul_cancel(&relay.dir[n].sul_lag);
+			lws_buflist2_destroy_all_segments(&relay.dir[n].lag);
 		}
 		lws_sul_cancel(&relay.sul_early);
 		break;
@@ -839,6 +930,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (relay.blackhole) {
 			relay_blackhole(wsi, d, in, len);
+			break;
+		}
+
+		if (relay.lag) {
+			relay_lag(wsi, d, in, len);
 			break;
 		}
 
@@ -904,6 +1000,9 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 				d->spike_due = 0;
 				d->spike_done = 1;
 			}
+
+			if (d->lag_due)
+				relay_lag_send(wsi, fd, d);
 
 			if (!d->due)
 				continue;
@@ -1161,9 +1260,8 @@ pmtu_failed(void)
 				  "datagrams\n", relay.dir[0].confirm_held,
 				  relay.dir[1].confirm_held);
 		if (relay.stall_confirm && n && !relay.confirm_done) {
-			lwsl_err("pmtu: neither side probed the size it had "
-				 "after going back to the base, nothing was "
-				 "tested\n");
+			lwsl_err("pmtu: the hold of the big datagrams never "
+				 "started, nothing was tested\n");
 			e = 1;
 		}
 
@@ -1221,6 +1319,37 @@ blackhole_failed(void)
 	return e;
 }
 
+/* --lag: was each side's transfer still going when the lag came? */
+
+static int
+lag_failed(void)
+{
+	int n, e = 0;
+
+	if (!relay.lag)
+		return 0;
+
+	for (n = 0; n < 2; n++) {
+		lwsl_user("lag: the relay delayed %u of the %s's datagrams\n",
+			  relay.dir[n].lagged, n ? "server" : "client");
+		if (!relay.dir[n].lagged) {
+			lwsl_err("lag: the relay delayed none of the %s's "
+				 "datagrams, nothing was tested\n",
+				 n ? "server" : "client");
+			e = 1;
+		}
+		if (relay.dir[n].lagged > RELAY_LAG_MAX) {
+			lwsl_err("lag: the %s sent more than %d datagrams "
+				 "through the lag, it sent what it had sent "
+				 "again\n", n ? "server" : "client",
+				 (int)RELAY_LAG_MAX);
+			e = 1;
+		}
+	}
+
+	return e;
+}
+
 /*
  * --pmtu: the search goes on after the transfer, each probe's ack or loss
  * starting the next, and a slow machine, or the delay spike holding the first
@@ -1246,7 +1375,7 @@ teardown_cb(lws_sorted_usec_list_t *sul)
 
 	if (!result)
 		result = forwarder_failed() || pmtu_failed() ||
-			 blackhole_failed();
+			 blackhole_failed() || lag_failed();
 	lws_default_loop_exit(context);
 }
 
@@ -1510,6 +1639,7 @@ enum {
 	LWS_SW_STALL_CONFIRM,
 	LWS_SW_PMTU_OUTAGE,
 	LWS_SW_BLACKHOLE,
+	LWS_SW_LAG,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
@@ -1531,9 +1661,10 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_PMTU]	= { "--pmtu",	"The relay loses datagrams bigger than this, 1200 to 2048, and checks both sides found the biggest size they can send (needs --relay)" },
 	[LWS_SW_DELAY_SPIKE] = { "--delay-spike", "When each side starts probing, the relay holds what it sends for 500ms, so its first probes are acked after they were given up for lost, and both sides must still find the biggest size (needs --pmtu)" },
 	[LWS_SW_STALL]	= { "--stall",	"Once a probe is lost for being too big, the relay holds everything both ways for 600ms, as a busy machine not running this process would, and both sides must still lose no more probes than without it (needs --pmtu smaller than 1452)" },
-	[LWS_SW_STALL_CONFIRM] = { "--stall-confirm", "After the stall, once a side probes the size it had to confirm a black hole, the relay holds everything both ways for 1.5s, so it confirms one that isn't, and it must still lose no more probes too big than without it (needs --stall)" },
+	[LWS_SW_STALL_CONFIRM] = { "--stall-confirm", "After the stall, the relay holds just the datagrams bigger than an IP MTU of 1280 carries, both ways, for 1.5s, so a side confirms a black hole that isn't one, and it must still lose no more probes too big than without it (needs --stall)" },
 	[LWS_SW_PMTU_OUTAGE] = { "--pmtu-outage", "Partway through the server's transfer, the relay loses everything for 100ms, which both sides must not take for a black hole (needs --pmtu)" },
 	[LWS_SW_BLACKHOLE] = { "--blackhole", "Once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, and both sides must go back to 1280 (needs --relay)" },
+	[LWS_SW_LAG]	= { "--lag",	"Partway through the server's transfer, the relay starts delaying everything both ways by 500ms, far longer than the RTT each side measured, and both sides must carry on at the new RTT (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
@@ -1760,6 +1891,17 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_LAG].sw) &&
+	    (!relay_port || outage_ms || pmtu ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_FORWARDER].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw))) {
+		lwsl_err("--lag needs --relay, and not --stray, --outage, "
+			 "--early-1rtt, --forwarder, --pmtu or --blackhole\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -1861,6 +2003,8 @@ int main(int argc, const char **argv)
 					switches[LWS_SW_PMTU_OUTAGE].sw);
 		relay.blackhole = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_BLACKHOLE].sw);
+		relay.lag = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_LAG].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

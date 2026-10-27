@@ -32,8 +32,9 @@ arrived.
 |--delay-spike|With `--pmtu`, when each side starts probing, the relay holds what it sends for 500ms, see below|
 |--pmtu-outage|With `--pmtu`, partway through the server's transfer, the relay loses everything for 100ms, see below|
 |--stall|With `--pmtu`, once a probe is lost for being too big, the relay holds everything both ways for 600ms, see below|
-|--stall-confirm|With `--stall`, once a side probes the size it had to confirm a black hole, the relay holds everything both ways for 1.5s, see below|
+|--stall-confirm|With `--stall`, after the stall the relay holds just the datagrams bigger than an IP MTU of 1280 carries, both ways, for 1.5s, see below|
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
+|--lag|With `--relay`, partway through the server's transfer the relay starts delaying everything both ways by 500ms, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
@@ -227,11 +228,9 @@ stop being run for a moment, as they may on a busy machine: once the relay lost
 a probe for being too big, right behind three datagrams bigger than an IP MTU
 of 1280 carries in the same direction, it holds everything in both directions
 for 600ms, then sends it all on in order.  Each side's PTO fires before the
-acks held back reach it, so it takes the big packets it sent ahead of the probe
-for lost, and goes back to 1280 for a black hole before it sees the probe was
-lost too.  Its probe of the size it had may also be given up before its ack
-comes, while the other side works through what was held.  Neither is a black
-hole: each side must go back to the size it had when the acks come, and the
+acks held back reach it, but that says nothing was lost (RFC 9002 6.2), and
+its probes, sent for an ack back, are held too.  When the acks come, they say
+everything got through but the probe too big: it isn't a black hole, and the
 probe on its way still counts, so the same checks as `--pmtu` apply, three
 probes too big lost at most.  The stall must have held some of each side's
 datagrams, or nothing was tested.
@@ -240,17 +239,18 @@ datagrams, or nothing was tested.
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400 --stall
 ```
 
-With `--stall-confirm` too, after the stall, once a side went back to 1280,
-which the relay sees as three datagrams in a row of just the 1232 bytes that
-carries, the next bigger datagram it sends is its probe of the size it had,
-confirming the black hole.  Then the relay holds everything in both
-directions for 1.5s, so the side gives that probe and the ones after it up for
-lost before their acks come, and confirms a black hole that isn't one.  It
-searches again from 1280, but a black hole says the path's MTU fell, not that
-the size its search was on gets through: the probes of that size it lost
+With `--stall-confirm` too, after the stall, from the next datagram bigger
+than the 1232 bytes an IP MTU of 1280 carries, the relay holds just the
+datagrams bigger than that, in both directions, for 1.5s, and lets smaller
+ones by, as a path queueing big packets behind a slow link would.  A side
+sees its small packets acked and not the big ones sent before them, so it
+takes those for lost, and goes back to 1280 for a black hole.  The probe of
+the size it had, confirming the black hole, is held too, so the side gives it
+up for lost before its ack comes, and confirms a black hole that isn't one.
+It searches again from 1280, but a black hole says the path's MTU fell, not
+that the size its search was on gets through: the probes of that size it lost
 before still count, so the same checks as `--pmtu` apply, three probes too
-big lost at most.  A side must have probed the size it had after going back,
-or nothing was tested.
+big lost at most.  The hold must have started, or nothing was tested.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --pmtu 1400 --stall --stall-confirm
@@ -277,6 +277,27 @@ side must have sent big packets into the black hole, or nothing was tested.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --blackhole
+```
+
+## a path whose RTT jumps
+
+With `--lag`, once it has passed 40 of the server's datagrams, the relay
+delays every datagram in both directions by 500ms for the rest of the run, as
+a path whose route changed to a much longer one would.  The RTT each side
+measured before is a few ms, so its PTO fires, and goes on firing, before the
+acks of what it sent since can come.  That doesn't say anything was lost (RFC
+9002 6.2): each side sends a probe for an ack each time, and when the acks
+come, they are for what it sent, and its RTT estimate catches up with the
+path.  A side that took what it had in flight for lost each time its PTO fired
+would send it all again, then take the acks of the first copies for nothing,
+since it sent them again since, and its PTO never grows past the RTT: it
+sends everything over and over, and the transfer never completes.  The
+transfer must complete, the lag must have delayed some of each side's
+datagrams, or nothing was tested, and neither side may send more than three
+times what its data fills through the lag.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --lag
 ```
 
 ## a socket that refuses datagrams
