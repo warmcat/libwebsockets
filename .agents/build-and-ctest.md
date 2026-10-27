@@ -145,6 +145,11 @@
    kill them by PID, then reproduce alone.  Running two trees' ctest at
    once also doubles the memory load (see
    [working-in-the-tree.md](working-in-the-tree.md)).
+ - **`ki_*` failing on every run of a subset is the subset.**  A `-R`
+   regex that picks a fixture's `ki_*` cleanup but not its `st_*` setup
+   (eg `-R "quic|h3"` takes `ki_hc_srv`) fails it by construction, and
+   `--repeat until-fail` does the same to fixtures.  Check with the full
+   suite, or loop ctest runs instead of `--repeat`.
  - **Load-only failures are real bugs.**  Sai runs every test under
    `ctest -j8`.  To reproduce, run CPU burners (`while :; do :; done`
    loops, killed by PID afterwards) and loop the single test binary 30 to
