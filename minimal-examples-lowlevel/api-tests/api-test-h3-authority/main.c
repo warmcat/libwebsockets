@@ -95,6 +95,25 @@ static char body[256], host_hdr[64];
 static size_t body_len;
 static int port = 7690, completed, timed_out, served;
 
+/* keep what fits of what came, with room for the NUL */
+
+static void
+body_append(const void *in, size_t len)
+{
+	size_t room;
+
+	if (body_len >= sizeof(body) - 1)
+		return;
+
+	room = sizeof(body) - 1 - body_len;
+	if (len > room)
+		len = room;
+
+	memcpy(body + body_len, in, len);
+	body_len += len;
+	body[body_len] = '\0';
+}
+
 struct pss_srv {
 	char		resp[LWS_PRE + 64];
 	size_t		resp_len;
@@ -177,14 +196,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		/* keep what fits, with room for the NUL */
-		if (body_len >= sizeof(body) - 1)
-			return 0;
-		if (len > sizeof(body) - 1 - body_len)
-			len = sizeof(body) - 1 - body_len;
-		memcpy(body + body_len, in, len);
-		body_len += len;
-		body[body_len] = '\0';
+		body_append(in, len);
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
