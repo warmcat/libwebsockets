@@ -137,3 +137,9 @@ td {
 tbody tr:hover {
     background-color: #252525;
 }
+
+@media (prefers-reduced-motion: reduce) {
+    .metric-card {
+        transition: none;
+    }
+}

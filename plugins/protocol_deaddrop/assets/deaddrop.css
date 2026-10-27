@@ -11,6 +11,7 @@ a { color: #007bff; text-decoration: none; }
 @font-face {
   font-family: 'Bungee Tint';
   src: url('BungeeTint-Regular.ttf') format('truetype');
+  font-display: swap;
 }
 
 a:hover { text-decoration: underline; }

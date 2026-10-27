@@ -92,7 +92,7 @@ header p {
     padding: 0.75rem 1rem;
     border-radius: 0.5rem;
     font-size: 1rem;
-    transition: all 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
     font-family: monospace;
 }
 
@@ -114,7 +114,7 @@ header p {
     font-weight: 600;
     font-size: 1rem;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
 
 .btn.primary {
@@ -258,4 +258,14 @@ header p {
 
 .terminal-log::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .log-entry {
+        animation: none;
+    }
+
+    .btn {
+        transition: none;
+    }
 }

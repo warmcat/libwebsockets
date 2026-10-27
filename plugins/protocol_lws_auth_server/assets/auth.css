@@ -143,7 +143,7 @@ input {
     color: #fff;
     font-family: inherit;
     font-size: 1rem;
-    transition: all 0.3s ease;
+    transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
     outline: none;
 }
 
@@ -182,7 +182,7 @@ input:focus {
     cursor: pointer;
     position: relative;
     overflow: hidden;
-    transition: all 0.3s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -343,4 +343,16 @@ input:focus {
     color: var(--text-muted);
     font-size: 0.9rem;
     margin-top: 15px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .orb,
+    .notification {
+        animation: none;
+    }
+
+    .glass-panel,
+    .btn {
+        transition: none;
+    }
 }

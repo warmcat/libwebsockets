@@ -271,7 +271,7 @@ main {
   font-weight: 500;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s;
   border: none;
   font-family: inherit;
 }
@@ -786,7 +786,7 @@ body.is-disconnected .app-container {
   border: 1px solid rgba(255,255,255,0.1);
   opacity: 0;
   visibility: hidden;
-  transition: all 0.2s;
+  transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
   pointer-events: none;
 }
 
@@ -972,7 +972,7 @@ body.is-disconnected .app-container {
   cursor: pointer;
   border-bottom: 3px solid transparent;
   border-radius: 6px 6px 0 0;
-  transition: all 0.2s;
+  transition: color 0.2s, background-color 0.2s, border-bottom-color 0.2s;
 }
 
 .tab-link:hover {
@@ -1285,4 +1285,15 @@ body.is-disconnected .app-container {
 .dht-badge-err {
   color: #f87171;
   border: 1px solid #f87171;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-content.active {
+    animation: none;
+  }
+
+  .btn,
+  .tooltip {
+    transition: none;
+  }
 }

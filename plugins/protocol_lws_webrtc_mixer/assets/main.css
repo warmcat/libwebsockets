@@ -55,7 +55,7 @@ h1 {
     font-size: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #94a3b8;
-    transition: all 0.2s;
+    transition: background-color 0.2s, border-color 0.2s, color 0.2s;
 }
 
 .status.error {
@@ -81,7 +81,7 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
+    transition: background-color 0.2s, color 0.2s, opacity 0.2s;
     position: relative;
 }
 
@@ -222,7 +222,6 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 video {
@@ -319,7 +318,6 @@ video {
     border-left: 1px solid rgba(255, 255, 255, 0.1);
     display: flex;
     flex-direction: column;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .settings-panel.hidden {
@@ -435,7 +433,7 @@ input[type="range"]::-webkit-slider-thumb {
     border-radius: 50%;
     cursor: pointer;
     box-shadow: 0 0 10px rgba(96, 165, 250, 0.3);
-    transition: all 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s;
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
@@ -476,7 +474,7 @@ select:hover {
     font-size: 0.85rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s, color 0.2s;
     box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
 }
 
@@ -588,7 +586,7 @@ select:hover {
     border: 1px solid rgba(255, 255, 255, 0.05);
     font-size: 0.9rem;
     color: #e2e8f0;
-    transition: all 0.2s;
+    transition: background-color 0.2s, transform 0.2s;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -677,7 +675,7 @@ select:hover {
     width: 20px;
     background-color: #334155;
     border-radius: 4px;
-    transition: all 0.2s;
+    transition: background-color 0.2s;
 }
 
 .checkbox-container:hover input ~ .checkmark {
@@ -719,7 +717,7 @@ select:hover {
     outline: none;
     font-size: 0.85rem;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: border-color 0.2s, background-color 0.2s;
     appearance: none;
     -webkit-appearance: none;
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
@@ -1003,7 +1001,6 @@ select:hover {
     border-radius: 8px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
 }
 .debug-btn-secondary {
     background: rgba(255,255,255,0.1);
@@ -1013,7 +1010,6 @@ select:hover {
     border-radius: 8px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
 }
 .show-flex {
     display: flex !important;
@@ -1082,5 +1078,20 @@ select:hover {
         width: 100%;
         z-index: 100;
         border-left: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .badge,
+    .dropdown.show,
+    .modal-content,
+    .chat-msg {
+        animation: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb,
+    #startButton,
+    .participant-item {
+        transition: none;
     }
 }
