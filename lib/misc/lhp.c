@@ -4862,6 +4862,8 @@ lhp_decl_key_cmp(int prop, const char *name, size_t len,
 		return 0;
 	if (len != def->var->name_len)
 		return len < def->var->name_len ? -1 : 1;
+	if (!len)
+		return 0; /* nothing to compare, and name may be NULL */
 
 	return memcmp(name, &def->var[1], len);
 }
