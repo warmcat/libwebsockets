@@ -55,8 +55,9 @@ together, at the same moment, are usually one cause.
 
 `log` ends after 5s with nothing arriving, but while the event is still
 building, other tasks' updates keep the connection busy and it never ends.
-Run it under `timeout 100 python3 -u ...`: the whole log of a finished task
-arrives well inside that.
+Run it under `timeout 20 python3 -u ...`: the whole log of a finished task
+arrives in a few seconds, so a longer timeout only waits longer.  Get the
+`problems` and `excerpts` first, they return at once.
 
 The fleet logs are what the Sai daemons themselves logged on every host
 (sai-server, sai-builder, sai-virt, sai-power), tagged with the build they

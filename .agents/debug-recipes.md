@@ -114,6 +114,13 @@ worktree.
    end with later times.  Record them from a fault-injection build.
  - No `perf`?  `valgrind --tool=callgrind` works for profiling, and
    gdb-attach sampling for where a parse spends its time.
+ - A flake that needs load: run the test binary many times at once, eg
+   `seq 1 400 | xargs -P 64 -I{} ...`, giving each copy its own `-p` from
+   a range below `/proc/sys/net/ipv4/ip_local_port_range`, or some copies
+   fail with EADDRINUSE on ports other sockets got from the OS.
+ - Debug lines added for tracing that repeat one format are dropped by the
+   log dupe and spew limiters even with `--log-spew-tail`; a temporary
+   `fprintf(stderr, ...)` with a gettimeofday() stamp keeps every one.
 
 ## Hand-testing pieces
 

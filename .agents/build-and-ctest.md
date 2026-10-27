@@ -190,9 +190,13 @@
    private functions (eg `lws_ss_policy_set()`).  For readable UBSan
    reports, compile just the suspect .c files without
    `-fsanitize-undefined-trap-on-error` and link them ahead of the archive.
- - **Raw UDP test peers bound with `LWS_CAUDP_BIND` and port 0 can share a
-   port** (SO_REUSEADDR, G-302): use `LWS_CAUDP_BIND | LWS_CAUDP_RANDOM_PORT`
-   (G-626).
+ - **On Linux, a UDP socket with SO_REUSEADDR that binds port 0 can be
+   given a port another SO_REUSEADDR socket holds**, and the two take each
+   other's datagrams, in or across processes.  lws_create_adopt_udp() now
+   sets it only on a nonzero port the caller names, so port 0 test peers
+   need no `LWS_CAUDP_RANDOM_PORT` for this.  QUIC listeners still set it on
+   their fixed port.  Suspect it when a test under parallel load gets
+   packets from a port it never talked to.
  - **The dnssec-monitor plugin needs `-DLWS_WITH_SPAWN=1
    -DLWS_WITH_SYS_WHOIS=1`**, or it silently isn't built.
  - **`LWS_WITH_SS_RIDESHARE` is never defined by CMake**, so the SS h1
