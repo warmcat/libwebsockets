@@ -409,7 +409,11 @@ qir_save_negotiated(const char *proto)
 	char path[512];
 	int fd;
 
-	if (mkdir(downloads_root, 0755) < 0 && errno != EEXIST) {
+	/*
+	 * like the downloads, it's read by the interop runner from outside
+	 * the container, as another user
+	 */
+	if (mkdir(downloads_root, 0755) < 0 && errno != EEXIST) { // NOSONAR
 		lwsl_err("Failed to create %s: %d\n", downloads_root, errno);
 		return;
 	}
