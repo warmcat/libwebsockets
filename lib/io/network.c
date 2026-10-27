@@ -327,7 +327,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 	struct sockaddr_in sin4 = {0};
 	void *p;
 
-	if (!lws_socket_is_valid(fd))
+	if (!wsi || !lws_socket_is_valid(fd))
 		return 1;
 
 	if (rip)
