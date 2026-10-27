@@ -707,6 +707,16 @@ bail:
 #if defined(LWS_WITH_UDP)
 
 /*
+ * SO_REUSEADDR is only for a port the caller binds by number, eg, a
+ * well-known one other sockets may share
+ */
+static int
+lws_udp_port_shareable(const struct lws *wsi)
+{
+	return wsi->io->do_bind && wsi->c_port && !wsi->io->random_port;
+}
+
+/*
  * This is the ASYNC_DNS callback target for udp client, it's analogous to
  * connect3()
  */
@@ -957,8 +967,14 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			s->dest.sa6.sin6_port = htons(wsi->c_port);
 #endif
 
-		/* a port of our own choosing is ours alone */
-		if (!wsi->io->random_port &&
+		/*
+		 * Only a port the caller names may be shared.  One we or the
+		 * OS choose is ours alone: on Linux, a socket with
+		 * SO_REUSEADDR that leaves the OS to choose its port can be
+		 * given one another SO_REUSEADDR socket already has, and the
+		 * two then take each other's datagrams.
+		 */
+		if (lws_udp_port_shareable(wsi) &&
 		    setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
 			       (const char *)&bc, sizeof(bc)) < 0)
 			lwsl_err("%s: failed to set reuse\n", __func__);
@@ -1147,8 +1163,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		dest.sa6.sin6_port = htons(wsi->c_port);
 #endif
 
-	/* a port of our own choosing is ours alone */
-	if (!wsi->io->random_port &&
+	/* only a port the caller names may be shared, see above */
+	if (lws_udp_port_shareable(wsi) &&
 	    setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
 		       (const char *)&bc, sizeof(bc)) < 0)
 		lwsl_err("%s: failed to set reuse\n", __func__);
