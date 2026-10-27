@@ -96,6 +96,14 @@ lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 
 		for (char *ptr = buf; ptr < buf + n; ptr += sizeof(struct inotify_event) + event->len) {
 			event = (const struct inotify_event *)ptr;
+			/*
+			 * More changed than the queue could hold, so they are
+			 * lost: say something changed
+			 */
+			if (event->mask & IN_Q_OVERFLOW) {
+				dn->cb("", 0, dn->user);
+				continue;
+			}
 			/* We only notify if there's actually a filename provided. */
 			if (event->len) {
 				int is_file = !(event->mask & IN_ISDIR);
@@ -378,6 +386,7 @@ struct lws_dir_notify_thread_ctx {
 	HANDLE hDir;
 	HANDLE hEvent;
 	HANDLE hQuitEvent;
+	HANDLE hArmedEvent;
 	HANDLE hThread;
 	volatile int quit;
 	CRITICAL_SECTION cs;
@@ -387,6 +396,44 @@ struct lws_dir_notify_thread_ctx {
 };
 
 static lws_dll2_owner_t windows_dn_owner;
+
+/* how long lws_dir_notify_create() waits for the thread to start watching */
+#define LWS_DIR_NOTIFY_ARM_TIMEOUT_MS	5000
+
+/*
+ * Queue an event for the service thread to deliver.  An empty name means
+ * something in the directory changed, but we can't say what.
+ */
+
+static int
+lws_dir_notify_windows_queue(struct lws_dir_notify_thread_ctx *tctx,
+			     const WCHAR *name, DWORD name_bytes)
+{
+	struct dir_event *ev;
+	int n = 0;
+
+	/* zeroed, so its list is detached */
+	ev = lws_zalloc(sizeof(*ev), "dir_event");
+	if (!ev)
+		return 0;
+
+	if (name_bytes) {
+		n = WideCharToMultiByte(CP_UTF8, 0, name, (int)(name_bytes / 2),
+					ev->name, (int)sizeof(ev->name) - 1,
+					NULL, NULL);
+		if (n <= 0)
+			n = 0; /* we can't say which */
+		else
+			ev->is_file = 1;
+	}
+	ev->name[n] = '\0';
+
+	EnterCriticalSection(&tctx->cs);
+	lws_dll2_add_tail(&ev->list, &tctx->events);
+	LeaveCriticalSection(&tctx->cs);
+
+	return 1;
+}
 
 static DWORD WINAPI
 lws_dir_notify_windows_thread(LPVOID lpParam)
@@ -409,6 +456,13 @@ lws_dir_notify_windows_thread(LPVOID lpParam)
 			break;
 		}
 
+		/*
+		 * Windows only records changes once the first read is issued:
+		 * lws_dir_notify_create() waits for this before returning, so
+		 * changes made after it returned are not missed
+		 */
+		SetEvent(tctx->hArmedEvent);
+
 		DWORD wait_status = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
 
 		if (wait_status == WAIT_OBJECT_0 + 1) {
@@ -424,31 +478,26 @@ lws_dir_notify_windows_thread(LPVOID lpParam)
 			FILE_NOTIFY_INFORMATION *fni;
 			int trigger = 0;
 
-			if (bytes_used == 0)
+			if (!bytes_used) {
+				/*
+				 * More changed than the buffer could hold,
+				 * so they are lost: say something changed
+				 */
+				if (lws_dir_notify_windows_queue(tctx, NULL, 0))
+					lws_cancel_service(tctx->dn->ctx);
 				continue;
+			}
 
 			fni = (FILE_NOTIFY_INFORMATION *)tctx->buffer;
 
 			do {
-				struct dir_event *ev;
-				if (fni->Action == FILE_ACTION_MODIFIED ||
-				    fni->Action == FILE_ACTION_ADDED ||
-				    fni->Action == FILE_ACTION_REMOVED ||
-				    fni->Action == FILE_ACTION_RENAMED_NEW_NAME) {
-					/* zeroed, so its list is detached */
-					ev = lws_zalloc(sizeof(*ev), "dir_event");
-					if (ev) {
-						int n = WideCharToMultiByte(CP_UTF8, 0, fni->FileName,
-							fni->FileNameLength / 2, ev->name, sizeof(ev->name) - 1, NULL, NULL);
-						ev->name[n] = '\0';
-						ev->is_file = 1;
-
-						EnterCriticalSection(&tctx->cs);
-						lws_dll2_add_tail(&ev->list, &tctx->events);
-						LeaveCriticalSection(&tctx->cs);
-						trigger = 1;
-					}
-				}
+				if ((fni->Action == FILE_ACTION_MODIFIED ||
+				     fni->Action == FILE_ACTION_ADDED ||
+				     fni->Action == FILE_ACTION_REMOVED ||
+				     fni->Action == FILE_ACTION_RENAMED_NEW_NAME) &&
+				    lws_dir_notify_windows_queue(tctx, fni->FileName,
+						fni->FileNameLength))
+					trigger = 1;
 
 				if (fni->NextEntryOffset == 0)
 					break;
@@ -501,6 +550,7 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 	struct lws_dir_notify *dn;
 	struct lws_dir_notify_thread_ctx *tctx;
 	WCHAR wpath[MAX_PATH];
+	HANDLE handles[2];
 
 	dn = lws_malloc(sizeof(*dn), __func__);
 	if (!dn)
@@ -530,41 +580,67 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 		FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
 		NULL);
 
-	if (tctx->hDir == INVALID_HANDLE_VALUE) {
-		DeleteCriticalSection(&tctx->cs);
-		lws_free(tctx);
-		lws_free(dn);
-		return NULL;
-	}
+	if (tctx->hDir == INVALID_HANDLE_VALUE)
+		goto bail;
 
 	tctx->hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 	tctx->hQuitEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	tctx->hArmedEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-	if (!tctx->hEvent || !tctx->hQuitEvent) {
-		if (tctx->hEvent) CloseHandle(tctx->hEvent);
-		if (tctx->hQuitEvent) CloseHandle(tctx->hQuitEvent);
-		CloseHandle(tctx->hDir);
-		DeleteCriticalSection(&tctx->cs);
-		lws_free(tctx);
-		lws_free(dn);
-		return NULL;
-	}
+	if (!tctx->hEvent || !tctx->hQuitEvent || !tctx->hArmedEvent)
+		goto bail;
 
 	tctx->dn = dn;
 	tctx->hThread = CreateThread(NULL, 0, lws_dir_notify_windows_thread, tctx, 0, NULL);
-	if (!tctx->hThread) {
-		CloseHandle(tctx->hEvent);
-		CloseHandle(tctx->hQuitEvent);
-		CloseHandle(tctx->hDir);
-		DeleteCriticalSection(&tctx->cs);
-		lws_free(tctx);
-		lws_free(dn);
-		return NULL;
+	if (!tctx->hThread)
+		goto bail;
+
+	/*
+	 * Return once the thread is watching, so a change made straight
+	 * after we return is seen.  If the thread exits instead, it could not
+	 * watch the directory.
+	 */
+	handles[0] = tctx->hArmedEvent;
+	handles[1] = tctx->hThread;
+	if (WaitForMultipleObjects(2, handles, FALSE,
+				   LWS_DIR_NOTIFY_ARM_TIMEOUT_MS) != WAIT_OBJECT_0) {
+		lwsl_cx_err(ctx, "unable to watch %s", path);
+		tctx->quit = 1;
+		SetEvent(tctx->hQuitEvent);
+		WaitForSingleObject(tctx->hThread, INFINITE);
+		goto bail;
 	}
 
 	lws_dll2_add_tail(&dn->list, &windows_dn_owner);
 
 	return dn;
+
+bail:
+	if (tctx->hThread)
+		CloseHandle(tctx->hThread);
+	if (tctx->hArmedEvent)
+		CloseHandle(tctx->hArmedEvent);
+	if (tctx->hQuitEvent)
+		CloseHandle(tctx->hQuitEvent);
+	if (tctx->hEvent)
+		CloseHandle(tctx->hEvent);
+	if (tctx->hDir != INVALID_HANDLE_VALUE)
+		CloseHandle(tctx->hDir);
+
+	/* the thread may have queued changes before it stopped */
+	while (lws_dll2_count(&tctx->events)) {
+		struct dir_event *ev = lws_container_of(
+				lws_dll2_get_head(&tctx->events),
+				struct dir_event, list);
+		lws_dll2_remove(&ev->list);
+		lws_free(ev);
+	}
+
+	DeleteCriticalSection(&tctx->cs);
+	lws_free(tctx);
+	lws_free(dn);
+
+	return NULL;
 }
 
 void
@@ -584,6 +660,7 @@ lws_dir_notify_destroy(struct lws_dir_notify **pdn)
 		CloseHandle(tctx->hThread);
 		CloseHandle(tctx->hEvent);
 		CloseHandle(tctx->hQuitEvent);
+		CloseHandle(tctx->hArmedEvent);
 		CloseHandle(tctx->hDir);
 
 		while (lws_dll2_count(&tctx->events)) {

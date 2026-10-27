@@ -32,7 +32,8 @@ struct lws_dir_notify;
  *
  * \param path:   The name of the entry in the monitored directory that was
  *		  modified, not its path.  Where the platform cannot say which
- *		  entry it was (kqueue on macOS / BSD), it is "", meaning
+ *		  entry it was (kqueue on macOS / BSD, or more changed at
+ *		  once than the platform could queue), it is "", meaning
  *		  something in the directory changed.  The monitor is not
  *		  recursive: changes inside subdirectories are not reported.
  * \param is_file: Non-zero if the modified entry was a file, zero if a directory
@@ -50,7 +51,8 @@ typedef void (*lws_dir_notify_cb_t)(const char *path, int is_file, void *user);
  * \param user:  Opaque object passed back in the callback
  *
  * Returns an allocated and initialized `struct lws_dir_notify` bound to the
- * context event loop, or NULL on failure.
+ * context event loop, or NULL on failure.  It is watching by the time it
+ * returns: a change made in the directory after that is reported.
  *
  * On Linux, this will use an inotify FD and adopt it into the event loop.
  * On macOS/BSD, this will use kqueue.
