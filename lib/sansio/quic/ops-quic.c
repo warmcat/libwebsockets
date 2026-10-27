@@ -3932,7 +3932,7 @@ lws_quic_rx_early_pkts(struct lws *wsi, struct lws_quic_netconn *qn)
 	return r;
 }
 
-/* a quic socket is read one datagram at a time, to rx_dgram */
+/* a quic socket's datagrams are read one at a time, to rx_dgram */
 static int
 rops_rx_policy_quic(struct lws *wsi, int *flags, size_t *max)
 {

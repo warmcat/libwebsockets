@@ -859,7 +859,9 @@ lws_io_flag_pending_rx(struct lws *wsi)
  * The datagram spelling of the pump: receive one datagram for wsi into the
  * pt serv_buf and hand it, with the peer it came from and the ECN bits it
  * carried, to the role's rx_dgram op.  A datagram is taken whole, so there
- * is nothing to park.
+ * is nothing to park.  *nothing is set when there was none to take.  With
+ * pollfd NULL it reads without the poll saying there is one, to empty the
+ * socket.
  *
  * Which family the peer's address is reported in is the platform's choice:
  * macOS hands a v4 peer up from an AF_INET6 socket as a plain sockaddr_in,
@@ -964,13 +966,17 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (n <= 0) {
 		int en = LWS_ERRNO;
 
+		*nothing = 1;
+		/* none left (a transport says so with 0) */
+		if (!n || en == LWS_EAGAIN || en == LWS_EWOULDBLOCK)
+			return LWS_HPI_RET_HANDLED;
+
 		lwsl_wsi_info(wsi, "dgram recv returned %d (errno %d)", n, en);
 #if defined(LWS_WITH_CLIENT)
 		/* the recv can be what reports an ICMP error */
 		if (n < 0)
 			lws_io_dgram_refused(wsi, en);
 #endif
-		*nothing = 1;
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -1218,17 +1224,28 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 
 #if defined(LWS_WITH_UDP)
 	if (in && pol == LWS_RXPOL_PUMP_DGRAM) {
-		int nothing;
+		struct lws_pollfd *pfd = pollfd;
+		int nothing, budget = LWS_RX_DGRAM_BUDGET;
 
-		switch (lws_rx_pump_dgram(pt, wsi, pollfd, &nothing)) {
-		case LWS_HPI_RET_WSI_ALREADY_DIED:
-		case LWS_HPI_RET_CLOSING:
-			return 1;
-		case LWS_HPI_RET_PLEASE_CLOSE_ME:
-			return -1;
-		default:
-			break;
-		}
+		/*
+		 * Take what is waiting on the socket, not one datagram a pass:
+		 * the timers run before each poll, and one datagram a pass
+		 * lets them fire between the datagrams of a backlog, eg, a
+		 * quic loss timer acting before the acks behind it are read
+		 */
+		do {
+			switch (lws_rx_pump_dgram(pt, wsi, pfd, &nothing)) {
+			case LWS_HPI_RET_WSI_ALREADY_DIED:
+			case LWS_HPI_RET_CLOSING:
+				return 1;
+			case LWS_HPI_RET_PLEASE_CLOSE_ME:
+				return -1;
+			default:
+				break;
+			}
+			/* the poll said one is there, after that, read until none */
+			pfd = NULL;
+		} while (!nothing && --budget);
 		pollfd->revents &= (short)~LWS_POLLIN;
 	}
 #endif

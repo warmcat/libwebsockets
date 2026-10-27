@@ -732,7 +732,7 @@ typedef int (*lws_rops_tx_sent_t)(struct lws *wsi, int n);
 #define LWS_RXPOL_HOLD		3	/* do not read now */
 #define LWS_RXPOL_CLOSE		4	/* the housekeeping found the connection must close */
 #define LWS_RXPOL_DIED		5	/* the housekeeping closed and freed the wsi */
-#define LWS_RXPOL_PUMP_DGRAM	6	/* read one datagram, to rx_dgram */
+#define LWS_RXPOL_PUMP_DGRAM	6	/* read the datagrams waiting, each to rx_dgram */
 /*
  * The policy also advises on the pass's POLLOUT, in *flags: by default IO
  * serves it through lws_handle_POLLOUT_event() in the states that take a

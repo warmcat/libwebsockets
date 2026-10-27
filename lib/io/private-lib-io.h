@@ -97,6 +97,9 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	    int *consumed);
 
 #if (defined(LWS_WITH_UDP))
+/* most datagrams read from one socket in a pass, so others get their turn */
+#define LWS_RX_DGRAM_BUDGET	32
+
 lws_handling_result_t
 lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 		  struct lws_pollfd *pollfd, int *nothing);
