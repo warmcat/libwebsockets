@@ -109,6 +109,7 @@ ifb_check_bound(struct lws_vhost *vh, int fd)
 	socklen_t len = sizeof(sin);
 	char ads[32];
 
+	memset(&sin, 0, sizeof(sin));
 	if (getsockname(fd, (struct sockaddr *)&sin, &len) ||
 	    sin.sin_family != AF_INET ||
 	    ntohs(sin.sin_port) != lws_get_vhost_listen_port(vh)) {
