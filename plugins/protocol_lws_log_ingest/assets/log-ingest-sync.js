@@ -78,9 +78,9 @@ class LwsLogSync {
 
 		if (typeof s !== "string" ||
 		    !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(s))
-			return NaN;
+			return Number.NaN;
 		ms = Date.parse(s.substring(0, 23) + "Z");
-		us = parseInt(s.substring(23, 26), 10);
+		us = Number.parseInt(s.substring(23, 26), 10);
 
 		return ms * 1000 + us;
 	}
@@ -234,7 +234,7 @@ class LwsLogSync {
 		gen = this.gen;
 		this.session = id;
 
-		if (typeof at === "number" && isFinite(at))
+		if (typeof at === "number" && Number.isFinite(at))
 			q += "&at=" + Math.max(0, Math.round(at));
 
 		this.hint("Finding out about the session...");
@@ -833,7 +833,7 @@ class LwsLogSync {
 		});
 
 		p.text.replaceChildren(frag);
-		p.line_h = parseFloat(getComputedStyle(p.text).lineHeight) || 14;
+		p.line_h = Number.parseFloat(getComputedStyle(p.text).lineHeight) || 14;
 	}
 
 	/* ---- the time bar: the session's window, top to bottom ---- */

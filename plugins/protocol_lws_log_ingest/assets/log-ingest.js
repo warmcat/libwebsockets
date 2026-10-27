@@ -134,7 +134,7 @@
 		if (!valid_id(r.session))
 			r.session = null;
 		if (at && /^\d{1,17}$/.test(at))
-			r.at = parseInt(at, 10);
+			r.at = Number.parseInt(at, 10);
 
 		return r;
 	}
@@ -307,7 +307,7 @@
 			return;
 		}
 		b.from = "-" + from;
-		b.duration = parseInt(dur, 10);
+		b.duration = Number.parseInt(dur, 10);
 		if ($("li_start_lvl").value)
 			b.lvl = $("li_start_lvl").value;
 		if ($("li_start_src").value.trim())
@@ -546,7 +546,7 @@
 					LwsLogSync.utc_us(l.t);
 
 			/* don't take a text selection for a click */
-			if (!isNaN(t) && !String(window.getSelection()))
+			if (!Number.isNaN(t) && !String(window.getSelection()))
 				sync_at(t);
 		});
 

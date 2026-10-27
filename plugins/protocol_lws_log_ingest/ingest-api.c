@@ -662,7 +662,8 @@ li_sources(struct vhd *vhd, struct pss *pss, struct lws *wsi, li_out_t *o)
 		out_printf(o, "}");
 		n++;
 	}
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->shippers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->shippers)) {
 		struct pss *sp = lws_container_of(d, struct pss, list);
 
 		out_printf(o, "%s{\"id\":%lld,\"kind\":\"%s\",\"host\":\"%s\","
@@ -910,7 +911,8 @@ li_session_stop(struct vhd *vhd, struct pss *pss, struct lws *wsi,
 		return li_error(pss, wsi, o, HTTP_STATUS_NOT_FOUND,
 				"no such open session");
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->sessions)) {
 		li_session_t *s = lws_container_of(d, li_session_t, list);
 
 		if (!strcmp(s->id, id)) {
@@ -1343,10 +1345,12 @@ li_row_cmp_before(const void *a, const void *b)
 	return ra->id < rb->id ? 1 : (ra->id > rb->id ? -1 : 0);
 }
 
+/* the reverse order: the oldest first */
+
 static int
-li_row_cmp_after(const void *a, const void *b)
+li_row_cmp_after(const void *older, const void *newer)
 {
-	return li_row_cmp_before(b, a);
+	return li_row_cmp_before(newer, older);
 }
 
 static const char *

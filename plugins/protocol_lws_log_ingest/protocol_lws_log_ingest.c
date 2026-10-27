@@ -110,7 +110,8 @@ li_window_for(struct vhd *vhd, const char *kind, const char *host,
 		lws_strncpy(w->session, "always", sizeof(w->session));
 	}
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->sessions)) {
 		li_session_t *s = lws_container_of(d, li_session_t, list);
 
 		if (!li_src_matches(s->src, kind, host))
@@ -156,7 +157,7 @@ li_windows_update(struct vhd *vhd)
 	li_window_t w;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   vhd->sessions.head) {
+				   lws_dll2_get_head(&vhd->sessions)) {
 		li_session_t *s = lws_container_of(d, li_session_t, list);
 
 		if (s->until_us <= now) {
@@ -169,7 +170,8 @@ li_windows_update(struct vhd *vhd)
 			next = s->until_us;
 	} lws_end_foreach_dll_safe(d, d1);
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->shippers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->shippers)) {
 		struct pss *pss = lws_container_of(d, struct pss, list);
 
 		li_window_for(vhd, pss->src->kind, pss->src->host, now, &w);
@@ -696,7 +698,7 @@ li_destroy(struct vhd *vhd)
 	vhd->own = NULL;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   vhd->sessions.head) {
+				   lws_dll2_get_head(&vhd->sessions)) {
 		li_session_t *s = lws_container_of(d, li_session_t, list);
 
 		lws_dll2_remove(&s->list);
