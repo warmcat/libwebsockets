@@ -140,8 +140,10 @@ find_loopback(void)
 		if (i->ifa_addr && i->ifa_name &&
 		    i->ifa_addr->sa_family == AF_INET6 &&
 		    !strcmp(i->ifa_name, lo_iface) &&
-		    !memcmp(&((const struct sockaddr_in6 *)i->ifa_addr)->sin6_addr,
-			    &in6addr_loopback, sizeof(in6addr_loopback)))
+		    !memcmp(((const struct sockaddr_in6 *)
+					i->ifa_addr)->sin6_addr.s6_addr,
+			    in6addr_loopback.s6_addr,
+			    sizeof(in6addr_loopback.s6_addr)))
 			want_v6 = 1;
 #endif
 

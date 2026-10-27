@@ -351,7 +351,8 @@ extip_router_collect(struct vhd_extip_router *vhd, char *v4, size_t v4len,
 			/* several addresses usually share one prefix */
 			for (n = 0; n < c6; n++)
 				if (plens[n] == plen &&
-				    !memcmp(&seen[n], &pfx, sizeof(pfx)))
+				    !memcmp(seen[n].s6_addr, pfx.s6_addr,
+					    sizeof(pfx.s6_addr)))
 					break;
 			if (n != c6)
 				continue;
