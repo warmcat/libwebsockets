@@ -54,8 +54,12 @@ static LPTOP_LEVEL_EXCEPTION_FILTER lws_crash_prev_filter;
 static void
 lws_crash_print(const char *what)
 {
-	char symbuf[sizeof(SYMBOL_INFO) + LWS_CRASH_SYM_LEN + 1];
-	SYMBOL_INFO *sym = (SYMBOL_INFO *)symbuf;
+	/* SYMBOL_INFO ends with the start of the name, room for it follows */
+	struct {
+		SYMBOL_INFO	si;
+		char		name[LWS_CRASH_SYM_LEN + 1];
+	} s;
+	SYMBOL_INFO *sym = &s.si;
 	HANDLE proc = GetCurrentProcess();
 	void *frames[LWS_CRASH_BT_DEPTH];
 	IMAGEHLP_LINE64 line;
@@ -74,7 +78,7 @@ lws_crash_print(const char *what)
 	for (i = 0; i < n; i++) {
 		a = (DWORD64)(uintptr_t)frames[i];
 
-		memset(symbuf, 0, sizeof(symbuf));
+		memset(&s, 0, sizeof(s));
 		sym->SizeOfStruct	= (ULONG)sizeof(SYMBOL_INFO);
 		sym->MaxNameLen		= LWS_CRASH_SYM_LEN;
 		disp64			= 0;
