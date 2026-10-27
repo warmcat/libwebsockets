@@ -303,6 +303,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		/* keep what fits, with room for the NUL */
+		if (body_len >= sizeof(body) - 1)
+			return 0;
 		if (len > sizeof(body) - 1 - body_len)
 			len = sizeof(body) - 1 - body_len;
 		memcpy(body + body_len, in, len);
@@ -361,11 +364,14 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
-		if (len > sizeof(body) - 1 - body_len)
-			len = sizeof(body) - 1 - body_len;
-		memcpy(body + body_len, in, len);
-		body_len += len;
-		body[body_len] = '\0';
+		/* keep what fits, with room for the NUL */
+		if (body_len < sizeof(body) - 1) {
+			if (len > sizeof(body) - 1 - body_len)
+				len = sizeof(body) - 1 - body_len;
+			memcpy(body + body_len, in, len);
+			body_len += len;
+			body[body_len] = '\0';
+		}
 
 		if (tc->kind == VLS_K_PLAIN) {
 			/* header names' case is not significant: lowercase */
