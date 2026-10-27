@@ -39,6 +39,7 @@
 #include <libwebsockets.h>
 
 #include <string.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
@@ -189,14 +190,11 @@ hwm_cases(time_t now)
 	lws_snprintf(path, sizeof(path), "%s/ab/cd/%s.hwm", ORT_STORE,
 		     ORT_HASH);
 
-	/* what an interrupted earlier run left */
-	unlink(path);
-	rmdir(ORT_STORE "/ab/cd");
-	rmdir(ORT_STORE "/ab");
-	rmdir(ORT_STORE);
+	/* empty out what an interrupted earlier run left */
+	lws_dir(ORT_STORE, NULL, lws_dir_rm_rf_cb);
 
-	if (mkdir(ORT_STORE, 0700) || mkdir(ORT_STORE "/ab", 0700) ||
-	    mkdir(ORT_STORE "/ab/cd", 0700)) {
+	if ((mkdir(ORT_STORE, 0700) && errno != EEXIST) ||
+	    mkdir(ORT_STORE "/ab", 0700) || mkdir(ORT_STORE "/ab/cd", 0700)) {
 		ort_expect(0, "make the store");
 		return;
 	}
