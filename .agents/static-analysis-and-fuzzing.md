@@ -31,6 +31,9 @@ a reason, or a documented rule ignore.  Never a silent accept.
    `warn_unused_result` in gcc at all.
  - Fixes made without the numbered event trail miss CIDs.  Get the trail
    before fixing.
+ - One CID can cover several copies of the same code ("(#3 of 3)" in the
+   trail), and the report shows only one.  Grep for the pattern's clones
+   and fix them all together, or the CID stays open.
 
 ## CodeQL
 
