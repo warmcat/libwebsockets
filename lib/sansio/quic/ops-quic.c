@@ -282,8 +282,8 @@ lws_quic_sa46_same_path(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
 #if defined(LWS_WITH_IPV6)
 	if (a->sa4.sin_family == AF_INET6)
 		return a->sa6.sin6_port == b->sa6.sin6_port &&
-		       !memcmp(&a->sa6.sin6_addr, &b->sa6.sin6_addr,
-			       sizeof(struct in6_addr));
+		       !lws_sa46_compare_sin6_addr(&a->sa6.sin6_addr,
+						   &b->sa6.sin6_addr);
 #endif
 	return a->sa4.sin_port == b->sa4.sin_port &&
 	       a->sa4.sin_addr.s_addr == b->sa4.sin_addr.s_addr;
@@ -1193,7 +1193,6 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 				lwsl_wsi_info(qn->nwsi, "QUIC PTO: Enqueued PING for level %d (no in-flight, handshake incomplete)", target_level);
 				qn->pto_probe_needed = 1;
 			}
-			sent_ping = 1;
 		}
 
 		lws_callback_on_writable(qn->nwsi);
@@ -1950,8 +1949,8 @@ lws_quic_same_prefix(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
 			return 0;
 
 		/* ::ffff:a.b.c.d: the /24 is the first 15 bytes */
-		return !memcmp(&a->sa6.sin6_addr, &b->sa6.sin6_addr,
-			       mapped ? 15 : 8);
+		return !memcmp(a->sa6.sin6_addr.s6_addr,
+			       b->sa6.sin6_addr.s6_addr, mapped ? 15 : 8);
 	}
 #endif
 
@@ -2836,7 +2835,8 @@ tp_ok:
 		}
 #if defined(LWS_WITH_IPV6)
 		else if (sa46.sa4.sin_family == AF_INET6) {
-			if (memcmp(&nwsi->quic.qn->path_sa46.sa6.sin6_addr, &sa46.sa6.sin6_addr, sizeof(struct in6_addr)) ||
+			if (lws_sa46_compare_sin6_addr(&nwsi->quic.qn->path_sa46.sa6.sin6_addr,
+						       &sa46.sa6.sin6_addr) ||
 			    nwsi->quic.qn->path_sa46.sa6.sin6_port != sa46.sa6.sin6_port)
 				addr_changed = 1;
 		}
@@ -4520,7 +4520,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 					}
 #if defined(LWS_WITH_IPV6)
 					else if (packet_dest_sa46.sa6.sin6_family == AF_INET6) {
-						if (!memcmp(&packet_dest_sa46.sa6.sin6_addr, &f->dest_sa46.sa6.sin6_addr, sizeof(struct in6_addr)) &&
+						if (!lws_sa46_compare_sin6_addr(&packet_dest_sa46.sa6.sin6_addr,
+										&f->dest_sa46.sa6.sin6_addr) &&
 						    packet_dest_sa46.sa6.sin6_port == f->dest_sa46.sa6.sin6_port)
 							match = 1;
 					}
@@ -5889,7 +5890,8 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 
 		/* Generate random CIDs */
 		dcid.len = 8;
-		if (lws_get_random(wsi->a.context, dcid.id, 8) != 8) return 1;
+		if (lws_get_random(wsi->a.context, dcid.id, 8) != 8)
+			return 1;
 		wsi->quic.qn->rem_cid = dcid;
 		/* the server's original_destination_connection_id must be it */
 		wsi->quic.qn->orig_dcid = dcid;

@@ -1775,8 +1775,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 						/* Reset CC / RTT / PMTUD (RFC 9000 9.3.3) */
 						if (nwsi->quic.qn->cc_ops &&
-						    nwsi->quic.qn->cc_ops->init)
+						    nwsi->quic.qn->cc_ops->init) {
 							nwsi->quic.qn->cc_ops->init(nwsi);
+						}
 						nwsi->quic.qn->smoothed_rtt = 0;
 						nwsi->quic.qn->rttvar = 0;
 						nwsi->quic.qn->latest_rtt = 0;
