@@ -1306,7 +1306,9 @@ error_handling:
 				(unsigned long long)wsi->quic.qn->dbg_1rtt_pre_hs_bytes);
 
 		if (wsi->quic.qn->is_server) {
-			struct lws_quic_tx_frame *f_hd = lws_zalloc(sizeof(*f_hd), "HANDSHAKE_DONE");
+			/* closing, we send only the CONNECTION_CLOSE */
+			struct lws_quic_tx_frame *f_hd = wsi->quic.qn->is_closing ?
+				NULL : lws_zalloc(sizeof(*f_hd), "HANDSHAKE_DONE");
 			if (f_hd) {
 				f_hd->type = LWS_QUIC_FT_HANDSHAKE_DONE;
 				f_hd->len = 0; /* No payload */

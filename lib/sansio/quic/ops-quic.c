@@ -4147,13 +4147,18 @@ lws_quic_queue_connection_close(struct lws *nwsi, uint64_t err_code,
 	 * its peer was refused, eg, a client cert its vhost does not accept,
 	 * must not hand him a ticket to resume what was refused, possibly
 	 * with 0-RTT served before anything checks him again.
+	 *
+	 * Nor a HANDSHAKE_DONE (RFC 9000 10.2.1: closing, we send only the
+	 * CONNECTION_CLOSE).  Ahead of it in the same packet, it confirms the
+	 * handshake the close ends, eg, when the packet that made us close came
+	 * with the client's Finished, and a peer may take the connection as
+	 * established before it sees the close.
 	 */
 	for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[level].head) {
 			struct lws_quic_tx_frame *tf = lws_container_of(d, struct lws_quic_tx_frame, list);
-			if ((tf->type != LWS_QUIC_FT_CRYPTO ||
-			     level == LWS_QUIC_LEVEL_APP) &&
-			    tf->type != LWS_QUIC_FT_HANDSHAKE_DONE) {
+			if (tf->type != LWS_QUIC_FT_CRYPTO ||
+			    level == LWS_QUIC_LEVEL_APP) {
 				lws_dll2_remove(&tf->list);
 				lws_free(tf);
 			}
