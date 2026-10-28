@@ -318,14 +318,17 @@
    cookie at absolute index 0 in the server's table; a later request on the
    same connection (`LCCSCF_PIPELINE`, Host = address) calls
    `lws_qpack_set_wsi_base_and_ric(wsi, 0, 1)` in APPEND_HANDSHAKE_HEADER
-   and adds post-base references (api-test-h3-header-amplification).  A
-   reference in the connection's first request can beat the insert there:
-   the server then fails the connection as a blocked stream.  lws' decoder
-   allows no blocked streams and sends no Insert Count Increments, so
-   nothing but timing orders a later request after the insert either: it
-   relies on the encoder stream sending its whole queue in one POLLOUT
-   turn.  When it sent 512 bytes a turn, fewer service passes (more
-   datagrams read a pass) let the request overtake the insert's tail.
+   and adds post-base references (api-test-h3-header-amplification).
+   A request can arrive before the insert: lws' decoder lets 8 streams
+   block (2 on FreeRTOS) and sends Insert Count Increments and Section
+   Acknowledgments, and lws' client holds a request that might block
+   beyond the peer's SETTINGS_QPACK_BLOCKED_STREAMS until the peer
+   acknowledges more inserts.  So a conformant lws client can't make an
+   lws server fail on too many blocked streams: a test of that needs the
+   `h3_qpack_enc_no_hold` client fault (api-test-h3-qpack-blocked part 2).
+   `h3_qpack_enc_big_entry_late` / `_never` send the insert after the
+   first request tried to go, or never; `h3_qpack_blocked_streams_0` is a
+   server vhost that lets none block.
  - **Several h3 server vhosts in one context share a "listener" for SNI**
    when made with `CONTEXT_PORT_NO_LISTEN_SERVER` plus
    `lws_create_adopt_udp()`, even on different udp ports
