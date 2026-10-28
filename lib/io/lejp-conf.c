@@ -194,6 +194,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].http-body-grace-secs",
 	"vhosts[].mux-reset-limit",
 	"vhosts[].mux-reset-window-secs",
+	"vhosts[].http-response-stall-secs",
 };
 
 enum lejp_vhost_paths {
@@ -305,6 +306,7 @@ enum lejp_vhost_paths {
 	LEJPVP_HTTP_BODY_GRACE_SECS,
 	LEJPVP_MUX_RESET_LIMIT,
 	LEJPVP_MUX_RESET_WINDOW_SECS,
+	LEJPVP_HTTP_RESPONSE_STALL_SECS,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -1538,6 +1540,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		n = atoi(ctx->buf);
 		a->info->mux_reset_window_secs = n > 0 && n <= 65535 ?
 							(uint16_t)n : 0;
+		return 0;
+
+	case LEJPVP_HTTP_RESPONSE_STALL_SECS:
+		n = atoi(ctx->buf);
+		a->info->http_response_stall_secs = n > 0 ? (unsigned int)n : 0;
 		return 0;
 
 	case LEJPVP_LISTEN_ACCEPT_ROLE:

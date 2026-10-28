@@ -4272,10 +4272,14 @@ bail_nuke_ah:
 static void
 lws_http_response_watchdog(struct lws *wsi)
 {
-	unsigned int secs = wsi->a.context->timeout_secs;
+	unsigned int secs = wsi->a.vhost ?
+			wsi->a.vhost->http_response_stall_secs : 0;
 
-	if (secs < 30)
-		secs = 30;
+	if (!secs) {
+		secs = wsi->a.context->timeout_secs;
+		if (secs < 30)
+			secs = 30;
+	}
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_RESPONSE, (int)secs);
 }

@@ -272,6 +272,7 @@ lws_create_vhost(struct lws_context *context,
 					  info->http_body_min_rate : 500;
 	vh->http_body_grace_secs	= info->http_body_grace_secs ?
 					  info->http_body_grace_secs : 20;
+	vh->http_response_stall_secs	= info->http_response_stall_secs;
 	vh->mux_reset_limit		= info->mux_reset_limit ?
 					  info->mux_reset_limit : 200;
 	vh->mux_reset_window_secs	= info->mux_reset_window_secs ?

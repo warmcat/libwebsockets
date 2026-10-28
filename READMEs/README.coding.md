@@ -510,6 +510,16 @@ as soon as it went out would have requests dispatched, and their work started,
 as fast as it could send them ("rapid reset").  Going over it ends the
 connection with GOAWAY `ENHANCE_YOUR_CALM` on h2, `H3_EXCESSIVE_LOAD` on h3.
 
+The response side is bounded by stalls, not duration: once its headers are
+sent, a response may go `info.http_response_stall_secs` (default
+`timeout_secs`, but at least 30s) without sending any more of it, eg, because
+the peer stopped reading, before it is given up on, and each piece sent starts
+that again.  Files served with `lws_serve_http_file()` and responses relayed by
+a proxy mount are bounded the same way.  A vhost serving big downloads to
+browsers that may save them to slow devices, which stop reading for minutes
+while they drain their cache, wants it larger; the cost is a peer that never
+reads holding its connection for that long.
+
 Anything important must be copied into your `pss` inside the window.  The
 accessors (`lws_hdr_copy()`, `lws_hdr_total_length()`,
 `lws_get_urlarg_by_name_safe()`, `lws_http_cookie_get()`, ...) do not fail

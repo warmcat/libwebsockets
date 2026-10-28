@@ -1309,6 +1309,20 @@ struct lws_context_creation_info {
 	 * which refuses to add to a ctx that another vhost is sharing: the
 	 * other vhost would trust the cert too. */
 
+	unsigned int			http_response_stall_secs;
+	/**< VHOST: 0 for default (.timeout_secs, but at least 30), or the
+	 * seconds a server's response may go without any more of it being
+	 * sent, eg, because the peer stopped reading it, before it is given
+	 * up on.  It bounds the stall, not the response: each piece sent
+	 * starts it again, however long the whole response takes.
+	 *
+	 * A browser saving a big download to a slow device can stop reading
+	 * for minutes while it drains its cache, and so can the server side of
+	 * a proxy in front of us, while its own peer does that.  A larger
+	 * value lets those through, at the price of a peer that never reads
+	 * holding its connection, and eg, an open file, for that long.
+	 * Immortal streams (eg, long polls) are not limited. */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

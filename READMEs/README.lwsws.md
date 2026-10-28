@@ -369,6 +369,14 @@ reading the body, eg, while a cgi or a proxy mount's onward connection is slow
 to take it, counts as well.  "none" leaves only the timeout between pieces of
 body (`timeout-secs`).
 
+ - "`http-response-stall-secs`": "300" is how long a response on this vhost
+may go without any more of it being sent, eg, because the peer stopped reading
+it, before it is given up on.  Each piece sent starts it again, so it bounds a
+stall, not how long the whole response takes.  A browser saving a big download
+to a slow device can stop reading for minutes while it drains its cache; on a
+proxy, set it on the vhost the browser talks to as well as on the one being
+proxied to.  Default 0, `timeout-secs` but at least 30s.
+
  - "`mux-reset-limit`": "200" is the most streams of one h2 or h3 connection
 that may end before they are answered, on average per
 "`mux-reset-window-secs`": "10".  The client resetting a stream it had not

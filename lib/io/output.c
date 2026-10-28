@@ -344,9 +344,11 @@ lws_serve_http_file_fragment(struct lws *wsi)
 		}
 
 		if (n > 0) {
-			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-					(int)wsi->a.context->timeout_secs);
-
+			/*
+			 * The response watchdog its headers armed bounds how
+			 * long the file may go without sending: lws_write()
+			 * renews it for each piece
+			 */
 			m = lws_write(wsi, p, (size_t)n, wp);
 			lws_servbuf_release(pt, sb);
 			if (m < 0)

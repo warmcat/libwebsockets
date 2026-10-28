@@ -129,7 +129,17 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 
 	/* no need to log normal idle keepalive timeout */
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
-	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE)
+	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE &&
+	    (lwsi_state(wsi) == LRS_ISSUING_FILE || lws_has_buflist_out(wsi)))
+		/*
+		 * The response had more to send, but the peer stopped taking
+		 * it for longer than the vhost's http_response_stall_secs
+		 */
+		lwsl_wsi_notice(wsi, "HTTP response stalled: peer stopped "
+				"reading it, uri=\"%s\"",
+				lws_wsi_request_uri(wsi) ?
+				lws_wsi_request_uri(wsi) : "");
+	else if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE)
 		/*
 		 * We started sending the response (response headers went out)
 		 * but never completed it: under h2 / h3 no END_STREAM was sent
