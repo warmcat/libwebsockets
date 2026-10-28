@@ -32,7 +32,13 @@
 #include <string.h>
 #include <signal.h>
 
-#define TAAQ_TIMEOUT_S		20
+#define TAAQ_TIMEOUT_S		50
+/*
+ * the server's tls and header deadlines, which start when it adopts each
+ * connection: on slow boards the burst's handshakes, signed one after another
+ * on the service thread, take over the defaults of 15s and 10s
+ */
+#define TAAQ_TLS_TIMEOUT_S	40
 #define TAAQ_MAX_CONNS		64
 
 static const char body[] = "tls accept async api test body\n";
@@ -243,6 +249,8 @@ int main(int argc, const char **argv)
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.timeout_secs = TAAQ_TLS_TIMEOUT_S;
+	info.timeout_secs_ah_idle = TAAQ_TLS_TIMEOUT_S;
 #if defined(LWS_WITH_ASYNC_QUEUE)
 	/* one worker, so its queue holds ten jobs */
 	info.count_async_threads = 1;

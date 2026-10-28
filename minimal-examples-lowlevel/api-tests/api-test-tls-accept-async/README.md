@@ -13,7 +13,7 @@ or the request waits unread for the connection's timeout.
 
 The clients make `--count` concurrent connections at once, alternately h1 and
 h2, each a GET that the server answers with a short body.  Every one must
-complete with a 200 and the whole body within 20s.
+complete with a 200 and the whole body within 50s.
 
 |ctest|What|
 |---|---|
@@ -29,6 +29,12 @@ arrive together, so one service pass signs a handshake for each of them before
 any client hears back, and with an RSA-4096 key that took longer than the 15s
 tls timeout on slow boards, for example riscv with mbedtls 2.x, or mbedtls 4,
 whose RSA private operation is several times slower than 3.x's.
+
+Even with RSA-2048, the burst takes about 11s on riscv with mbedtls 2.28 or a
+Windows Debug build of mbedtls.  The server's header table hold
+(`timeout_secs_ah_idle`, 10s by default) starts when it adopts the connection
+and also bounds its tls accept, so the test gives the server 40s for that and
+for its tls timeout.
 
 ## Running it
 
