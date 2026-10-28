@@ -759,7 +759,7 @@ static int test_qpack_section_rules(void)
 	struct lws_qpack_stream_state st;
 	struct lws_qpack_context qctx;
 	uint8_t big[16];
-	int fails = 0, n;
+	int fails = 0, n, done;
 	size_t m;
 
 	lwsl_user("\n--- 13. QPACK field section prefix and references ---\n");
@@ -790,7 +790,10 @@ static int test_qpack_section_rules(void)
 			fails++;
 			continue;
 		}
-		if (n && (!lws_qpack_decode_header_block_done(&st)) != c[m].done) {
+		if (!n)
+			continue;
+		done = !lws_qpack_decode_header_block_done(&st);
+		if (done != c[m].done) {
 			lwsl_err("13.%d: %s: section end %s\n", (int)m + 1,
 				 c[m].what, c[m].done ? "refused" : "accepted");
 			fails++;
