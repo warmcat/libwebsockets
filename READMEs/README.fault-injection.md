@@ -312,6 +312,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |vhost|`vh`|`vh_create_ssl_cli`|Fail client ssl_ctx init|
 |vhost|`vh`|`vh_create_srv_init`|Fail server init|
 |vhost|`vh`|`vh_create_protocol_init`|Fail late protocol init (for late vhost creation)|
+|srv vhost|`vh`|`h3_qpack_blocked_streams_0`|h3 server SETTINGS let no stream wait for QPACK inserts (SETTINGS_QPACK_BLOCKED_STREAMS 0), and the server keeps to it: a peer may not send a field section referring to an insert before the server acknowledged it (LWS_ROLE_H3)|
 |srv vhost|`vh`|`h3_settings_no_wt`|h3 server SETTINGS do not enable WebTransport or HTTP Datagrams (LWS_ROLE_WT)|
 |srv vhost|`vh`|`listen_port_taken`|A listen socket's bind to the port the vhost already has, eg the one its first address family's bind chose for a vhost asking for any port, finds it taken (EADDRINUSE)|
 |srv vhost|`vh=xxx/wsi`|`listenskt`|Causes `socket()` allocation for vhost listen socket to fail|
@@ -324,8 +325,9 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`h3_second_qpack_enc`|An h3 connection opens a second QPACK encoder stream, where there may be only one (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_req_frame_settings`|An h3 client request stream starts with an empty SETTINGS frame, which only the control stream may carry (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_qpack_enc_big_entry`|An h3 connection's QPACK encoder stream sets the peer's dynamic table capacity to 4096 and fills it with one cookie entry (absolute index 0), for request headers to refer to (LWS_ROLE_H3)|
-|cli wsi|`wsi`|`h3_qpack_enc_big_entry_late`|As `h3_qpack_enc_big_entry`, but the insert goes only after the connection's first request HEADERS did, so a request referring to it arrives first and the peer must block it (LWS_ROLE_H3)|
+|cli wsi|`wsi`|`h3_qpack_enc_big_entry_late`|As `h3_qpack_enc_big_entry`, but the insert goes only after the connection's first request HEADERS did, or was held for the peer to acknowledge inserts, so a request referring to it arrives first and the peer must block it, unless it lets none block (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_qpack_enc_big_entry_never`|As `h3_qpack_enc_big_entry`, but the insert is counted and never sent, so a request referring to it stays blocked at the peer (LWS_ROLE_H3)|
+|cli wsi|`wsi`|`h3_qpack_enc_no_hold`|An h3 client sends a request referring to QPACK inserts the peer may not have at once, even when the peer already has as many streams that might block as its SETTINGS_QPACK_BLOCKED_STREAMS allows (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_trailer_field`|An h3 client request with no body ends with a trailers block holding `user-agent: trailer-ua` (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_trailer_pseudo`|An h3 client request with no body ends with a trailers block holding a `:path`, which trailers may not (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`quic_stream_replay`|A QUIC stream's first STREAM frame is sent once more 100ms after the stream closed, as a retransmission whose ack was lost would be, after the peer finished with the stream (LWS_ROLE_QUIC)|

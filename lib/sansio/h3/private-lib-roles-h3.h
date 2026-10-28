@@ -105,6 +105,20 @@ lws_h3_rx_fin_server(struct lws *wsi);
 int
 lws_h3_rx_fin_deferred(struct lws *wsi);
 
+/*
+ * RFC 9204 2.1.2: a field section of ours whose Required Insert Count is ric
+ * is about to go on wsi.  The peer acknowledges it, and until then counts the
+ * stream against the SETTINGS_QPACK_BLOCKED_STREAMS it advertised, if ric is
+ * beyond the inserts it told us it has.  0 means it may go, and is counted
+ * now; LWS_H3_QPACK_ENC_HOLD that it would make one stream more that might
+ * block than the peer allows, so must wait for the peer to acknowledge more
+ * inserts; 1 that it can't go at all.
+ */
+#define LWS_H3_QPACK_ENC_HOLD 2
+
+int
+lws_h3_qpack_enc_section(struct lws *wsi, uint32_t ric);
+
 extern const struct lws_role_ops role_ops_h3;
 #define lwsi_role_h3(wsi) (wsi->role_ops == &role_ops_h3)
 
@@ -178,6 +192,8 @@ struct lws_h3_netconn {
 	lws_dll2_owner_t qpack_blocked_owner;
 	/* the peer's SETTINGS_QPACK_BLOCKED_STREAMS, 0 until it says */
 	uint64_t peer_qpack_blocked_streams;
+	/* the SETTINGS_QPACK_BLOCKED_STREAMS we advertised, and keep to */
+	uint8_t qpack_blocked_max;
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	/* h3_qpack_enc_big_entry_late's insert, until a request went */
 	struct lws_buflist *fi_late_insert;
@@ -255,6 +271,14 @@ struct _lws_h3_related {
 	 */
 	uint32_t qpack_enc_ric[2];
 	uint8_t qpack_enc_unacked;
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * encoder: the request's field section, ready to go but for the peer
+	 * acknowledging more inserts first, and its Required Insert Count
+	 */
+	struct lws_buflist *qpack_held_hdrs;
+	uint32_t qpack_held_ric;
+#endif
 
 	/*
 	 * decoder: the stream's field section waits for inserts, in h3n's

@@ -485,19 +485,20 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			 * Required Insert Count is encoded against the most
 			 * entries the table the peer advertised can hold, and
 			 * must fit the two bytes reserved for the prefix.  The
-			 * peer acknowledges each such section, a request has
-			 * at most its head and trailers outstanding.
+			 * peer acknowledges each such section, and may not
+			 * have more streams that might block than it allows:
+			 * LWS_H3_QPACK_ENC_HOLD says the complete section
+			 * must wait for that.  Only a client request can.
 			 */
 			if (!enc || enc->virtual_payload_max < 32 ||
-			    wsi->h3.qpack_enc_unacked >=
-					LWS_ARRAY_SIZE(wsi->h3.qpack_enc_ric) ||
 			    lws_qpack_encode_prefix(wsi->http.h3_prefix_ptr, 2,
 					ric, wsi->http.h3_base,
 					enc->virtual_payload_max / 32) != 2)
 				return 1;
 
-			wsi->h3.qpack_enc_ric[wsi->h3.qpack_enc_unacked++] = ric;
 			wsi->http.h3_prefix_ptr = NULL;
+
+			return lws_h3_qpack_enc_section(wsi, ric);
 		}
 		return 0;
 	}

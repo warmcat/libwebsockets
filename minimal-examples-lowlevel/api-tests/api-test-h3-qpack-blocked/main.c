@@ -21,14 +21,21 @@
  * It must be answered 200 once the insert comes.
  *
  * Part 2: the insert never goes (h3_qpack_enc_big_entry_never), and one
- * more request refers to it than the server lets wait.  The server must
- * fail the connection, answering none of them.
+ * more request refers to it than the server lets wait, which the client
+ * sends anyway (h3_qpack_enc_no_hold).  The server must fail the
+ * connection, answering none of them.
  *
  * Part 3: as many requests as may wait refer to the insert that never goes,
  * and the client gives up on them.  Then one more does, with a request that
  * refers to nothing: if the server still counted the ones given up on, the
  * one more is too many and fails the connection, so the plain request must
  * be answered 200.
+ *
+ * Part 4: a second server lets no stream wait (h3_qpack_blocked_streams_0),
+ * and the insert again only goes after the request tried to.  The client may
+ * not send a request the server might have to block, so must hold it until
+ * the server acknowledges the insert: then it is answered 200.  Sent at once,
+ * it arrives before the insert and the server fails the connection.
  */
 
 #include <libwebsockets.h>
@@ -57,11 +64,11 @@ struct hqb_req {
 };
 
 static struct lws_context *context;
-static struct lws_vhost *vh_cli[3];
+static struct lws_vhost *vh_cli[4];
 static lws_sorted_usec_list_t sul_watchdog, sul_next;
 static const char *server_addr = "127.0.0.1";
 static struct hqb_req reqs[HQB_BLOCKED + 2];
-static int port, result = 1, part, nreqs, finished;
+static int port, port_nb, result = 1, part, nreqs, finished;
 /* part 3: the requests given up on are all gone */
 static uint8_t gave_up;
 
@@ -127,10 +134,11 @@ hqb_finish(const char *why, int ok)
 }
 
 static int
-hqb_send(uint8_t kind, const char *fault)
+hqb_send(uint8_t kind, const char *fault, const char *fault2)
 {
 	struct lws_client_connect_info i;
 	struct hqb_req *r = &reqs[nreqs++];
+	lws_fi_t fi;
 
 	memset(r, 0, sizeof(*r));
 	r->kind = kind;
@@ -143,7 +151,8 @@ hqb_send(uint8_t kind, const char *fault)
 	/* with the Host its address, and pipelining, they share one */
 	i.host			= server_addr;
 	i.origin		= server_addr;
-	i.port			= port;
+	/* part 4 is for the server that lets no stream wait */
+	i.port			= part == 3 ? port_nb : port;
 	i.path			= kind == HQB_REF ? "/ref" : "/plain";
 	i.method		= "GET";
 	i.alpn			= "h3";
@@ -155,15 +164,20 @@ hqb_send(uint8_t kind, const char *fault)
 	i.disable_h3_fallback	= 1;
 	i.opaque_user_data	= r;
 
-	/* the fault is the connection's, it makes the insert once */
+	/* the faults are the connection's, it makes the insert once */
+	memset(&fi, 0, sizeof(fi));
+	fi.type = LWSFI_ALWAYS;
 	if (fault) {
-		lws_fi_t fi;
-
-		memset(&fi, 0, sizeof(fi));
 		fi.name = fault;
-		fi.type = LWSFI_ALWAYS;
 		if (lws_fi_add(&i.fic, &fi))
 			return 1;
+	}
+	if (fault2) {
+		fi.name = fault2;
+		if (lws_fi_add(&i.fic, &fi)) {
+			lws_fi_destroy(&i.fic);
+			return 1;
+		}
 	}
 
 	r->wsi = lws_client_connect_via_info(&i);
@@ -190,7 +204,7 @@ hqb_part_cb(lws_sorted_usec_list_t *sul)
 	case 0:
 		lwsl_user("%s: 1: a request arrives before its insert\n",
 			  __func__);
-		if (hqb_send(HQB_REF, "h3_qpack_enc_big_entry_late"))
+		if (hqb_send(HQB_REF, "h3_qpack_enc_big_entry_late", NULL))
 			hqb_finish("request not sent", 0);
 		return;
 
@@ -198,7 +212,8 @@ hqb_part_cb(lws_sorted_usec_list_t *sul)
 		lwsl_user("%s: 2: %d requests wait for an insert that never "
 			  "comes\n", __func__, HQB_BLOCKED + 1);
 		for (n = 0; n <= HQB_BLOCKED; n++)
-			if (hqb_send(HQB_REF, "h3_qpack_enc_big_entry_never")) {
+			if (hqb_send(HQB_REF, "h3_qpack_enc_big_entry_never",
+				     "h3_qpack_enc_no_hold")) {
 				hqb_finish("request not sent", 0);
 				return;
 			}
@@ -210,7 +225,8 @@ hqb_part_cb(lws_sorted_usec_list_t *sul)
 				  "on\n", __func__, HQB_BLOCKED);
 			for (n = 0; n < HQB_BLOCKED; n++)
 				if (hqb_send(HQB_REF,
-					     "h3_qpack_enc_big_entry_never")) {
+					     "h3_qpack_enc_big_entry_never",
+					     NULL)) {
 					hqb_finish("request not sent", 0);
 					return;
 				}
@@ -233,7 +249,15 @@ hqb_part_cb(lws_sorted_usec_list_t *sul)
 
 		lwsl_user("%s: 3: one more waits, with one that doesn't\n",
 			  __func__);
-		if (hqb_send(HQB_REF, NULL) || hqb_send(HQB_PLAIN, NULL))
+		if (hqb_send(HQB_REF, NULL, NULL) ||
+		    hqb_send(HQB_PLAIN, NULL, NULL))
+			hqb_finish("request not sent", 0);
+		return;
+
+	case 3:
+		lwsl_user("%s: 4: a request that might block waits for its "
+			  "insert to be acknowledged\n", __func__);
+		if (hqb_send(HQB_REF, "h3_qpack_enc_big_entry_late", NULL))
 			hqb_finish("request not sent", 0);
 		return;
 	}
@@ -268,9 +292,7 @@ hqb_req_done(struct hqb_req *r, int status)
 				   "counted", 0);
 			return;
 		}
-		hqb_finish("1: the request waited for its insert, 2: one "
-			   "too many waiting failed the connection, 3: the "
-			   "ones given up on stopped counting", 1);
+		hqb_next_part();
 		return;
 	}
 
@@ -304,6 +326,18 @@ hqb_req_done(struct hqb_req *r, int status)
 		if (nreqs == HQB_BLOCKED)
 			lws_sul_schedule(context, 0, &sul_next, hqb_part_cb,
 					 HQB_SETTLE_MS * LWS_US_PER_MS);
+		return;
+
+	case 3:
+		if (answered != 1) {
+			hqb_finish("4: the request was sent while it might "
+				   "block, to a server letting none", 0);
+			return;
+		}
+		hqb_finish("1: the request waited for its insert, 2: one "
+			   "too many waiting failed the connection, 3: the "
+			   "ones given up on stopped counting, 4: the client "
+			   "held a request that might block", 1);
 		return;
 	}
 }
@@ -387,7 +421,9 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p, *cert, *key;
+	struct lws_vhost *vh;
 	char name[8];
+	lws_fi_t fi;
 	size_t n;
 	int m = 0;
 
@@ -399,12 +435,16 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--nb-port")))
+		port_nb = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
 	cert = lws_cmdline_option(argc, argv, "--cert");
 	key = lws_cmdline_option(argc, argv, "--key");
-	if (!cert || !key || port < 1 || port > 65535) {
-		lwsl_err("-p <port>, --cert and --key are required\n");
+	if (!cert || !key || port < 1 || port > 65535 ||
+	    port_nb < 1 || port_nb > 65535) {
+		lwsl_err("-p <port>, --nb-port <port>, --cert and --key are "
+			 "required\n");
 		return 1;
 	}
 
@@ -429,6 +469,19 @@ main(int argc, const char **argv)
 	if (!lws_create_adopt_udp(lws_create_vhost(context, &info),
 				  server_addr, port, LWS_CAUDP_BIND, "http",
 				  NULL, NULL, NULL, NULL, "quic_listen"))
+		goto bail;
+
+	/* the server for part 4, letting no stream wait for inserts */
+	memset(&fi, 0, sizeof(fi));
+	fi.name = "h3_qpack_blocked_streams_0";
+	fi.type = LWSFI_ALWAYS;
+	if (lws_fi_add(&info.fic, &fi))
+		goto bail;
+	info.vhost_name = "localhost-nb";
+	vh = lws_create_vhost(context, &info); /* it takes the fault */
+	if (!vh || !lws_create_adopt_udp(vh, server_addr, port_nb,
+					 LWS_CAUDP_BIND, "http", NULL, NULL,
+					 NULL, NULL, "quic_listen"))
 		goto bail;
 
 	info.port			= CONTEXT_PORT_NO_LISTEN;

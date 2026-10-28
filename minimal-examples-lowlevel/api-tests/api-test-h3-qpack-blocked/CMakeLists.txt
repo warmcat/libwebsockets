@@ -25,8 +25,10 @@ if (requirements)
 	set(HQB_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
 	lws_get_free_port(PORT_HQB)
+	lws_get_free_port(PORT_HQB_NB)
 	add_test(NAME api-test-h3-qpack-blocked
 		 COMMAND lws-api-test-h3-qpack-blocked -p ${PORT_HQB}
+			 --nb-port ${PORT_HQB_NB}
 			 --cert ${HQB_CERTS}/localhost-100y.cert
 			 --key ${HQB_CERTS}/localhost-100y.key)
 	set_tests_properties(api-test-h3-qpack-blocked PROPERTIES TIMEOUT 60)
