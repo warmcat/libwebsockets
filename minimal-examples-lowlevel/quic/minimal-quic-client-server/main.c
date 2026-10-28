@@ -75,6 +75,12 @@ static lws_usec_t spread_us, spread_start;
  * transport's idle timeout (RFC 9000 10.1) that ends it: no sooner than
  * --max-idle after the last the server heard from the client, and not much
  * later either.
+ *
+ * The keepalive closes a connection the peer still has open, so it sends
+ * CONNECTION_CLOSE (RFC 9000 10.2), and with QCS_QUIET_CONN the client must
+ * have closed too within QCS_QUIET_CLOSE_US after the server did, not have
+ * gone on until its own idle timeout.  The idle timeout closes silently, the
+ * peer's by then the same, so with QCS_QUIET_STREAM there's nothing to hear.
  */
 enum {
 	QCS_QUIET_NO,
@@ -87,9 +93,11 @@ static struct lws *server_stream;	/* the server's stream of the connection */
 static lws_usec_t server_estab_us, server_last_rx_us;
 static lws_sorted_usec_list_t sul_quiet;
 static char quiet_over;	/* the verdict is in: later closes are teardown */
+static char quiet_server_gone;	/* QCS_QUIET_CONN: waiting for the client */
 
 #define QCS_QUIET_KEEPALIVE_US	(5 * LWS_US_PER_SEC)	/* vhost default */
 #define QCS_QUIET_SLACK_US	(3 * LWS_US_PER_SEC)
+#define QCS_QUIET_CLOSE_US	(1 * LWS_US_PER_SEC)
 
 static const struct lws_http_mount mount_redir = {
 	.mountpoint = "/",
@@ -1501,6 +1509,44 @@ quiet_deadline_set(lws_usec_t from, lws_usec_t bound)
 			 from + bound - lws_now_usecs());
 }
 
+/* --quiet conn: the client never heard the server's CONNECTION_CLOSE */
+
+static void
+quiet_client_deadline_cb(lws_sorted_usec_list_t *sul)
+{
+	quiet_over = 1;
+	lwsl_err("quiet: the client still has the connection %lldms after the "
+		 "server closed it: it never heard the server's "
+		 "CONNECTION_CLOSE\n", (long long)(QCS_QUIET_CLOSE_US /
+						   LWS_US_PER_MS));
+	result = 1;
+	lws_default_loop_exit(context);
+}
+
+/* --quiet conn: the client's connection closed */
+
+static void
+quiet_client_closed(void)
+{
+	if (quiet_over)
+		return;
+
+	if (!quiet_server_gone) {
+		quiet_over = 1;
+		lwsl_err("quiet: the client closed the connection before the "
+			 "server did\n");
+		result = 1;
+		lws_default_loop_exit(context);
+		return;
+	}
+
+	quiet_over = 1;
+	lws_sul_cancel(&sul_quiet);
+	lwsl_user("quiet: the client heard the server's CONNECTION_CLOSE\n");
+	result = 0;
+	lws_default_loop_exit(context);
+}
+
 /* --quiet: the server closed its stream, with the connection */
 
 static void
@@ -1509,26 +1555,29 @@ quiet_server_closed(void)
 	lws_usec_t now = lws_now_usecs(),
 		   idle = (lws_usec_t)max_idle_ms * LWS_US_PER_MS;
 
-	if (quiet_over)
+	if (quiet_over || quiet_server_gone)
 		return;
-	quiet_over = 1;
 	lws_sul_cancel(&sul_quiet);
 
 	if (quiet == QCS_QUIET_CONN) {
 		lwsl_user("quiet: the server closed the connection %lldms "
 			  "after its handshake\n",
 			  (long long)((now - server_estab_us) / LWS_US_PER_MS));
-		result = 0;
-	} else {
-		lwsl_user("quiet: the server closed the connection %lldms "
-			  "after the client's last data\n",
-			  (long long)((now - server_last_rx_us) /
-							LWS_US_PER_MS));
-		/* RFC 9000 10.1: not before the idle timeout */
-		result = !server_rx || now - server_last_rx_us < idle;
-		if (result)
-			lwsl_err("quiet: the server closed it too soon\n");
+		/* the client must hear it closed, see QCS_QUIET_CLOSE_US */
+		quiet_server_gone = 1;
+		lws_sul_schedule(context, 0, &sul_quiet,
+				 quiet_client_deadline_cb, QCS_QUIET_CLOSE_US);
+		return;
 	}
+
+	quiet_over = 1;
+	lwsl_user("quiet: the server closed the connection %lldms after the "
+		  "client's last data\n",
+		  (long long)((now - server_last_rx_us) / LWS_US_PER_MS));
+	/* RFC 9000 10.1: not before the idle timeout */
+	result = !server_rx || now - server_last_rx_us < idle;
+	if (result)
+		lwsl_err("quiet: the server closed it too soon\n");
 
 	lws_default_loop_exit(context);
 }
@@ -1632,6 +1681,11 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 			server_stream = NULL;
 			quiet_server_closed();
 		}
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (quiet == QCS_QUIET_CONN)
+			quiet_client_closed();
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:

@@ -72,7 +72,10 @@ used is reaped by the vhost's keepalive, 5s by default.
 With `--quiet conn`, once the handshake completed neither side sends anything,
 and the client never uses its stream.  The server has stream 0 from the
 handshake, but the client never opened it, so the keepalive must close the
-connection within a few seconds.
+connection within a few seconds.  The client still has the connection open, so
+the server must tell it with CONNECTION_CLOSE (RFC 9000 10.2): the client must
+have closed too within 1s, not go on until its own idle timeout, eg, sending a
+request the server will never answer.
 
 ```
  $ ./lws-minimal-quic-client-server --quiet conn

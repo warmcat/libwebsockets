@@ -163,7 +163,8 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 #endif
 	/* cgi timeout */
 	if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE &&
-	    wsi->pending_timeout != PENDING_TIMEOUT_CLIENT_CONN_IDLE)
+	    wsi->pending_timeout != PENDING_TIMEOUT_CLIENT_CONN_IDLE &&
+	    wsi->pending_timeout != PENDING_TIMEOUT_UDP_IDLE)
 		/*
 		 * Since he failed a timeout, he already had a chance to
 		 * do something and was unable to... that includes
@@ -171,9 +172,13 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 		 * this "failed timeout" close as a violent death and
 		 * don't try to do protocol cleanup like flush partials.
 		 *
-		 * The two idle timeouts are the exception: a keep-alive or
+		 * The idle timeouts are the exception: a keep-alive or
 		 * kept-warm connection that nothing used is closed in good
-		 * order, it did nothing wrong.
+		 * order, it did nothing wrong.  So is a QUIC server
+		 * connection reaped by its keepalive with UDP_IDLE (see
+		 * lws_quic_server_idle_check()): the peer still has it open,
+		 * and must hear CONNECTION_CLOSE, or it goes on sending to
+		 * it, eg, a request we never got, until its PTOs give up.
 		 */
 		lwsi_set_skt_unusable(wsi, 1);
 #if defined(LWS_WITH_CLIENT)
