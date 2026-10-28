@@ -530,7 +530,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // native HLS toggles textTracks[i].mode).
         var subOnOff = function() { /* rebound per-branch below */ };
 
-        // ---- subtitle cue overlay + fullscreen ----
+        // ---- subtitle cue overlay ----
         //
         // Why render cues ourselves at all? Both Chromium and Firefox, once
         // a cue has been displayed on an MSE-backed <video>, never
@@ -543,7 +543,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // rendered into this overlay, whose font-size tracks the video's
         // rendered height live.
         var cueDisplay = document.getElementById('cue-display');
-        var stage = document.querySelector('.player-container');
         var lastCueKey = null;
 
         function renderCueOverlay() {
@@ -629,61 +628,50 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(applyCueMetrics, 500);
         setTimeout(applyCueMetrics, 2000);
 
-        var fsBtn = document.getElementById('fs-btn');
-        function stageFullscreen(on) {
-            if (on) {
-                if (stage.requestFullscreen)
-                    stage.requestFullscreen().catch(function () {});
-                else if (stage.webkitRequestFullscreen)
-                    stage.webkitRequestFullscreen();
-            } else {
-                if (document.exitFullscreen)
-                    document.exitFullscreen().catch(function () {});
-                else if (document.webkitExitFullscreen)
-                    document.webkitExitFullscreen();
-            }
-        }
-        if (fsBtn)
-            fsBtn.addEventListener('click', function () {
-                var el = document.fullscreenElement ||
-                         document.webkitFullscreenElement;
-                stageFullscreen(!el);
-            });
-
-        var nativeFsFallback = false;
+        /* the tracks we flipped to "showing", null when not in fallback */
+        var nativeFsTracks = null;
         function setNativeFsFallback(on) {
-            /* give the cues back to the engine's native rendering for a
-             * fullscreen session we can't retarget: flip the hidden track
-             * to "showing" (it renders at whatever size the engine baked
-             * in, but at least it is visible), then back after */
-            nativeFsFallback = on;
-            var tts = video.textTracks;
-            for (var i = 0; i < tts.length; i++)
-                if (tts[i].cues)
-                    tts[i].mode = on ? 'showing' : 'hidden';
+            /* give the cues back to the engine's native rendering while
+             * the bare <video> is fullscreen: flip the track we hold
+             * "hidden" (the selected one, if CC is on) to "showing" (it
+             * renders at whatever size the engine baked in, but at least
+             * it is visible), then just those back after */
+            var tts = video.textTracks, i;
+
+            if (on) {
+                nativeFsTracks = [];
+                for (i = 0; i < tts.length; i++)
+                    if (tts[i].mode === 'hidden') {
+                        tts[i].mode = 'showing';
+                        nativeFsTracks.push(tts[i]);
+                    }
+                return;
+            }
+            for (i = 0; i < nativeFsTracks.length; i++)
+                if (nativeFsTracks[i].mode === 'showing')
+                    nativeFsTracks[i].mode = 'hidden';
+            nativeFsTracks = null;
         }
         function fullscreenChanged() {
             applyCueMetricsSettling();
-            var fsEl = document.fullscreenElement;
-            if (fsEl === video) {
+            var fsEl = document.fullscreenElement ||
+                       document.webkitFullscreenElement;
+            if (fsEl === video && !nativeFsTracks) {
                 /* the native controls' fullscreen button fullscreens the
-                 * bare <video>, which leaves this overlay (a stage child)
-                 * behind the fullscreen top layer. While the click's
-                 * transient activation is still live, retarget fullscreen
-                 * at the stage so the cues come along; if that is refused,
-                 * fall back to native cue rendering for this session */
-                Promise.resolve()
-                    .then(function () { return document.exitFullscreen(); })
-                    .then(function () { return stage.requestFullscreen(); })
-                    .catch(function () { setNativeFsFallback(true); });
-            } else if (!fsEl && nativeFsFallback) {
+                 * bare <video>, which leaves this overlay behind the
+                 * fullscreen top layer.  Fullscreen can't be moved to
+                 * the stage from here: requesting it consumed the click's
+                 * activation, so a retarget is refused after we already
+                 * left fullscreen.  The engine renders the cues instead
+                 * until we come out of it */
+                setNativeFsFallback(true);
+            } else if (fsEl !== video && nativeFsTracks) {
                 setNativeFsFallback(false);
             }
         }
+        /* both, for Safari before 16.4; going over it twice is harmless */
         document.addEventListener('fullscreenchange', fullscreenChanged);
-        document.addEventListener('webkitfullscreenchange', function () {
-            applyCueMetricsSettling();
-        });
+        document.addEventListener('webkitfullscreenchange', fullscreenChanged);
 
         // ---- audio track UI ----
         // Only shown when the server advertised more than one audio
@@ -1111,8 +1099,8 @@ document.addEventListener('DOMContentLoaded', function() {
             //
             // handled by the shared cue-overlay machinery above the
             // branch code: applyCueMetrics() there sizes the overlay font
-            // from this video's rendered box and the fullscreen logic
-            // keeps the overlay with the video.
+            // from this video's rendered box, and in fullscreen the
+            // engine's own cue rendering stands in for it.
 
             // Pure diagnostic: log each native video.textTracks entry (the
             // cue source the overlay renders from) — its mode, cue count,
