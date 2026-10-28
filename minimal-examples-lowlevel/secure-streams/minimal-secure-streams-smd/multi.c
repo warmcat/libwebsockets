@@ -15,10 +15,10 @@
  * available when built with SSPC / produces -client executable.
  *
  * We will fork several times, the original thread and the forks hook up to
- * the proxy with smd SS, each fork waits a second for everyone to have joined,
- * and then each fork (NOT the original process) sends a bunch of user messages
- * that all the forks should receive, having been distributed by SMD and the
- * ss proxy.
+ * the proxy with smd SS.  Each fork (NOT the original process) says it has
+ * joined until it has heard from every fork, so they are all listening, and
+ * then sends a bunch of user messages that all the forks should receive,
+ * having been distributed by SMD and the ss proxy.
  *
  * The participants check they received all the messages expected from everyone
  * and then send a final message indicating success and exits.  The original
@@ -60,6 +60,7 @@ typedef struct myss {
 	int				seen_msgs[FORKS];
 	lws_sorted_usec_list_t		sul;
 	int				count;
+	uint8_t				joined; /* forks we heard from */
 	char				seen_all;
 	char				send_seen_all;
 	char				starting;
@@ -67,6 +68,22 @@ typedef struct myss {
 
 
 /* secure streams payload interface */
+
+/*
+ * A fork can join late, eg, its context taking longer to become operational,
+ * so none sends its messages until it heard from every fork: then they are
+ * all listening, and none misses any
+ */
+static void
+multi_check_joined(myss_t *m, int fk)
+{
+	m->joined = (uint8_t)(m->joined | (1u << (fk - 1)));
+	if (m->starting || m->joined != (1u << FORKS) - 1)
+		return;
+
+	m->starting = 1;
+	lws_ss_request_tx(m->ss);
+}
 
 static lws_ss_state_return_t
 multi_myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
@@ -81,6 +98,18 @@ multi_myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	if (lws_json_simple_find((const char *)buf, len, "\"seen_all\":", &al))
 		return LWSSSSRET_OK;
 
+	p = lws_json_simple_find((const char *)buf, len, "\"fork\":", &al);
+	if (!p)
+		return LWSSSSRET_DESTROY_ME;
+	fk = atoi(p);
+	if (fk < 1 || fk > FORKS)
+		return LWSSSSRET_DESTROY_ME;
+
+	/* any message from a fork says it joined */
+	multi_check_joined(m, fk);
+	if (lws_json_simple_find((const char *)buf, len, "\"joined\":", &al))
+		return LWSSSSRET_OK;
+
 	/*
 	 * otherwise once we saw the expected messages, any other messages
 	 * coming in this class are wrong
@@ -90,13 +119,6 @@ multi_myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		lwsl_err("%s: unexpected extra messages\n", __func__);
 		return LWSSSSRET_DESTROY_ME;
 	}
-
-	p = lws_json_simple_find((const char *)buf, len, "\"fork\":", &al);
-	if (!p)
-		return LWSSSSRET_DESTROY_ME;
-	fk = atoi(p);
-	if (fk < 1 || fk > FORKS)
-		return LWSSSSRET_DESTROY_ME;
 
 	p = lws_json_simple_find((const char *)buf, len, "\"test\":", &al);
 	if (!p)
@@ -147,8 +169,7 @@ sul_multi_tx_periodic_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	m->starting = 1;
-	if (m->count < MSGCOUNT ||  m->send_seen_all)
+	if (!m->starting || m->count < MSGCOUNT || m->send_seen_all)
 		lws_ss_request_tx(m->ss);
 }
 
@@ -159,20 +180,34 @@ multi_myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	myss_t *m = (myss_t *)userobj;
 
 	/*
-	 * We want to send exactly MSGCOUNT user class smd messages
+	 * We want to send exactly MSGCOUNT user class smd messages, once we
+	 * heard from all the forks
 	 */
 
-	if (!m->starting || (m->count == MSGCOUNT && !m->send_seen_all))
+	if (m->starting && m->count == MSGCOUNT && !m->send_seen_all)
 		return LWSSSSRET_TX_DONT_SEND;
-
-//	lwsl_notice("%s: sending SS smd\n", __func__);
 
 	lws_ser_wu64be(buf, 1 << LWSSMDCL_USER_BASE_BITNUM);
 	lws_ser_wu64be(buf + 8, 0); /* valgrind notices uninitialized if left */
 
+	if (!m->starting) {
+		/* we are listening: say so until we heard from everyone */
+		*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)
+			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN,
+				     *len - LWS_SMD_SS_RX_HEADER_LEN,
+			     "{\"class\":\"user\",\"fork\": %d,\"joined\":true}",
+			     (int)(intptr_t)lws_context_user(lws_ss_get_context(m->ss)));
+		*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
+		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul,
+				 sul_multi_tx_periodic_cb, 100 * LWS_US_PER_MS);
+
+		return LWSSSSRET_OK;
+	}
+
 	if (m->send_seen_all) {
 		*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)
-			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN, *len,
+			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN,
+				     *len - LWS_SMD_SS_RX_HEADER_LEN,
 			     "{\"class\":\"user\",\"fork\": %d,\"seen_all\":true}",
 			     (int)(intptr_t)lws_context_user(lws_ss_get_context(m->ss)));
 
@@ -181,7 +216,8 @@ multi_myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 				(int)(intptr_t)lws_context_user(lws_ss_get_context(m->ss)));
 	} else
 		*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)
-			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN, *len,
+			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN,
+				     *len - LWS_SMD_SS_RX_HEADER_LEN,
 			     "{\"class\":\"user\",\"fork\": %d,\"test\":%u}",
 			     (int)(intptr_t)lws_context_user(lws_ss_get_context(m->ss)),
 			     m->count++);
@@ -215,13 +251,14 @@ multi_myss_state(void *userobj, void *h_src, lws_ss_constate_t state,
 				(int)(intptr_t)lws_context_user(lws_ss_get_context(m->ss)));
 		/*
 		 * Because in this test everybody is watching and counting
-		 * everybody else's messages from different forks, we have to
-		 * hold off starting sending for 2s so all forks can join the
-		 * proxy first and not miss anything
+		 * everybody else's messages from different forks, nobody
+		 * sends theirs until all forks joined the proxy, so nobody
+		 * misses any: say we joined, until we heard from them all
 		 */
-		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul,
-				sul_multi_tx_periodic_cb, 2 * LWS_US_PER_SEC);
 		m->starting = 0;
+		multi_check_joined(m, (int)(intptr_t)lws_context_user(
+						lws_ss_get_context(m->ss)));
+		lws_ss_request_tx(m->ss);
 		return 0;
 	case LWSSSCS_DISCONNECTED:
 		for (n = 0; n < FORKS; n++)

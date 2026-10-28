@@ -63,7 +63,10 @@ not accepted.
 ### multi via proxy
 
 If the -client version is run with `--multi`, it spawns four worker processes
-which send and confirm SMD messages between each other via the SS proxy.
+which send and confirm SMD messages between each other via the SS proxy.  Each
+worker says it has joined until it has heard from all of them, and only then
+sends its messages, so a worker that joins late, eg, because its context took
+longer to become operational, misses none.
 
 ## build
 
