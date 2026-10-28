@@ -2379,6 +2379,24 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
 
 			if (wsi->h3.rx_frame_payload_read == wsi->h3.rx_frame_len) {
+				/*
+				 * A field section must end where a field line
+				 * does, and have needed all the inserts it said
+				 * it required
+				 */
+				if ((!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) &&
+				    wsi->h3.rx_frame_type == 0x01 &&
+				    (!wsi->h3.qpack_dec_state ||
+				     lws_qpack_decode_header_block_done(
+						     wsi->h3.qpack_dec_state))) {
+					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+					lwsl_wsi_notice(wsi, "QPACK: bad field section end");
+					lws_quic_enter_closing_state(nwsi,
+						LWS_QPACK_DECOMPRESSION_FAILED, 0, 1);
+					return 1;
+				}
+
 				/* the peer's control stream: a request stream's type is 0 too */
 				if (wsi->quic.qs && wsi->quic.qs->is_unidirectional &&
 				    wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {

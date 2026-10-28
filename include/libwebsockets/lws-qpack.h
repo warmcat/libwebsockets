@@ -110,8 +110,16 @@ struct lws_qpack_stream_state {
 	
 	uint64_t str_len;
 	uint64_t str_pos;
-	
-	int hdr_idx;
+
+	/*
+	 * the index a field line or insert refers to, as sent: it is checked
+	 * against the table it is for before it is used, so it may not be
+	 * narrowed first, or a huge index can alias a small one
+	 */
+	uint64_t hdr_idx;
+	/* the largest absolute dynamic index the field section used, plus 1 */
+	uint64_t ref_top;
+	uint8_t base_sign; /* the S bit of a Delta Base sent as a long int */
 	char name_buf[128];
 	size_t name_pos;
 	char val_buf[4096];
@@ -142,6 +150,20 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 			      struct lws_qpack_context *ctx,
 			      const unsigned char *in, size_t in_len,
 			      lws_qpack_header_cb cb, void *user);
+
+/*
+ * lws_qpack_decode_header_block_done() - the field section is all decoded
+ *
+ * \param state: the stream state lws_qpack_decode_header_block() decoded with
+ *
+ * Call it when the whole of the field section has been through
+ * lws_qpack_decode_header_block().  It returns nonzero, a
+ * QPACK_DECOMPRESSION_FAILED, if the section ended part way through its
+ * prefix or a field line, or if it declared a Required Insert Count it did
+ * not need (RFC 9204 4.5.1.1).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_qpack_decode_header_block_done(const struct lws_qpack_stream_state *state);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_qpack_find_static_index(int lws_hdr_idx, const char *value, int value_len);

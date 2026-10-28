@@ -522,6 +522,178 @@ lws_qpack_str_len_fits(const struct lws_qpack_stream_state *state)
 	return state->str_len + 1 > cap ? -1 : 0;
 }
 
+/*
+ * RFC 9204 4.5.1.1: the Required Insert Count from its encoding in a field
+ * section's prefix.  MaxEntries is the most entries the table we advertised
+ * can hold, which is the number of slots it was given.  Nonzero is a
+ * QPACK_DECOMPRESSION_FAILED.
+ */
+static int
+lws_qpack_decode_ric(struct lws_qpack_stream_state *state,
+		     const struct lws_qpack_context *ctx, uint64_t encoded)
+{
+	uint64_t max_entries = ctx ? ctx->dyn_table.num_entries : 0,
+		 full_range = 2 * max_entries, max_value, ric;
+
+	state->ric = 0;
+	if (!encoded)
+		return 0;
+
+	/* also any nonzero one, if we have no table to refer to */
+	if (encoded > full_range)
+		return 1;
+
+	max_value = ctx->dyn_table.insert_count + max_entries;
+	ric = (max_value / full_range) * full_range + encoded - 1;
+	if (ric > max_value) {
+		if (ric <= full_range)
+			return 1;
+		ric -= full_range;
+	}
+	if (!ric)
+		return 1;
+
+	state->ric = ric;
+
+	return 0;
+}
+
+/*
+ * RFC 9204 4.5.1.2: the Base from the Required Insert Count and the Delta
+ * Base.  With the sign bit, the Base is before the Required Insert Count and
+ * may not be negative.  A Base the insert count could never reach is refused
+ * too, so the index arithmetic on it can't wrap.
+ */
+static int
+lws_qpack_decode_base(struct lws_qpack_stream_state *state, uint64_t delta,
+		      int sign)
+{
+	if (sign) {
+		if (delta >= state->ric)
+			return 1;
+		state->base = state->ric - delta - 1;
+
+		return 0;
+	}
+
+	if (delta > 0xffffffffu)
+		return 1;
+	state->base = state->ric + delta;
+
+	return 0;
+}
+
+/*
+ * A section can only be decoded once the table has every insert it requires.
+ * We allow no blocked streams, so one that would block is a
+ * QPACK_DECOMPRESSION_FAILED (RFC 9204 2.1.2).
+ */
+static int
+lws_qpack_section_unblocked(const struct lws_qpack_stream_state *state,
+			    const struct lws_qpack_context *ctx)
+{
+	if (state->ric <= (ctx ? ctx->dyn_table.insert_count : 0))
+		return 0;
+
+	lwsl_notice("QPACK: RIC %llu but %u inserts, blocked\n",
+		    (unsigned long long)state->ric,
+		    ctx ? (unsigned int)ctx->dyn_table.insert_count : 0u);
+
+	return 1;
+}
+
+/*
+ * The dynamic table entry a field line refers to by absolute index.  It must
+ * be before the Required Insert Count the section declared, and still in the
+ * table (RFC 9204 2.2.3): if not, NULL, a QPACK_DECOMPRESSION_FAILED.  The
+ * section is only decoded once the table has all the inserts it requires.
+ */
+static struct lws_qpack_dynamic_table_entry *
+lws_qpack_section_ref(struct lws_qpack_stream_state *state,
+		      struct lws_qpack_context *ctx, uint64_t absolute_idx)
+{
+	struct lws_qpack_dynamic_table_entry *dte;
+	uint64_t rel;
+
+	if (!ctx || absolute_idx >= state->ric ||
+	    state->ric > ctx->dyn_table.insert_count) {
+		lwsl_notice("QPACK: reference to %llu, RIC %llu\n",
+			    (unsigned long long)absolute_idx,
+			    (unsigned long long)state->ric);
+		return NULL;
+	}
+
+	rel = ctx->dyn_table.insert_count - 1 - absolute_idx;
+	if (rel >= ctx->dyn_table.used_entries) {
+		lwsl_notice("QPACK: reference to evicted %llu\n",
+			    (unsigned long long)absolute_idx);
+		return NULL;
+	}
+
+	dte = lws_qpack_get_dynamic_entry(ctx, (int)rel);
+	if (!dte || !dte->value)
+		return NULL;
+
+	if (absolute_idx + 1 > state->ref_top)
+		state->ref_top = absolute_idx + 1;
+
+	return dte;
+}
+
+/*
+ * A field line's index relative to the Base: before it, counting back from
+ * Base - 1, or post-base, counting on from it
+ */
+static struct lws_qpack_dynamic_table_entry *
+lws_qpack_section_ref_rel(struct lws_qpack_stream_state *state,
+			  struct lws_qpack_context *ctx, uint64_t idx,
+			  int post_base)
+{
+	if (post_base) {
+		if (idx > 0xffffffffu)
+			return lws_qpack_section_ref(state, ctx, UINT64_MAX);
+
+		return lws_qpack_section_ref(state, ctx, state->base + idx);
+	}
+
+	if (idx >= state->base)
+		return lws_qpack_section_ref(state, ctx, UINT64_MAX);
+
+	return lws_qpack_section_ref(state, ctx, state->base - idx - 1);
+}
+
+/* a static table row, by the index as sent */
+static int
+lws_qpack_static_row(uint64_t idx, int *tok, const char **value)
+{
+	if (idx >= LWS_ARRAY_SIZE(qpack_static_name))
+		return 1;
+
+	return lws_qpack_get_static_token((int)idx, tok, value);
+}
+
+LWS_VISIBLE int
+lws_qpack_decode_header_block_done(const struct lws_qpack_stream_state *state)
+{
+	/* the section stopped part way through a field line, or its prefix */
+	if (state->state != LQP_DEC_INSTRUCTION)
+		return 1;
+
+	/*
+	 * RFC 9204 4.5.1.1: a Required Insert Count larger than the section
+	 * needed is an error, so the encoder can't keep a stream blocked, or
+	 * entries unevictable, for nothing
+	 */
+	if (state->ric && state->ref_top != state->ric) {
+		lwsl_notice("QPACK: RIC %llu, section used up to %llu\n",
+			    (unsigned long long)state->ric,
+			    (unsigned long long)state->ref_top);
+		return 1;
+	}
+
+	return 0;
+}
+
 LWS_VISIBLE int
 lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 			      struct lws_qpack_context *ctx,
@@ -541,45 +713,27 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				state->int_shift = 0;
 				state->next_state = LQP_DEC_PREFIX_BASE;
 				state->state = LQP_DEC_INT;
-			} else {
-				uint32_t max_entries = ctx ? ctx->dyn_table.num_entries : 0;
-				uint32_t full_range = 2 * max_entries;
-				uint32_t wire_ric = (uint32_t)state->int_val;
-				if (wire_ric == 0 || !max_entries) {
-					state->ric = 0;
-				} else {
-					uint32_t max_val = ctx->dyn_table.insert_count + max_entries;
-					uint32_t max_wrapped = (max_val / full_range) * full_range;
-					uint32_t req_ric = max_wrapped + wire_ric - 1;
-					if (req_ric > max_val) {
-						if (req_ric >= full_range)
-							req_ric -= full_range;
-					}
-					state->ric = req_ric;
-				}
-				state->state = LQP_DEC_PREFIX_BASE;
+				break;
 			}
+			if (lws_qpack_decode_ric(state, ctx, state->int_val))
+				return 1;
+			state->state = LQP_DEC_PREFIX_BASE;
 			break;
 
 		case LQP_DEC_PREFIX_BASE:
-			{
-				uint8_t s = !!(c & 0x80);
-				uint64_t delta = c & 0x7f;
-				if (delta == 0x7f) {
-					state->int_shift = 0;
-					state->int_val = 0x7f;
-					state->next_state = LQP_DEC_INSTRUCTION;
-					state->state = LQP_DEC_INT;
-					state->is_name = s;
-				} else {
-					if (s) {
-						state->base = state->ric - delta - 1;
-					} else {
-						state->base = state->ric + delta;
-					}
-					state->state = LQP_DEC_INSTRUCTION;
-				}
+			state->base_sign = !!(c & 0x80);
+			state->int_val = c & 0x7f;
+			if (state->int_val == 0x7f) {
+				state->int_shift = 0;
+				state->next_state = LQP_DEC_INSTRUCTION;
+				state->state = LQP_DEC_INT;
+				break;
 			}
+			if (lws_qpack_decode_base(state, state->int_val,
+						  state->base_sign) ||
+			    lws_qpack_section_unblocked(state, ctx))
+				return 1;
+			state->state = LQP_DEC_INSTRUCTION;
 			break;
 
 		case LQP_DEC_INSTRUCTION:
@@ -605,7 +759,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					state->next_state = LQP_DEC_STR_LEN;
 					state->state = LQP_DEC_INT;
 				} else {
-					state->hdr_idx = (int)state->int_val;
+					state->hdr_idx = state->int_val;
 					state->state = LQP_DEC_STR_LEN;
 				}
 			} else if ((c & 0xf0) == 0x20 || (c & 0xf0) == 0x30) {
@@ -649,7 +803,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					state->next_state = LQP_DEC_STR_LEN;
 					state->state = LQP_DEC_INT;
 				} else {
-					state->hdr_idx = (int)state->int_val;
+					state->hdr_idx = state->int_val;
 					state->state = LQP_DEC_STR_LEN;
 				}
 			}
@@ -679,31 +833,20 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 							state->skip = 1;
 						}
 					} else if (state->state == LQP_DEC_STR_LEN) {
-					state->hdr_idx = (int)state->int_val;
+					state->hdr_idx = state->int_val;
 				} else if (state->state == LQP_DEC_EMIT) {
 					goto do_emit;
 				} else if (state->state == LQP_DEC_PREFIX_BASE) {
-					uint32_t max_entries = ctx ? ctx->dyn_table.num_entries : 0;
-					uint32_t full_range = 2 * max_entries;
-					uint32_t wire_ric = (uint32_t)state->int_val;
-					if (wire_ric == 0 || !max_entries) {
-						state->ric = 0;
-					} else {
-						uint32_t max_val = ctx->dyn_table.insert_count + max_entries;
-						uint32_t max_wrapped = (max_val / full_range) * full_range;
-						uint32_t req_ric = max_wrapped + wire_ric - 1;
-						if (req_ric > max_val) {
-							if (req_ric >= full_range)
-								req_ric -= full_range;
-						}
-						state->ric = req_ric;
-					}
+					if (lws_qpack_decode_ric(state, ctx,
+								 state->int_val))
+						return 1;
 				} else if (state->state == LQP_DEC_INSTRUCTION) {
-					if (state->is_name) {
-						state->base = state->ric - state->int_val - 1;
-					} else {
-						state->base = state->ric + state->int_val;
-					}
+					/* only the prefix's Delta Base gets here */
+					if (lws_qpack_decode_base(state,
+							state->int_val,
+							state->base_sign) ||
+					    lws_qpack_section_unblocked(state, ctx))
+						return 1;
 				}
 			}
 			break;
@@ -838,6 +981,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 		do_emit:
 		case LQP_DEC_EMIT:
 			{
+				struct lws_qpack_dynamic_table_entry *dte;
 				size_t name_len = 0, val_len = 0;
 				const char *name = NULL;
 				const char *val = NULL;
@@ -854,41 +998,35 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				}
 
 				if ((state->opcode & 0xc0) == 0xc0) {
-					/* the index as sent, not what an int makes of it */
-					if (state->int_val >= LWS_ARRAY_SIZE(qpack_static_name) ||
-					    lws_qpack_get_static_token((int)state->int_val, &idx, &val))
+					/* Indexed Field Line, static */
+					if (lws_qpack_static_row(state->int_val,
+								 &idx, &val))
 						return 1;
 					val_len = strlen(val);
 					if (idx == LWS_QPACK_IGNORE_ENTRY) {
 						name = qpack_static_name[state->int_val];
 						name_len = strlen(name);
 					}
-				} else if ((state->opcode & 0xc0) == 0x80) {
-					int absolute_idx = (int)(state->base - (uint64_t)state->int_val - 1);
-					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
-					
-					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
-						/* F-62: absolute_idx is larger than current insert_count, wait for more encoder stream */
-						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
+				} else if ((state->opcode & 0xc0) == 0x80 ||
+					   (state->opcode & 0xf0) == 0x10) {
+					/* Indexed Field Line, dynamic or post-base */
+					dte = lws_qpack_section_ref_rel(state, ctx,
+						state->int_val,
+						(state->opcode & 0xf0) == 0x10);
+					if (!dte)
 						return 1;
-					}
-					
-					struct lws_qpack_dynamic_table_entry *dte = 
-						lws_qpack_get_dynamic_entry(ctx, relative_idx);
-					if (dte && dte->value) {
-						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
-						idx = dte->lws_hdr_idx;
-						name = dte->value;
-						val = dte->value + name_len + 1;
-						val_len = dte->value_len;
-					} else {
-						lwsl_notice("%s: indexed dyn ref rel %d "
-							    "unresolvable\n", __func__,
-							    relative_idx);
+					name_len = (size_t)(dte->hdr_len -
+							    dte->value_len - 32);
+					idx = dte->lws_hdr_idx;
+					name = dte->value;
+					val = dte->value + name_len + 1;
+					val_len = dte->value_len;
+				} else if ((state->opcode & 0xf0) == 0x50 ||
+					   (state->opcode & 0xf0) == 0x70) {
+					/* Literal With Name Reference, static */
+					if (lws_qpack_static_row(state->hdr_idx,
+								 &idx, NULL))
 						return 1;
-					}
-				} else if ((state->opcode & 0xf0) == 0x50 || (state->opcode & 0xf0) == 0x70) {
-					if (lws_qpack_get_static_token((int)state->hdr_idx, &idx, NULL)) return 1;
 					if (idx == LWS_QPACK_IGNORE_ENTRY) {
 						name = qpack_static_name[state->hdr_idx];
 						name_len = strlen(name);
@@ -896,25 +1034,22 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
 					val_len = state->val_pos;
-				} else if ((state->opcode & 0xf0) == 0x40 || (state->opcode & 0xf0) == 0x60) {
-					int absolute_idx = (int)(state->base - (uint64_t)(unsigned int)state->hdr_idx - 1);
-					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
-						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
+				} else if ((state->opcode & 0xf0) == 0x40 ||
+					   (state->opcode & 0xf0) == 0x60 ||
+					   (state->opcode & 0xf0) == 0x00) {
+					/*
+					 * Literal With Name Reference, dynamic,
+					 * or With Post-Base Name Reference
+					 */
+					dte = lws_qpack_section_ref_rel(state, ctx,
+						state->hdr_idx,
+						(state->opcode & 0xf0) == 0x00);
+					if (!dte)
 						return 1;
-					}
-					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
-					struct lws_qpack_dynamic_table_entry *dte = 
-						lws_qpack_get_dynamic_entry(ctx, relative_idx);
-					if (dte && dte->value) {
-						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
-						idx = dte->lws_hdr_idx;
-						name = dte->value;
-					} else {
-						lwsl_notice("%s: dyn name ref rel %d "
-							    "unresolvable\n", __func__,
-							    relative_idx);
-						return 1;
-					}
+					name_len = (size_t)(dte->hdr_len -
+							    dte->value_len - 32);
+					idx = dte->lws_hdr_idx;
+					name = dte->value;
 					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
 					val_len = state->val_pos;
@@ -923,49 +1058,6 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					state->val_buf[state->val_pos] = '\0';
 					name = state->name_buf;
 					name_len = state->name_pos;
-					val = state->val_buf;
-					val_len = state->val_pos;
-				} else if ((state->opcode & 0xf0) == 0x10) {
-					int absolute_idx = (int)(state->base + state->int_val);
-					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
-						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
-						return 1;
-					}
-					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
-					struct lws_qpack_dynamic_table_entry *dte = 
-						lws_qpack_get_dynamic_entry(ctx, relative_idx);
-					if (dte && dte->value) {
-						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
-						idx = dte->lws_hdr_idx;
-						name = dte->value;
-						val = dte->value + name_len + 1;
-						val_len = dte->value_len;
-					} else {
-						lwsl_notice("%s: post-base indexed ref "
-							    "rel %d unresolvable\n",
-							    __func__, relative_idx);
-						return 1;
-					}
-				} else if ((state->opcode & 0xf0) == 0x00) {
-					int absolute_idx = (int)(state->base + (uint64_t)(unsigned int)state->hdr_idx);
-					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
-						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
-						return 1;
-					}
-					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
-					struct lws_qpack_dynamic_table_entry *dte = 
-						lws_qpack_get_dynamic_entry(ctx, relative_idx);
-					if (dte && dte->value) {
-						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
-						idx = dte->lws_hdr_idx;
-						name = dte->value;
-					} else {
-						lwsl_notice("%s: post-base name ref "
-							    "rel %d unresolvable\n",
-							    __func__, relative_idx);
-						return 1;
-					}
-					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
 					val_len = state->val_pos;
 				}
@@ -1086,6 +1178,19 @@ lws_qpack_dynamic_insert(struct lws_qpack_context *ctx, int lws_hdr_idx, const c
 	return 0;
 }
 
+/*
+ * An encoder instruction's relative index counts back from the latest insert
+ * (RFC 9204 3.2.5): one past the entries still in the table is an error
+ */
+static struct lws_qpack_dynamic_table_entry *
+lws_qpack_enc_ref(struct lws_qpack_context *ctx, uint64_t rel)
+{
+	if (!ctx || rel >= ctx->dyn_table.used_entries)
+		return NULL;
+
+	return lws_qpack_get_dynamic_entry(ctx, (int)rel);
+}
+
 LWS_VISIBLE int
 lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state, 
 			      struct lws_qpack_context *ctx,
@@ -1108,7 +1213,7 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 					state->next_state = LQP_DEC_STR_LEN;
 					state->state = LQP_DEC_INT;
 				} else {
-					state->hdr_idx = (int)state->int_val;
+					state->hdr_idx = state->int_val;
 					state->state = LQP_DEC_STR_LEN;
 				}
 			} else if ((c & 0xc0) == 0x80) {
@@ -1119,7 +1224,7 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 					state->next_state = LQP_DEC_STR_LEN;
 					state->state = LQP_DEC_INT;
 				} else {
-					state->hdr_idx = (int)state->int_val;
+					state->hdr_idx = state->int_val;
 					state->state = LQP_DEC_STR_LEN;
 				}
 			} else if ((c & 0xc0) == 0x40) {
@@ -1192,7 +1297,7 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 						return 1;
 					}
 				} else if (state->state == LQP_DEC_STR_LEN) {
-					state->hdr_idx = (int)state->int_val;
+					state->hdr_idx = state->int_val;
 				} else if (state->state == LQP_DEC_EMIT) {
 					goto do_emit_enc;
 				}
@@ -1327,8 +1432,8 @@ do_emit_enc:
 				const char *name = NULL;
 				
 				if ((state->opcode & 0xc0) == 0x80) {
-					struct lws_qpack_dynamic_table_entry *dte = 
-						lws_qpack_get_dynamic_entry(ctx, (int)state->hdr_idx);
+					struct lws_qpack_dynamic_table_entry *dte =
+						lws_qpack_enc_ref(ctx, state->hdr_idx);
 					size_t name_len;
 
 					/*
@@ -1338,7 +1443,8 @@ do_emit_enc:
 					 * table out of step with the peer's
 					 */
 					if (!dte || !dte->value) {
-						lwsl_info("Insert Name Ref (dyn) failed: int_val=%d\n", (int)state->hdr_idx);
+						lwsl_info("Insert Name Ref (dyn) failed: %llu\n",
+							  (unsigned long long)state->hdr_idx);
 						return 1;
 					}
 					name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
@@ -1351,7 +1457,7 @@ do_emit_enc:
 					 * value, and is sized by it (RFC 9204
 					 * 3.2.1), as the peer sizes it
 					 */
-					if (lws_qpack_get_static_token((int)state->hdr_idx, &tok, NULL))
+					if (lws_qpack_static_row(state->hdr_idx, &tok, NULL))
 						return 1;
 					name = qpack_static_name[state->hdr_idx];
 					state->val_buf[state->val_pos] = '\0';
@@ -1363,15 +1469,19 @@ do_emit_enc:
 					if (lws_qpack_dynamic_insert(ctx, -1, state->name_buf, state->name_pos, state->val_buf, state->val_pos))
 						return 1;
 				} else if ((state->opcode & 0xe0) == 0x20) {
-					if (lws_qpack_dynamic_size(ctx, (int)state->int_val))
+					/* checked before it is narrowed, or it wraps */
+					if (!ctx || state->int_val >
+						ctx->dyn_table.virtual_payload_limit ||
+					    lws_qpack_dynamic_size(ctx, (int)state->int_val))
 						return 1;
 				} else if ((state->opcode & 0xe0) == 0x00) {
-					struct lws_qpack_dynamic_table_entry *dte = 
-						lws_qpack_get_dynamic_entry(ctx, (int)state->int_val);
+					struct lws_qpack_dynamic_table_entry *dte =
+						lws_qpack_enc_ref(ctx, state->int_val);
 					size_t name_len;
 
 					if (!dte || !dte->value) {
-						lwsl_info("Duplicate failed: int_val=%d\n", (int)state->int_val);
+						lwsl_info("Duplicate failed: %llu\n",
+							  (unsigned long long)state->int_val);
 						return 1;
 					}
 					name_len = (size_t)(dte->hdr_len - dte->value_len - 32);

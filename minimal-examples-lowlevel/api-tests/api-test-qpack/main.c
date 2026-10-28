@@ -699,6 +699,140 @@ static int test_qpack_static_name_ref_insert(void)
 	return st.fails;
 }
 
+/*
+ * 13. The rules a field section's prefix and references are held to.
+ *
+ * RFC 9204 4.5.1: the Required Insert Count is decoded against what the
+ * table can hold and refused if it can't be one; the Base can't be negative;
+ * a reference must be to an entry before the Required Insert Count; and the
+ * section must have needed every insert it said it required.  A section
+ * stopping part way through a field line is malformed too.
+ */
+
+static int
+test_section_rules_cb(void *user, int name_idx, const char *name,
+		      size_t name_len, const char *value, size_t value_len)
+{
+	return 0;
+}
+
+static int test_qpack_section_rules(void)
+{
+	static struct lws_qpack_dynamic_table_entry entries[128];
+	/*
+	 * Two inserts, as test 11 makes them: with 128 entries, the
+	 * Required Insert Count goes on the wire as (RIC mod 256) + 1
+	 */
+	static const uint8_t setcap[] = { 0x3f, 0xe1, 0x1f },
+		ins1[] = { 0x46, 'o','r','i','g','i','n', 1, 'a' },
+		ins2[] = { 0x80, 1, 'b' };
+	static const struct {
+		const char	*what;
+		uint8_t		blk[8];
+		uint8_t		len;
+		uint8_t		decodes;	/* the bytes are accepted */
+		uint8_t		done;		/* ... and end a section */
+	} c[] = {
+		{ "RIC 2, refers to abs 1",
+		  { 0x03, 0x00, 0x80 }, 3, 1, 1 },
+		{ "RIC 2, Base 0 by sign, post-base abs 1",
+		  { 0x03, 0x81, 0x11 }, 3, 1, 1 },
+		{ "RIC 2, only refers to abs 0",
+		  { 0x03, 0x00, 0x81 }, 3, 1, 0 },
+		{ "RIC 1, post-base ref to abs 1",
+		  { 0x02, 0x00, 0x10 }, 3, 0, 0 },
+		{ "encoded RIC past 2 x MaxEntries",
+		  { 0xff, 0x02, 0x00 }, 3, 0, 0 },
+		{ "RIC that can only be from before a wrap",
+		  { 0xc8, 0x00 }, 2, 0, 0 },
+		{ "RIC 3 with 2 inserts, blocked",
+		  { 0x04, 0x00 }, 2, 0, 0 },
+		{ "negative Base",
+		  { 0x03, 0x82 }, 2, 0, 0 },
+		{ "relative ref before abs 0",
+		  { 0x03, 0x00, 0x82 }, 3, 0, 0 },
+		{ "stops in a field line",
+		  { 0x00, 0x00, 0x51 }, 3, 1, 0 },
+		{ "stops in the prefix",
+		  { 0x00 }, 1, 1, 0 },
+	};
+	struct lws_qpack_stream_state st;
+	struct lws_qpack_context qctx;
+	uint8_t big[16];
+	int fails = 0, n;
+	size_t m;
+
+	lwsl_user("\n--- 13. QPACK field section prefix and references ---\n");
+
+	memset(&qctx, 0, sizeof(qctx));
+	qctx.dyn_table.entries = entries;
+	qctx.dyn_table.num_entries = LWS_ARRAY_SIZE(entries);
+	qctx.dyn_table.virtual_payload_limit = 4096;
+
+	memset(&st, 0, sizeof(st));
+	st.state = LQP_DEC_INSTRUCTION;
+	if (lws_qpack_decode_encoder_stream(&st, &qctx, setcap, sizeof(setcap)) ||
+	    lws_qpack_decode_encoder_stream(&st, &qctx, ins1, sizeof(ins1)) ||
+	    lws_qpack_decode_encoder_stream(&st, &qctx, ins2, sizeof(ins2)) ||
+	    qctx.dyn_table.insert_count != 2) {
+		lwsl_err("13.0: inserts refused\n");
+		fails++;
+	}
+
+	for (m = 0; m < LWS_ARRAY_SIZE(c); m++) {
+		memset(&st, 0, sizeof(st));
+		n = !lws_qpack_decode_header_block(&st, &qctx, c[m].blk,
+						   c[m].len,
+						   test_section_rules_cb, NULL);
+		if (n != c[m].decodes) {
+			lwsl_err("13.%d: %s: decode %s\n", (int)m + 1, c[m].what,
+				 n ? "accepted" : "refused");
+			fails++;
+			continue;
+		}
+		if (n && (!lws_qpack_decode_header_block_done(&st)) != c[m].done) {
+			lwsl_err("13.%d: %s: section end %s\n", (int)m + 1,
+				 c[m].what, c[m].done ? "refused" : "accepted");
+			fails++;
+		}
+	}
+
+	/* a nonzero RIC with no table at all */
+	memset(&st, 0, sizeof(st));
+	if (!lws_qpack_decode_header_block(&st, NULL, c[0].blk, c[0].len,
+					   test_section_rules_cb, NULL)) {
+		lwsl_err("13.20: RIC without a table accepted\n");
+		fails++;
+	}
+
+	/* a static index past 2^32 must not alias the small one it ends in */
+	memset(&st, 0, sizeof(st));
+	big[0] = big[1] = 0;
+	n = lws_qpack_encode_int(big + 2, sizeof(big) - 2,
+				 (1ull << 32) + 17, 6, 0xc0);
+	if (n < 0 || !lws_qpack_decode_header_block(&st, &qctx, big,
+						     (size_t)n + 2,
+						     test_section_rules_cb,
+						     NULL)) {
+		lwsl_err("13.21: static index 2^32 + 17 accepted\n");
+		fails++;
+	}
+
+	/* ... nor a table capacity past 2^32, on the encoder stream */
+	memset(&st, 0, sizeof(st));
+	st.state = LQP_DEC_INSTRUCTION;
+	n = lws_qpack_encode_int(big, sizeof(big), (1ull << 32) + 64, 5, 0x20);
+	if (n < 0 || !lws_qpack_decode_encoder_stream(&st, &qctx, big,
+						      (size_t)n)) {
+		lwsl_err("13.22: capacity 2^32 + 64 accepted\n");
+		fails++;
+	}
+
+	lws_qpack_destroy_dynamic_header(&qctx);
+
+	return fails;
+}
+
 struct test_qif_state {
 	int fails;
 	int expected_idx;
@@ -1282,6 +1416,7 @@ int main(int argc, const char **argv)
 	fails += test_qpack_browser_shape();
 	fails += test_qpack_static_name_ref_insert();
 	fails += test_qpack_field_too_large();
+	fails += test_qpack_section_rules();
 
 	if (fails) {
 		lwsl_err("Failed %d tests\n", fails);
