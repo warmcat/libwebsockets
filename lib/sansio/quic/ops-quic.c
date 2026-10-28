@@ -291,15 +291,17 @@ lws_quic_sa46_same_path(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
 
 /*
  * Frames that are not sent again when the packet carrying them is lost:
- * DATAGRAM (RFC 9221 5), and PATH_RESPONSE (RFC 9000 13.3), which answers one
+ * DATAGRAM (RFC 9221 5), PATH_RESPONSE (RFC 9000 13.3), which answers one
  * PATH_CHALLENGE on the path it came from; a peer still waiting for the answer
- * sends a new challenge.
+ * sends a new challenge, and PING (RFC 9000 13.3), which carries nothing: it
+ * was there to elicit an ack, and the loss was found from the acks that came.
  */
 static int
 lws_quic_frame_not_retransmitted(const struct lws_quic_tx_frame *f)
 {
 	return (f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM ||
-	       f->type == LWS_QUIC_FT_PATH_RESPONSE;
+	       f->type == LWS_QUIC_FT_PATH_RESPONSE ||
+	       f->type == LWS_QUIC_FT_PING;
 }
 
 /*
@@ -1168,8 +1170,7 @@ static int
 lws_quic_frame_pto_resent(const struct lws_quic_netconn *qn,
 			  const struct lws_quic_tx_frame *f)
 {
-	return !f->pmtud_probe && f->type != LWS_QUIC_FT_PING &&
-	       !lws_quic_frame_not_retransmitted(f) &&
+	return !f->pmtud_probe && !lws_quic_frame_not_retransmitted(f) &&
 	       !lws_quic_frame_probes_another_path(qn, f);
 }
 
