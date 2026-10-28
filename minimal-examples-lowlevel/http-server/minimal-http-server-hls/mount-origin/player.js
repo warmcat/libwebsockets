@@ -143,6 +143,80 @@ document.addEventListener('DOMContentLoaded', function() {
         filenameContainer.textContent = friendlyName(videoSrc || rawSrc);
     }
 
+    /*
+     * The download button saves the media file itself, not the HLS made
+     * from it, from the plugin's download/ endpoint beside this page.
+     * Where the browser has a save-file picker (Chromium, in a secure
+     * context) the user chooses where it goes and we stream the body
+     * straight into that file; elsewhere the endpoint's attachment
+     * disposition hands it to the browser's own download flow.
+     */
+    var dlBtn = document.getElementById('download-btn');
+    var dlName = null;
+    if (videoSrc && videoSrc.indexOf('stream/') === 0)
+        dlName = videoSrc.slice(7);
+    else if (rawSrc && rawSrc.indexOf('media/') === 0)
+        dlName = rawSrc.slice(6);
+    if (dlBtn && dlName) {
+        var dlUrl = 'download/' + dlName.split('/').map(encodeURIComponent).join('/');
+        var dlBase = dlName.slice(dlName.lastIndexOf('/') + 1);
+        var dlLabel = dlBtn.textContent;
+
+        dlBtn.classList.remove('hidden');
+        dlBtn.addEventListener('click', function() {
+            if (typeof window.showSaveFilePicker !== 'function') {
+                var a = document.createElement('a');
+
+                a.href = dlUrl;
+                a.download = dlBase;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                return;
+            }
+
+            /* the picker has to open from the click itself, before we
+             * fetch anything: the click's activation doesn't last */
+            var writable = null;
+            window.showSaveFilePicker({ suggestedName: dlBase }).then(function(h) {
+                return h.createWritable();
+            }).then(function(w) {
+                writable = w;
+                dlBtn.disabled = true;
+                return fetch(dlUrl, { credentials: 'same-origin' });
+            }).then(function(res) {
+                if (!res.ok)
+                    throw new Error('HTTP ' + res.status);
+                var total = parseInt(res.headers.get('content-length'), 10);
+                var done = 0;
+                var progress = new TransformStream({
+                    transform: function(chunk, ctl) {
+                        done += chunk.byteLength;
+                        if (total > 0)
+                            dlBtn.textContent = '\u2B07 ' +
+                                Math.floor((done * 100) / total) + '%';
+                        ctl.enqueue(chunk);
+                    }
+                });
+                /* pipeTo() closes the file when the body ends */
+                return res.body.pipeThrough(progress).pipeTo(writable);
+            }).then(function() {
+                logMsg('download: saved ' + dlBase);
+            }).catch(function(e) {
+                /* AbortError is the user cancelling the picker */
+                if (e && e.name === 'AbortError' && !writable)
+                    return;
+                /* drop what we wrote of it rather than leave it short */
+                if (writable)
+                    writable.abort().catch(function() {});
+                alert('Download failed: ' + (e && e.message ? e.message : e));
+            }).finally(function() {
+                dlBtn.disabled = false;
+                dlBtn.textContent = dlLabel;
+            });
+        });
+    }
+
     // Toggle debug logs panel visibility
     var toggleBtn = document.getElementById('toggle-logs-btn');
     var debugPanel = document.getElementById('debug-panel');

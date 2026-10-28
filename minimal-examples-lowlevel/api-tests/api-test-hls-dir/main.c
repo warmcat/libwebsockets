@@ -32,6 +32,10 @@
  *    separators spaced) while href / src / data-file keep the raw name,
  *    and a name that snips down to nothing falls back to the filename.
  *
+ * It fetches media through the download endpoint: the file itself comes back
+ * as an attachment named by its basename, escaped for filename*=, but only
+ * for what the listing would show, and only once it is all there.
+ *
  * It then drives the delete endpoint, with the login grant level forwarded
  * the way an lws-login proxy in front stamps it (trust-login-headers):
  *
@@ -100,6 +104,9 @@
 /* a subdirectory something is being copied into under a temporary name */
 #define INCOMING_DIR	"Incoming.2024"
 #define INCOMING_TEMP	INCOMING_DIR "/.Incoming.2024.mkv.Ab12Cd"
+/* settled media, but in a dot-dir, where our caches live: not listed */
+#define DOTDIR_DIR	".Hidden.2024"
+#define DOTDIR_MEDIA	DOTDIR_DIR "/Hidden.Film.2024.mkv"
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_timeout;
@@ -117,6 +124,7 @@ static char body[64 * 1024];
 static size_t body_len;
 static int got_status;
 static long got_cl = -1;
+static char got_cd[256];	/* content-disposition, "" if none */
 static int step_over;		/* this step's transaction has ended */
 static int done;		/* 1 = all steps ran, -1 = failed */
 static int steps_done;		/* ...waiting for the feed to catch up */
@@ -139,6 +147,8 @@ static void check_index_incomplete(void);
 static void check_refused(void);
 static void check_nested_deleted(void);
 static void check_special_deleted(void);
+static void check_download_nested(void);
+static void check_download_special(void);
 
 /*
  * The client's requests, in order.  grant sends the login grant level an
@@ -161,6 +171,19 @@ static const struct step {
 	{ "GET",  "/media/stream/" STALLED_MEDIA,	0, 503, NULL },
 	{ "GET",  "/media/segment/" SHORTMDAT_MEDIA "/0", 0, 503, NULL },
 	{ "GET",  "/media/preview/" NOMOOV_MEDIA,	0, 404, NULL },
+	/*
+	 * the media file itself, by its path, as an attachment; only what
+	 * the listing would show, and only once it is all there
+	 */
+	{ "GET",  "/media/download/" NESTED_MEDIA,	0, 200,
+						check_download_nested },
+	{ "GET",  "/media/download/" SPECIAL_URL,	0, 200,
+						check_download_special },
+	{ "GET",  "/media/download/" ARRIVING_MEDIA,	0, 503, NULL },
+	{ "GET",  "/media/download/" STALLED_MEDIA,	0, 503, NULL },
+	{ "GET",  "/media/download/" DOTDIR_MEDIA,	0, 404, NULL },
+	{ "GET",  "/media/download/" RSYNC_TEMP,	0, 404, NULL },
+	{ "GET",  "/media/download/" NESTED_STRAY,	0, 404, NULL },
 	/* ...but an admin can delete a copy that died */
 	{ "POST", "/media/delete/" STALLED_MEDIA,	1, 200, NULL },
 	{ "POST", "/media/delete/" REFUSED_MEDIA,	0, 403, check_refused },
@@ -379,6 +402,11 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			cl[n] = '\0';
 			got_cl = atol(cl);
 		}
+
+		n = lws_hdr_copy(wsi, got_cd, sizeof(got_cd),
+				 WSI_TOKEN_HTTP_CONTENT_DISPOSITION);
+		if (n < 0)
+			got_cd[0] = '\0';
 		break;
 	}
 
@@ -447,6 +475,7 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 	body[0] = '\0';
 	got_status = 0;
 	got_cl = -1;
+	got_cd[0] = '\0';
 	step_over = 0;
 
 	memset(&i, 0, sizeof(i));
@@ -725,6 +754,15 @@ build_fixture_dir(void)
 			return 1;
 	}
 
+	/* playable media, but under a dot-dir */
+	{
+		char sub[384];
+
+		lws_snprintf(sub, sizeof(sub), "%s/" DOTDIR_DIR, fixture_dir);
+		if (mkdir(sub, 0700) || touch(fixture_dir, DOTDIR_MEDIA))
+			return 1;
+	}
+
 	/* characters that are ordinary in a media name */
 	if (touch(fixture_dir, SPECIAL_MEDIA))
 		return 1;
@@ -830,7 +868,7 @@ remove_fixture_dir(void)
 			ARRIVING_MEDIA, STALLED_MEDIA, NOMOOV_MEDIA,
 			SHORTMDAT_MEDIA, RSYNC_TEMP, INCOMING_TEMP,
 			INCOMING_DIR, STALEIDX_MEDIA, GOODIDX_MEDIA,
-			BIG_MEDIA
+			BIG_MEDIA, DOTDIR_MEDIA, DOTDIR_DIR
 		};
 		char hp[1024];
 		size_t j;
@@ -1093,6 +1131,27 @@ check_nested_deleted(void)
 			  !fixture_exists(NESTED_DIR));
 	expect("unrelated media untouched by the subdirectory purge",
 	       fixture_exists(REFUSED_MEDIA));
+}
+
+static void
+check_download_nested(void)
+{
+	expect("download is the media file itself",
+	       body_len == sizeof(stub_mkv) &&
+	       !memcmp(body, stub_mkv, sizeof(stub_mkv)));
+	expect("download is an attachment named by its basename",
+	       !strcmp(got_cd, "attachment; "
+			       "filename=\"Nested.Bunny.1080p.WEB-DL.mkv\"; "
+			       "filename*=UTF-8''Nested.Bunny.1080p.WEB-DL.mkv"));
+}
+
+static void
+check_download_special(void)
+{
+	expect("download name escaped for filename*=",
+	       !strcmp(got_cd, "attachment; "
+			       "filename=\"Colon: Dollar$ 50%.mkv\"; "
+			       "filename*=UTF-8''Colon%3a%20Dollar$%2050%25.mkv"));
 }
 
 static void

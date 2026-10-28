@@ -38,6 +38,15 @@ their playlist, segment and thumbnail requests must be refused, an rsync
 style dotfile copy must not be listed, and a subdirectory something is
 being copied into must survive the startup purge.
 
+It fetches media through the download endpoint and asserts:
+
+ - media in a subdirectory comes back byte for byte, as an attachment
+   named by its basename;
+ - a name containing `:` `$` `%` is escaped in the `filename*=`;
+ - media still arriving or cut short is refused (503);
+ - media under a dot-dir, a dotfile copy in progress and a non-media
+   sidecar are not found (404).
+
 It then drives the delete endpoint, forwarding the login grant level the
 way an `lws-login` gated proxy in front would (the vhost sets
 `trust-login-headers`), and asserts:

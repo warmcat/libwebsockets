@@ -365,6 +365,122 @@ hls_split_sel(const char *p, char *filename, size_t fn_sz, char *sel,
 	return hls_media_name_copy(filename, fn_sz, work, strlen(work));
 }
 
+/*
+ * RFC 8187 attr-char, the characters a filename*= value may carry as they are
+ */
+static int
+hls_attr_char(char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+	       (c >= '0' && c <= '9') || strchr("!#$&+-.^_`|~", c);
+}
+
+/*
+ * Content-Disposition for a download of media: its basename, as a plain
+ * ASCII filename= with anything risky in a quoted-string replaced, and
+ * exactly as a percent-encoded UTF-8 filename*=.  Returns 0, or 1 if it
+ * doesn't fit.
+ */
+static int
+hls_content_disposition(char *buf, size_t len, const char *filename)
+{
+	const char *base = strrchr(filename, '/'), *q;
+	size_t o;
+
+	base = base ? base + 1 : filename;
+
+	o = (size_t)lws_snprintf(buf, len, "attachment; filename=\"");
+	for (q = base; *q && o + 2 < len; q++)
+		buf[o++] = (*q >= 0x20 && *q < 0x7f && *q != '\"' &&
+			    *q != '\\') ? *q : '_';
+	if (o + 20 >= len)
+		return 1;
+	o += (size_t)lws_snprintf(buf + o, len - o, "\"; filename*=UTF-8''");
+
+	for (q = base; *q; q++) {
+		if (o + 4 >= len)
+			return 1;
+		if (hls_attr_char(*q)) {
+			buf[o++] = *q;
+			continue;
+		}
+		buf[o++] = '%';
+		lws_hex_from_byte_array((const uint8_t *)q, 1, buf + o, 3);
+		o += 2;
+	}
+	buf[o] = '\0';
+
+	return 0;
+}
+
+/*
+ * /download/<name>: the media file itself, as it is in media-dir, for the
+ * player's download button.  Only what the listing would show may be
+ * fetched: playable media, not under a dot-dir (our .index / .atrans
+ * caches), and all there.  It goes out as an octet-stream attachment that
+ * may not be sniffed, so it is saved, never rendered.
+ *
+ * Returns 0 if the transaction continues, -1 to close.
+ */
+static int
+hls_serve_download(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+		   const char *name)
+{
+	uint8_t hdrs[1536], *p = hdrs, *end = &hdrs[sizeof(hdrs) - 1];
+	char filename[256], path[1024], cd[1024];
+	enum hls_media_state ms;
+	int n;
+
+	if (hls_media_name_copy(filename, sizeof(filename), name,
+				strlen(name)) ||
+	    !lws_hls_is_media_name(filename) || filename[0] == '.' ||
+	    strstr(filename, "/."))
+		goto bail_404;
+
+	ms = lws_hls_media_state(vhd->media_dir, filename, NULL);
+	if (ms != HLS_MEDIA_COMPLETE) {
+		lwsl_wsi_notice(wsi, "download '%s' refused: %s", filename,
+				lws_hls_media_state_name(ms));
+		if (ms == HLS_MEDIA_GONE)
+			goto bail_404;
+		lws_return_http_status(wsi, HTTP_STATUS_SERVICE_UNAVAILABLE,
+				       "media is not all there");
+		return -1;
+	}
+
+	/* a truncated path names something else: never serve it */
+	if (lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir,
+			 filename) >= (int)sizeof(path))
+		goto bail_404;
+
+	if (hls_content_disposition(cd, sizeof(cd), filename) ||
+	    lws_add_http_header_by_name(wsi,
+			(const unsigned char *)"content-disposition:",
+			(const unsigned char *)cd, (int)strlen(cd), &p, end) ||
+	    lws_add_http_header_by_name(wsi,
+			(const unsigned char *)"x-content-type-options:",
+			(const unsigned char *)"nosniff", 7, &p, end)) {
+		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
+				       NULL);
+		return -1;
+	}
+	*p = '\0';
+
+	lwsl_wsi_notice(wsi, "download '%s'", filename);
+
+	n = lws_serve_http_file(wsi, path, "application/octet-stream",
+				(const char *)hdrs, lws_ptr_diff(p, hdrs));
+	if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
+		return -1;
+
+	return 0;
+
+bail_404:
+	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+
+	return -1;
+}
+
 #if defined(LWS_WITH_STUB)
 static const struct lws_protocols stub_prots[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_HLS,
@@ -1106,6 +1222,9 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				goto err_404;
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SEGMENT,
 						  filename, sel, idx);
+		} else if (!strncmp(url, "/download/", 10)) {
+			/* the raw media file, to be saved by the browser */
+			return hls_serve_download(wsi, vhd, url + 10);
 		} else if (!strncmp(url, "/delete/", 8)) {
 			char filename[256];
 
@@ -1440,6 +1559,10 @@ err_404:
 		pss->segment_buf = NULL;
 		lwsl_info("HLS WRITEABLE: transaction completed\n");
 		return lws_http_transaction_completed(wsi);
+
+	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
+		/* a /download/ finished going out */
+		return lws_http_transaction_completed(wsi) ? -1 : 0;
 
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 	case LWS_CALLBACK_CLOSED_HTTP:

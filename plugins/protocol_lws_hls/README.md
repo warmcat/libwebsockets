@@ -137,6 +137,26 @@ file is not still that when they are done.
 A subdirectory that something is being written into, under any name, is not
 removed by the purge of subdirectories with nothing playable left in them.
 
+## Downloading media
+
+The player's download button saves the media file itself, as it is in
+the media dir, rather than anything built from it.  It comes from
+`hls/download/<name>`, which serves only what the listing would show:
+playable media (`.mp4` / `.mkv`, not a dotfile, not under a dot-dir such
+as the `.index` / `.atrans` caches) that is all there; media still
+arriving or cut short gets a 503, as its playlists do, anything else a
+404.  It goes out as an `application/octet-stream` attachment carrying the
+file's basename, with `x-content-type-options: nosniff`, so a browser
+saves it and never renders it.  With `LWS_WITH_RANGES`, range requests are
+honoured too.
+
+Where the browser offers a save-file picker (Chromium, in a secure
+context: https or localhost), the button opens it and the player streams
+the file into the place the user chose, showing its progress on the
+button.  Elsewhere (Firefox, Safari, plain http to a LAN address) the
+button hands the url to the browser's own download flow, which asks where
+to save it only if the browser is set to.
+
 ## Deleting media
 
 The directory listing shows a bin button on each item, and the player a
