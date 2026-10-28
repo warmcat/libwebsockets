@@ -289,8 +289,6 @@ lws_h3_client_handshake(struct lws *wsi)
 }
 #endif
 
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION) || \
-    (defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS))
 /*
  * What a stream can send now: the quic stream's own flow control, and the
  * pending tx throttle, as the transport's tx_credit op sees them
@@ -304,7 +302,6 @@ lws_h3_usable_tx_cr(struct lws *wsi)
 
 	return wsi->txc.tx_cr;
 }
-#endif
 
 static int
 rops_perform_user_POLLOUT_h3(struct lws *wsi)
@@ -407,23 +404,42 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 
 	if (wsi->h3.h3n && wsi == wsi->h3.h3n->cwsi_qpack_enc) {
 		struct lws_qpack_tx_encoder *enc = &wsi->h3.h3n->qpack_tx_encoder;
-		uint8_t *p;
-		size_t len = (size_t)lws_buflist_next_segment_len(&enc->tx_bl, &p);
+		uint8_t tx_buf[LWS_PRE + 512], *p;
+		int32_t cr;
+		size_t len;
+		int n;
 
-		if (len) {
-			uint8_t tx_buf[LWS_PRE + 512];
-			if (len > 512) len = 512;
+		/*
+		 * Send all the encoder has, as far as credit goes, not a chunk
+		 * a turn: a field section referring to an insert can't be
+		 * decoded until the whole insert has arrived, and a turn is
+		 * only had once per service pass
+		 */
+		while ((len = lws_buflist_next_segment_len(&enc->tx_bl, &p))) {
+			cr = lws_h3_usable_tx_cr(wsi);
+			if (lws_wsi_txc_check_skint(&wsi->txc, cr)) {
+				lws_callback_on_writable(wsi);
+				return 0;
+			}
+
+			if (len > sizeof(tx_buf) - LWS_PRE)
+				len = sizeof(tx_buf) - LWS_PRE;
+			if (len > (size_t)cr)
+				len = (size_t)cr;
 			memcpy(tx_buf + LWS_PRE, p, len);
 
-			int n = lws_write(wsi, tx_buf + LWS_PRE, len, LWS_WRITE_BINARY);
-			if (n < 0) return -1;
-			
-			if (n > 0) {
-				lws_buflist_use_segment(&enc->tx_bl, (size_t)n);
-				if (lws_buflist_next_segment_len(&enc->tx_bl, &p))
-					lws_callback_on_writable(wsi);
+			n = lws_write(wsi, tx_buf + LWS_PRE, len,
+				      LWS_WRITE_BINARY);
+			if (n < 0)
+				return -1;
+			if (!n) {
+				lws_callback_on_writable(wsi);
+				return 0;
 			}
+
+			lws_buflist_use_segment(&enc->tx_bl, (size_t)n);
 		}
+
 		return 0;
 	}
 
