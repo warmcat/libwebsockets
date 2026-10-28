@@ -506,6 +506,17 @@ struct lws_quic_reply {
 #define LWS_QUIC_MAX_QUEUED_REPLIES 16
 
 /*
+ * RFC 9000 10.3: a Stateless Reset is no shorter than 21 bytes, 5 that look
+ * like a short header and the token, and lws sends one no longer than 43, the
+ * size the RFC has it shrink below, nor more than LWS_QUIC_SR_PER_SEC a
+ * second from a listener
+ */
+#define LWS_QUIC_SR_TOKEN_LEN	16
+#define LWS_QUIC_SR_MIN		21
+#define LWS_QUIC_SR_MAX		43
+#define LWS_QUIC_SR_PER_SEC	32
+
+/*
  * A 1-RTT packet that reached a server before its handshake completed, kept
  * still protected until it does (RFC 9001 5.7 allows a server to hold them,
  * RFC 9001 4.1.4 to buffer what arrives early).  The datagram's peer and ECN
@@ -1214,12 +1225,19 @@ struct _lws_quic_related {
 	/* a listener's tx pass: its replies, then its connections' packets */
 	lws_dll2_owner_t tx_replies;
 	struct lws *tx_cur; /* the connection whose packet IO has in hand */
+	/* a listener's Stateless Resets in this second, from sr_window_us */
+	lws_usec_t sr_window_us;
+	uint16_t sr_sent;
 
         uint8_t initialized:1;
         uint8_t tx_blocked_sent:1;
 	uint8_t tx_is_reply:1; /* IO has the head of tx_replies in hand */
 };
 
+
+int
+lws_quic_stateless_reset_token(struct lws_context *cx, const uint8_t *cid,
+			       size_t cid_len, uint8_t *token);
 
 int
 lws_quic_validate_retry_tag(struct lws_quic_netconn *qn,

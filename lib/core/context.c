@@ -2357,6 +2357,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_cx_err(context, "unable to get random for retry secret");
 		goto bail_libuv_aware;
 	}
+
+	/* likewise, an all-zeros one would let anyone reset our connections */
+	if (lws_get_random(context, context->quic_sr_secret,
+			   sizeof(context->quic_sr_secret)) !=
+					sizeof(context->quic_sr_secret)) {
+		lwsl_cx_err(context, "unable to get random for reset secret");
+		goto bail_libuv_aware;
+	}
 #endif
 
 	return context;

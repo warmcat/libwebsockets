@@ -50,7 +50,9 @@
  * and the client never uses its stream; with --quiet stream, the client
  * writes once on its stream, and then both sides are quiet.  Either way the
  * server must close the connection itself in good time: --max-idle <ms> sets
- * the idle timeout both sides advertise.
+ * the idle timeout both sides advertise.  With --lost-close too, the relay
+ * loses the server's CONNECTION_CLOSE, and the client writes after it: the
+ * server must answer with a Stateless Reset, and the client close on it.
  */
 
 #include <libwebsockets.h>
@@ -436,6 +438,22 @@ static const char * const test_key =
 #define RELAY_LF_ACK		40
 #define RELAY_LF_PROBES		2
 
+/*
+ * With --lost-close, which needs --quiet conn, the relay loses what the server
+ * sends the client from RELAY_LC_FROM_US to RELAY_LC_TO_US after the first,
+ * which is when, having waited QCS_QUIET_FIRST_REQ_S for a first request, it
+ * reaps the connection: its CONNECTION_CLOSE never arrives.  QCS_LC_WRITE_US
+ * after its connection was established, the client writes on its stream, to a
+ * server that has forgotten the connection.  The server must answer with a
+ * Stateless Reset (RFC 9000 10.3), with the token it gave the client for its
+ * CID, so the client closes as soon as that arrives, within QCS_QUIET_CLOSE_US
+ * of the server's close as if it had heard the CONNECTION_CLOSE, rather than
+ * when its PTO count or idle timeout gives up.
+ */
+#define RELAY_LC_FROM_US	(700 * LWS_US_PER_MS)
+#define RELAY_LC_TO_US		(1250 * LWS_US_PER_MS)
+#define QCS_LC_WRITE_US		(1350 * LWS_US_PER_MS)
+
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
 relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
@@ -668,6 +686,11 @@ static struct {
 	unsigned int		lf_lost;
 	unsigned int		lf_server_hs;	/* it sent after that */
 	char			lost_finished;
+
+	/* --lost-close */
+	lws_usec_t		lc_first;	/* the server's first datagram */
+	unsigned int		lc_lost;
+	char			lost_close;
 } relay;
 
 static void
@@ -1077,6 +1100,33 @@ relay_lost_finished(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
 	d->sent++;
 }
 
+/* --lost-close: datagrams go on as they come, but for the window, see above */
+
+static void
+relay_lost_close(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
+		 size_t len)
+{
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
+	lws_usec_t now = lws_now_usecs();
+
+	if (fd == LWS_SOCK_INVALID)
+		return;
+
+	if (d == &relay.dir[1]) {
+		if (!relay.lc_first)
+			relay.lc_first = now;
+		if (now - relay.lc_first >= RELAY_LC_FROM_US &&
+		    now - relay.lc_first < RELAY_LC_TO_US) {
+			relay.lc_lost++;
+			d->dropped++;
+			return;
+		}
+	}
+
+	relay_send(fd, in, len, &d->dest);
+	d->sent++;
+}
+
 static void
 relay_hold_cb(lws_sorted_usec_list_t *sul)
 {
@@ -1151,6 +1201,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (relay.lost_finished) {
 			relay_lost_finished(wsi, d, in, len);
+			break;
+		}
+
+		if (relay.lost_close) {
+			relay_lost_close(wsi, d, in, len);
 			break;
 		}
 
@@ -1701,6 +1756,18 @@ quiet_client_closed(void)
 
 	quiet_over = 1;
 	lws_sul_cancel(&sul_quiet);
+	if (relay.lost_close) {
+		/* it heard a Stateless Reset, see QCS_LC_WRITE_US */
+		lwsl_user("quiet: the relay lost %u of the server's datagrams, "
+			  "and the client heard the server forgot the "
+			  "connection\n", relay.lc_lost);
+		result = !relay.lc_lost;
+		if (result)
+			lwsl_err("quiet: nothing of the server's was lost, "
+				 "nothing was tested\n");
+		lws_default_loop_exit(context);
+		return;
+	}
 	lwsl_user("quiet: the client heard the server's CONNECTION_CLOSE\n");
 	result = 0;
 	lws_default_loop_exit(context);
@@ -1810,6 +1877,9 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		/* Trigger a write to send bulk data */
 		if (quiet != QCS_QUIET_CONN)
 			lws_callback_on_writable(wsi);
+		else if (relay.lost_close)
+			/* its late write, see QCS_LC_WRITE_US */
+			lws_set_timer_usecs(wsi, QCS_LC_WRITE_US);
 		break;
 
 	case LWS_CALLBACK_TIMER:
@@ -1822,7 +1892,9 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		uint8_t buf[LWS_PRE + WRITE_SIZE_MAX];
 
 		if (client_sent >= TOTAL_DATA ||
-		    quiet == QCS_QUIET_CONN ||
+		    (quiet == QCS_QUIET_CONN &&
+		     (!relay.lost_close || client_sent ||
+		      lws_now_usecs() - spread_start < QCS_LC_WRITE_US)) ||
 		    (quiet && client_sent) || /* --quiet stream: one write */
 		    client_write_not_due(wsi))
 			break;
@@ -1974,6 +2046,7 @@ enum {
 	LWS_SW_LAG,
 	LWS_SW_DEAF,
 	LWS_SW_LOST_FINISHED,
+	LWS_SW_LOST_CLOSE,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
@@ -2001,6 +2074,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_LAG]	= { "--lag",	"Partway through the server's transfer, the relay starts delaying everything both ways by 500ms, far longer than the RTT each side measured, and both sides must carry on at the new RTT (needs --relay)" },
 	[LWS_SW_DEAF]	= { "--deaf",	"The relay loses the client's first stream data, and everything the server sends it for 1.5s, so no ack says it was lost, and the client's PTO probes must send it again (needs --relay)" },
 	[LWS_SW_LOST_FINISHED] = { "--lost-finished", "For 800ms the relay loses the client's Finished but not its acks, and the server, its flight acked, must not probe with nothing in flight (needs --relay)" },
+	[LWS_SW_LOST_CLOSE] = { "--lost-close", "The relay loses the server's CONNECTION_CLOSE when it reaps the quiet connection, and the client writes after: the server must answer with a Stateless Reset, which the client must close on (needs --relay and --quiet conn)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
@@ -2116,11 +2190,15 @@ int main(int argc, const char **argv)
 				 "--max-idle\n");
 			return 1;
 		}
+		/* its only relay is --lost-close's */
 		if (server_only || lws_cmdline_option(argc, argv, "-u") ||
-		    lws_cmdline_option(argc, argv,
-				       switches[LWS_SW_RELAY].sw)) {
+		    (lws_cmdline_option(argc, argv,
+				        switches[LWS_SW_RELAY].sw) &&
+		     !lws_cmdline_option(argc, argv,
+					 switches[LWS_SW_LOST_CLOSE].sw))) {
 			lwsl_err("--quiet needs the server and client in this "
-				 "process, and no --relay\n");
+				 "process, and no --relay but with "
+				 "--lost-close\n");
 			return 1;
 		}
 	}
@@ -2266,6 +2344,22 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_LOST_CLOSE].sw) &&
+	    (!relay_port || quiet != QCS_QUIET_CONN || outage_ms || pmtu ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_FORWARDER].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_LAG].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_DEAF].sw) ||
+	     lws_cmdline_option(argc, argv,
+				switches[LWS_SW_LOST_FINISHED].sw))) {
+		lwsl_err("--lost-close needs --relay and --quiet conn, and not "
+			 "--stray, --outage, --early-1rtt, --forwarder, --pmtu, "
+			 "--blackhole, --lag, --deaf or --lost-finished\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -2376,6 +2470,8 @@ int main(int argc, const char **argv)
 					switches[LWS_SW_DEAF].sw);
 		relay.lost_finished = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_LOST_FINISHED].sw);
+		relay.lost_close = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_LOST_CLOSE].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

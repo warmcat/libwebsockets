@@ -1434,6 +1434,36 @@ lws_rx_is_early_data(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * RFC 9000 10.3.2: the Stateless Reset token for one of our connection IDs,
+ * a keyed hash of it, so we can work it out again for a CID of a connection
+ * we no longer have, and nobody without the context's secret can
+ */
+int
+lws_quic_stateless_reset_token(struct lws_context *cx, const uint8_t *cid,
+			       size_t cid_len, uint8_t *token)
+{
+	uint8_t md[LWS_GENHASH_LARGEST];
+	struct lws_genhmac_ctx ctx;
+
+	if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA256, cx->quic_sr_secret,
+			     sizeof(cx->quic_sr_secret)))
+		return 1;
+
+	if (lws_genhmac_update(&ctx, cid, cid_len)) {
+		lws_genhmac_destroy(&ctx, NULL);
+		return 1;
+	}
+
+	if (lws_genhmac_destroy(&ctx, md))
+		return 1;
+
+	memcpy(token, md, LWS_QUIC_SR_TOKEN_LEN);
+	lws_explicit_bzero(md, sizeof(md));
+
+	return 0;
+}
+
 static const uint8_t quic_v1_retry_key[] = {
         0xbe, 0x0c, 0x69, 0x0b, 0x9f, 0x66, 0x57, 0x5a,
         0x1d, 0x76, 0x6b, 0x54, 0xe3, 0x68, 0xc8, 0x4e

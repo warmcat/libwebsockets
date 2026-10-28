@@ -36,6 +36,7 @@ arrived.
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--lag|With `--relay`, partway through the server's transfer the relay starts delaying everything both ways by 500ms, see below|
 |--deaf|With `--relay`, the relay loses the client's first stream data, and everything the server sends it for 1.5s, see below|
+|--lost-close|With `--relay` and `--quiet conn`, the relay loses the server's CONNECTION_CLOSE when it reaps the connection, the client writes after it, and the server's Stateless Reset must close it, see below|
 |--lost-finished|With `--relay`, for 800ms the relay loses the client's Finished but not its acks, and the server must not probe with nothing in flight, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
@@ -85,6 +86,23 @@ request the server will never answer.
 
 ```
  $ ./lws-minimal-quic-client-server --quiet conn
+```
+
+With `--lost-close` too, the client connects through a relay, which loses
+what the server sends it from 700ms to 1250ms after the first, when the server
+reaps the connection: its CONNECTION_CLOSE never arrives.  1350ms after its
+connection was established, the client writes on its stream, to a server that
+has forgotten the connection.  The server must answer with a Stateless Reset
+(RFC 9000 10.3): random bytes that look like a packet, ending with the token
+for the CID the packet came to, which it gave the client in its transport
+parameters, and which it works out again from the CID, keyed with a secret of
+its own.  The client must close the connection as soon as that arrives, still
+within 1s of the server's close, as if it had heard the CONNECTION_CLOSE,
+rather than at its idle timeout.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 \
+	--quiet conn --lost-close
 ```
 
 With `--quiet stream`, the client writes once on its stream, without finishing

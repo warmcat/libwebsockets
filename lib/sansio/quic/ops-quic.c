@@ -2121,6 +2121,50 @@ lws_quic_queue_reply(struct lws *lwsi, const uint8_t *buf, size_t len,
 }
 
 /*
+ * RFC 9000 10.3: a short header packet for none of our connections, eg, for
+ * one we closed and forgot whose peer never heard our CONNECTION_CLOSE, is
+ * answered with a Stateless Reset, so the peer need not wait out its idle
+ * timeout to learn the connection is gone.  It looks like a short header
+ * packet, random but for the fixed bit, ending with the token for the CID
+ * the packet came to, which the peer knows from us (lws_quic_stateless_
+ * reset_token()).  It is smaller than the packet that prompted it, so two
+ * endpoints cannot loop on each other's resets (10.3.3) and it amplifies
+ * nothing, and a packet too small for a smaller one gets none.  A listener
+ * sends no more than LWS_QUIC_SR_PER_SEC of them a second.
+ */
+static void
+lws_quic_send_stateless_reset(struct lws *lwsi, const struct lws_quic_cid *dcid,
+			      size_t trigger_len, const lws_sockaddr46 *dest)
+{
+	uint8_t sr[LWS_QUIC_SR_MAX];
+	lws_usec_t now = lws_wsi_now(lwsi);
+	size_t len = trigger_len - 1;
+
+	if (trigger_len <= LWS_QUIC_SR_MIN)
+		return;
+	if (len > sizeof(sr))
+		len = sizeof(sr);
+
+	if (now - lwsi->quic.sr_window_us >= LWS_US_PER_SEC) {
+		lwsi->quic.sr_window_us = now;
+		lwsi->quic.sr_sent = 0;
+	}
+	if (lwsi->quic.sr_sent >= LWS_QUIC_SR_PER_SEC)
+		return;
+
+	if (lws_get_random(lwsi->a.context, sr, len - LWS_QUIC_SR_TOKEN_LEN) !=
+					len - LWS_QUIC_SR_TOKEN_LEN ||
+	    lws_quic_stateless_reset_token(lwsi->a.context, dcid->id, dcid->len,
+					   &sr[len - LWS_QUIC_SR_TOKEN_LEN]))
+		return;
+	sr[0] = (uint8_t)((sr[0] & 0x3f) | 0x40); /* short header, fixed bit */
+
+	lwsi->quic.sr_sent++;
+	lwsl_wsi_info(lwsi, "QUIC TX: Stateless Reset, %d bytes", (int)len);
+	lws_quic_queue_reply(lwsi, sr, len, dest);
+}
+
+/*
  * Do two addresses share an IPv4 /24 or IPv6 /64 (an IPv4-mapped one counts
  * as the IPv4 address it maps)?
  */
@@ -2445,6 +2489,34 @@ lws_quic_hold_early_pkt(struct lws_quic_netconn *qn, const uint8_t *pkt,
 	return 0;
 }
 
+/*
+ * RFC 9000 10.3.1: a datagram we can't process, that doesn't decrypt or
+ * comes to none of our CIDs, may be the peer's Stateless Reset: one ending
+ * with the token for any CID of the peer's we use, the one it gave us in
+ * its transport parameters, or on its preferred address, that one's
+ */
+static int
+lws_quic_rx_is_stateless_reset(const struct lws_quic_netconn *qn,
+			       const uint8_t *p, size_t n)
+{
+	static const uint8_t zero_token[LWS_QUIC_SR_TOKEN_LEN];
+	const uint8_t *t = &p[n - LWS_QUIC_SR_TOKEN_LEN];
+
+	if (!qn || n < LWS_QUIC_SR_MIN)
+		return 0;
+
+	if (memcmp(qn->rem_stateless_reset_token, zero_token,
+		   sizeof(zero_token)) &&
+	    !lws_timingsafe_bcmp(t, qn->rem_stateless_reset_token,
+				 LWS_QUIC_SR_TOKEN_LEN))
+		return 1;
+
+	return (qn->prefaddr_active || qn->prefaddr_committed) &&
+	       memcmp(qn->prefaddr_rem_token, zero_token, sizeof(zero_token)) &&
+	       !lws_timingsafe_bcmp(t, qn->prefaddr_rem_token,
+				    LWS_QUIC_SR_TOKEN_LEN);
+}
+
 static lws_handling_result_t
 rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		   const lws_sockaddr46 *peer, uint8_t ecn,
@@ -2550,7 +2622,12 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 
 #if defined(LWS_WITH_SERVER)
 	if (!nwsi) {
-		if (!(p[0] & 0x80) || ((p[0] & 0x30) >> 4) != 0) {
+		if (!(p[0] & 0x80)) {
+			lws_quic_send_stateless_reset(wsi, &dcid,
+						      (size_t)orig_n, &sa46);
+			return LWS_HPI_RET_HANDLED;
+		}
+		if (((p[0] & 0x30) >> 4) != 0) {
 			// lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and not Initial, dropping");
 			return LWS_HPI_RET_HANDLED;
 		}
@@ -2823,6 +2900,20 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			LWS_QUIC_WRITE_TP_VARINT(0x01, nwsi->a.vhost->quic_max_idle_ms);
 
 			LWS_QUIC_WRITE_TP_BUF(0x0F, nwsi->quic.qn->loc_cid.id, nwsi->quic.qn->loc_cid.len);
+			{
+				/*
+				 * RFC 9000 18.2: the token a Stateless Reset
+				 * for this CID ends with, so the client knows
+				 * one from us once we forgot the connection
+				 */
+				uint8_t srt[LWS_QUIC_SR_TOKEN_LEN];
+
+				if (lws_quic_stateless_reset_token(wsi->a.context,
+						nwsi->quic.qn->loc_cid.id,
+						nwsi->quic.qn->loc_cid.len, srt))
+					goto tp_overflow;
+				LWS_QUIC_WRITE_TP_BUF(0x02, srt, sizeof(srt));
+			}
 			LWS_QUIC_WRITE_TP_BUF(0x00, nwsi->quic.qn->orig_dcid.id, nwsi->quic.qn->orig_dcid.len);
 			if (nwsi->quic.qn->retry_scid.len) {
 				LWS_QUIC_WRITE_TP_BUF(0x10, nwsi->quic.qn->retry_scid.id, nwsi->quic.qn->retry_scid.len);
@@ -2948,10 +3039,11 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
                                                 nwsi->quic.qn->prefaddr_rem_cid.len = 8;
                                                 memcpy(nwsi->quic.qn->prefaddr_rem_cid.id, pb, 8);
                                         }
-                                        pb += 8;
-                                        /* Stateless Reset Token */
-                                        if (lws_get_random(wsi->a.context, pb, 16) != 16) goto tp_overflow;
-                                        pb += 16;
+                                        /* Stateless Reset Token, for that CID */
+                                        if (lws_quic_stateless_reset_token(wsi->a.context,
+                                                        pb, 8, pb + 8))
+                                                goto tp_overflow;
+                                        pb += 8 + LWS_QUIC_SR_TOKEN_LEN;
                                         
                                         LWS_QUIC_WRITE_TP_BUF(0x0D, pref_buf, (size_t)(pb - pref_buf));
                                         lwsl_notice("QUIC TX: Sent preferred_address TP (0x0D)\n");
@@ -3248,6 +3340,13 @@ tp_ok:
 			if (local_dcid_len > (size_t)n - 1 ||
 			    (memcmp(&p[1], nwsi->quic.qn->loc_cid.id, local_dcid_len) &&
 			     memcmp(&p[1], nwsi->quic.qn->prefaddr_rem_cid.id, local_dcid_len))) {
+				/*
+				 * RFC 9000 10.3.1: a Stateless Reset comes to
+				 * no CID of ours, it only looks like a packet
+				 */
+				if (lws_quic_rx_is_stateless_reset(
+						nwsi->quic.qn, p, (size_t)n))
+					goto stateless_reset;
 				lwsl_wsi_notice(wsi, "QUIC RX: Short header DCID mismatch");
 				/* Drop packet */
 				p += packet_size;
@@ -3387,28 +3486,10 @@ tp_ok:
 				}
 			}
 
-			/* F-130: Stateless Reset Token detection */
-			if (nwsi && nwsi->quic.qn && (size_t)n >= 21) {
-				static const uint8_t zero_token[16] = {0};
-				if (memcmp(nwsi->quic.qn->rem_stateless_reset_token, zero_token, 16) &&
-				    !memcmp(&p[n - 16], nwsi->quic.qn->rem_stateless_reset_token, 16)) {
-					lwsl_wsi_notice(wsi, "QUIC RX: Stateless reset token matched! Terminating connection silently.");
-					if (nwsi != wsi) {
-						/*
-						 * as for a peer CONNECTION_CLOSE
-						 * (C-471): the close frees nwsi
-						 * and the loop head reads it, and
-						 * it is a silent end, no
-						 * CONNECTION_CLOSE of ours goes out
-						 */
-						nwsi->quic.qn->is_closing = 1;
-						lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic stateless reset");
-						nwsi = NULL;
-						goto next_packet;
-					}
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
-				}
-			}
+			/* F-130: or it may be the peer's Stateless Reset */
+			if (nwsi && lws_quic_rx_is_stateless_reset(nwsi->quic.qn,
+							p, (size_t)n))
+				goto stateless_reset;
 			goto next_packet;
 		}
 
@@ -4013,6 +4094,21 @@ tp_ok:
 				}
 			}
 		}
+		goto next_packet;
+
+stateless_reset:
+		lwsl_wsi_notice(wsi, "QUIC RX: Stateless reset token matched! Terminating connection silently.");
+		if (nwsi == wsi)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		/*
+		 * as for a peer CONNECTION_CLOSE (C-471): the close frees nwsi
+		 * and the loop head reads it, and it is a silent end, no
+		 * CONNECTION_CLOSE of ours goes out
+		 */
+		nwsi->quic.qn->is_closing = 1;
+		lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL,
+				   "quic stateless reset");
+		nwsi = NULL;
 
 next_packet:
 		n -= (int)packet_size;

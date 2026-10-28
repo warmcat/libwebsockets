@@ -370,6 +370,22 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# As --quiet conn, but through a relay that loses the server's
+		# CONNECTION_CLOSE, and the client writes after it: the
+		# server, which forgot the connection, must answer with a
+		# Stateless Reset that the client closes on at once
+		#
+		lws_get_free_port(PORT_QCS_LOST_CLOSE)
+		lws_get_free_port(PORT_QCS_LOST_CLOSE_RELAY)
+		add_test(NAME ${SAMP}-lost-close COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_LOST_CLOSE}
+				--relay ${PORT_QCS_LOST_CLOSE_RELAY}
+				--quiet conn --lost-close)
+		set_tests_properties(${SAMP}-lost-close PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 30)
+
+		#
 		# Through the relay losing the client's Finished for 800ms, but
 		# not its acks of the server's flight: the server, sending no
 		# 1-RTT before its handshake completes, then has nothing in
