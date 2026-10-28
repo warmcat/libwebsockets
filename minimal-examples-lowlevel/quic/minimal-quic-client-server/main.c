@@ -39,8 +39,10 @@
  * --blackhole, the path's MTU falls to the base once each side is sending
  * bigger packets, and each must find that out and go back to the base, or its
  * transfer stalls.  With --lag, the path's delay jumps to far more than the
- * RTT each side measured, and each must carry on at the new RTT.
- * --spread <ms> has
+ * RTT each side measured, and each must carry on at the new RTT.  With
+ * --deaf, the client's first stream data is lost, and for a while it hears
+ * nothing from the server, so no ack says it was lost: its PTO probes must
+ * send it again.  --spread <ms> has
  * the client spread its writes over that long, rather than send as fast as it
  * can.  With --quiet conn, neither side sends anything after the handshake,
  * and the client never uses its stream; with --quiet stream, the client
@@ -58,7 +60,10 @@ static int result = 1; /* 1 means failed/timeout, 0 means success */
 static int server_only = 0;
 #define WRITE_SIZE_MAX 1024
 static size_t write_size = WRITE_SIZE_MAX;
-/* --spread: the client spreads its writes over this long, from established */
+/*
+ * --spread: the client spreads its writes over this long, from established, or
+ * with --deaf, from RELAY_DEAF_AT_US after
+ */
 static lws_usec_t spread_us, spread_start;
 
 /*
@@ -382,6 +387,27 @@ static const char * const test_key =
 #define RELAY_LAG_US		(500 * LWS_US_PER_MS)
 #define RELAY_LAG_MAX		(3 * TOTAL_DATA / RELAY_BH_BASE)
 
+/*
+ * With --deaf, the client holds its writes until RELAY_DEAF_AT_US after its
+ * connection is established, so the handshake is long confirmed.  From its
+ * first write, the relay loses everything the client sends for
+ * RELAY_DEAF_LOSS_US, the start of its stream data with it, and everything the
+ * server sends the client for RELAY_DEAF_US, as a run of corrupted packets
+ * each way would.  The server acks what does get through from the client, but
+ * the client hears none of it, so nothing tells it what it sent was lost (RFC
+ * 9002 6.1 finds loss from acks), and the server, missing the start of the
+ * stream, has nothing to deliver.  Only the client's PTO can get the data
+ * there: its probes must carry what it has unacked, oldest first, not just a
+ * PING (RFC 9002 6.2.4), and by the end of RELAY_DEAF_US the server must have
+ * the start of the stream.  A client whose probes are PINGs, or new data
+ * behind the hole, never fills it while it is deaf; when a request is what
+ * was lost, the server waiting for it has nothing to say, and the client dies
+ * of its PTO count.
+ */
+#define RELAY_DEAF_AT_US	(300 * LWS_US_PER_MS)
+#define RELAY_DEAF_LOSS_US	(50 * LWS_US_PER_MS)
+#define RELAY_DEAF_US		(1500 * LWS_US_PER_MS)
+
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
 static int
 relay_varint(const uint8_t *p, size_t len, size_t *used, uint64_t *v)
@@ -543,6 +569,11 @@ static struct {
 	char			confirm_done;
 	char			blackhole;
 	char			lag;
+
+	/* --deaf */
+	lws_sorted_usec_list_t	sul_deaf;
+	lws_usec_t		deaf_start;
+	char			deaf;
 } relay;
 
 static void
@@ -873,6 +904,41 @@ relay_lag_send(struct lws *wsi, lws_sockfd_type fd, struct relay_dir *d)
 	}
 }
 
+/* --deaf: datagrams go on as they come, but for the window, see above */
+
+static void
+deaf_check_cb(lws_sorted_usec_list_t *sul);
+
+static void
+relay_deaf_start(void)
+{
+	relay.deaf_start = lws_now_usecs();
+	lws_sul_schedule(context, 0, &relay.sul_deaf, deaf_check_cb,
+			 RELAY_DEAF_US);
+}
+
+static void
+relay_deaf(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
+{
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
+	lws_usec_t t;
+
+	if (fd == LWS_SOCK_INVALID)
+		return;
+
+	if (relay.deaf_start) {
+		t = lws_now_usecs() - relay.deaf_start;
+		if (t < (d == &relay.dir[0] ? RELAY_DEAF_LOSS_US :
+					      RELAY_DEAF_US)) {
+			d->dropped++;
+			return;
+		}
+	}
+
+	relay_send(fd, in, len, &d->dest);
+	d->sent++;
+}
+
 static void
 relay_hold_cb(lws_sorted_usec_list_t *sul)
 {
@@ -903,6 +969,7 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_buflist2_destroy_all_segments(&relay.dir[n].lag);
 		}
 		lws_sul_cancel(&relay.sul_early);
+		lws_sul_cancel(&relay.sul_deaf);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
@@ -935,6 +1002,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (relay.lag) {
 			relay_lag(wsi, d, in, len);
+			break;
+		}
+
+		if (relay.deaf) {
+			relay_deaf(wsi, d, in, len);
 			break;
 		}
 
@@ -1070,7 +1142,7 @@ static uint32_t server_hash = 5381; /* djb2 init */
 static int server_done = 0;
 
 static lws_usec_t last_rx_us;
-static char early_1rtt_failed;
+static char early_1rtt_failed, deaf_failed;
 
 /*
  * With --spread, the client spreads its writes over spread_us: if its next one
@@ -1107,6 +1179,32 @@ early_1rtt_check_cb(lws_sorted_usec_list_t *sul)
 	lwsl_err("early 1-RTT: the server lost the packet that came before "
 		 "its handshake completed\n");
 	early_1rtt_failed = 1;
+}
+
+/* --deaf: the client has heard nothing from the server since it lost its data */
+
+static void
+deaf_check_cb(lws_sorted_usec_list_t *sul)
+{
+	lwsl_user("deaf: the relay lost %u of the client's datagrams and %u of "
+		  "the server's\n", relay.dir[0].dropped, relay.dir[1].dropped);
+
+	if (!relay.dir[0].dropped) {
+		lwsl_err("deaf: none of the client's datagrams were lost, "
+			 "nothing was tested\n");
+		deaf_failed = 1;
+		return;
+	}
+
+	if (server_rx) {
+		lwsl_user("deaf: the server had %lu bytes of the stream while "
+			  "the client was deaf\n", (unsigned long)server_rx);
+		return;
+	}
+
+	lwsl_err("deaf: the server had none of the stream: the client's PTO "
+		 "probes didn't send again what it lost\n");
+	deaf_failed = 1;
 }
 
 static uint32_t
@@ -1440,7 +1538,7 @@ check_test_completion(struct lws *wsi)
 {
 	if (client_done && server_done) {
 		lwsl_notice("Test completed successfully! Both sides received full data. Waiting 1.5s for ACKs...\n");
-		result = early_1rtt_failed;
+		result = early_1rtt_failed || deaf_failed;
 		if (!server_only)
 			lws_sul_schedule(lws_get_context(wsi), 0, &sul_teardown, teardown_cb, 1500 * 1000);
 	}
@@ -1483,6 +1581,9 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		lwsl_wsi_notice(wsi, "Client successfully established QUIC connection!");
 		spread_start = lws_now_usecs();
+		/* --deaf: the writes start once the handshake is long done */
+		if (relay.deaf)
+			spread_start += RELAY_DEAF_AT_US;
 		/* Trigger a write to send bulk data */
 		if (quiet != QCS_QUIET_CONN)
 			lws_callback_on_writable(wsi);
@@ -1509,6 +1610,9 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (to_send > sizeof(buf) - LWS_PRE)
 			to_send = sizeof(buf) - LWS_PRE;
 		pattern_fill(client_sent, &buf[LWS_PRE], to_send);
+		/* --deaf: what the first write sends is lost */
+		if (relay.deaf && !relay.deaf_start)
+			relay_deaf_start();
                 lwsl_wsi_info(wsi, "CLIENT WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
                 if (n > 0) {
@@ -1640,6 +1744,7 @@ enum {
 	LWS_SW_PMTU_OUTAGE,
 	LWS_SW_BLACKHOLE,
 	LWS_SW_LAG,
+	LWS_SW_DEAF,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
@@ -1665,6 +1770,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_PMTU_OUTAGE] = { "--pmtu-outage", "Partway through the server's transfer, the relay loses everything for 100ms, which both sides must not take for a black hole (needs --pmtu)" },
 	[LWS_SW_BLACKHOLE] = { "--blackhole", "Once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, and both sides must go back to 1280 (needs --relay)" },
 	[LWS_SW_LAG]	= { "--lag",	"Partway through the server's transfer, the relay starts delaying everything both ways by 500ms, far longer than the RTT each side measured, and both sides must carry on at the new RTT (needs --relay)" },
+	[LWS_SW_DEAF]	= { "--deaf",	"The relay loses the client's first stream data, and everything the server sends it for 1.5s, so no ack says it was lost, and the client's PTO probes must send it again (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
@@ -1902,6 +2008,19 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_DEAF].sw) &&
+	    (!relay_port || outage_ms || pmtu || spread_us ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_FORWARDER].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_LAG].sw))) {
+		lwsl_err("--deaf needs --relay, and not --stray, --outage, "
+			 "--early-1rtt, --forwarder, --pmtu, --blackhole, --lag "
+			 "or --spread\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -2005,6 +2124,8 @@ int main(int argc, const char **argv)
 					switches[LWS_SW_BLACKHOLE].sw);
 		relay.lag = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_LAG].sw);
+		relay.deaf = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_DEAF].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

@@ -353,6 +353,22 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay losing the start of the client's stream
+		# data, and everything the server sends it for 1.5s: with no
+		# ack to find it lost, the client's PTO probes must send again
+		# what it lost, so the server has the start of the stream by
+		# the time the client hears from it again
+		#
+		lws_get_free_port(PORT_QCS_DEAF)
+		lws_get_free_port(PORT_QCS_DEAF_RELAY)
+		add_test(NAME ${SAMP}-deaf COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_DEAF}
+				--relay ${PORT_QCS_DEAF_RELAY} --deaf)
+		set_tests_properties(${SAMP}-deaf PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport

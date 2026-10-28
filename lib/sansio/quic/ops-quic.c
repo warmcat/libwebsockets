@@ -1163,6 +1163,100 @@ lws_quic_pto_delay_us(const struct lws_quic_netconn *qn, uint8_t count)
 	return delay;
 }
 
+/* what in a packet given up on by a PTO goes again, see below */
+static int
+lws_quic_frame_pto_resent(const struct lws_quic_netconn *qn,
+			  const struct lws_quic_tx_frame *f)
+{
+	return !f->pmtud_probe && f->type != LWS_QUIC_FT_PING &&
+	       !lws_quic_frame_not_retransmitted(f) &&
+	       !lws_quic_frame_probes_another_path(qn, f);
+}
+
+/*
+ * RFC 9002 6.2.4: an app level PTO's probe carries data that is unacked,
+ * not only a PING.  The PTO firing says nothing was lost, and it is loss
+ * detection, from the acks that come, that sends lost data again.  But if
+ * no ack comes, eg, each one the peer sends is lost, nothing is ever found
+ * lost, and data that was, eg, a request, is never sent again however many
+ * probes go: the peer, waiting for it, has nothing to send, and the
+ * connection dies at the PTO count.
+ *
+ * So the packets in flight with the data that was first sent longest ago,
+ * about what one probe of the base size carries, go back to be sent at the
+ * head of what is pending, which the probe, right behind its PING, carries.
+ * It is by when the data was first sent, not where it is in flight: what a
+ * probe sends again is in flight again at the tail, and if that probe is lost
+ * too, the next one must send it again, not what was sent after it, which the
+ * peer can't deliver without it.  Their frames that are not sent again, eg, a
+ * PING, are freed, as loss would, and their bytes leave flight uncharged (the
+ * caller's on_discard).  The rest of what is in flight stays there, so the
+ * acks of it, coming late, still reset pto_count and give an RTT sample.
+ */
+static size_t
+lws_quic_pto_requeue_app(struct lws_quic_netconn *qn)
+{
+	lws_dll2_owner_t *fl = &qn->in_flight[LWS_QUIC_LEVEL_APP];
+	struct lws_quic_tx_frame *f, *oldest;
+	size_t bytes = 0, taken = 0;
+	lws_dll2_owner_t resend;
+	struct lws_dll2 *d, *n;
+	int packets = 0;
+	uint64_t pn;
+
+	lws_dll2_owner_clear(&resend);
+
+	while (taken < LWS_QUIC_PMTU_BASE - LWS_QUIC_PMTU_OVERHEAD &&
+	       packets++ < LWS_QUIC_PTO_RESEND_PACKETS) {
+		oldest = NULL;
+		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(fl)) {
+			f = lws_container_of(p, struct lws_quic_tx_frame, list);
+			if (lws_quic_frame_pto_resent(qn, f) &&
+			    (!oldest || f->first_sent_us < oldest->first_sent_us))
+				oldest = f;
+		} lws_end_foreach_dll(p);
+
+		if (!oldest)
+			break;
+
+		/* a packet's frames are together in the list, in order */
+		pn = oldest->sent_in_pn;
+		d = &oldest->list;
+		while (lws_dll2_get_prev(d) &&
+		       lws_container_of(lws_dll2_get_prev(d),
+				struct lws_quic_tx_frame, list)->sent_in_pn == pn)
+			d = lws_dll2_get_prev(d);
+
+		lwsl_wsi_info(qn->nwsi, "QUIC PTO: sending pn %llu's frames again",
+			      (unsigned long long)pn);
+
+		for (; d; d = n) {
+			n = lws_dll2_get_next(d);
+			f = lws_container_of(d, struct lws_quic_tx_frame, list);
+			if (f->sent_in_pn != pn)
+				break;
+			lws_dll2_remove(d);
+			bytes += f->wire_len;
+			f->wire_len = 0;
+			if (!lws_quic_frame_pto_resent(qn, f)) {
+				lws_free(f);
+				continue;
+			}
+			taken += f->len;
+			lws_quic_dbg_1rtt_account(qn, f, "pto-requeue");
+			lws_dll2_add_tail(d, &resend);
+		}
+	}
+
+	/* ahead of what is pending, in the order they were first sent */
+	while ((d = lws_dll2_get_tail(&resend))) {
+		lws_dll2_remove(d);
+		lws_dll2_add_head(d, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+	}
+
+	return bytes;
+}
+
 static void
 lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 {
@@ -1217,12 +1311,16 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 			}
 		}
 
-		if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_discard)
-			qn->cc_ops->on_discard(qn->nwsi, total_bytes_lost);
-
-		/* For App Data, just send a PING to elicit an ACK */
+		/*
+		 * For App Data, a PING to elicit an ACK, behind what is unacked
+		 * from the oldest packets in flight
+		 */
 		if (!sent_ping && qn->in_flight[LWS_QUIC_LEVEL_APP].count) {
-			struct lws_quic_tx_frame *ping = lws_zalloc(sizeof(*ping), "pto ping");
+			struct lws_quic_tx_frame *ping;
+
+			total_bytes_lost += lws_quic_pto_requeue_app(qn);
+
+			ping = lws_zalloc(sizeof(*ping), "pto ping");
 			if (ping) {
 				ping->type = LWS_QUIC_FT_PING;
 				/* Add at HEAD so the PING is serialized first, before data frames
@@ -1234,6 +1332,9 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 			}
 			sent_ping = 1;
 		}
+
+		if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_discard)
+			qn->cc_ops->on_discard(qn->nwsi, total_bytes_lost);
 
 		if (!sent_ping && !qn->handshake_done) {
 			int target_level = LWS_QUIC_LEVEL_INITIAL;
@@ -4765,6 +4866,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 
 				f_sent->sent_in_pn = my_pn;
 				f_sent->sent_time_us = lws_wsi_now(wsi);
+				if (!f_sent->first_sent_us)
+					f_sent->first_sent_us = f_sent->sent_time_us;
 				f_sent->wire_len = 0;
 
 				/* Clear the FIN bit from intermediate fragment */
@@ -4789,6 +4892,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				lws_dll2_remove(&f->list);
 				f->sent_in_pn = my_pn;
 				f->sent_time_us = lws_wsi_now(wsi);
+				if (!f->first_sent_us)
+					f->first_sent_us = f->sent_time_us;
 				f->wire_len = 0;
 				lws_dll2_add_tail(&f->list, &qn->in_flight[level]);
 

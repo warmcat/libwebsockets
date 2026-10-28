@@ -358,6 +358,11 @@ struct lws_quic_tx_frame {
 	/* If in-flight, which packet number it was sent in (to match against ACKs) */
 	uint64_t		sent_in_pn;
 	lws_usec_t		sent_time_us;
+	/*
+	 * When its data was first sent, kept when it is sent again, so a PTO
+	 * sends again what has waited longest, see lws_quic_pto_requeue_app()
+	 */
+	lws_usec_t		first_sent_us;
 	size_t			wire_len;
 	uint16_t		packet_size;
 	lws_sockaddr46		dest_sa46;
@@ -1172,6 +1177,8 @@ int
 lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t len);
 
 #define LWS_QUIC_DEFAULT_PTO_US 500000 /* 500ms baseline PTO for early dev */
+/* the most packets a PTO's probe sends again, see lws_quic_pto_requeue_app() */
+#define LWS_QUIC_PTO_RESEND_PACKETS	4
 /* RFC 9002 6.1.2 kGranularity, the least loss time threshold */
 #define LWS_QUIC_GRANULARITY_US	1000
 /* the wait before probing an address again doubles from this to 64x it */

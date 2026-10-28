@@ -35,6 +35,7 @@ arrived.
 |--stall-confirm|With `--stall`, after the stall the relay holds just the datagrams bigger than an IP MTU of 1280 carries, both ways, for 1.5s, see below|
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--lag|With `--relay`, partway through the server's transfer the relay starts delaying everything both ways by 500ms, see below|
+|--deaf|With `--relay`, the relay loses the client's first stream data, and everything the server sends it for 1.5s, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
@@ -298,6 +299,28 @@ times what its data fills through the lag.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --lag
+```
+
+## a client that hears nothing back
+
+With `--deaf`, the client holds its writes until 300ms after its connection is
+established.  From its first write, the relay loses everything the client sends
+for 50ms, the start of its stream data with it, and everything the server sends
+the client for 1.5s, as a run of corrupted packets each way would.  The server
+acks what gets through from the client after that, but the client hears none of
+it, so no ack tells it what it sent was lost (RFC 9002 6.1), and the server,
+missing the start of the stream, has nothing to deliver.  Only the client's PTO
+can get the data there: each probe must carry the oldest of what is unacked,
+not just a PING (RFC 9002 6.2.4).  By the time the client hears from the server
+again, the server must have had some of the stream, and the transfer must
+complete.
+
+A side whose probes are only PINGs, or new data behind the gap, never fills it
+while it hears nothing.  When what was lost is a request, eg, h3's, the server
+waiting for it has nothing to send, and the client dies of its PTO count.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --deaf
 ```
 
 ## a socket that refuses datagrams
