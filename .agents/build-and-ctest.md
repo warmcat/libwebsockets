@@ -320,7 +320,12 @@
    `lws_qpack_set_wsi_base_and_ric(wsi, 0, 1)` in APPEND_HANDSHAKE_HEADER
    and adds post-base references (api-test-h3-header-amplification).  A
    reference in the connection's first request can beat the insert there:
-   the server then fails the connection as a blocked stream.
+   the server then fails the connection as a blocked stream.  lws' decoder
+   allows no blocked streams and sends no Insert Count Increments, so
+   nothing but timing orders a later request after the insert either: it
+   relies on the encoder stream sending its whole queue in one POLLOUT
+   turn.  When it sent 512 bytes a turn, fewer service passes (more
+   datagrams read a pass) let the request overtake the insert's tail.
  - **Several h3 server vhosts in one context share a "listener" for SNI**
    when made with `CONTEXT_PORT_NO_LISTEN_SERVER` plus
    `lws_create_adopt_udp()`, even on different udp ports
