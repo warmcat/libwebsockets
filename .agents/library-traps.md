@@ -174,6 +174,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## Addresses and PROXY v2
 
+ - **A context's netlink coldplug can take 2s to reach OPERATIONAL:** if
+   the route dump's end never arrives (seen under load on riscv), only
+   `LWS_NL_COLDPLUG_FALLBACK_US` moves the system state on, so a process
+   among several started together can be operational 2s after the others.
+   Tests coordinating processes must not assume a fixed join delay
+   (minimal-secure-streams-smd --multi, 648f841f9).
  - **The netlink routing table holds no interface addresses**:
    `RTM_NEWADDR` is parsed but never added (ops-netlink.c, "nothing to
    do"), so walking `lws_routing_table_get()` for `source_ads` entries
@@ -444,6 +450,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    creation parameters hash the same, so a per-vhost trust change after
    creation (`lws_tls_client_vhost_extra_cert_mem()`) reaches every vhost
    sharing it (G-392).
+ - **An h1 tls server's accept is bounded by the header table hold, not
+   the 15s SSL_ACCEPT timeout:** the ah is attached at adoption, just
+   after the accept armed `PENDING_TIMEOUT_SSL_ACCEPT` (`timeout_secs`),
+   and arms `PENDING_TIMEOUT_HOLDING_AH` (`timeout_secs_ah_idle`, 10s)
+   over it, which a4a785f64 keeps across the accept's completion as the
+   request head's deadline.  A burst of accepts signed serially on a slow
+   board (riscv mbedtls 2.28, Windows Debug mbedtls) is killed at ~10s as
+   TIMEDOUT WAITING 25.  Reproduce with a slow key and the process on
+   one shared core (`taskset -c 3` with two busy loops on that core).
 
 ## Raw connections
 
