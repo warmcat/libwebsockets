@@ -1526,6 +1526,12 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 			pre[LWS_PRE + 5] = 0x00;
 			send_len = 6;
 
+			/* how many streams may wait for inserts at once */
+			pre[LWS_PRE + send_len++] = 0x07; /* SETTINGS_QPACK_BLOCKED_STREAMS */
+			send_len += lws_quic_write_varint(&pre[LWS_PRE + send_len],
+					sizeof(pre) - LWS_PRE - send_len,
+					LWS_QPACK_BLOCKED_STREAMS);
+
 			/*
 			 * The field section size we will take, RFC 9114 4.2.2,
 			 * enforced by lws_h3_qpack_header_cb().  Advisory for
@@ -1826,6 +1832,118 @@ lws_h3_qpack_enc_stream_cancelled(struct lws *wsi, uint64_t sid)
 		s->h3.qpack_enc_unacked = 0;
 }
 
+/*
+ * The field section starting in buf can't be decoded until the peer's
+ * encoder stream brings the inserts it requires (RFC 9204 2.1.2).  Its prefix
+ * is taken as the frame's, like any decoded bytes; the rest of buf, and all
+ * the stream brings afterwards, is held until then, without crediting it to
+ * the peer's flow control.  Nonzero means the stream can't wait, a
+ * QPACK_DECOMPRESSION_FAILED: more are waiting than we said we would let, or
+ * there's no more to the section than its prefix, so it could never have
+ * needed the inserts.
+ */
+static int
+lws_h3_qpack_block(struct lws *wsi, const uint8_t *buf, size_t chunk,
+		   size_t len)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_h3_netconn *h3n = nwsi ? nwsi->h3.h3n : NULL;
+	size_t used = wsi->h3.qpack_dec_state->used;
+
+	if (!h3n || h3n->qpack_blocked_owner.count >= LWS_QPACK_BLOCKED_STREAMS) {
+		lwsl_wsi_notice(wsi, "QPACK: more than %d streams blocked",
+				LWS_QPACK_BLOCKED_STREAMS);
+		return 1;
+	}
+
+	if (used == chunk &&
+	    wsi->h3.rx_frame_payload_read + used == wsi->h3.rx_frame_len) {
+		lwsl_wsi_notice(wsi, "QPACK: blocked section is only a prefix");
+		return 1;
+	}
+
+	wsi->h3.rx_frame_payload_read += used;
+	lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)used);
+
+	if (len > used && lws_buflist_append_segment(&wsi->h3.qpack_blocked_bl,
+						     buf + used, len - used) < 0)
+		return 1;
+
+	lws_dll2_add_tail(&wsi->h3.qpack_blocked, &h3n->qpack_blocked_owner);
+	lwsl_wsi_info(wsi, "QPACK: blocked for insert %llu",
+		      (unsigned long long)wsi->h3.qpack_dec_state->ric);
+
+	return 0;
+}
+
+int
+lws_h3_rx_fin_deferred(struct lws *wsi)
+{
+	if (lws_dll2_is_detached(&wsi->h3.qpack_blocked))
+		return 0;
+
+	wsi->h3.qpack_blocked_fin = 1;
+
+	return 1;
+}
+
+/*
+ * The table has the inserts a blocked stream waited for: process what it held
+ * as if it had just come, and the FIN after it if that came too.  It may block
+ * again, on a later field section, and hold the rest again.
+ */
+static void
+lws_h3_qpack_replay(struct lws *nwsi, struct lws *w)
+{
+	struct lws_buflist *bl = w->h3.qpack_blocked_bl;
+	struct lws_quic_stream *qs = w->quic.qs;
+	uint64_t sid = qs ? qs->stream_id : 0;
+	int fin = w->h3.qpack_blocked_fin;
+	uint8_t *p;
+	size_t len;
+
+	w->h3.qpack_blocked_bl = NULL;
+	w->h3.qpack_blocked_fin = 0;
+	lws_dll2_remove(&w->h3.qpack_blocked);
+
+	while ((len = lws_buflist_next_segment_len(&bl, &p))) {
+		if (lws_h3_rx_stream_data(w, p, len)) {
+			/* w may be gone now */
+			lws_quic_rx_h3_wants_close(nwsi, w, qs, sid);
+			goto bail;
+		}
+		lws_buflist_use_segment(&bl, len);
+	}
+
+	if (fin)
+		lws_quic_rx_fin_h3(nwsi, w, qs);
+
+bail:
+	lws_buflist_destroy_all_segments(&bl);
+}
+
+/*
+ * The peer's encoder stream brought the table on: let the streams that were
+ * waiting for it carry on, in the order they blocked
+ */
+static void
+lws_h3_qpack_unblock(struct lws *nwsi, struct lws_h3_netconn *h3n)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&h3n->qpack_blocked_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 h3.qpack_blocked);
+
+		if (w->h3.qpack_dec_state &&
+		    w->h3.qpack_dec_state->ric <=
+				h3n->qpack_dec_ctx.dyn_table.insert_count) {
+			lws_h3_qpack_replay(nwsi, w);
+			if (!nwsi->quic.qn || nwsi->quic.qn->is_closing)
+				return;
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 {
@@ -1833,6 +1951,11 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	int has_wt_session = lws_h3_has_wt_session(nwsi);
 #endif
+
+	/* a stream waiting for inserts holds all it gets until they come */
+	if (!lws_dll2_is_detached(&wsi->h3.qpack_blocked))
+		return lws_buflist_append_segment(&wsi->h3.qpack_blocked_bl,
+						  buf, len) < 0;
 
 	/*
 	 * The prefixes a stream starts with, a unidirectional stream's type,
@@ -1950,10 +2073,21 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 				return 1;
 			}
-			/* tell its encoder what it may now refer to */
-			if (wsi->h3.h3n &&
-			    lws_h3_qpack_dec_ack_inserts(wsi->h3.h3n))
-				return 1;
+			/*
+			 * tell its encoder what it may now refer to, and let
+			 * the streams waiting for the inserts carry on
+			 */
+			if (wsi->h3.h3n) {
+				struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+				if (lws_h3_qpack_dec_ack_inserts(wsi->h3.h3n))
+					return 1;
+				if (nwsi) {
+					lws_h3_qpack_unblock(nwsi, wsi->h3.h3n);
+					if (!nwsi->quic.qn || nwsi->quic.qn->is_closing)
+						return 1;
+				}
+			}
 
 			return 0;
 		} else if (wsi->h3.stream_type == 0x03) {
@@ -2251,10 +2385,24 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						if (!wsi->h3.qpack_dec_state)
 							return 1;
 					}
-					if (lws_qpack_decode_header_block(wsi->h3.qpack_dec_state, ctx, buf, chunk, lws_h3_qpack_header_cb, wsi)) {
+					int dr = lws_qpack_decode_header_block(
+							wsi->h3.qpack_dec_state, ctx,
+							buf, chunk,
+							lws_h3_qpack_header_cb, wsi);
+
+					/*
+					 * The section waits for inserts: the
+					 * prefix is taken, the rest is held
+					 */
+					if (dr == LWS_QPACK_DEC_BLOCKED &&
+					    !lws_h3_qpack_block(wsi, buf, chunk, len))
+						return 0;
+
+					if (dr) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 
-						if (wsi->h3.ah_refused) {
+						if (dr != LWS_QPACK_DEC_BLOCKED &&
+						    wsi->h3.ah_refused) {
 							/* only the stream is closed */
 							if (wsi->quic.qs)
 								wsi->quic.qs->close_app_err =
@@ -2465,8 +2613,13 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							return 1;
 						} else if (id == 0x01) { /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
 							if (wsi->h3.h3n) {
-								wsi->h3.h3n->qpack_tx_encoder.virtual_payload_max = (uint32_t)val;
+								wsi->h3.h3n->qpack_tx_encoder.virtual_payload_max =
+									val > 0xffffffffu ? 0xffffffffu :
+											    (uint32_t)val;
 							}
+						} else if (id == 0x07) { /* SETTINGS_QPACK_BLOCKED_STREAMS */
+							if (wsi->h3.h3n)
+								wsi->h3.h3n->peer_qpack_blocked_streams = val;
 						} else if (id == 0x08) {
 							/* SETTINGS_ENABLE_WEB_SOCKETS */
 							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -2810,6 +2963,89 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 	return 0;
 }
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+/*
+ * The h3_qpack_enc_big_entry fault has the peer keep one big entry in its
+ * dynamic table, for a test's request headers to refer to many times over in
+ * a few bytes: lws' own encoder never inserts anything.  It takes the whole
+ * 4096 capacity a peer may well have advertised, as a cookie of
+ * LWS_H3_FI_BIG_ENTRY_LEN 'a's, absolute index 0.
+ *
+ * With h3_qpack_enc_big_entry_late, the insert waits until the connection's
+ * first request HEADERS went, so a request referring to it arrives first and
+ * blocks.  With h3_qpack_enc_big_entry_never, it is counted but never sent,
+ * so a request referring to it stays blocked.
+ */
+static int
+lws_h3_fi_big_entry(struct lws *wsi, struct lws *nwsi,
+		    struct lws_h3_netconn *h3n)
+{
+	struct lws_buflist **bl = &h3n->qpack_tx_encoder.tx_bl;
+	uint8_t *ins;
+	char *val;
+	int n = -1, m;
+
+	if (lws_fi(&wsi->fic, "h3_qpack_enc_big_entry_late") ||
+	    lws_fi(&nwsi->fic, "h3_qpack_enc_big_entry_late"))
+		bl = &h3n->fi_late_insert;
+	else if (lws_fi(&wsi->fic, "h3_qpack_enc_big_entry_never") ||
+		 lws_fi(&nwsi->fic, "h3_qpack_enc_big_entry_never")) {
+		h3n->qpack_tx_encoder.insert_count++;
+		return 0;
+	} else if (!lws_fi(&wsi->fic, "h3_qpack_enc_big_entry") &&
+		   !lws_fi(&nwsi->fic, "h3_qpack_enc_big_entry"))
+		return 0;
+
+	ins = lws_malloc(LWS_H3_FI_BIG_ENTRY_LEN + 16, "h3 fi entry");
+	val = lws_malloc(LWS_H3_FI_BIG_ENTRY_LEN, "h3 fi value");
+	if (ins && val) {
+		memset(val, 'a', LWS_H3_FI_BIG_ENTRY_LEN);
+		n = lws_qpack_tx_encode_set_capacity(ins,
+				LWS_H3_FI_BIG_ENTRY_LEN + 16, 4096);
+		m = n < 0 ? -1 :
+			lws_qpack_tx_encode_insert_name_ref(ins + n,
+				(size_t)(LWS_H3_FI_BIG_ENTRY_LEN + 16 - n), 1,
+				5 /* cookie */, val, LWS_H3_FI_BIG_ENTRY_LEN);
+		n = m < 0 ? -1 : n + m;
+	}
+	if (n > 0 && lws_buflist_append_segment(bl, ins, (size_t)n) < 0)
+		n = -1;
+	lws_free(ins);
+	lws_free(val);
+	if (n < 0)
+		return 1;
+
+	/* it is an insert like any other, the peer acks it */
+	h3n->qpack_tx_encoder.insert_count++;
+	if (bl == &h3n->qpack_tx_encoder.tx_bl)
+		lws_callback_on_writable(h3n->cwsi_qpack_enc);
+
+	return 0;
+}
+
+/* a request's HEADERS went: a late insert may go now */
+static void
+lws_h3_fi_late_insert(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_h3_netconn *h3n = nwsi ? nwsi->h3.h3n : NULL;
+	uint8_t *p;
+	size_t len;
+
+	if (!h3n || !h3n->fi_late_insert)
+		return;
+
+	while ((len = lws_buflist_next_segment_len(&h3n->fi_late_insert, &p))) {
+		if (lws_buflist_append_segment(&h3n->qpack_tx_encoder.tx_bl,
+					       p, len) < 0)
+			break;
+		lws_buflist_use_segment(&h3n->fi_late_insert, len);
+	}
+	lws_buflist_destroy_all_segments(&h3n->fi_late_insert);
+	lws_callback_on_writable(h3n->cwsi_qpack_enc);
+}
+#endif
+
 static int
 rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 {
@@ -2868,48 +3104,8 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 		    !lws_h3_create_unidi_stream(nwsi, 0x02))
 			return 1;
 
-		/*
-		 * The h3_qpack_enc_big_entry fault has the peer keep one big
-		 * entry in its dynamic table, for a test's request headers to
-		 * refer to many times over in a few bytes: lws' own encoder
-		 * never inserts anything.  It takes the whole 4096 capacity a
-		 * peer may well have advertised, as a cookie of
-		 * LWS_H3_FI_BIG_ENTRY_LEN 'a's, absolute index 0.
-		 */
-		if (lws_fi(&wsi->fic, "h3_qpack_enc_big_entry") ||
-		    lws_fi(&nwsi->fic, "h3_qpack_enc_big_entry")) {
-			uint8_t *ins = lws_malloc(LWS_H3_FI_BIG_ENTRY_LEN + 16,
-						  "h3 fi entry");
-			char *val = lws_malloc(LWS_H3_FI_BIG_ENTRY_LEN,
-					       "h3 fi value");
-			int n = -1, m;
-
-			if (ins && val) {
-				memset(val, 'a', LWS_H3_FI_BIG_ENTRY_LEN);
-				n = lws_qpack_tx_encode_set_capacity(ins,
-						LWS_H3_FI_BIG_ENTRY_LEN + 16, 4096);
-				m = n < 0 ? -1 :
-					lws_qpack_tx_encode_insert_name_ref(
-						ins + n,
-						(size_t)(LWS_H3_FI_BIG_ENTRY_LEN +
-							 16 - n), 1,
-						5 /* cookie */, val,
-						LWS_H3_FI_BIG_ENTRY_LEN);
-				n = m < 0 ? -1 : n + m;
-			}
-			if (n > 0 && lws_buflist_append_segment(
-					&h3n->qpack_tx_encoder.tx_bl, ins,
-					(size_t)n) < 0)
-				n = -1;
-			/* it is an insert like any other, the peer acks it */
-			if (n > 0)
-				h3n->qpack_tx_encoder.insert_count++;
-			lws_free(ins);
-			lws_free(val);
-			if (n < 0)
-				return 1;
-			lws_callback_on_writable(h3n->cwsi_qpack_enc);
-		}
+		if (lws_h3_fi_big_entry(wsi, nwsi, h3n))
+			return 1;
 #endif
 			
 		h3n->qpack_tx_encoder.wsi_qpack_enc = h3n->cwsi_qpack_enc;
@@ -2960,8 +3156,12 @@ lws_h3_qpack_dec_cancel_stream(struct lws *wsi)
 	struct lws_quic_stream *qs = wsi->quic.qs;
 
 	if (!h3n || wsi == nwsi || !qs || qs->is_unidirectional ||
-	    qs->fin_delivered || !h3n->qpack_dec_ctx.dyn_table.insert_count ||
 	    !nwsi->quic.qn || nwsi->quic.qn->is_closing)
+		return;
+
+	/* a blocked stream's section is outstanding even if its FIN came */
+	if (lws_dll2_is_detached(&wsi->h3.qpack_blocked) &&
+	    (qs->fin_delivered || !h3n->qpack_dec_ctx.dyn_table.insert_count))
 		return;
 
 	if (lws_h3_qpack_dec_emit(h3n, qs->stream_id, 6, 0x40))
@@ -2972,6 +3172,9 @@ static int
 rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 {
 	lws_h3_qpack_dec_cancel_stream(wsi);
+	/* nothing it held is wanted now */
+	lws_dll2_remove(&wsi->h3.qpack_blocked);
+	lws_buflist_destroy_all_segments(&wsi->h3.qpack_blocked_bl);
 	lws_quic_stream_cleanup(wsi);
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -3162,6 +3365,10 @@ send:
 			if (n < 0 || (!n && !head_body))
 				return n;
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+			if (is_headers)
+				lws_h3_fi_late_insert(wsi);
+#endif
 			if (is_headers)
 				/* server response HEADERS frame went out: arm the
 				 * response-completion watchdog (no-op for immortal

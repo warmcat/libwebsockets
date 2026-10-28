@@ -504,7 +504,7 @@ lws_quic_stream_is_h3(const struct lws *wsi_child)
  * close_after_rx, not just dropped, or an SS returning DISCONNECT_ME from
  * its rx on an h3 stream never sees DISCONNECTED.
  */
-static int
+int
 lws_quic_rx_h3_wants_close(struct lws *nwsi, struct lws *wsi_child,
 			   struct lws_quic_stream *qs, uint64_t sid)
 {
@@ -560,6 +560,63 @@ lws_quic_rx_fin_h3_server(struct lws *nwsi, struct lws *wsi_child,
 	return lws_quic_rx_h3_wants_close(nwsi, wsi_child, qs, sid);
 }
 #endif
+
+/*
+ * The peer's FIN came after all it sent on an h3 request stream.  Once that
+ * has all been through h3, the client's transaction is complete, and the
+ * server's request body may end with it.  If the stream is blocked waiting
+ * for qpack inserts, what it sent is still held: h3 does this when it has
+ * processed it.  Nonzero means the wsi is gone or going.
+ */
+int
+lws_quic_rx_fin_h3(struct lws *nwsi, struct lws *wsi_child,
+		   struct lws_quic_stream *qs)
+{
+	if (lws_h3_rx_fin_deferred(wsi_child))
+		return 0;
+
+	if (lwsi_role_client(wsi_child)) {
+#if defined(LWS_WITH_CLIENT)
+		wsi_child->client_mux_substream = 1;
+		if (lws_http_transaction_completed_client(wsi_child))
+			lwsl_info("Transaction completed and wsi closed\n");
+		else {
+			lwsl_wsi_info(wsi_child, "Transaction completed! "
+					         "Closing QUIC stream WSI");
+			lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS,
+					   "quic client stream fin");
+		}
+
+		return 1;
+#endif
+	}
+
+#if defined(LWS_WITH_CLIENT)
+	wsi_child->client_mux_substream = 0;
+#endif
+#if defined(LWS_WITH_SERVER)
+	return lws_quic_rx_fin_h3_server(nwsi, wsi_child, qs);
+#else
+	return 0;
+#endif
+}
+
+/*
+ * RFC 9114 6.2.1, RFC 9204 4.2: the peer may not finish its control stream,
+ * nor either qpack stream
+ */
+static int
+lws_quic_rx_fin_h3_critical(struct lws *nwsi, struct lws *wsi_child)
+{
+	if (!wsi_child->h3.type_set || (wsi_child->h3.stream_type != 0x00 &&
+					wsi_child->h3.stream_type != 0x02 &&
+					wsi_child->h3.stream_type != 0x03))
+		return 0;
+
+	lws_quic_enter_closing_state(nwsi, LWS_H3_CLOSED_CRITICAL_STREAM, 0, 1);
+
+	return 1;
+}
 #endif
 
 /*
@@ -668,36 +725,13 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 			if (is_final && wsi_child) {
 #if defined(LWS_ROLE_H3)
 				if (wsi_child->role_ops == &role_ops_h3) {
-					if (!qs->is_unidirectional) {
-						if (lwsi_role_client(wsi_child)) {
-#if defined(LWS_WITH_CLIENT)
-							wsi_child->client_mux_substream = 1;
-							if (lws_http_transaction_completed_client(wsi_child)) {
-								lwsl_info("Transaction completed and wsi closed\n");
-								wsi_child = NULL;
-							} else {
-								lwsl_wsi_info(wsi_child, "Transaction completed! Closing QUIC stream WSI");
-								lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic client stream fin");
-								wsi_child = NULL;
-							}
-#endif
-						} else {
-#if defined(LWS_WITH_CLIENT)
-							wsi_child->client_mux_substream = 0;
-#endif
-#if defined(LWS_WITH_SERVER)
-							if (lws_quic_rx_fin_h3_server(nwsi,
-									wsi_child, qs))
-								wsi_child = NULL;
-#endif
-                                                }
-                                        } else {
-                                                if (wsi_child->h3.type_set && (wsi_child->h3.stream_type == 0x00 || wsi_child->h3.stream_type == 0x02 || wsi_child->h3.stream_type == 0x03)) {
-                                                        lws_quic_enter_closing_state(nwsi, 0x0104 /* LWS_H3_CLOSED_CRITICAL_STREAM */, 0, 1);
-                                                        return;
-                                                }
-                                        }
-                                }
+					if (qs->is_unidirectional &&
+					    lws_quic_rx_fin_h3_critical(nwsi, wsi_child))
+						return;
+					if (!qs->is_unidirectional &&
+					    lws_quic_rx_fin_h3(nwsi, wsi_child, qs))
+						wsi_child = NULL;
+				}
 #endif
 				if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic")))
 					lws_quic_rx_fin_raw(wsi_child, qs);
@@ -763,30 +797,14 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 					qs->fin_delivered = 1;
 #if defined(LWS_ROLE_H3)
 					if (wsi_child->role_ops == &role_ops_h3) {
-						if (!qs->is_unidirectional) {
-							if (lwsi_role_client(wsi_child)) {
-#if defined(LWS_WITH_CLIENT)
-								wsi_child->client_mux_substream = 1;
-								if (lws_http_transaction_completed_client(wsi_child)) {
-									lwsl_info("Transaction completed and wsi closed\n");
-									wsi_child = NULL;
-								} else {
-									lwsl_wsi_info(wsi_child, "Transaction completed! Closing QUIC stream WSI");
-									lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic client stream fin");
-									wsi_child = NULL;
-								}
-#endif
-							} else {
-#if defined(LWS_WITH_CLIENT)
-								wsi_child->client_mux_substream = 0;
-#endif
-#if defined(LWS_WITH_SERVER)
-								if (lws_quic_rx_fin_h3_server(nwsi,
-										wsi_child, qs))
-									wsi_child = NULL;
-#endif
-							}
-						}
+						if (qs->is_unidirectional &&
+						    lws_quic_rx_fin_h3_critical(nwsi,
+								    wsi_child))
+							return;
+						if (!qs->is_unidirectional &&
+						    lws_quic_rx_fin_h3(nwsi, wsi_child,
+								       qs))
+							wsi_child = NULL;
 					}
 #endif
 					if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic")))

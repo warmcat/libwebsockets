@@ -324,6 +324,8 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`h3_second_qpack_enc`|An h3 connection opens a second QPACK encoder stream, where there may be only one (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_req_frame_settings`|An h3 client request stream starts with an empty SETTINGS frame, which only the control stream may carry (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_qpack_enc_big_entry`|An h3 connection's QPACK encoder stream sets the peer's dynamic table capacity to 4096 and fills it with one cookie entry (absolute index 0), for request headers to refer to (LWS_ROLE_H3)|
+|cli wsi|`wsi`|`h3_qpack_enc_big_entry_late`|As `h3_qpack_enc_big_entry`, but the insert goes only after the connection's first request HEADERS did, so a request referring to it arrives first and the peer must block it (LWS_ROLE_H3)|
+|cli wsi|`wsi`|`h3_qpack_enc_big_entry_never`|As `h3_qpack_enc_big_entry`, but the insert is counted and never sent, so a request referring to it stays blocked at the peer (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_trailer_field`|An h3 client request with no body ends with a trailers block holding `user-agent: trailer-ua` (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_trailer_pseudo`|An h3 client request with no body ends with a trailers block holding a `:path`, which trailers may not (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`quic_stream_replay`|A QUIC stream's first STREAM frame is sent once more 100ms after the stream closed, as a retransmission whose ack was lost would be, after the peer finished with the stream (LWS_ROLE_QUIC)|

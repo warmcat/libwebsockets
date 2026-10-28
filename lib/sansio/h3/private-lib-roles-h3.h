@@ -66,7 +66,7 @@
 #define LWS_H3_DEF_MAX_FIELD_SECTION	65536
 
 /*
- * the value length of the h3_qpack_enc_big_entry fault's dynamic table
+ * the value length of the h3_qpack_enc_big_entry faults' dynamic table
  * entry, a cookie: with the name and the 32 of overhead it fills 4096
  */
 #define LWS_H3_FI_BIG_ENTRY_LEN		4058
@@ -96,6 +96,15 @@ lws_h3_peer_bidi_allowed(struct lws *nwsi);
 int
 lws_h3_rx_fin_server(struct lws *wsi);
 
+/*
+ * The peer's FIN has been delivered on a request stream that is blocked
+ * waiting for qpack inserts: what it sent before the FIN is still held, so
+ * nothing may act on the FIN yet.  Nonzero says so, and that it will be acted
+ * on once the held data has been processed.
+ */
+int
+lws_h3_rx_fin_deferred(struct lws *wsi);
+
 extern const struct lws_role_ops role_ops_h3;
 #define lwsi_role_h3(wsi) (wsi->role_ops == &role_ops_h3)
 
@@ -120,6 +129,18 @@ lws_wsi_h3_can_adopt(struct lws *parent_wsi);
 #else
 #define LWS_QPACK_CAP_VARINT 0x60 /* 8192 */
 #define LWS_QPACK_CAP_VAL 8192
+#endif
+
+/*
+ * The streams we let wait for the peer's inserts at once, advertised with
+ * SETTINGS_QPACK_BLOCKED_STREAMS (RFC 9204 2.1.2).  What a blocked stream
+ * brings while it waits is held, and not credited back to the peer until it
+ * is processed, so the connection's flow control window bounds it all.
+ */
+#if defined(LWS_PLAT_FREERTOS)
+#define LWS_QPACK_BLOCKED_STREAMS 2
+#else
+#define LWS_QPACK_BLOCKED_STREAMS 8
 #endif
 
 struct lws_h3_netconn {
@@ -153,6 +174,14 @@ struct lws_h3_netconn {
 	struct lws_qpack_dynamic_table_entry rx_entries[LWS_QPACK_CAP_VAL / 32];
 	/* our decoder stream's instructions, waiting to go (RFC 9204 4.4) */
 	struct lws_buflist *qpack_dec_tx_bl;
+	/* the streams waiting for inserts, by _lws_h3_related.qpack_blocked */
+	lws_dll2_owner_t qpack_blocked_owner;
+	/* the peer's SETTINGS_QPACK_BLOCKED_STREAMS, 0 until it says */
+	uint64_t peer_qpack_blocked_streams;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/* h3_qpack_enc_big_entry_late's insert, until a request went */
+	struct lws_buflist *fi_late_insert;
+#endif
 
 	uint8_t peer_supports_ws:1;
 	uint8_t peer_supports_webtransport:1;
@@ -226,6 +255,15 @@ struct _lws_h3_related {
 	 */
 	uint32_t qpack_enc_ric[2];
 	uint8_t qpack_enc_unacked;
+
+	/*
+	 * decoder: the stream's field section waits for inserts, in h3n's
+	 * qpack_blocked_owner, and what came after its prefix is held until
+	 * they come, with whether the peer's FIN came after it
+	 */
+	lws_dll2_t qpack_blocked;
+	struct lws_buflist *qpack_blocked_bl;
+	uint8_t qpack_blocked_fin:1;
 };
 
 /* Internal QPACK API */

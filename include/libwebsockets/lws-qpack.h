@@ -120,6 +120,11 @@ struct lws_qpack_stream_state {
 	/* the largest absolute dynamic index the field section used, plus 1 */
 	uint64_t ref_top;
 	uint8_t base_sign; /* the S bit of a Delta Base sent as a long int */
+	/*
+	 * how much of its input lws_qpack_decode_header_block() took before
+	 * it returned LWS_QPACK_DEC_BLOCKED
+	 */
+	size_t used;
 	char name_buf[128];
 	size_t name_pos;
 	char val_buf[4096];
@@ -144,6 +149,15 @@ LWS_VISIBLE LWS_EXTERN int
 lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state, 
 			      struct lws_qpack_context *ctx,
 			      const unsigned char *in, size_t in_len);
+
+/*
+ * lws_qpack_decode_header_block() returns this when the section's prefix
+ * requires inserts the table doesn't have yet (RFC 9204 2.1.2).  It took
+ * state->used bytes of its input, up to the end of the prefix: call it again
+ * with the rest once the encoder stream has brought the table up to
+ * state->ric.  Like any nonzero return, it is not a decoded section.
+ */
+#define LWS_QPACK_DEC_BLOCKED 2
 
 LWS_VISIBLE LWS_EXTERN int
 lws_qpack_decode_header_block(struct lws_qpack_stream_state *state, 

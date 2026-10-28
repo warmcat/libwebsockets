@@ -797,6 +797,39 @@ static int test_qpack_section_rules(void)
 		}
 	}
 
+	/*
+	 * A section requiring an insert the table doesn't have yet blocks
+	 * after its prefix, and carries on from there once the insert comes
+	 */
+	{
+		static const uint8_t blk[] = { 0x04, 0x00, 0x80 },
+				     ins3[] = { 0x80, 1, 'c' };
+
+		memset(&st, 0, sizeof(st));
+		n = lws_qpack_decode_header_block(&st, &qctx, blk, sizeof(blk),
+						  test_section_rules_cb, NULL);
+		if (n != LWS_QPACK_DEC_BLOCKED || st.used != 2) {
+			lwsl_err("13.23: RIC 3 with 2 inserts: %d, used %d\n",
+				 n, (int)st.used);
+			fails++;
+		} else {
+			struct lws_qpack_stream_state es;
+
+			memset(&es, 0, sizeof(es));
+			es.state = LQP_DEC_INSTRUCTION;
+			if (lws_qpack_decode_encoder_stream(&es, &qctx, ins3,
+							    sizeof(ins3)) ||
+			    lws_qpack_decode_header_block(&st, &qctx,
+						blk + st.used,
+						sizeof(blk) - st.used,
+						test_section_rules_cb, NULL) ||
+			    lws_qpack_decode_header_block_done(&st)) {
+				lwsl_err("13.24: blocked section not resumed\n");
+				fails++;
+			}
+		}
+	}
+
 	/* a nonzero RIC with no table at all */
 	memset(&st, 0, sizeof(st));
 	if (!lws_qpack_decode_header_block(&st, NULL, c[0].blk, c[0].len,

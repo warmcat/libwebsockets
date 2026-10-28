@@ -584,20 +584,19 @@ lws_qpack_decode_base(struct lws_qpack_stream_state *state, uint64_t delta,
 }
 
 /*
- * A section can only be decoded once the table has every insert it requires.
- * We allow no blocked streams, so one that would block is a
- * QPACK_DECOMPRESSION_FAILED (RFC 9204 2.1.2).
+ * A section can only be decoded once the table has every insert it requires
+ * (RFC 9204 2.1.2): until then, the stream is blocked
  */
 static int
-lws_qpack_section_unblocked(const struct lws_qpack_stream_state *state,
-			    const struct lws_qpack_context *ctx)
+lws_qpack_section_blocked(const struct lws_qpack_stream_state *state,
+			  const struct lws_qpack_context *ctx)
 {
 	if (state->ric <= (ctx ? ctx->dyn_table.insert_count : 0))
 		return 0;
 
-	lwsl_notice("QPACK: RIC %llu but %u inserts, blocked\n",
-		    (unsigned long long)state->ric,
-		    ctx ? (unsigned int)ctx->dyn_table.insert_count : 0u);
+	lwsl_info("QPACK: RIC %llu but %u inserts, blocked\n",
+		  (unsigned long long)state->ric,
+		  ctx ? (unsigned int)ctx->dyn_table.insert_count : 0u);
 
 	return 1;
 }
@@ -730,10 +729,13 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				break;
 			}
 			if (lws_qpack_decode_base(state, state->int_val,
-						  state->base_sign) ||
-			    lws_qpack_section_unblocked(state, ctx))
+						  state->base_sign))
 				return 1;
 			state->state = LQP_DEC_INSTRUCTION;
+			if (lws_qpack_section_blocked(state, ctx)) {
+				state->used = i + 1;
+				return LWS_QPACK_DEC_BLOCKED;
+			}
 			break;
 
 		case LQP_DEC_INSTRUCTION:
@@ -844,9 +846,12 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					/* only the prefix's Delta Base gets here */
 					if (lws_qpack_decode_base(state,
 							state->int_val,
-							state->base_sign) ||
-					    lws_qpack_section_unblocked(state, ctx))
+							state->base_sign))
 						return 1;
+					if (lws_qpack_section_blocked(state, ctx)) {
+						state->used = i + 1;
+						return LWS_QPACK_DEC_BLOCKED;
+					}
 				}
 			}
 			break;

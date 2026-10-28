@@ -6819,6 +6819,19 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 					&wsi->h3.h3n->qpack_tx_encoder);
 			lws_buflist_destroy_all_segments(
 					&wsi->h3.h3n->qpack_dec_tx_bl);
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+			lws_buflist_destroy_all_segments(
+					&wsi->h3.h3n->fi_late_insert);
+#endif
+			/*
+			 * a stream still waiting for inserts would point into
+			 * the h3n: it is closed before us, which takes it off
+			 */
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(
+					&wsi->h3.h3n->qpack_blocked_owner)) {
+				lws_dll2_remove(d);
+			} lws_end_foreach_dll_safe(d, d1);
 			lws_free_set_NULL(wsi->h3.h3n);
 		}
 #endif

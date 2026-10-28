@@ -1133,6 +1133,24 @@ lws_quic_reset_budget_spend(struct lws *nwsi, struct lws *child);
 struct lws *
 lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id);
 
+#if defined(LWS_ROLE_H3)
+/*
+ * h3 returned nonzero for data delivered on a stream: honour it.  Nonzero
+ * means the wsi is gone or going.
+ */
+int
+lws_quic_rx_h3_wants_close(struct lws *nwsi, struct lws *wsi_child,
+			   struct lws_quic_stream *qs, uint64_t sid);
+
+/*
+ * Act on the peer's FIN on an h3 request stream, after everything it sent
+ * before it has been through h3.  Nonzero means the wsi is gone or going.
+ */
+int
+lws_quic_rx_fin_h3(struct lws *nwsi, struct lws *wsi_child,
+		   struct lws_quic_stream *qs);
+#endif
+
 int32_t
 lws_quic_peer_initial_stream_cr(const struct lws_quic_netconn *qn, int bidi,
 				int locally_initiated);
