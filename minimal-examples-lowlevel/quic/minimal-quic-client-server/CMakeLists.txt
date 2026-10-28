@@ -76,7 +76,8 @@ if (requirements)
 		#
 		# After the handshake nobody sends anything, and the client
 		# never uses its stream: the server must reap the connection
-		# by its keepalive, although stream 0 exists from the start
+		# once it waited long enough for a first request, although
+		# stream 0 exists from the start
 		#
 		lws_get_free_port(PORT_QCS_QUIET_CONN)
 		add_test(NAME ${SAMP}-quiet-conn COMMAND ${SAMP}

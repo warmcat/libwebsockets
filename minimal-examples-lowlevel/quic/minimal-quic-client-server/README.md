@@ -68,12 +68,17 @@ acknowledge, for the shorter of the `max_idle_timeout` the two sides
 advertise.  lws advertises the vhost's `.quic_max_idle_timeout_ms`, 30s by
 default; `--max-idle <ms>` sets it for the vhost the server and client here
 share.  Before that, a server connection with no request stream the peer has
-used is reaped by the vhost's keepalive, 5s by default.
+used is reaped, as h1 reaps one: if it never had a request, once it has waited
+the vhost's `timeout_secs_ah_idle` (10s by default) from the handshake, however
+much else the peer sent; after a request, once the peer has sent nothing for
+the vhost's `keepalive_timeout` (5s by default).
 
 With `--quiet conn`, once the handshake completed neither side sends anything,
 and the client never uses its stream.  The server has stream 0 from the
-handshake, but the client never opened it, so the keepalive must close the
-connection within a few seconds.  The client still has the connection open, so
+handshake, but the client never opened it, so the server must close the
+connection once it waited for a first request for as long as its vhost allows,
+which here is 1s: not sooner, and not as late as the keepalive, 5s, the wait
+after a request.  The client still has the connection open, so
 the server must tell it with CONNECTION_CLOSE (RFC 9000 10.2): the client must
 have closed too within 1s, not go on until its own idle timeout, eg, sending a
 request the server will never answer.

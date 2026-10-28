@@ -6568,6 +6568,16 @@ lws_quic_stream_cleanup(struct lws *wsi)
  * ever uses it, so a stream of the peer's counts only once the peer has
  * opened it (sent a STREAM frame for it).
  *
+ * Idle, the connection waits as h1's does.  Until the peer's first request,
+ * it has the vhost's timeout_secs_ah_idle, h1's hold of a connection for its
+ * request head, as a deadline from the handshake: nothing the peer sends
+ * short of a request stream extends it, or a peer that only sends PINGs
+ * keeps it for as long as it likes.  After a request, it has the vhost's
+ * keepalive_timeout, refreshed by what the peer sends, as h1 waits for the
+ * next request on a connection that had one.  A connection that never had
+ * a request may be one whose request was lost and is still coming: the
+ * longer first wait gives its sender's probes more of a chance.
+ *
  * This is the shorter policy for connections with nothing to do: the
  * transport's own idle timeout (lws_quic_idle_start()) bounds every
  * connection, whatever its streams.
@@ -6603,11 +6613,20 @@ lws_quic_server_idle_check(struct lws *nwsi)
 		     lws_quic_idtr_is_opened(&qn->peer_opened[0],
 					     w->quic.qs->stream_id >> 2))) {
 			/* has a request stream: not idle */
+			qn->had_request = 1;
 			if (nwsi->pending_timeout != NO_PENDING_TIMEOUT)
 				lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
 			return;
 		}
 	} lws_end_foreach_dll(d);
+
+	if (!qn->had_request) {
+		/* the deadline for the first request, not refreshed */
+		if (nwsi->pending_timeout != PENDING_TIMEOUT_UDP_IDLE)
+			lws_set_timeout(nwsi, PENDING_TIMEOUT_UDP_IDLE,
+					nwsi->a.vhost->timeout_secs_ah_idle);
+		return;
+	}
 
 	lws_set_timeout(nwsi, PENDING_TIMEOUT_UDP_IDLE,
 			nwsi->a.vhost->keepalive_timeout ?

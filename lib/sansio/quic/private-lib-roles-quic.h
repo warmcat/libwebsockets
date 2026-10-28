@@ -896,6 +896,8 @@ struct lws_quic_netconn {
 	uint8_t			pto_probe_needed:2;
 	uint8_t			address_validated:1;
 	uint8_t			is_closing:1;
+	/* server: the peer opened a request stream, see idle_check */
+	uint8_t			had_request:1;
 	/* we sent an ack-eliciting packet since the peer's last one */
 	uint8_t			idle_tx_since_rx:1;
 

@@ -70,15 +70,17 @@ static lws_usec_t spread_us, spread_start;
 
 /*
  * --quiet: after the handshake, both sides stop sending.  With QCS_QUIET_CONN
- * the client never uses its stream, so the server has no request stream and
- * must reap the connection by its keepalive, the vhost's keepalive_timeout,
- * 5s by default.  With QCS_QUIET_STREAM the client opens its stream with one
+ * the client never uses its stream, so the server never had a request and
+ * must reap the connection when it has waited the vhost's
+ * timeout_secs_ah_idle for one, as h1 does, not sooner, and not as late as
+ * its keepalive_timeout, the wait after a request, 5s by default: the vhost
+ * here waits QCS_QUIET_FIRST_REQ_S for it.  With QCS_QUIET_STREAM the client opens its stream with one
  * write and stops there, the stream never finished, so it is only the
  * transport's idle timeout (RFC 9000 10.1) that ends it: no sooner than
  * --max-idle after the last the server heard from the client, and not much
  * later either.
  *
- * The keepalive closes a connection the peer still has open, so it sends
+ * The reap closes a connection the peer still has open, so it sends
  * CONNECTION_CLOSE (RFC 9000 10.2), and with QCS_QUIET_CONN the client must
  * have closed too within QCS_QUIET_CLOSE_US after the server did, not have
  * gone on until its own idle timeout.  The idle timeout closes silently, the
@@ -97,7 +99,7 @@ static lws_sorted_usec_list_t sul_quiet;
 static char quiet_over;	/* the verdict is in: later closes are teardown */
 static char quiet_server_gone;	/* QCS_QUIET_CONN: waiting for the client */
 
-#define QCS_QUIET_KEEPALIVE_US	(5 * LWS_US_PER_SEC)	/* vhost default */
+#define QCS_QUIET_FIRST_REQ_S	1	/* the vhost's timeout_secs_ah_idle */
 #define QCS_QUIET_SLACK_US	(3 * LWS_US_PER_SEC)
 #define QCS_QUIET_CLOSE_US	(1 * LWS_US_PER_SEC)
 
@@ -1720,6 +1722,19 @@ quiet_server_closed(void)
 		lwsl_user("quiet: the server closed the connection %lldms "
 			  "after its handshake\n",
 			  (long long)((now - server_estab_us) / LWS_US_PER_MS));
+		/*
+		 * Not before it waited for the first request.  Its deadline
+		 * starts at the handshake, a little before we saw the stream.
+		 */
+		if (now - server_estab_us <
+			QCS_QUIET_FIRST_REQ_S * LWS_US_PER_SEC -
+						200 * LWS_US_PER_MS) {
+			quiet_over = 1;
+			lwsl_err("quiet: the server closed it too soon\n");
+			result = 1;
+			lws_default_loop_exit(context);
+			return;
+		}
 		/* the client must hear it closed, see QCS_QUIET_CLOSE_US */
 		quiet_server_gone = 1;
 		lws_sul_schedule(context, 0, &sul_quiet,
@@ -1778,7 +1793,8 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 			server_estab_us = lws_now_usecs();
 			if (quiet == QCS_QUIET_CONN)
 				quiet_deadline_set(server_estab_us,
-						   QCS_QUIET_KEEPALIVE_US +
+						   QCS_QUIET_FIRST_REQ_S *
+						   LWS_US_PER_SEC +
 						   QCS_QUIET_SLACK_US);
 			break;
 		}
@@ -2266,6 +2282,9 @@ int main(int argc, const char **argv)
 
 	info.port                               = 7681;
 	info.protocols                          = protocols;
+	if (quiet == QCS_QUIET_CONN)
+		/* how long a connection may wait for its first request */
+		info.timeout_secs_ah_idle		= QCS_QUIET_FIRST_REQ_S;
 	info.options                            = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
                                                  LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
                                                  LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
