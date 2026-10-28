@@ -369,6 +369,25 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay losing the client's Finished for 800ms, but
+		# not its acks of the server's flight: the server, sending no
+		# 1-RTT before its handshake completes, then has nothing in
+		# flight, and must not probe until the Finished comes (RFC 9002
+		# A.8)
+		#
+		if (has_fault_injection)
+			lws_get_free_port(PORT_QCS_LF)
+			lws_get_free_port(PORT_QCS_LF_RELAY)
+			add_test(NAME ${SAMP}-lost-finished COMMAND ${SAMP}
+					--server ${QCS_RELAY_ADS} -p ${PORT_QCS_LF}
+					--relay ${PORT_QCS_LF_RELAY} --lost-finished
+					--fault-injection "wsi/quic_no_half_rtt")
+			set_tests_properties(${SAMP}-lost-finished PROPERTIES
+						     WORKING_DIRECTORY .
+						     TIMEOUT 30)
+		endif()
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport

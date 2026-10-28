@@ -36,6 +36,7 @@ arrived.
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--lag|With `--relay`, partway through the server's transfer the relay starts delaying everything both ways by 500ms, see below|
 |--deaf|With `--relay`, the relay loses the client's first stream data, and everything the server sends it for 1.5s, see below|
+|--lost-finished|With `--relay`, for 800ms the relay loses the client's Finished but not its acks, and the server must not probe with nothing in flight, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
@@ -324,6 +325,29 @@ waiting for it has nothing to send, and the client dies of its PTO count.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --deaf
+```
+
+## a server waiting for the client's Finished
+
+With `--lost-finished`, for 800ms from the first, the relay loses the client's
+Handshake packets with room for a Finished, but not the smaller ones, its acks
+of the server's flight.  Once the server has one of those, its flight is acked,
+and if it sent nothing in 1-RTT ahead of its handshake completing, it has
+nothing in flight.  Then it must not probe (RFC 9002 A.8): what it waits for,
+the Finished, is the client's to send again, from its own PTO.  So the relay
+counts the server's Handshake packets after its flight was acked, until the
+window ends, and there must be no more than two.  A server keeping its PTO
+armed anyway sends a PING each time the last one was acked, every PTO.
+
+Whether a server sends anything in 1-RTT before then is up to its tls: RFC 8446
+4.6.1 lets it send its session tickets as soon as its own Finished went, and
+some tls libraries do.  The ctest uses the `quic_no_half_rtt` fault injection
+point to have it wait, so it needs a build with
+`-DLWS_WITH_SYS_FAULT_INJECTION=1`.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 \
+	--lost-finished --fault-injection "wsi/quic_no_half_rtt"
 ```
 
 ## a socket that refuses datagrams

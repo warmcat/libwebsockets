@@ -1165,6 +1165,21 @@ lws_quic_pto_delay_us(const struct lws_quic_netconn *qn, uint8_t count)
 	return delay;
 }
 
+/*
+ * RFC 9002 A.8 (SetLossDetectionTimer): with nothing ack-eliciting in flight,
+ * only a client still in its handshake keeps the PTO armed, so a server held
+ * at its anti-amplification limit can be unblocked (6.2.2.1).  A server whose
+ * own flight was acked has nothing to probe for: what it waits for, the
+ * client's Finished, is the client's to send again, on its own PTO.  Probing
+ * anyway, every probe acked reset the backoff, so it sent a PING every RTT or
+ * so until the Finished came.
+ */
+static int
+lws_quic_pto_armed_idle(const struct lws_quic_netconn *qn)
+{
+	return !qn->is_server && !qn->handshake_done;
+}
+
 /* what in a packet given up on by a PTO goes again, see below */
 static int
 lws_quic_frame_pto_resent(const struct lws_quic_netconn *qn,
@@ -1337,7 +1352,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 		if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_discard)
 			qn->cc_ops->on_discard(qn->nwsi, total_bytes_lost);
 
-		if (!sent_ping && !qn->handshake_done) {
+		if (!sent_ping && lws_quic_pto_armed_idle(qn)) {
 			int target_level = LWS_QUIC_LEVEL_INITIAL;
 			if (qn->keys[LWS_QUIC_LEVEL_HANDSHAKE]) target_level = LWS_QUIC_LEVEL_HANDSHAKE;
 			struct lws_quic_tx_frame *ping = lws_zalloc(sizeof(*ping), "pto ping");
@@ -1351,7 +1366,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 
 		lws_callback_on_writable(qn->nwsi);
 
-		/* Always ensure the timer is running as long as there is data in flight, or client handshake incomplete! */
+		/* the timer runs while anything is in flight, or see above */
 		int any_in_flight = 0;
 		for (int i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 			if (qn->in_flight[i].count) {
@@ -1360,7 +1375,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 			}
 		}
 
-		if (any_in_flight || !qn->handshake_done) {
+		if (any_in_flight || lws_quic_pto_armed_idle(qn)) {
 			lws_usec_t pto_delay = lws_quic_pto_delay_us(qn, qn->pto_count);
 			lws_quic_sul_schedule(qn, &qn->pto_sul, lws_quic_pto_cb,
 					      pto_delay);
@@ -1770,8 +1785,8 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 			}
 		}
 		if (!any_in_flight2) {
-			if (!qn->handshake_done) { /* was !qn->is_server && ... */
-				/* Keep PTO timer running to probe if peer gets blocked (RFC 9002 6.2.2.1) */
+			if (lws_quic_pto_armed_idle(qn)) {
+				/* RFC 9002 6.2.2.1: the server may be blocked */
 				lwsl_info("lws_quic_ack_end: Keeping PTO timer active (no in-flight, handshake incomplete)\n");
 			} else {
 				lws_sul_cancel(&qn->pto_sul);
@@ -1858,7 +1873,7 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 				break;
 			}
 
-		if (any_in_flight || !qn->handshake_done) {
+		if (any_in_flight || lws_quic_pto_armed_idle(qn)) {
 			lws_usec_t pto_base = lws_quic_pto_base_us(qn);
 
 			/* reschedule the PTO at the fresh, unbacked-off delay */
@@ -4271,6 +4286,18 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		if (level == LWS_QUIC_LEVEL_EARLY && qn->is_server) {
 			continue;
 		}
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/*
+		 * quic_no_half_rtt: a server sends nothing in 1-RTT until its
+		 * handshake completes, like one whose tls sends its tickets
+		 * only once it has the client's Finished.  RFC 8446 4.6.1 lets
+		 * it send them after its own, and some tls libraries do.
+		 */
+		if (level == LWS_QUIC_LEVEL_APP && qn->is_server &&
+		    !qn->handshake_done && lws_fi(&wsi->fic, "quic_no_half_rtt"))
+			continue;
+#endif
 
 		int pn_space = (level == LWS_QUIC_LEVEL_EARLY || level == LWS_QUIC_LEVEL_APP) ? LWS_QUIC_LEVEL_APP : level;
 		int is_ack_allowed = (level != LWS_QUIC_LEVEL_EARLY);
