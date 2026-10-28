@@ -303,6 +303,108 @@ lws_h3_usable_tx_cr(struct lws *wsi)
 	return wsi->txc.tx_cr;
 }
 
+/*
+ * Send all one of our qpack streams has queued, as far as credit goes, not a
+ * chunk a turn: a field section referring to an insert can't be decoded until
+ * the whole insert has arrived, nor can the peer use an insert until our
+ * acknowledgement of it has, and a turn is only had once per service pass
+ */
+static int
+lws_h3_qpack_stream_drain(struct lws *wsi, struct lws_buflist **bl)
+{
+	uint8_t tx_buf[LWS_PRE + 512], *p;
+	int32_t cr;
+	size_t len;
+	int n;
+
+	while ((len = lws_buflist_next_segment_len(bl, &p))) {
+		cr = lws_h3_usable_tx_cr(wsi);
+		if (lws_wsi_txc_check_skint(&wsi->txc, cr)) {
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
+		if (len > sizeof(tx_buf) - LWS_PRE)
+			len = sizeof(tx_buf) - LWS_PRE;
+		if (len > (size_t)cr)
+			len = (size_t)cr;
+		memcpy(tx_buf + LWS_PRE, p, len);
+
+		n = lws_write(wsi, tx_buf + LWS_PRE, len, LWS_WRITE_BINARY);
+		if (n < 0)
+			return -1;
+		if (!n) {
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
+		lws_buflist_use_segment(bl, (size_t)n);
+	}
+
+	return 0;
+}
+
+/*
+ * Queue an instruction for our decoder stream (RFC 9204 4.4): a prefixed
+ * integer, the stream ID or the increment, under its pattern bits
+ */
+static int
+lws_h3_qpack_dec_emit(struct lws_h3_netconn *h3n, uint64_t val,
+		      uint8_t prefix_bits, uint8_t pattern)
+{
+	uint8_t b[12];
+	int n = lws_qpack_encode_int(b, sizeof(b), val, prefix_bits, pattern);
+
+	if (n < 0 ||
+	    lws_buflist_append_segment(&h3n->qpack_dec_tx_bl, b, (size_t)n) < 0)
+		return 1;
+
+	/* before it exists, it is asked for writeable when it is made */
+	if (h3n->cwsi_qpack_dec)
+		lws_callback_on_writable(h3n->cwsi_qpack_dec);
+
+	return 0;
+}
+
+/*
+ * RFC 9204 4.4.3: tell the peer's encoder about the inserts its encoder
+ * stream made that no Section Acknowledgment told it about already, so it
+ * may refer to them without blocking a stream
+ */
+static int
+lws_h3_qpack_dec_ack_inserts(struct lws_h3_netconn *h3n)
+{
+	struct lws_qpack_dynamic_table *t = &h3n->qpack_dec_ctx.dyn_table;
+	uint32_t inc = t->insert_count - t->known_received_count;
+
+	if (!inc)
+		return 0;
+
+	t->known_received_count = t->insert_count;
+
+	return lws_h3_qpack_dec_emit(h3n, inc, 6, 0x00);
+}
+
+/*
+ * RFC 9204 4.4.1: a field section that referred to the dynamic table has been
+ * decoded on the stream.  The peer's encoder knows from it that we have every
+ * insert up to its Required Insert Count.
+ */
+static int
+lws_h3_qpack_dec_ack_section(struct lws *wsi, uint64_t ric)
+{
+	struct lws_h3_netconn *h3n = wsi->h3.h3n;
+
+	if (!h3n || !wsi->quic.qs)
+		return 1;
+
+	if (ric > h3n->qpack_dec_ctx.dyn_table.known_received_count)
+		h3n->qpack_dec_ctx.dyn_table.known_received_count =
+							(uint32_t)ric;
+
+	return lws_h3_qpack_dec_emit(h3n, wsi->quic.qs->stream_id, 7, 0x80);
+}
+
 static int
 rops_perform_user_POLLOUT_h3(struct lws *wsi)
 {
@@ -402,49 +504,15 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	}
 #endif
 
-	if (wsi->h3.h3n && wsi == wsi->h3.h3n->cwsi_qpack_enc) {
-		struct lws_qpack_tx_encoder *enc = &wsi->h3.h3n->qpack_tx_encoder;
-		uint8_t tx_buf[LWS_PRE + 512], *p;
-		int32_t cr;
-		size_t len;
-		int n;
+	if (wsi->h3.h3n && wsi == wsi->h3.h3n->cwsi_qpack_enc)
+		return lws_h3_qpack_stream_drain(wsi,
+				&wsi->h3.h3n->qpack_tx_encoder.tx_bl);
 
-		/*
-		 * Send all the encoder has, as far as credit goes, not a chunk
-		 * a turn: a field section referring to an insert can't be
-		 * decoded until the whole insert has arrived, and a turn is
-		 * only had once per service pass
-		 */
-		while ((len = lws_buflist_next_segment_len(&enc->tx_bl, &p))) {
-			cr = lws_h3_usable_tx_cr(wsi);
-			if (lws_wsi_txc_check_skint(&wsi->txc, cr)) {
-				lws_callback_on_writable(wsi);
-				return 0;
-			}
+	if (wsi->h3.h3n && wsi == wsi->h3.h3n->cwsi_qpack_dec)
+		return lws_h3_qpack_stream_drain(wsi,
+				&wsi->h3.h3n->qpack_dec_tx_bl);
 
-			if (len > sizeof(tx_buf) - LWS_PRE)
-				len = sizeof(tx_buf) - LWS_PRE;
-			if (len > (size_t)cr)
-				len = (size_t)cr;
-			memcpy(tx_buf + LWS_PRE, p, len);
-
-			n = lws_write(wsi, tx_buf + LWS_PRE, len,
-				      LWS_WRITE_BINARY);
-			if (n < 0)
-				return -1;
-			if (!n) {
-				lws_callback_on_writable(wsi);
-				return 0;
-			}
-
-			lws_buflist_use_segment(&enc->tx_bl, (size_t)n);
-		}
-
-		return 0;
-	}
-
-	if (wsi->h3.h3n && (wsi == wsi->h3.h3n->cwsi_control ||
-			    wsi == wsi->h3.h3n->cwsi_qpack_dec))
+	if (wsi->h3.h3n && wsi == wsi->h3.h3n->cwsi_control)
 		return 0;
 
 #if defined(LWS_WITH_SERVER)
@@ -1708,6 +1776,56 @@ lws_h3_peer_bidi_allowed(struct lws *nwsi)
 	return 0;
 }
 
+/*
+ * RFC 9204 4.4.1: the peer decoded the oldest field section we sent on the
+ * stream that referred to its dynamic table, so it has every insert up to the
+ * section's Required Insert Count.  An acknowledgment when none was
+ * outstanding is a QPACK_DECODER_STREAM_ERROR.  A stream we already closed
+ * can't be checked, nor does it matter: it has nothing outstanding now.
+ */
+static int
+lws_h3_qpack_enc_section_acked(struct lws *wsi, uint64_t sid)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi), *s;
+	struct lws_qpack_tx_encoder *enc;
+
+	if (!nwsi || !nwsi->h3.h3n)
+		return 0;
+
+	s = lws_quic_stream_find(nwsi, sid);
+	if (!s) {
+		lwsl_wsi_info(wsi, "Section Acknowledgment for gone stream %llu",
+			      (unsigned long long)sid);
+		return 0;
+	}
+
+	if (!s->h3.qpack_enc_unacked) {
+		lwsl_wsi_notice(wsi, "Section Acknowledgment for stream %llu, "
+				"none outstanding", (unsigned long long)sid);
+		return 1;
+	}
+
+	enc = &nwsi->h3.h3n->qpack_tx_encoder;
+	if (s->h3.qpack_enc_ric[0] > enc->known_received_count)
+		enc->known_received_count = s->h3.qpack_enc_ric[0];
+
+	s->h3.qpack_enc_ric[0] = s->h3.qpack_enc_ric[1];
+	s->h3.qpack_enc_unacked--;
+
+	return 0;
+}
+
+/* RFC 9204 4.4.2: nothing we sent on the stream is outstanding any more */
+static void
+lws_h3_qpack_enc_stream_cancelled(struct lws *wsi, uint64_t sid)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi), *s;
+
+	s = nwsi ? lws_quic_stream_find(nwsi, sid) : NULL;
+	if (s)
+		s->h3.qpack_enc_unacked = 0;
+}
+
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 {
@@ -1832,7 +1950,11 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 				return 1;
 			}
-			buf += len; len = 0;
+			/* tell its encoder what it may now refer to */
+			if (wsi->h3.h3n &&
+			    lws_h3_qpack_dec_ack_inserts(wsi->h3.h3n))
+				return 1;
+
 			return 0;
 		} else if (wsi->h3.stream_type == 0x03) {
 			lwsl_wsi_debug(wsi, "H3 RX: Decoder Stream data len %d", (int)len);
@@ -1855,18 +1977,21 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				uint8_t b = p[0];
 				size_t consumed = 0;
 
-				if ((b & 0x80) == 0x80) { /* Header Acknowledgement */
+				if ((b & 0x80) == 0x80) { /* Section Acknowledgment */
 					uint64_t stream_id;
 					consumed = lws_quic_parse_varint_prefix(p, plen, 7, &stream_id);
-					if (consumed) {
-						lwsl_wsi_info(wsi, "QPACK Header Ack stream_id=%llu", (unsigned long long)stream_id);
+					if (consumed &&
+					    lws_h3_qpack_enc_section_acked(wsi, stream_id)) {
+						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+						lws_quic_enter_closing_state(nwsi, LWS_QPACK_DECODER_STREAM_ERROR, 0, 1);
+						return 1;
 					}
 				} else if ((b & 0xc0) == 0x40) { /* Stream Cancellation */
 					uint64_t stream_id;
 					consumed = lws_quic_parse_varint_prefix(p, plen, 6, &stream_id);
-					if (consumed) {
-						lwsl_wsi_info(wsi, "QPACK Stream Cancel stream_id=%llu", (unsigned long long)stream_id);
-					}
+					if (consumed)
+						lws_h3_qpack_enc_stream_cancelled(wsi, stream_id);
 				} else if ((b & 0xc0) == 0x00) { /* Insert Count Increment */
 					uint64_t inc;
 					consumed = lws_quic_parse_varint_prefix(p, plen, 6, &inc);
@@ -2397,6 +2522,13 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					return 1;
 				}
 
+				if ((!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) &&
+				    wsi->h3.rx_frame_type == 0x01 &&
+				    wsi->h3.qpack_dec_state->ric &&
+				    lws_h3_qpack_dec_ack_section(wsi,
+					    wsi->h3.qpack_dec_state->ric))
+					return 1;
+
 				/* the peer's control stream: a request stream's type is 0 too */
 				if (wsi->quic.qs && wsi->quic.qs->is_unidirectional &&
 				    wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
@@ -2769,6 +2901,9 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 					&h3n->qpack_tx_encoder.tx_bl, ins,
 					(size_t)n) < 0)
 				n = -1;
+			/* it is an insert like any other, the peer acks it */
+			if (n > 0)
+				h3n->qpack_tx_encoder.insert_count++;
 			lws_free(ins);
 			lws_free(val);
 			if (n < 0)
@@ -2811,9 +2946,32 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 	return 0;
 }
 
+/*
+ * RFC 9204 4.4.2: a request stream we stop reading before the peer finished
+ * it may have carried field sections referring to the dynamic table that we
+ * never decoded, so never acknowledged: tell the peer's encoder none of them
+ * are outstanding any more.  If it never inserted anything, there were none.
+ */
+static void
+lws_h3_qpack_dec_cancel_stream(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_h3_netconn *h3n = nwsi ? nwsi->h3.h3n : NULL;
+	struct lws_quic_stream *qs = wsi->quic.qs;
+
+	if (!h3n || wsi == nwsi || !qs || qs->is_unidirectional ||
+	    qs->fin_delivered || !h3n->qpack_dec_ctx.dyn_table.insert_count ||
+	    !nwsi->quic.qn || nwsi->quic.qn->is_closing)
+		return;
+
+	if (lws_h3_qpack_dec_emit(h3n, qs->stream_id, 6, 0x40))
+		lwsl_wsi_warn(wsi, "unable to queue Stream Cancellation");
+}
+
 static int
 rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 {
+	lws_h3_qpack_dec_cancel_stream(wsi);
 	lws_quic_stream_cleanup(wsi);
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)

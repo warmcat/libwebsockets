@@ -151,6 +151,8 @@ struct lws_h3_netconn {
 	 */
 	struct lws_qpack_context qpack_dec_ctx;
 	struct lws_qpack_dynamic_table_entry rx_entries[LWS_QPACK_CAP_VAL / 32];
+	/* our decoder stream's instructions, waiting to go (RFC 9204 4.4) */
+	struct lws_buflist *qpack_dec_tx_bl;
 
 	uint8_t peer_supports_ws:1;
 	uint8_t peer_supports_webtransport:1;
@@ -215,6 +217,15 @@ struct _lws_h3_related {
 
 	uint8_t rx_dec_instr_buf[16];
 	uint8_t rx_dec_instr_len;
+
+	/*
+	 * encoder: the Required Insert Counts of the field sections we sent
+	 * on this stream that refer to the peer's dynamic table and it has
+	 * not acknowledged yet, oldest first.  A request has its head and
+	 * its trailers.
+	 */
+	uint32_t qpack_enc_ric[2];
+	uint8_t qpack_enc_unacked;
 };
 
 /* Internal QPACK API */

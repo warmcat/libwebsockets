@@ -464,19 +464,39 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 #ifdef LWS_ROLE_H3
 	if (wsi && lws_wsi_is_h3(wsi)) {
 		if (wsi->http.h3_prefix_ptr) {
+			struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+			struct lws_qpack_tx_encoder *enc = nwsi && nwsi->h3.h3n ?
+					&nwsi->h3.h3n->qpack_tx_encoder : NULL;
 			uint32_t ric = wsi->http.h3_req_ric;
-			uint32_t base = wsi->http.h3_base;
-			
-			if (ric > base) {
-				/* Use the real encoder prefix routine instead of hardcoded prefix! */
-				/* We assume prefix fits in 2 bytes here because that's all we reserved! */
-				/* Max capacity in HTTP/3 default lws is usually 0 or small, but we will pass max_entries=1 for now. */
-				uint32_t max_entries = 1;
-				lws_qpack_encode_prefix(wsi->http.h3_prefix_ptr, 2, ric, base, max_entries);
-			} else {
+
+			/* the section is only this once */
+			wsi->http.h3_req_ric = 0;
+
+			if (!ric) {
 				wsi->http.h3_prefix_ptr[0] = 0x00;
 				wsi->http.h3_prefix_ptr[1] = 0x00;
+				wsi->http.h3_prefix_ptr = NULL;
+
+				return 0;
 			}
+
+			/*
+			 * The section refers to the peer's dynamic table: its
+			 * Required Insert Count is encoded against the most
+			 * entries the table the peer advertised can hold, and
+			 * must fit the two bytes reserved for the prefix.  The
+			 * peer acknowledges each such section, a request has
+			 * at most its head and trailers outstanding.
+			 */
+			if (!enc || enc->virtual_payload_max < 32 ||
+			    wsi->h3.qpack_enc_unacked >=
+					LWS_ARRAY_SIZE(wsi->h3.qpack_enc_ric) ||
+			    lws_qpack_encode_prefix(wsi->http.h3_prefix_ptr, 2,
+					ric, wsi->http.h3_base,
+					enc->virtual_payload_max / 32) != 2)
+				return 1;
+
+			wsi->h3.qpack_enc_ric[wsi->h3.qpack_enc_unacked++] = ric;
 			wsi->http.h3_prefix_ptr = NULL;
 		}
 		return 0;

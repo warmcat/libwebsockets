@@ -6712,6 +6712,8 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 					&wsi->h3.h3n->qpack_dec_ctx);
 			lws_qpack_tx_encoder_destroy(
 					&wsi->h3.h3n->qpack_tx_encoder);
+			lws_buflist_destroy_all_segments(
+					&wsi->h3.h3n->qpack_dec_tx_bl);
 			lws_free_set_NULL(wsi->h3.h3n);
 		}
 #endif
