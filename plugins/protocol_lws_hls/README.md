@@ -150,6 +150,12 @@ file's basename, with `x-content-type-options: nosniff`, so a browser
 saves it and never renders it.  With `LWS_WITH_RANGES`, range requests are
 honoured too.
 
+A browser saving to a slow device can stop reading the download for
+minutes while it drains its cache, so the vhost serving it, and the
+public one in front of it if it is proxied, wants an
+`http-response-stall-secs` of some minutes: past that a stalled response
+is given up on (by default after 30s).
+
 Where the browser offers a save-file picker (Chromium, in a secure
 context: https or localhost), the button opens it and the player streams
 the file into the place the user chose, showing its progress on the

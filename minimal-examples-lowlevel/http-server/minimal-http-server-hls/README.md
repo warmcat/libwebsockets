@@ -59,6 +59,7 @@ If you want to use the HLS plugin with `lwsws` (the LWS JSON-configured web serv
     {
       "name": "localhost",
       "port": 7681,
+      "http-response-stall-secs": "600",
       "ws-protocols": [
         {
           "lws-hls": {
@@ -138,7 +139,7 @@ serve the player page from their own static mount somewhere else: it is a
 relative fragment prefixed onto the listing's links, and an absolute value
 is refused at init.
 
-Two things to know when proxying at a point of a public URL space:
+A few things to know when proxying at a point of a public URL space:
 
  - link to the mount with a trailing slash (https://host/abcde/), since
    relative paths only stay inside the mount from the "directory" the
@@ -156,4 +157,11 @@ Two things to know when proxying at a point of a public URL space:
    without that (its default CSP is `default-src 'none'`) blocks the
    video element's blob: source, which Firefox reports as "Media load
    rejected by URL safety check".  The CSP this example uses on its own
-   vhost is a suitable one to set on the public side.
+   vhost is a suitable one to set on the public side;
+
+ - a browser saving a big download to a slow device stops reading it for
+   minutes at a time while it drains its cache.  The public vhost the
+   browser talks to gives up on a response that stalls longer than its
+   `http-response-stall-secs` (default 30s), and so does this one, which
+   then sees the proxy stop reading: set it on both, as this example sets
+   600 on its own vhost.

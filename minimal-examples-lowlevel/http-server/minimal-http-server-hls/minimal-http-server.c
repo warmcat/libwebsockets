@@ -175,6 +175,12 @@ int main(int argc, const char **argv)
 	
 	info.headers = &pvo_csp;
 	info.pvo = &pvo;
+	/*
+	 * A browser saving a big download to a slow device stops reading it
+	 * for minutes at a time while it drains its cache: wait that long
+	 * for it, rather than the default 30s, before giving up on it
+	 */
+	info.http_response_stall_secs = 600;
 	mount_raw_media.origin = pvo_media.value;
 	info.mounts = &mount_root;
 #if defined(LWS_WITH_PLUGINS)
