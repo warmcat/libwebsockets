@@ -6865,14 +6865,25 @@ static int
 rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
+	uint64_t err = 0;
 
 	if (!qn || qn->nwsi != wsi || qn->is_closing || !qn->handshake_done)
 		return 0;
 
-	qn->is_closing = 1;
-	lws_quic_queue_connection_close(wsi, 0, 0, 1);
+#if defined(LWS_ROLE_H3)
+	/*
+	 * The application error space is the ALPN's: h3's "no error" is
+	 * H3_NO_ERROR, RFC 9114 8.1; 0 is not an h3 code at all
+	 */
+	if (wsi->h3.h3n)
+		err = LWS_H3_NO_ERROR;
+#endif
 
-	lwsl_wsi_info(wsi, "sending CONNECTION_CLOSE (%d)", (int)reason);
+	qn->is_closing = 1;
+	lws_quic_queue_connection_close(wsi, err, 0, 1);
+
+	lwsl_wsi_info(wsi, "sending CONNECTION_CLOSE 0x%llx (%d)",
+		      (unsigned long long)err, (int)reason);
 
 	/* now, not on a later POLLOUT: best effort, the close goes on */
 	lws_io_tx_now(wsi);
