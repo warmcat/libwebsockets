@@ -35,6 +35,10 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 static void
 lws_h3_fi_late_insert(struct lws *wsi);
 #endif
+#if defined(LWS_WITH_CLIENT)
+static int
+lws_h3_rx_goaway(struct lws *wsi, uint64_t id);
+#endif
 
 
 #if defined(LWS_WITH_CLIENT)
@@ -58,6 +62,14 @@ lws_h3_client_handshake_send(struct lws *wsi, uint8_t *start, uint8_t *p,
 	int m, n;
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * The h3_req_lost fault loses a request with no body on its way: it
+	 * is taken as sent, and the server never hears of it
+	 */
+	if (!wsi->client_http_body_pending && !wsi->h23_stream_carries_ws &&
+	    lws_fi(&wsi->fic, "h3_req_lost"))
+		return 0;
+
 	/*
 	 * The h3_req_frame_settings fault puts an empty SETTINGS frame on the
 	 * request stream ahead of its HEADERS, where only the control stream
@@ -2470,6 +2482,14 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					if (wsi->h3.rx_frame_type == 0x04) {
 						wsi->h3.seen_settings = 1;
 					}
+					/* RFC 9114 7.2.6: a GOAWAY is its ID, a varint */
+					if (wsi->h3.rx_frame_type == 0x07 &&
+					    (!wsi->h3.rx_frame_len ||
+					     wsi->h3.rx_frame_len > 8)) {
+						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+						lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_ERROR, 0, 1);
+						return 1;
+					}
 				}
 
 				/* Validation: Request Streams */
@@ -2825,6 +2845,27 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 								nwsi->h3.h3n->peer_supports_webtransport = val == 1;
 						}
 					}
+				}
+			} else if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x07) {
+				/* GOAWAY: its payload is one varint, the ID */
+				const uint8_t *p = buf;
+				size_t clen = chunk;
+				uint64_t id;
+
+				if (!wsi->h3.rx_frame_payload_read && chunk &&
+				    wsi->h3.rx_frame_len != (1u << (buf[0] >> 6))) {
+					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+					lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_ERROR, 0, 1);
+					return 1;
+				}
+				if (lws_h3_parse_varint_accum(wsi, &p, &clen, &id)) {
+#if defined(LWS_WITH_CLIENT)
+					if (lws_h3_rx_goaway(wsi, id))
+						return 1;
+#else
+					(void)id;
+#endif
 				}
 			}
 			
@@ -4021,6 +4062,146 @@ lws_wsi_h3_can_adopt(struct lws *parent_wsi)
 
         return 1;
 }
+
+#if defined(LWS_WITH_SERVER)
+void
+lws_h3_server_goaway(struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_h3_netconn *h3n = nwsi->h3.h3n;
+	uint8_t fr[LWS_PRE + 10];
+	uint64_t id;
+	size_t n;
+
+	if (!qn || !qn->is_server || !h3n || !h3n->cwsi_control)
+		return;
+
+	/*
+	 * The first of the client's request streams we did not take, past
+	 * every one it opened: 0 if it opened none
+	 */
+	id = lws_quic_idtr_end(&qn->peer_opened[0]) << 2;
+
+	fr[LWS_PRE] = 0x07; /* GOAWAY */
+	n = lws_quic_write_varint(&fr[LWS_PRE + 2], 8, id);
+	fr[LWS_PRE + 1] = (uint8_t)n;
+
+	if (lws_write(h3n->cwsi_control, &fr[LWS_PRE], n + 2,
+		      LWS_WRITE_BINARY | LWS_WRITE_NO_FIN) != (int)(n + 2)) {
+		lwsl_wsi_notice(nwsi, "GOAWAY not sent");
+		return;
+	}
+
+	lwsl_wsi_info(nwsi, "GOAWAY %llu", (unsigned long long)id);
+}
+#endif
+
+#if defined(LWS_WITH_CLIENT)
+/*
+ * The server's GOAWAY: our requests on streams from id up were not
+ * processed, and it will take no more (RFC 9114 5.2).  A server may send
+ * more than one, each with an ID no higher than the last.  A client's GOAWAY
+ * is about pushes, which we never take: a server has nothing to do with it.
+ */
+static int
+lws_h3_rx_goaway(struct lws *wsi, uint64_t id)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_h3_netconn *h3n = nwsi ? nwsi->h3.h3n : NULL;
+
+	if (!h3n || !nwsi->quic.qn)
+		return 1;
+	if (nwsi->quic.qn->is_server)
+		return 0;
+
+	/* it names a client request stream, never one beyond the last */
+	if ((id & 3) || (h3n->goaway_rx && id > h3n->goaway_id)) {
+		lwsl_wsi_notice(nwsi, "bad GOAWAY ID %llu",
+				(unsigned long long)id);
+		lws_quic_enter_closing_state(nwsi, LWS_H3_ID_ERROR, 0, 1);
+		return 1;
+	}
+
+	lwsl_wsi_info(nwsi, "GOAWAY %llu", (unsigned long long)id);
+	h3n->goaway_rx = 1;
+	h3n->goaway_id = id;
+
+	/* a new request must not join a connection that is going */
+	nwsi->keepalive_rejected = 1;
+
+	return 0;
+}
+
+/*
+ * The retry policy.  A request goes again, on a new connection, when
+ *
+ *  - the server's GOAWAY says it did not process it: it is on a stream from
+ *    the GOAWAY's ID up.  Without a GOAWAY, the server ended the connection
+ *    without error, or forgot it (a Stateless Reset), without answering it,
+ *
+ *  - it is a GET or HEAD, which are idempotent (RFC 9110 9.2.2) and have no
+ *    body to send again,
+ *
+ *  - nothing of its response came: it is waiting to go, or for the reply,
+ *
+ *  - and it did not go again already: it is retried once.
+ *
+ * Anything else ends with the connection as before.  The wsi is reset onto
+ * the connect path, which its close then hands it to.
+ */
+void
+lws_h3_client_retry_unanswered(struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_h3_netconn *h3n = nwsi->h3.h3n;
+
+	if (!qn || qn->is_server || !h3n ||
+	    (!h3n->goaway_rx && !qn->peer_gone_graceful))
+		return;
+
+	/* what retries must not land on the connection that is going */
+	nwsi->keepalive_rejected = 1;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+		const char *meth, *path, *host, *ads;
+
+		if (!w->client_mux_substream || w->client_request_retried ||
+		    !w->quic.qs || w->quic.qs->is_unidirectional ||
+		    (lwsi_state(w) != LRS_WAITING_SERVER_REPLY &&
+		     lwsi_state(w) != LRS_H2_WAITING_TO_SEND_HEADERS) ||
+		    (h3n->goaway_rx && w->quic.qs->stream_id < h3n->goaway_id))
+			continue;
+
+		meth = lws_wsi_client_stash_item(w, CIS_METHOD,
+						 _WSI_TOKEN_CLIENT_METHOD);
+		if (!meth || (strcmp(meth, "GET") && strcmp(meth, "HEAD")))
+			continue;
+
+		path = lws_wsi_client_stash_item(w, CIS_PATH,
+						 _WSI_TOKEN_CLIENT_URI);
+		host = lws_wsi_client_stash_item(w, CIS_HOST,
+						 _WSI_TOKEN_CLIENT_HOST);
+		ads = lws_wsi_client_stash_item(w, CIS_ADDRESS,
+						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		if (!ads)
+			ads = host;
+		if (!path || !host || !ads)
+			continue;
+
+		/* not after the reset: the strings may be in what it frees */
+		lwsl_wsi_notice(w, "%s left unanswered by the server, "
+				   "sending it again", meth);
+		w->client_request_retried = 1;
+		if (!lws_client_reset(&w, !!(w->flags & LCCSCF_USE_SSL), ads,
+				      w->c_port, path, host, NULL, 1))
+			/* it closes with the connection, as before */
+			lwsl_wsi_notice(w, "unable to send it again");
+	} lws_end_foreach_dll_safe(d, d1);
+}
+#endif
 
 struct lws *
 lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)

@@ -323,6 +323,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`h3_body_with_headers`|An h3 client request with a body makes its first body write right after the HEADERS, so the server sees the request, its body and maybe the FIN all at once (LWS_ROLE_H3)|
 |srv vhost|`vh`|`wt_stream_without_session`|`lws_wt_create_stream()` opens a stream from a wsi that is no WebTransport session, as a peer opening a bidi stream on a plain h3 connection would (LWS_ROLE_WT)|
 |cli wsi|`wsi`|`h3_second_qpack_enc`|An h3 connection opens a second QPACK encoder stream, where there may be only one (LWS_ROLE_H3)|
+|cli wsi|`wsi`|`h3_req_lost`|An h3 client request with no body is lost on its way: it is taken as sent, and the server never hears of it (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_req_frame_settings`|An h3 client request stream starts with an empty SETTINGS frame, which only the control stream may carry (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_qpack_enc_big_entry`|An h3 connection's QPACK encoder stream sets the peer's dynamic table capacity to 4096 and fills it with one cookie entry (absolute index 0), for request headers to refer to (LWS_ROLE_H3)|
 |cli wsi|`wsi`|`h3_qpack_enc_big_entry_late`|As `h3_qpack_enc_big_entry`, but the insert goes only after the connection's first request HEADERS did, or was held for the peer to acknowledge inserts, so a request referring to it arrives first and the peer must block it, unless it lets none block (LWS_ROLE_H3)|

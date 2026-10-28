@@ -909,6 +909,11 @@ struct lws_quic_netconn {
 	uint8_t			is_closing:1;
 	/* server: the peer opened a request stream, see idle_check */
 	uint8_t			had_request:1;
+	/*
+	 * client: the peer ended the connection without an error, or forgot
+	 * it (a Stateless Reset): a request it did not answer may go again
+	 */
+	uint8_t			peer_gone_graceful:1;
 	/* we sent an ack-eliciting packet since the peer's last one */
 	uint8_t			idle_tx_since_rx:1;
 
@@ -1173,6 +1178,10 @@ lws_quic_idtr_is_opened(const struct lws_quic_idtr *t, uint64_t idx);
 
 int
 lws_quic_idtr_open(struct lws_quic_idtr *t, uint64_t idx);
+
+/* the index after the highest one opened, 0 if none was */
+uint64_t
+lws_quic_idtr_end(const struct lws_quic_idtr *t);
 
 void
 lws_quic_idtr_destroy(struct lws_quic_idtr *t);

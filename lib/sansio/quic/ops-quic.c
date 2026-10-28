@@ -4098,6 +4098,8 @@ tp_ok:
 
 stateless_reset:
 		lwsl_wsi_notice(wsi, "QUIC RX: Stateless reset token matched! Terminating connection silently.");
+		/* the peer forgot the connection: what it left unanswered may go again */
+		nwsi->quic.qn->peer_gone_graceful = 1;
 		if (nwsi == wsi)
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		/*
@@ -6925,6 +6927,18 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	/* a listener's replies not yet sent */
 	lws_quic_replies_destroy(wsi);
 
+#if defined(LWS_ROLE_H3) && defined(LWS_WITH_CLIENT)
+	/*
+	 * Requests the server left unanswered may go again, elsewhere... but
+	 * not while we are going away ourselves: the retry would connect
+	 */
+	if (qn && qn->nwsi == wsi && wsi->h3.h3n &&
+	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
+	    !wsi->a.context->being_destroyed &&
+	    !(wsi->a.vhost && wsi->a.vhost->being_destroyed))
+		lws_h3_client_retry_unanswered(wsi);
+#endif
+
 	if(!lws_dll2_is_empty(&wsi->mux.child_list_owner))
 		lws_wsi_mux_close_children(wsi, (int)reason);
 
@@ -7017,8 +7031,20 @@ rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
 	 * The application error space is the ALPN's: h3's "no error" is
 	 * H3_NO_ERROR, RFC 9114 8.1; 0 is not an h3 code at all
 	 */
-	if (wsi->h3.h3n)
+	if (wsi->h3.h3n) {
 		err = LWS_H3_NO_ERROR;
+#if defined(LWS_WITH_SERVER)
+		/*
+		 * Say which requests we did not process, so the client knows
+		 * it may send them again elsewhere.  It goes now: the close
+		 * drops anything still queued.
+		 */
+		if (qn->is_server) {
+			lws_h3_server_goaway(wsi);
+			lws_io_tx_now(wsi);
+		}
+#endif
+	}
 #endif
 
 	qn->is_closing = 1;

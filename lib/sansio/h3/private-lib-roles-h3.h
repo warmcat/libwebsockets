@@ -119,6 +119,27 @@ lws_h3_rx_fin_deferred(struct lws *wsi);
 int
 lws_h3_qpack_enc_section(struct lws *wsi, uint32_t ric);
 
+#if defined(LWS_WITH_SERVER)
+/*
+ * A server closing an h3 connection of its own accord tells the client which
+ * of its requests it did not process with a GOAWAY on our control stream
+ * (RFC 9114 5.2), ahead of the CONNECTION_CLOSE
+ */
+void
+lws_h3_server_goaway(struct lws *nwsi);
+#endif
+
+#if defined(LWS_WITH_CLIENT)
+/*
+ * A client h3 connection is going: its requests the server is known not to
+ * have processed, or that it left unanswered when it ended the connection
+ * without error, start over on a new connection if they may (see the policy
+ * in ops-h3.c), before the connection's streams are closed
+ */
+void
+lws_h3_client_retry_unanswered(struct lws *nwsi);
+#endif
+
 extern const struct lws_role_ops role_ops_h3;
 #define lwsi_role_h3(wsi) (wsi->role_ops == &role_ops_h3)
 
@@ -203,6 +224,13 @@ struct lws_h3_netconn {
 	uint8_t peer_supports_webtransport:1;
 	uint8_t peer_supports_h3_datagram:1;
 	uint8_t peer_settings_done:1; /* the peer's whole SETTINGS is in */
+	/*
+	 * client: the server's GOAWAY came, and our requests on the streams
+	 * from goaway_id up were not processed (RFC 9114 5.2)
+	 */
+	uint8_t goaway_rx:1;
+
+	uint64_t goaway_id;
 };
 
 struct _lws_h3_related {

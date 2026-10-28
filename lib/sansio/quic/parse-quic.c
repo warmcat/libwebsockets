@@ -940,6 +940,12 @@ lws_quic_idtr_is_opened(const struct lws_quic_idtr *t, uint64_t idx)
 	return n && idx < t->r[n - 1].hi;
 }
 
+uint64_t
+lws_quic_idtr_end(const struct lws_quic_idtr *t)
+{
+	return t->count ? t->r[t->count - 1].hi : 0;
+}
+
 /* 0, or -1 if it couldn't be recorded */
 
 int
@@ -1544,6 +1550,19 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 			pos += (size_t)reason_len;
 			(void)pos;
+
+			/*
+			 * The peer's "no error": the transport's, or the
+			 * application's, which for h3 is H3_NO_ERROR
+			 */
+			if (!err_code
+#if defined(LWS_ROLE_H3)
+			    || (type == 0x1d && nwsi->h3.h3n &&
+				err_code == LWS_H3_NO_ERROR)
+#endif
+			   )
+				qn->peer_gone_graceful = 1;
+
 			return -3; /* Terminate parsing and connection cleanly (Peer closed) */
 		}
 

@@ -1478,6 +1478,8 @@ struct lws {
 	unsigned int			tls_session_reused:1;
 	unsigned int			perf_done:1;
 	unsigned int			client_mux_substream_was:1;
+	/* the request went once more, after a connection that left it unanswered */
+	unsigned int			client_request_retried:1;
 #if defined(LWS_CLIENT_HTTP_PROXYING)
 	/* where lws_client_tunnel_rx() got to in the proxy's CONNECT reply */
 	unsigned int			proxy_reply_status_ok:1;
