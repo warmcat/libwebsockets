@@ -1460,6 +1460,37 @@ static const struct lws_http_mount mount_404_t = {
 };
 #endif
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && defined(LWS_WITH_FILE_OPS)
+/*
+ * The auth vhost's http protocol: its mount's basic auth verifier, which
+ * takes only user / pass, and otherwise the first vhost's http protocol
+ */
+static int
+callback_auth(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	      void *in, size_t len)
+{
+	if (reason == LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION)
+		return len == 9 && !memcmp(in, "user:pass", 9);
+
+	return callback_http(wsi, reason, user, in, len);
+}
+
+static const struct lws_protocols protocols_auth[] = {
+	{ "http", callback_auth, 0, 0, 0, NULL, 0 },
+	{ "echo", callback_echo, 0, 128, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+/* all of the auth vhost is behind basic auth, verified by its app (case 55) */
+static const struct lws_http_mount mount_auth = {
+	.mountpoint		= "/",
+	.origin			= "http",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 1,
+	.auth_mask		= LWSAUTHM_BASIC_AUTH_CALLBACK,
+};
+#endif
+
 /*
  * The context's header limits: only two of them, for the h1 cases that
  * go past them.  Nothing else any other case sends comes near them.
@@ -1977,6 +2008,86 @@ h1_short_answer_half(struct lws_context *cx, struct lws_vhost *vh)
 
 	return 0;
 }
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && defined(LWS_WITH_FILE_OPS)
+/*
+ * 55: a ws upgrade to a mount behind basic auth meets the mount's gates, as
+ * an http request to it would (G-489).  Without credentials it is refused
+ * 401 with the challenge, while the transport takes only 4 bytes a write:
+ * the refusal completes the transaction with its answer still queued, which
+ * then goes whole, and the connection is kept.  On it the peer asks for the
+ * upgrade again with the credentials, and the ws connection it becomes
+ * echoes its message.
+ */
+static int
+ws_server_auth_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+#define AUTH_UPG(auth) \
+	"GET /echo HTTP/1.1\r\nHost: sansio-auth\r\nUpgrade: websocket\r\n" \
+	"Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n" \
+	"Sec-WebSocket-Protocol: echo\r\n" auth \
+	"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+	static const char req_none[] = AUTH_UPG(""),
+			  /* user:pass */
+			  req_auth[] = AUTH_UPG("Authorization: Basic "
+						"dXNlcjpwYXNz\r\n");
+#undef AUTH_UPG
+	/* masked, zero key: TEXT "Hello" */
+	static const char hello[] = "\x81\x85\x00\x00\x00\x00Hello";
+	static struct transport tp;
+	struct lws *wsi;
+	size_t pos = 0;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("ws-server-auth", "server", 0);
+
+	tp.tx_limit = 4;
+	feed(cx, &tp, req_none, sizeof(req_none) - 1);
+	if (tp.shutdown || tp.closed || tp.tx_len < 13 ||
+	    memcmp(tp.tx, "HTTP/1.1 401 ", 13) ||
+	    !find_bytes(tp.tx, tp.tx_len,
+			"\r\nwww-authenticate: Basic realm=\"lwsws\"\r\n") ||
+	    tp.tx_len < 4 || memcmp(tp.tx + tp.tx_len - 4, "\r\n\r\n", 4)) {
+		lwsl_err("case 55: not refused whole, connection kept\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	tp.tx_limit = 0;
+	feed(cx, &tp, req_auth, sizeof(req_auth) - 1);
+	if (tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 101 ", 13)) {
+		lwsl_err("case 55: no upgrade with the credentials\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	feed(cx, &tp, hello, sizeof(hello) - 1);
+	if (!ws_frame_at(&tp, &pos, 0x1, 0, "Hello", 5) || pos != tp.tx_len) {
+		lwsl_err("case 55: no echo\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	if (tr_end())
+		return 1;
+	lwsl_user("case 55: a ws upgrade meets its mount's basic auth, and "
+		  "a refusal still queued completes: PASS\n");
+
+	return 0;
+}
+#endif
 
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 /*
@@ -5775,6 +5886,9 @@ main(int argc, const char **argv)
 	/* the policy of a vhost that checks nothing (case 53) */
 	static const lws_retry_bo_t no_validity_policy = { 0 };
 	struct lws_vhost *vh, *vh_uri, *vh_raw, *vh_rawv, *vh_rawn;
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && defined(LWS_WITH_FILE_OPS)
+	struct lws_vhost *vh_auth;
+#endif
 #if defined(LWS_WITH_FILE_OPS)
 	struct lws_vhost *vh_404;
 #endif
@@ -6206,6 +6320,25 @@ main(int argc, const char **argv)
 	at(cx, 600000);
 	if (h1_client_fin_before_pull_half(cx, vh))
 		goto bail;
+#endif
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && defined(LWS_WITH_FILE_OPS)
+	/* a vhost whose every path is behind basic auth its app verifies */
+	info.vhost_name = "sansio-auth";
+	info.protocols = protocols_auth;
+	info.extensions = NULL;
+	info.mounts = &mount_auth;
+	vh_auth = lws_create_vhost(cx, &info);
+	info.mounts = NULL;
+	if (!vh_auth) {
+		lwsl_err("auth vhost failed\n");
+		goto bail;
+	}
+	at(cx, 610000);
+	if (ws_server_auth_half(cx, vh_auth))
+		goto bail;
+#else
+	lwsl_user("case 55: no basic auth in this build, skipped\n");
 #endif
 
 	result = 0;
