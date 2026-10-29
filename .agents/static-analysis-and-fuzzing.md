@@ -88,6 +88,11 @@ copying it there as `regress-*`.
  - Rule out harness bugs (wrong buffer sizes) first: symbolize the ASan
    offsets (`addr2line -f -C -e bin/fuzz-x` if there is no
    llvm-symbolizer) and confirm the mechanism by reading.
+ - clang 21's UBSan no longer reports `NULL + 0` (or `NULL - 0`) in C,
+   but the sai fuzz builders' clang does ("applying zero offset to null
+   pointer").  Such a finding won't replay on a clang 21 build: confirm it
+   by reading.  `lws_container_of()` on an empty list's NULL head is the
+   usual source, whenever the member is first in its struct.
  - LSan leaks seen mid-campaign but not on single-file replay are usually
    state carried between inputs: replay the whole corpus dir with
    `-runs=0` (all seeds run in one process).
