@@ -1826,6 +1826,66 @@ bail:
 	return ret;
 }
 
+int
+lws_quic_seal_client_initial(uint8_t *pkt, size_t len, size_t pn_offset,
+			     uint8_t pn_len, uint64_t pn, const uint8_t *odcid,
+			     size_t odcid_len)
+{
+	uint8_t initial_secret[32], client_secret[32];
+	struct lws_quic_cid dcid;
+	struct lws_quic_keys k;
+	int n = -1;
+
+	/* an unprotected v1 long header Initial, with its pn length bits 0 */
+	if (len < 7 || (pkt[0] & 0xf3) != 0xc0 ||
+	    (((uint32_t)pkt[1] << 24) | ((uint32_t)pkt[2] << 16) |
+	     ((uint32_t)pkt[3] << 8) | pkt[4]) != LWS_QUIC_VERSION_1 ||
+	    pn_len < 1 || pn_len > 4 || pn_offset < 7 ||
+	    pn_offset > len - pn_len ||
+	    /* header protection samples 16 bytes from pn_offset + 4 */
+	    pn_offset + 4 > len)
+		return -1;
+
+	dcid.len = pkt[5];
+	if (dcid.len > LWS_QUIC_MAX_CID_LEN || (size_t)6 + dcid.len > pn_offset)
+		return -1;
+	memcpy(dcid.id, pkt + 6, dcid.len);
+
+	/* the keys are the first Initial's DCID's, whatever this one's is */
+	if (odcid) {
+		if (odcid_len > LWS_QUIC_MAX_CID_LEN)
+			return -1;
+		dcid.len = (uint8_t)odcid_len;
+		memcpy(dcid.id, odcid, odcid_len);
+	}
+
+	memset(&k, 0, sizeof(k));
+
+	if (lws_genhkdf_extract(LWS_GENHMAC_TYPE_SHA256, quic_v1_initial_salt,
+				sizeof(quic_v1_initial_salt), dcid.id, dcid.len,
+				initial_secret) ||
+	    lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, initial_secret,
+				     sizeof(initial_secret), "client in", NULL,
+				     0, client_secret, sizeof(client_secret)) ||
+	    lws_quic_derive_key_iv_hp(client_secret, 32, 0, k.iv_tx,
+				      sizeof(k.iv_tx), &k.el_aead_tx,
+				      k.key_aead_tx, &k.el_hp_tx, k.key_hp_tx))
+		goto bail;
+	k.valid = 1;
+
+	n = lws_quic_encrypt_payload(&k, pkt, len, pn_offset, pn_len, pn);
+	if (n >= 0)
+		n += (int)(pn_offset + pn_len);
+
+bail:
+	lws_quic_keys_release_aead_tx(&k);
+	lws_explicit_bzero(&k, sizeof(k));
+	lws_explicit_bzero(initial_secret, sizeof(initial_secret));
+	lws_explicit_bzero(client_secret, sizeof(client_secret));
+
+	return n < 0 ? -1 : n;
+}
+
 /*
  * Where the first packet of a datagram says it is going: its DCID, and for a
  * long header its SCID and whether it is an Initial.  A short header carries

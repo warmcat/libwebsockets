@@ -171,6 +171,40 @@ LWS_VISIBLE LWS_EXTERN int
 lws_quic_initiate_key_update(struct lws *wsi);
 
 /**
+ * lws_quic_seal_client_initial() - protect a client Initial as a client would
+ *
+ * \param pkt: the packet, unprotected, with 16 bytes free after it
+ * \param len: the packet's length, unprotected: header through the packet
+ *	       number, then the plaintext payload
+ * \param pn_offset: where the packet number is in pkt
+ * \param pn_len: the packet number's length, 1 .. 4
+ * \param pn: the full packet number
+ * \param odcid: the DCID of the client's first Initial, or NULL if this is
+ *		 one of its first flight, whose own DCID it is
+ * \param odcid_len: odcid's length, 0 .. 20
+ *
+ * Initial packets are protected with keys anyone can derive from the DCID
+ * of the client's first Initial (RFC 9001 5.2), so this is what a client
+ * does to its own Initial, for whatever needs to give a server Initials of
+ * a plaintext it chooses: tests, and fuzzing the server's Initial
+ * processing past its AEAD.  A client's Initials after the server answered
+ * go to the server's SCID, but are still protected with keys from that
+ * first DCID: give it as odcid for those.  Only QUIC v1.
+ *
+ * pkt must be a long header v1 Initial, the packet number length bits of
+ * its first byte 0 (they are set here), and its Length field must already
+ * count the packet number, the payload and the 16-byte AEAD tag.  The
+ * payload is encrypted in place, the tag appended, and the header protected.
+ *
+ * Returns the protected packet's length (len + 16), or -1 if pkt is not
+ * such a packet or protecting it failed.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_quic_seal_client_initial(uint8_t *pkt, size_t len, size_t pn_offset,
+			     uint8_t pn_len, uint64_t pn, const uint8_t *odcid,
+			     size_t odcid_len);
+
+/**
  * struct lws_cc_ops - a QUIC congestion controller
  *
  * Set in lws_context_creation_info.quic_cc_ops to select one of the
