@@ -1048,7 +1048,8 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	 * raw ws payload still to drain at that time.
 	 *
 	 * Then we need to generate a zero length ws rx that can be understood
-	 * as the message completion.
+	 * as the message completion.  in still points at the (empty) output,
+	 * as with every other RECEIVE, not NULL: callbacks memcpy() from it.
 	 */
 
 	if (!pmdrx.eb_out.len &&	      /* zero-length inflation output */
@@ -1063,7 +1064,8 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_RECEIVE,
-						wsi->user_space, NULL, 0))
+						wsi->user_space,
+						pmdrx.eb_out.token, 0))
 			return -1;
 
 		return (int)avail;
