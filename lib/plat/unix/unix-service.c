@@ -73,6 +73,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_foreign_thread_pollfd *ftp;
 	volatile struct lws_context_per_thread *vpt;
+	struct lws_dll2 *head;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us, us;
 #if defined(LWS_WITH_WAKE_LOGGING)
@@ -224,9 +225,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	lws_pt_lock(pt, __func__);
 
 	/* head read still via the volatile pt view: the helpers take a
-	 * non-volatile owner pointer, so this one stays a direct read */
-	ftp = lws_container_of((struct lws_dll2 *)vpt->foreign_pfd_owner.head,
-				struct lws_foreign_thread_pollfd, list);
+	 * non-volatile owner pointer, so this one stays a direct read.  The
+	 * list is nearly always empty: no container_of() on a NULL head */
+	head = (struct lws_dll2 *)vpt->foreign_pfd_owner.head;
+	ftp = head ? lws_container_of(head, struct lws_foreign_thread_pollfd,
+				      list) : NULL;
 	while (ftp) {
 		struct lws *wsi;
 		struct lws_pollfd *pfd;
