@@ -691,6 +691,16 @@ static struct {
 	lws_usec_t		lc_first;	/* the server's first datagram */
 	unsigned int		lc_lost;
 	char			lost_close;
+
+	/* --one-burst */
+	unsigned int		ob_client;	/* the client's datagrams */
+	unsigned int		ob_server;	/* the server's, before a Handshake
+						 * packet */
+	unsigned int		ob_prev;	/* ob_client at the server's last */
+	unsigned int		ob_gap;		/* the client's, between it and the
+						 * first Handshake packet */
+	char			ob_hs;		/* we saw that */
+	char			one_burst;
 } relay;
 
 static void
@@ -1127,6 +1137,44 @@ relay_lost_close(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
 	d->sent++;
 }
 
+/*
+ * --one-burst: datagrams go on as they come, counting what the client sent
+ * between the server's datagram before its first Handshake packet and that
+ * packet.  What the server sends in one pass is all sent before the relay
+ * reads any of it, so there is none unless the server's Handshake flight
+ * waited for the client to send again, eg, its ack of the server's Initial.
+ * The client's first flight may be more than one pass, a ClientHello in two
+ * Initials, and the server may ack the first before the second comes: that
+ * is a datagram of the server's before the one with its ServerHello.
+ */
+
+static void
+relay_one_burst(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
+		size_t len)
+{
+	lws_sockfd_type fd = lws_get_socket_fd(wsi);
+
+	if (fd == LWS_SOCK_INVALID)
+		return;
+
+	if (d == &relay.dir[0])
+		relay.ob_client++;
+	else if (!relay.ob_hs) {
+		if (relay_handshake_len(in, len)) {
+			/* with an Initial in the same datagram, it is one */
+			relay.ob_hs = 1;
+			if (relay.ob_server)
+				relay.ob_gap = relay.ob_client - relay.ob_prev;
+		} else {
+			relay.ob_server++;
+			relay.ob_prev = relay.ob_client;
+		}
+	}
+
+	relay_send(fd, in, len, &d->dest);
+	d->sent++;
+}
+
 static void
 relay_hold_cb(lws_sorted_usec_list_t *sul)
 {
@@ -1206,6 +1254,11 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (relay.lost_close) {
 			relay_lost_close(wsi, d, in, len);
+			break;
+		}
+
+		if (relay.one_burst) {
+			relay_one_burst(wsi, d, in, len);
 			break;
 		}
 
@@ -1427,6 +1480,33 @@ lost_finished_check_cb(lws_sorted_usec_list_t *sul)
 			 "nothing in flight\n");
 		lost_finished_failed = 1;
 	}
+}
+
+/* --one-burst: the server's Handshake flight came with its Initial */
+
+static int
+one_burst_failed(void)
+{
+	if (!relay.one_burst)
+		return 0;
+
+	lwsl_user("one burst: the server sent %u datagrams before its first "
+		  "Handshake packet, and the client %u between the last of "
+		  "them and it\n", relay.ob_server, relay.ob_gap);
+
+	if (!relay.ob_hs) {
+		lwsl_err("one burst: no Handshake packet from the server, "
+			 "nothing was tested\n");
+		return 1;
+	}
+
+	if (relay.ob_gap) {
+		lwsl_err("one burst: the server's Handshake flight waited for "
+			 "the client to send again\n");
+		return 1;
+	}
+
+	return 0;
 }
 
 static uint32_t
@@ -1827,7 +1907,7 @@ check_test_completion(struct lws *wsi)
 	if (client_done && server_done) {
 		lwsl_notice("Test completed successfully! Both sides received full data. Waiting 1.5s for ACKs...\n");
 		result = early_1rtt_failed || deaf_failed ||
-			 lost_finished_failed;
+			 lost_finished_failed || one_burst_failed();
 		if (!server_only)
 			lws_sul_schedule(lws_get_context(wsi), 0, &sul_teardown, teardown_cb, 1500 * 1000);
 	}
@@ -2047,6 +2127,7 @@ enum {
 	LWS_SW_DEAF,
 	LWS_SW_LOST_FINISHED,
 	LWS_SW_LOST_CLOSE,
+	LWS_SW_ONE_BURST,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
 	LWS_SW_CUBIC,
@@ -2075,6 +2156,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_DEAF]	= { "--deaf",	"The relay loses the client's first stream data, and everything the server sends it for 1.5s, so no ack says it was lost, and the client's PTO probes must send it again (needs --relay)" },
 	[LWS_SW_LOST_FINISHED] = { "--lost-finished", "For 800ms the relay loses the client's Finished but not its acks, and the server, its flight acked, must not probe with nothing in flight (needs --relay)" },
 	[LWS_SW_LOST_CLOSE] = { "--lost-close", "The relay loses the server's CONNECTION_CLOSE when it reaps the quiet connection, and the client writes after: the server must answer with a Stateless Reset, which the client must close on (needs --relay and --quiet conn)" },
+	[LWS_SW_ONE_BURST] = { "--one-burst", "The server's Handshake flight must come in the same burst as its Initial, not wait for the client to send again (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
@@ -2360,6 +2442,23 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_ONE_BURST].sw) &&
+	    (!relay_port || outage_ms || pmtu ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_EARLY_1RTT].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_FORWARDER].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_BLACKHOLE].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_LAG].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_DEAF].sw) ||
+	     lws_cmdline_option(argc, argv,
+				switches[LWS_SW_LOST_FINISHED].sw) ||
+	     lws_cmdline_option(argc, argv, switches[LWS_SW_LOST_CLOSE].sw))) {
+		lwsl_err("--one-burst needs --relay, and not --stray, --outage, "
+			 "--early-1rtt, --forwarder, --pmtu, --blackhole, --lag, "
+			 "--deaf, --lost-finished or --lost-close\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -2472,6 +2571,8 @@ int main(int argc, const char **argv)
 					switches[LWS_SW_LOST_FINISHED].sw);
 		relay.lost_close = !!lws_cmdline_option(argc, argv,
 					switches[LWS_SW_LOST_CLOSE].sw);
+		relay.one_burst = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_ONE_BURST].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

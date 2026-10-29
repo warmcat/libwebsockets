@@ -5467,13 +5467,16 @@ lws_quic_conn_tx(struct lws *nwsi, uint8_t *buf, size_t max,
 		qn->tx_failed = 0;
 	}
 
-	if (qn->tx_failed || qn->tx_level >= LWS_QUIC_LEVEL_COUNT)
+	if (qn->tx_failed || qn->tx_held ||
+	    qn->tx_level >= LWS_QUIC_LEVEL_COUNT)
 		return 0;
 
 	qn->tx_pkt.level = qn->tx_level;
 	n = lws_quic_packet_tx(nwsi, buf, max, &qn->tx_pkt);
 	switch (n) {
 	case 0:
+		/* nothing more from any level this pass */
+		qn->tx_level = LWS_QUIC_LEVEL_COUNT;
 		break;
 	case LWS_TX_WAIT:
 		qn->tx_held = 1;
@@ -5568,7 +5571,16 @@ rops_tx_quic(struct lws *wsi, uint8_t *buf, size_t max,
 		int f = 0;
 
 		d = d->next;
-		if (!w->quic.qn || !w->mux.requested_POLLOUT)
+		/*
+		 * One the pass reached goes on to its next level until it has
+		 * nothing more, although its first pull consumed its request
+		 * to write.  Passed over, what it had at the levels after the
+		 * first one it sent at waited for something else to wake it,
+		 * eg, a CONNECTION_CLOSE behind the Handshake ACK it owed, or
+		 * its Handshake flight behind its Initial
+		 */
+		if (!w->quic.qn || (!w->mux.requested_POLLOUT &&
+				    !w->quic.qn->tx_in_pass))
 			continue;
 
 		if (!w->quic.qn->tx_in_pass) {

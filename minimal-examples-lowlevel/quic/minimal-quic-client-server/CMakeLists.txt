@@ -386,6 +386,22 @@ if (requirements)
 					     TIMEOUT 30)
 
 		#
+		# Through a relay that counts what the client sent between the
+		# server's datagram before its first Handshake packet and that
+		# packet: a server connection's tx pass goes on through every
+		# level it has something at, so its Handshake flight comes with
+		# its Initial, not when the client sends again
+		#
+		lws_get_free_port(PORT_QCS_ONE_BURST)
+		lws_get_free_port(PORT_QCS_ONE_BURST_RELAY)
+		add_test(NAME ${SAMP}-one-burst COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_ONE_BURST}
+				--relay ${PORT_QCS_ONE_BURST_RELAY} --one-burst)
+		set_tests_properties(${SAMP}-one-burst PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 30)
+
+		#
 		# Through the relay losing the client's Finished for 800ms, but
 		# not its acks of the server's flight: the server, sending no
 		# 1-RTT before its handshake completes, then has nothing in

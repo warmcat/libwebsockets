@@ -38,6 +38,7 @@ arrived.
 |--deaf|With `--relay`, the relay loses the client's first stream data, and everything the server sends it for 1.5s, see below|
 |--lost-close|With `--relay` and `--quiet conn`, the relay loses the server's CONNECTION_CLOSE when it reaps the connection, the client writes after it, and the server's Stateless Reset must close it, see below|
 |--lost-finished|With `--relay`, for 800ms the relay loses the client's Finished but not its acks, and the server must not probe with nothing in flight, see below|
+|--one-burst|With `--relay`, the server's Handshake flight must come in the same burst as its Initial, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
@@ -348,6 +349,27 @@ waiting for it has nothing to send, and the client dies of its PTO count.
 
 ```
  $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --deaf
+```
+
+## a server's flight in one burst
+
+With `--one-burst`, the relay counts the client's datagrams that came between
+the server's datagram before its first Handshake packet and that packet.  What
+the server sends in one pass all reaches the relay before the relay reads any
+of it, so there must be none: the server's Handshake flight comes in the same
+burst as its Initial.  A ClientHello in two Initials may go in two of the
+client's passes, and the server may ack the first before the second comes, but
+that is a datagram of the server's before the one with its ServerHello.
+
+A server connection's tx pass goes on through every encryption level it has
+something to send at.  A server that stops after the first level it sent at
+leaves the rest waiting for something else to wake it, eg, its Handshake
+flight for the client's ack of its Initial, or a CONNECTION_CLOSE in 1-RTT
+for the client's next packet after the Handshake ACK the server owed it.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 \
+	--one-burst
 ```
 
 ## a server waiting for the client's Finished
