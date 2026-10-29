@@ -13,11 +13,20 @@
  *
  * The server vhost here serves a file much bigger than the socket buffers,
  * with timeout_secs of 2s and http_response_stall_secs of 6s.  The client
- * reads a little of it, stops reading with rx flow control, and resumes:
+ * reads a little of it and stops reading with rx flow control:
  *
- *  - after 4s, longer than timeout_secs, it must get the whole file;
- *  - after 10s, longer than http_response_stall_secs, the server must have
- *    given up on it, so it gets less.
+ *  - resuming after 4s, longer than timeout_secs, it must get the whole file;
+ *  - not resuming, the server must give up on it, but no sooner than
+ *    http_response_stall_secs after it stopped.  The client, not reading, can't
+ *    see that, so the server's side of the test tells it, and it resumes to
+ *    find the file cut off.
+ *
+ * The second does not resume at a set time, because a peer that stops
+ * reading may still take a little more, which is progress that renews the
+ * watchdog.  On the BSDs and macOS, the sender's persist timer probes the
+ * closed window after 5s, and the receiver opens it for the room it had held
+ * back from advertising, less than a segment, so the server's stall starts
+ * again there and it gives up about 11s after the client stopped, not 6s.
  *
  * This file is made available under the Creative Commons CC0 1.0 Universal
  * Public Domain Dedication.
@@ -37,6 +46,8 @@
 #define FILE_SIZE	((off_t)64 * 1024 * 1024)
 /* how much the client reads before it stops reading */
 #define PAUSE_AT	(1024 * 1024)
+/* how long a client that never resumes waits for the server to give up */
+#define CUTOFF_GUARD_SECS	30
 
 static const struct run {
 	const char	*name;
@@ -44,7 +55,7 @@ static const struct run {
 	int		want_whole;
 } runs[] = {
 	{ "pause past timeout_secs",		 4, 1 },
-	{ "pause past http_response_stall_secs",	10, 0 },
+	{ "stop reading until cut off",		 0, 0 },
 };
 
 static struct lws_context *context;
@@ -53,6 +64,7 @@ static struct lws *cli_wsi;
 static int port = 7710, fail, done;
 static size_t cur;
 static uint64_t got;
+static lws_usec_t paused_at, cut_at;
 static int paused, completed;
 static char fixture_dir[64], fixture_path[96];
 
@@ -77,6 +89,17 @@ run_end(void)
 		lwsl_err("%s: %s: want %s\n", __func__, r->name,
 			 r->want_whole ? "the whole file" : "it cut off");
 		fail++;
+	} else if (!r->want_whole) {
+		lws_usec_t us = cut_at - paused_at;
+
+		lwsl_user("%s: %s: cut off %lldms after it stopped reading\n",
+			  __func__, r->name, (long long)(us / LWS_US_PER_MS));
+		if (us < (lws_usec_t)STALL_SECS * LWS_US_PER_SEC) {
+			lwsl_err("%s: %s: cut off sooner than "
+				 "http_response_stall_secs\n", __func__,
+				 r->name);
+			fail++;
+		}
 	}
 
 	cli_wsi = NULL;
@@ -94,8 +117,20 @@ run_end(void)
 static void
 sul_resume_cb(lws_sorted_usec_list_t *sul)
 {
-	if (cli_wsi)
+	if (!cli_wsi)
+		return;
+
+	if (runs[cur].pause_secs || cut_at) {
 		lws_rx_flow_control(cli_wsi, 1);
+		return;
+	}
+
+	/* the server never gave up on the client that stopped reading */
+	lwsl_err("%s: %s: not cut off %ds after it stopped reading\n",
+		 __func__, runs[cur].name, CUTOFF_GUARD_SECS);
+	fail++;
+	done = 1;
+	lws_cancel_service(context);
 }
 
 static int
@@ -131,9 +166,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!paused && got >= PAUSE_AT) {
 			/* stop reading, as a browser draining to disk does */
 			paused = 1;
+			paused_at = lws_now_usecs();
 			lws_rx_flow_control(wsi, 0);
 			lws_sul_schedule(context, 0, &sul_resume, sul_resume_cb,
-					 (lws_usec_t)runs[cur].pause_secs *
+					 (lws_usec_t)(runs[cur].pause_secs ?
+						runs[cur].pause_secs :
+						CUTOFF_GUARD_SECS) *
 							LWS_US_PER_SEC);
 		}
 		return 0;
@@ -154,8 +192,23 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/* the server's side: its connection closing while the client stopped reading */
+static int
+callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
+	     void *user, void *in, size_t len)
+{
+	if (reason == LWS_CALLBACK_CLOSED_HTTP && cli_wsi && paused &&
+	    !runs[cur].pause_secs && !cut_at) {
+		cut_at = lws_now_usecs();
+		/* the client resumes, to find what it got cut off */
+		lws_sul_schedule(context, 0, &sul_resume, sul_resume_cb, 1);
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 static const struct lws_protocols protocols[] = {
-	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "http", callback_srv, 0, 0, 0, NULL, 0 },
 	{ "stall-cli", callback_cli, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
@@ -188,6 +241,7 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 	struct lws_client_connect_info i;
 
 	got		= 0;
+	cut_at		= 0;
 	paused		= 0;
 	completed	= 0;
 

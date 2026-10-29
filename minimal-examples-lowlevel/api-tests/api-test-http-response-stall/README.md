@@ -12,11 +12,20 @@ cut off, with nothing logged above info level.
 
 The server vhost here serves a 64MB file, far bigger than loopback's socket
 buffers, with a `timeout_secs` of 2s and an `http_response_stall_secs` of 6s.
-The client reads 1MB of it, stops reading with rx flow control, then resumes:
+The client reads 1MB of it and stops reading with rx flow control:
 
- - after 4s, longer than `timeout_secs`, it must get the whole file;
- - after 10s, longer than `http_response_stall_secs`, the server must have
-   given up on it, so it gets less.
+ - resuming after 4s, longer than `timeout_secs`, it must get the whole file;
+ - not resuming, the server must give up on it, but no sooner than
+   `http_response_stall_secs` after it stopped.  The client, not reading,
+   can't see that, so the server's side of the test tells it, and it resumes
+   to find the file cut off.  It fails if the server has not given up 30s
+   after the client stopped.
+
+A peer that stops reading may still take a little more, which renews the
+watchdog: on the BSDs and macOS, the sender's persist timer probes the closed
+window after 5s, and the receiver opens it for the room it had held back from
+advertising, less than a segment.  So there the server gives up about 11s
+after the client stopped, and on Linux, 6s.
 
 ## Running
 
