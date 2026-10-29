@@ -19,6 +19,7 @@ const char *carousel_urls[] = {
         "https://libwebsockets.org/lhp-tests/t4.html",
         "https://libwebsockets.org/lhp-tests/t1.html",
         "https://libwebsockets.org/lhp-tests/t2.html",
+        NULL
 };
 
 static const uint8_t fira_c_r_10[] = {

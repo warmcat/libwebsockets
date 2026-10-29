@@ -33,11 +33,20 @@ if (ESP_PLATFORM)
         option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtraces (requires WITH_COMPRESSED_BACKTRACES)" OFF)
         set(LWS_WITH_ALLOC_METADATA_LWS OFF)
 
-        option(LWS_WITH_OTA "Build with support for Over The Air update download and validation" ON)
-        set(LWS_WITH_OTA ON)
-
-        set(LWS_OTA_VARIANT "esp32-waveshare-104-212" CACHE STRING "Build variant for OTA filtering" FORCE)
+	#
+	# OTA needs the public key the firmware manifests are signed with, to
+	# validate what it downloads.  A build box without it (CI) still builds
+	# the example, with OTA left out.
+	#
 	set(LWS_OTA_PUBLIC_JWK_FILE "$ENV{HOME}/.lws_ota/libwebsockets.org-ota-v1.public.jwk" CACHE STRING "JWK path" FORCE)
+	if (EXISTS "${LWS_OTA_PUBLIC_JWK_FILE}")
+		option(LWS_WITH_OTA "Build with support for Over The Air update download and validation" ON)
+		set(LWS_WITH_OTA ON)
+		set(LWS_OTA_VARIANT "esp32-waveshare-104-212" CACHE STRING "Build variant for OTA filtering" FORCE)
+	else()
+		message(STATUS "No OTA public key at ${LWS_OTA_PUBLIC_JWK_FILE}: building without OTA")
+		set(LWS_WITH_OTA OFF)
+	endif()
 
 	set(CMAKE_BUILD_TYPE RELEASE)
 
@@ -48,9 +57,11 @@ if (ESP_PLATFORM)
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 			     TIMEOUT 120)
 
+	# wifi association, then three pages fetched, laid out and refreshed
+	# onto the epd 10s apart, before the PASS
 	add_test(NAME boot COMMAND /usr/local/bin/sai-expect)
 	set_tests_properties(boot PROPERTIES
 			     DEPENDS flashing
-			     TIMEOUT 60)
+			     TIMEOUT 180)
 
 endif()

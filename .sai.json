@@ -125,9 +125,9 @@
 		"freertos-espidf/xl6-esp32/gcc": {
                         "default": false,
                         "build": [
-				"rm -rf ebuild ; mkdir ebuild; cd ebuild;cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; rm -f libwebsockets ; ln -sf ../.. libwebsockets",
-				"cd ebuild/${cpack} ; . /opt/esp/esp-idf/export.sh ; rm -rf build ; idf.py -DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0 set-target esp32 && cp partitions.csv sdkconfig.h build && cp -rp sdkconfig.old sdkconfig && cp sdkconfig build && idf.py -DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0 ${cmake} build size size-components size-files",
-				". /opt/esp/esp-idf/export.sh && pwd && cd ebuild/${cpack}/build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
+				"rm -rf ebuild ; mkdir ebuild; cd ebuild; cp -rp ../minimal-examples/embedded/lhp . ; cd lhp/${cpack} ; rm -f libwebsockets ; ln -sf ../../.. libwebsockets",
+				"cd ebuild/lhp/${cpack} ; . /opt/esp/esp-idf/export.sh ; rm -rf build ; idf.py -DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0 set-target esp32 && cp partitions.csv build && cp -rp sdkconfig.old sdkconfig && cp sdkconfig build && idf.py -DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0 ${cmake} build size size-components size-files",
+				". /opt/esp/esp-idf/export.sh && pwd && cd ebuild/lhp/${cpack}/build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
 			]
 		},
 
@@ -168,14 +168,14 @@
 		"fault-injection": {
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
 		},
-		"esp32-heltec": {
-                        "cmake":        "-DLWS_WITH_JPEG=0 -DLWS_WITH_UPNG=0 -DLWS_WITH_DLO=0 -DLWS_WITH_LHP=0 -DLWS_WITH_GZINFLATE=0 -DLWS_WITH_STUB=0 ",
-                        "cpack":        "esp-heltec-wb32",
+		"esp32-waveshare-104-212": {
+                        "cmake":        "",
+                        "cpack":        "esp32-waveshare-104-212",
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },
-		"esp32-heltec-threadpool": {
-                        "cmake":        "-DLWS_WITH_JPEG=0 -DLWS_WITH_UPNG=0 -DLWS_WITH_DLO=0 -DLWS_WITH_LHP=0 -DLWS_WITH_GZINFLATE=0 -DLWS_WITH_STUB=0 -DLWS_WITH_THREADPOOL=1 ",
-                        "cpack":        "esp-heltec-wb32",
+		"esp32-waveshare-104-212-threadpool": {
+                        "cmake":        "-DLWS_WITH_THREADPOOL=1 ",
+                        "cpack":        "esp32-waveshare-104-212",
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },
 		"mbedtls4": {
