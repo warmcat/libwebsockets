@@ -2853,7 +2853,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				uint64_t id;
 
 				if (!wsi->h3.rx_frame_payload_read && chunk &&
-				    wsi->h3.rx_frame_len != (1u << (buf[0] >> 6))) {
+				    wsi->h3.rx_frame_len != ((uint64_t)1 << (buf[0] >> 6))) {
 					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 
 					lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_ERROR, 0, 1);
