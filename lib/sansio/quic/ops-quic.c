@@ -2541,6 +2541,14 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 	memset(&scid, 0, sizeof(scid));
 
 	if (p[0] & 0x80) {
+		/*
+		 * The datagram is in the pt's rx buffer: past its end is what
+		 * an earlier one left there, not a DCID length
+		 */
+		if (n < 6) {
+			lwsl_wsi_notice(wsi, "QUIC RX: Truncated before DCID");
+			return LWS_HPI_RET_HANDLED;
+		}
 		dcid_len = p[5];
 		if (dcid_len > LWS_QUIC_MAX_CID_LEN || n < 6 + dcid_len) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Invalid DCID length");
