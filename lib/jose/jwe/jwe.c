@@ -360,6 +360,12 @@ lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 	int valid_aescbc_hmac, valid_aesgcm, ot = *temp_len;
 	char dotstar[96];
 
+	/* a compact serialization that had no JOSE part at all */
+	if (!jwe->jws.map.buf[LJWS_JOSE] || !jwe->jws.map.len[LJWS_JOSE]) {
+		lwsl_err("%s: no JOSE header\n", __func__);
+		return -1;
+	}
+
 	if (lws_jwe_parse_jose(&jwe->jose, jwe->jws.map.buf[LJWS_JOSE],
 			       (int)jwe->jws.map.len[LJWS_JOSE],
 			       temp, temp_len) < 0) {
