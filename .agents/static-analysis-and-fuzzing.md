@@ -102,6 +102,15 @@ copying it there as `regress-*`.
    wasted.  The h2 seeds' frames come from the harness op (`sansio-h2.h`),
    so their stream ids are always odd: a raw RX op is how to send an even
    one.
+ - `fuzz-quic` drives a QUIC server through a transport on its udp
+   listener, made per input with `lws_create_adopt_udp(..., "quic", ...)`:
+   every child connection's datagrams go through the listener
+   (`lws_wsi_socket_owner()`).  Its client Initials are sealed with the
+   keys of the client's *first* DCID even once they go to the server's
+   SCID (RFC 9001 5.2); getting that wrong shows as "GCM tag check
+   failed" in a verbose replay.  Its ClientHello seeds come from
+   `fuzz/fuzz-quic/gen-seeds.py`, and the vhost uses a P-256 cert so a
+   handshake per input stays cheap.  It can't get past Initial keys.
  - A crash seed must not go in `seeds/` until it's fixed: the
    `fuzz-*-smoke` ctests run every seed.
  - Each target added to `run.sh` thins the others' share of a timed

@@ -146,6 +146,15 @@ if (UNIX AND LWS_WITH_NETWORK)
 		endif()
 	endif()
 
+	# a QUIC server's udp listener on a datagram transport, with the
+	# fuzzer as its clients and the clock
+
+	if (LWS_ROLE_QUIC AND LWS_WITH_SERVER AND LWS_WITH_UDP)
+		lws_add_fuzz_target(quic)
+		target_compile_definitions(fuzz-quic PRIVATE
+			FZQ_CERT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz-quic")
+	endif()
+
 	# not wsi-bound, but it sinks the query lws sends into a UDP socket
 	# it binds itself, so POSIX sockets too
 

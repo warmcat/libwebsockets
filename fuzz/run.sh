@@ -82,7 +82,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md svg tokenize jose cose adns h1 h2 ws ws-pmd srv-h1 srv-h2 cli-h1 cli-ws cli-h2"
+	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md svg tokenize jose cose adns h1 h2 ws ws-pmd srv-h1 srv-h2 cli-h1 cli-ws cli-h2 quic"
 fi
 
 # UBSan's reports are a line with no stack unless it's asked for one
