@@ -257,7 +257,8 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 /*
  * Check filename against one globby filter
  *
- * We can support things like "*.rpm"
+ * We can support things like "*.rpm", "crash-*", "sai-*.deb" or a plain
+ * filename, with at most one '*'
  */
 
 static int
@@ -275,7 +276,12 @@ lws_dir_glob_check(const char *nm, const char *filt)
 		nm++;
 	}
 
-	return 0;
+	/*
+	 * We ran out of name: it matched if the filter ran out with it, or
+	 * all that is left of it is a '*' with nothing after it to match
+	 */
+
+	return !*filt || !strcmp(filt, "*");
 }
 
 int

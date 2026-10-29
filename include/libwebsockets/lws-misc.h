@@ -1757,8 +1757,9 @@ typedef struct lws_dir_glob {
  *
  * \p user is prepared with an `lws_dir_glob_t` containing a callback for paths
  * that pass the filtering, a user pointer to pass to that callback, and a
- * glob string like "*.txt".  It may not contain directories, the lws_dir musr
- * be started at the correct dir.
+ * glob string like "*.txt", "crash-*", "sai-*.deb" or a plain filename, with
+ * at most one '*'.  It may not contain directories, the lws_dir must be started
+ * at the correct dir.
  *
  * Only the base path passed to lws_dir is scanned, it does not look in subdirs.
  */
