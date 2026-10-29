@@ -1,0 +1,31 @@
+#
+# libFuzzer dictionary for fuzz-lejp, made by fuzz/gen-dicts.py
+#
+# json syntax, escapes and number edge cases.
+#
+
+"{"
+"}"
+"["
+"]"
+":"
+","
+"\x22"
+"\x22\x22"
+"{}"
+"[]"
+"true"
+"false"
+"null"
+"-0"
+"0.0"
+"1e308"
+"-1e-308"
+"9223372036854775807"
+"18446744073709551616"
+"\x22\x5cu0000\x22"
+"\x22\x5cud800\x22"
+"\x22\x5cudc00\x22"
+"\x22\x5c\x5c\x22"
+"\x22\x5c/\x22"
+"\x5cu"

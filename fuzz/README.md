@@ -35,6 +35,18 @@ to reproduce:
 `clang` is autodetected if there is no `clang` binary (eg `clang-19`).
 Additional cmake options can be passed via `FUZZ_CMAKE_OPTS`.
 
+## Guiding the fuzzer
+
+A target with a `fuzz-<name>/<name>.dict` gets it as its libFuzzer
+dictionary: whole tokens of its format (header names, keywords, frame
+headers, magic values) the mutator can splice in, instead of having to hit
+on them a byte at a time.  Some come from lws' own tables, the h1 lexer's
+header names and the names lhp, svg and the hl drivers know, so regenerate
+them with `python3 fuzz/gen-dicts.py` when those change.  `run.sh` also
+turns on value profiling (`-use_value_profile=1`), so getting closer to the
+operand of a comparison, a magic constant or a length check, counts as
+progress the fuzzer keeps.
+
 ## Reading the output
 
 - `Done N runs in Ts` for a target means its time slice completed with no

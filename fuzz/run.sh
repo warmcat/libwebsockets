@@ -260,12 +260,24 @@ replay_known() {
 	done
 }
 
-# first corpus dir receives new discoveries, the second is read-only seeds
+# first corpus dir receives new discoveries, the second is read-only seeds.
+# A target with a dictionary of its format's tokens (fuzz-<name>/<name>.dict)
+# gets it, so the mutator can splice in whole header names, keywords and
+# magic values instead of having to hit on them a byte at a time.  Value
+# profiling makes the operands of comparisons count as coverage, so getting
+# closer to a magic constant or a length check is progress the fuzzer keeps.
 run_target() {
+	dict=""
+	if [ -r "$REPO/fuzz/fuzz-$1/$1.dict" ]; then
+		dict="-dict=$REPO/fuzz/fuzz-$1/$1.dict"
+	fi
+
 	$CAP "$BUILD/bin/fuzz-$1" "$CORPUS/corpus-$1" "$REPO/fuzz/fuzz-$1/seeds" \
 		-max_total_time="$SECS" \
 		-print_final_stats=1 \
 		-artifact_prefix="$BUILD/fuzz/" \
+		-use_value_profile=1 \
+		$dict \
 		$UNIT_TIMEOUT \
 		$FUZZ_OPTS
 }
