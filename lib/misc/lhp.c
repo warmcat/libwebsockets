@@ -475,14 +475,20 @@ static const char *const default_css =
 	"caption         { display: table-caption }\n"
 	"th              { font-weight: bolder; text-align: center }\n"
 	"caption         { text-align: center }\n"
-	"body            { margin: 8px }\n"
-	"h1              { font-size: 2em; margin: .67em 0 }\n"
-	"h2              { font-size: 1.5em; margin: .75em 0 }\n"
-	"h3              { font-size: 1.17em; margin: .83em 0 }\n"
+	/*
+	 * The browser defaults, capped against the surface: on a display a
+	 * hundred pixels across, 8px of body margin and a 21px heading margin
+	 * are a quarter of the page.  The caps only bite below ~200px, so a
+	 * desktop-sized surface lays out exactly as a browser would.
+	 */
+	"body            { margin: min(8px,4vmin) }\n"
+	"h1              { font-size: 2em; margin: min(.67em,10vmin) 0 }\n"
+	"h2              { font-size: 1.5em; margin: min(.75em,10vmin) 0 }\n"
+	"h3              { font-size: 1.17em; margin: min(.83em,10vmin) 0 }\n"
 	"h4, p, blockquote, ul, fieldset, form, ol, dl, dir, menu "
-		"{ margin: 1.12em 0 }\n"
-	"h5              { font-size: .83em; margin: 1.5em 0 }\n"
-	"h6              { font-size: .75em; margin: 1.67em 0 }\n"
+		"{ margin: min(1.12em,10vmin) 0 }\n"
+	"h5              { font-size: .83em; margin: min(1.5em,10vmin) 0 }\n"
+	"h6              { font-size: .75em; margin: min(1.67em,10vmin) 0 }\n"
 	"h1, h2, h3, h4, h5, h6, b, strong          { font-weight: bolder }\n"
 	"blockquote      { margin-left: 40px; margin-right: 40px }\n"
 	"i, cite, em, var, address    { font-style: italic }\n"

@@ -38,6 +38,7 @@ if (requirements)
 			# 14-asset-cache gets its own entry below, with the asset cache
 			# 21-image-reclaim is a render comparison below
 			# 34-tag-case-upper is compared with 34-tag-case's golden
+			# 35-tiny-viewport gets its own entry below, at panel size
 			list(REMOVE_ITEM LHP_CASES
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
@@ -45,7 +46,8 @@ if (requirements)
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/21-image-reclaim.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.html
-					${CMAKE_CURRENT_SOURCE_DIR}/cases/34-tag-case-upper.html)
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/34-tag-case-upper.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/35-tiny-viewport.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			# a case whose assets need a decoder this build lacks
@@ -112,6 +114,18 @@ if (requirements)
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/34-tag-case-upper.dlo
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 		endif()
+
+		# the user-agent body and heading margins are capped against
+		# the surface: on a 104 x 212 epd the page starts 4px in and the
+		# h1's top margin is 10px, not the browser's 8px and 21px
+		add_test(NAME api-test-lhp-dlo-35-tiny-viewport
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/35-tiny-viewport.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/35-tiny-viewport.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/35-tiny-viewport.dlo
+				-DW=104 -DH=212
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
 		if (LWS_WITH_CACHE_BLOB)
 			# with the asset cache enabled and bluecat.jpg preseeded
