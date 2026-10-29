@@ -2500,10 +2500,13 @@ lws_quic_rx_is_stateless_reset(const struct lws_quic_netconn *qn,
 			       const uint8_t *p, size_t n)
 {
 	static const uint8_t zero_token[LWS_QUIC_SR_TOKEN_LEN];
-	const uint8_t *t = &p[n - LWS_QUIC_SR_TOKEN_LEN];
+	const uint8_t *t;
 
+	/* only once we know there's a token's worth of datagram */
 	if (!qn || n < LWS_QUIC_SR_MIN)
 		return 0;
+
+	t = &p[n - LWS_QUIC_SR_TOKEN_LEN];
 
 	if (memcmp(qn->rem_stateless_reset_token, zero_token,
 		   sizeof(zero_token)) &&
