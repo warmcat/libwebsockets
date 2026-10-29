@@ -103,6 +103,15 @@
  */
 #define OAUTH2_DEFAULT_MAX_PENDING_AUTHS_PER_PEER 32
 
+/*
+ * Most pending states are never claimed: the user abandons the login form,
+ * or a crawler follows a Login link.  Each one expiring, and each eviction
+ * once a peer or the vhost is at its cap, is routine, so those notices are
+ * limited to one of each kind per this interval per vhost, carrying the count of the ones dropped meanwhile.  The
+ * per-entry detail stays available at info level.
+ */
+#define OAUTH2_ROUTINE_LOG_INTERVAL_US (60 * LWS_US_PER_SEC)
+
 struct vhd_oauth2_client {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -121,6 +130,10 @@ struct vhd_oauth2_client {
 	unsigned long cookie_max_age_secs;	/* fallback Max-Age when no expires_in is available */
 	unsigned int max_pending_auths;		/* cap on pending_auth_list */
 	unsigned int max_pending_auths_per_peer; /* ... from one host */
+
+	lws_log_ratelimit_t rl_expired;	/* unclaimed states timing out */
+	lws_log_ratelimit_t rl_evict_peer; /* a peer at its cap evicting */
+	lws_log_ratelimit_t rl_evict_vhost; /* the vhost at its cap evicting */
 
 	lws_dll2_owner_t pending_auth_list;
 };
@@ -435,9 +448,22 @@ sul_pending_auth_cb(lws_sorted_usec_list_t *sul)
 	struct pending_auth_state *ps = lws_container_of(sul,
 					struct pending_auth_state, sul);
 
-	lwsl_notice("%s: pending auth state %s timed out (server=%p, "
-		    "client=%p)\n", __func__, ps->state,
-		    (void *)ps->wsi_server, (void *)ps->wsi_client);
+	if (ps->wsi_server || ps->wsi_client) {
+		/* a callback is still mid-exchange at 5min: not routine */
+		lwsl_vhost_notice(ps->vhd->vhost, "%s: login from %s timed "
+				  "out mid-exchange (server=%p, client=%p)",
+				  __func__, ps->peer, (void *)ps->wsi_server,
+				  (void *)ps->wsi_client);
+	} else {
+		lwsl_vhost_info(ps->vhd->vhost, "%s: unclaimed login from %s "
+				"expired", __func__, ps->peer);
+		lwsl_ratelimit_notice(&ps->vhd->rl_expired,
+				      OAUTH2_ROUTINE_LOG_INTERVAL_US,
+				      "%s: %s: unclaimed login from %s "
+				      "expired\n", __func__,
+				      lws_get_vhost_name(ps->vhd->vhost),
+				      ps->peer);
+	}
 
 	/*
 	 * The 5min validity of the auth code elapsed.  Close any still-live
@@ -477,10 +503,15 @@ sul_pending_auth_cb(lws_sorted_usec_list_t *sul)
  * oldest.  An unclaimed entry has no wsi on either leg, so releasing it
  * frees it at once.
  *
+ * \p from_peer_out is set to how many unclaimed entries \p peer has pending
+ * once the newcomer is admitted, not counting the newcomer, and
+ * \p evicted_out to whether one of them had to make way for it.
+ *
  * Returns 0 if the newcomer may be added, nonzero to refuse it.
  */
 static int
-pending_auth_make_room(struct vhd_oauth2_client *vhd, const char *peer)
+pending_auth_make_room(struct vhd_oauth2_client *vhd, const char *peer,
+		       unsigned int *from_peer_out, int *evicted_out)
 {
 	struct pending_auth_state *oldest = NULL, *oldest_peer = NULL;
 	unsigned int from_peer = 0;
@@ -501,11 +532,22 @@ pending_auth_make_room(struct vhd_oauth2_client *vhd, const char *peer)
 		}
 	} lws_end_foreach_dll(d);
 
+	*from_peer_out = from_peer;
+	*evicted_out = 0;
+
 	if (vhd->max_pending_auths_per_peer &&
 	    from_peer >= vhd->max_pending_auths_per_peer) {
-		lwsl_vhost_notice(vhd->vhost, "/oauth/login: peer at %u pending "
-				  "auths, evicting its oldest", from_peer);
+		lwsl_vhost_info(vhd->vhost, "/oauth/login: %s at %u pending "
+				"auths, evicting its oldest", peer, from_peer);
+		lwsl_ratelimit_notice(&vhd->rl_evict_peer,
+				      OAUTH2_ROUTINE_LOG_INTERVAL_US,
+				      "/oauth/login: %s: %s at %u pending "
+				      "auths, evicting its oldest\n",
+				      lws_get_vhost_name(vhd->vhost), peer,
+				      from_peer);
 		pending_auth_release(oldest_peer);
+		*from_peer_out = from_peer - 1;
+		*evicted_out = 1;
 
 		return 0;
 	}
@@ -522,9 +564,19 @@ pending_auth_make_room(struct vhd_oauth2_client *vhd, const char *peer)
 		return 1;
 	}
 
-	lwsl_vhost_notice(vhd->vhost, "/oauth/login: %u pending auths, "
-			  "evicting the oldest unclaimed",
-			  lws_dll2_count(&vhd->pending_auth_list));
+	lwsl_vhost_info(vhd->vhost, "/oauth/login: %u pending auths, "
+			"evicting the oldest unclaimed, from %s",
+			lws_dll2_count(&vhd->pending_auth_list), oldest->peer);
+	lwsl_ratelimit_notice(&vhd->rl_evict_vhost,
+			      OAUTH2_ROUTINE_LOG_INTERVAL_US,
+			      "/oauth/login: %s: %u pending auths, evicting "
+			      "the oldest unclaimed, from %s\n",
+			      lws_get_vhost_name(vhd->vhost),
+			      lws_dll2_count(&vhd->pending_auth_list),
+			      oldest->peer);
+	if (!strcmp(oldest->peer, peer))
+		(*from_peer_out)--;
+	*evicted_out = 1;
 	pending_auth_release(oldest);
 
 	return 0;
@@ -654,7 +706,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		    lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_POST_URI) < 0)
 			break;
 
-		lwsl_wsi_notice(wsi, "oauth2-client HTTP dispatch: uri='%s'", uri);
+		lwsl_wsi_info(wsi, "oauth2-client HTTP dispatch: uri='%s'", uri);
 
 		/*
 		 * Tolerate a single trailing slash on our routes so callers that
@@ -675,6 +727,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!strcmp(uri, "/oauth/login")) {
 			struct pending_auth_state *ps;
 			char peer[LWS_HOST_KEY_LEN];
+			unsigned int from_peer = 0;
+			int evicted = 0;
 			uint8_t rand_bytes[32];
 			uint8_t hash[32];
 			char code_challenge[64];
@@ -712,7 +766,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			lws_get_peer_host_key(wsi, peer, sizeof(peer));
 
-			if (pending_auth_make_room(vhd, peer)) {
+			if (pending_auth_make_room(vhd, peer, &from_peer,
+						   &evicted)) {
 				lws_return_http_status(wsi,
 					HTTP_STATUS_SERVICE_UNAVAILABLE,
 					"Too many pending logins");
@@ -1043,9 +1098,27 @@ rand_fail:
 				return 1;
 			}
 
-			/* not loc itself: its query has the state and challenge */
-			lwsl_wsi_notice(wsi, "/oauth/login: writing 302 -> "
-					"%s/api/authorize", vhd->remote_auth_url);
+			/*
+			 * Not loc itself: its query has the state and
+			 * challenge.  A peer's first pending login, and each
+			 * time its pending count doubles, is a notice, so a
+			 * page or crawler hammering /oauth/login shows up as
+			 * one peer climbing 1, 2, 4.. without a line per hit.
+			 * Once it is at its cap the count stops climbing and
+			 * the ratelimited eviction notice speaks for it.
+			 */
+			from_peer++;
+			if (!evicted && !(from_peer & (from_peer - 1)))
+				lwsl_wsi_notice(wsi, "/oauth/login: %s (%u "
+						"pending from it): 302 -> "
+						"%s/api/authorize", peer,
+						from_peer,
+						vhd->remote_auth_url);
+			else
+				lwsl_wsi_info(wsi, "/oauth/login: %s (%u "
+					      "pending from it): 302 -> "
+					      "%s/api/authorize", peer,
+					      from_peer, vhd->remote_auth_url);
 
 			/* headers-only 302: under h2 the HEADERS frame must carry
 			 * END_STREAM or the stream hangs open waiting for a body
