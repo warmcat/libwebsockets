@@ -110,6 +110,8 @@ lws_x509_create(struct lws_x509_cert **x509);
  *
  * Creates a self-signed certificate and private key in memory (DER format).
  * The caller is responsible for freeing *cert_buf and *key_buf using free().
+ * This is lws_x509_create_cert() with a server cert's default settings, and
+ * has the same backend requirements.
  *
  * Returns 0 on success.
  */
@@ -147,6 +149,10 @@ struct lws_x509_cert_gen_info {
  * The private key is SEC1 ("EC PRIVATE KEY") DER for EC, or PKCS#1
  * ("RSA PRIVATE KEY") DER for RSA.  info->ca_key_pem may be any of those, or
  * PKCS#8 ("PRIVATE KEY"), in PEM.
+ *
+ * With the mbedtls backend, this needs mbedtls built with its x509 writer
+ * (MBEDTLS_X509_CRT_WRITE_C; on ESP-IDF, CONFIG_MBEDTLS_X509_CREATE_C in
+ * menuconfig).  Without it the call fails and logs why.
  *
  * Returns 0 on success.
  */

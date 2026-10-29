@@ -1108,6 +1108,14 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 }
 
 /*
+ * Certificate creation needs the mbedtls x509 writer, which is a separate
+ * module (MBEDTLS_X509_CRT_WRITE_C) that a build of mbedtls can leave out:
+ * ESP-IDF's does unless CONFIG_MBEDTLS_X509_CREATE_C is selected.  Without it
+ * lws_x509_create_cert() is still part of the api, but reports failure.
+ */
+#if defined(MBEDTLS_X509_CRT_WRITE_C)
+
+/*
  * Fill buf with len random bytes from the backend's RNG.  Before mbedtls 4,
  * that is the context's ctr_drbg (or a private one when there is no context);
  * on mbedtls 4 it is the PSA RNG, which has no per-caller state.
@@ -1454,6 +1462,29 @@ bail:
 
 	return ret;
 }
+
+#else /* !MBEDTLS_X509_CRT_WRITE_C */
+
+int
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info)
+{
+	(void)context;
+	(void)cert_buf;
+	(void)cert_len;
+	(void)key_buf;
+	(void)key_len;
+	(void)info;
+
+	lwsl_err("%s: mbedtls built without MBEDTLS_X509_CRT_WRITE_C\n",
+		 __func__);
+
+	return 1;
+}
+
+#endif /* MBEDTLS_X509_CRT_WRITE_C */
 
 int
 lws_x509_create_self_signed(struct lws_context *context,

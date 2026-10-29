@@ -35,3 +35,13 @@ a given nvs domain, where the username is the key and the password the value.  m
 demos app shows how to both make the mount use basic auth, and how to set a user:password combination
 using nvs.
 
+
+## Certificate generation
+
+`lws_x509_create_cert()` and `lws_x509_create_self_signed()` use the mbedtls
+x509 writer, which ESP-IDF leaves out of its mbedtls by default.  If your
+application generates certificates on the device, enable
+`Component config -> mbedTLS -> Certificates -> X.509 certificate creation`
+(`CONFIG_MBEDTLS_X509_CREATE_C`) in menuconfig.  Without it lws still builds,
+and those calls fail with an error log saying `MBEDTLS_X509_CRT_WRITE_C` is
+missing.
