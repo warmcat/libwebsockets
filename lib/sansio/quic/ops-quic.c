@@ -4231,7 +4231,14 @@ quic_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
 /*
  * Queue the one CONNECTION_CLOSE frame that ends the connection, at the
  * highest encryption level we have keys for, dropping everything else
- * pending except the CRYPTO frames the peer may still need to derive keys
+ * pending except the CRYPTO frames the peer may still need to derive keys.
+ *
+ * RFC 9000 10.2.3: once the handshake is confirmed, it goes at 1-RTT, even
+ * if the peer never sent us a 1-RTT packet, eg, one quiet since its
+ * Finished: it is the level the peer surely reads by then.  Before that, an
+ * application close is not one Initial and Handshake packets may carry: it
+ * goes there as a transport close, APPLICATION_ERROR with no reason, which
+ * leaks nothing of the application to an unauthenticated peer.
  */
 static void
 lws_quic_queue_connection_close(struct lws *nwsi, uint64_t err_code,
@@ -4242,12 +4249,20 @@ lws_quic_queue_connection_close(struct lws *nwsi, uint64_t err_code,
 	int level, target_level = LWS_QUIC_LEVEL_INITIAL;
 
 	/* Determine highest available encryption level to send CONNECTION_CLOSE */
-	int start_level = qn->highest_rx_level;
+	int start_level = qn->handshake_confirmed ? LWS_QUIC_LEVEL_APP :
+						    qn->highest_rx_level;
 	for (level = start_level; level >= LWS_QUIC_LEVEL_INITIAL; level--) {
 		if (qn->keys[level] && qn->keys[level]->el_hp_tx.len) {
 			target_level = level;
 			break;
 		}
+	}
+
+	if (is_app_error && (target_level == LWS_QUIC_LEVEL_INITIAL ||
+			     target_level == LWS_QUIC_LEVEL_HANDSHAKE)) {
+		is_app_error	= 0;
+		err_code	= LWS_QUIC_ERR_APPLICATION_ERROR;
+		frame_type	= 0;
 	}
 
 	/*
