@@ -1225,9 +1225,21 @@ LWS_VISIBLE int lws_ensure_user_space(struct lws *wsi) {
 	if (!wsi->user_space) {
 		size_t s = wsi->a.protocol->per_session_data_size;
 
-		if (!s)
-			s = (size_t)wsi->a.protocol->callback(wsi,
+		if (!s) {
+			/*
+			 * The callback's answer is an int, and a callback
+			 * that fails returns -1: that's a failure, not a
+			 * size, or it becomes a SIZE_MAX allocation
+			 */
+			int r = wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_GET_PSS_SIZE, NULL, NULL, 0);
+
+			if (r < 0) {
+				lwsl_wsi_err(wsi, "GET_PSS_SIZE failed");
+				return 1;
+			}
+			s = (size_t)r;
+		}
 
 		if (s) {
 			wsi->user_space = lws_zalloc(s, "user space");

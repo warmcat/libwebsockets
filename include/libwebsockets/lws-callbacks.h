@@ -957,7 +957,8 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_GET_PSS_SIZE					= 215,
 	/**< Called when a protocol wants to specify its PSS size at runtime.
 	 *   If the protocol structure has per_session_data_size == 0, lws will
-	 *   call this to get the size to allocate for the session. */
+	 *   call this to get the size to allocate for the session.  Return 0
+	 *   for no pss, or a negative value to fail the connection. */
 
 	LWS_CALLBACK_DHT_VERB_DISPATCH					= 216,
 	/**< Sent to the user protocol handler callback when a DHT message
