@@ -2151,6 +2151,7 @@ build_rect(lws_svg_t *ctx, svg_pend_t *pd)
 	svg_c_t x = pd->gok[0] ? pd->g[0] : 0, y = pd->gok[1] ? pd->g[1] : 0;
 	svg_c_t w = pd->gok[2] ? pd->g[2] : 0, h = pd->gok[3] ? pd->g[3] : 0;
 	svg_c_t rx = pd->gok[4] ? pd->g[4] : 0, ry = pd->gok[5] ? pd->g[5] : 0;
+	svg_c_t xw, yh;
 
 	if (w <= 0 || h <= 0)
 		return 0;	/* nothing to fill */
@@ -2170,6 +2171,10 @@ build_rect(lws_svg_t *ctx, svg_pend_t *pd)
 	if (ry > h / 2)
 		ry = h / 2;
 
+	/* the far edges, saturated like everything else the input can make */
+	xw = svg_qadd(x, w);
+	yh = svg_qadd(y, h);
+
 	work_reset(ctx);
 	if (sub_start(ctx, svg_qadd(x, rx), y))
 		return 1;
@@ -2180,27 +2185,27 @@ build_rect(lws_svg_t *ctx, svg_pend_t *pd)
 
 		/* clockwise from the top edge, four quarter-arc corners */
 
-		if (pt_add(ctx, svg_qsub(svg_qadd(x, w), rx), y))
+		if (pt_add(ctx, svg_qsub(xw, rx), y))
 			return 1;
-		if (flatten_cubic(ctx, svg_qsub(svg_qadd(x, w), rx), y,
-				  svg_qadd(svg_qsub(svg_qadd(x, w), rx), kx), y,
-				  x + w, svg_qsub(svg_qadd(y, ry), ky),
-				  x + w, y + ry, 0))
+		if (flatten_cubic(ctx, svg_qsub(xw, rx), y,
+				  svg_qadd(svg_qsub(xw, rx), kx), y,
+				  xw, svg_qsub(svg_qadd(y, ry), ky),
+				  xw, svg_qadd(y, ry), 0))
 			return 1;
-		if (pt_add(ctx, x + w, svg_qsub(svg_qadd(y, h), ry)))
+		if (pt_add(ctx, xw, svg_qsub(yh, ry)))
 			return 1;
-		if (flatten_cubic(ctx, x + w, svg_qsub(svg_qadd(y, h), ry),
-				  x + w,
-				  svg_qadd(svg_qsub(svg_qadd(y, h), ry), ky),
-				  svg_qadd(svg_qsub(svg_qadd(x, w), rx), kx), y + h,
-				  svg_qsub(svg_qadd(x, w), rx), y + h, 0))
+		if (flatten_cubic(ctx, xw, svg_qsub(yh, ry),
+				  xw,
+				  svg_qadd(svg_qsub(yh, ry), ky),
+				  svg_qadd(svg_qsub(xw, rx), kx), yh,
+				  svg_qsub(xw, rx), yh, 0))
 			return 1;
-		if (pt_add(ctx, svg_qadd(x, rx), y + h))
+		if (pt_add(ctx, svg_qadd(x, rx), yh))
 			return 1;
-		if (flatten_cubic(ctx, svg_qadd(x, rx), y + h,
-				  svg_qsub(svg_qadd(x, rx), kx), y + h,
-				  x, svg_qadd(svg_qsub(svg_qadd(y, h), ry), ky),
-				  x, svg_qsub(svg_qadd(y, h), ry), 0))
+		if (flatten_cubic(ctx, svg_qadd(x, rx), yh,
+				  svg_qsub(svg_qadd(x, rx), kx), yh,
+				  x, svg_qadd(svg_qsub(yh, ry), ky),
+				  x, svg_qsub(yh, ry), 0))
 			return 1;
 		if (pt_add(ctx, x, svg_qadd(y, ry)))
 			return 1;
@@ -2210,8 +2215,8 @@ build_rect(lws_svg_t *ctx, svg_pend_t *pd)
 				  svg_qadd(x, rx), y, 0))
 			return 1;
 	} else {
-		if (pt_add(ctx, x + w, y) || pt_add(ctx, x + w, y + h) ||
-		    pt_add(ctx, x, y + h) || pt_add(ctx, x, y))
+		if (pt_add(ctx, xw, y) || pt_add(ctx, xw, yh) ||
+		    pt_add(ctx, x, yh) || pt_add(ctx, x, y))
 			return 1;
 	}
 
