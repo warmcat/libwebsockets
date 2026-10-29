@@ -72,8 +72,10 @@
  *    handshake, so none of it may move where the backend answers the
  *    client, or push its relay out: the rest of the response must still
  *    reach the client through the front, and nothing the backend sends
- *    reach the spoofer.  The backend sees the client as a relayed claim,
- *    and the front's socket below it, both proven.
+ *    reach the spoofer, but the Stateless Resets its flood's unknown
+ *    connection IDs earn, back to the claims it made.  The backend sees the
+ *    client as a relayed claim, and the front's socket below it, both
+ *    proven.
  *
  *  - an h3 client naming pass2.test, which the front passes through to a
  *    "tap" in the test that relays both ways between the front and the
@@ -431,7 +433,36 @@ nat_rx(tpt_nat_t *t, struct lws *wsi, const void *in, size_t len)
  */
 static struct lws *spoofer;
 static lws_sorted_usec_list_t sul_spoof;
-static int spoofer_rx, spoof_sent, flood_sent;
+static int spoofer_rx, spoofer_resets, spoof_sent, flood_sent;
+
+/* the QUIC packet after each spoof's PROXY v2 header */
+#define TPT_SPOOF_PKT		29
+
+/*
+ * The backend answers a short header packet for a connection ID it has none
+ * for with a Stateless Reset (RFC 9000 10.3), back through the relay the
+ * datagram came by.  A flood claim's relay is the spoofer, so it may get
+ * those: a short header packet smaller than the spoof, for one of the
+ * flood's claims.  Anything else, and anything for the live client, means
+ * the backend believed the spoofer.
+ */
+static int
+spoofer_rx_is_flood_reset(const uint8_t *in, size_t len)
+{
+	lws_proxy_v2_t pv;
+	char ads[64];
+	int hl;
+
+	hl = lws_proxy_v2_header_len(in, len);
+	if (hl <= 0 || (size_t)hl >= len ||
+	    lws_proxy_v2_parse(in, (size_t)hl, &pv) || !pv.dgram ||
+	    len - (size_t)hl >= TPT_SPOOF_PKT || (in[hl] & 0xc0) != 0x40 ||
+	    lws_sa46_write_numeric_address(&pv.dst, ads, sizeof(ads)) < 0)
+		return 0;
+
+	return !strncmp(ads, "198.18.", 7) ||
+	       !strncmp(ads, "::ffff:198.18.", 14);
+}
 
 #define TPT_SPOOF_US		(10 * LWS_US_PER_MS)
 #define TPT_FLOOD_TOTAL		6000
@@ -558,8 +589,11 @@ callback_nat(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	if (wsi == spoofer) {
-		/* the backend answered the spoofer: it believed it */
-		spoofer_rx++;
+		if (spoofer_rx_is_flood_reset((const uint8_t *)in, len))
+			spoofer_resets++;
+		else
+			/* the backend answered the spoofer: it believed it */
+			spoofer_rx++;
 		return 0;
 	}
 
@@ -595,12 +629,12 @@ spoof_one(const lws_sockaddr46 *client)
 		return;
 
 	n = lws_proxy_v2_render(&pv, b, sizeof(b));
-	if (n < 0 || (size_t)n + 29 > sizeof(b))
+	if (n < 0 || (size_t)n + TPT_SPOOF_PKT > sizeof(b))
 		return;
 	b[n] = 0x40;
-	lws_get_random(context, &b[n + 1], 28);
+	lws_get_random(context, &b[n + 1], TPT_SPOOF_PKT - 1);
 
-	nat_sendto(spoofer, b, (size_t)n + 29, &back);
+	nat_sendto(spoofer, b, (size_t)n + TPT_SPOOF_PKT, &back);
 }
 
 static void
@@ -1129,8 +1163,9 @@ step_next(void)
 		lws_sul_cancel(&sul_spoof);
 		lws_sul_cancel(&sul_guard);
 		lwsl_user("  '%s' after %d spoofs and a flood of %d: the "
-			  "spoofer got %d datagrams, the NAT %d strays\n", body,
-			  spoof_sent, flood_sent, spoofer_rx, nat2.strays);
+			  "spoofer got %d datagrams and %d resets for the "
+			  "flood, the NAT %d strays\n", body, spoof_sent,
+			  flood_sent, spoofer_rx, spoofer_resets, nat2.strays);
 		ok = spoof_stack_ok() && !strcmp(body, SLOW_1 SLOW_2) &&
 		     spoof_sent && flood_sent == TPT_FLOOD_TOTAL &&
 		     !spoofer_rx && !nat2.strays;
