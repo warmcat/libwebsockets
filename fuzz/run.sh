@@ -82,7 +82,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md svg tokenize jose cose adns h1 h2 ws ws-pmd"
+	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md svg tokenize jose cose adns h1 h2 ws ws-pmd srv-h1 srv-h2 cli-h1 cli-ws cli-h2"
 fi
 
 # UBSan's reports are a line with no stack unless it's asked for one
@@ -126,11 +126,14 @@ if pkg-config --exists gnutls 2>/dev/null; then
 		  -DLWS_WITH_COSE=ON -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=ON"
 fi
 
-# ws permessage-deflate needs zlib; without it ws-pmd is skipped
+# ws permessage-deflate needs zlib; without it ws-pmd is skipped.  With it,
+# http stream compression is on too, so a request asking for gzip has its
+# answer go through the coder.
 
 FUZZ_ZLIB="-DLWS_WITHOUT_EXTENSIONS=ON"
 if pkg-config --exists zlib 2>/dev/null; then
-	FUZZ_ZLIB="-DLWS_WITHOUT_EXTENSIONS=OFF -DLWS_WITH_ZLIB=ON"
+	FUZZ_ZLIB="-DLWS_WITHOUT_EXTENSIONS=OFF -DLWS_WITH_ZLIB=ON \
+		   -DLWS_WITH_HTTP_STREAM_COMPRESSION=ON"
 fi
 
 CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
@@ -143,6 +146,8 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 	-DLWS_WITH_HTTP3=ON \
 	-DLWS_WITH_JPEG=ON \
 	-DLWS_WITH_SYS_ASYNC_DNS=ON \
+	-DLWS_WITH_RANGES=ON \
+	-DLWS_WITH_PEER_LIMITS=ON \
 	$FUZZ_CMAKE_OPTS
 
 # A bare --parallel is make -j with no limit: every compile at once, which

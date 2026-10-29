@@ -140,6 +140,11 @@ doesn't fail.
 | `fuzz-jose` | JWK / JWS / JWE layer above lejp (`lib/jose/`) | first byte selects import / compact / flattened / JOSE-header / JWE decrypt, second selects the fixed oct / RSA / EC key; needs `LWS_WITH_JOSE` |
 | `fuzz-cose` | cose_key import + signature validator (`lib/cose/`) | first byte selects import vs validate against a fixed key set, second the sigtype; needs `LWS_WITH_COSE` |
 | `fuzz-adns` | async-dns response parser + dnssec (`lib/system/async-dns/`) | each input is delivered as the response to a real pending query, tid patched in; the only nameserver is a UDP sink the harness binds itself, so nothing leaves the process; first byte selects query type and DNSSEC mode |
+| `fuzz-srv-h1` | an h1 server connection and its application (`lib/sansio/http/`, `lib/roles/http/server/`) | sansIO: the input is a program of what the peer and the network do (see below); the server answers POSTs through `lws_spa`, streams, redirects, serves a file mount with ranges and gzip, and upgrades to ws with pmd |
+| `fuzz-srv-h2` | the same application over h2 (`lib/sansio/h2/`) | sansIO, h2 prior knowledge; the program's own op builds h2 frames with their lengths right ([sansio-h2.h](sansio-h2.h)) |
+| `fuzz-cli-h1` | an h1 client connection reading a malicious server's response | sansIO; the first byte picks GET / HEAD / POST and whether the client pulls the body at once or later |
+| `fuzz-cli-ws` | a ws client: its upgrade response, then server frames | sansIO; the harness answers the client's key with the right accept, so the frames get parsed |
+| `fuzz-cli-h2` | an h2 client connection against a malicious server | sansIO, h2 prior knowledge, the server's SETTINGS sent first, then h2 frames built as for `fuzz-srv-h2` |
 
 The `fuzz-h1`, `fuzz-h2` and `fuzz-ws` targets use the shared evil-peer
 helper in [peer.h](peer.h): one real, adopted server-side connection per
@@ -154,19 +159,36 @@ commit a minimized seed under the target's `seeds/` and add the same input
 as a case to the corresponding api-test where one exists, so it stays
 covered in normal CI.
 
+## sansIO connections
+
+`fuzz-h1`, `fuzz-h2` and `fuzz-ws` give lws its bytes in two halves, with
+the clock running on its own and every write taken whole.  The `srv-` and
+`cli-` targets instead put one connection per input on lws' sansIO
+transport ([sansio-peer.h](sansio-peer.h), `lws_set_transport()`), so the
+fuzzer is also the network and the clock: each input is a little program
+of the peer sending the next n bytes, a bulk send big enough to spend a
+flow control window, the time moving on so timeouts and validity pings
+fall due, the transport taking only part of a write or none of it, FIN or
+reset, and events the application acts on of its own accord.  Every input
+is a valid program, so mutation reshapes it rather than throwing it away.
+
+The server side is a real application ([sansio-srv-app.h](sansio-srv-app.h))
+and the client side reads its answers at its own pace
+([sansio-cli-app.h](sansio-cli-app.h)), so the paths that only run when an
+application is there to answer, defer, or close are reached too.  The
+client targets are lws connecting out to a malicious server.
+
 ## Survey: what to harness next
 
-The wsi-bound h1, h2/hpack and ws parsers are covered via `peer.h`, and
+The wsi-bound h1, h2/hpack and ws parsers are covered via `peer.h` and,
+server and client side, `sansio-peer.h`, and
 the standalone decoders (lejp, lecp, qpack, upng, jpeg, lhp and its
 layout, tokenize + helpers, JOSE, COSE, async-dns) directly.  The remaining untrusted-input
 surfaces, easiest first:
 
- - the parsers that take bytes from a malicious *server*: mqtt rx
-   (`lib/sansio/mqtt/mqtt.c`), h1 client response, ws client frames
-   (`client-parser-ws.c`), Set-Cookie (`lib/sansio/http/cookie.c`).  These
-   need a client-mode variant of `peer.h` (lws connects out to the
-   harness's socketpair end instead of adopting it); one helper unlocks
-   all four
+ - the other parsers that take bytes from a malicious *server*: mqtt rx
+   (`lib/sansio/mqtt/mqtt.c`) and Set-Cookie (`lib/sansio/http/cookie.c`),
+   as more clients on `sansio-peer.h` like the `cli-` targets
  - Secure Streams serialized proxy / client deserializers
    (`lib/secure-streams/serialized/`): byte state machines over a local
    unix socket, evil-peer shape against the proxy's listener

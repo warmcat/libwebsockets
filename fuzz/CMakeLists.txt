@@ -124,6 +124,28 @@ if (UNIX AND LWS_WITH_NETWORK)
 		endif()
 	endif()
 
+	# connections on the sansIO transport, with the fuzzer as the peer,
+	# the network and the clock (sansio-peer.h), against an application
+	# that answers (sansio-srv-app.h) or a client that reads its answers
+	# at its own pace (sansio-cli-app.h)
+
+	if (LWS_WITH_SERVER AND LWS_ROLE_WS AND LWS_WITH_FILE_OPS)
+		lws_add_fuzz_target(srv-h1)
+		if (LWS_WITH_HTTP2)
+			lws_add_fuzz_target(srv-h2)
+		endif()
+	endif()
+
+	if (LWS_WITH_CLIENT)
+		lws_add_fuzz_target(cli-h1)
+		if (LWS_ROLE_WS)
+			lws_add_fuzz_target(cli-ws)
+		endif()
+		if (LWS_WITH_HTTP2)
+			lws_add_fuzz_target(cli-h2)
+		endif()
+	endif()
+
 	# not wsi-bound, but it sinks the query lws sends into a UDP socket
 	# it binds itself, so POSIX sockets too
 

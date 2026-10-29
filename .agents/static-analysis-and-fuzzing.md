@@ -93,6 +93,19 @@ copying it there as `regress-*`.
    `-runs=0` (all seeds run in one process).
  - The evil-peer vhost is named "fuzz" to match the preludes'
    `Host: fuzz`.
+ - The `srv-`/`cli-` targets (`fuzz/sansio-peer.h`) own the transport and
+   the clock, which is what reaches lifetime bugs: the first 17s of
+   `fuzz-cli-h2` found a UAF, a peer frame refused at its header after a
+   GOAWAY was still parsed with `h2n->swsi` as the network wsi.  Their
+   seeds must be real exchanges (check with `LWS_FUZZ_VERBOSE=1`, which
+   also hexdumps lws' tx); one rejected at its first frame is coverage
+   wasted.  The h2 seeds' frames come from the harness op (`sansio-h2.h`),
+   so their stream ids are always odd: a raw RX op is how to send an even
+   one.
+ - A crash seed must not go in `seeds/` until it's fixed: the
+   `fuzz-*-smoke` ctests run every seed.
+ - Each target added to `run.sh` thins the others' share of a timed
+   campaign; weigh that before adding one.
  - The hl / md harnesses compare a one-shot reference pass with a
    fragmented, sink-deferring stress pass; `LWS_FUZZ_VERBOSE=1` prints the
    first divergence, `LWS_FUZZ_TRACE=1` dumps the stress pass.  Both
