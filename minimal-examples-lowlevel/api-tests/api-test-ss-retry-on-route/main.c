@@ -209,10 +209,29 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	    target != LWS_SYSTATE_OPERATIONAL)
 		return 0;
 
-	if (lws_ss_create(context, 0, &ssi_cli, NULL, &ss, NULL, NULL) ||
-	    lws_ss_client_connect(ss)) {
-		lwsl_err("%s: unable to start the stream\n", __func__);
+	if (lws_ss_create(context, 0, &ssi_cli, NULL, &ss, NULL, NULL)) {
+		lwsl_err("%s: unable to create the stream\n", __func__);
 		finish(1);
+		return 0;
+	}
+
+	/*
+	 * Where connecting to a port nothing listens on is refused before
+	 * the connect call returns, eg, loopback on FreeBSD, the stream has
+	 * already reported UNREACHABLE and started its backoff by the time
+	 * this returns, and says so with LWSSSSRET_TX_DONT_SEND.  That is
+	 * the failure we are waiting for, not a reason to give up.
+	 */
+
+	switch (lws_ss_client_connect(ss)) {
+	case LWSSSSRET_OK:
+	case LWSSSSRET_TX_DONT_SEND:
+		break;
+	default:
+		lwsl_err("%s: unable to start the stream\n", __func__);
+		lws_ss_destroy(&ss);
+		finish(1);
+		break;
 	}
 
 	return 0;
