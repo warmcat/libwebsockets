@@ -29,7 +29,14 @@ body {
     position: relative;
 }
 
-/* Ambient Background Orbs */
+/*
+ * Ambient Background Orbs
+ *
+ * These stay still.  They are big, blur(80px)ed and sit behind the
+ * .glass-panel backdrop-filter, so animating them made the browser re-blur
+ * both layers every frame for as long as the login page was open, pinning a
+ * CPU core on machines without GPU compositing even with the page idle.
+ */
 .background-elements {
     position: absolute;
     width: 100vw;
@@ -44,35 +51,25 @@ body {
     border-radius: 50%;
     filter: blur(80px);
     opacity: 0.5;
-    animation: drift 20s infinite alternate ease-in-out;
 }
 
 .orb-1 {
     width: 40vw; height: 40vw;
     background: linear-gradient(135deg, var(--acc-primary), transparent);
     top: -10%; left: -10%;
-    animation-delay: 0s;
 }
 
 .orb-2 {
     width: 50vw; height: 50vw;
     background: linear-gradient(135deg, var(--acc-secondary), transparent);
     bottom: -20%; right: -10%;
-    animation-delay: -5s;
 }
 
 .orb-3 {
     width: 30vw; height: 30vw;
     background: linear-gradient(135deg, #3b82f6, transparent);
     top: 40%; left: 60%;
-    animation-delay: -10s;
     opacity: 0.3;
-}
-
-@keyframes drift {
-    0% { transform: translate(0, 0) scale(1); }
-    50% { transform: translate(5%, 10%) scale(1.1); }
-    100% { transform: translate(-5%, 5%) scale(0.9); }
 }
 
 /* Glassmorphism Auth Panel */
@@ -346,7 +343,6 @@ input:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .orb,
     .notification {
         animation: none;
     }
