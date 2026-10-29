@@ -66,12 +66,15 @@ can't, eg, a VM being started or reaped, a git fetch failing, or a builder
 restarting.  They're at `https://libwebsockets.org/sai/logs/`, and need an
 account holding the fleet log grant: ask the person you're working with
 for one.  The query is documented in sai's `READMEs/README-logs.md`.  A
-build's 8-hex hash is the first 4 and last 4 hex of its 64-hex task uuid,
-which is also its job dir name: a log path like
-`/home/sai/jobs/A177EBC2/src/...` is build `a177ebc2`.  (Builders older
-than sai's "builder: name the job dir from the whole task uuid" named the
-dir from the wrong 4 at the end, so their job dir names find nothing; use
-the task uuid.)
+build's 8-hex hash is the last 8 hex of its 64-hex task uuid, which is also
+its job dir name: a log path like `/home/sai/jobs/A177EBC2/src/...` is build
+`a177ebc2`.  Sai older than "builder: name the job dir from the last 8 of
+the task uuid" used the first 4 and last 4 instead; the first 4 are the
+event uuid's, so two tasks of an event could share a job dir, and the first
+to finish deleted it under the other.  That shows as one task's tests all
+failing or Not Run from some point on, with `getcwd` or "No such file"
+errors about its own job dir.  Lines logged by older sai keep the old
+hash.
 
 sai's `scripts/sai-logs.py` makes the queries from the command line,
 logging in with the account's credentials file and keeping its session
