@@ -23,8 +23,9 @@
 #
 # Each fuzz target lives in fuzz-<name>/ with the harness in main.c and
 # committed starting inputs in fuzz-<name>/seeds/.  ctest runs each target
-# against its seeds only, as a fast smoke test of the harness under ASan; use
-# ./fuzz/run.sh for actual fuzzing campaigns with persistent corpora.
+# against its seeds only, as a fast smoke test of the harness under ASan and
+# UBSan; use ./fuzz/run.sh for actual fuzzing campaigns with persistent
+# corpora.
 #
 
 if (NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
@@ -37,11 +38,13 @@ endif()
 macro(lws_add_fuzz_target name)
 
 	add_executable(fuzz-${name} fuzz-${name}/main.c)
-	target_compile_options(fuzz-${name} PRIVATE -fsanitize=fuzzer,address)
-	target_link_options(fuzz-${name} PRIVATE -fsanitize=fuzzer,address)
+	target_compile_options(fuzz-${name} PRIVATE -fsanitize=fuzzer,address,undefined
+			       -fno-sanitize-recover=all)
+	target_link_options(fuzz-${name} PRIVATE -fsanitize=fuzzer,address,undefined)
 	target_link_libraries(fuzz-${name} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 
-	# run the harness once over each seed under ASan, deterministically
+	# run the harness once over each seed under the sanitizers,
+	# deterministically
 
 	add_test(NAME fuzz-${name}-smoke
 		 COMMAND fuzz-${name}

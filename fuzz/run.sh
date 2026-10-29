@@ -85,6 +85,10 @@ else
 	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md tokenize jose cose adns h1 h2 ws ws-pmd"
 fi
 
+# UBSan's reports are a line with no stack unless it's asked for one
+UBSAN_OPTIONS="${UBSAN_OPTIONS:-print_stacktrace=1}"
+export UBSAN_OPTIONS
+
 START=$(date +%s)
 IDLE_SECS="${SAI_IDLE_SECS:-}"
 case "$IDLE_SECS" in

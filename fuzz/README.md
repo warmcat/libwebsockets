@@ -1,8 +1,8 @@
 # lws fuzzing
 
 Coverage-guided fuzzing of lws' untrusted-input parsers, using clang's
-libFuzzer + AddressSanitizer.  Everything runs locally with no dependency
-on any external fuzzing infrastructure.
+libFuzzer + AddressSanitizer + UndefinedBehaviorSanitizer.  Everything runs
+locally with no dependency on any external fuzzing infrastructure.
 
 ## Quick start
 
@@ -29,7 +29,7 @@ the end and exits nonzero.  Re-run the target directly on the artifact file
 to reproduce:
 
 ```sh
-./build-fuzz/bin/fuzz-qpack build-fuzz/fuzz/crash-<sha1>   # repro under ASan
+./build-fuzz/bin/fuzz-qpack build-fuzz/fuzz/crash-<sha1>   # repro under the sanitizers
 ```
 
 `clang` is autodetected if there is no `clang` binary (eg `clang-19`).
@@ -52,7 +52,7 @@ Additional cmake options can be passed via `FUZZ_CMAKE_OPTS`.
 ## CI / ctest
 
 The same build registers a fast smoke test per target (`-runs=0`, runs
-each committed seed exactly once under ASan):
+each committed seed exactly once under ASan and UBSan):
 
 ```sh
 CC=clang-19 cmake .. --fresh -DLWS_WITH_FUZZERS=ON -DLWS_WITH_CBOR=ON
@@ -60,7 +60,8 @@ cmake --build . --parallel
 ctest -R fuzz-       # seconds, deterministic
 ```
 
-`LWS_WITH_FUZZERS` implies whole-lib `-fsanitize=fuzzer-no-link,address`
+`LWS_WITH_FUZZERS` implies whole-lib
+`-fsanitize=fuzzer-no-link,address,undefined`
 instrumentation, so it should stay OFF for normal builds and normal CI.
 Longer campaigns belong on a dedicated runner via `./fuzz/run.sh`: the
 `fuzz` configuration in `.sai.json` runs it on one Linux builder with a

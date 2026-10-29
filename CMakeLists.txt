@@ -1492,11 +1492,17 @@ list(APPEND LIB_LIST ${LIB_LIST_AT_END})
 
 if (LWS_WITH_FUZZERS)
 	#
-	# Instrument the whole lib for libFuzzer coverage + ASan, for the
-	# targets in ./fuzz.  The fuzz targets themselves add the libFuzzer
+	# Instrument the whole lib for libFuzzer coverage + ASan + UBSan, for
+	# the targets in ./fuzz.  The fuzz targets themselves add the libFuzzer
 	# runtime when they link.  Requires clang and libclang-rt-*-dev.
 	#
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g")
+	# UBSan doesn't recover, so undefined behaviour (signed overflow, a
+	# shift past the width, an index past a fixed array...) is a finding
+	# with its report and artifact like any ASan one, not a log line the
+	# fuzzer runs past.  Not -fsanitize-undefined-trap-on-error as the
+	# ASAN_FLAGS above have: a trap is a bare SIGILL with no report.
+	#
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g")
 endif()
 
 include_directories("${PROJECT_SOURCE_DIR}/lib")
