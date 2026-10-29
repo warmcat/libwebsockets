@@ -1622,8 +1622,8 @@ arc_emit(lws_svg_t *ctx, svg_c_t cx, svg_c_t cy,
 		int64_t a = a0 + (d * i) / steps;
 		svg_c_t co = svg_cos(a), si = svg_sin(a);
 
-		x[n] = arc_sat(cx + arc_sat(((int64_t)r * co) >> 16));
-		y[n++] = arc_sat(cy + arc_sat(((int64_t)r * si) >> 16));
+		x[n] = svg_qadd(cx, arc_sat(((int64_t)r * co) >> 16));
+		y[n++] = svg_qadd(cy, arc_sat(((int64_t)r * si) >> 16));
 	}
 
 	return poly_emit(ctx, x, y, n);
@@ -1642,10 +1642,10 @@ seg_quad(lws_svg_t *ctx, svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
 	svg_c_t ox = arc_sat(((int64_t)nx * hw) >> 16);
 	svg_c_t oy = arc_sat(((int64_t)ny * hw) >> 16);
 
-	x[0] = arc_sat(x0 + ox); y[0] = arc_sat(y0 + oy);
-	x[1] = arc_sat(x1 + ox); y[1] = arc_sat(y1 + oy);
-	x[2] = arc_sat(x1 - ox); y[2] = arc_sat(y1 - oy);
-	x[3] = arc_sat(x0 - ox); y[3] = arc_sat(y0 - oy);
+	x[0] = svg_qadd(x0, ox); y[0] = svg_qadd(y0, oy);
+	x[1] = svg_qadd(x1, ox); y[1] = svg_qadd(y1, oy);
+	x[2] = svg_qsub(x1, ox); y[2] = svg_qsub(y1, oy);
+	x[3] = svg_qsub(x0, ox); y[3] = svg_qsub(y0, oy);
 
 	return poly_emit(ctx, x, y, 4);
 }
@@ -1685,10 +1685,10 @@ join_emit(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol,
 
 	/* the two edge points the notch sits between */
 
-	ax = arc_sat(vx + arc_sat(((int64_t)s1x * hw) >> 16));
-	ay = arc_sat(vy + arc_sat(((int64_t)s1y * hw) >> 16));
-	bx = arc_sat(vx + arc_sat(((int64_t)s2x * hw) >> 16));
-	by = arc_sat(vy + arc_sat(((int64_t)s2y * hw) >> 16));
+	ax = svg_qadd(vx, arc_sat(((int64_t)s1x * hw) >> 16));
+	ay = svg_qadd(vy, arc_sat(((int64_t)s1y * hw) >> 16));
+	bx = svg_qadd(vx, arc_sat(((int64_t)s2x * hw) >> 16));
+	by = svg_qadd(vy, arc_sat(((int64_t)s2y * hw) >> 16));
 
 	if (eff->linejoin == 1)
 		/* round */
@@ -1734,10 +1734,10 @@ join_emit(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol,
 
 			x[0] = vx; y[0] = vy;
 			x[1] = ax; y[1] = ay;
-			x[2] = arc_sat(vx + arc_sat(
-				((int64_t)arc_sat(s1x + s2x) * f) >> 16));
-			y[2] = arc_sat(vy + arc_sat(
-				((int64_t)arc_sat(s1y + s2y) * f) >> 16));
+			x[2] = svg_qadd(vx, arc_sat(
+				((int64_t)svg_qadd(s1x, s2x) * f) >> 16));
+			y[2] = svg_qadd(vy, arc_sat(
+				((int64_t)svg_qadd(s1y, s2y) * f) >> 16));
 			x[3] = bx; y[3] = by;
 
 			return poly_emit(ctx, x, y, 4);
@@ -1812,10 +1812,10 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 		if (eff->linecap == 2) {
 			svg_c_t x[4], y[4];
 
-			x[0] = arc_sat(d[0].x - hw); y[0] = arc_sat(d[0].y - hw);
-			x[1] = arc_sat(d[0].x + hw); y[1] = arc_sat(d[0].y - hw);
-			x[2] = arc_sat(d[0].x + hw); y[2] = arc_sat(d[0].y + hw);
-			x[3] = arc_sat(d[0].x - hw); y[3] = arc_sat(d[0].y + hw);
+			x[0] = svg_qsub(d[0].x, hw); y[0] = svg_qsub(d[0].y, hw);
+			x[1] = svg_qadd(d[0].x, hw); y[1] = svg_qsub(d[0].y, hw);
+			x[2] = svg_qadd(d[0].x, hw); y[2] = svg_qadd(d[0].y, hw);
+			x[3] = svg_qsub(d[0].x, hw); y[3] = svg_qadd(d[0].y, hw);
 
 			return poly_emit(ctx, x, y, 4);
 		}
@@ -1928,14 +1928,14 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 				svg_c_t ey = arc_sat(((int64_t)by * hw) >> 16);
 				svg_c_t x[4], y[4];
 
-				x[0] = arc_sat(d[0].x + ox);
-				y[0] = arc_sat(d[0].y + oy);
-				x[1] = arc_sat(d[0].x + ex + ox);
-				y[1] = arc_sat(d[0].y + ey + oy);
-				x[2] = arc_sat(d[0].x + ex - ox);
-				y[2] = arc_sat(d[0].y + ey - oy);
-				x[3] = arc_sat(d[0].x - ox);
-				y[3] = arc_sat(d[0].y - oy);
+				x[0] = svg_qadd(d[0].x, ox);
+				y[0] = svg_qadd(d[0].y, oy);
+				x[1] = arc_sat((int64_t)d[0].x + ex + ox);
+				y[1] = arc_sat((int64_t)d[0].y + ey + oy);
+				x[2] = arc_sat((int64_t)d[0].x + ex - ox);
+				y[2] = arc_sat((int64_t)d[0].y + ey - oy);
+				x[3] = svg_qsub(d[0].x, ox);
+				y[3] = svg_qsub(d[0].y, oy);
 
 				if (poly_emit(ctx, x, y, 4))
 					return 1;
@@ -1961,14 +1961,14 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 				svg_c_t ey = arc_sat(((int64_t)fy * hw) >> 16);
 				svg_c_t x[4], y[4];
 
-				x[0] = arc_sat(d[n - 1].x + ox);
-				y[0] = arc_sat(d[n - 1].y + oy);
-				x[1] = arc_sat(d[n - 1].x + ex + ox);
-				y[1] = arc_sat(d[n - 1].y + ey + oy);
-				x[2] = arc_sat(d[n - 1].x + ex - ox);
-				y[2] = arc_sat(d[n - 1].y + ey - oy);
-				x[3] = arc_sat(d[n - 1].x - ox);
-				y[3] = arc_sat(d[n - 1].y - oy);
+				x[0] = svg_qadd(d[n - 1].x, ox);
+				y[0] = svg_qadd(d[n - 1].y, oy);
+				x[1] = arc_sat((int64_t)d[n - 1].x + ex + ox);
+				y[1] = arc_sat((int64_t)d[n - 1].y + ey + oy);
+				x[2] = arc_sat((int64_t)d[n - 1].x + ex - ox);
+				y[2] = arc_sat((int64_t)d[n - 1].y + ey - oy);
+				x[3] = svg_qsub(d[n - 1].x, ox);
+				y[3] = svg_qsub(d[n - 1].y, oy);
 
 				if (poly_emit(ctx, x, y, 4))
 					return 1;
