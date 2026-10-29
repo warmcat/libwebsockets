@@ -173,6 +173,37 @@ lhp_fx_min(const lws_fx_t *a, const lws_fx_t *b)
 	return lws_fx_comp(a, b) < 0 ? *a : *b;
 }
 
+/*
+ * A box's approximate surface y is its ancestors' plus its own, and each of
+ * those can be as large as the css made it: saturate, like lws_fx_t does
+ */
+
+static int32_t
+lhp_abs_y(int32_t base, int32_t y)
+{
+	int64_t r = (int64_t)base + y;
+
+	if (r > INT32_MAX)
+		return INT32_MAX;
+	if (r < INT32_MIN)
+		return INT32_MIN;
+
+	return (int32_t)r;
+}
+
+/* baselines and line extents are kept in int16_t: saturate into those too */
+
+static int16_t
+lhp_i16(int64_t v)
+{
+	if (v > INT16_MAX)
+		return INT16_MAX;
+	if (v < INT16_MIN)
+		return INT16_MIN;
+
+	return (int16_t)v;
+}
+
 static lhp_pstack_t *
 lhp_parent(lhp_pstack_t *ps)
 {
@@ -833,9 +864,12 @@ lhp_choose_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	if (ps->font)
 		return;
 
-	if (ps->font_size.whole > 0)
-		fc.fixed_height = (uint16_t)(ps->font_size.whole +
-			(ps->font_size.frac >= LWS_FX_FRACTION_MSD / 2));
+	if (ps->font_size.whole > 0) {
+		int64_t fh = (int64_t)ps->font_size.whole +
+			(ps->font_size.frac >= LWS_FX_FRACTION_MSD / 2);
+
+		fc.fixed_height = (uint16_t)(fh > UINT16_MAX ? UINT16_MAX : fh);
+	}
 
 	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FONT_FAMILY);
 	if (a && a->unit == LCSP_UNIT_STRING)
@@ -1108,7 +1142,7 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 		lws_fx_add(&t, &c->oy, &c->cury);
 		lws_fx_add(&t, &t, &above);
 		lws_fx_add(&t, &t, &t2);
-		c->last_base = (int16_t)t.whole;
+		c->last_base = lhp_i16(t.whole);
 		c->has_base = 1;
 	}
 
@@ -1143,8 +1177,8 @@ lhp_line_item(lhp_pstack_t *c, lws_dlo_t *dlo, const lws_fx_t *w,
 
 	/* a box on the line: how far it reaches above and below the
 	 * baseline it will be aligned by */
-	if (h->whole - dlo->base_up > c->line_asc)
-		c->line_asc = (int16_t)(h->whole - dlo->base_up);
+	if ((int64_t)h->whole - dlo->base_up > c->line_asc)
+		c->line_asc = lhp_i16((int64_t)h->whole - dlo->base_up);
 	if (dlo->base_up > c->line_desc)
 		c->line_desc = dlo->base_up;
 }
@@ -1239,7 +1273,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		  ws->propval == LCSP_PROPVAL_PRE);
 
 	/* text that lands below the surface can never be seen */
-	if (c->abs_y + c->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole) {
+	if ((int64_t)c->abs_y + c->cury.whole >
+				ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole) {
 		drt->clipped = 1;
 		return 0;
 	}
@@ -2402,9 +2437,9 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	lhp_line_reset(ps);
 	if (ps->is_abs)
 		/* the y we were given is relative to the positioned ancestor */
-		ps->abs_y = (psa ? psa->abs_y : 0) + box.y.whole;
+		ps->abs_y = lhp_abs_y(psa ? psa->abs_y : 0, box.y.whole);
 	else
-		ps->abs_y = (c ? c->abs_y : 0) + box.y.whole;
+		ps->abs_y = lhp_abs_y(c ? c->abs_y : 0, box.y.whole);
 
 	if (type == LHP_BOX_LIST_ITEM)
 		lhp_list_marker(ctx, ps, drt);
@@ -2646,8 +2681,8 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	 */
 	ps->dlo->base_up = 0;
 	if (ps->has_base && ps->last_base < ps->dlo->box.h.whole)
-		ps->dlo->base_up = (int16_t)(ps->dlo->box.h.whole -
-					     ps->last_base);
+		ps->dlo->base_up = lhp_i16((int64_t)ps->dlo->box.h.whole -
+					   ps->last_base);
 
 	/* width, if it was waiting for the content */
 
@@ -2831,9 +2866,9 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	 * when it is itself an item on a line
 	 */
 	if (ps->has_base) {
-		c->last_base = (int16_t)(ps->dlo->box.y.whole +
-					 ps->dlo->box.h.whole -
-					 ps->dlo->base_up);
+		c->last_base = lhp_i16((int64_t)ps->dlo->box.y.whole +
+				       ps->dlo->box.h.whole -
+				       ps->dlo->base_up);
 		c->has_base = 1;
 	}
 
