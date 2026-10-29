@@ -671,6 +671,18 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	struct lws_h2_protocol_send *pps;
 
 	/*
+	 * Whatever frame we are in the middle of, the rest of it is ignored,
+	 * whether this is the call that queues the GOAWAY or one already did.
+	 * A frame found wrong at its header before the parser looked at
+	 * goaway_queued, eg, one on an even stream id, otherwise goes on to be
+	 * acted on as its type, with h2n->swsi still the network wsi: DATA is
+	 * then fed to the network wsi as if it were a stream, and closing it
+	 * as one frees the h2n we are parsing with.
+	 */
+	if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH)
+		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
+
+	/*
 	 * The connection is already dead, and its GOAWAY queued.  This is the
 	 * latch, not the parser's h2n->type: that is the type of the frame
 	 * being parsed, which an ignored frame leaves at COUNT afterwards for
@@ -696,15 +708,13 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	 * tell him why, that is all the more reason not to carry on parsing
 	 * what he sends us.  The frames that follow are ignored at their
 	 * headers for goaway_queued (lws_h2_parse_frame_header()); the rest of
-	 * a frame whose payload is coming in is ignored here, whichever stream
-	 * it is for, and whether we are called from the parser about it or
-	 * from outside the parser, eg, at POLLOUT: the connection is dead
+	 * a frame whose payload is coming in is ignored above, whichever
+	 * stream it is for, and whether we are called from the parser about it
+	 * or from outside the parser, eg, at POLLOUT: the connection is dead
 	 * either way.
 	 */
 
 	h2n->goaway_queued = 1;
-	if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH)
-		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 
 	pps = lws_h2_new_pps(LWS_H2_PPS_GOAWAY);
 	if (!pps)
