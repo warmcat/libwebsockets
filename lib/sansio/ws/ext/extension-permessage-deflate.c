@@ -499,12 +499,18 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * came from what he offered us this call, otherwise the token
 		 * arithmetic would underflow (this is what COV was complaining
 		 * about, "eb_in.len == 0 and rx->avail_in == 4").
+		 *
+		 * The drain call's token can be NULL as well as empty, and
+		 * NULL + 0 is still undefined, so only move a token that
+		 * something was actually consumed from.
 		 */
 
 		if ((unsigned int)pmdrx->eb_in.len >= (unsigned int)priv->rx.avail_in) {
-			pmdrx->eb_in.token = pmdrx->eb_in.token +
-					 ((unsigned int)pmdrx->eb_in.len -
-					  (unsigned int)priv->rx.avail_in);
+			unsigned int used = (unsigned int)pmdrx->eb_in.len -
+					    (unsigned int)priv->rx.avail_in;
+
+			if (used)
+				pmdrx->eb_in.token = pmdrx->eb_in.token + used;
 			pmdrx->eb_in.len = (int)priv->rx.avail_in;
 		} else
 			/* nothing of the offered token could be consumed yet */
