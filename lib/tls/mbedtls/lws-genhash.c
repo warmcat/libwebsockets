@@ -69,6 +69,10 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 #if defined(LWS_HAVE_MBEDTLS_V4)
 	psa_algorithm_t alg;
 
+	/* everything is PSA's: idempotent, and there may be no context */
+	if (psa_crypto_init() != PSA_SUCCESS)
+		return 1;
+
 	ctx->type = (uint8_t)type;
 	alg = lws_genhash_to_psa_alg(type);
 	if (!alg)
@@ -333,6 +337,10 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 #if defined(LWS_HAVE_MBEDTLS_V4)
 	psa_algorithm_t alg, hmac_alg;
 	psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+
+	/* everything is PSA's: idempotent, and there may be no context */
+	if (psa_crypto_init() != PSA_SUCCESS)
+		return -1;
 
 	ctx->type = (uint8_t)type;
 	alg = lws_genhmac_to_psa_alg(type);

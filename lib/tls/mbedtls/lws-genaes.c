@@ -560,6 +560,10 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	psa_algorithm_t alg;
 	psa_key_usage_t usage;
 
+	/* everything is PSA's: idempotent, and there may be no context */
+	if (psa_crypto_init() != PSA_SUCCESS)
+		return -1;
+
 	ctx->mode = mode;
 	ctx->k = el;
 	ctx->op = op; /* We use the enum_aes_operation directly */
