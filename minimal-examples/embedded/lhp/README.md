@@ -8,8 +8,10 @@ Notice that although the demos are for ESP32 currently, there is no
 ESP32-specific code in the common part.  Only `main/devices.c` in the
 combination-specific directories has the platform-specific init.
 
-The demo visits some sites using h2 and renders them on the device +
-display combination, with a 10s wait between, in a carousel.
+The demo visits each of a short list of pages using h2 and renders them
+on the device + display combination, 10s apart.  When the last one is on
+the display it logs `Completed: PASS`, which is what Sai's `sai-expect`
+looks for when the demo runs as a CI test, and leaves it there.
 
 ESP32 WROVER KIT, and ESP32S2 Kaluga boards and displays are
 supported, along with Waveshare ESP32 dev board and a variety of
@@ -55,6 +57,11 @@ Eventually there will be a better way to set this up.
 
 Set up for esp-idf, enter the platform-specific subdir and edit
 `build.sh` to point to the correct USB device path.
+
+OTA update support needs the public key the firmware manifests are signed
+with, `~/.lws_ota/libwebsockets.org-ota-v1.public.jwk`.  Without it the
+`esp32-waveshare-104-212` example builds with OTA off, which is how CI
+builds it.
 
 The first time we need to erase the whole flash and blow the whole
 image and partition table

@@ -10,8 +10,9 @@
  * differences in platform / device / display availability and bringup is in
  * ./main/devices.c in the individual directories.
  *
- * This example moves through a carousel of URLs every 10s and updates the
- * display with them via LHP.
+ * This example visits each URL in the board's carousel once, 10s apart,
+ * rendering it on the display via LHP; when the last one is on the display
+ * it logs "Completed: PASS" for CI and leaves it there.
  *
  * These examples are currently available for a bunch of ESP32 variants... but
  * there is no ESP32-specific code here.
@@ -23,6 +24,8 @@ struct lws_context *cx;
 
 static lws_dlo_filesystem_t *fs_splash_html, *fs_update_html;
 static char did_splash, seen_operational, subsequent;
+/* the carousel runs once: browsing its last url, then that url displayed */
+static enum { CAROUSEL_RUNNING, CAROUSEL_LAST, CAROUSEL_DONE } carousel_phase;
 static int carousel, boot_step = -1, lbs, update_pc, lupc = -1;
 static lws_sorted_usec_list_t sul_display_update, sul_scan_redraw;
 static uint32_t scan_sig_rendered;
@@ -220,12 +223,16 @@ start_frame(lws_sorted_usec_list_t *sul)
 	if (fs_update_html)
 		lws_dlo_file_unregister(&fs_update_html);
 
+	if (!carousel_urls[carousel])
+		/* the one pass through the carousel already ended */
+		return;
+
 	lwsl_notice("%s: %s\n", __func__, carousel_urls[carousel]);
 
-         if (init_browse(cx, &rs, carousel_urls[carousel++]))
-                 lwsl_err("%s: init_browse failed\n", __func__);
-         if (!carousel_urls[carousel])
-                 carousel = 0;
+	if (init_browse(cx, &rs, carousel_urls[carousel++]))
+		lwsl_err("%s: init_browse failed\n", __func__);
+	if (!carousel_urls[carousel])
+		carousel_phase = CAROUSEL_LAST;
 
 	lws_ss_dump_extant(cx, 0);
 }
@@ -402,6 +409,19 @@ display_completion_cb(lws_display_state_t *lds, int a)
 			display_splash(lds);
 			return 0;
 		}
+
+		if (carousel_phase == CAROUSEL_LAST) {
+			/*
+			 * The last page of the carousel is on the display: we
+			 * are done.  In CI, sai-expect looks for this string
+			 * for success.
+			 */
+			carousel_phase = CAROUSEL_DONE;
+			lwsl_notice("Completed: PASS\n");
+		}
+
+		if (carousel_phase == CAROUSEL_DONE)
+			break;
 
 		/* trigger doing the next browse */
 
