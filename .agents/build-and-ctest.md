@@ -221,7 +221,11 @@
    counter wrapping** (G-644): `lws_get_free_port()` hands out ports from a
    per-user counter in /tmp (15000-30000, ~355 per configure), so trees
    configured ~42 configures apart share ports.  Reconfigure, or don't run
-   two such trees' ctests at once.
+   two such trees' ctests at once.  The lease skips ports something had a
+   socket on at configure time ("port N is in use, not leasing it" in the
+   cmake output), so a server orphaned by a killed run only bites trees
+   configured before it appeared.  An orphan shows in
+   `ps -o pid,ppid,lstart,command` with ppid 1 and its old tree's path.
  - **Running minimal examples by hand:** they have no port switch (7681 is
    fixed) and with no arguments print help and exit, so pass eg `-d 7`.
    Evlib plugins are only searched in LWS_INSTALL_LIBDIR, so run libuv

@@ -101,71 +101,208 @@ MACRO(require_pthreads result)
 	endif()
 ENDMACRO()
 
-function(lws_get_free_port VAR_NAME)
-    if (WIN32)
-        set(COUNTER_FILE "$ENV{TEMP}/lws_port_counter_$ENV{USERNAME}")
-    else()
-        set(COUNTER_FILE "/tmp/lws_port_counter_$ENV{USER}")
-    endif()
+#
+# Test ports are leased at configure time from a counter shared by every lws
+# build tree configured by the same user on the machine, so trees whose tests
+# run at the same time, eg, parallel CI builds, don't share any ports.  The
+# counter runs from LWS_PORT_LEASE_FIRST to LWS_PORT_LEASE_LAST and wraps.
+#
+set(LWS_PORT_LEASE_FIRST 15000)
+set(LWS_PORT_LEASE_LAST 30000)
 
-    file(LOCK "${COUNTER_FILE}.lock" GUARD PROCESS TIMEOUT 10)
+#
+# The counter is per user: one user can't write another's file in /tmp.  A
+# process started by a service manager, eg, launchd for a CI builder, may not
+# have USER set, which would give it a counter of its own and leases the
+# user's other trees also get.  So find the user some other way then.
+#
+function(_lws_port_counter_file VAR_NAME)
+	if (WIN32)
+		set(_dir "$ENV{TEMP}")
+		set(_who "$ENV{USERNAME}")
+	else()
+		set(_dir "/tmp")
+		set(_who "$ENV{USER}")
+		if ("${_who}" STREQUAL "")
+			set(_who "$ENV{LOGNAME}")
+		endif()
+		if ("${_who}" STREQUAL "")
+			execute_process(COMMAND id -un
+					OUTPUT_VARIABLE _who
+					OUTPUT_STRIP_TRAILING_WHITESPACE
+					ERROR_QUIET)
+		endif()
+	endif()
 
-    if (EXISTS "${COUNTER_FILE}")
-        file(READ "${COUNTER_FILE}" port)
-        string(STRIP "${port}" port)
-    else()
-        set(port 15000)
-    endif()
+	if ("${_who}" STREQUAL "")
+		set(_who "default")
+	endif()
 
-    if (port GREATER 30000)
-        set(port 15000)
-    endif()
+	set(${VAR_NAME} "${_dir}/lws_port_counter_${_who}" PARENT_SCOPE)
+endfunction()
 
-    math(EXPR next_port "${port} + 1")
-    file(WRITE "${COUNTER_FILE}" "${next_port}")
+# four hex digits, as /proc/net shows a port, to decimal
 
-    file(LOCK "${COUNTER_FILE}.lock" RELEASE)
+function(_lws_hex4_to_dec HEX VAR_NAME)
+	string(TOUPPER "${HEX}" _hex)
+	set(_v 0)
+	foreach(_i RANGE 3)
+		string(SUBSTRING "${_hex}" ${_i} 1 _c)
+		string(FIND "0123456789ABCDEF" "${_c}" _d)
+		math(EXPR _v "${_v} * 16 + ${_d}")
+	endforeach()
+	set(${VAR_NAME} ${_v} PARENT_SCOPE)
+endfunction()
 
-    set(${VAR_NAME} ${port} PARENT_SCOPE)
+#
+# The ports in the lease range something on this machine already has a socket
+# on, eg, a test server a killed CI job left running.  A lease of one of
+# those would have its test die of EADDRINUSE.  It's looked at once per
+# configure, before any of the configure's leases.
+#
+# It's only what was in use at configure time: a port taken between then and
+# the test running can't be seen here.  Where the platform's tools aren't
+# there to ask, the list is empty and leases are as they were.
+#
+function(_lws_ports_in_use VAR_NAME)
+	get_property(_have GLOBAL PROPERTY LWS_PORTS_IN_USE_DONE)
+	if (_have)
+		get_property(_ports GLOBAL PROPERTY LWS_PORTS_IN_USE)
+		set(${VAR_NAME} "${_ports}" PARENT_SCOPE)
+		return()
+	endif()
+
+	set(_found)
+
+	if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+		# eg, "   0: 0100007F:7487 00000000:0000 0A ...", local first
+		foreach(_f tcp tcp6 udp udp6)
+			if (EXISTS "/proc/net/${_f}")
+				file(STRINGS "/proc/net/${_f}" _lines
+				     REGEX "^ *[0-9]+: [0-9A-Fa-f]+:[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f] ")
+				foreach(_l ${_lines})
+					string(REGEX REPLACE
+					       "^ *[0-9]+: [0-9A-Fa-f]+:([0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) .*"
+					       "\\1" _hex "${_l}")
+					_lws_hex4_to_dec(${_hex} _p)
+					list(APPEND _found ${_p})
+				endforeach()
+			endif()
+		endforeach()
+	else()
+		#
+		# The BSDs and macOS show an address as "*.29854" or
+		# "127.0.0.1.29854", Windows as "0.0.0.0:29854".  Every number after
+		# a . or : is taken as a port: one that is something else, or a
+		# peer's port, only costs a lease being skipped.
+		#
+		find_program(LWS_NETSTAT netstat)
+		mark_as_advanced(LWS_NETSTAT)
+		if (LWS_NETSTAT)
+			execute_process(COMMAND ${LWS_NETSTAT} -an
+					OUTPUT_VARIABLE _out
+					ERROR_QUIET
+					RESULT_VARIABLE _r)
+			if (_r EQUAL 0)
+				string(REGEX MATCHALL "[.:][0-9][0-9][0-9][0-9][0-9]"
+				       _nums "${_out}")
+				foreach(_n ${_nums})
+					string(SUBSTRING "${_n}" 1 -1 _p)
+					list(APPEND _found ${_p})
+				endforeach()
+			endif()
+		endif()
+	endif()
+
+	set(_ports)
+	foreach(_p ${_found})
+		if (NOT _p LESS LWS_PORT_LEASE_FIRST AND
+		    NOT _p GREATER LWS_PORT_LEASE_LAST)
+			list(APPEND _ports ${_p})
+		endif()
+	endforeach()
+	if (_ports)
+		list(REMOVE_DUPLICATES _ports)
+	endif()
+
+	set_property(GLOBAL PROPERTY LWS_PORTS_IN_USE "${_ports}")
+	set_property(GLOBAL PROPERTY LWS_PORTS_IN_USE_DONE 1)
+	set(${VAR_NAME} "${_ports}" PARENT_SCOPE)
 endfunction()
 
 #
 # lws_get_free_ports(VAR_NAME COUNT)
 #
-# Like lws_get_free_port(), but reserves a contiguous block of COUNT adjacent
-# ports under the same counter lock, returning the base (lowest) port in
-# VAR_NAME.  Use this when a single test process listens on several ports at
-# once (eg, multi-stage tests that create a fresh vhost per stage), so the
-# block cannot be punched full of holes by sibling tests grabbing individual
-# ports between separate lws_get_free_port() calls in parallel CI.
+# Lease a contiguous block of COUNT adjacent ports under the counter lock,
+# returning the base (lowest) port in VAR_NAME.  Use this when a single test
+# process listens on several ports at once (eg, multi-stage tests that create
+# a fresh vhost per stage), so the block cannot be punched full of holes by
+# sibling tests grabbing individual ports between separate lws_get_free_port()
+# calls in parallel CI.
+#
+# A block with a port in it something already has a socket on is passed over
+# for the next one after that port.
 #
 function(lws_get_free_ports VAR_NAME COUNT)
-    if (WIN32)
-        set(COUNTER_FILE "$ENV{TEMP}/lws_port_counter_$ENV{USERNAME}")
-    else()
-        set(COUNTER_FILE "/tmp/lws_port_counter_$ENV{USER}")
-    endif()
+	_lws_port_counter_file(COUNTER_FILE)
+	_lws_ports_in_use(_in_use)
 
-    file(LOCK "${COUNTER_FILE}.lock" GUARD PROCESS TIMEOUT 10)
+	file(LOCK "${COUNTER_FILE}.lock" GUARD PROCESS TIMEOUT 10)
 
-    if (EXISTS "${COUNTER_FILE}")
-        file(READ "${COUNTER_FILE}" port)
-        string(STRIP "${port}" port)
-    else()
-        set(port 15000)
-    endif()
+	# not one the caller's scope has
+	set(port "")
+	if (EXISTS "${COUNTER_FILE}")
+		file(READ "${COUNTER_FILE}" port)
+		string(STRIP "${port}" port)
+	endif()
+	if (NOT port MATCHES "^[0-9]+$")
+		set(port ${LWS_PORT_LEASE_FIRST})
+	endif()
 
-    if (port GREATER 30000)
-        set(port 15000)
-    endif()
+	#
+	# Each pass either takes the block or moves past a port in it that is
+	# in use, so it's done within one trip around the range.  If the whole
+	# range somehow looks in use, take the block anyway, as before.
+	#
+	math(EXPR _tries "${LWS_PORT_LEASE_LAST} - ${LWS_PORT_LEASE_FIRST} + 1")
+	while (1)
+		math(EXPR _last "${port} + ${COUNT} - 1")
+		if (port LESS LWS_PORT_LEASE_FIRST OR
+		    _last GREATER LWS_PORT_LEASE_LAST)
+			set(port ${LWS_PORT_LEASE_FIRST})
+			math(EXPR _last "${port} + ${COUNT} - 1")
+		endif()
 
-    set(${VAR_NAME} ${port} PARENT_SCOPE)
+		set(_busy)
+		if (_in_use AND _tries GREATER 0)
+			foreach(_p RANGE ${port} ${_last})
+				list(FIND _in_use ${_p} _idx)
+				if (NOT _idx EQUAL -1)
+					set(_busy ${_p})
+				endif()
+			endforeach()
+		endif()
 
-    math(EXPR next_port "${port} + ${COUNT}")
-    if (next_port GREATER 30000)
-        set(next_port 15000)
-    endif()
-    file(WRITE "${COUNTER_FILE}" "${next_port}")
+		if (NOT _busy)
+			break()
+		endif()
 
-    file(LOCK "${COUNTER_FILE}.lock" RELEASE)
+		message(STATUS "lws_get_free_ports: port ${_busy} is in use, not leasing it")
+		math(EXPR port "${_busy} + 1")
+		math(EXPR _tries "${_tries} - 1")
+	endwhile()
+
+	math(EXPR next_port "${port} + ${COUNT}")
+	file(WRITE "${COUNTER_FILE}" "${next_port}")
+
+	file(LOCK "${COUNTER_FILE}.lock" RELEASE)
+
+	set(${VAR_NAME} ${port} PARENT_SCOPE)
+endfunction()
+
+# lws_get_free_port(VAR_NAME): lease one port, as above
+
+function(lws_get_free_port VAR_NAME)
+	lws_get_free_ports(_port 1)
+	set(${VAR_NAME} ${_port} PARENT_SCOPE)
 endfunction()
