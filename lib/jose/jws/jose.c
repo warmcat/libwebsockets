@@ -62,9 +62,15 @@ static const char * const jws_jose[] = {
 	"p2c"  /* valid for JWE PBES2 only */
 };
 
+/*
+ * The two parse contexts and the jwk collation buffer are a few KB, so this
+ * lives on the heap for the duration of the parse, not on the stack
+ */
+
 struct jose_cb_args {
 	struct lws_jose *jose;
 
+	struct lejp_ctx jctx;	  /* the JOSE header parse */
 	struct lejp_ctx jwk_jctx; /* fake lejp context used to parse epk */
 	struct lws_jwk_parse_state jps; /* fake jwk parse state */
 
@@ -540,9 +546,8 @@ static int
 lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	       char *temp, int *temp_len, int is_jwe)
 {
-	struct lejp_ctx jctx;
-	struct jose_cb_args args;
-	int m;
+	struct jose_cb_args *args;
+	int m, ret = -1;
 
 	/*
 	 * ->recipients is the slot we are about to fill in, and it comes in
@@ -558,28 +563,28 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 		return -1;
 	}
 
+	args = lws_zalloc(sizeof(*args), __func__);
+	if (!args)
+		return -1;
+
 	if (is_jwe) {
 		/* prepare a context for JOSE epk ephemeral jwk parsing */
-		lws_jwk_init_jps(&args.jps,
+		lws_jwk_init_jps(&args->jps,
 				 &jose->recipient[jose->recipients].jwk_ephemeral,
 				 NULL, NULL);
 	} else {
 		/* prepare a context for JOSE jwk embedded public key parsing */
-		lws_jwk_init_jps(&args.jps,
+		lws_jwk_init_jps(&args->jps,
 				 &jose->recipient[jose->recipients].jwk,
 				 NULL, NULL);
 	}
-	lejp_construct(&args.jwk_jctx, cb_jwk, &args.jps,
+	lejp_construct(&args->jwk_jctx, cb_jwk, &args->jps,
 			jwk_tok, LWS_ARRAY_SIZE(jwk_tok));
 
-	args.is_jwe		= (unsigned int)is_jwe;
-	args.temp		= temp;
-	args.temp_len		= temp_len;
-	args.jose		= jose;
-	args.recip		= 0;
-	args.recipients_array	= 0;
-	args.in_jwk		= 0;
-	args.jwk_sp		= 0;
+	args->is_jwe		= (unsigned int)is_jwe;
+	args->temp		= temp;
+	args->temp_len		= temp_len;
+	args->jose		= jose;
 	jose->recipients	= 0;
 
 	/*
@@ -592,21 +597,28 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	memset(jose->e, 0, sizeof(jose->e));
 	memset(jose->edone, 0, sizeof(jose->edone));
 
-	lejp_construct(&jctx, lws_jws_jose_cb, &args, jws_jose,
+	lejp_construct(&args->jctx, lws_jws_jose_cb, args, jws_jose,
 		       LWS_ARRAY_SIZE(jws_jose));
 
-	m = lejp_parse(&jctx, (uint8_t *)buf, n);
-	lejp_destruct(&jctx);
+	m = lejp_parse(&args->jctx, (uint8_t *)buf, n);
+	lejp_destruct(&args->jctx);
 	if (m < 0) {
 		lwsl_notice("%s: parse returned %d\n", __func__, m);
-		return -1;
+		goto bail;
 	}
 
-	if (!args.recipients_array && jose->recipient[0].unprot[LJJHI_ALG].buf)
+	if (!args->recipients_array && jose->recipient[0].unprot[LJJHI_ALG].buf)
 		/* if no explicit recipients[], we got one */
 		jose->recipients++;
 
-	return 0;
+	ret = 0;
+
+bail:
+	/* the collation buffers may hold the text of a header jwk or epk */
+	lws_explicit_bzero(args, sizeof(*args));
+	lws_free(args);
+
+	return ret;
 }
 
 int
