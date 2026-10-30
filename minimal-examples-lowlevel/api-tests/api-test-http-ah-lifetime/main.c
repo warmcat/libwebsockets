@@ -206,6 +206,8 @@ late_file_case(void)
 /* what the server saw */
 
 static struct {
+	int		conns;		/* connections accepted */
+	int		closed;		/* ... and closed */
 	int		small_served;	/* answers to AHL_SMALL_PATH */
 	int		file_done;	/* LWS_CALLBACK_HTTP_FILE_COMPLETION */
 	int		slow_http;	/* LWS_CALLBACK_HTTP for /slow */
@@ -317,8 +319,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 
-#if !defined(WIN32)
 	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+		srv.conns++;
+#if !defined(WIN32)
 		if (tcase == AHL_FILE_STALL) {
 			struct lws_filter_network_conn_args *a =
 				(struct lws_filter_network_conn_args *)user;
@@ -329,8 +332,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				       &sb, sizeof(sb)))
 				lwsl_warn("%s: SO_SNDBUF failed\n", __func__);
 		}
-		break;
 #endif
+		break;
 
 	case LWS_CALLBACK_HTTP:
 		if (path && !strcmp(path, AHL_SMALL_PATH)) {
@@ -484,6 +487,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return lws_http_transaction_completed(wsi) ? -1 : 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:
+		srv.closed++;
 		if (pss && pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
@@ -527,6 +531,8 @@ static struct {
 	size_t		body_len;	/* the current response's body */
 	uint32_t	sum;		/* ... and its sum so far */
 	int		responses;	/* whole responses so far */
+	int		sent;		/* requests sent on this connection */
+	int		connected;	/* connections that reached us */
 	int		conn;		/* pipeline-depth: 0, then 1 */
 	int		phase;		/* file-stall: timer steps taken */
 	char		stall_checked;
@@ -660,6 +666,8 @@ raw_send_small(struct lws *wsi, int count)
 	n = rl * (size_t)count;
 	r = lws_write(wsi, buf + LWS_PRE, n, LWS_WRITE_RAW) != (int)n;
 	free(buf);
+	if (!r)
+		raw.sent += count;
 
 	return r ? -1 : 0;
 }
@@ -691,7 +699,8 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CONNECTED:
 		memset(&raw.head, 0, sizeof(raw.head));
 		raw.head_len = raw.remain = 0;
-		raw.responses = 0;
+		raw.responses = raw.sent = 0;
+		raw.connected++;
 
 		if (tcase == AHL_PIPELINE_DEPTH)
 			/*
@@ -707,6 +716,7 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 			      LWS_WRITE_RAW) != (int)sizeof(get_file) - 1 ||
 		    lws_rx_flow_control(wsi, 0))
 			return -1;
+		raw.sent++;
 		lws_set_timer_usecs(wsi, AHL_PIPELINE_AFTER_MS * LWS_US_PER_MS);
 		break;
 
@@ -1463,7 +1473,22 @@ remove_file(void)
 static void
 watchdog_cb(lws_sorted_usec_list_t *sul)
 {
-	finish(0, "timed out");
+	char why[200];
+
+	if (tcase >= AHL_SLOW_CL) {
+		finish(0, "timed out");
+		return;
+	}
+
+	/* say how far the raw client and the server got */
+	lws_snprintf(why, sizeof(why), "timed out: client: connection %d, "
+		     "%d connected, %d requests sent, %d answers whole, "
+		     "%u of the next head, %u of its body to come; server: %d "
+		     "connections, %d closed, %d small dispatched, %d files",
+		     raw.conn + 1, raw.connected, raw.sent, raw.responses,
+		     (unsigned int)raw.head_len, (unsigned int)raw.remain,
+		     srv.conns, srv.closed, srv.small_served, srv.file_done);
+	finish(0, why);
 }
 
 static void
