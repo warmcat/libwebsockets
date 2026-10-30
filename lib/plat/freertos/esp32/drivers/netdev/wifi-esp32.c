@@ -66,6 +66,7 @@ typedef struct lws_netdev_instance_wifi_esp32 {
 	lws_netdev_instance_wifi_t		wnd;
 	esp_event_handler_instance_t		instance_any_id;
 	esp_event_handler_instance_t		instance_got_ip;
+	esp_netif_t				*netif;
 	wifi_config_t				sta_config;
 	lws_sorted_usec_list_t			sul_link_stats;
 } lws_netdev_instance_wifi_esp32_t;
@@ -255,6 +256,109 @@ lws_esp32_disconnect_reason(unsigned int r)
 	}
 }
 
+#if defined(LWS_WITH_ROUTING)
+/*
+ * Reflect an address the IP stack has on our interface, if_idx 0, in the lws
+ * routing table, as the source of a default route of its family.
+ *
+ * If we already have exactly that route, it's left alone, since replacing it
+ * closes everything that was using it.  Otherwise any route it supersedes is
+ * removed first: for IPv4, whatever default route we had before, since the
+ * interface has only one IPv4 address.
+ *
+ * Returns 1 if the route was added, 0 if we already had it, or -1 if OOM.
+ */
+
+static int
+lws_esp32_route_set(struct lws_context *ctx, const lws_sockaddr46 *src,
+		    const lws_sockaddr46 *gw)
+{
+	struct lws_context_per_thread *pt = &ctx->pt[0];
+	lws_route_t robj, *rou;
+
+	lws_pt_lock(pt, __func__);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->routing_table)) {
+		rou = lws_container_of(d, lws_route_t, list);
+
+		if (!rou->if_idx && !lws_sa46_compare_ads(&rou->src, src) &&
+		    !lws_sa46_compare_ads(&rou->gateway, gw)) {
+			lws_pt_unlock(pt);
+
+			return 0;
+		}
+	} lws_end_foreach_dll(d);
+
+	/* the default route of src's family is the unspecified address, /0 */
+
+	memset(&robj, 0, sizeof(robj));
+	robj.dest.sa4.sin_family = AF_INET;
+	_lws_route_remove(pt, &robj, LRR_MATCH_DST | LRR_IGNORE_PRI);
+
+	rou = lws_zalloc(sizeof(*rou), __func__);
+	if (!rou) {
+		lws_pt_unlock(pt);
+
+		return -1;
+	}
+
+	rou->dest = robj.dest;
+	rou->src = *src;
+	rou->src_len = 32;
+	rou->gateway = *gw;
+	rou->uidx = _lws_route_get_uidx(ctx);
+
+	lws_dll2_add_tail(&rou->list, &ctx->routing_table);
+	lws_pt_unlock(pt);
+
+	_lws_route_pt_close_unroutable(pt);
+
+	return 1;
+}
+#endif
+
+/*
+ * The IP stack acquired an IPv4 address on the interface, update the routing
+ * table to match and tell everyone about it
+ */
+
+static void
+lws_esp32_got_ip4(lws_netdev_instance_wifi_esp32_t *wnde32)
+{
+	struct lws_context *ctx = netdev_instance_to_ctx(&wnde32->wnd.inst);
+	esp_netif_ip_info_t ipi;
+	char ip[16];
+
+	if (!wnde32->netif || esp_netif_get_ip_info(wnde32->netif, &ipi) ||
+	    !ipi.ip.addr)
+		return;
+
+#if defined(LWS_WITH_ROUTING)
+	{
+		lws_sockaddr46 src, gw;
+
+		memset(&src, 0, sizeof(src));
+		src.sa4.sin_family = AF_INET;
+		memcpy(&src.sa4.sin_addr, &ipi.ip.addr, 4);
+
+		memset(&gw, 0, sizeof(gw));
+		gw.sa4.sin_family = AF_INET;
+		memcpy(&gw.sa4.sin_addr, &ipi.gw.addr, 4);
+
+		if (lws_esp32_route_set(ctx, &src, &gw) < 0)
+			return;
+	}
+#endif
+
+	lws_write_numeric_address((void *)&ipi.ip.addr, 4, ip, sizeof(ip));
+#if defined(LWS_WITH_SYS_SMD)
+	lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
+			   "{\"type\":\"ipacq\",\"if\":\"%s\","
+			   "\"ipv4\":\"%s\"}", wnde32->wnd.inst.name, ip);
+#endif
+}
+
 static void
 lws_esp32_link_stats(lws_netdev_instance_wifi_esp32_t *wnde32)
 {
@@ -366,8 +470,27 @@ lws_netdev_wifi_event_plat(struct lws_netdev_instance *nd, lws_usec_t timestamp,
 	size_t al;
 
 	/*
-	 * netdev-private sync messages?
+	 * netdev-private sync messages?  IP_EVENT ids overlap WIFI_EVENT ones,
+	 * so they come with a type of their own
 	 */
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "privip")) {
+		const char *ev = lws_json_simple_find(buf, len, "\"ev\":", &al);
+
+		if (!ev)
+			return 0;
+
+		switch (atoi(ev)) {
+		case IP_EVENT_STA_GOT_IP:
+			lws_esp32_got_ip4(
+				(lws_netdev_instance_wifi_esp32_t *)wnd);
+			break;
+		default:
+			break;
+		}
+
+		return 0;
+	}
 
 	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "priv")) {
 		const char *ev = lws_json_simple_find(buf, len, "\"ev\":", &al);
@@ -489,24 +612,11 @@ _event_handler_wifi(void *arg, esp_event_base_t event_base, int32_t event_id,
 	}
 }
 
-#if 0
-static int
-espip_to_sa46(lws_sockaddr46 *sa46, esp_ip_addr_t *eip)
-{
-	memset(sa46, 0, sizeof(sa46));
-
-	switch (eip->type) {
-	case ESP_IPADDR_TYPE_V4:
-		sa46->sa4.sin_family = AF_INET;
-		memcpy(sa46->sa4.sin_addr, &eip->u_addr.ip4.addr, );
-		return;
-	case ESP_IPADDR_TYPE_V6:
-	}
-}
-#endif
-
 /*
- * This is coming from a thread context unrelated to lws
+ * This is coming from a thread context unrelated to lws, it must not touch lws
+ * state like the routing table.  So like the wifi events, we requeue it to be
+ * dealt with in the lws event thread context, where the addresses are read
+ * back from the netif.
  */
 
 static void
@@ -514,47 +624,18 @@ _event_handler_ip(void *arg, esp_event_base_t event_base, int32_t event_id,
 	      void *event_data)
 {
 	lws_netdev_instance_wifi_t *wnd = (lws_netdev_instance_wifi_t *)arg;
-	lws_netdevs_t *netdevs = lws_netdevs_from_ndi(&wnd->inst);
-	struct lws_context *ctx = lws_context_from_netdevs(netdevs);
+	struct lws_context *ctx = netdev_instance_to_ctx(&wnd->inst);
 
-	if (event_id == IP_EVENT_STA_GOT_IP) {
-		ip_event_got_ip_t *e = (ip_event_got_ip_t *)event_data;
-		char ip[16];
-#if defined(LWS_WITH_ROUTING)
-		struct lws_context_per_thread *pt = &ctx->pt[0];
-		lws_route_t *rou;
-
-		lws_pt_lock(pt, __func__);
-		_lws_route_table_ifdown(pt, 0);
-
-		rou = lws_zalloc(sizeof(*rou), __func__);
-		if (rou) {
-			rou->if_idx = 0;
-			rou->priority = 0;
-			rou->dest_len = 0;
-			rou->dest.sa4.sin_family = AF_INET;
-			
-			rou->src_len = 32;
-			rou->src.sa4.sin_family = AF_INET;
-			memcpy(&rou->src.sa4.sin_addr, &e->ip_info.ip, 4);
-			
-			rou->gateway.sa4.sin_family = AF_INET;
-			memcpy(&rou->gateway.sa4.sin_addr, &e->ip_info.gw, 4);
-
-			rou->uidx = _lws_route_get_uidx(ctx);
-
-			lws_dll2_add_tail(&rou->list, &ctx->routing_table);
-		}
-		lws_pt_unlock(pt);
-#endif
-
-		lws_write_numeric_address((void *)&e->ip_info.ip, 4, ip,
-				sizeof(ip));
+	switch (event_id) {
+	case IP_EVENT_STA_GOT_IP:
 #if defined(LWS_WITH_SYS_SMD)
 		lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
-				   "{\"type\":\"ipacq\",\"if\":\"%s\","
-				   "\"ipv4\":\"%s\"}", wnd->inst.name, ip);
+				   "{\"type\":\"privip\",\"if\":\"%s\","
+				   "\"ev\":%d}", wnd->inst.name, (int)event_id);
 #endif
+		break;
+	default:
+		break;
 	}
 }
 
@@ -629,6 +710,9 @@ lws_netdev_wifi_up_plat(struct lws_netdev_instance *nd)
 
 	if (wnde32->wnd.flags & LNDIW_UP)
 		return 0;
+
+	/* created by esp_netif_create_default_wifi_sta() at wifi init */
+	wnde32->netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
 
 	ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
 			  IP_EVENT_STA_GOT_IP, _event_handler_ip, nd,
