@@ -1827,23 +1827,102 @@ bail:
 }
 
 int
+lws_quic_seal_packet(uint8_t *pkt, size_t len, size_t pn_offset,
+		     uint8_t pn_len, uint64_t pn, enum lws_tls_quic_aead aead,
+		     const uint8_t *secret, size_t secret_len,
+		     unsigned int key_updates)
+{
+	enum lws_genhmac_types ht = secret_len == 48 ? LWS_GENHMAC_TYPE_SHA384 :
+						       LWS_GENHMAC_TYPE_SHA256;
+	uint8_t s[48], ns[48], ct;
+	struct lws_quic_keys k, uk;
+	int n = -1;
+
+	switch (aead) {
+	case LWS_TLS_QUIC_AEAD_AES_128_GCM:
+		ct = 0;
+		break;
+	case LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305:
+		ct = 1;
+		break;
+	case LWS_TLS_QUIC_AEAD_AES_256_GCM:
+		ct = 2;
+		break;
+	default:
+		return -1;
+	}
+
+	/*
+	 * The fixed bit, the pn length bits 0, and the 16 bytes header
+	 * protection samples from pn_offset + 4 inside the protected packet
+	 */
+	if (!secret || secret_len != (ct == 2 ? 48u : 32u) ||
+	    len < 2 || !(pkt[0] & 0x40) || (pkt[0] & 3) ||
+	    (!(pkt[0] & 0x80) && !!(pkt[0] & 4) != (key_updates & 1)) ||
+	    pn_len < 1 || pn_len > 4 || pn_offset < 1 ||
+	    pn_offset > len - pn_len || pn_offset + 4 > len)
+		return -1;
+
+	memset(&k, 0, sizeof(k));
+	memcpy(s, secret, secret_len);
+	k.cipher_type = ct;
+
+	if (lws_quic_derive_key_iv_hp(s, secret_len, ct, k.iv_tx,
+				      sizeof(k.iv_tx), &k.el_aead_tx,
+				      k.key_aead_tx, &k.el_hp_tx, k.key_hp_tx))
+		goto bail;
+
+	if (key_updates) {
+		/* only the AEAD's key and iv move on (RFC 9001 6.1) */
+		while (key_updates--) {
+			if (lws_genhkdf_expand_label(ht, s, secret_len,
+						     "quic ku", NULL, 0, ns,
+						     secret_len))
+				goto bail;
+			memcpy(s, ns, secret_len);
+		}
+		memset(&uk, 0, sizeof(uk));
+		n = lws_quic_derive_key_iv_hp(s, secret_len, ct, uk.iv_tx,
+					      sizeof(uk.iv_tx), &uk.el_aead_tx,
+					      uk.key_aead_tx, &uk.el_hp_tx,
+					      uk.key_hp_tx);
+		memcpy(k.key_aead_tx, uk.key_aead_tx, sizeof(k.key_aead_tx));
+		memcpy(k.iv_tx, uk.iv_tx, sizeof(k.iv_tx));
+		lws_explicit_bzero(&uk, sizeof(uk));
+		if (n) {
+			n = -1;
+			goto bail;
+		}
+	}
+	k.valid = 1;
+
+	n = lws_quic_encrypt_payload(&k, pkt, len, pn_offset, pn_len, pn);
+	if (n >= 0)
+		n += (int)(pn_offset + pn_len);
+
+bail:
+	lws_quic_keys_release_aead_tx(&k);
+	lws_explicit_bzero(&k, sizeof(k));
+	lws_explicit_bzero(s, sizeof(s));
+	lws_explicit_bzero(ns, sizeof(ns));
+
+	return n < 0 ? -1 : n;
+}
+
+int
 lws_quic_seal_client_initial(uint8_t *pkt, size_t len, size_t pn_offset,
 			     uint8_t pn_len, uint64_t pn, const uint8_t *odcid,
 			     size_t odcid_len)
 {
 	uint8_t initial_secret[32], client_secret[32];
 	struct lws_quic_cid dcid;
-	struct lws_quic_keys k;
 	int n = -1;
 
 	/* an unprotected v1 long header Initial, with its pn length bits 0 */
 	if (len < 7 || (pkt[0] & 0xf3) != 0xc0 ||
 	    (((uint32_t)pkt[1] << 24) | ((uint32_t)pkt[2] << 16) |
 	     ((uint32_t)pkt[3] << 8) | pkt[4]) != LWS_QUIC_VERSION_1 ||
-	    pn_len < 1 || pn_len > 4 || pn_offset < 7 ||
-	    pn_offset > len - pn_len ||
-	    /* header protection samples 16 bytes from pn_offset + 4 */
-	    pn_offset + 4 > len)
+	    pn_offset < 7)
 		return -1;
 
 	dcid.len = pkt[5];
@@ -1859,31 +1938,21 @@ lws_quic_seal_client_initial(uint8_t *pkt, size_t len, size_t pn_offset,
 		memcpy(dcid.id, odcid, odcid_len);
 	}
 
-	memset(&k, 0, sizeof(k));
+	if (!lws_genhkdf_extract(LWS_GENHMAC_TYPE_SHA256, quic_v1_initial_salt,
+				 sizeof(quic_v1_initial_salt), dcid.id, dcid.len,
+				 initial_secret) &&
+	    !lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, initial_secret,
+				      sizeof(initial_secret), "client in", NULL,
+				      0, client_secret, sizeof(client_secret)))
+		n = lws_quic_seal_packet(pkt, len, pn_offset, pn_len, pn,
+					 LWS_TLS_QUIC_AEAD_AES_128_GCM,
+					 client_secret, sizeof(client_secret),
+					 0);
 
-	if (lws_genhkdf_extract(LWS_GENHMAC_TYPE_SHA256, quic_v1_initial_salt,
-				sizeof(quic_v1_initial_salt), dcid.id, dcid.len,
-				initial_secret) ||
-	    lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, initial_secret,
-				     sizeof(initial_secret), "client in", NULL,
-				     0, client_secret, sizeof(client_secret)) ||
-	    lws_quic_derive_key_iv_hp(client_secret, 32, 0, k.iv_tx,
-				      sizeof(k.iv_tx), &k.el_aead_tx,
-				      k.key_aead_tx, &k.el_hp_tx, k.key_hp_tx))
-		goto bail;
-	k.valid = 1;
-
-	n = lws_quic_encrypt_payload(&k, pkt, len, pn_offset, pn_len, pn);
-	if (n >= 0)
-		n += (int)(pn_offset + pn_len);
-
-bail:
-	lws_quic_keys_release_aead_tx(&k);
-	lws_explicit_bzero(&k, sizeof(k));
 	lws_explicit_bzero(initial_secret, sizeof(initial_secret));
 	lws_explicit_bzero(client_secret, sizeof(client_secret));
 
-	return n < 0 ? -1 : n;
+	return n;
 }
 
 /*

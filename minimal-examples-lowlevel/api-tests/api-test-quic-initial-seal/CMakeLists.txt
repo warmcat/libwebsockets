@@ -10,7 +10,8 @@ set(SRCS main.c)
 
 #
 # lws_quic_seal_client_initial() against the client Initial of RFC 9001
-# Appendix A.2, and opened again with genaes
+# Appendix A.2, and opened again with genaes, and lws_quic_seal_packet()
+# against the short header packet of Appendix A.5
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_QUIC 1 requirements)

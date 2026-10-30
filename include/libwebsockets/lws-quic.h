@@ -205,6 +205,45 @@ lws_quic_seal_client_initial(uint8_t *pkt, size_t len, size_t pn_offset,
 			     size_t odcid_len);
 
 /**
+ * lws_quic_seal_packet() - protect a packet with the keys of a traffic secret
+ *
+ * \param pkt: the packet, unprotected, with 16 bytes free after it
+ * \param len: the packet's length, unprotected: header through the packet
+ *	       number, then the plaintext payload
+ * \param pn_offset: where the packet number is in pkt
+ * \param pn_len: the packet number's length, 1 .. 4
+ * \param pn: the full packet number
+ * \param aead: the AEAD the secret's cipher suite has
+ * \param secret: the traffic secret the handshake gave, whose packet
+ *		  protection keys are derived as RFC 9001 5.1 has it
+ * \param secret_len: 32, or 48 for AES-256-GCM, whose hash is SHA-384
+ * \param key_updates: how many key updates (RFC 9001 6) the packet's keys
+ *		       are on from the handshake's: the AEAD's key and IV
+ *		       are made from the secret that many "quic ku" steps on,
+ *		       the header protection key from the secret itself
+ *
+ * What lws_quic_seal_client_initial() does to an Initial, for a packet of
+ * any kind, long header or short, whose protection is made from a traffic
+ * secret the caller has: tests holding the secrets of both ends of a
+ * connection, and fuzzing past a handshake.
+ *
+ * pkt's first byte must have its fixed bit set and its packet number length
+ * bits 0 (they are set here), and for a short header, its key phase bit
+ * the lowest of key_updates; a long header's Length field must already
+ * count the packet number, the payload and the 16-byte AEAD tag.  The
+ * payload is encrypted in place, the tag appended, and the header
+ * protected.
+ *
+ * Returns the protected packet's length (len + 16), or -1 if pkt can't be
+ * protected so, or protecting it failed.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_quic_seal_packet(uint8_t *pkt, size_t len, size_t pn_offset,
+		     uint8_t pn_len, uint64_t pn, enum lws_tls_quic_aead aead,
+		     const uint8_t *secret, size_t secret_len,
+		     unsigned int key_updates);
+
+/**
  * struct lws_cc_ops - a QUIC congestion controller
  *
  * Set in lws_context_creation_info.quic_cc_ops to select one of the
