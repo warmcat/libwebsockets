@@ -2140,10 +2140,14 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 	int has_wt_session = lws_h3_has_wt_session(nwsi);
 #endif
 
-	/* a stream waiting for inserts holds all it gets until they come */
+	/*
+	 * A stream waiting for inserts holds all it gets until they come.  A
+	 * STREAM frame that only brings the FIN comes with nothing to hold,
+	 * and a buflist takes no empty segment.
+	 */
 	if (!lws_dll2_is_detached(&wsi->h3.qpack_blocked))
-		return lws_buflist_append_segment(&wsi->h3.qpack_blocked_bl,
-						  buf, len) < 0;
+		return len && lws_buflist_append_segment(
+				&wsi->h3.qpack_blocked_bl, buf, len) < 0;
 
 	/*
 	 * The prefixes a stream starts with, a unidirectional stream's type,
@@ -2705,10 +2709,19 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						}
 
 						if (lwsi_state(wsi) == LRS_DEFERRING_ACTION) {
-							n = lws_buflist_append_segment(&wsi->buflist, buf, chunk);
-							if (n < 0)
-								return 1;
-							lwsl_debug("H3_TRACE: deferred %d bytes in buflist\n", (int)chunk);
+							/*
+							 * An empty DATA, with more
+							 * after it on the stream,
+							 * has nothing to keep
+							 */
+							if (chunk) {
+								n = lws_buflist_append_segment(
+									&wsi->buflist, buf, chunk);
+								if (n < 0)
+									return 1;
+								lwsl_debug("H3_TRACE: deferred %d bytes in buflist\n",
+									   (int)chunk);
+							}
 						} else {
 							/*
 							 * DATA is only meaningful as
