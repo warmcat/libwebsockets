@@ -737,7 +737,12 @@ lws_create_vhost(struct lws_context *context,
 			goto bail;
 		}
 #ifndef WIN32
-		if (context->uid != (uid_t)-1)
+		/*
+		 * Only to a user we are to change to: "not given" is 0 (a
+		 * memset info struct) or -1, as lws_plat_drop_app_privileges()
+		 * takes it.  A process that isn't root can't chown to root.
+		 */
+		if (context->uid && context->uid != (uid_t)-1)
 			if (chown(info->log_filepath, context->uid,
 				  context->gid) == -1)
 				lwsl_vhost_err(vh, "unable to chown log file %s",
