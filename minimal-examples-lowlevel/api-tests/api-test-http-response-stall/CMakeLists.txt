@@ -20,7 +20,8 @@ if (requirements AND NOT WIN32)
 
 	add_executable(${SAMP} ${SRCS})
 
-	lws_get_free_port(PORT_HTTP_RESPONSE_STALL)
+	# the file's vhost listens on the first, the big write's on the second
+	lws_get_free_ports(PORT_HTTP_RESPONSE_STALL 2)
 
 	add_test(NAME api-test-http-response-stall
 		 COMMAND lws-api-test-http-response-stall

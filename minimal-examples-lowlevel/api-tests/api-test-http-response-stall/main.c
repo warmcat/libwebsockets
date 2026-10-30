@@ -34,6 +34,15 @@
  * back from advertising, less than a segment, so the server's stall starts
  * again there and it gives up about 11s after the client stopped, not 6s.
  *
+ * A second server vhost, with http_response_stall_secs of 2s, answers with
+ * the whole of a 1.5MB response in one write, with the socket buffers on
+ * both sides made small, so most of it waits in lws to be sent.  The client
+ * takes it slowly, stopping for 150ms in each 64KB, so it takes far longer
+ * than 2s to go:
+ *
+ *  - it must get all of it: what lws had waiting being taken is progress, and
+ *    renews the watchdog, as much as the write was.
+ *
  * This file is made available under the Creative Commons CC0 1.0 Universal
  * Public Domain Dedication.
  */
@@ -57,13 +66,29 @@
 /* how much sooner than STALL_SECS the client may see it cut off, see above */
 #define CUTOFF_SKEW_MS		500
 
+/* the vhost answering with one big write, and how its client paces it */
+#define BIG_STALL_SECS	2
+/* within the 2MB lws holds for a wsi's unsent output */
+#define BIG_SIZE	(1536 * 1024)
+#define BIG_SKTBUF	(16 * 1024)
+#define PACE_STEP	(64 * 1024)
+#define PACE_MS		150
+
 static const struct run {
 	const char	*name;
+	const char	*path;
 	int		pause_secs;
 	int		want_whole;
+	int		paced;		/* to the big write's vhost */
 } runs[] = {
-	{ "pause past timeout_secs",		 4, 1 },
-	{ "stop reading until cut off",		 0, 0 },
+	{ "pause past timeout_secs",	"/f/big.bin",	4, 1, 0 },
+	{ "stop reading until cut off",	"/f/big.bin",	0, 0, 0 },
+	{ "one big write, taken slowly", "/big",	0, 1, 1 },
+};
+
+/* the big write's vhost's side of its connection */
+struct pss_big {
+	int		sent;
 };
 
 static struct lws_context *context;
@@ -72,8 +97,10 @@ static struct lws *cli_wsi;
 static int port = 7710, fail, done;
 static size_t cur;
 static uint64_t got;
-static lws_usec_t paused_at, cut_at;
+static lws_usec_t paused_at, cut_at, started_at;
+static uint64_t next_pace;
 static int paused, completed;
+static uint8_t *big;
 static char fixture_dir[64], fixture_path[96];
 
 static void
@@ -83,10 +110,11 @@ static void
 run_end(void)
 {
 	const struct run *r = &runs[cur];
-	int whole = completed && got == (uint64_t)FILE_SIZE;
+	uint64_t size = r->paced ? (uint64_t)BIG_SIZE : (uint64_t)FILE_SIZE;
+	int whole = completed && got == size;
 
 	lwsl_user("%s: %s: got %llu of %llu%s\n", __func__, r->name,
-		  (unsigned long long)got, (unsigned long long)FILE_SIZE,
+		  (unsigned long long)got, (unsigned long long)size,
 		  completed ? ", completed" : "");
 
 	if (!paused) {
@@ -97,6 +125,17 @@ run_end(void)
 		lwsl_err("%s: %s: want %s\n", __func__, r->name,
 			 r->want_whole ? "the whole file" : "it cut off");
 		fail++;
+	} else if (r->paced) {
+		lws_usec_t us = lws_now_usecs() - started_at;
+
+		lwsl_user("%s: %s: took %lldms\n", __func__, r->name,
+			  (long long)(us / LWS_US_PER_MS));
+		if (us < (lws_usec_t)BIG_STALL_SECS * LWS_US_PER_SEC) {
+			lwsl_err("%s: %s: took less than its vhost's "
+				 "http_response_stall_secs, proves nothing\n",
+				 __func__, r->name);
+			fail++;
+		}
 	} else if (!r->want_whole) {
 		lws_usec_t us = cut_at - paused_at;
 
@@ -129,7 +168,7 @@ sul_resume_cb(lws_sorted_usec_list_t *sul)
 	if (!cli_wsi)
 		return;
 
-	if (runs[cur].pause_secs || cut_at) {
+	if (runs[cur].pause_secs || runs[cur].paced || cut_at) {
 		lws_rx_flow_control(cli_wsi, 1);
 		return;
 	}
@@ -146,6 +185,18 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
+	if (reason == LWS_CALLBACK_CONNECTING && runs[cur].paced) {
+		lws_sockfd_type sfd = (lws_sockfd_type)(intptr_t)in;
+		int rb = BIG_SKTBUF;
+
+		/* small, so the big write can't hide in the kernel */
+		if (setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, (const char *)&rb,
+			       sizeof(rb)))
+			lwsl_warn("%s: SO_RCVBUF failed\n", __func__);
+
+		return 0;
+	}
+
 	/* only our own connection: lws may make others, eg, to check the net */
 	if (wsi != cli_wsi)
 		return lws_callback_http_dummy(wsi, reason, user, in, len);
@@ -171,7 +222,20 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (!got)
+			started_at = lws_now_usecs();
 		got += len;
+		if (runs[cur].paced) {
+			if (got < next_pace)
+				return 0;
+			/* stop a while, then go on */
+			next_pace += PACE_STEP;
+			paused = 1;
+			lws_rx_flow_control(wsi, 0);
+			lws_sul_schedule(context, 0, &sul_resume, sul_resume_cb,
+					 PACE_MS * LWS_US_PER_MS);
+			return 0;
+		}
 		if (!paused && got >= PAUSE_AT) {
 			/* stop reading, as a browser draining to disk does */
 			paused = 1;
@@ -207,7 +271,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
 	if (reason == LWS_CALLBACK_CLOSED_HTTP && cli_wsi && paused &&
-	    !runs[cur].pause_secs && !cut_at) {
+	    !runs[cur].want_whole && !cut_at) {
 		cut_at = lws_now_usecs();
 		/* the client resumes, to find what it got cut off */
 		lws_sul_schedule(context, 0, &sul_resume, sul_resume_cb, 1);
@@ -215,6 +279,65 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
+
+/* the big write's vhost: the whole response in one lws_write() */
+static int
+callback_big(struct lws *wsi, enum lws_callback_reasons reason,
+	     void *user, void *in, size_t len)
+{
+	struct pss_big *pss = (struct pss_big *)user;
+	uint8_t hdr[LWS_PRE + 256], *start = &hdr[LWS_PRE], *p = start,
+		*end = &hdr[sizeof(hdr) - 1];
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP: {
+		lws_sockfd_type sfd = lws_get_socket_fd(wsi);
+		int sb = BIG_SKTBUF;
+
+		if (strcmp((const char *)in, "/big"))
+			return lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND,
+						      NULL);
+
+		/* small, so most of the write must wait in lws */
+		if (sfd != LWS_SOCK_INVALID &&
+		    setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, (const char *)&sb,
+			       sizeof(sb)))
+			lwsl_warn("%s: SO_SNDBUF failed\n", __func__);
+
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"application/octet-stream",
+						BIG_SIZE, &p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+
+		pss->sent = 0;
+		lws_callback_on_writable(wsi);
+		return 0;
+	}
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (pss->sent)
+			return 0;
+		pss->sent = 1;
+		if (lws_write(wsi, big + LWS_PRE, BIG_SIZE,
+			      LWS_WRITE_HTTP_FINAL) != BIG_SIZE)
+			return 1;
+		/* it completes when what lws holds of it has gone */
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+		return 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static const struct lws_protocols protocols_big[] = {
+	{ "http", callback_big, sizeof(struct pss_big), 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
 
 static const struct lws_protocols protocols[] = {
 	{ "http", callback_srv, 0, 0, 0, NULL, 0 },
@@ -250,6 +373,7 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 	struct lws_client_connect_info i;
 
 	got		= 0;
+	next_pace	= PACE_STEP;
 	cut_at		= 0;
 	paused		= 0;
 	completed	= 0;
@@ -258,8 +382,8 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 	i.context		= context;
 	i.vhost			= lws_get_vhost_by_name(context, "cli");
 	i.address		= "127.0.0.1";
-	i.port			= port;
-	i.path			= "/f/big.bin";
+	i.port			= runs[cur].paced ? port + 1 : port;
+	i.path			= runs[cur].path;
 	i.host			= "127.0.0.1";
 	i.origin		= "127.0.0.1";
 	i.method		= "GET";
@@ -353,9 +477,27 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
+	big = calloc(1, LWS_PRE + BIG_SIZE);
+	if (!big) {
+		lwsl_err("OOM\n");
+		fail++;
+		goto bail;
+	}
+
+	info.vhost_name			= "srv-big";
+	info.port			= port + 1;
+	info.protocols			= protocols_big;
+	info.mounts			= NULL;
+	info.http_response_stall_secs	= BIG_STALL_SECS;
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("big write's server vhost creation failed\n");
+		fail++;
+		goto bail;
+	}
+
 	info.vhost_name			= "cli";
 	info.port			= CONTEXT_PORT_NO_LISTEN;
-	info.mounts			= NULL;
+	info.protocols			= protocols;
 	info.http_response_stall_secs	= 0;
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("client vhost creation failed\n");
@@ -375,6 +517,7 @@ main(int argc, const char **argv)
 
 bail:
 	lws_context_destroy(context);
+	free(big);
 bail_fixture:
 	unlink(fixture_path);
 	rmdir(fixture_dir);

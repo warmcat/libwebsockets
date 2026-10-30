@@ -213,6 +213,14 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 			lwsl_wsi_info(wsi, "partial adv %d (vs %ld)",
 					   m, (long)real_len);
 			lws_buflist_use_segment(&wsi->buflist_out, m);
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+			/*
+			 * The peer took more of a response written earlier: it
+			 * is not stalled, however long the whole write takes
+			 * to go
+			 */
+			lws_http_response_progress(wsi);
+#endif
 		}
 
 		if (!lws_has_buflist_out(wsi)) {

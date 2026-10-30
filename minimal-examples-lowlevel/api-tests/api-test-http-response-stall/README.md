@@ -33,10 +33,18 @@ window after 5s, and the receiver opens it for the room it had held back from
 advertising, less than a segment.  So there the server gives up about 11s
 after the client stopped, and on Linux, 6s.
 
+A second server vhost, with an `http_response_stall_secs` of 2s, answers with
+the whole of a 1.5MB response in one write.  The socket buffers on both sides
+are made small, so most of it waits in lws to be sent, and the client takes
+it slowly, stopping for 150ms in each 64KB, so it takes far longer than 2s to
+go.  It must get all of it: lws sending more of what it had waiting is
+progress, and renews the watchdog as much as the write did.
+
 ## Running
 
 The test is registered with ctest as `api-test-http-response-stall`; it
-obtains a free listen port at configure time and passes it via `-p`.
+obtains two adjacent free listen ports at configure time and passes the
+first via `-p`: the file's vhost listens on it, the big write's on the next.
 
 ```
 $ ctest -R api-test-http-response-stall
