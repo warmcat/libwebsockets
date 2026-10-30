@@ -254,6 +254,9 @@ lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 					       (lws_netdev_instance_wifi_t *)ni;
 
 				if (!ev)
+					ev = lws_json_simple_find(buf, len,
+							"\"ipv6\":", &al);
+				if (!ev)
 					return 0;
 
 				lws_snprintf(setname, sizeof(setname),

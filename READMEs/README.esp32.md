@@ -45,3 +45,23 @@ application generates certificates on the device, enable
 (`CONFIG_MBEDTLS_X509_CREATE_C`) in menuconfig.  Without it lws still builds,
 and those calls fail with an error log saying `MBEDTLS_X509_CRT_WRITE_C` is
 missing.
+
+## IPv6
+
+lws builds with `LWS_WITH_IPV6` by default, but on ESP32 lwIP must also
+have it enabled for the lws netdev wifi driver to bring IPv6 up.  Set, in
+menuconfig under `Component config -> LWIP`,
+
+ - `CONFIG_LWIP_IPV6`, to have IPv6 in lwIP at all, and
+ - `CONFIG_LWIP_IPV6_AUTOCONFIG`, so lwIP can get global addresses from
+   router advertisements by SLAAC.
+
+The minimal examples' sdkconfigs set both.  Each time it associates, the
+driver starts the link-local address, and as global addresses are acquired
+or go away, it adds or removes an IPv6 default route for each one in the
+lws routing table.  Each new one is also announced by an SMD `NETWORK`
+message like `{"type":"ipacq","if":"wl0","ipv6":"2001:db8::1"}`, the
+same as the IPv4 one with `"ipv4"`.
+
+Without `CONFIG_LWIP_IPV6_AUTOCONFIG`, the device only gets a link-local
+IPv6 address, so lws has no IPv6 route and uses IPv4 alone.
