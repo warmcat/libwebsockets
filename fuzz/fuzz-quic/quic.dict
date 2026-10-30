@@ -2,8 +2,9 @@
 # libFuzzer dictionary for fuzz-quic, made by fuzz/gen-dicts.py
 #
 # The fuzz-quic op bytes, QUIC versions and header first bytes, the
-# frame types, varints of interesting sizes, and the TLS 1.3
-# ClientHello pieces its CRYPTO frames carry.
+# frame types, varints of interesting sizes, the TLS 1.3
+# ClientHello pieces its CRYPTO frames carry, and h3, qpack and
+# WebTransport above it.
 #
 
 "\x00"
@@ -13,6 +14,7 @@
 "\x04"
 "\x05"
 "\x06"
+"\x07"
 "\x00\x00\x00\x01"
 "k3C\xcf"
 "\x00\x00\x00\x00"
@@ -24,7 +26,6 @@
 "\x08fzqodcid"
 "fzqscid0"
 "fzqscid1"
-"\x07"
 "\x08"
 "\x0f"
 "\x10"
@@ -64,3 +65,23 @@
 "\x02h3"
 "h3"
 "\x03\x04"
+"@A"
+"@T"
+"\xab`7B"
+"\x0d"
+"!"
+"\x80\xff\xff\xff"
+"\xd1"
+"\xd7"
+"\xcf"
+"\xc1"
+"Q"
+"P"
+"_\x1d"
+"'\x02:protocol"
+"webtransport"
+"'\x0fwt-available-protocols"
+"?\xe1\x1f"
+" "
+"?"
+"\x80"

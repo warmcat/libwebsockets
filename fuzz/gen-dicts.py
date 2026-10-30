@@ -123,7 +123,7 @@ write('md',['markdown block and inline syntax, gfm tables, task lists, footnotes
 
 # quic: the harness' op bytes, versions, long header first bytes, frame
 # types, transport parameter ids and the TLS extensions of a ClientHello
-quic=[bytes([o]) for o in range(7)]+[b'\x00\x00\x00\x01',b'\x6b\x33\x43\xcf',b'\x00\x00\x00\x00',
+quic=[bytes([o]) for o in range(8)]+[b'\x00\x00\x00\x01',b'\x6b\x33\x43\xcf',b'\x00\x00\x00\x00',
  b'\xc0',b'\xd0',b'\xe0',b'\xf0',b'\x40',b'\x08fzqodcid',b'fzqscid0',b'fzqscid1']
 quic+=[bytes([t]) for t in (0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x0f,0x10,0x11,0x12,0x13,0x14,0x16,0x18,0x19,
                             0x1a,0x1b,0x1c,0x1d,0x1e,0x30,0x31)]
@@ -131,6 +131,12 @@ quic+=[bytes([0x40|(v>>8),v&0xff]) for v in (0x4000-1,1200,1452)]
 quic+=[b'\x01\x00\x00',b'\x03\x03',b'\x13\x01',b'\x13\x02',b'\x13\x03',b'\x00\x1d',b'\x00\x17',b'\x04\x03',
  b'\x00\x00',b'\x00\x0a',b'\x00\x0d',b'\x00\x10',b'\x00\x2b',b'\x00\x2d',b'\x00\x33',b'\x00\x39',
  b'\x02h3',b'h3',b'\x03\x04']
+# h3 above it: frame and stream types, settings ids, qpack field lines of
+# the static table and literal names, and WebTransport's stream signals
+quic+=[b'\x40\x41',b'\x40\x54',b'\xab\x60\x37\x42',b'\x0d',b'\x21',b'\x80\xff\xff\xff',
+ b'\xd1',b'\xd7',b'\xcf',b'\xc1',b'\x51',b'\x50',b'\x5f\x1d',b'\x27\x02:protocol',b'webtransport',
+ b'\x27\x0fwt-available-protocols',b'\x3f\xe1\x1f',b'\x20',b'\x3f',b'\x80']
 write('quic',['The fuzz-quic op bytes, QUIC versions and header first bytes, the',
-              'frame types, varints of interesting sizes, and the TLS 1.3',
-              'ClientHello pieces its CRYPTO frames carry.'],quic)
+              'frame types, varints of interesting sizes, the TLS 1.3',
+              'ClientHello pieces its CRYPTO frames carry, and h3, qpack and',
+              'WebTransport above it.'],quic)

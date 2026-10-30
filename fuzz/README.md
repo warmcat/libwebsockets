@@ -145,7 +145,7 @@ doesn't fail.
 | `fuzz-cli-h1` | an h1 client connection reading a malicious server's response | sansIO; the first byte picks GET / HEAD / POST and whether the client pulls the body at once or later |
 | `fuzz-cli-ws` | a ws client: its upgrade response, then server frames | sansIO; the harness answers the client's key with the right accept, so the frames get parsed |
 | `fuzz-cli-h2` | an h2 client connection against a malicious server | sansIO, h2 prior knowledge, the server's SETTINGS sent first, then h2 frames built as for `fuzz-srv-h2` |
-| `fuzz-quic` | a QUIC server's datagram processing (`lib/sansio/quic/`) | the fuzzer is four clients, the network and the clock on the udp listener's datagram transport: raw datagrams, client Initials protected as a client's are, a CRYPTO op that carries a ClientHello in pieces with the framing right, path changes, a network that takes nothing, and time; seeds from `fuzz-quic/gen-seeds.py`; needs h3 (`LWS_WITH_HTTP3` + gnutls) |
+| `fuzz-quic` | a QUIC server's connections, from datagrams to h3 and WebTransport (`lib/sansio/quic/`, `h3/`, `wt/`) | the fuzzer is four clients, the network and the clock on the udp listener's datagram transport: raw datagrams, packets protected as a client's are at Initial, Handshake and 1-RTT, key updates, CRYPTO ops carrying a ClientHello in pieces and the client's Finished, STREAM ops with the offsets right, path changes, a network that takes nothing, and time; seeds from `fuzz-quic/gen-seeds.py`; needs h3 (`LWS_WITH_HTTP3` + gnutls) |
 
 The `fuzz-h1`, `fuzz-h2` and `fuzz-ws` targets use the shared evil-peer
 helper in [peer.h](peer.h): one real, adopted server-side connection per
@@ -182,12 +182,16 @@ client targets are lws connecting out to a malicious server.
 `fuzz-quic` is the same idea for datagrams: every datagram of a QUIC
 server's connections goes through its udp listener, so a datagram
 transport under the listener is the whole network.  Initials are protected
-with keys anyone can derive (`lws_quic_seal_client_initial()`), so the
-fuzzer's frames get past the AEAD; the Handshake and 1-RTT keys need a real
-TLS client, so the target reaches the server's Initial processing, the
-ClientHello, its first flight and loss recovery, amplification limits,
-version negotiation, stateless resets and path changes, but not the
-connection after the handshake.
+with keys anyone can derive (`lws_quic_seal_client_initial()`).  The
+Handshake and 1-RTT keys come from a TLS handshake the harness doesn't do:
+instead, the fuzzing build of lws tells it the secrets each connection
+installs and the handshake bytes it sends (`lws_quic_fuzz_set_taps()`,
+only in `LWS_WITH_FUZZERS` builds).  With the ClientHello it sent, that is
+the transcript its Finished is made from, and the secrets are what it
+protects its packets with (`lws_quic_seal_packet()`).  So the fuzzer's
+frames reach the established connection: streams and flow control, key
+updates, path validation, h3 requests and qpack, and WebTransport sessions,
+their streams and datagrams, to a protocol that answers on them.
 
 ## Survey: what to harness next
 
@@ -207,10 +211,8 @@ surfaces, easiest first:
  - auth-dns zone parser (`lib/system/auth-dns/`), jrpc (`lib/misc/jrpc/`),
    `lws_struct` JSON-to-struct (`lib/misc/lws-struct-lejp.c`), sshd
    userauth / bipacket
- - QUIC past its handshake, h3 and wt (WebTransport): `fuzz-quic` stops at
-   what Initial keys protect.  Going further needs the harness to hold the
-   connection's later keys, either a real TLS client in it or a test hook
-   in lws, eg, the secrets exported under a fuzzing build option
+ - a QUIC *client* playing against `fuzz-quic`'s idea of a server: the
+   taps tell the server's side too, so the harness can be the server
 
 Fault injection (`lws_fi`) can additionally be used from inside harnesses
 to fail the Nth allocation during parsing, which is where most parser

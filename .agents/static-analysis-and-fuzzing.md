@@ -115,7 +115,15 @@ copying it there as `regress-*`.
    SCID (RFC 9001 5.2); getting that wrong shows as "GCM tag check
    failed" in a verbose replay.  Its ClientHello seeds come from
    `fuzz/fuzz-quic/gen-seeds.py`, and the vhost uses a P-256 cert so a
-   handshake per input stays cheap.  It can't get past Initial keys.
+   handshake per input stays cheap.  Past Initial it gets the secrets and
+   the server's handshake bytes from `lws_quic_fuzz_set_taps()`
+   (`LWS_WITH_FUZZERS` builds only) and makes the client Finished itself.
+   gnutls installs the server's client-1-RTT read key only once it has
+   the Finished, so no valid 1-RTT can come before it.  Key updates move
+   the AEAD key and iv, never the hp key: `lws_quic_seal_packet()` takes
+   the handshake's secret and a key-update count for that reason.  A WT
+   CONNECT needs `wt-available-protocols` naming a protocol whose pvo says
+   "webtransport", unless the vhost's default protocol does.
  - A crash seed must not go in `seeds/` until it's fixed: the
    `fuzz-*-smoke` ctests run every seed.
  - Each target added to `run.sh` thins the others' share of a timed

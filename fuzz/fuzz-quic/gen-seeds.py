@@ -17,7 +17,10 @@ import os, struct
 
 D = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'seeds')
 
-OP_DGRAM, OP_INITIAL, OP_TIME, OP_TX, OP_PEER, OP_SHORT, OP_CRYPTO = range(7)
+OP_DGRAM, OP_PACKET, OP_TIME, OP_TX, OP_PEER, OP_SHORT, OP_CRYPTO, OP_STREAM = \
+    range(8)
+
+INITIAL, HANDSHAKE, APP, APP_NEXT_PHASE = range(4)
 
 def op(o, a=0):
     return bytes([(a << 3) | o])
@@ -44,7 +47,8 @@ def tp(c):
             p(0x07, varint(262144)) +
             p(0x08, varint(100)) +	# initial_max_streams_bidi
             p(0x09, varint(100)) +
-            p(0x0e, varint(4)))		# active_connection_id_limit
+            p(0x0e, varint(4)) +		# active_connection_id_limit
+            p(0x20, varint(65535)))	# max_datagram_frame_size
 
 def ext(t, v): return u16(t) + u16(len(v)) + v
 
@@ -72,9 +76,67 @@ def crypto(c, data, piece=256):
         out += op(OP_CRYPTO, c) + bytes([len(k) - 1]) + k
     return out
 
-def initial(c, payload, repeat=False):
-    return op(OP_INITIAL, c | (4 if repeat else 0)) + \
+def packet(c, level, payload, repeat=False):
+    return op(OP_PACKET, c | (level << 2) | (0x10 if repeat else 0)) + \
            bytes([len(payload) - 1]) + payload
+
+def initial(c, payload, repeat=False):
+    return packet(c, INITIAL, payload, repeat)
+
+def hs_crypto(c, data):
+    return op(OP_CRYPTO, c | 4) + bytes([len(data) - 1]) + data
+
+def finished(c):
+    """the client's Finished, which the harness makes"""
+    return op(OP_CRYPTO, c | 8)
+
+SID_0, SID_4, SID_CONTROL, SID_QPACK_ENC = range(4)
+
+def stream(c, s, data, fin=False):
+    out = b''
+    for i in range(0, len(data), 256):
+        k = data[i:i + 256]
+        last = fin and i + 256 >= len(data)
+        out += op(OP_STREAM, c | (s << 2) | (0x10 if last else 0)) + \
+               bytes([len(k) - 1]) + k
+    return out
+
+def handshake(c, hello=None):
+    """ClientHello, the server's flight, our Finished"""
+    return crypto(c, hello or client_hello(c)) + time(10) + finished(c)
+
+def h3_frame(t, payload): return varint(t) + varint(len(payload)) + payload
+
+# h3 SETTINGS on the control stream: qpack table capacity 4096, blocked 16,
+# extended CONNECT, h3 datagrams and WebTransport, as a WebTransport client
+# sends
+h3_control = varint(0) + h3_frame(4, varint(1) + varint(4096) +
+                                     varint(7) + varint(16) +
+                                     varint(8) + varint(1) +
+                                     varint(0x33) + varint(1) +
+                                     varint(0x2b603742) + varint(1))
+
+def wt_connect(path=b'/wt'):
+    """HEADERS of a WebTransport extended CONNECT"""
+    fl = (b'\x00\x00' +
+          b'\xcf' +				# :method CONNECT
+          b'\x27\x02:protocol\x0cwebtransport' +	# literal name and value
+          b'\xd7' +				# :scheme https
+          b'\x51' + bytes([len(path)]) + path +
+          b'\x50\x04fuzz' +
+          # the protocol it asks for, a literal name and value
+          b'\x27\x0fwt-available-protocols\x0e"webtransport"')
+    return h3_frame(1, fl)
+
+def h3_get(path=b'/'):
+    """HEADERS of a GET, every field from qpack's static table but the path
+    and authority, whose names are"""
+    fl = (b'\x00\x00' +			# required insert count 0, base 0
+          b'\xd1' +			# :method GET
+          b'\xd7' +			# :scheme https
+          b'\x51' + bytes([len(path)]) + path +	# :path, literal
+          b'\x50\x04fuzz')			# :authority, literal
+    return h3_frame(1, fl)
 
 def dgram(data):
     if len(data) <= 31:
@@ -125,6 +187,57 @@ seeds = {
     'unproven-flood': b''.join(op(OP_PEER, p) + initial(p & 3, ping)
                                for p in range(16)) + time(16),
 }
+
+seeds.update({
+    # past the handshake: the server's HANDSHAKE_DONE, then its idle timeout
+    'handshake': handshake(0) + time(14),
+    # an h3 GET, with the control stream before it
+    'h3-get': handshake(1) + stream(1, SID_CONTROL, h3_control) +
+              stream(1, SID_0, h3_get(), True) + time(12) +
+              stream(1, SID_CONTROL, h3_frame(7, varint(0))) + time(12),
+    # a request body, in pieces, on another stream
+    'h3-post': handshake(2) + stream(2, SID_CONTROL, h3_control) +
+               stream(2, SID_4, h3_frame(1, b'\x00\x00\xd1\xd7\x51\x01/' +
+                                         b'\x50\x04fuzz')[:-1] +
+                      b'z') +
+               stream(2, SID_4, h3_frame(0, bytes(300))) +
+               stream(2, SID_4, h3_frame(0, b'end'), True) + time(12),
+    # a key update, then more on the new keys
+    'key-update': handshake(0) + packet(0, APP_NEXT_PHASE, ping) +
+                  packet(0, APP, ping) + time(12),
+    # a short header before the server has 1-RTT keys, which it holds
+    # until it has them, and then can't authenticate
+    'short-before-finished': crypto(3, client_hello(3)) + time(10) +
+                             op(OP_SHORT, 3 | (7 << 2)) + bytes(8) +
+                             finished(3) + time(12),
+    # the client's own CONNECTION_CLOSE once established
+    'app-close': handshake(1) + packet(1, APP, b'\x1d\x00\x00'),
+    # a WebTransport session on stream 0, a bidi stream of it on 4, a uni
+    # stream of it on 6, and a datagram of it
+    'wt-session': handshake(3) + stream(3, SID_CONTROL, h3_control) +
+                  stream(3, SID_0, wt_connect()) + time(12) +
+                  stream(3, SID_4, varint(0x41) + varint(0) + b'hello') +
+                  stream(3, SID_QPACK_ENC, varint(0x54) + varint(0) +
+                         b'uni hello', True) +
+                  packet(3, APP, b'\x31\x05\x00dgrm') + time(12) +
+                  stream(3, SID_4, b'more', True) + time(14),
+    # an empty DATA, and more after it, while the request waits for the
+    # server to be able to send: an empty segment for the deferred body
+    'regress-empty-data-deferred': crypto(2, client_hello(2)) +
+                                   op(OP_TX, 1) + time(10) + finished(2) +
+                                   stream(2, SID_4, h3_get()) +
+                                   stream(2, SID_4, b'\x00\x00\x00'),
+    # a FIN alone for a request blocked on a qpack insert that never comes:
+    # an empty segment for what it holds
+    'regress-fin-qpack-blocked': handshake(0) +
+                                 stream(0, SID_CONTROL, h3_control) +
+                                 stream(0, SID_0, h3_frame(1, b'\x02\x00\x80')) +
+                                 packet(0, APP, b'\x0d\x00' + varint(5)) +
+                                 time(12),
+    # it moves once established: path validation
+    'migrate-1rtt': handshake(0) + op(OP_PEER, 6) + packet(0, APP, ping) +
+                    time(12),
+})
 
 os.makedirs(D, exist_ok=True)
 for name, prog in seeds.items():
