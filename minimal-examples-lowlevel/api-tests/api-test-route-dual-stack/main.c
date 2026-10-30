@@ -113,39 +113,39 @@ static const route_spec_t
 	v6_first_same_pri[] = {
 		{ "::",		0, "fe80::1",	NULL, 1, 100 },
 		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
-		{ NULL }
+		{ .dest = NULL }
 	}, v6_first_better_pri[] = {
 		{ "::",		0, "fe80::1",	NULL, 1, 100 },
 		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 1024 },
-		{ NULL }
+		{ .dest = NULL }
 	}, v4_first_same_pri[] = {
 		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
 		{ "::",		0, "fe80::1",	NULL, 1, 100 },
-		{ NULL }
+		{ .dest = NULL }
 	}, v6_on_link[] = {
 		/* a LAN with only a v4 default route, and a v6 tunnel */
 		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
 		{ "::",		0, NULL,	NULL, 2, 0 },
 		{ "2001:db8::2", 64, NULL,	"2001:db8::2", 2, 0 },
-		{ NULL }
+		{ .dest = NULL }
 	}, v6_on_link_first[] = {
 		{ "::",		0, NULL,	NULL, 2, 100 },
 		{ "2001:db8::2", 64, NULL,	"2001:db8::2", 2, 0 },
 		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
-		{ NULL }
+		{ .dest = NULL }
 	}, v4_on_link[] = {
 		{ "0.0.0.0",	0, NULL,	NULL, 2, 0 },
 		{ "2001:db8::2", 64, NULL,	"2001:db8::2", 1, 0 },
-		{ NULL }
+		{ .dest = NULL }
 	}, v6_split_tunnel[] = {
 		/* "::/1" holds ::ffff:127.0.0.1, but only as a v6 network */
 		{ "::",		1, NULL,	NULL, 2, 0 },
 		{ "8000::",	1, NULL,	NULL, 2, 0 },
 		{ "0.0.0.0",	0, "192.0.2.1",	NULL, 1, 100 },
-		{ NULL }
+		{ .dest = NULL }
 	}, net_via_gw[] = {
 		{ "10.0.0.0",	8, "192.0.2.1",	NULL, 1, 0 },
-		{ NULL }
+		{ .dest = NULL }
 	};
 
 static const case_t cases[] = {
