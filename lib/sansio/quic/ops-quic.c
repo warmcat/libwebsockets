@@ -4198,6 +4198,13 @@ lws_tls_quic_tx_crypto_cb(struct lws *wsi, int level, const uint8_t *buf, size_t
 	if (!qn)
 		return -1;
 
+#if defined(LWS_WITH_FUZZERS)
+	if (wsi->a.context->quic_fuzz_taps &&
+	    wsi->a.context->quic_fuzz_taps->crypto_tx)
+		wsi->a.context->quic_fuzz_taps->crypto_tx(wsi, qn->peer_iscid.id,
+				qn->peer_iscid.len, level, buf, len);
+#endif
+
 	// lwsl_notice("QUIC TLS TX: %s generated %d bytes of crypto data for level %d\n", lws_wsi_tag(wsi), (int)len, level);
 
 	/* Allocate frame struct + payload buffer natively */

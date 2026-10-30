@@ -243,6 +243,54 @@ lws_quic_seal_packet(uint8_t *pkt, size_t len, size_t pn_offset,
 		     const uint8_t *secret, size_t secret_len,
 		     unsigned int key_updates);
 
+#if defined(LWS_WITH_FUZZERS)
+/**
+ * struct lws_quic_fuzz_taps - a fuzzing build's view into its connections
+ *
+ * \param secret: a traffic secret the connection installed, \p type saying
+ *		  which, with the AEAD its packets are protected with
+ * \param crypto_tx: handshake bytes the connection's TLS gave it to send in
+ *		     CRYPTO frames, in order, at \p level: 0 Initial,
+ *		     2 Handshake, 3 1-RTT
+ *
+ * Both are told the SCID of the peer's first packets, \p peer_scid, which
+ * tells whoever plays that peer which of its connections it is: on a
+ * client, it has no length until the server has answered.
+ *
+ * A fuzz target playing a QUIC peer can make nothing a connection would
+ * accept past its Initials, since everything after is protected with keys
+ * from the TLS handshake, and the bytes the peer's Finished authenticates
+ * differ every run.  With these, it has the secrets to protect its packets
+ * with (lws_quic_seal_packet()), and the transcript a Finished is made
+ * from, without reimplementing TLS or decrypting what the connection sends.
+ *
+ * Only for libFuzzer builds (LWS_WITH_FUZZERS): it hands out the keys of
+ * every connection.
+ */
+typedef struct lws_quic_fuzz_taps {
+	void (*secret)(struct lws *wsi, const uint8_t *peer_scid,
+		       size_t peer_scid_len, enum lws_tls_quic_secret_type type,
+		       enum lws_tls_quic_aead aead, const uint8_t *secret,
+		       size_t secret_len);
+	void (*crypto_tx)(struct lws *wsi, const uint8_t *peer_scid,
+			  size_t peer_scid_len, int level, const uint8_t *buf,
+			  size_t len);
+} lws_quic_fuzz_taps_t;
+
+/**
+ * lws_quic_fuzz_set_taps() - watch the secrets and handshakes of connections
+ *
+ * \param cx: the context whose QUIC connections are watched
+ * \param taps: what to tell, or NULL to stop telling
+ *
+ * Only for libFuzzer builds (LWS_WITH_FUZZERS), see struct
+ * lws_quic_fuzz_taps.  \p taps must stay valid while set.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_quic_fuzz_set_taps(struct lws_context *cx,
+		       const lws_quic_fuzz_taps_t *taps);
+#endif
+
 /**
  * struct lws_cc_ops - a QUIC congestion controller
  *

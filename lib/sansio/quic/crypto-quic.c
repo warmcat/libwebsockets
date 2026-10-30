@@ -442,6 +442,22 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	/* For simplicity, we just mark valid and rely on tx/rx logic */
 	k->valid = 1;
 
+#if defined(LWS_WITH_FUZZERS)
+	if (wsi->a.context->quic_fuzz_taps &&
+	    wsi->a.context->quic_fuzz_taps->secret) {
+		static const enum lws_tls_quic_aead aeads[] = {
+			LWS_TLS_QUIC_AEAD_AES_128_GCM,
+			LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305,
+			LWS_TLS_QUIC_AEAD_AES_256_GCM,
+		};
+
+		wsi->a.context->quic_fuzz_taps->secret(wsi, qn->peer_iscid.id,
+				qn->peer_iscid.len, type,
+				aeads[k->cipher_type % LWS_ARRAY_SIZE(aeads)],
+				secret, k->secret_len);
+	}
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	/* If this is the client deriving the early secret, check if the stream opts in */
 	if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && !qn->is_server) {
@@ -1825,6 +1841,14 @@ bail:
 
 	return ret;
 }
+
+#if defined(LWS_WITH_FUZZERS)
+void
+lws_quic_fuzz_set_taps(struct lws_context *cx, const lws_quic_fuzz_taps_t *taps)
+{
+	cx->quic_fuzz_taps = taps;
+}
+#endif
 
 int
 lws_quic_seal_packet(uint8_t *pkt, size_t len, size_t pn_offset,

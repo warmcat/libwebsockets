@@ -1063,6 +1063,9 @@ struct lws_context {
 
 	lws_quic_tx_credit_cb_t quic_tx_credit_cb;
 	const struct lws_cc_ops *quic_cc_ops;
+#if defined(LWS_WITH_FUZZERS) && defined(LWS_ROLE_QUIC)
+	const lws_quic_fuzz_taps_t *quic_fuzz_taps;
+#endif
 #if defined(LWS_WITH_TLS_PASSTHROUGH) && defined(LWS_ROLE_QUIC)
 	/*
 	 * quic passthrough (lib/io/passthrough.c): on a front, the flows it
