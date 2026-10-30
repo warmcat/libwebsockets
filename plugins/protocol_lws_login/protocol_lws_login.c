@@ -3472,9 +3472,11 @@ anon:
 			 * The session the request already has is good and
 			 * nowhere near due (pss->ja survived the expiry and
 			 * stale checks above): renewing it now is pointless,
-			 * and something asking for that repeatedly, eg a page
-			 * still running an older widget, would put each ask
-			 * on the auth server.  Say it's fine as it is.
+			 * and something off the widget's schedule asking for
+			 * that repeatedly, eg app code calling
+			 * lwsLoginSilentRefresh() from a reconnect loop, would
+			 * put each ask on the auth server.  Say it's fine as
+			 * it is.
 			 */
 			if (pss->ja && lws_jwt_auth_get_exp(pss->ja) >
 					(uint64_t)lws_now_secs() +

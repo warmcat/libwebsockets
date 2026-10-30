@@ -272,9 +272,8 @@ bounds what such requests can cost before the auth server has said anything:
    away, without an exchange: the widget renews a minute before its token
    expires (or at half the remaining life of a shorter-lived one, never
    sooner than 5s ahead), so nothing on that schedule asks so early, and
-   whatever does, eg a page still running an older widget, or an app calling
-   `lwsLoginSilentRefresh()` from a reconnect loop, costs the auth server
-   nothing.
+   whatever does, eg an app calling `lwsLoginSilentRefresh()` eagerly or from
+   a reconnect loop, costs the auth server nothing.
 
 The renewal kick is logged at `notice` naming the peer it is for, so one
 browser asking over and over is visible as such.  Of several same-named
