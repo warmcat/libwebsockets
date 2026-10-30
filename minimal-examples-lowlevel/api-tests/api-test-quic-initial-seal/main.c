@@ -24,7 +24,11 @@
  *     protected with the keys of the first Initial's DCID, given as odcid:
  *     it opens with those keys
  *
- *  5: what isn't a client v1 Initial it can protect is refused
+ *  5: lws_quic_seal_packet(), given the traffic secret of RFC 9001 A.5,
+ *     protects its short header ChaCha20-Poly1305 packet to the packet there
+ *
+ *  6: what isn't a client v1 Initial it can protect is refused, and what
+ *     lws_quic_seal_packet() can't protect with the secret it is given
  */
 
 #include <libwebsockets.h>
@@ -70,6 +74,22 @@ static const uint8_t hdr[] = {
 		0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0x00, 0x00,
 		0x44, 0x9e, 0x7b, 0x9a, 0xec, 0x34
 	};
+
+/* RFC 9001 A.5: a 1-RTT PING, its packet number 654360564 in 3 bytes */
+static const uint8_t cc_secret[] = {
+		0x9a, 0xc3, 0x12, 0xa7, 0xf8, 0x77, 0x46, 0x8e,
+		0xbe, 0x69, 0x42, 0x27, 0x48, 0xad, 0x00, 0xa1,
+		0x54, 0x43, 0xf1, 0x82, 0x03, 0xa0, 0x7d, 0x60,
+		0x60, 0xf6, 0x88, 0xf3, 0x0f, 0x21, 0x63, 0x2b
+	},
+	cc_plain[] = { 0x40, 0x00, 0xbf, 0xf4, 0x01 },
+	cc_protected[] = {
+		0x4c, 0xfe, 0x41, 0x89, 0x65, 0x5e, 0x5c, 0xd5,
+		0x5c, 0x41, 0xf6, 0x90, 0x80, 0x57, 0x5d, 0x79,
+		0x99, 0xc2, 0x5a, 0x5b, 0xfb
+	};
+
+#define CC_PN		654360564u
 
 #define PN_OFFSET	18
 #define PN_LEN		4
@@ -222,7 +242,21 @@ main(int argc, const char **argv)
 	}
 	lwsl_user("case 4: keys of the first Initial's DCID: PASS\n");
 
-	/* 5: refusals */
+	/* 5 */
+	memcpy(pkt, cc_plain, sizeof(cc_plain));
+	n = lws_quic_seal_packet(pkt, sizeof(cc_plain), 1, 3, CC_PN,
+				 LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305,
+				 cc_secret, sizeof(cc_secret));
+	if (n != (int)sizeof(cc_protected) ||
+	    memcmp(pkt, cc_protected, sizeof(cc_protected))) {
+		lwsl_err("case 5: seal returned %d, not the packet of RFC 9001 "
+			 "A.5\n", n);
+		lwsl_hexdump_err(pkt, sizeof(cc_protected));
+		return 1;
+	}
+	lwsl_user("case 5: short header from its traffic secret: PASS\n");
+
+	/* 6: refusals */
 	make_plain();
 	pkt[4] = 2; /* another version */
 	e |= lws_quic_seal_client_initial(pkt, PKT_LEN, PN_OFFSET, PN_LEN, 2,
@@ -255,11 +289,35 @@ main(int argc, const char **argv)
 	memset(long_cid, 0x5a, sizeof(long_cid));
 	e |= lws_quic_seal_client_initial(pkt, PKT_LEN, PN_OFFSET, PN_LEN, 2,
 					  long_cid, sizeof(long_cid)) != -1;
+
+	memcpy(pkt, cc_plain, sizeof(cc_plain));
+	/* a secret the length of another hash than its suite's */
+	e |= lws_quic_seal_packet(pkt, sizeof(cc_plain), 1, 3, CC_PN,
+				  LWS_TLS_QUIC_AEAD_AES_256_GCM, cc_secret,
+				  sizeof(cc_secret)) != -1;
+	e |= lws_quic_seal_packet(pkt, sizeof(cc_plain), 1, 3, CC_PN,
+				  LWS_TLS_QUIC_AEAD_UNKNOWN, cc_secret,
+				  sizeof(cc_secret)) != -1;
+	e |= lws_quic_seal_packet(pkt, sizeof(cc_plain), 1, 3, CC_PN,
+				  LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305, NULL,
+				  sizeof(cc_secret)) != -1;
+	/* no room for the sample */
+	e |= lws_quic_seal_packet(pkt, sizeof(cc_plain) - 1, 1, 3, CC_PN,
+				  LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305,
+				  cc_secret, sizeof(cc_secret)) != -1;
+	pkt[0] = 0x00; /* no fixed bit */
+	e |= lws_quic_seal_packet(pkt, sizeof(cc_plain), 1, 3, CC_PN,
+				  LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305,
+				  cc_secret, sizeof(cc_secret)) != -1;
+	pkt[0] = 0x42; /* pn length bits already set */
+	e |= lws_quic_seal_packet(pkt, sizeof(cc_plain), 1, 3, CC_PN,
+				  LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305,
+				  cc_secret, sizeof(cc_secret)) != -1;
 	if (e) {
-		lwsl_err("case 5: something that should be refused was not\n");
+		lwsl_err("case 6: something that should be refused was not\n");
 		return 1;
 	}
-	lwsl_user("case 5: refusals: PASS\n");
+	lwsl_user("case 6: refusals: PASS\n");
 
 	lwsl_user("Completed: PASS\n");
 
