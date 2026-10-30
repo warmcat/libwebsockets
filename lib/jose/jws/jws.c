@@ -503,19 +503,34 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		    struct lws_jwk *jwk, struct lws_context *context)
 {
 	enum enum_genrsa_mode padding = LGRSAM_PKCS1_1_5;
-	char temp[256];
-	int n, h_len, b = 3, temp_len = sizeof(temp), ret = -1;
+	int n, h_len, b = 3, temp_len, ret = -1;
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx hash_ctx;
 	struct lws_genec_ctx ecdsactx;
 	struct lws_genrsa_ctx rsactx;
 	struct lws_genhmac_ctx ctx;
+	struct lws_jose *jose;
+	char *temp;
+
+	/*
+	 * The parsed JOSE header members are stored in temp, none of them can
+	 * be longer than the header JSON they came from.  Together with the
+	 * struct lws_jose, it's too much for the stack of small targets, so
+	 * they are allocated together on the heap, sized for this header.
+	 */
+
+	if (map->len[LJWS_JOSE] >= INT_MAX)
+		return -1;
+
+	temp_len = (int)map->len[LJWS_JOSE] + 1;
+	jose = lws_malloc(sizeof(*jose) + (size_t)temp_len, __func__);
+	if (!jose)
+		return -1;
+	temp = (char *)&jose[1];
 
 	memset(&ecdsactx, 0, sizeof(ecdsactx));
 	memset(&rsactx, 0, sizeof(rsactx));
-	struct lws_jose jose;
-
-	lws_jose_init(&jose);
+	lws_jose_init(jose);
 
 	/*
 	 * only valid if no signature or key... an empty b64 signature block
@@ -526,13 +541,13 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 	    !map->buf[LJWS_UHDR])
 		b = 2;
 
-	if (lws_jws_parse_jose(&jose, map->buf[LJWS_JOSE], (int)map->len[LJWS_JOSE],
-			       temp, &temp_len) < 0 || !jose.alg) {
+	if (lws_jws_parse_jose(jose, map->buf[LJWS_JOSE], (int)map->len[LJWS_JOSE],
+			       temp, &temp_len) < 0 || !jose->alg) {
 		lwsl_notice("%s: parse failed\n", __func__);
 		goto bail;
 	}
 
-	if (!strcmp(jose.alg->alg, "none")) {
+	if (!strcmp(jose->alg->alg, "none")) {
 		/*
 		 * For security reasons, we do not allow "none" in sig_confirm.
 		 * If an application explicitly wants to accept unsigned tokens,
@@ -559,7 +574,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		goto bail;
 	}
 
-	switch (jose.alg->algtype_signing) {
+	switch (jose->alg->algtype_signing) {
 	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_PSS:
 	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_OAEP:
 		padding = LGRSAM_PKCS1_OAEP_PSS;
@@ -573,7 +588,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		/* 6(RSA): compute the hash of the payload into "digest" */
 
-		if (lws_genhash_init(&hash_ctx, jose.alg->hash_type))
+		if (lws_genhash_init(&hash_ctx, jose->alg->hash_type))
 			goto bail;
 
 		/*
@@ -593,7 +608,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 			goto bail;
 		}
-		// h_len = lws_genhash_size(jose.alg->hash_type);
+		// h_len = lws_genhash_size(jose->alg->hash_type);
 
 		if (lws_genrsa_create(&rsactx, jwk->e, context, padding,
 				LWS_GENHASH_TYPE_UNKNOWN)) {
@@ -603,7 +618,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		}
 
 		n = lws_genrsa_hash_sig_verify(&rsactx, digest,
-					       jose.alg->hash_type,
+					       jose->alg->hash_type,
 					       (uint8_t *)map->buf[LJWS_SIG],
 					       map->len[LJWS_SIG]);
 
@@ -622,7 +637,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		if (jwk->kty != LWS_GENCRYPTO_KTY_OCT)
 			goto bail;
 
-		h_len = (int)lws_genhmac_size(jose.alg->hmac_type);
+		h_len = (int)lws_genhmac_size(jose->alg->hmac_type);
 
 		/*
 		 * The HMAC comparison below is over h_len bytes of the
@@ -638,7 +653,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		/* 6) compute HMAC over payload */
 
-		if (lws_genhmac_init(&ctx, jose.alg->hmac_type,
+		if (lws_genhmac_init(&ctx, jose->alg->hmac_type,
 				     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf,
 				     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len))
 			goto bail;
@@ -735,7 +750,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		/* key must match the selected alg curve */
 		if (strcmp((const char *)jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
-				jose.alg->curve_name))
+				jose->alg->curve_name))
 			goto bail;
 
 		/*
@@ -757,7 +772,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		 * the SHA-256 hash function.
 		 */
 
-		if (lws_genhash_init(&hash_ctx, jose.alg->hash_type) ||
+		if (lws_genhash_init(&hash_ctx, jose->alg->hash_type) ||
 		    lws_genhash_update(&hash_ctx, map_b64->buf[LJWS_JOSE],
 						  map_b64->len[LJWS_JOSE]) ||
 		    lws_genhash_update(&hash_ctx, ".", 1) ||
@@ -769,7 +784,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 			goto bail;
 		}
 
-		h_len = (int)lws_genhash_size(jose.alg->hash_type);
+		h_len = (int)lws_genhash_size(jose->alg->hash_type);
 
 		if (lws_genecdsa_create(&ecdsactx, context, NULL)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
@@ -784,8 +799,8 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		}
 
 		n = lws_genecdsa_hash_sig_verify_jws(&ecdsactx, digest,
-						     jose.alg->hash_type,
-						     jose.alg->keybits_fixed,
+						     jose->alg->hash_type,
+						     jose->alg->keybits_fixed,
 						  (uint8_t *)map->buf[LJWS_SIG],
 						     map->len[LJWS_SIG]);
 		lws_genec_destroy(&ecdsactx);
@@ -804,7 +819,8 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 	ret = 0;
 
 bail:
-	lws_jose_destroy(&jose);
+	lws_jose_destroy(jose);
+	lws_free(jose);
 
 	return ret;
 }
@@ -1213,13 +1229,18 @@ lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
 			char *temp, int tl, char *out, size_t *out_len)
 {
 	struct lws_tokenize ts;
-	struct lws_jose jose;
+	struct lws_jose *jose;
 	int otl = tl, r = 1;
 	struct lws_jws jws;
 	size_t n;
 
+	/* struct lws_jose is a few KB, too big for small targets' stacks */
+	jose = lws_malloc(sizeof(*jose), __func__);
+	if (!jose)
+		return 1;
+
 	memset(&jws, 0, sizeof(jws));
-	lws_jose_init(&jose);
+	lws_jose_init(jose);
 
 	/*
 	 * Decode the b64.b64[.b64] compact serialization
@@ -1240,9 +1261,9 @@ lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
 	 * Parse the JOSE header
 	 */
 
-	if (lws_jws_parse_jose(&jose, jws.map.buf[LJWS_JOSE],
+	if (lws_jws_parse_jose(jose, jws.map.buf[LJWS_JOSE],
 			       (int)jws.map.len[LJWS_JOSE], temp, &tl) < 0 ||
-	    !jose.alg) {
+	    !jose->alg) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 		goto bail;
 	}
@@ -1253,18 +1274,18 @@ lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
 
 	lws_tokenize_init(&ts, alg_list, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 					 LWS_TOKENIZE_F_RFC7230_DELIMS);
-	n = strlen(jose.alg->alg);
+	n = strlen(jose->alg->alg);
 
 	do {
 		ts.e = (int8_t)lws_tokenize(&ts);
 		if (ts.e == LWS_TOKZE_TOKEN && ts.token_len == n &&
-		    !strncmp(jose.alg->alg, ts.token, ts.token_len))
+		    !strncmp(jose->alg->alg, ts.token, ts.token_len))
 			break;
 	} while (ts.e != LWS_TOKZE_ENDED);
 
 	if (ts.e != LWS_TOKZE_TOKEN) {
 		lwsl_err("%s: JOSE using alg %s (accepted: %s)\n", __func__,
-			 jose.alg->alg, alg_list);
+			 jose->alg->alg, alg_list);
 		goto bail;
 	}
 
@@ -1292,7 +1313,8 @@ lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
 
 bail:
 	lws_jws_destroy(&jws);
-	lws_jose_destroy(&jose);
+	lws_jose_destroy(jose);
+	lws_free(jose);
 
 	return r;
 }

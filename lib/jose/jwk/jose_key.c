@@ -553,28 +553,47 @@ bail:
 	return -1;
 }
 
+/*
+ * The parser and the key collation buffer together are a few KB, too much to
+ * put on the stack of small embedded targets, so they live on the heap for
+ * the duration of the import
+ */
+
+struct lws_jwk_import_parse {
+	struct lejp_ctx			jctx;
+	struct lws_jwk_parse_state	jps;
+};
+
 int
 lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 	       const char *in, size_t len)
 {
-	struct lejp_ctx jctx;
-	struct lws_jwk_parse_state jps;
+	struct lws_jwk_import_parse *ip;
 	int m;
 
-	lws_jwk_init_jps(&jps, jwk, cb, user);
+	ip = lws_malloc(sizeof(*ip), __func__);
+	if (!ip) {
+		/* callers may destroy the jwk after a failed import */
+		if (jwk)
+			memset(jwk, 0, sizeof(*jwk));
 
-	lejp_construct(&jctx, cb_jwk, &jps, cb ? jwk_outer_tok: jwk_tok,
-		       LWS_ARRAY_SIZE(jwk_tok));
+		return -1;
+	}
 
-	m = lejp_parse(&jctx, (uint8_t *)in, (int)len);
-	lejp_destruct(&jctx);
+	lws_jwk_init_jps(&ip->jps, jwk, cb, user);
+
+	lejp_construct(&ip->jctx, cb_jwk, &ip->jps,
+		       cb ? jwk_outer_tok: jwk_tok, LWS_ARRAY_SIZE(jwk_tok));
+
+	m = lejp_parse(&ip->jctx, (uint8_t *)in, (int)len);
+	lejp_destruct(&ip->jctx);
 
 	/*
 	 * The collation buffer and lejp's string buffer still hold the text
 	 * of the last members parsed, eg, a private d, qi or k
 	 */
-	lws_explicit_bzero(jps.b64, sizeof(jps.b64));
-	lws_explicit_bzero(jctx.buf, sizeof(jctx.buf));
+	lws_explicit_bzero(ip, sizeof(*ip));
+	lws_free(ip);
 
 	if (m < 0) {
 		lwsl_notice("%s: parse got %d\n", __func__, m);
