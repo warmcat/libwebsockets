@@ -927,13 +927,13 @@ lws_netdev_wifi_down_plat(struct lws_netdev_instance *nd)
 	esp_wifi_stop();
 
 	esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP,
-						&wnde32->instance_got_ip);
+						wnde32->instance_got_ip);
 #if defined(LWS_ESP32_IPV6)
 	esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_GOT_IP6,
 						wnde32->instance_got_ip6);
 #endif
 	esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID,
-						&wnde32->instance_any_id);
+						wnde32->instance_any_id);
 
 	wnde32->wnd.flags &= ~LNDIW_UP;
 
