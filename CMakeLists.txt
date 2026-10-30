@@ -46,18 +46,11 @@ set(LWS_WITH_POLL 1)
 if (ESP_PLATFORM AND NOT (DEFINED IDF_TARGET AND IDF_TARGET STREQUAL "linux"))
 	set(LWS_ESP_PLATFORM 1)
 	#set(CMAKE_TOOLCHAIN_FILE contrib/cross-esp32.cmake)
-	# IDF v6 (picolibc + mbedtls 4) makes errno thread-local and its lwip does
-	# not provide an errno of its own. Forcing LWIP_PROVIDE_ERRNO here bakes a
-	# non-TLS `extern int errno` into lws_config_private.h, which then fails to
-	# link against picolibc's TLS errno ("TLS definition ... mismatches non-TLS
-	# reference"). Only force it on older IDF (newlib).  IDF v6 is
-	# recognised by its esp_libc component (renamed from newlib); the
-	# mbedtls 4 cache result from lib/tls is only available on a
-	# reconfigure, since it is detected long after this point.
-	if (NOT LWS_HAVE_MBEDTLS_V4 AND
-	    NOT EXISTS $ENV{IDF_PATH}/components/esp_libc)
-		set(LWIP_PROVIDE_ERRNO 1)
-	endif()
+	# Don't set LWIP_PROVIDE_ERRNO on ESP-IDF: it bakes a plain
+	# `extern int errno` into lws_config_private.h, but IDF v6's picolibc and
+	# the newlib in recent IDF 5.x toolchains make errno thread-local, and the
+	# link then fails ("TLS definition ... mismatches non-TLS reference").
+	# lws uses the libc errno on every IDF version.
 endif()
 
 # it's at this point any toolchain file is brought in
