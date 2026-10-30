@@ -23,6 +23,7 @@ def esc(b):
         if c in (0x22,0x5c) or c<0x20 or c>0x7e: out+='\\x%02x'%c
         else: out+=chr(c)
     return '"'+out+'"'
+AMP='&amp;'   # the html entity, wanted by each markup dict
 def write(name, header, toks):
     seen=[]; 
     for t in toks:
@@ -48,7 +49,7 @@ h1+=['\r\n','\r\n\r\n',' HTTP/1.1\r\n',' HTTP/1.0\r\n','HTTP/1.1 ','HTTP/2.0','c
  '0\r\n\r\n','permessage-deflate','client_max_window_bits','server_max_window_bits','client_no_context_takeover',
  'server_no_context_takeover','13','dGhlIHNhbXBsZSBub25jZQ==','multipart/form-data; boundary=',
  'application/x-www-form-urlencoded','text/plain','Basic ','Digest ','realm=','nonce=','/','/..','/./','%2e%2e','%00',
- '?','&','#','*','http://','https://','Host: fuzz\r\n','Content-Length: ','Transfer-Encoding: chunked\r\n']
+ '?','&','#','*','http://','https://','Host: fuzz\r\n','Content-Length: ','Transfer-Encoding: chunked\r\n']  # NOSONAR: dictionary tokens
 write('h1',['Header names are the h1 lexer table (lib/sansio/http/lextable-strings.h)',
             'in its lower case and in the usual capitalisation, then values that',
             'steer the parser and the upgrades it can make.'],h1)
@@ -66,7 +67,7 @@ hp=[':authority',':method',':path',':scheme',':status',':protocol','GET','POST',
  'content-length','content-type','cookie','te','trailers','connection','host','accept-encoding','user-agent',
  'transfer-encoding','upgrade','keep-alive','proxy-connection']
 for x in hp:
-    h2.append(x); h2.append(bytes([len(x)])+x.encode()); h2.append(b'\x00'+bytes([len(x)])+x.encode())
+    h2.extend([x, bytes([len(x)])+x.encode(), b'\x00'+bytes([len(x)])+x.encode()])
 for i in (0x82,0x83,0x84,0x85,0x86,0x87,0x3f,0x20,0x3fe11f,0x40,0x10,0x00,0xff):
     if i<256: h2.append(bytes([i]))
 write('h2',['Input is h2 frames: whole frame headers of each type with the flags',
@@ -89,8 +90,7 @@ write('jose',['json syntax, and the JOSE / JWK member names and algorithm names.
 # lhp and lhp-layout: tag and property names lhp knows, and html / css
 # syntax
 lhp=lits('lib/misc/lhp.c')+lits('lib/misc/lhp-ss.c') if os.path.exists(R+'/lib/misc/lhp-ss.c') else lits('lib/misc/lhp.c')
-lhp=[x for x in lhp]
-syn=['<!DOCTYPE html>','<!--','-->','<','</','>','/>','="','"',"'",'=','&amp;','&lt;','&#x','&#','&nbsp;',
+syn=['<!DOCTYPE html>','<!--','-->','<','</','>','/>','="','"',"'",'=',AMP,'&lt;','&#x','&#','&nbsp;',
  '<style>','</style>','<html>','<head>','<body>','<div','<span','<img src="','<a href="','<table>','<tr>','<td>',
  '<br>','<p>','style="','class="','id="','{','}',':',';',',','.','#','*','>','+','~','[',']','(',')','!important',
  '@media','@font-face','@import','px','em','rem','%','vh','vw','pt','#fff','#000000','rgb(','rgba(','url(','calc(',
@@ -110,14 +110,14 @@ write('svg',['svg and xml syntax, path commands, transforms, then the element,',
 
 # hl: the language drivers' keywords and the markup of each
 hl=lits('lib/misc/hl-c.c')+['#include','#define','#if','/*','*/','//','"','\\"',"'",'\\','0x','1e','0b','u8"','L"',
- 'R"(',')"','@@ -1,2 +1,2 @@','--- a/','+++ b/','diff --git a/','\n+','\n-','\n ','<','</','>','<!--','-->','&amp;',
+ 'R"(',')"','@@ -1,2 +1,2 @@','--- a/','+++ b/','diff --git a/','\n+','\n-','\n ','<','</','>','<!--','-->',AMP,
  '```','```c\n','```diff\n','```html\n','\n```\n']
 write('hl',['C keywords from lib/misc/hl-c.c, then the syntax the c, diff and html',
             'drivers classify, and markdown fences.'],hl)
 
 md=['# ','## ','###### ','\n','\n\n','    ','\t','> ','- ','* ','+ ','1. ','1) ','---','***','___','```','~~~','`',
- '**','__','*','_','~~','[','](',')','![','<','>','<http://','\\','&amp;','&#','|','| --- |','|:---:|',':','---:',
- '- [ ] ','- [x] ','[^1]','[^1]: ','<div>','</div>','<!--','-->','http://','https://','www.']
+ '**','__','*','_','~~','[','](',')','![','<','>','<http://','\\',AMP,'&#','|','| --- |','|:---:|',':','---:',
+ '- [ ] ','- [x] ','[^1]','[^1]: ','<div>','</div>','<!--','-->','http://','https://','www.']  # NOSONAR: dictionary tokens
 write('md',['markdown block and inline syntax, gfm tables, task lists, footnotes',
             'and autolinks.'],md)
 

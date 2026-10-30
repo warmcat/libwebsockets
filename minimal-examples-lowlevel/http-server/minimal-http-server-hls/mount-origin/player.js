@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }).then(function(res) {
                 if (!res.ok)
                     throw new Error('HTTP ' + res.status);
-                var total = parseInt(res.headers.get('content-length'), 10);
+                var total = Number.parseInt(res.headers.get('content-length'), 10);
                 var done = 0;
                 var progress = new TransformStream({
                     transform: function(chunk, ctl) {

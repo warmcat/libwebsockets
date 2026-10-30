@@ -434,7 +434,7 @@ fza_files(void)
 	const char *tmp = getenv("TMPDIR");
 
 	lws_snprintf(fza_dir, sizeof(fza_dir), "%s/lws-fuzz-XXXXXX",
-		     tmp && strlen(tmp) < 40 ? tmp : "/tmp");
+		     tmp && strlen(tmp) < 40 ? tmp : "/tmp"); /* NOSONAR: mkdtemp */
 	if (!mkdtemp(fza_dir))
 		return 1;
 	atexit(fza_cleanup);
