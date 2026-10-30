@@ -163,6 +163,16 @@ struct pss_login {
  */
 #define LWS_LOGIN_REFRESH_SESSION_LEN		64
 
+/*
+ * The widget asks for a renewal this long before its token's exp, or at half
+ * the remaining life of a token with less than twice this left (see the
+ * refresh timer in canned_js, which must agree).  So a request for one while
+ * the presented token still has more than twice this to run is not one the
+ * widget's schedule makes: whatever sent it, there is nothing to renew yet,
+ * and it is answered without costing the auth server an exchange.
+ */
+#define LWS_LOGIN_RENEW_LEAD_SECS		60
+
 /* default renewal bounds, see vhd->renewals_max(_per_host) */
 #define LWS_LOGIN_RENEWALS_MAX_DEF		256
 #define LWS_LOGIN_RENEWALS_MAX_PER_HOST_DEF	16
@@ -420,7 +430,19 @@ static const char * const canned_js =
          * 30d (2592000s) is well past any sensible session token lifetime
          * while still guarding against nonsensical multi-year exp values. */
         "if(m>0&&m<2592000){"
-        "setTimeout(async function(){"
+        /* One pair of timers per page: every render schedules them again,
+         * so drop the last render's pair first rather than pile them up. */
+        "clearTimeout(window.__lwsLoginTmR);clearTimeout(window.__lwsLoginTmX);"
+        /* Renew LWS_LOGIN_RENEW_LEAD_SECS (60s) before exp, or at half the
+         * remaining life of a shorter-lived token, and never sooner than 5s
+         * from now: this used to be 0 for any token within 60s of its exp,
+         * so a renewal that did not move the exp the page sees went straight
+         * round again, as fast as the round trip to the auth server allowed.
+         * And if the last renewal 'ok'd but the status still shows the exp it
+         * was asked to renew, asking again won't help: leave it to the expiry
+         * timer below. */
+        "if(st.exp!==window.__lwsLoginRenewedExp)"
+        "window.__lwsLoginTmR=setTimeout(async function(){"
         "var sr=await window.lwsLoginSilentRefresh();"
         /* On a successful renewal, re-render to pick up the fresh exp.  On any
          * failure ('dead' or 'transient'), do NOT escalate or immediately
@@ -431,13 +453,13 @@ static const char * const canned_js =
          * denial page.  Instead let the JWT ride out: the expiry timer below
          * fires at actual expiry, re-fetches status, and only then (if the
          * session is genuinely dead) does the not-logged-in branch escalate. */
-        "if(sr==='ok')window.renderLwsLoginStatus(d);"
-        "},(m>60?m-60:0)*1000);"
+        "if(sr==='ok'){window.__lwsLoginRenewedExp=st.exp;window.renderLwsLoginStatus(d);}"
+        "},Math.max(m>120?m-60:m/2,5)*1000);"
         /* Safety net: at actual expiry, re-render regardless.  If the JWT has
          * expired and refresh never succeeded, this transitions cleanly to the
          * not-logged-in branch (which decides escalation) rather than leaving
          * a stale logged-in box. */
-        "setTimeout(function(){window.renderLwsLoginStatus(d);},(m+1)*1000);"
+        "window.__lwsLoginTmX=setTimeout(function(){window.renderLwsLoginStatus(d);},(m+1)*1000);"
         "}"
         "}"
         "}else{"
@@ -841,6 +863,9 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	struct pending_login_refresh *ps;
 	struct lws_client_connect_info i;
 	char ip[64], host_key[LWS_HOST_KEY_LEN];
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	char desc[LWS_PEER_DESC_LEN];
+#endif
 	lws_parse_uri_t *puri;
 
 	/*
@@ -954,8 +979,12 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 		return 0;
 	}
 
-	lwsl_wsi_notice(wsi, "initiating silent renewal via "
-			"%s/api/sso_exchange (%s)", vhd->auth_api_url,
+	/* name who it's for: one browser asking over and over shows up here */
+	lwsl_wsi_notice(wsi, "peer %s: initiating silent renewal via "
+			"%s/api/sso_exchange (%s)",
+			lws_peer_describe(wsi, desc, sizeof(desc),
+					  LWS_PEER_DESC_BARE_SINGLE),
+			vhd->auth_api_url,
 			mode == LWS_LOGIN_REFRESH_COLDLOAD ? "cold-load" : "bff");
 
 	memset(&i, 0, sizeof(i));
@@ -3438,6 +3467,29 @@ anon:
 			char csrf[64] = {0};
 			size_t csrf_len = sizeof(csrf);
 			int ck_len;
+
+			/*
+			 * The session the request already has is good and
+			 * nowhere near due (pss->ja survived the expiry and
+			 * stale checks above): renewing it now is pointless,
+			 * and something asking for that repeatedly, eg a page
+			 * still running an older widget, would put each ask
+			 * on the auth server.  Say it's fine as it is.
+			 */
+			if (pss->ja && lws_jwt_auth_get_exp(pss->ja) >
+					(uint64_t)lws_now_secs() +
+					2 * LWS_LOGIN_RENEW_LEAD_SECS) {
+				lwsl_wsi_info(wsi, "background refresh not due "
+					      "yet, session left as it is");
+
+				return simple_response(wsi, pss,
+						"{\"success\":1}",
+						"application/json",
+						HTTP_STATUS_OK,
+						(unsigned char *)buf + LWS_PRE,
+						(unsigned char **)&p,
+						(unsigned char *)end);
+			}
 
 			ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
 

@@ -52,6 +52,14 @@
  *  - "anonymous": no auth cookies at all -> still denied with 401 (an
  *    anonymous visitor's renewal probe must never start an exchange);
  *
+ *  - "refresh-not-due": a paired jar whose session token is live and
+ *    nowhere near its exp -> 200 with no exchange and nothing rotated: there
+ *    is nothing to renew, and a page asking anyway, eg from a loop, must not
+ *    put each ask on the auth server;
+ *
+ *  - "refresh-due": the same, but the token is under a minute from its exp
+ *    -> the renewal runs, 200 + rotated cookies;
+ *
  *  - "refresh-junk", "refresh-junk-coldload": an auth_refresh_session value
  *    not in the shape the auth server mints (64 hex chars) -> no exchange,
  *    401 / 303 as for no refresh session at all (G-166); anybody can send
@@ -98,7 +106,11 @@
  *    preauth strings reaching the admin's page over WS are
  *    unauthenticated-attacker-controlled), and the device_code query value
  *    must be encodeURIComponent'd.  Asserting against the served bytes (not
- *    the C source) keeps the fence honest about what deployments get.
+ *    the C source) keeps the fence honest about what deployments get.  It
+ *    also fences the refresh timer: it is cleared before each render
+ *    schedules it again, and never fires at once, as it did for a token
+ *    within a minute of its exp, which asked for renewal after renewal as
+ *    fast as the round trip to the auth server allowed.
  *
  * plus a widget-CSS self-contained colour-scheme fence:
  *
@@ -306,7 +318,7 @@ static char	o_origin_good[64], o_origin_evil[64], o_referer_good[64];
 			"auth_csrf=fedcba9876543210fedcba9876543210"
 static char	ck_live[1024], ck_revoked[1024], ck_regranted[1024],
 		ck_dev_gone[1024], ck_user_gone[1024], ck_nogrant[1024],
-		ck_u2_renewed[1024];
+		ck_u2_renewed[1024], ck_not_due[1024], ck_due[1024];
 
 /*
  * Throwaway P-256 keypair: parsed by the plugin at init to validate tokens,
@@ -334,6 +346,14 @@ static const struct scenario scenarios[] = {
 	  "POST", 0, 0, 0, 1, NULL, NULL },
 	{ "anonymous", "/.lws-login-refresh", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
 	  "POST", 0, 0, 0, 0, NULL, NULL },
+
+	/* a live session nowhere near its exp has nothing to renew: no
+	 * exchange, nothing rotated, but not a 401 the widget takes as dead */
+	{ "refresh-not-due", "/.lws-login-refresh", NULL, NULL, NULL,
+	  ck_not_due, 200u, 0, 0, 0, "POST", 0, 0, 0, 0, NULL, NULL },
+	/* ... while one close to it is renewed */
+	{ "refresh-due", "/.lws-login-refresh", NULL, NULL, NULL,
+	  ck_due, 200u, 1, 1, 0, "POST", 0, 0, 0, 0, NULL, NULL },
 
 	/* G-166: only an auth_refresh_session value in the shape the auth
 	 * server mints may cost an exchange with it */
@@ -1715,11 +1735,15 @@ step_advance(void)
 			"window.lwsLoginEsc(d.name)",
 			"window.lwsLoginEsc(st.identity)",
 			"encodeURIComponent(d.user_code)",
+			/* one refresh timer, never due at once */
+			"clearTimeout(window.__lwsLoginTmR)",
+			"Math.max(m>120?m-60:m/2,5)",
 		};
 		static const char * const fence_banned[] = {
 			"+d.name+'",
 			"+st.identity+'",
 			"+d.user_code+'",
+			"(m>60?m-60:0)",
 		};
 		size_t fi;
 		int bad = got_body_trunc;
@@ -2005,13 +2029,14 @@ sigint_handler(int sig)
 }
 
 /*
- * A Cookie: header carrying a genuinely-signed, unexpired session JWT in the
- * shape the auth server mints, optionally followed by more of the jar
+ * A Cookie: header carrying a genuinely-signed session JWT in the shape the
+ * auth server mints, expiring life seconds from now, optionally followed by
+ * more of the jar
  */
 static int
 mint_session_cookie(struct lws_jwk *jwk, char *ck, size_t ck_len,
 		    unsigned int uid, unsigned int sec, const char *grants,
-		    const char *did, const char *jar)
+		    const char *did, const char *jar, unsigned int life)
 {
 	unsigned long long now = (unsigned long long)time(NULL);
 	char tok[1024], temp[2048];
@@ -2025,7 +2050,7 @@ mint_session_cookie(struct lws_jwk *jwk, char *ck, size_t ck_len,
 				 "\"exp\":%llu,\"grants\":{%s}}",
 				 uid, sec, did ? "\"did\":\"" : "",
 				 did ? did : "", did ? "\"," : "", now,
-				 now + 3600, grants)) {
+				 now + life, grants)) {
 		lwsl_err("%s: session token mint failed\n", __func__);
 		return 1;
 	}
@@ -2193,29 +2218,39 @@ int main(int argc, const char **argv)
 		 * and one stale each way the records can stop backing one
 		 */
 		if (mint_session_cookie(&jwk, ck_live, sizeof(ck_live), 1, 5,
-					"\"default-service\":1", NULL, NULL) ||
+					"\"default-service\":1", NULL, NULL,
+					3600) ||
 		    /* revoked by an epoch bump, and its grants differ too */
 		    mint_session_cookie(&jwk, ck_revoked, sizeof(ck_revoked),
 					1, 4, "\"default-service\":2", NULL,
-					NULL) ||
+					NULL, 3600) ||
 		    mint_session_cookie(&jwk, ck_regranted,
 					sizeof(ck_regranted), 1, 5,
 					"\"default-service\":2", NULL,
-					BFF_REFRESH_JAR) ||
+					BFF_REFRESH_JAR, 3600) ||
 		    mint_session_cookie(&jwk, ck_dev_gone, sizeof(ck_dev_gone),
 					1, 5, "\"default-service\":1",
-					"dev-gone", NULL) ||
+					"dev-gone", NULL, 3600) ||
 		    mint_session_cookie(&jwk, ck_user_gone,
 					sizeof(ck_user_gone), 9, 0,
-					"\"default-service\":1", NULL, NULL) ||
+					"\"default-service\":1", NULL, NULL,
+					3600) ||
 		    /* backed by the records, but not for the gated mount */
 		    mint_session_cookie(&jwk, ck_nogrant, sizeof(ck_nogrant),
 					2, 5, "\"other-service\":1", NULL,
-					BFF_REFRESH_JAR_U2) ||
+					BFF_REFRESH_JAR_U2, 3600) ||
 		    /* what renewing it gets: the same, uid 2's records */
 		    mint_session_cookie(&jwk, ck_u2_renewed,
 					sizeof(ck_u2_renewed), 2, 5,
-					"\"other-service\":1", NULL, NULL)) {
+					"\"other-service\":1", NULL, NULL,
+					3600) ||
+		    /* backed, with a refresh jar: not due, then due */
+		    mint_session_cookie(&jwk, ck_not_due, sizeof(ck_not_due),
+					1, 5, "\"default-service\":1", NULL,
+					BFF_REFRESH_JAR, 3600) ||
+		    mint_session_cookie(&jwk, ck_due, sizeof(ck_due), 1, 5,
+					"\"default-service\":1", NULL,
+					BFF_REFRESH_JAR, 30)) {
 			lws_jwk_destroy(&jwk);
 			goto bail;
 		}

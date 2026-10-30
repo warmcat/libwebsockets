@@ -266,7 +266,21 @@ bounds what such requests can cost before the auth server has said anything:
    renewal is answered `503` and a cold-load falls back to the `303`;
  - a renewal ends with the browser request it is for: if the browser goes
    away first, the side channel to the auth server is closed and its state
-   freed at once.
+   freed at once;
+ - a background renewal asked for while the request's own session token is
+   good and still has more than two minutes to run is answered `200` straight
+   away, without an exchange: the widget renews a minute before its token
+   expires (or at half the remaining life of a shorter-lived one, never
+   sooner than 5s ahead), so nothing on that schedule asks so early, and
+   whatever does, eg a page still running an older widget, or an app calling
+   `lwsLoginSilentRefresh()` from a reconnect loop, costs the auth server
+   nothing.
+
+The renewal kick is logged at `notice` naming the peer it is for, so one
+browser asking over and over is visible as such.  Of several same-named
+`auth_session` cookies in the jar (eg host-only alongside `Domain=`), the live
+one that expires last is the session, so a renewal minted into one cookie
+scope is not shadowed by an older token still alive in the other.
 
 ### CSRF sidecar self-heal
 
