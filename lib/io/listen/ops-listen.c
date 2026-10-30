@@ -658,7 +658,12 @@ deal:
 
 		if (!a->info || !a->info->vh_listen_sockfd) {
 			if (a->vhost->listen_port &&
-			    lws_fi(&a->vhost->fic, "listen_port_taken"))
+			    (lws_fi(&a->vhost->fic, "listen_port_taken")
+#if defined(LWS_WITH_IPV6)
+			     || (a->af == AF_INET6 &&
+				 lws_fi(&a->vhost->fic, "listen_port_taken_v6"))
+#endif
+			    ))
 				/* as if something has the port in this af */
 				is = LWS_ITOSA_BUSY;
 			else
@@ -827,6 +832,9 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 {
 	struct vh_sock_args a;
 	int n, tries = 0;
+#if defined(LWS_WITH_IPV6)
+	int v6_first;
+#endif
 
 	a.info = info;
 	a.vhost = vhost;
@@ -908,7 +916,21 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 again:
 	n = 0;
 #if defined(LWS_WITH_IPV6)
-	if (!(LWS_IPV6_ENABLED(vhost) &&
+	/*
+	 * Asked for any free port, the first af's bind chooses it.  When the
+	 * other af has the port it chose, choosing again in the same af can
+	 * keep finding ports the other af has: on Sai's macOS, ipv4 chose 8
+	 * ports in a row that ipv6 had.  So each time we start again, the
+	 * other af chooses.
+	 */
+	v6_first = tries & 1;
+
+	if (v6_first && LWS_IPV6_ENABLED(vhost)) {
+		a.af = AF_INET6;
+		n = _lws_vhost_init_server_af(&a);
+	}
+
+	if (!n && !(LWS_IPV6_ENABLED(vhost) &&
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) &&
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 #endif
@@ -922,7 +944,7 @@ again:
 #if defined(LWS_WITH_IPV6)
 	}
 
-	if (!n && LWS_IPV6_ENABLED(vhost)) {
+	if (!n && !v6_first && LWS_IPV6_ENABLED(vhost)) {
 		a.af = AF_INET6;
 		n = _lws_vhost_init_server_af(&a);
 	}
@@ -934,7 +956,7 @@ again:
 		 * Asked for any free port, the first af's bind chose one, and
 		 * a later af has to bind the same port number, which something
 		 * may have in that af already.  Give up that port and start
-		 * again with another.
+		 * again with another, chosen by the other af.
 		 */
 		lwsl_vhost_notice(vhost, "port %d not free in every af, "
 				  "trying another", vhost->listen_port);

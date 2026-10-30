@@ -13,10 +13,18 @@
  * test's vhost failed to come up with EADDRINUSE that way.  lws must give
  * that port up and start again with another.
  *
- * The vhost here is given the "listen_port_taken" fault once, so the second
- * family's bind finds the port taken.  It must still come up, on a port both
- * families listen on: a client of 127.0.0.1 and one of ::1 must each get an
- * http response from it.
+ * Two vhosts here are given faults that make the second family's bind find
+ * the port taken:
+ *
+ *  - "listen_port_taken" once: starting again once with another port is
+ *    enough;
+ *
+ *  - "listen_port_taken_v6" every time: IPv6 has every port IPv4 chooses,
+ *    as it had 8 in a row on Sai's macOS.  Starting again with IPv4
+ *    choosing is never enough: IPv6 must choose.
+ *
+ * Each must still come up, on a port both families listen on: a client of
+ * 127.0.0.1 and one of ::1 must each get an http response from it.
  */
 
 #include <libwebsockets.h>
@@ -25,18 +33,37 @@
 
 #define LAP_TIMEOUT_S		5
 
-static struct lws_context *context;
-static lws_sorted_usec_list_t sul_watchdog;
-static int answered[2], errors, timed_out;
+static const struct lap_vhost {
+	const char		*name;
+	const char		*fault;
+	char			type;	/* LWSFI_* */
+} lap_vhosts[] = {
+	{ "any",	"listen_port_taken",	LWSFI_DETERMINISTIC },
+	{ "any-v6",	"listen_port_taken_v6",	LWSFI_ALWAYS },
+};
 
 static const char * const lap_ads[] = { "127.0.0.1", "::1" };
+
+#define LAP_CLIENTS (LWS_ARRAY_SIZE(lap_vhosts) * LWS_ARRAY_SIZE(lap_ads))
+
+struct lap_client {
+	const struct lap_vhost	*v;
+	const char		*ads;
+	int			port;
+	int			answered;
+};
+
+static struct lws_context *context;
+static lws_sorted_usec_list_t sul_watchdog;
+static struct lap_client clients[LAP_CLIENTS];
+static int done, timed_out;
 
 /* each client was answered, or failed */
 
 static void
 lap_check_done(struct lws_context *cx)
 {
-	if (answered[0] + answered[1] + errors == (int)LWS_ARRAY_SIZE(lap_ads))
+	if (++done == (int)LAP_CLIENTS)
 		lws_default_loop_exit(cx);
 }
 
@@ -44,21 +71,21 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
-	int *idx = (int *)lws_get_opaque_user_data(wsi);
+	struct lap_client *c = (struct lap_client *)
+					lws_get_opaque_user_data(wsi);
 
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		/* any answer will do: the server has no mounts */
-		lwsl_user("%s: %s answered %u\n", __func__, lap_ads[*idx],
-			  lws_http_client_http_response(wsi));
-		answered[*idx] = 1;
+		lwsl_user("%s: %s: %s answered %u\n", __func__, c->v->name,
+			  c->ads, lws_http_client_http_response(wsi));
+		c->answered = 1;
 		lap_check_done(lws_get_context(wsi));
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_err("%s: %s: %s\n", __func__, lap_ads[*idx],
+		lwsl_err("%s: %s: %s: %s\n", __func__, c->v->name, c->ads,
 			 in ? (const char *)in : "connection error");
-		errors++;
 		lap_check_done(lws_get_context(wsi));
 		break;
 
@@ -94,13 +121,13 @@ sigint_handler(int sig)
 
 int main(int argc, const char **argv)
 {
-	static int idx[LWS_ARRAY_SIZE(lap_ads)];
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_vhost *vh, *vh_cli;
 	int port, result = 1;
+	struct lap_client *c;
 	lws_fi_t fi;
-	size_t n;
+	size_t n, m;
 
 	signal(SIGINT, sigint_handler);
 	lws_context_info_defaults(&info, NULL);
@@ -117,35 +144,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	/* the server, on any free port, the first one it binds found taken */
-
-	info.port		= 0;
-	info.vhost_name		= "any";
-	info.protocols		= protocols_srv;
-
-	memset(&fi, 0, sizeof(fi));
-	fi.name			= "listen_port_taken";
-	fi.type			= LWSFI_DETERMINISTIC;
-	fi.count		= 1;
-	if (lws_fi_add(&info.fic, &fi)) {
-		lwsl_err("can't add the fault\n");
-		goto bail;
-	}
-
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("FAIL: the vhost on any port didn't come up\n");
-		goto bail;
-	}
-
-	port = lws_get_vhost_listen_port(vh);
-	lwsl_user("the vhost listens on port %d\n", port);
-	if (port <= 0) {
-		lwsl_err("FAIL: no port\n");
-		goto bail;
-	}
-
-	/* a client of each family */
+	/* the clients' vhost: the server vhosts' faults are on their info */
 
 	info.port		= CONTEXT_PORT_NO_LISTEN;
 	info.vhost_name		= "cli";
@@ -157,24 +156,67 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	for (n = 0; n < LWS_ARRAY_SIZE(lap_ads); n++) {
-		idx[n] = (int)n;
+	/* the servers, on any free port, the second family's bind faulted */
+
+	for (n = 0; n < LWS_ARRAY_SIZE(lap_vhosts); n++) {
+		info.port		= 0;
+		info.vhost_name		= lap_vhosts[n].name;
+		info.protocols		= protocols_srv;
+
+		/* the vhost takes the faults on info.fic, leaving it empty */
+		memset(&fi, 0, sizeof(fi));
+		fi.name			= lap_vhosts[n].fault;
+		fi.type			= lap_vhosts[n].type;
+		fi.count		= 1;
+		if (lws_fi_add(&info.fic, &fi)) {
+			lwsl_err("can't add the fault\n");
+			goto bail;
+		}
+
+		vh = lws_create_vhost(context, &info);
+		/* ... unless it failed before it took them */
+		lws_fi_destroy(&info.fic);
+		if (!vh) {
+			lwsl_err("FAIL: %s: the vhost on any port didn't come "
+				 "up\n", lap_vhosts[n].name);
+			goto bail;
+		}
+
+		port = lws_get_vhost_listen_port(vh);
+		lwsl_user("%s listens on port %d\n", lap_vhosts[n].name, port);
+		if (port <= 0) {
+			lwsl_err("FAIL: %s: no port\n", lap_vhosts[n].name);
+			goto bail;
+		}
+
+		for (m = 0; m < LWS_ARRAY_SIZE(lap_ads); m++) {
+			c = &clients[n * LWS_ARRAY_SIZE(lap_ads) + m];
+			c->v	= &lap_vhosts[n];
+			c->ads	= lap_ads[m];
+			c->port	= port;
+		}
+	}
+
+	/* a client of each family, for each server */
+
+	for (n = 0; n < LAP_CLIENTS; n++) {
+		c = &clients[n];
 
 		memset(&i, 0, sizeof(i));
 		i.context		= context;
 		i.vhost			= vh_cli;
-		i.address		= lap_ads[n];
-		i.host			= lap_ads[n];
-		i.port			= port;
+		i.address		= c->ads;
+		i.host			= c->ads;
+		i.port			= c->port;
 		i.path			= "/";
 		i.method		= "GET";
 		i.protocol		= protocols_cli[0].name;
 		i.local_protocol_name	= protocols_cli[0].name;
-		i.opaque_user_data	= &idx[n];
+		i.opaque_user_data	= c;
 
 		if (!lws_client_connect_via_info(&i))
 			/* failing at once, it was told of it already */
-			lwsl_err("%s: can't connect\n", lap_ads[n]);
+			lwsl_err("%s: %s: can't connect\n", c->v->name, c->ads);
 	}
 
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
@@ -188,10 +230,11 @@ int main(int argc, const char **argv)
 		lwsl_err("FAIL: not answered inside %ds\n", LAP_TIMEOUT_S);
 		result = 1;
 	}
-	for (n = 0; n < LWS_ARRAY_SIZE(lap_ads); n++)
-		if (!answered[n]) {
-			lwsl_err("FAIL: nothing listens on %s port %d\n",
-				 lap_ads[n], port);
+	for (n = 0; n < LAP_CLIENTS; n++)
+		if (!clients[n].answered) {
+			lwsl_err("FAIL: %s: nothing listens on %s port %d\n",
+				 clients[n].v->name, clients[n].ads,
+				 clients[n].port);
 			result = 1;
 		}
 

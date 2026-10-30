@@ -315,6 +315,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |srv vhost|`vh`|`h3_qpack_blocked_streams_0`|h3 server SETTINGS let no stream wait for QPACK inserts (SETTINGS_QPACK_BLOCKED_STREAMS 0), and the server keeps to it: a peer may not send a field section referring to an insert before the server acknowledged it (LWS_ROLE_H3)|
 |srv vhost|`vh`|`h3_settings_no_wt`|h3 server SETTINGS do not enable WebTransport or HTTP Datagrams (LWS_ROLE_WT)|
 |srv vhost|`vh`|`listen_port_taken`|A listen socket's bind to the port the vhost already has, eg the one its first address family's bind chose for a vhost asking for any port, finds it taken (EADDRINUSE)|
+|srv vhost|`vh`|`listen_port_taken_v6`|As `listen_port_taken`, only for an IPv6 listen socket: IPv6 has the port IPv4 chose|
 |srv vhost|`vh=xxx/wsi`|`listenskt`|Causes `socket()` allocation for vhost listen socket to fail|
 |cli wsi|`wsi`|`dnsfail`|Sync: `getaddrinfo()` is not called and a EAI_FAIL return synthesized, Async: request not started and immediate fail synthesized|
 |cli wsi|`wsi`|`sendfail`|Attempts to send data on the wsi socket fail|
