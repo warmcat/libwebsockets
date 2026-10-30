@@ -23,15 +23,31 @@ sdevent, glib and uloop, as well as custom event libs.
 
 ![overview](./doc-assets/lws-overview.png)
 
-**V5.0 now available... please upgrade to this or preferably v5.0-stable or main, as there are many
-security fixes only available on v5.0-stable and main; pre-5.0 releases are effectively deprecated.**
+**V5.1 now available... please upgrade to this or preferably v5.1-stable or main, as there are many
+security fixes only available on v5.1-stable and main; pre-5.1 releases are effectively deprecated.**
 
  - There's a continuous incremental security audit in place finding and fixing new problems all the
-time at the moment, it's not a sign the code is weak: it's a sign I am using frontier models to
-make it extremely strong.
+time at the moment, it's not a sign the code is weak: it's a sign I am using frontier models (and
+fuzzing) to make it extremely strong.
 
  - Code is pushed to main-dev now, Sai runs on it, if it passes, it is auto-promoted to main.
 Therefore from now on main only contains sai-tested pushes.
+
+** v5.1 **
+
+Aside from the security hardening, the major change is an internal refactor in the library that
+makes a hard split internally between "sans-io" protocol implementation - everything that
+operates on bare buffers + time-of-day passed in - and "io", everything that makes contact
+between those buffers and actual sockets.  Part of the reason for that is to ease mocking and
+measurement and tracking of api boundaries, for reasons that should become clear by the next
+release.
+
+Despite being a massive change in the sources, this is essentially a NOP.  The amount of api
+tests and examples that run in CI has basically been doubled and there are new CI build
+dimensions for coverage and fuzzing.
+
+Despite the changes there is minimal bloat, and we still target ESP32 and microcontrollers as
+well as other embedded, cloud, android etc.
 
 ** NEW features available on v5.0 **
 
