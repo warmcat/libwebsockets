@@ -21,6 +21,12 @@
  *    see that, so the server's side of the test tells it, and it resumes to
  *    find the file cut off.
  *
+ * The server's stall counts from the last it sent, and the last the client
+ * read before it stopped was sent a little before that, so the server can
+ * give up a few ms short of http_response_stall_secs after the client
+ * stopped.  It must still be well past timeout_secs, the cut the file sender
+ * used to make.
+ *
  * The second does not resume at a set time, because a peer that stops
  * reading may still take a little more, which is progress that renews the
  * watchdog.  On the BSDs and macOS, the sender's persist timer probes the
@@ -48,6 +54,8 @@
 #define PAUSE_AT	(1024 * 1024)
 /* how long a client that never resumes waits for the server to give up */
 #define CUTOFF_GUARD_SECS	30
+/* how much sooner than STALL_SECS the client may see it cut off, see above */
+#define CUTOFF_SKEW_MS		500
 
 static const struct run {
 	const char	*name;
@@ -94,7 +102,8 @@ run_end(void)
 
 		lwsl_user("%s: %s: cut off %lldms after it stopped reading\n",
 			  __func__, r->name, (long long)(us / LWS_US_PER_MS));
-		if (us < (lws_usec_t)STALL_SECS * LWS_US_PER_SEC) {
+		if (us < (lws_usec_t)STALL_SECS * LWS_US_PER_SEC -
+			 (lws_usec_t)CUTOFF_SKEW_MS * LWS_US_PER_MS) {
 			lwsl_err("%s: %s: cut off sooner than "
 				 "http_response_stall_secs\n", __func__,
 				 r->name);

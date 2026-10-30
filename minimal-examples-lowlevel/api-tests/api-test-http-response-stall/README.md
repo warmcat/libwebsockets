@@ -21,6 +21,12 @@ The client reads 1MB of it and stops reading with rx flow control:
    to find the file cut off.  It fails if the server has not given up 30s
    after the client stopped.
 
+The server's stall counts from the last it sent, and what the client read
+last before it stopped was sent a little before that, so the server can give
+up a few ms short of `http_response_stall_secs` after the client stopped: the
+test allows it to be 500ms short, still far past the `timeout_secs` cut the
+file sender used to make.
+
 A peer that stops reading may still take a little more, which renews the
 watchdog: on the BSDs and macOS, the sender's persist timer probes the closed
 window after 5s, and the receiver opens it for the room it had held back from
