@@ -416,6 +416,44 @@ sigint_handler(int sig)
 	hqb_finish("interrupted", 0);
 }
 
+/*
+ * The quic listener, on udp.  "localhost" is both 127.0.0.1 and ::1, and a
+ * client may try either first: on FreeBSD, ::1.  A udp socket bound to the
+ * name gets only its first address, so a client trying the other relies on
+ * an ICMP port unreachable to move on, which can be lost, or not sent when
+ * the kernel rate limits them under parallel tests.  So for "localhost",
+ * listen on both.
+ */
+static int
+quic_listen(struct lws_vhost *vh, int port, const char *protocol)
+{
+	static const char * const lo[] = {
+#if defined(LWS_WITH_IPV4)
+		"127.0.0.1",
+#endif
+#if defined(LWS_WITH_IPV6)
+		"::1",
+#endif
+	};
+	size_t n;
+
+	if (!vh)
+		return 1;
+
+	if (strcmp(server_addr, "localhost"))
+		return !lws_create_adopt_udp(vh, server_addr, port,
+					     LWS_CAUDP_BIND, protocol, NULL,
+					     NULL, NULL, NULL, "quic_listen");
+
+	for (n = 0; n < LWS_ARRAY_SIZE(lo); n++)
+		if (!lws_create_adopt_udp(vh, lo[n], port, LWS_CAUDP_BIND,
+					  protocol, NULL, NULL, NULL, NULL,
+					  "quic_listen"))
+			return 1;
+
+	return 0;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -466,9 +504,7 @@ main(int argc, const char **argv)
 	info.alpn			= "h3";
 	info.ssl_cert_filepath		= cert;
 	info.ssl_private_key_filepath	= key;
-	if (!lws_create_adopt_udp(lws_create_vhost(context, &info),
-				  server_addr, port, LWS_CAUDP_BIND, "http",
-				  NULL, NULL, NULL, NULL, "quic_listen"))
+	if (quic_listen(lws_create_vhost(context, &info), port, "http"))
 		goto bail;
 
 	/* the server for part 4, letting no stream wait for inserts */
@@ -479,9 +515,7 @@ main(int argc, const char **argv)
 		goto bail;
 	info.vhost_name = "localhost-nb";
 	vh = lws_create_vhost(context, &info); /* it takes the fault */
-	if (!vh || !lws_create_adopt_udp(vh, server_addr, port_nb,
-					 LWS_CAUDP_BIND, "http", NULL, NULL,
-					 NULL, NULL, "quic_listen"))
+	if (!vh || quic_listen(vh, port_nb, "http"))
 		goto bail;
 
 	info.port			= CONTEXT_PORT_NO_LISTEN;

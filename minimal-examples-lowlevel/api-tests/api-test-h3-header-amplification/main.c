@@ -715,6 +715,44 @@ sigint_handler(int sig)
 	lws_default_loop_exit(context);
 }
 
+/*
+ * The quic listener, on udp.  "localhost" is both 127.0.0.1 and ::1, and a
+ * client may try either first: on FreeBSD, ::1.  A udp socket bound to the
+ * name gets only its first address, so a client trying the other relies on
+ * an ICMP port unreachable to move on, which can be lost, or not sent when
+ * the kernel rate limits them under parallel tests.  So for "localhost",
+ * listen on both.
+ */
+static int
+quic_listen(struct lws_vhost *vh, int port, const char *protocol)
+{
+	static const char * const lo[] = {
+#if defined(LWS_WITH_IPV4)
+		"127.0.0.1",
+#endif
+#if defined(LWS_WITH_IPV6)
+		"::1",
+#endif
+	};
+	size_t n;
+
+	if (!vh)
+		return 1;
+
+	if (strcmp(server_addr, "localhost"))
+		return !lws_create_adopt_udp(vh, server_addr, port,
+					     LWS_CAUDP_BIND, protocol, NULL,
+					     NULL, NULL, NULL, "quic_listen");
+
+	for (n = 0; n < LWS_ARRAY_SIZE(lo); n++)
+		if (!lws_create_adopt_udp(vh, lo[n], port, LWS_CAUDP_BIND,
+					  protocol, NULL, NULL, NULL, NULL,
+					  "quic_listen"))
+			return 1;
+
+	return 0;
+}
+
 static struct lws_vhost *
 create_h3_server(struct lws_context_creation_info *info, const char *name,
 		 int port)
@@ -728,9 +766,7 @@ create_h3_server(struct lws_context_creation_info *info, const char *name,
 	info->listen_accept_protocol = "http";
 	info->alpn = "h3";
 	vh = lws_create_vhost(context, info);
-	if (!vh || !lws_create_adopt_udp(vh, server_addr, port, LWS_CAUDP_BIND,
-					 "http", NULL, NULL, NULL, NULL,
-					 "quic_listen"))
+	if (!vh || quic_listen(vh, port, "http"))
 		return NULL;
 
 	return vh;
