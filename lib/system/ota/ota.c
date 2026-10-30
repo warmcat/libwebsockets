@@ -506,8 +506,8 @@ ota_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 	struct lws_jws_map map;
 	struct lws_jwk jwk;
 	uint64_t fw_last;
-	char temp[1024];
-	int temp_len = sizeof(temp);
+	char *temp = NULL;
+	int temp_len;
 	const char *p;
 	size_t alen;
 	int n;
@@ -601,11 +601,25 @@ fetch_fail:
 	if ((flags & LWSSS_FLAG_EOM) != LWSSS_FLAG_EOM)
 		return LWSSSSRET_OK;
 
-	/* we want to validate the JWS manifest against our public JWK */
+	/*
+	 * We want to validate the JWS manifest against our public JWK.
+	 *
+	 * The decoded manifest blocks go in temp, which map points into until
+	 * we are done with the manifest.  The b64 decoder emits 3 bytes per 4
+	 * chars, but wants 3 bytes free before the last, possibly partial,
+	 * group of at least 2 chars, and a byte spare at the end.  It's sized
+	 * for this manifest on the heap, since small targets' stacks are
+	 * already busy with the signature check.
+	 */
+
+	temp_len = (int)((3 * (g->pos + 2)) / 4) + 1;
+	temp = lws_malloc((size_t)temp_len, __func__);
+	if (!temp)
+		return LWSSSSRET_DISCONNECT_ME;
 
 	if (lws_jwk_import(&jwk, NULL, NULL, ota_pub_jwk, strlen(ota_pub_jwk))) {
 		lwsl_err("%s: unable to import jwk\n", __func__);
-		return LWSSSSRET_DISCONNECT_ME;
+		goto bail1;
 	}
 
 	/* Step 1... is the JWS signed by the required key? */
@@ -705,7 +719,7 @@ fetch_fail:
 	if (lws_ss_set_metadata(lws_ss_from_user(g), "file", g->file, alen)) {
 		lwsl_err("%s: failed to set firmware file %s\n", __func__,
 				LWS_OTA_VARIANT);
-		return LWSSSSRET_DISCONNECT_ME;
+		goto bail1;
 	}
 
 	p = lws_json_simple_find(map.buf[LJWS_PYLD], map.len[LJWS_PYLD],
@@ -749,7 +763,7 @@ fetch_fail:
 
 		lwsl_ss_warn(g->ss, "Latest update is not newer");
 
-		return LWSSSSRET_DISCONNECT_ME;
+		goto bail1;
 	}
 
 	/* ... this is something that we like the look of... schedule trying
@@ -768,12 +782,15 @@ fetch_fail:
 	 * after 24h or whatever.
 	 */
 
-	return LWSSSSRET_OK;
+	r = LWSSSSRET_OK;
+	goto bail1;
 
 bail:
 	lws_jwk_destroy(&jwk);
 
 bail1:
+	lws_free(temp);
+
 	return r;
 }
 
