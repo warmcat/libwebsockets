@@ -102,8 +102,10 @@ lws_jwt_auth_create_via_info(struct lws *wsi, const struct lws_jwt_auth_info *i,
  *
  * Browsers can present several same-named cookies at once (host-only
  * alongside Domain=, or a leftover from an earlier cookie scope), oldest
- * first.  Every occurrence is tried: the first one that verifies and is
- * unexpired wins.  If none is live, the first that verified is returned so
+ * first.  Every occurrence is tried: of those that verify and are unexpired,
+ * the one that expires last wins, so a just-renewed token is not shadowed by
+ * an older one still alive in the other scope.  If none is live, the first
+ * that verified is returned so
  * the caller decides what an expired token means (check lws_jwt_auth_get_exp()).
  *
  * It requires no iss or aud, and no purpose: so a token that carries a "pur"

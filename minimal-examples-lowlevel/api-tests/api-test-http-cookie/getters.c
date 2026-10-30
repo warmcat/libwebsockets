@@ -36,6 +36,12 @@
  *    asks for none, so refuses any token with a purpose; and
  *    lws_jwt_auth_update() keeps the requirements the object was created
  *    with.
+ *
+ *  - of several same-named session cookies, lws_jwt_auth_create() takes the
+ *    live one that expires last, in either order: a token just renewed into
+ *    one cookie scope is not shadowed by an older one still alive in the
+ *    other, which kept the page asking for renewal after renewal.  A live
+ *    one is taken over an expired one either side of it.
  */
 
 #include <libwebsockets.h>
@@ -70,6 +76,8 @@ enum ckg_jwt {
 	CKG_J_PUR_NESTED, /* "sso" only as a "pur" inside an object */
 	CKG_J_PUR_NUM,	/* "pur":1 */
 	CKG_J_PUR_LONGER, /* "pur":"ssox" */
+	CKG_J_RENEWED,	/* "renewed", expiring after victim's */
+	CKG_J_EXPIRED,	/* "expired", already expired */
 
 	CKG_J_COUNT
 };
@@ -257,6 +265,18 @@ static const struct ckg_case ckg_cases[] = {
 	  .hdr = { "s=", "s=" }, .jwt = { CKG_J_VISIT, CKG_J_SSO },
 	  .kind = CKG_JWT_AUTH, .via_info = 1, .name = "s",
 	  .purpose = "sso", .want = "victim" },
+	{ .label = "jwt-auth: later expiry behind a live one",
+	  .hdr = { "s=", "s=" }, .jwt = { CKG_J_VICTIM, CKG_J_RENEWED },
+	  .kind = CKG_JWT_AUTH, .name = "s", .want = "renewed" },
+	{ .label = "jwt-auth: later expiry ahead of a live one",
+	  .hdr = { "s=", "s=" }, .jwt = { CKG_J_RENEWED, CKG_J_VICTIM },
+	  .kind = CKG_JWT_AUTH, .name = "s", .want = "renewed" },
+	{ .label = "jwt-auth: live one behind an expired one",
+	  .hdr = { "s=", "s=" }, .jwt = { CKG_J_EXPIRED, CKG_J_VICTIM },
+	  .kind = CKG_JWT_AUTH, .name = "s", .want = "victim" },
+	{ .label = "jwt-auth: live one ahead of an expired one",
+	  .hdr = { "s=", "s=" }, .jwt = { CKG_J_VICTIM, CKG_J_EXPIRED },
+	  .kind = CKG_JWT_AUTH, .name = "s", .want = "victim" },
 	{ .label = "jwt-auth info: iss and aud match", .hdr = { "s=" },
 	  .jwt = { CKG_J_SSO }, .kind = CKG_JWT_AUTH, .via_info = 1,
 	  .name = "s", .purpose = "sso", .iss = CKG_ISS, .aud = CKG_ISS,
@@ -590,10 +610,11 @@ ckg_next(lws_sorted_usec_list_t *sul)
 #if defined(LWS_WITH_JOSE)
 /*
  * The claims as jwt_sign_cookie_value() lays them out, with pur, if any,
- * being the raw members for the purpose
+ * being the raw members for the purpose, expiring life seconds from now
+ * (negative for already expired)
  */
 static int
-ckg_mint(enum ckg_jwt which, const char *sub, const char *pur)
+ckg_mint(enum ckg_jwt which, const char *sub, const char *pur, int life)
 {
 	unsigned long long now = (unsigned long long)lws_now_secs();
 	size_t out_len = sizeof(ckg_jwts[0]);
@@ -605,7 +626,8 @@ ckg_mint(enum ckg_jwt which, const char *sub, const char *pur)
 				    "\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu,"
 				    "\"csrf\":\"0123456789abcdef\","
 				    "\"sub\":\"%s\"}", CKG_ISS, CKG_ISS,
-				    pur ? pur : "", now, now - 60, now + 600,
+				    pur ? pur : "", now - 120, now - 120,
+				    (unsigned long long)((long long)now + life),
 				    sub);
 }
 #endif
@@ -649,17 +671,19 @@ ckg_test(const char *server)
 		lwsl_err("%s: jwk generation failed\n", __func__);
 		goto bail;
 	}
-	if (ckg_mint(CKG_J_VICTIM, "victim", NULL) ||
-	    ckg_mint(CKG_J_ATTACKER, "attacker", NULL) ||
-	    ckg_mint(CKG_J_PASS, "victim", "\"pur\":\"pass\",") ||
-	    ckg_mint(CKG_J_VISIT, "victim", "\"pur\":\"visit\",") ||
-	    ckg_mint(CKG_J_SSO, "victim", "\"pur\":\"sso\",") ||
+	if (ckg_mint(CKG_J_VICTIM, "victim", NULL, 600) ||
+	    ckg_mint(CKG_J_ATTACKER, "attacker", NULL, 600) ||
+	    ckg_mint(CKG_J_PASS, "victim", "\"pur\":\"pass\",", 600) ||
+	    ckg_mint(CKG_J_VISIT, "victim", "\"pur\":\"visit\",", 600) ||
+	    ckg_mint(CKG_J_SSO, "victim", "\"pur\":\"sso\",", 600) ||
 	    ckg_mint(CKG_J_PUR_DUP, "victim",
-		     "\"pur\":\"sso\",\"pur\":\"visit\",") ||
+		     "\"pur\":\"sso\",\"pur\":\"visit\",", 600) ||
 	    ckg_mint(CKG_J_PUR_NESTED, "victim",
-		     "\"ext\":{\"pur\":\"sso\"},") ||
-	    ckg_mint(CKG_J_PUR_NUM, "victim", "\"pur\":1,") ||
-	    ckg_mint(CKG_J_PUR_LONGER, "victim", "\"pur\":\"ssox\",")) {
+		     "\"ext\":{\"pur\":\"sso\"},", 600) ||
+	    ckg_mint(CKG_J_PUR_NUM, "victim", "\"pur\":1,", 600) ||
+	    ckg_mint(CKG_J_PUR_LONGER, "victim", "\"pur\":\"ssox\",", 600) ||
+	    ckg_mint(CKG_J_RENEWED, "renewed", NULL, 1200) ||
+	    ckg_mint(CKG_J_EXPIRED, "expired", NULL, -60)) {
 		lwsl_err("%s: jwt minting failed\n", __func__);
 		lws_jwk_destroy(&ckg_jwk);
 		goto bail;

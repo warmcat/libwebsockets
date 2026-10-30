@@ -33,7 +33,11 @@ present once and exactly what was asked for (a duplicated, nested, non-string
 or longer `"pur"` is refused, as is an empty requirement),
 `lws_jwt_auth_create()` refuses any token with a purpose, a live token with
 the right purpose is found behind one with the wrong purpose, and
-`lws_jwt_auth_update()` keeps the purpose the object was created with.  It needs
+`lws_jwt_auth_update()` keeps the purpose the object was created with.  Of
+several same-named session cookies, `lws_jwt_auth_create()` takes the live one
+that expires last, whichever order they come in, so a just-renewed token is
+not shadowed by an older one still alive in the other cookie scope; and a live
+one is taken over an expired one on either side of it.  It needs
 `LWS_WITH_SERVER` and `LWS_WITH_CLIENT`, and `LWS_WITH_JOSE` for the JWT
 cases.
 

@@ -540,10 +540,15 @@ lws_jwt_auth_create_via_info(struct lws *wsi,
 	 * only the first lets a stale one shadow a live one sitting behind it
 	 * in the same header, and since every renewal and login re-mints the
 	 * *other* scope, the user stays "not logged in" until the stale cookie
-	 * ages out.  So walk every occurrence and take the first that
-	 * verifies and is unexpired.  If none is live, return the first that
-	 * verified: what an expired token means is the caller's decision,
-	 * exactly as before.  NULL only when nothing verified at all.
+	 * ages out.  So walk every occurrence and take, of those that verify
+	 * and are unexpired, the one that expires last.  Taking the first live
+	 * one is not enough: an older token still a few seconds from its exp
+	 * shadows the renewal that was just minted into the other scope, the
+	 * page sees its session still about to expire and asks for another
+	 * renewal, which lands in the other scope again, as fast as the round
+	 * trip allows until the old one ages out.  If none is live, return the
+	 * first that verified: what an expired token means is the caller's
+	 * decision, exactly as before.  NULL only when nothing verified at all.
 	 */
 	for (;;) {
 		jwt_len = sizeof(jwt);
@@ -597,18 +602,17 @@ lws_jwt_auth_create_via_info(struct lws *wsi,
 			continue;
 		}
 
-		/* lws_jwt_auth_update() guarantees a nonzero exp */
-		if (cand->exp > now) {
-			/* live: this is the one, drop any expired fallback */
+		/*
+		 * lws_jwt_auth_update() guarantees a nonzero exp.  A live one
+		 * replaces an expired fallback or a live one expiring sooner;
+		 * an expired one is only kept as the fallback if nothing
+		 * verified before it.
+		 */
+		if (!ja || (cand->exp > now && cand->exp > ja->exp)) {
 			if (ja)
 				lws_jwt_auth_destroy(&ja);
 			ja = cand;
-			break;
-		}
-
-		if (!ja)
-			ja = cand; /* verified but expired: fallback only */
-		else
+		} else
 			lws_jwt_auth_destroy(&cand);
 		n++;
 	}
