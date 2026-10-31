@@ -430,6 +430,14 @@ function ws_open_mirror()
 		};
 
 		socket_lm.onmessage =function got_packet(msg) {
+			/*
+			 * The mirror relays every peer's message as it was sent,
+			 * binary ones as binary.  Drawing commands are text: a
+			 * binary message (a Blob here) is not one, so ignore it
+			 */
+			if (typeof msg.data !== "string")
+				return;
+
 			var j = msg.data.split(";");
 			var f = 0;
 			while (f < j.length - 1) {
