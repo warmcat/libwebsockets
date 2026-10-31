@@ -471,6 +471,27 @@ foreach (lib ${LWS_LIBRARIES})
 					$<TARGET_PROPERTY:idf::${_c},INTERFACE_COMPILE_OPTIONS>)
 			endif()
 		endforeach()
+
+		# IDF only gives its own components the optimization level the
+		# sdkconfig chose (CONFIG_COMPILER_OPTIMIZATION_*), and the
+		# per-function sections that let the link drop what isn't
+		# used: lws isn't one, so it would otherwise be built with
+		# CMAKE_BUILD_TYPE's flags, and kept whole in the firmware.
+		# The rest of IDF's options are warning flags we don't want
+		# overriding ours.
+		if (CONFIG_COMPILER_OPTIMIZATION_SIZE)
+			set(_o -Os)
+		elseif (CONFIG_COMPILER_OPTIMIZATION_DEBUG)
+			set(_o -Og)
+		elseif (CONFIG_COMPILER_OPTIMIZATION_NONE)
+			set(_o -O0)
+		elseif (CONFIG_COMPILER_OPTIMIZATION_PERF)
+			set(_o -O2)
+		else()
+			set(_o "")
+		endif()
+		target_compile_options(${lib} PRIVATE ${_o}
+				       -ffunction-sections -fdata-sections)
 	endif()
 endforeach()
 
