@@ -25,7 +25,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    thread holding a pt lock never takes the context lock.  Debug SMP builds
    assert the lock order as locks are taken (33de499b8), so any inversion a
    test reaches aborts deterministically: run SMP work in a DEBUG
-   `LWS_MAX_SMP=2` tree.  To survey a class of unlocked list changes across
+   `LWS_MAX_SMP=2` tree, with `LWS_WITH_LWSWS=1` too: lwsws forces
+   PEER_LIMITS on, whose ah attach/detach path inverted pt -> cx (G-691)
+   and was invisible to sweeps without it.  To survey a class of unlocked list changes across
    the whole suite, log them with `dladdr` offsets and resolve with
    `addr2line` (B109).  Hand work to another pt's thread with
    `lws_pthread_self_to_tsi()` plus `lws_plat_pipe_signal()`;
