@@ -1893,8 +1893,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 #if defined(LWS_WITH_TLS)
-		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !redir->ssl &&
-		     !(wsi->flags & LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS)) {
+		/*
+		 * The tls is the network connection's: an h2 or h3 stream's
+		 * own use_ssl is 0
+		 */
+		if ((lws_get_network_wsi(wsi)->use_ssl & LCCSCF_USE_SSL) &&
+		    !redir->ssl &&
+		    !(wsi->flags & LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS)) {
 			cce = "HS: Redirect attempted SSL downgrade";
 			goto bail3_l;
 		}
