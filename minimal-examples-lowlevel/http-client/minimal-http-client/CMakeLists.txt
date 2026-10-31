@@ -265,6 +265,31 @@ if (requirements)
 					-p ${PORT_HC_REDIR})
 		endif()
 
+		#
+		# Without credentials too, lws must refuse the tls listener's
+		# redirect to plain http, since we don't set
+		# LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS (exit 3), over h1, over
+		# the h2 we get by default and over h3, where the request is a
+		# stream of the tls connection
+		#
+		list(APPEND redirtests http-client-redirect-downgrade
+				       http-client-redirect-downgrade-h1)
+		add_test(NAME http-client-redirect-downgrade COMMAND
+			 lws-minimal-http-client -l
+				--server ${LWS_CTEST_SERVER_RESOLVE}
+				-p ${PORT_HC_REDIR_TLS} --expected-exit 3)
+		add_test(NAME http-client-redirect-downgrade-h1 COMMAND
+			 lws-minimal-http-client -l --h1
+				--server ${LWS_CTEST_SERVER_RESOLVE}
+				-p ${PORT_HC_REDIR_TLS} --expected-exit 3)
+		if (has_h3)
+			list(APPEND redirtests http-client-redirect-downgrade-h3)
+			add_test(NAME http-client-redirect-downgrade-h3 COMMAND
+				 lws-minimal-http-client -l --h3
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_HC_REDIR_TLS} --expected-exit 3)
+		endif()
+
 		foreach(N IN LISTS redirtests)
 			set_tests_properties(${N} PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
