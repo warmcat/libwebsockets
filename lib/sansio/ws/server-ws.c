@@ -578,6 +578,19 @@ lws_process_ws_upgrade(struct lws *wsi)
 	}
 
 	/*
+	 * An h1 upgrade (and h2c) had its Host checked before it got here, if
+	 * the vhost wants that.  A stream's comes this way only: on h2 / h3,
+	 * Host is the :authority unless the client sent its own as well, in
+	 * which case they had to agree.
+	 */
+	if (wsi->mux_substream &&
+	    (wsi->a.vhost->options &
+			LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK) &&
+	    lws_confirm_host_header(wsi))
+		/* 421 Misdirected Request (RFC 9110 15.5.20) */
+		return ws_upgrade_refuse(wsi, 421, "host is not the vhost's");
+
+	/*
 	 * RFC6455 4.2.1 / RFC8441 5: the client must say it speaks version
 	 * 13, which is the only one there is.  No header at all is a broken
 	 * handshake; another version gets told the one we speak (4.2.2).

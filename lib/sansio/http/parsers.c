@@ -2617,7 +2617,7 @@ lws_hdr_single(struct lws *wsi, enum lws_token_indexes h, const char **p,
  * is empty, which RFC 3986 3.2.3 says is the same as omitting it.  Returns
  * nonzero if the authority is not of that shape.
  */
-static int
+int
 lws_http_authority_split(const char *a, size_t len, size_t *host_len,
 			 int *port)
 {
