@@ -173,7 +173,8 @@
 	 * name + port (443 / 80 are assumed if no :port given based on if the
 	 * connection is using TLS).  The whole name must match, ignoring case,
 	 * and an IPv6 literal is matched in its brackets.  For ws over an h2
-	 * or h3 stream, the :authority is checked the same way.
+	 * or h3 stream, and a WebTransport session over h3, the :authority is
+	 * checked the same way.
 	 *
 	 * By default, without this flag, on upgrade lws just checks that the
 	 * Host: header was given without checking the contents... this is to

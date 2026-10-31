@@ -3796,6 +3796,17 @@ rops_check_upgrades_h3(struct lws *wsi)
 		lwsl_info("Upgrade h3 to wt\n");
 
 		/*
+		 * A vhost that only upgrades a request naming it checks a wt
+		 * CONNECT's :authority (its Host) too, as it does a ws one's
+		 * in lws_process_ws_upgrade()
+		 */
+		if ((vh->options & LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK) &&
+		    lws_confirm_host_header(wsi))
+			/* 421 Misdirected Request (RFC 9110 15.5.20) */
+			return (int)lws_h3_wt_refuse(wsi, 421,
+						"host is not the vhost's");
+
+		/*
 		 * The mount the :path lands in already gated the CONNECT,
 		 * as for any other request to it, with its interceptors and
 		 * basic auth (lws_http_upgrade_gates(), before
