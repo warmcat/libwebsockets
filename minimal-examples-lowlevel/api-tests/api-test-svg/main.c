@@ -1381,6 +1381,32 @@ build_corpus_strokes(void)
 		"stroke-width=\"4\"/>", 32, 32, 32, 32);
 	cc->flags = CC_F_EMPTY;
 
+	/*
+	 * Curves stroked in a small icon-sized viewBox flatten to segments
+	 * well under one user unit long, which must still be stroked.  The
+	 * area of a constant-width stroke around a closed convex outline is
+	 * its centerline perimeter x width: a 24-unit viewBox rendered at
+	 * 96px is 16px per user unit^2
+	 */
+
+	cc = cc_add_vb("stroke-icon-circle",
+		"<circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"none\" "
+		"stroke=\"#ff8000\" stroke-width=\"2\"/>", 24, 24, 96, 96);
+	cc->exp_area = 16 * 2 * 3.14159265 * 8 * 2;		/* 1608.5 */
+	cc->area_tol = 16;
+	cc->bbox[0] = 12; cc->bbox[1] = 12; cc->bbox[2] = 83; cc->bbox[3] = 83;
+	cc->bbox_tol = 1;
+	cc->exp_rgba = LWS_SVG_RGBA(0xff, 0x80, 0, 255);
+
+	cc = cc_add_vb("stroke-icon-rrect",
+		"<rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"4\" "
+		"fill=\"none\" stroke=\"#ff8000\" stroke-width=\"2\"/>",
+		24, 24, 96, 96);
+	cc->exp_area = 16 * (4 * 8 + 2 * 3.14159265 * 4) * 2;	/* 1828.3 */
+	cc->area_tol = 16;
+	cc->bbox[0] = 12; cc->bbox[1] = 12; cc->bbox[2] = 83; cc->bbox[3] = 83;
+	cc->bbox_tol = 1;
+
 	/* stroke-opacity scales the composed alpha */
 
 	cc = cc_add_vb("stroke-opacity",
