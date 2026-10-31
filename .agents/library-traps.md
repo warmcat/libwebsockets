@@ -297,8 +297,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    protocols[0], and client_reset on redirect frees its pss with no DROP.
  - **Testing keepalive turnover:** an h1 client request without
    `LCCSCF_PIPELINE` sends `Connection: close`, so a single-request test
-   never exercises it; use `LCCSCF_PIPELINE` plus `keep_warm_secs`.  h2
-   server stream pss are allocated at stream creation (http2.c).
+   never exercises it; use `LCCSCF_PIPELINE` plus `keep_warm_secs`.  An h2
+   server stream has no pss until its request reaches the gates, which
+   allocate it with its HTTP_BIND (G-690, e311b6886); a stream closed
+   before then gives protocols[0] CLOSED_HTTP with user NULL, as h1 does.
+   lws queues a WINDOW_UPDATE for every new h2 stream, which asks for the
+   stream to be writeable while its headers are still arriving, so any
+   per-child POLLOUT servicing has to cope with a stream that has no
+   request yet.
  - **`lws_filename_purify_inplace()` yields one safe path component** since
    G-553 (78819fef0); the caller must still refuse an empty name, bound
    the length and create with O_EXCL | O_NOFOLLOW (G-552).
