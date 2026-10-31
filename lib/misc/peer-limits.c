@@ -449,6 +449,23 @@ lws_peer_confirm_ah_attach_ok(struct lws_context *context,
 	return 0;
 }
 
+/*
+ * Count an ah newly bound to a connection of peer.  Like the other peer
+ * accounting, under the context lock: a caller holding a pt lock (the ah
+ * pool's) must already hold it, taken before the pt lock.
+ */
+void
+lws_peer_track_ah_attach(struct lws_context *context, struct lws_peer *peer)
+{
+	if (!peer)
+		return;
+
+	lws_context_lock(context, "peer ah attach"); /* <==================== */
+	peer->http.count_ah++;
+	peer->http.total_ah++;
+	lws_context_unlock(context); /* ====================================> */
+}
+
 void
 lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer)
 {

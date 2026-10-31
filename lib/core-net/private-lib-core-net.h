@@ -2403,6 +2403,8 @@ int
 lws_peer_confirm_ah_attach_ok(struct lws_context *context,
 			      struct lws_peer *peer);
 void
+lws_peer_track_ah_attach(struct lws_context *context, struct lws_peer *peer);
+void
 lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer);
 void
 lws_peer_cull_peer_wait_list(struct lws_context *context);

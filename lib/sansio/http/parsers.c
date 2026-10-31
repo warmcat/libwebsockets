@@ -371,7 +371,14 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		return LWS_AH_ATTACH_FAIL;
 	}
 
-	lws_pt_lock(pt, __func__);
+	/*
+	 * The context lock comes before the pt lock (the lock order comment in
+	 * private-lib-core.h): the peer ah accounting takes it, and with it
+	 * held here, so may the reset's autoservice and the close of this wsi
+	 * that can come from it
+	 */
+	lws_context_lock(context, __func__); /* -------------------- cx { */
+	lws_pt_lock(pt, __func__); /* ----------------------------- pt { */
 
 	/* if we are already bound to one, just clear it down */
 	if (wsi->stream.ah) {
@@ -412,12 +419,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 
 #if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || \
     defined(LWS_ROLE_H2))
-	lws_context_lock(context, "ah attach"); /* <========================= */
-	if (wsi->peer) {
-		wsi->peer->http.count_ah++;
-		wsi->peer->http.total_ah++;
-	}
-	lws_context_unlock(context); /* ====================================> */
+	lws_peer_track_ah_attach(context, wsi->peer);
 #endif
 
 	__lws_io_want_read(wsi, 1);
@@ -439,14 +441,16 @@ reset:
 	 */
 
 	if (__lws_header_table_reset(wsi, autoservice)) {
-		lws_pt_unlock(pt);
+		lws_pt_unlock(pt); /* } pt */
+		lws_context_unlock(context); /* } cx */
 
 		lwsl_info("%s: wsi closed inside the reset\n", __func__);
 
 		return LWS_AH_ATTACH_WSI_GONE;
 	}
 
-	lws_pt_unlock(pt);
+	lws_pt_unlock(pt); /* } pt */
+	lws_context_unlock(context); /* } cx */
 
 #if defined(LWS_WITH_CLIENT)
 #if defined(LWS_ROLE_MQTT)
@@ -466,10 +470,17 @@ connect_via_info2:
 bail:
 	/* both paths here left him on the ah wait list */
 
-	lws_pt_unlock(pt);
+	lws_pt_unlock(pt); /* } pt */
+	lws_context_unlock(context); /* } cx */
 
 	return LWS_AH_ATTACH_WAITING;
 }
+
+/*
+ * The caller holds the context lock and then the pt lock, in that order: the
+ * peer ah accounting takes the context lock, and the reset's autoservice can
+ * close the wsi given the ah, a close being context, then pt
+ */
 
 int __lws_header_table_detach(struct lws *wsi, int autoservice)
 {
@@ -478,6 +489,9 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws **pwsi, **pwsi_eligible;
 	time_t now;
+
+	lws_context_assert_lock_held(context);
+	lws_pt_assert_lock_held(pt);
 
 	__lws_remove_from_ah_waiting_list(wsi);
 
@@ -589,12 +603,8 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 
 #if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || \
     defined(LWS_ROLE_H2))
-	lws_context_lock(context, "ah detach"); /* <========================= */
-	if (wsi->peer) {
-		wsi->peer->http.count_ah++;
-		wsi->peer->http.total_ah++;
-	}
-	lws_context_unlock(context); /* ====================================> */
+	/* the ah now counts against its new owner's peer */
+	lws_peer_track_ah_attach(context, wsi->peer);
 #endif
 
 	/*
@@ -670,9 +680,11 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n;
 
-	lws_pt_lock(pt, __func__);
+	lws_context_lock(context, __func__); /* -------------------- cx { */
+	lws_pt_lock(pt, __func__); /* ----------------------------- pt { */
 	n = __lws_header_table_detach(wsi, autoservice);
-	lws_pt_unlock(pt);
+	lws_pt_unlock(pt); /* } pt */
+	lws_context_unlock(context); /* } cx */
 
 	return n;
 }
