@@ -37,6 +37,16 @@
 #define LWS_FONTS_MANIFEST_MAX_FACES	64
 /* the most runs of pages a face's entry may list */
 #define LWS_FONTS_MANIFEST_MAX_RANGES	32
+/* the most runs of sizes a face's entry may list */
+#define LWS_FONTS_MANIFEST_MAX_SIZE_RUNS 16
+/* the sizes the server's encoder can make */
+#define LWS_FONTS_SIZE_MIN		4
+#define LWS_FONTS_SIZE_MAX		255
+/*
+ * the most sizes of a family set text at once: after that, text is set in
+ * the closest size already made
+ */
+#define LWS_FONTS_FAMILY_MAX_SIZES	8
 /* a page bigger than this is not something a small device should fetch */
 #define LWS_FONTS_PAGE_MAX_LEN		(128 * 1024)
 /* a page's buffer grows by this as it arrives */
@@ -79,7 +89,9 @@ typedef struct {
 	char				name[64];
 	char				path[64];
 	char				pages[160];
-	unsigned int			line_height;
+	char				sizes[64];
+	unsigned int			height;
+	unsigned int			units_per_em;
 } lws_fonts_manifest_face_t;
 
 typedef struct {
@@ -90,7 +102,10 @@ static const lws_struct_map_t lsm_fonts_manifest_face[] = {
 	LSM_CARRAY	(lws_fonts_manifest_face_t, name,	"name"),
 	LSM_CARRAY	(lws_fonts_manifest_face_t, path,	"path"),
 	LSM_CARRAY	(lws_fonts_manifest_face_t, pages,	"pages"),
-	LSM_UNSIGNED	(lws_fonts_manifest_face_t, line_height, "line_height"),
+	LSM_CARRAY	(lws_fonts_manifest_face_t, sizes,	"sizes"),
+	LSM_UNSIGNED	(lws_fonts_manifest_face_t, height,	"height"),
+	LSM_UNSIGNED	(lws_fonts_manifest_face_t, units_per_em,
+							"units_per_em"),
 };
 
 static const lws_struct_map_t lsm_fonts_manifest[] = {
@@ -166,9 +181,9 @@ lws_fonts_remote_set_down(lws_fonts_remote_t *fr)
 }
 
 /*
- * The page's file, in the face's directory next to the manifest, eg,
- * ".../fonts.json" -> ".../FiraSansCondensed-Regular-14/0020.mcufont".  The
- * face's path has already been checked
+ * The page's file, in the directory of the face's size next to the manifest,
+ * eg, ".../fonts.json" -> ".../FiraSansCondensed-Regular/14/0020.mcufont".
+ * The face's path has already been checked
  */
 
 static int
@@ -432,25 +447,27 @@ lws_fonts_manifest_path_ok(const char *path)
 	return 1;
 }
 
+/* a number of up to 4 hex digits, or up to 3 decimal digits */
+
 static int
-lws_fonts_manifest_hex(const char *s, size_t len, uint32_t *v)
+lws_fonts_manifest_num(const char *s, size_t len, int hex, uint32_t *v)
 {
 	size_t n;
 
-	if (!len || len > 4)
+	if (!len || len > (hex ? 4u : 3u))
 		return 1;
 
 	*v = 0;
 	for (n = 0; n < len; n++) {
 		char c = s[n];
 
-		*v <<= 4;
+		*v *= hex ? 16u : 10u;
 		if (c >= '0' && c <= '9')
-			*v |= (uint32_t)(c - '0');
-		else if (c >= 'a' && c <= 'f')
-			*v |= (uint32_t)(c - 'a' + 10);
-		else if (c >= 'A' && c <= 'F')
-			*v |= (uint32_t)(c - 'A' + 10);
+			*v += (uint32_t)(c - '0');
+		else if (hex && c >= 'a' && c <= 'f')
+			*v += (uint32_t)(c - 'a' + 10);
+		else if (hex && c >= 'A' && c <= 'F')
+			*v += (uint32_t)(c - 'A' + 10);
 		else
 			return 1;
 	}
@@ -459,29 +476,31 @@ lws_fonts_manifest_hex(const char *s, size_t len, uint32_t *v)
 }
 
 /*
- * The pages a face lists, like "0000-0005,0020,00a7", into first, last pairs
- * in ranges.  They must be in order and not overlap.  Returns the count of
- * pairs, or -1 if the list is bad
+ * The pages a face lists, like "0000-0005,0020,00a7" in hex, or the sizes,
+ * like "4-255" or "12,14,16" in decimal, into first, last pairs in ranges.
+ * They must be from lo to hi, in order and not overlap.  Returns the count
+ * of pairs, or -1 if the list is bad
  */
 
 static int
-lws_fonts_manifest_pages(const char *pages, uint16_t *ranges, int max)
+lws_fonts_manifest_runs(const char *list, int hex, uint32_t lo, uint32_t hi,
+			uint16_t *ranges, int max)
 {
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
 	int n = 0, dash = 0, have = 0;
 	uint32_t v;
 
-	lws_tokenize_init(&ts, pages, LWS_TOKENIZE_F_NO_INTEGERS |
-				      LWS_TOKENIZE_F_NO_FLOATS);
-	ts.len = strlen(pages);
+	lws_tokenize_init(&ts, list, LWS_TOKENIZE_F_NO_INTEGERS |
+				     LWS_TOKENIZE_F_NO_FLOATS);
+	ts.len = strlen(list);
 
 	do {
 		e = lws_tokenize(&ts);
 		switch (e) {
 		case LWS_TOKZE_TOKEN:
-			if (lws_fonts_manifest_hex(ts.token, ts.token_len,
-						   &v) || v > 0x10ff)
+			if (lws_fonts_manifest_num(ts.token, ts.token_len,
+						   hex, &v) || v < lo || v > hi)
 				return -1;
 			if (dash) {
 				/* the end of the run started before */
@@ -524,19 +543,20 @@ lws_fonts_manifest_pages(const char *pages, uint16_t *ranges, int max)
 	return n;
 }
 
-/* the manifest is parsed: register a face for each usable entry */
+/* the manifest is parsed: register a family for each usable entry */
 
 static void
 lws_fonts_manifest_apply(lws_fonts_remote_t *fr, lws_fonts_manifest_t *man)
 {
-	uint16_t ranges[LWS_FONTS_MANIFEST_MAX_RANGES * 2];
-	int n = 0, nr;
+	uint16_t ranges[LWS_FONTS_MANIFEST_MAX_RANGES * 2],
+		 sizes[LWS_FONTS_MANIFEST_MAX_SIZE_RUNS * 2];
+	int n = 0, nr, ns;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&man->fonts)) {
 		lws_fonts_manifest_face_t *e = lws_container_of(d,
 					lws_fonts_manifest_face_t, list);
-		lws_mcufont_remote_t *r;
+		lws_mcufont_family_t *fam;
 		lws_display_font_t *a;
 
 		if (n == LWS_FONTS_MANIFEST_MAX_FACES) {
@@ -544,34 +564,52 @@ lws_fonts_manifest_apply(lws_fonts_remote_t *fr, lws_fonts_manifest_t *man)
 			break;
 		}
 
-		nr = lws_fonts_manifest_pages(e->pages, ranges,
-					      LWS_FONTS_MANIFEST_MAX_RANGES);
+		nr = lws_fonts_manifest_runs(e->pages, 1, 0, 0x10ff, ranges,
+					     LWS_FONTS_MANIFEST_MAX_RANGES);
+		ns = lws_fonts_manifest_runs(e->sizes, 0, LWS_FONTS_SIZE_MIN,
+					     LWS_FONTS_SIZE_MAX, sizes,
+					     LWS_FONTS_MANIFEST_MAX_SIZE_RUNS);
+		/*
+		 * Every size must have a line height, that fits in 16 bits:
+		 * the least is the first size's, the most is the last one's
+		 */
 		if (!e->name[0] || !lws_fonts_manifest_path_ok(e->path) ||
-		    !e->line_height || e->line_height > 0xffff || nr <= 0) {
+		    nr <= 0 || ns <= 0 || !e->height || e->height > 0xffff ||
+		    !e->units_per_em || e->units_per_em > 0xffff ||
+		    ((uint64_t)e->height * sizes[0]) + (e->units_per_em / 2) <
+							e->units_per_em ||
+		    ((uint64_t)e->height * sizes[(ns * 2) - 1]) +
+				(e->units_per_em / 2) >=
+				(uint64_t)e->units_per_em * 0x10000) {
 			lwsl_cx_warn(fr->cx, "ignoring bad entry '%s'", e->path);
 			continue;
 		}
 
-		/* the face, its remote state and its page ranges, together */
+		/* the family, its remote state, and its page and size runs */
 
-		a = lws_zalloc(sizeof(*a) + sizeof(*r) +
-			       ((size_t)nr * 2 * sizeof(uint16_t)), __func__);
+		a = lws_zalloc(sizeof(*a) + sizeof(*fam) +
+			       ((size_t)(nr + ns) * 2 * sizeof(uint16_t)),
+			       __func__);
 		if (!a)
 			break;
-		r = (lws_mcufont_remote_t *)&a[1];
+		fam = (lws_mcufont_family_t *)&a[1];
 
-		r->kind = LWS_MCUF_KIND_REMOTE;
-		r->fr = fr;
-		r->cx = fr->cx;
-		r->f = a;
-		r->path = e->path;
-		r->nranges = (uint16_t)nr;
-		memcpy(&r[1], ranges, (size_t)nr * 2 * sizeof(uint16_t));
-		r->ranges = (const uint16_t *)&r[1];
+		fam->kind = LWS_MCUF_KIND_FAMILY;
+		fam->fr = fr;
+		fam->f = a;
+		fam->path = e->path;
+		fam->height = e->height;
+		fam->units_per_em = e->units_per_em;
+		fam->nranges = (uint16_t)nr;
+		fam->nsizes = (uint16_t)ns;
+		memcpy(&fam[1], ranges, (size_t)nr * 2 * sizeof(uint16_t));
+		fam->ranges = (const uint16_t *)&fam[1];
+		memcpy((uint16_t *)&fam[1] + (nr * 2), sizes,
+		       (size_t)ns * 2 * sizeof(uint16_t));
+		fam->sizes = fam->ranges + (nr * 2);
 
-		a->priv = (uint8_t *)r;
+		a->priv = (uint8_t *)fam;
 		a->choice.family_name = e->name;
-		a->choice.fixed_height = (uint16_t)e->line_height;
 
 		lws_font_register_common(fr->cx, a);
 		n++;
@@ -933,13 +971,143 @@ lws_fonts_remote_manifest_pending(struct lws_context *cx, lws_font_waiter_t *w)
 	return 1;
 }
 
-/* the face can be chosen: its core page is here, or could be fetched now */
+/* exactly as the server's encoder works it out */
+
+static uint16_t
+lws_mcufont_family_lh(const lws_mcufont_family_t *fam, uint32_t size)
+{
+	return (uint16_t)(((fam->height * size) + (fam->units_per_em / 2)) /
+			  fam->units_per_em);
+}
+
+static uint32_t
+lws_mcufont_lh_diff(uint32_t a, uint32_t b)
+{
+	return a > b ? a - b : b - a;
+}
+
+static lws_mcufont_remote_t *
+lws_mcufont_family_made(lws_mcufont_family_t *fam, uint16_t size)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&fam->sizes_made)) {
+		lws_display_font_t *f = lws_container_of(d, lws_display_font_t,
+							 list);
+		lws_mcufont_remote_t *r = mcuf_remote(f);
+
+		if (r->size == size)
+			return r;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * The size of the family whose line height is closest to want, or if as
+ * many sizes as we keep are made already, the closest of those.  Returns
+ * nonzero if that size can't be chosen now: its core page isn't here and
+ * can't be fetched now (the server failed us, or its copy is bad)
+ */
 
 int
-lws_mcufont_remote_available(const lws_mcufont_remote_t *r)
+lws_mcufont_family_pick(lws_mcufont_family_t *fam, unsigned int want,
+			uint16_t *size, uint16_t *line_height)
 {
-	return lws_mcufont_page_available(r, lws_mcufont_remote_page(
-				(lws_mcufont_remote_t *)r, r->ranges[0], 0));
+	uint32_t best = 0, bd = 0xffffffff, s, d, c;
+	lws_mcufont_remote_t *r;
+	uint64_t w;
+	uint16_t n;
+
+	if (fam->sizes_made.count >= LWS_FONTS_FAMILY_MAX_SIZES) {
+		lws_start_foreach_dll(struct lws_dll2 *, dd,
+				      lws_dll2_get_head(&fam->sizes_made)) {
+			lws_display_font_t *f = lws_container_of(dd,
+						lws_display_font_t, list);
+
+			d = lws_mcufont_lh_diff(f->choice.fixed_height, want);
+			if (d < bd) {
+				bd = d;
+				best = mcuf_remote(f)->size;
+			}
+		} lws_end_foreach_dll(dd);
+	} else {
+		/*
+		 * The line height grows with the size, so the size closest to
+		 * want in each run is the one that wants it exactly, or next to
+		 * it, or else the end of the run nearest it
+		 */
+		w = (((uint64_t)want * fam->units_per_em) +
+		     (fam->height / 2)) / fam->height;
+		c = w > LWS_FONTS_SIZE_MAX ? LWS_FONTS_SIZE_MAX : (uint32_t)w;
+
+		for (n = 0; n < fam->nsizes; n++)
+			for (s = c ? c - 1 : 0; s <= c + 1; s++) {
+				uint32_t t = s;
+
+				if (t < fam->sizes[n * 2])
+					t = fam->sizes[n * 2];
+				if (t > fam->sizes[(n * 2) + 1])
+					t = fam->sizes[(n * 2) + 1];
+
+				d = lws_mcufont_lh_diff(
+					lws_mcufont_family_lh(fam, t), want);
+				if (d < bd || (d == bd && t < best)) {
+					bd = d;
+					best = t;
+				}
+			}
+	}
+
+	*size = (uint16_t)best;
+	*line_height = lws_mcufont_family_lh(fam, best);
+
+	r = lws_mcufont_family_made(fam, *size);
+	if (r)
+		return !lws_mcufont_page_available(r,
+			lws_mcufont_remote_page(r, r->ranges[0], 0));
+
+	return lws_fonts_remote_down(fam->fr);
+}
+
+/*
+ * The family at a size, made the first time it's wanted.  It's named as the
+ * family is, and its pages are checked against that and its line height
+ */
+
+const lws_display_font_t *
+lws_mcufont_family_face(lws_mcufont_family_t *fam, uint16_t size)
+{
+	size_t pl = strlen(fam->path) + 5; /* "/255" and the NUL */
+	lws_mcufont_remote_t *r = lws_mcufont_family_made(fam, size);
+	lws_display_font_t *a;
+
+	if (r)
+		return r->f;
+
+	a = lws_zalloc(sizeof(*a) + sizeof(*r) + pl, __func__);
+	if (!a)
+		return NULL;
+	r = (lws_mcufont_remote_t *)&a[1];
+
+	r->kind = LWS_MCUF_KIND_REMOTE;
+	r->fr = fam->fr;
+	r->cx = fam->fr->cx;
+	r->f = a;
+	r->fam = fam;
+	r->size = size;
+	r->nranges = fam->nranges;
+	r->ranges = fam->ranges;
+	lws_snprintf((char *)&r[1], pl, "%s/%u", fam->path, size);
+	r->path = (const char *)&r[1];
+
+	a->priv = (uint8_t *)r;
+	a->choice.family_name = fam->f->choice.family_name;
+	a->choice.fixed_height = lws_mcufont_family_lh(fam, size);
+
+	lws_font_init_common(a);
+	lws_dll2_add_tail(&a->list, &fam->sizes_made);
+
+	return a;
 }
 
 static int
@@ -1098,13 +1266,10 @@ lws_mcufont_remote_pin(lws_mcufont_remote_t *r, int pin)
 	} lws_end_foreach_dll(d);
 }
 
-void
+static void
 lws_mcufont_remote_destroy(lws_display_font_t *f)
 {
 	lws_mcufont_remote_t *r = mcuf_remote(f);
-
-	if (!r)
-		return;
 
 	while (lws_dll2_get_head(&r->pages)) {
 		lws_mcufont_page_t *p = lws_container_of(
@@ -1118,7 +1283,24 @@ lws_mcufont_remote_destroy(lws_display_font_t *f)
 		lws_free(p);
 	}
 
-	f->data = NULL;
+	lws_dll2_remove(&f->list);
+	lws_free(f);
+}
+
+/* the sizes made of a family: the family itself is freed by the caller */
+
+void
+lws_mcufont_family_destroy(lws_display_font_t *f)
+{
+	lws_mcufont_family_t *fam = mcuf_family(f);
+
+	if (!fam)
+		return;
+
+	while (lws_dll2_get_head(&fam->sizes_made))
+		lws_mcufont_remote_destroy(lws_container_of(
+				lws_dll2_get_head(&fam->sizes_made),
+				lws_display_font_t, list));
 }
 
 /* the fetches refer to the faces: stop them before the faces go */

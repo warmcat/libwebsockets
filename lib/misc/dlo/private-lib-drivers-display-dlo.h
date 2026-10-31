@@ -58,6 +58,7 @@ typedef struct lws_glyph_metrics {
 enum {
 	LWS_MCUF_KIND_FILE		= 1,
 	LWS_MCUF_KIND_REMOTE,
+	LWS_MCUF_KIND_FAMILY,
 };
 
 /*
@@ -124,10 +125,32 @@ typedef struct lws_mcufont_page {
 } lws_mcufont_page_t;
 
 /*
- * A face listed in the font manifest.  The pages it has are listed as
- * ranges; a codepoint on a page it doesn't have is drawn with the fallback
- * glyph of its core page, the first it lists.  The pages that text has
- * needed are in pages, whether or not they are resident just now.
+ * A face listed in the font manifest, that the server makes at any of the
+ * sizes it lists.  This is what the chooser sees; text is set in one of its
+ * sizes, an lws_mcufont_remote_t made the first time that size is chosen,
+ * and kept in sizes rather than cx->fonts.  At a size, its line height is
+ * (height * size + units_per_em / 2) / units_per_em, as the server makes it.
+ * The pages it has are listed as ranges, the same at every size.
+ */
+typedef struct lws_mcufont_family {
+	uint8_t			kind;		/* LWS_MCUF_KIND_FAMILY: first */
+	uint16_t		nranges;
+	uint16_t		nsizes;
+	uint32_t		height;
+	uint32_t		units_per_em;
+	lws_dll2_owner_t	sizes_made;	/* lws_display_font_t */
+	struct lws_fonts_remote	*fr;
+	lws_display_font_t	*f;
+	const char		*path;		/* in the manifest lwsac */
+	const uint16_t		*ranges;	/* first, last page pairs */
+	const uint16_t		*sizes;		/* first, last size pairs */
+} lws_mcufont_family_t;
+
+/*
+ * A family at one size.  A codepoint on a page the family doesn't have is
+ * drawn with the fallback glyph of its core page, the first it lists.  The
+ * pages that text has needed are in pages, whether or not they are resident
+ * just now.
  *
  * The face is usable for layout once its core page is resident: the face's
  * header is copied from the first page to arrive, and is its .data from
@@ -144,12 +167,14 @@ typedef struct lws_mcufont_remote {
 	uint16_t		gen;		/* bumped as each page arrives */
 	uint16_t		pins;
 	uint16_t		nranges;
+	uint16_t		size;
 	lws_dll2_owner_t	pages;		/* lws_mcufont_page_t */
 	struct lws_fonts_remote	*fr;
 	struct lws_context	*cx;
 	lws_display_font_t	*f;
-	const char		*path;		/* in the manifest lwsac */
-	const uint16_t		*ranges;	/* first, last page pairs */
+	lws_mcufont_family_t	*fam;
+	const char		*path;		/* "<family path>/<size>" */
+	const uint16_t		*ranges;	/* the family's */
 	uint8_t			hdr[MCUFO_HDR_LEN];
 } lws_mcufont_remote_t;
 
@@ -165,6 +190,13 @@ mcuf_remote(const lws_display_font_t *f)
 {
 	return f->priv && *f->priv == LWS_MCUF_KIND_REMOTE ?
 				(lws_mcufont_remote_t *)f->priv : NULL;
+}
+
+static LWS_INLINE lws_mcufont_family_t *
+mcuf_family(const lws_display_font_t *f)
+{
+	return f->priv && *f->priv == LWS_MCUF_KIND_FAMILY ?
+				(lws_mcufont_family_t *)f->priv : NULL;
 }
 
 /* whether a face can be used now, see lws_font_resident() */
@@ -190,6 +222,9 @@ lws_font_choose_local(struct lws_context *cx, const lws_font_choice_t *hints);
 int
 lws_font_blob_check(const uint8_t *data, size_t data_len, const char **pname);
 
+void
+lws_font_init_common(lws_display_font_t *a);
+
 int
 lws_font_register_common(struct lws_context *cx, lws_display_font_t *a);
 
@@ -201,9 +236,15 @@ lws_font_text_resident(const lws_display_font_t *f, const char *utf8,
 		       size_t len, lws_font_waiter_t *w);
 
 #if defined(LWS_DLO_REMOTE_FONTS)
-/* a face from a server is here, or could be fetched now */
 int
-lws_mcufont_remote_available(const lws_mcufont_remote_t *r);
+lws_mcufont_family_pick(lws_mcufont_family_t *fam, unsigned int want,
+			uint16_t *size, uint16_t *line_height);
+
+const lws_display_font_t *
+lws_mcufont_family_face(lws_mcufont_family_t *fam, uint16_t size);
+
+void
+lws_mcufont_family_destroy(lws_display_font_t *f);
 
 lws_font_residency_t
 lws_mcufont_remote_resident(lws_mcufont_remote_t *r, const char *utf8,
@@ -215,9 +256,6 @@ lws_mcufont_remote_blob(lws_mcufont_remote_t *r, uint32_t unicode,
 
 void
 lws_mcufont_remote_pin(lws_mcufont_remote_t *r, int pin);
-
-void
-lws_mcufont_remote_destroy(lws_display_font_t *f);
 
 int
 lws_fonts_remote_manifest_pending(struct lws_context *cx, lws_font_waiter_t *w);

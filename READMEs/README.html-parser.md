@@ -238,28 +238,36 @@ and size, and the closest face available is chosen.  Faces can be built in
 At least one face must be built in, so text can always be shown, if not as
 intended.  The manifest is fetched once per boot, when the system becomes
 OPERATIONAL or the first page needs fonts, whichever comes first, and is
-retried until it arrives.  It lists each face's name (the mcufont full name,
-which `font-family` is matched against), where its pages are, its line height,
-and the pages of 256 codepoints it has glyphs on, as runs of hex page numbers:
+retried until it arrives.  It lists each face once, with its name (the name
+of its pages, which `font-family` is matched against), where its pages are,
+the pixel sizes it can be had at, as runs of decimal sizes, its height and
+units per em, and the pages of 256 codepoints it has glyphs on, as runs of
+hex page numbers:
 
 ```
 {"fonts":[
-  {"name":"Fira Sans Condensed Bold 14","path":"FiraSansCondensed-Bold14","line_height":17,"pages":"0000-0005,0020"},
+  {"name":"Fira Sans Condensed Bold","path":"FiraSansCondensed-Bold","sizes":"6-100","height":1200,"units_per_em":1000,"pages":"0000-0005,0020"},
   ...
 ]}
 ```
 
-Each page of a face is a small mcufont of its own, fetched from beside the
-manifest as `<path>/<page>.mcufont`, eg `FiraSansCondensed-Bold14/0020.mcufont`
-for the codepoints from U+2000 (dashes, quotes and so on).  So a device using
-a face with glyphs for many scripts only fetches the pages its text uses, and
-a server only has to make those.
+At a size, a face's line height is `(height * size + units_per_em / 2) /
+units_per_em`.  When text wants a height, the chooser takes the size of each
+face whose line height is closest to it, and the first time a size of a face
+is chosen, the face is made at that size; up to 8 sizes of a face are made,
+after which the closest of those is used.  Each page of a face at a size is a
+small mcufont of its own, fetched from beside the manifest as
+`<path>/<size>/<page>.mcufont`, eg `FiraSansCondensed-Bold/14/0020.mcufont`
+for the codepoints from U+2000 (dashes, quotes and so on) at 14px.  So a
+device using a face with glyphs for many scripts only fetches the pages its
+text uses at the sizes it uses them, and a server only has to make those.
 
 `plugins/protocol_lws_mcufonts` serves a manifest of the faces in a directory
-of `.ttf` files at the sizes it is configured with, and makes each page with
-the mcufont encoder the first time it is asked for, caching it on disk (see its
-README).  Until a page has been made the plugin answers 404, and the device
-sets that text in its closest built-in face meanwhile, asking again after 20s.
+of `.ttf` files, offered at any size up to a limit, and makes each page at a
+size with the mcufont encoder the first time it is asked for, caching it on
+disk, where sizes that stop being asked for age out (see its README).  Until
+a page has been made the plugin answers 404, and the device sets that text in
+its closest built-in face meanwhile, asking again after 20s.
 
 Faces already made as `.mcufont` files can be served statically instead: lay
 out a directory of them as pages with
@@ -268,12 +276,14 @@ out a directory of them as pages with
 $ cmake -DDIR=<dir of .mcufont> -DOUT=<dir to serve> -P contrib/mcufont/fonts-manifest.cmake
 ```
 
-and serve `<dir to serve>`.  Every page there is a copy of the whole face,
-which suits faces with glyphs on only a page or two.  A static server needs to
+and serve `<dir to serve>`.  Each face there has only the size it was made at,
+and every page there is a copy of the whole face, which suits faces with
+glyphs on only a page or two.  A static server needs to
 serve `.mcufont` files with some mimetype, eg `application/octet-stream`;
 lws' own file serving needs it given in the mount's `extra_mimetypes`.
 
-Only the manifest's list stays in memory.  A page of a face is fetched when
+Only the manifest's list, and the sizes of faces chosen, stay in memory.  A
+page of a face at a size is fetched when
 text that needs it is reached in the layout, and the layout waits for it
 there.  It then stays in the heap as a reclaimable occupant: the pages of a
 face are pinned while an element using it is open in the layout, and while a

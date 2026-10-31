@@ -5,17 +5,23 @@
 # cmake -DDIR=<dir of .mcufont> -DOUT=<dir to serve> -P fonts-manifest.cmake
 #
 # A device that registers <OUT>/fonts.json with lws_fonts_register_manifest()
-# learns the faces from it, and fetches each page of a face from beside the
-# manifest when text needs it: <OUT>/<face>/<page>.mcufont, page being four
-# hex digits, the codepoints from page * 256.  For each face the manifest
-# gives the name the chooser matches css font-family against (the face's
-# mcufont full name), its line height and the pages it has, all of which the
-# device checks against each page when it arrives.
+# learns the faces from it, and fetches each page of a face at a size from
+# beside the manifest when text needs it: <OUT>/<face>/<size>/<page>.mcufont,
+# page being four hex digits, the codepoints from page * 256.  For each face
+# the manifest gives the name the chooser matches css font-family against
+# (the face's mcufont full name), the sizes it has, what its line height is
+# at a size, and the pages it has, all of which the device checks against
+# each page when it arrives.
+#
+# A face here only has the one size it was made at, so it's listed as having
+# just one size, whose number is its line height: "height" and
+# "units_per_em" are 1, which makes its line height at a size that size.
 #
 # The pages here are each the whole face, copied for each page its glyphs
 # are on, which is fine for faces with glyphs on only a page or two, like
 # the ones in contrib/mcufont/fonts.  plugins/protocol_lws_mcufonts makes
-# the pages of each face from a .ttf instead, as they are first asked for.
+# the pages of each face at any size from a .ttf instead, as they are first
+# asked for.
 #
 
 if (NOT DIR OR NOT OUT)
@@ -120,7 +126,7 @@ foreach(F ${FACES})
 	# a copy of the face for each page, and the pages as hex runs
 
 	string(REGEX REPLACE "\\.mcufont$" "" FACE "${F}")
-	file(MAKE_DIRECTORY ${OUT}/${FACE})
+	file(MAKE_DIRECTORY ${OUT}/${FACE}/${LH})
 
 	set(PS "")
 	set(RUN_FIRST -1)
@@ -128,7 +134,7 @@ foreach(F ${FACES})
 	foreach(P ${PAGES} END)
 		if (NOT P STREQUAL "END")
 			mcuf_hex4(${P} PH)
-			configure_file(${DIR}/${F} ${OUT}/${FACE}/${PH}.mcufont COPYONLY)
+			configure_file(${DIR}/${F} ${OUT}/${FACE}/${LH}/${PH}.mcufont COPYONLY)
 			math(EXPR NEXT "${RUN_LAST} + 1")
 			if (RUN_FIRST GREATER -1 AND P EQUAL NEXT)
 				set(RUN_LAST ${P})
@@ -150,7 +156,7 @@ foreach(F ${FACES})
 		set(RUN_LAST ${P})
 	endforeach()
 
-	string(APPEND J "${SEP}\n  {\"name\":\"${NAME}\",\"path\":\"${FACE}\",\"line_height\":${LH},\"pages\":\"${PS}\"}")
+	string(APPEND J "${SEP}\n  {\"name\":\"${NAME}\",\"path\":\"${FACE}\",\"sizes\":\"${LH}\",\"height\":1,\"units_per_em\":1,\"pages\":\"${PS}\"}")
 	set(SEP ",")
 endforeach()
 

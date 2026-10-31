@@ -465,24 +465,31 @@ lws_font_set_em(lws_display_font_t *a)
 }
 
 /*
- * The rest of registering a face whose name and line height are filled in.
- * A face from a server has no data yet: its em is set when its core page
- * first arrives, which is before layout uses it
+ * The rest of making a face whose name and line height are filled in.  A
+ * face from a server has no data yet: its em is set when its core page
+ * first arrives, which is before layout uses it.  A family from a server is
+ * never drawn with itself, only with the faces made of it at each size
  */
 
-int
-lws_font_register_common(struct lws_context *cx, lws_display_font_t *a)
+void
+lws_font_init_common(lws_display_font_t *a)
 {
 	a->renderer = lws_display_font_mcufont_render;
 	a->image_glyph = lws_display_font_mcufont_image_glyph;
 
 	lws_font_choice_from_name(a);
-	if (!mcuf_remote(a))
+	if (!a->priv || mcuf_file(a))
 		lws_font_set_em(a);
 	a->ex.whole = a->choice.fixed_height;
 	a->ex.frac = 0;
 
 	lws_dll2_clear(&a->list);
+}
+
+int
+lws_font_register_common(struct lws_context *cx, lws_display_font_t *a)
+{
+	lws_font_init_common(a);
 	lws_dll2_add_tail(&a->list, &cx->fonts);
 
 	return 0;
@@ -612,8 +619,8 @@ lws_font_destroy(struct lws_dll2 *d, void *user)
 		lws_display_font_mcufont_file_destroy(a);
 	}
 #if defined(LWS_DLO_REMOTE_FONTS)
-	/* a face from a server: the name is in the manifest */
-	lws_mcufont_remote_destroy(a);
+	/* a family from a server, and its sizes: the name is in the manifest */
+	lws_mcufont_family_destroy(a);
 #endif
 	lws_free(d);
 	return 0;
@@ -711,6 +718,7 @@ struct track {
 	const lws_font_choice_t 	*hints;
 	const lws_display_font_t	*best;
 	int				best_score;
+	uint16_t			best_size; /* of a family from a server */
 	char				local; /* only faces we have here */
 };
 
@@ -720,19 +728,26 @@ lws_fonts_score(struct lws_dll2 *d, void *user)
 	const lws_display_font_t *f = lws_container_of(d, lws_display_font_t,
 						       list);
 	struct track *t = (struct track *)user;
-	lws_mcufont_remote_t *r = mcuf_remote(f);
+	unsigned int height = f->choice.fixed_height;
 	struct lws_tokenize ts;
+	uint16_t size = 0;
 	int score = 1000;
 
 	/*
-	 * A face from a server that isn't here and can't be fetched now (the
-	 * server failed us, or its copy is bad) isn't a choice
+	 * A family from a server is scored at the size of it closest to the
+	 * height wanted.  If that size isn't here and can't be fetched now
+	 * (the server failed us, or its copy is bad), it isn't a choice
 	 */
-	if (r && t->local)
-		return 0;
 #if defined(LWS_DLO_REMOTE_FONTS)
-	if (r && !lws_mcufont_remote_available(r))
-		return 0;
+	if (mcuf_family(f)) {
+		uint16_t lh;
+
+		if (t->local ||
+		    lws_mcufont_family_pick(mcuf_family(f),
+					    t->hints->fixed_height, &size, &lh))
+			return 0;
+		height = lh;
+	}
 #endif
 
 	if (t->hints->family_name) {
@@ -771,13 +786,14 @@ lws_fonts_score(struct lws_dll2 *d, void *user)
 		score += 100;
 
 	if (t->hints->fixed_height)
-		score += 10 * (t->hints->fixed_height > f->choice.fixed_height ?
-				(t->hints->fixed_height - f->choice.fixed_height) :
-				(f->choice.fixed_height - t->hints->fixed_height));
+		score += 10 * (int)(t->hints->fixed_height > height ?
+				(t->hints->fixed_height - height) :
+				(height - t->hints->fixed_height));
 
 	if (score < t->best_score) {
 		t->best_score = score;
 		t->best = f;
+		t->best_size = size;
 	}
 
 	return 0;
@@ -793,10 +809,21 @@ lws_font_choose_(struct lws_context *cx, const lws_font_choice_t *hints,
 	t.hints			= hints ? hints : &none;
 	t.best			= NULL;
 	t.best_score		= 99999999;
+	t.best_size		= 0;
 	t.local			= local;
 
 	/* with no hints, every face scores the same and the first wins */
 	lws_dll2_foreach_safe(&cx->fonts, &t, lws_fonts_score);
+
+#if defined(LWS_DLO_REMOTE_FONTS)
+	if (t.best && mcuf_family(t.best)) {
+		const lws_display_font_t *f = lws_mcufont_family_face(
+					mcuf_family(t.best), t.best_size);
+
+		/* without the memory for that size, one we have here */
+		return f ? f : lws_font_choose_(cx, hints, 1);
+	}
+#endif
 
 	return t.best;
 }

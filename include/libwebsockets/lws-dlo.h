@@ -1033,32 +1033,40 @@ lws_fonts_register_dir(struct lws_context *cx, const char *dirpath);
  * rest from a manifest on a server, fetched once each boot when the system
  * reaches OPERATIONAL (retried until it succeeds).  The manifest is JSON,
  *
- *   {"fonts": [{ "name": "Fira Sans Condensed Bold 14",
- *                "path": "FiraSansCondensed-Bold14",
- *                "line_height": 17, "pages": "0000-0001,0020" }, ...]}
+ *   {"fonts": [{ "name": "Fira Sans Condensed Bold",
+ *                "path": "FiraSansCondensed-Bold", "sizes": "6-100",
+ *                "height": 1200, "units_per_em": 1000,
+ *                "pages": "0000-0001,0020" }, ...]}
  *
- * name being the face's mcufont full name, which the chooser matches css
- * font-family against and gets the weight and style from, line_height the
- * face's line height, and pages the pages of 256 codepoints the face has
- * glyphs on, as ascending runs of hex page numbers.  Each page of the face is
- * its own small mcufont, fetched from <path>/<page>.mcufont beside the
- * manifest, page being four hex digits, eg FiraSansCondensed-Bold14/0020.mcufont
- * for the codepoints from U+2000.  The first page listed is the face's core
+ * name being the name of the face's pages, which the chooser matches css
+ * font-family against and gets the weight and style from, sizes the pixel
+ * sizes the server has it at, as ascending runs of decimal sizes, and pages
+ * the pages of 256 codepoints the face has glyphs on, as ascending runs of
+ * hex page numbers.  At a size, the face's line height is
+ * (height * size + units_per_em / 2) / units_per_em.
+ *
+ * The chooser takes the size of a face whose line height is closest to the
+ * height it is asked for, and the first time a size is chosen, the face is
+ * made at that size, with nothing of it in memory yet.  Up to 8 sizes of a
+ * face are made; after that, the closest of those is used.  Each page of
+ * the face at a size is its own small mcufont, fetched from
+ * <path>/<size>/<page>.mcufont beside the manifest, size being decimal and
+ * page four hex digits, eg FiraSansCondensed-Bold/14/0020.mcufont for the
+ * codepoints from U+2000 at 14px.  The first page listed is the face's core
  * page, whose fallback glyph is shown for codepoints on pages the face
  * doesn't have.  plugins/protocol_lws_mcufonts serves a manifest and pages
- * made from .ttf files as they are asked for, and
+ * made from .ttf files at any size as they are asked for, and
  * contrib/mcufont/fonts-manifest.cmake lays out a directory of .mcufont
- * files to be served statically.
+ * files, each at the one size it was made, to be served statically.
  *
- * The listed faces can be chosen from as soon as the manifest has arrived,
- * with nothing of them in memory.  A page of a face is fetched when text is to
- * be set using it, and is a reclaimable heap occupant: it can be evicted when
- * memory is short, and is fetched again when needed, even several times
- * during one render.  Layout and render wait for pages being fetched; if a
- * page text needs can't be had, the text is set in the closest face in flash
- * instead.  A page the server refuses (eg, 404 while it is still making it) is
- * asked for again after 20s; a server that can't be reached is left alone for
- * 30s.
+ * The listed faces can be chosen from as soon as the manifest has arrived.
+ * A page of a face at a size is fetched when text is to be set using it, and
+ * is a reclaimable heap occupant: it can be evicted when memory is short,
+ * and is fetched again when needed, even several times during one render.
+ * Layout and render wait for pages being fetched; if a page text needs
+ * can't be had, the text is set in the closest face in flash instead.  A
+ * page the server refuses (eg, 404 while it is still making it) is asked for
+ * again after 20s; a server that can't be reached is left alone for 30s.
  *
  * Needs LWS_WITH_SECURE_STREAMS and a policy with the __default streamtype.
  * Returns 0 if the manifest will be fetched, or nonzero if it can't be, eg
