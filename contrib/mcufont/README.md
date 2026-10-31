@@ -18,12 +18,12 @@ commandline tool for development.
 
 Install `freetype-dev` or similar package on your build host.
 
-Enable lws cmake option `-DLWS_WITH_MCUFONT_ENCODER=1` to get it built, but
-since it is for development it is not packaged with the rest of lws by make
-install.
+Enable lws cmake option `-DLWS_WITH_MCUFONT_ENCODER=1` to get it built.
 
 It produces an executable for your build host in `./bin/lws-mcufont-encoder`
-or similar as part of the normal lws cmake build process then.
+or similar as part of the normal lws cmake build process then, and `make
+install` installs it with lws's other executables, since a server using
+`plugins/protocol_lws_mcufonts` runs it to make the pages devices ask for.
 
 ## Modifications vs upstream
 

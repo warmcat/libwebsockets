@@ -1598,6 +1598,9 @@ endif()
 
 if (LWS_WITH_MCUFONT_ENCODER)
 	add_subdirectory(contrib/mcufont/encoder)
+	# a server using plugins/protocol_lws_mcufonts runs it to make pages
+	install(TARGETS lws-mcufont-encoder
+		RUNTIME DESTINATION "${LWS_INSTALL_BIN_DIR}" COMPONENT dev)
 endif()
 
 #

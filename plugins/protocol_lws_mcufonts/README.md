@@ -26,9 +26,8 @@ it's asked for.
    -DLWS_WITH_DISKCACHE=1 -DLWS_WITH_STRUCT_JSON=1`, for a unix-type platform
 
  - the encoder, `lws-mcufont-encoder`, built with `-DLWS_WITH_MCUFONT_ENCODER=1`
-   (it needs the freetype development package).  It's not installed by
-   `make install`, copy it from your build's `bin/` to somewhere like
-   `/usr/local/bin`
+   (it needs the freetype development package), and installed by
+   `make install` beside lwsws, eg in `/usr/local/bin`
 
  - a directory of .ttf files, readable by lwsws once it has dropped
    privileges.  Only files whose names are letters, digits, `.`, `-` and `_`
