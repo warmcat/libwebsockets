@@ -1367,6 +1367,10 @@ void lwsl_emit_stderr(int level, const char *line);
  * using __lws_sul_insert_pt() / __lws_sul_insert_us() or lws_sul2_schedule()
  * must hold it already, which debug SMP builds assert (G-638).  The mutexes
  * are recursive, so taking one already held, in order, is fine (C-131).
+ *
+ * Peer limits accounting is under the context lock, so code that does it
+ * holding a pt lock takes the context lock before the pt one: eg, ah attach
+ * and detach, which hold the pt lock for the pt's ah pool (G-691).
  */
 #if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 /*
