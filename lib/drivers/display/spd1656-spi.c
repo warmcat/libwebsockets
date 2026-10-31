@@ -105,8 +105,8 @@ typedef struct lws_display_spd1656_spi_state {
 #define lds_to_priv(_lds) (lws_display_spd1656_spi_state_t *)_lds->priv;
 
 #define pack_native_pixel(_line, _x, _c) \
-		{ *_line = (*_line & ~(0xf << (((_x ^ 1) & 7) * 4))) | \
-				(_c << (((_x ^ 1) & 7) * 4)); \
+		{ *_line = (*_line & ~(0xfu << (((_x ^ 1) & 7) * 4))) | \
+				((uint32_t)(_c) << (((_x ^ 1) & 7) * 4)); \
 		  if ((_x & 7) == 7) \
 			  _line++; }
 
@@ -176,10 +176,10 @@ async_cb(lws_sorted_usec_list_t *sul)
 
 		/* width and height filled in from display struct */
 
-		buf[2] = (ea->disp.ic.wh_px[0].whole >> 8) & 0xff;
-		buf[3] = ea->disp.ic.wh_px[0].whole & 0xff;
-		buf[4] = (ea->disp.ic.wh_px[1].whole >> 8) & 0xff;
-		buf[5] = ea->disp.ic.wh_px[1].whole & 0xff;
+		buf[2] = (uint8_t)((ea->disp.ic.wh_px[0].whole >> 8) & 0xff);
+		buf[3] = (uint8_t)(ea->disp.ic.wh_px[0].whole & 0xff);
+		buf[4] = (uint8_t)((ea->disp.ic.wh_px[1].whole >> 8) & 0xff);
+		buf[5] = (uint8_t)(ea->disp.ic.wh_px[1].whole & 0xff);
 
 		lws_spi_table_issue(ea->spi, 0, buf,
 				    LWS_ARRAY_SIZE(spd1656_init2));
@@ -311,7 +311,7 @@ lws_display_spd1656_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 	lws_greyscale_error_t *gedl_this, *gedl_next;
 	const lws_surface_info_t *ic = &ea->disp.ic;
 	lws_colour_error_t *edl_this, *edl_next;
-	size_t bytes_pl = ic->wh_px[0].whole / 2;
+	size_t bytes_pl = (size_t)(ic->wh_px[0].whole / 2);
 	const uint8_t *pc = src;
 	lws_display_colour_t c;
 	lws_spi_desc_t desc;
@@ -398,7 +398,7 @@ lws_display_spd1656_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 
 		if (ic->greyscale)
 			for (n = 0; n < ic->wh_px[0].whole; n++) {
-				c = (pc[0] << 16) | (pc[0] << 8) | pc[0];
+				c = (lws_display_colour_t)((pc[0] << 16) | (pc[0] << 8) | pc[0]);
 
 				m = lws_display_palettize_grey(ic, ic->palette,
 						   ic->palette_depth, c, &gedl_this[n]);
@@ -428,7 +428,7 @@ go_l:
 		desc.flags |= box->y.whole + 1 != ic->wh_px[1].whole ?
 				LWS_SPI_FLAG_DATA_CONTINUE : 0;
 		desc.data = (uint8_t *)priv->line[box->y.whole & 1];
-		desc.count_write = ic->wh_px[0].whole / 2;
+		desc.count_write = (uint16_t)(ic->wh_px[0].whole / 2);
 		ea->spi->queue(ea->spi, &desc);
 
 		return 0;
@@ -442,10 +442,10 @@ go_l:
 
 		/* width and height filled in from display struct */
 
-		temp[2] = (lds->disp->ic.wh_px[0].whole >> 8) & 0xff;
-		temp[3] = lds->disp->ic.wh_px[0].whole & 0xff;
-		temp[4] = (lds->disp->ic.wh_px[1].whole >> 8) & 0xff;
-		temp[5] = lds->disp->ic.wh_px[1].whole & 0xff;
+		temp[2] = (uint8_t)((lds->disp->ic.wh_px[0].whole >> 8) & 0xff);
+		temp[3] = (uint8_t)(lds->disp->ic.wh_px[0].whole & 0xff);
+		temp[4] = (uint8_t)((lds->disp->ic.wh_px[1].whole >> 8) & 0xff);
+		temp[5] = (uint8_t)(lds->disp->ic.wh_px[1].whole & 0xff);
 
 		lws_spi_table_issue(ea->spi, 0, temp,
 				    LWS_ARRAY_SIZE(spd1656_write1));

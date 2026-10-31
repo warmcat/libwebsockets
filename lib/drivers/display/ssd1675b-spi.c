@@ -177,8 +177,8 @@ typedef struct lws_display_ssd1675b_spi_state {
 /* MSB plane is in first half of priv linebuf */
 
 #define pack_native_pixel(_line, _x, _c) \
-		{ *_line = (*_line & ~(1 << (((_x ^ 7) & 31)))) | \
-				(_c << (((_x ^ 7) & 31))); \
+		{ *_line = (*_line & ~(1u << (((_x ^ 7) & 31)))) | \
+				((uint32_t)(_c) << (((_x ^ 7) & 31))); \
 		  if ((_x & 31) == 31) \
 			  _line++; }
 
@@ -375,9 +375,9 @@ lws_display_ssd1675b_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 		 * buffers
 		 */
 		if (ea->spi->alloc_dma)
-			priv->line[0] = ea->spi->alloc_dma(ea->spi, (plane_line_bytes + 4) * 2);
+			priv->line[0] = ea->spi->alloc_dma(ea->spi, (size_t)(plane_line_bytes + 4) * 2);
 		else
-			priv->line[0] = lws_zalloc((plane_line_bytes + 4) * 2, __func__);
+			priv->line[0] = lws_zalloc((size_t)(plane_line_bytes + 4) * 2, __func__);
 
 		if (!priv->line[0]) {
 			lwsl_err("%s: OOM\n", __func__);
@@ -427,7 +427,7 @@ lws_display_ssd1675b_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 			gedl_next[ic->wh_px[0].whole - 1].rgb[0] = 0;
 
 			for (n = 0; n < ic->wh_px[0].whole; n++) {
-				c = (pc[0] << 16) | (pc[0] << 8) | pc[0];
+				c = (lws_display_colour_t)((pc[0] << 16) | (pc[0] << 8) | pc[0]);
 
 				m = lws_display_palettize_grey(ic, ic->palette,
 						   ic->palette_depth, c, &gedl_this[n]);
@@ -477,7 +477,7 @@ go_l:
 
 		desc.data = (uint8_t *)priv->line[box->y.whole & 1];
 		desc.flags = LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED;
-		desc.count_write = plane_line_bytes;
+		desc.count_write = (uint16_t)plane_line_bytes;
 		ea->spi->queue(ea->spi, &desc);
 
 		return 0;

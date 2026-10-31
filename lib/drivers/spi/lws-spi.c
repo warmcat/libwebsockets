@@ -33,7 +33,7 @@ lws_spi_table_issue(const lws_spi_ops_t *spi_ops, uint32_t flags,
 
 	memset(&desc, 0, sizeof(desc));
 	desc.count_cmd = 1;
-	desc.flags = flags;
+	desc.flags = (uint8_t)flags;
 
 	while (pos < len) {
 
@@ -45,7 +45,7 @@ lws_spi_table_issue(const lws_spi_ops_t *spi_ops, uint32_t flags,
 		else
 			desc.data = NULL;
 
-		if (spi_ops->queue(spi_ops, &desc) != ESP_OK) {
+		if (spi_ops->queue(spi_ops, &desc)) {
 			lwsl_err("%s: unable to queue\n", __func__);
 			return 1;
 		}
@@ -65,7 +65,7 @@ lws_spi_readback(const lws_spi_ops_t *spi_ops, uint32_t flags,
 
         memset(&desc, 0, sizeof(desc));
         desc.count_cmd = 1;
-        desc.flags = flags;
+        desc.flags = (uint8_t)flags;
 
         while (pos < len) {
 
@@ -78,9 +78,9 @@ lws_spi_readback(const lws_spi_ops_t *spi_ops, uint32_t flags,
                         desc.data = NULL;
 
 		desc.dest = rb;
-		desc.count_read = rb_len;
+		desc.count_read = (uint16_t)rb_len;
 
-                if (spi_ops->queue(spi_ops, &desc) != ESP_OK) {
+                if (spi_ops->queue(spi_ops, &desc)) {
                         lwsl_err("%s: unable to queue\n", __func__);
                         return 1;
                 }

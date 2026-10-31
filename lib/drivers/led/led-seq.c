@@ -49,8 +49,8 @@ uint16_t cie[] = {
 static lws_led_intensity_t
 cie_antilog(lws_led_intensity_t lin)
 {
-        return (cie[lin >> 10]       * (0x3ff - (lin & 0x3ff)) +
-        	cie[(lin >> 10) + 1] * (lin & 0x3ff)) / 0x3ff;
+        return (lws_led_intensity_t)((cie[lin >> 10] * (0x3ff - (lin & 0x3ff)) +
+        				      cie[(lin >> 10) + 1] * (lin & 0x3ff)) / 0x3ff);
 }
 
 static void
@@ -109,7 +109,8 @@ lws_seq_sample(const lws_led_gpio_map_t *map, lws_led_state_chs_t *chs)
 	} else
 		i = chs->seqs[LLSI_CURR].last;
 
-	return map->intensity_correction ? map->intensity_correction(i) :
+	return map->intensity_correction ?
+			map->intensity_correction((lws_led_seq_phase_t)i) :
 					   cie_antilog((lws_led_intensity_t)i);
 }
 
@@ -170,8 +171,9 @@ lws_led_set_chs_seq(struct lws_led_state *lcs, lws_led_state_ch_t *dest,
 	 */
 
 	steps = def->ms / LWS_LED_SEQUENCER_UPDATE_INTERVAL_MS;
-	dest->step = (def->ledphase_total != LWS_SEQ_LEDPHASE_TOTAL_ENDLESS ?
-		def->ledphase_total : LWS_LED_FUNC_PHASE) / (steps ? steps : 1);
+	dest->step = (lws_led_seq_phase_t)(
+		(def->ledphase_total != LWS_SEQ_LEDPHASE_TOTAL_ENDLESS ?
+		 def->ledphase_total : LWS_LED_FUNC_PHASE) / (steps ? steps : 1));
 
 	if (!lcs->timer_refcount++) {
 #if defined(LWS_PLAT_TIMER_START)
