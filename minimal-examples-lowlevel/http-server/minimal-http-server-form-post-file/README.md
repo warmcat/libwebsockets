@@ -60,9 +60,8 @@ about an upload as hostile:
    form ended mid-file, is removed: nothing is left behind, neither a partial
    file nor an open fd.
 
-The spa that parses the form is freed when the request body completes, and
-when the connection closes, since lws gives no callback when the per-request
-user data of a default (unbound) protocol is freed.
+The spa that parses the form is freed as soon as the request body completes,
+and when the connection closes before that.
 
 A real server must also authenticate who may upload at all, and would usually
 store uploads under names it generates itself, keeping the client's filename

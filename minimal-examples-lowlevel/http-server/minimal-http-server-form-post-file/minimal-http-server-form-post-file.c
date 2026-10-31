@@ -338,10 +338,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 
 		/*
-		 * We are done with the spa: free it now.  Our pss is going to
-		 * be freed when this transaction completes, and we get no
-		 * callback about that (LWS_CALLBACK_HTTP_DROP_PROTOCOL only
-		 * comes after a protocol was bound to a mount).
+		 * We are done with the spa: free it now, rather than holding
+		 * it until LWS_CALLBACK_HTTP_DROP_PROTOCOL at the end of the
+		 * transaction.
 		 */
 
 		lws_spa_destroy(pss->spa);
