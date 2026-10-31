@@ -447,6 +447,9 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->lhp.ssevsul = &rs->sul;
 	m->lhp.sshtmlevcb = lws_lhp_ss_html_parse;
 	m->lhp.sshtmlevsul = &m->sul;
+	/* a render waiting for a font from the server is woken like this */
+	rs->font_wait.sul = &rs->sul;
+	rs->font_wait.cb = render;
 	m->lhp.ids = &rs->ids;
 
 	/* the caller's url need not outlive this call, but the fetch does */
@@ -553,5 +556,6 @@ lws_lhp_ss_cancel(lws_display_render_state_t *rs)
 	if (h)
 		lws_ss_destroy(&h); /* rs->hss_html is cleared at DESTROYING */
 
+	lws_dll2_remove(&rs->font_wait.list);
 	lws_sul_cancel(&rs->sul);
 }

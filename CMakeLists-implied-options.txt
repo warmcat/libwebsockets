@@ -579,6 +579,8 @@ endif()
 if (LWS_WITH_LHP)
 	set(LWS_WITH_CLIENT 1)
 	set(LWS_WITH_SECURE_STREAMS 1)
+	# the font manifest, see lws_fonts_register_manifest()
+	set(LWS_WITH_STRUCT_JSON 1)
 
 	# lhp's document asset cache comes along where the file-backed blob
 	# cache level can build

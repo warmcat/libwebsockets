@@ -27,6 +27,7 @@
  */
 
 #include <private-lib-core.h>
+#include "dlo/private-lib-drivers-display-dlo.h"
 
 #define FAIL_CHAR 0x08
 static uint8_t css_lextable[] = { /* the css property names */
@@ -565,6 +566,10 @@ static void
 lhp_clean_level(lhp_pstack_t *ps)
 {
 	lhp_pstack_t *parent = NULL;
+
+	/* the layout kept the element's face resident while it was open */
+	if (ps->font_pinned && ps->font)
+		lws_font_unpin(ps->font);
 
 	if (lws_dll2_get_prev(&ps->list))
 		parent = lws_container_of(lws_dll2_get_prev(&ps->list),
@@ -6006,6 +6011,8 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 	lws_dll2_owner_clear(&ctx->block_rules);
 	lwsac_free(&ctx->blockac);
 	lws_dll2_foreach_safe(&ctx->stack, NULL, lhp_clean_stack);
+	/* a font fetch must not wake us after we are gone */
+	lws_dll2_remove(&ctx->font_wait.list);
 	lws_dll2_owner_clear(&ctx->active_stanzas);
 	lws_dll2_owner_clear(&ctx->active_atr);
 	lws_dll2_owner_clear(&ctx->css_vars);

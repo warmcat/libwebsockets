@@ -700,6 +700,8 @@ typedef struct lhp_pstack {
 
 	lws_dlo_t			*dlo;
 	const lws_display_font_t	*font;
+	uint8_t				font_pinned; /* we hold font resident */
+	uint8_t				font_waits; /* retries waiting for it */
 
 	/*
 	 * A css background-image on this element: its dlo is created when
@@ -1041,6 +1043,8 @@ typedef struct lhp_ctx {
 	lws_sorted_usec_list_t	*ssevsul; /* sul to use to resume rz */
 	sul_cb_t		sshtmlevcb; /* callback for more html parse */
 	lws_sorted_usec_list_t	*sshtmlevsul; /* sul for more html parse */
+	lws_font_waiter_t	font_wait; /* layout waiting for a font from
+					    * the server */
 
 	void			*user;
 	void			*user1;

@@ -222,6 +222,57 @@ current line have instantiated decoders.
 
 The anti-alias information is composed into the line buffer as alpha.
 
+### Fonts from a server
+
+As on any other system, the fonts are a system attribute rather than
+something each page brings: a page just names `font-family`, weight, style
+and size, and the closest face available is chosen.  Faces can be built in
+(`lws_font_register()`), read from files (`lws_font_register_file()`,
+`lws_fonts_register_dir()`), or listed by a manifest on a server:
+
+```
+	lws_font_register(cx, fira_c_r_14, sizeof(fira_c_r_14));
+	lws_fonts_register_manifest(cx, "https://example.com/fonts/fonts.json");
+```
+
+At least one face must be built in, so text can always be shown, if not as
+intended.  The manifest is fetched once per boot, when the system becomes
+OPERATIONAL or the first page needs fonts, whichever comes first, and is
+retried until it arrives.  It lists each face's name (the mcufont full name,
+which `font-family` is matched against), file, line height and size:
+
+```
+{"fonts":[
+  {"name":"Fira Sans Condensed Bold 14","file":"FiraSansCondensed-Bold14.mcufont","line_height":17,"len":7066},
+  ...
+]}
+```
+
+The faces are fetched from the same directory as the manifest.  Make the
+manifest for a directory of `.mcufont` files with
+
+```
+$ cmake -DDIR=<dir> -DOUT=<dir>/fonts.json -P contrib/mcufont/fonts-manifest.cmake
+```
+
+and serve the directory.
+
+Only the manifest's list stays in memory.  A face is fetched whole when an
+element laid out in it is reached, and the layout waits for it there.  It
+then stays in the heap as a reclaimable occupant: it is pinned while an
+element using it is open in the layout, and while a line of text in it is
+being drawn, and otherwise is evicted when memory runs short and fetched
+again when next needed.  So with little memory a face can come and go
+several times during one render, with the render waiting at that text for
+it to come back.  A face that can't be fetched (the server is unreachable,
+the file doesn't match the manifest) is replaced by the closest built-in
+face, and the server isn't asked again for 30s.
+
+This trades flash for heap and network: each face costs its size in heap
+while in use, and a fetch whenever it was evicted.  A page in five faces
+lays out in about 120KB of heap above what lws holds at startup, swapping
+faces as it goes.
+
 ### Integration of PNG, JPEG and file:// VFS sources into Secure Streams
 
 Secure Streams and lws VFS now work together via `file://` URLs, a SS can be

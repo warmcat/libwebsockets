@@ -28,6 +28,15 @@ enum {
 };
 
 /*
+ * A face that isn't simply in flash has a struct hung off its .priv, which
+ * starts with one of these to say which kind it is
+ */
+enum {
+	LWS_MCUF_KIND_FILE		= 1,
+	LWS_MCUF_KIND_REMOTE,
+};
+
+/*
  * A glyph's compressed string, cached from a file-backed font.  Pinned while
  * a text dlo has it attached (its decoder keeps a pointer into data)
  */
@@ -48,6 +57,7 @@ typedef struct mcuf_gent {
  * go through the cache.  Both are reclaimable heap occupants.
  */
 typedef struct lws_mcufont_file {
+	uint8_t			kind;		/* LWS_MCUF_KIND_FILE: first */
 	lws_reclaimable_t	rc_core;
 	lws_reclaimable_t	rc_glyphs;
 	struct lws_context	*cx;
@@ -68,6 +78,114 @@ typedef struct lws_mcufont_file {
 	uint16_t		nranges;
 	uint16_t		core_pins;
 } lws_mcufont_file_t;
+
+/*
+ * A face listed in the font manifest, fetched whole from the server when
+ * text needs it.  The blob is the unit of residency: once it has arrived it
+ * is the face's .data, exactly as a flash face's is, and it is a single
+ * reclaimable heap occupant.  It is pinned while layout has an element open
+ * in the face, and for the duration of each render call drawing it; the
+ * rest of the time it can be evicted, and is fetched again when next needed.
+ * Each arrival bumps gen, since anything left pointing into an earlier copy
+ * has to start again from the new one.
+ */
+typedef struct lws_mcufont_remote {
+	uint8_t			kind;		/* LWS_MCUF_KIND_REMOTE: first */
+	uint8_t			bad;		/* the server's copy is unusable */
+	uint16_t		gen;		/* bumped each time it arrives */
+	lws_reclaimable_t	rc;		/* the blob */
+	lws_dll2_t		queue;		/* fr->queue, waiting to fetch */
+	struct lws_fonts_remote	*fr;
+	struct lws_context	*cx;
+	lws_display_font_t	*f;
+	const char		*file;		/* in the manifest lwsac */
+	uint8_t			*blob;
+	lws_usec_t		nomem_until;	/* couldn't make room for it */
+	uint32_t		len;		/* the manifest says */
+} lws_mcufont_remote_t;
+
+static LWS_INLINE lws_mcufont_file_t *
+mcuf_file(const lws_display_font_t *f)
+{
+	return f->priv && *f->priv == LWS_MCUF_KIND_FILE ?
+				(lws_mcufont_file_t *)f->priv : NULL;
+}
+
+static LWS_INLINE lws_mcufont_remote_t *
+mcuf_remote(const lws_display_font_t *f)
+{
+	return f->priv && *f->priv == LWS_MCUF_KIND_REMOTE ?
+				(lws_mcufont_remote_t *)f->priv : NULL;
+}
+
+/* whether a face can be used now, see lws_font_resident() */
+
+typedef enum {
+	LWS_FONT_RESIDENT,
+	LWS_FONT_PENDING,	/* being fetched: the waiter will be woken */
+	LWS_FONT_UNAVAILABLE,	/* can't be had for now: use another face */
+} lws_font_residency_t;
+
+lws_font_residency_t
+lws_font_resident(const lws_display_font_t *f, lws_font_waiter_t *w);
+
+void
+lws_font_pin(const lws_display_font_t *f);
+
+void
+lws_font_unpin(const lws_display_font_t *f);
+
+const lws_display_font_t *
+lws_font_choose_local(struct lws_context *cx, const lws_font_choice_t *hints);
+
+int
+lws_font_blob_check(const uint8_t *data, size_t data_len, const char **pname);
+
+int
+lws_font_register_common(struct lws_context *cx, lws_display_font_t *a);
+
+void
+lws_font_set_em(lws_display_font_t *a);
+
+#if defined(LWS_DLO_REMOTE_FONTS)
+/* a face from a server is here, or could be fetched now */
+int
+lws_mcufont_remote_available(const lws_mcufont_remote_t *r);
+
+lws_font_residency_t
+lws_mcufont_remote_resident(lws_mcufont_remote_t *r, lws_font_waiter_t *w);
+
+void
+lws_mcufont_remote_destroy(lws_display_font_t *f);
+
+int
+lws_fonts_remote_manifest_pending(struct lws_context *cx, lws_font_waiter_t *w);
+
+void
+lws_fonts_remote_too_slow(struct lws_context *cx, int manifest);
+
+void
+lws_fonts_remote_stop(struct lws_context *cx);
+
+void
+lws_fonts_remote_free(struct lws_context *cx);
+#else
+static LWS_INLINE int
+lws_fonts_remote_manifest_pending(struct lws_context *cx, lws_font_waiter_t *w)
+{
+	(void)cx;
+	(void)w;
+
+	return 0;
+}
+
+static LWS_INLINE void
+lws_fonts_remote_too_slow(struct lws_context *cx, int manifest)
+{
+	(void)cx;
+	(void)manifest;
+}
+#endif
 
 int
 lws_display_font_mcufont_check_dict(const uint8_t *bf, size_t len);

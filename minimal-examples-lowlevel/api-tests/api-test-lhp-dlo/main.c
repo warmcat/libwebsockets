@@ -20,6 +20,7 @@ enum {
 		LWS_SW_ASSET_CACHE,
 		LWS_SW_PRESEED,
 		LWS_SW_FONTS,
+		LWS_SW_FONT_MANIFEST,
 		LWS_SW_HEAP_LIMIT,
 		LWS_SW_RECLAIM_LINES,
 		LWS_SW_HELP,
@@ -36,6 +37,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_ASSET_CACHE]= { "--asset-cache", "Directory for the document asset cache, enables it" },
 	[LWS_SW_PRESEED]	= { "--preseed",    "Preseed the asset cache with url=file" },
 	[LWS_SW_FONTS]	= { "--fonts",         "Register the .mcufont files in this directory as file-backed faces, instead of the built-in ones" },
+	[LWS_SW_FONT_MANIFEST] = { "--font-manifest", "Use the faces this font manifest url lists, fetched when needed, with only one built-in face as the fallback" },
 	[LWS_SW_HEAP_LIMIT] = { "--heap-limit", "Simulate a heap of this many bytes above what is in use at the start, so fonts and images get reclaimed" },
 	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
@@ -134,7 +136,7 @@ static lws_surface_info_t ic = {
 
 int fdin = 0, fdout = 1, result = 0;
 static const char *dump_path;
-static int reclaim_lines;
+static int reclaim_lines, reclaimed_line = -1;
 
 /*
  * Write the DLO tree as deterministic text (no pointers), so the layout
@@ -417,10 +419,16 @@ render(lws_sorted_usec_list_t *sul)
 		/*
 		 * --reclaim-lines: sound the bat signal ourselves every few
 		 * lines, so every tenant (fonts, images) is evicted and has
-		 * to renew itself mid-render, independent of the allocator
+		 * to renew itself mid-render, independent of the allocator.
+		 * Only once per such line: the render may come back to the
+		 * same line after waiting for a tenant to be fetched again,
+		 * and evicting it again then would never let the line finish
 		 */
-		if (reclaim_lines && !(rs->curr % reclaim_lines))
+		if (reclaim_lines && !(rs->curr % reclaim_lines) &&
+		    rs->curr != reclaimed_line) {
 			lws_reclaim((size_t)-1);
+			reclaimed_line = rs->curr;
+		}
 
 		r = lws_display_list_render_line(rs);
 
@@ -662,6 +670,18 @@ main(int argc, const char **argv)
 		}
 		lwsl_notice("%s: %d file-backed fonts from %s\n", __func__,
 			    n, p);
+	} else if ((p = lws_cmdline_option(argc, argv,
+					  switches[LWS_SW_FONT_MANIFEST].sw))) {
+		/*
+		 * Fonts as a system attribute: one face kept here, so text
+		 * can always be shown, and the rest learned from a manifest
+		 * on a server and fetched into the heap as they are needed
+		 */
+		lws_font_register(cx, fira_c_r_14, sizeof(fira_c_r_14));
+		if (lws_fonts_register_manifest(cx, p)) {
+			lwsl_err("%s: can't use font manifest %s\n", __func__, p);
+			goto bail;
+		}
 	} else {
 	lws_font_register(cx, fira_c_r_10, sizeof(fira_c_r_10));
 	lws_font_register(cx, fira_c_r_12, sizeof(fira_c_r_12));

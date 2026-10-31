@@ -196,6 +196,62 @@ if (requirements)
 				"-DFLAGS=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--heap-limit;90000"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
+		# fonts as a system attribute: one face built in, the rest
+		# listed by a manifest and fetched as text needs them.  The
+		# fixture lays out a directory as a server would serve it
+		set(RF ${CMAKE_CURRENT_BINARY_DIR}/remote-fonts)
+		add_test(NAME api-test-lhp-dlo-remote-fonts-setup
+			 COMMAND ${CMAKE_COMMAND}
+				-DFONTS=${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts
+				-DMANIFEST_TOOL=${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts-manifest.cmake
+				-DOUT=${RF}
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/remote-fonts-setup.cmake)
+		set_tests_properties(api-test-lhp-dlo-remote-fonts-setup
+				     PROPERTIES FIXTURES_SETUP lhp_remote_fonts)
+
+		# the faces from the manifest, under a heap limit that has
+		# them evicted and fetched again during the layout: the same
+		# layout as the built-in faces give
+		add_test(NAME api-test-lhp-dlo-test-html-remote-fonts-reclaim
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/test.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/test-remote-fonts.dlo
+				-DW=600 -DH=448
+				"-DFLAGS=--font-manifest;file://${RF}/faces/fonts.json;--heap-limit;120000"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+		# ... and rendered with every face evicted every few lines, so
+		# they are fetched again and again during the render: the same
+		# pixels as the built-in faces give
+		add_test(NAME api-test-lhp-dlo-render-remote-fonts-reclaim
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/test-remote-fonts
+				-DW=600 -DH=448
+				"-DFLAGS_B=--font-manifest;file://${RF}/faces/fonts.json;--reclaim-lines;7"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
+		# without the manifest, or with a manifest whose faces can't
+		# be fetched, the page is shown in the built-in face, and
+		# comes out the same either way
+		add_test(NAME api-test-lhp-dlo-remote-fonts-fallback
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/remote-fonts-fallback
+				-DW=600 -DH=448
+				"-DFLAGS_A=--font-manifest;file://${RF}/missing/fonts.json"
+				"-DFLAGS_B=--font-manifest;file://${RF}/nofaces/fonts.json"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
+		set_tests_properties(api-test-lhp-dlo-test-html-remote-fonts-reclaim
+				     api-test-lhp-dlo-render-remote-fonts-reclaim
+				     api-test-lhp-dlo-remote-fonts-fallback
+				     PROPERTIES FIXTURES_REQUIRED lhp_remote_fonts)
+
 		# a page with a (preseeded) cached image, rendered with the
 		# faces from files while every reclaimable occupant (the font
 		# tables and glyphs, the image's payload and decoder) is

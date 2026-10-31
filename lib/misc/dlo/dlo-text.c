@@ -29,8 +29,6 @@
 
 static void
 lws_font_choice_from_name(lws_display_font_t *a);
-static int
-lws_font_register_common(struct lws_context *cx, lws_display_font_t *a);
 
 
 size_t
@@ -307,20 +305,19 @@ castrstr(const char *haystack, const char *needle)
 	return NULL;
 }
 
+/*
+ * A font blob is untrusted data like anything else, whether from flash or
+ * from a server... check the parts of the header we and the decoder rely on
+ * against data_len before keeping any of it.  *pname is set to its full name.
+ */
+
 int
-lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
+lws_font_blob_check(const uint8_t *data, size_t data_len, const char **pname)
 {
-	lws_display_font_t *a;
 	uint32_t o, entries;
 	const char *name;
 
-	/*
-	 * The font blob is untrusted data like anything else... validate the
-	 * parts of the header we and the decoder rely on against data_len
-	 * before we keep any of it
-	 */
-
-	if (data_len < (size_t)MCUFO16_LINE_HEIGHT + 2) {
+	if (data_len < (size_t)MCUFO_HDR_LEN) {
 		lwsl_err("%s: font blob too small\n", __func__);
 		return 1;
 	}
@@ -366,13 +363,25 @@ lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
 		return 1;
 	}
 
+	*pname = name;
+
+	return 0;
+}
+
+int
+lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
+{
+	lws_display_font_t *a;
+	const char *name;
+
+	if (lws_font_blob_check(data, data_len, &name))
+		return 1;
+
 	a = lws_zalloc(sizeof(*a), __func__);
 	if (!a)
 		return 1;
 
 	a->choice.family_name = name;
-
-	lws_font_choice_from_name(a);
 	a->choice.fixed_height = lws_ser_ru16be(data + MCUFO16_LINE_HEIGHT);
 
 	a->data = data;
@@ -413,24 +422,36 @@ lws_font_choice_from_name(lws_display_font_t *a)
 					a->choice.weight = 400;
 }
 
-/* the rest of registering a face whose choice and data are filled in */
+/* 1em is the width of the face's 'm', which needs the face's data */
 
-static int
+void
+lws_font_set_em(lws_display_font_t *a)
+{
+	lws_dlo_text_t t;
+
+	memset(&t, 0, sizeof(t));
+	t.font = a;
+
+	lws_display_font_mcufont_getcwidth(&t, 'm', &a->em);
+}
+
+/*
+ * The rest of registering a face whose name and line height are filled in.
+ * A face from a server has no data yet: its em is set when it first arrives,
+ * which is before layout uses it
+ */
+
+int
 lws_font_register_common(struct lws_context *cx, lws_display_font_t *a)
 {
 	a->renderer = lws_display_font_mcufont_render;
 	a->image_glyph = lws_display_font_mcufont_image_glyph;
 
-	{
-		lws_dlo_text_t t;
-
-		memset(&t, 0, sizeof(t));
-		t.font = a;
-
-		lws_display_font_mcufont_getcwidth(&t, 'm', &a->em);
-		a->ex.whole = a->choice.fixed_height;
-		a->ex.frac = 0;
-	}
+	lws_font_choice_from_name(a);
+	if (!mcuf_remote(a))
+		lws_font_set_em(a);
+	a->ex.whole = a->choice.fixed_height;
+	a->ex.frac = 0;
 
 	lws_dll2_clear(&a->list);
 	lws_dll2_add_tail(&a->list, &cx->fonts);
@@ -460,6 +481,7 @@ lws_font_register_file(struct lws_context *cx, const char *path)
 	if (!ff)
 		goto bail;
 	a->priv = (uint8_t *)ff;
+	ff->kind = LWS_MCUF_KIND_FILE;
 	ff->cx = cx;
 	ff->f = a;
 	ff->path = lws_strdup(path);
@@ -489,7 +511,6 @@ lws_font_register_file(struct lws_context *cx, const char *path)
 	if (!name)
 		goto bail;
 	a->choice.family_name = name;
-	lws_font_choice_from_name(a);
 	a->choice.fixed_height = lws_ser_ru16be(bf + MCUFO16_LINE_HEIGHT);
 
 	lws_reclaimable_add(&ff->rc_core);
@@ -557,11 +578,15 @@ lws_font_destroy(struct lws_dll2 *d, void *user)
 {
 	lws_display_font_t *a = lws_container_of(d, lws_display_font_t, list);
 
-	if (a->priv) {
+	if (mcuf_file(a)) {
 		/* a file-backed face: the name was our copy */
 		lws_free((void *)a->choice.family_name);
 		lws_display_font_mcufont_file_destroy(a);
 	}
+#if defined(LWS_DLO_REMOTE_FONTS)
+	/* a face from a server: the name is in the manifest */
+	lws_mcufont_remote_destroy(a);
+#endif
 	lws_free(d);
 	return 0;
 }
@@ -569,13 +594,73 @@ lws_font_destroy(struct lws_dll2 *d, void *user)
 void
 lws_fonts_destroy(struct lws_context *cx)
 {
+#if defined(LWS_DLO_REMOTE_FONTS)
+	lws_fonts_remote_stop(cx);
+#endif
 	lws_dll2_foreach_safe(&cx->fonts, NULL, lws_font_destroy);
+#if defined(LWS_DLO_REMOTE_FONTS)
+	lws_fonts_remote_free(cx);
+#endif
+}
+
+#if !defined(LWS_DLO_REMOTE_FONTS)
+int
+lws_fonts_register_manifest(struct lws_context *cx, const char *url)
+{
+	/* nothing to fetch it with in this build */
+	lwsl_cx_err(cx, "needs LWS_WITH_SECURE_STREAMS and client: %s", url);
+
+	return 1;
+}
+#endif
+
+/*
+ * Whether f can be used right now.  Flash faces always can, and so can
+ * file-backed ones, which are read in as they are touched.  A face from a
+ * server is if it has arrived; otherwise it is fetched, and w woken when
+ * that completes, or it can't be had for now.
+ */
+
+lws_font_residency_t
+lws_font_resident(const lws_display_font_t *f, lws_font_waiter_t *w)
+{
+#if defined(LWS_DLO_REMOTE_FONTS)
+	lws_mcufont_remote_t *r = mcuf_remote(f);
+
+	if (r)
+		return lws_mcufont_remote_resident(r, w);
+#endif
+	(void)f;
+	(void)w;
+
+	return LWS_FONT_RESIDENT;
+}
+
+/* while pinned, a face that came from a server can't be evicted */
+
+void
+lws_font_pin(const lws_display_font_t *f)
+{
+	lws_mcufont_remote_t *r = mcuf_remote(f);
+
+	if (r)
+		lws_reclaimable_pin(&r->rc);
+}
+
+void
+lws_font_unpin(const lws_display_font_t *f)
+{
+	lws_mcufont_remote_t *r = mcuf_remote(f);
+
+	if (r)
+		lws_reclaimable_unpin(&r->rc);
 }
 
 struct track {
 	const lws_font_choice_t 	*hints;
 	const lws_display_font_t	*best;
 	int				best_score;
+	char				local; /* only faces we have here */
 };
 
 static int
@@ -584,8 +669,20 @@ lws_fonts_score(struct lws_dll2 *d, void *user)
 	const lws_display_font_t *f = lws_container_of(d, lws_display_font_t,
 						       list);
 	struct track *t = (struct track *)user;
+	lws_mcufont_remote_t *r = mcuf_remote(f);
 	struct lws_tokenize ts;
 	int score = 1000;
+
+	/*
+	 * A face from a server that isn't here and can't be fetched now (the
+	 * server failed us, or its copy is bad) isn't a choice
+	 */
+	if (r && t->local)
+		return 0;
+#if defined(LWS_DLO_REMOTE_FONTS)
+	if (r && !lws_mcufont_remote_available(r))
+		return 0;
+#endif
 
 	if (t->hints->family_name) {
 		memset(&ts, 0, sizeof(ts));
@@ -635,17 +732,34 @@ lws_fonts_score(struct lws_dll2 *d, void *user)
 	return 0;
 }
 
+static const lws_display_font_t *
+lws_font_choose_(struct lws_context *cx, const lws_font_choice_t *hints,
+		 char local)
+{
+	static const lws_font_choice_t none;
+	struct track t;
+
+	t.hints			= hints ? hints : &none;
+	t.best			= NULL;
+	t.best_score		= 99999999;
+	t.local			= local;
+
+	/* with no hints, every face scores the same and the first wins */
+	lws_dll2_foreach_safe(&cx->fonts, &t, lws_fonts_score);
+
+	return t.best;
+}
+
 const lws_display_font_t *
 lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints)
 {
-	struct track t;
+	return lws_font_choose_(cx, hints, 0);
+}
 
-	t.hints			= hints;
-	t.best			= (const lws_display_font_t *)lws_dll2_get_head(&cx->fonts);
-	t.best_score		= 99999999;
+/* the closest face that doesn't have to come from a server */
 
-	if (t.hints)
-		lws_dll2_foreach_safe(&cx->fonts, &t, lws_fonts_score);
-
-	return t.best;
+const lws_display_font_t *
+lws_font_choose_local(struct lws_context *cx, const lws_font_choice_t *hints)
+{
+	return lws_font_choose_(cx, hints, 1);
 }

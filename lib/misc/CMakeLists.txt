@@ -123,6 +123,10 @@ if (LWS_WITH_DLO)
 	if (LWS_WITH_SECURE_STREAMS AND LWS_WITH_CLIENT)
 		list(APPEND SOURCES
 			misc/dlo/dlo-ss.c)
+		if (LWS_WITH_STRUCT_JSON)
+			list(APPEND SOURCES
+				misc/dlo/dlo-font-remote.c)
+		endif()
 	endif()
 
 	if (LWS_WITH_UPNG)
