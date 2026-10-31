@@ -266,6 +266,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    stream joins a live mux connection**, before any response: check
    `lws_http_client_http_response(wsi)` before failing there.  A raw h2
    test client must ACK the server's SETTINGS before sending split frames.
+ - **With Secure Streams on, an EXPLICIT_VHOSTS context always gets an
+   `_ss_default` vhost**, so "the app created no vhost" is only reachable in
+   SS-off builds, or by destroying `_ss_default` before anything binds to it
+   (api-test-client-no-vhost, G-694).  A refused WebTransport CONNECT
+   reaches the client as CLIENT_CONNECTION_ERROR "HS: WT CONNECT refused
+   <status>"; a wt client needs a client-vhost protocol named
+   "webtransport".
  - **`lws_is_ssl()` on an h2 child stream returns 0**: `use_ssl` is not
    copied to mux children (client streams too: the https->http redirect
    guard read it and was bypassed over h2, G-699).  Use `lws_is_ssl(lws_get_network_wsi(wsi))`
