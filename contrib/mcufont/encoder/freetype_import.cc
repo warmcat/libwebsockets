@@ -72,14 +72,13 @@ static void readfile(std::istream &file, std::vector<char> &data)
     }
 }
 
-static std::string face_name(FT_Face face, int size)
+static std::string face_name(FT_Face face)
 {
     return std::string(face->family_name ? face->family_name : "") + " " +
-           std::string(face->style_name ? face->style_name : "") + " " +
-           std::to_string(size);
+           std::string(face->style_name ? face->style_name : "");
 }
 
-bool FreetypeInfo(std::istream &file, int size, freetype_info_t &info)
+bool FreetypeInfo(std::istream &file, freetype_info_t &info)
 {
     std::vector<char> data;
     readfile(file, data);
@@ -87,15 +86,12 @@ bool FreetypeInfo(std::istream &file, int size, freetype_info_t &info)
     _FT_Library lib;
     _FT_Face face(lib, data);
 
-    checkFT(FT_Set_Pixel_Sizes(face, size, size));
-
-    int u_per_em = face->units_per_EM;
-
-    if (!u_per_em)
+    if (!face->units_per_EM || face->height <= 0)
         return false;
 
-    info.name = face_name(face, size);
-    info.line_height = (face->height * size + u_per_em / 2) / u_per_em;
+    info.name = face_name(face);
+    info.height = face->height;
+    info.units_per_em = face->units_per_EM;
     info.pages.clear();
 
     FT_UInt gindex;
@@ -109,7 +105,8 @@ bool FreetypeInfo(std::istream &file, int size, freetype_info_t &info)
     return true;
 }
 
-std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw)
+std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw,
+                                       bool sized_name)
 {
     std::vector<char> data;
     readfile(file, data);
@@ -129,7 +126,9 @@ std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw)
         throw std::runtime_error("face has no units per em");
     auto topx = [size, u_per_em](int s) { return (s * size + u_per_em / 2) / u_per_em; };
     
-    fontinfo.name = face_name(face, size);
+    fontinfo.name = face_name(face);
+    if (sized_name)
+        fontinfo.name += " " + std::to_string(size);
     
     // Reserve 4 pixels on each side for antialiasing + hinting.
     // They will be cropped off later.

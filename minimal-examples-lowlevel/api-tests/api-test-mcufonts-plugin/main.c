@@ -8,11 +8,16 @@
  *
  * Serves the .ttf files in a directory with the lws-mcufonts plugin, and
  * fetches from it over http as a device would: fonts.json, which is 404 until
- * the plugin has learned the faces, then a page of a face, which is 404 until
- * the plugin has made it, and page 0000 of each face, which the plugin makes
- * at startup since it's in its warm-pages.  Urls for faces, pages or names it
+ * the plugin has learned the faces, then a page of a face at a size nothing
+ * made before, which is 404 until the plugin has made it, and page 0000 of
+ * each face at 14px, which the plugin makes at startup since they're its
+ * warm-pages and warm-sizes.  Urls for faces, sizes, pages or names it
  * doesn't have must be 404 without anything being made: at the end, the cache
  * must hold just the two faces' info, their page 0000 and the one other page.
+ *
+ * Then, in a build that can, it registers the manifest as a device does, and
+ * checks the sizes of the faces the chooser comes up with for the heights it
+ * asks for.
  *
  * With --cached, it's run again on the same cache, when both must be there
  * from the start.
@@ -24,6 +29,14 @@
 
 #define LWS_PLUGIN_STATIC
 #include "../../../plugins/protocol_lws_mcufonts/protocol_lws_mcufonts.c"
+
+#if defined(LWS_WITH_DLO) && defined(LWS_WITH_SECURE_STREAMS)
+/* the build can fetch faces from a manifest, so we check that too */
+#define DEVICE
+#endif
+
+/* the plugin offers sizes up to this */
+#define MAX_SIZE		"40"
 
 enum {
 	LWS_SW_ENCODER,
@@ -66,19 +79,25 @@ typedef struct {
 
 static const step_t steps[] = {
 	{ "fonts.json",				  200, MADE_WARM,  CHK_MANIFEST },
-	{ "FiraSansCondensed-Regular14/0020.mcufont", 200, MADE_ASKED, CHK_PAGE },
-	{ "FiraSansCondensed-Regular14/0000.mcufont", 200, MADE_WARM, CHK_NONE },
-	{ "FiraSansCondensed-Bold14/0000.mcufont",    200, MADE_WARM, CHK_NONE },
+	{ "FiraSansCondensed-Regular/23/0020.mcufont", 200, MADE_ASKED, CHK_PAGE },
+	{ "FiraSansCondensed-Regular/14/0000.mcufont", 200, MADE_WARM, CHK_NONE },
+	{ "FiraSansCondensed-Bold/14/0000.mcufont",    200, MADE_WARM, CHK_NONE },
 
 	/* none of these may make anything */
-	{ "FiraSansCondensed-Regular14/0e00.mcufont", 404, MADE_NEVER, CHK_NONE },
-	{ "FiraSansCondensed-Regular15/0000.mcufont", 404, MADE_NEVER, CHK_NONE },
-	{ "FiraSansCondensed-Regular14/0020.MCUFONT", 404, MADE_NEVER, CHK_NONE },
-	{ "FiraSansCondensed-Regular14/00020.mcufont", 404, MADE_NEVER, CHK_NONE },
-	{ "FiraSansCondensed-Regular14/0020.mcufont/", 404, MADE_NEVER, CHK_NONE },
-	{ "FiraSansCondensed-Regular14/0000.mcufontx", 404, MADE_NEVER, CHK_NONE },
-	{ "FiraSansCondensed-Regular14",	      404, MADE_NEVER, CHK_NONE },
-	{ "nonexistent",			      404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/14/0e00.mcufont", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/41/0000.mcufont", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/5/0000.mcufont",  404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/014/0000.mcufont", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/+14/0000.mcufont", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular//0000.mcufont",   404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/0000.mcufont",    404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/14/0020.MCUFONT", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/14/00020.mcufont", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/14/0020.mcufont/", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular/14/0000.mcufontx", 404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular14/0000.mcufont",  404, MADE_NEVER, CHK_NONE },
+	{ "FiraSansCondensed-Regular",		       404, MADE_NEVER, CHK_NONE },
+	{ "nonexistent",			       404, MADE_NEVER, CHK_NONE },
 };
 
 /* the manifest, parsed as the device parses it */
@@ -88,7 +107,9 @@ typedef struct {
 	char		name[64];
 	char		path[64];
 	char		pages[160];
-	unsigned int	line_height;
+	char		sizes[64];
+	unsigned int	height;
+	unsigned int	units_per_em;
 } face_t;
 
 typedef struct {
@@ -99,7 +120,9 @@ static const lws_struct_map_t lsm_face[] = {
 	LSM_CARRAY	(face_t, name,		"name"),
 	LSM_CARRAY	(face_t, path,		"path"),
 	LSM_CARRAY	(face_t, pages,		"pages"),
-	LSM_UNSIGNED	(face_t, line_height,	"line_height"),
+	LSM_CARRAY	(face_t, sizes,		"sizes"),
+	LSM_UNSIGNED	(face_t, height,	"height"),
+	LSM_UNSIGNED	(face_t, units_per_em,	"units_per_em"),
 };
 
 static const lws_struct_map_t lsm_manifest[] = {
@@ -115,7 +138,7 @@ static struct lws_vhost *vh;
 static lws_sorted_usec_list_t sul_next, sul_timeout;
 static uint8_t body[65536];
 static size_t body_len;
-static unsigned int regular_lh;
+static unsigned int regular_height, regular_upem;
 static int step, status, tries, result = 1, cached, done;
 
 static void
@@ -155,20 +178,24 @@ check_manifest(void)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&m->fonts)) {
 		face_t *f = lws_container_of(d, face_t, list);
 
-		lwsl_user("face '%s' at %s, line height %u, pages %s\n",
-			  f->name, f->path, f->line_height, f->pages);
+		lwsl_user("face '%s' at %s, sizes %s, height %u / %u, "
+			  "pages %s\n", f->name, f->path, f->sizes, f->height,
+			  f->units_per_em, f->pages);
 
-		if (!f->line_height || strncmp(f->pages, "0000", 4))
+		if (!f->height || !f->units_per_em ||
+		    strcmp(f->sizes, "6-" MAX_SIZE) ||
+		    strncmp(f->pages, "0000", 4))
 			break;
 
-		if (!strcmp(f->path, "FiraSansCondensed-Bold14") &&
-		    !strcmp(f->name, "Fira Sans Condensed Bold 14"))
+		if (!strcmp(f->path, "FiraSansCondensed-Bold") &&
+		    !strcmp(f->name, "Fira Sans Condensed Bold"))
 			seen |= 1;
 
 		/* fetching page 0020 of it later shows it's listed */
-		if (!strcmp(f->path, "FiraSansCondensed-Regular14") &&
-		    !strcmp(f->name, "Fira Sans Condensed Regular 14")) {
-			regular_lh = f->line_height;
+		if (!strcmp(f->path, "FiraSansCondensed-Regular") &&
+		    !strcmp(f->name, "Fira Sans Condensed Regular")) {
+			regular_height = f->height;
+			regular_upem = f->units_per_em;
 			seen |= 2;
 		}
 	} lws_end_foreach_dll(d);
@@ -185,15 +212,29 @@ check_manifest(void)
 	return 0;
 }
 
-/* the page is an mcufont of the glyphs from U+2000, at the face's line height */
+/*
+ * The page is an mcufont of the glyphs from U+2000, named as the manifest
+ * names the face, which is what a device checks it against, at the line
+ * height the manifest says the face has at 23px
+ */
 
 static int
 check_page(void)
 {
-	uint32_t ro, rn, first;
+	static const char name[] = "Fira Sans Condensed Regular";
+	unsigned int lh = ((regular_height * 23) + (regular_upem / 2)) /
+								regular_upem;
+	uint32_t ro, rn, first, no;
 
 	if (body_len < 64 || memcmp(body, "MCUF", 4)) {
 		lwsl_err("%s: not an mcufont\n", __func__);
+		return 1;
+	}
+
+	no = lws_ser_ru32be(body + 8);
+	if (no > body_len || body_len - no < sizeof(name) ||
+	    memcmp(body + no, name, sizeof(name))) {
+		lwsl_err("%s: not named '%s'\n", __func__, name);
 		return 1;
 	}
 
@@ -206,10 +247,10 @@ check_page(void)
 
 	first = lws_ser_ru32be(body + ro);
 	if (first < 0x2000 || first > 0x20ff ||
-	    lws_ser_ru16be(body + 0x3c) != regular_lh) {
-		lwsl_err("%s: page starts at U+%04x, line height %u\n",
+	    lws_ser_ru16be(body + 0x3c) != lh) {
+		lwsl_err("%s: page starts at U+%04x, line height %u not %u\n",
 			 __func__, (unsigned int)first,
-			 (unsigned int)lws_ser_ru16be(body + 0x3c));
+			 (unsigned int)lws_ser_ru16be(body + 0x3c), lh);
 		return 1;
 	}
 
@@ -302,6 +343,174 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+#if defined(DEVICE)
+
+/*
+ * The device's side: with one face of its own, it learns the faces from the
+ * plugin's manifest, and the chooser makes them at the sizes it's asked for
+ */
+
+static const uint8_t fira_c_r_12[] = {
+#include "../../../contrib/mcufont/fonts/FiraSansCondensed-Regular12.mcufont.h"
+};
+
+static const char * const device_policy =
+	"{"
+		"\"release\":\"1\","
+		"\"product\":\"mcufonts-plugin-test\","
+		"\"schema-version\":1,"
+		"\"retry\":[{\"default\":{"
+			"\"backoff\":[100,200],"
+			"\"conceal\":2,"
+			"\"jitterpc\":0,"
+			"\"svalidping\":30,"
+			"\"svalidhup\":35"
+		"}}],"
+		"\"s\":[{\"__default\":{"
+			"\"endpoint\":\"${endpoint}\","
+			"\"port\":80,"
+			"\"protocol\":\"h1\","
+			"\"http_method\":\"GET\","
+			"\"http_url\":\"\","
+			"\"metadata\":[{"
+				"\"endpoint\":\"\","
+				"\"acc\":\"accept\","
+				"\"ua\":\"user-agent\""
+			"}],"
+			"\"retry\":\"default\","
+			"\"timeout_ms\":10000"
+		"}}]"
+	"}";
+
+static const lws_display_font_t *
+choose(const char *family, uint16_t weight, uint16_t height)
+{
+	lws_font_choice_t hints = { .family_name = family, .weight = weight,
+				    .fixed_height = height };
+
+	return lws_font_choose(cx, &hints);
+}
+
+/*
+ * The plugin offers 6 to 40px, and the Fira faces' line height at a size is
+ * (1200 * size + 500) / 1000.  Each height asked for gets the size of a face
+ * whose line height is closest, up to 8 sizes of a face, then the closest of
+ * those.  A size of a face nearer the height beats the weight asked for, so
+ * once the bold face has its 8 sizes, the closest of them is only chosen
+ * over the regular face once that has its 8 sizes too
+ */
+
+#define REG	"Fira Sans Condensed Regular"
+#define BOLD	"Fira Sans Condensed Bold"
+
+static const struct {
+	uint16_t	weight;
+	uint16_t	want;
+	const char	*face;	/* what we get... */
+	uint16_t	lh;	/* ...with this line height */
+} picks[] = {
+	{ 400, 17, REG,  17 },	/* 14px: an ad-hoc size, made when chosen */
+	{ 700, 23, BOLD, 23 },	/* 19px */
+	{ 700, 23, BOLD, 23 },	/* ...the same face again */
+	{ 700, 60, BOLD, 48 },	/* past max-size: the biggest it has */
+	{ 700, 3,  BOLD, 7 },	/* the smallest, 6px */
+	{ 700, 12, BOLD, 12 },
+	{ 700, 14, BOLD, 14 },
+	{ 700, 16, BOLD, 16 },
+	{ 700, 18, BOLD, 18 },
+	{ 700, 26, BOLD, 26 },	/* bold's eighth size */
+	{ 700, 30, REG,  30 },	/* closer than any bold size made */
+	{ 400, 7,  REG,  7 },
+	{ 400, 12, REG,  12 },
+	{ 400, 20, REG,  20 },	/* not 14: the face we have wins a tie */
+	{ 400, 16, REG,  16 },
+	{ 400, 18, REG,  18 },
+	{ 400, 23, REG,  23 },	/* regular's eighth size, with 17 and 30 */
+	{ 700, 26, BOLD, 26 },	/* both full: the closest sizes made */
+	{ 700, 27, BOLD, 26 },
+	{ 400, 29, REG,  30 },
+	{ 700, 2,  BOLD, 7 },
+	{ 400, 17, REG,  17 },
+};
+
+static int device_tries;
+
+static int
+device_checks(void)
+{
+	const lws_display_font_t *f, *f23 = NULL;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(picks); n++) {
+		f = choose("Fira Sans Condensed", picks[n].weight,
+			   picks[n].want);
+		if (!f || strcmp(f->choice.family_name, picks[n].face) ||
+		    f->choice.fixed_height != picks[n].lh) {
+			lwsl_err("%s: %u for %u is '%s' at %u, not '%s' at "
+				 "%u\n", __func__, picks[n].weight,
+				 picks[n].want,
+				 f ? f->choice.family_name : "none",
+				 f ? f->choice.fixed_height : 0,
+				 picks[n].face, picks[n].lh);
+			return 1;
+		}
+		lwsl_user("%u for %u: '%s' at %u\n", picks[n].weight,
+			  picks[n].want, f->choice.family_name,
+			  f->choice.fixed_height);
+
+		if (picks[n].weight == 700 && picks[n].want == 23) {
+			if (f23 && f != f23) {
+				lwsl_err("%s: 23 made twice\n", __func__);
+				return 1;
+			}
+			f23 = f;
+		}
+	}
+
+	return 0;
+}
+
+static void
+device_cb(lws_sorted_usec_list_t *sul)
+{
+	const lws_display_font_t *f = choose("Fira Sans Condensed", 400, 17);
+
+	/* until the manifest is here, only the face we have can be chosen */
+
+	if (!f || !strcmp(f->choice.family_name,
+			  "Fira Sans Condensed Regular 12")) {
+		if (++device_tries > 100) {
+			lwsl_err("%s: the manifest never came\n", __func__);
+			finish(0);
+			return;
+		}
+		lws_sul_schedule(cx, 0, &sul_next, device_cb,
+				 100 * LWS_US_PER_MS);
+		return;
+	}
+
+	finish(!device_checks());
+}
+
+static void
+device_start(void)
+{
+	char url[64];
+
+	lws_snprintf(url, sizeof(url), "http://127.0.0.1:%d/fonts.json",
+		     lws_get_vhost_listen_port(vh));
+
+	if (lws_font_register(cx, fira_c_r_12, sizeof(fira_c_r_12)) ||
+	    lws_fonts_register_manifest(cx, url)) {
+		lwsl_err("%s: can't use %s\n", __func__, url);
+		finish(0);
+		return;
+	}
+
+	lws_sul_schedule(cx, 0, &sul_next, device_cb, 1);
+}
+#endif
+
 static void
 next_cb(lws_sorted_usec_list_t *sul)
 {
@@ -309,7 +518,11 @@ next_cb(lws_sorted_usec_list_t *sul)
 	char path[256];
 
 	if (step == (int)LWS_ARRAY_SIZE(steps)) {
+#if defined(DEVICE)
+		device_start();
+#else
 		finish(1);
+#endif
 		return;
 	}
 
@@ -380,9 +593,11 @@ main(int argc, const char **argv)
 					   pvo_iter = {
 		&pvo_jobs, NULL, "iterations", "1" },
 					   pvo_sizes = {
-		&pvo_iter, NULL, "sizes", "14" },
+		&pvo_iter, NULL, "warm-sizes", "14" },
+					   pvo_max = {
+		&pvo_sizes, NULL, "max-size", MAX_SIZE },
 					   pvo_enc = {
-		&pvo_sizes, NULL, "encoder", NULL },
+		&pvo_max, NULL, "encoder", NULL },
 					   pvo_cache = {
 		&pvo_enc, NULL, "cache-dir", NULL },
 					   pvo_ttf = {
@@ -419,6 +634,9 @@ main(int argc, const char **argv)
 	}
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+#if defined(DEVICE)
+	info.pss_policies_json = device_policy;
+#endif
 	cx = lws_create_context(&info);
 	if (!cx) {
 		lwsl_err("lws init failed\n");

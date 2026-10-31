@@ -119,13 +119,17 @@ page its own small mcufont.  A device fetches only the pages its text needs
 pages that are asked for (`plugins/protocol_lws_mcufonts`).
 
 ```
- $ lws-mcufont-encoder face_info Font.ttf 32
- {"name":"Font Regular 32","line_height":38,"pages":"0000-0005,001e-0021"}
+ $ lws-mcufont-encoder face_info Font.ttf
+ {"name":"Font Regular","height":1200,"units_per_em":1000,"pages":"0000-0005,001e-0021"}
  $ lws-mcufont-encoder rlefont_page Font.ttf 32 0020 Font32-0020.mcufont 10
 ```
 
-`face_info` is quick, it renders nothing; it lists the pages the .ttf has any
-glyphs on as runs of hex page numbers.  `rlefont_page` makes the mcufont for
+`face_info` is quick, it renders nothing, and is the same for every size: it
+lists the pages the .ttf has any glyphs on as runs of hex page numbers, and
+gives the face's height and units per em, from which its line height at a
+size is `(height * size + units_per_em / 2) / units_per_em`, exactly as
+`rlefont_page` makes it.  The pages are named for the face without a size,
+as `face_info` names it.  `rlefont_page` makes the mcufont for
 one page, optimized for the given number of iterations (default 10).  The
 optimizer's gains flatten off quickly: 20 iterations give pages around 5%
 bigger than 50 do, in less than half the time.

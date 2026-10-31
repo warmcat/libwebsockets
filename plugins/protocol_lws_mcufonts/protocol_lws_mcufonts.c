@@ -18,13 +18,14 @@
  * Public Domain.
  *
  * Devices using lws_fonts_register_manifest() fetch fonts.json from us, then
- * <face>/<page>.mcufont beside it for each page of 256 codepoints their text
- * needs.  The faces are each .ttf in a directory at each of the configured
- * sizes.  We learn what's in each face with the mcufont encoder's face_info
- * at startup, and make a page with its rlefont_page only when a device first
- * asks for it, into an lws_diskcache that is kept trimmed to a size.  Until
- * it's made we answer 404, and the device sets that text in a face of its own
- * and asks again later.
+ * <face>/<size>/<page>.mcufont beside it for each page of 256 codepoints
+ * their text needs, at the size they want it.  The faces are each .ttf in a
+ * directory, offered at any size from min-size to max-size.  We learn what's
+ * in each face with the mcufont encoder's face_info at startup, and make a
+ * page at a size with its rlefont_page only when a device first asks for it,
+ * into an lws_diskcache that is kept trimmed to a size, so sizes that are no
+ * longer asked for age out.  Until it's made we answer 404, and the device
+ * sets that text in a face of its own and asks again later.
  *
  * See ./README.md
  */
@@ -56,29 +57,31 @@
 #define MCUF_DEV_MANIFEST_MAX	16384
 #define MCUF_DEV_FACES_MAX	64
 #define MCUF_PAGE_MAX		0x10ff	/* the page of U+10FFFF */
+#define MCUF_SIZE_MIN		4	/* what the encoder can make */
+#define MCUF_SIZE_MAX		255
 
 #define MCUF_INFO_MAX		1024	/* face_info's stdout */
 #define MCUF_QUEUE_MAX		64	/* jobs waiting their turn */
 
-#define MCUF_SIZES_MAX		16
-
 typedef struct mcuf_info {
 	char			name[128];
 	char			pages[512];
-	unsigned int		line_height;
+	unsigned int		height;
+	unsigned int		units_per_em;
 } mcuf_info_t;
 
 static const lws_struct_map_t lsm_mcuf_info[] = {
 	LSM_CARRAY	(mcuf_info_t, name,		"name"),
 	LSM_CARRAY	(mcuf_info_t, pages,		"pages"),
-	LSM_UNSIGNED	(mcuf_info_t, line_height,	"line_height"),
+	LSM_UNSIGNED	(mcuf_info_t, height,		"height"),
+	LSM_UNSIGNED	(mcuf_info_t, units_per_em,	"units_per_em"),
 };
 
 static const lws_struct_map_t lsm_mcuf_info_schema[] = {
 	LSM_SCHEMA	(mcuf_info_t, NULL, lsm_mcuf_info, "mcuf-info"),
 };
 
-/* a .ttf at one size: a face we offer */
+/* a .ttf: a face we offer at any size from min-size to max-size */
 
 typedef struct mcuf_face {
 	lws_dll2_t		list;		/* vhd->faces */
@@ -90,9 +93,9 @@ typedef struct mcuf_face {
 	char			path[MCUF_DEV_PATH_MAX + 1]; /* in the url */
 	char			id[128];	/* in the cache keys */
 
-	int			size;
 	int			nranges;
 	uint8_t			state;		/* MCUF_FACE_ */
+	uint8_t			listed;		/* in fonts.json */
 } mcuf_face_t;
 
 enum {
@@ -114,6 +117,7 @@ typedef struct mcuf_job {
 	char			out[MCUF_INFO_MAX];
 	size_t			olen;
 
+	int			size;
 	int			page;		/* -1: face_info */
 	uint8_t			overflow;
 } mcuf_job_t;
@@ -140,8 +144,10 @@ struct vhd {
 	lws_usec_t		timeout_us;
 	uint16_t		warm[MCUF_DEV_RANGES_MAX * 2];
 	int			nwarm;		/* ranges of pages made at start */
-	int			sizes[MCUF_SIZES_MAX];
-	int			nsizes;
+	uint16_t		warm_sizes[MCUF_DEV_RANGES_MAX * 2];
+	int			nwarm_sizes;	/* ...at these ranges of sizes */
+	int			min_size;
+	int			max_size;
 	int			iterations;
 	int			jobs_max;
 
@@ -161,11 +167,7 @@ mcuf_start_cb(lws_sorted_usec_list_t *sul);
 static void
 mcuf_face_warm(struct vhd *vhd, mcuf_face_t *f);
 
-/*
- * The page runs a face lists, like "0000-0005,0020", into first, last pairs,
- * checked the same way the device checks them.  Returns the count of pairs,
- * or -1 if the list is bad, or longer than a device can take
- */
+/* four lowercase hex digits, and nothing else */
 
 static int
 mcuf_hex(const char *s, size_t len, uint32_t *v)
@@ -189,24 +191,60 @@ mcuf_hex(const char *s, size_t len, uint32_t *v)
 	return 0;
 }
 
+/* a decimal from lo to hi, without leading zeros, and nothing else */
+
 static int
-mcuf_pages(const char *pages, uint16_t *ranges, int max)
+mcuf_int(const char *s, size_t len, int lo, int hi, int *v)
+{
+	size_t n;
+
+	if (!len || len > 7 || (len > 1 && *s == '0'))
+		return 1;
+
+	*v = 0;
+	for (n = 0; n < len; n++) {
+		if (s[n] < '0' || s[n] > '9')
+			return 1;
+		*v = (*v * 10) + (s[n] - '0');
+	}
+
+	return *v < lo || *v > hi;
+}
+
+/*
+ * Runs of pages, like "0000-0005,0020", or with hex 0, of decimal sizes,
+ * like "12-16,20", into first, last pairs, checked the same way the device
+ * checks them.  Returns the count of pairs, or -1 if the list is bad, or
+ * longer than a device can take
+ */
+
+static int
+mcuf_runs(const char *list, int hex, int lo, int hi, uint16_t *ranges,
+	  int max)
 {
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
-	int n = 0, dash = 0, have = 0;
+	int n = 0, dash = 0, have = 0, i;
 	uint32_t v;
 
-	lws_tokenize_init(&ts, pages, LWS_TOKENIZE_F_NO_INTEGERS |
-				      LWS_TOKENIZE_F_NO_FLOATS);
-	ts.len = strlen(pages);
+	lws_tokenize_init(&ts, list, LWS_TOKENIZE_F_NO_INTEGERS |
+				     LWS_TOKENIZE_F_NO_FLOATS);
+	ts.len = strlen(list);
 
 	do {
 		e = lws_tokenize(&ts);
 		switch (e) {
 		case LWS_TOKZE_TOKEN:
-			if (mcuf_hex(ts.token, ts.token_len, &v) ||
-			    v > MCUF_PAGE_MAX)
+			if (hex) {
+				if (mcuf_hex(ts.token, ts.token_len, &v))
+					return -1;
+			} else {
+				if (mcuf_int(ts.token, ts.token_len, 0, 0xffff,
+					     &i))
+					return -1;
+				v = (uint32_t)i;
+			}
+			if (v < (uint32_t)lo || v > (uint32_t)hi)
 				return -1;
 			if (dash) {
 				if (v < ranges[(n - 1) * 2])
@@ -282,22 +320,24 @@ mcuf_name_ok(const char *s, size_t len)
 
 /*
  * Cache objects are named by the sha1 of what they are made from, the ttf
- * identified by its path, size and mtime, so a changed ttf is made afresh
+ * identified by its path, file size and mtime, so a changed ttf is made
+ * afresh
  */
 
 static void
-mcuf_key(const mcuf_face_t *f, int page, int iterations, char hex[41])
+mcuf_key(const mcuf_face_t *f, int size, int page, int iterations,
+	 char hex[41])
 {
 	static const char *hexchars = "0123456789abcdef";
 	uint8_t digest[LWS_GENHASH_LARGEST];
-	char k[sizeof(f->id) + 32];
+	char k[sizeof(f->id) + 48];
 	int n, m;
 
 	if (page < 0)
 		n = lws_snprintf(k, sizeof(k), "info:%s", f->id);
 	else
-		n = lws_snprintf(k, sizeof(k), "page:%s:%04x:%d", f->id, page,
-				 iterations);
+		n = lws_snprintf(k, sizeof(k), "page:%s:%d:%04x:%d", f->id,
+				 size, page, iterations);
 
 	lws_SHA1((const unsigned char *)k, (size_t)n, digest);
 
@@ -339,9 +379,19 @@ mcuf_face_info_apply(struct vhd *vhd, mcuf_face_t *f, const char *buf,
 	f->info = *i;
 	lwsac_free(&a.ac);
 
+	/*
+	 * Every size we offer must have a line height, that fits in 16 bits,
+	 * as the device checks
+	 */
 	n = (int)strlen(f->info.name);
-	if (n > MCUF_DEV_NAME_MAX || !f->info.line_height ||
-	    f->info.line_height > 0xffff ||
+	if (n > MCUF_DEV_NAME_MAX || !f->info.height ||
+	    f->info.height > 0xffff || !f->info.units_per_em ||
+	    f->info.units_per_em > 0xffff ||
+	    ((uint64_t)f->info.height * (unsigned int)vhd->min_size) +
+		(f->info.units_per_em / 2) < f->info.units_per_em ||
+	    ((uint64_t)f->info.height * (unsigned int)vhd->max_size) +
+		(f->info.units_per_em / 2) >=
+				(uint64_t)f->info.units_per_em * 0x10000 ||
 	    strlen(f->info.pages) > MCUF_DEV_PAGES_MAX)
 		goto bad;
 
@@ -351,7 +401,8 @@ mcuf_face_info_apply(struct vhd *vhd, mcuf_face_t *f, const char *buf,
 		    f->info.name[n] == '"' || f->info.name[n] == '\\')
 			goto bad;
 
-	f->nranges = mcuf_pages(f->info.pages, f->ranges, MCUF_DEV_RANGES_MAX);
+	f->nranges = mcuf_runs(f->info.pages, 1, 0, MCUF_PAGE_MAX, f->ranges,
+			       MCUF_DEV_RANGES_MAX);
 	if (f->nranges <= 0)
 		goto bad;
 
@@ -361,8 +412,7 @@ mcuf_face_info_apply(struct vhd *vhd, mcuf_face_t *f, const char *buf,
 	return 0;
 
 bad:
-	lwsl_vhost_warn(vhd->vhost, "%s at %d can't be offered", f->ttf,
-			f->size);
+	lwsl_vhost_warn(vhd->vhost, "%s can't be offered", f->ttf);
 	f->state = MCUF_FACE_FAILED;
 
 	return 1;
@@ -378,7 +428,7 @@ mcuf_face_info_cached(struct vhd *vhd, mcuf_face_t *f)
 	ssize_t r;
 	int fd;
 
-	mcuf_key(f, -1, 0, hex);
+	mcuf_key(f, 0, -1, 0, hex);
 	if (lws_diskcache_query(vhd->lds, 1, hex, &fd, path, (int)sizeof(path),
 				&extant) != LWS_DISKCACHE_QUERY_EXISTS)
 		return 1;
@@ -401,7 +451,7 @@ mcuf_face_info_cache(struct vhd *vhd, mcuf_face_t *f, const char *buf,
 	size_t extant;
 	int fd, ok;
 
-	mcuf_key(f, -1, 0, hex);
+	mcuf_key(f, 0, -1, 0, hex);
 	switch (lws_diskcache_query(vhd->lds, 0, hex, &fd, path,
 				    (int)sizeof(path), &extant)) {
 	case LWS_DISKCACHE_QUERY_EXISTS:
@@ -457,9 +507,11 @@ mcuf_manifest_build(struct vhd *vhd)
 			continue;
 
 		n = lws_snprintf(e, sizeof(e), "%s\n {\"name\":\"%s\",\"path\":"
-				 "\"%s\",\"line_height\":%u,\"pages\":\"%s\"}",
-				 sep, f->info.name, f->path,
-				 f->info.line_height, f->info.pages);
+				 "\"%s\",\"sizes\":\"%d-%d\",\"height\":%u,"
+				 "\"units_per_em\":%u,\"pages\":\"%s\"}",
+				 sep, f->info.name, f->path, vhd->min_size,
+				 vhd->max_size, f->info.height,
+				 f->info.units_per_em, f->info.pages);
 
 		/* leave room for the end */
 		if (count == MCUF_DEV_FACES_MAX || n >= (int)sizeof(e) - 1 ||
@@ -473,6 +525,7 @@ mcuf_manifest_build(struct vhd *vhd)
 		pos += (size_t)n;
 		sep = ",";
 		count++;
+		f->listed = 1;
 	} lws_end_foreach_dll(d);
 
 	pos += (size_t)lws_snprintf(m + pos, alloc - pos, "\n]}\n");
@@ -484,12 +537,12 @@ mcuf_manifest_build(struct vhd *vhd)
 }
 
 static mcuf_job_t *
-mcuf_job_find(lws_dll2_owner_t *o, const mcuf_face_t *f, int page)
+mcuf_job_find(lws_dll2_owner_t *o, const mcuf_face_t *f, int size, int page)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(o)) {
 		mcuf_job_t *j = lws_container_of(d, mcuf_job_t, list);
 
-		if (j->face == f && j->page == page)
+		if (j->face == f && j->size == size && j->page == page)
 			return j;
 	} lws_end_foreach_dll(d);
 
@@ -499,12 +552,12 @@ mcuf_job_find(lws_dll2_owner_t *o, const mcuf_face_t *f, int page)
 /* force: the queue's limit is for what devices ask for, not what we warm */
 
 static int
-mcuf_job_queue(struct vhd *vhd, mcuf_face_t *f, int page, int force)
+mcuf_job_queue(struct vhd *vhd, mcuf_face_t *f, int size, int page, int force)
 {
 	mcuf_job_t *j;
 
-	if (mcuf_job_find(&vhd->queued, f, page) ||
-	    mcuf_job_find(&vhd->running, f, page))
+	if (mcuf_job_find(&vhd->queued, f, size, page) ||
+	    mcuf_job_find(&vhd->running, f, size, page))
 		return 0;
 
 	if (!force && vhd->queued.count >= MCUF_QUEUE_MAX)
@@ -517,6 +570,7 @@ mcuf_job_queue(struct vhd *vhd, mcuf_face_t *f, int page, int force)
 	memset(j, 0, sizeof(*j));
 	j->vhd = vhd;
 	j->face = f;
+	j->size = size;
 	j->page = page;
 
 	lws_dll2_add_tail(&j->list, &vhd->queued);
@@ -527,10 +581,10 @@ mcuf_job_queue(struct vhd *vhd, mcuf_face_t *f, int page, int force)
 	return 0;
 }
 
-/* the warm-pages a face has, that aren't made yet, are made now */
+/* the warm-pages a face has, that aren't made yet at size, are made now */
 
-static void
-mcuf_face_warm(struct vhd *vhd, mcuf_face_t *f)
+static int
+mcuf_face_warm_size(struct vhd *vhd, mcuf_face_t *f, int size)
 {
 	char path[LWS_DISKCACHE_PATH_MAX], hex[41];
 	size_t extant;
@@ -541,16 +595,30 @@ mcuf_face_warm(struct vhd *vhd, mcuf_face_t *f)
 		for (p = vhd->warm[n * 2]; p <= vhd->warm[(n * 2) + 1]; p++) {
 			if (!mcuf_face_has_page(f, p))
 				continue;
-			mcuf_key(f, (int)p, vhd->iterations, hex);
+			mcuf_key(f, size, (int)p, vhd->iterations, hex);
 			if (lws_diskcache_query(vhd->lds, 1, hex, &fd, path,
 						(int)sizeof(path), &extant) ==
 						LWS_DISKCACHE_QUERY_EXISTS) {
 				close(fd);
 				continue;
 			}
-			if (mcuf_job_queue(vhd, f, (int)p, 1))
-				return;
+			if (mcuf_job_queue(vhd, f, size, (int)p, 1))
+				return 1;
 		}
+
+	return 0;
+}
+
+static void
+mcuf_face_warm(struct vhd *vhd, mcuf_face_t *f)
+{
+	int n, z;
+
+	for (n = 0; n < vhd->nwarm_sizes; n++)
+		for (z = vhd->warm_sizes[n * 2];
+		     z <= vhd->warm_sizes[(n * 2) + 1]; z++)
+			if (mcuf_face_warm_size(vhd, f, z))
+				return;
 }
 
 static void
@@ -577,8 +645,8 @@ mcuf_reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 
 	if (j->page < 0) {
 		if (!ok || j->overflow) {
-			lwsl_vhost_warn(vhd->vhost, "face_info %s %d failed "
-					"(%d)", f->ttf, f->size, si->si_status);
+			lwsl_vhost_warn(vhd->vhost, "face_info %s failed (%d)",
+					f->ttf, si->si_status);
 			f->state = MCUF_FACE_FAILED;
 		} else if (!mcuf_face_info_apply(vhd, f, j->out, j->olen))
 			mcuf_face_info_cache(vhd, f, j->out, j->olen);
@@ -587,12 +655,12 @@ mcuf_reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 	} else {
 		if (ok && !stat(j->tmp, &s) && s.st_size > 0 &&
 		    !lws_diskcache_finalize_name(j->tmp))
-			lwsl_vhost_info(vhd->vhost, "made %s/%04x.mcufont",
-					f->path, j->page);
+			lwsl_vhost_info(vhd->vhost, "made %s/%d/%04x.mcufont",
+					f->path, j->size, j->page);
 		else {
-			lwsl_vhost_warn(vhd->vhost, "making %s/%04x.mcufont "
-					"failed (%d%s)", f->path, j->page,
-					si->si_status,
+			lwsl_vhost_warn(vhd->vhost, "making %s/%d/%04x.mcufont "
+					"failed (%d%s)", f->path, j->size,
+					j->page, si->si_status,
 					we_killed_him ? ", timed out" : "");
 			unlink(j->tmp);
 		}
@@ -613,17 +681,14 @@ mcuf_job_start(struct vhd *vhd, mcuf_job_t *j)
 	size_t extant;
 	int fd, n = 0;
 
-	lws_snprintf(size, sizeof(size), "%d", j->face->size);
-
 	ea[n++] = vhd->encoder;
 	if (j->page < 0) {
 		ea[n++] = "face_info";
 		ea[n++] = j->face->ttf;
-		ea[n++] = size;
 	} else {
 		/* the encoder writes the page into a temp object of the cache */
 
-		mcuf_key(j->face, j->page, vhd->iterations, hex);
+		mcuf_key(j->face, j->size, j->page, vhd->iterations, hex);
 		switch (lws_diskcache_query(vhd->lds, 0, hex, &fd, j->tmp,
 					    (int)sizeof(j->tmp), &extant)) {
 		case LWS_DISKCACHE_QUERY_CREATING:
@@ -636,6 +701,7 @@ mcuf_job_start(struct vhd *vhd, mcuf_job_t *j)
 			return 1;
 		}
 
+		lws_snprintf(size, sizeof(size), "%d", j->size);
 		lws_snprintf(page, sizeof(page), "%04x", j->page);
 		lws_snprintf(iters, sizeof(iters), "%d", vhd->iterations);
 
@@ -714,16 +780,16 @@ mcuf_face_cmp(const lws_dll2_t *a, const lws_dll2_t *b)
 	return strcmp(fa->path, fb->path);
 }
 
-/* each .ttf in the dir makes a face at each size */
+/* each .ttf in the dir is a face */
 
 static int
 mcuf_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct vhd *vhd = (struct vhd *)user;
 	size_t len = strlen(lde->name);
+	mcuf_face_t *f;
 	struct stat s;
 	char ttf[256];
-	int n;
 
 	if ((lde->type != LDOT_FILE && lde->type != LDOT_UNKNOWN) || len < 5 ||
 	    (strcmp(lde->name + len - 4, ".ttf") &&
@@ -731,7 +797,7 @@ mcuf_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 
 	len -= 4;
-	if (!mcuf_name_ok(lde->name, len) ||
+	if (!mcuf_name_ok(lde->name, len) || len > MCUF_DEV_PATH_MAX ||
 	    lws_snprintf(ttf, sizeof(ttf), "%s/%s", dirpath, lde->name) >=
 							(int)sizeof(ttf) ||
 	    stat(ttf, &s) || !S_ISREG(s.st_mode)) {
@@ -739,86 +805,23 @@ mcuf_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 	}
 
-	for (n = 0; n < vhd->nsizes; n++) {
-		mcuf_face_t *f = malloc(sizeof(*f));
-		int m;
-
-		if (!f) {
-			vhd->oom = 1;
-			return 1;
-		}
-		memset(f, 0, sizeof(*f));
-
-		f->size = vhd->sizes[n];
-		lws_strncpy(f->ttf, ttf, sizeof(f->ttf));
-		m = lws_snprintf(f->path, sizeof(f->path), "%.*s%d", (int)len,
-				 lde->name, f->size);
-		if (m >= (int)sizeof(f->path)) {
-			lwsl_vhost_warn(vhd->vhost, "%s: name too long",
-					lde->name);
-			free(f);
-			return 0;
-		}
-		/* the path fits, so this always does */
-		lws_snprintf(f->id, sizeof(f->id), "%s:%llu:%llu", f->path,
-			     (unsigned long long)s.st_size,
-			     (unsigned long long)s.st_mtime);
-
-		lws_dll2_add_sorted(&f->list, &vhd->faces, mcuf_face_cmp);
+	f = malloc(sizeof(*f));
+	if (!f) {
+		vhd->oom = 1;
+		return 1;
 	}
+	memset(f, 0, sizeof(*f));
+
+	lws_strncpy(f->ttf, ttf, sizeof(f->ttf));
+	lws_strncpy(f->path, lde->name, len + 1);
+	/* the path fits, so this always does */
+	lws_snprintf(f->id, sizeof(f->id), "%s:%llu:%llu", f->path,
+		     (unsigned long long)s.st_size,
+		     (unsigned long long)s.st_mtime);
+
+	lws_dll2_add_sorted(&f->list, &vhd->faces, mcuf_face_cmp);
 
 	return 0;
-}
-
-/* a decimal from lo to hi, and nothing else */
-
-static int
-mcuf_int(const char *s, size_t len, int lo, int hi, int *v)
-{
-	size_t n;
-
-	if (!len || len > 7)
-		return 1;
-
-	*v = 0;
-	for (n = 0; n < len; n++) {
-		if (s[n] < '0' || s[n] > '9')
-			return 1;
-		*v = (*v * 10) + (s[n] - '0');
-	}
-
-	return *v < lo || *v > hi;
-}
-
-static int
-mcuf_sizes(struct vhd *vhd, const char *sizes)
-{
-	struct lws_tokenize ts;
-	lws_tokenize_elem e;
-
-	lws_tokenize_init(&ts, sizes, LWS_TOKENIZE_F_COMMA_SEP_LIST |
-				      LWS_TOKENIZE_F_NO_FLOATS);
-	ts.len = strlen(sizes);
-
-	do {
-		e = lws_tokenize(&ts);
-		switch (e) {
-		case LWS_TOKZE_INTEGER:
-			if (vhd->nsizes == MCUF_SIZES_MAX ||
-			    mcuf_int(ts.token, ts.token_len, 6, 200,
-				     &vhd->sizes[vhd->nsizes]))
-				return 1;
-			vhd->nsizes++;
-			break;
-		case LWS_TOKZE_DELIMITER:
-		case LWS_TOKZE_ENDED:
-			break;
-		default:
-			return 1;
-		}
-	} while (e > 0);
-
-	return !vhd->nsizes;
 }
 
 static int
@@ -836,7 +839,7 @@ mcuf_pvo_int(void *in, const char *name, int def, int lo, int hi, int *v)
 static int
 mcuf_init(struct vhd *vhd, void *in)
 {
-	const char *sizes = "14", *warm;
+	const char *warm;
 	uid_t uid;
 	gid_t gid;
 	int mb, t;
@@ -847,23 +850,37 @@ mcuf_init(struct vhd *vhd, void *in)
 			       "encoder pvos");
 		return 1;
 	}
-	lws_pvo_get_str(in, "sizes", &sizes);
 
-	if (mcuf_sizes(vhd, sizes) ||
+	if (mcuf_pvo_int(in, "min-size", 6, MCUF_SIZE_MIN, MCUF_SIZE_MAX,
+			 &vhd->min_size) ||
+	    mcuf_pvo_int(in, "max-size", 100, vhd->min_size, MCUF_SIZE_MAX,
+			 &vhd->max_size) ||
 	    mcuf_pvo_int(in, "cache-size-mb", 64, 1, 1 << 20, &mb) ||
 	    mcuf_pvo_int(in, "iterations", 10, 0, 1000, &vhd->iterations) ||
 	    mcuf_pvo_int(in, "jobs", 2, 1, 64, &vhd->jobs_max) ||
 	    mcuf_pvo_int(in, "job-timeout-s", 600, 1, 86400, &t)) {
-		lwsl_vhost_err(vhd->vhost, "bad sizes, cache-size-mb, "
-			       "iterations, jobs or job-timeout-s");
+		lwsl_vhost_err(vhd->vhost, "bad min-size, max-size, "
+			       "cache-size-mb, iterations, jobs or "
+			       "job-timeout-s");
 		return 1;
 	}
 	vhd->timeout_us = (lws_usec_t)t * LWS_US_PER_SEC;
 
 	if (!lws_pvo_get_str(in, "warm-pages", &warm)) {
-		vhd->nwarm = mcuf_pages(warm, vhd->warm, MCUF_DEV_RANGES_MAX);
+		vhd->nwarm = mcuf_runs(warm, 1, 0, MCUF_PAGE_MAX, vhd->warm,
+				       MCUF_DEV_RANGES_MAX);
 		if (vhd->nwarm <= 0) {
 			lwsl_vhost_err(vhd->vhost, "bad warm-pages");
+			return 1;
+		}
+	}
+
+	if (!lws_pvo_get_str(in, "warm-sizes", &warm)) {
+		vhd->nwarm_sizes = mcuf_runs(warm, 0, vhd->min_size,
+					     vhd->max_size, vhd->warm_sizes,
+					     MCUF_DEV_RANGES_MAX);
+		if (vhd->nwarm_sizes <= 0) {
+			lwsl_vhost_err(vhd->vhost, "bad warm-sizes");
 			return 1;
 		}
 	}
@@ -970,18 +987,25 @@ mcuf_destroy(struct vhd *vhd)
 }
 
 /*
- * A page url is <face path>/<4 lowercase hex>.mcufont, the face one we offer
- * and the page one it has: nothing else gets near the cache or a job
+ * A page url is <face path>/<size>/<4 lowercase hex>.mcufont, the face one
+ * fonts.json lists, the size, in decimal without leading zeros, one from
+ * min-size to max-size, and the page one the face has: nothing else gets
+ * near the cache or a job
  */
 
 static mcuf_face_t *
-mcuf_page_url(struct vhd *vhd, const char *url, uint32_t *page)
+mcuf_page_url(struct vhd *vhd, const char *url, int *size, uint32_t *page)
 {
-	const char *sl = strchr(url, '/');
+	const char *sl = strchr(url, '/'), *sl2;
 	size_t fl;
 
-	if (!sl || strlen(sl) != 13 || strcmp(sl + 5, ".mcufont") ||
-	    mcuf_hex(sl + 1, 4, page) || *page > MCUF_PAGE_MAX)
+	if (!sl)
+		return NULL;
+	sl2 = strchr(sl + 1, '/');
+	if (!sl2 || mcuf_int(sl + 1, lws_ptr_diff_size_t(sl2, sl + 1),
+			     vhd->min_size, vhd->max_size, size) ||
+	    strlen(sl2) != 13 || strcmp(sl2 + 5, ".mcufont") ||
+	    mcuf_hex(sl2 + 1, 4, page) || *page > MCUF_PAGE_MAX)
 		return NULL;
 
 	fl = lws_ptr_diff_size_t(sl, url);
@@ -989,7 +1013,7 @@ mcuf_page_url(struct vhd *vhd, const char *url, uint32_t *page)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->faces)) {
 		mcuf_face_t *f = lws_container_of(d, mcuf_face_t, list);
 
-		if (f->state == MCUF_FACE_OK && strlen(f->path) == fl &&
+		if (f->listed && strlen(f->path) == fl &&
 		    !strncmp(f->path, url, fl))
 			return mcuf_face_has_page(f, *page) ? f : NULL;
 	} lws_end_foreach_dll(d);
@@ -1006,7 +1030,7 @@ mcuf_http(struct lws *wsi, struct vhd *vhd, struct pss *pss, const char *url)
 	mcuf_face_t *f;
 	uint32_t page;
 	size_t extant;
-	int fd, n;
+	int fd, n, size;
 
 	/* the url is relative to our mount, with or without its leading / */
 	if (*url == '/')
@@ -1032,11 +1056,11 @@ mcuf_http(struct lws *wsi, struct vhd *vhd, struct pss *pss, const char *url)
 		return 0;
 	}
 
-	f = mcuf_page_url(vhd, url, &page);
+	f = mcuf_page_url(vhd, url, &size, &page);
 	if (!f)
 		goto bail_404;
 
-	mcuf_key(f, (int)page, vhd->iterations, hex);
+	mcuf_key(f, size, (int)page, vhd->iterations, hex);
 	if (lws_diskcache_query(vhd->lds, 1, hex, &fd, path, (int)sizeof(path),
 				&extant) == LWS_DISKCACHE_QUERY_EXISTS) {
 		close(fd);
@@ -1049,7 +1073,7 @@ mcuf_http(struct lws *wsi, struct vhd *vhd, struct pss *pss, const char *url)
 		return 0;
 	}
 
-	if (mcuf_job_queue(vhd, f, (int)page, 0))
+	if (mcuf_job_queue(vhd, f, size, (int)page, 0))
 		lwsl_vhost_notice(vhd->vhost, "too busy to make %s", url);
 
 bail_404:

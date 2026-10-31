@@ -481,21 +481,22 @@ static std::string json_escape(const std::string &s)
 }
 
 /*
- * The face as a font manifest entry, on one line of stdout:
+ * What a face is at any size, on one line of stdout:
  *
- *   {"name":"Fira Sans Condensed Regular 14","line_height":17,
+ *   {"name":"Fira Sans Condensed Regular","height":1200,"units_per_em":1000,
  *    "pages":"0000-0005,0020-0022,..."}
  *
- * pages are the pages its charmap has glyphs in, as ranges of hex page
+ * At a size, the face's line height is
+ * (height * size + units_per_em / 2) / units_per_em, as rlefont_page gives
+ * it.  pages are the pages its charmap has glyphs in, as ranges of hex page
  * numbers.  Nothing is rendered, so this is quick even for a big face.
  */
 
 static status_t cmd_face_info(const std::vector<std::string> &args)
 {
     freetype_info_t info;
-    int size;
 
-    if (args.size() != 3 || !parse_int(args.at(2), 10, 4, 255, size))
+    if (args.size() != 2)
         return STATUS_INVALID;
 
     std::ifstream infile(args.at(1));
@@ -507,7 +508,7 @@ static status_t cmd_face_info(const std::vector<std::string> &args)
 
     try
     {
-        if (!FreetypeInfo(infile, size, info) || info.pages.empty())
+        if (!FreetypeInfo(infile, info) || info.pages.empty())
         {
             std::cerr << "No usable glyphs in " << args.at(1) << std::endl;
             return STATUS_ERROR;
@@ -540,7 +541,8 @@ static status_t cmd_face_info(const std::vector<std::string> &args)
     }
 
     std::cout << "{\"name\":\"" << json_escape(info.name) <<
-                 "\",\"line_height\":" << info.line_height <<
+                 "\",\"height\":" << info.height <<
+                 ",\"units_per_em\":" << info.units_per_em <<
                  ",\"pages\":\"" << pages << "\"}" << std::endl;
 
     return STATUS_OK;
@@ -551,7 +553,8 @@ static status_t cmd_face_info(const std::vector<std::string> &args)
  * whole, so the height and baseline come from all of its glyphs, the same
  * for every page, and the kerning gap from its letters, which are mostly not
  * on the page; then only the page's glyphs are kept, cropped to the width
- * they need.  Each iteration is a pass of the optimizer, as rlefont_optimize
+ * they need.  The page is named for the face without its size, since every
+ * size of the face is listed once, by face_info's name.  Each iteration is a pass of the optimizer, as rlefont_optimize
  * does, so fewer trade size for time.
  */
 
@@ -578,7 +581,8 @@ static status_t cmd_rlefont_page(const std::vector<std::string> &args)
 
     try
     {
-        std::unique_ptr<DataFile> f = LoadFreetype(infile, size, false);
+        std::unique_ptr<DataFile> f = LoadFreetype(infile, size, false,
+                                                   false);
         std::vector<DataFile::glyphentry_t> glyphs;
 
         opts.kern_gap = mcufont::rlefont::kern_target_gap(*f);
@@ -653,8 +657,9 @@ static const char *usage_msg =
     "   bwfont_export <datfile> [outfile]    Export to .c source code.\n"
     "\n"
     "Commands for serving a face a page of 256 codepoints at a time:\n"
-    "   face_info <ttffile> <size>           Show the face's name, line height\n"
-    "                                        and the pages it has, as json.\n"
+    "   face_info <ttffile>                  Show the face's name, height and\n"
+    "                                        units per em, and the pages it\n"
+    "                                        has, as json.\n"
     "   rlefont_page <ttffile> <size> <page> <outfile> [iterations]\n"
     "                                        Make the .mcufont for one page\n"
     "                                        (hex), optimized for iterations\n"

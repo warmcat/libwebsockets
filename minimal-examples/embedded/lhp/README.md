@@ -22,9 +22,11 @@ E-ink displays.
 Most of the demos build in each face they use, which costs a lot of flash.
 `esp32-waveshare-600-448-7col` builds in only one small face, Fira Sans
 Condensed Regular 12, and gets the rest from the `lws-mcufonts` plugin on
-libwebsockets.org with `lws_fonts_register_manifest()`, a page of 256
-codepoints of a face at a time as the text needs them.  Text whose pages can't
-be had yet is shown in the built-in face meanwhile.  See
+libwebsockets.org with `lws_fonts_register_manifest()`, at whatever size the
+css asks for, a page of 256 codepoints of a face at a time as the text needs
+them.  Text whose pages can't be had yet, for example while the server is
+making a size nobody asked for before, is shown in the built-in face
+meanwhile.  See
 `plugins/protocol_lws_mcufonts/README.md` to serve fonts like that yourself,
 and change `FONTS_MANIFEST_URL` in its `main/devices.c` to point to your
 server.
