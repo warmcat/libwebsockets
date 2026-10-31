@@ -476,6 +476,20 @@ lws_lec_printf(lws_lec_pctx_t *ctx, const char *format, ...);
  * \param paths_count: how many paths in \p paths
  *
  * Prepares an LECP parser context for parsing.
+ *
+ * Text and byte string map keys are copied into ctx->path as they are, and
+ * ctx->path uses '.' for map nesting and "[]" for arrays.  So a key containing
+ * those characters synthesizes the same path as a different document shape:
+ * {"a.b": 1} gives the path ".a.b", exactly as {"a": {"b": 1}} does, and
+ * {"s[]": 1} looks like an array "s".  Unlike lejp, which can reject such keys
+ * with LEJP_FLAG_FEAT_STRICT_KEY_CHARS, lecp has no option to refuse them: a
+ * \p paths match alone can't tell those documents apart, so if it matters to
+ * you, check the shape yourself, eg, from the LECPCB_OBJECT_START /
+ * LECPCB_ARRAY_START events and lecp_parse_map_is_key().
+ *
+ * A key containing a NUL can't be represented in the path at all (everything
+ * after it, and everything nested under the key, would be hidden from path
+ * matching), so lecp_parse() always rejects one with LECP_REJECT_BAD_CODING.
  */
 LWS_VISIBLE LWS_EXTERN void
 lecp_construct(struct lecp_ctx *ctx, lecp_callback cb, void *user,

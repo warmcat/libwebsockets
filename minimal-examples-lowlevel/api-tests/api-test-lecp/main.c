@@ -5158,6 +5158,114 @@ static const struct sc_vec sc_vecs[] = {
 };
 
 /*
+ * Map keys go into ctx->path as they are.  A key containing a NUL can't be
+ * represented there (it would hide the rest of the key, and everything under
+ * it, from path matching), so it is always rejected, whether the key is a
+ * tstr or a bstr, and wherever in the key, or in which of an indefinite key's
+ * fragments, the NUL is.  A NUL in a value is just data.
+ *
+ * '.', '[' and ']' in a key are kept, and documented at lecp_construct() to
+ * alias the path of a different shape of document: {"a.b": 1} matches ".a.b"
+ * just like {"a": {"b": 1}} does.  The aliasing cases pin that down, so that
+ * changing it is a visible decision.
+ */
+
+static const uint8_t
+	/* {"a.b": 1} */
+	kc_dotted[]	= { 0xa1, 0x63, 0x61, 0x2e, 0x62, 0x01 },
+	/* {"a": {"b": 1}} */
+	kc_nested[]	= { 0xa1, 0x61, 0x61, 0xa1, 0x61, 0x62, 0x01 },
+	/* {"a\0": {"b": 1}} */
+	kc_nul_tstr[]	= { 0xa1, 0x62, 0x61, 0x00, 0xa1, 0x61, 0x62, 0x01 },
+	/* {h'6100': {"b": 1}} */
+	kc_nul_bstr[]	= { 0xa1, 0x42, 0x61, 0x00, 0xa1, 0x61, 0x62, 0x01 },
+	/* {(_ "a", "\0"): {"b": 1}} */
+	kc_nul_frag[]	= { 0xa1, 0x7f, 0x61, 0x61, 0x61, 0x00, 0xff,
+			    0xa1, 0x61, 0x62, 0x01 },
+	/* {"x": 1, "\0": 2}: the NUL key is not the first */
+	kc_nul_later[]	= { 0xa2, 0x61, 0x78, 0x01, 0x61, 0x00, 0x02 },
+	/* {"a": "\0", "b": h'00'}: NULs in values */
+	kc_nul_value[]	= { 0xa2, 0x61, 0x61, 0x61, 0x00,
+			    0x61, 0x62, 0x41, 0x00 };
+
+static const char * const kc_p_ab[]	= { ".a.b" };
+static const char * const kc_p_a[]	= { ".a" };
+
+static const struct kc_vec {
+	const char		*name;
+	const uint8_t		*b;
+	size_t			blen;
+	const char * const	*paths;
+	int			count_paths;
+	int			ret;	/* what lecp_parse() must return */
+	int			match;	/* path_match at the first uint, or -1:
+					 * no uint must be seen */
+} kc_vecs[] = {
+	{ "dotted key aliases the nested path", kc_dotted, sizeof(kc_dotted),
+	  kc_p_ab, LWS_ARRAY_SIZE(kc_p_ab), 0, 1 },
+	{ "nested map matches the same path", kc_nested, sizeof(kc_nested),
+	  kc_p_ab, LWS_ARRAY_SIZE(kc_p_ab), 0, 1 },
+	{ "tstr key with NUL is rejected", kc_nul_tstr, sizeof(kc_nul_tstr),
+	  kc_p_a, LWS_ARRAY_SIZE(kc_p_a), LECP_REJECT_BAD_CODING, -1 },
+	{ "bstr key with NUL is rejected", kc_nul_bstr, sizeof(kc_nul_bstr),
+	  kc_p_a, LWS_ARRAY_SIZE(kc_p_a), LECP_REJECT_BAD_CODING, -1 },
+	{ "indef key with NUL fragment is rejected", kc_nul_frag,
+	  sizeof(kc_nul_frag), kc_p_a, LWS_ARRAY_SIZE(kc_p_a),
+	  LECP_REJECT_BAD_CODING, -1 },
+	{ "NUL key with no paths is rejected", kc_nul_tstr,
+	  sizeof(kc_nul_tstr), NULL, 0, LECP_REJECT_BAD_CODING, -1 },
+	{ "later key with NUL is rejected", kc_nul_later,
+	  sizeof(kc_nul_later), NULL, 0, LECP_REJECT_BAD_CODING, 0 },
+	{ "NULs in values are data", kc_nul_value, sizeof(kc_nul_value),
+	  kc_p_a, LWS_ARRAY_SIZE(kc_p_a), 0, -1 },
+};
+
+struct kc_priv {
+	int			match;
+	int			seen_uint;
+};
+
+static signed char
+kc_cb(struct lecp_ctx *ctx, char reason)
+{
+	struct kc_priv *pr = (struct kc_priv *)ctx->user;
+
+	if (reason == LECPCB_VAL_NUM_UINT && !pr->seen_uint) {
+		pr->seen_uint = 1;
+		pr->match = ctx->path_match;
+	}
+
+	return 0;
+}
+
+static int
+kc_run(const struct kc_vec *v)
+{
+	struct lecp_ctx ctx;
+	struct kc_priv pr;
+	int n;
+
+	memset(&pr, 0, sizeof(pr));
+
+	lecp_construct(&ctx, kc_cb, &pr, v->paths,
+		       (unsigned char)v->count_paths);
+	n = lecp_parse(&ctx, v->b, v->blen);
+	lecp_destruct(&ctx);
+
+	if (n != v->ret ||
+	    (v->match < 0 ? pr.seen_uint :
+			    (!pr.seen_uint || pr.match != v->match))) {
+		lwsl_err("%s: %s: parse %d (want %d), uint seen %d, "
+			 "path_match %d (want %d)\n", __func__, v->name, n,
+			 v->ret, pr.seen_uint, pr.match, v->match);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
  * A map of 16 ten-character keys, each holding an empty array: the path
  * never needs more than one key's worth of room, however many keys there are
  */
@@ -5302,6 +5410,7 @@ int main(int argc, const char **argv)
 				   /* structure check of the same vectors */
 				   (int)LWS_ARRAY_SIZE(cbor_tests) - 1 +
 				   (int)LWS_ARRAY_SIZE(sc_vecs) + 1 +
+				   (int)LWS_ARRAY_SIZE(kc_vecs) +
 					34 /* <-- how many write tests */ +
 				   (int)LWS_ARRAY_SIZE(lec_chunk_names);
 	struct lecp_ctx ctx;
@@ -5381,6 +5490,14 @@ int main(int argc, const char **argv)
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(sc_vecs); m++) {
 		if (sc_run(sc_vecs[m].name, sc_vecs[m].b, sc_vecs[m].blen,
 			   sc_vecs[m].paths, sc_vecs[m].count_paths))
+			e++;
+		else
+			pass++;
+	}
+
+	for (m = 0; m < (int)LWS_ARRAY_SIZE(kc_vecs); m++) {
+		lwsl_user("%s: map key: %s\n", __func__, kc_vecs[m].name);
+		if (kc_run(&kc_vecs[m]))
 			e++;
 		else
 			pass++;

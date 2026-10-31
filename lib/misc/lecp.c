@@ -1118,6 +1118,13 @@ push_m:
 			 */
 			kl = lecp_collating_key_level(ctx);
 			if (kl) {
+				/*
+				 * The path is a C string: a NUL in the key
+				 * would hide the rest of the key, and all that
+				 * is nested under it, from path matching
+				 */
+				if (memchr(ctx->buf, '\0', (size_t)ctx->npos))
+					goto bad_coding;
 				if (pst->ppos + ctx->npos >= sizeof(ctx->path))
 					goto reject_overflow;
 				memcpy(&ctx->path[pst->ppos], ctx->buf,
