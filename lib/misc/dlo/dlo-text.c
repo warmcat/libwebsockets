@@ -361,6 +361,11 @@ lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
 		return 1;
 	}
 
+	if (lws_display_font_mcufont_check_dict(data, data_len)) {
+		lwsl_err("%s: bad font dictionary\n", __func__);
+		return 1;
+	}
+
 	a = lws_zalloc(sizeof(*a), __func__);
 	if (!a)
 		return 1;

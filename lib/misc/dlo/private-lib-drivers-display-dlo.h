@@ -70,6 +70,9 @@ typedef struct lws_mcufont_file {
 } lws_mcufont_file_t;
 
 int
+lws_display_font_mcufont_check_dict(const uint8_t *bf, size_t len);
+
+int
 lws_display_font_mcufont_file_core(lws_display_font_t *f);
 
 size_t
