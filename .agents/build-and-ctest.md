@@ -101,7 +101,9 @@
    (lwsws-uv-*, api-test-plugins, hs_evlib_foreign_uv, dht, hls...): system libraries pulled in by a plugin (eg, the HLS plugin's
    ffmpeg / samba) leak in their constructors at dlopen; the stacks show
    `<unknown module>` because the plugin is unloaded before the report.
-   Use `LSAN_OPTIONS=suppressions=<file>` with `leak:_dl_init` and
+   Use `LSAN_OPTIONS=suppressions=<absolute path>` (ctest runs tests from
+   `bin/`, so a relative path fails every ASan test with "failed to read
+   suppressions file") with `leak:_dl_init` and
    `leak:_dlerror_run` (the dht tests also leak through
    `_dl_catch_error`), which hide only allocations made by the dynamic
    loader and library constructors.
