@@ -24,6 +24,14 @@ or it can be a url like `https://mysite.com:1234/path`,
 the elements given here control the stream address, port and
 url path.
 
+A value from outside the process (an SS proxy client's, or one
+captured from a response header) can't make an endpoint a `file://`
+url or a `+` Unix Domain Socket address.  And if the policy endpoint
+is more than a single `${name}`, eg, `${bucket}.mysite.com`, it can't
+contain url delimiters (`:` `/` `\` `@` `?` `#` `[` `]` `%`), so it
+can't replace the parts the policy wrote: see `endpoint` in
+`lib/secure-streams/README.md`.
+
 ## Who can use a Secure Streams proxy
 
 A Secure Streams proxy (`lws_ss_proxy_create()`) makes connections for its

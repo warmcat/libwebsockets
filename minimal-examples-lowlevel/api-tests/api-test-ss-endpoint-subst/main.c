@@ -13,7 +13,11 @@
  * goes, but not take it out of the network: if it went into the endpoint,
  * a resulting file:// url, or a host that is a '+' unix domain socket
  * address, is refused, unless the policy wrote the file:// or '+' literally,
- * before the first ${.  Values the app set itself are not restricted.
+ * before the first ${.  And if the policy wrote any of the endpoint itself,
+ * ie, it is not just one "${name}", an outside value with url delimiters in
+ * it is refused, so it can't take over the scheme, host or port and push
+ * the policy's part into the path.  Values the app set itself are not
+ * restricted.
  *
  * A raw socket server in the same process listens on tcp and on a unix
  * domain socket, answering any request with a 200 and noting it.  The
@@ -36,6 +40,14 @@
  *
  *  - endpoint "${ep}" with a bare '+' socket the app set: connects to our
  *    unix domain socket server
+ *
+ *  - endpoint "${h}.invalid" with a captured url, host:port/, host:port?,
+ *    host:port# or x@host:port/: all refused, without connecting.  The
+ *    first attempt of each, with a url the app set, connects
+ *
+ *  - endpoint "http://${h}:${p}/x" with a captured host:port/x?: refused,
+ *    and with a captured plain host name: connects (skipped if the test
+ *    server address is an IPv6 literal, which has ':' in it)
  */
 
 #include <libwebsockets.h>
@@ -66,6 +78,8 @@ enum {
 	SSEP_ARG_FILE,		/* our file's name */
 	SSEP_ARG_SOCK,		/* our unix domain socket's name */
 	SSEP_ARG_HOST,		/* our tcp server's host:port */
+	SSEP_ARG_SRV,		/* our tcp server's host, [] if IPv6 */
+	SSEP_ARG_SRV_NAME,	/* our tcp server's host, never in [] */
 };
 
 typedef struct ssep_phase {
@@ -77,33 +91,65 @@ typedef struct ssep_phase {
 	const char		*cap_fmt;	/* NULL, or what the server sends */
 	int			cap_arg;	/* SSEP_ARG_ */
 	int			expect;		/* SSEP_, for the last attempt */
+	const char		*port_md;	/* NULL, or md the app sets to
+						 * our tcp server's port */
 } ssep_phase_t;
 
 static const ssep_phase_t phases[] = {
 	{ "captured file://", "cap", "ep",
 		"http://%s/x", SSEP_ARG_HOST,
-		"file://%s", SSEP_ARG_FILE, SSEP_REFUSED },
+		"file://%s", SSEP_ARG_FILE, SSEP_REFUSED, NULL },
 	{ "captured + socket in a url", "cap", "ep",
 		"http://%s/x", SSEP_ARG_HOST,
-		"http://+%s:/x", SSEP_ARG_SOCK, SSEP_REFUSED },
+		"http://+%s:/x", SSEP_ARG_SOCK, SSEP_REFUSED, NULL },
 	{ "captured [+ socket] in a url", "cap", "ep",
 		"http://%s/x", SSEP_ARG_HOST,
-		"http://[+%s]:/x", SSEP_ARG_SOCK, SSEP_REFUSED },
+		"http://[+%s]:/x", SSEP_ARG_SOCK, SSEP_REFUSED, NULL },
 	{ "captured bare + socket", "cap", "ep",
 		"http://%s/x", SSEP_ARG_HOST,
-		"+%s", SSEP_ARG_SOCK, SSEP_REFUSED },
+		"+%s", SSEP_ARG_SOCK, SSEP_REFUSED, NULL },
 	{ "captured network url", "cap", "ep",
 		"http://%s/x", SSEP_ARG_HOST,
-		"http://%s/y", SSEP_ARG_HOST, SSEP_SERVER },
+		"http://%s/y", SSEP_ARG_HOST, SSEP_SERVER, NULL },
 	{ "captured socket after literal +", "cap-uds", "sock",
 		"%s", SSEP_ARG_SOCK,
-		"%s", SSEP_ARG_SOCK, SSEP_SERVER },
+		"%s", SSEP_ARG_SOCK, SSEP_SERVER, NULL },
 	{ "app-set file://", "cap", "ep",
 		"file://%s", SSEP_ARG_FILE,
-		NULL, 0, SSEP_FILE },
+		NULL, 0, SSEP_FILE, NULL },
 	{ "app-set bare + socket", "cap", "ep",
 		"+%s", SSEP_ARG_SOCK,
-		NULL, 0, SSEP_SERVER },
+		NULL, 0, SSEP_SERVER, NULL },
+
+	/*
+	 * The policy wrote part of the endpoint: an outside value can't bring
+	 * url structure into it.  The app can, so the first attempts connect.
+	 * Without the rule, each of the captured values but the userinfo one
+	 * would take the stream to our server, with what the policy wrote
+	 * pushed into the path (lws doesn't parse userinfo, so that one makes
+	 * a host name that doesn't resolve)
+	 */
+	{ "captured url before literal suffix", "sfx", "h",
+		"http://%s/x?", SSEP_ARG_HOST,
+		"http://%s/", SSEP_ARG_HOST, SSEP_REFUSED, NULL },
+	{ "captured host:port/ before literal suffix", "sfx", "h",
+		"http://%s/x?", SSEP_ARG_HOST,
+		"%s/", SSEP_ARG_HOST, SSEP_REFUSED, NULL },
+	{ "captured host:port? before literal suffix", "sfx", "h",
+		"http://%s/x?", SSEP_ARG_HOST,
+		"%s?", SSEP_ARG_HOST, SSEP_REFUSED, NULL },
+	{ "captured host:port# before literal suffix", "sfx", "h",
+		"http://%s/x?", SSEP_ARG_HOST,
+		"%s#", SSEP_ARG_HOST, SSEP_REFUSED, NULL },
+	{ "captured userinfo before literal suffix", "sfx", "h",
+		"http://%s/x?", SSEP_ARG_HOST,
+		"x@%s/", SSEP_ARG_HOST, SSEP_REFUSED, NULL },
+	{ "captured host:port/x? inside literal url", "hp", "h",
+		"%s", SSEP_ARG_SRV,
+		"%s/x?", SSEP_ARG_HOST, SSEP_REFUSED, "p" },
+	{ "captured host name inside literal url", "hp", "h",
+		"%s", SSEP_ARG_SRV,
+		"%s", SSEP_ARG_SRV_NAME, SSEP_SERVER, "p" },
 };
 
 #define SSEP_FILE_CONTENT "the file's content"
@@ -113,8 +159,8 @@ static lws_state_notify_link_t nl;
 static lws_sorted_usec_list_t sul_timeout, sul_next, sul_again;
 static struct lws_ss_handle *cur_ss;
 static const char *server_ads = "localhost";
-static char file_name[64], sock_name[64], host_port[128], md_value[256],
-	    rx[64];
+static char file_name[64], sock_name[64], host_port[128], srv_host[128],
+	    port_str[8], md_value[256], rx[64];
 static unsigned int cur_phase;
 static int failed, phase_done, connected, server_asked, attempt,
 	   await_reconnect;
@@ -128,6 +174,10 @@ ssep_arg(int arg)
 		return file_name;
 	case SSEP_ARG_SOCK:
 		return sock_name;
+	case SSEP_ARG_SRV:
+		return srv_host;
+	case SSEP_ARG_SRV_NAME:
+		return server_ads;
 	default:
 		return host_port;
 	}
@@ -382,10 +432,24 @@ start_phase(lws_sorted_usec_list_t *sul)
 	if (cur_ss) {
 		/* the last phase's stream */
 		lws_ss_destroy(&cur_ss);
-		if (++cur_phase == LWS_ARRAY_SIZE(phases)) {
-			lws_default_loop_exit(context);
-			return;
-		}
+		cur_phase++;
+	}
+
+	/*
+	 * An IPv6 literal has ':' in it, so it can't be an outside value in
+	 * an endpoint the policy wrote part of: no phase that needs one
+	 */
+	while (cur_phase < LWS_ARRAY_SIZE(phases) &&
+	       phases[cur_phase].cap_arg == SSEP_ARG_SRV_NAME &&
+	       strchr(server_ads, ':')) {
+		lwsl_user("--- phase %s: skipped, server %s is IPv6 ---\n",
+			  phases[cur_phase].name, server_ads);
+		cur_phase++;
+	}
+
+	if (cur_phase == LWS_ARRAY_SIZE(phases)) {
+		lws_default_loop_exit(context);
+		return;
 	}
 
 	ph = &phases[cur_phase];
@@ -401,7 +465,9 @@ start_phase(lws_sorted_usec_list_t *sul)
 
 	if (lws_ss_create(context, 0, &ssi, NULL, &cur_ss, NULL, NULL) ||
 	    lws_ss_set_metadata(cur_ss, ph->md_name, md_value,
-				strlen(md_value))) {
+				strlen(md_value)) ||
+	    (ph->port_md && lws_ss_set_metadata(cur_ss, ph->port_md, port_str,
+						strlen(port_str)))) {
 		lwsl_err("%s: unable to start phase\n", __func__);
 		failed = 1;
 		lws_default_loop_exit(context);
@@ -451,13 +517,13 @@ sigint_handler(int sig)
 	lws_default_loop_exit(context);
 }
 
-/* the metadata captures the response's x-ep: header */
+/* the metadata md captures the response's x-ep: header */
 
-#define SSEP_ST(name, endpoint, md) \
+#define SSEP_ST(name, endpoint, md, more_md) \
 	"{\"" name "\":{" \
 	"\"endpoint\":\"" endpoint "\",\"port\":80,\"protocol\":\"h1\"," \
 	"\"http_method\":\"GET\",\"http_url\":\"x\",\"retry\":\"none\"," \
-	"\"metadata\":[{\"" md "\":\"x-ep:\"}]}}"
+	"\"metadata\":[{\"" md "\":\"x-ep:\"}" more_md "]}}"
 
 static const char * const policy =
 	"{\"release\":\"01234567\",\"product\":\"myproduct\","
@@ -466,8 +532,10 @@ static const char * const policy =
 		"\"conceal\":0,\"jitterpc\":0,"
 		"\"svalidping\":30,\"svalidhup\":35}}],"
 	 "\"s\":["
-	  SSEP_ST("cap", "${ep}", "ep") ","
-	  SSEP_ST("cap-uds", "+${sock}", "sock")
+	  SSEP_ST("cap", "${ep}", "ep", "") ","
+	  SSEP_ST("cap-uds", "+${sock}", "sock", "") ","
+	  SSEP_ST("sfx", "${h}.invalid", "h", "") ","
+	  SSEP_ST("hp", "http://${h}:${p}/x", "h", ",{\"p\":\"\"}")
 	 "]}";
 
 int
@@ -544,9 +612,11 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 	/* an IPv6 literal goes in a url in brackets */
-	lws_snprintf(host_port, sizeof(host_port),
-		     strchr(server_ads, ':') ? "[%s]:%d" : "%s:%d", server_ads,
+	lws_snprintf(srv_host, sizeof(srv_host),
+		     strchr(server_ads, ':') ? "[%s]" : "%s", server_ads);
+	lws_snprintf(port_str, sizeof(port_str), "%d",
 		     lws_get_vhost_listen_port(vh));
+	lws_snprintf(host_port, sizeof(host_port), "%s:%s", srv_host, port_str);
 
 	info.vhost_name		= "ssep-uds";
 	info.options		|= LWS_SERVER_OPTION_UNIX_SOCK;
