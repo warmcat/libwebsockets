@@ -100,11 +100,15 @@ lws_openhitls_aes_init(struct lws_genaes_ctx *ctx, uint8_t *iv, uint32_t iv_len,
 		return -1;
 	}
 
+	/*
+	 * The library's own padding is never used: like OpenSSL's, it holds
+	 * the last block back on decrypt, which our api has no way to return.
+	 * CBC padding is done by lws-genaes-common.c the same for every
+	 * backend, and ECB refuses padding at create time.
+	 */
+
 	if (ctx->mode == LWS_GAESM_CBC || ctx->mode == LWS_GAESM_ECB) {
-		ret = CRYPT_EAL_CipherSetPadding(ctx->ctx,
-				ctx->padding == LWS_GAESP_WITH_PADDING ?
-					CRYPT_PADDING_PKCS7 :
-					CRYPT_PADDING_NONE);
+		ret = CRYPT_EAL_CipherSetPadding(ctx->ctx, CRYPT_PADDING_NONE);
 		if (ret != CRYPT_SUCCESS) {
 			lwsl_err("%s: CipherSetPadding failed (%d)\n",
 				 __func__, (int)ret);
@@ -254,13 +258,15 @@ int lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 {
 	CRYPT_CIPHER_AlgId cipherId;
 
+	ctx->ctx = NULL;
 	ctx->mode = mode;
 	ctx->k = el;
 	ctx->op = op;
-	ctx->padding = padding;
 	ctx->underway = 0;
 	ctx->taglen = 0;
 	memset(ctx->tag, 0, sizeof(ctx->tag));
+	if (lws_genaes_create_common(ctx, mode, padding))
+		return -1;
 
 	/* engine parameter is not used for openHiTLS */
 	(void)engine;
@@ -291,6 +297,10 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 
 	if (!ctx->ctx)
 		return 0;
+
+	/* this may still need the cipher, for a padded CBC encrypt's tail */
+	n = lws_genaes_cbc_destroy(ctx, tag, tlen);
+
 	if (!ctx->underway) {
 		goto cleanup;
 	}
@@ -307,25 +317,48 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 		goto cleanup;
 	}
 
-	if (ctx->mode == LWS_GAESM_CBC && ctx->op == LWS_GAESO_ENC &&
-		outl && tag) {
-		if (tlen < outl) {
-			lwsl_err("%s: CBC final buffer too small\n",
-					__func__);
-			n = -1;
-			goto cleanup;
-		}
-		memcpy(tag, buf, outl);
+	/*
+	 * Without library padding nothing is left for Final to emit... if it
+	 * did, it would be data our caller never sees
+	 */
+	if (outl) {
+		lwsl_err("%s: unexpected final len %u\n", __func__,
+			 (unsigned int)outl);
+		n = -1;
 	}
 
-
 cleanup:
+	lws_explicit_bzero(buf, sizeof(buf));
 	ctx->k = NULL;
 	ctx->underway = 0;
 	CRYPT_EAL_CipherFreeCtx(ctx->ctx);
 	ctx->ctx = NULL;
 
 	return n;
+}
+
+int
+lws_genaes_cbc_blocks(struct lws_genaes_ctx *ctx, const uint8_t *in,
+		      size_t len, uint8_t *out)
+{
+	uint32_t outl = (uint32_t)len;
+	int32_t ret;
+
+	/* the chain carries on in the cipher ctx, from the iv in ctx->tag */
+
+	if (!ctx->underway &&
+	    lws_openhitls_aes_init(ctx, ctx->tag, LWS_AES_CBC_BLOCKLEN,
+				   NULL, 0))
+		return -1;
+
+	ret = CRYPT_EAL_CipherUpdate(ctx->ctx, in, (uint32_t)len, out, &outl);
+	if (ret != CRYPT_SUCCESS || outl != (uint32_t)len) {
+		lwsl_err("%s: update failed (%d), outl %u\n", __func__,
+			 (int)ret, (unsigned int)outl);
+		return -1;
+	}
+
+	return 0;
 }
 
 int
@@ -340,6 +373,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 
 	if (!ctx->ctx)
 		return -1;
+
+	if (ctx->mode == LWS_GAESM_CBC)
+		/* padding and chaining are common to all backends */
+		return lws_genaes_cbc_crypt(ctx, in, len, out,
+					    iv_or_nonce_ctr_or_data_unit_16,
+					    nc_or_iv_off);
 
 	if (ctx->mode == LWS_GAESM_GCM)
 		return lws_openhitls_aes_crypt_gcm(ctx, in, len, out,
@@ -378,6 +417,16 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 	ret = CRYPT_EAL_CipherUpdate(ctx->ctx, in, (uint32_t)len, out, &outl);
 	if (ret != CRYPT_SUCCESS) {
 		lwsl_err("%s: update failed (%d)\n", __func__, (int)ret);
+		return -1;
+	}
+
+	/*
+	 * Our api has no output length: anything short of what we expected
+	 * would leave the end of out unwritten
+	 */
+	if (ctx->mode != LWS_GAESM_KW && outl != (uint32_t)len) {
+		lwsl_err("%s: output %u for input %u\n", __func__,
+			 (unsigned int)outl, (unsigned int)len);
 		return -1;
 	}
 

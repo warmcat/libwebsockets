@@ -37,8 +37,9 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->op = op;
 	ctx->mode = mode;
-	ctx->padding = padding;
 	ctx->k = el;
+	if (lws_genaes_create_common(ctx, mode, padding))
+		return -1;
 
 	key.data = el[LWS_GENCRYPTO_AES_KEYEL_K].buf;
 	key.size = el[LWS_GENCRYPTO_AES_KEYEL_K].len;
@@ -184,12 +185,42 @@ bail:
 }
 
 int
+lws_genaes_cbc_blocks(struct lws_genaes_ctx *ctx, const uint8_t *in,
+		      size_t len, uint8_t *out)
+{
+	/*
+	 * The gnutls handle carries the chain on between calls: give it the
+	 * iv lws_genaes_cbc_crypt() left in ctx->tag only the first time
+	 */
+
+	if (!ctx->underway) {
+		gnutls_cipher_set_iv(ctx->ctx, ctx->tag, LWS_AES_CBC_BLOCKLEN);
+		ctx->underway = 1;
+	}
+
+	if (ctx->op == LWS_GAESO_ENC) {
+		if (gnutls_cipher_encrypt2(ctx->ctx, in, len, out, len) < 0)
+			return -1;
+	} else
+		if (gnutls_cipher_decrypt2(ctx->ctx, in, len, out, len) < 0)
+			return -1;
+
+	return 0;
+}
+
+int
 lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		 uint8_t *out, uint8_t *iv_or_nonce_ctr_or_data_unit_16,
 		 uint8_t *stream_block_16, size_t *nc_or_iv_off, int taglen)
 {
 	int n;
 	(void)n;
+
+	if (ctx->mode == LWS_GAESM_CBC)
+		/* padding and chaining are common to all backends */
+		return lws_genaes_cbc_crypt(ctx, in, len, out,
+					    iv_or_nonce_ctr_or_data_unit_16,
+					    nc_or_iv_off);
 
 	if (ctx->mode == LWS_GAESM_CTR) {
 		uint8_t counter[16];
@@ -238,13 +269,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		return 0;
 	}
 
-	if (ctx->mode == LWS_GAESM_CBC || ctx->mode == LWS_GAESM_ECB) {
-		if (!(ctx->op == LWS_GAESO_ENC && ctx->padding == LWS_GAESP_WITH_PADDING)) {
-			if (len % 16) {
-				lwsl_err("%s: input length %zu not a multiple of block size\n", __func__, len);
-				return -1;
-			}
-		}
+	if (ctx->mode == LWS_GAESM_ECB && len % 16) {
+		lwsl_err("%s: input length %zu not a multiple of block size\n",
+			 __func__, len);
+		return -1;
 	}
 
 	if (ctx->mode == LWS_GAESM_KW) {
@@ -307,44 +335,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 	}
 
 	if (ctx->op == LWS_GAESO_ENC) {
-		if (ctx->padding == LWS_GAESP_WITH_PADDING && ctx->mode == LWS_GAESM_CBC) {
-			size_t in_pos = 0;
-			size_t out_pos = 0;
-
-			if (ctx->buf_len > 0) {
-				size_t fill = 16 - (size_t)ctx->buf_len;
-				if (len >= fill) {
-					memcpy(ctx->buf + ctx->buf_len, in, fill);
-					if (gnutls_cipher_encrypt2(ctx->ctx, ctx->buf, 16, out, 16) < 0)
-						return 1;
-					in_pos += fill;
-					out_pos += 16;
-					ctx->buf_len = 0;
-				}
-			}
-
-			size_t left = len - in_pos;
-			size_t blocks = (left / 16) * 16;
-			if (blocks > 0) {
-				if (gnutls_cipher_encrypt2(ctx->ctx, in + in_pos, blocks, out + out_pos, blocks) < 0)
-					return 1;
-				in_pos += blocks;
-				(void)out_pos;
-			}
-
-			left = len - in_pos;
-			if (left > 0) {
-				memcpy(ctx->buf + ctx->buf_len, in + in_pos, left);
-				ctx->buf_len += (int)left;
-			}
+		if (!out && ctx->mode == LWS_GAESM_GCM) {
+			if (gnutls_cipher_add_auth(ctx->ctx, in, len) < 0)
+				return 1;
 		} else {
-			if (!out && ctx->mode == LWS_GAESM_GCM) {
-				if (gnutls_cipher_add_auth(ctx->ctx, in, len) < 0)
-					return 1;
-			} else {
-				if (gnutls_cipher_encrypt2(ctx->ctx, in, len, out, len) < 0)
-					return 1;
-			}
+			if (gnutls_cipher_encrypt2(ctx->ctx, in, len, out, len) < 0)
+				return 1;
 		}
 	} else {
 		if (!out && ctx->mode == LWS_GAESM_GCM) {
@@ -387,13 +383,9 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 			}
 		}
 
-		if (ctx->op == LWS_GAESO_ENC && ctx->padding == LWS_GAESP_WITH_PADDING &&
-		    ctx->mode == LWS_GAESM_CBC && tag && tlen >= 16) {
-			uint8_t pad_val = (uint8_t)(16 - ctx->buf_len);
-			memset(ctx->buf + ctx->buf_len, pad_val, (size_t)pad_val);
-			if (gnutls_cipher_encrypt2(ctx->ctx, ctx->buf, 16, tag, 16) < 0)
-				lwsl_err("%s: final padding block encrypt failed\n", __func__);
-		}
+		/* this may still need the cipher, for a padded encrypt */
+		if (ctx->mode == LWS_GAESM_CBC)
+			ret = lws_genaes_cbc_destroy(ctx, tag, tlen);
 
 		gnutls_cipher_deinit(ctx->ctx);
 	}

@@ -47,6 +47,8 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	ctx->underway = 0;
 	ctx->u.hKey = NULL;
 	ctx->u.hAlg = NULL;
+	if (lws_genaes_create_common(ctx, mode, padding))
+		return -1;
 
 	ctx->u.pbMacContext = NULL;
 	ctx->u.cbMacContext = 0;
@@ -93,8 +95,47 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 }
 
 int
+lws_genaes_cbc_blocks(struct lws_genaes_ctx *ctx, const uint8_t *in,
+		      size_t len, uint8_t *out)
+{
+	NTSTATUS status;
+	ULONG result_len = 0;
+
+	/*
+	 * CNG updates the iv buffer with the chaining value, so keeping it in
+	 * the ctx carries the chain on between calls.  It starts from the iv
+	 * lws_genaes_cbc_crypt() left in ctx->tag.
+	 */
+
+	if (!ctx->underway) {
+		memcpy(ctx->u.iv, ctx->tag, sizeof(ctx->u.iv));
+		ctx->underway = 1;
+	}
+
+	if (ctx->op == LWS_GAESO_ENC)
+		status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, NULL,
+				       ctx->u.iv, sizeof(ctx->u.iv), (PUCHAR)out,
+				       (ULONG)len, &result_len, 0);
+	else
+		status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, NULL,
+				       ctx->u.iv, sizeof(ctx->u.iv), (PUCHAR)out,
+				       (ULONG)len, &result_len, 0);
+
+	if (!BCRYPT_SUCCESS(status) || result_len != (ULONG)len)
+		return -1;
+
+	return 0;
+}
+
+int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
+	int n = 0;
+
+	/* this may still need the key, for a padded encrypt's final block */
+	if (ctx->mode == LWS_GAESM_CBC && ctx->u.hKey)
+		n = lws_genaes_cbc_destroy(ctx, tag, tlen);
+
 	if (ctx->mode == LWS_GAESM_GCM && ctx->underway && ctx->u.pbMacContext) {
 		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *authInfo =
 			(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *)ctx->u.pbMacContext;
@@ -145,7 +186,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 	if (ctx->u.hAlg)
 		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
 
-	return 0;
+	return n;
 }
 
 int
@@ -157,6 +198,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 {
 	NTSTATUS status;
 	ULONG result_len = 0;
+
+	if (ctx->mode == LWS_GAESM_CBC)
+		/* padding and chaining are common to all backends */
+		return lws_genaes_cbc_crypt(ctx, in, len, out,
+					    iv_or_nonce_ctr_or_data_unit_16,
+					    nc_or_iv_off);
 
 	if (ctx->mode == LWS_GAESM_GCM) {
 		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *authInfo;
@@ -356,7 +403,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 		return BCRYPT_SUCCESS(status) ? 0 : -1;
 	} else {
-		/* CBC, ECB, etc. */
+		/* ECB, CFB8 */
 		PUCHAR iv_in = (PUCHAR)iv_or_nonce_ctr_or_data_unit_16;
 		PUCHAR iv_use = NULL;
 		ULONG iv_len = 0;

@@ -877,6 +877,10 @@ endif()
 		tls/chacha.c
 		tls/poly1305.c
 		tls/lws-genchacha.c)
+	if (LWS_WITH_GENCRYPTO)
+		list(APPEND SOURCES
+			tls/lws-genaes-common.c)
+	endif()
 
 
 

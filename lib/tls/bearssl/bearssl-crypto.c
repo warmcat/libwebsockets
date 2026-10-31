@@ -911,9 +911,10 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op, enum e
 
 	ctx->op = op;
 	ctx->mode = mode;
-	ctx->padding = padding;
 	ctx->k = el;
 	ctx->underway = 0;
+	if (lws_genaes_create_common(ctx, mode, padding))
+		return -1;
 
 	switch (mode) {
 	case LWS_GAESM_CBC:
@@ -975,33 +976,29 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 		return 0;
 	}
 
-	if (ctx->mode == LWS_GAESM_CBC &&
-	    ctx->padding == LWS_GAESP_WITH_PADDING && ctx->buf_len == 16) {
-		if (ctx->op == LWS_GAESO_ENC) {
-			if (!tag || tlen < 16)
-				return -1;
+	if (ctx->mode == LWS_GAESM_CBC)
+		return lws_genaes_cbc_destroy(ctx, tag, tlen);
 
-			/* emit a full block of pad, chained from ctx->tag */
-			memset(tag, 16, 16);
-			br_aes_ct_cbcenc_run(&ctx->u.cbcenc, ctx->tag,
-					     tag, 16);
-		} else {
-			unsigned int i, b;
+	return 0;
+}
 
-			/*
-			 * crypt() already returned the whole plaintext to the
-			 * caller, including this last block, and left us a
-			 * copy of it to check the pad on
-			 */
-			b = ctx->buf[15];
-			if (b < 1 || b > 16)
-				return -1;
-			for (i = 16 - b; i < 16; i++)
-				if (ctx->buf[i] != (uint8_t)b)
-					return -1;
-		}
-		ctx->buf_len = 0;
-	}
+int
+lws_genaes_cbc_blocks(struct lws_genaes_ctx *ctx, const uint8_t *in,
+		      size_t len, uint8_t *out)
+{
+	/*
+	 * bearssl's cbc runners work in place and update the iv with the
+	 * chaining value: ctx->tag starts as the iv, and carries the chain
+	 * on to the next call
+	 */
+
+	if (out != in)
+		memmove(out, in, len);
+
+	if (ctx->op == LWS_GAESO_ENC)
+		br_aes_ct_cbcenc_run(&ctx->u.cbcenc, ctx->tag, out, len);
+	else
+		br_aes_ct_cbcdec_run(&ctx->u.cbcdec, ctx->tag, out, len);
 
 	return 0;
 }
@@ -1010,58 +1007,11 @@ int
 lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len, uint8_t *out, uint8_t *iv_or_nonce_ctr_or_data_unit_16, uint8_t *stream_block_16, size_t *nc_or_iv_off, int taglen)
 {
 	switch (ctx->mode) {
-	case LWS_GAESM_CBC: {
-			size_t proc = len;
-			uint8_t iv_work[16];
-
-			if (!out || !iv_or_nonce_ctr_or_data_unit_16 ||
-			    (len % 16))
-				return -1;
-
-			if (ctx->padding == LWS_GAESP_WITH_PADDING &&
-			    ctx->op == LWS_GAESO_DEC && !len)
-				return -1;
-			/*
-			 * enc: destroy() appends a pad block chained from
-			 * where this leaves the cbc chain
-			 *
-			 * dec: everything is decrypted into out, and we keep
-			 * a copy of the last plaintext block for destroy() to
-			 * check the pad on
-			 */
-
-			if (proc) {
-				memcpy(out, in, proc);
-
-				/*
-				 * bearssl's cbc runners update the iv in
-				 * place with the chaining value; the lws
-				 * api leaves the caller's iv untouched
-				 */
-				memcpy(iv_work,
-				       iv_or_nonce_ctr_or_data_unit_16, 16);
-				if (ctx->op == LWS_GAESO_ENC)
-					br_aes_ct_cbcenc_run(&ctx->u.cbcenc,
-							     iv_work, out,
-							     proc);
-				else
-					br_aes_ct_cbcdec_run(&ctx->u.cbcdec,
-							     iv_work, out,
-							     proc);
-			} else
-				memcpy(iv_work,
-				       iv_or_nonce_ctr_or_data_unit_16, 16);
-
-			if (ctx->padding == LWS_GAESP_WITH_PADDING) {
-				if (ctx->op == LWS_GAESO_ENC)
-					/* the chaining value destroy() needs */
-					memcpy(ctx->tag, iv_work, 16);
-				else
-					memcpy(ctx->buf, out + proc - 16, 16);
-				ctx->buf_len = 16;
-			}
-			break;
-		}
+	case LWS_GAESM_CBC:
+		/* padding and chaining are common to all backends */
+		return lws_genaes_cbc_crypt(ctx, in, len, out,
+					    iv_or_nonce_ctr_or_data_unit_16,
+					    nc_or_iv_off);
 
 	case LWS_GAESM_CTR: {
 			uint8_t sb_local[16], *sb = stream_block_16;

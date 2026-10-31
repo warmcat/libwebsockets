@@ -1151,7 +1151,7 @@ lws_genaes_run_padding_hex_case(const struct lws_genaes_padding_hex_case *tc)
 	uint8_t key[64], iv_src[32], iv[32], pt[2048], ct[2048], res[2048],
 		res1[2048], sb[16];
 	uint8_t *ivp, *sbp;
-	size_t key_len, iv_len, pt_len, ct_len, off, enc_tail_len;
+	size_t key_len, iv_len, pt_len, ct_len, off, whole;
 	size_t *offp;
 
 	key_len = lws_genaes_hex_to_buf(tc->key_hex, key, sizeof(key));
@@ -1182,14 +1182,20 @@ lws_genaes_run_padding_hex_case(const struct lws_genaes_padding_hex_case *tc)
 		lwsl_err("%s: %s enc failed\n", __func__, tc->name);
 		goto bail_enc;
 	}
-	if (ct_len < pt_len) {
+	if (ct_len != lws_gencrypto_padded_length(16, pt_len)) {
 		lwsl_err("%s: %s bad CBC padding lengths\n",
 			 __func__, tc->name);
 		goto bail_enc;
 	}
 
-	enc_tail_len = ct_len - pt_len;
-	if (lws_genaes_destroy(&ctx, res + pt_len, enc_tail_len)) {
+	/*
+	 * This is the older way to use padding, without lws_genaes_final():
+	 * the crypt writes the whole blocks, and destroy() the final padded
+	 * one into its tag
+	 */
+
+	whole = pt_len & ~(size_t)15;
+	if (lws_genaes_destroy(&ctx, res + whole, 16)) {
 		lwsl_err("%s: %s enc destroy failed\n", __func__,
 			 tc->name);
 		return -1;
@@ -1208,6 +1214,8 @@ lws_genaes_run_padding_hex_case(const struct lws_genaes_padding_hex_case *tc)
 		lwsl_err("%s: %s dec create failed\n", __func__, tc->name);
 		return -1;
 	}
+	/* so a part of the plaintext that never arrived can't match */
+	memset(res1, 0xee, sizeof(res1));
 	if (lws_genaes_crypt(&ctx, ct, ct_len, res1, ivp, sbp, offp, 0)) {
 		lwsl_err("%s: %s dec failed\n", __func__, tc->name);
 		goto bail_dec;
@@ -1385,6 +1393,16 @@ test_genaes_branch_matrix(void)
 		  "000102030405060708090a0b0c0d0e0f",
 		  "000102030405060708090a0b0c0d0e0f",
 		  "c6a13b37878f5b826f4f8162a1c8d879b1a29273be2c4207a5ace393398cb6fb" },
+		/*
+		 * not a whole number of blocks: the final block is part
+		 * plaintext, and a decrypt must not lose it (G-422)
+		 */
+		{ "cbc128-pkcs7-20",
+		  LWS_GAESM_CBC,
+		  "000102030405060708090a0b0c0d0e0f",
+		  "000102030405060708090a0b0c0d0e0f",
+		  "000102030405060708090a0b0c0d0e0f10111213",
+		  "c6a13b37878f5b826f4f8162a1c8d879cb35046a8d97f0d5bc48b110e91d415e" },
 	};
 	unsigned int n;
 
@@ -1415,6 +1433,244 @@ test_genaes_branch_matrix(void)
 			lwsl_err("%s: padding_cases[%d] failed\n", __func__, n);
 			return -1;
 		}
+
+	return 0;
+}
+
+/*
+ * CBC with PKCS#7 padding, split over several crypt calls, using
+ * lws_genaes_final() for the last block and the lengths.  The ciphertexts
+ * are from openssl enc -aes-128-cbc, key 00..0f, iv 0f..00, plaintext the
+ * bytes 00, 01, ... of each length.
+ */
+
+static const struct {
+	size_t		len;
+	const char	*ct_hex;
+} cbc_pad_kat[] = {
+	{  0, "efddc425a6fa0c5f25e444092eb0f503" },
+	{  1, "45b518a0ba5b3efa44c94abe8f25b27d" },
+	{ 15, "0101737de6457404cc17a34e45d0285f" },
+	{ 16, "03a9c8fe778fb8a8668359542ad4d584"
+	      "c5339ea23d5300ebcbee6cd0b87dded2" },
+	{ 17, "03a9c8fe778fb8a8668359542ad4d584"
+	      "f6052b4994a0e8fcf974e236638a3dfa" },
+	{ 31, "03a9c8fe778fb8a8668359542ad4d584"
+	      "ff15530b09004acc3575a4f6948c5651" },
+	{ 32, "03a9c8fe778fb8a8668359542ad4d584"
+	      "bce873fe4bc2ba36d6d8742b27cdd457"
+	      "bd05b750ac0a93782a58a1f0038107f1" },
+	{ 33, "03a9c8fe778fb8a8668359542ad4d584"
+	      "bce873fe4bc2ba36d6d8742b27cdd457"
+	      "e62b3e11c4fcc5fe5d0a6ef9de67b80e" },
+};
+
+static const uint8_t cbc_pad_key[] = {
+	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+	0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+}, cbc_pad_iv[] = {
+	0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08,
+	0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00,
+};
+
+/*
+ * Run one CBC operation over in, split into chunks at the offsets in cuts
+ * (the last chunk runs to the end), checking each call's output length, then
+ * lws_genaes_final().  Returns the total length reported, or -1.
+ */
+
+static int
+cbc_run(enum enum_aes_operation op, enum enum_aes_padding pad,
+	const uint8_t *iv, const uint8_t *in, size_t len, const size_t *cuts,
+	int ncuts, uint8_t *out, size_t out_max)
+{
+	struct lws_gencrypto_keyelem e;
+	struct lws_genaes_ctx ctx;
+	size_t pos = 0, w = 0, olen, total, end;
+	uint8_t ivc[16];
+	int n;
+
+	e.buf = (uint8_t *)cbc_pad_key;
+	e.len = sizeof(cbc_pad_key);
+	memcpy(ivc, iv, sizeof(ivc));
+
+	if (lws_genaes_create(&ctx, op, LWS_GAESM_CBC, &e, pad, NULL)) {
+		lwsl_err("%s: create failed\n", __func__);
+		return -1;
+	}
+
+	for (n = 0; n <= ncuts; n++) {
+		end = n < ncuts ? cuts[n] : len;
+		if (end < pos || end > len)
+			continue;
+
+		olen = 12345;
+		if (lws_genaes_crypt(&ctx, in + pos, end - pos, out + w, ivc,
+				     NULL, &olen, 0)) {
+			lwsl_err("%s: crypt failed at %d\n", __func__,
+				 (int)pos);
+			goto bail;
+		}
+
+		/*
+		 * whole blocks only; and everything in comes out, except
+		 * the partial block an encrypt with padding holds back
+		 */
+		if ((olen & 15) || (w + olen) > end ||
+		    ((op == LWS_GAESO_DEC || pad == LWS_GAESP_NO_PADDING) &&
+		     olen != end - pos) ||
+		    (op == LWS_GAESO_ENC && pad == LWS_GAESP_WITH_PADDING &&
+		     w + olen != (end & ~(size_t)15))) {
+			lwsl_err("%s: bad olen %d at %d (w %d)\n", __func__,
+				 (int)olen, (int)pos, (int)w);
+			goto bail;
+		}
+		w += olen;
+		pos = end;
+	}
+
+	if (lws_genaes_final(&ctx, out + w, out_max - w, &total)) {
+		lwsl_info("%s: final failed\n", __func__);
+		goto bail;
+	}
+
+	if (lws_genaes_destroy(&ctx, NULL, 0)) {
+		lwsl_err("%s: destroy failed\n", __func__);
+		return -1;
+	}
+
+	return (int)total;
+
+bail:
+	lws_genaes_destroy(&ctx, NULL, 0);
+
+	return -1;
+}
+
+static int
+test_genaes_cbc_padding(void)
+{
+	uint8_t pt[64], ct[80], kat[80], res[80], iv[16];
+	struct lws_gencrypto_keyelem e;
+	struct lws_genaes_ctx ctx;
+	size_t cuts[2], i, kat_len, plen;
+	int n, t;
+
+	for (i = 0; i < sizeof(pt); i++)
+		pt[i] = (uint8_t)i;
+
+	for (t = 0; t < (int)LWS_ARRAY_SIZE(cbc_pad_kat); t++) {
+		size_t len = cbc_pad_kat[t].len;
+
+		plen = lws_gencrypto_padded_length(16, len);
+		kat_len = lws_genaes_hex_to_buf(cbc_pad_kat[t].ct_hex, kat,
+						sizeof(kat));
+		if (kat_len != plen) {
+			lwsl_err("%s: bad kat %d\n", __func__, t);
+			return -1;
+		}
+
+		/* encrypt in three uneven pieces */
+
+		cuts[0] = len / 3;
+		cuts[1] = (len * 2) / 3 + 1;
+		memset(ct, 0xee, sizeof(ct));
+		n = cbc_run(LWS_GAESO_ENC, LWS_GAESP_WITH_PADDING, cbc_pad_iv,
+			    pt, len, cuts, 2, ct, sizeof(ct));
+		if (n != (int)plen || memcmp(ct, kat, plen)) {
+			lwsl_err("%s: len %d: enc total %d, expected %d\n",
+				 __func__, (int)len, n, (int)plen);
+			lwsl_hexdump_notice(ct, plen);
+			return -1;
+		}
+
+		/*
+		 * decrypt in two pieces split on a block boundary, then check
+		 * we got back exactly the plaintext and its length
+		 */
+
+		cuts[0] = (plen / 32) * 16;
+		memset(res, 0xee, sizeof(res));
+		n = cbc_run(LWS_GAESO_DEC, LWS_GAESP_WITH_PADDING, cbc_pad_iv,
+			    ct, plen, cuts, 1, res, sizeof(res));
+		if (n != (int)len || memcmp(res, pt, len)) {
+			lwsl_err("%s: len %d: dec total %d\n", __func__,
+				 (int)len, n);
+			lwsl_hexdump_notice(res, plen);
+			return -1;
+		}
+
+		/*
+		 * a bad pad must fail: flipping the top bit of the last pad
+		 * byte (via the block before, or the iv for a single block)
+		 * makes it >= 0x80
+		 */
+
+		memcpy(iv, cbc_pad_iv, sizeof(iv));
+		if (plen > 16)
+			ct[plen - 17] ^= 0x80;
+		else
+			iv[15] ^= 0x80;
+		if (cbc_run(LWS_GAESO_DEC, LWS_GAESP_WITH_PADDING, iv,
+			    ct, plen, cuts, 1, res, sizeof(res)) >= 0) {
+			lwsl_err("%s: len %d: bad pad accepted\n", __func__,
+				 (int)len);
+			return -1;
+		}
+
+		/*
+		 * without padding, the kat's whole-block prefix round-trips
+		 * unchanged, also split up, and nothing is added or removed
+		 */
+
+		if (len < 16)
+			continue;
+
+		i = len & ~(size_t)15;
+		cuts[0] = 16;
+		n = cbc_run(LWS_GAESO_ENC, LWS_GAESP_NO_PADDING, cbc_pad_iv,
+			    pt, i, cuts, 1, ct, sizeof(ct));
+		if (n != (int)i || memcmp(ct, kat, i)) {
+			lwsl_err("%s: len %d: no pad enc %d\n", __func__,
+				 (int)i, n);
+			return -1;
+		}
+		n = cbc_run(LWS_GAESO_DEC, LWS_GAESP_NO_PADDING, cbc_pad_iv,
+			    ct, i, cuts, 1, res, sizeof(res));
+		if (n != (int)i || memcmp(res, pt, i)) {
+			lwsl_err("%s: len %d: no pad dec %d\n", __func__,
+				 (int)i, n);
+			return -1;
+		}
+	}
+
+	/* without padding, a partial block is an error */
+
+	cuts[0] = 16;
+	if (cbc_run(LWS_GAESO_ENC, LWS_GAESP_NO_PADDING, cbc_pad_iv, pt, 20,
+		    cuts, 1, ct, sizeof(ct)) >= 0) {
+		lwsl_err("%s: no pad partial block accepted\n", __func__);
+		return -1;
+	}
+
+	/* a padded decrypt of no ciphertext at all has no padding to check */
+
+	if (cbc_run(LWS_GAESO_DEC, LWS_GAESP_WITH_PADDING, cbc_pad_iv, ct, 0,
+		    cuts, 0, res, sizeof(res)) >= 0) {
+		lwsl_err("%s: empty padded decrypt accepted\n", __func__);
+		return -1;
+	}
+
+	/* padding means nothing to ECB, it is refused */
+
+	e.buf = (uint8_t *)cbc_pad_key;
+	e.len = sizeof(cbc_pad_key);
+	if (!lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_ECB, &e,
+			       LWS_GAESP_WITH_PADDING, NULL)) {
+		lws_genaes_destroy(&ctx, NULL, 0);
+		lwsl_err("%s: ECB with padding accepted\n", __func__);
+		return -1;
+	}
 
 	return 0;
 }
@@ -1471,6 +1727,8 @@ test_genaes(struct lws_context *context)
 	if (test_genaes_optional_args())
 		goto bail;
 	if (test_genaes_branch_matrix())
+		goto bail;
+	if (test_genaes_cbc_padding())
 		goto bail;
 
 	/* end */

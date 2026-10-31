@@ -42,16 +42,19 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 {
 	int n = 0;
 
+	ctx->ctx = NULL;
+	ctx->mode = mode;
+	if (lws_genaes_create_common(ctx, mode, padding))
+		return -1;
+
 	ctx->ctx = EVP_CIPHER_CTX_new();
 	if (!ctx->ctx)
 		return -1;
 
-	ctx->mode = mode;
 	ctx->k = el;
 	ctx->engine = engine;
 	ctx->init = 0;
 	ctx->op = op;
-	ctx->padding = padding;
 	/* the ctx is caller storage that may be uninitialized */
 	ctx->cipher = NULL;
 
@@ -238,18 +241,24 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		goto bail;
 	}
 
+	/*
+	 * OpenSSL's own padding is never used: on decrypt it holds the last
+	 * block back from Update, which our api has no way to return.  CBC
+	 * padding is done by lws-genaes-common.c the same for every backend.
+	 */
+
 	switch (ctx->op) {
 	case LWS_GAESO_ENC:
 		n = EVP_EncryptInit_ex(ctx->ctx, ctx->cipher, ctx->engine,
 				       NULL, NULL);
-		EVP_CIPHER_CTX_set_padding(ctx->ctx, (int)padding);
 		break;
 	case LWS_GAESO_DEC:
 		n = EVP_DecryptInit_ex(ctx->ctx, ctx->cipher, ctx->engine,
 				       NULL, NULL);
-		EVP_CIPHER_CTX_set_padding(ctx->ctx, (int)padding);
 		break;
 	}
+	if (n)
+		EVP_CIPHER_CTX_set_padding(ctx->ctx, 0);
 	if (!n) {
 		lwsl_err("%s: cipher init failed (cipher %p)\n", __func__,
 			 ctx->cipher);
@@ -268,10 +277,13 @@ int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
 	uint8_t buf[256];
-	int outl = sizeof(buf), n = 0;
+	int outl = 0, n = 0;
 
 	if (!ctx->ctx)
 		return 0;
+
+	/* this may still need the cipher, for a padded CBC encrypt's tail */
+	n = lws_genaes_cbc_destroy(ctx, tag, tlen);
 
 	if (ctx->init) {
 		switch (ctx->op) {
@@ -303,9 +315,6 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 					n = 1;
 				}
 			}
-			if (ctx->mode == LWS_GAESM_CBC && tag && tlen && outl > 0)
-				memcpy(tag, buf, (size_t)outl > tlen ?
-							tlen : (size_t)outl);
 
 			break;
 
@@ -318,8 +327,17 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 
 			break;
 		}
-		if (outl)
-			lwsl_debug("%s: final len %d\n", __func__, outl);
+		/*
+		 * Without OpenSSL padding nothing is left for Final to
+		 * emit... if it did, it would be plaintext or ciphertext our
+		 * caller never sees
+		 */
+		if (outl) {
+			lwsl_err("%s: unexpected final len %d\n", __func__,
+				 outl);
+			n = -1;
+		}
+		lws_explicit_bzero(buf, sizeof(buf));
 	}
 
 	ctx->k = NULL;
@@ -329,13 +347,100 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 	return n;
 }
 
+static int
+lws_genaes_openssl_init(struct lws_genaes_ctx *ctx, const uint8_t *iv)
+{
+	int n = 0;
+
+	switch (ctx->op) {
+	case LWS_GAESO_ENC:
+		n = EVP_EncryptInit_ex(ctx->ctx, NULL, NULL, ctx->k->buf, iv);
+		break;
+	case LWS_GAESO_DEC:
+		if (ctx->mode == LWS_GAESM_GCM)
+			EVP_CIPHER_CTX_ctrl(ctx->ctx, EVP_CTRL_GCM_SET_TAG,
+					    ctx->taglen, ctx->tag);
+		n = EVP_DecryptInit_ex(ctx->ctx, NULL, NULL, ctx->k->buf, iv);
+		break;
+	}
+
+	if (!n) {
+		lws_tls_err_describe_clear();
+		lwsl_err("%s: init failed (cipher %p)\n",
+			 __func__, ctx->cipher);
+
+		return -1;
+	}
+	ctx->init = 1;
+
+	return 0;
+}
+
+static int
+lws_genaes_openssl_update(struct lws_genaes_ctx *ctx, const uint8_t *in,
+			  size_t len, uint8_t *out)
+{
+	int n = 0, outl = 0;
+
+	switch (ctx->op) {
+	case LWS_GAESO_ENC:
+		n = EVP_EncryptUpdate(ctx->ctx, out, &outl, in, (int)len);
+		break;
+	case LWS_GAESO_DEC:
+		n = EVP_DecryptUpdate(ctx->ctx, out, &outl, in, (int)len);
+		break;
+	}
+
+	if (!n) {
+		lwsl_notice("%s: update failed\n", __func__);
+		lws_tls_err_describe_clear();
+
+		return -1;
+	}
+
+	/*
+	 * Our api has no output length: out must be exactly len bytes.  Key
+	 * wrap is the exception, it adds or removes 8 bytes by design.
+	 * Anything else short means OpenSSL kept some back, and the end of
+	 * out would be left unwritten.
+	 */
+
+	if (ctx->mode != LWS_GAESM_KW && (size_t)outl != len) {
+		lwsl_err("%s: output %d for input %d\n", __func__, outl,
+			 (int)len);
+
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+lws_genaes_cbc_blocks(struct lws_genaes_ctx *ctx, const uint8_t *in,
+		      size_t len, uint8_t *out)
+{
+	if (!ctx->init) {
+		EVP_CIPHER_CTX_set_key_length(ctx->ctx,
+					      SSL_UINT_CAST(ctx->k->len));
+		if (lws_genaes_openssl_init(ctx, ctx->tag))
+			return -1;
+	}
+
+	return lws_genaes_openssl_update(ctx, in, len, out);
+}
+
 int
 lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		 const uint8_t *in, size_t len, uint8_t *out,
 		 uint8_t *iv_or_nonce_ctr_or_data_unit_16,
 		 uint8_t *stream_block_16, size_t *nc_or_iv_off, int taglen)
 {
-	int n = 0, outl, olen;
+	int n = 0, olen;
+
+	if (ctx->mode == LWS_GAESM_CBC)
+		return lws_genaes_cbc_crypt(ctx, in, len, out,
+					    iv_or_nonce_ctr_or_data_unit_16,
+					    nc_or_iv_off);
 
 	if (!ctx->init) {
 
@@ -388,31 +493,9 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 			ctx->taglen = taglen;
 		}
 
-		switch (ctx->op) {
-		case LWS_GAESO_ENC:
-			n = EVP_EncryptInit_ex(ctx->ctx, NULL, NULL,
-					       ctx->k->buf,
-					       iv_or_nonce_ctr_or_data_unit_16);
-			break;
-		case LWS_GAESO_DEC:
-			if (ctx->mode == LWS_GAESM_GCM)
-				EVP_CIPHER_CTX_ctrl(ctx->ctx,
-						    EVP_CTRL_GCM_SET_TAG,
-						    ctx->taglen, ctx->tag);
-			n = EVP_DecryptInit_ex(ctx->ctx, NULL, NULL,
-					       ctx->k->buf,
-					       iv_or_nonce_ctr_or_data_unit_16);
-			break;
-		}
-
-		if (!n) {
-			lws_tls_err_describe_clear();
-			lwsl_err("%s: init failed (cipher %p)\n",
-				 __func__, ctx->cipher);
-
+		if (lws_genaes_openssl_init(ctx,
+					    iv_or_nonce_ctr_or_data_unit_16))
 			return -1;
-		}
-		ctx->init = 1;
 	}
 
 	if (ctx->mode == LWS_GAESM_GCM && !out) {
@@ -441,25 +524,5 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		return 0;
 	}
 
-	switch (ctx->op) {
-	case LWS_GAESO_ENC:
-		n = EVP_EncryptUpdate(ctx->ctx, out, &outl, in, (int)len);
-		break;
-	case LWS_GAESO_DEC:
-		n = EVP_DecryptUpdate(ctx->ctx, out, &outl, in, (int)len);
-		break;
-	default:
-		return -1;
-	}
-
-	// lwsl_notice("discarding outl %d\n", (int)outl);
-
-	if (!n) {
-		lwsl_notice("%s: update failed\n", __func__);
-		lws_tls_err_describe_clear();
-
-		return -1;
-	}
-
-	return 0;
+	return lws_genaes_openssl_update(ctx, in, len, out);
 }

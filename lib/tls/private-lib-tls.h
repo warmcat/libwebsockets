@@ -374,6 +374,30 @@ lws_gencrypto_bits_to_bytes(int bits);
 void
 lws_gencrypto_destroy_elements(struct lws_gencrypto_keyelem *el, int m);
 
+#if defined(LWS_WITH_GENCRYPTO)
+/* genaes: lws-genaes-common.c, for all backends */
+
+int
+lws_genaes_create_common(struct lws_genaes_ctx *ctx, enum enum_aes_modes mode,
+			 enum enum_aes_padding padding);
+int
+lws_genaes_cbc_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in,
+		     size_t len, uint8_t *out, const uint8_t *iv,
+		     size_t *olen);
+int
+lws_genaes_cbc_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag,
+		       size_t tlen);
+
+/*
+ * genaes: provided by each backend.  CBC over len bytes, a multiple of 16,
+ * without any padding, continuing the chain in ctx.  The first call starts
+ * it from the iv lws_genaes_cbc_crypt() left in ctx->tag.
+ */
+int
+lws_genaes_cbc_blocks(struct lws_genaes_ctx *ctx, const uint8_t *in,
+		      size_t len, uint8_t *out);
+#endif
+
 /* genec */
 
 struct lws_gencrypto_keyelem;
