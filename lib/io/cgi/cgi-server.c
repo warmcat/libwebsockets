@@ -1161,11 +1161,16 @@ post_hpack_recode:
 		if (wsi->mux_substream) {
 			struct lws *nwsi = lws_get_network_wsi(wsi);
 
-			__lws_set_timeout(wsi,
+			/*
+			 * We hold no lock here: the locking form of the
+			 * timeout takes the context and pt locks to change
+			 * the pt's sul list
+			 */
+			lws_set_timeout(wsi,
 				PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 
 			if (!nwsi->immortal_substream_count)
-				__lws_set_timeout(nwsi,
+				lws_set_timeout(nwsi,
 					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 		}
 #endif
