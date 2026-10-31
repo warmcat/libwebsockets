@@ -337,20 +337,50 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_HTTP_BIND_PROTOCOL				= 49,
 	/**< By default, all HTTP handling is done in protocols[0].
 	 * However you can bind different protocols (by name) to
-	 * different parts of the URL space using callback mounts.  This
-	 * callback occurs in the new protocol when a wsi is bound
-	 * to that protocol.  Any protocol allocation related to the
-	 * http transaction processing should be created then.
+	 * different parts of the URL space using callback mounts.
+	 *
+	 * Whichever protocol handles it, an http server transaction has a
+	 * per-session allocation (pss, `user`) of its own, and this callback
+	 * is the first one the protocol gets with it: before
+	 * LWS_CALLBACK_FILTER_HTTP_CONNECTION, the mount's basic auth and
+	 * interceptor callbacks, and LWS_CALLBACK_HTTP.  Any protocol
+	 * allocation related to the http transaction processing should be
+	 * created then (or later in the transaction) and released in
+	 * LWS_CALLBACK_HTTP_DROP_PROTOCOL.
+	 *
+	 * This holds for protocols[0] as much as for a protocol bound by a
+	 * mount: the first request on an h1 connection, and every h2 / h3
+	 * stream, binds the protocol it arrived on before the request's first
+	 * callback, and a request that protocols[0] serves keeps that pss.
+	 * A request bound on to another protocol (a callback mount, a file
+	 * interpreter, a ws upgrade) drops the earlier protocol's pss and
+	 * binds the new protocol with a fresh one, which is zeroed.  (A pss
+	 * is zeroed at its BIND too, unless the protocol was already given it
+	 * when the connection was adopted by protocol name.)
+	 *
 	 * These specific callbacks are necessary because with HTTP/1.1,
 	 * a single connection may perform at series of different
 	 * transactions at different URLs, thus the lifetime of the
-	 * protocol bind is just for one transaction, not connection. */
+	 * protocol bind is just for one transaction, not connection.  When
+	 * an h1 keep-alive transaction completes, the connection is bound
+	 * to protocols[0] again, with a fresh pss, ready for the next one. */
 
 	LWS_CALLBACK_HTTP_DROP_PROTOCOL				= 50,
 	/**< This is called when a transaction is unbound from a protocol.
 	 * It indicates the connection completed its transaction and may
 	 * do something different now.  Any protocol allocation related
-	 * to the http transaction processing should be destroyed. */
+	 * to the http transaction processing should be destroyed.
+	 *
+	 * For a protocol with a pss, it comes exactly once for every
+	 * LWS_CALLBACK_HTTP_BIND_PROTOCOL, with the same `user`, before lws
+	 * frees that pss: when an h1 keep-alive transaction completes, when
+	 * another protocol is bound, or when the connection or stream closes.
+	 * On a close it comes before LWS_CALLBACK_CLOSED_HTTP, which is given
+	 * the same pss but must not rely on anything released here still
+	 * being there.  `in` is a string naming the reason, for logging.
+	 *
+	 * A protocol with no pss gets both callbacks with `user` NULL, but
+	 * no DROP when the connection closes. */
 
 	LWS_CALLBACK_HTTP_CONFIRM_UPGRADE			= 86,
 	/**< This is your chance to reject an HTTP upgrade action.  The
