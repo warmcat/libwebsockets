@@ -137,6 +137,11 @@ sessions.
    their list.**  Diff each file against what you tested just before
    committing, and if a make fails partway, rebuild before trusting the
    ctest that follows.
+ - **Never build a temp-index patch from `git diff -- <file>` of the shared
+   tree**: it carries other agents' hunks in the same file, even in files
+   nobody warned you about (B123 swept another fixer's half-done
+   server.c rewrite, which didn't build).  Check `git diff --cached --stat
+   HEAD` line counts against what you expect before committing.
  - **Build a temporary-index blob at commit time**, from `git show
    HEAD:<file>` plus your hunk: extracted earlier, HEAD may have moved and
    the commit silently reverts another fixer's change.  Check with

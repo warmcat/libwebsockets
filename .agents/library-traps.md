@@ -251,11 +251,18 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    stream joins a live mux connection**, before any response: check
    `lws_http_client_http_response(wsi)` before failing there.  A raw h2
    test client must ACK the server's SETTINGS before sending split frames.
- - **`LWS_CALLBACK_HTTP_DROP_PROTOCOL` only follows a BIND** (mount-bound
-   protocols).  Per-transaction state on protocols[0] (spa, fds, lwsacs)
-   gets no callback when its user_space is freed at a keepalive
-   transaction's end: release it at BODY_COMPLETION / transaction
-   completion and in `CLOSED_HTTP` (G-554, G-556).
+ - **Every http server pss is bracketed by HTTP_BIND / HTTP_DROP_PROTOCOL**
+   since G-556 (98414f2c4): the protocol a request arrives on, protocols[0]
+   included, is bound at the request gates, and DROP comes exactly once per
+   BIND before the pss is freed (keepalive transaction end, rebind, or
+   close, before CLOSED_HTTP).  Before that, protocols[0] pss on the first
+   h1 transaction and on every h2 stream were freed with no DROP (G-554).
+   Clients still have a gap: a client wsi with no protocol sits unbound on
+   protocols[0], and client_reset on redirect frees its pss with no DROP.
+ - **Testing keepalive turnover:** an h1 client request without
+   `LCCSCF_PIPELINE` sends `Connection: close`, so a single-request test
+   never exercises it; use `LCCSCF_PIPELINE` plus `keep_warm_secs`.  h2
+   server stream pss are allocated at stream creation (http2.c).
  - **`lws_filename_purify_inplace()` yields one safe path component** since
    G-553 (78819fef0); the caller must still refuse an empty name, bound
    the length and create with O_EXCL | O_NOFOLLOW (G-552).
