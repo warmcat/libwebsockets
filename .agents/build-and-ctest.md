@@ -117,6 +117,10 @@
    (CMake rejects interface include dirs inside it):
    `-DLWS_WITH_BEARSSL=1 -DLWS_BEARSSL_INCLUDE_DIRS=... -DLWS_BEARSSL_LIBRARIES=.../libbearssl.so`
    and `LD_LIBRARY_PATH` for ctest (B80: 284/284).
+ - **Sai's "uncommon_headers" config builds `-DLWS_WITH_HTTP_BASIC_AUTH=0`
+   and runs ctest**: any ctest relying on Basic Auth must be gated on it
+   (G-614).  After a `cmake --fresh` that changes options, targets you
+   don't rebuild keep stale binaries: rebuild fully before trusting a run.
  - **A cross-host redirect fence needs no second 127/8 address**: dial
    `localhost` and redirect to `127.0.0.1` (reversed in single-stack
    builds), as minimal-http-client's redirect-fixture.c does (G-614).

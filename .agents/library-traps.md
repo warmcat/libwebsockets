@@ -267,7 +267,8 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_http_client_http_response(wsi)` before failing there.  A raw h2
    test client must ACK the server's SETTINGS before sending split frames.
  - **`lws_is_ssl()` on an h2 child stream returns 0**: `use_ssl` is not
-   copied to mux children.  Use `lws_is_ssl(lws_get_network_wsi(wsi))`
+   copied to mux children (client streams too: the https->http redirect
+   guard read it and was bypassed over h2, G-699).  Use `lws_is_ssl(lws_get_network_wsi(wsi))`
    (G-686 fix).  Closing an h2 ws client stream from ESTABLISHED by
    returning -1 logs "no state for event CONN_FAILED"; closing via
    `lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC)` and
