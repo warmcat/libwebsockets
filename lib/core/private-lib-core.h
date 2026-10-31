@@ -837,6 +837,7 @@ struct lws_context {
 #if defined(LWS_WITH_OTA)
 	lws_sorted_usec_list_t		sul_ota_periodic;
 	lws_ss_handle_t			* ota_ss;	/* opaque to platform */
+	uint8_t				ota_noslot;	/* can't update */
 #endif
 
 	const char			*wol_if;

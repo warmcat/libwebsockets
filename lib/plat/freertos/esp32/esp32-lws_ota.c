@@ -51,6 +51,7 @@ typedef struct {
 	SemaphoreHandle_t		sem; /* given by the task as it ends */
 	const esp_partition_t		*ep;
 	volatile uint8_t		detached;
+	uint8_t				begun; /* pop.ota is valid */
 } _lws_ota_process_t;
 
 static _lws_ota_process_t pop;
@@ -89,15 +90,39 @@ ota_task(void *_g)
 
 			g->async_r = LWSOTARET_NOSLOT;
 
-			if (pop.ep) {
-				e = esp_ota_begin(pop.ep, g->expected_size,
-						  &pop.ota);
-				if (e == ESP_OK)
-					g->async_r = LWSOTARET_OK;
-				else
-					printf("esp_ota_begin: %d\n", (int)e);
-			} else
-				lwsl_err("%s: no next update part\n", __func__);
+			/*
+			 * With only one OTA partition, the next one is the one
+			 * we are running from, and esp_ota_begin() can only
+			 * fail with ESP_ERR_OTA_PARTITION_CONFLICT
+			 */
+
+			if (!pop.ep || pop.ep == esp_ota_get_running_partition()) {
+				lwsl_err("%s: no OTA partition to update into, "
+					 "the partition table needs two\n",
+					 __func__);
+				ota_task_completed(g);
+				break;
+			}
+
+			if (g->expected_size > pop.ep->size) {
+				lwsl_err("%s: image %u bigger than partition "
+					 "%s (%u)\n", __func__,
+					 (unsigned int)g->expected_size,
+					 pop.ep->label,
+					 (unsigned int)pop.ep->size);
+				ota_task_completed(g);
+				break;
+			}
+
+			e = esp_ota_begin(pop.ep, g->expected_size, &pop.ota);
+			if (e == ESP_OK) {
+				pop.begun = 1;
+				g->async_r = LWSOTARET_OK;
+			} else {
+				g->async_r = LWSOTARET_FAILED;
+				lwsl_err("%s: esp_ota_begin: %s\n", __func__,
+					 esp_err_to_name(e));
+			}
 
 			ota_task_completed(g);
 			break;
@@ -113,7 +138,8 @@ ota_task(void *_g)
 			if (e == ESP_OK)
 				g->async_r = LWSOTARET_OK;
 			else
-				lwsl_cx_err(g->cx, "esp_ota_write: %d", (int)e);
+				lwsl_cx_err(g->cx, "esp_ota_write: %s",
+					    esp_err_to_name(e));
 
 			ota_task_completed(g);
 			break;
@@ -122,13 +148,25 @@ ota_task(void *_g)
 		case LWS_OTA_ASYNC_FINALIZE:
 
 			g->async_r = LWSOTARET_FAILED;
-			if (no == LWS_OTA_ASYNC_ABORT)
-				e = esp_ota_abort(pop.ota);
-			else {
+			if (no == LWS_OTA_ASYNC_ABORT) {
+				/*
+				 * If START failed, there is no platform
+				 * update to abort, only the task to end
+				 */
+				e = ESP_OK;
+				if (pop.begun) {
+					e = esp_ota_abort(pop.ota);
+					if (e != ESP_OK)
+						lwsl_cx_err(g->cx,
+							"esp_ota_abort: %s",
+							esp_err_to_name(e));
+				}
+			} else {
 				e = esp_ota_end(pop.ota);
+				if (e != ESP_OK)
+					lwsl_cx_err(g->cx, "esp_ota_end: %s",
+						    esp_err_to_name(e));
 				if (e == ESP_OK) {
-					struct timeval tv;
-
 					/*
 					 * Mark that we want to boot into the
 					 * updated firmware that we just
@@ -136,6 +174,13 @@ ota_task(void *_g)
 					 */
 
 					e = esp_ota_set_boot_partition(pop.ep);
+					if (e != ESP_OK)
+						lwsl_cx_err(g->cx,
+							"esp_ota_set_boot_partition: %s",
+							esp_err_to_name(e));
+				}
+				if (e == ESP_OK) {
+					struct timeval tv;
 
 					/*
 					 * Set the latest fw unixtime to the new
@@ -152,10 +197,9 @@ ota_task(void *_g)
 							(unsigned long long)tv.tv_sec);
 				}
 			}
+			pop.begun = 0;
 			if (e == ESP_OK)
 				g->async_r = LWSOTARET_OK;
-			else
-				lwsl_cx_err(g->cx, "esp_ota_end: %d", (int)e);
 
 			/*
 			 * Once lws sees this completion, it may free g at
@@ -207,6 +251,7 @@ lws_plat_ota_start(lws_ota_t *g)
 	pop.g = NULL;
 	pop.th = NULL;
 	pop.detached = 0;
+	pop.begun = 0;
 
 	pop.sem = xSemaphoreCreateBinary();
 	if (!pop.sem)
