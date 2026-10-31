@@ -180,6 +180,63 @@ a:hover {
 	text-overflow: ellipsis;
 }
 
+/*
+ * lws-login's status widget, at the right-hand end.  Its own css is a tall,
+ * light box; here it's one line in the header's colours
+ */
+
+.li-login {
+	flex: 0 0 auto;
+	align-self: center;
+	margin-left: auto;
+}
+
+.li-login .lws-login-box {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 1px 8px;
+	border-color: var(--line);
+	border-radius: 4px;
+	background: var(--panel);
+	color: var(--fg);
+	font-family: inherit;
+	font-size: inherit;
+}
+
+.li-login .lws-login-box br {
+	display: none;
+}
+
+.li-login .lws-login-identity,
+.li-login .lws-login-link,
+.li-login .lws-login-btn,
+.li-login .lws-login-err,
+.li-login .lws-login-mb {
+	margin: 0;
+	font-size: inherit;
+}
+
+.li-login .lws-login-link {
+	color: var(--accent);
+}
+
+.li-login .lws-login-logout {
+	color: var(--err);
+}
+
+.li-login .lws-login-btn {
+	padding: 1px 8px;
+}
+
+.li-login .lws-login-err {
+	padding: 0 6px;
+}
+
+.li-login .lws-login-avatar-user {
+	color: var(--fg);
+}
+
 /* ---- sessions and shippers ---- */
 
 .li-top {

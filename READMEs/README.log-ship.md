@@ -417,7 +417,9 @@ The plugin's assets, mounted as above, are a page for starting, stopping and
 choosing sessions, seeing which shippers are connected, and looking at a
 session's lines: every source side by side at one instant, or merged in UTC
 order.  `#session=<id>` on its url opens a session, so other pages can link to
-one.
+one.  At the right of its header is lws-login's status widget, saying who
+you're logged in as, with links to log out or to the auth server's admin
+console; it's served by the lws-login interceptor on the page's mount.
 
 ## Looking at a DHT
 

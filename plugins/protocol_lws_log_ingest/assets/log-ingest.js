@@ -624,6 +624,10 @@
 	document.addEventListener("DOMContentLoaded", () => {
 		mk = LwsLogSync.mk;
 
+		/* lws-login on our mount serves lws-login.js beside us */
+		if (typeof window.renderLwsLoginStatus === "function")
+			window.renderLwsLoginStatus("li_login");
+
 		sync = new LwsLogSync($("li_sync"), {
 			api: api,
 			on_instant: () => hash_update()
