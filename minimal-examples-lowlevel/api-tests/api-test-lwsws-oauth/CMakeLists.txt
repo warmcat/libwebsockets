@@ -63,16 +63,19 @@ if (requirements)
 	if (NOT WIN32 AND LWS_WITH_MINIMAL_EXAMPLES)
 
 		#
-		# Four ports: the auth vhost and the app vhost, each binding h1 +
+		# Five ports: the auth vhost and the app vhost, each binding h1 +
 		# h2 over TCP and, because its "alpn" names h3, a QUIC UDP
-		# listener on the same port number; and two h1 + h2 vhosts
+		# listener on the same port number; two h1 + h2 vhosts
 		# where the auth server's mount is present but the plugin never
-		# set itself up (no options / failed init), for the uninit case.
+		# set itself up (no options / failed init), for the uninit case;
+		# and an h1 + h2 auth vhost whose sessions end seconds after
+		# their login, for the cap case.
 		#
-		lws_get_free_ports(PORT_OAUTH 4)
+		lws_get_free_ports(PORT_OAUTH 5)
 		math(EXPR PORT_OAUTH_APP "${PORT_OAUTH} + 1")
 		math(EXPR PORT_OAUTH_UNINIT "${PORT_OAUTH} + 2")
 		math(EXPR PORT_OAUTH_FAILINIT "${PORT_OAUTH} + 3")
+		math(EXPR PORT_OAUTH_CAP "${PORT_OAUTH} + 4")
 
 		set(OAUTH_DIR		${CMAKE_CURRENT_BINARY_DIR})
 		set(OAUTH_CONF_DIR	${OAUTH_DIR}/lwsws-conf)
@@ -82,6 +85,7 @@ if (requirements)
 		set(OAUTH_PORT_APP	${PORT_OAUTH_APP})
 		set(OAUTH_PORT_UNINIT	${PORT_OAUTH_UNINIT})
 		set(OAUTH_PORT_FAILINIT	${PORT_OAUTH_FAILINIT})
+		set(OAUTH_PORT_CAP	${PORT_OAUTH_CAP})
 
 		# CMAKE_BINARY_DIR, not PROJECT_BINARY_DIR: this file calls
 		# project() itself, so PROJECT_BINARY_DIR is this subdir
@@ -374,6 +378,18 @@ if (requirements)
 					 --failinit-port ${PORT_OAUTH_FAILINIT})
 			list(APPEND mytests lwsws-oauth-uninit-h2)
 		endif()
+
+		#
+		# (f) the absolute session lifetime: on the capped auth vhost, a
+		# session renews by every route for its max-session-secs since
+		# the login, and by none after it.  Once only, over h1: it waits
+		# out the session, about a dozen seconds.
+		#
+		add_test(NAME lwsws-oauth-cap
+			 COMMAND ${SAMP} -t cap --h1 ${ARGS_COMMON}
+				 --cap-port ${PORT_OAUTH_CAP}
+				 --db ${OAUTH_AUTH_DB})
+		list(APPEND mytests lwsws-oauth-cap)
 
 		#
 		# The scenarios share the one lwsws, whose auth server runs each

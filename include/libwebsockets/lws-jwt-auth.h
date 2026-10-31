@@ -175,6 +175,28 @@ LWS_VISIBLE LWS_EXTERN uint64_t
 lws_jwt_auth_get_exp(struct lws_jwt_auth *ja);
 
 /**
+ * lws_jwt_auth_get_iat() - Extract the issued-at timestamp
+ *
+ * \param ja: The opaque helper object
+ *
+ * \return the "iat" unix timestamp of this token, or 0 if missing.
+ */
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_jwt_auth_get_iat(struct lws_jwt_auth *ja);
+
+/**
+ * lws_jwt_auth_get_auth_time() - Extract the original authentication time
+ *
+ * \param ja: The opaque helper object
+ *
+ * \return the "auth_time" unix timestamp (OIDC Core 2): when the user
+ * actually authenticated, as opposed to when this token, perhaps one of a
+ * chain of renewals, was issued.  0 if the token does not carry it.
+ */
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_jwt_auth_get_auth_time(struct lws_jwt_auth *ja);
+
+/**
  * lws_jwt_auth_get_sec() - Extract the session epoch
  *
  * \param ja: The opaque helper object

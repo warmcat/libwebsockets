@@ -37,7 +37,8 @@ request with `503` and its admin WebSocket upgrade is refused.
 | `jwt_alg` | Optional: The JWS signing algorithm to use for issued tokens. Defaults to `ES256`. An `HS*` alg needs a symmetric (`oct`) key at `jwk_path`; that key is the signing secret, so it is not published in `/.well-known/jwks.json` (which then serves an empty key set) and validators must be given it out of band.  Versions before that change wrote an `oct` key, secret included, to `<jwk_path>.pub` and served it as the JWKS: if one is still next to the key (the plugin warns at init), treat the key as disclosed, replace it and delete the `.pub`. | `RS256` |
 | `cookie-name` | Optional: Name of the HTTP cookie that the server should natively emit containing the JWT payload upon successful non-OAuth2 login. Empty by default (no cookie). | `auth_token` |
 | `jwt-validity-secs` | Optional: Time-to-live for the signed JWT in seconds. Defaults to `86400` (24 hours). | `3600` |
-| `refresh-validity-secs` | Optional: Duration in seconds to issue stateful, database-backed refresh sessions. If set `> 0`, transparent silent renewals are natively permitted. Defaults to `0` (stateless). | `2592000` |
+| `refresh-validity-secs` | Optional: Duration in seconds to issue stateful, database-backed refresh sessions. If set `> 0`, a session can also be renewed after its JWT has expired, from the `auth_refresh_session` cookie.  Defaults to `0` (no refresh sessions).  Note that a session whose JWT is still live renews itself either way: see [Session lifetime](#session-lifetime). | `2592000` |
+| `max-session-secs` | Optional: the absolute lifetime of a session, in seconds from the login that started it.  Every renewal of the session carries the time of that login on, and none is made once this long has passed since it, so the user logs in again.  Nothing minted for a session outlives it.  `0` is no limit.  Defaults to `2592000` (30 days). | `604800` |
 | `auth-log-limit` | Optional: Maximum number of recent authentication IP audit logs to retain per-identity in the database. Set to `0` to completely disable logging. Defaults to `10`. | `10` |
 | `kdf-per-sec` | Optional: how many password hashes (100000 rounds of PBKDF2-SHA512, run on the event loop thread) unauthenticated logins and registrations may cause per second in total, with up to two seconds' worth in a burst.  Beyond it they are answered `503` "Too many attempts" until the budget refills, so a flood cannot stall the server.  Defaults to `8`. | `8` |
 | `registration_ui` | Optional. If `1` or `true`, exposes public web UI endpoints. Useful for general signups. Defaults to `0` or false. | `true` |
@@ -259,6 +260,43 @@ taken for a session.  Tokens issued before the claim was added are refused:
 users log in again, and device tokens have to be issued again.  A key shared
 with other token minters is only safe while each of them signs its own
 purpose; see `READMEs/README.jwt.md`.
+
+### Session lifetime
+
+A session is everything minted from one actual login: the session JWT it
+returned, and every JWT, authorization code and refresh session renewed from
+that, or from those, since.  `jwt-validity-secs` only bounds how long one of
+them stays usable without being renewed.
+
+Renewal does not need refresh sessions: with `refresh-validity-secs` at `0`, a
+live session JWT presented to `/api/sso_exchange`, or to `/api/authorize` and
+the `/api/token` its code is redeemed at, still gets a fresh one, and so does
+that one before it expires, and so on.  (lws-login's background renewal, which
+calls `/api/sso_exchange`, only starts one for a browser holding an
+`auth_refresh_session`, but anything else holding the JWT can.)  Refresh sessions only add renewal
+after the JWT has expired, from the `auth_refresh_session` cookie, at those
+endpoints and `/api/status`.
+
+So what ends a session that keeps being renewed is `max-session-secs`.  Each
+JWT carries the time of the login as its `auth_time` claim (OIDC Core's name
+for it), and each `oauth_codes` and `auth_sessions` row as its `auth_time`
+column, copied unchanged into whatever is minted from it.  Nothing is minted
+for a session once `max-session-secs` has passed since its login, and nothing
+minted for it lives past that point: a JWT's `exp`, a refresh session's
+expiry, and the `Max-Age` of their cookies and the `expires_in` of
+`/api/token` are cut short to it.  Then renewal answers 401, and lws-login's page
+widget, once the last JWT expires, sends the user to log in again (on an
+`unauth-allow` mount, shows them logged out).
+
+Tokens and rows issued before `auth_time` existed are still honoured, with
+their session taken to have started when they were issued: a JWT's `iat`, a
+refresh session's expiry less `refresh-validity-secs`.  So a session in
+progress at the upgrade runs for at most `max-session-secs` from then.
+
+Device-flow tokens are not sessions in this sense: they live their own ten
+years.  They carry their issue as their `auth_time`, so one presented as a
+session can only be renewed into a browser session within `max-session-secs`
+of the device being approved.
 
 ### Session revocation
 

@@ -158,6 +158,37 @@
         "default":                      "index.html"
        }]
     }, {
+     # An auth server whose sessions end max-session-secs after their login,
+     # seconds rather than the default 30 days, for the cap scenario to see
+     # both sides of in one run.  It shares the db and key of the first auth
+     # vhost, so the seeded accounts log in here too.  The lifetimes must agree
+     # with CAP_* in main.c
+     "name": "@OAUTH_VHOST_NAME@",
+     "port": "@OAUTH_PORT_CAP@",
+     "host-ssl-cert": "@OAUTH_CERT@",
+     "host-ssl-key": "@OAUTH_KEY@",
+     "alpn": "h2,http/1.1",
+     "disable-no-protocol-ws-upgrades": "on",
+
+     "ws-protocols": [{
+        "lws-auth-server": {
+                "status":                       "ok",
+                "db_path":                      "@OAUTH_AUTH_DB@",
+                "auth-domain":                  "@OAUTH_VHOST_NAME@",
+                "jwk_path":                     "@OAUTH_JWK_PATH@",
+                "jwt_alg":                      "ES256",
+                "jwt-validity-secs":            "4",
+                "refresh-validity-secs":        "2592000",
+                "max-session-secs":             "10",
+                "trusted-proxies":              "127.0.0.1,::1"
+        }
+       }],
+
+     "mounts": [{
+        "mountpoint": "/api",
+        "origin": "callback://lws-auth-server"
+       }]
+    }, {
      # The auth server named with no options: its PROTOCOL_INIT sees no pvos
      # and leaves the vhost without any per-vhost state, but the mount below
      # still routes to it.  It must answer 503, not dereference the missing

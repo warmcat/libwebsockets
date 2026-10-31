@@ -68,6 +68,13 @@
  *          come from the POST that page makes with the csrf double
  *          submit, once; the QR image of the seed is only served for a live
  *          registration that became the account.
+ *
+ *  cap:   a session renews itself at /api/sso_exchange, /api/status and
+ *          /api/authorize + /api/token for as long as its max-session-secs
+ *          since the login allows, every token carrying the login's
+ *          auth_time, and not after, even to a client that keeps presenting
+ *          every cookie it was ever given.  Against an auth vhost of its own
+ *          with a max-session-secs of seconds.
  */
 
 #include <libwebsockets.h>
@@ -80,7 +87,7 @@
 #include <time.h>
 
 static int	interrupted, bad = 1, port_auth, port_app, port_uninit,
-		port_failinit;
+		port_failinit, port_cap;
 /*
  * An earlier keepalive connection closing ("peer closed while idle") delivers
  * CLOSED_CLIENT_HTTP while a later request is still waiting for its response.
@@ -155,6 +162,9 @@ static const char * const seed_backup_codes[] = {
  */
 #define SEED_USER_ROWS		"apitest-rows-user"
 #define SEED_UID_ROWS		7
+/* the account the cap scenario logs in as, on the capped auth vhost */
+#define SEED_USER_CAP		"apitest-cap-user"
+#define SEED_UID_CAP		10
 /* a uid no account has, whose expired rows only the periodic sweep can reap */
 #define SEED_UID_GHOST		99
 /* holds the '*' grant, for the admin console: only adminws uses it */
@@ -263,8 +273,13 @@ loc_has(const char *key)
  * hiding the thing that can.
  */
 
-/* JAR_DEVICE is a device's own client, which holds no browser cookies */
-enum { JAR_AUTH, JAR_APP, JAR_DEVICE, JAR_COUNT };
+/*
+ * JAR_DEVICE is a device's own client, which holds no browser cookies.
+ * JAR_CAP is a browser of the capped auth vhost, on another port of the same
+ * host: it gets a jar of its own so its session cookies can't overwrite the
+ * main auth vhost's.
+ */
+enum { JAR_AUTH, JAR_APP, JAR_DEVICE, JAR_CAP, JAR_COUNT };
 
 struct cookie {
 	char		name[64];
@@ -278,7 +293,7 @@ struct cookie {
 static struct cookie	jar[JAR_COUNT][COOKIES_MAX];
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-static const char *jar_name[JAR_COUNT] = { "auth", "app", "device" };
+static const char *jar_name[JAR_COUNT] = { "auth", "app", "device", "cap" };
 #endif
 
 static struct cookie *
@@ -1130,8 +1145,10 @@ scenario_seed(void)
 	lws_snprintf(sql, sizeof(sql),
 		     "INSERT OR REPLACE INTO users(uid, username, "
 		     "password_hash, salt, totp_secret, session_epoch, "
-		     "totp_last) VALUES (%d, '%s', '%s', '%s', '', 0, 0)",
-		     SEED_UID_ROWS, SEED_USER_ROWS, hex, SEED_SALT);
+		     "totp_last) VALUES (%d, '%s', '%s', '%s', '', 0, 0), "
+		     "(%d, '%s', '%s', '%s', '', 0, 0)",
+		     SEED_UID_ROWS, SEED_USER_ROWS, hex, SEED_SALT,
+		     SEED_UID_CAP, SEED_USER_CAP, hex, SEED_SALT);
 	if (seed_exec(db, sql))
 		goto bail;
 
@@ -2963,6 +2980,353 @@ bail:
 	return r;
 }
 
+/*
+ * cap: the absolute session lifetime (G-657).
+ *
+ * The capped auth vhost's tokens live CAP_JWT_SECS, and its sessions
+ * CAP_SESSION_SECS from their login; refresh sessions are on.  Within the
+ * session, the JWT renews at /api/sso_exchange, an /api/authorize code redeems
+ * for one at /api/token, and once the JWT has expired the refresh session
+ * renews it at /api/status, every one of them carrying the login's auth_time
+ * and none of them, nor the refresh session, living past the session's end.
+ * After it, nothing renews: not the JWT, not the refresh session, not a code,
+ * even for a client that keeps presenting every cookie it was ever given, as
+ * this jar does (it ignores Max-Age).
+ *
+ * Then refresh sessions and a code planted in the db, live by their own
+ * expiry but for a session that ended, or that are from before auth_time was
+ * stored and old enough, must not renew either, while the same for a live
+ * session does.
+ *
+ * These must agree with the capped vhost's pvos in conf.d/apitest.json.in.
+ */
+
+#define CAP_JWT_SECS			4
+#define CAP_SESSION_SECS		10
+#define CAP_REFRESH_SECS		2592000
+#define CAP_PKCE			"apitest-cap-pkce-verifier-0123456789abcdef"
+
+/* a JWT's numeric claim, or 0 */
+static uint64_t
+cap_claim(const char *jwt, const char *claim)
+{
+	char pl[2048], nb[32];
+	const char *p, *e;
+	int n;
+
+	p = strchr(jwt, '.');
+	if (!p)
+		return 0;
+	e = strchr(++p, '.');
+	if (!e)
+		return 0;
+
+	n = lws_b64_decode_string_len(p, (int)(e - p), pl, (int)sizeof(pl) - 1);
+	if (n <= 0)
+		return 0;
+	pl[n] = '\0';
+
+	lws_snprintf(nb, sizeof(nb), "\"%s\":", claim);
+	p = strstr(pl, nb);
+
+	return p ? (uint64_t)atoll(p + strlen(nb)) : 0;
+}
+
+/*
+ * A token must carry the session's auth_time and expire no later than the
+ * session does
+ */
+static int
+cap_token_ok(const char *what, const char *jwt, uint64_t auth_time)
+{
+	uint64_t at = cap_claim(jwt, "auth_time"), exp = cap_claim(jwt, "exp");
+
+	if (at != auth_time)
+		return fail("cap", "%s carries auth_time %llu, wanted the "
+			    "login's %llu", what, (unsigned long long)at,
+			    (unsigned long long)auth_time);
+
+	if (!exp || exp > auth_time + CAP_SESSION_SECS)
+		return fail("cap", "%s expires at %llu, after the session ends "
+			    "at %llu", what, (unsigned long long)exp,
+			    (unsigned long long)(auth_time + CAP_SESSION_SECS));
+
+	return 0;
+}
+
+static void
+cap_sleep_until(uint64_t t)
+{
+	while ((uint64_t)time(NULL) < t)
+		sqlite3_sleep(200);
+}
+
+/* POST /api/sso_exchange as the cap jar's browser */
+static int
+cap_sso_exchange(const char *csrf)
+{
+	char b[256];
+
+	lws_snprintf(b, sizeof(b), "csrf_token=%s", csrf);
+
+	return req_full(JAR_CAP, port_cap, "/api/sso_exchange", b);
+}
+
+/* GET /api/authorize as the cap jar's browser; the code it issued, or "" */
+static int
+cap_authorize(const char *enc_ruri, char *code, size_t code_len)
+{
+	char p[1024];
+
+	lws_snprintf(p, sizeof(p), "/api/authorize?client_id=%s&redirect_uri="
+		     "%s&response_type=code&state=cap&code_challenge=%s"
+		     "&code_challenge_method=plain", client_id, enc_ruri,
+		     CAP_PKCE);
+
+	if (req_full(JAR_CAP, port_cap, p, NULL) || status != 302)
+		return fail("cap", "/api/authorize answered %u, wanted a 302",
+			    status);
+
+	if (url_arg(loc, "code", code, code_len))
+		code[0] = '\0';
+
+	return 0;
+}
+
+/* redeem a code at /api/token, as the oauth client does */
+static int
+cap_token(const char *code, const char *enc_ruri)
+{
+	char b[1024];
+
+	lws_snprintf(b, sizeof(b), "grant_type=authorization_code&code=%s"
+		     "&client_id=%s&redirect_uri=%s&code_verifier=%s", code,
+		     client_id, enc_ruri, CAP_PKCE);
+
+	return req_full(JAR_DEVICE, port_cap, "/api/token", b);
+}
+
+/*
+ * Plant a refresh session for the cap account, live by its own expiry, and
+ * make it the one the cap jar presents.  Then see whether it renews.
+ */
+static int
+cap_planted_refresh(sqlite3 *db, const char *csrf, const char *id,
+		    uint64_t expires, uint64_t auth_time, unsigned int want)
+{
+	char sql[512], ck[128];
+
+	lws_snprintf(sql, sizeof(sql), "INSERT OR REPLACE INTO auth_sessions"
+		     "(session_id, uid, expires, auth_time) VALUES "
+		     "('%s', %d, %llu, %llu)", id, SEED_UID_CAP,
+		     (unsigned long long)expires,
+		     (unsigned long long)auth_time);
+	if (seed_exec(db, sql))
+		return fail("cap", "unable to plant refresh session %s", id);
+
+	lws_snprintf(ck, sizeof(ck), "auth_refresh_session=%s", id);
+	jar_set(JAR_CAP, ck);
+
+	if (cap_sso_exchange(csrf) || status != want)
+		return fail("cap", "planted refresh session %s (expires %llu, "
+			    "auth_time %llu) renewed with %u, wanted %u: '%s'",
+			    id, (unsigned long long)expires,
+			    (unsigned long long)auth_time, status, want, body);
+
+	return 0;
+}
+
+/* plant a code for the cap account and redeem it */
+static int
+cap_planted_code(sqlite3 *db, const char *ruri, const char *enc_ruri,
+		 const char *code, uint64_t auth_time, unsigned int want)
+{
+	char sql[768];
+
+	lws_snprintf(sql, sizeof(sql), "INSERT OR REPLACE INTO oauth_codes"
+		     "(code, client_id, uid, redirect_uri, expires, "
+		     "code_challenge, code_challenge_method, auth_time) VALUES "
+		     "('%s', '%s', %d, '%s', %llu, '%s', 'plain', %llu)", code,
+		     client_id, SEED_UID_CAP, ruri,
+		     (unsigned long long)time(NULL) + 60, CAP_PKCE,
+		     (unsigned long long)auth_time);
+	if (seed_exec(db, sql))
+		return fail("cap", "unable to plant code %s", code);
+
+	if (cap_token(code, enc_ruri) || status != want)
+		return fail("cap", "planted code %s (auth_time %llu) redeemed "
+			    "with %u, wanted %u: '%s'", code,
+			    (unsigned long long)auth_time, status, want, body);
+
+	return 0;
+}
+
+static int
+scenario_cap(void)
+{
+	char csrf[128], b[1024], ruri[256], enc_ruri[512], code[128];
+	char tk_login[1024], tk_sso[1024], tk_code[1024], tk_status[1024];
+	char rexp[32];
+	uint64_t login, auth_time, now;
+	sqlite3 *db = NULL;
+	const char *v;
+	int r = 1;
+
+	if (!db_path)
+		return fail("cap", "--db is required");
+
+	lws_snprintf(ruri, sizeof(ruri), "https://%s:%d/oauth/callback",
+		     server, port_app);
+	lws_urlencode(enc_ruri, ruri, (int)sizeof(enc_ruri));
+
+	/* (1) log in on the capped auth vhost: the session starts */
+
+	if (req_full(JAR_CAP, port_cap, "/api/status", NULL) ||
+	    status != 200 ||
+	    json_str(body, "csrf_token", csrf, sizeof(csrf)) || !csrf[0])
+		return fail("cap", "/api/status answered %u with no csrf",
+			    status);
+
+	lws_snprintf(b, sizeof(b), "username=%s&password=%s&csrf_token=%s",
+		     SEED_USER_CAP, SEED_PASSWORD, csrf);
+	if (req_full(JAR_CAP, port_cap, "/api/login", b) || status != 200 ||
+	    !(v = jar_value(JAR_CAP, "auth_session")) ||
+	    !jar_value(JAR_CAP, "auth_refresh_session"))
+		return fail("cap", "/api/login as %s answered %u, wanted a "
+			    "session and a refresh session: '%s'",
+			    SEED_USER_CAP, status, body);
+	login = (uint64_t)time(NULL);
+	lws_strncpy(tk_login, v, sizeof(tk_login));
+
+	/* (2) inside the session, its live JWT renews at sso_exchange ... */
+
+	if (cap_sso_exchange(csrf) || status != 200 ||
+	    json_str(body, "token", tk_sso, sizeof(tk_sso)) || !tk_sso[0])
+		return fail("cap", "sso_exchange of a live session answered "
+			    "%u: '%s'", status, body);
+
+	/* ... and an /api/authorize code redeems for one at /api/token */
+
+	if (cap_authorize(enc_ruri, code, sizeof(code)))
+		return 1;
+	if (!code[0])
+		return fail("cap", "/api/authorize of a live session issued "
+			    "no code: '%s'", loc);
+	if (cap_token(code, enc_ruri) || status != 200 ||
+	    json_str(body, "access_token", tk_code, sizeof(tk_code)) ||
+	    !tk_code[0])
+		return fail("cap", "/api/token for a live session's code "
+			    "answered %u: '%s'", status, body);
+	v = strstr(body, "\"refresh_expires_in\":");
+	lws_strncpy(rexp, v ? v + 21 : "0", sizeof(rexp));
+
+	/*
+	 * (3) once the JWT expired, the refresh session renews it at
+	 * /api/status, still inside the session
+	 */
+
+	cap_sleep_until(login + CAP_JWT_SECS + 1);
+
+	if (req_full(JAR_CAP, port_cap, "/api/status", NULL) ||
+	    status != 200 || !strstr(body, "\"logged_in\":1") ||
+	    !strstr(set_cookie, "auth_session=") ||
+	    !(v = jar_value(JAR_CAP, "auth_session")))
+		return fail("cap", "/api/status after the JWT expired answered "
+			    "%u, wanted a renewal from the refresh session: "
+			    "'%s' (Set-Cookie '%s')", status, body,
+			    set_cookie);
+	lws_strncpy(tk_status, v, sizeof(tk_status));
+
+	lwsl_user("cap: renewed inside the session at sso_exchange, "
+		  "authorize + token and status\n");
+
+	/*
+	 * (4) the session ended: nothing renews it any more, though the jar
+	 * still presents the refresh session and the last JWT
+	 */
+
+	cap_sleep_until(login + CAP_SESSION_SECS + 1);
+
+	if (cap_sso_exchange(csrf) || status != 401)
+		return fail("cap", "sso_exchange %ds after the login answered "
+			    "%u, wanted 401: the session renewed past "
+			    "max-session-secs: '%s'",
+			    (int)((uint64_t)time(NULL) - login), status, body);
+
+	if (req_full(JAR_CAP, port_cap, "/api/status", NULL) ||
+	    status != 200 || strstr(body, "\"logged_in\":1") ||
+	    strstr(set_cookie, "auth_session="))
+		return fail("cap", "/api/status after the session ended "
+			    "answered %u, renewing it: '%s' (Set-Cookie '%s')",
+			    status, body, set_cookie);
+
+	if (cap_authorize(enc_ruri, code, sizeof(code)))
+		return 1;
+	if (code[0])
+		return fail("cap", "/api/authorize issued a code for a session "
+			    "that ended: '%s'", loc);
+
+	/*
+	 * (5) every token minted for the session carried its login's
+	 * auth_time and expired with it, and so did its refresh session
+	 */
+
+	auth_time = cap_claim(tk_login, "auth_time");
+	if (!auth_time || auth_time > login || auth_time + 5 < login)
+		return fail("cap", "the login's token has auth_time %llu, "
+			    "wanted about %llu",
+			    (unsigned long long)auth_time,
+			    (unsigned long long)login);
+
+	if (cap_token_ok("the login's token", tk_login, auth_time) ||
+	    cap_token_ok("the sso_exchange token", tk_sso, auth_time) ||
+	    cap_token_ok("the /api/token token", tk_code, auth_time) ||
+	    cap_token_ok("the /api/status token", tk_status, auth_time))
+		return 1;
+
+	if (!atoll(rexp) || atoll(rexp) > CAP_SESSION_SECS)
+		return fail("cap", "/api/token's refresh session lives %ss, "
+			    "past the session's %ds", rexp, CAP_SESSION_SECS);
+
+	/*
+	 * (6) refresh sessions and codes for a session that ended, or from
+	 * before auth_time was stored and old enough (their session is taken
+	 * to have logged in when they were minted), don't renew, while the
+	 * same for a live session does
+	 */
+
+	if (sqlite3_open_v2(db_path, &db, SQLITE_OPEN_READWRITE, NULL) !=
+								SQLITE_OK) {
+		fail("cap", "unable to open %s: %s", db_path,
+		     sqlite3_errmsg(db));
+		goto bail;
+	}
+	sqlite3_busy_timeout(db, SEED_BUSY_TIMEOUT_MS);
+
+	now = (uint64_t)time(NULL);
+
+	if (cap_planted_refresh(db, csrf, "apitest-cap-ended", now + 3600,
+				now - CAP_SESSION_SECS - 1, 401) ||
+	    cap_planted_refresh(db, csrf, "apitest-cap-legacy",
+				now + CAP_REFRESH_SECS - 3600, 0, 401) ||
+	    cap_planted_refresh(db, csrf, "apitest-cap-live", now + 3600,
+				now, 200) ||
+	    cap_planted_code(db, ruri, enc_ruri, "apitest-cap-ended",
+			     now - CAP_SESSION_SECS - 1, 400) ||
+	    cap_planted_code(db, ruri, enc_ruri, "apitest-cap-live", now, 200))
+		goto bail;
+
+	lwsl_user("PASS: cap: a session renews for max-session-secs since "
+		  "its login and not after\n");
+
+	r = 0;
+
+bail:
+	sqlite3_close(db);
+
+	return r;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -2987,6 +3351,8 @@ main(int argc, const char **argv)
 		port_uninit = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--failinit-port")))
 		port_failinit = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--cap-port")))
+		port_cap = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--client-id")))
 		client_id = p;
 	if ((p = lws_cmdline_option(argc, argv, "--service-name")))
@@ -3053,6 +3419,13 @@ main(int argc, const char **argv)
 		bad = scenario_limits();
 	else if (!strcmp(test, "rows"))
 		bad = scenario_rows();
+	else if (!strcmp(test, "cap")) {
+		if (!port_cap) {
+			lwsl_err("%s: cap needs --cap-port\n", __func__);
+			bad = 1;
+		} else
+			bad = scenario_cap();
+	}
 	else if (!strcmp(test, "uninit")) {
 		if (!port_uninit || !port_failinit) {
 			lwsl_err("%s: uninit needs --uninit-port and "

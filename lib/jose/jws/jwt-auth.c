@@ -37,6 +37,7 @@ struct lws_jwt_auth {
 
 	struct lws_dll2_owner grants;
 	uint64_t iat;
+	uint64_t auth_time;
 	uint64_t exp;
 	uint64_t nbf;
 	char cookie_name[64];
@@ -168,6 +169,7 @@ static const char * const auth_paths[] = {
 	"iss",
 	"aud",
 	"pur",
+	"auth_time",
 };
 
 enum {
@@ -184,6 +186,7 @@ enum {
 	JAP_ISS,
 	JAP_AUD,
 	JAP_PUR,
+	JAP_AUTH_TIME,
 };
 
 /*
@@ -295,6 +298,8 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 			pctx->ja->nbf = (uint64_t)atoll(ctx->buf);
 		} else if (ctx->path_match == JAP_IAT + 1) {
 			pctx->ja->iat = (uint64_t)atoll(ctx->buf);
+		} else if (ctx->path_match == JAP_AUTH_TIME + 1) {
+			pctx->ja->auth_time = (uint64_t)atoll(ctx->buf);
 		} else if (ctx->path_match == JAP_UID + 1) {
 			pctx->ja->uid = (uint32_t)atoi(ctx->buf);
 		} else if (ctx->path_match == JAP_SEC + 1) {
@@ -411,6 +416,7 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	ja->exp = 0;
 	ja->nbf = 0;
 	ja->iat = 0;
+	ja->auth_time = 0;
 	ja->uid = 0;
 	ja->session_epoch = 0;
 	ja->sub[0] = '\0';
@@ -695,6 +701,22 @@ lws_jwt_auth_get_exp(struct lws_jwt_auth *ja)
 	if (!ja)
 		return 0;
 	return ja->exp;
+}
+
+uint64_t
+lws_jwt_auth_get_iat(struct lws_jwt_auth *ja)
+{
+	if (!ja)
+		return 0;
+	return ja->iat;
+}
+
+uint64_t
+lws_jwt_auth_get_auth_time(struct lws_jwt_auth *ja)
+{
+	if (!ja)
+		return 0;
+	return ja->auth_time;
 }
 
 uint32_t

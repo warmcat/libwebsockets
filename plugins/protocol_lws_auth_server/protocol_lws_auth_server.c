@@ -227,6 +227,8 @@ struct per_vhost_data__auth_server {
 	char				ui_new_network[256];
 	char				ui_css[256];
 	unsigned long long		refresh_token_validity_secs;
+	/* absolute session lifetime from the login, see auth_session_end() */
+	unsigned long long		max_session_secs;
 	unsigned int			auth_log_limit;
 
 	/* lws-auth-feed, enabled by the feed-secret pvo */
@@ -371,14 +373,16 @@ static const char *schema_init =
 	"  expires INTEGER,"
 	"  scope VARCHAR,"
 	"  code_challenge VARCHAR,"
-	"  code_challenge_method VARCHAR"
+	"  code_challenge_method VARCHAR,"
+	"  auth_time INTEGER DEFAULT 0"
 	");"
 	"CREATE INDEX IF NOT EXISTS oauth_codes_uid ON oauth_codes(uid, expires);"
 	"CREATE INDEX IF NOT EXISTS oauth_codes_expires ON oauth_codes(expires);"
 	"CREATE TABLE IF NOT EXISTS auth_sessions ("
 	"  session_id VARCHAR PRIMARY KEY,"
 	"  uid INTEGER REFERENCES users(uid),"
-	"  expires INTEGER"
+	"  expires INTEGER,"
+	"  auth_time INTEGER DEFAULT 0"
 	");"
 	"CREATE INDEX IF NOT EXISTS auth_sessions_uid ON "
 						"auth_sessions(uid, expires);"
@@ -517,17 +521,61 @@ pbkdf2_sha512(const char *password, const char *salt, int iterations, uint8_t *o
 	return 0;
 }
 
+/*
+ * A session is everything minted from one actual login: the session JWT it
+ * returned, and every JWT, authorization code and refresh session renewed
+ * from that, or from those, since.  auth_time is when that login happened.
+ * Each of them carries it unchanged (the JWT as its "auth_time" claim, the
+ * oauth_codes and auth_sessions rows in their auth_time column), and nothing
+ * is minted for the session once max-session-secs has passed since it, so a
+ * session, captured or not, renews itself only that long and then the user
+ * logs in again.  0 for max-session-secs is no limit.
+ */
+
+static uint64_t
+auth_session_end(const struct per_vhost_data__auth_server *vhd,
+		 uint64_t auth_time)
+{
+	if (!vhd->max_session_secs)
+		return UINT64_MAX;
+
+	return auth_time + vhd->max_session_secs;
+}
+
+/*
+ * How long something minted now for the session that logged in at auth_time
+ * may live: life, or less if the session ends sooner.  0 if it has ended, when
+ * nothing may be minted for it any more.
+ */
+
+static uint64_t
+auth_session_life(const struct per_vhost_data__auth_server *vhd,
+		  uint64_t auth_time, uint64_t life)
+{
+	uint64_t now = (uint64_t)time(NULL),
+		 end = auth_session_end(vhd, auth_time);
+
+	if (end <= now)
+		return 0;
+
+	return end - now < life ? end - now : life;
+}
+
 static int
 lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
-                   const char *username, uint32_t uid,
+                   const char *username, uint32_t uid, uint64_t auth_time,
                    const char *claims_json,
                    char *out, size_t *out_len)
 {
 	char temp[2048]; /* scratchpad for JWK/JWS generation */
 	uint64_t now = (uint64_t)time(NULL);
-	uint64_t exp = now + vhd->jwt_validity_secs;
+	uint64_t life = auth_session_life(vhd, auth_time,
+					  vhd->jwt_validity_secs);
 	sqlite3_stmt *stmt;
 	uint32_t session_epoch = 0;
+
+	if (!life) /* the session ended, see lws_auth_generate_token() */
+		return 1;
 
 	if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
 		sqlite3_bind_int(stmt, 1, (int)uid);
@@ -541,9 +589,11 @@ lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
 	                         out, out_len, temp, sizeof(temp),
 	                         "{\"iss\":\"%s\",\"pur\":\"" LWS_JWT_AUTH_PURPOSE_SSO
 	                         "\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
-	                         "\"iat\":%llu,\"exp\":%llu%s%s}",
+	                         "\"iat\":%llu,\"auth_time\":%llu,\"exp\":%llu%s%s}",
 	                         vhd->auth_domain, username, uid, session_epoch,
-	                         (unsigned long long)now, (unsigned long long)exp,
+	                         (unsigned long long)now,
+	                         (unsigned long long)auth_time,
+	                         (unsigned long long)(now + life),
 	                         claims_json ? "," : "",
 	                         claims_json ? claims_json : "");
 	if (sig_ret) {
@@ -577,9 +627,11 @@ lws_auth_issue_device_jwt(struct per_vhost_data__auth_server *vhd,
 	                         out, out_len, temp, sizeof(temp),
 	                         "{\"iss\":\"%s\",\"pur\":\"" LWS_JWT_AUTH_PURPOSE_SSO
 	                         "\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
-	                         "\"did\":\"%s\",\"iat\":%llu,\"exp\":%llu%s%s}",
+	                         "\"did\":\"%s\",\"iat\":%llu,\"auth_time\":%llu,"
+	                         "\"exp\":%llu%s%s}",
 	                         vhd->auth_domain, username, uid, session_epoch, device_id,
-	                         (unsigned long long)now, (unsigned long long)exp,
+	                         (unsigned long long)now, (unsigned long long)now,
+	                         (unsigned long long)exp,
 	                         claims_json ? "," : "",
 	                         claims_json ? claims_json : "");
 	if (sig_ret) {
@@ -590,9 +642,14 @@ lws_auth_issue_device_jwt(struct per_vhost_data__auth_server *vhd,
 	return 0;
 }
 
+/*
+ * Mint a session JWT for uid, for the session that logged in at auth_time
+ * (now, for a login).  Nonzero if it could not be, including when that session
+ * is past max-session-secs.
+ */
 static int
 lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
-                        const char *username, uint32_t uid,
+                        const char *username, uint32_t uid, uint64_t auth_time,
                         const char *peer_ip, char *out, size_t *out_len)
 {
 	char claims[512];
@@ -604,6 +661,13 @@ lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
 		"FROM grants g JOIN services s ON g.service_id = s.service_id "
 		"WHERE g.uid = ?";
 	int first = 1;
+
+	if (!auth_session_life(vhd, auth_time, vhd->jwt_validity_secs)) {
+		lwsl_notice("%s: uid %u: the session that logged in at %llu "
+			    "is past max-session-secs, not renewing it\n",
+			    __func__, uid, (unsigned long long)auth_time);
+		return 1;
+	}
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"grants\":{");
 
@@ -654,7 +718,8 @@ lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
 			vhd->jwk_path[0] ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
 	}
 
-	return lws_auth_issue_jwt(vhd, username, uid, claims, out, out_len);
+	return lws_auth_issue_jwt(vhd, username, uid, auth_time, claims, out,
+				  out_len);
 }
 
 static int
@@ -2368,14 +2433,21 @@ auth_server_add_clear_cookies(struct lws *wsi,
  * values) is composed into note[] so denial logs can say exactly why renewal
  * failed -- "2 values: 1 expired, 1 not in db" instead of a bare 401.
  *
- * Returns the resolved uid, or 0 if no presented value resolves.
+ * A row whose session is past max-session-secs counts as expired whatever its
+ * own expires says.  Rows from before auth_time was stored have 0 there: the
+ * session they belong to logged in at least as long ago as the row was
+ * minted, which was refresh-validity-secs before it expires, so that is taken
+ * as its auth_time.
+ *
+ * Returns the resolved uid, with the session's auth_time in *auth_time, or 0
+ * if no presented value resolves.
  */
 static uint32_t
 auth_resolve_refresh_session(struct lws *wsi,
 			     struct per_vhost_data__auth_server *vhd,
-			     char *note, size_t note_len)
+			     uint64_t *auth_time, char *note, size_t note_len)
 {
-	int n, expired = 0, unknown = 0, seen = 0, oversized = 0;
+	int n, expired = 0, unknown = 0, seen = 0, oversized = 0, ended = 0;
 	char refresh_tk[128];
 	uint64_t now = (uint64_t)time(NULL);
 	uint32_t uid = 0;
@@ -2411,8 +2483,8 @@ auth_resolve_refresh_session(struct lws *wsi,
 		}
 
 		if (sqlite3_prepare_v2(vhd->db,
-				       "SELECT uid, expires FROM auth_sessions "
-				       "WHERE session_id = ?",
+				       "SELECT uid, expires, auth_time FROM "
+				       "auth_sessions WHERE session_id = ?",
 				       -1, &stmt, NULL) != SQLITE_OK) {
 			unknown++;
 			continue;
@@ -2420,22 +2492,97 @@ auth_resolve_refresh_session(struct lws *wsi,
 
 		sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
 		if (sqlite3_step(stmt) == SQLITE_ROW) {
-			uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 1);
-			if (now < exp) {
+			uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 1),
+				 at = (uint64_t)sqlite3_column_int64(stmt, 2);
+
+			if (!at)
+				at = exp > vhd->refresh_token_validity_secs ?
+					exp - vhd->refresh_token_validity_secs :
+					0;
+
+			if (now >= exp)
+				expired++;
+			else if (now >= auth_session_end(vhd, at))
+				ended++;
+			else {
 				uid = (uint32_t)sqlite3_column_int(stmt, 0);
+				*auth_time = at;
 				sqlite3_finalize(stmt);
 				break;
 			}
-			expired++;
 		} else
 			unknown++;
 		sqlite3_finalize(stmt);
 	}
 
 	lws_snprintf(note, note_len, "%d auth_refresh_session value(s) "
-			"presented: %d expired, %d not in db, %d live, "
-			"%d oversized",
-			seen, expired, unknown, uid ? 1 : 0, oversized);
+			"presented: %d expired, %d past max-session-secs, "
+			"%d not in db, %d live, %d oversized",
+			seen, expired, ended, unknown, uid ? 1 : 0, oversized);
+
+	return uid;
+}
+
+/*
+ * Resolve the session a request presents, as every path that renews one does:
+ * the session JWT if it is live, else, with refresh sessions enabled, an
+ * auth_refresh_session.  Either way the session must not be past
+ * max-session-secs since its login; its auth_time comes back in *auth_time for
+ * whatever is minted for it to carry on.
+ *
+ * A session JWT from before auth_time was minted into them is at most
+ * jwt-validity-secs old, and its session logged in no later than it was
+ * issued, so its iat is taken as its auth_time.
+ *
+ * *was_refreshed is set if it was the refresh session that resolved, so the
+ * caller knows the browser holds no usable session JWT and wants one set.
+ * note[] says why nothing resolved, for the denial log.
+ *
+ * Returns the uid, or 0 if the request presents no session that may renew.
+ */
+static uint32_t
+auth_session_resolve(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+		     uint64_t *auth_time, int *was_refreshed, char *note,
+		     size_t note_len)
+{
+	struct lws_jwt_auth *ja = auth_session_jwt(wsi, vhd);
+	int jwt_ended = 0;
+	uint32_t uid = 0;
+	char rnote[128];
+
+	*was_refreshed = 0;
+	*auth_time = 0;
+
+	if (ja) {
+		uint64_t at = lws_jwt_auth_get_auth_time(ja);
+
+		if (!at)
+			at = lws_jwt_auth_get_iat(ja);
+
+		if ((uint64_t)time(NULL) < auth_session_end(vhd, at)) {
+			uid = lws_jwt_auth_get_uid(ja);
+			*auth_time = at;
+		} else
+			jwt_ended = 1;
+
+		lws_jwt_auth_destroy(&ja);
+
+		if (uid)
+			return uid;
+	}
+
+	if (vhd->refresh_token_validity_secs > 0) {
+		uid = auth_resolve_refresh_session(wsi, vhd, auth_time, rnote,
+						   sizeof(rnote));
+		*was_refreshed = !!uid;
+	} else
+		lws_strncpy(rnote, "refresh sessions disabled on this server",
+			    sizeof(rnote));
+
+	if (!uid)
+		lws_snprintf(note, note_len, "auth_session JWT %s; %s",
+			     jwt_ended ? "past max-session-secs" :
+			     "absent or unusable", rnote);
 
 	return uid;
 }
@@ -2477,22 +2624,12 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		}
 	}
 
-	struct lws_jwt_auth *ja = auth_session_jwt(wsi, vhd);
-	char rnote[96] = "no auth_refresh_session cookie presented";
-	int was_refreshed = 0;
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-	int had_jwt = !!ja;
-#endif
-	uint32_t uid = 0;
-
-	if (ja) {
-		uid = lws_jwt_auth_get_uid(ja);
-		lws_jwt_auth_destroy(&ja);
-	} else if (vhd->refresh_token_validity_secs > 0) {
-		uid = auth_resolve_refresh_session(wsi, vhd, rnote,
-						   sizeof(rnote));
-		was_refreshed = !!uid;
-	}
+	char rnote[256];
+	uint64_t auth_time;
+	int was_refreshed;
+	uint32_t uid = auth_session_resolve(wsi, vhd, &auth_time,
+					    &was_refreshed, rnote,
+					    sizeof(rnote));
 
 	if (!uid) {
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
@@ -2502,11 +2639,7 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		 * missing and what happened to each refresh value, so "why was
 		 * it denied" is answerable from the log alone.
 		 */
-		lwsl_wsi_notice(wsi, "denied: auth_session JWT %s; %s",
-				had_jwt ? "presented but unusable" : "absent",
-				vhd->refresh_token_validity_secs > 0 ?
-					rnote :
-					"refresh sessions disabled on this server");
+		lwsl_wsi_notice(wsi, "denied: %s", rnote);
 		goto send;
 	}
 
@@ -2525,8 +2658,8 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 
 	char jwt[1024];
 	size_t jwt_len = sizeof(jwt);
-	if (!lws_auth_generate_token(vhd, username, uid, pss->client_addr,
-				     jwt, &jwt_len)) {
+	if (!lws_auth_generate_token(vhd, username, uid, auth_time,
+				     pss->client_addr, jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
 		
@@ -2534,7 +2667,8 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		    lws_http_cookie_compose(cookie_hdr, sizeof(cookie_hdr),
 					    vhd->cookie_name, jwt,
 					    vhd->cookie_domain,
-					    vhd->jwt_validity_secs,
+					    auth_session_life(vhd, auth_time,
+						vhd->jwt_validity_secs),
 					    NULL) < 0) {
 			/*
 			 * F-048: fail closed rather than emit a Set-Cookie
@@ -3251,13 +3385,15 @@ auth_uid_make_room(struct per_vhost_data__auth_server *vhd,
 
 /*
  * Issue an authorization code for uid, as /api/authorize and the delegate
- * login do, into code_out (>= 65 chars).  Returns 0 if it was stored.
+ * login do, into code_out (>= 65 chars), for the session that logged in at
+ * auth_time: /api/token mints for that session, not a new one.  Returns 0 if
+ * it was stored.
  */
 static int
 auth_code_issue(struct per_vhost_data__auth_server *vhd, uint32_t uid,
-		const char *client_id, const char *redirect_uri,
-		const char *code_challenge, const char *code_challenge_method,
-		char *code_out)
+		uint64_t auth_time, const char *client_id,
+		const char *redirect_uri, const char *code_challenge,
+		const char *code_challenge_method, char *code_out)
 {
 	sqlite3_stmt *stmt;
 	uint8_t rnd[32];
@@ -3272,9 +3408,9 @@ auth_code_issue(struct per_vhost_data__auth_server *vhd, uint32_t uid,
 	if (!auth_uid_make_room(vhd, &auth_codes_rows, uid) &&
 	    sqlite3_prepare_v2(vhd->db, "INSERT INTO oauth_codes (code, "
 			       "client_id, uid, redirect_uri, expires, "
-			       "code_challenge, code_challenge_method) "
-			       "VALUES (?, ?, ?, ?, ?, ?, ?)", -1, &stmt,
-			       NULL) == SQLITE_OK) {
+			       "code_challenge, code_challenge_method, "
+			       "auth_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			       -1, &stmt, NULL) == SQLITE_OK) {
 		sqlite3_bind_text(stmt, 1, code_out, -1, SQLITE_STATIC);
 		sqlite3_bind_text(stmt, 2, client_id, -1, SQLITE_STATIC);
 		sqlite3_bind_int(stmt, 3, (int)uid);
@@ -3286,6 +3422,7 @@ auth_code_issue(struct per_vhost_data__auth_server *vhd, uint32_t uid,
 		sqlite3_bind_text(stmt, 7, code_challenge_method ?
 					   code_challenge_method : "", -1,
 				  SQLITE_STATIC);
+		sqlite3_bind_int64(stmt, 8, (sqlite_int64)auth_time);
 		ok = sqlite3_step(stmt) == SQLITE_DONE;
 		sqlite3_finalize(stmt);
 	}
@@ -3331,8 +3468,10 @@ auth_sweep_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * Mint a fresh long-term refresh session for `uid`: generate a random code,
- * insert an `auth_sessions` row expiring at now + refresh_token_validity_secs,
+ * Mint a fresh long-term refresh session for `uid`, for the session that
+ * logged in at auth_time: generate a random code, insert an `auth_sessions`
+ * row carrying auth_time and expiring at now + refresh_token_validity_secs, or
+ * when the session reaches max-session-secs if that is sooner,
  * and return the raw code in refresh_code_out (caller-owned buffer, >=65 chars)
  * so it can be placed in the /api/token JSON for the delegate flow.  If
  * refresh_hdr_out is non-NULL, also format the auth_refresh_session Set-Cookie
@@ -3344,21 +3483,27 @@ auth_sweep_cb(lws_sorted_usec_list_t *sul)
  * ends its oldest.
  *
  * Returns 1 on success (code minted), 0 if refresh is disabled
- * (refresh_token_validity_secs == 0) or the DB insert failed.
+ * (refresh_token_validity_secs == 0), the session has ended, or the DB insert
+ * failed.
  */
 static int
 lws_auth_mint_refresh(struct per_vhost_data__auth_server *vhd, uint32_t uid,
-		      char *refresh_code_out, char *refresh_hdr_out)
+		      uint64_t auth_time, char *refresh_code_out,
+		      char *refresh_hdr_out)
 {
 	sqlite3_stmt *stmt;
 	uint8_t r_rnd[32];
-	uint64_t r_exp;
+	uint64_t r_life;
 	int ok = 0;
 
 	if (vhd->refresh_token_validity_secs == 0)
 		return 0;
 
-	r_exp = (uint64_t)time(NULL) + vhd->refresh_token_validity_secs;
+	r_life = auth_session_life(vhd, auth_time,
+				   vhd->refresh_token_validity_secs);
+	if (!r_life)
+		return 0;
+
 	lws_get_random(vhd->context, r_rnd, 32);
 	lws_hex_from_byte_array(r_rnd, 32, refresh_code_out, 65);
 
@@ -3367,11 +3512,13 @@ lws_auth_mint_refresh(struct per_vhost_data__auth_server *vhd, uint32_t uid,
 
 	if (!auth_uid_make_room(vhd, &auth_sessions_rows, uid) &&
 	    sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_sessions "
-			       "(session_id, uid, expires) VALUES (?, ?, ?)",
-			       -1, &stmt, NULL) == SQLITE_OK) {
+			       "(session_id, uid, expires, auth_time) VALUES "
+			       "(?, ?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
 		sqlite3_bind_text(stmt, 1, refresh_code_out, -1, SQLITE_STATIC);
 		sqlite3_bind_int(stmt, 2, (int)uid);
-		sqlite3_bind_int64(stmt, 3, (sqlite_int64)r_exp);
+		sqlite3_bind_int64(stmt, 3, (sqlite_int64)
+					((uint64_t)time(NULL) + r_life));
+		sqlite3_bind_int64(stmt, 4, (sqlite_int64)auth_time);
 		ok = sqlite3_step(stmt) == SQLITE_DONE;
 		sqlite3_finalize(stmt);
 	}
@@ -3382,9 +3529,7 @@ lws_auth_mint_refresh(struct per_vhost_data__auth_server *vhd, uint32_t uid,
 	if (refresh_hdr_out &&
 	    lws_http_cookie_compose(refresh_hdr_out, LWS_SSO_MAX_COOKIE,
 				    "auth_refresh_session", refresh_code_out,
-				    vhd->cookie_domain,
-				    vhd->refresh_token_validity_secs,
-				    NULL) < 0) {
+				    vhd->cookie_domain, r_life, NULL) < 0) {
 		/*
 		 * F-048: fail closed rather than emit a truncated attribute
 		 * tail; callers gate on refresh_hdr_out[0], so the refresh
@@ -3651,6 +3796,12 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	auth_account_clear_strikes(vhd, user);
 
+	/*
+	 * This is the login: everything minted below starts a new session, and
+	 * renewals of it carry this time on, see auth_session_end()
+	 */
+	uint64_t login_time = (uint64_t)time(NULL);
+
 	/* Emulate OAuth2 whitelist logic for native SSO redirect_uri requests */
 	if ((!client_id || !client_id[0]) && redirect_uri && redirect_uri[0]) {
 		if (!auth_verify_redirect_uri(vhd, NULL, redirect_uri)) {
@@ -3675,9 +3826,9 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 		char code[65];
 
-		if (auth_code_issue(vhd, uid, client_id, redirect_uri,
-				    code_challenge, code_challenge_method,
-				    code)) {
+		if (auth_code_issue(vhd, uid, login_time, client_id,
+				    redirect_uri, code_challenge,
+				    code_challenge_method, code)) {
 			pss->http_response_code =
 					HTTP_STATUS_INTERNAL_SERVER_ERROR;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
@@ -3727,7 +3878,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		 * forward, so the user must do a full credential (and TOTP)
 		 * login again every time the 1h app JWT expires.
 		 */
-		if (lws_auth_generate_token(vhd, user, uid, peer, jwt, &jwt_len)) {
+		if (lws_auth_generate_token(vhd, user, uid, login_time, peer,
+					    jwt, &jwt_len)) {
 			lwsl_wsi_err(wsi, "%s: delegate login: session "
 				     "token generation failed (uid %u)",
 				     __func__, uid);
@@ -3737,7 +3889,9 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 						    sizeof(cookie_hdr),
 						    vhd->cookie_name, jwt,
 						    vhd->cookie_domain,
-						    vhd->jwt_validity_secs,
+						    auth_session_life(vhd,
+							login_time,
+							vhd->jwt_validity_secs),
 						    NULL) < 0) {
 				/* F-048: fail closed, never a truncated tail */
 				lwsl_wsi_err(wsi, "%s: %s Set-Cookie too "
@@ -3751,7 +3905,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 			if (vhd->refresh_token_validity_secs > 0) {
 				char refresh_code[65];
-				lws_auth_mint_refresh(vhd, uid, refresh_code,
+				lws_auth_mint_refresh(vhd, uid, login_time,
+						      refresh_code,
 						      refresh_hdr);
 			}
 		}
@@ -3759,7 +3914,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	/* Fallback / Native mode: generate direct JWT */
-	if (!lws_auth_generate_token(vhd, user, uid, peer, jwt, &jwt_len)) {
+	if (!lws_auth_generate_token(vhd, user, uid, login_time, peer, jwt,
+				     &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
 		logged_in = 1;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
@@ -3767,7 +3923,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		    lws_http_cookie_compose(cookie_hdr, sizeof(cookie_hdr),
 					    vhd->cookie_name, jwt,
 					    vhd->cookie_domain,
-					    vhd->jwt_validity_secs,
+					    auth_session_life(vhd, login_time,
+						vhd->jwt_validity_secs),
 					    NULL) < 0) {
 			/* F-048: fail closed, never a truncated tail */
 			lwsl_wsi_err(wsi, "%s: %s Set-Cookie too large "
@@ -3780,7 +3937,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 		if (vhd->refresh_token_validity_secs > 0) {
 			char refresh_code[65];
-			lws_auth_mint_refresh(vhd, uid, refresh_code, refresh_hdr);
+			lws_auth_mint_refresh(vhd, uid, login_time,
+					      refresh_code, refresh_hdr);
 		}
 
 		goto send;
@@ -3870,10 +4028,11 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	 * authentication factors is available, and that the code is valid.
 	 */
 	uint32_t uid = 0;
+	uint64_t auth_time = 0;
 	char stored_challenge[128] = {0};
 	char stored_method[16] = {0};
 
-	if (sqlite3_prepare_v2(vhd->db, "SELECT uid, code_challenge, code_challenge_method FROM oauth_codes WHERE code = ? AND client_id = ? AND redirect_uri = ? AND expires > ?", -1, &stmt, NULL) == SQLITE_OK) {
+	if (sqlite3_prepare_v2(vhd->db, "SELECT uid, code_challenge, code_challenge_method, auth_time, expires FROM oauth_codes WHERE code = ? AND client_id = ? AND redirect_uri = ? AND expires > ?", -1, &stmt, NULL) == SQLITE_OK) {
 		sqlite3_bind_text(stmt, 1, code, -1, SQLITE_TRANSIENT);
 		sqlite3_bind_text(stmt, 2, client_id, -1, SQLITE_TRANSIENT);
 		sqlite3_bind_text(stmt, 3, redirect_uri, -1, SQLITE_TRANSIENT);
@@ -3882,8 +4041,27 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			uid = (uint32_t)sqlite3_column_int(stmt, 0);
 			lws_strncpy(stored_challenge, (const char *)sqlite3_column_text(stmt, 1), sizeof(stored_challenge));
 			lws_strncpy(stored_method, (const char *)sqlite3_column_text(stmt, 2), sizeof(stored_method));
+			auth_time = (uint64_t)sqlite3_column_int64(stmt, 3);
+			/*
+			 * a code from before auth_time was stored was issued
+			 * for a session that logged in no later than the code
+			 * itself, AUTH_CODE_VALIDITY_SECS before it expires
+			 */
+			if (!auth_time)
+				auth_time = (uint64_t)sqlite3_column_int64(
+					stmt, 4) - AUTH_CODE_VALIDITY_SECS;
 		}
 		sqlite3_finalize(stmt);
+	}
+
+	/*
+	 * The code carries on the session it was issued for: it can't mint
+	 * for one that has reached max-session-secs since its login
+	 */
+	if (uid && !auth_session_life(vhd, auth_time, vhd->jwt_validity_secs)) {
+		lwsl_wsi_notice(wsi, "%s: code for uid %u of a session past "
+				"max-session-secs refused", __func__, uid);
+		uid = 0;
 	}
 
 	if (!uid) {
@@ -3988,8 +4166,8 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	size_t jwt_len = sizeof(jwt);
-	if (!lws_auth_generate_token(vhd, username, uid, pss->client_addr,
-				     jwt, &jwt_len)) {
+	if (!lws_auth_generate_token(vhd, username, uid, auth_time,
+				     pss->client_addr, jwt, &jwt_len)) {
 		/*
 		 * If long-term refresh sessions are enabled, mint one for this
 		 * user and include it in the response so the OAuth client (the
@@ -4002,20 +4180,26 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 		pss->http_response_code = HTTP_STATUS_OK;
 		if (vhd->refresh_token_validity_secs > 0 &&
-		    lws_auth_mint_refresh(vhd, uid, refresh_code, NULL))
+		    lws_auth_mint_refresh(vhd, uid, auth_time, refresh_code,
+					  NULL))
 			len = lws_snprintf(pl + LWS_PRE,
 				sizeof(pl) - LWS_PRE,
 				"{\"access_token\":\"%s\",\"token_type\":\"Bearer\","
 				"\"expires_in\":%llu,\"refresh_token\":\"%s\","
 				"\"refresh_expires_in\":%llu}",
-				jwt, vhd->jwt_validity_secs, refresh_code,
-				vhd->refresh_token_validity_secs);
+				jwt, (unsigned long long)auth_session_life(vhd,
+					auth_time, vhd->jwt_validity_secs),
+				refresh_code,
+				(unsigned long long)auth_session_life(vhd,
+					auth_time,
+					vhd->refresh_token_validity_secs));
 		else
 			len = lws_snprintf(pl + LWS_PRE,
 				sizeof(pl) - LWS_PRE,
 				"{\"access_token\":\"%s\",\"token_type\":\"Bearer\","
 				"\"expires_in\":%llu}",
-				jwt, vhd->jwt_validity_secs);
+				jwt, (unsigned long long)auth_session_life(vhd,
+					auth_time, vhd->jwt_validity_secs));
 		goto send;
 	}
 
@@ -4698,6 +4882,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		else
 			vhd->refresh_token_validity_secs = 0;
 
+		/* see auth_session_end() */
+		vhd->max_session_secs = 30ull * 24 * 3600;
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in, "max-session-secs");
+		if (pvo)
+			vhd->max_session_secs = (unsigned long long)atoll(pvo->value);
+
 		pvo = lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in, "auth-log-limit");
 		if (pvo)
@@ -4807,6 +4998,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		 * older schema (harmless failure when they already exist) */
 		sqlite3_exec(vhd->db, "ALTER TABLE users ADD COLUMN session_epoch INTEGER DEFAULT 0;", NULL, NULL, NULL);
 		sqlite3_exec(vhd->db, "ALTER TABLE users ADD COLUMN totp_last INTEGER DEFAULT 0;", NULL, NULL, NULL);
+		/* ... and the session's login time, see auth_session_end() */
+		sqlite3_exec(vhd->db, "ALTER TABLE oauth_codes ADD COLUMN auth_time INTEGER DEFAULT 0;", NULL, NULL, NULL);
+		sqlite3_exec(vhd->db, "ALTER TABLE auth_sessions ADD COLUMN auth_time INTEGER DEFAULT 0;", NULL, NULL, NULL);
 
 #if !defined(WIN32)
 		{
@@ -5326,18 +5520,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				char set_cookie_jwt[LWS_SSO_MAX_COOKIE] = {0};
 
 				if (vhd->cookie_name[0]) {
-					uint32_t suid = 0;
-					int was_refreshed = 0;
-					struct lws_jwt_auth *ja = auth_session_jwt(wsi, vhd);
-
-					if (ja) {
-						suid = lws_jwt_auth_get_uid(ja);
-						lws_jwt_auth_destroy(&ja);
-					} else if (vhd->refresh_token_validity_secs > 0) {
-						char rnote[96];
-						suid = auth_resolve_refresh_session(wsi, vhd, rnote, sizeof(rnote));
-						was_refreshed = !!suid;
-					}
+					uint64_t auth_time;
+					int was_refreshed;
+					char rnote[256];
+					uint32_t suid = auth_session_resolve(
+							wsi, vhd, &auth_time,
+							&was_refreshed, rnote,
+							sizeof(rnote));
 
 					if (suid) {
 						logged_in = 1;
@@ -5357,12 +5546,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 							char jwt[1024];
 							size_t jwt_len = sizeof(jwt);
 							
-							if (!lws_auth_generate_token(vhd, username, suid, peer, jwt, &jwt_len) &&
+							if (!lws_auth_generate_token(vhd, username, suid, auth_time, peer, jwt, &jwt_len) &&
 							    lws_http_cookie_compose(set_cookie_jwt,
 										    sizeof(set_cookie_jwt),
 										    vhd->cookie_name, jwt,
 										    vhd->cookie_domain,
-										    vhd->jwt_validity_secs,
+										    auth_session_life(vhd,
+											auth_time,
+											vhd->jwt_validity_secs),
 										    NULL) < 0) {
 								/* F-048: fail closed, never a truncated tail */
 								lwsl_wsi_err(wsi, "%s: %s "
@@ -5712,19 +5903,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			 * to /authorize -> infinite redirect loop.
 			 */
 			uint32_t session_uid = 0;
+			uint64_t session_auth_time = 0;
 
 			if (vhd->cookie_name[0]) {
-				struct lws_jwt_auth *ja =
-						auth_session_jwt(wsi, vhd);
-				if (ja) {
-					session_uid = lws_jwt_auth_get_uid(ja);
-					lws_jwt_auth_destroy(&ja);
-				} else if (vhd->refresh_token_validity_secs > 0) {
-					char rnote[96];
-					session_uid = auth_resolve_refresh_session(
-							wsi, vhd, rnote,
-							sizeof(rnote));
-				}
+				int was_refreshed;
+				char rnote[256];
+
+				session_uid = auth_session_resolve(wsi, vhd,
+						&session_auth_time,
+						&was_refreshed, rnote,
+						sizeof(rnote));
 			}
 
 			if (session_uid) {
@@ -5809,7 +5997,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			char code[65];
 
-			if (auth_code_issue(vhd, session_uid, client_id,
+			if (auth_code_issue(vhd, session_uid,
+					    session_auth_time, client_id,
 					    redirect_uri, code_challenge,
 					    code_challenge_method, code)) {
 				lws_return_http_status(wsi,
