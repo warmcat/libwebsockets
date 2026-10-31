@@ -70,8 +70,12 @@ only from its authenticated account's grant level for `service-name`,
 IRC-owner style, decided once when its ws connects:
 
  - the `x-lws-login-grant-level` an in-process `lws-login` bouncer gating the
-   mount stamped on the ws upgrade (its cooked level for the grant it was
-   configured with), or else
+   mount stamped on the ws upgrade, only when the `x-lws-login-service` it
+   stamped with it is exactly this plugin's `service-name`.  The bouncer's
+   level is for the grant *it* was configured with: if that is another one
+   (eg, a site-wide grant every member holds, or `*`), the stamp says nothing
+   about `service-name` and is ignored, so configure the bouncer gating the
+   mixer's ws mount with the same `service-name` as the mixer; or else
  - with the `jwt-jwk` pvo, the `auth_session` cookie on the upgrade: an `sso`
    session token that verifies and has not expired, and its grant for
    `service-name` (or `*`).

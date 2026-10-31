@@ -46,6 +46,14 @@
  *    however many asked meanwhile), a peer asking every millisecond for a
  *    second gets about 1s / interval actions, and a lone request still gets
  *    one promptly
+ *
+ * and where a participant's grant level comes from:
+ *
+ *  - mixer_may_control_levels() lets a participant control only itself, or
+ *    others it is not outranked by when it holds the control level
+ *  - mixer_stamp_grant_level() takes an lws-login bouncer's grant level stamp
+ *    only when the stamped service is exactly the mixer's service-name, and
+ *    reads a negative or malformed level as no grant
  */
 
 #include <libwebsockets.h>
@@ -627,6 +635,65 @@ test_may_control(void)
 	return bad;
 }
 
+/*
+ * An lws-login bouncer's grant level stamp only counts when it is for the
+ * mixer's own service-name (G-682): one gating the mount for a broader grant
+ * says nothing about the account's grant for ours
+ */
+
+struct stamp_case {
+	const char	*level, *service;
+	int		applies, grant;
+};
+
+static const struct stamp_case stamp[] = {
+	/* no stamp at all: look elsewhere */
+	{ NULL,		NULL,			0, 0 },
+	{ NULL,		"webrtc-mixer",		0, 0 },
+	{ "",		"webrtc-mixer",		0, 0 },
+	/* a level, but nothing saying which grant it is for */
+	{ "3",		NULL,			0, 0 },
+	{ "3",		"",			0, 0 },
+	/* a level for another grant: a site-wide one, "*", a near miss */
+	{ "3",		"members",		0, 0 },
+	{ "3",		"*",			0, 0 },
+	{ "3",		"webrtc-mixer2",	0, 0 },
+	{ "3",		"webrtc-mixe",		0, 0 },
+	{ "3",		"WEBRTC-MIXER",		0, 0 },
+	/* ours */
+	{ "0",		"webrtc-mixer",		1, 0 },
+	{ "2",		"webrtc-mixer",		1, 2 },
+	{ "12",		"webrtc-mixer",		1, 12 },
+	/* ours, but no grant */
+	{ "-1",		"webrtc-mixer",		1, MIXER_GRANT_NONE },
+	{ "2x",		"webrtc-mixer",		1, MIXER_GRANT_NONE },
+	{ "99999999999", "webrtc-mixer",	1, MIXER_GRANT_NONE },
+};
+
+static int
+test_stamp(void)
+{
+	size_t n;
+	int bad = 0, g, a;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(stamp); n++) {
+		const struct stamp_case *c = &stamp[n];
+
+		g = 1234;
+		a = !!mixer_stamp_grant_level(c->level, c->service,
+					      "webrtc-mixer", &g);
+		if (a != c->applies || (a && g != c->grant)) {
+			lwsl_err("%s: case %d: '%s' for '%s': %d %d\n",
+				 __func__, (int)n,
+				 c->level ? c->level : "(none)",
+				 c->service ? c->service : "(none)", a, g);
+			bad = 1;
+		}
+	}
+
+	return bad;
+}
+
 static void
 result(const char *name, int bad)
 {
@@ -657,6 +724,7 @@ main(int argc, const char **argv)
 	result("list", test_list());
 	result("gate", test_gate());
 	result("may-control", test_may_control());
+	result("stamp", test_stamp());
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);
 

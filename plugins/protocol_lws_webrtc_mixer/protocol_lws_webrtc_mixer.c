@@ -490,9 +490,12 @@ mixer_may_control(struct participant *p, struct participant *tp)
  * The level comes from
  *
  *  1. the x-lws-login-grant-level an in-process lws-login bouncer gating the
- *     mount the upgrade came in on stamped on it (its own service-name
- *     grant, or "*"'s).  Only an interceptor can stamp it, so it needs no
- *     configuration to be trusted
+ *     mount the upgrade came in on stamped on it, when the
+ *     x-lws-login-service it stamped alongside says that level is for our
+ *     service-name.  Only an interceptor can stamp them, so they need no
+ *     configuration to be trusted.  A bouncer configured with another
+ *     service-name (eg, a site-wide grant, or "*") stamps its level for
+ *     that, which says nothing about our grant: then we ignore the stamp
  *
  *  2. with the jwt-jwk pvo (the auth server's public jwk), the auth_session
  *     cookie itself: an "sso" purpose session token that verifies and has not
@@ -508,9 +511,9 @@ mixer_grant_level(struct vhd_mixer *vhd, struct lws *wsi)
 {
 	struct lws_jwt_auth_info ai;
 	struct lws_jwt_auth *ja;
+	char st[16], svc[128];
 	uint64_t exp;
-	char st[16];
-	int n;
+	int n, ns;
 
 	if (lws_http_origin_check(wsi, vhd->origin_allow, 0)) {
 		lwsl_wsi_notice(wsi, "Origin is not ours: no grant");
@@ -521,9 +524,14 @@ mixer_grant_level(struct vhd_mixer *vhd, struct lws *wsi)
 	n = lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL, st,
 				       sizeof(st));
 	if (n > 0) {
-		n = atoi(st);
+		ns = lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_SERVICE, svc,
+						sizeof(svc));
+		if (mixer_stamp_grant_level(st, ns >= 0 ? svc : NULL,
+					    vhd->service_name, &n))
+			return n;
 
-		return n < 0 ? MIXER_GRANT_NONE : n;
+		lwsl_wsi_notice(wsi, "lws-login stamp is not for '%s': "
+				"ignored", vhd->service_name);
 	}
 
 	if (!vhd->has_jwk)
