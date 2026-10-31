@@ -437,14 +437,31 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	 */
 	lws_wsi_event(wsi, LWS_WSIEV_STREAM_OPENED);
 
+	/*
+	 * The stream is on protocols[0] by assignment, unbound and with no
+	 * pss, as an h1 connection is from accept until its request: the
+	 * request's gates bind the protocol and allocate the pss with its
+	 * BIND (lws_bind_protocol_assigned()), so the protocol never sees a
+	 * pss it was not told of, nor has one freed with no DROP.  A stream
+	 * closed before its request gets there has nothing to free, and
+	 * protocols[0] gets its CLOSED_HTTP with user NULL, as for an h1
+	 * connection closed before its request.  (A client's sid-1 child is
+	 * given the connection's pss when the connection migrates to it.)
+	 */
 	wsi->a.protocol = &vh->protocols[0];
-	if (lws_ensure_user_space(wsi))
-		goto bail1;
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
 	/* a stream of a server ss connection is an accepted ss of its own */
-	if (lws_ss_server_accept_bind(wsi))
-		goto bail1;
+	if (lws_ss_server_accept_bind(wsi)) {
+		/*
+		 * By now the stream is a mux child, tagged, bound to the vhost
+		 * and counted: only the close path undoes all of it
+		 */
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "h2 new stream fail");
+
+		return NULL;
+	}
 #endif
 
 	/* get the ball rolling */
@@ -457,15 +474,6 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	lws_wsi_txc_describe(&nwsi->txc, __func__, 0);
 
 	return wsi;
-
-bail1:
-	/*
-	 * By now the stream is a mux child, tagged, bound to the vhost and
-	 * counted, with its user space: only the close path undoes all of it
-	 */
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "h2 new stream fail");
-
-	return NULL;
 }
 
 struct lws *
