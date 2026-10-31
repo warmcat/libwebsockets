@@ -249,11 +249,13 @@
    created** and a phase allows only 2s for replies, so a slow zone-dir
    read at init fails it under load (G-509): start the reply window when
    the queries are sent.
- - **`lws_cmdline_option()` prefix-matches**: a switch that is a prefix of
-   another (`-i` vs `-ip`) silently collides.  Builtins in
-   `lws_cmdline_option_handle_builtin()` therefore also fire on longer
-   arguments (`--event` selects libev), and the builtin `-h` prints help
-   and exits before an example sees its own `-h` (G-622).
+ - **`lws_cmdline_option()` matching (since G-622)**: switches longer than
+   one letter match only `--name`, `--name=value` or `--name <value>`; only
+   a single-letter switch takes a glued value (`-d15`), so a single-letter
+   pair like `-i` / `-ip` still collides.  The builtin `-h` / `--help`
+   print usage and exit before the app sees them: never give `-h` another
+   meaning.  A ctest whose command line includes a builtin like `-h`
+   passes without doing any work (the hugeurl ctests did, hiding a crash).
  - **qir (WebTransport interop shim) runs end to end on loopback**: use
    `--www` / `--downloads`, run the server where localhost-100y.cert/.key
    are, set TESTCASE and PORT; client REQUESTS=`https://localhost:PORT/<ep>/<file>`
