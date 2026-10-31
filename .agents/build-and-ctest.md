@@ -57,7 +57,10 @@
    build-hash mismatch, and the
    shared source tree is untouched (B121).  In api-test-lwsws-oauth a
    second `lws-auth-server` vhost can share the fixture's db and key to give
-   one scenario its own pvos (G-657's `lwsws-oauth-cap`).
+   one scenario its own pvos (G-657's `lwsws-oauth-cap`).  Tests that
+   compile the plugin .c into the test binary (api-test-auth-dns-zonedir,
+   via SRCS) need the old object built with the *test target's*
+   flags.make and relinked via its link.txt instead (B124).
  - **The auth-server plugin needs `LWS_WITH_STRUCT_JSON=1`.**  The lwsws-oauth tests are
    load-sensitive: server stalls inside sqlite commits (G-676) time clients
    out, and lwsws-oauth-rows can outlast its 60s `jwt-validity-secs` under
