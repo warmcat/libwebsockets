@@ -27,7 +27,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    test reaches aborts deterministically: run SMP work in a DEBUG
    `LWS_MAX_SMP=2` tree, with `LWS_WITH_LWSWS=1` too: lwsws forces
    PEER_LIMITS on, whose ah attach/detach path inverted pt -> cx (G-691)
-   and was invisible to sweeps without it.  To survey a class of unlocked list changes across
+   and was invisible to sweeps without it (before G-691 such a suite
+   failed ~335/449 and masked everything else).  The G-638 fence asserts
+   the pt lock only on sul *inserts*: unlocked removals
+   (`__lws_wsi_remove_from_sul()`) stay invisible; G-698 surfaced only via
+   the new held-assert in `__lws_header_table_detach()`.  To survey a class of unlocked list changes across
    the whole suite, log them with `dladdr` offsets and resolve with
    `addr2line` (B109).  Hand work to another pt's thread with
    `lws_pthread_self_to_tsi()` plus `lws_plat_pipe_signal()`;
