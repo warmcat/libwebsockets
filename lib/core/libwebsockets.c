@@ -2169,17 +2169,30 @@ lws_switches_print_help(const char *prog, const struct lws_switches *switches,
 const char *
 lws_cmdline_options(int argc, const char * const *argv, const char *val, const char *last)
 {
-	int c = 1, hit = 0;
+	int c = 1, hit = 0, glue = 0;
 	size_t n = 0;
 	const char *p;
 
-	if (val)
+	if (val) {
 		n = strlen(val);
+		/*
+		 * Only a single-letter switch like -d (-d15), or a val that
+		 * ends in '=' itself (--lws-stub=), may have its value glued
+		 * on.  Any other switch matches an argument that is exactly
+		 * the switch, or the switch followed by =value, never one that
+		 * merely starts with it: --0rtt must not match --0rtt-max-size.
+		 */
+		glue = (n == 2 && val[0] == '-' && val[1] != '-') ||
+		       (n && val[n - 1] == '=');
+	}
 
 	while (c < argc) {
 
 		if (val && strncmp(argv[c], val, n)) /* skip if not matching val */
 			goto bump;
+
+		if (val && !glue && argv[c][n] && argv[c][n] != '=')
+			goto bump; /* longer switch that starts with val */
 
 		if (!val && argv[c][0] == '-') /* looking for non-switch */
 			goto bump;
