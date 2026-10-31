@@ -117,6 +117,9 @@
    (CMake rejects interface include dirs inside it):
    `-DLWS_WITH_BEARSSL=1 -DLWS_BEARSSL_INCLUDE_DIRS=... -DLWS_BEARSSL_LIBRARIES=.../libbearssl.so`
    and `LD_LIBRARY_PATH` for ctest (B80: 284/284).
+ - **System mbedtls 3.6.7 is installed on this machine** (/usr/include/mbedtls,
+   /usr/lib64/libmbed*.so): `-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0`
+   builds against it with no clone (V115).
  - **mbedtls 3.6.x can be built here** the same way: clone upstream at a
    tag outside the lws tree (not under ~/projects either; use your
    scratchpad), `git submodule update --init` (its framework is
