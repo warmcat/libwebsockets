@@ -22,10 +22,33 @@ enum {
 	MCUFO16_BASELINE_X		= 0x38,
 	MCUFO16_BASELINE_Y		= 0x3a,
 	MCUFO16_LINE_HEIGHT		= 0x3c,
+	MCUFO_KERN_BANDS		= 0x3e,
+	MCUFO_KERN_GAP			= 0x3f,
 
 	MCUFO_HDR_LEN			= 0x40,
 	MCUFO_MAX_RANGES		= 8,
+
+	MCUFO_VERSION			= 6,
+	MCUFO_MAX_KERN_BANDS		= 64,
+	MCUFO_NO_INK			= 0xff,
+	MCUFO_KERN_ESCAPE		= 0x88,
 };
+
+/*
+ * What layout needs to know about a glyph to place it: its advance, and the
+ * kerning profile from its string, unpacked and copied out, so it stays valid
+ * however the font's cache moves while the next glyph is looked up
+ */
+
+typedef struct lws_glyph_metrics {
+	lws_fx_t		adv;
+	uint8_t			first; /* inked bands, or MCUFO_NO_INK */
+	uint8_t			last;
+	uint8_t			gap;  /* the font's target gap */
+	uint8_t			valid;
+	uint8_t			l[MCUFO_MAX_KERN_BANDS];
+	uint8_t			r[MCUFO_MAX_KERN_BANDS];
+} lws_glyph_metrics_t;
 
 /*
  * A face that isn't simply in flash has a struct hung off its .priv, which
@@ -188,7 +211,7 @@ lws_fonts_remote_too_slow(struct lws_context *cx, int manifest)
 #endif
 
 int
-lws_display_font_mcufont_check_dict(const uint8_t *bf, size_t len);
+lws_display_font_mcufont_check(const uint8_t *bf, size_t len);
 
 int
 lws_display_font_mcufont_file_core(lws_display_font_t *f);
@@ -226,8 +249,12 @@ size_t
 utf8_bytes(uint8_t u);
 
 int
-lws_display_font_mcufont_getcwidth(lws_dlo_text_t *text, uint32_t unicode,
-				   lws_fx_t *fx);
+lws_display_font_mcufont_metrics(lws_dlo_text_t *text, uint32_t unicode,
+				 lws_glyph_metrics_t *m);
+
+int
+lws_display_font_mcufont_kern(const lws_glyph_metrics_t *a,
+			      const lws_glyph_metrics_t *b);
 
 int
 lws_display_dlo_text_attach_glyphs(lws_dlo_text_t *text);

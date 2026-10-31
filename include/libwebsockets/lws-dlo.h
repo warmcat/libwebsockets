@@ -301,9 +301,7 @@ typedef struct lws_dlo_text {
 						    * have produced since attach */
 
 	char				*text;
-	uint8_t				*kern;
 	size_t				text_len;
-	lws_display_list_coord_t	clkernpx;
 	lws_display_list_coord_t	cwidth;
 
 	lws_fx_t			indent;
@@ -318,8 +316,6 @@ typedef struct lws_dlo_text {
 
 	uint16_t			font_gen; /* the font copy the glyphs
 						   * were attached from */
-
-	lws_fx_t			_cwidth;
 } lws_dlo_text_t;
 
 typedef struct lws_dlo_rasterize {

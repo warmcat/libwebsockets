@@ -336,7 +336,7 @@ lws_display_font_mcufont_file_core(lws_display_font_t *f)
 		goto bail;
 	if (mcuf_file_read(ff, 0, ff->prefix, plen) ||
 	    mcuf_file_read(ff, rt, ff->ranges, nr * 16) ||
-	    lws_display_font_mcufont_check_dict(ff->prefix, plen))
+	    lws_display_font_mcufont_check(ff->prefix, plen))
 		goto bail;
 	ff->prefix_len = plen;
 	ff->nranges = (uint16_t)nr;
@@ -547,15 +547,38 @@ lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text)
  * The decoder indexes the dictionary offsets table by codes from the glyph
  * strings, and walks the dictionary data from the offsets it finds there,
  * without checking either against the font: so before a font is used, check
- * here that every entry a code can reach lies inside the len bytes at bf.
+ * here that the header is one we understand, and that every dictionary entry
+ * a code can reach lies inside the len bytes at bf.
  */
 
 int
-lws_display_font_mcufont_check_dict(const uint8_t *bf, size_t len)
+lws_display_font_mcufont_check(const uint8_t *bf, size_t len)
 {
 	uint32_t nrle, nref, dd, ds, dofs, n;
 
 	if (len < MCUFO_HDR_LEN)
+		return 1;
+
+	if ((lws_ser_ru32be(bf + MCUFO_FLAGS_VER) & 0xff) != MCUFO_VERSION) {
+		lwsl_err("%s: font format version %u, we need %u\n", __func__,
+			 (unsigned int)(lws_ser_ru32be(bf + MCUFO_FLAGS_VER) & 0xff),
+			 MCUFO_VERSION);
+		return 1;
+	}
+
+	/*
+	 * lws_font_glyph_t.x is an int8_t and the renderer counts it up to the
+	 * font's declared width, so a wider font would overflow it
+	 */
+
+	if (lws_ser_ru16be(bf + MCUFO16_WIDTH) > 127)
+		return 1;
+
+	/* the kerning profiles cut the glyph height into this many bands */
+
+	if (!bf[MCUFO_KERN_BANDS] ||
+	    bf[MCUFO_KERN_BANDS] > MCUFO_MAX_KERN_BANDS ||
+	    bf[MCUFO_KERN_BANDS] > lws_ser_ru16be(bf + MCUFO16_HEIGHT))
 		return 1;
 
 	nrle = lws_ser_ru32be(bf + MCUFO_COUNT_RLE_DICT);
@@ -580,7 +603,7 @@ lws_display_font_mcufont_check_dict(const uint8_t *bf, size_t len)
 
 /*
  * Enter dictionary entry idx, to be walked in state.  The font's dictionary
- * was checked by lws_display_font_mcufont_check_dict() before it was used,
+ * was checked by lws_display_font_mcufont_check() before it was used,
  * so the entry lies inside the font... an empty one has nothing to walk
  */
 
@@ -675,6 +698,70 @@ mcufont_next_code(mcu_glyph_t *g)
 }
 
 /* lookup and append a glyph for specific unicode to the text glyph list */
+
+/*
+ * The kerning profile follows the width at the start of each glyph string:
+ * the first and last bands of the glyph height with ink in, and the leftmost
+ * and rightmost columns with ink in the first; then for each band after, the
+ * change in those as two signed nibbles, or if either is too big for that,
+ * MCUFO_KERN_ESCAPE and the two columns.  Just MCUFO_NO_INK if the glyph has
+ * no ink at all.  The profile's length at p, or 0 if it doesn't fit the
+ * string or the font.  With m, it is unpacked into m too.
+ */
+
+static size_t
+mcuf_profile(const uint8_t *bf, const uint8_t *p, const uint8_t *end,
+	     lws_glyph_metrics_t *m)
+{
+	const uint8_t *q = p + 4;
+	unsigned int b;
+
+	if (p >= end)
+		return 0;
+
+	if (*p == MCUFO_NO_INK) {
+		if (m)
+			m->first = MCUFO_NO_INK;
+		return 1;
+	}
+
+	if (end - p < 4 || p[0] > p[1] || p[1] >= bf[MCUFO_KERN_BANDS])
+		return 0;
+
+	if (m) {
+		m->first = p[0];
+		m->last = p[1];
+		m->l[p[0]] = p[2];
+		m->r[p[0]] = p[3];
+	}
+
+	for (b = (unsigned int)p[0] + 1; b <= p[1]; b++) {
+		if (q >= end)
+			return 0;
+
+		if (*q == MCUFO_KERN_ESCAPE) {
+			if (end - q < 3)
+				return 0;
+			if (m) {
+				m->l[b] = q[1];
+				m->r[b] = q[2];
+			}
+			q += 3;
+			continue;
+		}
+
+		/* the nibbles are signed */
+		if (m) {
+			m->l[b] = (uint8_t)(m->l[b - 1] +
+					    (((*q >> 4) ^ 8) - 8));
+			m->r[b] = (uint8_t)(m->r[b - 1] +
+					    (((*q & 0xf) ^ 8) - 8));
+		}
+		q++;
+	}
+
+	return (size_t)(q - p);
+}
 
 /*
  * The file offset of the glyph's compressed string, and its length; 0 if
@@ -805,16 +892,20 @@ font_mcufont_uniglyph(lws_dlo_text_t *text, uint32_t unicode)
 	g->fg.cwidth.whole = *g->comp++;
 	g->fg.cwidth.frac = 0;
 
+	/* the runs start after the kerning profile, if it fits the string */
+	n = mcuf_profile(bf, g->comp, g->comp_end, NULL);
+	g->comp = n ? g->comp + n : g->comp_end;
+
 	lws_dll2_add_tail(&g->fg.list, &text->glyphs);
 
 	return g;
 }
 
 int
-lws_display_font_mcufont_getcwidth(lws_dlo_text_t *text, uint32_t unicode,
-				   lws_fx_t *fx)
+lws_display_font_mcufont_metrics(lws_dlo_text_t *text, uint32_t unicode,
+				 lws_glyph_metrics_t *m)
 {
-	const uint8_t *bf = mcuf_bf(text), *comp;
+	const uint8_t *bf = mcuf_bf(text), *comp, *end;
 	uint32_t ofs, len = 0;
 
 	if (!bf)
@@ -824,15 +915,60 @@ lws_display_font_mcufont_getcwidth(lws_dlo_text_t *text, uint32_t unicode,
 	if (!ofs)
 		return 1;
 
-	/* the width is the first byte of the string: touched, not pinned */
+	/* the width and profile start the string: touched, not pinned */
 	comp = mcuf_glyph(text, bf, ofs, len, 0, NULL);
 	if (!comp)
 		return 1;
 
-	fx->whole = comp[0];
-	fx->frac = 0;
+	end = len ? comp + len : bf + text->font->data_len;
+	if (comp >= end || !mcuf_profile(bf, comp + 1, end, m))
+		return 1;
+
+	m->adv.whole = comp[0];
+	m->adv.frac = 0;
+	m->gap = bf[MCUFO_KERN_GAP];
+	m->valid = 1;
 
 	return 0;
+}
+
+/*
+ * How far to move glyph b left, towards glyph a before it, as zero or a
+ * negative count of pixels.  Find the fewest clear columns between their
+ * ink, each band of a against the bands of b alongside it and either side,
+ * so they don't come to touch at the corners either; and close that up to
+ * the font's target gap.  Never apart, and by no more than a quarter of the
+ * narrower advance, so text keeps its rhythm.  A glyph with no ink, like a
+ * space, stops kerning across it.
+ */
+
+int
+lws_display_font_mcufont_kern(const lws_glyph_metrics_t *a,
+			      const lws_glyph_metrics_t *b)
+{
+	int n, m, g, t, gap = 0x7fffffff, cap;
+
+	if (!a->valid || !b->valid ||
+	    a->first == MCUFO_NO_INK || b->first == MCUFO_NO_INK)
+		return 0;
+
+	for (n = a->first; n <= a->last; n++)
+		for (m = n - 1 < b->first ? b->first : n - 1;
+		     m <= (n + 1 > b->last ? b->last : n + 1); m++) {
+			g = a->adv.whole + b->l[m] - a->r[n] - 1;
+			if (g < gap)
+				gap = g;
+		}
+
+	/* whatever the font says, kerning never brings ink together */
+	t = a->gap ? a->gap : 1;
+	if (gap == 0x7fffffff || gap <= t)
+		return 0;
+
+	g = gap - t;
+	cap = (a->adv.whole < b->adv.whole ? a->adv.whole : b->adv.whole) / 4;
+
+	return -(g < cap ? g : cap);
 }
 
 lws_font_glyph_t *
@@ -852,8 +988,6 @@ lws_display_font_mcufont_image_glyph(lws_dlo_text_t *text, uint32_t unicode,
 				   lws_ser_ru16be(&bf[MCUFO16_BASELINE_Y]));
 		text->font_line_height = (int16_t)lws_ser_ru16be(&bf[MCUFO16_LINE_HEIGHT]);
 	}
-
-	lws_display_font_mcufont_getcwidth(text, unicode, &text->_cwidth);
 
 	if (!attach)
 		return NULL;

@@ -1,24 +1,24 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
  rect (0.0,17.92) [400.0 x 19.0] rgba=00000000
   text (0.0,0.0) [35.0 x 19.0] rgba=FF000000 f=17/400 "Some "
-  hit (35.0,0.0) [63.0 x 19.0] pointer "/x"
-  text (35.0,0.0) [63.0 x 19.0] rgba=FF000000 f=17/400 "linked text"
+  hit (35.0,0.0) [62.0 x 19.0] pointer "/x"
+  text (35.0,0.0) [62.0 x 19.0] rgba=FF000000 f=17/400 "linked text"
+   rect (0.0,15.0) [62.0 x 1.0] rgba=FF000000
+  text (97.0,0.0) [28.0 x 19.0] rgba=FF000000 f=17/400 " and "
+  text (125.0,0.0) [63.0 x 19.0] rgba=FF000000 f=17/400 "underlined"
    rect (0.0,15.0) [63.0 x 1.0] rgba=FF000000
-  text (98.0,0.0) [28.0 x 19.0] rgba=FF000000 f=17/400 " and "
-  text (126.0,0.0) [64.0 x 19.0] rgba=FF000000 f=17/400 "underlined"
-   rect (0.0,15.0) [64.0 x 1.0] rgba=FF000000
-  text (190.0,0.0) [28.0 x 19.0] rgba=FF000000 f=17/400 " and "
-  text (218.0,0.0) [36.0 x 19.0] rgba=FF000000 f=17/400 "struck"
+  text (188.0,0.0) [28.0 x 19.0] rgba=FF000000 f=17/400 " and "
+  text (216.0,0.0) [36.0 x 19.0] rgba=FF000000 f=17/400 "struck"
    rect (0.0,9.0) [36.0 x 1.0] rgba=FF000000
-  text (254.0,0.0) [32.0 x 19.0] rgba=FF000000 f=17/400 " text, "
-  hit (286.0,0.0) [73.0 x 19.0] pointer "/y"
-  text (286.0,0.0) [73.0 x 19.0] rgba=FF000000 f=17/400 "no underline"
-  text (359.0,0.0) [3.0 x 19.0] rgba=FF000000 f=17/400 "."
+  text (252.0,0.0) [32.0 x 19.0] rgba=FF000000 f=17/400 " text, "
+  hit (284.0,0.0) [72.0 x 19.0] pointer "/y"
+  text (284.0,0.0) [72.0 x 19.0] rgba=FF000000 f=17/400 "no underline"
+  text (356.0,0.0) [3.0 x 19.0] rgba=FF000000 f=17/400 "."
  rect (0.0,54.84) [400.0 x 23.0] rgba=00000000
-  hit (0.0,3.0) [66.0 x 19.0] pointer "/z"
-  text (0.0,3.0) [66.0 x 19.0] rgba=FF000000 f=17/400 "span in link"
-   rect (0.0,15.0) [66.0 x 1.0] rgba=FF000000
-  text (66.0,3.0) [25.0 x 19.0] rgba=FF000000 f=17/400 "over"
+  hit (0.0,3.0) [64.0 x 19.0] pointer "/z"
+  text (0.0,3.0) [64.0 x 19.0] rgba=FF000000 f=17/400 "span in link"
+   rect (0.0,15.0) [64.0 x 1.0] rgba=FF000000
+  text (64.0,3.0) [25.0 x 19.0] rgba=FF000000 f=17/400 "over"
    rect (0.0,0.0) [25.0 x 1.0] rgba=FF000000
-  text (91.0,0.0) [43.0 x 23.0] rgba=FF000000 f=19/400 "bigger"
-   rect (0.0,18.0) [43.0 x 1.0] rgba=FF000000
+  text (89.0,0.0) [42.0 x 23.0] rgba=FF000000 f=19/400 "bigger"
+   rect (0.0,18.0) [42.0 x 1.0] rgba=FF000000

@@ -78,11 +78,40 @@ lws_display_dlo_text_destroy(struct lws_dlo *dlo)
 {
 	lws_dlo_text_t *text = lws_container_of(dlo, lws_dlo_text_t, dlo);
 
-	lws_free_set_NULL(text->kern);
 	lws_free_set_NULL(text->text);
 
 	lws_display_font_mcufont_release_glyphs(text);
 	lwsac_free(&text->ac_glyphs);
+}
+
+/*
+ * The pen's step for the next glyph of a run: the kerning against the glyph
+ * before it, then its own advance.  Everything that walks a run's glyphs
+ * steps with this, so the widths layout wraps and sizes boxes with are the
+ * ones the glyphs are later placed at.  prev carries the glyph before from
+ * call to call; start it zeroed for each run.  *kern is where the glyph sits
+ * from the pen, and *step how far the pen moves on.  Nonzero if the font has
+ * no glyph for it.
+ */
+
+static int
+dlo_text_step(lws_dlo_text_t *text, lws_glyph_metrics_t *prev,
+	      uint32_t unicode, lws_fx_t *kern, lws_fx_t *step)
+{
+	lws_glyph_metrics_t m;
+	int k;
+
+	if (lws_display_font_mcufont_metrics(text, unicode, &m)) {
+		prev->valid = 0;
+		return 1;
+	}
+
+	k = lws_display_font_mcufont_kern(prev, &m);
+	lws_fx_set((*kern), k, 0);
+	lws_fx_add(step, &m.adv, kern);
+	*prev = m;
+
+	return 0;
 }
 
 int
@@ -91,12 +120,10 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 {
 	const char *outf8 = utf8;
 	size_t last_bp_n = 0, tlen = text_len;
-	lws_fx_t t1, eff, last_bp_eff, t2;
+	lws_fx_t t1, eff, last_bp_eff, t2, k;
+	lws_glyph_metrics_t prev;
 	uint8_t r = 0;
 	char uc;
-
-	if (text->kern)
-		lws_free_set_NULL(text->kern);
 
 	if (text->text)
 		lws_free_set_NULL(text->text);
@@ -109,6 +136,7 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	text->dlo.dc = dc;
 
 	lws_fx_set(eff, 0, 0);
+	memset(&prev, 0, sizeof(prev));
 
 	/*
 	 * Let's go through the new string glyph by glyph, we want to
@@ -142,7 +170,7 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 				last_bp_eff = eff;
 			}
 
-			if (!lws_display_font_mcufont_getcwidth(text, unicode, &t2))
+			if (!dlo_text_step(text, &prev, unicode, &k, &t2))
 				lws_fx_add(&eff, &eff, &t2);
 
 			if (uc == '-' || uc == ',' || uc == ';' || uc == ':') {
@@ -187,10 +215,12 @@ lws_display_dlo_text_measure(lws_dlo_text_t *text, const char *utf8,
 			     size_t text_len, lws_fx_t *total,
 			     lws_fx_t *longest_word)
 {
-	lws_fx_t word = { 0, 0 }, t2;
+	lws_fx_t word = { 0, 0 }, t2, k;
+	lws_glyph_metrics_t prev;
 	size_t tlen = text_len;
 	uint32_t unicode;
 
+	memset(&prev, 0, sizeof(prev));
 	lws_fx_set((*total), 0, 0);
 	lws_fx_set((*longest_word), 0, 0);
 
@@ -205,7 +235,7 @@ lws_display_dlo_text_measure(lws_dlo_text_t *text, const char *utf8,
 		utf8 += (ot - tlen);
 
 		text->font->image_glyph(text, unicode, 0);
-		if (lws_display_font_mcufont_getcwidth(text, unicode, &t2))
+		if (dlo_text_step(text, &prev, unicode, &k, &t2))
 			continue;
 
 		lws_fx_add(total, total, &t2);
@@ -228,11 +258,13 @@ lws_display_dlo_text_attach_glyphs(lws_dlo_text_t *text)
 	const char *utf8 = text->text;
 	size_t tlen = text->text_len;
 	lws_font_glyph_t *g = NULL;
+	lws_glyph_metrics_t prev;
 	uint32_t unicode;
-	lws_fx_t eff;
+	lws_fx_t eff, step, k;
 	uint8_t r = 0;
 
 	lws_fx_set(eff, 0, 0);
+	memset(&prev, 0, sizeof(prev));
 
 	while (tlen) {
 		size_t ot = tlen;
@@ -247,8 +279,13 @@ lws_display_dlo_text_attach_glyphs(lws_dlo_text_t *text)
 		}
 
 		utf8 += (ot - tlen);
-		g->xpx = eff;
-		lws_fx_add(&eff, &eff, &g->cwidth);
+
+		if (dlo_text_step(text, &prev, unicode, &k, &step)) {
+			lws_fx_set(k, 0, 0);
+			step = g->cwidth;
+		}
+		lws_fx_add(&g->xpx, &eff, &k);
+		lws_fx_add(&eff, &eff, &step);
 	}
 
 	return r;
@@ -348,18 +385,8 @@ lws_font_blob_check(const uint8_t *data, size_t data_len, const char **pname)
 		return 1;
 	}
 
-	/*
-	 * lws_font_glyph_t.x is an int8_t and the renderer counts it up to the
-	 * font's declared width, so a wider font would overflow it
-	 */
-
-	if (lws_ser_ru16be(data + MCUFO16_WIDTH) > 127) {
-		lwsl_err("%s: font too wide\n", __func__);
-		return 1;
-	}
-
-	if (lws_display_font_mcufont_check_dict(data, data_len)) {
-		lwsl_err("%s: bad font dictionary\n", __func__);
+	if (lws_display_font_mcufont_check(data, data_len)) {
+		lwsl_err("%s: bad font header or dictionary\n", __func__);
 		return 1;
 	}
 
@@ -427,12 +454,14 @@ lws_font_choice_from_name(lws_display_font_t *a)
 void
 lws_font_set_em(lws_display_font_t *a)
 {
+	lws_glyph_metrics_t m;
 	lws_dlo_text_t t;
 
 	memset(&t, 0, sizeof(t));
 	t.font = a;
 
-	lws_display_font_mcufont_getcwidth(&t, 'm', &a->em);
+	if (!lws_display_font_mcufont_metrics(&t, 'm', &m))
+		a->em = m.adv;
 }
 
 /*
@@ -500,8 +529,7 @@ lws_font_register_file(struct lws_context *cx, const char *path)
 	bf = a->data;
 	o = lws_ser_ru32be(bf + MCUFO_FOFS_FULLNAME);
 	if (o >= ff->prefix_len ||
-	    !memchr(bf + o, '\0', ff->prefix_len - o) ||
-	    lws_ser_ru16be(bf + MCUFO16_WIDTH) > 127) {
+	    !memchr(bf + o, '\0', ff->prefix_len - o)) {
 		lwsl_warn("%s: %s: bad font header\n", __func__, path);
 		goto bail;
 	}

@@ -10,15 +10,24 @@
 #include "ccfixes.hh"
 
 #include <string.h>
+#include <limits.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
 
-#define RLEFONT_FORMAT_VERSION		5
+#define RLEFONT_FORMAT_VERSION		6
 #define RELFONT_HDR_LEN			64
 #define RELFONT_RANGE_HDR_LEN		16
 
 #define MAX_RANGES			32
+
+/*
+ * The glyph height is cut into at most this many bands for the kerning
+ * profiles, a row each for all but the biggest faces
+ */
+#define KERN_MAX_BANDS			64
+#define KERN_NO_INK			0xff
+#define KERN_ESCAPE			0x88
 
 enum {
 	MCUFO_MAGIC			= 0,
@@ -42,7 +51,8 @@ enum {
 	MCUFO16_BASELINE_Y		= 0x3a,
 	MCUFO16_LINE_HEIGHT		= 0x3c,
 
-	MCUFO16_RESERVED		= 0x3e
+	MCUFO_KERN_BANDS		= 0x3e,
+	MCUFO_KERN_GAP			= 0x3f
 };
 
 namespace mcufont {
@@ -74,6 +84,172 @@ out16(uint8_t *b, uint16_t u)
 	*b++ = (uint8_t)((u) & 0xff);
 }
 
+/*
+ * The glyph's ink, band by band: the glyph height is cut into horizontal
+ * bands, normally a row each, and for each band we keep the leftmost and
+ * rightmost columns with any ink in any of its rows.  The decoder kerns a
+ * pair of glyphs from these alone, so layout can place glyphs without
+ * decoding them.  A band with no ink between ones that have some, like the
+ * gap in an 'i', takes the extent of the band above: like taking the
+ * extremes of the rows in a band, that can only ever leave glyphs a little
+ * further apart, never overlapping.
+ */
+
+struct kern_profile_t
+{
+    int first, last; /* the inked bands, or first > last for no ink */
+    uint8_t l[KERN_MAX_BANDS], r[KERN_MAX_BANDS];
+};
+
+static int kern_bands(const DataFile &datafile)
+{
+    return std::min(KERN_MAX_BANDS, datafile.GetFontInfo().max_height);
+}
+
+static kern_profile_t kern_profile(const DataFile &datafile, int glyph_index)
+{
+    const DataFile::fontinfo_t &fi = datafile.GetFontInfo();
+    int bands = kern_bands(datafile);
+    bool ink[KERN_MAX_BANDS] = { false };
+    kern_profile_t p;
+
+    p.first = bands;
+    p.last = -1;
+    for (int b = 0; b < KERN_MAX_BANDS; b++) {
+        p.l[b] = 0;
+        p.r[b] = 0;
+    }
+
+    if (glyph_index < 0)
+        return p;
+
+    const DataFile::pixels_t &px = datafile.GetGlyphEntry(glyph_index).data;
+
+    for (int y = 0; y < fi.max_height; y++) {
+        int b = y * bands / fi.max_height;
+
+        for (int x = 0; x < fi.max_width; x++) {
+            if (!px.at((size_t)(y * fi.max_width + x)))
+                continue;
+            if (!ink[b] || x < p.l[b])
+                p.l[b] = (uint8_t)x;
+            if (!ink[b] || x > p.r[b])
+                p.r[b] = (uint8_t)x;
+            ink[b] = true;
+            p.first = std::min(p.first, b);
+            p.last = std::max(p.last, b);
+        }
+    }
+
+    for (int b = p.first + 1; b <= p.last; b++)
+        if (!ink[b]) {
+            p.l[b] = p.l[b - 1];
+            p.r[b] = p.r[b - 1];
+        }
+
+    return p;
+}
+
+/*
+ * The profile as it goes in the glyph string, after the width: the first and
+ * last inked bands and the first band's edges, then for each band after, the
+ * change in its edges as two signed nibbles, or if either is too big for
+ * that, KERN_ESCAPE and the two edges.  Just KERN_NO_INK if the glyph has no
+ * ink at all.
+ */
+
+static void kern_profile_append(const kern_profile_t &p,
+                                std::vector<unsigned> &data)
+{
+    if (p.first > p.last) {
+        data.push_back(KERN_NO_INK);
+        return;
+    }
+
+    data.push_back((unsigned)p.first);
+    data.push_back((unsigned)p.last);
+    data.push_back(p.l[p.first]);
+    data.push_back(p.r[p.first]);
+
+    for (int b = p.first + 1; b <= p.last; b++) {
+        int dl = p.l[b] - p.l[b - 1], dr = p.r[b] - p.r[b - 1];
+
+        if (dl < -7 || dl > 7 || dr < -7 || dr > 7) {
+            data.push_back(KERN_ESCAPE);
+            data.push_back(p.l[b]);
+            data.push_back(p.r[b]);
+        } else
+            data.push_back((unsigned)(((dl & 0xf) << 4) | (dr & 0xf)));
+    }
+}
+
+static size_t kern_profile_size(const kern_profile_t &p)
+{
+    std::vector<unsigned> data;
+
+    kern_profile_append(p, data);
+
+    return data.size();
+}
+
+/*
+ * The closest the ink of glyph b comes to the ink of glyph a before it, in
+ * clear columns: each band of a against the bands of b alongside it and
+ * either side, so glyphs that kern under one another don't touch at the
+ * corners either.  INT_MAX if they have no bands alongside each other.
+ */
+
+static int kern_min_gap(const kern_profile_t &a, int a_width,
+                        const kern_profile_t &b)
+{
+    int gap = INT_MAX;
+
+    for (int n = a.first; n <= a.last; n++)
+        for (int m = std::max(n - 1, b.first);
+             m <= std::min(n + 1, b.last); m++)
+            gap = std::min(gap, a_width + b.l[m] - a.r[n] - 1);
+
+    return gap;
+}
+
+/*
+ * The gap the decoder closes pairs up to: the font's own spacing, taken as
+ * the median of the closest approach between all the pairs of letters.
+ * Pairs that sit further apart than that are moved in towards it.  Small
+ * faces are often set so tight that the median has no clear column, but
+ * kerning never brings ink together: pairs the face has touching stay so,
+ * and it only closes others up to one clear column.
+ */
+
+static int kern_target_gap(const DataFile &datafile)
+{
+    std::vector<int> letters, gaps;
+
+    for (size_t i = 0; i < datafile.GetGlyphCount(); i++)
+        for (int c : datafile.GetGlyphEntry(i).chars)
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+                letters.push_back((int)i);
+
+    for (int a : letters) {
+        kern_profile_t pa = kern_profile(datafile, a);
+
+        for (int b : letters) {
+            int g = kern_min_gap(pa, datafile.GetGlyphEntry(a).width,
+                                 kern_profile(datafile, b));
+
+            if (g != INT_MAX)
+                gaps.push_back(g);
+        }
+    }
+
+    if (gaps.empty())
+        return 1;
+
+    std::sort(gaps.begin(), gaps.end());
+
+    return std::max(1, std::min(255, gaps[gaps.size() / 2]));
+}
+
 void write_source(std::ostream &out, std::string _name, const DataFile &datafile)
 {
     std::string name = filename_to_identifier(_name), n1 = _name;
@@ -83,9 +259,11 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
     char line[200];
     size_t m, cc, ao = 0;
 
-    auto get_glyph_size = [&encoded](size_t i)
+    auto get_glyph_size = [&encoded, &datafile](size_t i)
     {
-        return encoded->glyphs[i].size() + 1; // +1 byte for glyph width
+        // +1 byte for glyph width, then the kerning profile
+        return encoded->glyphs[i].size() + 1 +
+               kern_profile_size(kern_profile(datafile, (int)i));
     };
 
     std::cout << "Writing " + n1 + '\n';
@@ -195,6 +373,7 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
                 already_encoded[glyph_index] = data.size();
 
                 data.push_back(width);
+                kern_profile_append(kern_profile(datafile, glyph_index), data);
                 data.insert(data.end(), r.begin(), r.end());
             }
         }
@@ -244,7 +423,8 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
     out16(&hdr[MCUFO16_BASELINE_X], datafile.GetFontInfo().baseline_x);
     out16(&hdr[MCUFO16_BASELINE_Y], datafile.GetFontInfo().baseline_y);
     out16(&hdr[MCUFO16_LINE_HEIGHT], datafile.GetFontInfo().line_height);
-    out16(&hdr[MCUFO16_RESERVED], 0);
+    hdr[MCUFO_KERN_BANDS] = (uint8_t)kern_bands(datafile);
+    hdr[MCUFO_KERN_GAP] = (uint8_t)kern_target_gap(datafile);
 
     filesize = (uint32_t)lseek(fd, 0, SEEK_END);
 

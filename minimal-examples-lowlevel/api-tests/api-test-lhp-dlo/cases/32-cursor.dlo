@@ -1,13 +1,13 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
  rect (0.0,17.92) [400.0 x 19.0] rgba=00000000
-  hit (0.0,0.0) [22.0 x 19.0] pointer "/x"
-  text (0.0,0.0) [22.0 x 19.0] rgba=FF000000 f=17/400 "link"
-   rect (0.0,15.0) [22.0 x 1.0] rgba=FF000000
-  hit (22.0,0.0) [72.0 x 19.0] pointer ""
-  text (22.0,0.0) [72.0 x 19.0] rgba=FF000000 f=17/400 "pointer span"
-  hit (94.0,0.0) [78.0 x 19.0] crosshair "/y"
-  text (94.0,0.0) [78.0 x 19.0] rgba=FF000000 f=17/400 "crosshair link"
-   rect (0.0,15.0) [78.0 x 1.0] rgba=FF000000
+  hit (0.0,0.0) [21.0 x 19.0] pointer "/x"
+  text (0.0,0.0) [21.0 x 19.0] rgba=FF000000 f=17/400 "link"
+   rect (0.0,15.0) [21.0 x 1.0] rgba=FF000000
+  hit (21.0,0.0) [71.0 x 19.0] pointer ""
+  text (21.0,0.0) [71.0 x 19.0] rgba=FF000000 f=17/400 "pointer span"
+  hit (92.0,0.0) [76.0 x 19.0] crosshair "/y"
+  text (92.0,0.0) [76.0 x 19.0] rgba=FF000000 f=17/400 "crosshair link"
+   rect (0.0,15.0) [76.0 x 1.0] rgba=FF000000
  rect (0.0,54.84) [400.0 x 21.0] rgba=00000000
   rect (0.0,0.0) [0.0 x 16.0] rgba=00000000
    hit (0.0,0.0) [0.0 x 0.0] fill text ""

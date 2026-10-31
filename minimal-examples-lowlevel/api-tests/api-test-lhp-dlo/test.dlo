@@ -3,12 +3,12 @@ rect (0.0,0.0) [600.0 x 448.0] rgba=FFFFFFFF
  rect (8.0,29.44) [584.0 x 30.0] rgba=00000000
   text (400.0,0.0) [184.0 x 30.0] rgba=FF000000 f=29/700 "libwebsockets.org"
  rect (26.0,71.44) [548.0 x 47.0] rgba=FFFF0000 radii=16.0,16.0,16.0,16.0
-  text (8.0,4.0) [309.0 x 19.0] rgba=FFFFFFFF f=17/400 "This is some text flowing in an auto width div on body."
-  text (8.0,24.0) [148.0 x 19.0] rgba=FFFFFFFF f=17/400 "Mixed CSS types in a line: "
-  text (156.0,23.0) [27.0 x 19.0] rgba=FFFFFFFF f=17/700 "bold"
-  text (183.0,24.0) [47.0 x 19.0] rgba=FFFFFFFF f=17/400 ", normal"
+  text (8.0,4.0) [306.0 x 19.0] rgba=FFFFFFFF f=17/400 "This is some text flowing in an auto width div on body."
+  text (8.0,24.0) [146.0 x 19.0] rgba=FFFFFFFF f=17/400 "Mixed CSS types in a line: "
+  text (154.0,23.0) [27.0 x 19.0] rgba=FFFFFFFF f=17/700 "bold"
+  text (181.0,24.0) [47.0 x 19.0] rgba=FFFFFFFF f=17/400 ", normal"
  rect (26.0,127.44) [548.0 x 27.0] rgba=FFFF0000 radii=16.0,16.0,16.0,16.0
-  text (8.0,4.0) [180.0 x 19.0] rgba=FFFFFFFF f=17/400 "Another div like the one before."
+  text (8.0,4.0) [178.0 x 19.0] rgba=FFFFFFFF f=17/400 "Another div like the one before."
  rect (8.0,163.44) [584.0 x 16.0] rgba=00000000
   rect (0.0,-4.0) [21.0 x 24.0] rgba=A00000CC
   text (0.0,0.0) [21.0 x 16.0] rgba=FF00FFFF f=14/400 "First"

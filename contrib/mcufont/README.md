@@ -88,8 +88,12 @@ The header part is laid out like:
  0038  XX XX        2-byte MSB   signed  `baseline_x`
  003A  XX XX        2-byte MSB   `baseline_y`
  003C  XX XX        2-byte MSB   `line_height`
- 003E  00 00        2-byte       Reserved
+ 003E  XX           1-byte       count of kerning bands the glyph height is cut into
+ 003F  XX           1-byte       kerning target gap, in clear columns
 ```
+
+The version in the low byte of `Flags + Version` is 6; the lws decoder
+refuses fonts with any other version.
 
 Char range tables comprise for each range:
 
@@ -99,4 +103,44 @@ Char range tables comprise for each range:
 +0008  XX XX XX XX  4-byte MSB   file offset: start of 16-bit glyph offsets table
 +000C  XX XX XX XX  4-byte MSB   file offset: start of data above offsets point into
 ```
+
+Each glyph's string in the data starts with its advance width in one byte,
+then its kerning profile, then the compressed runs of its pixels.
+
+## Kerning
+
+Glyphs are kerned by the shapes of their ink, so layout can place them
+without decoding any pixels.  The encoder cuts the glyph height into bands,
+a row each up to 64 rows high, and for each band notes the leftmost and
+rightmost columns with any ink.  A band with no ink between bands with ink,
+like the gap in an `i`, takes the extent of the band above.
+
+The profile in the glyph string is:
+
+```
+ XX                 first band with ink, or FF if the glyph has no ink (and
+                    the profile is just this byte)
+ XX                 last band with ink
+ XX XX              leftmost and rightmost columns with ink in the first band
+ then for each band after the first, up to the last:
+ XX                 the change in the leftmost and rightmost columns from the
+                    band above, as two signed nibbles (left in the top one)
+   or
+ 88 XX XX           when either change is too big for a nibble: the leftmost
+                    and rightmost columns themselves
+```
+
+For a pair of glyphs, the decoder finds the fewest clear columns between
+their ink, comparing each band of the first glyph with the bands of the
+second beside it and either side, so they can't meet at a corner either.
+If that is more than the font's target gap, the second glyph is moved left
+to close it up to the target, by at most a quarter of the narrower advance.
+Glyphs are never moved apart, and a glyph with no ink, like a space, stops
+kerning across it.  The encoder sets the target gap to the median of the
+fewest clear columns between all the pairs of letters in the font, ie, the
+font's own spacing, but at least one clear column: kerning never brings ink
+together, even in small faces set so tight that some pairs touch.
+
+The same kerning is used when measuring text for layout and when placing the
+glyphs to render it, so text is drawn at the widths it was laid out with.
 

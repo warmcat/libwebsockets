@@ -24,6 +24,7 @@ enum {
 		LWS_SW_HEAP_LIMIT,
 		LWS_SW_RECLAIM_LINES,
 		LWS_SW_RECLAIM_ELEMS,
+		LWS_SW_KERN_CHECK,
 		LWS_SW_HELP,
 };
 
@@ -42,6 +43,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_HEAP_LIMIT] = { "--heap-limit", "Simulate a heap of this many bytes above what is in use at the start, so fonts and images get reclaimed" },
 	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_RECLAIM_ELEMS] = { "--reclaim-elems", "Evict every reclaimable heap occupant as every N-th element of the layout opens, so they all get renewed mid-layout on any allocator" },
+	[LWS_SW_KERN_CHECK] = { "--kern-check", "Check how the registered 14px regular face kerns pairs of glyphs, instead of laying out a page" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -139,6 +141,107 @@ static lws_surface_info_t ic = {
 int fdin = 0, fdout = 1, result = 0;
 static const char *dump_path;
 static int reclaim_lines, reclaimed_line = -1;
+
+/*
+ * --kern-check: glyphs are kerned in from the shapes of their ink, never
+ * apart, by at most a quarter of the narrower advance, and not across a
+ * space; and the width a run is laid out at is the width it measures
+ */
+
+static int
+kern_width(lws_dlo_text_t *t, const char *s, size_t len)
+{
+	lws_fx_t total, word;
+
+	lws_display_dlo_text_measure(t, s, len, &total, &word);
+
+	return total.whole;
+}
+
+static int
+kern_check(struct lws_context *cx)
+{
+	static const char run[] = "LYING ABOUT LT-YACHTS, I lied";
+	lws_font_choice_t hints = { .family_name = "Fira Sans Condensed",
+				    .weight = 400, .fixed_height = 17 };
+	const lws_display_font_t *f = lws_font_choose(cx, &hints);
+	int a, b, ab, ca, cb, kerned = 0, fails = 0;
+	lws_displaylist_t dl;
+	lws_dlo_text_t *t;
+	char pair[3];
+	lws_box_t box;
+
+	if (!f) {
+		lwsl_err("%s: no face\n", __func__);
+		return 1;
+	}
+
+	lws_display_dl_init(&dl, NULL);
+	memset(&box, 0, sizeof(box));
+	box.w.whole = 2000;
+	box.h.whole = 100;
+
+	t = lws_display_dlo_text_new(&dl, NULL, &box, f);
+	if (!t)
+		return 1;
+
+	pair[2] = '\0';
+	for (ca = '!'; ca <= '~'; ca++)
+		for (cb = '!'; cb <= '~'; cb++) {
+			pair[0] = (char)ca;
+			pair[1] = (char)cb;
+			a = kern_width(t, pair, 1);
+			b = kern_width(t, pair + 1, 1);
+			ab = kern_width(t, pair, 2);
+
+			if (ab > a + b || ab < a + b - (a < b ? a : b) / 4) {
+				lwsl_err("%s: '%s' %d, from %d + %d\n",
+					 __func__, pair, ab, a, b);
+				fails++;
+			}
+			if (ab < a + b)
+				kerned++;
+		}
+
+	lwsl_notice("%s: %d of %d pairs kerned\n", __func__, kerned, 94 * 94);
+
+	/*
+	 * In this face, LT and YA leave more room between their ink than the
+	 * face's usual gap, and come together; nn is already at it, and stays
+	 */
+
+	if (kern_width(t, "LT", 2) >= kern_width(t, "L", 1) + kern_width(t, "T", 1) ||
+	    kern_width(t, "YA", 2) >= kern_width(t, "Y", 1) + kern_width(t, "A", 1) ||
+	    kern_width(t, "nn", 2) != 2 * kern_width(t, "n", 1)) {
+		lwsl_err("%s: LT, YA or nn kerned wrongly\n", __func__);
+		fails++;
+	}
+
+	/* a space stops it */
+
+	if (kern_width(t, "T o", 3) != kern_width(t, "T", 1) +
+				      kern_width(t, " ", 1) + kern_width(t, "o", 1)) {
+		lwsl_err("%s: kerned across a space\n", __func__);
+		fails++;
+	}
+
+	/* laying the run out gives it the width it measures */
+
+	for (ab = 0, a = 0; run[a]; a++)
+		ab += kern_width(t, &run[a], 1);
+
+	if (lws_display_dlo_text_update(t, 0, box.x, run, sizeof(run) - 1) ||
+	    t->bounding_box.w.whole != kern_width(t, run, sizeof(run) - 1) ||
+	    t->bounding_box.w.whole >= ab) {
+		lwsl_err("%s: run laid out at %d\n", __func__,
+			 t->bounding_box.w.whole);
+		fails++;
+	}
+
+	lws_display_list_destroy(cx, &dl);
+
+	return !!fails;
+}
 
 /*
  * Write the DLO tree as deterministic text (no pointers), so the layout
@@ -770,6 +873,12 @@ main(int argc, const char **argv)
 		}
 	}
 #endif
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_KERN_CHECK].sw)) {
+		result = kern_check(cx);
+		lws_context_destroy(cx);
+		goto bail;
+	}
 
 	/* create the SS to the html using the URL on argv[1] */
 

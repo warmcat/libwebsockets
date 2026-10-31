@@ -32,7 +32,7 @@ DLOs are quite capable
  - Supports arbitrary paletteization (down to 1bpp) and error diffusion
  - DLO-private error diffusion for clean opaque overlaid objects
  - Antialised bitmap text using compressed fonts (eg 7 font sizes 10-
-   32px in both regular and bold < ~100KB)
+   32px in both regular and bold < ~170KB, with kerning)
  - Very lightweight stateful PNG and JPEG decode
 
 All DLOs in a Display List are consumed as they are rasterized,
@@ -89,6 +89,11 @@ Font glyphs are decompressed statefully as part of the DLO line
 rasterization process, so there are no glyph buffers or caching.
 The decompression is very fast and allows fitting over a dozen
 font sizes and weights into 100KB.
+
+Pairs of glyphs are kerned by the shape of their ink, from a small profile
+of each glyph's edges the encoder puts in the font, so text is measured and
+placed kerned without decoding any glyph pixels; see
+`contrib/mcufont/README.md`.
 
 Wrapping inside a bounding box is supported as is "run-on", where text
 DLOs follow one another inline, used for example to use a bold font

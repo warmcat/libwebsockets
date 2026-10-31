@@ -196,6 +196,29 @@ if (requirements)
 				"-DFLAGS=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--heap-limit;90000"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
+		# glyph pairs are kerned by the shapes of their ink, the same
+		# way for measuring and laying out; for the built-in face, and
+		# for the same face from its file alone, under a heap limit so
+		# tight that its glyphs are evicted again and again while the
+		# pairs are compared
+		add_test(NAME api-test-lhp-dlo-kern
+			 COMMAND ${SAMP} --kern-check)
+		add_test(NAME api-test-lhp-dlo-kern-face-setup
+			 COMMAND ${CMAKE_COMMAND} -E copy
+				${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts/FiraSansCondensed-Regular14.mcufont
+				${CMAKE_CURRENT_BINARY_DIR}/kern-face/FiraSansCondensed-Regular14.mcufont)
+		set_tests_properties(api-test-lhp-dlo-kern-face-setup PROPERTIES
+				     FIXTURES_SETUP lhp_kern_face)
+		add_test(NAME api-test-lhp-dlo-kern-file-font-reclaim
+			 COMMAND ${SAMP} --kern-check
+				--fonts ${CMAKE_CURRENT_BINARY_DIR}/kern-face
+				--heap-limit 4000)
+		set_tests_properties(api-test-lhp-dlo-kern-file-font-reclaim
+				     PROPERTIES FIXTURES_REQUIRED lhp_kern_face)
+		set_tests_properties(api-test-lhp-dlo-kern
+				     api-test-lhp-dlo-kern-file-font-reclaim
+				     PROPERTIES TIMEOUT 60)
+
 		# fonts as a system attribute: one face built in, the rest
 		# listed by a manifest and fetched as text needs them.  The
 		# fixture lays out a directory as a server would serve it
