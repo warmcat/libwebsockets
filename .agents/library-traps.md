@@ -277,9 +277,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    reaches the client as CLIENT_CONNECTION_ERROR "HS: WT CONNECT refused
    <status>"; a wt client needs a client-vhost protocol named
    "webtransport".
- - **`lws_is_ssl()` on an h2 child stream returns 0**: `use_ssl` is not
-   copied to mux children (client streams too: the https->http redirect
-   guard read it and was bypassed over h2, G-699, fixed in 1e736db26).
+ - **`lws_is_ssl()` on an h2 client child stream returns 0**: `use_ssl` is
+   not copied to client mux children (the https->http redirect guard read
+   it and was bypassed over h2, G-699, fixed in 1e736db26).  h2 server
+   streams come from `lws_create_new_server_wsi()`, which sets `use_ssl`
+   from the vhost (sansio/wsi.c), so server-side reads are right (V119).
    A TLS vhost with the default ALPN in an HTTP3 build also listens on
    QUIC/UDP on the same port, so an h1/h2 test fixture serves `--h3`
    clients unchanged.  Use `lws_is_ssl(lws_get_network_wsi(wsi))`
