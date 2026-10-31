@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- DATE: wallclock time / date acquired (ntp): calendar -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#e04040" stroke-width="2">
+  <rect x="3" y="5" width="18" height="16" rx="2"/>
+  <path d="M8 3V7M16 3V7"/>
+ </g>
+ <path d="M3 10V7A2 2 0 0 1 5 5H19A2 2 0 0 1 21 7V10Z" fill="#e04040"/>
+ <rect x="13" y="13.5" width="4" height="4" rx="0.5" fill="#e04040"/>
+</svg>

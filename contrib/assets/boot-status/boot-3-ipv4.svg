@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- IPV4: an IPv4 address was acquired: address badge with a 4 -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#00a08a">
+  <rect x="3" y="3" width="18" height="18" rx="3" stroke-width="1.5" fill="#00a08a" fill-opacity="0.15"/>
+  <path d="M14 18V6L8 14.5H17" stroke-width="2.5"/>
+ </g>
+</svg>

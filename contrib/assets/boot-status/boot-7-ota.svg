@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- OTA: confirmed we are running the latest firmware: download to device -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#e8701a">
+  <path d="M12 3V14.5M7 9.5L12 14.5L17 9.5" stroke-width="2.5"/>
+  <path d="M4 15V19A2 2 0 0 0 6 21H18A2 2 0 0 0 20 19V15" stroke-width="2"/>
+ </g>
+</svg>

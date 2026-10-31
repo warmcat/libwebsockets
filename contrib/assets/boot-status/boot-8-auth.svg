@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- AUTH: the server recognizes us as a valid user: shield with check -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#c0308a">
+  <path d="M12 2.5L19.5 5.5V11C19.5 16 16.3 19.6 12 21.5C7.7 19.6 4.5 16 4.5 11V5.5Z" stroke-width="2" fill="#c0308a" fill-opacity="0.15"/>
+  <path d="M8.5 12L11 14.5L15.5 9.5" stroke-width="2.5"/>
+ </g>
+</svg>

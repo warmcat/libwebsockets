@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- SETUP: credentials (BSS / passphrase) are stored: a key -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#d4a000">
+  <circle cx="7" cy="12" r="4" stroke-width="2.5"/>
+  <path d="M11 12H21M17.5 12V15.5M20.5 12V14.5" stroke-width="2"/>
+ </g>
+</svg>

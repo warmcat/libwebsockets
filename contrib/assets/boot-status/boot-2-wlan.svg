@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- WLAN: associated to the AP: radio waves -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#2a7fff" stroke-width="2">
+  <path d="M8.79 16.17A5 5 0 0 1 15.21 16.17"/>
+  <path d="M5.57 12.34A10 10 0 0 1 18.43 12.34"/>
+  <path d="M2.36 8.51A15 15 0 0 1 21.64 8.51"/>
+ </g>
+ <circle cx="12" cy="20" r="1.75" fill="#2a7fff"/>
+</svg>

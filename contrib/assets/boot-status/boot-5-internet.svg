@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- INTERNET: real internet reached (not a captive portal): globe -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#2fa040">
+  <circle cx="12" cy="12" r="9" stroke-width="2" fill="#2fa040" fill-opacity="0.15"/>
+  <ellipse cx="12" cy="12" rx="4" ry="9" stroke-width="1.5"/>
+  <path d="M3 12H21" stroke-width="1.5"/>
+ </g>
+</svg>

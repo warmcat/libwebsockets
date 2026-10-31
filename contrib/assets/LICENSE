@@ -17,3 +17,7 @@ Archive: https://archive.is/Rocwf
 License: CC0
 Source: andy@warmcat.com inkscape 
 
+### boot-status/*.svg
+
+License: CC0
+Source: libwebsockets project, authored directly as SVG for lws / lhp
