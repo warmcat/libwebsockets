@@ -22,44 +22,16 @@ const char *carousel_urls[] = {
         NULL
 };
 
-static const uint8_t fira_c_r_10[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Regular10.mcufont.h"
-};
+/*
+ * Only one small face is built in, so text can always be shown.  The rest come
+ * from the lws-mcufonts plugin on libwebsockets.org, a page of a face at a
+ * time as the text needs them, see lws_fonts_register_manifest()
+ */
+
+#define FONTS_MANIFEST_URL "https://libwebsockets.org/mcufonts/fonts.json"
+
 static const uint8_t fira_c_r_12[] = {
 #include "../contrib/mcufont/fonts/FiraSansCondensed-Regular12.mcufont.h"
-};
-static const uint8_t fira_c_r_14[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Regular14.mcufont.h"
-};
-static const uint8_t fira_c_r_16[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Regular16.mcufont.h"
-};
-static const uint8_t fira_c_r_20[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Regular20.mcufont.h"
-};
-static const uint8_t fira_c_r_24[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Regular24.mcufont.h"
-};
-static const uint8_t fira_c_r_32[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Regular32.mcufont.h"
-};
-static const uint8_t fira_c_b_10[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Bold10.mcufont.h"
-};
-static const uint8_t fira_c_b_12[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Bold12.mcufont.h"
-};
-static const uint8_t fira_c_b_14[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Bold14.mcufont.h"
-};
-static const uint8_t fira_c_b_16[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Bold16.mcufont.h"
-};
-static const uint8_t fira_c_b_20[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Bold20.mcufont.h"
-};
-static const uint8_t fira_c_b_24[] = {
-#include "../contrib/mcufont/fonts/FiraSansCondensed-Bold24.mcufont.h"
 };
 
 static const uint8_t splash_jpg[] = {
@@ -231,19 +203,9 @@ init_plat_devices(struct lws_context *cx)
 	}
 #endif
 
-	lws_font_register(cx, fira_c_r_10, sizeof(fira_c_r_10));
 	lws_font_register(cx, fira_c_r_12, sizeof(fira_c_r_12));
-	lws_font_register(cx, fira_c_r_14, sizeof(fira_c_r_14));
-	lws_font_register(cx, fira_c_r_16, sizeof(fira_c_r_16));
-	lws_font_register(cx, fira_c_r_20, sizeof(fira_c_r_20));
-	lws_font_register(cx, fira_c_r_24, sizeof(fira_c_r_24));
-	lws_font_register(cx, fira_c_r_32, sizeof(fira_c_r_32));
-	lws_font_register(cx, fira_c_b_10, sizeof(fira_c_b_10));
-	lws_font_register(cx, fira_c_b_12, sizeof(fira_c_b_12));
-	lws_font_register(cx, fira_c_b_14, sizeof(fira_c_b_14));
-	lws_font_register(cx, fira_c_b_16, sizeof(fira_c_b_16));
-	lws_font_register(cx, fira_c_b_20, sizeof(fira_c_b_20));
-	lws_font_register(cx, fira_c_b_24, sizeof(fira_c_b_24));
+	if (lws_fonts_register_manifest(cx, FONTS_MANIFEST_URL))
+		lwsl_warn("%s: only the built-in face can be used\n", __func__);
 
 	lws_dlo_file_register(cx, &fs_splash);
 

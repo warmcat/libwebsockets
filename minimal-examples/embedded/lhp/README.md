@@ -17,6 +17,18 @@ ESP32 WROVER KIT, and ESP32S2 Kaluga boards and displays are
 supported, along with Waveshare ESP32 dev board and a variety of
 E-ink displays.
 
+## Fonts
+
+Most of the demos build in each face they use, which costs a lot of flash.
+`esp32-waveshare-600-448-7col` builds in only one small face, Fira Sans
+Condensed Regular 12, and gets the rest from the `lws-mcufonts` plugin on
+libwebsockets.org with `lws_fonts_register_manifest()`, a page of 256
+codepoints of a face at a time as the text needs them.  Text whose pages can't
+be had yet is shown in the built-in face meanwhile.  See
+`plugins/protocol_lws_mcufonts/README.md` to serve fonts like that yourself,
+and change `FONTS_MANIFEST_URL` in its `main/devices.c` to point to your
+server.
+
 ## Setting up wifi
 
 Edit ./main/devices.c in your platform-specific subdir, enable this section
