@@ -1244,18 +1244,17 @@ lws_h2_bind_for_post_before_action(struct lws *wsi, int *verdict)
 
 	if (!hit) {
 		/*
-		 * We are this POST's dispatch, and there was no mount hit.
-		 *
-		 * The stream wsi had protocols[0] assigned directly at creation
-		 * (in __lws_wsi_server_new()), so without this it would get its
-		 * LWS_CALLBACK_HTTP with the protocol never having been bound:
-		 * no LWS_CALLBACK_HTTP_BIND_PROTOCOL to initialize the
-		 * per-session allocation, no matching DROP_PROTOCOL at close,
-		 * and invisibility to apis that walk the vhost's bound protocol
-		 * list.  Do the same reset to protocols[0] lws_http_action()
-		 * does for the no-mount case, so all paths behave the same.
+		 * We are this POST's dispatch, and there was no mount hit, so
+		 * protocols[0] serves it, as lws_http_action() does for the
+		 * no-mount case.  The gates above bound the protocol the
+		 * stream was created on (__lws_wsi_server_new()), so its pss
+		 * has had its BIND and is owed its DROP.  If that is
+		 * protocols[0], it keeps that pss for the request; otherwise
+		 * protocols[0] is bound now, the other one dropped first.
 		 */
-		if (lws_bind_protocol(wsi, &wsi->a.vhost->protocols[0],
+		if ((wsi->a.protocol != &wsi->a.vhost->protocols[0] ||
+		     !wsi->protocol_bind_balance) &&
+		    lws_bind_protocol(wsi, &wsi->a.vhost->protocols[0],
 				      "no mount hit"))
 			return -1;
 	}

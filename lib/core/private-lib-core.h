@@ -1433,6 +1433,9 @@ int
 lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
 		  const char *reason);
 
+int
+lws_bind_protocol_assigned(struct lws *wsi);
+
 const struct lws_protocol_vhost_options *
 lws_vhost_protocol_options(struct lws_vhost *vh, const char *name);
 

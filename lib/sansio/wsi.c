@@ -2140,28 +2140,19 @@ int LWS_WARN_UNUSED_RESULT lws_raw_transaction_completed(struct lws *wsi) {
 	return -1;
 }
 
-int lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
-		const char *reason) {
-	//	if (wsi->a.protocol == p)
-	//		return 0;
-	const struct lws_protocols *vp = wsi->a.vhost->protocols, *vpo;
+/*
+ * The second half of a protocol bind: wsi->a.protocol is the protocol being
+ * bound, and any user_space it has is the one it is being bound with.  Make
+ * sure it has one, put the wsi on the vhost's list for the protocol, and tell
+ * the protocol with its BIND callback.  From here the protocol is owed its
+ * DROP callback before the user_space is freed.
+ */
 
-	if (wsi->a.protocol && wsi->protocol_bind_balance) {
-		wsi->a.protocol->callback(
-				wsi, wsi->role_ops->protocol_unbind_cb[!!lwsi_role_server(wsi)],
-				wsi->user_space, (void *)reason, 0);
-		wsi->protocol_bind_balance = 0;
-	}
-	if (!wsi->user_space_externally_allocated) {
-		lws_free_set_NULL(wsi->user_space);
-		wsi->user_space_len = 0;
-	}
-
-	lws_same_vh_protocol_remove(wsi);
-
-	wsi->a.protocol = p;
-	if (!p)
-		return 0;
+static int
+lws_bind_protocol_attach(struct lws *wsi)
+{
+	const struct lws_protocols *p = wsi->a.protocol,
+				   *vp = wsi->a.vhost->protocols, *vpo;
 
 	if (lws_ensure_user_space(wsi))
 		return 1;
@@ -2195,6 +2186,53 @@ int lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
 	wsi->protocol_bind_balance = 1;
 
 	return 0;
+}
+
+int lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
+		const char *reason) {
+	//	if (wsi->a.protocol == p)
+	//		return 0;
+
+	if (wsi->a.protocol && wsi->protocol_bind_balance) {
+		wsi->a.protocol->callback(
+				wsi, wsi->role_ops->protocol_unbind_cb[!!lwsi_role_server(wsi)],
+				wsi->user_space, (void *)reason, 0);
+		wsi->protocol_bind_balance = 0;
+	}
+	if (!wsi->user_space_externally_allocated) {
+		lws_free_set_NULL(wsi->user_space);
+		wsi->user_space_len = 0;
+	}
+
+	lws_same_vh_protocol_remove(wsi);
+
+	wsi->a.protocol = p;
+	if (!p)
+		return 0;
+
+	return lws_bind_protocol_attach(wsi);
+}
+
+/*
+ * A wsi can be given its protocol by assignment rather than by
+ * lws_bind_protocol(): an http server connection is on its vhost's default
+ * protocol from accept, and an h2 stream on protocols[0] from its creation,
+ * neither bound, and any user_space allocated for them meanwhile has had no
+ * BIND callback.  When such a wsi starts to be served, bind the protocol it
+ * already has, keeping that user_space rather than freeing it: whatever it
+ * holds is the user's, and the protocol is told of it by BIND now, so that it
+ * is owed the matching DROP before lws frees it, as for any bind.
+ *
+ * Nothing is done for a wsi that is already bound, or that has no protocol.
+ */
+
+int
+lws_bind_protocol_assigned(struct lws *wsi)
+{
+	if (!wsi->a.protocol || wsi->protocol_bind_balance)
+		return 0;
+
+	return lws_bind_protocol_attach(wsi);
 }
 
 void lws_http_close_immortal(struct lws *wsi) {

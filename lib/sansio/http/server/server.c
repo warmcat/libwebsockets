@@ -2956,8 +2956,11 @@ lws_http_upgrade_gates(struct lws *wsi, struct lws_http_gate *g)
 	if (!hit)
 		return 0;
 
-	/* the basic auth callback, and the interceptors, are given it */
-	if (lws_ensure_user_space(wsi))
+	/*
+	 * the basic auth callback, and the interceptors, are given it, so the
+	 * protocol he is on must be bound to it first (and drop it later)
+	 */
+	if (lws_bind_protocol_assigned(wsi))
 		return lws_http_gate_bail(wsi, g);
 
 	g->mount_rel = g->uri_ptr + hit->mountpoint_len;
@@ -2974,7 +2977,15 @@ lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 	g->hit = NULL;
 	g->mount_rel = NULL;
 
-	if (lws_ensure_user_space(wsi))
+	/*
+	 * The request starts here, and its first callback is given the pss:
+	 * a connection still on the protocol it was given at accept (or an h2
+	 * stream on the one it was created with) binds it now, so the pss is
+	 * bracketed by BIND / DROP whichever protocol ends up serving it.  An
+	 * h1 keep-alive connection was rebound to protocols[0] when its last
+	 * transaction completed, so it is already bound.
+	 */
+	if (lws_bind_protocol_assigned(wsi))
 		return lws_http_gate_bail(wsi, g);
 
 	/*
@@ -3212,11 +3223,18 @@ lws_http_action(struct lws *wsi)
 	hit = g.hit;
 
 	if (!hit) {
-		/* deferred cleanup and reset to protocols[0] */
+		/*
+		 * Served by protocols[0].  If he is not already bound to it
+		 * (the vhost's default protocol may be another one), bind it
+		 * now; if he is, the pss the gates gave him stays his for the
+		 * request, rather than being dropped and bound afresh.
+		 */
 
 		lwsl_info("no hit\n");
 
-		if (lws_bind_protocol(wsi, &wsi->a.vhost->protocols[0],
+		if ((wsi->a.protocol != &wsi->a.vhost->protocols[0] ||
+		     !wsi->protocol_bind_balance) &&
+		    lws_bind_protocol(wsi, &wsi->a.vhost->protocols[0],
 				      "no mount hit"))
 			return 1;
 
