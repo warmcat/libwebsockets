@@ -20,6 +20,18 @@ if (NOT r EQUAL 0)
 	message(FATAL_ERROR "making the font manifest failed")
 endif()
 
+# A server making pages from .ttf lists most faces' pages as runs, like
+# "0000-0005,0020": list these faces' pages that way too, so a device has to
+# parse a run to get them at all.  The text in the tests has nothing on page
+# 0001, so nothing asks for it.
+
+file(READ ${OUT}/faces/fonts.json J)
+string(REPLACE "\"pages\":\"0000," "\"pages\":\"0000-0001," J2 "${J}")
+if (J2 STREQUAL J)
+	message(FATAL_ERROR "the font manifest has no faces with page 0000")
+endif()
+file(WRITE ${OUT}/faces/fonts.json "${J2}")
+
 file(MAKE_DIRECTORY ${OUT}/nofaces)
 file(COPY ${OUT}/faces/fonts.json DESTINATION ${OUT}/nofaces)
 

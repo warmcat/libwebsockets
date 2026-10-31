@@ -472,8 +472,7 @@ lws_fonts_manifest_pages(const char *pages, uint16_t *ranges, int max)
 	int n = 0, dash = 0, have = 0;
 	uint32_t v;
 
-	lws_tokenize_init(&ts, pages, LWS_TOKENIZE_F_COMMA_SEP_LIST |
-				      LWS_TOKENIZE_F_NO_INTEGERS |
+	lws_tokenize_init(&ts, pages, LWS_TOKENIZE_F_NO_INTEGERS |
 				      LWS_TOKENIZE_F_NO_FLOATS);
 	ts.len = strlen(pages);
 
