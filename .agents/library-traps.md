@@ -32,10 +32,16 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    the pt lock only on sul *inserts*: unlocked removals
    (`__lws_wsi_remove_from_sul()`) stay invisible; G-698 surfaced only via
    the new held-assert in `__lws_header_table_detach()`.  Both the cx and
-   pt locks are recursive (`lws_mutex_refcount`).  The suite drives no
-   client error paths like NXDOMAIN: one manual run of
-   minimal-http-client against a `.invalid` host in a DEBUG SMP tree found
-   G-701 (`__lws_free_wsi()` reached holding only cx).  To survey a class of unlocked list changes across
+   pt locks are recursive (`lws_mutex_refcount`).  Client failures before
+   the wsi reaches the fds table were undriven until G-701 (a manual
+   `.invalid` run found `__lws_free_wsi()` reached holding only cx);
+   api-test-client-early-fail now covers them with a fake NXDOMAIN
+   nameserver (`LWS_ASYNCDNS_PORT`), and `__lws_free_wsi()` /
+   `__lws_reset_wsi()` assert cx then pt held (e133879ad).  A failure inside
+   the `lws_client_connect_via_info()` call itself sets
+   `client_suppress_CONNECTION_ERROR`: the app hears only the NULL return,
+   so a test of an early failure must not wait for CONNECTION_ERROR (a later
+   one, eg an async NXDOMAIN, does get it).  To survey a class of unlocked list changes across
    the whole suite, log them with `dladdr` offsets and resolve with
    `addr2line` (B109).  Hand work to another pt's thread with
    `lws_pthread_self_to_tsi()` plus `lws_plat_pipe_signal()`;
