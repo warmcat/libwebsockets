@@ -45,6 +45,7 @@ typedef struct lws_glyph_metrics {
 	uint8_t			first; /* inked bands, or MCUFO_NO_INK */
 	uint8_t			last;
 	uint8_t			gap;  /* the font's target gap */
+	uint8_t			blx;  /* the columns' origin: BASELINE_X */
 	uint8_t			valid;
 	uint8_t			l[MCUFO_MAX_KERN_BANDS];
 	uint8_t			r[MCUFO_MAX_KERN_BANDS];
@@ -103,28 +104,53 @@ typedef struct lws_mcufont_file {
 } lws_mcufont_file_t;
 
 /*
- * A face listed in the font manifest, fetched whole from the server when
- * text needs it.  The blob is the unit of residency: once it has arrived it
- * is the face's .data, exactly as a flash face's is, and it is a single
- * reclaimable heap occupant.  It is pinned while layout has an element open
- * in the face, and for the duration of each render call drawing it; the
- * rest of the time it can be evicted, and is fetched again when next needed.
- * Each arrival bumps gen, since anything left pointing into an earlier copy
- * has to start again from the new one.
+ * Faces from a server come a page at a time: the glyphs for the 256
+ * codepoints from page * 256, fetched when text needs one of them.  Each
+ * page is a whole mcufont, sharing the face's height, baseline, line height
+ * and kerning gap so text set from several pages lines up and kerns as one
+ * face, and is a reclaimable heap occupant of its own.  A page that can be
+ * evicted is fetched again when next needed.
+ */
+typedef struct lws_mcufont_page {
+	lws_reclaimable_t	rc;		/* the blob */
+	lws_dll2_t		list;		/* r->pages */
+	lws_dll2_t		queue;		/* fr->queue, waiting to fetch */
+	struct lws_mcufont_remote *r;
+	uint8_t			*blob;
+	size_t			len;
+	lws_usec_t		holdoff_until;	/* refused or no memory: until */
+	uint16_t		page;
+	uint8_t			bad;		/* the server's copy is unusable */
+} lws_mcufont_page_t;
+
+/*
+ * A face listed in the font manifest.  The pages it has are listed as
+ * ranges; a codepoint on a page it doesn't have is drawn with the fallback
+ * glyph of its core page, the first it lists.  The pages that text has
+ * needed are in pages, whether or not they are resident just now.
+ *
+ * The face is usable for layout once its core page is resident: the face's
+ * header is copied from the first page to arrive, and is its .data from
+ * then on, so the face's metrics stay to hand when every page has been
+ * evicted.  The pages pinned while layout has an element open in the face,
+ * and for the duration of each render call drawing it, are every page that
+ * is resident: a page arriving while the face is pinned is pinned as many
+ * times as the face.  Each arrival bumps gen, since glyphs being decoded
+ * from an earlier copy of a page have to start again from the new one.
  */
 typedef struct lws_mcufont_remote {
 	uint8_t			kind;		/* LWS_MCUF_KIND_REMOTE: first */
-	uint8_t			bad;		/* the server's copy is unusable */
-	uint16_t		gen;		/* bumped each time it arrives */
-	lws_reclaimable_t	rc;		/* the blob */
-	lws_dll2_t		queue;		/* fr->queue, waiting to fetch */
+	uint8_t			hdr_valid;
+	uint16_t		gen;		/* bumped as each page arrives */
+	uint16_t		pins;
+	uint16_t		nranges;
+	lws_dll2_owner_t	pages;		/* lws_mcufont_page_t */
 	struct lws_fonts_remote	*fr;
 	struct lws_context	*cx;
 	lws_display_font_t	*f;
-	const char		*file;		/* in the manifest lwsac */
-	uint8_t			*blob;
-	lws_usec_t		nomem_until;	/* couldn't make room for it */
-	uint32_t		len;		/* the manifest says */
+	const char		*path;		/* in the manifest lwsac */
+	const uint16_t		*ranges;	/* first, last page pairs */
+	uint8_t			hdr[MCUFO_HDR_LEN];
 } lws_mcufont_remote_t;
 
 static LWS_INLINE lws_mcufont_file_t *
@@ -170,13 +196,25 @@ lws_font_register_common(struct lws_context *cx, lws_display_font_t *a);
 void
 lws_font_set_em(lws_display_font_t *a);
 
+lws_font_residency_t
+lws_font_text_resident(const lws_display_font_t *f, const char *utf8,
+		       size_t len, lws_font_waiter_t *w);
+
 #if defined(LWS_DLO_REMOTE_FONTS)
 /* a face from a server is here, or could be fetched now */
 int
 lws_mcufont_remote_available(const lws_mcufont_remote_t *r);
 
 lws_font_residency_t
-lws_mcufont_remote_resident(lws_mcufont_remote_t *r, lws_font_waiter_t *w);
+lws_mcufont_remote_resident(lws_mcufont_remote_t *r, const char *utf8,
+			    size_t len, lws_font_waiter_t *w);
+
+const uint8_t *
+lws_mcufont_remote_blob(lws_mcufont_remote_t *r, uint32_t unicode,
+			size_t *len);
+
+void
+lws_mcufont_remote_pin(lws_mcufont_remote_t *r, int pin);
 
 void
 lws_mcufont_remote_destroy(lws_display_font_t *f);
@@ -212,6 +250,10 @@ lws_fonts_remote_too_slow(struct lws_context *cx, int manifest)
 
 int
 lws_display_font_mcufont_check(const uint8_t *bf, size_t len);
+
+/* decode one codepoint, consuming its bytes; nonzero if they aren't utf8 */
+int
+lws_dlo_utf8_unicode(const char *utf8, size_t *utf8_len, uint32_t *unicode);
 
 int
 lws_display_font_mcufont_file_core(lws_display_font_t *f);

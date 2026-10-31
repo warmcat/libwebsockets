@@ -274,9 +274,41 @@ if (requirements)
 				"-DFLAGS_B=--font-manifest;file://${RF}/nofaces/fonts.json"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
+		# text with glyphs from a second page of the faces, the
+		# dashes on page 0020: the same layout as the built-in faces
+		# give, with both pages being evicted and fetched again as
+		# every element opens
+		add_test(NAME api-test-lhp-dlo-36-font-pages-remote
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/36-font-pages.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/36-font-pages.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/36-font-pages-remote.dlo
+				"-DFLAGS=--font-manifest;file://${RF}/faces/fonts.json;--reclaim-elems;1"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		set(LHP_REMOTE_TESTS api-test-lhp-dlo-36-font-pages-remote)
+
+		if (LWS_WITH_SERVER)
+			# from an http server that refuses page 0020 with a
+			# 404, as one still making it would: just the runs
+			# with dashes in are set in the built-in face, and the
+			# rest still in the faces from the server
+			add_test(NAME api-test-lhp-dlo-36-font-pages-refused
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/36-font-pages.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/36-font-pages-refused.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/36-font-pages-refused.dlo
+					"-DFLAGS=--serve-fonts;${RF}/nopunct"
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+			list(APPEND LHP_REMOTE_TESTS
+			     api-test-lhp-dlo-36-font-pages-refused)
+		endif()
+
 		set_tests_properties(api-test-lhp-dlo-test-html-remote-fonts-reclaim
 				     api-test-lhp-dlo-render-remote-fonts-reclaim
 				     api-test-lhp-dlo-remote-fonts-fallback
+				     ${LHP_REMOTE_TESTS}
 				     PROPERTIES FIXTURES_REQUIRED lhp_remote_fonts)
 
 		# a page with a (preseeded) cached image, rendered with the

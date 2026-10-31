@@ -6211,6 +6211,35 @@ lhp_amphash_literal(lhp_ctx_t *ctx)
 }
 
 /*
+ * Deliver the text collected so far.  At the places that can, the callback
+ * may ask to see it again later, eg, because the face it is to be set in
+ * needs a page of glyphs that is on its way: then the byte that made us
+ * deliver it is given back, so the parse makes the same delivery again when
+ * it is resumed.  Returns nonzero if it is to be retried.
+ */
+
+static int
+lhp_deliver_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, const uint8_t **buf,
+		    size_t *len)
+{
+	lws_stateful_ret_t r;
+
+	ctx->content_can_wait = 1;
+	r = ps->cb(ctx, LHPCB_CONTENT);
+	ctx->content_can_wait = 0;
+
+	if (!(r & LWS_SRET_AWAIT_RETRY))
+		return 0;
+
+	if (buf) {
+		(*buf)--;
+		(*len)++;
+	}
+
+	return 1;
+}
+
+/*
  * The digits of a numeric character reference have ended, at a ';' or, as
  * html allows, at anything else: replace what was collected for it with the
  * character in ctx->temp.
@@ -6270,7 +6299,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 	}
 
 	while (*len) {
-		uint8_t c;
+		uint8_t c, added = 0;
 		int is_term = 0;
 
 		/*
@@ -6375,7 +6404,9 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 					if (ctx->in_body &&
 					    (ctx->npos != 1 || ctx->buf[0] != ' ')) {
 						lws_css_cascade(ctx);
-						ps->cb(ctx, LHPCB_CONTENT);
+						if (lhp_deliver_content(ctx, ps,
+								buf, len))
+							return LWS_SRET_AWAIT_RETRY;
 					}
 					ctx->npos = 0;
 				}
@@ -6419,7 +6450,9 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 					if (ctx->in_body &&
 					    (ctx->npos != 1 || ctx->buf[0] != ' ')) {
 						lws_css_cascade(ctx);
-						ps->cb(ctx, LHPCB_CONTENT);
+						if (lhp_deliver_content(ctx, ps,
+								buf, len))
+							return LWS_SRET_AWAIT_RETRY;
 					}
 					ctx->npos = 0;
 				}
@@ -6435,17 +6468,26 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 				/* fallthru */
 			default:
 				if (c != ' ' || !ctx->npos ||
-				    ctx->buf[ctx->npos - 1] != ' ')
+				    ctx->buf[ctx->npos - 1] != ' ') {
 					ctx->buf[ctx->npos++] = (char)c;
+					added = 1;
+				}
 				break;
 			}
 
 			if (ctx->npos &&
 			    (ctx->state != LHPS_OUTER ||
 			     ctx->npos >= LHP_STRING_CHUNK - 4)) {
-				if (ctx->in_body && (ctx->npos != 1 || ctx->buf[0] != ' ')) {
+				if (ctx->in_body &&
+				    (ctx->npos != 1 || ctx->buf[0] != ' ')) {
 					lws_css_cascade(ctx);
-					ps->cb(ctx, LHPCB_CONTENT);
+					if (lhp_deliver_content(ctx, ps, buf,
+								len)) {
+						/* added again when resumed */
+						if (added)
+							ctx->npos--;
+						return LWS_SRET_AWAIT_RETRY;
+					}
 				}
 				ctx->npos = 0;
 			}
@@ -8589,8 +8631,11 @@ issue_post:
 		 */
 
 		if (ctx->state == LHPS_OUTER && ctx->npos) {
-			if (ctx->in_body && (ctx->npos != 1 || ctx->buf[0] != ' '))
-				ps->cb(ctx, LHPCB_CONTENT);
+			/* retried, we come back here with nothing to parse */
+			if (ctx->in_body &&
+			    (ctx->npos != 1 || ctx->buf[0] != ' ') &&
+			    lhp_deliver_content(ctx, ps, NULL, NULL))
+				return LWS_SRET_AWAIT_RETRY;
 			ctx->npos = 0;
 		}
 

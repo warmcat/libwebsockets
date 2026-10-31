@@ -22,9 +22,9 @@
  * IN THE SOFTWARE.
  *
  * Faces from a server: the manifest listing them is fetched once per boot,
- * and each face is fetched whole into the heap when text needs it, as a
- * reclaimable occupant that may be evicted and fetched again any number of
- * times.  See lws_fonts_register_manifest().
+ * and each face is fetched a page at a time, as text needs glyphs from the
+ * page.  Each page is a reclaimable heap occupant, that may be evicted and
+ * fetched again any number of times.  See lws_fonts_register_manifest().
  */
 
 #include <private-lib-core.h>
@@ -35,11 +35,20 @@
 /* the manifest is small: a line per face */
 #define LWS_FONTS_MANIFEST_MAX_LEN	16384
 #define LWS_FONTS_MANIFEST_MAX_FACES	64
-/* a face bigger than this is not something a small device should fetch */
-#define LWS_FONTS_REMOTE_MAX_LEN	(256 * 1024)
+/* the most runs of pages a face's entry may list */
+#define LWS_FONTS_MANIFEST_MAX_RANGES	32
+/* a page bigger than this is not something a small device should fetch */
+#define LWS_FONTS_PAGE_MAX_LEN		(128 * 1024)
+/* a page's buffer grows by this as it arrives */
+#define LWS_FONTS_PAGE_GRANULE		4096
 /* after the server failed us, how long to use the local faces instead */
 #define LWS_FONTS_REMOTE_HOLDOFF_S	30
-/* after we couldn't find the memory for a face, how long to not try */
+/*
+ * after the server refused a page, eg, because it is still making it, how
+ * long to set text that needs it in a local face, before asking again
+ */
+#define LWS_FONTS_PAGE_HOLDOFF_S	20
+/* after we couldn't find the memory for a page, how long to not try */
 #define LWS_FONTS_NOMEM_HOLDOFF_US	(2 * LWS_US_PER_SEC)
 
 enum {
@@ -54,13 +63,13 @@ typedef struct lws_fonts_remote {
 	lws_sorted_usec_list_t		sul_retry;
 	struct lws_context		*cx;
 	struct lws_ss_handle		*ss_manifest;
-	struct lws_ss_handle		*ss_face; /* one face fetch at a time */
+	struct lws_ss_handle		*ss_page; /* one page fetch at a time */
 	struct lwsac			*ac;	/* the parsed manifest */
-	lws_dll2_owner_t		queue;	/* lws_mcufont_remote_t to fetch */
+	lws_dll2_owner_t		queue;	/* lws_mcufont_page_t to fetch */
 	lws_dll2_owner_t		waiters; /* lws_font_waiter_t */
 	lws_usec_t			down_until; /* local faces until then */
-	unsigned int			fetches; /* faces fetched */
-	unsigned int			evictions; /* faces given back */
+	unsigned int			fetches; /* pages fetched */
+	unsigned int			evictions; /* pages given back */
 	uint8_t				manifest_state;
 	char				*url;
 } lws_fonts_remote_t;
@@ -68,9 +77,9 @@ typedef struct lws_fonts_remote {
 typedef struct {
 	lws_dll2_t			list;
 	char				name[64];
-	char				file[64];
+	char				path[64];
+	char				pages[160];
 	unsigned int			line_height;
-	unsigned int			len;
 } lws_fonts_manifest_face_t;
 
 typedef struct {
@@ -79,9 +88,9 @@ typedef struct {
 
 static const lws_struct_map_t lsm_fonts_manifest_face[] = {
 	LSM_CARRAY	(lws_fonts_manifest_face_t, name,	"name"),
-	LSM_CARRAY	(lws_fonts_manifest_face_t, file,	"file"),
+	LSM_CARRAY	(lws_fonts_manifest_face_t, path,	"path"),
+	LSM_CARRAY	(lws_fonts_manifest_face_t, pages,	"pages"),
 	LSM_UNSIGNED	(lws_fonts_manifest_face_t, line_height, "line_height"),
-	LSM_UNSIGNED	(lws_fonts_manifest_face_t, len,	"len"),
 };
 
 static const lws_struct_map_t lsm_fonts_manifest[] = {
@@ -96,13 +105,17 @@ static const lws_struct_map_t lsm_fonts_manifest_schema[] = {
 
 LWS_SS_USER_TYPEDEF
 	lws_fonts_remote_t		*fr;
-	lws_mcufont_remote_t		*r;	/* NULL: this is the manifest */
-	uint8_t				*buf;	/* the face as it arrives */
+	lws_mcufont_page_t		*p;	/* NULL: this is the manifest */
+	uint8_t				*buf;	/* the page as it arrives */
 	size_t				pos;
+	size_t				alloc;
 	struct lejp_ctx			jctx;
 	lws_struct_args_t		a;
 	uint8_t				parsing:1;
-	uint8_t				done:1;	/* the payload was used */
+	uint8_t				parsed:1; /* the JSON is complete */
+	uint8_t				complete:1; /* it all arrived */
+	uint8_t				refused:1; /* with an http error */
+	uint8_t				done:1;	/* nothing more to do with it */
 } fontss_t;
 
 static void
@@ -139,7 +152,7 @@ lws_fonts_remote_down(lws_fonts_remote_t *fr)
 
 /*
  * The server failed us: use the local faces for a while, rather than have
- * every face that is wanted meanwhile wait for its own failure
+ * every page that is wanted meanwhile wait for its own failure
  */
 
 static void
@@ -152,14 +165,19 @@ lws_fonts_remote_set_down(lws_fonts_remote_t *fr)
 		lws_dll2_remove(lws_dll2_get_head(&fr->queue));
 }
 
-/* the face's file next to the manifest: file has already been checked */
+/*
+ * The page's file, in the face's directory next to the manifest, eg,
+ * ".../fonts.json" -> ".../FiraSansCondensed-Regular-14/0020.mcufont".  The
+ * face's path has already been checked
+ */
 
 static int
-lws_fonts_remote_url(lws_fonts_remote_t *fr, const char *file, char *url,
-		     size_t len)
+lws_fonts_remote_url(lws_fonts_remote_t *fr, const lws_mcufont_page_t *p,
+		     char *url, size_t len)
 {
 	const char *q = strchr(fr->url, '?'), *s;
 	size_t bl;
+	int n;
 
 	if (!q)
 		q = fr->url + strlen(fr->url);
@@ -168,13 +186,14 @@ lws_fonts_remote_url(lws_fonts_remote_t *fr, const char *file, char *url,
 		s--;
 	bl = lws_ptr_diff_size_t(s, fr->url);
 
-	if (bl + strlen(file) + 1 > len)
+	if (bl >= len)
 		return 1;
 
 	memcpy(url, fr->url, bl);
-	lws_strncpy(url + bl, file, len - bl);
+	n = lws_snprintf(url + bl, len - bl, "%s/%04x.mcufont", p->r->path,
+			 (unsigned int)p->page);
 
-	return 0;
+	return (size_t)n >= len - bl - 1;
 }
 
 static lws_ss_state_return_t
@@ -190,7 +209,7 @@ static LWS_SS_INFO("__default", fontss_t)
 };
 
 static struct lws_ss_handle *
-lws_fonts_remote_fetch(lws_fonts_remote_t *fr, lws_mcufont_remote_t *r,
+lws_fonts_remote_fetch(lws_fonts_remote_t *fr, lws_mcufont_page_t *p,
 		       const char *url)
 {
 	struct lws_ss_handle *h;
@@ -203,7 +222,7 @@ lws_fonts_remote_fetch(lws_fonts_remote_t *fr, lws_mcufont_remote_t *r,
 
 	m = (fontss_t *)lws_ss_to_user_object(h);
 	m->fr = fr;
-	m->r = r;
+	m->p = p;
 
 	if (lws_ss_alloc_set_metadata(h, "endpoint", url, strlen(url)) ||
 	    lws_ss_client_connect(h)) {
@@ -215,33 +234,33 @@ lws_fonts_remote_fetch(lws_fonts_remote_t *fr, lws_mcufont_remote_t *r,
 	return h;
 }
 
-/* fetch the next face that is waiting, if nothing is being fetched */
+/* fetch the next page that is waiting, if nothing is being fetched */
 
 static void
 lws_fonts_remote_kick(lws_fonts_remote_t *fr)
 {
-	lws_mcufont_remote_t *r;
+	lws_mcufont_page_t *p;
 	char url[256];
 
-	if (fr->ss_face || fr->cx->being_destroyed)
+	if (fr->ss_page || fr->cx->being_destroyed)
 		return;
 
 	while (lws_dll2_get_head(&fr->queue)) {
-		r = lws_container_of(lws_dll2_get_head(&fr->queue),
-				     lws_mcufont_remote_t, queue);
+		p = lws_container_of(lws_dll2_get_head(&fr->queue),
+				     lws_mcufont_page_t, queue);
 
-		lws_dll2_remove(&r->queue);
-		if (r->blob || r->bad)
+		lws_dll2_remove(&p->queue);
+		if (p->blob || p->bad)
 			continue;
 
-		if (lws_fonts_remote_url(fr, r->file, url, sizeof(url))) {
-			r->bad = 1;
+		if (lws_fonts_remote_url(fr, p, url, sizeof(url))) {
+			p->bad = 1;
 			continue;
 		}
 
 		lwsl_cx_info(fr->cx, "fetching %s", url);
-		fr->ss_face = lws_fonts_remote_fetch(fr, r, url);
-		if (fr->ss_face)
+		fr->ss_page = lws_fonts_remote_fetch(fr, p, url);
+		if (fr->ss_page)
 			return;
 
 		lws_fonts_remote_set_down(fr);
@@ -253,64 +272,152 @@ lws_fonts_remote_kick(lws_fonts_remote_t *fr)
 }
 
 static size_t
-lws_mcufont_remote_evict_cb(lws_reclaimable_t *rc)
+lws_mcufont_page_evict_cb(lws_reclaimable_t *rc)
 {
-	lws_mcufont_remote_t *r = lws_container_of(rc, lws_mcufont_remote_t,
-						   rc);
+	lws_mcufont_page_t *p = lws_container_of(rc, lws_mcufont_page_t, rc);
 	size_t freed = rc->resident;
 
-	lwsl_info("%s: %s: %u\n", __func__, r->file, (unsigned int)freed);
-	r->fr->evictions++;
-	lws_free_set_NULL(r->blob);
-	r->f->data = NULL;
+	lwsl_info("%s: %s %04x: %u\n", __func__, p->r->path,
+		  (unsigned int)p->page, (unsigned int)freed);
+	p->r->fr->evictions++;
+	lws_free_set_NULL(p->blob);
+	p->len = 0;
 	rc->resident = 0;
 
 	return freed;
 }
 
 /*
- * A face's whole payload has arrived: if it is the face the manifest
- * promised, and safe for the decoder, it becomes the face's .data
+ * The core page, the face's first, has the glyph for a codepoint on a page
+ * the face doesn't list
  */
 
-static int
-lws_mcufont_remote_arrived(lws_mcufont_remote_t *r, uint8_t *blob, size_t len)
+static uint16_t
+lws_mcufont_remote_page_of(const lws_mcufont_remote_t *r, uint32_t unicode)
 {
-	lws_display_font_t *f = r->f;
-	const char *name;
+	uint32_t pg = unicode >> 8;
+	uint16_t n;
 
-	if (len != r->len ||
-	    lws_font_blob_check(blob, len, &name) ||
-	    strcmp(name, f->choice.family_name) ||
-	    lws_ser_ru16be(blob + MCUFO16_LINE_HEIGHT) !=
-						f->choice.fixed_height) {
-		lwsl_cx_warn(r->fr->cx, "%s isn't the face the manifest "
-			     "described, not using it", r->file);
-		return 1;
+	for (n = 0; n < r->nranges; n++) {
+		if (pg < r->ranges[n * 2])
+			break; /* the ranges are in order */
+		if (pg <= r->ranges[(n * 2) + 1])
+			return (uint16_t)pg;
 	}
 
-	r->blob = blob;
-	r->gen++;
-	r->fr->fetches++;
-	f->data = blob;
-	f->data_len = len;
-	if (!f->em.whole && !f->em.frac)
-		lws_font_set_em(f);
+	return r->ranges[0];
+}
 
-	r->rc.resident = len;
-	lws_reclaimable_touch(&r->rc);
+static lws_mcufont_page_t *
+lws_mcufont_remote_page(lws_mcufont_remote_t *r, uint16_t page, int create)
+{
+	lws_mcufont_page_t *p;
 
-	return 0;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&r->pages)) {
+		p = lws_container_of(d, lws_mcufont_page_t, list);
+		if (p->page == page)
+			return p;
+	} lws_end_foreach_dll(d);
+
+	if (!create)
+		return NULL;
+
+	p = lws_zalloc(sizeof(*p), __func__);
+	if (!p)
+		return NULL;
+
+	p->r = r;
+	p->page = page;
+	p->rc.evict = lws_mcufont_page_evict_cb;
+	lws_reclaimable_add(&p->rc);
+	lws_dll2_add_tail(&p->list, &r->pages);
+
+	return p;
 }
 
 static int
-lws_fonts_manifest_file_ok(const char *file)
+lws_mcufont_page_available(const lws_mcufont_remote_t *r,
+			   const lws_mcufont_page_t *p)
 {
-	const char *p = file;
+	if (p && p->blob)
+		return 1;
+
+	return !lws_fonts_remote_down(r->fr) &&
+	       (!p || (!p->bad && lws_now_usecs() >= p->holdoff_until));
+}
+
+/*
+ * A page's whole payload has arrived: if it is a page of the face the
+ * manifest promised, and safe for the decoder, it becomes resident.  The
+ * first page to arrive sets the face's header, that the others must match:
+ * only the width and the baseline's x may differ, since each page is only
+ * as wide as its own glyphs need
+ */
+
+static const uint8_t lws_mcufont_face_hdr[] = {
+	MCUFO16_HEIGHT, MCUFO16_HEIGHT + 1,
+	MCUFO16_BASELINE_Y, MCUFO16_BASELINE_Y + 1,
+	MCUFO16_LINE_HEIGHT, MCUFO16_LINE_HEIGHT + 1,
+	MCUFO_KERN_BANDS, MCUFO_KERN_GAP,
+};
+
+static int
+lws_mcufont_page_arrived(lws_mcufont_page_t *p, uint8_t *blob, size_t len)
+{
+	lws_mcufont_remote_t *r = p->r;
+	lws_display_font_t *f = r->f;
+	const char *name;
+	size_t n;
+
+	if (lws_font_blob_check(blob, len, &name) ||
+	    strcmp(name, f->choice.family_name) ||
+	    lws_ser_ru16be(blob + MCUFO16_LINE_HEIGHT) !=
+						f->choice.fixed_height)
+		goto bad;
+
+	if (r->hdr_valid) {
+		for (n = 0; n < LWS_ARRAY_SIZE(lws_mcufont_face_hdr); n++)
+			if (blob[lws_mcufont_face_hdr[n]] !=
+					r->hdr[lws_mcufont_face_hdr[n]])
+				goto bad;
+	} else {
+		memcpy(r->hdr, blob, sizeof(r->hdr));
+		r->hdr_valid = 1;
+		f->data = r->hdr;
+		f->data_len = sizeof(r->hdr);
+	}
+
+	p->blob = blob;
+	p->len = len;
+	r->gen++;
+	r->fr->fetches++;
+
+	p->rc.resident = len;
+	p->rc.pins = r->pins;
+	lws_reclaimable_touch(&p->rc);
+
+	if (p->page == r->ranges[0] && !f->em.whole && !f->em.frac)
+		lws_font_set_em(f);
+
+	return 0;
+
+bad:
+	lwsl_cx_warn(r->fr->cx, "%s/%04x isn't a page of the face the "
+		     "manifest described, not using it", r->path,
+		     (unsigned int)p->page);
+
+	return 1;
+}
+
+static int
+lws_fonts_manifest_path_ok(const char *path)
+{
+	const char *p = path;
 
 	/*
-	 * Only a plain name, so the face is fetched from beside the manifest
-	 * whatever the manifest says: no path, scheme or escapes
+	 * Only a plain name, so the pages are fetched from beside the
+	 * manifest whatever the manifest says: no path, scheme or escapes
 	 */
 
 	if (!*p || *p == '.')
@@ -325,12 +432,106 @@ lws_fonts_manifest_file_ok(const char *file)
 	return 1;
 }
 
+static int
+lws_fonts_manifest_hex(const char *s, size_t len, uint32_t *v)
+{
+	size_t n;
+
+	if (!len || len > 4)
+		return 1;
+
+	*v = 0;
+	for (n = 0; n < len; n++) {
+		char c = s[n];
+
+		*v <<= 4;
+		if (c >= '0' && c <= '9')
+			*v |= (uint32_t)(c - '0');
+		else if (c >= 'a' && c <= 'f')
+			*v |= (uint32_t)(c - 'a' + 10);
+		else if (c >= 'A' && c <= 'F')
+			*v |= (uint32_t)(c - 'A' + 10);
+		else
+			return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * The pages a face lists, like "0000-0005,0020,00a7", into first, last pairs
+ * in ranges.  They must be in order and not overlap.  Returns the count of
+ * pairs, or -1 if the list is bad
+ */
+
+static int
+lws_fonts_manifest_pages(const char *pages, uint16_t *ranges, int max)
+{
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+	int n = 0, dash = 0, have = 0;
+	uint32_t v;
+
+	lws_tokenize_init(&ts, pages, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				      LWS_TOKENIZE_F_NO_INTEGERS |
+				      LWS_TOKENIZE_F_NO_FLOATS);
+	ts.len = strlen(pages);
+
+	do {
+		e = lws_tokenize(&ts);
+		switch (e) {
+		case LWS_TOKZE_TOKEN:
+			if (lws_fonts_manifest_hex(ts.token, ts.token_len,
+						   &v) || v > 0x10ff)
+				return -1;
+			if (dash) {
+				/* the end of the run started before */
+				if (v < ranges[(n - 1) * 2])
+					return -1;
+				ranges[((n - 1) * 2) + 1] = (uint16_t)v;
+				dash = 0;
+				break;
+			}
+			if (have || n == max ||
+			    (n && v <= ranges[((n - 1) * 2) + 1]))
+				return -1;
+			ranges[n * 2] = ranges[(n * 2) + 1] = (uint16_t)v;
+			n++;
+			have = 1;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			if (*ts.token == '-' && have && !dash) {
+				dash = 1;
+				break;
+			}
+			if (*ts.token == ',' && have && !dash) {
+				have = 0;
+				break;
+			}
+			return -1;
+
+		case LWS_TOKZE_ENDED:
+			break;
+
+		default:
+			return -1;
+		}
+	} while (e > 0);
+
+	if (dash || !have)
+		return -1;
+
+	return n;
+}
+
 /* the manifest is parsed: register a face for each usable entry */
 
 static void
 lws_fonts_manifest_apply(lws_fonts_remote_t *fr, lws_fonts_manifest_t *man)
 {
-	int n = 0;
+	uint16_t ranges[LWS_FONTS_MANIFEST_MAX_RANGES * 2];
+	int n = 0, nr;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&man->fonts)) {
@@ -344,16 +545,18 @@ lws_fonts_manifest_apply(lws_fonts_remote_t *fr, lws_fonts_manifest_t *man)
 			break;
 		}
 
-		if (!e->name[0] || !lws_fonts_manifest_file_ok(e->file) ||
-		    !e->line_height || e->line_height > 0xffff ||
-		    e->len < MCUFO_HDR_LEN || e->len > LWS_FONTS_REMOTE_MAX_LEN) {
-			lwsl_cx_warn(fr->cx, "ignoring bad entry '%s'", e->file);
+		nr = lws_fonts_manifest_pages(e->pages, ranges,
+					      LWS_FONTS_MANIFEST_MAX_RANGES);
+		if (!e->name[0] || !lws_fonts_manifest_path_ok(e->path) ||
+		    !e->line_height || e->line_height > 0xffff || nr <= 0) {
+			lwsl_cx_warn(fr->cx, "ignoring bad entry '%s'", e->path);
 			continue;
 		}
 
-		/* the face and its remote state, freed together */
+		/* the face, its remote state and its page ranges, together */
 
-		a = lws_zalloc(sizeof(*a) + sizeof(*r), __func__);
+		a = lws_zalloc(sizeof(*a) + sizeof(*r) +
+			       ((size_t)nr * 2 * sizeof(uint16_t)), __func__);
 		if (!a)
 			break;
 		r = (lws_mcufont_remote_t *)&a[1];
@@ -362,10 +565,10 @@ lws_fonts_manifest_apply(lws_fonts_remote_t *fr, lws_fonts_manifest_t *man)
 		r->fr = fr;
 		r->cx = fr->cx;
 		r->f = a;
-		r->file = e->file;
-		r->len = e->len;
-		r->rc.evict = lws_mcufont_remote_evict_cb;
-		lws_reclaimable_add(&r->rc);
+		r->path = e->path;
+		r->nranges = (uint16_t)nr;
+		memcpy(&r[1], ranges, (size_t)nr * 2 * sizeof(uint16_t));
+		r->ranges = (const uint16_t *)&r[1];
 
 		a->priv = (uint8_t *)r;
 		a->choice.family_name = e->name;
@@ -410,17 +613,25 @@ lws_fonts_manifest_start(lws_fonts_remote_t *fr)
 	lws_fonts_manifest_retry_cb(&fr->sul_retry);
 }
 
+/*
+ * What arrives is only used once the stream ends without the server having
+ * said it's an error: an http server sends its error page as the payload
+ * too.  So the manifest is parsed and a page collected as they come, but
+ * they are only applied when the stream is destroyed
+ */
+
 static lws_ss_state_return_t
 fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	fontss_t *m = (fontss_t *)userobj;
-	lws_fonts_remote_t *fr = m->fr;
+	uint8_t *nb;
+	size_t na;
 	int n;
 
 	if (m->done)
 		return LWSSSSRET_OK;
 
-	if (!m->r) {
+	if (!m->p) {
 		/* the manifest, parsed as it comes */
 
 		if (!m->parsing) {
@@ -435,73 +646,155 @@ fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		m->pos += len;
 		if (m->pos > LWS_FONTS_MANIFEST_MAX_LEN) {
-			lwsl_cx_warn(fr->cx, "manifest too large");
+			lwsl_cx_warn(m->fr->cx, "manifest too large");
+			m->done = 1;
 			return LWSSSSRET_DESTROY_ME;
 		}
 
-		n = lejp_parse(&m->jctx, buf, (int)len);
-		if (n < 0 && n != LEJP_CONTINUE) {
-			lwsl_cx_warn(fr->cx, "manifest JSON: %s",
-				     lejp_error_to_string(n));
-			return LWSSSSRET_DESTROY_ME;
+		/* http says it's all here with an empty one at the end */
+		if (len && !m->parsed) {
+			n = lejp_parse(&m->jctx, buf, (int)len);
+			if (n < 0 && n != LEJP_CONTINUE) {
+				lwsl_cx_warn(m->fr->cx, "manifest JSON: %s",
+					     lejp_error_to_string(n));
+				m->done = 1;
+				return LWSSSSRET_DESTROY_ME;
+			}
+			if (n >= 0)
+				m->parsed = 1;
 		}
 
 		if (!(flags & LWSSS_FLAG_EOM))
 			return LWSSSSRET_OK;
 
-		if (n < 0 || !m->a.dest) {
-			lwsl_cx_warn(fr->cx, "manifest incomplete");
+		if (!m->parsed || !m->a.dest) {
+			lwsl_cx_warn(m->fr->cx, "manifest incomplete");
+			m->done = 1;
 			return LWSSSSRET_DESTROY_ME;
 		}
 
-		/* the faces' names and files stay in the manifest's ac */
+		m->complete = 1;
 
-		fr->ac = m->a.ac;
-		m->a.ac = NULL;
+		return LWSSSSRET_OK;
+	}
+
+	/* a page, collected in a buffer grown as it comes */
+
+	if (len > LWS_FONTS_PAGE_MAX_LEN - m->pos) {
+		lwsl_cx_warn(m->fr->cx, "%s/%04x is too large", m->p->r->path,
+			     (unsigned int)m->p->page);
+		m->p->bad = 1;
 		m->done = 1;
-		fr->manifest_state = LWS_FONTS_MANIFEST_DONE;
-		lws_fonts_manifest_apply(fr, (lws_fonts_manifest_t *)m->a.dest);
-
 		return LWSSSSRET_DESTROY_ME;
 	}
 
-	/* a face */
-
-	if (!m->buf) {
-		m->buf = lws_malloc(m->r->len, __func__);
-		if (!m->buf) {
+	if (m->pos + len > m->alloc) {
+		na = m->pos + len + LWS_FONTS_PAGE_GRANULE;
+		if (na > LWS_FONTS_PAGE_MAX_LEN)
+			na = LWS_FONTS_PAGE_MAX_LEN;
+		nb = lws_realloc(m->buf, na, __func__);
+		if (!nb) {
 			/*
 			 * Not the server's fault: what is resident is all in
 			 * use.  Use a local face instead for a little while
 			 */
-			lwsl_cx_notice(fr->cx, "no memory for %s", m->r->file);
-			m->r->nomem_until = lws_now_usecs() +
-					    LWS_FONTS_NOMEM_HOLDOFF_US;
+			lwsl_cx_notice(m->fr->cx, "no memory for %s/%04x",
+				       m->p->r->path, (unsigned int)m->p->page);
+			m->p->holdoff_until = lws_now_usecs() +
+					      LWS_FONTS_NOMEM_HOLDOFF_US;
 			m->done = 1;
 			return LWSSSSRET_DESTROY_ME;
 		}
+		m->buf = nb;
+		m->alloc = na;
 	}
 
-	if (len > m->r->len - m->pos) {
-		lwsl_cx_warn(fr->cx, "%s longer than the manifest says",
-			     m->r->file);
-		m->r->bad = 1;
-		return LWSSSSRET_DESTROY_ME;
-	}
-
-	memcpy(m->buf + m->pos, buf, len);
+	if (len)
+		memcpy(m->buf + m->pos, buf, len);
 	m->pos += len;
 
-	if (!(flags & LWSSS_FLAG_EOM))
-		return LWSSSSRET_OK;
+	if (flags & LWSSS_FLAG_EOM)
+		m->complete = 1;
 
-	m->done = 1;
-	if (lws_mcufont_remote_arrived(m->r, m->buf, m->pos))
-		m->r->bad = 1;
+	return LWSSSSRET_OK;
+}
+
+/* the stream is over: use what it brought, or note why it didn't */
+
+static void
+fontss_finished(fontss_t *m)
+{
+	lws_fonts_remote_t *fr = m->fr;
+	lws_mcufont_page_t *p = m->p;
+	uint8_t *nb;
+
+	if (!p) {
+		fr->ss_manifest = NULL;
+
+		if (m->complete && !m->refused && !m->done) {
+			/* the faces' names and paths stay in its ac */
+			fr->ac = m->a.ac;
+			m->a.ac = NULL;
+			fr->manifest_state = LWS_FONTS_MANIFEST_DONE;
+			lws_fonts_manifest_apply(fr,
+					(lws_fonts_manifest_t *)m->a.dest);
+			return;
+		}
+
+		if (fr->manifest_state == LWS_FONTS_MANIFEST_DONE)
+			return;
+
+		/*
+		 * Layout goes on with the local faces while we keep trying
+		 * in the background
+		 */
+		lwsl_cx_notice(fr->cx, "font manifest %s unavailable, "
+			       "retrying", fr->url);
+		fr->manifest_state = LWS_FONTS_MANIFEST_RETRYING;
+		lws_sul_schedule(fr->cx, 0, &fr->sul_retry,
+				 lws_fonts_manifest_retry_cb,
+				 LWS_FONTS_REMOTE_HOLDOFF_S * LWS_US_PER_SEC);
+		return;
+	}
+
+	fr->ss_page = NULL;
+
+	if (m->done)
+		/* it was too big, or we had no memory for it */
+		return;
+
+	if (m->refused) {
+		/*
+		 * The server is there, but doesn't have this page for us
+		 * now: maybe it is still making it.  Text that needs it is
+		 * set in a local face for a while, then we ask again
+		 */
+		lwsl_cx_notice(fr->cx, "%s/%04x refused, for now", p->r->path,
+			       (unsigned int)p->page);
+		p->holdoff_until = lws_now_usecs() +
+				   (LWS_FONTS_PAGE_HOLDOFF_S * LWS_US_PER_SEC);
+		return;
+	}
+
+	if (!m->complete) {
+		lwsl_cx_notice(fr->cx, "%s/%04x unavailable", p->r->path,
+			       (unsigned int)p->page);
+		lws_fonts_remote_set_down(fr);
+		return;
+	}
+
+	/* give back what the buffer grew by beyond the page */
+
+	if (m->pos && m->pos < m->alloc) {
+		nb = lws_realloc(m->buf, m->pos, __func__);
+		if (nb)
+			m->buf = nb;
+	}
+
+	if (lws_mcufont_page_arrived(p, m->buf, m->pos))
+		p->bad = 1;
 	else
-		m->buf = NULL; /* the face's now */
-
-	return LWSSSSRET_DESTROY_ME;
+		m->buf = NULL; /* the page's now */
 }
 
 static lws_ss_state_return_t
@@ -512,59 +805,37 @@ fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	lws_fonts_remote_t *fr = m->fr;
 
 	switch (state) {
+	case LWSSSCS_QOS_NACK_REMOTE:
+		/* eg, a 404: what came was the error page */
+		m->refused = 1;
+		return LWSSSSRET_DESTROY_ME;
+
+	case LWSSSCS_QOS_ACK_REMOTE:
 	case LWSSSCS_UNREACHABLE:
 	case LWSSSCS_ALL_RETRIES_FAILED:
-	case LWSSSCS_QOS_NACK_REMOTE:
 	case LWSSSCS_DISCONNECTED:
-		if (!m->done)
-			/* it isn't coming this time */
-			return LWSSSSRET_DESTROY_ME;
-		break;
+		return LWSSSSRET_DESTROY_ME;
 
 	case LWSSSCS_DESTROYING:
 		if (m->parsing)
 			lejp_destruct(&m->jctx);
+
+		if (fr) {
+			if (fr->cx->being_destroyed) {
+				/* the context is going: nothing more to do */
+				if (m->p)
+					fr->ss_page = NULL;
+				else
+					fr->ss_manifest = NULL;
+			} else {
+				fontss_finished(m);
+				lws_fonts_remote_wake(fr);
+				lws_fonts_remote_kick(fr);
+			}
+		}
+
 		lwsac_free(&m->a.ac);
 		lws_free_set_NULL(m->buf);
-
-		if (!fr)
-			break;
-
-		if (fr->cx->being_destroyed) {
-			/* the context is going: nothing more to do */
-			if (m->r)
-				fr->ss_face = NULL;
-			else
-				fr->ss_manifest = NULL;
-			break;
-		}
-
-		if (!m->r) {
-			fr->ss_manifest = NULL;
-			if (fr->manifest_state != LWS_FONTS_MANIFEST_DONE) {
-				/*
-				 * Layout goes on with the local faces while
-				 * we keep trying in the background
-				 */
-				lwsl_cx_notice(fr->cx, "font manifest %s "
-					       "unavailable, retrying", fr->url);
-				fr->manifest_state = LWS_FONTS_MANIFEST_RETRYING;
-				lws_sul_schedule(fr->cx, 0, &fr->sul_retry,
-						 lws_fonts_manifest_retry_cb,
-						 LWS_FONTS_REMOTE_HOLDOFF_S *
-							LWS_US_PER_SEC);
-			}
-		} else {
-			fr->ss_face = NULL;
-			if (!m->done && !m->r->bad) {
-				lwsl_cx_notice(fr->cx, "%s unavailable",
-					       m->r->file);
-				lws_fonts_remote_set_down(fr);
-			}
-		}
-
-		lws_fonts_remote_wake(fr);
-		lws_fonts_remote_kick(fr);
 		break;
 
 	default:
@@ -573,7 +844,6 @@ fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	return LWSSSSRET_OK;
 }
-
 static int
 lws_fonts_remote_notify(struct lws_state_manager *mgr,
 			struct lws_state_notify_link *link, int current,
@@ -664,22 +934,24 @@ lws_fonts_remote_manifest_pending(struct lws_context *cx, lws_font_waiter_t *w)
 	return 1;
 }
 
+/* the face can be chosen: its core page is here, or could be fetched now */
+
 int
 lws_mcufont_remote_available(const lws_mcufont_remote_t *r)
 {
-	return r->blob || (!r->bad && !lws_fonts_remote_down(r->fr) &&
-			   lws_now_usecs() >= r->nomem_until);
+	return lws_mcufont_page_available(r, lws_mcufont_remote_page(
+				(lws_mcufont_remote_t *)r, r->ranges[0], 0));
 }
 
 static int
-lws_mcufont_remote_fetching(lws_mcufont_remote_t *r)
+lws_mcufont_page_fetching(lws_mcufont_page_t *p)
 {
-	return r->fr->ss_face &&
-	       ((fontss_t *)lws_ss_to_user_object(r->fr->ss_face))->r == r;
+	return p->r->fr->ss_page &&
+	       ((fontss_t *)lws_ss_to_user_object(p->r->fr->ss_page))->p == p;
 }
 
 /*
- * Layout gave up waiting for the manifest, or a face: the server is too slow
+ * Layout gave up waiting for the manifest, or a page: the server is too slow
  * to be useful now.  Without this, each element after would wait as long
  * again before giving up in its turn.  Layout goes on without the manifest
  * (it is still applied if it arrives), or uses the local faces for a while
@@ -705,33 +977,126 @@ lws_fonts_remote_too_slow(struct lws_context *cx, int manifest)
 		fr->manifest_state = LWS_FONTS_MANIFEST_RETRYING;
 }
 
-lws_font_residency_t
-lws_mcufont_remote_resident(lws_mcufont_remote_t *r, lws_font_waiter_t *w)
-{
-	lws_fonts_remote_t *fr = r->fr;
+/* the page is wanted: whether it is here, coming, or can't be had now */
 
-	if (r->blob) {
-		lws_reclaimable_touch(&r->rc);
+static lws_font_residency_t
+lws_mcufont_page_want(lws_mcufont_remote_t *r, uint16_t page)
+{
+	lws_mcufont_page_t *p = lws_mcufont_remote_page(r, page, 1);
+
+	if (!p)
+		return LWS_FONT_UNAVAILABLE;
+
+	if (p->blob) {
+		lws_reclaimable_touch(&p->rc);
 		return LWS_FONT_RESIDENT;
 	}
 
-	if (!lws_mcufont_remote_available(r))
+	if (!lws_mcufont_page_available(r, p))
 		return LWS_FONT_UNAVAILABLE;
 
-	if (!r->queue.owner && !lws_mcufont_remote_fetching(r))
-		lws_dll2_add_tail(&r->queue, &fr->queue);
+	if (!p->queue.owner && !lws_mcufont_page_fetching(p))
+		lws_dll2_add_tail(&p->queue, &r->fr->queue);
 
-	lws_fonts_remote_wait(fr, w);
-	lws_fonts_remote_kick(fr);
+	return LWS_FONT_PENDING;
+}
 
-	/* the kick may have found it can't be had */
-	if (!lws_mcufont_remote_available(r)) {
+/*
+ * Whether the face can draw the utf8 text now: if its core page, and the
+ * page of every codepoint in it, is resident.  Text NULL asks only about
+ * the core page, ie, whether the face can be used for layout at all.  The
+ * pages that aren't here are fetched; if any is being fetched, w is woken
+ * when that completes.  If one can't be had for now, the text has to be set
+ * in another face, but the others are still fetched for next time
+ */
+
+lws_font_residency_t
+lws_mcufont_remote_resident(lws_mcufont_remote_t *r, const char *utf8,
+			    size_t len, lws_font_waiter_t *w)
+{
+	lws_font_residency_t ret, worst;
+	uint32_t page = r->ranges[0], last = 0x10000, unicode;
+	size_t tlen = len;
+
+	worst = lws_mcufont_page_want(r, (uint16_t)page);
+
+	while (utf8 && tlen) {
+		size_t ot = tlen;
+
+		if (lws_dlo_utf8_unicode(utf8, &tlen, &unicode)) {
+			utf8++;
+			continue;
+		}
+		utf8 += ot - tlen;
+
+		page = lws_mcufont_remote_page_of(r, unicode);
+		if (page == last || page == r->ranges[0])
+			continue;
+		last = page;
+
+		ret = lws_mcufont_page_want(r, (uint16_t)page);
+		if (ret > worst)
+			worst = ret;
+	}
+
+	if (worst == LWS_FONT_RESIDENT)
+		return worst;
+
+	if (worst == LWS_FONT_PENDING)
+		lws_fonts_remote_wait(r->fr, w);
+	lws_fonts_remote_kick(r->fr);
+
+	/* the kick may have found the server can't be reached */
+	if (worst == LWS_FONT_PENDING && lws_fonts_remote_down(r->fr)) {
 		if (w)
 			lws_dll2_remove(&w->list);
 		return LWS_FONT_UNAVAILABLE;
 	}
 
-	return LWS_FONT_PENDING;
+	return worst;
+}
+
+/*
+ * The blob with the glyph for unicode in it, if it is resident: the page the
+ * codepoint is on, or the core page if the face doesn't have that page
+ */
+
+const uint8_t *
+lws_mcufont_remote_blob(lws_mcufont_remote_t *r, uint32_t unicode,
+			size_t *len)
+{
+	lws_mcufont_page_t *p = lws_mcufont_remote_page(r,
+				lws_mcufont_remote_page_of(r, unicode), 0);
+
+	if (!p || !p->blob)
+		return NULL;
+
+	lws_reclaimable_touch(&p->rc);
+	*len = p->len;
+
+	return p->blob;
+}
+
+/*
+ * Pin (or with pin 0, unpin) every resident page of the face.  A page that
+ * arrives meanwhile is pinned as many times as the face is
+ */
+
+void
+lws_mcufont_remote_pin(lws_mcufont_remote_t *r, int pin)
+{
+	if (!pin && !r->pins)
+		return;
+
+	r->pins = (uint16_t)(pin ? r->pins + 1 : r->pins - 1);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&r->pages)) {
+		lws_mcufont_page_t *p = lws_container_of(d, lws_mcufont_page_t,
+							 list);
+		if (p->blob)
+			p->rc.pins = r->pins;
+	} lws_end_foreach_dll(d);
 }
 
 void
@@ -742,9 +1107,18 @@ lws_mcufont_remote_destroy(lws_display_font_t *f)
 	if (!r)
 		return;
 
-	lws_reclaimable_remove(&r->rc);
-	lws_dll2_remove(&r->queue);
-	lws_free_set_NULL(r->blob);
+	while (lws_dll2_get_head(&r->pages)) {
+		lws_mcufont_page_t *p = lws_container_of(
+				lws_dll2_get_head(&r->pages),
+				lws_mcufont_page_t, list);
+
+		lws_reclaimable_remove(&p->rc);
+		lws_dll2_remove(&p->queue);
+		lws_dll2_remove(&p->list);
+		lws_free(p->blob);
+		lws_free(p);
+	}
+
 	f->data = NULL;
 }
 
@@ -766,9 +1140,9 @@ lws_fonts_remote_stop(struct lws_context *cx)
 	if (fr->ss_manifest)
 		((fontss_t *)lws_ss_to_user_object(fr->ss_manifest))->fr = NULL;
 	lws_ss_destroy(&fr->ss_manifest);
-	if (fr->ss_face)
-		((fontss_t *)lws_ss_to_user_object(fr->ss_face))->fr = NULL;
-	lws_ss_destroy(&fr->ss_face);
+	if (fr->ss_page)
+		((fontss_t *)lws_ss_to_user_object(fr->ss_page))->fr = NULL;
+	lws_ss_destroy(&fr->ss_page);
 
 	while (lws_dll2_get_head(&fr->waiters))
 		lws_dll2_remove(lws_dll2_get_head(&fr->waiters));
@@ -782,7 +1156,7 @@ lws_fonts_remote_free(struct lws_context *cx)
 	if (!fr)
 		return;
 
-	lwsl_cx_notice(cx, "faces fetched %u times, evicted %u times",
+	lwsl_cx_notice(cx, "pages fetched %u times, evicted %u times",
 		       fr->fetches, fr->evictions);
 
 	lwsac_free(&fr->ac);

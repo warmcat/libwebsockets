@@ -1,0 +1,12 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (8.0,29.44) [384.0 x 30.0] rgba=00000000
+  text (0.0,0.0) [166.0 x 30.0] rgba=FF000000 f=29/700 "Pages – of a face"
+ rect (8.0,81.84) [384.0 x 46.0] rgba=00000000
+  text (0.0,0.0) [374.0 x 23.0] rgba=FF000000 f=19/400 "Runs set from two pages — the dashes are on the second "
+  text (0.0,23.0) [148.0 x 23.0] rgba=FF000000 f=19/400 "— line up with the first."
+ rect (8.0,150.24) [384.0 x 39.0] rgba=00000000
+  text (0.0,0.0) [107.0 x 19.0] rgba=FF000000 f=17/700 "Bold – with a dash"
+  text (107.0,1.0) [248.0 x 19.0] rgba=FF000000 f=17/400 " and plain text after it, in the faces from the "
+  text (0.0,20.0) [39.0 x 19.0] rgba=FF000000 f=17/400 "server."
+ rect (8.0,207.16) [384.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [128.0 x 14.0] rgba=FF000000 f=12/400 "Small text with no dashes at all."

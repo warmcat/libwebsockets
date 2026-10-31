@@ -966,6 +966,51 @@ lhp_font_settle(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
 }
 
 /*
+ * The face to set text in.  The element's face is settled and pinned, so
+ * for a face from a server its core page is here, but text with codepoints
+ * on its other pages needs those too.  Any that isn't here is fetched, and
+ * where the parse can come back to the same text, it waits for them as it
+ * does for the element's face.  If it can't wait, or they can't be had for
+ * now, the text is set in the nearest face we have here instead.  *font is
+ * NULL if the parse is to wait.
+ */
+
+static void
+lhp_text_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps,
+	      const char *text, size_t len, const lws_display_font_t **font)
+{
+	lws_font_waiter_t *w = NULL;
+
+	*font = ps->font;
+
+	if (ctx->content_can_wait) {
+		ctx->font_wait.sul = ctx->sshtmlevsul;
+		ctx->font_wait.cb = ctx->sshtmlevcb;
+		w = &ctx->font_wait;
+	}
+
+	switch (lws_font_text_resident(ps->font, text, len, w)) {
+	case LWS_FONT_RESIDENT:
+		return;
+	case LWS_FONT_PENDING:
+		if (w) {
+			if (++ps->page_waits < LHP_FONT_WAIT_BUDGET) {
+				*font = NULL;
+				return;
+			}
+			lws_dll2_remove(&w->list);
+			lws_fonts_remote_too_slow(cx, 0);
+		}
+		/* fallthru */
+	default:
+		*font = lws_font_choose_local(cx, &ps->font->choice);
+		if (!*font)
+			*font = ps->font;
+		break;
+	}
+}
+
+/*
  * Line boxes
  */
 
@@ -1303,6 +1348,7 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	const lcsp_atr_t *bg = NULL, *ws;
 	lws_fx_t pl, pr, pt, pb, avail, total, word;
 	lws_dlo_cursor_t cursor;
+	const lws_display_font_t *font;
 	lws_box_t box;
 	int nowrap, deco;
 
@@ -1341,6 +1387,12 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		drt->clipped = 1;
 		return 0;
 	}
+
+	/* it may have to wait for pages of its face from a server */
+	lhp_text_font((struct lws_context *)ctx->user1, ctx, ps, text, len,
+		      &font);
+	if (!font)
+		return LWS_SRET_AWAIT_RETRY;
 
 	col = lhp_colour(ps->css_color, LWSDC_RGBA(0, 0, 0, 255));
 
@@ -1409,7 +1461,7 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		box.w = avail.whole > 0 ? avail : ctx->ic.wh_px[LWS_LHPREF_WIDTH];
 		lws_fx_set(box.h, 0, 0);
 
-		txt = lws_display_dlo_text_new(drt->dl, c->dlo, &box, ps->font);
+		txt = lws_display_dlo_text_new(drt->dl, c->dlo, &box, font);
 		if (!txt) {
 			if (rect)
 				lws_display_dlo_destroy((lws_dlo_t **)&rect);

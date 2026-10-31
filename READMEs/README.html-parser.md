@@ -239,39 +239,53 @@ At least one face must be built in, so text can always be shown, if not as
 intended.  The manifest is fetched once per boot, when the system becomes
 OPERATIONAL or the first page needs fonts, whichever comes first, and is
 retried until it arrives.  It lists each face's name (the mcufont full name,
-which `font-family` is matched against), file, line height and size:
+which `font-family` is matched against), where its pages are, its line height,
+and the pages of 256 codepoints it has glyphs on, as runs of hex page numbers:
 
 ```
 {"fonts":[
-  {"name":"Fira Sans Condensed Bold 14","file":"FiraSansCondensed-Bold14.mcufont","line_height":17,"len":7066},
+  {"name":"Fira Sans Condensed Bold 14","path":"FiraSansCondensed-Bold14","line_height":17,"pages":"0000-0005,0020"},
   ...
 ]}
 ```
 
-The faces are fetched from the same directory as the manifest.  Make the
-manifest for a directory of `.mcufont` files with
+Each page of a face is a small mcufont of its own, fetched from beside the
+manifest as `<path>/<page>.mcufont`, eg `FiraSansCondensed-Bold14/0020.mcufont`
+for the codepoints from U+2000 (dashes, quotes and so on).  So a device using
+a face with glyphs for many scripts only fetches the pages its text uses, and
+a server only has to make those.
+
+`plugins/protocol_lws_mcufonts` serves a manifest of the faces in a directory
+of `.ttf` files at the sizes it is configured with, and makes each page with
+the mcufont encoder the first time it is asked for, caching it on disk (see its
+README).  Until a page has been made the plugin answers 404, and the device
+sets that text in its closest built-in face meanwhile, asking again after 20s.
+
+Faces already made as `.mcufont` files can be served statically instead: lay
+out a directory of them as pages with
 
 ```
-$ cmake -DDIR=<dir> -DOUT=<dir>/fonts.json -P contrib/mcufont/fonts-manifest.cmake
+$ cmake -DDIR=<dir of .mcufont> -DOUT=<dir to serve> -P contrib/mcufont/fonts-manifest.cmake
 ```
 
-and serve the directory.
+and serve `<dir to serve>`.  Every page there is a copy of the whole face,
+which suits faces with glyphs on only a page or two.  A static server needs to
+serve `.mcufont` files with some mimetype, eg `application/octet-stream`;
+lws' own file serving needs it given in the mount's `extra_mimetypes`.
 
-Only the manifest's list stays in memory.  A face is fetched whole when an
-element laid out in it is reached, and the layout waits for it there.  It
-then stays in the heap as a reclaimable occupant: it is pinned while an
-element using it is open in the layout, and while a line of text in it is
-being drawn, and otherwise is evicted when memory runs short and fetched
-again when next needed.  So with little memory a face can come and go
-several times during one render, with the render waiting at that text for
-it to come back.  A face that can't be fetched (the server is unreachable,
-the file doesn't match the manifest) is replaced by the closest built-in
-face, and the server isn't asked again for 30s.
+Only the manifest's list stays in memory.  A page of a face is fetched when
+text that needs it is reached in the layout, and the layout waits for it
+there.  It then stays in the heap as a reclaimable occupant: the pages of a
+face are pinned while an element using it is open in the layout, and while a
+line of text in it is being drawn, and otherwise are evicted when memory runs
+short and fetched again when next needed.  So with little memory a page can
+come and go several times during one render, with the render waiting at that
+text for it to come back.  Text needing a page that can't be fetched (the
+server is unreachable or refuses it, or it doesn't match the face's other
+pages) is set in the closest built-in face instead.
 
-This trades flash for heap and network: each face costs its size in heap
-while in use, and a fetch whenever it was evicted.  A page in five faces
-lays out in about 120KB of heap above what lws holds at startup, swapping
-faces as it goes.
+This trades flash for heap and network: each page costs its size in heap
+while in use, and a fetch whenever it was evicted.
 
 To see that the faces (and the other reclaimable tenants, like image
 payloads) renew themselves properly during the layout without depending on

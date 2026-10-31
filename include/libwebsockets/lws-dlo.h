@@ -1034,21 +1034,31 @@ lws_fonts_register_dir(struct lws_context *cx, const char *dirpath);
  * reaches OPERATIONAL (retried until it succeeds).  The manifest is JSON,
  *
  *   {"fonts": [{ "name": "Fira Sans Condensed Bold 14",
- *                "file": "FiraSansCondensed-Bold14.mcufont",
- *                "line_height": 17, "len": 7066 }, ...]}
+ *                "path": "FiraSansCondensed-Bold14",
+ *                "line_height": 17, "pages": "0000-0001,0020" }, ...]}
  *
  * name being the face's mcufont full name, which the chooser matches css
- * font-family against and gets the weight and style from, file a .mcufont
- * in the same directory as the manifest, line_height the face's line height
- * and len the file's size in bytes.  contrib/mcufont/fonts-manifest.cmake
- * makes one for a directory of .mcufont files.
+ * font-family against and gets the weight and style from, line_height the
+ * face's line height, and pages the pages of 256 codepoints the face has
+ * glyphs on, as ascending runs of hex page numbers.  Each page of the face is
+ * its own small mcufont, fetched from <path>/<page>.mcufont beside the
+ * manifest, page being four hex digits, eg FiraSansCondensed-Bold14/0020.mcufont
+ * for the codepoints from U+2000.  The first page listed is the face's core
+ * page, whose fallback glyph is shown for codepoints on pages the face
+ * doesn't have.  plugins/protocol_lws_mcufonts serves a manifest and pages
+ * made from .ttf files as they are asked for, and
+ * contrib/mcufont/fonts-manifest.cmake lays out a directory of .mcufont
+ * files to be served statically.
  *
  * The listed faces can be chosen from as soon as the manifest has arrived,
- * with nothing of them in memory.  A face is fetched whole when text is to be
- * set in it, and is a reclaimable heap occupant: it can be evicted when
+ * with nothing of them in memory.  A page of a face is fetched when text is to
+ * be set using it, and is a reclaimable heap occupant: it can be evicted when
  * memory is short, and is fetched again when needed, even several times
- * during one render.  Layout and render wait for a face being fetched; if it
- * can't be had, the closest face in flash is used instead.
+ * during one render.  Layout and render wait for pages being fetched; if a
+ * page text needs can't be had, the text is set in the closest face in flash
+ * instead.  A page the server refuses (eg, 404 while it is still making it) is
+ * asked for again after 20s; a server that can't be reached is left alone for
+ * 30s.
  *
  * Needs LWS_WITH_SECURE_STREAMS and a policy with the __default streamtype.
  * Returns 0 if the manifest will be fetched, or nonzero if it can't be, eg

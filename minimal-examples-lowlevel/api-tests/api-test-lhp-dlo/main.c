@@ -21,6 +21,7 @@ enum {
 		LWS_SW_PRESEED,
 		LWS_SW_FONTS,
 		LWS_SW_FONT_MANIFEST,
+		LWS_SW_SERVE_FONTS,
 		LWS_SW_HEAP_LIMIT,
 		LWS_SW_RECLAIM_LINES,
 		LWS_SW_RECLAIM_ELEMS,
@@ -40,6 +41,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_PRESEED]	= { "--preseed",    "Preseed the asset cache with url=file" },
 	[LWS_SW_FONTS]	= { "--fonts",         "Register the .mcufont files in this directory as file-backed faces, instead of the built-in ones" },
 	[LWS_SW_FONT_MANIFEST] = { "--font-manifest", "Use the faces this font manifest url lists, fetched when needed, with only one built-in face as the fallback" },
+	[LWS_SW_SERVE_FONTS] = { "--serve-fonts", "Serve this directory over http on a localhost port, and use the font manifest in it as --font-manifest does" },
 	[LWS_SW_HEAP_LIMIT] = { "--heap-limit", "Simulate a heap of this many bytes above what is in use at the start, so fonts and images get reclaimed" },
 	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_RECLAIM_ELEMS] = { "--reclaim-elems", "Evict every reclaimable heap occupant as every N-th element of the layout opens, so they all get renewed mid-layout on any allocator" },
@@ -57,6 +59,41 @@ static const struct lws_switches switches[] = {
 //#define SEVENCOL
 
 struct lws_context *cx;
+
+#if defined(LWS_WITH_SERVER)
+/*
+ * With --serve-fonts, the faces come from our own http server on localhost:
+ * the built-in policy's __default streamtype insists on tls, so it gets one
+ * that doesn't
+ */
+static const char * const serve_fonts_policy =
+	"{"
+		"\"release\":\"1\","
+		"\"product\":\"lhp-dlo-serve-fonts\","
+		"\"schema-version\":1,"
+		"\"retry\":[{\"default\":{"
+			"\"backoff\":[100,200],"
+			"\"conceal\":2,"
+			"\"jitterpc\":0,"
+			"\"svalidping\":30,"
+			"\"svalidhup\":35"
+		"}}],"
+		"\"s\":[{\"__default\":{"
+			"\"endpoint\":\"${endpoint}\","
+			"\"port\":80,"
+			"\"protocol\":\"h1\","
+			"\"http_method\":\"GET\","
+			"\"http_url\":\"\","
+			"\"metadata\":[{"
+				"\"endpoint\":\"\","
+				"\"acc\":\"accept\","
+				"\"ua\":\"user-agent\""
+			"}],"
+			"\"retry\":\"default\","
+			"\"timeout_ms\":10000"
+		"}}]"
+	"}";
+#endif
 
 LWS_SS_USER_TYPEDEF
 	lws_flow_t			flow;
@@ -755,6 +792,10 @@ main(int argc, const char **argv)
 	}
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
+#if defined(LWS_WITH_SERVER)
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_SERVE_FONTS].sw))
+		info.pss_policies_json = serve_fonts_policy;
+#endif
 	info.options |= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 			LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
@@ -788,12 +829,60 @@ main(int argc, const char **argv)
 		}
 		lwsl_notice("%s: %d file-backed fonts from %s\n", __func__,
 			    n, p);
+#if defined(LWS_WITH_SERVER)
+	} else if ((p = lws_cmdline_option(argc, argv,
+					  switches[LWS_SW_SERVE_FONTS].sw))) {
+		/*
+		 * The same, but from an http server serving the directory
+		 * here, on a port of its own: a page it doesn't have is
+		 * refused with a 404, as a server still making it would
+		 */
+		static const struct lws_protocol_vhost_options mcufont_mime = {
+			NULL, NULL, ".mcufont", "application/octet-stream"
+		};
+		static struct lws_http_mount mount;
+		struct lws_context_creation_info vi;
+		struct lws_vhost *vh;
+		char url[64];
+
+		memset(&mount, 0, sizeof(mount));
+		mount.mountpoint = "/";
+		mount.mountpoint_len = 1;
+		mount.origin = p;
+		mount.origin_protocol = LWSMPRO_FILE;
+		/* lws only serves files of types it knows */
+		mount.extra_mimetypes = &mcufont_mime;
+
+		memset(&vi, 0, sizeof(vi));
+		vi.vhost_name = "fonts";
+		vi.iface = "127.0.0.1";
+		vi.port = 0; /* any free port */
+		vi.mounts = &mount;
+
+		vh = lws_create_vhost(cx, &vi);
+		if (!vh) {
+			lwsl_err("%s: can't serve %s\n", __func__, p);
+			goto bail;
+		}
+
+		lws_snprintf(url, sizeof(url),
+			     "http://127.0.0.1:%d/fonts.json",
+			     lws_get_vhost_listen_port(vh));
+
+		lws_font_register(cx, fira_c_r_14, sizeof(fira_c_r_14));
+		if (lws_fonts_register_manifest(cx, url)) {
+			lwsl_err("%s: can't use font manifest %s\n", __func__,
+				 url);
+			goto bail;
+		}
+#endif
 	} else if ((p = lws_cmdline_option(argc, argv,
 					  switches[LWS_SW_FONT_MANIFEST].sw))) {
 		/*
 		 * Fonts as a system attribute: one face kept here, so text
 		 * can always be shown, and the rest learned from a manifest
-		 * on a server and fetched into the heap as they are needed
+		 * on a server and fetched into the heap a page at a time, as
+		 * they are needed
 		 */
 		lws_font_register(cx, fira_c_r_14, sizeof(fira_c_r_14));
 		if (lws_fonts_register_manifest(cx, p)) {

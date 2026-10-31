@@ -144,7 +144,8 @@ enum lhp_callbacks {
 	LHPCB_ELEMENT_START		= 4,	/* reported at end of <> */
 	LHPCB_ELEMENT_END		= 5,
 
-	LHPCB_CONTENT			= 6,
+	LHPCB_CONTENT			= 6,	/* may return LWS_SRET_AWAIT_RETRY
+						 * when .content_can_wait */
 
 	LHPCB_COMMENT			= 7,
 };
@@ -702,6 +703,8 @@ typedef struct lhp_pstack {
 	const lws_display_font_t	*font;
 	uint8_t				font_pinned; /* we hold font resident */
 	uint8_t				font_waits; /* retries waiting for it */
+	uint8_t				page_waits; /* retries waiting for
+						     * pages of it for text */
 	uint8_t				reclaimed; /* counted for reclaim_elems */
 
 	/*
@@ -1114,6 +1117,10 @@ typedef struct lhp_ctx {
 	uint8_t			await_assets:1; /* doc end deferred for dlo assets */
 	uint8_t			cancelled:1; /* document torn down: assets must
 					     * not resume the parse for it */
+	uint8_t			content_can_wait:1; /* the LHPCB_CONTENT cb
+						     * may return AWAIT_RETRY
+						     * to see the same text
+						     * again when resumed */
 
 	uint8_t			css_block_depth; /* inside applicable @media */
 	uint8_t			css_skip_depth;  /* skipping unusable @-rule */

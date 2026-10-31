@@ -49,8 +49,8 @@ utf8_bytes(uint8_t u)
 	return 0;
 }
 
-static int
-utf8_unicode(const char *utf8, size_t *utf8_len, uint32_t *unicode)
+int
+lws_dlo_utf8_unicode(const char *utf8, size_t *utf8_len, uint32_t *unicode)
 {
 	size_t glyph_len = utf8_bytes((uint8_t)*utf8);
 	size_t n;
@@ -159,7 +159,7 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 		size_t ot = tlen;
 		uint32_t unicode;
 
-		if (!utf8_unicode(utf8, &tlen, &unicode)) {
+		if (!lws_dlo_utf8_unicode(utf8, &tlen, &unicode)) {
 			text->font->image_glyph(text, unicode, 0);
 
 			uc = *utf8;
@@ -228,7 +228,7 @@ lws_display_dlo_text_measure(lws_dlo_text_t *text, const char *utf8,
 		size_t ot = tlen;
 		char uc = *utf8;
 
-		if (utf8_unicode(utf8, &tlen, &unicode)) {
+		if (lws_dlo_utf8_unicode(utf8, &tlen, &unicode)) {
 			lwsl_err("%s: bad utf8\n", __func__);
 			break;
 		}
@@ -270,7 +270,7 @@ lws_display_dlo_text_attach_glyphs(lws_dlo_text_t *text)
 		size_t ot = tlen;
 
 		g = NULL;
-		if (!utf8_unicode(utf8, &tlen, &unicode))
+		if (!lws_dlo_utf8_unicode(utf8, &tlen, &unicode))
 			/* instantiate the glyphs this time */
 			g = text->font->image_glyph(text, unicode, 1);
 		if (g == NULL) {
@@ -466,8 +466,8 @@ lws_font_set_em(lws_display_font_t *a)
 
 /*
  * The rest of registering a face whose name and line height are filled in.
- * A face from a server has no data yet: its em is set when it first arrives,
- * which is before layout uses it
+ * A face from a server has no data yet: its em is set when its core page
+ * first arrives, which is before layout uses it
  */
 
 int
@@ -645,43 +645,66 @@ lws_fonts_register_manifest(struct lws_context *cx, const char *url)
 /*
  * Whether f can be used right now.  Flash faces always can, and so can
  * file-backed ones, which are read in as they are touched.  A face from a
- * server is if it has arrived; otherwise it is fetched, and w woken when
- * that completes, or it can't be had for now.
+ * server can be when its core page has arrived; otherwise it is fetched,
+ * and w woken when that completes, or it can't be had for now.
  */
 
 lws_font_residency_t
 lws_font_resident(const lws_display_font_t *f, lws_font_waiter_t *w)
 {
+	return lws_font_text_resident(f, NULL, 0, w);
+}
+
+/*
+ * Whether f can draw the utf8 text right now: for a face from a server, if
+ * the pages with the text's glyphs are here too.  Any that aren't are
+ * fetched as for lws_font_resident()
+ */
+
+lws_font_residency_t
+lws_font_text_resident(const lws_display_font_t *f, const char *utf8,
+		       size_t len, lws_font_waiter_t *w)
+{
 #if defined(LWS_DLO_REMOTE_FONTS)
 	lws_mcufont_remote_t *r = mcuf_remote(f);
 
 	if (r)
-		return lws_mcufont_remote_resident(r, w);
+		return lws_mcufont_remote_resident(r, utf8, len, w);
 #endif
 	(void)f;
+	(void)utf8;
+	(void)len;
 	(void)w;
 
 	return LWS_FONT_RESIDENT;
 }
 
-/* while pinned, a face that came from a server can't be evicted */
+/* while pinned, the pages of a face from a server can't be evicted */
 
 void
 lws_font_pin(const lws_display_font_t *f)
 {
+#if defined(LWS_DLO_REMOTE_FONTS)
 	lws_mcufont_remote_t *r = mcuf_remote(f);
 
 	if (r)
-		lws_reclaimable_pin(&r->rc);
+		lws_mcufont_remote_pin(r, 1);
+#else
+	(void)f;
+#endif
 }
 
 void
 lws_font_unpin(const lws_display_font_t *f)
 {
+#if defined(LWS_DLO_REMOTE_FONTS)
 	lws_mcufont_remote_t *r = mcuf_remote(f);
 
 	if (r)
-		lws_reclaimable_unpin(&r->rc);
+		lws_mcufont_remote_pin(r, 0);
+#else
+	(void)f;
+#endif
 }
 
 struct track {
