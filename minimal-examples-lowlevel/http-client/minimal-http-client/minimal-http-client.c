@@ -163,6 +163,32 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 		break;
 
+	/*
+	 * The headers we add in APPEND_HANDSHAKE_HEADER below are added again
+	 * to the request a redirect makes, wherever the server's Location
+	 * takes it.  So when we are sending Basic Auth credentials, refuse a
+	 * redirect that would take them anywhere they may not go: lws says
+	 * they may only follow it over https with strict tls verification, to
+	 * the host we started with or a subdomain of it.  Refusing, rather
+	 * than following without them, makes the failure visible.
+	 */
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
+	{
+		lws_client_redirect_info_t ri;
+
+		if (!ba_user || !ba_password)
+			break;
+
+		if (lws_client_redirect_info(wsi, &ri) || !ri.credentials_ok) {
+			lwsl_err("Refusing redirect: it would take the Basic Auth "
+				 "credentials somewhere they may not go\n");
+			return 1;
+		}
+		break;
+	}
+#endif
+
 	/* you only need this if you need to do Basic Auth */
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 	{
@@ -324,7 +350,6 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		i.ssl_connection = 0;
 
 	i.ssl_connection |= LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
-			    LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS |
 			    LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
 	i.alpn = "h2,http/1.1";

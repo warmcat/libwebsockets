@@ -181,7 +181,84 @@ if (requirements)
 			     FIXTURES_REQUIRED "hc_srv"
 			     TIMEOUT 60)
 		endforeach()
-				     
+
+		#
+		# Basic Auth credentials must not follow a redirect to another
+		# host, nor from https to http.  The fixture redirects everything
+		# to its plain http listener under a different host name than
+		# the one we dial, and answers 403 there if it sees an
+		# Authorization header.  So the client must refuse the redirect
+		# when it has credentials (exit 3), and follow it when it has none.
+		#
+		add_executable(lws-minimal-http-client-redirect-fixture
+			       redirect-fixture.c)
+		if (websockets_shared)
+			target_link_libraries(lws-minimal-http-client-redirect-fixture
+					      websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
+			add_dependencies(lws-minimal-http-client-redirect-fixture
+					 websockets_shared)
+		else()
+			target_link_libraries(lws-minimal-http-client-redirect-fixture
+					      websockets ${LIBWEBSOCKETS_DEP_LIBS})
+		endif()
+
+		lws_get_free_port(PORT_HC_REDIR)
+		lws_get_free_port(PORT_HC_REDIR_TLS)
+
+		# the redirects name the other spelling of the loopback host
+		if ("${LWS_CTEST_SERVER_RESOLVE}" STREQUAL "localhost")
+			set(HC_REDIR_TO 127.0.0.1)
+		else()
+			set(HC_REDIR_TO localhost)
+		endif()
+
+		set(HC_REDIR_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls)
+
+		add_test(NAME st_hc_redir COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+				hc_redir
+				$<TARGET_FILE:lws-minimal-http-client-redirect-fixture>
+				--port ${PORT_HC_REDIR} --port-tls ${PORT_HC_REDIR_TLS}
+				--to ${HC_REDIR_TO}
+				--cert ${HC_REDIR_CERTS}/localhost-100y.cert
+				--key ${HC_REDIR_CERTS}/localhost-100y.key)
+		add_test(NAME ki_hc_redir COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hc_redir
+				$<TARGET_FILE_NAME:lws-minimal-http-client-redirect-fixture>)
+		set_tests_properties(st_hc_redir PROPERTIES
+				     WORKING_DIRECTORY .
+				     FIXTURES_SETUP hc_redir
+				     ENVIRONMENT "SAI_LIST_PORT=${PORT_HC_REDIR_TLS}"
+				     TIMEOUT 60)
+		set_tests_properties(ki_hc_redir PROPERTIES
+				     FIXTURES_CLEANUP hc_redir)
+
+		set(redirtests http-client-redirect-creds
+			       http-client-redirect-creds-tls)
+		add_test(NAME http-client-redirect-creds COMMAND
+			 lws-minimal-http-client --nossl
+				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_REDIR}
+				--user user --password password --expected-exit 3)
+		add_test(NAME http-client-redirect-creds-tls COMMAND
+			 lws-minimal-http-client -l
+				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_REDIR_TLS}
+				--user user --password password --expected-exit 3)
+
+		# the 127.0.0.1 the redirect names is only there in dual-stack
+		if ("${LWS_CTEST_SERVER_RESOLVE}" STREQUAL "localhost")
+			list(APPEND redirtests http-client-redirect-nocreds)
+			add_test(NAME http-client-redirect-nocreds COMMAND
+				 lws-minimal-http-client --nossl
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_HC_REDIR})
+		endif()
+
+		foreach(N IN LISTS redirtests)
+			set_tests_properties(${N} PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
+			     FIXTURES_REQUIRED "hc_redir"
+			     TIMEOUT 60)
+		endforeach()
 	endif()
 
 endif()

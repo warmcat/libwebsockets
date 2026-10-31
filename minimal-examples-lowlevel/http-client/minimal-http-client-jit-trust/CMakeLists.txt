@@ -146,7 +146,80 @@ if (requirements)
 		     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
 		     FIXTURES_REQUIRED "hc_jit_srv"
 		     TIMEOUT 20)
-				     
+
+		#
+		# Basic Auth credentials must not follow a redirect to another
+		# host, nor from https to http: see minimal-http-client's
+		# CMakeLists.txt, whose fixture this builds and runs too
+		#
+		set(HC_REDIR_DIR ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client)
+		add_executable(lws-minimal-http-client-jit-trust-redirect-fixture
+			       ${HC_REDIR_DIR}/redirect-fixture.c)
+		if (websockets_shared)
+			target_link_libraries(lws-minimal-http-client-jit-trust-redirect-fixture
+					      websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
+			add_dependencies(lws-minimal-http-client-jit-trust-redirect-fixture
+					 websockets_shared)
+		else()
+			target_link_libraries(lws-minimal-http-client-jit-trust-redirect-fixture
+					      websockets ${LIBWEBSOCKETS_DEP_LIBS})
+		endif()
+
+		lws_get_free_port(PORT_HCJ_REDIR)
+		lws_get_free_port(PORT_HCJ_REDIR_TLS)
+
+		# the redirects name the other spelling of the loopback host
+		if ("${LWS_CTEST_SERVER_RESOLVE}" STREQUAL "localhost")
+			set(HCJ_REDIR_TO 127.0.0.1)
+		else()
+			set(HCJ_REDIR_TO localhost)
+		endif()
+
+		set(HCJ_REDIR_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls)
+
+		add_test(NAME st_hcj_redir COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+				hcj_redir
+				$<TARGET_FILE:lws-minimal-http-client-jit-trust-redirect-fixture>
+				--port ${PORT_HCJ_REDIR} --port-tls ${PORT_HCJ_REDIR_TLS}
+				--to ${HCJ_REDIR_TO}
+				--cert ${HCJ_REDIR_CERTS}/localhost-100y.cert
+				--key ${HCJ_REDIR_CERTS}/localhost-100y.key)
+		add_test(NAME ki_hcj_redir COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcj_redir
+				$<TARGET_FILE_NAME:lws-minimal-http-client-jit-trust-redirect-fixture>)
+		set_tests_properties(st_hcj_redir PROPERTIES
+				     WORKING_DIRECTORY .
+				     FIXTURES_SETUP hcj_redir
+				     ENVIRONMENT "SAI_LIST_PORT=${PORT_HCJ_REDIR_TLS}"
+				     TIMEOUT 60)
+		set_tests_properties(ki_hcj_redir PROPERTIES
+				     FIXTURES_CLEANUP hcj_redir)
+
+		set(redirtests jit-trust-http-client-redirect-creds
+			       jit-trust-http-client-redirect-creds-tls)
+		add_test(NAME jit-trust-http-client-redirect-creds COMMAND
+			 lws-minimal-http-client-jit-trust --nossl
+				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HCJ_REDIR}
+				--user user --password password --expected-exit 3)
+		add_test(NAME jit-trust-http-client-redirect-creds-tls COMMAND
+			 lws-minimal-http-client-jit-trust -l
+				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HCJ_REDIR_TLS}
+				--user user --password password --expected-exit 3)
+
+		# the 127.0.0.1 the redirect names is only there in dual-stack
+		if ("${LWS_CTEST_SERVER_RESOLVE}" STREQUAL "localhost")
+			list(APPEND redirtests jit-trust-http-client-redirect-nocreds)
+			add_test(NAME jit-trust-http-client-redirect-nocreds COMMAND
+				 lws-minimal-http-client-jit-trust --nossl
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_HCJ_REDIR})
+		endif()
+
+		set_tests_properties(${redirtests} PROPERTIES
+		     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
+		     FIXTURES_REQUIRED "hcj_redir"
+		     TIMEOUT 60)
 	endif()
 
 	if (websockets_shared)
