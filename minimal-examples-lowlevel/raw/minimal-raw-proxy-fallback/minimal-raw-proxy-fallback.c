@@ -31,7 +31,7 @@ enum {
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_H]	= { "-H",              "(needs -s) Also serve http on the tls port (insecure)" },
 	[LWS_SW_R]	= { "-r",              "Enable -r feature" },
 	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
 	[LWS_SW_U]	= { "-u",              "URL to connect to" },

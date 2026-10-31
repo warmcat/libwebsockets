@@ -6,6 +6,13 @@
  $ cmake . && make
 ```
 
+## Commandline Options
+
+Option|Meaning
+---|---
+-p, --port|Port to listen on (default 7681)
+-H|Strict Host: header checking against vhost name (localhost) and port
+
 ## usage
 
 ```
