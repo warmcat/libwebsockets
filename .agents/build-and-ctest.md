@@ -47,6 +47,15 @@
  - **`LWS_WITH_SYS_DHCP_CLIENT` gates the system state** at
    `LWS_SYSTATE_DHCP` until an interface has a lease: with it on, client
    tests sit forever before OPERATIONAL.  Never put it in a ctest config.
+ - **Red/green of a plugin change without a second tree:** compile the old
+   `.c` out of tree with `C_FLAGS` / `C_INCLUDES` from the plugin's
+   `flags.make` and the link line from `link.txt` (headers the plugin
+   includes by relative path, eg `plugins/lws-auth-feed.h`, must sit at the
+   same relative place), swap the result into `<build>/lib/lib<plugin>.so`,
+   run the fixture and test, then restore.  No build-hash mismatch, and the
+   shared source tree is untouched (B121).  In api-test-lwsws-oauth a
+   second `lws-auth-server` vhost can share the fixture's db and key to give
+   one scenario its own pvos (G-657's `lwsws-oauth-cap`).
  - **The auth-server plugin needs `LWS_WITH_STRUCT_JSON=1`.**  The lwsws-oauth tests are
    load-sensitive: server stalls inside sqlite commits (G-676) time clients
    out, and lwsws-oauth-rows can outlast its 60s `jwt-validity-secs` under
