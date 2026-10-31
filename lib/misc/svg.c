@@ -1773,12 +1773,19 @@ seg_normal(svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
 				   (dy >> 1) * (dy >> 1)) << 1;
 
 	/*
-	 * Sub-unit lengths are unusable: the normal is quantized to Q16, so
-	 * below one user unit it degrades.  Segment quads for such slivers
-	 * are inside the stroke of their neighbours anyway
+	 * Only true slivers are unusable.  The normal is the exact Q16
+	 * delta divided by the length, so its direction error from the
+	 * endpoint quantization is around 1 / len radians: at the floor of
+	 * 1/256 user unit that is a sub-pixel offset for any stroke width.
+	 * Slivers below it lie inside the stroke of their neighbours.
+	 *
+	 * The floor must stay well below the length of the segments the
+	 * curve flattener emits, otherwise strokes of curves in small
+	 * viewBoxes vanish entirely: at a 24-unit icon viewBox, a circle
+	 * of radius 8 flattens to segments of around 0.4 units
 	 */
 
-	if (len < (1 << 15))
+	if (len < (1 << 8))
 		return 0;
 
 	*nx = (svg_c_t)arc_sat((-dy * SVG_Q16_1) / len);
