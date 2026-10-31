@@ -68,9 +68,16 @@
  *
  * The reserve is a quarter of the burst: two TCP sources' whole host burst
  * at once, leaving UDP three quarters of it.  Since UDP may only take a
- * token above the reserve, a token TCP took is refilled before UDP gets any,
- * so under a forged flood TCP queries still start fetches at the refill
- * rate, each source host at its own.
+ * token above the reserve, a token TCP took is refilled before UDP gets any.
+ *
+ * G-689: the caps on what may be waiting for fetches, dht-max-pending
+ * domains and LWS_AUTH_DNS_MAX_PENDING_QUERIES queries, are reserved the same
+ * way: UDP queries may only fill three quarters of each, the last quarter is
+ * for TCP queries.  And a domain waits at most LWS_AUTH_DNS_DHT_WAIT_US after
+ * the query that started its fetch, however many queries join it, so queries
+ * that cost no token can't keep a domain pending.  So under a forged flood
+ * TCP queries still start fetches at the refill rate, each source host at
+ * its own.
  */
 #define LWS_AUTH_DNS_DHT_FETCH_BURST		32
 #define LWS_AUTH_DNS_DHT_FETCH_REFILL_US	(250 * LWS_US_PER_MS)
@@ -78,6 +85,10 @@
 #define LWS_AUTH_DNS_DHT_FETCH_HOST_BURST	4
 #define LWS_AUTH_DNS_DHT_FETCH_HOST_REFILL_US	(2 * LWS_US_PER_SEC)
 #define LWS_AUTH_DNS_DHT_FETCH_HOSTS		256
+/* the share of a cap on waiting queries only TCP queries may use */
+#define LWS_AUTH_DNS_TCP_RESERVE(_cap)		((_cap) / 4)
+/* how long a domain's queries wait for its fetch, from the first */
+#define LWS_AUTH_DNS_DHT_WAIT_US		(5 * LWS_US_PER_SEC)
 #define LWS_AUTH_DNS_MAX_PENDING_DNSBL		256
 
 /*
@@ -1041,6 +1052,7 @@ struct per_vhost_data__auth_dns {
 	const struct lws_protocols *protocol;
 	char zone_dir[1024];
 	uint32_t dht_max_pending;
+	uint32_t dht_tcp_reserve;	/* of dht_max_pending, G-689 */
 	uint32_t cache_max_zones;
 	uint32_t cached_zones;	/* zones entries that are not is_local */
 	const struct lws_dht_dnssec_ops *dht_ops;
@@ -1113,8 +1125,15 @@ struct pending_dns_query {
 	 * type and reads only that common prefix
 	 */
 
-	char peer_ip[64];
+	/*
+	 * the source host, keyed as for its fetch tokens (auth_dns_src_key());
+	 * the per-source limits compare is_tcp as well, counting TCP and UDP
+	 * sources apart
+	 */
+	char src_key[LWS_HOST_KEY_LEN];
 	lws_sorted_usec_list_t sul_timeout;
+	/* when the domain's first query gives up waiting, G-689 */
+	lws_usec_t deadline;
 };
 
 struct dnsbl_cache_entry {
@@ -2054,9 +2073,33 @@ auth_dns_fetch_hosts_destroy(lws_dll2_owner_t *owner)
 }
 
 /*
- * May a query from wsi start another DHT zone fetch now?  It needs a token
- * from its source host's bucket and from the vhost's, and takes both if so.
- * Nonzero if it may.
+ * The key a query's source host is accounted under, for its fetch tokens and
+ * its share of the waiting queries.  A TCP source is keyed by
+ * lws_get_peer_host_key(), the connection's real peer (proxy-aware); a UDP
+ * one by the host its datagram claims.  Either way an IPv6 /64 is one host.
+ */
+
+static void
+auth_dns_src_key(struct lws *wsi, int is_tcp, char *key, size_t len)
+{
+	const struct lws_udp *udp;
+
+	if (is_tcp) {
+		lws_get_peer_host_key(wsi, key, len);
+		return;
+	}
+
+	udp = lws_get_udp(wsi);
+	if (udp)
+		lws_sa46_host_key(&udp->sa46, key, len);
+	else
+		lws_strncpy(key, LWS_HOST_KEY_UNKNOWN, len);
+}
+
+/*
+ * May a query from wsi, whose source host is keyed key (auth_dns_src_key()),
+ * start another DHT zone fetch now?  It needs a token from its source host's
+ * bucket and from the vhost's, and takes both if so.  Nonzero if it may.
  *
  * A datagram's source is only what it claims, so a forger can spend the
  * budget of the address it forges, or spread itself over many: the vhost's
@@ -2065,28 +2108,17 @@ auth_dns_fetch_hosts_destroy(lws_dll2_owner_t *owner)
  *
  * G-571: and however many addresses it forges, it can't take the vhost's
  * last LWS_AUTH_DNS_DHT_FETCH_TCP_RESERVE tokens: only a TCP query, whose
- * source is proven, may.  A TCP source is keyed by lws_get_peer_host_key(),
- * the connection's real peer, in a table of its own, so UDP queries forged
- * as its address neither spend its bucket nor recycle it.
+ * source is proven, may.  TCP sources' buckets are in a table of their own,
+ * so UDP queries forged as one's address neither spend its bucket nor
+ * recycle it.
  */
 
 static int
-auth_dns_dht_fetch_token(struct per_vhost_data__auth_dns *vhd, struct lws *wsi,
-			 int is_tcp)
+auth_dns_dht_fetch_token(struct per_vhost_data__auth_dns *vhd, int is_tcp,
+			 const char *key)
 {
 	lws_usec_t now = lws_now_usecs();
 	struct auth_dns_fetch_host *h;
-	char key[LWS_HOST_KEY_LEN];
-
-	if (is_tcp)
-		lws_get_peer_host_key(wsi, key, sizeof(key));
-	else {
-		const struct lws_udp *udp = lws_get_udp(wsi);
-
-		if (!udp)
-			return 0;
-		lws_sa46_host_key(&udp->sa46, key, sizeof(key));
-	}
 
 	auth_dns_fetch_bucket_refill(&vhd->dht_fetch, now,
 				     LWS_AUTH_DNS_DHT_FETCH_BURST,
@@ -2429,6 +2461,15 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				}
 				pvo = pvo->next;
 			}
+
+			/*
+			 * G-689: the domains only TCP queries may have
+			 * waiting, at least one if UDP's may be any
+			 */
+			vhd->dht_tcp_reserve =
+				LWS_AUTH_DNS_TCP_RESERVE(vhd->dht_max_pending);
+			if (!vhd->dht_tcp_reserve && vhd->dht_max_pending > 1)
+				vhd->dht_tcp_reserve = 1;
 
 			/*
 			 * F-055: there is no default zone dir.  A missing
@@ -2976,8 +3017,15 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				goto send_nxdomain;
 			}
 			if (vhd->dht_ops && vhd->dht_ops->fetch_zone && reason == LWS_CALLBACK_RAW_RX) {
-				char base[256];
+				char base[256], src_key[LWS_HOST_KEY_LEN];
+				lws_usec_t tnow = lws_now_usecs(),
+					   deadline = tnow + LWS_AUTH_DNS_DHT_WAIT_US;
+				uint32_t dom_cap = vhd->dht_max_pending,
+					 q_cap = LWS_AUTH_DNS_MAX_PENDING_QUERIES;
+				int limited = 0;
+
 				extract_base_domain(qname, base, sizeof(base));
+				auth_dns_src_key(wsi, is_tcp, src_key, sizeof(src_key));
 
 				int is_already_fetching_globally = 0;
 				int is_already_fetching_ip = 0;
@@ -2989,24 +3037,35 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				/*
 				 * C-239: one cheap pass.  The unique-domain
 				 * total is kept incrementally on the vhd, and
-				 * each entry carries the printable form of
-				 * its peer address so we do not run an
-				 * inet_ntop() per queue entry per query.
+				 * each entry carries the host key of its
+				 * source so we do not work one out per queue
+				 * entry per query.
 				 */
 
 				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->pending_queries)) {
 					struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
 
-					if (!strcmp(q->domain, base))
+					if (!strcmp(q->domain, base)) {
 						is_already_fetching_globally = 1;
+						/*
+						 * G-689: a query joining a
+						 * fetch waits no longer than
+						 * the one that started it, so
+						 * joining, which costs no
+						 * fetch token, can't keep the
+						 * domain pending
+						 */
+						deadline = q->deadline;
+					}
 
 					/*
 					 * G-571: a TCP peer's queries are
 					 * counted apart from UDP ones claiming
-					 * the same address
+					 * the same address.  G-689: by host,
+					 * keyed as for its fetch tokens
 					 */
 					if (q->is_tcp != is_tcp ||
-					    strcmp(q->peer_ip, peer_ip))
+					    strcmp(q->src_key, src_key))
 						continue;
 
 					ip_total_queries++;
@@ -3027,51 +3086,61 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					}
 				} lws_end_foreach_dll(d);
 
-				if (!is_already_fetching_globally &&
-				    vhd->pending_unique_domains >= vhd->dht_max_pending) {
-					lwsl_notice("dht pending queries maxed out (globally %u unique) from %s\n",
-						    (unsigned int)vhd->pending_unique_domains, peer_ip);
-					goto send_refused;
-				}
-
-				if (!is_already_fetching_ip) {
-					if (ip_domains_count >= 16) {
-						lwsl_notice("dht pending queries IP limit maxed out (16 unique domains) from %s\n", peer_ip);
-						goto send_refused;
-					}
-				}
-
-				if (ip_total_queries >= 64) {
-					lwsl_notice("dht pending queries IP absolute limit (64) reached from %s\n", peer_ip);
-					goto send_refused;
-				}
-
-				if ((uint32_t)lws_dll2_count(&vhd->pending_queries) >=
-						LWS_AUTH_DNS_MAX_PENDING_QUERIES) {
-					lwsl_notice("dht pending queries absolute queue limit reached from %s\n", peer_ip);
-					goto send_refused;
-				}
-
 				/*
-				 * G-535: last, so a query something else
-				 * refuses spends no fetch token
+				 * G-689: UDP queries may only fill the global
+				 * caps up to TCP's reserve, as for the fetch
+				 * tokens, so however many sources a flood is
+				 * forged from, TCP queries still have room
 				 */
+				if (!is_tcp) {
+					dom_cap -= vhd->dht_tcp_reserve;
+					q_cap -= LWS_AUTH_DNS_TCP_RESERVE(q_cap);
+				}
+
 				if (!is_already_fetching_globally &&
-				    !auth_dns_dht_fetch_token(vhd, wsi, is_tcp)) {
+				    vhd->pending_unique_domains >= dom_cap) {
+					lwsl_notice("dht pending queries maxed out (globally %u unique, %s) from %s\n",
+						    (unsigned int)vhd->pending_unique_domains,
+						    is_tcp ? "tcp" : "udp", peer_ip);
+					limited = 1;
+				} else if (!is_already_fetching_ip &&
+					   ip_domains_count >= 16) {
+					lwsl_notice("dht pending queries IP limit maxed out (16 unique domains) from %s\n", peer_ip);
+					limited = 1;
+				} else if (ip_total_queries >= 64) {
+					lwsl_notice("dht pending queries IP absolute limit (64) reached from %s\n", peer_ip);
+					limited = 1;
+				} else if ((uint32_t)lws_dll2_count(&vhd->pending_queries) >=
+						q_cap) {
+					lwsl_notice("dht pending queries absolute queue limit reached (%s) from %s\n",
+						    is_tcp ? "tcp" : "udp", peer_ip);
+					limited = 1;
+				} else if (!is_already_fetching_globally &&
+					   /*
+					    * G-535: last, so a query something
+					    * else refuses spends no fetch token
+					    */
+					   !auth_dns_dht_fetch_token(vhd, is_tcp,
+								     src_key)) {
 					lwsl_info("dht zone fetches rate limited, from %s\n",
 						  peer_ip);
+					limited = 1;
+				}
+
+				if (limited) {
 					if (is_tcp)
 						goto send_refused;
 
 					/*
 					 * G-571: over TCP it may still get one,
-					 * from the reserve and its own host's
-					 * bucket.  Like an RRL slip, an empty
-					 * TC=1 answer, the question and, for
-					 * EDNS0, our OPT: never more than the
-					 * query was, so it reflects nothing,
-					 * and a real resolver asks again over
-					 * TCP.  Not AA, we hold nothing for it.
+					 * from TCP's reserves and its own
+					 * host's bucket.  Like an RRL slip, an
+					 * empty TC=1 answer, the question and,
+					 * for EDNS0, our OPT: never more than
+					 * the query was, so it reflects
+					 * nothing, and a real resolver asks
+					 * again over TCP.  Not AA, we hold
+					 * nothing for it.
 					 */
 					dbuf[0] = (uint8_t)(id >> 8);
 					dbuf[1] = (uint8_t)(id & 0xff);
@@ -3099,7 +3168,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				else if (!is_tcp && lws_get_udp(wsi)) pq->sa46_peer = lws_get_udp(wsi)->sa46;
 				pq->is_tcp = is_tcp;
 				lws_strncpy(pq->domain, base, sizeof(pq->domain));
-				lws_strncpy(pq->peer_ip, peer_ip, sizeof(pq->peer_ip));
+				lws_strncpy(pq->src_key, src_key, sizeof(pq->src_key));
+				pq->deadline = deadline;
 				pq->packet_len = is_tcp ? (size_t)req_len : len;
 				/*
 				 * The stored length is what the replay uses as
@@ -3114,7 +3184,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					vhd->pending_unique_domains++;
 
 				lws_dll2_add_tail(&pq->list, &vhd->pending_queries);
-				lws_sul_schedule(vhd->context, 0, &pq->sul_timeout, pending_query_timeout_cb, 5 * LWS_US_PER_SEC);
+				lws_sul_schedule(vhd->context, 0, &pq->sul_timeout,
+						 pending_query_timeout_cb,
+						 deadline > tnow ? deadline - tnow : 0);
 
 				/* a query for a zone being fetched waits on that */
 				if (is_already_fetching_globally)

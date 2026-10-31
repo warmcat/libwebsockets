@@ -2,7 +2,8 @@
 
 Fence for security-audit finding F-055: the local zone-dir trust policy in
 the authoritative-DNS plugin (`protocol-lws-auth-dns`), for G-508, G-535 and
-G-571: the rate limits on the zone fetches queries start, for G-117: the
+G-571: the rate limits on the zone fetches queries start, for G-689: the
+caps on queries waiting for fetches keep a share for TCP, for G-117: the
 zones it is handed by `lws-dht-dnssec` are installed only as the domain they
 were verified for, and for G-246: names at or below a zone cut are referred
 to the child zone, not answered from the zone text, and for G-290: the
@@ -32,6 +33,7 @@ the process umask):
 | 7 | a query for a zone nobody serves, whose fetch from `lws-dht-dnssec` never answers (G-224) | the query timed out (REFUSED after 5s) but its fetch was left running, holding auth-dns' opaque | when the query times out the fetch is given up: completed exactly once, as timed out, and nothing holds the opaque |
 | 7b | from one source, queries for 10 zones nobody serves and another for the first; then one from another source (G-508, G-535) | a fetch started for each query; with one bucket for all sources, the first source's queries leave none for the other's | a fetch for each of the first source's first 4 zones, the rest answered TC=1 at once (G-571), the other query waits on the first fetch; the other source's query starts a fetch |
 | 7c | *(linux only)* UDP queries for 48 new zones, 4 from each of 12 sources, then one over TCP (G-571) | the UDP queries take every fetch the vhost has: the rest are REFUSED, and so is the TCP query | the UDP queries start at most the fetches outside the TCP reserve, the rest are answered with an empty TC=1 response (question echoed, only an OPT if the query had one, never larger than the query); the TCP query starts a fetch |
+| 7d | *(linux only)* `dht-max-pending` 8: UDP queries for 8 new zones, one from each of 8 sources, then one over TCP for another zone, then 2.5s later UDP queries for other names in the first 8 zones (G-689) | all 8 zones wait for fetches, so the TCP query is REFUSED; a query joining a fetch waits 5s from when it came, so joins can keep a zone waiting indefinitely | 6 zones wait, UDP's share, the other 2 queries are answered TC=1; the TCP query starts a fetch from TCP's share; the joins are answered as the queries they joined were (REFUSED, or TC=1), and with them, 5s after the first |
 | 8 | a zone delegating `sub.dl.example` (G-246), with glue, a DS and an `A` record below the cut | every name at or below the cut answered authoritatively from the zone text (`www.sub` with the occluded record, `ns.sub` with the glue), `x.sub` NXDOMAIN, and the DS not served at all | names at or below the cut are referred (no `AA`, empty answer, the cut's `NS` in authority); the zone's own `www` and the `DS` at the cut are answered authoritatively |
 | 9 | three zone files with `cache-max-zones` 1 (G-290) | all but the last evicted at startup, and their files unlinked | all three served, every file still there |
 | 10 | `cache-max-zones` 1, one zone file, then two zones handed over by `lws-dht-dnssec` (G-290) | the operator's zone evicted for the first DHT zone and its file unlinked | the operator's zone still served and its file kept; the second DHT zone evicts the first |
@@ -55,7 +57,10 @@ its own so the plugin's response rate limiting (per /24) plays no part, and
 waits until every query either started a fetch or was answered before the
 TCP query is sent, so the TCP query is never handled before the flood.  Only
 linux lets a process bind any 127/8 address without configuring it; elsewhere
-the phase is skipped.
+the phase is skipped.  Phase 7d uses the first 8 of those sources the same
+way, and is skipped with it.  It sends its joins 2.5s after the first queries
+were all handled, and fails a join answered 5s or more after it was sent,
+which it can only be if it waited its own 5s.
 
 Phases 11-12 need to create files/dirs owned by another uid and are skipped
 when the test is not running as root.
@@ -70,4 +75,4 @@ when the test is not running as root.
 The planted fixtures are (re)created under a per-run scratch dir
 `zones-f055/<pid>` in the working directory (so runs under different uids
 cannot trip over each other's leftovers) and removed again at exit; the
-whole test takes about ten seconds.
+whole test takes about forty seconds.
