@@ -32,6 +32,11 @@
 #include <private-lib-core.h>
 #include <dlo/private-lib-drivers-display-dlo.h>
 
+/* ESP-IDF puts a static in DMA-capable memory with this; elsewhere a no-op */
+#if !defined(DMA_ATTR)
+#define DMA_ATTR
+#endif
+
 enum {
 
 	GC9A01A_NOP						= 0x00,
@@ -90,7 +95,7 @@ typedef struct lws_display_gc9a01a_spi_state {
 		if (!(_x & 1)) \
 			*_line = htons(_c); \
 		else \
-			{ *_line = (*_line) | (htons(_c) << 16); _line++; } }
+			{ *_line = (*_line) | ((uint32_t)htons(_c) << 16); _line++; } }
 
 static const uint8_t gc9a01a_240x240_init[] = {
 	 2, 0xEF, 0xEB, 0x14,
@@ -265,7 +270,7 @@ lws_display_gc9a01a_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 	if (!priv->line[0]) {
 		if (disp->spi->alloc_dma)
 			priv->line[0] = disp->spi->alloc_dma(disp->spi,
-							     stride_pl * 2);
+							     (size_t)stride_pl * 2);
 		else
 			priv->line[0] = lws_malloc((size_t)stride_pl * 2, __func__);
 
@@ -300,20 +305,24 @@ lws_display_gc9a01a_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 	 * Blit a line at a time
 	 */
 
-	h = box->h.whole;
-	y = box->y.whole;
+	h = (lws_display_list_coord_t)box->h.whole;
+	y = (lws_display_list_coord_t)box->y.whole;
 
 	if (h > 1) {
 
 		buf[4] = GC9A01A_CASET;
 		desc.data = (uint8_t *)&buf[0];
 		desc.flags = 0;
-		buf[0] = (((box->x.whole + box->w.whole - 1) & 0xff) << 24) | (((box->x.whole + box->w.whole - 1) >> 8) << 16) | ((box->x.whole & 0xff) << 8) | (box->x.whole >> 8);
+		buf[0] = (uint32_t)((((box->x.whole + box->w.whole - 1) & 0xff) << 24) |
+				    (((box->x.whole + box->w.whole - 1) >> 8) << 16) |
+				    ((box->x.whole & 0xff) << 8) | (box->x.whole >> 8));
 		desc.count_write = 4;
 		disp->spi->queue(disp->spi, &desc);
 
 		buf[4] = GC9A01A_PASET;
-		buf[0] = (((box->y.whole + box->h.whole - 1) & 0xff) << 24) | (((box->y.whole + box->h.whole - 1) >> 8) << 16) | ((box->y.whole & 0xff) << 8) | (box->y.whole >> 8);
+		buf[0] = (uint32_t)((((box->y.whole + box->h.whole - 1) & 0xff) << 24) |
+				    (((box->y.whole + box->h.whole - 1) >> 8) << 16) |
+				    ((box->y.whole & 0xff) << 8) | (box->y.whole >> 8));
 		disp->spi->queue(disp->spi, &desc);
 
 		buf[4] = GC9A01A_RAMWR;
@@ -340,11 +349,11 @@ lws_display_gc9a01a_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 
 		if (ic->greyscale)
 			for (n = 0; n < ic->wh_px[0].whole; n++) {
-				c = (pc[0] << 16) | (pc[0] << 8) | pc[0];
+				c = (lws_display_colour_t)((pc[0] << 16) | (pc[0] << 8) | pc[0]);
 
 				m = lws_display_palettize_grey(ic, ic->palette,
 					   ic->palette_depth, c, &gedl_this[n]);
-				pack_native_pixel(lo, n, m);
+				pack_native_pixel(lo, n, (uint16_t)m);
 
 				dist_err_floyd_steinberg_grey(n, ic->wh_px[0].whole,
 							      gedl_this, gedl_next);
@@ -352,11 +361,11 @@ lws_display_gc9a01a_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 			}
 		else
 			for (n = 0; n < ic->wh_px[0].whole; n++) {
-				c = (pc[2] << 16) | (pc[1] << 8) | pc[0];
+				c = (lws_display_colour_t)((pc[2] << 16) | (pc[1] << 8) | pc[0]);
 
 				m = lws_display_palettize_col(ic, ic->palette,
 					    ic->palette_depth, c, &edl_this[n]);
-				pack_native_pixel(lo, n, m);
+				pack_native_pixel(lo, n, (uint16_t)m);
 
 				dist_err_floyd_steinberg_col(n, ic->wh_px[0].whole,
 							     edl_this, edl_next);
@@ -370,7 +379,7 @@ go:
 			desc.flags |= LWS_SPI_FLAG_DATA_CONTINUE;
 
 		desc.data = (uint8_t *)priv->line[box->y.whole & 1];
-		desc.count_write = bytes_pl;
+		desc.count_write = (uint16_t)bytes_pl;
 		desc.count_cmd = 0;
 
 		if (disp->spi->queue(disp->spi, &desc)) {

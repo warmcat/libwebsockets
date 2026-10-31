@@ -128,7 +128,7 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds)
 	a.ac_block_size = 512;
 
 	lws_struct_json_init_parse(&ctx, NULL, &a);
-	m = lejp_parse(&ctx, (uint8_t *)buf, l);
+	m = lejp_parse(&ctx, (uint8_t *)buf, (int)l);
 	lws_free(buf);
 	if (m < 0 || !a.dest) {
 		lwsl_notice("%s: JSON decode failed '%s'\n",

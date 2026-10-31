@@ -82,8 +82,8 @@ lws_led_func_sine(lws_led_seq_phase_t n)
          * 10: interp (LSB)
          */
 
-        return (sine_lu(n >> 10, 0) * (0x3ff - (n & 0x3ff)) +
-        	sine_lu(n >> 10, 1) * (n & 0x3ff)) / 0x3ff;
+        return (lws_led_intensity_t)((sine_lu(n >> 10, 0) * (0x3ff - (n & 0x3ff)) +
+        				      sine_lu(n >> 10, 1) * (n & 0x3ff)) / 0x3ff);
 }
 
 lws_led_intensity_t
@@ -96,7 +96,7 @@ lws_led_func_linear(lws_led_seq_phase_t n)
 static lws_led_intensity_t
 lws_led_func_static(lws_led_seq_phase_t n)
 {
-	return ((int)n * LWS_LED_MAX_INTENSITY) / 2;
+	return (lws_led_intensity_t)(((int)n * LWS_LED_MAX_INTENSITY) / 2);
 }
 
 const lws_led_sequence_def_t lws_pwmseq_static_off = {

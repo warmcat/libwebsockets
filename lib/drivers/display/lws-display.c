@@ -147,7 +147,7 @@ lws_display_alloc_diffusion(const lws_surface_info_t *ic, lws_surface_error_t **
 	/* defer creation of dlo's 2px-high dlo-width, 2 bytespp or 6 bytespp
 	 * error diffusion buffer */
 
-	by = ((ic->wh_px[0].whole + 15) / 8) * 8;
+	by = (size_t)(((ic->wh_px[0].whole + 15) / 8) * 8);
 	size = gsize * 2u * (unsigned int)by;
 
 	lwsl_info("%s: alloc'd %u for width %d\n", __func__, (unsigned int)size,
@@ -384,11 +384,11 @@ lws_display_palettize_col(const lws_surface_info_t *ic,
 	yd = RGB_TO_Y(da.rgb[0], da.rgb[1], da.rgb[2]);
 
 	if (ic->type == LWSSURF_565) {
-		ya[0] = d.rgb[0] >> 3;
+		ya[0] = (uint8_t)(d.rgb[0] >> 3);
 		ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (ya[0] << 3));
-		ya[1] = d.rgb[1] >> 2;
+		ya[1] = (uint8_t)(d.rgb[1] >> 2);
 		ectx->rgb[1] = (int16_t)((int)da.rgb[1] - (ya[1] << 2));
-		ya[2] = d.rgb[2] >> 3;
+		ya[2] = (uint8_t)(d.rgb[2] >> 3);
 		ectx->rgb[2] = (int16_t)((int)da.rgb[2] - (ya[2] << 3));
 
 		return (lws_display_palette_idx_t)((ya[0] << 11) | (ya[1] << 5) | (ya[2]));
@@ -403,7 +403,7 @@ lws_display_palettize_col(const lws_surface_info_t *ic,
 		lws_colour_error_t ea;
 		int sum;
 
-		y = LWSDC_ALPHA(palette[n]);
+		y = (int)LWSDC_ALPHA(palette[n]);
 
 		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(palette[n])));
 		ea.rgb[1] = (int16_t)((int)da.rgb[1] - (int)(LWSDC_G(palette[n])));

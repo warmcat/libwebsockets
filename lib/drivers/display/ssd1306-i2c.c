@@ -156,7 +156,7 @@ lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
 	const lws_surface_info_t *ic = &lds->disp->ic;
 	lws_greyscale_error_t *gedl_this, *gedl_next;
 	int bytes_pl = (ic->wh_px[0].whole + 7) / 8;
-	lws_display_list_coord_t y = box->y.whole;
+	lws_display_list_coord_t y = (lws_display_list_coord_t)box->y.whole;
 	const uint8_t *pc = src;
 	lws_display_colour_t c;
 	uint8_t ba[6], *lo;
@@ -168,7 +168,7 @@ lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
 	 */
 
 	if (!priv->line8) {
-		priv->line8 = lws_malloc(bytes_pl * 8, __func__);
+		priv->line8 = lws_malloc((size_t)bytes_pl * 8, __func__);
 		if (!priv->line8)
 			return 1;
 
@@ -209,14 +209,14 @@ lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
 		gedl_next = (lws_greyscale_error_t *)priv->u[box->y.whole & 1];
 
 		for (n = ic->wh_px[0].whole - 1; n >= 0; n--) {
-			c = (pc[0] << 16) | (pc[0] << 8) | pc[0];
+			c = (lws_display_colour_t)((pc[0] << 16) | (pc[0] << 8) | pc[0]);
 
 			m = lws_display_palettize_grey(ic, ic->palette,
 					   ic->palette_depth, c, &gedl_this[n]);
 			if (m)
-				lo[n] = (lo[n] | (1 << (y & 7)));
+				lo[n] = (uint8_t)(lo[n] | (1 << (y & 7)));
 			else
-				lo[n] = (lo[n] & ~(1 << (y & 7)));
+				lo[n] = (uint8_t)(lo[n] & ~(1 << (y & 7)));
 
 			dist_err_floyd_steinberg_grey(n, ic->wh_px[0].whole,
 						      gedl_this, gedl_next);
@@ -227,8 +227,8 @@ lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
 			break;
 
 		ba[0] = SSD1306_COLUMNADDR;
-		ba[1] = box->x.whole;
-		ba[2] = box->x.whole + box->w.whole - 1;
+		ba[1] = (uint8_t)box->x.whole;
+		ba[2] = (uint8_t)(box->x.whole + box->w.whole - 1);
 
 		if (lws_i2c_command_list(si->i2c, si->i2c7_address,
 					 ba, 3)) {
@@ -237,8 +237,8 @@ lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
 		}
 
 		ba[0] = SSD1306_PAGEADDR;
-		ba[1] = y / 8;
-		ba[2] = ba[1] + ((ic->wh_px[0].whole) / 8) - 1;
+		ba[1] = (uint8_t)(y / 8);
+		ba[2] = (uint8_t)(ba[1] + ((ic->wh_px[0].whole) / 8) - 1);
 
 		if (lws_i2c_command_list(si->i2c, si->i2c7_address,
 					 ba, 3)) {
@@ -249,7 +249,7 @@ lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
 
 		lws_bb_i2c_start(si->i2c);
 		lws_bb_i2c_write(si->i2c, si->i2c7_address << 1);
-		lws_bb_i2c_write(si->i2c, SSD1306_SETSTARTLINE | y);
+		lws_bb_i2c_write(si->i2c, (uint8_t)(SSD1306_SETSTARTLINE | y));
 
 		for (m = 0; m < box->w.whole; m++)
 			lws_bb_i2c_write(si->i2c, priv->line8[m]);
