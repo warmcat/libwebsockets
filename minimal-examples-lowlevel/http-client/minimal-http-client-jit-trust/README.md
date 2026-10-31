@@ -7,7 +7,8 @@ It validates the remote certificates using trusted CAs from a JIT Trust blob com
 The first connection to a server whose CA is not trusted yet fails, but JIT
 Trust looks up the CA it needs while failing; the example retries only when
 that lookup found a CA it trusts.  Any other connection failure (DNS, connect,
-the peer...) is final and exits 3.
+the peer...) is final and exits 3, or 4 if it was the example refusing a
+redirect (see below).
 
 ## build
 
@@ -109,8 +110,10 @@ the example checks each redirect with `lws_client_redirect_info()` in
 unless lws says credentials may go there: only over https with strict
 certificate checks (none of `-l`, `-j`, `-k`, `-m` or `-e`), to the same
 host or a subdomain of it.  It also does not follow a redirect from https
-to plain http at all.  The `jit-trust-http-client-redirect-*` ctests check this
-against a server that redirects to another host, the one in
+to plain http at all.  When the example refuses a redirect itself it
+exits 4, where any other connection failure exits 3.  The
+`jit-trust-http-client-redirect-*` ctests check this against a server that
+redirects to another host, the one in
 `minimal-http-client/redirect-fixture.c`.
 
 Basic Auth sends the password readably, so with `--nossl` it is only for

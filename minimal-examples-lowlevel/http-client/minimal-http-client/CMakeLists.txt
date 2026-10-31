@@ -16,6 +16,7 @@ set(has_ss_policy_parse 1)
 set(has_no_system_vhost 1)
 set(has_async_dns 1)
 set(has_mbedtls 1)
+set(has_basic_auth 1)
 
 set(requirements 1)
 
@@ -42,6 +43,7 @@ require_lws_config(LWS_WITH_SYS_DHCP_CLIENT 0 has_no_system_vhost)
 
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS 1 has_async_dns)
 require_lws_config(LWS_WITH_MBEDTLS 1 has_mbedtls)
+require_lws_config(LWS_WITH_HTTP_BASIC_AUTH 1 has_basic_auth)
 
 message("FI ${has_fault_injection}")
 
@@ -188,7 +190,8 @@ if (requirements)
 		# to its plain http listener under a different host name than
 		# the one we dial, and answers 403 there if it sees an
 		# Authorization header.  So the client must refuse the redirect
-		# when it has credentials (exit 3), and follow it when it has none.
+		# itself when it has credentials (exit 4), and follow it when it
+		# has none.
 		#
 		add_executable(lws-minimal-http-client-redirect-fixture
 			       redirect-fixture.c)
@@ -233,16 +236,25 @@ if (requirements)
 		set_tests_properties(ki_hc_redir PROPERTIES
 				     FIXTURES_CLEANUP hc_redir)
 
-		set(redirtests http-client-redirect-creds
-			       http-client-redirect-creds-tls)
-		add_test(NAME http-client-redirect-creds COMMAND
-			 lws-minimal-http-client --nossl
-				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_REDIR}
-				--user user --password password --expected-exit 3)
-		add_test(NAME http-client-redirect-creds-tls COMMAND
-			 lws-minimal-http-client -l
-				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_REDIR_TLS}
-				--user user --password password --expected-exit 3)
+		set(redirtests)
+
+		# without Basic Auth, --user / --password do nothing to test
+		if (has_basic_auth)
+			list(APPEND redirtests http-client-redirect-creds
+					       http-client-redirect-creds-tls)
+			add_test(NAME http-client-redirect-creds COMMAND
+				 lws-minimal-http-client --nossl
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_HC_REDIR}
+					--user user --password password
+					--expected-exit 4)
+			add_test(NAME http-client-redirect-creds-tls COMMAND
+				 lws-minimal-http-client -l
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_HC_REDIR_TLS}
+					--user user --password password
+					--expected-exit 4)
+		endif()
 
 		# the 127.0.0.1 the redirect names is only there in dual-stack
 		if ("${LWS_CTEST_SERVER_RESOLVE}" STREQUAL "localhost")
