@@ -9,6 +9,11 @@ conformance checker confirms that START / END events pair up, that array
 items and tags bracket exactly one item each, and that map keys and values
 alternate, for every positive vector.
 
+Map keys go into `ctx->path` as they are: the map key vectors check that a
+text or byte string key containing a NUL is always rejected with
+`LECP_REJECT_BAD_CODING`, and that `{"a.b": 1}` matches the path `.a.b` just
+as `{"a": {"b": 1}}` does, the aliasing documented at `lecp_construct()`.
+
 The write side renders the same documents through `lws_lec_printf()` into
 output windows of every size from 1 to 80 bytes and checks the concatenated
 result matches the one-shot output, covering the resumable scratch and

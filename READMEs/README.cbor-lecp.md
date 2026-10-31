@@ -144,6 +144,13 @@ or the match index from your path array starting from 1 for the first entry.
 |CBOR Map|`.`|
 |CBOR Map entry key string|`keystring`|
 
+Key strings go into the path as they are, so a key containing `.`, `[` or `]`
+gives the same path as a different shape of document: `{"a.b": 1}` matches the
+path `.a.b` just as `{"a": {"b": 1}}` does.  If your paths care, check the
+document's shape from the container start events as well.  A text or byte
+string key containing a NUL can't be shown in the path, and is always rejected
+with `LECP_REJECT_BAD_CODING`.
+
 ## Accessing raw CBOR subtrees
 
 Some CBOR usages like COSE require access to selected raw CBOR from the input
