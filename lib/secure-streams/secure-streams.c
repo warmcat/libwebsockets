@@ -810,12 +810,17 @@ lws_ss_fops_sul_cb(lws_sorted_usec_list_t *sul)
 			(!h->fop_fd->pos ? LWSSS_FLAG_SOM : 0) |
 			(h->fop_fd->pos == h->fop_fd->len ?
 					LWSSS_FLAG_EOM : 0));
-	if (!r) {
-		if (h->fop_fd->pos != h->fop_fd->len)
-			lws_sul_schedule(h->context, 0, &h->fops_sul,
-					 lws_ss_fops_sul_cb, 1);
+	if (!r && h->fop_fd->pos != h->fop_fd->len) {
+		lws_sul_schedule(h->context, 0, &h->fops_sul,
+				 lws_ss_fops_sul_cb, 1);
 		return;
 	}
+
+	/*
+	 * The rx callback asked for it, or the file has all been delivered:
+	 * either way the stream is over, as an http one is after its
+	 * transaction, and the user learns that from DISCONNECTED
+	 */
 
 disconn:
 	lws_vfs_file_close(&h->fop_fd);
