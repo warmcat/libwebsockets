@@ -88,7 +88,7 @@ typedef struct mcuf_face {
 
 	char			ttf[256];	/* its path */
 	char			path[MCUF_DEV_PATH_MAX + 1]; /* in the url */
-	char			id[96];		/* in the cache keys */
+	char			id[128];	/* in the cache keys */
 
 	int			size;
 	int			nranges;
@@ -759,6 +759,7 @@ mcuf_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			free(f);
 			return 0;
 		}
+		/* the path fits, so this always does */
 		lws_snprintf(f->id, sizeof(f->id), "%s:%llu:%llu", f->path,
 			     (unsigned long long)s.st_size,
 			     (unsigned long long)s.st_mtime);
