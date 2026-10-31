@@ -1258,15 +1258,19 @@ bail3:
 
 bail2:
 	/*
-	 * __lws_free_wsi() unbinds the vhost, under the context lock.  The
+	 * __lws_free_wsi() unbinds the vhost, under the context lock, and
+	 * resets the wsi, which changes the pt's sul lists, under the pt
+	 * lock: context lock, then pt lock, as close does.  The
 	 * stdwsi are nobody's children yet, that waits for the fork to have
 	 * worked, so nothing else can be holding on to them.
 	 */
 
 	lws_context_lock(context, __func__);
+	lws_pt_lock(pt, __func__);
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n])
 			__lws_free_wsi(lsp->stdwsi[n]);
+	lws_pt_unlock(pt);
 	lws_context_unlock(context);
 
 bail1:
