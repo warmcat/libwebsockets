@@ -52,7 +52,9 @@
    `flags.make` and the link line from `link.txt` (headers the plugin
    includes by relative path, eg `plugins/lws-auth-feed.h`, must sit at the
    same relative place), swap the result into `<build>/lib/lib<plugin>.so`,
-   run the fixture and test, then restore.  No build-hash mismatch, and the
+   run the fixture and test, then restore (taking C_DEFINES through `eval`
+   breaks on `-DINSTALL_DATADIR=\"...\"`: pass that one by hand).  No
+   build-hash mismatch, and the
    shared source tree is untouched (B121).  In api-test-lwsws-oauth a
    second `lws-auth-server` vhost can share the fixture's db and key to give
    one scenario its own pvos (G-657's `lwsws-oauth-cap`).
