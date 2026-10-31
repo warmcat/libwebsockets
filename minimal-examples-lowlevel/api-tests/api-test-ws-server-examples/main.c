@@ -305,12 +305,21 @@ static uint8_t txbuf[LWS_PRE + WSE_MSG_MAX];
  * and while they are paused, neither end's validity PING is answered: with
  * the default 40s / 50s, on a slow board, the broker case runs long enough
  * for that to hang up S.  Nothing here is about the validity timer, so it
- * is pushed out past any case's own timeout, for the servers and clients.
+ * is pushed out past the whole test's timeout, for the servers and clients.
  */
 static const lws_retry_bo_t wse_retry = {
-	.secs_since_valid_ping		= 300,
-	.secs_since_valid_hangup	= 310,
+	.secs_since_valid_ping		= 600,
+	.secs_since_valid_hangup	= 610,
 };
+
+/*
+ * The whole test must finish inside this: the fan-out cases each wait out
+ * the examples' lag limit several times, and the proxy case moves 64MiB, so
+ * the slowest CI builder, riscv64 under emulation sharing its cpu with other
+ * jobs, takes three minutes.  The ctest TIMEOUT is set further out than this,
+ * so it is us that says which phase didn't finish, not ctest.
+ */
+#define WSE_TEST_TIMEOUT_SECS	360
 
 /*
  * The messages TX sends, one at a time, and RX must receive, whole and
@@ -1935,7 +1944,7 @@ main(int argc, const char **argv)
 
 	wse_schedule(1);
 	lws_sul_schedule(context, 0, &sul_timeout, wse_timeout_cb,
-			 180 * LWS_US_PER_SEC);
+			 WSE_TEST_TIMEOUT_SECS * LWS_US_PER_SEC);
 
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
