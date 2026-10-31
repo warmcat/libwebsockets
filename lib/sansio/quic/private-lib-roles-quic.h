@@ -78,8 +78,29 @@ extern const struct lws_role_ops role_ops_quic;
 #define LWS_QUIC_VERSION_1 0x1
 #define LWS_QUIC_VERSION_2 0x6b3343cf
 
+/*
+ * The receive window we give each stream, and the connection, unless the
+ * context creation info's .quic_rx_window says otherwise.  The peer may send
+ * all of it before we consume any, so on small devices it is small.
+ */
+#if defined(LWS_PLAT_FREERTOS)
+#define LWS_QUIC_DEFAULT_WINDOW (32 * 1024)
+#else
 #define LWS_QUIC_DEFAULT_WINDOW (1024 * 1024)
+#endif
 #define LWS_QUIC_MAX_WINDOW     (16 * 1024 * 1024)
+
+/*
+ * What a client advertises as initial_max_stream_data_bidi_local, the window
+ * each request stream it opens starts with.  It can't be taken back, and a
+ * stream under manual rx flow control (LCCSCF_H2_MANUAL_RXFLOW) may want to
+ * give the peer less than the usual window, so it starts small, and a
+ * MAX_STREAM_DATA after the stream's first STREAM frame opens it to what the
+ * stream really gets, as h2 follows HEADERS with a WINDOW_UPDATE.  It's not 0
+ * so a peer that missed that, eg, because it saw it before the stream, can
+ * still send something, and get a later one.
+ */
+#define LWS_QUIC_CLIENT_STREAM_INITIAL_WINDOW 1024
 
 /*
  * Most CRYPTO stream bytes we will hold per encryption level, whether as the
@@ -612,6 +633,8 @@ struct lws_quic_netconn {
 	uint64_t		rx_window_size;
 	uint64_t		highest_rx_offset;
 	lws_usec_t		last_rx_update_us;
+	/* the initial_max_stream_data_bidi_local we advertise */
+	uint64_t		rx_initial_bidi_local;
 
 	uint64_t		next_stream_id_bidi_local;
 	uint64_t		next_stream_id_unidi_local;
@@ -1172,6 +1195,19 @@ lws_quic_rx_fin_h3(struct lws *nwsi, struct lws *wsi_child,
 int32_t
 lws_quic_peer_initial_stream_cr(const struct lws_quic_netconn *qn, int bidi,
 				int locally_initiated);
+
+/* the context's receive window, see LWS_QUIC_DEFAULT_WINDOW */
+uint64_t
+lws_quic_rx_window(const struct lws_context *cx);
+
+void
+lws_quic_stream_flow_init(struct lws *wsi, struct lws *nwsi);
+
+void
+lws_quic_rx_est_sync(struct lws *wsi, struct lws *nwsi);
+
+void
+lws_quic_rx_consumed(struct lws *wsi, size_t len, size_t user_len);
 
 int
 lws_quic_idtr_is_opened(const struct lws_quic_idtr *t, uint64_t idx);

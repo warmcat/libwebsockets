@@ -1059,6 +1059,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->quic_cc_ops = info->quic_cc_ops;
 	context->quic_initial_cwnd = info->quic_initial_cwnd;
 	context->quic_0rtt_max_size = info->quic_0rtt_max_size;
+	context->quic_rx_window = info->quic_rx_window;
 
 	context->pt_serv_buf_size = (unsigned int)s1;
 	context->protocols_copy = info->protocols;

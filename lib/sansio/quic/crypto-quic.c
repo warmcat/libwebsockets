@@ -506,10 +506,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 							if (w->quic.qs) {
 								w->quic.qs->wsi = w;
 								w->quic.qs->stream_id = (w == wsi) ? 0 : w->mux.my_sid;
-								w->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-								w->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-								w->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-								w->quic.qs->last_rx_update_us = lws_wsi_now(w);
+								lws_quic_stream_flow_init(w, nwsi);
 							}
 						}
 

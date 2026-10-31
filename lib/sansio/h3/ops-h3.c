@@ -1577,8 +1577,6 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 		return NULL;
 	}
 
-	cwsi->txc.tx_cr = lws_quic_peer_initial_stream_cr(qn, 0, 1);
-	cwsi->txc.peer_tx_cr_est = cwsi->txc.tx_cr;
 	cwsi->quic.qs->stream_id = qn->next_stream_id_unidi_local;
 	/*
 	 * Unidirectional by construction (bit 1 of the id): the idle checks
@@ -1587,11 +1585,8 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 	 * connection carrying only them never looked idle
 	 */
 	cwsi->quic.qs->is_unidirectional = 1;
-
-	cwsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-	cwsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-	cwsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-	cwsi->quic.qs->last_rx_update_us = lws_wsi_now(cwsi);
+	cwsi->quic.qs->is_server_initiated = qn->is_server ? 1u : 0u;
+	lws_quic_stream_flow_init(cwsi, nwsi);
 
 	/* We're doing client unidi streams */
 	lws_wsi_mux_insert(cwsi, nwsi, (unsigned int)qn->next_stream_id_unidi_local);
@@ -2051,7 +2046,6 @@ lws_h3_qpack_block(struct lws *wsi, const uint8_t *buf, size_t chunk,
 	}
 
 	wsi->h3.rx_frame_payload_read += used;
-	lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)used);
 
 	if (len > used && lws_buflist_append_segment(&wsi->h3.qpack_blocked_bl,
 						     buf + used, len - used) < 0)
@@ -2132,8 +2126,8 @@ lws_h3_qpack_unblock(struct lws *nwsi, struct lws_h3_netconn *h3n)
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
-int
-lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
+static int
+lws_h3_rx_stream_data_(struct lws *wsi, const uint8_t *buf, size_t len)
 {
 #if defined(LWS_ROLE_WT)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -2886,9 +2880,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			buf += chunk;
 			len -= chunk;
 
-			/* Replenish flow control window */
-			// lwsl_notice("H3 RX: Replenishing %d bytes", (int)chunk);
-			lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
+			if (wsi->h3.rx_frame_type == 0x00)
+				/* DATA payload, given to the user code */
+				wsi->h3.rx_user_len += chunk;
 
 			if (wsi->h3.rx_frame_payload_read == wsi->h3.rx_frame_len) {
 				/*
@@ -3193,6 +3187,29 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			}
 		}
 	}
+
+	return 0;
+}
+
+/*
+ * Everything h3 took from the stream, and doesn't hold for later, is dealt
+ * with: the frames' types and lengths, HEADERS, the unidirectional streams'
+ * types and payloads as well as DATA, so give back the window it all took.
+ * DATA payload, that the user code had, is only given back on the stream by
+ * the user code if it's doing manual rx flow control.
+ */
+int
+lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
+{
+	size_t held = lws_buflist_total_len(&wsi->h3.qpack_blocked_bl);
+
+	wsi->h3.rx_user_len = 0;
+	if (lws_h3_rx_stream_data_(wsi, buf, len))
+		return 1;
+
+	held = lws_buflist_total_len(&wsi->h3.qpack_blocked_bl) - held;
+	if (len > held)
+		lws_quic_rx_consumed(wsi, len - held, wsi->h3.rx_user_len);
 
 	return 0;
 }
@@ -4256,10 +4273,8 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	wsi->quic.qs->stream_id = sid;
 	qn->next_stream_id_bidi_local += 4;
 
-	wsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-	wsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-	wsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-	wsi->quic.qs->last_rx_update_us = lws_wsi_now(wsi);
+	/* a bidi stream we opened, so a client's */
+	lws_quic_stream_flow_init(wsi, nwsi);
 
 	wsi->mux_substream = 1;
 
@@ -4267,14 +4282,6 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 		wsi->quic.qs->opted_into_early_data = 1;
 
 	lws_wsi_mux_insert(wsi, nwsi, (unsigned int)sid);
-
-	/* Initialize flow control credits */
-	int32_t init_cr = nwsi->txc.manual_initial_tx_credit;
-	if (!init_cr)
-		/* a bidi stream we opened */
-		init_cr = lws_quic_peer_initial_stream_cr(qn, 1, 1);
-	wsi->txc.peer_tx_cr_est = init_cr;
-	wsi->txc.tx_cr = init_cr;
 
 	wsi->h3.h3n = nwsi->h3.h3n;
 

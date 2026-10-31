@@ -2080,6 +2080,7 @@ static const struct lws_switches builtins[] = {
 	{ "--0rtt", "Allow QUIC 0-RTT early data" },
 	{ "--quic-initial-cwnd", "Initial QUIC congestion window (cwnd) in bytes" },
 	{ "--0rtt-max-size", "Max tls over tcp 0-RTT early data size in bytes (QUIC is flow controlled)" },
+	{ "--quic-rx-window", "QUIC receive window per stream and connection in bytes" },
 	{ "--uv", "Run on a libuv event loop (if built in)" },
 	{ "--event", "Run on a libevent event loop (if built in)" },
 	{ "--ev", "Run on a libev event loop (if built in)" },
@@ -2131,6 +2132,7 @@ enum opts {
 	OPT_0RTT,
 	OPT_QUIC_INITIAL_CWND,
 	OPT_0RTT_MAX_SIZE,
+	OPT_QUIC_RX_WINDOW,
 	OPT_EVLIB_UV,
 	OPT_EVLIB_EVENT,
 	OPT_EVLIB_EV,
@@ -2419,6 +2421,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			break;
 		case OPT_0RTT_MAX_SIZE:
 			info->quic_0rtt_max_size = (uint32_t)atoll(p);
+			break;
+		case OPT_QUIC_RX_WINDOW:
+			info->quic_rx_window = (uint32_t)atoll(p);
 			break;
 
 		case OPT_EVLIB_UV:

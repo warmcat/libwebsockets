@@ -28,6 +28,9 @@
 #include "sansio/quic/private-lib-roles-quic.h"
 
 static int quic_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type, const uint8_t *secret, size_t secret_len);
+static void
+lws_quic_queue_max_stream_data(struct lws *wsi, struct lws_quic_netconn *qn,
+			       int level);
 
 /*
  * 0-RTT debug accounting helper for the QUIC-Interop-Runner "zerortt"
@@ -127,7 +130,7 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
  * advertise a bigger one from a range, eg "wsi/quic_tp_window(2^62-1..2^62)",
  * to exercise how the peer handles huge grants.  Only the advertisement
  * changes, not what we enforce, so a test using it must keep each stream and
- * the connection under the window we really give (LWS_QUIC_DEFAULT_WINDOW).
+ * the connection under the window we really give (lws_quic_rx_window()).
  */
 static uint64_t
 lws_quic_fi_window(struct lws *wsi, const char *fi_name, uint64_t limit)
@@ -2789,11 +2792,15 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			nwsi->quic.qn->cc_ops->init(nwsi);
 
 		/* Initialize RX Flow Control limits */
-		nwsi->quic.qn->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-		nwsi->quic.qn->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-		nwsi->quic.qn->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+		nwsi->quic.qn->rx_window_size = lws_quic_rx_window(
+							nwsi->a.context);
+		nwsi->quic.qn->rx_max_data = nwsi->quic.qn->rx_window_size;
+		nwsi->quic.qn->advertised_rx_max_data =
+						nwsi->quic.qn->rx_window_size;
+		nwsi->quic.qn->rx_initial_bidi_local =
+						nwsi->quic.qn->rx_window_size;
 		nwsi->quic.qn->last_rx_update_us = lws_wsi_now(nwsi);
-		nwsi->txc.peer_tx_cr_est = LWS_QUIC_DEFAULT_WINDOW; /* How much the peer can write to us */
+		lws_quic_rx_est_sync(NULL, nwsi);
 		/* tx_cr is strictly initialized when we parse the peer's initial_max_data parameter */
 
 		/*
@@ -2900,7 +2907,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 
 			// lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf));
 			win = lws_quic_fi_window(nwsi, "quic_tp_window",
-						 LWS_QUIC_DEFAULT_WINDOW);
+					nwsi->quic.qn->rx_window_size);
 			LWS_QUIC_WRITE_TP_VARINT(0x04, win);
 			LWS_QUIC_WRITE_TP_VARINT(0x05, win);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, win);
@@ -5927,6 +5934,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : wsi->quic.qn;
 	struct lws_quic_tx_frame *f;
+	int first = 0;
 
 	if (!qn)
 		return -1;
@@ -6047,6 +6055,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		}
 		f->stream_id = wsi->quic.qs->stream_id;
 		f->offset = wsi->quic.qs->tx_offset;
+		first = !f->offset;
 		wsi->quic.qs->tx_offset += len;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -6086,6 +6095,15 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 	if (tx_level == LWS_QUIC_LEVEL_APP)
 		lws_quic_dbg_1rtt_account(qn, f, "stream-write");
 	lws_dll2_add_tail(&f->list, &qn->pending_tx[tx_level]);
+
+	/*
+	 * After a stream's first STREAM frame, open its receive window from
+	 * the initial one we advertised to what it really gets, see
+	 * LWS_QUIC_CLIENT_STREAM_INITIAL_WINDOW
+	 */
+	if (first && wsi->quic.qs->rx_max_data >
+				wsi->quic.qs->advertised_rx_max_data)
+		lws_quic_queue_max_stream_data(wsi, qn, tx_level);
 
 	/* Wake up the event loop to send the packet */
 	lws_callback_on_writable(wsi);
@@ -6159,16 +6177,21 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		 * window we advertise, and what we may send it is set from its
 		 * initial_max_data when its transport parameters arrive
 		 */
-		int32_t init_cr = i->manual_initial_tx_credit;
-		if (!init_cr)
-			init_cr = 65535;
-		wsi->txc.peer_tx_cr_est = LWS_QUIC_DEFAULT_WINDOW;
-		wsi->txc.tx_cr = init_cr;
+		wsi->txc.tx_cr = 65535;
 
-		wsi->quic.qn->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-		wsi->quic.qn->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-		wsi->quic.qn->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+		wsi->quic.qn->rx_window_size = lws_quic_rx_window(
+							wsi->a.context);
+		wsi->quic.qn->rx_max_data = wsi->quic.qn->rx_window_size;
+		wsi->quic.qn->advertised_rx_max_data =
+						wsi->quic.qn->rx_window_size;
+		/* see LWS_QUIC_CLIENT_STREAM_INITIAL_WINDOW */
+		wsi->quic.qn->rx_initial_bidi_local = LWS_QUIC_CLIENT_STREAM_INITIAL_WINDOW;
+		if (wsi->quic.qn->rx_initial_bidi_local >
+					wsi->quic.qn->rx_window_size)
+			wsi->quic.qn->rx_initial_bidi_local =
+						wsi->quic.qn->rx_window_size;
 		wsi->quic.qn->last_rx_update_us = lws_wsi_now(wsi);
+		lws_quic_rx_est_sync(NULL, wsi);
 
 		/* Generate random CIDs */
 		dcid.len = 8;
@@ -6218,9 +6241,11 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 	} while (0)
 
 			win = lws_quic_fi_window(wsi, "quic_tp_window",
-						 LWS_QUIC_DEFAULT_WINDOW);
+					wsi->quic.qn->rx_window_size);
 			LWS_QUIC_WRITE_TP_VARINT(0x04, win);
-			LWS_QUIC_WRITE_TP_VARINT(0x05, win);
+			LWS_QUIC_WRITE_TP_VARINT(0x05, lws_quic_fi_window(wsi,
+					"quic_tp_window",
+					wsi->quic.qn->rx_initial_bidi_local));
 			LWS_QUIC_WRITE_TP_VARINT(0x06, win);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, win);
 			LWS_QUIC_WRITE_TP_VARINT(0x08, wsi->quic.qn->max_streams_bidi_local);
@@ -6277,12 +6302,13 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 	     !strcmp(wsi->a.vhost->listen_accept_role, "quic")) ||
 	    (vh_prot_name && !strcmp(vh_prot_name, "quic")) ||
 	    (wsi->role_ops == &role_ops_quic)) {
-		/* Initialize Flow Control Credits */
-		int32_t init_cr = wsi->txc.manual_initial_tx_credit;
-		if (!init_cr)
-			init_cr = 65535;
-		wsi->txc.peer_tx_cr_est = init_cr;
-		wsi->txc.tx_cr = init_cr;
+		/*
+		 * Connection tx credit until the peer's transport parameters
+		 * say what it is
+		 */
+		wsi->txc.tx_cr = 65535;
+		wsi->txc.peer_tx_cr_est = (int32_t)lws_quic_rx_window(
+							wsi->a.context);
 
 		if (!(type & _LWS_ADOPT_FINISH))
 			lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_quic);
@@ -7104,6 +7130,226 @@ rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
 	return 0; /* the close carries on */
 }
 
+uint64_t
+lws_quic_rx_window(const struct lws_context *cx)
+{
+	if (!cx->quic_rx_window)
+		return LWS_QUIC_DEFAULT_WINDOW;
+
+	return cx->quic_rx_window > LWS_QUIC_MAX_WINDOW ? LWS_QUIC_MAX_WINDOW :
+							  cx->quic_rx_window;
+}
+
+/* what the peer may still send us, as far as it knows, saturating at int32 */
+static int32_t
+lws_quic_rx_room(uint64_t advertised, uint64_t highest)
+{
+	uint64_t r = advertised > highest ? advertised - highest : 0;
+
+	return r > INT32_MAX ? INT32_MAX : (int32_t)r;
+}
+
+/*
+ * Bring txc.peer_tx_cr_est, what the peer may still send us, up to date for
+ * the stream and the connection
+ */
+void
+lws_quic_rx_est_sync(struct lws *wsi, struct lws *nwsi)
+{
+	if (wsi && wsi->quic.qs)
+		wsi->txc.peer_tx_cr_est = lws_quic_rx_room(
+				wsi->quic.qs->advertised_rx_max_data,
+				wsi->quic.qs->highest_rx_offset);
+
+	if (nwsi && nwsi->quic.qn)
+		nwsi->txc.peer_tx_cr_est = lws_quic_rx_room(
+				nwsi->quic.qn->advertised_rx_max_data,
+				nwsi->quic.qn->highest_rx_offset);
+}
+
+/*
+ * Set up a new stream's receive flow control, and its tx credit from the
+ * peer's transport parameters.
+ *
+ * The peer may send on the stream what our transport parameters gave
+ * streams of its kind, until a MAX_STREAM_DATA gives it more.  We give a
+ * stream the context's window, except a request stream a client opened with
+ * LCCSCF_H2_MANUAL_RXFLOW gets only its manual_initial_tx_credit, and more
+ * only when the user code adds it with lws_wsi_tx_credit(), as on h2.
+ */
+void
+lws_quic_stream_flow_init(struct lws *wsi, struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_quic_stream *qs = wsi->quic.qs;
+	uint64_t win = lws_quic_rx_window(nwsi->a.context);
+	int local;
+
+	if (!qn || !qs)
+		return;
+
+	local = qs->is_server_initiated == qn->is_server;
+	qs->rx_window_size = win;
+	qs->rx_max_data = win;
+	qs->advertised_rx_max_data = !qs->is_unidirectional && local ?
+					qn->rx_initial_bidi_local : win;
+	qs->last_rx_update_us = lws_wsi_now(wsi);
+
+#if defined(LWS_WITH_CLIENT)
+	if (!qs->is_unidirectional && local && !qn->is_server &&
+	    (wsi->flags & LCCSCF_H2_MANUAL_RXFLOW) &&
+	    wsi->txc.manual_initial_tx_credit > 0) {
+		wsi->txc.manual = 1;
+		qs->rx_max_data = (uint64_t)wsi->txc.manual_initial_tx_credit;
+	}
+#endif
+
+	/* we must take what we advertised, even if we wanted to give less */
+	if (qs->rx_max_data < qs->advertised_rx_max_data)
+		qs->rx_max_data = qs->advertised_rx_max_data;
+
+	wsi->txc.tx_cr = lws_quic_peer_initial_stream_cr(qn,
+					!qs->is_unidirectional, local);
+	lws_quic_rx_est_sync(wsi, NULL);
+}
+
+/*
+ * Tell the peer the stream's receive limit, rx_max_data, at the given
+ * encryption level
+ */
+static void
+lws_quic_queue_max_stream_data(struct lws *wsi, struct lws_quic_netconn *qn,
+			       int level)
+{
+	struct lws_quic_tx_frame *f = lws_zalloc(sizeof(*f), "quic msd");
+
+	if (!f)
+		return;
+
+	f->type = LWS_QUIC_FT_MAX_STREAM_DATA;
+	f->stream_id = wsi->quic.qs->stream_id;
+	f->limit = wsi->quic.qs->rx_max_data;
+	wsi->quic.qs->advertised_rx_max_data = wsi->quic.qs->rx_max_data;
+	if (level == LWS_QUIC_LEVEL_APP)
+		lws_quic_dbg_1rtt_account(qn, f, "max-stream-data");
+	lws_dll2_add_tail(&f->list, &qn->pending_tx[level]);
+	lws_quic_rx_est_sync(wsi, NULL);
+}
+
+/*
+ * Allow the peer to send "add" more on the stream.  Unless the stream is
+ * under manual rx flow control, the new limit is only sent when less than
+ * half of the window remains, so a MAX_STREAM_DATA covers half a window.
+ */
+static void
+lws_quic_rx_credit_stream(struct lws *wsi, struct lws *nwsi, uint64_t add,
+			  lws_usec_t now)
+{
+	struct lws_quic_stream *qs = wsi->quic.qs;
+	uint64_t ungranted = 0;
+
+	qs->rx_max_data += add;
+
+	if (!wsi->txc.manual) {
+		if (nwsi->a.context->quic_tx_credit_cb) {
+			uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
+					wsi, qs->rx_window_size, add,
+					(uint64_t)(now - qs->last_rx_update_us));
+
+			if (new_win > qs->rx_window_size &&
+			    new_win <= LWS_QUIC_MAX_WINDOW) {
+				qs->rx_max_data += new_win - qs->rx_window_size;
+				qs->rx_window_size = new_win;
+			}
+		}
+
+		if (qs->advertised_rx_max_data > qs->highest_rx_offset)
+			ungranted = qs->advertised_rx_max_data -
+				    qs->highest_rx_offset;
+		if (ungranted >= qs->rx_window_size / 2)
+			return;
+	}
+
+	if (qs->rx_max_data == qs->advertised_rx_max_data)
+		return;
+
+	qs->last_rx_update_us = now;
+	lws_quic_queue_max_stream_data(wsi, nwsi->quic.qn,
+				       LWS_QUIC_LEVEL_APP);
+	lws_callback_on_writable(nwsi);
+}
+
+/*
+ * Allow the peer to send "add" more on the connection, a MAX_DATA goes when
+ * less than half of the window remains
+ */
+static void
+lws_quic_rx_credit_conn(struct lws *nwsi, uint64_t add, lws_usec_t now)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_quic_tx_frame *f;
+	uint64_t ungranted = 0;
+
+	qn->rx_max_data += add;
+
+	if (nwsi->a.context->quic_tx_credit_cb) {
+		uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
+				nwsi, qn->rx_window_size, add,
+				(uint64_t)(now - qn->last_rx_update_us));
+
+		if (new_win > qn->rx_window_size &&
+		    new_win <= LWS_QUIC_MAX_WINDOW) {
+			qn->rx_max_data += new_win - qn->rx_window_size;
+			qn->rx_window_size = new_win;
+		}
+	}
+
+	if (qn->advertised_rx_max_data > qn->highest_rx_offset)
+		ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
+	if (ungranted >= qn->rx_window_size / 2)
+		return;
+
+	qn->last_rx_update_us = now;
+	f = lws_zalloc(sizeof(*f), "quic md");
+	if (f) {
+		f->type = LWS_QUIC_FT_MAX_DATA;
+		f->limit = qn->rx_max_data;
+		qn->advertised_rx_max_data = qn->rx_max_data;
+		lws_quic_dbg_1rtt_account(qn, f, "max-data");
+		lws_dll2_add_tail(&f->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+	}
+	lws_callback_on_writable(nwsi);
+}
+
+/*
+ * len bytes the peer sent on the stream are dealt with: give the window
+ * they took back to the peer.  The connection gets all of it back now, but
+ * on a stream under manual rx flow control, the user_len of them that were
+ * passed to the user code are only given back by the user code, with
+ * lws_wsi_tx_credit(), as on h2 only DATA is flow controlled
+ */
+void
+lws_quic_rx_consumed(struct lws *wsi, size_t len, size_t user_len)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	lws_usec_t now;
+	size_t strm;
+
+	if (!len || !wsi->quic.qs || !nwsi || nwsi == wsi || !nwsi->quic.qn)
+		return;
+
+	now = lws_wsi_now(wsi);
+	strm = len;
+	if (wsi->txc.manual)
+		strm = user_len < len ? len - user_len : 0;
+	if (strm)
+		lws_quic_rx_credit_stream(wsi, nwsi, strm, now);
+
+	wsi->quic.qs->rx_credited += len;
+	lws_quic_rx_credit_conn(nwsi, len, now);
+	lws_quic_rx_est_sync(wsi, nwsi);
+}
+
 int
 rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 {
@@ -7117,82 +7363,29 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 
 	if (add) {
 		if (peer_to_us == LWSTXCR_PEER_TO_US) {
-			/* We want to tell the peer they can write an additional "add" bytes to us */
-			wsi->txc.peer_tx_cr_est = lws_txc_cr_add(
-					wsi->txc.peer_tx_cr_est, add);
-			if (nwsi != wsi)
-				nwsi->txc.peer_tx_cr_est = lws_txc_cr_add(
-					nwsi->txc.peer_tx_cr_est, add);
-
 			lws_usec_t now = lws_wsi_now(wsi);
 
-			if (wsi->quic.qs) {
-				wsi->quic.qs->rx_credited += (uint64_t)(add > 0 ? add : 0);
-				wsi->quic.qs->rx_max_data += (uint64_t)(add > 0 ? add : 0);
-				uint64_t ungranted = 0;
-				if (wsi->quic.qs->advertised_rx_max_data > wsi->quic.qs->highest_rx_offset)
-					ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
-				
-				if (nwsi->a.context->quic_tx_credit_cb) {
-					uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
-						wsi, wsi->quic.qs->rx_window_size, (uint64_t)(add > 0 ? add : 0), 
-						(uint64_t)(now - wsi->quic.qs->last_rx_update_us));
-					if (new_win > wsi->quic.qs->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
-						wsi->quic.qs->rx_max_data += (new_win - wsi->quic.qs->rx_window_size);
-						wsi->quic.qs->rx_window_size = new_win;
-						ungranted = 0;
-						if (wsi->quic.qs->advertised_rx_max_data > wsi->quic.qs->highest_rx_offset)
-							ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
-					}
-				}
+			/* We want to tell the peer they can write an additional "add" bytes to us */
+			if (add < 0)
+				return 0;
 
-				if (ungranted < wsi->quic.qs->rx_window_size / 2) {
-					wsi->quic.qs->last_rx_update_us = now;
-					struct lws_quic_tx_frame *f_msd = lws_zalloc(sizeof(*f_msd), "quic msd");
-					if (f_msd) {
-						f_msd->type = LWS_QUIC_FT_MAX_STREAM_DATA;
-						f_msd->stream_id = wsi->mux.my_sid;
-						f_msd->limit = wsi->quic.qs->rx_max_data;
-						wsi->quic.qs->advertised_rx_max_data = wsi->quic.qs->rx_max_data;
-						lws_quic_dbg_1rtt_account(qn, f_msd, "max-stream-data");
-						lws_dll2_add_tail(&f_msd->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-					}
-					lws_callback_on_writable(nwsi);
-				}
+			/*
+			 * On a stream under manual rx flow control, this is
+			 * the user code giving the peer more of the stream:
+			 * the connection had it back as the data arrived
+			 */
+			if (wsi->quic.qs)
+				lws_quic_rx_credit_stream(wsi, nwsi,
+							  (uint64_t)add, now);
+			if (!wsi->quic.qs || !wsi->txc.manual) {
+				if (wsi->quic.qs)
+					wsi->quic.qs->rx_credited +=
+							(uint64_t)add;
+				lws_quic_rx_credit_conn(nwsi, (uint64_t)add,
+							now);
 			}
+			lws_quic_rx_est_sync(wsi, nwsi);
 
-			qn->rx_max_data += (uint64_t)(add > 0 ? add : 0);
-			uint64_t ungranted = 0;
-			if (qn->advertised_rx_max_data > qn->highest_rx_offset)
-				ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
-
-			if (nwsi->a.context->quic_tx_credit_cb) {
-				uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
-					nwsi, qn->rx_window_size, (uint64_t)(add > 0 ? add : 0), 
-					(uint64_t)(now - qn->last_rx_update_us));
-				if (new_win > qn->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
-					qn->rx_max_data += (new_win - qn->rx_window_size);
-					qn->rx_window_size = new_win;
-					ungranted = 0;
-					if (qn->advertised_rx_max_data > qn->highest_rx_offset)
-						ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
-				}
-			}
-
-			if (ungranted < qn->rx_window_size / 2) {
-				qn->last_rx_update_us = now;
-				struct lws_quic_tx_frame *f_md = lws_zalloc(sizeof(*f_md), "quic md");
-				if (f_md) {
-					f_md->type = LWS_QUIC_FT_MAX_DATA;
-					f_md->limit = qn->rx_max_data;
-					qn->advertised_rx_max_data = qn->rx_max_data;
-					lws_quic_dbg_1rtt_account(qn, f_md, "max-data");
-					lws_dll2_add_tail(&f_md->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-				}
-				lws_callback_on_writable(nwsi);
-			}
-
-			lws_callback_on_writable(nwsi);
 			return 0;
 		}
 
@@ -7379,24 +7572,8 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 #endif
 	memset(&wsi->quic, 0, sizeof(wsi->quic));
 	wsi->quic.qs = qs;
-	qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-	qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-	qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-	qs->last_rx_update_us = lws_wsi_now(wsi);
-
-	/* Initialize flow control credits for the new child stream */
-	int32_t init_cr = nwsi->txc.manual_initial_tx_credit;
-	if (!init_cr) {
-		if (nwsi->quic.qn)
-			init_cr = lws_quic_peer_initial_stream_cr(nwsi->quic.qn,
-				!wsi->quic.qs->is_unidirectional,
-				wsi->quic.qs->is_server_initiated ==
-						nwsi->quic.qn->is_server);
-		else
-			init_cr = 65535;
-	}
-	wsi->txc.peer_tx_cr_est = init_cr;
-	wsi->txc.tx_cr = init_cr;
+	/* it's stream 0, the client's first bidi stream */
+	lws_quic_stream_flow_init(wsi, nwsi);
 
 #if defined(LWS_WITH_CLIENT)
         /* Transfer active connection and pipeline queue from child to network WSI */ 

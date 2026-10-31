@@ -218,8 +218,12 @@ struct lws_client_connect_info {
 	 */
 
 	int		manual_initial_tx_credit;
-	/**< if LCCSCF_H2_MANUAL_REFLOW is set, this becomes the initial tx
-	 * credit for the stream.
+	/**< if LCCSCF_H2_MANUAL_RXFLOW is set, this becomes the initial tx
+	 * credit for the stream, what the peer may send us on it before we
+	 * give it more with lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, n).
+	 * It applies to h2 and h3 streams.  On h3, a peer may always send the
+	 * first 1024 bytes of a stream, so a
+	 * smaller credit is taken as that.
 	 */
 
 	uint8_t		sys_tls_client_cert;

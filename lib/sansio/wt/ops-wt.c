@@ -216,14 +216,9 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 		qn->next_stream_id_bidi_local += 4;
 	}
 
-	/* a stream we opened: its tx credit from the peer's parameters */
-	cwsi->txc.tx_cr = lws_quic_peer_initial_stream_cr(qn, !unidi, 1);
-	cwsi->txc.peer_tx_cr_est = cwsi->txc.tx_cr;
-
+	/* a stream we opened */
 	cwsi->quic.qs->is_server_initiated = qn->is_server ? 1u : 0u;
-	cwsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-	cwsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-	cwsi->quic.qs->last_rx_update_us = lws_wsi_now(cwsi);
+	lws_quic_stream_flow_init(cwsi, nwsi);
 
 	lws_wsi_mux_insert(cwsi, nwsi, cwsi->quic.qs->stream_id);
 	cwsi->mux.my_sid = cwsi->quic.qs->stream_id;

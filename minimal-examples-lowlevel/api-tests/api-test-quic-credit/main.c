@@ -27,6 +27,17 @@
  * with V eg 2^31, 2^32 or 2^62 - 1.  Only the advertisement is bigger, not
  * what is enforced, so QCR_BULK stays under the receive window we really
  * give (1MiB).  Without fault injection, it is a plain 768KiB transfer.
+ *
+ * With --quic-rx-window W, both ends give a receive window of only W, so the
+ * transfer can only complete if all that the peer sends, including h3's own
+ * framing, is given back to it as it is dealt with.
+ *
+ * With --manual N, the client asks for manual rx flow control
+ * (LCCSCF_H2_MANUAL_RXFLOW) with an initial credit of N, and only gives the
+ * server more, QCR_STEP at a time, when it has had all it was given before:
+ * the server must never send more than it was given, and the client's
+ * estimate of what the server may still send, lws_wsi_tx_credit(wsi,
+ * LWSTXCR_PEER_TO_US, 0), must reach 0 exactly when it has.
  */
 
 #include <libwebsockets.h>
@@ -38,11 +49,14 @@
 #define QCR_BULK		(768 * 1024)
 #define QCR_CHUNK		4096
 #define QCR_PAT(_n)		((char)('a' + ((_n) % 26)))
+#define QCR_STEP		16384
+#define QCR_POLL_US		(20 * LWS_US_PER_MS)
 
 static struct lws_context *context;
-static lws_sorted_usec_list_t sul_watchdog;
-static size_t body_len;
-static int completed, timed_out, body_bad;
+static lws_sorted_usec_list_t sul_watchdog, sul_credit;
+static struct lws *cli_wsi;
+static size_t body_len, granted;
+static int completed, timed_out, body_bad, overrun, est_bad, stalls;
 
 /* ------------------------------------------------------------- server */
 
@@ -110,6 +124,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		return 0;
 
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		cli_wsi = wsi;
+		break;
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
 		const char *c = (const char *)in;
 		size_t n;
@@ -117,11 +135,19 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		for (n = 0; n < len; n++, body_len++)
 			if (c[n] != QCR_PAT(body_len))
 				body_bad = 1;
+
+		if (granted && body_len > granted) {
+			lwsl_err("%s: server sent %u, only given %u\n",
+				 __func__, (unsigned int)body_len,
+				 (unsigned int)granted);
+			overrun = 1;
+		}
 		return 0;
 	}
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		completed = 1;
+		cli_wsi = NULL;
 		lws_default_loop_exit(context);
 		break;
 
@@ -132,6 +158,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		cli_wsi = NULL;
 		lws_default_loop_exit(context);
 		break;
 
@@ -151,6 +178,35 @@ static const struct lws_protocols protocols_cli[] = {
 	{ "qcr", callback_cli, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
+
+/*
+ * --manual: once the server has used all the credit it was given, check it
+ * sent exactly that, and give it some more
+ */
+static void
+credit_cb(lws_sorted_usec_list_t *sul)
+{
+	int est;
+
+	if (cli_wsi && granted < QCR_BULK) {
+		est = lws_wsi_tx_credit(cli_wsi, LWSTXCR_PEER_TO_US, 0);
+		if (est < 0 || (size_t)est > granted - body_len) {
+			lwsl_err("%s: est %d, but given %u and had %u\n",
+				 __func__, est, (unsigned int)granted,
+				 (unsigned int)body_len);
+			est_bad = 1;
+			lws_default_loop_exit(context);
+			return;
+		}
+		if (!est && body_len == granted) {
+			stalls++;
+			lws_wsi_tx_credit(cli_wsi, LWSTXCR_PEER_TO_US, QCR_STEP);
+			granted += QCR_STEP;
+		}
+	}
+
+	lws_sul_schedule(context, 0, sul, credit_cb, QCR_POLL_US);
+}
 
 static void
 watchdog_cb(lws_sorted_usec_list_t *sul)
@@ -174,7 +230,7 @@ main(int argc, const char **argv)
 	struct lws_client_connect_info i;
 	const char *p, *cert, *key;
 	struct lws_vhost *vh_cli;
-	int result = 1, port = 7710;
+	int result = 1, port = 7710, manual = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -190,10 +246,18 @@ main(int argc, const char **argv)
 		lwsl_err("-p <port>, --cert and --key are required\n");
 		return 1;
 	}
+	if ((p = lws_cmdline_option(argc, argv, "--manual"))) {
+		manual = atoi(p);
+		if (manual < 1 || manual >= QCR_BULK) {
+			lwsl_err("--manual takes an initial credit 1 .. %d\n",
+				 QCR_BULK - 1);
+			return 1;
+		}
+	}
 
 	signal(SIGINT, sigint_handler);
 
-	lwsl_user("LWS API selftest: huge QUIC flow control grants\n");
+	lwsl_user("LWS API selftest: QUIC flow control credit\n");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -244,6 +308,14 @@ main(int argc, const char **argv)
 	/* this is about the quic connection, not a fallback to tcp */
 	i.disable_h3_fallback	= 1;
 
+	if (manual) {
+		i.ssl_connection |= LCCSCF_H2_MANUAL_RXFLOW;
+		i.manual_initial_tx_credit = manual;
+		granted = (size_t)manual;
+		lws_sul_schedule(context, 0, &sul_credit, credit_cb,
+				 QCR_POLL_US);
+	}
+
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 QCR_TIMEOUT_S * LWS_US_PER_SEC);
 
@@ -262,10 +334,17 @@ main(int argc, const char **argv)
 		lwsl_err("FAIL: got %u of %u bytes%s\n",
 			 (unsigned int)body_len, (unsigned int)QCR_BULK,
 			 body_bad ? ", not what was sent" : "");
+	else if (overrun || est_bad)
+		lwsl_err("FAIL: manual rx flow control not honoured\n");
+	else if (manual &&
+		 stalls < (QCR_BULK - manual + QCR_STEP - 1) / QCR_STEP)
+		/* each grant must have been used up before the next */
+		lwsl_err("FAIL: only %d credit stalls\n", stalls);
 	else
 		result = 0;
 
 bail:
+	lws_sul_cancel(&sul_credit);
 	lws_sul_cancel(&sul_watchdog);
 	lws_context_destroy(context);
 

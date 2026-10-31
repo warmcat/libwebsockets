@@ -10,7 +10,7 @@ set(SRCS main.c)
 
 #
 # an h3 server and client in this process, the server sending a response
-# while the ends advertise huge flow control limits
+# while the ends advertise huge, small or manual flow control limits
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H3 1 requirements)
@@ -31,6 +31,32 @@ if (requirements)
 			 --cert ${QCR_CERTS}/localhost-100y.cert
 			 --key ${QCR_CERTS}/localhost-100y.key)
 	set_tests_properties(api-test-quic-credit PROPERTIES TIMEOUT 30)
+
+	#
+	# The same with each end giving a receive window of only 8KiB, so the
+	# window must keep being given back as the transfer goes on
+	#
+	lws_get_free_port(PORT_QCR)
+	add_test(NAME api-test-quic-credit-small-window
+		 COMMAND lws-api-test-quic-credit -p ${PORT_QCR}
+			 --cert ${QCR_CERTS}/localhost-100y.cert
+			 --key ${QCR_CERTS}/localhost-100y.key
+			 --quic-rx-window 8192)
+	set_tests_properties(api-test-quic-credit-small-window
+			     PROPERTIES TIMEOUT 30)
+
+	#
+	# The client doing manual rx flow control: the server may only send
+	# what the client gives it, starting with 4KiB
+	#
+	lws_get_free_port(PORT_QCR)
+	add_test(NAME api-test-quic-credit-manual
+		 COMMAND lws-api-test-quic-credit -p ${PORT_QCR}
+			 --cert ${QCR_CERTS}/localhost-100y.cert
+			 --key ${QCR_CERTS}/localhost-100y.key
+			 --manual 4096)
+	set_tests_properties(api-test-quic-credit-manual
+			     PROPERTIES TIMEOUT 30)
 
 	#
 	# The same with each end advertising 2^31, 2^32 and 2^62 - 1, in its

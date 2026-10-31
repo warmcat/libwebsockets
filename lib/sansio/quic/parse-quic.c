@@ -472,8 +472,8 @@ lws_quic_rx_deliver_protocol(struct lws *nwsi, struct lws *wsi_child,
 		return 1;
 	}
 
-	/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
-	lws_wsi_tx_credit(wsi_child, LWSTXCR_PEER_TO_US, (int)len);
+	/* the protocol had all of it */
+	lws_quic_rx_consumed(wsi_child, len, len);
 
 	return 0;
 }
@@ -2108,10 +2108,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						wsi_child->quic.qs->stream_id = stream_id;
 						wsi_child->quic.qs->is_unidirectional = (uint8_t)((stream_id & 0x02) != 0 ? 1 : 0);
 						wsi_child->quic.qs->is_server_initiated = (uint8_t)((stream_id & 0x01) != 0 ? 1 : 0);
-						wsi_child->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-						wsi_child->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-		wsi_child->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-						wsi_child->quic.qs->last_rx_update_us = lws_wsi_now(wsi_child);
+						lws_quic_stream_flow_init(wsi_child, nwsi);
 					} else {
 						lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic stream oom");
 						return -1;
@@ -2150,13 +2147,6 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						wsi_child->a.protocol->callback(wsi_child, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi_child->user_space, NULL, 0);
 					}
 
-					/* the stream's tx credit, from the peer's transport parameters */
-					wsi_child->txc.tx_cr = lws_quic_peer_initial_stream_cr(
-						nwsi->quic.qn,
-						!wsi_child->quic.qs->is_unidirectional,
-						wsi_child->quic.qs->is_server_initiated ==
-								nwsi->quic.qn->is_server);
-					wsi_child->txc.peer_tx_cr_est = wsi_child->txc.tx_cr;
 				}
 
 				/* Dynamic Flow Control Enforcement */
@@ -2183,6 +2173,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 							lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FLOW_CONTROL_ERROR, type, 0);
 							return -1;
 						}
+						lws_quic_rx_est_sync(wsi_child, nwsi);
 					}
 				}
 

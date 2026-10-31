@@ -217,21 +217,19 @@ secstream_tx_credit_add_h3(lws_ss_handle_t *h, int add)
 static int
 secstream_tx_credit_est_h3(lws_ss_handle_t *h)
 {
-	if (h->wsi) {
-#if defined(LWS_ROLE_H2)
-		lwsl_info("%s: %s: est %d\n", __func__, lws_ss_tag(h),
-				lws_h2_get_peer_txcredit_estimate(h->wsi));
+	int n;
 
-		return lws_h2_get_peer_txcredit_estimate(h->wsi);
-#else
-		lwsl_info("%s: %s: est 0 (H2 disabled)\n", __func__, lws_ss_tag(h));
+	if (!h->wsi) {
+		lwsl_info("%s: %s: Unknown (0)\n", __func__, lws_ss_tag(h));
+
 		return 0;
-#endif
 	}
 
-	lwsl_info("%s: %s: Unknown (0)\n", __func__, lws_ss_tag(h));
+	/* what the peer may still send us on the stream, and connection */
+	n = lws_wsi_tx_credit(h->wsi, LWSTXCR_PEER_TO_US, 0);
+	lwsl_info("%s: %s: est %d\n", __func__, lws_ss_tag(h), n);
 
-	return 0;
+	return n;
 }
 
 const struct ss_pcols ss_pcol_h3 = {

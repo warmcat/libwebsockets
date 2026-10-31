@@ -263,6 +263,8 @@ struct _lws_h3_related {
 	uint64_t rx_frame_type;
 	uint64_t rx_frame_len;
 	uint64_t rx_frame_payload_read;
+	/* DATA payload in what lws_h3_rx_stream_data() is dealing with */
+	size_t rx_user_len;
 	
 	uint8_t rx_varint_buf[16];
 	uint8_t rx_varint_len;

@@ -1088,6 +1088,7 @@ struct lws_context {
 #endif
 	uint32_t quic_initial_cwnd;
 	uint32_t quic_0rtt_max_size;
+	uint32_t quic_rx_window;
 
 	uint8_t quic_retry_secret[16];
 	/* keys our QUIC Stateless Reset tokens, lws_quic_stateless_reset_token() */

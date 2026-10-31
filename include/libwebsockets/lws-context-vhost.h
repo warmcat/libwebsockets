@@ -1353,6 +1353,12 @@ struct lws_context_creation_info {
 	 * always advertises 0xffffffff, as RFC 9001 requires: QUIC's 0-RTT is
 	 * bounded by its flow control instead */
 
+	uint32_t			quic_rx_window;
+	/**< CONTEXT: 0 for default (1MB, or 32KB on FreeRTOS), or the receive
+	 * flow control window QUIC gives each stream and connection, up to
+	 * 16MB.  The peer may send all of it before we consume any, so on
+	 * small devices it should be small */
+
 	uint64_t			max_http_body_size;
 	/**< VHOST: 0 for default (100MB), or the desired max HTTP body size */
 
