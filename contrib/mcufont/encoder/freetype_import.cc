@@ -72,6 +72,43 @@ static void readfile(std::istream &file, std::vector<char> &data)
     }
 }
 
+static std::string face_name(FT_Face face, int size)
+{
+    return std::string(face->family_name ? face->family_name : "") + " " +
+           std::string(face->style_name ? face->style_name : "") + " " +
+           std::to_string(size);
+}
+
+bool FreetypeInfo(std::istream &file, int size, freetype_info_t &info)
+{
+    std::vector<char> data;
+    readfile(file, data);
+
+    _FT_Library lib;
+    _FT_Face face(lib, data);
+
+    checkFT(FT_Set_Pixel_Sizes(face, size, size));
+
+    int u_per_em = face->units_per_EM;
+
+    if (!u_per_em)
+        return false;
+
+    info.name = face_name(face, size);
+    info.line_height = (face->height * size + u_per_em / 2) / u_per_em;
+    info.pages.clear();
+
+    FT_UInt gindex;
+    FT_ULong charcode = FT_Get_First_Char(face, &gindex);
+    while (gindex)
+    {
+        info.pages.insert((uint32_t)(charcode >> 8));
+        charcode = FT_Get_Next_Char(face, charcode, &gindex);
+    }
+
+    return true;
+}
+
 std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw)
 {
     std::vector<char> data;
@@ -88,11 +125,11 @@ std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw)
    
     // Convert size to pixels and round to nearest.
     int u_per_em = face->units_per_EM;
+    if (!u_per_em)
+        throw std::runtime_error("face has no units per em");
     auto topx = [size, u_per_em](int s) { return (s * size + u_per_em / 2) / u_per_em; };
     
-    fontinfo.name = std::string(face->family_name) + " " +
-                    std::string(face->style_name) + " " +
-                    std::to_string(size);
+    fontinfo.name = face_name(face, size);
     
     // Reserve 4 pixels on each side for antialiasing + hinting.
     // They will be cropped off later.

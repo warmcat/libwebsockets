@@ -47,7 +47,7 @@ struct bbox_t
 };
 
 void crop_glyphs(std::vector<DataFile::glyphentry_t> &glyphtable,
-                 DataFile::fontinfo_t &fontinfo)
+                 DataFile::fontinfo_t &fontinfo, bool vertical)
 {
     // Find out the maximum bounding box
     bbox_t bbox;
@@ -68,6 +68,12 @@ void crop_glyphs(std::vector<DataFile::glyphentry_t> &glyphtable,
     
     if (bbox.right < bbox.left)
         return; // There were no glyphs
+
+    if (!vertical)
+    {
+        bbox.top = 0;
+        bbox.bottom = fontinfo.max_height - 1;
+    }
     
     // Crop the glyphs to that
     size_t old_w = fontinfo.max_width;

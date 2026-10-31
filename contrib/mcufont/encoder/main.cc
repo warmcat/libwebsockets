@@ -433,6 +433,206 @@ static status_t cmd_bwfont_export(const std::vector<std::string> &args)
 }
 
 
+/*
+ * Commands for serving a face a page at a time.  A page is the glyphs for
+ * 256 codepoints, page n being n * 256 to n * 256 + 255.  Each page is a
+ * complete mcufont of its own, with the whole face's height, baseline, line
+ * height and kerning gap, so text set from several pages lines up and kerns
+ * as if they were one face.  See plugins/protocol_lws_mcufonts.
+ */
+
+static bool parse_int(const std::string &s, int base, int lo, int hi, int &v)
+{
+    try
+    {
+        size_t used;
+
+        v = std::stoi(s, &used, base);
+        return used == s.size() && v >= lo && v <= hi;
+    }
+    catch (std::exception &e)
+    {
+        return false;
+    }
+}
+
+static std::string json_escape(const std::string &s)
+{
+    std::string r;
+    char b[8];
+
+    for (unsigned char c : s)
+    {
+        if (c == '"' || c == '\\')
+        {
+            r += '\\';
+            r += (char)c;
+        }
+        else if (c < 0x20)
+        {
+            snprintf(b, sizeof(b), "\\u%04x", c);
+            r += b;
+        }
+        else
+            r += (char)c;
+    }
+
+    return r;
+}
+
+/*
+ * The face as a font manifest entry, on one line of stdout:
+ *
+ *   {"name":"Fira Sans Condensed Regular 14","line_height":17,
+ *    "pages":"0000-0005,0020-0022,..."}
+ *
+ * pages are the pages its charmap has glyphs in, as ranges of hex page
+ * numbers.  Nothing is rendered, so this is quick even for a big face.
+ */
+
+static status_t cmd_face_info(const std::vector<std::string> &args)
+{
+    freetype_info_t info;
+    int size;
+
+    if (args.size() != 3 || !parse_int(args.at(2), 10, 4, 255, size))
+        return STATUS_INVALID;
+
+    std::ifstream infile(args.at(1));
+    if (!infile.good())
+    {
+        std::cerr << "Could not open " << args.at(1) << std::endl;
+        return STATUS_ERROR;
+    }
+
+    try
+    {
+        if (!FreetypeInfo(infile, size, info) || info.pages.empty())
+        {
+            std::cerr << "No usable glyphs in " << args.at(1) << std::endl;
+            return STATUS_ERROR;
+        }
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << args.at(1) << ": " << e.what() << std::endl;
+        return STATUS_ERROR;
+    }
+
+    std::string pages;
+    char b[16];
+
+    for (auto i = info.pages.begin(); i != info.pages.end(); )
+    {
+        uint32_t first = *i, last = first;
+
+        while (++i != info.pages.end() && *i == last + 1)
+            last = *i;
+
+        if (first == last)
+            snprintf(b, sizeof(b), "%04x", (unsigned int)first);
+        else
+            snprintf(b, sizeof(b), "%04x-%04x", (unsigned int)first,
+                     (unsigned int)last);
+        if (!pages.empty())
+            pages += ',';
+        pages += b;
+    }
+
+    std::cout << "{\"name\":\"" << json_escape(info.name) <<
+                 "\",\"line_height\":" << info.line_height <<
+                 ",\"pages\":\"" << pages << "\"}" << std::endl;
+
+    return STATUS_OK;
+}
+
+/*
+ * Render, optimize and export one page of a face.  The face is imported
+ * whole, so the height and baseline come from all of its glyphs, the same
+ * for every page, and the kerning gap from its letters, which are mostly not
+ * on the page; then only the page's glyphs are kept, cropped to the width
+ * they need.  Each iteration is a pass of the optimizer, as rlefont_optimize
+ * does, so fewer trade size for time.
+ */
+
+static status_t cmd_rlefont_page(const std::vector<std::string> &args)
+{
+    mcufont::rlefont::export_opts_t opts;
+    int size, page, iterations = 10;
+
+    if (args.size() != 5 && args.size() != 6)
+        return STATUS_INVALID;
+
+    if (!parse_int(args.at(2), 10, 4, 255, size) ||
+        !parse_int(args.at(3), 16, 0, 0x10ff, page) ||
+        (args.size() == 6 &&
+         !parse_int(args.at(5), 10, 0, 1000, iterations)))
+        return STATUS_INVALID;
+
+    std::ifstream infile(args.at(1));
+    if (!infile.good())
+    {
+        std::cerr << "Could not open " << args.at(1) << std::endl;
+        return STATUS_ERROR;
+    }
+
+    try
+    {
+        std::unique_ptr<DataFile> f = LoadFreetype(infile, size, false);
+        std::vector<DataFile::glyphentry_t> glyphs;
+
+        opts.kern_gap = mcufont::rlefont::kern_target_gap(*f);
+        opts.c_header = false;
+        opts.ident = strip_extension(args.at(1).substr(
+                        args.at(1).find_last_of('/') + 1)) +
+                     std::to_string(size) + "-" + args.at(3);
+
+        for (size_t i = 0; i < f->GetGlyphCount(); i++)
+        {
+            DataFile::glyphentry_t g = f->GetGlyphEntry(i);
+            std::vector<int> chars;
+
+            for (int c : g.chars)
+                if (c >> 8 == page)
+                    chars.push_back(c);
+
+            if (chars.empty())
+                continue;
+
+            g.chars = chars;
+            glyphs.push_back(g);
+        }
+
+        if (glyphs.empty())
+        {
+            std::cerr << "No glyphs on page " << args.at(3) << std::endl;
+            return STATUS_ERROR;
+        }
+
+        DataFile::fontinfo_t fontinfo = f->GetFontInfo();
+        fontinfo.flags &= ~(DataFile::FLAG_MONOSPACE | DataFile::FLAG_BW);
+        crop_glyphs(glyphs, fontinfo, false);
+        detect_flags(glyphs, fontinfo);
+
+        DataFile pf(std::vector<DataFile::dictentry_t>(), glyphs, fontinfo);
+        pf.SetSeed(1234);
+        mcufont::rlefont::init_dictionary(pf);
+        for (int i = 0; i < iterations; i++)
+            mcufont::rlefont::optimize(pf);
+
+        std::ofstream unused;
+        if (!mcufont::rlefont::write_source(unused, args.at(4), pf, opts))
+            return STATUS_ERROR;
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << args.at(1) << ": " << e.what() << std::endl;
+        return STATUS_ERROR;
+    }
+
+    return STATUS_OK;
+}
+
 static const char *usage_msg =
     "Usage: mcufont <command> [options] ...\n"
     "Commands for importing:\n"
@@ -451,6 +651,14 @@ static const char *usage_msg =
     "\n"
     "Commands specific to bwfont format:\n"
     "   bwfont_export <datfile> [outfile]    Export to .c source code.\n"
+    "\n"
+    "Commands for serving a face a page of 256 codepoints at a time:\n"
+    "   face_info <ttffile> <size>           Show the face's name, line height\n"
+    "                                        and the pages it has, as json.\n"
+    "   rlefont_page <ttffile> <size> <page> <outfile> [iterations]\n"
+    "                                        Make the .mcufont for one page\n"
+    "                                        (hex), optimized for iterations\n"
+    "                                        passes (default 10).\n"
     "";
 
 typedef status_t (*cmd_t)(const std::vector<std::string> &args);
@@ -464,6 +672,8 @@ static const std::map<std::string, cmd_t> command_list {
     {"rlefont_export",          cmd_rlefont_export},
     {"rlefont_show_encoded",    cmd_rlefont_show_encoded},
     {"bwfont_export",           cmd_bwfont_export},
+    {"face_info",               cmd_face_info},
+    {"rlefont_page",            cmd_rlefont_page},
 };
 
 int main(int argc, char **argv)

@@ -107,6 +107,52 @@ Char range tables comprise for each range:
 Each glyph's string in the data starts with its advance width in one byte,
 then its kerning profile, then the compressed runs of its pixels.
 
+## Pages of a face
+
+A face with glyphs for a lot of scripts makes a big mcufont, of which a
+device usually needs only a page or two, and which takes a long time to
+optimize: around 7 minutes for a 32px face with a few pages of Latin glyphs,
+at 50 iterations.  So a face can also be cut into pages of 256 codepoints,
+page n holding the glyphs for codepoints n * 256 to n * 256 + 255, each
+page its own small mcufont.  A device fetches only the pages its text needs
+(see `lws_fonts_register_manifest()`), and a server only has to make the
+pages that are asked for (`plugins/protocol_lws_mcufonts`).
+
+```
+ $ lws-mcufont-encoder face_info Font.ttf 32
+ {"name":"Font Regular 32","line_height":38,"pages":"0000-0005,001e-0021"}
+ $ lws-mcufont-encoder rlefont_page Font.ttf 32 0020 Font32-0020.mcufont 10
+```
+
+`face_info` is quick, it renders nothing; it lists the pages the .ttf has any
+glyphs on as runs of hex page numbers.  `rlefont_page` makes the mcufont for
+one page, optimized for the given number of iterations (default 10).  The
+optimizer's gains flatten off quickly: 20 iterations give pages around 5%
+bigger than 50 do, in less than half the time.
+
+So the pages of a face fit together, they are all cut from the whole face:
+
+ - `height`, `baseline_y` and `line_height` are the whole face's, the glyphs
+   are only cropped horizontally for each page, so glyphs from different
+   pages sit on the same baseline in the same box
+
+ - the kerning target gap and the count of kerning bands are the whole
+   face's too, so pairs kern the same whichever pages they are on
+
+ - `width`, `baseline_x` and the advances may differ between pages, and
+   the kerning profile columns are kerned relative to the `baseline_x` of
+   the page each glyph came from
+
+The device checks each page it fetches has the same height, baseline,
+line height and kerning parameters as the first page of the face it got.
+
+The first page in a face's list is its core page, whose fallback glyph
+stands in for codepoints on pages the face doesn't have.
+
+`fonts-manifest.cmake` here lays out a directory of whole .mcufont faces as
+a server serving pages would, with every page a copy of the whole face, for
+testing or for static serving of faces that only have a page or two.
+
 ## Kerning
 
 Glyphs are kerned by the shapes of their ink, so layout can place them

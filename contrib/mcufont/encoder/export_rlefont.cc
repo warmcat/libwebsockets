@@ -221,7 +221,7 @@ static int kern_min_gap(const kern_profile_t &a, int a_width,
  * and it only closes others up to one clear column.
  */
 
-static int kern_target_gap(const DataFile &datafile)
+int kern_target_gap(const DataFile &datafile)
 {
     std::vector<int> letters, gaps;
 
@@ -250,9 +250,12 @@ static int kern_target_gap(const DataFile &datafile)
     return std::max(1, std::min(255, gaps[gaps.size() / 2]));
 }
 
-void write_source(std::ostream &out, std::string _name, const DataFile &datafile)
+bool write_source(std::ostream &out, std::string _name, const DataFile &datafile,
+                  const export_opts_t &opts)
 {
-    std::string name = filename_to_identifier(_name), n1 = _name;
+    std::string name = filename_to_identifier(opts.ident.empty() ? _name :
+                                                                   opts.ident),
+                n1 = _name;
     std::unique_ptr<encoded_font_t> encoded = encode_font(datafile, false);
     std::vector<char_range_t> ranges;
     uint32_t filesize, cri;
@@ -270,7 +273,7 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
     fd = open(n1.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) {
 	    fprintf(stderr, "Failed to open %s\n", n1.c_str());
-	    return;
+	    return false;
     }
 
     /* placeholder for header */
@@ -424,7 +427,8 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
     out16(&hdr[MCUFO16_BASELINE_Y], datafile.GetFontInfo().baseline_y);
     out16(&hdr[MCUFO16_LINE_HEIGHT], datafile.GetFontInfo().line_height);
     hdr[MCUFO_KERN_BANDS] = (uint8_t)kern_bands(datafile);
-    hdr[MCUFO_KERN_GAP] = (uint8_t)kern_target_gap(datafile);
+    hdr[MCUFO_KERN_GAP] = (uint8_t)(opts.kern_gap ? opts.kern_gap :
+                                            kern_target_gap(datafile));
 
     filesize = (uint32_t)lseek(fd, 0, SEEK_END);
 
@@ -432,6 +436,11 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
 	    goto fail;
     if (write(fd, hdr, RELFONT_HDR_LEN) < 0)
 	    goto fail;
+
+    if (!opts.c_header) {
+	    close(fd);
+	    return true;
+    }
 
     if (lseek(fd, 0, SEEK_SET) < 0)
 	    goto fail;
@@ -503,13 +512,13 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
     close(fd1);
     close(fd);
 
+    return true;
 
-
-    return;
-    
 fail:
 	close(fd);
 	fprintf(stderr, "ERROR writing file\n");
+
+	return false;
 }
 
 }}
