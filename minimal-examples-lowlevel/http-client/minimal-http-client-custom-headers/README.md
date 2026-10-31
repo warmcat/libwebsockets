@@ -22,7 +22,7 @@ The app looks for a custom header "test-custom-header" sent by warmcat.com.
 
 ```
  $ ./lws-minimal-http-client-custom-headers
-[2019/03/11 05:46:45:7582] USER: LWS minimal http client Custom Headers [-d<verbosity>] [-l] [--h1]
+[2019/03/11 05:46:45:7582] USER: LWS minimal http client Custom Headers [-d<verbosity>] [-l]
 [2019/03/11 05:46:45:7671] NOTICE: created client ssl context for default
 [2019/03/11 05:46:46:7812] USER: Connected with server response: 200
 [2019/03/11 05:46:46:7812] NOTICE: callback_http: custom header: 'hello'

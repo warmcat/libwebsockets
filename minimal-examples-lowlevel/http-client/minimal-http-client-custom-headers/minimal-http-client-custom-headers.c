@@ -171,11 +171,13 @@ int main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 
-	lwsl_user("LWS minimal http client Custom Headers [-d<verbosity>] [-l] [--h1]\n");
+	lwsl_user("LWS minimal http client Custom Headers [-d<verbosity>] [-l]\n");
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	/* keep the builtin switches' options, and use the default vhost */
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 	/*
