@@ -24,7 +24,7 @@ enum {
 static const struct lws_switches switches[] = {
 	[LWS_SW_POLICY_FILE]	= { "-c",              "Policy JSON file path, overrides the compiled-in policy" },
 	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
-	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_H]	= { "-H",              "Huge url argument size, 1..16384 (default 4000)" },
 	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
@@ -207,8 +207,10 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		return LWSSSSRET_DISCONNECT_ME;
 	}
 
-	memcpy(m->check + m->cr, buf, len);
-	m->cr += len;
+	if (len) { /* an EOM can come with no payload, and buf NULL */
+		memcpy(m->check + m->cr, buf, len);
+		m->cr += len;
+	}
 
 	if (flags & LWSSS_FLAG_EOM) {
 
@@ -382,7 +384,7 @@ int main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	lwsl_user("LWS secure streams hugeurl test client [-d<verb>][-h <urlarg len>]\n");
+	lwsl_user("LWS secure streams hugeurl test client [-d<verb>][-H <urlarg len>]\n");
 
 	info.fd_limit_per_thread = LWS_FD_LIMIT_PER_THREAD_MIN + 6;
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -429,7 +431,7 @@ int main(int argc, const char **argv)
 		hugeurl_size = (size_t)atol(p);
 
 	if (hugeurl_size < 1 || hugeurl_size > 16384) {
-		lwsl_err("%s: -h should be between 1 and 16384\n", __func__);
+		lwsl_err("%s: -H should be between 1 and 16384\n", __func__);
 		return 1;
 	}
 

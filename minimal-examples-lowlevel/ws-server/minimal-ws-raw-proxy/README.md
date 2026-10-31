@@ -21,6 +21,9 @@ $ nc -l 127.0.0.1 1234
 Option|Meaning
 ---|---
 -d|Set logging verbosity
+-s|Serve using TLS selfsigned cert (ie, connect to it with https://...)
+-H|Strict Host: header checking against vhost name (localhost) and port
+-v|Connection validity use 3s / 10s instead of default 5m / 5m10s
 
 
 ## usage

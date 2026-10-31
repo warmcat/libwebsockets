@@ -18,11 +18,11 @@ Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
 -c <policy-file>|Use the policy from this JSON file instead of the compiled-in one, eg to target a local test server
--h <hugeurl size>|Default 4000
+-H <hugeurl size>|Default 4000
 --h1|Force http/1.1 instead of default h2
 
 ```
-[2021/03/02 16:38:00:2662] U: LWS secure streams hugeurl test client [-d<verb>][-h <urlarg len>]
+[2021/03/02 16:38:00:2662] U: LWS secure streams hugeurl test client [-d<verb>][-H <urlarg len>]
 [2021/03/02 16:38:00:2662] U: main: huge argument size: 4000 bytes
 [2021/03/02 16:38:00:2662] N: LWS: 4.1.99-v4.1.0-294-g85c1fe07a7, loglevel 1031
 [2021/03/02 16:38:00:2662] N: NET CLI SRV H1 H2 WS SS-JSON-POL SSPROX IPV6-on

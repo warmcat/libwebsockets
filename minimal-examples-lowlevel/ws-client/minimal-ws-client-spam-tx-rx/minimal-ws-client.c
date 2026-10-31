@@ -14,7 +14,7 @@ enum {
 static const struct lws_switches switches[] = {
 	[LWS_SW_C]	= { "-c",              "Client connections" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_H]	= { "-H",              "Server address to connect to" },
 	[LWS_SW_M]	= { "-m",              "Enable -m feature" },
 	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },

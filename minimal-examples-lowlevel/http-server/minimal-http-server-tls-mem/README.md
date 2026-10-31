@@ -12,6 +12,14 @@ port 7682 (initialized with DER in-memory certs).
  $ cmake . && make
 ```
 
+## Commandline Options
+
+Option|Meaning
+---|---
+-d|Set logging verbosity
+--port|Port to listen on (default 7681)
+-H|Strict Host: header checking against vhost name (localhost) and port
+
 ## usage
 
 ```

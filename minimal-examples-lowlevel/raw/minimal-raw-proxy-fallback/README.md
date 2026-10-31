@@ -29,7 +29,7 @@ Commandline option|Meaning
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
 -r ipv4:address:port|Configure the remote IP and port that will be proxied, by default ipv4:127.0.0.1:22
 -s|Configure the server for tls / https and `LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT`
--h|(needs -s) Configure the vhost also for `LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER`, allowing http service on tls port (caution... it's insecure then)
+-H|(needs -s) Configure the vhost also for `LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER`, allowing http service on tls port (caution... it's insecure then)
 -u|(needs -s) Configure the vhost also for `LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS`, so the server issues a redirect to https to clients that attempt to connect to a server configured for tls with http.
 ```
  $ ./lws-minimal-raw-proxy

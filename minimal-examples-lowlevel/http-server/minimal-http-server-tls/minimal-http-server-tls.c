@@ -28,7 +28,7 @@ enum {
 static const struct lws_switches switches[] = {
 	[LWS_SW_PORT]	= { "-p",          "Port to listen on (default 7681)" },
 	[LWS_SW_PORT_LONG] = { "--port",     "Same as -p" },
-	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_H]	= { "-H",              "Strict Host: header check against the vhost name and port" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
