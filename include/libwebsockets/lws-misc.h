@@ -1024,6 +1024,12 @@ lws_switches_print_help(const char *prog, const struct lws_switches *switches, s
  * either point to the '\\0' at the end of -d, or to the start of the
  * next argument, ie, will be non-NULL.
  *
+ * A single-letter switch like "-d" may have its value glued on, as in
+ * "-d15".  Any longer switch only matches an argument that is exactly \p val,
+ * or \p val followed by "=value" (or, if \p val itself ends in '=', by the
+ * value), never an argument that merely begins with \p val: "--port" does not
+ * match "--port-s", nor "--h2" match "--h2-port".
+ *
  * This original api variant does not handle stdin-passed commandline content,
  * only that present in the passed argc / argv.
  */
@@ -1053,6 +1059,12 @@ lws_cmdline_option(int argc, const char **argv, const char *val);
  * either point to the '\\0' at the end of -d, or to the start of the
  * next argument, ie, will be non-NULL indicating success.
  *
+ * A single-letter switch like "-d" may have its value glued on, as in
+ * "-d15".  Any longer switch only matches an argument that is exactly \p val,
+ * or \p val followed by "=value" (or, if \p val itself ends in '=', by the
+ * value), never an argument that merely begins with \p val: "--port" does not
+ * match "--port-s", nor "--h2" match "--h2-port".
+ *
  * This original api variant does not handle stdin-passed commandline content,
  * only that present in the passed argc / argv.
  */
@@ -1081,6 +1093,12 @@ lws_cmdline_options(int argc, const char * const *argv, const char *val, const c
  * either point to the '\\0' at the end of -d, or to the start of the
  * next argument, ie, will be non-NULL indicating success.
  *
+ * A single-letter switch like "-d" may have its value glued on, as in
+ * "-d15".  Any longer switch only matches an argument that is exactly \p val,
+ * or \p val followed by "=value" (or, if \p val itself ends in '=', by the
+ * value), never an argument that merely begins with \p val: "--port" does not
+ * match "--port-s", nor "--h2" match "--h2-port".
+ *
  * This api variant handles stdin-passed commandline content, placing it
  * after the argc / argv content.  You must ensure the context creation
  * info .argc and .argv were set to the application's main argc and argv,
@@ -1108,6 +1126,12 @@ lws_cmdline_options_cx(const struct lws_context *cx, const char *val, const char
  * In the case there is no argument, like "myapp -d", the return will
  * either point to the '\\0' at the end of -d, or to the start of the
  * next argument, ie, will be non-NULL indicating success.
+ *
+ * A single-letter switch like "-d" may have its value glued on, as in
+ * "-d15".  Any longer switch only matches an argument that is exactly \p val,
+ * or \p val followed by "=value" (or, if \p val itself ends in '=', by the
+ * value), never an argument that merely begins with \p val: "--port" does not
+ * match "--port-s", nor "--h2" match "--h2-port".
  *
  * This api variant handles stdin-passed commandline content, placing it
  * after the argc / argv content.  You must ensure the context creation
@@ -1140,6 +1164,11 @@ lws_cmdline_option_cx_argv0(const struct lws_context *cx);
  * to be (unevenly) copied into the minimal examples.
  *
  * Applies default log levels that can be overriden by -d
+ *
+ * -h and --help print the builtin switches and exit(0), so an application
+ * calling this must not give -h a meaning of its own.  Builtins match the same
+ * way as lws_cmdline_option(), so an application switch that only begins with
+ * a builtin's name, like --h2-port, does not trigger the builtin.
  *
  * --log-spew-tail <lines> sets how many lines of a log spew are retained and
  * replayed when it eases, see lws_log_spew_tail_lines()
