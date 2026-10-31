@@ -117,6 +117,11 @@
    (CMake rejects interface include dirs inside it):
    `-DLWS_WITH_BEARSSL=1 -DLWS_BEARSSL_INCLUDE_DIRS=... -DLWS_BEARSSL_LIBRARIES=.../libbearssl.so`
    and `LD_LIBRARY_PATH` for ctest (B80: 284/284).
+ - **A cross-host redirect fence needs no second 127/8 address**: dial
+   `localhost` and redirect to `127.0.0.1` (reversed in single-stack
+   builds), as minimal-http-client's redirect-fixture.c does (G-614).
+   api-test-lecp's failure lines are swallowed by the spew limiter at the
+   default level: run it with `-d 1027`.
  - **System mbedtls 3.6.7 is installed on this machine** (/usr/include/mbedtls,
    /usr/lib64/libmbed*.so): `-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0`
    builds against it with no clone (V115).
