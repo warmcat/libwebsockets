@@ -17,11 +17,12 @@ while another is in flight, or after `ABORT` or `FINALIZE`.
 |cut|the server closes partway through the image|the platform op is aborted as soon as the buffered data runs out, not after the 45s drain timeout|
 |stall-timeout|the server holds the connection partway through, and the stream times out while a flash write is in flight|the `lws_ota_t` outlives the write, then `ABORT` is queued and acknowledged|
 |refuse-modal|user code refuses to enter `LWS_SYSTATE_MODAL_UPDATING` until `lws_ota` gives up|the platform is never started|
+|noslot|the platform's START says it has nowhere to put an update (`LWSOTARET_NOSLOT`), eg, only one OTA partition|the platform op is aborted without any writes, and no more periodic update checks are scheduled|
 |context-destroy|the context is destroyed while a flash write is in flight|`ota_detach()` makes the platform let go before the `lws_ota_t` is freed|
 
-After each of the first four, the system state must be back at
-`LWS_SYSTATE_OPERATIONAL`, the periodic update check scheduled, and the
-platform holding nothing.
+After each of the first five, the system state must be back at
+`LWS_SYSTATE_OPERATIONAL`, the periodic update check scheduled (except after
+noslot), and the platform holding nothing.
 
 ## Building
 

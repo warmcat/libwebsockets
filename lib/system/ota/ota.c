@@ -107,6 +107,12 @@ ota_release_system(lws_ota_t *g)
 	    cx->mgr_system.state == LWS_SYSTATE_MODAL_UPDATING)
 		lws_state_transition(&cx->mgr_system, LWS_SYSTATE_OPERATIONAL);
 
+	if (cx->ota_noslot) {
+		/* reaching OPERATIONAL scheduled one, but we can't update */
+		lws_sul_cancel(&cx->sul_ota_periodic);
+		return;
+	}
+
 	/*
 	 * Reaching OPERATIONAL schedules a check after a short jitter (see
 	 * context.c), but we just did one: come back after the full period
@@ -418,6 +424,16 @@ ota_completion_start(lws_ota_t *g)
 {
 	if (g->async_r != LWSOTARET_OK) {
 		lwsl_ss_err(g->ss, "OTA START FAILED r %d", g->async_r);
+		if (g->async_r == LWSOTARET_NOSLOT) {
+			/*
+			 * The platform has nowhere to put an update, eg, the
+			 * partition table has only one OTA slot.  That won't
+			 * change without reflashing, so checking again is
+			 * pointless until we reboot.
+			 */
+			lwsl_ss_err(g->ss, "no OTA slot: stopping OTA checks");
+			g->cx->ota_noslot = 1;
+		}
 		ota_fail(g);
 
 		return;
@@ -1003,6 +1019,10 @@ lws_ota_periodic_cb(lws_sorted_usec_list_t *sul)
 	struct lws_context *cx = lws_container_of(sul, struct lws_context,
 						  sul_ota_periodic);
 	int secs = 0;
+
+	if (cx->ota_noslot)
+		/* we can't update, see ota_completion_start() */
+		return;
 
 	if (cx->system_ops && cx->system_ops->ota_ops.ota_periodic_check_secs)
 		secs = cx->system_ops->ota_ops.ota_periodic_check_secs;

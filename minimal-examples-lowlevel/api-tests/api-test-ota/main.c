@@ -59,13 +59,15 @@ typedef enum {
 	OTC_CUT,
 	OTC_STALL_TIMEOUT,
 	OTC_REFUSE_MODAL,
+	OTC_NOSLOT,
 	OTC_CONTEXT_DESTROY,
 
 	OTC_COUNT
 } ota_case_t;
 
 static const char * const case_names[] = {
-	"complete", "cut", "stall-timeout", "refuse-modal", "context-destroy"
+	"complete", "cut", "stall-timeout", "refuse-modal", "noslot",
+	"context-destroy"
 };
 
 #define IMG_LEN		20000
@@ -166,6 +168,9 @@ fp_complete_cb(lws_sorted_usec_list_t *sul)
 
 	fp.op = 0;
 	g->async_r = LWSOTARET_OK;
+	if (op == LWS_OTA_ASYNC_START && cur_case == OTC_NOSLOT)
+		/* eg, the partition table has only one OTA slot */
+		g->async_r = LWSOTARET_NOSLOT;
 	g->async_completed = 1;
 
 	if (op == LWS_OTA_ASYNC_ABORT || op == LWS_OTA_ASYNC_FINALIZE)
@@ -427,8 +432,12 @@ check_ended(void)
 
 	check(mgr->state == LWS_SYSTATE_OPERATIONAL,
 	      "system state not back to OPERATIONAL");
-	check(!lws_dll2_is_detached(&context->sul_ota_periodic.list),
-	      "periodic update check not scheduled");
+	if (cur_case == OTC_NOSLOT)
+		check(lws_dll2_is_detached(&context->sul_ota_periodic.list),
+		      "periodic update check scheduled without a slot");
+	else
+		check(!lws_dll2_is_detached(&context->sul_ota_periodic.list),
+		      "periodic update check not scheduled");
 	check(!fp.g, "platform still holds the lws_ota");
 	check(!fp.op, "platform op still in flight");
 	check(!fp.errors, "platform saw bad op sequencing");
@@ -462,6 +471,11 @@ case_ended(void)
 		check(refusals > 0, "modal was not asked for");
 		check(!fp.starts, "platform ota started without modal");
 		break;
+	case OTC_NOSLOT:
+		check(fp.starts == 1 && !fp.writes && fp.aborts == 1 &&
+		      !fp.finalizes, "not started and aborted");
+		check(!reboots, "reboot");
+		break;
 	default:
 		check(0, "unexpected end");
 		break;
@@ -473,6 +487,16 @@ case_ended(void)
 	}
 
 	lwsl_user("--- %s: ok\n", case_names[cur_case]);
+
+	if (cur_case == OTC_NOSLOT) {
+		/*
+		 * Stand in for the reboot after reflashing that would let us
+		 * check for updates again
+		 */
+		context->ota_noslot = 0;
+		lws_sul_schedule(context, 0, &context->sul_ota_periodic,
+				 context->sul_ota_periodic.cb, 1);
+	}
 
 	/* the periodic check starts the next one */
 
