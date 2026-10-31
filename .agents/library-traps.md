@@ -251,6 +251,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    stream joins a live mux connection**, before any response: check
    `lws_http_client_http_response(wsi)` before failing there.  A raw h2
    test client must ACK the server's SETTINGS before sending split frames.
+ - **`lws_is_ssl()` on an h2 child stream returns 0**: `use_ssl` is not
+   copied to mux children.  Use `lws_is_ssl(lws_get_network_wsi(wsi))`
+   (G-686 fix).  Closing an h2 ws client stream from ESTABLISHED by
+   returning -1 logs "no state for event CONN_FAILED"; closing via
+   `lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC)` and
+   returning 0 is clean (B125, not chased).
  - **Every http server pss is bracketed by HTTP_BIND / HTTP_DROP_PROTOCOL**
    since G-556 (98414f2c4): the protocol a request arrives on, protocols[0]
    included, is bound at the request gates, and DROP comes exactly once per
