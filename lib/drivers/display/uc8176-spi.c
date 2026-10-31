@@ -655,7 +655,7 @@ lws_display_uc8176_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 	lws_colour_error_t *edl_this, *edl_next;
 	const uint8_t *pc = src;
 	lws_display_colour_t c;
-	lws_display_id_t *id;
+	lws_display_id_t *id = NULL;
 	lws_spi_desc_t desc;
 	uint32_t *lo;
 	int n, m;

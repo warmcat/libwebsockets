@@ -45,3 +45,16 @@ application generates certificates on the device, enable
 (`CONFIG_MBEDTLS_X509_CREATE_C`) in menuconfig.  Without it lws still builds,
 and those calls fail with an error log saying `MBEDTLS_X509_CRT_WRITE_C` is
 missing.
+
+## Optimization
+
+ESP-IDF only builds its own components with the optimization level chosen in
+the sdkconfig (`CONFIG_COMPILER_OPTIMIZATION_*`, `idf.py menuconfig` under
+Compiler options), and with `-ffunction-sections -fdata-sections`, so the link
+can drop functions nothing calls.  lws is added to the project with
+`add_subdirectory()` rather than as a component, so lws applies the same
+level and section flags to itself.
+
+The esp32 examples choose "Optimize for size" (`-Os`), since flash for two
+OTA slots is tight on 4MB parts.  For debugging, "Debug" (`-Og`) builds
+larger.
