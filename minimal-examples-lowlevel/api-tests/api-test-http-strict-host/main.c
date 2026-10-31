@@ -28,10 +28,13 @@
  * None of them may crash the server, eg, a sanitizer build (G-686).
  *
  * With --cert / --key, a TLS vhost called "localhost" with the option takes
- * ws over h2 streams, whose :authority is checked the same way (G-492):
+ * ws over h2 and h3 streams, whose :authority is checked the same way
+ * (G-492):
  *
  *  - "localhost" and its port is accepted, "localhos" and its port, or
  *    "localhost" with no port (so 443) or another port, is refused
+ *
+ * The h3 clients may not fall back to tcp, so an h3 case is decided on h3.
  */
 
 #include <libwebsockets.h>
@@ -39,11 +42,21 @@
 
 #if defined(LWS_WITH_TLS) && defined(LWS_ROLE_H2)
 #define SHC_H2		/* we can test ws over h2 */
+#if defined(LWS_ROLE_H3)
+#define SHC_H3		/* ... and over h3 */
+#endif
 #endif
 
 #define SHC_TIMEOUT_S		5
 #define SHC_NAME		"strict.example.com"
 #define SHC_H2_NAME		"localhost"
+
+/* how the case's upgrade travels */
+enum shc_via {
+	SHC_V_H1,		/* ws upgrade from a raw h1 client */
+	SHC_V_H2,		/* ws over an h2 stream */
+	SHC_V_H3,		/* ws over an h3 stream */
+};
 
 /* what goes after the host name in the Host header */
 enum shc_port {
@@ -61,7 +74,7 @@ struct shc_case {
 	enum shc_port		port;
 	char			hosts;	/* Host headers sent, if name */
 	char			oversize;
-	char			h2;
+	enum shc_via		via;
 	char			want_ok;
 };
 
@@ -99,13 +112,25 @@ static const struct shc_case shc_cases[] = {
 	{ .label = "two Hosts", .name = SHC_NAME, .hosts = 2 },
 	{ .label = "exact, last", .name = SHC_NAME, .hosts = 1, .want_ok = 1 },
 #if defined(SHC_H2)
-	{ .label = "h2 exact", .name = SHC_H2_NAME, .h2 = 1, .want_ok = 1 },
-	{ .label = "h2 prefix", .name = "localhos", .h2 = 1 },
+	{ .label = "h2 exact", .name = SHC_H2_NAME, .via = SHC_V_H2,
+	  .want_ok = 1 },
+	{ .label = "h2 prefix", .name = "localhos", .via = SHC_V_H2 },
 	{ .label = "h2 other port", .name = SHC_H2_NAME, .port = SHC_P_OTHER,
-	  .h2 = 1 },
+	  .via = SHC_V_H2 },
 	{ .label = "h2 no port", .name = SHC_H2_NAME, .port = SHC_P_NONE,
-	  .h2 = 1 },
-	{ .label = "h2 exact, last", .name = SHC_H2_NAME, .h2 = 1,
+	  .via = SHC_V_H2 },
+	{ .label = "h2 exact, last", .name = SHC_H2_NAME, .via = SHC_V_H2,
+	  .want_ok = 1 },
+#endif
+#if defined(SHC_H3)
+	{ .label = "h3 exact", .name = SHC_H2_NAME, .via = SHC_V_H3,
+	  .want_ok = 1 },
+	{ .label = "h3 prefix", .name = "localhos", .via = SHC_V_H3 },
+	{ .label = "h3 other port", .name = SHC_H2_NAME, .port = SHC_P_OTHER,
+	  .via = SHC_V_H3 },
+	{ .label = "h3 no port", .name = SHC_H2_NAME, .port = SHC_P_NONE,
+	  .via = SHC_V_H3 },
+	{ .label = "h3 exact, last", .name = SHC_H2_NAME, .via = SHC_V_H3,
 	  .want_ok = 1 },
 #endif
 };
@@ -277,7 +302,7 @@ shc_raw_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 #if defined(SHC_H2)
 
-/* the h2 client: a ws client whose connection is an h2 stream */
+/* the h2 / h3 client: a ws client whose connection is a stream */
 
 static int
 shc_h2_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
@@ -288,7 +313,7 @@ shc_h2_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!shc_is_cur(wsi))
 			return -1;
 		if (lws_get_network_wsi(wsi) == wsi)
-			shc_fail("ws connection not on an h2 stream");
+			shc_fail("ws connection not on a stream");
 		shc_case_end(1);
 		/* done with it: close it once we have returned */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC);
@@ -349,7 +374,7 @@ shc_next(lws_sorted_usec_list_t *sul)
 		}
 		c = &shc_cases[shc_cur];
 		/* no TLS vhost unless we were given its cert */
-	} while (c->h2 && !shc_h2_port);
+	} while (c->via != SHC_V_H1 && !shc_h2_port);
 
 	shc_case_done = 0;
 	shc_rx_len = 0;
@@ -360,7 +385,7 @@ shc_next(lws_sorted_usec_list_t *sul)
 	i.address		= shc_server;
 	i.opaque_user_data	= (void *)(intptr_t)(shc_cur + 1);
 
-	if (!c->h2) {
+	if (c->via == SHC_V_H1) {
 		i.host		= shc_server;
 		i.port		= shc_port;
 		i.method	= "RAW";
@@ -379,6 +404,11 @@ shc_next(lws_sorted_usec_list_t *sul)
 		i.alpn		= "h2";
 		i.protocol	= "shc-ws";
 		i.local_protocol_name = "shc-h2";
+		if (c->via == SHC_V_H3) {
+			i.alpn	= "h3";
+			/* decided on h3, not by a fallback to tcp */
+			i.disable_h3_fallback = 1;
+		}
 	}
 #endif
 
@@ -436,14 +466,19 @@ main(int argc, const char **argv)
 		info.vhost_name = SHC_H2_NAME;
 		info.ssl_cert_filepath = cert;
 		info.ssl_private_key_filepath = key;
+#if defined(SHC_H3)
+		/* offer h3 as well: a tls vhost serves it on the same port */
+		info.alpn = "h2,http/1.1,h3";
+#endif
 		vh = lws_create_vhost(shc_cx, &info);
 		if (!vh)
 			goto bail;
 		shc_h2_port = lws_get_vhost_listen_port(vh);
 		info.ssl_cert_filepath = NULL;
 		info.ssl_private_key_filepath = NULL;
+		info.alpn = NULL;
 	} else
-		lwsl_user("no --cert / --key: skipping the h2 cases\n");
+		lwsl_user("no --cert / --key: skipping the h2 and h3 cases\n");
 #else
 	(void)cert;
 	(void)key;
