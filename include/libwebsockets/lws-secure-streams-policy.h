@@ -189,7 +189,9 @@ typedef struct lws_ss_metadata {
 	/**< the value came from outside the process: an ss proxy client set
 	 * it, or it was captured from a response header.  It is used as
 	 * normal, except it may not make a ${} endpoint a file:// url or a
-	 * '+' unix socket address.  Setting it from the app clears it. */
+	 * '+' unix socket address, and if the endpoint is more than one
+	 * "${name}", it may not contain url delimiters.  Setting it from the
+	 * app clears it. */
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	uint8_t			pending_onward:1;
 #endif

@@ -844,13 +844,58 @@ disconn:
 /*
  * Expanding ${metadata} into the endpoint, we also note if any value that
  * went into it came from outside the process (an ss proxy client set it, or
- * it was captured from a response header), rather than from our own app
+ * it was captured from a response header), rather than from our own app.
+ *
+ * If the policy endpoint is exactly one "${name}", the policy hands that
+ * metadata the whole endpoint, url and all (eg, __default's "${endpoint}"),
+ * and only the file:// and '+' rules apply to it.  Otherwise the policy
+ * wrote some of the endpoint literally, eg, "${bucket}.s3.amazonaws.com",
+ * and a value from outside may only fill in its own piece of it: if it
+ * could carry url structure, it could make itself the scheme, host, port or
+ * userinfo, and push what the policy wrote into the path or query, eg,
+ * "https://elsewhere/".  So outside values going into such an endpoint
+ * may not contain any url delimiters.
  */
 
 typedef struct lws_ss_ep_exp {
 	lws_ss_handle_t		*h;
+	const char		*structural; /* name of outside md with url
+					      * delimiters, or NULL */
+	char			whole;	     /* endpoint is one "${name}" */
 	char			from_outside;
 } lws_ss_ep_exp_t;
+
+static int
+lws_ss_endpoint_is_whole_subst(const char *ep)
+{
+	const char *e;
+
+	if (strncmp(ep, "${", 2))
+		return 0;
+
+	e = strchr(ep + 2, '}');
+
+	return e && !e[1];
+}
+
+/*
+ * The url delimiters (RFC3986 gen-delims, '\\' that browsers treat as '/', and
+ * '%' that would start an escape), which an outside value can't bring into an
+ * endpoint the policy wrote part of literally.  A NUL counts too: it would
+ * cut off the rest of the expanded endpoint, including the policy's suffix
+ */
+
+static int
+lws_ss_ep_value_has_url_delim(const char *v, size_t len)
+{
+	while (len--) {
+		if (!*v || strchr(":/\\@?#[]%", *v))
+			return 1;
+		v++;
+	}
+
+	return 0;
+}
 
 static int
 lws_ss_exp_cb_endpoint(void *priv, const char *name, char *out, size_t *pos,
@@ -859,8 +904,15 @@ lws_ss_exp_cb_endpoint(void *priv, const char *name, char *out, size_t *pos,
 	lws_ss_ep_exp_t *ee = (lws_ss_ep_exp_t *)priv;
 	lws_ss_metadata_t *hmd = lws_ss_get_handle_metadata(ee->h, name);
 
-	if (hmd && hmd->value_from_outside && hmd->length)
+	if (hmd && hmd->value_from_outside && hmd->length) {
 		ee->from_outside = 1;
+
+		if (!ee->whole && !ee->structural && hmd->value__may_own_heap &&
+		    lws_ss_ep_value_has_url_delim(
+				(const char *)hmd->value__may_own_heap,
+				hmd->length))
+			ee->structural = hmd->name;
+	}
 
 	return lws_ss_exp_cb_metadata(ee->h, name, out, pos, olen, exp_ofs);
 }
@@ -974,6 +1026,9 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		lit = lws_ptr_diff_size_t(dollar, h->policy->endpoint);
 
 	ee.h = h;
+	ee.structural = NULL;
+	ee.whole = (char)(dollar && lws_ss_endpoint_is_whole_subst(
+						h->policy->endpoint));
 	ee.from_outside = 0;
 	lws_strexp_init(&exp, (void *)&ee, lws_ss_exp_cb_endpoint, ep,
 			sizeof(ep));
@@ -989,6 +1044,22 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 			lwsl_err("%s: address strexp failed\n", __func__);
 
 		return LWSSSSRET_TX_DONT_SEND;
+	}
+
+	if (ee.structural) {
+		/*
+		 * A value from outside tried to bring url structure into an
+		 * endpoint the policy wrote part of.  Don't connect anywhere:
+		 * like a refused file://, the attempt starts and fails, since
+		 * UNREACHABLE is only legal after CONNECTING
+		 */
+		lwsl_ss_warn(h, "refusing url delimiters in outside metadata "
+				"%s substituted into endpoint", ee.structural);
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+		if (r)
+			return r;
+
+		goto fail_out;
 	}
 
 	if (subst) {

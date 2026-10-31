@@ -283,8 +283,23 @@ proxy client set, or one captured from a server's response header,
 fills in the endpoint like any other, but it can't make it a
 `file://` url or a `+` Unix Domain Socket address (below): such a
 connection attempt fails, unless the policy endpoint has the
-`file://` or `+` literally, before the first `${`.  Values the app
-set itself with `lws_ss_set_metadata()` are not restricted.
+`file://` or `+` literally, before the first `${`.
+
+If the policy endpoint is anything more than a single `${name}`, eg,
+`${region}.mysite.com` or `https://${host}/`, the policy wrote part of
+the address itself, and an outside value may only fill in its own piece
+of it.  If the value contains any url delimiter, ie, any of
+`:` `/` `\` `@` `?` `#` `[` `]` `%`, it could otherwise make itself the
+scheme, host, port or userinfo and push what the policy wrote into the
+path, eg, `https://elsewhere/` in `${region}.mysite.com`.  So the
+connection attempt fails instead.  An outside value can't give a port
+or an IPv6 literal there either.  An endpoint that is exactly one
+`${name}`, like `__default`'s `${endpoint}`, gives the whole endpoint,
+url and all, to that metadata, so its value may still be a url like
+`https://mysite.com:1234/path` when it comes through an SS proxy.
+
+Values the app set itself with `lws_ss_set_metadata()` are not
+restricted.
 
 If the endpoint string begins with `+`, then it's understood to
 mean a connection to a Unix Domain Socket, for Linux `+@` means

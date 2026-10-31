@@ -11,7 +11,8 @@ set(SRCS main.c)
 #
 # ${metadata} from outside the process (here, captured from a response header)
 # substituted into an SS endpoint can't make it a file:// url or a unix domain
-# socket, unless the policy wrote that part literally; app-set values can
+# socket, unless the policy wrote that part literally, or bring url delimiters
+# into an endpoint the policy wrote part of; app-set values can
 #
 set(requirements 1)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
