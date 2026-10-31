@@ -31,7 +31,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    failed ~335/449 and masked everything else).  The G-638 fence asserts
    the pt lock only on sul *inserts*: unlocked removals
    (`__lws_wsi_remove_from_sul()`) stay invisible; G-698 surfaced only via
-   the new held-assert in `__lws_header_table_detach()`.  To survey a class of unlocked list changes across
+   the new held-assert in `__lws_header_table_detach()`.  Both the cx and
+   pt locks are recursive (`lws_mutex_refcount`).  The suite drives no
+   client error paths like NXDOMAIN: one manual run of
+   minimal-http-client against a `.invalid` host in a DEBUG SMP tree found
+   G-701 (`__lws_free_wsi()` reached holding only cx).  To survey a class of unlocked list changes across
    the whole suite, log them with `dladdr` offsets and resolve with
    `addr2line` (B109).  Hand work to another pt's thread with
    `lws_pthread_self_to_tsi()` plus `lws_plat_pipe_signal()`;
