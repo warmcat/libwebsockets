@@ -29,6 +29,7 @@ static const struct lws_switches switches[] = {
 
 static struct lws_context *context;
 static int bad = 1, status, conmon;
+static char refused_redirect;
 #if defined(LWS_WITH_HTTP2)
 static int long_poll;
 #endif
@@ -241,13 +242,14 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		 * following a chain of redirects to new servers forever.
 		 */
 
-		if (learned_trust && budget--) {
+		if (!refused_redirect && learned_trust && budget--) {
 			try_connect(lws_get_context(wsi));
 			break;
 		}
 
 		lws_default_loop_exit(context);
-		bad = 3; /* connection failed before we could make connection */
+		/* 4: we refused a redirect ourselves, 3: any other failure */
+		bad = refused_redirect ? 4 : 3;
 		lws_cancel_service(lws_get_context(wsi));
 
 #if defined(LWS_WITH_CONMON)
@@ -299,6 +301,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_client_redirect_info(wsi, &ri) || !ri.credentials_ok) {
 			lwsl_err("Refusing redirect: it would take the Basic Auth "
 				 "credentials somewhere they may not go\n");
+			refused_redirect = 1;
 			return 1;
 		}
 		break;

@@ -14,6 +14,7 @@ set(has_plugins 1)
 set(has_ss_policy_parse 1)
 set(has_no_system_vhost 1)
 set(has_async_dns 1)
+set(has_basic_auth 1)
 
 set(requirements 1)
 
@@ -35,6 +36,7 @@ require_lws_config(LWS_WITH_SYS_NTPCLIENT 0 has_no_system_vhost)
 require_lws_config(LWS_WITH_SYS_DHCP_CLIENT 0 has_no_system_vhost)
 
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS 1 has_async_dns)
+require_lws_config(LWS_WITH_HTTP_BASIC_AUTH 1 has_basic_auth)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
@@ -196,16 +198,25 @@ if (requirements)
 		set_tests_properties(ki_hcj_redir PROPERTIES
 				     FIXTURES_CLEANUP hcj_redir)
 
-		set(redirtests jit-trust-http-client-redirect-creds
-			       jit-trust-http-client-redirect-creds-tls)
-		add_test(NAME jit-trust-http-client-redirect-creds COMMAND
-			 lws-minimal-http-client-jit-trust --nossl
-				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HCJ_REDIR}
-				--user user --password password --expected-exit 3)
-		add_test(NAME jit-trust-http-client-redirect-creds-tls COMMAND
-			 lws-minimal-http-client-jit-trust -l
-				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HCJ_REDIR_TLS}
-				--user user --password password --expected-exit 3)
+		set(redirtests)
+
+		# without Basic Auth, --user / --password do nothing to test
+		if (has_basic_auth)
+			list(APPEND redirtests jit-trust-http-client-redirect-creds
+					       jit-trust-http-client-redirect-creds-tls)
+			add_test(NAME jit-trust-http-client-redirect-creds COMMAND
+				 lws-minimal-http-client-jit-trust --nossl
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_HCJ_REDIR}
+					--user user --password password
+					--expected-exit 4)
+			add_test(NAME jit-trust-http-client-redirect-creds-tls COMMAND
+				 lws-minimal-http-client-jit-trust -l
+					--server ${LWS_CTEST_SERVER_RESOLVE}
+					-p ${PORT_HCJ_REDIR_TLS}
+					--user user --password password
+					--expected-exit 4)
+		endif()
 
 		# the 127.0.0.1 the redirect names is only there in dual-stack
 		if ("${LWS_CTEST_SERVER_RESOLVE}" STREQUAL "localhost")
@@ -216,10 +227,12 @@ if (requirements)
 					-p ${PORT_HCJ_REDIR})
 		endif()
 
-		set_tests_properties(${redirtests} PROPERTIES
-		     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
-		     FIXTURES_REQUIRED "hcj_redir"
-		     TIMEOUT 60)
+		foreach(N IN LISTS redirtests)
+			set_tests_properties(${N} PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
+			     FIXTURES_REQUIRED "hcj_redir"
+			     TIMEOUT 60)
+		endforeach()
 	endif()
 
 	if (websockets_shared)
