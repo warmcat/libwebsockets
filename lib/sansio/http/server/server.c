@@ -3619,11 +3619,13 @@ bail_nuke_ah:
  * this vhost and its port.
  *
  * The host must be the whole vhost name, compared case-insensitively
- * (RFC 3986 3.2.2), the way lws_select_vhost_by_name() matches it: not a
- * prefix of it, and not the name with a trailing dot either, since that does
- * not select the vhost by name.  An IPv6 literal host is bracketed, as the
- * vhost name must be to match it.  No port means the default one for the
- * connection's transport.
+ * (RFC 3986 3.2.2): not a prefix of it, and not the name with a trailing dot
+ * either.  This is not how lws_select_vhost_by_name() matches: it compares
+ * names case-sensitively, so a Host naming a vhost in another case does not
+ * move the connection to it, and is checked here against the vhost the
+ * connection is on.  An IPv6 literal host is bracketed, as the vhost name
+ * must be to match it.  No port means the default one for the connection's
+ * transport.
  */
 
 int
