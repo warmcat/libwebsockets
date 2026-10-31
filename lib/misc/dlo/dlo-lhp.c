@@ -852,7 +852,8 @@ lhp_colour(const lcsp_atr_t *a, lws_display_colour_t def)
 }
 
 static void
-lhp_choose_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
+lhp_choose_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps,
+		char local)
 {
 	lws_font_choice_t fc = {
 		.family_name		= "term, serif",
@@ -899,7 +900,69 @@ lhp_choose_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	     a->propval == LCSP_PROPVAL_OBLIQUE))
 		fc.style = 1;
 
-	ps->font = lws_font_choose(cx, &fc);
+	ps->font = local ? lws_font_choose_local(cx, &fc) :
+			   lws_font_choose(cx, &fc);
+}
+
+/*
+ * How many times an element waits for the font manifest or its face from
+ * the server, before going on with the nearest face we have here.  The
+ * retries come from the fetch completing, or the parse's slow fallback
+ * retry, so this is some seconds
+ */
+#define LHP_FONT_WAIT_BUDGET	50
+
+/*
+ * Settle the element's face before anything of it is laid out, since its
+ * text can't be measured without the face being resident, and the text
+ * callback has no way to wait.  A face from the server that isn't here
+ * is fetched while the parse waits at this element; once here, it stays
+ * pinned until the element is closed (lhp_clean_level())
+ */
+
+static lws_stateful_ret_t
+lhp_font_settle(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	if (ps->font_pinned)
+		return 0;
+
+	ctx->font_wait.sul = ctx->sshtmlevsul;
+	ctx->font_wait.cb = ctx->sshtmlevcb;
+
+	/* the first time, most faces are listed in the manifest on its way */
+	if (lws_fonts_remote_manifest_pending(cx, &ctx->font_wait)) {
+		if (++ps->font_waits < LHP_FONT_WAIT_BUDGET)
+			return LWS_SRET_AWAIT_RETRY;
+		lws_dll2_remove(&ctx->font_wait.list);
+		lws_fonts_remote_too_slow(cx, 1);
+	}
+
+	lhp_choose_font(cx, ctx, ps, 0);
+	if (!ps->font || !ps->in_body)
+		/* nothing of this element will be measured in it */
+		return 0;
+
+	switch (lws_font_resident(ps->font, &ctx->font_wait)) {
+	case LWS_FONT_PENDING:
+		if (++ps->font_waits < LHP_FONT_WAIT_BUDGET)
+			return LWS_SRET_AWAIT_RETRY;
+		lws_dll2_remove(&ctx->font_wait.list);
+		lws_fonts_remote_too_slow(cx, 0);
+		/* fallthru */
+	case LWS_FONT_UNAVAILABLE:
+		ps->font = NULL;
+		lhp_choose_font(cx, ctx, ps, 1);
+		break;
+	default:
+		break;
+	}
+
+	if (ps->font) {
+		lws_font_pin(ps->font);
+		ps->font_pinned = 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -2980,10 +3043,28 @@ lhp_elem_start(lhp_ctx_t *ctx, lhp_pstack_t *ps, struct lws_context *cx,
 	       lws_dl_rend_t *drt)
 {
 	lhp_pstack_t *c;
+	lws_stateful_ret_t r;
 	lws_fx_t t;
 	int type;
 
-	lhp_choose_font(cx, ctx, ps);
+	/*
+	 * rs->reclaim_elems: evict every reclaimable occupant as every n-th
+	 * element opens, before its face is settled, so the faces and the
+	 * other tenants have to renew themselves during the layout, on any
+	 * allocator.  Once per element: it comes back here after waiting for
+	 * its face, and evicting that again would never let it settle
+	 */
+	if (ctx->reclaim_elems && !ps->reclaimed) {
+		ps->reclaimed = 1;
+		if (++ctx->reclaim_ctr >= ctx->reclaim_elems) {
+			ctx->reclaim_ctr = 0;
+			lws_reclaim((size_t)-1);
+		}
+	}
+
+	r = lhp_font_settle(cx, ctx, ps);
+	if (r)
+		return r;
 
 	type = lhp_box_type(ctx, ps);
 

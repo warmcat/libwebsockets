@@ -291,7 +291,7 @@ mcuf_file_read(lws_mcufont_file_t *ff, uint32_t ofs, uint8_t *buf, uint32_t len)
 int
 lws_display_font_mcufont_file_core(lws_display_font_t *f)
 {
-	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	lws_mcufont_file_t *ff = mcuf_file(f);
 	lws_fop_flags_t fl = LWS_O_RDONLY;
 	uint8_t hdr[MCUFO_HDR_LEN];
 	uint32_t o, n, rt, nr, cnt, plen;
@@ -386,7 +386,7 @@ bail:
 void
 lws_display_font_mcufont_file_destroy(lws_display_font_t *f)
 {
-	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	lws_mcufont_file_t *ff = mcuf_file(f);
 
 	if (!ff)
 		return;
@@ -406,14 +406,18 @@ lws_display_font_mcufont_file_destroy(lws_display_font_t *f)
 	f->priv = NULL;
 }
 
-/* the font blob (prefix) or NULL if it can't be made resident */
+/*
+ * The font blob (the prefix, for a file-backed face) or NULL if it can't be
+ * made resident right now.  A face from a server that isn't here is only
+ * fetched by layout or render asking for it, through lws_font_resident()
+ */
 
 static const uint8_t *
 mcuf_bf(lws_dlo_text_t *text)
 {
 	lws_display_font_t *f = (lws_display_font_t *)text->font;
 
-	if (f->priv && lws_display_font_mcufont_file_core(f))
+	if (mcuf_file(f) && lws_display_font_mcufont_file_core(f))
 		return NULL;
 
 	return f->data;
@@ -424,7 +428,7 @@ mcuf_bf(lws_dlo_text_t *text)
 static const uint8_t *
 mcuf_ranges(const lws_display_font_t *f, const uint8_t *bf)
 {
-	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	lws_mcufont_file_t *ff = mcuf_file(f);
 
 	if (ff)
 		return ff->ranges;
@@ -438,7 +442,7 @@ static uint32_t
 mcuf_glyph_ofs(const lws_display_font_t *f, const uint8_t *bf,
 	       const uint8_t *r, unsigned int n, uint32_t idx)
 {
-	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	lws_mcufont_file_t *ff = mcuf_file(f);
 
 	if (ff)
 		return lws_ser_ru16be((const uint8_t *)&ff->gofs[n][idx]);
@@ -459,7 +463,7 @@ mcuf_glyph(lws_dlo_text_t *text, const uint8_t *bf, uint32_t fofs,
 	   uint32_t len, int pin, void **ppin)
 {
 	lws_display_font_t *f = (lws_display_font_t *)text->font;
-	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	lws_mcufont_file_t *ff = mcuf_file(f);
 	mcuf_gent_t *ge;
 
 	if (ppin)
@@ -517,7 +521,7 @@ void
 lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text)
 {
 	lws_display_font_t *f = (lws_display_font_t *)text->font;
-	lws_mcufont_file_t *ff = f ? (lws_mcufont_file_t *)f->priv : NULL;
+	lws_mcufont_file_t *ff = f ? mcuf_file(f) : NULL;
 
 	if (!ff)
 		return;
@@ -682,7 +686,7 @@ font_mcufont_uniglyph_lookup(lws_dlo_text_t *text, const uint8_t *bf,
 			     uint32_t unicode, uint32_t *plen)
 {
 	const lws_display_font_t *f = text->font;
-	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	lws_mcufont_file_t *ff = mcuf_file(f);
 	uint32_t entries = lws_ser_ru32be(&bf[MCUFO_COUNT_CHAR_RANGE_TABLES]);
 	const uint8_t *r;
 	unsigned int n;
@@ -1018,18 +1022,69 @@ mcufont_row(lws_dlo_text_t *text, const uint8_t *bf, int yo, char draw)
 
 }
 
+static lws_stateful_ret_t
+mcufont_render(struct lws_display_render_state *rs, lws_dlo_text_t *text,
+	       const uint8_t *bf, uint16_t gen);
+
 lws_stateful_ret_t
 lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 {
 	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 	lws_dlo_text_t *text = lws_container_of(dlo, lws_dlo_text_t, dlo);
-	const uint8_t *bf = mcuf_bf(text);
-	lws_fx_t ax, ay, t, t1, t2, t3;
-	int s, e, yo;
+	lws_mcufont_remote_t *r = mcuf_remote(text->font);
+	lws_stateful_ret_t ret;
+	const uint8_t *bf;
 
+	if (r) {
+		/*
+		 * A face from a server may have been evicted since layout,
+		 * or since we last drew a line of it.  If it is being
+		 * fetched again, wait for it at this dlo; if it can't be had,
+		 * finish the text in the nearest face we have here
+		 */
+		switch (lws_font_resident(text->font,
+					  rs->font_wait.cb ? &rs->font_wait :
+							     NULL)) {
+		case LWS_FONT_PENDING:
+			return LWS_SRET_WANT_INPUT;
+		case LWS_FONT_UNAVAILABLE:
+			lws_display_font_mcufont_release_glyphs(text);
+			lwsac_free(&text->ac_glyphs);
+			memset(&text->glyphs, 0, sizeof(text->glyphs));
+			text->glyph_row = 0;
+			text->font = lws_font_choose_local(r->cx,
+						&text->font->choice);
+			if (!text->font) {
+				text->font = r->f;
+				return LWS_SRET_OK;
+			}
+			r = NULL;
+			break;
+		default:
+			break;
+		}
+	}
+
+	bf = mcuf_bf(text);
 	if (!bf)
 		/* can't be made resident right now: try again next line */
 		return LWS_SRET_OK;
+
+	/* the decoders point into it: it must stay for this call */
+	lws_font_pin(text->font);
+	ret = mcufont_render(rs, text, bf, r ? r->gen : 0);
+	lws_font_unpin(text->font);
+
+	return ret;
+}
+
+static lws_stateful_ret_t
+mcufont_render(struct lws_display_render_state *rs, lws_dlo_text_t *text,
+	       const uint8_t *bf, uint16_t gen)
+{
+	lws_dlo_t *dlo = &text->dlo;
+	lws_fx_t ax, ay, t, t1, t2, t3;
+	int s, e, yo;
 
 	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
 	lws_fx_add(&t, &ax, &dlo->box.w);
@@ -1067,11 +1122,19 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 	 * glyphs to the stale ones did exactly that.
 	 */
 
-	if (!text->glyphs.count || yo < (int)text->glyph_row) {
+	/*
+	 * A face from a server that was evicted and fetched again since the
+	 * glyphs were attached is a new copy: the decoders point into the old
+	 * one, so they have to start again from the new one in the same way
+	 */
+
+	if (!text->glyphs.count || yo < (int)text->glyph_row ||
+	    gen != text->font_gen) {
 		lws_display_font_mcufont_release_glyphs(text);
 		lwsac_free(&text->ac_glyphs);
 		memset(&text->glyphs, 0, sizeof(text->glyphs));
 		text->glyph_row = 0;
+		text->font_gen = gen;
 
 		lws_display_dlo_text_attach_glyphs(text);
 

@@ -570,6 +570,12 @@ typedef struct {
  *  - contextwide headers pool
  */
 
+#if defined(LWS_WITH_DLO) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_CLIENT) && defined(LWS_WITH_STRUCT_JSON)
+/* faces listed by a manifest on a server, see lws_fonts_register_manifest() */
+#define LWS_DLO_REMOTE_FONTS
+#endif
+
 struct lws_context {
 	const lws_io_ops_t		*io_ops; /* the requests of IO */
 	const struct lws_io_plumbing	*io_plumbing;
@@ -610,6 +616,9 @@ struct lws_context {
 #if defined(LWS_WITH_DLO)
 	lws_dll2_owner_t			fonts;
 	lws_dll2_owner_t			dlo_file;
+#if defined(LWS_DLO_REMOTE_FONTS)
+	struct lws_fonts_remote			*fonts_remote;
+#endif
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dll2_owner_t			active_assets; /* dloss_t */
 	lws_dll2_owner_t			pending_assets; /* dloss_t, queued for a slot */

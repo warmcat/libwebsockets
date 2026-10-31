@@ -139,7 +139,18 @@ htmlss_parse(htmlss_t *m)
 			return;
 		}
 
-		if (r & (LWS_SRET_NO_FURTHER_OUT | LWS_SRET_FATAL)) {
+		if (r & LWS_SRET_FATAL) {
+			/*
+			 * The layout ended early, eg, out of memory with
+			 * nothing left to reclaim, or the document is
+			 * unparseable: what was laid out before is shown
+			 */
+			lwsl_warn("%s: layout failed, r 0x%x\n", __func__, r);
+			m->rs->layout_failed = 1;
+			break;
+		}
+
+		if (r & LWS_SRET_NO_FURTHER_OUT) {
 			lwsl_warn("%s: r 0x%x\n", __func__, r);
 			break;
 		}
@@ -426,6 +437,7 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->rs = rs;
 	m->rs->html = 1; /* render must wait for html to complete */
 	m->rs->layout_clipped = 0;
+	m->rs->layout_failed = 0;
 	rs->hss_html = h; /* for lws_lhp_ss_cancel() */
 
 	if (lws_lhp_construct(&m->lhp, lhp_displaylist_layout, &m->drt, rs->ic)) {
@@ -442,11 +454,15 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	/* after lws_lhp_construct(), which zeroes the ctx */
 	m->lhp.window = w;
 	m->lhp.viewport_h = rs->viewport_h;
+	m->lhp.reclaim_elems = rs->reclaim_elems;
 	m->lhp.base_url = strdup(url);
 	m->lhp.ssevcb = render;
 	m->lhp.ssevsul = &rs->sul;
 	m->lhp.sshtmlevcb = lws_lhp_ss_html_parse;
 	m->lhp.sshtmlevsul = &m->sul;
+	/* a render waiting for a font from the server is woken like this */
+	rs->font_wait.sul = &rs->sul;
+	rs->font_wait.cb = render;
 	m->lhp.ids = &rs->ids;
 
 	/* the caller's url need not outlive this call, but the fetch does */
@@ -553,5 +569,6 @@ lws_lhp_ss_cancel(lws_display_render_state_t *rs)
 	if (h)
 		lws_ss_destroy(&h); /* rs->hss_html is cleared at DESTROYING */
 
+	lws_dll2_remove(&rs->font_wait.list);
 	lws_sul_cancel(&rs->sul);
 }

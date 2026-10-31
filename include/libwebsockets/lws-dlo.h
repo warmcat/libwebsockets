@@ -247,6 +247,18 @@ typedef struct lws_font_choice {
 	uint16_t			fixed_height;
 } lws_font_choice_t;
 
+/*
+ * Something that can be waiting for a font to arrive from the server (a
+ * document's layout, a render): when the fetch it waits on completes, or
+ * fails, sul is scheduled with cb.  Embedded in the waiting object, and
+ * removed from the wait when that is destroyed
+ */
+typedef struct lws_font_waiter {
+	lws_dll2_t			list;
+	lws_sorted_usec_list_t		*sul;
+	sul_cb_t			cb;
+} lws_font_waiter_t;
+
 typedef struct lws_display_font {
 	lws_dll2_t			list;
 
@@ -303,6 +315,9 @@ typedef struct lws_dlo_text {
 
 	int16_t				group_height;
 	int16_t				group_y_baseline;
+
+	uint16_t			font_gen; /* the font copy the glyphs
+						   * were attached from */
 
 	lws_fx_t			_cwidth;
 } lws_dlo_text_t;
@@ -462,6 +477,20 @@ typedef struct lws_display_render_state {
 						* completes if the layout dropped
 						* content below the surface: a
 						* taller surface would show more */
+	char				layout_failed; /* set when the html
+						* completes if the layout ended
+						* early: it ran out of memory, or
+						* the document could not be
+						* parsed.  The display list holds
+						* what was laid out before that */
+	uint16_t			reclaim_elems; /* 0, or evict every
+						* reclaimable heap occupant as
+						* every n-th element of the
+						* layout opens: a test aid, so
+						* the faces and other tenants
+						* have to renew themselves during
+						* the layout whatever the
+						* allocator does */
 	int32_t				viewport_h; /* 0, or the height css
 						* viewport units and the root
 						* element's height resolve
@@ -470,6 +499,9 @@ typedef struct lws_display_render_state {
 						* shown at once (a scrolling
 						* window) */
 	struct lws_context		*cx; /* set by lws_lhp_ss_browse_filter() */
+
+	lws_font_waiter_t		font_wait; /* render waiting for a
+						    * font from the server */
 
 } lws_display_render_state_t;
 
@@ -993,6 +1025,41 @@ lws_font_register_file(struct lws_context *cx, const char *path);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_fonts_register_dir(struct lws_context *cx, const char *dirpath);
+
+/**
+ * lws_fonts_register_manifest() - use the faces a server lists as well
+ *
+ * \param cx: the lws context
+ * \param url: the manifest, eg "https://fonts.example.com/fonts/fonts.json"
+ *
+ * Fonts are a system attribute: the device keeps at least one face in flash
+ * (lws_font_register()) so text can always be shown, and learns about the
+ * rest from a manifest on a server, fetched once each boot when the system
+ * reaches OPERATIONAL (retried until it succeeds).  The manifest is JSON,
+ *
+ *   {"fonts": [{ "name": "Fira Sans Condensed Bold 14",
+ *                "file": "FiraSansCondensed-Bold14.mcufont",
+ *                "line_height": 17, "len": 7066 }, ...]}
+ *
+ * name being the face's mcufont full name, which the chooser matches css
+ * font-family against and gets the weight and style from, file a .mcufont
+ * in the same directory as the manifest, line_height the face's line height
+ * and len the file's size in bytes.  contrib/mcufont/fonts-manifest.cmake
+ * makes one for a directory of .mcufont files.
+ *
+ * The listed faces can be chosen from as soon as the manifest has arrived,
+ * with nothing of them in memory.  A face is fetched whole when text is to be
+ * set in it, and is a reclaimable heap occupant: it can be evicted when
+ * memory is short, and is fetched again when needed, even several times
+ * during one render.  Layout and render wait for a face being fetched; if it
+ * can't be had, the closest face in flash is used instead.
+ *
+ * Needs LWS_WITH_SECURE_STREAMS and a policy with the __default streamtype.
+ * Returns 0 if the manifest will be fetched, or nonzero if it can't be, eg
+ * if no face has been registered with lws_font_register() as the fallback.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_fonts_register_manifest(struct lws_context *cx, const char *url);
 
 LWS_VISIBLE LWS_EXTERN const lws_display_font_t *
 lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints);
