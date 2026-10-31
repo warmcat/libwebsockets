@@ -486,6 +486,8 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS minimal http client JIT Trust [-d<verbosity>] [-l]\n");
 
+	/* we use the default vhost, so lws must create it */
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 			/* we start off not trusting anything */
 			LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS |

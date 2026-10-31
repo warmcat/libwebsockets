@@ -397,7 +397,9 @@ int main(int argc, const char **argv)
 	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 	lwsl_user("LWS minimal http client form - POST [-d<verbosity>] [-l] https://libwebsockets.org/testserver/formtest\n");
 
-	info.options			= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+	/* keep the builtin switches' options, and use the default vhost */
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
+	info.options			|= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 					  LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.timeout_secs		= 600; /* Give large uploads up to 10 minutes */

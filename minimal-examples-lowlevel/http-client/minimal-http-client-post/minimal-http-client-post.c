@@ -311,6 +311,8 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_M].sw))
 		count_clients = LWS_ARRAY_SIZE(client_wsi);
 
+	/* we use the default vhost, so lws must create it */
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
 	info.options			|= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.protocols			= protocols;

@@ -179,7 +179,9 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS minimal http client hugeurl [-d <verbosity>] [-l]\n");
 
-	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	/* keep the builtin switches' options, and use the default vhost */
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 	info.pt_serv_buf_size = 8192;
