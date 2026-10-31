@@ -22,6 +22,7 @@
  * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
  * | 7b | from one source, queries for 10 zones nobody serves and another for the first; then one from another source (G-508, G-535) | a fetch started for each query; with one bucket for all sources, the first source's queries leave none for the other's | a fetch for each of the first source's first 4 zones, the rest answered TC=1 (G-571), the other query waits on the first fetch; the other source's query starts a fetch |
  * | 7c | (linux only) UDP queries for 48 new zones from 12 sources, then one over TCP (G-571) | the UDP queries take every fetch: the rest are REFUSED, and so is the TCP one | the UDP queries take at most what is outside the TCP reserve, the rest are answered TC=1 (question echoed, nothing else but the OPT, no larger than the query); the TCP query starts a fetch |
+ * | 7d | (linux only) dht-max-pending 8: UDP queries for 8 new zones from 8 sources, then one over TCP for another, then UDP queries joining the first 8 2.5s later (G-689) | all 8 zones wait, so the TCP query is REFUSED; a join waits 5s from when it came | 6 zones wait, the other 2 queries are answered TC; the TCP query starts a fetch; the joins are answered with the queries they joined, 5s after those |
  * | 8 | a zone with a delegation (G-246) | names at / below the cut answered authoritatively from the zone text | referred: no AA, the cut's NS in authority; only the DS at the cut answered |
  * | 9 | more zone files than cache-max-zones (G-290) | the surplus evicted at startup and its files unlinked | all served, every file still there |
  * | 10 | cache-max-zones 1, an operator zone and DHT-handed zones (G-290) | the operator zone evicted for a DHT zone and its file unlinked | the operator zone served and its file kept, the DHT zones evicting each other |
@@ -54,6 +55,13 @@
  * Once every query has either started a fetch or been answered, a TCP query
  * for another zone must still start one.  Only linux lets the test bind those
  * addresses; elsewhere the phase is skipped.
+ *
+ * Phase 7d does the same to the cap on zones waiting for fetches, set to 8 by
+ * the "dht-max-pending" pvo, of which UDP queries may fill only 6.  Then, 2.5s
+ * into the wait, UDP queries for other names in the same zones join their
+ * fetches: they must be answered as the queries they joined were, and at the
+ * same time, not kept waiting 5s from when they came, which would let joins,
+ * which spend no fetch token, keep zones waiting indefinitely.
  *
  * "No listener" is observed two ways: queries stay unanswered, and the UDP
  * port is bindable by the test itself afterwards (the plugin only creates
@@ -133,8 +141,11 @@ struct phase {
 	int		fetch;		/* take zone fetches as lws-dht-dnssec:
 					 * 1: one, given up with its query
 					 * 2: many, rate limited (G-508)
-					 * 3: many, forged, then TCP (G-571) */
+					 * 3: many, forged, then TCP (G-571)
+					 * 4: forged up to dht-max-pending,
+					 *    then TCP, then joins (G-689) */
 	const char	*cache_max;	/* "cache-max-zones" pvo, if any */
+	const char	*max_pending;	/* "dht-max-pending" pvo, if any */
 	int		src2_from;	/* if nonzero, q[] from this index on
 					 * are sent from cli2_fd */
 	const char	*keep[4];	/* zdir files that must survive */
@@ -229,8 +240,19 @@ static struct {
 	int		answered;
 } drain_q[ZD_DRAIN_Q];
 
-static lws_usec_t drain_sent, tcp_sent;
-static int drain_stage;
+/*
+ * phase 7d: with dht-max-pending 8, UDP may have 6 zones waiting, TCP the
+ * other 2 (G-689); a zone's queries wait 5s from the first
+ */
+#define ZD_HOLD_SRCS		8
+#define ZD_HOLD_MAX_PENDING	"8"
+#define ZD_HOLD_UDP_SHARE	6
+#define ZD_HOLD_WAIT_US		(5 * LWS_US_PER_SEC)
+/* how long into the first queries' wait the joins are sent */
+#define ZD_HOLD_JOIN_US		(2500 * LWS_US_PER_MS)
+
+static lws_usec_t drain_sent, tcp_sent, join_sent, hold_accounted;
+static int drain_stage, hold_udp_fetches;
 
 static void
 zd_fetch_reset(void)
@@ -856,6 +878,36 @@ drain_check_tc(int i, const uint8_t *r, size_t rl)
 	return 0;
 }
 
+/*
+ * Send a query for www.ZD_TCP_ZONE over TCP, from 127.0.0.1.  Nonzero if it
+ * couldn't be sent.
+ */
+
+static int
+tcp_query(uint16_t id)
+{
+	uint8_t buf[512];
+	size_t ql = mk_query(buf + 2, sizeof(buf) - 2, id, "www." ZD_TCP_ZONE,
+			     LWS_ADNS_RECORD_A);
+
+	buf[0] = (uint8_t)(ql >> 8);
+	buf[1] = (uint8_t)(ql & 0xff);
+
+	tcp_fd = socket(AF_INET, SOCK_STREAM, 0);
+	/*
+	 * on loopback the kernel completes the handshake from the listen
+	 * backlog, before the server accepts it
+	 */
+	if (!ql || tcp_fd < 0 ||
+	    connect(tcp_fd, (struct sockaddr *)&auth_sa, sizeof(auth_sa)) ||
+	    send(tcp_fd, buf, ql + 2, 0) != (ssize_t)(ql + 2)) {
+		lwsl_err("%s: tcp query failed errno %d\n", __func__, errno);
+		return 1;
+	}
+
+	return 0;
+}
+
 static void
 drain_drive(lws_usec_t now)
 {
@@ -944,28 +996,8 @@ drain_drive(lws_usec_t now)
 			  cur->name, zd_fetch_calls, answered);
 
 		/* now a TCP query for another zone must still start one */
-		{
-			size_t ql = mk_query(buf + 2, sizeof(buf) - 2, 0x7cff,
-					     "www." ZD_TCP_ZONE,
-					     LWS_ADNS_RECORD_A);
-
-			buf[0] = (uint8_t)(ql >> 8);
-			buf[1] = (uint8_t)(ql & 0xff);
-
-			tcp_fd = socket(AF_INET, SOCK_STREAM, 0);
-			/*
-			 * on loopback the kernel completes the handshake from
-			 * the listen backlog, before the server accepts it
-			 */
-			if (!ql || tcp_fd < 0 ||
-			    connect(tcp_fd, (struct sockaddr *)&auth_sa,
-				    sizeof(auth_sa)) ||
-			    send(tcp_fd, buf, ql + 2, 0) != (ssize_t)(ql + 2)) {
-				lwsl_err("%s: tcp query failed errno %d\n",
-					 __func__, errno);
-				goto fail;
-			}
-		}
+		if (tcp_query(0x7cff))
+			goto fail;
 		tcp_sent = now;
 		drain_stage = 2;
 		return;
@@ -990,6 +1022,214 @@ fail:
 	phase_done = 1;
 }
 
+/*
+ * Phase 7d (G-689): with dht-max-pending ZD_HOLD_MAX_PENDING, UDP queries for
+ * new zones from ZD_HOLD_SRCS sources, one each, may only have the UDP share
+ * of it waiting; the rest are answered TC.  Then a TCP query for another zone
+ * must still start a fetch, from TCP's reserve.  And UDP queries joining the
+ * fetches, sent later, are answered with the queries they joined, not kept
+ * waiting the whole time again, so joining can't keep a zone pending.
+ *
+ * drain_q[i] are the first queries, drain_q[ZD_HOLD_SRCS + i] the joins, both
+ * from source i; .answered is 1 for a TC answer, 2 for REFUSED.
+ */
+
+static void
+hold_rx(lws_usec_t now)
+{
+	uint8_t buf[512];
+	ssize_t r;
+	int n, i;
+
+	for (n = 0; n < ZD_HOLD_SRCS; n++) do {
+		r = recv(drain_fds[n], buf, sizeof(buf), 0);
+		if (r < 12)
+			break;
+
+		i = ((buf[0] << 8) | buf[1]) - 0x7d00;
+		if (i < 0 || i >= 2 * ZD_HOLD_SRCS ||
+		    i % ZD_HOLD_SRCS != n || drain_q[i].answered) {
+			lwsl_err("phase '%s': FAIL stray answer %02x%02x\n",
+				 cur->name, buf[0], buf[1]);
+			goto fail;
+		}
+
+		if (buf[2] & 0x02) {
+			if (drain_check_tc(i, buf, (size_t)r))
+				goto fail;
+			drain_q[i].answered = 1;
+			continue;
+		}
+
+		if (!(buf[2] & 0x80) || (buf[3] & 0xf) != 5) {
+			lwsl_err("phase '%s': FAIL query %d answered flags "
+				 "%02x%02x, wanted TC or REFUSED\n", cur->name,
+				 i, buf[2], buf[3]);
+			goto fail;
+		}
+		drain_q[i].answered = 2;
+
+		/*
+		 * A join waits no longer than the query that started the
+		 * fetch, which was sent ZD_HOLD_JOIN_US before it
+		 */
+		if (i >= ZD_HOLD_SRCS && now - join_sent >= ZD_HOLD_WAIT_US) {
+			lwsl_err("phase '%s': FAIL join %d waited %dms, longer "
+				 "than the query it joined\n", cur->name,
+				 i - ZD_HOLD_SRCS,
+				 (int)((now - join_sent) / LWS_US_PER_MS));
+			goto fail;
+		}
+	} while (1);
+
+	return;
+
+fail:
+	phase_failed = 1;
+	phase_done = 1;
+}
+
+static int
+hold_send(int i, const char *host)
+{
+	char name[64];
+	size_t ql;
+
+	lws_snprintf(name, sizeof(name), "%s.hd%d.example", host,
+		     i % ZD_HOLD_SRCS);
+	ql = mk_query(drain_q[i].q, sizeof(drain_q[i].q),
+		      (uint16_t)(0x7d00 + i), name, LWS_ADNS_RECORD_A);
+	if (i & 1)
+		ql = add_opt(drain_q[i].q, sizeof(drain_q[i].q), ql);
+	drain_q[i].ql = ql;
+	drain_q[i].answered = 0;
+
+	if (!ql || sendto(drain_fds[i % ZD_HOLD_SRCS], drain_q[i].q, ql, 0,
+			  (struct sockaddr *)&auth_sa, sizeof(auth_sa)) < 0) {
+		lwsl_err("%s: query %d failed errno %d\n", __func__, i, errno);
+		return 1;
+	}
+	return 0;
+}
+
+static void
+hold_drive(lws_usec_t now)
+{
+	uint8_t buf[512];
+	int i, n = 0;
+
+	if (drain_stage)
+		hold_rx(now);
+	if (phase_done)
+		return;
+
+	switch (drain_stage) {
+	case 0:
+		/* anything left over from the last phase */
+		for (i = 0; i < ZD_HOLD_SRCS; i++)
+			while (recv(drain_fds[i], buf, sizeof(buf), 0) >= 0)
+				;
+
+		for (i = 0; i < ZD_HOLD_SRCS; i++)
+			if (hold_send(i, "www"))
+				goto fail;
+		drain_sent = now;
+		drain_stage = 1;
+		return;
+
+	case 1:
+		/* every query either started a fetch or was answered TC */
+		for (i = 0; i < ZD_HOLD_SRCS; i++)
+			n += drain_q[i].answered == 1;
+		if (n + zd_fetch_calls < ZD_HOLD_SRCS) {
+			if (now - drain_sent > RESP_US) {
+				lwsl_err("phase '%s': FAIL only %d answered and "
+					 "%d fetches, of %d queries\n", cur->name,
+					 n, zd_fetch_calls, ZD_HOLD_SRCS);
+				goto fail;
+			}
+			return;
+		}
+		hold_udp_fetches = zd_fetch_calls;
+		hold_accounted = now;
+		lwsl_user("phase '%s': %d zones waiting, %d answered TC\n",
+			  cur->name, zd_fetch_calls, n);
+
+		/* a TCP query for another zone must still start a fetch */
+		if (tcp_query(0x7dff))
+			goto fail;
+		tcp_sent = now;
+		drain_stage = 2;
+		return;
+
+	case 2:
+		if (!zd_fetch_tcp) {
+			if (now - tcp_sent > RESP_US) {
+				lwsl_err("phase '%s': FAIL the TCP query started "
+					 "no fetch\n", cur->name);
+				goto fail;
+			}
+			return;
+		}
+		lwsl_user("phase '%s': the TCP query started a fetch\n",
+			  cur->name);
+		if (hold_udp_fetches > ZD_HOLD_UDP_SHARE) {
+			lwsl_err("phase '%s': FAIL UDP queries had %d zones "
+				 "waiting, into TCP's reserve\n", cur->name,
+				 hold_udp_fetches);
+			goto fail;
+		}
+		drain_stage = 3;
+		return;
+
+	case 3:
+		/* a while into the first queries' wait, join their fetches */
+		if (now - hold_accounted < ZD_HOLD_JOIN_US)
+			return;
+		for (i = 0; i < ZD_HOLD_SRCS; i++)
+			if (hold_send(ZD_HOLD_SRCS + i, "ftp"))
+				goto fail;
+		join_sent = now;
+		drain_stage = 4;
+		return;
+
+	default:
+		for (i = 0; i < 2 * ZD_HOLD_SRCS; i++)
+			n += !!drain_q[i].answered;
+		if (n < 2 * ZD_HOLD_SRCS) {
+			if (now - join_sent > RESP_FETCH_US) {
+				lwsl_err("phase '%s': FAIL only %d of %d queries "
+					 "answered\n", cur->name, n,
+					 2 * ZD_HOLD_SRCS);
+				goto fail;
+			}
+			return;
+		}
+
+		/* a join is answered as the query it joined was */
+		for (i = 0; i < ZD_HOLD_SRCS; i++)
+			if (drain_q[ZD_HOLD_SRCS + i].answered !=
+			    drain_q[i].answered) {
+				lwsl_err("phase '%s': FAIL join %d answered %s, "
+					 "its zone's first query %s\n", cur->name,
+					 i, drain_q[ZD_HOLD_SRCS + i].answered == 1 ?
+					 "TC" : "REFUSED", drain_q[i].answered == 1 ?
+					 "TC" : "REFUSED");
+				goto fail;
+			}
+
+		lwsl_user("phase '%s': joins answered with the queries they "
+			  "joined, after %dms\n", cur->name,
+			  (int)((now - join_sent) / LWS_US_PER_MS));
+		phase_done = 1;
+		return;
+	}
+
+fail:
+	phase_failed = 1;
+	phase_done = 1;
+}
+
 static void
 drive_cb(lws_sorted_usec_list_t *sul)
 {
@@ -1000,8 +1240,11 @@ drive_cb(lws_sorted_usec_list_t *sul)
 
 	(void)sul;
 
-	if (cur->fetch == 3) {
-		drain_drive(now);
+	if (cur->fetch >= 3) {
+		if (cur->fetch == 3)
+			drain_drive(now);
+		else
+			hold_drive(now);
 		if (phase_done)
 			return;
 		goto again;
@@ -1274,6 +1517,9 @@ run_phase(struct phase *p, int idx)
 	struct lws_protocol_vhost_options pvo_cache_max = {
 		NULL, NULL, "cache-max-zones", ""
 	};
+	struct lws_protocol_vhost_options pvo_max_pending = {
+		NULL, NULL, "dht-max-pending", ""
+	};
 	struct lws_protocol_vhost_options pvo_zonedir = {
 		NULL, NULL, "zone-dir", ""
 	};
@@ -1289,7 +1535,7 @@ run_phase(struct phase *p, int idx)
 	t0 = lws_now_usecs();
 	drain_stage = 0;
 
-	if (p->fetch == 3 && !drain_ok) {
+	if (p->fetch >= 3 && !drain_ok) {
 		lwsl_user("phase '%s': skipped, can't send from 127.0.N.2\n",
 			  p->name);
 		return 0;
@@ -1326,6 +1572,11 @@ run_phase(struct phase *p, int idx)
 		if (p->cache_max) {
 			pvo_cache_max.value = p->cache_max;
 			pvo_zonedir.next = &pvo_cache_max;
+		}
+		if (p->max_pending) {
+			pvo_max_pending.value = p->max_pending;
+			pvo_max_pending.next = pvo_zonedir.next;
+			pvo_zonedir.next = &pvo_max_pending;
 		}
 	} else
 		/*
@@ -1484,6 +1735,16 @@ main(int argc, const char **argv)
 			.name		= "TCP keeps a zone fetch reserve",
 			.zdir		= "good",
 			.fetch		= 3,
+		}, {
+			/*
+			 * G-689: and of the domains that may be waiting for
+			 * fetches, and a query joining a fetch can't keep its
+			 * domain waiting any longer
+			 */
+			.name		= "TCP keeps a pending zone reserve",
+			.zdir		= "good",
+			.fetch		= 4,
+			.max_pending	= ZD_HOLD_MAX_PENDING,
 		}, {
 			.name		= "names at or below a zone cut referred",
 			.zdir		= "deleg",

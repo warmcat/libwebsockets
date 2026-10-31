@@ -47,10 +47,25 @@ Zones come from two sources:
    response rate limiting "slip" is: just the question and, if the query had
    EDNS0, our `OPT`, never larger than the query.  A real resolver then asks
    again over TCP, where the reserve is.  Since UDP may only take a fetch
-   above the reserve, one TCP took is refilled before UDP gets another, so
-   under a forged flood TCP queries still start fetches at the refill rate.
+   above the reserve, one TCP took is refilled before UDP gets another.
    This TC answer was added with the reserve (G-571) to make it reachable;
    a TCP query over its limits is still answered `REFUSED` at once.
+
+   The caps on what may be waiting for fetches (`dht-max-pending` domains,
+   and 1024 queries) are reserved for TCP the same way: UDP queries may only
+   fill three quarters of each, and the last quarter (of `dht-max-pending`,
+   rounded down, but at least one if it is more than one) is for TCP
+   queries.  A query for a zone already being fetched waits on that fetch,
+   but no longer than the query that started it: every query for a domain
+   is answered, at the latest, 5s after the first, and the fetch is given up
+   if the zone hasn't arrived by then.  So queries joining a fetch, which
+   start none and so need no fetch token, can't keep domains pending either.
+   The limits on what one source may have waiting count its host as the
+   fetch tokens do (an IPv4 address or an IPv6 /64; for TCP, the client a
+   trusted proxy names, and peers whose address nothing proved count as
+   one), and UDP and TCP sources apart.  A UDP query over any of these
+   limits is answered `TC` too.  So under a forged flood, from however many
+   addresses, TCP queries still start fetches at the refill rate.
 
 Incoming queries are matched by `QNAME`, `QTYPE` and `QCLASS` against the loaded
 zones and answered `NOERROR` with the authoritative RRsets (and their `RRSIG`s
@@ -201,7 +216,7 @@ no UDP sockets are bound and nothing is logged.
 An `rrl-*` value out of range makes the protocol refuse to start, rather than
 quietly run without the limiting the operator asked for.
 
-| `dht-max-pending` | Optional. Maximum number of *distinct domains* per vhost whose queries may be suspended awaiting a DHT fetch. Defaults to 128. There are additional fixed limits of 16 distinct domains and 64 queries per source address, and 1024 pending queries in total. The per-source limits count TCP and UDP queries from an address apart.  When any limit is reached, new queries needing a DHT fetch are answered `REFUSED` immediately rather than queued (except for the fetch rate limits above, where a UDP query is answered `TC`). |
+| `dht-max-pending` | Optional. Maximum number of *distinct domains* per vhost whose queries may be suspended awaiting a DHT fetch. Defaults to 128. There are additional fixed limits of 16 distinct domains and 64 queries per source host, and 1024 pending queries in total. The per-source limits count TCP and UDP queries from a host apart.  UDP queries may only use three quarters of `dht-max-pending` and of the 1024 queries, the rest is kept for TCP queries.  When any limit (or the fetch rate limits above) is reached, a new query needing a DHT fetch is answered at once rather than queued: over UDP with an empty `TC` response, so a real resolver asks again over TCP, over TCP `REFUSED`. |
 | `dnsbl` | Optional. Comma-separated list of DNSBL zones (eg, `zen.spamhaus.org,test.local`). When set, the queried name and the IPs in the answer are checked asynchronously against every listed DNSBL before the response is sent; a positive (listed) result suppresses the answer and is cached for 5 minutes. |
 
 The DNSBL lookups are deduplicated by queried name while they are in flight
