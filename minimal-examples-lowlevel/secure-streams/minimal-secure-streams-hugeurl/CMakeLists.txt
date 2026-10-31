@@ -76,7 +76,7 @@ if (requirements)
 			 TIMEOUT 40)
 
 		add_test(NAME ss-warmcat-hurl-local-h2 COMMAND lws-minimal-secure-streams-hugeurl
-			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json -H 1024)
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json -H 1024 --h2)
 		set_tests_properties(ss-warmcat-hurl-local-h2 PROPERTIES
 			 FIXTURES_REQUIRED "hurl_hbin"
 			 TIMEOUT 40)
