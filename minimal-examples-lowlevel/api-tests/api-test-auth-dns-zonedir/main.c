@@ -20,7 +20,8 @@
  * | 5 | good dir, but undecorated / short-suffix / group-writable / symlinked zone files | all loaded and served | only the properly shaped file loads, the rest answer REFUSED |
  * | 6 | zones handed over by lws-dht-dnssec as verified for a domain (G-117) | installed under their last $ORIGIN, replacing that zone | installed only if exactly the zone of the domain handed over with them, and signed and in date (G-505) |
  * | 7 | a query for a zone nobody serves times out (G-224) | its zone fetch left running | the fetch given up, completed once as timed out |
- * | 7b | from one source, queries for 10 zones nobody serves and another for the first; then one from another source (G-508, G-535) | a fetch started for each query; with one bucket for all sources, the first source's queries leave none for the other's | a fetch for each of the first source's first 4 zones, the rest REFUSED, the other query waits on the first fetch; the other source's query starts a fetch |
+ * | 7b | from one source, queries for 10 zones nobody serves and another for the first; then one from another source (G-508, G-535) | a fetch started for each query; with one bucket for all sources, the first source's queries leave none for the other's | a fetch for each of the first source's first 4 zones, the rest answered TC=1 (G-571), the other query waits on the first fetch; the other source's query starts a fetch |
+ * | 7c | (linux only) UDP queries for 48 new zones from 12 sources, then one over TCP (G-571) | the UDP queries take every fetch: the rest are REFUSED, and so is the TCP one | the UDP queries take at most what is outside the TCP reserve, the rest are answered TC=1 (question echoed, nothing else but the OPT, no larger than the query); the TCP query starts a fetch |
  * | 8 | a zone with a delegation (G-246) | names at / below the cut answered authoritatively from the zone text | referred: no AA, the cut's NS in authority; only the DS at the cut answered |
  * | 9 | more zone files than cache-max-zones (G-290) | the surplus evicted at startup and its files unlinked | all served, every file still there |
  * | 10 | cache-max-zones 1, an operator zone and DHT-handed zones (G-290) | the operator zone evicted for a DHT zone and its file unlinked | the operator zone served and its file kept, the DHT zones evicting each other |
@@ -46,6 +47,13 @@
  * authoritative for any of it, so every name at or below the cut must be
  * referred to the child's name servers, except the DS at the cut, which is
  * the parent's own.
+ *
+ * Phase 7c forges a flood as from 12 source hosts (127.0.N.2, each in its own
+ * /24 so response rate limiting stays out of it), 4 zones each, as much as
+ * their host buckets allow, which is more than the vhost lets UDP have.
+ * Once every query has either started a fetch or been answered, a TCP query
+ * for another zone must still start one.  Only linux lets the test bind those
+ * addresses; elsewhere the phase is skipped.
  *
  * "No listener" is observed two ways: queries stay unanswered, and the UDP
  * port is bindable by the test itself afterwards (the plugin only creates
@@ -108,9 +116,11 @@ struct qexp {
 	int		got_anc;
 	int		sent;
 	uint16_t	qtype;		/* 0: A */
-	int		expect_ref;	/* 1: a referral, 2: an AA answer */
+	int		expect_ref;	/* 1: a referral, 2: an AA answer,
+					 * 3: an empty TC=1 answer */
 	int		got_aa;
 	int		got_nsc;
+	int		got_tc;
 };
 
 #define MAX_Q		12
@@ -122,7 +132,8 @@ struct phase {
 	int		dht;		/* hand zones over as lws-dht-dnssec */
 	int		fetch;		/* take zone fetches as lws-dht-dnssec:
 					 * 1: one, given up with its query
-					 * 2: many, rate limited (G-508) */
+					 * 2: many, rate limited (G-508)
+					 * 3: many, forged, then TCP (G-571) */
 	const char	*cache_max;	/* "cache-max-zones" pvo, if any */
 	int		src2_from;	/* if nonzero, q[] from this index on
 					 * are sent from cli2_fd */
@@ -186,7 +197,8 @@ static struct {
 
 static int zd_fetch_starts, zd_fetch_completions, zd_fetch_status,
 	   zd_fetch_calls,
-	   zd_fetch_src2;	/* a fetch was asked for ZD_SRC2_ZONE */
+	   zd_fetch_src2,	/* a fetch was asked for ZD_SRC2_ZONE */
+	   zd_fetch_tcp;	/* a fetch was asked for ZD_TCP_ZONE */
 
 /*
  * auth-dns starts at most a burst of this many zone fetches at once for one
@@ -194,12 +206,38 @@ static int zd_fetch_starts, zd_fetch_completions, zd_fetch_status,
  */
 #define ZD_FETCH_HOST_BURST	4
 
+/*
+ * G-571: of the vhost's burst of 32 (LWS_AUTH_DNS_DHT_FETCH_BURST), the last 8
+ * are for TCP queries, so UDP may start 24 at once, then one more per 250ms
+ */
+#define ZD_FETCH_UDP_BURST	24
+#define ZD_FETCH_REFILL_US	(250 * LWS_US_PER_MS)
+
+/* phase 7c: forged sources, each sending its host's whole burst */
+#define ZD_DRAIN_SRCS		12
+#define ZD_DRAIN_Q		(ZD_DRAIN_SRCS * ZD_FETCH_HOST_BURST)
+/* the zone phase 7c's TCP query is for */
+#define ZD_TCP_ZONE		"tcpres.example"
+
+static int drain_fds[ZD_DRAIN_SRCS];
+static int drain_ok;		/* the drain sources could be bound */
+static int tcp_fd = -1;
+
+static struct {
+	uint8_t		q[64];		/* the query, to compare the echo */
+	size_t		ql;
+	int		answered;
+} drain_q[ZD_DRAIN_Q];
+
+static lws_usec_t drain_sent, tcp_sent;
+static int drain_stage;
+
 static void
 zd_fetch_reset(void)
 {
 	memset(&zd_fetch, 0, sizeof(zd_fetch));
 	zd_fetch_starts = zd_fetch_completions = zd_fetch_calls = 0;
-	zd_fetch_src2 = 0;
+	zd_fetch_src2 = zd_fetch_tcp = 0;
 	zd_fetch_status = -100;
 }
 
@@ -241,6 +279,8 @@ zd_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *a)
 
 	if (!strcmp(a->domain, ZD_SRC2_ZONE))
 		zd_fetch_src2 = 1;
+	if (!strcmp(a->domain, ZD_TCP_ZONE))
+		zd_fetch_tcp = 1;
 
 	if (zd_fetch.pending) {
 		if (!strcmp(a->domain, zd_fetch.domain) &&
@@ -382,6 +422,22 @@ mk_query(uint8_t *buf, size_t bufsize, uint16_t id, const char *name,
 	buf[o++] = 1;
 
 	return o;
+}
+
+/* append an EDNS0 OPT RR (payload 1232) to the query in buf of length ql */
+
+static size_t
+add_opt(uint8_t *buf, size_t bufsize, size_t ql)
+{
+	static const uint8_t opt[] = { 0, 0, 41, 0x04, 0xd0, 0, 0, 0, 0, 0, 0 };
+
+	if (!ql || ql + sizeof(opt) > bufsize)
+		return 0;
+
+	memcpy(buf + ql, opt, sizeof(opt));
+	buf[11] = 1;			/* ARCOUNT */
+
+	return ql + sizeof(opt);
 }
 
 /*
@@ -723,6 +779,217 @@ udp_port_free(int port)
 	return 1;
 }
 
+/*
+ * Phase 7c's sources, 127.0.N.2: each in a /24 of its own, so the response
+ * rate limiting, by /24, never sees more than a host bucket's worth from one.
+ * Nonzero if they can't be bound (only linux has all of 127/8 on lo).
+ */
+
+static int
+drain_open(void)
+{
+	int n;
+
+	for (n = 0; n < ZD_DRAIN_SRCS; n++)
+		drain_fds[n] = -1;
+
+	for (n = 0; n < ZD_DRAIN_SRCS; n++) {
+		struct sockaddr_in sa;
+
+		drain_fds[n] = socket(AF_INET, SOCK_DGRAM, 0);
+		if (drain_fds[n] < 0)
+			return 1;
+
+		memset(&sa, 0, sizeof(sa));
+		sa.sin_family = AF_INET;
+		sa.sin_addr.s_addr = htonl(0x7f000002u | ((uint32_t)(n + 1) << 8));
+		if (bind(drain_fds[n], (struct sockaddr *)&sa, sizeof(sa)) ||
+		    fcntl(drain_fds[n], F_SETFL, O_NONBLOCK) < 0)
+			return 1;
+	}
+
+	return 0;
+}
+
+static void
+drain_close(void)
+{
+	int n;
+
+	for (n = 0; n < ZD_DRAIN_SRCS; n++)
+		if (drain_fds[n] >= 0) {
+			close(drain_fds[n]);
+			drain_fds[n] = -1;
+		}
+}
+
+/*
+ * A query not given a fetch is answered at once, with an empty TC=1 response:
+ * not AA, NOERROR, the question echoed, nothing else but an OPT if the query
+ * had one, and no larger than the query.  Nonzero if r isn't that.
+ */
+
+static int
+drain_check_tc(int i, const uint8_t *r, size_t rl)
+{
+	size_t ql = drain_q[i].ql, qend = ql - (drain_q[i].q[11] ? 11 : 0);
+
+	if (rl > ql || rl < qend || !(r[2] & 0x80) || !(r[2] & 0x02) ||
+	    (r[2] & 0x04) || (r[3] & 0xf) || r[4] || r[5] != 1 ||
+	    r[6] || r[7] || r[8] || r[9] || r[10] ||
+	    r[11] != drain_q[i].q[11] ||
+	    memcmp(r + 12, drain_q[i].q + 12, qend - 12)) {
+		lwsl_err("phase '%s': FAIL query %d answered len %d (query "
+			 "%d), flags %02x%02x, counts %02x%02x %02x%02x "
+			 "%02x%02x %02x%02x, wanted an empty TC answer\n",
+			 cur->name, i, (int)rl, (int)ql, r[2], r[3], r[4],
+			 r[5], r[6], r[7], r[8], r[9], r[10], r[11]);
+		return 1;
+	}
+
+	if (rl > qend && (rl != ql || r[qend + 2] != 41)) {
+		lwsl_err("phase '%s': FAIL query %d answered with more than "
+			 "our OPT\n", cur->name, i);
+		return 1;
+	}
+
+	return 0;
+}
+
+static void
+drain_drive(lws_usec_t now)
+{
+	uint8_t buf[512];
+	int n, i, answered = 0;
+	ssize_t r;
+
+	switch (drain_stage) {
+	case 0:
+		/* every source sends its host's whole burst, half with EDNS0 */
+		for (i = 0; i < ZD_DRAIN_Q; i++) {
+			char name[64];
+			size_t ql;
+
+			lws_snprintf(name, sizeof(name), "www.dr%d.example", i);
+			ql = mk_query(drain_q[i].q, sizeof(drain_q[i].q),
+				      (uint16_t)(0x7c00 + i), name,
+				      LWS_ADNS_RECORD_A);
+			if (i & 1)
+				ql = add_opt(drain_q[i].q, sizeof(drain_q[i].q),
+					     ql);
+			drain_q[i].ql = ql;
+			drain_q[i].answered = 0;
+
+			if (!ql || sendto(drain_fds[i / ZD_FETCH_HOST_BURST],
+					  drain_q[i].q, ql, 0,
+					  (struct sockaddr *)&auth_sa,
+					  sizeof(auth_sa)) < 0) {
+				lwsl_err("%s: drain query %d failed errno %d\n",
+					 __func__, i, errno);
+				goto fail;
+			}
+		}
+		drain_sent = now;
+		drain_stage = 1;
+		lwsl_user("phase '%s': %d queries sent from %d sources\n",
+			  cur->name, ZD_DRAIN_Q, ZD_DRAIN_SRCS);
+		return;
+
+	case 1:
+		for (n = 0; n < ZD_DRAIN_SRCS; n++) do {
+			r = recv(drain_fds[n], buf, sizeof(buf), 0);
+			if (r < 12)
+				break;
+
+			i = ((buf[0] << 8) | buf[1]) - 0x7c00;
+			if (i < 0 || i >= ZD_DRAIN_Q ||
+			    i / ZD_FETCH_HOST_BURST != n ||
+			    drain_q[i].answered) {
+				lwsl_err("phase '%s': FAIL stray answer %02x%02x\n",
+					 cur->name, buf[0], buf[1]);
+				goto fail;
+			}
+			drain_q[i].answered = 1;
+			if (drain_check_tc(i, buf, (size_t)r))
+				goto fail;
+		} while (1);
+
+		for (i = 0; i < ZD_DRAIN_Q; i++)
+			answered += drain_q[i].answered;
+
+		/*
+		 * The ones given a fetch wait on it, so every query is
+		 * accounted for when the answered ones and the fetches add up
+		 */
+		if (answered + zd_fetch_calls < ZD_DRAIN_Q) {
+			if (now - drain_sent > RESP_US) {
+				lwsl_err("phase '%s': FAIL only %d answered and "
+					 "%d fetches, of %d queries\n", cur->name,
+					 answered, zd_fetch_calls, ZD_DRAIN_Q);
+				goto fail;
+			}
+			return;
+		}
+
+		/* UDP took no more than what is outside the reserve */
+		if (zd_fetch_calls > ZD_FETCH_UDP_BURST + 1 +
+				(int)((now - drain_sent) / ZD_FETCH_REFILL_US)) {
+			lwsl_err("phase '%s': FAIL UDP queries started %d "
+				 "fetches in %dms, into the TCP reserve\n",
+				 cur->name, zd_fetch_calls,
+				 (int)((now - drain_sent) / LWS_US_PER_MS));
+			goto fail;
+		}
+		lwsl_user("phase '%s': %d fetches started, %d answered TC\n",
+			  cur->name, zd_fetch_calls, answered);
+
+		/* now a TCP query for another zone must still start one */
+		{
+			size_t ql = mk_query(buf + 2, sizeof(buf) - 2, 0x7cff,
+					     "www." ZD_TCP_ZONE,
+					     LWS_ADNS_RECORD_A);
+
+			buf[0] = (uint8_t)(ql >> 8);
+			buf[1] = (uint8_t)(ql & 0xff);
+
+			tcp_fd = socket(AF_INET, SOCK_STREAM, 0);
+			/*
+			 * on loopback the kernel completes the handshake from
+			 * the listen backlog, before the server accepts it
+			 */
+			if (!ql || tcp_fd < 0 ||
+			    connect(tcp_fd, (struct sockaddr *)&auth_sa,
+				    sizeof(auth_sa)) ||
+			    send(tcp_fd, buf, ql + 2, 0) != (ssize_t)(ql + 2)) {
+				lwsl_err("%s: tcp query failed errno %d\n",
+					 __func__, errno);
+				goto fail;
+			}
+		}
+		tcp_sent = now;
+		drain_stage = 2;
+		return;
+
+	default:
+		if (zd_fetch_tcp) {
+			lwsl_user("phase '%s': the TCP query started a fetch\n",
+				  cur->name);
+			phase_done = 1;
+			return;
+		}
+		if (now - tcp_sent > RESP_US) {
+			lwsl_err("phase '%s': FAIL the TCP query started no "
+				 "fetch\n", cur->name);
+			goto fail;
+		}
+		return;
+	}
+
+fail:
+	phase_failed = 1;
+	phase_done = 1;
+}
+
 static void
 drive_cb(lws_sorted_usec_list_t *sul)
 {
@@ -732,6 +999,13 @@ drive_cb(lws_sorted_usec_list_t *sul)
 	uint8_t buf[2048];
 
 	(void)sul;
+
+	if (cur->fetch == 3) {
+		drain_drive(now);
+		if (phase_done)
+			return;
+		goto again;
+	}
 
 	/* harvest any responses */
 
@@ -771,6 +1045,7 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		q->got_anc = (buf[6] << 8) | buf[7];
 		q->got_aa = !!(buf[2] & 0x04);
 		q->got_nsc = (buf[8] << 8) | buf[9];
+		q->got_tc = !!(buf[2] & 0x02);
 	} while (1);
 
 	/* first tick after the listeners should be up: send the queries */
@@ -872,6 +1147,13 @@ drive_cb(lws_sorted_usec_list_t *sul)
 					 "aa %d anc %d nsc %d\n", cur->name,
 					 cur->q[i].name, cur->q[i].got_aa,
 					 cur->q[i].got_anc, cur->q[i].got_nsc);
+				phase_failed = 1;
+				continue;
+			}
+			if (cur->q[i].expect_ref == 3 &&
+			    (!cur->q[i].got_tc || cur->q[i].got_aa)) {
+				lwsl_err("phase '%s': FAIL %s not answered TC\n",
+					 cur->name, cur->q[i].name);
 				phase_failed = 1;
 				continue;
 			}
@@ -1005,6 +1287,13 @@ run_phase(struct phase *p, int idx)
 	phase_idx = idx;
 	phase_done = phase_failed = 0;
 	t0 = lws_now_usecs();
+	drain_stage = 0;
+
+	if (p->fetch == 3 && !drain_ok) {
+		lwsl_user("phase '%s': skipped, can't send from 127.0.N.2\n",
+			  p->name);
+		return 0;
+	}
 
 	/* discard anything left over from the previous phase */
 
@@ -1062,6 +1351,11 @@ run_phase(struct phase *p, int idx)
 
 	lws_context_destroy(context);
 	context = NULL;
+
+	if (tcp_fd >= 0) {
+		close(tcp_fd);
+		tcp_fd = -1;
+	}
 
 	/* the operator's zone files are still where they put them */
 
@@ -1154,10 +1448,11 @@ main(int argc, const char **argv)
 		}, {
 			/*
 			 * G-508: a spoofed query stream for zones nobody
-			 * serves must not start a DHT fetch each.  All are
-			 * REFUSED: those past the burst at once, the rest
-			 * when their wait for the zone ends.  G-535: the
-			 * burst is the source's own, so another source's
+			 * serves must not start a DHT fetch each.  Those past
+			 * the burst are answered TC=1 at once, so a real
+			 * resolver would ask over TCP (G-571), the rest
+			 * REFUSED when their wait for the zone ends.  G-535:
+			 * the burst is the source's own, so another source's
 			 * query, the last, still starts a fetch.
 			 */
 			.name		= "query-driven zone fetches rate limited",
@@ -1169,17 +1464,26 @@ main(int argc, const char **argv)
 				{ "www.rl2.example", 0x120d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 				{ "www.rl3.example", 0x130d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 				{ "www.rl4.example", 0x140d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl5.example", 0x150d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl6.example", 0x160d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl7.example", 0x170d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl8.example", 0x180d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl9.example", 0x190d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl10.example", 0x1a0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rl5.example", 0x150d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
+				{ "www.rl6.example", 0x160d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
+				{ "www.rl7.example", 0x170d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
+				{ "www.rl8.example", 0x180d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
+				{ "www.rl9.example", 0x190d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
+				{ "www.rl10.example", 0x1a0d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
 				/* waits on the fetch the first one started */
 				{ "ftp.rl1.example", 0x1b0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 				/* from another source */
 				{ "www.rlb.example", 0x1c0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
 			}
+		}, {
+			/*
+			 * G-571: a flood forged from many sources can't take
+			 * the fetches TCP queries are kept, and UDP queries
+			 * it leaves without one are told to ask over TCP
+			 */
+			.name		= "TCP keeps a zone fetch reserve",
+			.zdir		= "good",
+			.fetch		= 3,
 		}, {
 			.name		= "names at or below a zone cut referred",
 			.zdir		= "deleg",
@@ -1240,7 +1544,8 @@ main(int argc, const char **argv)
 			}
 		},
 	};
-	int nph = 10, i, ret;
+	/* the last two phases need root */
+	int nph = (int)LWS_ARRAY_SIZE(tbl) - 2, i, ret;
 
 	const char *p;
 
@@ -1322,6 +1627,11 @@ main(int argc, const char **argv)
 		}
 	}
 
+	drain_ok = !drain_open();
+	if (!drain_ok)
+		lwsl_user("can't bind 127.0.N.2: the TCP fetch reserve phase "
+			  "is skipped\n");
+
 	lwsl_user("LWS API selftest: auth dns zone dir trust (F-055)\n");
 
 	for (i = 0; i < nph; i++) {
@@ -1350,6 +1660,7 @@ main(int argc, const char **argv)
 	close(cli_fd);
 	if (cli2_fd >= 0)
 		close(cli2_fd);
+	drain_close();
 	unplant_fixtures();
 
 	return !test_ok || ret;

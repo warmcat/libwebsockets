@@ -1,7 +1,8 @@
 # lws-api-test-auth-dns-zonedir
 
 Fence for security-audit finding F-055: the local zone-dir trust policy in
-the authoritative-DNS plugin (`protocol-lws-auth-dns`), for G-117: the
+the authoritative-DNS plugin (`protocol-lws-auth-dns`), for G-508, G-535 and
+G-571: the rate limits on the zone fetches queries start, for G-117: the
 zones it is handed by `lws-dht-dnssec` are installed only as the domain they
 were verified for, and for G-246: names at or below a zone cut are referred
 to the child zone, not answered from the zone text, and for G-290: the
@@ -29,6 +30,8 @@ the process umask):
 | 5 | good dir, but undecorated-name / two-field-suffix / group-writable (0666) / symlinked zone files | all loaded and served | only the properly shaped file loads; the rest answer REFUSED (rcode 5) while the control zone still answers |
 | 6 | zones handed over by `lws-dht-dnssec` as verified for a domain (G-117): one with a trailing `$ORIGIN` for a zone the dir serves, one wholly that other zone, and a control that is its domain's own | installed under their last `$ORIGIN`, replacing the served zone | only the control is installed; the served zone answers as before and the payloads' names do not exist |
 | 7 | a query for a zone nobody serves, whose fetch from `lws-dht-dnssec` never answers (G-224) | the query timed out (REFUSED after 5s) but its fetch was left running, holding auth-dns' opaque | when the query times out the fetch is given up: completed exactly once, as timed out, and nothing holds the opaque |
+| 7b | from one source, queries for 10 zones nobody serves and another for the first; then one from another source (G-508, G-535) | a fetch started for each query; with one bucket for all sources, the first source's queries leave none for the other's | a fetch for each of the first source's first 4 zones, the rest answered TC=1 at once (G-571), the other query waits on the first fetch; the other source's query starts a fetch |
+| 7c | *(linux only)* UDP queries for 48 new zones, 4 from each of 12 sources, then one over TCP (G-571) | the UDP queries take every fetch the vhost has: the rest are REFUSED, and so is the TCP query | the UDP queries start at most the fetches outside the TCP reserve, the rest are answered with an empty TC=1 response (question echoed, only an OPT if the query had one, never larger than the query); the TCP query starts a fetch |
 | 8 | a zone delegating `sub.dl.example` (G-246), with glue, a DS and an `A` record below the cut | every name at or below the cut answered authoritatively from the zone text (`www.sub` with the occluded record, `ns.sub` with the glue), `x.sub` NXDOMAIN, and the DS not served at all | names at or below the cut are referred (no `AA`, empty answer, the cut's `NS` in authority); the zone's own `www` and the `DS` at the cut are answered authoritatively |
 | 9 | three zone files with `cache-max-zones` 1 (G-290) | all but the last evicted at startup, and their files unlinked | all three served, every file still there |
 | 10 | `cache-max-zones` 1, one zone file, then two zones handed over by `lws-dht-dnssec` (G-290) | the operator's zone evicted for the first DHT zone and its file unlinked | the operator's zone still served and its file kept; the second DHT zone evicts the first |
@@ -46,6 +49,13 @@ zones; the test then hands it the payloads as the plugin does.
 Phase 7 stands in for the zone fetches too, keeping to the `fetch_zone()`
 contract in `lws-dht-dnssec.h` (merge, cancel without completion, fail with
 one completion as timed out) and never answering.
+
+Phase 7c sends its UDP queries from 127.0.N.2, N = 1..12, each in a /24 of
+its own so the plugin's response rate limiting (per /24) plays no part, and
+waits until every query either started a fetch or was answered before the
+TCP query is sent, so the TCP query is never handled before the flood.  Only
+linux lets a process bind any 127/8 address without configuring it; elsewhere
+the phase is skipped.
 
 Phases 11-12 need to create files/dirs owned by another uid and are skipped
 when the test is not running as root.
