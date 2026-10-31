@@ -84,6 +84,7 @@ typedef struct mcu_stack {
 typedef struct mcu_glyph {
 	lws_font_glyph_t	fg;
 	const uint8_t		*comp;
+	const uint8_t		*comp_end; /* the font's string ends here */
 
 	/*
 	 * The decoder's own nesting is COMP -> ref dict entry (DICT3) ->
@@ -334,7 +335,8 @@ lws_display_font_mcufont_file_core(lws_display_font_t *f)
 	if (!ff->prefix || !ff->ranges)
 		goto bail;
 	if (mcuf_file_read(ff, 0, ff->prefix, plen) ||
-	    mcuf_file_read(ff, rt, ff->ranges, nr * 16))
+	    mcuf_file_read(ff, rt, ff->ranges, nr * 16) ||
+	    lws_display_font_mcufont_check_dict(ff->prefix, plen))
 		goto bail;
 	ff->prefix_len = plen;
 	ff->nranges = (uint16_t)nr;
@@ -537,11 +539,72 @@ lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text)
 	ff->rc_core.pins = ff->core_pins;
 }
 
+/*
+ * The decoder indexes the dictionary offsets table by codes from the glyph
+ * strings, and walks the dictionary data from the offsets it finds there,
+ * without checking either against the font: so before a font is used, check
+ * here that every entry a code can reach lies inside the len bytes at bf.
+ */
+
+int
+lws_display_font_mcufont_check_dict(const uint8_t *bf, size_t len)
+{
+	uint32_t nrle, nref, dd, ds, dofs, n;
+
+	if (len < MCUFO_HDR_LEN)
+		return 1;
+
+	nrle = lws_ser_ru32be(bf + MCUFO_COUNT_RLE_DICT);
+	nref = lws_ser_ru32be(bf + MCUFO_COUNT_REF_RLE_DICT);
+	dd = lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA);
+	ds = lws_ser_ru32be(bf + MCUFO_SIZE_DICT_DATA);
+	dofs = lws_ser_ru32be(bf + MCUFO_FOFS_DICT_OFS);
+
+	/* codes are bytes, and entry lengths have to fit the int16_t */
+
+	if (nrle > nref || nref > 256 - DICT_START || ds > 0x7fff ||
+	    dd > len || ds > len - dd ||
+	    dofs > len || (len - dofs) / 2 < nref + 1)
+		return 1;
+
+	for (n = 0; n <= nref; n++)
+		if (lws_ser_ru16be(bf + dofs + (n * 2)) > ds)
+			return 1;
+
+	return 0;
+}
+
+/*
+ * Enter dictionary entry idx, to be walked in state.  The font's dictionary
+ * was checked by lws_display_font_mcufont_check_dict() before it was used,
+ * so the entry lies inside the font... an empty one has nothing to walk
+ */
+
+static void
+mcu_dict_entry(mcu_glyph_t *g, const uint8_t *bf, unsigned int idx,
+	       uint8_t state)
+{
+	uint32_t o1 = lws_ser_ru32be(bf + MCUFO_FOFS_DICT_OFS);
+	uint16_t o = lws_ser_ru16be(bf + o1 + (idx * 2)),
+		 e = lws_ser_ru16be(bf + o1 + ((idx + 1) * 2));
+	mcu_stack_t *st;
+
+	if (e <= o)
+		return;
+
+	st = mcu_push(g);
+	if (!st)
+		return;
+
+	st->dictlen = (int16_t)(e - o);
+	st->dict = bf + lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA) + o;
+	st->state = state;
+}
+
 static void
 write_ref_codeword(mcu_glyph_t *g, const uint8_t *bf, uint8_t c)
 {
 	mcu_stack_t *st;
-	uint32_t o, o1;
 
 	if (!c) {
 		g->runlen = 1;
@@ -566,17 +629,7 @@ write_ref_codeword(mcu_glyph_t *g, const uint8_t *bf, uint8_t c)
 
 	if (c < DICT_START + lws_ser_ru32be(bf + MCUFO_COUNT_RLE_DICT)) {
 		/* write_rle_dictentry */
-		st = mcu_push(g);
-		if (!st)
-			return;
-
-		o1 = lws_ser_ru32be(bf + MCUFO_FOFS_DICT_OFS);
-		o = lws_ser_ru16be(bf + o1 + ((c - DICT_START) * 2));
-		st->dictlen = (int16_t)(lws_ser_ru16be(bf + o1 +
-						((c - DICT_START + 1) * 2)) - o);
-
-		st->dict = bf + lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA) + o;
-		st->state = DICT2;
+		mcu_dict_entry(g, bf, (unsigned int)(c - DICT_START), DICT2);
 		return;
 	}
 
@@ -596,9 +649,15 @@ mcufont_next_code(mcu_glyph_t *g)
 	lws_dlo_text_t *t = lws_dll2_owner_container(&g->fg.list, lws_dlo_text_t,
 					     glyphs);
 	const uint8_t *bf = (const uint8_t *)t->font->data;
-	uint8_t c = *g->comp++;
-	mcu_stack_t *st;
-	uint32_t o, o1;
+	uint8_t c;
+
+	if (g->comp >= g->comp_end) {
+		/* the string ended without the glyph being complete */
+		mcu_abandon_glyph(g);
+		return;
+	}
+
+	c = *g->comp++;
 
 	if (c < DICT_START + lws_ser_ru32be(&bf[MCUFO_COUNT_RLE_DICT]) ||
 	    c >= DICT_START + lws_ser_ru32be(&bf[MCUFO_COUNT_REF_RLE_DICT])) {
@@ -608,17 +667,7 @@ mcufont_next_code(mcu_glyph_t *g)
 
 	/* write_ref_dictentry() */
 
-	st = mcu_push(g);
-	if (!st)
-		return;
-
-	o1 = lws_ser_ru32be(bf + MCUFO_FOFS_DICT_OFS);
-	o = lws_ser_ru16be(bf + o1 + ((c - DICT_START) * 2));
-	st->dictlen = (int16_t)(lws_ser_ru16be(bf + o1 +
-					((c - DICT_START + 1) * 2)) - o);
-
-	st->dict = bf + lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA) + o;
-	st->state = DICT3;
+	mcu_dict_entry(g, bf, (unsigned int)(c - DICT_START), DICT3);
 }
 
 /* lookup and append a glyph for specific unicode to the text glyph list */
@@ -747,6 +796,8 @@ font_mcufont_uniglyph(lws_dlo_text_t *text, uint32_t unicode)
 
 	g->fg.pin = pin;
 	g->comp = comp;
+	/* a cached string is len long, else it can't run past the font */
+	g->comp_end = len ? comp + len : bf + text->font->data_len;
 	g->fg.cwidth.whole = *g->comp++;
 	g->fg.cwidth.frac = 0;
 
