@@ -950,9 +950,10 @@ lws_http_transaction_completed_client(struct lws *wsi)
 			/*
 			 * As an h2 client, once we did our transaction, that is
 			 * it for us.  Further transactions will happen as new
-			 * SIDs on the connection.
+			 * SIDs on the connection.  The locks taken above are
+			 * already dropped: the locking detach takes them again.
 			 */
-			__lws_header_table_detach(wsi, 0);
+			lws_header_table_detach(wsi, 0);
 		else
 			if (!n)
 				_lws_header_table_reset(wsi->stream.ah);
@@ -3219,6 +3220,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws;
 #endif
+	struct lws_context_per_thread *pt;
 	const char *cisin[CIS_COUNT];
 	unsigned int keepalive_rejected;
 	struct lws *wsi;
@@ -3361,7 +3363,17 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	 * We must use the copies in the wsi->stash instead if we want them.
 	 */
 
+	/*
+	 * The reset changes the pt's sul lists and its ah pool (it detaches
+	 * the ah, maybe handing it to a waiter): like the close path, which
+	 * also resets, it holds the context lock and then the pt lock
+	 */
+	pt = &wsi->a.context->pt[(int)wsi->tsi];
+	lws_context_lock(wsi->a.context, __func__); /* ------------- cx { */
+	lws_pt_lock(pt, __func__); /* ----------------------------- pt { */
 	__lws_reset_wsi(wsi); /* detaches ah here */
+	lws_pt_unlock(pt); /* } pt */
+	lws_context_unlock(wsi->a.context); /* } cx */
 #if defined(LWS_ROLE_WS)
 	if (weak)
 		wsi->ws = ws;
