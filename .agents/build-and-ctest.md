@@ -522,8 +522,13 @@
  - `lws_dir(..., lws_dir_rm_rf_cb)` empties a directory but leaves it;
    `rmdir()` it afterwards.
  - `memmem()` is GNU-only: don't use it in examples.
- - `lws_cmdline_option()` is a prefix match: a new option must not start
-   with an existing option's name.
+ - Single-letter switches take glued values (`-d15`), so a new
+   single-letter option must not collide with a longer one (`-i` / `-ip`);
+   longer switches match exactly since G-622.
+ - **sspc ctests use abstract-namespace UDS names** built from SAI_PROJECT /
+   SAI_OVN, which are empty locally, so two local trees' sspc tests (or a
+   leftover proxy from another tree) collide: "init server failed".
+   Run sspc tests from one tree at a time.
  - Every literal `%` in a string used as a printf format must be `%%`;
    declare corpus / document builders with `LWS_FORMAT(n)` so the compiler
    checks them.
