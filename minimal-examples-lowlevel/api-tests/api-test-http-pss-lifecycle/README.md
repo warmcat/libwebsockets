@@ -33,6 +33,21 @@ was then dropped exactly once, with every resource freed, binds and drops
 equal, and no callback on a pss that had not been bound.  Every request must
 have ridden the same server connection.
 
+Then h2 streams that close before their request reaches the request gates,
+where the protocol is bound (G-690), from a raw h2 client in the same process
+(cleartext, prior knowledge) writing the frames itself:
+
+ - stream 1 a complete GET; once it is answered, stream 3's HEADERS without
+   END_HEADERS, and the client disconnects
+ - a request whose HEADERS has no `:path`
+ - HEADERS without END_HEADERS, then RST_STREAM for it
+
+Such a stream never has a pss, as an h1 connection closed before its request
+has none: protocols[0] must not be given a callback on a pss it had no BIND
+for, nor `LWS_CALLBACK_HTTP_WRITEABLE` for a stream with no request, binds
+and drops must balance with nothing leaked, and the stream's
+`LWS_CALLBACK_CLOSED_HTTP` must come, with `user` NULL.
+
 The file mount serves the test's own directory, so ctest runs it from there.
 
 ```

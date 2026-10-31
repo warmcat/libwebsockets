@@ -358,6 +358,18 @@ enum lws_callback_reasons {
 	 * is zeroed at its BIND too, unless the protocol was already given it
 	 * when the connection was adopted by protocol name.)
 	 *
+	 * Until its request reaches that point, an h1 connection's first
+	 * request or an h2 stream has no pss and is not bound: anything
+	 * protocols[0] is given for it before then has `user` NULL, eg
+	 * LWS_CALLBACK_CLOSED_HTTP when it closes first because its headers
+	 * never completed or were refused, and it gets no BIND or DROP for
+	 * it.  (An h3 stream is bound to its connection's protocol, with BIND,
+	 * as soon as it is created.)
+	 *
+	 * A ws upgrade binds the ws protocol while the wsi is still in the
+	 * http role, so that protocol is told with this callback too; see
+	 * LWS_CALLBACK_HTTP_DROP_PROTOCOL for how it is unbound.
+	 *
 	 * These specific callbacks are necessary because with HTTP/1.1,
 	 * a single connection may perform at series of different
 	 * transactions at different URLs, thus the lifetime of the
@@ -378,6 +390,15 @@ enum lws_callback_reasons {
 	 * On a close it comes before LWS_CALLBACK_CLOSED_HTTP, which is given
 	 * the same pss but must not rely on anything released here still
 	 * being there.  `in` is a string naming the reason, for logging.
+	 *
+	 * The exception is the ws protocol a ws upgrade binds: it was told
+	 * with LWS_CALLBACK_HTTP_BIND_PROTOCOL, the wsi still being in the
+	 * http role then, but once the upgrade has completed the wsi is a ws
+	 * one, and the same pss is unbound with
+	 * LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL instead of this, exactly once,
+	 * before LWS_CALLBACK_CLOSED.  (An upgrade that fails before then is
+	 * still http, and gets this.)  A protocol serving both http and ws
+	 * must release what it allocated at BIND in either.
 	 *
 	 * A protocol with no pss gets both callbacks with `user` NULL, but
 	 * no DROP when the connection closes. */
@@ -541,7 +562,16 @@ enum lws_callback_reasons {
 	 * content during this callback might not be useful for anything. */
 
 	LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL			= 77,
+	/**< A protocol is bound to a wsi already in the ws server role.  A
+	 * ws upgrade binds its protocol while the wsi is still in the http
+	 * role, so it is told with LWS_CALLBACK_HTTP_BIND_PROTOCOL rather
+	 * than this. */
+
 	LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL			= 78,
+	/**< A protocol is unbound from a wsi in the ws server role, before
+	 * its pss is freed: for a ws upgrade, the DROP matching the
+	 * LWS_CALLBACK_HTTP_BIND_PROTOCOL it bound with, at close, before
+	 * LWS_CALLBACK_CLOSED.  See LWS_CALLBACK_HTTP_DROP_PROTOCOL. */
 
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to Websocket Client -----

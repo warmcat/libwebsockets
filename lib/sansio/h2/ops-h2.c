@@ -1975,6 +1975,25 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		}
 #endif
 
+#if defined(LWS_WITH_SERVER)
+		/*
+		 * A server stream's protocol is bound, and its pss allocated,
+		 * by its request's gates.  Until then it has no request and no
+		 * pss, and the protocol has heard nothing of it: there is
+		 * nothing for it to write.  But a stream can be asked to write
+		 * while it is still reading its headers, eg, by the
+		 * WINDOW_UPDATE granting the new stream its window, queued as
+		 * its HEADERS arrive, or by the peer's WINDOW_UPDATE on stream
+		 * 0 re-arming every child.  That must not reach the user as an
+		 * HTTP_WRITEABLE with user NULL.
+		 */
+		if (lwsi_role_server(w) && lwsi_role_h2(w) &&
+		    !w->protocol_bind_balance) {
+			lwsl_wsi_debug(w, "no writeable cb before the request");
+			continue;
+		}
+#endif
+
 		if (lws_callback_as_writeable(w)) {
 			lwsl_info("Closing POLLOUT child (end stream %d)\n",
 				  w->h2.send_END_STREAM);
