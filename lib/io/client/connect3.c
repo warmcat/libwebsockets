@@ -1811,7 +1811,7 @@ oom4:
 	 * so nobody else should have had a chance to queue on us.
 	 */
 	{
-		struct lws_vhost *vhost = wsi->a.vhost;
+		struct lws_context *cx = wsi->a.context;
 		lws_sockfd_type sfd = wsi->io->desc.sockfd;
 
 		/*
@@ -1819,18 +1819,23 @@ oom4:
 		 * connection state, so it has to run while the wsi still
 		 * exists; nothing in the free touches the fd tables
 		 */
-		sanity_assert_no_wsi_traces(vhost->context, wsi);
+		sanity_assert_no_wsi_traces(cx, wsi);
 
 		/*
-		 * the free unbinds the vhost, under the context lock; no path
-		 * here holds the pt lock, and the context lock nests
+		 * The free unbinds the vhost (which may destroy it), under
+		 * the context lock, and resets the wsi, which changes the
+		 * pt's sul lists and ah pool, under the pt lock: context
+		 * lock, then pt lock, as close does.  No path here holds the
+		 * pt lock already, and the context lock nests.
 		 */
-		lws_context_lock(vhost->context, __func__);
+		lws_context_lock(cx, __func__); /* ------------------ cx { */
+		lws_pt_lock(pt, __func__); /* ---------------------- pt { */
 		__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
 		__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
-		lws_context_unlock(vhost->context);
+		lws_pt_unlock(pt); /* } pt */
+		lws_context_unlock(cx); /* } cx */
 
-		sanity_assert_no_sockfd_traces(vhost->context, sfd);
+		sanity_assert_no_sockfd_traces(cx, sfd);
 	}
 
 	return NULL;

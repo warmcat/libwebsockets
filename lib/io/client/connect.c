@@ -82,6 +82,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
 	const char *local = i->protocol;
 	struct lws *wsi, *wsi_started, *pwsi_entry = i->pwsi ? *i->pwsi : NULL;
+	struct lws_context_per_thread *pt;
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
 	char buf_localport[8];
@@ -704,11 +705,15 @@ bail:
 			     wsi->a.vhost ? wsi->a.vhost->name : "novh",
 			     i->address ? i->address : "");
 
-	/* the fds table is the pt's: context lock, then pt lock, as close does */
-	lws_pt_lock(&i->context->pt[(int)wsi->tsi], __func__);
+	/*
+	 * The fds table is the pt's, and so are the timers and ah the free's
+	 * reset takes back: context lock, then pt lock, as close does
+	 */
+	pt = &i->context->pt[(int)wsi->tsi];
+	lws_pt_lock(pt, __func__);
 	__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
-	lws_pt_unlock(&i->context->pt[(int)wsi->tsi]);
 	__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
+	lws_pt_unlock(pt);
 	lws_context_unlock(i->context);
 
 bail2:

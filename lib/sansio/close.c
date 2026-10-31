@@ -90,11 +90,21 @@ lws_close_client_stages(struct lws *wsi)
 }
 #endif
 
+/*
+ * The caller holds the context lock and then the wsi's pt lock, in that
+ * order: the reset changes the pt's sul lists and its ah pool (detaching the
+ * ah may hand it to a waiter), and unbinding things from the vhost needs the
+ * context lock
+ */
+
 void
 __lws_reset_wsi(struct lws *wsi)
 {
 	if (!wsi)
 		return;
+
+	lws_context_assert_lock_held(wsi->a.context);
+	lws_pt_assert_lock_held(&wsi->a.context->pt[(int)wsi->tsi]);
 
 #if defined(LWS_WITH_CLIENT)
 
@@ -320,7 +330,12 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 }
 
-/* req cx lock */
+/*
+ * The caller holds the context lock and then the wsi's pt lock, as the close
+ * path does: the free resets the wsi (see __lws_reset_wsi()) and takes it off
+ * the pt's sul lists again after the vhost unbind.  A wsi that never got as
+ * far as the fds table is no exception, its timers and ah are still the pt's.
+ */
 
 void
 __lws_free_wsi(struct lws *wsi)
@@ -331,6 +346,7 @@ __lws_free_wsi(struct lws *wsi)
 		return;
 
 	lws_context_assert_lock_held(wsi->a.context);
+	lws_pt_assert_lock_held(&wsi->a.context->pt[(int)wsi->tsi]);
 
 	/* just in case */
 	lws_dll2_remove(&wsi->pre_natal);
