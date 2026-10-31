@@ -29,7 +29,7 @@ Commandline option|Meaning
 -e|Apply tls option LCCSCF_ALLOW_EXPIRED
 -v|Connection validity use 3s / 10s instead of default 5m / 5m10s
 --nossl| disable ssl connection
---user <username>| Set Basic Auth username
+--user <username>| Set Basic Auth username (see below about redirects)
 --password <password> | Set Basic Auth password
 
 ```
@@ -99,3 +99,20 @@ $ lws-minimal-http-client -l --nossl --path /secret/index.html --user user --pas
 
 The Basic Auth credentials for the test server are literally username "user" and password "password".
 
+### Basic Auth and redirects
+
+`--user` and `--password` make the client send an `Authorization: Basic`
+header.  Lws adds the headers the example appends to its request again to
+any request a redirect makes, wherever the server's `Location` points, so
+the example checks each redirect with `lws_client_redirect_info()` in
+`LWS_CALLBACK_CLIENT_HTTP_REDIRECT` and refuses it, failing the connection,
+unless lws says credentials may go there: only over https with strict
+certificate checks (none of `-l`, `-j`, `-k`, `-m` or `-e`), to the same
+host or a subdomain of it.  It also does not follow a redirect from https
+to plain http at all.  The `jit-trust-http-client-redirect-*` ctests check this
+against a server that redirects to another host, the one in
+`minimal-http-client/redirect-fixture.c`.
+
+Basic Auth sends the password readably, so with `--nossl` it is only for
+trying the client against a server on localhost, like the one
+above.
