@@ -536,7 +536,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 #if defined(__linux__)
 	if (lsp->cgroup_path[0]) {
-		uint64_t cu, cs;
+		uint64_t cu, cs, ok;
 
 		/*
 		 * The cgroup's cpu time is everything that ran in it, also
@@ -547,6 +547,10 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 			lsp->res.us_cpu_user = cu;
 			lsp->res.us_cpu_sys = cs;
 		}
+
+		/* and whether the OOM killer took any of it, before the dir goes */
+		if (!lws_spawn_cgroup_oom_kills(lsp, &ok))
+			lsp->res.oom_kills = ok;
 
 		/*
 		 * The child has been reaped, we can remove the cgroup dir.

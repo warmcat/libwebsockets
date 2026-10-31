@@ -1583,6 +1583,8 @@ lws_spawn_tree_rss(struct lws_spawn_piped *lsp, uint64_t *rss);
 int
 lws_spawn_cgroup_cpu(struct lws_spawn_piped *lsp, uint64_t *us_user,
 		     uint64_t *us_sys);
+int
+lws_spawn_cgroup_oom_kills(struct lws_spawn_piped *lsp, uint64_t *kills);
 void
 lws_spawn_tree_sample_cb(lws_sorted_usec_list_t *sul);
 #endif

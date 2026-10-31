@@ -351,6 +351,34 @@ lws_spawn_cgroup_cpu(struct lws_spawn_piped *lsp, uint64_t *us_user,
 	return got == 2 ? 0 : -1;
 }
 
+/*
+ * How many processes in the spawn's cgroup the OOM killer took, from the
+ * cgroup's memory.events: it counts kills by any OOM killer, the system's
+ * included, of processes in the cgroup or anything under it
+ */
+
+int
+lws_spawn_cgroup_oom_kills(struct lws_spawn_piped *lsp, uint64_t *kills)
+{
+	char path[300], buf[512], *p;
+
+	if (!lsp->cgroup_path[0])
+		return -1;
+
+	lws_snprintf(path, sizeof(path), "%s/memory.events", lsp->cgroup_path);
+	if (read_small(path, buf, sizeof(buf)) < 0)
+		return -1;
+
+	/* "oom_kill N": "oom_group_kill N" doesn't match this */
+	p = strstr(buf, "oom_kill ");
+	if (!p)
+		return -1;
+
+	*kills = strtoull(p + 9, NULL, 10);
+
+	return 0;
+}
+
 #elif defined(__APPLE__)
 
 /*
@@ -508,6 +536,15 @@ lws_spawn_cgroup_cpu(struct lws_spawn_piped *lsp, uint64_t *us_user,
 	(void)lsp;
 	(void)us_user;
 	(void)us_sys;
+
+	return -1;
+}
+
+int
+lws_spawn_cgroup_oom_kills(struct lws_spawn_piped *lsp, uint64_t *kills)
+{
+	(void)lsp;
+	(void)kills;
 
 	return -1;
 }

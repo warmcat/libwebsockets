@@ -1991,6 +1991,12 @@ typedef struct _lws_siginfo_t siginfo_t;
  * .res was given, and keeps the peak.  It errs high, since memory shared
  * between processes is counted in each, and is never less than the peak of
  * the biggest single process.
+ *
+ * oom_kills is how many of the tree's processes the OOM killer took while it
+ * ran, on Linux when the spawn was given a cgroup, from the cgroup's
+ * memory.events; 0 elsewhere or when it can't be read.  A build tool that
+ * lost a compiler to it exits nonzero as for any other failure, so this is
+ * how to tell the machine running out from the build being broken.
  */
 typedef struct lws_spawn_resource_us {
 	uint64_t			us_cpu_user;  /**< user space cpu time */
@@ -1998,6 +2004,7 @@ typedef struct lws_spawn_resource_us {
 
 	uint64_t			peak_mem_rss; /**< peak resident memory */
 	uint64_t			peak_mem_virt; /**< peak virtual memory */
+	uint64_t			oom_kills;    /**< processes the OOM killer took */
 } lws_spawn_resource_us_t;
 
 typedef void (*lsp_cb_t)(void *opaque, const lws_spawn_resource_us_t *res,
