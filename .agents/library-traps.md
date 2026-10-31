@@ -279,7 +279,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    "webtransport".
  - **`lws_is_ssl()` on an h2 child stream returns 0**: `use_ssl` is not
    copied to mux children (client streams too: the https->http redirect
-   guard read it and was bypassed over h2, G-699).  Use `lws_is_ssl(lws_get_network_wsi(wsi))`
+   guard read it and was bypassed over h2, G-699, fixed in 1e736db26).
+   A TLS vhost with the default ALPN in an HTTP3 build also listens on
+   QUIC/UDP on the same port, so an h1/h2 test fixture serves `--h3`
+   clients unchanged.  Use `lws_is_ssl(lws_get_network_wsi(wsi))`
    (G-686 fix).  Closing an h2 ws client stream from ESTABLISHED by
    returning -1 logs "no state for event CONN_FAILED"; closing via
    `lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC)` and
