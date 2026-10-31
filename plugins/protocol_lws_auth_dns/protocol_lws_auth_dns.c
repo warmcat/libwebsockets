@@ -57,9 +57,24 @@
  * can't take every fetch there is; the bucket of the vhost as a whole is a
  * larger cap over them all, bounding the DHT traffic queries can cause.  The
  * hosts tracked are bounded, the least recently seen recycled.
+ *
+ * G-571: but a UDP source is only what it claims, so a forger spread over
+ * enough addresses can still keep the vhost's bucket empty.  So the last
+ * LWS_AUTH_DNS_DHT_FETCH_TCP_RESERVE tokens of it are for TCP queries only,
+ * whose source is proven, and a UDP query that finds only those left is
+ * answered TC=1, so a real resolver asks again over TCP and gets one.  TCP
+ * sources have their own host buckets (and LRU), so forging a resolver's
+ * address over UDP doesn't spend what its TCP queries get either.
+ *
+ * The reserve is a quarter of the burst: two TCP sources' whole host burst
+ * at once, leaving UDP three quarters of it.  Since UDP may only take a
+ * token above the reserve, a token TCP took is refilled before UDP gets any,
+ * so under a forged flood TCP queries still start fetches at the refill
+ * rate, each source host at its own.
  */
 #define LWS_AUTH_DNS_DHT_FETCH_BURST		32
 #define LWS_AUTH_DNS_DHT_FETCH_REFILL_US	(250 * LWS_US_PER_MS)
+#define LWS_AUTH_DNS_DHT_FETCH_TCP_RESERVE	(LWS_AUTH_DNS_DHT_FETCH_BURST / 4)
 #define LWS_AUTH_DNS_DHT_FETCH_HOST_BURST	4
 #define LWS_AUTH_DNS_DHT_FETCH_HOST_REFILL_US	(2 * LWS_US_PER_SEC)
 #define LWS_AUTH_DNS_DHT_FETCH_HOSTS		256
@@ -1046,8 +1061,12 @@ struct per_vhost_data__auth_dns {
 
 	/* G-508: token bucket for starting DHT zone fetches, all sources */
 	struct auth_dns_fetch_bucket dht_fetch;
-	/* G-535: and each source host's, struct auth_dns_fetch_host */
+	/*
+	 * G-535: and each source host's, struct auth_dns_fetch_host, UDP
+	 * and (G-571) TCP sources apart
+	 */
 	lws_dll2_owner_t dht_fetch_hosts;
+	lws_dll2_owner_t dht_fetch_hosts_tcp;
 
 	/*
 	 * G-289: UDP response rate limiting, per source network prefix.
@@ -1977,18 +1996,17 @@ auth_dns_fetch_bucket_refill(struct auth_dns_fetch_bucket *b, lws_usec_t now,
 }
 
 /*
- * The fetch bucket of the source host keyed key, created if we don't track
- * it yet, recycling the least recently seen one when the table is full.
- * NULL if there is no memory for it.
+ * The fetch bucket of the source host keyed key in the table owner, created
+ * if we don't track it yet, recycling the least recently seen one when the
+ * table is full.  NULL if there is no memory for it.
  */
 
 static struct auth_dns_fetch_host *
-auth_dns_fetch_host(struct per_vhost_data__auth_dns *vhd, const char *key)
+auth_dns_fetch_host(lws_dll2_owner_t *owner, const char *key)
 {
 	struct auth_dns_fetch_host *h = NULL;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&vhd->dht_fetch_hosts)) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
 		struct auth_dns_fetch_host *f = lws_container_of(d,
 					struct auth_dns_fetch_host, list);
 
@@ -2000,13 +2018,13 @@ auth_dns_fetch_host(struct per_vhost_data__auth_dns *vhd, const char *key)
 
 	if (h) {
 		lws_dll2_remove(&h->list);
-		lws_dll2_add_head(&h->list, &vhd->dht_fetch_hosts);
+		lws_dll2_add_head(&h->list, owner);
 
 		return h;
 	}
 
-	if (vhd->dht_fetch_hosts.count >= LWS_AUTH_DNS_DHT_FETCH_HOSTS) {
-		h = lws_container_of(lws_dll2_get_tail(&vhd->dht_fetch_hosts),
+	if (owner->count >= LWS_AUTH_DNS_DHT_FETCH_HOSTS) {
+		h = lws_container_of(lws_dll2_get_tail(owner),
 				     struct auth_dns_fetch_host, list);
 		lws_dll2_remove(&h->list);
 	} else {
@@ -2017,16 +2035,16 @@ auth_dns_fetch_host(struct per_vhost_data__auth_dns *vhd, const char *key)
 
 	memset(h, 0, sizeof(*h));
 	lws_strncpy(h->key, key, sizeof(h->key));
-	lws_dll2_add_head(&h->list, &vhd->dht_fetch_hosts);
+	lws_dll2_add_head(&h->list, owner);
 
 	return h;
 }
 
 static void
-auth_dns_fetch_hosts_destroy(struct per_vhost_data__auth_dns *vhd)
+auth_dns_fetch_hosts_destroy(lws_dll2_owner_t *owner)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&vhd->dht_fetch_hosts)) {
+				   lws_dll2_get_head(owner)) {
 		struct auth_dns_fetch_host *h = lws_container_of(d,
 					struct auth_dns_fetch_host, list);
 
@@ -2043,9 +2061,13 @@ auth_dns_fetch_hosts_destroy(struct per_vhost_data__auth_dns *vhd)
  * A datagram's source is only what it claims, so a forger can spend the
  * budget of the address it forges, or spread itself over many: the vhost's
  * bucket is what bounds the latter.  But from one address it only takes that
- * address' share, and other sources' queries still start their fetches.  A
- * TCP source is keyed by lws_get_peer_host_key(), since its address is
- * proven.
+ * address' share, and other sources' queries still start their fetches.
+ *
+ * G-571: and however many addresses it forges, it can't take the vhost's
+ * last LWS_AUTH_DNS_DHT_FETCH_TCP_RESERVE tokens: only a TCP query, whose
+ * source is proven, may.  A TCP source is keyed by lws_get_peer_host_key(),
+ * the connection's real peer, in a table of its own, so UDP queries forged
+ * as its address neither spend its bucket nor recycle it.
  */
 
 static int
@@ -2069,10 +2091,12 @@ auth_dns_dht_fetch_token(struct per_vhost_data__auth_dns *vhd, struct lws *wsi,
 	auth_dns_fetch_bucket_refill(&vhd->dht_fetch, now,
 				     LWS_AUTH_DNS_DHT_FETCH_BURST,
 				     LWS_AUTH_DNS_DHT_FETCH_REFILL_US);
-	if (!vhd->dht_fetch.tokens)
+	if (vhd->dht_fetch.tokens <=
+			(is_tcp ? 0u : LWS_AUTH_DNS_DHT_FETCH_TCP_RESERVE))
 		return 0;
 
-	h = auth_dns_fetch_host(vhd, key);
+	h = auth_dns_fetch_host(is_tcp ? &vhd->dht_fetch_hosts_tcp :
+					 &vhd->dht_fetch_hosts, key);
 	if (!h)
 		return 0;
 
@@ -2573,7 +2597,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_sul_cancel(&vhd->sul_evict);
 			lws_sul_cancel(&vhd->sul_dht_reg);
 		auth_dns_rrl_destroy(vhd);
-		auth_dns_fetch_hosts_destroy(vhd);
+		auth_dns_fetch_hosts_destroy(&vhd->dht_fetch_hosts);
+		auth_dns_fetch_hosts_destroy(&vhd->dht_fetch_hosts_tcp);
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 				struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
@@ -2975,7 +3000,13 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					if (!strcmp(q->domain, base))
 						is_already_fetching_globally = 1;
 
-					if (strcmp(q->peer_ip, peer_ip))
+					/*
+					 * G-571: a TCP peer's queries are
+					 * counted apart from UDP ones claiming
+					 * the same address
+					 */
+					if (q->is_tcp != is_tcp ||
+					    strcmp(q->peer_ip, peer_ip))
 						continue;
 
 					ip_total_queries++;
@@ -3029,7 +3060,29 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				    !auth_dns_dht_fetch_token(vhd, wsi, is_tcp)) {
 					lwsl_info("dht zone fetches rate limited, from %s\n",
 						  peer_ip);
-					goto send_refused;
+					if (is_tcp)
+						goto send_refused;
+
+					/*
+					 * G-571: over TCP it may still get one,
+					 * from the reserve and its own host's
+					 * bucket.  Like an RRL slip, an empty
+					 * TC=1 answer, the question and, for
+					 * EDNS0, our OPT: never more than the
+					 * query was, so it reflects nothing,
+					 * and a real resolver asks again over
+					 * TCP.  Not AA, we hold nothing for it.
+					 */
+					dbuf[0] = (uint8_t)(id >> 8);
+					dbuf[1] = (uint8_t)(id & 0xff);
+					rp = auth_dns_truncated(dbuf, dbuf, max_buf,
+							(uint16_t)(0x8000 |
+								(flags & 0x0100)),
+							p + 12, qsec_len, edns,
+							do_bit);
+					if (!rp || lws_ptr_diff_size_t(rp, dbuf) > len)
+						goto done;
+					goto send_reply;
 				}
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
