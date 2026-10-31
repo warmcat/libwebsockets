@@ -171,6 +171,19 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **Varint-length encoders:** bounding a whole field up front with
    "len + length + small slack" is wrong once both length varints go
    multi-byte; bound each piece just before writing it (G-154, hpack).
+ - **`lws_dir()` returns 1 both when it listed everything and when it
+   couldn't open the dir** (0 only when the callback stopped it), so its
+   return can't tell you the dir was there: check what the callback found.
+   A recursive callback that returns the nested `lws_dir()`'s result stops
+   the outer listing after the first subdir.
+ - **`LWS_TOKENIZE_F_COMMA_SEP_LIST` refuses any other delimiter after a
+   token** (`LWS_TOKZE_ERR_COMMA_LIST`): "0000-0005,0020" fails at the
+   '-'.  Leave the flag off and check the commas yourself when list items
+   have their own punctuation (the dlo font manifest pages, eb5a632c1).
+ - **`lws_get_effective_uid_gid()` gives uid 0 when no uid is configured**,
+   ie, "not dropping privileges", not root: passing it on to chown()
+   (`lws_diskcache_prepare()` does) fails noisily for a non-root process.
+   Use `getuid()` when it's 0, as `lws-struct-sqlite.c` skips the chown.
 
 ## Addresses and PROXY v2
 
@@ -677,6 +690,14 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - The builtin `__default` streamtype is TLS-only and ignores `http://`
    endpoints ("ignoring non-tls scheme"); in-process plain-http tests
    need their own `pss_policies_json` (see api-test-lhp-doc-cache).
+ - **How a fetch ends differs by scheme:** http gives rx with EOM (often a
+   trailing zero-length one), then `QOS_ACK_REMOTE` or `QOS_NACK_REMOTE`;
+   file:// gives rx with EOM then `DISCONNECTED` (before b2b5db174 it gave
+   nothing and hung).  An http error page arrives through rx like a good
+   payload, so only use what arrived once the stream has ended well (see
+   `fontss_finished()` in dlo-font-remote.c).  lws' own file mounts answer
+   415 for an extension they have no mimetype for, eg `.mcufont`: give
+   the mount `extra_mimetypes`.
  - **lws_dsh flags reshape records:** with `LWS_DSHFLAG_ENABLE_COALESCE`,
    `lws_dsh_alloc_tail()` appends onto the existing tail object; with
    `ENABLE_SPLIT` and `splitat` it cuts a record into several objects and
