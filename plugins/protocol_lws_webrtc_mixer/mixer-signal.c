@@ -34,6 +34,7 @@
 
 #include <libwebsockets.h>
 
+#include <limits.h>
 #include <string.h>
 
 #include "mixer-signal.h"
@@ -348,4 +349,34 @@ mixer_may_control_levels(int self, int p_level, int tp_level,
 	/* a controller can't take over the devices of one who outranks it */
 
 	return p_level >= tp_level;
+}
+
+int
+mixer_stamp_grant_level(const char *level, const char *service,
+			const char *service_name, int *grant)
+{
+	const char *p;
+	int n = 0;
+
+	if (!level || !*level)
+		return 0;
+
+	if (!service || !service_name || strcmp(service, service_name))
+		return 0;
+
+	/* the bouncer stamps a decimal int; a negative one is no grant */
+
+	*grant = MIXER_GRANT_NONE;
+	if (*level == '-')
+		return 1;
+
+	for (p = level; *p; p++) {
+		if (*p < '0' || *p > '9' || n > (INT_MAX - 9) / 10)
+			return 1;
+		n = (n * 10) + (*p - '0');
+	}
+
+	*grant = n;
+
+	return 1;
 }

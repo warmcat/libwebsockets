@@ -147,6 +147,25 @@ mixer_may_control_levels(int self, int p_level, int tp_level,
 			 int control_level);
 
 /*
+ * The grant level an in-process lws-login bouncer gating the mount stamped on
+ * the ws upgrade gives the account, if it applies to the mixer.
+ *
+ * `level` and `service` are the x-lws-login-grant-level and
+ * x-lws-login-service stamps (NULL if absent), `service_name` the mixer's
+ * service-name pvo.  The bouncer's level is for the grant *it* was configured
+ * with, which may be a broader one than the mixer's (eg, a site-wide grant
+ * every member holds, or "*"), so it only applies when the stamped service is
+ * exactly ours.
+ *
+ * Returns nonzero and sets *grant (MIXER_GRANT_NONE for a negative or
+ * malformed level) if the stamp applies, or 0 if there is no stamp for our
+ * service, and the caller should look elsewhere for a grant.
+ */
+int
+mixer_stamp_grant_level(const char *level, const char *service,
+			const char *service_name, int *grant);
+
+/*
  * Spacing for something we do on behalf of peers that we must not do more
  * often than every `interval` however often they ask for it: rebroadcasting
  * the client_list to the room, forcing a keyframe from the room's encoder,
