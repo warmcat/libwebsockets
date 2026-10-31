@@ -28,13 +28,16 @@
  * None of them may crash the server, eg, a sanitizer build (G-686).
  *
  * With --cert / --key, a TLS vhost called "localhost" with the option takes
- * ws over h2 and h3 streams, whose :authority is checked the same way
- * (G-492):
+ * ws over h2 and h3 streams, whose :authority is checked the same way (G-492),
+ * and WebTransport sessions over h3, whose CONNECT's :authority is too
+ * (G-693):
  *
  *  - "localhost" and its port is accepted, "localhos" and its port, or
  *    "localhost" with no port (so 443) or another port, is refused
  *
- * The h3 clients may not fall back to tcp, so an h3 case is decided on h3.
+ * The h3 clients may not fall back to tcp, so an h3 case is decided on h3.  A
+ * refused WebTransport CONNECT must be refused with the strict check's 421,
+ * not for some other reason.
  */
 
 #include <libwebsockets.h>
@@ -44,6 +47,10 @@
 #define SHC_H2		/* we can test ws over h2 */
 #if defined(LWS_ROLE_H3)
 #define SHC_H3		/* ... and over h3 */
+#if defined(LWS_ROLE_WT)
+#define SHC_WT		/* ... and WebTransport over h3 */
+#include <libwebsockets/lws-webtransport.h>
+#endif
 #endif
 #endif
 
@@ -56,6 +63,7 @@ enum shc_via {
 	SHC_V_H1,		/* ws upgrade from a raw h1 client */
 	SHC_V_H2,		/* ws over an h2 stream */
 	SHC_V_H3,		/* ws over an h3 stream */
+	SHC_V_WT,		/* a WebTransport session over h3 */
 };
 
 /* what goes after the host name in the Host header */
@@ -131,6 +139,17 @@ static const struct shc_case shc_cases[] = {
 	{ .label = "h3 no port", .name = SHC_H2_NAME, .port = SHC_P_NONE,
 	  .via = SHC_V_H3 },
 	{ .label = "h3 exact, last", .name = SHC_H2_NAME, .via = SHC_V_H3,
+	  .want_ok = 1 },
+#endif
+#if defined(SHC_WT)
+	{ .label = "wt exact", .name = SHC_H2_NAME, .via = SHC_V_WT,
+	  .want_ok = 1 },
+	{ .label = "wt prefix", .name = "localhos", .via = SHC_V_WT },
+	{ .label = "wt other port", .name = SHC_H2_NAME, .port = SHC_P_OTHER,
+	  .via = SHC_V_WT },
+	{ .label = "wt no port", .name = SHC_H2_NAME, .port = SHC_P_NONE,
+	  .via = SHC_V_WT },
+	{ .label = "wt exact, last", .name = SHC_H2_NAME, .via = SHC_V_WT,
 	  .want_ok = 1 },
 #endif
 };
@@ -334,10 +353,71 @@ shc_h2_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 #endif
 
+#if defined(SHC_WT)
+
+/* the wt client: its CONNECT's 200 makes the stream a session */
+
+static int
+shc_wt_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	  void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (!lws_wt_is_session(wsi) || !shc_is_cur(wsi))
+			break;
+		shc_case_end(1);
+		/* done with it: close it once we have returned */
+		lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (!shc_is_cur(wsi))
+			break;
+		/* refused, and by the strict check, not for another reason */
+		if (!shc_cases[shc_cur].want_ok &&
+		    (!in || !strstr((const char *)in, "refused 421")))
+			shc_fail("not refused with 421");
+		shc_case_end(0);
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (shc_is_cur(wsi))
+			shc_case_end(0);
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+/* a WebTransport CONNECT to /wt on the TLS vhost gets a "shc-wt" session */
+
+static const struct lws_protocol_vhost_options shc_pvo_wt_opt = {
+	NULL, NULL, "webtransport", ""
+};
+
+static const struct lws_protocol_vhost_options shc_pvo_wt = {
+	NULL, &shc_pvo_wt_opt, "shc-wt", ""
+};
+
+static const struct lws_http_mount shc_mount_wt = {
+	.mountpoint		= "/wt",
+	.origin			= "shc-wt",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 3,
+};
+
+#endif
+
 static const struct lws_protocols shc_protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	/* whether it upgrades is all we look at */
 	{ "shc-ws", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+#if defined(SHC_WT)
+	{ "shc-wt", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+#endif
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -345,6 +425,10 @@ static const struct lws_protocols shc_protocols_cli[] = {
 	{ "shc-raw", shc_raw_cb, 0, 0, 0, NULL, 0 },
 #if defined(SHC_H2)
 	{ "shc-h2", shc_h2_cb, 0, 0, 0, NULL, 0 },
+#endif
+#if defined(SHC_WT)
+	/* lws asks for a wt session for a client of a protocol so named */
+	{ "webtransport", shc_wt_cb, 0, 0, 0, NULL, 0 },
 #endif
 	LWS_PROTOCOL_LIST_TERM
 };
@@ -404,11 +488,18 @@ shc_next(lws_sorted_usec_list_t *sul)
 		i.alpn		= "h2";
 		i.protocol	= "shc-ws";
 		i.local_protocol_name = "shc-h2";
-		if (c->via == SHC_V_H3) {
+		if (c->via != SHC_V_H2) {
 			i.alpn	= "h3";
 			/* decided on h3, not by a fallback to tcp */
 			i.disable_h3_fallback = 1;
 		}
+#if defined(SHC_WT)
+		if (c->via == SHC_V_WT) {
+			i.path	= "/wt";
+			i.protocol = "webtransport";
+			i.local_protocol_name = NULL;
+		}
+#endif
 	}
 #endif
 
@@ -470,6 +561,10 @@ main(int argc, const char **argv)
 		/* offer h3 as well: a tls vhost serves it on the same port */
 		info.alpn = "h2,http/1.1,h3";
 #endif
+#if defined(SHC_WT)
+		info.pvo = &shc_pvo_wt;
+		info.mounts = &shc_mount_wt;
+#endif
 		vh = lws_create_vhost(shc_cx, &info);
 		if (!vh)
 			goto bail;
@@ -477,8 +572,11 @@ main(int argc, const char **argv)
 		info.ssl_cert_filepath = NULL;
 		info.ssl_private_key_filepath = NULL;
 		info.alpn = NULL;
+		info.pvo = NULL;
+		info.mounts = NULL;
 	} else
-		lwsl_user("no --cert / --key: skipping the h2 and h3 cases\n");
+		lwsl_user("no --cert / --key: skipping the h2, h3 and wt "
+			  "cases\n");
 #else
 	(void)cert;
 	(void)key;

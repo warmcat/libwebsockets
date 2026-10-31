@@ -11,7 +11,8 @@ set(SRCS main.c)
 #
 # A vhost with LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK only upgrades a
 # connection whose Host (or h2 / h3 :authority) is exactly its name and port
-# (G-492), and a wrong one doesn't crash it (G-686)
+# (G-492), and a wrong one doesn't crash it (G-686).  That includes a
+# WebTransport CONNECT on h3 (G-693).
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
@@ -23,7 +24,7 @@ require_lws_config(LWS_WITH_CLIENT 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	# the ws over h2 / h3 cases need a TLS vhost
+	# the ws over h2 / h3 and wt cases need a TLS vhost
 	set(SHC_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
 	add_test(NAME api-test-http-strict-host COMMAND lws-api-test-http-strict-host
