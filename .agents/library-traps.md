@@ -190,6 +190,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    ie, "not dropping privileges", not root: passing it on to chown()
    (`lws_diskcache_prepare()` does) fails noisily for a non-root process.
    Use `getuid()` when it's 0, as `lws-struct-sqlite.c` skips the chown.
+ - **The font chooser matches `font-family` by its first word**:
+   `lws_fonts_score()` tokenizes it, so "Fira Sans Condensed Bold" gives
+   the token "Fira", a prefix of every Fira face's name.  Asking for a
+   family by its full name doesn't exclude its other weights; weight only
+   adds (difference / 100) to the score, while each pixel of line height
+   off adds 10, so a regular face at the right height beats a bold one a
+   pixel off.  `fixed_height` is the line height, for built-in and remote
+   faces alike, and on a tie the face registered first (the built-in one)
+   wins (api-test-mcufonts-plugin's table works around both).
 
 ## Addresses and PROXY v2
 
