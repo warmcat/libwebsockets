@@ -1371,7 +1371,7 @@ done:
 		uint8_t ubuf[256], re[512];
 		size_t w, ttot, fs;
 		sai_longcol_t lc;
-		int bn, chunks, errs = 0, oks = 0;
+		int bn, chunks, oks = 0;
 
 		memset(&lc, 0, sizeof(lc));
 		lws_strncpy(lc.s, "\xe2\x82\xachello", sizeof(lc.s));
@@ -1401,10 +1401,9 @@ done:
 
 			lws_struct_json_serialize_destroy(&jser);
 
-			if (bn == LSJS_RESULT_ERROR) {
-				errs++;
+			if (bn == LSJS_RESULT_ERROR)
+				/* too small to make progress: refused */
 				continue;
-			}
 
 			re[ttot] = '\0';
 			if (bn != LSJS_RESULT_FINISH ||
@@ -1424,7 +1423,8 @@ done:
 		}
 
 		lwsl_notice("%s: longcol: %d sizes exact, %d refused\n",
-			    __func__, oks, errs);
+			    __func__, oks,
+			    (int)(sizeof(ubuf) - 96 + 1) - oks);
 	}
 
 	{
