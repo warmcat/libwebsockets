@@ -153,16 +153,26 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 			vh = lws_get_vhost_by_name(i->context, "default");
 			if (!vh) {
 
+				/*
+				 * The first vhost that is not "system", which
+				 * exists for lws's own protocols (eg, async
+				 * dns) even when the app made none of its own
+				 */
 				vh = lws_vhost_first(i->context);
-
-				if (!vh) { /* coverity */
-					lwsl_cx_err(i->context, "no vhost");
-					goto bail; /* this frees the wsi */
-				}
-				if (!strcmp(vh->name, "system"))
+				if (vh && !strcmp(vh->name, "system"))
 					vh = lws_vhost_next(vh);
 			}
 		}
+	}
+
+	/*
+	 * Eg, an app with LWS_SERVER_OPTION_EXPLICIT_VHOSTS that never created
+	 * a vhost and gave none in the connect info.  Everything below takes
+	 * vh to be real, so fail here.
+	 */
+	if (!vh) {
+		lwsl_cx_err(i->context, "No vhost in the context");
+		goto bail; /* this frees the wsi */
 	}
 
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -228,18 +238,16 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->ssl_connection & LCCSCF_WAKE_SUSPEND__VALIDITY)
 		wsi->conn_validity_wakesuspend = 1;
 
-	lws_vhost_bind_wsi(vh, wsi);
-
-#if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	/* additionally inerit from vhost we bound to */
-	lws_fi_inherit_copy(&wsi->fic, &vh->fic, "wsi", i->fi_wsi_name);
-#endif
-
-	if (!wsi->a.vhost) {
-		lwsl_wsi_err(wsi, "No vhost in the context");
+	if (lws_vhost_bind_wsi(vh, wsi)) {
+		lwsl_wsi_err(wsi, "unable to bind to vhost %s", vh->name);
 
 		goto bail;
 	}
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/* additionally inherit from vhost we bound to */
+	lws_fi_inherit_copy(&wsi->fic, &vh->fic, "wsi", i->fi_wsi_name);
+#endif
 
 	/*
 	 * PHASE 3: Choose an initial role for the wsi and do role-specific init
