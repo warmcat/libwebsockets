@@ -144,6 +144,12 @@
    PLUGINS_BUILTIN does not link (`lws_webrtc` is only exported when
    !PLUGINS_BUILTIN, since c80c865a98), so the lws-login api-tests, which
    need PLUGINS_BUILTIN, run in a separate tree from the webrtc ones.
+ - **A build without Secure Streams needs `-DLWS_WITH_LHP=0
+   -DLWS_WITH_SECURE_STREAMS_PROXY_API=0` too**: LHP (on by default)
+   forces SS back on.
+ - **`lws_context_info_defaults()` sets `EXPLICIT_VHOSTS`**: an example that
+   ORs its options in after the builtins must clear it (as
+   minimal-http-client.c does), or no default vhost is created (G-687).
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
 
