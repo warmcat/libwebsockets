@@ -20,6 +20,7 @@ Commandline option|Meaning
 -c <policy-file>|Use the policy from this JSON file instead of the compiled-in one, eg to target a local test server
 -H <hugeurl size>|Default 4000
 --h1|Force http/1.1 instead of default h2
+--h2|Force h2 (the policy asks for h2 anyway)
 
 ```
 [2021/03/02 16:38:00:2662] U: LWS secure streams hugeurl test client [-d<verb>][-H <urlarg len>]
