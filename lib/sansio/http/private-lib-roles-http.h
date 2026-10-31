@@ -868,6 +868,22 @@ int
 lws_http_authority_check(const char *a, size_t len);
 
 /*
+ * Split an http(s) authority, host [ ":" port ], into the length of its host
+ * (an IPv6 literal host keeps its brackets) and its port, -1 if it has none.
+ * Nonzero if it is not of that shape, eg, the port is not 0 - 65535.
+ */
+int
+lws_http_authority_split(const char *a, size_t len, size_t *host_len,
+			 int *port);
+
+/*
+ * Nonzero unless the Host (or :authority) of a request to a vhost with
+ * LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK names the vhost and its port
+ */
+int
+lws_confirm_host_header(struct lws *wsi);
+
+/*
  * The authority a client sends for host, the host a caller gave it: a bare
  * IPv6 literal, eg "::1", which callers may give, is bracketed in buf, since
  * on the wire it can't be told from host:port (RFC 3986 3.2.2).  Anything

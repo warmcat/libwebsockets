@@ -3613,74 +3613,69 @@ bail_nuke_ah:
 	return 1;
 }
 
+/*
+ * For a vhost with LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK: nonzero
+ * unless the Host header (on h2 / h3, the :authority it is aliased to) names
+ * this vhost and its port.
+ *
+ * The host must be the whole vhost name, compared case-insensitively
+ * (RFC 3986 3.2.2), the way lws_select_vhost_by_name() matches it: not a
+ * prefix of it, and not the name with a trailing dot either, since that does
+ * not select the vhost by name.  An IPv6 literal host is bracketed, as the
+ * vhost name must be to match it.  No port means the default one for the
+ * connection's transport.
+ */
+
 int
 lws_confirm_host_header(struct lws *wsi)
 {
-	struct lws_tokenize ts;
-	lws_tokenize_elem e;
-	int port = 80, n;
-	char buf[128];
+	const char *vname = wsi->a.vhost->name;
+	/* the longest DNS name (RFC 1035 2.3.4), ":65535" and a NUL */
+	char buf[253 + 6 + 1];
+	size_t hl;
+	int n, port;
 
-	/*
-	 * this vhost wants us to validate what the
-	 * client sent against our vhost name
-	 */
-
-	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
-		lwsl_info("%s: missing host on upgrade\n", __func__);
-
-		return 1;
-	}
-
-#if defined(LWS_WITH_TLS)
-	if (lws_is_ssl(wsi))
-		port = 443;
-#endif
-	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_HOST);
+	n = lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_HOST);
 	if (n <= 0) {
-		lwsl_info("%s: missing or oversize host header\n", __func__);
-		return 1;
-	}
-	ts.len = (size_t)n;
-	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_DOT_NONTERM /* server.com */|
-				    LWS_TOKENIZE_F_NO_FLOATS /* 1.server.com */|
-				    LWS_TOKENIZE_F_MINUS_NONTERM /* a-b.com */);
+		/* a repeated Host is copied comma-joined and refused below */
+		lwsl_wsi_info(wsi, "missing or oversize host on upgrade");
 
-	if (lws_tokenize(&ts) != LWS_TOKZE_TOKEN)
-		goto bad_format;
-
-	if (strncmp(ts.token, wsi->a.vhost->name, ts.token_len)) {
-		buf[(size_t)(ts.token - buf) + ts.token_len] = '\0';
-		lwsl_info("%s: '%s' in host hdr but vhost name %s\n",
-			  __func__, ts.token, wsi->a.vhost->name);
 		return 1;
 	}
 
-	e = lws_tokenize(&ts);
-	if (e == LWS_TOKZE_DELIMITER && ts.token[0] == ':') {
-		if (lws_tokenize(&ts) != LWS_TOKZE_INTEGER)
-			goto bad_format;
-		else
-			port = atoi(ts.token);
-	} else
-		if (e != LWS_TOKZE_ENDED)
-			goto bad_format;
+	if (lws_http_authority_split(buf, (size_t)n, &hl, &port) || !port) {
+		lwsl_wsi_info(wsi, "bad host header format");
+
+		return 1;
+	}
+
+	if (hl != strlen(vname) || strncasecmp(buf, vname, hl)) {
+		lwsl_wsi_info(wsi, "'%.*s' in host hdr but vhost name %s",
+			      (int)hl, buf, vname);
+
+		return 1;
+	}
+
+	if (port < 0) {
+		port = 80;
+#if defined(LWS_WITH_TLS)
+		/* an h2 / h3 stream's own wsi does not have the tls */
+		if (lws_is_ssl(lws_get_network_wsi(wsi)))
+			port = 443;
+#endif
+	}
 
 	if (wsi->a.vhost->listen_port != port &&
-		wsi->a.vhost->listen_port != CONTEXT_PORT_NO_LISTEN_SERVER) {
-		lwsl_info("%s: host port %d mismatches vhost port %d\n",
-			  __func__, port, wsi->a.vhost->listen_port);
+	    wsi->a.vhost->listen_port != CONTEXT_PORT_NO_LISTEN_SERVER) {
+		lwsl_wsi_info(wsi, "host port %d mismatches vhost port %d",
+			      port, wsi->a.vhost->listen_port);
+
 		return 1;
 	}
 
-	lwsl_debug("%s: host header OK\n", __func__);
+	lwsl_wsi_debug(wsi, "host header OK");
 
 	return 0;
-
-bad_format:
-	lwsl_info("%s: bad host header format\n", __func__);
-
-	return 1;
 }
 
 #if defined(LWS_WITH_SERVER)
