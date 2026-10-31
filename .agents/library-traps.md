@@ -674,7 +674,11 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
  - **`__default`'s endpoint is `${endpoint}`, and an app setting it to a
    `file://` url is a designed use** (lhp/dlo, 39 api-test-lhp-dlo tests).
    A rule treating any substituted endpoint as untrusted breaks it; trust
-   has to follow where the metadata came from (G-372).
+   has to follow where the metadata came from (G-372).  Since G-600, an
+   outside value substituted into a partly-literal endpoint (any template
+   other than exactly `${name}`) cannot carry `: / \ @ ? # [ ] %` or NUL,
+   so it can't give a port, IPv6 literal or path; a whole-`${name}`
+   endpoint is exempt (msspc-hello_world-local relies on it).
  - An SS rx callback can get `len == 0` with a NULL `buf` at EOM; a
    `memcpy` from it is a bare SIGTRAP under UBSan (nonnull).
  - An SS handle sees `LWSSSCS_CREATING` exactly once; user code does

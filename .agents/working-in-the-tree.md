@@ -41,6 +41,10 @@ Restoring sources by `mv` or `cp -p` after a red run keeps their old
 mtime, so make doesn't rebuild and the "green" binary is still the red
 one (V103).  Touch restored files, or check make compiled them.
 
+`git apply` run inside a subdirectory of a repo (eg an export under
+build-agy-*/ in the checkout) silently skips patch paths outside that
+subdirectory and still succeeds: use `patch -p1` in exports (B122).
+
 To judge whether a test failure is yours when other sessions have
 half-done edits in the tree, export HEAD (`git archive HEAD | tar -x`)
 into a directory outside the repo, apply only your patch, and build and
