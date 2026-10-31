@@ -3001,8 +3001,8 @@ bail:
  * These must agree with the capped vhost's pvos in conf.d/apitest.json.in.
  */
 
-#define CAP_JWT_SECS			4
-#define CAP_SESSION_SECS		10
+#define CAP_JWT_SECS			8
+#define CAP_SESSION_SECS		16
 #define CAP_REFRESH_SECS		2592000
 #define CAP_PKCE			"apitest-cap-pkce-verifier-0123456789abcdef"
 

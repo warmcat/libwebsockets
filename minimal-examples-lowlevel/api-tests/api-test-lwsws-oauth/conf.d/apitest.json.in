@@ -177,9 +177,9 @@
                 "auth-domain":                  "@OAUTH_VHOST_NAME@",
                 "jwk_path":                     "@OAUTH_JWK_PATH@",
                 "jwt_alg":                      "ES256",
-                "jwt-validity-secs":            "4",
+                "jwt-validity-secs":            "8",
                 "refresh-validity-secs":        "2592000",
-                "max-session-secs":             "10",
+                "max-session-secs":             "16",
                 "trusted-proxies":              "127.0.0.1,::1"
         }
        }],

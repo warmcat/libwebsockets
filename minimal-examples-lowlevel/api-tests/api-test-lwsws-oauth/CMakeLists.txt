@@ -383,7 +383,7 @@ if (requirements)
 		# (f) the absolute session lifetime: on the capped auth vhost, a
 		# session renews by every route for its max-session-secs since
 		# the login, and by none after it.  Once only, over h1: it waits
-		# out the session, about a dozen seconds.
+		# out the session, about twenty seconds.
 		#
 		add_test(NAME lwsws-oauth-cap
 			 COMMAND ${SAMP} -t cap --h1 ${ARGS_COMMON}
