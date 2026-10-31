@@ -47,6 +47,10 @@
  - **`LWS_WITH_SYS_DHCP_CLIENT` gates the system state** at
    `LWS_SYSTATE_DHCP` until an interface has a lease: with it on, client
    tests sit forever before OPERATIONAL.  Never put it in a ctest config.
+ - **Revert a fix for red/green by its commit hash, never `HEAD`:** other
+   sessions move HEAD, so `git show HEAD -- <file>` can be empty, `patch -R`
+   then succeeds silently and the "red" build is the green one (V120).
+   Confirm the reverted tree really differs before trusting a red pass.
  - **Red/green of a plugin change without a second tree:** compile the old
    `.c` out of tree with `C_FLAGS` / `C_INCLUDES` from the plugin's
    `flags.make` and the link line from `link.txt` (headers the plugin
