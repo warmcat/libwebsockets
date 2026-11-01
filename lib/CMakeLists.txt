@@ -180,6 +180,20 @@ configure_file(
        "${PROJECT_SOURCE_DIR}/cmake/lws_config_private.h.in"
        "${PROJECT_BINARY_DIR}/lws_config_private.h")
 
+# The hash and version the library reports are taken from git at make time,
+# not at configure time, see cmake/LwsBuildHash.cmake
+add_custom_target(lws_build_hash ALL
+	COMMAND ${CMAKE_COMMAND}
+		"-DLWS_SRC_DIR=${PROJECT_SOURCE_DIR}"
+		"-DLWS_GIT=${GIT_EXECUTABLE}"
+		"-DLWS_HASH_PREFIX=${LWS_HASH_PREFIX}"
+		"-DLWS_HASH_FALLBACK=${LWS_BUILD_HASH}"
+		"-DLWS_VERSION_BASE=${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH_NUMBER}"
+		"-DOUT=${PROJECT_BINARY_DIR}/lws_build_hash.h"
+		-P "${PROJECT_SOURCE_DIR}/cmake/LwsBuildHash.cmake"
+	BYPRODUCTS "${PROJECT_BINARY_DIR}/lws_build_hash.h"
+	VERBATIM)
+
 list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/core)
 list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/misc)
 list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/system)
@@ -312,6 +326,7 @@ if (LWS_WITH_STATIC)
 
 	add_library(websockets STATIC ${SOURCES})# ${HDR_PUBLIC})
 	set_target_properties(websockets PROPERTIES LINKER_LANGUAGE C)
+	add_dependencies(websockets lws_build_hash)
 	list(APPEND LWS_LIBRARIES websockets)
 	target_include_directories(websockets INTERFACE
 		$<INSTALL_INTERFACE:${LWS_INSTALL_INCLUDE_DIR}>
@@ -342,6 +357,7 @@ if (LWS_WITH_SHARED)
 	
 	add_library(websockets_shared SHARED ${SOURCES} ${RESOURCES})# ${HDR_PUBLIC})
 	set_target_properties(websockets_shared PROPERTIES LINKER_LANGUAGE C)
+	add_dependencies(websockets_shared lws_build_hash)
 	list(APPEND LWS_LIBRARIES websockets_shared)
 	target_include_directories(websockets_shared INTERFACE
 		$<INSTALL_INTERFACE:${LWS_INSTALL_INCLUDE_DIR}>

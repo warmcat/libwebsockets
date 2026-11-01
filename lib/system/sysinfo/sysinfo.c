@@ -27,6 +27,7 @@
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 #include "private-lib-async-dns.h"
 #endif
+#include "lws_build_hash.h"
 
 #include <time.h>
 
@@ -172,8 +173,8 @@ lws_sysinfo_create(struct lws_context *cx)
 
 	/* what lws this is */
 
-	lws_sysinfo_add(si, LWS_SYSINFO_LWS_VERSION, NULL, LWS_LIBRARY_VERSION, 0);
-	lws_sysinfo_add(si, LWS_SYSINFO_LWS_BUILD, NULL, LWS_BUILD_HASH, 0);
+	lws_sysinfo_add(si, LWS_SYSINFO_LWS_VERSION, NULL, LWS_BUILT_VERSION, 0);
+	lws_sysinfo_add(si, LWS_SYSINFO_LWS_BUILD, NULL, LWS_BUILT_HASH, 0);
 
 	/* what time it is, as the system sees it */
 

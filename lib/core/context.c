@@ -23,12 +23,10 @@
  */
 
 #include "private-lib-core.h"
+#include "lws_build_hash.h"
 
-#ifndef LWS_BUILD_HASH
-#define LWS_BUILD_HASH "unknown-build-hash"
-#endif
-
-static const char *library_version = LWS_LIBRARY_VERSION;
+/* taken from git at make time, LWS_LIBRARY_VERSION is from configure time */
+static const char *library_version = LWS_BUILT_VERSION;
 
 #if defined(LWS_WITH_MBEDTLS)
 extern const char *mbedtls_client_preload_filepath;

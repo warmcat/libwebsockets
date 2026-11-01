@@ -654,7 +654,8 @@ if(GIT_EXECUTABLE)
 			OUTPUT_STRIP_TRAILING_WHITESPACE
 			)
 		string(REGEX REPLACE "([^\\])[\\]([^\\])" "\\1\\\\\\\\\\2" GIT_USER ${GIT_USER})
-		set(LWS_BUILD_HASH ${GIT_USER}@${GIT_HOST}-${GIT_HASH})
+		set(LWS_HASH_PREFIX ${GIT_USER}@${GIT_HOST}-)
+		set(LWS_BUILD_HASH ${LWS_HASH_PREFIX}${GIT_HASH})
 	endif()
 
 	message("Git commit hash: ${LWS_BUILD_HASH}")
