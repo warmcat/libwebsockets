@@ -45,7 +45,7 @@ svg_span_cb(void *user, int x0, int x1, uint32_t rgba)
 	lws_display_colour_t pc = rgba;	/* same packing as LWSDC_RGBA */
 
 	while (x0 < x1) {
-		lws_surface_set_px(c->rs->ic, c->rs->line, c->x + x0, &pc);
+		lws_display_render_set_px(c->rs, c->x + x0, &pc);
 		x0++;
 	}
 

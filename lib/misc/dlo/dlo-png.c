@@ -356,7 +356,7 @@ draw:
 			break;
 		}
 
-		lws_surface_set_px(rs->ic, rs->line, s, &pc);
+		lws_display_render_set_px(rs, s, &pc);
 
 		s++;
 	}

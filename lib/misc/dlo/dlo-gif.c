@@ -145,7 +145,7 @@ gif_paint_row(struct lws_display_render_state *rs, lws_dlo_gif_t *dlo_gif,
 		else
 			pc = LWSDC_RGBA(0, 0, 0, a);
 
-		lws_surface_set_px(rs->ic, rs->line, s, &pc);
+		lws_display_render_set_px(rs, s, &pc);
 
 		s++;
 	}

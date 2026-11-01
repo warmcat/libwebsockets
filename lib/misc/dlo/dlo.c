@@ -355,6 +355,36 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 }
 //#endif
 
+void
+lws_display_render_set_px(lws_display_render_state_t *rs, int x,
+			  const lws_display_colour_t *c)
+{
+	lws_display_colour_t oc;
+
+	if (rs->opacity == 255) {
+		lws_surface_set_px(rs->ic, rs->line, x, c);
+		return;
+	}
+
+	oc = (*c & 0xffffffu) | ((lws_display_colour_t)
+		((LWSDC_ALPHA(*c) * rs->opacity + 127) / 255) << 24);
+
+	lws_surface_set_px(rs->ic, rs->line, x, &oc);
+}
+
+/*
+ * The alpha a dlo, and so its children, are composed with: its own opacity
+ * times what its ancestors' came to.  Overlapping children are each composed
+ * at that, rather than css' composing them opaquely first and then the group
+ * at the opacity, since there is only the line to compose into
+ */
+
+static uint8_t
+dlo_opacity(const lws_display_render_stack_t *st, const lws_dlo_t *dlo)
+{
+	return (uint8_t)((st->opacity * (255u - dlo->opacity_inv) + 127) / 255);
+}
+
 /*
  * Go through every DLO once, setting its id->box to the final layout for the
  * related dlo, if any
@@ -466,6 +496,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 	//	memset(rs->line, 0, (size_t)rs->ic->wh_px[0].whole *
 	//				(rs->ic->greyscale ? 1 : 3));
 		memset(&rs->st[0].co, 0, sizeof(rs->st[0].co));
+		rs->st[0].opacity = 255;
 		rs->st[0].dlo = lws_container_of(d, lws_dlo_t, list);
 	}
 
@@ -519,6 +550,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 
 		if (rs->curr >= co.y.whole - 1) {
 
+			rs->opacity = dlo_opacity(&rs->st[rs->sp], dlo);
 			r = dlo->render(rs);
 
 			//rs->ic, dlo, &rs->st[rs->sp].co,
@@ -545,6 +577,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 							__func__);
 					return LWS_SRET_FATAL;
 				}
+				rs->st[rs->sp + 1].opacity = rs->opacity;
 				rs->st[++rs->sp].dlo = lws_container_of(
 					lws_dll2_get_head(&dlo->children), lws_dlo_t, list);
 				rs->st[rs->sp].co = co;

@@ -263,7 +263,7 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 		dc = (lws_display_colour_t)(((dlo->dc & 0xffffff) |
 	                       (uint32_t)(alpha << 24)));
 
-		lws_surface_set_px(rs->ic, rs->line, s.whole, &dc);
+		lws_display_render_set_px(rs, s.whole, &dc);
 
 		s.whole++;
 	}

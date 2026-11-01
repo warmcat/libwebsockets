@@ -5491,6 +5491,35 @@ restore:
 }
 
 /*
+ * css opacity, a number 0 .. 1 or a percentage, clamped, as an alpha 0 .. 255.
+ * Anything else, or no opacity, is opaque
+ */
+
+static unsigned int
+lhp_opacity_alpha(const lcsp_atr_t *op)
+{
+	int64_t v, full;
+
+	if (!op || (op->unit != LCSP_UNIT_NUM &&
+		    op->unit != LCSP_UNIT_LENGTH_PERCENT))
+		return 255;
+
+	full = op->unit == LCSP_UNIT_NUM ? 1 : 100;
+	if (op->u.i.whole < 0)
+		return 0;
+	if (op->u.i.whole >= full)
+		return 255;
+
+	/* in units of 1 / LWS_FX_FRACTION_MSD of the number */
+	v = (int64_t)op->u.i.whole * LWS_FX_FRACTION_MSD + op->u.i.frac;
+	if (v < 0)
+		return 0;
+
+	return (unsigned int)((v * 255 + (full * LWS_FX_FRACTION_MSD) / 2) /
+			      (full * LWS_FX_FRACTION_MSD));
+}
+
+/*
  * font-size is inherited as a computed px value, since relative units in the
  * declaration are relative to the parent's size
  */
@@ -5884,14 +5913,15 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	 * is the same thing for the usual case, an out-of-flow menu or
 	 * overlay parked invisible until a script shows it
 	 */
+	ps->opacity_inv = 0;
 	if (!ps->hidden) {
 		const lcsp_atr_t *op = lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_OPACITY);
 		const lcsp_atr_t *vi = lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_VISIBILITY);
 
-		if ((op && op->unit == LCSP_UNIT_NUM && !op->u.i.whole &&
-		     !op->u.i.frac) ||
+		ps->opacity_inv = (uint8_t)(255 - lhp_opacity_alpha(op));
+		if (ps->opacity_inv == 255 ||
 		    (vi && vi->unit == LCSP_UNIT_NONE &&
 		     vi->propval == LCSP_PROPVAL_HIDDEN))
 			ps->hidden = 1;

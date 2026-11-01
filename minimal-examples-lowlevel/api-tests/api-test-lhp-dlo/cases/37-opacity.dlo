@@ -1,0 +1,15 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [100.0 x 10.0] rgba=FF0000FF alpha=128
+  rect (0.0,0.0) [60.0 x 10.0] rgba=FFFF0000 alpha=128
+ rect (0.0,10.0) [100.0 x 10.0] rgba=FF0000FF alpha=64
+ rect (0.0,20.0) [100.0 x 10.0] rgba=FF0000FF
+ rect (0.0,30.0) [400.0 x 19.0] rgba=00000000
+  text (0.0,0.0) [31.0 x 19.0] rgba=FF000000 f=17/400 "plain "
+  text (31.0,0.0) [25.0 x 19.0] rgba=FF000000 f=17/400 "half " alpha=128
+  text (56.0,0.0) [43.0 x 19.0] rgba=FF000000 f=17/400 "quarter" alpha=64
+ rect (0.0,49.0) [400.0 x 16.0] rgba=00000000 alpha=128
+  svg (0.0,0.0) [16.0 x 16.0]
+ svg (0.0,65.0) [16.0 x 16.0] alpha=64
+ rect (0.0,81.0) [400.0 x 30.0] rgba=00000000
+  rect (0.0,0.0) [400.0 x 0.0] rgba=00000000 alpha=128
+ rect (10.0,91.0) [20.0 x 10.0] rgba=FF00FF00 alpha=128

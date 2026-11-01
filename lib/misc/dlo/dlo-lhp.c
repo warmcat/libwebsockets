@@ -229,6 +229,31 @@ lhp_container(lhp_pstack_t *ps)
 }
 
 /*
+ * css opacity applies to an element and everything inside it.  A block's own
+ * dlo carries its opacity to the dlos inside it when they are composed, but
+ * the runs and images of inline elements hang from their block container's
+ * dlo, so what they are composed with is the opacity of the elements from ps
+ * up to, but not including, the element c whose dlo holds them, as 255 - alpha.
+ * For an absolutely positioned box that is its positioned ancestor: a block
+ * with opacity in between is a stacking context (see lhp_raise_positioned()),
+ * but the box doesn't hang from it, so it must carry that opacity itself
+ */
+
+static uint8_t
+lhp_opacity_inv(lhp_pstack_t *ps, const lhp_pstack_t *c)
+{
+	unsigned int a = 255;
+
+	/* the body's own dlo carries its opacity to everything */
+	while (ps && ps != c && !(ps->dlo && ps->dlo->flag_toplevel)) {
+		a = (a * (255u - ps->opacity_inv) + 127) / 255;
+		ps = lhp_parent(ps);
+	}
+
+	return (uint8_t)(255 - a);
+}
+
+/*
  * Flex: a display: flex / inline-flex container with row direction lays its
  * children out as items on one line (or wrapped lines), then distributes any
  * free space on the line by flex-grow or justify-content, and aligns the
@@ -1477,6 +1502,9 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 				lws_display_dlo_destroy((lws_dlo_t **)&hit);
 			return LWS_SRET_FATAL;
 		}
+		txt->dlo.opacity_inv = lhp_opacity_inv(ps, c);
+		if (rect)
+			rect->dlo.opacity_inv = txt->dlo.opacity_inv;
 
 		r = lws_display_dlo_text_update(txt, col, fx_0, text, len);
 
@@ -1594,6 +1622,8 @@ lhp_place_image(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c)
 	if (lws_dll2_owner(&dlo->list) != &c->dlo->children)
 		return;
 
+	dlo->opacity_inv = lhp_opacity_inv(ps, c);
+
 	/*
 	 * An absolutely positioned image (the aspect-ratio box idiom:
 	 * <picture style="padding-top: 56.25%; position: relative"> with
@@ -1688,6 +1718,7 @@ lhp_place_image(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c)
 				lws_dll2_add_tail(&dlo->list,
 						  &psa->dlo->children);
 			}
+			dlo->opacity_inv = lhp_opacity_inv(ps, psa);
 
 			dlo->box.x = x;
 			dlo->box.y = y;
@@ -2499,6 +2530,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 
 	ps->dlo->flag_abs = ps->is_abs;
 	ps->dlo->flag_float = ps->is_float;
+	ps->dlo->opacity_inv = lhp_opacity_inv(ps, ps->is_abs && psa ? psa : c);
 	if (ps->is_flex_item) {
 		const lcsp_atr_t *as = lws_css_get_prop_atr_ps(ctx, ps,
 							LCSP_PROP_ALIGN_SELF);
@@ -3020,7 +3052,8 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
  * A raised box is a stacking context for its own positioned descendants:
  * those are raised to the end of its children, not the body's, so a
  * z-index: 1 footer paints under its z-index: 1 breadcrumbs rather than
- * over them.
+ * over them.  So is a box with css opacity, where it is: its positioned
+ * descendants stay inside it and are composed at its opacity.
  */
 
 static void
@@ -3044,7 +3077,10 @@ lhp_collect_positioned(lws_dlo_t *parent, const lws_fx_t *ox,
 			dlo->box.x = cx;
 			dlo->box.y = cy;
 			lws_dll2_add_tail(d, raised);
-		} else
+		} else if (dlo->opacity_inv)
+			/* css opacity makes a stacking context in place */
+			lhp_raise_positioned(dlo);
+		else
 			lhp_collect_positioned(dlo, &cx, &cy, raised);
 	} lws_end_foreach_dll_safe(d, d1);
 }

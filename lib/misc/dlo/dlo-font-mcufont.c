@@ -205,7 +205,7 @@ draw_px(lws_dlo_text_t *t, mcu_glyph_t *g)
 	lws_fx_add(&x, &x, &g->fg.xorg);
 
 	lws_fx_add(&t1, &t->dlo.box.x, &x);
-	lws_surface_set_px(t->ic, t->line, t1.whole, &c);
+	lws_display_render_set_px(t->rs, t1.whole, &c);
 }
 
 /*
@@ -1272,8 +1272,7 @@ mcufont_render(struct lws_display_render_state *rs, lws_dlo_text_t *text,
 	lws_fx_add(&t2, &ax, &text->bounding_box.w);
 
 	text->curr = rs->curr;
-	text->ic = rs->ic;
-	text->line = rs->line;
+	text->rs = rs;
 
 	s = ax.whole;
 	e = lws_fx_roundup(&t2);

@@ -366,7 +366,7 @@ dump_dlo(dump_t *f, lws_dlo_t *dlo, int depth)
 				(unsigned int)t->font->choice.weight);
 			if (t->text)
 				dump_raw(f, t->text, t->text_len);
-			dump_raw(f, "\"\n", 2);
+			dump_raw(f, "\"", 1);
 		} else
 		if (dlo->render == lws_display_render_hit) {
 			lws_dlo_hit_t *h = lws_container_of(dlo,
@@ -383,29 +383,29 @@ dump_dlo(dump_t *f, lws_dlo_t *dlo, int depth)
 					cur[h->cursor] : "?");
 			if (h->url)
 				dump_raw(f, h->url, strlen(h->url));
-			dump_raw(f, "\"\n", 2);
+			dump_raw(f, "\"", 1);
 		} else
 #if defined(LWS_WITH_UPNG)
 		if (dlo->_destroy == lws_display_dlo_png_destroy)
-			dump_printf(f, "png (%s,%s) [%s x %s]\n",
+			dump_printf(f, "png (%s,%s) [%s x %s]",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
 #if defined(LWS_WITH_JPEG)
 		if (dlo->_destroy == lws_display_dlo_jpeg_destroy)
-			dump_printf(f, "jpeg (%s,%s) [%s x %s]\n",
+			dump_printf(f, "jpeg (%s,%s) [%s x %s]",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
 #if defined(LWS_WITH_SVG)
 		if (dlo->_destroy == lws_display_dlo_svg_destroy)
-			dump_printf(f, "svg (%s,%s) [%s x %s]\n",
+			dump_printf(f, "svg (%s,%s) [%s x %s]",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
 #if defined(LWS_WITH_GIF)
 		if (dlo->_destroy == lws_display_dlo_gif_destroy)
-			dump_printf(f, "gif (%s,%s) [%s x %s]\n",
+			dump_printf(f, "gif (%s,%s) [%s x %s]",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
@@ -427,8 +427,12 @@ dump_dlo(dump_t *f, lws_dlo_t *dlo, int depth)
 					dump_printf(f, "%s%s", n ? "," : "", b[0]);
 				}
 			}
-			dump_raw(f, "\n", 1);
 		}
+
+		/* what the dlo and its children are composed with */
+		if (dlo->opacity_inv)
+			dump_printf(f, " alpha=%u", 255u - dlo->opacity_inv);
+		dump_raw(f, "\n", 1);
 
 		if (lws_dll2_get_head(&dlo->children))
 			dump_dlo(f, lws_container_of(

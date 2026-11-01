@@ -696,6 +696,8 @@ typedef struct lhp_pstack {
 						       * NUL: a cosmetic filter
 						       * hides us */
 	uint8_t				ti_done:1; /* applied our text-indent already */
+	uint8_t				opacity_inv; /* 255 - our css opacity
+						      * as alpha: 0 is opaque */
 
 	/* user layout owns these after initial values set */
 

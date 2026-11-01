@@ -302,7 +302,7 @@ draw:
 		else
 			pc = LWSDC_RGBA(px[0], px[1], px[2], 255);
 
-		lws_surface_set_px(rs->ic, rs->line, s, &pc);
+		lws_display_render_set_px(rs, s, &pc);
 		s++;
 	}
 

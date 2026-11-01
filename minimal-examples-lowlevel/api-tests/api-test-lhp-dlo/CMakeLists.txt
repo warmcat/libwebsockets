@@ -343,6 +343,19 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 		endif()
 
+		# css opacity on a block reaches the pixels of everything inside
+		# it: the same as the opacity given to each of its children
+		if (LWS_WITH_SVG)
+		add_test(NAME api-test-lhp-dlo-opacity-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/opacity-group.html
+				-DHTML_B=${CMAKE_CURRENT_SOURCE_DIR}/opacity-group-twin.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/opacity-group
+				-DW=100 -DH=40
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+		endif()
+
 		# captured real-world pages, with their network assets made
 		# unreachable so the layout is the same every run; slashdot's
 		# golden includes its svg and gif assets

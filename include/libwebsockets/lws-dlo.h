@@ -165,6 +165,10 @@ typedef struct lws_dlo {
 						 * bottom offset (layout) */
 	uint8_t				flex_grow; /* flex-grow, for flag_flex_item */
 	uint8_t				align_self; /* LCSP_PROPVAL_* or 0 = auto */
+	uint8_t				opacity_inv; /* 255 - the alpha that we
+						 * and our children are composed
+						 * with: 0, the default, is
+						 * opaque */
 
 	/* render-specific members ... */
 } lws_dlo_t;
@@ -293,9 +297,8 @@ typedef struct lws_dlo_text {
 						       * clipping by .dlo.box */
 
 	/* referred to by glyphs */
-	const struct lws_surface_info	*ic;
+	struct lws_display_render_state	*rs; /* during render only */
 	struct lwsac			*ac_glyphs;
-	uint8_t				*line;
 	uint16_t			curr;
 	uint16_t			glyph_row; /* rows the glyph run decoders
 						    * have produced since attach */
@@ -423,6 +426,8 @@ typedef struct lws_dl_rend {
 typedef struct lws_display_render_stack {
 	lws_dlo_t			*dlo;	/* position in dlo owner */
 	lws_box_t			co;	/* our origin as parent */
+	uint8_t				opacity; /* alpha our children are
+						  * composed with, 255 = opaque */
 } lws_display_render_stack_t;
 
 /*
@@ -453,6 +458,10 @@ typedef struct lws_display_render_state {
 	int				sp;	/* DLO child stack level */
 
 	uint8_t				*line; /* Y or RGB line comp buffer */
+	uint8_t				opacity; /* alpha the dlo being
+						  * rendered is composed with,
+						  * 255 = opaque: see
+						  * lws_display_render_set_px() */
 
 	lws_displaylist_t		displaylist;
 
@@ -566,6 +575,21 @@ lws_dlo_ensure_err_diff(lws_dlo_t *dlo);
  */
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_list_render_line(lws_display_render_state_t *rs);
+
+/*
+ * lws_display_render_set_px() - compose one pixel of the dlo being rendered
+ *
+ * \param rs: render state, during the dlo's render callback
+ * \param x: surface x of the pixel on the current line
+ * \param c: the colour, with its alpha
+ *
+ * Dlo renderers compose their pixels into rs->line with this rather than
+ * lws_surface_set_px(), so that what the layout said about how the dlo and
+ * its ancestors are composed, such as css opacity, is applied to them
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_display_render_set_px(lws_display_render_state_t *rs, int x,
+			  const lws_display_colour_t *c);
 
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_get_ids_boxes(lws_display_render_state_t *rs);

@@ -46,6 +46,11 @@ JPEG and PNG images and express all UI in html/css.
    boxes with shrink-to-fit widths, lists with markers, images inline, and
    tables with automatic column widths.  Floats are placed inline without
    wrap-around, position: relative offsets and borders are not yet drawn.
+ - css `opacity` applies to an element and everything inside it.  Each of its
+   descendants is composed at that alpha, rather than the group being
+   composed opaquely and then blended, so where its children overlap the
+   lower one shows through the upper one.  A box with opacity is a stacking
+   context for its positioned descendants, as in css
  - HTML element ID names that the user code cares about can be given, these are
    found during parse and layout information for the elements kept
  - Rendering is very flexible and lightweight, supports Y (8-) or RGB (24-) bit

@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><style>
+* { margin: 0; padding: 0 }
+body { margin: 0 }
+.half { opacity: 0.5 }
+.pct { opacity: 25% }
+.a { width: 100px; height: 10px; background-color: #ff0000 }
+.b { width: 60px; height: 10px; background-color: #0000ff }
+.pos { position: relative; height: 30px }
+.abs { position: absolute; left: 10px; top: 10px; width: 20px; height: 10px; background-color: #00ff00 }
+.over { opacity: 2 }
+.zero { opacity: 0 }
+</style></head>
+<body>
+<div class="a half"><div class="b half"></div></div>
+<div class="a pct"></div>
+<div class="a over"></div>
+<div class="a zero"></div>
+<p>plain <span class="half">half <span class="half">quarter</span></span></p>
+<div class="half"><img src="swatch-red.svg"></div>
+<img class="pct" src="swatch-blue.svg">
+<div class="pos"><div class="half"><div class="abs"></div></div></div>
+</body></html>
