@@ -25,10 +25,11 @@
  *
  * The document is parsed streaming (the parser is not sensitive to the input
  * chunk sizes) into a retained vector scene in a single lwsac.  Curves are
- * flattened adaptively at parse time, to a tolerance derived from the
- * viewBox size.  Individual raster lines are then produced on demand by
- * scanline intersection against the retained geometry, so any line can be
- * rendered at any time, in any order.
+ * flattened adaptively at parse time, to a tolerance derived from the size
+ * it will be rendered at if known, otherwise from the viewBox size.
+ * Individual raster lines are then produced on demand by scanline
+ * intersection against the retained geometry, so any line can be rendered at
+ * any time, in any order.
  *
  * The supported subset is solid fills with nonzero or evenodd winding,
  * transforms, viewBox / preserveAspectRatio mapping, group fill property
@@ -143,6 +144,27 @@ lws_svg_get_height(const lws_svg_t *svg);
  */
 LWS_VISIBLE LWS_EXTERN char
 lws_svg_get_doc_complete(const lws_svg_t *svg);
+
+/**
+ * lws_svg_set_render_size() - say what size the scene will be rendered at
+ *
+ * \param svg: the SVG scene object
+ * \param w: the width it will be rendered at, in px
+ * \param h: the height it will be rendered at, in px
+ *
+ * Curves are flattened into line segments as the document is parsed.  If we
+ * know the render size before the geometry is parsed, the segments are made
+ * only as fine as can be seen at that size, an eighth of a px, which for a
+ * small icon is many times fewer points, and so much less heap, than
+ * flattening for a size we don't know.
+ *
+ * Call it before the document body is parsed, eg, before parsing anything or
+ * after a parse in hold mode has stopped at the end of the root tag.  Shapes
+ * already parsed keep the flattening they had.  The scene can still be
+ * rendered at any size, it just may not be as smooth at a larger size.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_svg_set_render_size(lws_svg_t *svg, unsigned int w, unsigned int h);
 
 /**
  * lws_svg_get_heap_peak() - the most heap the scene object has held so far

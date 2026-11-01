@@ -2125,6 +2125,60 @@ shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 	return commit_range(ctx, m, rgba, rule, 0);
 }
 
+/*
+ * The flattening tolerance, in root user units: the curves are approximated
+ * by line segments that stray from them by no more than this.
+ *
+ * If we know the px size the scene will be rendered at, it's an eighth of a
+ * px: a quarter px is already visibly polygonal on small round caps, and
+ * finer only makes more points to hold without looking any different.
+ * Otherwise it's the smaller viewBox dimension / 1024, as if it would be
+ * rendered quite large.  Basing it on the smaller dimension matters for wide,
+ * short logo viewBoxes, where a tolerance derived from the width is coarser
+ * than the glyph features and sands the curve extrema down (visible as
+ * notches where path segments join at horizontal tangents).
+ *
+ * Either way it's clamped to a band of 1/4096 .. 1/8 user unit, since
+ * transforms inside the document may scale the user units up again.
+ */
+
+static void
+tol_update(lws_svg_t *ctx)
+{
+	svg_c_t uw = 0, uh = 0;
+	int64_t t;
+
+	if (ctx->has_vb && ctx->vb[2] > 0 && ctx->vb[3] > 0) {
+		uw = ctx->vb[2];
+		uh = ctx->vb[3];
+	} else if (ctx->render_w && ctx->render_h &&
+		   ctx->has_w && !ctx->unit_w && ctx->width > 0 &&
+		   ctx->has_h && !ctx->unit_h && ctx->height > 0) {
+		/* without a viewBox, user units are the document's px */
+		uw = ctx->width;
+		uh = ctx->height;
+	}
+
+	if (!uw)
+		return;	/* keep the default tolerance */
+
+	if (ctx->render_w && ctx->render_h) {
+		int64_t ux = (int64_t)uw / ctx->render_w,
+			uy = (int64_t)uh / ctx->render_h;
+
+		/* user units per px, at the finer of the two axes */
+		t = (ux < uy ? ux : uy) >> 3;
+	} else
+		t = (uw < uh ? uw : uh) >> 10;
+
+	if (t < 16)		/* 1/4096 */
+		t = 16;
+	if (t > 8192)		/* 1/8 */
+		t = 8192;
+
+	ctx->tol = (svg_c_t)t;
+}
+
 /* the number of points in working subpath i */
 
 static uint32_t
@@ -3455,28 +3509,7 @@ element_open(lws_svg_t *ctx, char selfclose)
 			level_compose(ctx, &ctx->stk[0], pd, &ctx->stk[0],
 				     "svg");
 
-			if (ctx->has_vb && ctx->vb[2] > 0 && ctx->vb[3] > 0) {
-				svg_c_t mn = ctx->vb[2] < ctx->vb[3] ?
-						ctx->vb[2] : ctx->vb[3];
-
-				/*
-				 * Flattening tolerance ~ the smaller viewBox
-				 * dimension / 1024, clamped to a sub-pixel
-				 * band in user units.  Basing it on the
-				 * smaller dimension matters for wide, short
-				 * logo viewBoxes, where a tolerance derived
-				 * from the width is coarser than the glyph
-				 * features and sands the curve extrema down
-				 * (visible as notches where path segments
-				 * join at horizontal tangents).
-				 */
-
-				ctx->tol = (svg_c_t)(mn >> 10);
-				if (ctx->tol < 16)	/* 1/4096 */
-					ctx->tol = 16;
-				if (ctx->tol > 8192)	/* 1/8 */
-					ctx->tol = 8192;
-			}
+			tol_update(ctx);
 
 			if (selfclose)
 				ctx->doc_complete = 1;
@@ -4250,6 +4283,18 @@ char
 lws_svg_get_doc_complete(const lws_svg_t *ctx)
 {
 	return ctx->doc_complete;
+}
+
+void
+lws_svg_set_render_size(lws_svg_t *ctx, unsigned int w, unsigned int h)
+{
+	ctx->render_w = w;
+	ctx->render_h = h;
+
+	/* before the root tag, it is taken into account when that is parsed */
+
+	if (ctx->root_seen)
+		tol_update(ctx);
 }
 
 size_t

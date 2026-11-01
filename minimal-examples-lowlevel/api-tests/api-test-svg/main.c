@@ -2974,6 +2974,122 @@ stroke_cost(void)
 	    (unsigned int)peak);
 }
 
+/*
+ * Parse doc, telling it the render size w x h before anything (when = 0),
+ * after a hold mode parse has stopped at the end of the root tag (when = 1),
+ * or not at all (when = 2), then render it at w x h into b.  Returns the
+ * heap peak, or 0 if it failed.
+ */
+
+static size_t
+hinted_render(const char *doc, int w, int h, int when, aa_bm_t *b)
+{
+	const uint8_t *p = (const uint8_t *)doc;
+	lws_svg_render_t ri = { .w = w, .h = h, .aa = 1 };
+	lws_svg_t *svg = lws_svg_new();
+	size_t l = strlen(doc), peak = 0;
+	int y;
+
+	if (!svg)
+		return 0;
+
+	if (!when)
+		lws_svg_set_render_size(svg, (unsigned int)w, (unsigned int)h);
+
+	if (when == 1) {
+		if ((lws_svg_parse(svg, &p, &l, 1) & LWS_SRET_FATAL) ||
+		    !lws_svg_get_width(svg))
+			goto bail;
+		lws_svg_set_render_size(svg, (unsigned int)w, (unsigned int)h);
+	}
+
+	if ((lws_svg_parse(svg, &p, &l, 0) & LWS_SRET_FATAL) ||
+	    !lws_svg_get_doc_complete(svg))
+		goto bail;
+
+	memset(b->acc, 0, sizeof(b->acc));
+	b->w = w;
+	b->h = h;
+	for (y = 0; y < h; y++) {
+		b->y = y;
+		lws_svg_render_line(svg, &ri, y, aa_cb, b);
+	}
+
+	peak = lws_svg_get_heap_peak(svg);
+
+bail:
+	lws_svg_free(&svg);
+
+	return peak;
+}
+
+/*
+ * Knowing the render size, curves are only flattened as finely as can be
+ * seen at that size: much less heap for a small icon, looking the same
+ */
+
+static void
+render_size_checks(void)
+{
+	static const char doc[] =
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" "
+		"height=\"24\" viewBox=\"0 0 24 24\">"
+		"<g fill=\"none\" stroke-linecap=\"round\" "
+		"stroke-linejoin=\"round\" stroke=\"#2fa040\">"
+		"<circle cx=\"12\" cy=\"12\" r=\"9\" stroke-width=\"2\" "
+		"fill=\"#2fa040\" fill-opacity=\"0.15\"/>"
+		"<ellipse cx=\"12\" cy=\"12\" rx=\"4\" ry=\"9\" "
+		"stroke-width=\"1.5\"/>"
+		"<path d=\"M3 12H21\" stroke-width=\"1.5\"/></g></svg>";
+	static aa_bm_t fine, early, late;
+	size_t pf, pe, pl;
+	long tf, te;
+	int i, md = 0;
+
+	lwsl_user("Render size checks\n");
+
+	pf = hinted_render(doc, 48, 48, 2, &fine);
+	pe = hinted_render(doc, 48, 48, 0, &early);
+	pl = hinted_render(doc, 48, 48, 1, &late);
+
+	CHK(pf && pe && pl, "render-size: parse failed %u %u %u",
+	    (unsigned int)pf, (unsigned int)pe, (unsigned int)pl);
+	if (!pf || !pe || !pl)
+		return;
+
+	lwsl_user("%s: globe at 48px takes %uB, %uB without the hint\n",
+		  __func__, (unsigned int)pe, (unsigned int)pf);
+
+	/* it's the same, whenever before the body we are told */
+
+	CHK(pe == pl, "render-size: early %uB vs after root %uB",
+	    (unsigned int)pe, (unsigned int)pl);
+	CHK(!memcmp(early.acc, late.acc, sizeof(early.acc)),
+	    "render-size: early and after root render differently");
+
+	CHK(pe * 3 < pf * 2, "render-size: hinted %uB not well below %uB",
+	    (unsigned int)pe, (unsigned int)pf);
+	CHK(pe < 24 * 1024, "render-size: hinted globe took %uB",
+	    (unsigned int)pe);
+
+	/* ... and it looks the same as the finer flattening */
+
+	for (i = 0; i < 48 * 48; i++) {
+		int d = fine.acc[i] - early.acc[i];
+
+		if (d < 0)
+			d = -d;
+		if (d > md)
+			md = d;
+	}
+	tf = aa_total(&fine);
+	te = aa_total(&early);
+
+	CHK(md <= 64, "render-size: a px differs by %d", md);
+	CHK(labs(tf - te) * 200 < tf, "render-size: coverage %ld vs %ld",
+	    te, tf);
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -3138,6 +3254,11 @@ main(int argc, const char **argv)
 	fails0 = fails;
 	stroke_cost();
 	score_case(&sc, "stroke-cost", checks0, fails0);
+
+	checks0 = checks;
+	fails0 = fails;
+	render_size_checks();
+	score_case(&sc, "render-size", checks0, fails0);
 	score_case(&sc, "", 0, 0); /* flush the last row */
 
 	bm_free(&bm);

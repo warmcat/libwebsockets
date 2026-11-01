@@ -420,6 +420,10 @@ struct lws_svg {
 	svg_wsub_t		*wsubs;
 	size_t			wsubs_count, wsubs_size;
 
+	/* the px size the scene will be rendered at, or 0 if not known */
+
+	unsigned int		render_w, render_h;
+
 	/* heap accounting, for the destroy-time peak log */
 
 	size_t			heap_now;

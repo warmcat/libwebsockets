@@ -82,7 +82,19 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 	 * either the document completes or we run out and must wait for
 	 * more rx.  A document truncated by the connection ending is
 	 * rendered as far as it parsed.
+	 *
+	 * Curves are flattened as they're parsed, so tell it the size we'll
+	 * render at, so the flattening is no finer than the box can show.
 	 */
+
+	if (!lws_svg_get_doc_complete(dlo_svg->svg)) {
+		int bw = lws_fx_roundup(&dlo->box.w),
+		    bh = lws_fx_roundup(&dlo->box.h);
+
+		if (bw > 0 && bh > 0)
+			lws_svg_set_render_size(dlo_svg->svg, (unsigned int)bw,
+						(unsigned int)bh);
+	}
 
 	while (!lws_svg_get_doc_complete(dlo_svg->svg)) {
 		lws_stateful_ret_t r;
