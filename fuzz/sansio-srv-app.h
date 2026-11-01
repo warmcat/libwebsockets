@@ -248,13 +248,23 @@ fza_callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		return lws_http_transaction_completed(wsi) ? -1 : 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:
+	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
+		/*
+		 * The pss lives as long as the transaction's protocol bind, and
+		 * the transaction can end before its body: a /stream answer
+		 * completes it with the body still coming, and the keepalive
+		 * connection is bound again with a fresh pss
+		 */
 		if (pss && pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
 		}
+		if (reason == LWS_CALLBACK_CLOSED_HTTP)
+			break;
+		if (wsi == fza_wsi)
+			fza_wsi = NULL;
 		break;
 
-	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 	case LWS_CALLBACK_WSI_DESTROY:
 		if (wsi == fza_wsi)
 			fza_wsi = NULL;
