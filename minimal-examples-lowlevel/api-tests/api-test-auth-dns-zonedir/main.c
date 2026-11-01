@@ -1643,38 +1643,38 @@ main(int argc, const char **argv)
 			.name		= "good dir serves decorated zone",
 			.zdir		= "good",
 			.q		= {
-				{ "www.ok.example", 0x1101, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.ok.example", 0x1101, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "missing zone-dir pvo refused",
 			.zdir		= NULL,
 			.check_port_free = 1,
 			.q		= {
-				{ "www.any.example", 0x1102, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.any.example", 0x1102, -1, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "world-writable zone dir refused",
 			.zdir		= "ww",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.pwn.example", 0x1103, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.pwn.example", 0x1103, -1, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "symlinked zone dir refused",
 			.zdir		= "symlink",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.via.example", 0x1104, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.via.example", 0x1104, -1, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "foreign files in good dir ignored",
 			.zdir		= "files",
 			.q		= {
-				{ "www.ok2.example", 0x1105, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.plain.example", 0x2105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.short.example", 0x3105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.badmode.example", 0x4105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.linked.example", 0x5105, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.ok2.example", 0x1105, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.plain.example", 0x2105, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.short.example", 0x3105, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.badmode.example", 0x4105, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.linked.example", 0x5105, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "zones handed over by dht-dnssec",
@@ -1682,16 +1682,16 @@ main(int argc, const char **argv)
 			.dht		= 1,
 			.q		= {
 				/* the served zone is still the dir's own */
-				{ "www.victim.example", 0x1108, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.victim.example", 0x1108, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
 				/* nothing from either payload was installed */
-				{ "evil.victim.example", 0x2108, 3, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "evil2.victim.example", 0x3108, 3, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.a.example", 0x4108, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "evil.victim.example", 0x2108, 3, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "evil2.victim.example", 0x3108, 3, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.a.example", 0x4108, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 				/* while a zone that is its domain's is */
-				{ "www.ok3.example", 0x5108, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.ok3.example", 0x5108, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
 				/* unless it is unsigned or out of date */
-				{ "www.ok5.example", 0x6108, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.ok6.example", 0x7108, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.ok5.example", 0x6108, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.ok6.example", 0x7108, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "zone fetch given up with its query",
@@ -1699,7 +1699,7 @@ main(int argc, const char **argv)
 			.fetch		= 1,
 			.q		= {
 				/* REFUSED once its 5s wait for the zone ends */
-				{ "www.unserved.example", 0x1109, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.unserved.example", 0x1109, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			/*
@@ -1716,20 +1716,20 @@ main(int argc, const char **argv)
 			.fetch		= 2,
 			.src2_from	= 11,
 			.q		= {
-				{ "www.rl1.example", 0x110d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl2.example", 0x120d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl3.example", 0x130d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl4.example", 0x140d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.rl5.example", 0x150d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
-				{ "www.rl6.example", 0x160d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
-				{ "www.rl7.example", 0x170d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
-				{ "www.rl8.example", 0x180d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
-				{ "www.rl9.example", 0x190d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
-				{ "www.rl10.example", 0x1a0d, 0, 0, -1, -1, 0, 0, 3, 0, 0 },
+				{ "www.rl1.example", 0x110d, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.rl2.example", 0x120d, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.rl3.example", 0x130d, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.rl4.example", 0x140d, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.rl5.example", 0x150d, 0, 0, -1, -1, 0, 0, 3, 0, 0, 0 },
+				{ "www.rl6.example", 0x160d, 0, 0, -1, -1, 0, 0, 3, 0, 0, 0 },
+				{ "www.rl7.example", 0x170d, 0, 0, -1, -1, 0, 0, 3, 0, 0, 0 },
+				{ "www.rl8.example", 0x180d, 0, 0, -1, -1, 0, 0, 3, 0, 0, 0 },
+				{ "www.rl9.example", 0x190d, 0, 0, -1, -1, 0, 0, 3, 0, 0, 0 },
+				{ "www.rl10.example", 0x1a0d, 0, 0, -1, -1, 0, 0, 3, 0, 0, 0 },
 				/* waits on the fetch the first one started */
-				{ "ftp.rl1.example", 0x1b0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "ftp.rl1.example", 0x1b0d, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 				/* from another source */
-				{ "www.rlb.example", 0x1c0d, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.rlb.example", 0x1c0d, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			/*
@@ -1756,19 +1756,19 @@ main(int argc, const char **argv)
 			.q		= {
 				/* the zone's own data, as before */
 				{ "www.dl.example", 0x110a, 0, 1, -1, -1, 0,
-				  0, 2, 0, 0 },
+				  0, 2, 0, 0, 0 },
 				/* data occluded by the cut */
 				{ "www.sub.dl.example", 0x210a, 0, 0, -1, -1, 0,
-				  0, 1, 0, 0 },
+				  0, 1, 0, 0, 0 },
 				/* glue */
 				{ "ns.sub.dl.example", 0x310a, 0, 0, -1, -1, 0,
-				  0, 1, 0, 0 },
+				  0, 1, 0, 0, 0 },
 				/* a name the zone text does not have */
 				{ "x.sub.dl.example", 0x410a, 0, 0, -1, -1, 0,
-				  0, 1, 0, 0 },
+				  0, 1, 0, 0, 0 },
 				/* but the DS at the cut is the parent's */
 				{ "sub.dl.example", 0x510a, 0, 1, -1, -1, 0,
-				  43, 2, 0, 0 },
+				  43, 2, 0, 0, 0 },
 			}
 		}, {
 			.name		= "operator zones over cache-max-zones",
@@ -1777,9 +1777,9 @@ main(int argc, const char **argv)
 			.keep		= { "p1.example" DECOR, "p2.example" DECOR,
 					    "p3.example" DECOR },
 			.q		= {
-				{ "www.p1.example", 0x110b, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.p2.example", 0x210b, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.p3.example", 0x310b, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.p1.example", 0x110b, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.p2.example", 0x210b, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.p3.example", 0x310b, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "operator zone under DHT cache pressure",
@@ -1789,24 +1789,24 @@ main(int argc, const char **argv)
 			.keep		= { "loc.example" DECOR },
 			.q		= {
 				/* the operator's zone is still served */
-				{ "www.loc.example", 0x110c, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.loc.example", 0x110c, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
 				/* the DHT zones are bounded: ok4 evicted ok3 */
-				{ "www.ok3.example", 0x210c, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.ok4.example", 0x310c, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.ok3.example", 0x210c, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.ok4.example", 0x310c, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "another uid's file ignored",
 			.zdir		= "rootfile",
 			.q		= {
-				{ "www.okroot.example", 0x1106, 0, 1, -1, -1, 0, 0, 0, 0, 0 },
-				{ "www.foreign.example", 0x2106, 5, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.okroot.example", 0x1106, 0, 1, -1, -1, 0, 0, 0, 0, 0, 0 },
+				{ "www.foreign.example", 0x2106, 5, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		}, {
 			.name		= "another uid's zone dir refused",
 			.zdir		= "rootdir",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.another.example", 0x1107, -1, 0, -1, -1, 0, 0, 0, 0, 0 },
+				{ "www.another.example", 0x1107, -1, 0, -1, -1, 0, 0, 0, 0, 0, 0 },
 			}
 		},
 	};
