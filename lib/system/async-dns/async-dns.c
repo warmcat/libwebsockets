@@ -588,11 +588,13 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 	/*
 	 * NXDOMAIN is an authoritative statement that the name does not exist,
 	 * tell the requester so distinctly from the resolver having failed to
-	 * answer (LADNS_RET_FAILED), which is what its dns retry budget is for
+	 * answer (LADNS_RET_FAILED), which is what its dns retry budget is for.
+	 * A query that spent all its retransmits without an answer it could
+	 * use is LADNS_RET_TIMEDOUT: it already did the retrying.
 	 */
 
 	if (!c)
-		rc = LADNS_RET_FAILED;
+		rc = q->timed_out ? LADNS_RET_TIMEDOUT : LADNS_RET_FAILED;
 	else if (!c->results && !c->rr_results && c->nxdomain)
 		rc = LADNS_RET_NXDOMAIN;
 	else
@@ -725,6 +727,7 @@ lws_async_dns_sul_cb_deadline(struct lws_sorted_usec_list *sul)
 
 	lwsl_cx_notice(q->context, "async dns query %s timed out",
 		       (const char *)&q[1]);
+	q->timed_out = 1;
 
 	if (q->firstcache) {
 		lws_adns_cache_destroy(q->firstcache);
@@ -774,7 +777,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		 * We have reached the end of our concealed retries.  The
 		 * socket goes with the query, so the next query asks from a
 		 * new one, in case the routing changed.
+		 *
+		 * The query had its whole retransmit budget, so if it fails
+		 * now, it's the verdict that the nameservers don't answer:
+		 * asking again won't change it soon.
 		 */
+		q->timed_out = 1;
+
 		if (q->asked == 3 && q->responded) {
 			/*
 			 * One half of an address pair was answered, and the

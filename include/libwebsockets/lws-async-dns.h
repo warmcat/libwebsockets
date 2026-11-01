@@ -95,7 +95,11 @@ struct addrinfo;
  * The completion callback: ads is the name the lookup was asked for, whatever
  * CNAME or search list domain it was resolved through; result is the addrinfo
  * chain to release with lws_async_dns_freeaddrinfo(), or NULL; n is the
- * lws_async_dns_retcode_t, or'd with LWS_ADNS_DNSSEC_VALID if validated
+ * lws_async_dns_retcode_t, or'd with LWS_ADNS_DNSSEC_VALID if validated.
+ *
+ * On failure n is LADNS_RET_NXDOMAIN if the name does not exist,
+ * LADNS_RET_TIMEDOUT if the query used all its retransmits without a usable
+ * answer, so asking again at once is unlikely to help, or LADNS_RET_FAILED.
  */
 typedef struct lws * (*lws_async_dns_cb_t)(struct lws *wsi, const char *ads,
 		const struct addrinfo *result, int n, void *opaque);
