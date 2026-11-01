@@ -660,6 +660,17 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 	return 0;
 }
 
+#if defined(__linux__)
+/*
+ * The cgroup lws_spawn_prepare_self_cgroup() made the parent of the ones
+ * children get, "/system.slice/sai-builder.service" say, or empty if it
+ * wasn't called or couldn't: the process itself has moved down into a leaf
+ * of it, so this isn't what /proc/self/cgroup says any more.  One per
+ * process, as the process's place in the cgroup tree is.
+ */
+static char lws_spawn_cgroup_parent[256];
+#endif
+
 int
 lws_spawn_get_self_cgroup(char *cgroup, size_t max)
 {
@@ -965,10 +976,28 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 #if defined(__linux__)
 	if (i->cgroup_name_suffix && i->cgroup_name_suffix[0]) {
 		char self_cg[256];
+		int domain = 1;
 
-		if (lws_spawn_get_self_cgroup(self_cg, sizeof(self_cg) - 1))
-			lwsl_err("%s: failed to get self cgroup\n", __func__);
+		/*
+		 * Under a parent lws_spawn_prepare_self_cgroup() set up, the
+		 * child's cgroup is a domain cgroup of its own, with the
+		 * controllers the parent has: its memory is what the kernel
+		 * charges it, and cgroup.procs lists what's in it.  Without
+		 * one, it's made under our own cgroup, which has us in it, so
+		 * it can only be threaded: cpu is still counted there, but
+		 * memory isn't, and the sampler has to walk the process tree.
+		 */
+		if (lws_spawn_cgroup_parent[0])
+			lws_strncpy(self_cg, lws_spawn_cgroup_parent, sizeof(self_cg));
 		else {
+			domain = 0;
+			if (lws_spawn_get_self_cgroup(self_cg, sizeof(self_cg) - 1)) {
+				lwsl_err("%s: failed to get self cgroup\n", __func__);
+				self_cg[0] = '\0';
+			}
+		}
+
+		if (self_cg[0]) {
 			lws_snprintf(lsp->cgroup_path, sizeof(lsp->cgroup_path),
 			     "/sys/fs/cgroup%s/%s", self_cg, i->cgroup_name_suffix);
 
@@ -980,16 +1009,19 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 				char pth[300];
 				int cfd;
 
-				lws_snprintf(pth, sizeof(pth), "%s/cgroup.type", lsp->cgroup_path);
-				cfd = lws_open(pth, LWS_O_WRONLY);
-				if (cfd >= 0) {
-					if (write(cfd, "threaded", 8) != 8)
-						lwsl_warn("%s: failed to write threaded\n", __func__);
+				if (!domain) {
+					lws_snprintf(pth, sizeof(pth), "%s/cgroup.type", lsp->cgroup_path);
+					cfd = lws_open(pth, LWS_O_WRONLY);
+					if (cfd >= 0) {
+						if (write(cfd, "threaded", 8) != 8)
+							lwsl_warn("%s: failed to write threaded\n", __func__);
 
-					close(cfd);
+						close(cfd);
+					}
 				}
 
-				lwsl_info("%s: created cgroup %s\n", __func__, lsp->cgroup_path);
+				lwsl_info("%s: created %s cgroup %s\n", __func__,
+					  domain ? "domain" : "threaded", lsp->cgroup_path);
 				lws_snprintf(pth, sizeof(pth), "%s/pids.max", lsp->cgroup_path);
 				cfd = lws_open(pth, LWS_O_WRONLY);
 				if (cfd >= 0) {
@@ -1366,14 +1398,85 @@ lws_spawn_get_stdfd(struct lws *wsi)
 	return wsi->io->lsp_channel;
 }
 
+#if defined(__linux__)
+
+/* give the user who will make the children's cgroups the files they need */
+
+static void
+lws_spawn_cgroup_chown(const char *path, uid_t uid, gid_t gid)
+{
+	if (uid == (uid_t)-1 && gid == (gid_t)-1)
+		return;
+
+	if (chown(path, uid, gid) < 0)
+		lwsl_warn("%s: failed to chown %s: %s\n", __func__, path,
+			  strerror(errno));
+}
+
+/*
+ * Enable, for the parent's children, each of the controllers we want that
+ * the parent has.  One at a time: a write naming one it doesn't have, io
+ * commonly, fails as a whole and enables nothing.
+ */
+
+static void
+lws_spawn_cgroup_enable(const char *parent)
+{
+	static const char * const want[] = { "cpu", "memory", "pids", "io" };
+	char path[300], have[256], ctl[16];
+	size_t n;
+	int fd;
+	ssize_t r;
+
+	lws_snprintf(path, sizeof(path), "%s/cgroup.controllers", parent);
+	fd = lws_open(path, LWS_O_RDONLY);
+	if (fd < 0)
+		return;
+	r = read(fd, have, sizeof(have) - 1);
+	close(fd);
+	if (r <= 0)
+		return;
+	have[r] = '\0';
+
+	lws_snprintf(path, sizeof(path), "%s/cgroup.subtree_control", parent);
+	fd = lws_open(path, LWS_O_WRONLY);
+	if (fd < 0) {
+		lwsl_notice("%s: cannot open %s: %s\n", __func__, path,
+			    strerror(errno));
+		return;
+	}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(want); n++) {
+		size_t wl = strlen(want[n]);
+		const char *p = have;
+		int len;
+
+		/* a whole word in the list: "cpuset" isn't "cpu" */
+		while ((p = strstr(p, want[n])) &&
+		       ((p != have && p[-1] != ' ') ||
+			(p[wl] && p[wl] != ' ' && p[wl] != '\n')))
+			p += wl;
+		if (!p)
+			continue;
+
+		len = lws_snprintf(ctl, sizeof(ctl), "+%s", want[n]);
+		if (write(fd, ctl, (size_t)len) != (ssize_t)len)
+			lwsl_warn("%s: enabling %s in %s: %s\n", __func__,
+				  want[n], parent, strerror(errno));
+	}
+
+	close(fd);
+}
+#endif
+
 int
 lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 {
 #if defined(__linux__)
 	uid_t uid = (uid_t)-1;
 	gid_t gid = (gid_t)-1;
-	char path[256], self_cgroup[256];
-	int fd;
+	char path[300], self_cgroup[256], parent[280], pid_str[20];
+	int fd, len;
 
 	if (lws_spawn_get_self_cgroup(self_cgroup, sizeof(self_cgroup) - 1)) {
 		lwsl_err("%s: unable to get self cgroup\n", __func__);
@@ -1381,23 +1484,48 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 		return 1;
 	}
 
-	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control",
-			self_cgroup);
+	lws_snprintf(parent, sizeof(parent), "/sys/fs/cgroup%s", self_cgroup);
 
-	fd = lws_open(path, LWS_O_WRONLY);
-	if (fd < 0) {
-		/* May fail if user doesn't own the file, that's okay */
-		lwsl_notice("%s: cannot open subtree_control: %s\n",
-			    __func__, strerror(errno));
-		return 0; /* Still a success if dir exists */
+	/*
+	 * Our cgroup has us in it, and a cgroup with processes of its own
+	 * can't give its children domain controllers like memory, nor let a
+	 * domain child have processes: the children would have to be
+	 * threaded, which only share out cpu.  So we move ourselves down into
+	 * a leaf of our cgroup, leaving it with no processes of its own, and
+	 * then it can hand what it has to the children made beside the leaf.
+	 */
+
+	lws_snprintf(path, sizeof(path), "%s/lws", parent);
+	if (mkdir(path, 0775) && errno != EEXIST) {
+		/*
+		 * No cgroup to move into, eg, the cgroup fs is read-only to
+		 * us: we stay where we are, and children get threaded cgroups
+		 * under us, if they can be made at all, measured by walking
+		 * the process tree
+		 */
+		lwsl_warn("%s: unable to mkdir %s: %s\n", __func__, path,
+			  strerror(errno));
+		fd = -1;
+	} else {
+		lws_snprintf(path, sizeof(path), "%s/lws/cgroup.procs", parent);
+		fd = lws_open(path, LWS_O_WRONLY);
+		if (fd < 0)
+			lwsl_warn("%s: cannot open %s: %s\n", __func__, path,
+				  strerror(errno));
 	}
 
-	if (write(fd, "+cpu +memory +pids +io", 22) != 22)
-		/* ignore, may be there already or fail due to perms */
-		lwsl_debug("%s: setting admin cgroup options failed\n", __func__);
-	close(fd);
-
-	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s", self_cgroup);
+	if (fd >= 0) {
+		len = lws_snprintf(pid_str, sizeof(pid_str), "%d", (int)getpid());
+		if (write(fd, pid_str, (size_t)len) != (ssize_t)len)
+			lwsl_warn("%s: unable to move into %s: %s\n", __func__,
+				  path, strerror(errno));
+		else {
+			lws_spawn_cgroup_enable(parent);
+			lws_strncpy(lws_spawn_cgroup_parent, self_cgroup,
+				    sizeof(lws_spawn_cgroup_parent));
+		}
+		close(fd);
+	}
 
 	if (user) {
 #if defined(LWS_HAVE_GETPWNAM_R)
@@ -1421,12 +1549,12 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 #if defined(LWS_HAVE_GETGRNAM_R)
 		struct group grp, *result = NULL;
 		char buf[1024];
- 
+
 		if (!getgrnam_r(group, &grp, buf, sizeof(buf), &result) && result)
 			gid = result->gr_gid;
 #else
 		struct group *grp;
- 
+
 		grp = getgrnam(group);
 		if (grp)
 			gid = grp->gr_gid;
@@ -1435,54 +1563,35 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 			lwsl_warn("%s: group '%s' not found\n", __func__, group);
 	}
 
-	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
+	/*
+	 * After we drop privileges, each child's cgroup is made in the parent
+	 * and the child moves itself from our leaf into it: that takes write
+	 * on the parent's cgroup.procs, the common ancestor of the move, and
+	 * on the parent dir to make the child's
+	 */
 
-		lwsl_notice("%s: switching %s to %d:%d\n",
-				__func__, path, uid, gid);
+	if (uid != (uid_t)-1 || gid != (gid_t)-1)
+		lwsl_notice("%s: switching %s to %d:%d\n", __func__, parent,
+			    (int)uid, (int)gid);
 
-		if (chown(path, uid, gid) < 0)
-			lwsl_warn("%s: failed to chown %s: %s\n",
-				  __func__, path, strerror(errno));
-		/* 2. ALSO change ownership of the critical control files inside it */
-		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
-		if (chown(path, uid, gid) < 0)
-			lwsl_warn("%s: failed to chown %s: %s\n",
-				  __func__, path, strerror(errno));
+	lws_spawn_cgroup_chown(parent, uid, gid);
+	lws_snprintf(path, sizeof(path), "%s/cgroup.procs", parent);
+	lws_spawn_cgroup_chown(path, uid, gid);
+	lws_snprintf(path, sizeof(path), "%s/cgroup.subtree_control", parent);
+	lws_spawn_cgroup_chown(path, uid, gid);
+	lws_snprintf(path, sizeof(path), "%s/lws", parent);
+	lws_spawn_cgroup_chown(path, uid, gid);
+	lws_snprintf(path, sizeof(path), "%s/lws/cgroup.procs", parent);
+	lws_spawn_cgroup_chown(path, uid, gid);
 
-		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
-		if (chown(path, uid, gid) < 0)
-			lwsl_warn("%s: failed to chown %s: %s\n",
-				  __func__, path, strerror(errno));
- 	}
-	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/lws", self_cgroup);
-	if (mkdir(path, 0775) < 0) // NOSONAR
-		lwsl_err("%s: unable to mkdir %s\n", __func__, path);
-	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
-
-		lwsl_notice("%s: switching %s to %d:%d\n",
-				__func__, path, uid, gid);
-
-		if (chown(path, uid, gid) < 0)
-			lwsl_warn("%s: failed to chown %s: %s\n",
-				  __func__, path, strerror(errno));
-		/* 2. ALSO change ownership of the critical control files inside it */
-		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
-		if (chown(path, uid, gid) < 0)
-			lwsl_warn("%s: failed to chown %s: %s\n",
-				  __func__, path, strerror(errno));
-
-		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
-		if (chown(path, uid, gid) < 0)
-			lwsl_warn("%s: failed to chown %s: %s\n",
-				  __func__, path, strerror(errno));
- 	}
-
-
-	lwsl_notice("%s: lws cgroup parent configured: %s\n", __func__, path);
+	lwsl_notice("%s: lws cgroup parent configured: %s, children get %s "
+		    "cgroups\n", __func__, parent,
+		    lws_spawn_cgroup_parent[0] ? "domain" : "threaded");
 
 	return 0;
-#endif
+#else
 	return 1; /* Not supported on this platform */
+#endif
 }
 
 lws_filefd_type

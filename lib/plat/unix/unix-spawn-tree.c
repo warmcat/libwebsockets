@@ -256,10 +256,20 @@ cgroup_rss(const char *cgpath, uint64_t page, uint64_t *rss)
 			any = 0;
 		}
 
+	close(fd);
+
+	/*
+	 * A threaded cgroup's cgroup.procs opens but can't be read, the
+	 * kernel says EOPNOTSUPP: its processes belong to the domain above
+	 * it.  Say we can't measure it this way, rather than that it's empty,
+	 * so the caller looks at the process tree instead.
+	 */
+	if (r < 0)
+		return -1;
+
 	if (any) /* the last one had no newline after it */
 		sum += pid_rss(pid, page);
 
-	close(fd);
 	*rss = sum;
 
 	return 0;

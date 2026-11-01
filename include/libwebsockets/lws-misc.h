@@ -2188,13 +2188,21 @@ lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx);
  * \p group: NULL, or the group name that will use the toplevel cgroup
  *
  * This helper should be called once at startup by a process that has root
- * privileges. It will configure the current process cgroup to be able to
- * bring children into it when running under different uid / gid.
+ * privileges.  It moves the process down into an "lws" leaf of its own
+ * cgroup, so the cgroup has no processes of its own and can hand the cpu,
+ * memory, pids and io controllers it has to the cgroups children are made
+ * in beside the leaf.  Each child is then a domain cgroup of its own: its
+ * memory is accounted and its OOM kills counted, see lws_spawn_resource_us_t,
+ * and its processes can be listed.
  *
  * After this has been called successfully, the process can drop privileges
  * to a non-root user, and subsequent calls to lws_spawn_piped() with a
  * cgroup_name_suffix will succeed as long as that user has write permission
- * in the master cgroup directory (which can be arranged via chown).
+ * in the master cgroup directory (which is arranged via chown).
+ *
+ * If the process can't move, it stays where it is and children get threaded
+ * cgroups under it, which share out cpu but can't account memory: their
+ * memory is measured by walking the process tree instead.
  *
  * Returns 0 on success. On non-Linux platforms, it's a no-op that returns 1.
  */
