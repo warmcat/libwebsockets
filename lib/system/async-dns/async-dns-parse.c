@@ -664,7 +664,7 @@ lws_adns_q_restart(lws_adns_q_t *q)
 	if (lws_async_dns_get_new_tid(q->context, q))
 		return -1;
 
-	q->asked = q->responded = 0;
+	q->asked = q->responded = q->failed_halves = 0;
 #if defined(LWS_WITH_IPV6)
 	q->sent[1] = 0;
 #endif
@@ -948,6 +948,73 @@ static void
 lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 			 lws_async_dns_server_t *dsrv, const struct lws *via);
 
+/*
+ * Every question q asked has its answer, or has been given up on: hand what
+ * we have to everybody waiting on it, or fail it.  Also where a validation
+ * that held the results finishes.
+ */
+
+void
+lws_adns_q_conclude(lws_adns_q_t *q)
+{
+	lws_adns_cache_t *c = q->firstcache;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (q->dnssec_verify_rrsig)
+		/* the results are held until every validation has finished */
+		return;
+
+	if (lws_adns_q_validates(q)) {
+		if (!q->dnssec_need_mask || q->dnssec_stale ||
+		    (q->dnssec_valid_mask & q->dnssec_need_mask) !=
+						q->dnssec_need_mask) {
+			lwsl_notice("%s: not all responses validated\n",
+				    __func__);
+			goto fail;
+		}
+		q->dnssec_valid = 1;
+	}
+#endif
+
+	if (q->failed_halves) {
+		lws_usec_t until = LWS_ADNS_PARTIAL_TTL_S * LWS_US_PER_SEC;
+
+		/*
+		 * The half that answered has to have given us something, an
+		 * address or that the name doesn't exist: an empty answer to
+		 * it alone doesn't mean the name has no addresses
+		 */
+		if (!c || (!c->results && !c->nxdomain))
+			goto fail;
+
+		/* half an answer, so we want to ask again soon */
+		if (c->sul.us - lws_now_usecs() > until)
+			lws_sul_schedule(q->context, 0, &c->sul, sul_cb_expire,
+					 until);
+	}
+
+	lwsl_info("%s: completing %s\n", __func__, c ? c->name : "NULL");
+
+	if (c) {
+		/* it may be found in the cache now */
+		c->incomplete = 0;
+		if (c->chain)
+			c->chain->incomplete = 0;
+	}
+	q->go_nogo = METRES_GO;
+	lws_adns_q_finish(q, c);
+
+	return;
+
+fail:
+	q->go_nogo = METRES_NOGO;
+	if (c) {
+		lws_adns_cache_destroy(c);
+		q->firstcache = NULL;
+	}
+	lws_adns_q_finish(q, NULL);
+}
+
 void
 lws_adns_parse_via(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		   lws_async_dns_server_t *dsrv, const struct lws *via)
@@ -985,7 +1052,7 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	lws_adns_est_t est;
 	lws_adns_q_t *q;
 	size_t alloc;
-	int n, rn, nxdomain = 0;
+	int n, rn, rcode, nxdomain = 0;
 
 	// lwsl_hexdump_notice(pkt, len);
 
@@ -1111,7 +1178,30 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 * The last candidate's answer is the one that stands.
 	 */
 
-	switch (lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0f) {
+	rcode = lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0f;
+
+	/*
+	 * Of an A / AAAA pair, the server declining one half says nothing
+	 * about the other: resolvers that SERVFAIL AAAA but answer A are
+	 * common (some home routers, DNS64).  Give up on just that half, not
+	 * caching anything for it, and let the other half's answer stand.  It
+	 * is only when both halves failed that the query is failed (or moves
+	 * on to the next search candidate) as below.
+	 */
+
+	if (rcode && rcode != 3 && q->asked == 3 &&
+	    !(q->failed_halves & (q->asked & ~rn))) {
+		lwsl_info("%s: %s: rcode %d for half %d\n", __func__,
+			  ((const char *)&q[1]) + DNS_MAX, rcode, rn);
+		q->failed_halves = (uint8_t)(q->failed_halves | rn);
+		if (q->responded == q->asked)
+			lws_adns_q_conclude(q);
+
+		/* else the other half is still to come */
+		return;
+	}
+
+	switch (rcode) {
 	case 0: /* NOERROR */
 		break;
 	case 3: /* NXDOMAIN */
@@ -1129,8 +1219,7 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		/* fallthru */
 	default:
 		lwsl_info("%s: %s: rcode %d, failing query\n", __func__,
-			    ((const char *)&q[1]) + DNS_MAX,
-			    lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0f);
+			    ((const char *)&q[1]) + DNS_MAX, rcode);
 		q->go_nogo = METRES_NOGO;
 		goto fail_out;
 	}
@@ -1346,38 +1435,7 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	    q->responded != q->asked)
 		return;
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-	if (q->dnssec_verify_rrsig)
-		/* the results are held until every validation has finished */
-		return;
-
-	if (lws_adns_q_validates(q)) {
-		if (!q->dnssec_need_mask || q->dnssec_stale ||
-		    (q->dnssec_valid_mask & q->dnssec_need_mask) !=
-						q->dnssec_need_mask) {
-			q->go_nogo = METRES_NOGO;
-			goto fail_out;
-		}
-		q->dnssec_valid = 1;
-	}
-#endif
-
-	/*
-	 * Now we captured everything into the new object, return the
-	 * addrinfo results, if any, to all interested wsi, if any...
-	 */
-
-	lwsl_info("%s: Calling lws_async_dns_complete for %s\n", __func__, q->firstcache ? q->firstcache->name : "NULL");
-	c->incomplete = 0;
-	if (q->firstcache)
-		q->firstcache->incomplete = 0;
-	q->go_nogo = METRES_GO;
-
-	/*
-	 * the query is completely finished with
-	 */
-
-	lws_adns_q_finish(q, q->firstcache);
+	lws_adns_q_conclude(q);
 
 	return;
 

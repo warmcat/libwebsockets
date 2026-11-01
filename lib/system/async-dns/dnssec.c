@@ -1408,23 +1408,16 @@ lws_dnssec_vctx_settled(lws_dnssec_zone_waiter_t *w, lws_dnssec_zone_t *z)
 		 * or be validating: only the last one out completes the query
 		 */
 
-		if (q->responded != q->asked || q->dnssec_verify_rrsig)
+		if (q->responded != q->asked)
 			return;
 
-		if (q->dnssec_need_mask && !q->dnssec_stale &&
-		    (q->dnssec_valid_mask & q->dnssec_need_mask) ==
-						q->dnssec_need_mask) {
-			q->dnssec_valid = 1;
-			/* validated: the cache entry may be found now */
-			if (q->firstcache)
-				q->firstcache->incomplete = 0;
-			q->go_nogo = METRES_GO;
-			lws_adns_q_finish(q, q->firstcache);
+		/*
+		 * It fails there unless every response that brought
+		 * anything validated
+		 */
+		lws_adns_q_conclude(q);
 
-			return;
-		}
-
-		lwsl_notice("%s: not all responses validated\n", __func__);
+		return;
 	}
 
 fail:

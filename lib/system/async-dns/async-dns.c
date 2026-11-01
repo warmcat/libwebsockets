@@ -775,6 +775,24 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		 * socket goes with the query, so the next query asks from a
 		 * new one, in case the routing changed.
 		 */
+		if (q->asked == 3 && q->responded) {
+			/*
+			 * One half of an address pair was answered, and the
+			 * other never will be (some resolvers just drop AAAA
+			 * questions): the answered half's addresses stand, if
+			 * it gave us any.
+			 */
+			lwsl_wsi_info(wsi, "%s: giving up on half %d",
+				      (const char *)&q[1],
+				      q->asked & ~q->responded);
+			q->failed_halves = (uint8_t)(q->failed_halves |
+					(q->asked & ~q->responded));
+			q->responded = q->asked;
+			lws_adns_q_conclude(q);
+
+			return;
+		}
+
 		lwsl_wsi_info(wsi, "failing query");
 		goto qfail;
 	}
