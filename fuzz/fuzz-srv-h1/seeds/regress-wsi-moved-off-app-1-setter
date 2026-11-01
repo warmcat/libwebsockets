@@ -1,0 +1,7 @@
+ðGET /x HTTP/1.1
+Host: fuzz
+
+àGET /x HTTP/1.1
+Host: zz
+
+Â

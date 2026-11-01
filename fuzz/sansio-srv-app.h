@@ -52,11 +52,23 @@ struct fza_pss {
 	uint8_t			msg_ready;
 };
 
-/* the last wsi the application heard from, while it exists */
+/*
+ * The last wsi the application heard from, while it's bound to one of our
+ * protocols: once it's moved off them, eg, onto another vhost, we don't hear
+ * of it going away
+ */
 static struct lws *fza_wsi;
 static int fza_close_next;
 static char fza_dir[64];
 static volatile size_t fza_sink;
+
+/* each input is a new connection, nothing of the last one's is left to act on */
+static void
+fza_session_start(void)
+{
+	fza_wsi = NULL;
+	fza_close_next = 0;
+}
 
 static const char * const fza_params[] = { "a", "b", "file", "text" };
 
@@ -242,6 +254,7 @@ fza_callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 	case LWS_CALLBACK_WSI_DESTROY:
 		if (wsi == fza_wsi)
 			fza_wsi = NULL;
