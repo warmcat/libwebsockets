@@ -93,7 +93,8 @@ cubic_init(struct lws *nwsi)
 	st->k = 0;
 	st->is_in_fast_convergence = 0;
 
-	lwsl_notice("QUIC CUBIC: init cwnd=%zu, mtu=%u", st->cwnd, mtu);
+	lwsl_notice("QUIC CUBIC: init cwnd=%zu, mtu=%u", st->cwnd,
+		    (unsigned int)mtu);
 }
 
 static void
