@@ -3830,8 +3830,15 @@ rops_check_upgrades_h3(struct lws *wsi)
 				return (int)lws_h3_wt_refuse(wsi,
 						HTTP_STATUS_NOT_FOUND,
 						"mount protocol takes no wt");
+#if defined(LWS_WITH_CUSTOM_HEADERS)
 		} else if (lws_hdr_custom_length(wsi, "wt-available-protocols:",
 						 23) > 0) {
+			/*
+			 * Only custom headers keep the protocols the CONNECT
+			 * offers: without them (eg, FreeRTOS builds), a
+			 * session gets the vhost's default protocol below, as
+			 * if it offered none
+			 */
 			struct lws_tokenize ts;
 			char client_protos[256];
 			lws_tokenize_elem e;
@@ -3869,6 +3876,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 				return (int)lws_h3_wt_refuse(wsi,
 						HTTP_STATUS_NOT_FOUND,
 						"no offered protocol takes wt");
+#endif
 		} else {
 			/*
 			 * No protocol offered, as a ws upgrade with no
