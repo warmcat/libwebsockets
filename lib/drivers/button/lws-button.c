@@ -85,14 +85,14 @@ static const lws_button_regime_t default_regime = {
  * All the buttons point here and use one timer per button controller.  An
  * interrupt here means, "something happened to one or more buttons"
  */
-#if defined(LWS_PLAT_TIMER_START)
+#if defined(LWS_PLAT_TIMER_START_FROM_ISR)
 void
 lws_button_irq_cb_t(void *arg)
 {
 	lws_button_each_t *each = (lws_button_each_t *)arg;
 
 	each->isr_pending = 1;
-	LWS_PLAT_TIMER_START(each->bcs->timer);
+	LWS_PLAT_TIMER_START_FROM_ISR(each->bcs->timer);
 }
 #endif
 

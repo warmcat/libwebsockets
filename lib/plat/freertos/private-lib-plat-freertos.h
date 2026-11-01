@@ -144,6 +144,11 @@ delete_from_fd(const struct lws_context *context, int fd);
 			repeat ? pdTRUE : 0, opaque, cb)
 #define LWS_PLAT_TIMER_DELETE(ptr)	xTimerDelete(ptr, 0)
 #define LWS_PLAT_TIMER_START(ptr)	xTimerStart(ptr, 0)
+/*
+ * The only way to start a timer from interrupt context, eg, a gpio ISR.  The
+ * timer task gets to run at the next tick, we don't yield to it immediately.
+ */
+#define LWS_PLAT_TIMER_START_FROM_ISR(ptr) xTimerStartFromISR(ptr, NULL)
 #define LWS_PLAT_TIMER_STOP(ptr)	xTimerStop(ptr, 0)
 
 
