@@ -1219,7 +1219,15 @@ lhp_line_strut(lhp_pstack_t *c, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	if (!txt)
 		return;
 
-	lws_display_dlo_text_update(txt, 0, fx_0, " ", 1);
+	/*
+	 * Only the font's metrics matter here, so the space not fitting the
+	 * line is no reason to go without the strut, but running out of
+	 * memory is
+	 */
+	if (lws_display_dlo_text_update(txt, 0, fx_0, " ", 1) < 0) {
+		lws_display_dlo_destroy((lws_dlo_t **)&txt);
+		return;
+	}
 	txt->dlo.box.w = txt->bounding_box.w;
 	txt->dlo.box.h = txt->bounding_box.h;
 	lhp_line_text_metrics(c, txt);
