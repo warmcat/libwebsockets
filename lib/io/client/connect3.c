@@ -604,6 +604,21 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		/* the resolver, not the name, failed */
 		wsi->io->dns_reachability = 1;
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		if (n == LADNS_RET_TIMEDOUT) {
+			/*
+			 * The query already spent its own retransmit budget
+			 * on the nameservers, some seconds of it: asking again
+			 * from the top LWS_CLIENT_DNS_RETRIES times only
+			 * multiplied that, keeping the connection waiting
+			 * most of a minute to hear the resolver is dead
+			 */
+			lwsl_wsi_notice(wsi, "dns lookup timed out");
+			cce = "dns lookup failed (timed out)";
+			goto oom4;
+		}
+#endif
+
 		lwsl_wsi_notice(wsi, "dns lookup failed %d", n);
 
 		/*

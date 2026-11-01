@@ -255,6 +255,7 @@ typedef struct lws_adns_q {
 	uint8_t			ipv6_only:1;
 	uint8_t			completing:1; /* in lws_async_dns_complete() */
 	uint8_t			finish_found:1; /* finishing with firstcache */
+	uint8_t			timed_out:1; /* retransmits ran out */
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	/*
 	 * A pending RRSIG validation is a validation context waiting on the
