@@ -169,6 +169,14 @@ enum {
 #define WSE_F_SLOW_RCVBUF	65536	/* W's socket buffer, so the server sees
 					 * it is slow in good time */
 
+/*
+ * How long S's PONG may take.  It comes after the broker has read everything
+ * S queued while it was paused, WSE_F_LAG_MSGS of WSE_F_LAG_LEN, which with a
+ * sixth of a cpu took 13s.  A broker that never reads S again never answers,
+ * so this only has to be long, not tight.
+ */
+#define WSE_F_ALONE_PING_SECS	60
+
 #define WSE_PX_TOTAL		(64 * 1024 * 1024) /* client sends this */
 #define WSE_PX_FRAME		WSE_MSG_MAX	   /* ...in frames this big */
 #define WSE_PX_HELD		(16 * 1024 * 1024) /* must be held back by */
@@ -798,7 +806,7 @@ wse_phase_cb(lws_sorted_usec_list_t *sul)
 		 */
 		phase++;
 		lws_callback_on_writable(fconns[WSE_F_S].wsi);
-		wse_schedule(*fo->lag_secs * 3 * LWS_US_PER_SEC);
+		wse_schedule(WSE_F_ALONE_PING_SECS * LWS_US_PER_SEC);
 		break;
 
 	case WSE_P_FANOUT_ALONE_PING:
