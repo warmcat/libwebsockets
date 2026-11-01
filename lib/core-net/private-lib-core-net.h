@@ -905,6 +905,9 @@ struct lws_vhost {
 	uint8_t created_vhost_protocols:1;
 	uint8_t being_destroyed:1;
 	uint8_t from_ss_policy:1;
+	uint8_t internal:1;
+	/**< lws made it for its own use, eg, "system": a peer's connection
+	 * may never be moved onto it by a name he sends */
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	uint8_t 		grace_after_unref:1;
 	/* grace time / autodelete aoplies to us */

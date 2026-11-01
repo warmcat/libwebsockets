@@ -341,6 +341,7 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 
 				return NULL;
 			}
+			v->internal = 1;
 		}
 
 		goto accepted;
@@ -393,8 +394,10 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 		lwsl_err("%s: failed to create vhost %s\n",
 			 __func__, i.vhost_name);
 		return NULL;
-	} else
+	} else {
 		v->from_ss_policy = 1;
+		v->internal = 1;
+	}
 
 	for (n = 1; v && n < pol->trust.store->count; n++) {
 		lwsl_info("%s: add '%s' to trust store\n", __func__,
