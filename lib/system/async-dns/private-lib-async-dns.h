@@ -394,6 +394,11 @@ lws_adns_q_wsi(lws_adns_q_t *q);
 int
 lws_adns_q_uses_wsi(lws_adns_q_t *q, const struct lws *wsi);
 
+/* how long dsrv took to answer, or LWS_ADNS_DSRV_NO_ANSWER_US if it didn't */
+#define LWS_ADNS_DSRV_NO_ANSWER_US	(20 * LWS_US_PER_SEC)
+void
+lws_adns_dsrv_rtt(lws_async_dns_server_t *dsrv, lws_usec_t us);
+
 
 
 /* require: context lock on this set */

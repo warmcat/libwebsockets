@@ -345,6 +345,13 @@ lws_adns_q_uses_wsi(lws_adns_q_t *q, const struct lws *wsi)
 	return 0;
 }
 
+void
+lws_adns_dsrv_rtt(lws_async_dns_server_t *dsrv, lws_usec_t us)
+{
+	lws_adapt_report_val(dsrv->adapt, (uint64_t)us, lws_now_usecs());
+	dsrv->rtt_known = 1;
+}
+
 /* q's suls are on its own pt, which may not be the one we are serving */
 
 void
@@ -967,7 +974,7 @@ qfail:
 		q->firstcache = NULL;
 	}
 	if (q->dsrv) {
-		lws_adapt_report_val(q->dsrv->adapt, 20000000, lws_now_usecs());
+		lws_adns_dsrv_rtt(q->dsrv, LWS_ADNS_DSRV_NO_ANSWER_US);
 	}
 	lws_adns_q_finish(q, NULL);
 }
@@ -2041,7 +2048,7 @@ sul_cb_write(struct lws_sorted_usec_list *sul)
 	lws_adns_dump(q->dns);
 
 	if (q->dsrv) {
-		lws_adapt_report_val(q->dsrv->adapt, 20000000, lws_now_usecs());
+		lws_adns_dsrv_rtt(q->dsrv, LWS_ADNS_DSRV_NO_ANSWER_US);
 	}
 
 	lws_adns_q_finish(q, NULL); /* no cache to relate to */
@@ -2914,7 +2921,15 @@ __lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&dns->nameservers)) {
 			lws_async_dns_server_t *s = lws_container_of(d, lws_async_dns_server_t, list);
-			uint64_t v = lws_adapt_get_val(s->adapt, 0, 1);
+			/*
+			 * A server we never had an answer, or a timeout, from
+			 * is unknown: until then the tracker holds no rtt, so
+			 * a fresh list looked like all its servers answer at
+			 * once, and the first one was asked alone however dead
+			 * it was
+			 */
+			uint64_t v = s->rtt_known ?
+					lws_adapt_get_val(s->adapt, 0, 1) : 0;
 			/* 10 seconds means virtually down or unknown */
 			if (!v || v > 10000000) {
 				q->broadsiding = 1;

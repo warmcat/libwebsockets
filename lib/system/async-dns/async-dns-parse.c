@@ -1065,13 +1065,12 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		return;
 	}
 
-	if (dsrv && q->broadsiding && q->issue_time) {
+	if (dsrv && q->broadsiding && q->issue_time)
 		/* Record response time for the server that won the race! */
-		lws_adapt_report_val(dsrv->adapt, (uint64_t)(lws_now_usecs() - q->issue_time), lws_now_usecs());
-	} else if (q->dsrv && q->issue_time) {
+		lws_adns_dsrv_rtt(dsrv, lws_now_usecs() - q->issue_time);
+	else if (q->dsrv && q->issue_time)
 		/* Record response time for the pre-selected server */
-		lws_adapt_report_val(q->dsrv->adapt, (uint64_t)(lws_now_usecs() - q->issue_time), lws_now_usecs());
-	}
+		lws_adns_dsrv_rtt(q->dsrv, lws_now_usecs() - q->issue_time);
 
 	q->responded = (uint8_t)(q->responded | rn);
 
