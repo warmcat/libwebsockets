@@ -134,7 +134,8 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 		lws_snprintf(_key, sizeof(_key), "alpn_%s_%u", _ads,
 			     wsi->c_port);
 		lws_cache_write_through(wsi->a.context->alpn_cache, _key,
-					(const uint8_t *)"h2", 3,
+				(const uint8_t *)LWS_CLIENT_TCP_ALPN_PREFERRED,
+				sizeof(LWS_CLIENT_TCP_ALPN_PREFERRED),
 					lws_now_usecs() +
 					(60LL * LWS_US_PER_SEC), &_p);
 	}
@@ -197,7 +198,7 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 						_WSI_TOKEN_CLIENT_ALPN);
 
 			if (!orig || strstr(orig, "h3"))
-				orig = "h2,http/1.1";
+				orig = LWS_CLIENT_TCP_ALPNS;
 
 			lws_strncpy(wsi->alpn, orig, sizeof(wsi->alpn));
 		}

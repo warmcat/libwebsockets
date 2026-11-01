@@ -673,11 +673,12 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 				char key[256];
 				void *p;
 				lws_snprintf(key, sizeof(key), "alpn_%s_%u", wsi->cli_hostname_copy, wsi->c_port);
-				/* Overwrite h3 entry with h2 */
+				/* Overwrite h3 entry with what tcp prefers */
 				lws_cache_write_through(wsi->a.context->alpn_cache, key,
-							(const uint8_t *)"h2", 3,
+							(const uint8_t *)LWS_CLIENT_TCP_ALPN_PREFERRED,
+							sizeof(LWS_CLIENT_TCP_ALPN_PREFERRED),
 							lws_wsi_now(wsi) + (lws_usec_t)(3600ULL * 1000000ULL), &p);
-				lwsl_wsi_notice(wsi, "H3 WS not supported by peer, downgrading ALPN cache to h2 for %s", key);
+				lwsl_wsi_notice(wsi, "H3 WS not supported by peer, downgrading ALPN cache to %s for %s", LWS_CLIENT_TCP_ALPN_PREFERRED, key);
 			}
 			return -1;
 		}
