@@ -135,6 +135,8 @@
 #include <libwebsockets/lws-pwm.h>
 #include <libwebsockets/lws-display.h>
 #include <libwebsockets/lws-dlo.h>
+#include <libwebsockets/lws-touch.h>
+#include <libwebsockets/lws-cst816s-i2c.h>
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>
 #include <libwebsockets/lws-gc9a01a-spi.h>

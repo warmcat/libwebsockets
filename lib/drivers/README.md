@@ -23,7 +23,7 @@ OS layer without duplicating them, but bringing the flexibility to retarget
 your work to other scenarios... for example, there is a generic gpio object
 subclassed for specific implementations, an i2c object which may be subclassed
 to use OS drivers or bitbang using the generic gpio object, buttons on top of
-generic gpio, led class that can use generic gpio or pwm interchangeably,
+generic gpio, touch controllers on top of i2c and gpio, led class that can use generic gpio or pwm interchangeably,
 platform-specific gpio, i2c, pwm implementations that can be used at the generic
 level are defined to use underlying OS native apis and drivers.
 
@@ -34,6 +34,9 @@ codebase used by multiple implementations and the intention is to provide
 best-of-breed features there generically, like
 
  - sophisticated button press debounce and classification
+
+ - touch classification into press, long press and scroll, mapped into
+   display pixels
 
  - high quality transitions and log-response compensation and mixing for led pwm
 
