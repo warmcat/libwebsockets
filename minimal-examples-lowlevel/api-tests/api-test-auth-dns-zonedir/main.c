@@ -406,6 +406,11 @@ static const struct {
 };
 
 static lws_sorted_usec_list_t sul_drive;
+/*
+ * When the phase's queries were sent: the response windows are counted from
+ * then, not from the phase's start, since on a loaded builder creating the
+ * context alone has taken RESP_US or more
+ */
 static lws_usec_t t0;
 
 /* build a DNS query for "name" into buf, returning the packet length */
@@ -1346,6 +1351,7 @@ drive_cb(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
+		t0 = now;
 		lwsl_user("phase '%s': %d queries sent\n", cur->name, n);
 	}
 
@@ -1532,7 +1538,6 @@ run_phase(struct phase *p, int idx)
 	cur = p;
 	phase_idx = idx;
 	phase_done = phase_failed = 0;
-	t0 = lws_now_usecs();
 	drain_stage = 0;
 
 	if (p->fetch >= 3 && !drain_ok) {
