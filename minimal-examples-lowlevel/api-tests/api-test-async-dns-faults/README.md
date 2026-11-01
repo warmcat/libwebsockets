@@ -15,6 +15,16 @@ way.
 
 Any other name is NXDOMAIN.
 
+A second pass, on Linux only, lists first two nameservers that can't be asked
+at all: `255.255.255.255`, which a socket can't `connect()` to without
+`SO_BROADCAST`, and `127.0.0.3`, where nothing listens, so it refuses what we
+send it.  Then comes the working one.
+
+|name|expected|
+|---|---|
+|`ok.test`|found within 1.5s from the working nameserver|
+|`servfail-aaaa.test`, asked after that|found within 1.5s too|
+
 ## Run
 
 ctest gives the fake nameservers a free udp port in `LWS_ASYNCDNS_PORT`, the

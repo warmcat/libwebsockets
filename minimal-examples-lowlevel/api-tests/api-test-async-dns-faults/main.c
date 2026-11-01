@@ -10,6 +10,8 @@
  * loopback, adopted into the event loop, answer each name in a different bad
  * way, and we check what the lookups, and a client connection, make of it.
  *
+ * The first pass has the nameservers misbehave in what they answer:
+ *
  *  - "ok.test": answered properly, but the first nameserver listed never
  *    answers anything (on Linux, where all of 127.0.0.0/8 is loopback and we
  *    can put a black hole at 127.0.0.2).  We know nothing about either server
@@ -33,6 +35,13 @@
  *
  * Every other name (eg, a search list candidate) is NXDOMAIN.
  *
+ * The second pass, on Linux, has the first nameservers listed be ones we
+ * can't ask at all: 255.255.255.255, which a socket can't connect() to
+ * without SO_BROADCAST, and 127.0.0.3, where nothing listens, so it refuses
+ * what we send it.  "ok.test" still has to be answered at once by the one
+ * that works, and so does "servfail-aaaa.test" asked once we have learned
+ * that much.
+ *
  * The test runs under ctest, which gives the fake nameservers' port in
  * LWS_ASYNCDNS_PORT, the port the resolver asks its nameservers on, and the
  * resolv.conf we write in LWS_ASYNCDNS_RESOLV_CONF, so the platform's own
@@ -50,12 +59,6 @@
 #endif
 
 #define WATCHDOG_S		25
-
-#if defined(__linux__)
-/* listed first, and never answers */
-#define DEAD_NS			"127.0.0.2"
-#endif
-#define LIVE_NS			"127.0.0.1"
 
 /* what the live nameserver does with each name */
 
@@ -84,38 +87,77 @@ static const uint8_t v6_ok[16] = { 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
 
 /* what we expect of each lookup */
 
-static struct leg {
+struct leg {
 	const char		*name;
 	int			fake;		/* index into fake_names */
 	int			found;		/* expect it found, else failed */
 	int			client;		/* by a client connection */
+	int			wave;		/* asked when earlier waves end */
 	int			within_ms;	/* it must be over by then */
 
+	int			started;
 	int			done;
 	int			ret;
+	lws_usec_t		t_start;
 	lws_usec_t		took;
-} legs[] = {
-	{ "dead first nameserver",	0, 1, 0,  1500, 0, 0, 0 },
-	{ "SERVFAIL on AAAA",		1, 1, 0,  1500, 0, 0, 0 },
-	{ "SERVFAIL on AAAA, A later",	2, 1, 0,  1500, 0, 0, 0 },
-	{ "AAAA dropped",		3, 1, 0, 15000, 0, 0, 0 },
-	{ "SERVFAIL on both",		4, 0, 0,  3000, 0, 0, 0 },
-	{ "nobody answers (client)",	5, 0, 1, 15000, 0, 0, 0 },
 };
 
-/* a nameserver: one adopted udp socket */
+/* a nameserver, and for the ones we fake, its adopted udp socket */
+
+enum {
+	NS_LIVE,		/* answers as fake_names says */
+	NS_DEAD,		/* takes everything and never answers */
+	NS_UNREACH,		/* nothing of ours is there */
+};
 
 struct fake_ns {
 	const char		*ads;
-	int			dead;
+	int			kind;
 	int			asked;
 };
 
-static struct fake_ns nss[] = {
-#if defined(DEAD_NS)
-	{ DEAD_NS, 1, 0 },
+static struct leg legs_answers[] = {
+	{ "dead first nameserver",	0, 1, 0, 0,  1500, 0, 0, 0, 0, 0 },
+	{ "SERVFAIL on AAAA",		1, 1, 0, 0,  1500, 0, 0, 0, 0, 0 },
+	{ "SERVFAIL on AAAA, A later",	2, 1, 0, 0,  1500, 0, 0, 0, 0, 0 },
+	{ "AAAA dropped",		3, 1, 0, 0, 15000, 0, 0, 0, 0, 0 },
+	{ "SERVFAIL on both",		4, 0, 0, 0,  3000, 0, 0, 0, 0, 0 },
+	{ "nobody answers (client)",	5, 0, 1, 0, 15000, 0, 0, 0, 0, 0 },
+};
+
+static struct fake_ns nss_answers[] = {
+#if defined(__linux__)
+	{ "127.0.0.2",		NS_DEAD,	0 },
 #endif
-	{ LIVE_NS, 0, 0 },
+	{ "127.0.0.1",		NS_LIVE,	0 },
+};
+
+#if defined(__linux__)
+static struct leg legs_unreach[] = {
+	{ "unreachable first nameservers", 0, 1, 0, 0, 1500, 0, 0, 0, 0, 0 },
+	{ "... and asked again",	1, 1, 0, 1, 1500, 0, 0, 0, 0, 0 },
+};
+
+static struct fake_ns nss_unreach[] = {
+	{ "255.255.255.255",	NS_UNREACH,	0 },
+	{ "127.0.0.3",		NS_UNREACH,	0 },
+	{ "127.0.0.1",		NS_LIVE,	0 },
+};
+#endif
+
+static const struct pass {
+	const char		*name;
+	struct leg		*legs;
+	size_t			nlegs;
+	struct fake_ns		*nss;
+	size_t			nnss;
+} passes[] = {
+	{ "misbehaving answers", legs_answers, LWS_ARRAY_SIZE(legs_answers),
+	  nss_answers, LWS_ARRAY_SIZE(nss_answers) },
+#if defined(__linux__)
+	{ "unreachable nameservers", legs_unreach, LWS_ARRAY_SIZE(legs_unreach),
+	  nss_unreach, LWS_ARRAY_SIZE(nss_unreach) },
+#endif
 };
 
 /* an answer held back for ANS_LATE */
@@ -128,21 +170,86 @@ static struct late {
 	uint8_t			pkt[512];
 } late;
 
+static const struct pass *pass;
 static struct lws_context *cx;
+static struct lws_vhost *vh;
 static lws_sorted_usec_list_t sul_watchdog;
-static lws_usec_t t_start;
 static int fails;
+
+static struct lws *
+lookup_cb(struct lws *wsi, const char *ads, const struct addrinfo *result,
+	  int n, void *opaque);
+
+static void
+leg_start(struct leg *leg)
+{
+	const char *name = fake_names[leg->fake].name;
+	struct lws_client_connect_info i;
+
+	lwsl_user("%s: looking up %s\n", leg->name, name);
+	leg->started = 1;
+	leg->t_start = lws_now_usecs();
+
+	if (!leg->client) {
+		if (lws_async_dns_query(cx, 0, name, LWS_ADNS_RECORD_A,
+					lookup_cb, NULL, leg, NULL) ==
+							LADNS_RET_FAILED) {
+			lwsl_err("%s: query refused\n", leg->name);
+			fails++;
+			leg->done = 1;
+		}
+
+		return;
+	}
+
+	memset(&i, 0, sizeof(i));
+	i.context		= cx;
+	i.vhost			= vh;
+	i.address		= name;
+	i.host			= name;
+	i.origin		= name;
+	i.port			= 80;
+	i.path			= "/";
+	i.method		= "GET";
+	i.protocol		= "cli";
+	i.local_protocol_name	= "cli";
+	i.opaque_user_data	= leg;
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("%s: refused\n", leg->name);
+		fails++;
+		leg->done = 1;
+	}
+}
+
+/* start the next wave when the last one has ended, or end the pass */
 
 static void
 check_done(void)
 {
+	int wave = -1;
 	size_t n;
 
-	for (n = 0; n < LWS_ARRAY_SIZE(legs); n++)
-		if (!legs[n].done)
+	for (n = 0; n < pass->nlegs; n++)
+		if (pass->legs[n].started && !pass->legs[n].done)
 			return;
 
-	lws_default_loop_exit(cx);
+	for (n = 0; n < pass->nlegs; n++)
+		if (!pass->legs[n].started &&
+		    (wave < 0 || pass->legs[n].wave < wave))
+			wave = pass->legs[n].wave;
+
+	if (wave < 0) {
+		lws_default_loop_exit(cx);
+		return;
+	}
+
+	for (n = 0; n < pass->nlegs; n++)
+		if (!pass->legs[n].started && pass->legs[n].wave == wave)
+			leg_start(&pass->legs[n]);
+
+	/* they may all have finished, or been refused, at once */
+	check_done();
 }
 
 static void
@@ -153,7 +260,7 @@ leg_done(struct leg *leg, int ret)
 
 	leg->done = 1;
 	leg->ret = ret;
-	leg->took = lws_now_usecs() - t_start;
+	leg->took = lws_now_usecs() - leg->t_start;
 
 	lwsl_user("%s: %s: ret %d after %dms\n", __func__, leg->name, ret,
 		  (int)(leg->took / LWS_US_PER_MS));
@@ -214,7 +321,7 @@ callback_fake_ns(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	ns->asked++;
-	if (ns->dead)
+	if (ns->kind != NS_LIVE)
 		return 0;
 
 	/* walk the query's qname, which has no compression pointers */
@@ -416,13 +523,13 @@ sigint_handler(int sig)
 static int
 write_resolv_conf(const char *path)
 {
-	char buf[128];
+	char buf[256];
 	size_t n, o = 0;
 	int fd, r = 0;
 
-	for (n = 0; n < LWS_ARRAY_SIZE(nss); n++)
+	for (n = 0; n < pass->nnss; n++)
 		o += (size_t)lws_snprintf(buf + o, sizeof(buf) - o,
-					  "nameserver %s\n", nss[n].ads);
+					  "nameserver %s\n", pass->nss[n].ads);
 
 	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (fd < 0)
@@ -435,38 +542,31 @@ write_resolv_conf(const char *path)
 }
 #endif
 
-int main(int argc, const char **argv)
+static int
+run_pass(int argc, const char **argv, int ns_port)
 {
 	struct lws_context_creation_info info;
-	struct lws_client_connect_info i;
-	const char *p = getenv("LWS_ASYNCDNS_PORT");
-	struct lws_vhost *vh;
 	lws_sockaddr46 sa46;
-	int ns_port, n;
+	size_t n;
+	int m;
 
-	signal(SIGINT, sigint_handler);
-
-	lws_context_info_defaults(&info, NULL);
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
-
-	lwsl_user("LWS API selftest: async dns with misbehaving nameservers\n");
-
-	ns_port = p ? atoi(p) : 0;
-	if (ns_port <= 0 || ns_port > 65535) {
-		lwsl_err("Set LWS_ASYNCDNS_PORT to a free udp port\n");
-
-		return 1;
-	}
+	lwsl_user("*** pass: %s\n", pass->name);
 
 #if !defined(WIN32)
-	p = getenv("LWS_ASYNCDNS_RESOLV_CONF");
-	if (!p || write_resolv_conf(p)) {
-		lwsl_err("Set LWS_ASYNCDNS_RESOLV_CONF to a writeable file\n");
+	{
+		const char *p = getenv("LWS_ASYNCDNS_RESOLV_CONF");
 
-		return 1;
+		if (!p || write_resolv_conf(p)) {
+			lwsl_err("Set LWS_ASYNCDNS_RESOLV_CONF to a "
+				 "writeable file\n");
+
+			return 1;
+		}
 	}
 #endif
 
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 	cx = lws_create_context(&info);
 	if (!cx) {
@@ -475,16 +575,17 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	/* only our fake nameservers may be asked, in our order */
+	/* only our nameservers may be asked, in our order */
 
-	n = 0;
-	while (!lws_plat_asyncdns_get_server(cx, n++, &sa46))
+	m = 0;
+	while (!lws_plat_asyncdns_get_server(cx, m++, &sa46))
 		lws_async_dns_server_remove(cx, &sa46);
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(nss); n++) {
+	for (n = 0; n < pass->nnss; n++) {
 		memset(&sa46, 0, sizeof(sa46));
-		if (lws_sa46_parse_numeric_address(nss[n].ads, &sa46) ||
+		if (lws_sa46_parse_numeric_address(pass->nss[n].ads, &sa46) ||
 		    !lws_async_dns_server_add(cx, &sa46)) {
-			lwsl_err("Unable to pin nameserver %s\n", nss[n].ads);
+			lwsl_err("Unable to pin nameserver %s\n",
+				 pass->nss[n].ads);
 			goto bail;
 		}
 	}
@@ -498,53 +599,16 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(nss); n++)
-		if (!lws_create_adopt_udp(vh, nss[n].ads, ns_port,
+	for (n = 0; n < pass->nnss; n++)
+		if (pass->nss[n].kind != NS_UNREACH &&
+		    !lws_create_adopt_udp(vh, pass->nss[n].ads, ns_port,
 					  LWS_CAUDP_BIND, "fake-ns", NULL,
-					  NULL, &nss[n], NULL, "fake-ns")) {
+					  NULL, &pass->nss[n], NULL,
+					  "fake-ns")) {
 			lwsl_err("Unable to bind nameserver %s:%d\n",
-				 nss[n].ads, ns_port);
+				 pass->nss[n].ads, ns_port);
 			goto bail;
 		}
-
-	t_start = lws_now_usecs();
-
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(legs); n++) {
-		const char *name = fake_names[legs[n].fake].name;
-
-		lwsl_user("%s: looking up %s\n", legs[n].name, name);
-
-		if (!legs[n].client) {
-			if (lws_async_dns_query(cx, 0, name,
-						LWS_ADNS_RECORD_A, lookup_cb,
-						NULL, &legs[n], NULL) ==
-							LADNS_RET_FAILED) {
-				lwsl_err("%s: query refused\n", legs[n].name);
-				fails++;
-				legs[n].done = 1;
-			}
-			continue;
-		}
-
-		memset(&i, 0, sizeof(i));
-		i.context		= cx;
-		i.vhost			= vh;
-		i.address		= name;
-		i.host			= name;
-		i.origin		= name;
-		i.port			= 80;
-		i.path			= "/";
-		i.method		= "GET";
-		i.protocol		= "cli";
-		i.local_protocol_name	= "cli";
-		i.opaque_user_data	= &legs[n];
-
-		if (!lws_client_connect_via_info(&i)) {
-			lwsl_err("%s: refused\n", legs[n].name);
-			fails++;
-			legs[n].done = 1;
-		}
-	}
 
 	lws_sul_schedule(cx, 0, &sul_watchdog, sul_watchdog_cb,
 			 WATCHDOG_S * LWS_US_PER_SEC);
@@ -553,8 +617,8 @@ int main(int argc, const char **argv)
 	lws_context_default_loop_run_destroy(cx);
 	cx = NULL;
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(legs); n++) {
-		struct leg *leg = &legs[n];
+	for (n = 0; n < pass->nlegs; n++) {
+		struct leg *leg = &pass->legs[n];
 
 		if (!leg->done) {
 			lwsl_err("%s: never finished\n", leg->name);
@@ -580,19 +644,46 @@ int main(int argc, const char **argv)
 		}
 	}
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(nss); n++)
-		if (!nss[n].asked) {
+	for (n = 0; n < pass->nnss; n++)
+		if (pass->nss[n].kind != NS_UNREACH && !pass->nss[n].asked) {
 			lwsl_err("Nameserver %s was never asked\n",
-				 nss[n].ads);
+				 pass->nss[n].ads);
 			fails++;
 		}
+
+	return 0;
+
+bail:
+	lws_context_destroy(cx);
+	cx = NULL;
+
+	return 1;
+}
+
+int main(int argc, const char **argv)
+{
+	const char *p = getenv("LWS_ASYNCDNS_PORT");
+	int ns_port;
+	size_t n;
+
+	signal(SIGINT, sigint_handler);
+
+	lwsl_user("LWS API selftest: async dns with misbehaving nameservers\n");
+
+	ns_port = p ? atoi(p) : 0;
+	if (ns_port <= 0 || ns_port > 65535) {
+		lwsl_err("Set LWS_ASYNCDNS_PORT to a free udp port\n");
+
+		return 1;
+	}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(passes); n++) {
+		pass = &passes[n];
+		if (run_pass(argc, argv, ns_port))
+			return 1;
+	}
 
 	lwsl_user("Completed: %s\n", fails ? "FAIL" : "PASS");
 
 	return !!fails;
-
-bail:
-	lws_context_destroy(cx);
-
-	return 1;
 }
