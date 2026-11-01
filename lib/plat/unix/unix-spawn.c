@@ -174,6 +174,8 @@ lws_create_stdwsi(struct lws_context *context, int tsi,
 
 #define LWS_SPAWN_ORPHAN_GRACE_US	(3 * LWS_US_PER_SEC)
 #define LWS_SPAWN_ORPHAN_POLL_US	(250 * LWS_US_PER_MS)
+/* a cgroup that won't empty after its processes were killed is given up on */
+#define LWS_SPAWN_CGROUP_GIVEUP_US	(60 * LWS_US_PER_SEC)
 
 typedef struct lws_spawn_orphan {
 	lws_dll2_t		list;
@@ -181,16 +183,89 @@ typedef struct lws_spawn_orphan {
 	pid_t			pid;
 	uint8_t			killed;
 #if defined(__linux__)
+	lws_usec_t		cgroup_killed; /* when its cgroup was last killed */
 	char			cgroup_path[256];
 #endif
 } lws_spawn_orphan_t;
 
-/* 1 if he is gone (and, if he had one, his cgroup removed), else 0 */
+#if defined(__linux__)
+
+/*
+ * Whatever is left running in a child's cgroup is killed: a server it
+ * started and never waited for, say.  cgroup.kill takes the whole cgroup at
+ * once (cgroup2, 5.14 on), but a threaded cgroup can't be killed that way,
+ * so its threads are read and each one's process killed, again until the
+ * list is empty, since the list is reread from the start each time and a
+ * process that forked meanwhile would be missed otherwise.
+ */
+
+static void
+lws_spawn_cgroup_kill(const char *cgroup_path)
+{
+	char path[300], buf[4096];
+	int fd, n, rounds = 8;
+
+	lws_snprintf(path, sizeof(path), "%s/cgroup.kill", cgroup_path);
+	fd = lws_open(path, LWS_O_WRONLY);
+	if (fd >= 0) {
+		n = (int)write(fd, "1", 1);
+		close(fd);
+		if (n == 1)
+			return;
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/cgroup.threads", cgroup_path);
+	fd = lws_open(path, LWS_O_RDONLY);
+	if (fd < 0)
+		return;
+
+	do {
+		char *p = buf, *e;
+		int any = 0;
+
+		if (lseek(fd, 0, SEEK_SET) < 0)
+			break;
+		n = (int)read(fd, buf, sizeof(buf) - 1);
+		if (n <= 0)
+			break;
+		buf[n] = '\0';
+
+		while (p < buf + n) {
+			pid_t pid = (pid_t)strtol(p, &e, 10);
+
+			if (e == p)
+				break;
+			if (pid > 0 && !kill(pid, SIGKILL))
+				any = 1;
+			p = e;
+			while (*p == '\n')
+				p++;
+		}
+
+		if (!any)
+			break;
+	} while (--rounds);
+
+	close(fd);
+}
+
+#endif
+
+/*
+ * 1 if he is gone (and, if he had one, his cgroup removed), else 0.  An
+ * orphan with no pid is only a cgroup, left busy by what its child left
+ * running: that was killed, and the dir goes once they have gone.
+ */
 
 static int
 lws_spawn_orphan_collect(lws_spawn_orphan_t *o)
 {
 	int status, n;
+
+#if defined(__linux__)
+	if (o->pid <= 0)
+		return !rmdir(o->cgroup_path) || errno == ENOENT;
+#endif
 
 	n = waitpid(o->pid, &status, WNOHANG);
 	if (!n || (n < 0 && errno == EINTR))
@@ -200,9 +275,24 @@ lws_spawn_orphan_collect(lws_spawn_orphan_t *o)
 		  n > 0 ? "collected" : "was collected elsewhere");
 
 #if defined(__linux__)
-	if (o->cgroup_path[0] && rmdir(o->cgroup_path))
-		lwsl_warn("%s: unable to rmdir cgroup %s, errno %d\n",
-			  __func__, o->cgroup_path, errno);
+	if (o->cgroup_path[0] && rmdir(o->cgroup_path)) {
+		if (errno != EBUSY) {
+			lwsl_warn("%s: unable to rmdir cgroup %s, errno %d\n",
+				  __func__, o->cgroup_path, errno);
+			return 1;
+		}
+
+		/* he left something running in it: it goes, and the dir after */
+		lwsl_notice("%s: orphan %d left processes in %s, killing them\n",
+			    __func__, (int)o->pid, o->cgroup_path);
+		lws_spawn_cgroup_kill(o->cgroup_path);
+		o->pid		= 0;
+		o->killed	= 1;
+		o->since	= lws_now_usecs();
+		o->cgroup_killed = o->since;
+
+		return 0;
+	}
 #endif
 
 	return 1;
@@ -225,6 +315,25 @@ lws_spawn_orphan_cb(lws_sorted_usec_list_t *sul)
 			lws_free(o);
 			continue;
 		}
+
+#if defined(__linux__)
+		if (o->pid <= 0) {
+			/* only a cgroup: what's in it was killed, it should empty */
+			if (now - o->since > LWS_SPAWN_CGROUP_GIVEUP_US) {
+				lwsl_warn("%s: cgroup %s still busy, giving up\n",
+					  __func__, o->cgroup_path);
+				lws_dll2_remove(&o->list);
+				lws_free(o);
+				continue;
+			}
+			if (now - o->cgroup_killed > LWS_SPAWN_ORPHAN_GRACE_US) {
+				/* something forked meanwhile, perhaps */
+				lws_spawn_cgroup_kill(o->cgroup_path);
+				o->cgroup_killed = now;
+			}
+			continue;
+		}
+#endif
 
 		/* still ours, so still safe to signal */
 
@@ -285,6 +394,39 @@ lws_spawn_orphan_adopt(struct lws_spawn_piped *lsp)
 				 &pt->sul_spawn_orphans, lws_spawn_orphan_cb,
 				 LWS_SPAWN_ORPHAN_POLL_US);
 }
+
+#if defined(__linux__)
+
+/*
+ * The child was collected but his cgroup is still busy with what he left
+ * running: that's been killed, and the dir is chased from the orphan list
+ * until they have gone and it can be removed
+ */
+
+static void
+lws_spawn_cgroup_orphan(struct lws_spawn_piped *lsp)
+{
+	struct lws_context *cx = lsp->info.vh->context;
+	struct lws_context_per_thread *pt = &cx->pt[(int)lsp->info.tsi];
+	lws_spawn_orphan_t *o;
+
+	o = lws_zalloc(sizeof(*o), __func__);
+	if (!o)
+		return;
+
+	o->since	= lws_now_usecs();
+	o->cgroup_killed = o->since;
+	o->killed	= 1;
+	lws_strncpy(o->cgroup_path, lsp->cgroup_path, sizeof(o->cgroup_path));
+
+	lws_dll2_add_tail(&o->list, &pt->spawn_orphans);
+	if (!lws_dll2_owner(&pt->sul_spawn_orphans.list))
+		lws_sul_schedule(cx, (int)lsp->info.tsi,
+				 &pt->sul_spawn_orphans, lws_spawn_orphan_cb,
+				 LWS_SPAWN_ORPHAN_POLL_US);
+}
+
+#endif
 
 /*
  * The pt is going: whatever orphans are left are SIGKILLed, and given a
@@ -554,14 +696,24 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 		/*
 		 * The child has been reaped, we can remove the cgroup dir.
-		 * This will only work if the cgroup is empty, which it should
-		 * be now.
+		 * That only works if the cgroup is empty: when he left
+		 * something running in it, a server never waited for, say,
+		 * that goes too, nothing of a step outlives it, and the dir
+		 * is chased until they have gone.
 		 */
-		if (rmdir(lsp->cgroup_path))
+		if (!rmdir(lsp->cgroup_path))
+			lwsl_info("%s: reaped cgroup %s\n", __func__, lsp->cgroup_path);
+		else if (errno == EBUSY) {
+			lwsl_notice("%s: %s left processes in cgroup %s, "
+				    "killing them\n", __func__,
+				    lsp->info.exec_array && lsp->info.exec_array[0] ?
+					lsp->info.exec_array[0] : "child",
+				    lsp->cgroup_path);
+			lws_spawn_cgroup_kill(lsp->cgroup_path);
+			lws_spawn_cgroup_orphan(lsp);
+		} else
 			lwsl_warn("%s: unable to rmdir cgroup %s, errno %d\n",
 				  __func__, lsp->cgroup_path, errno);
-		else
-			lwsl_info("%s: reaped cgroup %s\n", __func__, lsp->cgroup_path);
 	}
 #endif
 
@@ -1001,7 +1153,51 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			lws_snprintf(lsp->cgroup_path, sizeof(lsp->cgroup_path),
 			     "/sys/fs/cgroup%s/%s", self_cg, i->cgroup_name_suffix);
 
-			if (mkdir(lsp->cgroup_path, 0755)) {
+			n = mkdir(lsp->cgroup_path, 0755);
+			if (n && errno == EEXIST) {
+				int tries = 20;
+
+				/*
+				 * Left from before, by an earlier child that
+				 * left something running in it: that goes,
+				 * and after a moment for it to leave, so does
+				 * the dir, so this child gets a clean one
+				 * whose cpu and memory are its own
+				 */
+				lwsl_notice("%s: cgroup %s left from before, "
+					    "clearing it\n", __func__,
+					    lsp->cgroup_path);
+
+				/*
+				 * An orphan still holding this path would
+				 * take the dir, and what this child puts in
+				 * it, for his own leftovers once collected:
+				 * the dir is this child's now.  One that was
+				 * only the dir has nothing left to do.
+				 */
+				lws_start_foreach_dll_safe(struct lws_dll2 *,
+						d, d1, pt->spawn_orphans.head) {
+					lws_spawn_orphan_t *o = lws_container_of(
+						d, lws_spawn_orphan_t, list);
+
+					if (strcmp(o->cgroup_path,
+						   lsp->cgroup_path))
+						continue;
+					if (o->pid > 0) {
+						o->cgroup_path[0] = '\0';
+						continue;
+					}
+					lws_dll2_remove(&o->list);
+					lws_free(o);
+				} lws_end_foreach_dll_safe(d, d1);
+
+				lws_spawn_cgroup_kill(lsp->cgroup_path);
+				while (rmdir(lsp->cgroup_path) &&
+				       errno == EBUSY && tries--)
+					usleep(2000);
+				n = mkdir(lsp->cgroup_path, 0755);
+			}
+			if (n) {
 				lwsl_warn("%s: failed to generate cgroup dir %s: errno %d\n",
 						__func__, lsp->cgroup_path, errno);
 				lsp->cgroup_path[0] = '\0';
