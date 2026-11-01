@@ -250,6 +250,10 @@ kern_check(struct lws_context *cx)
 		}
 
 	lwsl_notice("%s: %d of %d pairs kerned\n", __func__, kerned, 94 * 94);
+	if (!kerned) {
+		lwsl_err("%s: no pairs kerned\n", __func__);
+		fails++;
+	}
 
 	/*
 	 * In this face, LT and YA leave more room between their ink than the
