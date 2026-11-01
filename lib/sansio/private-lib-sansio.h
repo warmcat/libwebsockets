@@ -617,6 +617,19 @@ typedef struct lws * (*lws_rops_encapsulation_parent_t)(struct lws *wsi);
 /* role-specific destructor */
 typedef int (*lws_rops_alpn_negotiated_t)(struct lws *wsi, const char *alpn);
 
+/*
+ * What a client falls back to over tcp, when QUIC didn't work out: the
+ * alpns this build can speak there, and the one it prefers.  Offering h2
+ * without the h2 role lets the server pick a protocol we can't speak.
+ */
+#if defined(LWS_ROLE_H2)
+#define LWS_CLIENT_TCP_ALPNS		"h2,http/1.1"
+#define LWS_CLIENT_TCP_ALPN_PREFERRED	"h2"
+#else
+#define LWS_CLIENT_TCP_ALPNS		"http/1.1"
+#define LWS_CLIENT_TCP_ALPN_PREFERRED	"http/1.1"
+#endif
+
 /* chance for the role to handle close in the protocol */
 typedef int (*lws_rops_close_via_role_protocol_t)(struct lws *wsi,
 						  enum lws_close_status reason);

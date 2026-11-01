@@ -244,7 +244,8 @@ lws_client_transport_failed(struct lws *wsi)
 		/*
 		 * Invalidate any cached h3 ALPN for this host:port so
 		 * the post-reset connect path does not immediately try
-		 * QUIC again.  We write "h2" with a short (60 s) TTL so
+		 * QUIC again.  We write the tcp alpn we prefer with a
+		 * short (60 s) TTL so
 		 * the preference is temporary -- QUIC may work again
 		 * later when transient conditions clear.
 		 */
@@ -254,7 +255,9 @@ lws_client_transport_failed(struct lws *wsi)
 			lws_snprintf(_key, sizeof(_key), "alpn_%s_%u",
 				     ads, wsi->c_port);
 			lws_cache_write_through(wsi->a.context->alpn_cache,
-						_key, (const uint8_t *)"h2", 3,
+					_key, (const uint8_t *)
+					LWS_CLIENT_TCP_ALPN_PREFERRED,
+					sizeof(LWS_CLIENT_TCP_ALPN_PREFERRED),
 						lws_now_usecs() +
 						(60LL * LWS_US_PER_SEC),
 						&_p);
@@ -274,7 +277,7 @@ lws_client_transport_failed(struct lws *wsi)
 						_WSI_TOKEN_CLIENT_ALPN);
 
 			if (!orig || strstr(orig, "h3"))
-				orig = "h2,http/1.1";
+				orig = LWS_CLIENT_TCP_ALPNS;
 
 			lws_strncpy(wsi->alpn, orig,
 				    sizeof(wsi->alpn));
