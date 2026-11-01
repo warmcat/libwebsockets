@@ -194,6 +194,12 @@
    `ctest -j8`.  To reproduce, run CPU burners (`while :; do :; done`
    loops, killed by PID afterwards) and loop the single test binary 30 to
    40 times with logs on disk.  Full-suite reruns rarely hit it.
+ - **A test that times out only on the slow builders** usually has a
+   fixed window around fixed-volume, cpu-bound work.  Pin the test and N
+   burners to one cpu with `taskset -c 3` to give it 1/(N+1) of a cpu:
+   with 3 - 5 burners api-test-ws-server-examples ran like the riscv64
+   builder carrying five jobs, the fixed-volume phases 5 - 15x slower and
+   the fixed waits unchanged, which shows which window gives out next.
  - **Single-stack builds** (`-DLWS_IPV4=OFF` / `-DLWS_IPV6=OFF`) make
    `LWS_CTEST_SERVER_RESOLVE` the literal `::1` / `127.0.0.1` instead of
    `localhost`.  The local test certs therefore carry
@@ -285,10 +291,10 @@
    limits new sources per host (`lws_dht_admit_request()`, loopback
    included), so api-test-dht-seq-flood needs several real source hosts
    and still skips without them.
- - **api-test-auth-dns-zonedir's clock starts before the context is
-   created** and a phase allows only 2s for replies, so a slow zone-dir
-   read at init fails it under load (G-509): start the reply window when
-   the queries are sent.
+ - **Start a reply window when the request is sent**, not before the
+   context is created: on the loaded riscv64 builder, creating a context
+   alone took 2s, all of api-test-auth-dns-zonedir's reply window, so it
+   judged its queries in the tick that sent them (G-509).
  - **`lws_cmdline_option()` matching (since G-622)**: switches longer than
    one letter match only `--name`, `--name=value` or `--name <value>`; only
    a single-letter switch takes a glued value (`-d15`), so a single-letter
