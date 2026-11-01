@@ -351,6 +351,11 @@
  - **api-test-iface-bind only builds with `LWS_WITH_SYS_FAULT_INJECTION=1`.**
  - **api-test-async-dns only builds with `LWS_WITH_AUTHORITATIVE_DNS=1`**:
    a default ASan tree silently has no async-dns ctest.
+ - **api-test-async-dns needs the build dir directly under the source
+   root**: its `lws-api-test-dns-server` fixture loads its zones from
+   `../minimal-examples-lowlevel/api-tests/api-test-dns-server/zones-api-test/`
+   relative to the build dir, so from a build dir elsewhere (eg, for a
+   worktree) the server answers nothing and the subtests time out.
  - **api-test-vhost-listener-scope by hand needs `--cert` / `--key`** (the
    api-test-ws-close certs): without them it exits 0 having tested
    nothing.
