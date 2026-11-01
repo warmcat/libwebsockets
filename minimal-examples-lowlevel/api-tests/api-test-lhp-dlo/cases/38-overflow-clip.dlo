@@ -1,0 +1,16 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [100.0 x 20.0] rgba=FFEEEEEE clip
+  rect (0.0,-10.0) [100.0 x 30.0] rgba=00000000
+   rect (0.0,0.0) [100.0 x 10.0] rgba=FF0000FF
+   rect (0.0,10.0) [100.0 x 10.0] rgba=FF0000FF
+   rect (0.0,20.0) [100.0 x 10.0] rgba=FF0000FF
+ rect (0.0,20.0) [100.0 x 20.0] rgba=00000000 clip
+  rect (50.0,15.0) [80.0 x 20.0] rgba=FF00FF00
+ rect (0.0,40.0) [100.0 x 20.0] rgba=FFEEEEEE clip
+ rect (0.0,60.0) [50.0 x 10.0] rgba=00000000 clip
+ rect (0.0,70.0) [50.0 x 10.0] rgba=00000000 clip
+ rect (0.0,80.0) [50.0 x 10.0] rgba=00000000
+ rect (0.0,90.0) [400.0 x 300.0] rgba=00000000
+ rect (0.0,120.0) [400.0 x 19.0] rgba=00000000
+  text (0.0,0.0) [110.0 x 19.0] rgba=FF000000 f=17/400 "moved up into view"
+ rect (50.0,55.0) [80.0 x 20.0] rgba=FF00FF00

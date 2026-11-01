@@ -432,6 +432,8 @@ dump_dlo(dump_t *f, lws_dlo_t *dlo, int depth)
 		/* what the dlo and its children are composed with */
 		if (dlo->opacity_inv)
 			dump_printf(f, " alpha=%u", 255u - dlo->opacity_inv);
+		if (dlo->flag_clip)
+			dump_raw(f, " clip", 5);
 		dump_raw(f, "\n", 1);
 
 		if (lws_dll2_get_head(&dlo->children))

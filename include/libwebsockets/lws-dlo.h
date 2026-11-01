@@ -159,6 +159,11 @@ typedef struct lws_dlo {
 						   * (layout) */
 	uint8_t				flag_fixed_h:1; /* has a css height: not
 						 * stretched (layout) */
+	uint8_t				flag_clip:1; /* css overflow hidden:
+						 * our children are clipped to
+						 * our box */
+	uint8_t				flag_positioned:1; /* css position other
+						 * than static (layout) */
 	uint8_t				flag_abs_stretch:1; /* waiting on abut_y
 						 * to stretch between top and
 						 * bottom, box.h meanwhile the
@@ -426,6 +431,8 @@ typedef struct lws_dl_rend {
 typedef struct lws_display_render_stack {
 	lws_dlo_t			*dlo;	/* position in dlo owner */
 	lws_box_t			co;	/* our origin as parent */
+	int32_t				clip[4]; /* surface x0, y0, x1, y1
+						  * our children are clipped to */
 	uint8_t				opacity; /* alpha our children are
 						  * composed with, 255 = opaque */
 } lws_display_render_stack_t;
@@ -458,6 +465,9 @@ typedef struct lws_display_render_state {
 	int				sp;	/* DLO child stack level */
 
 	uint8_t				*line; /* Y or RGB line comp buffer */
+	int32_t				clip_x0; /* the dlo being rendered */
+	int32_t				clip_x1; /* only composes pixels from
+						  * x0 up to x1 on this line */
 	uint8_t				opacity; /* alpha the dlo being
 						  * rendered is composed with,
 						  * 255 = opaque: see
@@ -585,7 +595,8 @@ lws_display_list_render_line(lws_display_render_state_t *rs);
  *
  * Dlo renderers compose their pixels into rs->line with this rather than
  * lws_surface_set_px(), so that what the layout said about how the dlo and
- * its ancestors are composed, such as css opacity, is applied to them
+ * its ancestors are composed, such as css opacity and clipping by an
+ * ancestor with css overflow: hidden, is applied to them
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_display_render_set_px(lws_display_render_state_t *rs, int x,

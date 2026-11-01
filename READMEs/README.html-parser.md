@@ -51,6 +51,13 @@ JPEG and PNG images and express all UI in html/css.
    composed opaquely and then blended, so where its children overlap the
    lower one shows through the upper one.  A box with opacity is a stacking
    context for its positioned descendants, as in css
+ - css `overflow` other than `visible` clips what is inside an element to its
+   box (nothing scrolls, so `auto` and `scroll` are the same as `hidden`).
+   With `position: relative` and a `top` offset on what is inside, a fixed
+   window can show any part of a longer list: what is outside the window is
+   not drawn.  Absolutely positioned descendants of an `overflow: hidden`
+   box that is not itself positioned are not clipped by it, which is right
+   unless their containing block is a positioned box inside it
  - HTML element ID names that the user code cares about can be given, these are
    found during parse and layout information for the elements kept
  - Rendering is very flexible and lightweight, supports Y (8-) or RGB (24-) bit

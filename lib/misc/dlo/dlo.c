@@ -361,6 +361,9 @@ lws_display_render_set_px(lws_display_render_state_t *rs, int x,
 {
 	lws_display_colour_t oc;
 
+	if (x < rs->clip_x0 || x >= rs->clip_x1)
+		return;
+
 	if (rs->opacity == 255) {
 		lws_surface_set_px(rs->ic, rs->line, x, c);
 		return;
@@ -383,6 +386,59 @@ static uint8_t
 dlo_opacity(const lws_display_render_stack_t *st, const lws_dlo_t *dlo)
 {
 	return (uint8_t)((st->opacity * (255u - dlo->opacity_inv) + 127) / 255);
+}
+
+/*
+ * A dlo is clipped to what its ancestors with css overflow: hidden clip their
+ * children to, st->clip.  On a line outside that, it composes nothing.  The
+ * renderer is still called, since decoders keep their place by the lines they
+ * are given, and the box may extend into the clip further down
+ */
+
+static void
+dlo_clip_line(lws_display_render_state_t *rs,
+	      const lws_display_render_stack_t *st)
+{
+	if (rs->curr < st->clip[1] || rs->curr >= st->clip[3]) {
+		rs->clip_x0 = rs->clip_x1 = 0;
+		return;
+	}
+
+	rs->clip_x0 = st->clip[0];
+	rs->clip_x1 = st->clip[2];
+}
+
+/*
+ * What the children of dlo, whose surface box is co, are clipped to: its
+ * box, if it has css overflow: hidden, inside what it is clipped to itself
+ */
+
+static void
+dlo_child_clip(const lws_display_render_stack_t *st, const lws_dlo_t *dlo,
+	       const lws_box_t *co, int32_t *clip)
+{
+	lws_fx_t t;
+	int32_t e;
+
+	memcpy(clip, st->clip, sizeof(st->clip));
+
+	if (!dlo->flag_clip)
+		return;
+
+	if (co->x.whole > clip[0])
+		clip[0] = co->x.whole;
+	if (co->y.whole > clip[1])
+		clip[1] = co->y.whole;
+
+	lws_fx_add(&t, &co->x, &co->w);
+	e = lws_fx_roundup(&t);
+	if (e < clip[2])
+		clip[2] = e;
+
+	lws_fx_add(&t, &co->y, &co->h);
+	e = lws_fx_roundup(&t);
+	if (e < clip[3])
+		clip[3] = e;
 }
 
 /*
@@ -497,6 +553,8 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 	//				(rs->ic->greyscale ? 1 : 3));
 		memset(&rs->st[0].co, 0, sizeof(rs->st[0].co));
 		rs->st[0].opacity = 255;
+		rs->st[0].clip[0] = rs->st[0].clip[1] = INT32_MIN;
+		rs->st[0].clip[2] = rs->st[0].clip[3] = INT32_MAX;
 		rs->st[0].dlo = lws_container_of(d, lws_dlo_t, list);
 	}
 
@@ -551,6 +609,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 		if (rs->curr >= co.y.whole - 1) {
 
 			rs->opacity = dlo_opacity(&rs->st[rs->sp], dlo);
+			dlo_clip_line(rs, &rs->st[rs->sp]);
 			r = dlo->render(rs);
 
 			//rs->ic, dlo, &rs->st[rs->sp].co,
@@ -578,6 +637,8 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 					return LWS_SRET_FATAL;
 				}
 				rs->st[rs->sp + 1].opacity = rs->opacity;
+				dlo_child_clip(&rs->st[rs->sp], dlo, &co,
+					       rs->st[rs->sp + 1].clip);
 				rs->st[++rs->sp].dlo = lws_container_of(
 					lws_dll2_get_head(&dlo->children), lws_dlo_t, list);
 				rs->st[rs->sp].co = co;

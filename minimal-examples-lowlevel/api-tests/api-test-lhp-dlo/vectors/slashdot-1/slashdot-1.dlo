@@ -52,7 +52,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
    hit (180.0,5.0) [54.0 x 19.0] pointer "vector:/missing/www.facebook.com/pages/Slashdotorg/267995220856"
    text (180.0,5.0) [54.0 x 19.0] rgba=FF666600 f=17/400 "Facebook"
   rect (0.0,29.0) [768.0 x 100.0] rgba=00000000
-   rect (0.0,10.0) [768.0 x 90.0] rgba=00000000
+   rect (0.0,10.0) [768.0 x 90.0] rgba=00000000 clip
   rect (0.0,139.0) [768.0 x 2266.6] rgba=00000000
    rect (0.0,0.0) [768.0 x 2266.6] rgba=00000000
     rect (0.0,0.0) [448.0 x 2256.6] rgba=00000000
@@ -326,24 +326,24 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
       text (5.0,3.0) [16.0 x 14.0] rgba=FFFFFFFF f=12/400 "YRO"
       hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/yro.slashdot.org"
  rect (16.0,131.0) [0.0 x 0.0] rgba=00000000
- rect (373.59199998,233.0) [0.0 x 40.0] rgba=00000000
+ rect (373.59199998,233.0) [0.0 x 40.0] rgba=00000000 clip
  rect (386.59199998,233.0) [45.0 x 32.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
   hit (19.5,6.5) [6.0 x 19.0] pointer "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing#comments"
   text (19.5,6.5) [6.0 x 19.0] rgba=FFFFFFFF f=17/700 "2"
   rect (13.0,32.0) [8.0 x 8.0] rgba=FF29231E
- rect (69.40799999,306.0) [341.0 x 20.0] rgba=00000000
+ rect (69.40799999,306.0) [341.0 x 20.0] rgba=00000000 clip
   text (10.0,3.19999999) [109.0 x 16.0] rgba=FF4D4D4D f=14/400 "Posted by EditorDavid "
   text (119.0,3.19999999) [196.0 x 16.0] rgba=FF4D4D4D f=14/400 "on Sunday December 21, 2025 @12:34AM"
   text (315.0,3.19999999) [26.0 x 16.0] rgba=FF4D4D4D f=14/400 " from "
   text (10.0,25.59999999) [19.0 x 16.0] rgba=FF4D4D4D f=14/400 "the "
   text (29.0,25.59999999) [88.0 x 16.0] rgba=FF4D4D4D f=14/400 "Rust-never-sleeps"
   text (117.0,25.59999999) [31.0 x 16.0] rgba=FF4D4D4D f=14/400 " dept. "
- rect (373.59199998,1277.4) [0.0 x 40.0] rgba=00000000
+ rect (373.59199998,1277.4) [0.0 x 40.0] rgba=00000000 clip
  rect (386.59199998,1277.4) [45.0 x 32.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
   hit (15.5,6.5) [14.0 x 19.0] pointer "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data#comments"
   text (15.5,6.5) [14.0 x 19.0] rgba=FFFFFFFF f=17/700 "35"
   rect (13.0,32.0) [8.0 x 8.0] rgba=FF29231E
- rect (69.40799999,1326.4) [339.0 x 20.0] rgba=00000000
+ rect (69.40799999,1326.4) [339.0 x 20.0] rgba=00000000 clip
   text (10.0,2.69999999) [50.0 x 16.0] rgba=FF4D4D4D f=14/400 "Posted by "
   hit (60.0,2.69999999) [39.0 x 17.0] pointer "vector:/missing/www.linkedin.com/in/beauhd/"
   text (60.0,2.69999999) [39.0 x 17.0] rgba=FF333333 f=14/700 "BeauHD"
@@ -351,15 +351,15 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   text (291.0,2.69999999) [48.0 x 16.0] rgba=FF4D4D4D f=14/400 " from the "
   text (10.0,25.59999999) [78.0 x 16.0] rgba=FF4D4D4D f=14/400 "serping-up-data"
   text (88.0,25.59999999) [31.0 x 16.0] rgba=FF4D4D4D f=14/400 " dept. "
- rect (373.59199998,1974.8) [0.0 x 40.0] rgba=00000000
+ rect (373.59199998,1974.8) [0.0 x 40.0] rgba=00000000 clip
  rect (386.59199998,1974.8) [45.0 x 0.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
   rect (13.0,0.0) [8.0 x 8.0] rgba=FF29231E
- rect (69.40799999,1999.8) [10.0 x 20.0] rgba=00000000
- rect (373.59199998,2173.2) [0.0 x 40.0] rgba=00000000
+ rect (69.40799999,1999.8) [10.0 x 20.0] rgba=00000000 clip
+ rect (373.59199998,2173.2) [0.0 x 40.0] rgba=00000000 clip
  rect (386.59199998,2173.2) [45.0 x 0.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
   rect (13.0,0.0) [8.0 x 8.0] rgba=FF29231E
- rect (69.40799999,2198.2) [10.0 x 20.0] rgba=00000000
- rect (464.0,221.0) [320.0 x 1480.0] rgba=00000000
+ rect (69.40799999,2198.2) [10.0 x 20.0] rgba=00000000 clip
+ rect (464.0,221.0) [320.0 x 1480.0] rgba=00000000 clip
   rect (10.0,0.0) [300.0 x 20.0] rgba=00000000
    rect (0.0,0.0) [300.0 x 0.0] rgba=00000000
   rect (10.0,40.0) [300.0 x 0.0] rgba=00000000
@@ -368,7 +368,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
     rect (0.0,0.0) [300.0 x 19.0] rgba=00000000
      hit (0.0,0.0) [86.0 x 19.0] pointer "vector:/missing/deals.slashdot.org/"
      text (0.0,0.0) [86.0 x 19.0] rgba=FFFFFFFF f=17/700 "Slashdot Deals"
-   rect (0.0,19.0) [298.0 x 250.0] rgba=00000000
+   rect (0.0,19.0) [298.0 x 250.0] rgba=00000000 clip
     rect (0.0,0.0) [300.0 x 250.0] rgba=00000000
   rect (10.0,329.0) [300.0 x 20.0] rgba=00000000
    rect (0.0,0.0) [300.0 x 0.0] rgba=00000000
@@ -378,9 +378,9 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
      text (0.0,0.0) [77.0 x 19.0] rgba=FFFFFFFF f=17/700 "Slashdot Poll"
    rect (0.0,19.0) [298.0 x 557.0] rgba=00000000
     rect (22.0,10.0) [127.0 x 537.0] rgba=00000000
-     rect (26.0,10.0) [81.0 x 19.0] rgba=00000000
+     rect (26.0,10.0) [81.0 x 19.0] rgba=00000000 clip
       text (0.0,0.0) [154.0 x 19.0] rgba=FF7D7D7D f=17/400 "When will AGI be achieved?"
-     rect (26.0,39.0) [81.0 x 0.0] rgba=00000000
+     rect (26.0,39.0) [81.0 x 0.0] rgba=00000000 clip
      rect (20.0,49.0) [87.0 x 488.0] rgba=00000000
       rect (0.0,79.0) [0.0 x 16.0] rgba=00000000
       rect (0.0,79.0) [0.0 x 16.0] rgba=00000000
@@ -501,19 +501,19 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
     rect (0.0,0.0) [300.0 x 0.0] rgba=00000000
    rect (0.0,0.0) [298.0 x 135.0] rgba=00000000
     rect (22.0,20.0) [254.0 x 50.0] rgba=00000000
-     rect (0.0,0.0) [254.0 x 10.0] rgba=00000000
+     rect (0.0,0.0) [254.0 x 10.0] rgba=00000000 clip
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
-     rect (0.0,10.0) [254.0 x 10.0] rgba=00000000
+     rect (0.0,10.0) [254.0 x 10.0] rgba=00000000 clip
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
-     rect (0.0,20.0) [254.0 x 10.0] rgba=00000000
+     rect (0.0,20.0) [254.0 x 10.0] rgba=00000000 clip
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
-     rect (0.0,30.0) [254.0 x 10.0] rgba=00000000
+     rect (0.0,30.0) [254.0 x 10.0] rgba=00000000 clip
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
-     rect (0.0,40.0) [254.0 x 10.0] rgba=00000000
+     rect (0.0,40.0) [254.0 x 10.0] rgba=00000000 clip
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
     rect (22.0,80.0) [254.0 x 45.0] rgba=00000000

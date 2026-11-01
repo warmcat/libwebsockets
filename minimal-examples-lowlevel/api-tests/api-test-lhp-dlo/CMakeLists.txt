@@ -343,6 +343,18 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 		endif()
 
+		# a list moved up inside an overflow: hidden window shows just
+		# what is in the window, as the same rows laid out there would,
+		# including text laid out below the surface before the move
+		add_test(NAME api-test-lhp-dlo-overflow-clip-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/overflow-clip.html
+				-DHTML_B=${CMAKE_CURRENT_SOURCE_DIR}/overflow-clip-twin.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/overflow-clip
+				-DW=100 -DH=40
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
 		# css opacity on a block reaches the pixels of everything inside
 		# it: the same as the opacity given to each of its children
 		if (LWS_WITH_SVG)

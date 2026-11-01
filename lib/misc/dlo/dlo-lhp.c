@@ -2531,6 +2531,19 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	ps->dlo->flag_abs = ps->is_abs;
 	ps->dlo->flag_float = ps->is_float;
 	ps->dlo->opacity_inv = lhp_opacity_inv(ps, ps->is_abs && psa ? psa : c);
+	{
+		/*
+		 * overflow other than visible clips what is inside us to our
+		 * box: nothing scrolls here, so auto and scroll are the same
+		 */
+		const lcsp_atr_t *ov = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_OVERFLOW);
+
+		ps->dlo->flag_clip = ov && ov->unit == LCSP_UNIT_NONE &&
+				     (ov->propval == LCSP_PROPVAL_HIDDEN ||
+				      ov->propval == LCSP_PROPVAL_SCROLL ||
+				      ov->propval == LCSP_PROPVAL_AUTO);
+	}
 	if (ps->is_flex_item) {
 		const lcsp_atr_t *as = lws_css_get_prop_atr_ps(ctx, ps,
 							LCSP_PROP_ALIGN_SELF);
@@ -2541,6 +2554,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		if (as && as->unit == LCSP_UNIT_NONE)
 			ps->dlo->align_self = (uint8_t)as->propval;
 	}
+	ps->dlo->flag_positioned = pos != LCSP_PROPVAL_STATIC;
 	if (pos != LCSP_PROPVAL_STATIC) {
 		/* a positive z-index paints it above later siblings */
 		const lcsp_atr_t *zi = lws_css_get_prop_atr_ps(ctx, ps,
@@ -2595,6 +2609,16 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		ps->abs_y = lhp_abs_y(psa ? psa->abs_y : 0, box.y.whole);
 	else
 		ps->abs_y = lhp_abs_y(c ? c->abs_y : 0, box.y.whole);
+
+	/*
+	 * position: relative moves where we paint by its top offset once we
+	 * are placed (lhp_relative_offset()): content of ours that would be
+	 * laid out below the surface may be moved up into view by it
+	 */
+	if (pos == LCSP_PROPVAL_RELATIVE && ps->css_pos[CCPAS_TOP] &&
+	    ps->css_pos[CCPAS_TOP]->unit != LCSP_UNIT_NONE)
+		ps->abs_y = lhp_abs_y(ps->abs_y,
+			lhp_len(ps, ps->css_pos[CCPAS_TOP], &base).whole);
 
 	if (type == LHP_BOX_LIST_ITEM)
 		lhp_list_marker(ctx, ps, drt);
@@ -3053,7 +3077,12 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
  * those are raised to the end of its children, not the body's, so a
  * z-index: 1 footer paints under its z-index: 1 breadcrumbs rather than
  * over them.  So is a box with css opacity, where it is: its positioned
- * descendants stay inside it and are composed at its opacity.
+ * descendants stay inside it and are composed at its opacity.  And a
+ * positioned box with css overflow: hidden, whose positioned descendants
+ * stay inside it to be clipped by it.  Those of an overflow: hidden box that
+ * is not positioned are raised out of it, unclipped, which is right for
+ * those whose containing block is outside it, but not for any whose
+ * containing block is a positioned box inside it.
  */
 
 static void
@@ -3077,8 +3106,14 @@ lhp_collect_positioned(lws_dlo_t *parent, const lws_fx_t *ox,
 			dlo->box.x = cx;
 			dlo->box.y = cy;
 			lws_dll2_add_tail(d, raised);
-		} else if (dlo->opacity_inv)
-			/* css opacity makes a stacking context in place */
+		} else if (dlo->opacity_inv ||
+			   (dlo->flag_clip && dlo->flag_positioned))
+			/*
+			 * css opacity makes a stacking context in place.  A
+			 * positioned box with overflow hidden is the
+			 * containing block of the absolute boxes hanging from
+			 * it, which it clips, so they must stay inside it
+			 */
 			lhp_raise_positioned(dlo);
 		else
 			lhp_collect_positioned(dlo, &cx, &cy, raised);

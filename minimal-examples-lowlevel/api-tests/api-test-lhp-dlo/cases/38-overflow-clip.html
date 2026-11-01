@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><style>
+* { margin: 0; padding: 0 }
+body { margin: 0 }
+.win { overflow: hidden; width: 100px; height: 20px; background-color: #eeeeee }
+.list { position: relative; top: -10px }
+.row { height: 10px; background-color: #ff0000 }
+.pwin { position: relative; overflow: hidden; width: 100px; height: 20px }
+.abs { position: absolute; left: 50px; top: 15px; width: 80px; height: 20px; background-color: #00ff00 }
+.scroll { overflow: scroll; width: 50px; height: 10px }
+.auto { overflow: auto; width: 50px; height: 10px }
+.visible { overflow: visible; width: 50px; height: 10px }
+.tall { height: 300px }
+.up { position: relative; top: -270px }
+</style></head>
+<body>
+<div class="win"><div class="list"><div class="row"></div><div class="row"></div><div class="row"></div></div></div>
+<div class="pwin"><div class="abs"></div></div>
+<div class="win"><div class="abs"></div></div>
+<div class="scroll"></div>
+<div class="auto"></div>
+<div class="visible"></div>
+<div class="tall"></div>
+<div class="up">moved up into view</div>
+</body></html>
