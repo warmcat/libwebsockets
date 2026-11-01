@@ -299,6 +299,27 @@ int main(int argc, const char **argv)
 			goto bail;
 		}
 		legs[n].port = lws_get_vhost_listen_port(legs[n].vh);
+
+		/*
+		 * The kernel picks ports per address, so ::1 can be given
+		 * the port 127.0.0.1 already has.  Then a client starting on
+		 * the other family's address would find the other leg's
+		 * server there instead of being refused.  Keep the clashing
+		 * listener while asking for another port, so the kernel
+		 * can't hand back the same one, then drop it.
+		 */
+		while (n && legs[n].port == legs[0].port) {
+			struct lws_vhost *clash = legs[n].vh;
+
+			legs[n].vh = lws_create_vhost(cx, &info);
+			lws_vhost_destroy(clash);
+			if (!legs[n].vh) {
+				lwsl_err("Failed to recreate vhost %s\n",
+					 legs[n].iface);
+				goto bail;
+			}
+			legs[n].port = lws_get_vhost_listen_port(legs[n].vh);
+		}
 	}
 	info.iface = NULL;
 
