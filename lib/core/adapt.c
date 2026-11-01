@@ -28,6 +28,7 @@ struct lws_adapt_level {
 	uint64_t ewma_short; /* generic tracker (e.g., latency, or 0-10000 score) */
 	uint64_t ewma_long;
 	lws_usec_t last_update;
+	uint8_t val_primed; /* lws_adapt_report_val() has had a value */
 };
 
 struct lws_adapt {
@@ -178,8 +179,15 @@ lws_adapt_report_val(struct lws_adapt *a, uint64_t val, lws_usec_t us)
 
 	struct lws_adapt_level *l = &a->levels[a->active_level];
 
-	if (l->last_update == 0 || us < l->last_update) {
+	/*
+	 * The first value is taken as it is: what create() left in the
+	 * trackers is a success score, which means nothing as a value, and
+	 * last_update is already set by then, so it can't tell us this is the
+	 * first one
+	 */
+	if (!l->val_primed || us < l->last_update) {
 		/* Initial prime */
+		l->val_primed = 1;
 		l->ewma_short = val;
 		l->ewma_long = val;
 		l->last_update = us;
