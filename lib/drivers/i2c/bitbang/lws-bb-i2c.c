@@ -31,8 +31,16 @@ lws_bb_i2c_init(const lws_i2c_ops_t *octx)
 {
 	lws_bb_i2c_t *ctx = (lws_bb_i2c_t *)octx;
 
-	ctx->gpio->mode(ctx->scl, LWSGGPIO_FL_WRITE | LWSGGPIO_FL_READ | LWSGGPIO_FL_PULLUP);
-	ctx->gpio->mode(ctx->sda, LWSGGPIO_FL_WRITE | LWSGGPIO_FL_READ | LWSGGPIO_FL_PULLUP);
+	/*
+	 * i2c lines are only ever pulled low: the peripheral has to be able
+	 * to pull SDA low to ACK and send data, and SCL to stretch the clock,
+	 * while we have "set" them to 1
+	 */
+
+	ctx->gpio->mode(ctx->scl, LWSGGPIO_FL_WRITE | LWSGGPIO_FL_READ |
+				  LWSGGPIO_FL_OPEN_DRAIN | LWSGGPIO_FL_PULLUP);
+	ctx->gpio->mode(ctx->sda, LWSGGPIO_FL_WRITE | LWSGGPIO_FL_READ |
+				  LWSGGPIO_FL_OPEN_DRAIN | LWSGGPIO_FL_PULLUP);
 
 	return 0;
 }

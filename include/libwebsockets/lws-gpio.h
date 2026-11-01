@@ -45,6 +45,10 @@ enum {
 	LWSGGPIO_FL_PULLUP			= (1 << 2),
 	LWSGGPIO_FL_PULLDOWN			= (1 << 3),
 	LWSGGPIO_FL_START_LOW			= (1 << 4),
+	LWSGGPIO_FL_OPEN_DRAIN			= (1 << 5),
+	/**< with LWSGGPIO_FL_WRITE, setting it to 1 releases the line rather
+	 * than driving it, so others on it, eg, an i2c peripheral, can drive
+	 * it low */
 };
 
 typedef void (*lws_gpio_irq_cb_t)(void *arg);
