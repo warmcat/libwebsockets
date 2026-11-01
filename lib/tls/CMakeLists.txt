@@ -158,9 +158,20 @@ if (LWS_WITH_SSL)
 		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${MBEDTLS_INCLUDE_DIRS})
 		set(CMAKE_REQUIRED_LIBRARIES_TEMP ${CMAKE_REQUIRED_LIBRARIES})
 		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${MBEDTLS_LIBRARIES})
+		# On ESP-IDF, the probes can't link: mbedtls is a component IDF
+		# links into the firmware itself.  Being declared is what tells
+		# us the api is there, since an undeclared function is an
+		# error, so compile them only
+		if (ESP_PLATFORM)
+			set(_lws_tctt ${CMAKE_TRY_COMPILE_TARGET_TYPE})
+			set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+		endif()
 		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_export_keys_cb; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_export_keys_cb)
 		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_conf_export_keys_cb; return !!v; }\n" LWS_HAVE_mbedtls_ssl_conf_export_keys_cb)
 		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_quic_transport_ops; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_quic_transport_ops)
+		if (ESP_PLATFORM)
+			set(CMAKE_TRY_COMPILE_TARGET_TYPE ${_lws_tctt})
+		endif()
 		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES_TEMP})
 		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES_TEMP})
 

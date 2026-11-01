@@ -41,6 +41,18 @@ set(LWS_LIB_BUILD_INC_PATHS_TEMP "")
 if (LWS_PLAT_FREERTOS)
 	add_subdir_include_dirs(plat/freertos)
 	if (ESP_PLATFORM)
+		# The mbedtls component the firmware is built with: a project
+		# may provide its own in place of IDF's, eg, one patched for
+		# QUIC, through EXTRA_COMPONENT_DIRS
+		set(_lws_mbedtls $ENV{IDF_PATH}/components/mbedtls)
+		if (TARGET idf::mbedtls)
+			idf_component_get_property(_lws_mbedtls_cd mbedtls
+						   COMPONENT_DIR)
+			if (_lws_mbedtls_cd)
+				set(_lws_mbedtls ${_lws_mbedtls_cd})
+			endif()
+		endif()
+
 		list(APPEND LWS_ESP_IDF_DIRS
 		    $ENV{IDF_PATH}/components/freertos/include
 		    $ENV{IDF_PATH}/components/esp_hw_support/include/soc/
@@ -57,8 +69,8 @@ if (LWS_PLAT_FREERTOS)
 		    $ENV{IDF_PATH}/components/lwip/include/apps/sntp
 		    $ENV{IDF_PATH}/components/soc/soc/esp32/include
 		    $ENV{IDF_PATH}/components/heap/include
-		    $ENV{IDF_PATH}/components/mbedtls/mbedtls/include
-		    $ENV{IDF_PATH}/components/mbedtls/port/include
+		    ${_lws_mbedtls}/mbedtls/include
+		    ${_lws_mbedtls}/port/include
 		    $ENV{IDF_PATH}/components/esp_wifi/include
 		    $ENV{IDF_PATH}/components/esp_event/include
 		    $ENV{IDF_PATH}/components/esp_netif/include
@@ -95,7 +107,7 @@ if (LWS_PLAT_FREERTOS)
 		# mbedtls 4 (IDF v6) keeps the crypto headers, platform_util.h
 		# among them, in the TF-PSA-Crypto submodule.  Needed here so
 		# the configure-time header checks below can see them.
-		set(_lws_tfpsa $ENV{IDF_PATH}/components/mbedtls/mbedtls/tf-psa-crypto)
+		set(_lws_tfpsa ${_lws_mbedtls}/mbedtls/tf-psa-crypto)
 		if (EXISTS ${_lws_tfpsa})
 			list(APPEND LWS_ESP_IDF_DIRS
 			    ${_lws_tfpsa}/include
@@ -105,6 +117,23 @@ if (LWS_PLAT_FREERTOS)
 		    include_directories(${LWS_ESP_IDF_DIRS})
 
 		    list(APPEND CMAKE_REQUIRED_INCLUDES ${LWS_ESP_IDF_DIRS})
+
+		# The configure-time probes must see the mbedtls configuration
+		# the firmware is built with (MBEDTLS_CONFIG_FILE and friends),
+		# not the default one in the mbedtls tree
+		if (TARGET idf::mbedtls)
+			get_target_property(_lws_mbd idf::mbedtls
+					    INTERFACE_COMPILE_DEFINITIONS)
+			if (_lws_mbd)
+				foreach(_d ${_lws_mbd})
+					if (NOT _d MATCHES "\\$<")
+						list(APPEND
+						     CMAKE_REQUIRED_DEFINITIONS
+						     "-D${_d}")
+					endif()
+				endforeach()
+			endif()
+		endif()
 
 	endif()
 
