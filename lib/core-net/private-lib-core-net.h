@@ -347,6 +347,7 @@ typedef struct lws_async_dns_server {
 	time_t			time_set_server;
 	uint8_t			seen:1;
 	uint8_t			pinned:1;
+	uint8_t			rtt_known:1; /* adapt has had an rtt */
 } lws_async_dns_server_t;
 
 /*
