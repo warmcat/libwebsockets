@@ -122,6 +122,9 @@ lws_adns_sock_lost_wsi(lws_adns_sock_t *s)
 }
 
 static void
+lws_adns_sock_lost(struct lws_context *cx, lws_adns_sock_t *s);
+
+static void
 lws_adns_sock_unuse(lws_adns_sock_t *s)
 {
 	assert(s->users);
@@ -147,7 +150,7 @@ lws_async_dns_wsi_closing(struct lws *wsi)
 			s->closed_adopting = 1;
 		else
 			if (s->wsi == wsi)
-				lws_adns_sock_lost_wsi(s);
+				lws_adns_sock_lost(cx, s);
 	}
 
 	lws_context_unlock(cx); /* } cx */
@@ -289,14 +292,91 @@ lws_adns_q_socks_release(lws_adns_q_t *q)
 	}
 }
 
+static lws_adns_sock_t *
+lws_adns_q_sock(lws_adns_q_t *q)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(&q->socks);
+
+	return d ? lws_container_of(d, lws_adns_qsock_t, list)->sock : NULL;
+}
+
+/*
+ * q's first socket is the one it is writeable on, and q->dsrv is its
+ * nameserver.  If that socket is gone, eg, a send on it failed or the
+ * nameserver refused it, make the first of q's sockets that still works
+ * the first one, and its nameserver q's.  The others' ports are kept, so the
+ * answers already on their way to them are still taken.
+ *
+ * Returns nonzero if q has no working socket.
+ */
+
+static int
+lws_adns_q_promote(lws_adns_q_t *q)
+{
+	lws_adns_sock_t *s = lws_adns_q_sock(q);
+
+	if (s && s->wsi)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&q->socks)) {
+		s = lws_container_of(d, lws_adns_qsock_t, list)->sock;
+
+		if (s->wsi && s->dsrv) {
+			lws_dll2_remove(d);
+			lws_dll2_add_head(d, &q->socks);
+			q->dsrv = s->dsrv;
+
+			return 0;
+		}
+	} lws_end_foreach_dll(d);
+
+	return 1;
+}
+
+/*
+ * s's wsi is closing by itself, eg, the nameserver refused what we sent it.
+ * The queries it was the first socket of ask from another of theirs at once,
+ * if they have one, rather than at their next retry: eg, an AAAA question
+ * still to go after the A is otherwise held up until then.  Others take a
+ * new socket at their next retry.
+ */
+
+static void
+lws_adns_sock_lost(struct lws_context *cx, lws_adns_sock_t *s)
+{
+	unsigned int users = s->users;
+
+	lws_adns_sock_lost_wsi(s); /* s is gone if it had no users */
+
+	if (!users || cx->being_destroyed)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->async_dns.waiting)) {
+		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
+
+		if (!q->is_tcp && !lws_adns_q_wsi(q) &&
+		    !lws_adns_q_promote(q))
+			lws_callback_on_writable(lws_adns_q_wsi(q));
+	} lws_end_foreach_dll(d);
+}
+
 int
 lws_adns_q_socks_bind(lws_adns_q_t *q)
 {
 	lws_adns_q_socks_release(q);
 
-	/* the first is to q->dsrv: the one we are writeable on */
+	if (!q->dsrv)
+		return 1;
 
-	if (!q->dsrv || lws_adns_q_sock_add(q, q->dsrv))
+	/*
+	 * The first is to q->dsrv: the one we are writeable on.  A query
+	 * raced to every nameserver can do without one it can't have a socket
+	 * to, eg, there's no route to it: then the first that it can is first.
+	 */
+
+	if (lws_adns_q_sock_add(q, q->dsrv) && !q->broadsiding)
 		return 1;
 
 	if (q->broadsiding)
@@ -310,15 +390,7 @@ lws_adns_q_socks_bind(lws_adns_q_t *q)
 				lws_adns_q_sock_add(q, dsrv);
 		} lws_end_foreach_dll_safe(d, d1);
 
-	return 0;
-}
-
-static lws_adns_sock_t *
-lws_adns_q_sock(lws_adns_q_t *q)
-{
-	struct lws_dll2 *d = lws_dll2_get_head(&q->socks);
-
-	return d ? lws_container_of(d, lws_adns_qsock_t, list)->sock : NULL;
+	return lws_adns_q_promote(q);
 }
 
 struct lws *
@@ -690,10 +762,11 @@ lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 
 	if (!wsi && !q->is_tcp) {
 		/*
-		 * Its socket went away, eg, a send on it failed: it asks from
-		 * a new one
+		 * Its socket went away, eg, a send on it failed: a query raced
+		 * to several nameservers asks from another of its sockets,
+		 * else it asks from new ones
 		 */
-		if (lws_adns_q_socks_bind(q)) {
+		if (lws_adns_q_promote(q) && lws_adns_q_socks_bind(q)) {
 			lwsl_cx_notice(q->context, "%s: no socket to ask from",
 				       (const char *)&q[1]);
 			if (q->firstcache) {
@@ -937,24 +1010,39 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
 
 	if (q->broadsiding && wsi->io->udp) {
-		/* we race the question to every nameserver we have a socket to */
-		m = -1;
+		int asked = 0;
+
+		/*
+		 * We race the question to every nameserver we have a socket
+		 * to.  It's asked if any of them took it: one we can't send
+		 * to, eg, there's no route to it, is no reason to fail it, even
+		 * if it's the one we are writeable on.
+		 */
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&q->socks)) {
 			lws_adns_sock_t *s = lws_container_of(d,
 					lws_adns_qsock_t, list)->sock;
-			int m2;
+			lws_async_dns_server_t *ds = s->dsrv;
 
 			if (!s->wsi)
 				continue;
 
-			m2 = lws_write(s->wsi, pkt + LWS_PRE, (unsigned int)n, 0);
-			if (s->wsi == wsi)
-				m = m2;
-			else if (m2 != n)
-				/* its socket is unusable now, see below */
-				lws_adns_sock_retire(s);
+			if (lws_write(s->wsi, pkt + LWS_PRE, (unsigned int)n,
+				      0) == n) {
+				asked++;
+				continue;
+			}
+
+			/* its socket is unusable now, see below */
+			lwsl_wsi_notice(s->wsi, "dns write failed, errno %d",
+					errno);
+			if (ds)
+				lws_adns_dsrv_rtt(ds, LWS_ADNS_DSRV_NO_ANSWER_US);
+			lws_adns_sock_retire(s);
 		} lws_end_foreach_dll_safe(d, d1);
+
+		/* we go on from one that took it */
+		m = asked && !lws_adns_q_promote(q) ? n : -1;
 	} else {
 		if (!wsi->io->udp) {
 			lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
@@ -981,8 +1069,12 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 #if defined(LWS_WITH_IPV6)
 	if (!q->responded && q->sent[0] != q->sent[1]) {
-		lwsl_wsi_debug(wsi, "request writeable for ipv6");
-		lws_callback_on_writable(wsi);
+		/* not necessarily on wsi, if it was a race and wsi failed */
+		struct lws *w = lws_adns_q_wsi(q);
+
+		lwsl_wsi_debug(w, "request writeable for ipv6");
+		if (w)
+			lws_callback_on_writable(w);
 	}
 #endif
 
@@ -1026,9 +1118,8 @@ lws_adns_sock_callback(struct lws *wsi, lws_adns_sock_t *s,
 
 	switch (reason) {
 	case LWS_CALLBACK_RAW_CLOSE:
-		/* its queries ask from another at their next retry */
 		if (s->wsi == wsi)
-			lws_adns_sock_lost_wsi(s);
+			lws_adns_sock_lost(lws_get_context(wsi), s);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
@@ -2982,7 +3073,14 @@ __lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			}
 		}
 
-		if (q->broadsiding)
+		if (q->broadsiding && best_dsrv && best_rtt <= 10000000)
+			/*
+			 * We race it to all of them, but the one we are
+			 * writeable on, and send any retries from, may as
+			 * well be one we know answers
+			 */
+			dsrv = best_dsrv;
+		else if (q->broadsiding)
 			/* Just peg it to the first for tracking purposes, but it will be skipped visually */
 			dsrv = lws_container_of(lws_dll2_get_head(
 				&context->async_dns.nameservers), lws_async_dns_server_t, list);
