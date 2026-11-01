@@ -207,7 +207,8 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd)
 	 */
 
 	lws_snprintf(setname, sizeof(setname), "netdev.last.%s", wnd->inst.name);
-	if (lws_settings_plat_get(netdevs->si, setname, buf, &l))
+	if (!netdevs->si ||
+	    netdevs->si->so->get(netdevs->si, setname, buf, &l))
 		return 1;
 
 	lwsl_notice("%s: last successful %.*s\n", __func__, (int)l, buf);

@@ -53,6 +53,9 @@ lws_settings_plat_printf(lws_settings_instance_t *si, const char *name,
 	uint8_t *p;
 	int n;
 
+	if (!si) /* no settings store on this platform */
+		return 1;
+
 	va_start(ap, format);
 	n = vsnprintf(NULL, 0, format, ap);
 	va_end(ap);

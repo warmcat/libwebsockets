@@ -87,7 +87,7 @@ lws_netdev_credentials_settings_set(lws_netdevs_t *nds)
 	lwsl_notice("%s: storing %u credential(s)\n", __func__,
 		    (unsigned int)lws_dll2_count(&nds->owner_creds));
 
-	if (!lws_settings_plat_set(nds->si, "netdev.creds", buf, w))
+	if (nds->si && !nds->si->so->set(nds->si, "netdev.creds", buf, w))
 		r = 0;
 
 bail:
@@ -109,7 +109,8 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds)
 
 	memset(&a, 0, sizeof(a));
 
-	if (lws_settings_plat_get(nds->si, "netdev.creds", NULL, &l)) {
+	if (!nds->si ||
+	    nds->si->so->get(nds->si, "netdev.creds", NULL, &l)) {
 		lwsl_notice("%s: not in settings\n", __func__);
 		return 1;
 	}
@@ -118,7 +119,7 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds)
 	if (!buf)
 		return 1;
 
-	if (lws_settings_plat_get(nds->si, "netdev.creds", buf, &l)) {
+	if (nds->si->so->get(nds->si, "netdev.creds", buf, &l)) {
 		lwsl_err("%s: unexpected settings get fail\n", __func__);
 		goto bail;
 	}
