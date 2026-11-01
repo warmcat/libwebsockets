@@ -31,5 +31,5 @@ if (requirements)
 	set_tests_properties(api-test-ws-server-examples
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-			     TIMEOUT 420) # past WSE_TEST_TIMEOUT_SECS in main.c
+			     TIMEOUT 540) # past WSE_TEST_TIMEOUT_SECS in main.c
 endif()

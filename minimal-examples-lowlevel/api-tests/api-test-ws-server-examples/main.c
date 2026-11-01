@@ -65,7 +65,7 @@
  *    UTF-8 character split between two of them
  *  - while the backend doesn't read, the ws client can't send without limit
  *    into the proxy's memory: it is held back once buffers fill.  When the
- *    backend reads again, all 64MiB the client sends get to it intact
+ *    backend reads again, all 24MiB the client sends get to it intact
  *  - when the ws client goes, the proxy closes the backend connection
  *  - when the backend can't be reached, the proxy closes the ws client
  *    instead of keeping it open with nothing behind it, and frees what it
@@ -177,7 +177,12 @@ enum {
  */
 #define WSE_F_ALONE_PING_SECS	60
 
-#define WSE_PX_TOTAL		(64 * 1024 * 1024) /* client sends this */
+/*
+ * The client sends WSE_PX_TOTAL, which only has to be more than WSE_PX_HELD,
+ * so a proxy that took it all without limit would be seen to: on the slowest
+ * builder every MiB of it costs a second or more getting through
+ */
+#define WSE_PX_TOTAL		(24 * 1024 * 1024) /* client sends this */
 #define WSE_PX_FRAME		WSE_MSG_MAX	   /* ...in frames this big */
 #define WSE_PX_HELD		(16 * 1024 * 1024) /* must be held back by */
 
@@ -322,12 +327,14 @@ static const lws_retry_bo_t wse_retry = {
 
 /*
  * The whole test must finish inside this: the fan-out cases each wait out
- * the examples' lag limit several times, and the proxy case moves 64MiB, so
- * the slowest CI builder, riscv64 under emulation sharing its cpu with other
- * jobs, takes three minutes.  The ctest TIMEOUT is set further out than this,
- * so it is us that says which phase didn't finish, not ctest.
+ * the examples' lag limit several times and move 12MB a few times, and the
+ * proxy case moves 24MiB.  The slowest CI builder, riscv64 under emulation
+ * sharing its cpu with other jobs, has taken from 3 to over 6 minutes, 4.5
+ * of them in the broker's fan-out case.  The ctest TIMEOUT is set further
+ * out than this, so it is us that says which phase didn't finish, not ctest,
+ * and the validity timer above further out again.
  */
-#define WSE_TEST_TIMEOUT_SECS	360
+#define WSE_TEST_TIMEOUT_SECS	480
 
 /*
  * The messages TX sends, one at a time, and RX must receive, whole and
