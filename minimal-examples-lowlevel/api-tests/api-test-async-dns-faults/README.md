@@ -9,9 +9,9 @@ way.
 |`ok.test`|the first listed never answers (Linux only, at 127.0.0.2), the second answers|found within 1.5s: with nothing known about either server, the question is raced to both|
 |`servfail-aaaa.test`|A answered, SERVFAIL for AAAA|found within 1.5s, with the A address|
 |`servfail-late-a.test`|SERVFAIL for AAAA, A answered 150ms later|found within 1.5s, with the A address|
-|`drop-aaaa.test`|A answered, AAAA dropped|found with the A address when the AAAA retransmits run out, within 12s|
+|`drop-aaaa.test`|A answered, AAAA dropped|found with the A address when the AAAA retransmits run out, within 15s|
 |`servfail.test`|SERVFAIL for both|fails within 3s, not as a timeout|
-|`dead.test`, from an http client connection|never answered|`LWS_CALLBACK_CLIENT_CONNECTION_ERROR` saying the lookup timed out, within 12s|
+|`dead.test`, from an http client connection|never answered|`LWS_CALLBACK_CLIENT_CONNECTION_ERROR` saying the lookup timed out, within 15s|
 
 Any other name is NXDOMAIN.
 
