@@ -2958,11 +2958,15 @@ __lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			uint64_t v = s->rtt_known ?
 					lws_adapt_get_val(s->adapt, 0, 1) : 0;
 			/* 10 seconds means virtually down or unknown */
-			if (!v || v > 10000000) {
+			if (!v || v > 10000000)
 				q->broadsiding = 1;
-			} else {
+			/*
+			 * ... but only one we know is down counts as failed:
+			 * a fresh list, that nothing was asked of yet, is no
+			 * reason to reload it
+			 */
+			if (v <= 10000000)
 				all_failed = 0;
-			}
 			if (v && v < best_rtt) {
 				best_rtt = v;
 				best_dsrv = s;
