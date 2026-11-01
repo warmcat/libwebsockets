@@ -107,7 +107,14 @@ render(lws_sorted_usec_list_t *sul)
 
         free(rs->line);
         rs->line = NULL;
-	lws_display_list_destroy(rs->lds->ctx, &rs->displaylist);
+
+	/*
+	 * A retained display list stays with the render state while what it
+	 * rendered is on the display, so touches can be resolved against it.
+	 * It is replaced when the next browse begins.
+	 */
+	if (!rs->retained)
+		lws_display_list_destroy(rs->lds->ctx, &rs->displaylist);
 
 	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }
@@ -117,6 +124,13 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	    const char *url)
 {
         show_demo_phase(LWS_LHPCD_PHASE_FETCHING);
+
+	/*
+	 * Whatever was displayed is about to be overwritten.  With a touch
+	 * panel, its display list was kept to resolve touches until now.
+	 */
+	lws_display_list_destroy(cx, &rs->displaylist);
+	rs->retained = !!tcs;
 
 	lws_display_dl_init(&rs->displaylist, &lds);
 	rs->ic = &lds.disp->ic;

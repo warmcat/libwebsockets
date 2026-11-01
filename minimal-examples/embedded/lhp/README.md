@@ -61,7 +61,24 @@ and leaves it there.
 
 ESP32 WROVER KIT, and ESP32S2 Kaluga boards and displays are
 supported, along with Waveshare ESP32 dev board and a variety of
-E-ink displays.
+E-ink displays, and the Waveshare ESP32-S3-Touch-LCD-1.28 round LCD with
+a touch panel.
+
+## Touch
+
+On boards with a touch panel (`esp32s3-waveshare-240-240-touch`), pressing
+a link on the displayed page follows it, and stops the carousel.
+
+The touch controller issues `{"type":"touch",...}` `LWSSMDCL_INTERACTION`
+events, see `lib/drivers/touch/README.md`.  A `press` is resolved to the
+link displayed under it with `lws_display_dl_hit_test()`.  Scrolls and long
+presses do not follow links.
+
+To make that possible, on these boards the display list is kept after the
+page has been rendered (`rs.retained`), for as long as the page is on the
+display: the render state owns it until the next browse begins, in
+`init_browse()`.  Boards without touch free the display list as it is
+rendered, as before.
 
 ## Fonts
 

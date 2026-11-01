@@ -35,6 +35,7 @@
 #include "boot-ui.h"
 
 struct lws_context *cx;
+struct lws_touch_state *tcs;
 
 /* how long we wait after OPERATIONAL for the first update check to end */
 #define BOOT_OTA_WAIT_US	(90 * LWS_US_PER_SEC)
@@ -520,6 +521,75 @@ display_completion_cb(lws_display_state_t *lds, int a)
 	return 0;
 }
 
+/*
+ * A touch press resolves to whatever link is displayed where it landed, and
+ * navigates to it.  The display list that was rendered is kept
+ * while it is displayed so this can be done; see init_browse() in lhp-ss.c.
+ *
+ * Scrolls and long presses are not presses: the finger moved, so it did not
+ * mean to press what it started on, or it was held, which asks for something
+ * else that this example doesn't have.
+ */
+
+static int
+json_coord(const void *buf, size_t len, const char *name, int *v)
+{
+	const char *p;
+	char num[8];
+	size_t al;
+
+	p = lws_json_simple_find(buf, len, name, &al);
+	if (!p || !al || al >= sizeof(num))
+		return 1;
+
+	lws_strnncpy(num, p, al, sizeof(num));
+	*v = atoi(num);
+
+	return *v < 0;
+}
+
+static void
+touch_press(const void *buf, size_t len)
+{
+	lws_system_states_t st = (lws_system_states_t)
+				lws_system_get_state_manager(cx)->state;
+	char url[sizeof(lds.current_url)];
+	lws_dlo_hit_t *h;
+	int x, y;
+
+	if (ui != UI_APP || lds.display_busy ||
+	    st == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
+	    st == LWS_SYSTATE_MODAL_UPDATING)
+		/* there's no settled application page to press on */
+		return;
+
+	if (json_coord(buf, len, "\"x\":", &x) ||
+	    json_coord(buf, len, "\"y\":", &y))
+		return;
+
+	h = lws_display_dl_hit_test(&rs.displaylist, x, y, NULL);
+	if (!h || !h->url)
+		return;
+
+	if (lws_http_rel_to_url(url, sizeof(url), lds.current_url, h->url)) {
+		lwsl_warn("%s: can't follow %s\n", __func__, h->url);
+		return;
+	}
+
+	lwsl_notice("%s: %d,%d: %s\n", __func__, x, y, url);
+
+	/* the user is driving now, the carousel stops */
+
+	lws_sul_cancel(&sul_app);
+	carousel_phase = CAROUSEL_DONE;
+
+	page_drop();
+	if (init_browse(cx, &rs, url)) {
+		lwsl_err("%s: init_browse %s failed\n", __func__, url);
+		lds.display_busy = 0;
+	}
+}
+
 static int
 smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
        size_t len)
@@ -533,6 +603,11 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 				   &lws_pwmseq_linear_wipe);
 		flip++;
 	}
+
+	if ((_class & LWSSMDCL_INTERACTION) &&
+	    !lws_json_simple_strcmp(buf, len, "\"type\":", "touch") &&
+	    !lws_json_simple_strcmp(buf, len, "\"event\":", "press"))
+		touch_press(buf, len);
 
 	if (_class & LWSSMDCL_INTERACTION)
 		/*

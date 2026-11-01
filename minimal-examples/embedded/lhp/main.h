@@ -19,6 +19,7 @@ enum {
 extern struct lws_led_state *lls;
 extern lws_display_state_t lds;
 extern struct lws_button_state *bcs;
+extern struct lws_touch_state *tcs; /* set by boards with a touch panel */
 extern lws_netdev_instance_wifi_t *wnd;
 extern struct lws_context *cx;
 
