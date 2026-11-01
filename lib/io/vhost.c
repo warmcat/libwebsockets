@@ -42,6 +42,9 @@ static const struct lws_protocols *available_secstream_protocols[] = {
 #if defined(LWS_ROLE_H2)
 	&protocol_secstream_h2,
 #endif
+#if defined(LWS_ROLE_H3)
+	&protocol_secstream_h3,
+#endif
 #if defined(LWS_ROLE_WS)
 	&protocol_secstream_ws,
 #endif
