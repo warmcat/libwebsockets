@@ -343,7 +343,9 @@ lws_hls_discover_tracks(const char *media_dir, const char *filename, int *out_co
 		if (!avformat_open_input(&ic, path, NULL, NULL)) {
 			if (!avformat_find_stream_info(ic, NULL)) {
 				unsigned int i;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 				int nsub_seen = 0, nsub_skipped = 0;
+#endif
 				for (i = 0; i < ic->nb_streams; i++) {
 					AVStream *st = ic->streams[i];
 					AVDictionaryEntry *lg;
@@ -356,7 +358,9 @@ lws_hls_discover_tracks(const char *media_dir, const char *filename, int *out_co
 					    AVMEDIA_TYPE_SUBTITLE)
 						continue;
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 					nsub_seen++;
+#endif
 					codec_name = avcodec_get_name(
 							st->codecpar->codec_id);
 					is_text = is_text_subtitle(
@@ -370,7 +374,9 @@ lws_hls_discover_tracks(const char *media_dir, const char *filename, int *out_co
 							 "title", NULL, 0);
 
 					if (!is_text) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 						nsub_skipped++;
+#endif
 						lwsl_notice("HLS-SUB: %s: stream %u "
 							"codec '%s' lang '%s' is "
 							"bitmap/non-text -> SKIPPED "
@@ -442,12 +448,14 @@ lws_hls_discover_tracks(const char *media_dir, const char *filename, int *out_co
 					count++;
 				}
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 				if (nsub_seen)
 					lwsl_notice("HLS-SUB: %s: %d embedded sub "
 						"stream(s): %d accepted, %d "
 						"skipped\n", filename, nsub_seen,
 						nsub_seen - nsub_skipped,
 						nsub_skipped);
+#endif
 			}
 done_embedded:
 			avformat_close_input(&ic);
