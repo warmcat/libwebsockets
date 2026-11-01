@@ -42,6 +42,7 @@ if (ESP_PLATFORM)
 	#
 	#  - the IDF mbedtls must be one with the lws QUIC transport ops
 	#    patches, see https://libwebsockets.org/git/mbedtls/log?h=development
+	#    and ../README.md for how to give esp-idf v6.1 one
 	#    ... the lws build fails with a FATAL_ERROR explaining this if not
 	#
 	#  - CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y in sdkconfig, since QUIC only

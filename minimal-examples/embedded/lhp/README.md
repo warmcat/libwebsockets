@@ -126,6 +126,46 @@ with, `~/.lws_ota/libwebsockets.org-ota-v1.public.jwk`.  Without it the
 `esp32-waveshare-104-212` example builds with OTA off, which is how CI
 builds it.
 
+### http/3 needs mbedtls with the lws QUIC patches
+
+lws builds http/3 by default, and on mbedtls that needs the lws QUIC
+transport ops patches, the four `quic: Epoch 2` commits on the
+`development` branch of https://libwebsockets.org/repo/mbedtls .  Without them, configure stops
+saying so: either build with `-DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0`, as CI
+does, or give IDF a patched mbedtls component.
+
+`esp32-waveshare-600-448-7col` uses http/3 for its content, so it needs
+the patched component.  For esp-idf v6.1 (mbedtls 4.1), you can make one
+without touching the IDF install: copy IDF's component, apply the patches
+to the mbedtls inside it, and enable them in IDF's mbedtls config
+
+```
+ $ cp -a $IDF_PATH/components/mbedtls ~/idf-comp/mbedtls
+ $ cd ~/idf-comp/mbedtls/mbedtls
+ $ rm -f .git && git init -q && git add -A && git commit -qm idf
+ $ git clone -b development https://libwebsockets.org/repo/mbedtls /tmp/lm
+ $ git -C /tmp/lm log --oneline -6     # find the four quic: Epoch 2 commits
+ $ git -C /tmp/lm format-patch -o /tmp/lm-quic <commit before 1/4>..<4/4>
+ $ git am /tmp/lm-quic/*.patch
+```
+
+and add to `~/idf-comp/mbedtls/port/include/mbedtls/esp_config.h`, after
+`MBEDTLS_SSL_PROTO_TLS1_3` is decided
+
+```
+#ifdef CONFIG_MBEDTLS_SSL_PROTO_TLS1_3
+#define MBEDTLS_SSL_LWS_QUIC_SUPPORT
+#endif
+```
+
+Then build with it in place of IDF's
+
+```
+ $ idf.py -D EXTRA_COMPONENT_DIRS=$HOME/idf-comp/mbedtls build
+```
+
+### Flashing
+
 The first time we need to erase the whole flash and blow the whole
 image and partition table
 
