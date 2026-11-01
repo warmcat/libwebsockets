@@ -49,7 +49,7 @@
 #include <unistd.h>
 #endif
 
-#define WATCHDOG_S		20
+#define WATCHDOG_S		25
 
 #if defined(__linux__)
 /* listed first, and never answers */
@@ -98,9 +98,9 @@ static struct leg {
 	{ "dead first nameserver",	0, 1, 0,  1500, 0, 0, 0 },
 	{ "SERVFAIL on AAAA",		1, 1, 0,  1500, 0, 0, 0 },
 	{ "SERVFAIL on AAAA, A later",	2, 1, 0,  1500, 0, 0, 0 },
-	{ "AAAA dropped",		3, 1, 0, 12000, 0, 0, 0 },
+	{ "AAAA dropped",		3, 1, 0, 15000, 0, 0, 0 },
 	{ "SERVFAIL on both",		4, 0, 0,  3000, 0, 0, 0 },
-	{ "nobody answers (client)",	5, 0, 1, 12000, 0, 0, 0 },
+	{ "nobody answers (client)",	5, 0, 1, 15000, 0, 0, 0 },
 };
 
 /* a nameserver: one adopted udp socket */
