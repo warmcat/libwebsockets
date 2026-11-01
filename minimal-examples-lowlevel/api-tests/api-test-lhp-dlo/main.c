@@ -61,6 +61,15 @@ static const struct lws_switches switches[] = {
 struct lws_context *cx;
 
 #if defined(LWS_WITH_SERVER)
+/* builds without ipv4 can only use ipv6 loopback */
+#if defined(LWS_WITH_IPV4)
+#define LOOPBACK		"127.0.0.1"
+#define LOOPBACK_URL		"127.0.0.1"
+#else
+#define LOOPBACK		"::1"
+#define LOOPBACK_URL		"[::1]"
+#endif
+
 /*
  * With --serve-fonts, the faces come from our own http server on localhost:
  * the built-in policy's __default streamtype insists on tls, so it gets one
@@ -855,7 +864,7 @@ main(int argc, const char **argv)
 
 		memset(&vi, 0, sizeof(vi));
 		vi.vhost_name = "fonts";
-		vi.iface = "127.0.0.1";
+		vi.iface = LOOPBACK;
 		vi.port = 0; /* any free port */
 		vi.mounts = &mount;
 
@@ -866,7 +875,7 @@ main(int argc, const char **argv)
 		}
 
 		lws_snprintf(url, sizeof(url),
-			     "http://127.0.0.1:%d/fonts.json",
+			     "http://" LOOPBACK_URL ":%d/fonts.json",
 			     lws_get_vhost_listen_port(vh));
 
 		lws_font_register(cx, fira_c_r_14, sizeof(fira_c_r_14));

@@ -38,6 +38,15 @@
 /* the plugin offers sizes up to this */
 #define MAX_SIZE		"40"
 
+/* builds without ipv4 can only use ipv6 loopback */
+#if defined(LWS_WITH_IPV4)
+#define LOOPBACK		"127.0.0.1"
+#define LOOPBACK_URL		"127.0.0.1"
+#else
+#define LOOPBACK		"::1"
+#define LOOPBACK_URL		"[::1]"
+#endif
+
 enum {
 	LWS_SW_ENCODER,
 	LWS_SW_TTF_DIR,
@@ -497,7 +506,7 @@ device_start(void)
 {
 	char url[64];
 
-	lws_snprintf(url, sizeof(url), "http://127.0.0.1:%d/fonts.json",
+	lws_snprintf(url, sizeof(url), "http://" LOOPBACK_URL ":%d/fonts.json",
 		     lws_get_vhost_listen_port(vh));
 
 	if (lws_font_register(cx, fira_c_r_12, sizeof(fira_c_r_12)) ||
@@ -532,7 +541,7 @@ next_cb(lws_sorted_usec_list_t *sul)
 	memset(&i, 0, sizeof(i));
 	i.context		= cx;
 	i.vhost			= vh;
-	i.address		= "127.0.0.1";
+	i.address		= LOOPBACK;
 	i.port			= lws_get_vhost_listen_port(vh);
 	i.path			= path;
 	i.host			= i.address;
@@ -650,7 +659,7 @@ main(int argc, const char **argv)
 	mount.origin_protocol	= LWSMPRO_CALLBACK;
 
 	info.vhost_name		= "mcufonts";
-	info.iface		= "127.0.0.1";
+	info.iface		= LOOPBACK;
 	info.port		= 0;
 	info.protocols		= protocols;
 	info.pvo		= &pvo;
