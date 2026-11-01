@@ -698,14 +698,15 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 /*
  * Working geometry accumulation (user space).  The working arrays are grown
  * with lws_realloc during parse and the finished shape is copied into the
- * scene lwsac with its effective CTM applied at commit time.
+ * scene lwsac with its effective CTM applied at commit time.  They are reused
+ * by every shape, and freed once the document is complete.
  */
 
 static int
 wpts_grow(lws_svg_t *ctx, size_t need)
 {
 	lws_svg_dpt_t *n;
-	size_t ns;
+	size_t ns, old;
 
 	if (ctx->wpts_count + need <= ctx->wpts_size)
 		return 0;
@@ -714,15 +715,14 @@ wpts_grow(lws_svg_t *ctx, size_t need)
 	while (ns < ctx->wpts_count + need)
 		ns *= 2;
 
-	/* chained generation: the old block stays in the lwsac */
-
-	n = svg_ac_use(ctx, ns * sizeof(*ctx->wpts));
+	n = lws_realloc(ctx->wpts, ns * sizeof(*ctx->wpts), __func__);
 	if (!n)
 		return 1;
-	if (ctx->wpts_size)
-		memcpy(n, ctx->wpts, ctx->wpts_size * sizeof(*ctx->wpts));
+
+	old = ctx->wpts_size * sizeof(*ctx->wpts);
 	ctx->wpts = n;
 	ctx->wpts_size = ns;
+	svg_heap_note(ctx, old); /* both may have existed while copying */
 
 	return 0;
 }
@@ -743,8 +743,6 @@ pt_add(lws_svg_t *ctx, svg_c_t x, svg_c_t y)
 
 /* start a new subpath beginning at x,y */
 
-/* start a new subpath beginning at x,y */
-
 static int
 sub_start(lws_svg_t *ctx, svg_c_t x, svg_c_t y)
 {
@@ -752,17 +750,17 @@ sub_start(lws_svg_t *ctx, svg_c_t x, svg_c_t y)
 		return 1;
 
 	if (ctx->wsubs_count + 1 > ctx->wsubs_size) {
+		size_t ns = ctx->wsubs_size ? ctx->wsubs_size * 2 : 16, old;
 		svg_wsub_t *n;
-		size_t ns = ctx->wsubs_size ? ctx->wsubs_size * 2 : 16;
 
-		n = svg_ac_use(ctx, ns * sizeof(*ctx->wsubs));
+		n = lws_realloc(ctx->wsubs, ns * sizeof(*ctx->wsubs), __func__);
 		if (!n)
 			return 1;
-		if (ctx->wsubs_size)
-			memcpy(n, ctx->wsubs,
-			       ctx->wsubs_size * sizeof(*ctx->wsubs));
+
+		old = ctx->wsubs_size * sizeof(*ctx->wsubs);
 		ctx->wsubs = n;
 		ctx->wsubs_size = ns;
+		svg_heap_note(ctx, old);
 	}
 
 	memset(&ctx->wsubs[ctx->wsubs_count], 0, sizeof(ctx->wsubs[0]));
@@ -777,6 +775,47 @@ work_reset(lws_svg_t *ctx)
 {
 	ctx->wpts_count = 0;
 	ctx->wsubs_count = 0;
+}
+
+/*
+ * A shape is in the scene: let go of working buffers that one big shape,
+ * typically a stroke outline, grew beyond what most shapes need, so they
+ * aren't held on top of all the scene that comes after it
+ */
+
+#define SVG_WORK_KEEP_PTS	256
+#define SVG_WORK_KEEP_SUBS	64
+
+static void
+work_done(lws_svg_t *ctx)
+{
+	work_reset(ctx);
+
+	if (ctx->wpts_size > SVG_WORK_KEEP_PTS) {
+		lws_free_set_NULL(ctx->wpts);
+		ctx->wpts_size = 0;
+	}
+	if (ctx->wsubs_size > SVG_WORK_KEEP_SUBS) {
+		lws_free_set_NULL(ctx->wsubs);
+		ctx->wsubs_size = 0;
+	}
+
+	svg_heap_note(ctx, 0);
+}
+
+/* the document is complete, or the object going away: only the scene stays */
+
+static void
+work_free(lws_svg_t *ctx)
+{
+	lws_free_set_NULL(ctx->wpts);
+	lws_free_set_NULL(ctx->wsubs);
+	lws_free_set_NULL(ctx->vbuf);
+	ctx->wpts_size = ctx->wpts_count = 0;
+	ctx->wsubs_size = ctx->wsubs_count = 0;
+	ctx->vsize = ctx->vlen = 0;
+
+	svg_heap_note(ctx, 0);
 }
 
 /*
@@ -1488,21 +1527,37 @@ parse_points(lws_svg_t *ctx, char closed)
  */
 
 /*
- * The single allocation path: everything lives in the object's lwsac.
- * Tracks the peak simultaneous footprint as the lwsac total (so it
- * includes chunk overheads and superseded growth generations).
+ * What the object holds now is its lwsac total (so including chunk overheads)
+ * and the working buffers; transient is anything held briefly on top, such
+ * as the old copy of a working buffer being grown
+ */
+
+void
+svg_heap_note(lws_svg_t *ctx, size_t transient)
+{
+	ctx->heap_now = lwsac_total_alloc(ctx->ac) +
+			ctx->wpts_size * sizeof(*ctx->wpts) +
+			ctx->wsubs_size * sizeof(*ctx->wsubs) +
+			ctx->vsize;
+
+	if (ctx->heap_now + transient > ctx->heap_peak)
+		ctx->heap_peak = ctx->heap_now + transient;
+}
+
+/*
+ * The allocation path for everything retained, in the object's lwsac.  A
+ * shape bigger than the free part of the current chunk gets a chunk of its
+ * own, so smaller ones after it backfill what's left in the earlier chunks
+ * rather than open a new one and strand those.
  */
 
 void *
 svg_ac_use(lws_svg_t *ctx, size_t nec)
 {
-	void *p = lwsac_use(&ctx->ac, nec, 0);
+	void *p = lwsac_use_backfill(&ctx->ac, nec, 0);
 
-	if (p) {
-		ctx->heap_now = lwsac_total_alloc(ctx->ac);
-		if (ctx->heap_now > ctx->heap_peak)
-			ctx->heap_peak = ctx->heap_now;
-	}
+	if (p)
+		svg_heap_note(ctx, 0);
 
 	return p;
 }
@@ -1805,34 +1860,40 @@ seg_normal(svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
 }
 
 /*
- * Stroke one subpath of dpts[0..n): emit the per-segment quads, the
- * joins at interior vertices (and at the seam of closed subpaths), and
- * the caps of open ones
+ * Stroke the working subpath of n points from index start: emit the
+ * per-segment quads, the joins at interior vertices (and at the seam of
+ * closed subpaths), and the caps of open ones.
+ *
+ * The outline is appended to the same working arrays the subpath is in, and
+ * that may move them, so its points are always found by index, never through
+ * a pointer kept across emitting anything.
  */
+
+#define SD(_i) (ctx->wpts[start + (_i)])
 
 static int
 stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
-	   const lws_svg_dpt_t *d, uint32_t n, char closed)
+	   uint32_t start, uint32_t n, char closed)
 {
 	uint32_t i;
 
-	if (n < 2 || (d[0].x == d[n - 1].x && d[0].y == d[n - 1].y && n == 2)) {
+	if (n < 2 || (n == 2 && SD(0).x == SD(1).x && SD(0).y == SD(1).y)) {
 		/*
 		 * A zero-length subpath draws its linecap shape at the
 		 * point, per the spec
 		 */
 
 		if (eff->linecap == 1)
-			return arc_emit(ctx, d[0].x, d[0].y,
+			return arc_emit(ctx, SD(0).x, SD(0).y,
 					SVG_Q16_1, 0, SVG_Q16_1, 0,
 					hw, tol, 1);
 		if (eff->linecap == 2) {
-			svg_c_t x[4], y[4];
+			svg_c_t x[4], y[4], px = SD(0).x, py = SD(0).y;
 
-			x[0] = svg_qsub(d[0].x, hw); y[0] = svg_qsub(d[0].y, hw);
-			x[1] = svg_qadd(d[0].x, hw); y[1] = svg_qsub(d[0].y, hw);
-			x[2] = svg_qadd(d[0].x, hw); y[2] = svg_qadd(d[0].y, hw);
-			x[3] = svg_qsub(d[0].x, hw); y[3] = svg_qadd(d[0].y, hw);
+			x[0] = svg_qsub(px, hw); y[0] = svg_qsub(py, hw);
+			x[1] = svg_qadd(px, hw); y[1] = svg_qsub(py, hw);
+			x[2] = svg_qadd(px, hw); y[2] = svg_qadd(py, hw);
+			x[3] = svg_qsub(px, hw); y[3] = svg_qadd(py, hw);
 
 			return poly_emit(ctx, x, y, 4);
 		}
@@ -1845,11 +1906,11 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 	for (i = 0; i + 1 < n; i++) {
 		svg_c_t nx, ny;
 
-		if (!seg_normal(d[i].x, d[i].y, d[i + 1].x, d[i + 1].y,
+		if (!seg_normal(SD(i).x, SD(i).y, SD(i + 1).x, SD(i + 1).y,
 				&nx, &ny))
 			continue;
 
-		if (seg_quad(ctx, d[i].x, d[i].y, d[i + 1].x, d[i + 1].y,
+		if (seg_quad(ctx, SD(i).x, SD(i).y, SD(i + 1).x, SD(i + 1).y,
 			     nx, ny, hw))
 			return 1;
 	}
@@ -1859,14 +1920,14 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 	for (i = 1; i + 1 < n; i++) {
 		svg_c_t n1x, n1y, n2x, n2y;
 
-		if (!seg_normal(d[i - 1].x, d[i - 1].y, d[i].x, d[i].y,
+		if (!seg_normal(SD(i - 1).x, SD(i - 1).y, SD(i).x, SD(i).y,
 				&n1x, &n1y))
 			continue;
-		if (!seg_normal(d[i].x, d[i].y, d[i + 1].x, d[i + 1].y,
+		if (!seg_normal(SD(i).x, SD(i).y, SD(i + 1).x, SD(i + 1).y,
 				&n2x, &n2y))
 			continue;
 
-		if (join_emit(ctx, eff, tol, d[i].x, d[i].y,
+		if (join_emit(ctx, eff, tol, SD(i).x, SD(i).y,
 			      n1x, n1y, n2x, n2y, hw))
 			return 1;
 	}
@@ -1881,14 +1942,14 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 
 		svg_c_t n1x, n1y, n2x, n2y;
 
-		if (d[0].x == d[n - 1].x && d[0].y == d[n - 1].y) {
+		if (SD(0).x == SD(n - 1).x && SD(0).y == SD(n - 1).y) {
 			/* the closing edge is the explicit last segment */
 
-			if (seg_normal(d[n - 2].x, d[n - 2].y,
-				       d[n - 1].x, d[n - 1].y, &n1x, &n1y) &&
-			    seg_normal(d[0].x, d[0].y, d[1].x, d[1].y,
+			if (seg_normal(SD(n - 2).x, SD(n - 2).y,
+				       SD(n - 1).x, SD(n - 1).y, &n1x, &n1y) &&
+			    seg_normal(SD(0).x, SD(0).y, SD(1).x, SD(1).y,
 				       &n2x, &n2y))
-				if (join_emit(ctx, eff, tol, d[0].x, d[0].y,
+				if (join_emit(ctx, eff, tol, SD(0).x, SD(0).y,
 					      n1x, n1y, n2x, n2y, hw))
 					return 1;
 		} else {
@@ -1897,26 +1958,26 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 			 * both the start vertex and the last vertex
 			 */
 
-			if (seg_normal(d[n - 1].x, d[n - 1].y,
-				       d[0].x, d[0].y, &n1x, &n1y)) {
+			if (seg_normal(SD(n - 1).x, SD(n - 1).y,
+				       SD(0).x, SD(0).y, &n1x, &n1y)) {
 				svg_c_t n0x, n0y;
 
-				if (seg_quad(ctx, d[n - 1].x, d[n - 1].y,
-					     d[0].x, d[0].y, n1x, n1y, hw))
+				if (seg_quad(ctx, SD(n - 1).x, SD(n - 1).y,
+					     SD(0).x, SD(0).y, n1x, n1y, hw))
 					return 1;
 
-				if (seg_normal(d[0].x, d[0].y,
-					       d[1].x, d[1].y, &n2x, &n2y))
+				if (seg_normal(SD(0).x, SD(0).y,
+					       SD(1).x, SD(1).y, &n2x, &n2y))
 					if (join_emit(ctx, eff, tol,
-						      d[0].x, d[0].y,
+						      SD(0).x, SD(0).y,
 						      n1x, n1y, n2x, n2y, hw))
 						return 1;
 
-				if (seg_normal(d[n - 2].x, d[n - 2].y,
-					       d[n - 1].x, d[n - 1].y,
+				if (seg_normal(SD(n - 2).x, SD(n - 2).y,
+					       SD(n - 1).x, SD(n - 1).y,
 					       &n0x, &n0y))
 					if (join_emit(ctx, eff, tol,
-						      d[n - 1].x, d[n - 1].y,
+						      SD(n - 1).x, SD(n - 1).y,
 						      n0x, n0y, n1x, n1y, hw))
 						return 1;
 			}
@@ -1930,7 +1991,8 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 
 		svg_c_t fnx, fny, lnx, lny;
 
-		if (seg_normal(d[0].x, d[0].y, d[1].x, d[1].y, &fnx, &fny)) {
+		if (seg_normal(SD(0).x, SD(0).y, SD(1).x, SD(1).y,
+			       &fnx, &fny)) {
 			/*
 			 * The direction of travel is the normal rotated
 			 * -90deg; the start cap points the other way
@@ -1945,27 +2007,28 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 				svg_c_t ey = arc_sat(((int64_t)by * hw) >> 16);
 				svg_c_t x[4], y[4];
 
-				x[0] = svg_qadd(d[0].x, ox);
-				y[0] = svg_qadd(d[0].y, oy);
-				x[1] = arc_sat((int64_t)d[0].x + ex + ox);
-				y[1] = arc_sat((int64_t)d[0].y + ey + oy);
-				x[2] = arc_sat((int64_t)d[0].x + ex - ox);
-				y[2] = arc_sat((int64_t)d[0].y + ey - oy);
-				x[3] = svg_qsub(d[0].x, ox);
-				y[3] = svg_qsub(d[0].y, oy);
+				x[0] = svg_qadd(SD(0).x, ox);
+				y[0] = svg_qadd(SD(0).y, oy);
+				x[1] = arc_sat((int64_t)SD(0).x + ex + ox);
+				y[1] = arc_sat((int64_t)SD(0).y + ey + oy);
+				x[2] = arc_sat((int64_t)SD(0).x + ex - ox);
+				y[2] = arc_sat((int64_t)SD(0).y + ey - oy);
+				x[3] = svg_qsub(SD(0).x, ox);
+				y[3] = svg_qsub(SD(0).y, oy);
 
 				if (poly_emit(ctx, x, y, 4))
 					return 1;
 			} else
-				if (arc_emit(ctx, d[0].x, d[0].y,
+				if (arc_emit(ctx, SD(0).x, SD(0).y,
 					     fnx, fny, bx, by, hw, tol, 0) ||
-				    arc_emit(ctx, d[0].x, d[0].y,
+				    arc_emit(ctx, SD(0).x, SD(0).y,
 					     bx, by, (svg_c_t)-fnx, (svg_c_t)-fny,
 					     hw, tol, 0))
 					return 1;
 		}
 
-		if (seg_normal(d[n - 2].x, d[n - 2].y, d[n - 1].x, d[n - 1].y,
+		if (seg_normal(SD(n - 2).x, SD(n - 2).y,
+			       SD(n - 1).x, SD(n - 1).y,
 			       &lnx, &lny)) {
 			/* forward direction is the normal rotated -90deg */
 
@@ -1978,21 +2041,21 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 				svg_c_t ey = arc_sat(((int64_t)fy * hw) >> 16);
 				svg_c_t x[4], y[4];
 
-				x[0] = svg_qadd(d[n - 1].x, ox);
-				y[0] = svg_qadd(d[n - 1].y, oy);
-				x[1] = arc_sat((int64_t)d[n - 1].x + ex + ox);
-				y[1] = arc_sat((int64_t)d[n - 1].y + ey + oy);
-				x[2] = arc_sat((int64_t)d[n - 1].x + ex - ox);
-				y[2] = arc_sat((int64_t)d[n - 1].y + ey - oy);
-				x[3] = svg_qsub(d[n - 1].x, ox);
-				y[3] = svg_qsub(d[n - 1].y, oy);
+				x[0] = svg_qadd(SD(n - 1).x, ox);
+				y[0] = svg_qadd(SD(n - 1).y, oy);
+				x[1] = arc_sat((int64_t)SD(n - 1).x + ex + ox);
+				y[1] = arc_sat((int64_t)SD(n - 1).y + ey + oy);
+				x[2] = arc_sat((int64_t)SD(n - 1).x + ex - ox);
+				y[2] = arc_sat((int64_t)SD(n - 1).y + ey - oy);
+				x[3] = svg_qsub(SD(n - 1).x, ox);
+				y[3] = svg_qsub(SD(n - 1).y, oy);
 
 				if (poly_emit(ctx, x, y, 4))
 					return 1;
 			} else
-				if (arc_emit(ctx, d[n - 1].x, d[n - 1].y,
+				if (arc_emit(ctx, SD(n - 1).x, SD(n - 1).y,
 					     lnx, lny, fx, fy, hw, tol, 0) ||
-				    arc_emit(ctx, d[n - 1].x, d[n - 1].y,
+				    arc_emit(ctx, SD(n - 1).x, SD(n - 1).y,
 					     fx, fy, (svg_c_t)-lnx, (svg_c_t)-lny,
 					     hw, tol, 0))
 					return 1;
@@ -2001,6 +2064,8 @@ stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
 
 	return 0;
 }
+
+#undef SD
 
 /*
  * Commit the stroke geometry for the shape in the working arrays: the
@@ -2035,8 +2100,8 @@ stroke_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba,
 		uint32_t count = (i + 1 < base_subs ?
 					ctx->wsubs[i + 1].start : base_pts) - start;
 
-		if (stroke_sub(ctx, eff, ctx->tol, hw,
-			       &ctx->wpts[start], count, ctx->wsubs[i].closed))
+		if (stroke_sub(ctx, eff, ctx->tol, hw, start, count,
+			       ctx->wsubs[i].closed))
 			goto bail;
 	}
 
@@ -2060,58 +2125,81 @@ shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 	return commit_range(ctx, m, rgba, rule, 0);
 }
 
+/* the number of points in working subpath i */
+
+static uint32_t
+wsub_count(const lws_svg_t *ctx, uint32_t i)
+{
+	return (i + 1 < ctx->wsubs_count ? ctx->wsubs[i + 1].start :
+				(uint32_t)ctx->wpts_count) - ctx->wsubs[i].start;
+}
+
 /*
  * Commit working subpaths [first_sub..] as a scene shape: the geometry is
- * transformed into place by the CTM and stored in the scene lwsac
+ * transformed into place by the CTM and stored in the scene lwsac, as one
+ * allocation holding the shape, its subpaths and all their points
  */
 
 static int
 commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule,
 	     uint32_t first_sub)
 {
+	size_t nsubs = 0, npts = 0;
 	lws_svg_shape_t *sh;
+	lws_svg_pt_t *pt;
 	uint32_t i;
 
 	if (!ctx->wsubs_count || first_sub >= ctx->wsubs_count)
 		return 0;
 
+	/* subpaths of fewer than 3 points cannot bound any fill area */
+
+	for (i = first_sub; i < ctx->wsubs_count; i++) {
+		uint32_t count = wsub_count(ctx, i);
+
+		if (count >= 3) {
+			nsubs++;
+			npts += count;
+		}
+	}
+
+	if (!nsubs)
+		/* only shapes that actually kept geometry join the scene */
+		return 0;
+
 	if (ctx->nshapes >= LWS_SVG_MAX_SHAPES)
 		return 1;
 
-	sh = svg_ac_use(ctx, sizeof(*sh));
+	/*
+	 * Each part is a whole number of its own alignment, and they go in
+	 * decreasing alignment order, so each part after the shape is
+	 * aligned for its type
+	 */
+
+	sh = svg_ac_use(ctx, sizeof(*sh) + nsubs * sizeof(lws_svg_sub_t) +
+			     npts * sizeof(lws_svg_pt_t));
 	if (!sh)
 		return 1;
 
 	memset(sh, 0, sizeof(*sh));
 	sh->rgba = rgba;
 	sh->rule = rule;
+	sh->subs = (lws_svg_sub_t *)(sh + 1);
+	pt = (lws_svg_pt_t *)(sh->subs + nsubs);
 
 	for (i = first_sub; i < ctx->wsubs_count; i++) {
-		uint32_t start = ctx->wsubs[i].start;
-		uint32_t count = (i + 1 < ctx->wsubs_count ?
-					ctx->wsubs[i + 1].start :
-					(uint32_t)ctx->wpts_count) - start;
-
+		uint32_t start = ctx->wsubs[i].start, count = wsub_count(ctx, i);
 		lws_svg_sub_t *sub;
 		uint32_t j;
 
-
 		if (count < 3)
-			/* cannot bound any fill area */
 			continue;
 
-		sub = svg_ac_use(ctx, sizeof(*sub));
-		if (!sub)
-			return 1;
-
-		memset(sub, 0, sizeof(*sub));
+		sub = &sh->subs[sh->nsubs++];
 		sub->closed = ctx->wsubs[i].closed;
-
-		sub->pts = svg_ac_use(ctx,
-				     (size_t)count * sizeof(lws_svg_pt_t));
-		if (!sub->pts)
-			return 1;
+		sub->pts = pt;
 		sub->npts = count;
+		pt += count;
 
 		for (j = 0; j < count; j++) {
 			lws_svg_dpt_t *d = &ctx->wpts[start + j];
@@ -2129,16 +2217,10 @@ commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule,
 			if (!j || sub->pts[j].y > sub->ymax)
 				sub->ymax = sub->pts[j].y;
 		}
-
-		lws_dll2_add_tail(&sub->list, &sh->subs);
 	}
 
-	/* only shapes that actually kept geometry join the scene */
-
-	if (!lws_dll2_is_empty(&sh->subs)) {
-		lws_dll2_add_tail(&sh->list, &ctx->shapes);
-		ctx->nshapes++;
-	}
+	lws_dll2_add_tail(&sh->list, &ctx->shapes);
+	ctx->nshapes++;
 
 	return 0;
 }
@@ -3511,9 +3593,12 @@ element_open(lws_svg_t *ctx, char selfclose)
 			level_compose(ctx, &ctx->stk[ctx->depth], pd, &eff,
 				      ctx->name);
 
-			/* a line has no fill of its own */
+			/*
+			 * A line has no fill of its own, and a fill of none
+			 * would never paint anything, so is not worth keeping
+			 */
 
-			if (k != SVEK_LINE &&
+			if (k != SVEK_LINE && LWS_SVG_ALPHA(eff.rgba) &&
 			    shape_commit(ctx, eff.m, eff.rgba, eff.rule))
 				return 1;
 
@@ -3524,7 +3609,7 @@ element_open(lws_svg_t *ctx, char selfclose)
 				return 1;
 		}
 
-		work_reset(ctx);
+		work_done(ctx);
 		break;
 	}
 
@@ -3568,17 +3653,19 @@ vappend(lws_svg_t *ctx, const char *b, size_t len)
 		return -1;
 
 	if (ctx->vlen + len + 2 >= ctx->vsize) {
-		size_t ns = ctx->vsize;
+		size_t ns = ctx->vsize ? ctx->vsize : 256, old;
 		char *n;
 
 		while (ctx->vlen + len + 2 >= ns)
 			ns *= 2;
-		n = svg_ac_use(ctx, ns);
+		n = lws_realloc(ctx->vbuf, ns, __func__);
 		if (!n)
 			return -1;
-		memcpy(n, ctx->vbuf, ctx->vsize);
-		ctx->vbuf = n;	/* old generation stays in the lwsac */
+
+		old = ctx->vsize;
+		ctx->vbuf = n;
 		ctx->vsize = ns;
+		svg_heap_note(ctx, old);
 	}
 
 	while (len--)
@@ -4034,13 +4121,15 @@ lws_svg_new(void)
 	ctx->tol = 6554;	/* 0.1 in Q16.16 */
 	ctx->par_ax = ctx->par_ay = 1;	/* preserveAspectRatio default Mid */
 	ctx->vsize = 256;
-	ctx->vbuf = svg_ac_use(ctx, ctx->vsize);
+	ctx->vbuf = lws_malloc(ctx->vsize, __func__);
 	if (!ctx->vbuf) {
 		lws_dll2_remove(&ctx->scratch_list);
 		svg_scratch_unref();
 		lwsac_free(&ctx->ac);
 		return NULL;
 	}
+
+	svg_heap_note(ctx, 0);
 
 	xf_ident(ctx->stk[0].m);
 	ctx->stk[0].rgba = LWS_SVG_RGBA(0, 0, 0, 0xff);
@@ -4060,31 +4149,25 @@ lws_svg_free(lws_svg_t **svg)
 	if (!ctx)
 		return;
 
-	/*
-	 * The whole object is one lwsac, so this single free covers the
-	 * context, working buffers, stylesheets and scene.  The peak is
-	 * the lwsac total at its largest, so it includes chunk overheads
-	 * and superseded working-buffer growth generations.
-	 */
+	work_free(ctx);
 
 	/*
-	 * Peak of this object's own lwsac (scene + working buffers); the
-	 * rasterization scratch is a single pool shared with any other
-	 * live svg objects, and shrinks with the largest demand.
+	 * The peak is of this object's own lwsac (context, stylesheets and
+	 * scene) and its working buffers while it was parsing; the
+	 * rasterization scratch is a single pool shared with any other live
+	 * svg objects, and shrinks with the largest demand.
 	 */
 
 	lwsl_notice("%s: peak heap %luB (final %luB; scene %u pts / %u shapes, "
-		  "css %u rules, pts cap %lu x %luB, subpaths %lu; shared "
-		  "scratch crossings %lu, aa cols %lu)\n",
+		  "css %u rules; shared scratch crossings %lu, aa cols %lu)\n",
 		  __func__, (unsigned long)ctx->heap_peak,
 		  (unsigned long)lwsac_total_alloc(ctx->ac),
 		  (unsigned int)ctx->npts, (unsigned int)ctx->nshapes,
 		  (unsigned int)ctx->css_count,
-		  (unsigned long)ctx->wpts_size,
-		  (unsigned long)sizeof(lws_svg_dpt_t),
-		  (unsigned long)ctx->wsubs_size,
 		  (unsigned long)svg_scratch.xings_size,
 		  (unsigned long)svg_scratch.aa_d_size);
+
+	/* the lwsac holds everything else, including the context itself */
 
 	lws_dll2_remove(&ctx->scratch_list);
 	svg_scratch_unref();
@@ -4114,11 +4197,19 @@ lws_svg_parse(lws_svg_t *ctx, const uint8_t **buf, size_t *len, char hold)
 
 		if (r < 0) {
 			ctx->fatal = 1;
+			work_free(ctx);
 			return LWS_SRET_FATAL;
 		}
 	}
 
-	return ctx->doc_complete ? LWS_SRET_OK : LWS_SRET_WANT_INPUT;
+	if (!ctx->doc_complete)
+		return LWS_SRET_WANT_INPUT;
+
+	/* the scene is final, we will not need the working buffers again */
+
+	work_free(ctx);
+
+	return LWS_SRET_OK;
 }
 
 unsigned int

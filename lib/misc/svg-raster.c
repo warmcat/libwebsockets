@@ -370,16 +370,15 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
 		int64_t raw0 = 0;
 		int alo = w, ahi = -1;
+		uint32_t si;
 		uint32_t base = sh->rgba & 0x00ffffff;
 		int fill_a = (int)LWS_SVG_ALPHA(sh->rgba);
 
 		if (!fill_a)
 			continue;	/* nothing painted */
 
-		lws_start_foreach_dll(lws_dll2_t *, d2,
-					      lws_dll2_get_head(&sh->subs)) {
-			lws_svg_sub_t *sub = lws_container_of(d2,
-							lws_svg_sub_t, list);
+		for (si = 0; si < sh->nsubs; si++) {
+			const lws_svg_sub_t *sub = &sh->subs[si];
 			int64_t px, py;
 			uint32_t i;
 
@@ -408,7 +407,7 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 			/* fill closes open subpaths implicitly */
 
 			for (i = 0; i < sub->npts; i++) {
-				lws_svg_pt_t *Q = &sub->pts[
+				const lws_svg_pt_t *Q = &sub->pts[
 					i + 1 == sub->npts ? 0 : i + 1];
 				int64_t qx = aa_map(Q->x, vbx, sx, ox);
 				int64_t qy = aa_map(Q->y, vby, sy, oy);
@@ -420,7 +419,7 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 				px = qx;
 				py = qy;
 			}
-		} lws_end_foreach_dll(d2);
+		}
 
 		/* sweep: raw(p) = raw(0) + sum of D(q < p) */
 
@@ -560,14 +559,13 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
 		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
 		size_t n = 0;
+		uint32_t si;
 
 		if (!LWS_SVG_ALPHA(sh->rgba))
 			continue;	/* nothing painted */
 
-		lws_start_foreach_dll(lws_dll2_t *, d2,
-					      lws_dll2_get_head(&sh->subs)) {
-			lws_svg_sub_t *sub = lws_container_of(d2,
-							lws_svg_sub_t, list);
+		for (si = 0; si < sh->nsubs; si++) {
+			const lws_svg_sub_t *sub = &sh->subs[si];
 			uint32_t i;
 
 			if ((size_t)(n + sub->npts + 1) > ctx->xings_need)
@@ -584,8 +582,8 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 			 */
 
 			for (i = 0; i < sub->npts; i++) {
-				lws_svg_pt_t *p = &sub->pts[i];
-				lws_svg_pt_t *q = &sub->pts[
+				const lws_svg_pt_t *p = &sub->pts[i];
+				const lws_svg_pt_t *q = &sub->pts[
 					i + 1 == sub->npts ? 0 : i + 1];
 
 				if ((p->y > ys) != (q->y > ys)) {
@@ -604,7 +602,7 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 					n++;
 				}
 			}
-		} lws_end_foreach_dll(d2);
+		}
 
 		if (n < 2)
 			continue;

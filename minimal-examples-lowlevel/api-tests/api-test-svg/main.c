@@ -2970,7 +2970,7 @@ stroke_cost(void)
 
 	lwsl_user("%s: round stroked icon takes %uB\n", __func__,
 		  (unsigned int)peak);
-	CHK(peak < 64 * 1024, "stroke-cost: round stroked icon took %uB",
+	CHK(peak < 32 * 1024, "stroke-cost: round stroked icon took %uB",
 	    (unsigned int)peak);
 }
 

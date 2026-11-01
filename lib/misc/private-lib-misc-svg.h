@@ -174,16 +174,21 @@ svg_ceil_q16(int64_t v)
 
 
 typedef struct lws_svg_sub {
-	lws_dll2_t		list;
-	lws_svg_pt_t		*pts;	/* from scene lwsac */
+	lws_svg_pt_t		*pts;	/* in the shape's own allocation */
 	uint32_t		npts;
 	svg_c_t			ymin, ymax; /* of pts, so bands can skip it */
 	char			closed;
 } lws_svg_sub_t;
 
+/*
+ * A shape is a single scene allocation: the shape, then its subs[] array,
+ * then all of its subpaths' points back to back
+ */
+
 typedef struct lws_svg_shape {
 	lws_dll2_t		list;	/* document order */
-	lws_dll2_owner_t	subs;
+	lws_svg_sub_t		*subs;
+	uint32_t		nsubs;
 	uint32_t		rgba;	/* fill colour with composed alpha */
 	char			rule;	/* 0 = nonzero, 1 = evenodd */
 } lws_svg_shape_t;
@@ -403,14 +408,17 @@ struct lws_svg {
 
 	svg_pend_t		pend;
 
-	/* working geometry (user space), copied into the scene at commit */
+	/*
+	 * Working geometry (user space), copied into the scene at commit.
+	 * These and vbuf are heap, not lwsac, so they can grow without
+	 * leaving old generations behind, and be freed when the document is
+	 * complete and only the scene is needed.
+	 */
 
 	lws_svg_dpt_t		*wpts;
 	size_t			wpts_count, wpts_size;
 	svg_wsub_t		*wsubs;
 	size_t			wsubs_count, wsubs_size;
-
-	/* rasterization scratch */
 
 	/* heap accounting, for the destroy-time peak log */
 
@@ -453,13 +461,14 @@ void svg_scratch_ref(void);
 void svg_scratch_unref(void);
 
 /*
- * Allocation and heap accounting: the whole svg object (context, working
- * buffers, stylesheets and retained scene) lives in a single lwsac chained
- * off ctx->ac, grown with chained doubling generations for the working
- * buffers.  svg_ac_use() is the single allocation path, and tracks the
- * peak simultaneous footprint (as lwsac total, so including chunk
- * overheads and superseded growth generations) for a destroy-time log.
+ * Allocation and heap accounting: the svg object's retained parts (context,
+ * stylesheets and scene) live in a single lwsac chained off ctx->ac, with
+ * svg_ac_use() the allocation path for them.  The working buffers are
+ * separate heap allocations that only live while parsing.  svg_heap_note()
+ * tracks the peak simultaneous footprint of both (the lwsac as its total,
+ * so including chunk overheads), with transient bytes in flight on top.
  */
 void *svg_ac_use(lws_svg_t *ctx, size_t nec);
+void svg_heap_note(lws_svg_t *ctx, size_t transient);
 
 #endif
