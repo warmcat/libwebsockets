@@ -265,3 +265,15 @@ the host matrix.  Cast to `(unsigned int)`.
 ESP CI builds pass `-DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0`; with h3 on,
 mbedtls must carry the lws QUIC patches (see
 `minimal-examples/embedded/lhp/README.md`) or configure stops.
+
+`portYIELD_FROM_ISR()` can't be used in lws on esp-idf v6: it expands to
+`traceISR_EXIT_TO_SCHEDULER()`, which FreeRTOS.h only defaults under
+`ESP_PLATFORM`, not defined for lws's own sources, so it is an implicit
+declaration error.  `LWS_PLAT_TIMER_START_FROM_ISR()` passes NULL for the
+woken flag instead and the timer task runs at the next tick.
+
+`LWS_WITH_DRIVERS` needs `LWS_WITH_SYS_SMD` (netdev uses SMD types
+unguarded), and until `lws_settings_plat_get/set()` stopped being called
+directly from netdev it could not link anywhere but esp32.  No Linux Sai
+config enables it, so api-test-i2c / api-test-touch only run where someone
+configures `-DLWS_WITH_DRIVERS=1`.
