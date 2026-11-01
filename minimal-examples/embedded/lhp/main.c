@@ -1,7 +1,7 @@
 /*
  * main
  *
- * Written in 2010-2022 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2026 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -10,28 +10,55 @@
  * differences in platform / device / display availability and bringup is in
  * ./main/devices.c in the individual directories.
  *
- * This example visits each URL in the board's carousel once, 10s apart,
- * rendering it on the display via LHP; when the last one is on the display
- * it logs "Completed: PASS" for CI and leaves it there.
+ * Everything on the display is html, laid out and rendered by lhp.
+ *
+ * From boot, a modal overlay at the top left of the display shows the boot
+ * stages (see boot-ui.c) as they are reached.  Until the network is up it can
+ * only use what is built in, a font and the stage icons, from the dlo
+ * filesystem.  Once the system is OPERATIONAL and the first update check has
+ * told us we're on the latest firmware (or failed, or there's no OTA), the
+ * overlay comes down and the application html is shown instead.
+ *
+ * The application is a placeholder for now: it visits each URL in the
+ * board's carousel once, 10s apart, rendering it on the display via LHP; when
+ * the last one is on the display it logs "Completed: PASS" for CI and leaves
+ * it there.
+ *
+ * If an update is found, a modal update display with its progress is shown
+ * whatever else was on the display.
  *
  * These examples are currently available for a bunch of ESP32 variants... but
- * there is no ESP32-specific code here.
+ * there is no ESP32-specific code here except the reboot and task glue.
  */
 
 #include "main.h"
+#include "boot-ui.h"
 
 struct lws_context *cx;
 
-static lws_dlo_filesystem_t *fs_splash_html, *fs_update_html;
-static char did_splash, seen_operational, subsequent;
+/* how long we wait after OPERATIONAL for the first update check to end */
+#define BOOT_OTA_WAIT_US	(90 * LWS_US_PER_SEC)
+
+static enum {
+	UI_BOOT,	/* the boot overlay */
+	UI_APP,		/* the application html */
+} ui;
+
 /* the carousel runs once: browsing its last url, then that url displayed */
 static enum { CAROUSEL_RUNNING, CAROUSEL_LAST, CAROUSEL_DONE } carousel_phase;
-static int carousel, boot_step = -1, lbs, update_pc, lupc = -1;
-static lws_sorted_usec_list_t sul_display_update, sul_scan_redraw;
+static int carousel, update_pc, update_pc_shown = -1;
+static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
+static char display_ready, boot_dirty, boot_done, seen_operational,
+	    subsequent;
 static uint32_t scan_sig_rendered;
 static struct lws_plat_file_ops dlo_fops;
 static lws_display_render_state_t rs;
+static lhp_boot_t boot;
 static uint8_t flip;
+
+/* the generated page in the dlo filesystem that is being shown, if any */
+static char *page;
+static const char *page_name;
 
 extern const char *carousel_urls[];
 
@@ -59,8 +86,7 @@ static const char * const ui_css =
 	"h1 { font-family: sans; font-size: 32px; text-align: center; margin-bottom: 12px; color:#000; }"
 	".vari { font-family: sans; font-size: 20px; text-align: center; margin-bottom: 4px; color:#00f; }"
 	".icon { display: block; width: 96px; height: 96px; color: #000; margin-left: auto; margin-right:auto; margin-bottom: 10px }"
-	".bar { display: inline; width: 260px; height: 30px; color: #fff; background-color: #000; margin-left: auto; margin-right:auto; padding-left:4px; padding-right:4px; padding-top:4px; padding-bottom: 4px; margin-bottom: 48px }"
-	".c { display: inline-block; background-color: #ccf; width: 50%; padding-top: 1px; padding-bottom: 1px; }";
+	".bar { display: inline; width: 260px; height: 30px; color: #fff; background-color: #000; margin-left: auto; margin-right:auto; padding-left:4px; padding-right:4px; padding-top:4px; padding-bottom: 4px; margin-bottom: 48px }";
 
 static lws_dlo_filesystem_t fs_ui_css = {
 	.name			= "ui.css",
@@ -73,6 +99,9 @@ static const lws_led_sequence_def_t *seqs[] = {
 	&lws_pwmseq_sine_endless_slow,
 	&lws_pwmseq_sine_endless_fast,
 };
+
+static void
+ui_kick(void);
 
 static int
 jit_trust_query(struct lws_context *cx, const uint8_t *skid,
@@ -112,138 +141,63 @@ do_reboot(void)
 	return 0;
 }
 
-static int
-display_update(lws_display_state_t *lds)
-{
-	char *p;
-
-	if (lupc == update_pc)
-		return 0;
-
-	lws_dlo_file_unregister(&fs_update_html);
-	lws_display_state_active(lds);
-
-	if (lds->display_busy)
-		return 0;
-
-	lwsl_err("%s\n", __func__);
-
-	/* Do modal update display instead of normal display content */
-
-	fs_update_html = malloc(sizeof(*fs_update_html) + 1024);
-	if (!fs_update_html)
-		return 0;
-
-	/* stop the carousel */
-	lws_sul_cancel(&sul_display_update);
-
-	memset(fs_update_html, 0, sizeof(*fs_update_html));
-	fs_update_html->name = "update.html";
-	fs_update_html->data = p = (char *)(fs_update_html + 1);
-
-	fs_update_html->len = lws_snprintf(p, 1024,
-		"<!doctype html><html>"
-		"<head><meta charset=\"utf-8\" /><link rel=\"stylesheet\" href=\"ui.css\"></head>"
-		   "<style>.done { background-color: #fff; color: #000; width: %dpx; height: 20px; padding-top: 1px; font-size: 20pt; text-align: center }</style>"
-		"<body><h1>UPDATING</h1>"
-		"<div class=\"vari\">%s</div><br>"
-		"<div class=\"bar\" id=\"progress\"><div class=\"done\">%d%%</div></div>"
-		"<div class=\"icon\"><img src=\"file://dlofs/update-icon.png\"></div><br>"
-		"</body></html>",
-		update_pc *  3,
-#if defined(LWS_WITH_OTA)
-		lws_ota_variant_name(),
-#else
-		"(ota disabled)",
-#endif
-		update_pc);
-
-	lws_dlo_file_register(cx, fs_update_html);
-
-	//lws_display_render_add_id(&rs, "progress", NULL);
-	lupc = update_pc;
-
-	if (init_browse(cx, &rs, "file://dlofs/update.html"))
-		lwsl_err("%s: init_browse failed\n", __func__);
-
-	return 0;
-}
-
-#if defined(LWS_WITH_OTA)
-static int
-ota_progress(lws_ota_ret_t state, int percent)
-{
-	if (state != LWSOTARET_PROGRESS)
-		return 0;
-
-	update_pc = percent;
-	display_update(&lds);
-
-	return 0;
-}
-#endif
-
-static lws_system_ops_t system_ops = {
-	.reboot				   = do_reboot,
-#if defined(LWS_WITH_OTA)
-
-	.ota_ops			   = {
-		.ota_start		   = lws_plat_ota_start,
-		.ota_queue		   = lws_plat_ota_queue,
-		.ota_detach		   = lws_plat_ota_detach,
-		.ota_report_current	   = lws_plat_ota_report_current,
-		.ota_get_last_fw_unixtime  = lws_plat_ota_get_last_fw_unixtime,
-		.ota_progress		   = ota_progress,
-	},
-#endif
-	.jit_trust_query		   = jit_trust_query
-};
+/*
+ * Generated pages: html we made, registered in the dlo filesystem while it is
+ * being shown, so lhp can browse it as file://dlofs/<name>.  It is only
+ * dropped once the display has finished with it.
+ */
 
 static void
-start_frame(lws_sorted_usec_list_t *sul)
+page_drop(void)
 {
-	if (lds.display_busy) {
-		lws_sul_schedule(cx, 0, &sul_display_update, start_frame,
-				 LWS_US_PER_SEC);
-
+	if (!page)
 		return;
+
+	lws_dlo_file_unregister_by_name(cx, page_name);
+	free(page);
+	page = NULL;
+}
+
+/* takes ownership of html, a heap allocation of len bytes and more */
+
+static int
+page_show(const char *name, char *html, int len)
+{
+	lws_dlo_filesystem_t f;
+	char url[64];
+
+	page_drop();
+
+	memset(&f, 0, sizeof(f));
+	f.name = name;
+	f.data = html;
+	f.len = (size_t)len;
+
+	if (!lws_dlo_file_register(cx, &f)) {
+		free(html);
+		return 1;
 	}
 
-        /* browsing / waiting / layout */
+	page = html;
+	page_name = name;
 
-        show_demo_phase(LWS_LHPCD_PHASE_FETCHING);
-
-	if (lws_system_get_state_manager(cx)->state == LWS_SYSTATE_MODAL_UPDATING)
-		return;
-
-	if (lws_system_get_state_manager(cx)->state == LWS_SYSTATE_AWAITING_MODAL_UPDATING) { //&&
-	    //strcmp(lds.current_url, "file://dlofs/update.html")) {
-
-		display_update(&lds);
-		return;
+	lws_display_state_active(&lds);
+	lws_snprintf(url, sizeof(url), "file://dlofs/%s", name);
+	if (init_browse(cx, &rs, url)) {
+		lwsl_err("%s: init_browse %s failed\n", __func__, url);
+		lds.display_busy = 0;
+		page_drop();
+		return 1;
 	}
 
-	if (fs_update_html)
-		lws_dlo_file_unregister(&fs_update_html);
-
-	if (!carousel_urls[carousel])
-		/* the one pass through the carousel already ended */
-		return;
-
-	lwsl_notice("%s: %s\n", __func__, carousel_urls[carousel]);
-
-	if (init_browse(cx, &rs, carousel_urls[carousel++]))
-		lwsl_err("%s: init_browse failed\n", __func__);
-	if (!carousel_urls[carousel])
-		carousel_phase = CAROUSEL_LAST;
-
-	lws_ss_dump_extant(cx, 0);
+	return 0;
 }
 
 /*
  * Order-independent signature of the set of APs in the scan list, so we can
- * tell when the splash's AP table is stale without redrawing on every scan
- * (the averaged rssi jitters, so rssi and ordering are deliberately left out)
+ * tell when the boot overlay's AP list is stale without redrawing on every
+ * scan (the averaged rssi jitters, so rssi and ordering are deliberately left
+ * out)
  */
 
 static uint32_t
@@ -269,149 +223,278 @@ scan_sig(void)
 	return sig;
 }
 
-static int
-display_splash(lws_display_state_t *lds)
+static void
+boot_show(void)
 {
-	char *p, age[32], varbuf[64];
-#if defined(LWS_WITH_OTA)
-	uint64_t fw = 0;
-#endif
+	char *html = malloc(4096);
+	int len;
 
-	lwsl_err("%s: boot_step %d... fs_splash_html %p, choose splash.html %p\n", __func__, boot_step, fs_splash_html, lws_dlo_file_choose(cx, "splash.html"));
+	if (!html)
+		return;
 
-	/*
-	 * Redraw if the boot step moved on, or if the set of APs the splash
-	 * shows has changed since we last drew it
-	 */
-
-	if ((lbs == boot_step && scan_sig() == scan_sig_rendered) ||
-	    did_splash || fs_splash_html)
-		return 0;
-
-	if (boot_step < 0)
-		boot_step = 0;
-
-	if (lds->display_busy)
-		return 0;
-
-	if (boot_step > LWS_SYSTATE_OPERATIONAL)
-		return 0;
-
-	if (boot_step == LWS_SYSTATE_OPERATIONAL)
-		did_splash = 1;
-
-	fs_splash_html = malloc(sizeof(*fs_splash_html) + 4096);
-	if (!fs_splash_html)
-		return 0;
-
-	lds->display_busy = 1;
-
-	memset(fs_splash_html, 0, sizeof(*fs_splash_html));
-	fs_splash_html->name = "splash.html";
-	p = (char *)(fs_splash_html + 1);
-	fs_splash_html->data = p;
-
-#if defined(LWS_WITH_OTA)
-	age[0] = '\0';
-	if (!system_ops.ota_ops.ota_get_last_fw_unixtime(&fw)) {
-		struct tm lt;
-		time_t t = (time_t)fw;
-
-		localtime_r(&t, &lt);
-		strftime(age, sizeof(age), "%Y-%m-%d %H:%M:%S UTC", &lt);
-	} else
-		strcpy(age, "unknown");
-
-	strncpy(varbuf, lws_ota_variant_name(), sizeof(varbuf));
-#else
-	lws_strncpy(age, "unknown", sizeof(age) - 1);
-	lws_strncpy(varbuf, "ota disabled", sizeof(varbuf) - 1);
-#endif
-
-	fs_splash_html->len = lws_snprintf(p, 4096,
-		"<!doctype html><html><head><meta charset=\"utf-8\" /><link rel=\"stylesheet\" href=\"ui.css\"></head>"
-		   "<style>.done { background-color: #fff; color: #000; width: %dpx; height: 20px; padding-top: 1px; font-size: 20pt; text-align: center }</style>"
-		"<body>"
-			"<div class=\"c\"><h1>Booting</h1>"
-			"<div class=\"bar\" id=\"progress\"><div class=\"done\">%d%%</div></div>"
-			"%s<br>%s"
-			"</div>"
-			"<div class=\"c\">"
-			"<table><tr><td>RSSI</td><td>Ch</td><td>SSID</td></tr>",
-
-		(boot_step * 250) / 13,
-		(boot_step * 100) / 13,
-		varbuf, age
-//				lds->disp->ic.wh_px[0].whole,
-//				lds->disp->ic.wh_px[1].whole,
-		);
-
-	/* the scan list is kept sorted strongest-first from the head */
-
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&wnd->scan)) {
-		lws_wifi_sta_t *w = lws_container_of(d, lws_wifi_sta_t, list);
-
-		fs_splash_html->len += lws_snprintf(p + fs_splash_html->len,
-						    4096 - fs_splash_html->len,
-				"<tr><td>%d</td><td>%d</td><td>%s</td></tr>",
-				rssi_averaged(w), w->ch, (const char *)&w[1]);
-	} lws_end_foreach_dll(d);
-
-	fs_splash_html->len += lws_snprintf(p + fs_splash_html->len, 4096 - fs_splash_html->len, "</table></div></body></html>");
-
-	lbs = boot_step;
-	scan_sig_rendered = scan_sig();
-
-	if (!lws_dlo_file_register(cx, fs_splash_html))
-		lwsl_err("registering splash failed\n");
-
-	lws_display_render_free_ids(&rs);
-//	if (!strcmp(lds->current_url, "file://dlofs/splash.html"))
-		/* subsequent update... do partial */
-//		lws_display_render_add_id(&rs, "progress", NULL);
-
-	if (init_browse(cx, &rs, "file://dlofs/splash.html")) {
-		lwsl_err("%s: init_browse ended badly\n", __func__);
-		lws_dlo_file_unregister_by_name(cx, "splash.html");
-		free(fs_splash_html);
-		fs_splash_html = NULL;
+	len = lhp_boot_html(&boot, html, 4096);
+	if (len < 0) {
+		lwsl_err("%s: boot overlay too large\n", __func__);
+		free(html);
+		return;
 	}
 
-	if (did_splash)
-		lws_display_render_free_ids(&rs);
+	scan_sig_rendered = scan_sig();
+	page_show("boot.html", html, len);
+}
+
+/* a stage was reached, or something the overlay shows changed */
+
+static void
+boot_changed(void)
+{
+	if (ui != UI_BOOT)
+		return;
+
+	boot_dirty = 1;
+	ui_kick();
+}
+
+/* the overlay comes down once we're OPERATIONAL and the first update check
+ * has ended one way or another */
+
+static void
+boot_finish(void)
+{
+	if (!seen_operational || boot_done)
+		return;
+
+	lws_sul_cancel(&sul_boot_timeout);
+	boot_done = 1;
+	ui_kick();
+}
+
+static void
+boot_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	lwsl_warn("%s: no update check result, carrying on\n", __func__);
+	boot_finish();
+}
+
+/*
+ * Whether any wifi credentials are stored, which is the first boot stage.  The
+ * credentials are only kept in memory while something is using them.
+ */
+
+static int
+boot_have_creds(void)
+{
+	lws_netdevs_t *nds = lws_netdevs_from_ctx(cx);
+	int have;
+
+	if (!nds->ac_creds && lws_netdev_credentials_settings_get(nds))
+		return 0;
+	nds->refcount_creds++;
+
+	have = !!lws_dll2_get_head(&nds->owner_creds);
+
+	if (!--nds->refcount_creds) {
+		lws_dll2_owner_clear(&nds->owner_creds);
+		lwsac_free(&nds->ac_creds);
+	}
+
+	return have;
+}
+
+static void
+update_show(void)
+{
+	char *html = malloc(1024);
+	int len;
+
+	if (!html)
+		return;
+
+	/* stop the application meanwhile */
+	lws_sul_cancel(&sul_app);
+
+	len = lws_snprintf(html, 1024,
+		"<!doctype html><html>"
+		"<head><meta charset=\"utf-8\" /><link rel=\"stylesheet\" href=\"ui.css\">"
+		"<style>.done { background-color: #fff; color: #000; width: %dpx; height: 20px; padding-top: 1px; font-size: 20pt; text-align: center }</style>"
+		"</head><body><h1>UPDATING</h1>"
+		"<div class=\"vari\">%s</div><br>"
+		"<div class=\"bar\" id=\"progress\"><div class=\"done\">%d%%</div></div>"
+		"<div class=\"icon\"><img src=\"file://dlofs/update-icon.png\"></div><br>"
+		"</body></html>",
+		update_pc *  3,
+#if defined(LWS_WITH_OTA)
+		lws_ota_variant_name(),
+#else
+		"(ota disabled)",
+#endif
+		update_pc);
+
+	update_pc_shown = update_pc;
+	page_show("update.html", html, len);
+}
+
+/* the placeholder application: the next page of the carousel */
+
+static void
+app_next(lws_sorted_usec_list_t *sul)
+{
+	lws_system_states_t st = (lws_system_states_t)
+				lws_system_get_state_manager(cx)->state;
+
+	if (st == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
+	    st == LWS_SYSTATE_MODAL_UPDATING)
+		/* the update display has the display now */
+		return;
+
+	if (lds.display_busy) {
+		lws_sul_schedule(cx, 0, &sul_app, app_next, LWS_US_PER_SEC);
+		return;
+	}
+
+	if (!carousel_urls[carousel])
+		/* the one pass through the carousel already ended */
+		return;
+
+	lwsl_notice("%s: %s\n", __func__, carousel_urls[carousel]);
+
+	page_drop();
+	lws_display_state_active(&lds);
+	if (init_browse(cx, &rs, carousel_urls[carousel++])) {
+		lwsl_err("%s: init_browse failed\n", __func__);
+		lds.display_busy = 0;
+	}
+	if (!carousel_urls[carousel])
+		carousel_phase = CAROUSEL_LAST;
+}
+
+/*
+ * Decide what the display should show next.  It's done whenever something
+ * changed, and when the display finishes an update: while it's busy, nothing
+ * happens until then.  So on a slow display, the next update shows the state
+ * as it is by then, however many changes it went through meanwhile.
+ */
+
+static void
+ui_kick_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_system_states_t st = (lws_system_states_t)
+				lws_system_get_state_manager(cx)->state;
+
+	if (!display_ready || lds.display_busy)
+		return;
+
+	if (st == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
+	    st == LWS_SYSTATE_MODAL_UPDATING) {
+		/* the update display takes over, whatever else is going on */
+		if (update_pc_shown != update_pc)
+			update_show();
+		return;
+	}
+
+	if (ui == UI_APP)
+		/* the application paces itself */
+		return;
+
+	if (boot_done) {
+		lwsl_notice("%s: boot complete, starting application\n",
+			    __func__);
+		ui = UI_APP;
+		lhp_boot_deinit(&boot);
+		lws_sul_schedule(cx, 0, &sul_app, app_next, 1);
+		return;
+	}
+
+	if (boot_dirty) {
+		boot_dirty = 0;
+		boot_show();
+	}
+}
+
+/*
+ * What changed is often learned inside a callback from lws, eg, a state
+ * notification or the OTA stream's: decide from the event loop instead
+ */
+
+static void
+ui_kick(void)
+{
+	lws_sul_schedule(cx, 0, &sul_ui, ui_kick_cb, 1);
+}
+
+static int
+ota_progress(lws_ota_ret_t state, int percent)
+{
+	switch (state) {
+	case LWSOTARET_UP_TO_DATE:
+		boot.ota = LHP_BOOT_OTA_UP_TO_DATE;
+		lhp_boot_set(&boot, LHP_BOOT_OTA, 1);
+		boot_changed();
+		boot_finish();
+		break;
+
+	case LWSOTARET_UPDATE_AVAILABLE:
+		/* the modal update display will take over */
+		boot.ota = LHP_BOOT_OTA_UPDATE;
+		boot_changed();
+		break;
+
+	case LWSOTARET_FAILED:
+		/* not fatal: we carry on with the firmware we have */
+		boot.ota = LHP_BOOT_OTA_FAILED;
+		boot_changed();
+		boot_finish();
+		break;
+
+	case LWSOTARET_PROGRESS:
+	case LWSOTARET_COMPLETED:
+		update_pc = state == LWSOTARET_COMPLETED ? 100 : percent;
+		ui_kick();
+		break;
+
+	default:
+		break;
+	}
 
 	return 0;
 }
 
+static lws_system_ops_t system_ops = {
+	.reboot				   = do_reboot,
+#if defined(LWS_WITH_OTA)
+
+	.ota_ops			   = {
+		.ota_start		   = lws_plat_ota_start,
+		.ota_queue		   = lws_plat_ota_queue,
+		.ota_detach		   = lws_plat_ota_detach,
+		.ota_report_current	   = lws_plat_ota_report_current,
+		.ota_get_last_fw_unixtime  = lws_plat_ota_get_last_fw_unixtime,
+		.ota_progress		   = ota_progress,
+	},
+#endif
+	.jit_trust_query		   = jit_trust_query
+};
+
 int
 display_completion_cb(lws_display_state_t *lds, int a)
 {
-	lwsl_warn("%s: %d\n", __func__, a);
-	lws_ss_dump_extant(cx, 0);
+	lwsl_info("%s: %d\n", __func__, a);
 
 	switch (a) {
 
 	case 1: /* display initialization finished */
-		if (!did_splash)
-			display_splash(lds);
-	break;
+		display_ready = 1;
+		break;
 
 	case 2: /* display update finished */
 
 		lds->display_busy = 0;
 		show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+		page_drop();
 
-		if (fs_splash_html) {
-			lws_dlo_file_unregister_by_name(cx, fs_splash_html->name);
-			free(fs_splash_html);
-			fs_splash_html = NULL;
-			lws_display_state_active(lds);
-		}
-
-		if (!did_splash) {
-			display_splash(lds);
-			return 0;
-		}
+		if (ui != UI_APP || carousel_phase == CAROUSEL_DONE ||
+		    update_pc_shown >= 0)
+			break;
 
 		if (carousel_phase == CAROUSEL_LAST) {
 			/*
@@ -421,60 +504,35 @@ display_completion_cb(lws_display_state_t *lds, int a)
 			 */
 			carousel_phase = CAROUSEL_DONE;
 			lwsl_notice("Completed: PASS\n");
-		}
-
-		if (carousel_phase == CAROUSEL_DONE)
 			break;
+		}
 
 		/* trigger doing the next browse */
 
-		lws_sul_schedule(lds->ctx, 0, &sul_display_update, start_frame,
+		lws_sul_schedule(lds->ctx, 0, &sul_app, app_next,
 				 subsequent ? 10 * LWS_US_PER_SEC : 1);
 		subsequent = 1;
 		break;
 	}
 
+	ui_kick();
+
 	return 0;
-}
-
-
-/*
- * A wifi scan completed while we are still on the splash: redraw it if the
- * AP table changed.  Deferred via a sul so we run after the netdev has taken
- * the results into its scan list, whatever order the smd participants are
- * called in; while the display is busy with the previous refresh, the
- * completion callback picks the redraw up instead.
- */
-
-static void
-scan_redraw(lws_sorted_usec_list_t *sul)
-{
-	if (did_splash || strcmp(lds.current_url, "file://dlofs/splash.html"))
-		return;
-
-	display_splash(&lds);
 }
 
 static int
 smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
        size_t len)
 {
+	const char *p;
+	size_t al;
+
 	if (!lws_json_simple_strcmp(buf, len, "\"src\":", "bc/user") &&
 	    !lws_json_simple_strcmp(buf, len, "\"event\":", "click")) {
 		lws_led_transition(lls, "blue", seqs[flip & 3],
 				   &lws_pwmseq_linear_wipe);
 		flip++;
 	}
-
-	/* platform-private wifi event 1 is WIFI_EVENT_SCAN_DONE on esp32 */
-
-	if ((_class & LWSSMDCL_NETWORK) &&
-	    !lws_json_simple_strcmp(buf, len, "\"type\":", "priv") &&
-	    !lws_json_simple_strcmp(buf, len, "\"ev\":", "1"))
-		lws_sul_schedule(cx, 0, &sul_scan_redraw, scan_redraw,
-				 100 * LWS_US_PER_MS);
-
-	lwsl_hexdump_notice(buf, len);
 
 	if (_class & LWSSMDCL_INTERACTION)
 		/*
@@ -483,34 +541,130 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 		 */
 		lws_display_state_active(&lds);
 
+	if (!(_class & LWSSMDCL_NETWORK) || ui != UI_BOOT)
+		return 0;
+
+	lwsl_hexdump_info(buf, len);
+
+	/* the network events the boot overlay shows */
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "linkup")) {
+		lhp_boot_set(&boot, LHP_BOOT_SETUP, 1);
+		if (lhp_boot_set(&boot, LHP_BOOT_WLAN, 1))
+			boot_changed();
+		return 0;
+	}
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "linkdown")) {
+		lhp_boot_set(&boot, LHP_BOOT_WLAN, 0);
+		lhp_boot_set(&boot, LHP_BOOT_IPV4, 0);
+		lhp_boot_set(&boot, LHP_BOOT_IPV6, 0);
+		boot.ipv4[0] = boot.ipv6[0] = '\0';
+		boot_changed();
+		return 0;
+	}
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq")) {
+		p = lws_json_simple_find(buf, len, "\"ipv4\":", &al);
+		if (p) {
+			lws_strnncpy(boot.ipv4, p, al, sizeof(boot.ipv4));
+			lhp_boot_set(&boot, LHP_BOOT_IPV4, 1);
+			boot_changed();
+		}
+		p = lws_json_simple_find(buf, len, "\"ipv6\":", &al);
+		if (p) {
+			lws_strnncpy(boot.ipv6, p, al, sizeof(boot.ipv6));
+			lhp_boot_set(&boot, LHP_BOOT_IPV6, 1);
+			boot_changed();
+		}
+		return 0;
+	}
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "cpd")) {
+		/* the overlay shows a captive portal or no internet itself */
+		lhp_boot_set(&boot, LHP_BOOT_INTERNET,
+			     !lws_json_simple_strcmp(buf, len, "\"result\":",
+						     "OK"));
+		boot_changed();
+		return 0;
+	}
+
+	/*
+	 * platform-private wifi event 1 is WIFI_EVENT_SCAN_DONE on esp32: the
+	 * overlay lists the APs while we have none to join
+	 */
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "priv") &&
+	    !lws_json_simple_strcmp(buf, len, "\"ev\":", "1") &&
+	    lhp_boot_focus(&boot) <= LHP_BOOT_WLAN &&
+	    scan_sig() != scan_sig_rendered)
+		boot_changed();
+
 	return 0;
 }
 
 static int
 system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
-		   int current, int target)
+		 int current, int target)
 {
-	if (current == LWS_SYSTATE_OPERATIONAL &&
-	    target == LWS_SYSTATE_OPERATIONAL)
-		seen_operational = 1;
-
 	if (current == target) {
-		boot_step = current;
+		/* we arrived at a state */
 
-		if (!strcmp(lds.current_url, "file://dlofs/splash.html"))
-			display_splash(&lds);
+		if (current >= LWS_SYSTATE_TIME_VALID &&
+		    current <= LWS_SYSTATE_OPERATIONAL &&
+		    lhp_boot_set(&boot, LHP_BOOT_DATE, 1))
+			boot_changed();
+
+		/* AUTH1 and AUTH2 are behind us */
+		if (current > LWS_SYSTATE_AUTH2 &&
+		    current <= LWS_SYSTATE_OPERATIONAL &&
+		    lhp_boot_set(&boot, LHP_BOOT_AUTH, 1))
+			boot_changed();
+
+		if (current == LWS_SYSTATE_AWAITING_MODAL_UPDATING)
+			/* the update display takes over the display */
+			ui_kick();
+
+		if (current == LWS_SYSTATE_OPERATIONAL) {
+			if (!seen_operational) {
+				seen_operational = 1;
+#if defined(LWS_WITH_OTA)
+				/* the first update check is coming */
+				boot.ota = LHP_BOOT_OTA_CHECKING;
+				lws_sul_schedule(cx, 0, &sul_boot_timeout,
+						 boot_timeout_cb,
+						 BOOT_OTA_WAIT_US);
+				boot_changed();
+#else
+				boot.ota = LHP_BOOT_OTA_DISABLED;
+				boot_finish();
+#endif
+			}
+
+			if (update_pc_shown >= 0) {
+				/* an update didn't happen: back to the app */
+				update_pc_shown = -1;
+				if (ui == UI_APP)
+					lws_sul_schedule(cx, 0, &sul_app,
+							 app_next, 1);
+				else
+					boot_changed();
+			}
+		}
 	}
 
 	if (current != LWS_SYSTATE_MODAL_UPDATING &&
 	    target == LWS_SYSTATE_MODAL_UPDATING) {
 
-		/* do we feel like we should okay the transition to
-		 * MODAL_UPDATING?  Or are we busy using heap right now?
+		/*
+		 * do we feel like we should okay the transition to
+		 * MODAL_UPDATING?  Or are we busy using heap right now?  If
+		 * not yet, the OTA asks again each second.
 		 */
 
-		if (strcmp(lds.current_url, "file://dlofs/update.html")) {
+		if (update_pc_shown < 0) {
 			/* did not start showing the modal update display yet */
-			lws_sul_schedule(cx, 0, &sul_display_update, start_frame, 1);
+			ui_kick();
 
 			return 1;
 		}
@@ -530,7 +684,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	return 0;
 }
 
-void 
+void
 app_main(void)
 {
 	struct lws_context_creation_info *info;
@@ -549,12 +703,10 @@ app_main(void)
 
 	memset(info, 0, sizeof(*info));
 
-#if 1
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	info->pss_policies_json		= ss_policy;
 #else
 	info->pss_policies		= &_ss_static_policy_entry;
-#endif
 #endif
 	info->options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -598,6 +750,13 @@ app_main(void)
 
 	if (init_plat_devices(cx))
 		goto spin;
+
+	/* the boot overlay, shown when the display is ready */
+
+	if (lhp_boot_init(cx, &boot, &lds.disp->ic, wnd))
+		goto spin;
+	lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
+	boot_dirty = 1;
 
 	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 

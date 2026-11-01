@@ -25,13 +25,40 @@ const char *carousel_urls[] = {
 /*
  * Only one small face is built in, so text can always be shown.  The rest come
  * from the lws-mcufonts plugin on libwebsockets.org, a page of a face at a
- * time as the text needs them, see lws_fonts_register_manifest()
+ * time as the text needs them, see lws_fonts_register_manifest().
+ *
+ * Layout waits for the manifest the first time it's registered, so we only
+ * register it once we are OPERATIONAL: the boot overlay, shown while there is
+ * no network, is laid out promptly with the built-in face.
  */
 
 #define FONTS_MANIFEST_URL "https://libwebsockets.org/mcufonts/fonts.json"
 
 static const uint8_t fira_c_r_12[] = {
 #include "../contrib/mcufont/fonts/FiraSansCondensed-Regular12.mcufont.h"
+};
+
+static int
+fonts_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
+		int current, int target)
+{
+	static char done;
+
+	/* we may come back to OPERATIONAL, eg, if an update failed */
+	if (done || current != LWS_SYSTATE_OPERATIONAL ||
+	    target != LWS_SYSTATE_OPERATIONAL)
+		return 0;
+
+	done = 1;
+	if (lws_fonts_register_manifest(cx, FONTS_MANIFEST_URL))
+		lwsl_warn("%s: only the built-in face can be used\n", __func__);
+
+	return 0;
+}
+
+static lws_state_notify_link_t fonts_notify = {
+	.notify_cb	= fonts_notify_cb,
+	.name		= "fonts"
 };
 
 static const uint8_t splash_jpg[] = {
@@ -204,8 +231,7 @@ init_plat_devices(struct lws_context *cx)
 #endif
 
 	lws_font_register(cx, fira_c_r_12, sizeof(fira_c_r_12));
-	if (lws_fonts_register_manifest(cx, FONTS_MANIFEST_URL))
-		lwsl_warn("%s: only the built-in face can be used\n", __func__);
+	lws_state_reg_notifier(lws_system_get_state_manager(cx), &fonts_notify);
 
 	lws_dlo_file_register(cx, &fs_splash);
 

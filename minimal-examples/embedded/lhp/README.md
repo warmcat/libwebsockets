@@ -8,10 +8,56 @@ Notice that although the demos are for ESP32 currently, there is no
 ESP32-specific code in the common part.  Only `main/devices.c` in the
 combination-specific directories has the platform-specific init.
 
-The demo visits each of a short list of pages using h2 and renders them
-on the device + display combination, 10s apart.  When the last one is on
-the display it logs `Completed: PASS`, which is what Sai's `sai-expect`
-looks for when the demo runs as a CI test, and leaves it there.
+Everything on the display is html, laid out and rendered by lhp.
+
+## Boot overlay
+
+From boot, a modal overlay at the top left of the display shows how far
+booting has got, as a vertical list of icons for the stages
+
+|Stage|Reached when|
+|---|---|
+|setup|wifi credentials are stored|
+|wlan|associated to the AP|
+|ipv4|an IPv4 address was acquired|
+|ipv6|an IPv6 address was acquired (optional, never waited for)|
+|internet|captive portal detection says we have internet|
+|date|the time is known|
+|ota|the first update check says we are on the latest firmware|
+|auth|the system passed its AUTH states|
+
+Stages reached are shown as they are, the others dimmed.  The stage being
+worked on, the first not reached, is highlighted, and what is known about
+it is shown to the right of the list, eg, the APs seen while there is
+nothing to join, the addresses, the date, or the OTA variant.
+
+When the display is too short for the whole list, only the last stage
+reached and the one being worked on are shown, through a window onto the
+list made with css `overflow: hidden` and a `position: relative` offset.
+
+Until the network is up, the overlay only uses what is built in: a font,
+and the stage icons, which `boot-icons.cmake` makes into C arrays at build
+time from the svg in `contrib/assets/boot-status`, served from the dlo
+filesystem.  The overlay is made by `boot-ui.c`, which has nothing
+platform-specific in it.
+
+On a slow display, eg, an EPD taking 20s to update, the overlay is only
+redrawn once the previous update has finished, showing the state as it is
+then.
+
+Once the system is OPERATIONAL and the first update check ended, saying
+we're up to date, or failing, the overlay comes down and the application
+html is shown.  If the update check doesn't end in 90s, we carry on
+anyway.  If an update is found, a modal update display with its progress
+takes over the display instead, whatever is on it.
+
+## Application
+
+The application is a placeholder for now: it visits each of a short list
+of pages using h2 and renders them on the device + display combination,
+10s apart.  When the last one is on the display it logs `Completed: PASS`,
+which is what Sai's `sai-expect` looks for when the demo runs as a CI test,
+and leaves it there.
 
 ESP32 WROVER KIT, and ESP32S2 Kaluga boards and displays are
 supported, along with Waveshare ESP32 dev board and a variety of
@@ -26,7 +72,10 @@ libwebsockets.org with `lws_fonts_register_manifest()`, at whatever size the
 css asks for, a page of 256 codepoints of a face at a time as the text needs
 them.  Text whose pages can't be had yet, for example while the server is
 making a size nobody asked for before, is shown in the built-in face
-meanwhile.  See
+meanwhile.  The manifest is only registered once the system is
+OPERATIONAL, since layout waits for it the first time: so the boot
+overlay, shown before there is any network, uses the built-in face.  Its
+first redraw after that waits for the manifest to arrive.  See
 `plugins/protocol_lws_mcufonts/README.md` to serve fonts like that yourself,
 and change `FONTS_MANIFEST_URL` in its `main/devices.c` to point to your
 server.
