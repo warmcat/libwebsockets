@@ -583,8 +583,9 @@ lws_quic_pmtud_bh_confirmed(struct lws_quic_netconn *qn)
 {
 	lwsl_wsi_warn(qn->nwsi, "QUIC PMTUD: black hole: packets of %u are "
 		      "lost, the base gets through: searching again from %u",
-		      qn->pmtud_bh_from_mtu - LWS_QUIC_PMTU_OVERHEAD,
-		      LWS_QUIC_PMTU_BASE);
+		      (unsigned int)(qn->pmtud_bh_from_mtu -
+				     LWS_QUIC_PMTU_OVERHEAD),
+		      (unsigned int)LWS_QUIC_PMTU_BASE);
 	qn->pmtud_bh_from_mtu		= 0;
 	lws_quic_pmtud_bh_from_late_clear(qn);
 	qn->consecutive_mtu_losses	= 0;
@@ -2056,11 +2057,13 @@ lws_quic_dump_stalled(struct lws *wsi)
 			"(its listener %d), last pass held %d full %d failed %d, "
 			"mtu %u, pmtud state %u, probe queued %d/%d/%d",
 			qn->handshake_done, qn->is_closing, (int)nwsi->txc.tx_cr,
-			qn->pto_count, !lws_dll2_is_detached(&qn->pto_sul.list),
+			(unsigned int)qn->pto_count,
+			!lws_dll2_is_detached(&qn->pto_sul.list),
 			nwsi->mux.requested_POLLOUT, nwsi->mux.parent_wsi ?
 				nwsi->mux.parent_wsi->mux.requested_POLLOUT : -1,
 			qn->tx_held, qn->tx_full, qn->tx_failed,
-			qn->current_mtu, qn->pmtud_state,
+			(unsigned int)qn->current_mtu,
+			(unsigned int)qn->pmtud_state,
 			qn->pmtud_probe_queued, qn->pmtud_bh_probe_queued,
 			qn->pmtud_bh_from_probe_queued);
 	for (l = 0; l < LWS_QUIC_LEVEL_COUNT; l++)
@@ -2657,7 +2660,9 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			if (orig_n < 1200)
 				return LWS_HPI_RET_HANDLED;
 
-			lwsl_wsi_notice(wsi, "QUIC RX: Unsupported version 0x%08X, sending VN packet", pkt_version);
+			lwsl_wsi_notice(wsi, "QUIC RX: Unsupported version "
+					"0x%08X, sending VN packet",
+					(unsigned int)pkt_version);
 			uint8_t *vp = vn;
 			*vp++ = 0x80; /* Long Header */
 			*vp++ = 0; *vp++ = 0; *vp++ = 0; *vp++ = 0; /* Version 0 */
