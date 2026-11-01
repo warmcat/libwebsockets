@@ -201,8 +201,9 @@ typedef struct {
 
 	int (*ota_progress)(lws_ota_ret_t state, int percent);
 	/**< Gets called so the platform can represent OTA progress, give
-	 * platform a chance to choose what to do about an available update */
-	 
+	 * platform a chance to choose what to do about an available update.
+	 * See below for the states it reports */
+
 	int (*ota_get_last_fw_unixtime)(uint64_t *fw_unixtime);
 	/**< tries to recover the newest firmware unixtime that had been
 	 * OTA'd into fw_unixtime, updates from same or earlier unixtime are
@@ -216,6 +217,22 @@ typedef struct {
 	 * g again (see below) */
 } lws_ota_ops_t;
 ```
+
+`ota_progress()` hears how each check and update ends, eg so a UI can wait to
+show it is on the latest firmware before it moves on:
+
+|state|meaning|
+|---|---|
+|`LWSOTARET_UP_TO_DATE`|the check found the manifest is for firmware no newer than ours|
+|`LWSOTARET_UPDATE_AVAILABLE`|the check found a newer firmware, we will try to enter `LWS_SYSTATE_MODAL_UPDATING` and fetch it|
+|`LWSOTARET_PROGRESS`|`percent` of the update has been written|
+|`LWSOTARET_COMPLETED`|the update is written and finalized, we are about to reboot into it|
+|`LWSOTARET_FAILED`|the check couldn't get or didn't trust the manifest, or the update didn't complete, or the reboot after it didn't happen|
+
+Each check reports exactly one of `UP_TO_DATE`, `UPDATE_AVAILABLE` or
+`FAILED`, and an update it goes on to fetch then reports `COMPLETED` or
+`FAILED`.  The first check happens a little after the system first reaches
+`LWS_SYSTATE_OPERATIONAL`.
 
 If the platform being built has a specified OTA methodology, for example as with
 esp-idf, lws may provide platform implementations for

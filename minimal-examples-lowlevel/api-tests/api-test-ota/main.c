@@ -19,13 +19,16 @@
  *    after it is acknowledged (the write completion reads g->buf)
  *  - refuse-modal: user code refuses to enter MODAL_UPDATING until lws_ota
  *    gives up
+ *  - noslot: the platform has nowhere to put an update
+ *  - up-to-date: the manifest is for a firmware no newer than ours
  *  - context-destroy: the context is destroyed while a flash write is in
  *    flight; the platform must be told to let go synchronously (ota_detach)
  *
- * After each of the first four, the system must be back in OPERATIONAL, the
+ * After each of the others, the system must be back in OPERATIONAL, the
  * periodic update check rescheduled, and the platform holding nothing.  The
  * platform must never be given an op while one is in flight, or after ABORT or
- * FINALIZE.
+ * FINALIZE.  How each check and update ended must have been reported to the
+ * platform's ota_progress() once.
  *
  * The OTA manifest is signed at runtime with ota-test.private.jwk, so the test
  * is only built when lws was configured with LWS_OTA_PUBLIC_JWK_FILE pointing
@@ -60,6 +63,7 @@ typedef enum {
 	OTC_STALL_TIMEOUT,
 	OTC_REFUSE_MODAL,
 	OTC_NOSLOT,
+	OTC_UP_TO_DATE,
 	OTC_CONTEXT_DESTROY,
 
 	OTC_COUNT
@@ -67,7 +71,7 @@ typedef enum {
 
 static const char * const case_names[] = {
 	"complete", "cut", "stall-timeout", "refuse-modal", "noslot",
-	"context-destroy"
+	"up-to-date", "context-destroy"
 };
 
 #define IMG_LEN		20000
@@ -79,6 +83,7 @@ static uint8_t gz[IMG_LEN + 5 * (IMG_LEN / GZ_STORED_BLOCK + 1) + 18];
 static size_t gz_len;
 static char manifest[2048];
 static size_t manifest_len;
+static uint64_t manifest_unixtime;
 
 static struct lws_context *context;
 static lws_state_notify_link_t nl;
@@ -102,6 +107,9 @@ static struct {
 	size_t				written;
 	int				starts, writes, aborts, finalizes,
 					detaches, errors;
+	int				rep_available, rep_up_to_date,
+					rep_completed, rep_failed,
+					rep_progress;
 	char				hold_writes;
 	char				hash_inited;
 	char				hash_ok;
@@ -264,12 +272,39 @@ fp_ota_detach(struct lws_ota *g)
 static int
 fp_ota_get_last_fw_unixtime(uint64_t *fw_unixtime)
 {
-	return 1; /* nothing known, so any update is newer */
+	if (cur_case != OTC_UP_TO_DATE)
+		return 1; /* nothing known, so any update is newer */
+
+	/* we are already running what the manifest offers */
+	*fw_unixtime = manifest_unixtime;
+
+	return 0;
 }
 
 static int
 fp_ota_progress(lws_ota_ret_t state, int percent)
 {
+	switch (state) {
+	case LWSOTARET_UPDATE_AVAILABLE:
+		fp.rep_available++;
+		break;
+	case LWSOTARET_UP_TO_DATE:
+		fp.rep_up_to_date++;
+		break;
+	case LWSOTARET_COMPLETED:
+		fp.rep_completed++;
+		break;
+	case LWSOTARET_FAILED:
+		fp.rep_failed++;
+		break;
+	case LWSOTARET_PROGRESS:
+		fp.rep_progress++;
+		break;
+	default:
+		fp_error("unexpected ota_progress state");
+		break;
+	}
+
 	return 0;
 }
 
@@ -454,27 +489,53 @@ case_ended(void)
 
 	check_ended();
 
+	lwsl_user("--- %s: reported: available %d, up to date %d, "
+		  "progress %d, completed %d, failed %d\n",
+		  case_names[cur_case], fp.rep_available, fp.rep_up_to_date,
+		  fp.rep_progress, fp.rep_completed, fp.rep_failed);
+
+	if (cur_case != OTC_UP_TO_DATE)
+		check(fp.rep_available == 1 && !fp.rep_up_to_date,
+		      "update available not reported once");
+
 	switch (cur_case) {
 	case OTC_COMPLETE:
 		check(fp.starts == 1 && fp.finalizes == 1 && !fp.aborts,
 		      "not started once and finalized");
 		check(fp.hash_ok, "written image differs");
 		check(reboots == 1, "no reboot");
+		check(fp.rep_progress && fp.rep_completed == 1,
+		      "progress and completion not reported");
+		/* the fake reboot returns, and lws_ota gives up waiting */
+		check(fp.rep_failed == 1, "no reboot not reported");
 		break;
 	case OTC_CUT:
 	case OTC_STALL_TIMEOUT:
 		check(fp.starts == 1 && fp.writes && fp.aborts == 1 &&
 		      !fp.finalizes, "not started, written and aborted");
 		check(!reboots, "reboot");
+		check(fp.rep_failed == 1 && !fp.rep_completed,
+		      "failure not reported once");
 		break;
 	case OTC_REFUSE_MODAL:
 		check(refusals > 0, "modal was not asked for");
 		check(!fp.starts, "platform ota started without modal");
+		check(fp.rep_failed == 1 && !fp.rep_completed,
+		      "failure not reported once");
 		break;
 	case OTC_NOSLOT:
 		check(fp.starts == 1 && !fp.writes && fp.aborts == 1 &&
 		      !fp.finalizes, "not started and aborted");
 		check(!reboots, "reboot");
+		check(fp.rep_failed == 1 && !fp.rep_completed,
+		      "failure not reported once");
+		break;
+	case OTC_UP_TO_DATE:
+		check(!fp.starts, "platform ota started for an old update");
+		check(!refusals, "modal asked for for an old update");
+		check(fp.rep_up_to_date == 1 && !fp.rep_available &&
+		      !fp.rep_failed && !fp.rep_completed &&
+		      !fp.rep_progress, "up to date not reported alone");
 		break;
 	default:
 		check(0, "unexpected end");
@@ -520,10 +581,14 @@ poll_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
+	/*
+	 * A check that finds nothing newer may come and go between polls:
+	 * its report says it happened
+	 */
 	if (context->ota_ss)
 		case_seen_ss = 1;
 	else
-		if (case_seen_ss) {
+		if (case_seen_ss || fp.rep_up_to_date) {
 			case_ended();
 			if (failed)
 				return;
@@ -664,12 +729,13 @@ make_update(void)
 	}
 
 	manifest_len = sizeof(manifest);
+	manifest_unixtime = (uint64_t)lws_now_secs();
 	n = (size_t)lws_jwt_sign_compact(context, &jwk, "ES512", manifest,
 				&manifest_len, temp, sizeof(temp),
 				"{\"variant\":\"%s\",\"path\":\"image.gz\","
 				"\"size\":%u,\"unixtime\":%llu,"
 				"\"sha512\":\"%s\"}", lws_ota_variant_name(),
-				IMG_LEN, (unsigned long long)lws_now_secs(),
+				IMG_LEN, (unsigned long long)manifest_unixtime,
 				hex);
 	lws_jwk_destroy(&jwk);
 	if (n) {

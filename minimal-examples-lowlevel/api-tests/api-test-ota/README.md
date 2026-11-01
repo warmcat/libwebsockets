@@ -18,11 +18,17 @@ while another is in flight, or after `ABORT` or `FINALIZE`.
 |stall-timeout|the server holds the connection partway through, and the stream times out while a flash write is in flight|the `lws_ota_t` outlives the write, then `ABORT` is queued and acknowledged|
 |refuse-modal|user code refuses to enter `LWS_SYSTATE_MODAL_UPDATING` until `lws_ota` gives up|the platform is never started|
 |noslot|the platform's START says it has nowhere to put an update (`LWSOTARET_NOSLOT`), eg, only one OTA partition|the platform op is aborted without any writes, and no more periodic update checks are scheduled|
+|up-to-date|the manifest is for a firmware no newer than the one running|the platform is never started, and `LWSOTARET_UP_TO_DATE` is the only report|
 |context-destroy|the context is destroyed while a flash write is in flight|`ota_detach()` makes the platform let go before the `lws_ota_t` is freed|
 
-After each of the first five, the system state must be back at
+After each of the first six, the system state must be back at
 `LWS_SYSTATE_OPERATIONAL`, the periodic update check scheduled (except after
-noslot), and the platform holding nothing.
+noslot), and the platform holding nothing.  How each check and update ended
+must have been reported to the platform's `ota_progress()` once:
+`LWSOTARET_UPDATE_AVAILABLE` for each case but up-to-date, then
+`LWSOTARET_COMPLETED` and progress for complete, and `LWSOTARET_FAILED` for
+the cases that give up, and for complete too, since the fake `reboot()`
+returns and `lws_ota` gives up waiting for it.
 
 ## Building
 

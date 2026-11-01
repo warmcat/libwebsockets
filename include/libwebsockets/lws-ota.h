@@ -49,7 +49,8 @@ typedef enum {
 	LWSOTARET_UPDATE_AVAILABLE,
 	LWSOTARET_PROGRESS,
 	LWSOTARET_FAILED,
-	LWSOTARET_COMPLETED
+	LWSOTARET_COMPLETED,
+	LWSOTARET_UP_TO_DATE
 } lws_ota_ret_t;
 
 typedef enum {
@@ -84,7 +85,15 @@ typedef struct {
 
 	int (*ota_progress)(lws_ota_ret_t state, int percent);
 	/**< Gets called so the platform can represent OTA progress, give
-	 * platform a chance to choose what to do about an available update */
+	 * platform a chance to choose what to do about an available update.
+	 *
+	 * Each check ends in one of LWSOTARET_UP_TO_DATE, the manifest is
+	 * for a firmware no newer than ours, LWSOTARET_UPDATE_AVAILABLE, we
+	 * will try to enter MODAL_UPDATING and fetch it, or LWSOTARET_FAILED,
+	 * we couldn't get or didn't trust the manifest.  An update being
+	 * fetched reports LWSOTARET_PROGRESS with percent, then either
+	 * LWSOTARET_COMPLETED, just before the reboot into it, or
+	 * LWSOTARET_FAILED. */
 
 	int (*ota_get_last_fw_unixtime)(uint64_t *fw_unixtime);
 	/**< tries to recover the newest firmware unixtime that had been

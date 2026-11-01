@@ -133,9 +133,24 @@ ota_release_system(lws_ota_t *g)
  * completes) and g must live until its completion, which finishes the job.
  */
 
+static void
+ota_report(lws_ota_t *g, lws_ota_ret_t r, int percent)
+{
+	if (g->cx->system_ops->ota_ops.ota_progress)
+		g->cx->system_ops->ota_ops.ota_progress(r, percent);
+}
+
 static int
 ota_give_up(lws_ota_t *g)
 {
+	/*
+	 * The check or update ended badly, unless we reported how it ended
+	 * already (the check found nothing newer, LWSOS_IDLE) or gave up
+	 * before
+	 */
+	if (g->state != LWSOS_IDLE && g->state != LWSOS_FAILED)
+		ota_report(g, LWSOTARET_FAILED, 0);
+
 	g->state = LWSOS_FAILED;
 	g->flow.state = LWSDLOFLOW_STATE_READ_FAILED;
 	lws_sul_cancel(&g->sul_drain);
@@ -456,7 +471,6 @@ ota_completion_start(lws_ota_t *g)
 static void
 ota_completion_write(lws_ota_t *g)
 {
-	const lws_ota_ops_t *ota_ops = &g->cx->system_ops->ota_ops;
 	uint8_t pc;
 
 	if (g->async_r != LWSOTARET_OK) {
@@ -472,8 +486,7 @@ ota_completion_write(lws_ota_t *g)
 	if (pc != g->last_pc) {
 		g->last_pc = pc;
 		lwsl_notice("%s: %u%%\n", __func__, pc);
-		if (ota_ops->ota_progress)
-			g->cx->system_ops->ota_ops.ota_progress(LWSOTARET_PROGRESS, pc);
+		ota_report(g, LWSOTARET_PROGRESS, pc);
 	}
 
 	if (g->written != g->expected_size) {
@@ -507,6 +520,7 @@ ota_completion_finalize(lws_ota_t *g)
 	 */
 	g->state = LWSOS_REPORTED;
 	lws_ss_start_timeout(g->ss, 5000);
+	ota_report(g, LWSOTARET_COMPLETED, 100);
 
 	if (g->cx->system_ops->reboot)
 		g->cx->system_ops->reboot();
@@ -577,8 +591,7 @@ ota_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 			g->flow.state = LWSDLOFLOW_STATE_READ;
 			g->flow.h = g->ss;
 			g->flow.window = 4096;
-			if (ota_ops->ota_progress)
-				ota_ops->ota_progress(LWSOTARET_PROGRESS, 0);
+			ota_report(g, LWSOTARET_PROGRESS, 0);
 		}
 
 		if (len &&
@@ -779,6 +792,10 @@ fetch_fail:
 
 		lwsl_ss_warn(g->ss, "Latest update is not newer");
 
+		/* the check is over and there is nothing to do */
+		g->state = LWSOS_IDLE;
+		ota_report(g, LWSOTARET_UP_TO_DATE, 0);
+
 		goto bail1;
 	}
 
@@ -787,6 +804,7 @@ fetch_fail:
 	 * we don't get there immediately */
 
 	g->state = LWSOS_AWAITING_MODAL;
+	ota_report(g, LWSOTARET_UPDATE_AVAILABLE, 0);
 	lws_sul_schedule(g->cx, 0, &g->sul_drain, ota_write_sul_cb, 1);
 	/* on the other hand, don't let it keep trying forever */
 	lws_ss_start_timeout(g->ss, 30000);
@@ -1033,8 +1051,14 @@ lws_ota_periodic_cb(lws_sorted_usec_list_t *sul)
 		/* the last one is still finishing up */
 		lwsl_cx_notice(cx, "previous ota check still active");
 	else
-		if (lws_ss_create(cx, 0, &ssi_lws_ota_t, NULL, NULL, NULL, NULL))
+		if (lws_ss_create(cx, 0, &ssi_lws_ota_t, NULL, NULL, NULL,
+				  NULL)) {
 			lwsl_cx_warn(cx, "failed to create ota SS");
+			if (cx->system_ops && cx->system_ops->ota_ops.ota_progress)
+				/* the check ended before it began */
+				cx->system_ops->ota_ops.ota_progress(
+							LWSOTARET_FAILED, 0);
+		}
 
 	/* set up coming back again at (usually long) periods */
 

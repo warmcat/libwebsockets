@@ -173,6 +173,9 @@ display_update(lws_display_state_t *lds)
 static int
 ota_progress(lws_ota_ret_t state, int percent)
 {
+	if (state != LWSOTARET_PROGRESS)
+		return 0;
+
 	update_pc = percent;
 	display_update(&lds);
 
