@@ -652,7 +652,7 @@ lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f)
 	b = lws_dlo_file_choose(cx, f->name);
 
 	if (b) {
-		lwsl_err("%s: dlo file %s already exists %p\n", __func__, b->name, b);
+		lwsl_info("%s: replacing dlo file %s\n", __func__, b->name);
 		lws_dlo_file_unregister((lws_dlo_filesystem_t **)&b);
 	}
 
@@ -664,7 +664,7 @@ lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f)
 	lws_dll2_clear(&a->list);
 	lws_dll2_add_tail(&a->list, &cx->dlo_file);
 
-	lwsl_err("%s: dlo file %s registered at %p\n", __func__, a->name, a);
+	lwsl_info("%s: dlo file %s registered\n", __func__, a->name);
 
 	return a;
 }
