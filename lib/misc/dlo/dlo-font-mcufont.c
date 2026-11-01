@@ -752,7 +752,14 @@ mcuf_profile(const uint8_t *bf, const uint8_t *p, const uint8_t *end,
 		return 1;
 	}
 
-	if (end - p < 4 || p[0] > p[1] || p[1] >= bf[MCUFO_KERN_BANDS])
+	/*
+	 * The face's band count was checked against MCUFO_MAX_KERN_BANDS when
+	 * it was loaded, but the bands index m->l[] and m->r[] here, so make
+	 * sure locally
+	 */
+
+	if (end - p < 4 || p[0] > p[1] || p[1] >= bf[MCUFO_KERN_BANDS] ||
+	    p[1] >= MCUFO_MAX_KERN_BANDS)
 		return 0;
 
 	if (m) {
