@@ -60,13 +60,22 @@ void
 lws_bb_i2c_stop(const lws_i2c_ops_t *octx)
 {
 	lws_bb_i2c_t *ctx = (lws_bb_i2c_t *)octx;
+	int n = LWS_BB_I2C_STRETCH_LIMIT;
 
 	ctx->gpio->set(ctx->sda, 0);
 	ctx->gpio->set(ctx->scl, 1);
 	ctx->delay();
 
-	while (!ctx->gpio->read(ctx->scl))
-		;
+	/*
+	 * A peripheral may stretch the clock by holding SCL low, but one that
+	 * is wedged or absent with the line stuck must not hang us forever
+	 */
+
+	while (!ctx->gpio->read(ctx->scl) && --n)
+		ctx->delay();
+
+	if (!n)
+		lwsl_warn("%s: SCL held low\n", __func__);
 
 	ctx->gpio->set(ctx->sda, 1);
 	ctx->delay();

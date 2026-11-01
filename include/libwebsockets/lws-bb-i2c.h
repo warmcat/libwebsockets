@@ -25,6 +25,9 @@
  * functions for the ops that use the underlying OS gpio arrangements.
  */
 
+/* how many delay() periods STOP waits for a peripheral stretching the clock */
+#define LWS_BB_I2C_STRETCH_LIMIT 1000
+
 typedef struct lws_bb_i2c {
 	lws_i2c_ops_t		bb_ops; /* init to lws_bb_i2c_ops */
 
