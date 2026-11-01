@@ -71,7 +71,8 @@ lws_adapt_report(struct lws_adapt *adapt, int success, lws_usec_t us);
  * \param val: The arbitrary value to track via EWMA (e.g., ping duration)
  * \param us: Current timestamp in microseconds (e.g. from lws_now_usecs())
  *
- * Records a data point tracking an arbitrary value.
+ * Records a data point tracking an arbitrary value.  The first value reported
+ * for a level is taken as it is, later ones are blended in by the EWMAs.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_adapt_report_val(struct lws_adapt *adapt, uint64_t val, lws_usec_t us);
@@ -97,7 +98,10 @@ lws_adapt_get_level(struct lws_adapt *adapt);
  * \param level: The level to query
  * \param is_short: 1 to query the short term EWMA, 0 for the long term EWMA
  *
- * Returns the currently tracked EWMA value for a specific level.
+ * Returns the currently tracked EWMA value for a specific level.  Until a value
+ * has been reported with lws_adapt_report_val(), that is the initial success
+ * score, not a value: a caller tracking values has to know for itself whether
+ * it reported any yet.
  */
 LWS_VISIBLE LWS_EXTERN uint64_t
 lws_adapt_get_val(struct lws_adapt *adapt, int level, int is_short);
