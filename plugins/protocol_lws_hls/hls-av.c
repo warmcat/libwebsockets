@@ -2154,7 +2154,9 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 	}
 	int64_t last_pts = current_start_pts;
 	/* HLS-TRACE diagnostics for the degenerate-grouping case */
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 	int kf_flagged = 0;
+#endif
 	double max_dur_seen = 0.0;
 
 	if (out_info && target_seg_idx == 0) {
@@ -2166,7 +2168,9 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		const AVIndexEntry *entry = get_index_entry(st, i);
 		if (!entry) continue;
 		if (!(entry->flags & AVINDEX_KEYFRAME)) continue;
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 		kf_flagged++;
+#endif
 
 		int64_t entry_dts = AV_NOPTS_VALUE;
 		if (idx && i < idx->count && idx->entries[i].dts != AV_NOPTS_VALUE) {
@@ -2806,7 +2810,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	int started = 0;
 	int64_t actual_start_pts = AV_NOPTS_VALUE;
 	int video_finished = 0;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	int video_kf_seen = 0;	/* HLS-TRACE: video keyframes the loop saw */
+#endif
 	/*
 	 * segment window; also read from the done: path (summary + HLS-TRACE),
 	 * so initialised here before any goto done rather than below
@@ -2823,8 +2829,8 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	int64_t first_audio_pts = AV_NOPTS_VALUE, last_audio_pts = AV_NOPTS_VALUE;
 	int64_t first_audio_dts = AV_NOPTS_VALUE, last_audio_dts = AV_NOPTS_VALUE;
 	int video_packets_written = 0, audio_packets_written = 0;
-	int video_packets_discarded = 0, audio_packets_discarded = 0;
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	int video_packets_discarded = 0, audio_packets_discarded = 0;
 	int64_t last_video_pts = AV_NOPTS_VALUE;
 	int64_t first_video_dts = AV_NOPTS_VALUE, last_video_dts = AV_NOPTS_VALUE;
 	AVRational video_out_time_base = {0, 0};
@@ -3097,7 +3103,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		/* HLS-TRACE: every video keyframe the loop sees, and how the
 		 * end test would judge it, so a stuck segment is legible */
 		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && is_key) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			video_kf_seen++;
+#endif
 			lwsl_notice("HLS-TRACE: seg %d kf#%d pts=%lld dts=%lld started=%d vfin=%d end_pts=%lld\n",
 				    segment_idx, video_kf_seen, (long long)pkt.pts,
 				    (long long)pkt.dts, started, video_finished,
@@ -3144,7 +3152,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 								int write_idx = 0;
 								for (int j = 0; j < audio_buffer_count; j++) {
 									if (audio_buffer[j].pts < actual_start_pts_audio) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 										audio_packets_discarded++;
+#endif
 										lwsl_info("HLS-PKT-DEBUG: Seg %d Discard buffered AUDIO pts=%lld dts=%lld key=%d (before video start)\n",
 											  segment_idx, (long long)audio_buffer[j].pts, (long long)audio_buffer[j].dts, (int)((audio_buffer[j].flags & AV_PKT_FLAG_KEY) != 0));
 										av_packet_unref(&audio_buffer[j]);
@@ -3158,7 +3168,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 								audio_buffer_count = write_idx;
 							}
 						} else {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 							video_packets_discarded++;
+#endif
 							lwsl_info("HLS-PKT-DEBUG: Seg %d Discard %s pts=%lld dts=%lld key=%d: not started yet (video)\n",
 								  segment_idx, type, (long long)pkt.pts, (long long)pkt.dts, is_key);
 							av_packet_unref(&pkt);
@@ -3179,7 +3191,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 									  segment_idx, (long long)audio_buffer[audio_buffer_count - 1].pts,
 									  (long long)audio_buffer[audio_buffer_count - 1].dts, is_key);
 							} else {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 								audio_packets_discarded++;
+#endif
 								lwsl_info("HLS-PKT-DEBUG: Seg %d Discard %s pts=%lld dts=%lld key=%d: not started yet (audio buffer overflow)\n",
 									  segment_idx, type, (long long)pkt.pts, (long long)pkt.dts, is_key);
 								av_packet_unref(&pkt);
@@ -3193,7 +3207,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 						lwsl_info("HLS: Segment %d started writing audio-only at pkt_time=%.3fs (pts=%lld, dts=%lld)\n",
 							  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 					} else {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 						audio_packets_discarded++;
+#endif
 						lwsl_info("HLS-PKT-DEBUG: Seg %d Discard %s pts=%lld dts=%lld key=%d: not started yet (audio-only)\n",
 							  segment_idx, type, (long long)pkt.pts, (long long)pkt.dts, is_key);
 						av_packet_unref(&pkt);
@@ -3205,7 +3221,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 				if (actual_start_pts != AV_NOPTS_VALUE && video_idx >= 0) {
 					int64_t actual_start_pts_audio = av_rescale_q(actual_start_pts, in_ctx->streams[video_idx]->time_base, in_stream->time_base);
 					if (pkt.pts < actual_start_pts_audio) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 						audio_packets_discarded++;
+#endif
 						lwsl_info("HLS-PKT-DEBUG: Seg %d Discard %s pts=%lld dts=%lld key=%d: PTS < actual_start_pts (%lld rescaled to %lld)\n",
 							  segment_idx, type, (long long)pkt.pts, (long long)pkt.dts, is_key, (long long)actual_start_pts, (long long)actual_start_pts_audio);
 						av_packet_unref(&pkt);
@@ -3276,7 +3294,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 						break;
 					}
 				}
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 				video_packets_discarded++;
+#endif
 				lwsl_info("HLS-PKT-DEBUG: Seg %d Discard %s pts=%lld dts=%lld key=%d: video_finished\n",
 					  segment_idx, type, (long long)pkt.pts, (long long)pkt.dts, is_key);
 				av_packet_unref(&pkt);
