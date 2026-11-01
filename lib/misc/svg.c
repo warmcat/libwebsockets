@@ -1596,12 +1596,17 @@ arc_emit(lws_svg_t *ctx, svg_c_t cx, svg_c_t cy,
 	}
 
 	/*
-	 * Chord sag for a step angle t is r(1 - cos(t/2)) ~= r t^2 / 8;
-	 * steps from the same document tolerance the curve flattener uses
+	 * Chord sag for a step angle t is r(1 - cos(t/2)) ~= r t^2 / 8, so
+	 * the largest step within the same document tolerance the curve
+	 * flattener uses is t = sqrt(8 tol / r) radians.  tol / r is taken
+	 * as Q32, so sqrt(8 tol / r) comes out Q16, and is scaled to e8
+	 * like the angles.  tol is at most 1/8 and r at least 1/65536, so
+	 * 8 tol / r in Q32 can't overflow.
 	 */
 
 	if (r > 0 && tol > 0) {
-		int64_t t = svg_isqrt64(((int64_t)tol << 33) / r) / 2;
+		int64_t t = (svg_isqrt64((((int64_t)tol << 32) / r) * 8) *
+							100000000LL) >> 16;
 
 		if (t < 1)
 			t = 1;
@@ -1609,8 +1614,13 @@ arc_emit(lws_svg_t *ctx, svg_c_t cx, svg_c_t cy,
 	} else
 		steps = (int)(sweep / (30 * 1000 * 1000LL));
 
-	if (steps < 4)
-		steps = 4;
+	/*
+	 * A join turning through less than one step is a single chord
+	 * within tolerance; a whole circle still needs some shape
+	 */
+
+	if (steps < (full_circle ? 4 : 1))
+		steps = full_circle ? 4 : 1;
 	if (steps > SVG_STROKE_MAX_POLY - 2)
 		steps = SVG_STROKE_MAX_POLY - 2;
 
@@ -4149,4 +4159,10 @@ char
 lws_svg_get_doc_complete(const lws_svg_t *ctx)
 {
 	return ctx->doc_complete;
+}
+
+size_t
+lws_svg_get_heap_peak(const lws_svg_t *ctx)
+{
+	return ctx->heap_peak;
 }

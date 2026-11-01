@@ -2935,6 +2935,45 @@ score_case(score_t *sc, const char *group, int checks0, int fails0)
 	sc->fails += fails - fails0;
 }
 
+/*
+ * Round joins and caps are flattened to the same tolerance as curves, so
+ * a small icon stroked with them stays small in the heap.  This is the
+ * key icon from contrib/assets/boot-status: once each round cap and join
+ * took the most steps an arc may have, needing over 200KB to parse, which
+ * is more than an ESP32 can spare.  It needs ~37KB when the arcs take the
+ * steps the tolerance asks for.
+ */
+
+static void
+stroke_cost(void)
+{
+	static const char doc[] =
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" "
+		"height=\"24\" viewBox=\"0 0 24 24\">"
+		"<g fill=\"none\" stroke-linecap=\"round\" "
+		"stroke-linejoin=\"round\" stroke=\"#d4a000\">"
+		"<circle cx=\"7\" cy=\"12\" r=\"4\" stroke-width=\"2.5\"/>"
+		"<path d=\"M11 12H21M17.5 12V15.5M20.5 12V14.5\" "
+		"stroke-width=\"2\"/></g></svg>";
+	const uint8_t *b = (const uint8_t *)doc;
+	size_t l = sizeof(doc) - 1, peak;
+	lws_svg_t *svg = lws_svg_new();
+
+	CHK(!!svg, "stroke-cost: svg new OOM");
+	if (!svg)
+		return;
+
+	CHK(!(lws_svg_parse(svg, &b, &l, 0) & LWS_SRET_FATAL),
+	    "stroke-cost: parse fatal");
+	peak = lws_svg_get_heap_peak(svg);
+	lws_svg_free(&svg);
+
+	lwsl_user("%s: round stroked icon takes %uB\n", __func__,
+		  (unsigned int)peak);
+	CHK(peak < 64 * 1024, "stroke-cost: round stroked icon took %uB",
+	    (unsigned int)peak);
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -3094,6 +3133,11 @@ main(int argc, const char **argv)
 	fails0 = fails;
 	aa_checks();
 	score_case(&sc, "aa", checks0, fails0);
+
+	checks0 = checks;
+	fails0 = fails;
+	stroke_cost();
+	score_case(&sc, "stroke-cost", checks0, fails0);
 	score_case(&sc, "", 0, 0); /* flush the last row */
 
 	bm_free(&bm);

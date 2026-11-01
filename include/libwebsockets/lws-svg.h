@@ -144,6 +144,20 @@ lws_svg_get_height(const lws_svg_t *svg);
 LWS_VISIBLE LWS_EXTERN char
 lws_svg_get_doc_complete(const lws_svg_t *svg);
 
+/**
+ * lws_svg_get_heap_peak() - the most heap the scene object has held so far
+ *
+ * \param svg: the SVG scene object
+ *
+ * Returns the largest number of bytes the object has had allocated at once
+ * so far, including the retained scene, the working buffers while parsing
+ * and allocation overheads, but not the rasterization scratch shared between
+ * live objects.  Useful for judging what a document costs a constrained
+ * target.
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_svg_get_heap_peak(const lws_svg_t *svg);
+
 /*
  * Span callback for rendered lines.  Filled spans are delivered in ascending
  * x with \p x0 the first covered pixel and \p x1 one past the last covered
