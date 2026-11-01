@@ -40,6 +40,7 @@ LLVMFuzzerInitialize(int *argc, char ***argv)
 int
 LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
+	fza_session_start();
 	fzp_server_session(vh, preface, sizeof(preface) - 1, data, size);
 
 	return 0;
