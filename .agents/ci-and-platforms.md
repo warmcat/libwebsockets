@@ -249,3 +249,19 @@ is off the end of it.  Internal protocol callbacks must switch on reason
 before touching the wsi beyond `wsi->a`.  These crashes are only seen on
 Sai hardware: suspect this when an esp32 crash follows "init
 <vhost>.<protocol>" or a cancel.
+
+On esp-idf, CMake try-compile probes can never link: IDF links component
+libraries (mbedtls among them) into the firmware itself, outside the
+probe.  A `CHECK_C_SOURCE_COMPILES` that references a function always
+fails there unless `CMAKE_TRY_COMPILE_TARGET_TYPE` is `STATIC_LIBRARY`,
+so the feature silently looks absent.  This is how h3 was quietly off on
+every esp32 build until the mbedtls probes in `lib/tls/CMakeLists.txt`
+were made compile-only.
+
+On esp-idf v6 (gcc 15, xtensa), `uint32_t` is `unsigned long`: `%u` /
+`%X` of a `uint32_t` is a `-Werror=format` failure there and nowhere on
+the host matrix.  Cast to `(unsigned int)`.
+
+ESP CI builds pass `-DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0`; with h3 on,
+mbedtls must carry the lws QUIC patches (see
+`minimal-examples/embedded/lhp/README.md`) or configure stops.

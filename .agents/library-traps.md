@@ -788,6 +788,10 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## lhp (html / css)
 
+ - lwsac takes its chunks with plain `malloc()`, not `lws_malloc()`, so
+   `lws_get_allocated_heap()` and `lws_heap_limit_set()` don't see them.
+   To measure an svg's cost, use `lws_svg_get_heap_peak()`.
+
  - **Every loop over document css data counts in `ctx->cascade_ops`**,
    and the work and heap limits all end through `lhp_css_doc_spent()`
    (G-090, G-488, G-520..G-524).  A new loop needs a count and an entry
