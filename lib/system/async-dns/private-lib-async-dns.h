@@ -38,6 +38,12 @@
 #define LWS_ADNS_CACHE_MAX_TTL	86400
 
 /*
+ * An address pair one half of which failed is kept only this long, so the
+ * missing half is asked about again soon
+ */
+#define LWS_ADNS_PARTIAL_TTL_S	30
+
+/*
  * The overallocated results area behind lws_adns_cache_t is walked with a
  * per-item stride of struct addrinfo + sockaddr (or lws_adns_rr_t + payload
  * for non-address RRs).  Since eg sizeof(struct addrinfo) + sockaddr_in6 is
@@ -230,6 +236,12 @@ typedef struct lws_adns_q {
 #endif
 	uint8_t			asked;
 	uint8_t			responded;
+	/*
+	 * Of an address pair, the halves (same bits as responded) we got no
+	 * usable answer to: the server declined them (SERVFAIL, REFUSED...)
+	 * or never answered.  The other half's addresses still stand.
+	 */
+	uint8_t			failed_halves;
 
 	uint8_t			recursion;
 	uint8_t			go_nogo;
@@ -393,6 +405,10 @@ lws_adns_q_wsi(lws_adns_q_t *q);
 /* q asked on wsi: it's its TCP connection, or one of its sockets */
 int
 lws_adns_q_uses_wsi(lws_adns_q_t *q, const struct lws *wsi);
+
+/* q has every answer it will get: complete it with them, or fail it */
+void
+lws_adns_q_conclude(lws_adns_q_t *q);
 
 /* how long dsrv took to answer, or LWS_ADNS_DSRV_NO_ANSWER_US if it didn't */
 #define LWS_ADNS_DSRV_NO_ANSWER_US	(20 * LWS_US_PER_SEC)
