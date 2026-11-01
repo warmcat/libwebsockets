@@ -2000,6 +2000,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 			context->protocols_copy = ccop;
 
+			vh->internal = 1;
 			context->vhost_system = vh;
 
 			if (lws_protocol_init_vhost(vh, NULL) ||
@@ -2291,17 +2292,19 @@ lws_create_context(const struct lws_context_creation_info *info)
 		 * application has no vhost at all and its clients fail
 		 */
 		struct lws_context_creation_info ii;
+		struct lws_vhost *dvh;
 
 		memset(&ii, 0, sizeof(ii));
 		ii.options	= context->options;
 		ii.vhost_name	= "_ss_default";
 		ii.port		= CONTEXT_PORT_NO_LISTEN;
 
-		if (!lws_create_vhost(context, &ii) ||
-		    lws_fi(&context->fic, "ctx_createfail_def_vh")) {
+		dvh = lws_create_vhost(context, &ii);
+		if (!dvh || lws_fi(&context->fic, "ctx_createfail_def_vh")) {
 			lwsl_cx_err(context, "failed to create default vhost");
 			goto bail_libuv_aware;
 		}
+		dvh->internal = 1;
 	}
 #endif
 #endif

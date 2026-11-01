@@ -591,12 +591,20 @@ lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2)
  * the application, which keeps them in groups by the same listen_port value
  * and iface, as it always has: a connection adopted onto one of them can
  * still be moved by name onto another of its group.
+ *
+ * The vhosts lws makes for its own use, eg, "system" and "_ss_default", listen
+ * on nothing too, but they're in nobody's group: their protocols aren't there
+ * to serve a peer, and he must not be able to name his way onto them, or land
+ * on them for naming nothing we know.
  */
 int
 lws_vhost_shares_listener(struct lws_vhost *lv, struct lws_vhost *v)
 {
 	if (v == lv)
 		return 1;
+
+	if (v->internal)
+		return 0;
 
 	if (lv->listen_port != CONTEXT_PORT_NO_LISTEN &&
 	    lv->listen_port != CONTEXT_PORT_NO_LISTEN_SERVER)

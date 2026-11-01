@@ -1670,7 +1670,10 @@ upgrade_refusals_half(struct lws_context *cx)
  * a major version other than 1 with 505; HTTP/1.2 is served as 1.1.  A
  * method lws does not know is refused with 501, a head starting with a
  * header rather than a request line with 400; up to eight empty lines
- * before the request line are ignored, more are 400.
+ * before the request line are ignored, more are 400.  A Host: naming one of
+ * the vhosts lws made for itself, "system" or "_ss_default", or naming no
+ * vhost at all, is served by the first vhost the application adopts
+ * connections onto, never by lws' own.
  */
 static int
 uri_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -1719,6 +1722,16 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 		{ "h1-reqline-leading-empty-many", "\r\n\r\n\r\n\r\n\r\n\r\n"
 			"\r\n\r\n\r\nGET /x HTTP/1.1\r\n"
 			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 400 " },
+		/*
+		 * lws' own vhosts aren't in the group: naming one, or nothing
+		 * we know, moves him to the group's first vhost, "sansio"
+		 */
+		{ "h1-host-system", "GET /x HTTP/1.1\r\n"
+			"Host: system\r\n\r\n", "sansio ok\n", NULL },
+		{ "h1-host-ss-default", "GET /x HTTP/1.1\r\n"
+			"Host: _ss_default\r\n\r\n", "sansio ok\n", NULL },
+		{ "h1-host-unknown", "GET /x HTTP/1.1\r\n"
+			"Host: nowhere\r\n\r\n", "sansio ok\n", NULL },
 	};
 	static struct transport tp;
 	const uint8_t *b;

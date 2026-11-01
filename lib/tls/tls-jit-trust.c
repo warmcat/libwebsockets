@@ -950,6 +950,7 @@ __lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 		goto destroy_inf;
 	}
 
+	v->internal = 1;
 	v->grace_after_unref = 1;
 	lws_tls_jit_trust_vh_start_grace(v);
 

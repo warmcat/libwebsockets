@@ -476,6 +476,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 			       __func__, config->stub_name);
 		goto spawn_fail;
 	}
+	mgr->vh_client->internal = 1;
 
 	if (!lws_dll2_owner(&mgr->sul.list) && !mgr->wsi_client)
 		lws_stub_client_connect(mgr);
