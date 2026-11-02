@@ -1669,23 +1669,17 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 		if (lws_client_response_says_close(wsi))
 			wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
-#if defined(LWS_ROLE_H2)
 	} else {
+		/* h2 and h3 streams give the status as a pseudoheader */
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_STATUS);
+#endif
 		if (!p) {
 			cce = "HS: :status missing";
 			lwsl_info("no status\n");
 			goto bail3_l;
 		}
-#endif
 	}
-#if !defined(LWS_ROLE_H2)
-	if (!p) {
-		cce = "HS: :status missing";
-		lwsl_info("no status\n");
-		goto bail3_l;
-	}
-#endif
 	n = atoi(p);
 
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
