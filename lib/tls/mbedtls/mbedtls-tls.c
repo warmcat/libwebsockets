@@ -33,10 +33,117 @@ lws_tls_err_describe_clear(void)
 	 * there is no error stack to clear */
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+
+#include <mbedtls/platform.h>
+
+/*
+ * mbedtls' own allocations, eg, the tls contexts, sessions and handshake
+ * state that no lws owner can see, through mbedtls' allocator hook.  It needs
+ * MBEDTLS_PLATFORM_MEMORY without the CALLOC / FREE macros, and a way to ask
+ * the size of an allocation as it's freed.
+ *
+ * The hook is process-wide, so it counts mbedtls' allocations for any other
+ * users in the process too.  The first context to create installs it and
+ * counts in its participant; the hook stays installed after, counting nowhere
+ * once that context has gone.  It replaces any allocator an application set
+ * with mbedtls_platform_set_calloc_free() before.
+ */
+
+#if defined(MBEDTLS_PLATFORM_MEMORY) && \
+    !defined(MBEDTLS_PLATFORM_CALLOC_MACRO) && \
+    !defined(MBEDTLS_PLATFORM_FREE_MACRO) && \
+    (defined(LWS_HAVE_MALLOC_USABLE_SIZE) || \
+     (defined(LWS_PLAT_FREERTOS) && !defined(LWS_AMAZON_RTOS)))
+#define LWS_MBEDTLS_FOOTPRINT
+
+#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#include <malloc.h>
+#define fp_alloc_size(_p) malloc_usable_size(_p)
+#else
+#include <esp_heap_caps.h>
+#define fp_alloc_size(_p) heap_caps_get_allocated_size(_p)
+#endif
+
+#if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
+#define MBEDTLS_PLATFORM_STD_CALLOC calloc
+#endif
+#if !defined(MBEDTLS_PLATFORM_STD_FREE)
+#define MBEDTLS_PLATFORM_STD_FREE free
+#endif
+
+static lws_footprint_t *fp_mbedtls;
+
+/*
+ * mbedtls allocates from whatever thread uses it, so the counts are updated
+ * atomically where the compiler can
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#define fp_atomic_add(_p, _v) __atomic_add_fetch(_p, _v, __ATOMIC_RELAXED)
+#define fp_atomic_sub(_p, _v) __atomic_sub_fetch(_p, _v, __ATOMIC_RELAXED)
+#else
+#define fp_atomic_add(_p, _v) (*(_p) += (_v))
+#define fp_atomic_sub(_p, _v) (*(_p) -= (_v))
+#endif
+
+static void *
+fp_mbedtls_calloc(size_t n, size_t size)
+{
+	void *p = MBEDTLS_PLATFORM_STD_CALLOC(n, size);
+	lws_footprint_t *fp = fp_mbedtls;
+
+	if (p && fp) {
+		size_t b = fp_atomic_add(&fp->bytes, fp_alloc_size(p));
+
+		fp_atomic_add(&fp->count, 1);
+		if (b > fp->bytes_hwm) /* only roughly, for diagnostics */
+			fp->bytes_hwm = b;
+	}
+
+	return p;
+}
+
+static void
+fp_mbedtls_free(void *p)
+{
+	lws_footprint_t *fp = fp_mbedtls;
+
+	/*
+	 * What was allocated before the hook went in, or while it counted
+	 * nowhere, is freed uncounted... the counts are of what's left over
+	 * since, so they may go a little low, never wrap
+	 */
+	if (p && fp && fp->count) {
+		size_t s = fp_alloc_size(p);
+
+		if (fp->bytes >= s) {
+			fp_atomic_sub(&fp->bytes, s);
+			fp_atomic_sub(&fp->count, 1);
+		}
+	}
+
+	MBEDTLS_PLATFORM_STD_FREE(p);
+}
+#endif
+#endif
+
 int
 lws_context_init_ssl_library(struct lws_context *cx,
 			     const struct lws_context_creation_info *info)
 {
+#if defined(LWS_MBEDTLS_FOOTPRINT)
+	static char hooked;
+
+	if (!fp_mbedtls) {
+		lws_footprint_register(cx, &cx->fp_mbedtls, "mbedtls", NULL);
+		fp_mbedtls = &cx->fp_mbedtls;
+	}
+	if (!hooked) {
+		mbedtls_platform_set_calloc_free(fp_mbedtls_calloc,
+						 fp_mbedtls_free);
+		hooked = 1;
+	}
+#endif
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		lwsl_info(" SSL disabled: no "
@@ -49,6 +156,12 @@ void
 lws_context_deinit_ssl_library(struct lws_context *context)
 {
 	/* mbedtls needs no global library teardown */
+#if defined(LWS_MBEDTLS_FOOTPRINT)
+	if (fp_mbedtls == &context->fp_mbedtls) {
+		fp_mbedtls = NULL;
+		lws_footprint_unregister(&context->fp_mbedtls);
+	}
+#endif
 }
 
 #if !defined(LWS_HAVE_MBEDTLS_V4)

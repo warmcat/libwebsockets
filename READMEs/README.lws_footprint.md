@@ -138,10 +138,17 @@ Secure Streams handles|`"ss handles"`|NONE
 by reporting what they already know.
 
 The mbedtls participant is the only way to see what the tls library itself
-allocates during a handshake, which no lws owner can.  It needs mbedtls built
-with `MBEDTLS_PLATFORM_MEMORY`, and adds a small header to each of mbedtls'
-allocations to know their size when they are freed, so it is only installed
-with `LWS_WITH_FOOTPRINT`.
+allocates during a handshake, which no lws owner can.  It is installed with
+`mbedtls_platform_set_calloc_free()` when the first context is created, so it
+needs mbedtls built with `MBEDTLS_PLATFORM_MEMORY` and without
+`MBEDTLS_PLATFORM_CALLOC_MACRO` / `MBEDTLS_PLATFORM_FREE_MACRO`, as ESP-IDF
+builds it, and a platform that can say how big an allocation is as it's freed:
+`heap_caps_get_allocated_size()` on ESP-IDF, `malloc_usable_size()` on glibc.
+Otherwise there is no "mbedtls" participant.
+
+The hook is process-wide: it counts mbedtls' allocations made by anything in
+the process, and it replaces any allocator an application set with
+`mbedtls_platform_set_calloc_free()` before creating the context.
 
 ## Later
 

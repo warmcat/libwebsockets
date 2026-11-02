@@ -898,6 +898,9 @@ struct lws_context {
 	mbedtls_entropy_context mec;
 	mbedtls_ctr_drbg_context mcdc;
 #endif
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t			fp_mbedtls; /* mbedtls' own allocations */
+#endif
 
 #if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	struct lws_threadpool *tp_list_head;
