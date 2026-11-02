@@ -90,6 +90,44 @@ lws_tls_client_host_is_literal(const char *host)
 	return lws_parse_numeric_address(host, nb, sizeof(nb)) > 0;
 }
 
+/*
+ * The client alpn list *alpn_comma the backend chose to offer, as the wsi's
+ * transport can carry it, see lws_alpn_for_transport(): on tcp, never h3,
+ * which a server must not negotiate there either.  *alpn_comma is set to buf
+ * holding what is left, or left NULL or empty if the wsi offers no list at all.
+ *
+ * A list that leaves nothing, eg, "h3" alone on tcp, is a request only quic
+ * can carry: returns nonzero, and the connection must fail rather than go on
+ * offering nothing and become http/1.1 without asking.
+ */
+int
+lws_tls_client_alpn_transport(struct lws *wsi, const char **alpn_comma,
+			      char *buf, size_t len)
+{
+	int quic = wsi->role_ops && !strcmp(wsi->role_ops->name, "quic");
+
+	if (!*alpn_comma || !**alpn_comma)
+		return 0;
+
+	if (lws_fi(&wsi->fic, "tls_alpn_unfiltered")) {
+		/* offer it as given, as a client that is not lws might */
+		lws_strncpy(buf, *alpn_comma, len);
+		*alpn_comma = buf;
+
+		return 0;
+	}
+
+	if (!lws_alpn_for_transport(*alpn_comma, buf, len, quic)) {
+		lwsl_wsi_err(wsi, "alpn '%s' has nothing %s can carry",
+			     *alpn_comma, quic ? "quic" : "tcp");
+		return 1;
+	}
+
+	*alpn_comma = buf;
+
+	return 0;
+}
+
 #if defined(LWS_WITH_TCP_TLS)
 /*
  * One step of the client tls handshake, the first one from

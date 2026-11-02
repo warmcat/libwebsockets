@@ -74,10 +74,9 @@
  * server's certificate was refused but JIT Trust has made a vhost to trust it
  * by then, so the sacrificial attempt is not seen by the app.
  *
- * The pinned steps' redirect is followed over tcp, though, as lws follows any
- * redirect of a connection made with h3 alone, and is refused there: they
- * show the pinned connection is not moved, but not yet that it is refused the
- * certificate over quic.
+ * Over quic, every attempt that fails must fail for the server's certificate,
+ * the pinned steps' redirected ones included: a redirect of a connection made
+ * with h3 alone is followed on quic too.
  *
  * The test fails if any step does not see what it expects, or does not finish
  * inside the watchdog period.
@@ -264,6 +263,7 @@ static int ports[SRV_COUNT] = { 7681, 7682, 7683 }, cur = -1, result = 1,
 static struct {
 	int		attempts;
 	int		failed;
+	int		cert_refused;	/* ...for the server's certificate */
 	int		queries;
 	int		found;
 	int		status;
@@ -358,6 +358,12 @@ check_step(void)
 	if (st.completed && st.on != s->on) {
 		lwsl_err("%s: did not complete on the %s vhost\n", s->name,
 			 s->on == ON_JITT ? "JIT Trust" : "client's own");
+		bad = 1;
+	}
+	if (quic && st.cert_refused != st.failed) {
+		lwsl_err("%s: %d of %d failed attempts were not refused the "
+			 "certificate\n", s->name, st.failed - st.cert_refused,
+			 st.failed);
 		bad = 1;
 	}
 	if (st.failed != failed) {
@@ -542,6 +548,9 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: attempt %d failed: %s\n", __func__, st.attempts,
 			  in ? (const char *)in : "(null)");
 		st.failed++;
+		if (in && !strcmp((const char *)in,
+				  "server certificate rejected"))
+			st.cert_refused++;
 		if (st.attempts < MAX_ATTEMPTS)
 			lws_sul_schedule(context, 0, &sul_step, try_connect, 1);
 		else

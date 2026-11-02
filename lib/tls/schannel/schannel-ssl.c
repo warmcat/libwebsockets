@@ -48,10 +48,8 @@ lws_tls_schannel_realloc_buffer(struct lws_tls_schannel_conn *conn, size_t new_s
  * type, a u16 list size and the list in wire format.  Build one into buf from
  * a comma-separated list.
  *
- * On a quic connection the h1 / h2 role alpns are left out: they can only be
- * serviced on top of tcp, and a quic connection that negotiated one would
- * migrate to a role that can never make progress on it (the openssl alpn
- * select callback skips them the same way).
+ * Only the alpns the connection's transport can carry are offered, see
+ * lws_alpn_for_transport().
  *
  * Returns the length used in buf, or 0 if there is nothing to offer.
  */
@@ -60,36 +58,22 @@ size_t
 lws_tls_schannel_alpn_buf(const char *alpn_comma, int quic, uint8_t *buf,
 			  size_t len)
 {
-	uint8_t wire[128], *p = buf + 10;
+	uint8_t *p;
+	char filtered[128];
 	uint32_t u32;
 	uint16_t u16;
-	size_t m = 0, n, el;
+	int n;
 
-	if (!alpn_comma || len < 12)
+	if (!alpn_comma || len < 12 ||
+	    !lws_alpn_for_transport(alpn_comma, filtered, sizeof(filtered),
+				    quic))
 		return 0;
 
-	n = (size_t)lws_alpn_comma_to_openssl(alpn_comma, wire,
-					      (int)sizeof(wire) - 1);
-
-	while (m < n) {
-		el = wire[m];
-		if (!el || m + 1 + el > n)
-			break;
-
-		if (!(quic && ((el == 2 && !memcmp(&wire[m + 1], "h2", 2)) ||
-			       (el == 8 && !memcmp(&wire[m + 1], "http/1.1", 8))))) {
-			if (lws_ptr_diff_size_t(buf + len, p) < 1 + el)
-				break;
-			*p++ = (uint8_t)el;
-			memcpy(p, &wire[m + 1], el);
-			p += el;
-		}
-
-		m += 1 + el;
-	}
-
-	if (p == buf + 10)
+	n = lws_alpn_comma_to_openssl(filtered, buf + 10, (int)(len - 11));
+	if (n <= 0)
 		return 0;
+
+	p = buf + 10 + n;
 
 	u16 = (uint16_t)lws_ptr_diff_size_t(p, buf + 10);
 	u32 = 6u + u16;
@@ -828,6 +812,14 @@ lws_tls_schannel_server_conn_alpn(struct lws *wsi)
                        memcpy(cstr, alpn_result.ProtocolId, alpn_result.ProtocolIdSize);
                        cstr[alpn_result.ProtocolIdSize] = 0;
                        lwsl_notice("%s: ALPN negotiated %s\n", __func__, cstr);
+
+		       /* tcp: as lws_tls_server_conn_alpn() */
+		       if (lws_alpn_wrong_transport(cstr,
+					alpn_result.ProtocolIdSize, 0)) {
+			       lwsl_wsi_err(wsi, "'%s' negotiated on tcp",
+					    cstr);
+			       return 1;
+		       }
 
 #if defined(LWS_WITH_CLIENT)
 		       /*

@@ -356,6 +356,10 @@ int
 lws_tls_client_host_is_literal(const char *host);
 
 int
+lws_tls_client_alpn_transport(struct lws *wsi, const char **alpn_comma,
+			      char *buf, size_t len);
+
+int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der, size_t len);
 
 int

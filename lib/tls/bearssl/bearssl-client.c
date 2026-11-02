@@ -107,7 +107,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		{
 			const char *alpn_comma = wsi->a.context->tls.alpn_default;
 			uint8_t openssl_alpn[128];
-			char temp_alpn[128];
+			char temp_alpn[128], alpn_filtered[128];
 			int n;
 
 			if (wsi->a.vhost->tls.alpn)
@@ -117,6 +117,13 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 			} else {
 				if (lws_hdr_copy(wsi, temp_alpn, sizeof(temp_alpn), _WSI_TOKEN_CLIENT_ALPN) > 0)
 					alpn_comma = temp_alpn;
+			}
+
+			if (lws_tls_client_alpn_transport(wsi, &alpn_comma,
+							  alpn_filtered,
+							  sizeof(alpn_filtered))) {
+				lws_snprintf(errbuf, elen, "alpn needs quic");
+				return LWS_SSL_CAPABLE_ERROR;
 			}
 
 			if (alpn_comma) {

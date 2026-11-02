@@ -302,57 +302,19 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 	struct alpn_ctx *alpn_ctx = (struct alpn_ctx *)arg;
 
 	/*
-	 * Raw QUIC supports arbitrary ALPNs (eg, lws' own "lws-quic"), so we
-	 * cannot second-guess the vhost list here.  But the h1 / h2 role
-	 * alpns can only be serviced on top of TCP: if one of those got
-	 * selected on a QUIC conn, the conn would migrate to a role that
-	 * can never work on the UDP transport (eg, a client offering a
-	 * stale TCP list like "h2").  Skip those tokens when selecting on
-	 * a QUIC conn, and NOACK if that leaves no overlap: the peer fails
-	 * the connection for lack of a usable ALPN and tries something
-	 * else (eg, the TCP fallback of the alt-svc race).
+	 * Each transport selects from the part of the vhost's list it can
+	 * carry, see lws_alpn_for_transport().  If that leaves no overlap with
+	 * what the client offers, NOACK: the client fails the connection for
+	 * lack of a usable alpn and tries something else (eg, the tcp fallback
+	 * of the alt-svc race)
 	 */
 	struct lws *wsi = SSL_get_ex_data(s, openssl_websocket_private_data_index);
+	int quic = wsi && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic");
 
-	if (wsi && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
-		size_t n = 0;
-
-		while (n < alpn_ctx->len) {
-			const unsigned char *e = &alpn_ctx->data[n + 1];
-			size_t el = alpn_ctx->data[n];
-
-			if (n + 1 + el > alpn_ctx->len)
-				break;
-
-			/* the h2 / h1 role alpns are TCP-only */
-			if (!((el == 2 && !memcmp(e, "h2", 2)) ||
-			      (el == 8 && !memcmp(e, "http/1.1", 8)))) {
-				size_t m = 0;
-
-				/* is it in the client's offered list? */
-				while (m < inlen) {
-					size_t cl = in[m];
-
-					if (m + 1 + cl > inlen)
-						break;
-					if (cl == el && !memcmp(e, &in[m + 1], el)) {
-						*out = &in[m + 1];
-						*outlen = (unsigned char)cl;
-
-						return SSL_TLSEXT_ERR_OK;
-					}
-					m += 1 + cl;
-				}
-			}
-			n += 1 + el;
-		}
-
-		return SSL_TLSEXT_ERR_NOACK;
-	}
-
-	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_ctx->data,
-				  alpn_ctx->len, in, inlen) !=
-	    OPENSSL_NPN_NEGOTIATED)
+	if (SSL_select_next_proto((unsigned char **)out, outlen,
+				  quic ? alpn_ctx->data_quic : alpn_ctx->data,
+				  quic ? alpn_ctx->len_quic : alpn_ctx->len,
+				  in, inlen) != OPENSSL_NPN_NEGOTIATED)
 		return SSL_TLSEXT_ERR_NOACK;
 #endif
 
@@ -523,6 +485,7 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L) || \
 				  defined(LWS_WITH_GNUTLS) || defined(LWS_WITH_OPENHITLS)
 	const char *alpn_comma = vhost->context->tls.alpn_default;
+	char alpn_tcp[64], alpn_quic[64];
 
 	if (vhost->tls.alpn)
 		alpn_comma = vhost->tls.alpn;
@@ -532,9 +495,18 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 	lwsl_info(" Server '%s' advertising ALPN: %s\n",
 		    vhost->name, alpn_comma);
 
-	vhost->tls.alpn_ctx.len = (uint8_t)lws_alpn_comma_to_openssl(alpn_comma,
+	/*
+	 * What a tcp connection may select from, and what a quic one may:
+	 * neither may negotiate an alpn whose role the other carries
+	 */
+	lws_alpn_for_transport(alpn_comma, alpn_tcp, sizeof(alpn_tcp), 0);
+	vhost->tls.alpn_ctx.len = (uint8_t)lws_alpn_comma_to_openssl(alpn_tcp,
 					vhost->tls.alpn_ctx.data,
 					sizeof(vhost->tls.alpn_ctx.data) - 1);
+	lws_alpn_for_transport(alpn_comma, alpn_quic, sizeof(alpn_quic), 1);
+	vhost->tls.alpn_ctx.len_quic = (uint8_t)lws_alpn_comma_to_openssl(
+					alpn_quic, vhost->tls.alpn_ctx.data_quic,
+					sizeof(vhost->tls.alpn_ctx.data_quic) - 1);
 
 	/*
 	 * The rest goes on the vhost's ctx, which it may not have yet, eg,
@@ -549,8 +521,11 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 #elif defined(LWS_WITH_BEARSSL)
 	/* BearSSL ALPN is set per-session, nothing to do here for CTX */
 #elif defined(LWS_WITH_MBEDTLS)
-	/* mbedTLS ALPN is configured per-vhost */
-	lws_mbedtls_set_alpn(vhost->tls.ssl_ctx, alpn_comma);
+	/*
+	 * mbedTLS ALPN is configured per-vhost, for tcp: a quic connection
+	 * sets its own list on its own copy of the config
+	 */
+	lws_mbedtls_set_alpn(vhost->tls.ssl_ctx, alpn_tcp);
 #elif defined(LWS_WITH_OPENHITLS)
 	HITLS_CFG_SetAlpnProtosSelectCb(vhost->tls.ssl_ctx, alpn_cb_openhitls,
 					&vhost->tls.alpn_ctx);
@@ -626,6 +601,19 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	cstr[len] = '\0';
 
 	lwsl_info("%s: negotiated '%s' using ALPN\n", __func__, cstr);
+
+	/*
+	 * This is a tcp connection: neither we nor the peer offered or
+	 * selected an alpn only quic can carry, unless the peer isn't lws and
+	 * selected one we didn't offer, or offered one we don't select on tcp.
+	 * There is no role it could become on tcp, nor anything to remember
+	 * about the origin from it
+	 */
+	if (lws_alpn_wrong_transport(cstr, len, 0)) {
+		lwsl_wsi_err(wsi, "'%s' negotiated on tcp", cstr);
+		return 1;
+	}
+
 	wsi->use_ssl |= LCCSCF_USE_SSL;
 
 #if defined(LWS_WITH_CLIENT)

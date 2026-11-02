@@ -439,8 +439,15 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 
 	mbedtls_ssl_conf_sni(&ctx->conf, lws_mbedtls_sni_cb, vhost->context);
 	mbedtls_ssl_conf_authmode(&ctx->conf, lws_mbedtls_vhost_authmode(vhost));
-	lws_mbedtls_set_alpn(ctx, vhost->tls.alpn ? vhost->tls.alpn :
-					vhost->context->tls.alpn_default);
+	{
+		char alpn_tcp[64];
+
+		/* what tcp connections may select, see lws_alpn_for_transport() */
+		if (lws_alpn_for_transport(vhost->tls.alpn ? vhost->tls.alpn :
+					   vhost->context->tls.alpn_default,
+					   alpn_tcp, sizeof(alpn_tcp), 0))
+			lws_mbedtls_set_alpn(ctx, alpn_tcp);
+	}
 
 #if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_ssl_conf_rng(&ctx->conf, lws_gencrypto_mbedtls_rngf, vhost->context);
