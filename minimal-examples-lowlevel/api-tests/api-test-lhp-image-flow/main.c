@@ -86,6 +86,8 @@ struct if_image {
 	int			top, bottom; /* surface lines it covers */
 	size_t			peak_before; /* held before the raster */
 	size_t			peak_on; /* held while on its rows */
+	size_t			heap_before; /* its heap besides the payload,
+					      * before the raster */
 	uint32_t		rows; /* decoded rows issued by its last line */
 	uint32_t		rows_min; /* ... at least, to draw them all */
 	char			released; /* stream and payload gone after */
@@ -184,6 +186,15 @@ sample(int curr)
 		if (curr < im->top - 1) {
 			if (held > im->peak_before)
 				im->peak_before = held;
+#if defined(LWS_WITH_FOOTPRINT)
+			if (im->dlo->_heap) {
+				size_t heap = im->dlo->_heap(im->dlo);
+
+				heap = heap > held ? heap - held : 0;
+				if (heap > im->heap_before)
+					im->heap_before = heap;
+			}
+#endif
 		} else if (curr <= im->bottom) {
 			/*
 			 * Its last row is bottom - 1: drawing line bottom is
@@ -265,6 +276,17 @@ check(int again)
 	 */
 	size_t before_max = pass ? 0 : LWS_DLO_IMAGE_HEAD_CREDIT,
 	       on_max = (size_t)window;
+#if defined(LWS_WITH_FOOTPRINT)
+	/*
+	 * The image's heap besides the payload before the raster: a decoder
+	 * that has only parsed the header.  The jpeg's holds the tables it
+	 * read from the header, ~2KB, but neither decoder has its buffers
+	 * yet, eg the png's 32KB inflate window, nor its inflate tables, ~3KB.
+	 * In the second pass, there is no decoder until the raster reaches the
+	 * image.
+	 */
+	size_t heap_max = pass ? 0 : 2560;
+#endif
 	int n;
 
 	if (nimages != 3) {
@@ -277,10 +299,12 @@ check(int again)
 	for (n = 0; n < nimages; n++) {
 		struct if_image *im = &images[n];
 
-		lwsl_user("%s: pass %d: %s lines %d - %d: held %u before the "
-			  "raster, %u on it, %u / %u rows, %sreleased after\n",
+		lwsl_user("%s: pass %d: %s lines %d - %d: held %u (+ %u) "
+			  "before the raster, %u on it, %u / %u rows, "
+			  "%sreleased after\n",
 			  __func__, pass + 1, im->name, im->top, im->bottom,
 			  (unsigned int)im->peak_before,
+			  (unsigned int)im->heap_before,
 			  (unsigned int)im->peak_on, (unsigned int)im->rows,
 			  (unsigned int)im->rows_min,
 			  im->released ? "" : "NOT ");
@@ -292,6 +316,15 @@ check(int again)
 				 (unsigned int)before_max);
 			fails++;
 		}
+#if defined(LWS_WITH_FOOTPRINT)
+		if (im->heap_before > heap_max) {
+			lwsl_err("%s: %s: heap %u before the raster, max %u\n",
+				 __func__, im->name,
+				 (unsigned int)im->heap_before,
+				 (unsigned int)heap_max);
+			fails++;
+		}
+#endif
 		if (im->peak_on > on_max) {
 			lwsl_err("%s: %s: held %u on the raster, max %u\n",
 				 __func__, im->name, (unsigned int)im->peak_on,
@@ -314,7 +347,7 @@ check(int again)
 			continue;
 
 		/* the next pass measures afresh */
-		im->peak_before = im->peak_on = 0;
+		im->peak_before = im->peak_on = im->heap_before = 0;
 		im->rows = im->rows_min = 0;
 		im->released = im->seen_after = 0;
 	}

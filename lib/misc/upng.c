@@ -103,9 +103,17 @@ typedef enum {
 
 
 
+/* the inflate sliding window, 32KB, and some margin */
+#define UPNG_INF_WINDOW		(32768 + 512)
+
 struct lws_upng_t {
 	struct upng_unfline	u;
-	inflator_ctx_t		inf;
+	/*
+	 * The inflator, its window and line pair are one allocation, only made
+	 * when the image data starts: until then, eg, while only the header is
+	 * wanted for the layout, the upng costs just this struct
+	 */
+	inflator_ctx_t		*inf;
 
 	unsigned int		width;
 	unsigned int		height;
@@ -166,59 +174,59 @@ unfilter_scanline(lws_upng_t *u)
 	switch (uf->filterType) {
 	case 0: /* None */
 		for (i = 0; i < uf->bypl; i++)
-			uf->recon[i] = u->inf.out[(uf->sp + i) %
-			                            u->inf.info_size];
+			uf->recon[i] = u->inf->out[(uf->sp + i) %
+			                            u->inf->info_size];
 		break;
 	case 1: /* Sub */
 		for (i = 0; i <  uf->bypp; i++)
-			uf->recon[i] = u->inf.out[(uf->sp + i) %
-			                            u->inf.info_size];
+			uf->recon[i] = u->inf->out[(uf->sp + i) %
+			                            u->inf->info_size];
 
 		for (i = uf->bypp; i < uf->bypl; i++)
-			uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-			                            u->inf.info_size] +
+			uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+			                            u->inf->info_size] +
 				uf->recon[i - uf->bypp]);
 		break;
 	case 2: /* Up */
 		if (uf->y)
 			for (i = 0; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-				            u->inf.info_size] + uf->precon[i]);
+				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+				            u->inf->info_size] + uf->precon[i]);
 		else
 			for (i = 0; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-				                          u->inf.info_size]);
+				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+				                          u->inf->info_size]);
 		break;
 	case 3: /* Average */
 		if (uf->y) {
 			for (i = 0; i < uf->bypp; i++)
-				uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-				        u->inf.info_size] + uf->precon[i] / 2);
+				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+				        u->inf->info_size] + uf->precon[i] / 2);
 			for (i = uf->bypp; i < uf->bypl; i++)
 				uf->recon[i] = (uint8_t)
-					(u->inf.out[(uf->sp + i) %
-					            u->inf.info_size] +
+					(u->inf->out[(uf->sp + i) %
+					            u->inf->info_size] +
 					((uf->recon[i - uf->bypp] +
 							uf->precon[i]) / 2));
 		} else {
 			for (i = 0; i < uf->bypp; i++)
-				uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-				                         u->inf.info_size]);
+				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+				                         u->inf->info_size]);
 			for (i = uf->bypp; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-				                         u->inf.info_size] +
+				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+				                         u->inf->info_size] +
 					uf->recon[i - uf->bypp] / 2);
 		}
 		break;
 	case 4: /* Paeth */
 		if (uf->y) {
 			for (i = 0; i < uf->bypp; i++)
-				uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-				                          u->inf.info_size] +
+				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+				                          u->inf->info_size] +
 					paeth(0, uf->precon[i], 0));
 			for (i = uf->bypp; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-				                          u->inf.info_size] +
+				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+				                          u->inf->info_size] +
 					paeth(uf->recon[i - uf->bypp],
 							uf->precon[i],
 							uf->precon[i - uf->bypp]));
@@ -226,11 +234,11 @@ unfilter_scanline(lws_upng_t *u)
 		}
 
 		for (i = 0; i < uf->bypp; i++)
-			uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-			                            u->inf.info_size]);
+			uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+			                            u->inf->info_size]);
 		for (i = uf->bypp; i < uf->bypl; i++)
-			uf->recon[i] = (uint8_t)(u->inf.out[(uf->sp + i) %
-			                                u->inf.info_size] +
+			uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
+			                                u->inf->info_size] +
 				paeth(uf->recon[i - uf->bypp], 0, 0));
 		break;
 	default:
@@ -239,7 +247,7 @@ unfilter_scanline(lws_upng_t *u)
 		return LWS_SRET_FATAL + 12;
 	}
 
-	u->inf.consumed_linear += uf->bypl;
+	u->inf->consumed_linear += uf->bypl;
 
 	return LWS_SRET_OK;
 }
@@ -260,29 +268,31 @@ upng_emit_line(lws_upng_t *u, const uint8_t **ppix, const uint8_t **pos,
 	/*
 	 * The decoder emits into the 32KB window ringbuffer, if we don't
 	 * already have at least one line's worth of output in there, we'll
-	 * have to do more inflation
+	 * have to do more inflation... which is all there is to do until the
+	 * image data has started, and the inflator exists
 	 */
 
-	if (u->inf.outpos_linear - u->inf.consumed_linear < uf->bypl + 1) {
+	if (!u->inf ||
+	    u->inf->outpos_linear - u->inf->consumed_linear < uf->bypl + 1) {
 		ret = lws_upng_decode(u, pos, size);
 		if ((!*size && ret == LWS_SRET_WANT_INPUT) ||
 		    (ret & (LWS_SRET_FATAL | LWS_SRET_YIELD)) ||
-		    !u->inf.outpos_linear)
+		    !u->inf || !u->inf->outpos_linear)
 			return ret;
 
-		assert(u->inf.info_size);
+		assert(u->inf->info_size);
 		assert(uf->bypl + 1);
 	}
 
-	if (u->inf.outpos_linear - u->inf.consumed_linear < uf->bypl + 1)
+	if (u->inf->outpos_linear - u->inf->consumed_linear < uf->bypl + 1)
 		return ret;
 
 	obp		= uf->alt ? uf->bypl : 0;
 	uf->precon	= uf->alt ? uf->lines : uf->lines + uf->bypl;
 	uf->recon	= &uf->lines[obp];
 	*ppix		= uf->recon;
-	uf->filterType	= uf->in[(u->inf.consumed_linear++) % u->inf.info_size];
-	uf->sp		= u->inf.consumed_linear % u->inf.info_size;
+	uf->filterType	= uf->in[(u->inf->consumed_linear++) % u->inf->info_size];
+	uf->sp		= u->inf->consumed_linear % u->inf->info_size;
 
 	if (unfilter_scanline(u) != LWS_SRET_OK) {
 		ret = LWS_SRET_FATAL + 13;
@@ -294,7 +304,7 @@ upng_emit_line(lws_upng_t *u, const uint8_t **ppix, const uint8_t **pos,
 		unsigned long x;
 
 		for (x = 0; x < (unsigned long)u->width * (unsigned long)uf->bpp; x++) {
-			uint8_t bit = (uint8_t)((uf->in[((uf->ibp) >> 3) % u->inf.info_size] >>
+			uint8_t bit = (uint8_t)((uf->in[((uf->ibp) >> 3) % u->inf->info_size] >>
 						(7 - ((uf->ibp) & 7))) & 1);
 			uf->ibp++;
 
@@ -410,7 +420,8 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 	 */
 
 	while (!u->no_more_input &&
-	       (pos < end || (u->of == UOF_INSIDE && u->inf.subsequent))) {
+	       (pos < end || (u->of == UOF_INSIDE && u->inf &&
+			      u->inf->subsequent))) {
 		switch (u->of) {
 		case UOF_MAGIC:
 			if (*pos++ != magic[u->sctr++])
@@ -493,10 +504,6 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 
 			/* takes us to +33 */
 
-			memset(&u->inf, 0, sizeof(u->inf));
-
-			/* 32KB gz sliding window */
-			u->inf.info_size = 32768 + 512;
 			u->u.bpp	 = lws_upng_get_bpp(u);
 			if (!u->u.bpp || u->width >= (UINT_MAX / u->u.bpp))
 				return LWS_SRET_FATAL + 14;
@@ -504,12 +511,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			u->u.y		= 0;
 			u->u.ibp	= 0;
 			u->u.bypp	= (u->u.bpp + 7) / 8;
-			u->inf.bypl	= u->u.bypl = u->width * u->u.bypp;
-
-			u->inf.outlen	= u->inf.info_size;
-			u->inf.outpos	= 0;
-			u->inf.state	= UPNS_ID_BL_GB_DONE;
-			u->inf.upng	= u;
+			u->u.bypl	= u->width * u->u.bypp;
 
 			u->u.alt	= 0; /* which of the two lines to write to */
 			u->u.padded	= u->u.bpp < 8 &&
@@ -523,7 +525,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			break;
 
 		case UOF_CHUNK_LEN:
-			if (!u->inf.out) {
+			if (!u->inf) {
 				size_t ims;
 
 				/*
@@ -534,7 +536,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 				 */
 
 				if (u->u.bypl > UINT_MAX / 2 ||
-				    u->inf.info_size >
+				    UPNG_INF_WINDOW + sizeof(inflator_ctx_t) >
 					      UINT_MAX - (u->u.bypl * 2)) {
 					lwsl_err("%s: ims overflow\n",
 						 __func__);
@@ -542,8 +544,8 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 					return LWS_SRET_FATAL + 27;
 				}
 
-				ims = (size_t)(u->u.bypl * 2) +
-						u->inf.info_size;
+				ims = sizeof(inflator_ctx_t) + UPNG_INF_WINDOW +
+						(size_t)(u->u.bypl * 2);
 
 				/*
 				 * We must publish how much of the caller's
@@ -557,8 +559,9 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 					goto bail;
 				}
 
-				u->inf.out = (uint8_t *)lws_malloc(ims, __func__);
-				if (!u->inf.out) {
+				u->inf = (inflator_ctx_t *)lws_malloc(ims,
+								     __func__);
+				if (!u->inf) {
 					lwsl_notice("%s: inf malloc %u OOM\n",
 						__func__, (unsigned int)ims);
 
@@ -571,8 +574,16 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 					r = LWS_SRET_YIELD;
 					goto bail;
 				}
-				u->u.lines = u->inf.out + u->inf.info_size;
-				u->u.in		= u->inf.out;
+				memset(u->inf, 0, sizeof(*u->inf));
+				u->inf->out	= (uint8_t *)&u->inf[1];
+				u->inf->info_size = UPNG_INF_WINDOW;
+				u->inf->outlen	= UPNG_INF_WINDOW;
+				u->inf->bypl	= u->u.bypl;
+				u->inf->state	= UPNS_ID_BL_GB_DONE;
+				u->inf->upng	= u;
+
+				u->u.lines	= u->inf->out + UPNG_INF_WINDOW;
+				u->u.in		= u->inf->out;
 			}
 			u->chunklen = (u->chunklen << 8) | *pos++;
 			if (++u->sctr == 4) {
@@ -611,7 +622,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			break;
 
 		case UOF_INSIDE:
-			if (!u->inf.subsequent) {
+			if (!u->inf->subsequent) {
 				/*
 				 * The first IDAT starts with the 2-byte zlib
 				 * header, which may come split over any number
@@ -638,7 +649,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 				if ((u->acc >> 5) & 1)
 					return LWS_SRET_FATAL + 31;
 
-				u->inf.subsequent = 1;
+				u->inf->subsequent = 1;
 				break;
 			}
 
@@ -655,21 +666,21 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			if (m > u->chunklen)
 				m = u->chunklen;
 
-			u->inf.in	= pos;
-			u->inf.inpos	= 0;
-			u->inf.inlen	= m;
+			u->inf->in	= pos;
+			u->inf->inpos	= 0;
+			u->inf->inlen	= m;
 
-			r = _lws_upng_inflate_data(&u->inf);
+			r = _lws_upng_inflate_data(u->inf);
 
-			m = u->inf.bp >> 3;
-			if (m > u->inf.inlen)
-				m = u->inf.inlen;
+			m = u->inf->bp >> 3;
+			if (m > u->inf->inlen)
+				m = u->inf->inlen;
 			if (m)
 				pos += m;
 			u->chunklen	= u->chunklen - (uint32_t)m;
-			u->inf.bp	-= m << 3;
-			u->inf.in	= NULL;
-			u->inf.inlen	= 0;
+			u->inf->bp	-= m << 3;
+			u->inf->in	= NULL;
+			u->inf->inlen	= 0;
 
 			if (r != LWS_SRET_WANT_INPUT)
 				/* eg, WANT_OUTPUT, or FATAL */
@@ -730,8 +741,6 @@ lws_upng_new(void)
 	upng->of = UOF_MAGIC;
 	upng->sctr = 0;
 
-	upng->inf.upng = upng;
-
 	return upng;
 }
 
@@ -743,8 +752,8 @@ lws_upng_heap(lws_upng_t *u)
 		return 0;
 
 	return lws_fp_heap(u, sizeof(*u)) +
-	       lws_fp_heap(u->inf.out, (size_t)(u->u.bypl * 2) +
-				       u->inf.info_size);
+	       lws_fp_heap(u->inf, sizeof(inflator_ctx_t) + UPNG_INF_WINDOW +
+				   (size_t)(u->u.bypl * 2));
 }
 #endif
 
@@ -754,8 +763,8 @@ lws_upng_free(lws_upng_t** upng)
 	if (!*upng)
 		return;
 
-	if ((*upng)->inf.out)
-		lws_free_set_NULL((*upng)->inf.out);
+	if ((*upng)->inf)
+		lws_free_set_NULL((*upng)->inf);
 
 	lws_free_set_NULL(*upng);
 }
