@@ -526,6 +526,11 @@ option(LWS_WITH_COMPRESSED_BACKTRACES "Build with support for compressed backtra
 set(LWS_COMPRESSED_BACKTRACES_SNIP_PRE 2 CACHE STRING "Amount of callstack to snip from top")
 set(LWS_COMPRESSED_BACKTRACES_SNIP_POST 1 CACHE STRING "Amount of callstack to snip from bottom")
 option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtraces (requires WITH_COMPRESSED_BACKTRACES)" OFF)
+#
+# Caches, pools and lists account for the heap they hold on the context, see
+# READMEs/README.lws_footprint.md.  Independent of CMAKE_BUILD_TYPE.
+#
+option(LWS_WITH_FOOTPRINT "Build lws_footprint heap accounting for caches and lists" OFF)
 
 #
 # A backtrace on stderr when the process crashes, see

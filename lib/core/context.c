@@ -994,6 +994,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 		goto free_context_fail2;
 	}
 
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_context_init(context);
+#endif
+
 	context->name			= info->vhost_name;
 	if (info->log_cx)
 		context->log_cx = info->log_cx;
@@ -2443,6 +2447,9 @@ free_context_fail2:
 		lws_plugins_destroy(&evlib_plugin_list, NULL, NULL);
 #endif
 	if (context) {
+#if defined(LWS_WITH_FOOTPRINT)
+		lws_footprint_context_destroy(context);
+#endif
 		lwsl_refcount_cx(context->log_cx, -1);
 		lws_free(context);
 	}
@@ -3375,6 +3382,9 @@ next_l:
 		lws_log_spew_flush(context->log_cx);
 #endif
 
+#if defined(LWS_WITH_FOOTPRINT)
+		lws_footprint_context_destroy(context);
+#endif
 		lwsl_refcount_cx(context->log_cx, -1);
 
 		lws_free(context);

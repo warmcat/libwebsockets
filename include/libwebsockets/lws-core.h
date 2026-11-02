@@ -48,6 +48,7 @@ struct lws_context_creation_info;
 #include <libwebsockets/lws-state.h>
 #include <libwebsockets/lws-retry.h>
 #include <libwebsockets/lws-adapt.h>
+#include <libwebsockets/lws-footprint.h>
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-metrics.h>
 #endif

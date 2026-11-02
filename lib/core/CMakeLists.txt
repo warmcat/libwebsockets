@@ -46,6 +46,9 @@ if (NOT LWS_ONLY_SSPC)
 	if (LWS_WITH_FILE_OPS)
 		list(APPEND SOURCES core/vfs.c)
 	endif()
+	if (LWS_WITH_FOOTPRINT)
+		list(APPEND SOURCES core/footprint.c)
+	endif()
 
 else()
 

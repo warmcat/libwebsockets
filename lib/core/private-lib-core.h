@@ -975,6 +975,12 @@ struct lws_context {
 	uint32_t last_free_heap;
 #endif
 
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_dll2_owner_t		footprints; /* lws_footprint_t */
+	size_t				fp_baseline_free; /* free heap at creation */
+	unsigned int			fp_shed_pass;
+#endif
+
 	unsigned int max_fds;
 #if !defined(LWS_NO_DAEMONIZE)
 	pid_t started_with_parent;
@@ -1358,6 +1364,13 @@ void lwsl_emit_stderr(int level, const char *line);
 #endif
 
 
+
+#if defined(LWS_WITH_FOOTPRINT)
+void
+lws_footprint_context_init(struct lws_context *cx);
+void
+lws_footprint_context_destroy(struct lws_context *cx);
+#endif
 
 /*
  * Lock order, when LWS_MAX_SMP > 1 makes these real: the context lock, then
