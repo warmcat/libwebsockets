@@ -163,7 +163,9 @@ void
 lws_footprint_dump(struct lws_context *cx, int items)
 {
 	lws_footprint_report_t r, t;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	size_t heap_free;
+#endif
 
 	memset(&t, 0, sizeof(t));
 
@@ -199,6 +201,7 @@ lws_footprint_dump(struct lws_context *cx, int items)
 			   (unsigned int)t.count, (unsigned long long)t.bytes,
 			   (unsigned long long)t.sheddable);
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	if (!fp_heap_free(&heap_free) && cx->fp_baseline_free) {
 		long long used = (long long)cx->fp_baseline_free -
 				 (long long)heap_free;
@@ -208,6 +211,7 @@ lws_footprint_dump(struct lws_context *cx, int items)
 				   (unsigned long long)heap_free, used,
 				   used - (long long)t.bytes);
 	}
+#endif
 #if defined(LWS_PLAT_ALLOC_SIZE)
 	/*
 	 * What lws_malloc() and friends hold, which is most of what lws
@@ -302,6 +306,7 @@ lws_footprint_shed(struct lws_context *cx, size_t want, lws_fp_shed_t most)
 			if (f)
 				lwsl_cx_info(cx, "%s gave back %llu", source,
 					     (unsigned long long)f);
+			(void)source; /* without info logs */
 			freed += f;
 		}
 
