@@ -181,6 +181,18 @@ Then build with it in place of IDF's
  $ idf.py -D EXTRA_COMPONENT_DIRS=$HOME/idf-comp/mbedtls build
 ```
 
+### Seeing what holds the heap
+
+Build with `-D LWS_WITH_FOOTPRINT=1` added to the `idf.py` command line and
+the example logs a `fp:` line per heap-holding participant, with the total
+and how much of the heap used since the context was created no participant
+accounts for: as each carousel page starts, when its layout is complete, and
+if a layout fails.  See `READMEs/README.lws_footprint.md`.
+
+```
+ $ idf.py -D LWS_WITH_FOOTPRINT=1 build
+```
+
 ### Flashing
 
 The first time we need to erase the whole flash and blow the whole

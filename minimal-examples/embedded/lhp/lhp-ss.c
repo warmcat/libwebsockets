@@ -35,6 +35,11 @@ render(lws_sorted_usec_list_t *sul)
 
 		lws_display_get_ids_boxes(rs);
 		rs->sp = 0;
+
+#if defined(LWS_WITH_FOOTPRINT)
+		/* the layout is complete: what holds the heap at its peak */
+		lws_footprint_dump(rs->lds->ctx, 0);
+#endif
 		rs->st[0].dlo = NULL;
 
 		/* allocate one line of output pixels to render into */

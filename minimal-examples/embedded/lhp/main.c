@@ -360,6 +360,10 @@ app_next(lws_sorted_usec_list_t *sul)
 	lwsl_notice("%s: %s\n", __func__, carousel_urls[carousel]);
 
 	page_drop();
+#if defined(LWS_WITH_FOOTPRINT)
+	/* what holds the heap as the next page starts */
+	lws_footprint_dump(cx, 0);
+#endif
 	lws_display_state_active(&lds);
 	if (init_browse(cx, &rs, carousel_urls[carousel++])) {
 		lwsl_err("%s: init_browse failed\n", __func__);
