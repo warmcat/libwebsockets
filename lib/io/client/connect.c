@@ -583,33 +583,20 @@ __lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		 */
 
 #if defined(LWS_WITH_TLS)
-
-		wsi->io->tls.ssl = NULL;
-
-#if defined(LWS_ROLE_QUIC)
 		/*
-		 * quic drives its own tls handshake inside its packets: its
-		 * session is made now, and the handshake starts with the
-		 * connection.  A raw client's tls, raw-skt's or raw-proxy's,
-		 * starts on its socket once that has connected, from the
-		 * transport stage: a session made here would have no socket
+		 * No tls session yet, not even for quic, which drives its own
+		 * handshake inside its packets.  Most h3 requests join a quic
+		 * connection already there, or queue on one still coming up,
+		 * as another stream: they never need a session of their own,
+		 * and a session costs the tls library's record buffers, and a
+		 * slot under simultaneous_ssl_restriction, for as long as the
+		 * stream lives.  A quic wsi that does start a connection makes
+		 * it as its transport comes up (lws_tls_quic_session()), and a
+		 * raw client's tls starts on its socket once that has
+		 * connected, from the transport stage
 		 */
-		if (!strcmp(wsi->role_ops->name, "quic") &&
-		    (wsi->use_ssl & LCCSCF_USE_SSL)) {
-			const char *cce = NULL;
-
-			switch (lws_client_create_tls(wsi, &cce, 0)) {
-			case 1:
-				return wsi;
-			case 0:
-				break;
-			default:
-				goto bail3;
-			}
-		}
+		wsi->io->tls.ssl = NULL;
 #endif
-#endif
-
 
 		/* fallthru */
 
@@ -632,15 +619,6 @@ __lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		wsi->client_suppress_CONNECTION_ERROR = 0;
 
 	return wsi;
-
-#if defined(LWS_WITH_TLS) && defined(LWS_ROLE_QUIC)
-bail3:
-	lwsl_wsi_err(wsi, "tls start fail");
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "tls start fail");
-	lws_client_pwsi_clear(i, pwsi_entry, wsi);
-
-	return NULL;
-#endif
 
 bail:
 	/*

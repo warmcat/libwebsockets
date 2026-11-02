@@ -23,6 +23,11 @@ require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
 require_lws_config(LWS_WITH_MBEDTLS 1 MBEDTLS)
 set(has_fault_injection 1)
 require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
+set(has_h3 1)
+require_lws_config(LWS_ROLE_H3 1 has_h3)
+if (MBEDTLS)
+	set(has_h3 0)
+endif()
 
 
 if (requirements)
@@ -235,6 +240,21 @@ endif()
 			     	RESOURCE_LOCK "hcmp_srv"
 			     	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
 			     	TIMEOUT 30)
+
+	if (has_h3)
+		# the 8 requests share one quic connection, so they need only
+		# one tls session between them: requests that join the
+		# connection, or queue on it while it comes up, must not take
+		# tls sessions (and slots under the limit) of their own
+		add_test(NAME http-client-multi-restrict-h3-pipe COMMAND lws-minimal-http-client-multi
+				--limit 1 --h3 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
+		set_tests_properties(http-client-multi-restrict-h3-pipe
+				     PROPERTIES
+				     FIXTURES_REQUIRED "hcmp_srv"
+				     RESOURCE_LOCK "hcmp_srv"
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
+				     TIMEOUT 30)
+	endif()
 
 endif(NOT WIN32 AND LWS_WITH_SERVER)
 

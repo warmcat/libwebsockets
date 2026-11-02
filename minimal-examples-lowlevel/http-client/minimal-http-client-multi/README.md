@@ -18,8 +18,10 @@ However it does it for 8 client connections concurrently.
 Option|Meaning
 ---|---
 -s|Stagger the connections by 100ms, the last by 1s
--p|Use http/1.1 pipelining or h2 simultaneous streams
+-p|Use http/1.1 pipelining or h2 / h3 simultaneous streams
 --h1|Force http/1 only
+--h3|Use http/3 over quic
+--limit <n>|Allow at most n tls sessions at once (`simultaneous_ssl_restriction`): with `-p`, all the requests ride one connection and one session
 -l|Connect to server on https://localhost:7681 instead of https://warmcat.com:443
 -n|Read numbered files like /1.png, /2.png etc.  Default is just read /
 --uv|Use libuv event loop if lws built for it
