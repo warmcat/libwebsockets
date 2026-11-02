@@ -277,6 +277,9 @@ _realloc(void *ptr, size_t size, const char *reason)
 				break;
 
 			if (!lws_reclaim(size)) {
+#if defined(LWS_WITH_FOOTPRINT)
+				lws_footprint_alloc_failed(size, reason);
+#endif
 #if defined(LWS_PLAT_ALLOC_SIZE)
 				/* the old block is still ours */
 				if (ptr)

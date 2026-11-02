@@ -85,13 +85,25 @@ mustn't allocate or call back into the footprint api.
 
 `lws_footprint_dump(cx, items)` logs a line per participant at notice level:
 its source, its ident if it has one, count, bytes now, its high water mark and how much it
-could shed.  Then it logs the total, the heap the platform says is in use if
-it can say, and the difference between them.
+could shed.  Then it logs the total and, where the platform can say:
 
-That difference is often the most useful number.  It is what no participant
-accounts for: allocations in code that doesn't take part yet, or a leak.
+ - on freertos, the free heap, how much of it has gone since the context was
+   created, and how much of that no participant accounts for: allocations in
+   code that doesn't take part yet, or a leak
+
+ - on platforms that can size an allocation (glibc, ESP-IDF), what
+   `lws_malloc()` and friends hold now
+
 Comparing two dumps, eg, before and after a page load, shows which
 participants grew and whether the unaccounted part did.
+
+When an lws allocation fails, even after asking the reclaimable heap
+occupants to give memory back, the first context's participants are dumped
+by themselves, preceded by a warning naming the allocation, at most once
+every five seconds.  So the dump that matters most, what was holding the heap
+when it ran out, needs no call from the application.  Builds with
+`LWS_MAX_SMP` more than 1 don't do this, since the failing thread may hold
+locks that mustn't be held taking the context lock.
 
 With `items` set, each participant's `dump` op also lists what it holds.
 

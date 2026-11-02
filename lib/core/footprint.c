@@ -66,11 +66,20 @@ fp_heap_free(size_t *heap_free)
 #endif
 }
 
+/*
+ * The allocator has no context, so when an allocation fails it dumps the first
+ * context's participants
+ */
+static struct lws_context *fp_oom_cx;
+
 void
 lws_footprint_context_init(struct lws_context *cx)
 {
 	if (fp_heap_free(&cx->fp_baseline_free))
 		cx->fp_baseline_free = 0;
+
+	if (!fp_oom_cx)
+		fp_oom_cx = cx;
 }
 
 void
@@ -81,6 +90,9 @@ lws_footprint_context_destroy(struct lws_context *cx)
 	 * still here outlive the context, say who they are and detach them, so
 	 * their later unregister doesn't touch the freed context
 	 */
+
+	if (fp_oom_cx == cx)
+		fp_oom_cx = NULL;
 
 	while (cx->footprints.head) {
 		lws_footprint_t *fp = lws_container_of(cx->footprints.head,
@@ -197,14 +209,48 @@ lws_footprint_dump(struct lws_context *cx, int items)
 				   used - (long long)t.bytes);
 	}
 #if defined(LWS_PLAT_ALLOC_SIZE)
-	else {
-		size_t lws_heap = lws_get_allocated_heap();
+	/*
+	 * What lws_malloc() and friends hold, which is most of what lws
+	 * participants count, but not the tls library's own
+	 */
+	lwsl_cx_notice(cx, "fp: lws_malloc() holds %llu",
+		       (unsigned long long)lws_get_allocated_heap());
+#endif
+}
 
-		lwsl_cx_notice(cx, "fp: lws_malloc() heap in use %llu, %lld "
-				   "not accounted for",
-				   (unsigned long long)lws_heap,
-				   (long long)lws_heap - (long long)t.bytes);
-	}
+void
+lws_footprint_alloc_failed(size_t size, const char *reason)
+{
+#if !defined(LWS_WITH_NETWORK) || LWS_MAX_SMP == 1
+	static lws_usec_t last;
+	static char in_dump;
+	lws_usec_t now;
+
+	/*
+	 * With one service thread there are no real locks to get in the order
+	 * of; with more, the failing thread may hold a pt lock, which must
+	 * never be held taking the context lock, so it's left to the dumps
+	 * the application asks for.
+	 *
+	 * A burst of failures is usually one shortage, so say it once.
+	 */
+
+	if (!fp_oom_cx || in_dump)
+		return;
+
+	now = lws_now_usecs();
+	if (last && now - last < 5 * LWS_US_PER_SEC)
+		return;
+	last = now;
+
+	in_dump = 1;
+	lwsl_cx_warn(fp_oom_cx, "fp: no heap for %llu bytes for %s",
+		     (unsigned long long)size, reason ? reason : "-");
+	lws_footprint_dump(fp_oom_cx, 0);
+	in_dump = 0;
+#else
+	(void)size;
+	(void)reason;
 #endif
 }
 

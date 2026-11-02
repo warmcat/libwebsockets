@@ -1372,7 +1372,27 @@ void lwsl_emit_stderr(int level, const char *line);
 void
 lws_footprint_context_init(struct lws_context *cx);
 void
+lws_footprint_alloc_failed(size_t size, const char *reason);
+void
 lws_footprint_context_destroy(struct lws_context *cx);
+
+/*
+ * The heap an allocation holds, for participants working out what they hold
+ * on demand: what the platform says if it can, else the size that was asked
+ */
+static LWS_INLINE size_t
+lws_fp_heap(void *p, size_t asked)
+{
+	if (!p)
+		return 0;
+#if defined(LWS_PLAT_ALLOC_SIZE)
+	(void)asked;
+
+	return lws_plat_alloc_size(p);
+#else
+	return asked;
+#endif
+}
 #endif
 
 /*
