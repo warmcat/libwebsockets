@@ -38,7 +38,7 @@ render(lws_sorted_usec_list_t *sul)
 
 #if defined(LWS_WITH_FOOTPRINT)
 		/* the layout is complete: what holds the heap at its peak */
-		lws_footprint_dump(rs->lds->ctx, 0);
+		lws_footprint_dump(rs->lds->ctx, 1);
 #endif
 		rs->st[0].dlo = NULL;
 
