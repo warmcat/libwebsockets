@@ -764,6 +764,9 @@ lws_latency_cb_end(struct lws_context_per_thread *pt, const char *pn);
  */
 
 struct lws_vhost {
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t		fp; /* "vhost" participant */
+#endif
 #if defined(LWS_WITH_CLIENT) && defined(LWS_CLIENT_HTTP_PROXYING)
 	char proxy_basic_auth_token[128];
 #endif

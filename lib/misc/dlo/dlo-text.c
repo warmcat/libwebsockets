@@ -291,6 +291,16 @@ lws_display_dlo_text_attach_glyphs(lws_dlo_text_t *text)
 	return r;
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+static size_t
+lws_display_dlo_text_heap(struct lws_dlo *dlo)
+{
+	lws_dlo_text_t *text = lws_container_of(dlo, lws_dlo_text_t, dlo);
+
+	return lws_fp_heap(text->text, text->text_len + 1);
+}
+#endif
+
 lws_dlo_text_t *
 lws_display_dlo_text_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 			 lws_box_t *box, const lws_display_font_t *font)
@@ -302,6 +312,9 @@ lws_display_dlo_text_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 
 	text->dlo.render = font->renderer;
 	text->dlo._destroy = lws_display_dlo_text_destroy;
+#if defined(LWS_WITH_FOOTPRINT)
+	text->dlo._heap = lws_display_dlo_text_heap;
+#endif
 	text->dlo.box = *box;
 	text->font = font;
 

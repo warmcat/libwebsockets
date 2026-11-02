@@ -75,7 +75,7 @@ op|Required|Meaning
 ---|---|---
 `shed_class`|yes|How costly its memory is to have back, see below
 `report`|no|Fill in its use on demand, eg, if it can say how much is sheddable now. Without it, the counts kept by `lws_footprint_add()` are reported
-`dump`|no|Log what it holds, one line per item, at info level
+`dump`|no|Log what it holds, one line per item, at notice level, since it is only called when a dump with `items` was asked for
 `shed`|no|Free what it can, up to about the bytes asked for, and say how many it freed
 
 The ops are called from the service thread with the context lock held.  They
@@ -129,25 +129,20 @@ connections if that wasn't enough.
 What a participant keeps after shedding must stay usable; shedding only
 changes how much later work costs, never whether it works.
 
-## Planned participants
+## Participants in lws
 
-The first ones are those that explain where an esp32 h3 client's heap goes:
+participant|source|ident|what it counts
+---|---|---|---
+Each vhost|`"vhost"`|vhost name|the vhost itself; its tls ctx is in `"mbedtls"`
+The tls library's own allocations, through mbedtls' allocator hook|`"mbedtls"`|-|tls contexts, sessions, handshakes, cipher contexts
+Each QUIC connection|`"quic conn"`|vhost name|itself, its keys and congestion control state, frames queued and in flight, held packets, crypto and stream reassembly
+Each pt's header table pool, while it has any|`"ah pool"`|-|each ah and its header data
+Each html document being fetched and laid out|`"html doc"`|url|the html received so far, the parser's css lwsacs and open elements
+Each display list bound to a context|`"display list"`|-|every dlo, and images' payloads, decoders and rows; the `items` dump lists the dlos holding more than 1KB, by name
 
-participant|source|shed class
----|---|---
-Each vhost's tls context|`"vhost tls ctx"`|NONE
-JIT Trust vhosts and their tls contexts|`"JITT cache"`|IDLE, while in their grace period
-The tls library's own allocations, through mbedtls' allocator hook|`"mbedtls"`|NONE
-Each QUIC connection: send queue, reassembly, streams|`"quic conn"`|CONN, when idle and kept warm
-Each h2 connection|`"h2 conn"`|CONN, when idle and kept warm
-The header table pool|`"ah pool"`|IDLE, for unused spares
-The context's `lws_cache_ttl` caches|`"dns cache"`, `"alt-svc cache"`, `"h3 cap cache"`, `"trust cache"`|CACHE
-The dlo asset caches, decoded images and fonts|`"dlo asset cache"`|CACHE
-The html parser's results|`"lhp lwsac"`|NONE
-Secure Streams handles|`"ss handles"`|NONE
-
-`lws_cache_ttl` and `lwsac` already track their own sizes, so they take part
-by reporting what they already know.
+Participants that work out what they hold on demand, rather than counting as
+they go, size each allocation with `lws_fp_heap()`: what the platform says
+the allocation holds where it can say, else the size that was asked for.
 
 The mbedtls participant is the only way to see what the tls library itself
 allocates during a handshake, which no lws owner can.  It is installed with
@@ -161,6 +156,19 @@ Otherwise there is no "mbedtls" participant.
 The hook is process-wide: it counts mbedtls' allocations made by anything in
 the process, and it replaces any allocator an application set with
 `mbedtls_platform_set_calloc_free()` before creating the context.
+
+## Planned participants
+
+participant|source|shed class
+---|---|---
+JIT Trust vhosts in their grace period|`"vhost"`|IDLE
+Idle h2 connections kept for reuse|`"h2 conn"`|CONN
+The context's `lws_cache_ttl` caches|`"dns cache"`, `"alt-svc cache"`, `"h3 cap cache"`, `"trust cache"`|CACHE
+The dlo asset cache and the reclaimable heap occupants (fonts, decoded images)|`"dlo asset cache"`, `"reclaimable"`|CACHE
+Secure Streams handles|`"ss handles"`|NONE
+
+`lws_cache_ttl` and `lwsac` already track their own sizes, so they take part
+by reporting what they already know.
 
 ## Later
 

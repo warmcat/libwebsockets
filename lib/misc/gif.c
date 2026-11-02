@@ -1098,6 +1098,19 @@ lws_gif_new(void)
 	return g;
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+size_t
+lws_gif_heap(lws_gif_t *g)
+{
+	if (!g)
+		return 0;
+
+	/* the scratch row is shared by every decoder, so not counted here */
+	return lws_fp_heap(g, sizeof(*g)) +
+	       lws_fp_heap(g->prefix, GIF_MAX_CODES * (sizeof(*g->prefix) + 1));
+}
+#endif
+
 void
 lws_gif_free(lws_gif_t **gif)
 {

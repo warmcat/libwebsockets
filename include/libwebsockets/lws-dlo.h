@@ -129,6 +129,12 @@ typedef struct lws_dlo {
 
 	lws_dlo_destroy_t		_destroy; /* dlo-type specific cb */
 	lws_dlo_renderer_t		render;   /* dlo-type specific cb */
+#if defined(LWS_WITH_FOOTPRINT)
+	size_t				(*_heap)(struct lws_dlo *dlo);
+	/**< dlo-type specific: the heap it holds besides the dlo itself, or
+	 * NULL for none */
+	const char			*fp_name; /**< what it is, for dumps */
+#endif
 
 	lws_fx_t			margin[4];
 	lws_fx_t			padding[4]; /* child origin */
@@ -418,6 +424,9 @@ typedef struct {
 typedef struct lws_displaylist {
 	lws_dll2_owner_t		dl;
 	struct lws_display_state 	*ds;
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t			fp; /* "display list" participant */
+#endif
 } lws_displaylist_t;
 
 typedef struct lws_dl_rend {
@@ -546,6 +555,11 @@ lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim);
  * \param ds: Lws display state to bind the list to
  *
  * Initializes the display list \p dl and binds it to the display state \p ds.
+ *
+ * With LWS_WITH_FOOTPRINT, a list bound to a display state with a context
+ * takes part in the context's footprint as a "display list", until
+ * lws_display_list_destroy(), which must be called before the list's memory
+ * goes.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_display_dl_init(lws_displaylist_t *dl, struct lws_display_state  *ds);

@@ -95,9 +95,10 @@ main(int argc, const char **argv)
 	int e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	cache_t idle, cache1, cache2, conn, plain, late;
 	struct lws_context_creation_info info;
+	lws_footprint_report_t r, base;
 	struct lws_context *cx;
-	lws_footprint_report_t r;
 	const char *p;
+	int nbase;
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
@@ -112,6 +113,9 @@ main(int argc, const char **argv)
 		lwsl_err("context creation failed\n");
 		return 1;
 	}
+
+	/* the context's own participants, eg, its vhost, are there already */
+	nbase = lws_footprint_total(cx, &base);
 
 	memset(&idle, 0, sizeof(idle));
 	memset(&cache1, 0, sizeof(cache1));
@@ -160,12 +164,12 @@ main(int argc, const char **argv)
 	lws_footprint_add(&conn.fp, 5000);
 	conn.spare = 5000;
 
-	e += expect("participants", lws_footprint_total(cx, &r), 5);
-	e += expect("total count", (long long)r.count, 5);
-	e += expect("total bytes", (long long)r.bytes, 50 + 1000 + 2000 +
-							3000 + 5000);
-	e += expect("total sheddable", (long long)r.sheddable, 400 + 2000 +
-							3000 + 5000);
+	e += expect("participants", lws_footprint_total(cx, &r), nbase + 5);
+	e += expect("total count", (long long)(r.count - base.count), 5);
+	e += expect("total bytes", (long long)(r.bytes - base.bytes),
+					50 + 1000 + 2000 + 3000 + 5000);
+	e += expect("total sheddable", (long long)(r.sheddable -
+				base.sheddable), 400 + 2000 + 3000 + 5000);
 
 	lws_footprint_dump(cx, 1);
 
@@ -189,7 +193,8 @@ main(int argc, const char **argv)
 	e += expect("cache1 asked", cache1.asked, 1);
 	e += expect("cache2 asked", cache2.asked, 1);
 	e += expect("conn not asked", conn.asked, 0);
-	e += expect("participants after", lws_footprint_total(cx, &r), 3);
+	e += expect("participants after", lws_footprint_total(cx, &r),
+								nbase + 3);
 
 	/* nothing left below CONN */
 
@@ -204,7 +209,8 @@ main(int argc, const char **argv)
 	lws_footprint_unregister(&idle.fp);
 	lws_footprint_unregister(&idle.fp);
 	lws_footprint_unregister(&conn.fp);
-	e += expect("participants left", lws_footprint_total(cx, &r), 1);
+	e += expect("participants left", lws_footprint_total(cx, &r),
+								nbase + 1);
 
 	/* one left registered as the context goes is detached */
 

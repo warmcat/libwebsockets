@@ -49,6 +49,15 @@ _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
 	lws_dll2_add_head(&ah->list, &pt->http.ah_owner);
 	ah->data_length = data_size;
 
+#if defined(LWS_WITH_FOOTPRINT)
+	/* the pt's pool takes part while it has any ah */
+	if (lws_dll2_is_detached(&pt->http.fp.list))
+		lws_footprint_register(pt->context, &pt->http.fp, "ah pool",
+				       NULL);
+	lws_footprint_add(&pt->http.fp, lws_fp_heap(ah, sizeof(*ah)) +
+					lws_fp_heap(ah->data, data_size));
+#endif
+
 	lwsl_info("%s: created ah %p (size %d): pool length %u\n", __func__,
 		    ah, (int)data_size,
 		    (unsigned int)lws_dll2_count(&pt->http.ah_owner));
@@ -69,6 +78,13 @@ _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 				ah->wsi->stream.ah = NULL;
 				ah->wsi = NULL;
 			}
+#if defined(LWS_WITH_FOOTPRINT)
+			lws_footprint_sub(&pt->http.fp,
+					  lws_fp_heap(ah, sizeof(*ah)) +
+					  lws_fp_heap(ah->data, ah->data_length));
+			if (!lws_dll2_get_head(&pt->http.ah_owner))
+				lws_footprint_unregister(&pt->http.fp);
+#endif
 			if (ah->data)
 				lws_free(ah->data);
 			lws_free(ah);

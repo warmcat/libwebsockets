@@ -1393,6 +1393,13 @@ lws_fp_heap(void *p, size_t asked)
 	return asked;
 #endif
 }
+
+size_t
+lws_upng_heap(struct lws_upng_t *u);
+size_t
+lws_lhp_heap(struct lhp_ctx *ctx);
+size_t
+lws_gif_heap(struct lws_gif *g);
 #endif
 
 /*

@@ -180,6 +180,13 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	memcpy((char *)vh->name, name, strlen(name) + 1);
 
+#if defined(LWS_WITH_FOOTPRINT)
+	/* the tls library's allocations for its tls ctx are in "mbedtls" */
+	lws_footprint_register(context, &vh->fp, "vhost", NULL);
+	lws_footprint_set_ident(&vh->fp, vh->name);
+	lws_footprint_add(&vh->fp, lws_fp_heap(vh, sizeof(*vh)));
+#endif
+
 #if LWS_MAX_SMP > 1
 	lws_mutex_refcount_init(&vh->mr);
 #endif
@@ -860,6 +867,9 @@ bail:
 
 	__lws_lc_untag(vh->context, &vh->lc);
 	lws_fi_destroy(&vh->fic);
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_unregister(&vh->fp);
+#endif
 	lws_free(vh);
 
 early_bail:
@@ -1338,6 +1348,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 	__lws_lc_untag(vh->context, &vh->lc);
 
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_unregister(&vh->fp);
+#endif
 	memset(vh, 0, sizeof(*vh));
 	lws_free(vh);
 }

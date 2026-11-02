@@ -735,6 +735,19 @@ lws_upng_new(void)
 	return upng;
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+size_t
+lws_upng_heap(lws_upng_t *u)
+{
+	if (!u)
+		return 0;
+
+	return lws_fp_heap(u, sizeof(*u)) +
+	       lws_fp_heap(u->inf.out, (size_t)(u->u.bypl * 2) +
+				       u->inf.info_size);
+}
+#endif
+
 void
 lws_upng_free(lws_upng_t** upng)
 {

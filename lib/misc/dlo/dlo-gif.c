@@ -486,6 +486,18 @@ lws_display_dlo_gif_metadata_scan(lws_dlo_gif_t *dlo_gif)
 	return LWS_SRET_WANT_INPUT;
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+static size_t
+lws_display_dlo_gif_heap(struct lws_dlo *dlo)
+{
+	lws_dlo_gif_t *dlo_gif = lws_container_of(dlo, lws_dlo_gif_t, dlo);
+
+	return lws_gif_heap(dlo_gif->gif) +
+	       lws_fp_heap(dlo_gif->whole, dlo_gif->whole_size) +
+	       lws_fp_heap(dlo_gif->frame, 0);
+}
+#endif
+
 lws_dlo_gif_t *
 lws_display_dlo_gif_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 			lws_box_t *box, const char *name, size_t len)
@@ -503,6 +515,10 @@ lws_display_dlo_gif_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 	dlo_gif->dlo.box = *box;
 	dlo_gif->dlo.render = lws_display_render_gif;
 	dlo_gif->dlo._destroy = lws_display_dlo_gif_destroy;
+#if defined(LWS_WITH_FOOTPRINT)
+	dlo_gif->dlo._heap = lws_display_dlo_gif_heap;
+	dlo_gif->dlo.fp_name = dlo_gif->name;
+#endif
 
 	lws_display_dlo_add(dl, dlo_parent, &dlo_gif->dlo);
 

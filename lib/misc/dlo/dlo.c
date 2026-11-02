@@ -34,11 +34,87 @@
 #define lwsl_dlodump(...)
 #endif
 
+#if defined(LWS_WITH_FOOTPRINT)
+
+/*
+ * A display list holds the laid out page: every dlo, and for images their
+ * payload and decoder, so it works out what it holds on demand by walking
+ * the dlo tree.  The tree is only as deep as the html nesting.
+ */
+
+typedef struct {
+	lws_footprint_report_t	*r;	/* or NULL, to dump instead */
+	struct lws_context	*cx;
+} dl_fp_walk_t;
+
+static void
+dl_fp_walk(lws_dll2_owner_t *o, dl_fp_walk_t *w)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(o)) {
+		lws_dlo_t *dlo = lws_container_of(d, lws_dlo_t, list);
+		size_t h = dlo->_heap ? dlo->_heap(dlo) : 0;
+
+		if (w->r) {
+			w->r->count++;
+			/* the dlo is the start of its type's allocation */
+			w->r->bytes += lws_fp_heap(dlo, sizeof(*dlo)) + h;
+		} else if (h > 1024)
+			/* the dlos holding more than their own struct */
+			lwsl_cx_notice(w->cx, "fp:     %-24s %7llu B",
+				       dlo->fp_name ? dlo->fp_name : "-",
+				       (unsigned long long)h);
+
+		dl_fp_walk(&dlo->children, w);
+	} lws_end_foreach_dll(d);
+}
+
+static void
+dl_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
+{
+	lws_displaylist_t *dl = lws_container_of(fp, lws_displaylist_t, fp);
+	dl_fp_walk_t w = { r, NULL };
+
+	dl_fp_walk(&dl->dl, &w);
+	r->bytes_hwm = fp->bytes_hwm;
+	if (r->bytes > fp->bytes_hwm)
+		fp->bytes_hwm = r->bytes;
+}
+
+static void
+dl_fp_dump(lws_footprint_t *fp)
+{
+	lws_displaylist_t *dl = lws_container_of(fp, lws_displaylist_t, fp);
+	dl_fp_walk_t w = { NULL, dl->ds->ctx };
+
+	dl_fp_walk(&dl->dl, &w);
+}
+
+static const lws_footprint_ops_t dl_fp_ops = {
+	.shed_class	= LWSFP_SHED_NONE,
+	.report		= dl_fp_report,
+	.dump		= dl_fp_dump,
+};
+#endif
+
 void
 lws_display_dl_init(lws_displaylist_t *dl, lws_display_state_t *ds)
 {
 	lws_dll2_owner_clear(&dl->dl);
 	dl->ds = ds;
+
+#if defined(LWS_WITH_FOOTPRINT)
+	/*
+	 * A list may be init'd again while it is registered, eg, for each
+	 * page; otherwise, whatever was in the struct before is no
+	 * participant of ours.  Only a list with a context takes part.
+	 */
+	if (!ds || !ds->ctx || dl->fp.list.owner != &ds->ctx->footprints) {
+		memset(&dl->fp, 0, sizeof(dl->fp));
+		if (ds && ds->ctx)
+			lws_footprint_register(ds->ctx, &dl->fp, "display list",
+					       &dl_fp_ops);
+	}
+#endif
 }
 
 int
@@ -735,6 +811,10 @@ lws_display_list_destroy(struct lws_context *cx, lws_displaylist_t *dl)
 
 		lws_display_dlo_destroy(&d);
 	}
+
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_unregister(&dl->fp);
+#endif
 }
 
 lws_dlo_filesystem_t *

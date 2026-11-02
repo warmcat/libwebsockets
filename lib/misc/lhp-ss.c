@@ -27,6 +27,9 @@
 #include <private-lib-core.h>
 
 LWS_SS_USER_TYPEDEF
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t			fp; /* "html doc" participant */
+#endif
 	lws_sorted_usec_list_t		sul;
 	lws_flow_t			flow;
 	lhp_ctx_t			lhp; /* html ss owns html parser */
@@ -344,6 +347,9 @@ htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 
 	case LWSSSCS_DESTROYING:
+#if defined(LWS_WITH_FOOTPRINT)
+		lws_footprint_unregister(&m->fp);
+#endif
 		/*
 		 * m (and so m->sul) dies with the ss handle... the sul is
 		 * scheduled both from our rx and, via lhp.sshtmlevsul, from
@@ -385,6 +391,35 @@ static LWS_SS_INFO("__default", htmlss_t)
 	.manual_initial_tx_credit	= 1024
 };
 
+#if defined(LWS_WITH_FOOTPRINT)
+/*
+ * A document being fetched and laid out holds its html as it arrives, and the
+ * parser's css and element state; the display list it lays out into is its
+ * own participant
+ */
+static void
+htmlss_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
+{
+	htmlss_t *m = lws_container_of(fp, htmlss_t, fp);
+	size_t b = sizeof(*m) + lws_lhp_heap(&m->lhp) +
+		   lws_buflist_total_len(&m->flow.bl);
+
+#if defined(LWS_WITH_CACHE_BLOB)
+	b += lws_buflist_total_len(&m->cache_bl);
+#endif
+	r->count	= 1;
+	r->bytes	= b;
+	if (b > fp->bytes_hwm)
+		fp->bytes_hwm = b;
+	r->bytes_hwm	= fp->bytes_hwm;
+}
+
+static const lws_footprint_ops_t htmlss_fp_ops = {
+	.shed_class	= LWSFP_SHED_NONE,
+	.report		= htmlss_fp_report,
+};
+#endif
+
 /* prep rs->displaylist, rs->ic */
 
 int
@@ -423,6 +458,9 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 
 	m = (htmlss_t *)lws_ss_to_user_object(h);
 	m->cx = cx;
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_register(cx, &m->fp, "html doc", &htmlss_fp_ops);
+#endif
 	m->flow.h = h;
 	m->flow.window = w;
 
@@ -460,6 +498,9 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->lhp.viewport_h = rs->viewport_h;
 	m->lhp.reclaim_elems = rs->reclaim_elems;
 	m->lhp.base_url = strdup(url);
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_set_ident(&m->fp, m->lhp.base_url);
+#endif
 	m->lhp.ssevcb = render;
 	m->lhp.ssevsul = &rs->sul;
 	m->lhp.sshtmlevcb = lws_lhp_ss_html_parse;

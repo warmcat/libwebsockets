@@ -2781,6 +2781,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		}
 
 		nwsi->quic.qn->nwsi = nwsi;
+		lws_quic_netconn_fp_register(nwsi->quic.qn);
 		nwsi->quic.qn->is_server = 1;
 		nwsi->quic.qn->next_stream_id_bidi_local = 1;
 		nwsi->quic.qn->next_stream_id_unidi_local = 3;
@@ -6171,6 +6172,8 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
                         wsi->quic.qn = lws_zalloc(sizeof(*wsi->quic.qn), "quic_netconn");
 			if (!wsi->quic.qn)
 				return 1;
+			wsi->quic.qn->nwsi = wsi;
+			lws_quic_netconn_fp_register(wsi->quic.qn);
 		}
 
 		wsi->quic.qn->nwsi = wsi;
@@ -6919,6 +6922,83 @@ lws_quic_idle_restart(struct lws_quic_netconn *qn, int tx)
  * an existing one and its unused netconn is dropped.
  */
 
+#if defined(LWS_WITH_FOOTPRINT)
+
+/*
+ * A connection works out what it holds on demand: itself, its keys and
+ * congestion control state, the frames queued and in flight, the packets
+ * held for later and the reassembly buffers.  The tls library's own state,
+ * including what the keys' ciphers hold, is in the "mbedtls" participant,
+ * and each stream's wsi in theirs.
+ */
+
+static size_t
+quic_fp_frames(lws_dll2_owner_t *o)
+{
+	size_t b = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(o)) {
+		struct lws_quic_tx_frame *f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+
+		b += lws_fp_heap(f, sizeof(*f));
+	} lws_end_foreach_dll(d);
+
+	return b;
+}
+
+static void
+quic_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
+{
+	struct lws_quic_netconn *qn = lws_container_of(fp,
+					struct lws_quic_netconn, fp);
+	size_t b;
+	int i;
+
+	b = lws_fp_heap(qn, sizeof(*qn)) +
+	    lws_fp_heap(qn->rx_next, sizeof(*qn->rx_next)) +
+	    lws_fp_heap(qn->cc_state, 0) + qn->rx_stream_buffered;
+
+	for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++)
+		b += lws_fp_heap(qn->keys[i], sizeof(*qn->keys[i])) +
+		     quic_fp_frames(&qn->pending_tx[i]) +
+		     quic_fp_frames(&qn->in_flight[i]) +
+		     qn->rx_crypto_held[i].charged +
+		     lws_fp_heap(qn->crypto_rx_buf[i],
+				 qn->crypto_rx_buf_alloc[i]);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&qn->early_pkts)) {
+		struct lws_quic_early_pkt *e = lws_container_of(d,
+					struct lws_quic_early_pkt, list);
+
+		b += lws_fp_heap(e, sizeof(*e) + e->len);
+	} lws_end_foreach_dll(d);
+
+	r->count	= 1;
+	r->bytes	= b;
+	if (b > fp->bytes_hwm)
+		fp->bytes_hwm = b;
+	r->bytes_hwm	= fp->bytes_hwm;
+}
+
+static const lws_footprint_ops_t quic_fp_ops = {
+	.shed_class	= LWSFP_SHED_NONE,
+	.report		= quic_fp_report,
+};
+
+void
+lws_quic_netconn_fp_register(struct lws_quic_netconn *qn)
+{
+	struct lws *nwsi = qn->nwsi;
+
+	lws_footprint_register(nwsi->a.context, &qn->fp, "quic conn",
+			       &quic_fp_ops);
+	if (nwsi->a.vhost)
+		lws_footprint_set_ident(&qn->fp, nwsi->a.vhost->name);
+}
+#endif
+
 void
 lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 {
@@ -6927,6 +7007,10 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 
 	if (!qn)
 		return;
+
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_unregister(&qn->fp);
+#endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	if (qn->nwsi && qn->fi_stats.ack_frames &&
@@ -7618,8 +7702,14 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	lwsl_info("rops_alpn_negotiated_quic: qn=%p\n", nwsi->quic.qn);
 
 	/* Important: the network WSI must point back to itself */
-	if (nwsi->quic.qn)
+	if (nwsi->quic.qn) {
 		nwsi->quic.qn->nwsi = nwsi;
+#if defined(LWS_WITH_FOOTPRINT)
+		if (nwsi->a.vhost)
+			lws_footprint_set_ident(&nwsi->quic.qn->fp,
+						nwsi->a.vhost->name);
+#endif
+	}
 
 	/* the new network wsi is on our side, and up */
 	lws_wsi_event_x(nwsi, LWS_WSIEV_CONN_TAKEOVER, &role_ops_quic, wsi);

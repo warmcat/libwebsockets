@@ -647,6 +647,30 @@ lhp_selidx_reset(lhp_ctx_t *ctx)
 #endif
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+size_t
+lws_lhp_heap(lhp_ctx_t *ctx)
+{
+	size_t b = (size_t)(lwsac_total_alloc(ctx->cssac) +
+			    lwsac_total_alloc(ctx->cascadeac) +
+			    lwsac_total_alloc(ctx->propatrac) +
+			    lwsac_total_alloc(ctx->idxac) +
+			    lwsac_total_alloc(ctx->blockac)) +
+		   ctx->css_level_heap +
+		   lws_fp_heap(ctx->hits, 0) + lws_fp_heap(ctx->hits_hash, 0) +
+		   lws_fp_heap(ctx->filter_css, 0);
+
+	/* the open elements */
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->stack)) {
+		b += lws_fp_heap(lws_container_of(d, lhp_pstack_t, list),
+				 sizeof(lhp_pstack_t));
+	} lws_end_foreach_dll(d);
+
+	return b;
+}
+#endif
+
 int
 lws_lhp_construct(lhp_ctx_t *ctx, lhp_callback cb, void *user,
 		  const lws_surface_info_t *ic)

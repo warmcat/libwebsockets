@@ -107,7 +107,7 @@ typedef struct lws_footprint_ops {
 	 * when the participant works out its use on demand, or knows how much
 	 * it could shed */
 	void		(*dump)(struct lws_footprint *fp);
-	/**< optional: log what it holds, at info level, one line per item */
+	/**< optional: log what it holds, at notice level, one line per item */
 	size_t		(*shed)(struct lws_footprint *fp, size_t want);
 	/**< optional: free what it can, up to about want bytes, and return how
 	 * many it freed.  It must leave everything it keeps usable */

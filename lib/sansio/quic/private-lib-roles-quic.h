@@ -557,6 +557,9 @@ struct lws_quic_early_pkt {
 
 struct lws_quic_netconn {
 	struct lws		*nwsi; /* the parent UDP network wsi */
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t		fp; /* "quic conn" participant */
+#endif
 	/*
 	 * a server connection is on the pt's quic_halfopen while its handshake
 	 * is not done, then on its quic_established
@@ -989,6 +992,13 @@ lws_quic_keys_destroy(struct lws_quic_keys *keys);
 
 void
 lws_quic_netconn_destroy(struct lws_quic_netconn **pqn);
+
+#if defined(LWS_WITH_FOOTPRINT)
+void
+lws_quic_netconn_fp_register(struct lws_quic_netconn *qn);
+#else
+#define lws_quic_netconn_fp_register(_qn)
+#endif
 
 void
 lws_quic_queue_path_challenge(struct lws *nwsi);
