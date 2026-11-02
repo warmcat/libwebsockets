@@ -138,3 +138,18 @@ lws_crash_backtrace_install(void)
 
 	return 0;
 }
+
+int
+lws_plat_callers(uintptr_t *pcs, int max, int skip)
+{
+	void *bt[16];
+	int n, m = 0, depth;
+
+	/* bt[0] is us, bt[1] the function calling us */
+	depth = (int)backtrace(bt, (lws_bt_count_t)LWS_ARRAY_SIZE(bt));
+
+	for (n = 2 + skip; n < depth && m < max; n++)
+		pcs[m++] = (uintptr_t)bt[n];
+
+	return m;
+}

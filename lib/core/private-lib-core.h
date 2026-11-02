@@ -1368,6 +1368,17 @@ void lwsl_emit_stderr(int level, const char *line);
 
 
 
+#if defined(LWS_PLAT_CALLERS)
+/*
+ * Fill pcs with up to max return addresses of the callers of the function
+ * calling this, after skipping skip of them, nearest first.  Returns how many
+ * it filled.  Cheap enough for diagnostics on every allocation of a subsystem,
+ * not for hot paths in normal builds.
+ */
+int
+lws_plat_callers(uintptr_t *pcs, int max, int skip);
+#endif
+
 #if defined(LWS_WITH_FOOTPRINT)
 void
 lws_footprint_context_init(struct lws_context *cx);

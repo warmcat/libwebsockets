@@ -40,19 +40,23 @@ lws_tls_err_describe_clear(void)
 /*
  * mbedtls' own allocations, eg, the tls contexts, sessions and handshake
  * state that no lws owner can see, through mbedtls' allocator hook.  It needs
- * MBEDTLS_PLATFORM_MEMORY without the CALLOC / FREE macros, and a way to ask
- * the size of an allocation as it's freed.
+ * MBEDTLS_PLATFORM_MEMORY without the CALLOC / FREE macros.
  *
- * The hook is process-wide, so it counts mbedtls' allocations for any other
- * users in the process too.  The first context to create installs it and
- * counts in its participant; the hook stays installed after, counting nowhere
- * once that context has gone.  It replaces any allocator an application set
- * with mbedtls_platform_set_calloc_free() before.
+ * Each allocation gets a small header in front, listing it with its size and,
+ * where the platform can say, the code that asked for it, so the dump can
+ * say what the heap mbedtls holds is for.  The headers cost heap of their
+ * own, which the dump says.
+ *
+ * The hook is process-wide, so it lists mbedtls' allocations for any other
+ * users in the process too, eg, a wifi supplicant on another task.  The first
+ * context to create installs it, and it stays installed.  It replaces any
+ * allocator an application set with mbedtls_platform_set_calloc_free()
+ * before.
  */
 
 #if defined(MBEDTLS_PLATFORM_MEMORY) && \
     !defined(MBEDTLS_PLATFORM_CALLOC_MACRO) && \
-    !defined(MBEDTLS_PLATFORM_FREE_MACRO) && defined(LWS_PLAT_ALLOC_SIZE)
+    !defined(MBEDTLS_PLATFORM_FREE_MACRO)
 #define LWS_MBEDTLS_FOOTPRINT
 
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
@@ -62,58 +66,202 @@ lws_tls_err_describe_clear(void)
 #define MBEDTLS_PLATFORM_STD_FREE free
 #endif
 
-static lws_footprint_t *fp_mbedtls;
+#define FP_MBED_CALLERS		4
+#define FP_MBED_GROUPS		24
+#define FP_MBED_MAGIC		0x6d62746cu
 
-/*
- * mbedtls allocates from whatever thread uses it, so the counts are updated
- * atomically where the compiler can
- */
-#if defined(__GNUC__) || defined(__clang__)
-#define fp_atomic_add(_p, _v) __atomic_add_fetch(_p, _v, __ATOMIC_RELAXED)
-#define fp_atomic_sub(_p, _v) __atomic_sub_fetch(_p, _v, __ATOMIC_RELAXED)
+typedef struct fp_mbed_hdr {
+	lws_dll2_t		list;	/* on fp_live */
+	size_t			size;	/* what mbedtls asked for */
+	uint32_t		magic;
+#if defined(LWS_PLAT_CALLERS)
+	uintptr_t		pcs[FP_MBED_CALLERS];
+#endif
+} fp_mbed_hdr_t;
+
+/* a multiple of 16, so what follows is as aligned as the allocator's */
+#define FP_MBED_HDR_LEN ((sizeof(fp_mbed_hdr_t) + 15) & ~(size_t)15)
+
+static lws_dll2_owner_t fp_live;
+static size_t fp_live_bytes, fp_live_hwm;
+
+/* mbedtls allocates from whatever task uses it */
+#if defined(LWS_PLAT_FREERTOS)
+static portMUX_TYPE fp_mux = portMUX_INITIALIZER_UNLOCKED;
+#define fp_lock()	portENTER_CRITICAL(&fp_mux)
+#define fp_unlock()	portEXIT_CRITICAL(&fp_mux)
+#elif defined(LWS_HAVE_PTHREAD_H)
+static pthread_mutex_t fp_mtx = PTHREAD_MUTEX_INITIALIZER;
+#define fp_lock()	pthread_mutex_lock(&fp_mtx)
+#define fp_unlock()	pthread_mutex_unlock(&fp_mtx)
 #else
-#define fp_atomic_add(_p, _v) (*(_p) += (_v))
-#define fp_atomic_sub(_p, _v) (*(_p) -= (_v))
+#define fp_lock()
+#define fp_unlock()
 #endif
 
 static void *
 fp_mbedtls_calloc(size_t n, size_t size)
 {
-	void *p = MBEDTLS_PLATFORM_STD_CALLOC(n, size);
-	lws_footprint_t *fp = fp_mbedtls;
+	fp_mbed_hdr_t *h;
+	uint8_t *p;
 
-	if (p && fp) {
-		size_t b = fp_atomic_add(&fp->bytes, lws_plat_alloc_size(p));
+	if (size && n > ((size_t)-1 - FP_MBED_HDR_LEN) / size)
+		return NULL;
 
-		fp_atomic_add(&fp->count, 1);
-		if (b > fp->bytes_hwm) /* only roughly, for diagnostics */
-			fp->bytes_hwm = b;
-	}
+	p = MBEDTLS_PLATFORM_STD_CALLOC(1, FP_MBED_HDR_LEN + (n * size));
+	if (!p)
+		return NULL;
 
-	return p;
+	h		= (fp_mbed_hdr_t *)p;
+	h->size		= n * size;
+	h->magic	= FP_MBED_MAGIC;
+#if defined(LWS_PLAT_CALLERS)
+	/* skip mbedtls_calloc(), which called us */
+	lws_plat_callers(h->pcs, FP_MBED_CALLERS, 1);
+#endif
+
+	fp_lock();
+	lws_dll2_add_tail(&h->list, &fp_live);
+	fp_live_bytes += h->size;
+	if (fp_live_bytes > fp_live_hwm)
+		fp_live_hwm = fp_live_bytes;
+	fp_unlock();
+
+	return p + FP_MBED_HDR_LEN;
 }
 
 static void
-fp_mbedtls_free(void *p)
+fp_mbedtls_free(void *v)
 {
-	lws_footprint_t *fp = fp_mbedtls;
+	fp_mbed_hdr_t *h;
+
+	if (!v)
+		return;
+
+	h = (fp_mbed_hdr_t *)((uint8_t *)v - FP_MBED_HDR_LEN);
 
 	/*
-	 * What was allocated before the hook went in, or while it counted
-	 * nowhere, is freed uncounted... the counts are of what's left over
-	 * since, so they may go a little low, never wrap
+	 * Something mbedtls allocated before the hook went in has no header:
+	 * it's freed as it came.  What is in front of it is someone else's
+	 * heap, which won't be both our magic and on our list
 	 */
-	if (p && fp && fp->count) {
-		size_t s = lws_plat_alloc_size(p);
-
-		if (fp->bytes >= s) {
-			fp_atomic_sub(&fp->bytes, s);
-			fp_atomic_sub(&fp->count, 1);
-		}
+	if (h->magic != FP_MBED_MAGIC || h->list.owner != &fp_live) {
+		MBEDTLS_PLATFORM_STD_FREE(v);
+		return;
 	}
 
-	MBEDTLS_PLATFORM_STD_FREE(p);
+	fp_lock();
+	lws_dll2_remove(&h->list);
+	fp_live_bytes -= h->size;
+	fp_unlock();
+
+	h->magic = 0;
+	MBEDTLS_PLATFORM_STD_FREE(h);
 }
+
+static void
+fp_mbedtls_report(lws_footprint_t *fp, lws_footprint_report_t *r)
+{
+	(void)fp;
+
+	fp_lock();
+	r->count	= fp_live.count;
+	r->bytes	= fp_live_bytes + fp_live.count * FP_MBED_HDR_LEN;
+	r->bytes_hwm	= fp_live_hwm;
+	fp_unlock();
+}
+
+/*
+ * The allocations, grouped by the code that asked for them, biggest first.
+ * The groups are gathered under the lock into a fixed array and logged
+ * after, so nothing is logged holding it.
+ */
+
+typedef struct {
+#if defined(LWS_PLAT_CALLERS)
+	uintptr_t		pcs[FP_MBED_CALLERS];
+#endif
+	size_t			bytes;
+	unsigned int		count;
+} fp_mbed_group_t;
+
+static void
+fp_mbedtls_dump(lws_footprint_t *fp)
+{
+	struct lws_context *cx = lws_container_of(fp, struct lws_context,
+						  fp_mbedtls);
+	fp_mbed_group_t g[FP_MBED_GROUPS], other;
+	unsigned int ng = 0, n, m, count;
+
+	memset(&other, 0, sizeof(other));
+
+	fp_lock();
+	count = fp_live.count;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&fp_live)) {
+		fp_mbed_hdr_t *h = lws_container_of(d, fp_mbed_hdr_t, list);
+
+		for (n = 0; n < ng; n++)
+#if defined(LWS_PLAT_CALLERS)
+			if (!memcmp(g[n].pcs, h->pcs, sizeof(h->pcs)))
+#endif
+				break;
+
+		if (n == ng) {
+			if (ng == LWS_ARRAY_SIZE(g)) {
+				other.bytes += h->size;
+				other.count++;
+				continue;
+			}
+			memset(&g[ng], 0, sizeof(g[ng]));
+#if defined(LWS_PLAT_CALLERS)
+			memcpy(g[ng].pcs, h->pcs, sizeof(h->pcs));
+#endif
+			ng++;
+		}
+		g[n].bytes += h->size;
+		g[n].count++;
+	} lws_end_foreach_dll(d);
+	fp_unlock();
+
+	/* biggest first */
+	for (n = 0; n + 1 < ng; n++)
+		for (m = n + 1; m < ng; m++)
+			if (g[m].bytes > g[n].bytes) {
+				fp_mbed_group_t t = g[n];
+
+				g[n] = g[m];
+				g[m] = t;
+			}
+
+	for (n = 0; n < ng; n++)
+#if defined(LWS_PLAT_CALLERS)
+		lwsl_cx_notice(cx, "fp:     %7llu B %3u x from 0x%08llx "
+				   "0x%08llx 0x%08llx 0x%08llx",
+				   (unsigned long long)g[n].bytes, g[n].count,
+				   (unsigned long long)g[n].pcs[0],
+				   (unsigned long long)g[n].pcs[1],
+				   (unsigned long long)g[n].pcs[2],
+				   (unsigned long long)g[n].pcs[3]);
+#else
+		lwsl_cx_notice(cx, "fp:     %7llu B %3u x",
+				   (unsigned long long)g[n].bytes, g[n].count);
+#endif
+	if (other.count)
+		lwsl_cx_notice(cx, "fp:     %7llu B %3u x from elsewhere",
+			       (unsigned long long)other.bytes, other.count);
+
+	lwsl_cx_notice(cx, "fp:     %7llu B for the %u headers listing them",
+		       (unsigned long long)(count * FP_MBED_HDR_LEN), count);
+}
+
+static const lws_footprint_ops_t fp_mbedtls_ops = {
+	.shed_class	= LWSFP_SHED_NONE,
+	.report		= fp_mbedtls_report,
+	.dump		= fp_mbedtls_dump,
+};
+
+static lws_footprint_t *fp_mbedtls;
 #endif
 #endif
 
@@ -125,7 +273,8 @@ lws_context_init_ssl_library(struct lws_context *cx,
 	static char hooked;
 
 	if (!fp_mbedtls) {
-		lws_footprint_register(cx, &cx->fp_mbedtls, "mbedtls", NULL);
+		lws_footprint_register(cx, &cx->fp_mbedtls, "mbedtls",
+				       &fp_mbedtls_ops);
 		fp_mbedtls = &cx->fp_mbedtls;
 	}
 	if (!hooked) {

@@ -77,6 +77,10 @@
 /* how much heap an allocation really holds, so lws can account for it */
 #define LWS_PLAT_ALLOC_SIZE
 #define lws_plat_alloc_size(_p) heap_caps_get_allocated_size(_p)
+#if defined(__XTENSA__)
+/* lws_plat_callers() can say who called, by walking the register windows */
+#define LWS_PLAT_CALLERS
+#endif
 #endif
 
 #if defined(LWS_WITH_ESP32)

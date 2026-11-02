@@ -145,17 +145,30 @@ they go, size each allocation with `lws_fp_heap()`: what the platform says
 the allocation holds where it can say, else the size that was asked for.
 
 The mbedtls participant is the only way to see what the tls library itself
-allocates during a handshake, which no lws owner can.  It is installed with
+allocates, which no lws owner can.  It is installed with
 `mbedtls_platform_set_calloc_free()` when the first context is created, so it
 needs mbedtls built with `MBEDTLS_PLATFORM_MEMORY` and without
 `MBEDTLS_PLATFORM_CALLOC_MACRO` / `MBEDTLS_PLATFORM_FREE_MACRO`, as ESP-IDF
-builds it, and a platform that can say how big an allocation is as it's freed:
-`heap_caps_get_allocated_size()` on ESP-IDF, `malloc_usable_size()` on glibc.
-Otherwise there is no "mbedtls" participant.
+builds it.  Otherwise there is no "mbedtls" participant.
 
-The hook is process-wide: it counts mbedtls' allocations made by anything in
-the process, and it replaces any allocator an application set with
-`mbedtls_platform_set_calloc_free()` before creating the context.
+Each of mbedtls' allocations gets a small header listing it with its size and,
+where the platform can say (`LWS_PLAT_CALLERS`: ESP-IDF on Xtensa, and unix
+builds with `LWS_WITH_CRASH_BACKTRACE`), the four nearest callers of
+`mbedtls_calloc()`.  With `items`, the dump lists mbedtls' heap grouped by
+those callers, biggest first, eg
+
+```
+fp:       16768 B   1 x from 0x401d6b2c 0x401d9e54 0x40128a10 0x40127f3c
+```
+
+`idf.py monitor` turns the addresses into function names and lines by
+itself; elsewhere, `addr2line -e` the binary.  The headers cost heap too, and
+the dump says how much, so it can be discounted.
+
+The hook is process-wide: it lists mbedtls' allocations made by anything in
+the process, eg, a wifi supplicant on another task, and it replaces any
+allocator an application set with `mbedtls_platform_set_calloc_free()`
+before creating the context.
 
 ## Planned participants
 

@@ -35,6 +35,11 @@
 #define lws_plat_alloc_size(_p) malloc_usable_size(_p)
 #endif
 
+#if defined(LWS_WITH_CRASH_BACKTRACE)
+/* lws_plat_callers() can say who called, through execinfo */
+#define LWS_PLAT_CALLERS
+#endif
+
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>

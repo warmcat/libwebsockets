@@ -130,3 +130,34 @@ lws_plat_recommended_rsa_bits(void)
 	 */
 	return 2048;
 }
+
+#if defined(LWS_PLAT_CALLERS)
+#include <esp_debug_helpers.h>
+#include <esp_cpu_utils.h>
+
+int
+lws_plat_callers(uintptr_t *pcs, int max, int skip)
+{
+	esp_backtrace_frame_t f;
+	int m = 0;
+
+	/*
+	 * This spills the register windows to the stack, and gives the frame
+	 * of the function calling us, whose next_pc is its caller
+	 */
+	esp_backtrace_get_start(&f.pc, &f.sp, &f.next_pc);
+	f.exc_frame = NULL;
+
+	while (f.next_pc && m < max) {
+		if (skip)
+			skip--;
+		else
+			pcs[m++] = (uintptr_t)esp_cpu_process_stack_pc(
+							f.next_pc);
+		if (!esp_backtrace_get_next_frame(&f))
+			break;
+	}
+
+	return m;
+}
+#endif
