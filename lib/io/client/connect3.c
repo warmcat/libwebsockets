@@ -1162,15 +1162,9 @@ ads_known:
 				    (wsi->role_ops &&
 				     !strcmp(wsi->role_ops->name, "quic")));
 			new_fd = socket(wsi->io->pstack[0].sa46.sa4.sin_family, want_udp ? SOCK_DGRAM : SOCK_STREAM, 0);
-			if (lws_socket_is_valid(new_fd) && want_udp) {
-				int opt = 4 * 1024 * 1024;
-				if (setsockopt(new_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0) {
-					lwsl_wsi_warn(wsi, "Failed to set SO_RCVBUF");
-				}
-				if (setsockopt(new_fd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0) {
-					lwsl_wsi_warn(wsi, "Failed to set SO_SNDBUF");
-				}
-			}
+			if (lws_socket_is_valid(new_fd) && want_udp &&
+			    lws_plat_set_udp_bufs(new_fd))
+				lwsl_wsi_warn(wsi, "unable to size udp buffers");
 		}
 
 		if (!lws_socket_is_valid(new_fd)) {
