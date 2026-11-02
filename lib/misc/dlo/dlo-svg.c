@@ -54,14 +54,14 @@ svg_span_cb(void *user, int x0, int x1, uint32_t rgba)
 
 /*
  * Give back everything the svg holds besides the dlo itself: its stream, any
- * payload not parsed yet, and the scene.  Only one from a local file is given
- * back, since it costs little to read again when it is next rendered.
+ * payload not parsed yet, and the scene.  Only one that knows how to fetch
+ * itself again is given back.
  */
 
 void
 lws_display_dlo_svg_release(lws_dlo_svg_t *dlo_svg)
 {
-	if (!dlo_svg->local || !dlo_svg->url)
+	if (!dlo_svg->rf.url)
 		return;
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
@@ -92,7 +92,7 @@ lws_display_dlo_svg_destroy(struct lws_dlo *dlo)
 	if (dlo_svg->svg)
 		lws_svg_free(&dlo_svg->svg);
 
-	lws_free_set_NULL(dlo_svg->url);
+	lws_free_set_NULL(dlo_svg->rf.url);
 }
 
 /*
@@ -240,10 +240,12 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 	 * arrives entirely inside the connect.
 	 */
 
-	if (dlo_svg->url && !dlo_svg->flow.h && !dlo_svg->svg &&
+	if (dlo_svg->rf.url && !dlo_svg->flow.h && !dlo_svg->svg &&
 	    dlo_svg->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED &&
 	    !lws_buflist_total_len(&dlo_svg->flow.bl)) {
-		int n = lws_dlo_ss_svg_fetch(dlo_svg);
+		int n = lws_dlo_ss_refetch(&dlo_svg->dlo, &dlo_svg->rf,
+					   dlo_svg->flow.window,
+					   LWSDLOSS_TYPE_SVG);
 
 		if (n < 0)
 			/* there's no getting it, eg, no such file */
@@ -325,7 +327,7 @@ lws_display_dlo_svg_heap(struct lws_dlo *dlo)
 
 	return lws_buflist_total_len(&dlo_svg->flow.bl) +
 	       lws_svg_heap(dlo_svg->svg) +
-	       (dlo_svg->url ? strlen(dlo_svg->url) + 1 : 0);
+	       (dlo_svg->rf.url ? strlen(dlo_svg->rf.url) + 1 : 0);
 }
 #endif
 

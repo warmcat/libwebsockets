@@ -338,6 +338,30 @@ typedef struct lws_dlo_rasterize {
 	int				lines;
 } lws_dlo_rasterize_t;
 
+/*
+ * How to fetch an image dlo's payload again, when it came from a document
+ * asset: an image is only held while the raster is on it, and fetched again
+ * if a retained render comes back to it
+ */
+
+typedef struct lws_dlo_refetch {
+	struct lws_context		*cx;
+	char				*url; /* heap, or NULL: it can't be */
+	sul_cb_t			on_rx; /* wakes the render as the */
+	lws_sorted_usec_list_t		*on_rx_sul; /* payload arrives */
+} lws_dlo_refetch_t;
+
+/*
+ * Until the raster reaches it, all a png or jpeg from a document asset has
+ * to offer the layout is its dimensions, from the start of its header.  So
+ * its fetch is only allowed to send this much at first (or the window, if
+ * less), and is given more only as the raster's decoder consumes it.  When
+ * the raster has passed its last row, its payload, decoder and stream are
+ * given back.
+ */
+
+#define LWS_DLO_IMAGE_HEAD_CREDIT	1024
+
 typedef struct lws_dlo_png {
 	lws_dlo_t			dlo;  /* ordering: first */
 	lws_flow_t			flow; /* ordering: second */
@@ -349,8 +373,10 @@ typedef struct lws_dlo_png {
 					       * repeating it when scaled up */
 	uint32_t			row_len;
 	lws_reclaimable_t		rc; /* payload + decoder, once complete */
-	uint8_t				evicted; /* renew from the asset cache
-						  * before the next render */
+	lws_dlo_refetch_t		rf;
+	uint8_t				evicted; /* renew from the asset cache,
+						  * or fetch it again, before
+						  * the next render */
 	uint8_t				yields; /* consecutive OOM yields */
 	uint8_t				failed; /* the decoder returned FATAL:
 						 * nothing more from it */
@@ -367,8 +393,10 @@ typedef struct lws_dlo_jpeg {
 					       * repeating it when scaled up */
 	uint32_t			row_len;
 	lws_reclaimable_t		rc; /* payload + decoder, once complete */
-	uint8_t				evicted; /* renew from the asset cache
-						  * before the next render */
+	lws_dlo_refetch_t		rf;
+	uint8_t				evicted; /* renew from the asset cache,
+						  * or fetch it again, before
+						  * the next render */
 	uint8_t				failed; /* the decoder returned FATAL:
 						 * nothing more from it */
 } lws_dlo_jpeg_t;
@@ -377,10 +405,10 @@ typedef struct lws_dlo_jpeg {
  * An svg is held, as its payload and parsed scene, only while something needs
  * it.  The scene object is created when the payload starts to arrive.  One
  * from a local file (eg, file://dlofs/...) is not even fetched until the
- * raster reaches a line of it that shows, if the document gave its size, and
- * it is given back after its last line: the document lays out from the box
- * alone, and the file can be read again cheaply whenever the raster comes
- * back to it.  A page of icons stacked vertically so holds one at a time.
+ * raster reaches a line of it that shows, if the document gave its size: the
+ * document lays out from the box alone.  Like the png and jpeg, it is given
+ * back after its last line, and fetched again if the raster comes back to it.
+ * A page of icons stacked vertically so holds one at a time.
  */
 
 typedef struct lws_dlo_svg {
@@ -389,15 +417,10 @@ typedef struct lws_dlo_svg {
 	char				name[25];
 	lws_svg_t			*svg; /* NULL until payload arrives */
 
-	/* how to fetch it again, if the dlo came from a document asset */
+	lws_dlo_refetch_t		rf;
 
-	struct lws_context		*cx;
-	char				*url; /* heap, or NULL */
-	sul_cb_t			on_rx;
-	lws_sorted_usec_list_t		*on_rx_sul;
-
-	uint8_t				local:1; /* url is a local file: only
-						  * held while it is rendered */
+	uint8_t				local:1; /* url is a local file: not
+						  * fetched until it is rendered */
 	uint8_t				failed:1; /* nothing usable came: don't
 						   * fetch it again */
 } lws_dlo_svg_t;
@@ -544,6 +567,15 @@ typedef struct lws_display_render_state {
 						* surface is taller than what is
 						* shown at once (a scrolling
 						* window) */
+	int32_t				window; /* 0, or the flow control
+						* window lws_lhp_ss_browse()
+						* fetches the document and its
+						* image payloads with: the most
+						* of each it lets the server
+						* send ahead of what has been
+						* consumed.  0 is the platform
+						* default, 4KB on the small
+						* targets, 64KB elsewhere */
 	struct lws_context		*cx; /* set by lws_lhp_ss_browse_filter() */
 
 	lws_font_waiter_t		font_wait; /* render waiting for a

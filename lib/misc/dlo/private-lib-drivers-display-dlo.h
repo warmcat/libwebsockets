@@ -358,12 +358,17 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx);
 #if defined(LWS_WITH_SVG)
 void
 lws_display_dlo_svg_release(lws_dlo_svg_t *dlo_svg);
+#endif
+void
+lws_display_dlo_png_release(lws_dlo_png_t *dlo_png);
+void
+lws_display_dlo_jpeg_release(lws_dlo_jpeg_t *dlo_jpeg);
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
     defined(LWS_WITH_LHP)
 int
-lws_dlo_ss_svg_fetch(lws_dlo_svg_t *dlo_svg);
-#endif
+lws_dlo_ss_refetch(lws_dlo_t *dlo, const lws_dlo_refetch_t *rf,
+		   int32_t window, uint8_t type);
 #endif
 
 #endif

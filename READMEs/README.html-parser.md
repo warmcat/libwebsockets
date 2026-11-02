@@ -358,16 +358,30 @@ line buffer for PNGs, and an either 8 (YUV4:4:4) or 16 RGB (4:4:2 or 4:4:0)
 line buffer for JPEG.
 
 However, PNG and JPEG decode occurs lazily starting at the render line where the
-object starts becoming visible, and all DLO objects are destroyed after the last
-line where they are visible.  The SS responsible for fetching and regulating the
-bufferspace needed is started at layout-time, and the parser is started too up
-to the point that the header with the image dimensions is decoded, but not
+object starts becoming visible.  The SS responsible for fetching and regulating
+the bufferspace needed is started at layout-time, and the parser is started too
+up to the point that the header with the image dimensions is decoded, but not
 beyond that where the large decoder allocation is required.
+
+Until the raster reaches it, the image's stream is only allowed to send
+`LWS_DLO_IMAGE_HEAD_CREDIT` (1KB) at a time, and only while its header is
+incomplete: so a page with many images holds little more than their headers
+during layout, whatever the window.  When the raster reaches the image, the
+decoder is created and the stream is given credit as the decoder consumes the
+payload, up to the window: `lws_display_render_state_t` `.window` sets it, or
+it defaults to 4KB on small targets and 64KB elsewhere.
+
+After the raster passes the image's last line, its stream, payload and decoder
+are given back.  Not retained, the dlo itself is destroyed then.  Retained, eg
+for a touch panel that renders the display list again, the dlo keeps only its
+geometry and url, and fetches the image again (from the asset cache if it is
+there) when the raster next reaches it.
 
 It means only images that appear on the same line have decoders that are
 instantiated in memory at the same time; images that don't share any horizontal
 common lines do not exist in heap simultaneously; basically multiple vertically
-stacked images cost little more than one.
+stacked images cost little more than one.  `lws-api-test-lhp-image-flow` checks
+all of this over h2 and h3.
 
 The demo shows that even on ESP32, the images are cheap enough to allow a full
 size background JPEG with a partially-transparent PNG composed over it.

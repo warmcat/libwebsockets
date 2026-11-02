@@ -38,9 +38,36 @@ lws_display_dlo_jpeg_destroy(struct lws_dlo *dlo)
 	lws_reclaimable_remove(&dlo_jpeg->rc);
 	lws_buflist_destroy_all_segments(&dlo_jpeg->flow.bl);
 	lws_free_set_NULL(dlo_jpeg->row);
+	lws_free_set_NULL(dlo_jpeg->rf.url);
 
 	if (dlo_jpeg->j)
 		lws_jpeg_free(&dlo_jpeg->j);
+}
+
+/* as the png: give back all but the dlo, if it can be fetched again */
+
+void
+lws_display_dlo_jpeg_release(lws_dlo_jpeg_t *dlo_jpeg)
+{
+	if (!dlo_jpeg->rf.url)
+		return;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
+	if (dlo_jpeg->flow.h)
+		lws_ss_destroy(&dlo_jpeg->flow.h);
+#endif
+	lws_reclaimable_remove(&dlo_jpeg->rc);
+	lws_buflist_destroy_all_segments(&dlo_jpeg->flow.bl);
+	dlo_jpeg->flow.data = NULL;
+	dlo_jpeg->flow.len = 0;
+	dlo_jpeg->flow.blseglen = 0;
+	dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ;
+	lws_free_set_NULL(dlo_jpeg->row);
+	if (dlo_jpeg->j)
+		lws_jpeg_free(&dlo_jpeg->j);
+	dlo_jpeg->emitted = 0;
+	dlo_jpeg->failed = 0;
+	dlo_jpeg->evicted = 1;
 }
 
 /* as the png: give the payload and decoder back, renew before rendering */
@@ -87,26 +114,55 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 	lws_dlo_jpeg_t *dlo_jpeg = lws_container_of(dlo, lws_dlo_jpeg_t, dlo);
 	lws_stateful_ret_t r;
+	lws_fx_t ay;
+	int wl;
+
+	/* as the png: the raster leaving it gives back what it holds */
+
+	lws_fx_add(&ay, &rs->st[rs->sp].co.y, &dlo->box.y);
+	wl = rs->curr - lws_fx_roundup(&ay);
+
+	if (dlo->box.h.whole > 0 && wl >= dlo->box.h.whole) {
+		lws_display_dlo_jpeg_release(dlo_jpeg);
+
+		return LWS_SRET_OK;
+	}
 
 	/*
 	 * A decoder that failed is never asked for anything again: there is
 	 * no row coming from it, and nothing it was in the middle of can be
-	 * resumed.  A renew gives the dlo a fresh decoder and clears this.
+	 * resumed.  Fetched again, the dlo gets a fresh decoder.
 	 */
 
 	if (dlo_jpeg->failed)
 		return LWS_SRET_OK;
 
 	if (dlo_jpeg->evicted) {
+		/* given back: bring it back first, as the png does */
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
     defined(LWS_WITH_LHP)
-		/* the asset machinery that can renew it is lhp's */
-		if (!dlo_jpeg->flow.h ||
-		    lws_dlo_ss_renew_image(lws_ss_get_context(dlo_jpeg->flow.h),
-					   dlo))
-#endif
+		int n;
+
+		if (!dlo_jpeg->rf.url)
 			return LWS_SRET_OK;
+
+		lws_display_dlo_jpeg_release(dlo_jpeg);
+		dlo_jpeg->j = lws_jpeg_new();
+		if (!dlo_jpeg->j)
+			return LWS_SRET_OK;
+
+		n = lws_dlo_ss_refetch(dlo, &dlo_jpeg->rf,
+				       dlo_jpeg->flow.window,
+				       LWSDLOSS_TYPE_JPEG);
+		if (n < 0)
+			dlo_jpeg->failed = 1;
+		if (n)
+			return LWS_SRET_OK;
+
 		dlo_jpeg->evicted = 0;
+#else
+		return LWS_SRET_OK;
+#endif
 	}
 
 	lws_reclaimable_pin(&dlo_jpeg->rc);
@@ -136,14 +192,12 @@ lws_display_render_jpeg_pinned(struct lws_display_render_state *rs)
 	lws_fx_add(&t1, &ay, &dlo->box.h);
 
 	if (!lws_jpeg_get_height(dlo_jpeg->j)) {
-		if (dlo_jpeg->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
-			return LWS_SRET_OK;
+		/* as the png: wait for the header if it is coming */
+		if (dlo_jpeg->flow.h &&
+		    dlo_jpeg->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED)
+			return LWS_SRET_WANT_INPUT;
 
-		lwsl_notice("%s: jpeg does not have dimensions yet\n", __func__);
-		if (rs->html == 2)
-			return LWS_SRET_OK;
-
-		return LWS_SRET_WANT_INPUT;
+		return LWS_SRET_OK;
 	}
 
 	s = ax.whole;

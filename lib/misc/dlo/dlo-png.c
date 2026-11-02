@@ -39,9 +39,41 @@ lws_display_dlo_png_destroy(struct lws_dlo *dlo)
 	lws_reclaimable_remove(&dlo_png->rc);
 	lws_buflist_destroy_all_segments(&dlo_png->flow.bl);
 	lws_free_set_NULL(dlo_png->row);
+	lws_free_set_NULL(dlo_png->rf.url);
 
 	if (dlo_png->png)
 		lws_upng_free(&dlo_png->png);
+}
+
+/*
+ * Give back everything the png holds besides the dlo itself: its stream, its
+ * payload and its decoder.  Only one that knows how to fetch itself again is
+ * given back: it is fetched again if the raster comes back to it.
+ */
+
+void
+lws_display_dlo_png_release(lws_dlo_png_t *dlo_png)
+{
+	if (!dlo_png->rf.url)
+		return;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
+	if (dlo_png->flow.h)
+		lws_ss_destroy(&dlo_png->flow.h);
+#endif
+	lws_reclaimable_remove(&dlo_png->rc);
+	lws_buflist_destroy_all_segments(&dlo_png->flow.bl);
+	dlo_png->flow.data = NULL;
+	dlo_png->flow.len = 0;
+	dlo_png->flow.blseglen = 0;
+	dlo_png->flow.state = LWSDLOFLOW_STATE_READ;
+	lws_free_set_NULL(dlo_png->row);
+	if (dlo_png->png)
+		lws_upng_free(&dlo_png->png);
+	dlo_png->emitted = 0;
+	dlo_png->yields = 0;
+	dlo_png->failed = 0;
+	dlo_png->evicted = 1;
 }
 
 /*
@@ -92,27 +124,60 @@ lws_display_render_png(struct lws_display_render_state *rs)
 	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 	lws_dlo_png_t *dlo_png = lws_container_of(dlo, lws_dlo_png_t, dlo);
 	lws_stateful_ret_t r;
+	lws_fx_t ay;
+	int wl;
+
+	/* the image row this line is on, from the box the layout gave it */
+
+	lws_fx_add(&ay, &rs->st[rs->sp].co.y, &dlo->box.y);
+	wl = rs->curr - lws_fx_roundup(&ay);
+
+	if (dlo->box.h.whole > 0 && wl >= dlo->box.h.whole) {
+		/* the raster has left it: nothing it holds is wanted now */
+		lws_display_dlo_png_release(dlo_png);
+
+		return LWS_SRET_OK;
+	}
 
 	/*
 	 * A decoder that failed is never asked for anything again: there is
 	 * no row coming from it, and nothing it was in the middle of can be
-	 * resumed.  A renew gives the dlo a fresh decoder and clears this.
+	 * resumed.  Fetched again, the dlo gets a fresh decoder.
 	 */
 
 	if (dlo_png->failed)
 		return LWS_SRET_OK;
 
-	/* evicted since we last rendered: bring it back first */
 	if (dlo_png->evicted) {
+		/*
+		 * Given back, either since the raster was last on it, or to
+		 * make room: bring it back first, from the asset cache if it
+		 * is there, else from where it came from
+		 */
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
     defined(LWS_WITH_LHP)
-		/* the asset machinery that can renew it is lhp's */
-		if (!dlo_png->flow.h ||
-		    lws_dlo_ss_renew_image(lws_ss_get_context(dlo_png->flow.h),
-					   dlo))
-#endif
-			return LWS_SRET_OK; /* not this time */
+		int n;
+
+		if (!dlo_png->rf.url)
+			return LWS_SRET_OK; /* nowhere to get it from */
+
+		lws_display_dlo_png_release(dlo_png);
+		dlo_png->png = lws_upng_new();
+		if (!dlo_png->png)
+			return LWS_SRET_OK; /* try again on its next line */
+
+		n = lws_dlo_ss_refetch(dlo, &dlo_png->rf, dlo_png->flow.window,
+				       LWSDLOSS_TYPE_PNG);
+		if (n < 0)
+			/* there's no getting it */
+			dlo_png->failed = 1;
+		if (n)
+			return LWS_SRET_OK;
+
 		dlo_png->evicted = 0;
+#else
+		return LWS_SRET_OK;
+#endif
 	}
 
 	/* the decoder keeps pointers into the payload across the call */
@@ -139,14 +204,15 @@ lws_display_render_png_pinned(struct lws_display_render_state *rs)
 	int s, e, iw, ih, bw, bh, wl;
 
 	if (!lws_upng_get_height(dlo_png->png)) {
-		if (dlo_png->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
-			return LWS_SRET_OK;
+		/*
+		 * The header hasn't arrived yet: wait for it if it is coming,
+		 * eg, it was fetched again for the raster just now
+		 */
+		if (dlo_png->flow.h &&
+		    dlo_png->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED)
+			return LWS_SRET_WANT_INPUT;
 
-		lwsl_notice("%s: png %s does not have dimensions yet\n", __func__, dlo_png->name);
-		if (rs->html == 2)
-			return LWS_SRET_OK;
-
-		return LWS_SRET_WANT_INPUT;
+		return LWS_SRET_OK;
 	}
 
 	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
@@ -249,8 +315,12 @@ lws_display_render_png_pinned(struct lws_display_render_state *rs)
 			 * left to give: draw nothing rather than spin
 			 */
 			if (++dlo_png->yields > 4) {
-				dlo_png->flow.state =
-					LWSDLOFLOW_STATE_READ_COMPLETED;
+				/*
+				 * Give up on the image, once: its payload is
+				 * still arriving, so it isn't the flow that
+				 * is over, it's the decoder
+				 */
+				dlo_png->failed = 1;
 				lwsl_notice("%s: %s: no memory to decode\n",
 					    __func__, dlo_png->name);
 				return LWS_SRET_OK;

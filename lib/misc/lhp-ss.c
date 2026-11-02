@@ -447,6 +447,8 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 #if defined(LWS_PLAT_BAREMETAL) || defined(LWS_PLAT_FREERTOS)
 	w = 4096;
 #endif
+	if (rs->window > 0)
+		w = rs->window;
 
 	ssi = ssi_htmlss_t;
 	ssi.manual_initial_tx_credit = w;

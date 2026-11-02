@@ -251,8 +251,10 @@ filesystem), which costs little to read again:
 
 So icons stacked vertically hold one scene at a time, however many there
 are.  Laid out side by side, the icons sharing a line are all held while
-the raster crosses it.  An svg from the network is kept from its fetch
-until its dlo is destroyed, as the raster images are.
+the raster crosses it.  An svg from the network is fetched during the
+layout, but it too is given back after its last line is rendered, and
+fetched again (from the asset cache if it is there) if the raster comes
+back to it, as the raster images are.
 
 `lws_svg_get_live_peak()` returns the most svg scene objects that existed at
 once, which `lws-api-test-lhp-dlo --svg-live-max <n>` checks.

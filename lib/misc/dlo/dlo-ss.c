@@ -723,6 +723,37 @@ dloss_cache_feed(dloss_t *m, const uint8_t *data, size_t size)
 
 #endif
 
+/*
+ * The image's header goes on beyond what its fetch was allowed to send so
+ * far: top its credit up to LWS_DLO_IMAGE_HEAD_CREDIT again once most of it
+ * has come, rather than giving it the whole window, since until the raster
+ * reaches it nothing past the header is consumed.  Not waiting for all of it
+ * to come matters, eg, h3's DATA framing comes out of the credit, and a
+ * credit of a few bytes may never be used
+ */
+
+static void
+dloss_head_more(lws_flow_t *flow)
+{
+	int32_t est;
+
+	if (!flow->h || flow->state != LWSDLOFLOW_STATE_READ)
+		return;
+
+	if (flow->window <= LWS_DLO_IMAGE_HEAD_CREDIT) {
+		/* it was allowed the whole window from the start */
+		lws_flow_req(flow);
+		return;
+	}
+
+	est = lws_ss_get_est_peer_tx_credit(flow->h);
+	if (est < 0)
+		est = 0;
+	if (est < LWS_DLO_IMAGE_HEAD_CREDIT / 2)
+		lws_ss_add_peer_tx_credit(flow->h,
+					  LWS_DLO_IMAGE_HEAD_CREDIT - est);
+}
+
 #if defined(LWS_WITH_CACHE_BLOB)
 /*
  * A cached stylesheet's payload is fed through the css rx path from the
@@ -925,7 +956,12 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		lws_flow_feed(&m->u.u.dlo_jpeg->flow);
 		r = lws_dlo_image_metadata_scan(&m->u);
-		lws_flow_req(&m->u.u.dlo_jpeg->flow);
+		if (r == LWS_SRET_WANT_INPUT)
+			/*
+			 * Once we have the header, it can't send more until
+			 * the raster's decoder is taking it
+			 */
+			dloss_head_more(&m->u.u.dlo_jpeg->flow);
 
 		if (r & LWS_SRET_FATAL) {
 			m->u.failed = 1;
@@ -1254,10 +1290,19 @@ dloss_start(const lws_dlo_ss_create_info_t *i, const char *url, uint8_t type,
 		return 1;
 	}
 
-	/* we adapt the initial tx credit also to the requested window */
+	/*
+	 * The fetch may send no more than the window ahead of what we
+	 * consumed.  A png or jpeg is only consumed as far as its header
+	 * until the raster reaches it, so at first it may only send that
+	 * much (LWS_DLO_IMAGE_HEAD_CREDIT): the rest of the window is given
+	 * as the raster's decoder takes the payload (lws_flow_req())
+	 */
 
 	ssi = ssi_dloss_t;
 	ssi.manual_initial_tx_credit = i->window;
+	if ((type == LWSDLOSS_TYPE_PNG || type == LWSDLOSS_TYPE_JPEG) &&
+	    i->window > LWS_DLO_IMAGE_HEAD_CREDIT)
+		ssi.manual_initial_tx_credit = LWS_DLO_IMAGE_HEAD_CREDIT;
 
 	if (lws_ss_create(i->cx, 0, &ssi, (void *)dlo, &h, NULL, NULL)) {
 		lwsl_notice("%s: unable to create ss\n", __func__);
@@ -1443,6 +1488,46 @@ fail:
 	return ret;
 }
 
+/* where an image dlo of this type keeps how to fetch it again */
+
+static lws_dlo_refetch_t *
+dlo_refetch(lws_dlo_t *dlo, uint8_t type)
+{
+	switch (type) {
+	case LWSDLOSS_TYPE_PNG:
+		return &lws_container_of(dlo, lws_dlo_png_t, dlo)->rf;
+	case LWSDLOSS_TYPE_JPEG:
+		return &lws_container_of(dlo, lws_dlo_jpeg_t, dlo)->rf;
+#if defined(LWS_WITH_SVG)
+	case LWSDLOSS_TYPE_SVG:
+		return &lws_container_of(dlo, lws_dlo_svg_t, dlo)->rf;
+#endif
+	default:
+		return NULL;
+	}
+}
+
+static int
+dloss_refetch_set(lws_dlo_refetch_t *rf, const lws_dlo_ss_create_info_t *i,
+		  const char *url)
+{
+	size_t l = strlen(url) + 1;
+
+	if (!rf)
+		return 1;
+
+	rf->url = lws_malloc(l, __func__);
+	if (!rf->url)
+		return 1;
+
+	memcpy(rf->url, url, l);
+	rf->cx		= i->cx;
+	rf->on_rx	= i->on_rx;
+	rf->on_rx_sul	= i->on_rx_sul;
+
+	return 0;
+}
+
 int
 lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 {
@@ -1607,22 +1692,10 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		i->u->u.dlo_svg = dlo_svg;
 
 		/*
-		 * The svg keeps how to fetch it, for whenever it is next
-		 * needed: there is no scene object until its payload arrives,
-		 * and so no intrinsic size yet either
+		 * There is no scene object until its payload arrives, and so
+		 * no intrinsic size yet either
 		 */
 
-		el = strlen(rebased_url) + 1;
-		dlo_svg->url = lws_malloc(el, __func__);
-		if (!dlo_svg->url) {
-			dlo = &dlo_svg->dlo;
-			lws_display_dlo_destroy(&dlo);
-			goto bail;
-		}
-		memcpy(dlo_svg->url, rebased_url, el);
-		dlo_svg->cx = i->cx;
-		dlo_svg->on_rx = i->on_rx;
-		dlo_svg->on_rx_sul = i->on_rx_sul;
 		dlo_svg->flow.window = i->window;
 		dlo_svg->local = !strncmp(rebased_url, "file://", 7);
 
@@ -1648,6 +1721,18 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		dlo = &dlo_gif->dlo;
 		break;
 #endif
+	}
+
+	/*
+	 * An image keeps how to fetch it, for whenever it is next needed: it
+	 * is only held while the raster is on it
+	 */
+
+	if ((type == LWSDLOSS_TYPE_PNG || type == LWSDLOSS_TYPE_JPEG ||
+	     type == LWSDLOSS_TYPE_SVG) &&
+	    dloss_refetch_set(dlo_refetch(dlo, type), i, rebased_url)) {
+		lws_display_dlo_destroy(&dlo);
+		goto bail;
 	}
 
 #if defined(LWS_WITH_SVG)
@@ -1848,10 +1933,8 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
 #endif
 }
 
-#if defined(LWS_WITH_SVG)
-
 /*
- * The raster wants an svg that isn't here: one never fetched, or given back
+ * The raster wants an image that isn't here: one never fetched, or given back
  * since it was last rendered.  Fetch it again for the render, which is woken
  * as its payload arrives; the document it came from may be long gone.
  *
@@ -1859,21 +1942,24 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
  */
 
 int
-lws_dlo_ss_svg_fetch(lws_dlo_svg_t *dlo_svg)
+lws_dlo_ss_refetch(lws_dlo_t *dlo, const lws_dlo_refetch_t *rf,
+		   int32_t window, uint8_t type)
 {
 	lws_dlo_ss_create_info_t i;
 
-	if (!dlo_svg->url || !dlo_svg->cx)
+	if (!rf->url || !rf->cx)
 		return -1;
 
 	memset(&i, 0, sizeof(i));
-	i.cx		= dlo_svg->cx;
-	i.on_rx		= dlo_svg->on_rx;
-	i.on_rx_sul	= dlo_svg->on_rx_sul;
-	i.window	= dlo_svg->flow.window;
+	i.cx		= rf->cx;
+	i.on_rx		= rf->on_rx;
+	i.on_rx_sul	= rf->on_rx_sul;
+	i.window	= window;
 
-	return dloss_start(&i, dlo_svg->url, LWSDLOSS_TYPE_SVG, &dlo_svg->dlo);
+	return dloss_start(&i, rf->url, type, dlo);
 }
+
+#if defined(LWS_WITH_SVG)
 
 /*
  * Is this a local svg that the layout no longer needs?  It has its size, so
@@ -1887,7 +1973,7 @@ dloss_svg_releasable(const dloss_t *ds)
 	const lws_dlo_svg_t *dlo_svg = ds->u.u.dlo_svg;
 
 	return ds->type == LWSDLOSS_TYPE_SVG && dlo_svg && dlo_svg->local &&
-	       dlo_svg->url && !ds->u.failed &&
+	       dlo_svg->rf.url && !ds->u.failed &&
 	       dlo_svg->dlo.box.w.whole > 0 && dlo_svg->dlo.box.h.whole > 0;
 }
 
