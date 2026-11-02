@@ -44,6 +44,27 @@ if (requirements)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 120)
 
+	#
+	# The same steps over quic, where lws makes the retry after the cold
+	# step's sacrificial attempt itself
+	#
+	set(has_h3 1)
+	require_lws_config(LWS_ROLE_H3 1 has_h3)
+	if (has_h3)
+		lws_get_free_port(PORT_JIT_Q_TRUST)
+		lws_get_free_port(PORT_JIT_Q_UNTRUSTED)
+		lws_get_free_port(PORT_JIT_Q_APPCA)
+
+		add_test(NAME api-test-jit-trust-quic
+			 COMMAND lws-api-test-jit-trust --quic
+				 -p ${PORT_JIT_Q_TRUST}
+				 --untrusted-port ${PORT_JIT_Q_UNTRUSTED}
+				 --appca-port ${PORT_JIT_Q_APPCA})
+		set_tests_properties(api-test-jit-trust-quic PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 120)
+	endif()
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)

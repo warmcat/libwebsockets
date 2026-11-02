@@ -1221,6 +1221,14 @@ struct lws_io_adjunct {
 	unsigned int			skip_fallback:1;
 #if defined(LWS_WITH_CLIENT)
 	unsigned int			disable_h3_fallback:1;
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	/* the quic handshake's server cert was refused (not unreachable) */
+	unsigned int			quic_peer_rejected:1;
+	/* the restart is to go on quic again, to the jit trust vhost... */
+	unsigned int			quic_jit_retry:1;
+	/* ...which it only does once */
+	unsigned int			quic_jit_retried:1;
+#endif
 	char				alpn_discovered[8]; /* alpn the origin
 							 * negotiated before */
 	uint8_t				sys_tls_client_cert;

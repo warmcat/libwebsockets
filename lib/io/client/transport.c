@@ -303,22 +303,27 @@ lws_client_transport_failed(struct lws *wsi)
  * Only if lws chose his vhost at connect, as it does for a restart: a vhost
  * the app gave (i->vhost, eg, a pinned CA or SS policy trust store) is his
  * trust whichever endpoint a redirect or fallback takes him to.
+ *
+ * Returns the vhost he would move to, or NULL if he stays where he is, and
+ * in *ppr his protocol in that vhost's table.
  */
-void
-lws_client_transport_rebind(struct lws *wsi)
+static struct lws_vhost *
+lws_client_transport_jit_vhost(struct lws *wsi,
+			       const struct lws_protocols **ppr)
 {
-	const struct lws_protocols *pr = NULL;
 	struct lws_vhost *vh = NULL;
+
+	*ppr = NULL;
 
 	if (wsi->client_vhost_given || !wsi->stash ||
 	    !wsi->stash->cis[CIS_ADDRESS])
-		return;
+		return NULL;
 
 	lws_tls_jit_trust_vhost_bind(wsi->a.context,
 				     wsi->stash->cis[CIS_ADDRESS], wsi->c_port,
 				     wsi->stash->cis[CIS_HOST], &vh);
 	if (!vh || vh == wsi->a.vhost)
-		return;
+		return NULL;
 
 	/*
 	 * His protocol is an entry in the old vhost's own protocol table,
@@ -327,14 +332,36 @@ lws_client_transport_rebind(struct lws *wsi)
 	 */
 	if (wsi->a.protocol) {
 		if (wsi->a.protocol->name)
-			pr = lws_vhost_name_to_protocol(vh,
+			*ppr = lws_vhost_name_to_protocol(vh,
 							wsi->a.protocol->name);
-		if (!pr) {
+		if (!*ppr) {
 			lwsl_wsi_notice(wsi, "vh %s lacks protocol, not moved",
 					vh->name);
-			return;
+			return NULL;
 		}
 	}
+
+	return vh;
+}
+
+/* would a restart now move him to a jit trust vhost? */
+
+int
+lws_client_transport_jit_moves(struct lws *wsi)
+{
+	const struct lws_protocols *pr;
+
+	return !!lws_client_transport_jit_vhost(wsi, &pr);
+}
+
+void
+lws_client_transport_rebind(struct lws *wsi)
+{
+	const struct lws_protocols *pr;
+	struct lws_vhost *vh = lws_client_transport_jit_vhost(wsi, &pr);
+
+	if (!vh)
+		return;
 
 	/*
 	 * Rebind through the proper helper: it unbinds the old vhost itself

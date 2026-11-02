@@ -534,6 +534,18 @@ solo:
 			/* we negotiated h3 on this origin port before */
 			try_quic = 1;
 
+#if defined(LWS_WITH_TLS_JIT_TRUST) && \
+    (defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC))
+		if (!pinned && wsi->io->quic_jit_retry)
+			/*
+			 * QUIC got to the server, which showed a cert JIT
+			 * Trust has since made a vhost to trust: go back the
+			 * way we came, lws_client_quic_rejected()
+			 */
+			try_quic = 1;
+		wsi->io->quic_jit_retry = 0;
+#endif
+
 		if (try_quic) {
 			const struct lws_role_ops *r = lws_role_by_name("quic");
 			if (r) {

@@ -29,6 +29,20 @@ compiled into `main.c`.
 The JIT Trust vhost is named from the SKIDs of the CAs it trusts, so the test
 also checks it has the name made from the root's SKID alone.
 
+## Over quic
+
+With `--quic` (the `api-test-jit-trust-quic` ctest, when lws has h3), the
+servers listen on quic only, and the client connects with h3 alone and no tcp
+fallback.  The steps and what they expect are the same, except cold: when the
+server's certificate is refused on quic and JIT Trust has made a vhost that
+trusts it by then, lws makes the retry on quic itself, once, so the app sees no
+failed attempt.
+
+The pinned steps' redirect is followed over tcp, as lws follows any redirect
+of a connection made with h3 alone, and is refused there.  So over quic they
+show the pinned connection is not moved, but not yet that it is refused the
+certificate on quic.
+
 ## The test PKI
 
 The chains have the shape of real ones: the leaf certs have no Subject Key Id,
@@ -104,3 +118,4 @@ openssl x509 -in aroot.pem -outform der | xxd -i
 |`--untrusted-port <port>`|Port for the untrusted server (default 7682)|
 |`--appca-port <port>`|Port for the app CA server (default 7683)|
 |`--server <address>`|Address to connect to (default `127.0.0.1`)|
+|`--quic`|The servers listen on quic, the client connects with h3|

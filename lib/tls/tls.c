@@ -267,8 +267,17 @@ lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	lws_tls_restrict_return_handshake(wsi);
 
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_role_client(wsi))
-		return lws_tls_client_confirm_peer_cert(wsi, ebuf, ebuf_len);
+	if (lwsi_role_client(wsi)) {
+		if (!lws_tls_client_confirm_peer_cert(wsi, ebuf, ebuf_len))
+			return 0;
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+		lws_tls_jit_trust_peer_rejected(wsi);
+#endif
+		/* what happens next is decided outside the packet processing */
+		lws_client_quic_peer_rejected(wsi);
+
+		return 1;
+	}
 #endif
 
 #if defined(LWS_WITH_SERVER)

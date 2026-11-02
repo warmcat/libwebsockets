@@ -196,6 +196,12 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
 
 void
 lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
+void
+lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul);
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+void
+lws_client_quic_peer_rejected(struct lws *wsi);
+#endif
 
 
 int
@@ -664,6 +670,8 @@ lws_client_transport_failed(struct lws *wsi);
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 void
 lws_client_transport_rebind(struct lws *wsi);
+int
+lws_client_transport_jit_moves(struct lws *wsi);
 #endif
 #endif
 

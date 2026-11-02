@@ -68,6 +68,17 @@
  * The JIT Trust vhost is named after the CAs it trusts, which here is just the
  * test root, so the test can also check it by name.
  *
+ * With --quic, the servers listen on quic instead, and the client connects
+ * with h3 and no tcp fallback.  The steps are the same and so is what they
+ * expect, except for cold: lws retries a quic connection itself once, when the
+ * server's certificate was refused but JIT Trust has made a vhost to trust it
+ * by then, so the sacrificial attempt is not seen by the app.
+ *
+ * The pinned steps' redirect is followed over tcp, though, as lws follows any
+ * redirect of a connection made with h3 alone, and is refused there: they
+ * show the pinned connection is not moved, but not yet that it is refused the
+ * certificate over quic.
+ *
  * The test fails if any step does not see what it expects, or does not finish
  * inside the watchdog period.
  */
@@ -104,6 +115,7 @@ static const struct step {
 	char		completes;	/* else all attempts fail */
 	char		on;		/* ON_JITT or ON_DEFAULT */
 	int		failed;		/* attempts that failed */
+	int		failed_quic;	/* ...with --quic */
 	int		queries;	/* jit_trust_query() calls */
 	int		found;		/* ...that the trust blob answered */
 	char		vh_gone_first;	/* wait for the jitt vhost to idle out */
@@ -111,25 +123,25 @@ static const struct step {
 	char		pinned;		/* i.vhost = "pinned", get /redir */
 } steps[] = {
 	{ "untrusted root: never trusted",	SRV_UNTRUSTED,	0, ON_JITT,
-	  MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0, 0, 0 },
+	  MAX_ATTEMPTS, MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0, 0, 0 },
 	{ "pinned, cold: redirected to trusted, nothing learned or trusted",
 				SRV_APPCA,	0, ON_JITT,
-	  MAX_ATTEMPTS, 0, 0, 0, 0, 1 },
+	  MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0, 0, 0, 1 },
 	{ "cold: sacrificial attempt, then JIT Trust vhost",
-				SRV_TRUSTED,	1, ON_JITT,	1, 4, 1, 0, 0, 0 },
+				SRV_TRUSTED,	1, ON_JITT,	1, 0, 4, 1, 0, 0, 0 },
 	{ "warm: JIT Trust vhost still there",
-				SRV_TRUSTED,	1, ON_JITT,	0, 0, 0, 0, 0, 0 },
+				SRV_TRUSTED,	1, ON_JITT,	0, 0, 0, 0, 0, 0, 0 },
 	{ "pinned, warm: redirected to trusted, not moved to JIT Trust vhost",
 				SRV_APPCA,	0, ON_JITT,
-	  MAX_ATTEMPTS, 0, 0, 0, 0, 1 },
+	  MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0, 0, 0, 1 },
 	{ "cached: JIT Trust vhost regenerated from the trust cache",
-				SRV_TRUSTED,	1, ON_JITT,	0, 1, 1, 1, 0, 0 },
+				SRV_TRUSTED,	1, ON_JITT,	0, 0, 1, 1, 1, 0, 0 },
 	{ "other port: app CA server on the same address keeps its own trust",
-				SRV_APPCA,	1, ON_DEFAULT,	0, 0, 0, 0, 0, 0 },
+				SRV_APPCA,	1, ON_DEFAULT,	0, 0, 0, 0, 0, 0, 0 },
 	{ "rotated: JIT Trust vhost fails once, its cache entry is forgotten",
-				SRV_TRUSTED,	1, ON_DEFAULT,	1, ANY, ANY, 0, 1, 0 },
+				SRV_TRUSTED,	1, ON_DEFAULT,	1, 1, ANY, ANY, 0, 1, 0 },
 	{ "rotated, later: nothing left to regenerate a JIT Trust vhost from",
-				SRV_TRUSTED,	1, ON_DEFAULT,	0, 0, 0, 1, 0, 0 },
+				SRV_TRUSTED,	1, ON_DEFAULT,	0, 0, 0, 0, 1, 0, 0 },
 };
 
 /*
@@ -247,7 +259,7 @@ static size_t blob_len;
 static const char *server_addr = "127.0.0.1";
 static char jitt_vh_name[32];
 static int ports[SRV_COUNT] = { 7681, 7682, 7683 }, cur = -1, result = 1,
-	   failures;
+	   failures, quic;
 
 static struct {
 	int		attempts;
@@ -331,7 +343,7 @@ static int
 check_step(void)
 {
 	const struct step *s = &steps[cur];
-	int bad = 0;
+	int bad = 0, failed = quic ? s->failed_quic : s->failed;
 
 	if (st.completed != s->completes) {
 		lwsl_err("%s: %s, expected %s\n", s->name,
@@ -348,9 +360,9 @@ check_step(void)
 			 s->on == ON_JITT ? "JIT Trust" : "client's own");
 		bad = 1;
 	}
-	if (st.failed != s->failed) {
+	if (st.failed != failed) {
 		lwsl_err("%s: %d attempts failed, expected %d\n", s->name,
-			 st.failed, s->failed);
+			 st.failed, failed);
 		bad = 1;
 	}
 	if ((s->queries != ANY && st.queries != s->queries) ||
@@ -405,7 +417,17 @@ try_connect(lws_sorted_usec_list_t *sul)
 	i.path			= "/";
 	i.method		= "GET";
 	i.alpn			= "http/1.1";
+	if (quic) {
+		i.alpn		= "h3";
+		/* the servers only listen on quic */
+		i.disable_h3_fallback = 1;
+	}
 	i.protocol		= "jitt-client";
+	/*
+	 * Which step the connection is for: over h3, an idle connection
+	 * closes, and is heard of, some time after its step is over
+	 */
+	i.opaque_user_data	= (void *)(intptr_t)(cur + 1);
 	/*
 	 * No i.vhost: that is what lets lws bind the connection to the JIT
 	 * Trust vhost for the address, when there is one.  Validation is
@@ -500,6 +522,20 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		void *user, void *in, size_t len)
 {
 	const char *vhn;
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if ((intptr_t)lws_get_opaque_user_data(wsi) != cur + 1)
+			/* not the connection of the step we are on */
+			return lws_callback_http_dummy(wsi, reason, user,
+						       in, len);
+		break;
+	default:
+		break;
+	}
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -650,10 +686,13 @@ int main(int argc, const char **argv)
 		ports[SRV_APPCA] = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
+#if defined(LWS_ROLE_H3)
+	quic = !!lws_cmdline_option(argc, argv, "--quic");
+#endif
 
 	signal(SIGINT, sigint_handler);
 
-	lwsl_user("LWS API selftest: JIT Trust\n");
+	lwsl_user("LWS API selftest: JIT Trust%s\n", quic ? " over quic" : "");
 
 	if (make_trust_blob())
 		return 1;
@@ -702,13 +741,19 @@ int main(int argc, const char **argv)
 	info.client_ssl_ca_mem_len = 0;
 
 	/*
-	 * The servers.  Their alpn leaves out h3, so they do not also listen
-	 * on quic and advertise it by alt-svc for a later attempt to race
+	 * The servers.  Over tcp, their alpn leaves out h3, so they do not also
+	 * listen on quic and advertise it by alt-svc for a later attempt to
+	 * race.  With --quic, they only listen on quic.
 	 */
 
 	info.protocols = protocols_srv;
 	info.system_ops = NULL;
 	info.alpn = "http/1.1";
+	if (quic) {
+		info.alpn = "h3";
+		info.listen_accept_role = "quic";
+		info.listen_accept_protocol = "jitt-server";
+	}
 
 	for (n = 0; n < SRV_COUNT; n++) {
 		static const char * const srv_names[SRV_COUNT] = {
@@ -717,16 +762,30 @@ int main(int argc, const char **argv)
 			[SRV_APPCA]	= "srv-appca",
 		};
 
+		struct lws_vhost *vh;
+
 		info.vhost_name = srv_names[n];
-		info.port = ports[n];
+		info.port = quic ? CONTEXT_PORT_NO_LISTEN_SERVER : ports[n];
 		info.ssl_cert_filepath = srv_certs[n][0];
 		info.ssl_private_key_filepath = srv_certs[n][1];
 
-		if (!lws_create_vhost(context, &info)) {
+		vh = lws_create_vhost(context, &info);
+		if (!vh) {
 			lwsl_err("Failed to create server vhost %s\n",
 				 info.vhost_name);
 			goto bail;
 		}
+
+#if defined(LWS_ROLE_H3)
+		if (quic && !lws_create_adopt_udp(vh, server_addr, ports[n],
+						  LWS_CAUDP_BIND, "jitt-server",
+						  NULL, NULL, NULL, NULL,
+						  "quic_listen")) {
+			lwsl_err("Failed to listen on quic for %s\n",
+				 info.vhost_name);
+			goto bail;
+		}
+#endif
 	}
 
 	lws_sul_schedule(context, 0, &sul_step, next_step, 1);
