@@ -1554,7 +1554,7 @@ svg_heap_note(lws_svg_t *ctx, size_t transient)
 void *
 svg_ac_use(lws_svg_t *ctx, size_t nec)
 {
-	void *p = lwsac_use_backfill(&ctx->ac, nec, 0);
+	void *p = lwsac_use_backfill(&ctx->ac, nec, SVG_SCENE_CHUNK);
 
 	if (p)
 		svg_heap_note(ctx, 0);
@@ -3654,12 +3654,16 @@ element_open(lws_svg_t *ctx, char selfclose)
 	return 0;
 }
 
+static int
+vterm(lws_svg_t *ctx);
+
 static void
 element_close(lws_svg_t *ctx, const char *name)
 {
 	if (name && !strcmp(name, "style") && ctx->in_style) {
-		ctx->vbuf[ctx->vlen] = '\0';
-		parse_css(ctx);
+		/* if we can't even terminate it, the css is skipped */
+		if (!vterm(ctx))
+			parse_css(ctx);
 		ctx->in_style = 0;
 	}
 
@@ -3703,6 +3707,23 @@ vappend(lws_svg_t *ctx, const char *b, size_t len)
 
 	while (len--)
 		ctx->vbuf[ctx->vlen++] = *b++;
+
+	return 0;
+}
+
+/*
+ * NUL-terminate the attribute value accumulated so far.  The buffer only
+ * exists once something was appended to it, so an empty value, eg a="", may
+ * be the first use of it
+ */
+
+static int
+vterm(lws_svg_t *ctx)
+{
+	if (vappend(ctx, NULL, 0))
+		return -1;
+
+	ctx->vbuf[ctx->vlen] = '\0';
 
 	return 0;
 }
@@ -3879,15 +3900,15 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 	case SXS_ATTRVAL:
 		if (ctx->quote) {
 			if ((uint8_t)c == ctx->quote) {
-				ctx->vbuf[ctx->vlen] = '\0';
-				if (attr_complete(ctx))
+				if (vterm(ctx) || attr_complete(ctx))
 					return -1;
 				ctx->ts = SXS_ATTRS;
 				break;
 			}
 		} else
 			if (isxmlws(c) || c == '>' || c == '/') {
-				ctx->vbuf[ctx->vlen] = '\0';
+				if (vterm(ctx))
+					return -1;
 				attr_complete(ctx);
 				ctx->ts = SXS_ATTRS;
 				if (c == '>')
@@ -4140,9 +4161,15 @@ lws_svg_new(void)
 	struct lwsac *ac = NULL;
 	lws_svg_t *ctx;
 
-	/* the context is the first block of the object's own lwsac */
+	/*
+	 * The context is the first block of the object's own lwsac, in a
+	 * chunk of exactly its size: the scene goes in chunks of its own
+	 * when, and if, the document has any.  Nothing else is allocated
+	 * until the document needs it, eg, the attribute value buffer is
+	 * only allocated when the first attribute value arrives.
+	 */
 
-	ctx = lwsac_use_zero(&ac, sizeof(*ctx), 0);
+	ctx = lwsac_use_zero(&ac, sizeof(*ctx), sizeof(*ctx));
 	if (!ctx)
 		return NULL;
 	ctx->ac = ac;
@@ -4153,14 +4180,6 @@ lws_svg_new(void)
 	ctx->ts = SXS_PROLOG;
 	ctx->tol = 6554;	/* 0.1 in Q16.16 */
 	ctx->par_ax = ctx->par_ay = 1;	/* preserveAspectRatio default Mid */
-	ctx->vsize = 256;
-	ctx->vbuf = lws_malloc(ctx->vsize, __func__);
-	if (!ctx->vbuf) {
-		lws_dll2_remove(&ctx->scratch_list);
-		svg_scratch_unref();
-		lwsac_free(&ctx->ac);
-		return NULL;
-	}
 
 	svg_heap_note(ctx, 0);
 

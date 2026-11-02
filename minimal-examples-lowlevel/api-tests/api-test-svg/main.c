@@ -2975,6 +2975,42 @@ stroke_cost(void)
 }
 
 /*
+ * An svg object costs its context and nothing more until a document gives it
+ * something to hold: a page can have many of them laid out before any is
+ * rendered.  Once that took a 4KB lwsac chunk and an attribute buffer up
+ * front, whether the object was ever used or not.  The attribute buffer then
+ * only exists once a value arrives, which an empty value, eg a="", may be
+ * the first to need.
+ */
+
+static void
+new_cost(void)
+{
+	static const char doc[] =
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\" id=\"\" "
+		"height=\"8\"><rect class=\"\" x=\"0\" y=\"0\" "
+		"width=\"4\" height=\"4\"/><style></style></svg>";
+	const uint8_t *b = (const uint8_t *)doc;
+	size_t l = sizeof(doc) - 1, peak;
+	lws_svg_t *svg = lws_svg_new();
+
+	CHK(!!svg, "new-cost: svg new OOM");
+	if (!svg)
+		return;
+
+	peak = lws_svg_get_heap_peak(svg);
+	lwsl_user("%s: a new svg object takes %uB\n", __func__,
+		  (unsigned int)peak);
+	CHK(peak < 3 * 1024, "new-cost: a new svg object took %uB",
+	    (unsigned int)peak);
+
+	CHK(!(lws_svg_parse(svg, &b, &l, 0) & LWS_SRET_FATAL),
+	    "new-cost: empty attribute values parse fatal");
+	CHK(lws_svg_get_doc_complete(svg), "new-cost: doc not complete");
+	lws_svg_free(&svg);
+}
+
+/*
  * Parse doc, telling it the render size w x h before anything (when = 0),
  * after a hold mode parse has stopped at the end of the root tag (when = 1),
  * or not at all (when = 2), then render it at w x h into b.  Returns the
@@ -3249,6 +3285,11 @@ main(int argc, const char **argv)
 	fails0 = fails;
 	aa_checks();
 	score_case(&sc, "aa", checks0, fails0);
+
+	checks0 = checks;
+	fails0 = fails;
+	new_cost();
+	score_case(&sc, "new-cost", checks0, fails0);
 
 	checks0 = checks;
 	fails0 = fails;

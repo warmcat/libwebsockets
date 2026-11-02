@@ -41,6 +41,15 @@ enum {
 	LWS_SVG_MAX_NAME	= 31,
 };
 
+/*
+ * The scene is taken from the object's lwsac in chunks of this size: an icon
+ * a small target renders holds a few hundred bytes of scene, which a 4KB
+ * default chunk would mostly waste.  A shape bigger than this gets a chunk of
+ * its own, and later small ones backfill what is free in the earlier chunks.
+ */
+
+#define SVG_SCENE_CHUNK		1024
+
 /* ---- fixed-point basis ---- */
 
 /*
