@@ -18,7 +18,10 @@ that can never make progress there, so
  - a client request whose alpn only quic can carry, eg, "h3" alone, is made on
    quic, also when it is redirected
 
-One process runs four server vhosts, each on its own port with the alpn list
+ - once the server's handshake reaches a quic client, it doesn't abandon quic
+   for tcp, however long the rest of the handshake's crypto takes it
+
+One process runs five server vhosts, each on its own port with the alpn list
 "h3,h2,http/1.1", so each listens on tcp and quic and advertises its quic, and
 a client.  The servers answer each GET with the protocol it was served over.
 Each step goes to a server the client has learned nothing about yet, so that
@@ -30,8 +33,10 @@ what it learned about another doesn't decide the transport.
 |h3 alone, redirected to another server|`h3`|h3: the redirect was followed on quic|
 |tcp, h3 offered|`h3,h2,http/1.1`|h2: on tcp, the client left h3 out|
 |tcp, h3 offered anyway (fault `tls_alpn_unfiltered`)|`h3,http/1.1`|h1: the server did not select h3 on tcp|
+|h3 alone, slow handshake (fault `tls_quic_cert_slow`, 2.5s)|`h3`|h3: the 2s grace for quic to get through ended when the server's handshake did|
 
-The second step needs `LWS_WITH_SYS_FAULT_INJECTION`, and is left out without it.
+The steps using faults need `LWS_WITH_SYS_FAULT_INJECTION`, and are left out
+without it.
 
 ## build
 
@@ -41,7 +46,7 @@ Needs `LWS_ROLE_H3`, `LWS_ROLE_H2`, client and server support.
 
 |Option|Meaning|
 |---|---|
-|`--port0` .. `--port3 <port>`|The four servers' ports|
+|`--port0` .. `--port4 <port>`|The five servers' ports|
 |`--cert <file>`|Server certificate|
 |`--key <file>`|Server key|
 
@@ -54,5 +59,6 @@ $ ./bin/lws-api-test-alpn-transport --cert localhost-100y.cert --key localhost-1
 [2026/11/02 10:00:00:0200] U: PASS: step 1: h3 alone, redirected: the redirect is followed on quic
 [2026/11/02 10:00:00:0300] U: PASS: step 2: tcp, h3 offered: h3 left out on tcp
 [2026/11/02 10:00:00:0400] U: PASS: step 3: tcp, h3 offered anyway: the server doesn't select it on tcp
-[2026/11/02 10:00:00:0500] U: Completed: PASS (0 of 4 steps failed)
+[2026/11/02 10:00:02:9800] U: PASS: step 4: h3 alone, slow handshake: not abandoned after the path is proven
+[2026/11/02 10:00:02:9900] U: Completed: PASS (0 of 5 steps failed)
 ```

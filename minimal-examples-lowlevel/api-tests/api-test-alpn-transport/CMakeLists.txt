@@ -9,7 +9,7 @@ set(SAMP lws-api-test-alpn-transport)
 set(SRCS main.c)
 
 #
-# Four server vhosts on tcp and quic, and a client in the same process: h3 is
+# Five server vhosts on tcp and quic, and a client in the same process: h3 is
 # never negotiated on tcp, and a request only h3 may carry goes on quic, also
 # when it is redirected
 #
@@ -28,11 +28,13 @@ if (requirements)
 	lws_get_free_port(PORT_ALPNT1)
 	lws_get_free_port(PORT_ALPNT2)
 	lws_get_free_port(PORT_ALPNT3)
+	lws_get_free_port(PORT_ALPNT4)
 
 	add_test(NAME api-test-alpn-transport
 		 COMMAND lws-api-test-alpn-transport
 			 --port0 ${PORT_ALPNT0} --port1 ${PORT_ALPNT1}
 			 --port2 ${PORT_ALPNT2} --port3 ${PORT_ALPNT3}
+			 --port4 ${PORT_ALPNT4}
 			 --cert ${ALPNT_CERTS}/localhost-100y.cert
 			 --key ${ALPNT_CERTS}/localhost-100y.key)
 	set_tests_properties(api-test-alpn-transport PROPERTIES TIMEOUT 60)

@@ -170,6 +170,30 @@ lws_client_quic_peer_rejected(struct lws *wsi)
 			 lws_client_h3_grace_cb, 1);
 }
 
+/*
+ * The handshake has authenticated packets from the server: QUIC gets through.
+ *
+ * The h3 grace is how long the client gives QUIC to show that, before it
+ * gives up on it for TCP.  The rest of the handshake is only crypto, which on a
+ * slow cpu, eg, verifying a cert chain, can take longer than the grace by
+ * itself: abandoning it for TCP then only throws away a connection that is
+ * about to work, and has TCP do the same crypto again.  How long the rest may
+ * take is the connect timeout's business.
+ *
+ * A server cert refused at the end of the handshake uses the grace sul to act
+ * on it, which this mustn't cancel.
+ */
+void
+lws_client_quic_path_proven(struct lws *wsi)
+{
+	if (wsi->io->quic_peer_rejected ||
+	    !lws_dll2_owner(&wsi->io->sul_h3_grace.list))
+		return;
+
+	lwsl_wsi_info(wsi, "QUIC gets through, h3 grace ends");
+	lws_sul_cancel(&wsi->io->sul_h3_grace);
+}
+
 static void
 lws_client_quic_rejected(struct lws *wsi)
 {

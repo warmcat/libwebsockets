@@ -191,6 +191,20 @@ lws_client_transport_rebind(struct lws *wsi)
 }
 #endif
 
+#if defined(LWS_WITH_CLIENT) && \
+    (defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC))
+/*
+ * the client's QUIC handshake heard from the server, so QUIC gets through:
+ * IO's fallback to TCP is no longer in question (IO's plumbing)
+ */
+static LWS_INLINE void
+lws_client_quic_path_proven(struct lws *wsi)
+{
+	if (wsi->a.context->io_plumbing->quic_path_proven)
+		wsi->a.context->io_plumbing->quic_path_proven(wsi);
+}
+#endif
+
 #if defined(LWS_WITH_HTTP_PROXY)
 /*
  * a new client connection, the onward leg of a proxied http transaction:
@@ -342,7 +356,7 @@ lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	return wsi->a.context->io_ops->tls_quic_session(wsi, cb);
 }
 
-/* IO's lws_tls_quic_advance_handshake() */
+/* IO's lws_tls_quic_handshake(), the backend's lws_tls_quic_advance_handshake() */
 static LWS_INLINE int
 lws_io_tls_quic_handshake(struct lws *wsi, int level, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t *out_len)

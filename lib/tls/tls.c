@@ -258,6 +258,29 @@ lws_tls_quic_admit(struct lws *wsi)
  * nonzero with the reason in ebuf.
  */
 int
+lws_tls_quic_handshake(struct lws *wsi, int level, const uint8_t *in,
+		       size_t in_len, uint8_t *out, size_t *out_len)
+{
+#if defined(LWS_WITH_SYS_FAULT_INJECTION) && defined(LWS_WITH_CLIENT)
+	uint64_t ms;
+
+	/*
+	 * The first of the server's Handshake level flight, with its cert
+	 * chain, takes the service thread tls_quic_cert_slow_ms to process, as
+	 * verifying the chain does on a slow cpu.  Level 2 is the Handshake
+	 * level (RFC 9001 4.1.4), as the quic role numbers them
+	 */
+	if (in_len && level == 2 && lwsi_role_client(wsi) &&
+	    lws_fi(&wsi->fic, "tls_quic_cert_slow") &&
+	    !lws_fi_range(&wsi->fic, "tls_quic_cert_slow_ms", &ms))
+		lws_msleep((unsigned int)ms);
+#endif
+
+	return lws_tls_quic_advance_handshake(wsi, level, in, in_len, out,
+					      out_len);
+}
+
+int
 lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	/*

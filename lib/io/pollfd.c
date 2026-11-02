@@ -1078,7 +1078,7 @@ const lws_io_ops_t lws_io_ops_default = {
 	.tls_peer_cert_info	= lws_tls_peer_cert_info,
 #if defined(LWS_ROLE_QUIC)
 	.tls_quic_session	= lws_tls_quic_session,
-	.tls_quic_handshake	= lws_tls_quic_advance_handshake,
+	.tls_quic_handshake	= lws_tls_quic_handshake,
 	.tls_quic_set_tp	= lws_tls_quic_set_transport_parameters,
 	.tls_quic_get_tp	= lws_tls_quic_get_transport_parameters,
 	.tls_confirm_peer_cert	= lws_tls_quic_confirm_peer,
@@ -1183,6 +1183,10 @@ const lws_io_plumbing_t lws_io_plumbing_default = {
 	.transport_rebind	= lws_client_transport_rebind,
 #else
 	.transport_rebind	= NULL, /* so the initializer is never empty */
+#endif
+#if defined(LWS_WITH_CLIENT) && \
+    (defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC))
+	.quic_path_proven	= lws_client_quic_path_proven,
 #endif
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	.vhost_jit_grace	= lws_tls_jit_trust_vh_start_grace,
