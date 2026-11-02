@@ -185,18 +185,20 @@ static void
 hsr_batch_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_client_connect_info i;
-	int n, total = part ? HSR_GOOD : HSR_ATTACK;
+	int n;
 
 	if (finished)
 		return;
 
-	if (sent == total) {
+	if (sent >= (part ? HSR_GOOD : HSR_ATTACK)) {
 		hsr_part_check();
 		if (finished)
 			return;
 	}
 
-	for (n = 0; n < HSR_BATCH; n++) {
+	/* never past the end of reqs[], whatever part we are now in */
+	for (n = 0; n < HSR_BATCH && sent < (part ? HSR_GOOD : HSR_ATTACK);
+	     n++) {
 		memset(&i, 0, sizeof(i));
 		i.context		= context;
 		/* a client vhost per part, so B gets a connection of its own */
