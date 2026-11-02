@@ -146,6 +146,10 @@ htmlss_parse(htmlss_t *m)
 			 * unparseable: what was laid out before is shown
 			 */
 			lwsl_warn("%s: layout failed, r 0x%x\n", __func__, r);
+#if defined(LWS_WITH_FOOTPRINT)
+			/* if it ran out of heap, say what is holding it */
+			lws_footprint_dump(m->cx, 0);
+#endif
 			m->rs->layout_failed = 1;
 			break;
 		}
