@@ -211,6 +211,21 @@ lws_footprint_dump(struct lws_context *cx, int items)
 				   (unsigned long long)heap_free, used,
 				   used - (long long)t.bytes);
 	}
+#if defined(LWS_ESP_PLATFORM)
+	{
+		/*
+		 * The free heap is spread over several regions and the holes
+		 * between allocations: a big allocation needs one hole that
+		 * size, however much is free in all
+		 */
+		multi_heap_info_t mhi;
+
+		heap_caps_get_info(&mhi, MALLOC_CAP_8BIT);
+		lwsl_cx_notice(cx, "fp: largest free block %u, in %u free blocks",
+			       (unsigned int)mhi.largest_free_block,
+			       (unsigned int)mhi.free_blocks);
+	}
+#endif
 #endif
 #if defined(LWS_PLAT_ALLOC_SIZE)
 	/*
@@ -248,8 +263,15 @@ lws_footprint_alloc_failed(size_t size, const char *reason)
 	last = now;
 
 	in_dump = 1;
+#if defined(LWS_ESP_PLATFORM)
+	lwsl_cx_warn(fp_oom_cx, "fp: no heap for %llu bytes for %s (largest "
+		     "free block %u)", (unsigned long long)size,
+		     reason ? reason : "-", (unsigned int)
+		     heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#else
 	lwsl_cx_warn(fp_oom_cx, "fp: no heap for %llu bytes for %s",
 		     (unsigned long long)size, reason ? reason : "-");
+#endif
 	lws_footprint_dump(fp_oom_cx, 1);
 	in_dump = 0;
 #else
