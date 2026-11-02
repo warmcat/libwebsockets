@@ -61,6 +61,17 @@
  * takes the pt lock itself now, and debug SMP builds assert that anything
  * inserting into a pt's timer list holds it, so a path breaking the rule
  * aborts here every run.
+ *
+ * --stall has the last service thread, half way through the rounds, block
+ * for STALL_US once it has asked its round, as a thread does that gets no
+ * cpu for a while on a loaded machine.  A lookup gives up if it can't write
+ * its question within a second of asking, but its socket is often on the
+ * other thread's pt, and on its own a starved thread services its timers
+ * before poll() says the socket is writeable.  Before the resolver looked at
+ * the socket first, the lookups the stalled thread asked, and those the
+ * other thread asked meanwhile on sockets on the stalled pt, failed then,
+ * with nothing wrong with the nameserver, as they did on an overloaded
+ * riscv64 builder.  ctest runs it this way too.
  */
 
 #include <libwebsockets.h>
@@ -94,6 +105,7 @@
 #define CONN_TSI(o)		((int)((intptr_t)(o) & 0xff))
 #define CONN_MORE(o)		((int)((intptr_t)(o) >> 8))
 #define DEADLINE_US		(20 * LWS_US_PER_SEC)
+#define STALL_US		(1500 * LWS_US_PER_MS)	/* --stall */
 #define TEST_DOMAIN		"adns-smp.invalid"
 
 static const uint8_t answer_ads[] = { 127, 0, 0, 1 };
@@ -112,7 +124,7 @@ static struct lws_context *context;
 static struct lws_vhost *vh;
 static lws_sorted_usec_list_t sul_deadline;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static int threads, ns_fd = -1, raw_port;
+static int threads, ns_fd = -1, raw_port, stall;
 static volatile int interrupted, ns_stop;
 
 /* guarded by lock */
@@ -274,6 +286,12 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 
 	for (n = 0; n < PER_ROUND_CHAINS; n++)
 		connect_to(s->tsi, "127.0.0.1", CHAIN_LEN - 1);
+
+	if (stall && s->tsi == threads - 1 && s->round == ROUNDS / 2) {
+		lwsl_user("%s: tsi %d stalls %dms\n", __func__, s->tsi,
+			  (int)(STALL_US / LWS_US_PER_MS));
+		usleep((useconds_t)STALL_US);
+	}
 
 	if (++s->round < ROUNDS)
 		lws_sul_schedule(context, s->tsi, &s->sul_round, sul_round_cb,
@@ -502,6 +520,8 @@ main(int argc, const char **argv)
 		lwsl_user("%s: fd_limit_per_thread %u\n", __func__,
 			  info.fd_limit_per_thread);
 	}
+	stall = !!lws_cmdline_option(argc, argv, "--stall");
+
 	info.count_threads	= LWS_MAX_SMP < THREADS_MAX ? LWS_MAX_SMP :
 								THREADS_MAX;
 

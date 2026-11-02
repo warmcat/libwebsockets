@@ -35,6 +35,13 @@ if (requirements AND NOT WIN32)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 			     TIMEOUT 60)
 
+	# a service thread that gets no cpu for a while mustn't fail lookups
+	add_test(NAME api-test-async-dns-smp-stall
+		 COMMAND lws-api-test-async-dns-smp --stall)
+	set_tests_properties(api-test-async-dns-smp-stall PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+			     TIMEOUT 60)
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)
