@@ -564,6 +564,10 @@ struct _lws_http_mode_related {
 	 * rearm. */
 
 	char *digest_auth_hdr;
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+	char *digest_auth_nonce;  /**< nonce sent in last Digest 401 challenge (server-side) */
+	uint32_t digest_auth_nc;  /**< last nc value seen on this connection */
+#endif
 	char *extra_onward_headers;
 
 	/*
@@ -634,6 +638,14 @@ lws_http_basic_auth_rewrite(struct lws *wsi);
 
 int
 lws_unauthorised_basic_auth(struct lws *wsi);
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+enum lws_check_basic_auth_results
+lws_check_digest_auth(struct lws *wsi, const char *htdigest_file, const char *realm);
+
+int
+lws_unauthorised_digest_auth(struct lws *wsi, const char *realm);
+#endif
 
 /*
  * Append a "name: value" line to wsi->http.extra_onward_headers without

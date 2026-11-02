@@ -1,0 +1,17 @@
+<html>
+ <head>
+  <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
+ </head>
+ <body>
+  <b>lws minimal http server digest auth example</b>
+  <p>
+  This is a static page served from ./mount-origin/index.html.
+  <p>
+  The URL space under /secret is protected by HTTP Digest Auth.<br>
+  Your browser will prompt for credentials.  The htdigest file<br>
+  ./da-passwords contains the entry for realm "lwsws":<br>
+  username <b>user</b>, password <b>password</b>.
+  <p>
+  <a href="/secret/" target=_blank>/secret</a>
+ </body>
+</html>
