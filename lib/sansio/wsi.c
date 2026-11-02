@@ -2850,6 +2850,8 @@ lws_callback_as_writeable(struct lws *wsi)
 void
 __lws_wsi_remove_from_sul(struct lws *wsi)
 {
+	/* a decided close is carried out by sul_timeout: it goes with it */
+	wsi->close_decided = 0;
 	lws_sul_cancel(&wsi->sul_timeout);
 	lws_sul_cancel(&wsi->sul_hrtimer);
 	lws_sul_cancel(&wsi->sul_validity);
