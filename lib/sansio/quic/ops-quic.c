@@ -470,8 +470,8 @@ lws_quic_pmtud_carries(struct lws_quic_netconn *qn, uint32_t mtu)
 	if (mtu <= qn->current_mtu || !qn->pmtud_state)
 		return;
 
-	lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: mtu %u -> %u", qn->current_mtu,
-		      mtu);
+	lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: mtu %u -> %u",
+		      (unsigned int)qn->current_mtu, (unsigned int)mtu);
 	qn->current_mtu		= mtu;
 	qn->pmtud_probe_fails	= 0;
 	qn->pmtud_raise_at	= 0;
@@ -510,8 +510,9 @@ lws_quic_pmtud_carries(struct lws_quic_netconn *qn, uint32_t mtu)
 		return;
 
 	lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: %u probes of %u were lost before, "
-		      "settling on %u", qn->pmtud_probe_fails, qn->probed_mtu,
-		      qn->current_mtu);
+		      "settling on %u", (unsigned int)qn->pmtud_probe_fails,
+		      (unsigned int)qn->probed_mtu,
+		      (unsigned int)qn->current_mtu);
 	qn->pmtud_state		= 2; /* SEARCH_COMPLETE */
 	qn->pmtud_raise_at	= lws_wsi_now(qn->nwsi) + LWS_QUIC_PMTUD_RAISE_US;
 }
@@ -615,7 +616,8 @@ lws_quic_pmtud_bh_undo(struct lws_quic_netconn *qn)
 {
 	lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: a packet bigger than %u got "
 		      "through after all, back to %u", LWS_QUIC_PMTU_BASE -
-		      LWS_QUIC_PMTU_OVERHEAD, qn->pmtud_bh_from_mtu);
+		      LWS_QUIC_PMTU_OVERHEAD,
+		      (unsigned int)qn->pmtud_bh_from_mtu);
 	qn->current_mtu		= qn->pmtud_bh_from_mtu;
 	qn->pmtud_state		= qn->pmtud_bh_from_state;
 	qn->pmtud_bh_from_mtu	= 0;
@@ -739,9 +741,11 @@ lws_quic_pmtud_probe_lost(struct lws_quic_netconn *qn,
 		 * from where it was, if it was no black hole, that settles
 		 */
 		lwsl_wsi_info(qn->nwsi, "QUIC PMTUD: %u lost probes of %u, "
-			      "settling on %u", qn->pmtud_probe_fails,
-			      qn->probed_mtu, qn->pmtud_state ?
-				qn->current_mtu : qn->pmtud_bh_from_mtu);
+			      "settling on %u",
+			      (unsigned int)qn->pmtud_probe_fails,
+			      (unsigned int)qn->probed_mtu,
+			      (unsigned int)(qn->pmtud_state ?
+				qn->current_mtu : qn->pmtud_bh_from_mtu));
 		if (!qn->pmtud_state)
 			qn->pmtud_bh_from_state	= 2; /* SEARCH_COMPLETE */
 		else {
@@ -1612,7 +1616,7 @@ lws_quic_ack_range(struct lws *nwsi, struct lws_quic_ack_walk *aw,
 	    qn->pmtud_probe_pn >= pn_lo && qn->pmtud_probe_pn <= pn_hi) {
 		lwsl_wsi_info(nwsi, "QUIC PMTUD: probe %llu of %u acked",
 			      (unsigned long long)qn->pmtud_probe_pn,
-			      qn->probed_mtu);
+			      (unsigned int)qn->probed_mtu);
 		lws_quic_pmtud_carries(qn, qn->probed_mtu);
 	}
 
@@ -1623,7 +1627,7 @@ lws_quic_ack_range(struct lws *nwsi, struct lws_quic_ack_walk *aw,
 		lwsl_wsi_info(nwsi, "QUIC PMTUD: probe %llu of %u acked after "
 			      "it was given up for lost",
 			      (unsigned long long)qn->pmtud_late_probe_pn,
-			      qn->pmtud_late_probe_mtu);
+			      (unsigned int)qn->pmtud_late_probe_mtu);
 		qn->pmtud_late_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 		lws_quic_pmtud_carries(qn, qn->pmtud_late_probe_mtu);
 	}
@@ -1640,7 +1644,7 @@ lws_quic_ack_range(struct lws *nwsi, struct lws_quic_ack_walk *aw,
 				      "after it was given up for lost",
 				      (unsigned long long)
 					qn->pmtud_bh_from_late_pn[i],
-				      qn->pmtud_bh_from_mtu);
+				      (unsigned int)qn->pmtud_bh_from_mtu);
 			lws_quic_pmtud_bh_undo(qn);
 			break;
 		}
@@ -1691,7 +1695,8 @@ lws_quic_ack_range(struct lws *nwsi, struct lws_quic_ack_walk *aw,
 		    !qn->pmtud_bh_from_probe_queued &&
 		    qn->pmtud_bh_from_probe_pn == LWS_QUIC_PMTUD_PROBE_NONE) {
 			lwsl_wsi_info(nwsi, "QUIC PMTUD: the base gets through, "
-				      "probing %u again", qn->pmtud_bh_from_mtu);
+				      "probing %u again",
+				      (unsigned int)qn->pmtud_bh_from_mtu);
 			if (!lws_quic_pmtud_queue_probe(qn,
 						LWS_QUIC_PMTUD_PROBE_FROM))
 				qn->pmtud_bh_from_probe_queued = 1;
