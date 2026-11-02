@@ -1427,6 +1427,12 @@ struct lws {
 
 	unsigned int			close_decided:1; /* LWS_TO_KILL_ASYNC set */
 	unsigned int			mux_substream:1;
+	/*
+	 * lws' own, carrying nothing the user asked for, so it has nothing to
+	 * tell him when it closes: eg, h3's control and qpack streams, and
+	 * the quic connection under them
+	 */
+	unsigned int			internal:1;
 	unsigned int			mux_stream_immortal:1;
 	unsigned int			h23_stream_carries_ws:1; /* immortal set as well */
 	unsigned int			http_carries_sse:1; /* lws_http_mark_sse() */

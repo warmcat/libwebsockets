@@ -1567,6 +1567,8 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 	 */
 	lws_wsi_event_x(cwsi, LWS_WSIEV_CONTROL_STREAM_OPENED, NULL, nwsi);
 	cwsi->mux_substream = 1;
+	/* our control or qpack stream: nothing the user asked for */
+	cwsi->internal = 1;
 #if defined(LWS_WITH_CLIENT)
 	if (!lwsi_role_server(nwsi))
 		cwsi->client_mux_substream = 1;
@@ -2171,6 +2173,12 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 		 */
 		wsi->h3.stream_type = type > 0xff ? 0xff : (uint8_t)type;
 		wsi->h3.type_set = 1;
+		/*
+		 * The peer's control, push and qpack streams are h3's own,
+		 * as are those of types it ignores.  Only a WebTransport unidi
+		 * stream is something the user hears of
+		 */
+		wsi->internal = type != LWS_WT_STREAM_TYPE_UNIDI;
 		if (type == 0x02) {
 			if (!wsi->h3.qpack_dec_state) {
 				wsi->h3.qpack_dec_state = lws_zalloc(sizeof(*wsi->h3.qpack_dec_state), "qpack dec state");

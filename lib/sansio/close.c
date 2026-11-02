@@ -1114,6 +1114,13 @@ just_kill_connection:
 		 */
 		ccb = 0;
 
+	if (wsi->internal)
+		/*
+		 * lws' own, eg, an h3 control stream: nothing the user asked
+		 * for is closing, so he hears nothing about it either way
+		 */
+		ccb = 0;
+
 #if defined(LWS_WITH_CLIENT)
 	/*
 	 * An h2 client network wsi is established at the transport, but until
@@ -1121,7 +1128,7 @@ just_kill_connection:
 	 * the user's wsi, never told it was established, and there is no child
 	 * stream to tell him anything about the close
 	 */
-	if (!ccb && lwsi_role_client(wsi) &&
+	if (!ccb && !wsi->internal && lwsi_role_client(wsi) &&
 	    (!est_at_entry || (lws_wsi_is_mux_nwsi(wsi) &&
 			       !lws_wsi_client_nwsi_migrated(wsi))))
 		/* it declines to say anything on a restart */

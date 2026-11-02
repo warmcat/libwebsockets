@@ -7363,6 +7363,8 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 		lws_free(qs);
 		return 1;
 	}
+	/* it carries the h3 streams: the user's ask is one of those */
+	nwsi->internal = 1;
 
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->cli_hostname_copy)
