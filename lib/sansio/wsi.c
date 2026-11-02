@@ -2812,6 +2812,13 @@ lws_callback_as_writeable(struct lws *wsi)
 void
 __lws_wsi_remove_from_sul(struct lws *wsi)
 {
+	/*
+	 * A decided close is carried out by sul_timeout; with it cancelled
+	 * there is nothing left to carry it out, so a later close, eg, the
+	 * KILL_ASYNC on a pipeline leader that handed off its connection, must
+	 * be able to arm it again.
+	 */
+	wsi->close_decided = 0;
 	lws_sul_cancel(&wsi->sul_timeout);
 	lws_sul_cancel(&wsi->sul_hrtimer);
 	lws_sul_cancel(&wsi->sul_validity);
