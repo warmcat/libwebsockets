@@ -1331,6 +1331,13 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	while (q > i->url && q[-1] != '/')
 		q--;
 
+	/*
+	 * The caller asks *u for the image's dimensions, which the accessors
+	 * get from the decoder of this type: left at 0 (jpeg), every image
+	 * was asked as if it was a jpeg
+	 */
+	i->u->type = (lws_dlo_image_type_t)type;
+
 	switch (type) {
 	case LWSDLOSS_TYPE_PNG:
 		dlo_png = lws_display_dlo_png_new(i->dl, i->dlo_parent, i->box, q, lws_ptr_diff_size_t(p, q));
