@@ -343,6 +343,36 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 		endif()
 
+		# a vertical list of local svg icons the css gives a size to
+		# holds one at a time: each is only fetched when the raster
+		# reaches it and given back when the raster leaves it.  It
+		# comes out as the same icons without a size, which are fetched
+		# for the layout, given back when it completes, and fetched
+		# again for the render
+		if (LWS_WITH_SVG)
+		add_test(NAME api-test-lhp-dlo-svg-stack-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/svg-stack.html
+				-DHTML_B=${CMAKE_CURRENT_SOURCE_DIR}/svg-stack-twin.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/svg-stack
+				-DW=100 -DH=240
+				"-DFLAGS_A=--svg-live-max;1"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
+		# ... and the same when the display list is retained (eg, for
+		# a touch panel), where the icons' dlos stay after the raster
+		# has passed them, but what they held is given back
+		add_test(NAME api-test-lhp-dlo-svg-stack-retained
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/svg-stack.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/svg-stack-retained
+				-DW=100 -DH=240
+				"-DFLAGS_A=--retained;--svg-live-max;1"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+		endif()
+
 		# a list moved up inside an overflow: hidden window shows just
 		# what is in the window, as the same rows laid out there would,
 		# including text laid out below the surface before the move

@@ -466,6 +466,7 @@ struct svg_scratch {
 	int64_t			*aa_d;		/* aa: per-column D terms */
 	size_t			aa_d_size;	/* allocated entries */
 	int			refs;		/* live svg objects */
+	int			refs_peak;	/* most live at once */
 };
 
 extern struct svg_scratch svg_scratch;

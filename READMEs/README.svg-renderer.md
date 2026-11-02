@@ -30,12 +30,14 @@ instead of producing out-of-range values.
 
 ## Memory requirements
 
-Fixed allocations at `lws_svg_new()`:
+`lws_svg_new()` allocates only the parse context, in an lwsac chunk of
+exactly its size; everything else is allocated when the document first
+needs it:
 
 |Allocation|Size|
 |---|---|
-|Parse context (includes the 24-deep element style stack)|1272B|
-|Attribute value accumulation buffer|256B, grows by doubling to the largest attribute|
+|Parse context (includes the 24-deep element style stack)|about 2.3KB on a 64-bit build, with its chunk overhead|
+|Attribute value accumulation buffer|256B when the first attribute value arrives, grows by doubling to the largest attribute|
 
 During parsing, a transient working array holds the current shape's
 geometry at 16B/point in user space, growing to the largest single shape
@@ -44,8 +46,8 @@ grows to accommodate the largest attribute (typically a path `d` string),
 capped at 64KB.
 
 The whole object — context, working buffers, stylesheets and retained
-scene — lives in a single lwsac allocated in 4KB chunks, freed with one
-call.  The growable working buffers (points, subpaths, crossings, aa
+scene — lives in a single lwsac, the scene taken from it in 1KB chunks,
+freed with one call.  The growable working buffers (points, subpaths, crossings, aa
 columns, attribute values) grow by chained doubling generations inside
 the lwsac, so superseded generations remain until the object is
 destroyed; the caps below bound the worst case.  The peak simultaneous
@@ -228,6 +230,32 @@ streaming from the Secure Streams buflist with the same metadata-first
 flow as the raster images, then rendered line-at-a-time into the dlo line
 composition buffer at the box size the layout chose.  Building with
 `LWS_WITH_SVG=0` removes it and the `.svg` url handling cleanly.
+
+An svg image only holds its payload and scene while something needs them.
+The scene object is created when the payload starts to arrive.  For an svg
+from a local file (a `file://` url, eg, `file://dlofs/...` from the dlo
+filesystem), which costs little to read again:
+
+ - if the document gives its size, eg `img { width: 24px; height: 24px }`,
+   it is not fetched during the layout at all, only when the raster reaches
+   a line of it that shows.  A line clipped away by an ancestor's
+   `overflow: hidden` doesn't count, so icons outside a window onto a list
+   are never fetched.
+
+ - otherwise it is fetched for its size during the layout, and given back
+   when the layout completes.
+
+ - either way, it is given back after its last line is rendered, also when
+   the display list is retained, and fetched again if the raster comes back
+   to it.
+
+So icons stacked vertically hold one scene at a time, however many there
+are.  Laid out side by side, the icons sharing a line are all held while
+the raster crosses it.  An svg from the network is kept from its fetch
+until its dlo is destroyed, as the raster images are.
+
+`lws_svg_get_live_peak()` returns the most svg scene objects that existed at
+once, which `lws-api-test-lhp-dlo --svg-live-max <n>` checks.
 
 `lws-api-test-svg` generates a corpus of around 200 documents covering each
 supported feature with analytic checks (exact span geometry, independent

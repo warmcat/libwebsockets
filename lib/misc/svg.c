@@ -4267,7 +4267,7 @@ lws_svg_parse(lws_svg_t *ctx, const uint8_t **buf, size_t *len, char hold)
 unsigned int
 lws_svg_get_width(const lws_svg_t *ctx)
 {
-	if (!ctx->root_seen)
+	if (!ctx || !ctx->root_seen)
 		return 0;
 
 	if (ctx->has_w && !ctx->unit_w && ctx->width > 0)
@@ -4284,7 +4284,7 @@ lws_svg_get_width(const lws_svg_t *ctx)
 unsigned int
 lws_svg_get_height(const lws_svg_t *ctx)
 {
-	if (!ctx->root_seen)
+	if (!ctx || !ctx->root_seen)
 		return 0;
 
 	if (ctx->has_h && !ctx->unit_h && ctx->height > 0)
@@ -4301,7 +4301,7 @@ lws_svg_get_height(const lws_svg_t *ctx)
 char
 lws_svg_get_doc_complete(const lws_svg_t *ctx)
 {
-	return ctx->doc_complete;
+	return ctx && ctx->doc_complete;
 }
 
 void

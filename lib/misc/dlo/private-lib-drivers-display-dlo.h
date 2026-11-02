@@ -355,5 +355,16 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul);
 int
 lws_dlo_ss_stop_any_active(struct lws_context *cx);
 
+#if defined(LWS_WITH_SVG)
+void
+lws_display_dlo_svg_release(lws_dlo_svg_t *dlo_svg);
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_LHP)
+int
+lws_dlo_ss_svg_fetch(lws_dlo_svg_t *dlo_svg);
+#endif
+#endif
+
 #endif
 

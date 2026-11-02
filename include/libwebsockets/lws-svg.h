@@ -118,7 +118,7 @@ lws_svg_parse(lws_svg_t *svg, const uint8_t **buf, size_t *len,
  * Returns the intrinsic document width in px once the root tag has been
  * parsed: the width attribute if it is in px, otherwise the viewBox width if
  * present, otherwise the CSS default replaced element width.  Returns 0 if
- * the root tag has not been parsed yet.
+ * the root tag has not been parsed yet, or \p svg is NULL.
  */
 LWS_VISIBLE LWS_EXTERN unsigned int
 lws_svg_get_width(const lws_svg_t *svg);
@@ -140,7 +140,7 @@ lws_svg_get_height(const lws_svg_t *svg);
  *
  * Returns nonzero if the root element has closed (or an unrecoverable
  * truncated-document condition was reached), so the retained scene will not
- * change any further.
+ * change any further.  Returns 0 if \p svg is NULL.
  */
 LWS_VISIBLE LWS_EXTERN char
 lws_svg_get_doc_complete(const lws_svg_t *svg);
@@ -179,6 +179,17 @@ lws_svg_set_render_size(lws_svg_t *svg, unsigned int w, unsigned int h);
  */
 LWS_VISIBLE LWS_EXTERN size_t
 lws_svg_get_heap_peak(const lws_svg_t *svg);
+
+/**
+ * lws_svg_get_live_peak() - the most svg scene objects that were live at once
+ *
+ * Returns the largest number of svg scene objects that have existed at the
+ * same time in the process so far.  Useful for checking that a page of svg
+ * images holds only the ones being rendered, eg, one at a time for icons
+ * stacked vertically.
+ */
+LWS_VISIBLE LWS_EXTERN unsigned int
+lws_svg_get_live_peak(void);
 
 /*
  * Span callback for rendered lines.  Filled spans are delivered in ascending

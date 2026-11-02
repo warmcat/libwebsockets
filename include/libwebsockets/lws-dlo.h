@@ -373,11 +373,33 @@ typedef struct lws_dlo_jpeg {
 						 * nothing more from it */
 } lws_dlo_jpeg_t;
 
+/*
+ * An svg is held, as its payload and parsed scene, only while something needs
+ * it.  The scene object is created when the payload starts to arrive.  One
+ * from a local file (eg, file://dlofs/...) is not even fetched until the
+ * raster reaches a line of it that shows, if the document gave its size, and
+ * it is given back after its last line: the document lays out from the box
+ * alone, and the file can be read again cheaply whenever the raster comes
+ * back to it.  A page of icons stacked vertically so holds one at a time.
+ */
+
 typedef struct lws_dlo_svg {
 	lws_dlo_t			dlo;  /* ordering: first */
 	lws_flow_t			flow; /* ordering: second */
 	char				name[25];
-	lws_svg_t			*svg;
+	lws_svg_t			*svg; /* NULL until payload arrives */
+
+	/* how to fetch it again, if the dlo came from a document asset */
+
+	struct lws_context		*cx;
+	char				*url; /* heap, or NULL */
+	sul_cb_t			on_rx;
+	lws_sorted_usec_list_t		*on_rx_sul;
+
+	uint8_t				local:1; /* url is a local file: only
+						  * held while it is rendered */
+	uint8_t				failed:1; /* nothing usable came: don't
+						   * fetch it again */
 } lws_dlo_svg_t;
 
 /*

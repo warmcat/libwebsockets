@@ -52,6 +52,32 @@ svg_span_cb(void *user, int x0, int x1, uint32_t rgba)
 	return 0;
 }
 
+/*
+ * Give back everything the svg holds besides the dlo itself: its stream, any
+ * payload not parsed yet, and the scene.  Only one from a local file is given
+ * back, since it costs little to read again when it is next rendered.
+ */
+
+void
+lws_display_dlo_svg_release(lws_dlo_svg_t *dlo_svg)
+{
+	if (!dlo_svg->local || !dlo_svg->url)
+		return;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
+	if (dlo_svg->flow.h)
+		lws_ss_destroy(&dlo_svg->flow.h);
+#endif
+	lws_buflist_destroy_all_segments(&dlo_svg->flow.bl);
+	dlo_svg->flow.data = NULL;
+	dlo_svg->flow.len = 0;
+	dlo_svg->flow.blseglen = 0;
+	dlo_svg->flow.state = LWSDLOFLOW_STATE_READ;
+
+	if (dlo_svg->svg)
+		lws_svg_free(&dlo_svg->svg);
+}
+
 void
 lws_display_dlo_svg_destroy(struct lws_dlo *dlo)
 {
@@ -65,31 +91,59 @@ lws_display_dlo_svg_destroy(struct lws_dlo *dlo)
 
 	if (dlo_svg->svg)
 		lws_svg_free(&dlo_svg->svg);
+
+	lws_free_set_NULL(dlo_svg->url);
 }
 
-lws_stateful_ret_t
-lws_display_render_svg(struct lws_display_render_state *rs)
+/*
+ * The scene object only exists once there is payload for it.  Curves are
+ * flattened as they're parsed, so if the box is known, tell it the size we'll
+ * render at, so the flattening is no finer than the box can show.
+ */
+
+static int
+dlo_svg_parser(lws_dlo_svg_t *dlo_svg)
 {
-	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
-	lws_dlo_svg_t *dlo_svg = lws_container_of(dlo, lws_dlo_svg_t, dlo);
-	lws_fx_t ax, ay, t, t1;
-	lws_svg_render_t ri;
-	svg_span_ctx_t sc;
-	int s, e, h;
+	int bw = lws_fx_roundup(&dlo_svg->dlo.box.w),
+	    bh = lws_fx_roundup(&dlo_svg->dlo.box.h);
 
-	/*
-	 * Drive the streaming document parse from anything buffered until
-	 * either the document completes or we run out and must wait for
-	 * more rx.  A document truncated by the connection ending is
-	 * rendered as far as it parsed.
-	 *
-	 * Curves are flattened as they're parsed, so tell it the size we'll
-	 * render at, so the flattening is no finer than the box can show.
-	 */
+	if (dlo_svg->svg)
+		return 0;
 
-	if (!lws_svg_get_doc_complete(dlo_svg->svg)) {
+	dlo_svg->svg = lws_svg_new();
+	if (!dlo_svg->svg)
+		return 1;
+
+	if (bw > 0 && bh > 0)
+		lws_svg_set_render_size(dlo_svg->svg, (unsigned int)bw,
+					(unsigned int)bh);
+
+	return 0;
+}
+
+/*
+ * Drive the streaming document parse from anything buffered until either the
+ * document completes, or we run out and must wait for more rx.  A document
+ * truncated by the connection ending is rendered as far as it parsed.
+ *
+ * Only a stream bringing more is waited for: the html document having
+ * completed says nothing about an svg, since a local one is only fetched when
+ * the raster reaches it.
+ *
+ * If there's no heap for the scene object, it returns OK with no scene, and
+ * the payload stays buffered for the next try.
+ */
+
+static lws_stateful_ret_t
+dlo_svg_parse(lws_dlo_svg_t *dlo_svg)
+{
+	lws_dlo_t *dlo = &dlo_svg->dlo;
+
+	if (dlo_svg->svg && !lws_svg_get_doc_complete(dlo_svg->svg)) {
 		int bw = lws_fx_roundup(&dlo->box.w),
 		    bh = lws_fx_roundup(&dlo->box.h);
+
+		/* the layout may have sized it since the metadata scan */
 
 		if (bw > 0 && bh > 0)
 			lws_svg_set_render_size(dlo_svg->svg, (unsigned int)bw,
@@ -101,69 +155,131 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 
 		if (!dlo_svg->flow.len &&
 		    (lws_flow_feed(&dlo_svg->flow) || !dlo_svg->flow.len)) {
-			if (dlo_svg->flow.state !=
-					LWSDLOFLOW_STATE_READ_COMPLETED &&
-			    rs->html != 2)
+			if (dlo_svg->flow.h && dlo_svg->flow.state !=
+					LWSDLOFLOW_STATE_READ_COMPLETED)
 				return LWS_SRET_WANT_INPUT;
 			break;	/* truncated document: render the prefix */
 		}
 
-		r = lws_svg_parse(dlo_svg->svg, &dlo_svg->flow.data,
-				  &dlo_svg->flow.len, 0);
-		if (r & LWS_SRET_FATAL)
-			return r;
-	}
-
-	if (!lws_svg_get_width(dlo_svg->svg)) {
-		/* never even parsed the root tag */
-
-		if (dlo_svg->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED ||
-		    rs->html == 2)
+		if (dlo_svg_parser(dlo_svg))
 			return LWS_SRET_OK;
 
-		return LWS_SRET_WANT_INPUT;
+		r = lws_svg_parse(dlo_svg->svg, &dlo_svg->flow.data,
+				  &dlo_svg->flow.len, 0);
+		if (r & LWS_SRET_FATAL) {
+			dlo_svg->failed = 1;
+			return r;
+		}
 	}
+
+	if (!lws_svg_get_width(dlo_svg->svg) &&
+	    dlo_svg->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
+		/* it came, but never even had a root tag */
+		dlo_svg->failed = 1;
+
+	return LWS_SRET_OK;
+}
+
+lws_stateful_ret_t
+lws_display_render_svg(struct lws_display_render_state *rs)
+{
+	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
+	lws_dlo_svg_t *dlo_svg = lws_container_of(dlo, lws_dlo_svg_t, dlo);
+	lws_stateful_ret_t r = LWS_SRET_OK;
+	lws_fx_t ax, ay, t, t1;
+	lws_svg_render_t ri;
+	svg_span_ctx_t sc;
+	int s, e, top, end;
 
 	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
 	lws_fx_add(&t, &ax, &dlo->box.w);
 	lws_fx_add(&ay, &rs->st[rs->sp].co.y, &dlo->box.y);
 	lws_fx_add(&t1, &ay, &dlo->box.h);
 
+	top = lws_fx_roundup(&ay);
+	end = lws_fx_roundup(&t1); /* one past its last line */
+
+	if (rs->curr >= end) {
+		/* the raster is past it, it has nothing more to do */
+		lws_display_dlo_svg_release(dlo_svg);
+
+		return LWS_SRET_OK;
+	}
+
+	if (end <= top || rs->curr < top)
+		return LWS_SRET_OK;
+
 	s = ax.whole;
 	e = lws_fx_roundup(&t);
 
-	if (rs->curr > lws_fx_roundup(&t1))
-		return LWS_SRET_OK;
-
-	/* the line's position inside the image */
-
-	h = lws_fx_roundup(&t1) - lws_fx_roundup(&ay);
-	if (h <= 0)
-		return LWS_SRET_OK;
-
-	if (rs->curr < lws_fx_roundup(&ay) || rs->curr >= h + lws_fx_roundup(&ay))
-		return LWS_SRET_OK;
-
 	if (s < 0)
 		s = 0;
-	if (s > rs->ic->wh_px[0].whole)
-		return LWS_SRET_OK; /* off to the right */
 	if (e > rs->ic->wh_px[0].whole)
 		e = rs->ic->wh_px[0].whole;
 
-	if (e - s <= 0)
-		return LWS_SRET_OK;
+	/*
+	 * Nothing of it shows on this line: off to the right, or clipped
+	 * away by an ancestor's overflow: hidden (eg, a window onto a list
+	 * of icons).  The scene renders any line in any order, so unlike the
+	 * raster decoders, there is no place to keep by being called...
+	 * there's no reason to fetch or parse anything for it yet
+	 */
+
+	if (s > rs->ic->wh_px[0].whole || e - s <= 0 ||
+	    (s > rs->clip_x0 ? s : rs->clip_x0) >=
+				(e < rs->clip_x1 ? e : rs->clip_x1) ||
+	    dlo_svg->failed)
+		goto done;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_LHP)
+	/*
+	 * Nothing is coming and nothing is here: it was never fetched (a
+	 * local file whose size the document gave), or it was given back
+	 * after it was last rendered.  Fetch it now... a local file usually
+	 * arrives entirely inside the connect.
+	 */
+
+	if (dlo_svg->url && !dlo_svg->flow.h && !dlo_svg->svg &&
+	    dlo_svg->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED &&
+	    !lws_buflist_total_len(&dlo_svg->flow.bl)) {
+		int n = lws_dlo_ss_svg_fetch(dlo_svg);
+
+		if (n < 0)
+			/* there's no getting it, eg, no such file */
+			dlo_svg->failed = 1;
+		if (n)
+			/*
+			 * ... or it couldn't even start, eg, no heap for
+			 * the stream: try again on its next line
+			 */
+			goto done;
+	}
+#endif
+
+	r = dlo_svg_parse(dlo_svg);
+	if (r)
+		return r;
+	if (!lws_svg_get_width(dlo_svg->svg))
+		/* nothing to render, and nothing more coming */
+		goto done;
 
 	ri.w = e - s;
-	ri.h = h;
+	ri.h = end - top;
 	ri.aa = 1;	/* area-antialiased coverage through the line alpha */
 
 	sc.rs = rs;
 	sc.x = s;
 
-	return lws_svg_render_line(dlo_svg->svg, &ri,
-				   rs->curr - lws_fx_roundup(&ay),
-				   svg_span_cb, &sc);
+	r = lws_svg_render_line(dlo_svg->svg, &ri, rs->curr - top,
+				svg_span_cb, &sc);
+
+done:
+	if (!r && rs->curr + 1 >= end)
+		/* that was its last line */
+		lws_display_dlo_svg_release(dlo_svg);
+
+	return r;
 }
 
 lws_stateful_ret_t
@@ -176,6 +292,9 @@ lws_display_dlo_svg_metadata_scan(lws_dlo_svg_t *dlo_svg)
 	 * tag so image dimensions are available before the whole document
 	 * is necessarily present.
 	 */
+
+	if (dlo_svg_parser(dlo_svg))
+		return LWS_SRET_FATAL;
 
 	while (!lws_svg_get_width(dlo_svg->svg)) {
 		if (lws_flow_feed(&dlo_svg->flow) || !dlo_svg->flow.len)
@@ -205,7 +324,8 @@ lws_display_dlo_svg_heap(struct lws_dlo *dlo)
 	lws_dlo_svg_t *dlo_svg = lws_container_of(dlo, lws_dlo_svg_t, dlo);
 
 	return lws_buflist_total_len(&dlo_svg->flow.bl) +
-	       lws_svg_heap(dlo_svg->svg);
+	       lws_svg_heap(dlo_svg->svg) +
+	       (dlo_svg->url ? strlen(dlo_svg->url) + 1 : 0);
 }
 #endif
 
@@ -218,9 +338,7 @@ lws_display_dlo_svg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 	if (!dlo_svg)
 		return NULL;
 
-	dlo_svg->svg = lws_svg_new();
-	if (!dlo_svg->svg)
-		goto bail;
+	/* the scene object is created when its payload starts to arrive */
 
 	lws_strnncpy(dlo_svg->name, name, len, sizeof(dlo_svg->name));
 	dlo_svg->dlo.box = *box;
@@ -234,11 +352,4 @@ lws_display_dlo_svg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 	lws_display_dlo_add(dl, dlo_parent, &dlo_svg->dlo);
 
 	return dlo_svg;
-
-bail:
-	if (dlo_svg->svg)
-		lws_svg_free(&dlo_svg->svg);
-	lws_free(dlo_svg);
-
-	return NULL;
 }

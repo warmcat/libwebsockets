@@ -19,11 +19,16 @@ until their stage is reached.
 
 ## Layout for lhp / dlo
 
-Show them as a vertical list, top to bottom in the order above.  The dlo
-display list is rasterized a single row at a time, so stacking the icons
-vertically means each icon's rows are finished before the next icon's begin,
-rather than every icon being live across the same rows as in a horizontal
-strip.
+Show them as a vertical list, top to bottom in the order above, and give
+the `<img>`s their size in the css, eg `.ic img { width: 24px; height: 24px }`.
+
+The dlo display list is rasterized a single row at a time.  A local svg
+whose size the document gave is only fetched and parsed when the raster
+reaches it, and given back after its last row, so with the icons stacked
+vertically, only one of them is in memory at any time.  In a horizontal
+strip, every icon is live across the same rows.  Without the css size, each
+icon has to be fetched during the layout to find its size (see
+`READMEs/README.svg-renderer.md`).
 
 ## Design
 

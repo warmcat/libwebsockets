@@ -42,7 +42,14 @@ struct svg_scratch svg_scratch;
 void
 svg_scratch_ref(void)
 {
-	svg_scratch.refs++;
+	if (++svg_scratch.refs > svg_scratch.refs_peak)
+		svg_scratch.refs_peak = svg_scratch.refs;
+}
+
+unsigned int
+lws_svg_get_live_peak(void)
+{
+	return (unsigned int)svg_scratch.refs_peak;
 }
 
 /*
@@ -95,12 +102,14 @@ svg_scratch_unref(void)
 	}
 
 	if (!svg_scratch.refs && !svg_scratch.live.count) {
+		int peak = svg_scratch.refs_peak;
 
 		/* the last svg is gone: the pool itself can go */
 
 		lws_free(svg_scratch.xings);
 		lws_free(svg_scratch.aa_d);
 		memset(&svg_scratch, 0, sizeof(svg_scratch));
+		svg_scratch.refs_peak = peak;
 	}
 }
 

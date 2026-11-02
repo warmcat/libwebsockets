@@ -26,6 +26,8 @@ enum {
 		LWS_SW_RECLAIM_LINES,
 		LWS_SW_RECLAIM_ELEMS,
 		LWS_SW_KERN_CHECK,
+		LWS_SW_RETAINED,
+		LWS_SW_SVG_LIVE_MAX,
 		LWS_SW_HELP,
 };
 
@@ -46,6 +48,8 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_RECLAIM_ELEMS] = { "--reclaim-elems", "Evict every reclaimable heap occupant as every N-th element of the layout opens, so they all get renewed mid-layout on any allocator" },
 	[LWS_SW_KERN_CHECK] = { "--kern-check", "Check how the registered 14px regular face kerns pairs of glyphs, instead of laying out a page" },
+	[LWS_SW_RETAINED] = { "--retained",    "Render the display list retained, as for a touch panel, keeping its DLOs as the raster passes them" },
+	[LWS_SW_SVG_LIVE_MAX] = { "--svg-live-max", "Fail if more than this many svg images were held at once" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -186,7 +190,7 @@ static lws_surface_info_t ic = {
 
 int fdin = 0, fdout = 1, result = 0;
 static const char *dump_path;
-static int reclaim_lines, reclaimed_line = -1;
+static int reclaim_lines, reclaimed_line = -1, svg_live_max = -1;
 
 /*
  * --kern-check: glyphs are kerned in from the shapes of their ink, never
@@ -665,6 +669,20 @@ render(lws_sorted_usec_list_t *sul)
 
         free(rs->line);
 
+#if defined(LWS_WITH_SVG)
+	/*
+	 * --svg-live-max: svg images are only held while something needs
+	 * them, eg, a page of local icons stacked vertically holds one at a
+	 * time, from the raster reaching it to the raster leaving it
+	 */
+	if (svg_live_max >= 0 &&
+	    lws_svg_get_live_peak() > (unsigned int)svg_live_max) {
+		lwsl_err("%s: %u svg images were held at once, max %d\n",
+			 __func__, lws_svg_get_live_peak(), svg_live_max);
+		result = 1;
+	}
+#endif
+
 	lwsl_warn("%s: render has reached end and destroys displaylist\n", __func__);
 	lws_display_list_destroy(cx, &rs->displaylist);
 
@@ -936,6 +954,13 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv,
 				    switches[LWS_SW_RECLAIM_ELEMS].sw)))
 		drs.reclaim_elems = (uint16_t)atoi(p);
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_RETAINED].sw))
+		drs.retained = 1;
+
+	if ((p = lws_cmdline_option(argc, argv,
+				    switches[LWS_SW_SVG_LIVE_MAX].sw)))
+		svg_live_max = atoi(p);
 
 	drs.ic = &ic;
 

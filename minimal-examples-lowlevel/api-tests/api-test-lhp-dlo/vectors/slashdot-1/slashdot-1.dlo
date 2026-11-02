@@ -256,6 +256,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
  rect (16.0,2487.6) [933.0 x 44.0] rgba=FF424200 radii=0.0,0.0,10.0,0.0
   rect (0.0,0.0) [158.0 x 20.0] rgba=00000000
    rect (10.0,0.0) [138.0 x 20.0] rgba=00000000
+    svg (0.0,0.0) [138.0 x 20.0]
     hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org"
   rect (168.0,0.0) [0.0 x 16.0] rgba=00000000
   rect (178.0,0.0) [0.0 x 16.0] rgba=00000000
