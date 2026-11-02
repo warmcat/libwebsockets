@@ -2155,6 +2155,29 @@ void
 sul_cb_write(struct lws_sorted_usec_list *sul)
 {
 	lws_adns_q_t *q = lws_container_of(sul, lws_adns_q_t, write_sul);
+	struct lws *wsi = lws_adns_q_wsi(q);
+
+	/*
+	 * Our socket may not have been serviced yet, rather than not be
+	 * writeable: it is on whichever pt was idlest, and this timer is on
+	 * q's, so another thread's WRITEABLE may still be to come.  Even on
+	 * our own pt, a thread that didn't get the cpu for longer than the
+	 * timeout services this timer before poll() tells it the socket is
+	 * writeable.  Neither is the nameserver's fault, nor any reason to
+	 * fail the lookup: if the socket can take the question now, wait
+	 * again.  The deadline still bounds the query.
+	 *
+	 * It's the socket's own wsi: its pt's thread may be servicing it as
+	 * we look, but its fd stays open while it's ours, since the close
+	 * takes it from us under the context lock we hold before the fd goes.
+	 */
+
+	if (wsi && !lws_send_pipe_choked(wsi)) {
+		lwsl_wsi_info(wsi, "not serviced yet, waiting again");
+		lws_adns_q_sul_schedule(q, &q->write_sul, sul_cb_write,
+					LWS_US_PER_SEC);
+		return;
+	}
 
 	/*
 	 * Something's up, we couldn't even get from write request to
@@ -2162,7 +2185,7 @@ sul_cb_write(struct lws_sorted_usec_list *sul)
 	 * the query and everyone riding on it...
 	 */
 
-	lwsl_wsi_info(lws_adns_q_wsi(q), "failing");
+	lwsl_wsi_info(wsi, "failing");
 	lws_adns_dump(q->dns);
 
 	if (q->dsrv) {
