@@ -181,7 +181,7 @@ lws_tls_session_new_bearssl(struct lws *wsi)
 	struct lws_vhost *vh;
 	lws_tls_scm_t *ts;
 	size_t nl;
-#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	const char *disposition = "reuse";
 #endif
 
@@ -248,7 +248,7 @@ lws_tls_session_new_bearssl(struct lws *wsi)
 				(int64_t)vh->tls.tls_session_cache_ttl *
 								LWS_US_PER_SEC);
 
-#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		disposition = "new";
 #endif
 	} else {
