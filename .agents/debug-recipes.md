@@ -75,6 +75,21 @@ To force a version-gated branch (eg the GnuTLS < 3.8.4 0-RTT refusal)
 on a newer library, bump the version gate temporarily in a scratch
 worktree.
 
+## Starving one service thread
+
+Burners pinned with the test (see build-and-ctest.md) slow every thread
+alike, and stopping the whole process with SIGSTOP leaves each thread in
+poll(), which on resume sees its fds before its timers.  Neither shows an SMP
+failure that needs one service thread to lose the cpu while the others run.
+Start the test, and once its threads exist (a few hundred ms in), for each
+`/proc/<pid>/task/<tid>` other than the main one run `taskset -p -c 5 <tid>`
+and `chrt -i -p 0 <tid>` (SCHED_IDLE), with two or three burners on cpu 5.
+That brought back api-test-async-dns-smp's riscv64 failure about 1 run in 8.
+Too many burners keep those threads off the cpu for many seconds, which only
+shows the test's own deadline.  For a regression test, block a service
+thread in one of its own callbacks instead (api-test-async-dns-smp
+`--stall`).
+
 ## LD_PRELOAD shims
 
  - **Darwin poll semantics on Linux**: wrap `poll()` via
