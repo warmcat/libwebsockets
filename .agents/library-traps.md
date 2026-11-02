@@ -747,7 +747,15 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    seen by ASan only on the retry path).
  - SS flow windows (`manual_initial_tx_credit`,
    `lws_ss_add_peer_tx_credit()`) only act on protocols with `tx_cr_add`,
-   ie, h2.  On h1 nothing holds the peer back (G-144).
+   ie, h2 and h3.  On h1 nothing holds the peer back (G-144).  On h3 the
+   DATA framing comes out of the stream credit (1024 credit gives ~1022
+   payload), so don't wait for an estimated credit of exactly 0 before
+   adding more.
+ - With retry policy `"none"` (no backoff), an h1 asset fetch whose
+   connection closes after the transaction ("transaction completed says
+   -1") hits an illegal SS state transition CONNECTED ->
+   ALL_RETRIES_FAILED and asserts.  Seen with lws-api-test-lhp-image-flow
+   `--alpn h1`, which is why its ctests only cover h2 and h3.
  - The builtin `__default` streamtype is TLS-only and ignores `http://`
    endpoints ("ignoring non-tls scheme"); in-process plain-http tests
    need their own `pss_policies_json` (see api-test-lhp-doc-cache).
@@ -787,6 +795,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    sent chunked on h1.
 
 ## lhp (html / css)
+
+ - `lws_display_list_render_line()` calls a dlo's render from the line
+   *before* its top (`curr >= co.y - 1`), and skips it (destroying it, if
+   not retained) only once `curr > roundup(bottom)`: a dlo's own render
+   sees line `bottom` and is where it can tell the raster has left it.  A
+   harness sampling per line must count line `top - 1` as "on" the image,
+   and a render that yields there is re-entered on the same line.
 
  - lwsac takes its chunks with plain `malloc()`, not `lws_malloc()`, so
    `lws_get_allocated_heap()` and `lws_heap_limit_set()` don't see them.
