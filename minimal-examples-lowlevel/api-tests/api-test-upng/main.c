@@ -191,6 +191,7 @@ decode_cut(size_t ti, const size_t *cuts, size_t ncuts, int oom)
 	lws_stateful_ret_t r;
 	lws_upng_t *u;
 	int ret = 1, yields = 0;
+	size_t base;
 
 	u = lws_upng_new();
 	if (!u)
@@ -198,11 +199,13 @@ decode_cut(size_t ti, const size_t *cuts, size_t ncuts, int oom)
 
 	/*
 	 * Only possible where lws accounts its heap.  The decoder object is
-	 * already allocated, the window it needs next is > 32KB
+	 * already allocated, and anything it allocates after that fails: the
+	 * next is the inflator, when the image data starts
 	 */
 
-	if (oom && lws_get_allocated_heap())
-		lws_heap_limit_set(lws_get_allocated_heap() + 4096);
+	base = lws_get_allocated_heap();
+	if (oom && base)
+		lws_heap_limit_set(base + 1);
 	else
 		oom = 0;
 
@@ -257,6 +260,20 @@ decode_cut(size_t ti, const size_t *cuts, size_t ncuts, int oom)
 		}
 
 		if (pix) {
+			/*
+			 * Where lws accounts its heap: a back reference can't
+			 * reach further than what was decoded so far, so these
+			 * small images' inflate window is their decoded size,
+			 * a few hundred bytes, not 32KB
+			 */
+			if (!rows && base &&
+			    lws_get_allocated_heap() - base > 16384) {
+				lwsl_err("%s: decoder holds %u\n", __func__,
+					 (unsigned int)
+					 (lws_get_allocated_heap() - base));
+				goto bail;
+			}
+
 			if (lws_upng_get_width(u) != w ||
 			    lws_upng_get_height(u) != h ||
 			    lws_upng_get_pixelsize(u) != bypp * 8) {

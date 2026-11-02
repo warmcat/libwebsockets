@@ -103,7 +103,11 @@ typedef enum {
 
 
 
-/* the inflate sliding window, 32KB, and some margin */
+/*
+ * The inflate sliding window, 32KB, and some margin... but a match can't
+ * reach back further than what was decoded so far, so an image whose whole
+ * decoded data is smaller only needs that much
+ */
 #define UPNG_INF_WINDOW		(32768 + 512)
 
 struct lws_upng_t {
@@ -526,7 +530,8 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 
 		case UOF_CHUNK_LEN:
 			if (!u->inf) {
-				size_t ims;
+				size_t ims, win = UPNG_INF_WINDOW;
+				uint64_t all;
 
 				/*
 				 * Confirm the line-pair + window arithmetic
@@ -544,7 +549,17 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 					return LWS_SRET_FATAL + 27;
 				}
 
-				ims = sizeof(inflator_ctx_t) + UPNG_INF_WINDOW +
+				/*
+				 * Non-interlaced, which is all we accept, the
+				 * decoded data is a filter byte and at most
+				 * bypl for each line
+				 */
+				all = (uint64_t)u->height *
+				      ((uint64_t)u->u.bypl + 1);
+				if (all < win)
+					win = (size_t)all;
+
+				ims = sizeof(inflator_ctx_t) + win +
 						(size_t)(u->u.bypl * 2);
 
 				/*
@@ -576,13 +591,13 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 				}
 				memset(u->inf, 0, sizeof(*u->inf));
 				u->inf->out	= (uint8_t *)&u->inf[1];
-				u->inf->info_size = UPNG_INF_WINDOW;
-				u->inf->outlen	= UPNG_INF_WINDOW;
+				u->inf->info_size = (unsigned int)win;
+				u->inf->outlen	= (unsigned int)win;
 				u->inf->bypl	= u->u.bypl;
 				u->inf->state	= UPNS_ID_BL_GB_DONE;
 				u->inf->upng	= u;
 
-				u->u.lines	= u->inf->out + UPNG_INF_WINDOW;
+				u->u.lines	= u->inf->out + win;
 				u->u.in		= u->inf->out;
 			}
 			u->chunklen = (u->chunklen << 8) | *pos++;
@@ -752,8 +767,9 @@ lws_upng_heap(lws_upng_t *u)
 		return 0;
 
 	return lws_fp_heap(u, sizeof(*u)) +
-	       lws_fp_heap(u->inf, sizeof(inflator_ctx_t) + UPNG_INF_WINDOW +
-				   (size_t)(u->u.bypl * 2));
+	       (u->inf ? lws_fp_heap(u->inf, sizeof(inflator_ctx_t) +
+					     u->inf->info_size +
+					     (size_t)(u->u.bypl * 2)) : 0);
 }
 #endif
 
