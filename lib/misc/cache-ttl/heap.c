@@ -513,6 +513,67 @@ lws_cache_heap_invalidate(struct lws_cache_ttl_lru *_c, const char *specific_key
 	return 0;
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+
+/*
+ * A heap cache holds its items, each with its key, until they expire or are
+ * evicted: eg, the dlo asset cache keeps whole fetched images and documents.
+ */
+
+static size_t
+heap_cache_item_heap(lws_cache_ttl_item_heap_t *item)
+{
+	return lws_fp_heap(item, sizeof(*item) + item->size + item->key_len + 1);
+}
+
+static void
+heap_cache_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
+{
+	lws_cache_ttl_lru_t_heap_t *cache = lws_container_of(fp,
+					lws_cache_ttl_lru_t_heap_t, fp);
+	size_t b = lws_fp_heap(cache, sizeof(*cache));
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cache->items_lru)) {
+		b += heap_cache_item_heap(lws_container_of(d,
+					lws_cache_ttl_item_heap_t, list_lru));
+	} lws_end_foreach_dll(d);
+
+	r->count	= cache->items_lru.count;
+	r->bytes	= b;
+	if (b > fp->bytes_hwm)
+		fp->bytes_hwm = b;
+	r->bytes_hwm	= fp->bytes_hwm;
+}
+
+static void
+heap_cache_fp_dump(lws_footprint_t *fp)
+{
+	lws_cache_ttl_lru_t_heap_t *cache = lws_container_of(fp,
+					lws_cache_ttl_lru_t_heap_t, fp);
+
+	/* the items big enough to matter, by key */
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cache->items_lru)) {
+		lws_cache_ttl_item_heap_t *item = lws_container_of(d,
+					lws_cache_ttl_item_heap_t, list_lru);
+		size_t h = heap_cache_item_heap(item);
+
+		if (h >= 512)
+			lwsl_cx_notice(cache->cache.info.cx,
+				       "fp:     %-40.40s %7llu B",
+				       (const char *)&item[1] + item->size,
+				       (unsigned long long)h);
+	} lws_end_foreach_dll(d);
+}
+
+static const lws_footprint_ops_t heap_cache_fp_ops = {
+	.shed_class	= LWSFP_SHED_NONE,
+	.report		= heap_cache_fp_report,
+	.dump		= heap_cache_fp_dump,
+};
+#endif
+
 static struct lws_cache_ttl_lru *
 lws_cache_heap_create(const struct lws_cache_creation_info *info)
 {
@@ -529,6 +590,12 @@ lws_cache_heap_create(const struct lws_cache_creation_info *info)
 	lws_cache_base_init(&cache->cache, info);
 	if (info->parent)
 		info->parent->child = &cache->cache;
+
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_register(info->cx, &cache->fp, "heap cache",
+			       &heap_cache_fp_ops);
+	lws_footprint_set_ident(&cache->fp, cache->cache.info.name);
+#endif
 
 	// lwsl_cache("%s: create %s\n", __func__, info->name);
 
@@ -572,6 +639,9 @@ lws_cache_heap_destroy(struct lws_cache_ttl_lru **_cache)
 	if (!cache)
 		return;
 
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_unregister(&cache->fp);
+#endif
 	lws_cache_heap_drain(cache);
 
 	/* destroying items rearms the sul while any are left */

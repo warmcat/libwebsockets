@@ -1144,6 +1144,77 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 	return 1; /* not found */
 }
 
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_FOOTPRINT)
+
+/*
+ * The assets of documents, fetching, queued or tracked for renewal, besides
+ * the dlo each one fills (whose payload and decoder are in its display list):
+ * the stream, and what is mirrored for the asset cache
+ */
+
+static size_t
+dloss_fp_heap(dloss_t *m)
+{
+	size_t b = sizeof(*m);
+
+#if defined(LWS_WITH_CACHE_BLOB)
+	b += lws_buflist_total_len(&m->cache_bl) +
+	     lws_fp_heap(m->cache_hit, m->cache_hit_len);
+#endif
+
+	return b;
+}
+
+static void
+dloss_fp_walk(struct lws_context *cx, lws_footprint_report_t *r)
+{
+	lws_dll2_owner_t *owners[2] = { &cx->active_assets,
+					&cx->pending_assets };
+	int n;
+
+	for (n = 0; n < 2; n++)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(owners[n])) {
+			dloss_t *m = lws_container_of(d, dloss_t,
+						      active_asset_list);
+			size_t b = dloss_fp_heap(m);
+
+			if (r) {
+				r->count++;
+				r->bytes += b;
+			} else
+				lwsl_cx_notice(cx, "fp:     %-40.40s %7llu B%s",
+					       m->url, (unsigned long long)b,
+					       n ? " (queued)" : "");
+		} lws_end_foreach_dll(d);
+}
+
+static void
+dloss_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
+{
+	struct lws_context *cx = lws_container_of(fp, struct lws_context,
+						  fp_dlo_assets);
+
+	dloss_fp_walk(cx, r);
+	if (r->bytes > fp->bytes_hwm)
+		fp->bytes_hwm = r->bytes;
+	r->bytes_hwm = fp->bytes_hwm;
+}
+
+static void
+dloss_fp_dump(lws_footprint_t *fp)
+{
+	dloss_fp_walk(lws_container_of(fp, struct lws_context, fp_dlo_assets),
+		      NULL);
+}
+
+static const lws_footprint_ops_t dloss_fp_ops = {
+	.shed_class	= LWSFP_SHED_NONE,
+	.report		= dloss_fp_report,
+	.dump		= dloss_fp_dump,
+};
+#endif
+
 int
 lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 {
@@ -1169,6 +1240,13 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 	if (ul < 5)
 		return 1;
+
+#if defined(LWS_WITH_FOOTPRINT)
+	/* the context's assets take part from the first, until it goes */
+	if (i->cx && lws_dll2_is_detached(&i->cx->fp_dlo_assets.list))
+		lws_footprint_register(i->cx, &i->cx->fp_dlo_assets,
+				       "dlo assets", &dloss_fp_ops);
+#endif
 
 	/*
 	 * Assets are only ever fetched on behalf of a document, so cap how many

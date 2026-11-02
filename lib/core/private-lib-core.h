@@ -622,6 +622,9 @@ struct lws_context {
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dll2_owner_t			active_assets; /* dloss_t */
 	lws_dll2_owner_t			pending_assets; /* dloss_t, queued for a slot */
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t				fp_dlo_assets; /* both lists */
+#endif
 	lws_sorted_usec_list_t			sul_assets_kick; /* retry starting
 						* queued assets when fds are short */
 #endif
@@ -1411,6 +1414,8 @@ size_t
 lws_lhp_heap(struct lhp_ctx *ctx);
 size_t
 lws_gif_heap(struct lws_gif *g);
+size_t
+lws_svg_heap(struct lws_svg *s);
 #endif
 
 /*

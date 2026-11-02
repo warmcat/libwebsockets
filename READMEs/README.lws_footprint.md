@@ -138,7 +138,9 @@ The tls library's own allocations, through mbedtls' allocator hook|`"mbedtls"`|-
 Each QUIC connection|`"quic conn"`|vhost name|itself, its keys and congestion control state, frames queued and in flight, held packets, crypto and stream reassembly
 Each pt's header table pool, while it has any|`"ah pool"`|-|each ah and its header data
 Each html document being fetched and laid out|`"html doc"`|url|the html received so far, the parser's css lwsacs and open elements
-Each display list bound to a context|`"display list"`|-|every dlo, and images' payloads, decoders and rows; the `items` dump lists the dlos holding more than 1KB, by name
+Each display list bound to a context|`"display list"`|-|every dlo, and images' payloads, decoders and rows, svg scenes and gif frames; the `items` dump lists the dlos holding more than 1KB, by name
+Each heap `lws_cache_ttl` cache|`"heap cache"`|the cache's name, eg, `ASSET_L1`|its items with their keys; the `items` dump lists those of 512 bytes or more, by key
+The context's document assets, fetching, queued or tracked for renewal|`"dlo assets"`|-|each asset's stream and what it mirrors for the asset cache; the `items` dump lists them by url
 
 Participants that work out what they hold on demand, rather than counting as
 they go, size each allocation with `lws_fp_heap()`: what the platform says
@@ -176,12 +178,9 @@ participant|source|shed class
 ---|---|---
 JIT Trust vhosts in their grace period|`"vhost"`|IDLE
 Idle h2 connections kept for reuse|`"h2 conn"`|CONN
-The context's `lws_cache_ttl` caches|`"dns cache"`, `"alt-svc cache"`, `"h3 cap cache"`, `"trust cache"`|CACHE
-The dlo asset cache and the reclaimable heap occupants (fonts, decoded images)|`"dlo asset cache"`, `"reclaimable"`|CACHE
+Shedding expired and least recently used items from the heap caches|`"heap cache"`|CACHE
+The reclaimable heap occupants (fonts, decoded images)|`"reclaimable"`|CACHE
 Secure Streams handles|`"ss handles"`|NONE
-
-`lws_cache_ttl` and `lwsac` already track their own sizes, so they take part
-by reporting what they already know.
 
 ## Later
 

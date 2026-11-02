@@ -3179,6 +3179,10 @@ next_l:
 		lws_cache_destroy(&context->nsc);
 #endif
 
+#if defined(LWS_WITH_DLO) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_FOOTPRINT)
+		lws_footprint_unregister(&context->fp_dlo_assets);
+#endif
 #if defined(LWS_WITH_CACHE_BLOB)
 		lws_cache_destroy(&context->dlo_asset_l1);
 		lws_cache_destroy(&context->dlo_asset_cache_blob);

@@ -4297,6 +4297,18 @@ lws_svg_set_render_size(lws_svg_t *ctx, unsigned int w, unsigned int h)
 		tol_update(ctx);
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+size_t
+lws_svg_heap(lws_svg_t *ctx)
+{
+	if (!ctx)
+		return 0;
+
+	/* the shared rasterization scratch isn't any one object's */
+	return lws_fp_heap(ctx, sizeof(*ctx)) + ctx->heap_now;
+}
+#endif
+
 size_t
 lws_svg_get_heap_peak(const lws_svg_t *ctx)
 {

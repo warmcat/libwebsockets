@@ -86,6 +86,9 @@ typedef struct lws_cache_ttl_lru {
 
 typedef struct lws_cache_ttl_lru_heap {
 	lws_cache_ttl_lru_t		cache;
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t			fp; /* "heap cache" participant */
+#endif
 
 	lws_dll2_owner_t		items_expiry;
 	lws_dll2_owner_t		items_lru;

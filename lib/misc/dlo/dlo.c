@@ -75,9 +75,9 @@ dl_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
 	dl_fp_walk_t w = { r, NULL };
 
 	dl_fp_walk(&dl->dl, &w);
-	r->bytes_hwm = fp->bytes_hwm;
 	if (r->bytes > fp->bytes_hwm)
 		fp->bytes_hwm = r->bytes;
+	r->bytes_hwm = fp->bytes_hwm;
 }
 
 static void

@@ -246,7 +246,7 @@ lws_footprint_alloc_failed(size_t size, const char *reason)
 	in_dump = 1;
 	lwsl_cx_warn(fp_oom_cx, "fp: no heap for %llu bytes for %s",
 		     (unsigned long long)size, reason ? reason : "-");
-	lws_footprint_dump(fp_oom_cx, 0);
+	lws_footprint_dump(fp_oom_cx, 1);
 	in_dump = 0;
 #else
 	(void)size;

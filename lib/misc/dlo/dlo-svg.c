@@ -198,6 +198,17 @@ lws_display_dlo_svg_metadata_scan(lws_dlo_svg_t *dlo_svg)
 	return LWS_SRET_OK;
 }
 
+#if defined(LWS_WITH_FOOTPRINT)
+static size_t
+lws_display_dlo_svg_heap(struct lws_dlo *dlo)
+{
+	lws_dlo_svg_t *dlo_svg = lws_container_of(dlo, lws_dlo_svg_t, dlo);
+
+	return lws_buflist_total_len(&dlo_svg->flow.bl) +
+	       lws_svg_heap(dlo_svg->svg);
+}
+#endif
+
 lws_dlo_svg_t *
 lws_display_dlo_svg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 			lws_box_t *box, const char *name, size_t len)
@@ -215,6 +226,10 @@ lws_display_dlo_svg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 	dlo_svg->dlo.box = *box;
 	dlo_svg->dlo.render = lws_display_render_svg;
 	dlo_svg->dlo._destroy = lws_display_dlo_svg_destroy;
+#if defined(LWS_WITH_FOOTPRINT)
+	dlo_svg->dlo._heap = lws_display_dlo_svg_heap;
+	dlo_svg->dlo.fp_name = dlo_svg->name;
+#endif
 
 	lws_display_dlo_add(dl, dlo_parent, &dlo_svg->dlo);
 
