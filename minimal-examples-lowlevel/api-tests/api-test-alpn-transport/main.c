@@ -12,7 +12,7 @@
  * server may negotiate h3 on tcp, and a request the client may only make with
  * h3 must go on quic, also when it is redirected.
  *
- * One process has four server vhosts, each on its own port with the alpn list
+ * One process has five server vhosts, each on its own port with the alpn list
  * "h3,h2,http/1.1", so each listens on both tcp and quic, and a client.  The
  * servers answer with the protocol the request came on, "h1", "h2" or "h3".
  * Each step is a GET to an origin the client knows nothing about yet, so what
@@ -34,6 +34,12 @@
  *    server does not select h3 there, it is served over h1.  Only with
  *    LWS_WITH_SYS_FAULT_INJECTION
  *
+ *  - h3 alone, slow handshake: the client takes 2.5s of cpu to verify the
+ *    server's cert (fault tls_quic_cert_slow), as a slow device may, which is
+ *    longer than its grace for quic to show it gets through at all: that was
+ *    answered when the server's handshake reached it, so it carries on, and
+ *    the request is served over h3.  Only with LWS_WITH_SYS_FAULT_INJECTION
+ *
  * The test fails if a step isn't served over what it expects, or the steps
  * don't finish inside the watchdog period.
  */
@@ -50,26 +56,29 @@ static const struct step {
 	const char	*alpn;
 	const char	*path;
 	const char	*fault;		/* the client wsi's, or NULL */
+	unsigned int	verify_ms;	/* fault: the client's cert verify takes */
 	int		server;		/* index of the server it goes to */
 	int		redir;		/* index of the server /redir goes to */
 	const char	*served;	/* over what it must be served */
 } steps[] = {
 	{ "h3 alone: made on quic",
-	  "h3", "/", NULL, 0, 0, "h3" },
+	  "h3", "/", NULL, 0, 0, 0, "h3" },
 	{ "h3 alone, redirected: the redirect is followed on quic",
-	  "h3", "/redir", NULL, 0, 1, "h3" },
+	  "h3", "/redir", NULL, 0, 0, 1, "h3" },
 	{ "tcp, h3 offered: h3 left out on tcp",
-	  "h3,h2,http/1.1", "/", NULL, 2, 0, "h2" },
+	  "h3,h2,http/1.1", "/", NULL, 0, 2, 0, "h2" },
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	{ "tcp, h3 offered anyway: the server doesn't select it on tcp",
-	  "h3,http/1.1", "/", "tls_alpn_unfiltered", 3, 0, "h1" },
+	  "h3,http/1.1", "/", "tls_alpn_unfiltered", 0, 3, 0, "h1" },
+	{ "h3 alone, slow handshake: not abandoned after the path is proven",
+	  "h3", "/", NULL, 2500, 4, 0, "h3" },
 #endif
 };
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_step, sul_watchdog;
 static const char *server_addr = "127.0.0.1";
-static int ports[] = { 7700, 7701, 7702, 7703 }, cur = -1, failures;
+static int ports[] = { 7700, 7701, 7702, 7703, 7704 }, cur = -1, failures;
 
 static struct {
 	char		body[16];
@@ -293,6 +302,28 @@ next_step(lws_sorted_usec_list_t *sul)
 		memset(&fi, 0, sizeof(fi));
 		fi.name = s->fault;
 		fi.type = LWSFI_ALWAYS;
+		if (lws_fi_add(&i.fic, &fi)) {
+			failures++;
+			lws_default_loop_exit(context);
+			return;
+		}
+	}
+	if (s->verify_ms) {
+		/* only the first of the server's Handshake flight is slow... */
+		memset(&fi, 0, sizeof(fi));
+		fi.name = "tls_quic_cert_slow";
+		fi.type = LWSFI_DETERMINISTIC;
+		fi.count = 1;
+		if (lws_fi_add(&i.fic, &fi)) {
+			failures++;
+			lws_default_loop_exit(context);
+			return;
+		}
+		/* ... and takes this long */
+		fi.name = "tls_quic_cert_slow_ms";
+		fi.type = LWSFI_RANGE;
+		fi.pre = s->verify_ms;
+		fi.count = s->verify_ms + 1;
 		if (lws_fi_add(&i.fic, &fi)) {
 			failures++;
 			lws_default_loop_exit(context);

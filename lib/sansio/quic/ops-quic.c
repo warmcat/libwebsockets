@@ -3596,6 +3596,18 @@ tp_ok:
 			}
 		}
 
+#if defined(LWS_WITH_CLIENT)
+		/*
+		 * Only the server we sent our Initial to has the keys for its
+		 * Handshake packets: one authenticating shows QUIC gets
+		 * through, which is what a client falling back to TCP waits
+		 * to learn (lws_client_quic_path_proven())
+		 */
+		if (level == LWS_QUIC_LEVEL_HANDSHAKE && nwsi->quic.qn &&
+		    !nwsi->quic.qn->is_server)
+			lws_client_quic_path_proven(wsi);
+#endif
+
 		/*
 		 * A client takes the SCID of the server's first Initial that
 		 * authenticated as the DCID of everything it sends from now

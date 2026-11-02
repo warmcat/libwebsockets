@@ -1878,6 +1878,11 @@ typedef struct lws_io_plumbing {
 	/**< the client wsi is restarting on a new address and may belong on
 	 * another vhost now, the one whose trust store (jit trust) is for it:
 	 * rebind it.  IO's is lws_client_transport_rebind(). */
+	void (*quic_path_proven)(struct lws *wsi);
+	/**< the client wsi's QUIC handshake has authenticated packets from
+	 * the server, so QUIC gets through: whatever it waited on to decide
+	 * if it should fall back to TCP is answered.  IO's is
+	 * lws_client_quic_path_proven(). */
 	void (*vhost_jit_grace)(struct lws_vhost *vh);
 	/**< vh, made for a peer trusted just in time, lost its last
 	 * connection: keep it a grace period in case another comes, then

@@ -205,6 +205,8 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul);
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 void
 lws_client_quic_peer_rejected(struct lws *wsi);
+void
+lws_client_quic_path_proven(struct lws *wsi);
 #endif
 
 
@@ -622,6 +624,9 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
 #if defined(LWS_ROLE_QUIC)
 int
 lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb);
+int
+lws_tls_quic_handshake(struct lws *wsi, int level, const uint8_t *in,
+		       size_t in_len, uint8_t *out, size_t *out_len);
 int
 lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len);
 int
