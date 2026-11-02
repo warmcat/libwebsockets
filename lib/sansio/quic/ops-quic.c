@@ -6982,9 +6982,73 @@ quic_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
 	r->bytes_hwm	= fp->bytes_hwm;
 }
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+/*
+ * What the connection holds, by part: the frames are counted as well as
+ * sized, since many small ones queued or awaiting their ack are a different
+ * problem from a few big ones
+ */
+
+static void
+quic_fp_dump(lws_footprint_t *fp)
+{
+	struct lws_quic_netconn *qn = lws_container_of(fp,
+					struct lws_quic_netconn, fp);
+	static const char * const lvl[] = { "init", "0rtt", "hs", "app" };
+	size_t early = 0;
+	unsigned int ne = 0;
+	int i;
+
+	lwsl_wsi_notice(qn->nwsi, "fp:     conn %u, cc %u, "
+			"stream rx held out of order %u",
+			(unsigned int)(lws_fp_heap(qn, sizeof(*qn)) +
+				       lws_fp_heap(qn->rx_next,
+						   sizeof(*qn->rx_next))),
+			(unsigned int)lws_fp_heap(qn->cc_state, 0),
+			(unsigned int)qn->rx_stream_buffered);
+
+	for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
+		size_t crypto = qn->rx_crypto_held[i].charged +
+				lws_fp_heap(qn->crypto_rx_buf[i],
+					    qn->crypto_rx_buf_alloc[i]);
+
+		if (!qn->keys[i] && !crypto &&
+		    !qn->pending_tx[i].count && !qn->in_flight[i].count)
+			continue;
+
+		lwsl_wsi_notice(qn->nwsi, "fp:     %-4s keys %u, crypto rx %u, "
+				"pending tx %u (%u B), in flight %u (%u B)",
+				i < (int)LWS_ARRAY_SIZE(lvl) ? lvl[i] : "?",
+				(unsigned int)lws_fp_heap(qn->keys[i],
+						sizeof(*qn->keys[i])),
+				(unsigned int)crypto,
+				(unsigned int)qn->pending_tx[i].count,
+				(unsigned int)quic_fp_frames(&qn->pending_tx[i]),
+				(unsigned int)qn->in_flight[i].count,
+				(unsigned int)quic_fp_frames(&qn->in_flight[i]));
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&qn->early_pkts)) {
+		struct lws_quic_early_pkt *e = lws_container_of(d,
+					struct lws_quic_early_pkt, list);
+
+		early += lws_fp_heap(e, sizeof(*e) + e->len);
+		ne++;
+	} lws_end_foreach_dll(d);
+
+	if (ne)
+		lwsl_wsi_notice(qn->nwsi, "fp:     early packets %u (%u B)",
+				ne, (unsigned int)early);
+}
+#endif
+
 static const lws_footprint_ops_t quic_fp_ops = {
 	.shed_class	= LWSFP_SHED_NONE,
 	.report		= quic_fp_report,
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	.dump		= quic_fp_dump,
+#endif
 };
 
 void
