@@ -72,6 +72,13 @@
  #include <esp_task_wdt.h>
 #endif
 
+#if defined(LWS_ESP_PLATFORM)
+#include <esp_heap_caps.h>
+/* how much heap an allocation really holds, so lws can account for it */
+#define LWS_PLAT_ALLOC_SIZE
+#define lws_plat_alloc_size(_p) heap_caps_get_allocated_size(_p)
+#endif
+
 #if defined(LWS_WITH_ESP32)
 #include "lwip/apps/sntp.h"
 #include <errno.h>

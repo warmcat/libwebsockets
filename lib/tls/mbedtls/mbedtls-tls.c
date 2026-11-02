@@ -52,18 +52,8 @@ lws_tls_err_describe_clear(void)
 
 #if defined(MBEDTLS_PLATFORM_MEMORY) && \
     !defined(MBEDTLS_PLATFORM_CALLOC_MACRO) && \
-    !defined(MBEDTLS_PLATFORM_FREE_MACRO) && \
-    (defined(LWS_HAVE_MALLOC_USABLE_SIZE) || \
-     (defined(LWS_PLAT_FREERTOS) && !defined(LWS_AMAZON_RTOS)))
+    !defined(MBEDTLS_PLATFORM_FREE_MACRO) && defined(LWS_PLAT_ALLOC_SIZE)
 #define LWS_MBEDTLS_FOOTPRINT
-
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-#include <malloc.h>
-#define fp_alloc_size(_p) malloc_usable_size(_p)
-#else
-#include <esp_heap_caps.h>
-#define fp_alloc_size(_p) heap_caps_get_allocated_size(_p)
-#endif
 
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
 #define MBEDTLS_PLATFORM_STD_CALLOC calloc
@@ -93,7 +83,7 @@ fp_mbedtls_calloc(size_t n, size_t size)
 	lws_footprint_t *fp = fp_mbedtls;
 
 	if (p && fp) {
-		size_t b = fp_atomic_add(&fp->bytes, fp_alloc_size(p));
+		size_t b = fp_atomic_add(&fp->bytes, lws_plat_alloc_size(p));
 
 		fp_atomic_add(&fp->count, 1);
 		if (b > fp->bytes_hwm) /* only roughly, for diagnostics */
@@ -114,7 +104,7 @@ fp_mbedtls_free(void *p)
 	 * since, so they may go a little low, never wrap
 	 */
 	if (p && fp && fp->count) {
-		size_t s = fp_alloc_size(p);
+		size_t s = lws_plat_alloc_size(p);
 
 		if (fp->bytes >= s) {
 			fp_atomic_sub(&fp->bytes, s);

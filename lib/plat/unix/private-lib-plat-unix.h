@@ -28,6 +28,13 @@
 #include <strings.h>
 #include <unistd.h>
 
+#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#include <malloc.h>
+/* how much heap an allocation really holds, so lws can account for it */
+#define LWS_PLAT_ALLOC_SIZE
+#define lws_plat_alloc_size(_p) malloc_usable_size(_p)
+#endif
+
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>

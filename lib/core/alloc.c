@@ -24,9 +24,7 @@
 
 #include "private-lib-core.h"
 
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-
-#include <malloc.h>
+#if defined(LWS_PLAT_ALLOC_SIZE)
 
 /* the heap is processwide */
 static size_t allocated, heap_limit;
@@ -109,7 +107,7 @@ lws_reclaim(size_t want)
 void
 lws_heap_limit_set(size_t bytes)
 {
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#if defined(LWS_PLAT_ALLOC_SIZE)
 	heap_limit = bytes;
 #else
 	(void)bytes;
@@ -252,9 +250,9 @@ _realloc(void *ptr, size_t size, const char *reason)
 			   (unsigned long)size, reason);
 #endif
 
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#if defined(LWS_PLAT_ALLOC_SIZE)
 		if (ptr)
-			allocated -= malloc_usable_size(ptr);
+			allocated -= lws_plat_alloc_size(ptr);
 #endif
 
 		/*
@@ -265,7 +263,7 @@ _realloc(void *ptr, size_t size, const char *reason)
 		 */
 
 		for (;;) {
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#if defined(LWS_PLAT_ALLOC_SIZE)
 			if (heap_limit && allocated + size > heap_limit)
 				v = NULL;
 			else
@@ -279,10 +277,10 @@ _realloc(void *ptr, size_t size, const char *reason)
 				break;
 
 			if (!lws_reclaim(size)) {
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#if defined(LWS_PLAT_ALLOC_SIZE)
 				/* the old block is still ours */
 				if (ptr)
-					allocated += malloc_usable_size(ptr);
+					allocated += lws_plat_alloc_size(ptr);
 #endif
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 				/* ... and still live: list it again */
@@ -295,8 +293,8 @@ _realloc(void *ptr, size_t size, const char *reason)
 			}
 		}
 
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-		allocated += malloc_usable_size(v);
+#if defined(LWS_PLAT_ALLOC_SIZE)
+		allocated += lws_plat_alloc_size(v);
 #endif
 
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
@@ -325,8 +323,8 @@ _realloc(void *ptr, size_t size, const char *reason)
 		_lws_alloc_metadata_trim(&ptr, NULL, NULL);
 #endif
 
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-		allocated -= malloc_usable_size(ptr);
+#if defined(LWS_PLAT_ALLOC_SIZE)
+		allocated -= lws_plat_alloc_size(ptr);
 #endif
 		free(ptr);
 #if defined(LWS_PLAT_FREERTOS)
@@ -375,7 +373,7 @@ void lws_set_allocator(void *(*cb)(void *ptr, size_t size, const char *reason))
 
 size_t lws_get_allocated_heap(void)
 {
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#if defined(LWS_PLAT_ALLOC_SIZE)
 	return allocated;
 #else
 	return 0;

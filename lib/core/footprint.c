@@ -196,7 +196,7 @@ lws_footprint_dump(struct lws_context *cx, int items)
 				   (unsigned long long)heap_free, used,
 				   used - (long long)t.bytes);
 	}
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+#if defined(LWS_PLAT_ALLOC_SIZE)
 	else {
 		size_t lws_heap = lws_get_allocated_heap();
 

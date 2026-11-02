@@ -855,10 +855,13 @@ CHECK_C_SOURCE_COMPILES(
 	"#include <malloc.h>
 	int main(int argc, char **argv) { return malloc_trim(0); }
 	" LWS_HAVE_MALLOC_TRIM)
-CHECK_C_SOURCE_COMPILES(
-	"#include <malloc.h>
-	int main(int argc, char **argv) { return (int)malloc_usable_size((void *)0); }
-	" LWS_HAVE_MALLOC_USABLE_SIZE)
+if (NOT ESP_PLATFORM)
+	# esp-idf has one, but it's a stub that always says 0
+	CHECK_C_SOURCE_COMPILES(
+		"#include <malloc.h>
+		int main(int argc, char **argv) { return (int)malloc_usable_size((void *)0); }
+		" LWS_HAVE_MALLOC_USABLE_SIZE)
+endif()
 
 if (PICO_SDK_PATH)
 	set(CMAKE_REQUIRED_DEFINITIONS "-Dxxexit=exit")
