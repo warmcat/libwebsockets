@@ -2170,9 +2170,12 @@ sul_cb_write(struct lws_sorted_usec_list *sul)
 	 * It's the socket's own wsi: its pt's thread may be servicing it as
 	 * we look, but its fd stays open while it's ours, since the close
 	 * takes it from us under the context lock we hold before the fd goes.
+	 *
+	 * A synthetic query is never written, it waits for its answers to be
+	 * injected, so its socket says nothing about it: it ends here as ever.
 	 */
 
-	if (wsi && !lws_send_pipe_choked(wsi)) {
+	if (wsi && !q->is_synthetic && !lws_send_pipe_choked(wsi)) {
 		lwsl_wsi_info(wsi, "not serviced yet, waiting again");
 		lws_adns_q_sul_schedule(q, &q->write_sul, sul_cb_write,
 					LWS_US_PER_SEC);
