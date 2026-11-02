@@ -98,6 +98,113 @@ lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul)
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
 
+/*
+ * Give up the wsi's QUIC attempt and start his connection again from DNS, on
+ * fresh state, using the same machinery as the QUIC-fail path in
+ * lws_inform_client_conn_fail(): reset the wsi and pass it through the close
+ * flow marked as a redirect.
+ *
+ * We can't just repurpose the live wsi by transitioning it to another role
+ * and starting a fresh connect attempt on it: the wsi still owns the QUIC TLS
+ * session objects, so a TCP TLS handshake reuses them (lws_client_create_tls()
+ * only builds a new SSL session when wsi->io->tls.ssl is NULL) and can then
+ * never complete, wedging the connection until timeout.  The redirect-marked
+ * close flow destroys the QUIC role and TLS state properly (including closing
+ * any parallel happy-eyeballs racers and the QUIC socket) and restarts the
+ * connection from DNS with fresh state.  What the restart connects with, QUIC
+ * or TCP, is decided again by the connect, from what the caller left it.
+ */
+static void
+lws_client_quic_restart(struct lws *wsi, const char *why)
+{
+	const char *path = wsi->stash ? wsi->stash->cis[CIS_PATH]
+			: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+	const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST]
+			: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+	/* the header table has the address once the stash is gone */
+	const char *ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+				_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+
+	/*
+	 * Free the QUIC netconn now, while it is still reachable from
+	 * wsi->quic.qn: the wsi reset below clears wsi->quic wholesale, and
+	 * the netconn (with its keys and pending frames) is only destroyed
+	 * by the role close_kill handler.  Call it here explicitly since
+	 * the close flow will find the already-cleared wsi->quic.
+	 */
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
+	if (!ads || !host || !path ||
+	    !lws_client_reset(&wsi, !!(wsi->flags & LCCSCF_USE_SSL),
+			      ads, wsi->c_port, path, host, NULL, 1))
+		/*
+		 * No stash to restart from, or the reset failed: the close
+		 * below just fails the connection
+		 */
+		lwsl_wsi_info(wsi, "unable to reset wsi");
+
+	/*
+	 * If the reset succeeded, its redirect marking keeps the wsi alive in
+	 * the close flow and restarts the connect from DNS on fresh state
+	 */
+
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, why);
+}
+
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+/*
+ * The QUIC handshake completed, but the server's certificate was refused
+ * (lws_tls_quic_confirm_peer()).  QUIC reaches the server fine, and TCP would
+ * be shown the same certificate, so the grace's fallback to TCP is no answer.
+ *
+ * We are inside the processing of the packet that finished the handshake, so
+ * what to do about it is done from the grace sul, next time around the event
+ * loop, see lws_client_quic_rejected()
+ */
+void
+lws_client_quic_peer_rejected(struct lws *wsi)
+{
+	wsi->io->quic_peer_rejected = 1;
+	lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->io->sul_h3_grace,
+			 lws_client_h3_grace_cb, 1);
+}
+
+static void
+lws_client_quic_rejected(struct lws *wsi)
+{
+	static const char cce[] = "server certificate rejected";
+
+	wsi->io->quic_peer_rejected = 0;
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	/*
+	 * JIT Trust learns what CA the server needs from an attempt that
+	 * fails like this one, and makes a vhost trusting it.  If that vhost
+	 * is there now, the retry the app would make is bound to it, and
+	 * succeeds... so make it ourselves, on QUIC again.  Only once: if it
+	 * is refused on that vhost too, the app hears of it.
+	 */
+	if (!wsi->io->quic_jit_retried && lws_client_transport_jit_moves(wsi)) {
+		lwsl_wsi_notice(wsi, "retrying QUIC on the JIT Trust vhost");
+		wsi->io->quic_jit_retried = 1;
+		wsi->io->quic_jit_retry = 1;
+		lws_client_quic_restart(wsi, "quic jit trust retry");
+
+		return;
+	}
+#endif
+
+	/*
+	 * TCP would only be refused the same certificate: this is the end of
+	 * this connection, the user hears why
+	 */
+	wsi->tried_quic = 0;
+	lws_inform_client_conn_fail(wsi, (void *)cce, sizeof(cce) - 1);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "quic peer rejected");
+}
+#endif
+
 void
 lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 {
@@ -105,6 +212,13 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 
 	if (!wsi->role_ops || strcmp(wsi->role_ops->name, "quic") != 0)
 		return;
+
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	if (wsi->io->quic_peer_rejected) {
+		lws_client_quic_rejected(wsi);
+		return;
+	}
+#endif
 
 	lwsl_wsi_notice(wsi, "H3 grace timer expired, abandoning QUIC for TCP");
 
@@ -151,76 +265,25 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	 */
 	lws_client_alt_svc_forget(wsi);
 #endif
-	/*
-	 * Free the QUIC netconn now, while it is still reachable from
-	 * wsi->quic.qn: the wsi reset below clears wsi->quic wholesale, and
-	 * the netconn (with its keys and pending frames) is only destroyed
-	 * by the role close_kill handler.  Call it here explicitly since
-	 * the close flow will find the already-cleared wsi->quic.
-	 */
-	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
-		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
-
-	/*
-	 * Abort QUIC and revert to TCP using the same machinery as the
-	 * QUIC-fail path in lws_inform_client_conn_fail(): reset the wsi
-	 * and pass it through the close flow marked as a redirect.
-	 *
-	 * We can't just repurpose the live wsi by transitioning it to the
-	 * h2 role and starting a fresh connect attempt on it: the wsi still
-	 * owns the QUIC TLS session objects, so the TCP TLS handshake
-	 * reuses them (lws_client_create_tls() only builds a new SSL
-	 * session when wsi->io->tls.ssl is NULL) and can then never complete,
-	 * wedging the connection until timeout.  The redirect-marked close
-	 * flow destroys the QUIC role and TLS state properly (including
-	 * closing any parallel happy-eyeballs racers and the QUIC socket)
-	 * and restarts the connection from DNS with fresh state.
-	 */
-	{
-		const char *path = wsi->stash ? wsi->stash->cis[CIS_PATH]
-				: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
-		const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST]
-				: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
-		/* the header table has the address once the stash is gone */
-		const char *ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
-
 #if defined(LWS_WITH_TLS)
-		/*
-		 * Recover the original offered ALPN for the retried
-		 * connection (an h1 streamtype must not silently become
-		 * h2)... the QUIC attempt had set wsi alpn to h3, the
-		 * original is kept in the ah headers from connect time.
-		 * If it itself leads with h3, fall back to the TCP alpns.
-		 */
-		if (strstr(wsi->alpn, "h3")) {
-			const char *orig = lws_hdr_simple_ptr(wsi,
-						_WSI_TOKEN_CLIENT_ALPN);
+	/*
+	 * Recover the original offered ALPN for the retried connection (an h1
+	 * streamtype must not silently become h2)... the QUIC attempt had set
+	 * wsi alpn to h3, the original is kept in the ah headers from connect
+	 * time.  If it itself leads with h3, fall back to the TCP alpns.
+	 */
+	if (strstr(wsi->alpn, "h3")) {
+		const char *orig = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_ALPN);
 
-			if (!orig || strstr(orig, "h3"))
-				orig = LWS_CLIENT_TCP_ALPNS;
+		if (!orig || strstr(orig, "h3"))
+			orig = LWS_CLIENT_TCP_ALPNS;
 
-			lws_strncpy(wsi->alpn, orig, sizeof(wsi->alpn));
-		}
+		lws_strncpy(wsi->alpn, orig, sizeof(wsi->alpn));
+	}
 #endif
 
-		if (!ads || !host || !path ||
-		    !lws_client_reset(&wsi, !!(wsi->flags & LCCSCF_USE_SSL),
-				      ads, wsi->c_port, path, host, NULL, 1))
-			/*
-			 * No stash to restart from, or the reset failed:
-			 * the close below just fails the connection
-			 */
-			lwsl_wsi_info(wsi, "unable to reset wsi for TCP");
-
-		/*
-		 * If the reset succeeded, its redirect marking keeps the
-		 * wsi alive in the close flow and restarts the connect
-		 * from DNS on fresh TCP + TLS state
-		 */
-
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "h3 grace cb");
-	}
+	lws_client_quic_restart(wsi, "h3 grace cb");
 }
 
 void
