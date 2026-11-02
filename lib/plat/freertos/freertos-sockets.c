@@ -76,6 +76,15 @@ lws_plat_set_nonblocking(lws_sockfd_type fd)
 }
 
 int
+lws_plat_set_udp_bufs(lws_sockfd_type fd)
+{
+	/* lwip has no SO_SNDBUF, and an MCU has nowhere near 4MiB to give */
+	(void)fd;
+
+	return 0;
+}
+
+int
 lws_plat_rx_pending(lws_sockfd_type fd, size_t *pending)
 {
 	/* lwip only answers FIONREAD in some configurations: say we can't */

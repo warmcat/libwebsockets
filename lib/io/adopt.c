@@ -890,15 +890,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (sock.sockfd == LWS_SOCK_INVALID)
 			goto resume;
 
-		{
-			int opt = 4 * 1024 * 1024;
-			if (setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0) {
-				lwsl_wsi_warn(wsi, "Failed to set SO_RCVBUF");
-			}
-			if (setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0) {
-				lwsl_wsi_warn(wsi, "Failed to set SO_SNDBUF");
-			}
-		}
+		if (lws_plat_set_udp_bufs(sock.sockfd))
+			lwsl_wsi_warn(wsi, "unable to size udp buffers");
 
 		if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
 		    lws_plat_set_nonblocking(sock.sockfd)) {
@@ -1116,15 +1109,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (sock.sockfd == LWS_SOCK_INVALID)
 		goto bail;
 
-	{
-		int opt = 4 * 1024 * 1024;
-		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0) {
-			lwsl_wsi_warn(wsi, "Failed to set SO_RCVBUF");
-		}
-		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0) {
-			lwsl_wsi_warn(wsi, "Failed to set SO_SNDBUF");
-		}
-	}
+	if (lws_plat_set_udp_bufs(sock.sockfd))
+		lwsl_wsi_warn(wsi, "unable to size udp buffers");
 
 	if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
 	    lws_plat_set_nonblocking(sock.sockfd)) {

@@ -125,6 +125,14 @@ lws_plat_set_nonblocking(lws_sockfd_type fd);
 int
 lws_plat_rx_pending(lws_sockfd_type fd, size_t *pending);
 
+/*
+ * Asks for big kernel buffers on a UDP socket, so QUIC and other datagram
+ * traffic isn't dropped in bursts.  Returns nonzero if the platform refused;
+ * platforms where it makes no sense, like lwip, do nothing and return 0.
+ */
+int
+lws_plat_set_udp_bufs(lws_sockfd_type fd);
+
 int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 			    int unix_skt);

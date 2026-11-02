@@ -167,6 +167,15 @@ lws_plat_set_nonblocking(lws_sockfd_type fd)
 }
 
 int
+lws_plat_set_udp_bufs(lws_sockfd_type fd)
+{
+	/* the TEE has no socket buffers to size */
+	(void)fd;
+
+	return 0;
+}
+
+int
 lws_plat_rx_pending(lws_sockfd_type fd, size_t *pending)
 {
 	(void)fd;

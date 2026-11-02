@@ -1205,13 +1205,8 @@ lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 		compatible_close(n_fd);
 		return 1;
 	}
-	{
-		int opt = 4 * 1024 * 1024;
-		if (setsockopt(n_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0)
-			lwsl_wsi_warn(nwsi, "udp swap: set SO_RCVBUF failed");
-		if (setsockopt(n_fd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0)
-			lwsl_wsi_warn(nwsi, "udp swap: set SO_SNDBUF failed");
-	}
+	if (lws_plat_set_udp_bufs(n_fd))
+		lwsl_wsi_warn(nwsi, "udp swap: unable to size udp buffers");
 	if (connect(n_fd, sa46_sockaddr((lws_sockaddr46 *)to_sa46),
 		    sa46_socklen((lws_sockaddr46 *)to_sa46)) < 0)
 		lwsl_wsi_warn(nwsi, "udp swap: connect fail errno=%d", LWS_ERRNO);
