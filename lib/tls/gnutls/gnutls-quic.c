@@ -418,12 +418,14 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 			i++;
 		}
 		gnutls_alpn_set_protocols(session, alpn, i, GNUTLS_ALPN_MANDATORY);
-	} else if (wsi->a.vhost && wsi->a.vhost->tls.alpn_ctx.len) {
+	} else if (wsi->a.vhost && wsi->a.vhost->tls.alpn_ctx.len_quic) {
 		gnutls_datum_t alpn[4];
 		unsigned int i = 0, p = 0;
-		while (p < wsi->a.vhost->tls.alpn_ctx.len && i < 4) {
-			alpn[i].data = &wsi->a.vhost->tls.alpn_ctx.data[p + 1];
-			alpn[i].size = wsi->a.vhost->tls.alpn_ctx.data[p];
+
+		/* the part of the vhost's list quic carries */
+		while (p < wsi->a.vhost->tls.alpn_ctx.len_quic && i < 4) {
+			alpn[i].data = &wsi->a.vhost->tls.alpn_ctx.data_quic[p + 1];
+			alpn[i].size = wsi->a.vhost->tls.alpn_ctx.data_quic[p];
 			p += alpn[i].size + 1;
 			i++;
 		}

@@ -78,9 +78,16 @@ struct lws_pt_tls {
 
 struct lws_tls_ss_pieces;
 
+/*
+ * A server's alpn list in wire format, as each transport may select from it:
+ * h3 only on quic, the h1 / h2 role alpns only on tcp, see
+ * lws_alpn_for_transport()
+ */
 struct alpn_ctx {
-	uint8_t data[23];
+	uint8_t data[23];	/* tcp */
 	uint8_t len;
+	uint8_t data_quic[23];
+	uint8_t len_quic;
 };
 
 /*

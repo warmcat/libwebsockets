@@ -810,7 +810,8 @@ lws_gnutls_client_hostname(struct lws *wsi, char *buf, size_t len)
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
-	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN], alpn_filtered[64];
+	const char *alpn_comma;
 	gnutls_session_t session;
 
 	if (lws_gnutls_client_hostname(wsi, hostname, sizeof(hostname))) {
@@ -934,12 +935,17 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	lws_tls_reuse_session(wsi);
 #endif
 
-	if (wsi->alpn[0]) {
+	alpn_comma = wsi->alpn[0] ? wsi->alpn : NULL;
+	if (lws_tls_client_alpn_transport(wsi, &alpn_comma, alpn_filtered,
+					  sizeof(alpn_filtered)))
+		return -1;
+
+	if (alpn_comma) {
 		gnutls_datum_t alpn[4];
 		unsigned int i = 0;
-		char *p = wsi->alpn;
+		char *p = alpn_filtered;
 		char *end = p + strlen(p);
-		
+
 		while (p < end && i < 4) {
 			char *comma = strchr(p, ',');
 			alpn[i].data = (uint8_t *)p;

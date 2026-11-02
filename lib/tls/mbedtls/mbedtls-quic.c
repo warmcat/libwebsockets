@@ -339,6 +339,23 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	if (!conn->ctx)
 		return -1;
 
+#if defined(LWS_WITH_SERVER)
+	if (!lwsi_role_client(wsi) && wsi->a.vhost) {
+		const char *a = wsi->a.vhost->tls.alpn ?
+				wsi->a.vhost->tls.alpn :
+				wsi->a.context->tls.alpn_default;
+		char alpn_quic[64];
+
+		/*
+		 * The vhost's config has the list tcp connections select from:
+		 * this connection selects from the part of it quic carries
+		 */
+		if (lws_alpn_for_transport(a, alpn_quic, sizeof(alpn_quic), 1) &&
+		    lws_mbedtls_conn_set_alpn(conn, alpn_quic))
+			return -1;
+	}
+#endif
+
 	/*
 	 * The QUIC transport mode is a property of this connection, but
 	 * mbedtls only takes it on the ssl config... which is the vhost-wide

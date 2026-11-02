@@ -509,6 +509,20 @@ solo:
 		if (my_alpn && !strstr(my_alpn, "h3"))
 			pinned = 1;
 
+		if (my_alpn && *my_alpn &&
+		    (!wsi->role_ops || strcmp(wsi->role_ops->name, "quic"))) {
+			char tcp[32];
+
+			/*
+			 * Nothing he asks for can go on tcp, eg, h3 alone:
+			 * there is no tcp connection to make, whether this is
+			 * his first connect or a redirect of one he made on
+			 * quic
+			 */
+			if (!lws_alpn_for_transport(my_alpn, tcp, sizeof(tcp), 0))
+				try_quic = 1;
+		}
+
 		if (!pinned && wsi->a.context->altsvc_cache && wsi->c_port) {
 			char key[256];
 			const uint8_t *payload;

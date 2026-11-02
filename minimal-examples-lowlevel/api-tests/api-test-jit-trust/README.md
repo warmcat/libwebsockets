@@ -38,10 +38,9 @@ server's certificate is refused on quic and JIT Trust has made a vhost that
 trusts it by then, lws makes the retry on quic itself, once, so the app sees no
 failed attempt.
 
-The pinned steps' redirect is followed over tcp, as lws follows any redirect
-of a connection made with h3 alone, and is refused there.  So over quic they
-show the pinned connection is not moved, but not yet that it is refused the
-certificate on quic.
+Over quic, every failed attempt must have been refused the server's
+certificate, including the pinned steps' redirected ones: a redirect of a
+connection made with h3 alone is followed on quic as well.
 
 ## The test PKI
 

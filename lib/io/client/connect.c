@@ -77,8 +77,8 @@ lws_client_pwsi_clear(const struct lws_client_connect_info *i,
 		*i->pwsi = NULL;
 }
 
-struct lws *
-lws_client_connect_via_info(const struct lws_client_connect_info *i)
+static struct lws *
+__lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
 	const char *local = i->protocol;
 	struct lws *wsi, *wsi_started, *pwsi_entry = i->pwsi ? *i->pwsi : NULL;
@@ -89,13 +89,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	struct lws_vhost *vh;
 	const char *alpn = i->alpn;
 	int tsi;
-
-	if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H3)
-		alpn = "h3";
-	else if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H2)
-		alpn = "h2";
-	else if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H1)
-		alpn = "http/1.1";
 
 	if (i->context->requested_stop_internal_loops) {
 		lws_client_transport_fd_drop(i);
@@ -721,4 +714,40 @@ bail2:
 	lws_client_pwsi_clear(i, pwsi_entry, wsi);
 
 	return NULL;
+}
+
+struct lws *
+lws_client_connect_via_info(const struct lws_client_connect_info *i)
+{
+	struct lws_client_connect_info *fi;
+	const char *forced = NULL;
+	struct lws *wsi;
+
+	if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H3)
+		forced = "h3";
+	else if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H2)
+		forced = "h2";
+	else if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H1)
+		forced = "http/1.1";
+
+	if (!forced || (i->alpn && !strcmp(i->alpn, forced)))
+		return __lws_client_connect_via_info(i);
+
+	/*
+	 * The commandline forced the alpn: connect as if the caller had given
+	 * it, so it also chooses the connection's role, eg, h3 is made on
+	 * quic, not offered on tcp, where nothing can carry it
+	 */
+	fi = lws_malloc(sizeof(*fi), __func__);
+	if (!fi) {
+		lws_client_transport_fd_drop(i);
+		return NULL;
+	}
+
+	*fi = *i;
+	fi->alpn = forced;
+	wsi = __lws_client_connect_via_info(fi);
+	lws_free(fi);
+
+	return wsi;
 }

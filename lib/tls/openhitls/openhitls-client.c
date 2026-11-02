@@ -520,7 +520,7 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 int lws_ssl_client_bio_create(struct lws *wsi)
 {
 	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
-	char alpn_buf[128];
+	char alpn_buf[128], alpn_filtered[128];
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	char temp_alpn[128];
 #endif
@@ -643,6 +643,12 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 			alpn_comma = temp_alpn;
 		}
 #endif
+	}
+
+	if (lws_tls_client_alpn_transport(wsi, &alpn_comma, alpn_filtered,
+					  sizeof(alpn_filtered))) {
+		HITLS_Free(ssl);
+		return -1;
 	}
 
 	lwsl_info("%s client conn using alpn list '%s'\n", wsi->role_ops->name,

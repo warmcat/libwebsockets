@@ -265,6 +265,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
     (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 	uint8_t openssl_alpn[40];
 	const char *alpn_comma = wsi->a.context->tls.alpn_default;
+	char alpn_filtered[40];
 	int n;
 #endif
 
@@ -478,6 +479,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			alpn_comma = hostname;
 #endif
 	}
+
+	if (lws_tls_client_alpn_transport(wsi, &alpn_comma, alpn_filtered,
+					  sizeof(alpn_filtered)))
+		return -1;
 
 	lwsl_info("%s client conn using alpn list '%s'\n", wsi->role_ops->name, alpn_comma);
 

@@ -187,6 +187,10 @@ __lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 int
 lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len);
+size_t
+lws_alpn_for_transport(const char *in, char *out, size_t len, int quic);
+int
+lws_alpn_wrong_transport(const char *e, size_t el, int quic);
 
 int
 lws_tls_server_conn_alpn(struct lws *wsi);

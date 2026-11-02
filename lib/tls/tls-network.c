@@ -591,6 +591,71 @@ lws_gate_accepts(struct lws_context *context, int on)
 }
 #endif
 
+/*
+ * Is this alpn one that the other transport carries?  The h1 / h2 role alpns
+ * are only serviced on top of tcp, and h3, or a draft of it, only on quic: a
+ * connection that negotiated one on the wrong transport would migrate to a
+ * role that can never make progress on it.  Other alpns, eg, lws' own
+ * "lws-quic", are left to the user.
+ */
+int
+lws_alpn_wrong_transport(const char *e, size_t el, int quic)
+{
+	if (quic)
+		return (el == 2 && !memcmp(e, "h2", 2)) ||
+		       (el == 8 && !memcmp(e, "http/1.1", 8));
+
+	return (el == 2 && !memcmp(e, "h3", 2)) ||
+	       (el > 3 && !memcmp(e, "h3-", 3));
+}
+
+/*
+ * Copy the comma-separated alpn list in to out, leaving out the alpns the
+ * transport, quic or tcp, can't carry.  Returns the length of the list in out,
+ * 0 if nothing in it can be offered or selected on that transport.
+ */
+size_t
+lws_alpn_for_transport(const char *in, char *out, size_t len, int quic)
+{
+	char *o = out;
+	const char *e;
+	size_t el;
+
+	if (!len)
+		return 0;
+
+	*out = '\0';
+	if (!in)
+		return 0;
+
+	while (*in) {
+		while (*in == ' ' || *in == ',')
+			in++;
+		e = in;
+		while (*in && *in != ',')
+			in++;
+		el = lws_ptr_diff_size_t(in, e);
+		while (el && e[el - 1] == ' ')
+			el--;
+
+		if (!el || lws_alpn_wrong_transport(e, el, quic))
+			continue;
+
+		/* room for a comma, the alpn and the NUL */
+		if (lws_ptr_diff_size_t(out + len, o) < el + 2)
+			break;
+
+		if (o != out)
+			*o++ = ',';
+		memcpy(o, e, el);
+		o += el;
+	}
+
+	*o = '\0';
+
+	return lws_ptr_diff_size_t(o, out);
+}
+
 /* comma-separated alpn list, like "h2,http/1.1" to openssl alpn format */
 
 int

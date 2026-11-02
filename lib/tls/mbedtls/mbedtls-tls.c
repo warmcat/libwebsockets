@@ -270,7 +270,6 @@ void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma)
 			      LWS_ARRAY_SIZE(ctx->alpn_protocols), alpn_comma);
 }
 
-#if defined(LWS_WITH_CLIENT)
 int
 lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma)
 {
@@ -279,10 +278,12 @@ lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma)
 
 	/*
 	 * The ALPN list is per-connection, but the vhost's mbedtls_ssl_config
-	 * is shared by every client connection on the vhost... writing the
-	 * list into that would let one connection change what another one
-	 * offers, and change what a completed connection reads back as the
-	 * negotiated protocol (which selects the h1 / h2 / h3 role).
+	 * is shared by every connection on the vhost... writing the list into
+	 * that would let one connection change what another one offers or
+	 * selects, and change what a completed connection reads back as the
+	 * negotiated protocol (which selects the h1 / h2 / h3 role).  A
+	 * client's list is its own, and a quic server connection selects from
+	 * a different part of the vhost's list than tcp ones do.
 	 *
 	 * mbedtls only ever reads ssl->conf, so give this connection a
 	 * private copy of the config to hang its own list on.  It aliases the
@@ -303,7 +304,6 @@ lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma)
 
 	return 0;
 }
-#endif
 
 #else
 void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma)
@@ -311,7 +311,6 @@ void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma)
 	(void)ctx;
 	(void)alpn_comma;
 }
-#if defined(LWS_WITH_CLIENT)
 int
 lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma)
 {
@@ -320,7 +319,6 @@ lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma)
 
 	return 1;
 }
-#endif
 #endif
 
 /*
