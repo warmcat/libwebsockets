@@ -9,6 +9,11 @@
  * Checks what lws_spawn_piped() reports a spawned process used, in its
  * lws_spawn_resource_us_t: that it's in bytes and uS on every platform, and
  * that it's for the whole process tree, not only the process lws started.
+ * And that each helper is reaped once it goes, on whatever event loop we
+ * run on: ctest runs it again on each event lib in the build, with
+ * LWS_EVLIB.  Not every event lib says when the far end of the helper's
+ * stdin, that we never write on, goes away (libuv doesn't), and lws must not
+ * wait for it to.
  *
  * The spawned processes are this program again, run as helpers:
  *
