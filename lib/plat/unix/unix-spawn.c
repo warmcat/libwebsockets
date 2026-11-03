@@ -61,20 +61,6 @@ lws_spawn_only_stdin_open(const struct lws_spawn_piped *lsp)
 }
 
 void
-lws_spawn_timeout(struct lws_sorted_usec_list *sul)
-{
-	struct lws_spawn_piped *lsp = lws_container_of(sul,
-					struct lws_spawn_piped, sul);
-
-	lwsl_warn("%s: spawn exceeded timeout, killing\n", __func__);
-
-	/* so the reap_cb can tell this apart from him going on his own */
-	lsp->we_killed_him_timeout = 1;
-
-	lws_spawn_piped_kill_child_process(lsp);
-}
-
-void
 lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 {
 	struct lws_spawn_piped *lsp = lws_container_of(sul,
@@ -85,8 +71,8 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 	if (lws_spawn_reap(lsp))
 		return;
 
-	if (lsp->pipes_alive) {
-		if (!lsp->ungraceful && lws_spawn_only_stdin_open(lsp))
+	if (!lsp->ungraceful && lsp->pipes_alive) {
+		if (lws_spawn_only_stdin_open(lsp))
 			/*
 			 * He closed what he writes to us on, but his stdin
 			 * can't tell us when he goes: look for him, for as
@@ -150,6 +136,42 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 	lsp->si.si_status = -1;
 
 	lws_spawn_reap(lsp);
+}
+
+void
+lws_spawn_timeout(struct lws_sorted_usec_list *sul)
+{
+	struct lws_spawn_piped *lsp = lws_container_of(sul,
+					struct lws_spawn_piped, sul);
+
+	if (lsp->reaped) {
+		/*
+		 * He was collected already: this is the grace for his stdio
+		 * to drain running out, something he started holding it say.
+		 * There's nobody to kill, and whether it was us that killed
+		 * him is already noted: we only stop waiting for his pipes.
+		 */
+		lwsl_notice("%s: spawn's stdio still open after he went\n",
+			    __func__);
+		lsp->ungraceful = 1;
+	} else {
+		lwsl_warn("%s: spawn exceeded timeout, killing\n", __func__);
+
+		/* so the reap_cb can tell this apart from him going on his own */
+		lsp->we_killed_him_timeout = 1;
+
+		lws_spawn_piped_kill_child_process(lsp);
+	}
+
+	/*
+	 * We aren't waiting for his stdio to drain any more.  If it doesn't
+	 * close, something he started holding it say, nothing else would come
+	 * back to finish him off: look for him ourselves, with the budget the
+	 * reap has for a child that won't go.
+	 */
+	lsp->reap_retry_budget = 20;
+	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul_reap,
+			 lws_spawn_sul_reap, 1);
 }
 
 static struct lws *
