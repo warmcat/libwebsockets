@@ -49,8 +49,6 @@
 #define LWS_FONTS_FAMILY_MAX_SIZES	8
 /* a page bigger than this is not something a small device should fetch */
 #define LWS_FONTS_PAGE_MAX_LEN		(128 * 1024)
-/* a page's buffer grows by this as it arrives */
-#define LWS_FONTS_PAGE_GRANULE		4096
 /* after the server failed us, how long to use the local faces instead */
 #define LWS_FONTS_REMOTE_HOLDOFF_S	30
 /*
@@ -121,9 +119,8 @@ static const lws_struct_map_t lsm_fonts_manifest_schema[] = {
 LWS_SS_USER_TYPEDEF
 	lws_fonts_remote_t		*fr;
 	lws_mcufont_page_t		*p;	/* NULL: this is the manifest */
-	uint8_t				*buf;	/* the page as it arrives */
+	struct lws_buflist		*bl;	/* the page as it arrives */
 	size_t				pos;
-	size_t				alloc;
 	struct lejp_ctx			jctx;
 	lws_struct_args_t		a;
 	uint8_t				parsing:1;
@@ -657,6 +654,19 @@ lws_fonts_manifest_start(lws_fonts_remote_t *fr)
 }
 
 /*
+ * Not the server's fault: what is resident is all in use.  Text that needs
+ * the page is set in a local face for a little while, then we ask again
+ */
+
+static void
+lws_fonts_page_nomem(lws_mcufont_page_t *p)
+{
+	lwsl_cx_notice(p->r->fr->cx, "no memory for %s/%04x", p->r->path,
+		       (unsigned int)p->page);
+	p->holdoff_until = lws_now_usecs() + LWS_FONTS_NOMEM_HOLDOFF_US;
+}
+
+/*
  * What arrives is only used once the stream ends without the server having
  * said it's an error: an http server sends its error page as the payload
  * too.  So the manifest is parsed and a page collected as they come, but
@@ -667,8 +677,6 @@ static lws_ss_state_return_t
 fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	fontss_t *m = (fontss_t *)userobj;
-	uint8_t *nb;
-	size_t na;
 	int n;
 
 	if (m->done)
@@ -721,7 +729,13 @@ fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		return LWSSSSRET_OK;
 	}
 
-	/* a page, collected in a buffer grown as it comes */
+	/*
+	 * A page, collected as it comes in pieces the size they arrive in, and
+	 * made into one when it has all arrived.  Growing one buffer as it
+	 * came needed a bigger block each time, while the old one was still
+	 * held, which a fragmented heap often doesn't have when it does have
+	 * a block the size of the page
+	 */
 
 	if (len > LWS_FONTS_PAGE_MAX_LEN - m->pos) {
 		lwsl_cx_warn(m->fr->cx, "%s/%04x is too large", m->p->r->path,
@@ -731,29 +745,11 @@ fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		return LWSSSSRET_DESTROY_ME;
 	}
 
-	if (m->pos + len > m->alloc) {
-		na = m->pos + len + LWS_FONTS_PAGE_GRANULE;
-		if (na > LWS_FONTS_PAGE_MAX_LEN)
-			na = LWS_FONTS_PAGE_MAX_LEN;
-		nb = lws_realloc(m->buf, na, __func__);
-		if (!nb) {
-			/*
-			 * Not the server's fault: what is resident is all in
-			 * use.  Use a local face instead for a little while
-			 */
-			lwsl_cx_notice(m->fr->cx, "no memory for %s/%04x",
-				       m->p->r->path, (unsigned int)m->p->page);
-			m->p->holdoff_until = lws_now_usecs() +
-					      LWS_FONTS_NOMEM_HOLDOFF_US;
-			m->done = 1;
-			return LWSSSSRET_DESTROY_ME;
-		}
-		m->buf = nb;
-		m->alloc = na;
+	if (len && lws_buflist_append_segment(&m->bl, buf, len) < 0) {
+		lws_fonts_page_nomem(m->p);
+		m->done = 1;
+		return LWSSSSRET_DESTROY_ME;
 	}
-
-	if (len)
-		memcpy(m->buf + m->pos, buf, len);
 	m->pos += len;
 
 	if (flags & LWSSS_FLAG_EOM)
@@ -769,7 +765,7 @@ fontss_finished(fontss_t *m)
 {
 	lws_fonts_remote_t *fr = m->fr;
 	lws_mcufont_page_t *p = m->p;
-	uint8_t *nb;
+	uint8_t *nb = NULL;
 
 	if (!p) {
 		fr->ss_manifest = NULL;
@@ -826,18 +822,22 @@ fontss_finished(fontss_t *m)
 		return;
 	}
 
-	/* give back what the buffer grew by beyond the page */
+	/* the pieces it came in, made into the page */
 
-	if (m->pos && m->pos < m->alloc) {
-		nb = lws_realloc(m->buf, m->pos, __func__);
-		if (nb)
-			m->buf = nb;
+	if (m->pos) {
+		nb = lws_malloc(m->pos, __func__);
+		if (!nb) {
+			lws_fonts_page_nomem(p);
+			return;
+		}
+		lws_buflist_linear_copy(&m->bl, 0, nb, m->pos);
+		lws_buflist_destroy_all_segments(&m->bl);
 	}
 
-	if (lws_mcufont_page_arrived(p, m->buf, m->pos))
+	if (lws_mcufont_page_arrived(p, nb, m->pos)) {
+		lws_free(nb);
 		p->bad = 1;
-	else
-		m->buf = NULL; /* the page's now */
+	}
 }
 
 static lws_ss_state_return_t
@@ -878,7 +878,7 @@ fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		}
 
 		lwsac_free(&m->a.ac);
-		lws_free_set_NULL(m->buf);
+		lws_buflist_destroy_all_segments(&m->bl);
 		break;
 
 	default:
