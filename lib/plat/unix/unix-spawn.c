@@ -45,6 +45,21 @@
 #include <sys/wait.h>
 #endif
 
+/*
+ * Only his stdin is still open.  That's the pipe we write to him on: while
+ * we have nothing to write, the event loop isn't asked about it at all.
+ * poll() and glib still say when the far end went away, but libuv for one
+ * never does, so his stdin closing can't be what tells us he has gone (in
+ * pty mode it's the one we read him on, and does).
+ */
+
+static int
+lws_spawn_only_stdin_open(const struct lws_spawn_piped *lsp)
+{
+	return !lsp->info.pty_mode && lsp->stdwsi[LWS_STDIN] &&
+	       !lsp->stdwsi[LWS_STDOUT] && !lsp->stdwsi[LWS_STDERR];
+}
+
 void
 lws_spawn_timeout(struct lws_sorted_usec_list *sul)
 {
@@ -67,8 +82,25 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 
 	lwsl_info("%s: reaping spawn after last stdpipe, tries left %d\n",
 		    __func__, lsp->reap_retry_budget);
-	if (lws_spawn_reap(lsp) || lsp->pipes_alive)
+	if (lws_spawn_reap(lsp))
 		return;
+
+	if (lsp->pipes_alive) {
+		if (!lsp->ungraceful && lws_spawn_only_stdin_open(lsp))
+			/*
+			 * He closed what he writes to us on, but his stdin
+			 * can't tell us when he goes: look for him, for as
+			 * long as his timeout lets him run.  Once he has gone,
+			 * lws_spawn_reap() closes his stdin, and that brings us
+			 * back to finish.
+			 */
+			lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
+					 &lsp->sul_reap, lws_spawn_sul_reap,
+					 250 * LWS_US_PER_MS);
+
+		/* otherwise, the other pipes closing bring us back */
+		return;
+	}
 
 	if (--lsp->reap_retry_budget > 0) {
 		/*
@@ -527,6 +559,15 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	if (!lsp->ungraceful && lsp->pipes_alive) {
 		lwsl_info("%s: %d stdwsi alive, not reaping\n", __func__,
 				lsp->pipes_alive);
+
+		if (lws_spawn_only_stdin_open(lsp))
+			/*
+			 * He has gone, so there's nobody to read his stdin,
+			 * and it may never tell us so itself.  Its close, and
+			 * the owner telling us about it, completes the reap.
+			 */
+			lws_wsi_close(lsp->stdwsi[LWS_STDIN], LWS_TO_KILL_ASYNC);
+
 		return 0;
 	}
 
@@ -1339,13 +1380,15 @@ found:
 	assert(lsp);
 	lsp->pipes_alive--;
 	lwsl_debug("%s: pipes alive %d\n", __func__, lsp->pipes_alive);
-	if (!lsp->pipes_alive)
-		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
-				 &lsp->sul_reap, lws_spawn_sul_reap, 1);
 
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n] == wsi)
 			lsp->stdwsi[n] = NULL;
+
+	/* his stdin alone may never close by itself, see above */
+	if (!lsp->pipes_alive || lws_spawn_only_stdin_open(lsp))
+		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
+				 &lsp->sul_reap, lws_spawn_sul_reap, 1);
 
 	return !lsp->pipes_alive;
 }

@@ -27,4 +27,26 @@ if (requirements)
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-spawn-resources
 			     TIMEOUT 120)
+
+	#
+	# And again on each event lib in the build.  Not all of them report
+	# the far end of the helper's stdin going away while we're not writing
+	# on it, so lws must not depend on that to know the helper has gone.
+	#
+	foreach(evl uv:LIBUV event:LIBEVENT ev:LIBEV glib:GLIB sd:SDEVENT
+		    uloop:ULOOP)
+		string(REPLACE ":" ";" evl ${evl})
+		list(GET evl 0 evl_name)
+		list(GET evl 1 evl_opt)
+
+		if (LWS_WITH_${evl_opt})
+			add_test(NAME api-test-spawn-resources-${evl_name}
+				 COMMAND lws-api-test-spawn-resources)
+			set_tests_properties(api-test-spawn-resources-${evl_name}
+				PROPERTIES
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-spawn-resources
+				ENVIRONMENT "LWS_EVLIB=${evl_name}"
+				TIMEOUT 120)
+		endif()
+	endforeach()
 endif()
