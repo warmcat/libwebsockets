@@ -100,6 +100,9 @@ static lws_sorted_usec_list_t sul_watchdog, sul_sample;
 static struct if_image images[IF_MAX_IMAGES];
 static int nimages, fails, finished, port = 7681, window = 4096, retained,
 	   pass;
+#if defined(LWS_WITH_FOOTPRINT)
+static int dumped;
+#endif
 static uint32_t line_hash[1024]; /* each line of the first pass */
 static char url[128];
 
@@ -202,6 +205,18 @@ sample(int curr)
 			 */
 			if (held > im->peak_on)
 				im->peak_on = held;
+#if defined(LWS_WITH_FOOTPRINT)
+			/*
+			 * Halfway down the first image, the first time, log
+			 * what everything holds while it decodes, eg, what the
+			 * tls, quic and h3 connections hold beside it
+			 */
+			if (!n && !pass && !dumped &&
+			    curr == (im->top + im->bottom) / 2) {
+				dumped = 1;
+				lws_footprint_dump(cx, 1);
+			}
+#endif
 		} else {
 			/*
 			 * The line after that, the dlo is still there, even if

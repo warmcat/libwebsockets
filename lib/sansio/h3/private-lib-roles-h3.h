@@ -180,6 +180,9 @@ lws_wsi_h3_can_adopt(struct lws *parent_wsi);
 
 struct lws_h3_netconn {
 	struct lws *nwsi;
+#if defined(LWS_WITH_FOOTPRINT)
+	lws_footprint_t fp;
+#endif
 
 	/* Local control streams we send to the peer */
 	struct lws *cwsi_control;
@@ -323,6 +326,11 @@ struct _lws_h3_related {
 /* Internal QPACK API */
 int
 lws_qpack_dynamic_size(struct lws_qpack_context *ctx, int size);
+
+#if defined(LWS_WITH_FOOTPRINT)
+void
+lws_h3_netconn_fp_register(struct lws_h3_netconn *h3n);
+#endif
 
 LWS_VISIBLE int
 lws_add_http3_header_by_name(struct lws *wsi, const unsigned char *name,

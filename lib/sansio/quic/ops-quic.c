@@ -7235,6 +7235,9 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 					&wsi->h3.h3n->qpack_blocked_owner)) {
 				lws_dll2_remove(d);
 			} lws_end_foreach_dll_safe(d, d1);
+#if defined(LWS_WITH_FOOTPRINT)
+			lws_footprint_unregister(&wsi->h3.h3n->fp);
+#endif
 			lws_free_set_NULL(wsi->h3.h3n);
 		}
 #endif

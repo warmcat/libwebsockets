@@ -3331,6 +3331,9 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 			return 1;
 		nwsi->h3.h3n = h3n;
 		h3n->nwsi = nwsi;
+#if defined(LWS_WITH_FOOTPRINT)
+		lws_h3_netconn_fp_register(h3n);
+#endif
 
 		/* Initialize QPACK encoder context */
 		h3n->qpack_tx_encoder.entries = h3n->tx_entries;
@@ -3445,6 +3448,131 @@ lws_h3_qpack_dec_cancel_stream(struct lws *wsi)
 	if (lws_h3_qpack_dec_emit(h3n, qs->stream_id, 6, 0x40))
 		lwsl_wsi_warn(wsi, "unable to queue Stream Cancellation");
 }
+
+#if defined(LWS_WITH_FOOTPRINT)
+
+/*
+ * The h3 connection works out what it holds on demand: itself, with the
+ * qpack tables' slots, the strings in both tables, the qpack instructions
+ * waiting to go, and what its streams hold for qpack: their decode state,
+ * with its 4KB value buffer, while a field section or encoder instruction is
+ * coming in, and the sections waiting for inserts, or for the peer to
+ * acknowledge ours.  The quic connection and stream state is in the "quic
+ * conn" participant.
+ */
+
+typedef struct {
+	size_t		conn, dyn, dyn_n, enc, enc_n, q;
+	size_t		st_dec, st_dec_n, st_held;
+} h3_fp_parts_t;
+
+static void
+h3_fp_parts(struct lws_h3_netconn *h3n, h3_fp_parts_t *p)
+{
+	const struct lws_qpack_dynamic_table *t = &h3n->qpack_dec_ctx.dyn_table;
+	const struct lws_qpack_tx_encoder *e = &h3n->qpack_tx_encoder;
+	unsigned int n;
+
+	memset(p, 0, sizeof(*p));
+
+	p->conn = lws_fp_heap(h3n, sizeof(*h3n));
+
+	for (n = 0; n < t->num_entries; n++)
+		if (t->entries[n].value) {
+			p->dyn += lws_fp_heap(t->entries[n].value,
+				      (size_t)(t->entries[n].hdr_len - 32 + 2));
+			p->dyn_n++;
+		}
+
+	for (n = 0; n < e->num_entries; n++) {
+		if (e->entries[n].name)
+			p->enc += lws_fp_heap(e->entries[n].name,
+					      e->entries[n].name_len + 1u);
+		if (e->entries[n].value) {
+			p->enc += lws_fp_heap(e->entries[n].value,
+					      e->entries[n].value_len + 1u);
+			p->enc_n++;
+		}
+	}
+
+	p->q = lws_buflist_total_len(&h3n->qpack_dec_tx_bl) +
+	       lws_buflist_total_len(&h3n->qpack_tx_encoder.tx_bl);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			lws_dll2_get_head(&h3n->nwsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+
+		if (w->h3.qpack_dec_state) {
+			p->st_dec += lws_fp_heap(w->h3.qpack_dec_state,
+					sizeof(*w->h3.qpack_dec_state));
+			p->st_dec_n++;
+		}
+		p->st_held += lws_buflist_total_len(&w->h3.qpack_blocked_bl);
+#if defined(LWS_WITH_CLIENT)
+		p->st_held += lws_buflist_total_len(&w->h3.qpack_held_hdrs);
+#endif
+	} lws_end_foreach_dll(d);
+}
+
+static void
+h3_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
+{
+	struct lws_h3_netconn *h3n = lws_container_of(fp,
+					struct lws_h3_netconn, fp);
+	h3_fp_parts_t p;
+	size_t b;
+
+	h3_fp_parts(h3n, &p);
+	b = p.conn + p.dyn + p.enc + p.q + p.st_dec + p.st_held;
+
+	r->count	= 1;
+	r->bytes	= b;
+	if (b > fp->bytes_hwm)
+		fp->bytes_hwm = b;
+	r->bytes_hwm	= fp->bytes_hwm;
+}
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+static void
+h3_fp_dump(lws_footprint_t *fp)
+{
+	struct lws_h3_netconn *h3n = lws_container_of(fp,
+					struct lws_h3_netconn, fp);
+	h3_fp_parts_t p;
+
+	h3_fp_parts(h3n, &p);
+
+	lwsl_wsi_notice(h3n->nwsi, "fp:     conn %u, peer's table %u entries "
+			"(%u B), ours %u (%u B), qpack to send %u",
+			(unsigned int)p.conn, (unsigned int)p.dyn_n,
+			(unsigned int)p.dyn, (unsigned int)p.enc_n,
+			(unsigned int)p.enc, (unsigned int)p.q);
+	lwsl_wsi_notice(h3n->nwsi, "fp:     streams: qpack decoding %u (%u B), "
+			"sections held %u B", (unsigned int)p.st_dec_n,
+			(unsigned int)p.st_dec, (unsigned int)p.st_held);
+}
+#endif
+
+static const lws_footprint_ops_t h3_fp_ops = {
+	.shed_class	= LWSFP_SHED_NONE,
+	.report		= h3_fp_report,
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	.dump		= h3_fp_dump,
+#endif
+};
+
+void
+lws_h3_netconn_fp_register(struct lws_h3_netconn *h3n)
+{
+	struct lws *nwsi = h3n->nwsi;
+
+	lws_footprint_register(nwsi->a.context, &h3n->fp, "h3 conn",
+			       &h3_fp_ops);
+	if (nwsi->a.vhost)
+		lws_footprint_set_ident(&h3n->fp, nwsi->a.vhost->name);
+}
+#endif
 
 static int
 rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
