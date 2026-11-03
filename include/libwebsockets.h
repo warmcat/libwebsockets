@@ -127,6 +127,15 @@ typedef int suseconds_t;
 #define LWS_FORMAT(string_index)
 
 #if defined(LWS_HAVE_PTHREAD_H)
+/*
+ * pthreads-win32 defines its own struct timespec unless told the CRT has one
+ * https://stackoverflow.com/questions/33557506/timespec-redefinition-error
+ */
+#if !defined(HAVE_STRUCT_TIMESPEC)
+#define HAVE_STRUCT_TIMESPEC
+#endif
+#include <pthread.h>
+
 #define lws_mutex_t		pthread_mutex_t
 #define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)
 #define lws_mutex_destroy(x)	pthread_mutex_destroy(&(x))
