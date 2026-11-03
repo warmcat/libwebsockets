@@ -36,6 +36,10 @@
  * bigheader.jpg, has a comment segment that puts its dimensions beyond the
  * first few LWS_DLO_IMAGE_HEAD_CREDIT of it, so the layout depends on its
  * fetch being given more, a little at a time.
+ *
+ * No fonts are registered, so the page's text has no face: the <br> and the
+ * list item in the gaps check a line strut and a list marker are left out
+ * then, rather than made in a face that isn't there.
  */
 
 #include <libwebsockets.h>
