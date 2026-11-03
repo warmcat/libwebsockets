@@ -158,7 +158,9 @@ static struct lws_context *context;
 static struct lws_vhost *vh_cli, *vh_srv;
 static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_drop, sul_connect;
 static lws_usec_t notice_deadline;
+#if !defined(WIN32)
 static int renewals;
+#endif
 static struct lws *wsi_held;	/* the server connection srv goes under */
 static char answer_pending;
 static int result = 1, cur = -1, port = 7681, port_graced = 7682;

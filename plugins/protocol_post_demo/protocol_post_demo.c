@@ -63,7 +63,7 @@ struct per_session_data__post_demo {
 	char filename[128];
 	long file_length;
 #if !defined(LWS_WITH_ESP32)
-	lws_filefd_type fd;
+	int fd; /* from lws_open(), -1 when none */
 #endif
 	uint8_t completed:1;
 	uint8_t sent_headers:1;
@@ -100,21 +100,13 @@ static unsigned int post_demo_tempname_unique;
 static void
 post_demo_fd_invalidate(struct per_session_data__post_demo *pss)
 {
-#if defined(__MINGW32__)
 	pss->fd = -1;
-#else
-	pss->fd = LWS_INVALID_FILE;
-#endif
 }
 
 static int
 post_demo_fd_valid(struct per_session_data__post_demo *pss)
 {
-#if defined(__MINGW32__)
 	return pss->fd != -1;
-#else
-	return pss->fd != LWS_INVALID_FILE;
-#endif
 }
 
 static void
@@ -123,7 +115,7 @@ post_demo_close(struct per_session_data__post_demo *pss)
 	if (!post_demo_fd_valid(pss))
 		return;
 
-	close((int)(lws_intptr_t)pss->fd);
+	close(pss->fd);
 	post_demo_fd_invalidate(pss);
 }
 
@@ -169,7 +161,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		 * O_EXCL so we cannot be made to write through a symlink or
 		 * into a file somebody else on the box prepared for us.
 		 */
-		pss->fd = (lws_filefd_type)(lws_intptr_t)lws_open(pss->filename,
+		pss->fd = lws_open(pss->filename,
 			       O_CREAT | O_EXCL | O_RDWR |
 			       POST_DEMO_O_NOFOLLOW, 0600);
 		if (!post_demo_fd_valid(pss)) {
@@ -195,7 +187,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			}
 
 #if !defined(LWS_WITH_ESP32)
-			n = (int)write((int)(lws_intptr_t)pss->fd, buf, (unsigned int)len);
+			n = (int)write(pss->fd, buf, (unsigned int)len);
 			lwsl_info("%s: write %d says %d\n", __func__, len, n);
 #else
 			lwsl_notice("%s: Received chunk size %d\n", __func__, len);

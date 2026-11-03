@@ -34,7 +34,6 @@
 #include <io.h>
 #include <direct.h>
 #define mkdir(path, mode) _mkdir(path)
-static void usleep(unsigned long l) { Sleep(l / 1000); }
 /* windows has no unlink(); ISO remove() is the same thing for files */
 #define qir_unlink(path) remove(path)
 #else

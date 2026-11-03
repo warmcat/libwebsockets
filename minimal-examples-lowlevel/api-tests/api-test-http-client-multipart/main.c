@@ -74,7 +74,11 @@ struct mcase {
 
 static char v300[2 + 300 + 1], v4092[2 + 4092 + 1], v5000[2 + 5000 + 1],
 	    el_file[512], el_file_mut[512], path_file[480], path_file_mut[480],
-	    el_file_q[512], path_file_q[480], el_dir[512];
+	    el_file_q[512], el_dir[512];
+#if !defined(WIN32)
+/* windows can't have a " in a file name */
+static char path_file_q[480];
+#endif
 
 #define V300		((const char *)1)
 #define V4092		((const char *)2)

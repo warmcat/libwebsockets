@@ -60,8 +60,7 @@ static char * _progname __P((char *));
 int getopt_internal __P((int, char * const *, const char *));
 
 static char *
-_progname(nargv0)
-	char * nargv0;
+_progname(char *nargv0)
 {
 	char * tmp;
 
@@ -84,10 +83,7 @@ _progname(nargv0)
  *	Parse argc/argv argument vector.
  */
 int
-getopt(nargc, nargv, ostr)
-	int nargc;
-	char * const nargv[];
-	const char *ostr;
+getopt(int nargc, char * const nargv[], const char *ostr)
 {
 	static char *__progname = 0;
 	static char *place = EMSG;		/* option letter processing */
