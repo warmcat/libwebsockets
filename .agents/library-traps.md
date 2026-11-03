@@ -1020,3 +1020,8 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    29KB request failed with 47KB free.  Judge whether a big buffer (png
    inflate window, jpeg line buffer, mbedtls in-buffer) fits by the dump's
    "largest free block" line, not the free total.
+ - Shared stream state (`wsi->txc`, `mux`) exists for h2 *or* QUIC, but
+   older code that fills it may be guarded by `LWS_ROLE_H2` alone: in an
+   h3-without-h2 build (the esp32 lhp examples) that silently dropped
+   `manual_initial_tx_credit`, so h3 streams had no rx flow control.
+   Host CI builds have h2 too and won't show it; build-claude-noh2 does.
