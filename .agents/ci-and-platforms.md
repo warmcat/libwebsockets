@@ -125,10 +125,19 @@ where its lines landed.
    the backend they belong to.  Static mbedtls on Windows needs `ws2_32`
    and `bcrypt` on its library list, or every probe fails to link and the
    build silently loses ALPN / SNI.
- - Mingw cross builds (`contrib/cross-w64.cmake`) are useful for syntax
-   checking Windows-only files, but they see errors MSVC doesn't
-   (int-vs-HANDLE) and miss ones it does (vcpkg probes).  Compile single
-   objects from `build.make` rather than expecting a full link.
+ - Mingw cross builds: `cmake .. --fresh
+   -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w64.cmake` (Fedora mingw64 gcc,
+   no extra target packages; schannel is the default TLS) builds the whole
+   default tree, library, examples and test apps, -Werror clean since
+   2026-11.  The toolchain file's `-Wno-error` loses to lws's later
+   `-Werror`, so fix gcc's warnings rather than suppress them: gcc sees
+   plenty MSVC doesn't (sign-compare, unused, K&R definitions), and still
+   misses MSVC-only ones and vcpkg probes.  No wine on the dev box, so
+   nothing can be run: sai's Windows builders are the runtime check.
+   `lws_filefd_type` is a HANDLE on every windows build, mingw included.
+ - Cross building, `WIN32` / `APPLE` / `UNIX` describe the target.  CMake
+   doing things on the build host (temp dirs, port lease counter, netstat,
+   /proc) must key on `CMAKE_HOST_WIN32` / `CMAKE_HOST_SYSTEM_NAME`.
  - Schannel: `DecryptMessage()` returns `SEC_I_RENEGOTIATE` for any TLS 1.3
    post-handshake message (NewSessionTicket, KeyUpdate), which must be fed
    back through Initialize/AcceptSecurityContext.  `CERT_CHAIN_POLICY_SSL`
