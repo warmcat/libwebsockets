@@ -25,6 +25,13 @@ fault loses a request's first try.
    The server's GOAWAY 4 says it took the first stream only, and the second
    GET is answered on a new connection.
 
+And a connection the client itself is closing takes no new request:
+
+ - D: a GET is answered, and as it is, its connection starts closing, as if
+   what came after the response broke it (the `h3_conn_close_on_reply`
+   fault).  A second GET to the same place goes at once, on a new connection,
+   and is answered there before the old one is gone.
+
 ```
 $ ./lws-api-test-h3-goaway-retry -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key

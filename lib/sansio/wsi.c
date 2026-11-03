@@ -2505,6 +2505,15 @@ lws_wsi_mux_client_idle_check(struct lws *nwsi)
 	    lws_wsi_mux_has_request_stream(nwsi))
 		return;
 
+	/*
+	 * Nothing may join a connection that is going, eg, after a GOAWAY or
+	 * while its CONNECTION_CLOSE goes: keeping it warm for nobody would
+	 * replace the deadline its going has set, and leave it open long
+	 * after that, if it has one
+	 */
+	if (nwsi->keepalive_rejected && nwsi->pending_timeout)
+		return;
+
 	lwsl_wsi_info(nwsi, "last stream closed, keeping warm %ds",
 		      (int)nwsi->keep_warm_secs);
 	lws_wsi_event(nwsi, LWS_WSIEV_LAST_STREAM_CLOSED);

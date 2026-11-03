@@ -4304,6 +4304,12 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 		return NULL;
 	}
 
+	if (qn->is_closing) {
+		/* a stream on it now would never be sent */
+		lwsl_wsi_info(nwsi, "closing, can't adopt");
+		return NULL;
+	}
+
 	wsi->seen_nonpseudoheader = 0;
 #if defined(LWS_WITH_CLIENT)
 	wsi->client_mux_substream = 1;

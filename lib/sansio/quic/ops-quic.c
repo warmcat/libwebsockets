@@ -4406,7 +4406,16 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 
 	qn->is_closing = 1;
 	qn->conn_close_err = err_code;
-
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * It lives on for the CONNECTION_CLOSE to go, but takes no new
+	 * request: one joining it now would never be sent, and none is kept
+	 * warm on it either (lws_vhost_active_conns(),
+	 * lws_wsi_mux_client_idle_check())
+	 */
+	if (!qn->is_server)
+		nwsi->keepalive_rejected = 1;
+#endif
 
 	lwsl_wsi_warn(nwsi, "QUIC: Entering Closing State (err 0x%llx)", (unsigned long long)err_code);
 
