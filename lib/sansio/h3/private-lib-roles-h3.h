@@ -184,7 +184,11 @@ struct lws_h3_netconn {
 	lws_footprint_t fp;
 #endif
 
-	/* Local control streams we send to the peer */
+	/*
+	 * Local control streams we send to the peer.  The qpack ones are
+	 * opened only when they first have something to send, and are NULL
+	 * until then: see lws_h3_qpack_stream()
+	 */
 	struct lws *cwsi_control;
 	struct lws *cwsi_qpack_enc;
 	struct lws *cwsi_qpack_dec;

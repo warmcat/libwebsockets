@@ -426,9 +426,48 @@ lws_h3_qpack_stream_drain(struct lws *wsi, struct lws_buflist **bl)
 	return 0;
 }
 
+static struct lws *
+lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type);
+
+/*
+ * Our QPACK encoder (0x02) or decoder (0x03) stream, opened the first time
+ * there is an instruction for it (RFC 9204 4.2 lets an endpoint not open
+ * one it won't use).  Our encoder never inserts into the peer's table, and
+ * our decoder has nothing to say until the peer inserts into ours, so a
+ * connection usually needs neither, and each is a whole stream wsi.
+ *
+ * Not before the connection's control stream, which must be our first, and
+ * not while it closes.  A new stream asks to be writeable, so it sends
+ * what was queued for it.
+ */
+static struct lws *
+lws_h3_qpack_stream(struct lws_h3_netconn *h3n, uint8_t type)
+{
+	struct lws **pw = type == 0x02 ? &h3n->cwsi_qpack_enc :
+					 &h3n->cwsi_qpack_dec;
+
+	if (*pw)
+		return *pw;
+
+	if (!h3n->cwsi_control || !h3n->nwsi->quic.qn ||
+	    h3n->nwsi->quic.qn->is_closing)
+		return NULL;
+
+	*pw = lws_h3_create_unidi_stream(h3n->nwsi, type);
+	if (!*pw)
+		lwsl_wsi_warn(h3n->nwsi, "unable to open qpack stream 0x%02x",
+			      type);
+	else
+		if (type == 0x02)
+			h3n->qpack_tx_encoder.wsi_qpack_enc = *pw;
+
+	return *pw;
+}
+
 /*
  * Queue an instruction for our decoder stream (RFC 9204 4.4): a prefixed
- * integer, the stream ID or the increment, under its pattern bits
+ * integer, the stream ID or the increment, under its pattern bits.  If the
+ * stream can't be opened yet, the instruction waits for it.
  */
 static int
 lws_h3_qpack_dec_emit(struct lws_h3_netconn *h3n, uint64_t val,
@@ -436,14 +475,15 @@ lws_h3_qpack_dec_emit(struct lws_h3_netconn *h3n, uint64_t val,
 {
 	uint8_t b[12];
 	int n = lws_qpack_encode_int(b, sizeof(b), val, prefix_bits, pattern);
+	struct lws *w;
 
 	if (n < 0 ||
 	    lws_buflist_append_segment(&h3n->qpack_dec_tx_bl, b, (size_t)n) < 0)
 		return 1;
 
-	/* before it exists, it is asked for writeable when it is made */
-	if (h3n->cwsi_qpack_dec)
-		lws_callback_on_writable(h3n->cwsi_qpack_dec);
+	w = lws_h3_qpack_stream(h3n, 0x03);
+	if (w)
+		lws_callback_on_writable(w);
 
 	return 0;
 }
@@ -3283,8 +3323,9 @@ lws_h3_fi_big_entry(struct lws *wsi, struct lws *nwsi,
 
 	/* it is an insert like any other, the peer acks it */
 	h3n->qpack_tx_encoder.insert_count++;
-	if (bl == &h3n->qpack_tx_encoder.tx_bl && h3n->cwsi_qpack_enc)
-		lws_callback_on_writable(h3n->cwsi_qpack_enc);
+	if (bl == &h3n->qpack_tx_encoder.tx_bl &&
+	    !lws_h3_qpack_stream(h3n, 0x02))
+		return 1;
 
 	return 0;
 }
@@ -3308,8 +3349,12 @@ lws_h3_fi_late_insert(struct lws *wsi)
 		lws_buflist_use_segment(&h3n->fi_late_insert, len);
 	}
 	lws_buflist_destroy_all_segments(&h3n->fi_late_insert);
-	if (h3n->cwsi_qpack_enc)
-		lws_callback_on_writable(h3n->cwsi_qpack_enc);
+	if (h3n->qpack_tx_encoder.tx_bl) {
+		struct lws *w = lws_h3_qpack_stream(h3n, 0x02);
+
+		if (w)
+			lws_callback_on_writable(w);
+	}
 }
 #endif
 
@@ -3371,25 +3416,27 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 		if (nwsi->quic.qn->next_stream_id_unidi_local == 0)
 			nwsi->quic.qn->next_stream_id_unidi_local = lwsi_role_server(nwsi) ? 3 : 2;
 			
+		/*
+		 * Only the control stream now: our qpack streams are opened
+		 * by lws_h3_qpack_stream() when there's something for them
+		 * to say, which for the decoder may already be the case
+		 */
 		h3n->cwsi_control = lws_h3_create_unidi_stream(nwsi, 0x00);
-		h3n->cwsi_qpack_enc = lws_h3_create_unidi_stream(nwsi, 0x02);
-		h3n->cwsi_qpack_dec = lws_h3_create_unidi_stream(nwsi, 0x03);
-
-		if (!h3n->cwsi_control || !h3n->cwsi_qpack_enc || !h3n->cwsi_qpack_dec)
+		if (!h3n->cwsi_control ||
+		    (h3n->qpack_dec_tx_bl && !lws_h3_qpack_stream(h3n, 0x03)))
 			return 1;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 		/* the h3_second_qpack_enc fault opens a second encoder stream */
 		if ((lws_fi(&wsi->fic, "h3_second_qpack_enc") ||
 		     lws_fi(&nwsi->fic, "h3_second_qpack_enc")) &&
-		    !lws_h3_create_unidi_stream(nwsi, 0x02))
+		    (!lws_h3_qpack_stream(h3n, 0x02) ||
+		     !lws_h3_create_unidi_stream(nwsi, 0x02)))
 			return 1;
 
 		if (lws_h3_fi_big_entry(wsi, nwsi, h3n))
 			return 1;
 #endif
-			
-		h3n->qpack_tx_encoder.wsi_qpack_enc = h3n->cwsi_qpack_enc;
 	}
 
 	wsi->h3.h3n = nwsi->h3.h3n;
@@ -3443,6 +3490,14 @@ lws_h3_qpack_dec_cancel_stream(struct lws *wsi)
 	/* a blocked stream's section is outstanding even if its FIN came */
 	if (lws_dll2_is_detached(&wsi->h3.qpack_blocked) &&
 	    (qs->fin_delivered || !h3n->qpack_dec_ctx.dyn_table.insert_count))
+		return;
+
+	/*
+	 * This is a close path, which mustn't be what opens our decoder
+	 * stream: and it can't be, since there was an insert, whose Insert
+	 * Count Increment went as soon as it came and opened it
+	 */
+	if (!h3n->cwsi_qpack_dec)
 		return;
 
 	if (lws_h3_qpack_dec_emit(h3n, qs->stream_id, 6, 0x40))
@@ -3551,6 +3606,16 @@ h3_fp_dump(lws_footprint_t *fp)
 	lwsl_wsi_notice(h3n->nwsi, "fp:     streams: qpack decoding %u (%u B), "
 			"sections held %u B", (unsigned int)p.st_dec_n,
 			(unsigned int)p.st_dec, (unsigned int)p.st_held);
+	/* each is a whole stream wsi: the qpack ones are opened on need */
+	lwsl_wsi_notice(h3n->nwsi, "fp:     unidi: ours control%s%s, "
+			"peer's%s%s%s", h3n->cwsi_qpack_enc ? " qpack-enc" : "",
+			h3n->cwsi_qpack_dec ? " qpack-dec" : "",
+			h3n->peer_uni_seen & LWS_H3_PEER_UNI_CONTROL ?
+							" control" : "",
+			h3n->peer_uni_seen & LWS_H3_PEER_UNI_QPACK_ENC ?
+							" qpack-enc" : "",
+			h3n->peer_uni_seen & LWS_H3_PEER_UNI_QPACK_DEC ?
+							" qpack-dec" : "");
 }
 #endif
 

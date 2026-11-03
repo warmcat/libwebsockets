@@ -1825,6 +1825,12 @@ lws_qpack_tx_insert(struct lws_qpack_tx_encoder *enc, const char *name, size_t n
 		if (n > 0) {
 			if (lws_buflist_append_segment(&enc->tx_bl, scratch, (size_t)n) < 0)
 				return -1;
+			/*
+			 * Nothing calls this today.  Our encoder stream is only
+			 * opened when there is something for it, by
+			 * lws_h3_qpack_stream(): a caller must have that open
+			 * it, or the insert waits in tx_bl for good
+			 */
 			if (enc->wsi_qpack_enc)
 				lws_callback_on_writable(enc->wsi_qpack_enc);
 		} else {
