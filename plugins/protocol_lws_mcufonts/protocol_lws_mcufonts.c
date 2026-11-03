@@ -1024,8 +1024,9 @@ mcuf_page_url(struct vhd *vhd, const char *url, int *size, uint32_t *page)
 static int
 mcuf_http(struct lws *wsi, struct vhd *vhd, struct pss *pss, const char *url)
 {
-	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1];
+	/* the vhost's own headers go in too, a server's CSP and so on */
+	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
+		*start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1];
 	char path[LWS_DISKCACHE_PATH_MAX], hex[41];
 	mcuf_face_t *f;
 	uint32_t page;
@@ -1048,8 +1049,11 @@ mcuf_http(struct lws *wsi, struct vhd *vhd, struct pss *pss, const char *url)
 		    lws_add_http_header_by_name(wsi,
 				(const unsigned char *)"cache-control:",
 				(const unsigned char *)"no-cache", 8, &p, end) ||
-		    lws_finalize_write_http_header(wsi, start, &p, end))
+		    lws_finalize_write_http_header(wsi, start, &p, end)) {
+			lwsl_vhost_warn(vhd->vhost, "unable to send fonts.json "
+					"headers");
 			return 1;
+		}
 
 		lws_callback_on_writable(wsi);
 

@@ -19,6 +19,10 @@
  * checks the sizes of the faces the chooser comes up with for the heights it
  * asks for.
  *
+ * The vhost adds headers of its own to every response, the size of what a
+ * real server's security policy headers come to, so the plugin's responses
+ * must leave room for them.
+ *
  * With --cached, it's run again on the same cache, when both must be there
  * from the start.
  */
@@ -140,6 +144,33 @@ static const lws_struct_map_t lsm_manifest[] = {
 
 static const lws_struct_map_t lsm_manifest_schema[] = {
 	LSM_SCHEMA	(manifest_t, NULL, lsm_manifest, "manifest"),
+};
+
+/*
+ * What lwsws adds to each response on a real vhost, a CSP and its friends,
+ * comes to around 1KB
+ */
+static const struct lws_protocol_vhost_options hdr_pp = {
+	NULL, NULL, "permissions-policy:",
+		"geolocation=(),microphone=(),camera=(),display-capture=(),"
+		"document-domain=(),execution-while-not-rendered=(),"
+		"execution-while-out-of-viewport=(),identity-credentials-get=(),"
+		"local-fonts=(),payment=(),serial=(),usb=(),"
+		"speaker-selection=(),storage-access=()"
+}, hdr_csp = {
+	&hdr_pp, NULL, "content-security-policy:",
+		"default-src 'none'; img-src 'self' data: https://img.example.com "
+		"https://badges.example.com https://ci.example.com "
+		"https://stats.example.com; script-src 'self' "
+		"https://scripts.example.com https://cdn.example.com; font-src "
+		"'self'; style-src 'self' https://styles.example.com; connect-src "
+		"'self' wss://ws.example.com:443 wss://auth.example.com:443; "
+		"frame-ancestors 'none'; base-uri 'none'; form-action 'self';"
+}, hdr_hsts = {
+	&hdr_csp, NULL, "strict-transport-security:",
+		"max-age=63072000; includeSubDomains; preload"
+}, hdr_misc = {
+	&hdr_hsts, NULL, "x-content-type-options:", "nosniff"
 };
 
 static struct lws_context *cx;
@@ -664,6 +695,7 @@ main(int argc, const char **argv)
 	info.protocols		= protocols;
 	info.pvo		= &pvo;
 	info.mounts		= &mount;
+	info.headers		= &hdr_misc;
 
 	vh = lws_create_vhost(cx, &info);
 	if (!vh) {
