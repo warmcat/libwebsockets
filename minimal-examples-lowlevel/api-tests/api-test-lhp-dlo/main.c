@@ -26,6 +26,7 @@ enum {
 		LWS_SW_RECLAIM_LINES,
 		LWS_SW_RECLAIM_ELEMS,
 		LWS_SW_STARVE_MS,
+		LWS_SW_FONTS_LOCAL,
 		LWS_SW_KERN_CHECK,
 		LWS_SW_RETAINED,
 		LWS_SW_SVG_LIVE_MAX,
@@ -49,6 +50,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_RECLAIM_ELEMS] = { "--reclaim-elems", "Evict every reclaimable heap occupant as every N-th element of the layout opens, so they all get renewed mid-layout on any allocator" },
 	[LWS_SW_STARVE_MS] = { "--starve-ms", "With --reclaim-lines, at the first such line also refuse every heap allocation for this many ms, so the faces evicted there can't be fetched again at first" },
+	[LWS_SW_FONTS_LOCAL] = { "--fonts-local", "Lay the page out in the built-in faces only, as a layout redone because its render couldn't have a face from the server is" },
 	[LWS_SW_KERN_CHECK] = { "--kern-check", "Check how the registered 14px regular face kerns pairs of glyphs, instead of laying out a page" },
 	[LWS_SW_RETAINED] = { "--retained",    "Render the display list retained, as for a touch panel, keeping its DLOs as the raster passes them" },
 	[LWS_SW_SVG_LIVE_MAX] = { "--svg-live-max", "Fail if more than this many svg images were held at once" },
@@ -195,6 +197,19 @@ static const char *dump_path;
 static int reclaim_lines, reclaimed_line = -1, svg_live_max = -1, starve_ms;
 static size_t heap_limit;
 static lws_sorted_usec_list_t sul_starve;
+/* what the page was browsed with, to browse it again for a relayout */
+static const char *page_url;
+static lws_lhp_filter_t page_filter;
+static char page_filtered;
+static lws_sorted_usec_list_t sul_relayout;
+static int relayout_tries;
+
+/*
+ * How often, and how many times, we try to browse the page again for a
+ * relayout: the heap may still be short just after the render gave up
+ */
+#define RELAYOUT_RETRY_US	(250 * LWS_US_PER_MS)
+#define RELAYOUT_TRIES		40
 
 /*
  * --kern-check: glyphs are kerned in from the shapes of their ink, never
@@ -537,6 +552,68 @@ starve_end(lws_sorted_usec_list_t *sul)
 }
 
 static void
+render(lws_sorted_usec_list_t *sul);
+
+static void
+relayout_browse(lws_sorted_usec_list_t *sul)
+{
+	if (!lws_lhp_ss_browse_filter(cx, &drs, page_url, render,
+				      page_filtered ? &page_filter : NULL))
+		return;
+
+	if (++relayout_tries < RELAYOUT_TRIES) {
+		lws_sul_schedule(cx, 0, &sul_relayout, relayout_browse,
+				 RELAYOUT_RETRY_US);
+		return;
+	}
+
+	lwsl_err("%s: unable to lay the page out again\n", __func__);
+	result = 1;
+	lws_default_loop_exit(cx);
+}
+
+/*
+ * The render couldn't have a face from the server some text was laid out
+ * in: throw the display list and what was rendered of it away, and lay the
+ * page out again in the built-in faces, as if they had been chosen from the
+ * start.  The bmp is written again from its start
+ */
+
+static void
+relayout(lws_display_render_state_t *rs)
+{
+	lwsl_user("%s: laying the page out again in the built-in faces\n",
+		  __func__);
+
+	lws_lhp_ss_cancel(rs);
+
+	free(rs->line);
+	rs->line = NULL;
+
+	lws_display_list_destroy(cx, &rs->displaylist);
+	lws_display_render_free_ids(rs);
+	memset(&rs->displaylist, 0, sizeof(rs->displaylist));
+
+	memset(rs->st, 0, sizeof(rs->st));
+	rs->sp = 0;
+	rs->curr = 0;
+	rs->lowest_id_y = 0;
+
+	/* the redone layout can't need doing again */
+	rs->fonts_local = 1;
+	rs->relayout_ok = 0;
+
+	if (lseek(fdout, 0, SEEK_SET)) {
+		lwsl_err("%s: unable to rewind the bmp\n", __func__);
+		result = 1;
+		lws_default_loop_exit(cx);
+		return;
+	}
+
+	relayout_browse(&sul_relayout);
+}
+
+static void
 render(lws_sorted_usec_list_t *sul)
 {
 	lws_display_render_state_t *rs = lws_container_of(sul,
@@ -634,6 +711,11 @@ render(lws_sorted_usec_list_t *sul)
 		}
 
 		r = lws_display_list_render_line(rs);
+
+		if ((r & LWS_SRET_FATAL) && rs->relayout) {
+			relayout(rs);
+			return;
+		}
 
 		if (r) {
 			/*
@@ -987,6 +1069,16 @@ main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_RETAINED].sw))
 		drs.retained = 1;
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_FONTS_LOCAL].sw))
+		drs.fonts_local = 1;
+
+	/*
+	 * If the render can't have a face from the server some text was laid
+	 * out in, we can lay the page out again in the built-in faces, as
+	 * long as the bmp can be written again from its start
+	 */
+	drs.relayout_ok = fdout != 1;
+
 	if ((p = lws_cmdline_option(argc, argv,
 				    switches[LWS_SW_SVG_LIVE_MAX].sw)))
 		svg_live_max = atoi(p);
@@ -1055,36 +1147,31 @@ main(int argc, const char **argv)
 					switches[LWS_SW_CSS_FILTER].sw);
 		const char *bl = lws_cmdline_option(argc, argv,
 					switches[LWS_SW_BLOCK_LIST].sw);
-		lws_lhp_filter_t lf;
+		lws_lhp_filter_t *lf = &page_filter;
 		int r;
 
-		memset(&lf, 0, sizeof(lf));
-
 		if (cssf) {
-			lf.cosmetic_css = read_file(cssf);
-			if (!lf.cosmetic_css) {
+			lf->cosmetic_css = read_file(cssf);
+			if (!lf->cosmetic_css) {
 				lwsl_err("%s: unable to read %s\n", __func__, cssf);
 				result = 1;
 				goto bail;
 			}
 		}
 		if (bl) {
-			lf.block_rules = read_file(bl);
-			if (!lf.block_rules) {
+			lf->block_rules = read_file(bl);
+			if (!lf->block_rules) {
 				lwsl_err("%s: unable to read %s\n", __func__, bl);
 				result = 1;
 				goto bail;
 			}
 		}
 
-		r = lws_lhp_ss_browse_filter(cx, &drs, argv[1], render,
-					      (cssf || bl) ? &lf : NULL);
+		page_url = argv[1];
+		page_filtered = cssf || bl;
 
-		/* the filter contents were copied by the browse call */
-
-		free((void *)lf.cosmetic_css);
-		free((void *)lf.block_rules);
-
+		r = lws_lhp_ss_browse_filter(cx, &drs, page_url, render,
+					     page_filtered ? lf : NULL);
 		if (r) {
 			lws_context_destroy(cx);
 			goto bail;
@@ -1097,6 +1184,10 @@ main(int argc, const char **argv)
 		close(fdout);
 
 bail:
+	/* the browse copies the filter, but a relayout browses again */
+	free((void *)page_filter.cosmetic_css);
+	free((void *)page_filter.block_rules);
+
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 
 	return result;

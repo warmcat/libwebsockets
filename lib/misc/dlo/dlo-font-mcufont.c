@@ -1220,7 +1220,8 @@ mcufont_render(struct lws_display_render_state *rs, lws_dlo_text_t *text,
 
 /*
  * The pages of the face from a server the text was laid out in can't be had
- * now, so it is drawn in the nearest face we have here.  Layout placed and
+ * now, and the caller can't lay the page out again in the faces we have
+ * here, so it is drawn in the nearest one of them.  Layout placed and
  * sized it for the other face, and others may be placed after it on its
  * line, so it is set again in the face we have, in the same box: as much of
  * it as fits there.  Nonzero if there's nothing it can be drawn in
@@ -1268,8 +1269,10 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 		 * layout, or since we last drew a line of it.  If they are
 		 * being fetched again, wait for them at this dlo.  If they
 		 * can't be had just now, eg, there wasn't the memory to fetch
-		 * them into, come back for them a few times.  Only if they
-		 * still can't be had is the text drawn in a face we have here
+		 * them into, come back for them a few times.  If they still
+		 * can't be had, the page is laid out again in the faces we
+		 * have here, or if the caller can't do that, the text is
+		 * drawn in one of them
 		 */
 		switch (lws_font_text_resident(text->font, text->text,
 					       text->text_len,
@@ -1285,6 +1288,23 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 						 rs->font_wait.cb,
 						 LWS_DLO_FONT_RENDER_RETRY_US);
 				return LWS_SRET_WANT_INPUT;
+			}
+			if (rs->relayout_ok) {
+				/*
+				 * The caller can lay the page out again in
+				 * the faces we have here, as if they had been
+				 * chosen from the start: drawing it in one of
+				 * them in the place laid out for this one
+				 * can't look right
+				 */
+				lwsl_cx_notice(r->cx, "%s: pages unavailable "
+					       "for '%.*s', relayout",
+					       r->path, (int)(text->text_len >
+						       16 ? 16 : text->text_len),
+					       text->text ? text->text : "");
+				rs->relayout = 1;
+
+				return LWS_SRET_FATAL;
 			}
 			if (mcufont_render_local(text, r))
 				return LWS_SRET_OK;

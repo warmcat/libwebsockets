@@ -942,7 +942,10 @@ lhp_choose_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps,
  * text can't be measured without the face being resident, and the text
  * callback has no way to wait.  A face from the server that isn't here
  * is fetched while the parse waits at this element; once here, it stays
- * pinned until the element is closed (lhp_clean_level())
+ * pinned until the element is closed (lhp_clean_level()).
+ *
+ * A layout redone because its render couldn't have a face from the server
+ * it was laid out in (.fonts_local) uses the faces built in from the start
  */
 
 static lws_stateful_ret_t
@@ -950,6 +953,11 @@ lhp_font_settle(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
 {
 	if (ps->font_pinned)
 		return 0;
+
+	if (ctx->fonts_local) {
+		lhp_choose_font(cx, ctx, ps, 1);
+		goto pin;
+	}
 
 	ctx->font_wait.sul = ctx->sshtmlevsul;
 	ctx->font_wait.cb = ctx->sshtmlevcb;
@@ -982,6 +990,7 @@ lhp_font_settle(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		break;
 	}
 
+pin:
 	if (ps->font) {
 		lws_font_pin(ps->font);
 		ps->font_pinned = 1;

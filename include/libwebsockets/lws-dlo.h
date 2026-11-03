@@ -552,6 +552,28 @@ typedef struct lws_display_render_state {
 						* the document could not be
 						* parsed.  The display list holds
 						* what was laid out before that */
+	char				fonts_local; /* set by the caller
+						* before browsing: lay the page
+						* out in the faces built in only,
+						* not any from a server.  For
+						* browsing it again after the
+						* render set .relayout */
+	char				relayout_ok; /* set by the caller:
+						* it can act on .relayout.  If
+						* not, text whose face can't be
+						* had at render is drawn in a
+						* built-in face, as much of it
+						* as fits where it was laid out */
+	char				relayout; /* set by the render,
+						* if .relayout_ok, when text
+						* can't be drawn in the face from
+						* a server it was laid out in:
+						* the render gives up with
+						* LWS_SRET_FATAL, and the caller
+						* should destroy the display list
+						* and browse the page again with
+						* .fonts_local set, so it is laid
+						* out in the face it is drawn in */
 	uint16_t			reclaim_elems; /* 0, or evict every
 						* reclaimable heap occupant as
 						* every n-th element of the

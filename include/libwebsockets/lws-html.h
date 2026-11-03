@@ -1123,6 +1123,9 @@ typedef struct lhp_ctx {
 						     * may return AWAIT_RETRY
 						     * to see the same text
 						     * again when resumed */
+	uint8_t			fonts_local:1; /* lay out in the faces
+						* built in only, from the
+						* render state */
 
 	uint8_t			css_block_depth; /* inside applicable @media */
 	uint8_t			css_skip_depth;  /* skipping unusable @-rule */

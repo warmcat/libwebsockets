@@ -306,6 +306,18 @@ text for it to come back.  Text needing a page that can't be fetched (the
 server is unreachable or refuses it, or it doesn't match the face's other
 pages) is set in the closest built-in face instead.
 
+The render can't do that so simply: the text was laid out in the other face,
+and others may be placed after it on its line.  If the render has waited a
+few seconds for a page it can't have, and the caller set `.relayout_ok` in
+the render state, the render gives up returning `LWS_SRET_FATAL` with
+`.relayout` set.  The caller then destroys the display list and browses the
+page again with `.fonts_local` set, so it is laid out in the built-in faces
+only, as if they had been chosen from the start, and renders that from the
+top.  A caller that can't do that gets the text set in the closest built-in
+face, as much of it as fits in the box it was laid out in.
+`api-test-lhp-dlo` lays the page out again like that, and
+`--fonts-local` lays it out that way from the start, to compare against.
+
 This trades flash for heap and network: each page costs its size in heap
 while in use, and a fetch whenever it was evicted.
 
