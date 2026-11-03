@@ -2179,14 +2179,10 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 		 * stream is something the user hears of
 		 */
 		wsi->internal = type != LWS_WT_STREAM_TYPE_UNIDI;
-		if (type == 0x02) {
-			if (!wsi->h3.qpack_dec_state) {
-				wsi->h3.qpack_dec_state = lws_zalloc(sizeof(*wsi->h3.qpack_dec_state), "qpack dec state");
-				if (!wsi->h3.qpack_dec_state)
-					return 1;
-			}
-			wsi->h3.qpack_dec_state->state = LQP_DEC_INSTRUCTION;
-		}
+		/*
+		 * The encoder stream's decode state, with its 4KB value
+		 * buffer, is only made when an instruction comes
+		 */
 
 		lwsl_wsi_info(wsi, "H3 RX: Unidi stream type %llu", (unsigned long long)type);
 
@@ -2273,6 +2269,16 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				lwsl_err("ERROR: QPACK_ENCODER_STREAM_ERROR!!!!\n");
 				lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 				return 1;
+			}
+			/*
+			 * Nothing carries from one instruction to the next, so
+			 * unless one is still coming in, the state can go
+			 * until the next one: the peer may send inserts at any
+			 * time, but usually only at the start
+			 */
+			if (wsi->h3.qpack_dec_state->state == LQP_DEC_INSTRUCTION) {
+				lws_free(wsi->h3.qpack_dec_state);
+				wsi->h3.qpack_dec_state = NULL;
 			}
 			/*
 			 * tell its encoder what it may now refer to, and let
