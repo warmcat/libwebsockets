@@ -492,6 +492,7 @@ lws_asn1_read_length(const uint8_t **p, const uint8_t *end, size_t *len)
 	return 0;
 }
 
+#if defined(LWS_WITH_JOSE)
 
 static int
 lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct lws_gencrypto_keyelem *el)
@@ -532,7 +533,6 @@ lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct lws_gencrypt
 	return 0;
 }
 
-#if defined(LWS_WITH_JOSE)
 
 /* Extract public key blob from cert */
 /* Decode SubjectPublicKeyInfo */
@@ -854,73 +854,6 @@ bail:
 #endif
 
 
-static int lws_tls_schannel_wrap_pkcs8(const uint8_t *pkcs1, size_t pkcs1_len, uint8_t **pkcs8_out, size_t *pkcs8_len_out)
-{
-	/* OID 1.2.840.113549.1.1.1 (rsaEncryption) */
-	const uint8_t alg_id[] = {
-		0x30, 0x0D,
-		0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01,
-		0x05, 0x00
-	};
-	size_t tmp, len_bytes = (pkcs1_len < 128) ? 1 : (pkcs1_len < 0x100 ? 2 : (pkcs1_len < 0x10000 ? 3 : 4));
-	size_t inner_payload_len = 3 + sizeof(alg_id) + 1 + (len_bytes > 1 ? len_bytes : 1) + pkcs1_len;
-	/* Standard ASN.1: if len >= 128, it's 0x80 | num_bytes, then the bytes.
-	   So for 128..255, it's 2 bytes (81 XX). For 256..65535, it's 3 bytes (82 XX XX).
-	   len_bytes matches this. */
-
-	size_t outer_len_bytes = (inner_payload_len < 128) ? 1 : (inner_payload_len < 0x100 ? 2 : (inner_payload_len < 0x10000 ? 3 : 4));
-	size_t total_len = 1 + (outer_len_bytes > 1 ? outer_len_bytes : 1) + inner_payload_len;
-
-	uint8_t *q, *pkcs8 = lws_malloc(total_len, "pkcs8 wrapper");
-	if (!pkcs8)
-		return -1;
-
-	q = pkcs8;
-
-	/* Write Outer Sequence */
-	*q++ = 0x30;
-	if (outer_len_bytes == 1)
-		*q++ = (uint8_t)inner_payload_len;
-	else {
-		*q++ = 0x80 | (uint8_t)(outer_len_bytes - 1);
-		tmp = inner_payload_len;
-		for (int i = (int)outer_len_bytes - 2; i >= 0; i--) {
-			q[i] = (uint8_t)(tmp & 0xFF);
-			tmp >>= 8;
-		}
-		q += outer_len_bytes - 1;
-	}
-
-	/* Write Version */
-	*q++ = 0x02;
-	*q++ = 0x01;
-	*q++ = 0x00;
-
-	/* Write AlgID */
-	memcpy(q, alg_id, sizeof(alg_id));
-	q += sizeof(alg_id);
-
-	/* Write OctetString containing Key */
-	*q++ = 0x04;
-	if (len_bytes == 1)
-		*q++ = (uint8_t)pkcs1_len;
-	else {
-		*q++ = 0x80 | (uint8_t)(len_bytes - 1);
-		tmp = pkcs1_len;
-		for (int i = (int)len_bytes - 2; i >= 0; i--) {
-			q[i] = (uint8_t)(tmp & 0xFF);
-			tmp >>= 8;
-		}
-		q += len_bytes - 1;
-	}
-	memcpy(q, pkcs1, pkcs1_len);
-
-	*pkcs8_out = pkcs8;
-	*pkcs8_len_out = total_len;
-
-	return 0;
-}
-
 /*
  * Our copies of a private key, as DER or as the CAPI blob made from it, must
  * not be left in freed heap
@@ -946,7 +879,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		const char *container_name)
 {
 	struct lws_x509_cert x509_obj = {0};
-	PCCERT_CONTEXT pCertContext = NULL;
 	NCRYPT_PROV_HANDLE hProvCNG = 0;
 	NCRYPT_KEY_HANDLE hKeyCNG = 0;
 	SECURITY_STATUS status;
@@ -961,7 +893,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	WCHAR wContainer[128];
 	NCryptBuffer nameBuf;
 	NCryptBufferDesc nameDesc;
-	NCryptBufferDesc *pNameDesc = NULL;
 	CRYPT_KEY_PROV_INFO kpi = {0};
 	CERT_KEY_CONTEXT ckc = {0};
 	size_t pkcs1_len;
@@ -1124,9 +1055,13 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 		keyName = NULL;
 		if (container_name) {
-			if (MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wContainer, sizeof(wContainer)/sizeof(wContainer[0]))) {
-				keyName = wContainer;
+			if (!MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wContainer, sizeof(wContainer)/sizeof(wContainer[0]))) {
+				/* don't import it under an empty name instead */
+				lwsl_err("%s: bad container name\n", __func__);
+				NCryptFreeObject(hProvCNG);
+				goto cleanup;
 			}
+			keyName = wContainer;
 		}
 
 		/* Import Key */
@@ -1140,7 +1075,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		/* NCryptImportKey signature:
 		   (hProvider, hImportKey, pszBlobType, pParameterList, phKey, pbInput, cbInput, dwFlags)
 		   */
-		if (container_name) {
+		if (keyName) {
 			/* For persisted keys, we need to pass the key name property.
 			   However, NCryptImportKey into a named key usually requires specific steps or using NCryptCreatePersistedKey.
 			   Wait, if we use NCryptImportKey with NCRYPT_OVERWRITE_KEY_FLAG and a key name, how do we pass the key name?
@@ -1153,9 +1088,9 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			   */
 			/* nameBuf and nameDesc are already declared at the top */
 
-			nameBuf.cbBuffer = (ULONG)((wcslen(wContainer) + 1) * sizeof(WCHAR));
+			nameBuf.cbBuffer = (ULONG)((wcslen(keyName) + 1) * sizeof(WCHAR));
 			nameBuf.BufferType = NCRYPTBUFFER_PKCS_KEY_NAME;
-			nameBuf.pvBuffer = wContainer;
+			nameBuf.pvBuffer = (PVOID)keyName;
 
 			nameDesc.ulVersion = NCRYPTBUFFER_VERSION;
 			nameDesc.cBuffers = 1;
@@ -1357,7 +1292,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 		/* Try to acquire existing keyset, if it fails, create a new one */
 		if (!CryptAcquireContextW(&hProv, wContainerInfo, LWS_MS_ENH_RSA_AES_PROV_W, PROV_RSA_AES, CRYPT_MACHINE_KEYSET | CRYPT_SILENT)) {
-			if (GetLastError() == NTE_BAD_KEYSET) {
+			if (GetLastError() == (DWORD)NTE_BAD_KEYSET) {
 				if (!CryptAcquireContextW(&hProv, wContainerInfo, LWS_MS_ENH_RSA_AES_PROV_W, PROV_RSA_AES, CRYPT_NEWKEYSET | CRYPT_MACHINE_KEYSET | CRYPT_SILENT)) {
 					lwsl_err("%s: CryptAcquireContext (Create Machine Keyset) failed 0x%x\n", __func__, GetLastError());
 					goto cleanup;
