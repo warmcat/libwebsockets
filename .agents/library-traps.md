@@ -1041,3 +1041,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `lws_h3_qpack_stream()` and are NULL until then; lws' encoder never
    inserts, so normally only the decoder one ever opens, after a peer
    insert.  Don't assume `cwsi_qpack_enc` / `_dec` exist.
+ - Only poll() (and glib) report a pipe's far end closing while no events
+   are asked for on it.  libuv stops the watcher when lws asks for no
+   events, so the write side of a spawn's stdin never sees HUP: the reap
+   must not wait on it (ccf735b83).  Any idle write-only fd has the same
+   problem.  Re-run a suite on another event lib with `LWS_EVLIB=uv ctest
+   ...`; api-test-spawn-resources has a variant for each built event lib.
+ - A spawned child that exits while something it started still holds its
+   stdio is not noticed until its timeout: the reap only runs `wait4()`
+   when a pipe closes, its sul_reap or the timeout fires.
