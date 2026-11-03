@@ -97,6 +97,15 @@ first redraw after that waits for the manifest to arrive.  See
 and change `FONTS_MANIFEST_URL` in its `main/devices.c` to point to your
 server.
 
+The pages a layout used may have been evicted for the memory by the time
+the render gets to them.  They are fetched again then, but if the render
+still can't have them after a few seconds, eg, the heap is full or the
+server went away, drawing that text in the built-in face where the other
+one was laid out can't look right.  So the render gives up, and the page is
+laid out again in the built-in faces only, as if they had been chosen from
+the start, and rendered from the top in those: see `.relayout` in
+`lws_display_render_state_t`.
+
 ## Setting up wifi
 
 Edit ./main/devices.c in your platform-specific subdir, enable this section

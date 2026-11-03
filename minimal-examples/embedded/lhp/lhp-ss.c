@@ -12,6 +12,90 @@
 
 #include "main.h"
 
+/*
+ * How often, and how many times, we try to browse the page again to lay it
+ * out in the built-in faces: the heap may still be short just after the
+ * render gave up
+ */
+#define RELAYOUT_RETRY_US	(250 * LWS_US_PER_MS)
+#define RELAYOUT_TRIES		40
+
+static lws_sorted_usec_list_t sul_relayout;
+static lws_display_render_state_t *relayout_rs;
+static int relayout_tries;
+
+static void
+render(lws_sorted_usec_list_t *sul);
+
+static void
+relayout_browse(lws_sorted_usec_list_t *sul)
+{
+	lws_display_render_state_t *rs = relayout_rs;
+	lws_box_t box;
+
+	if (!lws_lhp_ss_browse(rs->lds->ctx, rs, rs->lds->current_url, render))
+		return;
+
+	if (++relayout_tries < RELAYOUT_TRIES) {
+		lws_sul_schedule(rs->lds->ctx, 0, &sul_relayout,
+				 relayout_browse, RELAYOUT_RETRY_US);
+		return;
+	}
+
+	/*
+	 * We can't lay it out again: finish the display update with what it
+	 * had of the page, rather than leave the display busy for ever
+	 */
+
+	lwsl_err("%s: unable to lay %s out again\n", __func__,
+		 rs->lds->current_url);
+
+	memset(&box, 0, sizeof(box));
+	box.w = rs->ic->wh_px[0];
+	rs->lds->disp->blit(rs->lds, NULL, &box, &rs->ids);
+	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+}
+
+/*
+ * The render couldn't have a face from the server some text was laid out
+ * in.  Drawing it in a built-in face where the other was laid out can't look
+ * right, so we throw the display list away and lay the page out again in the
+ * built-in faces, as if they had been chosen from the start.
+ *
+ * The display has had the start of the update and some lines of it: the
+ * render of the new layout starts the update again, and its lines replace
+ * them.
+ */
+
+static void
+relayout(lws_display_render_state_t *rs)
+{
+	lwsl_notice("%s: laying %s out again in the built-in faces\n",
+		    __func__, rs->lds->current_url);
+
+	lws_lhp_ss_cancel(rs);
+
+	free(rs->line);
+	rs->line = NULL;
+
+	lws_display_list_destroy(rs->lds->ctx, &rs->displaylist);
+	lws_display_render_free_ids(rs);
+	lws_display_dl_init(&rs->displaylist, &lds);
+
+	memset(rs->st, 0, sizeof(rs->st));
+	rs->sp = 0;
+	rs->curr = 0;
+	rs->lowest_id_y = 0;
+
+	/* the redone layout can't need doing again */
+	rs->fonts_local = 1;
+	rs->relayout_ok = 0;
+
+	relayout_rs = rs;
+	relayout_tries = 0;
+	relayout_browse(&sul_relayout);
+}
+
 static void
 render(lws_sorted_usec_list_t *sul)
 {
@@ -84,6 +168,10 @@ render(lws_sorted_usec_list_t *sul)
 		}
 
 		r = lws_display_list_render_line(rs);
+		if ((r & LWS_SRET_FATAL) && rs->relayout) {
+			relayout(rs);
+			return;
+		}
 		if (r & LWS_SRET_YIELD)
 			lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render, 1);
 		if (r) {
@@ -134,8 +222,16 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	 * Whatever was displayed is about to be overwritten.  With a touch
 	 * panel, its display list was kept to resolve touches until now.
 	 */
+	lws_sul_cancel(&sul_relayout);
 	lws_display_list_destroy(cx, &rs->displaylist);
 	rs->retained = !!tcs;
+
+	/*
+	 * Lay it out in faces from the server where we can, and if the render
+	 * then can't have one of them, lay it out again in the built-in faces
+	 */
+	rs->fonts_local = 0;
+	rs->relayout_ok = 1;
 
 	lws_display_dl_init(&rs->displaylist, &lds);
 	rs->ic = &lds.disp->ic;
