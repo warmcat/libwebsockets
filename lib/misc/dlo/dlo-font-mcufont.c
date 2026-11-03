@@ -40,10 +40,16 @@
 
 /*
  * How many glyph objects to allocate per lwsac chunk... the text run length
- * comes from the document, so we don't let it size the allocation itself
+ * comes from the document, so we don't let it size the allocation itself.
+ *
+ * Every glyph of a run is decoding at once while the raster is on its rows,
+ * and they don't need to be contiguous.  A glyph is ~120 bytes on 32-bit, so a
+ * run of 40 in one chunk wanted ~4.7KB in one piece, which a fragmented heap
+ * with far more than that free can't give: the run was then not drawn on
+ * that line.  Chunks of 8 are ~1KB each, at the cost of a chunk header per 8.
  */
 
-#define LWS_DLO_GLYPH_AC_GRANULE	64
+#define LWS_DLO_GLYPH_AC_GRANULE	8
 
 #define RLE_CODEMASK    	0xC0
 #define RLE_VALMASK     	0x3F
