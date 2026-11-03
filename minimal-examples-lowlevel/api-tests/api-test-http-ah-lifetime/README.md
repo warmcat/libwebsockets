@@ -17,6 +17,7 @@ Case|Roles|What
 `late-coded`|h1, h2, h3|The same with `Accept-Encoding: deflate` and no Range: the text file must come deflated (needs `LWS_WITH_HTTP_STREAM_COMPRESSION`).
 `body-rate`|h1, h2, h3|The server's request bodies must keep up with 1000 bytes/s after a 2s grace time.  Two POSTs at once, on one connection on h2 and h3: `/trickle` sends 10 bytes every 500ms and must be reset soon after the grace time without its body completing; `/steady` sends 16KB at 4KB/s with a 1.5s pause in the middle and must arrive whole.
 `mux-cap`|h2, h3|The server lets one connection's streams waiting on the client hold 2 header tables at once.  Four POSTs on one connection hold their bodies back, and three GETs go on it too: only two POSTs may be dispatched, the others refused on their own, every GET must be answered, and when the bodies come the two POSTs must be answered.
+`cli-release`|h2, h3|The client's own header tables.  Two GETs on one connection: one gives its response headers back with `lws_http_headers_detach()` at `LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP`, and must still be able to read them for the rest of that callback but not at its body; the other keeps them, and must still have them at its body.  Both answers must arrive whole.
 
 The server and the clients are in one process.  The h3 cases need the
 test certificate and key.
@@ -30,7 +31,7 @@ Option|Meaning
 -d <loglevel>|Debug verbosity in decimal, eg, -d1151
 -p <port>|Port for the server (default 7681)
 --server <addr>|Server address to connect to (default 127.0.0.1)
---case <case>|`file-stall`, `pipeline-depth`, `slow-cl`, `slow-stream`, `late-spa`, `late-range`, `late-coded`, `body-rate` or `mux-cap`
---role <role>|`h1` (default), `h2` (prior knowledge) or `h3`; `file-stall` and `pipeline-depth` are h1 only, `mux-cap` h2 / h3 only
+--case <case>|`file-stall`, `pipeline-depth`, `slow-cl`, `slow-stream`, `late-spa`, `late-range`, `late-coded`, `body-rate`, `mux-cap` or `cli-release`
+--role <role>|`h1` (default), `h2` (prior knowledge) or `h3`; `file-stall` and `pipeline-depth` are h1 only, `mux-cap` and `cli-release` h2 / h3 only
 --cert <path>|Server certificate, for h3
 --key <path>|Server private key, for h3

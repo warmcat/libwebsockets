@@ -3165,6 +3165,8 @@ lws_h3_rx_stream_data_(struct lws *wsi, const uint8_t *buf, size_t len)
 							lwsl_info("cli int serv hs closed, or redir\n");
 							return 1;
 						}
+						/* content-length was taken above */
+						lws_client_mux_hdrs_done(wsi);
 					}
 #endif
 #if defined(LWS_WITH_SERVER)

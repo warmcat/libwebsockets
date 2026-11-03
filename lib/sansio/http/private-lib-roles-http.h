@@ -473,6 +473,9 @@ struct _lws_http_mode_related {
 	 */
 	int chunk_remaining;
 	uint16_t chunk_skip;
+	uint16_t cli_response;
+	/**< client mux stream: the response status, snapshotted when its
+	 * headers go back, for lws_http_client_http_response() after */
 	char chunk_parser;
 
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -523,6 +526,12 @@ struct _lws_http_mode_related {
 	 * Snapshotted there, for the same reason as method_post. */
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int content_length_given:1;
+	unsigned int cli_hdrs_release:1;
+	/**< client mux stream: the user called lws_http_headers_detach() while
+	 * the role was still reading the response headers, so they go back
+	 * when it has: see lws_client_mux_hdrs_done() */
+	unsigned int cli_hdrs_read:1;
+	/**< client mux stream: the role finished with the response headers */
 	unsigned int rx_body_done:1;
 	/**< server: the request's body phase is over, it was dispatched with no
 	 * body, or its LWS_CALLBACK_HTTP_BODY_COMPLETION was delivered.  Body

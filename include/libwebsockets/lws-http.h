@@ -1188,6 +1188,12 @@ lws_http_transaction_completed(struct lws *wsi);
  * \param wsi:	http connection
  *
  * If the wsi has an ah headers struct attached, detach it.
+ *
+ * An h2 or h3 client stream may call it at
+ * LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP, once it has taken what it wants from
+ * the response headers: they are given back when lws has finished reading
+ * them, just after, instead of being held through the body.  After that,
+ * the headers can't be read on the stream.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_headers_detach(struct lws *wsi);

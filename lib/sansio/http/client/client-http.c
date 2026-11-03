@@ -887,6 +887,28 @@ lws_h1_client_rx_done(struct lws *wsi)
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
+/*
+ * An h2 or h3 client stream's role has finished with the response headers.
+ * If its user gave them back with lws_http_headers_detach() at
+ * LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP, having taken what it wanted, the
+ * stream's ah goes back now, rather than being held through the body.  The
+ * body and any trailers don't need one, and this stream makes no further
+ * request: those are new streams.
+ */
+void
+lws_client_mux_hdrs_done(struct lws *wsi)
+{
+	if (!wsi->client_mux_substream)
+		return;
+
+	wsi->http.cli_hdrs_read = 1;
+	if (!wsi->http.cli_hdrs_release || !wsi->stream.ah)
+		return;
+
+	wsi->http.cli_response = (uint16_t)wsi->stream.ah->http_response;
+	lws_header_table_detach(wsi, 0);
+}
+
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
 {
@@ -993,7 +1015,8 @@ lws_http_client_http_response(struct lws *wsi)
 	if (wsi->stream.ah && wsi->stream.ah->http_response)
 		return wsi->stream.ah->http_response;
 
-	return 0;
+	/* an h2 / h3 stream that gave its headers back kept it */
+	return wsi->http.cli_response;
 }
 #endif
 

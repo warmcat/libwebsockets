@@ -63,11 +63,11 @@ if (requirements)
 	endif()
 	if (AHL_H2)
 		list(APPEND AHL_TESTS slow-cl:h2 slow-stream:h2 late-spa:h2
-				      body-rate:h2 mux-cap:h2)
+				      body-rate:h2 mux-cap:h2 cli-release:h2)
 	endif()
 	if (AHL_H3)
 		list(APPEND AHL_TESTS slow-cl:h3 slow-stream:h3 late-spa:h3
-				      body-rate:h3 mux-cap:h3)
+				      body-rate:h3 mux-cap:h3 cli-release:h3)
 	endif()
 
 	set(AHL_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)

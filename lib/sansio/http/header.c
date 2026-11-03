@@ -1329,6 +1329,19 @@ lws_http_compression_opt_out(struct lws *wsi)
 int
 lws_http_headers_detach(struct lws *wsi)
 {
+#if defined(LWS_WITH_CLIENT) && (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+	/*
+	 * An h2 or h3 client stream's role is still reading its response
+	 * headers when it calls back LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+	 * they go back when it has, lws_client_mux_hdrs_done()
+	 */
+	if (wsi->client_mux_substream && !wsi->http.cli_hdrs_read) {
+		wsi->http.cli_hdrs_release = 1;
+
+		return 0;
+	}
+#endif
+
 	return lws_header_table_detach(wsi, 0);
 }
 

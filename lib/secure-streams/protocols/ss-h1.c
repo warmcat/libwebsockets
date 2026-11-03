@@ -902,6 +902,15 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			h->u.http.good_respcode = (status >= 200 && status < 300);
 		// lwsl_err("%s: good resp %d %d\n", __func__, status, h->u.http.good_respcode);
 
+		/*
+		 * Everything we want from the response headers is copied out
+		 * in this callback, the metadata and the multipart boundary,
+		 * so an h2 or h3 stream gives them back after it, rather than
+		 * holding them through the body
+		 */
+		if (wsi->client_mux_substream)
+			lws_http_headers_detach(wsi);
+
 		if (lws_extract_metadata(h, wsi)) {
 			lwsl_info("%s: rx metadata extract failed\n", __func__);
 

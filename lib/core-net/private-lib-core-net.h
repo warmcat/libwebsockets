@@ -2339,6 +2339,9 @@ lws_client_alt_svc_forget(struct lws *wsi);
 
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi);
+
+void
+lws_client_mux_hdrs_done(struct lws *wsi);
 #if !defined(LWS_WITH_TLS)
 	#define lws_context_init_client_ssl(_a, _b) (0)
 #endif

@@ -2915,6 +2915,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 
+		/* content-length was taken above */
+		lws_client_mux_hdrs_done(h2n->swsi);
+
 		/*
 		 * If we already had the END_STREAM along with the END_HEADERS,
 		 * the peer's sending side is done and we are not going to be

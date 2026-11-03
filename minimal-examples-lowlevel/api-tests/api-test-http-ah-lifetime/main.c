@@ -77,6 +77,13 @@
  *     every GET, which arrives whole and never waits on the peer.  When the
  *     bodies are sent the POSTs it took must be answered.
  *
+ *  --case cli-release (h2, h3): the client's own header tables.  Two lws
+ *     clients GET on one connection.  One gives its response headers back
+ *     with lws_http_headers_detach() at LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+ *     they must still be readable for the rest of that callback, but gone
+ *     by its body.  The other doesn't, and must still have them at its
+ *     body.  Both must get the whole answer.
+ *
  * lws is both ends here, in one process: a crash or memory error in the
  * server fails the test as well as a wrong answer does.
  */
@@ -170,11 +177,13 @@ enum ahl_case {
 	AHL_LATE_CODED,
 	AHL_BODY_RATE,
 	AHL_MUX_CAP_CASE,
+	AHL_CLI_RELEASE,
 };
 
 static const char * const case_names[] = {
 	"file-stall", "pipeline-depth", "slow-cl", "slow-stream", "late-spa",
-	"late-range", "late-coded", "body-rate", "mux-cap"
+	"late-range", "late-coded", "body-rate", "mux-cap",
+	"cli-release"
 };
 
 enum ahl_role {
@@ -1099,8 +1108,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 /*
- * The lws clients of body-rate and mux-cap: several requests at once, each
- * with its own state, on one connection on h2 and h3
+ * The lws clients of body-rate, mux-cap and cli-release: several requests
+ * at once, each with its own state, on one connection on h2 and h3
  */
 
 struct mreq {
@@ -1119,8 +1128,12 @@ struct mreq {
 	char			ready;	/* the next piece may go */
 	char			held;	/* mux-cap: until the release */
 	char			get;	/* mux-cap: a GET, no body */
+	char			release; /* cli-release: gives its headers back */
 	char			completed;
 	char			closed;
+	/* cli-release: its Content-Type's length at ESTABLISHED, just after
+	 * it gave the headers back there, and at its body (-1: not yet) */
+	int			ct_est, ct_detached, ct_body;
 };
 
 static struct mreq mreqs[AHL_MUX_REQS + AHL_MUX_GETS];
@@ -1172,6 +1185,39 @@ multi_check(void)
 	struct mreq *tr = &mreqs[0], *st = &mreqs[1];
 	char want[64];
 	int n, answered = 0, gets = 0;
+
+	if (tcase == AHL_CLI_RELEASE) {
+		struct mreq *rel = &mreqs[0], *kept = &mreqs[1];
+
+		if (!rel->closed || !kept->closed)
+			return;
+		lwsl_user("%s: released: Content-Type %d / %d / %d, kept: "
+			  "%d / %d\n", __func__, rel->ct_est, rel->ct_detached,
+			  rel->ct_body, kept->ct_est, kept->ct_body);
+		for (n = 0; n < mreq_count; n++)
+			if (!mreqs[n].completed || mreqs[n].status != 200 ||
+			    strcmp(mreqs[n].body, AHL_SMALL_BODY)) {
+				finish(0, "a GET was not answered whole");
+				return;
+			}
+		if (rel->ct_est <= 0 || rel->ct_detached != rel->ct_est) {
+			finish(0, "the headers given back at ESTABLISHED "
+				  "went before the callback was over");
+			return;
+		}
+		if (rel->ct_body) {
+			finish(0, "the headers given back at ESTABLISHED were "
+				  "still held at the body");
+			return;
+		}
+		if (kept->ct_body != kept->ct_est || kept->ct_est <= 0) {
+			finish(0, "the headers not given back were lost");
+			return;
+		}
+		finish(1, "the headers given back went after ESTABLISHED, the "
+			  "ones kept stayed, both answers came whole");
+		return;
+	}
 
 	if (tcase == AHL_MUX_CAP_CASE) {
 		for (n = 0; n < mreq_count; n++) {
@@ -1300,7 +1346,20 @@ callback_multi(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		return 0;
 
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		r->ct_est = lws_hdr_total_length(wsi,
+						 WSI_TOKEN_HTTP_CONTENT_TYPE);
+		if (r->release) {
+			lws_http_headers_detach(wsi);
+			r->ct_detached = lws_hdr_total_length(wsi,
+						WSI_TOKEN_HTTP_CONTENT_TYPE);
+		}
+		break;
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (r->ct_body < 0)
+			r->ct_body = lws_hdr_total_length(wsi,
+						WSI_TOKEN_HTTP_CONTENT_TYPE);
 		if (len > sizeof(r->body) - 1 - r->body_len)
 			len = sizeof(r->body) - 1 - r->body_len;
 		memcpy(r->body + r->body_len, in, len);
@@ -1353,6 +1412,16 @@ multi_start(void)
 		mreqs[1].piece_ms	= AHL_STEADY_MS;
 		mreqs[1].pause_at	= AHL_STEADY_PAUSE_AT;
 		mreqs[1].pause_ms	= AHL_STEADY_PAUSE_MS;
+		mreq_count = 2;
+	} else if (tcase == AHL_CLI_RELEASE) {
+		for (n = 0; n < 2; n++) {
+			mreqs[n].path		= AHL_SMALL_PATH;
+			mreqs[n].get		= 1;
+			mreqs[n].ct_est		= -1;
+			mreqs[n].ct_detached	= -1;
+			mreqs[n].ct_body	= -1;
+		}
+		mreqs[0].release = 1;
 		mreq_count = 2;
 	} else {
 		for (n = 0; n < AHL_MUX_REQS; n++) {
@@ -1535,11 +1604,12 @@ int main(int argc, const char **argv)
 	if (r < 0)
 		r = AHL_H1;
 	if (c < 0 || (c < AHL_SLOW_CL && r != AHL_H1) ||
-	    (c == AHL_MUX_CAP_CASE && r == AHL_H1) ||
+	    (c >= AHL_MUX_CAP_CASE && r == AHL_H1) ||
 	    (r == AHL_H3 && (!cert || !key))) {
 		lwsl_err("--case file-stall | pipeline-depth (h1 only) | "
 			 "slow-cl | slow-stream | late-spa | late-range | "
-			 "late-coded | body-rate | mux-cap (h2, h3 only), "
+			 "late-coded | body-rate | mux-cap | cli-release "
+			 "(h2, h3 only), "
 			 "--role h1 | h2 | h3 (h3 needs --cert and --key)\n");
 		return 1;
 	}
