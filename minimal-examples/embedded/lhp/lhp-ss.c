@@ -14,7 +14,7 @@
 
 /*
  * How often, and how many times, we try to browse the page again to lay it
- * out in the built-in faces: the heap may still be short just after the
+ * out in faces it can keep: the heap may still be short just after the
  * render gave up
  */
 #define RELAYOUT_RETRY_US	(250 * LWS_US_PER_MS)
@@ -59,8 +59,11 @@ relayout_browse(lws_sorted_usec_list_t *sul)
 /*
  * The render couldn't have a face from the server some text was laid out
  * in.  Drawing it in a built-in face where the other was laid out can't look
- * right, so we throw the display list away and lay the page out again in the
- * built-in faces, as if they had been chosen from the start.
+ * right, so we throw the display list away and lay the page out again, this
+ * time keeping the faces from the server it uses until the display list is
+ * destroyed.  The heap the old list held is free, so most can likely be had
+ * again; any that can't is replaced, as the layout goes, by the closest face
+ * that can, as if it had been chosen from the start.
  *
  * The display has had the start of the update and some lines of it: the
  * render of the new layout starts the update again, and its lines replace
@@ -70,7 +73,7 @@ relayout_browse(lws_sorted_usec_list_t *sul)
 static void
 relayout(lws_display_render_state_t *rs)
 {
-	lwsl_notice("%s: laying %s out again in the built-in faces\n",
+	lwsl_notice("%s: laying %s out again in faces it can keep\n",
 		    __func__, rs->lds->current_url);
 
 	lws_lhp_ss_cancel(rs);
@@ -88,7 +91,7 @@ relayout(lws_display_render_state_t *rs)
 	rs->lowest_id_y = 0;
 
 	/* the redone layout can't need doing again */
-	rs->fonts_local = 1;
+	rs->fonts_hold = 1;
 	rs->relayout_ok = 0;
 
 	relayout_rs = rs;
@@ -228,9 +231,9 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 
 	/*
 	 * Lay it out in faces from the server where we can, and if the render
-	 * then can't have one of them, lay it out again in the built-in faces
+	 * then can't have one of them, lay it out again keeping them
 	 */
-	rs->fonts_local = 0;
+	rs->fonts_hold = 0;
 	rs->relayout_ok = 1;
 
 	lws_display_dl_init(&rs->displaylist, &lds);

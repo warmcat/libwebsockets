@@ -111,9 +111,13 @@ the render gets to them.  They are fetched again then, but if the render
 still can't have them after a few seconds, eg, the heap is full or the
 server went away, drawing that text in the built-in face where the other
 one was laid out can't look right.  So the render gives up, and the page is
-laid out again in the built-in faces only, as if they had been chosen from
-the start, and rendered from the top in those: see `.relayout` in
-`lws_display_render_state_t`.
+laid out again, this time keeping the faces from the server its text uses
+resident until its display list is destroyed, and rendered from the top: see
+`.relayout` and `.fonts_hold` in `lws_display_render_state_t`.  The heap the
+first layout held is free by then, so the faces can usually be had again.  A
+face that can't is replaced while laying out by the closest one that can,
+another size of it that is resident, or a built-in face, as if that had been
+chosen from the start.
 
 ## Setting up wifi
 
