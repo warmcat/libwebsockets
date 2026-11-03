@@ -174,6 +174,7 @@
 #cmakedefine LWS_WITH_ACME
 #cmakedefine LWS_WITH_ALLOC_METADATA_LWS
 #cmakedefine LWS_WITH_FOOTPRINT
+#cmakedefine LWS_WITH_ALLOC_SITES
 #cmakedefine LWS_WITH_ALSA
 #cmakedefine LWS_WITH_SYS_ASYNC_DNS
 #cmakedefine LWS_WITH_SYS_ASYNC_DNS_DNSSEC

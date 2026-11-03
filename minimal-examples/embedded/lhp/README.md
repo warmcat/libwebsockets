@@ -193,6 +193,11 @@ if a layout fails.  See `READMEs/README.lws_footprint.md`.
  $ idf.py -D LWS_WITH_FOOTPRINT=1 build
 ```
 
+Add `-D LWS_WITH_ALLOC_SITES=1` too and each dump also lists what lws's own
+allocations hold, by who asked for them, which is how to find what the
+heap "not accounted for" is.  Each allocation then carries a 40-byte header,
+so the heap is tighter than in a normal build.
+
 ### Flashing
 
 The first time we need to erase the whole flash and blow the whole

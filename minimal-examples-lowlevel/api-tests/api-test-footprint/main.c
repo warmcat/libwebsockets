@@ -11,6 +11,9 @@
  * classes first and stops at the most costly class asked for, a .shed that
  * frees other participants (and itself) doesn't derail the shedding, and a
  * participant still registered when the context goes is detached safely.
+ *
+ * With LWS_WITH_ALLOC_SITES, it also checks lws_alloc_sites() lists what
+ * lws_*alloc() holds by the reason given, through realloc and free.
  */
 
 #include <libwebsockets.h>
@@ -88,6 +91,88 @@ expect(const char *what, long long got, long long want)
 
 	return 1;
 }
+
+#if defined(LWS_WITH_ALLOC_SITES)
+static lws_alloc_site_t sites[256];
+
+/* what is live with this reason, from however many callers */
+static void
+site_sum(const char *reason, long long *bytes, long long *count, int *sorted)
+{
+	lws_alloc_site_t rest;
+	int n, ns;
+
+	ns = lws_alloc_sites(sites, (int)LWS_ARRAY_SIZE(sites), &rest);
+	*bytes = *count = 0;
+	*sorted = 1;
+	for (n = 0; n < ns; n++) {
+		if (n && sites[n].bytes > sites[n - 1].bytes)
+			*sorted = 0;
+		if (!strcmp(sites[n].reason, reason)) {
+			*bytes += (long long)sites[n].bytes;
+			*count += sites[n].count;
+		}
+	}
+}
+
+/*
+ * Every lws_*alloc() is listed by the reason it gave (only lws_realloc() is
+ * exported, which allocates from NULL and frees to 0 bytes), at the size it asked
+ * for, through realloc, which may move it and change its reason, until it's
+ * freed
+ */
+static int
+test_alloc_sites(void)
+{
+	long long bytes, count;
+	uint8_t *a1, *a2, *b;
+	int e = 0, sorted;
+
+	a1 = lws_realloc(NULL, 100, "fp test a");
+	a2 = lws_realloc(NULL, 100, "fp test a");
+	b = lws_realloc(NULL, 5000, "fp test b");
+	if (!a1 || !a2 || !b) {
+		lwsl_err("%s: OOM\n", __func__);
+		return 1;
+	}
+	memset(a1, 0x5a, 100);
+
+	site_sum("fp test a", &bytes, &count, &sorted);
+	e += expect("site a bytes", bytes, 200);
+	e += expect("site a count", count, 2);
+	e += expect("sites biggest first", sorted, 1);
+	site_sum("fp test b", &bytes, &count, &sorted);
+	e += expect("site b bytes", bytes, 5000);
+	e += expect("site b count", count, 1);
+
+	/* grown past where it can stay, it moves, and is listed anew */
+
+	a1 = lws_realloc(a1, 30000, "fp test a2");
+	if (!a1) {
+		lwsl_err("%s: realloc OOM\n", __func__);
+		return 1;
+	}
+	e += expect("realloc kept data", a1[0] == 0x5a && a1[99] == 0x5a, 1);
+	site_sum("fp test a", &bytes, &count, &sorted);
+	e += expect("site a after realloc", bytes, 100);
+	site_sum("fp test a2", &bytes, &count, &sorted);
+	e += expect("site a2 bytes", bytes, 30000);
+	e += expect("site a2 count", count, 1);
+
+	lws_realloc(a1, 0, "free");
+	lws_realloc(a2, 0, "free");
+	lws_realloc(b, 0, "free");
+
+	site_sum("fp test a", &bytes, &count, &sorted);
+	e += expect("site a freed", count, 0);
+	site_sum("fp test a2", &bytes, &count, &sorted);
+	e += expect("site a2 freed", count, 0);
+	site_sum("fp test b", &bytes, &count, &sorted);
+	e += expect("site b freed", count, 0);
+
+	return e;
+}
+#endif
 
 int
 main(int argc, const char **argv)
@@ -172,6 +257,10 @@ main(int argc, const char **argv)
 				base.sheddable), 400 + 2000 + 3000 + 5000);
 
 	lws_footprint_dump(cx, 1);
+
+#if defined(LWS_WITH_ALLOC_SITES)
+	e += test_alloc_sites();
+#endif
 
 	/* asking only for what IDLE has stops there */
 

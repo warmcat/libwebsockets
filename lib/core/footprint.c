@@ -235,6 +235,11 @@ lws_footprint_dump(struct lws_context *cx, int items)
 	lwsl_cx_notice(cx, "fp: lws_malloc() holds %llu",
 		       (unsigned long long)lws_get_allocated_heap());
 #endif
+#if defined(LWS_WITH_ALLOC_SITES)
+	/* ... and who asked for it, including what participants count */
+	if (items)
+		lws_alloc_sites_dump(cx);
+#endif
 }
 
 void

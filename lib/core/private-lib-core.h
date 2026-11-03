@@ -1390,6 +1390,15 @@ lws_footprint_alloc_failed(size_t size, const char *reason);
 void
 lws_footprint_context_destroy(struct lws_context *cx);
 
+#if defined(LWS_WITH_ALLOC_SITES) && defined(LWS_PLAT_ALLOC_SIZE)
+/*
+ * The heap block an lws_*alloc() pointer is in, which with alloc sites
+ * starts at the site's header in front of it
+ */
+size_t
+lws_alloc_site_block_size(void *p);
+#endif
+
 /*
  * The heap an allocation holds, for participants working out what they hold
  * on demand: what the platform says if it can, else the size that was asked
@@ -1402,11 +1411,20 @@ lws_fp_heap(void *p, size_t asked)
 #if defined(LWS_PLAT_ALLOC_SIZE)
 	(void)asked;
 
+#if defined(LWS_WITH_ALLOC_SITES)
+	return lws_alloc_site_block_size(p);
+#else
 	return lws_plat_alloc_size(p);
+#endif
 #else
 	return asked;
 #endif
 }
+
+#if defined(LWS_WITH_ALLOC_SITES)
+void
+lws_alloc_sites_dump(struct lws_context *cx);
+#endif
 
 size_t
 lws_upng_heap(struct lws_upng_t *u);

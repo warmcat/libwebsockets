@@ -107,6 +107,35 @@ locks that mustn't be held taking the context lock.
 
 With `items` set, each participant's `dump` op also lists what it holds.
 
+### Who holds what no participant accounts for
+
+Build with `-DLWS_WITH_ALLOC_SITES=1` as well, and every `lws_malloc()`,
+`lws_zalloc()` and `lws_realloc()` allocation carries a small header saying
+who asked for it, the `reason` string it gave and the nearest few return
+addresses, until it is freed.  `lws_footprint_dump()` with `items` then lists
+what lws allocations hold after the totals, biggest first, grouped by reason
+and callers:
+
+```
+fp:     14912 B    1 x context                      0xffffbc474194 0xffffbc474510 0xffffbc4804e8
+fp:      4080 B    2 x __lws_wsi_create_with_role   0xffffbc474194 0xffffbc474510 0xffffbc744de4
+...
+fp:      1680 B for the 21 headers listing them
+```
+
+This includes what participants also count, so it's the way to find what
+the "not accounted for" heap is.  The addresses resolve against the build's
+ELF or library, eg, `addr2line -pfe app.elf 0x400d1234`.  Which of them is
+the code that wanted the memory depends on the platform's stack walk and
+what the compiler inlined: the first one or two are usually lws's allocator
+itself, and the reason says the rest of the time.  `lws_alloc_sites()` gives the same groups
+to code.
+
+The header costs 40 bytes per allocation on 32-bit targets (80 on 64-bit) and
+taking the callers costs time on each allocation, so it's for finding out
+where the heap goes, not for production builds.  It needs
+`LWS_WITH_FOOTPRINT`, and can't be combined with `LWS_WITH_ALLOC_METADATA_LWS`.
+
 `lws_footprint_total()` gives the totals to code that wants to act on them.
 
 ## Giving memory back

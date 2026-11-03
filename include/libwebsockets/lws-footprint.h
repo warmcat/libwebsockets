@@ -264,6 +264,45 @@ lws_footprint_dump(struct lws_context *cx, int items);
 LWS_VISIBLE LWS_EXTERN size_t
 lws_footprint_shed(struct lws_context *cx, size_t want, lws_fp_shed_t most);
 
+#if defined(LWS_WITH_ALLOC_SITES)
+
+#define LWS_ALLOC_SITE_CALLERS 3
+
+/*
+ * What is live from one place that called lws_malloc() and friends: the
+ * reason it gave, and, where the platform can say, who called the allocator
+ * (nearest first).  bytes is what the callers asked for, not counting the
+ * heap's own overhead, or the site's header.
+ */
+typedef struct lws_alloc_site {
+	const char		*reason;
+	uintptr_t		pcs[LWS_ALLOC_SITE_CALLERS];
+	size_t			bytes;
+	unsigned int		count;
+} lws_alloc_site_t;
+
+/**
+ * lws_alloc_sites() - what lws_malloc() and friends hold now, by who asked
+ *
+ * \param sites: array to fill with the sites, biggest first
+ * \param max: how many sites fit in the array
+ * \param rest: NULL, or filled with the total of the sites that didn't fit
+ *
+ * The sites are ranked as they are found, so with more sites than max, the
+ * ones that didn't fit, in rest, aren't necessarily the smallest: give it room
+ * for all of them, eg, a few hundred, to know which are the biggest.
+ *
+ * Only exists in builds with LWS_WITH_ALLOC_SITES, which puts a small header
+ * in front of every allocation to say who made it.  It's for finding out
+ * where the heap goes that no footprint participant accounts for:
+ * lws_footprint_dump() lists these after the participants.
+ *
+ * Returns how many sites were filled in.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_alloc_sites(lws_alloc_site_t *sites, int max, lws_alloc_site_t *rest);
+#endif
+
 #endif
 
 ///@}

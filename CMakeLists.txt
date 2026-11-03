@@ -531,6 +531,18 @@ option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtrace
 # READMEs/README.lws_footprint.md.  Independent of CMAKE_BUILD_TYPE.
 #
 option(LWS_WITH_FOOTPRINT "Build lws_footprint heap accounting for caches and lists" OFF)
+#
+# Who asked lws_*alloc() for what is live, listed by lws_footprint_dump().  It
+# costs a header on every allocation, so it's for finding where the heap goes,
+# not for production builds.
+#
+option(LWS_WITH_ALLOC_SITES "lws_footprint_dump() lists lws_*alloc() heap by who asked for it (a header per allocation)" OFF)
+if (LWS_WITH_ALLOC_SITES AND NOT LWS_WITH_FOOTPRINT)
+	message(FATAL_ERROR "LWS_WITH_ALLOC_SITES needs LWS_WITH_FOOTPRINT")
+endif()
+if (LWS_WITH_ALLOC_SITES AND LWS_WITH_ALLOC_METADATA_LWS)
+	message(FATAL_ERROR "LWS_WITH_ALLOC_SITES and LWS_WITH_ALLOC_METADATA_LWS both put metadata in front of allocations, choose one")
+endif()
 
 #
 # A backtrace on stderr when the process crashes, see
