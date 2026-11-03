@@ -122,6 +122,18 @@
 			]
 		},
 
+		#
+		# Cross built for windows with mingw on linux, so this only checks
+		# it builds: the tree can't run its tests here
+		#
+		"linux-fedora44/x86_64-amd/mingw64-cross": {
+			"default": false,
+			"build": [
+				"mkdir -p build; cd build; CCACHE_DISABLE=1 cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w64.cmake ${cmake}",
+				"cd build && make -j$SAI_PARALLEL"
+			]
+		},
+
 		"freertos-espidf/xl6-esp32/gcc": {
                         "default": false,
                         "build": [
@@ -145,6 +157,10 @@
 		"default": {
 			"cmake":	"",
 			"platforms":	"w11/x86_64-amd/msvc-schannel,freebsd/aarch64/llvm"
+		},
+		"mingw64-cross": {
+			"cmake":	"",
+			"platforms":	"none, linux-fedora44/x86_64-amd/mingw64-cross"
 		},
 		"default-noh3": {
 			"cmake":	"-DLWS_WITH_HTTP3=0",
