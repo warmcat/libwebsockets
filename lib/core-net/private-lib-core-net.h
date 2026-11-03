@@ -2426,6 +2426,14 @@ lws_addrinfo_clean(struct lws *wsi);
 #define LRR_IGNORE_PRI			(1 << 0)
 #define LRR_MATCH_SRC			(1 << 1)
 #define LRR_MATCH_DST			(1 << 2)
+#define LRR_MATCH_DST_LEN		(1 << 3) /* else longer ones match too */
+#define LRR_MATCH_GW			(1 << 4) /* else any if robj has none */
+#define LRR_MATCH_TABLE			(1 << 5)
+#define LRR_IGNORE_GW			(1 << 6)
+#define LRR_IGNORE_IF			(1 << 7)
+/* the kernel's same route: in the same table, to the same net, the same way */
+#define LRR_SAME_ROUTE			(LRR_MATCH_DST | LRR_MATCH_DST_LEN | \
+					 LRR_MATCH_GW | LRR_MATCH_TABLE)
 
 
 int

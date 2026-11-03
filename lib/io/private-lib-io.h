@@ -293,6 +293,9 @@ _lws_routing_table_dump(struct lws_context *cx);
 lws_route_t *
 _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flags);
 
+lws_route_t *
+_lws_route_find_same(struct lws_context_per_thread *pt, const lws_route_t *robj);
+
 void
 _lws_route_table_empty(struct lws_context_per_thread *pt);
 

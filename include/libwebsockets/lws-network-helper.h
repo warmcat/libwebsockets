@@ -30,6 +30,26 @@
 LWS_VISIBLE LWS_EXTERN struct lws_dll2_owner *
 lws_routing_table_get(struct lws_context *cx);
 
+#if defined(LWS_WITH_NETLINK)
+/**
+ * lws_netlink_inject() - act on route messages as if netlink sent them
+ *
+ * \param cx: the lws context
+ * \param buf: one or more netlink messages, eg, RTM_NEWROUTE
+ * \param len: how many bytes are at buf
+ *
+ * The context keeps its routing table from the route messages the kernel
+ * sends it over netlink.  This acts on the messages at buf as if they had come
+ * from the kernel, updating the table, and closing connections it finds no
+ * longer routable.  Call it from the context's service thread.
+ *
+ * Only needed for testing.  Returns 0 if it acted on them, or nonzero if they
+ * could not be taken.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_netlink_inject(struct lws_context *cx, const void *buf, size_t len);
+#endif
+
 ///@{
 
 #if defined(LWS_ESP_PLATFORM)
@@ -60,6 +80,7 @@ typedef struct lws_route {
 	int			if_idx;
 	int			priority;
 	int			ifa_flags; /* if source_ads */
+	uint32_t		table; /* routing table id, eg, RT_TABLE_MAIN */
 
 	lws_route_uidx_t	uidx; /* unique index for this route */
 

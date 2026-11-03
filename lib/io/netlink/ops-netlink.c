@@ -284,79 +284,24 @@ lws_netlink_resync(struct lws_context *cx)
 	lws_netlink_dump_again(cx);
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
-			   struct lws_pollfd *pollfd)
+/*
+ * Act on the route messages in the n bytes at h, which came from the kernel
+ */
+
+static void
+lws_netlink_rx(struct lws_context_per_thread *pt, struct nlmsghdr *h,
+	       unsigned int n)
 {
 	struct lws_context	*cx = pt->context;
-	uint8_t s[4096]
 #if defined(_DEBUG)
-	        , route_change = 0
+	uint8_t			route_change = 0;
 #endif
 #if defined(LWS_WITH_SYS_SMD)
-		, gateway_change = 0
+	uint8_t			gateway_change = 0;
 #endif
-			;
-	struct sockaddr_nl	nladdr;
 	lws_route_t		robj, *rou;
-	struct nlmsghdr		*h;
-	struct msghdr		msg;
-	struct iovec		iov;
-	unsigned int		n, removed;
-	ssize_t			nr;
+	unsigned int		removed;
 	char			buf[72];
-
-	if (!(pollfd->revents & LWS_POLLIN))
-		return LWS_HPI_RET_HANDLED;
-
-	memset(&msg, 0, sizeof(msg));
-
-	iov.iov_base		= (void *)s;
-	iov.iov_len		= sizeof(s);
-
-	msg.msg_name		= (void *)&(nladdr);
-	msg.msg_namelen		= sizeof(nladdr);
-
-	msg.msg_iov		= &iov;
-	msg.msg_iovlen		= 1;
-
-	nr = recvmsg(wsi->io->desc.sockfd, &msg, 0);
-	if (nr < 0 || lws_fi(&cx->fic, "netlink_lost")) {
-		/* the fault: what we read is lost, as if it had overflowed */
-		int e = nr < 0 ? LWS_ERRNO : ENOBUFS;
-
-		if (e == LWS_EAGAIN || e == LWS_EINTR)
-			return LWS_HPI_RET_HANDLED;
-
-		if (e == ENOBUFS) {
-			lws_netlink_resync(cx);
-			return LWS_HPI_RET_HANDLED;
-		}
-
-		lwsl_cx_notice(cx, "recvmsg failed, errno %d", e);
-
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	}
-
-	/*
-	 * Only the kernel (netlink port id 0) is allowed to tell us about
-	 * routing changes... otherwise any local peer that can unicast to our
-	 * netlink port could poison the routing table and get us to close
-	 * live connections.
-	 */
-
-	if (msg.msg_namelen >= sizeof(nladdr) && nladdr.nl_pid) {
-		lwsl_cx_notice(cx, "ignoring netlink msg from pid %u",
-			       (unsigned int)nladdr.nl_pid);
-
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	n = (unsigned int)nr;
-
-	// lwsl_hexdump_notice(s, (size_t)n);
-
-	h = (struct nlmsghdr *)s;
 
 	/* we can get a bunch of messages coalesced in one read*/
 
@@ -647,6 +592,11 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 		} /* switch */
 
 		robj.proto = rm->rtm_protocol;
+		/*
+		 * Ids over 255 don't fit in rtm_table, it says RT_TABLE_COMPAT
+		 * for them then, and RTA_TABLE has the real id
+		 */
+		robj.table = rm->rtm_table;
 
 		// iterate over route attributes
 		for ( ; RTA_OK(ra, ra_len); ra = RTA_NEXT(ra, ra_len)) {
@@ -724,8 +674,12 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				lwsl_cx_netlink_debug(cx, "RTA_PREF (not handled)");
 				break;
 #endif
-			case RTA_TABLE: /* int */
-				lwsl_cx_netlink_debug(cx, "RTA_TABLE (not handled)");
+			case RTA_TABLE: /* u32: the table the route is in */
+				if (lws_netlink_rta_payload(ra) < sizeof(uint32_t))
+					break;
+				memcpy(&robj.table, RTA_DATA(ra), sizeof(robj.table));
+				lwsl_cx_netlink_debug(cx, "RTA_TABLE: %u",
+						      (unsigned int)robj.table);
 				break;
 
 			default:
@@ -760,12 +714,19 @@ second_half:
 
 		case RTM_DELROUTE:
 			/*
+			 * Only the route the kernel deleted goes: it is the one
+			 * in the same table, to the same network, the same way.
+			 * Others on the same interface stay, eg, the local
+			 * table's route to our own address there when a policy
+			 * routing table holding a copy of the main table's
+			 * routes is flushed.
+			 *
 			 * This will also take down wsi marked as using it
 			 */
-			lwsl_cx_netlink(cx, "DELROUTE: if_idx %d",
-					robj.if_idx);
+			lwsl_cx_netlink(cx, "DELROUTE: table %u, if_idx %d",
+					(unsigned int)robj.table, robj.if_idx);
 			lws_pt_lock(pt, __func__);
-			_lws_route_remove(pt, &robj, 0);
+			_lws_route_remove(pt, &robj, LRR_SAME_ROUTE);
 			lws_pt_unlock(pt);
 			goto inform_l;
 
@@ -808,28 +769,41 @@ second_half:
 			rou = lws_malloc(sizeof(*rou), __func__);
 			if (!rou) {
 				lwsl_cx_err(cx, "oom");
-				return LWS_HPI_RET_HANDLED;
+				return;
 			}
 			*rou = robj;
 
 			// 2. Remove duplicates and add route (both under a lock).
 			lws_pt_lock(pt, __func__);
 
+			if (_lws_route_find_same(pt, &robj)) {
+				/* nothing changed, leave its wsi alone */
+				lws_pt_unlock(pt);
+				lws_free(rou);
+				lwsl_cx_netlink(cx, "NEWROUTE: already have it");
+				break;
+			}
+
 			/*
-			 * Is robj a dupe in the routing table already?
+			 * Is robj already in the routing table?  Then this
+			 * one takes its place.
 			 *
-			 * match on pri ignore == set pri and skip
-			 * no match == add
+			 * Routes with another priority are different routes,
+			 * which the kernel deletes one by one, and so are the
+			 * same routes in another table, eg, a policy routing
+			 * table holding a copy of the main table's routes:
+			 * replacing those would take down the wsi using them.
 			 *
-			 * returns zero ALWAYS
-			 *
-			 * We could be adding a route to the same destination with
-			 * a higher or lower priority from a different source, so why
-			 * all existing routes? Only remove if its the same source and
-			 * destination, effectively a change in priority.
+			 * A route replaced, eg, "ip route replace", comes with
+			 * NLM_F_REPLACE and no DELROUTE for the route it
+			 * replaced, which may have had another gateway or
+			 * interface.
 			 */
 			_lws_route_remove(pt, &robj,
-					LRR_MATCH_DST | LRR_MATCH_SRC | LRR_IGNORE_PRI);
+				(h->nlmsg_flags & NLM_F_REPLACE) ?
+					LRR_MATCH_DST | LRR_MATCH_DST_LEN |
+					LRR_MATCH_TABLE | LRR_IGNORE_GW |
+					LRR_IGNORE_IF : LRR_SAME_ROUTE);
 
 			/* add route to linked-list */
 			rou->uidx = _lws_route_get_uidx(cx);
@@ -915,8 +889,92 @@ inform_l:
 		lws_context_unlock(cx);
 	}
 #endif
+}
+
+static lws_handling_result_t
+rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
+			   struct lws_pollfd *pollfd)
+{
+	struct lws_context	*cx = pt->context;
+	uint32_t		s[1024]; /* aligned for the nlmsghdr */
+	struct sockaddr_nl	nladdr;
+	struct msghdr		msg;
+	struct iovec		iov;
+	ssize_t			nr;
+
+	if (!(pollfd->revents & LWS_POLLIN))
+		return LWS_HPI_RET_HANDLED;
+
+	memset(&msg, 0, sizeof(msg));
+
+	iov.iov_base		= (void *)s;
+	iov.iov_len		= sizeof(s);
+
+	msg.msg_name		= (void *)&(nladdr);
+	msg.msg_namelen		= sizeof(nladdr);
+
+	msg.msg_iov		= &iov;
+	msg.msg_iovlen		= 1;
+
+	nr = recvmsg(wsi->io->desc.sockfd, &msg, 0);
+	if (nr < 0 || lws_fi(&cx->fic, "netlink_lost")) {
+		/* the fault: what we read is lost, as if it had overflowed */
+		int e = nr < 0 ? LWS_ERRNO : ENOBUFS;
+
+		if (e == LWS_EAGAIN || e == LWS_EINTR)
+			return LWS_HPI_RET_HANDLED;
+
+		if (e == ENOBUFS) {
+			lws_netlink_resync(cx);
+			return LWS_HPI_RET_HANDLED;
+		}
+
+		lwsl_cx_notice(cx, "recvmsg failed, errno %d", e);
+
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
+
+	/*
+	 * Only the kernel (netlink port id 0) is allowed to tell us about
+	 * routing changes... otherwise any local peer that can unicast to our
+	 * netlink port could poison the routing table and get us to close
+	 * live connections.
+	 */
+
+	if (msg.msg_namelen >= sizeof(nladdr) && nladdr.nl_pid) {
+		lwsl_cx_notice(cx, "ignoring netlink msg from pid %u",
+			       (unsigned int)nladdr.nl_pid);
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	// lwsl_hexdump_notice(s, (size_t)nr);
+
+	lws_netlink_rx(pt, (struct nlmsghdr *)s, (unsigned int)nr);
 
 	return LWS_HPI_RET_HANDLED;
+}
+
+int
+lws_netlink_inject(struct lws_context *cx, const void *buf, size_t len)
+{
+	uint32_t *s;
+
+	/* no more than the kernel's biggest netlink read would bring */
+	if (!len || len > 32768)
+		return 1;
+
+	/* a copy, so the messages are aligned however buf is */
+
+	s = lws_malloc(len, __func__);
+	if (!s)
+		return 1;
+
+	memcpy(s, buf, len);
+	lws_netlink_rx(&cx->pt[0], (struct nlmsghdr *)s, (unsigned int)len);
+	lws_free(s);
+
+	return 0;
 }
 
 int

@@ -64,8 +64,9 @@ _lws_routing_entry_dump(struct lws_context *cx, lws_route_t *rou)
 		it = it + n;
 	}
 
-	lwsl_cx_info(cx, " %s ifidx: %d, pri: %d, proto: %d\n", fin,
-		  rou->if_idx, rou->priority, rou->proto);
+	lwsl_cx_info(cx, " %s ifidx: %d, pri: %d, proto: %d, table: %u\n",
+		  fin, rou->if_idx, rou->priority, rou->proto,
+		  (unsigned int)rou->table);
 }
 
 void
@@ -138,6 +139,61 @@ _lws_route_get_uidx(struct lws_context *cx)
 	} while (1);
 }
 
+/*
+ * With LRR_MATCH_GW, a route has to have the same gateway as robj, or like it,
+ * none.  Without it, robj having none matches any.
+ */
+
+static int
+lws_route_gw_matches(const lws_route_t *robj, const lws_route_t *rou, int flags)
+{
+	if (!robj->gateway.sa4.sin_family)
+		return !(flags & LRR_MATCH_GW) || !rou->gateway.sa4.sin_family;
+
+	return !lws_sa46_compare_ads(&robj->gateway, &rou->gateway);
+}
+
+static int
+lws_route_matches(const lws_route_t *robj, const lws_route_t *rou, int flags)
+{
+	return (!(flags & LRR_MATCH_SRC) ||
+		!lws_sa46_compare_ads(&robj->src, &rou->src)) &&
+	       (!(flags & LRR_MATCH_DST) ||
+		!lws_sa46_compare_ads(&robj->dest, &rou->dest)) &&
+	       ((flags & LRR_IGNORE_GW) ||
+		lws_route_gw_matches(robj, rou, flags)) &&
+	       ((flags & LRR_MATCH_DST_LEN) ?
+			robj->dest_len == rou->dest_len :
+			robj->dest_len <= rou->dest_len) &&
+	       (!(flags & LRR_MATCH_TABLE) || robj->table == rou->table) &&
+	       ((flags & LRR_IGNORE_IF) || robj->if_idx == rou->if_idx) &&
+	       ((flags & LRR_IGNORE_PRI) || robj->priority == rou->priority);
+}
+
+/*
+ * The table already holds robj exactly, eg, the kernel told us about it again
+ * when a DHCP lease was renewed?  Then there is nothing to change, and the wsi
+ * using it can keep on.
+ */
+
+lws_route_t *
+_lws_route_find_same(struct lws_context_per_thread *pt, const lws_route_t *robj)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&pt->context->routing_table)) {
+		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
+
+		if (lws_route_matches(robj, rou, LRR_SAME_ROUTE) &&
+		    /* the same source, or like robj, none */
+		    (robj->src.sa4.sin_family ?
+			!lws_sa46_compare_ads(&robj->src, &rou->src) :
+			!rou->src.sa4.sin_family))
+			return rou;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 lws_route_t *
 _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flags)
 {
@@ -145,15 +201,7 @@ _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flag
 			      lws_dll2_get_head(&pt->context->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
 
-		if ((!(flags & LRR_MATCH_SRC) || !lws_sa46_compare_ads(&robj->src, &rou->src)) &&
-		    (!(flags & LRR_MATCH_DST) || !lws_sa46_compare_ads(&robj->dest, &rou->dest)) &&
-		    (!robj->gateway.sa4.sin_family ||
-		     !lws_sa46_compare_ads(&robj->gateway, &rou->gateway)) &&
-		    robj->dest_len <= rou->dest_len &&
-		    robj->if_idx == rou->if_idx &&
-		    ((flags & LRR_IGNORE_PRI) ||
-		      robj->priority == rou->priority)
-		    ) {
+		if (lws_route_matches(robj, rou, flags)) {
 			lwsl_cx_info(pt->context, "deleting route");
 			/*
 			 * wsi are tagged with the uidx of the *stored* route
