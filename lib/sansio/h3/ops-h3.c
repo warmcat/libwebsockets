@@ -2164,6 +2164,14 @@ lws_h3_qpack_unblock(struct lws *nwsi, struct lws_h3_netconn *h3n)
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 {
+	/*
+	 * The stream offset buf starts at, as the quic layer delivers it, for
+	 * the diagnostics.  What a stream held for qpack inserts comes again
+	 * later, from lws_h3_qpack_replay(), when rx_offset has moved on past
+	 * it: there it's only approximate
+	 */
+	uint64_t base = wsi->quic.qs ? wsi->quic.qs->rx_offset : 0;
+	const uint8_t *buf0 = buf;
 #if defined(LWS_ROLE_WT)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	int has_wt_session = lws_h3_has_wt_session(nwsi);
@@ -2432,6 +2440,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			return 0;
 		}
 		if (wsi->h3.rx_frame_state == 0) {
+			if (!wsi->h3.rx_varint_len)
+				wsi->h3.rx_frame_at = base +
+					(uint64_t)lws_ptr_diff_size_t(buf, buf0);
 			if (lws_h3_parse_varint_accum(wsi, &buf, &len, &wsi->h3.rx_frame_type)) {
 				wsi->h3.rx_frame_state = 1;
 			} else break;
@@ -2598,16 +2609,32 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						 * likely us having lost our
 						 * place in the stream's frames
 						 */
+						const uint8_t *dp = buf - (buf - buf0 > 24 ?
+								24 : buf - buf0);
+
 						lwsl_wsi_notice(wsi, "PUSH_PROMISE "
 							"(len %llu) on stream %llu "
-							"at rx %llu, state 0x%x",
+							"at %llu (rx %llu), state 0x%x, "
+							"after type 0x%llx len %llu "
+							"at %llu",
 							(unsigned long long)
 								wsi->h3.rx_frame_len,
 							(unsigned long long)(wsi->quic.qs ?
 								wsi->quic.qs->stream_id : 0),
-							(unsigned long long)(wsi->quic.qs ?
-								wsi->quic.qs->rx_offset : 0),
-							(unsigned int)lwsi_state(wsi));
+							(unsigned long long)
+								wsi->h3.rx_frame_at,
+							(unsigned long long)base,
+							(unsigned int)lwsi_state(wsi),
+							(unsigned long long)
+								wsi->h3.rx_prev_type,
+							(unsigned long long)
+								wsi->h3.rx_prev_len,
+							(unsigned long long)
+								wsi->h3.rx_prev_at);
+						/* what came up to it, and the start of it */
+						lwsl_hexdump_wsi_notice(wsi, dp,
+							lws_ptr_diff_size_t(buf, dp) +
+							(len < 8 ? len : 8));
 						lws_quic_enter_closing_state(nwsi,
 							nwsi && nwsi->quic.qn &&
 							nwsi->quic.qn->is_server ?
@@ -3253,6 +3280,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					lws_free(wsi->h3.qpack_dec_state);
 					wsi->h3.qpack_dec_state = NULL;
 				}
+				wsi->h3.rx_prev_type = wsi->h3.rx_frame_type;
+				wsi->h3.rx_prev_len = wsi->h3.rx_frame_len;
+				wsi->h3.rx_prev_at = wsi->h3.rx_frame_at;
 				wsi->h3.rx_frame_state = 0; /* Next frame */
 			}
 		}
