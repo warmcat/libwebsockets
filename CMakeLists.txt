@@ -287,6 +287,19 @@ option(LWS_WITH_CYASSL "Use CyaSSL replacement for OpenSSL. When setting this, y
 option(LWS_WITH_WOLFSSL "Use wolfSSL replacement for OpenSSL. When setting this, you also may need to specify LWS_WOLFSSL_LIBRARIES and LWS_WOLFSSL_INCLUDE_DIRS" OFF)
 
 option(LWS_WITH_GNUTLS "Use GnuTLS for SSL" OFF)
+
+#
+# Schannel is the default on Windows, so it must be decided before HTTP3 goes
+# looking for a TLS library to force on below
+#
+if (WIN32 AND NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WOLFSSL OR LWS_WITH_CYASSL OR LWS_WITH_BEARSSL OR LWS_WITH_GNUTLS OR LWS_WITH_OPENHITLS))
+	set(LWS_SCHANNEL_DEFAULT ON)
+else()
+	set(LWS_SCHANNEL_DEFAULT OFF)
+endif()
+if (WIN32)
+	option(LWS_WITH_SCHANNEL "Use Windows SChannel for SSL" ${LWS_SCHANNEL_DEFAULT})
+endif()
 if (LWS_WITH_HTTP3 AND LWS_WITH_SSL AND NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WOLFSSL OR LWS_WITH_CYASSL OR LWS_WITH_BEARSSL OR LWS_WITH_SCHANNEL OR ESP_PLATFORM OR LWS_WITH_ESP32 OR LWS_WITH_OPENHITLS))
        set(LWS_WITH_GNUTLS ON CACHE BOOL "Use GnuTLS for SSL" FORCE)
 endif()
@@ -301,14 +314,6 @@ if (NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WO
     set(LWS_WITH_HTTP3 0)
 endif()
 
-if (WIN32 AND NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WOLFSSL OR LWS_WITH_CYASSL OR LWS_WITH_BEARSSL OR LWS_WITH_GNUTLS OR LWS_WITH_OPENHITLS))
-	set(LWS_SCHANNEL_DEFAULT ON)
-else()
-	set(LWS_SCHANNEL_DEFAULT OFF)
-endif()
-if (WIN32)
-	option(LWS_WITH_SCHANNEL "Use Windows SChannel for SSL" ${LWS_SCHANNEL_DEFAULT})
-endif()
 option(LWS_SSL_CLIENT_USE_OS_CA_CERTS "SSL support should make use of the OS-installed CA root certs" ON)
 option(LWS_TLS_LOG_PLAINTEXT_RX "For debugging log the received plaintext as soon as decrypted" OFF)
 option(LWS_TLS_LOG_PLAINTEXT_TX "For debugging log the transmitted plaintext just before encryption" OFF)
