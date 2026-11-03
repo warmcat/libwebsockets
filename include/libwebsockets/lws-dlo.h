@@ -580,6 +580,9 @@ typedef struct lws_display_render_state {
 
 	lws_font_waiter_t		font_wait; /* render waiting for a
 						    * font from the server */
+	uint8_t				font_retries; /* times this render
+						* came back for pages it
+						* couldn't have yet */
 
 } lws_display_render_state_t;
 

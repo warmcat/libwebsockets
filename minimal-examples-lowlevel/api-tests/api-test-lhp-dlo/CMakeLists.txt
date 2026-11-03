@@ -261,6 +261,34 @@ if (requirements)
 				"-DFLAGS_B=--font-manifest;file://${RF}/faces/fonts.json;--reclaim-lines;7"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
+		# ... and with the heap all in use for a while once they have
+		# been evicted, so at first they can't be fetched again: the
+		# render waits for them, rather than drawing the text in
+		# another face than the one it was laid out in, and comes out
+		# as it does with them resident.  (The heap is only refused on
+		# platforms that can size an allocation, eg, not windows: there
+		# these come out the same as the plain render without proving
+		# anything)
+		add_test(NAME api-test-lhp-dlo-render-remote-fonts-starved
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/36-font-pages.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/36-font-pages-starved
+				"-DCOMMON=--font-manifest;file://${RF}/faces/fonts.json"
+				"-DFLAGS_B=--reclaim-lines;7;--starve-ms;500"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
+		# ... and for longer than the render waits for them: the text
+		# is drawn in the built-in face, as much of it as fits in the
+		# box it was laid out in
+		add_test(NAME api-test-lhp-dlo-render-remote-fonts-starved-long
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/36-font-pages.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/36-font-pages-starved-long
+				"-DCOMMON=--font-manifest;file://${RF}/faces/fonts.json;--reclaim-lines;7;--starve-ms;5000"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
 		# without the manifest, or with a manifest whose faces can't
 		# be fetched, the page is shown in the built-in face, and
 		# comes out the same either way
@@ -307,6 +335,8 @@ if (requirements)
 
 		set_tests_properties(api-test-lhp-dlo-test-html-remote-fonts-reclaim
 				     api-test-lhp-dlo-render-remote-fonts-reclaim
+				     api-test-lhp-dlo-render-remote-fonts-starved
+				     api-test-lhp-dlo-render-remote-fonts-starved-long
 				     api-test-lhp-dlo-remote-fonts-fallback
 				     ${LHP_REMOTE_TESTS}
 				     PROPERTIES FIXTURES_REQUIRED lhp_remote_fonts)

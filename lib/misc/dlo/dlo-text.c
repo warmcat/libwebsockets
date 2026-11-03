@@ -114,26 +114,22 @@ dlo_text_step(lws_dlo_text_t *text, lws_glyph_metrics_t *prev,
 	return 0;
 }
 
-int
-lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
-			    lws_fx_t indent, const char *utf8, size_t text_len)
+/*
+ * How much of the utf8 text fits the text's box after its indent, in its
+ * face: the count of bytes in *fitted, and their width in *eff.  It ends at
+ * a break point if there is one before the box's width ran out.  Returns 1
+ * if it broke there, 2 if nothing fitted, else 0
+ */
+
+static int
+dlo_text_fit(lws_dlo_text_t *text, const char *utf8, size_t text_len,
+	     size_t *fitted, lws_fx_t *peff)
 {
-	const char *outf8 = utf8;
 	size_t last_bp_n = 0, tlen = text_len;
 	lws_fx_t t1, eff, last_bp_eff, t2, k;
 	lws_glyph_metrics_t prev;
 	uint8_t r = 0;
 	char uc;
-
-	if (text->text)
-		lws_free_set_NULL(text->text);
-
-	lws_display_font_mcufont_release_glyphs(text);
-	lws_dll2_owner_clear(&text->glyphs);
-	lwsac_free(&text->ac_glyphs);
-
-	text->indent = indent;
-	text->dlo.dc = dc;
 
 	lws_fx_set(eff, 0, 0);
 	memset(&prev, 0, sizeof(prev));
@@ -150,12 +146,9 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	 * as the text dlo becomes rasterized during rendering.
 	 */
 
-/*	{ char b1[22]; lwsl_err("eff %s\n", lws_fx_string(&eff, b1, sizeof(b1))); }
-	{ char b1[22]; lwsl_err("indent %s\n", lws_fx_string(&indent, b1, sizeof(b1))); }
-	{ char b1[22]; lwsl_err("boxw %s\n", lws_fx_string(&text->dlo.box.w, b1, sizeof(b1))); } */
-
 	while (tlen &&
-	       lws_fx_comp(lws_fx_add(&t1, &eff, &indent), &text->dlo.box.w) < 0) {
+	       lws_fx_comp(lws_fx_add(&t1, &eff, &text->indent),
+			   &text->dlo.box.w) < 0) {
 		size_t ot = tlen;
 		uint32_t unicode;
 
@@ -183,14 +176,56 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	}
 
 	if (last_bp_n &&
-	    lws_fx_comp(lws_fx_add(&t1, &eff, &indent), &text->dlo.box.w) >= 0) {
+	    lws_fx_comp(lws_fx_add(&t1, &eff, &text->indent),
+			&text->dlo.box.w) >= 0) {
 		eff = last_bp_eff;
 		tlen = last_bp_n;
 		r = 1;
 	}
 
-	text->text_len = text_len - tlen;
-	if (tlen == text_len) {
+	*fitted = text_len - tlen;
+	*peff = eff;
+
+	return tlen == text_len ? 2 : r;
+}
+
+/* the glyphs attached to the text are let go, to be attached again later */
+
+static void
+dlo_text_detach_glyphs(lws_dlo_text_t *text)
+{
+	lws_display_font_mcufont_release_glyphs(text);
+	lws_dll2_owner_clear(&text->glyphs);
+	lwsac_free(&text->ac_glyphs);
+	text->glyph_row = 0;
+}
+
+static void
+dlo_text_set_bounds(lws_dlo_text_t *text, const lws_fx_t *eff)
+{
+	memset(&text->bounding_box, 0, sizeof(text->bounding_box));
+	text->bounding_box.w = *eff;
+	text->bounding_box.h.whole = text->font_height;
+	text->bounding_box.h.frac = 0;
+}
+
+int
+lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
+			    lws_fx_t indent, const char *utf8, size_t text_len)
+{
+	lws_fx_t eff;
+	int r;
+
+	if (text->text)
+		lws_free_set_NULL(text->text);
+
+	dlo_text_detach_glyphs(text);
+
+	text->indent = indent;
+	text->dlo.dc = dc;
+
+	r = dlo_text_fit(text, utf8, text_len, &text->text_len, &eff);
+	if (r == 2) {
 		lwsl_notice("we couldn't fit anything in there, newline\n");
 		return 2;
 	}
@@ -199,15 +234,44 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	if (!text->text)
 		return -1;
 
-	memcpy(text->text, outf8, text->text_len);
+	memcpy(text->text, utf8, text->text_len);
 	text->text[text->text_len] = '\0';
 
-	memset(&text->bounding_box, 0, sizeof(text->bounding_box));
-	text->bounding_box.w = eff;
-	text->bounding_box.h.whole = text->font_height;
-	text->bounding_box.h.frac = 0;
+	dlo_text_set_bounds(text, &eff);
 
 	return r;
+}
+
+/*
+ * The text is set again in its box, in the face it has now: as much of it as
+ * fits there.  This needs no memory, so it can be done during the render,
+ * when there may be none.  Returns 2 if none of it fits, else 0
+ */
+
+int
+lws_display_dlo_text_refit(lws_dlo_text_t *text)
+{
+	lws_fx_t eff;
+	size_t n;
+
+	dlo_text_detach_glyphs(text);
+
+	/* the face's metrics are taken afresh from the face it has now */
+	text->font_height = 0;
+	text->font_y_baseline = 0;
+	text->font_line_height = 0;
+
+	if (!text->text || dlo_text_fit(text, text->text, text->text_len,
+					&n, &eff) == 2) {
+		text->text_len = 0;
+		return 2;
+	}
+
+	text->text_len = n;
+	text->text[n] = '\0';
+	dlo_text_set_bounds(text, &eff);
+
+	return 0;
 }
 
 void

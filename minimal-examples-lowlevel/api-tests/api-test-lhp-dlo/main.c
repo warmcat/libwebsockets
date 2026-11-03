@@ -25,6 +25,7 @@ enum {
 		LWS_SW_HEAP_LIMIT,
 		LWS_SW_RECLAIM_LINES,
 		LWS_SW_RECLAIM_ELEMS,
+		LWS_SW_STARVE_MS,
 		LWS_SW_KERN_CHECK,
 		LWS_SW_RETAINED,
 		LWS_SW_SVG_LIVE_MAX,
@@ -47,6 +48,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_HEAP_LIMIT] = { "--heap-limit", "Simulate a heap of this many bytes above what is in use at the start, so fonts and images get reclaimed" },
 	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_RECLAIM_ELEMS] = { "--reclaim-elems", "Evict every reclaimable heap occupant as every N-th element of the layout opens, so they all get renewed mid-layout on any allocator" },
+	[LWS_SW_STARVE_MS] = { "--starve-ms", "With --reclaim-lines, at the first such line also refuse every heap allocation for this many ms, so the faces evicted there can't be fetched again at first" },
 	[LWS_SW_KERN_CHECK] = { "--kern-check", "Check how the registered 14px regular face kerns pairs of glyphs, instead of laying out a page" },
 	[LWS_SW_RETAINED] = { "--retained",    "Render the display list retained, as for a touch panel, keeping its DLOs as the raster passes them" },
 	[LWS_SW_SVG_LIVE_MAX] = { "--svg-live-max", "Fail if more than this many svg images were held at once" },
@@ -190,7 +192,9 @@ static lws_surface_info_t ic = {
 
 int fdin = 0, fdout = 1, result = 0;
 static const char *dump_path;
-static int reclaim_lines, reclaimed_line = -1, svg_live_max = -1;
+static int reclaim_lines, reclaimed_line = -1, svg_live_max = -1, starve_ms;
+static size_t heap_limit;
+static lws_sorted_usec_list_t sul_starve;
 
 /*
  * --kern-check: glyphs are kerned in from the shapes of their ink, never
@@ -524,6 +528,14 @@ expand(uint8_t nyb, uint8_t *rgba)
 }
 #endif
 
+/* --starve-ms is over: the heap is as it was before */
+
+static void
+starve_end(lws_sorted_usec_list_t *sul)
+{
+	lws_heap_limit_set(heap_limit);
+}
+
 static void
 render(lws_sorted_usec_list_t *sul)
 {
@@ -606,6 +618,19 @@ render(lws_sorted_usec_list_t *sul)
 		    rs->curr != reclaimed_line) {
 			lws_reclaim((size_t)-1);
 			reclaimed_line = rs->curr;
+			if (starve_ms) {
+				/*
+				 * --starve-ms: as on a device whose heap is
+				 * all in use for a while, the faces can't be
+				 * fetched again until it is given back
+				 */
+				lws_heap_limit_set(lws_get_allocated_heap());
+				lws_sul_schedule(cx, 0, &sul_starve,
+						 starve_end,
+						 (lws_usec_t)starve_ms *
+							LWS_US_PER_MS);
+				starve_ms = 0;
+			}
 		}
 
 		r = lws_display_list_render_line(rs);
@@ -943,9 +968,13 @@ main(int argc, const char **argv)
 	lws_font_register(cx, fira_c_b_32, sizeof(fira_c_b_32));
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HEAP_LIMIT].sw)))
-		lws_heap_limit_set(lws_get_allocated_heap() +
-				   (size_t)atoi(p));
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HEAP_LIMIT].sw))) {
+		heap_limit = lws_get_allocated_heap() + (size_t)atoi(p);
+		lws_heap_limit_set(heap_limit);
+	}
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STARVE_MS].sw)))
+		starve_ms = atoi(p);
 
 	if ((p = lws_cmdline_option(argc, argv,
 				    switches[LWS_SW_RECLAIM_LINES].sw)))

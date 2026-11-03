@@ -510,6 +510,7 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	/* a render waiting for a font from the server is woken like this */
 	rs->font_wait.sul = &rs->sul;
 	rs->font_wait.cb = render;
+	rs->font_retries = 0;
 	m->lhp.ids = &rs->ids;
 
 	/* the caller's url need not outlive this call, but the fetch does */

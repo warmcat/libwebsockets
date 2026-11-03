@@ -1208,6 +1208,47 @@ static lws_stateful_ret_t
 mcufont_render(struct lws_display_render_state *rs, lws_dlo_text_t *text,
 	       uint16_t gen);
 
+/*
+ * How many times a render comes back for pages of a face from a server that
+ * it can't have yet, and how long it gives them each time: enough to see out
+ * a page's holdoff after there wasn't the memory to fetch it.  Counted for
+ * the whole render, not per text, so a server that is gone costs the render
+ * this once, not once per text
+ */
+#define LWS_DLO_FONT_RENDER_RETRIES	12
+#define LWS_DLO_FONT_RENDER_RETRY_US	(250 * LWS_US_PER_MS)
+
+/*
+ * The pages of the face from a server the text was laid out in can't be had
+ * now, so it is drawn in the nearest face we have here.  Layout placed and
+ * sized it for the other face, and others may be placed after it on its
+ * line, so it is set again in the face we have, in the same box: as much of
+ * it as fits there.  Nonzero if there's nothing it can be drawn in
+ */
+
+static int
+mcufont_render_local(lws_dlo_text_t *text, lws_mcufont_remote_t *r)
+{
+	const lws_display_font_t *f = lws_font_choose_local(r->cx,
+							&text->font->choice);
+
+	lwsl_cx_notice(r->cx, "%s: pages unavailable, '%.*s' in a local face",
+		       r->path, (int)(text->text_len > 16 ? 16 :
+				      text->text_len),
+		       text->text ? text->text : "");
+
+	if (!f) {
+		/* nothing to draw it in: it isn't drawn */
+		text->text_len = 0;
+
+		return 1;
+	}
+
+	text->font = f;
+
+	return !!lws_display_dlo_text_refit(text);
+}
+
 lws_stateful_ret_t
 lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 {
@@ -1217,13 +1258,18 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 	lws_stateful_ret_t ret;
 	const uint8_t *bf;
 
+	if (!text->text_len)
+		/* nothing of it is drawn */
+		return LWS_SRET_OK;
+
 	if (r) {
 		/*
 		 * Pages of a face from a server may have been evicted since
 		 * layout, or since we last drew a line of it.  If they are
-		 * being fetched again, wait for them at this dlo; if they
-		 * can't be had, finish the text in the nearest face we have
-		 * here
+		 * being fetched again, wait for them at this dlo.  If they
+		 * can't be had just now, eg, there wasn't the memory to fetch
+		 * them into, come back for them a few times.  Only if they
+		 * still can't be had is the text drawn in a face we have here
 		 */
 		switch (lws_font_text_resident(text->font, text->text,
 					       text->text_len,
@@ -1232,16 +1278,16 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 		case LWS_FONT_PENDING:
 			return LWS_SRET_WANT_INPUT;
 		case LWS_FONT_UNAVAILABLE:
-			lws_display_font_mcufont_release_glyphs(text);
-			lwsac_free(&text->ac_glyphs);
-			memset(&text->glyphs, 0, sizeof(text->glyphs));
-			text->glyph_row = 0;
-			text->font = lws_font_choose_local(r->cx,
-						&text->font->choice);
-			if (!text->font) {
-				text->font = r->f;
-				return LWS_SRET_OK;
+			if (rs->font_wait.cb &&
+			    rs->font_retries < LWS_DLO_FONT_RENDER_RETRIES) {
+				rs->font_retries++;
+				lws_sul_schedule(r->cx, 0, rs->font_wait.sul,
+						 rs->font_wait.cb,
+						 LWS_DLO_FONT_RENDER_RETRY_US);
+				return LWS_SRET_WANT_INPUT;
 			}
+			if (mcufont_render_local(text, r))
+				return LWS_SRET_OK;
 			r = NULL;
 			break;
 		default:
