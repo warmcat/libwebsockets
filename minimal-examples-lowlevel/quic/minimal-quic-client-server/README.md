@@ -134,6 +134,17 @@ The relay needs the server address to be numeric, eg
 
 Small `--write-size` values make each packet carry many small STREAM frames.
 
+On a small device there may be no heap to hold what arrives early.  Then the
+packet that carried it is left unacknowledged, as if it was lost, so the peer
+sends it again.  The `quic_rx_hold_oom` fault injection point, in a build with
+`-DLWS_WITH_SYS_FAULT_INJECTION=1`, has every third chunk find no heap, and
+the data must still all arrive:
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 \
+	--write-size 100 --fault-injection "wsi/quic_rx_hold_oom(X..)"
+```
+
 With `--stray` as well, the relay also sends the client, ahead of the first
 and every eighth batch it passes on to it, a long header packet of some other
 QUIC connection: connection IDs that are not the client's, alternately in
