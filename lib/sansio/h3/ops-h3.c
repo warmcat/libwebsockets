@@ -3260,7 +3260,7 @@ lws_h3_fi_big_entry(struct lws *wsi, struct lws *nwsi,
 
 	/* it is an insert like any other, the peer acks it */
 	h3n->qpack_tx_encoder.insert_count++;
-	if (bl == &h3n->qpack_tx_encoder.tx_bl)
+	if (bl == &h3n->qpack_tx_encoder.tx_bl && h3n->cwsi_qpack_enc)
 		lws_callback_on_writable(h3n->cwsi_qpack_enc);
 
 	return 0;
@@ -3285,7 +3285,8 @@ lws_h3_fi_late_insert(struct lws *wsi)
 		lws_buflist_use_segment(&h3n->fi_late_insert, len);
 	}
 	lws_buflist_destroy_all_segments(&h3n->fi_late_insert);
-	lws_callback_on_writable(h3n->cwsi_qpack_enc);
+	if (h3n->cwsi_qpack_enc)
+		lws_callback_on_writable(h3n->cwsi_qpack_enc);
 }
 #endif
 
@@ -3425,6 +3426,30 @@ lws_h3_qpack_dec_cancel_stream(struct lws *wsi)
 static int
 rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 {
+	struct lws *cnwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_h3_netconn *h3n = cnwsi && cnwsi != wsi ?
+						cnwsi->h3.h3n : NULL;
+
+	/*
+	 * When the connection closes, its children may go in any order: if
+	 * this is one of the connection's own streams, the others mustn't
+	 * find it there after, eg, a request stream closing after the qpack
+	 * decoder stream queues a Stream Cancellation and asks for it to be
+	 * writeable
+	 */
+	if (h3n) {
+		if (h3n->cwsi_control == wsi)
+			h3n->cwsi_control = NULL;
+		if (h3n->cwsi_qpack_enc == wsi) {
+			h3n->cwsi_qpack_enc = NULL;
+			h3n->qpack_tx_encoder.wsi_qpack_enc = NULL;
+		}
+		if (h3n->cwsi_qpack_dec == wsi)
+			h3n->cwsi_qpack_dec = NULL;
+		if (h3n->peer_control == wsi)
+			h3n->peer_control = NULL;
+	}
+
 	lws_h3_qpack_dec_cancel_stream(wsi);
 	/* nothing it held is wanted now */
 	lws_dll2_remove(&wsi->h3.qpack_blocked);
